@@ -139,6 +139,40 @@ textarea{min-height:90px;resize:vertical}
 #busy div{background:var(--surface);border-radius:var(--r);padding:20px;min-width:240px;max-width:100%;text-align:center;font-weight:600}
 #busy progress{width:100%;margin-top:12px;accent-color:var(--accent)}
 .result{display:flex;gap:10px;flex-wrap:wrap}
+#camStage{position:relative;flex:1;min-height:0;display:flex}
+#camStage video{flex:1}
+#idGuide{position:absolute;left:10%;right:10%;top:38%;height:24%;border:3px solid #fff;border-radius:10px;box-shadow:0 0 0 2000px rgba(0,0,0,.28);pointer-events:none;display:flex;align-items:flex-end;justify-content:center}
+#idGuide span{transform:translateY(130%);font-size:13px;font-weight:600;color:#fff;text-shadow:0 1px 3px #000;text-align:center}
+.camid{min-width:44px;height:44px;border-radius:22px;border:2px solid #fff;background:rgba(0,0,0,.55);color:#fff;font:700 14px var(--mono)}
+.camid[aria-pressed=true]{background:#fff;color:#000}
+#camCheck{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);z-index:3;background:rgba(0,0,0,.75);color:#fff;border-radius:12px;padding:14px 18px;display:flex;gap:10px;align-items:center;font-weight:600}
+.spin{width:18px;height:18px;border-radius:50%;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#qualBox{position:absolute;left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 130px);z-index:4;background:var(--surface);color:var(--ink);border-radius:var(--r);padding:12px;display:grid;grid-template-columns:88px minmax(0,1fr);gap:10px;box-shadow:var(--shadow)}
+#qualBox img{width:88px;height:88px;object-fit:cover;border-radius:8px}
+#qualBox .qtext{display:flex;flex-direction:column;gap:4px;font-size:14px}
+#qualBox .qtext span{color:var(--muted);font-size:13px}
+#qualBox .row{grid-column:1 / -1}
+.idrow{display:flex;gap:8px}
+.idrow input{flex:1;min-width:0}
+.idrow .btn{flex:none}
+.idcands{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;color:var(--muted)}
+.idcands .chip{min-height:38px;font-family:var(--mono)}
+.idcands .chip.fit{border-color:var(--ok)}
+#routeBar{position:absolute;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:520;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.rb-head{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline}
+.rb-head span{font-size:12px;color:var(--muted)}
+.rb-hint{margin:0;font-size:13px;color:var(--muted)}
+.rb-btns{display:flex;gap:6px;flex-wrap:wrap}
+.rb-btns .btn{min-height:40px;padding:0 10px;font-size:13px;flex:1 1 auto}
+.span-label{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:0 4px;font:600 10px/1.5 var(--mono);white-space:nowrap;box-shadow:none}
+.span-label.long{background:var(--bad);color:#fff;border-color:var(--bad)}
+.span-label::before{display:none}
+.span-icon{width:0!important;height:0!important;background:none;border:0}
+.span-icon .span-label{position:absolute;transform:translate(-50%,-50%)}
+.hide-labels .span-label{display:none}
+.round[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 .lbl{font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.02em}
 .field:not(label){display:flex;flex-direction:column;gap:6px}
 .badge{font:700 11px/1 var(--mono);letter-spacing:.06em;padding:5px 7px;border-radius:6px;background:var(--chip);color:var(--muted);flex:none}
@@ -181,9 +215,20 @@ textarea{min-height:90px;resize:vertical}
   <div id="map" role="application" aria-label="Survey map"></div>
   <div id="gpsPill" aria-live="polite"><span class="dot" id="gpsDot"></span><span id="gpsText">GPS off</span></div>
   <div class="mapbtns">
+    <button class="round" id="routeBtn" aria-label="Edit cable route and spans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="18" r="2.2"/><circle cx="12" cy="7" r="2.2"/><circle cx="19" cy="15" r="2.2"/><path d="m6.4 16.2 4.3-7.4M13.6 8.6l4.2 4.9"/></svg></button>
     <button class="round" id="offlineBtn" aria-label="Offline maps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18"/><path d="M12 11v9M8.5 16.5 12 20l3.5-3.5"/></svg></button>
     <button class="round" id="layerBtn" aria-label="Switch map: street or satellite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button>
     <button class="round" id="locateBtn" aria-label="Go to my location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+  </div>
+  <div id="routeBar" hidden>
+    <div class="rb-head"><b id="rbTitle">Route</b><span id="rbStats"></span></div>
+    <p class="rb-hint" id="rbHint">Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.</p>
+    <div class="rb-btns">
+      <button class="btn" id="rbAuto" type="button">Link in capture order</button>
+      <button class="btn" id="rbUndo" type="button">Undo</button>
+      <button class="btn danger" id="rbClear" type="button">Clear</button>
+      <button class="btn primary" id="rbDone" type="button">Done</button>
+    </div>
   </div>
   <nav id="bottombar">
     <button class="navbtn" id="listBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Points</button>
@@ -199,9 +244,19 @@ textarea{min-height:90px;resize:vertical}
   <div id="camTop">
     <button class="camclose" id="camClose" aria-label="Close camera"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     <div class="pill"><span class="dot" id="camGpsDot"></span><span id="camGpsText">Waiting for GPS…</span></div>
+    <button class="camid" id="camReadId" aria-pressed="true" aria-label="Read the painted Pole ID">ID</button>
   </div>
   <div id="camMsg" hidden></div>
-  <video id="video" playsinline muted autoplay></video>
+  <div id="camStage">
+    <video id="video" playsinline muted autoplay></video>
+    <div id="idGuide" hidden><span id="idGuideText">Fit the painted Pole ID inside the box</span></div>
+  </div>
+  <div id="camCheck" hidden><div class="spin"></div><span id="camCheckText">Checking GPS…</span></div>
+  <div id="qualBox" hidden>
+    <img id="qualImg" alt="Photo just taken">
+    <div class="qtext"><b id="qualTitle">This photo may not be clear</b><span id="qualWhy"></span></div>
+    <div class="row"><button class="btn grow" id="qualRetake">Retake</button><button class="btn grow" id="qualUse">Use anyway</button></div>
+  </div>
   <div id="camBar">
     <button class="camside" id="camNative" aria-label="Use phone camera app"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><path d="M12 10v6M9 13h6"/></svg></button>
     <button id="shutter" aria-label="Take photo"></button>
@@ -231,8 +286,12 @@ textarea{min-height:90px;resize:vertical}
     <div id="photoStrip"><img id="edPhoto" alt="Captured pole photo"><div class="meta"><span id="edTime">–</span><span id="edAcc">–</span><span id="edSrc"></span></div></div>
     <div id="accPhotos" class="photo-grid" hidden></div>
     <div class="field" id="accElementBox" hidden><span class="lbl">ELEMENT</span><div class="chips" id="elemChips"></div></div>
-    <label class="field"><span id="idLabel">POLE ID</span><input type="text" id="poleId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CBT-0001"></label>
+    <div class="field"><label class="lbl" for="poleId" id="idLabel">POLE ID</label>
+      <div class="idrow"><input type="text" id="poleId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CBT-0001"><button class="btn" id="scanIdBtn" type="button" aria-label="Read the ID from the camera">Scan ID</button></div>
+    </div>
+    <div id="idCands" class="idcands" hidden></div>
     <p class="warnline" id="dupWarn" hidden></p>
+    <p class="warnline" id="qualWarn" hidden></p>
     <div class="field" id="surveyTypeBox"><span class="lbl">POLE TYPE</span><div class="chips" id="typeChips"></div></div>
     <div class="group" id="poleAttach" hidden>
       <h3>On this pole</h3>
@@ -326,7 +385,7 @@ textarea{min-height:90px;resize:vertical}
     </div>
     <div class="group">
       <h3>AutoCAD · DXF</h3>
-      <p class="hint">Poles as blocks (POLE_&lt;TYPE&gt;) at <span id="dxfZoneLbl">UTM 51N</span> meters, Pole ID labels on layer POLE_LABEL. Redefine a block in AutoCAD to swap in your own pole symbol.</p>
+      <p class="hint">Poles as blocks (POLE_&lt;TYPE&gt;) at <span id="dxfZoneLbl">UTM 51N</span> meters, Pole ID labels on layer POLE_LABEL. Redefine a block in AutoCAD to swap in your own pole symbol. If you drew a route, spans are on layer CABLE_ROUTE (too-long spans on SPAN_LONG) with lengths on SPAN_LENGTH.</p>
       <label class="check"><input type="checkbox" id="dxfRoads" checked><span>Add road centerlines from OpenStreetMap around the poles (needs internet)</span></label>
       <button class="btn primary" id="doDxf">Export DXF</button>
     </div>
@@ -335,11 +394,22 @@ textarea{min-height:90px;resize:vertical}
       <p class="hint">Pole ID, type, lat/long, UTM easting/northing, accuracy, time. Opens in Excel or QGIS.</p>
       <button class="btn" id="doCsv">Export CSV</button>
     </div>
+    <div class="group">
+      <h3>Route and spans · Excel</h3>
+      <p class="hint">Summary (route length, spans, too-long spans, angle poles, junctions), every span with its length, and every pole with its role on the route and deflection angle.</p>
+      <button class="btn" id="doRouteXlsx">Export route table</button>
+    </div>
     </div>
     <div class="group">
       <h3>Geotagged photos · ZIP</h3>
       <p class="hint">JPEGs named by ID, stamped with ID, coordinates and time, with GPS written into the photo (EXIF).</p>
       <button class="btn" id="doPhotos">Export photos</button>
+    </div>
+    <div class="group">
+      <h3>Photos for AI training · ZIP</h3>
+      <p class="hint">Your labeled photos sorted into one folder per type (Pole, NAP, Closure, MLoop, ODF, ODC, Rack, Pole tag, Cable), resized for training, with a labels.csv list. Used later to teach the app to recognise each element.</p>
+      <div class="chips" id="dsScope"><button type="button" class="chip" data-v="project" aria-pressed="true">This project</button><button type="button" class="chip" data-v="all" aria-pressed="false">All projects</button></div>
+      <button class="btn" id="doDataset">Export training photos</button>
     </div>
     <div class="group">
       <h3>Backup</h3>
@@ -383,6 +453,27 @@ textarea{min-height:90px;resize:vertical}
       <label class="field">Longest side (pixels)<select id="setMaxPx"><option>1280</option><option>1600</option><option>2048</option><option>2560</option><option>3264</option></select></label>
     </div>
     <div class="group">
+      <h3>Camera checks</h3>
+      <label class="check"><input type="checkbox" id="setGpsFresh"><span>Only take a photo if GPS updated within the last 5 seconds (always on in acceptance projects)</span></label>
+      <label class="field">Blur and exposure check<select id="setQuality"><option value="off">Off</option><option value="normal">Normal: warn on clearly blurry, dark or overexposed photos</option><option value="strict">Strict: also warn on slightly soft photos</option></select></label>
+      <label class="check"><input type="checkbox" id="setReadId"><span>Read the painted Pole ID from the camera (shows a guide box)</span></label>
+    </div>
+    <div class="group">
+      <h3>Route checks</h3>
+      <div class="row"><label class="field" style="flex:1">Maximum span (m)<input type="number" id="setMaxSpan" step="1" min="5"></label><label class="field" style="flex:1">Angle pole from (°)<input type="number" id="setAngle" step="1" min="1" max="90"></label></div>
+      <label class="field">Link in capture order: skip gaps longer than (m)<input type="number" id="setAutoGap" step="5" min="10"></label>
+      <p class="hint">Starting values only; set them to your design standard.</p>
+    </div>
+    <div class="group" id="saveGroup">
+      <h3>Where saved files go</h3>
+      <p class="hint" id="saveNote">In the Android app, Save writes exports here. In the website version your browser decides (usually Downloads).</p>
+      <label class="field">Location<select id="setSaveBase"><option value="DOCUMENTS">Documents</option><option value="DOWNLOAD">Download</option></select></label>
+      <label class="field">Folder name<input type="text" id="setSaveFolder" autocomplete="off" placeholder="PoleCam"></label>
+      <label class="check"><input type="checkbox" id="setSaveByProject"><span>Separate folder for each project</span></label>
+      <p class="hint mono" id="savePreview">–</p>
+      <p class="hint">Projects themselves always stay in the app's private storage, which other apps cannot read.</p>
+    </div>
+    <div class="group">
       <h3>CAD export</h3>
       <label class="field">UTM zone (WGS84, north)<select id="setZone"><option value="50">Zone 50N (CM 117°E)</option><option value="51">Zone 51N (CM 123°E)</option><option value="52">Zone 52N (CM 129°E)</option></select></label>
       <div class="row"><label class="field" style="flex:1">Pole symbol radius (m)<input type="number" id="setSym" step="0.1" min="0.1"></label><label class="field" style="flex:1">Label height (m)<input type="number" id="setTxt" step="0.1" min="0.1"></label></div>
@@ -397,7 +488,7 @@ textarea{min-height:90px;resize:vertical}
       <p class="hint" id="storeInfo">–</p>
       <p class="hint">Points and photos live only on this phone until you export or back up.</p>
     </div>
-    <p class="hint" style="text-align:center">PoleCam Survey v1.3.1 · Map data © OpenStreetMap contributors · Imagery © Esri</p>
+    <p class="hint" style="text-align:center">PoleCam Survey v1.5.0 · Map data © OpenStreetMap contributors · Imagery © Esri</p>
   </div>
 </section>
 

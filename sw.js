@@ -1,12 +1,14 @@
 /* PoleCam offline cache: keeps the app itself available with no signal.
    Map tiles are cached separately by the app (IndexedDB). Bump VERSION after editing any file. */
-const VERSION = 'polecam-v1.3.1';
+const VERSION = 'polecam-v1.5.0';
 const SHELL = [
   './', 'index.html', 'app.js', 'core.js', 'reports.js', 'manifest.json',
   'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css',
   'vendor/leaflet/images/layers.png', 'vendor/leaflet/images/layers-2x.png',
   'vendor/leaflet/images/marker-icon.png', 'vendor/leaflet/images/marker-icon-2x.png', 'vendor/leaflet/images/marker-shadow.png',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png',
+  // offline Pole ID reader (about 7 MB)
+  'ocr-worker.js', 'vendor/tesseract/tesseract-core-lstm.js', 'vendor/tesseract/tesseract-core-lstm.wasm', 'vendor/tesseract/eng.traineddata',
 ];
 
 self.addEventListener('install', (e) => {

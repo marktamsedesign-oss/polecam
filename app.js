@@ -20,7 +20,7 @@
   const ELEMENTS = ['Pole', 'ODF', 'ODC', 'Rack'];
   /* Location integrity: the pin may move at most PIN_LIMIT_M from where the photo was taken, and in acceptance
      projects every photo must be live (in-app camera, fresh GPS) and taken within PIN_LIMIT_M of the element. */
-  const PIN_LIMIT_M = 1000, FRESH_FIX_MS = 2 * 60000, MAX_PHOTO_AGE_MS = 10 * 60000;
+  const PIN_LIMIT_M = 1000, MAX_PHOTO_AGE_MS = 10 * 60000;
   const CATS_FOR = { Pole: ['Pole', 'Cable / strand', 'MLoop', 'NAP', 'Closure', 'Other'], ODF: ['ODF', 'Other'], ODC: ['ODC', 'Cable / strand', 'Other'], Rack: ['Rack', 'ODF', 'Other'] };
   const PHOTO_LABELS = ['Overview', 'Pole tag', 'MLoop', 'NAP', 'Closure', 'Cable', 'ODF', 'ODC', 'Rack', 'Detail'];
   const STATUS_TEXT = { OK: 'OK', Open: 'With deficiency', Rectified: 'Rectified' };
@@ -30,6 +30,8 @@
     types: ['Concrete', 'Wood', 'Steel', 'Fiberglass'], stamp: true, maxPx: 2048,
     zone: 51, sym: 1, txt: 1.5, base: 'street', lastPoleId: '', lastType: 'Concrete', view: null, areas: [],
     meta: {}, defects: JSON.parse(JSON.stringify(DEF_CHECK)), userName: '',
+    gpsFresh: true, quality: 'normal', readId: true, maxSpan: 50, angleDeg: 15, autoGap: 120,
+    saveBase: 'DOCUMENTS', saveFolder: 'PoleCam', saveByProject: true,
   };
   let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem('polecam.settings') || '{}')); } catch (e) { return { ...DEF }; } })();
   const persist = () => { try { localStorage.setItem('polecam.settings', JSON.stringify(S)); } catch (e) { /* storage blocked */ } };
@@ -148,7 +150,6 @@
     const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
     return 2 * R * Math.asin(Math.sqrt(h));
   }
-  const freshFix = () => (fix && Date.now() - fix.t < FRESH_FIX_MS ? { ...fix } : null);
   const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
   /** Time, place and person for one photo, recorded at the moment it is taken. */
   const photoMeta = (gps, at) => ({ at: at || new Date().toISOString(), lat: gps ? gps.lat : null, lon: gps ? gps.lon : null,
@@ -232,13 +233,17 @@
 
   function renderPoles() {
     poleLayer.clearLayers();
+    if (isAcc() && routeMode) setRouteMode(false);
+    $('routeBtn').hidden = isAcc();
+    const R = drawRoute();
     const pts = projPoints();
     for (const p of pts) {
-      const acc = p.kind === 'acceptance', n = openCount(p);
-      const m = L.circleMarker([p.lat, p.lon], { radius: acc && elemOf(p) !== 'Pole' ? 10 : 8, color: acc && elemOf(p) !== 'Pole' ? '#17202a' : '#fff', weight: 2,
+      const acc = p.kind === 'acceptance', n = openCount(p), sel = routeMode && p.id === routeSel;
+      const m = L.circleMarker([p.lat, p.lon], { radius: sel ? 12 : acc && elemOf(p) !== 'Pole' ? 10 : 8, color: sel ? '#17202a' : acc && elemOf(p) !== 'Pole' ? '#17202a' : '#fff', weight: sel ? 4 : 2,
         fillColor: acc ? STATUS_COLORS[recStatus(p)] : typeColor(p.poleType), fillOpacity: 1 });
-      m.bindTooltip(`${p.poleId || '(no ID)'}${acc && n ? ` · ${n} open` : ''}`, { permanent: true, direction: 'right', offset: [8, 0], className: 'pole-label' });
-      m.on('click', () => openEditorFor(p.id));
+      const role = R && R.poles[p.id] && (R.poles[p.id].role === 'Angle' ? ` · ${Math.round(R.poles[p.id].deflection)}°` : R.poles[p.id].role === 'Junction' ? ' · junction' : '');
+      m.bindTooltip(`${p.poleId || '(no ID)'}${acc && n ? ` · ${n} open` : ''}${role || ''}`, { permanent: true, direction: 'right', offset: [8, 0], className: 'pole-label' });
+      m.on('click', () => (routeMode ? routeTap(p.id) : openEditorFor(p.id)));
       m.addTo(poleLayer);
     }
     $('projectName').textContent = S.project;
@@ -247,6 +252,74 @@
     $('pointCount').textContent = pts.length;
     if (typeof drawAreas === 'function') drawAreas();
   }
+  /* ================= route and spans (survey projects) ================= */
+  let routeMode = false, routeSel = null, routeUndo = [];
+  const routeLayer = L.layerGroup().addTo(map);
+  const links = () => (pmeta().links || []);
+  function setLinks(l) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), links: l }; persist(); }
+  const routeModel = () => C.analyzeRoute(projPoints(), links(), { maxSpan: S.maxSpan || 50, angleDeg: S.angleDeg || 15 });
+  const fmtLen = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
+  function drawRoute() {
+    routeLayer.clearLayers();
+    if (isAcc()) return null;
+    const R = routeModel();
+    for (const s of R.spans) {
+      L.polyline([[s.a.lat, s.a.lon], [s.b.lat, s.b.lon]], { color: s.long ? '#c92a2a' : '#1c7ed6', weight: 4, opacity: 0.9, dashArray: s.long ? '8 6' : null, interactive: false }).addTo(routeLayer);
+      L.marker([(s.a.lat + s.b.lat) / 2, (s.a.lon + s.b.lon) / 2], { interactive: false, keyboard: false,
+        icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label${s.long ? ' long' : ''}">${s.len.toFixed(0)} m</span>`, iconSize: null }) }).addTo(routeLayer);
+    }
+    for (const p of projPoints()) {
+      const info = R.poles[p.id];
+      if (info && (info.role === 'Angle' || info.role === 'Junction')) L.circleMarker([p.lat, p.lon], { radius: 14, color: info.role === 'Angle' ? '#e8590c' : '#9c36b5', weight: 2, fill: false, interactive: false }).addTo(routeLayer);
+    }
+    if (routeMode) updateRouteBar(R);
+    return R;
+  }
+  function updateRouteBar(R) {
+    $('rbTitle').textContent = `Route · ${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}`;
+    $('rbStats').textContent = `${R.long} longer than ${S.maxSpan || 50} m · ${R.angle} angle · ${R.junction} junction · ${R.off} not linked`;
+    const sel = routeSel && points.find((p) => p.id === routeSel);
+    $('rbHint').textContent = sel ? `${sel.poleId} selected. Tap the next pole to link it (tap a linked pole to unlink), or tap ${sel.poleId} again to stop.`
+      : 'Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.';
+    $('rbUndo').disabled = !routeUndo.length;
+  }
+  function setRouteMode(on) {
+    routeMode = on; routeSel = null; routeUndo = [];
+    $('routeBar').hidden = !on; $('routeBtn').setAttribute('aria-pressed', String(on));
+    document.body.classList.toggle('routing', on);
+    renderPoles();
+    if (on) { // frame all poles above the route bar so they are easy to tap
+      const pts = projPoints();
+      if (pts.length > 1) map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 80], paddingBottomRight: [40, 230], maxZoom: 19 });
+    }
+  }
+  function routeTap(id) {
+    if (!routeSel || routeSel === id) { routeSel = routeSel === id ? null : id; renderPoles(); return; }
+    const l = links().map((x) => x.slice()), k = l.findIndex(([x, y]) => (x === routeSel && y === id) || (x === id && y === routeSel));
+    routeUndo.push(links());
+    if (k >= 0) l.splice(k, 1); else l.push([routeSel, id]);
+    setLinks(l); routeSel = id; renderPoles();
+  }
+  $('routeBtn').addEventListener('click', () => {
+    if (!routeMode && projPoints().length < 2) { toast('Capture at least two poles first'); return; }
+    setRouteMode(!routeMode);
+  });
+  $('rbDone').addEventListener('click', () => setRouteMode(false));
+  $('rbUndo').addEventListener('click', () => { if (routeUndo.length) { setLinks(routeUndo.pop()); renderPoles(); } });
+  $('rbAuto').addEventListener('click', () => {
+    const have = new Set(links().map(([x, y]) => [x, y].sort().join('|')));
+    const add = C.autoLinks(projPoints(), S.autoGap || 120).filter(([x, y]) => !have.has([x, y].sort().join('|')));
+    if (!add.length) { toast('No new links: poles are already linked, or consecutive poles are farther apart than the gap setting'); return; }
+    routeUndo.push(links()); setLinks(links().concat(add)); renderPoles();
+    toast(`${add.length} span${add.length === 1 ? '' : 's'} added in capture order. Check branches and street corners.`, 4000);
+  });
+  $('rbClear').addEventListener('click', () => {
+    const b = $('rbClear');
+    if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again to clear'; setTimeout(() => { delete b.dataset.armed; b.textContent = 'Clear'; }, 3500); return; }
+    delete b.dataset.armed; b.textContent = 'Clear';
+    routeUndo.push(links()); setLinks([]); routeSel = null; renderPoles();
+  });
+
   function fitProject() {
     const pts = projPoints();
     if (pts.length === 1) map.setView([pts[0].lat, pts[0].lon], 18);
@@ -291,11 +364,30 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden) stopGps(); else startGps(); });
 
   /* ================= camera ================= */
-  let stream = null, imageCapture = null, torchOn = false, wakeLock = null, camTarget = 'new';
+  /* Capture rules: a photo is kept only if a GPS update arrived within GPS_WINDOW_MS of the shutter (always in acceptance,
+     optional in survey), then it is checked for blur and exposure, and the painted Pole ID inside the guide box is read. */
+  const GPS_WINDOW_MS = 5000;
+  let stream = null, imageCapture = null, torchOn = false, wakeLock = null, camTarget = 'new', camBusy = false, camTick = 0;
+  const needFreshGps = () => isAcc() || S.gpsFresh !== false;
+  function showGuide() {
+    const on = camTarget === 'scan' || (camTarget === 'new' && S.readId !== false);
+    $('idGuide').hidden = !on;
+    $('idGuideText').textContent = camTarget === 'scan' ? 'Fit the painted Pole ID inside the box, then tap the shutter' : 'Fit the painted Pole ID inside the box to read it';
+    $('camReadId').hidden = camTarget !== 'new';
+    $('camReadId').setAttribute('aria-pressed', String(S.readId !== false));
+  }
+  function camGpsTick() {
+    if (!fix) return;
+    const age = (Date.now() - fix.t) / 1000, stale = age * 1000 > GPS_WINDOW_MS;
+    $('camGpsDot').className = 'dot ' + (stale ? 'poor' : quality(fix.acc));
+    $('camGpsText').textContent = `GPS ±${fix.acc < 10 ? fix.acc.toFixed(1) : Math.round(fix.acc)} m · ${age < 1.5 ? 'now' : `${Math.round(age)} s ago`}`;
+  }
   async function openCamera(target) {
     camTarget = target || 'new';
     openSheet('camera'); startGps();
-    $('camMsg').hidden = true; $('camTorch').hidden = true;
+    $('camMsg').hidden = true; $('camTorch').hidden = true; $('qualBox').hidden = true; camCheck(false);
+    showGuide();
+    clearInterval(camTick); camTick = setInterval(camGpsTick, 1000); camGpsTick();
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { useNativeCamera(); return; }
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 4096 }, height: { ideal: 3072 } } });
@@ -315,49 +407,167 @@
     if (stream) stream.getTracks().forEach((t) => t.stop());
     stream = null; imageCapture = null; torchOn = false;
     $('video').srcObject = null;
+    clearInterval(camTick);
+    if (qualResolve) { qualResolve(false); qualResolve = null; }
     if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
   }
+  function camCheck(text) { $('camCheck').hidden = !text; if (text) $('camCheckText').textContent = text; }
   $('camClose').addEventListener('click', () => closeSheet());
+  $('camReadId').addEventListener('click', () => { S.readId = S.readId === false; persist(); showGuide(); toast(S.readId ? 'Pole ID reading on' : 'Pole ID reading off', 1500); });
   $('camTorch').addEventListener('click', async () => {
     if (!stream) return; torchOn = !torchOn;
     try { await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ torch: torchOn }] }); } catch (e) { toast('Flashlight not supported'); }
   });
-  $('shutter').addEventListener('click', async () => {
-    if (!stream) { useNativeCamera(); return; }
-    if (isAcc() && !freshFix()) { toast('Waiting for GPS. Acceptance photos need your location — stay outdoors until the GPS pill shows ±m.', 4000); return; }
-    $('shutter').disabled = true;
-    let blob = null;
-    if (imageCapture) { try { blob = await imageCapture.takePhoto(); } catch (e) { blob = null; } }
-    if (!blob) {
-      const v = $('video'), cv = document.createElement('canvas');
-      cv.width = v.videoWidth; cv.height = v.videoHeight;
-      cv.getContext('2d').drawImage(v, 0, 0);
-      blob = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.92));
+
+  /** A GPS position taken within GPS_WINDOW_MS of the shot, waiting briefly for a fresh one if needed. */
+  function gpsNear(shotAt) {
+    const ok = (f) => f && Math.abs(f.t - shotAt) <= GPS_WINDOW_MS;
+    if (ok(fix)) return Promise.resolve({ ...fix });
+    camCheck('Checking GPS…');
+    return new Promise((res) => {
+      let done = false, tm = 0, iv = 0;
+      const finish = (v) => { if (done) return; done = true; clearTimeout(tm); clearInterval(iv); camCheck(false); res(v); };
+      tm = setTimeout(() => finish(ok(fix) ? { ...fix } : null), GPS_WINDOW_MS + 300);
+      iv = setInterval(() => { if (ok(fix)) finish({ ...fix }); }, 200);
+      try {
+        navigator.geolocation.getCurrentPosition((p) => { onFix(p); if (ok(fix)) finish({ ...fix }); }, () => {},
+          { enableHighAccuracy: true, maximumAge: 0, timeout: GPS_WINDOW_MS });
+      } catch (e) { /* the watch may still deliver */ }
+    });
+  }
+
+  /** Crop of what is inside the guide box, taken from the live video frame (what the user sees). */
+  function grabGuideCrop() {
+    const v = $('video'), g = $('idGuide');
+    if (g.hidden || !v.videoWidth) return null;
+    const vr = v.getBoundingClientRect(), gr = g.getBoundingClientRect();
+    const sc = Math.max(vr.width / v.videoWidth, vr.height / v.videoHeight); // object-fit: cover
+    const ox = (vr.width - v.videoWidth * sc) / 2, oy = (vr.height - v.videoHeight * sc) / 2;
+    const sx = Math.max(0, (gr.left - vr.left - ox) / sc), sy = Math.max(0, (gr.top - vr.top - oy) / sc);
+    const sw = Math.min(v.videoWidth - sx, gr.width / sc), sh = Math.min(v.videoHeight - sy, gr.height / sc);
+    if (sw < 20 || sh < 10) return null;
+    const cv = document.createElement('canvas'); cv.width = Math.round(sw); cv.height = Math.round(sh);
+    cv.getContext('2d').drawImage(v, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+    return cv;
+  }
+
+  /* ---- blur / exposure check ---- */
+  const QUAL_T = { normal: 25, strict: 60 };
+  const QUAL_TEXT = {
+    blurry: 'Looks blurry. Hold the phone steady and tap the screen to focus.',
+    dark: 'Too dark. Turn on the flashlight or move to better light.',
+    bright: 'Overexposed. Avoid pointing the camera at the sun or a bright sky.',
+    flat: 'Almost no detail. Check that the lens is clean and the subject is in view.',
+  };
+  async function checkQuality(blob) {
+    const mode = S.quality || 'normal';
+    if (mode === 'off') return { flags: [] };
+    let src;
+    try { src = await createImageBitmap(blob, { resizeWidth: 640, resizeQuality: 'medium', imageOrientation: 'from-image' }); }
+    catch (e) { src = await loadImage(blob); }
+    const { w: sw, h: sh } = dims(src), W = 640, H = Math.max(8, Math.round(640 * sh / sw));
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const g2 = cv.getContext('2d', { willReadFrequently: true }); g2.drawImage(src, 0, 0, W, H); if (src.close) src.close();
+    const px = g2.getImageData(0, 0, W, H).data, n = W * H, gray = new Float32Array(n);
+    let sum = 0, sum2 = 0, hi = 0, lo = 0;
+    for (let i = 0, j = 0; i < n; i++, j += 4) {
+      const y = 0.299 * px[j] + 0.587 * px[j + 1] + 0.114 * px[j + 2];
+      gray[i] = y; sum += y; sum2 += y * y; if (y >= 250) hi++; if (y <= 8) lo++;
     }
-    $('shutter').disabled = false;
-    const gps = fix ? { ...fix } : null;
-    await closeSheet();
-    gotPhoto(blob, gps, 'camera');
+    const mean = sum / n, std = Math.sqrt(Math.max(0, sum2 / n - mean * mean));
+    // Laplacian variance per tile of a 3x3 grid; the second-sharpest tile is the score (one noisy tile cannot pass a blurry photo)
+    const tiles = [];
+    for (let ty = 0; ty < 3; ty++) for (let tx = 0; tx < 3; tx++) {
+      let s = 0, s2 = 0, m = 0;
+      const y0 = Math.max(1, Math.floor(ty * H / 3)), y1 = Math.min(H - 1, Math.floor((ty + 1) * H / 3));
+      const x0 = Math.max(1, Math.floor(tx * W / 3)), x1 = Math.min(W - 1, Math.floor((tx + 1) * W / 3));
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const i = y * W + x, l = 4 * gray[i] - gray[i - 1] - gray[i + 1] - gray[i - W] - gray[i + W];
+        s += l; s2 += l * l; m++;
+      }
+      tiles.push(m ? s2 / m - (s / m) ** 2 : 0);
+    }
+    tiles.sort((a, b) => b - a);
+    const sharp = Math.round(tiles[1] * 10) / 10, flags = [];
+    if (sharp < QUAL_T[mode]) flags.push('blurry');
+    if (mean < 45 || lo / n > 0.55) flags.push('dark');
+    if (mean > 225 || hi / n > 0.45) flags.push('bright');
+    if (std < 12 && !flags.includes('dark') && !flags.includes('bright')) flags.push('flat');
+    return { sharp, mean: Math.round(mean), std: Math.round(std), flags };
+  }
+  let qualResolve = null, qualUrl = '';
+  function askQuality(blob, q) {
+    if (qualUrl) URL.revokeObjectURL(qualUrl);
+    qualUrl = URL.createObjectURL(blob); $('qualImg').src = qualUrl;
+    $('qualTitle').textContent = q.flags.includes('blurry') ? 'This photo looks blurry' : 'This photo may not be clear';
+    $('qualWhy').textContent = q.flags.map((f) => QUAL_TEXT[f]).join(' ');
+    $('qualBox').hidden = false;
+    return new Promise((res) => { qualResolve = res; });
+  }
+  $('qualRetake').addEventListener('click', () => { $('qualBox').hidden = true; if (qualResolve) { qualResolve(false); qualResolve = null; } });
+  $('qualUse').addEventListener('click', () => { $('qualBox').hidden = true; if (qualResolve) { qualResolve(true); qualResolve = null; } });
+
+  $('shutter').addEventListener('click', async () => {
+    if (camBusy || !$('qualBox').hidden) return;
+    if (!stream) { useNativeCamera(); return; }
+    camBusy = true; $('shutter').disabled = true;
+    try {
+      const shotAt = Date.now(), crop = grabGuideCrop();
+      if (camTarget === 'scan') { await closeSheet(); scanResult(crop); return; }
+      let blob = null;
+      if (imageCapture) { try { blob = await imageCapture.takePhoto(); } catch (e) { blob = null; } }
+      if (!blob) {
+        const v = $('video'), cv = document.createElement('canvas');
+        cv.width = v.videoWidth; cv.height = v.videoHeight;
+        cv.getContext('2d').drawImage(v, 0, 0);
+        blob = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.92));
+      }
+      let gps = fix ? { ...fix } : null;
+      if (needFreshGps()) {
+        gps = await gpsNear(shotAt);
+        if (!gps) { toast('Photo not saved: GPS has not updated in the last 5 seconds. Stay in the open until the GPS pill says "now", then take it again.', 6500); return; }
+      }
+      camCheck('Checking photo…');
+      const q = await checkQuality(blob).catch(() => ({ flags: [] }));
+      camCheck(false);
+      if (q.flags.length) { if (!(await askQuality(blob, q))) return; q.kept = true; }
+      await closeSheet();
+      gotPhoto(blob, gps, 'camera', { q, crop });
+    } finally { camBusy = false; $('shutter').disabled = false; camCheck(false); }
   });
   function useNativeCamera() { $('nativeInput').value = ''; $('nativeInput').click(); }
   $('camNative').addEventListener('click', useNativeCamera);
   $('nativeInput').addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
-    if (isAcc()) {
-      if (Date.now() - (f.lastModified || 0) > MAX_PHOTO_AGE_MS) { toast('That photo was not taken just now. Acceptance photos must be taken live with the camera.', 5000); return; }
-      if (!freshFix()) { toast('No GPS fix — photo not used. Wait for GPS, then take it again.', 4500); return; }
-      if (stack[stack.length - 1] === 'camera') await closeSheet();
-      gotPhoto(f, freshFix(), 'camera');
-      return;
-    }
+    if (camTarget === 'scan') { if (stack[stack.length - 1] === 'camera') await closeSheet(); scanResult(await centerCrop(f)); return; }
+    const back = Date.now();
+    if (isAcc() && back - (f.lastModified || 0) > MAX_PHOTO_AGE_MS) { toast('That photo was not taken just now. Acceptance photos must be taken live with the camera.', 5000); return; }
     let gps = fix ? { ...fix } : null;
-    try {
-      const ex = C.readExif(new Uint8Array(await f.slice(0, 256 * 1024).arrayBuffer()));
-      if (!gps && ex && ex.lat != null) gps = { lat: ex.lat, lon: ex.lon, acc: null, alt: ex.alt };
-    } catch (err) { /* no exif */ }
+    if (needFreshGps()) {
+      gps = await gpsNear(back); // the phone camera app pauses this app, so the fix is taken right after returning
+      if (!gps) { toast('Photo not used: no GPS update within 5 seconds. Stay in the open and take it again.', 5500); return; }
+    } else if (!gps) {
+      try {
+        const ex = C.readExif(new Uint8Array(await f.slice(0, 256 * 1024).arrayBuffer()));
+        if (ex && ex.lat != null) gps = { lat: ex.lat, lon: ex.lon, acc: null, alt: ex.alt };
+      } catch (err) { /* no exif */ }
+    }
+    const q = await checkQuality(f).catch(() => ({ flags: [] }));
+    if (q.flags.length && stack[stack.length - 1] === 'camera') { if (!(await askQuality(f, q))) return; q.kept = true; }
+    else if (q.flags.length) q.kept = true;
     if (stack[stack.length - 1] === 'camera') await closeSheet();
-    gotPhoto(f, gps, 'camera');
+    gotPhoto(f, gps, 'camera', { q, crop: S.readId !== false && camTarget === 'new' ? await centerCrop(f) : null });
   });
+  /** For photos from the phone camera app: the band where the guide box would be. */
+  async function centerCrop(blob) {
+    try {
+      const im = await loadImage(blob), { w, h } = dims(im);
+      const cv = document.createElement('canvas'); cv.width = Math.round(w * 0.8); cv.height = Math.round(h * 0.24);
+      cv.getContext('2d').drawImage(im, w * 0.1, h * 0.38, cv.width, cv.height, 0, 0, cv.width, cv.height);
+      if (im.close) im.close();
+      return cv;
+    } catch (e) { return null; }
+  }
   /** Acceptance photos added to an element must be taken within PIN_LIMIT_M of that element. */
   function checkNearElement(gps) {
     if (!ed || !ed.acc) return true;
@@ -369,21 +579,104 @@
     }
     return true;
   }
-  function gotPhoto(blob, gps, source) {
+  const qSummary = (q) => (q && q.flags ? { sharp: q.sharp, mean: q.mean, flags: q.flags, kept: !!q.kept } : null);
+  function gotPhoto(blob, gps, source, extra) {
+    const x = extra || {};
     if (ed && ['add', 'defect', 'after'].includes(camTarget)) {
       if (!checkNearElement(gps)) return;
-      const meta = photoMeta(gps);
+      const meta = { ...photoMeta(gps), q: qSummary(x.q) };
       if (camTarget === 'add') addEdPhoto(blob, meta);
       else if (camTarget === 'defect') setDefPhoto(blob, meta);
       else setAfterPhoto(blob, meta);
       return;
     }
     if (camTarget === 'replace' && ed) {
-      ed.newBlob = blob; showEdPhoto(blob);
+      ed.newBlob = blob; ed.q = qSummary(x.q); showEdPhoto(blob); showQualWarn(ed.q);
       toast('Photo replaced — tap Save to keep it');
       return;
     }
-    openEditor({ mode: 'new', blob, gps, source, takenAt: new Date().toISOString() });
+    openEditor({ mode: 'new', blob, gps, source, takenAt: new Date().toISOString(), q: qSummary(x.q), crop: x.crop });
+  }
+
+  /* ================= reading the painted Pole ID (offline OCR) ================= */
+  let ocrW = null, ocrSeq = 0; const ocrWait = {};
+  function ocrWorker() {
+    if (ocrW) return ocrW;
+    ocrW = new Worker('ocr-worker.js');
+    ocrW.onmessage = (e) => { const cb = ocrWait[e.data.id]; if (cb) { delete ocrWait[e.data.id]; cb(e.data); } };
+    ocrW.onerror = (e) => { Object.keys(ocrWait).forEach((k) => { ocrWait[k]({ ok: false, error: e.message || 'Text reader failed to load' }); delete ocrWait[k]; }); ocrW = null; };
+    return ocrW;
+  }
+  const ocrRun = (png, psm, vars) => new Promise((res) => {
+    const id = ++ocrSeq;
+    const tm = setTimeout(() => { if (ocrWait[id]) { delete ocrWait[id]; res({ ok: false, error: 'Text reader timed out' }); } }, 30000);
+    ocrWait[id] = (r) => { clearTimeout(tm); res(r); };
+    // No character whitelist: in testing it lowered accuracy; idCandidates() cleans the text instead.
+    ocrWorker().postMessage({ id, image: png, psm, vars });
+  });
+  /** Colour PNG of the crop scaled to ~160 px tall. Colour matters: Tesseract picks the colour channel that best
+      separates paint from pole, which a plain grayscale image loses when sky is in the box. */
+  async function prepForOcr(src) {
+    const H = 160, sc = H / src.height, W = Math.min(1400, Math.max(40, Math.round(src.width * sc)));
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const g = cv.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(src, 0, 0, W, H);
+    const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
+    return new Uint8Array(await blob.arrayBuffer());
+  }
+  function lastIdForShape() {
+    const pts = points.filter((p) => p.project === S.project && (!ed || !ed.acc || elemOf(p) === ed.element) && (!ed || p.id !== ed.id));
+    if (!pts.length) return '';
+    return pts.reduce((m, p) => (p.created > m.created ? p : m)).poleId || '';
+  }
+  async function readIdFrom(canvas) {
+    const res = [], png = await prepForOcr(canvas);
+    // pass 1: Tesseract's global threshold; pass 2: adaptive (Sauvola) threshold for shadows on round poles
+    for (const thr of [0, 2]) {
+      const r = await ocrRun(png, 6, { thresholding_method: thr });
+      if (!r.ok) throw new Error(r.error);
+      res.push(r);
+    }
+    return C.idCandidates(res, lastIdForShape());
+  }
+  function renderIdCands(state, list, note) {
+    const box = $('idCands'); box.hidden = false; box.innerHTML = '';
+    if (state === 'reading') { box.innerHTML = '<span class="spin" style="border-color:var(--line);border-top-color:var(--accent)"></span><span>Reading the Pole ID from the photo…</span>'; return; }
+    if (state === 'error') { box.textContent = note || 'Could not read the ID. Type it instead.'; return; }
+    const lead = document.createElement('span'); lead.textContent = note || (list.length ? 'From the photo:' : 'No ID found in the box. Type it, or tap Scan ID and get closer.'); box.appendChild(lead);
+    list.forEach((c) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small' + (c.fits ? ' fit' : '');
+      b.textContent = c.id; b.title = `${c.conf}% sure${c.fits ? ', matches your numbering' : ''}`;
+      b.addEventListener('click', () => { $('poleId').value = c.id; ed.idTouched = true; ed.idRead = { id: c.id, conf: c.conf }; checkDup(); renderIdCands('done', list, `Using ${c.id} from the photo — check it.`); });
+      box.appendChild(b);
+    });
+  }
+  async function runOcrFor(canvas, explicit) {
+    if (!ed || !canvas) return;
+    const token = ed.ocrToken = uid(), before = $('poleId').value;
+    renderIdCands('reading');
+    try {
+      const list = await readIdFrom(canvas);
+      if (!ed || ed.ocrToken !== token) return;
+      const best = list[0];
+      if (best && (explicit ? best.conf >= 55 : (!ed.idTouched && best.conf >= 80))) {
+        $('poleId').value = best.id; ed.idRead = { id: best.id, conf: best.conf }; checkDup();
+        const rest = list.slice(1);
+        if (before && before !== best.id && !explicit) rest.push({ id: before, conf: 0, fits: false });
+        renderIdCands('done', rest, `Filled ${best.id} from the photo (${best.conf}% sure) — check it.${rest.length ? ' Other readings:' : ''}`);
+      } else renderIdCands('done', list);
+    } catch (e) {
+      if (ed && ed.ocrToken === token) renderIdCands('error', [], `Could not read the ID (${e.message}). Type it instead.`);
+    }
+  }
+  function scanResult(crop) {
+    if (!ed) return;
+    if (!crop) { toast('Nothing to read — keep the ID inside the box and try again'); return; }
+    runOcrFor(crop, true);
+  }
+  function showQualWarn(q) {
+    const el = $('qualWarn');
+    el.hidden = !(q && q.flags && q.flags.length);
+    if (!el.hidden) el.textContent = `Photo kept with a warning: ${q.flags.join(', ')}. Retake it if the details matter.`;
   }
 
   /* ================= image processing ================= */
@@ -528,7 +821,7 @@
     if (acc) {
       Object.assign(ed, { element: o.element || 'Pole', photos: (o.photos || []).map((p) => ({ ...p })), pending: {}, removed: [],
         defs: JSON.parse(JSON.stringify(o.defs || [])), mloop: !!o.mloop, nap: !!o.nap, closure: !!o.closure, odf: o.odf || 'New', newBlob: null });
-      if (o.blob) { const pid = uid(); ed.photos.unshift({ pid, label: 'Overview', ...photoMeta(o.gps, o.takenAt) }); ed.pending[pid] = o.blob; }
+      if (o.blob) { const pid = uid(); ed.photos.unshift({ pid, label: 'Overview', ...photoMeta(o.gps, o.takenAt), q: o.q || null }); ed.pending[pid] = o.blob; }
       $('napId').value = o.napId || ''; $('closureId').value = o.closureId || '';
     }
     $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
@@ -544,6 +837,7 @@
     $('edSave').textContent = o.queue && o.queue.index + 1 < o.queue.total ? 'Save & next' : 'Save';
     $('poleId').value = o.poleId != null ? o.poleId : suggestId(acc ? ed.element : null);
     ed.idTouched = o.poleId != null;
+    ed.q = o.q || null; showQualWarn(ed.q); $('idCands').hidden = true;
     renderTypeChips(ed.type);
     if (acc) { renderElemChips(); applyElement(); renderAccPhotos(); renderDefs(); }
     $('edTime').textContent = fmtTime(o.takenAt);
@@ -559,7 +853,8 @@
       else { const c = map.getCenter(); pinMap.setView(c, Math.max(map.getZoom(), 16), { animate: false }); }
       ed.userMoved = false; drawEdGps(); updateCoordBox();
     });
-    if (o.mode === 'new' && !o.poleId) setTimeout(() => { $('poleId').focus(); $('poleId').select(); }, 250);
+    if (o.crop) runOcrFor(o.crop, false);
+    else if (o.mode === 'new' && !o.poleId) setTimeout(() => { $('poleId').focus(); $('poleId').select(); }, 250);
   }
   async function openEditorFor(id) {
     const p = points.find((x) => x.id === id); if (!p) return;
@@ -742,6 +1037,7 @@
     renderDefs(); toast(`${items.length} deficienc${items.length === 1 ? 'y' : 'ies'} added`);
   });
   $('edClose').addEventListener('click', () => closeSheet());
+  $('scanIdBtn').addEventListener('click', () => openCamera('scan'));
   $('snapGps').addEventListener('click', () => {
     const g = (ed && ed.gps) || fix;
     if (!g) { toast('No GPS fix yet'); return; }
@@ -759,6 +1055,7 @@
     await dbDel('points', id);
     if (rec) await deletePhotosIfUnused(allPids(rec).concat(Object.keys(ed.pending || {})), new Set([id]));
     points = points.filter((p) => p.id !== id);
+    if (links().some(([x, y]) => x === id || y === id)) setLinks(links().filter(([x, y]) => x !== id && y !== id));
     renderPoles(); if (!$('list').hidden) renderList();
     await closeSheet(); toast(rec && rec.kind === 'acceptance' ? 'Element deleted' : 'Pole deleted');
   });
@@ -786,6 +1083,7 @@
       const g = ed.gps;
       const rec = Object.assign(p || { id: ed.id, project: S.project, created: now, takenAt: ed.takenAt || now, source: ed.source || 'camera' }, {
         poleId, poleType: ed.type || '', lat: pos.lat, lon: pos.lon, updated: now,
+        ...(ed.newBlob ? { q: ed.q || null } : {}), ...(ed.idRead ? { idRead: ed.idRead } : {}),
         gpsLat: g ? g.lat : null, gpsLon: g ? g.lon : null,
         accuracy: g && Number.isFinite(g.acc) ? g.acc : null,
         alt: g && Number.isFinite(g.alt) ? g.alt : null,
@@ -816,7 +1114,7 @@
       const p = points.find((x) => x.id === ed.id);
       const g = ed.gps, el = ed.element;
       const rec = Object.assign(p || { id: ed.id, project: S.project, created: now, takenAt: ed.takenAt || now, source: ed.source || 'camera' }, {
-        kind: 'acceptance', element: el, poleId, poleType: '', lat: pos.lat, lon: pos.lon, updated: now,
+        kind: 'acceptance', element: el, poleId, poleType: '', lat: pos.lat, lon: pos.lon, updated: now, ...(ed.idRead ? { idRead: ed.idRead } : {}),
         mloop: el === 'Pole' && ed.mloop, nap: el === 'Pole' && ed.nap, closure: el === 'Pole' && ed.closure,
         napId: el === 'Pole' && ed.nap ? $('napId').value.trim().toUpperCase() : '',
         closureId: el === 'Pole' && ed.closure ? $('closureId').value.trim().toUpperCase() : '',
@@ -1019,15 +1317,80 @@
 
   /* ================= export ================= */
   let lastResult = null;
+  /* ---- Android APK (Capacitor): the in-app browser cannot download files, so exports are written
+     to the phone's Documents/PoleCam folder and shared through Android's share sheet. ---- */
+  const NATIVE = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+  const plugins = {};
+  function nativePlugin(name) {
+    if (plugins[name]) return plugins[name];
+    const ce = window.capacitorExports;
+    if (ce && typeof ce.registerPlugin === 'function') { try { plugins[name] = ce.registerPlugin(name); return plugins[name]; } catch (e) { /* use the bridge below */ } }
+    const cap = window.Capacitor;
+    plugins[name] = { call: (method, opts) => cap.nativePromise(name, method, opts || {}) };
+    return plugins[name];
+  }
+  const nativeCall = (name, method, opts) => { const p = nativePlugin(name); return p.call ? p.call(method, opts) : p[method](opts || {}); };
+  async function blobChunkB64(blob, start, end) {
+    const u = new Uint8Array(await blob.slice(start, end).arrayBuffer());
+    let s = '';
+    for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+  /** Write a blob to a native folder in 3 MB pieces (large KMZ/PDF files would not fit through the bridge at once). */
+  async function nativeWrite(blob, path, directory) {
+    const CH = 3 * 1024 * 1024; let uri = '';
+    for (let off = 0; off < Math.max(1, blob.size); off += CH) {
+      const data = await blobChunkB64(blob, off, Math.min(blob.size, off + CH));
+      if (off === 0) uri = (await nativeCall('Filesystem', 'writeFile', { path, data, directory, recursive: true })).uri;
+      else await nativeCall('Filesystem', 'appendFile', { path, data, directory });
+      if (blob.size > CH) busy(`Saving ${Math.min(100, Math.round(((off + CH) / blob.size) * 100))}%…`, Math.min(1, (off + CH) / blob.size));
+    }
+    return uri;
+  }
+  /** Where Save puts files (Settings → Where saved files go). */
+  function savePath(name, base) {
+    const folder = String(S.saveFolder || 'PoleCam').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'PoleCam';
+    const sub = S.saveByProject !== false ? `${folder}/${C.safeName(S.project)}` : folder;
+    return (base || S.saveBase) === 'DOWNLOAD'
+      ? { directory: 'EXTERNAL_STORAGE', path: `Download/${sub}/${name}`, shown: `Download/${sub}/${name}` }
+      : { directory: 'DOCUMENTS', path: `${sub}/${name}`, shown: `Documents/${sub}/${name}` };
+  }
+  /** Save: a copy in the chosen shared folder (visible to file managers). Falls back to Documents if Download is refused. */
+  async function nativeSave(r) {
+    if (r.uri) return r;
+    const sp = savePath(r.name);
+    try { r.uri = await nativeWrite(r.blob, sp.path, sp.directory); r.where = sp.shown; }
+    catch (e) {
+      if (sp.directory === 'DOCUMENTS') throw e;
+      const d = savePath(r.name, 'DOCUMENTS');
+      r.uri = await nativeWrite(r.blob, d.path, d.directory); r.where = `${d.shown} (Download folder was not allowed)`;
+    } finally { busy(false); }
+    return r;
+  }
+  /** Share: the file goes only to the app's private cache (other apps cannot browse it) and is handed to the chosen app. */
+  async function nativePrivate(r) {
+    if (r.cacheUri) return r;
+    try { r.cacheUri = await nativeWrite(r.blob, `share/${r.name}`, 'CACHE'); }
+    finally { busy(false); }
+    return r;
+  }
   function offerResult(blob, name) {
     lastResult = { blob, name };
     $('resultName').textContent = `${name} · ${(blob.size / 1048576).toFixed(2)} MB`;
     $('resultBox').hidden = false;
-    $('resShare').hidden = !(navigator.canShare && navigator.canShare({ files: [new File([blob], name, { type: blob.type })] }));
+    $('resSave').textContent = NATIVE ? 'Save to Documents' : 'Save to phone';
+    $('resShare').hidden = !NATIVE && !(navigator.canShare && navigator.canShare({ files: [new File([blob], name, { type: blob.type })] }));
     $('resultBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
-  $('resSave').addEventListener('click', () => {
+  $('resSave').addEventListener('click', async () => {
     if (!lastResult) return;
+    if (NATIVE) {
+      try {
+        const r = await nativeSave(lastResult);
+        toast(`Saved to ${r.where}`, 5000);
+      } catch (e) { toast('Could not save to Documents — use Share to send the file instead', 6000); }
+      return;
+    }
     const a = document.createElement('a'), u = URL.createObjectURL(lastResult.blob);
     a.href = u; a.download = lastResult.name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(u), 60000);
@@ -1035,6 +1398,13 @@
   });
   $('resShare').addEventListener('click', async () => {
     if (!lastResult) return;
+    if (NATIVE) {
+      try {
+        const r = await nativePrivate(lastResult);
+        await nativeCall('Share', 'share', { title: r.name, dialogTitle: `Send ${r.name}`, files: [r.cacheUri] });
+      } catch (e) { if (!/cancel/i.test(String(e && e.message))) toast('Sharing failed: ' + (e.message || e), 5000); }
+      return;
+    }
     try { await navigator.share({ files: [new File([lastResult.blob], lastResult.name, { type: lastResult.blob.type })], title: lastResult.name }); }
     catch (e) { if (e.name !== 'AbortError') toast('Sharing failed — use Save to phone'); }
   });
@@ -1070,7 +1440,7 @@
       rows.push(r);
     }
     busy('Building KMZ…', 1);
-    const kml = C.buildKml(rows, { project: S.project, photoIcons: icons });
+    const kml = C.buildKml(rows, { project: S.project, photoIcons: icons, spans: routeModel().spans });
     const parts = C.makeZipParts([{ name: 'doc.kml', data: kml }, ...files]);
     offerResult(new Blob(parts, { type: 'application/vnd.google-earth.kmz' }), fileBase() + '.kmz');
   }));
@@ -1094,7 +1464,7 @@
       }
     }
     busy('Building DXF…');
-    const dxf = C.buildDxf(pts, { zone: S.zone, symbolSize: S.sym, textHeight: S.txt }, roads);
+    const dxf = C.buildDxf(pts, { zone: S.zone, symbolSize: S.sym, textHeight: S.txt, spans: routeModel().spans }, roads);
     offerResult(new Blob([dxf], { type: 'application/dxf' }), `${fileBase()}_UTM${S.zone}N.dxf`);
     if (note) toast(note, 4000);
   }));
@@ -1104,6 +1474,90 @@
     const names = uniqueNames(pts);
     const rows = pts.map((p) => ({ ...p, photoName: names[p.id] + '.jpg' }));
     offerResult(new Blob([C.buildCsv(rows, S.zone)], { type: 'text/csv' }), fileBase() + '.csv');
+  }));
+
+  $('doRouteXlsx').addEventListener('click', () => guard(async () => {
+    const pts = needPoints(); if (!pts) return;
+    const Rt = routeModel();
+    if (!Rt.spans.length) { toast('No route yet. Use the route button on the map to link poles.', 4000); return; }
+    const R = window.PoleReports, st = R.STYLES, lbl = (v) => ({ v, s: st.label });
+    const longest = Rt.spans.reduce((m, s) => (s.len > m.len ? s : m), Rt.spans[0]);
+    const summary = [
+      [{ v: `ROUTE AND SPANS — ${S.project}`, s: st.title }],
+      [lbl('Generated'), fmtTime(new Date().toISOString())],
+      [lbl('Maximum span setting (m)'), S.maxSpan || 50],
+      [lbl('Angle pole from (°)'), S.angleDeg || 15],
+      [],
+      [lbl('Total route length (m)'), Math.round(Rt.total * 10) / 10],
+      [lbl('Spans'), Rt.spans.length],
+      [lbl('Spans longer than maximum'), { v: Rt.long, s: Rt.long ? st.bad : st.good }],
+      [lbl('Average span (m)'), Math.round((Rt.total / Rt.spans.length) * 10) / 10],
+      [lbl('Longest span'), `${longest.from} → ${longest.to}: ${longest.len.toFixed(1)} m`],
+      [],
+      [lbl('Poles in project'), pts.length],
+      [lbl('Terminal poles (1 span)'), Rt.terminal],
+      [lbl('Inline poles'), Rt.inline],
+      [lbl('Angle poles'), Rt.angle],
+      [lbl('Junction poles (3+ spans)'), Rt.junction],
+      [lbl('Poles not linked'), { v: Rt.off, s: Rt.off ? st.bad : st.cell }],
+      [],
+      [{ v: 'Span lengths are straight lines between pole pins, not cable lengths: add sag, slack and MLoop allowance per your design standard.', s: st.info }],
+    ];
+    const spanRows = [['No.', 'From', 'To', 'Length (m)', 'Longer than maximum', 'From lat', 'From lon', 'To lat', 'To lon'].map((v) => ({ v, s: st.header }))];
+    Rt.spans.forEach((s, i) => spanRows.push([{ v: i + 1, s: st.center }, s.from, s.to, { v: Math.round(s.len * 10) / 10, s: s.long ? st.bad : st.cell },
+      { v: s.long ? 'Yes' : 'No', s: s.long ? st.bad : st.cell }, { v: s.a.lat, s: st.coord }, { v: s.a.lon, s: st.coord }, { v: s.b.lat, s: st.coord }, { v: s.b.lon, s: st.coord }]));
+    const poleRows = [['No.', 'Pole ID', 'Type', 'Role on route', 'Spans at pole', 'Deflection (°)', 'Latitude', 'Longitude', `UTM ${S.zone}N E`, `UTM ${S.zone}N N`].map((v) => ({ v, s: st.header }))];
+    pts.forEach((p, i) => {
+      const info = Rt.poles[p.id], u = C.utmForward(p.lat, p.lon, S.zone, p.lat < 0);
+      poleRows.push([{ v: i + 1, s: st.center }, p.poleId, p.poleType || '', { v: info.role, s: info.role === 'Not on route' ? st.bad : st.cell }, info.degree,
+        info.deflection == null ? '' : Math.round(info.deflection * 10) / 10, { v: p.lat, s: st.coord }, { v: p.lon, s: st.coord }, Math.round(u.E * 1000) / 1000, Math.round(u.N * 1000) / 1000]);
+    });
+    const parts = R.buildXlsxParts([
+      { name: 'Summary', cols: [30, 44], rows: summary, merges: ['A1:B1', 'A19:B19'] },
+      { name: 'Spans', cols: [6, 15, 15, 11, 12, 12, 13, 12, 13], rows: spanRows, freezeRow: 1, autoFilter: `A1:I${spanRows.length}` },
+      { name: 'Poles', cols: [6, 15, 12, 14, 9, 11, 12, 13, 13, 13], rows: poleRows, freezeRow: 1, autoFilter: `A1:J${poleRows.length}` },
+    ]);
+    offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '_route.xlsx');
+  }));
+
+  /* ---- labeled photos for training a recognition model ---- */
+  let dsScope = 'project';
+  $('dsScope').addEventListener('click', (e) => {
+    const c = e.target.closest('.chip'); if (!c) return; dsScope = c.dataset.v;
+    $('dsScope').querySelectorAll('.chip').forEach((x) => x.setAttribute('aria-pressed', String(x === c)));
+  });
+  const CAT_LABEL = { 'Pole': 'Pole', 'Cable / strand': 'Cable', 'MLoop': 'MLoop', 'NAP': 'NAP', 'Closure': 'Closure', 'ODF': 'ODF', 'ODC': 'ODC', 'Rack': 'Rack' };
+  function datasetItems(recs) {
+    const out = [], seen = new Set();
+    const add = (pid, label, r, kind) => { if (!pid || !label || seen.has(pid)) return; seen.add(pid); out.push({ pid, label, r, kind }); };
+    for (const r of recs) {
+      if (r.kind !== 'acceptance') { add(r.id, 'Pole', r, 'survey photo'); continue; }
+      photosOf(r).forEach((p) => add(p.pid, p.label === 'Overview' ? elemOf(r) : p.label === 'Detail' ? null : p.label, r, `${p.label} photo`));
+      (r.defs || []).forEach((d) => { add(d.pid, CAT_LABEL[d.cat], r, 'defect photo'); add(d.afterPid, CAT_LABEL[d.cat], r, 'after photo'); });
+    }
+    return out;
+  }
+  $('doDataset').addEventListener('click', () => guard(async () => {
+    const recs = dsScope === 'all' ? points.slice() : projPoints();
+    const items = datasetItems(recs);
+    if (!items.length) { toast('No labeled photos yet'); return; }
+    const files = [], rows = [['file', 'label', 'project', 'element', 'element_id', 'source', 'taken']], counts = {}, n = {};
+    for (let i = 0; i < items.length; i++) {
+      busy(`Preparing photos ${i + 1} / ${items.length}`, i / items.length);
+      const it = items[i], jpg = await pdfJpeg(it.pid, 640);
+      if (!jpg) continue;
+      const folder = C.safeName(it.label), key = `${folder}/${C.safeName(it.r.project)}_${C.safeName(it.r.poleId)}`;
+      n[key] = (n[key] || 0) + 1;
+      const name = `${key}_${n[key]}.jpg`;
+      files.push({ name: `dataset/${name}`, data: jpg });
+      rows.push([name, it.label, it.r.project, elemOf(it.r), it.r.poleId, it.kind, it.r.takenAt || '']);
+      counts[it.label] = (counts[it.label] || 0) + 1;
+    }
+    const summary = Object.entries(counts).sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k}: ${v}`).join('\n');
+    files.push({ name: 'dataset/labels.csv', data: window.PoleReports.csv(rows) });
+    files.push({ name: 'dataset/README.txt', data: `PoleCam training photos\nExported ${new Date().toISOString()}\nOne folder per label; photos resized to 640 px. labels.csv lists every file.\n\nPhotos per label:\n${summary}\n\nAim for 200+ photos per label before training a model. Check a sample of each folder: a label is only as good as the photo slot it was taken in.\n` });
+    offerResult(new Blob(C.makeZipParts(files), { type: 'application/zip' }), `${dsScope === 'all' ? 'PoleCam_all_projects' : C.safeName(S.project)}_training_photos_${stamp8()}.zip`);
+    toast(`${files.length - 2} photos in ${Object.keys(counts).length} folders`, 3500);
   }));
 
   $('doPhotos').addEventListener('click', () => guard(async () => {
@@ -1172,6 +1626,10 @@
       if (!S.projects.includes(proj)) S.projects.push(proj);
       S.meta = S.meta || {};
       if (meta.meta && !S.meta[proj]) S.meta[proj] = meta.meta;
+      else if (meta.meta && meta.meta.links) {
+        const have = new Set((S.meta[proj].links || []).map(([x, y]) => [x, y].sort().join('|')));
+        S.meta[proj].links = (S.meta[proj].links || []).concat(meta.meta.links.filter(([x, y]) => !have.has([x, y].sort().join('|'))));
+      }
       S.project = proj; persist();
     }
     renderPoles(); fitProject();
@@ -1302,7 +1760,8 @@
     const dist = distFromPin(meta, r);
     return [`${verb} ${shortTime(meta.at)}`,
       meta.lat != null ? `GPS ${meta.lat.toFixed(6)}, ${meta.lon.toFixed(6)}${Number.isFinite(meta.acc) ? ` ±${Math.round(meta.acc)} m` : ''} · ${fmtDist(dist)} from pin` : 'No GPS recorded',
-      ...(meta.by ? [`By ${meta.by}`] : [])];
+      ...(meta.by ? [`By ${meta.by}`] : []),
+      ...(meta.q && meta.q.flags && meta.q.flags.length ? [`Kept despite camera warning: ${meta.q.flags.join(', ')}`] : [])];
   }
   $('doPdf').addEventListener('click', () => guard(async () => {
     if (!needPoints()) return;
@@ -1437,6 +1896,10 @@
     $('setTypes').value = S.types.join('\n'); $('setStamp').checked = !!S.stamp; $('setMaxPx').value = String(S.maxPx);
     $('setZone').value = String(S.zone); $('setSym').value = S.sym; $('setTxt').value = S.txt;
     $('setUser').value = S.userName || '';
+    $('setGpsFresh').checked = S.gpsFresh !== false; $('setQuality').value = S.quality || 'normal'; $('setReadId').checked = S.readId !== false;
+    $('setMaxSpan').value = S.maxSpan || 50; $('setAngle').value = S.angleDeg || 15; $('setAutoGap').value = S.autoGap || 120;
+    $('setSaveBase').value = S.saveBase || 'DOCUMENTS'; $('setSaveFolder').value = S.saveFolder || 'PoleCam'; $('setSaveByProject').checked = S.saveByProject !== false;
+    updateSavePreview();
     S.defects = S.defects || JSON.parse(JSON.stringify(DEF_CHECK));
     const cats = Object.keys(S.defects);
     $('setDefCat').innerHTML = cats.map((c) => `<option>${C.xmlEsc(c)}</option>`).join('');
@@ -1448,6 +1911,18 @@
     S.types = t.length ? [...new Set(t)] : DEF.types.slice(); persist(); renderPoles();
   });
   $('setUser').addEventListener('change', () => { S.userName = $('setUser').value.trim(); persist(); });
+  function updateSavePreview() {
+    $('savePreview').textContent = NATIVE ? `Files go to: ${savePath('…').shown.replace(/\/…$/, '/')}` : 'Website version: your browser saves to its Downloads folder.';
+    ['setSaveBase', 'setSaveFolder', 'setSaveByProject'].forEach((id) => { $(id).disabled = !NATIVE; });
+  }
+  $('setGpsFresh').addEventListener('change', () => { S.gpsFresh = $('setGpsFresh').checked; persist(); });
+  $('setQuality').addEventListener('change', () => { S.quality = $('setQuality').value; persist(); });
+  $('setReadId').addEventListener('change', () => { S.readId = $('setReadId').checked; persist(); });
+  const numSet = (id, key, min, max) => $(id).addEventListener('change', () => { const v = +$(id).value; if (v >= min && v <= max) { S[key] = v; persist(); renderPoles(); } else $(id).value = S[key]; });
+  numSet('setMaxSpan', 'maxSpan', 5, 1000); numSet('setAngle', 'angleDeg', 1, 90); numSet('setAutoGap', 'autoGap', 10, 5000);
+  $('setSaveBase').addEventListener('change', () => { S.saveBase = $('setSaveBase').value; persist(); updateSavePreview(); });
+  $('setSaveFolder').addEventListener('change', () => { S.saveFolder = $('setSaveFolder').value.trim() || 'PoleCam'; persist(); updateSavePreview(); });
+  $('setSaveByProject').addEventListener('change', () => { S.saveByProject = $('setSaveByProject').checked; persist(); updateSavePreview(); });
   $('setDefCat').addEventListener('change', () => { $('setDefItems').value = (S.defects[$('setDefCat').value] || []).join('\n'); });
   $('setDefItems').addEventListener('change', () => {
     S.defects[$('setDefCat').value] = $('setDefItems').value.split('\n').map((s) => s.trim()).filter(Boolean); persist();
@@ -1596,8 +2071,11 @@
     if (!S.view) fitProject();
     startGps();
   })();
-  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+  // Files handed to other apps through Share are temporary: clear them each time the APK starts.
+  if (NATIVE) nativeCall('Filesystem', 'rmdir', { path: 'share', directory: 'CACHE', recursive: true }).catch(() => {});
+  // The APK already carries every file, so the offline cache is only for the website version.
+  if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__polecam = { get points() { return points; }, get S() { return S; }, openEditor, exportPhoto, tilesFor, closeDb: async () => (await idb()).close() }; // for testing
+  window.__polecam = { get points() { return points; }, get S() { return S; }, openEditor, exportPhoto, tilesFor, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun }; // for testing
 })();

@@ -307,7 +307,16 @@
         `<Data name="captured"><value>${xmlEsc(p.takenAt)}</value></Data><Data name="accuracy_m"><value>${Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : ''}</value></Data></ExtendedData>` +
         `<Point><coordinates>${p.lon.toFixed(8)},${p.lat.toFixed(8)},0</coordinates></Point></Placemark>`);
     }
-    return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xmlEsc(o.project || 'PoleCam')}</name>\n${styles.join('\n')}\n<Folder><name>Poles</name>\n${marks.join('\n')}\n</Folder></Document></kml>\n`;
+    let route = '';
+    if (o.spans && o.spans.length) {
+      styles.push('<Style id="span_ok"><LineStyle><color>ffe6a01c</color><width>3</width></LineStyle></Style>',
+        '<Style id="span_long"><LineStyle><color>ff2a2ac9</color><width>4</width></LineStyle></Style>');
+      const lines = o.spans.map((s) => `<Placemark><name>${s.len.toFixed(1)} m</name><styleUrl>#${s.long ? 'span_long' : 'span_ok'}</styleUrl>` +
+        `<description>${xmlEsc(`${s.from} → ${s.to}: ${s.len.toFixed(1)} m${s.long ? ' (longer than the maximum span)' : ''}`)}</description>` +
+        `<LineString><tessellate>1</tessellate><coordinates>${s.a.lon.toFixed(8)},${s.a.lat.toFixed(8)},0 ${s.b.lon.toFixed(8)},${s.b.lat.toFixed(8)},0</coordinates></LineString></Placemark>`);
+      route = `<Folder><name>Route (${o.spans.length} spans, ${o.spans.reduce((t, s) => t + s.len, 0).toFixed(0)} m)</name>\n${lines.join('\n')}\n</Folder>\n`;
+    }
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xmlEsc(o.project || 'PoleCam')}</name>\n${styles.join('\n')}\n${route}<Folder><name>Poles</name>\n${marks.join('\n')}\n</Folder></Document></kml>\n`;
   }
 
   /* ---------------- DXF (R12 ASCII) ---------------- */
@@ -332,6 +341,7 @@
     const pr = (pts) => pts.map(({ lat, lon }) => utmForward(lat, lon, o.zone, lat < 0));
     const xy = pr(points);
     const roadXY = (roads || []).map((r) => ({ ...r, xy: r.coords.map(([lat, lon]) => utmForward(lat, lon, o.zone, lat < 0)) }));
+    const spanXY = (o.spans || []).map((s) => ({ ...s, A: utmForward(s.a.lat, s.a.lon, o.zone, s.a.lat < 0), B: utmForward(s.b.lat, s.b.lon, o.zone, s.b.lat < 0) }));
     const all = xy.concat(...roadXY.map((r) => r.xy));
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const p of all) { minX = Math.min(minX, p.E); minY = Math.min(minY, p.N); maxX = Math.max(maxX, p.E); maxY = Math.max(maxY, p.N); }
@@ -345,6 +355,7 @@
     types.forEach((t, i) => layers.push([blockName(t), palette[i % palette.length]]));
     const roadColor = { OSM_ROAD_MAJOR: 9, OSM_ROAD_MINOR: 8, OSM_ROAD_PATH: 253 };
     roadClasses.forEach((c) => layers.push([c, roadColor[c] || 8]));
+    if (spanXY.length) layers.push(['CABLE_ROUTE', 4], ['SPAN_LONG', 1], ['SPAN_LENGTH', 7]);
 
     g(0, 'SECTION'); g(2, 'HEADER');
     g(9, '$ACADVER'); g(1, 'AC1009');
@@ -393,6 +404,17 @@
         g(0, 'TEXT'); g(8, 'ROAD_NAME'); g(10, ((a.E + b.E) / 2).toFixed(3)); g(20, ((a.N + b.N) / 2).toFixed(3)); g(30, 0);
         g(40, (o.textHeight * 0.8).toFixed(3)); g(1, dxfText(rd.name)); g(50, ang.toFixed(2));
       }
+    }
+    for (const s of spanXY) {
+      const lay = s.long ? 'SPAN_LONG' : 'CABLE_ROUTE';
+      g(0, 'LINE'); g(8, lay); g(10, s.A.E.toFixed(3)); g(20, s.A.N.toFixed(3)); g(30, 0); g(11, s.B.E.toFixed(3)); g(21, s.B.N.toFixed(3)); g(31, 0);
+      let ang = Math.atan2(s.B.N - s.A.N, s.B.E - s.A.E) * 180 / Math.PI;
+      if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
+      const t = `${s.len.toFixed(1)}m`, th = o.textHeight * 0.75, rad = ang * Math.PI / 180;
+      const mx = (s.A.E + s.B.E) / 2, my = (s.A.N + s.B.N) / 2, half = t.length * th * 0.3;
+      // centred on the span, lifted off the line
+      const x = mx - Math.cos(rad) * half - Math.sin(rad) * th * 0.6, y = my - Math.sin(rad) * half + Math.cos(rad) * th * 0.6;
+      g(0, 'TEXT'); g(8, 'SPAN_LENGTH'); g(10, x.toFixed(3)); g(20, y.toFixed(3)); g(30, 0); g(40, th.toFixed(3)); g(1, t); g(50, ang.toFixed(2));
     }
     points.forEach((p, i) => {
       const { E, N } = xy[i], bn = blockName(p.poleType || 'UNSPECIFIED');
@@ -444,7 +466,106 @@
     return m[1] + num + m[3];
   }
 
-  const api = { utmForward, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
+  /* ---------------- route analysis ---------------- */
+  function distM(a, b) {
+    const R = 6371008.8, r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+  /** Deflection (degrees) of the route at P between neighbours A and B: 0 = straight through, 90 = right angle. */
+  function deflection(P, A, B) {
+    const k = Math.cos(P.lat * Math.PI / 180);
+    const v1 = [(A.lon - P.lon) * k, A.lat - P.lat], v2 = [(B.lon - P.lon) * k, B.lat - P.lat];
+    const n = Math.hypot(...v1) * Math.hypot(...v2);
+    if (!n) return 0;
+    const cos = Math.max(-1, Math.min(1, (v1[0] * v2[0] + v1[1] * v2[1]) / n));
+    return 180 - Math.acos(cos) * 180 / Math.PI;
+  }
+  /**
+   * points: [{id, poleId, lat, lon}], links: [[idA, idB]], o: {maxSpan, angleDeg}
+   * -> {spans:[{a,b,from,to,len,long}], poles:{id:{degree, deflection, role}}, total, long, angle, terminal, junction, inline, off}
+   */
+  function analyzeRoute(points, links, o) {
+    const by = {}; points.forEach((p) => { by[p.id] = p; });
+    const nb = {}; points.forEach((p) => { nb[p.id] = []; });
+    const spans = [];
+    for (const [ia, ib] of links || []) {
+      const a = by[ia], b = by[ib];
+      if (!a || !b || ia === ib) continue;
+      const len = distM(a, b);
+      spans.push({ ia, ib, a, b, from: a.poleId, to: b.poleId, len, long: len > o.maxSpan });
+      nb[ia].push(b); nb[ib].push(a);
+    }
+    const poles = {}; const cnt = { long: 0, angle: 0, terminal: 0, junction: 0, inline: 0, off: 0 };
+    for (const p of points) {
+      const n = nb[p.id], degree = n.length;
+      let role = 'Not on route', defl = null;
+      if (degree === 1) role = 'Terminal';
+      else if (degree === 2) { defl = deflection(p, n[0], n[1]); role = defl >= o.angleDeg ? 'Angle' : 'Inline'; }
+      else if (degree >= 3) role = 'Junction';
+      poles[p.id] = { degree, deflection: defl, role };
+      cnt[{ 'Not on route': 'off', Terminal: 'terminal', Inline: 'inline', Angle: 'angle', Junction: 'junction' }[role]]++;
+    }
+    cnt.long = spans.filter((s) => s.long).length;
+    return { spans, poles, total: spans.reduce((t, s) => t + s.len, 0), ...cnt };
+  }
+  /** Link poles in capture order, skipping jumps longer than maxLink metres (a new street, a gap in the survey). */
+  function autoLinks(points, maxLink) {
+    const out = [];
+    for (let i = 1; i < points.length; i++) if (distM(points[i - 1], points[i]) <= maxLink) out.push([points[i - 1].id, points[i].id]);
+    return out;
+  }
+
+  /* ---------------- Pole ID candidates from OCR ---------------- */
+  const shapeOf = (s) => s.replace(/[A-Z]/g, 'A').replace(/[0-9]/g, '9');
+  const TO_DIGIT = { O: '0', Q: '0', D: '0', I: '1', L: '1', T: '1', Z: '2', S: '5', G: '6', B: '8' };
+  const TO_LETTER = { 0: 'O', 1: 'I', 2: 'Z', 5: 'S', 6: 'G', 8: 'B' };
+  /** Bend a reading towards the shape of the project's last ID (e.g. AAA-9999), fixing O/0, I/1, S/5 mix-ups. */
+  function fitShape(s, target) {
+    if (!target || s.length !== target.length) return null;
+    let out = '';
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i], t = target[i];
+      if (t === '9') out += /[0-9]/.test(ch) ? ch : (TO_DIGIT[ch] || ch);
+      else if (t === 'A') out += /[A-Z]/.test(ch) ? ch : (TO_LETTER[ch] || ch);
+      else out += /[-/]/.test(ch) ? t : ch;
+    }
+    return shapeOf(out) === target ? out : null;
+  }
+  /**
+   * results: [{words:[{text, conf, line}]}] (one per OCR pass); lastId: previous ID in the project (may be '').
+   * -> [{id, conf, fits}] best first, at most 5.
+   */
+  function idCandidates(results, lastId) {
+    const target = lastId ? shapeOf(lastId.toUpperCase()) : '';
+    const sep = (lastId || '').match(/[-/ ]/);
+    const found = new Map();
+    const add = (raw, conf, bonus = 0) => {
+      let s = raw.toUpperCase().replace(/[^A-Z0-9\-/]/g, '').replace(/^[-/]+|[-/]+$/g, '');
+      if (s.length < 2 || s.length > 20 || !/[0-9]/.test(s)) return;
+      const fitted = fitShape(s, target), id = fitted || s, fits = !!fitted;
+      const score = conf + bonus + (fits ? 15 : 0) + (/[A-Z]/.test(id) ? 2 : 0);
+      const prev = found.get(id);
+      if (!prev || prev.score < score) found.set(id, { id, conf: Math.round(conf), fits, score });
+    };
+    for (const r of results || []) {
+      const lines = {};
+      for (const w of r.words || []) if (w.conf >= 20) (lines[w.line] = lines[w.line] || []).push(w);
+      const lineList = Object.values(lines);
+      for (const ws of lineList) {
+        const mean = ws.reduce((t, w) => t + w.conf, 0) / ws.length;
+        ws.forEach((w) => add(w.text, w.conf));
+        if (ws.length > 1) { add(ws.map((w) => w.text).join(sep ? sep[0].trim() || '-' : '-'), mean, 3); add(ws.map((w) => w.text).join(''), mean, 1); }
+      }
+      if (lineList.length === 2) { // two-line stencils, e.g. "MKP" over "0123"
+        const all = lineList.flat(), mean = all.reduce((t, w) => t + w.conf, 0) / all.length;
+        add(lineList.map((ws) => ws.map((w) => w.text).join('')).join(sep ? sep[0].trim() || '-' : '-'), mean, 2);
+      }
+    }
+    return [...found.values()].sort((a, b) => b.score - a.score).slice(0, 5);
+  }
+
+  const api = { utmForward, analyzeRoute, autoLinks, distM, deflection, idCandidates, fitShape, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
     buildKml, buildDxf, buildCsv, roadsFromOverpass, overpassQuery, nextPoleId, safeName, xmlEsc, blockName };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleCore = api;
 })(typeof self !== 'undefined' ? self : this);

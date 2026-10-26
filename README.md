@@ -93,6 +93,29 @@ The Excel/CSV punchlist now also has *Days to rectify*, *Rectified by*, *Defect 
 
 **Vendor hand-off:** Globe makes a Backup of the PAT/FAT project → sends the ZIP to the vendor → vendor Restores it on their phone, sets their name, takes after photos at each site → makes a Backup → sends it back → Globe Restores it and exports the rectification report.
 
+## Camera checks, Pole ID reading, route (v1.5)
+
+**Camera checks**
+- A photo is kept only if a GPS update arrived within **5 seconds** of the shutter. The camera's GPS pill shows how old the last fix is ("now", "3 s ago"); it turns red after 5 s. The app waits up to 5 s for a fresh fix after you press the shutter, then refuses the photo. Always on in acceptance projects; can be turned off for survey projects (Settings → Camera checks).
+- Every photo is checked for **blur, darkness and overexposure**. If it looks bad you get *Retake* or *Use anyway*; a photo kept anyway is marked in the editor and on the acceptance reports. Normal (default) warns only on clearly blurry photos; Strict also warns on slightly soft ones.
+- With the phone's own camera app (fallback), the GPS check uses the fix taken right after you return to PoleCam.
+
+**Reading the painted Pole ID (offline)**
+- With **ID** on (top right of the camera), a guide box appears. Put the painted ID inside the box when you take the pole photo. The app reads it on the phone (Tesseract OCR, no internet) and fills the Pole ID field when it is at least 80% sure; other readings appear as buttons to tap.
+- **Scan ID** next to the Pole ID field opens the camera just to read an ID (handy for a close-up of the tag after the full-pole photo).
+- Readings are bent toward your project's numbering, e.g. "MKP-O123" becomes "MKP-0123" when your last ID was MKP-0001. Always check the result before saving; faded or hand-painted IDs may not read.
+
+**Route and spans (survey projects)**
+- Tap the **route button** on the map. *Link in capture order* connects poles in the order you surveyed them (skipping gaps longer than the setting). Then tap a pole and the next pole to add a span, or tap a linked pair to remove it (for branches and corners). *Undo* and *Clear* are there too.
+- Spans show their length; spans longer than the maximum are red and dashed. Angle poles (orange ring, deflection shown on the label) and junctions (purple ring) are marked. Settings → *Route checks* sets the maximum span, the angle-pole threshold and the auto-link gap — the starting values (50 m, 15°, 120 m) are placeholders, set your own standard.
+- Exports: DXF gets layers **CABLE_ROUTE**, **SPAN_LONG** and **SPAN_LENGTH**; KMZ gets a *Route* folder; **Route and spans · Excel** gives a Summary, every span and every pole's role (terminal, inline, angle, junction, not linked) with its deflection angle. Span lengths are straight pin-to-pin distances, not cable lengths.
+
+**Where saved files go (Android app)**
+- Settings → *Where saved files go*: Documents or Download, a folder name, and optionally one folder per project. Projects themselves stay in the app's private storage.
+
+**Photos for AI training**
+- Export → *Photos for AI training*: your labeled photos sorted into one folder per type with a labels.csv, for teaching the app later to recognise poles, NAPs, closures, ODFs, etc. Aim for 200+ photos per type.
+
 ## AutoCAD
 
 - Open the DXF directly or `INSERT`/`XATTACH` it into your drawing. Units are **meters**, coordinates are **UTM 51N (WGS84)** — your drawing must use the same system to line up.
@@ -116,8 +139,19 @@ Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v1.0.1`), and upload 
 | `app.js` | Camera, GPS, map, storage, exports |
 | `core.js` | UTM 51N conversion, EXIF read/write, ZIP, KML, DXF, CSV (no dependencies) |
 | `reports.js` | Excel (.xlsx) and PDF punchlist writers, acceptance KML (no dependencies) |
+| `ocr-worker.js`, `vendor/tesseract/` | Offline Pole ID reader: Tesseract OCR (tesseract.js-core v7.0.0) and the English model from tessdata_fast, both Apache-2.0 |
 | `sw.js` | Offline cache for the app itself |
 | `manifest.json`, `icons/` | Install as an app |
 | `vendor/leaflet/` | Map library (Leaflet 1.9.4, BSD-2) |
 
 Map data © OpenStreetMap contributors (ODbL). Satellite imagery © Esri.
+
+## Offline Android APK (built by GitHub Actions)
+
+`.github/workflows/build-apk.yml` packs every app file into a signed APK on GitHub's servers, so the APK installs and runs with no internet and does not need the website. Maps still need internet or a downloaded offline area.
+
+- One-time setup: add the repository secrets `POLECAM_KEYSTORE_B64` and `POLECAM_KEYSTORE_PASSWORD` (Settings → Secrets and variables → Actions). Keep the keystore file and password safe: every future APK must be signed with the same key, or phones will refuse the update.
+- Each time app files change on `main`, a new APK is built (about 5–8 minutes) and published under **Releases**. Newest APK: `https://github.com/<user>/polecam/releases/latest/download/PoleCam.apk`.
+- In the APK, *Save* writes exports to the phone's **Documents/PoleCam** folder and *Share* opens Android's share sheet.
+- The APK keeps its own data, separate from the Chrome/Home-screen version. Move projects with Backup → Restore.
+- Updating: install the newer APK over the old one; projects stay. Uninstalling the app deletes its projects, so back up first.
