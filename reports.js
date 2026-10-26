@@ -16,45 +16,51 @@
   /* ================= XLSX ================= */
   function colName(i) { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
   const STYLES = { normal: 0, title: 1, header: 2, cell: 3, label: 4, bad: 5, good: 6, coord: 7, center: 8, info: 9 };
-  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  /* Cell styles are built from a registry: the ten fixed ones above plus any registered with xstyle(). */
+  const fonts = [], fills = ['<patternFill patternType="none"/>', '<patternFill patternType="gray125"/>'], borders = ['<left/><right/><top/><bottom/><diagonal/>'], xfs = [];
+  const numFmts = { '0.0000000': 164, '0.00': 2, '0': 1, 'mmm d, yyyy': 165 };
+  const dedupe = (arr, xml) => { const i = arr.indexOf(xml); if (i >= 0) return i; arr.push(xml); return arr.length - 1; };
+  function fontId(f) {
+    const o = f || {};
+    return dedupe(fonts, `${o.b ? '<b/>' : ''}${o.i ? '<i/>' : ''}<sz val="${o.sz || 10}"/>${o.color ? `<color rgb="${o.color}"/>` : ''}<name val="${o.name || 'Arial'}"/><family val="2"/>`);
+  }
+  function fillId(rgb) { return rgb ? dedupe(fills, `<patternFill patternType="solid"><fgColor rgb="${rgb}"/><bgColor indexed="64"/></patternFill>`) : 0; }
+  function borderId(b) {
+    if (!b) return 0;
+    const side = (k) => { const st = typeof b === 'string' ? b : b[k]; return st ? `<${k} style="${st}"><color rgb="${(typeof b === 'object' && b.color) || 'FF000000'}"/></${k}>` : `<${k}/>`; };
+    return dedupe(borders, `${side('left')}${side('right')}${side('top')}${side('bottom')}<diagonal/>`);
+  }
+  /** Registers a cell style {font:{b,i,sz,color,name}, fill:'FFRRGGBB', border:'thin'|{left,right,top,bottom,color}, align:{h,v,wrap,rotate}, numFmt} and returns its index. */
+  function xstyle(spec) {
+    const o = spec || {}, al = o.align || {};
+    const nf = o.numFmt ? numFmts[o.numFmt] : 0;
+    const alXml = (al.h || al.v || al.wrap || al.rotate || al.indent) ? `<alignment${al.h ? ` horizontal="${al.h}"` : ''}${al.v ? ` vertical="${al.v}"` : ''}${al.wrap ? ' wrapText="1"' : ''}${al.rotate ? ` textRotation="${al.rotate}"` : ''}${al.indent ? ` indent="${al.indent}"` : ''}/>` : '';
+    const xml = `<xf numFmtId="${nf || 0}" fontId="${fontId(o.font)}" fillId="${fillId(o.fill)}" borderId="${borderId(o.border)}" xfId="0"${nf ? ' applyNumberFormat="1"' : ''} applyFont="1"${o.fill ? ' applyFill="1"' : ''}${o.border ? ' applyBorder="1"' : ''}${alXml ? ' applyAlignment="1"' : ''}>${alXml}</xf>`;
+    return dedupe(xfs, xml);
+  }
+  // the ten fixed styles, in STYLES order
+  xstyle({});
+  xstyle({ font: { b: 1, sz: 14 } });
+  xstyle({ font: { b: 1 }, fill: 'FFDDE2E6', border: { left: 'thin', right: 'thin', top: 'thin', bottom: 'thin', color: 'FFB0B7BD' }, align: { h: 'center', v: 'center', wrap: 1 } });
+  xstyle({ border: { left: 'thin', right: 'thin', top: 'thin', bottom: 'thin', color: 'FFB0B7BD' }, align: { v: 'top', wrap: 1 } });
+  xstyle({ font: { b: 1 } });
+  xstyle({ font: { b: 1, color: 'FFC92A2A' }, fill: 'FFFDE4E3', border: { left: 'thin', right: 'thin', top: 'thin', bottom: 'thin', color: 'FFB0B7BD' }, align: { v: 'top', wrap: 1 } });
+  xstyle({ font: { b: 1, color: 'FF2B8A3E' }, fill: 'FFE3F4E6', border: { left: 'thin', right: 'thin', top: 'thin', bottom: 'thin', color: 'FFB0B7BD' }, align: { v: 'top', wrap: 1 } });
+  xstyle({ numFmt: '0.0000000', border: { left: 'thin', right: 'thin', top: 'thin', bottom: 'thin', color: 'FFB0B7BD' }, align: { v: 'top' } });
+  xstyle({ border: { left: 'thin', right: 'thin', top: 'thin', bottom: 'thin', color: 'FFB0B7BD' }, align: { h: 'center', v: 'top' } });
+  xstyle({ font: { color: 'FF5A6570' } });
+  const stylesXml = () => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<numFmts count="1"><numFmt numFmtId="164" formatCode="0.0000000"/></numFmts>
-<fonts count="6">
-<font><sz val="10"/><name val="Arial"/><family val="2"/></font>
-<font><b/><sz val="10"/><name val="Arial"/><family val="2"/></font>
-<font><b/><sz val="14"/><name val="Arial"/><family val="2"/></font>
-<font><b/><sz val="10"/><color rgb="FFC92A2A"/><name val="Arial"/><family val="2"/></font>
-<font><b/><sz val="10"/><color rgb="FF2B8A3E"/><name val="Arial"/><family val="2"/></font>
-<font><sz val="10"/><color rgb="FF5A6570"/><name val="Arial"/><family val="2"/></font>
-</fonts>
-<fills count="5">
-<fill><patternFill patternType="none"/></fill>
-<fill><patternFill patternType="gray125"/></fill>
-<fill><patternFill patternType="solid"><fgColor rgb="FFDDE2E6"/><bgColor indexed="64"/></patternFill></fill>
-<fill><patternFill patternType="solid"><fgColor rgb="FFFDE4E3"/><bgColor indexed="64"/></patternFill></fill>
-<fill><patternFill patternType="solid"><fgColor rgb="FFE3F4E6"/><bgColor indexed="64"/></patternFill></fill>
-</fills>
-<borders count="2">
-<border><left/><right/><top/><bottom/><diagonal/></border>
-<border><left style="thin"><color rgb="FFB0B7BD"/></left><right style="thin"><color rgb="FFB0B7BD"/></right><top style="thin"><color rgb="FFB0B7BD"/></top><bottom style="thin"><color rgb="FFB0B7BD"/></bottom><diagonal/></border>
-</borders>
+<numFmts count="2"><numFmt numFmtId="164" formatCode="0.0000000"/><numFmt numFmtId="165" formatCode="mmm d, yyyy"/></numFmts>
+<fonts count="${fonts.length}">${fonts.map((f) => `<font>${f}</font>`).join('')}</fonts>
+<fills count="${fills.length}">${fills.map((f) => `<fill>${f}</fill>`).join('')}</fills>
+<borders count="${borders.length}">${borders.map((b) => `<border>${b}</border>`).join('')}</borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="10">
-<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>
-<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
-<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
-<xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
-<xf numFmtId="0" fontId="4" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
-<xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment vertical="top"/></xf>
-<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>
-<xf numFmtId="0" fontId="5" fillId="0" borderId="0" xfId="0" applyFont="1"/>
-</cellXfs>
+<cellXfs count="${xfs.length}">${xfs.join('')}</cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
 
-  function sheetXml(sh) {
+  function sheetXml(sh, drawingRid) {
     const rows = sh.rows.map((row, ri) => {
       if (!row) return '';
       const cells = row.map((cell, ci) => {
@@ -81,17 +87,29 @@ ${cols ? `<cols>${cols}</cols>` : ''}
 <sheetData>${rows}</sheetData>
 ${sh.autoFilter ? `<autoFilter ref="${sh.autoFilter}"/>` : ''}
 ${sh.merges && sh.merges.length ? `<mergeCells count="${sh.merges.length}">${sh.merges.map((m) => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>` : ''}
-<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>
-<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>
+${(() => { const p = sh.page || {}, m = p.margins || {}; return `<pageMargins left="${m.left ?? 0.4}" right="${m.right ?? 0.4}" top="${m.top ?? 0.5}" bottom="${m.bottom ?? 0.5}" header="0.3" footer="0.3"/>
+<pageSetup paperSize="${p.paper || 9}" orientation="${p.orientation || 'landscape'}" fitToWidth="${p.fitToWidth ?? 1}" fitToHeight="${p.fitToHeight ?? 0}"/>`; })()}
+${sh.rowBreaks && sh.rowBreaks.length ? `<rowBreaks count="${sh.rowBreaks.length}" manualBreakCount="${sh.rowBreaks.length}">${sh.rowBreaks.map((r) => `<brk id="${r}" max="16383" man="1"/>`).join('')}</rowBreaks>` : ''}
+${drawingRid ? `<drawing r:id="${drawingRid}"/>` : ''}
 </worksheet>`;
   }
+  /** images: [{bytes, ext:'jpeg'|'png', from:{col,row,colOff,rowOff}, to:{col,row,colOff,rowOff}}] (offsets in EMU; 1 px ≈ 9525) */
+  function drawingXml(images) {
+    const anchor = (a) => `<xdr:col>${a.col}</xdr:col><xdr:colOff>${a.colOff || 0}</xdr:colOff><xdr:row>${a.row}</xdr:row><xdr:rowOff>${a.rowOff || 0}</xdr:rowOff>`;
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(im.from)}</xdr:from><xdr:to>${anchor(im.to)}</xdr:to><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${i + 2}" name="Picture ${i + 1}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId${i + 1}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:twoCellAnchor>`).join('\n')}
+</xdr:wsDr>`;
+  }
   function safeSheetName(n) { return String(n).replace(/[\[\]:*?\/\\]/g, ' ').slice(0, 31) || 'Sheet'; }
-  /** sheets: [{name, cols, rows, merges, freezeRow, autoFilter, heights}] -> zip parts (Uint8Array[]) */
+  /** sheets: [{name, cols, rows, merges, freezeRow, autoFilter, heights, page, rowBreaks, images}] -> zip parts (Uint8Array[]) */
   function buildXlsxParts(sheets) {
     const names = sheets.map((s) => safeSheetName(s.name));
     const files = [];
+    let mediaN = 0;
+    const drawings = sheets.map((s, i) => (s.images && s.images.length ? { sheet: i, n: i + 1 } : null)).filter(Boolean);
     files.push({ name: '[Content_Types].xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>` });
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="png" ContentType="image/png"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}${drawings.map((d) => `<Override PartName="/xl/drawings/drawing${d.n}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`).join('')}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>` });
     files.push({ name: '_rels/.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` });
     const defined = sheets.map((s, i) => s.autoFilter ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${names[i].replace(/'/g, "''")}'!${s.autoFilter.replace(/([A-Z]+)(\d+)/g, '$$$1$$$2')}</definedName>` : '').join('');
@@ -99,8 +117,18 @@ ${sh.merges && sh.merges.length ? `<mergeCells count="${sh.merges.length}">${sh.
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets>${names.map((n, i) => `<sheet name="${xmlEsc(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets>${defined ? `<definedNames>${defined}</definedNames>` : ''}</workbook>` });
     files.push({ name: 'xl/_rels/workbook.xml.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` });
-    files.push({ name: 'xl/styles.xml', data: stylesXml });
-    sheets.forEach((s, i) => files.push({ name: `xl/worksheets/sheet${i + 1}.xml`, data: sheetXml(s) }));
+    files.push({ name: 'xl/styles.xml', data: stylesXml() });
+    sheets.forEach((s, i) => {
+      const dr = drawings.find((d) => d.sheet === i);
+      files.push({ name: `xl/worksheets/sheet${i + 1}.xml`, data: sheetXml(s, dr ? 'rId1' : null) });
+      if (!dr) return;
+      files.push({ name: `xl/worksheets/_rels/sheet${i + 1}.xml.rels`, data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${dr.n}.xml"/></Relationships>` });
+      files.push({ name: `xl/drawings/drawing${dr.n}.xml`, data: drawingXml(s.images) });
+      const rels = s.images.map((im, k) => { mediaN++; files.push({ name: `xl/media/image${mediaN}.${im.ext || 'jpeg'}`, data: im.bytes }); return `<Relationship Id="rId${k + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image${mediaN}.${im.ext || 'jpeg'}"/>`; });
+      files.push({ name: `xl/drawings/_rels/drawing${dr.n}.xml.rels`, data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels.join('')}</Relationships>` });
+    });
     return Core.makeZipParts(files);
   }
 
@@ -158,8 +186,9 @@ ${sh.merges && sh.merges.length ? `<mergeCells count="${sh.merges.length}">${sh.
   const latin1 = (s) => { const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i) & 255; return u; };
   const f2 = (n) => (Math.round(n * 100) / 100).toString();
 
+  const PAGE_SIZES = { a4: [595.28, 841.89], letter: [612, 792] };
   class Pdf {
-    constructor() { this.W = 595.28; this.H = 841.89; this.pages = []; this.images = []; this.page = null; }
+    constructor(o) { const sz = PAGE_SIZES[(o && o.size) || 'a4'] || PAGE_SIZES.a4; this.W = sz[0]; this.H = sz[1]; this.pages = []; this.images = []; this.page = null; }
     addPage() { this.page = { ops: [] }; this.pages.push(this.page); return this.page; }
     op(s) { this.page.ops.push(s); }
     color(c, stroke) { const [r, g, b] = c; return `${f2(r)} ${f2(g)} ${f2(b)} ${stroke ? 'RG' : 'rg'}`; }
@@ -230,7 +259,7 @@ ${sh.merges && sh.merges.length ? `<mergeCells count="${sh.merges.length}">${sh.
 
   /* ---------------- punchlist PDF layout ---------------- */
   const RED = [0.79, 0.16, 0.16], GREEN = [0.17, 0.54, 0.24], BLUE = [0.1, 0.44, 0.76], MUTED = [0.35, 0.4, 0.44], INK = [0.09, 0.13, 0.16], ACCENT = [0.11, 0.23, 0.42];
-  const statusColor = (s) => (s === 'Open' || s === 'With deficiency' ? RED : s === 'Rectified' ? BLUE : GREEN);
+  const statusColor = (s) => (s === 'Open' || s === 'With deficiency' ? RED : s === 'Rectified' ? BLUE : s === 'Note' ? MUTED : GREEN);
 
   /**
    * model: {title, stageLong, project, footer, info:[[k,v]], summary:[[label,value]], items:[...], elements:[...], signers:[...], includePhotos}
@@ -410,22 +439,25 @@ ${sh.merges && sh.merges.length ? `<mergeCells count="${sh.merges.length}">${sh.
    * icons: {Open:'icons/open.png', OK:'icons/ok.png', Rectified:'icons/rect.png'} (paths inside files/)
    */
   function acceptanceKml(recs, o) {
-    const label = { Open: 'With open deficiency', OK: 'Passed (no deficiency)', Rectified: 'All deficiencies rectified' };
+    const label = { Open: 'With open deficiency', Rectified: 'Rectified · awaiting verification', Verified: 'All deficiencies verified', OK: 'Passed (no deficiency)' };
+    const stColor = { Open: '#c92a2a', Rectified: '#1971c2', Verified: '#0b7285', Note: '#868e96' };
     const styles = Object.entries(o.icons).map(([k, href]) =>
       `<Style id="st_${k}"><IconStyle><scale>1.1</scale><Icon><href>files/${href}</href></Icon></IconStyle><LabelStyle><scale>0.85</scale></LabelStyle></Style>`).join('\n');
-    const folders = ['Open', 'Rectified', 'OK'].map((st) => {
+    const own = recs.filter((r) => r.icon).map((r) => // photo icons: one style per element, over the status colour
+      `<Style id="ic_${xmlEsc(String(r.id))}"><IconStyle><scale>1.3</scale><Icon><href>files/${xmlEsc(r.icon)}</href></Icon></IconStyle><LabelStyle><scale>0.85</scale></LabelStyle></Style>`).join('\n');
+    const folders = ['Open', 'Rectified', 'Verified', 'OK'].map((st) => {
       const list = recs.filter((r) => r.status === st);
       if (!list.length) return '';
       const marks = list.map((r) => {
-        const defs = r.defs.length ? `<br/><b>Deficiencies</b><ol>${r.defs.map((d) => `<li value="${d.no}"><b>${xmlEsc(d.text)}</b> — ${xmlEsc(d.sev)} · <span style="color:${d.status === 'Rectified' ? '#1971c2' : '#c92a2a'}">${xmlEsc(d.status)}</span></li>`).join('')}</ol>` : '<br/><b style="color:#2b8a3e">No deficiency</b>';
+        const defs = r.defs.length ? `<br/><b>Deficiencies</b><ol>${r.defs.map((d) => `<li value="${d.no}"><b>${xmlEsc(d.text)}</b> — ${xmlEsc(d.sev)} · <span style="color:${stColor[d.status] || '#c92a2a'}">${xmlEsc(d.status)}</span></li>`).join('')}</ol>` : '<br/><b style="color:#2b8a3e">No deficiency</b>';
         const pics = r.photos.map((p) => `<img src="files/${xmlEsc(p)}" width="360"/><br/>`).join('');
         const desc = `<b>${xmlEsc(r.title)}</b><br/>${r.detailsHtml}${defs}<br/>${pics}`;
-        return `<Placemark><name>${xmlEsc(r.name)}</name><styleUrl>#st_${st}</styleUrl><description><![CDATA[${desc.replace(/]]>/g, ']]&gt;')}]]></description>` +
+        return `<Placemark><name>${xmlEsc(r.name)}</name><styleUrl>#${r.icon ? 'ic_' + xmlEsc(String(r.id)) : 'st_' + st}</styleUrl><description><![CDATA[${desc.replace(/]]>/g, ']]&gt;')}]]></description>` +
           `<Point><coordinates>${r.lon.toFixed(8)},${r.lat.toFixed(8)},0</coordinates></Point></Placemark>`;
       }).join('\n');
       return `<Folder><name>${label[st]} (${list.length})</name>\n${marks}\n</Folder>`;
     }).join('\n');
-    return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xmlEsc(o.name)}</name>\n${styles}\n${folders}\n</Document></kml>\n`;
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xmlEsc(o.name)}</name>\n${styles}\n${own}\n${folders}\n</Document></kml>\n`;
   }
 
   /* ================= rectification report PDF ================= */
@@ -599,6 +631,6 @@ ${sh.merges && sh.merges.length ? `<mergeCells count="${sh.merges.length}">${sh.
     return pdf;
   }
 
-  const api = { buildXlsxParts, Pdf, punchlistPdf, rectificationPdf, acceptanceKml, csv, textWidth, wrapText, jpegInfo, STYLES, colName };
+  const api = { buildXlsxParts, xstyle, Pdf, punchlistPdf, rectificationPdf, acceptanceKml, csv, textWidth, wrapText, jpegInfo, pdfEsc, STYLES, colName, RED, GREEN, BLUE, MUTED, INK, ACCENT };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleReports = api;
 })(typeof self !== 'undefined' ? self : this);

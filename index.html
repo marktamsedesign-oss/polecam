@@ -13,29 +13,30 @@
 <style>
 /* Layout: one full-screen map with a bottom command bar; every task opens as a full-screen sheet over it. */
 :root{
-  --bg:#eef1f6; --surface:#ffffff; --ink:#132033; --muted:#566175; --line:#d2d9e4;
-  --accent:#1b3a6b; --accent-ink:#ffffff; --navy:#0f2547; --navy-ink:#ffffff; --hi:#9cc1ff;
-  --ok:#2b8a3e; --warn:#b35c00; --bad:#c92a2a; --chip:#e4e9f1; --pin:#e6007e;
-  --shadow:0 2px 10px rgba(16,24,32,.18);
+  --bg:#eef1f6; --surface:#ffffff; --ink:#132033; --muted:#566175; --line:#d2d9e4; --line2:#e6ebf2;
+  --accent:#1b3a6b; --accent-ink:#ffffff; --navy:#0f2547; --navy-ink:#ffffff; --hi:#9cc1ff; --soft:#e8eefb;
+  --ok:#2b8a3e; --warn:#b35c00; --bad:#c92a2a; --info:#1971c2; --verified:#0b7285; --chip:#e4e9f1; --pin:#e6007e;
+  --shadow:0 2px 10px rgba(16,24,32,.14); --shadow2:0 1px 3px rgba(16,24,32,.10);
   --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;
   --mono:ui-monospace,"Roboto Mono","SFMono-Regular",Menlo,Consolas,monospace;
-  --r:10px; --tap:48px;
+  --r:12px; --tap:48px;
   color-scheme:light;
 }
 @media (prefers-color-scheme: dark){:root{
-  --bg:#0a1220; --surface:#121c2f; --ink:#e6ebf3; --muted:#9ca8bb; --line:#26344c;
-  --accent:#6d9cf0; --accent-ink:#06101f; --navy:#0b1830; --navy-ink:#e6ebf3; --hi:#9cc1ff;
-  --ok:#5cc26f; --warn:#f0a040; --bad:#ff6b6b; --chip:#1c2a42;
-  --shadow:0 2px 12px rgba(0,0,0,.5); color-scheme:dark;
+  --bg:#0a1220; --surface:#121c2f; --ink:#e6ebf3; --muted:#9ca8bb; --line:#26344c; --line2:#1d2a40;
+  --accent:#6d9cf0; --accent-ink:#06101f; --navy:#0b1830; --navy-ink:#e6ebf3; --hi:#9cc1ff; --soft:#162442;
+  --ok:#5cc26f; --warn:#f0a040; --bad:#ff6b6b; --info:#5aa3ee; --verified:#3bc9db; --chip:#1c2a42;
+  --shadow:0 2px 12px rgba(0,0,0,.5); --shadow2:0 1px 3px rgba(0,0,0,.4); color-scheme:dark;
 }}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--ink);font:15px/1.4 var(--sans);overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
-:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+:focus-visible{outline:3px solid var(--hi);outline-offset:2px}
 [hidden]{display:none!important}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+svg.i{width:22px;height:22px;flex:none}
 
 /* ---- main map ---- */
 #app{position:fixed;inset:0;display:flex;flex-direction:column}
@@ -46,6 +47,8 @@ button{cursor:pointer}
 #projectBtn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #projectBtn .count{font-family:var(--mono);opacity:.75;flex:none}
 #projectBtn .badge{order:-1}
+#projectBtn svg.i{width:18px;height:18px;opacity:.8}
+.badge{font:700 11px/1 var(--mono);letter-spacing:.06em;padding:5px 7px;border-radius:6px;background:var(--chip);color:var(--muted);flex:none}
 .badge.cat{background:#fff;color:var(--navy)}
 .badge.cat.pat{background:#ffd43b;color:#3d2b00}
 .badge.cat.fat{background:#69db7c;color:#06290f}
@@ -53,9 +56,16 @@ button{cursor:pointer}
 #gpsPill{position:absolute;top:calc(env(safe-area-inset-top,0px) + 64px);left:max(12px,env(safe-area-inset-left,0px));z-index:450;background:var(--surface);border-radius:999px;padding:6px 12px;box-shadow:var(--shadow);font-size:13px;display:flex;gap:6px;align-items:center}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
 .dot.good{background:var(--ok)}.dot.fair{background:var(--warn)}.dot.poor{background:var(--bad)}
-.mapbtns{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 104px);z-index:450;display:flex;flex-direction:column;gap:10px}
-.round{width:var(--tap);height:var(--tap);border-radius:50%;border:0;background:var(--surface);box-shadow:var(--shadow);display:grid;place-items:center}
+.mapbtns{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 164px);z-index:450;display:flex;flex-direction:column;gap:10px}
+.round{width:var(--tap);height:var(--tap);border-radius:50%;border:0;background:var(--surface);color:var(--ink);box-shadow:var(--shadow);display:grid;place-items:center}
 .round svg{width:22px;height:22px}
+.round[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+#mapSummary{position:absolute;left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 92px);z-index:450;background:var(--surface);color:var(--ink);border-radius:var(--r);box-shadow:var(--shadow);padding:10px 12px;display:flex;align-items:center;gap:12px;border:0;text-align:left;width:auto}
+#mapSummary .stats{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+#mapSummary .stats b{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#mapSummary .stats span{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#mapSummary .pills{display:flex;gap:6px;flex:none}
+body.routing #mapSummary{display:none}
 #bottombar{display:flex;align-items:center;justify-content:space-around;gap:4px;background:var(--navy);padding:6px max(8px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 6px) max(8px,env(safe-area-inset-left,0px));z-index:500}
 .navbtn{flex:1;background:none;border:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;font-size:12px;color:rgba(255,255,255,.82);min-height:var(--tap)}
 .navbtn svg{width:24px;height:24px}
@@ -72,38 +82,69 @@ button{cursor:pointer}
 /* ---- sheets ---- */
 .sheet{position:fixed;inset:0;z-index:1000;background:var(--bg);display:flex;flex-direction:column}
 .sheet header{display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top,0px) + 6px) max(8px,env(safe-area-inset-right,0px)) 6px max(8px,env(safe-area-inset-left,0px));background:var(--navy);color:var(--navy-ink)}
+.sheet header h2{flex:1;margin:0;font-size:17px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sheet header #queueNote{color:var(--hi)}
-.sheet header h2{flex:1;margin:0;font-size:17px;text-wrap:balance}
-.iconbtn{width:var(--tap);height:var(--tap);border:0;background:none;display:grid;place-items:center;border-radius:50%}
+.iconbtn{width:var(--tap);height:var(--tap);border:0;background:none;color:inherit;display:grid;place-items:center;border-radius:50%}
 .iconbtn svg{width:24px;height:24px}
 .body{flex:1;overflow:auto;padding:14px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 24px) max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:14px}
 .foot{display:flex;gap:10px;padding:10px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 10px) max(16px,env(safe-area-inset-left,0px));background:var(--surface);border-top:1px solid var(--line)}
-.btn{min-height:var(--tap);border-radius:var(--r);border:1px solid var(--line);background:var(--surface);padding:0 16px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn{min-height:var(--tap);border-radius:var(--r);border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:0 16px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-align:center}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .btn.danger{color:var(--bad)}
 .btn.grow{flex:1}
+.btn.sm{min-height:38px;padding:0 12px;font-size:13px;border-radius:10px}
 .btn:disabled{opacity:.5}
 label.field{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.02em}
-input[type=text],input[type=number],input[type=tel],input[type=email],input[type=password],select,textarea{width:100%;min-height:var(--tap);border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:10px 12px;font-size:16px;color:var(--ink)}
+input[type=text],input[type=number],input[type=tel],input[type=email],input[type=password],input[type=date],select,textarea{width:100%;min-height:var(--tap);border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:10px 12px;font-size:16px;color:var(--ink)}
+input:disabled,select:disabled,textarea:disabled{opacity:.6}
 textarea{min-height:90px;resize:vertical}
 #poleId{font:700 22px var(--mono);letter-spacing:.03em;text-transform:uppercase}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
-.chip{min-height:42px;padding:0 16px;border-radius:999px;border:1px solid var(--line);background:var(--chip);font-weight:600}
+.chip{min-height:42px;padding:0 16px;border-radius:999px;border:1px solid var(--line);background:var(--chip);color:var(--ink);font-weight:600}
 .chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.chip.small{min-height:36px;padding:0 12px;font-size:13px;font-weight:600}
 .hint{font-size:13px;color:var(--muted);margin:0}
 .warnline{font-size:13px;color:var(--warn);margin:0;font-weight:600}
 .group{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:12px}
 .group h3{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .row > *{min-width:0}
+.row.between{justify-content:space-between}
 .check{display:flex;gap:10px;align-items:flex-start;font-size:15px}
 .check input{width:22px;height:22px;margin:1px 0 0;accent-color:var(--accent);flex:none}
+.lbl{font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.02em}
+.field:not(label){display:flex;flex-direction:column;gap:6px}
+.sectionh{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:4px 0 -6px;padding:0 2px}
+.pill{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:var(--chip);color:var(--ink)}
+.pill.ok{background:var(--ok);color:#fff}.pill.bad{background:var(--bad);color:#fff}.pill.rect{background:var(--info);color:#fff}.pill.ver{background:var(--verified);color:#fff}.pill.note{background:var(--chip);color:var(--muted)}
+.stat{display:flex;flex-direction:column;gap:2px;min-width:0}
+.stat b{font-size:20px;line-height:1.1}
+.stat span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.stats4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.empty{text-align:center;color:var(--muted);padding:40px 16px;display:flex;flex-direction:column;gap:8px;align-items:center}
+.empty b{color:var(--ink);font-size:16px}
+.notice{border-left:4px solid var(--info);background:var(--soft);padding:10px 12px;border-radius:8px;font-size:13.5px}
+.notice.warn{border-color:var(--warn)}
+
+/* settings home rows */
+.body>*{flex:none}
+.rows{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
+.rowbtn{display:flex;align-items:center;gap:12px;padding:12px 14px;background:none;border:0;border-bottom:1px solid var(--line2);text-align:left;width:100%;min-height:60px;color:inherit}
+.rowbtn:last-child{border-bottom:0}
+.rowbtn .ic{width:36px;height:36px;border-radius:10px;background:var(--soft);color:var(--accent);display:grid;place-items:center;flex:none}
+.rowbtn .ic svg{width:20px;height:20px}
+.rowbtn .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.rowbtn .t b{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rowbtn .t span{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rowbtn .chev{color:var(--muted);flex:none}
+.rowbtn .chev svg{width:18px;height:18px}
+.lock{font-size:11px;font-weight:700;color:#3d2b00;background:#ffd43b;padding:2px 7px;border-radius:999px;flex:none}
 
 /* camera */
 #camera{background:#000;color:#fff}
 #camera video{flex:1;width:100%;object-fit:cover;min-height:0;background:#000}
 #camTop{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));display:flex;justify-content:space-between;align-items:center;gap:8px;z-index:2}
-#camTop .pill{background:rgba(0,0,0,.55);border-radius:999px;padding:6px 12px;font-size:13px;display:flex;gap:6px;align-items:center}
+#camTop .pill{background:rgba(0,0,0,.55);border-radius:999px;padding:6px 12px;font-size:13px;display:flex;gap:6px;align-items:center;color:#fff}
 #camBar{display:flex;align-items:center;justify-content:space-around;padding:16px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 20px) max(16px,env(safe-area-inset-left,0px));background:#000}
 #shutter{width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:#868e96;transition:background .2s}
 #shutter.ok{background:#2f9e44}
@@ -114,45 +155,6 @@ textarea{min-height:90px;resize:vertical}
 .camside svg{width:24px;height:24px}
 .camclose{width:44px;height:44px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;display:grid;place-items:center}
 #camMsg{position:absolute;inset:auto 16px 50% 16px;text-align:center;z-index:2}
-
-/* point editor */
-#pinMapWrap{position:relative;height:46vh;min-height:240px;flex:none;border-bottom:1px solid var(--line)}
-#pinMap{position:absolute;inset:0;background:var(--chip)}
-#crosshair{position:absolute;left:50%;top:50%;width:0;height:0;z-index:400;pointer-events:none}
-#crosshair svg{position:absolute;left:-7px;top:-40px;width:14px;height:40px;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.45))}
-#crosshair i{position:absolute;left:-6px;top:-6px;width:12px;height:12px;border-radius:50%;border:2px solid var(--pin);box-shadow:0 0 0 1px #fff,inset 0 0 0 1px #fff}
-#crosshair i::after{content:'';position:absolute;left:3px;top:3px;width:2px;height:2px;border-radius:50%;background:var(--pin)}
-#pinLayer{position:absolute;top:8px;right:8px;z-index:400;display:flex;align-items:center;gap:6px}
-#pinLayer .round{width:42px;height:42px}
-#pinLayerName{background:var(--surface);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;box-shadow:var(--shadow)}
-#pinInfo{position:absolute;left:8px;right:8px;bottom:8px;z-index:400;display:flex;justify-content:space-between;align-items:flex-end;gap:8px;pointer-events:none}
-#pinInfo > *{pointer-events:auto}
-#coordBox{background:var(--surface);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:var(--shadow);line-height:1.35}
-#coordBox.over{background:var(--bad);color:#fff}
-.navbtn.off{opacity:.4}
-#snapGps{min-height:40px;font-size:13px;box-shadow:var(--shadow)}
-#photoStrip{display:flex;gap:12px;align-items:center}
-#photoStrip img{width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none;background:var(--chip)}
-#photoStrip .meta{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:2px;min-width:0}
-#queueNote{font-weight:700;color:var(--accent)}
-
-/* list */
-.card{display:flex;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px;text-align:left;width:100%}
-.card img{width:64px;height:64px;border-radius:8px;object-fit:cover;flex:none;background:var(--chip)}
-.card .t{font:700 16px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.card .s{font-size:13px;color:var(--muted)}
-.card > div{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
-.tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--chip);color:var(--ink);margin-right:4px}
-.tag.adj{background:var(--accent);color:var(--accent-ink)}
-.tag.dup{background:var(--bad);color:#fff}
-.empty{text-align:center;color:var(--muted);padding:40px 16px}
-
-/* toast + progress */
-#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 96px);z-index:3000;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;max-width:calc(100% - 32px);text-align:center;box-shadow:var(--shadow)}
-#busy{position:fixed;inset:0;z-index:2500;background:rgba(0,0,0,.45);display:grid;place-items:center;padding:24px}
-#busy div{background:var(--surface);border-radius:var(--r);padding:20px;min-width:240px;max-width:100%;text-align:center;font-weight:600}
-#busy progress{width:100%;margin-top:12px;accent-color:var(--accent)}
-.result{display:flex;gap:10px;flex-wrap:wrap}
 #camStage{position:relative;flex:1;min-height:0;display:flex}
 #camStage video{flex:1}
 #idGuide{position:absolute;left:10%;right:10%;top:40%;height:22%;border:3px solid #fff;border-radius:10px;box-shadow:0 0 0 2000px rgba(0,0,0,.28);pointer-events:none;display:flex;align-items:flex-end;justify-content:center}
@@ -175,12 +177,90 @@ textarea{min-height:90px;resize:vertical}
 #qualBox .qtext span{color:var(--muted);font-size:13px}
 #qualBox .row{grid-column:1 / -1}
 #qualBox b{color:var(--bad)}
+
+/* point editor */
+#pinMapWrap{position:relative;height:40vh;min-height:220px;flex:none;border-bottom:1px solid var(--line)}
+#pinMap{position:absolute;inset:0;background:var(--chip)}
+#crosshair{position:absolute;left:50%;top:50%;width:0;height:0;z-index:400;pointer-events:none}
+#crosshair svg{position:absolute;left:-7px;top:-40px;width:14px;height:40px;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.45))}
+#crosshair i{position:absolute;left:-6px;top:-6px;width:12px;height:12px;border-radius:50%;border:2px solid var(--pin);box-shadow:0 0 0 1px #fff,inset 0 0 0 1px #fff}
+#crosshair i::after{content:'';position:absolute;left:3px;top:3px;width:2px;height:2px;border-radius:50%;background:var(--pin)}
+#pinLayer{position:absolute;top:8px;right:8px;z-index:400;display:flex;align-items:center;gap:6px}
+#pinLayer .round{width:42px;height:42px}
+#pinLayerName{background:var(--surface);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;box-shadow:var(--shadow)}
+#pinInfo{position:absolute;left:8px;right:8px;bottom:8px;z-index:400;display:flex;justify-content:space-between;align-items:flex-end;gap:8px;pointer-events:none}
+#pinInfo > *{pointer-events:auto}
+#coordBox{background:var(--surface);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:var(--shadow);line-height:1.35}
+#coordBox.over{background:var(--bad);color:#fff}
+#snapGps{min-height:40px;font-size:13px;box-shadow:var(--shadow)}
+#photoStrip{display:flex;gap:12px;align-items:center}
+#photoStrip img{width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none;background:var(--chip)}
+#photoStrip .meta{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:2px;min-width:0}
 .idrow{display:flex;gap:8px}
 .idrow input{flex:1;min-width:0}
 .idrow .btn{flex:none}
 .idcands{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;color:var(--muted)}
 .idcands .chip{min-height:38px;font-family:var(--mono)}
 .idcands .chip.fit{border-color:var(--ok)}
+.photo-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.ph{position:relative;display:flex;flex-direction:column;gap:4px;min-width:0}
+.ph img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:var(--chip)}
+.ph select{min-height:36px;padding:4px 6px;font-size:13px;border-radius:8px}
+.ph .x{position:absolute;top:4px;right:4px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:18px;line-height:1}
+.ph.add{align-items:center;justify-content:center;aspect-ratio:1;border:2px dashed var(--line);border-radius:8px;background:none;color:var(--muted);font-weight:700;font-size:13px}
+.defcard{border:1px solid var(--line);border-left:5px solid var(--bad);border-radius:var(--r);padding:10px;display:flex;flex-direction:column;gap:6px;background:var(--bg)}
+.defcard.rect{border-left-color:var(--info)}
+.defcard.ver{border-left-color:var(--verified)}
+.defcard.note{border-left-color:var(--muted)}
+.defcard .t{font-weight:700}
+.defcard .s{font-size:12px;color:var(--muted)}
+.defcard .thumbs{display:flex;gap:6px}
+.defcard .thumbs figure{margin:0;display:flex;flex-direction:column;gap:2px;align-items:center;font-size:10px;color:var(--muted)}
+.defcard .thumbs img{width:56px;height:56px;object-fit:cover;border-radius:6px}
+.defcard .acts{display:flex;gap:6px;flex-wrap:wrap}
+.defcard .acts .btn{min-height:38px;padding:0 10px;font-size:13px}
+.defcard input{min-height:40px;font-size:14px}
+.defpanel{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:12px}
+.timeline{display:flex;gap:4px;font-size:11px;font-weight:700;letter-spacing:.03em}
+.timeline span{flex:1;text-align:center;padding:3px 0;border-radius:6px;background:var(--chip);color:var(--muted)}
+.timeline span.bad{background:var(--bad);color:#fff}.timeline span.rect{background:var(--info);color:#fff}.timeline span.ver{background:var(--verified);color:#fff}
+
+/* list */
+.card{display:flex;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px;text-align:left;width:100%;color:inherit}
+.card img{width:64px;height:64px;border-radius:8px;object-fit:cover;flex:none;background:var(--chip)}
+.card .t{font:700 16px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .s{font-size:13px;color:var(--muted)}
+.card > div{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--chip);color:var(--ink);margin-right:4px}
+.tag.adj{background:var(--accent);color:var(--accent-ink)}
+.tag.dup{background:var(--bad);color:#fff}
+.area-card{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:var(--r);padding:10px;background:var(--surface)}
+.area-card > div{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.area-card .t{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.area-card .s{font-size:12px;color:var(--muted)}
+.area-card .btn{min-height:40px;padding:0 12px;font-size:14px}
+
+/* export cards */
+.xcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:10px}
+.xcard .head{display:flex;gap:12px;align-items:flex-start}
+.xcard .ic{width:40px;height:40px;border-radius:10px;background:var(--soft);color:var(--accent);display:grid;place-items:center;flex:none;font:800 11px var(--mono)}
+.xcard .head div{flex:1;min-width:0}
+.xcard .head b{font-size:15px;display:block}
+.xcard .head p{margin:2px 0 0;font-size:13px;color:var(--muted)}
+.xcard details{border-top:1px solid var(--line2);padding-top:8px}
+.xcard summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--accent);list-style:none;display:flex;align-items:center;gap:6px}
+.xcard summary::-webkit-details-marker{display:none}
+.xcard summary::before{content:'▸';font-size:12px}
+.xcard details[open] summary::before{content:'▾'}
+.xcard .opts{display:flex;flex-direction:column;gap:10px;padding-top:10px}
+.opt2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+/* toast + progress */
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 160px);z-index:3000;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;max-width:calc(100% - 32px);text-align:center;box-shadow:var(--shadow)}
+#busy{position:fixed;inset:0;z-index:2500;background:rgba(0,0,0,.45);display:grid;place-items:center;padding:24px}
+#busy div{background:var(--surface);border-radius:var(--r);padding:20px;min-width:240px;max-width:100%;text-align:center;font-weight:600}
+#busy progress{width:100%;margin-top:12px;accent-color:var(--accent)}
+.result{display:flex;gap:10px;flex-wrap:wrap}
 #routeBar{position:absolute;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:520;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
 .rb-head{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline}
 .rb-head span{font-size:12px;color:var(--muted)}
@@ -193,39 +273,10 @@ textarea{min-height:90px;resize:vertical}
 .span-icon{width:0!important;height:0!important;background:none;border:0}
 .span-icon .span-label{position:absolute;transform:translate(-50%,-50%)}
 .hide-labels .span-label{display:none}
-.round[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
 body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
-.lbl{font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.02em}
-.field:not(label){display:flex;flex-direction:column;gap:6px}
-.badge{font:700 11px/1 var(--mono);letter-spacing:.06em;padding:5px 7px;border-radius:6px;background:var(--chip);color:var(--muted);flex:none}
-.badge.acc{background:var(--accent);color:var(--accent-ink)}
-.photo-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-.ph{position:relative;display:flex;flex-direction:column;gap:4px;min-width:0}
-.ph img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:var(--chip)}
-.ph select{min-height:36px;padding:4px 6px;font-size:13px;border-radius:8px}
-.ph .x{position:absolute;top:4px;right:4px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:18px;line-height:1}
-.ph.add{align-items:center;justify-content:center;aspect-ratio:1;border:2px dashed var(--line);border-radius:8px;background:none;color:var(--muted);font-weight:700;font-size:13px}
-.pill{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:var(--chip)}
-.pill.ok{background:var(--ok);color:#fff}.pill.bad{background:var(--bad);color:#fff}.pill.rect{background:#1971c2;color:#fff}
-.defcard{border:1px solid var(--line);border-left:5px solid var(--bad);border-radius:var(--r);padding:10px;display:flex;flex-direction:column;gap:6px;background:var(--bg)}
-.defcard.rect{border-left-color:#1971c2}
-.defcard .t{font-weight:700}
-.defcard .s{font-size:12px;color:var(--muted)}
-.defcard .thumbs{display:flex;gap:6px}
-.defcard .thumbs img{width:56px;height:56px;object-fit:cover;border-radius:6px}
-.defcard .acts{display:flex;gap:6px;flex-wrap:wrap}
-.defcard .acts .btn{min-height:38px;padding:0 10px;font-size:13px}
-.defcard input{min-height:40px;font-size:14px}
-.defpanel{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:12px}
-.chip.small{min-height:36px;padding:0 12px;font-size:13px;font-weight:600}
 .est-bad{color:var(--bad);font-weight:600}
-.area-card{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:var(--r);padding:10px}
-.area-card > div{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.area-card .t{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.area-card .s{font-size:12px;color:var(--muted)}
-.area-card .btn{min-height:40px;padding:0 12px;font-size:14px}
+
 /* profile, company list, QR */
-.req{color:var(--bad)}
 .who{display:flex;flex-direction:column;gap:2px;font-size:14px}
 .who b{font-size:16px}
 .co-item{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:var(--r);padding:6px 6px 6px 12px;background:var(--surface)}
@@ -245,10 +296,24 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18 9 12l6-6" fill="none" stroke="currentColor" stroke-width="2.2"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.2"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 21a8 8 0 0 1 16 0" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-cam" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 17v3h16v-3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-map" viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Zm0 0v14m6-12v14" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+</svg>
 <div id="app">
   <div id="topbar">
     <div class="brand">Pole<b>Cam</b></div>
-    <button id="projectBtn" aria-label="Change project or task category"><span class="badge cat" id="modeBadge">SURVEY</span><span id="projectName">Project</span><span class="count" id="pointCount">0</span></button>
+    <button id="projectBtn" aria-label="Change project or task category"><span class="badge cat" id="modeBadge">SURVEY</span><span id="projectName">Project</span><span class="count" id="pointCount">0</span><svg class="i"><use href="#i-chev"/></svg></button>
   </div>
   <div id="map" role="application" aria-label="Survey map"></div>
   <div id="gpsPill" aria-live="polite"><span class="dot" id="gpsDot"></span><span id="gpsText">GPS off</span></div>
@@ -258,6 +323,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <button class="round" id="layerBtn" aria-label="Switch map: street, satellite or offline map pack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button>
     <button class="round" id="locateBtn" aria-label="Go to my location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
   </div>
+  <button id="mapSummary" type="button" aria-label="Open the records of this project"><div class="stats"><b id="sumTitle">–</b><span id="sumSub">–</span></div><div class="pills" id="sumPills"></div><svg class="i"><use href="#i-chev"/></svg></button>
   <div id="routeBar" hidden>
     <div class="rb-head"><b id="rbTitle">Route</b><span id="rbStats"></span></div>
     <p class="rb-hint" id="rbHint">Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.</p>
@@ -269,18 +335,18 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
   </div>
   <nav id="bottombar">
-    <button class="navbtn" id="listBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span id="listLbl">Survey</span></button>
-    <button class="navbtn" id="projNavBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>Projects</button>
-    <button id="captureBtn" aria-label="Capture a pole"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
-    <button class="navbtn" id="exportBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/></svg>Export</button>
-    <button class="navbtn" id="settingsBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>Settings</button>
+    <button class="navbtn" id="listBtn"><svg><use href="#i-list"/></svg><span id="listLbl">Records</span></button>
+    <button class="navbtn" id="projNavBtn"><svg><use href="#i-folder"/></svg>Projects</button>
+    <button id="captureBtn" aria-label="Capture"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+    <button class="navbtn" id="exportBtn"><svg><use href="#i-export"/></svg>Export</button>
+    <button class="navbtn" id="settingsBtn"><svg><use href="#i-gear"/></svg>Settings</button>
   </nav>
 </div>
 
 <!-- camera -->
 <section class="sheet" id="camera" hidden aria-label="Camera">
   <div id="camTop">
-    <button class="camclose" id="camClose" aria-label="Close camera"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <button class="camclose" id="camClose" aria-label="Close camera"><svg viewBox="0 0 24 24" width="22" height="22"><use href="#i-close"/></svg></button>
     <div class="pill"><span class="dot" id="camGpsDot"></span><span id="camGpsText">Waiting for GPS…</span></div>
     <button class="camid" id="camReadId" aria-pressed="true" aria-label="Scan the ID after each new photo">ID</button>
   </div>
@@ -311,7 +377,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 <!-- point editor -->
 <section class="sheet" id="editor" hidden aria-labelledby="editorTitle">
   <header>
-    <button class="iconbtn" id="edClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <button class="iconbtn" id="edClose" aria-label="Close"><svg><use href="#i-close"/></svg></button>
     <h2 id="editorTitle">New pole</h2>
     <span id="queueNote"></span>
   </header>
@@ -326,17 +392,23 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </div>
   <div class="body">
     <p class="hint" id="edHint">Drag the map to put the pin exactly on the pole.</p>
-    <div id="photoStrip"><img id="edPhoto" alt="Captured pole photo"><div class="meta"><span id="edTime">–</span><span id="edAcc">–</span><span id="edSrc"></span></div></div>
-    <div id="accPhotos" class="photo-grid" hidden></div>
-    <div class="field" id="accElementBox" hidden><span class="lbl">ELEMENT</span><div class="chips" id="elemChips"></div></div>
-    <div class="field"><label class="lbl" for="poleId" id="idLabel">POLE ID</label>
-      <div class="idrow"><input type="text" id="poleId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CC-0001"><button class="btn" id="scanIdBtn" type="button" aria-label="Read the ID from the camera">Scan ID</button></div>
+    <div class="group">
+      <h3>Photo</h3>
+      <div id="photoStrip"><img id="edPhoto" alt="Captured pole photo"><div class="meta"><span id="edTime">–</span><span id="edAcc">–</span><span id="edSrc"></span></div></div>
+      <div id="accPhotos" class="photo-grid" hidden></div>
+      <p class="warnline" id="qualWarn" hidden></p>
     </div>
-    <div id="idCands" class="idcands" hidden></div>
-    <p class="warnline" id="dupWarn" hidden></p>
-    <p class="warnline" id="qualWarn" hidden></p>
-    <p class="warnline" id="fmtWarn" hidden></p>
-    <div class="field" id="surveyTypeBox"><span class="lbl">POLE TYPE</span><div class="chips" id="typeChips"></div></div>
+    <div class="group">
+      <h3>Identification</h3>
+      <div class="field" id="accElementBox" hidden><span class="lbl">ELEMENT</span><div class="chips" id="elemChips"></div></div>
+      <div class="field"><label class="lbl" for="poleId" id="idLabel">POLE ID</label>
+        <div class="idrow"><input type="text" id="poleId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CC-0001"><button class="btn" id="scanIdBtn" type="button" aria-label="Read the ID from the camera">Scan ID</button></div>
+      </div>
+      <div id="idCands" class="idcands" hidden></div>
+      <p class="warnline" id="dupWarn" hidden></p>
+      <p class="warnline" id="fmtWarn" hidden></p>
+      <div class="field" id="surveyTypeBox"><span class="lbl">POLE TYPE</span><div class="chips" id="typeChips"></div></div>
+    </div>
     <div class="group" id="poleAttach" hidden>
       <h3>On this pole</h3>
       <label class="check"><input type="checkbox" id="atMloop"><span>With MLoop</span></label>
@@ -345,22 +417,23 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <label class="check"><input type="checkbox" id="atClosure"><span>With closure</span></label>
       <input type="text" id="closureId" placeholder="Closure ID" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Closure ID" hidden>
     </div>
-    <div class="field" id="odfBox" hidden><span class="lbl">ODF</span><div class="chips" id="odfChips"><button type="button" class="chip" data-v="New" aria-pressed="true">New ODF</button><button type="button" class="chip" data-v="Existing" aria-pressed="false">Existing ODF</button></div></div>
+    <div class="group" id="odfBox" hidden><h3>ODF</h3><div class="chips" id="odfChips"><button type="button" class="chip" data-v="New" aria-pressed="true">New ODF</button><button type="button" class="chip" data-v="Existing" aria-pressed="false">Existing ODF</button></div></div>
     <div class="group" id="defBox" hidden>
-      <div class="row" style="justify-content:space-between"><h3>Deficiencies</h3><span class="pill" id="defStatus"></span></div>
+      <div class="row between"><h3>Deficiencies</h3><span class="pill" id="defStatus"></span></div>
+      <p class="hint" id="defRoleHint" hidden></p>
       <div id="defList" style="display:flex;flex-direction:column;gap:8px"></div>
       <button class="btn" id="addDefBtn" type="button">+ Add deficiency</button>
       <div id="defPanel" class="defpanel" hidden>
         <span class="lbl">WHERE</span><div class="chips" id="defCats"></div>
         <span class="lbl">DEFECT · tap one or more</span><div class="chips" id="defItems"></div>
-        <span class="lbl">SEVERITY</span>
-        <div class="chips" id="defSev"><button type="button" class="chip" data-v="Major" aria-pressed="false">Major</button><button type="button" class="chip" data-v="Minor" aria-pressed="true">Minor</button></div>
+        <span class="lbl">CATEGORY</span>
+        <div class="chips" id="defSev"><button type="button" class="chip" data-v="Major" aria-pressed="false">Major (MD)</button><button type="button" class="chip" data-v="Minor" aria-pressed="true">Minor (D)</button><button type="button" class="chip" data-v="Note" aria-pressed="false">Note (N)</button></div>
         <label class="field">NOTES<textarea id="defNotes" placeholder="Details, exact spot, what the contractor must do. If no defect above fits, describe it here."></textarea></label>
         <div class="row"><button class="btn" id="defPhotoBtn" type="button">Take defect photo</button><img id="defPhotoPrev" alt="Defect photo" hidden style="width:64px;height:64px;object-fit:cover;border-radius:8px"></div>
         <div class="row"><button class="btn grow" id="defCancel" type="button">Cancel</button><button class="btn primary grow" id="defAdd" type="button">Add to punchlist</button></div>
       </div>
     </div>
-    <button class="btn danger" id="edDelete" hidden>Delete this pole</button>
+    <button class="btn danger" id="edDelete" hidden>Delete this record</button>
     <div id="delConfirm" class="group" hidden><p style="margin:0">Delete <b id="delName"></b> and its photo? This can't be undone.</p><div class="row"><button class="btn grow" id="delNo">Keep</button><button class="btn grow primary" id="delYes" style="background:var(--bad);border-color:var(--bad);color:#fff">Delete</button></div></div>
   </div>
   <div class="foot">
@@ -370,15 +443,16 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </div>
 </section>
 
-<!-- list -->
+<!-- records list -->
 <section class="sheet" id="list" hidden aria-labelledby="listTitle">
   <header>
-    <button class="iconbtn" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18 9 12l6-6"/></svg></button>
-    <h2 id="listTitle">Survey</h2>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="listTitle">Records</h2>
   </header>
   <div class="body">
-    <input type="text" id="listSearch" placeholder="Search ID or type" aria-label="Search points">
-    <div class="chips" id="listFilter" hidden><button type="button" class="chip" data-v="all" aria-pressed="true">All</button><button type="button" class="chip" data-v="Open" aria-pressed="false">With deficiency</button><button type="button" class="chip" data-v="Rectified" aria-pressed="false">Rectified</button><button type="button" class="chip" data-v="OK" aria-pressed="false">OK</button></div>
+    <div class="group" id="listStats" hidden><div class="stats4" id="listStatRow"></div></div>
+    <input type="text" id="listSearch" placeholder="Search ID or type" aria-label="Search records">
+    <div class="chips" id="listFilter" hidden><button type="button" class="chip small" data-v="all" aria-pressed="true">All</button><button type="button" class="chip small" data-v="Open" aria-pressed="false">Open</button><button type="button" class="chip small" data-v="Rectified" aria-pressed="false">Rectified</button><button type="button" class="chip small" data-v="Verified" aria-pressed="false">Verified</button><button type="button" class="chip small" data-v="OK" aria-pressed="false">No deficiency</button></div>
     <div id="listItems" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
 </section>
@@ -386,78 +460,97 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 <!-- export -->
 <section class="sheet" id="export" hidden aria-labelledby="exportTitle">
   <header>
-    <button class="iconbtn" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18 9 12l6-6"/></svg></button>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
     <h2 id="exportTitle">Export</h2>
   </header>
   <div class="body">
     <p class="hint" id="exportScope"></p>
     <div id="accExports" style="display:contents" hidden>
-      <div class="group">
-        <h3>Punchlist · Excel</h3>
-        <p class="hint">Sheet 1: numbered deficiency list (location, element, defect, severity, status, dates, photo names). Sheet 2: every element inspected with MLoop / NAP / closure / ODF details.</p>
-        <button class="btn primary" id="doXlsx">Export Excel punchlist</button>
+      <div class="xcard">
+        <div class="head"><span class="ic">PDF</span><div><b>Deficiency List · PDF</b><p>The office form (List of Deficiencies, PAT or FAT ticked, 15 items per page, signature blocks), then Annex A with the photo evidence of each item and Annex B with the inspection photo log.</p></div></div>
+        <details><summary>Options</summary><div class="opts">
+          <label class="check"><input type="checkbox" id="pdfAnnexA" checked><span>Annex A: photo evidence per punchlist item (as found → rectified → verified)</span></label>
+          <label class="check"><input type="checkbox" id="pdfAnnexB" checked><span>Annex B: inspection photo log (all element photos)</span></label>
+          <div class="opt2"><label class="field">Photo size in annexes<select id="pdfPhotoSize"><option value="S">Small</option><option value="M" selected>Medium</option><option value="L">Large</option></select></label>
+          <label class="field">Signature dates<select id="pdfDates"><option value="blank">Leave blank for signing</option><option value="insp">Prefill the inspection date</option><option value="today">Prefill today's date</option></select></label></div>
+        </div></details>
+        <button class="btn primary" id="doPdf">Export Deficiency List PDF</button>
       </div>
-      <div class="group">
-        <h3>Punchlist report · PDF</h3>
-        <p class="hint">Summary, numbered punchlist, sign-off boxes for Globe and contractor, then photos of each element and each defect.</p>
-        <label class="check"><input type="checkbox" id="pdfPhotos" checked><span>Include element and defect photos</span></label>
-        <button class="btn primary" id="doPdf">Export PDF report</button>
+      <div class="xcard">
+        <div class="head"><span class="ic">XLS</span><div><b>Deficiency List · Excel</b><p>Sheet 1 is the same form laid out like the office template, editable. Then the punchlist as a flat table, the elements, the photo file names and the people who recorded.</p></div></div>
+        <details><summary>Options</summary><div class="opts">
+          <label class="check"><input type="checkbox" id="xlsTable" checked><span>Include the punchlist table sheet (for trackers)</span></label>
+          <label class="check"><input type="checkbox" id="xlsPhotos" checked><span>Include the photo index sheet</span></label>
+          <label class="field">Signature dates on the form<select id="xlsDates"><option value="blank">Leave blank for signing</option><option value="insp">Prefill the inspection date</option><option value="today">Prefill today's date</option></select></label>
+        </div></details>
+        <button class="btn primary" id="doXlsx">Export Excel</button>
       </div>
-      <div class="group">
-        <h3>Rectification report · PDF</h3>
-        <p class="hint">How the contractor cleared the punchlist: each item's before and after photos with the time, GPS and person recorded when each photo was taken, days to rectify, progress by date, items cleared without photo evidence, and sign-off.</p>
-        <label class="check"><input type="checkbox" id="rectOpen" checked><span>Include items still open</span></label>
-        <button class="btn primary" id="doRectPdf">Export rectification report</button>
+      <div class="xcard">
+        <div class="head"><span class="ic">PDF</span><div><b>Rectification progress · PDF</b><p>Management view: items cleared per day, time to rectify, items marked rectified without photo evidence, before/after per item.</p></div></div>
+        <details><summary>Options</summary><div class="opts"><label class="check"><input type="checkbox" id="rectOpen" checked><span>Include items still open</span></label></div></details>
+        <button class="btn" id="doRectPdf">Export progress report</button>
       </div>
-      <div class="group">
-        <h3>Google Earth · KMZ</h3>
-        <p class="hint">Pins by status (red: open deficiency, blue: rectified, green: OK), with details and photos in each balloon.</p>
+      <div class="xcard">
+        <div class="head"><span class="ic">KMZ</span><div><b>Google Earth · KMZ</b><p>Pins by status (red open, blue rectified, teal verified, green no deficiency), details and photos in each balloon.</p></div></div>
+        <details><summary>Options</summary><div class="opts">
+          <div class="opt2"><label class="field">Balloon photo size<select id="kmzBalloonPx" class="exp-kmz"><option value="480">Small (480 px)</option><option value="800">Medium (800 px)</option><option value="1200">Large (1200 px)</option><option value="0">No photos in balloons</option></select></label>
+          <label class="field">Pin icon<select id="kmzIconPx" class="exp-kmz"><option value="0">Status dot only</option><option value="48">Photo, small</option><option value="64">Photo, medium</option><option value="96">Photo, large</option></select></label></div>
+          <label class="check"><input type="checkbox" id="kmzStamp" class="exp-kmz"><span>Stamp ID, coordinates and time on balloon photos</span></label>
+        </div></details>
         <button class="btn" id="doAccKmz">Export KMZ</button>
       </div>
-      <div class="group">
-        <h3>Punchlist · CSV</h3>
-        <p class="hint">Same table as the Excel punchlist, for your acceptance tracker.</p>
+      <div class="xcard">
+        <div class="head"><span class="ic">CSV</span><div><b>Punchlist · CSV</b><p>The punchlist table as plain text, for your acceptance tracker.</p></div></div>
         <button class="btn" id="doAccCsv">Export CSV</button>
       </div>
     </div>
     <div id="surveyExports" style="display:contents">
-    <div class="group">
-      <h3>Google Earth · KMZ</h3>
-      <p class="hint">Pins named by Pole ID, with the photo inside each pin's balloon.</p>
-      <label class="check"><input type="checkbox" id="kmzIcons" checked><span>Use each pole's photo as its pin icon</span></label>
+    <div class="xcard">
+      <div class="head"><span class="ic">KMZ</span><div><b>Google Earth · KMZ</b><p>Pins named by Pole ID, the photo in each balloon, optional photo pin icons and the cable route.</p></div></div>
+      <details><summary>Options</summary><div class="opts">
+        <div class="opt2"><label class="field">Balloon photo size<select id="kmzBalloonPx2" class="exp-kmz"><option value="480">Small (480 px)</option><option value="800">Medium (800 px)</option><option value="1200">Large (1200 px)</option><option value="0">No photos in balloons</option></select></label>
+        <label class="field">Pin icon<select id="kmzIconPx2" class="exp-kmz"><option value="0">Standard pin</option><option value="48">Photo, small</option><option value="64">Photo, medium</option><option value="96">Photo, large</option></select></label></div>
+        <label class="check"><input type="checkbox" id="kmzRoute" class="exp-kmz"><span>Include the cable route and span lengths</span></label>
+        <label class="check"><input type="checkbox" id="kmzStamp2" class="exp-kmz"><span>Stamp ID, type, coordinates and time on balloon photos</span></label>
+      </div></details>
       <button class="btn primary" id="doKmz">Export KMZ</button>
     </div>
-    <div class="group">
-      <h3>AutoCAD · DXF</h3>
-      <p class="hint">Poles as blocks (POLE_&lt;TYPE&gt;) at <span id="dxfZoneLbl">UTM 51N</span> meters, Pole ID labels on layer POLE_LABEL. Redefine a block in AutoCAD to swap in your own pole symbol. If you drew a route, spans are on layer CABLE_ROUTE (too-long spans on SPAN_LONG) with lengths on SPAN_LENGTH.</p>
-      <label class="check"><input type="checkbox" id="dxfRoads" checked><span>Add road centerlines from OpenStreetMap around the poles (needs internet)</span></label>
+    <div class="xcard">
+      <div class="head"><span class="ic">DXF</span><div><b>AutoCAD · DXF</b><p>Poles as blocks (POLE_CONCRETE, POLE_WOOD, POLE_STEEL) at <span id="dxfZoneLbl">UTM 51N</span> meters with ID labels; the route on CABLE_ROUTE, long spans on SPAN_LONG.</p></div></div>
+      <details><summary>Options</summary><div class="opts">
+        <label class="check"><input type="checkbox" id="dxfRoads" checked><span>Add road centerlines from OpenStreetMap around the poles (needs internet)</span></label>
+        <div class="opt2"><label class="field">Pole symbol radius (m)<input type="number" id="setSym" step="0.1" min="0.1"></label><label class="field">Label height (m)<input type="number" id="setTxt" step="0.1" min="0.1"></label></div>
+        <label class="field">UTM zone (WGS84, north)<select id="setZone"><option value="50">Zone 50N (CM 117°E)</option><option value="51">Zone 51N (CM 123°E)</option><option value="52">Zone 52N (CM 129°E)</option></select></label>
+      </div></details>
       <button class="btn primary" id="doDxf">Export DXF</button>
     </div>
-    <div class="group">
-      <h3>Table · CSV</h3>
-      <p class="hint">Pole ID, type, lat/long, UTM easting/northing, accuracy, time. Opens in Excel or QGIS.</p>
+    <div class="xcard">
+      <div class="head"><span class="ic">CSV</span><div><b>Table · CSV</b><p>Pole ID, type, lat/long, UTM easting/northing, accuracy, time, surveyed by. Opens in Excel or QGIS.</p></div></div>
       <button class="btn" id="doCsv">Export CSV</button>
     </div>
-    <div class="group">
-      <h3>Route and spans · Excel</h3>
-      <p class="hint">Summary (route length, spans, too-long spans, angle poles, junctions), every span with its length, and every pole with its role on the route and deflection angle.</p>
+    <div class="xcard">
+      <div class="head"><span class="ic">XLS</span><div><b>Route and spans · Excel</b><p>Summary (route length, spans, too-long spans, angle poles, junctions), every span with its length, and every pole's role and deflection angle.</p></div></div>
       <button class="btn" id="doRouteXlsx">Export route table</button>
     </div>
     </div>
-    <div class="group">
-      <h3>Geotagged photos · ZIP</h3>
-      <p class="hint">JPEGs named by ID, stamped with ID, coordinates and time, with GPS written into the photo (EXIF).</p>
+    <div class="xcard">
+      <div class="head"><span class="ic">JPG</span><div><b>Geotagged photos · ZIP</b><p>JPEGs named by ID, GPS written into each photo (EXIF), optionally stamped.</p></div></div>
+      <details><summary>Options</summary><div class="opts">
+        <div class="opt2"><label class="field">Longest side of export copies<select id="setMaxPx"><option>1280</option><option>1600</option><option>2048</option><option>2560</option><option>3264</option></select></label>
+        <label class="field">JPEG quality<select id="expQuality"><option value="0.8">Smaller files (80)</option><option value="0.88">Balanced (88)</option><option value="0.94">Best (94)</option></select></label></div>
+        <label class="check"><input type="checkbox" id="setStamp"><span>Stamp a caption band on the photo</span></label>
+        <div class="chips" id="stampFields"><button type="button" class="chip small" data-v="id" aria-pressed="true">ID & type</button><button type="button" class="chip small" data-v="coords" aria-pressed="true">Lat / long</button><button type="button" class="chip small" data-v="utm" aria-pressed="true">UTM</button><button type="button" class="chip small" data-v="time" aria-pressed="true">Date & time</button><button type="button" class="chip small" data-v="by" aria-pressed="true">Taken by</button><button type="button" class="chip small" data-v="project" aria-pressed="true">Project</button></div>
+        <div id="namingRow"><label class="field">File names<select id="expNaming"><option value="id">ID.jpg (CC-0001.jpg)</option><option value="project_id">Project_ID.jpg</option><option value="id_time">ID_date_time.jpg</option></select></label></div>
+      </div></details>
       <button class="btn" id="doPhotos">Export photos</button>
     </div>
-    <div class="group">
-      <h3>Photos for AI training · ZIP</h3>
-      <p class="hint">Your labeled photos sorted into one folder per type (Pole, NAP, Closure, MLoop, ODF, ODC, Rack, Pole tag, Cable), resized for training, with a labels.csv list. Used later to teach the app to recognise each element.</p>
-      <div class="chips" id="dsScope"><button type="button" class="chip" data-v="project" aria-pressed="true">This project</button><button type="button" class="chip" data-v="all" aria-pressed="false">All projects</button></div>
+    <div class="xcard">
+      <div class="head"><span class="ic">AI</span><div><b>Photos for AI training · ZIP</b><p>Labeled photos sorted into one folder per type with a labels.csv, for teaching the app to recognise elements later.</p></div></div>
+      <details><summary>Options</summary><div class="opts"><div class="chips" id="dsScope"><button type="button" class="chip small" data-v="project" aria-pressed="true">This project</button><button type="button" class="chip small" data-v="all" aria-pressed="false">All projects</button></div></div></details>
       <button class="btn" id="doDataset">Export training photos</button>
     </div>
-    <div class="group">
-      <h3>Backup</h3>
-      <p class="hint">Everything in this project (points and photos) in one file. Restore it on another phone or after reinstalling.</p>
+    <div class="xcard">
+      <div class="head"><span class="ic">ZIP</span><div><b>Backup</b><p>Everything in this project (records and photos) in one file. Restore it on another phone or after reinstalling.</p></div></div>
       <div class="row"><button class="btn grow" id="doBackup">Back up project</button><button class="btn grow" id="doRestore">Restore backup</button></div>
       <input type="file" id="restoreInput" accept=".zip,application/zip" hidden>
     </div>
@@ -469,54 +562,98 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </div>
 </section>
 
-<!-- settings -->
+<!-- settings home -->
 <section class="sheet" id="settings" hidden aria-labelledby="settingsTitle">
   <header>
-    <button class="iconbtn" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18 9 12l6-6"/></svg></button>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
     <h2 id="settingsTitle">Settings</h2>
   </header>
   <div class="body">
+    <div class="sectionh">Account</div>
+    <div class="rows">
+      <button class="rowbtn" id="editMe" type="button"><span class="ic"><svg><use href="#i-user"/></svg></span><span class="t"><b id="whoBox">–</b><span id="whoSub">Name, mobile, email and company</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
+    </div>
+    <div class="sectionh">Field work</div>
+    <div class="rows">
+      <button class="rowbtn" id="goCamera" type="button"><span class="ic"><svg><use href="#i-cam"/></svg></span><span class="t"><b>Camera</b><span id="camSub">ID scan after each photo, orientation</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
+      <button class="rowbtn" id="goExports" type="button"><span class="ic"><svg><use href="#i-export"/></svg></span><span class="t"><b>Exports and files</b><span>Photo sizes, stamps, KMZ, PDF, where files are saved</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
+      <button class="rowbtn" id="goMaps" type="button"><span class="ic"><svg><use href="#i-map"/></svg></span><span class="t"><b>Offline maps</b><span id="mapsSub">Map packs for no-signal areas</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
+    </div>
+    <div class="sectionh">Data</div>
+    <div class="rows">
+      <button class="rowbtn" id="goStorage" type="button"><span class="ic"><svg><use href="#i-db"/></svg></span><span class="t"><b>Storage</b><span id="storeSub">–</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
+    </div>
+    <div class="sectionh">Administration</div>
+    <div class="rows">
+      <button class="rowbtn" id="goAdmin" type="button"><span class="ic"><svg><use href="#i-shield"/></svg></span><span class="t"><b id="adminRowTitle">Company list and policies</b><span id="teamInfo">–</span></span><span class="lock" id="adminLock">PIN</span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
+    </div>
+    <p class="hint" id="cloudInfo" hidden></p>
+    <div class="row">
+      <button class="btn sm" id="teamShare" type="button">Share list (QR or file)</button>
+      <button class="btn sm" id="teamUpdate" type="button">Update list</button>
+      <button class="btn sm" id="teamSwitch" type="button" hidden>Switch to another list</button>
+      <button class="btn sm" id="cloudSyncBtn" type="button" hidden>Sync online sheet</button>
+      <button class="btn sm" id="adminAsk" type="button" hidden>Ask to become an admin</button>
+      <button class="btn sm primary" id="teamManage" type="button" hidden>Manage (admin)</button>
+      <button class="btn sm" id="teamCreate" type="button" hidden>I am the admin: create the company list</button>
+    </div>
+    <div class="sectionh">About</div>
     <div class="group">
-      <h3>You</h3>
-      <div class="who" id="whoBox">–</div>
-      <button class="btn" id="editMe" type="button">Edit my details</button>
-      <p class="hint">Your name and company are recorded on every photo, pole and punchlist item, and printed on the reports.</p>
+      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.0.0</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
+      <p class="hint" id="policyInfo" style="margin:0"></p>
+    </div>
+  </div>
+</section>
+
+<!-- settings: camera -->
+<section class="sheet" id="setCamera" hidden aria-labelledby="setCamTitle">
+  <header><button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 id="setCamTitle">Camera</h2></header>
+  <div class="body">
+    <div class="group">
+      <h3>After each photo</h3>
+      <label class="check"><input type="checkbox" id="setReadId"><span>Ask to scan the painted ID after each new photo</span></label>
+      <label class="field">Painted IDs are usually<select id="setOrient"><option value="h">Horizontal</option><option value="v">Vertical (stacked or sideways)</option></select></label>
     </div>
     <div class="group">
-      <h3>Company list</h3>
-      <p class="hint" id="teamInfo">–</p>
-      <div class="row"><button class="btn grow" id="teamShare" type="button">Share list (QR or file)</button><button class="btn grow" id="teamUpdate" type="button">Update list</button></div>
-      <button class="btn primary" id="teamManage" type="button" hidden>Manage company list (admin)</button>
-      <button class="btn" id="teamCreate" type="button" hidden>I am the admin: create the company list</button>
-      <button class="btn" id="adminAsk" type="button" hidden>Ask to become an admin</button>
-      <button class="btn" id="teamSwitch" type="button" hidden>Switch to another list</button>
-    </div>
-    <div class="group">
-      <h3>Pole types and IDs</h3>
-      <p class="hint">Concrete = CC, Wood = WP, Steel = SP. Pole IDs are written CC-0001, WP-0001, SP-0001; ODF IDs FDU_100. The next ID is suggested from the last one of the same kind in the project.</p>
-    </div>
-    <div class="group">
-      <h3>Deficiency checklist (acceptance)</h3>
-      <p class="hint">The defects you can tap when adding a deficiency. Replace these starting lists with your own acceptance checklist.</p>
-      <label class="field">Category<select id="setDefCat"></select></label>
-      <label class="field">Defects, one per line<textarea id="setDefItems" style="min-height:140px"></textarea></label>
-    </div>
-    <div class="group">
-      <h3>Photos</h3>
-      <label class="check"><input type="checkbox" id="setStamp"><span>Stamp Pole ID, type, coordinates and time on exported photos</span></label>
-      <label class="field">Longest side (pixels)<select id="setMaxPx"><option>1280</option><option>1600</option><option>2048</option><option>2560</option><option>3264</option></select></label>
-    </div>
-    <div class="group">
-      <h3>Camera checks</h3>
-      <p class="hint">A photo is taken only when the GPS updated within the last 5 seconds (green shutter). Dark, blank and blurry photos are refused; retake them.</p>
+      <h3>Photo checks</h3>
+      <p class="hint">A photo is taken only when the GPS updated within the last 5 seconds (green shutter). Dark, blank and blurry photos are refused and must be retaken.</p>
       <label class="field">Sharpness required<select id="setQuality"><option value="strict">Strict (recommended)</option><option value="normal">Normal: refuse only clearly blurry</option></select></label>
-      <label class="check"><input type="checkbox" id="setReadId"><span>After each new photo, ask to scan the painted ID</span></label>
+      <p class="hint" id="qualityNote"></p>
+    </div>
+  </div>
+</section>
+
+<!-- settings: exports and files -->
+<section class="sheet" id="setExports" hidden aria-labelledby="setExpTitle">
+  <header><button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 id="setExpTitle">Exports and files</h2></header>
+  <div class="body">
+    <p class="hint">These are the defaults for the Export screen; each export card there has the same options under “Options”.</p>
+    <div class="group">
+      <h3>Photos (ZIP, KMZ balloons, stamps)</h3>
+      <p class="hint">Photos are always kept on the phone at full export quality (2048 px); these settings shape the copies that leave the phone.</p>
+      <div class="opt2"><label class="field">Longest side of export copies<select id="setMaxPx2"><option>1280</option><option>1600</option><option>2048</option><option>2560</option><option>3264</option></select></label>
+      <label class="field">JPEG quality<select id="expQuality2"><option value="0.8">Smaller files (80)</option><option value="0.88">Balanced (88)</option><option value="0.94">Best (94)</option></select></label></div>
+      <label class="check"><input type="checkbox" id="setStamp2"><span>Stamp a caption band on exported photos</span></label>
+      <div class="chips" id="stampFields2"><button type="button" class="chip small" data-v="id" aria-pressed="true">ID & type</button><button type="button" class="chip small" data-v="coords" aria-pressed="true">Lat / long</button><button type="button" class="chip small" data-v="utm" aria-pressed="true">UTM</button><button type="button" class="chip small" data-v="time" aria-pressed="true">Date & time</button><button type="button" class="chip small" data-v="by" aria-pressed="true">Taken by</button><button type="button" class="chip small" data-v="project" aria-pressed="true">Project</button></div>
+      <label class="field">File names<select id="expNaming2"><option value="id">ID.jpg (CC-0001.jpg)</option><option value="project_id">Project_ID.jpg</option><option value="id_time">ID_date_time.jpg</option></select></label>
     </div>
     <div class="group">
-      <h3>Route checks</h3>
-      <div class="row"><label class="field" style="flex:1">Maximum span (m)<input type="number" id="setMaxSpan" step="1" min="5"></label><label class="field" style="flex:1">Angle pole from (°)<input type="number" id="setAngle" step="1" min="1" max="90"></label></div>
-      <label class="field">Link in capture order: skip gaps longer than (m)<input type="number" id="setAutoGap" step="5" min="10"></label>
-      <p class="hint">Starting values only; set them to your design standard.</p>
+      <h3>KMZ (Google Earth)</h3>
+      <div class="opt2"><label class="field">Balloon photo size<select id="kmzBalloonPx3" class="exp-kmz"><option value="480">Small (480 px)</option><option value="800">Medium (800 px)</option><option value="1200">Large (1200 px)</option><option value="0">No photos in balloons</option></select></label>
+      <label class="field">Pin icon<select id="kmzIconPx3" class="exp-kmz"><option value="0">Standard pin / status dot</option><option value="48">Photo, small</option><option value="64">Photo, medium</option><option value="96">Photo, large</option></select></label></div>
+      <label class="check"><input type="checkbox" id="kmzRoute2" class="exp-kmz"><span>Include the cable route (survey)</span></label>
+      <label class="check"><input type="checkbox" id="kmzStamp3" class="exp-kmz"><span>Stamp balloon photos</span></label>
+    </div>
+    <div class="group">
+      <h3>Deficiency List PDF</h3>
+      <label class="field">Photo size in annexes<select id="pdfPhotoSize2"><option value="S">Small</option><option value="M">Medium</option><option value="L">Large</option></select></label>
+      <label class="check"><input type="checkbox" id="pdfAnnexA2"><span>Annex A: photo evidence per item</span></label>
+      <label class="check"><input type="checkbox" id="pdfAnnexB2"><span>Annex B: inspection photo log</span></label>
+    </div>
+    <div class="group">
+      <h3>AutoCAD DXF</h3>
+      <div class="opt2"><label class="field">Pole symbol radius (m)<input type="number" id="setSym2" step="0.1" min="0.1"></label><label class="field">Label height (m)<input type="number" id="setTxt2" step="0.1" min="0.1"></label></div>
+      <label class="field">UTM zone (WGS84, north)<select id="setZone2"><option value="50">Zone 50N (CM 117°E)</option><option value="51">Zone 51N (CM 123°E)</option><option value="52">Zone 52N (CM 129°E)</option></select></label>
     </div>
     <div class="group" id="saveGroup">
       <h3>Where saved files go</h3>
@@ -527,44 +664,56 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <p class="hint mono" id="savePreview">–</p>
       <p class="hint">Projects themselves always stay in the app's private storage, which other apps cannot read.</p>
     </div>
+  </div>
+</section>
+
+<!-- settings: storage -->
+<section class="sheet" id="setStorage" hidden aria-labelledby="setStoTitle">
+  <header><button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 id="setStoTitle">Storage</h2></header>
+  <div class="body">
     <div class="group">
-      <h3>CAD export</h3>
-      <label class="field">UTM zone (WGS84, north)<select id="setZone"><option value="50">Zone 50N (CM 117°E)</option><option value="51">Zone 51N (CM 123°E)</option><option value="52">Zone 52N (CM 129°E)</option></select></label>
-      <div class="row"><label class="field" style="flex:1">Pole symbol radius (m)<input type="number" id="setSym" step="0.1" min="0.1"></label><label class="field" style="flex:1">Label height (m)<input type="number" id="setTxt" step="0.1" min="0.1"></label></div>
-    </div>
-    <div class="group">
-      <h3>Offline map</h3>
-      <p class="hint" id="tileInfo">–</p>
-      <p class="hint">Download a map pack for no-signal areas with the cloud button on the map. Satellite imagery works online only.</p>
-    </div>
-    <div class="group">
-      <h3>Storage</h3>
+      <h3>Records and photos</h3>
       <p class="hint" id="storeInfo">–</p>
-      <p class="hint">Points and photos live only on this phone until you export or back up. The limit is set by the phone, not by PoleCam: the app may use up to that much of the free space, and it grows or shrinks as the phone fills up.</p>
+      <p class="hint">Records and photos live only on this phone until you export or back up. The limit is set by the phone, not by PoleCam: it is a share of the free space and changes as the phone fills up. Make a backup after each field day (Export → Backup).</p>
     </div>
-    <p class="hint" style="text-align:center">PoleCam Survey v1.7.0 · Map data © OpenStreetMap contributors · Imagery © Esri</p>
+    <div class="group">
+      <h3>Maps</h3>
+      <p class="hint" id="tileInfo">–</p>
+      <p class="hint" id="packInfo">–</p>
+      <button class="btn" id="goMaps2" type="button">Manage offline map packs</button>
+    </div>
   </div>
 </section>
 
 <!-- project picker -->
 <section class="sheet" id="projects" hidden aria-labelledby="projTitle">
   <header>
-    <button class="iconbtn" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18 9 12l6-6"/></svg></button>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
     <h2 id="projTitle">Projects</h2>
   </header>
   <div class="body">
+    <div class="group" id="taskBox" hidden>
+      <div class="row between"><h3>Assigned tasks (online sheet)</h3><button class="btn sm" id="taskSync" type="button">Sync</button></div>
+      <p class="hint" id="taskInfo">–</p>
+      <div id="taskList" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
     <div class="group">
-      <h3>Current project</h3>
-      <p class="hint">Each survey area is its own project: its poles, photos, Pole ID numbering, exports, backups and offline maps are kept separate from other projects.</p>
+      <div class="row between"><h3>Current project</h3><span class="badge cat" id="projBadge">SURVEY</span></div>
       <div class="row"><input type="text" id="renameProject" aria-label="Project name" style="flex:1"><button class="btn" id="doRename">Rename</button></div>
       <div id="accMeta" hidden style="display:flex;flex-direction:column;gap:12px">
         <p class="hint" id="accStageInfo" style="font-weight:700;color:var(--ink)"></p>
-        <label class="field">SITE / CLUSTER<input type="text" id="mSite" autocomplete="off"></label>
-        <label class="field">CONTRACTOR<input type="text" id="mContractor" autocomplete="off"></label>
-        <label class="field">GLOBE REPRESENTATIVE<input type="text" id="mGlobe" autocomplete="off"></label>
+        <p class="hint">These print on the Deficiency List form. Location is the site or cluster code (e.g. KABAN_MIN660); Vendor is the contractor.</p>
+        <label class="field">LOCATION / SITE<input type="text" id="mSite" autocomplete="off" placeholder="e.g. KABAN_MIN660"></label>
+        <label class="field">VENDOR (CONTRACTOR)<input type="text" id="mContractor" autocomplete="off" placeholder="e.g. LASAYA RCA BUILDERS INC."></label>
+        <label class="field">CONTRACTOR REPRESENTATIVE (endorses the list)<input type="text" id="mVendorRep" autocomplete="off"></label>
+        <label class="field">GLOBE REPRESENTATIVE (accepts the list)<input type="text" id="mGlobe" autocomplete="off"></label>
         <label class="field">INSPECTED BY<input type="text" id="mInspector" autocomplete="off"></label>
+        <div class="field"><span class="lbl">INSPECTION TYPE (ticked on the form)</span><div class="chips" id="mTypes"></div></div>
+        <label class="field">INSPECTION DATE (printed on the form)<input type="date" id="mDate"></label>
         <button class="btn primary" id="startFat" type="button">Start FAT from this PAT</button>
-        <p class="hint" id="startFatHint">Copies every element and its punchlist into a new FAT project, so you can re-check each item and mark it rectified with an after photo. This PAT stays unchanged.</p>
+        <p class="hint" id="startFatHint">Copies every element and its punchlist into a new FAT project, so you can verify each rectified item. This PAT stays unchanged.</p>
+        <button class="btn" id="sendPat" type="button">Send this PAT to another phone (for FAT)</button>
+        <p class="hint" id="sendPatHint">Makes one file with every element, punchlist item and photo. On the other phone: Projects → New project → FAT → Start FAT from a PAT file.</p>
       </div>
       <button class="btn danger" id="delProject">Delete this project…</button>
       <div id="delProjConfirm" hidden style="display:flex;flex-direction:column;gap:10px"><p style="margin:0" id="delProjText"></p><div class="row"><button class="btn grow" id="delProjNo">Keep</button><button class="btn grow" id="delProjYes" style="background:var(--bad);border-color:var(--bad);color:#fff">Delete project</button></div></div>
@@ -573,9 +722,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <h3>New project</h3>
       <span class="lbl">TASK CATEGORY</span>
       <div class="chips" id="newMode"><button type="button" class="chip" data-v="survey" aria-pressed="true">Survey</button><button type="button" class="chip" data-v="PAT" aria-pressed="false">PAT</button><button type="button" class="chip" data-v="FAT" aria-pressed="false">FAT</button></div>
-      <p class="hint" id="newModeHint">Engineering survey: poles, route and spans for design.</p>
+      <p class="hint" id="newModeHint">Survey: engineering survey of poles, route and spans for design.</p>
+      <button class="btn" id="fatFromFile" type="button" hidden>Start FAT from a PAT file…</button>
+      <input type="file" id="patFileInput" accept=".zip,application/zip" hidden>
       <div class="row"><input type="text" id="newProject" placeholder="e.g. Kabacan Poblacion LLD" style="flex:1"><button class="btn primary" id="addProject">Add</button></div>
     </div>
+    <div class="sectionh">All projects on this phone</div>
     <div id="projItems" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
 </section>
@@ -583,16 +735,21 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 <!-- offline maps -->
 <section class="sheet" id="offline" hidden aria-labelledby="offTitle">
   <header>
-    <button class="iconbtn" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18 9 12l6-6"/></svg></button>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
     <h2 id="offTitle">Offline map</h2>
   </header>
   <div class="body">
     <div class="group">
       <h3>Offline map packs</h3>
-      <p class="hint">A map pack is a street map of a whole area kept on this phone: roads, buildings, rivers and place names, sharp at every zoom. Download it once on Wi-Fi. When there is no signal the app switches to it by itself; the layers button also switches to it.</p>
+      <p class="hint">A map pack is a street map of a whole area kept on this phone: roads, buildings, rivers and place names, sharp at every zoom. Get it once on Wi-Fi. When there is no signal the app switches to it by itself; the layers button also switches to it.</p>
       <p class="hint" id="packSource">–</p>
       <div id="packList" style="display:flex;flex-direction:column;gap:8px"></div>
-      <button class="btn" id="packRefresh" type="button">Check for map packs</button>
+      <div class="row"><button class="btn grow primary" id="packImport" type="button">Import a pack file</button><button class="btn grow" id="packRefresh" type="button">Refresh list</button></div>
+      <input type="file" id="packFileInput" hidden>
+      <span class="lbl">ADD A GOOGLE DRIVE LINK</span>
+      <input type="text" id="packLink" placeholder="https://drive.google.com/file/d/…/view" autocomplete="off" aria-label="Google Drive link to a .pmtiles file">
+      <div class="row"><input type="text" id="packLinkName" placeholder="Name, e.g. Mindanao" style="flex:1" aria-label="Name for this map pack"><button class="btn" id="packAddLink" type="button">Add</button></div>
+      <p class="hint">The Drive file must be shared as “Anyone with the link”. The Android app downloads it directly; the website version opens it in Drive so you can download it and import it here.</p>
     </div>
     <div class="group">
       <h3>Map tiles you have viewed</h3>
@@ -607,7 +764,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 <!-- your details (asked on first use) -->
 <section class="sheet" id="profile" hidden aria-labelledby="profTitle">
   <header>
-    <span id="profBack"><button class="iconbtn" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18 9 12l6-6"/></svg></button></span>
+    <span id="profBack"><button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button></span>
     <h2 id="profTitle">Your details</h2>
   </header>
   <div class="body">
@@ -618,7 +775,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="field"><span class="lbl">COMPANY</span><select id="pfCompany"></select><p class="hint" id="pfTeam"></p></div>
     <div class="group" id="pfJoin" hidden>
       <h3>Get the company list</h3>
-      <p class="hint">Company names are set by your PoleCam admin. Ask the admin to show the list's QR code (Settings → Company list → Share list), or to send you the list file.</p>
+      <p class="hint">Company names are set by your PoleCam admin. Ask the admin to show the list's QR code (Settings → Share list), or to send you the list file.</p>
       <div class="row"><button class="btn grow primary" id="pfScan" type="button">Scan admin's QR code</button><button class="btn grow" id="pfFile" type="button">Open list file</button></div>
       <button class="btn" id="pfCreate" type="button">I am the admin: create the company list</button>
     </div>
@@ -628,11 +785,11 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 </section>
 <input type="file" id="teamFileInput" accept=".json,.txt,application/json,text/plain" hidden>
 
-<!-- company list admin -->
+<!-- administration -->
 <section class="sheet" id="admin" hidden aria-labelledby="adminTitle">
   <header>
-    <button class="iconbtn" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18 9 12l6-6"/></svg></button>
-    <h2 id="adminTitle">Company list (admin)</h2>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="adminTitle">Administration</h2>
   </header>
   <div class="body">
     <div class="group" id="admLock">
@@ -643,6 +800,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <button class="btn primary" id="admUnlock" type="button">Continue</button>
     </div>
     <div id="admMain" hidden style="display:contents">
+      <p class="notice">Everything on this screen goes to every phone that takes your list (QR code or file), signed with your admin key. Users cannot change it.</p>
       <div class="group">
         <h3>List name</h3>
         <input type="text" id="admName" placeholder="e.g. Globe OSP Mindanao" aria-label="List name">
@@ -652,12 +810,50 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <h3>Companies and vendors</h3>
         <div id="admCos" style="display:flex;flex-direction:column;gap:6px"></div>
         <div class="row"><input type="text" id="admNewCo" placeholder="Company name" style="flex:1" aria-label="New company name"><button class="btn" id="admAddCo" type="button">Add</button></div>
+        <div class="row"><button class="btn grow" id="admCsv" type="button">Import companies from CSV</button></div>
+        <input type="file" id="admCsvInput" accept=".csv,text/csv,text/plain" hidden>
+        <label class="field">INSPECTING COMPANY: its users add deficiencies and verify or reject rectifications; other companies only rectify<select id="admOwner"></select></label>
+      </div>
+      <div class="group">
+        <h3>Deficiency List form</h3>
+        <p class="hint">The header and signature lines printed on the form. The logos come from brand/logo-left.jpg and brand/logo-right.jpg in the app folder.</p>
+        <label class="field">Company name<input type="text" id="pfmCompany" autocomplete="off"></label>
+        <label class="field">Address line<input type="text" id="pfmAddress" autocomplete="off"></label>
+        <label class="field">Department line 1<input type="text" id="pfmDept1" autocomplete="off"></label>
+        <label class="field">Department line 2<input type="text" id="pfmDept2" autocomplete="off"></label>
+        <div class="opt2"><label class="field">Left signatory title<input type="text" id="pfmLeftTitle" autocomplete="off"></label><label class="field">Right signatory title<input type="text" id="pfmRightTitle" autocomplete="off"></label></div>
+        <label class="field">Inspection types, one per line<textarea id="pfmTypes" style="min-height:70px"></textarea></label>
+        <label class="field">Legend line<input type="text" id="pfmLegend" autocomplete="off"></label>
+        <label class="field">Rectified-date column sub-label<input type="text" id="pfmDateSub" autocomplete="off"></label>
+      </div>
+      <div class="group">
+        <h3>Deficiency checklist</h3>
+        <p class="hint">The defects users can tap when adding a deficiency.</p>
+        <label class="field">Category<select id="setDefCat"></select></label>
+        <label class="field">Defects, one per line<textarea id="setDefItems" style="min-height:140px"></textarea></label>
+        <div class="row"><input type="text" id="admNewCat" placeholder="New category, e.g. Manhole" style="flex:1" aria-label="New category"><button class="btn" id="admAddCat" type="button">Add category</button></div>
+        <p class="hint">A category with no defects left is removed when you save.</p>
+      </div>
+      <div class="group">
+        <h3>Field standards</h3>
+        <div class="row"><label class="field" style="flex:1">Maximum span (m)<input type="number" id="setMaxSpan" step="1" min="5"></label><label class="field" style="flex:1">Angle pole from (°)<input type="number" id="setAngle" step="1" min="1" max="90"></label></div>
+        <label class="field">Link in capture order: skip gaps longer than (m)<input type="number" id="setAutoGap" step="5" min="10"></label>
+        <label class="field">Photo sharpness required<select id="admQuality"><option value="strict">Strict (recommended)</option><option value="normal">Normal: refuse only clearly blurry</option></select></label>
+      </div>
+      <div class="group">
+        <h3>Online Google Sheet (optional)</h3>
+        <p class="hint">Keep companies, assigned tasks and map pack links in your own Google Sheet (see the setup guide). Phones read it when online and keep a copy for offline use. Photos and survey data never go there.</p>
+        <label class="field">WEB APP URL<input type="text" id="admUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <label class="field">READ KEY (from the sheet's Settings tab)<input type="text" id="admReadKey" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <label class="field">ADMIN KEY (stays on this phone; lets CSV import add companies to the sheet)<input type="password" id="admWriteKey" autocomplete="off"></label>
+        <button class="btn" id="admTest" type="button">Test connection</button>
+        <p class="hint" id="admTestOut"></p>
       </div>
       <div class="group">
         <h3>Admins</h3>
         <div id="admAdmins" style="display:flex;flex-direction:column;gap:6px"></div>
         <button class="btn" id="admAddAdmin" type="button">Add an admin: scan their request QR</button>
-        <p class="hint">The other person opens Settings → Company list → Ask to become an admin, and shows you the QR code on their phone.</p>
+        <p class="hint">The other person opens Settings → Ask to become an admin, and shows you the QR code on their phone.</p>
       </div>
       <p class="hint" id="admRev"></p>
       <button class="btn primary" id="admSave" type="button">Save and share the list</button>
@@ -672,11 +868,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div class="row"><button class="btn grow" id="qrFile" type="button">Share as file</button><button class="btn primary grow" id="qrClose" type="button">Done</button></div>
 </div></div>
 <div id="qrScan" hidden>
-  <div class="qtop"><button class="camclose" id="qrScanClose" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg></button><span id="qrScanText">Point the camera at the QR code</span></div>
+  <div class="qtop"><button class="camclose" id="qrScanClose" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="22" height="22"><use href="#i-close"/></svg></button><span id="qrScanText">Point the camera at the QR code</span></div>
   <video id="qrVideo" playsinline muted autoplay></video>
   <div id="qrFrame"></div>
 </div>
 <div class="overlay" id="askBox" hidden><div class="panel"><h3 id="askTitle"></h3><p id="askText" style="margin:0;white-space:pre-line"></p><div class="row"><button class="btn grow" id="askNo" type="button">Cancel</button><button class="btn primary grow" id="askYes" type="button">OK</button></div></div></div>
+<div class="overlay" id="promptBox" hidden><div class="panel"><h3 id="promptTitle"></h3><p class="hint" id="promptText" style="margin:0"></p><textarea id="promptInput" style="min-height:70px"></textarea><div class="row"><button class="btn grow" id="promptNo" type="button">Cancel</button><button class="btn primary grow" id="promptYes" type="button">OK</button></div></div></div>
 
 <div id="busy" hidden><div><span id="busyText">Working…</span><progress id="busyProg" max="1" value="0"></progress><button class="btn" id="busyCancel" hidden style="margin-top:12px;width:100%">Cancel</button></div></div>
 <div id="toast" hidden role="status"></div>
@@ -686,6 +883,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 <script src="vendor/qr/qrcode.min.js"></script>
 <script src="core.js"></script>
 <script src="reports.js"></script>
+<script src="forms.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

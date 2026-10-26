@@ -597,7 +597,41 @@
     return [...found.values()].sort((a, b) => b.score - a.score).slice(0, 5);
   }
 
-  const api = { utmForward, analyzeRoute, autoLinks, distM, deflection, idCandidates, fitShape, knownId, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
+  /* ---------------- CSV (company list import) ---------------- */
+  /** RFC-4180-style CSV parse; also accepts semicolon or tab separated files (detected from the first line). */
+  function parseCsv(text) {
+    const t = String(text || '').replace(/^﻿/, '');
+    const first = t.split(/\r?\n/, 1)[0] || '';
+    const counts = { ',': (first.match(/,/g) || []).length, ';': (first.match(/;/g) || []).length, '\t': (first.match(/\t/g) || []).length };
+    const sep = Object.keys(counts).reduce((a, b) => (counts[b] > counts[a] ? b : a), ',');
+    const rows = []; let row = [], cell = '', q = false;
+    for (let i = 0; i < t.length; i++) {
+      const ch = t[i];
+      if (q) { if (ch === '"') { if (t[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; continue; }
+      if (ch === '"') q = true;
+      else if (ch === sep) { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') { if (ch === '\r' && t[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+      else cell += ch;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter((r) => r.some((c) => c.trim() !== ''));
+  }
+  /** Company names from a CSV: the column headed Company / Vendor / Contractor / Name, else the first column. */
+  function companiesFromCsv(text) {
+    const rows = parseCsv(text);
+    if (!rows.length) return [];
+    const head = rows[0].map((h) => h.trim().toLowerCase());
+    let col = head.findIndex((h) => /^(company|company name|vendor|vendor name|contractor|name)$/.test(h)), start = 1;
+    if (col < 0) { col = 0; start = /^(company|vendor|contractor|name)/.test(head[0] || '') ? 1 : 0; }
+    const seen = new Set(), out = [];
+    for (const r of rows.slice(start)) {
+      const v = String(r[col] || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+      if (v && !seen.has(v.toLowerCase())) { seen.add(v.toLowerCase()); out.push(v); }
+    }
+    return out;
+  }
+
+  const api = { parseCsv, companiesFromCsv, utmForward, analyzeRoute, autoLinks, distM, deflection, idCandidates, fitShape, knownId, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
     buildKml, buildDxf, buildCsv, roadsFromOverpass, overpassQuery, nextPoleId, safeName, xmlEsc, blockName };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleCore = api;
 })(typeof self !== 'undefined' ? self : this);

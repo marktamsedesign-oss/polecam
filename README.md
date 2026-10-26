@@ -1,6 +1,8 @@
 # PoleCam Survey
 
-Three task categories per project: **Survey** (engineering survey), **PAT** and **FAT** (acceptance punchlist / deficiency list — see "Acceptance mode"). The category shows on the project button at the top right.
+Three task categories per project: **Survey** (engineering survey), **PAT** and **FAT** (acceptance **List of Deficiencies** on the office form — see "Acceptance mode"). The category shows on the project button at the top right.
+
+**v2.0** — the Deficiency List exports are the office form (PDF and Excel) with photo annexes; deficiencies go through *found → rectified → verified*; the admin sets the company policies (inspecting company, form wording, checklist, field standards) inside the signed company list; the settings are split into what users set and what only the admin sets; every export has detailed options (photo size, stamps, KMZ icons, PDF annexes). See "What changed in v2.0".
 
 One phone app that replaces GPS Camera + the Windows geolocator step:
 
@@ -17,7 +19,7 @@ One phone app that replaces GPS Camera + the Windows geolocator step:
 
 Photos cannot be imported (v1.7): every photo is taken live, so its location can be checked.
 
-Works with no signal: the app and your points stay on the phone, and a downloaded **offline map pack** (v1.6) shows streets with no internet.
+Works with no signal: the app and your points stay on the phone, and an **offline map pack** (from Google Drive or a file) shows streets with no internet.
 
 ---
 
@@ -26,8 +28,8 @@ Works with no signal: the app and your points stay on the phone, and a downloade
 The app has to be served over HTTPS once so the phone can install it. GitHub Pages is free.
 
 1. Create a GitHub repository (e.g. `polecam`) and upload **everything in this folder** (keep the `vendor/` and `icons/` folders).
-2. Repository **Settings → Pages → Build and deployment → Source = GitHub Actions**, and add `.github/workflows/deploy-site.yml` (it publishes the site and the offline map packs).
-   After the *Deploy website and offline maps* run finishes it is live at `https://<your-username>.github.io/polecam/`.
+2. Repository **Settings → Pages → Build and deployment → Source = GitHub Actions**, and add `.github/workflows/deploy-site.yml` (it publishes the app only, about 8 MB; map packs are not stored on GitHub Pages since v1.8).
+   After the *Deploy website* run finishes it is live at `https://<your-username>.github.io/polecam/`.
 3. On the Android phone open that link in **Chrome** → ⋮ menu → **Install app** (or *Add to Home screen*).
    It installs with its own icon and opens full-screen like a normal app.
 4. First run: allow **Camera** and **Location** (choose *precise* location).
@@ -40,10 +42,10 @@ The APK opens the same hosted app, so keep the GitHub Pages site online.
 
 ## First use: your details and the company list (v1.7)
 
-- On first use the app asks for **full name, mobile number, email and company**. They stay on the phone and are recorded on every photo, pole and punchlist item (“Mark Tamse · Globe Telecom”) and printed on the reports (Excel *People* sheet, “Recorded by” on the PDFs, *surveyed_by* in the CSV). Change them in Settings → You → Edit my details.
+- On first use the app asks for **full name, mobile number, email and company**. They stay on the phone and are recorded on every photo, pole and punchlist item (“Mark Tamse · Globe Telecom”) and printed on the reports (Excel *People* sheet, “Recorded by” on the PDFs, *surveyed_by* in the CSV). Change them in Settings → Account.
 - **Company names come from an admin.** The admin is whoever creates the company list on their phone (“I am the admin: create the company list”): they set an admin PIN, name the list (e.g. *Globe OSP Mindanao*) and add each company/vendor.
-- **Sharing the list, offline:** Settings → Company list → *Share list* shows a QR code. Other phones scan it (first use: *Scan admin's QR code*; later: *Update list* → *Scan QR*). *Share as file* sends the same list as a small file through Viber/Messenger/email; the other phone opens it with *Open list file*. Nothing goes through a server.
-- **Updates:** the admin edits the list (Manage company list, PIN), saves, and shares again. The list is signed with the admin's key: a phone accepts an update only from an admin already on its list, and rejects a list that was edited by hand.
+- **Sharing the list, offline:** Settings → Administration → *Share list* shows a QR code. Other phones scan it (first use: *Scan admin's QR code*; later: *Update list* → *Scan QR*). *Share as file* sends the same list as a small file through Viber/Messenger/email; the other phone opens it with *Open list file*. Nothing goes through a server.
+- **Updates:** the admin edits the list (Settings → Administration → Manage (admin), PIN), saves, and shares again. The list is signed with the admin's key: a phone accepts an update only from an admin already on its list, and rejects a list that was edited by hand.
 - Each list has a **code** (e.g. V5XQ-VR8B) shown in Settings and when joining. *Update list* accepts only newer versions of the same list; a different list (even with the same name) needs *Switch to another list* and a warning, and older versions are refused.
 - **More admins:** the other person taps *Ask to become an admin* (sets their own PIN) and shows the request QR; the admin taps *Add an admin* and scans it, then shares the new version. That person becomes an admin when their phone takes the update.
 - Limits: anyone can create a separate list on their own phone and call themselves admin; reports show the list name and its admins, so check them. If the only admin loses their phone or PIN, the list cannot be updated: make a new list and have everyone switch to it (keep a second admin to avoid this).
@@ -52,7 +54,7 @@ The APK opens the same hosted app, so keep the GitHub Pages site online.
 
 - **Projects = survey areas.** Create one project per area/job (top bar → project name). Each project keeps its own poles, photos, Pole ID numbering, exports, backups and offline maps; nothing from one survey shows up in another. You can rename or delete a project there too.
 - **Taking a photo:** the shutter is **green** when the GPS updated within the last 5 seconds and **red** when the GPS is old, off or blocked. A red shutter still tries for 5 seconds, then refuses the photo. After the photo is kept, the app asks you to scan the ID (Skip if there is none); the ID button at the top right turns this step off.
-- **Offline map (before going to a no-signal area):** tap the cloud button on the map → *Offline map packs* → **Download** the pack for your area while on Wi-Fi (see "Offline map packs" below). With no signal the map switches to it by itself; the layer button also cycles Street → Satellite → Offline.
+- **Offline map (before going to a no-signal area):** tap the cloud button on the map → **Download** the pack for your area (Android app, from Google Drive) or **Import a pack file** you already have, on Wi-Fi (see "Offline map packs" below). With no signal the map switches to it by itself; the layer button also cycles Street → Satellite → Offline.
 - GPS pill colors: green ≤ 5 m, amber ≤ 15 m, red > 15 m. Wait for green when you can.
 - *Reset to GPS* puts the pin back on the raw GPS fix. Points you moved are tagged **pin adjusted**.
 - Tap any pole on the map or in *Points* to edit it, replace the photo, or delete it.
@@ -60,25 +62,31 @@ The APK opens the same hosted app, so keep the GitHub Pages site online.
 
 ## Acceptance mode (PAT / FAT)
 
-Create a project with task category **PAT** (Projects → New project → Task category). The project button at the top right shows SURVEY, PAT or FAT, and the list button at the bottom is named after it. Choose **FAT** directly only when the PAT records are not on this phone; otherwise open the PAT project and use *Start FAT from this PAT* so every PAT item is re-checked.
+Create a project with task category **PAT** (Projects → New project → Task category), or **Start** a PAT task from the online sheet. The project button at the top right shows SURVEY, PAT or FAT, and the list button at the bottom is named after it. Choose **FAT** directly only when the PAT records are not on this phone; otherwise open the PAT project and use *Start FAT from this PAT*, or *Start FAT from a PAT file* sent from another phone.
+
+**Who does what (v2.0).** The admin names the **inspecting company** (Settings → admin → *Inspecting company*; e.g. Globe Telecom). Users of that company are the **inspectors**: they add deficiencies, verify rectifications or reject them. Users of every other company (the contractors) only add *rectified* photos and mark items rectified. With no inspecting company set, everyone may do everything.
 
 **Recording (one record per location)**
 - Element: **Pole**, **ODF**, **ODC** or **Rack**, with its ID (numbering continues per element type in the project: CC-/WP-/SP- for poles by type, FDU_ for ODFs).
 - Pole: *With MLoop*, *With NAP* + NAP ID, *With closure* + closure ID. ODF: *New* or *Existing*.
 - Several photos per element (Overview, Pole tag, MLoop, NAP, Closure, …) — tap **+ Add photo**, set each label under the picture.
-- **+ Add deficiency**: pick where (Pole, Cable/strand, MLoop, NAP, Closure, ODF, ODC, Rack, Other), tap one or more defects from the checklist, set Major/Minor, add notes and a defect photo. Edit the checklist in Settings → *Deficiency checklist*; the starting lists are generic, replace them with your own.
-- Map pins: red = open deficiency, blue = all rectified, green = OK. The Points list has a filter for each.
+- **+ Add deficiency** (inspectors): pick where (Pole, Cable/strand, MLoop, NAP, Closure, ODF, ODC, Rack, Other), tap one or more defects from the checklist, set **Major (MD)**, **Minor (D)** or **Note (N)** — the codes printed on the form — add notes and the *as found* photo. The checklist is set by the admin for everyone.
+- Each item shows its timeline: **FOUND** (when, by whom, stage) → **RECTIFIED** (contractor's after photo, or marked rectified without one) → **VERIFIED** (inspector, with or without a verification photo). *Reject* sends an item back to Open with the reason, which is kept and printed.
+- Map pins: red = open deficiency, blue = rectified awaiting verification, teal = all verified, green = no deficiency. The strip above the navigation bar shows the project totals; the Records screen has the same figures and a filter for each status.
 
-**Projects → Current project** holds Site/cluster, Contractor, Globe representative and Inspected by — these print on the punchlist.
+**Projects → Current project** holds what prints on the form: *Location/site*, *Vendor (contractor)*, *Contractor representative* (endorses the list), *Globe representative* (accepts it), *Inspected by*, the *inspection type* boxes ticked on the form and the *inspection date*.
 
-**FAT**: on a PAT project tap **Start FAT from this PAT**. It copies every element and its punchlist into a new FAT project (the PAT stays as it was). For each item: **After photo** (marks it rectified), **Mark rectified**, or leave it open with remarks. New defects found at FAT can be added too.
+**FAT**: on a PAT project tap **Start FAT from this PAT**. It copies every element and its deficiency list into a new FAT project (the PAT stays as it was). Contractors add the rectified photo (**After photo**) or **Mark rectified**; inspectors **Verify** / **Verify with photo** / **Reject**. New deficiencies found at FAT can be added too.
 
-**Acceptance exports** (Export screen)
-- **Excel punchlist** — sheet *Punchlist* (item no., location, element, category, deficiency, severity, notes, status, found at, dates, remarks, coordinates, photo file names) and sheet *Elements* (every element with MLoop / NAP / closure / ODF details and status).
-- **PDF report** — header and summary, numbered punchlist, sign-off boxes (Globe representative, contractor representative, noted by), then each element's photos and each defect with its before/after photo.
-- **KMZ** — pins by status in folders *With open deficiency / All rectified / Passed*, details and photos in each balloon.
-- **CSV** — same table as the Excel punchlist.
-- **Photos ZIP** — file names match the Excel/PDF (e.g. `MKP-0001_1_Overview.jpg`, `MKP-0001_item3_defect.jpg`, `MKP-0001_item3_after.jpg`).
+**Acceptance exports** (Export screen; each card has its options under *Options*, defaults under Settings → Exports and files)
+- **Deficiency List · PDF** — page 1…n is the office form: logos, company header, PAT or FAT box ticked, inspection types, Location / Project / Vendor / Date, 15 numbered items per page (code MD / D / N, item text, rectified date), legend, ENDORSED BY (contractor representative) and ACCEPTED BY (Globe representative) with dates left blank for signing or prefilled. Then **Annex A** — one block per item with its three photos *AS FOUND (PAT) · RECTIFIED (CONTRACTOR) · VERIFIED (FAT)*, each captioned with time, GPS, distance from the pin and who took it; a stage not done yet shows *Pending*, a missing photo shows *No photo* — and **Annex B**, the inspection photo log (every element photo). Options: annexes on/off, photo size S/M/L, signature dates. Letter size, like the template.
+- **Deficiency List · Excel** — sheet 1 is the same form laid out like the office template (one block per page, logos as pictures, prints one page per 15 items, editable); then *Punchlist* (flat tracker table: code, status, found/rectified/verified dates and names, rejections, remarks, coordinates, photo file names), *Elements*, *Photos* (index of every photo file with time, GPS and distance from the pin) and *People*. Options: table sheets on/off, photo index on/off.
+- **Rectification report · PDF** — progress of the contractor's rectification (below).
+- **KMZ** — pins by status in folders *With open deficiency / Rectified · awaiting verification / All verified / Passed*, details and photos in each balloon. Options: balloon photo size, photo pin icons (bordered in the status colour) or status dots, stamps.
+- **CSV** — the Punchlist table.
+- **Photos ZIP** — file names match the Excel/PDF (e.g. `MKP-0001_1_Overview.jpg`, `MKP-0001_item3_asfound.jpg`, `MKP-0001_item3_rectified.jpg`, `MKP-0001_item3_verified.jpg`).
+
+The logos printed on the form are `brand/logo-left.jpg` and `brand/logo-right.jpg` in the app folder (taken from the template); replace the files to change them. The header wording (company, address, departments, signatory titles, inspection types, legend) is set by the admin and travels with the company list.
 
 PAT and FAT share photos, so deleting one project never removes photos the other still uses.
 
@@ -94,14 +102,14 @@ PAT and FAT share photos, so deleting one project never removes photos the other
 ## Rectification report (PDF)
 
 Export → *Rectification report*. Generated from the project data, nothing to fill in:
-- Summary: punchlist items, rectified, still open, % cleared, average time to rectify.
+- Summary: deficiencies, rectified, of which verified, still open, % cleared, average time to rectify.
 - Items marked rectified **without an after photo** are called out in red.
 - Progress by date (items rectified per day, cumulative, % cleared).
 - Each rectified item: BEFORE (defect) and AFTER photos side by side, each stamped and captioned with time taken, GPS, distance from the pin and who took it; time to rectify; remarks.
 - Items still open with their defect photo and how long they have been open.
 - Sign-off: contractor representative, Globe representative, noted by.
 
-The Excel/CSV punchlist now also has *Days to rectify*, *Rectified by*, *Defect photo taken*, *After photo taken* and *After photo distance from pin (m)*.
+The Excel/CSV punchlist also has *Days to rectify*, *Rectified by*, *Date verified*, *Verified by*, *Rejections* and, for each photo, when it was taken and how far from the pin.
 
 **Vendor hand-off:** Globe makes a Backup of the PAT/FAT project → sends the ZIP to the vendor → vendor Restores it on their phone, sets their name, takes after photos at each site → makes a Backup → sends it back → Globe Restores it and exports the rectification report.
 
@@ -119,25 +127,73 @@ The Excel/CSV punchlist now also has *Days to rectify*, *Rectified by*, *Defect 
 
 **Route and spans (survey projects)**
 - Tap the **route button** on the map. *Link in capture order* connects poles in the order you surveyed them (skipping gaps longer than the setting). Then tap a pole and the next pole to add a span, or tap a linked pair to remove it (for branches and corners). *Undo* and *Clear* are there too.
-- Spans show their length; spans longer than the maximum are red and dashed. Angle poles (orange ring, deflection shown on the label) and junctions (purple ring) are marked. Settings → *Route checks* sets the maximum span (200 m), the angle-pole threshold and the auto-link gap.
+- Spans show their length; spans longer than the maximum are red and dashed. Angle poles (orange ring, deflection shown on the label) and junctions (purple ring) are marked. The admin sets the maximum span (200 m), the angle-pole threshold and the auto-link gap under Settings → Administration → *Field standards* (they travel with the company list).
 - Exports: DXF gets layers **CABLE_ROUTE**, **SPAN_LONG** and **SPAN_LENGTH**; KMZ gets a *Route* folder; **Route and spans · Excel** gives a Summary, every span and every pole's role (terminal, inline, angle, junction, not linked) with its deflection angle. Span lengths are straight pin-to-pin distances, not cable lengths.
 
 **Where saved files go (Android app)**
-- Settings → *Where saved files go*: Documents or Download, a folder name, and optionally one folder per project. Projects themselves stay in the app's private storage.
+- Settings → Exports and files → *Where saved files go*: Documents or Download, a folder name, and optionally one folder per project. Projects themselves stay in the app's private storage.
+
+## Settings: user and admin (v2.0)
+
+Settings is one screen: **Account** (your details), **Field work** (Camera, Exports and files, Offline maps), **Data** (Storage) and **Administration**.
+
+| Users set (per phone) | Admin sets (for everyone, inside the signed company list) |
+|---|---|
+| Name, mobile, email, company | List name, companies/vendors (typed or CSV), **inspecting company** |
+| Camera: ID scan after each photo, horizontal/vertical IDs | Photo sharpness check (strict/normal) — until a phone has a list, the user chooses |
+| Export defaults: photo size and JPEG quality, caption stamp and its fields, file naming; KMZ balloon size, pin icons, route, stamps; PDF annexes and photo size; DXF symbol/label/zone; where files are saved | Deficiency List form wording: company, address, department lines, signatory titles, inspection types, legend, rectified-date sub-label |
+| Offline map packs | Deficiency checklist (defects per category) |
+| | Field standards: maximum span, angle-pole threshold, auto-link gap |
+| | Online Google Sheet address and keys; other admins |
+
+Non-admins can open the Administration row to **view** the policies and see who the admins are. The admin edits them under *Manage (admin)* (PIN), saves, and shares the new list version; phones apply the policies when they take the update. The *About* box shows which policies this phone is using.
 
 **Photos for AI training**
 - Export → *Photos for AI training*: your labeled photos sorted into one folder per type with a labels.csv, for teaching the app later to recognise poles, NAPs, closures, ODFs, etc. Aim for 200+ photos per type.
 
-## Offline map packs (v1.6)
+## Online map in the Android app (v1.8)
 
-Earlier versions downloaded OpenStreetMap / Esri map tiles in bulk for offline use. Both services forbid that in their terms (OpenStreetMap's tile servers are for online viewing only; Esri allows offline use only through its ArcGIS apps), so v1.6 removes it and uses map packs instead.
+OpenStreetMap's tile servers refuse map requests from pages loaded from `localhost`, which is how the APK shows its screens, so the APK's street map stayed blank. Since v1.8 the APK fetches street tiles through Android itself, identified as `PoleCam/<version> (+your site address)`, the way OpenStreetMap asks apps to identify themselves. Tiles are kept for 7 days. The website version is unchanged. Google Maps is not used: it needs a Google Cloud billing account.
 
-- **What a pack is:** one file of street map data (OpenStreetMap, ODbL) for a whole area, cut from the free Protomaps build and published with your website by the *Deploy website and offline maps* workflow. Streets, road names, buildings, water and places, drawn on the phone at any zoom.
-- **Which areas:** `maps/packs.json`. It starts with *Region XII (SOCCSKSARGEN)* and *Mindanao mainland*. Edit the list (id, name, bbox = west, south, east, north, maxzoom 15) and commit; the next run cuts the new packs. GitHub Pages allows 1 GB per site: packs are added in list order and one that would pass about 950 MB in total is left out with a warning in the workflow log, which also shows each pack's size. If cutting a pack fails, the site still publishes, with last month's copy of that pack when there is one.
-- **Refresh:** packs are re-cut once a month with fresh OpenStreetMap data, or by hand: Actions → *Deploy website and offline maps* → *Run workflow* → tick *Download fresh map data now*. The app shows *Update* when a newer pack is published.
-- **On the phone:** Offline map → *Check for map packs* → **Download** (use Wi-Fi; it resumes where it stopped if the connection drops) → *Use* / *Show* / *Delete*. The pack you used last is the one shown offline.
-- **Satellite** has no offline version and is not kept on the phone (v1.7 also removes satellite tiles kept by older versions): Esri allows offline imagery only in its own ArcGIS apps. Street map tiles you viewed online are kept for 7 days and can be cleared under *Map tiles you have viewed*.
-- The app identifies itself to the map servers (APK: `PoleCam/<version>` user agent), as the OpenStreetMap tile policy asks.
+## Offline map packs (v1.8)
+
+- **What a pack is:** one `.pmtiles` file of street map data (OpenStreetMap, ODbL) for a whole area, from the free Protomaps build. Streets, road names, buildings, water and places, drawn on the phone at any zoom. Mindanao mainland is about 200 MB.
+- **Where packs live:** in your **Google Drive**, not on GitHub. Upload the file, set sharing to *Anyone with the link*, and add the link to the **MapPacks** tab of the online sheet (then every phone lists it), or paste it on one phone under *Add a Google Drive link*.
+- **Getting it on the phone:**
+  - **Android app:** Offline map → **Download**. The app fetches the file from Drive in 4 MB pieces and can **Resume** after a dropped connection. **Cancel** stops at once.
+  - **Any phone:** download the file (Drive app, browser, USB, Viber…) and use **Import a pack file**. The website version can only do this, because browsers cannot read Drive files directly.
+  - The pack is kept in the app's private file storage (OPFS), or in its database on phones without OPFS. Every storage step has a time limit, so a stuck phone shows a message instead of freezing.
+- **Making the pack files:** either
+  - GitHub: add `.github/workflows/build-map-packs.yml`, list the areas in `maps/packs.json`, then Actions → *Build map packs* → *Run workflow*. The files are attached to a GitHub **Release** (not Pages, not the repository; GitHub states no limit on total size or bandwidth for releases, each file under 2 GB). Download them from the Releases page and upload them to Drive; delete old map releases when you no longer need them.
+  - or on a PC: download `pmtiles` for Windows from https://github.com/protomaps/go-pmtiles/releases, find the newest date at https://maps.protomaps.com/builds, and run  
+    `pmtiles extract https://build.protomaps.com/YYYYMMDD.pmtiles Mindanao.pmtiles --bbox=121.8,4.5,126.7,10.0 --maxzoom=15`
+- Packs published on the website by v1.6–v1.7 are no longer made; packs already on phones keep working.
+- **Satellite** has no offline version and is not kept on the phone: Esri allows offline imagery only in its own ArcGIS apps. Street map tiles you viewed online are kept for 7 days and can be cleared under *Map tiles you have viewed*.
+
+## Online Google Sheet: companies, tasks, map packs (v1.8)
+
+The admin keeps three lists in a Google Sheet on their own account; phones read it when online and keep a copy for use without signal. **Photos, poles and punchlists never go to the sheet.**
+
+| Tab | What it holds |
+|---|---|
+| **Companies** | One company per row. Replaces the in-app list once a phone has read the sheet. |
+| **Tasks** | Task ID (filled in automatically), project name, category **Survey / PAT / FAT**, site, contractor, Globe representative, *for company* (blank = everyone), status *Active/Closed*, notes. |
+| **MapPacks** | Name, Google Drive link, size in MB, notes. |
+| **Settings** | List name, **Read key** (phones), **Admin key** (admins only). |
+
+**Setup (admin, once):**
+1. Make a Google Sheet, open **Extensions → Apps Script**, paste `PoleCam-online-sheet.gs`, save, choose **setup** and **Run** (allow the permissions).
+2. **Deploy → New deployment → Web app**, *Execute as: Me*, *Who has access: Anyone* → **Deploy**, copy the URL ending in `/exec`.
+3. In PoleCam: Settings → Administration → **Manage (admin)** → *Online Google Sheet*: paste the URL and the Read key (from the Settings tab), **Test connection**, then **Save and share the list**. Optionally enter the Admin key on your own phone so **Import companies from CSV** also adds them to the sheet.
+4. Phones get the sheet address with the next list update (QR code or file). Anyone with the URL and Read key can read the three lists, so treat them like a password.
+
+**On the phones:** Projects → *Assigned tasks (online sheet)* shows the active tasks for the user's company (admins see all). **Start** makes the project with its category, site and contractor; a FAT task asks for the PAT file (below) or starts empty. Settings → Administration shows when the sheet was last read, with *Sync online sheet*.
+
+**Company names from a CSV (admin):** Manage (admin) → *Import companies from CSV*: the column named Company/Vendor/Contractor/Name, or the first column; duplicates are skipped. You can also paste names straight into the sheet's Companies tab.
+
+## PAT from another phone, for the FAT (v1.8)
+
+On the PAT phone: Projects → (PAT project) → **Send this PAT to another phone (for FAT)**. This makes one ZIP with every element, punchlist item and photo, sent by Viber, Drive, email or USB. On the FAT phone: Projects → New project → **FAT** → **Start FAT from a PAT file** (or *Start* on a FAT task). The PAT is restored on that phone and a FAT is started from it, ready for after photos.
 
 ## AutoCAD
 
@@ -154,7 +210,7 @@ Teammates' backups can be restored into one phone to merge projects (same projec
 
 ## Updating the app
 
-Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v1.6.1`), and upload again. Phones pick up the new version the next time the app is opened with internet.
+Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v2.0.1`), and upload again. Phones pick up the new version the next time the app is opened with internet.
 
 ## Files
 
@@ -163,25 +219,39 @@ Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v1.6.1`), and upload 
 | `index.html` | Screens and styling |
 | `app.js` | Camera, GPS, map, storage, exports |
 | `core.js` | UTM 51N conversion, EXIF read/write, ZIP, KML, DXF, CSV (no dependencies) |
-| `reports.js` | Excel (.xlsx) and PDF punchlist writers, acceptance KML (no dependencies) |
+| `reports.js` | Excel (.xlsx, with pictures and page setup) and PDF writers, rectification report, acceptance KML (no dependencies) |
+| `forms.js` | The Deficiency List office form as PDF (with Annex A/B) and as an Excel sheet |
+| `brand/logo-left.jpg`, `brand/logo-right.jpg` | Logos printed on the form |
 | `ocr-worker.js`, `vendor/tesseract/` | Offline Pole ID reader: Tesseract OCR (tesseract.js-core v7.0.0) and the English model from tessdata_fast, both Apache-2.0 |
 | `sw.js` | Offline cache for the app itself |
 | `manifest.json`, `icons/` | Install as an app |
 | `vendor/leaflet/` | Map library (Leaflet 1.9.4, BSD-2) |
 | `vendor/protomaps/` | Offline map renderer (protomaps-leaflet + PMTiles, BSD-3; licenses in `LICENSES.txt`) |
 | `vendor/qr/` | QR codes for the company list: jsQR 1.4.0 (reader, Apache-2.0) and QR Code Generator 2.0.4 (MIT); licenses in `LICENSES.txt` |
-| `maps/packs.json` | Areas published as offline map packs |
-| `.github/workflows/deploy-site.yml` | Publishes the website and cuts the map packs |
+| `maps/packs.json` | Areas for the optional *Build map packs* workflow |
+| `.github/workflows/deploy-site.yml` | Publishes the website (app only) |
 | `.github/workflows/build-apk.yml` | Builds the signed Android APK |
+| `.github/workflows/build-map-packs.yml` | Optional: makes map pack files as a GitHub Release |
+| `PoleCam-online-sheet.gs` (sent separately) | Apps Script for the online Google Sheet |
 
 Map data © OpenStreetMap contributors (ODbL); offline packs from the Protomaps basemap build. Satellite imagery © Esri (online only).
 
 ## Offline Android APK (built by GitHub Actions)
 
-`.github/workflows/build-apk.yml` packs every app file into a signed APK on GitHub's servers, so the APK installs and runs with no internet. Map packs are downloaded from your website (the APK knows its address), and street/satellite maps need internet.
+`.github/workflows/build-apk.yml` packs every app file into a signed APK on GitHub's servers, so the APK installs and runs with no internet. Map packs come from Google Drive or a file, and the street/satellite maps need internet.
 
 - One-time setup: add the repository secrets `POLECAM_KEYSTORE_B64` and `POLECAM_KEYSTORE_PASSWORD` (Settings → Secrets and variables → Actions). Keep the keystore file and password safe: every future APK must be signed with the same key, or phones will refuse the update.
 - Each time app files change on `main`, a new APK is built (about 5–8 minutes) and published under **Releases**. Newest APK: `https://github.com/<user>/polecam/releases/latest/download/PoleCam.apk`.
 - In the APK, *Save* writes exports to the phone's **Documents/PoleCam** folder and *Share* opens Android's share sheet.
 - The APK keeps its own data, separate from the Chrome/Home-screen version. Move projects with Backup → Restore.
 - Updating: install the newer APK over the old one; projects stay. Uninstalling the app deletes its projects, so back up first.
+
+## What changed in v2.0
+
+- **Deficiency List on the office form** (PDF and Excel), with the photo evidence as annexes instead of mixed into the report: Annex A per item (as found → rectified → verified) and Annex B photo log. Letter size, 15 items per page, page x of y, legend and signature blocks as on the template.
+- **Found → Rectified → Verified** workflow with inspector and contractor roles by company, rejection with reason, verification photos; the Rectified Date on the form fills in from the app.
+- **Admin vs user settings**: policies (inspecting company, form wording, checklist, field standards, photo check) are set by the admin and signed into the company list; users keep personal and export settings. Non-admins can view the policies.
+- **Detailed export options** on every card and as defaults in Settings: photo size and quality, caption stamp fields, file naming, KMZ balloon size / photo pin icons / route / stamps, PDF annexes and photo size, Excel sheets.
+- **New GUI**: navy top bar with the project and category, a status strip above the navigation (elements, open / to verify / verified, or poles, route length and long spans), Records screen with figures and status filters, grouped editor, export cards with options, settings in sections with sub-screens.
+- Older projects keep working: items saved by v1.x without a status count as *Open*, or *Rectified* when they already have an after photo or date; existing settings are carried over. The deficiency checklist is now set by the admin, so a checklist edited on one phone in v1.x is replaced by the list's checklist (or the built-in one until a list is taken).
+- Rejecting a rectification moves its photo into the item's history (shown as *Rejected* on the card and in Annex A) so the item has no rectified photo until the contractor takes a new one.

@@ -20,21 +20,34 @@
   const ELEMENTS = ['Pole', 'ODF', 'ODC', 'Rack'];
   /* Location integrity: the pin may move at most PIN_LIMIT_M from where the photo was taken, and in acceptance
      projects every photo must be live (in-app camera, fresh GPS) and taken within PIN_LIMIT_M of the element. */
-  const PIN_LIMIT_M = 1000, MAX_PHOTO_AGE_MS = 2 * 60000;
+  const PIN_LIMIT_M = 1000, MAX_PHOTO_AGE_MS = 2 * 60000, STORE_MAX_PX = 2048; // photos are kept at 2048 px; exports may shrink copies
   /* Pole types are fixed; each has its Pole ID prefix (CC-0001). ODF IDs are FDU_<number>. */
   const POLE_TYPES = ['Concrete', 'Wood', 'Steel'];
   const TYPE_PREFIX = { Concrete: 'CC', Wood: 'WP', Steel: 'SP' }, PREFIX_TYPE = { CC: 'Concrete', WP: 'Wood', SP: 'Steel' };
   const POLE_ID_RE = /^(CC|WP|SP)-(\d+)$/, ODF_ID_RE = /^FDU_(\d+)$/;
   const CATS_FOR = { Pole: ['Pole', 'Cable / strand', 'MLoop', 'NAP', 'Closure', 'Other'], ODF: ['ODF', 'Other'], ODC: ['ODC', 'Cable / strand', 'Other'], Rack: ['Rack', 'ODF', 'Other'] };
   const PHOTO_LABELS = ['Overview', 'Pole tag', 'MLoop', 'NAP', 'Closure', 'Cable', 'ODF', 'ODC', 'Rack', 'Detail'];
-  const STATUS_TEXT = { OK: 'OK', Open: 'With deficiency', Rectified: 'Rectified' };
-  const STATUS_COLORS = { OK: '#2b8a3e', Open: '#c92a2a', Rectified: '#1971c2' };
+  const STATUS_TEXT = { OK: 'No deficiency', Open: 'Open deficiency', Rectified: 'Rectified', Verified: 'Verified' };
+  const STATUS_COLORS = { OK: '#2b8a3e', Open: '#c92a2a', Rectified: '#1971c2', Verified: '#0b7285' };
+  const SEV_CODE = { Major: 'MD', Minor: 'D', Note: 'N' };
+  /* Policies are set by the admin and travel inside the signed company list (S.team.pol), so every phone works to the
+     same checklist, form wording, field standards and photo rule. Without a list the defaults below apply. */
+  const POL_DEF = { owner: '', form: {}, defects: null, maxSpan: 200, angleDeg: 15, autoGap: 120, quality: 'strict', inspTypes: ['Physical'] };
+  function pol() {
+    const p = (S.team && S.team.pol) || {};
+    return { ...POL_DEF, ...p, form: { ...(p.form || {}) }, defects: p.defects || DEF_CHECK, inspTypes: p.inspTypes || POL_DEF.inspTypes };
+  }
+  const formText = () => window.PoleForms.formText(pol().form);
+  /** Users of the inspecting company (and admins) add deficiencies and verify; everyone else can only rectify. */
+  const isInspector = () => { const o = pol().owner; return !o || !S.user || String(S.user.company || '').toLowerCase() === o.toLowerCase(); };
   const DEF = {
     project: 'Default project', projects: ['Default project'],
     types: POLE_TYPES.slice(), stamp: true, maxPx: 2048,
     zone: 51, sym: 1, txt: 1.5, base: 'street', lastPoleId: '', lastType: 'Concrete', view: null, areas: [],
     meta: {}, defects: JSON.parse(JSON.stringify(DEF_CHECK)), userName: '',
     quality: 'strict', readId: true, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
+    exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'utm', 'time', 'by', 'project'], naming: 'id',
+      kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true },
     saveBase: 'DOCUMENTS', saveFolder: 'PoleCam', saveByProject: true,
   };
   let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem('polecam.settings') || '{}')); } catch (e) { return { ...DEF }; } })();
@@ -44,6 +57,10 @@
   if (!POLE_TYPES.includes(S.lastType)) S.lastType = 'Concrete';
   if (S.quality !== 'normal') S.quality = 'strict';
   if (!S.v17) { S.v17 = 1; S.quality = 'strict'; S.maxSpan = 200; S.dropSatTiles = true; }
+  S.exp = { ...DEF.exp, ...(S.exp || {}) };
+  if (S.stamp === false && !S.v20) S.exp.stamp = false;
+  if (S.maxPx && !S.v20) S.exp.maxPx = S.maxPx;
+  S.v20 = 1;
   persist();
 
   /* ================= IndexedDB ================= */
@@ -114,7 +131,7 @@
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms || 2600);
   }
   let cancelFlag = false;
-  $('busyCancel').addEventListener('click', () => { cancelFlag = true; $('busyText').textContent = 'Stopping…'; });
+  $('busyCancel').addEventListener('click', () => { cancelFlag = true; $('busyText').textContent = 'Stopping…'; }); // map pack jobs also listen (see runPackJob)
   function busy(text, frac, cancellable) {
     if (text === false) { $('busy').hidden = true; $('busyCancel').hidden = true; return; }
     $('busyCancel').hidden = !cancellable;
@@ -122,17 +139,40 @@
     const p = $('busyProg');
     if (frac == null) p.removeAttribute('value'); else p.value = frac;
   }
+  /* ---- Android APK (Capacitor) bridge ---- */
+  const NATIVE = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+  const plugins = {};
+  /** { proxy } from Capacitor's registerPlugin (any property is a native method), or { bridge } when only the raw bridge exists. */
+  function nativePlugin(name) {
+    if (plugins[name]) return plugins[name];
+    const ce = window.capacitorExports;
+    if (ce && typeof ce.registerPlugin === 'function') { try { plugins[name] = { proxy: ce.registerPlugin(name) }; return plugins[name]; } catch (e) { /* use the bridge below */ } }
+    const cap = window.Capacitor;
+    plugins[name] = { bridge: (method, opts) => cap.nativePromise(name, method, opts || {}) };
+    return plugins[name];
+  }
+  const nativeCall = (name, method, opts) => { const p = nativePlugin(name); return p.proxy ? p.proxy[method](opts || {}) : p.bridge(method, opts); };
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   /* ---- project mode + acceptance helpers ---- */
   const pmeta = (name) => (S.meta && S.meta[name || S.project]) || { mode: 'survey' };
   const isAcc = (name) => pmeta(name).mode === 'acceptance';
   const photosOf = (r) => (r.photos ? r.photos : [{ pid: r.id, label: 'Photo' }]);
-  function recStatus(r) { const d = r.defs || []; if (!d.length) return 'OK'; return d.some((x) => x.status !== 'Rectified') ? 'Open' : 'Rectified'; }
-  const openCount = (r) => (r.defs || []).filter((d) => d.status !== 'Rectified').length;
+  /** Deficiencies that must be rectified (notes are informational). */
+  const counting = (r) => (r.defs || []).filter((d) => d.sev !== 'Note');
+  /** Status of one item; items saved by older versions carry no status, so a rectified photo or date means Rectified. */
+  const defStatusOf = (d) => (d.sev === 'Note' ? 'Note' : d.status || (d.afterPid || d.fixedAt ? 'Rectified' : 'Open'));
+  const sevOf = (d) => d.sev || 'Minor';
+  function recStatus(r) {
+    const d = counting(r); if (!d.length) return 'OK';
+    if (d.some((x) => defStatusOf(x) === 'Open')) return 'Open';
+    return d.every((x) => defStatusOf(x) === 'Verified') ? 'Verified' : 'Rectified';
+  }
+  const openCount = (r) => counting(r).filter((d) => defStatusOf(d) === 'Open').length;
+  const defDone = (d) => { const st = defStatusOf(d); return st === 'Rectified' || st === 'Verified'; };
   const elemOf = (r) => r.element || 'Pole';
   function allPids(r) {
     const s = photosOf(r).map((p) => p.pid);
-    (r.defs || []).forEach((d) => { if (d.pid) s.push(d.pid); if (d.afterPid) s.push(d.afterPid); });
+    (r.defs || []).forEach((d) => { if (d.pid) s.push(d.pid); if (d.afterPid) s.push(d.afterPid); if (d.verifyPid) s.push(d.verifyPid); (d.reopened || []).forEach((q) => { if (q.pid) s.push(q.pid); }); });
     return s;
   }
   /** Delete stored photos that no record (other than the excluded ones) still uses — PAT and FAT share photos. */
@@ -221,6 +261,21 @@
     satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', max: 19, attr: 'Imagery © Esri' },
   };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
+  const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
+  const APP_VER = '2.0.0';
+  /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
+     In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
+  const APP_UA = () => `PoleCam/${APP_VER} (+${SITE})`;
+  function b64ToBytes(b) { const s = atob(b); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
+  function nativeBytes(d) {
+    if (typeof d === 'string') return b64ToBytes(d.replace(/^data:[^,]*,/, ''));
+    if (d instanceof ArrayBuffer) return new Uint8Array(d);
+    if (d && d.buffer instanceof ArrayBuffer) return new Uint8Array(d.buffer);
+    throw new Error('Unexpected download data');
+  }
+  /** GET through Android's own HTTP stack (no browser restrictions); data comes back as base64 for binary responses. */
+  const nativeGet = (url, headers, responseType) => nativeCall('CapacitorHttp', 'request',
+    { url, method: 'GET', headers: { 'User-Agent': APP_UA(), ...(headers || {}) }, responseType: responseType || 'blob', connectTimeout: 20000, readTimeout: 60000 });
   const tileUrl = (src, z, x, y) => SOURCES[src].url.replace('{z}', z).replace('{x}', x).replace('{y}', y);
   async function fetchTile(src, z, x, y) {
     const k = `${src}/${z}/${x}/${y}`;
@@ -232,9 +287,16 @@
     if (hit && (!navigator.onLine || Date.now() - (hit.t || 0) < TILE_KEEP_MS)) return hit.blob;
     if (!navigator.onLine) return null;
     try {
-      const r = await fetch(tileUrl(src, z, x, y), { mode: 'cors', credentials: 'omit' });
-      if (!r.ok) return hit ? hit.blob : null;
-      const blob = await r.blob();
+      let blob;
+      if (NATIVE && src === 'street') {
+        const r = await nativeGet(tileUrl(src, z, x, y));
+        if (r.status !== 200) return hit ? hit.blob : null;
+        blob = new Blob([nativeBytes(r.data)], { type: 'image/png' });
+      } else {
+        const r = await fetch(tileUrl(src, z, x, y), { mode: 'cors', credentials: 'omit' });
+        if (!r.ok) return hit ? hit.blob : null;
+        blob = await r.blob();
+      }
       dbPut('tiles', { k, blob, t: Date.now() }).catch(() => {});
       return blob;
     } catch (e) { return hit ? hit.blob : null; }
@@ -248,7 +310,7 @@
       const src = this.options.src;
       fetchTile(src, coords.z, coords.x, coords.y).then((blob) => {
         if (blob) { img._ou = URL.createObjectURL(blob); img.src = img._ou; }
-        else if (navigator.onLine) img.src = tileUrl(src, coords.z, coords.x, coords.y); // uncached fallback
+        else if (navigator.onLine && !(NATIVE && src === 'street')) img.src = tileUrl(src, coords.z, coords.x, coords.y); // uncached fallback
         else done(new Error('offline'), img);
       });
       return img;
@@ -262,48 +324,128 @@
   }
 
   /* ================= offline map packs (vector maps stored on the phone) ================= */
-  /* A pack is a PMTiles file of OpenStreetMap data (Protomaps basemap build) for a whole area, published with the
-     website under maps/. It is downloaded once in 4 MB pieces into IndexedDB (resumable) and drawn by protomaps-leaflet. */
-  const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const PACK_CH = 4 * 1024 * 1024;
+  /* A pack is a PMTiles file of OpenStreetMap data for a whole area, drawn by protomaps-leaflet. It is kept as one file in the
+     app's private file storage (OPFS) where the phone supports it, otherwise in IndexedDB in 1 MB pieces. Every storage step
+     has a time limit, so a phone that stops responding gives a message instead of freezing. */
+  const PACK_CH = 1024 * 1024, STORE_MS = 30000;
   S.packs = S.packs || {};
+  Object.values(S.packs).forEach((p) => { if (!p.store) { p.store = 'idb'; p.ch = p.ch || 4 * 1024 * 1024; p.bytes = p.done ? p.size : (p.chunks || 0) * p.ch; } });
+  const OPFS_OK = !!(navigator.storage && navigator.storage.getDirectory && window.FileSystemFileHandle && 'createWritable' in window.FileSystemFileHandle.prototype);
   const installedPacks = () => Object.values(S.packs).filter((p) => p.done);
   function activePackId() {
     if (S.activePack && S.packs[S.activePack] && S.packs[S.activePack].done) return S.activePack;
     const first = installedPacks()[0];
     return first ? first.id : null;
   }
-  class IdbPackSource {
-    constructor(id) { this.id = id; this.cache = new Map(); }
-    getKey() { const p = S.packs[this.id] || {}; return `idbpack:${this.id}:${p.date || ''}`; }
+  function withTimeout(p, ms, msg) {
+    let t = 0;
+    return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error(msg)), ms); })]).finally(() => clearTimeout(t));
+  }
+  const STORE_ERR = 'Phone storage did not respond. Free some space or restart the app, then tap Resume.';
+  async function packDir() { const root = await navigator.storage.getDirectory(); return root.getDirectoryHandle('mappacks', { create: true }); }
+  const OPFS_PART = 8 * 1024 * 1024; // OPFS packs are stored as part files <id>.0, <id>.1, … of 8 MB
+  class PackSource {
+    constructor(id) { this.id = id; this.cache = new Map(); this.files = new Map(); }
+    getKey() { const p = S.packs[this.id] || {}; return `pack:${this.id}:${p.date || ''}:${p.size || ''}`; }
     async chunk(i) {
       if (this.cache.has(i)) { const v = this.cache.get(i); this.cache.delete(i); this.cache.set(i, v); return v; }
       const rec = await dbGet('packs', `${this.id}:${i}`);
       if (!rec) throw new Error('Map pack is incomplete — download it again');
       const u = new Uint8Array(rec.data);
       this.cache.set(i, u);
-      if (this.cache.size > 6) this.cache.delete(this.cache.keys().next().value);
+      if (this.cache.size > 8) this.cache.delete(this.cache.keys().next().value);
       return u;
     }
+    async part(i) {
+      if (!this.files.has(i)) this.files.set(i, (async () => (await (await packDir()).getFileHandle(`${this.id}.${i}`)).getFile())());
+      return this.files.get(i);
+    }
     async getBytes(offset, length) {
-      const p = S.packs[this.id], ch = p.ch || PACK_CH, out = new Uint8Array(length);
+      const p = S.packs[this.id], out = new Uint8Array(length);
+      const opfs = p.store === 'opfs', ch = opfs ? OPFS_PART : p.ch || 4 * 1024 * 1024; // IndexedDB packs from v1.6/v1.7 used 4 MB pieces
       let pos = 0;
       while (pos < length) {
         const abs = offset + pos, i = Math.floor(abs / ch), off = abs - i * ch;
-        if (i >= p.chunks) break;
-        const c = await this.chunk(i), n = Math.min(length - pos, c.length - off);
-        if (n <= 0) break;
-        out.set(c.subarray(off, off + n), pos); pos += n;
+        if (abs >= (p.done ? p.size : p.bytes)) break;
+        let piece;
+        if (opfs) { const f = await this.part(i); piece = new Uint8Array(await f.slice(off, Math.min(f.size, off + length - pos)).arrayBuffer()); }
+        else { if (i >= p.chunks) break; const c = await this.chunk(i); piece = c.subarray(off, Math.min(c.length, off + length - pos)); }
+        if (!piece.length) break;
+        out.set(piece, pos); pos += piece.length;
       }
       return { data: pos === length ? out.buffer : out.slice(0, pos).buffer };
     }
+  }
+  /** Writes a pack from st.bytes onward and keeps st.bytes = what is safely stored. */
+  async function packWriter(st) {
+    if (st.store === 'opfs') {
+      const dir = await withTimeout(packDir(), STORE_MS, STORE_ERR);
+      let w = null, part = -1, partFill = 0;
+      const open = async (i, keep) => {
+        const fh = await withTimeout(dir.getFileHandle(`${st.id}.${i}`, { create: true }), STORE_MS, STORE_ERR);
+        w = await withTimeout(fh.createWritable({ keepExistingData: keep }), STORE_MS, STORE_ERR);
+        part = i;
+        if (keep && partFill) await withTimeout(w.seek(partFill), STORE_MS, STORE_ERR);
+      };
+      const close = async () => { if (!w) return; const x = w; w = null; await withTimeout(x.close(), STORE_MS, STORE_ERR); st.bytes = part * OPFS_PART + partFill; persist(); };
+      partFill = st.bytes % OPFS_PART;
+      return {
+        get pos() { return (part < 0 ? st.bytes : part * OPFS_PART + partFill); },
+        async write(u8) {
+          let v = u8;
+          while (v.length) {
+            if (!w) await open(Math.floor(this.pos / OPFS_PART), partFill > 0);
+            const n = Math.min(v.length, OPFS_PART - partFill);
+            await withTimeout(w.write(v.subarray(0, n)), STORE_MS, STORE_ERR);
+            partFill += n; v = v.subarray(n);
+            if (partFill === OPFS_PART) { await close(); part += 1; partFill = 0; }
+          }
+        },
+        async finish() { await close(); },
+        async stop() { try { await close(); } catch (e) { /* keep the last saved part */ } },
+      };
+    }
+    st.ch = st.ch || PACK_CH;
+    let buf = new Uint8Array(st.ch), fill = 0;
+    const flush = async (last) => {
+      if (!fill) return;
+      await withTimeout(dbPut('packs', { k: `${st.id}:${st.chunks}`, data: (last ? buf.slice(0, fill) : buf).buffer }), STORE_MS, STORE_ERR);
+      st.chunks++; st.bytes += fill; fill = 0; buf = new Uint8Array(st.ch); persist();
+    };
+    return {
+      get pos() { return st.bytes + fill; },
+      async write(u8) {
+        let v = u8;
+        while (v.length) {
+          const n = Math.min(v.length, st.ch - fill);
+          buf.set(v.subarray(0, n), fill); fill += n; v = v.subarray(n);
+          if (fill === st.ch) await flush(false);
+        }
+      },
+      async finish() { await flush(true); },
+      async stop() { /* a partly filled piece is fetched again on resume */ },
+    };
+  }
+  async function removePackData(p) {
+    if (p.store === 'opfs') {
+      const dir = await packDir(), names = [];
+      for await (const name of dir.keys()) if (name.startsWith(`${p.id}.`)) names.push(name);
+      for (const n of names) await dir.removeEntry(n).catch(() => {});
+    }
+    else if (p.chunks) await dbDelMany('packs', Array.from({ length: p.chunks }, (_, i) => `${p.id}:${i}`));
+  }
+  /** Reads bounds and zoom range from a PMTiles v3 header (first 127 bytes). */
+  function pmtilesHeader(u8) {
+    if (u8.length < 127 || String.fromCharCode(...u8.subarray(0, 7)) !== 'PMTiles' || u8[7] !== 3) return null;
+    const dv = new DataView(u8.buffer, u8.byteOffset, 127), e7 = (o) => dv.getInt32(o, true) / 1e7;
+    return { tileType: u8[99], minzoom: u8[100], maxzoom: u8[101], bbox: [e7(102), e7(106), e7(110), e7(114)] };
   }
   function offlineLayer() {
     const id = activePackId();
     if (!id || !window.protomapsL) return null;
     const p = S.packs[id], b = p.bbox;
     return window.protomapsL.leafletLayer({
-      url: new window.protomapsL.PMTiles(new IdbPackSource(id)), flavor: 'light', lang: 'en',
+      url: new window.protomapsL.PMTiles(new PackSource(id)), flavor: 'light', lang: 'en',
       maxDataZoom: p.maxzoom || 15, maxZoom: 21, bounds: b ? [[b[1], b[0]], [b[3], b[2]]] : undefined,
       attribution: 'Offline map © OpenStreetMap contributors · Protomaps',
     });
@@ -343,14 +485,43 @@
     mb.textContent = cat.toUpperCase(); mb.className = `badge cat ${cat.toLowerCase()}`;
     $('listLbl').textContent = cat;
     $('pointCount').textContent = pts.length;
+    renderSummary(pts);
     if (typeof drawAreas === 'function') drawAreas();
   }
+  /** Project status at a glance: the strip above the navigation bar and the figures on the Records screen. */
+  function projStats(pts) {
+    const acc = isAcc(), st = { total: pts.length, open: 0, rect: 0, ver: 0, ok: 0, items: 0, itemsOpen: 0, itemsRect: 0, itemsVer: 0, notes: 0, long: 0, len: 0 };
+    if (acc) {
+      pts.forEach((p) => {
+        const r = recStatus(p); if (r === 'Open') st.open++; else if (r === 'Rectified') st.rect++; else if (r === 'Verified') st.ver++; else st.ok++;
+        (p.defs || []).forEach((d) => { if (d.sev === 'Note') { st.notes++; return; } st.items++; const q = defStatusOf(d); if (q === 'Open') st.itemsOpen++; else if (q === 'Rectified') st.itemsRect++; else st.itemsVer++; });
+      });
+    } else { const R = routeModel(); st.long = R.spans.filter((x) => x.long).length; st.len = R.spans.reduce((a, x) => a + x.len, 0); }
+    return st;
+  }
+  function renderSummary(pts) {
+    const acc = isAcc(), st = projStats(pts), m = pmeta();
+    const pill = (cls, text) => `<span class="pill ${cls}">${C.xmlEsc(text)}</span>`;
+    if (!pts.length) { $('sumTitle').textContent = `${taskCat()} · nothing captured yet`; $('sumSub').textContent = acc ? 'Tap the camera to record the first element' : 'Tap the camera to capture the first pole'; $('sumPills').innerHTML = ''; return; }
+    if (acc) {
+      $('sumTitle').textContent = `${st.total} element${st.total === 1 ? '' : 's'} · ${st.items} deficienc${st.items === 1 ? 'y' : 'ies'}${st.notes ? ` · ${st.notes} note${st.notes === 1 ? '' : 's'}` : ''}`;
+      $('sumSub').textContent = [m.site, m.contractor].filter(Boolean).join(' · ') || (st.items ? `${st.itemsOpen} open · ${st.itemsRect} rectified · ${st.itemsVer} verified` : 'No deficiencies recorded');
+      $('sumPills').innerHTML = [st.itemsOpen && pill('bad', `${st.itemsOpen} open`), st.itemsRect && pill('rect', `${st.itemsRect} to verify`), st.itemsVer && pill('ver', `${st.itemsVer} verified`), !st.items && pill('ok', 'All clear')].filter(Boolean).join('');
+    } else {
+      const R = routeModel(), linked = st.total - R.off;
+      $('sumTitle').textContent = R.spans.length ? `${st.total} pole${st.total === 1 ? '' : 's'} · route ${fmtLen(st.len)} · ${R.spans.length} span${R.spans.length === 1 ? '' : 's'}` : `${st.total} pole${st.total === 1 ? '' : 's'} captured`;
+      $('sumSub').textContent = !R.spans.length ? (st.total > 1 ? 'No route yet: tap the route button to link the poles' : 'Capture the next pole to start the route')
+        : st.long ? `${st.long} span${st.long === 1 ? '' : 's'} over ${pol().maxSpan || 200} m — check the route` : R.off ? `${R.off} pole${R.off === 1 ? '' : 's'} not on the route yet` : 'All spans within the maximum';
+      $('sumPills').innerHTML = !R.spans.length ? '' : st.long ? pill('bad', `${st.long} long`) : R.off ? pill('note', `${R.off} unlinked`) : pill('ok', 'Spans OK');
+    }
+  }
+  $('mapSummary').addEventListener('click', () => $('listBtn').click());
   /* ================= route and spans (survey projects) ================= */
   let routeMode = false, routeSel = null, routeUndo = [];
   const routeLayer = L.layerGroup().addTo(map);
   const links = () => (pmeta().links || []);
   function setLinks(l) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), links: l }; persist(); }
-  const routeModel = () => C.analyzeRoute(projPoints(), links(), { maxSpan: S.maxSpan || 200, angleDeg: S.angleDeg || 15 });
+  const routeModel = () => C.analyzeRoute(projPoints(), links(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 });
   const fmtLen = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
   function drawRoute() {
     routeLayer.clearLayers();
@@ -370,7 +541,7 @@
   }
   function updateRouteBar(R) {
     $('rbTitle').textContent = `Route · ${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}`;
-    $('rbStats').textContent = `${R.long} longer than ${S.maxSpan || 200} m · ${R.angle} angle · ${R.junction} junction · ${R.off} not linked`;
+    $('rbStats').textContent = `${R.long} longer than ${pol().maxSpan || 200} m · ${R.angle} angle · ${R.junction} junction · ${R.off} not linked`;
     const sel = routeSel && points.find((p) => p.id === routeSel);
     $('rbHint').textContent = sel ? `${sel.poleId} selected. Tap the next pole to link it (tap a linked pole to unlink), or tap ${sel.poleId} again to stop.`
       : 'Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.';
@@ -401,7 +572,7 @@
   $('rbUndo').addEventListener('click', () => { if (routeUndo.length) { setLinks(routeUndo.pop()); renderPoles(); } });
   $('rbAuto').addEventListener('click', () => {
     const have = new Set(links().map(([x, y]) => [x, y].sort().join('|')));
-    const add = C.autoLinks(projPoints(), S.autoGap || 120).filter(([x, y]) => !have.has([x, y].sort().join('|')));
+    const add = C.autoLinks(projPoints(), pol().autoGap || 120).filter(([x, y]) => !have.has([x, y].sort().join('|')));
     if (!add.length) { toast('No new links: poles are already linked, or consecutive poles are farther apart than the gap setting'); return; }
     routeUndo.push(links()); setLinks(links().concat(add)); renderPoles();
     toast(`${add.length} span${add.length === 1 ? '' : 's'} added in capture order. Check branches and street corners.`, 4000);
@@ -616,7 +787,7 @@
   };
   const QUAL_TITLE = { error: 'Photo not accepted', blurry: 'Photo not accepted: blurry', dark: 'Photo not accepted: too dark', bright: 'Photo not accepted: overexposed', flat: 'Photo not accepted: no detail' };
   async function checkQuality(blob) {
-    const mode = S.quality === 'normal' ? 'normal' : 'strict';
+    const mode = effectiveQuality();
     let src;
     try { src = await createImageBitmap(blob, { resizeWidth: 640, resizeQuality: 'medium', imageOrientation: 'from-image' }); }
     catch (e) { src = await loadImage(blob); }
@@ -743,11 +914,12 @@
   const qSummary = (q) => (q && q.flags ? { sharp: q.sharp, mean: q.mean, flags: q.flags, level: q.level } : null);
   function gotPhoto(blob, gps, source, extra) {
     const x = extra || {};
-    if (ed && ['add', 'defect', 'after'].includes(camTarget)) {
+    if (ed && ['add', 'defect', 'after', 'verify'].includes(camTarget)) {
       if (!checkNearElement(gps)) return;
       const meta = { ...photoMeta(gps), q: qSummary(x.q) };
       if (camTarget === 'add') addEdPhoto(blob, meta);
       else if (camTarget === 'defect') setDefPhoto(blob, meta);
+      else if (camTarget === 'verify') setVerifyPhoto(blob, meta);
       else setAfterPhoto(blob, meta);
       return;
     }
@@ -881,7 +1053,7 @@
   const toBlob = (cv, q) => new Promise((r) => cv.toBlob(r, 'image/jpeg', q));
   async function makeStoredImages(blob) {
     const im = await loadImage(blob), { w, h } = dims(im);
-    const sc = Math.min(1, S.maxPx / Math.max(w, h));
+    const sc = Math.min(1, STORE_MAX_PX / Math.max(w, h));
     const cv = document.createElement('canvas');
     cv.width = Math.round(w * sc); cv.height = Math.round(h * sc);
     const g = cv.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(im, 0, 0, cv.width, cv.height);
@@ -896,35 +1068,51 @@
     return { clean, thumb };
   }
   /** Export copy of a photo: optional burned-in stamp + EXIF GPS. Returns Uint8Array. */
-  async function exportPhoto(p, cleanBlob, titleText, meta) {
+  /** Export copy of a photo: resized to the export size, optional caption band (fields chosen in Export settings), EXIF GPS.
+      opts: {maxPx, quality, stamp, fields:[...]} default from S.exp. Returns Uint8Array. */
+  async function exportPhoto(p, cleanBlob, titleText, meta, opts) {
+    const o = { maxPx: S.exp.maxPx, quality: S.exp.quality, stamp: S.exp.stamp, fields: S.exp.stampFields, ...(opts || {}) };
+    const has = (f) => !o.fields || o.fields.includes(f);
     const title = titleText || `${p.poleId}  ·  ${p.poleType}`;
     const own = meta && meta.lat != null;
     const P = own ? { lat: meta.lat, lon: meta.lon, accuracy: meta.acc, adjusted: false, alt: null } : p;
     const when = (meta && meta.at) || p.takenAt;
+    const im = await loadImage(cleanBlob), { w: w0, h: h0 } = dims(im);
+    const sc = Math.min(1, (o.maxPx || 4096) / Math.max(w0, h0)), w = Math.round(w0 * sc), h = Math.round(h0 * sc);
     let bytes;
-    if (S.stamp) {
-      const im = await loadImage(cleanBlob), { w, h } = dims(im);
+    if (o.stamp || sc < 1) {
       const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-      const g = cv.getContext('2d'); g.drawImage(im, 0, 0);
-      if (im.close) im.close();
-      const u = C.utmForward(P.lat, P.lon, S.zone, P.lat < 0);
-      const fs = Math.max(16, Math.round(w * 0.026)), lh = fs * 1.32, pad = fs * 0.7;
-      const lines = [
-        [title, `700 ${Math.round(fs * 1.25)}px sans-serif`],
-        [`${own ? 'Taken at ' : ''}${P.lat.toFixed(7)}, ${P.lon.toFixed(7)}${Number.isFinite(P.accuracy) ? `   ±${P.accuracy.toFixed(1)} m` : ''}${P.adjusted ? '  (pin adjusted)' : ''}`, `${fs}px monospace`],
-        [`UTM ${S.zone}N   E ${u.E.toFixed(2)}   N ${u.N.toFixed(2)}`, `${fs}px monospace`],
-        [`${fmtTime(when)}${meta && meta.by ? `   ·   ${meta.by}` : ''}   ·   ${p.project}`, `${fs}px sans-serif`],
-      ];
-      const bandH = pad * 2 + lh * lines.length + fs * 0.25;
-      g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(0, h - bandH, w, bandH);
-      g.fillStyle = '#4dabf7'; g.fillRect(0, h - bandH, Math.max(6, fs * 0.3), bandH);
-      g.fillStyle = '#fff'; g.textBaseline = 'top';
-      let y = h - bandH + pad;
-      lines.forEach(([t, f], i) => { g.font = f; g.fillText(t, pad * 1.6, y, w - pad * 3); y += i === 0 ? lh * 1.25 : lh; });
-      bytes = new Uint8Array(await (await toBlob(cv, 0.9)).arrayBuffer());
+      const g = cv.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(im, 0, 0, w, h);
+      if (o.stamp) {
+        const u = C.utmForward(P.lat, P.lon, S.zone, P.lat < 0);
+        const fs = Math.max(16, Math.round(w * 0.026)), lh = fs * 1.32, pad = fs * 0.7;
+        const lines = [];
+        if (has('id')) lines.push([title, `700 ${Math.round(fs * 1.25)}px sans-serif`]);
+        if (has('coords')) lines.push([`${own ? 'Taken at ' : ''}${P.lat.toFixed(7)}, ${P.lon.toFixed(7)}${Number.isFinite(P.accuracy) ? `   ±${P.accuracy.toFixed(1)} m` : ''}${P.adjusted ? '  (pin adjusted)' : ''}`, `${fs}px monospace`]);
+        if (has('utm')) lines.push([`UTM ${S.zone}N   E ${u.E.toFixed(2)}   N ${u.N.toFixed(2)}`, `${fs}px monospace`]);
+        const who = (meta && meta.by) || p.by || '';
+        const last = [has('time') ? fmtTime(when) : '', has('by') && who ? who : '', has('project') ? p.project : ''].filter(Boolean).join('   ·   ');
+        if (last) lines.push([last, `${fs}px sans-serif`]);
+        if (lines.length) {
+          const bandH = pad * 2 + lh * lines.length + fs * 0.25;
+          g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(0, h - bandH, w, bandH);
+          g.fillStyle = '#4dabf7'; g.fillRect(0, h - bandH, Math.max(6, fs * 0.3), bandH);
+          g.fillStyle = '#fff'; g.textBaseline = 'top';
+          let y = h - bandH + pad;
+          lines.forEach(([t, f], i) => { g.font = f; g.fillText(t, pad * 1.6, y, w - pad * 3); y += i === 0 && has('id') ? lh * 1.25 : lh; });
+        }
+      }
+      bytes = new Uint8Array(await (await toBlob(cv, o.quality || 0.9)).arrayBuffer());
     } else bytes = new Uint8Array(await cleanBlob.arrayBuffer());
+    if (im.close) im.close();
     return C.insertExif(bytes, { lat: P.lat, lon: P.lon, alt: P.alt, accuracy: P.accuracy,
       description: title.replace(/\s+·\s+/g, ' | '), title: p.poleId, date: new Date(when) });
+  }
+  /** File name for an exported photo per the naming setting. */
+  function photoFileName(p, label) {
+    const id = C.safeName(p.poleId), t = (p.takenAt || '').replace(/[-:]/g, '').replace('T', '_').slice(0, 15);
+    const base = S.exp.naming === 'project_id' ? `${C.safeName(p.project)}_${id}` : S.exp.naming === 'id_time' ? `${id}_${t}` : id;
+    return label ? `${base}_${C.safeName(label)}` : base;
   }
 
   /* ================= point editor ================= */
@@ -1077,7 +1265,7 @@
     const p = points.find((x) => x.id === id); if (!p) return;
     if (p.kind === 'acceptance' || isAcc(p.project)) {
       openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType || undefined, lat: p.lat, lon: p.lon, takenAt: p.takenAt, source: p.source,
-        gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : null,
+        gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : { lat: p.lat, lon: p.lon, acc: p.accuracy }, // records from before v1.3 keep no raw fix: the pin stands in
         element: elemOf(p), photos: p.photos || [], defs: p.defs || [], mloop: p.mloop, nap: p.nap, napId: p.napId, closure: p.closure, closureId: p.closureId, odf: p.odf });
       return;
     }
@@ -1160,36 +1348,66 @@
     renderAccPhotos(); toast('Photo added — set its label under the picture');
   }
 
+  /* Deficiency workflow: FOUND at PAT (inspector) → RECTIFIED by the contractor (after photo or Mark rectified)
+     → VERIFIED or REJECTED by the inspecting company at FAT. Notes (N) are informational and need no rectification. */
   function renderDefs() {
     const list = $('defList'); list.innerHTML = '';
-    const open = ed.defs.filter((d) => d.status !== 'Rectified').length;
+    const open = openCount({ defs: ed.defs }), total = counting({ defs: ed.defs }).length, ver = counting({ defs: ed.defs }).filter((d) => d.status === 'Verified').length;
     const st = $('defStatus');
-    st.textContent = !ed.defs.length ? 'OK · no deficiency' : open ? `${open} open` : 'All rectified';
-    st.className = 'pill ' + (!ed.defs.length ? 'ok' : open ? 'bad' : 'rect');
-    const stage = pmeta().stage || 'PAT';
+    st.textContent = !total ? (ed.defs.length ? 'Notes only' : 'No deficiency') : open ? `${open} open` : ver === total ? 'All verified' : 'All rectified';
+    st.className = 'pill ' + (!total ? 'ok' : open ? 'bad' : ver === total ? 'ver' : 'rect');
+    const stage = pmeta().stage || 'PAT', insp = isInspector();
+    $('addDefBtn').hidden = !insp || !$('defPanel').hidden;
+    $('defRoleHint').hidden = insp;
+    $('defRoleHint').textContent = `Deficiencies are added and verified by ${pol().owner || 'the inspecting company'}. You can add after photos and mark items rectified.`;
     ed.defs.forEach((d, i) => {
-      const card = document.createElement('div'); card.className = 'defcard' + (d.status === 'Rectified' ? ' rect' : '');
-      const t = document.createElement('span'); t.className = 't'; t.textContent = `${d.cat}: ${d.item}`;
+      const stt = defStatusOf(d);
+      const card = document.createElement('div'); card.className = 'defcard' + (stt === 'Rectified' ? ' rect' : stt === 'Verified' ? ' ver' : stt === 'Note' ? ' note' : '');
+      const t = document.createElement('span'); t.className = 't'; t.textContent = `${SEV_CODE[sevOf(d)]} · ${d.cat}: ${d.item}`;
       const s = document.createElement('span'); s.className = 's';
-      s.textContent = `${d.sev} · ${d.status === 'Rectified' ? `Rectified${d.fixedAt ? ' ' + fmtTime(d.fixedAt) : ''}${d.fixedBy ? ' by ' + d.fixedBy : ''}${d.afterPid ? '' : ' · no after photo'}` : 'Open'} · found ${d.stage || 'PAT'} ${fmtTime(d.foundAt)}${d.notes ? ' · ' + d.notes : ''}`;
-      card.append(t, s);
-      if (d.pid || d.afterPid) {
-        const th = document.createElement('div'); th.className = 'thumbs';
-        [d.pid, d.afterPid].filter(Boolean).forEach((pid) => { const im = document.createElement('img'); im.alt = pid === d.pid ? 'Defect photo' : 'After photo'; thumbUrl(pid).then((u) => { im.src = u; }); th.appendChild(im); });
-        card.appendChild(th);
-      }
+      const bits = [`Found ${d.stage || 'PAT'} ${fmtTime(d.foundAt)}${d.foundBy ? ' by ' + d.foundBy : ''}`];
+      if (defDone(d)) bits.push(`Rectified ${d.fixedAt ? fmtTime(d.fixedAt) : ''}${d.fixedBy ? ' by ' + d.fixedBy : ''}${d.afterPid ? '' : ' · no after photo'}`);
+      if (d.status === 'Verified') bits.push(`Verified ${d.verifiedAt ? fmtTime(d.verifiedAt) : ''}${d.verifiedBy ? ' by ' + d.verifiedBy : ''}`);
+      if (d.reopened && d.reopened.length) { const r = d.reopened[d.reopened.length - 1]; bits.push(`Rejected ${fmtTime(r.at)}${r.by ? ' by ' + r.by : ''}${r.reason ? ': ' + r.reason : ''}`); }
+      if (d.notes) bits.push(d.notes);
+      s.textContent = bits.join(' · ');
+      const tl = document.createElement('div'); tl.className = 'timeline';
+      if (stt === 'Note') tl.innerHTML = '<span class="on">NOTE · no rectification needed</span>';
+      else tl.innerHTML = `<span class="bad">1 FOUND</span><span class="${defDone(d) ? 'rect' : ''}">2 RECTIFIED</span><span class="${d.status === 'Verified' ? 'ver' : ''}">3 VERIFIED</span>`;
+      card.append(t, s, tl);
+      const th = document.createElement('div'); th.className = 'thumbs';
+      [[d.pid, 'As found'], ...(d.reopened || []).filter((q) => q.pid).map((q) => [q.pid, 'Rejected']), [d.afterPid, 'Rectified'], [d.verifyPid, 'Verified']].forEach(([pid, label]) => {
+        if (!pid) return;
+        const f = document.createElement('figure'); const im = document.createElement('img'); im.alt = label; thumbUrl(pid).then((u) => { im.src = u; });
+        const c = document.createElement('figcaption'); c.textContent = label; f.append(im, c); th.appendChild(f);
+      });
+      if (th.childElementCount) card.appendChild(th);
       const rm = document.createElement('input'); rm.type = 'text'; rm.placeholder = 'Remarks (optional)'; rm.value = d.remarks || '';
       rm.setAttribute('aria-label', 'Remarks'); rm.addEventListener('input', () => { d.remarks = rm.value; });
       card.appendChild(rm);
       const acts = document.createElement('div'); acts.className = 'acts';
       const mk = (label, fn, cls) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (cls || ''); b.textContent = label; b.addEventListener('click', fn); acts.appendChild(b); };
-      if (d.status !== 'Rectified') mk('Mark rectified', () => { d.status = 'Rectified'; d.fixedAt = new Date().toISOString(); d.fixedStage = stage; d.fixedBy = byLine(); renderDefs(); });
-      else mk('Reopen', () => { d.status = 'Open'; d.fixedAt = null; d.fixedStage = null; d.fixedBy = ''; renderDefs(); });
-      mk(d.afterPid ? 'Retake after photo' : 'After photo', () => { ed.afterFor = d.id; openCamera('after'); });
-      if ((d.stage || 'PAT') === stage) mk('Remove', () => {
+      if (stt === 'Open') {
+        mk('After photo', () => { ed.afterFor = d.id; openCamera('after'); }, 'primary');
+        mk('Mark rectified', () => { d.status = 'Rectified'; d.fixedAt = new Date().toISOString(); d.fixedStage = stage; d.fixedBy = byLine(); renderDefs(); });
+      } else if (stt === 'Rectified') {
+        mk('Retake after photo', () => { ed.afterFor = d.id; openCamera('after'); });
+        if (insp) {
+          mk('Verify', () => { d.status = 'Verified'; d.verifiedAt = new Date().toISOString(); d.verifiedBy = byLine(); d.verifyStage = stage; renderDefs(); }, 'primary');
+          mk('Verify with photo', () => { ed.verifyFor = d.id; openCamera('verify'); });
+          mk('Reject', async () => {
+            const reason = await promptText('Reject this rectification', `${d.cat}: ${d.item}. The item goes back to Open; say what is still wrong.`, 'e.g. cover still loose');
+            if (reason == null) return;
+            reopenDef(d, reason, stage); renderDefs();
+          }, 'danger');
+        } else if (d.fixedBy === byLine() || !d.afterPid) mk('Reopen', () => { reopenDef(d, 'Reopened by the contractor', stage); renderDefs(); });
+      } else if (stt === 'Verified' && insp) {
+        mk('Undo verification', () => { d.status = 'Rectified'; d.verifiedAt = null; d.verifiedBy = ''; renderDefs(); });
+      }
+      if (insp && (d.stage || 'PAT') === stage) mk('Remove', () => {
         ed.defs.splice(i, 1);
-        [d.pid, d.afterPid].filter(Boolean).forEach((pid) => {
-          if (ed.defs.some((o) => o.pid === pid || o.afterPid === pid)) return;
+        [d.pid, d.afterPid, d.verifyPid, ...(d.reopened || []).map((q) => q.pid)].filter(Boolean).forEach((pid) => {
+          if (ed.defs.some((o) => o.pid === pid || o.afterPid === pid || o.verifyPid === pid || (o.reopened || []).some((q) => q.pid === pid))) return;
           if (ed.pending[pid]) delete ed.pending[pid]; else ed.removed.push(pid);
         });
         renderDefs();
@@ -1198,13 +1416,37 @@
       list.appendChild(card);
     });
   }
+  /** Back to Open: the rectified photo and dates move into the log, so the item shows no rectification until a new one is made. */
+  function reopenDef(d, reason, stage) {
+    (d.reopened = d.reopened || []).push({ at: new Date().toISOString(), by: byLine(), reason, stage, pid: d.afterPid || null, meta: d.afterMeta || null, fixedAt: d.fixedAt || null, fixedBy: d.fixedBy || '' });
+    d.status = 'Open'; d.fixedAt = null; d.fixedStage = null; d.fixedBy = ''; d.afterPid = null; d.afterMeta = null;
+  }
   function setAfterPhoto(blob, meta) {
     const d = ed.defs.find((x) => x.id === ed.afterFor); if (!d) return;
     if (d.afterPid) { if (ed.pending[d.afterPid]) delete ed.pending[d.afterPid]; else ed.removed.push(d.afterPid); }
     const pid = uid(); ed.pending[pid] = blob; d.afterPid = pid; d.afterMeta = meta;
     // The after photo is the evidence, so its capture time is the rectification time.
-    d.status = 'Rectified'; d.fixedAt = meta.at; d.fixedStage = pmeta().stage || 'PAT'; d.fixedBy = meta.by || byLine();
+    if (d.status !== 'Verified') { d.status = 'Rectified'; d.fixedAt = meta.at; d.fixedStage = pmeta().stage || 'PAT'; d.fixedBy = meta.by || byLine(); }
     renderDefs(); toast('After photo added — item marked rectified');
+  }
+  function setVerifyPhoto(blob, meta) {
+    const d = ed.defs.find((x) => x.id === ed.verifyFor); if (!d) return;
+    if (d.verifyPid) { if (ed.pending[d.verifyPid]) delete ed.pending[d.verifyPid]; else ed.removed.push(d.verifyPid); }
+    const pid = uid(); ed.pending[pid] = blob; d.verifyPid = pid; d.verifyMeta = meta;
+    d.status = 'Verified'; d.verifiedAt = meta.at; d.verifiedBy = meta.by || byLine(); d.verifyStage = pmeta().stage || 'PAT';
+    renderDefs(); toast('Verification photo added — item verified');
+  }
+  /** Small text prompt (reject reason etc.). Resolves to the text, or null on Cancel. */
+  function promptText(title, text, placeholder) {
+    $('promptTitle').textContent = title; $('promptText').textContent = text || '';
+    const inp = $('promptInput'); inp.value = ''; inp.placeholder = placeholder || '';
+    return new Promise((res) => {
+      const done = (v) => { $('promptBox').hidden = true; yes.onclick = no.onclick = null; res(v); };
+      const yes = $('promptYes'), no = $('promptNo');
+      yes.onclick = () => { const v = inp.value.trim(); if (!v) { inp.focus(); return; } done(v); };
+      no.onclick = () => done(null);
+      $('promptBox').hidden = false; setTimeout(() => inp.focus(), 50);
+    });
   }
   function renderDefPanel() {
     const cats = CATS_FOR[ed.element] || ['Other'];
@@ -1216,7 +1458,7 @@
       cbox.appendChild(b);
     });
     const ibox = $('defItems'); ibox.innerHTML = '';
-    const items = (S.defects && S.defects[defDraft.cat]) || [];
+    const items = pol().defects[defDraft.cat] || [];
     if (!items.length) ibox.innerHTML = '<p class="hint" style="margin:0">No checklist items for this category — describe the defect in notes.</p>';
     items.forEach((it) => {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small'; b.textContent = it;
@@ -1233,6 +1475,7 @@
     $('defPhotoPrev').src = u; $('defPhotoPrev').hidden = false; $('defPhotoBtn').textContent = 'Retake defect photo';
   }
   $('addDefBtn').addEventListener('click', () => {
+    if (!isInspector()) { toast(`Only ${pol().owner || 'the inspecting company'} adds deficiencies`); return; }
     defDraft = { cat: (CATS_FOR[ed.element] || ['Other'])[0], items: new Set(), sev: 'Minor', blob: null };
     $('defNotes').value = ''; $('defPhotoPrev').hidden = true; $('defPhotoBtn').textContent = 'Take defect photo';
     renderDefPanel(); $('defPanel').hidden = false; $('addDefBtn').hidden = true;
@@ -1377,6 +1620,10 @@
     const counts = {}; projPoints().forEach((p) => { counts[p.poleId] = (counts[p.poleId] || 0) + 1; });
     const box = $('listItems'); box.innerHTML = '';
     $('listTitle').textContent = `${taskCat()} · ${S.project}`;
+    const st = projStats(projPoints()), stat = (n, l) => `<div class="stat"><b>${n}</b><span>${l}</span></div>`;
+    $('listStats').hidden = !st.total;
+    $('listStatRow').innerHTML = acc ? stat(st.total, 'elements') + stat(st.itemsOpen, 'open') + stat(st.itemsRect, 'to verify') + stat(st.itemsVer, 'verified')
+      : stat(st.total, 'poles') + stat(fmtLen(st.len), 'route') + stat(st.long, 'long spans') + stat(projPoints().filter((p) => p.adjusted).length, 'pins moved');
     if (!pts.length) { box.innerHTML = `<div class="empty">${q || (acc && listFilter !== 'all') ? 'Nothing matches.' : `No ${acc ? 'elements' : 'poles'} yet. Tap the camera button to capture the first one.`}</div>`; return; }
     for (const p of pts) {
       const b = document.createElement('button'); b.className = 'card'; b.type = 'button';
@@ -1410,12 +1657,20 @@
   function allProjects() { return [...new Set(S.projects.concat(points.map((p) => p.project)))]; }
   function renderProjects() {
     $('renameProject').value = S.project;
-    const m = pmeta(), acc = isAcc();
+    const m = pmeta(), acc = isAcc(), cat = taskCat();
     $('accMeta').hidden = !acc;
+    const pb = $('projBadge'); pb.textContent = cat.toUpperCase(); pb.className = `badge cat ${cat.toLowerCase()}`;
     if (acc) {
-      $('accStageInfo').textContent = m.stage === 'FAT' ? `Task category: FAT · Final Acceptance Test${m.fromPat ? ` · re-checking “${m.fromPat}”` : ''}` : 'Task category: PAT · Provisional Acceptance Test';
-      $('mSite').value = m.site || ''; $('mContractor').value = m.contractor || ''; $('mGlobe').value = m.globeRep || ''; $('mInspector').value = m.inspector || '';
-      $('startFat').hidden = $('startFatHint').hidden = m.stage === 'FAT';
+      $('accStageInfo').textContent = m.stage === 'FAT' ? `FAT · Final Acceptance Test${m.fromPat ? ` · verifying the PAT “${m.fromPat}”` : ''}` : 'PAT · Provisional Acceptance Test';
+      $('mSite').value = m.site || ''; $('mContractor').value = m.contractor || ''; $('mVendorRep').value = m.vendorRep || ''; $('mGlobe').value = m.globeRep || ''; $('mInspector').value = m.inspector || '';
+      $('mDate').value = m.date || '';
+      const types = formText().types || [], chosen = m.inspTypes || pol().inspTypes, box = $('mTypes'); box.innerHTML = '';
+      types.forEach((t) => {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small'; b.textContent = t; b.setAttribute('aria-pressed', String(chosen.includes(t)));
+        b.addEventListener('click', () => { const cur = new Set(pmeta().inspTypes || pol().inspTypes); if (cur.has(t)) cur.delete(t); else cur.add(t); const mm = { ...pmeta(), inspTypes: types.filter((x) => cur.has(x)) }; S.meta[S.project] = mm; persist(); renderProjects(); });
+        box.appendChild(b);
+      });
+      $('startFat').hidden = $('startFatHint').hidden = $('sendPat').hidden = $('sendPatHint').hidden = m.stage === 'FAT';
     }
     $('delProjConfirm').hidden = true; $('delProject').hidden = false;
     const box = $('projItems'); box.innerHTML = '';
@@ -1434,8 +1689,9 @@
       box.appendChild(b);
     }
   }
-  $('projectBtn').addEventListener('click', () => { renderProjects(); openSheet('projects'); });
-  $('projNavBtn').addEventListener('click', () => { renderProjects(); openSheet('projects'); });
+  function openProjects() { renderProjects(); renderTasks(); openSheet('projects'); cloudSync(false).then(() => { if (!$('projects').hidden) renderTasks(); }); }
+  $('projectBtn').addEventListener('click', openProjects);
+  $('projNavBtn').addEventListener('click', openProjects);
   $('addProject').addEventListener('click', async () => {
     const name = $('newProject').value.trim();
     if (!name) { toast('Type a project name'); return; }
@@ -1449,29 +1705,37 @@
   });
   let newMode = 'survey';
   const NEW_MODE_HINT = { survey: 'Survey: engineering survey of poles, route and spans for design.', PAT: 'PAT: Provisional Acceptance Test with Globe and the contractor. Output: punchlist.',
-    FAT: 'FAT: Final Acceptance Test. To re-check a PAT punchlist on this phone, open that PAT project and tap "Start FAT from this PAT" instead.' };
+    FAT: 'FAT: Final Acceptance Test. To re-check a PAT punchlist, start it from the PAT: on this phone open the PAT project and tap "Start FAT from this PAT"; for a PAT done on another phone use "Start FAT from a PAT file".' };
   $('newMode').addEventListener('click', (e) => {
     const c = e.target.closest('.chip'); if (!c) return; newMode = c.dataset.v;
     $('newMode').querySelectorAll('.chip').forEach((x) => x.setAttribute('aria-pressed', String(x === c)));
     $('newModeHint').textContent = NEW_MODE_HINT[newMode];
+    $('fatFromFile').hidden = newMode !== 'FAT';
   });
-  [['mSite', 'site'], ['mContractor', 'contractor'], ['mGlobe', 'globeRep'], ['mInspector', 'inspector']].forEach(([id, key]) => {
+  [['mSite', 'site'], ['mContractor', 'contractor'], ['mVendorRep', 'vendorRep'], ['mGlobe', 'globeRep'], ['mInspector', 'inspector'], ['mDate', 'date']].forEach(([id, key]) => {
     $(id).addEventListener('change', () => { const m = { ...pmeta() }; m[key] = $(id).value.trim(); S.meta[S.project] = m; persist(); });
   });
-  $('startFat').addEventListener('click', () => guard(async () => {
-    const pat = S.project, m = pmeta(pat);
-    let name = `${pat} – FAT`, k = 2;
-    while (allProjects().includes(name)) name = `${pat} – FAT ${k++}`;
-    const src = projPoints(), now = new Date().toISOString();
+  $('startFat').addEventListener('click', () => guard(() => startFatFrom(S.project), 'FAT not started'));
+  /** Copies a PAT project (on this phone) into a new FAT project; the PAT stays unchanged. */
+  async function startFatFrom(pat, extraMeta, wantName) {
+    const m = pmeta(pat);
+    if (m.mode !== 'acceptance' || (m.stage || 'PAT') !== 'PAT') throw new Error(`“${pat}” is not a PAT project`);
+    const base = wantName || `${pat} – FAT`;
+    let name = base, k = 2;
+    while (allProjects().includes(name)) name = `${base} ${wantName ? `(${k++})` : k++}`;
+    const src = points.filter((p) => p.project === pat), now = new Date().toISOString();
     busy('Starting FAT…');
     const copies = src.map((r) => ({ ...JSON.parse(JSON.stringify(r)), id: uid(), project: name, updated: now, patId: r.id }));
     for (const c of copies) { await dbPut('points', c); points.push(c); }
-    S.meta[name] = { ...m, stage: 'FAT', fromPat: pat };
+    const { taskId, date, ...patMeta } = m; // the PAT's own online task and inspection date are not this FAT's
+    const extra = Object.fromEntries(Object.entries(extraMeta || {}).filter(([, v]) => v !== '' && v != null)); // blank task cells keep the PAT's details
+    S.meta[name] = { ...patMeta, stage: 'FAT', fromPat: pat, inspector: m.inspector || byLine(), ...extra };
     S.projects.push(name); S.project = name; persist();
-    renderPoles(); renderProjects();
+    renderPoles(); renderProjects(); busy(false);
     const open = copies.reduce((t, r) => t + openCount(r), 0);
     toast(`FAT started: ${copies.length} elements, ${open} open item${open === 1 ? '' : 's'} to re-check`, 4500);
-  }));
+    return name;
+  }
   $('doRename').addEventListener('click', () => guard(async () => {
     const name = $('renameProject').value.trim(), old = S.project;
     if (!name || name === old) return;
@@ -1484,7 +1748,7 @@
     (S.areas || []).forEach((x) => { if (x.project === old) x.project = name; });
     S.project = name; persist(); renderPoles(); renderProjects(); drawAreas();
     toast(`Renamed to "${name}"`);
-  }));
+  }, 'Rename failed'));
   $('delProject').addEventListener('click', () => {
     const n = projPoints().length, what = isAcc() ? 'element' : 'pole';
     $('delProjText').textContent = `Delete "${S.project}" with its ${n} ${what}${n === 1 ? '' : 's'}, photos and offline maps? Make a backup first if you still need them. This can't be undone.`;
@@ -1505,23 +1769,12 @@
     S.project = allProjects()[0]; persist();
     renderPoles(); drawAreas(); renderProjects();
     toast(`Deleted "${name}"`);
-  }));
+  }, 'Delete failed'));
 
   /* ================= export ================= */
   let lastResult = null;
   /* ---- Android APK (Capacitor): the in-app browser cannot download files, so exports are written
      to the phone's Documents/PoleCam folder and shared through Android's share sheet. ---- */
-  const NATIVE = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
-  const plugins = {};
-  function nativePlugin(name) {
-    if (plugins[name]) return plugins[name];
-    const ce = window.capacitorExports;
-    if (ce && typeof ce.registerPlugin === 'function') { try { plugins[name] = ce.registerPlugin(name); return plugins[name]; } catch (e) { /* use the bridge below */ } }
-    const cap = window.Capacitor;
-    plugins[name] = { call: (method, opts) => cap.nativePromise(name, method, opts || {}) };
-    return plugins[name];
-  }
-  const nativeCall = (name, method, opts) => { const p = nativePlugin(name); return p.call ? p.call(method, opts) : p[method](opts || {}); };
   async function blobChunkB64(blob, start, end) {
     const u = new Uint8Array(await blob.slice(start, end).arrayBuffer());
     let s = '';
@@ -1603,8 +1856,8 @@
   $('exportBtn').addEventListener('click', () => {
     const n = projPoints().length, acc = isAcc();
     $('exportScope').textContent = acc ? `Acceptance ${pmeta().stage || 'PAT'} “${S.project}” · ${n} element${n === 1 ? '' : 's'}` : `Project “${S.project}” · ${n} pole${n === 1 ? '' : 's'}`;
-    $('accExports').hidden = !acc; $('surveyExports').hidden = acc;
-    $('dxfZoneLbl').textContent = `UTM ${S.zone}N`;
+    $('accExports').hidden = !acc; $('surveyExports').hidden = acc; $('namingRow').hidden = acc; // acceptance photos are named after the form items
+    $('dxfZoneLbl').textContent = `UTM ${S.zone}N`; syncExpUi();
     $('resultBox').hidden = true; openSheet('export');
   });
   function needPoints() { const pts = projPoints(); if (!pts.length) { toast('Nothing captured in this project yet'); return null; } return pts; }
@@ -1618,21 +1871,30 @@
     return out;
   }
   const fileBase = () => `${C.safeName(S.project)}_${stamp8()}`;
-  async function guard(fn) { try { await fn(); } catch (e) { console.error(e); toast('Export failed: ' + (e.message || e), 6000); } finally { busy(false); } }
+  async function guard(fn, label) { try { await fn(); } catch (e) { console.error(e); toast(`${label === undefined ? 'Export failed: ' : label ? label + ': ' : ''}${e.message || e}`, 7000); } finally { busy(false); } }
 
+  /** Square photo icon for a KMZ pin at the chosen size. */
+  async function iconJpeg(blob, px, border) {
+    const im = await loadImage(blob), { w, h } = dims(im), side = Math.min(w, h);
+    const cv = document.createElement('canvas'); cv.width = cv.height = px;
+    const g = cv.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(im, (w - side) / 2, (h - side) / 2, side, side, 0, 0, px, px);
+    g.strokeStyle = border || '#ffffff'; g.lineWidth = Math.max(3, px / 12); g.strokeRect(g.lineWidth / 2, g.lineWidth / 2, px - g.lineWidth, px - g.lineWidth);
+    if (im.close) im.close();
+    return new Uint8Array(await (await toBlob(cv, 0.85)).arrayBuffer());
+  }
   $('doKmz').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
-    const icons = $('kmzIcons').checked, names = uniqueNames(pts), files = [], rows = [];
+    const E = S.exp, icons = E.kmzIconPx > 0, names = uniqueNames(pts), files = [], rows = [];
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i]; busy(`Preparing photos ${i + 1} / ${pts.length}`, i / pts.length);
       const ph = await dbGet('photos', p.id);
       const r = { ...p };
-      if (ph && ph.clean) { r.photoName = `photos/${names[p.id]}.jpg`; files.push({ name: 'files/' + r.photoName, data: await exportPhoto(p, ph.clean) }); }
-      if (icons && ph && ph.thumb) { r.iconName = `icons/${p.id}.jpg`; files.push({ name: 'files/' + r.iconName, data: new Uint8Array(await ph.thumb.arrayBuffer()) }); }
+      if (ph && ph.clean && E.kmzBalloonPx > 0) { r.photoName = `photos/${names[p.id]}.jpg`; files.push({ name: 'files/' + r.photoName, data: await exportPhoto(p, ph.clean, null, null, { maxPx: E.kmzBalloonPx, stamp: E.kmzStamp, quality: 0.85 }) }); }
+      if (icons && ph && (ph.clean || ph.thumb)) { r.iconName = `icons/${p.id}.jpg`; files.push({ name: 'files/' + r.iconName, data: await iconJpeg(ph.clean || ph.thumb, E.kmzIconPx) }); }
       rows.push(r);
     }
     busy('Building KMZ…', 1);
-    const kml = C.buildKml(rows, { project: S.project, photoIcons: icons, spans: routeModel().spans });
+    const kml = C.buildKml(rows, { project: S.project, photoIcons: icons, spans: E.kmzRoute ? routeModel().spans : [] });
     const parts = C.makeZipParts([{ name: 'doc.kml', data: kml }, ...files]);
     offerResult(new Blob(parts, { type: 'application/vnd.google-earth.kmz' }), fileBase() + '.kmz');
   }));
@@ -1677,8 +1939,8 @@
     const summary = [
       [{ v: `ROUTE AND SPANS — ${S.project}`, s: st.title }],
       [lbl('Generated'), fmtTime(new Date().toISOString())],
-      [lbl('Maximum span setting (m)'), S.maxSpan || 200],
-      [lbl('Angle pole from (°)'), S.angleDeg || 15],
+      [lbl('Maximum span setting (m)'), pol().maxSpan || 200],
+      [lbl('Angle pole from (°)'), pol().angleDeg || 15],
       [],
       [lbl('Total route length (m)'), Math.round(Rt.total * 10) / 10],
       [lbl('Spans'), Rt.spans.length],
@@ -1764,18 +2026,23 @@
       offerResult(new Blob(C.makeZipParts(files), { type: 'application/zip' }), fileBase() + '_photos.zip');
       return;
     }
-    const names = uniqueNames(pts), files = [];
+    const files = [], used = {};
     for (let i = 0; i < pts.length; i++) {
-      busy(`Stamping photos ${i + 1} / ${pts.length}`, i / pts.length);
+      busy(`Preparing photos ${i + 1} / ${pts.length}`, i / pts.length);
       const ph = await dbGet('photos', pts[i].id);
-      if (ph && ph.clean) files.push({ name: names[pts[i].id] + '.jpg', data: await exportPhoto(pts[i], ph.clean) });
+      if (!ph || !ph.clean) continue;
+      let name = photoFileName(pts[i]), k = 2; const base = name;
+      while (used[name.toLowerCase()]) name = `${base}_${k++}`;
+      used[name.toLowerCase()] = 1;
+      files.push({ name: name + '.jpg', data: await exportPhoto(pts[i], ph.clean) });
     }
     offerResult(new Blob(C.makeZipParts(files), { type: 'application/zip' }), fileBase() + '_photos.zip');
   }));
 
-  $('doBackup').addEventListener('click', () => guard(async () => {
-    const pts = needPoints(); if (!pts) return;
-    const files = [{ name: 'points.json', data: JSON.stringify({ app: 'PoleCam', version: 2, project: S.project, meta: pmeta(), exported: new Date().toISOString(), points: pts }, null, 1) }];
+  /** One project with all its photos in a ZIP: a backup, or a PAT sent to another phone for its FAT. */
+  async function projectZip(name) {
+    const pts = points.filter((p) => p.project === name).sort((a, b) => (a.created < b.created ? -1 : 1));
+    const files = [{ name: 'points.json', data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: pmeta(name), exported: new Date().toISOString(), by: byLine(), points: pts }, null, 1) }];
     const pids = [...new Set(pts.flatMap(allPids))];
     for (let i = 0; i < pids.length; i++) {
       busy(`Packing photos ${i + 1} / ${pids.length}`, i / pids.length);
@@ -1783,12 +2050,23 @@
       if (ph && ph.clean) files.push({ name: `photos/${pids[i]}.jpg`, data: new Uint8Array(await ph.clean.arrayBuffer()) });
       if (ph && ph.thumb) files.push({ name: `thumbs/${pids[i]}.jpg`, data: new Uint8Array(await ph.thumb.arrayBuffer()) });
     }
-    offerResult(new Blob(C.makeZipParts(files), { type: 'application/zip' }), `${fileBase()}_BACKUP.zip`);
+    return new Blob(C.makeZipParts(files), { type: 'application/zip' });
+  }
+  $('doBackup').addEventListener('click', () => guard(async () => {
+    if (!needPoints()) return;
+    offerResult(await projectZip(S.project), `${fileBase()}_BACKUP.zip`);
   }));
   $('doRestore').addEventListener('click', () => { $('restoreInput').value = ''; $('restoreInput').click(); });
   $('restoreInput').addEventListener('change', (e) => guard(async () => {
     const f = e.target.files[0]; if (!f) return;
-    busy('Reading backup…');
+    await restoreZip(f);
+    $('exportScope').textContent = `Project “${S.project}” · ${projPoints().length} records`;
+    $('accExports').hidden = !isAcc(); $('surveyExports').hidden = isAcc();
+  }, 'Restore failed'));
+  /** Restores a backup / PAT file into its project (merging with a project of the same name) and makes it current. */
+  async function restoreZip(f, opts) {
+    const o = opts || {};
+    busy('Reading file…');
     const entries = C.readZip(new Uint8Array(await f.arrayBuffer()));
     const byName = {};
     for (const en of entries) byName[en.name] = en;
@@ -1802,7 +2080,15 @@
       throw new Error('Unsupported compression in backup');
     };
     const meta = JSON.parse(new TextDecoder().decode(await raw(byName['points.json'])));
-    if (!meta || !Array.isArray(meta.points)) throw new Error('This is not a PoleCam backup');
+    if (!meta || !Array.isArray(meta.points)) throw new Error('This is not a PoleCam backup or PAT file');
+    const fm = meta.meta || {}, kind = (m) => (m.mode === 'acceptance' ? m.stage || 'PAT' : 'survey');
+    if (o.expectPat && kind(fm) !== 'PAT') throw new Error(`This file is ${kind(fm) === 'survey' ? 'a survey backup' : `a ${kind(fm)} project`}, not a PAT. On the PAT phone use Projects → Send this PAT to another phone.`);
+    let proj = meta.project || (meta.points[0] && meta.points[0].project);
+    if (proj && S.meta && S.meta[proj] && meta.meta && kind(S.meta[proj]) !== kind(fm)) { // same name, different kind of project: keep them apart
+      const base = `${proj} (${kind(fm) === 'survey' ? 'survey' : kind(fm)} from file)`; let nm = base, k = 2;
+      while (allProjects().includes(nm)) nm = `${base} ${k++}`;
+      meta.points = meta.points.map((p) => ({ ...p, project: nm })); proj = nm;
+    }
     let n = 0;
     for (const p of meta.points) {
       busy(`Restoring ${++n} / ${meta.points.length}`, n / meta.points.length);
@@ -1813,23 +2099,23 @@
       await dbPut('points', p);
       const i = points.findIndex((x) => x.id === p.id); if (i >= 0) points[i] = p; else points.push(p);
     }
-    const proj = meta.project || (meta.points[0] && meta.points[0].project);
     if (proj) {
       if (!S.projects.includes(proj)) S.projects.push(proj);
       S.meta = S.meta || {};
       if (meta.meta && !S.meta[proj]) S.meta[proj] = meta.meta;
-      else if (meta.meta && meta.meta.people) S.meta[proj].people = { ...(S.meta[proj].people || {}), ...meta.meta.people };
-      else if (meta.meta && meta.meta.links) {
-        const have = new Set((S.meta[proj].links || []).map(([x, y]) => [x, y].sort().join('|')));
-        S.meta[proj].links = (S.meta[proj].links || []).concat(meta.meta.links.filter(([x, y]) => !have.has([x, y].sort().join('|'))));
+      else if (meta.meta) {
+        if (meta.meta.people) S.meta[proj].people = { ...(S.meta[proj].people || {}), ...meta.meta.people };
+        if (meta.meta.links) {
+          const have = new Set((S.meta[proj].links || []).map(([x, y]) => [x, y].sort().join('|')));
+          S.meta[proj].links = (S.meta[proj].links || []).concat(meta.meta.links.filter(([x, y]) => !have.has([x, y].sort().join('|'))));
+        }
       }
       S.project = proj; persist();
     }
-    renderPoles(); fitProject();
-    $('exportScope').textContent = `Project “${S.project}” · ${projPoints().length} records`;
-    $('accExports').hidden = !isAcc(); $('surveyExports').hidden = isAcc();
+    renderPoles(); fitProject(); busy(false);
     toast(`Restored ${meta.points.length} records into “${S.project}”`, 4000);
-  }));
+    return proj;
+  }
 
   /* ================= acceptance exports ================= */
   const STAGE_LONG = { PAT: 'Provisional Acceptance Test (PAT)', FAT: 'Final Acceptance Test (FAT)' };
@@ -1845,37 +2131,42 @@
     const items = []; let no = 0;
     recs.forEach((r) => (r.defs || []).forEach((d) => {
       no++;
-      items.push({ no, r, d, defectName: d.pid ? `${base[r.id]}_item${no}_defect.jpg` : '', afterName: d.afterPid ? `${base[r.id]}_item${no}_after.jpg` : '' });
+      items.push({ no, r, d, defectName: d.pid ? `${base[r.id]}_item${no}_asfound.jpg` : '', afterName: d.afterPid ? `${base[r.id]}_item${no}_rectified.jpg` : '', verifyName: d.verifyPid ? `${base[r.id]}_item${no}_verified.jpg` : '' });
     }));
     const photoName = (r, i, p) => `${base[r.id]}_${i + 1}_${C.safeName(p.label)}.jpg`;
-    const times = recs.map((r) => r.takenAt).filter(Boolean).sort();
+    const fatTimes = stage === 'FAT' ? items.flatMap((x) => [x.d.fixedStage === 'FAT' ? x.d.fixedAt : null, x.d.verifiedAt, x.d.stage === 'FAT' ? x.d.foundAt : null]).filter(Boolean).sort() : [];
+    const times = stage === 'FAT' ? fatTimes : recs.map((r) => r.takenAt).filter(Boolean).sort();
     const first = times.length ? dateOnly(times[0]) : '', lastD = times.length ? dateOnly(times[times.length - 1]) : '';
-    const open = items.filter((x) => x.d.status !== 'Rectified');
-    return { recs, items, base, photoName, m, stage, dates: first === lastD ? first : `${first} – ${lastD}`, open,
-      withDef: recs.filter((r) => openCount(r) > 0).length, rectified: items.length - open.length,
+    const counted = items.filter((x) => x.d.sev !== 'Note'), open = counted.filter((x) => !defDone(x.d));
+    return { recs, items, base, photoName, m, stage, dates: first === lastD ? first : `${first} – ${lastD}`, fatFirst: fatTimes[0] || null, open, counted,
+      withDef: recs.filter((r) => openCount(r) > 0).length, rectified: counted.filter((x) => x.d.status === 'Rectified').length,
+      verified: counted.filter((x) => x.d.status === 'Verified').length, notes: items.length - counted.length,
       major: open.filter((x) => x.d.sev === 'Major').length, minor: open.filter((x) => x.d.sev !== 'Major').length };
   }
   function accPhotoList(M) {
     const list = [];
     M.recs.forEach((r) => photosOf(r).forEach((p, i) => list.push({ rec: r, pid: p.pid, name: M.photoName(r, i, p), title: `${r.poleId}  ·  ${elemOf(r)}  ·  ${p.label}`, meta: p.at ? p : null })));
     M.items.forEach((x) => {
-      if (x.d.pid) list.push({ rec: x.r, pid: x.d.pid, name: x.defectName, title: `${x.r.poleId}  ·  Item ${x.no}  ·  BEFORE  ·  ${x.d.cat}: ${x.d.item}`, meta: x.d.pidMeta || null });
-      if (x.d.afterPid) list.push({ rec: x.r, pid: x.d.afterPid, name: x.afterName, title: `${x.r.poleId}  ·  Item ${x.no}  ·  AFTER  ·  Rectified`, meta: x.d.afterMeta || null });
+      if (x.d.pid) list.push({ rec: x.r, pid: x.d.pid, name: x.defectName, title: `${x.r.poleId}  ·  Item ${x.no}  ·  AS FOUND  ·  ${x.d.cat}: ${x.d.item}`, meta: x.d.pidMeta || null });
+      if (x.d.afterPid) list.push({ rec: x.r, pid: x.d.afterPid, name: x.afterName, title: `${x.r.poleId}  ·  Item ${x.no}  ·  RECTIFIED  ·  ${x.d.cat}: ${x.d.item}`, meta: x.d.afterMeta || null });
+      if (x.d.verifyPid) list.push({ rec: x.r, pid: x.d.verifyPid, name: x.verifyName, title: `${x.r.poleId}  ·  Item ${x.no}  ·  VERIFIED  ·  ${x.d.cat}: ${x.d.item}`, meta: x.d.verifyMeta || null });
     });
     return list;
   }
-  const PUNCH_HEAD = ['Item No.', 'Location ID', 'Element', 'Category', 'Deficiency', 'Severity', 'Notes', 'Status', 'Found at', 'Date found', 'Date rectified',
-    'Days to rectify', 'Rectified by', 'Remarks', 'Latitude', 'Longitude', 'Defect photo', 'Defect photo taken', 'After photo', 'After photo taken', 'After photo distance from pin (m)'];
-  const PI = { status: 7, lat: 14, lon: 15 };
+  const PUNCH_HEAD = ['Item No.', 'Location ID', 'Element', 'Category', 'Deficiency', 'Code', 'Notes', 'Status', 'Found at', 'Date found', 'Date rectified',
+    'Days to rectify', 'Rectified by', 'Date verified', 'Verified by', 'Rejections', 'Remarks', 'Latitude', 'Longitude', 'As-found photo', 'As-found photo taken', 'Rectified photo', 'Rectified photo taken', 'Rectified photo distance from pin (m)', 'Verified photo', 'Verified photo taken'];
+  const PI = { status: 7, lat: 17, lon: 18 };
   const daysBetween = (a, b) => (a && b ? (Date.parse(b) - Date.parse(a)) / 86400000 : null);
   const distFromPin = (meta, r) => (meta && meta.lat != null ? haversine(meta, r) : null);
   function punchRows(M) {
     return M.items.map((x) => {
-      const d = x.d, days = d.status === 'Rectified' ? daysBetween(d.foundAt, d.fixedAt) : null, dist = distFromPin(d.afterMeta, x.r);
-      return [x.no, x.r.poleId, elemOf(x.r), d.cat, d.item, d.sev, d.notes || '', d.status, d.stage || 'PAT',
-        fmtTime(d.foundAt), d.fixedAt ? fmtTime(d.fixedAt) : '', days != null ? Math.round(days * 10) / 10 : '', d.status === 'Rectified' ? d.fixedBy || '' : '',
+      const d = x.d, days = defDone(d) ? daysBetween(d.foundAt, d.fixedAt) : null, dist = distFromPin(d.afterMeta, x.r), rej = d.reopened || [];
+      return [x.no, x.r.poleId, elemOf(x.r), d.cat, d.item, `${SEV_CODE[sevOf(d)]} (${sevOf(d)})`, d.notes || '', defStatusOf(d), d.stage || 'PAT',
+        fmtTime(d.foundAt), defDone(d) && d.fixedAt ? fmtTime(d.fixedAt) : '', days != null ? Math.round(days * 10) / 10 : '', defDone(d) ? d.fixedBy || '' : '',
+        d.status === 'Verified' && d.verifiedAt ? fmtTime(d.verifiedAt) : '', d.status === 'Verified' ? d.verifiedBy || '' : '',
+        rej.length ? rej.map((q) => `${shortTime(q.at)}${q.by ? ' ' + q.by : ''}: ${q.reason || 'no reason given'}`).join(' | ') : '',
         d.remarks || '', x.r.lat, x.r.lon, x.defectName, d.pidMeta ? fmtTime(d.pidMeta.at) : '', x.afterName, d.afterMeta ? fmtTime(d.afterMeta.at) : '',
-        dist != null ? Math.round(dist) : ''];
+        dist != null ? Math.round(dist) : '', x.verifyName, d.verifyMeta ? fmtTime(d.verifyMeta.at) : ''];
     });
   }
   const ELEM_HEAD = ['No.', 'Element', 'Location ID', 'With MLoop', 'With NAP', 'NAP ID', 'With closure', 'Closure ID', 'ODF', 'Status', 'Open items', 'Total items', 'Latitude', 'Longitude', 'GPS accuracy (m)', 'Pin adjusted', 'Captured', 'Photos'];
@@ -1890,42 +2181,82 @@
   }
   const peopleOf = () => Object.values(pmeta().people || {});
   const peopleText = () => peopleOf().map((x) => `${x.name}${x.company ? ` (${x.company})` : ''}`).join('; ');
-  const summaryText = (M) => `${M.recs.length} elements inspected · ${M.withDef} with open deficiency · ${M.items.length} punchlist items (${M.open.length} open, ${M.rectified} rectified) · open major ${M.major} / minor ${M.minor}`;
+  const summaryText = (M) => `${M.recs.length} elements inspected · ${M.withDef} with open deficiency · ${M.counted.length} deficiencies (${M.open.length} open, ${M.rectified} rectified awaiting verification, ${M.verified} verified)${M.notes ? ` · ${M.notes} notes` : ''} · open major ${M.major} / minor ${M.minor}`;
   const accFileBase = (M) => {
     const pn = C.safeName(S.project);
     return new RegExp(`(^|[_-])${M.stage}([_-]|$)`, 'i').test(pn) ? `${pn}_${stamp8()}` : `${pn}_${M.stage}_${stamp8()}`;
   };
 
+  /* ---- the office form: model shared by the PDF and the Excel output ---- */
+  const longDate = (v) => { if (!v) return ''; const d = /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(v + 'T12:00:00') : new Date(v); return isNaN(d) ? String(v) : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }); };
+  const todayIso = () => { const d = new Date(), p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+  const PHOTO_SIZE = { S: { h: 150, px: 520 }, M: { h: 200, px: 720 }, L: { h: 250, px: 960 } };
+  let logoCache = null;
+  /** Company logos printed in the form header (bundled with the app, so the form looks the same offline). */
+  async function formLogos() {
+    if (logoCache) return logoCache;
+    const get = async (u) => { try { const r = await fetch(u); if (!r.ok) return null; return new Uint8Array(await r.arrayBuffer()); } catch (e) { return null; } };
+    logoCache = { left: await get('brand/logo-left.jpg'), right: await get('brand/logo-right.jpg') };
+    return logoCache;
+  }
+  const itemText = (x) => `${x.r.poleId}${elemOf(x.r) !== 'Pole' ? ` (${elemOf(x.r)})` : ''} — ${x.d.cat}: ${x.d.item}${x.d.notes ? ` (${x.d.notes})` : ''}`;
+  const rectifiedDate = (d) => (defDone(d) ? longDate(d.fixedAt || d.verifiedAt) : '');
+  /** Header + rows of the LIST OF DEFICIENCIES form, as the office template has them. */
+  function formModel(M, o) {
+    const m = M.m, insp = m.date ? longDate(m.date) : M.stage === 'FAT' ? (M.fatFirst ? longDate(M.fatFirst) : '') : (M.recs.length ? longDate(M.recs[0].takenAt) : '');
+    const signDate = o.dates === 'today' ? longDate(todayIso()) : o.dates === 'insp' ? insp : '';
+    return {
+      form: pol().form, logos: o.logos, stage: M.stage, typesChecked: m.inspTypes || pol().inspTypes,
+      location: m.site || '', project: (M.stage === 'FAT' && m.fromPat) || S.project, vendor: m.contractor || '', date: insp,
+      items: M.items.map((x) => ({ no: x.no, code: SEV_CODE[sevOf(x.d)], text: itemText(x), rectified: rectifiedDate(x.d) })),
+      signers: { left: { name: m.vendorRep || '', date: signDate }, right: { name: m.globeRep || '', date: signDate } },
+      footer: `${S.project} · ${M.stage} · generated with PoleCam ${shortTime(new Date().toISOString())}${byLine() ? ' by ' + byLine() : ''}`,
+    };
+  }
   $('doXlsx').addEventListener('click', () => guard(async () => {
     if (!needPoints()) return;
-    const M = accModel(), R = window.PoleReports, st = R.STYLES;
-    const lbl = (v) => ({ v, s: st.label });
-    const rows = [
-      [{ v: `PUNCHLIST / DEFICIENCY LIST — ${STAGE_LONG[M.stage]}`, s: st.title }],
-      [lbl('Project'), null, { v: S.project }, null, null, lbl('Site / cluster'), null, { v: M.m.site || '' }],
-      [lbl('Contractor'), null, { v: M.m.contractor || '' }, null, null, lbl('Globe representative'), null, { v: M.m.globeRep || '' }],
-      [lbl('Inspected by'), null, { v: M.m.inspector || '' }, null, null, lbl('Inspection date'), null, { v: M.dates }],
-      [lbl('Generated'), null, { v: fmtTime(new Date().toISOString()) }, null, null, lbl(M.m.fromPat ? 'PAT reference' : ''), null, { v: M.m.fromPat || '' }],
-      [{ v: summaryText(M), s: st.info }],
-      [],
-      PUNCH_HEAD.map((v) => ({ v, s: st.header })),
-    ];
-    const statusStyle = (v) => (v === 'Rectified' || v === 'OK' ? st.good : v === 'Open' || v === 'With deficiency' ? st.bad : st.cell);
-    punchRows(M).forEach((r) => rows.push(r.map((v, ci) => ({ v, s: ci === 0 ? st.center : ci === PI.status ? statusStyle(v) : ci === PI.lat || ci === PI.lon ? st.coord : st.cell }))));
-    const LC = R.colName(PUNCH_HEAD.length - 1), merges = [`A1:${LC}1`, `A6:${LC}6`];
-    for (let rr = 2; rr <= 5; rr++) merges.push(`A${rr}:B${rr}`, `C${rr}:E${rr}`, `F${rr}:G${rr}`, `H${rr}:K${rr}`);
-    const erows = [ELEM_HEAD.map((v) => ({ v, s: st.header }))];
-    elemRows(M).forEach((r) => erows.push(r.map((v, ci) => ({ v, s: ci === 0 ? st.center : ci === 9 ? statusStyle(v) : ci === 12 || ci === 13 ? st.coord : st.cell }))));
-    const prows = [['Name', 'Company', 'Mobile', 'Email'].map((v) => ({ v, s: st.header }))];
-    peopleOf().forEach((x) => prows.push([x.name, x.company, x.mobile, x.email]));
-    const parts = R.buildXlsxParts([
-      { name: 'Punchlist', cols: [7, 15, 9, 13, 34, 9, 30, 11, 8, 17, 17, 9, 16, 24, 12, 13, 26, 17, 26, 17, 12], rows, merges, freezeRow: 8,
-        autoFilter: `A8:${R.colName(PUNCH_HEAD.length - 1)}${8 + Math.max(1, M.items.length)}` },
-      { name: 'Elements', cols: [6, 9, 15, 10, 9, 14, 11, 14, 10, 15, 9, 9, 12, 13, 10, 10, 17, 40], rows: erows, freezeRow: 1,
-        autoFilter: `A1:${R.colName(ELEM_HEAD.length - 1)}${Math.max(2, erows.length)}` },
-      { name: 'People', cols: [28, 28, 18, 32], rows: prows, freezeRow: 1 },
-    ]);
-    offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), accFileBase(M) + '_punchlist.xlsx');
+    const M = accModel(), R = window.PoleReports, st = R.STYLES, E = S.exp;
+    busy('Building workbook…');
+    const sheets = [window.PoleForms.deficiencyFormSheet(formModel(M, { logos: await formLogos(), dates: E.pdfDates }))];
+    if (E.xlsTable) {
+      const lbl = (v) => ({ v, s: st.label });
+      const rows = [
+        [{ v: `PUNCHLIST TRACKER — ${STAGE_LONG[M.stage]}`, s: st.title }],
+        [lbl('Project'), null, { v: S.project }, null, null, lbl('Location / site'), null, { v: M.m.site || '' }],
+        [lbl('Vendor (contractor)'), null, { v: M.m.contractor || '' }, null, null, lbl('Globe representative'), null, { v: M.m.globeRep || '' }],
+        [lbl('Inspected by'), null, { v: M.m.inspector || '' }, null, null, lbl('Inspection date'), null, { v: M.dates }],
+        [lbl('Generated'), null, { v: fmtTime(new Date().toISOString()) }, null, null, lbl(M.m.fromPat ? 'PAT reference' : ''), null, { v: M.m.fromPat || '' }],
+        [{ v: summaryText(M), s: st.info }],
+        [],
+        PUNCH_HEAD.map((v) => ({ v, s: st.header })),
+      ];
+      const statusStyle = (v) => (v === 'Verified' || v === 'OK' || v === STATUS_TEXT.OK || v === STATUS_TEXT.Verified ? st.good : v === 'Open' || v === STATUS_TEXT.Open ? st.bad : st.cell);
+      punchRows(M).forEach((r) => rows.push(r.map((v, ci) => ({ v, s: ci === 0 ? st.center : ci === PI.status ? statusStyle(v) : ci === PI.lat || ci === PI.lon ? st.coord : st.cell }))));
+      const LC = R.colName(PUNCH_HEAD.length - 1), merges = [`A1:${LC}1`, `A6:${LC}6`];
+      for (let rr = 2; rr <= 5; rr++) merges.push(`A${rr}:B${rr}`, `C${rr}:E${rr}`, `F${rr}:G${rr}`, `H${rr}:K${rr}`);
+      sheets.push({ name: 'Punchlist', cols: [7, 15, 9, 13, 34, 11, 30, 11, 8, 17, 17, 9, 16, 17, 16, 34, 24, 12, 13, 28, 17, 28, 17, 12, 28, 17], rows, merges, freezeRow: 8,
+        autoFilter: `A8:${LC}${8 + Math.max(1, M.items.length)}` });
+      const erows = [ELEM_HEAD.map((v) => ({ v, s: st.header }))];
+      elemRows(M).forEach((r) => erows.push(r.map((v, ci) => ({ v, s: ci === 0 ? st.center : ci === 9 ? statusStyle(v) : ci === 12 || ci === 13 ? st.coord : st.cell }))));
+      sheets.push({ name: 'Elements', cols: [6, 9, 15, 10, 9, 14, 11, 14, 10, 15, 9, 9, 12, 13, 10, 10, 17, 40], rows: erows, freezeRow: 1,
+        autoFilter: `A1:${R.colName(ELEM_HEAD.length - 1)}${Math.max(2, erows.length)}` });
+    }
+    if (E.xlsPhotos) {
+      const head = ['File name (in the photo ZIP / KMZ)', 'Location ID', 'Element', 'Photo', 'Item No.', 'Taken', 'Taken by', 'GPS latitude', 'GPS longitude', 'GPS accuracy (m)', 'Distance from pin (m)'];
+      const prows = [head.map((v) => ({ v, s: st.header }))];
+      accPhotoList(M).forEach((p) => {
+        const mt = p.meta || {}, dist = distFromPin(p.meta, p.rec), item = /Item (\d+)/.exec(p.title);
+        prows.push([p.name, p.rec.poleId, elemOf(p.rec), p.title.split('  ·  ').slice(2).join(' · '), item ? +item[1] : '', mt.at ? fmtTime(mt.at) : '', mt.by || '',
+          mt.lat != null ? mt.lat : '', mt.lon != null ? mt.lon : '', Number.isFinite(mt.acc) ? Math.round(mt.acc * 10) / 10 : '', dist != null ? Math.round(dist) : '']
+          .map((v, ci) => ({ v, s: ci === 7 || ci === 8 ? st.coord : st.cell })));
+      });
+      sheets.push({ name: 'Photos', cols: [38, 14, 9, 36, 8, 18, 20, 13, 13, 10, 10], rows: prows, freezeRow: 1, autoFilter: `A1:K${Math.max(2, prows.length)}` });
+    }
+    const people = [['Name', 'Company', 'Mobile', 'Email'].map((v) => ({ v, s: st.header }))];
+    peopleOf().forEach((x) => people.push([x.name, x.company, x.mobile, x.email]));
+    sheets.push({ name: 'People', cols: [28, 28, 18, 32], rows: people, freezeRow: 1 });
+    const parts = R.buildXlsxParts(sheets);
+    offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), accFileBase(M) + '_deficiency_list.xlsx');
   }));
 
   $('doAccCsv').addEventListener('click', () => guard(async () => {
@@ -1961,49 +2292,66 @@
       ...(meta.by ? [`By ${meta.by}`] : []),
       ...(meta.q && meta.q.flags && meta.q.flags.length ? [`Kept despite camera warning: ${meta.q.flags.join(', ')}`] : [])];
   }
+  /** Annex A block for one punchlist item: as found → rectified → verified, with what is still pending. */
+  async function evidenceBlock(x, px) {
+    const d = { ...x.d, foundAt: x.d.foundAt || x.r.takenAt }, r = x.r, stt = defStatusOf(d), rej = d.reopened || []; // older records: found when the element was photographed
+    const stages = [];
+    const foundL = `AS FOUND (${d.stage || 'PAT'})`, rectL = 'RECTIFIED (CONTRACTOR)', verL = `VERIFIED (${d.verifyStage || (stt === 'Verified' ? d.stage || 'PAT' : 'FAT')})`;
+    const last = rej[rej.length - 1];
+    stages.push(d.pid
+      ? { label: foundL, tone: 'bad', jpeg: await pdfJpeg(d.pid, px, [`AS FOUND · ${r.poleId} · item ${x.no}`, d.pidMeta ? shortTime(d.pidMeta.at) : shortTime(d.foundAt)], '#c92a2a'),
+        lines: [`Found ${shortTime(d.foundAt)} (${d.stage || 'PAT'})${d.foundBy ? ` by ${d.foundBy}` : ''}`, ...metaLines(d.pidMeta, r, 'Photo').slice(1)] }
+      : { label: foundL, tone: stt === 'Note' ? 'muted' : 'bad', plain: stt === 'Note', jpeg: null, note: stt === 'Note' ? 'No photo' : 'No photo taken when the deficiency was recorded', lines: [`Found ${shortTime(d.foundAt)}${d.foundBy ? ` by ${d.foundBy}` : ''}`] });
+    if (stt === 'Note') stages.push({ label: rectL, tone: 'muted', pending: true, note: 'Not required — observation only', lines: [] }, { label: verL, tone: 'muted', pending: true, note: 'Not required', lines: [] });
+    else {
+      if (defDone(d)) stages.push(d.afterPid
+        ? { label: rectL, tone: 'blue', jpeg: await pdfJpeg(d.afterPid, px, [`RECTIFIED · ${r.poleId} · item ${x.no}`, d.afterMeta ? shortTime(d.afterMeta.at) : ''].filter(Boolean), '#1971c2'),
+          lines: [`Rectified ${shortTime(d.fixedAt)}${d.fixedBy ? ` by ${d.fixedBy}` : ''}`, ...metaLines(d.afterMeta, r, 'Photo').slice(1)] }
+        : { label: rectL, tone: 'blue', jpeg: null, note: 'Marked rectified without a photo', lines: [`Rectified ${shortTime(d.fixedAt)}${d.fixedBy ? ` by ${d.fixedBy}` : ''}`] });
+      else if (last && last.pid) stages.push({ label: `${rectL} · REJECTED`, tone: 'bad', jpeg: await pdfJpeg(last.pid, px, [`REJECTED · ${r.poleId} · item ${x.no}`, last.meta ? shortTime(last.meta.at) : ''].filter(Boolean), '#c92a2a'),
+        lines: [`Rectification of ${shortTime(last.fixedAt || last.at)}${last.fixedBy ? ` by ${last.fixedBy}` : ''} rejected ${shortTime(last.at)}${last.by ? ` by ${last.by}` : ''}: ${last.reason || 'no reason given'}`, ...(rej.length > 1 ? [`Rejected ${rej.length} times in all`] : [])] });
+      else stages.push({ label: rectL, tone: 'blue', pending: true, note: rej.length ? 'Rectification rejected — pending again' : 'Pending rectification', lines: rej.length ? [`Rejected ${rej.length}×, last ${shortTime(last.at)}${last.by ? ` by ${last.by}` : ''}: ${last.reason || 'no reason given'}`] : [] });
+      if (stt === 'Verified') stages.push(d.verifyPid
+        ? { label: verL, tone: 'good', jpeg: await pdfJpeg(d.verifyPid, px, [`VERIFIED · ${r.poleId} · item ${x.no}`, d.verifyMeta ? shortTime(d.verifyMeta.at) : ''].filter(Boolean), '#2b8a3e'),
+          lines: [`Verified ${shortTime(d.verifiedAt)}${d.verifiedBy ? ` by ${d.verifiedBy}` : ''}`, ...metaLines(d.verifyMeta, r, 'Photo').slice(1)] }
+        : { label: verL, tone: 'good', jpeg: null, plain: true, note: 'Verified on site without a photo', lines: [`Verified ${shortTime(d.verifiedAt)}${d.verifiedBy ? ` by ${d.verifiedBy}` : ''}`] });
+      else stages.push({ label: verL, tone: 'good', pending: true, note: stt === 'Rectified' ? 'Awaiting verification' : 'Pending', lines: [] });
+    }
+    const statusText = { Open: rej.length ? 'OPEN — REJECTED' : 'OPEN', Rectified: 'RECTIFIED — TO VERIFY', Verified: 'VERIFIED', Note: 'NOTE' }[stt] || stt;
+    const tone = { Open: 'bad', Rectified: 'blue', Verified: 'good', Note: 'muted' }[stt];
+    return { no: x.no, loc: r.poleId, element: elemOf(r), code: SEV_CODE[sevOf(d)], text: `${d.cat}: ${d.item}${d.notes ? ' — ' + d.notes : ''}`, status: statusText, statusTone: tone, remarks: d.remarks, stages };
+  }
   $('doPdf').addEventListener('click', () => guard(async () => {
     if (!needPoints()) return;
-    const M = accModel(), withPhotos = $('pdfPhotos').checked, elements = [];
-    if (withPhotos) {
+    const M = accModel(), E = S.exp, size = PHOTO_SIZE[E.pdfPhotoSize] || PHOTO_SIZE.M;
+    const model = formModel(M, { logos: await formLogos(), dates: E.pdfDates });
+    model.photoH = size.h;
+    if (E.pdfAnnexA) {
+      model.annexA = [];
+      for (let i = 0; i < M.items.length; i++) { busy(`Annex A · item ${i + 1} / ${M.items.length}`, i / Math.max(1, M.items.length + M.recs.length)); model.annexA.push(await evidenceBlock(M.items[i], size.px)); }
+    }
+    if (E.pdfAnnexB) {
+      model.annexB = [];
       for (let i = 0; i < M.recs.length; i++) {
-        const r = M.recs[i]; busy(`Preparing photos ${i + 1} / ${M.recs.length}`, i / M.recs.length);
-        const photos = [];
-        for (const p of photosOf(r)) photos.push({ jpeg: await pdfJpeg(p.pid, 900), caption: `${p.label}${p.at ? ' · ' + fmtTime(p.at) : ''}` });
-        const defs = [];
-        for (const x of M.items.filter((y) => y.r === r)) {
-          const d = x.d;
-          defs.push({ no: x.no, text: `${d.cat}: ${d.item}`, status: d.status,
-            meta: [d.sev, d.status === 'Rectified' ? `Rectified${d.fixedAt ? ' ' + fmtTime(d.fixedAt) : ''}` : 'Open', `found at ${d.stage || 'PAT'}`, d.notes, d.remarks].filter(Boolean).join(' · '),
-            jpeg: d.pid ? await pdfJpeg(d.pid, 600) : null, after: d.afterPid ? await pdfJpeg(d.afterPid, 600) : null });
+        const r = M.recs[i]; busy(`Annex B · element ${i + 1} / ${M.recs.length}`, (M.items.length + i) / Math.max(1, M.items.length + M.recs.length));
+        for (const p of photosOf(r)) {
+          const jpeg = await pdfJpeg(p.pid, size.px); if (!jpeg) continue;
+          model.annexB.push({ jpeg, caption: `${r.poleId} · ${elemOf(r)} · ${p.label}`, sub: `${p.at ? shortTime(p.at) : shortTime(r.takenAt)}${p.by ? ' · ' + p.by : ''} · ${STATUS_TEXT[recStatus(r)]}` });
         }
-        const details = [['Coordinates', `${r.lat.toFixed(7)}, ${r.lon.toFixed(7)}${Number.isFinite(r.accuracy) ? ` (GPS ±${r.accuracy.toFixed(1)} m${r.adjusted ? ', pin adjusted' : ''})` : ''}`]];
-        attachText(r).forEach((t) => { const k = t.indexOf(': '); details.push(k > 0 ? [t.slice(0, k), t.slice(k + 2)] : ['ODF', t]); });
-        details.push(['Captured', fmtTime(r.takenAt)]);
-        elements.push({ title: `${r.poleId} · ${elemOf(r)}`, status: STATUS_TEXT[recStatus(r)], details, photos, defs });
       }
     }
     busy('Building PDF…');
-    const pdf = window.PoleReports.punchlistPdf({
-      title: 'PUNCHLIST / DEFICIENCY LIST', stageLong: STAGE_LONG[M.stage], footer: `${S.project} · ${M.stage} punchlist`,
-      info: [['Project', S.project], ['Site / cluster', M.m.site], ['Contractor', M.m.contractor], ['Globe representative', M.m.globeRep],
-        ['Inspected by', M.m.inspector], ['Inspection date', M.dates], ...(M.m.fromPat ? [['PAT reference', M.m.fromPat]] : []), ['Recorded by', peopleText()]],
-      summary: [['Elements inspected', M.recs.length], ['With open deficiency', M.withDef, M.withDef ? 'bad' : 'good'], ['Open items', M.open.length, M.open.length ? 'bad' : 'good'],
-        ['Rectified items', M.rectified, M.rectified ? 'good' : ''], ['Open major / minor', `${M.major} / ${M.minor}`]],
-      items: M.items.map((x) => ({ no: x.no, loc: x.r.poleId, element: elemOf(x.r), cat: x.d.cat, item: x.d.item, notes: x.d.notes, sev: x.d.sev, status: x.d.status,
-        found: x.d.stage || 'PAT', fixed: x.d.fixedAt ? dateOnly(x.d.fixedAt) : '', remarks: x.d.remarks })),
-      signers: ['Inspected by (Globe representative)', 'Contractor representative', 'Noted by'],
-      includePhotos: withPhotos, elements,
-    });
-    offerResult(new Blob(pdf.output({ title: `${S.project} ${M.stage} punchlist` }), { type: 'application/pdf' }), accFileBase(M) + '_punchlist.pdf');
+    const pdf = window.PoleForms.deficiencyFormPdf(model);
+    offerResult(new Blob(pdf.output({ title: `${S.project} ${M.stage} list of deficiencies` }), { type: 'application/pdf' }), accFileBase(M) + '_deficiency_list.pdf');
   }));
 
   $('doRectPdf').addEventListener('click', () => guard(async () => {
     if (!needPoints()) return;
-    const M = accModel(), total = M.items.length;
-    if (!total) { toast('No punchlist items in this project — nothing to rectify'); return; }
+    const M = accModel(), total = M.counted.length;
+    if (!total) { toast('No deficiencies in this project — nothing to rectify'); return; }
     const withOpen = $('rectOpen').checked;
-    const rect = M.items.filter((x) => x.d.status === 'Rectified').sort((a, b) => (Date.parse(a.d.fixedAt) || 0) - (Date.parse(b.d.fixedAt) || 0));
-    const open = M.items.filter((x) => x.d.status !== 'Rectified');
+    const rect = M.counted.filter((x) => defDone(x.d)).sort((a, b) => (Date.parse(a.d.fixedAt) || 0) - (Date.parse(b.d.fixedAt) || 0));
+    const open = M.counted.filter((x) => !defDone(x.d));
     const noEvidence = rect.filter((x) => !x.d.afterPid);
     const days = rect.map((x) => daysBetween(x.d.foundAt, x.d.fixedAt)).filter((v) => v != null && v >= 0);
     const avg = days.length ? days.reduce((s, v) => s + v, 0) / days.length : null;
@@ -2016,13 +2364,13 @@
       if (last && last.date === dt) { last.count++; last.cum = cum; last.pct = cum / total; } else byDate.push({ date: dt, count: 1, cum, pct: cum / total });
     });
     const head = (x) => `#${x.no}  ${x.r.poleId} · ${elemOf(x.r)}`;
-    const defect = (x) => `${x.d.cat}: ${x.d.item}${x.d.notes ? ' — ' + x.d.notes : ''}  ·  ${x.d.sev}  ·  found at ${x.d.stage || 'PAT'}`;
+    const defect = (x) => `${x.d.cat}: ${x.d.item}${x.d.notes ? ' — ' + x.d.notes : ''}  ·  ${sevOf(x.d)}  ·  found at ${x.d.stage || 'PAT'}`;
     const items = [];
     const n = rect.length + (withOpen ? open.length : 0); let k = 0;
     for (const x of rect) {
       busy(`Preparing photos ${++k} / ${n}`, k / n);
       const d = x.d, dd = daysBetween(d.foundAt, d.fixedAt);
-      items.push({ head: head(x), defect: defect(x), right: `Rectified in ${fmtDays(dd)}`, remarks: d.remarks,
+      items.push({ head: head(x), defect: defect(x), right: `${d.status === 'Verified' ? 'Verified · r' : 'R'}ectified in ${fmtDays(dd)}`, remarks: d.remarks,
         before: { jpeg: d.pid ? await pdfJpeg(d.pid, 800, [`BEFORE · ${x.r.poleId} · item ${x.no}`, d.pidMeta ? shortTime(d.pidMeta.at) : `Found ${shortTime(d.foundAt)}`], '#c92a2a') : null,
           lines: [`Found ${shortTime(d.foundAt)} (${d.stage || 'PAT'})${d.foundBy ? ` by ${d.foundBy}` : ''}`, ...(d.pid ? metaLines(d.pidMeta, x.r, 'Photo taken').slice(1, 2) : ['No defect photo'])] },
         after: d.afterPid ? { jpeg: await pdfJpeg(d.afterPid, 800, [`AFTER · ${x.r.poleId} · item ${x.no}`, d.afterMeta ? shortTime(d.afterMeta.at) : ''].filter(Boolean), '#1971c2'),
@@ -2032,8 +2380,8 @@
     const openItems = [];
     if (withOpen) for (const x of open) {
       busy(`Preparing photos ${++k} / ${n}`, k / n);
-      const d = x.d, age = daysBetween(d.foundAt, new Date().toISOString());
-      openItems.push({ head: head(x), defect: defect(x), right: `Open for ${fmtDays(age)}`, remarks: d.remarks,
+      const d = x.d, age = daysBetween(d.foundAt, new Date().toISOString()), rej = d.reopened || [];
+      openItems.push({ head: head(x), defect: defect(x), right: `Open for ${fmtDays(age)}${rej.length ? ` · rejected ${rej.length}×` : ''}`, remarks: [rej.length ? `Rejected ${shortTime(rej[rej.length - 1].at)}${rej[rej.length - 1].by ? ' by ' + rej[rej.length - 1].by : ''}: ${rej[rej.length - 1].reason || 'no reason given'}` : '', d.remarks].filter(Boolean).join(' · '),
         before: { jpeg: d.pid ? await pdfJpeg(d.pid, 500) : null, lines: [`Found ${shortTime(d.foundAt)}${d.foundBy ? ` by ${d.foundBy}` : ''}`] } });
     }
     const times = M.items.flatMap((x) => [x.d.foundAt, x.d.fixedAt]).filter(Boolean).sort();
@@ -2046,7 +2394,7 @@
       info: [['Project', S.project], ['Site / cluster', M.m.site], ['Contractor', M.m.contractor], ['Globe representative', M.m.globeRep],
         ['PAT reference', M.m.fromPat || (M.stage === 'PAT' ? S.project : '')], ['Report period', times.length ? `${fmtTime(times[0])} – ${fmtTime(times[times.length - 1])}` : ''],
         ['Generated', shortTime(new Date().toISOString())], ['Generated by', byLine() || M.m.inspector || ''], ['Recorded by', peopleText()]],
-      summary: [['Punchlist items', total], ['Rectified', rect.length, rect.length ? 'blue' : ''], ['Still open', open.length, open.length ? 'bad' : 'good'],
+      summary: [['Deficiencies', total], ['Rectified', rect.length, rect.length ? 'blue' : ''], ['Of which verified', M.verified, M.verified ? 'good' : ''], ['Still open', open.length, open.length ? 'bad' : 'good'],
         ['Cleared', `${Math.round((rect.length / total) * 100)}%`, rect.length === total ? 'good' : ''], ['Average time to rectify', avg == null ? '—' : fmtDays(avg)]],
       note, progress: byDate, rectified: items, open: openItems,
       signers: ['Submitted by (contractor representative)', 'Verified by (Globe representative)', 'Noted by'],
@@ -2062,20 +2410,25 @@
   }
   $('doAccKmz').addEventListener('click', () => guard(async () => {
     if (!needPoints()) return;
-    const M = accModel(), list = accPhotoList(M), files = [], byRec = {};
+    const E = S.exp, M = accModel(), list = E.kmzBalloonPx > 0 ? accPhotoList(M) : [], files = [], byRec = {};
     for (let i = 0; i < list.length; i++) {
       busy(`Preparing photos ${i + 1} / ${list.length}`, i / list.length);
       const ph = await dbGet('photos', list[i].pid);
       if (!ph || !ph.clean) continue;
-      files.push({ name: `files/photos/${list[i].name}`, data: await exportPhoto(list[i].rec, ph.clean, list[i].title, list[i].meta) });
+      files.push({ name: `files/photos/${list[i].name}`, data: await exportPhoto(list[i].rec, ph.clean, list[i].title, list[i].meta, { maxPx: E.kmzBalloonPx, stamp: E.kmzStamp, quality: 0.85 }) });
       (byRec[list[i].rec.id] = byRec[list[i].rec.id] || []).push(`photos/${list[i].name}`);
     }
-    const icons = { Open: 'icons/open.png', Rectified: 'icons/rectified.png', OK: 'icons/ok.png' };
+    const icons = { Open: 'icons/open.png', Rectified: 'icons/rectified.png', Verified: 'icons/verified.png', OK: 'icons/ok.png' };
     for (const [k, path] of Object.entries(icons)) files.push({ name: `files/${path}`, data: await statusIcon(STATUS_COLORS[k]) });
-    const recs = M.recs.map((r) => ({ id: r.id, name: r.poleId, title: `${r.poleId} · ${elemOf(r)} · ${STATUS_TEXT[recStatus(r)]}`, status: recStatus(r), lat: r.lat, lon: r.lon,
-      detailsHtml: [...attachText(r), `Coordinates: ${r.lat.toFixed(7)}, ${r.lon.toFixed(7)}`, `Captured: ${fmtTime(r.takenAt)}`].map(C.xmlEsc).join('<br/>'),
-      photos: byRec[r.id] || [],
-      defs: M.items.filter((x) => x.r === r).map((x) => ({ no: x.no, text: `${x.d.cat}: ${x.d.item}${x.d.notes ? ' — ' + x.d.notes : ''}`, sev: x.d.sev, status: x.d.status })) }));
+    const recs = [];
+    for (const r of M.recs) {
+      let icon = null;
+      if (E.kmzIconPx > 0) { const first = photosOf(r)[0], ph = first && await dbGet('photos', first.pid).catch(() => null); if (ph && (ph.clean || ph.thumb)) { icon = `icons/${r.id}.jpg`; files.push({ name: `files/${icon}`, data: await iconJpeg(ph.clean || ph.thumb, E.kmzIconPx, STATUS_COLORS[recStatus(r)]) }); } }
+      recs.push({ id: r.id, name: r.poleId, title: `${r.poleId} · ${elemOf(r)} · ${STATUS_TEXT[recStatus(r)]}`, status: recStatus(r), lat: r.lat, lon: r.lon, icon,
+        detailsHtml: [...attachText(r), `Coordinates: ${r.lat.toFixed(7)}, ${r.lon.toFixed(7)}`, `Captured: ${fmtTime(r.takenAt)}`].map(C.xmlEsc).join('<br/>'),
+        photos: byRec[r.id] || [],
+        defs: M.items.filter((x) => x.r === r).map((x) => ({ no: x.no, text: `${x.d.cat}: ${x.d.item}${x.d.notes ? ' — ' + x.d.notes : ''}`, sev: sevOf(x.d), status: defStatusOf(x.d) })) });
+    }
     busy('Building KMZ…', 1);
     const kml = window.PoleReports.acceptanceKml(recs, { name: `${S.project} · ${M.stage}`, icons });
     offerResult(new Blob(C.makeZipParts([{ name: 'doc.kml', data: kml }, ...files]), { type: 'application/vnd.google-earth.kmz' }), accFileBase(M) + '.kmz');
@@ -2083,48 +2436,99 @@
 
   /* ================= settings ================= */
   async function refreshStorageInfo() {
-    try { const n = await dbCount('tiles'); $('tileInfo').textContent = `${n.toLocaleString()} map tiles saved on this phone.`; } catch (e) { $('tileInfo').textContent = '–'; }
+    try { const n = await dbCount('tiles'); $('tileInfo').textContent = n ? `${n.toLocaleString()} street-map tiles kept from online use (refreshed after 7 days).` : 'No street-map tiles kept yet.'; } catch (e) { $('tileInfo').textContent = '–'; }
+    const packs = Object.values(S.packs || {}).filter((p) => p.done), packMB = packs.reduce((a, p) => a + (p.size || 0), 0);
+    $('packInfo').textContent = packs.length ? `${packs.length} offline map pack${packs.length === 1 ? '' : 's'} (${fmtMB(packMB)}): ${packs.map((p) => p.name).join(', ')}.` : 'No offline map pack on this phone.';
+    const n = points.length, np = allProjects().length;
     if (navigator.storage && navigator.storage.estimate) {
-      const est = await navigator.storage.estimate();
-      const per = navigator.storage.persisted ? await navigator.storage.persisted() : false;
-      $('storeInfo').textContent = `${points.length} records in all projects. Using ${fmtMB(est.usage || 0)}; this phone currently lets PoleCam use up to about ${fmtMB(est.quota || 0)}. ${per ? 'Protected from automatic cleanup.' : 'Not yet protected from automatic cleanup.'}`;
-    }
+      try {
+        const est = await navigator.storage.estimate();
+        const per = navigator.storage.persisted ? await navigator.storage.persisted() : false;
+        $('storeInfo').textContent = `${n} record${n === 1 ? '' : 's'} in ${np} project${np === 1 ? '' : 's'}. Using ${fmtMB(est.usage || 0)}; this phone currently lets PoleCam use up to about ${fmtMB(est.quota || 0)}. ${per ? 'Protected from automatic cleanup.' : 'Not yet protected from automatic cleanup.'}`;
+        $('storeSub').textContent = `${n} record${n === 1 ? '' : 's'} · ${fmtMB(est.usage || 0)} used of about ${fmtMB(est.quota || 0)}`;
+      } catch (e) { $('storeSub').textContent = `${n} record${n === 1 ? '' : 's'} in ${np} project${np === 1 ? '' : 's'}`; }
+    } else $('storeSub').textContent = `${n} record${n === 1 ? '' : 's'} in ${np} project${np === 1 ? '' : 's'}`;
   }
-  $('settingsBtn').addEventListener('click', () => {
-    $('setStamp').checked = !!S.stamp; $('setMaxPx').value = String(S.maxPx);
-    $('setZone').value = String(S.zone); $('setSym').value = S.sym; $('setTxt').value = S.txt;
-    renderWho(); renderTeamInfo();
-    $('setQuality').value = S.quality === 'normal' ? 'normal' : 'strict'; $('setReadId').checked = S.readId !== false;
-    $('setMaxSpan').value = S.maxSpan || 200; $('setAngle').value = S.angleDeg || 15; $('setAutoGap').value = S.autoGap || 120;
-    $('setSaveBase').value = S.saveBase || 'DOCUMENTS'; $('setSaveFolder').value = S.saveFolder || 'PoleCam'; $('setSaveByProject').checked = S.saveByProject !== false;
-    updateSavePreview();
-    S.defects = S.defects || JSON.parse(JSON.stringify(DEF_CHECK));
-    const cats = Object.keys(S.defects);
-    $('setDefCat').innerHTML = cats.map((c) => `<option>${C.xmlEsc(c)}</option>`).join('');
-    $('setDefItems').value = (S.defects[cats[0]] || []).join('\n');
-    refreshStorageInfo(); openSheet('settings');
+  const QUAL_NAME = { strict: 'Strict', normal: 'Normal' };
+  const effectiveQuality = () => ((S.team ? pol().quality : S.quality) === 'normal' ? 'normal' : 'strict');
+  function renderSettingsHome() {
+    renderWho(); renderTeamInfo(); cloudSync(false).then(renderCloudInfo);
+    $('camSub').textContent = `${S.readId !== false ? 'ID scan after each photo' : 'No ID scan'} · ${S.idOrient === 'v' ? 'vertical' : 'horizontal'} IDs · sharpness ${QUAL_NAME[effectiveQuality()] || 'Strict'}${S.team ? ' (set by admin)' : ''}`;
+    const packs = Object.values(S.packs || {}).filter((p) => p.done);
+    $('mapsSub').textContent = packs.length ? `${packs.length} map pack${packs.length === 1 ? '' : 's'} on this phone${S.base === 'offline' ? ' · in use' : ''}` : 'No map pack on this phone yet';
+    const P = pol();
+    $('policyInfo').textContent = S.team ? `Policies from “${S.team.name}” v${S.team.rev}: inspecting company ${P.owner || 'not set (everyone may add deficiencies)'} · max span ${P.maxSpan} m · angle from ${P.angleDeg}° · photo check ${QUAL_NAME[P.quality] || 'Strict'}.` : 'No company list yet: the built-in defaults apply (max span 200 m, strict photo check).';
+    $('adminLock').textContent = isAdmin() ? 'ADMIN' : S.team ? 'VIEW' : 'SET UP';
+    $('adminRowTitle').textContent = S.team ? `${S.team.name}` : 'Company list and policies';
+    refreshStorageInfo();
+  }
+  $('settingsBtn').addEventListener('click', () => { renderSettingsHome(); openSheet('settings'); });
+  $('goCamera').addEventListener('click', () => {
+    $('setReadId').checked = S.readId !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h';
+    $('setQuality').value = effectiveQuality(); $('setQuality').disabled = !!S.team;
+    $('qualityNote').textContent = S.team ? `Set by the admin in the company list “${S.team.name}” — the same on every phone.` : 'Until this phone takes a company list, you can choose this yourself.';
+    openSheet('setCamera');
   });
-
+  $('setReadId').addEventListener('change', () => { S.readId = $('setReadId').checked; persist(); });
+  $('setOrient').addEventListener('change', () => { S.idOrient = $('setOrient').value === 'v' ? 'v' : 'h'; persist(); });
+  $('setQuality').addEventListener('change', () => { if (S.team) return; S.quality = $('setQuality').value; persist(); });
+  /* export defaults: the same control appears on the Export screen (first id) and under Settings (second id) */
+  const EXP_PAIRS = [['setMaxPx', 'setMaxPx2', 'maxPx', 'num'], ['expQuality', 'expQuality2', 'quality', 'num'], ['setStamp', 'setStamp2', 'stamp', 'bool'], ['expNaming', 'expNaming2', 'naming', 'str'],
+    ['kmzBalloonPx', 'kmzBalloonPx3', 'kmzBalloonPx', 'num'], ['kmzBalloonPx2', 'kmzBalloonPx3', 'kmzBalloonPx', 'num'], ['kmzIconPx', 'kmzIconPx3', 'kmzIconPx', 'num'], ['kmzIconPx2', 'kmzIconPx3', 'kmzIconPx', 'num'],
+    ['kmzRoute', 'kmzRoute2', 'kmzRoute', 'bool'], ['kmzStamp', 'kmzStamp3', 'kmzStamp', 'bool'], ['kmzStamp2', 'kmzStamp3', 'kmzStamp', 'bool'],
+    ['pdfPhotoSize', 'pdfPhotoSize2', 'pdfPhotoSize', 'str'], ['pdfAnnexA', 'pdfAnnexA2', 'pdfAnnexA', 'bool'], ['pdfAnnexB', 'pdfAnnexB2', 'pdfAnnexB', 'bool'],
+    ['pdfDates', 'xlsDates', 'pdfDates', 'str'], ['xlsTable', null, 'xlsTable', 'bool'], ['xlsPhotos', null, 'xlsPhotos', 'bool']];
+  const expIds = {};
+  EXP_PAIRS.forEach(([a, b, key, kind]) => { [a, b].filter(Boolean).forEach((id) => { const l = (expIds[key] = expIds[key] || []); if (!l.some((x) => x[0] === id)) l.push([id, kind]); }); });
+  function syncExpUi() {
+    Object.entries(expIds).forEach(([key, ids]) => ids.forEach(([id, kind]) => {
+      const el = $(id); if (!el) return;
+      if (kind === 'bool') { el.checked = !!S.exp[key]; return; }
+      el.value = String(S.exp[key]);
+      if (el.value !== String(S.exp[key])) { S.exp[key] = DEF.exp[key]; el.value = String(S.exp[key]); persist(); } // a value this version no longer offers
+    }));
+    ['stampFields', 'stampFields2'].forEach((id) => $(id).querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(S.exp.stampFields.includes(c.dataset.v)))));
+    [['setZone', 'setZone2', 'zone'], ['setSym', 'setSym2', 'sym'], ['setTxt', 'setTxt2', 'txt']].forEach(([a, b, key]) => { $(a).value = String(S[key]); $(b).value = String(S[key]); });
+  }
+  Object.entries(expIds).forEach(([key, ids]) => ids.forEach(([id, kind]) => {
+    const el = $(id); if (!el) return;
+    el.addEventListener('change', () => { S.exp[key] = kind === 'bool' ? el.checked : kind === 'num' ? +el.value : el.value; persist(); syncExpUi(); });
+  }));
+  ['stampFields', 'stampFields2'].forEach((id) => $(id).addEventListener('click', (e) => {
+    const c = e.target.closest('.chip'); if (!c) return;
+    const set = new Set(S.exp.stampFields); if (set.has(c.dataset.v)) set.delete(c.dataset.v); else set.add(c.dataset.v);
+    S.exp.stampFields = DEF.exp.stampFields.filter((f) => set.has(f)); persist(); syncExpUi();
+  }));
+  [['setZone', 'setZone2']].forEach((ids) => ids.forEach((id) => $(id).addEventListener('change', () => { S.zone = +$(id).value; persist(); syncExpUi(); $('dxfZoneLbl').textContent = `UTM ${S.zone}N`; })));
+  [['setSym', 'sym'], ['setSym2', 'sym'], ['setTxt', 'txt'], ['setTxt2', 'txt']].forEach(([id, key]) => $(id).addEventListener('change', () => { const v = +$(id).value; if (v > 0) { S[key] = v; persist(); } syncExpUi(); }));
+  syncExpUi();
+  $('goExports').addEventListener('click', () => {
+    syncExpUi();
+    $('setSaveBase').value = S.saveBase || 'DOCUMENTS'; $('setSaveFolder').value = S.saveFolder || 'PoleCam'; $('setSaveByProject').checked = S.saveByProject !== false;
+    updateSavePreview(); openSheet('setExports');
+  });
   function updateSavePreview() {
     $('savePreview').textContent = NATIVE ? `Files go to: ${savePath('…').shown.replace(/\/…$/, '/')}` : 'Website version: your browser saves to its Downloads folder.';
     ['setSaveBase', 'setSaveFolder', 'setSaveByProject'].forEach((id) => { $(id).disabled = !NATIVE; });
   }
-  $('setQuality').addEventListener('change', () => { S.quality = $('setQuality').value; persist(); });
-  $('setReadId').addEventListener('change', () => { S.readId = $('setReadId').checked; persist(); });
-  const numSet = (id, key, min, max) => $(id).addEventListener('change', () => { const v = +$(id).value; if (v >= min && v <= max) { S[key] = v; persist(); renderPoles(); } else $(id).value = S[key]; });
-  numSet('setMaxSpan', 'maxSpan', 5, 1000); numSet('setAngle', 'angleDeg', 1, 90); numSet('setAutoGap', 'autoGap', 10, 5000);
   $('setSaveBase').addEventListener('change', () => { S.saveBase = $('setSaveBase').value; persist(); updateSavePreview(); });
   $('setSaveFolder').addEventListener('change', () => { S.saveFolder = $('setSaveFolder').value.trim() || 'PoleCam'; persist(); updateSavePreview(); });
   $('setSaveByProject').addEventListener('change', () => { S.saveByProject = $('setSaveByProject').checked; persist(); updateSavePreview(); });
-  $('setDefCat').addEventListener('change', () => { $('setDefItems').value = (S.defects[$('setDefCat').value] || []).join('\n'); });
-  $('setDefItems').addEventListener('change', () => {
-    S.defects[$('setDefCat').value] = $('setDefItems').value.split('\n').map((s) => s.trim()).filter(Boolean); persist();
+  $('goMaps').addEventListener('click', () => $('offlineBtn').click());
+  $('goMaps2').addEventListener('click', () => $('offlineBtn').click());
+  $('goStorage').addEventListener('click', async () => { openSheet('setStorage'); await refreshStorageInfo(); });
+  $('goAdmin').addEventListener('click', () => {
+    if (isAdmin()) openAdmin('manage');
+    else if (!S.team) { if (!S.user || !S.user.name) { toast('Enter your details first (Account), then create the list', 4000); openProfile(false); } else openAdmin('create'); }
+    else showPolicies();
   });
-  $('setStamp').addEventListener('change', () => { S.stamp = $('setStamp').checked; persist(); });
-  $('setMaxPx').addEventListener('change', () => { S.maxPx = +$('setMaxPx').value; persist(); });
-  $('setZone').addEventListener('change', () => { S.zone = +$('setZone').value; persist(); });
-  $('setSym').addEventListener('change', () => { const v = +$('setSym').value; if (v > 0) { S.sym = v; persist(); } });
-  $('setTxt').addEventListener('change', () => { const v = +$('setTxt').value; if (v > 0) { S.txt = v; persist(); } });
+  /** What a user (not an admin) sees of the list: who the admins are, the policies, and how to get updates. */
+  function showPolicies() {
+    const t = S.team, P = pol(), F = formText();
+    ask(`${t.name} · version ${t.rev}`, [`Admin${t.admins.length === 1 ? '' : 's'}: ${t.admins.map((a) => a.n).join(', ')}`, `${teamCos().length} companies on the list`,
+      `Inspecting company: ${P.owner || 'not set'}`, `Form: ${F.company} · ${F.title}`, `Max span ${P.maxSpan} m · angle pole from ${P.angleDeg}° · photo check ${QUAL_NAME[P.quality] || 'Strict'}`,
+      '', 'Only an admin can change these. Use “Update list” to take the admin’s latest version, or “Ask to become an admin”.'].join('\n'), [{ label: 'Close', value: true, primary: true }]);
+  }
   /* ================= you + company list ================= */
   /* Everyone enters their name, mobile, email and company once. Company names come from a list kept by an admin on
      the admin's own phone. The list travels offline (QR code or a small file) and is signed with the admin's key, so a
@@ -2135,12 +2539,28 @@
     return !!b && b.t === 'polecam-team' && str(b.id, 40) && str(b.name, 100) && Number.isInteger(b.rev) && b.rev >= 1
       && Array.isArray(b.admins) && b.admins.length >= 1 && b.admins.length <= 20
       && b.admins.every((a) => !!a && str(a.n, 100) && str(a.k, 200) && (a.c == null || (typeof a.c === 'string' && a.c.length <= 100)))
-      && Array.isArray(b.co) && b.co.length >= 1 && b.co.length <= 300 && b.co.every((c) => str(c, 100));
+      && Array.isArray(b.co) && b.co.length >= 1 && b.co.length <= 300 && b.co.every((c) => str(c, 100))
+      && (b.src == null || (typeof b.src === 'object' && /^https:\/\/\S+$/.test(String(b.src.url || '')) && String(b.src.url).length <= 300 && (b.src.key == null || str(b.src.key, 100))))
+      && (b.pol == null || validPol(b.pol));
+  }
+  /** Policies travel inside the signed list; each field is checked so a crafted list cannot break the app. */
+  function validPol(p) {
+    if (!p || typeof p !== 'object' || JSON.stringify(p).length > 60000) return false;
+    const str = (v, max) => v == null || (typeof v === 'string' && v.length <= max);
+    const num = (v, lo, hi) => v == null || (typeof v === 'number' && v >= lo && v <= hi);
+    const list = (v, max, each) => v == null || (Array.isArray(v) && v.length <= max && v.every((x) => typeof x === 'string' && x.length <= each));
+    if (!str(p.owner, 100) || !num(p.maxSpan, 5, 1000) || !num(p.angleDeg, 1, 90) || !num(p.autoGap, 10, 5000) || !str(p.quality, 10) || !list(p.inspTypes, 10, 60)) return false;
+    if (p.form != null) { if (typeof p.form !== 'object') return false; for (const [k, v] of Object.entries(p.form)) { if (k === 'types' ? !list(v, 10, 60) : k === 'codes' ? !(v && typeof v === 'object') : k === 'rowsPerPage' ? v !== 15 : !str(v, 200)) return false; } } // the form layout holds 15 rows per page
+    if (p.defects != null) { if (typeof p.defects !== 'object' || Object.keys(p.defects).length > 20) return false; for (const v of Object.values(p.defects)) if (!list(v, 60, 120)) return false; }
+    return true;
   }
   if (S.team && !validTeam(S.team)) { S.team = null; persist(); }
   /** Short code that tells two lists apart even when their names look the same. */
   const listCode = (b) => `${String(b.id).replace(/[^A-Za-z0-9]/g, '').slice(-4)}-${String(b.admins[0].k).replace(/[^A-Za-z0-9]/g, '').slice(20, 24)}`.toUpperCase();
-  const teamCos = () => (S.team && Array.isArray(S.team.co) ? S.team.co : []);
+  const teamCos = () => {
+    if (S.team && S.team.src && S.cloud && S.cloud.src === S.team.src.url && S.cloud.companies.length) return S.cloud.companies; // online sheet
+    return S.team && Array.isArray(S.team.co) ? S.team.co : [];
+  };
   const profileOk = () => !!(S.user && S.user.name && S.user.mobile && S.user.email && S.user.company && (!teamCos().length || teamCos().includes(S.user.company)));
   const isAdmin = () => !!(S.adminKey && S.team && (S.team.admins || []).some((a) => a.k === S.adminKey.pub));
   const signerName = () => (S.team && S.team.admins && S.team.admins[S.team.k] ? S.team.admins[S.team.k].n : 'admin');
@@ -2183,7 +2603,8 @@
   });
   function renderWho() {
     const u = S.user;
-    $('whoBox').innerHTML = u ? `<b>${C.xmlEsc(u.name)}</b><span>${C.xmlEsc(u.company)}</span><span class="mono">${C.xmlEsc(u.mobile)} · ${C.xmlEsc(u.email)}</span>` : 'Not set';
+    $('whoBox').textContent = u ? u.name : 'Enter your details';
+    $('whoSub').textContent = u ? `${u.company} · ${u.mobile} · ${u.email}${isInspector() && pol().owner ? ' · inspector' : ''}` : 'Name, mobile, email and company';
   }
   $('editMe').addEventListener('click', () => openProfile(false));
 
@@ -2252,7 +2673,7 @@
       if (body.rev <= cur.rev) return { same: true, msg: `This phone already has the latest list (version ${cur.rev})` };
       if (!cur.admins.some((a) => a.k === signer.k)) throw new Error(`Not accepted: this update was signed by ${signer.n}, who is not an admin of “${cur.name}” on this phone`);
     } else {
-      if (cur && !allowSwitch) throw new Error(`Not accepted: this is a different company list (code ${listCode(body)}), not an update of “${cur.name}” (code ${listCode(cur)}). To change lists, use Settings → Company list → Switch to another list.`);
+      if (cur && !allowSwitch) throw new Error(`Not accepted: this is a different company list (code ${listCode(body)}), not an update of “${cur.name}” (code ${listCode(cur)}). To change lists, use Settings → Administration → Switch to another list.`);
       const ok = await ask(cur ? 'Switch to a different company list?' : 'Use this company list?',
         `${body.name} (code ${listCode(body)})\nAdmin${body.admins.length === 1 ? '' : 's'}: ${body.admins.map((a) => a.n).join(', ')}\n${body.co.length} compan${body.co.length === 1 ? 'y' : 'ies'}: ${body.co.slice(0, 8).join(', ')}${body.co.length > 8 ? ', …' : ''}`
         + (cur ? `\n\nThis is NOT an update of “${cur.name}” (code ${listCode(cur)}): it is another list, made by whoever holds its admin key. Switch only if your admin told you to.` : ''),
@@ -2268,11 +2689,13 @@
     let p = null;
     try { p = await unpackShare(text); } catch (e) { p = null; }
     if (!p) { toast('That is not a PoleCam company list', 4000); return false; }
-    if (p.kind !== 'PCT') { toast('That is an admin request. The admin adds it in Manage company list → Add an admin.', 5000); return false; }
+    if (p.kind !== 'PCT') { toast('That is an admin request. The admin adds it in Settings → Administration → Manage (admin) → Add an admin.', 5000); return false; }
     try {
       const r = await acceptTeam(p.obj, teamSwitch || !S.team);
       if (r.cancelled) return false;
-      toast(r.msg, 4500); afterTeamChange(); return true;
+      toast(r.msg, 4500); afterTeamChange();
+      if (S.team.src) cloudSync(true).then(() => { afterTeamChange(); if (!$('profile').hidden) renderCoSelect($('pfCompany').value); });
+      return true;
     } catch (e) { toast(e.message, 6500); return false; }
   }
   function afterTeamChange() {
@@ -2292,6 +2715,7 @@
     $('teamCreate').hidden = !!t;
     $('adminAsk').hidden = !t || isAdmin();
     $('teamSwitch').hidden = !t;
+    renderCloudInfo();
   }
   $('teamFileInput').addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -2330,21 +2754,13 @@
   async function showTeamQr(note) {
     if (!S.team) { toast('No company list on this phone yet'); return; }
     const text = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k });
-    await showQr(`Company list: ${S.team.name}`, note || `Version ${S.team.rev} · ${teamCos().length} companies. On the other phone: Settings → Company list → Update list → Scan QR (or, on first use, “Scan admin's QR code”).`, text,
+    await showQr(`Company list: ${S.team.name}`, note || `Version ${S.team.rev} · ${teamCos().length} companies. On the other phone: Settings → Administration → Update list → Scan QR (or, on first use, “Scan admin's QR code”).`, text,
       { name: `PoleCam_company_list_${C.safeName(S.team.name)}_v${S.team.rev}.json`, data: JSON.stringify({ app: 'PoleCam', type: 'company-list', name: S.team.name, version: S.team.rev, data: text }) });
   }
   $('qrClose').addEventListener('click', () => closeSheet());
   $('qrFile').addEventListener('click', async () => {
     if (!qrFileData) return;
-    const blob = new Blob([qrFileData.data], { type: 'application/json' }), name = qrFileData.name;
-    try {
-      if (NATIVE) { const r = await nativePrivate({ blob, name }); await nativeCall('Share', 'share', { title: name, dialogTitle: `Send ${name}`, files: [r.cacheUri] }); return; }
-      const file = new File([blob], name, { type: 'application/json' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; }
-    } catch (e) { if (e && (e.name === 'AbortError' || /cancel/i.test(String(e.message)))) return; }
-    const a = document.createElement('a'), u = URL.createObjectURL(blob);
-    a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 60000);
-    toast('Saved to Downloads');
+    await shareFile(new Blob([qrFileData.data], { type: 'application/json' }), qrFileData.name, 'application/json');
   });
 
   /* ---- scanning a QR code ---- */
@@ -2392,12 +2808,185 @@
   }
   $('qrScanClose').addEventListener('click', () => closeSheet());
 
+  /* ---- online Google Sheet (Apps Script web app): companies, assigned tasks and map pack links ---- */
+  /* The sheet's address and read key travel inside the signed company list, so phones that take the admin's list also
+     know where to read. Only those three lists come from the sheet; photos and survey data stay on the phones. */
+  const TASK_CATS = ['Survey', 'PAT', 'FAT'];
+  const s100 = (v, n) => String(v == null ? '' : v).trim().slice(0, n || 100);
+  function cleanCloud(j) {
+    const companies = [...new Set((Array.isArray(j.companies) ? j.companies : []).map((c) => s100(c)).filter(Boolean))].slice(0, 500);
+    const tasks = (Array.isArray(j.tasks) ? j.tasks : []).filter((t) => t && typeof t === 'object').map((t) => {
+      const cat = TASK_CATS.find((c) => c.toLowerCase() === s100(t.category).toLowerCase()) || 'Survey';
+      return { id: s100(t.id, 40), project: s100(t.project), category: cat, site: s100(t.site), contractor: s100(t.contractor), globeRep: s100(t.globeRep),
+        company: s100(t.company), status: s100(t.status, 20) || 'Active', notes: s100(t.notes, 300) };
+    }).filter((t) => t.id && t.project).slice(0, 500);
+    const packs = (Array.isArray(j.packs) ? j.packs : []).filter((p) => p && typeof p === 'object').map((p) => ({ name: s100(p.name), link: s100(p.link, 300), sizeMB: +p.sizeMB || 0, notes: s100(p.notes, 200) }))
+      .filter((p) => p.link).slice(0, 50);
+    return { name: s100(j.name), companies, tasks, packs };
+  }
+  let cloudBusy = null, cloudErr = '';
+  async function cloudRequest(src, init) {
+    const u = new URL(src.url);
+    if (!init) { u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER); }
+    try {
+      const r = await withTimeout(fetch(u.href, { cache: 'no-store', redirect: 'follow', ...(init || {}) }), 25000, 'The online sheet did not answer');
+      return await r.json();
+    } catch (e) {
+      if (!NATIVE) throw e; // the APK can also ask through Android's own HTTP stack
+      const r = await withTimeout(nativeCall('CapacitorHttp', 'request', { url: u.href, method: init ? 'POST' : 'GET', responseType: 'json',
+        headers: { 'User-Agent': APP_UA(), ...(init ? { 'Content-Type': 'text/plain;charset=utf-8' } : {}) }, ...(init ? { data: init.body } : {}) }), 25000, 'The online sheet did not answer');
+      return typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+    }
+  }
+  /** Reads the online sheet (at most every 10 minutes unless forced). Returns true when this phone has a fresh copy. */
+  function cloudSync(force) {
+    const src = S.team && S.team.src;
+    if (!src || !src.url || !navigator.onLine) return Promise.resolve(false);
+    if (!force && S.cloud && S.cloud.src === src.url && Date.now() - Date.parse(S.cloud.at) < 10 * 60000) return Promise.resolve(true);
+    if (cloudBusy) return cloudBusy;
+    cloudBusy = (async () => {
+      try {
+        const j = await cloudRequest(src);
+        if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
+        S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j) }; cloudErr = ''; persist();
+        afterTeamChange(); if (!$('projects').hidden) renderTasks();
+        return true;
+      } catch (e) { cloudErr = e.message || String(e); renderCloudInfo(); return false; } finally { cloudBusy = null; }
+    })();
+    return cloudBusy;
+  }
+  function renderCloudInfo() {
+    const src = S.team && S.team.src, el = $('cloudInfo');
+    el.hidden = !src; $('cloudSyncBtn').hidden = !src;
+    if (!src) return;
+    const c = S.cloud && S.cloud.src === src.url ? S.cloud : null;
+    el.textContent = `Online sheet${c && c.name ? ` “${c.name}”` : ''}: ${c ? `last read ${fmtTime(c.at)} · ${c.companies.length} companies · ${c.tasks.length} tasks · ${c.packs.length} map packs` : 'not read yet'}${cloudErr ? ` · last try failed: ${cloudErr}` : ''}`;
+  }
+  $('cloudSyncBtn').addEventListener('click', async () => {
+    $('cloudInfo').textContent = 'Reading the online sheet…';
+    const ok = await cloudSync(true); renderCloudInfo();
+    toast(ok ? 'Online sheet read' : navigator.onLine ? `Could not read the online sheet: ${cloudErr}` : 'No internet', 5000);
+  });
+  window.addEventListener('online', () => { cloudSync(false); });
+
+  /* ---- assigned tasks become projects ---- */
+  const taskProject = (id) => allProjects().find((n) => pmeta(n).taskId === id);
+  function visibleTasks() {
+    const me = S.user && S.user.company;
+    return ((S.cloud && S.cloud.tasks) || []).filter((t) => !/^(closed|done|cancel)/i.test(t.status) && (!t.company || isAdmin() || !me || t.company.toLowerCase() === me.toLowerCase()));
+  }
+  function renderTasks() {
+    const src = S.team && S.team.src, box = $('taskList');
+    $('taskBox').hidden = !src; if (!src) return;
+    const list = visibleTasks();
+    $('taskInfo').textContent = S.cloud && S.cloud.src === src.url ? `${list.length} task${list.length === 1 ? '' : 's'} for ${isAdmin() ? 'everyone (you are an admin)' : (S.user && S.user.company) || 'you'} · sheet read ${fmtTime(S.cloud.at)}${cloudErr ? ` · last sync failed: ${cloudErr}` : ''}`
+      : (navigator.onLine ? 'Reading the online sheet…' : 'Connect to the internet to see assigned tasks.');
+    box.innerHTML = '';
+    for (const t of list) {
+      const have = taskProject(t.id);
+      const card = document.createElement('div'); card.className = 'area-card';
+      const d = document.createElement('div');
+      const ti = document.createElement('span'); ti.className = 't'; ti.textContent = t.project;
+      const s2 = document.createElement('span'); s2.className = 's';
+      s2.textContent = [t.category, t.site, t.contractor && `Contractor: ${t.contractor}`, t.company && `For: ${t.company}`, t.notes, have ? `on this phone as “${have}”` : ''].filter(Boolean).join(' · ');
+      d.append(ti, s2);
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (have ? '' : 'primary');
+      b.textContent = have ? 'Open' : 'Start';
+      b.addEventListener('click', () => guard(() => (have ? switchProject(have) : startTask(t))));
+      card.append(d, b); box.appendChild(card);
+    }
+    if (!list.length && S.cloud) box.innerHTML = '<p class="hint" style="margin:0">No open tasks for you in the sheet.</p>';
+  }
+  async function switchProject(name) { S.project = name; persist(); renderPoles(); await closeSheet(); fitProject(); toast(`Now working on: ${name}`); }
+  async function startTask(t) {
+    const base = { taskId: t.id, site: t.site, contractor: t.contractor, globeRep: t.globeRep, inspector: byLine() };
+    if (t.category === 'FAT') {
+      const how = await ask(`Start FAT: ${t.project}`, 'A FAT re-checks a PAT punchlist. Open the PAT file sent from the other phone, or start an empty FAT.',
+        [{ label: 'Cancel', value: '' }, { label: 'Empty FAT', value: 'blank' }, { label: 'PAT file', value: 'file', primary: true }]);
+      if (!how) return;
+      if (how === 'file') { pendingFatMeta = { ...base, name: t.project }; $('patFileInput').value = ''; $('patFileInput').click(); return; }
+    }
+    let name = t.project, k = 2;
+    while (allProjects().includes(name)) name = `${t.project} (${k++})`;
+    S.projects.push(name); S.meta = S.meta || {};
+    S.meta[name] = t.category === 'Survey' ? { mode: 'survey', taskId: t.id } : { mode: 'acceptance', stage: t.category, globeRep: '', ...base };
+    await switchProject(name);
+    toast(`${t.category} “${name}” started from the online task list`, 3500);
+  }
+  $('taskSync').addEventListener('click', async () => { $('taskInfo').textContent = 'Reading the online sheet…'; await cloudSync(true); renderTasks(); });
+
+  /* ---- a PAT from another phone, for its FAT ---- */
+  let pendingFatMeta = null;
+  $('sendPat').addEventListener('click', () => guard(async () => {
+    if (!needPoints()) return;
+    const blob = await projectZip(S.project); busy(false);
+    await shareFile(blob, `${C.safeName(S.project)}_PAT_for_FAT_${stamp8()}.zip`, 'application/zip');
+  }));
+  $('fatFromFile').addEventListener('click', () => { pendingFatMeta = null; $('patFileInput').value = ''; $('patFileInput').click(); });
+  $('patFileInput').addEventListener('change', (e) => guard(async () => {
+    const f = e.target.files[0]; if (!f) return;
+    const pat = await restoreZip(f, { expectPat: true });
+    const extra = pendingFatMeta ? (({ name, ...rest }) => rest)(pendingFatMeta) : null, want = pendingFatMeta && pendingFatMeta.name; pendingFatMeta = null;
+    await startFatFrom(pat, extra, want);
+    if (stack[stack.length - 1] === 'projects') await closeSheet();
+    fitProject();
+  }, 'Not started'));
+  /** Save or send a file: the APK's share sheet, the browser's share sheet, or a download. */
+  async function shareFile(blob, name, type) {
+    if (NATIVE) {
+      try { const r = await nativePrivate({ blob, name }); await nativeCall('Share', 'share', { title: name, dialogTitle: `Send ${name}`, files: [r.cacheUri] }); return; }
+      catch (e) { if (/cancel/i.test(String(e && e.message))) return; }
+      try { const r = await nativeSave({ blob, name }); toast(`Could not open sharing; saved to ${r.where} instead`, 6000); }
+      catch (e) { toast(`Could not share or save the file: ${e.message || e}`, 6000); }
+      return;
+    }
+    try {
+      const file = new File([blob], name, { type: type || blob.type });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; }
+    } catch (e) { if (e && (e.name === 'AbortError' || /cancel/i.test(String(e.message)))) return; }
+    const a = document.createElement('a'), u = URL.createObjectURL(blob);
+    a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 60000);
+    toast('Saved to Downloads');
+  }
+
+  /* ---- admin: company names from a CSV file ---- */
+  $('admCsv').addEventListener('click', () => { $('admCsvInput').value = ''; $('admCsvInput').click(); });
+  $('admCsvInput').addEventListener('change', (e) => guard(async () => {
+    const f = e.target.files[0]; if (!f || !admDraft) return;
+    const names = C.companiesFromCsv(await f.text());
+    if (!names.length) { toast('No company names found. Put one company per row (first column, or a column named Company).', 5000); return; }
+    const have = new Set(admDraft.co.map((c) => c.toLowerCase())), add = names.filter((n) => !have.has(n.toLowerCase()));
+    const room = Math.max(0, 300 - admDraft.co.length), local = add.slice(0, room);
+    admDraft.co.push(...local); renderAdmDraft();
+    let note = `${local.length} compan${local.length === 1 ? 'y' : 'ies'} added from ${f.name}${names.length > add.length ? ` (${names.length - add.length} already on the list)` : ''}.`;
+    if (add.length > room) note += ` ${add.length - room} not added here: the in-app list holds at most 300 (the online sheet can hold more).`;
+    const url = $('admUrl').value.trim(), wkey = $('admWriteKey').value.trim();
+    if (url && wkey && add.length) {
+      busy('Adding them to the online sheet…');
+      try {
+        const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: wkey, action: 'addCompanies', companies: add }) });
+        note += j && j.ok ? ` ${j.added} added to the online sheet.` : ` The online sheet refused them${j && j.error === 'key' ? ' (wrong admin key)' : ''}.`;
+      } catch (err) { note += ` Could not reach the online sheet (${err.message}).`; } finally { busy(false); }
+    }
+    toast(`${note} Tap Save and share the list.`, 7000);
+  }));
+  $('admTest').addEventListener('click', async () => {
+    const url = $('admUrl').value.trim(), key = $('admReadKey').value.trim();
+    if (!/^https:\/\/\S+$/.test(url)) { $('admTestOut').textContent = 'Paste the web app URL (it starts with https://script.google.com/).'; return; }
+    $('admTestOut').textContent = 'Testing…';
+    try {
+      const j = await cloudRequest({ url, key });
+      $('admTestOut').textContent = j && j.ok ? (({ name, companies, tasks, packs }) => `Connected: “${name}” · ${companies.length} companies · ${tasks.length} tasks · ${packs.length} map packs.`)(cleanCloud(j))
+        : `The sheet answered but refused: ${j && j.error === 'key' ? 'wrong read key' : (j && j.error) || 'unknown reason'}.`;
+    } catch (e) { $('admTestOut').textContent = `Could not reach it: ${e.message}. Check the URL and that the web app is deployed for “Anyone”.`; }
+  });
+
   /* ---- admin: create and manage the list ---- */
   let admMode = 'manage', admDraft = null, adminUnlocked = false;
   function openAdmin(mode) {
     if (!cryptoOk()) return;
     admMode = mode;
-    $('adminTitle').textContent = mode === 'request' ? 'Ask to become an admin' : mode === 'create' ? 'Create the company list' : 'Company list (admin)';
+    $('adminTitle').textContent = mode === 'request' ? 'Ask to become an admin' : mode === 'create' ? 'Create the company list' : 'Administration';
     const setPin = !S.adminPin;
     $('admPin').value = ''; $('admPin2').value = ''; $('admPin2').hidden = !setPin;
     $('admLockTitle').textContent = setPin ? 'Set your admin PIN' : 'Admin PIN';
@@ -2422,14 +3011,61 @@
     if (admMode === 'request') {
       await closeSheet();
       const text = await packShare('PCA', { n: me(), c: (S.user && S.user.company) || '', k: S.adminKey.pub });
-      showQr('Admin request', `Show this to an admin of “${S.team ? S.team.name : 'the list'}”. They tap Manage company list → Add an admin and scan it. You become an admin when you update to the list they share next.`, text, null);
+      showQr('Admin request', `Show this to an admin of “${S.team ? S.team.name : 'the list'}”. They tap Settings → Administration → Manage (admin) → Add an admin and scan it. You become an admin when you update to the list they share next.`, text, null);
       return;
     }
-    if (admMode === 'create' || !S.team) admDraft = { id: uid(), name: '', co: [], admins: [{ n: me(), k: S.adminKey.pub }], rev: 0 };
-    else admDraft = { id: S.team.id, name: S.team.name, co: teamCos().slice(), admins: S.team.admins.map((a) => ({ ...a })), rev: S.team.rev };
+    const P = pol(), F = formText();
+    const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice() };
+    if (admMode === 'create' || !S.team) admDraft = { id: uid(), name: '', co: [], admins: [{ n: me(), k: S.adminKey.pub }], rev: 0, src: null, pol: polDraft };
+    else admDraft = { id: S.team.id, name: S.team.name, co: S.team.co.slice(), admins: S.team.admins.map((a) => ({ ...a })), rev: S.team.rev, src: S.team.src || null, pol: polDraft };
+    if (admMode === 'create' && S.user && S.user.company && !admDraft.co.length) admDraft.co.push(S.user.company);
+    $('admUrl').value = (admDraft.src && admDraft.src.url) || ''; $('admReadKey').value = (admDraft.src && admDraft.src.key) || '';
+    $('admWriteKey').value = S.onlineAdminKey || ''; $('admTestOut').textContent = '';
     $('admName').value = admDraft.name; $('admNewCo').value = '';
+    // form wording
+    $('pfmCompany').value = F.company; $('pfmAddress').value = F.address || ''; $('pfmDept1').value = F.dept1 || ''; $('pfmDept2').value = F.dept2 || '';
+    $('pfmLeftTitle').value = F.leftTitle; $('pfmRightTitle').value = F.rightTitle; $('pfmTypes').value = (F.types || []).join('\n'); $('pfmLegend').value = F.legend || ''; $('pfmDateSub').value = F.colDateSub || '';
+    // checklist and standards
+    const cats = Object.keys(polDraft.defects);
+    $('setDefCat').innerHTML = cats.map((c) => `<option>${C.xmlEsc(c)}</option>`).join('');
+    $('setDefItems').value = (polDraft.defects[cats[0]] || []).join('\n');
+    $('setMaxSpan').value = polDraft.maxSpan; $('setAngle').value = polDraft.angleDeg; $('setAutoGap').value = polDraft.autoGap; $('admQuality').value = polDraft.quality === 'normal' ? 'normal' : 'strict';
     $('admMain').hidden = false; renderAdmDraft();
   }
+  /** Reads the policy fields back into the draft (called on Save). */
+  function readPolDraft() {
+    const P = admDraft.pol, t = (id) => $(id).value.trim().replace(/\s+/g, ' ').slice(0, 200);
+    const form = { company: t('pfmCompany'), address: t('pfmAddress'), dept1: t('pfmDept1'), dept2: t('pfmDept2'), leftTitle: t('pfmLeftTitle'), rightTitle: t('pfmRightTitle'), legend: t('pfmLegend'), colDateSub: t('pfmDateSub'),
+      types: $('pfmTypes').value.split('\n').map((x) => x.trim().slice(0, 60)).filter(Boolean).slice(0, 10) };
+    const D = window.PoleForms.DEFAULT_FORM; // keep only what differs from the built-in wording (a blank line stays blank), so the list stays small
+    const norm = (v) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+    const kept = { ...(P.form || {}) }; // keys this screen does not edit stay as they were
+    Object.entries(form).forEach(([k, v]) => { if (Array.isArray(v) ? !v.length || v.join('|') === (D[k] || []).join('|') : v === norm(D[k])) delete kept[k]; else kept[k] = v; });
+    P.form = kept;
+    P.owner = $('admOwner').value || '';
+    const num = (id, lo, hi, dflt) => { const v = +$(id).value; return v >= lo && v <= hi ? v : dflt; };
+    P.maxSpan = num('setMaxSpan', 5, 1000, 200); P.angleDeg = num('setAngle', 1, 90, 15); P.autoGap = num('setAutoGap', 10, 5000, 120);
+    P.quality = $('admQuality').value === 'normal' ? 'normal' : 'strict';
+    const types = form.types.length ? form.types : D.types;
+    P.inspTypes = (P.inspTypes || []).filter((x) => types.includes(x)); if (!P.inspTypes.length) P.inspTypes = [types[0]];
+    for (const k of Object.keys(P.defects)) if (!P.defects[k].length) delete P.defects[k];
+    if (!Object.keys(P.defects).length) P.defects = JSON.parse(JSON.stringify(DEF_CHECK));
+    return P;
+  }
+  $('setDefCat').addEventListener('change', () => { if (admDraft) $('setDefItems').value = (admDraft.pol.defects[$('setDefCat').value] || []).join('\n'); });
+  $('admAddCat').addEventListener('click', () => {
+    if (!admDraft) return;
+    const v = $('admNewCat').value.trim().replace(/\s+/g, ' ').slice(0, 40); if (!v) return;
+    const have = Object.keys(admDraft.pol.defects).find((k) => k.toLowerCase() === v.toLowerCase());
+    if (!have) { if (Object.keys(admDraft.pol.defects).length >= 20) { toast('At most 20 categories'); return; } admDraft.pol.defects[v] = []; }
+    const name = have || v;
+    $('setDefCat').innerHTML = Object.keys(admDraft.pol.defects).map((c) => `<option${c === name ? ' selected' : ''}>${C.xmlEsc(c)}</option>`).join('');
+    $('setDefItems').value = admDraft.pol.defects[name].join('\n'); $('admNewCat').value = ''; $('setDefItems').focus();
+  });
+  $('setDefItems').addEventListener('change', () => {
+    if (!admDraft) return;
+    admDraft.pol.defects[$('setDefCat').value] = $('setDefItems').value.split('\n').map((x) => x.trim().slice(0, 120)).filter(Boolean).slice(0, 60);
+  });
   function renderAdmDraft() {
     const box = $('admCos'); box.innerHTML = '';
     if (!admDraft.co.length) box.innerHTML = '<p class="hint" style="margin:0">No companies yet. Add each company or vendor that will use PoleCam.</p>';
@@ -2452,6 +3088,9 @@
       }
       ab.appendChild(row);
     });
+    const own = $('admOwner'), cur = own.value || admDraft.pol.owner || '';
+    own.innerHTML = '<option value="">Not set: everyone may add and verify deficiencies</option>' + admDraft.co.map((c) => `<option${c === cur ? ' selected' : ''}>${C.xmlEsc(c)}</option>`).join('');
+    if (cur && !admDraft.co.includes(cur)) own.value = '';
     $('admRev').textContent = admDraft.rev ? `Saving makes version ${admDraft.rev + 1}. Phones that have version ${admDraft.rev} accept it because you are an admin on their list.` : 'Saving makes version 1 of a new list.';
   }
   $('admAddCo').addEventListener('click', () => {
@@ -2473,14 +3112,23 @@
     admDraft.name = $('admName').value.trim().replace(/\s+/g, ' ').slice(0, 80);
     if (!admDraft.name) { toast('Give the list a name, e.g. your office or project'); $('admName').focus(); return; }
     if (!admDraft.co.length) { toast('Add at least one company'); return; }
+    const url = $('admUrl').value.trim(), rkey = $('admReadKey').value.trim();
+    if (url && !/^https:\/\/\S+$/.test(url)) { toast('The online sheet URL must start with https://'); return; }
+    if (url && !rkey) { toast('Enter the read key from the sheet’s Settings tab, or clear the URL'); $('admReadKey').focus(); return; }
+    if (admDraft.co.length > 300) { toast(`The list has ${admDraft.co.length} companies; the most is 300. Remove some, or keep the full list in the online sheet.`, 6000); return; }
+    admDraft.src = url ? { url, key: rkey } : null;
+    S.onlineAdminKey = $('admWriteKey').value.trim();
     const k = admDraft.admins.findIndex((a) => a.k === S.adminKey.pub);
     if (S.user && S.user.name) Object.assign(admDraft.admins[k], { n: S.user.name, c: S.user.company || '' }); // keep my name on the list current
-    const body = JSON.stringify({ t: 'polecam-team', v: 1, id: admDraft.id, name: admDraft.name, rev: admDraft.rev + 1, at: new Date().toISOString(),
-      admins: admDraft.admins, co: admDraft.co });
+    const P = readPolDraft();
+    const body = JSON.stringify({ t: 'polecam-team', v: 2, id: admDraft.id, name: admDraft.name, rev: admDraft.rev + 1, at: new Date().toISOString(),
+      admins: admDraft.admins, co: admDraft.co, ...(admDraft.src ? { src: admDraft.src } : {}), pol: P });
+    if (!validTeam(JSON.parse(body))) { toast('This list cannot be saved: check the name, companies (up to 100 characters each), the form wording and the online sheet fields', 6000); return; }
     const sig = await signText(body);
     S.team = { ...JSON.parse(body), b: body, s: sig, k }; (S.teamSeen = S.teamSeen || {})[S.team.id] = S.team.rev; persist();
-    await closeSheet(); afterTeamChange();
+    await closeSheet(); afterTeamChange(); renderPoles();
     showTeamQr(`Version ${S.team.rev} saved. Show this QR code to each user, or share the file. Phones accept updates only from the admins on this list.`);
+    if (S.team.src) cloudSync(true);
   });
   $('teamManage').addEventListener('click', () => openAdmin('manage'));
   $('teamCreate').addEventListener('click', () => openAdmin('create'));
@@ -2506,113 +3154,293 @@
   async function deleteArea(id) { S.areas = (S.areas || []).filter((x) => x.id !== id); persist(); } // older versions only
   const fmtMB = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(2)} GB` : `${Math.max(0.1, b / 1048576).toFixed(b < 10485760 ? 1 : 0)} MB`);
   const fmtDate8 = (d) => (/^\d{8}$/.test(d || '') ? new Date(`${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}T00:00:00`).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : d || '');
+  /* ---- where packs come from: Google Drive links (from the online sheet or pasted), a file on the phone, or a website ---- */
+  const DRIVE_ID_RE = /^[A-Za-z0-9_-]{20,}$/;
+  function driveId(link) {
+    const t = String(link || '').trim();
+    const m = /\/d\/([A-Za-z0-9_-]{20,})/.exec(t) || /[?&]id=([A-Za-z0-9_-]{20,})/.exec(t);
+    return m ? m[1] : DRIVE_ID_RE.test(t) ? t : null;
+  }
+  const driveDownloadUrl = (id) => `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t`;
+  const driveViewUrl = (id) => `https://drive.google.com/file/d/${id}/view`;
+  const DRIVE_HTML_ERR = 'Google Drive sent a web page instead of the map file. Set the file’s sharing to “Anyone with the link”, or open it in Drive, download it and use Import a pack file.';
+  /** Opens a link outside the app (the APK hands it to the phone's browser). */
+  function openExternal(url) {
+    const a = document.createElement('a'); a.href = url; a.rel = 'noopener';
+    if (!NATIVE) a.target = '_blank';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
   let packIndex = null, packIndexErr = '';
-  async function loadPackIndex() {
+  async function loadPackIndex() { // packs published with the website (older setup); quietly absent otherwise
     try {
       const r = await fetch(new URL('maps/index.json', SITE).href, { cache: 'no-store' });
-      if (!r.ok) throw new Error(r.status === 404 ? 'No map packs have been published yet' : `HTTP ${r.status}`);
-      packIndex = await r.json(); packIndexErr = '';
-    } catch (e) { packIndexErr = navigator.onLine ? (e.message || String(e)) : 'Offline — connect to see available map packs'; }
+      packIndex = r.ok ? await r.json() : null; packIndexErr = '';
+    } catch (e) { packIndex = null; packIndexErr = navigator.onLine ? '' : 'Offline: connect to see map packs you can download'; }
+  }
+  /** Every pack this phone knows about: installed, listed in the online sheet, pasted Drive links, or the website list. */
+  function packCatalog() {
+    const byId = {};
+    const add = (p) => { byId[p.id] = { ...(byId[p.id] || {}), ...p }; };
+    ((packIndex && packIndex.packs) || []).forEach((p) => add({ id: p.id, name: p.name, size: p.size, date: p.date, bbox: p.bbox, maxzoom: p.maxzoom, url: new URL(`maps/${p.file || p.id + '.pmtiles'}`, SITE).href, from: 'website' }));
+    ((S.cloud && S.cloud.packs) || []).forEach((p) => { const id = driveId(p.link); if (id) add({ id: `drive-${id}`, name: p.name || 'Map pack', size: p.sizeMB ? Math.round(p.sizeMB * 1048576) : undefined, sizeApprox: true, notes: p.notes, drive: id, from: 'sheet' }); });
+    (S.packLinks || []).forEach((p) => add({ id: `drive-${p.drive}`, name: p.name, drive: p.drive, from: 'link' }));
+    Object.values(S.packs).forEach((p) => { byId[p.id] = { ...(byId[p.id] || { id: p.id, name: p.name, size: p.size, date: p.date, bbox: p.bbox, maxzoom: p.maxzoom, from: 'phone' }), installed: p }; });
+    return Object.values(byId);
   }
   async function renderOffline() {
     const list = $('packList'); list.innerHTML = '';
-    const avail = (packIndex && packIndex.packs) || [], byId = {};
-    avail.forEach((p) => { byId[p.id] = { ...p }; });
-    Object.values(S.packs).forEach((p) => { byId[p.id] = { ...(byId[p.id] || {}), installed: p, ...(!byId[p.id] ? { name: p.name, size: p.size, date: p.date, bbox: p.bbox, maxzoom: p.maxzoom, file: p.file } : {}) }; });
-    $('packSource').textContent = packIndex ? `Map data from ${packIndex.source || 'OpenStreetMap'}${packIndex.generated ? ` · published ${packIndex.generated}` : ''}` : packIndexErr || 'Checking for map packs…';
-    const items = Object.values(byId);
-    if (!items.length) list.innerHTML = '<p class="hint" style="margin:0">No map packs yet. They appear here once the "Deploy website and offline maps" workflow has run on GitHub.</p>';
-    const act = activePackId();
+    const items = packCatalog(), act = activePackId();
+    $('packSource').textContent = packIndexErr || (S.cloud && S.cloud.packs && S.cloud.packs.length ? `Map packs listed in the online sheet “${S.cloud.name || ''}”, updated ${fmtTime(S.cloud.at)}.` : 'Map packs: import a file from this phone, or add a Google Drive link.');
+    if (!items.length) list.innerHTML = '<p class="hint" style="margin:0">No map packs yet.</p>';
     for (const p of items) {
-      const inst = S.packs[p.id], done = inst && inst.done, partial = inst && !inst.done && inst.chunks > 0;
-      const outdated = done && avail.some((x) => x.id === p.id && x.date !== inst.date);
+      const inst = p.installed, done = inst && inst.done, partial = inst && !inst.done && inst.bytes > 0;
       const row = document.createElement('div'); row.className = 'area-card';
       const d = document.createElement('div');
       const t = document.createElement('span'); t.className = 't'; t.textContent = p.name || p.id;
       const s2 = document.createElement('span'); s2.className = 's';
-      s2.textContent = [fmtMB(p.size || (inst && inst.size) || 0), `map data ${fmtDate8(done ? inst.date : p.date)}`, `detail to zoom ${p.maxzoom || 15}`,
-        done ? (outdated ? 'update available' : p.id === act ? 'on this phone · in use' : 'on this phone')
-          : partial ? `${Math.round((inst.chunks * (inst.ch || PACK_CH) / inst.size) * 100)}% downloaded` : 'not downloaded'].join(' · ');
+      const size = (inst && inst.size) || p.size;
+      s2.textContent = [size ? fmtMB(size) : '', p.date || (inst && inst.date) ? `map data ${fmtDate8((inst && inst.date) || p.date)}` : '',
+        done ? (p.id === act ? 'on this phone · in use' : 'on this phone') : partial ? `${size ? Math.round((inst.bytes / size) * 100) + '% ' : fmtMB(inst.bytes) + ' '}downloaded` : 'not on this phone',
+        p.drive && !done ? 'Google Drive' : '', p.notes || ''].filter(Boolean).join(' · ');
       d.append(t, s2);
       const mk = (label, cls, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (cls || ''); b.textContent = label; b.addEventListener('click', fn); return b; };
       const btns = [];
-      if (!done || outdated) btns.push(mk(outdated ? 'Update' : partial ? 'Resume' : 'Download', 'primary', () => guard(() => downloadPack(byId[p.id]))));
+      if (!done) {
+        if (p.url) btns.push(mk(partial ? 'Resume' : 'Download', 'primary', () => downloadPack(p)));
+        else if (p.drive && NATIVE) btns.push(mk(partial ? 'Resume' : 'Download', 'primary', () => downloadPack(p)));
+        if (p.drive) btns.push(mk('Open in Drive', '', () => { openExternal(driveViewUrl(p.drive)); if (!NATIVE) toast('Download the file in Drive, then come back and tap Import a pack file', 6000); }));
+      }
       if (done && p.id !== act) btns.push(mk('Use', '', () => { S.activePack = p.id; persist(); if (S.base === 'offline') setBase('offline', true); renderOffline(); }));
-      if (done) btns.push(mk('Show', '', async () => { S.activePack = p.id; persist(); await closeSheet(); setBase('offline'); if (p.bbox) map.fitBounds([[p.bbox[1], p.bbox[0]], [p.bbox[3], p.bbox[2]]]); }));
-      if (inst) btns.push(mk('Delete', 'danger', function () {
-        if (!this.dataset.armed) { this.dataset.armed = '1'; this.textContent = 'Confirm'; setTimeout(() => { delete this.dataset.armed; this.textContent = 'Delete'; }, 4000); return; }
-        guard(async () => { busy('Deleting map pack…'); await deletePack(p.id); renderOffline(); toast('Map pack deleted'); });
+      if (done) btns.push(mk('Show', '', async () => { S.activePack = p.id; persist(); await closeSheet(); setBase('offline'); const b = inst.bbox; if (b) map.fitBounds([[b[1], b[0]], [b[3], b[2]]]); }));
+      if (inst || p.from === 'link') btns.push(mk(inst ? 'Delete' : 'Remove', 'danger', function () {
+        if (!this.dataset.armed) { this.dataset.armed = '1'; this.textContent = 'Confirm'; setTimeout(() => { delete this.dataset.armed; this.textContent = inst ? 'Delete' : 'Remove'; }, 4000); return; }
+        guard(async () => {
+          if (dl && dl.id === p.id) { toast('Wait until the download has stopped'); return; }
+          if (inst) { busy('Deleting map pack…'); await deletePack(p.id); }
+          if (p.from === 'link' && !inst) S.packLinks = (S.packLinks || []).filter((x) => `drive-${x.drive}` !== p.id);
+          persist(); renderOffline(); toast(inst ? 'Map pack deleted' : 'Link removed');
+        });
       }));
       row.append(d, ...btns); list.appendChild(row);
     }
-    try { const n = await dbCount('tiles'); $('offTotal').textContent = `${n.toLocaleString()} viewed map tiles kept on this phone.`; } catch (e) { /* ignore */ }
+    try { const n = await dbCount('tiles'); $('offTotal').textContent = `${n.toLocaleString()} viewed street-map tiles kept on this phone.`; } catch (e) { /* ignore */ }
   }
   async function deletePack(id) {
     const p = S.packs[id];
-    if (p) await dbDelMany('packs', Array.from({ length: p.chunks || 0 }, (_, i) => `${id}:${i}`));
+    if (p) await removePackData(p);
     delete S.packs[id];
     if (S.activePack === id) S.activePack = null;
     persist();
     if (S.base === 'offline') setBase(activePackId() ? 'offline' : 'street', true);
   }
-  async function downloadPack(p) {
-    if (!navigator.onLine) { toast('Connect to the internet (Wi-Fi recommended) to download map packs'); return; }
-    const url = new URL(`maps/${p.file || p.id + '.pmtiles'}`, SITE).href;
-    if (navigator.storage && navigator.storage.estimate) {
-      const est = await navigator.storage.estimate();
-      if (est.quota && est.quota - est.usage < p.size * 1.1) { toast(`Not enough free space: the pack needs ${fmtMB(p.size)}, about ${fmtMB(est.quota - est.usage)} is available to the app.`, 6000); return; }
-    }
-    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-    let st = S.packs[p.id];
-    if (st && (st.date !== p.date || st.size !== p.size || st.done)) { await deletePack(p.id); st = null; } // new edition: start fresh
-    if (!st) st = S.packs[p.id] = { id: p.id, name: p.name, file: p.file, size: p.size, date: p.date, bbox: p.bbox, maxzoom: p.maxzoom, ch: PACK_CH, chunks: 0, done: false };
-    persist();
-    const ctl = new AbortController(); cancelFlag = false;
-    const watch = setInterval(() => { if (cancelFlag) ctl.abort(); }, 200);
-    const cell = navigator.connection && navigator.connection.type === 'cellular' ? ' (on mobile data)' : '';
-    let restart = false;
+
+  /* ---- downloading / importing a pack ---- */
+  let dl = null; // the running job: { id, cancelled, detached, ctl, step }
+  const CANCEL = new Error('cancelled');
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  /** Runs one download/import. pump(st, getWriter, job, progress) returns the final size; the writer is opened when first needed. */
+  async function runPackJob(meta, pump, verb) {
+    if (dl) { toast(dl.cancelled ? 'Still stopping the last download; try again in a moment' : 'A map pack is already downloading'); return; }
+    const job = dl = { id: meta.id, cancelled: false, detached: false, ctl: new AbortController(), step: 'starting' }; // claimed before any wait
+    let wr = null, st = null;
     try {
-      let offset = st.chunks * st.ch, r;
-      try { r = await fetch(url, { signal: ctl.signal, cache: 'no-store', headers: offset ? { Range: `bytes=${offset}-` } : {} }); }
-      catch (e) { if (ctl.signal.aborted || !offset) throw e; r = null; }
-      if (offset && (!r || r.status !== 206)) { // the server would not resume: start again from the beginning
-        await deletePack(p.id); restart = true; return;
+      st = S.packs[meta.id];
+      const exact = meta.size && !meta.sizeApprox;
+      if (st && (st.done || (exact && st.size && st.size !== meta.size) || (meta.date && st.date && st.date !== meta.date))) { await removePackData(st); delete S.packs[meta.id]; st = null; } // a new copy: start fresh
+      if (st && !st.store) st.store = 'idb';
+      if (!st) st = S.packs[meta.id] = { id: meta.id, name: meta.name, size: exact ? meta.size : 0, date: meta.date || '', bbox: meta.bbox || null, maxzoom: meta.maxzoom || 15,
+        store: OPFS_OK ? 'opfs' : 'idb', bytes: 0, chunks: 0, ch: PACK_CH, done: false };
+      const need = (st.size || meta.size || 0) - st.bytes;
+      if (need > 0 && navigator.storage && navigator.storage.estimate) {
+        const est = await navigator.storage.estimate().catch(() => null);
+        if (est && est.quota && est.quota - est.usage < need * 1.1) throw new Error(`Not enough free space: the pack needs ${fmtMB(need)} more, about ${fmtMB(est.quota - est.usage)} is available to the app.`);
       }
-      if (!r.ok) throw new Error(`Map pack download failed (HTTP ${r.status})`);
-      const reader = r.body.getReader(); let buf = new Uint8Array(st.ch), fill = 0;
-      const flush = async (last) => {
-        if (!fill) return;
-        await dbPut('packs', { k: `${p.id}:${st.chunks}`, data: (last ? buf.slice(0, fill) : buf).buffer });
-        st.chunks++; offset += fill; fill = 0; buf = new Uint8Array(st.ch); persist();
-      };
-      busy(`Downloading ${p.name}${cell}…`, offset / p.size, true);
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        let v = value;
-        while (v.length) {
-          const n = Math.min(v.length, st.ch - fill);
-          buf.set(v.subarray(0, n), fill); fill += n; v = v.subarray(n);
-          if (fill === st.ch) await flush(false);
-        }
-        busy(`Downloading ${p.name}${cell}: ${fmtMB(offset + fill)} of ${fmtMB(p.size)}`, (offset + fill) / p.size, true);
+      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+      persist();
+      const total = () => st.size || meta.size || 0;
+      const progress = (pos) => { if (!job.cancelled) busy(`${verb} ${st.name}: ${fmtMB(pos)}${total() ? ` of ${fmtMB(total())}` : ''}`, total() ? Math.min(1, pos / total()) : null, true); };
+      progress(st.bytes);
+      const getWriter = async () => { if (!wr) { job.step = 'opening phone storage'; wr = await packWriter(st); } return wr; };
+      const size = await pump(st, getWriter, job, progress);
+      if (job.cancelled) throw CANCEL;
+      job.step = 'saving to phone storage';
+      await (await getWriter()).finish(size);
+      st.size = size; st.bytes = size;
+      const hdr = pmtilesHeader(new Uint8Array((await new PackSource(st.id).getBytes(0, 127)).data));
+      if (!hdr || hdr.tileType !== 1) {
+        await removePackData(st); delete S.packs[st.id]; persist();
+        throw new Error(hdr ? 'This map file has picture tiles; PoleCam needs a vector map pack (.pmtiles from Protomaps)' : 'This file is not a map pack (.pmtiles, PMTiles version 3)');
       }
-      await flush(true);
-      if (offset !== p.size) throw new Error(`Download incomplete (${fmtMB(offset)} of ${fmtMB(p.size)}). Tap Resume to continue.`);
-      st.done = true; persist();
-      if (!S.activePack) S.activePack = p.id;
+      Object.assign(st, { bbox: st.bbox || hdr.bbox, maxzoom: hdr.maxzoom, done: true });
+      if (!S.activePack) S.activePack = st.id;
       persist(); busy(false);
-      toast(`${p.name} is ready for offline use`, 3500);
+      toast(`${st.name} is ready for offline use`, 3500);
       if (S.base === 'offline') setBase('offline', true);
     } catch (e) {
+      if (wr) await wr.stop().catch(() => {});
+      if (!job.detached && st && S.packs[st.id] === st && !st.done && !st.bytes) { await removePackData(st).catch(() => {}); delete S.packs[st.id]; } // nothing saved: no half entry
       persist();
-      if (ctl.signal.aborted) toast('Download paused. Tap Resume to continue later.', 4000);
-      else throw e;
-    } finally { clearInterval(watch); cancelFlag = false; busy(false); renderOffline(); }
-    if (restart) await downloadPack(p);
+      if (!job.cancelled) { busy(false); toast(e === CANCEL ? 'Stopped' : (e.message || String(e)), 8000); }
+    } finally {
+      if (dl === job) dl = null;
+      if (!$('offline').hidden) renderOffline();
+    }
   }
-  $('offlineBtn').addEventListener('click', async () => { openSheet('offline'); renderOffline(); await loadPackIndex(); renderOffline(); });
-  $('packRefresh').addEventListener('click', async () => { $('packSource').textContent = 'Checking for map packs…'; await loadPackIndex(); renderOffline(); });
+  /** Cancel answers at once: the screen is released immediately and the job stops at its next step. */
+  $('busyCancel').addEventListener('click', () => {
+    const job = dl;
+    if (!job || job.cancelled) return;
+    job.cancelled = true; try { job.ctl.abort(); } catch (e) { /* already stopped */ }
+    busy(false);
+    if (job.step === 'downloading with Android') { job.detached = true; dl = null; } // Android finishes that download on its own; its file is then thrown away
+    toast(`Stopped (it was ${job.step}). Tap Resume to continue later.`, 5000);
+    if (!$('offline').hidden) renderOffline();
+  });
+  /** Ranged download from a web server that allows it (e.g. GitHub Pages); a server that ignores ranges is read in one stream. */
+  const PIECE = 4 * 1024 * 1024;
+  const pumpUrl = (url) => async (st, getWriter, job, progress) => {
+    const w = await getWriter();
+    let size = st.size || 0, tries = 0;
+    for (;;) {
+      if (size && w.pos >= size) return size;
+      const from = w.pos, to = (size ? Math.min(size, from + PIECE) : from + PIECE) - 1;
+      job.step = 'downloading';
+      let r;
+      try { r = await withTimeout(fetch(url, { signal: job.ctl.signal, cache: 'no-store', headers: { Range: `bytes=${from}-${to}` } }), 60000, 'The download stalled'); }
+      catch (e) {
+        if (job.cancelled) throw CANCEL;
+        if (++tries > 4) throw new Error(`The download keeps failing (${e.message}). Check the connection and tap Resume.`);
+        await sleep(2000 * tries); continue;
+      }
+      if (r.status === 206) {
+        const cr = /bytes (\d+)-(\d+)\/(\d+)/.exec(r.headers.get('content-range') || '');
+        if (!cr || +cr[1] !== from) { r.body && r.body.cancel().catch(() => {}); return streamFrom(url, w, job, progress); } // a wrong part: read the file in one stream instead
+        size = +cr[3]; st.size = size;
+        const buf = new Uint8Array(await withTimeout(r.arrayBuffer(), 120000, 'The download stalled'));
+        if (job.cancelled) throw CANCEL;
+        if (buf.length !== +cr[2] - +cr[1] + 1) { if (++tries > 4) throw new Error('The server keeps sending incomplete pieces. Tap Resume later.'); continue; }
+        job.step = 'saving to phone storage'; await w.write(buf); tries = 0;
+        if (job.cancelled) throw CANCEL;
+        progress(w.pos);
+      } else if (r.status === 200) { r.body && r.body.cancel().catch(() => {}); return streamFrom(url, w, job, progress); } // no range support
+      else if (r.status === 416 && size && w.pos >= size) return size;
+      else throw new Error(`Map pack download failed (HTTP ${r.status})`);
+    }
+  };
+  /** Whole-file stream (no ranges), skipping the part already saved. */
+  async function streamFrom(url, w, job, progress) {
+    job.step = 'downloading';
+    const r = await withTimeout(fetch(url, { signal: job.ctl.signal, cache: 'no-store' }), 60000, 'The download stalled');
+    if (!r.ok) throw new Error(`Map pack download failed (HTTP ${r.status})`);
+    const rd = r.body.getReader(); let skip = w.pos, size = 0;
+    for (;;) {
+      job.step = 'downloading';
+      const { done, value } = await withTimeout(rd.read(), 60000, 'The download stalled').catch((e) => { job.ctl.abort(); throw e; });
+      if (job.cancelled) throw CANCEL;
+      if (done) break;
+      size += value.length;
+      let v = value;
+      if (skip) { const n = Math.min(skip, v.length); skip -= n; v = v.subarray(n); if (!v.length) continue; }
+      job.step = 'saving to phone storage'; await w.write(v);
+      if (job.cancelled) throw CANCEL;
+      progress(w.pos);
+    }
+    return size;
+  }
+  /** APK: Google Drive through Android's own HTTP stack (the in-app browser cannot read Drive files), in resumable pieces. */
+  const pumpDrive = (fileId) => async (st, getWriter, job, progress) => {
+    const url = driveDownloadUrl(fileId);
+    job.step = 'contacting Google Drive';
+    let h = null;
+    try { h = await withTimeout(nativeCall('CapacitorHttp', 'request', { url, method: 'HEAD', headers: { 'User-Agent': APP_UA() } }), 60000, 'Google Drive did not answer'); } catch (e) { h = null; }
+    if (job.cancelled) throw CANCEL;
+    const hv = (k) => { const H = (h && h.headers) || {}; const key = Object.keys(H).find((x) => x.toLowerCase() === k); return key ? String(H[key]) : ''; };
+    if (h && /text\/html/i.test(hv('content-type'))) throw new Error(DRIVE_HTML_ERR);
+    const size = +hv('content-length') || 0;
+    if (!h || h.status >= 400 || !size || !/bytes/i.test(hv('accept-ranges'))) return pumpNativeFile(url, st, getWriter, job, progress);
+    if (st.size && st.size !== size && st.bytes) { throw new Error('The file on Google Drive has changed since this download started. Delete the partial pack and download again.'); }
+    st.size = size; persist();
+    const w = await getWriter();
+    let tries = 0;
+    while (w.pos < size) {
+      const from = w.pos, to = Math.min(size, from + PIECE) - 1;
+      job.step = 'downloading from Google Drive';
+      let r;
+      try { r = await withTimeout(nativeGet(url, { Range: `bytes=${from}-${to}` }), 120000, 'The download stalled'); }
+      catch (e) {
+        if (job.cancelled) throw CANCEL;
+        if (++tries > 4) throw new Error(`The download keeps failing (${e.message}). Check the connection and tap Resume.`);
+        await sleep(2000 * tries); continue;
+      }
+      if (job.cancelled) throw CANCEL;
+      if (r.status !== 206) throw new Error(r.status === 200 ? 'Google Drive sent the whole file at once; use Open in Drive and Import a pack file' : `Google Drive download failed (HTTP ${r.status})`);
+      const bytes = nativeBytes(r.data);
+      if (bytes.length !== to - from + 1) { if (++tries > 4) throw new Error('Google Drive sent an incomplete piece. Tap Resume.'); continue; }
+      job.step = 'saving to phone storage'; await w.write(bytes); tries = 0;
+      if (job.cancelled) throw CANCEL;
+      progress(w.pos);
+    }
+    return size;
+  };
+  /** APK fallback: Android downloads the whole file, then PoleCam copies it (one stream, no ranges) into its map storage. */
+  async function pumpNativeFile(url, st, getWriter, job, progress) {
+    job.step = 'downloading with Android';
+    const path = `packdl/${st.id}-${Date.now()}.pmtiles`, fs = nativePlugin('Filesystem');
+    let lis = null;
+    try {
+      try { if (fs.proxy) lis = await fs.proxy.addListener('progress', (e) => { if (!job.cancelled && e && e.bytes) busy(`Downloading ${st.name}: ${fmtMB(e.bytes)}${e.contentLength > 0 ? ` of ${fmtMB(e.contentLength)}` : ''}`, e.contentLength > 0 ? e.bytes / e.contentLength : null, true); }); } catch (e) { lis = null; }
+      await nativeCall('Filesystem', 'downloadFile', { url, path, directory: 'CACHE', progress: true, recursive: true });
+      if (lis && lis.remove) lis.remove(); lis = null;
+      if (job.cancelled) throw CANCEL;
+      const { uri } = await nativeCall('Filesystem', 'getUri', { path, directory: 'CACHE' });
+      const w = await getWriter();
+      return await streamFrom(window.Capacitor.convertFileSrc(uri), w, job, progress);
+    } finally {
+      if (lis && lis.remove) lis.remove();
+      nativeCall('Filesystem', 'deleteFile', { path, directory: 'CACHE' }).catch(() => {});
+    }
+  }
+  /** A .pmtiles file on this phone (downloaded from Drive, copied by USB, received in a chat app). */
+  const pumpFile = (file) => async (st, getWriter, job, progress) => {
+    const w = await getWriter();
+    const rd = file.slice(w.pos).stream().getReader();
+    for (;;) {
+      job.step = 'reading the file';
+      const { done, value } = await withTimeout(rd.read(), 60000, 'The file could not be read');
+      if (job.cancelled) throw CANCEL;
+      if (done) break;
+      job.step = 'saving to phone storage'; await w.write(value);
+      if (job.cancelled) throw CANCEL;
+      progress(w.pos);
+    }
+    return file.size;
+  };
+  function downloadPack(p) {
+    if (!navigator.onLine) { toast('Connect to the internet (Wi-Fi recommended) to download map packs'); return; }
+    if (p.url) return runPackJob(p, pumpUrl(p.url), 'Downloading');
+    if (p.drive && NATIVE) return runPackJob(p, pumpDrive(p.drive), 'Downloading');
+    return null;
+  }
+  $('packImport').addEventListener('click', () => { $('packFileInput').value = ''; $('packFileInput').click(); });
+  $('packFileInput').addEventListener('change', async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const hdr = pmtilesHeader(new Uint8Array(await f.slice(0, 127).arrayBuffer()));
+    if (!hdr) { toast('That file is not a map pack (.pmtiles). Choose the .pmtiles file you downloaded.', 6000); return; }
+    if (hdr.tileType !== 1) { toast('That map file has picture tiles; PoleCam needs a vector map pack (.pmtiles from Protomaps)', 6000); return; }
+    const base = f.name.replace(/\.pmtiles$/i, ''), id = `file-${C.safeName(base).toLowerCase()}-${f.size}`;
+    const known = packCatalog().find((x) => x.size === f.size && (x.name || '').toLowerCase().replace(/[^a-z0-9]/g, '').includes(C.safeName(base).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8)));
+    await runPackJob({ id: known && known.drive ? known.id : id, name: known ? known.name : base.replace(/[_-]+/g, ' '), size: f.size, bbox: hdr.bbox, maxzoom: hdr.maxzoom }, pumpFile(f), 'Importing');
+  });
+  $('packAddLink').addEventListener('click', () => {
+    const v = $('packLink').value.trim(), id = driveId(v);
+    if (!id) { toast('Paste a Google Drive share link, e.g. https://drive.google.com/file/d/…/view'); return; }
+    S.packLinks = (S.packLinks || []).filter((x) => x.drive !== id);
+    S.packLinks.push({ drive: id, name: $('packLinkName').value.trim() || 'Map pack from Google Drive' });
+    persist(); $('packLink').value = ''; $('packLinkName').value = ''; renderOffline();
+    toast(NATIVE ? 'Link added. Tap Download.' : 'Link added. Tap Open in Drive, download the file, then Import a pack file.', 4000);
+  });
+  $('offlineBtn').addEventListener('click', async () => { openSheet('offline'); renderOffline(); await Promise.all([loadPackIndex(), cloudSync(false)]); renderOffline(); });
+  $('packRefresh').addEventListener('click', async () => { $('packSource').textContent = 'Checking for map packs…'; await Promise.all([loadPackIndex(), cloudSync(true)]); renderOffline(); });
   $('clearTiles').addEventListener('click', () => {
     const b = $('clearTiles');
     if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again to delete viewed tiles'; setTimeout(() => { delete b.dataset.armed; b.textContent = 'Delete viewed map tiles'; }, 4000); return; }
@@ -2633,6 +3461,7 @@
       try { await tx('tiles', 'readwrite', (st) => st.delete(IDBKeyRange.bound('satellite/', 'satellite/\uffff'))); delete S.dropSatTiles; persist(); } catch (e) { /* try again next start */ }
     }
     if (!profileOk()) openProfile(true);
+    cloudSync(false);
   })();
   // Files handed to other apps through Share are temporary: clear them each time the APK starts.
   if (NATIVE) nativeCall('Filesystem', 'rmdir', { path: 'share', directory: 'CACHE', recursive: true }).catch(() => {});

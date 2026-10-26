@@ -1,5 +1,5 @@
 {
-  "about": "Areas published as offline map packs by the 'Deploy website and offline maps' workflow. bbox = [west, south, east, north] in degrees (longitude, latitude). maxzoom 15 is street detail; the app keeps zooming in using the same data. GitHub Pages allows 1 GB per site: packs are added in this order and any pack that would pass about 950 MB in total is left out (the workflow log says so). Edit this list and commit; the next run cuts the new packs.",
+  "about": "Areas for the optional 'Build map packs' GitHub workflow, which makes .pmtiles files and attaches them to a GitHub Release (not GitHub Pages, not the repository). Upload the files to Google Drive and list the links in the online sheet's MapPacks tab. bbox = [west, south, east, north] in degrees. maxzoom 15 is street detail; the app keeps zooming in using the same data. Each file must be under 2 GB.",
   "packs": [
     {
       "id": "region-xii",
