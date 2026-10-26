@@ -1,6 +1,6 @@
 /* PoleCam offline cache: keeps the app itself available with no signal.
    Map tiles are cached separately by the app (IndexedDB). Bump VERSION after editing any file. */
-const VERSION = 'polecam-v1.3.0';
+const VERSION = 'polecam-v1.3.1';
 const SHELL = [
   './', 'index.html', 'app.js', 'core.js', 'reports.js', 'manifest.json',
   'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css',

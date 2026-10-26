@@ -35,9 +35,12 @@
   const persist = () => { try { localStorage.setItem('polecam.settings', JSON.stringify(S)); } catch (e) { /* storage blocked */ } };
 
   /* ================= IndexedDB ================= */
+  /* The browser can close the database connection on its own (the app goes to the background while the camera
+     is open, storage pressure, another tab). Every call therefore reopens a closed connection and retries once.
+     Photos and tiles are stored as ArrayBuffers, which every browser (including Safari on iPhone) stores reliably. */
   let dbp = null;
-  function idb() {
-    if (!dbp) dbp = new Promise((res, rej) => {
+  function openDb() {
+    return new Promise((res, rej) => {
       const r = indexedDB.open('polecam', 1);
       r.onupgradeneeded = () => {
         const d = r.result;
@@ -45,28 +48,52 @@
         d.createObjectStore('photos', { keyPath: 'id' });
         d.createObjectStore('tiles', { keyPath: 'k' });
       };
-      r.onsuccess = () => res(r.result);
-      r.onerror = () => rej(r.error);
-    });
-    return dbp;
-  }
-  async function tx(store, mode, fn) {
-    const d = await idb();
-    return new Promise((res, rej) => {
-      const t = d.transaction(store, mode), req = fn(t.objectStore(store));
-      let out;
-      if (req) req.onsuccess = () => { out = req.result; };
-      t.oncomplete = () => res(out);
-      t.onerror = () => rej(t.error);
-      t.onabort = () => rej(t.error || new Error('Storage aborted (phone storage may be full)'));
+      r.onsuccess = () => {
+        const d = r.result;
+        d.onclose = () => { dbp = null; };
+        d.onversionchange = () => { try { d.close(); } catch (e) { /* already closed */ } dbp = null; };
+        res(d);
+      };
+      r.onerror = () => { dbp = null; rej(r.error); };
+      r.onblocked = () => { dbp = null; rej(new Error('Storage is busy in another PoleCam tab. Close other tabs and try again.')); };
     });
   }
-  const dbGet = (st, k) => tx(st, 'readonly', (s) => s.get(k));
-  const dbPut = (st, v) => tx(st, 'readwrite', (s) => s.put(v));
+  function idb() { if (!dbp) dbp = openDb(); return dbp; }
+  const isClosedErr = (e) => !!e && (e.name === 'InvalidStateError' || e.name === 'UnknownError' || /clos|lost/i.test(String(e.message || '')));
+  async function tx(store, mode, fn, retried) {
+    let d;
+    try { d = await idb(); } catch (e) { dbp = null; if (!retried) return tx(store, mode, fn, true); throw e; }
+    try {
+      return await new Promise((res, rej) => {
+        const t = d.transaction(store, mode), req = fn(t.objectStore(store));
+        let out;
+        if (req) req.onsuccess = () => { out = req.result; };
+        t.oncomplete = () => res(out);
+        t.onerror = () => rej(t.error);
+        t.onabort = () => rej(t.error || new Error('Storage aborted (phone storage may be full)'));
+      });
+    } catch (e) {
+      if (!retried && isClosedErr(e)) { dbp = null; return tx(store, mode, fn, true); }
+      throw e;
+    }
+  }
+  async function pack(v) {
+    const o = { ...v };
+    for (const k of Object.keys(o)) if (o[k] instanceof Blob) o[k] = { __ab: await o[k].arrayBuffer(), type: o[k].type || 'image/jpeg' };
+    return o;
+  }
+  function unpack(v) {
+    if (!v || typeof v !== 'object') return v;
+    for (const k of Object.keys(v)) { const x = v[k]; if (x && x.__ab) v[k] = new Blob([x.__ab], { type: x.type }); }
+    return v;
+  }
+  const dbGet = async (st, k) => unpack(await tx(st, 'readonly', (s) => s.get(k)));
+  const dbPut = async (st, v) => { const p = await pack(v); return tx(st, 'readwrite', (s) => s.put(p)); };
   const dbDel = (st, k) => tx(st, 'readwrite', (s) => s.delete(k));
-  const dbAll = (st) => tx(st, 'readonly', (s) => s.getAll());
+  const dbAll = async (st) => (await tx(st, 'readonly', (s) => s.getAll())).map(unpack);
   const dbCount = (st) => tx(st, 'readonly', (s) => s.count());
   const dbClear = (st) => tx(st, 'readwrite', (s) => s.clear());
+  const dbDelMany = (st, keys) => tx(st, 'readwrite', (s) => { keys.forEach((k) => s.delete(k)); });
 
   /* ================= UI helpers ================= */
   let toastTimer = 0;
@@ -1522,8 +1549,7 @@
     for (const o of S.areas) for (const src of o.srcs) for (const [z, x, y] of tilesFor(o.b, o.zmax)) keep.add(`${src}/${z}/${x}/${y}`);
     const keys = [];
     for (const src of ar.srcs) for (const [z, x, y] of tilesFor(ar.b, ar.zmax)) { const k = `${src}/${z}/${x}/${y}`; if (!keep.has(k)) keys.push(k); }
-    const d = await idb();
-    await new Promise((res, rej) => { const t = d.transaction('tiles', 'readwrite'), s = t.objectStore('tiles'); keys.forEach((k) => s.delete(k)); t.oncomplete = res; t.onerror = () => rej(t.error); });
+    await dbDelMany('tiles', keys);
   }
   $('offlineBtn').addEventListener('click', () => { renderOffline(); openSheet('offline'); });
   $('offAreaChips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c || c.disabled) return; offArea = c.dataset.v; setChips('offAreaChips', offArea); updateOffEstimate(); });
@@ -1573,5 +1599,5 @@
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__polecam = { get points() { return points; }, get S() { return S; }, openEditor, exportPhoto, tilesFor }; // for testing
+  window.__polecam = { get points() { return points; }, get S() { return S; }, openEditor, exportPhoto, tilesFor, closeDb: async () => (await idb()).close() }; // for testing
 })();
