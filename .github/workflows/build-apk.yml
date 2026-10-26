@@ -1,0 +1,177 @@
+# Builds PoleCam as an offline Android APK (all app files packed inside) and publishes it as a GitHub Release.
+# Runs on every change to the app files, or by hand: Actions > Build Android APK > Run workflow.
+# Needs two repository secrets: POLECAM_KEYSTORE_B64 and POLECAM_KEYSTORE_PASSWORD.
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-apk
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      KS_B64: ${{ secrets.POLECAM_KEYSTORE_B64 }}
+      KS_PASS: ${{ secrets.POLECAM_KEYSTORE_PASSWORD }}
+    steps:
+      - name: Check the signing key secrets
+        run: |
+          if [ -z "$KS_B64" ] || [ -z "$KS_PASS" ]; then
+            echo "::error::Add the repository secrets POLECAM_KEYSTORE_B64 and POLECAM_KEYSTORE_PASSWORD (Settings > Secrets and variables > Actions), then run this workflow again."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Create the Capacitor project
+        run: |
+          mkdir -p build/www
+          cp -r index.html app.js core.js reports.js ocr-worker.js manifest.json icons vendor build/www/
+          cd build
+          cat > package.json <<'EOF'
+          {
+            "name": "polecam-android",
+            "private": true,
+            "version": "1.0.0",
+            "dependencies": {
+              "@capacitor/android": "^7.0.0",
+              "@capacitor/app": "^7.0.0",
+              "@capacitor/core": "^7.0.0",
+              "@capacitor/filesystem": "^7.0.0",
+              "@capacitor/share": "^7.0.0"
+            },
+            "devDependencies": {
+              "@capacitor/cli": "^7.0.0"
+            }
+          }
+          EOF
+          cat > capacitor.config.json <<'EOF'
+          {
+            "appId": "com.marktamse.polecam",
+            "appName": "PoleCam",
+            "webDir": "www",
+            "android": { "backgroundColor": "#17202a" }
+          }
+          EOF
+          npm install --no-audit --no-fund
+          if [ -f node_modules/@capacitor/core/dist/capacitor.js ]; then
+            cp node_modules/@capacitor/core/dist/capacitor.js www/vendor/capacitor.js
+            sed -i 's#<script src="core.js"></script>#<script src="vendor/capacitor.js"></script>\n<script src="core.js"></script>#' www/index.html
+          else
+            echo "capacitor.js not found; the app will talk to the native bridge directly"
+          fi
+          npx cap add android
+
+      - name: Permissions, icon, splash screen and version
+        working-directory: build
+        run: |
+          pip install --quiet pillow
+          APPVER=$(grep -oP "polecam-v\K[0-9.]+" ../sw.js || echo "1.0.0")
+          sed -i -E "s/versionCode [0-9]+/versionCode ${{ github.run_number }}/; s/versionName \"[^\"]*\"/versionName \"${APPVER} (build ${{ github.run_number }})\"/" android/app/build.gradle
+          grep -E "versionCode|versionName" android/app/build.gradle
+          python3 - <<'PY'
+          import glob, os
+          from PIL import Image, ImageDraw
+          # Android permissions: camera and precise GPS for the in-app camera, storage for saving exports on Android 10
+          p = 'android/app/src/main/AndroidManifest.xml'
+          s = open(p).read()
+          add = ''
+          for perm in ['android.permission.CAMERA', 'android.permission.ACCESS_FINE_LOCATION', 'android.permission.ACCESS_COARSE_LOCATION']:
+              if perm not in s:
+                  add += f'    <uses-permission android:name="{perm}" />\n'
+          if 'WRITE_EXTERNAL_STORAGE' not in s:
+              add += '    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />\n'
+          add += '    <uses-feature android:name="android.hardware.camera" android:required="false" />\n'
+          add += '    <uses-feature android:name="android.hardware.location.gps" android:required="false" />\n'
+          s = s.replace('</manifest>', add + '</manifest>')
+          if 'requestLegacyExternalStorage' not in s:
+              s = s.replace('<application', '<application android:requestLegacyExternalStorage="true"', 1)
+          open(p, 'w').write(s)
+          print(s)
+          # Launcher icons and splash screen from the PoleCam icons
+          res = 'android/app/src/main/res'
+          full = Image.open('www/icons/maskable-512.png').convert('RGBA')
+          rounded = Image.open('www/icons/icon-512.png').convert('RGBA')
+          for dens, f in {'mdpi': 1, 'hdpi': 1.5, 'xhdpi': 2, 'xxhdpi': 3, 'xxxhdpi': 4}.items():
+              d = f'{res}/mipmap-{dens}'
+              os.makedirs(d, exist_ok=True)
+              n = round(48 * f)
+              rounded.resize((n, n), Image.LANCZOS).save(f'{d}/ic_launcher.png')
+              mask = Image.new('L', (n * 4, n * 4), 0)
+              ImageDraw.Draw(mask).ellipse([0, 0, n * 4 - 1, n * 4 - 1], fill=255)
+              r = full.resize((n, n), Image.LANCZOS)
+              r.putalpha(mask.resize((n, n), Image.LANCZOS))
+              r.save(f'{d}/ic_launcher_round.png')
+              fg = round(108 * f)
+              full.resize((fg, fg), Image.LANCZOS).save(f'{d}/ic_launcher_foreground.png')
+          os.makedirs(f'{res}/values', exist_ok=True)
+          open(f'{res}/values/ic_launcher_background.xml', 'w').write(
+              '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#17202A</color>\n</resources>\n')
+          for sp in glob.glob(f'{res}/drawable*/splash.png'):
+              w, h = Image.open(sp).size
+              im = Image.new('RGB', (w, h), (23, 32, 42))
+              k = int(min(w, h) * 0.3)
+              logo = full.resize((k, k), Image.LANCZOS)
+              im.paste(logo, ((w - k) // 2, (h - k) // 2), logo)
+              im.save(sp)
+              print('splash', sp, w, h)
+          PY
+          npx cap sync android
+
+      - name: Build the APK
+        working-directory: build/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Sign the APK
+        run: |
+          echo "$KS_B64" | base64 -d > polecam.keystore
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "Using build tools $BT"
+          "$BT/zipalign" -p -f 4 build/android/app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
+          "$BT/apksigner" sign --ks polecam.keystore --ks-key-alias polecam --ks-pass env:KS_PASS --key-pass env:KS_PASS --out PoleCam.apk aligned.apk
+          "$BT/apksigner" verify --print-certs PoleCam.apk
+          rm -f polecam.keystore
+          ls -l PoleCam.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PoleCam-apk-build-${{ github.run_number }}
+          path: PoleCam.apk
+
+      - name: Publish as a GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APPVER=$(grep -oP "polecam-v\K[0-9.]+" sw.js || echo "1.0.0")
+          gh release create "apk-build-${{ github.run_number }}" PoleCam.apk \
+            --title "PoleCam ${APPVER} – Android APK (build ${{ github.run_number }})" \
+            --notes "Offline APK: all app files are inside, no internet needed to install or run (maps still need internet or a downloaded offline area).
+
+          Install: download PoleCam.apk on the phone, open it, allow 'Install unknown apps' for your browser or file manager, then Install. To update, install the newer APK over the old one; your projects stay.
+
+          Direct link to the newest APK: https://github.com/${{ github.repository }}/releases/latest/download/PoleCam.apk" \
+            --latest
