@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PoleCam Survey</title>
+<meta name="theme-color" content="#17202a">
+<meta name="description" content="Capture geotagged pole photos, correct the pin, and export KMZ, DXF (UTM) and CSV for OSP design.">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<style>
+/* Layout: one full-screen map with a bottom command bar; every task opens as a full-screen sheet over it. */
+:root{
+  --bg:#eef0ec; --surface:#ffffff; --ink:#17202a; --muted:#5a6570; --line:#d3d8d2;
+  --accent:#e8590c; --accent-ink:#ffffff; --ok:#2b8a3e; --warn:#b35c00; --bad:#c92a2a; --chip:#e4e7e2;
+  --shadow:0 2px 10px rgba(16,24,32,.18);
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;
+  --mono:ui-monospace,"Roboto Mono","SFMono-Regular",Menlo,Consolas,monospace;
+  --r:10px; --tap:48px;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#10151a; --surface:#1a2129; --ink:#e7ebee; --muted:#9aa5ae; --line:#2d3741;
+  --accent:#ff7a2e; --accent-ink:#1a0d04; --ok:#5cc26f; --warn:#f0a040; --bad:#ff6b6b; --chip:#25303a;
+  --shadow:0 2px 12px rgba(0,0,0,.5); color-scheme:dark;
+}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.4 var(--sans);overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+[hidden]{display:none!important}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ---- main map ---- */
+#app{position:fixed;inset:0;display:flex;flex-direction:column}
+#topbar{display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top,0px) + 8px) max(12px,env(safe-area-inset-right,0px)) 8px max(12px,env(safe-area-inset-left,0px));background:var(--surface);border-bottom:1px solid var(--line);z-index:500}
+#topbar .brand{font-weight:800;letter-spacing:.02em;white-space:nowrap}
+#topbar .brand b{color:var(--accent)}
+#projectBtn{flex:1;min-width:0;display:flex;align-items:center;gap:6px;justify-content:flex-end;background:none;border:1px solid var(--line);border-radius:999px;padding:6px 12px;height:38px}
+#projectBtn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#projectBtn .count{font-family:var(--mono);color:var(--muted);flex:none}
+#map{flex:1;background:var(--chip)}
+#gpsPill{position:absolute;top:calc(env(safe-area-inset-top,0px) + 64px);left:max(12px,env(safe-area-inset-left,0px));z-index:450;background:var(--surface);border-radius:999px;padding:6px 12px;box-shadow:var(--shadow);font-size:13px;display:flex;gap:6px;align-items:center}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
+.dot.good{background:var(--ok)}.dot.fair{background:var(--warn)}.dot.poor{background:var(--bad)}
+.mapbtns{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 104px);z-index:450;display:flex;flex-direction:column;gap:10px}
+.round{width:var(--tap);height:var(--tap);border-radius:50%;border:0;background:var(--surface);box-shadow:var(--shadow);display:grid;place-items:center}
+.round svg{width:22px;height:22px}
+#bottombar{display:flex;align-items:center;justify-content:space-around;gap:4px;background:var(--surface);border-top:1px solid var(--line);padding:6px max(8px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 6px) max(8px,env(safe-area-inset-left,0px));z-index:500}
+.navbtn{flex:1;background:none;border:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;font-size:12px;color:var(--muted);min-height:var(--tap)}
+.navbtn svg{width:24px;height:24px}
+#captureBtn{flex:none;width:68px;height:68px;margin-top:-30px;border-radius:50%;border:4px solid var(--surface);background:var(--accent);color:var(--accent-ink);box-shadow:var(--shadow);display:grid;place-items:center}
+#captureBtn svg{width:30px;height:30px}
+
+/* pole markers on map */
+.pole-label{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font:600 11px/1.3 var(--mono);box-shadow:none}
+.pole-label::before{display:none}
+.hide-labels .pole-label{display:none}
+.leaflet-container{font-family:var(--sans)}
+.leaflet-control-attribution{font-size:10px}
+
+/* ---- sheets ---- */
+.sheet{position:fixed;inset:0;z-index:1000;background:var(--bg);display:flex;flex-direction:column}
+.sheet header{display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top,0px) + 6px) max(8px,env(safe-area-inset-right,0px)) 6px max(8px,env(safe-area-inset-left,0px));background:var(--surface);border-bottom:1px solid var(--line)}
+.sheet header h2{flex:1;margin:0;font-size:17px;text-wrap:balance}
+.iconbtn{width:var(--tap);height:var(--tap);border:0;background:none;display:grid;place-items:center;border-radius:50%}
+.iconbtn svg{width:24px;height:24px}
+.body{flex:1;overflow:auto;padding:14px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 24px) max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:14px}
+.foot{display:flex;gap:10px;padding:10px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 10px) max(16px,env(safe-area-inset-left,0px));background:var(--surface);border-top:1px solid var(--line)}
+.btn{min-height:var(--tap);border-radius:var(--r);border:1px solid var(--line);background:var(--surface);padding:0 16px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.danger{color:var(--bad)}
+.btn.grow{flex:1}
+.btn:disabled{opacity:.5}
+label.field{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.02em}
+input[type=text],input[type=number],select,textarea{width:100%;min-height:var(--tap);border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:10px 12px;font-size:16px;color:var(--ink)}
+textarea{min-height:90px;resize:vertical}
+#poleId{font:700 22px var(--mono);letter-spacing:.03em;text-transform:uppercase}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{min-height:42px;padding:0 16px;border-radius:999px;border:1px solid var(--line);background:var(--chip);font-weight:600}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.hint{font-size:13px;color:var(--muted);margin:0}
+.warnline{font-size:13px;color:var(--warn);margin:0;font-weight:600}
+.group{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:12px}
+.group h3{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.row > *{min-width:0}
+.check{display:flex;gap:10px;align-items:flex-start;font-size:15px}
+.check input{width:22px;height:22px;margin:1px 0 0;accent-color:var(--accent);flex:none}
+
+/* camera */
+#camera{background:#000;color:#fff}
+#camera video{flex:1;width:100%;object-fit:cover;min-height:0;background:#000}
+#camTop{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));display:flex;justify-content:space-between;align-items:center;gap:8px;z-index:2}
+#camTop .pill{background:rgba(0,0,0,.55);border-radius:999px;padding:6px 12px;font-size:13px;display:flex;gap:6px;align-items:center}
+#camBar{display:flex;align-items:center;justify-content:space-around;padding:16px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 20px) max(16px,env(safe-area-inset-left,0px));background:#000}
+#shutter{width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:var(--accent)}
+#shutter:active{transform:scale(.94)}
+.camside{width:56px;height:56px;border-radius:50%;border:0;background:rgba(255,255,255,.14);color:#fff;display:grid;place-items:center}
+.camside svg{width:24px;height:24px}
+.camclose{width:44px;height:44px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;display:grid;place-items:center}
+#camMsg{position:absolute;inset:auto 16px 50% 16px;text-align:center;z-index:2}
+
+/* point editor */
+#pinMapWrap{position:relative;height:46vh;min-height:240px;flex:none;border-bottom:1px solid var(--line)}
+#pinMap{position:absolute;inset:0;background:var(--chip)}
+#crosshair{position:absolute;left:50%;top:50%;width:0;height:0;z-index:400;pointer-events:none}
+#crosshair svg{position:absolute;left:-18px;top:-44px;width:36px;height:46px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.4))}
+#crosshair i{position:absolute;left:-3px;top:-3px;width:6px;height:6px;border-radius:50%;background:#000;border:1px solid #fff}
+#pinInfo{position:absolute;left:8px;right:8px;bottom:8px;z-index:400;display:flex;justify-content:space-between;align-items:flex-end;gap:8px;pointer-events:none}
+#pinInfo > *{pointer-events:auto}
+#coordBox{background:var(--surface);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:var(--shadow);line-height:1.35}
+#coordBox.over{background:var(--bad);color:#fff}
+.navbtn.off{opacity:.4}
+#snapGps{min-height:40px;font-size:13px;box-shadow:var(--shadow)}
+#photoStrip{display:flex;gap:12px;align-items:center}
+#photoStrip img{width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none;background:var(--chip)}
+#photoStrip .meta{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:2px;min-width:0}
+#queueNote{font-weight:700;color:var(--accent)}
+
+/* list */
+.card{display:flex;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px;text-align:left;width:100%}
+.card img{width:64px;height:64px;border-radius:8px;object-fit:cover;flex:none;background:var(--chip)}
+.card .t{font:700 16px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .s{font-size:13px;color:var(--muted)}
+.card > div{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--chip);color:var(--ink);margin-right:4px}
+.tag.adj{background:var(--accent);color:var(--accent-ink)}
+.tag.dup{background:var(--bad);color:#fff}
+.empty{text-align:center;color:var(--muted);padding:40px 16px}
+
+/* toast + progress */
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 96px);z-index:3000;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;max-width:calc(100% - 32px);text-align:center;box-shadow:var(--shadow)}
+#busy{position:fixed;inset:0;z-index:2500;background:rgba(0,0,0,.45);display:grid;place-items:center;padding:24px}
+#busy div{background:var(--surface);border-radius:var(--r);padding:20px;min-width:240px;max-width:100%;text-align:center;font-weight:600}
+#busy progress{width:100%;margin-top:12px;accent-color:var(--accent)}
+.result{display:flex;gap:10px;flex-wrap:wrap}
+.lbl{font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.02em}
+.field:not(label){display:flex;flex-direction:column;gap:6px}
+.badge{font:700 11px/1 var(--mono);letter-spacing:.06em;padding:5px 7px;border-radius:6px;background:var(--chip);color:var(--muted);flex:none}
+.badge.acc{background:var(--accent);color:var(--accent-ink)}
+.photo-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.ph{position:relative;display:flex;flex-direction:column;gap:4px;min-width:0}
+.ph img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:var(--chip)}
+.ph select{min-height:36px;padding:4px 6px;font-size:13px;border-radius:8px}
+.ph .x{position:absolute;top:4px;right:4px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:18px;line-height:1}
+.ph.add{align-items:center;justify-content:center;aspect-ratio:1;border:2px dashed var(--line);border-radius:8px;background:none;color:var(--muted);font-weight:700;font-size:13px}
+.pill{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:var(--chip)}
+.pill.ok{background:var(--ok);color:#fff}.pill.bad{background:var(--bad);color:#fff}.pill.rect{background:#1971c2;color:#fff}
+.defcard{border:1px solid var(--line);border-left:5px solid var(--bad);border-radius:var(--r);padding:10px;display:flex;flex-direction:column;gap:6px;background:var(--bg)}
+.defcard.rect{border-left-color:#1971c2}
+.defcard .t{font-weight:700}
+.defcard .s{font-size:12px;color:var(--muted)}
+.defcard .thumbs{display:flex;gap:6px}
+.defcard .thumbs img{width:56px;height:56px;object-fit:cover;border-radius:6px}
+.defcard .acts{display:flex;gap:6px;flex-wrap:wrap}
+.defcard .acts .btn{min-height:38px;padding:0 10px;font-size:13px}
+.defcard input{min-height:40px;font-size:14px}
+.defpanel{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:12px}
+.chip.small{min-height:36px;padding:0 12px;font-size:13px;font-weight:600}
+.est-bad{color:var(--bad);font-weight:600}
+.area-card{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:var(--r);padding:10px}
+.area-card > div{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.area-card .t{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.area-card .s{font-size:12px;color:var(--muted)}
+.area-card .btn{min-height:40px;padding:0 12px;font-size:14px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <div class="brand">Pole<b>Cam</b></div>
+    <span class="badge" id="modeBadge">SURVEY</span>
+    <button id="projectBtn" aria-label="Change project"><span id="projectName">Project</span><span class="count" id="pointCount">0</span></button>
+  </div>
+  <div id="map" role="application" aria-label="Survey map"></div>
+  <div id="gpsPill" aria-live="polite"><span class="dot" id="gpsDot"></span><span id="gpsText">GPS off</span></div>
+  <div class="mapbtns">
+    <button class="round" id="offlineBtn" aria-label="Offline maps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18"/><path d="M12 11v9M8.5 16.5 12 20l3.5-3.5"/></svg></button>
+    <button class="round" id="layerBtn" aria-label="Switch map: street or satellite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button>
+    <button class="round" id="locateBtn" aria-label="Go to my location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+  </div>
+  <nav id="bottombar">
+    <button class="navbtn" id="listBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Points</button>
+    <button class="navbtn" id="importBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>Import</button>
+    <button id="captureBtn" aria-label="Capture a pole"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+    <button class="navbtn" id="exportBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/></svg>Export</button>
+    <button class="navbtn" id="settingsBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>Settings</button>
+  </nav>
+</div>
+
+<!-- camera -->
+<section class="sheet" id="camera" hidden aria-label="Camera">
+  <div id="camTop">
+    <button class="camclose" id="camClose" aria-label="Close camera"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <div class="pill"><span class="dot" id="camGpsDot"></span><span id="camGpsText">Waiting for GPS…</span></div>
+  </div>
+  <div id="camMsg" hidden></div>
+  <video id="video" playsinline muted autoplay></video>
+  <div id="camBar">
+    <button class="camside" id="camNative" aria-label="Use phone camera app"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><path d="M12 10v6M9 13h6"/></svg></button>
+    <button id="shutter" aria-label="Take photo"></button>
+    <button class="camside" id="camTorch" aria-label="Toggle flashlight"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg></button>
+  </div>
+</section>
+<input type="file" id="nativeInput" accept="image/*" capture="environment" hidden>
+<input type="file" id="importInput" accept="image/jpeg,image/*" multiple hidden>
+
+<!-- point editor -->
+<section class="sheet" id="editor" hidden aria-labelledby="editorTitle">
+  <header>
+    <button class="iconbtn" id="edClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <h2 id="editorTitle">New pole</h2>
+    <span id="queueNote"></span>
+  </header>
+  <div id="pinMapWrap">
+    <div id="pinMap"></div>
+    <div id="crosshair"><svg viewBox="0 0 36 46"><path d="M18 45s15-15.6 15-27A15 15 0 0 0 3 18c0 11.4 15 27 15 27Z" fill="#e8590c" stroke="#fff" stroke-width="2"/><circle cx="18" cy="18" r="5.5" fill="#fff"/></svg><i></i></div>
+    <div id="pinInfo">
+      <div id="coordBox" class="mono"><div id="pinLL">–</div><div id="pinUTM">–</div><div id="pinDelta"></div></div>
+      <button class="btn" id="snapGps">Reset to GPS</button>
+    </div>
+  </div>
+  <div class="body">
+    <p class="hint" id="edHint">Drag the map to put the pin exactly on the pole.</p>
+    <div id="photoStrip"><img id="edPhoto" alt="Captured pole photo"><div class="meta"><span id="edTime">–</span><span id="edAcc">–</span><span id="edSrc"></span></div></div>
+    <div id="accPhotos" class="photo-grid" hidden></div>
+    <div class="field" id="accElementBox" hidden><span class="lbl">ELEMENT</span><div class="chips" id="elemChips"></div></div>
+    <label class="field"><span id="idLabel">POLE ID</span><input type="text" id="poleId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CBT-0001"></label>
+    <p class="warnline" id="dupWarn" hidden></p>
+    <div class="field" id="surveyTypeBox"><span class="lbl">POLE TYPE</span><div class="chips" id="typeChips"></div></div>
+    <div class="group" id="poleAttach" hidden>
+      <h3>On this pole</h3>
+      <label class="check"><input type="checkbox" id="atMloop"><span>With MLoop</span></label>
+      <label class="check"><input type="checkbox" id="atNap"><span>With NAP</span></label>
+      <input type="text" id="napId" placeholder="NAP ID" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="NAP ID" hidden>
+      <label class="check"><input type="checkbox" id="atClosure"><span>With closure</span></label>
+      <input type="text" id="closureId" placeholder="Closure ID" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Closure ID" hidden>
+    </div>
+    <div class="field" id="odfBox" hidden><span class="lbl">ODF</span><div class="chips" id="odfChips"><button type="button" class="chip" data-v="New" aria-pressed="true">New ODF</button><button type="button" class="chip" data-v="Existing" aria-pressed="false">Existing ODF</button></div></div>
+    <div class="group" id="defBox" hidden>
+      <div class="row" style="justify-content:space-between"><h3>Deficiencies</h3><span class="pill" id="defStatus"></span></div>
+      <div id="defList" style="display:flex;flex-direction:column;gap:8px"></div>
+      <button class="btn" id="addDefBtn" type="button">+ Add deficiency</button>
+      <div id="defPanel" class="defpanel" hidden>
+        <span class="lbl">WHERE</span><div class="chips" id="defCats"></div>
+        <span class="lbl">DEFECT · tap one or more</span><div class="chips" id="defItems"></div>
+        <span class="lbl">SEVERITY</span>
+        <div class="chips" id="defSev"><button type="button" class="chip" data-v="Major" aria-pressed="false">Major</button><button type="button" class="chip" data-v="Minor" aria-pressed="true">Minor</button></div>
+        <label class="field">NOTES<textarea id="defNotes" placeholder="Details, exact spot, what the contractor must do. If no defect above fits, describe it here."></textarea></label>
+        <div class="row"><button class="btn" id="defPhotoBtn" type="button">Take defect photo</button><img id="defPhotoPrev" alt="Defect photo" hidden style="width:64px;height:64px;object-fit:cover;border-radius:8px"></div>
+        <div class="row"><button class="btn grow" id="defCancel" type="button">Cancel</button><button class="btn primary grow" id="defAdd" type="button">Add to punchlist</button></div>
+      </div>
+    </div>
+    <button class="btn danger" id="edDelete" hidden>Delete this pole</button>
+    <div id="delConfirm" class="group" hidden><p style="margin:0">Delete <b id="delName"></b> and its photo? This can't be undone.</p><div class="row"><button class="btn grow" id="delNo">Keep</button><button class="btn grow primary" id="delYes" style="background:var(--bad);border-color:var(--bad);color:#fff">Delete</button></div></div>
+  </div>
+  <div class="foot">
+    <button class="btn" id="edSkip" hidden>Skip</button>
+    <button class="btn" id="edRetake">Retake</button>
+    <button class="btn primary grow" id="edSave">Save</button>
+  </div>
+</section>
+
+<!-- list -->
+<section class="sheet" id="list" hidden aria-labelledby="listTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18 9 12l6-6"/></svg></button>
+    <h2 id="listTitle">Points</h2>
+  </header>
+  <div class="body">
+    <input type="text" id="listSearch" placeholder="Search ID or type" aria-label="Search points">
+    <div class="chips" id="listFilter" hidden><button type="button" class="chip" data-v="all" aria-pressed="true">All</button><button type="button" class="chip" data-v="Open" aria-pressed="false">With deficiency</button><button type="button" class="chip" data-v="Rectified" aria-pressed="false">Rectified</button><button type="button" class="chip" data-v="OK" aria-pressed="false">OK</button></div>
+    <div id="listItems" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+</section>
+
+<!-- export -->
+<section class="sheet" id="export" hidden aria-labelledby="exportTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18 9 12l6-6"/></svg></button>
+    <h2 id="exportTitle">Export</h2>
+  </header>
+  <div class="body">
+    <p class="hint" id="exportScope"></p>
+    <div id="accExports" style="display:contents" hidden>
+      <div class="group">
+        <h3>Punchlist · Excel</h3>
+        <p class="hint">Sheet 1: numbered deficiency list (location, element, defect, severity, status, dates, photo names). Sheet 2: every element inspected with MLoop / NAP / closure / ODF details.</p>
+        <button class="btn primary" id="doXlsx">Export Excel punchlist</button>
+      </div>
+      <div class="group">
+        <h3>Punchlist report · PDF</h3>
+        <p class="hint">Summary, numbered punchlist, sign-off boxes for Globe and contractor, then photos of each element and each defect.</p>
+        <label class="check"><input type="checkbox" id="pdfPhotos" checked><span>Include element and defect photos</span></label>
+        <button class="btn primary" id="doPdf">Export PDF report</button>
+      </div>
+      <div class="group">
+        <h3>Rectification report · PDF</h3>
+        <p class="hint">How the contractor cleared the punchlist: each item's before and after photos with the time, GPS and person recorded when each photo was taken, days to rectify, progress by date, items cleared without photo evidence, and sign-off.</p>
+        <label class="check"><input type="checkbox" id="rectOpen" checked><span>Include items still open</span></label>
+        <button class="btn primary" id="doRectPdf">Export rectification report</button>
+      </div>
+      <div class="group">
+        <h3>Google Earth · KMZ</h3>
+        <p class="hint">Pins by status (red: open deficiency, blue: rectified, green: OK), with details and photos in each balloon.</p>
+        <button class="btn" id="doAccKmz">Export KMZ</button>
+      </div>
+      <div class="group">
+        <h3>Punchlist · CSV</h3>
+        <p class="hint">Same table as the Excel punchlist, for your acceptance tracker.</p>
+        <button class="btn" id="doAccCsv">Export CSV</button>
+      </div>
+    </div>
+    <div id="surveyExports" style="display:contents">
+    <div class="group">
+      <h3>Google Earth · KMZ</h3>
+      <p class="hint">Pins named by Pole ID, with the photo inside each pin's balloon.</p>
+      <label class="check"><input type="checkbox" id="kmzIcons" checked><span>Use each pole's photo as its pin icon</span></label>
+      <button class="btn primary" id="doKmz">Export KMZ</button>
+    </div>
+    <div class="group">
+      <h3>AutoCAD · DXF</h3>
+      <p class="hint">Poles as blocks (POLE_&lt;TYPE&gt;) at <span id="dxfZoneLbl">UTM 51N</span> meters, Pole ID labels on layer POLE_LABEL. Redefine a block in AutoCAD to swap in your own pole symbol.</p>
+      <label class="check"><input type="checkbox" id="dxfRoads" checked><span>Add road centerlines from OpenStreetMap around the poles (needs internet)</span></label>
+      <button class="btn primary" id="doDxf">Export DXF</button>
+    </div>
+    <div class="group">
+      <h3>Table · CSV</h3>
+      <p class="hint">Pole ID, type, lat/long, UTM easting/northing, accuracy, time. Opens in Excel or QGIS.</p>
+      <button class="btn" id="doCsv">Export CSV</button>
+    </div>
+    </div>
+    <div class="group">
+      <h3>Geotagged photos · ZIP</h3>
+      <p class="hint">JPEGs named by ID, stamped with ID, coordinates and time, with GPS written into the photo (EXIF).</p>
+      <button class="btn" id="doPhotos">Export photos</button>
+    </div>
+    <div class="group">
+      <h3>Backup</h3>
+      <p class="hint">Everything in this project (points and photos) in one file. Restore it on another phone or after reinstalling.</p>
+      <div class="row"><button class="btn grow" id="doBackup">Back up project</button><button class="btn grow" id="doRestore">Restore backup</button></div>
+      <input type="file" id="restoreInput" accept=".zip,application/zip" hidden>
+    </div>
+    <div class="group" id="resultBox" hidden>
+      <h3>Ready</h3>
+      <p id="resultName" class="mono" style="margin:0;word-break:break-all"></p>
+      <div class="result"><button class="btn primary grow" id="resSave">Save to phone</button><button class="btn grow" id="resShare">Share…</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- settings -->
+<section class="sheet" id="settings" hidden aria-labelledby="settingsTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18 9 12l6-6"/></svg></button>
+    <h2 id="settingsTitle">Settings</h2>
+  </header>
+  <div class="body">
+    <div class="group">
+      <h3>Pole types</h3>
+      <label class="field">One per line<textarea id="setTypes"></textarea></label>
+    </div>
+    <div class="group">
+      <h3>You</h3>
+      <label class="field">Your name and company<input type="text" id="setUser" autocomplete="name" placeholder="e.g. J. Santos · ABC Builders"></label>
+      <p class="hint">Recorded on every acceptance photo and rectification, and printed on the reports.</p>
+    </div>
+    <div class="group">
+      <h3>Deficiency checklist (acceptance)</h3>
+      <p class="hint">The defects you can tap when adding a deficiency. Replace these starting lists with your own acceptance checklist.</p>
+      <label class="field">Category<select id="setDefCat"></select></label>
+      <label class="field">Defects, one per line<textarea id="setDefItems" style="min-height:140px"></textarea></label>
+    </div>
+    <div class="group">
+      <h3>Photos</h3>
+      <label class="check"><input type="checkbox" id="setStamp"><span>Stamp Pole ID, type, coordinates and time on exported photos</span></label>
+      <label class="field">Longest side (pixels)<select id="setMaxPx"><option>1280</option><option>1600</option><option>2048</option><option>2560</option><option>3264</option></select></label>
+    </div>
+    <div class="group">
+      <h3>CAD export</h3>
+      <label class="field">UTM zone (WGS84, north)<select id="setZone"><option value="50">Zone 50N (CM 117°E)</option><option value="51">Zone 51N (CM 123°E)</option><option value="52">Zone 52N (CM 129°E)</option></select></label>
+      <div class="row"><label class="field" style="flex:1">Pole symbol radius (m)<input type="number" id="setSym" step="0.1" min="0.1"></label><label class="field" style="flex:1">Label height (m)<input type="number" id="setTxt" step="0.1" min="0.1"></label></div>
+    </div>
+    <div class="group">
+      <h3>Offline map</h3>
+      <p class="hint" id="tileInfo">–</p>
+      <p class="hint">Download maps for no-signal areas with the cloud button on the map.</p>
+    </div>
+    <div class="group">
+      <h3>Storage</h3>
+      <p class="hint" id="storeInfo">–</p>
+      <p class="hint">Points and photos live only on this phone until you export or back up.</p>
+    </div>
+    <p class="hint" style="text-align:center">PoleCam Survey v1.3 · Map data © OpenStreetMap contributors · Imagery © Esri</p>
+  </div>
+</section>
+
+<!-- project picker -->
+<section class="sheet" id="projects" hidden aria-labelledby="projTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18 9 12l6-6"/></svg></button>
+    <h2 id="projTitle">Projects</h2>
+  </header>
+  <div class="body">
+    <div class="group">
+      <h3>Current project</h3>
+      <p class="hint">Each survey area is its own project: its poles, photos, Pole ID numbering, exports, backups and offline maps are kept separate from other projects.</p>
+      <div class="row"><input type="text" id="renameProject" aria-label="Project name" style="flex:1"><button class="btn" id="doRename">Rename</button></div>
+      <div id="accMeta" hidden style="display:flex;flex-direction:column;gap:12px">
+        <p class="hint" id="accStageInfo" style="font-weight:700;color:var(--ink)"></p>
+        <label class="field">SITE / CLUSTER<input type="text" id="mSite" autocomplete="off"></label>
+        <label class="field">CONTRACTOR<input type="text" id="mContractor" autocomplete="off"></label>
+        <label class="field">GLOBE REPRESENTATIVE<input type="text" id="mGlobe" autocomplete="off"></label>
+        <label class="field">INSPECTED BY<input type="text" id="mInspector" autocomplete="off"></label>
+        <button class="btn primary" id="startFat" type="button">Start FAT from this PAT</button>
+        <p class="hint" id="startFatHint">Copies every element and its punchlist into a new FAT project, so you can re-check each item and mark it rectified with an after photo. This PAT stays unchanged.</p>
+      </div>
+      <button class="btn danger" id="delProject">Delete this project…</button>
+      <div id="delProjConfirm" hidden style="display:flex;flex-direction:column;gap:10px"><p style="margin:0" id="delProjText"></p><div class="row"><button class="btn grow" id="delProjNo">Keep</button><button class="btn grow" id="delProjYes" style="background:var(--bad);border-color:var(--bad);color:#fff">Delete project</button></div></div>
+    </div>
+    <div class="group">
+      <h3>New project</h3>
+      <div class="chips" id="newMode"><button type="button" class="chip" data-v="survey" aria-pressed="true">Engineering survey</button><button type="button" class="chip" data-v="acceptance" aria-pressed="false">Acceptance · PAT</button></div>
+      <div class="row"><input type="text" id="newProject" placeholder="e.g. Kabacan Poblacion LLD" style="flex:1"><button class="btn primary" id="addProject">Add</button></div>
+    </div>
+    <div id="projItems" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+</section>
+
+<!-- offline maps -->
+<section class="sheet" id="offline" hidden aria-labelledby="offTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18 9 12l6-6"/></svg></button>
+    <h2 id="offTitle">Offline map</h2>
+  </header>
+  <div class="body">
+    <div class="group">
+      <h3>Download an area</h3>
+      <p class="hint">Do this before you go, while you have internet. Saved maps work with no signal.</p>
+      <div class="field" style="display:flex;flex-direction:column;gap:6px"><span class="lbl">AREA</span>
+        <div class="chips" id="offAreaChips">
+          <button type="button" class="chip" data-v="view" aria-pressed="true">Map on screen</button>
+          <button type="button" class="chip" data-v="poles" aria-pressed="false">Around this project's poles</button>
+        </div>
+        <p class="hint mono" id="offAreaInfo">–</p>
+      </div>
+      <div class="field" style="display:flex;flex-direction:column;gap:6px"><span class="lbl">MAP TYPE</span>
+        <div class="chips" id="offSrcChips">
+          <button type="button" class="chip" data-v="street" aria-pressed="true">Street</button>
+          <button type="button" class="chip" data-v="satellite" aria-pressed="false">Satellite</button>
+          <button type="button" class="chip" data-v="both" aria-pressed="false">Both</button>
+        </div>
+      </div>
+      <label class="field">DETAIL<select id="offZoom">
+        <option value="17">Barangay level (zoom 17)</option>
+        <option value="18" selected>Street level (zoom 18)</option>
+        <option value="19">Pole level (zoom 19)</option>
+      </select></label>
+      <label class="field">NAME<input type="text" id="offName" autocomplete="off"></label>
+      <p class="hint" id="offEst">–</p>
+      <button class="btn primary" id="offGo">Download map</button>
+    </div>
+    <div class="group">
+      <h3 id="offListTitle">Saved areas</h3>
+      <div id="offList" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+    <div class="group">
+      <h3>All saved map data</h3>
+      <p class="hint" id="offTotal">–</p>
+      <button class="btn danger" id="clearTiles">Delete all saved maps</button>
+    </div>
+    <p class="hint">Keep downloads to your survey area. OpenStreetMap and Esri limit bulk downloading, so one download is capped at 4,000 tiles.</p>
+  </div>
+</section>
+
+<div id="busy" hidden><div><span id="busyText">Working…</span><progress id="busyProg" max="1" value="0"></progress><button class="btn" id="busyCancel" hidden style="margin-top:12px;width:100%">Cancel</button></div></div>
+<div id="toast" hidden role="status"></div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="core.js"></script>
+<script src="reports.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
