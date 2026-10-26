@@ -1,9 +1,9 @@
 /* PoleCam offline cache: keeps the app itself available with no signal.
    Map tiles are cached separately by the app (IndexedDB). Bump VERSION after editing any file. */
-const VERSION = 'polecam-v1.5.0';
+const VERSION = 'polecam-v1.6.0';
 const SHELL = [
   './', 'index.html', 'app.js', 'core.js', 'reports.js', 'manifest.json',
-  'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css',
+  'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css', 'vendor/protomaps/protomaps-leaflet.js',
   'vendor/leaflet/images/layers.png', 'vendor/leaflet/images/layers-2x.png',
   'vendor/leaflet/images/marker-icon.png', 'vendor/leaflet/images/marker-icon-2x.png', 'vendor/leaflet/images/marker-shadow.png',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png',
@@ -23,7 +23,10 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return; // tiles, roads: not ours
+  const u = new URL(req.url);
+  if (req.method !== 'GET' || u.origin !== self.location.origin) return; // tiles, roads: not ours
+  // Map packs are large and stored by the app itself in pieces; never copy them into this cache.
+  if (u.pathname.includes('/maps/') || req.headers.has('range')) return;
   // Network first (so updates arrive), fall back to the cached copy when offline.
   e.respondWith(
     fetch(req).then((res) => {

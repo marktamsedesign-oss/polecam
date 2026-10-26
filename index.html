@@ -217,7 +217,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div class="mapbtns">
     <button class="round" id="routeBtn" aria-label="Edit cable route and spans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="18" r="2.2"/><circle cx="12" cy="7" r="2.2"/><circle cx="19" cy="15" r="2.2"/><path d="m6.4 16.2 4.3-7.4M13.6 8.6l4.2 4.9"/></svg></button>
     <button class="round" id="offlineBtn" aria-label="Offline maps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18"/><path d="M12 11v9M8.5 16.5 12 20l3.5-3.5"/></svg></button>
-    <button class="round" id="layerBtn" aria-label="Switch map: street or satellite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button>
+    <button class="round" id="layerBtn" aria-label="Switch map: street, satellite or offline map pack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button>
     <button class="round" id="locateBtn" aria-label="Go to my location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
   </div>
   <div id="routeBar" hidden>
@@ -488,7 +488,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <p class="hint" id="storeInfo">–</p>
       <p class="hint">Points and photos live only on this phone until you export or back up.</p>
     </div>
-    <p class="hint" style="text-align:center">PoleCam Survey v1.5.0 · Map data © OpenStreetMap contributors · Imagery © Esri</p>
+    <p class="hint" style="text-align:center">PoleCam Survey v1.6.0 · Map data © OpenStreetMap contributors · Imagery © Esri</p>
   </div>
 </section>
 
@@ -532,41 +532,19 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </header>
   <div class="body">
     <div class="group">
-      <h3>Download an area</h3>
-      <p class="hint">Do this before you go, while you have internet. Saved maps work with no signal.</p>
-      <div class="field" style="display:flex;flex-direction:column;gap:6px"><span class="lbl">AREA</span>
-        <div class="chips" id="offAreaChips">
-          <button type="button" class="chip" data-v="view" aria-pressed="true">Map on screen</button>
-          <button type="button" class="chip" data-v="poles" aria-pressed="false">Around this project's poles</button>
-        </div>
-        <p class="hint mono" id="offAreaInfo">–</p>
-      </div>
-      <div class="field" style="display:flex;flex-direction:column;gap:6px"><span class="lbl">MAP TYPE</span>
-        <div class="chips" id="offSrcChips">
-          <button type="button" class="chip" data-v="street" aria-pressed="true">Street</button>
-          <button type="button" class="chip" data-v="satellite" aria-pressed="false">Satellite</button>
-          <button type="button" class="chip" data-v="both" aria-pressed="false">Both</button>
-        </div>
-      </div>
-      <label class="field">DETAIL<select id="offZoom">
-        <option value="17">Barangay level (zoom 17)</option>
-        <option value="18" selected>Street level (zoom 18)</option>
-        <option value="19">Pole level (zoom 19)</option>
-      </select></label>
-      <label class="field">NAME<input type="text" id="offName" autocomplete="off"></label>
-      <p class="hint" id="offEst">–</p>
-      <button class="btn primary" id="offGo">Download map</button>
+      <h3>Offline map packs</h3>
+      <p class="hint">A map pack is a street map of a whole area kept on this phone: roads, buildings, rivers and place names, sharp at every zoom. Download it once on Wi-Fi. When there is no signal the app switches to it by itself; the layers button also switches to it.</p>
+      <p class="hint" id="packSource">–</p>
+      <div id="packList" style="display:flex;flex-direction:column;gap:8px"></div>
+      <button class="btn" id="packRefresh" type="button">Check for map packs</button>
     </div>
     <div class="group">
-      <h3 id="offListTitle">Saved areas</h3>
-      <div id="offList" style="display:flex;flex-direction:column;gap:8px"></div>
-    </div>
-    <div class="group">
-      <h3>All saved map data</h3>
+      <h3>Map tiles you have viewed</h3>
+      <p class="hint">Street and satellite tiles you look at while online are kept on the phone and shown again without signal. Following OpenStreetMap's and Esri's rules, the app does not bulk-download them; use a map pack for areas you have not viewed.</p>
       <p class="hint" id="offTotal">–</p>
-      <button class="btn danger" id="clearTiles">Delete all saved maps</button>
+      <button class="btn danger" id="clearTiles" type="button">Delete viewed map tiles</button>
     </div>
-    <p class="hint">Keep downloads to your survey area. OpenStreetMap and Esri limit bulk downloading, so one download is capped at 4,000 tiles.</p>
+    <p class="hint">Map packs: © OpenStreetMap contributors (ODbL), built from Protomaps basemap builds. Satellite imagery © Esri, online only.</p>
   </div>
 </section>
 
@@ -574,6 +552,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 <div id="toast" hidden role="status"></div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
+<script src="vendor/protomaps/protomaps-leaflet.js"></script>
 <script src="core.js"></script>
 <script src="reports.js"></script>
 <script src="app.js"></script>

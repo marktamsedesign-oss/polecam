@@ -15,7 +15,7 @@ One phone app that replaces GPS Camera + the Windows geolocator step:
    - **Backup / Restore** of a whole project.
 5. **Import** existing GPS Camera photos: reads their EXIF location so you can add Pole IDs to old surveys.
 
-Works with no signal: the app, your points and any map area you saved stay on the phone.
+Works with no signal: the app and your points stay on the phone, and a downloaded **offline map pack** (v1.6) shows streets with no internet.
 
 ---
 
@@ -24,8 +24,8 @@ Works with no signal: the app, your points and any map area you saved stay on th
 The app has to be served over HTTPS once so the phone can install it. GitHub Pages is free.
 
 1. Create a GitHub repository (e.g. `polecam`) and upload **everything in this folder** (keep the `vendor/` and `icons/` folders).
-2. Repository **Settings → Pages → Build and deployment → Deploy from a branch → `main` / `(root)` → Save**.
-   After about a minute it is live at `https://<your-username>.github.io/polecam/`.
+2. Repository **Settings → Pages → Build and deployment → Source = GitHub Actions**, and add `.github/workflows/deploy-site.yml` (it publishes the site and the offline map packs).
+   After the *Deploy website and offline maps* run finishes it is live at `https://<your-username>.github.io/polecam/`.
 3. On the Android phone open that link in **Chrome** → ⋮ menu → **Install app** (or *Add to Home screen*).
    It installs with its own icon and opens full-screen like a normal app.
 4. First run: allow **Camera** and **Location** (choose *precise* location).
@@ -39,7 +39,7 @@ The APK opens the same hosted app, so keep the GitHub Pages site online.
 ## Field use
 
 - **Projects = survey areas.** Create one project per area/job (top bar → project name). Each project keeps its own poles, photos, Pole ID numbering, exports, backups and offline maps; nothing from one survey shows up in another. You can rename or delete a project there too.
-- **Offline map (before going to a no-signal area):** tap the cloud button on the map → choose *Map on screen* (pan/zoom the map to the area first) or *Around this project's poles* (+300 m), pick Street / Satellite / Both and the detail level → *Download map*. The screen shows the tile count and MB before you start, and you can cancel. Saved areas appear as blue dashed boxes and are listed per project with *Show* and *Delete*. One download is capped at 4,000 tiles (OpenStreetMap/Esri limit bulk downloading) — download a big area as several smaller ones.
+- **Offline map (before going to a no-signal area):** tap the cloud button on the map → *Offline map packs* → **Download** the pack for your area while on Wi-Fi (see "Offline map packs" below). With no signal the map switches to it by itself; the layer button also cycles Street → Satellite → Offline.
 - GPS pill colors: green ≤ 5 m, amber ≤ 15 m, red > 15 m. Wait for green when you can.
 - *Reset to GPS* puts the pin back on the raw GPS fix. Points you moved are tagged **pin adjusted**.
 - Tap any pole on the map or in *Points* to edit it, replace the photo, or delete it.
@@ -116,6 +116,17 @@ The Excel/CSV punchlist now also has *Days to rectify*, *Rectified by*, *Defect 
 **Photos for AI training**
 - Export → *Photos for AI training*: your labeled photos sorted into one folder per type with a labels.csv, for teaching the app later to recognise poles, NAPs, closures, ODFs, etc. Aim for 200+ photos per type.
 
+## Offline map packs (v1.6)
+
+Earlier versions downloaded OpenStreetMap / Esri map tiles in bulk for offline use. Both services forbid that in their terms (OpenStreetMap's tile servers are for online viewing only; Esri allows offline use only through its ArcGIS apps), so v1.6 removes it and uses map packs instead.
+
+- **What a pack is:** one file of street map data (OpenStreetMap, ODbL) for a whole area, cut from the free Protomaps build and published with your website by the *Deploy website and offline maps* workflow. Streets, road names, buildings, water and places, drawn on the phone at any zoom.
+- **Which areas:** `maps/packs.json`. It starts with *Region XII (SOCCSKSARGEN)* and *Mindanao mainland*. Edit the list (id, name, bbox = west, south, east, north, maxzoom 15) and commit; the next run cuts the new packs. GitHub Pages allows 1 GB per site: packs are added in list order and one that would pass about 950 MB in total is left out with a warning in the workflow log, which also shows each pack's size. If cutting a pack fails, the site still publishes, with last month's copy of that pack when there is one.
+- **Refresh:** packs are re-cut once a month with fresh OpenStreetMap data, or by hand: Actions → *Deploy website and offline maps* → *Run workflow* → tick *Download fresh map data now*. The app shows *Update* when a newer pack is published.
+- **On the phone:** Offline map → *Check for map packs* → **Download** (use Wi-Fi; it resumes where it stopped if the connection drops) → *Use* / *Show* / *Delete*. The pack you used last is the one shown offline.
+- **Satellite** has no offline version: it needs internet. Map tiles you viewed online are kept for a while as a normal browser cache and can be cleared under *Map tiles you have viewed*.
+- The app identifies itself to the map servers (APK: `PoleCam/<version>` user agent), as the OpenStreetMap tile policy asks.
+
 ## AutoCAD
 
 - Open the DXF directly or `INSERT`/`XATTACH` it into your drawing. Units are **meters**, coordinates are **UTM 51N (WGS84)** — your drawing must use the same system to line up.
@@ -129,7 +140,7 @@ Teammates' backups can be restored into one phone to merge projects (same projec
 
 ## Updating the app
 
-Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v1.0.1`), and upload again. Phones pick up the new version the next time the app is opened with internet.
+Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v1.6.1`), and upload again. Phones pick up the new version the next time the app is opened with internet.
 
 ## Files
 
@@ -143,12 +154,16 @@ Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v1.0.1`), and upload 
 | `sw.js` | Offline cache for the app itself |
 | `manifest.json`, `icons/` | Install as an app |
 | `vendor/leaflet/` | Map library (Leaflet 1.9.4, BSD-2) |
+| `vendor/protomaps/` | Offline map renderer (protomaps-leaflet + PMTiles, BSD-3; licenses in `LICENSES.txt`) |
+| `maps/packs.json` | Areas published as offline map packs |
+| `.github/workflows/deploy-site.yml` | Publishes the website and cuts the map packs |
+| `.github/workflows/build-apk.yml` | Builds the signed Android APK |
 
-Map data © OpenStreetMap contributors (ODbL). Satellite imagery © Esri.
+Map data © OpenStreetMap contributors (ODbL); offline packs from the Protomaps basemap build. Satellite imagery © Esri (online only).
 
 ## Offline Android APK (built by GitHub Actions)
 
-`.github/workflows/build-apk.yml` packs every app file into a signed APK on GitHub's servers, so the APK installs and runs with no internet and does not need the website. Maps still need internet or a downloaded offline area.
+`.github/workflows/build-apk.yml` packs every app file into a signed APK on GitHub's servers, so the APK installs and runs with no internet. Map packs are downloaded from your website (the APK knows its address), and street/satellite maps need internet.
 
 - One-time setup: add the repository secrets `POLECAM_KEYSTORE_B64` and `POLECAM_KEYSTORE_PASSWORD` (Settings → Secrets and variables → Actions). Keep the keystore file and password safe: every future APK must be signed with the same key, or phones will refuse the update.
 - Each time app files change on `main`, a new APK is built (about 5–8 minutes) and published under **Releases**. Newest APK: `https://github.com/<user>/polecam/releases/latest/download/PoleCam.apk`.

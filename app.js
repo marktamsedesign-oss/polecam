@@ -43,12 +43,12 @@
   let dbp = null;
   function openDb() {
     return new Promise((res, rej) => {
-      const r = indexedDB.open('polecam', 1);
+      const r = indexedDB.open('polecam', 2);
       r.onupgradeneeded = () => {
         const d = r.result;
-        d.createObjectStore('points', { keyPath: 'id' });
-        d.createObjectStore('photos', { keyPath: 'id' });
-        d.createObjectStore('tiles', { keyPath: 'k' });
+        for (const [name, key] of [['points', 'id'], ['photos', 'id'], ['tiles', 'k'], ['packs', 'k']]) {
+          if (!d.objectStoreNames.contains(name)) d.createObjectStore(name, { keyPath: key });
+        }
       };
       r.onsuccess = () => {
         const d = r.result;
@@ -183,18 +183,22 @@
     street: { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', max: 19, attr: '© OpenStreetMap contributors' },
     satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', max: 19, attr: 'Imagery © Esri' },
   };
+  const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const tileUrl = (src, z, x, y) => SOURCES[src].url.replace('{z}', z).replace('{x}', x).replace('{y}', y);
   async function fetchTile(src, z, x, y) {
     const k = `${src}/${z}/${x}/${y}`;
-    try { const hit = await dbGet('tiles', k); if (hit) return hit.blob; } catch (e) { /* ignore */ }
+    let hit = null;
+    try { hit = await dbGet('tiles', k); } catch (e) { /* ignore */ }
+    // Viewed tiles are reused for 7 days (the tile servers' caching rules), then refreshed when online; offline any age is used.
+    if (hit && (!navigator.onLine || Date.now() - (hit.t || 0) < TILE_KEEP_MS)) return hit.blob;
     if (!navigator.onLine) return null;
     try {
       const r = await fetch(tileUrl(src, z, x, y), { mode: 'cors', credentials: 'omit' });
-      if (!r.ok) return null;
+      if (!r.ok) return hit ? hit.blob : null;
       const blob = await r.blob();
       dbPut('tiles', { k, blob, t: Date.now() }).catch(() => {});
       return blob;
-    } catch (e) { return null; }
+    } catch (e) { return hit ? hit.blob : null; }
   }
   const CachedLayer = L.TileLayer.extend({
     createTile(coords, done) {
@@ -212,9 +216,58 @@
     },
   });
   function baseLayer(src) {
+    if (src === 'offline') { const o = offlineLayer(); if (o) return o; src = 'street'; }
     const l = new CachedLayer('', { src, maxZoom: 21, maxNativeZoom: SOURCES[src].max, attribution: SOURCES[src].attr });
     l.on('tileunload', (e) => { if (e.tile._ou) URL.revokeObjectURL(e.tile._ou); });
     return l;
+  }
+
+  /* ================= offline map packs (vector maps stored on the phone) ================= */
+  /* A pack is a PMTiles file of OpenStreetMap data (Protomaps basemap build) for a whole area, published with the
+     website under maps/. It is downloaded once in 4 MB pieces into IndexedDB (resumable) and drawn by protomaps-leaflet. */
+  const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
+  const PACK_CH = 4 * 1024 * 1024;
+  S.packs = S.packs || {};
+  const installedPacks = () => Object.values(S.packs).filter((p) => p.done);
+  function activePackId() {
+    if (S.activePack && S.packs[S.activePack] && S.packs[S.activePack].done) return S.activePack;
+    const first = installedPacks()[0];
+    return first ? first.id : null;
+  }
+  class IdbPackSource {
+    constructor(id) { this.id = id; this.cache = new Map(); }
+    getKey() { const p = S.packs[this.id] || {}; return `idbpack:${this.id}:${p.date || ''}`; }
+    async chunk(i) {
+      if (this.cache.has(i)) { const v = this.cache.get(i); this.cache.delete(i); this.cache.set(i, v); return v; }
+      const rec = await dbGet('packs', `${this.id}:${i}`);
+      if (!rec) throw new Error('Map pack is incomplete — download it again');
+      const u = new Uint8Array(rec.data);
+      this.cache.set(i, u);
+      if (this.cache.size > 6) this.cache.delete(this.cache.keys().next().value);
+      return u;
+    }
+    async getBytes(offset, length) {
+      const p = S.packs[this.id], ch = p.ch || PACK_CH, out = new Uint8Array(length);
+      let pos = 0;
+      while (pos < length) {
+        const abs = offset + pos, i = Math.floor(abs / ch), off = abs - i * ch;
+        if (i >= p.chunks) break;
+        const c = await this.chunk(i), n = Math.min(length - pos, c.length - off);
+        if (n <= 0) break;
+        out.set(c.subarray(off, off + n), pos); pos += n;
+      }
+      return { data: pos === length ? out.buffer : out.slice(0, pos).buffer };
+    }
+  }
+  function offlineLayer() {
+    const id = activePackId();
+    if (!id || !window.protomapsL) return null;
+    const p = S.packs[id], b = p.bbox;
+    return window.protomapsL.leafletLayer({
+      url: new window.protomapsL.PMTiles(new IdbPackSource(id)), flavor: 'light', lang: 'en',
+      maxDataZoom: p.maxzoom || 15, maxZoom: 21, bounds: b ? [[b[1], b[0]], [b[3], b[2]]] : undefined,
+      attribution: 'Offline map © OpenStreetMap contributors · Protomaps',
+    });
   }
 
   /* ================= main map ================= */
@@ -325,12 +378,29 @@
     if (pts.length === 1) map.setView([pts[0].lat, pts[0].lon], 18);
     else if (pts.length) map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])).pad(0.15), { maxZoom: 19 });
   }
+  const baseName = (b) => (b === 'offline' ? `Offline map: ${(S.packs[activePackId()] || {}).name || 'pack'}` : b === 'satellite' ? 'Satellite imagery (online)' : 'Street map (online)');
+  function setBase(b, quiet) {
+    if (b === 'offline' && !activePackId()) b = 'street';
+    S.base = b; persist();
+    map.removeLayer(mainBase); mainBase = baseLayer(b).addTo(map); mainBase.bringToBack();
+    if (pinMap) { pinMap.removeLayer(pinBase); pinBase = baseLayer(b).addTo(pinMap); pinBase.bringToBack(); }
+    drawAreas();
+    if (!quiet) toast(baseName(b), 1800);
+  }
   $('layerBtn').addEventListener('click', () => {
-    S.base = S.base === 'street' ? 'satellite' : 'street'; persist();
-    map.removeLayer(mainBase); mainBase = baseLayer(S.base).addTo(map); mainBase.bringToBack();
-    if (pinMap) { pinMap.removeLayer(pinBase); pinBase = baseLayer(S.base).addTo(pinMap); pinBase.bringToBack(); }
-    toast(S.base === 'street' ? 'Street map' : 'Satellite imagery', 1400);
+    const bases = ['street', 'satellite'].concat(activePackId() ? ['offline'] : []);
+    autoOffline = false;
+    setBase(bases[(bases.indexOf(S.base) + 1) % bases.length]);
   });
+  // No signal: switch to the offline pack automatically (and back when the connection returns).
+  let autoOffline = false;
+  function goOfflineIfPossible() {
+    if (navigator.onLine || S.base === 'offline' || !activePackId()) return;
+    S.baseBefore = S.base; autoOffline = true; setBase('offline', true);
+    toast(`No internet — showing the offline map (${(S.packs[activePackId()] || {}).name})`, 3500);
+  }
+  window.addEventListener('offline', goOfflineIfPossible);
+  window.addEventListener('online', () => { if (autoOffline) { autoOffline = false; setBase(S.baseBefore || 'street', true); toast('Back online', 1500); } });
   $('locateBtn').addEventListener('click', () => {
     if (!watchId) startGps();
     if (fix) map.setView([fix.lat, fix.lon], Math.max(map.getZoom(), 18));
@@ -1932,134 +2002,133 @@
   $('setZone').addEventListener('change', () => { S.zone = +$('setZone').value; persist(); });
   $('setSym').addEventListener('change', () => { const v = +$('setSym').value; if (v > 0) { S.sym = v; persist(); } });
   $('setTxt').addEventListener('change', () => { const v = +$('setTxt').value; if (v > 0) { S.txt = v; persist(); } });
-  /* ================= offline maps ================= */
-  const AVG_KB = { street: 18, satellite: 30 };
-  const OFF_LIMIT = 4000, Z_MIN = 13;
-  let offArea = 'view', offSrc = 'street', offBounds = null;
+  /* ================= offline map screen ================= */
   const areaLayer = L.layerGroup().addTo(map);
-  function lon2x(lon, n) { return Math.floor((lon + 180) / 360 * n); }
-  function lat2y(lat, n) { const r = lat * Math.PI / 180; return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n); }
-  /** [s,w,n,e] -> list of [z,x,y] for zooms Z_MIN..zmax */
-  function tilesFor(b, zmax) {
-    const out = [];
-    for (let z = Z_MIN; z <= zmax; z++) {
-      const n = 2 ** z, x0 = lon2x(b[1], n), x1 = lon2x(b[3], n), y0 = lat2y(b[2], n), y1 = lat2y(b[0], n);
-      for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) out.push([z, x, y]);
-    }
+  function tilesFor(b, zmax) { // kept for older saved areas
+    const out = [], lon2x = (lon, n) => Math.floor((lon + 180) / 360 * n), lat2y = (lat, n) => { const r = lat * Math.PI / 180; return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n); };
+    for (let z = 13; z <= zmax; z++) { const n = 2 ** z; for (let x = lon2x(b[1], n); x <= lon2x(b[3], n); x++) for (let y = lat2y(b[2], n); y <= lat2y(b[0], n); y++) out.push([z, x, y]); }
     return out;
   }
-  const srcsOf = (v) => (v === 'both' ? ['street', 'satellite'] : [v]);
-  function areaSize(b) {
-    const h = (b[2] - b[0]) * 111.32, w = (b[3] - b[1]) * 111.32 * Math.cos(((b[0] + b[2]) / 2) * Math.PI / 180);
-    return `${w.toFixed(2)} km × ${h.toFixed(2)} km`;
-  }
-  function currentOffBounds() {
-    if (offArea === 'poles') {
-      const pts = projPoints(); if (!pts.length) return null;
-      let s = 90, w = 180, n = -90, e = -180;
-      for (const p of pts) { s = Math.min(s, p.lat); n = Math.max(n, p.lat); w = Math.min(w, p.lon); e = Math.max(e, p.lon); }
-      const dLat = 300 / 111320, dLon = 300 / (111320 * Math.cos(((s + n) / 2) * Math.PI / 180));
-      return [s - dLat, w - dLon, n + dLat, e + dLon];
-    }
-    const b = map.getBounds();
-    return [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()];
-  }
-  function setChips(boxId, val) { $(boxId).querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.v === val))); }
-  function updateOffEstimate() {
-    offBounds = currentOffBounds();
-    const go = $('offGo'), est = $('offEst');
-    if (!offBounds) { $('offAreaInfo').textContent = 'This project has no poles yet.'; est.textContent = ''; go.disabled = true; return; }
-    $('offAreaInfo').textContent = areaSize(offBounds) + (offArea === 'poles' ? ' (poles + 300 m)' : '');
-    const zmax = +$('offZoom').value, per = tilesFor(offBounds, zmax).length, srcs = srcsOf(offSrc);
-    const total = per * srcs.length, mb = srcs.reduce((s, x) => s + per * AVG_KB[x], 0) / 1024;
-    if (total > OFF_LIMIT) {
-      est.className = 'hint est-bad';
-      est.textContent = `${total.toLocaleString()} tiles — too large for one download (limit ${OFF_LIMIT.toLocaleString()}). Zoom the map in to a smaller area, lower the detail, or pick one map type.`;
-      go.disabled = true;
-    } else {
-      est.className = 'hint';
-      est.textContent = `About ${total.toLocaleString()} tiles · ~${mb < 1 ? mb.toFixed(1) : Math.round(mb)} MB`;
-      go.disabled = false;
-    }
-  }
+  /** Shows where the offline pack ends while it is the map in use. */
   function drawAreas() {
     areaLayer.clearLayers();
-    for (const ar of (S.areas || []).filter((x) => x.project === S.project)) {
-      L.rectangle([[ar.b[0], ar.b[1]], [ar.b[2], ar.b[3]]], { color: '#1c7ed6', weight: 1.5, dashArray: '6 6', fill: false, interactive: false }).addTo(areaLayer);
-    }
+    const p = S.base === 'offline' && S.packs[activePackId()];
+    if (p && p.bbox) L.rectangle([[p.bbox[1], p.bbox[0]], [p.bbox[3], p.bbox[2]]], { color: '#1c7ed6', weight: 1.5, dashArray: '6 6', fill: false, interactive: false }).addTo(areaLayer);
+  }
+  async function deleteArea(id) { S.areas = (S.areas || []).filter((x) => x.id !== id); persist(); } // older versions only
+  const fmtMB = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(2)} GB` : `${Math.max(0.1, b / 1048576).toFixed(b < 10485760 ? 1 : 0)} MB`);
+  const fmtDate8 = (d) => (/^\d{8}$/.test(d || '') ? new Date(`${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}T00:00:00`).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : d || '');
+  let packIndex = null, packIndexErr = '';
+  async function loadPackIndex() {
+    try {
+      const r = await fetch(new URL('maps/index.json', SITE).href, { cache: 'no-store' });
+      if (!r.ok) throw new Error(r.status === 404 ? 'No map packs have been published yet' : `HTTP ${r.status}`);
+      packIndex = await r.json(); packIndexErr = '';
+    } catch (e) { packIndexErr = navigator.onLine ? (e.message || String(e)) : 'Offline — connect to see available map packs'; }
   }
   async function renderOffline() {
-    const list = $('offList'), mine = (S.areas || []).filter((x) => x.project === S.project);
-    $('offListTitle').textContent = `Saved areas · ${S.project}`;
-    $('offName').value = `${S.project} – area ${mine.length + 1}`;
-    $('offAreaChips').querySelector('[data-v="poles"]').disabled = !projPoints().length;
-    if (offArea === 'poles' && !projPoints().length) offArea = 'view';
-    setChips('offAreaChips', offArea); setChips('offSrcChips', offSrc);
-    list.innerHTML = '';
-    if (!mine.length) list.innerHTML = '<p class="hint" style="margin:0">No offline maps for this project yet. Blue dashed boxes on the map show saved areas.</p>';
-    for (const ar of mine) {
+    const list = $('packList'); list.innerHTML = '';
+    const avail = (packIndex && packIndex.packs) || [], byId = {};
+    avail.forEach((p) => { byId[p.id] = { ...p }; });
+    Object.values(S.packs).forEach((p) => { byId[p.id] = { ...(byId[p.id] || {}), installed: p, ...(!byId[p.id] ? { name: p.name, size: p.size, date: p.date, bbox: p.bbox, maxzoom: p.maxzoom, file: p.file } : {}) }; });
+    $('packSource').textContent = packIndex ? `Map data from ${packIndex.source || 'OpenStreetMap'}${packIndex.generated ? ` · published ${packIndex.generated}` : ''}` : packIndexErr || 'Checking for map packs…';
+    const items = Object.values(byId);
+    if (!items.length) list.innerHTML = '<p class="hint" style="margin:0">No map packs yet. They appear here once the "Deploy website and offline maps" workflow has run on GitHub.</p>';
+    const act = activePackId();
+    for (const p of items) {
+      const inst = S.packs[p.id], done = inst && inst.done, partial = inst && !inst.done && inst.chunks > 0;
+      const outdated = done && avail.some((x) => x.id === p.id && x.date !== inst.date);
       const row = document.createElement('div'); row.className = 'area-card';
       const d = document.createElement('div');
-      const t = document.createElement('span'); t.className = 't'; t.textContent = ar.name;
-      const s = document.createElement('span'); s.className = 's';
-      s.textContent = `${ar.srcs.map((x) => (x === 'street' ? 'Street' : 'Satellite')).join(' + ')} · zoom ${Z_MIN}–${ar.zmax} · ${ar.ok.toLocaleString()} tiles${ar.missing ? ` (${ar.missing} missing)` : ''}${ar.partial ? ' · stopped early' : ''} · ${fmtTime(ar.at)}`;
-      d.append(t, s);
-      const show = document.createElement('button'); show.className = 'btn'; show.type = 'button'; show.textContent = 'Show';
-      show.addEventListener('click', async () => { await closeSheet(); map.fitBounds([[ar.b[0], ar.b[1]], [ar.b[2], ar.b[3]]]); });
-      const del = document.createElement('button'); del.className = 'btn danger'; del.type = 'button'; del.textContent = 'Delete';
-      del.addEventListener('click', () => {
-        if (del.dataset.armed) { guard(async () => { busy('Deleting map area…'); await deleteArea(ar.id); drawAreas(); renderOffline(); toast('Map area deleted'); }); }
-        else { del.dataset.armed = '1'; del.textContent = 'Confirm'; setTimeout(() => { delete del.dataset.armed; del.textContent = 'Delete'; }, 4000); }
-      });
-      row.append(d, show, del); list.appendChild(row);
+      const t = document.createElement('span'); t.className = 't'; t.textContent = p.name || p.id;
+      const s2 = document.createElement('span'); s2.className = 's';
+      s2.textContent = [fmtMB(p.size || (inst && inst.size) || 0), `map data ${fmtDate8(done ? inst.date : p.date)}`, `detail to zoom ${p.maxzoom || 15}`,
+        done ? (outdated ? 'update available' : p.id === act ? 'on this phone · in use' : 'on this phone')
+          : partial ? `${Math.round((inst.chunks * (inst.ch || PACK_CH) / inst.size) * 100)}% downloaded` : 'not downloaded'].join(' · ');
+      d.append(t, s2);
+      const mk = (label, cls, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (cls || ''); b.textContent = label; b.addEventListener('click', fn); return b; };
+      const btns = [];
+      if (!done || outdated) btns.push(mk(outdated ? 'Update' : partial ? 'Resume' : 'Download', 'primary', () => guard(() => downloadPack(byId[p.id]))));
+      if (done && p.id !== act) btns.push(mk('Use', '', () => { S.activePack = p.id; persist(); if (S.base === 'offline') setBase('offline', true); renderOffline(); }));
+      if (done) btns.push(mk('Show', '', async () => { S.activePack = p.id; persist(); await closeSheet(); setBase('offline'); if (p.bbox) map.fitBounds([[p.bbox[1], p.bbox[0]], [p.bbox[3], p.bbox[2]]]); }));
+      if (inst) btns.push(mk('Delete', 'danger', function () {
+        if (!this.dataset.armed) { this.dataset.armed = '1'; this.textContent = 'Confirm'; setTimeout(() => { delete this.dataset.armed; this.textContent = 'Delete'; }, 4000); return; }
+        guard(async () => { busy('Deleting map pack…'); await deletePack(p.id); renderOffline(); toast('Map pack deleted'); });
+      }));
+      row.append(d, ...btns); list.appendChild(row);
     }
-    try { const n = await dbCount('tiles'); $('offTotal').textContent = `${n.toLocaleString()} tiles stored on this phone (all projects, including tiles kept while browsing).`; } catch (e) { /* ignore */ }
-    updateOffEstimate();
+    try { const n = await dbCount('tiles'); $('offTotal').textContent = `${n.toLocaleString()} viewed map tiles kept on this phone.`; } catch (e) { /* ignore */ }
   }
-  /** Remove an area and the tiles that no other saved area still needs. */
-  async function deleteArea(id) {
-    const ar = (S.areas || []).find((x) => x.id === id); if (!ar) return;
-    S.areas = S.areas.filter((x) => x.id !== id); persist();
-    const keep = new Set();
-    for (const o of S.areas) for (const src of o.srcs) for (const [z, x, y] of tilesFor(o.b, o.zmax)) keep.add(`${src}/${z}/${x}/${y}`);
-    const keys = [];
-    for (const src of ar.srcs) for (const [z, x, y] of tilesFor(ar.b, ar.zmax)) { const k = `${src}/${z}/${x}/${y}`; if (!keep.has(k)) keys.push(k); }
-    await dbDelMany('tiles', keys);
+  async function deletePack(id) {
+    const p = S.packs[id];
+    if (p) await dbDelMany('packs', Array.from({ length: p.chunks || 0 }, (_, i) => `${id}:${i}`));
+    delete S.packs[id];
+    if (S.activePack === id) S.activePack = null;
+    persist();
+    if (S.base === 'offline') setBase(activePackId() ? 'offline' : 'street', true);
   }
-  $('offlineBtn').addEventListener('click', () => { renderOffline(); openSheet('offline'); });
-  $('offAreaChips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c || c.disabled) return; offArea = c.dataset.v; setChips('offAreaChips', offArea); updateOffEstimate(); });
-  $('offSrcChips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c) return; offSrc = c.dataset.v; setChips('offSrcChips', offSrc); updateOffEstimate(); });
-  $('offZoom').addEventListener('change', updateOffEstimate);
-  $('offGo').addEventListener('click', () => guard(async () => {
-    if (!navigator.onLine) { toast('Connect to the internet to download maps'); return; }
-    updateOffEstimate(); if ($('offGo').disabled || !offBounds) return;
-    const zmax = +$('offZoom').value, srcs = srcsOf(offSrc), b = offBounds.slice();
-    const queue = [];
-    for (const src of srcs) for (const t of tilesFor(b, zmax)) queue.push([src, ...t]);
-    const total = queue.length; let done = 0, missing = 0;
-    cancelFlag = false; busy(`Downloading map 0 / ${total}`, 0, true);
-    const worker = async () => {
-      while (queue.length && !cancelFlag) {
-        const [src, z, x, y] = queue.shift();
-        if (!(await fetchTile(src, z, x, y))) missing++;
-        done++; if (done % 4 === 0 || done === total) busy(`Downloading map ${done.toLocaleString()} / ${total.toLocaleString()}`, done / total, true);
-      }
-    };
-    await Promise.all([worker(), worker(), worker(), worker()]);
-    const partial = cancelFlag; cancelFlag = false;
-    if (done > 0) {
-      S.areas = (S.areas || []).concat({ id: uid(), project: S.project, name: $('offName').value.trim() || `${S.project} – area`,
-        b, zmax, srcs, ok: done - missing, missing, partial, at: new Date().toISOString() });
-      persist();
+  async function downloadPack(p) {
+    if (!navigator.onLine) { toast('Connect to the internet (Wi-Fi recommended) to download map packs'); return; }
+    const url = new URL(`maps/${p.file || p.id + '.pmtiles'}`, SITE).href;
+    if (navigator.storage && navigator.storage.estimate) {
+      const est = await navigator.storage.estimate();
+      if (est.quota && est.quota - est.usage < p.size * 1.1) { toast(`Not enough free space: the pack needs ${fmtMB(p.size)}, about ${fmtMB(est.quota - est.usage)} is available to the app.`, 6000); return; }
     }
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-    drawAreas(); await renderOffline();
-    toast(partial ? `Stopped — ${done - missing} tiles saved` : missing ? `Saved with ${missing} tiles missing (try again to fill gaps)` : `Map saved — ${done.toLocaleString()} tiles ready for offline use`, 4500);
-  }));
+    let st = S.packs[p.id];
+    if (st && (st.date !== p.date || st.size !== p.size || st.done)) { await deletePack(p.id); st = null; } // new edition: start fresh
+    if (!st) st = S.packs[p.id] = { id: p.id, name: p.name, file: p.file, size: p.size, date: p.date, bbox: p.bbox, maxzoom: p.maxzoom, ch: PACK_CH, chunks: 0, done: false };
+    persist();
+    const ctl = new AbortController(); cancelFlag = false;
+    const watch = setInterval(() => { if (cancelFlag) ctl.abort(); }, 200);
+    const cell = navigator.connection && navigator.connection.type === 'cellular' ? ' (on mobile data)' : '';
+    let restart = false;
+    try {
+      let offset = st.chunks * st.ch, r;
+      try { r = await fetch(url, { signal: ctl.signal, cache: 'no-store', headers: offset ? { Range: `bytes=${offset}-` } : {} }); }
+      catch (e) { if (ctl.signal.aborted || !offset) throw e; r = null; }
+      if (offset && (!r || r.status !== 206)) { // the server would not resume: start again from the beginning
+        await deletePack(p.id); restart = true; return;
+      }
+      if (!r.ok) throw new Error(`Map pack download failed (HTTP ${r.status})`);
+      const reader = r.body.getReader(); let buf = new Uint8Array(st.ch), fill = 0;
+      const flush = async (last) => {
+        if (!fill) return;
+        await dbPut('packs', { k: `${p.id}:${st.chunks}`, data: (last ? buf.slice(0, fill) : buf).buffer });
+        st.chunks++; offset += fill; fill = 0; buf = new Uint8Array(st.ch); persist();
+      };
+      busy(`Downloading ${p.name}${cell}…`, offset / p.size, true);
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        let v = value;
+        while (v.length) {
+          const n = Math.min(v.length, st.ch - fill);
+          buf.set(v.subarray(0, n), fill); fill += n; v = v.subarray(n);
+          if (fill === st.ch) await flush(false);
+        }
+        busy(`Downloading ${p.name}${cell}: ${fmtMB(offset + fill)} of ${fmtMB(p.size)}`, (offset + fill) / p.size, true);
+      }
+      await flush(true);
+      if (offset !== p.size) throw new Error(`Download incomplete (${fmtMB(offset)} of ${fmtMB(p.size)}). Tap Resume to continue.`);
+      st.done = true; persist();
+      if (!S.activePack) S.activePack = p.id;
+      persist(); busy(false);
+      toast(`${p.name} is ready for offline use`, 3500);
+      if (S.base === 'offline') setBase('offline', true);
+    } catch (e) {
+      persist();
+      if (ctl.signal.aborted) toast('Download paused. Tap Resume to continue later.', 4000);
+      else throw e;
+    } finally { clearInterval(watch); cancelFlag = false; busy(false); renderOffline(); }
+    if (restart) await downloadPack(p);
+  }
+  $('offlineBtn').addEventListener('click', async () => { openSheet('offline'); renderOffline(); await loadPackIndex(); renderOffline(); });
+  $('packRefresh').addEventListener('click', async () => { $('packSource').textContent = 'Checking for map packs…'; await loadPackIndex(); renderOffline(); });
   $('clearTiles').addEventListener('click', () => {
     const b = $('clearTiles');
-    if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again to delete all saved maps'; setTimeout(() => { delete b.dataset.armed; b.textContent = 'Delete all saved maps'; }, 4000); return; }
-    guard(async () => { await dbClear('tiles'); S.areas = []; persist(); drawAreas(); await renderOffline(); toast('All saved maps deleted'); });
+    if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again to delete viewed tiles'; setTimeout(() => { delete b.dataset.armed; b.textContent = 'Delete viewed map tiles'; }, 4000); return; }
+    guard(async () => { await dbClear('tiles'); S.areas = []; persist(); await renderOffline(); toast('Viewed map tiles deleted'); });
   });
 
   /* ================= start ================= */
@@ -2069,6 +2138,8 @@
     if (!S.projects.includes(S.project)) S.projects.push(S.project);
     renderPoles(); drawAreas();
     if (!S.view) fitProject();
+    if (S.base === 'offline' && !activePackId()) setBase('street', true);
+    goOfflineIfPossible();
     startGps();
   })();
   // Files handed to other apps through Share are temporary: clear them each time the APK starts.
