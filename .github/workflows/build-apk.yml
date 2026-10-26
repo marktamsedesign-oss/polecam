@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths-ignore: ['**.md']
+    paths-ignore: ['**.md', 'maps/**', '.github/workflows/deploy-site.yml']
 
 permissions:
   contents: write
@@ -82,6 +82,14 @@ jobs:
           else
             echo "capacitor.js not found; the app will talk to the native bridge directly"
           fi
+          # The APK downloads offline map packs from the website; tell it where the website is.
+          SITE="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/"
+          sed -i "s#<script src=\"app.js\"></script>#<script>window.POLECAM_SITE='${SITE}';</script>\n<script src=\"app.js\"></script>#" www/index.html
+          grep -n "POLECAM_SITE" www/index.html
+          # Identify the app to map tile servers (OpenStreetMap's tile policy asks apps for a distinct User-Agent).
+          APPVER=$(grep -oP "polecam-v\K[0-9.]+" ../sw.js || echo "1.0.0")
+          node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('capacitor.config.json'));c.appendUserAgent='PoleCam/'+process.argv[1]+' (+https://github.com/'+process.argv[2]+')';fs.writeFileSync('capacitor.config.json',JSON.stringify(c,null,2))" "$APPVER" "$GITHUB_REPOSITORY"
+          cat capacitor.config.json
           npx cap add android
 
       - name: Permissions, icon, splash screen and version
