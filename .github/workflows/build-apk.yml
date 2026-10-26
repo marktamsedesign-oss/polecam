@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths-ignore: ['**.md', 'maps/**', '.github/workflows/deploy-site.yml']
+    paths-ignore: ['**.md', 'maps/**', '.github/workflows/deploy-site.yml', '.github/workflows/build-map-packs.yml']
 
 permissions:
   contents: write
@@ -48,7 +48,7 @@ jobs:
       - name: Create the Capacitor project
         run: |
           mkdir -p build/www
-          cp -r index.html app.js core.js reports.js ocr-worker.js manifest.json icons vendor build/www/
+          cp -r index.html app.js core.js reports.js forms.js ocr-worker.js manifest.json icons vendor brand build/www/
           cd build
           cat > package.json <<'EOF'
           {
@@ -72,7 +72,7 @@ jobs:
             "appId": "com.marktamse.polecam",
             "appName": "PoleCam",
             "webDir": "www",
-            "android": { "backgroundColor": "#17202a" }
+            "android": { "backgroundColor": "#0f2547" }
           }
           EOF
           npm install --no-audit --no-fund
@@ -82,7 +82,7 @@ jobs:
           else
             echo "capacitor.js not found; the app will talk to the native bridge directly"
           fi
-          # The APK downloads offline map packs from the website; tell it where the website is.
+          # The site address identifies the app to map servers and finds packs published with older versions.
           SITE="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/"
           sed -i "s#<script src=\"app.js\"></script>#<script>window.POLECAM_SITE='${SITE}';</script>\n<script src=\"app.js\"></script>#" www/index.html
           grep -n "POLECAM_SITE" www/index.html
