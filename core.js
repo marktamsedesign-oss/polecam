@@ -429,11 +429,11 @@
   /* ---------------- CSV ---------------- */
   function buildCsv(points, zone) {
     const q = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-    const rows = [['pole_id', 'pole_type', 'latitude', 'longitude', `utm${zone}n_easting`, `utm${zone}n_northing`, 'gps_accuracy_m', 'pin_adjusted', 'captured', 'photo']];
+    const rows = [['pole_id', 'pole_type', 'latitude', 'longitude', `utm${zone}n_easting`, `utm${zone}n_northing`, 'gps_accuracy_m', 'pin_adjusted', 'captured', 'photo', 'surveyed_by']];
     for (const p of points) {
       const u = utmForward(p.lat, p.lon, zone, p.lat < 0);
       rows.push([p.poleId, p.poleType, p.lat.toFixed(8), p.lon.toFixed(8), u.E.toFixed(3), u.N.toFixed(3),
-        Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : '', p.adjusted ? 'yes' : 'no', p.takenAt, p.photoName || '']);
+        Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : '', p.adjusted ? 'yes' : 'no', p.takenAt, p.photoName || '', p.by || '']);
     }
     return '﻿' + rows.map((r) => r.map(q).join(',')).join('\r\n') + '\r\n';
   }
@@ -532,40 +532,72 @@
     }
     return shapeOf(out) === target ? out : null;
   }
+  /* Known ID formats: poles CC-0001 / WP-0001 / SP-0001 (concrete, wood, steel), ODFs FDU_100. */
+  const KNOWN_PREFIX = ['CC', 'WP', 'SP', 'FDU'];
+  function knownId(raw) {
+    const s = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    let best = null;
+    for (const L of [3, 2]) {
+      if (s.length <= L) continue;
+      const rawNum = s.slice(L), misread = (rawNum.match(/[A-Z]/g) || []).length;
+      if (!/[0-9]/.test(rawNum) || misread * 2 > rawNum.length) continue; // the number must be mostly real digits (SPOT is not SP-0001)
+      const pre = s.slice(0, L).split('').map((c) => (/[0-9]/.test(c) ? (TO_LETTER[c] || c) : c)).join('');
+      const num = rawNum.split('').map((c) => (/[A-Z]/.test(c) ? (TO_DIGIT[c] || c) : c)).join('');
+      if (!/^[0-9]{1,6}$/.test(num)) continue;
+      let p = KNOWN_PREFIX.includes(pre) ? pre : null, fuzzy = false;
+      if (!p) { // one misread letter, e.g. GC -> CC, FOU -> FDU (only when it points to a single known prefix)
+        const near = KNOWN_PREFIX.filter((k) => k.length === L && [...k].filter((ch, i) => ch !== pre[i]).length === 1);
+        if (near.length === 1) { p = near[0]; fuzzy = true; }
+      }
+      if (!p) continue;
+      const id = p === 'FDU' ? `FDU_${num}` : `${p}-${num.padStart(4, '0')}`;
+      if (!best || (best.fuzzy && !fuzzy)) best = { id, prefix: p, fuzzy };
+    }
+    return best;
+  }
   /**
-   * results: [{words:[{text, conf, line}]}] (one per OCR pass); lastId: previous ID in the project (may be '').
+   * results: [{words:[{text, conf, line}], stacked?}] (one per OCR pass); lastId: previous ID in the project (may be '').
+   * stacked = the ID is a column of upright characters, read top to bottom.
    * -> [{id, conf, fits}] best first, at most 5.
    */
   function idCandidates(results, lastId) {
     const target = lastId ? shapeOf(lastId.toUpperCase()) : '';
-    const sep = (lastId || '').match(/[-/ ]/);
+    const sep = (lastId || '').match(/[-/_ ]/);
+    const joiner = sep ? sep[0].trim() || '-' : '-';
     const found = new Map();
+    const put = (id, conf, fits, score) => { const prev = found.get(id); if (!prev || prev.score < score) found.set(id, { id, conf: Math.round(conf), fits, score }); };
     const add = (raw, conf, bonus = 0) => {
-      let s = raw.toUpperCase().replace(/[^A-Z0-9\-/]/g, '').replace(/^[-/]+|[-/]+$/g, '');
-      if (s.length < 2 || s.length > 20 || !/[0-9]/.test(s)) return;
+      let s = raw.toUpperCase().replace(/[^A-Z0-9\-/_]/g, '').replace(/^[-/_]+|[-/_]+$/g, '');
+      if (s.length < 2 || s.length > 20) return;
+      const k = knownId(s);
+      if (k) put(k.id, conf, true, conf + bonus + (k.fuzzy ? 8 : 18));
+      if (!/[0-9]/.test(s)) return;
       const fitted = fitShape(s, target), id = fitted || s, fits = !!fitted;
-      const score = conf + bonus + (fits ? 15 : 0) + (/[A-Z]/.test(id) ? 2 : 0);
-      const prev = found.get(id);
-      if (!prev || prev.score < score) found.set(id, { id, conf: Math.round(conf), fits, score });
+      put(id, conf, fits, conf + bonus + (fits ? 15 : 0) + (/[A-Z]/.test(id) ? 2 : 0));
     };
     for (const r of results || []) {
+      const good = (r.words || []).filter((w) => w.conf >= 20);
+      if (r.stacked) { // one character (or a few) per line: the ID is the lines joined top to bottom
+        if (good.length) add(good.map((w) => w.text).join(''), good.reduce((t, w) => t + w.conf, 0) / good.length, 1);
+        continue;
+      }
       const lines = {};
-      for (const w of r.words || []) if (w.conf >= 20) (lines[w.line] = lines[w.line] || []).push(w);
+      for (const w of good) (lines[w.line] = lines[w.line] || []).push(w);
       const lineList = Object.values(lines);
       for (const ws of lineList) {
         const mean = ws.reduce((t, w) => t + w.conf, 0) / ws.length;
         ws.forEach((w) => add(w.text, w.conf));
-        if (ws.length > 1) { add(ws.map((w) => w.text).join(sep ? sep[0].trim() || '-' : '-'), mean, 3); add(ws.map((w) => w.text).join(''), mean, 1); }
+        if (ws.length > 1) { add(ws.map((w) => w.text).join(joiner), mean, 3); add(ws.map((w) => w.text).join(''), mean, 1); }
       }
-      if (lineList.length === 2) { // two-line stencils, e.g. "MKP" over "0123"
+      if (lineList.length === 2) { // two-line stencils, e.g. "CC" over "0123"
         const all = lineList.flat(), mean = all.reduce((t, w) => t + w.conf, 0) / all.length;
-        add(lineList.map((ws) => ws.map((w) => w.text).join('')).join(sep ? sep[0].trim() || '-' : '-'), mean, 2);
+        add(lineList.map((ws) => ws.map((w) => w.text).join('')).join(joiner), mean, 2);
       }
     }
     return [...found.values()].sort((a, b) => b.score - a.score).slice(0, 5);
   }
 
-  const api = { utmForward, analyzeRoute, autoLinks, distM, deflection, idCandidates, fitShape, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
+  const api = { utmForward, analyzeRoute, autoLinks, distM, deflection, idCandidates, fitShape, knownId, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
     buildKml, buildDxf, buildCsv, roadsFromOverpass, overpassQuery, nextPoleId, safeName, xmlEsc, blockName };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleCore = api;
 })(typeof self !== 'undefined' ? self : this);

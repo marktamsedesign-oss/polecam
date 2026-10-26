@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>PoleCam Survey</title>
-<meta name="theme-color" content="#17202a">
+<meta name="theme-color" content="#0f2547">
 <meta name="description" content="Capture geotagged pole photos, correct the pin, and export KMZ, DXF (UTM) and CSV for OSP design.">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-192.png">
@@ -13,8 +13,9 @@
 <style>
 /* Layout: one full-screen map with a bottom command bar; every task opens as a full-screen sheet over it. */
 :root{
-  --bg:#eef0ec; --surface:#ffffff; --ink:#17202a; --muted:#5a6570; --line:#d3d8d2;
-  --accent:#e8590c; --accent-ink:#ffffff; --ok:#2b8a3e; --warn:#b35c00; --bad:#c92a2a; --chip:#e4e7e2;
+  --bg:#eef1f6; --surface:#ffffff; --ink:#132033; --muted:#566175; --line:#d2d9e4;
+  --accent:#1b3a6b; --accent-ink:#ffffff; --navy:#0f2547; --navy-ink:#ffffff; --hi:#9cc1ff;
+  --ok:#2b8a3e; --warn:#b35c00; --bad:#c92a2a; --chip:#e4e9f1; --pin:#e6007e;
   --shadow:0 2px 10px rgba(16,24,32,.18);
   --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;
   --mono:ui-monospace,"Roboto Mono","SFMono-Regular",Menlo,Consolas,monospace;
@@ -22,8 +23,9 @@
   color-scheme:light;
 }
 @media (prefers-color-scheme: dark){:root{
-  --bg:#10151a; --surface:#1a2129; --ink:#e7ebee; --muted:#9aa5ae; --line:#2d3741;
-  --accent:#ff7a2e; --accent-ink:#1a0d04; --ok:#5cc26f; --warn:#f0a040; --bad:#ff6b6b; --chip:#25303a;
+  --bg:#0a1220; --surface:#121c2f; --ink:#e6ebf3; --muted:#9ca8bb; --line:#26344c;
+  --accent:#6d9cf0; --accent-ink:#06101f; --navy:#0b1830; --navy-ink:#e6ebf3; --hi:#9cc1ff;
+  --ok:#5cc26f; --warn:#f0a040; --bad:#ff6b6b; --chip:#1c2a42;
   --shadow:0 2px 12px rgba(0,0,0,.5); color-scheme:dark;
 }}
 *{box-sizing:border-box}
@@ -37,12 +39,16 @@ button{cursor:pointer}
 
 /* ---- main map ---- */
 #app{position:fixed;inset:0;display:flex;flex-direction:column}
-#topbar{display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top,0px) + 8px) max(12px,env(safe-area-inset-right,0px)) 8px max(12px,env(safe-area-inset-left,0px));background:var(--surface);border-bottom:1px solid var(--line);z-index:500}
+#topbar{display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top,0px) + 8px) max(12px,env(safe-area-inset-right,0px)) 8px max(12px,env(safe-area-inset-left,0px));background:var(--navy);color:var(--navy-ink);z-index:500}
 #topbar .brand{font-weight:800;letter-spacing:.02em;white-space:nowrap}
-#topbar .brand b{color:var(--accent)}
-#projectBtn{flex:1;min-width:0;display:flex;align-items:center;gap:6px;justify-content:flex-end;background:none;border:1px solid var(--line);border-radius:999px;padding:6px 12px;height:38px}
+#topbar .brand b{color:var(--hi)}
+#projectBtn{flex:1;min-width:0;display:flex;align-items:center;gap:8px;justify-content:flex-end;background:rgba(255,255,255,.08);color:var(--navy-ink);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:4px 6px 4px 12px;height:40px}
 #projectBtn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#projectBtn .count{font-family:var(--mono);color:var(--muted);flex:none}
+#projectBtn .count{font-family:var(--mono);opacity:.75;flex:none}
+#projectBtn .badge{order:-1}
+.badge.cat{background:#fff;color:var(--navy)}
+.badge.cat.pat{background:#ffd43b;color:#3d2b00}
+.badge.cat.fat{background:#69db7c;color:#06290f}
 #map{flex:1;background:var(--chip)}
 #gpsPill{position:absolute;top:calc(env(safe-area-inset-top,0px) + 64px);left:max(12px,env(safe-area-inset-left,0px));z-index:450;background:var(--surface);border-radius:999px;padding:6px 12px;box-shadow:var(--shadow);font-size:13px;display:flex;gap:6px;align-items:center}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
@@ -50,10 +56,10 @@ button{cursor:pointer}
 .mapbtns{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 104px);z-index:450;display:flex;flex-direction:column;gap:10px}
 .round{width:var(--tap);height:var(--tap);border-radius:50%;border:0;background:var(--surface);box-shadow:var(--shadow);display:grid;place-items:center}
 .round svg{width:22px;height:22px}
-#bottombar{display:flex;align-items:center;justify-content:space-around;gap:4px;background:var(--surface);border-top:1px solid var(--line);padding:6px max(8px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 6px) max(8px,env(safe-area-inset-left,0px));z-index:500}
-.navbtn{flex:1;background:none;border:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;font-size:12px;color:var(--muted);min-height:var(--tap)}
+#bottombar{display:flex;align-items:center;justify-content:space-around;gap:4px;background:var(--navy);padding:6px max(8px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 6px) max(8px,env(safe-area-inset-left,0px));z-index:500}
+.navbtn{flex:1;background:none;border:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;font-size:12px;color:rgba(255,255,255,.82);min-height:var(--tap)}
 .navbtn svg{width:24px;height:24px}
-#captureBtn{flex:none;width:68px;height:68px;margin-top:-30px;border-radius:50%;border:4px solid var(--surface);background:var(--accent);color:var(--accent-ink);box-shadow:var(--shadow);display:grid;place-items:center}
+#captureBtn{flex:none;width:68px;height:68px;margin-top:-30px;border-radius:50%;border:4px solid var(--navy);background:#fff;color:#0f2547;box-shadow:0 0 0 2px var(--hi),var(--shadow);display:grid;place-items:center}
 #captureBtn svg{width:30px;height:30px}
 
 /* pole markers on map */
@@ -65,7 +71,8 @@ button{cursor:pointer}
 
 /* ---- sheets ---- */
 .sheet{position:fixed;inset:0;z-index:1000;background:var(--bg);display:flex;flex-direction:column}
-.sheet header{display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top,0px) + 6px) max(8px,env(safe-area-inset-right,0px)) 6px max(8px,env(safe-area-inset-left,0px));background:var(--surface);border-bottom:1px solid var(--line)}
+.sheet header{display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top,0px) + 6px) max(8px,env(safe-area-inset-right,0px)) 6px max(8px,env(safe-area-inset-left,0px));background:var(--navy);color:var(--navy-ink)}
+.sheet header #queueNote{color:var(--hi)}
 .sheet header h2{flex:1;margin:0;font-size:17px;text-wrap:balance}
 .iconbtn{width:var(--tap);height:var(--tap);border:0;background:none;display:grid;place-items:center;border-radius:50%}
 .iconbtn svg{width:24px;height:24px}
@@ -77,7 +84,7 @@ button{cursor:pointer}
 .btn.grow{flex:1}
 .btn:disabled{opacity:.5}
 label.field{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.02em}
-input[type=text],input[type=number],select,textarea{width:100%;min-height:var(--tap);border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:10px 12px;font-size:16px;color:var(--ink)}
+input[type=text],input[type=number],input[type=tel],input[type=email],input[type=password],select,textarea{width:100%;min-height:var(--tap);border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:10px 12px;font-size:16px;color:var(--ink)}
 textarea{min-height:90px;resize:vertical}
 #poleId{font:700 22px var(--mono);letter-spacing:.03em;text-transform:uppercase}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
@@ -98,7 +105,10 @@ textarea{min-height:90px;resize:vertical}
 #camTop{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));display:flex;justify-content:space-between;align-items:center;gap:8px;z-index:2}
 #camTop .pill{background:rgba(0,0,0,.55);border-radius:999px;padding:6px 12px;font-size:13px;display:flex;gap:6px;align-items:center}
 #camBar{display:flex;align-items:center;justify-content:space-around;padding:16px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 20px) max(16px,env(safe-area-inset-left,0px));background:#000}
-#shutter{width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:var(--accent)}
+#shutter{width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:#868e96;transition:background .2s}
+#shutter.ok{background:#2f9e44}
+#shutter.bad{background:#e03131}
+#shutter.scan{background:#fff;border-color:#9cc1ff}
 #shutter:active{transform:scale(.94)}
 .camside{width:56px;height:56px;border-radius:50%;border:0;background:rgba(255,255,255,.14);color:#fff;display:grid;place-items:center}
 .camside svg{width:24px;height:24px}
@@ -109,8 +119,12 @@ textarea{min-height:90px;resize:vertical}
 #pinMapWrap{position:relative;height:46vh;min-height:240px;flex:none;border-bottom:1px solid var(--line)}
 #pinMap{position:absolute;inset:0;background:var(--chip)}
 #crosshair{position:absolute;left:50%;top:50%;width:0;height:0;z-index:400;pointer-events:none}
-#crosshair svg{position:absolute;left:-18px;top:-44px;width:36px;height:46px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.4))}
-#crosshair i{position:absolute;left:-3px;top:-3px;width:6px;height:6px;border-radius:50%;background:#000;border:1px solid #fff}
+#crosshair svg{position:absolute;left:-7px;top:-40px;width:14px;height:40px;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.45))}
+#crosshair i{position:absolute;left:-6px;top:-6px;width:12px;height:12px;border-radius:50%;border:2px solid var(--pin);box-shadow:0 0 0 1px #fff,inset 0 0 0 1px #fff}
+#crosshair i::after{content:'';position:absolute;left:3px;top:3px;width:2px;height:2px;border-radius:50%;background:var(--pin)}
+#pinLayer{position:absolute;top:8px;right:8px;z-index:400;display:flex;align-items:center;gap:6px}
+#pinLayer .round{width:42px;height:42px}
+#pinLayerName{background:var(--surface);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;box-shadow:var(--shadow)}
 #pinInfo{position:absolute;left:8px;right:8px;bottom:8px;z-index:400;display:flex;justify-content:space-between;align-items:flex-end;gap:8px;pointer-events:none}
 #pinInfo > *{pointer-events:auto}
 #coordBox{background:var(--surface);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:var(--shadow);line-height:1.35}
@@ -141,10 +155,17 @@ textarea{min-height:90px;resize:vertical}
 .result{display:flex;gap:10px;flex-wrap:wrap}
 #camStage{position:relative;flex:1;min-height:0;display:flex}
 #camStage video{flex:1}
-#idGuide{position:absolute;left:10%;right:10%;top:38%;height:24%;border:3px solid #fff;border-radius:10px;box-shadow:0 0 0 2000px rgba(0,0,0,.28);pointer-events:none;display:flex;align-items:flex-end;justify-content:center}
-#idGuide span{transform:translateY(130%);font-size:13px;font-weight:600;color:#fff;text-shadow:0 1px 3px #000;text-align:center}
+#idGuide{position:absolute;left:10%;right:10%;top:40%;height:22%;border:3px solid #fff;border-radius:10px;box-shadow:0 0 0 2000px rgba(0,0,0,.28);pointer-events:none;display:flex;align-items:flex-end;justify-content:center}
+#idGuide.v{left:37%;right:37%;top:15%;height:58%}
+#idGuide span{transform:translateY(130%);white-space:nowrap;font-size:13px;font-weight:600;color:#fff;text-shadow:0 1px 3px #000;text-align:center}
 .camid{min-width:44px;height:44px;border-radius:22px;border:2px solid #fff;background:rgba(0,0,0,.55);color:#fff;font:700 14px var(--mono)}
 .camid[aria-pressed=true]{background:#fff;color:#000}
+#scanPrompt{position:absolute;left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 124px);z-index:3;background:rgba(15,37,71,.9);color:#fff;border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+#scanPrompt b{font-size:15px}
+#scanPrompt span{font-size:13px;opacity:.85}
+#scanPrompt .row{gap:8px}
+#scanPrompt .btn{min-height:40px;background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.35);color:#fff;font-size:14px;padding:0 12px}
+#scanPrompt .btn[aria-pressed=true]{background:#fff;color:#0f2547}
 #camCheck{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);z-index:3;background:rgba(0,0,0,.75);color:#fff;border-radius:12px;padding:14px 18px;display:flex;gap:10px;align-items:center;font-weight:600}
 .spin{width:18px;height:18px;border-radius:50%;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -153,6 +174,7 @@ textarea{min-height:90px;resize:vertical}
 #qualBox .qtext{display:flex;flex-direction:column;gap:4px;font-size:14px}
 #qualBox .qtext span{color:var(--muted);font-size:13px}
 #qualBox .row{grid-column:1 / -1}
+#qualBox b{color:var(--bad)}
 .idrow{display:flex;gap:8px}
 .idrow input{flex:1;min-width:0}
 .idrow .btn{flex:none}
@@ -202,6 +224,23 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 .area-card .t{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .area-card .s{font-size:12px;color:var(--muted)}
 .area-card .btn{min-height:40px;padding:0 12px;font-size:14px}
+/* profile, company list, QR */
+.req{color:var(--bad)}
+.who{display:flex;flex-direction:column;gap:2px;font-size:14px}
+.who b{font-size:16px}
+.co-item{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:var(--r);padding:6px 6px 6px 12px;background:var(--surface)}
+.co-item span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.co-item .btn{min-height:36px;padding:0 10px;font-size:13px}
+.overlay{position:fixed;inset:0;z-index:2600;background:rgba(5,12,25,.72);display:grid;place-items:center;padding:16px}
+.overlay .panel{background:var(--surface);color:var(--ink);border-radius:14px;padding:16px;width:min(420px,100%);max-height:100%;overflow:auto;display:flex;flex-direction:column;gap:12px}
+.overlay h3{margin:0;font-size:17px}
+#qrImg{background:#fff;padding:12px;border-radius:10px;display:grid;place-items:center}
+#qrImg svg{width:100%;height:auto;max-width:340px}
+#qrScan{position:fixed;inset:0;z-index:2700;background:#000;color:#fff;display:flex;flex-direction:column}
+#qrScan video{flex:1;min-height:0;width:100%;object-fit:cover}
+#qrScan .qtop{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);left:12px;right:12px;display:flex;gap:10px;align-items:center;z-index:2}
+#qrScan .qtop span{background:rgba(0,0,0,.6);border-radius:999px;padding:6px 12px;font-size:13px}
+#qrFrame{position:absolute;left:15%;right:15%;top:28%;aspect-ratio:1;border:3px solid #fff;border-radius:14px;box-shadow:0 0 0 2000px rgba(0,0,0,.35);pointer-events:none}
 @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
@@ -209,8 +248,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 <div id="app">
   <div id="topbar">
     <div class="brand">Pole<b>Cam</b></div>
-    <span class="badge" id="modeBadge">SURVEY</span>
-    <button id="projectBtn" aria-label="Change project"><span id="projectName">Project</span><span class="count" id="pointCount">0</span></button>
+    <button id="projectBtn" aria-label="Change project or task category"><span class="badge cat" id="modeBadge">SURVEY</span><span id="projectName">Project</span><span class="count" id="pointCount">0</span></button>
   </div>
   <div id="map" role="application" aria-label="Survey map"></div>
   <div id="gpsPill" aria-live="polite"><span class="dot" id="gpsDot"></span><span id="gpsText">GPS off</span></div>
@@ -231,8 +269,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
   </div>
   <nav id="bottombar">
-    <button class="navbtn" id="listBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Points</button>
-    <button class="navbtn" id="importBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>Import</button>
+    <button class="navbtn" id="listBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span id="listLbl">Survey</span></button>
+    <button class="navbtn" id="projNavBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>Projects</button>
     <button id="captureBtn" aria-label="Capture a pole"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
     <button class="navbtn" id="exportBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/></svg>Export</button>
     <button class="navbtn" id="settingsBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>Settings</button>
@@ -244,18 +282,23 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div id="camTop">
     <button class="camclose" id="camClose" aria-label="Close camera"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     <div class="pill"><span class="dot" id="camGpsDot"></span><span id="camGpsText">Waiting for GPS…</span></div>
-    <button class="camid" id="camReadId" aria-pressed="true" aria-label="Read the painted Pole ID">ID</button>
+    <button class="camid" id="camReadId" aria-pressed="true" aria-label="Scan the ID after each new photo">ID</button>
   </div>
   <div id="camMsg" hidden></div>
+  <div id="scanPrompt" hidden>
+    <b id="scanTitle">Photo kept. Now scan the ID</b>
+    <span id="scanSub">Pole (CC-, WP-, SP-), ODF (FDU_) or any other ID. Fit the painted ID inside the box and tap the shutter.</span>
+    <div class="row"><button class="btn" id="orientH" type="button" aria-pressed="true">⇆ Horizontal ID</button><button class="btn" id="orientV" type="button" aria-pressed="false">⇅ Vertical ID</button><button class="btn" id="scanSkip" type="button" style="margin-left:auto">Skip</button></div>
+  </div>
   <div id="camStage">
     <video id="video" playsinline muted autoplay></video>
-    <div id="idGuide" hidden><span id="idGuideText">Fit the painted Pole ID inside the box</span></div>
+    <div id="idGuide" hidden><span id="idGuideText">Fit the painted ID inside the box</span></div>
   </div>
   <div id="camCheck" hidden><div class="spin"></div><span id="camCheckText">Checking GPS…</span></div>
   <div id="qualBox" hidden>
     <img id="qualImg" alt="Photo just taken">
-    <div class="qtext"><b id="qualTitle">This photo may not be clear</b><span id="qualWhy"></span></div>
-    <div class="row"><button class="btn grow" id="qualRetake">Retake</button><button class="btn grow" id="qualUse">Use anyway</button></div>
+    <div class="qtext"><b id="qualTitle">Photo not accepted</b><span id="qualWhy"></span></div>
+    <div class="row"><button class="btn primary grow" id="qualRetake">Retake</button></div>
   </div>
   <div id="camBar">
     <button class="camside" id="camNative" aria-label="Use phone camera app"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><path d="M12 10v6M9 13h6"/></svg></button>
@@ -264,7 +307,6 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </div>
 </section>
 <input type="file" id="nativeInput" accept="image/*" capture="environment" hidden>
-<input type="file" id="importInput" accept="image/jpeg,image/*" multiple hidden>
 
 <!-- point editor -->
 <section class="sheet" id="editor" hidden aria-labelledby="editorTitle">
@@ -275,7 +317,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </header>
   <div id="pinMapWrap">
     <div id="pinMap"></div>
-    <div id="crosshair"><svg viewBox="0 0 36 46"><path d="M18 45s15-15.6 15-27A15 15 0 0 0 3 18c0 11.4 15 27 15 27Z" fill="#e8590c" stroke="#fff" stroke-width="2"/><circle cx="18" cy="18" r="5.5" fill="#fff"/></svg><i></i></div>
+    <div id="crosshair"><svg viewBox="0 0 14 40"><path d="M7 11V34" stroke="#fff" stroke-width="4" stroke-linecap="round"/><path d="M7 11V34" stroke="#e6007e" stroke-width="2" stroke-linecap="round"/><circle cx="7" cy="7" r="5.5" fill="#e6007e" stroke="#fff" stroke-width="1.6"/></svg><i></i></div>
+    <div id="pinLayer"><span id="pinLayerName">Street</span><button class="round" id="pinLayerBtn" type="button" aria-label="Switch map: street, satellite or offline map pack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button></div>
     <div id="pinInfo">
       <div id="coordBox" class="mono"><div id="pinLL">–</div><div id="pinUTM">–</div><div id="pinDelta"></div></div>
       <button class="btn" id="snapGps">Reset to GPS</button>
@@ -287,11 +330,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div id="accPhotos" class="photo-grid" hidden></div>
     <div class="field" id="accElementBox" hidden><span class="lbl">ELEMENT</span><div class="chips" id="elemChips"></div></div>
     <div class="field"><label class="lbl" for="poleId" id="idLabel">POLE ID</label>
-      <div class="idrow"><input type="text" id="poleId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CBT-0001"><button class="btn" id="scanIdBtn" type="button" aria-label="Read the ID from the camera">Scan ID</button></div>
+      <div class="idrow"><input type="text" id="poleId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CC-0001"><button class="btn" id="scanIdBtn" type="button" aria-label="Read the ID from the camera">Scan ID</button></div>
     </div>
     <div id="idCands" class="idcands" hidden></div>
     <p class="warnline" id="dupWarn" hidden></p>
     <p class="warnline" id="qualWarn" hidden></p>
+    <p class="warnline" id="fmtWarn" hidden></p>
     <div class="field" id="surveyTypeBox"><span class="lbl">POLE TYPE</span><div class="chips" id="typeChips"></div></div>
     <div class="group" id="poleAttach" hidden>
       <h3>On this pole</h3>
@@ -330,7 +374,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 <section class="sheet" id="list" hidden aria-labelledby="listTitle">
   <header>
     <button class="iconbtn" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18 9 12l6-6"/></svg></button>
-    <h2 id="listTitle">Points</h2>
+    <h2 id="listTitle">Survey</h2>
   </header>
   <div class="body">
     <input type="text" id="listSearch" placeholder="Search ID or type" aria-label="Search points">
@@ -433,13 +477,23 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </header>
   <div class="body">
     <div class="group">
-      <h3>Pole types</h3>
-      <label class="field">One per line<textarea id="setTypes"></textarea></label>
+      <h3>You</h3>
+      <div class="who" id="whoBox">–</div>
+      <button class="btn" id="editMe" type="button">Edit my details</button>
+      <p class="hint">Your name and company are recorded on every photo, pole and punchlist item, and printed on the reports.</p>
     </div>
     <div class="group">
-      <h3>You</h3>
-      <label class="field">Your name and company<input type="text" id="setUser" autocomplete="name" placeholder="e.g. J. Santos · ABC Builders"></label>
-      <p class="hint">Recorded on every acceptance photo and rectification, and printed on the reports.</p>
+      <h3>Company list</h3>
+      <p class="hint" id="teamInfo">–</p>
+      <div class="row"><button class="btn grow" id="teamShare" type="button">Share list (QR or file)</button><button class="btn grow" id="teamUpdate" type="button">Update list</button></div>
+      <button class="btn primary" id="teamManage" type="button" hidden>Manage company list (admin)</button>
+      <button class="btn" id="teamCreate" type="button" hidden>I am the admin: create the company list</button>
+      <button class="btn" id="adminAsk" type="button" hidden>Ask to become an admin</button>
+      <button class="btn" id="teamSwitch" type="button" hidden>Switch to another list</button>
+    </div>
+    <div class="group">
+      <h3>Pole types and IDs</h3>
+      <p class="hint">Concrete = CC, Wood = WP, Steel = SP. Pole IDs are written CC-0001, WP-0001, SP-0001; ODF IDs FDU_100. The next ID is suggested from the last one of the same kind in the project.</p>
     </div>
     <div class="group">
       <h3>Deficiency checklist (acceptance)</h3>
@@ -454,9 +508,9 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
     <div class="group">
       <h3>Camera checks</h3>
-      <label class="check"><input type="checkbox" id="setGpsFresh"><span>Only take a photo if GPS updated within the last 5 seconds (always on in acceptance projects)</span></label>
-      <label class="field">Blur and exposure check<select id="setQuality"><option value="off">Off</option><option value="normal">Normal: warn on clearly blurry, dark or overexposed photos</option><option value="strict">Strict: also warn on slightly soft photos</option></select></label>
-      <label class="check"><input type="checkbox" id="setReadId"><span>Read the painted Pole ID from the camera (shows a guide box)</span></label>
+      <p class="hint">A photo is taken only when the GPS updated within the last 5 seconds (green shutter). Dark, blank and blurry photos are refused; retake them.</p>
+      <label class="field">Sharpness required<select id="setQuality"><option value="strict">Strict (recommended)</option><option value="normal">Normal: refuse only clearly blurry</option></select></label>
+      <label class="check"><input type="checkbox" id="setReadId"><span>After each new photo, ask to scan the painted ID</span></label>
     </div>
     <div class="group">
       <h3>Route checks</h3>
@@ -481,14 +535,14 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="group">
       <h3>Offline map</h3>
       <p class="hint" id="tileInfo">–</p>
-      <p class="hint">Download maps for no-signal areas with the cloud button on the map.</p>
+      <p class="hint">Download a map pack for no-signal areas with the cloud button on the map. Satellite imagery works online only.</p>
     </div>
     <div class="group">
       <h3>Storage</h3>
       <p class="hint" id="storeInfo">–</p>
-      <p class="hint">Points and photos live only on this phone until you export or back up.</p>
+      <p class="hint">Points and photos live only on this phone until you export or back up. The limit is set by the phone, not by PoleCam: the app may use up to that much of the free space, and it grows or shrinks as the phone fills up.</p>
     </div>
-    <p class="hint" style="text-align:center">PoleCam Survey v1.6.0 · Map data © OpenStreetMap contributors · Imagery © Esri</p>
+    <p class="hint" style="text-align:center">PoleCam Survey v1.7.0 · Map data © OpenStreetMap contributors · Imagery © Esri</p>
   </div>
 </section>
 
@@ -517,7 +571,9 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
     <div class="group">
       <h3>New project</h3>
-      <div class="chips" id="newMode"><button type="button" class="chip" data-v="survey" aria-pressed="true">Engineering survey</button><button type="button" class="chip" data-v="acceptance" aria-pressed="false">Acceptance · PAT</button></div>
+      <span class="lbl">TASK CATEGORY</span>
+      <div class="chips" id="newMode"><button type="button" class="chip" data-v="survey" aria-pressed="true">Survey</button><button type="button" class="chip" data-v="PAT" aria-pressed="false">PAT</button><button type="button" class="chip" data-v="FAT" aria-pressed="false">FAT</button></div>
+      <p class="hint" id="newModeHint">Engineering survey: poles, route and spans for design.</p>
       <div class="row"><input type="text" id="newProject" placeholder="e.g. Kabacan Poblacion LLD" style="flex:1"><button class="btn primary" id="addProject">Add</button></div>
     </div>
     <div id="projItems" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -540,7 +596,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
     <div class="group">
       <h3>Map tiles you have viewed</h3>
-      <p class="hint">Street and satellite tiles you look at while online are kept on the phone and shown again without signal. Following OpenStreetMap's and Esri's rules, the app does not bulk-download them; use a map pack for areas you have not viewed.</p>
+      <p class="hint">Street map tiles you look at while online are kept on the phone for 7 days and shown again without signal. Satellite imagery is not kept: Esri allows offline imagery only in its own ArcGIS apps. Use a map pack for areas you have not viewed.</p>
       <p class="hint" id="offTotal">–</p>
       <button class="btn danger" id="clearTiles" type="button">Delete viewed map tiles</button>
     </div>
@@ -548,11 +604,86 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </div>
 </section>
 
+<!-- your details (asked on first use) -->
+<section class="sheet" id="profile" hidden aria-labelledby="profTitle">
+  <header>
+    <span id="profBack"><button class="iconbtn" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18 9 12l6-6"/></svg></button></span>
+    <h2 id="profTitle">Your details</h2>
+  </header>
+  <div class="body">
+    <p class="hint" id="profIntro">PoleCam records who took each photo. Enter your details once; they stay on this phone and print on the reports.</p>
+    <label class="field">FULL NAME <input type="text" id="pfName" autocomplete="name" autocapitalize="words" placeholder="e.g. Juan Dela Cruz"></label>
+    <label class="field">MOBILE NUMBER <input type="tel" id="pfMobile" autocomplete="tel" inputmode="tel" placeholder="e.g. 0917 123 4567"></label>
+    <label class="field">EMAIL <input type="email" id="pfEmail" autocomplete="email" inputmode="email" autocapitalize="off" placeholder="name@company.com"></label>
+    <div class="field"><span class="lbl">COMPANY</span><select id="pfCompany"></select><p class="hint" id="pfTeam"></p></div>
+    <div class="group" id="pfJoin" hidden>
+      <h3>Get the company list</h3>
+      <p class="hint">Company names are set by your PoleCam admin. Ask the admin to show the list's QR code (Settings → Company list → Share list), or to send you the list file.</p>
+      <div class="row"><button class="btn grow primary" id="pfScan" type="button">Scan admin's QR code</button><button class="btn grow" id="pfFile" type="button">Open list file</button></div>
+      <button class="btn" id="pfCreate" type="button">I am the admin: create the company list</button>
+    </div>
+    <p class="warnline" id="pfErr" hidden></p>
+  </div>
+  <div class="foot"><button class="btn primary grow" id="pfSave" type="button">Save</button></div>
+</section>
+<input type="file" id="teamFileInput" accept=".json,.txt,application/json,text/plain" hidden>
+
+<!-- company list admin -->
+<section class="sheet" id="admin" hidden aria-labelledby="adminTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18 9 12l6-6"/></svg></button>
+    <h2 id="adminTitle">Company list (admin)</h2>
+  </header>
+  <div class="body">
+    <div class="group" id="admLock">
+      <h3 id="admLockTitle">Admin PIN</h3>
+      <p class="hint" id="admLockHint">Enter your admin PIN.</p>
+      <input type="password" id="admPin" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4 to 8 digits" aria-label="Admin PIN">
+      <input type="password" id="admPin2" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="Repeat the PIN" aria-label="Repeat the PIN" hidden>
+      <button class="btn primary" id="admUnlock" type="button">Continue</button>
+    </div>
+    <div id="admMain" hidden style="display:contents">
+      <div class="group">
+        <h3>List name</h3>
+        <input type="text" id="admName" placeholder="e.g. Globe OSP Mindanao" aria-label="List name">
+        <p class="hint">Shown on every phone that uses this list and printed on the reports.</p>
+      </div>
+      <div class="group">
+        <h3>Companies and vendors</h3>
+        <div id="admCos" style="display:flex;flex-direction:column;gap:6px"></div>
+        <div class="row"><input type="text" id="admNewCo" placeholder="Company name" style="flex:1" aria-label="New company name"><button class="btn" id="admAddCo" type="button">Add</button></div>
+      </div>
+      <div class="group">
+        <h3>Admins</h3>
+        <div id="admAdmins" style="display:flex;flex-direction:column;gap:6px"></div>
+        <button class="btn" id="admAddAdmin" type="button">Add an admin: scan their request QR</button>
+        <p class="hint">The other person opens Settings → Company list → Ask to become an admin, and shows you the QR code on their phone.</p>
+      </div>
+      <p class="hint" id="admRev"></p>
+      <button class="btn primary" id="admSave" type="button">Save and share the list</button>
+    </div>
+  </div>
+</section>
+
+<div class="overlay" id="qrShow" hidden><div class="panel">
+  <h3 id="qrTitle">Company list</h3>
+  <p class="hint" id="qrText"></p>
+  <div id="qrImg"></div>
+  <div class="row"><button class="btn grow" id="qrFile" type="button">Share as file</button><button class="btn primary grow" id="qrClose" type="button">Done</button></div>
+</div></div>
+<div id="qrScan" hidden>
+  <div class="qtop"><button class="camclose" id="qrScanClose" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg></button><span id="qrScanText">Point the camera at the QR code</span></div>
+  <video id="qrVideo" playsinline muted autoplay></video>
+  <div id="qrFrame"></div>
+</div>
+<div class="overlay" id="askBox" hidden><div class="panel"><h3 id="askTitle"></h3><p id="askText" style="margin:0;white-space:pre-line"></p><div class="row"><button class="btn grow" id="askNo" type="button">Cancel</button><button class="btn primary grow" id="askYes" type="button">OK</button></div></div></div>
+
 <div id="busy" hidden><div><span id="busyText">Working…</span><progress id="busyProg" max="1" value="0"></progress><button class="btn" id="busyCancel" hidden style="margin-top:12px;width:100%">Cancel</button></div></div>
 <div id="toast" hidden role="status"></div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
 <script src="vendor/protomaps/protomaps-leaflet.js"></script>
+<script src="vendor/qr/qrcode.min.js"></script>
 <script src="core.js"></script>
 <script src="reports.js"></script>
 <script src="app.js"></script>

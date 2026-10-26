@@ -229,7 +229,7 @@ ${sh.merges && sh.merges.length ? `<mergeCells count="${sh.merges.length}">${sh.
   }
 
   /* ---------------- punchlist PDF layout ---------------- */
-  const RED = [0.79, 0.16, 0.16], GREEN = [0.17, 0.54, 0.24], BLUE = [0.1, 0.44, 0.76], MUTED = [0.35, 0.4, 0.44], INK = [0.09, 0.13, 0.16], ACCENT = [0.91, 0.35, 0.05];
+  const RED = [0.79, 0.16, 0.16], GREEN = [0.17, 0.54, 0.24], BLUE = [0.1, 0.44, 0.76], MUTED = [0.35, 0.4, 0.44], INK = [0.09, 0.13, 0.16], ACCENT = [0.11, 0.23, 0.42];
   const statusColor = (s) => (s === 'Open' || s === 'With deficiency' ? RED : s === 'Rectified' ? BLUE : GREEN);
 
   /**

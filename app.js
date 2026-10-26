@@ -20,21 +20,31 @@
   const ELEMENTS = ['Pole', 'ODF', 'ODC', 'Rack'];
   /* Location integrity: the pin may move at most PIN_LIMIT_M from where the photo was taken, and in acceptance
      projects every photo must be live (in-app camera, fresh GPS) and taken within PIN_LIMIT_M of the element. */
-  const PIN_LIMIT_M = 1000, MAX_PHOTO_AGE_MS = 10 * 60000;
+  const PIN_LIMIT_M = 1000, MAX_PHOTO_AGE_MS = 2 * 60000;
+  /* Pole types are fixed; each has its Pole ID prefix (CC-0001). ODF IDs are FDU_<number>. */
+  const POLE_TYPES = ['Concrete', 'Wood', 'Steel'];
+  const TYPE_PREFIX = { Concrete: 'CC', Wood: 'WP', Steel: 'SP' }, PREFIX_TYPE = { CC: 'Concrete', WP: 'Wood', SP: 'Steel' };
+  const POLE_ID_RE = /^(CC|WP|SP)-(\d+)$/, ODF_ID_RE = /^FDU_(\d+)$/;
   const CATS_FOR = { Pole: ['Pole', 'Cable / strand', 'MLoop', 'NAP', 'Closure', 'Other'], ODF: ['ODF', 'Other'], ODC: ['ODC', 'Cable / strand', 'Other'], Rack: ['Rack', 'ODF', 'Other'] };
   const PHOTO_LABELS = ['Overview', 'Pole tag', 'MLoop', 'NAP', 'Closure', 'Cable', 'ODF', 'ODC', 'Rack', 'Detail'];
   const STATUS_TEXT = { OK: 'OK', Open: 'With deficiency', Rectified: 'Rectified' };
   const STATUS_COLORS = { OK: '#2b8a3e', Open: '#c92a2a', Rectified: '#1971c2' };
   const DEF = {
     project: 'Default project', projects: ['Default project'],
-    types: ['Concrete', 'Wood', 'Steel', 'Fiberglass'], stamp: true, maxPx: 2048,
+    types: POLE_TYPES.slice(), stamp: true, maxPx: 2048,
     zone: 51, sym: 1, txt: 1.5, base: 'street', lastPoleId: '', lastType: 'Concrete', view: null, areas: [],
     meta: {}, defects: JSON.parse(JSON.stringify(DEF_CHECK)), userName: '',
-    gpsFresh: true, quality: 'normal', readId: true, maxSpan: 50, angleDeg: 15, autoGap: 120,
+    quality: 'strict', readId: true, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
     saveBase: 'DOCUMENTS', saveFolder: 'PoleCam', saveByProject: true,
   };
   let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem('polecam.settings') || '{}')); } catch (e) { return { ...DEF }; } })();
   const persist = () => { try { localStorage.setItem('polecam.settings', JSON.stringify(S)); } catch (e) { /* storage blocked */ } };
+  // v1.7: fixed pole types, strict photo check, 200 m maximum span, satellite imagery no longer kept on the phone
+  S.types = POLE_TYPES.slice();
+  if (!POLE_TYPES.includes(S.lastType)) S.lastType = 'Concrete';
+  if (S.quality !== 'normal') S.quality = 'strict';
+  if (!S.v17) { S.v17 = 1; S.quality = 'strict'; S.maxSpan = 200; S.dropSatTiles = true; }
+  persist();
 
   /* ================= IndexedDB ================= */
   /* The browser can close the database connection on its own (the app goes to the background while the camera
@@ -136,12 +146,26 @@
     if (elemOf(r) === 'ODF') return [`${r.odf || 'New'} ODF`];
     return [];
   }
-  /** Next ID for the current project only (and same element type in acceptance), so numbering never carries over. */
-  function suggestId(element) {
-    const pts = points.filter((p) => p.project === S.project && (!element || elemOf(p) === element));
-    if (!pts.length) return '';
-    const last = pts.reduce((m, p) => (p.created > m.created ? p : m));
-    return C.nextPoleId(last.poleId);
+  /** Next ID in the current project only, so numbering never carries over: CC-/WP-/SP- per pole type, FDU_ for ODFs.
+      With nothing to count from, only the prefix is filled in and the number is typed or scanned. */
+  function suggestId(element, type) {
+    const recs = points.filter((p) => p.project === S.project && (!ed || p.id !== ed.id));
+    const latest = (list) => list.reduce((m, p) => (p.created > m.created ? p : m));
+    if (!element || element === 'Pole') {
+      const pre = TYPE_PREFIX[type] || TYPE_PREFIX[S.lastType] || 'CC';
+      const same = recs.filter((p) => elemOf(p) === 'Pole' && (POLE_ID_RE.exec(p.poleId || '') || [])[1] === pre);
+      if (!same.length) return `${pre}-`;
+      const n = POLE_ID_RE.exec(latest(same).poleId)[2];
+      return `${pre}-${String(+n + 1).padStart(Math.max(4, n.length), '0')}`;
+    }
+    if (element === 'ODF') {
+      const same = recs.filter((p) => elemOf(p) === 'ODF' && ODF_ID_RE.test(p.poleId || ''));
+      if (!same.length) return 'FDU_';
+      const n = ODF_ID_RE.exec(latest(same).poleId)[1];
+      return `FDU_${String(+n + 1).padStart(n.length, '0')}`;
+    }
+    const pts = recs.filter((p) => elemOf(p) === element);
+    return pts.length ? C.nextPoleId(latest(pts).poleId) : '';
   }
   const projPoints = () => points.filter((p) => p.project === S.project).sort((a, b) => (a.created < b.created ? -1 : 1));
   function haversine(a, b) {
@@ -153,7 +177,18 @@
   const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
   /** Time, place and person for one photo, recorded at the moment it is taken. */
   const photoMeta = (gps, at) => ({ at: at || new Date().toISOString(), lat: gps ? gps.lat : null, lon: gps ? gps.lon : null,
-    acc: gps && Number.isFinite(gps.acc) ? gps.acc : null, by: S.userName || '' });
+    acc: gps && Number.isFinite(gps.acc) ? gps.acc : null, by: byLine() });
+  /** "Name · Company" of the person using this phone, recorded on photos, records and punchlist items. */
+  function byLine() { return S.user && S.user.name ? `${S.user.name}${S.user.company ? ' · ' + S.user.company : ''}` : (S.userName || ''); }
+  /** Task category of a project: Survey, PAT or FAT. */
+  const taskCat = (name) => (isAcc(name) ? (pmeta(name).stage || 'PAT') : 'Survey');
+  /** Remember who worked on the current project (printed on the reports). */
+  function notePerson() {
+    if (!S.user || !S.user.name) return;
+    const m = { ...pmeta() }; m.people = { ...(m.people || {}) };
+    m.people[byLine()] = { name: S.user.name, company: S.user.company || '', mobile: S.user.mobile || '', email: S.user.email || '' };
+    S.meta = S.meta || {}; S.meta[S.project] = m; persist();
+  }
   const fmtTime = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); };
   const stamp8 = () => { const d = new Date(), p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; };
 
@@ -176,6 +211,8 @@
     if (id === 'camera') stopCamera();
     if (id === 'editor') { cleanupEditor(); }
     if (id === 'list') revokeListUrls();
+    if (id === 'qrScan') stopQrScan();
+    if (id === 'profile' && !profileOk()) setTimeout(() => { openProfile(true); toast('Enter your details to start using PoleCam', 3000); }, 0);
   }
 
   /* ================= map tiles (cached in IndexedDB) ================= */
@@ -187,6 +224,8 @@
   const tileUrl = (src, z, x, y) => SOURCES[src].url.replace('{z}', z).replace('{x}', x).replace('{y}', y);
   async function fetchTile(src, z, x, y) {
     const k = `${src}/${z}/${x}/${y}`;
+    // Satellite imagery is never stored: Esri allows offline imagery only in its own ArcGIS apps.
+    if (src === 'satellite') return null;
     let hit = null;
     try { hit = await dbGet('tiles', k); } catch (e) { /* ignore */ }
     // Viewed tiles are reused for 7 days (the tile servers' caching rules), then refreshed when online; offline any age is used.
@@ -295,13 +334,14 @@
       const m = L.circleMarker([p.lat, p.lon], { radius: sel ? 12 : acc && elemOf(p) !== 'Pole' ? 10 : 8, color: sel ? '#17202a' : acc && elemOf(p) !== 'Pole' ? '#17202a' : '#fff', weight: sel ? 4 : 2,
         fillColor: acc ? STATUS_COLORS[recStatus(p)] : typeColor(p.poleType), fillOpacity: 1 });
       const role = R && R.poles[p.id] && (R.poles[p.id].role === 'Angle' ? ` · ${Math.round(R.poles[p.id].deflection)}°` : R.poles[p.id].role === 'Junction' ? ' · junction' : '');
-      m.bindTooltip(`${p.poleId || '(no ID)'}${acc && n ? ` · ${n} open` : ''}${role || ''}`, { permanent: true, direction: 'right', offset: [8, 0], className: 'pole-label' });
+      m.bindTooltip(`${C.xmlEsc(p.poleId || '(no ID)')}${acc && n ? ` · ${n} open` : ''}${role || ''}`, { permanent: true, direction: 'right', offset: [8, 0], className: 'pole-label' });
       m.on('click', () => (routeMode ? routeTap(p.id) : openEditorFor(p.id)));
       m.addTo(poleLayer);
     }
     $('projectName').textContent = S.project;
-    const mb = $('modeBadge'); mb.textContent = isAcc() ? (pmeta().stage || 'PAT') : 'SURVEY'; mb.classList.toggle('acc', isAcc());
-    $('importBtn').classList.toggle('off', isAcc());
+    const cat = taskCat(), mb = $('modeBadge');
+    mb.textContent = cat.toUpperCase(); mb.className = `badge cat ${cat.toLowerCase()}`;
+    $('listLbl').textContent = cat;
     $('pointCount').textContent = pts.length;
     if (typeof drawAreas === 'function') drawAreas();
   }
@@ -310,7 +350,7 @@
   const routeLayer = L.layerGroup().addTo(map);
   const links = () => (pmeta().links || []);
   function setLinks(l) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), links: l }; persist(); }
-  const routeModel = () => C.analyzeRoute(projPoints(), links(), { maxSpan: S.maxSpan || 50, angleDeg: S.angleDeg || 15 });
+  const routeModel = () => C.analyzeRoute(projPoints(), links(), { maxSpan: S.maxSpan || 200, angleDeg: S.angleDeg || 15 });
   const fmtLen = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
   function drawRoute() {
     routeLayer.clearLayers();
@@ -330,7 +370,7 @@
   }
   function updateRouteBar(R) {
     $('rbTitle').textContent = `Route · ${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}`;
-    $('rbStats').textContent = `${R.long} longer than ${S.maxSpan || 50} m · ${R.angle} angle · ${R.junction} junction · ${R.off} not linked`;
+    $('rbStats').textContent = `${R.long} longer than ${S.maxSpan || 200} m · ${R.angle} angle · ${R.junction} junction · ${R.off} not linked`;
     const sel = routeSel && points.find((p) => p.id === routeSel);
     $('rbHint').textContent = sel ? `${sel.poleId} selected. Tap the next pole to link it (tap a linked pole to unlink), or tap ${sel.poleId} again to stop.`
       : 'Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.';
@@ -384,14 +424,17 @@
     S.base = b; persist();
     map.removeLayer(mainBase); mainBase = baseLayer(b).addTo(map); mainBase.bringToBack();
     if (pinMap) { pinMap.removeLayer(pinBase); pinBase = baseLayer(b).addTo(pinMap); pinBase.bringToBack(); }
+    $('pinLayerName').textContent = { street: 'Street', satellite: 'Satellite', offline: 'Offline map' }[b];
     drawAreas();
     if (!quiet) toast(baseName(b), 1800);
   }
-  $('layerBtn').addEventListener('click', () => {
+  function cycleBase() {
     const bases = ['street', 'satellite'].concat(activePackId() ? ['offline'] : []);
     autoOffline = false;
     setBase(bases[(bases.indexOf(S.base) + 1) % bases.length]);
-  });
+  }
+  $('layerBtn').addEventListener('click', cycleBase);
+  $('pinLayerBtn').addEventListener('click', cycleBase);
   // No signal: switch to the offline pack automatically (and back when the connection returns).
   let autoOffline = false;
   function goOfflineIfPossible() {
@@ -408,21 +451,24 @@
   });
 
   /* ================= GPS ================= */
-  let fix = null, watchId = 0;
+  let fix = null, watchId = 0, gpsErr = 0, gpsPolling = false;
   const quality = (acc) => (acc == null ? '' : acc <= 5 ? 'good' : acc <= 15 ? 'fair' : 'poor');
   function startGps() {
     if (!('geolocation' in navigator)) { $('gpsText').textContent = 'No GPS on this device'; return; }
     if (watchId) return;
-    watchId = navigator.geolocation.watchPosition(onFix, (err) => {
-      const msg = err.code === 1 ? 'Location blocked — allow it in browser settings' : 'Searching for GPS…';
-      $('gpsText').textContent = msg; $('camGpsText').textContent = msg;
-      if (err.code === 1) { navigator.geolocation.clearWatch(watchId); watchId = 0; }
-    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+    watchId = navigator.geolocation.watchPosition(onFix, onGpsErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+  }
+  function onGpsErr(err) {
+    gpsErr = err.code;
+    const msg = err.code === 1 ? 'Location is off or blocked — turn it on and allow PoleCam' : 'Searching for GPS…';
+    $('gpsText').textContent = msg; $('camGpsText').textContent = msg;
+    if (err.code === 1 && watchId) { navigator.geolocation.clearWatch(watchId); watchId = 0; }
+    shutterState();
   }
   function stopGps() { if (watchId) { navigator.geolocation.clearWatch(watchId); watchId = 0; } }
   function onFix(pos) {
     const c = pos.coords;
-    fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy, alt: c.altitude, t: pos.timestamp };
+    fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy, alt: c.altitude, t: pos.timestamp }; gpsErr = 0;
     const q = quality(fix.acc), txt = `±${fix.acc < 10 ? fix.acc.toFixed(1) : Math.round(fix.acc)} m`;
     $('gpsDot').className = 'dot ' + q; $('gpsText').textContent = 'GPS ' + txt;
     $('camGpsDot').className = 'dot ' + q; $('camGpsText').textContent = 'GPS ' + txt;
@@ -430,6 +476,7 @@
     L.circle([fix.lat, fix.lon], { radius: fix.acc, color: '#1c7ed6', weight: 1, fillOpacity: 0.12, interactive: false }).addTo(gpsLayer);
     L.circleMarker([fix.lat, fix.lon], { radius: 7, color: '#fff', weight: 2, fillColor: '#1c7ed6', fillOpacity: 1, interactive: false }).addTo(gpsLayer);
     if (ed) editorGpsUpdate();
+    shutterState();
   }
   document.addEventListener('visibilitychange', () => { if (document.hidden) stopGps(); else startGps(); });
 
@@ -437,23 +484,49 @@
   /* Capture rules: a photo is kept only if a GPS update arrived within GPS_WINDOW_MS of the shutter (always in acceptance,
      optional in survey), then it is checked for blur and exposure, and the painted Pole ID inside the guide box is read. */
   const GPS_WINDOW_MS = 5000;
-  let stream = null, imageCapture = null, torchOn = false, wakeLock = null, camTarget = 'new', camBusy = false, camTick = 0;
-  const needFreshGps = () => isAcc() || S.gpsFresh !== false;
+  let stream = null, imageCapture = null, torchOn = false, wakeLock = null, camTarget = 'new', camBusy = false, camTick = 0, camPending = null, camSeq = 0;
+  const scanStep = () => camTarget === 'scan' || camTarget === 'newid';
+  const gpsFresh = () => !!fix && Date.now() - fix.t <= GPS_WINDOW_MS && gpsErr !== 1;
+  /** Shutter colour: green = GPS updated within 5 s (ready), red = GPS old, off or blocked; white while scanning an ID. */
+  function shutterState() {
+    const b = $('shutter'); if (!b) return;
+    const st = scanStep() ? 'scan' : gpsFresh() ? 'ok' : 'bad';
+    b.className = st;
+    b.setAttribute('aria-label', st === 'scan' ? 'Read the ID' : st === 'ok' ? 'Take photo (GPS ready)' : 'Take photo (waiting for a fresh GPS fix)');
+  }
   function showGuide() {
-    const on = camTarget === 'scan' || (camTarget === 'new' && S.readId !== false);
+    const on = scanStep();
     $('idGuide').hidden = !on;
-    $('idGuideText').textContent = camTarget === 'scan' ? 'Fit the painted Pole ID inside the box, then tap the shutter' : 'Fit the painted Pole ID inside the box to read it';
+    $('idGuide').classList.toggle('v', S.idOrient === 'v');
+    $('idGuideText').textContent = S.idOrient === 'v' ? 'Vertical ID inside the box' : 'Fit the painted ID inside the box';
+    $('scanPrompt').hidden = !on;
+    $('scanTitle').textContent = camTarget === 'newid' ? 'Photo kept. Now scan the ID' : 'Scan the ID';
+    $('scanSkip').hidden = camTarget !== 'newid';
+    $('orientH').setAttribute('aria-pressed', String(S.idOrient !== 'v'));
+    $('orientV').setAttribute('aria-pressed', String(S.idOrient === 'v'));
     $('camReadId').hidden = camTarget !== 'new';
     $('camReadId').setAttribute('aria-pressed', String(S.readId !== false));
+    $('camNative').hidden = on;
+    shutterState();
   }
   function camGpsTick() {
+    shutterState();
     if (!fix) return;
     const age = (Date.now() - fix.t) / 1000, stale = age * 1000 > GPS_WINDOW_MS;
     $('camGpsDot').className = 'dot ' + (stale ? 'poor' : quality(fix.acc));
     $('camGpsText').textContent = `GPS ±${fix.acc < 10 ? fix.acc.toFixed(1) : Math.round(fix.acc)} m · ${age < 1.5 ? 'now' : `${Math.round(age)} s ago`}`;
+    // Some phones report rarely while standing still: ask for a new fix so the shutter can turn green.
+    if (age > 2.5 && !gpsPolling && !scanStep() && 'geolocation' in navigator) {
+      gpsPolling = true;
+      navigator.geolocation.getCurrentPosition((p) => { gpsPolling = false; onFix(p); }, () => { gpsPolling = false; },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 });
+    }
   }
+  $('orientH').addEventListener('click', () => { S.idOrient = 'h'; persist(); showGuide(); });
+  $('orientV').addEventListener('click', () => { S.idOrient = 'v'; persist(); showGuide(); });
+  $('scanSkip').addEventListener('click', () => closeSheet()); // the photo is kept; the editor opens without an ID reading
   async function openCamera(target) {
-    camTarget = target || 'new';
+    camTarget = target || 'new'; camPending = null; camSeq++;
     openSheet('camera'); startGps();
     $('camMsg').hidden = true; $('camTorch').hidden = true; $('qualBox').hidden = true; camCheck(false);
     showGuide();
@@ -473,17 +546,27 @@
       $('camMsg').textContent = 'The in-app camera is blocked. Tap the camera button on the left to use your phone camera app.';
     }
   }
+  /** Main photo accepted: keep the camera open and ask for the ID (pole, ODF or any other). */
+  function enterIdStep(pending) {
+    camPending = pending; camTarget = 'newid';
+    $('qualBox').hidden = true; showGuide();
+  }
   function stopCamera() {
+    camSeq++; // anything still waiting for this camera (GPS, photo check) is dropped
     if (stream) stream.getTracks().forEach((t) => t.stop());
     stream = null; imageCapture = null; torchOn = false;
     $('video').srcObject = null;
     clearInterval(camTick);
     if (qualResolve) { qualResolve(false); qualResolve = null; }
     if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+    if (camPending) { // the camera closed during the ID step (Skip, X or Back): the photo is still used
+      const p = camPending; camPending = null;
+      setTimeout(() => gotPhoto(p.blob, p.gps, p.source || 'camera', { q: p.q, takenAt: p.takenAt, crop: p.crop || null }), 0);
+    }
   }
   function camCheck(text) { $('camCheck').hidden = !text; if (text) $('camCheckText').textContent = text; }
   $('camClose').addEventListener('click', () => closeSheet());
-  $('camReadId').addEventListener('click', () => { S.readId = S.readId === false; persist(); showGuide(); toast(S.readId ? 'Pole ID reading on' : 'Pole ID reading off', 1500); });
+  $('camReadId').addEventListener('click', () => { S.readId = S.readId === false; persist(); showGuide(); toast(S.readId ? 'After each photo you will be asked to scan the ID' : 'ID scan after each photo turned off', 2200); });
   $('camTorch').addEventListener('click', async () => {
     if (!stream) return; torchOn = !torchOn;
     try { await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ torch: torchOn }] }); } catch (e) { toast('Flashlight not supported'); }
@@ -518,20 +601,22 @@
     if (sw < 20 || sh < 10) return null;
     const cv = document.createElement('canvas'); cv.width = Math.round(sw); cv.height = Math.round(sh);
     cv.getContext('2d').drawImage(v, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+    cv._orient = S.idOrient === 'v' ? 'v' : 'h';
     return cv;
   }
 
-  /* ---- blur / exposure check ---- */
+  /* ---- photo check: dark, blank, overexposed or blurry photos are refused ---- */
   const QUAL_T = { normal: 25, strict: 60 };
   const QUAL_TEXT = {
-    blurry: 'Looks blurry. Hold the phone steady and tap the screen to focus.',
+    blurry: 'Too blurry to read the details. Hold the phone steady, tap the screen to focus, then retake.',
     dark: 'Too dark. Turn on the flashlight or move to better light.',
     bright: 'Overexposed. Avoid pointing the camera at the sun or a bright sky.',
-    flat: 'Almost no detail. Check that the lens is clean and the subject is in view.',
+    flat: 'No picture detail. Check that the lens is clean and the subject is in view.',
+    error: 'The photo could not be checked. Take it again.',
   };
+  const QUAL_TITLE = { error: 'Photo not accepted', blurry: 'Photo not accepted: blurry', dark: 'Photo not accepted: too dark', bright: 'Photo not accepted: overexposed', flat: 'Photo not accepted: no detail' };
   async function checkQuality(blob) {
-    const mode = S.quality || 'normal';
-    if (mode === 'off') return { flags: [] };
+    const mode = S.quality === 'normal' ? 'normal' : 'strict';
     let src;
     try { src = await createImageBitmap(blob, { resizeWidth: 640, resizeQuality: 'medium', imageOrientation: 'from-image' }); }
     catch (e) { src = await loadImage(blob); }
@@ -559,31 +644,33 @@
     }
     tiles.sort((a, b) => b - a);
     const sharp = Math.round(tiles[1] * 10) / 10, flags = [];
-    if (sharp < QUAL_T[mode]) flags.push('blurry');
     if (mean < 45 || lo / n > 0.55) flags.push('dark');
-    if (mean > 225 || hi / n > 0.45) flags.push('bright');
-    if (std < 12 && !flags.includes('dark') && !flags.includes('bright')) flags.push('flat');
-    return { sharp, mean: Math.round(mean), std: Math.round(std), flags };
+    else if (mean > 230 || hi / n > 0.55) flags.push('bright');
+    else if (std < 12) flags.push('flat');
+    if (!flags.length && sharp < QUAL_T[mode]) flags.push('blurry');
+    return { sharp, mean: Math.round(mean), std: Math.round(std), flags, level: mode };
   }
   let qualResolve = null, qualUrl = '';
-  function askQuality(blob, q) {
+  /** Shows why the photo was refused; the only way on is Retake. */
+  function refusePhoto(blob, q) {
     if (qualUrl) URL.revokeObjectURL(qualUrl);
     qualUrl = URL.createObjectURL(blob); $('qualImg').src = qualUrl;
-    $('qualTitle').textContent = q.flags.includes('blurry') ? 'This photo looks blurry' : 'This photo may not be clear';
+    $('qualTitle').textContent = QUAL_TITLE[q.flags[0]] || 'Photo not accepted';
     $('qualWhy').textContent = q.flags.map((f) => QUAL_TEXT[f]).join(' ');
     $('qualBox').hidden = false;
     return new Promise((res) => { qualResolve = res; });
   }
   $('qualRetake').addEventListener('click', () => { $('qualBox').hidden = true; if (qualResolve) { qualResolve(false); qualResolve = null; } });
-  $('qualUse').addEventListener('click', () => { $('qualBox').hidden = true; if (qualResolve) { qualResolve(true); qualResolve = null; } });
 
   $('shutter').addEventListener('click', async () => {
     if (camBusy || !$('qualBox').hidden) return;
-    if (!stream) { useNativeCamera(); return; }
+    if (!stream) { if (camTarget !== 'newid') useNativeCamera(); return; } // in-app camera blocked: the phone camera app takes the photo or the ID close-up
     camBusy = true; $('shutter').disabled = true;
+    const seq = camSeq, alive = () => seq === camSeq && !$('camera').hidden; // false once the camera was closed meanwhile
     try {
-      const shotAt = Date.now(), crop = grabGuideCrop();
-      if (camTarget === 'scan') { await closeSheet(); scanResult(crop); return; }
+      const shotAt = Date.now();
+      if (camTarget === 'scan') { const crop = grabGuideCrop(); await closeSheet(); scanResult(crop); return; }
+      if (camTarget === 'newid') { if (camPending) camPending.crop = grabGuideCrop(); await closeSheet(); return; }
       let blob = null;
       if (imageCapture) { try { blob = await imageCapture.takePhoto(); } catch (e) { blob = null; } }
       if (!blob) {
@@ -592,49 +679,53 @@
         cv.getContext('2d').drawImage(v, 0, 0);
         blob = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.92));
       }
-      let gps = fix ? { ...fix } : null;
-      if (needFreshGps()) {
-        gps = await gpsNear(shotAt);
-        if (!gps) { toast('Photo not saved: GPS has not updated in the last 5 seconds. Stay in the open until the GPS pill says "now", then take it again.', 6500); return; }
-      }
+      if (!alive()) return;
+      const gps = await gpsNear(shotAt);
+      if (!alive()) return;
+      if (!gps) { toast(gpsErr === 1 ? 'Photo not saved: location is off. Turn on location for PoleCam, then take it again.' : 'Photo not saved: GPS has not updated in the last 5 seconds. Wait for the green shutter, then take it again.', 6500); return; }
       camCheck('Checking photo…');
-      const q = await checkQuality(blob).catch(() => ({ flags: [] }));
+      const q = await checkQuality(blob).catch(() => ({ flags: ['error'] }));
       camCheck(false);
-      if (q.flags.length) { if (!(await askQuality(blob, q))) return; q.kept = true; }
+      if (!alive()) return;
+      if (q.flags.length) { await refusePhoto(blob, q); return; }
+      const takenAt = new Date(shotAt).toISOString();
+      if (camTarget === 'new' && S.readId !== false) { enterIdStep({ blob, gps, q, takenAt, source: 'camera' }); return; }
       await closeSheet();
-      gotPhoto(blob, gps, 'camera', { q, crop });
+      gotPhoto(blob, gps, 'camera', { q, takenAt });
     } finally { camBusy = false; $('shutter').disabled = false; camCheck(false); }
   });
   function useNativeCamera() { $('nativeInput').value = ''; $('nativeInput').click(); }
   $('camNative').addEventListener('click', useNativeCamera);
+  /* Phone camera app (fallback when the in-app camera is blocked). Only a photo taken just now is used, with a GPS fix
+     taken right after returning to PoleCam; gallery pictures and older files are refused, as photos cannot be imported. */
   $('nativeInput').addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
     if (camTarget === 'scan') { if (stack[stack.length - 1] === 'camera') await closeSheet(); scanResult(await centerCrop(f)); return; }
-    const back = Date.now();
-    if (isAcc() && back - (f.lastModified || 0) > MAX_PHOTO_AGE_MS) { toast('That photo was not taken just now. Acceptance photos must be taken live with the camera.', 5000); return; }
-    let gps = fix ? { ...fix } : null;
-    if (needFreshGps()) {
-      gps = await gpsNear(back); // the phone camera app pauses this app, so the fix is taken right after returning
-      if (!gps) { toast('Photo not used: no GPS update within 5 seconds. Stay in the open and take it again.', 5500); return; }
-    } else if (!gps) {
-      try {
-        const ex = C.readExif(new Uint8Array(await f.slice(0, 256 * 1024).arrayBuffer()));
-        if (ex && ex.lat != null) gps = { lat: ex.lat, lon: ex.lon, acc: null, alt: ex.alt };
-      } catch (err) { /* no exif */ }
+    const back = Date.now(), inCam = () => stack[stack.length - 1] === 'camera', seq = camSeq;
+    if (back - (f.lastModified || 0) > MAX_PHOTO_AGE_MS) { toast('Photo not used: it was not taken just now. Photos must be taken live, so their location can be checked.', 6000); return; }
+    const gps = await gpsNear(back); // the phone camera app pauses this app, so the fix is taken right after returning
+    if (seq !== camSeq) return; // camera closed while waiting
+    if (!gps) { toast('Photo not used: no GPS update within 5 seconds. Stay in the open and take it again.', 5500); return; }
+    const q = await checkQuality(f).catch(() => ({ flags: ['error'] }));
+    if (seq !== camSeq) return;
+    if (q.flags.length) {
+      if (inCam()) await refusePhoto(f, q);
+      else toast(`${QUAL_TITLE[q.flags[0]]}. ${QUAL_TEXT[q.flags[0]]}`, 6000);
+      return;
     }
-    const q = await checkQuality(f).catch(() => ({ flags: [] }));
-    if (q.flags.length && stack[stack.length - 1] === 'camera') { if (!(await askQuality(f, q))) return; q.kept = true; }
-    else if (q.flags.length) q.kept = true;
-    if (stack[stack.length - 1] === 'camera') await closeSheet();
-    gotPhoto(f, gps, 'camera', { q, crop: S.readId !== false && camTarget === 'new' ? await centerCrop(f) : null });
+    const takenAt = new Date(Math.min(back, f.lastModified || back)).toISOString();
+    if (camTarget === 'new' && S.readId !== false && stream && inCam()) { enterIdStep({ blob: f, gps, q, takenAt, source: 'camera' }); return; }
+    if (inCam()) await closeSheet();
+    gotPhoto(f, gps, 'camera', { q, takenAt });
   });
-  /** For photos from the phone camera app: the band where the guide box would be. */
+  /** For a scan taken with the phone camera app: the band where the guide box would be. */
   async function centerCrop(blob) {
     try {
-      const im = await loadImage(blob), { w, h } = dims(im);
-      const cv = document.createElement('canvas'); cv.width = Math.round(w * 0.8); cv.height = Math.round(h * 0.24);
-      cv.getContext('2d').drawImage(im, w * 0.1, h * 0.38, cv.width, cv.height, 0, 0, cv.width, cv.height);
+      const im = await loadImage(blob), { w, h } = dims(im), v = S.idOrient === 'v';
+      const cv = document.createElement('canvas'); cv.width = Math.round(w * (v ? 0.26 : 0.8)); cv.height = Math.round(h * (v ? 0.58 : 0.22));
+      cv.getContext('2d').drawImage(im, v ? w * 0.37 : w * 0.1, v ? h * 0.15 : h * 0.4, cv.width, cv.height, 0, 0, cv.width, cv.height);
       if (im.close) im.close();
+      cv._orient = v ? 'v' : 'h';
       return cv;
     } catch (e) { return null; }
   }
@@ -649,7 +740,7 @@
     }
     return true;
   }
-  const qSummary = (q) => (q && q.flags ? { sharp: q.sharp, mean: q.mean, flags: q.flags, kept: !!q.kept } : null);
+  const qSummary = (q) => (q && q.flags ? { sharp: q.sharp, mean: q.mean, flags: q.flags, level: q.level } : null);
   function gotPhoto(blob, gps, source, extra) {
     const x = extra || {};
     if (ed && ['add', 'defect', 'after'].includes(camTarget)) {
@@ -665,7 +756,7 @@
       toast('Photo replaced — tap Save to keep it');
       return;
     }
-    openEditor({ mode: 'new', blob, gps, source, takenAt: new Date().toISOString(), q: qSummary(x.q), crop: x.crop });
+    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), q: qSummary(x.q), crop: x.crop });
   }
 
   /* ================= reading the painted Pole ID (offline OCR) ================= */
@@ -698,25 +789,47 @@
     if (!pts.length) return '';
     return pts.reduce((m, p) => (p.created > m.created ? p : m)).poleId || '';
   }
+  /** Tall narrow PNG for an ID painted as a column of upright characters (one character per line). */
+  async function prepStacked(src, W) {
+    const sc = W / src.width, H = Math.min(2000, Math.max(40, Math.round(src.height * sc)));
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const g = cv.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(src, 0, 0, W, H);
+    const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
+    return new Uint8Array(await blob.arrayBuffer());
+  }
+  function rotated(src, deg) {
+    const cv = document.createElement('canvas'); cv.width = src.height; cv.height = src.width;
+    const g = cv.getContext('2d'); g.translate(cv.width / 2, cv.height / 2); g.rotate(deg * Math.PI / 180); g.drawImage(src, -src.width / 2, -src.height / 2);
+    return cv;
+  }
   async function readIdFrom(canvas) {
-    const res = [], png = await prepForOcr(canvas);
-    // pass 1: Tesseract's global threshold; pass 2: adaptive (Sauvola) threshold for shadows on round poles
-    for (const thr of [0, 2]) {
-      const r = await ocrRun(png, 6, { thresholding_method: thr });
+    const res = [];
+    const run = async (png, psm, thr, extra) => {
+      const r = await ocrRun(png, psm, { thresholding_method: thr });
       if (!r.ok) throw new Error(r.error);
-      res.push(r);
+      res.push({ ...r, ...(extra || {}) });
+    };
+    if (canvas._orient === 'v') {
+      // vertical IDs: characters stacked upright (read top to bottom), or the whole ID turned sideways (either way)
+      // (the adaptive threshold turns a column of characters into noise, so stacked IDs use two sizes instead)
+      for (const w of [200, 140]) await run(await prepStacked(canvas, w), 6, 0, { stacked: true });
+      for (const deg of [-90, 90]) await run(await prepForOcr(rotated(canvas, deg)), 6, 0);
+    } else {
+      // pass 1: Tesseract's global threshold; pass 2: adaptive (Sauvola) threshold for shadows on round poles
+      const png = await prepForOcr(canvas);
+      for (const thr of [0, 2]) await run(png, 6, thr);
     }
     return C.idCandidates(res, lastIdForShape());
   }
   function renderIdCands(state, list, note) {
     const box = $('idCands'); box.hidden = false; box.innerHTML = '';
-    if (state === 'reading') { box.innerHTML = '<span class="spin" style="border-color:var(--line);border-top-color:var(--accent)"></span><span>Reading the Pole ID from the photo…</span>'; return; }
+    if (state === 'reading') { box.innerHTML = '<span class="spin" style="border-color:var(--line);border-top-color:var(--accent)"></span><span>Reading the ID…</span>'; return; }
     if (state === 'error') { box.textContent = note || 'Could not read the ID. Type it instead.'; return; }
-    const lead = document.createElement('span'); lead.textContent = note || (list.length ? 'From the photo:' : 'No ID found in the box. Type it, or tap Scan ID and get closer.'); box.appendChild(lead);
+    const lead = document.createElement('span'); lead.textContent = note || (list.length ? 'Possible IDs from the scan:' : 'No ID found in the box. Type it, or tap Scan ID and get closer.'); box.appendChild(lead);
     list.forEach((c) => {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small' + (c.fits ? ' fit' : '');
       b.textContent = c.id; b.title = `${c.conf}% sure${c.fits ? ', matches your numbering' : ''}`;
-      b.addEventListener('click', () => { $('poleId').value = c.id; ed.idTouched = true; ed.idRead = { id: c.id, conf: c.conf }; checkDup(); renderIdCands('done', list, `Using ${c.id} from the photo — check it.`); });
+      b.addEventListener('click', () => { $('poleId').value = c.id; ed.idTouched = true; ed.idRead = { id: c.id, conf: c.conf }; syncFromId(); checkDup(); renderIdCands('done', list, `Using ${c.id} from the scan — check it.`); });
       box.appendChild(b);
     });
   }
@@ -728,11 +841,14 @@
       const list = await readIdFrom(canvas);
       if (!ed || ed.ocrToken !== token) return;
       const best = list[0];
-      if (best && (explicit ? best.conf >= 55 : (!ed.idTouched && best.conf >= 80))) {
-        $('poleId').value = best.id; ed.idRead = { id: best.id, conf: best.conf }; checkDup();
-        const rest = list.slice(1);
+      // Fill the field when sure enough: a reading in a known format (CC-0001, FDU_100) or the project's own numbering needs 55%, anything else 80%.
+      if (best && (explicit ? best.conf >= (best.fits ? 55 : 80) : (!ed.idTouched && best.conf >= 80))) {
+        $('poleId').value = best.id; ed.idTouched = true; ed.idRead = { id: best.id, conf: best.conf }; syncFromId(); checkDup();
+        // other readings worth a tap: leave out weak or garbled ones, and the same ID written differently
+        const same = (c) => { const k = C.knownId(c.id); return c.id === best.id || (k && k.id === best.id); };
+        const rest = list.slice(1).filter((c) => !same(c) && (best.fits && best.conf >= 80 ? c.fits : c.fits || c.conf >= 60));
         if (before && before !== best.id && !explicit) rest.push({ id: before, conf: 0, fits: false });
-        renderIdCands('done', rest, `Filled ${best.id} from the photo (${best.conf}% sure) — check it.${rest.length ? ' Other readings:' : ''}`);
+        renderIdCands('done', rest, `Filled ${best.id} from the scan (${best.conf}% sure) — check it.${rest.length ? ' Other readings:' : ''}`);
       } else renderIdCands('done', list);
     } catch (e) {
       if (ed && ed.ocrToken === token) renderIdCands('error', [], `Could not read the ID (${e.message}). Type it instead.`);
@@ -746,7 +862,7 @@
   function showQualWarn(q) {
     const el = $('qualWarn');
     el.hidden = !(q && q.flags && q.flags.length);
-    if (!el.hidden) el.textContent = `Photo kept with a warning: ${q.flags.join(', ')}. Retake it if the details matter.`;
+    if (!el.hidden) el.textContent = `Photo kept with a warning in an older version: ${q.flags.join(', ')}. Retake it if the details matter.`;
   }
 
   /* ================= image processing ================= */
@@ -774,7 +890,7 @@
     tc.width = tc.height = T;
     const tg = tc.getContext('2d'); tg.imageSmoothingQuality = 'high';
     tg.drawImage(im, (w - side) / 2, (h - side) / 2, side, side, 0, 0, T, T);
-    tg.strokeStyle = '#e8590c'; tg.lineWidth = 8; tg.strokeRect(4, 4, T - 8, T - 8);
+    tg.strokeStyle = '#0f2547'; tg.lineWidth = 8; tg.strokeRect(4, 4, T - 8, T - 8);
     const thumb = await toBlob(tc, 0.8);
     if (im.close) im.close();
     return { clean, thumb };
@@ -801,7 +917,7 @@
       ];
       const bandH = pad * 2 + lh * lines.length + fs * 0.25;
       g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(0, h - bandH, w, bandH);
-      g.fillStyle = '#e8590c'; g.fillRect(0, h - bandH, Math.max(6, fs * 0.3), bandH);
+      g.fillStyle = '#4dabf7'; g.fillRect(0, h - bandH, Math.max(6, fs * 0.3), bandH);
       g.fillStyle = '#fff'; g.textBaseline = 'top';
       let y = h - bandH + pad;
       lines.forEach(([t, f], i) => { g.font = f; g.fillText(t, pad * 1.6, y, w - pad * 3); y += i === 0 ? lh * 1.25 : lh; });
@@ -817,6 +933,7 @@
     if (pinMap) return;
     pinMap = L.map('pinMap', { zoomControl: false, attributionControl: false, maxZoom: 21 });
     pinBase = baseLayer(S.base).addTo(pinMap);
+    $('pinLayerName').textContent = { street: 'Street', satellite: 'Satellite', offline: 'Offline map' }[S.base] || 'Street';
     pinGpsLayer = L.layerGroup().addTo(pinMap);
     pinMap.setView([12.3, 122.6], 6);
     pinMap.on('move', updateCoordBox);
@@ -831,13 +948,42 @@
   }
   function renderTypeChips(sel) {
     const box = $('typeChips'); box.innerHTML = '';
-    const types = S.types.includes(sel) || !sel ? S.types : S.types.concat(sel);
+    const types = POLE_TYPES.includes(sel) || !sel ? POLE_TYPES : POLE_TYPES.concat(sel); // an older record keeps its type
     for (const t of types) {
       const b = document.createElement('button');
-      b.className = 'chip'; b.type = 'button'; b.textContent = t; b.setAttribute('aria-pressed', String(t === sel));
-      b.addEventListener('click', () => { ed.type = t; box.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c === b))); });
+      b.className = 'chip'; b.type = 'button'; b.textContent = TYPE_PREFIX[t] ? `${t} (${TYPE_PREFIX[t]})` : t; b.setAttribute('aria-pressed', String(t === sel));
+      b.addEventListener('click', () => setPoleType(t));
       box.appendChild(b);
     }
+  }
+  /** Choosing a pole type sets the ID prefix: a suggested ID is re-suggested, a typed/scanned one keeps its number. */
+  function setPoleType(t) {
+    if (!ed) return;
+    ed.type = t; renderTypeChips(t);
+    const id = $('poleId').value.trim().toUpperCase(), pre = TYPE_PREFIX[t];
+    if (!pre || (ed.acc && ed.element !== 'Pole')) { checkFormat(); return; }
+    const m = /^(CC|WP|SP)-?(\d*)$/.exec(id);
+    if (!id || !ed.idTouched || (m && !m[2])) $('poleId').value = suggestId('Pole', t);
+    else if (m && m[1] !== pre) { $('poleId').value = `${pre}-${m[2]}`; toast(`ID changed to ${pre}-${m[2]} for ${t}`, 2500); }
+    checkDup(); checkFormat();
+  }
+  /** A Pole ID prefix picks the pole type; an FDU_ ID makes a new acceptance element an ODF. */
+  function syncFromId() {
+    if (!ed) return;
+    const id = $('poleId').value.trim().toUpperCase();
+    const m = /^(CC|WP|SP)-/.exec(id);
+    if (ed.acc && ed.mode === 'new' && /^FDU_/.test(id) && ed.element !== 'ODF') { ed.element = 'ODF'; renderElemChips(); applyElement(); }
+    else if (ed.acc && ed.mode === 'new' && m && ed.element !== 'Pole') { ed.element = 'Pole'; renderElemChips(); applyElement(); }
+    if (m && PREFIX_TYPE[m[1]] !== ed.type && (!ed.acc || ed.element === 'Pole')) { ed.type = PREFIX_TYPE[m[1]]; renderTypeChips(ed.type); }
+    checkFormat();
+  }
+  function checkFormat() {
+    const el = $('fmtWarn'); if (!ed) return;
+    const id = $('poleId').value.trim().toUpperCase(), kind = ed.acc ? ed.element : 'Pole';
+    let msg = '';
+    if (id && kind === 'Pole' && !POLE_ID_RE.test(id)) msg = /^(CC|WP|SP)-?$/.test(id) ? `Add the pole number after the prefix, e.g. ${id.slice(0, 2)}-0001.` : 'Pole IDs are written CC-0001 (concrete), WP-0001 (wood) or SP-0001 (steel).';
+    else if (id && kind === 'ODF' && !ODF_ID_RE.test(id)) msg = /^FDU_?$/.test(id) ? 'Add the ODF number after FDU_, e.g. FDU_100.' : 'ODF IDs are written FDU_ and a number, e.g. FDU_100.';
+    el.hidden = !msg; el.textContent = msg;
   }
   function drawEdGps() {
     pinGpsLayer.clearLayers();
@@ -881,13 +1027,13 @@
     $('dupWarn').hidden = !other;
     if (other) $('dupWarn').textContent = `${id} is already used in this project.`;
   }
-  $('poleId').addEventListener('input', () => { if (ed) ed.idTouched = true; checkDup(); });
+  $('poleId').addEventListener('input', () => { if (ed) ed.idTouched = true; checkDup(); syncFromId(); });
 
   async function openEditor(o) {
     ensurePinMap();
     const acc = isAcc();
     ed = { mode: o.mode, id: o.id || uid(), source: o.source, gps: o.gps || null, newBlob: o.blob || null,
-      takenAt: o.takenAt, type: o.type || S.lastType, userMoved: false, queue: o.queue || null, acc };
+      takenAt: o.takenAt, type: o.type || S.lastType, userMoved: false, acc };
     if (acc) {
       Object.assign(ed, { element: o.element || 'Pole', photos: (o.photos || []).map((p) => ({ ...p })), pending: {}, removed: [],
         defs: JSON.parse(JSON.stringify(o.defs || [])), mloop: !!o.mloop, nap: !!o.nap, closure: !!o.closure, odf: o.odf || 'New', newBlob: null });
@@ -897,15 +1043,15 @@
     $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
     $('edHint').textContent = `Drag the map to put the pin exactly on the ${acc ? 'element' : 'pole'}. It can move up to ${fmtDist(PIN_LIMIT_M)} from where the photo was taken (orange dashed circle).`;
     ['accPhotos', 'accElementBox', 'defBox'].forEach((x) => { $(x).hidden = !acc; });
-    $('surveyTypeBox').hidden = acc; $('edPhoto').hidden = acc;
+    $('surveyTypeBox').hidden = acc && ed.element !== 'Pole'; $('edPhoto').hidden = acc;
     if (!acc) { $('poleAttach').hidden = true; $('odfBox').hidden = true; }
     $('defPanel').hidden = true; $('addDefBtn').hidden = false;
-    $('queueNote').textContent = o.queue ? `${o.queue.index + 1} / ${o.queue.total}` : '';
+    $('queueNote').textContent = '';
     $('edDelete').hidden = o.mode !== 'edit'; $('delConfirm').hidden = true;
-    $('edSkip').hidden = !o.queue; $('edRetake').hidden = !!o.queue || acc;
+    $('edSkip').hidden = true; $('edRetake').hidden = acc;
     $('edRetake').textContent = o.mode === 'edit' ? 'New photo' : 'Retake';
-    $('edSave').textContent = o.queue && o.queue.index + 1 < o.queue.total ? 'Save & next' : 'Save';
-    $('poleId').value = o.poleId != null ? o.poleId : suggestId(acc ? ed.element : null);
+    $('edSave').textContent = 'Save';
+    $('poleId').value = o.poleId != null ? o.poleId : suggestId(acc ? ed.element : 'Pole', ed.type);
     ed.idTouched = o.poleId != null;
     ed.q = o.q || null; showQualWarn(ed.q); $('idCands').hidden = true;
     renderTypeChips(ed.type);
@@ -923,13 +1069,14 @@
       else { const c = map.getCenter(); pinMap.setView(c, Math.max(map.getZoom(), 16), { animate: false }); }
       ed.userMoved = false; drawEdGps(); updateCoordBox();
     });
-    if (o.crop) runOcrFor(o.crop, false);
-    else if (o.mode === 'new' && !o.poleId) setTimeout(() => { $('poleId').focus(); $('poleId').select(); }, 250);
+    checkFormat();
+    if (o.crop) runOcrFor(o.crop, true);
+    else if (o.mode === 'new' && !o.poleId) setTimeout(() => { const f = $('poleId'); f.focus(); const n = f.value.length; if (/[-_]$/.test(f.value)) f.setSelectionRange(n, n); else f.select(); }, 250);
   }
   async function openEditorFor(id) {
     const p = points.find((x) => x.id === id); if (!p) return;
     if (p.kind === 'acceptance' || isAcc(p.project)) {
-      openEditor({ mode: 'edit', id, poleId: p.poleId, lat: p.lat, lon: p.lon, takenAt: p.takenAt, source: p.source,
+      openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType || undefined, lat: p.lat, lon: p.lon, takenAt: p.takenAt, source: p.source,
         gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : null,
         element: elemOf(p), photos: p.photos || [], defs: p.defs || [], mloop: p.mloop, nap: p.nap, napId: p.napId, closure: p.closure, closureId: p.closureId, odf: p.odf });
       return;
@@ -939,7 +1086,6 @@
       gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : null, storedBlob: ph ? (ph.clean || ph.thumb) : null, source: p.source });
   }
   function cleanupEditor() {
-    if (ed && ed.queue && !ed.queueAdvancing) importQueue = [];
     ed = null; showEdPhoto(null); revokeEdUrls(); defDraft = null;
   }
 
@@ -959,8 +1105,8 @@
       b.setAttribute('aria-pressed', String(el === ed.element));
       b.addEventListener('click', () => {
         ed.element = el; box.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c === b)));
-        if (!ed.idTouched && ed.mode === 'new') $('poleId').value = suggestId(el);
-        applyElement(); checkDup();
+        if (!ed.idTouched && ed.mode === 'new') $('poleId').value = suggestId(el, ed.type);
+        applyElement(); checkDup(); checkFormat();
       });
       box.appendChild(b);
     }
@@ -968,7 +1114,8 @@
   function applyElement() {
     const el = ed.element;
     $('idLabel').textContent = `${el.toUpperCase()} ID`;
-    $('poleId').placeholder = el === 'Pole' ? 'e.g. MKP-0001' : `e.g. ${el}-01`;
+    $('poleId').placeholder = el === 'Pole' ? 'e.g. CC-0001' : el === 'ODF' ? 'e.g. FDU_100' : `e.g. ${el}-01`;
+    $('surveyTypeBox').hidden = el !== 'Pole';
     $('poleAttach').hidden = el !== 'Pole'; $('odfBox').hidden = el !== 'ODF';
     $('atMloop').checked = ed.mloop; $('atNap').checked = ed.nap; $('atClosure').checked = ed.closure;
     $('napId').hidden = !ed.nap; $('closureId').hidden = !ed.closure;
@@ -1036,7 +1183,7 @@
       card.appendChild(rm);
       const acts = document.createElement('div'); acts.className = 'acts';
       const mk = (label, fn, cls) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (cls || ''); b.textContent = label; b.addEventListener('click', fn); acts.appendChild(b); };
-      if (d.status !== 'Rectified') mk('Mark rectified', () => { d.status = 'Rectified'; d.fixedAt = new Date().toISOString(); d.fixedStage = stage; d.fixedBy = S.userName || ''; renderDefs(); });
+      if (d.status !== 'Rectified') mk('Mark rectified', () => { d.status = 'Rectified'; d.fixedAt = new Date().toISOString(); d.fixedStage = stage; d.fixedBy = byLine(); renderDefs(); });
       else mk('Reopen', () => { d.status = 'Open'; d.fixedAt = null; d.fixedStage = null; d.fixedBy = ''; renderDefs(); });
       mk(d.afterPid ? 'Retake after photo' : 'After photo', () => { ed.afterFor = d.id; openCamera('after'); });
       if ((d.stage || 'PAT') === stage) mk('Remove', () => {
@@ -1056,7 +1203,7 @@
     if (d.afterPid) { if (ed.pending[d.afterPid]) delete ed.pending[d.afterPid]; else ed.removed.push(d.afterPid); }
     const pid = uid(); ed.pending[pid] = blob; d.afterPid = pid; d.afterMeta = meta;
     // The after photo is the evidence, so its capture time is the rectification time.
-    d.status = 'Rectified'; d.fixedAt = meta.at; d.fixedStage = pmeta().stage || 'PAT'; d.fixedBy = meta.by || S.userName || '';
+    d.status = 'Rectified'; d.fixedAt = meta.at; d.fixedStage = pmeta().stage || 'PAT'; d.fixedBy = meta.by || byLine();
     renderDefs(); toast('After photo added — item marked rectified');
   }
   function renderDefPanel() {
@@ -1102,7 +1249,7 @@
     if (defDraft.blob) { pid = uid(); ed.pending[pid] = defDraft.blob; }
     const now = new Date().toISOString(), stage = pmeta().stage || 'PAT';
     items.forEach((it) => ed.defs.push({ id: uid(), cat: defDraft.cat, item: it, sev: defDraft.sev, notes: useNotes, pid, pidMeta: pid ? defDraft.meta : null,
-      status: 'Open', stage, foundAt: now, foundBy: S.userName || '', remarks: '' }));
+      status: 'Open', stage, foundAt: now, foundBy: byLine(), remarks: '' }));
     defDraft = null; $('defPanel').hidden = true; $('addDefBtn').hidden = false;
     renderDefs(); toast(`${items.length} deficienc${items.length === 1 ? 'y' : 'ies'} added`);
   });
@@ -1117,7 +1264,6 @@
     if (ed.mode === 'edit') { openCamera('replace'); return; }
     await closeSheet(); openCamera('new');
   });
-  $('edSkip').addEventListener('click', () => nextImport(true));
   $('edDelete').addEventListener('click', () => { $('delName').textContent = $('poleId').value || 'this pole'; $('delConfirm').hidden = false; $('delConfirm').scrollIntoView({ block: 'nearest' }); });
   $('delNo').addEventListener('click', () => { $('delConfirm').hidden = true; });
   $('delYes').addEventListener('click', async () => {
@@ -1133,7 +1279,8 @@
 
   async function saveEditor() {
     const poleId = $('poleId').value.trim().toUpperCase();
-    if (!poleId) { toast(`Enter the ${ed.acc ? ed.element : 'Pole'} ID first`); $('poleId').focus(); return; }
+    if (!poleId || /^(CC|WP|SP)-?$|^FDU_?$/.test(poleId)) { toast(`Enter the ${ed.acc ? ed.element : 'Pole'} ID first${poleId ? ' (the number is missing)' : ''}`); $('poleId').focus(); return; }
+    if (!profileOk()) { toast('Enter your details first (Settings → You)'); openProfile(true); return; }
     {
       const c0 = pinMap.getCenter();
       if (ed.gps && ed.dragged && haversine(ed.gps, { lat: c0.lat, lon: c0.lng }) > PIN_LIMIT_M + 2) { clampPin(); toast(`Pin is more than ${fmtDist(PIN_LIMIT_M)} from where the photo was taken`); return; }
@@ -1152,7 +1299,7 @@
       }
       const g = ed.gps;
       const rec = Object.assign(p || { id: ed.id, project: S.project, created: now, takenAt: ed.takenAt || now, source: ed.source || 'camera' }, {
-        poleId, poleType: ed.type || '', lat: pos.lat, lon: pos.lon, updated: now,
+        poleId, poleType: ed.type || '', lat: pos.lat, lon: pos.lon, updated: now, ...(p ? { updatedBy: byLine() } : { by: byLine() }),
         ...(ed.newBlob ? { q: ed.q || null } : {}), ...(ed.idRead ? { idRead: ed.idRead } : {}),
         gpsLat: g ? g.lat : null, gpsLon: g ? g.lon : null,
         accuracy: g && Number.isFinite(g.acc) ? g.acc : null,
@@ -1162,11 +1309,11 @@
       await dbPut('points', rec);
       if (!p) points.push(rec);
       if (ed.mode === 'new') S.lastPoleId = poleId;
-      S.lastType = ed.type || S.lastType; persist();
+      if (POLE_TYPES.includes(ed.type)) S.lastType = ed.type;
+      persist(); notePerson();
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
       renderPoles(); if (!$('list').hidden) renderList();
       busy(false);
-      if (ed.queue) { nextImport(false); return; }
       const wasNew = ed.mode === 'new';
       await closeSheet();
       if (wasNew) { map.setView([pos.lat, pos.lon], Math.max(map.getZoom(), 17)); toast(`${poleId} saved`); }
@@ -1184,7 +1331,8 @@
       const p = points.find((x) => x.id === ed.id);
       const g = ed.gps, el = ed.element;
       const rec = Object.assign(p || { id: ed.id, project: S.project, created: now, takenAt: ed.takenAt || now, source: ed.source || 'camera' }, {
-        kind: 'acceptance', element: el, poleId, poleType: '', lat: pos.lat, lon: pos.lon, updated: now, ...(ed.idRead ? { idRead: ed.idRead } : {}),
+        kind: 'acceptance', element: el, poleId, poleType: el === 'Pole' ? ed.type || '' : '', lat: pos.lat, lon: pos.lon, updated: now, ...(ed.idRead ? { idRead: ed.idRead } : {}),
+        ...(p ? { updatedBy: byLine() } : { by: byLine() }),
         mloop: el === 'Pole' && ed.mloop, nap: el === 'Pole' && ed.nap, closure: el === 'Pole' && ed.closure,
         napId: el === 'Pole' && ed.nap ? $('napId').value.trim().toUpperCase() : '',
         closureId: el === 'Pole' && ed.closure ? $('closureId').value.trim().toUpperCase() : '',
@@ -1206,8 +1354,8 @@
       await deletePhotosIfUnused(ed.removed.filter((pid) => !used.has(pid)), new Set([rec.id]));
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
       renderPoles(); if (!$('list').hidden) renderList();
-      busy(false);
-      if (ed.queue) { nextImport(false); return; }
+      busy(false); notePerson();
+      if (el === 'Pole' && POLE_TYPES.includes(ed.type)) { S.lastType = ed.type; persist(); }
       const wasNew = ed.mode === 'new', n = openCount(rec);
       await closeSheet();
       if (wasNew) map.setView([pos.lat, pos.lon], Math.max(map.getZoom(), 17));
@@ -1215,36 +1363,6 @@
     } catch (e) {
       busy(false); toast('Could not save: ' + (e.message || e), 5000);
     } finally { btn.disabled = false; }
-  }
-
-  /* ================= import existing geotagged photos ================= */
-  let importQueue = [], importTotal = 0, importIndex = 0;
-  $('importBtn').addEventListener('click', () => {
-    if (isAcc()) { toast('Import is off in acceptance projects. Photos must be taken live with the in-app camera at the site.', 4500); return; }
-    $('importInput').value = ''; $('importInput').click();
-  });
-  $('importInput').addEventListener('change', (e) => {
-    importQueue = Array.from(e.target.files || []); importTotal = importQueue.length; importIndex = 0;
-    if (importQueue.length) startImportItem();
-  });
-  async function startImportItem() {
-    const f = importQueue.shift(); if (!f) return;
-    let ex = null;
-    try { ex = C.readExif(new Uint8Array(await f.slice(0, 256 * 1024).arrayBuffer())); } catch (err) { ex = null; }
-    const has = ex && ex.lat != null;
-    const d = ex && C.parseExifDate(ex.dateTimeOriginal || ex.dateTime);
-    const hint = ex && (ex.xpTitle || ((ex.description || '').length <= 24 ? ex.description : '') || '');
-    openEditor({ mode: 'new', blob: f, source: 'import', gps: has ? { lat: ex.lat, lon: ex.lon, acc: null, alt: ex.alt } : null,
-      takenAt: (d || new Date(f.lastModified || Date.now())).toISOString(),
-      poleId: hint ? hint.toUpperCase() : undefined,
-      note: has ? f.name : `${f.name} — no location in this photo, place the pin by hand`,
-      queue: { index: importIndex, total: importTotal } });
-  }
-  async function nextImport() {
-    importIndex++;
-    if (ed) ed.queueAdvancing = true;
-    await closeSheet();
-    if (importQueue.length) startImportItem(); else toast(`Import finished (${importTotal} photo${importTotal === 1 ? '' : 's'})`);
   }
 
   /* ================= list ================= */
@@ -1258,8 +1376,8 @@
       && (!acc || listFilter === 'all' || recStatus(p) === listFilter));
     const counts = {}; projPoints().forEach((p) => { counts[p.poleId] = (counts[p.poleId] || 0) + 1; });
     const box = $('listItems'); box.innerHTML = '';
-    $('listTitle').textContent = `Points · ${S.project}`;
-    if (!pts.length) { box.innerHTML = `<div class="empty">${q || (acc && listFilter !== 'all') ? 'Nothing matches.' : `No ${acc ? 'elements' : 'poles'} yet. Tap the orange camera button to capture the first one.`}</div>`; return; }
+    $('listTitle').textContent = `${taskCat()} · ${S.project}`;
+    if (!pts.length) { box.innerHTML = `<div class="empty">${q || (acc && listFilter !== 'all') ? 'Nothing matches.' : `No ${acc ? 'elements' : 'poles'} yet. Tap the camera button to capture the first one.`}</div>`; return; }
     for (const p of pts) {
       const b = document.createElement('button'); b.className = 'card'; b.type = 'button';
       const img = document.createElement('img'); img.alt = ''; img.loading = 'lazy';
@@ -1295,7 +1413,7 @@
     const m = pmeta(), acc = isAcc();
     $('accMeta').hidden = !acc;
     if (acc) {
-      $('accStageInfo').textContent = m.stage === 'FAT' ? `Final Acceptance Test (FAT)${m.fromPat ? ` · re-checking “${m.fromPat}”` : ''}` : 'Provisional Acceptance Test (PAT)';
+      $('accStageInfo').textContent = m.stage === 'FAT' ? `Task category: FAT · Final Acceptance Test${m.fromPat ? ` · re-checking “${m.fromPat}”` : ''}` : 'Task category: PAT · Provisional Acceptance Test';
       $('mSite').value = m.site || ''; $('mContractor').value = m.contractor || ''; $('mGlobe').value = m.globeRep || ''; $('mInspector').value = m.inspector || '';
       $('startFat').hidden = $('startFatHint').hidden = m.stage === 'FAT';
     }
@@ -1310,28 +1428,32 @@
       const t = document.createElement('span'); t.className = 't'; t.style.fontFamily = 'var(--sans)'; t.textContent = name;
       const s = document.createElement('span'); s.className = 's';
       const open = pacc ? points.filter((p) => p.project === name).reduce((t, p) => t + openCount(p), 0) : 0;
-      s.textContent = `${pacc ? `Acceptance ${pm.stage || 'PAT'} · ${n} element${n === 1 ? '' : 's'} · ${open} open` : `Survey · ${n} pole${n === 1 ? '' : 's'}`}${areas ? ` · ${areas} offline map${areas === 1 ? '' : 's'}` : ''}${name === S.project ? ' · current' : ''}`;
+      s.textContent = `${pacc ? `${pm.stage || 'PAT'} · ${n} element${n === 1 ? '' : 's'} · ${open} open` : `Survey · ${n} pole${n === 1 ? '' : 's'}`}${name === S.project ? ' · current' : ''}`;
       d.append(t, s); b.append(d);
       b.addEventListener('click', async () => { S.project = name; persist(); renderPoles(); await closeSheet(); fitProject(); toast(`Now working on: ${name}`); });
       box.appendChild(b);
     }
   }
   $('projectBtn').addEventListener('click', () => { renderProjects(); openSheet('projects'); });
+  $('projNavBtn').addEventListener('click', () => { renderProjects(); openSheet('projects'); });
   $('addProject').addEventListener('click', async () => {
     const name = $('newProject').value.trim();
     if (!name) { toast('Type a project name'); return; }
     if (allProjects().includes(name)) { toast('A project with that name already exists'); return; }
     S.projects.push(name);
     S.meta = S.meta || {};
-    S.meta[name] = newMode === 'acceptance' ? { mode: 'acceptance', stage: 'PAT', site: '', contractor: '', globeRep: '', inspector: '' } : { mode: 'survey' };
+    S.meta[name] = newMode === 'survey' ? { mode: 'survey' } : { mode: 'acceptance', stage: newMode, site: '', contractor: '', globeRep: '', inspector: byLine() };
     S.project = name; persist(); $('newProject').value = '';
     renderPoles(); await closeSheet();
-    toast(newMode === 'acceptance' ? `PAT "${name}" started — add contractor details in Projects` : `Survey "${name}" started`, 3500);
+    toast(newMode === 'survey' ? `Survey "${name}" started` : `${newMode} "${name}" started — add contractor details in Projects`, 3500);
   });
   let newMode = 'survey';
+  const NEW_MODE_HINT = { survey: 'Survey: engineering survey of poles, route and spans for design.', PAT: 'PAT: Provisional Acceptance Test with Globe and the contractor. Output: punchlist.',
+    FAT: 'FAT: Final Acceptance Test. To re-check a PAT punchlist on this phone, open that PAT project and tap "Start FAT from this PAT" instead.' };
   $('newMode').addEventListener('click', (e) => {
     const c = e.target.closest('.chip'); if (!c) return; newMode = c.dataset.v;
     $('newMode').querySelectorAll('.chip').forEach((x) => x.setAttribute('aria-pressed', String(x === c)));
+    $('newModeHint').textContent = NEW_MODE_HINT[newMode];
   });
   [['mSite', 'site'], ['mContractor', 'contractor'], ['mGlobe', 'globeRep'], ['mInspector', 'inspector']].forEach(([id, key]) => {
     $(id).addEventListener('change', () => { const m = { ...pmeta() }; m[key] = $(id).value.trim(); S.meta[S.project] = m; persist(); });
@@ -1555,7 +1677,7 @@
     const summary = [
       [{ v: `ROUTE AND SPANS — ${S.project}`, s: st.title }],
       [lbl('Generated'), fmtTime(new Date().toISOString())],
-      [lbl('Maximum span setting (m)'), S.maxSpan || 50],
+      [lbl('Maximum span setting (m)'), S.maxSpan || 200],
       [lbl('Angle pole from (°)'), S.angleDeg || 15],
       [],
       [lbl('Total route length (m)'), Math.round(Rt.total * 10) / 10],
@@ -1696,6 +1818,7 @@
       if (!S.projects.includes(proj)) S.projects.push(proj);
       S.meta = S.meta || {};
       if (meta.meta && !S.meta[proj]) S.meta[proj] = meta.meta;
+      else if (meta.meta && meta.meta.people) S.meta[proj].people = { ...(S.meta[proj].people || {}), ...meta.meta.people };
       else if (meta.meta && meta.meta.links) {
         const have = new Set((S.meta[proj].links || []).map(([x, y]) => [x, y].sort().join('|')));
         S.meta[proj].links = (S.meta[proj].links || []).concat(meta.meta.links.filter(([x, y]) => !have.has([x, y].sort().join('|'))));
@@ -1765,6 +1888,8 @@
         photosOf(r).map((p, k) => M.photoName(r, k, p)).join(', ')];
     });
   }
+  const peopleOf = () => Object.values(pmeta().people || {});
+  const peopleText = () => peopleOf().map((x) => `${x.name}${x.company ? ` (${x.company})` : ''}`).join('; ');
   const summaryText = (M) => `${M.recs.length} elements inspected · ${M.withDef} with open deficiency · ${M.items.length} punchlist items (${M.open.length} open, ${M.rectified} rectified) · open major ${M.major} / minor ${M.minor}`;
   const accFileBase = (M) => {
     const pn = C.safeName(S.project);
@@ -1791,11 +1916,14 @@
     for (let rr = 2; rr <= 5; rr++) merges.push(`A${rr}:B${rr}`, `C${rr}:E${rr}`, `F${rr}:G${rr}`, `H${rr}:K${rr}`);
     const erows = [ELEM_HEAD.map((v) => ({ v, s: st.header }))];
     elemRows(M).forEach((r) => erows.push(r.map((v, ci) => ({ v, s: ci === 0 ? st.center : ci === 9 ? statusStyle(v) : ci === 12 || ci === 13 ? st.coord : st.cell }))));
+    const prows = [['Name', 'Company', 'Mobile', 'Email'].map((v) => ({ v, s: st.header }))];
+    peopleOf().forEach((x) => prows.push([x.name, x.company, x.mobile, x.email]));
     const parts = R.buildXlsxParts([
       { name: 'Punchlist', cols: [7, 15, 9, 13, 34, 9, 30, 11, 8, 17, 17, 9, 16, 24, 12, 13, 26, 17, 26, 17, 12], rows, merges, freezeRow: 8,
         autoFilter: `A8:${R.colName(PUNCH_HEAD.length - 1)}${8 + Math.max(1, M.items.length)}` },
       { name: 'Elements', cols: [6, 9, 15, 10, 9, 14, 11, 14, 10, 15, 9, 9, 12, 13, 10, 10, 17, 40], rows: erows, freezeRow: 1,
         autoFilter: `A1:${R.colName(ELEM_HEAD.length - 1)}${Math.max(2, erows.length)}` },
+      { name: 'People', cols: [28, 28, 18, 32], rows: prows, freezeRow: 1 },
     ]);
     offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), accFileBase(M) + '_punchlist.xlsx');
   }));
@@ -1817,7 +1945,7 @@
     if (stampLines && stampLines.length) { // time + place burned into the picture itself
       const fs = Math.max(12, Math.round(cv.width * 0.032)), lh = fs * 1.3, pad = fs * 0.6, bandH = pad * 2 + lh * stampLines.length;
       g.fillStyle = 'rgba(0,0,0,0.62)'; g.fillRect(0, cv.height - bandH, cv.width, bandH);
-      g.fillStyle = stampColor || '#e8590c'; g.fillRect(0, cv.height - bandH, Math.max(4, fs * 0.3), bandH);
+      g.fillStyle = stampColor || '#4dabf7'; g.fillRect(0, cv.height - bandH, Math.max(4, fs * 0.3), bandH);
       g.fillStyle = '#fff'; g.textBaseline = 'top';
       stampLines.forEach((t, i) => { g.font = `${i ? '' : '700 '}${fs}px sans-serif`; g.fillText(t, pad * 1.5, cv.height - bandH + pad + i * lh, cv.width - pad * 3); });
     }
@@ -1858,7 +1986,7 @@
     const pdf = window.PoleReports.punchlistPdf({
       title: 'PUNCHLIST / DEFICIENCY LIST', stageLong: STAGE_LONG[M.stage], footer: `${S.project} · ${M.stage} punchlist`,
       info: [['Project', S.project], ['Site / cluster', M.m.site], ['Contractor', M.m.contractor], ['Globe representative', M.m.globeRep],
-        ['Inspected by', M.m.inspector], ['Inspection date', M.dates], ...(M.m.fromPat ? [['PAT reference', M.m.fromPat]] : [])],
+        ['Inspected by', M.m.inspector], ['Inspection date', M.dates], ...(M.m.fromPat ? [['PAT reference', M.m.fromPat]] : []), ['Recorded by', peopleText()]],
       summary: [['Elements inspected', M.recs.length], ['With open deficiency', M.withDef, M.withDef ? 'bad' : 'good'], ['Open items', M.open.length, M.open.length ? 'bad' : 'good'],
         ['Rectified items', M.rectified, M.rectified ? 'good' : ''], ['Open major / minor', `${M.major} / ${M.minor}`]],
       items: M.items.map((x) => ({ no: x.no, loc: x.r.poleId, element: elemOf(x.r), cat: x.d.cat, item: x.d.item, notes: x.d.notes, sev: x.d.sev, status: x.d.status,
@@ -1917,7 +2045,7 @@
       footer: `${S.project} · rectification report · generated ${shortTime(new Date().toISOString())}`,
       info: [['Project', S.project], ['Site / cluster', M.m.site], ['Contractor', M.m.contractor], ['Globe representative', M.m.globeRep],
         ['PAT reference', M.m.fromPat || (M.stage === 'PAT' ? S.project : '')], ['Report period', times.length ? `${fmtTime(times[0])} – ${fmtTime(times[times.length - 1])}` : ''],
-        ['Generated', shortTime(new Date().toISOString())], ['Generated by', S.userName || M.m.inspector || '']],
+        ['Generated', shortTime(new Date().toISOString())], ['Generated by', byLine() || M.m.inspector || ''], ['Recorded by', peopleText()]],
       summary: [['Punchlist items', total], ['Rectified', rect.length, rect.length ? 'blue' : ''], ['Still open', open.length, open.length ? 'bad' : 'good'],
         ['Cleared', `${Math.round((rect.length / total) * 100)}%`, rect.length === total ? 'good' : ''], ['Average time to rectify', avg == null ? '—' : fmtDays(avg)]],
       note, progress: byDate, rectified: items, open: openItems,
@@ -1959,15 +2087,15 @@
     if (navigator.storage && navigator.storage.estimate) {
       const est = await navigator.storage.estimate();
       const per = navigator.storage.persisted ? await navigator.storage.persisted() : false;
-      $('storeInfo').textContent = `${points.length} poles in all projects · ${(est.usage / 1048576).toFixed(1)} MB used of ${(est.quota / 1073741824).toFixed(1)} GB available · ${per ? 'protected from automatic cleanup' : 'not yet protected from automatic cleanup'}`;
+      $('storeInfo').textContent = `${points.length} records in all projects. Using ${fmtMB(est.usage || 0)}; this phone currently lets PoleCam use up to about ${fmtMB(est.quota || 0)}. ${per ? 'Protected from automatic cleanup.' : 'Not yet protected from automatic cleanup.'}`;
     }
   }
   $('settingsBtn').addEventListener('click', () => {
-    $('setTypes').value = S.types.join('\n'); $('setStamp').checked = !!S.stamp; $('setMaxPx').value = String(S.maxPx);
+    $('setStamp').checked = !!S.stamp; $('setMaxPx').value = String(S.maxPx);
     $('setZone').value = String(S.zone); $('setSym').value = S.sym; $('setTxt').value = S.txt;
-    $('setUser').value = S.userName || '';
-    $('setGpsFresh').checked = S.gpsFresh !== false; $('setQuality').value = S.quality || 'normal'; $('setReadId').checked = S.readId !== false;
-    $('setMaxSpan').value = S.maxSpan || 50; $('setAngle').value = S.angleDeg || 15; $('setAutoGap').value = S.autoGap || 120;
+    renderWho(); renderTeamInfo();
+    $('setQuality').value = S.quality === 'normal' ? 'normal' : 'strict'; $('setReadId').checked = S.readId !== false;
+    $('setMaxSpan').value = S.maxSpan || 200; $('setAngle').value = S.angleDeg || 15; $('setAutoGap').value = S.autoGap || 120;
     $('setSaveBase').value = S.saveBase || 'DOCUMENTS'; $('setSaveFolder').value = S.saveFolder || 'PoleCam'; $('setSaveByProject').checked = S.saveByProject !== false;
     updateSavePreview();
     S.defects = S.defects || JSON.parse(JSON.stringify(DEF_CHECK));
@@ -1976,16 +2104,11 @@
     $('setDefItems').value = (S.defects[cats[0]] || []).join('\n');
     refreshStorageInfo(); openSheet('settings');
   });
-  $('setTypes').addEventListener('change', () => {
-    const t = $('setTypes').value.split('\n').map((s) => s.trim()).filter(Boolean);
-    S.types = t.length ? [...new Set(t)] : DEF.types.slice(); persist(); renderPoles();
-  });
-  $('setUser').addEventListener('change', () => { S.userName = $('setUser').value.trim(); persist(); });
+
   function updateSavePreview() {
     $('savePreview').textContent = NATIVE ? `Files go to: ${savePath('…').shown.replace(/\/…$/, '/')}` : 'Website version: your browser saves to its Downloads folder.';
     ['setSaveBase', 'setSaveFolder', 'setSaveByProject'].forEach((id) => { $(id).disabled = !NATIVE; });
   }
-  $('setGpsFresh').addEventListener('change', () => { S.gpsFresh = $('setGpsFresh').checked; persist(); });
   $('setQuality').addEventListener('change', () => { S.quality = $('setQuality').value; persist(); });
   $('setReadId').addEventListener('change', () => { S.readId = $('setReadId').checked; persist(); });
   const numSet = (id, key, min, max) => $(id).addEventListener('change', () => { const v = +$(id).value; if (v >= min && v <= max) { S[key] = v; persist(); renderPoles(); } else $(id).value = S[key]; });
@@ -2002,6 +2125,371 @@
   $('setZone').addEventListener('change', () => { S.zone = +$('setZone').value; persist(); });
   $('setSym').addEventListener('change', () => { const v = +$('setSym').value; if (v > 0) { S.sym = v; persist(); } });
   $('setTxt').addEventListener('change', () => { const v = +$('setTxt').value; if (v > 0) { S.txt = v; persist(); } });
+  /* ================= you + company list ================= */
+  /* Everyone enters their name, mobile, email and company once. Company names come from a list kept by an admin on
+     the admin's own phone. The list travels offline (QR code or a small file) and is signed with the admin's key, so a
+     phone accepts later updates only from an admin already on its list. Nothing is uploaded anywhere. */
+  /** A list must be well formed before it is stored: a crafted list could otherwise break the settings screen. */
+  function validTeam(b) {
+    const str = (v, max) => typeof v === 'string' && v.length > 0 && v.length <= max;
+    return !!b && b.t === 'polecam-team' && str(b.id, 40) && str(b.name, 100) && Number.isInteger(b.rev) && b.rev >= 1
+      && Array.isArray(b.admins) && b.admins.length >= 1 && b.admins.length <= 20
+      && b.admins.every((a) => !!a && str(a.n, 100) && str(a.k, 200) && (a.c == null || (typeof a.c === 'string' && a.c.length <= 100)))
+      && Array.isArray(b.co) && b.co.length >= 1 && b.co.length <= 300 && b.co.every((c) => str(c, 100));
+  }
+  if (S.team && !validTeam(S.team)) { S.team = null; persist(); }
+  /** Short code that tells two lists apart even when their names look the same. */
+  const listCode = (b) => `${String(b.id).replace(/[^A-Za-z0-9]/g, '').slice(-4)}-${String(b.admins[0].k).replace(/[^A-Za-z0-9]/g, '').slice(20, 24)}`.toUpperCase();
+  const teamCos = () => (S.team && Array.isArray(S.team.co) ? S.team.co : []);
+  const profileOk = () => !!(S.user && S.user.name && S.user.mobile && S.user.email && S.user.company && (!teamCos().length || teamCos().includes(S.user.company)));
+  const isAdmin = () => !!(S.adminKey && S.team && (S.team.admins || []).some((a) => a.k === S.adminKey.pub));
+  const signerName = () => (S.team && S.team.admins && S.team.admins[S.team.k] ? S.team.admins[S.team.k].n : 'admin');
+  let profileFirst = false;
+  function renderCoSelect(sel) {
+    const cos = teamCos(), box = $('pfCompany');
+    if (!cos.length) { box.innerHTML = '<option value="">No company list on this phone yet</option>'; box.disabled = true; }
+    else {
+      box.disabled = false;
+      box.innerHTML = '<option value="">Choose your company…</option>' + cos.map((c) => `<option${c === sel ? ' selected' : ''}>${C.xmlEsc(c)}</option>`).join('');
+    }
+    $('pfTeam').textContent = S.team ? `From the company list “${S.team.name}” (code ${listCode(S.team)}, version ${S.team.rev}, by ${signerName()}).${sel && !cos.includes(sel) ? ` “${sel}” is no longer on the list: choose again.` : ''}` : '';
+    $('pfJoin').hidden = !!cos.length;
+  }
+  function openProfile(first) {
+    profileFirst = !!first;
+    const u = S.user || {};
+    $('pfName').value = u.name || (S.userName ? S.userName.split('·')[0].trim() : '');
+    $('pfMobile').value = u.mobile || ''; $('pfEmail').value = u.email || '';
+    renderCoSelect(u.company || '');
+    $('profBack').hidden = profileFirst;
+    $('profTitle').textContent = profileFirst ? 'Welcome to PoleCam' : 'Your details';
+    $('profIntro').textContent = profileFirst
+      ? 'Before the first photo, enter your details. They are recorded on every photo and report, and stay on this phone.'
+      : 'Recorded on every photo, pole and punchlist item from now on. Records already saved keep the name they were saved with.';
+    $('pfErr').hidden = true;
+    if (stack[stack.length - 1] !== 'profile') openSheet('profile');
+  }
+  const mobileOk = (m) => /^\+?\d{7,15}$/.test(m.replace(/[\s\-().]/g, ''));
+  $('pfSave').addEventListener('click', async () => {
+    const name = $('pfName').value.trim().replace(/\s+/g, ' '), mobile = $('pfMobile').value.trim().replace(/\s+/g, ' ');
+    const email = $('pfEmail').value.trim(), company = $('pfCompany').value;
+    const err = name.length < 3 ? 'Enter your full name.' : !mobileOk(mobile) ? 'Enter your mobile number, e.g. 0917 123 4567 or +63 917 123 4567.'
+      : !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) ? 'Enter a valid email address.'
+        : !company ? (teamCos().length ? 'Choose your company.' : 'Get the company list from your admin first (below).') : '';
+    if (err) { $('pfErr').textContent = err; $('pfErr').hidden = false; return; }
+    S.user = { name, mobile, email: email.toLowerCase(), company }; persist();
+    profileFirst = false; await closeSheet();
+    renderWho(); toast(`Saved: ${byLine()}`);
+  });
+  function renderWho() {
+    const u = S.user;
+    $('whoBox').innerHTML = u ? `<b>${C.xmlEsc(u.name)}</b><span>${C.xmlEsc(u.company)}</span><span class="mono">${C.xmlEsc(u.mobile)} · ${C.xmlEsc(u.email)}</span>` : 'Not set';
+  }
+  $('editMe').addEventListener('click', () => openProfile(false));
+
+  /* ---- signing and packing the list ---- */
+  const b64u = {
+    enc: (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); },
+    dec: (s) => { const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)); const u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; },
+  };
+  const EC = { name: 'ECDSA', namedCurve: 'P-256' }, SIG = { name: 'ECDSA', hash: 'SHA-256' }, enc8 = (t) => new TextEncoder().encode(t);
+  function cryptoOk() { if (window.crypto && crypto.subtle) return true; toast('This needs a secure (https) page or the Android app', 5000); return false; }
+  async function newAdminKey() {
+    const kp = await crypto.subtle.generateKey(EC, true, ['sign', 'verify']);
+    S.adminKey = { pub: b64u.enc(new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey))), priv: await crypto.subtle.exportKey('jwk', kp.privateKey) };
+    persist();
+  }
+  async function signText(text) {
+    const key = await crypto.subtle.importKey('jwk', S.adminKey.priv, EC, false, ['sign']);
+    return b64u.enc(new Uint8Array(await crypto.subtle.sign(SIG, key, enc8(text))));
+  }
+  async function verifyText(text, sig, pub) {
+    try { const key = await crypto.subtle.importKey('raw', b64u.dec(pub), EC, false, ['verify']); return await crypto.subtle.verify(SIG, key, b64u.dec(sig), enc8(text)); } catch (e) { return false; }
+  }
+  async function packShare(kind, obj) {
+    const json = JSON.stringify(obj);
+    if ('CompressionStream' in window) {
+      try { const z = await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer(); return `${kind}1:${b64u.enc(new Uint8Array(z))}`; } catch (e) { /* plain below */ }
+    }
+    return `${kind}0:${b64u.enc(enc8(json))}`;
+  }
+  async function unpackShare(text) {
+    const m = /^(PCT|PCA)([01]):([A-Za-z0-9_-]+)$/.exec(String(text || '').trim());
+    if (!m) return null;
+    const raw = b64u.dec(m[3]);
+    const json = m[2] === '1' ? new TextDecoder().decode(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()) : new TextDecoder().decode(raw);
+    return { kind: m[1], obj: JSON.parse(json) };
+  }
+  async function pinHash(pin, salt) { return b64u.enc(new Uint8Array(await crypto.subtle.digest('SHA-256', enc8(`${salt}:${pin}`)))); }
+
+  /* ---- small dialog ---- */
+  function ask(title, text, buttons) {
+    const btns = buttons || [{ label: 'Cancel', value: false }, { label: 'OK', value: true, primary: true }];
+    $('askTitle').textContent = title; $('askText').textContent = text || '';
+    const row = $('askBox').querySelector('.row'); row.innerHTML = '';
+    return new Promise((res) => {
+      btns.forEach((b) => {
+        const el = document.createElement('button'); el.type = 'button'; el.className = `btn grow${b.primary ? ' primary' : ''}`; el.textContent = b.label;
+        el.addEventListener('click', () => { $('askBox').hidden = true; res(b.value); });
+        row.appendChild(el);
+      });
+      $('askBox').hidden = false;
+    });
+  }
+
+  /* ---- accepting a list ---- */
+  /** allowSwitch: false on the update path, where only a newer version of the same list (from one of its admins) is taken. */
+  async function acceptTeam(obj, allowSwitch) {
+    let body;
+    try { body = JSON.parse(obj.b); } catch (e) { body = null; }
+    if (!validTeam(body)) throw new Error('This is not a PoleCam company list');
+    const signer = Number.isInteger(obj.k) ? body.admins[obj.k] : null;
+    if (!signer || !(await verifyText(obj.b, obj.s, signer.k))) throw new Error('Not accepted: this company list is damaged or was changed after the admin signed it');
+    const seen = (S.teamSeen = S.teamSeen || {})[body.id] || 0;
+    if (body.rev < seen) throw new Error(`Not accepted: this is version ${body.rev} of “${body.name}”, older than version ${seen} this phone already had`);
+    const cur = S.team;
+    if (cur && cur.id === body.id) {
+      if (body.rev <= cur.rev) return { same: true, msg: `This phone already has the latest list (version ${cur.rev})` };
+      if (!cur.admins.some((a) => a.k === signer.k)) throw new Error(`Not accepted: this update was signed by ${signer.n}, who is not an admin of “${cur.name}” on this phone`);
+    } else {
+      if (cur && !allowSwitch) throw new Error(`Not accepted: this is a different company list (code ${listCode(body)}), not an update of “${cur.name}” (code ${listCode(cur)}). To change lists, use Settings → Company list → Switch to another list.`);
+      const ok = await ask(cur ? 'Switch to a different company list?' : 'Use this company list?',
+        `${body.name} (code ${listCode(body)})\nAdmin${body.admins.length === 1 ? '' : 's'}: ${body.admins.map((a) => a.n).join(', ')}\n${body.co.length} compan${body.co.length === 1 ? 'y' : 'ies'}: ${body.co.slice(0, 8).join(', ')}${body.co.length > 8 ? ', …' : ''}`
+        + (cur ? `\n\nThis is NOT an update of “${cur.name}” (code ${listCode(cur)}): it is another list, made by whoever holds its admin key. Switch only if your admin told you to.` : ''),
+        [{ label: 'Cancel', value: false }, { label: cur ? 'Switch' : 'Use this list', value: true, primary: true }]);
+      if (!ok) return { cancelled: true };
+    }
+    S.team = { ...body, b: obj.b, s: obj.s, k: obj.k }; S.teamSeen[body.id] = Math.max(seen, body.rev); persist();
+    return { ok: true, msg: `Company list “${body.name}” version ${body.rev}: ${body.co.length} compan${body.co.length === 1 ? 'y' : 'ies'}` };
+  }
+  let teamSwitch = false; // set only by Settings → Switch to another list (or when the phone has no list yet)
+  async function importTeamText(text) {
+    if (!cryptoOk()) return false;
+    let p = null;
+    try { p = await unpackShare(text); } catch (e) { p = null; }
+    if (!p) { toast('That is not a PoleCam company list', 4000); return false; }
+    if (p.kind !== 'PCT') { toast('That is an admin request. The admin adds it in Manage company list → Add an admin.', 5000); return false; }
+    try {
+      const r = await acceptTeam(p.obj, teamSwitch || !S.team);
+      if (r.cancelled) return false;
+      toast(r.msg, 4500); afterTeamChange(); return true;
+    } catch (e) { toast(e.message, 6500); return false; }
+  }
+  function afterTeamChange() {
+    renderTeamInfo();
+    if (!$('profile').hidden) renderCoSelect($('pfCompany').value || (S.user && S.user.company) || '');
+    if (S.user && S.user.company && teamCos().length && !teamCos().includes(S.user.company)) {
+      toast(`“${S.user.company}” is not on the new company list. Choose your company again.`, 5000);
+      if ($('profile').hidden) openProfile(true);
+    }
+  }
+  function renderTeamInfo() {
+    const t = S.team;
+    $('teamInfo').textContent = t ? `“${t.name}” · code ${listCode(t)} · version ${t.rev} · ${teamCos().length} compan${teamCos().length === 1 ? 'y' : 'ies'} · admin${t.admins.length === 1 ? '' : 's'}: ${t.admins.map((a) => a.n).join(', ')}${isAdmin() ? ' · you are an admin' : ''}`
+      : 'No company list on this phone yet. Get it from your PoleCam admin, or create it if you are the admin.';
+    $('teamShare').hidden = !t;
+    $('teamManage').hidden = !isAdmin();
+    $('teamCreate').hidden = !!t;
+    $('adminAsk').hidden = !t || isAdmin();
+    $('teamSwitch').hidden = !t;
+  }
+  $('teamFileInput').addEventListener('change', async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    let text = await f.text();
+    try { const j = JSON.parse(text); if (j && j.data) text = j.data; } catch (err) { /* plain text file */ }
+    try { await importTeamText(text); } finally { teamSwitch = false; }
+  });
+  const openTeamFile = (sw) => { teamSwitch = !!sw; $('teamFileInput').value = ''; $('teamFileInput').click(); };
+  async function scanTeamQr(sw) {
+    const t = await scanQr('Point the camera at the company list QR code on the admin’s phone');
+    if (!t) return;
+    teamSwitch = !!sw; try { await importTeamText(t); } finally { teamSwitch = false; }
+  }
+  $('pfScan').addEventListener('click', () => scanTeamQr(false));
+  $('pfFile').addEventListener('click', () => openTeamFile(false));
+  async function getList(sw) {
+    const how = await ask(sw ? 'Switch to another company list' : 'Update the company list',
+      sw ? 'Only do this if your admin gave you a new, different list. Scan its QR code or open its file.' : 'Scan the QR code on an admin’s phone, or open the list file the admin sent you.',
+      [{ label: 'Cancel', value: '' }, { label: 'Open file', value: 'file' }, { label: 'Scan QR', value: 'scan', primary: true }]);
+    if (how === 'scan') scanTeamQr(sw); else if (how === 'file') openTeamFile(sw);
+  }
+  $('teamUpdate').addEventListener('click', () => getList(false));
+  $('teamSwitch').addEventListener('click', () => getList(true));
+  $('teamShare').addEventListener('click', () => showTeamQr());
+
+  /* ---- showing a QR code / sharing the file ---- */
+  let qrFileData = null;
+  async function showQr(title, note, text, file) {
+    $('qrTitle').textContent = title; $('qrText').textContent = note || '';
+    qrFileData = file || null; $('qrFile').hidden = !file;
+    const box = $('qrImg'); box.innerHTML = '';
+    if (text.length > 2300 || !window.qrcode) box.innerHTML = '<p class="hint" style="color:#333">Too much for one QR code. Use Share as file.</p>';
+    else { const q = window.qrcode(0, 'L'); q.addData(text); q.make(); box.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); }
+    openSheet('qrShow');
+  }
+  async function showTeamQr(note) {
+    if (!S.team) { toast('No company list on this phone yet'); return; }
+    const text = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k });
+    await showQr(`Company list: ${S.team.name}`, note || `Version ${S.team.rev} · ${teamCos().length} companies. On the other phone: Settings → Company list → Update list → Scan QR (or, on first use, “Scan admin's QR code”).`, text,
+      { name: `PoleCam_company_list_${C.safeName(S.team.name)}_v${S.team.rev}.json`, data: JSON.stringify({ app: 'PoleCam', type: 'company-list', name: S.team.name, version: S.team.rev, data: text }) });
+  }
+  $('qrClose').addEventListener('click', () => closeSheet());
+  $('qrFile').addEventListener('click', async () => {
+    if (!qrFileData) return;
+    const blob = new Blob([qrFileData.data], { type: 'application/json' }), name = qrFileData.name;
+    try {
+      if (NATIVE) { const r = await nativePrivate({ blob, name }); await nativeCall('Share', 'share', { title: name, dialogTitle: `Send ${name}`, files: [r.cacheUri] }); return; }
+      const file = new File([blob], name, { type: 'application/json' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; }
+    } catch (e) { if (e && (e.name === 'AbortError' || /cancel/i.test(String(e.message)))) return; }
+    const a = document.createElement('a'), u = URL.createObjectURL(blob);
+    a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 60000);
+    toast('Saved to Downloads');
+  });
+
+  /* ---- scanning a QR code ---- */
+  let qrStream = null, qrResolve = null, qrTimer = 0;
+  const scripts = {};
+  const loadScript = (src) => scripts[src] || (scripts[src] = new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => { delete scripts[src]; rej(new Error('Could not load ' + src)); }; document.head.appendChild(el); }));
+  async function scanQr(text) {
+    $('qrScanText').textContent = text || 'Point the camera at the QR code';
+    openSheet('qrScan');
+    try { qrStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 } } }); }
+    catch (e) { await closeSheet(); toast('Camera blocked: open the list file instead', 4500); return null; }
+    if ($('qrScan').hidden) { qrStream.getTracks().forEach((t) => t.stop()); qrStream = null; return null; }
+    const v = $('qrVideo'); v.srcObject = qrStream; await v.play().catch(() => {});
+    let det = null;
+    if ('BarcodeDetector' in window) { try { if ((await window.BarcodeDetector.getSupportedFormats()).includes('qr_code')) det = new window.BarcodeDetector({ formats: ['qr_code'] }); } catch (e) { det = null; } }
+    if (!det) { try { await loadScript('vendor/qr/jsQR.min.js'); } catch (e) { await closeSheet(); toast(e.message); return null; } }
+    const cv = document.createElement('canvas'), g = cv.getContext('2d', { willReadFrequently: true });
+    return new Promise((res) => {
+      qrResolve = res;
+      const tick = async () => {
+        if (!qrResolve) return;
+        let txt = null;
+        if (v.videoWidth) {
+          try {
+            if (det) { const r = await det.detect(v); if (r.length) txt = r[0].rawValue; }
+            else {
+              const sc = Math.min(1, 900 / Math.max(v.videoWidth, v.videoHeight));
+              cv.width = Math.round(v.videoWidth * sc); cv.height = Math.round(v.videoHeight * sc); g.drawImage(v, 0, 0, cv.width, cv.height);
+              const r = window.jsQR(g.getImageData(0, 0, cv.width, cv.height).data, cv.width, cv.height, { inversionAttempts: 'attemptBoth' });
+              if (r && r.data) txt = r.data;
+            }
+          } catch (e) { /* keep looking */ }
+        }
+        if (txt && qrResolve) { const done = qrResolve; qrResolve = null; await closeSheet(); done(txt); return; }
+        qrTimer = setTimeout(tick, 180);
+      };
+      tick();
+    });
+  }
+  function stopQrScan() {
+    clearTimeout(qrTimer);
+    if (qrStream) { qrStream.getTracks().forEach((t) => t.stop()); qrStream = null; }
+    $('qrVideo').srcObject = null;
+    if (qrResolve) { const r = qrResolve; qrResolve = null; r(null); }
+  }
+  $('qrScanClose').addEventListener('click', () => closeSheet());
+
+  /* ---- admin: create and manage the list ---- */
+  let admMode = 'manage', admDraft = null, adminUnlocked = false;
+  function openAdmin(mode) {
+    if (!cryptoOk()) return;
+    admMode = mode;
+    $('adminTitle').textContent = mode === 'request' ? 'Ask to become an admin' : mode === 'create' ? 'Create the company list' : 'Company list (admin)';
+    const setPin = !S.adminPin;
+    $('admPin').value = ''; $('admPin2').value = ''; $('admPin2').hidden = !setPin;
+    $('admLockTitle').textContent = setPin ? 'Set your admin PIN' : 'Admin PIN';
+    $('admLockHint').textContent = setPin ? 'This PIN protects the company list on this phone. Keep it private; it cannot be recovered.' : 'Enter your admin PIN.';
+    const locked = setPin || !adminUnlocked;
+    $('admLock').hidden = !locked; $('admMain').hidden = true;
+    openSheet('admin');
+    if (!locked) admStart();
+  }
+  $('admUnlock').addEventListener('click', async () => {
+    const pin = $('admPin').value.trim();
+    if (!/^\d{4,8}$/.test(pin)) { toast('The PIN is 4 to 8 digits'); return; }
+    if (!S.adminPin) {
+      if (pin !== $('admPin2').value.trim()) { toast('The two PINs do not match'); return; }
+      const salt = uid(); S.adminPin = { salt, hash: await pinHash(pin, salt) }; persist();
+    } else if (await pinHash(pin, S.adminPin.salt) !== S.adminPin.hash) { toast('Wrong PIN'); $('admPin').value = ''; return; }
+    adminUnlocked = true; $('admLock').hidden = true; admStart();
+  });
+  async function admStart() {
+    if (!S.adminKey) await newAdminKey();
+    const me = () => (!$('profile').hidden && $('pfName').value.trim()) || (S.user && S.user.name) || 'Admin';
+    if (admMode === 'request') {
+      await closeSheet();
+      const text = await packShare('PCA', { n: me(), c: (S.user && S.user.company) || '', k: S.adminKey.pub });
+      showQr('Admin request', `Show this to an admin of “${S.team ? S.team.name : 'the list'}”. They tap Manage company list → Add an admin and scan it. You become an admin when you update to the list they share next.`, text, null);
+      return;
+    }
+    if (admMode === 'create' || !S.team) admDraft = { id: uid(), name: '', co: [], admins: [{ n: me(), k: S.adminKey.pub }], rev: 0 };
+    else admDraft = { id: S.team.id, name: S.team.name, co: teamCos().slice(), admins: S.team.admins.map((a) => ({ ...a })), rev: S.team.rev };
+    $('admName').value = admDraft.name; $('admNewCo').value = '';
+    $('admMain').hidden = false; renderAdmDraft();
+  }
+  function renderAdmDraft() {
+    const box = $('admCos'); box.innerHTML = '';
+    if (!admDraft.co.length) box.innerHTML = '<p class="hint" style="margin:0">No companies yet. Add each company or vendor that will use PoleCam.</p>';
+    admDraft.co.forEach((c, i) => {
+      const row = document.createElement('div'); row.className = 'co-item';
+      const t = document.createElement('span'); t.textContent = c;
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'btn danger'; b.textContent = 'Remove';
+      b.addEventListener('click', () => { admDraft.co.splice(i, 1); renderAdmDraft(); });
+      row.append(t, b); box.appendChild(row);
+    });
+    const ab = $('admAdmins'); ab.innerHTML = '';
+    admDraft.admins.forEach((a, i) => {
+      const row = document.createElement('div'); row.className = 'co-item';
+      const t = document.createElement('span'); t.textContent = `${a.n}${a.c ? ` (${a.c})` : ''}${a.k === S.adminKey.pub ? ' · you' : ''}`;
+      row.appendChild(t);
+      if (a.k !== S.adminKey.pub) {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'btn danger'; b.textContent = 'Remove';
+        b.addEventListener('click', () => { admDraft.admins.splice(i, 1); renderAdmDraft(); });
+        row.appendChild(b);
+      }
+      ab.appendChild(row);
+    });
+    $('admRev').textContent = admDraft.rev ? `Saving makes version ${admDraft.rev + 1}. Phones that have version ${admDraft.rev} accept it because you are an admin on their list.` : 'Saving makes version 1 of a new list.';
+  }
+  $('admAddCo').addEventListener('click', () => {
+    const v = $('admNewCo').value.trim().replace(/\s+/g, ' ').slice(0, 80);
+    if (!v) return;
+    if (admDraft.co.some((c) => c.toLowerCase() === v.toLowerCase())) { toast('Already on the list'); return; }
+    admDraft.co.push(v); $('admNewCo').value = ''; renderAdmDraft(); $('admNewCo').focus();
+  });
+  $('admNewCo').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('admAddCo').click(); });
+  $('admAddAdmin').addEventListener('click', async () => {
+    const t = await scanQr('Scan the admin request QR code on the other person’s phone'); if (!t) return;
+    let p = null; try { p = await unpackShare(t); } catch (e) { p = null; }
+    if (!p || p.kind !== 'PCA' || !p.obj || !p.obj.k) { toast('That is not an admin request QR code', 4000); return; }
+    if (admDraft.admins.some((a) => a.k === p.obj.k)) { toast(`${p.obj.n} is already an admin`); return; }
+    admDraft.admins.push({ n: String(p.obj.n || 'Admin').slice(0, 80), c: String(p.obj.c || '').slice(0, 80), k: p.obj.k });
+    renderAdmDraft(); toast(`${p.obj.n} added as admin. Tap Save and share the list.`, 4000);
+  });
+  $('admSave').addEventListener('click', async () => {
+    admDraft.name = $('admName').value.trim().replace(/\s+/g, ' ').slice(0, 80);
+    if (!admDraft.name) { toast('Give the list a name, e.g. your office or project'); $('admName').focus(); return; }
+    if (!admDraft.co.length) { toast('Add at least one company'); return; }
+    const k = admDraft.admins.findIndex((a) => a.k === S.adminKey.pub);
+    if (S.user && S.user.name) Object.assign(admDraft.admins[k], { n: S.user.name, c: S.user.company || '' }); // keep my name on the list current
+    const body = JSON.stringify({ t: 'polecam-team', v: 1, id: admDraft.id, name: admDraft.name, rev: admDraft.rev + 1, at: new Date().toISOString(),
+      admins: admDraft.admins, co: admDraft.co });
+    const sig = await signText(body);
+    S.team = { ...JSON.parse(body), b: body, s: sig, k }; (S.teamSeen = S.teamSeen || {})[S.team.id] = S.team.rev; persist();
+    await closeSheet(); afterTeamChange();
+    showTeamQr(`Version ${S.team.rev} saved. Show this QR code to each user, or share the file. Phones accept updates only from the admins on this list.`);
+  });
+  $('teamManage').addEventListener('click', () => openAdmin('manage'));
+  $('teamCreate').addEventListener('click', () => openAdmin('create'));
+  $('pfCreate').addEventListener('click', () => {
+    if ($('pfName').value.trim().length < 3) { toast('Enter your full name first: it is shown as the admin of the list', 3500); $('pfName').focus(); return; }
+    openAdmin('create');
+  });
+  $('adminAsk').addEventListener('click', () => openAdmin('request'));
+
   /* ================= offline map screen ================= */
   const areaLayer = L.layerGroup().addTo(map);
   function tilesFor(b, zmax) { // kept for older saved areas
@@ -2141,6 +2629,10 @@
     if (S.base === 'offline' && !activePackId()) setBase('street', true);
     goOfflineIfPossible();
     startGps();
+    if (S.dropSatTiles) { // v1.7: satellite imagery kept by older versions is removed (Esri allows offline imagery only in ArcGIS apps)
+      try { await tx('tiles', 'readwrite', (st) => st.delete(IDBKeyRange.bound('satellite/', 'satellite/\uffff'))); delete S.dropSatTiles; persist(); } catch (e) { /* try again next start */ }
+    }
+    if (!profileOk()) openProfile(true);
   })();
   // Files handed to other apps through Share are temporary: clear them each time the APK starts.
   if (NATIVE) nativeCall('Filesystem', 'rmdir', { path: 'share', directory: 'CACHE', recursive: true }).catch(() => {});
@@ -2148,5 +2640,6 @@
   if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__polecam = { get points() { return points; }, get S() { return S; }, openEditor, exportPhoto, tilesFor, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun }; // for testing
+  window.__polecam = { get points() { return points; }, get S() { return S; }, openEditor, exportPhoto, tilesFor, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
+    packShare, unpackShare, importTeamText, readIdFrom, checkQuality }; // for testing
 })();
