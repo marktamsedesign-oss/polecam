@@ -247,7 +247,7 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
       });
       const d = new Date(), p2 = (x) => String(x).padStart(2, '0');
       const pdfDate = `D:${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
-      obj(infoObj, () => push(`<< /Title (${pdfEsc(info && info.title || '')}) /Producer (PoleCam Survey) /CreationDate (${pdfDate}) >>`));
+      obj(infoObj, () => push(`<< /Title (${pdfEsc(info && info.title || '')}) /Producer (G-eSAA) /CreationDate (${pdfDate}) >>`));
       const xref = pos;
       let x = `xref\n0 ${infoObj + 1}\n0000000000 65535 f \n`;
       for (let n = 1; n <= infoObj; n++) x += String(offsets[n]).padStart(10, '0') + ' 00000 n \n';

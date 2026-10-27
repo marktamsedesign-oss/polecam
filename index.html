@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>PoleCam Survey</title>
+<title>G-eSAA</title>
 <meta name="theme-color" content="#0f2547">
 <meta name="description" content="Capture geotagged pole photos, correct the pin, and export KMZ, DXF (UTM) and CSV for OSP design.">
 <link rel="manifest" href="manifest.json">
@@ -89,6 +89,10 @@ body.routing #mapSummary{display:none}
 .vc-foot{display:flex;gap:8px;padding:8px 12px 10px;justify-content:space-between;border-top:1px solid var(--line2)}
 body.visiting #mapSummary{display:none}
 .ref-label{white-space:nowrap;font-size:11px;font-weight:600;color:#3b2a8f;text-shadow:0 0 2px #fff,0 0 2px #fff,0 0 3px #fff;pointer-events:none}
+#boxWrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#111;overflow:hidden;touch-action:none}
+#boxCanvas{display:block;touch-action:none}
+.svpin{display:grid;place-items:center;min-width:24px;height:24px;padding:0 4px;box-sizing:border-box;border-radius:6px;background:var(--c);color:#fff;font:700 10px/1 system-ui,sans-serif;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.45);white-space:nowrap}
+.svpin.new{border-style:dashed}.svpin.sel{border:3px solid #17202a}
 #photoView{position:fixed;inset:0;z-index:2800;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:12px}
 #photoView[hidden]{display:none}
 #photoView img{max-width:100%;max-height:85vh;object-fit:contain}#photoView p{color:#fff;font-size:13px;margin:0;text-align:center}
@@ -415,7 +419,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 <div id="photoView" hidden role="dialog" aria-label="Photo"><img id="pvImg" alt=""><p id="pvCap"></p><p style="opacity:.7">Tap to close</p></div>
 <div id="app">
   <div id="topbar">
-    <div class="brand">Pole<b>Cam</b></div>
+    <div class="brand" title="G-eSAA · Geo electronic Survey, Audit &amp; Acceptance">G-e<b>SAA</b></div>
     <button id="projectBtn" aria-label="Projects: change project or task category"><span class="badge cat" id="modeBadge">SURVEY</span><span id="projectName">Project</span><svg class="i"><use href="#i-chev"/></svg></button>
     <button id="syncBtn" type="button" aria-label="Sync with the online sheet" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></svg><span id="syncDot" hidden></span></button>
   </div>
@@ -506,6 +510,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="group">
       <h3>Photo</h3>
       <div id="photoStrip"><img id="edPhoto" alt="Captured pole photo"><div class="meta"><span id="edTime">–</span><span id="edAcc">–</span><span id="edSrc"></span></div></div>
+      <div class="row" id="boxRow" hidden><button class="btn small" id="boxBtn" type="button">▭ Red box</button><span class="hint" id="boxInfo" style="margin:0">Mark the spot on the photo (proposed location, the ODF to use…)</span></div>
       <div id="accPhotos" class="photo-grid" hidden></div>
       <p class="warnline" id="qualWarn" hidden></p>
     </div>
@@ -520,6 +525,9 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <p class="warnline" id="fmtWarn" hidden></p>
       <label class="frow" id="surveyTypeBox"><span class="lbl">TYPE</span><select id="typeSel" aria-label="Pole type"></select></label>
       <label class="frow" id="odfBox" hidden><span class="lbl">ODF</span><select id="odfSel" aria-label="ODF"><option value="New">New ODF</option><option value="Existing">Existing ODF</option></select></label>
+      <label class="frow" id="svStatusBox" hidden><span class="lbl">STATUS</span><select id="svStatus" aria-label="Status"></select></label>
+      <label class="frow" id="svClosureBox" hidden><span class="lbl">CLOSURE ID</span><input type="text" id="svClosureId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="If a closure is inside (POI)" aria-label="Closure ID in the handhole"></label>
+      <label class="field" id="svRemarksBox" hidden>REMARKS<textarea id="svRemarks" placeholder="Optional: condition, what to use, access, findings of the audit"></textarea></label>
     </div>
     <div class="group" id="poleAttach" hidden>
       <h3>On this pole</h3>
@@ -557,6 +565,21 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </div>
 </section>
 
+<!-- red box on a survey photo (v2.13): burned into the saved photo -->
+<section class="sheet" id="boxer" hidden aria-labelledby="boxTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Cancel"><svg><use href="#i-close"/></svg></button>
+    <h2 id="boxTitle">Red box</h2>
+  </header>
+  <div id="boxWrap"><canvas id="boxCanvas" aria-label="Photo: drag to draw a red box"></canvas></div>
+  <p class="hint" id="boxHint" style="margin:0;padding:8px 16px">Drag on the photo to draw a red box around the spot. Draw more than one if needed; Done burns them into the photo.</p>
+  <div class="foot">
+    <button class="btn" id="boxUndo" type="button">Undo</button>
+    <button class="btn" id="boxClear" type="button">Clear</button>
+    <button class="btn primary grow" id="boxDone" type="button">Done</button>
+  </div>
+</section>
+
 <!-- records list -->
 <section class="sheet" id="list" hidden aria-labelledby="listTitle">
   <header>
@@ -589,7 +612,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="head"><span class="ic">PDF</span><div><b>Deficiency List · PDF</b><p>The office form (List of Deficiencies, PAT or FAT ticked, 15 items per page, signature blocks), then Annex A with the photo evidence of each item and Annex B with the inspection photo log.</p></div></div>
         <details><summary>Options</summary><div class="opts">
           <label class="check"><input type="checkbox" id="pdfAnnexA" checked><span>Annex A: photo evidence per punchlist item (as found → rectified → verified)</span></label>
-          <label class="check"><input type="checkbox" id="pdfAnnexB" checked><span>Annex B: inspection photo log (all element photos)</span></label>
+          <label class="check"><input type="checkbox" id="pdfAnnexB" checked><span>Annex B: element photos, if any (records made before v2.13)</span></label>
           <div class="opt2"><label class="field">Photo size in annexes<select id="pdfPhotoSize"><option value="S">Small</option><option value="M" selected>Medium</option><option value="L">Large</option></select></label>
           <label class="field">Signature dates<select id="pdfDates"><option value="blank">Leave blank for signing</option><option value="insp">Prefill the inspection date</option><option value="today">Prefill today's date</option></select></label></div>
         </div></details>
@@ -615,7 +638,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
           <div class="opt2"><label class="field">Balloon photo size<select id="kmzBalloonPx" class="exp-kmz"><option value="480">Small (480 px)</option><option value="800">Medium (800 px)</option><option value="1200">Large (1200 px)</option><option value="0">No photos in balloons</option></select></label>
           <label class="field">Pin icon<select id="kmzIconPx" class="exp-kmz"><option value="0">Status dot only</option><option value="48">Photo, small</option><option value="64">Photo, medium</option><option value="96">Photo, large</option></select></label></div>
           <label class="check"><input type="checkbox" id="kmzStamp" class="exp-kmz"><span>Stamp ID, coordinates and time on balloon photos</span></label>
-          <label class="check"><input type="checkbox" id="kmzData"><span>Include the PoleCam data and original photos, so the contractor (defect cleanup) or the FAT phone can open this KMZ in PoleCam. Untick for a smaller file just for Google Earth.</span></label>
+          <label class="check"><input type="checkbox" id="kmzData"><span>Include the G-eSAA data and original photos, so the contractor (defect cleanup) or the FAT phone can open this KMZ in G-eSAA. Untick for a smaller file just for Google Earth.</span></label>
         </div></details>
         <button class="btn" id="doAccKmz">Export KMZ</button>
       </div>
@@ -675,8 +698,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <input type="file" id="restoreInput" accept=".zip,application/zip" hidden>
     </div>
     <div class="xcard">
-      <div class="head"><span class="ic">PDF</span><div><b>Completion report · PDF</b><p>Page 1 says the task is complete: site, vendor, dates, what was recorded and the sign-off. Photo pages follow as proof: survey — the poles as a collage; PAT, defect cleanup, FAT — the photos of each deficiency as found, rectified and verified. Making it marks the task complete; the online sheet gets the date.</p></div></div>
-      <details><summary>Options</summary><div class="opts"><label class="check"><input type="checkbox" id="complPhotos" checked><span>Add the photo pages (survey: poles collage · PAT, cleanup, FAT: deficiency photos)</span></label></div></details>
+      <div class="head"><span class="ic">PDF</span><div><b>Completion report · PDF</b><p>Page 1 says the task is complete: site, vendor, dates, what was recorded and the sign-off. Photo pages follow as proof: survey — the poles, then the site, ODC, ODF, NAP, closures and handholes, as a collage; PAT, defect cleanup, FAT — the photos of each deficiency as found, rectified and verified. Making it marks the task complete; the online sheet gets the date.</p></div></div>
+      <details><summary>Options</summary><div class="opts"><label class="check"><input type="checkbox" id="complPhotos" checked><span>Add the photo pages (survey: photo collage · PAT, cleanup, FAT: deficiency photos)</span></label></div></details>
       <button class="btn primary" id="doCompletion">Export completion report</button>
     </div>
     <div class="group" id="resultBox" hidden>
@@ -727,7 +750,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <p class="hint help">One company on the list is the <b>admin company</b> (e.g. Globe). Its admin users enter the admin PIN once and become admins and inspectors: they manage this list, add deficiencies and verify rectifications. Everyone else is a contractor user. New users join with the admin's join link or QR code; later versions come from the online sheet by themselves. A phone only takes versions made with the admin PIN.</p>
     <div class="sectionh">About</div>
     <div class="group">
-      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.12.1</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
+      <p class="hint" style="margin:0"><b style="color:var(--ink)">G-eSAA v2.13.1</b> · Geo electronic Survey, Audit &amp; Acceptance — digital from the field (formerly PoleCam)<br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
       <p class="hint" id="policyInfo" style="margin:0"></p>
       <label class="check"><input type="checkbox" id="setShowHelp"><span>Keep the help text on every screen open</span></label>
     </div>
@@ -799,7 +822,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <h3>Where saved files go</h3>
       <p class="hint help" id="saveNote">In the Android app, Save writes exports here. In the website version your browser decides (usually Downloads).</p>
       <label class="field">Location<select id="setSaveBase"><option value="DOCUMENTS">Documents</option><option value="DOWNLOAD">Download</option></select></label>
-      <label class="field">Folder name<input type="text" id="setSaveFolder" autocomplete="off" placeholder="PoleCam"></label>
+      <label class="field">Folder name<input type="text" id="setSaveFolder" autocomplete="off" placeholder="G-eSAA"></label>
       <label class="check"><input type="checkbox" id="setSaveByProject"><span>Separate folder for each project</span></label>
       <p class="hint mono" id="savePreview">–</p>
       <p class="hint">Projects themselves always stay in the app's private storage, which other apps cannot read.</p>
@@ -816,7 +839,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <h3>Records and photos</h3>
       <p class="hint" id="storeInfo">–</p>
       <p class="hint mono" id="perfInfo" hidden></p>
-      <p class="hint">Records and photos live only on this phone until you export or back up. The limit is set by the phone, not by PoleCam: it is a share of the free space and changes as the phone fills up. Make a backup after each field day (Export → Backup).</p>
+      <p class="hint">Records and photos live only on this phone until you export or back up. The limit is set by the phone, not by G-eSAA: it is a share of the free space and changes as the phone fills up. Make a backup after each field day (Export → Backup).</p>
     </div>
     <div class="group">
       <h3>Maps</h3>
@@ -982,7 +1005,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <h2 id="profTitle">Your details</h2>
   </header>
   <div class="body">
-    <p class="hint" id="profIntro">PoleCam records who took each photo. Enter your details once; they stay on this phone and print on the reports.</p>
+    <p class="hint" id="profIntro">G-eSAA records who took each photo. Enter your details once; they stay on this phone and print on the reports.</p>
     <label class="field">FULL NAME <input type="text" id="pfName" autocomplete="name" autocapitalize="words" placeholder="e.g. Juan Dela Cruz"></label>
     <label class="field">MOBILE NUMBER <input type="tel" id="pfMobile" autocomplete="tel" inputmode="tel" placeholder="e.g. 0917 123 4567"></label>
     <label class="field">EMAIL <input type="email" id="pfEmail" autocomplete="email" inputmode="email" autocapitalize="off" placeholder="name@company.com"></label>
@@ -997,7 +1020,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <p class="hint" id="pfJoinText">Open the join link your admin sent you, or scan the admin’s QR code.</p>
       <div class="row"><button class="btn grow primary" id="pfScan" type="button">Scan QR code</button><button class="btn grow" id="pfPaste" type="button">Paste link</button></div>
       <button class="btn" id="pfFile" type="button">Open list file</button>
-      <details class="help" id="pfCreateBox"><summary>Setting up PoleCam for a new organisation?</summary><p class="hint">Only the one person who sets up PoleCam for the whole organisation does this. Field users: ask your admin for the join link instead.</p><button class="btn" id="pfCreate" type="button">Create a new organisation list</button></details>
+      <details class="help" id="pfCreateBox"><summary>Setting up G-eSAA for a new organisation?</summary><p class="hint">Only the one person who sets up G-eSAA for the whole organisation does this. Field users: ask your admin for the join link instead.</p><button class="btn" id="pfCreate" type="button">Create a new organisation list</button></details>
     </div>
     <p class="warnline" id="pfErr" hidden></p>
   </div>

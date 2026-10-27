@@ -1,4 +1,5 @@
-/* PoleCam Survey — field app. Depends on Leaflet (L) and core.js (PoleCore). */
+/* G-eSAA (Geo electronic Survey, Audit & Acceptance; formerly PoleCam Survey) — field app for OSP survey, audit and acceptance.
+   Depends on Leaflet (L) and core.js (PoleCore). Internal names (storage, links, data files) keep 'polecam' so updates keep the data. */
 (() => {
   'use strict';
   /* A join link (…/polecam/#join=…) carries the signed company list: read it before anything else, then clear the address. */
@@ -61,6 +62,13 @@
     'Other': [],
   };
   const ELEMENTS = ['Pole', 'ODF', 'ODC', 'Rack'];
+  /* Survey points (v2.13): the poles and the network elements an As-plan, As-built or Audit survey records, each its own pin
+     with one photo. A POI (point of insertion) is a closure on a pole, or a handhole with a closure inside. */
+  const SV_ELEMENTS = ['Pole', 'Site', 'ODC', 'ODF', 'NAP', 'Closure', 'Handhole'];
+  const SV_PREFIX = { ODC: 'ODC', NAP: 'NAP', Closure: 'CL', Handhole: 'HH' };
+  const SV_COLORS = { Pole: '#e8590c', Site: '#9c36b5', ODC: '#2b8a3e', ODF: '#1971c2', NAP: '#f08c00', Closure: '#c2255c', Handhole: '#495057' };
+  const SV_SHORT = { Site: 'SITE', ODC: 'ODC', ODF: 'ODF', NAP: 'NAP', Closure: 'CL', Handhole: 'HH' };
+  const ROUTE_ELS = ['Pole', 'Handhole', 'Site', 'ODC', 'ODF']; // NAP and closure pins sit on a pole: they are not route points
   /* Location integrity: the pin may move at most PIN_LIMIT_M from where the photo was taken, and in acceptance
      projects every photo must be live (in-app camera, fresh GPS) and taken within PIN_LIMIT_M of the element. */
   const PIN_LIMIT_M = 1000, MAX_PHOTO_AGE_MS = 2 * 60000, STORE_MAX_PX = 2048; // photos are kept at 2048 px; exports may shrink copies
@@ -131,7 +139,7 @@
     quality: 'strict', readId: true, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
     exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'utm', 'time', 'by', 'project'], naming: 'id',
       kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true },
-    saveBase: 'DOCUMENTS', saveFolder: 'PoleCam', saveByProject: true,
+    saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
   };
   let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem('polecam.settings') || '{}')); } catch (e) { return { ...DEF }; } })();
   applyHand();
@@ -177,7 +185,7 @@
         res(d);
       };
       r.onerror = () => fail(r.error);
-      r.onblocked = () => fail(new Error('Storage is busy in another PoleCam tab. Close other tabs and try again.'));
+      r.onblocked = () => fail(new Error('Storage is busy in another G-eSAA tab. Close other tabs and try again.'));
     });
   }
   function idb() {
@@ -342,6 +350,22 @@
   const openCount = (r) => counting(r).filter((d) => defStatusOf(d) === 'Open').length;
   const defDone = (d) => { const st = defStatusOf(d); return st === 'Rectified' || st === 'Verified'; };
   const elemOf = (r) => r.element || 'Pole';
+  const svPurpose = (name) => pmeta(name).purpose || 'As-plan';
+  /** Status choices of a survey element: As-plan proposed / new or existing, As-built new (built) or existing (used), Audit existing. */
+  function svStatuses(el, purpose) {
+    if (!el || el === 'Pole') return [];
+    const p = purpose || svPurpose();
+    if (p === 'Audit') return ['Existing'];
+    if (p === 'As-built') return ['New', 'Existing'];
+    return el === 'Site' ? ['New', 'Existing'] : ['Proposed', 'Existing'];
+  }
+  const svDefaultStatus = (el, purpose) => ((purpose || svPurpose()) === 'As-plan' && ['NAP', 'Closure', 'Handhole'].includes(el) ? 'Existing' : svStatuses(el, purpose)[0] || '');
+  const svStatusLabel = (st, purpose) => ((purpose || svPurpose()) === 'As-built' ? { New: 'New (built)', Existing: 'Existing (used)' }[st] : '') || st || '';
+  const isPoi = (r) => elemOf(r) === 'Closure' || (elemOf(r) === 'Handhole' && !!r.closureId);
+  /** "ODF · Proposed", "Handhole · Existing · closure CL-0101" (survey points other than poles). */
+  const svDesc = (r, purpose) => [elemOf(r), svStatusLabel(r.status, purpose), elemOf(r) === 'Handhole' && r.closureId ? `closure ${r.closureId}` : ''].filter(Boolean).join(' · ');
+  /** The photo that stands for a record (list, KMZ icon): its element photo, or the first defect photo (v2.13 records have none). */
+  const coverPid = (r) => { const p = photosOf(r)[0]; if (p) return p.pid; const d = (r.defs || []).find((x) => x.verifyPid || x.afterPid || x.pid); return d ? d.verifyPid || d.afterPid || d.pid : null; };
   function allPids(r) {
     const s = photosOf(r).map((p) => p.pid);
     (r.defs || []).forEach((d) => { if (d.pid) s.push(d.pid); if (d.afterPid) s.push(d.afterPid); if (d.verifyPid) s.push(d.verifyPid); (d.reopened || []).forEach((q) => { if (q.pid) s.push(q.pid); }); });
@@ -377,6 +401,10 @@
       return `FDU_${String(+n + 1).padStart(n.length, '0')}`;
     }
     const pts = recs.filter((p) => elemOf(p) === element);
+    if (!isAcc() && SV_ELEMENTS.includes(element)) { // survey: NAP-, CL-, HH-, ODC- and the number; a site keeps its own name
+      const nx = pts.length ? C.nextPoleId(latest(pts).poleId) : '';
+      return nx || (SV_PREFIX[element] ? `${SV_PREFIX[element]}-` : '');
+    }
     return pts.length ? C.nextPoleId(latest(pts).poleId) : '';
   }
   const projPoints = () => points.filter((p) => p.project === S.project).sort((a, b) => (a.created < b.created ? -1 : 1));
@@ -429,10 +457,11 @@
   function onSheetClosed(id) {
     if (id === 'camera') stopCamera();
     if (id === 'editor') { cleanupEditor(); }
+    if (id === 'boxer') { if (boxer && boxer.im && boxer.im.close) boxer.im.close(); boxer = null; }
     if (id === 'list') revokeListUrls();
     if (id === 'qrScan') stopQrScan();
     if (id === 'visitCard') { visitId = null; document.body.classList.remove('visiting'); revokeVisitUrls(); }
-    if (id === 'profile' && !profileOk()) setTimeout(() => { openProfile(true); toast('Enter your details to start using PoleCam', 3000); }, 0);
+    if (id === 'profile' && !profileOk()) setTimeout(() => { openProfile(true); toast('Enter your details to start using G-eSAA', 3000); }, 0);
   }
 
   /* ================= help text: folded behind an "i" so screens stay short ================= */
@@ -475,10 +504,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.12.1';
+  const APP_VER = '2.13.1';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
-  const APP_UA = () => `PoleCam/${APP_VER} (+${SITE})`;
+  const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
   function b64ToBytes(b) { const s = atob(b); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
   function nativeBytes(d) {
     if (typeof d === 'string') return b64ToBytes(d.replace(/^data:[^,]*,/, ''));
@@ -738,11 +767,13 @@
     const R = drawRoute();
     const pts = projPoints();
     for (const p of pts) {
-      const acc = p.kind === 'acceptance', n = openCount(p), sel = routeMode && p.id === routeSel;
-      const m = L.circleMarker([p.lat, p.lon], { radius: sel ? 12 : acc && elemOf(p) !== 'Pole' ? 10 : 8, color: sel ? '#17202a' : acc && elemOf(p) !== 'Pole' ? '#17202a' : '#fff', weight: sel ? 4 : 2,
-        fillColor: acc ? STATUS_COLORS[recStatus(p)] : typeColor(p.poleType), fillOpacity: 1 });
+      const acc = p.kind === 'acceptance', n = openCount(p), sel = routeMode && p.id === routeSel, el = elemOf(p);
+      const m = !acc && el !== 'Pole' && SV_SHORT[el] // survey element: a labelled square (dashed when proposed / new)
+        ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svpin${sel ? ' sel' : ''}${p.status === 'Proposed' || p.status === 'New' ? ' new' : ''}" style="--c:${SV_COLORS[el]}">${SV_SHORT[el]}</span>`, iconSize: [30, 24], iconAnchor: [15, 12] }) })
+        : L.circleMarker([p.lat, p.lon], { radius: sel ? 12 : acc && el !== 'Pole' ? 10 : 8, color: sel ? '#17202a' : acc && el !== 'Pole' ? '#17202a' : '#fff', weight: sel ? 4 : 2,
+          fillColor: acc ? STATUS_COLORS[recStatus(p)] : typeColor(p.poleType), fillOpacity: 1 });
       const role = R && R.poles[p.id] && (R.poles[p.id].role === 'Angle' ? ` · ${Math.round(R.poles[p.id].deflection)}°` : R.poles[p.id].role === 'Junction' ? ' · junction' : '');
-      m.bindTooltip(`${C.xmlEsc(p.poleId || '(no ID)')}${acc && n ? ` · ${n} open` : ''}${role || ''}`, { permanent: true, direction: 'right', offset: [8, 0], className: 'pole-label' });
+      m.bindTooltip(`${C.xmlEsc(p.poleId || '(no ID)')}${acc && n ? ` · ${n} open` : ''}${role || ''}`, { permanent: true, direction: 'right', offset: [!acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' });
       m.on('click', () => (routeMode ? routeTap(p.id) : visitMode() ? openVisit(p.id) : openEditorFor(p.id)));
       m.addTo(poleLayer);
     }
@@ -777,10 +808,10 @@
       if (visitMode()) renderVisitStrip();
       $('sumPills').innerHTML = [st.itemsOpen && pill('bad', `${st.itemsOpen} open`), st.itemsRect && pill('rect', `${st.itemsRect} to verify`), st.itemsVer && pill('ver', `${st.itemsVer} verified`), !st.items && pill('ok', 'All clear')].filter(Boolean).join('');
     } else {
-      const R = routeModel(), linked = st.total - R.off;
-      $('sumTitle').textContent = R.spans.length ? `${st.total} pole${st.total === 1 ? '' : 's'} · route ${fmtLen(st.len)} · ${R.spans.length} span${R.spans.length === 1 ? '' : 's'}` : `${st.total} pole${st.total === 1 ? '' : 's'} captured`;
-      $('sumSub').textContent = !R.spans.length ? (st.total > 1 ? 'Next: link the route (route button)' : 'Capture the next pole to start the route')
-        : st.long ? `${st.long} span${st.long === 1 ? '' : 's'} over ${pol().maxSpan || 200} m — check the route` : R.off ? `${R.off} pole${R.off === 1 ? '' : 's'} not on the route yet` : W && W.next ? `Next: ${W.next.t}` : 'All steps done';
+      const R = routeModel(), np = pts.filter((p) => elemOf(p) === 'Pole').length, no = pts.length - np, other = no ? ` · ${no} other` : '';
+      $('sumTitle').textContent = R.spans.length ? `${np} pole${np === 1 ? '' : 's'}${other} · route ${fmtLen(st.len)} · ${R.spans.length} span${R.spans.length === 1 ? '' : 's'}` : `${np} pole${np === 1 ? '' : 's'}${other} captured`;
+      $('sumSub').textContent = !R.spans.length ? (routePts().length > 1 ? 'Next: link the route (route button)' : 'Capture the next pole to start the route')
+        : st.long ? `${st.long} span${st.long === 1 ? '' : 's'} over ${pol().maxSpan || 200} m — check the route` : R.off ? `${R.off} point${R.off === 1 ? '' : 's'} not on the route yet` : W && W.next ? `Next: ${W.next.t}` : 'All steps done';
       $('sumPills').innerHTML = !R.spans.length ? '' : st.long ? pill('bad', `${st.long} long`) : R.off ? pill('note', `${R.off} unlinked`) : pill('ok', 'Spans OK');
     }
   }
@@ -918,7 +949,9 @@
   const routeLayer = L.layerGroup().addTo(map);
   const links = () => (pmeta().links || []);
   function setLinks(l) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), links: l }; persist(); }
-  const routeModel = () => C.analyzeRoute(projPoints(), links(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 });
+  /** Points the cable route runs through: poles, handholes, the site, ODC and ODF (NAP and closure pins sit on a pole). */
+  const routePts = () => projPoints().filter((p) => ROUTE_ELS.includes(elemOf(p)));
+  const routeModel = () => C.analyzeRoute(routePts(), links(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 });
   const fmtLen = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
   function drawRoute() {
     routeLayer.clearLayers();
@@ -955,6 +988,8 @@
     }
   }
   function routeTap(id) {
+    const tapped = points.find((p) => p.id === id);
+    if (tapped && !ROUTE_ELS.includes(elemOf(tapped))) { toast(`${tapped.poleId}: ${elemOf(tapped)} pins sit on a pole and are not linked. Tap the pole.`, 3500); return; }
     if (!routeSel || routeSel === id) { routeSel = routeSel === id ? null : id; renderPoles(); return; }
     const l = links().map((x) => x.slice()), k = l.findIndex(([x, y]) => (x === routeSel && y === id) || (x === id && y === routeSel));
     routeUndo.push(links());
@@ -962,14 +997,14 @@
     setLinks(l); routeSel = id; renderPoles();
   }
   $('routeBtn').addEventListener('click', () => {
-    if (!routeMode && projPoints().length < 2) { toast('Capture at least two poles first'); return; }
+    if (!routeMode && routePts().length < 2) { toast('Capture at least two poles first'); return; }
     setRouteMode(!routeMode);
   });
   $('rbDone').addEventListener('click', () => setRouteMode(false));
   $('rbUndo').addEventListener('click', () => { if (routeUndo.length) { setLinks(routeUndo.pop()); renderPoles(); } });
   $('rbAuto').addEventListener('click', () => {
     const have = new Set(links().map(([x, y]) => [x, y].sort().join('|')));
-    const add = C.autoLinks(projPoints(), pol().autoGap || 120).filter(([x, y]) => !have.has([x, y].sort().join('|')));
+    const add = C.autoLinks(projPoints().filter((p) => ['Pole', 'Handhole'].includes(elemOf(p))), pol().autoGap || 120).filter(([x, y]) => !have.has([x, y].sort().join('|'))); // the site, ODC and ODF are linked by hand
     if (!add.length) { toast('No new links: poles are already linked, or consecutive poles are farther apart than the gap setting'); return; }
     routeUndo.push(links()); setLinks(links().concat(add)); renderPoles();
     toast(`${add.length} span${add.length === 1 ? '' : 's'} added in capture order. Check branches and street corners.`, 4000);
@@ -1028,7 +1063,7 @@
   }
   function onGpsErr(err) {
     gpsErr = err.code;
-    const msg = err.code === 1 ? 'Location is off or blocked — turn it on and allow PoleCam' : 'Searching for GPS…';
+    const msg = err.code === 1 ? 'Location is off or blocked — turn it on and allow G-eSAA' : 'Searching for GPS…';
     $('gpsText').textContent = msg; $('camGpsText').textContent = msg;
     if (err.code === 1 && watchId) { navigator.geolocation.clearWatch(watchId); watchId = 0; }
     shutterState();
@@ -1459,7 +1494,7 @@
       const tg = Date.now(), gps = await gpsNear(shotAt);
       LOG.info('photo.gps', { ms: Date.now() - tg, ok: !!gps, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0 });
       if (!alive()) return;
-      if (!gps) { toast(gpsErr === 1 ? 'Photo not saved: location is off. Turn on location for PoleCam, then take it again.' : 'Photo not saved: GPS has not updated in the last 5 seconds. Wait for the green shutter, then take it again.', 6500); return; }
+      if (!gps) { toast(gpsErr === 1 ? 'Photo not saved: location is off. Turn on location for G-eSAA, then take it again.' : 'Photo not saved: GPS has not updated in the last 5 seconds. Wait for the green shutter, then take it again.', 6500); return; }
       const tq = Date.now(), takenAt = new Date(shotAt).toISOString();
       const qp = withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] })).then((q) => {
         perf.check = Date.now() - tq; perf.px = q.w ? `${q.w}×${q.h}` : '';
@@ -1546,7 +1581,7 @@
       return;
     }
     if (camTarget === 'replace' && ed) {
-      ed.newBlob = blob; prepImages(blob); ed.q = qSummary(x.q); showEdPhoto(blob); showQualWarn(ed.q);
+      ed.newBlob = blob; ed.srcBlob = blob; ed.boxes = 0; ed.keepQ = false; prepImages(blob); ed.q = qSummary(x.q); showEdPhoto(blob); showQualWarn(ed.q); renderBoxInfo();
       toast('Photo replaced — tap Save to keep it');
       return;
     }
@@ -1807,7 +1842,7 @@
   async function exportPhoto(p, cleanBlob, titleText, meta, opts) {
     const o = { maxPx: S.exp.maxPx, quality: S.exp.quality, stamp: S.exp.stamp, fields: S.exp.stampFields, ...(opts || {}) };
     const has = (f) => !o.fields || o.fields.includes(f);
-    const title = titleText || `${p.poleId}  ·  ${p.poleType}`;
+    const title = titleText || (p.kind !== 'acceptance' && elemOf(p) !== 'Pole' ? `${p.poleId}  ·  ${svDesc(p, svPurpose(p.project))}` : `${p.poleId}  ·  ${p.poleType}`);
     const own = meta && meta.lat != null;
     const P = own ? { lat: meta.lat, lon: meta.lon, accuracy: meta.acc, adjusted: false, alt: null } : p;
     const when = (meta && meta.at) || p.takenAt;
@@ -1909,7 +1944,7 @@
     if (!ed) return;
     ed.type = t; renderTypeChips(t);
     const id = $('poleId').value.trim().toUpperCase(), pre = typePrefix(t);
-    if (!pre || (ed.acc && ed.element !== 'Pole')) { checkFormat(); return; }
+    if (!pre || (ed.element && ed.element !== 'Pole')) { checkFormat(); return; }
     const m = polePartRe().exec(id);
     if (!id || !ed.idTouched || (m && !m[2])) $('poleId').value = suggestId('Pole', t);
     else if (m && m[1] !== pre) { const num = PAD4.includes(pre) ? padNum(pre, m[2], m[2].length) : m[2]; $('poleId').value = `${pre}-${num}`; toast(`ID changed to ${pre}-${num} for ${t}`, 2500); }
@@ -1922,12 +1957,16 @@
     const m = new RegExp(`^(${prefixAlt()})-`).exec(id);
     if (ed.acc && ed.mode === 'new' && /^FDU_/.test(id) && ed.element !== 'ODF') { ed.element = 'ODF'; renderElemChips(); applyElement(); }
     else if (ed.acc && ed.mode === 'new' && m && ed.element !== 'Pole') { ed.element = 'Pole'; renderElemChips(); applyElement(); }
-    if (m && prefixType(m[1]) !== ed.type && (!ed.acc || ed.element === 'Pole')) { ed.type = prefixType(m[1]); renderTypeChips(ed.type); }
+    else if (!ed.acc && ed.mode === 'new') { // survey: FDU_ → ODF, NAP- → NAP, CL- → closure, HH- → handhole, ODC- → ODC, a pole prefix → pole
+      const want = /^FDU_/.test(id) ? 'ODF' : m ? 'Pole' : Object.keys(SV_PREFIX).find((k) => id.startsWith(`${SV_PREFIX[k]}-`)) || null;
+      if (want && want !== ed.element) { ed.element = want; renderElemChips(); applyElement(); }
+    }
+    if (m && prefixType(m[1]) !== ed.type && (ed.element || 'Pole') === 'Pole') { ed.type = prefixType(m[1]); renderTypeChips(ed.type); }
     checkFormat();
   }
   function checkFormat() {
     const el = $('fmtWarn'); if (!ed) return;
-    const id = $('poleId').value.trim().toUpperCase(), kind = ed.acc ? ed.element : 'Pole';
+    const id = $('poleId').value.trim().toUpperCase(), kind = ed.element || 'Pole';
     let msg = '';
     if (id && kind === 'Pole' && !isNpt(id) && !poleIdRe().test(id)) { const pm = polePartRe().exec(id); msg = pm && !pm[2] ? `Add the pole number after the prefix, e.g. ${pm[1]}-${PAD4.includes(pm[1]) ? '0001' : '1234'}.` : `Pole IDs are a prefix, a dash and the number: ${poleTypes().map((t) => `${t.p}-`).join(', ')}. For another owner, tap “+ Other prefix”.`; }
     else if (id && kind === 'ODF' && !ODF_ID_RE.test(id)) msg = /^FDU_?$/.test(id) ? 'Add the ODF number after FDU_, e.g. FDU_100.' : 'ODF IDs are written FDU_ and a number, e.g. FDU_100.';
@@ -1970,7 +2009,7 @@
   }
   function checkDup() {
     const id = $('poleId').value.trim().toUpperCase();
-    const el = ed && ed.acc ? ed.element : null;
+    const el = ed && ed.element ? ed.element : null;
     const other = id && !isNpt(id) && points.find((p) => p.project === S.project && p.poleId === id && (!el || elemOf(p) === el) && (!ed || p.id !== ed.id));
     $('dupWarn').hidden = !other;
     if (other) $('dupWarn').textContent = `${id} is already used in this project.`;
@@ -1998,15 +2037,22 @@
     if (acc) {
       Object.assign(ed, { element: o.element || 'Pole', photos: (o.photos || []).map((p) => ({ ...p })), pending: {}, removed: [],
         defs: JSON.parse(JSON.stringify(o.defs || [])), mloop: !!o.mloop, nap: !!o.nap, closure: !!o.closure, odf: o.odf || 'New', newBlob: null });
-      if (o.blob) { const pid = uid(); ed.photos.unshift({ pid, label: 'Overview', ...photoMeta(o.gps, o.takenAt), q: o.q || null }); ed.pending[pid] = o.blob; }
+      // v2.13: in PAT, cleanup and FAT the photo is of the defect itself (no pole / ODF photo): it becomes the as-found photo
+      // of the deficiency started below. A phone that may not record deficiencies keeps it as the element photo.
+      if (o.blob && !(o.mode === 'new' && canRecord())) { const pid = uid(); ed.photos.unshift({ pid, label: 'Overview', ...photoMeta(o.gps, o.takenAt), q: o.q || null }); ed.pending[pid] = o.blob; }
       $('napId').value = o.napId || ''; $('closureId').value = o.closureId || '';
+    } else { // survey point (v2.13): pole, site, ODC, ODF, NAP, closure or handhole
+      Object.assign(ed, { element: o.element || 'Pole', status: o.status || '', srcBlob: o.blob || o.storedBlob || null, boxes: o.boxes || 0 });
+      $('svRemarks').value = o.remarks || ''; $('svClosureId').value = o.closureId || '';
     }
     $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
     $('edHint').textContent = `Drag the map to place the pin on the ${acc ? 'element' : 'pole'}`;
     $('edHint').classList.remove('gone'); clearTimeout(hintTimer); hintTimer = setTimeout(() => $('edHint').classList.add('gone'), 7000);
     $('pinMapWrap').classList.toggle('big', !!S.pinBig); $('pinSizeBtn').setAttribute('aria-pressed', String(!!S.pinBig));
-    ['accPhotos', 'accElementBox', 'defBox'].forEach((x) => { $(x).hidden = !acc; });
-    $('surveyTypeBox').hidden = acc && ed.element !== 'Pole'; $('edPhoto').hidden = acc; $('nptBtn').hidden = acc && ed.element !== 'Pole';
+    ['accPhotos', 'defBox'].forEach((x) => { $(x).hidden = !acc; }); $('accElementBox').hidden = false;
+    $('surveyTypeBox').hidden = ed.element !== 'Pole'; $('edPhoto').hidden = acc; $('nptBtn').hidden = ed.element !== 'Pole';
+    ['svStatusBox', 'svClosureBox', 'svRemarksBox', 'boxRow'].forEach((x) => { $(x).hidden = acc; });
+    if (acc) $('accPhotos').closest('.group').hidden = false; // renderAccPhotos hides it when the record has no element photo
     if (!acc) { $('poleAttach').hidden = true; $('odfBox').hidden = true; }
     $('defPanel').hidden = true; $('addDefBtn').hidden = false;
     $('queueNote').textContent = '';
@@ -2015,12 +2061,16 @@
     $('edSkip').hidden = true; $('edRetake').hidden = acc;
     $('edRetake').textContent = o.mode === 'edit' ? 'New photo' : 'Retake';
     $('edSave').textContent = 'Save';
-    $('poleId').value = o.poleId != null ? o.poleId : suggestId(acc ? ed.element : 'Pole', ed.type);
+    $('poleId').value = o.poleId != null ? o.poleId : suggestId(ed.element || 'Pole', ed.type);
     ed.idTouched = o.poleId != null;
     ed.q = o.q || null; showQualWarn(ed.q); $('idCands').hidden = true;
     renderTypeChips(ed.type);
-    if (acc) { renderElemChips(); applyElement(); renderAccPhotos(); renderDefs(); }
-    if (acc && o.mode === 'new' && visitStage() === 'PAT' && canRecord()) startDefDraft(false); // a PAT records defects: the defect form is ready
+    renderElemChips(); applyElement(); renderBoxInfo();
+    if (acc) { renderAccPhotos(); renderDefs(); }
+    if (acc && o.mode === 'new' && canRecord()) { // the defect form is ready, with the photo just taken as its as-found photo
+      startDefDraft(false);
+      if (o.blob) setDefPhoto(o.blob, { ...photoMeta(o.gps, o.takenAt), q: o.q || null });
+    }
     $('edTime').textContent = fmtTime(o.takenAt);
     $('edAcc').textContent = ed.gps && Number.isFinite(ed.gps.acc) ? `GPS ±${ed.gps.acc.toFixed(1)} m` : (ed.gps ? 'Location from photo' : 'No location yet');
     $('edSrc').textContent = o.note || '';
@@ -2049,11 +2099,76 @@
     }
     const ph = await dbGet('photos', id).catch(() => null);
     openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType, lat: p.lat, lon: p.lon, takenAt: p.takenAt,
-      gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : null, storedBlob: ph ? (ph.clean || ph.thumb) : null, source: p.source });
+      gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : null, storedBlob: ph ? (ph.clean || ph.thumb) : null, source: p.source,
+      element: elemOf(p), status: p.status || '', remarks: p.remarks || '', closureId: p.closureId || '', boxes: p.boxes || 0 });
   }
   function cleanupEditor() {
     ed = null; showEdPhoto(null); revokeEdUrls(); defDraft = null;
   }
+
+  /* ---------- red box on a survey photo (v2.13) ---------- */
+  /* Drag on the photo to draw red boxes (the proposed location, the existing ODF to use…). Done burns them into the photo,
+     which is then saved like a new photo; the time, place and camera check of the original are kept with the record. */
+  let boxer = null;
+  function renderBoxInfo() {
+    if (!ed || ed.acc) return;
+    $('boxBtn').textContent = ed.boxes ? '▭ Add another red box' : '▭ Red box';
+    $('boxInfo').textContent = ed.boxes ? `${ed.boxes} red box${ed.boxes === 1 ? '' : 'es'} on the photo${ed.mode === 'edit' && ed.newBlob ? ' (Save keeps it)' : ''}` : 'Mark the spot on the photo (proposed location, the ODF to use…)';
+    $('boxBtn').disabled = !(ed.newBlob || ed.srcBlob);
+  }
+  $('boxBtn').addEventListener('click', () => guard(async () => {
+    const src = ed && (ed.newBlob || ed.srcBlob); if (!src) { toast('No photo to mark'); return; }
+    const im = await loadImage(src, STORE_MAX_PX), { w, h } = dims(im);
+    boxer = { im, w, h, rects: [], drag: null };
+    openSheet('boxer');
+    requestAnimationFrame(() => { sizeBoxer(); drawBoxer(); });
+  }, 'Red box not opened'));
+  function sizeBoxer() {
+    const b = boxer, wrap = $('boxWrap'), cv = $('boxCanvas'); if (!b) return;
+    const r = wrap.getBoundingClientRect(), sc = Math.min(r.width / b.w, r.height / b.h), dpr = window.devicePixelRatio || 1;
+    b.sc = sc; cv.style.width = `${Math.floor(b.w * sc)}px`; cv.style.height = `${Math.floor(b.h * sc)}px`;
+    cv.width = Math.max(1, Math.floor(b.w * sc * dpr)); cv.height = Math.max(1, Math.floor(b.h * sc * dpr));
+  }
+  const boxLine = (w, h) => Math.max(4, Math.round(Math.max(w, h) * 0.006));
+  function drawBoxer() {
+    const b = boxer, cv = $('boxCanvas'); if (!b) return;
+    const g = cv.getContext('2d'), k = cv.width / b.w;
+    g.drawImage(b.im, 0, 0, cv.width, cv.height);
+    g.strokeStyle = '#e03131'; g.lineWidth = Math.max(2, boxLine(b.w, b.h) * k);
+    b.rects.concat(b.drag ? [b.drag] : []).forEach(([x, y, w, h]) => g.strokeRect(x * k, y * k, w * k, h * k));
+    $('boxUndo').disabled = !b.rects.length; $('boxClear').disabled = !b.rects.length; $('boxDone').textContent = b.rects.length ? `Done · ${b.rects.length} box${b.rects.length === 1 ? '' : 'es'}` : 'Done';
+  }
+  const boxPt = (e) => { const r = $('boxCanvas').getBoundingClientRect(); return [Math.max(0, Math.min(boxer.w, (e.clientX - r.left) / boxer.sc)), Math.max(0, Math.min(boxer.h, (e.clientY - r.top) / boxer.sc))]; };
+  $('boxCanvas').addEventListener('pointerdown', (e) => { if (!boxer) return; e.preventDefault(); $('boxCanvas').setPointerCapture(e.pointerId); boxer.start = boxPt(e); boxer.drag = [...boxer.start, 0, 0]; });
+  $('boxCanvas').addEventListener('pointermove', (e) => {
+    if (!boxer || !boxer.start) return;
+    const [x0, y0] = boxer.start, [x1, y1] = boxPt(e); boxer.drag = [Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0)]; drawBoxer();
+  });
+  const boxEnd = () => {
+    if (!boxer || !boxer.start) return;
+    const d = boxer.drag; boxer.start = null; boxer.drag = null;
+    if (d && d[2] * boxer.sc > 12 && d[3] * boxer.sc > 12) boxer.rects.push(d); // a tap is not a box
+    drawBoxer();
+  };
+  $('boxCanvas').addEventListener('pointerup', boxEnd); $('boxCanvas').addEventListener('pointercancel', boxEnd);
+  $('boxUndo').addEventListener('click', () => { if (boxer) { boxer.rects.pop(); drawBoxer(); } });
+  $('boxClear').addEventListener('click', () => { if (boxer) { boxer.rects = []; drawBoxer(); } });
+  window.addEventListener('resize', () => { if (boxer && !$('boxer').hidden) { sizeBoxer(); drawBoxer(); } });
+  $('boxDone').addEventListener('click', () => guard(async () => {
+    const b = boxer; if (!b || !ed) return;
+    if (!b.rects.length) { await closeSheet(); return; }
+    busy('Marking the photo…');
+    const cv = document.createElement('canvas'); cv.width = b.w; cv.height = b.h;
+    const g = cv.getContext('2d'); g.drawImage(b.im, 0, 0, b.w, b.h);
+    g.strokeStyle = '#e03131'; g.lineWidth = boxLine(b.w, b.h); g.lineJoin = 'round';
+    b.rects.forEach(([x, y, w, h]) => g.strokeRect(x, y, w, h));
+    const blob = await toBlob(cv, 0.92);
+    if (ed.mode === 'edit' && !ed.newBlob) ed.keepQ = true; // the stored photo, only marked: its camera check stays
+    ed.newBlob = blob; ed.boxes = (ed.boxes || 0) + b.rects.length; prepImages(blob); showEdPhoto(blob);
+    LOG.info('photo.redbox', { n: b.rects.length, total: ed.boxes });
+    busy(false); await closeSheet(); renderBoxInfo();
+    toast(`${b.rects.length} red box${b.rects.length === 1 ? '' : 'es'} added to the photo${ed.mode === 'edit' ? ' — tap Save to keep it' : ''}`, 3000);
+  }, 'Red box not added'));
 
   /* ---------- acceptance form ---------- */
   let edUrls = [], defDraft = null;
@@ -2066,16 +2181,32 @@
   }
   function renderElemChips() {
     const box = $('elemSel'); box.innerHTML = '';
-    for (const el of ELEMENTS) box.add(new Option(el, el, false, el === ed.element));
+    for (const el of ed.acc ? ELEMENTS : SV_ELEMENTS) box.add(new Option(el === 'Site' ? 'Site (new / existing)' : el === 'Closure' ? 'Closure (POI on a pole)' : el === 'Handhole' ? 'Handhole' : el, el, false, el === ed.element));
   }
   $('elemSel').addEventListener('change', (e) => {
     if (!ed) return;
     const el = e.target.value; ed.element = el;
-    if (!ed.idTouched && ed.mode === 'new') $('poleId').value = suggestId(el, ed.type);
+    const id = $('poleId').value.trim().toUpperCase();
+    const kindOf = (v) => (/^FDU_/.test(v) ? 'ODF' : poleIdRe().test(v) || polePartRe().test(v) ? 'Pole' : Object.keys(SV_PREFIX).find((k) => v.startsWith(`${SV_PREFIX[k]}-`)) || null);
+    // a new record: the suggested ID follows the element; so does an ID that belongs to another element (e.g. a pole ID read by the camera)
+    if (ed.mode === 'new' && (!ed.idTouched || !id || (kindOf(id) && kindOf(id) !== el))) { $('poleId').value = suggestId(el, ed.type); ed.idTouched = false; }
     applyElement(); checkDup(); checkFormat();
   });
   function applyElement() {
     const el = ed.element;
+    if (!ed.acc) { // survey point
+      const isNew = ed.mode !== 'edit', nm = el === 'Pole' ? 'pole' : el;
+      $('editorTitle').textContent = `${isNew ? 'New' : 'Edit'} ${nm}`;
+      $('idLabel').textContent = el === 'Site' ? 'SITE NAME / ID' : `${el.toUpperCase()} ID`;
+      $('poleId').placeholder = { Pole: 'e.g. CC-0001', ODF: 'e.g. FDU_100', Site: 'e.g. MIN2463 or the site name', ODC: 'e.g. ODC-01', NAP: 'e.g. NAP-0001', Closure: 'e.g. CL-0001', Handhole: 'e.g. HH-0001' }[el];
+      $('surveyTypeBox').hidden = el !== 'Pole'; $('nptBtn').hidden = el !== 'Pole';
+      const sts = svStatuses(el); if (!sts.includes(ed.status)) ed.status = svDefaultStatus(el);
+      const sb = $('svStatus'); sb.innerHTML = ''; sts.forEach((x) => sb.add(new Option(svStatusLabel(x), x, false, x === ed.status)));
+      $('svStatusBox').hidden = !sts.length; sb.disabled = sts.length < 2;
+      $('svClosureBox').hidden = el !== 'Handhole';
+      $('edHint').textContent = `Drag the map to place the pin on the ${nm}`;
+      return;
+    }
     $('idLabel').textContent = `${el.toUpperCase()} ID`;
     $('poleId').placeholder = el === 'Pole' ? 'e.g. CC-0001' : el === 'ODF' ? 'e.g. FDU_100' : `e.g. ${el}-01`;
     $('surveyTypeBox').hidden = el !== 'Pole'; $('nptBtn').hidden = el !== 'Pole';
@@ -2091,6 +2222,7 @@
   $('atNap').addEventListener('change', (e) => { ed.nap = e.target.checked; markToggles(); $('napId').hidden = !ed.nap; if (ed.nap) $('napId').focus(); });
   $('atClosure').addEventListener('change', (e) => { ed.closure = e.target.checked; markToggles(); $('closureId').hidden = !ed.closure; if (ed.closure) $('closureId').focus(); });
   $('odfSel').addEventListener('change', (e) => { ed.odf = e.target.value; applyElement(); });
+  $('svStatus').addEventListener('change', (e) => { if (ed) ed.status = e.target.value; });
 
   function nextPhotoLabel() {
     if (!ed.photos.length) return 'Overview';
@@ -2101,6 +2233,7 @@
   }
   async function renderAccPhotos() {
     const box = $('accPhotos'); box.innerHTML = '';
+    box.closest('.group').hidden = !ed.photos.length; // v2.13: only records from older versions have element photos
     ed.photos.forEach((p, i) => {
       const cell = document.createElement('div'); cell.className = 'ph';
       const img = document.createElement('img'); img.alt = p.label;
@@ -2471,7 +2604,7 @@
     points = points.filter((p) => p.id !== id);
     if (links().some(([x, y]) => x === id || y === id)) setLinks(links().filter(([x, y]) => x !== id && y !== id));
     renderPoles(); if (!$('list').hidden) renderList();
-    await closeSheet(); toast(rec && rec.kind === 'acceptance' ? 'Element deleted' : 'Pole deleted');
+    await closeSheet(); toast(rec && rec.kind === 'acceptance' ? 'Element deleted' : `${rec && elemOf(rec) !== 'Pole' ? elemOf(rec) : 'Pole'} deleted`);
   });
   $('edSave').addEventListener('click', saveEditor);
 
@@ -2485,7 +2618,7 @@
 
   async function saveEditorDraft() {
     const poleId = $('poleId').value.trim().toUpperCase();
-    if (!poleId || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(poleId)) { toast(`Enter the ${ed.acc ? ed.element : 'Pole'} ID first${poleId ? ' (the number is missing)' : ''}`); $('poleId').focus(); return; }
+    if (!poleId || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(poleId) || /[-_]$/.test(poleId)) { toast(`Enter the ${ed.element === 'Site' ? 'site name or ID' : `${ed.element || 'Pole'} ID`} first${poleId ? ' (the number is missing)' : ''}`); $('poleId').focus(); return; }
     if (!profileOk()) { toast('Enter your details first (Settings → You)'); openProfile(true); return; }
     {
       const c0 = pinMap.getCenter();
@@ -2504,8 +2637,11 @@
       const g = ed.gps;
       // a new object: the record in memory changes only after the phone's storage has committed the save
       const rec = Object.assign({}, p || { id: ed.id, project: S.project, created: now, takenAt: ed.takenAt || now, source: ed.source || 'camera' }, {
-        poleId, poleType: ed.type || '', lat: pos.lat, lon: pos.lon, updated: now, ...(p ? { updatedBy: byLine() } : { by: byLine() }),
-        ...(ed.newBlob ? { q: ed.q || null } : {}), ...(ed.idRead ? { idRead: ed.idRead } : {}),
+        poleId, poleType: (ed.element || 'Pole') === 'Pole' ? ed.type || '' : '', lat: pos.lat, lon: pos.lon, updated: now, ...(p ? { updatedBy: byLine() } : { by: byLine() }),
+        element: ed.element || 'Pole', status: ed.element && ed.element !== 'Pole' ? ed.status || svDefaultStatus(ed.element) : '',
+        remarks: $('svRemarks').value.trim().slice(0, 500), closureId: ed.element === 'Handhole' ? $('svClosureId').value.trim().toUpperCase().slice(0, 40) : '',
+        boxes: ed.boxes || 0,
+        ...(ed.newBlob && !ed.keepQ ? { q: ed.q || null } : {}), ...(ed.idRead ? { idRead: ed.idRead } : {}),
         gpsLat: g ? g.lat : null, gpsLon: g ? g.lon : null,
         accuracy: g && Number.isFinite(g.acc) ? g.acc : null,
         alt: g && Number.isFinite(g.alt) ? g.alt : null,
@@ -2520,8 +2656,8 @@
       busy('Writing to phone storage…');
       await saveRecord(rec, photos); // photo and record together, or neither
       if (!p) points.push(rec); else points[points.indexOf(p)] = rec;
-      if (ed.mode === 'new' && !isNpt(poleId)) S.lastPoleId = poleId;
-      if (typeNames().includes(ed.type)) S.lastType = ed.type;
+      if (ed.mode === 'new' && !isNpt(poleId) && (ed.element || 'Pole') === 'Pole') S.lastPoleId = poleId;
+      if ((ed.element || 'Pole') === 'Pole' && typeNames().includes(ed.type)) S.lastType = ed.type;
       if (ed.newBlob) notePerf(Date.now() - t0);
       persist(); notePerson();
       LOG.info('save.done', { ms: Date.now() - t0 }); LOG.done('save.survey');
@@ -2547,6 +2683,11 @@
       toast('A PAT records only elements with defects: tick the defect and its N / D / MD, then Save. Or close without saving.', 6000);
       if (!defDraft) startDefDraft(true); else $('defPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
+    }
+    // v2.13: the capture photo waits in the defect form. Saved without a defect (a FAT may record an element without one),
+    // it is kept as the element photo instead of being dropped.
+    if (defDraft && defDraft.blob && !$('defPanel').hidden && !defDraft.items.size && !$('defNotes').value.trim()) {
+      const pid = uid(); ed.photos.unshift({ pid, label: 'Overview', ...(defDraft.meta || {}) }); ed.pending[pid] = defDraft.blob; defDraft.blob = null;
     }
     const c = pinMap.getCenter(), pos = { lat: c.lat, lon: c.lng };
     const btn = $('edSave'); btn.disabled = true;
@@ -2616,7 +2757,7 @@
     revokeListUrls();
     const q = $('listSearch').value.trim().toUpperCase(), acc = isAcc();
     $('listFilter').hidden = !acc;
-    const pts = projPoints().reverse().filter((p) => (!q || [p.poleId, p.poleType, p.element, p.napId, p.closureId].join(' ').toUpperCase().includes(q))
+    const pts = projPoints().reverse().filter((p) => (!q || [p.poleId, p.poleType, p.element, p.napId, p.closureId, p.status, p.remarks].join(' ').toUpperCase().includes(q))
       && (!acc || listFilter === 'all' || recStatus(p) === listFilter));
     const counts = {}; projPoints().forEach((p) => { counts[p.poleId] = (counts[p.poleId] || 0) + 1; });
     const box = $('listItems'); box.innerHTML = '';
@@ -2624,8 +2765,9 @@
     const st = projStats(projPoints()), stat = (n, l) => `<div class="stat"><b>${n}</b><span>${l}</span></div>`;
     $('listStats').hidden = !st.total;
     $('listStatRow').innerHTML = acc ? stat(st.total, 'elements') + stat(st.itemsOpen, 'open') + stat(st.itemsRect, 'to verify') + stat(st.itemsVer, 'verified')
-      : stat(st.total, 'poles') + stat(fmtLen(st.len), 'route') + stat(st.long, 'long spans') + stat(projPoints().filter((p) => p.adjusted).length, 'pins moved');
-    if (!pts.length) { box.innerHTML = `<div class="empty">${q || (acc && listFilter !== 'all') ? 'Nothing matches.' : `No ${acc ? 'elements' : 'poles'} yet. Tap the camera button to capture the first one.`}</div>`; return; }
+      : (() => { const np = projPoints().filter((p) => elemOf(p) === 'Pole').length, no = st.total - np;
+        return stat(np, 'poles') + stat(fmtLen(st.len), 'route') + stat(st.long, 'long spans') + (no ? stat(no, 'other points') : stat(projPoints().filter((p) => p.adjusted).length, 'pins moved')); })();
+    if (!pts.length) { box.innerHTML = `<div class="empty">${q || (acc && listFilter !== 'all') ? 'Nothing matches.' : `No ${acc ? 'elements' : 'points'} yet. Tap the camera button to capture the first one.`}</div>`; return; }
     for (const p of pts) {
       const b = document.createElement('button'); b.className = 'card'; b.type = 'button';
       const img = document.createElement('img'); img.alt = ''; img.loading = 'lazy';
@@ -2637,13 +2779,18 @@
         s.innerHTML = `<span class="tag">${C.xmlEsc(elemOf(p))}</span><span class="tag" style="background:${STATUS_COLORS[st]};color:#fff">${st === 'Open' ? `${n} open` : STATUS_TEXT[st]}</span>${counts[p.poleId] > 1 ? '<span class="tag dup">duplicate ID</span>' : ''}`;
         const s3 = document.createElement('span'); s3.className = 's'; s3.textContent = attachText(p).join(' · ');
         if (s3.textContent) info.append(s3);
-      } else s.innerHTML = `<span class="tag">${C.xmlEsc(p.poleType || '—')}</span>${p.adjusted ? '<span class="tag adj">pin adjusted</span>' : ''}${counts[p.poleId] > 1 ? '<span class="tag dup">duplicate ID</span>' : ''}`;
+      } else {
+        const el = elemOf(p), tags = el === 'Pole' ? `<span class="tag">${C.xmlEsc(p.poleType || '—')}</span>`
+          : `<span class="tag" style="background:${SV_COLORS[el] || '#495057'};color:#fff">${C.xmlEsc(el)}</span>${p.status ? `<span class="tag">${C.xmlEsc(svStatusLabel(p.status))}</span>` : ''}${p.closureId ? `<span class="tag">closure ${C.xmlEsc(p.closureId)}</span>` : ''}`;
+        s.innerHTML = `${tags}${p.boxes ? '<span class="tag" style="background:#e03131;color:#fff">red box</span>' : ''}${p.adjusted ? '<span class="tag adj">pin adjusted</span>' : ''}${counts[p.poleId] > 1 ? '<span class="tag dup">duplicate ID</span>' : ''}`;
+        if (p.remarks) { const s3 = document.createElement('span'); s3.className = 's'; s3.textContent = p.remarks; info.append(s3); }
+      }
       const s2 = document.createElement('span'); s2.className = 's mono';
       s2.textContent = `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}${Number.isFinite(p.accuracy) ? ` · ±${p.accuracy.toFixed(0)} m` : ''}`;
       info.prepend(t, s, s2); b.append(img, info);
       b.addEventListener('click', () => openEditorFor(p.id));
       box.appendChild(b);
-      dbGet('photos', photosOf(p)[0] ? photosOf(p)[0].pid : p.id).then((ph) => { if (ph && ph.thumb) { const u = URL.createObjectURL(ph.thumb); listUrls.push(u); img.src = u; } }).catch(() => {});
+      const cp = coverPid(p); if (cp) dbGet('photos', cp).then((ph) => { if (ph && ph.thumb) { const u = URL.createObjectURL(ph.thumb); listUrls.push(u); img.src = u; } }).catch(() => {});
     }
   }
   $('listBtn').addEventListener('click', () => { $('listSearch').value = ''; renderList(); openSheet('list'); });
@@ -2666,9 +2813,13 @@
       fat: () => $('startFat').click(), share: () => guard(sharePackage), next: () => closeAll().then(() => { const t = nextTarget(); if (t) openVisit(t.r.id, true); else toast('No pin left to visit'); }) };
     const steps = [];
     if (cat === 'Survey') {
-      const R = routeModel();
-      steps.push({ t: 'Capture the poles', s: n ? `${n} pole${n === 1 ? '' : 's'} captured` : 'Photo, ID scan, pin check for each pole', done: n > 0, go: 'capture', label: 'Capture' });
-      steps.push({ t: 'Link the route', s: !R.spans.length ? 'Tap the route button: link in capture order, then fix branches' : `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${R.long} over ${pol().maxSpan} m · ${R.off} not linked`, done: n > 1 && R.spans.length > 0 && R.off === 0 && !R.long, go: 'route', label: 'Route' });
+      const R = routeModel(), purpose = m.purpose || 'As-plan', np = pts.filter((p) => elemOf(p) === 'Pole').length, others = n - np;
+      steps.push({ t: 'Capture the poles', s: np ? `${np} pole${np === 1 ? '' : 's'} captured` : 'Photo, ID scan, pin check for each pole', done: np > 0, go: 'capture', label: 'Capture' });
+      if (purpose === 'As-plan') {
+        const g = asPlanParts(pts), tick = (v) => (v ? '✓' : '✗');
+        steps.push({ t: 'Site, ODF / ODC and POI', s: `${tick(g.site)} site · ${tick(g.odf)} ODF / ODC · ${tick(g.poi)} POI (closure or handhole)${g.nap ? ` · ${g.nap} NAP` : ''} · needed to complete`, done: g.site && g.odf && g.poi, go: 'capture', label: 'Capture' });
+      } else steps.push({ t: purpose === 'Audit' ? 'Audit the network elements' : 'Site, ODC / ODF, NAP and closures as built', s: others ? svCountText(pts) : purpose === 'Audit' ? 'Closures, NAP, ODF, handholes… with remarks on what you find' : 'Photo of the site, ODC / ODF, NAP and closures used in the build', done: others > 0, go: 'capture', label: 'Capture' });
+      steps.push({ t: 'Link the route', s: !R.spans.length ? 'Tap the route button: link in capture order, then fix branches' : `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${R.long} over ${pol().maxSpan} m · ${R.off} not linked`, done: routePts().length > 1 && R.spans.length > 0 && R.off === 0 && !R.long, go: 'route', label: 'Route' });
       steps.push({ t: 'Export for design', s: fresh(['kmz', 'dxf', 'csv']) ? 'KMZ / DXF / CSV made after the last change' : 'KMZ for Google Earth, DXF for AutoCAD, CSV, photos', done: n > 0 && fresh(['kmz', 'dxf', 'csv']), go: 'export', label: 'Export' });
       steps.push({ t: 'Back up the project', s: fresh(['backup']) ? `Backup made ${fmtTime(ex.backup)}` : 'Export → Backup, keep the ZIP on Drive or a PC', done: n > 0 && fresh(['backup']), go: 'backup', label: 'Backup' });
     } else if (cat === 'PAT') {
@@ -2676,7 +2827,7 @@
       const formOk = !!(m.site && m.contractor && (m.vendorRep || (S.user && S.user.name))); // the Globe representative is optional (v2.10)
       const handed = allProjects().some((x) => pmeta(x).fromPat === S.project) || !!ex.sent;
       steps.push({ t: 'Form details', s: formOk ? `${m.site} · ${m.contractor}` : 'Location, vendor, representatives, inspection date (printed on the form)', done: formOk, go: 'form', label: 'Fill in' });
-      steps.push({ t: 'Record the defects', s: n ? `${n} element${n === 1 ? '' : 's'} · ${items.length} deficienc${items.length === 1 ? 'y' : 'ies'} · ${open} open` : 'Photo only the poles / ODFs with defects; tag each N, D or MD', done: n > 0, go: 'capture', label: 'Capture' });
+      steps.push({ t: 'Record the defects', s: n ? `${n} element${n === 1 ? '' : 's'} · ${items.length} deficienc${items.length === 1 ? 'y' : 'ies'} · ${open} open` : 'Photo each defect (not the pole or ODF); tag it N, D or MD', done: n > 0, go: 'capture', label: 'Capture' });
       steps.push({ t: 'Export the Deficiency List', s: fresh(['pdf', 'xlsx']) ? 'PDF / Excel made after the last change' : 'PDF (form + annexes) and Excel for signing and tracking', done: n > 0 && fresh(['pdf', 'xlsx']), go: 'export', label: 'Export' });
       steps.push({ t: 'Share the PAT KMZ for the defect cleanup', s: handed ? (ex.sent ? `PAT KMZ shared ${fmtTime(ex.sent)}` : 'FAT started on this phone') : 'One KMZ with the defect pins and photos, for the defect cleanup and the FAT', done: handed, go: 'share', label: 'Share KMZ' });
     } else if (cat === 'Cleanup') {
@@ -2697,6 +2848,27 @@
     return { cat, steps, next, go };
   }
   async function closeAll() { while (stack.length) await closeSheet(); }
+  /** "1 site · 1 ODF · 2 NAP · 1 closure" for the survey points other than poles. */
+  function svCountText(pts) {
+    return SV_ELEMENTS.filter((el) => el !== 'Pole').map((el) => [el, pts.filter((p) => elemOf(p) === el).length]).filter(([, k]) => k)
+      .map(([el, k]) => `${k} ${el === 'Site' ? `site${k === 1 ? '' : 's'}` : el === 'Closure' ? `closure${k === 1 ? '' : 's'}` : el === 'Handhole' ? `handhole${k === 1 ? '' : 's'}` : el}`).join(' · ');
+  }
+  /** What an As-plan survey must have: a site, an ODF or ODC location, a POI (closure on a pole or handhole with a closure). */
+  const asPlanParts = (pts) => ({ site: pts.some((p) => elemOf(p) === 'Site'), odf: pts.some((p) => ['ODF', 'ODC'].includes(elemOf(p))), poi: pts.some(isPoi), nap: pts.filter((p) => elemOf(p) === 'NAP').length });
+  /** Why the current project may not be completed yet (As-plan surveys, v2.13); empty when it may. */
+  async function completeGaps() {
+    if (isAcc() || svPurpose() !== 'As-plan') return [];
+    const pts = projPoints(), g = asPlanParts(pts), poles = pts.filter((p) => elemOf(p) === 'Pole'), out = [];
+    if (!poles.length) out.push('the poles, each with a photo');
+    let noPic = 0;
+    for (const p of poles) { const ph = await dbGet('photos', p.id).catch(() => null); if (!ph || !(ph.clean || ph.thumb)) noPic++; }
+    if (noPic) out.push(`a photo of ${noPic} pole${noPic === 1 ? '' : 's'}`);
+    if (!g.site) out.push('the site (new or existing)');
+    if (!g.odf) out.push('the ODF or ODC location');
+    if (!g.poi) out.push('a POI: a closure on a pole, or a handhole with its closure ID');
+    return out;
+  }
+  const notReady = (gaps) => ask('Not ready to complete', `An As-plan survey needs:\n• ${gaps.join('\n• ')}\n\nCapture ${gaps.length === 1 ? 'it' : 'them'}, then complete the task.`, [{ label: 'OK', value: false, primary: true }]);
   function renderWorkflow() {
     const W = workflowModel(), box = $('wfSteps'); box.innerHTML = '';
     W.steps.forEach((st, i) => {
@@ -2715,7 +2887,7 @@
   const projKind = (name) => { const pm = pmeta(name); return pm.mode === 'acceptance' ? pm.stage || 'PAT' : 'survey'; };
   function projSummary(name) {
     const pm = pmeta(name), k = projKind(name), pts = points.filter((p) => p.project === name), n = pts.length;
-    if (k === 'survey') return `${PURPOSE_LABEL[pm.purpose] || 'Survey'} · ${n} pole${n === 1 ? '' : 's'}`;
+    if (k === 'survey') { const np = pts.filter((p) => elemOf(p) === 'Pole').length, no = n - np; return `${PURPOSE_LABEL[pm.purpose] || 'Survey'} · ${np} pole${np === 1 ? '' : 's'}${no ? ` · ${no} other` : ''}`; }
     const open = pts.reduce((t, p) => t + openCount(p), 0);
     return `${PURPOSE_LABEL[k]} · ${n} element${n === 1 ? '' : 's'} · ${open} open`;
   }
@@ -2761,8 +2933,6 @@
   function shareCheck() {
     const recs = projPoints(), stage = pmeta().stage || 'PAT', items = recs.flatMap((r) => counting(r)), flags = [];
     const err = !recs.length ? 'No element recorded yet' : !items.length ? 'No deficiency (N, D or MD) recorded' : '';
-    const noPic = recs.filter((r) => !photosOf(r).length).length;
-    if (noPic) flags.push(`${noPic} element${noPic === 1 ? '' : 's'} without a photo`);
     if (stage === 'PAT') { const n = items.filter((d) => !d.pid).length; if (n) flags.push(`${n} deficienc${n === 1 ? 'y' : 'ies'} without an as-found photo`); }
     else {
       const fixed = items.filter((d) => defStatusOf(d) !== 'Open'), n = fixed.filter((d) => !d.afterPid).length, open = items.length - fixed.length;
@@ -2797,6 +2967,7 @@
   $('curStart').addEventListener('change', () => { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), startDate: $('curStart').value }; persist(); queueProgress(S.project, ['surveyStart']); renderProjects(); });
   $('doneBtn').addEventListener('click', async () => {
     const m = pmeta(), col = progressFields(S.project).filter(([f]) => f !== 'surveyStart').map(([f]) => PROGRESS_COL[f])[0];
+    if (!m.completedAt) { const gaps = await completeGaps(); if (gaps.length) { await notReady(gaps); return; } }
     const ok = m.completedAt
       ? await ask('Undo complete?', `The task is no longer marked complete${col ? `, and the ${col} is cleared in the online sheet` : ''}.`, [{ label: 'Cancel', value: false }, { label: 'Undo', value: true, primary: true }])
       : await ask('Mark the task complete?', `Today is recorded as the completion date${col ? ` (${col} in the online sheet)` : ''}. You can also export the completion report (Export → Completion report).`, [{ label: 'Cancel', value: false }, { label: 'Mark complete', value: true, primary: true }]);
@@ -2865,21 +3036,25 @@
     } finally { b.classList.remove('spin'); renderSyncBtn(); }
   });
   /* ---- completion report (v2.11) ---- */
-  /** Photo pages of the completion report. Survey (v2.12): every pole photo, as a collage. */
+  /** Photo pages of the completion report. Survey (v2.12): every photo as a collage, the poles first, then the site, ODC, ODF,
+      NAP, closures and handholes (v2.13), each captioned with its element and status. */
   async function polePhotos(pts) {
-    const list = pts.flatMap((r) => photosOf(r).map((p) => ({ r, p }))), items = [];
+    const list = pts.flatMap((r) => photosOf(r).map((p) => ({ r, p }))), poles = [], other = [];
     let done = 0, missing = 0;
     for (const { r, p } of list) {
       busy(`Preparing photos ${++done} / ${list.length}…`, done / list.length);
       const jpeg = await pdfJpeg(p.pid, 640).catch(() => null);
       if (!jpeg) { missing++; continue; }
-      const q = p.at ? p.q : r.q;
-      items.push({ jpeg, head: `${r.poleId || 'No ID'}${p.label && !['Overview', 'Photo'].includes(p.label) ? ` · ${p.label}` : ''}`, lines: [shortTime(p.at || r.takenAt || r.created)],
-        warn: q && q.flags && q.flags.length ? `Camera warning when taken: ${q.flags.join(', ')}` : '' });
+      const q = p.at ? p.q : r.q, el = elemOf(r);
+      (el === 'Pole' ? poles : other).push({ jpeg, head: el === 'Pole' ? `${r.poleId || 'No ID'}${p.label && !['Overview', 'Photo'].includes(p.label) ? ` · ${p.label}` : ''}` : `${r.poleId || 'No ID'} · ${svDesc(r)}`,
+        lines: [`${shortTime(p.at || r.takenAt || r.created)}${r.boxes ? ' · red box' : ''}`], warn: q && q.flags && q.flags.length ? `Camera warning when taken: ${q.flags.join(', ')}` : '' });
     }
     busy(false);
-    return { sections: items.length ? [{ title: 'Poles', layout: 'collage', sub: 'One tile per photo, in capture order.', items }] : [],
-      line: items.length ? `${items.length} pole photo${items.length === 1 ? '' : 's'} (from page 2)` : 'No photos on this phone', missing };
+    const sections = [];
+    if (poles.length) sections.push({ title: 'Poles', layout: 'collage', sub: 'One tile per photo, in capture order.', items: poles });
+    if (other.length) sections.push({ title: 'Site, ODC, ODF, NAP, closures, handholes', layout: 'collage', sub: 'Each with its element and status (proposed, new or existing); red boxes mark the spot.', items: other });
+    const parts = [poles.length && `${poles.length} pole photo${poles.length === 1 ? '' : 's'}`, other.length && `${other.length} other photo${other.length === 1 ? '' : 's'}`].filter(Boolean);
+    return { sections, line: parts.length ? `${parts.join(' · ')} (from page 2)` : 'No photos on this phone', missing };
   }
   /** PAT, defect cleanup and FAT (v2.12.1): only the deficiency photos of each punchlist item — as found, rectified (or the
       rejected fix) and verified — with the item, element and time burned in, as in Annex A of the Deficiency List. */
@@ -2908,18 +3083,19 @@
   $('doCompletion').addEventListener('click', () => guard(async () => {
     const pts = projPoints(), acc = isAcc();
     if (!pts.length && !(await ask('Nothing recorded', 'This project has no records yet. Make the completion report anyway?', [{ label: 'Cancel', value: false }, { label: 'Make it', value: true, primary: true }]))) return;
-    if (!pmeta().completedAt) markComplete(true, 'report');
+    if (!pmeta().completedAt) { const gaps = await completeGaps(); if (gaps.length) { await notReady(gaps); return; } markComplete(true, 'report'); }
     const m = pmeta(), R = window.PoleReports, k = acc ? m.stage || 'PAT' : 'survey';
     const catLabel = STAGE_LABEL[k], purpose = PURPOSE_LABEL[acc ? k : m.purpose || 'As-plan'];
     let summary = [];
-    if (!acc) { const Rt = routeModel(), len = Rt.spans.reduce((t, s) => t + s.len, 0); summary = [['Poles captured', pts.length], ['Spans linked', Rt.spans.length], ['Route length (m)', Math.round(len)], ['Long spans', Rt.long, Rt.long ? 'bad' : 'good']]; }
+    if (!acc) { const Rt = routeModel(), len = Rt.spans.reduce((t, s) => t + s.len, 0); summary = [['Poles captured', pts.filter((p) => elemOf(p) === 'Pole').length], ['Other points', pts.filter((p) => elemOf(p) !== 'Pole').length], ['Spans linked', Rt.spans.length], ['Route length (m)', Math.round(len)], ['Long spans', Rt.long, Rt.long ? 'bad' : 'good']]; }
     else { const M = accModel(); summary = [['Elements', M.recs.length], ['Deficiencies', M.counted.length], ['Still open', M.open.length, M.open.length ? 'bad' : 'good'], [k === 'FAT' ? 'Verified' : 'Rectified', k === 'FAT' ? M.verified : M.rectified + M.verified, 'blue']]; }
     const ex = m.exports || {}, made = Object.entries(ex).filter(([kk]) => kk !== 'completion').map(([kk, at]) => `${kk.toUpperCase()} ${shortTime(at)}`).join(' · ');
     const info = [['Project', S.project], ['Task category', catLabel], ['Location / site', m.site || ''], ['Purpose', purpose], ['Vendor (contractor)', m.contractor || (S.user && S.user.company) || ''], ['Site ID (online sheet)', m.taskId || '—'],
       [acc ? 'Inspection date' : 'Started', longDate(acc ? m.date : m.startDate) || '—'], ['Completed', longDate(m.completedAt)]];
     const ph = $('complPhotos').checked && pts.length ? await (acc ? defectPhotos(accModel()) : polePhotos(pts)) : null;
     const photoLine = ph ? ph.line + (ph.missing ? ` · ${ph.missing} record photo${ph.missing === 1 ? '' : 's'} missing on this phone` : '') : pts.length ? 'Not included' : '—';
-    const details = [['Records', acc ? `${pts.length} element${pts.length === 1 ? '' : 's'}` : `${pts.length} pole${pts.length === 1 ? '' : 's'}`], ['Recorded by', peopleText() || byLine()],
+    const npl = pts.filter((p) => elemOf(p) === 'Pole').length;
+    const details = [['Records', acc ? `${pts.length} element${pts.length === 1 ? '' : 's'}` : `${npl} pole${npl === 1 ? '' : 's'}${pts.length > npl ? ` · ${svCountText(pts)}` : ''}`], ['Recorded by', peopleText() || byLine()],
       ['Photos', photoLine], ['Exports made', made || '—'], ['Reference KMZ', (refInfo() && refInfo().name) || '—'], ...(m.fromPat ? [['From', `${m.fromStage || 'PAT'} “${m.fromPat}”`]] : []), ['Remarks / notes', m.notes || '—']];
     const same = purpose === catLabel; // PAT, FAT: the purpose is the category
     const pdf = R.completionPdf({ title: 'TASK COMPLETION REPORT', stageLong: same ? catLabel : `${catLabel} · ${purpose}`, statement: `${catLabel}${same ? '' : ` (${purpose})`} of ${m.site || S.project} completed on ${longDate(m.completedAt)}.`,
@@ -3010,7 +3186,7 @@
   }
   /** Where Save puts files (Settings → Where saved files go). */
   function savePath(name, base) {
-    const folder = String(S.saveFolder || 'PoleCam').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'PoleCam';
+    const folder = String(S.saveFolder || 'G-eSAA').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'G-eSAA';
     const sub = S.saveByProject !== false ? `${folder}/${C.safeName(S.project)}` : folder;
     return (base || S.saveBase) === 'DOWNLOAD'
       ? { directory: 'EXTERNAL_STORAGE', path: `Download/${sub}/${name}`, shown: `Download/${sub}/${name}` }
@@ -3122,9 +3298,9 @@
     return tag && !new RegExp(tag.replace('AS', 'AS[-_ ]?'), 'i').test(S.project) ? `${pn}_${tag}_${stamp8()}` : `${pn}_${stamp8()}`;
   };
   /* Who made an export (v2.10): every exported file carries it, so a file can be traced back to the person who sent it. */
-  function exporterInfo() { const u = S.user || {}; return { name: u.name || '', mobile: u.mobile || '', email: u.email || '', company: u.company || '', at: new Date().toISOString(), app: `PoleCam ${APP_VER}` }; }
+  function exporterInfo() { const u = S.user || {}; return { name: u.name || '', mobile: u.mobile || '', email: u.email || '', company: u.company || '', at: new Date().toISOString(), app: `G-eSAA ${APP_VER}` }; }
   function exporterLine(sep) { const e = exporterInfo(), j = sep || ' · '; return `Exported by ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(j)}${j}${shortTime(e.at)}${j}${e.app}`; }
-  function exporterText() { const e = exporterInfo(); return `PoleCam export\nProject: ${S.project}\nExported by: ${e.name}\nMobile: ${e.mobile}\nEmail: ${e.email}\nCompany: ${e.company}\nDate: ${e.at}\nApp: ${e.app}\n`; }
+  function exporterText() { const e = exporterInfo(); return `G-eSAA export\nProject: ${S.project}\nExported by: ${e.name}\nMobile: ${e.mobile}\nEmail: ${e.email}\nCompany: ${e.company}\nDate: ${e.at}\nApp: ${e.app}\n`; }
   function exporterSheet(st) { const e = exporterInfo(); return { name: 'Exported by', cols: [16, 46], rows: [['Exported by', ''].map((v) => ({ v, s: st.header })), ['Name', e.name], ['Mobile', e.mobile], ['Email', e.email], ['Company', e.company], ['Date', shortTime(e.at)], ['App', e.app], ['Project', S.project]] }; }
   async function guard(fn, label) { try { await fn(); } catch (e) { LOG.error('task.fail', { label: label || 'export', ...errInfo(e) }); toast(`${label === undefined ? 'Export failed: ' : label ? label + ': ' : ''}${e.message || e}`, 7000); } finally { busy(false); } }
 
@@ -3143,9 +3319,9 @@
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i]; busy(`Preparing photos ${i + 1} / ${pts.length}`, i / pts.length);
       const ph = await dbGet('photos', p.id);
-      const r = { ...p };
+      const r = { ...p, element: elemOf(p), statusLabel: svStatusLabel(p.status) };
       if (ph && ph.clean && E.kmzBalloonPx > 0) { r.photoName = `photos/${names[p.id]}.jpg`; files.push({ name: 'files/' + r.photoName, data: await exportPhoto(p, ph.clean, null, null, { maxPx: E.kmzBalloonPx, stamp: E.kmzStamp, quality: 0.85 }) }); }
-      if (icons && ph && (ph.clean || ph.thumb)) { r.iconName = `icons/${p.id}.jpg`; files.push({ name: 'files/' + r.iconName, data: await iconJpeg(ph.clean || ph.thumb, E.kmzIconPx) }); }
+      if (icons && ph && (ph.clean || ph.thumb)) { r.iconName = `icons/${p.id}.jpg`; files.push({ name: 'files/' + r.iconName, data: await iconJpeg(ph.clean || ph.thumb, E.kmzIconPx, elemOf(p) === 'Pole' ? null : SV_COLORS[elemOf(p)]) }); }
       rows.push(r);
     }
     busy('Building KMZ…', 1);
@@ -3203,28 +3379,30 @@
       [lbl('Average span (m)'), Math.round((Rt.total / Rt.spans.length) * 10) / 10],
       [lbl('Longest span'), `${longest.from} → ${longest.to}: ${longest.len.toFixed(1)} m`],
       [],
-      [lbl('Poles in project'), pts.length],
+      [lbl('Poles in project'), pts.filter((p) => elemOf(p) === 'Pole').length],
+      [lbl('Other points (site, ODC, ODF, NAP, closures, handholes)'), pts.filter((p) => elemOf(p) !== 'Pole').length],
       [lbl('Terminal poles (1 span)'), Rt.terminal],
       [lbl('Inline poles'), Rt.inline],
       [lbl('Angle poles'), Rt.angle],
       [lbl('Junction poles (3+ spans)'), Rt.junction],
-      [lbl('Poles not linked'), { v: Rt.off, s: Rt.off ? st.bad : st.cell }],
+      [lbl('Route points not linked'), { v: Rt.off, s: Rt.off ? st.bad : st.cell }],
       [],
       [{ v: 'Span lengths are straight lines between pole pins, not cable lengths: add sag, slack and MLoop allowance per your design standard.', s: st.info }],
     ];
     const spanRows = [['No.', 'From', 'To', 'Length (m)', 'Longer than maximum', 'From lat', 'From lon', 'To lat', 'To lon'].map((v) => ({ v, s: st.header }))];
     Rt.spans.forEach((s, i) => spanRows.push([{ v: i + 1, s: st.center }, s.from, s.to, { v: Math.round(s.len * 10) / 10, s: s.long ? st.bad : st.cell },
       { v: s.long ? 'Yes' : 'No', s: s.long ? st.bad : st.cell }, { v: s.a.lat, s: st.coord }, { v: s.a.lon, s: st.coord }, { v: s.b.lat, s: st.coord }, { v: s.b.lon, s: st.coord }]));
-    const poleRows = [['No.', 'Pole ID', 'Type', 'Role on route', 'Spans at pole', 'Deflection (°)', 'Latitude', 'Longitude', `UTM ${S.zone}N E`, `UTM ${S.zone}N N`].map((v) => ({ v, s: st.header }))];
+    const poleRows = [['No.', 'ID', 'Element', 'Type / status', 'Role on route', 'Spans at point', 'Deflection (°)', 'Latitude', 'Longitude', `UTM ${S.zone}N E`, `UTM ${S.zone}N N`, 'Remarks'].map((v) => ({ v, s: st.header }))];
     pts.forEach((p, i) => {
-      const info = Rt.poles[p.id], u = C.utmForward(p.lat, p.lon, S.zone, p.lat < 0);
-      poleRows.push([{ v: i + 1, s: st.center }, p.poleId, p.poleType || '', { v: info.role, s: info.role === 'Not on route' ? st.bad : st.cell }, info.degree,
-        info.deflection == null ? '' : Math.round(info.deflection * 10) / 10, { v: p.lat, s: st.coord }, { v: p.lon, s: st.coord }, Math.round(u.E * 1000) / 1000, Math.round(u.N * 1000) / 1000]);
+      const info = Rt.poles[p.id] || { role: 'On a pole (not a route point)', degree: '', deflection: null }, u = C.utmForward(p.lat, p.lon, S.zone, p.lat < 0), el = elemOf(p);
+      poleRows.push([{ v: i + 1, s: st.center }, p.poleId, el, el === 'Pole' ? p.poleType || '' : [svStatusLabel(p.status), p.closureId ? `closure ${p.closureId}` : ''].filter(Boolean).join(' · '),
+        { v: info.role, s: info.role === 'Not on route' ? st.bad : st.cell }, info.degree,
+        info.deflection == null ? '' : Math.round(info.deflection * 10) / 10, { v: p.lat, s: st.coord }, { v: p.lon, s: st.coord }, Math.round(u.E * 1000) / 1000, Math.round(u.N * 1000) / 1000, p.remarks || '']);
     });
     const parts = R.buildXlsxParts([
-      { name: 'Summary', cols: [30, 44], rows: summary, merges: ['A1:B1', 'A19:B19'] },
+      { name: 'Summary', cols: [30, 44], rows: summary, merges: ['A1:B1', `A${summary.length}:B${summary.length}`] },
       { name: 'Spans', cols: [6, 15, 15, 11, 12, 12, 13, 12, 13], rows: spanRows, freezeRow: 1, autoFilter: `A1:I${spanRows.length}` },
-      { name: 'Poles', cols: [6, 15, 12, 14, 9, 11, 12, 13, 13, 13], rows: poleRows, freezeRow: 1, autoFilter: `A1:J${poleRows.length}` },
+      { name: 'Points', cols: [6, 15, 10, 18, 16, 9, 11, 12, 13, 13, 13, 30], rows: poleRows, freezeRow: 1, autoFilter: `A1:L${poleRows.length}` },
       exporterSheet(st),
     ]);
     offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '_route.xlsx');
@@ -3241,7 +3419,7 @@
     const out = [], seen = new Set();
     const add = (pid, label, r, kind) => { if (!pid || !label || seen.has(pid)) return; seen.add(pid); out.push({ pid, label, r, kind }); };
     for (const r of recs) {
-      if (r.kind !== 'acceptance') { add(r.id, 'Pole', r, 'survey photo'); continue; }
+      if (r.kind !== 'acceptance') { if (!r.boxes) add(r.id, elemOf(r), r, 'survey photo'); continue; } // a photo with a red box is not a clean training photo
       photosOf(r).forEach((p) => add(p.pid, p.label === 'Overview' ? elemOf(r) : p.label === 'Detail' ? null : p.label, r, `${p.label} photo`));
       (r.defs || []).forEach((d) => { add(d.pid, CAT_LABEL[d.cat], r, 'defect photo'); add(d.afterPid, CAT_LABEL[d.cat], r, 'after photo'); });
     }
@@ -3265,8 +3443,8 @@
     }
     const summary = Object.entries(counts).sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k}: ${v}`).join('\n');
     files.push({ name: 'dataset/labels.csv', data: window.PoleReports.csv(rows) }, { name: 'dataset/exported_by.txt', data: exporterText() });
-    files.push({ name: 'dataset/README.txt', data: `PoleCam training photos\nExported ${new Date().toISOString()}\nOne folder per label; photos resized to 640 px. labels.csv lists every file.\n\nPhotos per label:\n${summary}\n\nAim for 200+ photos per label before training a model. Check a sample of each folder: a label is only as good as the photo slot it was taken in.\n` });
-    offerResult(new Blob(C.makeZipParts(files), { type: 'application/zip' }), `${dsScope === 'all' ? 'PoleCam_all_projects' : C.safeName(S.project)}_training_photos_${stamp8()}.zip`);
+    files.push({ name: 'dataset/README.txt', data: `G-eSAA training photos\nExported ${new Date().toISOString()}\nOne folder per label; photos resized to 640 px. labels.csv lists every file.\n\nPhotos per label:\n${summary}\n\nAim for 200+ photos per label before training a model. Check a sample of each folder: a label is only as good as the photo slot it was taken in.\n` });
+    offerResult(new Blob(C.makeZipParts(files), { type: 'application/zip' }), `${dsScope === 'all' ? 'G-eSAA_all_projects' : C.safeName(S.project)}_training_photos_${stamp8()}.zip`);
     toast(`${files.length - 3} photos in ${Object.keys(counts).length} folders`, 3500);
   }));
 
@@ -3329,9 +3507,9 @@
   /** The PoleCam data inside a backup ZIP or a shareable KMZ: {meta, pre}. */
   async function readPackage(z) {
     const pre = z.has('polecam/points.json') ? 'polecam/' : z.has('points.json') ? '' : null;
-    if (pre == null) throw new Error(z.names.some((n) => /\.kml$/i.test(n)) ? 'This KMZ has no PoleCam data. Export it again from PoleCam (Projects → Project details → Share the KMZ), or tick “Include the PoleCam data” under the KMZ options.' : 'This is not a PoleCam file');
+    if (pre == null) throw new Error(z.names.some((n) => /\.kml$/i.test(n)) ? 'This KMZ has no G-eSAA data. Export it again from G-eSAA (Projects → Project details → Share the KMZ), or tick “Include the PoleCam data” under the KMZ options.' : 'This is not a G-eSAA (PoleCam) file');
     const meta = JSON.parse(new TextDecoder().decode(await z.get(`${pre}points.json`)));
-    if (!meta || !Array.isArray(meta.points)) throw new Error('This is not a PoleCam file');
+    if (!meta || !Array.isArray(meta.points)) throw new Error('This is not a G-eSAA (PoleCam) file');
     return { meta, pre };
   }
   async function importPhotos(z, pre, recs) {
@@ -3735,7 +3913,7 @@
     const recs = [], onPhoto = (r, f) => !!E.kmzStamp && (byRec[r.id] || []).length > 0 && (!E.stampFields || E.stampFields.includes(f));
     for (const r of M.recs) {
       let icon = null;
-      if (E.kmzIconPx > 0) { const first = photosOf(r)[0], ph = first && await dbGet('photos', first.pid).catch(() => null); if (ph && (ph.clean || ph.thumb)) { icon = `icons/${r.id}.jpg`; files.push({ name: `files/${icon}`, data: await iconJpeg(ph.clean || ph.thumb, E.kmzIconPx, STATUS_COLORS[recStatus(r)]) }); } }
+      if (E.kmzIconPx > 0) { const cp = coverPid(r), ph = cp && await dbGet('photos', cp).catch(() => null); if (ph && (ph.clean || ph.thumb)) { icon = `icons/${r.id}.jpg`; files.push({ name: `files/${icon}`, data: await iconJpeg(ph.clean || ph.thumb, E.kmzIconPx, STATUS_COLORS[recStatus(r)]) }); } }
       recs.push({ id: r.id, name: r.poleId, title: `${r.poleId} · ${elemOf(r)} · ${STATUS_TEXT[recStatus(r)]}`, status: recStatus(r), lat: r.lat, lon: r.lon, icon,
         // coordinates and time are left out when the balloon photos already carry them in their stamp
         detailsHtml: [...attachText(r), ...(onPhoto(r, 'coords') ? [] : [`Coordinates: ${r.lat.toFixed(7)}, ${r.lon.toFixed(7)}`]), ...(onPhoto(r, 'time') ? [] : [`Captured: ${fmtTime(r.takenAt)}`])].map(C.xmlEsc).join('<br/>'),
@@ -3761,7 +3939,7 @@
       try {
         const est = await navigator.storage.estimate();
         const per = navigator.storage.persisted ? await navigator.storage.persisted() : false;
-        $('storeInfo').textContent = `${n} record${n === 1 ? '' : 's'} in ${np} project${np === 1 ? '' : 's'}. Using ${fmtMB(est.usage || 0)}; this phone currently lets PoleCam use up to about ${fmtMB(est.quota || 0)}. ${per ? 'Protected from automatic cleanup.' : 'Not yet protected from automatic cleanup.'}`;
+        $('storeInfo').textContent = `${n} record${n === 1 ? '' : 's'} in ${np} project${np === 1 ? '' : 's'}. Using ${fmtMB(est.usage || 0)}; this phone currently lets G-eSAA use up to about ${fmtMB(est.quota || 0)}. ${per ? 'Protected from automatic cleanup.' : 'Not yet protected from automatic cleanup.'}`;
         $('storeSub').textContent = `${n} record${n === 1 ? '' : 's'} · ${fmtMB(est.usage || 0)} used of about ${fmtMB(est.quota || 0)}`;
       } catch (e) { $('storeSub').textContent = `${n} record${n === 1 ? '' : 's'} in ${np} project${np === 1 ? '' : 's'}`; }
     } else $('storeSub').textContent = `${n} record${n === 1 ? '' : 's'} in ${np} project${np === 1 ? '' : 's'}`;
@@ -3828,7 +4006,7 @@
   syncExpUi();
   $('goExports').addEventListener('click', () => {
     syncExpUi();
-    $('setSaveBase').value = S.saveBase || 'DOCUMENTS'; $('setSaveFolder').value = S.saveFolder || 'PoleCam'; $('setSaveByProject').checked = S.saveByProject !== false;
+    $('setSaveBase').value = S.saveBase || 'DOCUMENTS'; $('setSaveFolder').value = S.saveFolder || 'G-eSAA'; $('setSaveByProject').checked = S.saveByProject !== false;
     updateSavePreview(); openSheet('setExports');
   });
   function updateSavePreview() {
@@ -3844,7 +4022,7 @@
     toast('Export settings reset to the defaults', 2500);
   });
   $('setSaveBase').addEventListener('change', () => { S.saveBase = $('setSaveBase').value; persist(); updateSavePreview(); });
-  $('setSaveFolder').addEventListener('change', () => { S.saveFolder = $('setSaveFolder').value.trim() || 'PoleCam'; persist(); updateSavePreview(); });
+  $('setSaveFolder').addEventListener('change', () => { S.saveFolder = $('setSaveFolder').value.trim() || 'G-eSAA'; persist(); updateSavePreview(); });
   $('setSaveByProject').addEventListener('change', () => { S.saveByProject = $('setSaveByProject').checked; persist(); updateSavePreview(); });
   $('goMaps').addEventListener('click', () => $('offlineBtn').click());
   $('goMaps2').addEventListener('click', () => $('offlineBtn').click());
@@ -3999,7 +4177,7 @@
     $('pfMobile').value = u.mobile || ''; $('pfEmail').value = u.email || '';
     renderCoSelect(u.company || '');
     $('profBack').hidden = profileFirst;
-    $('profTitle').textContent = profileFirst ? 'Welcome to PoleCam' : 'Your details';
+    $('profTitle').textContent = profileFirst ? 'Welcome to G-eSAA' : 'Your details';
     $('profIntro').textContent = profileFirst
       ? 'Before the first photo, enter your details. They are recorded on every photo and report, and stay on this phone.'
       : 'Recorded on every photo, pole and punchlist item from now on. Records already saved keep the name they were saved with.';
@@ -4045,7 +4223,7 @@
   }
   $('inviteBtn').addEventListener('click', () => guard(async () => {
     const link = await inviteLink();
-    if (!link) { toast('No website address for the invite: open PoleCam from its website once, or ask your admin', 5000); return; }
+    if (!link) { toast('No website address for the invite: open G-eSAA from its website once, or ask your admin', 5000); return; }
     qrLink = link;
     await showQr(`Invite to ${S.keyCompany}`, `A coworker scans this with the phone's camera (or you send the link), then enters their name, mobile and email. Share it only inside ${S.keyCompany}: it carries your company key.`, link, null);
   }, 'No invite'));
@@ -4128,9 +4306,9 @@
   async function acceptTeam(obj, allowSwitch, opts) {
     let body;
     try { body = JSON.parse(obj.b); } catch (e) { body = null; }
-    if (!validTeam(body)) throw new Error('This is not a PoleCam company list');
-    if (ORG && body.id !== ORG.id) throw new Error(`This PoleCam is set up for “${ORG.name}” only. Ask your admin for its join link.`);
-    if (ORG && ORG.key && !(S.team && S.team.id === body.id) && body.key !== ORG.key && body.prevKey !== ORG.key) throw new Error(`Not accepted: this “${body.name}” list was not made with the admin PIN this PoleCam expects. Ask your admin for a new join link.`);
+    if (!validTeam(body)) throw new Error('This is not a G-eSAA company list');
+    if (ORG && body.id !== ORG.id) throw new Error(`This G-eSAA is set up for “${ORG.name}” only. Ask your admin for its join link.`);
+    if (ORG && ORG.key && !(S.team && S.team.id === body.id) && body.key !== ORG.key && body.prevKey !== ORG.key) throw new Error(`Not accepted: this “${body.name}” list was not made with the admin PIN this G-eSAA expects. Ask your admin for a new join link.`);
     const signer = obj.k === -1 ? (body.key ? { n: 'admin company', k: body.key } : null) : obj.k === -2 ? (body.prevKey ? { n: 'admin company', k: body.prevKey } : null) : Number.isInteger(obj.k) ? body.admins[obj.k] : null;
     if (!signer || !(await verifyText(obj.b, obj.s, signer.k))) throw new Error('Not accepted: this company list is damaged or was changed after it was signed');
     const seen = (S.teamSeen = S.teamSeen || {})[body.id] || 0;
@@ -4159,7 +4337,7 @@
     if (!cryptoOk()) return false;
     let p = null;
     try { p = await unpackShare(joinText(text)); } catch (e) { p = null; }
-    if (!p) { toast('That is not a PoleCam join link or company list', 4000); return false; }
+    if (!p) { toast('That is not a G-eSAA join link or company list', 4000); return false; }
     if (p.kind !== 'PCT') { toast('That is an admin request from an older version. Since v2.1 admins are the staff of the admin company: choose that company in your profile and enter the admin PIN.', 6000); return false; }
     try {
       const r = await acceptTeam(p.obj, teamSwitch || !S.team, opts);
@@ -4213,7 +4391,7 @@
   /** A join link, an invite (company key, maybe with the list) or the list text itself. */
   async function handleInvite(text, sw) {
     const t = String(text || '').trim(), ck = (/[#&?]ck=([A-Za-z0-9%-]+)/.exec(t) || [])[1], hasList = /[#&]join=|^PCT[01]:/.test(t);
-    if (!hasList && !ck) { toast('That is not a PoleCam invite or join link', 4000); return false; }
+    if (!hasList && !ck) { toast('That is not a G-eSAA invite or join link', 4000); return false; }
     if (hasList) { teamSwitch = !!sw || !S.team || !!ck; try { await importTeamText(t, { quiet: !!ck }); } finally { teamSwitch = false; } }
     if (!ck) return true;
     let key = ck; try { key = decodeURIComponent(ck); } catch (e) { /* as is */ }
@@ -4267,10 +4445,10 @@
     const text = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k }), link = joinLink(text);
     qrLink = link;
     await showQr(`Join ${S.team.name}`, note || `Version ${S.team.rev} · ${teamCos().length} companies. Scan this with the phone's camera, or send the join link.`, link || text,
-      { name: `PoleCam_company_list_${C.safeName(S.team.name)}_v${S.team.rev}.json`, data: JSON.stringify({ app: 'PoleCam', type: 'company-list', name: S.team.name, version: S.team.rev, data: text }) });
+      { name: `G-eSAA_company_list_${C.safeName(S.team.name)}_v${S.team.rev}.json`, data: JSON.stringify({ app: 'PoleCam', type: 'company-list', name: S.team.name, version: S.team.rev, data: text }) });
   }
   $('qrClose').addEventListener('click', () => closeSheet());
-  $('qrLinkBtn').addEventListener('click', () => guard(async () => { if (qrLink) await shareText(qrLink, `Join ${S.team ? S.team.name : 'PoleCam'}`); }, 'Not sent'));
+  $('qrLinkBtn').addEventListener('click', () => guard(async () => { if (qrLink) await shareText(qrLink, `Join ${S.team ? S.team.name : 'G-eSAA'}`); }, 'Not sent'));
   /** Send a short text (a join link): the share sheet, else copy it. */
   async function shareText(text, title) {
     if (NATIVE) { try { await nativeCall('Share', 'share', { title, text, dialogTitle: title }); return; } catch (e) { if (/cancel/i.test(String(e && e.message))) return; } }
@@ -4754,7 +4932,7 @@
   });
   function renderAdmDraft() {
     const box = $('admCos'); box.innerHTML = '';
-    if (!admDraft.co.length) box.innerHTML = '<p class="hint" style="margin:0">No companies yet. Add each company or vendor that will use PoleCam.</p>';
+    if (!admDraft.co.length) box.innerHTML = '<p class="hint" style="margin:0">No companies yet. Add each company or vendor that will use G-eSAA.</p>';
     admDraft.co.forEach((c, i) => {
       const row = document.createElement('div'); row.className = 'co-item';
       const t = document.createElement('span'); t.textContent = c;
@@ -5057,7 +5235,7 @@
       const hdr = pmtilesHeader(new Uint8Array((await new PackSource(st.id).getBytes(0, 127)).data));
       if (!hdr || hdr.tileType !== 1) {
         await removePackData(st); delete S.packs[st.id]; persist();
-        throw new Error(hdr ? 'This map file has picture tiles; PoleCam needs a vector map pack (.pmtiles from Protomaps)' : 'This file is not a map pack (.pmtiles, PMTiles version 3)');
+        throw new Error(hdr ? 'This map file has picture tiles; G-eSAA needs a vector map pack (.pmtiles from Protomaps)' : 'This file is not a map pack (.pmtiles, PMTiles version 3)');
       }
       Object.assign(st, { bbox: st.bbox || hdr.bbox, maxzoom: hdr.maxzoom, done: true });
       if (!S.activePack) S.activePack = st.id;
@@ -5214,7 +5392,7 @@
     const f = e.target.files[0]; if (!f) return;
     const hdr = pmtilesHeader(new Uint8Array(await f.slice(0, 127).arrayBuffer()));
     if (!hdr) { toast('That file is not a map pack (.pmtiles). Choose the .pmtiles file you downloaded.', 6000); return; }
-    if (hdr.tileType !== 1) { toast('That map file has picture tiles; PoleCam needs a vector map pack (.pmtiles from Protomaps)', 6000); return; }
+    if (hdr.tileType !== 1) { toast('That map file has picture tiles; G-eSAA needs a vector map pack (.pmtiles from Protomaps)', 6000); return; }
     const base = f.name.replace(/\.pmtiles$/i, ''), id = `file-${C.safeName(base).toLowerCase()}-${f.size}`;
     const known = packCatalog().find((x) => x.size === f.size && (x.name || '').toLowerCase().replace(/[^a-z0-9]/g, '').includes(C.safeName(base).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8)));
     await runPackJob({ id: known && known.drive ? known.id : id, name: known ? known.name : base.replace(/[_-]+/g, ' '), size: f.size, bbox: hdr.bbox, maxzoom: hdr.maxzoom }, pumpFile(f), 'Importing');
@@ -5240,13 +5418,13 @@
   const logTime = (t) => { const d = new Date(t); return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`; };
   const logLine = (x) => `${logTime(x.t)} ${{ i: 'I', w: 'W', e: 'E' }[x.l] || '?'} ${x.e}${x.d !== undefined ? ' ' + (typeof x.d === 'string' ? x.d : JSON.stringify(x.d)) : ''}`;
   async function logReport() {
-    const info = { app: `PoleCam ${APP_VER}`, apk: NATIVE, ua: navigator.userAgent, memoryGB: navigator.deviceMemory, cores: navigator.hardwareConcurrency,
+    const info = { app: `G-eSAA ${APP_VER}`, apk: NATIVE, ua: navigator.userAgent, memoryGB: navigator.deviceMemory, cores: navigator.hardwareConcurrency,
       screen: `${screen.width}×${screen.height} @${devicePixelRatio}`, opfs: OPFS_OK, base: S.base, streetServer: streetSource().name, records: points.length, projects: allProjects().length,
       photoCheck: effectiveQuality(), heapMB: memMB(), list: S.team ? `v${S.team.rev}` : 'none' };
     try { const e = await withTimeout(navigator.storage.estimate(), 3000, 'slow'); info.storageUsedMB = Math.round((e.usage || 0) / 1048576); info.storageQuotaMB = Math.round((e.quota || 0) / 1048576); } catch (e) { /* ignore */ }
     for (const st of ['points', 'photos', 'tiles', 'packs']) { try { info[`count_${st}`] = await withTimeout(dbCount(st), 5000, 'slow'); } catch (e) { info[`count_${st}`] = `error: ${e.message}`; } }
     const lines = LOG.all().map(logLine);
-    return `PoleCam app log — ${logTime(Date.now())}\n${Object.entries(info).map(([k, v]) => `${k}: ${v}`).join('\n')}\n\n${lines.join('\n')}\n`;
+    return `G-eSAA app log — ${logTime(Date.now())}\n${Object.entries(info).map(([k, v]) => `${k}: ${v}`).join('\n')}\n\n${lines.join('\n')}\n`;
   }
   function renderLog() {
     const all = LOG.all(), errs = all.filter((x) => x.l === 'e').length, warns = all.filter((x) => x.l === 'w').length;
@@ -5256,7 +5434,7 @@
   }
   $('goLog').addEventListener('click', () => { LOG.flush(); renderLog(); openSheet('logSheet'); });
   $('logShare').addEventListener('click', () => guard(async () => {
-    const text = await logReport(), name = `PoleCam_log_${stamp8()}.txt`;
+    const text = await logReport(), name = `G-eSAA_log_${stamp8()}.txt`;
     await shareFile(new Blob([text], { type: 'text/plain' }), name, 'text/plain');
   }, 'Could not send the log'));
   $('logCopy').addEventListener('click', async () => {

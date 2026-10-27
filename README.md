@@ -1,4 +1,8 @@
-# PoleCam Survey
+# G-eSAA
+
+**G-eSAA — Geo electronic Survey, Audit & Acceptance** (formerly *PoleCam Survey*): one field app that turns the paper and spreadsheet work of OSP **survey, audit and acceptance** into digital records — geotagged photos, pins checked against GPS, and the reports and drawings made from them.
+
+Since v2.13 the name and icon are G-eSAA. Internal names stay *polecam* (phone storage, links, data files, the Android app ID), so phones and the APK update in place and keep every project.
 
 Four task categories per project: **Survey** (As-plan or As-built), **PAT**, **Defect cleanup** and **FAT** (acceptance **List of Deficiencies** on the office form — see "Acceptance mode"). The category shows on the project button at the top right. One shareable **KMZ** carries the PAT to the contractor's cleanup and on to the FAT (v2.5).
 
@@ -111,7 +115,7 @@ New users only enter **name, mobile, email and the company key**. The key tells 
 | Stage | Who | Steps (the app ticks them off) |
 |---|---|---|
 | **Survey** (As-plan or As-built) | survey team / contractor | Optional: load the **HLD KMZ** (route, homing, POI) as a reference · 1 Capture the poles (photo → ID scan → pin check; *No tag → NPT* for untagged poles) · 2 Link the route (follow the HLD or reroute where it is not doable) · 3 Export for design (KMZ, DXF, CSV, photos; file names carry ASPLAN / ASBUILT) · 4 Back up |
-| **PAT** (provisional acceptance) | contractor (construction vendor), Globe representative signs | 1 Form details · 2 **Record the defects**: only the elements with defects, each tagged N, D or MD (the defect form opens with the editor; a new PAT record cannot be saved without one) · 3 Export the Deficiency List · 4 **Share the PAT KMZ** with the contractor |
+| **PAT** (provisional acceptance) | contractor (construction vendor), Globe representative signs | 1 Form details · 2 **Record the defects**: only the elements with defects, each tagged N, D or MD. Photograph **the defect itself**, not the pole or ODF (v2.13): the photo becomes the as-found photo of the defect form that opens with it; a new PAT record cannot be saved without a defect · 3 Export the Deficiency List · 4 **Share the PAT KMZ** with the contractor |
 | **Defect cleanup** | contractor | 1 Open the PAT KMZ (Projects → **+ New project** → Defect Cleanup → PAT KMZ) · 2 Walk to each red pin: tap it → **📷 Photo of the fix** (or *Fixed, no photo*), **💬 Comment** · 3 **Share the cleanup KMZ** for the FAT |
 | **FAT** (final acceptance) | contractor, Globe representative signs | 1 Open the cleanup KMZ (or the PAT KMZ) · 2 Walk to each pin: **✓ Accept**, **📷 Accept with photo** or **✗ Reject** with a reason · 3 Export the final Deficiency List (as found → fixed → checked photos in Annex A) and the rectification report |
 
@@ -376,13 +380,35 @@ Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v2.1.1`), and upload 
 
 Map data © OpenStreetMap contributors (ODbL); offline packs from the Protomaps basemap build. Satellite imagery © Esri (online only).
 
+## Survey points: As-plan, As-built, Audit (v2.13)
+
+A survey records the poles and, as **their own pins**, the network elements around them. In the editor choose the **Element**; typing an ID with its prefix picks it for you (FDU_ → ODF, NAP- → NAP, CL- → closure, HH- → handhole, ODC- → ODC).
+
+| Element | ID | As-plan | As-built | Audit |
+|---|---|---|---|---|
+| **Pole** | CC-0001, WP-, SP-, GT-… | every pole, with its photo | the poles used | existing poles |
+| **Site** | site name or PLA ID | New or Existing site | New (built) / Existing (used) | Existing |
+| **ODC** | ODC-01 | Proposed location or Existing | New (built) / Existing (used) | Existing |
+| **ODF** | FDU_100 | Proposed location, or the Existing ODF at homing to use | New (built) / Existing (used) | Existing |
+| **NAP** | NAP-0001 | Existing NAP | New (built) / Existing (used) | Existing |
+| **Closure** (POI on a pole) | CL-0001 | Existing closure (point of insertion) | New (built) / Existing (used) | Existing |
+| **Handhole** | HH-0001 + the **closure ID** inside (that makes it a POI) | Existing | New (built) / Existing (used) | Existing |
+
+- **Remarks** on every point (condition, what to use, audit findings) go to the CSV, KMZ and route Excel.
+- **Red box:** under the photo tap **▭ Red box** and drag around the spot (the proposed ODF location, the existing ODF to use…); draw several if needed. **Done** burns the boxes into the photo, which then exports, prints and syncs like any photo. The record is tagged *red box*.
+- **Map:** non-pole points are labelled squares (SITE, ODC, ODF, NAP, CL, HH); a dashed border is proposed / new.
+- **Route:** poles, handholes, the site, ODC and ODF are route points. *Link in capture order* links poles and handholes; link the site, ODC and ODF by hand. NAP and closure pins sit on a pole and are not linked.
+- **As-plan completion rule:** *Mark task complete* and the completion report need every pole with a photo, **the site**, **an ODF or ODC location** and **a POI** (a closure, or a handhole with its closure ID). The checklist shows what is missing.
+- **Exports:** KMZ folders per element (Poles, Sites, ODC, ODF, NAP, Closures (POI), Handholes) with the status in the balloon; DXF blocks per element and status (`ODF_PROPOSED`, `NAP_EXISTING`, `HANDHOLE_EXISTING`…; poles stay `POLE_<type>`); CSV columns `element, status, closure_id, remarks, red_box` added at the end; route Excel sheet *Points* with element and status; the completion report shows the poles collage, then the other points.
+
 ## Offline Android APK (built by GitHub Actions)
 
 `.github/workflows/build-apk.yml` packs every app file into a signed APK on GitHub's servers, so the APK installs and runs with no internet. Map packs come from Google Drive or a file, and the street/satellite maps need internet.
 
 - One-time setup: add the repository secrets `POLECAM_KEYSTORE_B64` and `POLECAM_KEYSTORE_PASSWORD` (Settings → Secrets and variables → Actions). Keep the keystore file and password safe: every future APK must be signed with the same key, or phones will refuse the update.
-- Each time app files change on `main`, a new APK is built (about 5–8 minutes) and published under **Releases**. Newest APK: `https://github.com/<user>/polecam/releases/latest/download/PoleCam.apk`.
-- In the APK, *Save* writes exports to the phone's **Documents/PoleCam** folder and *Share* opens Android's share sheet.
+- Each time app files change on `main`, a new APK is built (about 5–8 minutes) and published under **Releases**. Newest APK: `https://github.com/<user>/polecam/releases/latest/download/G-eSAA.apk` (since v2.13; the same file is also published as `PoleCam.apk`, so old links keep working).
+- The APK shows as **G-eSAA** on the phone. Its Android app ID is unchanged (`com.marktamse.polecam`), so it installs over PoleCam and keeps the projects; keep the same signing key and secrets.
+- In the APK, *Save* writes exports to the phone's **Documents/G-eSAA** folder on new installs (phones that already used PoleCam keep their **Documents/PoleCam** folder; change it in Settings → Export settings → Folder name) and *Share* opens Android's share sheet.
 - The APK keeps its own data, separate from the Chrome/Home-screen version. Move projects with Backup → Restore.
 - Updating: install the newer APK over the old one; projects stay. Uninstalling the app deletes its projects, so back up first.
 
@@ -484,6 +510,14 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.13
+
+- **New name and icon: G-eSAA** (Geo electronic Survey, Audit & Acceptance; v2.13.1). Installs over PoleCam and keeps all projects (see the top of this file).
+- **PAT, defect cleanup, FAT: photos of defects only.** The capture photo is the as-found photo of the defect (the defect form opens with it); no pole, ODF or closure photo is taken. Fix photos (cleanup) and verified photos (FAT) are per item as before. Records from older versions keep their element photos.
+- **Survey points:** site, ODC, ODF, NAP, closure (POI) and handhole as their own pins, with a status per purpose (As-plan proposed / existing, As-built new / existing, Audit existing), remarks, and a **red box** burned into the photo. See "Survey points".
+- **As-plan surveys** can be completed only with every pole photographed, the site, an ODF or ODC location and a POI.
+- No change to the online sheet script.
 
 ## What changed in v2.12
 

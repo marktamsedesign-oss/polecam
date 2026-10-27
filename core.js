@@ -101,7 +101,7 @@
     const desc = meta.description || '';
     const ifd0 = [
       { tag: 0x010E, type: 2, bytes: ascii(desc) },            // ImageDescription
-      { tag: 0x0131, type: 2, bytes: ascii('PoleCam') },        // Software
+      { tag: 0x0131, type: 2, bytes: ascii('G-eSAA') },        // Software
       { tag: 0x0132, type: 2, bytes: ascii(date) },             // DateTime
       ...(meta.artist ? [{ tag: 0x013B, type: 2, bytes: ascii(meta.artist) }] : []), // Artist: who exported the photo
       { tag: 0x9C9B, type: 1, bytes: ucs2(meta.title || '') },   // XPTitle (Windows)
@@ -291,24 +291,32 @@
    * points: [{id, poleId, poleType, lat, lon, alt, accuracy, takenAt, photoName, iconName}]
    * opts: {project, photoIcons:boolean, stamped:boolean (balloon photos carry the caption band), stampFields:[...]}
    */
+  /* Survey points other than poles (v2.13): their folder in Google Earth and their pin when there is no photo icon. */
+  const KML_EL = { Pole: ['Poles', 'red-circle'], Site: ['Sites', 'purple-stars'], ODC: ['ODC', 'grn-square'], ODF: ['ODF', 'blu-square'],
+    NAP: ['NAP', 'ylw-diamond'], Closure: ['Closures (POI)', 'pink-diamond'], Handhole: ['Handholes', 'wht-square'] };
   function buildKml(points, opts) {
     const o = opts || {};
-    const styles = [], marks = [];
+    const styles = [], marks = {};
     for (const p of points) {
-      const sid = 's_' + p.id;
-      const href = o.photoIcons && p.iconName ? `files/${p.iconName}` : 'http://maps.google.com/mapfiles/kml/paddle/red-circle.png';
+      const sid = 's_' + p.id, el = KML_EL[p.element] ? p.element : 'Pole';
+      const href = o.photoIcons && p.iconName ? `files/${p.iconName}` : `http://maps.google.com/mapfiles/kml/paddle/${KML_EL[el][1]}.png`;
       styles.push(`<Style id="${sid}"><IconStyle><scale>${o.photoIcons ? 1.4 : 1.0}</scale><Icon><href>${xmlEsc(href)}</href></Icon></IconStyle><LabelStyle><scale>0.9</scale></LabelStyle></Style>`);
       const img = p.photoName ? `<img src="files/${xmlEsc(p.photoName)}" width="480"/>` : '';
       // The balloon title is already the Pole ID; lines the stamped photo already shows are not repeated under it.
       const onPhoto = new Set(p.photoName && o.stamped ? (o.stampFields || ['id', 'coords', 'utm', 'time', 'by', 'project']) : []);
       const lines = [];
+      if (el !== 'Pole') lines.push(xmlEsc([el, p.statusLabel || p.status, p.closureId ? `closure ${p.closureId}` : ''].filter(Boolean).join(' · ')));
       if (!onPhoto.has('id') && p.poleType) lines.push(`${xmlEsc(p.poleType)} pole`);
+      if (p.remarks) lines.push(xmlEsc(p.remarks));
+      if (p.boxes) lines.push('Red box marked on the photo');
       if (!onPhoto.has('coords')) lines.push(`${p.lat.toFixed(7)}, ${p.lon.toFixed(7)}${Number.isFinite(p.accuracy) ? ` (GPS ±${p.accuracy.toFixed(1)} m${p.adjusted ? ', pin adjusted' : ''})` : ''}`);
       if (!onPhoto.has('time') && fmtDate(p.takenAt)) lines.push(`Captured ${xmlEsc(fmtDate(p.takenAt))}`);
       const desc = img + (img && lines.length ? '<br/>' : '') + lines.join('<br/>');
-      marks.push(`<Placemark><name>${xmlEsc(p.poleId)}</name><styleUrl>#${sid}</styleUrl>` +
+      (marks[el] = marks[el] || []).push(`<Placemark><name>${xmlEsc(p.poleId)}</name><styleUrl>#${sid}</styleUrl>` +
         `<description><![CDATA[${desc.replace(/]]>/g, ']]&gt;')}]]></description>` +
         `<ExtendedData><Data name="pole_id"><value>${xmlEsc(p.poleId)}</value></Data><Data name="pole_type"><value>${xmlEsc(p.poleType)}</value></Data>` +
+        `<Data name="element"><value>${xmlEsc(el)}</value></Data><Data name="status"><value>${xmlEsc(p.status || '')}</value></Data>` +
+        (p.closureId ? `<Data name="closure_id"><value>${xmlEsc(p.closureId)}</value></Data>` : '') + (p.remarks ? `<Data name="remarks"><value>${xmlEsc(p.remarks)}</value></Data>` : '') +
         `<Data name="captured"><value>${xmlEsc(p.takenAt)}</value></Data><Data name="accuracy_m"><value>${Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : ''}</value></Data></ExtendedData>` +
         `<Point><coordinates>${p.lon.toFixed(8)},${p.lat.toFixed(8)},0</coordinates></Point></Placemark>`);
     }
@@ -322,7 +330,8 @@
       route = `<Folder><name>Route (${o.spans.length} spans, ${o.spans.reduce((t, s) => t + s.len, 0).toFixed(0)} m)</name>\n${lines.join('\n')}\n</Folder>\n`;
     }
     const by = o.exportedBy ? `<description>${xmlEsc(o.exportedBy)}</description><ExtendedData><Data name="exported_by"><value>${xmlEsc(o.exportedBy)}</value></Data></ExtendedData>\n` : '';
-    return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xmlEsc(o.project || 'PoleCam')}</name>\n${by}${styles.join('\n')}\n${route}<Folder><name>Poles</name>\n${marks.join('\n')}\n</Folder></Document></kml>\n`;
+    const folders = Object.keys(KML_EL).filter((k) => marks[k]).map((k) => `<Folder><name>${KML_EL[k][0]}</name>\n${marks[k].join('\n')}\n</Folder>`).join('\n') || '<Folder><name>Poles</name>\n</Folder>';
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xmlEsc(o.project || 'G-eSAA')}</name>\n${by}${styles.join('\n')}\n${route}${folders}</Document></kml>\n`;
   }
 
   /* ---------------- DXF (R12 ASCII) ---------------- */
@@ -336,6 +345,8 @@
   }
   function dxfLayerName(s) { return String(s).toUpperCase().replace(/[^A-Z0-9_\-$]/g, '_').slice(0, 31) || 'LAYER'; }
   const blockName = (type) => dxfLayerName('POLE_' + (type || 'UNSPECIFIED'));
+  /** Block / layer of a point: POLE_<type> for poles, <ELEMENT>_<STATUS> for the other survey points (e.g. ODF_PROPOSED). */
+  const pointBlock = (p) => (!p.element || p.element === 'Pole' ? blockName(p.poleType || 'UNSPECIFIED') : dxfLayerName(`${p.element}_${p.status || 'UNSPECIFIED'}`));
 
   /**
    * points: [{poleId, poleType, lat, lon}], roads: [{cls, name, coords:[[lat,lon],...]}]
@@ -353,12 +364,12 @@
     for (const p of all) { minX = Math.min(minX, p.E); minY = Math.min(minY, p.N); maxX = Math.max(maxX, p.E); maxY = Math.max(maxY, p.N); }
     if (!all.length) { minX = minY = 0; maxX = maxY = 1; }
 
-    const types = [...new Set(points.map((p) => p.poleType || 'UNSPECIFIED'))];
+    const blocks = [...new Map(points.map((p) => [pointBlock(p), p.element && p.element !== 'Pole' ? p.element : 'Pole'])).entries()]; // [block, element]
     const roadClasses = [...new Set(roadXY.map((r) => r.cls))];
     // colors: ACI
     const palette = [1, 5, 3, 6, 4, 30, 2, 140];
     const layers = [['0', 7], ['POLE_LABEL', 7], ['ROAD_NAME', 8], ...(o.exportedBy ? [['EXPORT_INFO', 8]] : [])];
-    types.forEach((t, i) => layers.push([blockName(t), palette[i % palette.length]]));
+    blocks.forEach(([bn], i) => layers.push([bn, palette[i % palette.length]]));
     const roadColor = { OSM_ROAD_MAJOR: 9, OSM_ROAD_MINOR: 8, OSM_ROAD_PATH: 253 };
     roadClasses.forEach((c) => layers.push([c, roadColor[c] || 8]));
     if (spanXY.length) layers.push(['CABLE_ROUTE', 4], ['SPAN_LONG', 1], ['SPAN_LENGTH', 7]);
@@ -384,16 +395,26 @@
     g(0, 'ENDTAB');
     g(0, 'ENDSEC');
 
-    // Blocks: one per pole type (redefine in AutoCAD to swap in your own pole model)
+    // Blocks: one per pole type and per element + status (redefine in AutoCAD to swap in your own symbols)
     const r = o.symbolSize;
+    const ln = (x1, y1, x2, y2) => { g(0, 'LINE'); g(8, '0'); g(10, x1); g(20, y1); g(30, 0); g(11, x2); g(21, y2); g(31, 0); };
+    const poly = (pts) => pts.forEach((a, k) => { const b = pts[(k + 1) % pts.length]; ln(a[0], a[1], b[0], b[1]); });
+    const sq = (k) => poly([[-k, -k], [k, -k], [k, k], [-k, k]]);
     g(0, 'SECTION'); g(2, 'BLOCKS');
-    types.forEach((t, i) => {
-      const bn = blockName(t);
+    let poleIx = 0;
+    blocks.forEach(([bn, el]) => {
       g(0, 'BLOCK'); g(8, '0'); g(2, bn); g(70, 0); g(10, 0); g(20, 0); g(30, 0); g(3, bn);
-      g(0, 'CIRCLE'); g(8, '0'); g(10, 0); g(20, 0); g(30, 0); g(40, r);
-      const style = i % 4;   // distinguish types visually until replaced
-      if (style === 1 || style === 3) { g(0, 'LINE'); g(8, '0'); g(10, -r); g(20, 0); g(30, 0); g(11, r); g(21, 0); g(31, 0); g(0, 'LINE'); g(8, '0'); g(10, 0); g(20, -r); g(30, 0); g(11, 0); g(21, r); g(31, 0); }
-      if (style === 2 || style === 3) { g(0, 'CIRCLE'); g(8, '0'); g(10, 0); g(20, 0); g(30, 0); g(40, r / 2); }
+      if (el === 'Pole') {
+        g(0, 'CIRCLE'); g(8, '0'); g(10, 0); g(20, 0); g(30, 0); g(40, r);
+        const style = poleIx++ % 4;   // distinguish pole types visually until replaced
+        if (style === 1 || style === 3) { ln(-r, 0, r, 0); ln(0, -r, 0, r); }
+        if (style === 2 || style === 3) { g(0, 'CIRCLE'); g(8, '0'); g(10, 0); g(20, 0); g(30, 0); g(40, r / 2); }
+      } else if (el === 'Site') { sq(r * 1.4); ln(-r * 1.4, -r * 1.4, r * 1.4, r * 1.4); ln(-r * 1.4, r * 1.4, r * 1.4, -r * 1.4); }
+      else if (el === 'ODC') sq(r * 1.2);
+      else if (el === 'ODF') { sq(r * 1.2); sq(r * 0.6); }
+      else if (el === 'NAP') poly([[0, r * 1.2], [r * 1.1, -r * 0.8], [-r * 1.1, -r * 0.8]]);
+      else if (el === 'Closure') poly([[0, r * 1.2], [r * 1.2, 0], [0, -r * 1.2], [-r * 1.2, 0]]);
+      else { sq(r * 1.2); ln(-r * 1.2, -r * 1.2, r * 1.2, r * 1.2); } // handhole
       g(0, 'ENDBLK'); g(8, '0');
     });
     g(0, 'ENDSEC');
@@ -425,7 +446,7 @@
       g(0, 'TEXT'); g(8, 'SPAN_LENGTH'); g(10, x.toFixed(3)); g(20, y.toFixed(3)); g(30, 0); g(40, th.toFixed(3)); g(1, t); g(50, ang.toFixed(2));
     }
     points.forEach((p, i) => {
-      const { E, N } = xy[i], bn = blockName(p.poleType || 'UNSPECIFIED');
+      const { E, N } = xy[i], bn = pointBlock(p);
       g(0, 'INSERT'); g(8, bn); g(2, bn); g(10, E.toFixed(3)); g(20, N.toFixed(3)); g(30, 0);
       g(0, 'TEXT'); g(8, 'POLE_LABEL'); g(10, (E + r * 1.3).toFixed(3)); g(20, (N + r * 0.3).toFixed(3)); g(30, 0);
       g(40, o.textHeight.toFixed(3)); g(1, dxfText(p.poleId));
@@ -437,11 +458,13 @@
   /* ---------------- CSV ---------------- */
   function buildCsv(points, zone, exportedBy) {
     const q = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-    const rows = [['pole_id', 'pole_type', 'latitude', 'longitude', `utm${zone}n_easting`, `utm${zone}n_northing`, 'gps_accuracy_m', 'pin_adjusted', 'captured', 'photo', 'surveyed_by', ...(exportedBy ? ['exported_by'] : [])]];
+    const rows = [['pole_id', 'pole_type', 'latitude', 'longitude', `utm${zone}n_easting`, `utm${zone}n_northing`, 'gps_accuracy_m', 'pin_adjusted', 'captured', 'photo', 'surveyed_by',
+      'element', 'status', 'closure_id', 'remarks', 'red_box', ...(exportedBy ? ['exported_by'] : [])]];
     for (const p of points) {
       const u = utmForward(p.lat, p.lon, zone, p.lat < 0);
       rows.push([p.poleId, p.poleType, p.lat.toFixed(8), p.lon.toFixed(8), u.E.toFixed(3), u.N.toFixed(3),
-        Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : '', p.adjusted ? 'yes' : 'no', p.takenAt, p.photoName || '', p.by || '', ...(exportedBy ? [exportedBy] : [])]);
+        Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : '', p.adjusted ? 'yes' : 'no', p.takenAt, p.photoName || '', p.by || '',
+        p.element || 'Pole', p.status || '', p.closureId || '', p.remarks || '', p.boxes ? 'yes' : 'no', ...(exportedBy ? [exportedBy] : [])]);
     }
     return '﻿' + rows.map((r) => r.map(q).join(',')).join('\r\n') + '\r\n';
   }
