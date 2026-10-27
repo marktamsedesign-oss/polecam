@@ -532,12 +532,22 @@
     }
     return shapeOf(out) === target ? out : null;
   }
-  /* Known ID formats: poles CC-0001 / WP-0001 / SP-0001 (concrete, wood, steel), ODFs FDU_100. */
-  const KNOWN_PREFIX = ['CC', 'WP', 'SP', 'FDU'];
+  /* Known ID formats: poles PREFIX-number — CC-0001 / WP-0001 / SP-0001 (concrete, wood, steel, 4 digits), GT- (Globe),
+     BT- (Bayantel) and any prefix added by the admin or the user (e.g. PLDT-), numbers as painted — and ODFs FDU_100. */
+  let POLE_PREFIX = ['CC', 'WP', 'SP', 'GT', 'BT'];
+  const PAD4 = ['CC', 'WP', 'SP'];
+  let KNOWN_PREFIX = POLE_PREFIX.concat('FDU');
+  /** The app tells the reader which pole prefixes exist (built-in + admin + user). */
+  function setPolePrefixes(list) {
+    POLE_PREFIX = [...new Set((list || []).map((x) => String(x).toUpperCase()).filter((x) => /^[A-Z]{2,6}$/.test(x) && x !== 'FDU'))];
+    KNOWN_PREFIX = POLE_PREFIX.concat('FDU');
+  }
+  // letters OCR mixes up on stencils: a one-letter misread is only corrected along these pairs when several prefixes are near
+  const LOOKALIKE = ['CG', 'GC', 'OD', 'DO', 'OQ', 'QO', 'IL', 'LI', 'IT', 'TI', 'UV', 'VU', 'PR', 'RP', 'BE', 'EB', 'BP', 'PB', 'WV', 'VW', 'SB', 'BS', 'MN', 'NM', 'TJ', 'JT'];
   function knownId(raw) {
     const s = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     let best = null;
-    for (const L of [3, 2]) {
+    for (const L of [...new Set(KNOWN_PREFIX.map((k) => k.length))].sort((a, b) => b - a)) {
       if (s.length <= L) continue;
       const rawNum = s.slice(L), misread = (rawNum.match(/[A-Z]/g) || []).length;
       if (!/[0-9]/.test(rawNum) || misread * 2 > rawNum.length) continue; // the number must be mostly real digits (SPOT is not SP-0001)
@@ -546,11 +556,12 @@
       if (!/^[0-9]{1,6}$/.test(num)) continue;
       let p = KNOWN_PREFIX.includes(pre) ? pre : null, fuzzy = false;
       if (!p) { // one misread letter, e.g. GC -> CC, FOU -> FDU (only when it points to a single known prefix)
-        const near = KNOWN_PREFIX.filter((k) => k.length === L && [...k].filter((ch, i) => ch !== pre[i]).length === 1);
+        let near = KNOWN_PREFIX.filter((k) => k.length === L && [...k].filter((ch, i) => ch !== pre[i]).length === 1);
+        if (near.length > 1) near = near.filter((k) => [...k].every((ch, i) => ch === pre[i] || LOOKALIKE.includes(pre[i] + ch)));
         if (near.length === 1) { p = near[0]; fuzzy = true; }
       }
       if (!p) continue;
-      const id = p === 'FDU' ? `FDU_${num}` : `${p}-${num.padStart(4, '0')}`;
+      const id = p === 'FDU' ? `FDU_${num}` : `${p}-${PAD4.includes(p) ? num.padStart(4, '0') : num}`;
       if (!best || (best.fuzzy && !fuzzy)) best = { id, prefix: p, fuzzy };
     }
     return best;
@@ -631,7 +642,7 @@
     return out;
   }
 
-  const api = { parseCsv, companiesFromCsv, utmForward, analyzeRoute, autoLinks, distM, deflection, idCandidates, fitShape, knownId, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
+  const api = { parseCsv, companiesFromCsv, utmForward, analyzeRoute, autoLinks, distM, deflection, idCandidates, fitShape, knownId, setPolePrefixes, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
     buildKml, buildDxf, buildCsv, roadsFromOverpass, overpassQuery, nextPoleId, safeName, xmlEsc, blockName };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleCore = api;
 })(typeof self !== 'undefined' ? self : this);

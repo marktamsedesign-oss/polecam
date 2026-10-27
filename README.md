@@ -9,7 +9,7 @@ One phone app that replaces GPS Camera + the Windows geolocator step:
 1. **Capture** – take the pole photo inside the app; GPS is recorded at the shutter (green shutter = GPS ready).
 2. **Scan the ID** – right after the photo, fit the painted ID (pole, ODF or any other) in the box; horizontal or vertical IDs.
 3. **Correct the pin** – drag the map under the slim pin until it sits on the pole; switch street / satellite / offline map while you do it.
-4. **Pole ID + type** – Concrete (CC), Wood (WP), Steel (SP): IDs CC-0001, WP-0001, SP-0001; ODFs FDU_100. The next ID is suggested; duplicates are flagged.
+4. **Pole ID + type** – Concrete (CC), Wood (WP), Steel (SP): IDs CC-0001, WP-0001, SP-0001; Globe (GT) and Bayantel (BT) poles keep the number painted on them (GT-88123); other owners (PLDT-, …) are added by the admin for everyone or with “+ Other prefix” on one phone. ODFs FDU_100. The next ID is suggested; duplicates are flagged.
 5. **Export** –
    - **KMZ** for Google Earth: pins named by Pole ID, photo as the pin icon, photo in the balloon.
    - **DXF** for AutoCAD: one block per pole type (`POLE_CONCRETE`, `POLE_WOOD`, …) at **UTM Zone 51N (WGS84) meters**, Pole ID text on layer `POLE_LABEL`, plus optional OpenStreetMap road centerlines (`OSM_ROAD_MAJOR` / `MINOR` / `PATH`, road names on `ROAD_NAME`).
@@ -135,7 +135,7 @@ The Excel/CSV punchlist also has *Days to rectify*, *Rectified by*, *Date verifi
 
 **Reading the painted Pole ID (offline)**
 - **Picture first, then the ID (v1.7):** after the photo is kept, a guide box appears. Get close to the painted ID, fit it in the box and tap the shutter. Choose **Horizontal ID** or **Vertical ID** (characters stacked top to bottom, or the whole ID turned sideways); the app remembers your choice. It reads the ID on the phone (Tesseract OCR, no internet).
-- Readings are matched to your formats: CC-/WP-/SP- pole IDs (4 digits) and FDU_ ODF IDs, e.g. "CCO457" becomes CC-0457, and the pole type (or ODF element) is set from the prefix. The field is filled when the reading is at least 55% sure in a known format (80% otherwise); other readings appear as buttons. Always check the result before saving; faded or hand-painted IDs may not read.
+- Readings are matched to your formats: CC-/WP-/SP- pole IDs (4 digits), GT-/BT- and any added prefix (number as painted) and FDU_ ODF IDs, e.g. "CCO457" becomes CC-0457, and the pole type (or ODF element) is set from the prefix. The field is filled when the reading is at least 55% sure in a known format (80% otherwise); other readings appear as buttons. Always check the result before saving; faded or hand-painted IDs may not read.
 - **Scan ID** next to the ID field opens the camera just to read an ID again.
 
 **Route and spans (survey projects)**
@@ -281,3 +281,9 @@ Map data © OpenStreetMap contributors (ODbL); offline packs from the Protomaps 
 - **One place for each thing**: the project and its category are on the top bar only (tap it for Projects); the strip above the navigation shows the status and the next step; the navigation is Records · camera · Export · Settings.
 - **Workflow checklist** per project (Survey, PAT, FAT) with a *Next* button; exports, backups and hand-overs are remembered so the checklist knows what is done.
 - **Map packs per area from QGIS**: the plugin cuts packs along the polygons of a boundary layer (GADM Philippines regions/provinces downloaded in one tap, or any shapefile), with Mindanao / Visayas / Luzon / Metro Manila presets and one pack per area or one merged pack.
+
+## What changed in v2.2
+
+- **Faster, safer photo saving.** The store-ready copy of a photo (2048 px + thumbnail) is now made in the background as soon as the photo passes the check, while the ID is scanned and typed, so **Save only writes to the phone's storage**. Every step has a time limit with a clear message instead of a frozen “Saving photo…”, and a refresh problem after a successful save no longer says “Could not save”. Phones with 48–200 MP cameras are asked for a ~12 MP still (the app keeps 2048 px anyway); a camera that does not deliver the still within 6 s is replaced by the live picture. Settings → Storage shows the timings of the last photo (camera, check, prepare, save) — send that line if saving is still slow.
+- **Map tiles no longer compete with saving**: tile downloads pause while the app saves or exports; satellite imagery is loaded by the WebView again (as in v2.0) instead of through the Android bridge; only OpenStreetMap still needs the bridge, without retries; tiles that left the screen are dropped from the queue.
+- **Pole owner prefixes**: Globe (GT-) and Bayantel (BT-) built in, extra prefixes for everyone in Administration → Field standards, or on one phone with “+ Other prefix” in the editor / Settings → Camera → Pole types. The ID reader knows all of them.

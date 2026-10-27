@@ -354,7 +354,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div id="camMsg" hidden></div>
   <div id="scanPrompt" hidden>
     <b id="scanTitle">Photo kept. Now scan the ID</b>
-    <span id="scanSub">Pole (CC-, WP-, SP-), ODF (FDU_) or any other ID. Fit the painted ID inside the box and tap the shutter.</span>
+    <span id="scanSub">Pole (CC-, WP-, SP-, GT-, BT- …), ODF (FDU_) or any other ID. Fit the painted ID inside the box and tap the shutter.</span>
     <div class="row"><button class="btn" id="orientH" type="button" aria-pressed="true">⇆ Horizontal ID</button><button class="btn" id="orientV" type="button" aria-pressed="false">⇅ Vertical ID</button><button class="btn" id="scanSkip" type="button" style="margin-left:auto">Skip</button></div>
   </div>
   <div id="camStage">
@@ -517,7 +517,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <button class="btn primary" id="doKmz">Export KMZ</button>
     </div>
     <div class="xcard">
-      <div class="head"><span class="ic">DXF</span><div><b>AutoCAD · DXF</b><p>Poles as blocks (POLE_CONCRETE, POLE_WOOD, POLE_STEEL) at <span id="dxfZoneLbl">UTM 51N</span> meters with ID labels; the route on CABLE_ROUTE, long spans on SPAN_LONG.</p></div></div>
+      <div class="head"><span class="ic">DXF</span><div><b>AutoCAD · DXF</b><p>Poles as blocks, one per pole type (POLE_CONCRETE, POLE_GLOBE, …) at <span id="dxfZoneLbl">UTM 51N</span> meters with ID labels; the route on CABLE_ROUTE, long spans on SPAN_LONG.</p></div></div>
       <details><summary>Options</summary><div class="opts">
         <label class="check"><input type="checkbox" id="dxfRoads" checked><span>Add road centerlines from OpenStreetMap around the poles (needs internet)</span></label>
         <div class="opt2"><label class="field">Pole symbol radius (m)<input type="number" id="setSym" step="0.1" min="0.1"></label><label class="field">Label height (m)<input type="number" id="setTxt" step="0.1" min="0.1"></label></div>
@@ -600,7 +600,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <p class="hint help">One company on the list is the <b>admin company</b> (e.g. Globe). Its staff enter the admin PIN once and become admins and inspectors: they manage this list, add deficiencies and verify rectifications. Everyone else is a contractor user. Updates travel by QR code or file, signed so a phone only takes versions made with the admin PIN.</p>
     <div class="sectionh">About</div>
     <div class="group">
-      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.1.0</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
+      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.2.0</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
       <p class="hint" id="policyInfo" style="margin:0"></p>
       <label class="check"><input type="checkbox" id="setShowHelp"><span>Keep the help text on every screen open</span></label>
     </div>
@@ -615,6 +615,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <h3>After each photo</h3>
       <label class="check"><input type="checkbox" id="setReadId"><span>Ask to scan the painted ID after each new photo</span></label>
       <label class="field">Painted IDs are usually<select id="setOrient"><option value="h">Horizontal</option><option value="v">Vertical (stacked or sideways)</option></select></label>
+    </div>
+    <div class="group">
+      <h3>Pole types</h3>
+      <p class="hint" id="typeInfo">–</p>
+      <label class="field">My extra prefixes on this phone, one per line (prefix, then a name)<textarea id="setMyTypes" style="min-height:60px" placeholder="PLDT PLDT pole"></textarea></label>
+      <p class="hint help">Built in: Concrete CC-, Wood WP-, Steel SP- (survey numbering, CC-0001) and Globe GT-, Bayantel BT- (number as painted on the pole). Your admin can add prefixes for everyone; the ones here are only on this phone. In the editor, “+ Other prefix” adds one quickly.</p>
     </div>
     <div class="group">
       <h3>Photo checks</h3>
@@ -676,6 +682,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="group">
       <h3>Records and photos</h3>
       <p class="hint" id="storeInfo">–</p>
+      <p class="hint mono" id="perfInfo" hidden></p>
       <p class="hint">Records and photos live only on this phone until you export or back up. The limit is set by the phone, not by PoleCam: it is a share of the free space and changes as the phone fills up. Make a backup after each field day (Export → Backup).</p>
     </div>
     <div class="group">
@@ -855,6 +862,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <h3>Field standards</h3>
         <div class="row"><label class="field" style="flex:1">Maximum span (m)<input type="number" id="setMaxSpan" step="1" min="5"></label><label class="field" style="flex:1">Angle pole from (°)<input type="number" id="setAngle" step="1" min="1" max="90"></label></div>
         <label class="field">Link in capture order: skip gaps longer than (m)<input type="number" id="setAutoGap" step="5" min="10"></label>
+        <label class="field">Extra pole prefixes for everyone, one per line (prefix, then a name)<textarea id="admPoleTypes" style="min-height:60px" placeholder="PLDT PLDT pole"></textarea></label>
         <label class="field">Photo sharpness required<select id="admQuality"><option value="strict">Strict (recommended)</option><option value="normal">Normal: refuse only clearly blurry</option></select></label>
       </div>
       <div class="group">

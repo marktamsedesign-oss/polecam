@@ -22,9 +22,39 @@
      projects every photo must be live (in-app camera, fresh GPS) and taken within PIN_LIMIT_M of the element. */
   const PIN_LIMIT_M = 1000, MAX_PHOTO_AGE_MS = 2 * 60000, STORE_MAX_PX = 2048; // photos are kept at 2048 px; exports may shrink copies
   /* Pole types are fixed; each has its Pole ID prefix (CC-0001). ODF IDs are FDU_<number>. */
-  const POLE_TYPES = ['Concrete', 'Wood', 'Steel'];
-  const TYPE_PREFIX = { Concrete: 'CC', Wood: 'WP', Steel: 'SP' }, PREFIX_TYPE = { CC: 'Concrete', WP: 'Wood', SP: 'Steel' };
-  const POLE_ID_RE = /^(CC|WP|SP)-(\d+)$/, ODF_ID_RE = /^FDU_(\d+)$/;
+  /* Pole types and their ID prefixes: built in, added by the admin (policy, for every phone) or by the user (this phone). */
+  const BUILTIN_TYPES = [{ n: 'Concrete', p: 'CC' }, { n: 'Wood', p: 'WP' }, { n: 'Steel', p: 'SP' }, { n: 'Globe', p: 'GT' }, { n: 'Bayantel', p: 'BT' }];
+  const PAD4 = ['CC', 'WP', 'SP']; // survey numbering: CC-0001; owner tags (GT-, BT-, PLDT- …) keep the number as painted
+  const ODF_ID_RE = /^FDU_(\d+)$/;
+  function poleTypes() {
+    const out = [], seenP = new Set(), seenN = new Set();
+    const pl = (typeof pol === 'function' && S && S.team && S.team.pol && Array.isArray(S.team.pol.poleTypes)) ? S.team.pol.poleTypes : [];
+    for (const t of BUILTIN_TYPES.concat(pl, (S && S.myTypes) || [])) {
+      const p = String(t.p || '').toUpperCase(), n = String(t.n || p).trim().slice(0, 30);
+      if (!/^[A-Z]{2,6}$/.test(p) || p === 'FDU' || seenP.has(p) || seenN.has(n.toLowerCase())) continue;
+      seenP.add(p); seenN.add(n.toLowerCase()); out.push({ n, p, own: !BUILTIN_TYPES.some((b) => b.p === p) && !pl.some((x) => String(x.p).toUpperCase() === p) });
+    }
+    return out;
+  }
+  const typeNames = () => poleTypes().map((t) => t.n);
+  const typePrefix = (name) => { const t = poleTypes().find((x) => x.n === name); return t ? t.p : ''; };
+  const prefixType = (pre) => { const t = poleTypes().find((x) => x.p === pre); return t ? t.n : ''; };
+  const prefixAlt = () => poleTypes().map((t) => t.p).sort((a, b) => b.length - a.length).join('|');
+  const poleIdRe = () => new RegExp(`^(${prefixAlt()})-(\\d+)$`);
+  const polePartRe = () => new RegExp(`^(${prefixAlt()})-?(\\d*)$`);
+  const padNum = (pre, n, len) => (PAD4.includes(pre) ? String(n).padStart(Math.max(4, len || 0), '0') : String(n).padStart(len || 0, '0'));
+  /** "PLDT PLDT pole" lines -> [{p, n}] (2–6 letter prefix, optional name). */
+  function parseTypeLines(text) {
+    const out = [];
+    for (const line of String(text || '').split('\n')) {
+      const m = /^\s*([A-Za-z]{2,6})(?![A-Za-z])[\s,:-]*(.*)$/.exec(line); if (!m) continue;
+      const p = m[1].toUpperCase(); if (p === 'FDU' || out.some((t) => t.p === p)) continue;
+      out.push({ p, n: (m[2] || '').trim().slice(0, 30) || p });
+    }
+    return out.slice(0, 20);
+  }
+  const typeLines = (list) => (list || []).map((t) => (t.n && t.n !== t.p ? `${t.p} ${t.n}` : t.p)).join('\n');
+  function refreshTypes() { if (window.PoleCore && window.PoleCore.setPolePrefixes) window.PoleCore.setPolePrefixes(poleTypes().map((t) => t.p)); }
   const CATS_FOR = { Pole: ['Pole', 'Cable / strand', 'MLoop', 'NAP', 'Closure', 'Other'], ODF: ['ODF', 'Other'], ODC: ['ODC', 'Cable / strand', 'Other'], Rack: ['Rack', 'ODF', 'Other'] };
   const PHOTO_LABELS = ['Overview', 'Pole tag', 'MLoop', 'NAP', 'Closure', 'Cable', 'ODF', 'ODC', 'Rack', 'Detail'];
   const STATUS_TEXT = { OK: 'No deficiency', Open: 'Open deficiency', Rectified: 'Rectified', Verified: 'Verified' };
@@ -32,7 +62,7 @@
   const SEV_CODE = { Major: 'MD', Minor: 'D', Note: 'N' };
   /* Policies are set by the admin and travel inside the signed company list (S.team.pol), so every phone works to the
      same checklist, form wording, field standards and photo rule. Without a list the defaults below apply. */
-  const POL_DEF = { owner: '', form: {}, defects: null, maxSpan: 200, angleDeg: 15, autoGap: 120, quality: 'strict', inspTypes: ['Physical'] };
+  const POL_DEF = { owner: '', form: {}, defects: null, maxSpan: 200, angleDeg: 15, autoGap: 120, quality: 'strict', inspTypes: ['Physical'], poleTypes: [] };
   function pol() {
     const p = (S.team && S.team.pol) || {};
     return { ...POL_DEF, ...p, form: { ...(p.form || {}) }, defects: p.defects || DEF_CHECK, inspTypes: p.inspTypes || POL_DEF.inspTypes };
@@ -42,7 +72,7 @@
   const isInspector = () => { const o = pol().owner; return !o || !S.user || String(S.user.company || '').toLowerCase() === o.toLowerCase(); };
   const DEF = {
     project: 'Default project', projects: ['Default project'],
-    types: POLE_TYPES.slice(), stamp: true, maxPx: 2048,
+    stamp: true, maxPx: 2048, myTypes: [],
     zone: 51, sym: 1, txt: 1.5, base: 'street', lastPoleId: '', lastType: 'Concrete', view: null, areas: [],
     meta: {}, defects: JSON.parse(JSON.stringify(DEF_CHECK)), userName: '',
     quality: 'strict', readId: true, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
@@ -53,8 +83,10 @@
   let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem('polecam.settings') || '{}')); } catch (e) { return { ...DEF }; } })();
   const persist = () => { try { localStorage.setItem('polecam.settings', JSON.stringify(S)); } catch (e) { /* storage blocked */ } };
   // v1.7: fixed pole types, strict photo check, 200 m maximum span, satellite imagery no longer kept on the phone
-  S.types = POLE_TYPES.slice();
-  if (!POLE_TYPES.includes(S.lastType)) S.lastType = 'Concrete';
+  delete S.types;
+  if (!Array.isArray(S.myTypes)) S.myTypes = [];
+  setTimeout(refreshTypes, 0);
+  if (!BUILTIN_TYPES.some((t) => t.n === S.lastType) && !(S.myTypes || []).some((t) => t.n === S.lastType)) S.lastType = 'Concrete';
   if (S.quality !== 'normal') S.quality = 'strict';
   if (!S.v17) { S.v17 = 1; S.quality = 'strict'; S.maxSpan = 200; S.dropSatTiles = true; }
   S.exp = { ...DEF.exp, ...(S.exp || {}) };
@@ -132,8 +164,10 @@
   }
   let cancelFlag = false;
   $('busyCancel').addEventListener('click', () => { cancelFlag = true; $('busyText').textContent = 'Stopping…'; }); // map pack jobs also listen (see runPackJob)
+  let tileHold = false; // map tiles wait while the app saves or exports, so the phone's network and storage go to the save first
   function busy(text, frac, cancellable) {
-    if (text === false) { $('busy').hidden = true; $('busyCancel').hidden = true; return; }
+    if (text === false) { $('busy').hidden = true; $('busyCancel').hidden = true; if (tileHold) { tileHold = false; if (typeof pumpTiles === 'function') pumpTiles(); } return; }
+    tileHold = true;
     $('busyCancel').hidden = !cancellable;
     $('busy').hidden = false; $('busyText').textContent = text;
     const p = $('busyProg');
@@ -192,11 +226,11 @@
     const recs = points.filter((p) => p.project === S.project && (!ed || p.id !== ed.id));
     const latest = (list) => list.reduce((m, p) => (p.created > m.created ? p : m));
     if (!element || element === 'Pole') {
-      const pre = TYPE_PREFIX[type] || TYPE_PREFIX[S.lastType] || 'CC';
-      const same = recs.filter((p) => elemOf(p) === 'Pole' && (POLE_ID_RE.exec(p.poleId || '') || [])[1] === pre);
+      const pre = typePrefix(type) || typePrefix(S.lastType) || 'CC', re = poleIdRe();
+      const same = recs.filter((p) => elemOf(p) === 'Pole' && (re.exec(p.poleId || '') || [])[1] === pre);
       if (!same.length) return `${pre}-`;
-      const n = POLE_ID_RE.exec(latest(same).poleId)[2];
-      return `${pre}-${String(+n + 1).padStart(Math.max(4, n.length), '0')}`;
+      const n = re.exec(latest(same).poleId)[2];
+      return `${pre}-${padNum(pre, +n + 1, n.length)}`;
     }
     if (element === 'ODF') {
       const same = recs.filter((p) => elemOf(p) === 'ODF' && ODF_ID_RE.test(p.poleId || ''));
@@ -295,7 +329,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.1.0';
+  const APP_VER = '2.2.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `PoleCam/${APP_VER} (+${SITE})`;
@@ -310,14 +344,23 @@
   const nativeGet = (url, headers, responseType) => nativeCall('CapacitorHttp', 'request',
     { url, method: 'GET', headers: { 'User-Agent': APP_UA(), ...(headers || {}) }, responseType: responseType || 'blob', connectTimeout: 20000, readTimeout: 60000 });
   const tileUrl = (src, z, x, y) => SOURCES[src].url.replace('{z}', z).replace('{x}', x).replace('{y}', y);
-  /* At most a few tile requests at a time: a flood of requests is what makes slow connections give up. */
-  const TILE_PAR = 6, TILE_MS = 20000; let tileBusy = 0; const tileQueue = [];
-  const tileSlot = () => new Promise((res) => { if (tileBusy < TILE_PAR) { tileBusy++; res(); } else tileQueue.push(res); });
-  const tileFree = () => { const next = tileQueue.shift(); if (next) next(); else tileBusy--; };
-  /** One tile image from the network (native stack in the APK, fetch on the website); throws on any failure. */
-  async function getTileBlob(url) {
-    if (NATIVE) {
-      const r = await withTimeout(nativeGet(url), TILE_MS, 'timeout');
+  /* Tile requests: at most TILE_PAR at a time, newest first (the view the user is looking at now), tiles that left the
+     screen are dropped, and nothing new starts while the app is saving. */
+  const TILE_PAR = 8, TILE_MS = 15000; let tileBusy = 0; const tileQueue = [];
+  function pumpTiles() {
+    while (!tileHold && tileBusy < TILE_PAR && tileQueue.length) {
+      const j = tileQueue.pop();
+      if (j.alive && !j.alive()) { j.res(false); continue; }
+      tileBusy++; j.res(true);
+    }
+  }
+  const tileSlot = (alive) => new Promise((res) => { tileQueue.push({ res, alive }); pumpTiles(); });
+  const tileFree = () => { tileBusy = Math.max(0, tileBusy - 1); pumpTiles(); };
+  /** One tile image. Only OpenStreetMap in the APK goes through Android's HTTP stack (OSM refuses the APK's localhost page);
+      everything else is a plain browser request, which keeps the bytes off the app's main thread. */
+  async function getTileBlob(url, viaNative) {
+    if (viaNative) {
+      const r = await withTimeout(nativeGet(url, null, 'blob'), TILE_MS, 'timeout');
       if (r.status !== 200) throw new Error(`HTTP ${r.status}`);
       return new Blob([nativeBytes(r.data)], { type: 'image/png' });
     }
@@ -326,11 +369,11 @@
       const r = await fetch(url, { mode: 'cors', credentials: 'omit', signal: ctl.signal });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return await r.blob();
-    } finally { clearTimeout(t); }
+    } catch (e) { throw new Error(e.name === 'AbortError' ? 'timeout' : e.message || String(e)); } finally { clearTimeout(t); }
   }
   function streetFailed() {
     streetState.fails++; streetState.failed++;
-    if (streetState.fails < 5) return;
+    if (streetState.fails < 6) return;
     streetState.fails = 0;
     const auto = !S.streetSrc || S.streetSrc === 'auto';
     if (auto && streetState.auto < STREET_SOURCES.length - 1) {
@@ -343,20 +386,19 @@
       toast(activePackId() ? 'Map servers not reachable — switch to the offline map (layers button)' : 'Map servers not reachable: check the internet connection, or get an offline map pack', 5000);
     }
   }
-  async function fetchTile(src, z, x, y) {
+  async function fetchTile(src, z, x, y, alive) {
     // Satellite imagery is never stored: Esri allows offline imagery only in its own ArcGIS apps.
     if (src === 'satellite') return null;
-    const k = `${streetSource().key}/${z}/${x}/${y}`;
+    const ssrc = streetSource(), k = `${ssrc.key}/${z}/${x}/${y}`;
     let hit = null;
     try { hit = await dbGet('tiles', k); } catch (e) { /* ignore */ }
     // Viewed tiles are reused for 7 days (the tile servers' caching rules), then refreshed; a stale tile is still shown when the server fails.
     if (hit && Date.now() - (hit.t || 0) < TILE_KEEP_MS) return hit.blob;
     if (hit && navigator.onLine === false) return hit.blob; // the browser is sure there is no connection
-    await tileSlot();
+    if (!(await tileSlot(alive))) return hit ? hit.blob : null; // the tile left the screen while waiting
     try {
-      const url = tileUrl(src, z, x, y);
-      let blob;
-      try { blob = await getTileBlob(url); } catch (e) { blob = await getTileBlob(url); } // one retry
+      const url = ssrc.url.replace('{z}', z).replace('{x}', x).replace('{y}', y), viaNative = NATIVE && ssrc.id === 'osm';
+      const blob = await getTileBlob(url, viaNative);
       streetState.fails = 0; streetState.ok++;
       dbPut('tiles', { k, blob, t: Date.now() }).catch(() => {});
       return blob;
@@ -370,7 +412,7 @@
     const out = [];
     for (const src of STREET_SOURCES.concat([SAT_SOURCE])) {
       const url = src.url.replace('{z}', 6).replace('{x}', 54).replace('{y}', 30), t0 = Date.now(); // a tile over Mindanao
-      try { const b = await withTimeout(getTileBlob(url), 12000, 'timeout'); out.push({ src, ok: b.size > 0, ms: Date.now() - t0 }); }
+      try { const b = await withTimeout(getTileBlob(url, NATIVE && src.id === 'osm'), 12000, 'timeout'); out.push({ src, ok: b.size > 0, ms: Date.now() - t0 }); }
       catch (e) { out.push({ src, ok: false, ms: Date.now() - t0, err: e.message || String(e) }); }
     }
     return out;
@@ -382,10 +424,11 @@
       img.onload = () => done(null, img);
       img.onerror = (e) => done(e, img);
       const src = this.options.src;
-      const get = src === 'satellite' && NATIVE ? tileSlot().then(() => getTileBlob(tileUrl(src, coords.z, coords.x, coords.y)).catch(() => null).finally(tileFree)) : fetchTile(src, coords.z, coords.x, coords.y);
-      get.then((blob) => {
+      // Satellite imagery is loaded by the browser itself (never stored, Esri terms); street tiles go through the cache.
+      if (src === 'satellite') { img.src = tileUrl(src, coords.z, coords.x, coords.y); return img; }
+      fetchTile(src, coords.z, coords.x, coords.y, () => !img._dead).then((blob) => {
+        if (img._dead) return;
         if (blob) { img._ou = URL.createObjectURL(blob); img.src = img._ou; }
-        else if (!NATIVE && src === 'satellite') img.src = tileUrl(src, coords.z, coords.x, coords.y); // satellite is never cached
         else done(new Error('offline'), img);
       });
       return img;
@@ -394,7 +437,7 @@
   function baseLayer(src) {
     if (src === 'offline') { const o = offlineLayer(); if (o) return o; src = 'street'; }
     const l = new CachedLayer('', { src, maxZoom: 21, maxNativeZoom: SOURCES[src].max, attribution: SOURCES[src].attr });
-    l.on('tileunload', (e) => { if (e.tile._ou) URL.revokeObjectURL(e.tile._ou); });
+    l.on('tileunload', (e) => { e.tile._dead = true; if (e.tile._ou) URL.revokeObjectURL(e.tile._ou); });
     return l;
   }
 
@@ -417,6 +460,7 @@
     return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error(msg)), ms); })]).finally(() => clearTimeout(t));
   }
   const STORE_ERR = 'Phone storage did not respond. Free some space or restart the app, then tap Resume.';
+  const SAVE_ERR = 'Phone storage did not respond in time. Free some space or restart the app, then tap Save again (the photo is still here).';
   async function packDir() { const root = await navigator.storage.getDirectory(); return root.getDirectoryHandle('mappacks', { create: true }); }
   const OPFS_PART = 8 * 1024 * 1024; // OPFS packs are stored as part files <id>.0, <id>.1, … of 8 MB
   class PackSource {
@@ -538,7 +582,7 @@
   map.on('zoomend', labelsFor); labelsFor();
 
   const TYPE_COLORS = ['#e8590c', '#1971c2', '#2b8a3e', '#9c36b5', '#c2255c', '#0c8599', '#5c940d', '#495057'];
-  const typeColor = (t) => { const i = S.types.indexOf(t); return TYPE_COLORS[(i < 0 ? S.types.length : i) % TYPE_COLORS.length]; };
+  const typeColor = (t) => { const names = typeNames(), i = names.indexOf(t); return TYPE_COLORS[(i < 0 ? names.length : i) % TYPE_COLORS.length]; };
 
   function renderPoles() {
     poleLayer.clearLayers();
@@ -731,6 +775,12 @@
      optional in survey), then it is checked for blur and exposure, and the painted Pole ID inside the guide box is read. */
   const GPS_WINDOW_MS = 5000;
   let stream = null, imageCapture = null, torchOn = false, wakeLock = null, camTarget = 'new', camBusy = false, camTick = 0, camPending = null, camSeq = 0;
+  let photoOpts = null; // still-photo size: phones with 48–200 MP sensors are asked for about 12 MP (photos are kept at 2048 px anyway)
+  const STILL_MAX_W = 4032, TAKE_MS = 6000;
+  async function takeStill() {
+    try { return await imageCapture.takePhoto(photoOpts || undefined); }
+    catch (e) { if (photoOpts) { photoOpts = null; return await imageCapture.takePhoto(); } throw e; }
+  }
   const scanStep = () => camTarget === 'scan' || camTarget === 'newid';
   const gpsFresh = () => !!fix && Date.now() - fix.t <= GPS_WINDOW_MS && gpsErr !== 1;
   /** Shutter colour: green = GPS updated within 5 s (ready), red = GPS old, off or blocked; white while scanning an ID. */
@@ -784,6 +834,15 @@
       const v = $('video'); v.srcObject = stream; await v.play().catch(() => {});
       const track = stream.getVideoTracks()[0];
       imageCapture = 'ImageCapture' in window ? new ImageCapture(track) : null;
+      photoOpts = null;
+      if (imageCapture && imageCapture.getPhotoCapabilities) {
+        withTimeout(imageCapture.getPhotoCapabilities(), 3000, 'slow').then((pc) => {
+          const w = pc && pc.imageWidth, h = pc && pc.imageHeight;
+          if (!w || !h || !(w.max > STILL_MAX_W + 200)) return;
+          const snap = (r, v) => Math.max(r.min || 0, (r.min || 0) + Math.floor((v - (r.min || 0)) / (r.step || 1)) * (r.step || 1));
+          const W = snap(w, STILL_MAX_W); photoOpts = { imageWidth: W, imageHeight: snap(h, Math.round(W * h.max / w.max)) };
+        }).catch(() => {});
+      }
       const caps = track.getCapabilities ? track.getCapabilities() : {};
       $('camTorch').hidden = !caps.torch;
       try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* optional */ }
@@ -894,7 +953,9 @@
     else if (mean > 230 || hi / n > 0.55) flags.push('bright');
     else if (std < 12) flags.push('flat');
     if (!flags.length && sharp < QUAL_T[mode]) flags.push('blurry');
-    return { sharp, mean: Math.round(mean), std: Math.round(std), flags, level: mode };
+    let w = 0, h = 0;
+    try { const i = window.PoleReports.jpegInfo(new Uint8Array(await blob.slice(0, 65536).arrayBuffer())); w = i.w; h = i.h; } catch (e) { /* not a JPEG */ }
+    return { sharp, mean: Math.round(mean), std: Math.round(std), flags, level: mode, w, h };
   }
   let qualResolve = null, qualUrl = '';
   /** Shows why the photo was refused; the only way on is Retake. */
@@ -918,7 +979,7 @@
       if (camTarget === 'scan') { const crop = grabGuideCrop(); await closeSheet(); scanResult(crop); return; }
       if (camTarget === 'newid') { if (camPending) camPending.crop = grabGuideCrop(); await closeSheet(); return; }
       let blob = null;
-      if (imageCapture) { try { blob = await imageCapture.takePhoto(); } catch (e) { blob = null; } }
+      if (imageCapture) { try { blob = await withTimeout(takeStill(), TAKE_MS, 'slow'); } catch (e) { blob = null; if (e && e.message === 'slow') imageCapture = null; } } // a camera that stalls: use the live picture from now on
       if (!blob) {
         const v = $('video'), cv = document.createElement('canvas');
         cv.width = v.videoWidth; cv.height = v.videoHeight;
@@ -926,14 +987,18 @@
         blob = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.92));
       }
       if (!alive()) return;
+      perf.capture = Date.now() - shotAt;
       const gps = await gpsNear(shotAt);
       if (!alive()) return;
       if (!gps) { toast(gpsErr === 1 ? 'Photo not saved: location is off. Turn on location for PoleCam, then take it again.' : 'Photo not saved: GPS has not updated in the last 5 seconds. Wait for the green shutter, then take it again.', 6500); return; }
       camCheck('Checking photo…');
-      const q = await checkQuality(blob).catch(() => ({ flags: ['error'] }));
+      const tq = Date.now();
+      const q = await withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] }));
+      perf.check = Date.now() - tq; perf.px = q.w ? `${q.w}×${q.h}` : '';
       camCheck(false);
       if (!alive()) return;
       if (q.flags.length) { await refusePhoto(blob, q); return; }
+      prepImages(blob); // shrink and store-ready copies are made now, while the ID is scanned and typed
       const takenAt = new Date(shotAt).toISOString();
       if (camTarget === 'new' && S.readId !== false) { enterIdStep({ blob, gps, q, takenAt, source: 'camera' }); return; }
       await closeSheet();
@@ -959,6 +1024,7 @@
       else toast(`${QUAL_TITLE[q.flags[0]]}. ${QUAL_TEXT[q.flags[0]]}`, 6000);
       return;
     }
+    prepImages(f);
     const takenAt = new Date(Math.min(back, f.lastModified || back)).toISOString();
     if (camTarget === 'new' && S.readId !== false && stream && inCam()) { enterIdStep({ blob: f, gps, q, takenAt, source: 'camera' }); return; }
     if (inCam()) await closeSheet();
@@ -999,7 +1065,7 @@
       return;
     }
     if (camTarget === 'replace' && ed) {
-      ed.newBlob = blob; ed.q = qSummary(x.q); showEdPhoto(blob); showQualWarn(ed.q);
+      ed.newBlob = blob; prepImages(blob); ed.q = qSummary(x.q); showEdPhoto(blob); showQualWarn(ed.q);
       toast('Photo replaced — tap Save to keep it');
       return;
     }
@@ -1126,6 +1192,20 @@
   }
   const dims = (im) => ({ w: im.width || im.naturalWidth, h: im.height || im.naturalHeight });
   const toBlob = (cv, q) => new Promise((r) => cv.toBlob(r, 'image/jpeg', q));
+  const prepCache = new WeakMap();
+  /** Store-ready copies of a photo, started as soon as the photo is accepted; Save then only writes them. */
+  function prepImages(blob) {
+    if (!blob) return Promise.resolve(null);
+    let p = prepCache.get(blob);
+    if (!p) { const t0 = Date.now(); p = makeStoredImages(blob).then((r) => { perf.prepare = Date.now() - t0; return r; }); p.catch(() => prepCache.delete(blob)); prepCache.set(blob, p); }
+    return p;
+  }
+  /** Prepared copies, or made now; a phone that cannot finish within the limit gets a clear message instead of a frozen screen. */
+  const storedImages = (blob) => withTimeout(prepImages(blob).catch(() => makeStoredImages(blob)), 45000, 'The phone took too long to process the photo. Close other apps and tap Save again.');
+  const perf = {}; // timings of the last photo, shown under Settings → Storage
+  function notePerf(save) {
+    perf.save = save; S.perf = { at: new Date().toISOString(), ...perf }; persist();
+  }
   async function makeStoredImages(blob) {
     const im = await loadImage(blob), { w, h } = dims(im);
     const sc = Math.min(1, STORE_MAX_PX / Math.max(w, h));
@@ -1211,40 +1291,56 @@
   }
   function renderTypeChips(sel) {
     const box = $('typeChips'); box.innerHTML = '';
-    const types = POLE_TYPES.includes(sel) || !sel ? POLE_TYPES : POLE_TYPES.concat(sel); // an older record keeps its type
+    const names = typeNames(), types = names.includes(sel) || !sel ? names : names.concat(sel); // an older record keeps its type
     for (const t of types) {
       const b = document.createElement('button');
-      b.className = 'chip'; b.type = 'button'; b.textContent = TYPE_PREFIX[t] ? `${t} (${TYPE_PREFIX[t]})` : t; b.setAttribute('aria-pressed', String(t === sel));
+      b.className = 'chip'; b.type = 'button'; b.textContent = typePrefix(t) ? `${t} (${typePrefix(t)})` : t; b.setAttribute('aria-pressed', String(t === sel));
       b.addEventListener('click', () => setPoleType(t));
       box.appendChild(b);
     }
+    const add = document.createElement('button'); add.className = 'chip'; add.type = 'button'; add.textContent = '+ Other prefix';
+    add.addEventListener('click', addMyType); box.appendChild(add);
+  }
+  /** A pole owner prefix not on the list (e.g. PLDT-): kept on this phone; the admin can add it for everyone. */
+  async function addMyType() {
+    const v = await promptText('Other pole prefix', 'Type the letters painted before the number, then a name if you like. Examples: “PLDT”, “PLDT PLDT pole”, “CV Converge”.', 'PLDT');
+    if (v == null) return;
+    const m = /^\s*([A-Za-z]{2,6})(?![A-Za-z])[\s,:-]*(.*)$/.exec(v);
+    if (!m) { toast('Use 2 to 6 letters for the prefix, e.g. PLDT'); return; }
+    const p = m[1].toUpperCase(), n = (m[2] || '').trim().slice(0, 30) || p;
+    if (p === 'FDU') { toast('FDU is used for ODFs'); return; }
+    const have = poleTypes().find((t) => t.p === p);
+    if (have) { setPoleType(have.n); toast(`${p} is already on the list (${have.n})`); return; }
+    if (poleTypes().some((t) => t.n.toLowerCase() === n.toLowerCase())) { toast(`“${n}” is already a pole type: use another name`); return; }
+    S.myTypes = (S.myTypes || []).concat({ n, p }); persist(); refreshTypes();
+    setPoleType(n); toast(`${n} (${p}-) added on this phone`, 3000);
   }
   /** Choosing a pole type sets the ID prefix: a suggested ID is re-suggested, a typed/scanned one keeps its number. */
   function setPoleType(t) {
     if (!ed) return;
     ed.type = t; renderTypeChips(t);
-    const id = $('poleId').value.trim().toUpperCase(), pre = TYPE_PREFIX[t];
+    const id = $('poleId').value.trim().toUpperCase(), pre = typePrefix(t);
     if (!pre || (ed.acc && ed.element !== 'Pole')) { checkFormat(); return; }
-    const m = /^(CC|WP|SP)-?(\d*)$/.exec(id);
+    const m = polePartRe().exec(id);
     if (!id || !ed.idTouched || (m && !m[2])) $('poleId').value = suggestId('Pole', t);
-    else if (m && m[1] !== pre) { $('poleId').value = `${pre}-${m[2]}`; toast(`ID changed to ${pre}-${m[2]} for ${t}`, 2500); }
+    else if (m && m[1] !== pre) { const num = PAD4.includes(pre) ? padNum(pre, m[2], m[2].length) : m[2]; $('poleId').value = `${pre}-${num}`; toast(`ID changed to ${pre}-${num} for ${t}`, 2500); }
     checkDup(); checkFormat();
   }
   /** A Pole ID prefix picks the pole type; an FDU_ ID makes a new acceptance element an ODF. */
   function syncFromId() {
     if (!ed) return;
     const id = $('poleId').value.trim().toUpperCase();
-    const m = /^(CC|WP|SP)-/.exec(id);
+    const m = new RegExp(`^(${prefixAlt()})-`).exec(id);
     if (ed.acc && ed.mode === 'new' && /^FDU_/.test(id) && ed.element !== 'ODF') { ed.element = 'ODF'; renderElemChips(); applyElement(); }
     else if (ed.acc && ed.mode === 'new' && m && ed.element !== 'Pole') { ed.element = 'Pole'; renderElemChips(); applyElement(); }
-    if (m && PREFIX_TYPE[m[1]] !== ed.type && (!ed.acc || ed.element === 'Pole')) { ed.type = PREFIX_TYPE[m[1]]; renderTypeChips(ed.type); }
+    if (m && prefixType(m[1]) !== ed.type && (!ed.acc || ed.element === 'Pole')) { ed.type = prefixType(m[1]); renderTypeChips(ed.type); }
     checkFormat();
   }
   function checkFormat() {
     const el = $('fmtWarn'); if (!ed) return;
     const id = $('poleId').value.trim().toUpperCase(), kind = ed.acc ? ed.element : 'Pole';
     let msg = '';
-    if (id && kind === 'Pole' && !POLE_ID_RE.test(id)) msg = /^(CC|WP|SP)-?$/.test(id) ? `Add the pole number after the prefix, e.g. ${id.slice(0, 2)}-0001.` : 'Pole IDs are written CC-0001 (concrete), WP-0001 (wood) or SP-0001 (steel).';
+    if (id && kind === 'Pole' && !poleIdRe().test(id)) { const pm = polePartRe().exec(id); msg = pm && !pm[2] ? `Add the pole number after the prefix, e.g. ${pm[1]}-${PAD4.includes(pm[1]) ? '0001' : '1234'}.` : `Pole IDs are a prefix, a dash and the number: ${poleTypes().map((t) => `${t.p}-`).join(', ')}. For another owner, tap “+ Other prefix”.`; }
     else if (id && kind === 'ODF' && !ODF_ID_RE.test(id)) msg = /^FDU_?$/.test(id) ? 'Add the ODF number after FDU_, e.g. FDU_100.' : 'ODF IDs are written FDU_ and a number, e.g. FDU_100.';
     el.hidden = !msg; el.textContent = msg;
   }
@@ -1295,12 +1391,13 @@
   async function openEditor(o) {
     ensurePinMap();
     const acc = isAcc();
+    if (o.blob) prepImages(o.blob); // usually already started right after the photo check
     ed = { mode: o.mode, id: o.id || uid(), source: o.source, gps: o.gps || null, newBlob: o.blob || null,
       takenAt: o.takenAt, type: o.type || S.lastType, userMoved: false, acc };
     if (acc) {
       Object.assign(ed, { element: o.element || 'Pole', photos: (o.photos || []).map((p) => ({ ...p })), pending: {}, removed: [],
         defs: JSON.parse(JSON.stringify(o.defs || [])), mloop: !!o.mloop, nap: !!o.nap, closure: !!o.closure, odf: o.odf || 'New', newBlob: null });
-      if (o.blob) { const pid = uid(); ed.photos.unshift({ pid, label: 'Overview', ...photoMeta(o.gps, o.takenAt), q: o.q || null }); ed.pending[pid] = o.blob; }
+      if (o.blob) { const pid = uid(); ed.photos.unshift({ pid, label: 'Overview', ...photoMeta(o.gps, o.takenAt), q: o.q || null }); ed.pending[pid] = o.blob; prepImages(o.blob); }
       $('napId').value = o.napId || ''; $('closureId').value = o.closureId || '';
     }
     $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
@@ -1419,7 +1516,7 @@
     box.appendChild(add);
   }
   function addEdPhoto(blob, meta) {
-    const pid = uid(); ed.photos.push({ pid, label: nextPhotoLabel(), ...meta }); ed.pending[pid] = blob;
+    const pid = uid(); ed.photos.push({ pid, label: nextPhotoLabel(), ...meta }); ed.pending[pid] = blob; prepImages(blob);
     renderAccPhotos(); toast('Photo added — set its label under the picture');
   }
 
@@ -1499,7 +1596,7 @@
   function setAfterPhoto(blob, meta) {
     const d = ed.defs.find((x) => x.id === ed.afterFor); if (!d) return;
     if (d.afterPid) { if (ed.pending[d.afterPid]) delete ed.pending[d.afterPid]; else ed.removed.push(d.afterPid); }
-    const pid = uid(); ed.pending[pid] = blob; d.afterPid = pid; d.afterMeta = meta;
+    const pid = uid(); ed.pending[pid] = blob; prepImages(blob); d.afterPid = pid; d.afterMeta = meta;
     // The after photo is the evidence, so its capture time is the rectification time.
     if (d.status !== 'Verified') { d.status = 'Rectified'; d.fixedAt = meta.at; d.fixedStage = pmeta().stage || 'PAT'; d.fixedBy = meta.by || byLine(); }
     renderDefs(); toast('After photo added — item marked rectified');
@@ -1507,7 +1604,7 @@
   function setVerifyPhoto(blob, meta) {
     const d = ed.defs.find((x) => x.id === ed.verifyFor); if (!d) return;
     if (d.verifyPid) { if (ed.pending[d.verifyPid]) delete ed.pending[d.verifyPid]; else ed.removed.push(d.verifyPid); }
-    const pid = uid(); ed.pending[pid] = blob; d.verifyPid = pid; d.verifyMeta = meta;
+    const pid = uid(); ed.pending[pid] = blob; prepImages(blob); d.verifyPid = pid; d.verifyMeta = meta;
     d.status = 'Verified'; d.verifiedAt = meta.at; d.verifiedBy = meta.by || byLine(); d.verifyStage = pmeta().stage || 'PAT';
     renderDefs(); toast('Verification photo added — item verified');
   }
@@ -1564,7 +1661,7 @@
     let items = [...defDraft.items], useNotes = notes;
     if (!items.length) { if (!notes) { toast('Tap a defect or describe it in notes'); return; } items = [notes]; useNotes = ''; }
     let pid = null;
-    if (defDraft.blob) { pid = uid(); ed.pending[pid] = defDraft.blob; }
+    if (defDraft.blob) { pid = uid(); ed.pending[pid] = defDraft.blob; prepImages(defDraft.blob); }
     const now = new Date().toISOString(), stage = pmeta().stage || 'PAT';
     items.forEach((it) => ed.defs.push({ id: uid(), cat: defDraft.cat, item: it, sev: defDraft.sev, notes: useNotes, pid, pidMeta: pid ? defDraft.meta : null,
       status: 'Open', stage, foundAt: now, foundBy: byLine(), remarks: '' }));
@@ -1597,7 +1694,7 @@
 
   async function saveEditor() {
     const poleId = $('poleId').value.trim().toUpperCase();
-    if (!poleId || /^(CC|WP|SP)-?$|^FDU_?$/.test(poleId)) { toast(`Enter the ${ed.acc ? ed.element : 'Pole'} ID first${poleId ? ' (the number is missing)' : ''}`); $('poleId').focus(); return; }
+    if (!poleId || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(poleId)) { toast(`Enter the ${ed.acc ? ed.element : 'Pole'} ID first${poleId ? ' (the number is missing)' : ''}`); $('poleId').focus(); return; }
     if (!profileOk()) { toast('Enter your details first (Settings → You)'); openProfile(true); return; }
     {
       const c0 = pinMap.getCenter();
@@ -1607,13 +1704,14 @@
     if (ed.acc) { await saveAcceptance(poleId); return; }
     const c = pinMap.getCenter(), pos = { lat: c.lat, lon: c.lng };
     const btn = $('edSave'); btn.disabled = true;
+    const t0 = Date.now();
     try {
       const now = new Date().toISOString();
       let p = points.find((x) => x.id === ed.id);
       if (ed.newBlob) {
         busy('Saving photo…');
-        const { clean, thumb } = await makeStoredImages(ed.newBlob);
-        await dbPut('photos', { id: ed.id, clean, thumb });
+        const { clean, thumb } = await storedImages(ed.newBlob);
+        await withTimeout(dbPut('photos', { id: ed.id, clean, thumb }), STORE_MS, SAVE_ERR);
       }
       const g = ed.gps;
       const rec = Object.assign(p || { id: ed.id, project: S.project, created: now, takenAt: ed.takenAt || now, source: ed.source || 'camera' }, {
@@ -1624,31 +1722,34 @@
         alt: g && Number.isFinite(g.alt) ? g.alt : null,
         adjusted: g ? haversine(g, pos) > 0.5 : true,
       });
-      await dbPut('points', rec);
+      await withTimeout(dbPut('points', rec), STORE_MS, SAVE_ERR);
       if (!p) points.push(rec);
       if (ed.mode === 'new') S.lastPoleId = poleId;
-      if (POLE_TYPES.includes(ed.type)) S.lastType = ed.type;
+      if (typeNames().includes(ed.type)) S.lastType = ed.type;
+      if (ed.newBlob) notePerf(Date.now() - t0);
       persist(); notePerson();
-      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-      renderPoles(); if (!$('list').hidden) renderList();
-      busy(false);
-      const wasNew = ed.mode === 'new';
-      await closeSheet();
-      if (wasNew) { map.setView([pos.lat, pos.lon], Math.max(map.getZoom(), 17)); toast(`${poleId} saved`); }
-      else toast('Changes saved');
     } catch (e) {
-      busy(false); toast('Could not save: ' + (e.message || e), 5000);
-    } finally { btn.disabled = false; }
+      busy(false); btn.disabled = false; toast('Not saved: ' + (e.message || e), 6000); return;
+    }
+    // saved: refreshing the screens must not turn a successful save into an error
+    busy(false); btn.disabled = false;
+    const wasNew = ed.mode === 'new';
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); renderPoles(); if (!$('list').hidden) renderList(); } catch (e) { console.error(e); }
+    await closeSheet();
+    if (wasNew) { map.setView([pos.lat, pos.lon], Math.max(map.getZoom(), 17)); toast(`${poleId} saved`); }
+    else toast('Changes saved');
   }
 
   async function saveAcceptance(poleId) {
     const c = pinMap.getCenter(), pos = { lat: c.lat, lon: c.lng };
     const btn = $('edSave'); btn.disabled = true;
+    const t0 = Date.now();
+    let rec, n = 0;
     try {
       const now = new Date().toISOString();
       const p = points.find((x) => x.id === ed.id);
       const g = ed.gps, el = ed.element;
-      const rec = Object.assign(p || { id: ed.id, project: S.project, created: now, takenAt: ed.takenAt || now, source: ed.source || 'camera' }, {
+      rec = Object.assign(p || { id: ed.id, project: S.project, created: now, takenAt: ed.takenAt || now, source: ed.source || 'camera' }, {
         kind: 'acceptance', element: el, poleId, poleType: el === 'Pole' ? ed.type || '' : '', lat: pos.lat, lon: pos.lon, updated: now, ...(ed.idRead ? { idRead: ed.idRead } : {}),
         ...(p ? { updatedBy: byLine() } : { by: byLine() }),
         mloop: el === 'Pole' && ed.mloop, nap: el === 'Pole' && ed.nap, closure: el === 'Pole' && ed.closure,
@@ -1663,24 +1764,25 @@
       const used = new Set(allPids(rec));
       const pend = Object.keys(ed.pending).filter((pid) => used.has(pid));
       for (let i = 0; i < pend.length; i++) {
-        busy(`Saving photo ${i + 1} / ${pend.length}…`, i / pend.length);
-        const { clean, thumb } = await makeStoredImages(ed.pending[pend[i]]);
-        await dbPut('photos', { id: pend[i], clean, thumb });
+        busy(pend.length > 1 ? `Saving photo ${i + 1} / ${pend.length}…` : 'Saving photo…', pend.length > 1 ? i / pend.length : null);
+        const { clean, thumb } = await storedImages(ed.pending[pend[i]]);
+        await withTimeout(dbPut('photos', { id: pend[i], clean, thumb }), STORE_MS, SAVE_ERR);
       }
-      await dbPut('points', rec);
+      await withTimeout(dbPut('points', rec), STORE_MS, SAVE_ERR);
       if (!p) points.push(rec);
-      await deletePhotosIfUnused(ed.removed.filter((pid) => !used.has(pid)), new Set([rec.id]));
-      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-      renderPoles(); if (!$('list').hidden) renderList();
-      busy(false); notePerson();
-      if (el === 'Pole' && POLE_TYPES.includes(ed.type)) { S.lastType = ed.type; persist(); }
-      const wasNew = ed.mode === 'new', n = openCount(rec);
-      await closeSheet();
-      if (wasNew) map.setView([pos.lat, pos.lon], Math.max(map.getZoom(), 17));
-      toast(`${poleId} saved${n ? ` · ${n} open deficienc${n === 1 ? 'y' : 'ies'}` : ' · OK'}`);
+      deletePhotosIfUnused(ed.removed.filter((pid) => !used.has(pid)), new Set([rec.id])).catch(() => {}); // cleanup can finish in the background
+      if (el === 'Pole' && typeNames().includes(ed.type)) S.lastType = ed.type;
+      if (pend.length) notePerf(Date.now() - t0);
+      persist(); notePerson(); n = openCount(rec);
     } catch (e) {
-      busy(false); toast('Could not save: ' + (e.message || e), 5000);
-    } finally { btn.disabled = false; }
+      busy(false); btn.disabled = false; toast('Not saved: ' + (e.message || e), 6000); return;
+    }
+    busy(false); btn.disabled = false;
+    const wasNew = ed.mode === 'new', pos2 = { lat: rec.lat, lon: rec.lon };
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); renderPoles(); if (!$('list').hidden) renderList(); } catch (e) { console.error(e); }
+    await closeSheet();
+    if (wasNew) map.setView([pos2.lat, pos2.lon], Math.max(map.getZoom(), 17));
+    toast(`${poleId} saved${n ? ` · ${n} open deficienc${n === 1 ? 'y' : 'ies'}` : ' · OK'}`);
   }
 
   /* ================= list ================= */
@@ -2567,6 +2669,9 @@
     try { const n = await dbCount('tiles'); $('tileInfo').textContent = n ? `${n.toLocaleString()} street-map tiles kept from online use (refreshed after 7 days).` : 'No street-map tiles kept yet.'; } catch (e) { $('tileInfo').textContent = '–'; }
     const packs = Object.values(S.packs || {}).filter((p) => p.done), packMB = packs.reduce((a, p) => a + (p.size || 0), 0);
     $('packInfo').textContent = packs.length ? `${packs.length} offline map pack${packs.length === 1 ? '' : 's'} (${fmtMB(packMB)}): ${packs.map((p) => p.name).join(', ')}.` : 'No offline map pack on this phone.';
+    const P = S.perf;
+    $('perfInfo').hidden = !P;
+    if (P) $('perfInfo').textContent = `Last photo (${fmtTime(P.at)}): camera ${((P.capture || 0) / 1000).toFixed(1)} s${P.px ? ` (${P.px})` : ''} · check ${((P.check || 0) / 1000).toFixed(1)} s · prepare ${P.prepare != null ? (P.prepare / 1000).toFixed(1) + ' s' : '–'} · save ${((P.save || 0) / 1000).toFixed(1)} s`;
     const n = points.length, np = allProjects().length;
     if (navigator.storage && navigator.storage.estimate) {
       try {
@@ -2590,7 +2695,13 @@
     refreshStorageInfo();
   }
   $('settingsBtn').addEventListener('click', () => { renderSettingsHome(); openSheet('settings'); });
+  $('setMyTypes').addEventListener('change', () => {
+    S.myTypes = parseTypeLines($('setMyTypes').value).filter((t) => !BUILTIN_TYPES.some((b) => b.p === t.p)); persist(); refreshTypes();
+    $('setMyTypes').value = typeLines(S.myTypes); renderTypeInfo();
+  });
+  function renderTypeInfo() { $('typeInfo').textContent = poleTypes().map((t) => `${t.n} ${t.p}-`).join(' · '); }
   $('goCamera').addEventListener('click', () => {
+    $('setMyTypes').value = typeLines(S.myTypes); renderTypeInfo();
     $('setReadId').checked = S.readId !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h';
     $('setQuality').value = effectiveQuality(); $('setQuality').disabled = !!S.team;
     $('qualityNote').textContent = S.team ? `Set by the admin in the company list “${S.team.name}” — the same on every phone.` : 'Until this phone takes a company list, you can choose this yourself.';
@@ -2682,6 +2793,7 @@
     if (!str(p.owner, 100) || !num(p.maxSpan, 5, 1000) || !num(p.angleDeg, 1, 90) || !num(p.autoGap, 10, 5000) || !str(p.quality, 10) || !list(p.inspTypes, 10, 60)) return false;
     if (p.form != null) { if (typeof p.form !== 'object') return false; for (const [k, v] of Object.entries(p.form)) { if (k === 'types' ? !list(v, 10, 60) : k === 'codes' ? !(v && typeof v === 'object') : k === 'rowsPerPage' ? v !== 15 : !str(v, 200)) return false; } } // the form layout holds 15 rows per page
     if (p.defects != null) { if (typeof p.defects !== 'object' || Object.keys(p.defects).length > 20) return false; for (const v of Object.values(p.defects)) if (!list(v, 60, 120)) return false; }
+    if (p.poleTypes != null && !(Array.isArray(p.poleTypes) && p.poleTypes.length <= 20 && p.poleTypes.every((t) => t && /^[A-Z]{2,6}$/.test(t.p) && str(t.n, 30)))) return false;
     return true;
   }
   if (S.team && !validTeam(S.team)) { S.team = null; persist(); }
@@ -2854,6 +2966,7 @@
     } catch (e) { toast(e.message, 6500); return false; }
   }
   function afterTeamChange() {
+    refreshTypes();
     renderTeamInfo();
     if (!$('profile').hidden) renderCoSelect($('pfCompany').value || (S.user && S.user.company) || '');
     if (S.user && S.user.company && teamCos().length && !teamCos().includes(S.user.company)) {
@@ -3178,7 +3291,8 @@
   async function admStart() {
     const create = admMode === 'create' || !S.team;
     const P = pol(), F = formText();
-    const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice() };
+    const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice(), poleTypes: (P.poleTypes || []).slice() };
+    $('admPoleTypes').value = typeLines(polDraft.poleTypes);
     if (create) {
       await newAdminKey(); // the new list's key
       admDraft = { id: uid(), name: '', co: [], admins: [], rev: 0, src: null, pol: polDraft, newKey: true };
@@ -3212,6 +3326,8 @@
     const num = (id, lo, hi, dflt) => { const v = +$(id).value; return v >= lo && v <= hi ? v : dflt; };
     P.maxSpan = num('setMaxSpan', 5, 1000, 200); P.angleDeg = num('setAngle', 1, 90, 15); P.autoGap = num('setAutoGap', 10, 5000, 120);
     P.quality = $('admQuality').value === 'normal' ? 'normal' : 'strict';
+    P.poleTypes = parseTypeLines($('admPoleTypes').value).filter((t) => !BUILTIN_TYPES.some((b) => b.p === t.p));
+    if (!P.poleTypes.length) delete P.poleTypes;
     const types = form.types.length ? form.types : D.types;
     P.inspTypes = (P.inspTypes || []).filter((x) => types.includes(x)); if (!P.inspTypes.length) P.inspTypes = [types[0]];
     for (const k of Object.keys(P.defects)) if (!P.defects[k].length) delete P.defects[k];
@@ -3670,5 +3786,5 @@
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
   window.__polecam = { get points() { return points; }, get S() { return S; }, openEditor, exportPhoto, tilesFor, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
-    packShare, unpackShare, importTeamText, readIdFrom, checkQuality }; // for testing
+    packShare, unpackShare, importTeamText, readIdFrom, checkQuality, makeStoredImages, poleTypes }; // for testing
 })();
