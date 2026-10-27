@@ -41,14 +41,14 @@ Finding a bbox: in QGIS the status bar shows the coordinates of the map view (se
 
 ---
 
-## 4. Google Drive and the online sheet
+## 4. Google Drive and the admin's list
 
 1. Upload the `.pmtiles` file to Google Drive (any folder of the admin's account).
 2. Right-click → **Share** → General access **Anyone with the link** → **Copy link**.
-3. Open the PoleCam online Google Sheet → **MapPacks** tab → add a row: **Name**, **Google Drive link**, **Size (MB)** (from the file), notes if any. Keep old rows while phones still use them; delete a row to retire a pack.
-4. On the phones: **Maps** (cloud button on the map, or Settings → Maps) → **Refresh list** → **Download** next to the pack (Android app; needs Wi-Fi for big files, it can resume). The website version cannot read Drive directly: open the link, download the file, and use **Import a pack file**.
+3. On the admin's phone: Settings → Administration → **Manage** (admin PIN) → **Offline map packs**: one line per pack, `name | Drive link | size in MB`, for example `Mindanao | https://drive.google.com/file/d/…/view | 200`. Then **Save and share the list**. Keep old lines while phones still use them; delete a line to retire a pack.
+4. On the phones: they get the packs with the new list version (QR code or file), or with **Refresh list** on the Maps screen when the online sheet is connected (the admin's phone also writes the packs to the sheet's MapPacks tab when its Admin key is entered; update the sheet's Apps Script to v2.5 first). Then **Maps** (cloud button on the map) → **Download** next to the pack (Android app; Wi-Fi for big files, it can resume). The website version cannot read Drive directly: open the link, download the file, and use **Import a pack file**.
 
-Phones without the online sheet: paste the Drive link under **Add a Google Drive link** on the Maps screen, or send them the file (Viber, USB) and import it.
+Users of a company list cannot add links themselves. Phones without any company list can still paste a link under **Add a Google Drive link**, or import a file sent to them (Viber, USB).
 
 ## Updating a pack
 

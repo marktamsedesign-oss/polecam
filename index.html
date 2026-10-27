@@ -52,6 +52,7 @@ svg.i{width:22px;height:22px;flex:none}
 .badge.cat{background:#fff;color:var(--navy)}
 .badge.cat.pat{background:#ffd43b;color:#3d2b00}
 .badge.cat.fat{background:#69db7c;color:#06290f}
+.badge.cat.cleanup{background:#ffa94d;color:#3d1a00}
 #map{flex:1;background:var(--chip)}
 #gpsPill{position:absolute;top:calc(env(safe-area-inset-top,0px) + 64px);left:max(12px,env(safe-area-inset-left,0px));z-index:450;background:var(--surface);border-radius:999px;padding:6px 12px;box-shadow:var(--shadow);font-size:13px;display:flex;gap:6px;align-items:center}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
@@ -66,6 +67,27 @@ svg.i{width:22px;height:22px;flex:none}
 #mapSummary .stats span{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #mapSummary .pills{display:flex;gap:6px;flex:none}
 body.routing #mapSummary{display:none}
+#mapSummary.go{background:var(--navy);color:var(--navy-ink)}#mapSummary.go .stats span{color:var(--hi)}
+#visitCard{position:absolute;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 84px);max-height:64vh;background:var(--surface);color:var(--ink);border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.35);display:flex;flex-direction:column;overflow:hidden}
+#visitCard[hidden]{display:none}
+.vc-head{display:flex;align-items:flex-start;gap:6px;padding:10px 4px 8px 14px;border-bottom:1px solid var(--line2)}
+.vc-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.vc-t b{font-size:17px}.vc-t span{font-size:12.5px;color:var(--muted)}
+#vcBody{overflow:auto;padding:10px 12px;display:flex;flex-direction:column;gap:10px}
+#vcItems{display:flex;flex-direction:column;gap:10px}
+.vci{border:1px solid var(--line);border-left:6px solid var(--bad);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;background:var(--bg)}
+.vci.rect{border-left-color:var(--info)}.vci.ver{border-left-color:var(--verified)}.vci.note{border-left-color:var(--muted)}
+.vci .t{font-weight:700;font-size:15px;line-height:1.3}.vci .s{font-size:12.5px;color:var(--muted)}
+.vci .st{align-self:flex-start}
+.vph{display:flex;gap:8px;overflow-x:auto}.vph:empty{display:none}
+.vph figure{margin:0;display:flex;flex-direction:column;gap:2px;font-size:10.5px;font-weight:700;color:var(--muted);text-align:center;flex:none}
+.vph img{width:76px;height:76px;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:var(--chip)}
+.vci .acts{display:flex;gap:8px;flex-wrap:wrap}.vci .acts .btn{flex:1 1 40%;min-height:46px;padding:0 10px;font-size:14px}
+.vc-foot{display:flex;gap:8px;padding:8px 12px 10px;justify-content:space-between;border-top:1px solid var(--line2)}
+body.visiting #mapSummary{display:none}
+.ref-label{white-space:nowrap;font-size:11px;font-weight:600;color:#3b2a8f;text-shadow:0 0 2px #fff,0 0 2px #fff,0 0 3px #fff;pointer-events:none}
+#photoView{position:fixed;inset:0;z-index:2800;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:12px}
+#photoView[hidden]{display:none}
+#photoView img{max-width:100%;max-height:85vh;object-fit:contain}#photoView p{color:#fff;font-size:13px;margin:0;text-align:center}
 #bottombar{display:flex;align-items:center;justify-content:space-around;gap:4px;background:var(--navy);padding:6px max(8px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 6px) max(8px,env(safe-area-inset-left,0px));z-index:500}
 .navbtn{flex:1;background:none;border:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;font-size:12px;color:rgba(255,255,255,.82);min-height:var(--tap)}
 .navbtn svg{width:24px;height:24px}
@@ -230,6 +252,7 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .idrow .btn{flex:none}
 .idcands{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:6px;align-items:center;font-size:12px;color:var(--muted);scrollbar-width:none;margin:-2px 0}
 .idcands > span{flex:none}
+.idline{display:flex;gap:6px;align-items:center;min-width:0}.idline > .chip{flex:none;min-height:32px;padding:0 10px}.idline .idcands{flex:1;min-width:0}.idline:has(> [hidden]:only-child){display:none}
 .idcands .chip{min-height:32px;padding:0 10px;font-family:var(--mono);flex:none}
 .idcands .chip.fit{border-color:var(--ok)}
 .photo-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
@@ -293,6 +316,7 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 
 /* toast + progress */
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 160px);z-index:3000;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;max-width:calc(100% - 32px);text-align:center;box-shadow:var(--shadow)}
+body.visiting #toast{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 64px);border-radius:14px} /* keep the card's buttons free */
 #busy{position:fixed;inset:0;z-index:2500;background:rgba(0,0,0,.45);display:grid;place-items:center;padding:24px}
 #busy div{background:var(--surface);border-radius:var(--r);padding:20px;min-width:240px;max-width:100%;text-align:center;font-weight:600}
 #busy progress{width:100%;margin-top:12px;accent-color:var(--accent)}
@@ -346,6 +370,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
 </svg>
+<div id="photoView" hidden role="dialog" aria-label="Photo"><img id="pvImg" alt=""><p id="pvCap"></p><p style="opacity:.7">Tap to close</p></div>
 <div id="app">
   <div id="topbar">
     <div class="brand">Pole<b>Cam</b></div>
@@ -360,6 +385,11 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <button class="round" id="locateBtn" aria-label="Go to my location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
   </div>
   <button id="mapSummary" type="button" aria-label="Open the records of this project"><div class="stats"><b id="sumTitle">–</b><span id="sumSub">–</span></div><div class="pills" id="sumPills"></div><svg class="i"><use href="#i-chev"/></svg></button>
+  <section id="visitCard" hidden aria-labelledby="vcTitle">
+    <div class="vc-head"><div class="vc-t"><b id="vcTitle">–</b><span id="vcSub"></span></div><button class="iconbtn" id="vcClose" type="button" aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+    <div id="vcBody"><div id="vcElem" class="vph"></div><div id="vcItems"></div></div>
+    <div class="vc-foot"><button class="btn small" id="vcOpen" type="button">Open full record</button><button class="btn small primary" id="vcNext" type="button">Next pin ›</button></div>
+  </section>
   <div id="routeBar" hidden>
     <div class="rb-head"><b id="rbTitle">Route</b><span id="rbStats"></span></div>
     <p class="rb-hint" id="rbHint">Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.</p>
@@ -440,7 +470,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <div class="frow"><label class="lbl" for="poleId" id="idLabel">POLE ID</label>
         <div class="idrow"><input type="text" id="poleId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CC-0001"><button class="btn" id="scanIdBtn" type="button" aria-label="Read the ID from the camera">Scan ID</button></div>
       </div>
-      <div id="idCands" class="idcands" hidden></div>
+      <div class="idline"><button type="button" class="chip small" id="nptBtn">No tag → NPT</button><div id="idCands" class="idcands" hidden></div></div>
       <p class="warnline" id="dupWarn" hidden></p>
       <p class="warnline" id="fmtWarn" hidden></p>
       <label class="frow" id="surveyTypeBox"><span class="lbl">TYPE</span><select id="typeSel" aria-label="Pole type"></select></label>
@@ -536,6 +566,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
           <div class="opt2"><label class="field">Balloon photo size<select id="kmzBalloonPx" class="exp-kmz"><option value="480">Small (480 px)</option><option value="800">Medium (800 px)</option><option value="1200">Large (1200 px)</option><option value="0">No photos in balloons</option></select></label>
           <label class="field">Pin icon<select id="kmzIconPx" class="exp-kmz"><option value="0">Status dot only</option><option value="48">Photo, small</option><option value="64">Photo, medium</option><option value="96">Photo, large</option></select></label></div>
           <label class="check"><input type="checkbox" id="kmzStamp" class="exp-kmz"><span>Stamp ID, coordinates and time on balloon photos</span></label>
+          <label class="check"><input type="checkbox" id="kmzData"><span>Include the PoleCam data and original photos, so the contractor (defect cleanup) or the FAT phone can open this KMZ in PoleCam. Untick for a smaller file just for Google Earth.</span></label>
         </div></details>
         <button class="btn" id="doAccKmz">Export KMZ</button>
       </div>
@@ -640,7 +671,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <p class="hint help">One company on the list is the <b>admin company</b> (e.g. Globe). Its staff enter the admin PIN once and become admins and inspectors: they manage this list, add deficiencies and verify rectifications. Everyone else is a contractor user. Updates travel by QR code or file, signed so a phone only takes versions made with the admin PIN.</p>
     <div class="sectionh">About</div>
     <div class="group">
-      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.4.0</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
+      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.5.0</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
       <p class="hint" id="policyInfo" style="margin:0"></p>
       <label class="check"><input type="checkbox" id="setShowHelp"><span>Keep the help text on every screen open</span></label>
     </div>
@@ -769,6 +800,14 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="group">
       <h3>Current project</h3>
       <div class="row"><input type="text" id="renameProject" aria-label="Project name" style="flex:1"><button class="btn" id="doRename">Rename</button></div>
+      <label class="frow" id="purposeRow" hidden><span class="lbl">SURVEY FOR</span><select id="curPurpose"><option value="As-plan">As-plan (before construction)</option><option value="As-built">As-built (after construction)</option></select></label>
+      <div id="refBox" style="display:flex;flex-direction:column;gap:8px">
+        <span class="lbl">REFERENCE KMZ</span>
+        <p class="hint" id="refInfo">No reference loaded.</p>
+        <p class="hint help">A KMZ or KML to follow in the field, for example the HLD with the route, homing and POI pins, or the design route for a PAT. It is shown on the map as a thin dashed overlay and is never changed or exported; you can survey a different route where the HLD route is not doable.</p>
+        <div class="row"><button class="btn grow" id="refLoad" type="button">Load KMZ / KML…</button><button class="btn" id="refToggle" type="button" hidden>Hide</button><button class="btn" id="refRemove" type="button" hidden>Remove</button></div>
+        <input type="file" id="refInput" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/xml,text/xml,application/octet-stream" hidden>
+      </div>
       <div id="accMeta" hidden style="display:flex;flex-direction:column;gap:12px">
         <p class="hint" id="accStageInfo" style="font-weight:700;color:var(--ink)"></p>
         <p class="hint">These print on the Deficiency List form. Location is the site or cluster code (e.g. KABAN_MIN660); Vendor is the contractor.</p>
@@ -779,10 +818,10 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <label class="field">INSPECTED BY<input type="text" id="mInspector" autocomplete="off"></label>
         <div class="field"><span class="lbl">INSPECTION TYPE (ticked on the form)</span><div class="chips" id="mTypes"></div></div>
         <label class="field">INSPECTION DATE (printed on the form)<input type="date" id="mDate"></label>
-        <button class="btn primary" id="startFat" type="button">Start FAT from this PAT</button>
-        <p class="hint help" id="startFatHint">Copies every element and its punchlist into a new FAT project, so you can verify each rectified item. This PAT stays unchanged.</p>
-        <button class="btn" id="sendPat" type="button">Send this PAT to another phone (for FAT)</button>
-        <p class="hint help" id="sendPatHint">Makes one file with every element, punchlist item and photo. On the other phone: Projects → New project → FAT → Start FAT from a PAT file.</p>
+        <button class="btn primary" id="sendPat" type="button">Share the PAT KMZ (for defect cleanup / FAT)</button>
+        <p class="hint help" id="sendPatHint">One KMZ file with every defect pin, punchlist item and photo. It opens in Google Earth, and PoleCam on the contractor's or the FAT phone starts the next stage from it: Projects → New project → Defect cleanup (or FAT) → Open the PAT / cleanup KMZ.</p>
+        <button class="btn" id="startFat" type="button">Start FAT from this PAT on this phone</button>
+        <p class="hint help" id="startFatHint">Copies every element and its punchlist into a new FAT project on this phone, so you can verify each item. This project stays unchanged.</p>
       </div>
       <button class="btn danger" id="delProject">Delete this project…</button>
       <div id="delProjConfirm" hidden style="display:flex;flex-direction:column;gap:10px"><p style="margin:0" id="delProjText"></p><div class="row"><button class="btn grow" id="delProjNo">Keep</button><button class="btn grow" id="delProjYes" style="background:var(--bad);border-color:var(--bad);color:#fff">Delete project</button></div></div>
@@ -790,11 +829,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="group">
       <h3>New project</h3>
       <span class="lbl">TASK CATEGORY</span>
-      <div class="chips" id="newMode"><button type="button" class="chip" data-v="survey" aria-pressed="true">Survey</button><button type="button" class="chip" data-v="PAT" aria-pressed="false">PAT</button><button type="button" class="chip" data-v="FAT" aria-pressed="false">FAT</button></div>
-      <p class="hint" id="newModeHint">Survey: engineering survey of poles, route and spans for design.</p>
-      <button class="btn" id="fatFromFile" type="button" hidden>Start FAT from a PAT file…</button>
-      <input type="file" id="patFileInput" accept=".zip,application/zip" hidden>
-      <div class="row"><input type="text" id="newProject" placeholder="e.g. Kabacan Poblacion LLD" style="flex:1"><button class="btn primary" id="addProject">Add</button></div>
+      <div class="chips" id="newMode"><button type="button" class="chip" data-v="survey" aria-pressed="true">Survey</button><button type="button" class="chip" data-v="PAT" aria-pressed="false">PAT</button><button type="button" class="chip" data-v="Cleanup" aria-pressed="false">Defect cleanup</button><button type="button" class="chip" data-v="FAT" aria-pressed="false">FAT</button></div>
+      <p class="hint" id="newModeHint">Survey: As-plan before construction or As-built after it. You can load the HLD KMZ as a reference route.</p>
+      <label class="frow" id="newPurposeRow"><span class="lbl">SURVEY FOR</span><select id="newPurpose"><option value="As-plan">As-plan (before construction)</option><option value="As-built">As-built (after construction)</option></select></label>
+      <button class="btn primary" id="fatFromFile" type="button" hidden>Open the PAT / cleanup KMZ…</button>
+      <input type="file" id="patFileInput" accept=".kmz,.zip,application/vnd.google-earth.kmz,application/zip,application/octet-stream" hidden>
+      <div class="row" id="newNameRow"><input type="text" id="newProject" placeholder="e.g. Kabacan Poblacion LLD" style="flex:1"><button class="btn primary" id="addProject">Add</button></div>
     </div>
     <div class="sectionh">All projects on this phone</div>
     <div id="projItems" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -823,10 +863,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <div id="packList" style="display:flex;flex-direction:column;gap:8px"></div>
       <div class="row"><button class="btn grow primary" id="packImport" type="button">Import a pack file</button><button class="btn grow" id="packRefresh" type="button">Refresh list</button></div>
       <input type="file" id="packFileInput" hidden>
-      <span class="lbl">ADD A GOOGLE DRIVE LINK</span>
+      <div id="packLinkBox" style="display:flex;flex-direction:column;gap:8px">
+      <span class="lbl">ADD A GOOGLE DRIVE LINK (THIS PHONE ONLY)</span>
       <input type="text" id="packLink" placeholder="https://drive.google.com/file/d/…/view" autocomplete="off" aria-label="Google Drive link to a .pmtiles file">
       <div class="row"><input type="text" id="packLinkName" placeholder="Name, e.g. Mindanao" style="flex:1" aria-label="Name for this map pack"><button class="btn" id="packAddLink" type="button">Add</button></div>
-      <p class="hint">The Drive file must be shared as “Anyone with the link”. The Android app downloads it directly; the website version opens it in Drive so you can download it and import it here.</p>
+      <p class="hint" id="packLinkHint">The Drive file must be shared as “Anyone with the link”. The Android app downloads it directly; the website version opens it in Drive so you can download it and import it here.</p>
+      </div>
     </div>
     <div class="group">
       <h3>Map tiles you have viewed</h3>
@@ -919,6 +961,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <label class="field">Link in capture order: skip gaps longer than (m)<input type="number" id="setAutoGap" step="5" min="10"></label>
         <label class="field">Extra pole prefixes for everyone, one per line (prefix, then a name)<textarea id="admPoleTypes" style="min-height:60px" placeholder="PLDT PLDT pole"></textarea></label>
         <label class="field">Photo sharpness required<select id="admQuality"><option value="strict">Strict (recommended)</option><option value="normal">Normal: refuse only clearly blurry</option></select></label>
+      </div>
+      <div class="group">
+        <h3>Offline map packs</h3>
+        <p class="hint help">Upload each .pmtiles map pack to Google Drive and share it as “Anyone with the link”. Paste one line per pack: name | Drive link | size in MB. Users see these packs under Maps after they take this list version (QR or file), or after Refresh list when the online sheet is connected. Users cannot add links themselves.</p>
+        <textarea id="admPacks" style="min-height:80px" placeholder="Mindanao | https://drive.google.com/file/d/…/view | 200" aria-label="Offline map packs, one per line"></textarea>
+        <p class="hint" id="admPacksInfo"></p>
       </div>
       <div class="group">
         <h3>Online Google Sheet (optional)</h3>

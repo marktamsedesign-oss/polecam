@@ -1,6 +1,6 @@
 # PoleCam Survey
 
-Three task categories per project: **Survey** (engineering survey), **PAT** and **FAT** (acceptance **List of Deficiencies** on the office form — see "Acceptance mode"). The category shows on the project button at the top right.
+Four task categories per project: **Survey** (As-plan or As-built), **PAT**, **Defect cleanup** and **FAT** (acceptance **List of Deficiencies** on the office form — see "Acceptance mode"). The category shows on the project button at the top right. One shareable **KMZ** carries the PAT to the contractor's cleanup and on to the FAT (v2.5).
 
 **v2.0** — the Deficiency List exports are the office form (PDF and Excel) with photo annexes; deficiencies go through *found → rectified → verified*; the admin sets the company policies (admin company, form wording, checklist, field standards) inside the signed company list; the settings are split into what users set and what only the admin sets; every export has detailed options (photo size, stamps, KMZ icons, PDF annexes). See "What changed in v2.0".
 
@@ -51,15 +51,18 @@ The APK opens the same hosted app, so keep the GitHub Pages site online.
 - **How it stays trustworthy:** the list is signed with a key that travels inside it, encrypted with the admin PIN. A phone accepts a new version of its list only when it was made with that PIN (or, for lists from v1.x, by one of the admins named in it), and rejects a list edited by hand. Each list has a code (e.g. MV3H-EQCB) shown when joining; a different list needs *Switch list* and a warning.
 - Lists made with v1.7–v2.0 (per-person admin keys) keep working. Their admin opens *Manage (admin)* once, sets the admin PIN and saves; after that the admin-company model applies and the old “ask to become an admin” step is gone.
 
-## The process: Survey → PAT → FAT (v2.1)
+## The process: Survey → PAT → Defect cleanup → FAT (v2.5)
 
 Each project shows a **Workflow** checklist at the top of the Projects screen (tap the project name on the top bar), with what is done, what is next and a button that opens the right screen. The strip above the navigation shows the next step too.
 
 | Stage | Who | Steps (the app ticks them off) |
 |---|---|---|
-| **Survey** (design) | survey team | 1 Capture the poles (photo → ID scan → pin check) · 2 Link the route (route button, *Link in capture order*, fix branches; long spans are flagged) · 3 Export for design (KMZ, DXF, CSV, photos) · 4 Back up |
-| **PAT** (provisional acceptance) | Globe inspector with the contractor | 1 Form details (site, vendor, representatives, inspection date) · 2 Record elements and deficiencies (as-found photos, MD/D/N) · 3 Export the Deficiency List (PDF for signing, Excel for tracking) · 4 Hand over: *Start FAT* on this phone or *Send PAT file* to the FAT phone |
-| **FAT** (final acceptance) | contractor, then Globe inspector | 1 Started from the PAT · 2 Contractor rectifies (after photo or *Mark rectified*) · 3 Inspector verifies (or rejects with a reason) · 4 Export the final Deficiency List (verified photos in Annex A) and the rectification report |
+| **Survey** (As-plan or As-built) | survey team / contractor | Optional: load the **HLD KMZ** (route, homing, POI) as a reference · 1 Capture the poles (photo → ID scan → pin check; *No tag → NPT* for untagged poles) · 2 Link the route (follow the HLD or reroute where it is not doable) · 3 Export for design (KMZ, DXF, CSV, photos; file names carry ASPLAN / ASBUILT) · 4 Back up |
+| **PAT** (provisional acceptance) | Globe inspector with the contractor | 1 Form details · 2 **Record the defects**: only the elements with defects, each tagged N, D or MD (the defect form opens with the editor; a new PAT record cannot be saved without one) · 3 Export the Deficiency List · 4 **Share the PAT KMZ** with the contractor |
+| **Defect cleanup** | contractor | 1 Open the PAT KMZ (Projects → New → Defect cleanup) · 2 Walk to each red pin: tap it → **📷 Photo of the fix** (or *Fixed, no photo*), **💬 Comment** · 3 **Share the cleanup KMZ** for the FAT |
+| **FAT** (final acceptance) | Globe inspector | 1 Open the cleanup KMZ (or the PAT KMZ) · 2 Walk to each pin: **✓ Accept**, **📷 Accept with photo** or **✗ Reject** with a reason · 3 Export the final Deficiency List (as found → fixed → checked photos in Annex A) and the rectification report |
+
+**Walking the pins (cleanup and FAT).** The map shows the pins and your position. The strip above the bottom bar always points to the nearest pin that still needs you (*Next: CC-0012 · 85 m NE of you*); tap it, or tap any pin, to open its card: the as-found photo, each item with its status, and big buttons. Every button saves at once; there is no separate Save. *Next pin ›* jumps to the next nearest one; *Open full record* opens the full editor.
 
 Tasks assigned in the online sheet (Projects → *Assigned tasks*) start a project with the right category and details already filled in, so a field user only taps **Start** and follows the checklist.
 
@@ -175,7 +178,7 @@ If the map still stays blank: **Maps** (cloud button on the map, or Settings →
 **How to make one: see `MAP-PACKS.md`** — QGIS plugin (`polecam_mappack.zip`, cuts the area shown in QGIS), GitHub Actions, or the `pmtiles` command line — then Google Drive and the MapPacks tab.
 
 - **What a pack is:** one `.pmtiles` file of street map data (OpenStreetMap, ODbL) for a whole area, from the free Protomaps build. Streets, road names, buildings, water and places, drawn on the phone at any zoom. Mindanao mainland is about 200 MB.
-- **Where packs live:** in your **Google Drive**, not on GitHub. Upload the file, set sharing to *Anyone with the link*, and add the link to the **MapPacks** tab of the online sheet (then every phone lists it), or paste it on one phone under *Add a Google Drive link*.
+- **Where packs live:** in your **Google Drive**, not on GitHub. Upload the file and set sharing to *Anyone with the link*. The **admin** enters the links in the app: Settings → Administration → Manage → **Offline map packs** (one line per pack: name | Drive link | size in MB), then *Save and share the list*. Users see the packs under Maps after they take that list version, or after **Refresh list** when the online sheet is connected. With a company list, users cannot add links themselves (only phones without a list, and admins, see *Add a Google Drive link*).
 - **Getting it on the phone:**
   - **Android app:** Offline map → **Download**. The app fetches the file from Drive in 4 MB pieces and can **Resume** after a dropped connection. **Cancel** stops at once.
   - **Any phone:** download the file (Drive app, browser, USB, Viber…) and use **Import a pack file**. The website version can only do this, because browsers cannot read Drive files directly.
@@ -191,8 +194,8 @@ The admin keeps three lists in a Google Sheet on their own account; phones read 
 | Tab | What it holds |
 |---|---|
 | **Companies** | One company per row. Replaces the in-app list once a phone has read the sheet. |
-| **Tasks** | Task ID (filled in automatically), project name, category **Survey / PAT / FAT**, site, contractor, Globe representative, *for company* (blank = everyone), status *Active/Closed*, notes. |
-| **MapPacks** | Name, Google Drive link, size in MB, notes. |
+| **Tasks** | Task ID (filled in automatically), project name, category **Survey / PAT / Defect cleanup / FAT**, site, contractor, Globe representative, *for company* (blank = everyone), status *Active/Closed*, notes. |
+| **MapPacks** | Name, Google Drive link, size in MB, notes. Since v2.5 the admin types the packs in the app (Administration → Offline map packs); with the Admin key on the admin's phone, saving the list rewrites this tab (update the Apps Script: Deploy → Manage deployments → Edit → New version). |
 | **Settings** | List name, **Read key** (phones), **Admin key** (admins only). |
 
 **Setup (admin, once):**
@@ -205,9 +208,15 @@ The admin keeps three lists in a Google Sheet on their own account; phones read 
 
 **Company names from a CSV (admin):** Manage (admin) → *Import companies from CSV*: the column named Company/Vendor/Contractor/Name, or the first column; duplicates are skipped. You can also paste names straight into the sheet's Companies tab.
 
-## PAT from another phone, for the FAT (v1.8)
+## The shareable KMZ: PAT → defect cleanup → FAT (v2.5)
 
-On the PAT phone: Projects → (PAT project) → **Send this PAT to another phone (for FAT)**. This makes one ZIP with every element, punchlist item and photo, sent by Viber, Drive, email or USB. On the FAT phone: Projects → New project → **FAT** → **Start FAT from a PAT file** (or *Start* on a FAT task). The PAT is restored on that phone and a FAT is started from it, ready for after photos.
+On the PAT phone: Projects → (PAT project) → **Share the PAT KMZ**. It is one `.kmz` file: Google Earth shows the defect pins with their photos (open it on a PC to review), and PoleCam reads the records and the original photos stored inside it (folder `polecam/`, ignored by Google Earth). Send it by Viber, Drive, email or USB.
+
+- **Contractor:** Projects → New project → **Defect cleanup** → **Open the PAT KMZ…** → walk the pins and photo each fix → Projects → **Share the cleanup KMZ**.
+- **Inspector:** Projects → New project → **FAT** → **Open the PAT / cleanup KMZ…** → accept or reject each fix → export the final Deficiency List.
+- The KMZ from Export → *Google Earth · KMZ* carries the same data unless *Include the PoleCam data* is unticked under its options (for a smaller file only for Google Earth).
+- On one phone, *Start FAT from this PAT / cleanup on this phone* does the same without a file. PAT files (ZIP) from v1.8–v2.4 still open.
+- Online tasks with category *Defect cleanup* or *FAT* ask for the KMZ when you tap Start.
 
 ## AutoCAD
 
@@ -310,4 +319,15 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Compact editor.** The pin map uses 30% of the screen and the ⤢ button enlarges it (the choice is remembered). The instruction appears on the map and fades after the first drag. Element, Pole type (with “+ Other prefix…”), ODF new/existing, the deficiency “Where” and Category are dropdowns. MLoop / NAP / Closure are one row of toggles, with the NAP and Closure IDs side by side. Scan suggestions sit on one line. “+ Add” deficiency moved next to the status. The map and the Save button stay fixed while the form scrolls.
 - **Export: one format at a time.** A Format dropdown at the top picks the export (KMZ, DXF, CSV, PDF, Excel, photos, backup, …). Only that card is shown, its Export button stays at the bottom while the options are open, and the last choice is remembered for Survey and for PAT/FAT. The checklist's *Next: Export* opens the Deficiency List PDF (PAT/FAT) or KMZ (Survey), and *Back up* opens Backup.
 - The App log records which base map was shown during each save.
+
+## What changed in v2.5
+
+- **Four stages with one handover file.** New category **Defect cleanup** between PAT and FAT. The PAT KMZ (Projects → *Share the PAT KMZ*) opens in Google Earth and also carries the PoleCam records and original photos, so the contractor starts the cleanup from it and the inspector starts the FAT from the cleanup KMZ. See "The shareable KMZ".
+- **Walk the pins** in the cleanup and the FAT: tap a pin (or the *Next* strip) for a card with the as-found photo and one-tap **Photo of the fix / Comment / Accept / Accept with photo / Reject**. Each tap saves at once. The strip shows the nearest pin still to do, with its distance and direction from you. In a cleanup the camera button opens the nearest pin instead of a new record.
+- **PAT records only defects:** the defect form is open when the editor opens, *Save* adds a ticked defect, and a new PAT record without a deficiency (N, D or MD) is not saved.
+- **No tag → NPT:** one tap sets the Pole ID to NPT (no pole tag). Several NPT poles are allowed (no duplicate warning; file names get _2, _3…). In a PAT it also ticks the *No pole tag* defect.
+- **Reference KMZ** per project (Projects → Current project → *Load KMZ / KML…*): the HLD route, homing and POI pins drawn under your pins on the map and in the editor, names shown when zoomed in. It is only a guide (reroute where the HLD is not doable) and is never exported. Hide or remove it there.
+- **Survey for As-plan or As-built** (chosen when the survey project is made, changeable in Projects); survey file names and the KMZ title carry it.
+- **Map packs from the admin only:** Administration → *Offline map packs*; users see them under Maps after taking the list or *Refresh list*. The online sheet script gained *setPacks* and the *Defect cleanup* task category: paste the new `PoleCam-online-sheet.gs` and deploy a new version.
+- One of the v2.3.1 browser tests now uses a FAT project, because a new PAT record needs a deficiency.
 
