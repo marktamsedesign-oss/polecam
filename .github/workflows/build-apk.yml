@@ -1,4 +1,4 @@
-# Builds PoleCam as an offline Android APK (all app files packed inside) and publishes it as a GitHub Release.
+# Builds G-eSAA (formerly PoleCam) as an offline Android APK (all app files packed inside) and publishes it as a GitHub Release.
 # Runs on every change to the app files, or by hand: Actions > Build Android APK > Run workflow.
 # Needs two repository secrets: POLECAM_KEYSTORE_B64 and POLECAM_KEYSTORE_PASSWORD.
 name: Build Android APK
@@ -72,7 +72,7 @@ jobs:
           cat > capacitor.config.json <<'EOF'
           {
             "appId": "com.marktamse.polecam",
-            "appName": "PoleCam",
+            "appName": "G-eSAA",
             "webDir": "www",
             "android": { "backgroundColor": "#0f2547" }
           }
@@ -90,7 +90,7 @@ jobs:
           grep -n "POLECAM_SITE" www/index.html
           # Identify the app to map tile servers (OpenStreetMap's tile policy asks apps for a distinct User-Agent).
           APPVER=$(grep -oP "polecam-v\K[0-9.]+" ../sw.js || echo "1.0.0")
-          node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('capacitor.config.json'));c.appendUserAgent='PoleCam/'+process.argv[1]+' (+https://github.com/'+process.argv[2]+')';fs.writeFileSync('capacitor.config.json',JSON.stringify(c,null,2))" "$APPVER" "$GITHUB_REPOSITORY"
+          node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('capacitor.config.json'));c.appendUserAgent='G-eSAA/'+process.argv[1]+' (+https://github.com/'+process.argv[2]+')';fs.writeFileSync('capacitor.config.json',JSON.stringify(c,null,2))" "$APPVER" "$GITHUB_REPOSITORY"
           cat capacitor.config.json
           npx cap add android
 
@@ -120,7 +120,7 @@ jobs:
               s = s.replace('<application', '<application android:requestLegacyExternalStorage="true"', 1)
           open(p, 'w').write(s)
           print(s)
-          # Launcher icons and splash screen from the PoleCam icons
+          # Launcher icons and splash screen from the app icons (G-eSAA)
           res = 'android/app/src/main/res'
           full = Image.open('www/icons/maskable-512.png').convert('RGBA')
           rounded = Image.open('www/icons/icon-512.png').convert('RGBA')
@@ -138,10 +138,10 @@ jobs:
               full.resize((fg, fg), Image.LANCZOS).save(f'{d}/ic_launcher_foreground.png')
           os.makedirs(f'{res}/values', exist_ok=True)
           open(f'{res}/values/ic_launcher_background.xml', 'w').write(
-              '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#17202A</color>\n</resources>\n')
+              '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#0F2547</color>\n</resources>\n')
           for sp in glob.glob(f'{res}/drawable*/splash.png'):
               w, h = Image.open(sp).size
-              im = Image.new('RGB', (w, h), (23, 32, 42))
+              im = Image.new('RGB', (w, h), (15, 37, 71))
               k = int(min(w, h) * 0.3)
               logo = full.resize((k, k), Image.LANCZOS)
               im.paste(logo, ((w - k) // 2, (h - k) // 2), logo)
@@ -165,23 +165,24 @@ jobs:
           "$BT/apksigner" sign --ks polecam.keystore --ks-key-alias polecam --ks-pass env:KS_PASS --key-pass env:KS_PASS --out PoleCam.apk aligned.apk
           "$BT/apksigner" verify --print-certs PoleCam.apk
           rm -f polecam.keystore
-          ls -l PoleCam.apk
+          cp PoleCam.apk G-eSAA.apk   # same file under the new name; PoleCam.apk keeps old download links working
+          ls -l PoleCam.apk G-eSAA.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PoleCam-apk-build-${{ github.run_number }}
-          path: PoleCam.apk
+          name: G-eSAA-apk-build-${{ github.run_number }}
+          path: G-eSAA.apk
 
       - name: Publish as a GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           APPVER=$(grep -oP "polecam-v\K[0-9.]+" sw.js || echo "1.0.0")
-          gh release create "apk-build-${{ github.run_number }}" PoleCam.apk \
-            --title "PoleCam ${APPVER} – Android APK (build ${{ github.run_number }})" \
+          gh release create "apk-build-${{ github.run_number }}" G-eSAA.apk PoleCam.apk \
+            --title "G-eSAA ${APPVER} – Android APK (build ${{ github.run_number }})" \
             --notes "Offline APK: all app files are inside, no internet needed to install or run (maps still need internet or a downloaded offline area).
 
-          Install: download PoleCam.apk on the phone, open it, allow 'Install unknown apps' for your browser or file manager, then Install. To update, install the newer APK over the old one; your projects stay.
+          Install: download G-eSAA.apk on the phone, open it, allow 'Install unknown apps' for your browser or file manager, then Install. To update, install the newer APK over the old one (also over PoleCam); your projects stay. PoleCam.apk is the same file under the old name.
 
-          Direct link to the newest APK: https://github.com/${{ github.repository }}/releases/latest/download/PoleCam.apk" \
+          Direct link to the newest APK: https://github.com/${{ github.repository }}/releases/latest/download/G-eSAA.apk" \
             --latest
