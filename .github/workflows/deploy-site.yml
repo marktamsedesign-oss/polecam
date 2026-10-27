@@ -1,20 +1,12 @@
-# Publishes the PoleCam website together with offline map packs (OpenStreetMap data from the Protomaps daily build).
-# Runs on every change to main, once a month to refresh the map data, or by hand: Actions > Deploy website and offline maps > Run workflow.
+# Publishes the PoleCam website (the app only; offline map packs are no longer stored on GitHub Pages).
+# Runs on every change to main, or by hand: Actions > Deploy website > Run workflow.
 # One-time setting: Settings > Pages > Build and deployment > Source = "GitHub Actions".
-# Map pack areas are listed in maps/packs.json.
-name: Deploy website and offline maps
+name: Deploy website
 
 on:
   push:
     branches: [main]
-  schedule:
-    - cron: '17 20 1 * *'   # 1st of each month, 04:17 Philippine time
   workflow_dispatch:
-    inputs:
-      refresh_maps:
-        description: 'Download fresh map data now (otherwise this month''s copy is reused)'
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -31,104 +23,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Find the newest Protomaps map build
-        id: build
-        run: |
-          for i in $(seq 0 20); do
-            D=$(date -u -d "-$i day" +%Y%m%d)
-            if curl -sfI "https://build.protomaps.com/$D.pmtiles" > /dev/null; then
-              echo "date=$D" >> "$GITHUB_OUTPUT"
-              echo "month=${D:0:6}" >> "$GITHUB_OUTPUT"
-              echo "Using Protomaps build $D"
-              exit 0
-            fi
-          done
-          echo "::warning::No Protomaps build found at https://build.protomaps.com in the last 20 days. Publishing the last map packs made, if any."
-          echo "month=none" >> "$GITHUB_OUTPUT"
-
-      - name: Get the map packs made before
-        id: cache
-        uses: actions/cache/restore@v4
-        with:
-          path: mapcache
-          key: maps-${{ hashFiles('maps/packs.json') }}-${{ steps.build.outputs.month }}${{ github.event.inputs.refresh_maps == 'true' && format('-{0}', github.run_id) || '' }}
-          restore-keys: |
-            maps-${{ hashFiles('maps/packs.json') }}-
-            maps-
-
-      - name: Get the pmtiles tool
-        if: steps.cache.outputs.cache-hit != 'true' && steps.build.outputs.date != ''
-        run: |
-          curl -sSL https://github.com/protomaps/go-pmtiles/releases/download/v1.31.2/go-pmtiles_1.31.2_Linux_x86_64.tar.gz | tar xz -C /usr/local/bin pmtiles
-          pmtiles version
-
-      - name: Cut the map packs
-        id: cut
-        if: steps.cache.outputs.cache-hit != 'true' && steps.build.outputs.date != ''
-        env:
-          BUILD: ${{ steps.build.outputs.date }}
-        run: |
-          python3 - <<'PY'
-          import json, os, shutil, subprocess, datetime
-          build = os.environ['BUILD']
-          src = f'https://build.protomaps.com/{build}.pmtiles'
-          cfg = json.load(open('maps/packs.json'))
-          old = {}
-          if os.path.exists('mapcache/index.json'):
-              old = {q['id']: q for q in json.load(open('mapcache/index.json')).get('packs', [])}
-          os.makedirs('mapnew', exist_ok=True)
-          LIMIT = 950 * 1048576            # GitHub Pages allows 1 GB per site
-          out, total, complete = [], 0, True
-          for p in cfg['packs']:
-              pid, bbox, maxz = p['id'], p['bbox'], int(p.get('maxzoom', 15))
-              dest = f'mapnew/{pid}.pmtiles'
-              print(f'::group::{p["name"]} {bbox} z0-{maxz}', flush=True)
-              r = subprocess.run(['pmtiles', 'extract', src, dest, '--bbox=' + ','.join(str(v) for v in bbox),
-                                  f'--maxzoom={maxz}', '--download-threads=8'])
-              print('::endgroup::', flush=True)
-              entry = {'id': pid, 'name': p['name'], 'file': f'{pid}.pmtiles', 'bbox': bbox, 'maxzoom': maxz, 'date': build}
-              if r.returncode != 0 or not os.path.exists(dest):
-                  complete = False
-                  q = old.get(pid)
-                  if q and q.get('bbox') == bbox and q.get('maxzoom') == maxz and os.path.exists(f'mapcache/{q["file"]}'):
-                      shutil.copy(f'mapcache/{q["file"]}', dest); entry['date'] = q['date']
-                      print(f'::warning::{pid}: could not cut a new pack, publishing the one from {q["date"]}.')
-                  else:
-                      print(f'::warning::{pid}: could not cut this pack; it is left out this time.'); continue
-              size = os.path.getsize(dest)
-              if total + size > LIMIT:
-                  os.remove(dest)
-                  print(f'::warning::{pid} ({size / 1048576:.0f} MB) left out: the packs would pass the 1 GB GitHub Pages limit. Make the areas in maps/packs.json smaller or lower maxzoom.')
-                  continue
-              total += size; entry['size'] = size; out.append(entry)
-              print(f'{pid}: {size / 1048576:.1f} MB', flush=True)
-          json.dump({'generated': datetime.date.today().isoformat(),
-                     'source': f'Protomaps basemap build {build} (OpenStreetMap data, ODbL)',
-                     'packs': out}, open('mapnew/index.json', 'w'), indent=1)
-          shutil.rmtree('mapcache', ignore_errors=True); os.rename('mapnew', 'mapcache')
-          print(f'Total {total / 1048576:.1f} MB in {len(out)} pack(s)')
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f: f.write(f'complete={"true" if complete else "false"}\n')
-          PY
-
-      - name: Save the map packs for this month
-        if: steps.cut.outputs.complete == 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: mapcache
-          key: ${{ steps.cache.outputs.cache-primary-key }}
-
       - name: Assemble the website
         run: |
           mkdir -p site
-          rsync -a --exclude '.git' --exclude '.github' --exclude 'mapcache' --exclude 'mapnew' --exclude 'site' ./ site/
-          mkdir -p site/maps
-          if [ -f mapcache/index.json ]; then cp mapcache/* site/maps/; else
-            echo '{"packs": [], "source": "No map packs published yet"}' > site/maps/index.json
-            echo "::warning::No map packs to publish this time."
-          fi
-          du -sh site site/maps
-          ls -l site/maps
-          cat site/maps/index.json
+          rsync -a --exclude '.git' --exclude '.github' --exclude 'site' --exclude '*.pmtiles' --exclude 'tests' ./ site/
+          du -sh site
 
       - uses: actions/upload-pages-artifact@v3
         with:
