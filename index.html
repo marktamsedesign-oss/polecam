@@ -181,7 +181,12 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 #qualBox b{color:var(--bad)}
 
 /* point editor */
-#pinMapWrap{position:relative;height:40vh;min-height:220px;flex:none;border-bottom:1px solid var(--line)}
+#pinMapWrap{position:relative;height:30vh;min-height:190px;flex:none;border-bottom:1px solid var(--line);transition:height .2s}
+#pinMapWrap.big{height:56vh}
+#pinSizeBtn{position:absolute;top:8px;left:8px;z-index:400;width:42px;height:42px}
+#pinSizeBtn[aria-pressed=true] svg{transform:rotate(180deg)}
+.maphint{position:absolute;top:12px;left:58px;right:118px;z-index:400;margin:0;background:rgba(15,37,71,.82);color:#fff;font-size:12px;font-weight:600;line-height:1.3;padding:5px 10px;border-radius:10px;pointer-events:none;transition:opacity .4s}
+.maphint.gone{opacity:0}
 #pinMap{position:absolute;inset:0;background:var(--chip)}
 #crosshair{position:absolute;left:50%;top:50%;width:0;height:0;z-index:400;pointer-events:none}
 #crosshair svg{position:absolute;left:-7px;top:-40px;width:14px;height:40px;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.45))}
@@ -192,17 +197,40 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 #pinLayerName{background:var(--surface);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;box-shadow:var(--shadow)}
 #pinInfo{position:absolute;left:8px;right:8px;bottom:8px;z-index:400;display:flex;justify-content:space-between;align-items:flex-end;gap:8px;pointer-events:none}
 #pinInfo > *{pointer-events:auto}
-#coordBox{background:var(--surface);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:var(--shadow);line-height:1.35}
+#coordBox{background:var(--surface);border-radius:8px;padding:4px 8px;font-size:11px;box-shadow:var(--shadow);line-height:1.3}
 #coordBox.over{background:var(--bad);color:#fff}
-#snapGps{min-height:40px;font-size:13px;box-shadow:var(--shadow)}
+#snapGps{min-height:36px;padding:0 12px;font-size:13px;box-shadow:var(--shadow)}
+.edbody{gap:10px;padding-top:10px}
+.edbody .group{padding:12px;gap:10px}
+.frow{display:grid;grid-template-columns:76px minmax(0,1fr);gap:8px;align-items:center}
+.frow > .lbl{font-size:12px;letter-spacing:.04em}
+.frow select,.frow input,.edbody .idrow input{min-height:44px;padding:8px 10px}
+.edbody .idrow .btn{min-height:44px;padding:0 12px}
+.toggles{display:flex;gap:8px;flex-wrap:wrap}
+.tchip{position:relative;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 14px;border-radius:999px;border:1px solid var(--line);background:var(--chip);font-weight:600;font-size:14px;cursor:pointer}
+.tchip input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.tchip::before{content:'';width:16px;height:16px;border-radius:4px;border:2px solid var(--muted);flex:none;display:grid;place-items:center;font-size:12px;font-weight:900;line-height:1;box-sizing:border-box}
+.tchip.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tchip.on::before{content:'✓';border-color:var(--bg);background:var(--bg);color:var(--ink)}
+.tchip:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.pair{display:flex;gap:8px}.pair > *{flex:1;min-width:0}.pair > [hidden]{display:none}
+.pair input{min-height:44px;padding:8px 10px}
+.btn.small{min-height:36px;padding:0 12px;font-size:13px}
+.grow{flex:1}
+.edbody #photoStrip img{width:64px;height:64px}
+.edbody #photoStrip .meta{flex-direction:row;flex-wrap:wrap;column-gap:10px}
+.edbody .photo-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.edbody .ph select{min-height:30px;padding:2px 14px 2px 4px;font-size:11.5px;-webkit-appearance:none;appearance:none;background:var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0h8L4 5z' fill='%23667'/%3E%3C/svg%3E") no-repeat right 4px center;text-overflow:ellipsis}
+.edbody .ph .x{width:26px;height:26px;font-size:16px}
 #photoStrip{display:flex;gap:12px;align-items:center}
 #photoStrip img{width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none;background:var(--chip)}
 #photoStrip .meta{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:2px;min-width:0}
 .idrow{display:flex;gap:8px}
 .idrow input{flex:1;min-width:0}
 .idrow .btn{flex:none}
-.idcands{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;color:var(--muted)}
-.idcands .chip{min-height:38px;font-family:var(--mono)}
+.idcands{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:6px;align-items:center;font-size:12px;color:var(--muted);scrollbar-width:none;margin:-2px 0}
+.idcands > span{flex:none}
+.idcands .chip{min-height:32px;padding:0 10px;font-family:var(--mono);flex:none}
 .idcands .chip.fit{border-color:var(--ok)}
 .photo-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .ph{position:relative;display:flex;flex-direction:column;gap:4px;min-width:0}
@@ -255,6 +283,12 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .xcard summary::before{content:'▸';font-size:12px}
 .xcard details[open] summary::before{content:'▾'}
 .xcard .opts{display:flex;flex-direction:column;gap:10px;padding-top:10px}
+.xcard.xoff{display:none}
+#export .xcard > .head{display:none} /* the Format dropdown already names the card */
+#export .xcard > .head + details{border-top:0;padding-top:0}
+.xpick select{font-weight:700}
+.xcard > .btn,.xcard > .row{position:sticky;bottom:0;z-index:2;box-shadow:0 -10px 10px -4px var(--surface)}
+.xcard > .btn{margin-top:4px}
 .opt2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
 /* toast + progress */
@@ -385,14 +419,15 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div id="pinMapWrap">
     <div id="pinMap"></div>
     <div id="crosshair"><svg viewBox="0 0 14 40"><path d="M7 11V34" stroke="#fff" stroke-width="4" stroke-linecap="round"/><path d="M7 11V34" stroke="#e6007e" stroke-width="2" stroke-linecap="round"/><circle cx="7" cy="7" r="5.5" fill="#e6007e" stroke="#fff" stroke-width="1.6"/></svg><i></i></div>
+    <p id="edHint" class="maphint">Drag the map to put the pin on the pole</p>
+    <button class="round" id="pinSizeBtn" type="button" aria-label="Bigger map" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <div id="pinLayer"><span id="pinLayerName">Street</span><button class="round" id="pinLayerBtn" type="button" aria-label="Switch map: street, satellite or offline map pack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button></div>
     <div id="pinInfo">
       <div id="coordBox" class="mono"><div id="pinLL">–</div><div id="pinUTM">–</div><div id="pinDelta"></div></div>
       <button class="btn" id="snapGps">Reset to GPS</button>
     </div>
   </div>
-  <div class="body">
-    <p class="hint" id="edHint">Drag the map to put the pin exactly on the pole.</p>
+  <div class="body edbody">
     <div class="group">
       <h3>Photo</h3>
       <div id="photoStrip"><img id="edPhoto" alt="Captured pole photo"><div class="meta"><span id="edTime">–</span><span id="edAcc">–</span><span id="edSrc"></span></div></div>
@@ -401,34 +436,36 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
     <div class="group">
       <h3>Identification</h3>
-      <div class="field" id="accElementBox" hidden><span class="lbl">ELEMENT</span><div class="chips" id="elemChips"></div></div>
-      <div class="field"><label class="lbl" for="poleId" id="idLabel">POLE ID</label>
+      <label class="frow" id="accElementBox" hidden><span class="lbl">ELEMENT</span><select id="elemSel" aria-label="Element"></select></label>
+      <div class="frow"><label class="lbl" for="poleId" id="idLabel">POLE ID</label>
         <div class="idrow"><input type="text" id="poleId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CC-0001"><button class="btn" id="scanIdBtn" type="button" aria-label="Read the ID from the camera">Scan ID</button></div>
       </div>
       <div id="idCands" class="idcands" hidden></div>
       <p class="warnline" id="dupWarn" hidden></p>
       <p class="warnline" id="fmtWarn" hidden></p>
-      <div class="field" id="surveyTypeBox"><span class="lbl">POLE TYPE</span><div class="chips" id="typeChips"></div></div>
+      <label class="frow" id="surveyTypeBox"><span class="lbl">TYPE</span><select id="typeSel" aria-label="Pole type"></select></label>
+      <label class="frow" id="odfBox" hidden><span class="lbl">ODF</span><select id="odfSel" aria-label="ODF"><option value="New">New ODF</option><option value="Existing">Existing ODF</option></select></label>
     </div>
     <div class="group" id="poleAttach" hidden>
       <h3>On this pole</h3>
-      <label class="check"><input type="checkbox" id="atMloop"><span>With MLoop</span></label>
-      <label class="check"><input type="checkbox" id="atNap"><span>With NAP</span></label>
-      <input type="text" id="napId" placeholder="NAP ID" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="NAP ID" hidden>
-      <label class="check"><input type="checkbox" id="atClosure"><span>With closure</span></label>
-      <input type="text" id="closureId" placeholder="Closure ID" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Closure ID" hidden>
+      <div class="toggles">
+        <label class="tchip"><input type="checkbox" id="atMloop"><span>MLoop</span></label>
+        <label class="tchip"><input type="checkbox" id="atNap"><span>NAP</span></label>
+        <label class="tchip"><input type="checkbox" id="atClosure"><span>Closure</span></label>
+      </div>
+      <div class="pair">
+        <input type="text" id="napId" placeholder="NAP ID" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="NAP ID" hidden>
+        <input type="text" id="closureId" placeholder="Closure ID" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Closure ID" hidden>
+      </div>
     </div>
-    <div class="group" id="odfBox" hidden><h3>ODF</h3><div class="chips" id="odfChips"><button type="button" class="chip" data-v="New" aria-pressed="true">New ODF</button><button type="button" class="chip" data-v="Existing" aria-pressed="false">Existing ODF</button></div></div>
     <div class="group" id="defBox" hidden>
-      <div class="row between"><h3>Deficiencies</h3><span class="pill" id="defStatus"></span></div>
+      <div class="row between"><h3>Deficiencies</h3><span class="grow"></span><span class="pill" id="defStatus"></span><button class="btn small" id="addDefBtn" type="button">+ Add</button></div>
       <p class="hint" id="defRoleHint" hidden></p>
       <div id="defList" style="display:flex;flex-direction:column;gap:8px"></div>
-      <button class="btn" id="addDefBtn" type="button">+ Add deficiency</button>
       <div id="defPanel" class="defpanel" hidden>
-        <span class="lbl">WHERE</span><div class="chips" id="defCats"></div>
+        <label class="frow"><span class="lbl">WHERE</span><select id="defCatSel" aria-label="Where"></select></label>
         <span class="lbl">DEFECT · tap one or more</span><div class="chips" id="defItems"></div>
-        <span class="lbl">CATEGORY</span>
-        <div class="chips" id="defSev"><button type="button" class="chip" data-v="Major" aria-pressed="false">Major (MD)</button><button type="button" class="chip" data-v="Minor" aria-pressed="true">Minor (D)</button><button type="button" class="chip" data-v="Note" aria-pressed="false">Note (N)</button></div>
+        <label class="frow"><span class="lbl">CATEGORY</span><select id="defSevSel" aria-label="Category"><option value="Major">Major (MD)</option><option value="Minor" selected>Minor (D)</option><option value="Note">Note (N)</option></select></label>
         <label class="field">NOTES<textarea id="defNotes" placeholder="Details, exact spot, what the contractor must do. If no defect above fits, describe it here."></textarea></label>
         <div class="row"><button class="btn" id="defPhotoBtn" type="button">Take defect photo</button><img id="defPhotoPrev" alt="Defect photo" hidden style="width:64px;height:64px;object-fit:cover;border-radius:8px"></div>
         <div class="row"><button class="btn grow" id="defCancel" type="button">Cancel</button><button class="btn primary grow" id="defAdd" type="button">Add to punchlist</button></div>
@@ -437,6 +474,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <button class="btn danger" id="edDelete" hidden>Delete this record</button>
     <div id="delConfirm" class="group" hidden><p style="margin:0">Delete <b id="delName"></b> and its photo? This can't be undone.</p><div class="row"><button class="btn grow" id="delNo">Keep</button><button class="btn grow primary" id="delYes" style="background:var(--bad);border-color:var(--bad);color:#fff">Delete</button></div></div>
   </div>
+  <p id="saveIssue" class="warnline" role="alert" hidden style="margin:0;padding:10px 16px;color:var(--bad)"></p>
   <div class="foot">
     <button class="btn" id="edSkip" hidden>Skip</button>
     <button class="btn" id="edRetake">Retake</button>
@@ -466,6 +504,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </header>
   <div class="body">
     <p class="hint" id="exportScope"></p>
+    <label class="frow xpick"><span class="lbl">FORMAT</span><select id="xFormat" aria-label="Export format"></select></label>
     <div id="accExports" style="display:contents" hidden>
       <div class="xcard">
         <div class="head"><span class="ic">PDF</span><div><b>Deficiency List · PDF</b><p>The office form (List of Deficiencies, PAT or FAT ticked, 15 items per page, signature blocks), then Annex A with the photo evidence of each item and Annex B with the inspection photo log.</p></div></div>
@@ -583,6 +622,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="sectionh">Data</div>
     <div class="rows">
       <button class="rowbtn" id="goStorage" type="button"><span class="ic"><svg><use href="#i-db"/></svg></span><span class="t"><b>Storage</b><span id="storeSub">–</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
+      <button class="rowbtn" id="goLog" type="button"><span class="ic"><svg><use href="#i-list"/></svg></span><span class="t"><b>App log</b><span id="logSub">Errors and timings, to send for support</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
     </div>
     <div class="sectionh">Company list</div>
     <div class="rows">
@@ -600,7 +640,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <p class="hint help">One company on the list is the <b>admin company</b> (e.g. Globe). Its staff enter the admin PIN once and become admins and inspectors: they manage this list, add deficiencies and verify rectifications. Everyone else is a contractor user. Updates travel by QR code or file, signed so a phone only takes versions made with the admin PIN.</p>
     <div class="sectionh">About</div>
     <div class="group">
-      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.2.0</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
+      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.4.0</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
       <p class="hint" id="policyInfo" style="margin:0"></p>
       <label class="check"><input type="checkbox" id="setShowHelp"><span>Keep the help text on every screen open</span></label>
     </div>
@@ -691,6 +731,21 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <p class="hint" id="packInfo">–</p>
       <button class="btn" id="goMaps2" type="button">Open Maps</button>
     </div>
+  </div>
+</section>
+
+<!-- app log -->
+<section class="sheet" id="logSheet" hidden aria-labelledby="logTitle">
+  <header><button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 id="logTitle">App log</h2></header>
+  <div class="body">
+    <div class="group">
+      <p class="hint" id="logSummary">–</p>
+      <div class="row"><button class="btn primary grow" id="logShare" type="button">Send log</button><button class="btn grow" id="logCopy" type="button">Copy</button></div>
+      <div class="row"><button class="btn grow" id="logTest" type="button">Run save test</button><button class="btn danger grow" id="logClear" type="button">Clear</button></div>
+      <p class="hint" id="logTestOut" hidden></p>
+      <p class="hint help">When saving is slow or fails: take a photo and save it (or tap <b>Run save test</b>), then <b>Send log</b> to your admin or developer. The log holds error messages and how long each step took — no photos, names, phone numbers or coordinates.</p>
+    </div>
+    <pre id="logView" class="mono" style="white-space:pre-wrap;word-break:break-word;font-size:11px;line-height:1.35;margin:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px;max-height:none"></pre>
   </div>
 </section>
 

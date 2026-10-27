@@ -9,7 +9,7 @@ One phone app that replaces GPS Camera + the Windows geolocator step:
 1. **Capture** – take the pole photo inside the app; GPS is recorded at the shutter (green shutter = GPS ready).
 2. **Scan the ID** – right after the photo, fit the painted ID (pole, ODF or any other) in the box; horizontal or vertical IDs.
 3. **Correct the pin** – drag the map under the slim pin until it sits on the pole; switch street / satellite / offline map while you do it.
-4. **Pole ID + type** – Concrete (CC), Wood (WP), Steel (SP): IDs CC-0001, WP-0001, SP-0001; Globe (GT) and Bayantel (BT) poles keep the number painted on them (GT-88123); other owners (PLDT-, …) are added by the admin for everyone or with “+ Other prefix” on one phone. ODFs FDU_100. The next ID is suggested; duplicates are flagged.
+4. **Pole ID + type** – Concrete (CC), Wood (WP), Steel (SP): IDs CC-0001, WP-0001, SP-0001; Globe (GT) and Bayantel (BT) poles keep the number painted on them (GT-88123); other owners (PLDT-, …) are added by the admin for everyone or with “+ Other prefix…” at the end of the Type dropdown on one phone. ODFs FDU_100. The next ID is suggested; duplicates are flagged.
 5. **Export** –
    - **KMZ** for Google Earth: pins named by Pole ID, photo as the pin icon, photo in the balloon.
    - **DXF** for AutoCAD: one block per pole type (`POLE_CONCRETE`, `POLE_WOOD`, …) at **UTM Zone 51N (WGS84) meters**, Pole ID text on layer `POLE_LABEL`, plus optional OpenStreetMap road centerlines (`OSM_ROAD_MAJOR` / `MINOR` / `PATH`, road names on `ROAD_NAME`).
@@ -249,6 +249,7 @@ Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v2.1.1`), and upload 
 | `.github/workflows/build-apk.yml` | Builds the signed Android APK |
 | `.github/workflows/build-map-packs.yml` | Optional: makes map pack files as a GitHub Release |
 | `PoleCam-online-sheet.gs` (sent separately) | Apps Script for the online Google Sheet |
+| `tests/` | Automated save tests (Node + Playwright, see *What changed in v2.3.1*); not published on the website |
 
 Map data © OpenStreetMap contributors (ODbL); offline packs from the Protomaps basemap build. Satellite imagery © Esri (online only).
 
@@ -287,3 +288,26 @@ Map data © OpenStreetMap contributors (ODbL); offline packs from the Protomaps 
 - **Faster, safer photo saving.** The store-ready copy of a photo (2048 px + thumbnail) is now made in the background as soon as the photo passes the check, while the ID is scanned and typed, so **Save only writes to the phone's storage**. Every step has a time limit with a clear message instead of a frozen “Saving photo…”, and a refresh problem after a successful save no longer says “Could not save”. Phones with 48–200 MP cameras are asked for a ~12 MP still (the app keeps 2048 px anyway); a camera that does not deliver the still within 6 s is replaced by the live picture. Settings → Storage shows the timings of the last photo (camera, check, prepare, save) — send that line if saving is still slow.
 - **Map tiles no longer compete with saving**: tile downloads pause while the app saves or exports; satellite imagery is loaded by the WebView again (as in v2.0) instead of through the Android bridge; only OpenStreetMap still needs the bridge, without retries; tiles that left the screen are dropped from the queue.
 - **Pole owner prefixes**: Globe (GT-) and Bayantel (BT-) built in, extra prefixes for everyone in Administration → Field standards, or on one phone with “+ Other prefix” in the editor / Settings → Camera → Pole types. The ID reader knows all of them.
+
+## What changed in v2.3
+
+- **App log** (Settings → App log): a crash-safe log of errors, what the app told you (messages), and how long every step of taking, preparing, saving and exporting a photo took, plus the phone's storage and memory figures. *Send log* shares it as a text file (Viber, Gmail, Drive); *Run save test* makes a 12 MP test picture and times decode, compress, write and read-back without the camera. If the app is closed or crashes in the middle of a save, the next start records which step it was. The log holds no photos, names, phone numbers or coordinates.
+- **Photo saving hardened**: the stored copy is prepared when the editor opens (after the camera has closed, so the camera and the photo processing no longer compete for memory); a decoder that hangs falls back to a second decoder; an encoder that returns nothing is retried smaller, and as a last resort the camera's own JPEG is kept, so a photo is never lost to processing; canvas memory is released right after use; a write that fails (for example storage full) empties the viewed-tiles cache and is tried once more; every wait has a time limit and the message says what failed.
+
+## What changed in v2.3.1
+
+Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3:
+
+- **One storage transaction per save**: the photo(s) and the record are written together, or nothing is written. A save that takes longer than 15 s is cancelled for real (no late half-save), and a closed storage connection is reopened and tried once more.
+- **Save cannot be lost or doubled**: a second tap on Save, or Back while it is saving, is ignored with a note; if a save fails, a red line under the editor says why and the photo stays on screen for another try.
+- **Fallbacks for the photo processing**: if the phone's JPEG encoder stalls or returns nothing, a second encoder is used (and remembered); if the fast decoder stalls, the normal image decoder is used; large photos are decoded at reduced size where the phone supports it; a preparation that timed out is discarded so the next Save starts fresh.
+- The v2.3 App log, storage-full recovery (empties the viewed-tiles cache and retries) and keep-the-camera-JPEG fallback are kept, and every new path writes to the log.
+- `tests/`: `node --test tests/image-preparation.test.cjs` (unit) and `NODE_PATH=<node_modules with playwright> node --test tests/photo-save.spec.cjs` (12 browser tests: reload, closed connection, stalled encoder/decoder, rollback, double tap and Back, timeout, orientation, error line). The website workflow skips this folder.
+
+## What changed in v2.4
+
+- **No repeated details in Google Earth.** The balloon title is the Pole ID, and the photo already carries the stamp (ID and type, coordinates and accuracy, time). So the balloon now shows only the photo. It adds a text line only for what the stamp leaves out, for example when the stamp is turned off or some stamp fields are unticked. The PAT/FAT KMZ also drops its *Coordinates* and *Captured* lines when the photos are stamped. The attributes in the KMZ (pole_id, pole_type, captured, accuracy_m) for GIS imports are unchanged.
+- **Compact editor.** The pin map uses 30% of the screen and the ⤢ button enlarges it (the choice is remembered). The instruction appears on the map and fades after the first drag. Element, Pole type (with “+ Other prefix…”), ODF new/existing, the deficiency “Where” and Category are dropdowns. MLoop / NAP / Closure are one row of toggles, with the NAP and Closure IDs side by side. Scan suggestions sit on one line. “+ Add” deficiency moved next to the status. The map and the Save button stay fixed while the form scrolls.
+- **Export: one format at a time.** A Format dropdown at the top picks the export (KMZ, DXF, CSV, PDF, Excel, photos, backup, …). Only that card is shown, its Export button stays at the bottom while the options are open, and the last choice is remembered for Survey and for PAT/FAT. The checklist's *Next: Export* opens the Deficiency List PDF (PAT/FAT) or KMZ (Survey), and *Back up* opens Backup.
+- The App log records which base map was shown during each save.
+

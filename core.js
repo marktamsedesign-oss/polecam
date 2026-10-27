@@ -288,7 +288,7 @@
   /* ---------------- KML / KMZ ---------------- */
   /**
    * points: [{id, poleId, poleType, lat, lon, alt, accuracy, takenAt, photoName, iconName}]
-   * opts: {project, photoIcons:boolean}
+   * opts: {project, photoIcons:boolean, stamped:boolean (balloon photos carry the caption band), stampFields:[...]}
    */
   function buildKml(points, opts) {
     const o = opts || {};
@@ -297,10 +297,14 @@
       const sid = 's_' + p.id;
       const href = o.photoIcons && p.iconName ? `files/${p.iconName}` : 'http://maps.google.com/mapfiles/kml/paddle/red-circle.png';
       styles.push(`<Style id="${sid}"><IconStyle><scale>${o.photoIcons ? 1.4 : 1.0}</scale><Icon><href>${xmlEsc(href)}</href></Icon></IconStyle><LabelStyle><scale>0.9</scale></LabelStyle></Style>`);
-      const img = p.photoName ? `<img src="files/${xmlEsc(p.photoName)}" width="480"/><br/>` : '';
-      const desc = `${img}<b>Pole ID:</b> ${xmlEsc(p.poleId)}<br/><b>Type:</b> ${xmlEsc(p.poleType)}<br/><b>Lat/Lon:</b> ${p.lat.toFixed(7)}, ${p.lon.toFixed(7)}<br/>` +
-        (Number.isFinite(p.accuracy) ? `<b>GPS accuracy:</b> ±${p.accuracy.toFixed(1)} m${p.adjusted ? ' (pin adjusted)' : ''}<br/>` : '') +
-        `<b>Captured:</b> ${xmlEsc(fmtDate(p.takenAt))}`;
+      const img = p.photoName ? `<img src="files/${xmlEsc(p.photoName)}" width="480"/>` : '';
+      // The balloon title is already the Pole ID; lines the stamped photo already shows are not repeated under it.
+      const onPhoto = new Set(p.photoName && o.stamped ? (o.stampFields || ['id', 'coords', 'utm', 'time', 'by', 'project']) : []);
+      const lines = [];
+      if (!onPhoto.has('id') && p.poleType) lines.push(`${xmlEsc(p.poleType)} pole`);
+      if (!onPhoto.has('coords')) lines.push(`${p.lat.toFixed(7)}, ${p.lon.toFixed(7)}${Number.isFinite(p.accuracy) ? ` (GPS ±${p.accuracy.toFixed(1)} m${p.adjusted ? ', pin adjusted' : ''})` : ''}`);
+      if (!onPhoto.has('time') && fmtDate(p.takenAt)) lines.push(`Captured ${xmlEsc(fmtDate(p.takenAt))}`);
+      const desc = img + (img && lines.length ? '<br/>' : '') + lines.join('<br/>');
       marks.push(`<Placemark><name>${xmlEsc(p.poleId)}</name><styleUrl>#${sid}</styleUrl>` +
         `<description><![CDATA[${desc.replace(/]]>/g, ']]&gt;')}]]></description>` +
         `<ExtendedData><Data name="pole_id"><value>${xmlEsc(p.poleId)}</value></Data><Data name="pole_type"><value>${xmlEsc(p.poleType)}</value></Data>` +

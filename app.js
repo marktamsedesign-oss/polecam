@@ -1,6 +1,43 @@
 /* PoleCam Survey — field app. Depends on Leaflet (L) and core.js (PoleCore). */
 (() => {
   'use strict';
+  /* ================= app log =================
+     A small ring buffer kept in localStorage (written synchronously, so it survives a crash of the app's web view).
+     Records errors, what the user saw (toasts), and the timing of every step of taking, saving and exporting photos.
+     No photos, names, phone numbers or coordinates are logged. Settings → About → App log shows and shares it. */
+  const LOG = (() => {
+    const KEY = 'polecam.log', FLIGHT = 'polecam.inflight', MAX = 500;
+    let buf = [];
+    try { buf = JSON.parse(localStorage.getItem(KEY) || '[]'); if (!Array.isArray(buf)) buf = []; } catch (e) { buf = []; }
+    let dirty = false, timer = 0;
+    function flush() {
+      clearTimeout(timer); timer = 0; if (!dirty) return; dirty = false;
+      if (buf.length > MAX) buf = buf.slice(-MAX);
+      try { localStorage.setItem(KEY, JSON.stringify(buf)); } catch (e) { buf = buf.slice(-150); try { localStorage.setItem(KEY, JSON.stringify(buf)); } catch (e2) { /* storage full */ } }
+    }
+    const clip = (v) => { try { const j = JSON.stringify(v); return j && j.length > 1200 ? JSON.parse(JSON.stringify(j.slice(0, 1200))) : v; } catch (e) { return String(v).slice(0, 300); } };
+    function add(l, e, d, now) {
+      const x = { t: Date.now(), l, e }; if (d !== undefined) x.d = clip(d);
+      buf.push(x); dirty = true;
+      if (now || l === 'e' || l === 'w') flush(); else if (!timer) timer = setTimeout(flush, 1500);
+    }
+    /** A step that might not finish (the app could be killed): remembered until done, reported at the next start. */
+    let flight = {};
+    const saveFlight = () => { try { if (Object.keys(flight).length) localStorage.setItem(FLIGHT, JSON.stringify(flight)); else localStorage.removeItem(FLIGHT); } catch (e) { /* ignore */ } };
+    function step(name, d) { flight[name] = { t: Date.now(), d }; saveFlight(); add('i', name, d, true); }
+    function done(name) { if (flight[name]) { delete flight[name]; saveFlight(); } }
+    function leftover() { try { const v = localStorage.getItem(FLIGHT); localStorage.removeItem(FLIGHT); const o = v ? JSON.parse(v) : null; return o && typeof o === 'object' ? Object.entries(o).map(([step, x]) => ({ step, ...x })) : []; } catch (e) { return []; } }
+    return { info: (e, d) => add('i', e, d), warn: (e, d) => add('w', e, d), error: (e, d) => add('e', e, d), mark: (e, d) => add('i', e, d, true), step, done, leftover, flush,
+      all: () => buf.slice(), clear: () => { buf = []; dirty = true; flush(); } };
+  })();
+  const errInfo = (e) => (e ? { name: e.name || '', msg: String(e.message || e).slice(0, 300), stack: e.stack ? String(e.stack).split('\n').slice(0, 4).join(' | ').slice(0, 500) : undefined } : null);
+  window.addEventListener('error', (ev) => LOG.error('js.error', { msg: String(ev.message || '').slice(0, 300), src: String(ev.filename || '').split('/').pop(), line: ev.lineno, col: ev.colno, stack: ev.error && ev.error.stack ? String(ev.error.stack).split('\n').slice(0, 4).join(' | ') : undefined }));
+  window.addEventListener('unhandledrejection', (ev) => LOG.error('js.unhandled', errInfo(ev.reason)));
+  { const ce = console.error.bind(console); console.error = (...a) => { try { LOG.error('console.error', { msg: a.map((x) => (x && x.message) || (typeof x === 'string' ? x : JSON.stringify(x))).join(' ').slice(0, 400) }); } catch (e) { /* ignore */ } ce(...a); }; }
+  window.addEventListener('pagehide', () => LOG.flush());
+  document.addEventListener('visibilitychange', () => { LOG.info(document.hidden ? 'app.hidden' : 'app.visible'); if (document.hidden) LOG.flush(); });
+  for (const lo of LOG.leftover()) LOG.warn('previous.session.stopped.during', { step: lo.step, secondsAgo: Math.round((Date.now() - lo.t) / 1000), d: lo.d }); // the app was closed or crashed in the middle of it
+  const memMB = () => (performance && performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : undefined);
   const C = window.PoleCore;
   let points = [];
   const $ = (id) => document.getElementById(id);
@@ -99,10 +136,14 @@
   /* The browser can close the database connection on its own (the app goes to the background while the camera
      is open, storage pressure, another tab). Every call therefore reopens a closed connection and retries once.
      Photos and tiles are stored as ArrayBuffers, which every browser (including Safari on iPhone) stores reliably. */
-  let dbp = null;
+  let dbp = null, dbConnection = null;
   function openDb() {
     return new Promise((res, rej) => {
-      const r = indexedDB.open('polecam', 2);
+      let settled = false;
+      const fail = (e) => { if (settled) return; settled = true; clearTimeout(timer); dbp = null; rej(e); };
+      const timer = setTimeout(() => { LOG.error('db.open.timeout'); fail(new Error('Storage did not open. Keep this screen open and tap Save again.')); }, 10000);
+      let r;
+      try { r = indexedDB.open('polecam', 2); } catch (e) { fail(e); return; }
       r.onupgradeneeded = () => {
         const d = r.result;
         for (const [name, key] of [['points', 'id'], ['photos', 'id'], ['tiles', 'k'], ['packs', 'k']]) {
@@ -111,15 +152,24 @@
       };
       r.onsuccess = () => {
         const d = r.result;
-        d.onclose = () => { dbp = null; };
-        d.onversionchange = () => { try { d.close(); } catch (e) { /* already closed */ } dbp = null; };
+        if (settled) { d.close(); return; }
+        settled = true; clearTimeout(timer); dbConnection = d;
+        const forget = () => { if (dbConnection === d) { dbp = null; dbConnection = null; } };
+        d.onclose = forget;
+        d.onversionchange = () => { d.close(); forget(); };
         res(d);
       };
-      r.onerror = () => { dbp = null; rej(r.error); };
-      r.onblocked = () => { dbp = null; rej(new Error('Storage is busy in another PoleCam tab. Close other tabs and try again.')); };
+      r.onerror = () => fail(r.error);
+      r.onblocked = () => fail(new Error('Storage is busy in another PoleCam tab. Close other tabs and try again.'));
     });
   }
-  function idb() { if (!dbp) dbp = openDb(); return dbp; }
+  function idb() {
+    if (!dbp) {
+      const pending = dbp = openDb();
+      pending.catch(() => { if (dbp === pending) dbp = null; });
+    }
+    return dbp;
+  }
   const isClosedErr = (e) => !!e && (e.name === 'InvalidStateError' || e.name === 'UnknownError' || /clos|lost/i.test(String(e.message || '')));
   async function tx(store, mode, fn, retried) {
     let d;
@@ -156,17 +206,80 @@
   const dbClear = (st) => tx(st, 'readwrite', (s) => s.clear());
   const dbDelMany = (st, keys) => tx(st, 'readwrite', (s) => { keys.forEach((k) => s.delete(k)); });
 
+  /** Commit an element and its photos together. Prepare bytes before opening the transaction:
+      awaiting image work inside IndexedDB would let the transaction close prematurely. */
+  async function saveRecord(rec, photos, freed) {
+    const t0 = Date.now(), packed = [];
+    for (const photo of photos) {
+      if (!(photo.clean instanceof Blob) || !photo.clean.size || !(photo.thumb instanceof Blob) || !photo.thumb.size) {
+        throw new Error('The photo could not be prepared. Tap Save to try again.');
+      }
+      packed.push(await withTimeout(pack(photo), 10000, 'The photo could not be read. Keep this screen open and tap Save again.'));
+    }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const d = await idb();
+      try {
+        await new Promise((resolve, reject) => {
+          const t = d.transaction(['points', 'photos'], 'readwrite');
+          let error = null, settled = false;
+          const finish = (e) => {
+            if (settled) return; settled = true; clearTimeout(timer);
+            if (e) reject(e); else resolve();
+          };
+          const timer = setTimeout(() => {
+            error = new Error('Storage took too long. The save was cancelled; keep this screen open and tap Save again.');
+            // Unlike Promise.race, abort prevents a timed-out write from committing later.
+            try { t.abort(); finish(error); }
+            catch (e) { /* already finished: its complete/abort event determines the outcome */ }
+          }, 15000);
+          t.oncomplete = () => finish();
+          t.onerror = (e) => { error = t.error || (e.target && e.target.error) || error; };
+          t.onabort = () => finish(error || t.error || new Error('Storage cancelled the save. Tap Save to try again.'));
+          try {
+            const store = t.objectStore('photos');
+            packed.forEach((p) => store.put(p));
+            t.objectStore('points').put(rec);
+          } catch (e) {
+            error = e;
+            try { t.abort(); } catch (_) { /* transaction already stopped */ }
+            finish(e);
+          }
+        });
+        LOG.info('save.commit', { ms: Date.now() - t0, photos: photos.length, kb: Math.round(packed.reduce((n, x) => n + ((x.clean && x.clean.__ab && x.clean.__ab.byteLength) || 0), 0) / 1024) });
+        return;
+      } catch (e) {
+        LOG.error('save.commit.fail', { attempt, ms: Date.now() - t0, ...errInfo(e) });
+        if (attempt === 0 && isClosedErr(e)) {
+          d.close(); if (dbConnection === d) dbConnection = null; dbp = null;
+          continue;
+        }
+        if (!freed && e && e.name === 'QuotaExceededError') { // the viewed-tiles cache is only a cache: empty it and try once more
+          busy('Freeing space and trying again…');
+          try { await withTimeout(tx('tiles', 'readwrite', (st) => st.clear()), 15000, 'clear timeout'); LOG.warn('save.tilesCleared'); } catch (e2) { LOG.error('save.tilesClear.fail', errInfo(e2)); throw e; }
+          return saveRecord(rec, photos, true);
+        }
+        throw e;
+      }
+    }
+  }
+
   /* ================= UI helpers ================= */
   let toastTimer = 0;
   function toast(msg, ms) {
+    LOG.info('toast', String(msg).slice(0, 200));
     const t = $('toast'); t.textContent = msg; t.hidden = false;
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms || 2600);
   }
   let cancelFlag = false;
   $('busyCancel').addEventListener('click', () => { cancelFlag = true; $('busyText').textContent = 'Stopping…'; }); // map pack jobs also listen (see runPackJob)
   let tileHold = false; // map tiles wait while the app saves or exports, so the phone's network and storage go to the save first
+  let busySince = 0, busyFirst = '';
   function busy(text, frac, cancellable) {
-    if (text === false) { $('busy').hidden = true; $('busyCancel').hidden = true; if (tileHold) { tileHold = false; if (typeof pumpTiles === 'function') pumpTiles(); } return; }
+    if (text === false) {
+      if (busySince) { LOG.info('busy.end', { text: busyFirst, ms: Date.now() - busySince }); busySince = 0; }
+      $('busy').hidden = true; $('busyCancel').hidden = true; if (tileHold) { tileHold = false; if (typeof pumpTiles === 'function') pumpTiles(); } return;
+    }
+    if (!busySince) { busySince = Date.now(); busyFirst = String(text).replace(/\d+ \/ \d+/, 'n / N'); LOG.info('busy.start', busyFirst); }
     tileHold = true;
     $('busyCancel').hidden = !cancellable;
     $('busy').hidden = false; $('busyText').textContent = text;
@@ -185,7 +298,15 @@
     plugins[name] = { bridge: (method, opts) => cap.nativePromise(name, method, opts || {}) };
     return plugins[name];
   }
-  const nativeCall = (name, method, opts) => { const p = nativePlugin(name); return p.proxy ? p.proxy[method](opts || {}) : p.bridge(method, opts); };
+  const nativeCall0 = (name, method, opts) => { const p = nativePlugin(name); return p.proxy ? p.proxy[method](opts || {}) : p.bridge(method, opts); };
+  /** Native calls with their failures in the app log (map tile requests are summarised separately). */
+  function nativeCall(name, method, opts) {
+    const t0 = Date.now(), quiet = name === 'CapacitorHttp' && /tile|basemaps|arcgisonline/.test(String((opts && opts.url) || ''));
+    let pr;
+    try { pr = Promise.resolve(nativeCall0(name, method, opts)); } catch (e) { LOG.error('native.throw', { call: `${name}.${method}`, ...errInfo(e) }); return Promise.reject(e); }
+    return pr.then((r) => { const ms = Date.now() - t0; if (!quiet && (ms > 3000 || name === 'Filesystem')) LOG.info('native', { call: `${name}.${method}`, ms }); return r; },
+      (e) => { if (!quiet) LOG.warn('native.fail', { call: `${name}.${method}`, ms: Date.now() - t0, ...errInfo(e) }); throw e; });
+  }
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   /* ---- project mode + acceptance helpers ---- */
   const pmeta = (name) => (S.meta && S.meta[name || S.project]) || { mode: 'survey' };
@@ -268,14 +389,21 @@
 
   /* ================= sheets + back button ================= */
   const stack = []; const pendingClose = [];
+  let editorSaving = false;
   function openSheet(id) {
+    LOG.info('open', id);
     const el = $(id); el.hidden = false; el.style.zIndex = 1000 + stack.length;
     stack.push(id); history.pushState({ sheet: id }, '');
   }
   function closeSheet() {
+    if (editorSaving && stack[stack.length - 1] === 'editor') return Promise.resolve();
     return new Promise((r) => { if (!stack.length) return r(); pendingClose.push(r); history.back(); });
   }
   window.addEventListener('popstate', () => {
+    if (editorSaving && stack[stack.length - 1] === 'editor') {
+      history.pushState({ sheet: 'editor' }, '');
+      LOG.info('back.blockedWhileSaving'); toast('Finishing the save. Your photo is still here.'); return;
+    }
     const id = stack.pop();
     if (id) { $(id).hidden = true; onSheetClosed(id); }
     const r = pendingClose.shift(); if (r) r();
@@ -329,7 +457,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.2.0';
+  const APP_VER = '2.4.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `PoleCam/${APP_VER} (+${SITE})`;
@@ -460,7 +588,6 @@
     return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error(msg)), ms); })]).finally(() => clearTimeout(t));
   }
   const STORE_ERR = 'Phone storage did not respond. Free some space or restart the app, then tap Resume.';
-  const SAVE_ERR = 'Phone storage did not respond in time. Free some space or restart the app, then tap Save again (the photo is still here).';
   async function packDir() { const root = await navigator.storage.getDirectory(); return root.getDirectoryHandle('mappacks', { create: true }); }
   const OPFS_PART = 8 * 1024 * 1024; // OPFS packs are stored as part files <id>.0, <id>.1, … of 8 MB
   class PackSource {
@@ -835,18 +962,22 @@
       const track = stream.getVideoTracks()[0];
       imageCapture = 'ImageCapture' in window ? new ImageCapture(track) : null;
       photoOpts = null;
+      { const st = track.getSettings ? track.getSettings() : {}; LOG.info('camera.open', { target: camTarget, video: `${st.width || '?'}×${st.height || '?'}`, fps: st.frameRate, imageCapture: !!imageCapture, mem: memMB() }); }
       if (imageCapture && imageCapture.getPhotoCapabilities) {
         withTimeout(imageCapture.getPhotoCapabilities(), 3000, 'slow').then((pc) => {
           const w = pc && pc.imageWidth, h = pc && pc.imageHeight;
+          LOG.info('camera.photoCaps', { w: w ? `${w.min}–${w.max}/${w.step}` : null, h: h ? `${h.min}–${h.max}/${h.step}` : null });
           if (!w || !h || !(w.max > STILL_MAX_W + 200)) return;
           const snap = (r, v) => Math.max(r.min || 0, (r.min || 0) + Math.floor((v - (r.min || 0)) / (r.step || 1)) * (r.step || 1));
           const W = snap(w, STILL_MAX_W); photoOpts = { imageWidth: W, imageHeight: snap(h, Math.round(W * h.max / w.max)) };
-        }).catch(() => {});
+          LOG.info('camera.photoOpts', photoOpts);
+        }).catch((e) => LOG.warn('camera.photoCaps.fail', errInfo(e)));
       }
       const caps = track.getCapabilities ? track.getCapabilities() : {};
       $('camTorch').hidden = !caps.torch;
       try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* optional */ }
     } catch (e) {
+      LOG.warn('camera.open.fail', errInfo(e));
       $('camMsg').hidden = false;
       $('camMsg').textContent = 'The in-app camera is blocked. Tap the camera button on the left to use your phone camera app.';
     }
@@ -979,31 +1110,40 @@
       if (camTarget === 'scan') { const crop = grabGuideCrop(); await closeSheet(); scanResult(crop); return; }
       if (camTarget === 'newid') { if (camPending) camPending.crop = grabGuideCrop(); await closeSheet(); return; }
       let blob = null;
-      if (imageCapture) { try { blob = await withTimeout(takeStill(), TAKE_MS, 'slow'); } catch (e) { blob = null; if (e && e.message === 'slow') imageCapture = null; } } // a camera that stalls: use the live picture from now on
+      LOG.step('photo.take', { target: camTarget, still: !!imageCapture, opts: photoOpts, mem: memMB() });
+      if (imageCapture) {
+        try { blob = await withTimeout(takeStill(), TAKE_MS, 'slow'); LOG.info('photo.still', { ms: Date.now() - shotAt, kb: Math.round(blob.size / 1024), type: blob.type }); }
+        catch (e) { blob = null; LOG.warn('photo.still.fail', { ms: Date.now() - shotAt, ...errInfo(e) }); if (e && e.message === 'slow') imageCapture = null; } // a camera that stalls: use the live picture from now on
+      }
       if (!blob) {
         const v = $('video'), cv = document.createElement('canvas');
         cv.width = v.videoWidth; cv.height = v.videoHeight;
         cv.getContext('2d').drawImage(v, 0, 0);
         blob = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.92));
+        cv.width = cv.height = 0;
+        LOG.info('photo.frame', { size: `${v.videoWidth}×${v.videoHeight}`, kb: blob ? Math.round(blob.size / 1024) : null });
+        if (!blob) { LOG.done('photo.take'); toast('The camera gave no picture. Close the camera and try again.', 5000); return; }
       }
+      LOG.done('photo.take');
       if (!alive()) return;
       perf.capture = Date.now() - shotAt;
-      const gps = await gpsNear(shotAt);
+      const tg = Date.now(), gps = await gpsNear(shotAt);
+      LOG.info('photo.gps', { ms: Date.now() - tg, ok: !!gps, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0 });
       if (!alive()) return;
       if (!gps) { toast(gpsErr === 1 ? 'Photo not saved: location is off. Turn on location for PoleCam, then take it again.' : 'Photo not saved: GPS has not updated in the last 5 seconds. Wait for the green shutter, then take it again.', 6500); return; }
       camCheck('Checking photo…');
       const tq = Date.now();
       const q = await withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] }));
       perf.check = Date.now() - tq; perf.px = q.w ? `${q.w}×${q.h}` : '';
+      LOG.info('photo.check', { ms: perf.check, px: perf.px, kb: Math.round(blob.size / 1024), flags: q.flags, sharp: q.sharp, level: q.level });
       camCheck(false);
       if (!alive()) return;
       if (q.flags.length) { await refusePhoto(blob, q); return; }
-      prepImages(blob); // shrink and store-ready copies are made now, while the ID is scanned and typed
       const takenAt = new Date(shotAt).toISOString();
       if (camTarget === 'new' && S.readId !== false) { enterIdStep({ blob, gps, q, takenAt, source: 'camera' }); return; }
       await closeSheet();
       gotPhoto(blob, gps, 'camera', { q, takenAt });
-    } finally { camBusy = false; $('shutter').disabled = false; camCheck(false); }
+    } finally { camBusy = false; $('shutter').disabled = false; camCheck(false); LOG.done('photo.take'); }
   });
   function useNativeCamera() { $('nativeInput').value = ''; $('nativeInput').click(); }
   $('camNative').addEventListener('click', useNativeCamera);
@@ -1179,48 +1319,143 @@
   }
 
   /* ================= image processing ================= */
-  async function loadImage(blob) {
-    try { return await createImageBitmap(blob, { imageOrientation: 'from-image' }); }
-    catch (e) {
-      return await new Promise((res, rej) => {
-        const im = new Image(), u = URL.createObjectURL(blob);
-        im.onload = () => { URL.revokeObjectURL(u); res(im); };
-        im.onerror = () => { URL.revokeObjectURL(u); rej(new Error('Could not read this image')); };
-        im.src = u;
-      });
-    }
+  const IMAGE_DECODE_MS = 8000, IMAGE_LOAD_MS = 10000, IMAGE_ENCODE_MS = 5000, PHOTO_PREP_MS = 30000;
+  let preferImageDecoder = false, preferCanvasDataURL = false; // remember working fallbacks for this session
+  /** Decode a smaller bitmap when a JPEG's dimensions are known. One resize axis preserves EXIF orientation
+      and aspect ratio; the storage canvas applies the final longest-edge limit. */
+  async function photoDecodeOptions(blob, maxPx) {
+    const opts = { imageOrientation: 'from-image' };
+    if (!maxPx || !window.PoleReports || !window.PoleReports.jpegInfo) return opts;
+    try {
+      const bytes = new Uint8Array(await withTimeout(blob.slice(0, 131072).arrayBuffer(), 2000, 'Photo header timed out'));
+      if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return opts;
+      const { w, h } = window.PoleReports.jpegInfo(bytes);
+      // Phone photos have a modest aspect ratio. Leave unusual panoramas to the normal decode path,
+      // where an EXIF rotation could otherwise enlarge the short side unnecessarily.
+      if (Math.min(w, h) > maxPx && Math.max(w, h) / Math.min(w, h) <= 4) {
+        opts.resizeWidth = maxPx; opts.resizeQuality = 'high';
+      }
+    } catch (e) { /* A non-JPEG or an unusual header still decodes through the browser. */ }
+    return opts;
   }
-  const dims = (im) => ({ w: im.width || im.naturalWidth, h: im.height || im.naturalHeight });
-  const toBlob = (cv, q) => new Promise((r) => cv.toBlob(r, 'image/jpeg', q));
+  async function loadImage(blob, maxPx) {
+    if (!(blob instanceof Blob) || !blob.size) throw new Error('The photo is empty. Take it again.');
+    let bitmapTimedOut = false;
+    if (!preferImageDecoder && typeof createImageBitmap === 'function') {
+      const opts = await photoDecodeOptions(blob, maxPx);
+      try {
+        return await new Promise((res, rej) => {
+          let done = false;
+          const timer = setTimeout(() => { done = true; bitmapTimedOut = true; rej(new Error('Photo decoder timed out')); }, IMAGE_DECODE_MS);
+          Promise.resolve().then(() => createImageBitmap(blob, opts)).then((im) => {
+            if (done) { if (im && im.close) im.close(); return; }
+            done = true; clearTimeout(timer);
+            if (!im || !(im.width > 0) || !(im.height > 0)) { if (im && im.close) im.close(); rej(new Error('Could not read this image')); }
+            else res(im);
+          }, (err) => { if (!done) { done = true; clearTimeout(timer); rej(err); } });
+        });
+      } catch (e) { LOG.warn('image.decode.fallback', { kb: Math.round(blob.size / 1024), timedOut: bitmapTimedOut, ...errInfo(e) }); } // some phone WebViews stall in the bitmap decoder; use their image decoder
+    }
+    return new Promise((res, rej) => {
+      const im = new Image(), u = URL.createObjectURL(blob);
+      let done = false;
+      const finish = (err) => {
+        if (done) return; done = true; clearTimeout(timer);
+        im.onload = im.onerror = null; URL.revokeObjectURL(u);
+        if (err) { im.src = ''; rej(err); } else { if (bitmapTimedOut) preferImageDecoder = true; res(im); }
+      };
+      const timer = setTimeout(() => finish(new Error('The phone could not open the photo in time. Tap Save to try again.')), IMAGE_LOAD_MS);
+      im.onload = () => finish(im.naturalWidth > 0 && im.naturalHeight > 0 ? null : new Error('Could not read this image'));
+      im.onerror = () => finish(new Error('Could not read this image'));
+      im.src = u;
+    });
+  }
+  const dims = (im) => ({ w: im.naturalWidth || im.width, h: im.naturalHeight || im.height });
+  /** A few Android WebViews never call toBlob's callback. Use the synchronous encoder after a short wait. */
+  function toBlob(cv, q) {
+    return new Promise((res, rej) => {
+      if (!(cv.width > 0) || !(cv.height > 0)) { rej(new Error('The photo has no image pixels. Take it again.')); return; }
+      let done = false, timer = 0;
+      const finish = (blob, err) => {
+        if (done) return; done = true; clearTimeout(timer);
+        if (err) rej(err); else res(blob);
+      };
+      const fallback = () => {
+        if (done) return;
+        try {
+          const url = cv.toDataURL('image/jpeg', q), comma = url.indexOf(',');
+          if (!/^data:image\/jpeg;base64,/i.test(url) || comma < 0) throw new Error('Could not encode this photo');
+          const raw = atob(url.slice(comma + 1));
+          if (!raw.length) throw new Error('Could not encode this photo');
+          const bytes = new Uint8Array(raw.length);
+          for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+          finish(new Blob([bytes], { type: 'image/jpeg' }));
+        } catch (e) { finish(null, new Error('The phone could not prepare the photo. Tap Save to try again.')); }
+      };
+      if (preferCanvasDataURL) { fallback(); return; }
+      timer = setTimeout(() => { preferCanvasDataURL = true; LOG.warn('image.encode.stalled', { w: cv.width, h: cv.height }); fallback(); }, IMAGE_ENCODE_MS);
+      try { cv.toBlob((blob) => { if (blob instanceof Blob && blob.size) finish(blob); else { LOG.warn('image.encode.empty', { w: cv.width, h: cv.height }); fallback(); } }, 'image/jpeg', q); }
+      catch (e) { LOG.warn('image.encode.throw', errInfo(e)); fallback(); }
+    });
+  }
   const prepCache = new WeakMap();
-  /** Store-ready copies of a photo, started as soon as the photo is accepted; Save then only writes them. */
+  /** Cache the bounded operation itself, so a stalled background preparation cannot poison every Save retry. */
   function prepImages(blob) {
-    if (!blob) return Promise.resolve(null);
+    if (!(blob instanceof Blob) || !blob.size) {
+      const rejected = Promise.reject(new Error('The photo is empty. Take it again.')); rejected.catch(() => {}); return rejected;
+    }
     let p = prepCache.get(blob);
-    if (!p) { const t0 = Date.now(); p = makeStoredImages(blob).then((r) => { perf.prepare = Date.now() - t0; return r; }); p.catch(() => prepCache.delete(blob)); prepCache.set(blob, p); }
+    if (!p) {
+      const t0 = Date.now(); LOG.step('photo.prepare', { kb: Math.round(blob.size / 1024), mem: memMB() });
+      p = withTimeout(makeStoredImages(blob), PHOTO_PREP_MS, 'The phone took too long to prepare the photo. Tap Save to try again.')
+        .then((r) => { perf.prepare = Date.now() - t0; LOG.done('photo.prepare'); return r; });
+      prepCache.set(blob, p);
+      p.catch((e) => { LOG.done('photo.prepare'); LOG.error('photo.prepare.fail', { ms: Date.now() - t0, ...errInfo(e) }); if (prepCache.get(blob) === p) prepCache.delete(blob); }); // background calls also have a rejection handler
+    }
     return p;
   }
-  /** Prepared copies, or made now; a phone that cannot finish within the limit gets a clear message instead of a frozen screen. */
-  const storedImages = (blob) => withTimeout(prepImages(blob).catch(() => makeStoredImages(blob)), 45000, 'The phone took too long to process the photo. Close other apps and tap Save again.');
+  const storedImages = (blob) => prepImages(blob);
   const perf = {}; // timings of the last photo, shown under Settings → Storage
   function notePerf(save) {
     perf.save = save; S.perf = { at: new Date().toISOString(), ...perf }; persist();
   }
   async function makeStoredImages(blob) {
-    const im = await loadImage(blob), { w, h } = dims(im);
-    const sc = Math.min(1, STORE_MAX_PX / Math.max(w, h));
-    const cv = document.createElement('canvas');
-    cv.width = Math.round(w * sc); cv.height = Math.round(h * sc);
-    const g = cv.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(im, 0, 0, cv.width, cv.height);
-    const clean = await toBlob(cv, 0.88);
-    const T = 160, side = Math.min(w, h), tc = document.createElement('canvas');
-    tc.width = tc.height = T;
-    const tg = tc.getContext('2d'); tg.imageSmoothingQuality = 'high';
-    tg.drawImage(im, (w - side) / 2, (h - side) / 2, side, side, 0, 0, T, T);
-    tg.strokeStyle = '#0f2547'; tg.lineWidth = 8; tg.strokeRect(4, 4, T - 8, T - 8);
-    const thumb = await toBlob(tc, 0.8);
-    if (im.close) im.close();
-    return { clean, thumb };
+    let im = null, cv = null, tc = null;
+    const t0 = Date.now(), lg = { kb: Math.round(blob.size / 1024), mem: memMB() };
+    try {
+      im = await loadImage(blob, STORE_MAX_PX);
+      const { w, h } = dims(im); lg.decoded = `${w}×${h}`; lg.decode = Date.now() - t0;
+      if (!(w > 0) || !(h > 0)) throw new Error('The photo has no image pixels. Take it again.');
+      const sc = Math.min(1, STORE_MAX_PX / Math.max(w, h));
+      cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(w * sc)); cv.height = Math.max(1, Math.round(h * sc));
+      const g = cv.getContext('2d');
+      if (!g) throw new Error('The phone could not prepare the photo. Close other apps and tap Save again.');
+      g.imageSmoothingQuality = 'high'; g.drawImage(im, 0, 0, cv.width, cv.height);
+      const te = Date.now();
+      let clean;
+      try { clean = await toBlob(cv, 0.88); }
+      catch (e) { // last resort: keep the camera's own JPEG, so the photo is never lost to a compression problem
+        if (!/jpe?g/i.test(blob.type || '') || blob.size > 12 * 1048576) throw e;
+        LOG.warn('image.keptOriginal', { kb: lg.kb, ...errInfo(e) }); clean = blob;
+      }
+      lg.encode = Date.now() - te;
+      const T = 160, side = Math.min(w, h); tc = document.createElement('canvas');
+      tc.width = tc.height = T;
+      const tg = tc.getContext('2d');
+      if (!tg) throw new Error('The phone could not prepare the thumbnail. Close other apps and tap Save again.');
+      tg.imageSmoothingQuality = 'high';
+      tg.drawImage(im, (w - side) / 2, (h - side) / 2, side, side, 0, 0, T, T);
+      tg.strokeStyle = '#0f2547'; tg.lineWidth = 8; tg.strokeRect(4, 4, T - 8, T - 8);
+      let thumb;
+      try { thumb = await toBlob(tc, 0.8); } catch (e) { LOG.warn('image.thumb.fallback', errInfo(e)); thumb = clean; } // the list shows the photo scaled down instead
+      LOG.info('image.prepared', { ...lg, cleanKB: Math.round(clean.size / 1024), thumbKB: Math.round(thumb.size / 1024), ms: Date.now() - t0, decoder: preferImageDecoder ? 'img' : 'bitmap', encoder: preferCanvasDataURL ? 'dataURL' : 'toBlob' });
+      return { clean, thumb };
+    } finally {
+      if (im) { if (im.close) im.close(); else im.src = ''; }
+      if (cv) cv.width = cv.height = 0;
+      if (tc) tc.width = tc.height = 0;
+    }
   }
   /** Export copy of a photo: optional burned-in stamp + EXIF GPS. Returns Uint8Array. */
   /** Export copy of a photo: resized to the export size, optional caption band (fields chosen in Export settings), EXIF GPS.
@@ -1282,25 +1517,35 @@
     pinMap.on('move', updateCoordBox);
     pinMap.on('moveend', clampPin);
     pinMap.on('dragstart zoomstart', () => { if (ed) ed.userMoved = true; });
-    pinMap.on('dragstart', () => { if (ed) ed.dragged = true; });
+    pinMap.on('dragstart', () => { if (ed) ed.dragged = true; $('edHint').classList.add('gone'); });
   }
+  let hintTimer = 0;
+  $('pinSizeBtn').addEventListener('click', () => {
+    S.pinBig = !S.pinBig; persist();
+    const w = $('pinMapWrap'), c = pinMap && pinMap.getCenter();
+    w.classList.toggle('big', S.pinBig); $('pinSizeBtn').setAttribute('aria-pressed', String(S.pinBig));
+    $('pinSizeBtn').setAttribute('aria-label', S.pinBig ? 'Smaller map' : 'Bigger map');
+    setTimeout(() => { if (pinMap) { pinMap.invalidateSize({ animate: false }); if (c) pinMap.setView(c, pinMap.getZoom(), { animate: false }); } }, 230); // keep the pin on the same spot
+  });
   function showEdPhoto(blob) {
     if (edPhotoUrl) URL.revokeObjectURL(edPhotoUrl);
     edPhotoUrl = blob ? URL.createObjectURL(blob) : '';
     $('edPhoto').src = edPhotoUrl;
   }
+  const OTHER_PREFIX = '__other';
+  /** Pole type dropdown: the built-in and admin types, this phone's own prefixes, then “+ Other prefix…”. */
   function renderTypeChips(sel) {
-    const box = $('typeChips'); box.innerHTML = '';
+    const box = $('typeSel'); box.innerHTML = '';
     const names = typeNames(), types = names.includes(sel) || !sel ? names : names.concat(sel); // an older record keeps its type
-    for (const t of types) {
-      const b = document.createElement('button');
-      b.className = 'chip'; b.type = 'button'; b.textContent = typePrefix(t) ? `${t} (${typePrefix(t)})` : t; b.setAttribute('aria-pressed', String(t === sel));
-      b.addEventListener('click', () => setPoleType(t));
-      box.appendChild(b);
-    }
-    const add = document.createElement('button'); add.className = 'chip'; add.type = 'button'; add.textContent = '+ Other prefix';
-    add.addEventListener('click', addMyType); box.appendChild(add);
+    if (!sel) box.add(new Option('Choose the type…', '', true, true));
+    for (const t of types) box.add(new Option(typePrefix(t) ? `${t} (${typePrefix(t)})` : t, t, false, t === sel));
+    box.add(new Option('+ Other prefix…', OTHER_PREFIX));
   }
+  $('typeSel').addEventListener('change', (e) => {
+    const v = e.target.value;
+    if (v === OTHER_PREFIX) { renderTypeChips(ed && ed.type); addMyType(); return; }
+    if (v) setPoleType(v);
+  });
   /** A pole owner prefix not on the list (e.g. PLDT-): kept on this phone; the admin can add it for everyone. */
   async function addMyType() {
     const v = await promptText('Other pole prefix', 'Type the letters painted before the number, then a name if you like. Examples: “PLDT”, “PLDT PLDT pole”, “CV Converge”.', 'PLDT');
@@ -1391,22 +1636,25 @@
   async function openEditor(o) {
     ensurePinMap();
     const acc = isAcc();
-    if (o.blob) prepImages(o.blob); // usually already started right after the photo check
+    if (o.blob) setTimeout(() => prepImages(o.blob), 400); // made while the ID is checked; the camera is closed by now
     ed = { mode: o.mode, id: o.id || uid(), source: o.source, gps: o.gps || null, newBlob: o.blob || null,
       takenAt: o.takenAt, type: o.type || S.lastType, userMoved: false, acc };
     if (acc) {
       Object.assign(ed, { element: o.element || 'Pole', photos: (o.photos || []).map((p) => ({ ...p })), pending: {}, removed: [],
         defs: JSON.parse(JSON.stringify(o.defs || [])), mloop: !!o.mloop, nap: !!o.nap, closure: !!o.closure, odf: o.odf || 'New', newBlob: null });
-      if (o.blob) { const pid = uid(); ed.photos.unshift({ pid, label: 'Overview', ...photoMeta(o.gps, o.takenAt), q: o.q || null }); ed.pending[pid] = o.blob; prepImages(o.blob); }
+      if (o.blob) { const pid = uid(); ed.photos.unshift({ pid, label: 'Overview', ...photoMeta(o.gps, o.takenAt), q: o.q || null }); ed.pending[pid] = o.blob; }
       $('napId').value = o.napId || ''; $('closureId').value = o.closureId || '';
     }
     $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
-    $('edHint').textContent = `Drag the map to put the pin exactly on the ${acc ? 'element' : 'pole'}. It can move up to ${fmtDist(PIN_LIMIT_M)} from where the photo was taken (orange dashed circle).`;
+    $('edHint').textContent = `Drag the map to place the pin on the ${acc ? 'element' : 'pole'}`;
+    $('edHint').classList.remove('gone'); clearTimeout(hintTimer); hintTimer = setTimeout(() => $('edHint').classList.add('gone'), 7000);
+    $('pinMapWrap').classList.toggle('big', !!S.pinBig); $('pinSizeBtn').setAttribute('aria-pressed', String(!!S.pinBig));
     ['accPhotos', 'accElementBox', 'defBox'].forEach((x) => { $(x).hidden = !acc; });
     $('surveyTypeBox').hidden = acc && ed.element !== 'Pole'; $('edPhoto').hidden = acc;
     if (!acc) { $('poleAttach').hidden = true; $('odfBox').hidden = true; }
     $('defPanel').hidden = true; $('addDefBtn').hidden = false;
     $('queueNote').textContent = '';
+    $('saveIssue').hidden = true;
     $('edDelete').hidden = o.mode !== 'edit'; $('delConfirm').hidden = true;
     $('edSkip').hidden = true; $('edRetake').hidden = acc;
     $('edRetake').textContent = o.mode === 'edit' ? 'New photo' : 'Retake';
@@ -1459,32 +1707,30 @@
     const u = URL.createObjectURL(b); edUrls.push(u); return u;
   }
   function renderElemChips() {
-    const box = $('elemChips'); box.innerHTML = '';
-    for (const el of ELEMENTS) {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = el;
-      b.setAttribute('aria-pressed', String(el === ed.element));
-      b.addEventListener('click', () => {
-        ed.element = el; box.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c === b)));
-        if (!ed.idTouched && ed.mode === 'new') $('poleId').value = suggestId(el, ed.type);
-        applyElement(); checkDup(); checkFormat();
-      });
-      box.appendChild(b);
-    }
+    const box = $('elemSel'); box.innerHTML = '';
+    for (const el of ELEMENTS) box.add(new Option(el, el, false, el === ed.element));
   }
+  $('elemSel').addEventListener('change', (e) => {
+    if (!ed) return;
+    const el = e.target.value; ed.element = el;
+    if (!ed.idTouched && ed.mode === 'new') $('poleId').value = suggestId(el, ed.type);
+    applyElement(); checkDup(); checkFormat();
+  });
   function applyElement() {
     const el = ed.element;
     $('idLabel').textContent = `${el.toUpperCase()} ID`;
     $('poleId').placeholder = el === 'Pole' ? 'e.g. CC-0001' : el === 'ODF' ? 'e.g. FDU_100' : `e.g. ${el}-01`;
     $('surveyTypeBox').hidden = el !== 'Pole';
     $('poleAttach').hidden = el !== 'Pole'; $('odfBox').hidden = el !== 'ODF';
-    $('atMloop').checked = ed.mloop; $('atNap').checked = ed.nap; $('atClosure').checked = ed.closure;
+    $('atMloop').checked = ed.mloop; $('atNap').checked = ed.nap; $('atClosure').checked = ed.closure; markToggles();
     $('napId').hidden = !ed.nap; $('closureId').hidden = !ed.closure;
-    $('odfChips').querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.v === ed.odf)));
+    $('odfSel').value = ed.odf || 'New';
   }
-  $('atMloop').addEventListener('change', (e) => { ed.mloop = e.target.checked; });
-  $('atNap').addEventListener('change', (e) => { ed.nap = e.target.checked; $('napId').hidden = !ed.nap; if (ed.nap) $('napId').focus(); });
-  $('atClosure').addEventListener('change', (e) => { ed.closure = e.target.checked; $('closureId').hidden = !ed.closure; if (ed.closure) $('closureId').focus(); });
-  $('odfChips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c) return; ed.odf = c.dataset.v; applyElement(); });
+  function markToggles() { ['atMloop', 'atNap', 'atClosure'].forEach((id) => $(id).closest('.tchip').classList.toggle('on', $(id).checked)); }
+  $('atMloop').addEventListener('change', (e) => { ed.mloop = e.target.checked; markToggles(); });
+  $('atNap').addEventListener('change', (e) => { ed.nap = e.target.checked; markToggles(); $('napId').hidden = !ed.nap; if (ed.nap) $('napId').focus(); });
+  $('atClosure').addEventListener('change', (e) => { ed.closure = e.target.checked; markToggles(); $('closureId').hidden = !ed.closure; if (ed.closure) $('closureId').focus(); });
+  $('odfSel').addEventListener('change', (e) => { ed.odf = e.target.value; applyElement(); });
 
   function nextPhotoLabel() {
     if (!ed.photos.length) return 'Overview';
@@ -1622,13 +1868,8 @@
   }
   function renderDefPanel() {
     const cats = CATS_FOR[ed.element] || ['Other'];
-    const cbox = $('defCats'); cbox.innerHTML = '';
-    cats.forEach((c) => {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small'; b.textContent = c;
-      b.setAttribute('aria-pressed', String(c === defDraft.cat));
-      b.addEventListener('click', () => { defDraft.cat = c; defDraft.items = new Set(); renderDefPanel(); });
-      cbox.appendChild(b);
-    });
+    const cbox = $('defCatSel'); cbox.innerHTML = '';
+    cats.forEach((c) => cbox.add(new Option(c, c, false, c === defDraft.cat)));
     const ibox = $('defItems'); ibox.innerHTML = '';
     const items = pol().defects[defDraft.cat] || [];
     if (!items.length) ibox.innerHTML = '<p class="hint" style="margin:0">No checklist items for this category — describe the defect in notes.</p>';
@@ -1638,8 +1879,9 @@
       b.addEventListener('click', () => { if (defDraft.items.has(it)) defDraft.items.delete(it); else defDraft.items.add(it); b.setAttribute('aria-pressed', String(defDraft.items.has(it))); });
       ibox.appendChild(b);
     });
-    $('defSev').querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.v === defDraft.sev)));
+    $('defSevSel').value = defDraft.sev;
   }
+  $('defCatSel').addEventListener('change', (e) => { if (!defDraft) return; defDraft.cat = e.target.value; defDraft.items = new Set(); renderDefPanel(); });
   function setDefPhoto(blob, meta) {
     if (!defDraft) return;
     defDraft.blob = blob; defDraft.meta = meta;
@@ -1653,7 +1895,7 @@
     renderDefPanel(); $('defPanel').hidden = false; $('addDefBtn').hidden = true;
     $('defPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
-  $('defSev').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c || !defDraft) return; defDraft.sev = c.dataset.v; renderDefPanel(); });
+  $('defSevSel').addEventListener('change', (e) => { if (defDraft) defDraft.sev = e.target.value; });
   $('defPhotoBtn').addEventListener('click', () => openCamera('defect'));
   $('defCancel').addEventListener('click', () => { defDraft = null; $('defPanel').hidden = true; $('addDefBtn').hidden = false; });
   $('defAdd').addEventListener('click', () => {
@@ -1693,6 +1935,14 @@
   $('edSave').addEventListener('click', saveEditor);
 
   async function saveEditor() {
+    if (!ed || editorSaving) return; // a second tap while saving does nothing
+    editorSaving = true;
+    $('saveIssue').hidden = true;
+    try { await saveEditorDraft(); }
+    finally { editorSaving = false; busy(false); $('edSave').disabled = false; }
+  }
+
+  async function saveEditorDraft() {
     const poleId = $('poleId').value.trim().toUpperCase();
     if (!poleId || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(poleId)) { toast(`Enter the ${ed.acc ? ed.element : 'Pole'} ID first${poleId ? ' (the number is missing)' : ''}`); $('poleId').focus(); return; }
     if (!profileOk()) { toast('Enter your details first (Settings → You)'); openProfile(true); return; }
@@ -1705,16 +1955,14 @@
     const c = pinMap.getCenter(), pos = { lat: c.lat, lon: c.lng };
     const btn = $('edSave'); btn.disabled = true;
     const t0 = Date.now();
+    LOG.step('save.survey', { mode: ed.mode, photo: !!ed.newBlob, mem: memMB(), map: S.base });
+    const slow = setTimeout(() => LOG.warn('save.slow', { s: 10, mem: memMB() }), 10000);
     try {
       const now = new Date().toISOString();
-      let p = points.find((x) => x.id === ed.id);
-      if (ed.newBlob) {
-        busy('Saving photo…');
-        const { clean, thumb } = await storedImages(ed.newBlob);
-        await withTimeout(dbPut('photos', { id: ed.id, clean, thumb }), STORE_MS, SAVE_ERR);
-      }
+      const p = points.find((x) => x.id === ed.id);
       const g = ed.gps;
-      const rec = Object.assign(p || { id: ed.id, project: S.project, created: now, takenAt: ed.takenAt || now, source: ed.source || 'camera' }, {
+      // a new object: the record in memory changes only after the phone's storage has committed the save
+      const rec = Object.assign({}, p || { id: ed.id, project: S.project, created: now, takenAt: ed.takenAt || now, source: ed.source || 'camera' }, {
         poleId, poleType: ed.type || '', lat: pos.lat, lon: pos.lon, updated: now, ...(p ? { updatedBy: byLine() } : { by: byLine() }),
         ...(ed.newBlob ? { q: ed.q || null } : {}), ...(ed.idRead ? { idRead: ed.idRead } : {}),
         gpsLat: g ? g.lat : null, gpsLon: g ? g.lon : null,
@@ -1722,19 +1970,30 @@
         alt: g && Number.isFinite(g.alt) ? g.alt : null,
         adjusted: g ? haversine(g, pos) > 0.5 : true,
       });
-      await withTimeout(dbPut('points', rec), STORE_MS, SAVE_ERR);
-      if (!p) points.push(rec);
+      const photos = [];
+      if (ed.newBlob) {
+        busy('Preparing photo…');
+        const tp = Date.now(); photos.push({ id: ed.id, ...await storedImages(ed.newBlob) });
+        LOG.info('save.imagesReady', { waited: Date.now() - tp });
+      }
+      busy('Writing to phone storage…');
+      await saveRecord(rec, photos); // photo and record together, or neither
+      if (!p) points.push(rec); else points[points.indexOf(p)] = rec;
       if (ed.mode === 'new') S.lastPoleId = poleId;
       if (typeNames().includes(ed.type)) S.lastType = ed.type;
       if (ed.newBlob) notePerf(Date.now() - t0);
       persist(); notePerson();
+      LOG.info('save.done', { ms: Date.now() - t0 }); LOG.done('save.survey');
     } catch (e) {
-      busy(false); btn.disabled = false; toast('Not saved: ' + (e.message || e), 6000); return;
+      clearTimeout(slow); LOG.error('save.fail', { ms: Date.now() - t0, ...errInfo(e) }); LOG.done('save.survey');
+      showSaveError(e); return;
     }
+    clearTimeout(slow);
     // saved: refreshing the screens must not turn a successful save into an error
-    busy(false); btn.disabled = false;
+    busy(false);
     const wasNew = ed.mode === 'new';
-    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); renderPoles(); if (!$('list').hidden) renderList(); } catch (e) { console.error(e); }
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); renderPoles(); if (!$('list').hidden) renderList(); } catch (e) { LOG.error('save.refresh', errInfo(e)); }
+    editorSaving = false;
     await closeSheet();
     if (wasNew) { map.setView([pos.lat, pos.lon], Math.max(map.getZoom(), 17)); toast(`${poleId} saved`); }
     else toast('Changes saved');
@@ -1744,45 +2003,62 @@
     const c = pinMap.getCenter(), pos = { lat: c.lat, lon: c.lng };
     const btn = $('edSave'); btn.disabled = true;
     const t0 = Date.now();
+    LOG.step('save.acceptance', { mode: ed.mode, pending: Object.keys(ed.pending).length, mem: memMB(), map: S.base });
+    const slow = setTimeout(() => LOG.warn('save.slow', { s: 10, mem: memMB() }), 10000);
     let rec, n = 0;
     try {
       const now = new Date().toISOString();
       const p = points.find((x) => x.id === ed.id);
       const g = ed.gps, el = ed.element;
-      rec = Object.assign(p || { id: ed.id, project: S.project, created: now, takenAt: ed.takenAt || now, source: ed.source || 'camera' }, {
+      rec = Object.assign({}, p || { id: ed.id, project: S.project, created: now, takenAt: ed.takenAt || now, source: ed.source || 'camera' }, {
         kind: 'acceptance', element: el, poleId, poleType: el === 'Pole' ? ed.type || '' : '', lat: pos.lat, lon: pos.lon, updated: now, ...(ed.idRead ? { idRead: ed.idRead } : {}),
         ...(p ? { updatedBy: byLine() } : { by: byLine() }),
         mloop: el === 'Pole' && ed.mloop, nap: el === 'Pole' && ed.nap, closure: el === 'Pole' && ed.closure,
         napId: el === 'Pole' && ed.nap ? $('napId').value.trim().toUpperCase() : '',
         closureId: el === 'Pole' && ed.closure ? $('closureId').value.trim().toUpperCase() : '',
         odf: el === 'ODF' ? ed.odf : '',
-        photos: ed.photos.map((ph) => ({ ...ph })), defs: ed.defs,
+        photos: ed.photos.map((ph) => ({ ...ph })), defs: JSON.parse(JSON.stringify(ed.defs)),
         gpsLat: g ? g.lat : null, gpsLon: g ? g.lon : null,
         accuracy: g && Number.isFinite(g.acc) ? g.acc : null, alt: g && Number.isFinite(g.alt) ? g.alt : null,
         adjusted: g ? haversine(g, pos) > 0.5 : true,
       });
       const used = new Set(allPids(rec));
       const pend = Object.keys(ed.pending).filter((pid) => used.has(pid));
+      const photos = [];
       for (let i = 0; i < pend.length; i++) {
-        busy(pend.length > 1 ? `Saving photo ${i + 1} / ${pend.length}…` : 'Saving photo…', pend.length > 1 ? i / pend.length : null);
-        const { clean, thumb } = await storedImages(ed.pending[pend[i]]);
-        await withTimeout(dbPut('photos', { id: pend[i], clean, thumb }), STORE_MS, SAVE_ERR);
+        busy(pend.length > 1 ? `Preparing photo ${i + 1} / ${pend.length}…` : 'Preparing photo…', pend.length > 1 ? i / pend.length : null);
+        const tp = Date.now(); photos.push({ id: pend[i], ...await storedImages(ed.pending[pend[i]]) });
+        LOG.info('save.imagesReady', { i, waited: Date.now() - tp });
       }
-      await withTimeout(dbPut('points', rec), STORE_MS, SAVE_ERR);
-      if (!p) points.push(rec);
+      busy('Writing to phone storage…');
+      await saveRecord(rec, photos); // all photos and the record together, or none
+      if (!p) points.push(rec); else points[points.indexOf(p)] = rec;
       deletePhotosIfUnused(ed.removed.filter((pid) => !used.has(pid)), new Set([rec.id])).catch(() => {}); // cleanup can finish in the background
       if (el === 'Pole' && typeNames().includes(ed.type)) S.lastType = ed.type;
       if (pend.length) notePerf(Date.now() - t0);
       persist(); notePerson(); n = openCount(rec);
+      LOG.info('save.done', { ms: Date.now() - t0, photos: pend.length }); LOG.done('save.acceptance');
     } catch (e) {
-      busy(false); btn.disabled = false; toast('Not saved: ' + (e.message || e), 6000); return;
+      clearTimeout(slow); LOG.error('save.fail', { ms: Date.now() - t0, ...errInfo(e) }); LOG.done('save.acceptance');
+      showSaveError(e); return;
     }
-    busy(false); btn.disabled = false;
+    clearTimeout(slow);
+    busy(false);
     const wasNew = ed.mode === 'new', pos2 = { lat: rec.lat, lon: rec.lon };
-    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); renderPoles(); if (!$('list').hidden) renderList(); } catch (e) { console.error(e); }
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); renderPoles(); if (!$('list').hidden) renderList(); } catch (e) { LOG.error('save.refresh', errInfo(e)); }
+    editorSaving = false;
     await closeSheet();
     if (wasNew) map.setView([pos2.lat, pos2.lon], Math.max(map.getZoom(), 17));
     toast(`${poleId} saved${n ? ` · ${n} open deficienc${n === 1 ? 'y' : 'ies'}` : ' · OK'}`);
+  }
+
+  function saveError(e) {
+    if (e && e.name === 'QuotaExceededError') return 'Not saved: phone storage is full. Keep this screen open, free space in another app, then tap Save again.';
+    return 'Not saved: ' + ((e && e.message) || e) + ' Your photo is kept on this screen; do not close or reload it. (Details: Settings → App log)';
+  }
+  function showSaveError(e) {
+    const message = saveError(e), el = $('saveIssue');
+    el.textContent = message; el.hidden = false; toast(message, 8000);
   }
 
   /* ================= list ================= */
@@ -1837,7 +2113,7 @@
     const m = pmeta(), pts = projPoints(), n = pts.length, ex = m.exports || {}, cat = taskCat();
     const last = pts.reduce((t, p) => (p.updated > t ? p.updated : t), '');
     const fresh = (kinds) => kinds.some((k) => ex[k] && ex[k] > last);
-    const go = { capture: () => closeAll().then(() => $('captureBtn').click()), records: () => closeAll().then(() => $('listBtn').click()), export: () => closeAll().then(() => $('exportBtn').click()),
+    const go = { capture: () => closeAll().then(() => $('captureBtn').click()), records: () => closeAll().then(() => $('listBtn').click()), export: () => closeAll().then(() => { exportPick = isAcc() ? 'doPdf' : 'doKmz'; $('exportBtn').click(); }), backup: () => closeAll().then(() => { exportPick = 'doBackup'; $('exportBtn').click(); }),
       route: () => closeAll().then(() => { if (!routeMode) setRouteMode(true); }), form: () => { $('mSite').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('mSite').focus(); },
       fat: () => $('startFat').click() };
     const steps = [];
@@ -1846,7 +2122,7 @@
       steps.push({ t: 'Capture the poles', s: n ? `${n} pole${n === 1 ? '' : 's'} captured` : 'Photo, ID scan, pin check for each pole', done: n > 0, go: 'capture', label: 'Capture' });
       steps.push({ t: 'Link the route', s: !R.spans.length ? 'Tap the route button: link in capture order, then fix branches' : `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${R.long} over ${pol().maxSpan} m · ${R.off} not linked`, done: n > 1 && R.spans.length > 0 && R.off === 0 && !R.long, go: 'route', label: 'Route' });
       steps.push({ t: 'Export for design', s: fresh(['kmz', 'dxf', 'csv']) ? 'KMZ / DXF / CSV made after the last change' : 'KMZ for Google Earth, DXF for AutoCAD, CSV, photos', done: n > 0 && fresh(['kmz', 'dxf', 'csv']), go: 'export', label: 'Export' });
-      steps.push({ t: 'Back up the project', s: fresh(['backup']) ? `Backup made ${fmtTime(ex.backup)}` : 'Export → Backup, keep the ZIP on Drive or a PC', done: n > 0 && fresh(['backup']), go: 'export', label: 'Backup' });
+      steps.push({ t: 'Back up the project', s: fresh(['backup']) ? `Backup made ${fmtTime(ex.backup)}` : 'Export → Backup, keep the ZIP on Drive or a PC', done: n > 0 && fresh(['backup']), go: 'backup', label: 'Backup' });
     } else if (cat === 'PAT') {
       const items = pts.flatMap((p) => counting(p)), open = items.filter((d) => defStatusOf(d) === 'Open').length;
       const formOk = !!(m.site && m.contractor && m.vendorRep && m.globeRep);
@@ -2049,6 +2325,7 @@
   }
   function offerResult(blob, name) {
     lastResult = { blob, name };
+    LOG.info('export.ready', { kind: (name.split('.').pop() || '').toLowerCase(), mb: +(blob.size / 1048576).toFixed(2) });
     const kind = /_BACKUP\.zip$/i.test(name) ? 'backup' : /_PAT_for_FAT_/i.test(name) ? 'sent' : (name.split('.').pop() || '').toLowerCase();
     noteExport(kind);
     $('resultName').textContent = `${name} · ${(blob.size / 1048576).toFixed(2)} MB`;
@@ -2060,10 +2337,12 @@
   $('resSave').addEventListener('click', async () => {
     if (!lastResult) return;
     if (NATIVE) {
+      const t0 = Date.now(); LOG.step('file.save', { name: lastResult.name.replace(/^.*?(_[A-Za-z]+\.\w+)$/, '…$1'), mb: +(lastResult.blob.size / 1048576).toFixed(2) });
       try {
         const r = await nativeSave(lastResult);
+        LOG.info('file.save.done', { ms: Date.now() - t0 }); LOG.done('file.save');
         toast(`Saved to ${r.where}`, 5000);
-      } catch (e) { toast('Could not save to Documents — use Share to send the file instead', 6000); }
+      } catch (e) { LOG.error('file.save.fail', { ms: Date.now() - t0, ...errInfo(e) }); LOG.done('file.save'); toast(`Could not save the file (${e.message || e}) — use Share to send it instead`, 7000); }
       return;
     }
     const a = document.createElement('a'), u = URL.createObjectURL(lastResult.blob);
@@ -2074,20 +2353,38 @@
   $('resShare').addEventListener('click', async () => {
     if (!lastResult) return;
     if (NATIVE) {
+      const t0 = Date.now(); LOG.step('file.share', { mb: +(lastResult.blob.size / 1048576).toFixed(2) });
       try {
         const r = await nativePrivate(lastResult);
+        LOG.info('file.share.written', { ms: Date.now() - t0 }); LOG.done('file.share');
         await nativeCall('Share', 'share', { title: r.name, dialogTitle: `Send ${r.name}`, files: [r.cacheUri] });
-      } catch (e) { if (!/cancel/i.test(String(e && e.message))) toast('Sharing failed: ' + (e.message || e), 5000); }
+      } catch (e) { LOG.done('file.share'); if (!/cancel/i.test(String(e && e.message))) { LOG.error('file.share.fail', { ms: Date.now() - t0, ...errInfo(e) }); toast('Sharing failed: ' + (e.message || e), 5000); } }
       return;
     }
     try { await navigator.share({ files: [new File([lastResult.blob], lastResult.name, { type: lastResult.blob.type })], title: lastResult.name }); }
     catch (e) { if (e.name !== 'AbortError') toast('Sharing failed — use Save to phone'); }
+  });
+  /* Export screen: one format at a time, picked from the Format dropdown (the last choice is kept per Survey / acceptance). */
+  let exportPick = null;
+  const xKey = (card) => card.querySelector('button[id^="do"]').id;
+  function exportCards() { return [...document.querySelectorAll('#export .xcard')].filter((c) => { const g = c.closest('#accExports, #surveyExports'); return !g || !g.hidden; }); }
+  function showExport(pick) {
+    const cards = exportCards(), sel = $('xFormat'), acc = isAcc();
+    const want = cards.find((c) => c.querySelector('#' + pick)) || cards.find((c) => xKey(c) === (S.xPick || {})[acc ? 'acc' : 'survey']) || cards[0];
+    sel.innerHTML = '';
+    cards.forEach((c) => sel.add(new Option(c.querySelector('.head b').textContent, xKey(c), false, c === want)));
+    document.querySelectorAll('#export .xcard').forEach((c) => c.classList.toggle('xoff', c !== want));
+  }
+  $('xFormat').addEventListener('change', (e) => {
+    S.xPick = { ...(S.xPick || {}), [isAcc() ? 'acc' : 'survey']: e.target.value }; persist();
+    showExport(e.target.value); $('export').querySelector('.body').scrollTop = 0;
   });
   $('exportBtn').addEventListener('click', () => {
     const n = projPoints().length, acc = isAcc();
     $('exportScope').textContent = acc ? `Acceptance ${pmeta().stage || 'PAT'} “${S.project}” · ${n} element${n === 1 ? '' : 's'}` : `Project “${S.project}” · ${n} pole${n === 1 ? '' : 's'}`;
     $('accExports').hidden = !acc; $('surveyExports').hidden = acc; $('namingRow').hidden = acc; // acceptance photos are named after the form items
     $('dxfZoneLbl').textContent = `UTM ${S.zone}N`; syncExpUi();
+    showExport(exportPick); exportPick = null;
     $('resultBox').hidden = true; openSheet('export');
   });
   function needPoints() { const pts = projPoints(); if (!pts.length) { toast('Nothing captured in this project yet'); return null; } return pts; }
@@ -2101,7 +2398,7 @@
     return out;
   }
   const fileBase = () => `${C.safeName(S.project)}_${stamp8()}`;
-  async function guard(fn, label) { try { await fn(); } catch (e) { console.error(e); toast(`${label === undefined ? 'Export failed: ' : label ? label + ': ' : ''}${e.message || e}`, 7000); } finally { busy(false); } }
+  async function guard(fn, label) { try { await fn(); } catch (e) { LOG.error('task.fail', { label: label || 'export', ...errInfo(e) }); toast(`${label === undefined ? 'Export failed: ' : label ? label + ': ' : ''}${e.message || e}`, 7000); } finally { busy(false); } }
 
   /** Square photo icon for a KMZ pin at the chosen size. */
   async function iconJpeg(blob, px, border) {
@@ -2124,7 +2421,7 @@
       rows.push(r);
     }
     busy('Building KMZ…', 1);
-    const kml = C.buildKml(rows, { project: S.project, photoIcons: icons, spans: E.kmzRoute ? routeModel().spans : [] });
+    const kml = C.buildKml(rows, { project: S.project, photoIcons: icons, spans: E.kmzRoute ? routeModel().spans : [], stamped: !!E.kmzStamp, stampFields: E.stampFields });
     const parts = C.makeZipParts([{ name: 'doc.kml', data: kml }, ...files]);
     offerResult(new Blob(parts, { type: 'application/vnd.google-earth.kmz' }), fileBase() + '.kmz');
   }));
@@ -2291,7 +2588,7 @@
     const f = e.target.files[0]; if (!f) return;
     await restoreZip(f);
     $('exportScope').textContent = `Project “${S.project}” · ${projPoints().length} records`;
-    $('accExports').hidden = !isAcc(); $('surveyExports').hidden = isAcc();
+    $('accExports').hidden = !isAcc(); $('surveyExports').hidden = isAcc(); showExport('doBackup');
   }, 'Restore failed'));
   /** Restores a backup / PAT file into its project (merging with a project of the same name) and makes it current. */
   async function restoreZip(f, opts) {
@@ -2650,12 +2947,13 @@
     }
     const icons = { Open: 'icons/open.png', Rectified: 'icons/rectified.png', Verified: 'icons/verified.png', OK: 'icons/ok.png' };
     for (const [k, path] of Object.entries(icons)) files.push({ name: `files/${path}`, data: await statusIcon(STATUS_COLORS[k]) });
-    const recs = [];
+    const recs = [], onPhoto = (r, f) => !!E.kmzStamp && (byRec[r.id] || []).length > 0 && (!E.stampFields || E.stampFields.includes(f));
     for (const r of M.recs) {
       let icon = null;
       if (E.kmzIconPx > 0) { const first = photosOf(r)[0], ph = first && await dbGet('photos', first.pid).catch(() => null); if (ph && (ph.clean || ph.thumb)) { icon = `icons/${r.id}.jpg`; files.push({ name: `files/${icon}`, data: await iconJpeg(ph.clean || ph.thumb, E.kmzIconPx, STATUS_COLORS[recStatus(r)]) }); } }
       recs.push({ id: r.id, name: r.poleId, title: `${r.poleId} · ${elemOf(r)} · ${STATUS_TEXT[recStatus(r)]}`, status: recStatus(r), lat: r.lat, lon: r.lon, icon,
-        detailsHtml: [...attachText(r), `Coordinates: ${r.lat.toFixed(7)}, ${r.lon.toFixed(7)}`, `Captured: ${fmtTime(r.takenAt)}`].map(C.xmlEsc).join('<br/>'),
+        // coordinates and time are left out when the balloon photos already carry them in their stamp
+        detailsHtml: [...attachText(r), ...(onPhoto(r, 'coords') ? [] : [`Coordinates: ${r.lat.toFixed(7)}, ${r.lon.toFixed(7)}`]), ...(onPhoto(r, 'time') ? [] : [`Captured: ${fmtTime(r.takenAt)}`])].map(C.xmlEsc).join('<br/>'),
         photos: byRec[r.id] || [],
         defs: M.items.filter((x) => x.r === r).map((x) => ({ no: x.no, text: `${x.d.cat}: ${x.d.item}${x.d.notes ? ' — ' + x.d.notes : ''}`, sev: sevOf(x.d), status: defStatusOf(x.d) })) });
     }
@@ -2694,7 +2992,7 @@
     $('adminRowTitle').textContent = S.team ? `${S.team.name}` : 'Company list and policies';
     refreshStorageInfo();
   }
-  $('settingsBtn').addEventListener('click', () => { renderSettingsHome(); openSheet('settings'); });
+  $('settingsBtn').addEventListener('click', () => { renderSettingsHome(); renderLog(); openSheet('settings'); });
   $('setMyTypes').addEventListener('change', () => {
     S.myTypes = parseTypeLines($('setMyTypes').value).filter((t) => !BUILTIN_TYPES.some((b) => b.p === t.p)); persist(); refreshTypes();
     $('setMyTypes').value = typeLines(S.myTypes); renderTypeInfo();
@@ -3763,10 +4061,90 @@
     guard(async () => { await dbClear('tiles'); S.areas = []; persist(); await renderOffline(); toast('Viewed map tiles deleted'); });
   });
 
+  /* ================= app log screen ================= */
+  const two = (n) => String(n).padStart(2, '0');
+  const logTime = (t) => { const d = new Date(t); return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`; };
+  const logLine = (x) => `${logTime(x.t)} ${{ i: 'I', w: 'W', e: 'E' }[x.l] || '?'} ${x.e}${x.d !== undefined ? ' ' + (typeof x.d === 'string' ? x.d : JSON.stringify(x.d)) : ''}`;
+  async function logReport() {
+    const info = { app: `PoleCam ${APP_VER}`, apk: NATIVE, ua: navigator.userAgent, memoryGB: navigator.deviceMemory, cores: navigator.hardwareConcurrency,
+      screen: `${screen.width}×${screen.height} @${devicePixelRatio}`, opfs: OPFS_OK, base: S.base, streetServer: streetSource().name, records: points.length, projects: allProjects().length,
+      photoCheck: effectiveQuality(), heapMB: memMB(), list: S.team ? `v${S.team.rev}` : 'none' };
+    try { const e = await withTimeout(navigator.storage.estimate(), 3000, 'slow'); info.storageUsedMB = Math.round((e.usage || 0) / 1048576); info.storageQuotaMB = Math.round((e.quota || 0) / 1048576); } catch (e) { /* ignore */ }
+    for (const st of ['points', 'photos', 'tiles', 'packs']) { try { info[`count_${st}`] = await withTimeout(dbCount(st), 5000, 'slow'); } catch (e) { info[`count_${st}`] = `error: ${e.message}`; } }
+    const lines = LOG.all().map(logLine);
+    return `PoleCam app log — ${logTime(Date.now())}\n${Object.entries(info).map(([k, v]) => `${k}: ${v}`).join('\n')}\n\n${lines.join('\n')}\n`;
+  }
+  function renderLog() {
+    const all = LOG.all(), errs = all.filter((x) => x.l === 'e').length, warns = all.filter((x) => x.l === 'w').length;
+    $('logSummary').textContent = all.length ? `${all.length} entries since ${logTime(all[0].t).slice(0, 16)} · ${errs} error${errs === 1 ? '' : 's'} · ${warns} warning${warns === 1 ? '' : 's'}` : 'The log is empty.';
+    $('logView').textContent = all.slice(-250).reverse().map(logLine).join('\n');
+    $('logSub').textContent = errs ? `${errs} error${errs === 1 ? '' : 's'} logged — open to send` : 'Errors and timings, to send for support';
+  }
+  $('goLog').addEventListener('click', () => { LOG.flush(); renderLog(); openSheet('logSheet'); });
+  $('logShare').addEventListener('click', () => guard(async () => {
+    const text = await logReport(), name = `PoleCam_log_${stamp8()}.txt`;
+    await shareFile(new Blob([text], { type: 'text/plain' }), name, 'text/plain');
+  }, 'Could not send the log'));
+  $('logCopy').addEventListener('click', async () => {
+    const text = await logReport();
+    try { await navigator.clipboard.writeText(text); toast('Log copied'); } catch (e) { toast('Copy is blocked here: use Send log'); }
+  });
+  $('logClear').addEventListener('click', () => {
+    const b = $('logClear');
+    if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again to clear'; setTimeout(() => { delete b.dataset.armed; b.textContent = 'Clear'; }, 3500); return; }
+    delete b.dataset.armed; b.textContent = 'Clear'; LOG.clear(); LOG.mark('log.cleared'); renderLog();
+  });
+  /** A full photo save without the camera: makes a 12 MP picture, prepares it, writes and reads it back, then deletes it. */
+  async function selfTest() {
+    const out = { heapMB: memMB() };
+    LOG.step('selftest', out); busy('Testing photo saving…');
+    try {
+      let t = Date.now();
+      const cv = document.createElement('canvas'); cv.width = 4000; cv.height = 3000;
+      const g = cv.getContext('2d');
+      for (let i = 0; i < 1200; i++) { g.fillStyle = `hsl(${(i * 37) % 360},55%,${25 + (i * 7) % 50}%)`; g.fillRect((i * 331) % 4000, (i * 197) % 3000, 40 + (i % 9) * 30, 30 + (i % 7) * 25); }
+      const big = await toBlob(cv, 0.92); cv.width = cv.height = 0;
+      if (!big) throw new Error('The phone could not make a test JPEG');
+      out.make = Date.now() - t; out.kb = Math.round(big.size / 1024);
+      t = Date.now(); const { clean, thumb } = await makeStoredImages(big); out.prepare = Date.now() - t;
+      t = Date.now(); await withTimeout(dbPut('photos', { id: '__selftest', clean, thumb }), STORE_MS, 'write timeout'); out.write = Date.now() - t;
+      t = Date.now(); const back = await withTimeout(dbGet('photos', '__selftest'), STORE_MS, 'read timeout'); out.read = Date.now() - t;
+      out.readOk = !!(back && back.clean && back.clean.size === clean.size);
+      await dbDel('photos', '__selftest').catch(() => {});
+      if (NATIVE) { t = Date.now(); await nativeWrite(big, 'selftest.jpg', 'CACHE'); out.fileWrite = Date.now() - t; nativeCall('Filesystem', 'deleteFile', { path: 'selftest.jpg', directory: 'CACHE' }).catch(() => {}); }
+      out.heapAfterMB = memMB();
+      LOG.info('selftest.done', out); LOG.done('selftest');
+      return { ok: true, out };
+    } catch (e) { LOG.error('selftest.fail', { ...out, ...errInfo(e) }); LOG.done('selftest'); return { ok: false, out, e }; } finally { busy(false); }
+  }
+  $('logTest').addEventListener('click', async () => {
+    const r = await selfTest(), o = r.out, sec = (v) => (v == null ? '–' : `${(v / 1000).toFixed(1)} s`);
+    $('logTestOut').hidden = false;
+    $('logTestOut').textContent = r.ok
+      ? `Save test OK: make 12 MP ${sec(o.make)} · prepare ${sec(o.prepare)} · write ${sec(o.write)} · read ${sec(o.read)}${o.fileWrite != null ? ` · file ${sec(o.fileWrite)}` : ''}${o.readOk ? '' : ' · READ BACK FAILED'}`
+      : `Save test FAILED: ${(r.e && r.e.message) || r.e} (after: ${Object.entries(o).map(([k, v]) => `${k} ${v}`).join(', ')})`;
+    renderLog();
+  });
+  /* background facts for the log: map tile results and long freezes of the screen */
+  { let lastOk = 0, lastFail = 0;
+    setInterval(() => { if (streetState.ok !== lastOk || streetState.failed !== lastFail) { LOG.info('tiles', { src: streetSource().id, ok: streetState.ok - lastOk, failed: streetState.failed - lastFail, queued: tileQueue.length, running: tileBusy }); lastOk = streetState.ok; lastFail = streetState.failed; } }, 60000); }
+  try {
+    let lastLong = 0;
+    new PerformanceObserver((list) => { for (const e of list.getEntries()) if (e.duration > 700 && Date.now() - lastLong > 3000) { lastLong = Date.now(); LOG.info('freeze', { ms: Math.round(e.duration), heapMB: memMB() }); } }).observe({ entryTypes: ['longtask'] });
+  } catch (e) { /* not supported */ }
+
   /* ================= start ================= */
   $('captureBtn').addEventListener('click', () => openCamera('new'));
   (async () => {
-    try { points = await dbAll('points'); } catch (e) { toast('Storage unavailable: ' + e.message, 6000); }
+    const tl = Date.now();
+    try { points = await dbAll('points'); } catch (e) { LOG.error('start.loadPoints', errInfo(e)); toast('Storage unavailable: ' + e.message, 6000); }
+    LOG.mark('app.start', { ver: APP_VER, apk: NATIVE, chrome: (/Chrome\/([\d.]+)/.exec(navigator.userAgent) || [])[1], android: (/Android ([\d.]+)/.exec(navigator.userAgent) || [])[1], memoryGB: navigator.deviceMemory, cores: navigator.hardwareConcurrency, opfs: OPFS_OK, records: points.length, loadMs: Date.now() - tl, heapMB: memMB() });
+    (async () => {
+      const info = {};
+      try { const e = await withTimeout(navigator.storage.estimate(), 3000, 'slow'); info.usedMB = Math.round((e.usage || 0) / 1048576); info.quotaMB = Math.round((e.quota || 0) / 1048576); info.persisted = navigator.storage.persisted ? await navigator.storage.persisted() : null; } catch (e) { info.estimate = e.message; }
+      for (const st of ['photos', 'tiles', 'packs']) { try { info[st] = await withTimeout(dbCount(st), 8000, 'slow'); } catch (e) { info[st] = `error: ${e.message}`; } }
+      LOG.info('storage', info);
+    })();
     if (!S.projects.includes(S.project)) S.projects.push(S.project);
     renderPoles(); drawAreas();
     if (!S.view) fitProject();
@@ -3785,6 +4163,6 @@
   if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__polecam = { get points() { return points; }, get S() { return S; }, openEditor, exportPhoto, tilesFor, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
-    packShare, unpackShare, importTeamText, readIdFrom, checkQuality, makeStoredImages, poleTypes }; // for testing
+  window.__polecam = { get points() { return points; }, get S() { return S; }, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
+    packShare, unpackShare, importTeamText, readIdFrom, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport }; // for testing
 })();
