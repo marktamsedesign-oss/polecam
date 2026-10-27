@@ -646,7 +646,141 @@
     return out;
   }
 
+
+  /* ---------------- live ID finder (camera) ---------------- */
+  /** Closing along one direction (dilate, then erode) with running sums: strokes of one painted ID merge into one blob. */
+  function closeLine(src, W, H, r, vertical) {
+    const n = vertical ? H : W, lines = vertical ? W : H, at = vertical ? (l, k) => k * W + l : (l, k) => l * W + k;
+    const d = new Uint8Array(src.length), out = new Uint8Array(src.length), ps = new Int32Array(n + 1);
+    for (let l = 0; l < lines; l++) {
+      for (let k = 0; k < n; k++) ps[k + 1] = ps[k] + src[at(l, k)];
+      for (let k = 0; k < n; k++) d[at(l, k)] = ps[Math.min(n, k + r + 1)] - ps[Math.max(0, k - r)] > 0 ? 1 : 0;
+      for (let k = 0; k < n; k++) ps[k + 1] = ps[k] + d[at(l, k)];
+      for (let k = 0; k < n; k++) { const a = Math.max(0, k - r), b = Math.min(n, k + r + 1); out[at(l, k)] = ps[b] - ps[a] === b - a ? 1 : 0; }
+    }
+    return out;
+  }
+  /**
+   * The most ID-like region of a small camera frame: a row (orient 'h') or column ('v') of short high-contrast strokes.
+   * rgba: RGBA bytes W×H. focus: {x, y} 0..1 (a tap) or null (the centre). Returns {x, y, w, h, score} in frame pixels, or null.
+   */
+  function findIdBox(rgba, W, H, orient, focus) {
+    const N = W * H, g = new Uint8Array(N), m = new Uint8Array(N), hist = new Uint32Array(256), vert = orient === 'v';
+    for (let i = 0, j = 0; i < N; i++, j += 4) g[i] = (rgba[j] * 77 + rgba[j + 1] * 150 + rgba[j + 2] * 29) >> 8;
+    for (let y = 1; y < H - 1; y++) for (let x = 1, i = y * W + 1; x < W - 1; x++, i++) {
+      const gx = Math.abs(g[i + 1] - g[i - 1]), gy = Math.abs(g[i + W] - g[i - W]), v = gx > gy ? gx : gy;
+      m[i] = v; hist[v]++;
+    }
+    let acc = 0, t = 255; const lim = N * 0.1; // the strongest 10 % of edges, but never faint texture
+    for (let v = 255; v > 0; v--) { acc += hist[v]; if (acc >= lim) { t = v; break; } }
+    t = Math.max(30, t);
+    const e = new Uint8Array(N); for (let i = 0; i < N; i++) e[i] = m[i] >= t ? 1 : 0;
+    // long straight edges are not text: pole sides, cables, the horizon, a sign's border
+    const dropRuns = (vertical, max) => {
+      const n = vertical ? H : W, lines = vertical ? W : H;
+      for (let l = 0; l < lines; l++) {
+        let k = 0;
+        while (k < n) {
+          const i0 = vertical ? k * W + l : l * W + k; if (!e[i0]) { k++; continue; }
+          let k1 = k; while (k1 < n && e[vertical ? k1 * W + l : l * W + k1]) k1++;
+          if (k1 - k > max) for (let q = k; q < k1; q++) e[vertical ? q * W + l : l * W + q] = 0;
+          k = k1;
+        }
+      }
+    };
+    dropRuns(true, Math.max(12, H * 0.25)); dropRuns(false, Math.max(12, W * 0.6));
+    { // thin lines at any angle (cables crossing the pole): long, sparse chains of edges
+      const seen = new Uint8Array(N), st = new Int32Array(N), members = new Int32Array(N);
+      for (let s0 = 0; s0 < N; s0++) {
+        if (!e[s0] || seen[s0]) continue;
+        let sp = 0, cnt = 0, x0 = W, y0 = H, x1 = 0, y1 = 0; st[sp++] = s0; seen[s0] = 1;
+        while (sp) {
+          const i = st[--sp], x = i % W, y = (i - x) / W; members[cnt++] = i;
+          if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+            const j = yy * W + xx; if (e[j] && !seen[j]) { seen[j] = 1; st[sp++] = j; }
+          }
+        }
+        const ext = Math.max(x1 - x0 + 1, y1 - y0 + 1);
+        if (ext > Math.max(W, H) * 0.15 && (cnt / ext < 2.6 || cnt / ((x1 - x0 + 1) * (y1 - y0 + 1)) < 0.08)) for (let q = 0; q < cnt; q++) e[members[q]] = 0;
+      }
+    }
+    const along = Math.max(2, Math.round((vert ? H : W) / 60));
+    const c = closeLine(closeLine(e, W, H, along, vert), W, H, 1, !vert);
+    const across = (p) => p.c1 - p.c0 + 1;
+    const at = (a, c) => (vert ? a * W + c : c * W + a);
+    /** A piece joined to a cable or a border is cut back to its densest band of edges (the text). */
+    const trim = (p) => {
+      const prof = (from, to, o0, o1, alongAxis) => {
+        const out = new Float32Array(to - from + 1);
+        for (let k = from; k <= to; k++) { let n = 0; for (let o = o0; o <= o1; o++) n += alongAxis ? e[at(k, o)] : e[at(o, k)]; out[k - from] = n; }
+        return out;
+      };
+      const band = (pr, frac, gap) => { // the run around the peak, bridging gaps (between characters) up to `gap`
+        let mi = 0; for (let k = 1; k < pr.length; k++) if (pr[k] > pr[mi]) mi = k;
+        const lim = pr[mi] * frac; let lo = mi, hi = mi;
+        for (let k = mi - 1, miss = 0; k >= 0 && miss <= gap; k--) { if (pr[k] >= lim) { lo = k; miss = 0; } else miss++; }
+        for (let k = mi + 1, miss = 0; k < pr.length && miss <= gap; k++) { if (pr[k] >= lim) { hi = k; miss = 0; } else miss++; }
+        return [lo, hi];
+      };
+      const [c0, c1] = band(prof(p.c0, p.c1, p.a0, p.a1, false), 0.3, 1).map((k) => k + p.c0);
+      const [a0, a1] = band(prof(p.a0, p.a1, c0, c1, true), 0.12, Math.max(3, Math.round((c1 - c0 + 1) * 0.8))).map((k) => k + p.a0);
+      let edges = 0; for (let a2 = a0; a2 <= a1; a2++) for (let c2 = c0; c2 <= c1; c2++) edges += e[at(a2, c2)];
+      return { a0, a1, c0, c1, area: p.area, edges };
+    };
+    // pieces: characters or groups of characters
+    const lab = new Int32Array(N), stack = new Int32Array(N), pieces = []; let nl = 0;
+    for (let s0 = 0; s0 < N; s0++) {
+      if (!c[s0] || lab[s0]) continue;
+      nl++; let sp = 0, x0 = W, y0 = H, x1 = 0, y1 = 0, area = 0, edges = 0;
+      stack[sp++] = s0; lab[s0] = nl;
+      while (sp) {
+        const i = stack[--sp], x = i % W, y = (i - x) / W;
+        area++; edges += e[i];
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        if (x > 0 && c[i - 1] && !lab[i - 1]) { lab[i - 1] = nl; stack[sp++] = i - 1; }
+        if (x < W - 1 && c[i + 1] && !lab[i + 1]) { lab[i + 1] = nl; stack[sp++] = i + 1; }
+        if (y > 0 && c[i - W] && !lab[i - W]) { lab[i - W] = nl; stack[sp++] = i - W; }
+        if (y < H - 1 && c[i + W] && !lab[i + W]) { lab[i + W] = nl; stack[sp++] = i + W; }
+      }
+      const bw = x1 - x0 + 1, bh = y1 - y0 + 1, box = bw * bh;
+      if (bw < 3 || bh < 3) continue;
+      let p = { a0: vert ? y0 : x0, a1: vert ? y1 : x1, c0: vert ? x0 : y0, c1: vert ? x1 : y1, area, edges };
+      if (box > N * 0.25 || area / box < 0.3 || edges / box < 0.08) { // joined to a cable or a border: keep its densest band
+        if (box > N * 0.7) continue;
+        p = trim(p); const tb = (p.a1 - p.a0 + 1) * across(p); p.area = tb;
+        if (tb > N * 0.25 || p.edges / tb < 0.08) continue;
+      }
+      if (p.edges / ((p.a1 - p.a0 + 1) * across(p)) > 0.75) continue;
+      pieces.push(p);
+    }
+    pieces.sort((p, q) => q.area - p.area); pieces.length = Math.min(pieces.length, 300);
+    // join pieces lying on one line, close together and of similar height: one ID
+    for (let merged = true; merged;) {
+      merged = false;
+      for (let a = 0; a < pieces.length && !merged; a++) for (let b = a + 1; b < pieces.length; b++) {
+        const p = pieces[a], q = pieces[b], hp = across(p), hq = across(q), hmax = Math.max(hp, hq), hmin = Math.min(hp, hq);
+        const ov = Math.min(p.c1, q.c1) - Math.max(p.c0, q.c0) + 1, gap = Math.max(p.a0, q.a0) - Math.min(p.a1, q.a1);
+        if (ov < hmin * 0.5 || hmax > hmin * 2.2 || gap > hmax * 1.2) continue;
+        pieces[a] = { a0: Math.min(p.a0, q.a0), a1: Math.max(p.a1, q.a1), c0: Math.min(p.c0, q.c0), c1: Math.max(p.c1, q.c1), area: p.area + q.area, edges: p.edges + q.edges };
+        pieces.splice(b, 1); merged = true; break;
+      }
+    }
+    let best = null; const fx = focus ? focus.x : 0.5, fy = focus ? focus.y : 0.45, A = vert ? H : W, Cn = vert ? W : H;
+    for (let p of pieces) {
+      if (across(p) > Cn * 0.35 || (p.a1 - p.a0 + 1) / across(p) < 1.5) p = trim(p);
+      const long = p.a1 - p.a0 + 1, short = across(p), box = long * short, aspect = long / short, dens = p.edges / box;
+      if (short < 4 || long < A * 0.07 || short > Cn * 0.35 || long > A * 0.95 || aspect < 1.5 || aspect > 16 || dens < 0.06) continue;
+      const bx = vert ? p.c0 : p.a0, by = vert ? p.a0 : p.c0, bw = vert ? short : long, bh = vert ? long : short;
+      const d = Math.hypot((bx + bw / 2) / W - fx, (by + bh / 2) / H - fy);
+      const score = Math.min(dens, 0.4) * Math.sqrt(box) * Math.min(1, aspect / 2.5) / (1 + (focus ? 6 : 3) * d);
+      if (!best || score > best.score) best = { x: bx, y: by, w: bw, h: bh, score: Math.round(score * 100) / 100 };
+    }
+    return best;
+  }
+
   const api = { parseCsv, companiesFromCsv, utmForward, analyzeRoute, autoLinks, distM, deflection, idCandidates, fitShape, knownId, setPolePrefixes, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
-    buildKml, buildDxf, buildCsv, roadsFromOverpass, overpassQuery, nextPoleId, safeName, xmlEsc, blockName };
+    buildKml, buildDxf, buildCsv, roadsFromOverpass, overpassQuery, nextPoleId, safeName, xmlEsc, blockName, findIdBox };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleCore = api;
 })(typeof self !== 'undefined' ? self : this);

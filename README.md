@@ -7,7 +7,7 @@ Four task categories per project: **Survey** (As-plan or As-built), **PAT**, **D
 One phone app that replaces GPS Camera + the Windows geolocator step:
 
 1. **Capture** – take the pole photo inside the app; GPS is recorded at the shutter (green shutter = GPS ready).
-2. **Scan the ID** – right after the photo, fit the painted ID (pole, ODF or any other) in the box; horizontal or vertical IDs.
+2. **Scan the ID** – right after the photo, point the camera at the painted ID (pole, ODF or any other): the box finds the ID by itself, follows it like a face-detection box and reads it (v2.6). Pinch or tap 2× / 4× to zoom in on a high or far ID; tap the ID on screen if the box picks something else.
 3. **Correct the pin** – drag the map under the slim pin until it sits on the pole; switch street / satellite / offline map while you do it.
 4. **Pole ID + type** – Concrete (CC), Wood (WP), Steel (SP): IDs CC-0001, WP-0001, SP-0001; Globe (GT) and Bayantel (BT) poles keep the number painted on them (GT-88123); other owners (PLDT-, …) are added by the admin for everyone or with “+ Other prefix…” at the end of the Type dropdown on one phone. ODFs FDU_100. The next ID is suggested; duplicates are flagged.
 5. **Export** –
@@ -53,18 +53,34 @@ The APK opens the same hosted app, so keep the GitHub Pages site online.
 
 ## The process: Survey → PAT → Defect cleanup → FAT (v2.5)
 
-Each project shows a **Workflow** checklist at the top of the Projects screen (tap the project name on the top bar), with what is done, what is next and a button that opens the right screen. The strip above the navigation shows the next step too.
+**Projects screen** (tap the project name on the top bar):
+- **PROJECT** dropdown: switch to another project on this phone.
+- **+ New project**: a short form, see below.
+- The current project's **Workflow** checklist: what is done, what is next, and a *Next* button that opens the right screen. The strip above the navigation shows the next step too.
+- **Project details** (folded): rename, purpose, KMZ reference, remarks / notes, the form details of a PAT / FAT, *Share the KMZ*, delete.
+
+**New project form (v2.8)**
+
+| Field | What to put |
+|---|---|
+| **Project name** | Tap the field (or **▾**) to pick a site from the online sheet, or type any name. Without a sheet, or with no site listed for your company, just type it. |
+| **Task category** | Survey · PAT · Defect Cleanup · FAT |
+| **Purpose** | As-Plan Creation · As-Built Creation · PAT · Defect Rectification · FAT. Category and purpose follow each other (a survey is As-Plan or As-Built). |
+| **KMZ** | Survey / PAT: the **KMZ reference** (HLD route, homing, POI), optional. Defect Cleanup: the **PAT KMZ** (required). FAT: the **PAT / cleanup KMZ** (without it the FAT starts empty). For Cleanup / FAT with a KMZ the name may stay blank: it comes from the KMZ. |
+| **Remarks / notes** | Optional; kept with the project (Project details). |
+
+The form remembers the last category you used.
 
 | Stage | Who | Steps (the app ticks them off) |
 |---|---|---|
 | **Survey** (As-plan or As-built) | survey team / contractor | Optional: load the **HLD KMZ** (route, homing, POI) as a reference · 1 Capture the poles (photo → ID scan → pin check; *No tag → NPT* for untagged poles) · 2 Link the route (follow the HLD or reroute where it is not doable) · 3 Export for design (KMZ, DXF, CSV, photos; file names carry ASPLAN / ASBUILT) · 4 Back up |
 | **PAT** (provisional acceptance) | Globe inspector with the contractor | 1 Form details · 2 **Record the defects**: only the elements with defects, each tagged N, D or MD (the defect form opens with the editor; a new PAT record cannot be saved without one) · 3 Export the Deficiency List · 4 **Share the PAT KMZ** with the contractor |
-| **Defect cleanup** | contractor | 1 Open the PAT KMZ (Projects → New → Defect cleanup) · 2 Walk to each red pin: tap it → **📷 Photo of the fix** (or *Fixed, no photo*), **💬 Comment** · 3 **Share the cleanup KMZ** for the FAT |
+| **Defect cleanup** | contractor | 1 Open the PAT KMZ (Projects → **+ New project** → Defect Cleanup → PAT KMZ) · 2 Walk to each red pin: tap it → **📷 Photo of the fix** (or *Fixed, no photo*), **💬 Comment** · 3 **Share the cleanup KMZ** for the FAT |
 | **FAT** (final acceptance) | Globe inspector | 1 Open the cleanup KMZ (or the PAT KMZ) · 2 Walk to each pin: **✓ Accept**, **📷 Accept with photo** or **✗ Reject** with a reason · 3 Export the final Deficiency List (as found → fixed → checked photos in Annex A) and the rectification report |
 
 **Walking the pins (cleanup and FAT).** The map shows the pins and your position. The strip above the bottom bar always points to the nearest pin that still needs you (*Next: CC-0012 · 85 m NE of you*); tap it, or tap any pin, to open its card: the as-found photo, each item with its status, and big buttons. Every button saves at once; there is no separate Save. *Next pin ›* jumps to the next nearest one; *Open full record* opens the full editor.
 
-Tasks assigned in the online sheet (Projects → *Assigned tasks*) start a project with the right category and details already filled in, so a field user only taps **Start** and follows the checklist.
+Rows of the online sheet appear in the New project form under **Project name ▾**: picking one fills the name, the category (when the row has one), site, vendor, notes and Drive folder, so a field user only taps **Create project** and follows the checklist.
 
 ## Field use
 
@@ -78,7 +94,7 @@ Tasks assigned in the online sheet (Projects → *Assigned tasks*) start a proje
 
 ## Acceptance mode (PAT / FAT)
 
-Create a project with task category **PAT** (Projects → New project → Task category), or **Start** a PAT task from the online sheet. The project button at the top right shows SURVEY, PAT or FAT, and the list button at the bottom is named after it. Choose **FAT** directly only when the PAT records are not on this phone; otherwise open the PAT project and use *Start FAT from this PAT*, or *Start FAT from a PAT file* sent from another phone.
+Create a project with task category **PAT** (Projects → **+ New project** → Task category), or pick a PAT row from the online sheet in that form. The project button at the top right shows SURVEY, PAT or FAT, and the list button at the bottom is named after it. Choose **FAT** directly only when the PAT records are not on this phone; otherwise open the PAT project and use *Start FAT from this PAT*, or *Start FAT from a PAT file* sent from another phone.
 
 **Who does what.** The **admin company** on the company list (e.g. Globe Telecom) supplies the **inspectors**: its staff (admin PIN) add deficiencies, verify rectifications or reject them. Users of every other company (the contractors) only add *rectified* photos and mark items rectified. With no admin company set, everyone may do everything.
 
@@ -90,7 +106,7 @@ Create a project with task category **PAT** (Projects → New project → Task c
 - Each item shows its timeline: **FOUND** (when, by whom, stage) → **RECTIFIED** (contractor's after photo, or marked rectified without one) → **VERIFIED** (inspector, with or without a verification photo). *Reject* sends an item back to Open with the reason, which is kept and printed.
 - Map pins: red = open deficiency, blue = rectified awaiting verification, teal = all verified, green = no deficiency. The strip above the navigation bar shows the project totals; the Records screen has the same figures and a filter for each status.
 
-**Projects → Current project** holds what prints on the form: *Location/site*, *Vendor (contractor)*, *Contractor representative* (endorses the list), *Globe representative* (accepts it), *Inspected by*, the *inspection type* boxes ticked on the form and the *inspection date*.
+**Projects → Project details** holds what prints on the form: *Location/site*, *Vendor (contractor)*, *Contractor representative* (endorses the list), *Globe representative* (accepts it), *Inspected by*, the *inspection type* boxes ticked on the form and the *inspection date*.
 
 **FAT**: on a PAT project tap **Start FAT from this PAT**. It copies every element and its deficiency list into a new FAT project (the PAT stays as it was). Contractors add the rectified photo (**After photo**) or **Mark rectified**; inspectors **Verify** / **Verify with photo** / **Reject**. New deficiencies found at FAT can be added too.
 
@@ -196,7 +212,8 @@ The admin keeps three lists in a Google Sheet on their own account; phones read 
 | **Companies** | One company per row. Replaces the in-app list once a phone has read the sheet. |
 | **Tasks** | Task ID (filled in automatically), project name, category **Survey / PAT / Defect cleanup / FAT**, site, contractor, Globe representative, *for company* (blank = everyone), status *Active/Closed*, notes. |
 | **MapPacks** | Name, Google Drive link, size in MB, notes. Since v2.5 the admin types the packs in the app (Administration → Offline map packs); with the Admin key on the admin's phone, saving the list rewrites this tab (update the Apps Script: Deploy → Manage deployments → Edit → New version). |
-| **Settings** | List name, **Read key** (phones), **Admin key** (admins only). |
+| **Settings** | List name, **Read key** (phones), **Admin key** (admins only), who sees which tasks, and where tasks come from (see "Tasks from your own database"). |
+| **CompanyKeys** | Optional (v2.6): one key per company for a strict split of the tasks. Empty = not used. |
 
 **Setup (admin, once):**
 1. Make a Google Sheet, open **Extensions → Apps Script**, paste `PoleCam-online-sheet.gs`, save, choose **setup** and **Run** (allow the permissions).
@@ -204,19 +221,55 @@ The admin keeps three lists in a Google Sheet on their own account; phones read 
 3. In PoleCam: Settings → Administration → **Manage (admin)** → *Online Google Sheet*: paste the URL and the Read key (from the Settings tab), **Test connection**, then **Save and share the list**. Optionally enter the Admin key on your own phone so **Import companies from CSV** also adds them to the sheet.
 4. Phones get the sheet address with the next list update (QR code or file). Anyone with the URL and Read key can read the three lists, so treat them like a password.
 
-**On the phones:** Projects → *Assigned tasks (online sheet)* shows the active tasks for the user's company (admins see all). **Start** makes the project with its category, site and contractor; a FAT task asks for the PAT file (below) or starts empty. Settings → Administration shows when the sheet was last read, with *Sync online sheet*.
+**On the phones:** Projects → **+ New project** → *Project name* **▾** lists the open rows for the user's company (admins see all). Picking one fills the project with its category, site and contractor; for a Defect Cleanup or FAT choose the KMZ in the same form. Settings → Administration shows when the sheet was last read, with *Sync online sheet*.
+
+### Updating the script (needed for v2.5 map packs, the Defect cleanup category and v2.6 company filtering)
+
+1. Open the online Google Sheet → **Extensions → Apps Script**.
+2. Click in the code (`Code.gs`), select all (Ctrl+A), delete, paste the whole new `PoleCam-online-sheet.gs`, **Save** (Ctrl+S).
+3. In the function list at the top choose **setup** → **Run**. If Google asks, **Review permissions** → your account → *Advanced* → *Go to … (unsafe)* → **Allow** (it is your own script). It only adds the new Settings rows and the CompanyKeys tab; nothing is deleted.
+4. **Deploy → Manage deployments** → pencil (**Edit**) on the existing Web app → *Version*: **New version** → **Deploy**. The URL stays the same, so the phones keep reading it. (Do not use *New deployment*: that makes a new URL.)
+5. On the admin phone: Settings → **Sync online sheet**. The line under it shows the tasks and map packs read.
+
+### Your sheet layout: Project Data + Company List (v2.7)
+
+The script works directly on a sheet laid out like *PoleSurvey_Camera*:
+
+| Tab | Columns (row 1) | Used as |
+|---|---|---|
+| **Project Data** | OSP Build ID · Region · Territory · Project Name · Serial Number · PLA ID · SearchRing Name/Site Name/Segment Name · OSP VENDOR · Gdrive Link | one row = one site. OSP Build ID = site ID, SearchRing/Site/Segment Name + PLA ID = the PoleCam project name, OSP VENDOR = which companies see it (several vendors separated by commas each get it), Gdrive Link = the *Project folder* button; Region, Territory, Project Name and Serial Number are shown with the site |
+| **Company List** | Company name · Authorization | the companies users choose from; **ADMIN** (e.g. GLOBE) sees every site, **USER** only its own |
+
+Paste the script into that spreadsheet and run **setup**: it finds the two tabs by themselves (Settings → *Tasks source tab* = Project Data, *Companies tab* = Company List) and adds only Settings, MapPacks and CompanyKeys. Run **testSource** to check: for the sample, NOKIA gets 2 sites, HUAXIN 2, COMTEL 1, FADI 1, GLOBE all 5.
+
+**In the app:** Projects → **+ New project** → tap *Project name* (or **▾**): your company's sites are listed; type to filter, tap one (the name, vendor, IDs and Drive folder fill in), or type any other name. A company with no site listed sees *No site listed for you: type a name*, so it can work without the sheet. A site already on the phone shows *on this phone* and an *Open* button. The chosen site's details show under Projects → Project details, with *Project folder (Drive)*.
+
+**Admin company:** in the company list (Administration) choose the same name as the ADMIN row of the Company List (e.g. GLOBE), so its staff get inspector rights with the admin PIN. Being ADMIN in the sheet only decides which sites a phone sees.
+
+### Tasks from your own database, filtered by company (v2.6)
+
+Instead of typing tasks in the Tasks tab, the sheet can read them from your own tracker spreadsheet and send each company only its own rows.
+
+1. **Settings tab → Tasks source**: paste the URL of the tracker spreadsheet; **Tasks source tab**: its tab name; **Header row**: the row with the column headers (1 if the headers are in the first row). The Google account that deployed the script must be able to open the tracker.
+2. **Column: …** rows: type the header of each column as it is written in the tracker, at least **Column: Project** (the site / cluster / project name that becomes the PoleCam project). Leave a row blank to let the script guess (it knows common names such as Site Name, Vendor, Contractor, Status, Remarks) or type `-` to leave a column out. **Column: Company** is the column that says which company the row belongs to (usually the vendor/contractor column; when blank, the Contractor column is used).
+3. Optional: **Only rows where** (e.g. `Region = MIN`), **Default category** (when the tracker has no Survey/PAT/FAT column), **Closed statuses** (rows whose status starts with these are not sent, e.g. Accepted, Closed).
+4. **Companies that see all tasks**: the admin company, e.g. `Globe Telecom`. Its users get every task; every other company gets only its rows (and rows with no company, unless *Blank company = everyone* is No). Company names match without case, punctuation or Inc./Corp. endings, so "ABC BUILDERS, INC" and "ABC Builders Inc." are the same company.
+5. In the Apps Script editor choose **testSource** → **Run** → *Execution log*: it lists the columns it found, how many rows were read and skipped, and how many tasks each company gets. Fix the Column rows until it looks right. Changes reach the phones within 5 minutes (the script keeps a copy for 5 minutes so a large tracker is not re-read on every request).
+6. **Strict split (optional):** without keys, each phone reports its own company, so someone who has the Read key and changes the app could ask for another company's rows. For a strict split choose **makeCompanyKeys** → **Run**: every company in the Companies tab gets a key in the CompanyKeys tab (the admin company gets *Sees all tasks: Yes*). Send each company only its own key; their users enter it once under Settings → Administration → **Company access key** (the field appears when the sheet asks for it). From then on a phone without the right key gets no tasks, and phones older than v2.6 get none either. Delete a row's key to cut a company off.
+
+Only the task fields (task ID, project, category, site, contractor, company, Globe representative, notes) go to the phones; other tracker columns never leave Google.
 
 **Company names from a CSV (admin):** Manage (admin) → *Import companies from CSV*: the column named Company/Vendor/Contractor/Name, or the first column; duplicates are skipped. You can also paste names straight into the sheet's Companies tab.
 
 ## The shareable KMZ: PAT → defect cleanup → FAT (v2.5)
 
-On the PAT phone: Projects → (PAT project) → **Share the PAT KMZ**. It is one `.kmz` file: Google Earth shows the defect pins with their photos (open it on a PC to review), and PoleCam reads the records and the original photos stored inside it (folder `polecam/`, ignored by Google Earth). Send it by Viber, Drive, email or USB.
+On the PAT phone: Projects → (PAT project) → *Project details* → **Share the PAT KMZ** (or the workflow's *Next* button). It is one `.kmz` file: Google Earth shows the defect pins with their photos (open it on a PC to review), and PoleCam reads the records and the original photos stored inside it (folder `polecam/`, ignored by Google Earth). Send it by Viber, Drive, email or USB.
 
-- **Contractor:** Projects → New project → **Defect cleanup** → **Open the PAT KMZ…** → walk the pins and photo each fix → Projects → **Share the cleanup KMZ**.
-- **Inspector:** Projects → New project → **FAT** → **Open the PAT / cleanup KMZ…** → accept or reject each fix → export the final Deficiency List.
+- **Contractor:** Projects → **+ New project** → category **Defect Cleanup** → **Choose KMZ…** (the PAT KMZ) → **Create project** → walk the pins and photo each fix → **Share the cleanup KMZ**.
+- **Inspector:** Projects → **+ New project** → category **FAT** → **Choose KMZ…** (the PAT or cleanup KMZ) → **Create project** → accept or reject each fix → export the final Deficiency List.
 - The KMZ from Export → *Google Earth · KMZ* carries the same data unless *Include the PoleCam data* is unticked under its options (for a smaller file only for Google Earth).
 - On one phone, *Start FAT from this PAT / cleanup on this phone* does the same without a file. PAT files (ZIP) from v1.8–v2.4 still open.
-- Online tasks with category *Defect cleanup* or *FAT* ask for the KMZ when you tap Start.
+- Picking an online row with category *Defect cleanup* or *FAT* sets that category; choose the KMZ in the same form.
 
 ## AutoCAD
 
@@ -331,3 +384,22 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Map packs from the admin only:** Administration → *Offline map packs*; users see them under Maps after taking the list or *Refresh list*. The online sheet script gained *setPacks* and the *Defect cleanup* task category: paste the new `PoleCam-online-sheet.gs` and deploy a new version.
 - One of the v2.3.1 browser tests now uses a FAT project, because a new PAT record needs a deficiency.
 
+## What changed in v2.6
+
+- **Zoom in the camera.** On phones whose camera offers zoom, pinch or tap **1× / 2× / 4×** (up to the camera's limit, 10× at most) for every photo; the camera itself zooms, so the photo should come out zoomed too (check one on your phone). On other phones a digital zoom is offered while reading the ID (the ID is read from what is on screen). The zoom used for IDs is remembered.
+- **Live ID reader.** In the ID step the box is no longer fixed: a few times a second the picture is searched for the painted ID (a row of characters, or a column for vertical IDs, ignoring pole edges and cables), the box moves onto it like a face-detection box, and when it holds still the ID is read in the background and shown on the box (green, e.g. *CC-0123 · 92%*). When the same known-format ID is read twice the step finishes by itself (Settings → Camera → *Live ID reader* to turn that off and use the shutter instead). Tap the ID on screen to point the box at it (and focus there, where the camera allows). Horizontal / Vertical still tells the reader which way the ID is written. If nothing is found, the box stays in the middle and works as before. Tested here on sample pole pictures; real poles, light and paint vary, so check the reading the editor shows.
+- **Online sheet: tasks from your tracker, filtered by company**, with optional per-company keys — see "Tasks from your own database". Needs the new `PoleCam-online-sheet.gs` (see "Updating the script").
+
+## What changed in v2.7
+
+- **Pick the project from the online sheet's sites** (Projects → New project → SITE): each vendor sees only its own sites (rows naming several vendors go to each); companies without sites, or phones offline, type a project name as before. The site's details and Drive folder stay with the project.
+- **Works with the Project Data + Company List layout** (Authorization ADMIN / USER) without extra setup; see "Your sheet layout". Until its user has chosen a company a phone gets the company list but no sites, and it re-reads the sheet when the company changes, so a vendor never receives another vendor's sites first (with the v2.7 script).
+- Company names compare without case, punctuation or Inc./Corp. endings, for the sites and for the admin company (with the admin PIN, as before).
+- Needs the updated `PoleCam-online-sheet.gs` (see "Updating the script").
+
+## What changed in v2.8
+
+- **Simpler Projects screen:** a **PROJECT** dropdown to switch, a **+ New project** button, the workflow of the current project, and everything else folded under *Project details*. Only the current step of the workflow shows its explanation.
+- **New project form** with five fields: Project name (from the online sheet or typed), Task category, Purpose, KMZ, Remarks / notes. It replaces the category chips, the separate site list, the *Open the PAT KMZ* button and the *Assigned tasks* list. See "Projects screen".
+- **Remarks / notes** per project (also editable under Project details).
+- No change to the online sheet script (v2.7 script works as is).

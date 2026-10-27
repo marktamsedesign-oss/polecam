@@ -106,7 +106,12 @@
   }
   const formText = () => window.PoleForms.formText(pol().form);
   /** Staff of the admin company add deficiencies and verify; everyone else (contractors) can only rectify. */
-  const isInspector = () => { const o = pol().owner; return !o || !S.user || String(S.user.company || '').toLowerCase() === o.toLowerCase(); };
+  /** Company names compared without case, punctuation or Inc./Corp./Co./Ltd. endings (the same rule as the sheet script). */
+  function normCo(v) { return String(v || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\b(inc|incorporated|corp|corporation|co|company|ltd|limited|opc|llc)\b/g, ' ').replace(/\s+/g, ''); }
+  /** One sheet cell may name several vendors: "NOKIA , HUAXIN". */
+  const coList = (v) => String(v || '').split(/\s*(?:[,;/&+\n]|\band\b)\s*/i).map(normCo).filter(Boolean);
+  /** Staff of the list's admin company (chosen with the admin PIN). Names compare as in normCo, the same as the PIN check. */
+  const isInspector = () => { const o = pol().owner; return !o || !S.user || normCo(S.user.company) === normCo(o); };
   const DEF = {
     project: 'Default project', projects: ['Default project'],
     stamp: true, maxPx: 2048, myTypes: [],
@@ -458,7 +463,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.5.0';
+  const APP_VER = '2.8.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `PoleCam/${APP_VER} (+${SITE})`;
@@ -1050,6 +1055,8 @@
     $('camReadId').setAttribute('aria-pressed', String(S.readId !== false));
     $('camNative').hidden = on;
     shutterState();
+    if (on && stream) { if (!finder.on) setZoom(S.scanZoom || 1); finderStart(); }
+    else { finderStop(); if (stream && zoomLevel > zoomMax()) setZoom(1); else renderZoomBar(); }
   }
   function camGpsTick() {
     shutterState();
@@ -1064,8 +1071,8 @@
         { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 });
     }
   }
-  $('orientH').addEventListener('click', () => { S.idOrient = 'h'; persist(); showGuide(); });
-  $('orientV').addEventListener('click', () => { S.idOrient = 'v'; persist(); showGuide(); });
+  $('orientH').addEventListener('click', () => { S.idOrient = 'h'; persist(); finderStop(); showGuide(); });
+  $('orientV').addEventListener('click', () => { S.idOrient = 'v'; persist(); finderStop(); showGuide(); });
   $('scanSkip').addEventListener('click', () => closeSheet()); // the photo is kept; the editor opens without an ID reading
   async function openCamera(target) {
     camTarget = target || 'new'; camPending = null; camSeq++;
@@ -1094,6 +1101,9 @@
       }
       const caps = track.getCapabilities ? track.getCapabilities() : {};
       $('camTorch').hidden = !caps.torch;
+      zoomCaps = caps.zoom && caps.zoom.max > (caps.zoom.min || 1) * 1.2 ? caps.zoom : null; zoomLevel = 1; $('video').style.transform = '';
+      LOG.info('camera.zoom', zoomCaps ? { min: zoomCaps.min, max: zoomCaps.max, step: zoomCaps.step } : { digital: true });
+      showGuide(); // the zoom buttons and the live ID reader need the stream
       try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* optional */ }
     } catch (e) {
       LOG.warn('camera.open.fail', errInfo(e));
@@ -1109,14 +1119,15 @@
   function stopCamera() {
     camSeq++; // anything still waiting for this camera (GPS, photo check) is dropped
     if (stream) stream.getTracks().forEach((t) => t.stop());
-    stream = null; imageCapture = null; torchOn = false;
-    $('video').srcObject = null;
+    finderStop(); persist(); // keeps the zoom used for reading IDs
+    stream = null; imageCapture = null; torchOn = false; zoomCaps = null; zoomLevel = 1;
+    $('video').srcObject = null; $('video').style.transform = ''; $('zoomBar').hidden = true;
     clearInterval(camTick);
     if (qualResolve) { qualResolve(false); qualResolve = null; }
     if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
     if (camPending) { // the camera closed during the ID step (Skip, X or Back): the photo is still used
       const p = camPending; camPending = null;
-      setTimeout(() => gotPhoto(p.blob, p.gps, p.source || 'camera', { q: p.q, takenAt: p.takenAt, crop: p.crop || null }), 0);
+      setTimeout(() => gotPhoto(p.blob, p.gps, p.source || 'camera', { q: p.q, takenAt: p.takenAt, crop: p.crop || null, live: p.live || null }), 0);
     }
   }
   function camCheck(text) { $('camCheck').hidden = !text; if (text) $('camCheckText').textContent = text; }
@@ -1160,6 +1171,167 @@
     return cv;
   }
 
+
+  /* ================= zoom ================= */
+  /* The phone's own camera zoom when the camera offers it (the photo is zoomed too); otherwise a digital zoom of the
+     picture, offered only while reading the ID (the ID is read from what is on screen, so it gains the same detail). */
+  let zoomCaps = null, zoomLevel = 1, zoomBusy = false, zoomWant = null;
+  const zoomMax = () => (zoomCaps ? Math.min(10, zoomCaps.max / (zoomCaps.min || 1)) : scanStep() ? 4 : 1);
+  async function setZoom(z) {
+    const nz = Math.max(1, Math.min(zoomMax(), z || 1));
+    if (Math.abs(nz - zoomLevel) > 0.05 && finder.on) { finder.box = null; finder.read = null; finder.agree = 0; finder.stable = 0; guideReset(); finderLabel('Looking for the ID…'); } // a reading from before the zoom no longer matches the box
+    zoomLevel = nz;
+    const v = $('video');
+    if (zoomCaps && stream) {
+      if (zoomBusy) { zoomWant = zoomLevel; renderZoomBar(); return; } // a pinch sends many steps: keep only the last
+      zoomBusy = true;
+      try {
+        const base = zoomCaps.min || 1, step = zoomCaps.step || 0.1;
+        await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ zoom: Math.min(zoomCaps.max, Math.max(zoomCaps.min, Math.round((base * zoomLevel) / step) * step)) }] });
+        v.style.transform = '';
+      } catch (e) { LOG.warn('camera.zoom.fail', errInfo(e)); zoomCaps = null; } // use the digital zoom instead
+      finally { zoomBusy = false; }
+      if (zoomWant != null) { const w = zoomWant; zoomWant = null; if (Math.abs(w - zoomLevel) > 0.01 || !zoomCaps) return setZoom(w); }
+    }
+    if (!zoomCaps) v.style.transform = zoomLevel > 1.01 ? `scale(${zoomLevel.toFixed(3)})` : '';
+    if (scanStep()) S.scanZoom = zoomLevel;
+    renderZoomBar();
+  }
+  function renderZoomBar() {
+    const max = zoomMax(), bar = $('zoomBar'); bar.hidden = !stream || max <= 1.01;
+    let preset = false;
+    bar.querySelectorAll('button').forEach((b) => { const z = +b.dataset.z, on = Math.abs(z - zoomLevel) < 0.05; b.hidden = z > max + 0.01; b.setAttribute('aria-pressed', String(on)); preset = preset || on; });
+    $('zoomVal').hidden = preset; $('zoomVal').textContent = `${zoomLevel.toFixed(1)}×`;
+  }
+  $('zoomBar').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setZoom(+b.dataset.z); });
+  /* pinch to zoom; a tap points the ID reader (and the focus, where the camera allows it) at that spot */
+  const camPtrs = new Map(); let pinch0 = null, tap0 = null;
+  const ptrDist = () => { const [a, b] = [...camPtrs.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
+  $('camStage').addEventListener('pointerdown', (e) => {
+    if (e.target.closest('#zoomBar')) return;
+    camPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (camPtrs.size === 2) { pinch0 = { d: ptrDist(), z: zoomLevel }; tap0 = null; } else tap0 = { x: e.clientX, y: e.clientY, t: Date.now() };
+  });
+  $('camStage').addEventListener('pointermove', (e) => {
+    if (!camPtrs.has(e.pointerId)) return;
+    camPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch0 && camPtrs.size === 2) setZoom(pinch0.z * ptrDist() / pinch0.d);
+  });
+  const ptrEnd = (e) => {
+    if (!camPtrs.has(e.pointerId)) return;
+    camPtrs.delete(e.pointerId);
+    if (camPtrs.size < 2) pinch0 = null;
+    if (tap0 && e.type === 'pointerup' && Math.hypot(e.clientX - tap0.x, e.clientY - tap0.y) < 12 && Date.now() - tap0.t < 450) camTap(e.clientX, e.clientY);
+    tap0 = null;
+  };
+  $('camStage').addEventListener('pointerup', ptrEnd); $('camStage').addEventListener('pointercancel', ptrEnd);
+  function camTap(cx, cy) {
+    const st = $('camStage').getBoundingClientRect(), nx = (cx - st.left) / st.width, ny = (cy - st.top) / st.height;
+    const ring = $('tapRing'); ring.hidden = true; void ring.offsetWidth; ring.style.left = `${cx - st.left}px`; ring.style.top = `${cy - st.top}px`; ring.hidden = false;
+    finder.focus = { x: nx, y: ny, until: Date.now() + 6000 }; finder.box = null; finder.read = null; finder.agree = 0;
+    if (stream) stream.getVideoTracks()[0].applyConstraints({ advanced: [{ pointsOfInterest: [{ x: nx, y: ny }] }] }).catch(() => {}); // focus there, on phones that support it
+  }
+
+  /* ================= live ID reader ================= */
+  /* While the ID is scanned, the box follows the painted ID like a face-detection box: a few times a second a small copy
+     of the picture is searched for a row (or column) of high-contrast strokes, and the best one near the centre (or near
+     where you tapped) gets the box. When the box holds still, the text inside is read in the background; the reading is
+     shown on the box, and when the same known-format ID is read twice it is used by itself (Settings → Camera). */
+  const finder = { on: false, timer: 0, box: null, score: 0, misses: 0, stable: 0, reading: false, lastOcrAt: 0, read: null, list: null, crop: null, agree: 0, focus: null, cv: null, n: 0, ms: 0, vway: 0 };
+  function finderStart() {
+    if (finder.on || !stream) return;
+    Object.assign(finder, { on: true, box: null, score: 0, misses: 0, stable: 0, read: null, list: null, crop: null, agree: 0, n: 0, ms: 0 });
+    ocrWorker(); finderLabel('Looking for the ID…'); finderTick();
+  }
+  function finderStop() {
+    if (finder.on && finder.n) LOG.info('finder', { frames: finder.n, avgMs: Math.round(finder.ms / finder.n), read: finder.read ? finder.read.id : null });
+    finder.on = false; clearTimeout(finder.timer); finder.focus = null; guideReset(); $('scanPrompt').classList.remove('found');
+  }
+  function finderLabel(t, got) { $('idGuideText').textContent = t; $('idGuide').classList.toggle('got', !!got); }
+  function guideReset() { const g = $('idGuide'); g.classList.remove('track', 'got'); g.style.left = g.style.top = g.style.width = g.style.height = g.style.right = ''; }
+  function guidePlace(b) {
+    const g = $('idGuide'); g.classList.add('track');
+    g.style.right = 'auto'; g.style.left = `${b.x}px`; g.style.top = `${b.y}px`; g.style.width = `${b.w}px`; g.style.height = `${b.h}px`;
+  }
+  function finderTick() {
+    if (!finder.on) return;
+    const t0 = performance.now();
+    try { finderStep(); } catch (e) { LOG.warn('finder.fail', errInfo(e)); finderStop(); return; }
+    const ms = performance.now() - t0; finder.n++; finder.ms += ms;
+    finder.timer = setTimeout(finderTick, Math.max(140, 260 - ms));
+  }
+  const iou = (a, b) => { const x = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)), y = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)); const i = x * y; return i / (a.w * a.h + b.w * b.h - i || 1); };
+  function finderStep() {
+    const v = $('video'); if (!v.videoWidth || $('camera').hidden || !scanStep()) return;
+    const st = $('camStage').getBoundingClientRect(), vr = v.getBoundingClientRect();
+    const sc = Math.max(vr.width / v.videoWidth, vr.height / v.videoHeight), ox = vr.left + (vr.width - v.videoWidth * sc) / 2, oy = vr.top + (vr.height - v.videoHeight * sc) / 2;
+    const vx = Math.max(0, (st.left - ox) / sc), vy = Math.max(0, (st.top - oy) / sc), vw = Math.min(v.videoWidth - vx, st.width / sc), vh = Math.min(v.videoHeight - vy, st.height / sc);
+    if (vw < 40 || vh < 40) return;
+    const W = finder.n > 4 && finder.ms / finder.n > 110 ? 180 : 240, H = Math.max(40, Math.round(W * vh / vw)); // slower phones search a smaller copy
+    if (!finder.cv) finder.cv = document.createElement('canvas');
+    const cv = finder.cv; if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(v, vx, vy, vw, vh, 0, 0, W, H);
+    const focus = finder.focus && Date.now() < finder.focus.until ? finder.focus : null, orient = S.idOrient === 'v' ? 'v' : 'h';
+    const cand = C.findIdBox(g.getImageData(0, 0, W, H).data, W, H, orient, focus);
+    const k = st.width / W; // the visible picture fills the camera area
+    if (cand) {
+      const padL = (orient === 'h' ? cand.w * 0.1 : cand.w * 0.35) + 4, padS = (orient === 'h' ? cand.h * 0.35 : cand.h * 0.06) + 4;
+      const px = orient === 'h' ? padL : padS, py = orient === 'h' ? padS : padL;
+      const x0 = Math.max(0, (cand.x - px) * k), y0 = Math.max(0, (cand.y - py) * k);
+      const nb = { x: x0, y: y0, w: Math.min(st.width - x0, (cand.w + 2 * px) * k), h: Math.min(st.height - y0, (cand.h + 2 * py) * k) };
+      if (finder.box && iou(finder.box, nb) > 0.3) {
+        const a = 0.5; finder.box = { x: finder.box.x + (nb.x - finder.box.x) * a, y: finder.box.y + (nb.y - finder.box.y) * a, w: finder.box.w + (nb.w - finder.box.w) * a, h: finder.box.h + (nb.h - finder.box.h) * a };
+        finder.stable = iou(finder.box, nb) > 0.6 ? finder.stable + 1 : 0;
+      } else if (!finder.box || cand.score > finder.score * 1.3 || finder.misses >= 2) {
+        finder.box = nb; finder.stable = 0; finder.read = null; finder.agree = 0;
+        finderLabel('Hold steady…');
+      }
+      finder.score = cand.score; finder.misses = 0;
+    } else if (++finder.misses > 6 && finder.box) {
+      finder.box = null; finder.read = null; finder.agree = 0; guideReset(); finderLabel('Looking for the ID… tap it, or zoom in');
+    }
+    if (finder.box) guidePlace(finder.box);
+    $('scanPrompt').classList.toggle('found', !!finder.box); // a shorter prompt once the box has found something
+    if (finder.box && finder.stable >= 2 && !finder.reading && Date.now() - finder.lastOcrAt > 700) liveRead(orient);
+  }
+  async function liveRead(orient) {
+    finder.reading = true; finder.lastOcrAt = Date.now();
+    const box = finder.box && { ...finder.box };
+    try {
+      const crop = grabGuideCrop(); if (!crop) return;
+      if (!finder.read) finderLabel('Reading…');
+      // a vertical ID is either a column of upright characters or a sideways line: each reading tries the next way
+      const way = orient === 'v' ? ['stacked', 'cw', 'ccw'][finder.vway++ % 3] : 'line';
+      const png = way === 'stacked' ? await prepStacked(crop, 200) : await prepForOcr(way === 'cw' ? rotated(crop, 90) : way === 'ccw' ? rotated(crop, -90) : crop);
+      const r = await ocrRun(png, way === 'stacked' ? 6 : 7, { thresholding_method: 0 });
+      if (!finder.on || !r.ok || !finder.box || iou(box, finder.box) < 0.4) return; // the box moved on meanwhile
+      const list = C.idCandidates([way === 'stacked' ? { ...r, stacked: true } : r], lastIdForShape()), best = list[0];
+      if (best && best.fits && best.conf >= 55) {
+        finder.agree = finder.read && finder.read.id === best.id ? finder.agree + 1 : 1;
+        const prev = finder.read; finder.read = best; finder.list = list; finder.crop = crop;
+        finderLabel(`${best.id} · ${best.conf}%`, true);
+        if (S.idAuto !== false && finder.agree >= 2 && Math.min(best.conf, prev ? prev.conf : 0) >= 65) acceptLive();
+      } else if (!finder.read) finderLabel('Reading… zoom in or tap the ID');
+    } catch (e) { LOG.warn('finder.read.fail', errInfo(e)); }
+    finally { finder.reading = false; }
+  }
+  /** The reading on the box is used: the ID step ends (new photo) or the scan result goes to the editor. */
+  function liveResult() { return finder.read ? { best: finder.read, list: finder.list || [finder.read] } : null; }
+  async function acceptLive() {
+    const live = liveResult(), crop = finder.crop; if (!live) return;
+    finderLabel(`Got ${live.best.id}`, true);
+    try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) { /* optional */ }
+    LOG.info('finder.accept', { id: live.best.id, conf: live.best.conf, auto: true });
+    finderStop();
+    if (camTarget === 'newid' && camPending) { camPending.crop = crop; camPending.live = live; await closeSheet(); }
+    else if (camTarget === 'scan') { await closeSheet(); applyLiveRead(live); }
+  }
+  function applyLiveRead(live) {
+    if (!ed || !live) return;
+    $('poleId').value = live.best.id; ed.idTouched = true; ed.idRead = { id: live.best.id, conf: live.best.conf };
+    syncFromId(); checkDup();
+    renderIdCands('done', live.list, `Read by the live camera: ${live.best.id} (${live.best.conf}% sure) — check it.`);
+  }
   /* ---- photo check: dark, blank, overexposed or blurry photos are refused ---- */
   const QUAL_T = { normal: 25, strict: 60 };
   const QUAL_TEXT = {
@@ -1226,8 +1398,8 @@
     const seq = camSeq, alive = () => seq === camSeq && !$('camera').hidden; // false once the camera was closed meanwhile
     try {
       const shotAt = Date.now();
-      if (camTarget === 'scan') { const crop = grabGuideCrop(); await closeSheet(); scanResult(crop); return; }
-      if (camTarget === 'newid') { if (camPending) camPending.crop = grabGuideCrop(); await closeSheet(); return; }
+      if (camTarget === 'scan') { const crop = grabGuideCrop(), live = liveResult(); finderStop(); await closeSheet(); if (live) applyLiveRead(live); else scanResult(crop); return; }
+      if (camTarget === 'newid') { if (camPending) { camPending.crop = grabGuideCrop(); camPending.live = liveResult(); } finderStop(); await closeSheet(); return; }
       let blob = null;
       LOG.step('photo.take', { target: camTarget, still: !!imageCapture, opts: photoOpts, mem: memMB() });
       if (imageCapture) {
@@ -1329,7 +1501,7 @@
       toast('Photo replaced — tap Save to keep it');
       return;
     }
-    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), q: qSummary(x.q), crop: x.crop });
+    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), q: qSummary(x.q), crop: x.crop, live: x.live });
   }
 
   /* ================= reading the painted Pole ID (offline OCR) ================= */
@@ -1811,7 +1983,8 @@
       ed.userMoved = false; drawEdGps(); updateCoordBox(); drawPinRef();
     });
     checkFormat();
-    if (o.crop) runOcrFor(o.crop, true);
+    if (o.live) applyLiveRead(o.live);
+    else if (o.crop) runOcrFor(o.crop, true);
     else if (o.mode === 'new' && !o.poleId) setTimeout(() => { const f = $('poleId'); f.focus(); const n = f.value.length; if (/[-_]$/.test(f.value)) f.setSelectionRange(n, n); else f.select(); }, 250);
   }
   async function openEditorFor(id) {
@@ -2437,7 +2610,7 @@
     const last = pts.reduce((t, p) => (p.updated > t ? p.updated : t), '');
     const fresh = (kinds) => kinds.some((k) => ex[k] && ex[k] > last);
     const go = { capture: () => closeAll().then(() => $('captureBtn').click()), records: () => closeAll().then(() => $('listBtn').click()), export: () => closeAll().then(() => { exportPick = isAcc() ? 'doPdf' : 'doKmz'; $('exportBtn').click(); }), backup: () => closeAll().then(() => { exportPick = 'doBackup'; $('exportBtn').click(); }),
-      route: () => closeAll().then(() => { if (!routeMode) setRouteMode(true); }), form: () => { $('mSite').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('mSite').focus(); },
+      route: () => closeAll().then(() => { if (!routeMode) setRouteMode(true); }), form: () => { $('curMore').open = true; $('mSite').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('mSite').focus(); },
       fat: () => $('startFat').click(), share: () => guard(sharePackage), next: () => closeAll().then(() => { const t = nextTarget(); if (t) openVisit(t.r.id, true); else toast('No pin left to visit'); }) };
     const steps = [];
     if (cat === 'Survey') {
@@ -2483,11 +2656,27 @@
     if (W.next) { btn.hidden = false; btn.textContent = `Next: ${W.next.t}`; btn.onclick = () => W.go[W.next.go](); }
     else { btn.hidden = false; btn.textContent = W.cat === 'Survey' ? 'All done — export again after changes' : 'All done'; btn.onclick = () => W.go.export(); }
   }
+  const PURPOSE_LABEL = { 'As-plan': 'As-Plan Creation', 'As-built': 'As-Built Creation', PAT: 'PAT', Cleanup: 'Defect Rectification', FAT: 'FAT' };
+  const STAGE_LABEL = { survey: 'Survey', PAT: 'PAT', Cleanup: 'Defect Cleanup', FAT: 'FAT' };
+  const projKind = (name) => { const pm = pmeta(name); return pm.mode === 'acceptance' ? pm.stage || 'PAT' : 'survey'; };
+  function projSummary(name) {
+    const pm = pmeta(name), k = projKind(name), pts = points.filter((p) => p.project === name), n = pts.length;
+    if (k === 'survey') return `${PURPOSE_LABEL[pm.purpose] || 'Survey'} · ${n} pole${n === 1 ? '' : 's'}`;
+    const open = pts.reduce((t, p) => t + openCount(p), 0);
+    return `${PURPOSE_LABEL[k]} · ${n} element${n === 1 ? '' : 's'} · ${open} open`;
+  }
   function renderProjects() {
     renderWorkflow();
-    $('renameProject').value = S.project;
     const m = pmeta(), acc = isAcc(), cat = taskCat();
+    const pick = $('projPick'); pick.innerHTML = '';
+    allProjects().forEach((name) => pick.add(new Option(`${name} · ${STAGE_LABEL[projKind(name)]}`, name, false, name === S.project)));
+    pick.value = S.project;
+    $('curSub').textContent = projSummary(S.project);
+    $('renameProject').value = S.project;
     $('purposeRow').hidden = acc; $('curPurpose').value = m.purpose || 'As-plan'; renderRefInfo();
+    $('curNotes').value = m.notes || '';
+    $('curSite').hidden = !m.taskId; $('curSite').textContent = m.taskId ? [`Site: ${m.site || ''}`, m.contractor && `Vendor: ${m.contractor}`, ...(m.siteExtra || []).map(([k, v]) => `${k}: ${v}`), `ID: ${m.taskId}`].filter(Boolean).join(' · ') : '';
+    $('curFolder').hidden = !m.siteLink;
     $('accMeta').hidden = !acc;
     const pb = $('projBadge'); pb.textContent = cat.toUpperCase(); pb.className = `badge cat ${cat.toLowerCase()}`;
     if (acc) {
@@ -2501,58 +2690,23 @@
         b.addEventListener('click', () => { const cur = new Set(pmeta().inspTypes || pol().inspTypes); if (cur.has(t)) cur.delete(t); else cur.add(t); const mm = { ...pmeta(), inspTypes: types.filter((x) => cur.has(x)) }; S.meta[S.project] = mm; persist(); renderProjects(); });
         box.appendChild(b);
       });
-      $('startFat').hidden = $('startFatHint').hidden = $('sendPat').hidden = $('sendPatHint').hidden = m.stage === 'FAT';
+      $('startFat').hidden = $('sendPat').hidden = m.stage === 'FAT';
       $('sendPat').textContent = m.stage === 'Cleanup' ? 'Share the cleanup KMZ (for the FAT)' : 'Share the PAT KMZ (for defect cleanup / FAT)';
       $('startFat').textContent = m.stage === 'Cleanup' ? 'Start FAT from this cleanup on this phone' : 'Start FAT from this PAT on this phone';
     }
     $('delProjConfirm').hidden = true; $('delProject').hidden = false;
-    const box = $('projItems'); box.innerHTML = '';
-    for (const name of allProjects()) {
-      const n = points.filter((p) => p.project === name).length, pm = pmeta(name), pacc = pm.mode === 'acceptance';
-      const areas = (S.areas || []).filter((x) => x.project === name).length;
-      const b = document.createElement('button'); b.className = 'card'; b.type = 'button';
-      if (name === S.project) b.style.borderColor = 'var(--accent)';
-      const d = document.createElement('div');
-      const t = document.createElement('span'); t.className = 't'; t.style.fontFamily = 'var(--sans)'; t.textContent = name;
-      const s = document.createElement('span'); s.className = 's';
-      const open = pacc ? points.filter((p) => p.project === name).reduce((t, p) => t + openCount(p), 0) : 0;
-      s.textContent = `${pacc ? `${pm.stage || 'PAT'} · ${n} element${n === 1 ? '' : 's'} · ${open} open` : `Survey · ${n} pole${n === 1 ? '' : 's'}`}${name === S.project ? ' · current' : ''}`;
-      d.append(t, s); b.append(d);
-      b.addEventListener('click', async () => { S.project = name; persist(); renderPoles(); await closeSheet(); fitProject(); toast(`Now working on: ${name}`); });
-      box.appendChild(b);
-    }
   }
-  function openProjects() { renderProjects(); renderTasks(); openSheet('projects'); cloudSync(false).then(() => { if (!$('projects').hidden) renderTasks(); }); }
+  function openProjects() { renderProjects(); openSheet('projects'); cloudSync(false); }
   $('projectBtn').addEventListener('click', openProjects);
-  $('addProject').addEventListener('click', async () => {
-    const name = $('newProject').value.trim();
-    if (!name) { toast('Type a project name'); return; }
-    if (allProjects().includes(name)) { toast('A project with that name already exists'); return; }
-    S.projects.push(name);
-    S.meta = S.meta || {};
-    S.meta[name] = newMode === 'survey' ? { mode: 'survey', purpose: $('newPurpose').value } : { mode: 'acceptance', stage: newMode, site: '', contractor: '', globeRep: '', inspector: byLine() };
-    S.project = name; persist(); $('newProject').value = '';
-    renderPoles(); await closeSheet();
-    toast(newMode === 'survey' ? `${$('newPurpose').value} survey "${name}" started` : `${newMode} "${name}" started — add contractor details in Projects`, 3500);
+  $('projPick').addEventListener('change', () => {
+    const name = $('projPick').value; if (!name || name === S.project) return;
+    S.project = name; persist(); renderPoles(); fitProject(); renderProjects(); toast(`Now working on: ${name}`);
   });
-  let newMode = 'survey';
-  const NEW_MODE_HINT = { survey: 'Survey: As-plan before construction or As-built after it. You can load the HLD KMZ as a reference route.',
-    PAT: 'PAT: record only the elements with defects, tagged N, D or MD. Then share the PAT KMZ with the contractor for the defect cleanup.',
-    Cleanup: 'Defect cleanup: open the PAT KMZ from the inspector, walk to each red pin and take the photo of the fix. Then share the cleanup KMZ for the FAT.',
-    FAT: 'FAT: open the PAT or cleanup KMZ, walk to each pin and accept or reject the fix. Or type a name for an empty FAT.' };
-  $('newMode').addEventListener('click', (e) => {
-    const c = e.target.closest('.chip'); if (!c) return; newMode = c.dataset.v;
-    $('newMode').querySelectorAll('.chip').forEach((x) => x.setAttribute('aria-pressed', String(x === c)));
-    $('newModeHint').textContent = NEW_MODE_HINT[newMode];
-    $('fatFromFile').hidden = newMode !== 'FAT' && newMode !== 'Cleanup';
-    $('fatFromFile').textContent = newMode === 'Cleanup' ? 'Open the PAT KMZ…' : 'Open the PAT / cleanup KMZ…';
-    $('newNameRow').hidden = newMode === 'Cleanup'; // a cleanup always starts from the PAT file
-    $('newPurposeRow').hidden = newMode !== 'survey';
-  });
-  [['mSite', 'site'], ['mContractor', 'contractor'], ['mVendorRep', 'vendorRep'], ['mGlobe', 'globeRep'], ['mInspector', 'inspector'], ['mDate', 'date']].forEach(([id, key]) => {
-    $(id).addEventListener('change', () => { const m = { ...pmeta() }; m[key] = $(id).value.trim(); S.meta[S.project] = m; persist(); });
+  [['mSite', 'site'], ['mContractor', 'contractor'], ['mVendorRep', 'vendorRep'], ['mGlobe', 'globeRep'], ['mInspector', 'inspector'], ['mDate', 'date'], ['curNotes', 'notes']].forEach(([id, key]) => {
+    $(id).addEventListener('change', () => { const m = { ...pmeta() }; m[key] = $(id).value.trim(); S.meta = S.meta || {}; S.meta[S.project] = m; persist(); });
   });
   $('startFat').addEventListener('click', () => guard(() => startFatFrom(S.project), 'FAT not started'));
+  $('curFolder').addEventListener('click', () => { const l = pmeta().siteLink; if (l) openExternal(l); });
   $('curPurpose').addEventListener('change', () => { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), purpose: $('curPurpose').value }; persist(); renderProjects(); });
   /** Copies a PAT or defect-cleanup project (on this phone) into a new FAT project; the source stays unchanged. */
   async function startFatFrom(pat, extraMeta, wantName) {
@@ -2943,7 +3097,7 @@
   /** The PoleCam data inside a backup ZIP or a shareable KMZ: {meta, pre}. */
   async function readPackage(z) {
     const pre = z.has('polecam/points.json') ? 'polecam/' : z.has('points.json') ? '' : null;
-    if (pre == null) throw new Error(z.names.some((n) => /\.kml$/i.test(n)) ? 'This KMZ has no PoleCam data. Export it again from PoleCam (Projects → Share the KMZ), or tick “Include the PoleCam data” under the KMZ options.' : 'This is not a PoleCam file');
+    if (pre == null) throw new Error(z.names.some((n) => /\.kml$/i.test(n)) ? 'This KMZ has no PoleCam data. Export it again from PoleCam (Projects → Project details → Share the KMZ), or tick “Include the PoleCam data” under the KMZ options.' : 'This is not a PoleCam file');
     const meta = JSON.parse(new TextDecoder().decode(await z.get(`${pre}points.json`)));
     if (!meta || !Array.isArray(meta.points)) throw new Error('This is not a PoleCam file');
     return { meta, pre };
@@ -3399,12 +3553,13 @@
   function renderTypeInfo() { $('typeInfo').textContent = poleTypes().map((t) => `${t.n} ${t.p}-`).join(' · '); }
   $('goCamera').addEventListener('click', () => {
     $('setMyTypes').value = typeLines(S.myTypes); renderTypeInfo();
-    $('setReadId').checked = S.readId !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h';
+    $('setReadId').checked = S.readId !== false; $('setIdAuto').checked = S.idAuto !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h';
     $('setQuality').value = effectiveQuality(); $('setQuality').disabled = !!S.team;
     $('qualityNote').textContent = S.team ? `Set by the admin in the company list “${S.team.name}” — the same on every phone.` : 'Until this phone takes a company list, you can choose this yourself.';
     openSheet('setCamera');
   });
   $('setReadId').addEventListener('change', () => { S.readId = $('setReadId').checked; persist(); });
+  $('setIdAuto').addEventListener('change', () => { S.idAuto = $('setIdAuto').checked; persist(); });
   $('setOrient').addEventListener('change', () => { S.idOrient = $('setOrient').value === 'v' ? 'v' : 'h'; persist(); });
   $('setQuality').addEventListener('change', () => { if (S.team) return; S.quality = $('setQuality').value; persist(); });
   /* export defaults: the same control appears on the Export screen (first id) and under Settings (second id) */
@@ -3539,14 +3694,16 @@
         : !company ? (teamCos().length ? 'Choose your company.' : 'Get the company list from your admin first (below).') : '';
     if (err) { $('pfErr').textContent = err; $('pfErr').hidden = false; return; }
     const own = pol().owner;
-    if (own && company.toLowerCase() === own.toLowerCase() && hasListKey(S.team) && !isAdmin()) { // the admin company is for its own staff
+    if (own && normCo(company) === normCo(own) && hasListKey(S.team) && !isAdmin()) { // the admin company is for its own staff
       const pin = await askPin(`Admin PIN of ${own}`, `${own} is the admin company. Its staff enter the admin PIN once; contractors choose their own company.`);
       if (pin == null) return;
       const jwk = await decPriv(S.team.keyEnc, pin);
       if (!jwk) { $('pfErr').textContent = `Wrong admin PIN. Only ${own} staff with the PIN can choose ${own}.`; $('pfErr').hidden = false; return; }
       S.adminKey = { pub: S.team.key, priv: jwk };
     }
+    const coChanged = !S.user || S.user.company !== company;
     S.user = { name, mobile, email: email.toLowerCase(), company }; persist();
+    if (coChanged) cloudSync(true).then(() => { if (!$('newProj').hidden) renderSites(); }); // the sheet sends each company its own sites
     profileFirst = false; await closeSheet();
     renderWho(); toast(`Saved: ${byLine()}`);
   });
@@ -3783,18 +3940,26 @@
   function cleanCloud(j) {
     const companies = [...new Set((Array.isArray(j.companies) ? j.companies : []).map((c) => s100(c)).filter(Boolean))].slice(0, 500);
     const tasks = (Array.isArray(j.tasks) ? j.tasks : []).filter((t) => t && typeof t === 'object').map((t) => {
-      const raw = s100(t.category).toLowerCase(), cat = /clean|rectif/.test(raw) ? 'Cleanup' : TASK_CATS.find((c) => c.toLowerCase() === raw) || 'Survey';
+      const raw = s100(t.category).toLowerCase(), cat = !raw ? '' : /clean|rectif/.test(raw) ? 'Cleanup' : TASK_CATS.find((c) => c.toLowerCase() === raw) || 'Survey'; // blank: a site, the user picks the category
+      const link = s100(t.link, 300), extra = (Array.isArray(t.extra) ? t.extra : []).filter((x) => Array.isArray(x) && x[1]).slice(0, 8).map((x) => [s100(x[0], 40), s100(x[1])]);
       return { id: s100(t.id, 40), project: s100(t.project), category: cat, site: s100(t.site), contractor: s100(t.contractor), globeRep: s100(t.globeRep),
-        company: s100(t.company), status: s100(t.status, 20) || 'Active', notes: s100(t.notes, 300) };
+        company: s100(t.company, 200), status: s100(t.status, 20) || 'Active', notes: s100(t.notes, 300), link: /^https:\/\//.test(link) ? link : '', extra };
     }).filter((t) => t.id && t.project).slice(0, 500);
     const packs = (Array.isArray(j.packs) ? j.packs : []).filter((p) => p && typeof p === 'object').map((p) => ({ name: s100(p.name), link: s100(p.link, 300), sizeMB: +p.sizeMB || 0, notes: s100(p.notes, 200) }))
       .filter((p) => p.link).slice(0, 50);
-    return { name: s100(j.name), companies, tasks, packs };
+    const admins = (Array.isArray(j.admins) ? j.admins : []).map((c) => s100(c)).filter(Boolean).slice(0, 20);
+    return { name: s100(j.name), companies, admins, tasks, packs, scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '' };
   }
   let cloudBusy = null, cloudErr = '';
   async function cloudRequest(src, init) {
     const u = new URL(src.url);
-    if (!init) { u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER); }
+    if (!init) {
+      u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER);
+      // the sheet sends only this company's tasks (v2.6 script); a company key makes that split strict
+      u.searchParams.set('company', (S.user && S.user.company) || ''); // blank: the sheet sends the company list but no tasks
+      if (S.companyKey) u.searchParams.set('ckey', S.companyKey);
+      if (isAdmin() && S.onlineAdminKey) u.searchParams.set('akey', S.onlineAdminKey);
+    }
     try {
       const r = await withTimeout(fetch(u.href, { cache: 'no-store', redirect: 'follow', ...(init || {}) }), 25000, 'The online sheet did not answer');
       return await r.json();
@@ -3814,9 +3979,9 @@
     cloudBusy = (async () => {
       try {
         const j = await cloudRequest(src);
-        if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
+        if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : j && j.error === 'company key' ? 'your company access key is missing or wrong (Settings → Administration → Company access key; ask your admin)' : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
         S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j) }; cloudErr = ''; persist();
-        afterTeamChange(); if (!$('projects').hidden) renderTasks();
+        afterTeamChange(); if (!$('newProj').hidden) renderSites();
         return true;
       } catch (e) { cloudErr = e.message || String(e); renderCloudInfo(); return false; } finally { cloudBusy = null; }
     })();
@@ -3824,11 +3989,18 @@
   }
   function renderCloudInfo() {
     const src = S.team && S.team.src, el = $('cloudInfo');
-    el.hidden = !src; $('cloudSyncBtn').hidden = !src;
+    el.hidden = !src; $('cloudSyncBtn').hidden = !src; $('companyKeyBox').hidden = true;
     if (!src) return;
     const c = S.cloud && S.cloud.src === src.url ? S.cloud : null;
-    el.textContent = `Online sheet${c && c.name ? ` “${c.name}”` : ''}: ${c ? `last read ${fmtTime(c.at)} · ${c.companies.length} companies · ${c.tasks.length} tasks · ${c.packs.length} map packs` : 'not read yet'}${cloudErr ? ` · last try failed: ${cloudErr}` : ''}`;
+    el.textContent = `Online sheet${c && c.name ? ` “${c.name}”` : ''}: ${c ? `last read ${fmtTime(c.at)} · ${c.companies.length} companies · ${c.tasks.length} task${c.tasks.length === 1 ? '' : 's'}${c.scope === 'company' ? ` for ${S.user && S.user.company}` : c.scope === 'all' ? ' (all companies)' : ''} · ${c.packs.length} map packs` : 'not read yet'}${cloudErr ? ` · last try failed: ${cloudErr}` : ''}`;
+    $('companyKeyBox').hidden = !(S.companyKey || /company access key/.test(cloudErr)); $('companyKey').value = S.companyKey || ''; // only where the sheet asks for it
   }
+  $('companyKeySave').addEventListener('click', async () => {
+    S.companyKey = $('companyKey').value.trim().slice(0, 60); persist();
+    $('cloudInfo').textContent = 'Reading the online sheet…';
+    const ok = await cloudSync(true); renderCloudInfo();
+    toast(ok ? 'Company key saved · online sheet read' : `Saved, but the sheet was not read: ${cloudErr || 'no internet'}`, 5000);
+  });
   $('cloudSyncBtn').addEventListener('click', async () => {
     $('cloudInfo').textContent = 'Reading the online sheet…';
     const ok = await cloudSync(true); renderCloudInfo();
@@ -3836,55 +4008,122 @@
   });
   window.addEventListener('online', () => { cloudSync(false); });
 
-  /* ---- assigned tasks become projects ---- */
+  /* ---- New project form: name (a site from the online sheet, or typed), category, purpose, KMZ, notes ---- */
   const taskProject = (id) => allProjects().find((n) => pmeta(n).taskId === id);
   function visibleTasks() {
-    const me = S.user && S.user.company;
-    return ((S.cloud && S.cloud.tasks) || []).filter((t) => !/^(closed|done|cancel)/i.test(t.status) && (!t.company || isAdmin() || !me || t.company.toLowerCase() === me.toLowerCase()));
+    const me = S.user && S.user.company, c = S.cloud || {};
+    const open = (c.tasks || []).filter((t) => !/^(closed|done|cancel)/i.test(t.status));
+    if (c.scope === 'company') return open; // the sheet already sent only this company's rows
+    const seeAll = isAdmin() || !me || (pol().owner && isInspector());
+    return open.filter((t) => !t.company || seeAll || coList(t.company).includes(normCo(me)));
   }
-  function renderTasks() {
-    const src = S.team && S.team.src, box = $('taskList');
-    $('taskBox').hidden = !src; if (!src) return;
-    const list = visibleTasks();
-    $('taskInfo').textContent = S.cloud && S.cloud.src === src.url ? `${list.length} task${list.length === 1 ? '' : 's'} for ${isAdmin() ? 'everyone (you are an admin)' : (S.user && S.user.company) || 'you'} · sheet read ${fmtTime(S.cloud.at)}${cloudErr ? ` · last sync failed: ${cloudErr}` : ''}`
-      : (navigator.onLine ? 'Reading the online sheet…' : 'Connect to the internet to see assigned tasks.');
+  const siteName = (t) => [t.site, t.project].filter(Boolean).join(' ').slice(0, 100);
+  const rowName = (t) => (t.category ? t.project || siteName(t) : siteName(t)); // a task row keeps its project name; a site row is site + name
+  const rowCat = (t) => (t.category === 'Survey' ? 'survey' : t.category || '');
+  const siteVendor = (t) => { const me = S.user && S.user.company; return me && coList(t.company).includes(normCo(me)) ? me : t.contractor || t.company || ''; };
+  const siteDetail = (t) => [t.contractor && `Vendor: ${t.contractor}`, ...(t.extra || []).map(([k, v]) => `${k}: ${v}`), t.id && `ID: ${t.id}`].filter(Boolean).join(' · ');
+  /** What a project made from a sheet row keeps (printed on the forms, shown in Projects). */
+  const siteMeta = (t) => (t ? { taskId: t.id, site: t.category ? t.site || siteName(t) : siteName(t), contractor: siteVendor(t), siteLink: t.link || '', siteExtra: t.extra || [], ...(t.globeRep ? { globeRep: t.globeRep } : {}) } : {});
+  let npFile = null, npFileKind = '', npSite = null;
+  const npStageCat = () => ['Cleanup', 'FAT'].includes($('npCat').value);
+  const npRow = () => (npSite && rowName(npSite) === $('npName').value.trim() ? npSite : null);
+  /** Category and purpose follow each other; the KMZ slot is a reference route (Survey, PAT) or the previous stage's KMZ (Cleanup, FAT). */
+  function npSync(from) {
+    const cat = $('npCat'), pur = $('npPurpose');
+    if (from === 'purpose') cat.value = /^As-/.test(pur.value) ? 'survey' : pur.value;
+    else if (cat.value !== 'survey') pur.value = cat.value;
+    else if (!/^As-/.test(pur.value)) pur.value = 'As-plan';
+    const k = cat.value, kind = npStageCat() ? 'stage' : 'ref';
+    if (npFile && npFileKind !== kind) { npFile = null; $('npKmzInput').value = ''; }
+    $('npKmzLbl').textContent = k === 'Cleanup' ? 'PAT KMZ' : k === 'FAT' ? 'PAT / CLEANUP KMZ' : 'KMZ REFERENCE';
+    $('npKmzBtn').textContent = npFile ? `📎 ${npFile.name}` : kind === 'stage' ? 'Choose KMZ…' : 'Choose KMZ… (optional)';
+    $('npKmzBtn').classList.toggle('primary', k === 'Cleanup' && !npFile);
+    $('npKmzClear').hidden = !npFile;
+    const hasSites = !!(S.team && S.team.src && visibleTasks().length);
+    $('npName').placeholder = kind === 'stage' && npFile ? 'Optional' : hasSites ? 'Pick ▾ or type a name' : 'Type a name';
+  }
+  function renderSites() {
+    $('npSitesBtn').hidden = !(S.team && S.team.src);
+    if (!$('npSites').hidden) showSites(true);
+    npSync(); renderSiteRow();
+  }
+  function showSites(on) {
+    const box = $('npSites'), src = S.team && S.team.src;
+    if (!on || !src) { box.hidden = true; return; }
+    const rows = visibleTasks(), read = !!(S.cloud && S.cloud.src === src.url), typed = $('npName').value.trim(), q = npRow() ? '' : typed.toLowerCase();
+    const list = (q ? rows.filter((t) => [rowName(t), t.site, t.id, t.contractor].some((x) => x && String(x).toLowerCase().includes(q))) : rows).slice(0, 60);
     box.innerHTML = '';
     for (const t of list) {
-      const have = taskProject(t.id);
-      const card = document.createElement('div'); card.className = 'area-card';
-      const d = document.createElement('div');
-      const ti = document.createElement('span'); ti.className = 't'; ti.textContent = t.project;
-      const s2 = document.createElement('span'); s2.className = 's';
-      s2.textContent = [t.category, t.site, t.contractor && `Contractor: ${t.contractor}`, t.company && `For: ${t.company}`, t.notes, have ? `on this phone as “${have}”` : ''].filter(Boolean).join(' · ');
-      d.append(ti, s2);
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (have ? '' : 'primary');
-      b.textContent = have ? 'Open' : 'Start';
-      b.addEventListener('click', () => guard(() => (have ? switchProject(have) : startTask(t))));
-      card.append(d, b); box.appendChild(card);
+      const b = document.createElement('button'); b.type = 'button';
+      const n = document.createElement('b'); n.textContent = rowName(t); b.append(n);
+      const sub = [rowCat(t) && STAGE_LABEL[rowCat(t)], t.contractor, taskProject(t.id) && 'on this phone'].filter(Boolean).join(' · ');
+      if (sub) { const s = document.createElement('span'); s.textContent = sub; b.append(s); }
+      b.addEventListener('click', () => pickSite(t));
+      box.appendChild(b);
     }
-    if (!list.length && S.cloud) box.innerHTML = '<p class="hint" style="margin:0">No open tasks for you in the sheet.</p>';
+    const foot = document.createElement('div'); foot.className = 'foot';
+    const info = document.createElement('span');
+    info.textContent = !read ? (cloudErr ? `Sheet not read (${cloudErr}): type a name` : navigator.onLine ? 'Reading the online sheet…' : 'Offline: type a name') : !rows.length ? 'No site listed for you: type a name' : q && !list.length ? 'Not in the sheet: a new name' : `${list.length < rows.length ? `${list.length} of ` : ''}${rows.length} from the online sheet`;
+    const r = document.createElement('button'); r.type = 'button'; r.className = 'btn sm'; r.textContent = '↻'; r.setAttribute('aria-label', 'Read the online sheet again');
+    r.addEventListener('click', async () => { info.textContent = 'Reading the online sheet…'; await cloudSync(true); renderSites(); showSites(true); });
+    foot.append(info, r); box.appendChild(foot);
+    box.hidden = false;
   }
-  async function switchProject(name) { S.project = name; persist(); renderPoles(); await closeSheet(); fitProject(); toast(`Now working on: ${name}`); }
-  async function startTask(t) {
-    const base = { taskId: t.id, site: t.site, contractor: t.contractor, globeRep: t.globeRep, inspector: byLine() };
-    if (t.category === 'FAT' || t.category === 'Cleanup') {
-      const fat = t.category === 'FAT';
-      const how = await ask(`Start ${fat ? 'FAT' : 'defect cleanup'}: ${t.project}`, fat ? 'A FAT re-checks the PAT punchlist. Open the PAT or cleanup KMZ you received, or start an empty FAT.' : 'Open the PAT KMZ you received from the inspector.',
-        [{ label: 'Cancel', value: '' }, ...(fat ? [{ label: 'Empty FAT', value: 'blank' }] : []), { label: 'Open KMZ', value: 'file', primary: true }]);
-      if (!how) return;
-      if (how === 'file') { pendingFatMeta = { ...base, name: t.project }; pendingStage = t.category; $('patFileInput').value = ''; $('patFileInput').click(); return; }
+  function pickSite(t) {
+    npSite = t; $('npName').value = rowName(t);
+    const k = rowCat(t); if (k) { $('npCat').value = k; npSync(); }
+    if (t.notes && !$('npNotes').value.trim()) $('npNotes').value = t.notes;
+    $('npSites').hidden = true; $('npName').blur(); renderSiteRow();
+  }
+  function renderSiteRow() {
+    const t = npRow(), have = t && taskProject(t.id);
+    $('npSiteRow').hidden = !t; $('npSiteInfo').textContent = t ? siteDetail({ ...t, extra: (t.extra || []).slice(0, 2) }) : '';
+    $('npSiteFolder').hidden = !(t && t.link); $('npSiteOpen').hidden = !have;
+  }
+  function npReset() {
+    const last = S.npLast || {};
+    $('npName').value = ''; $('npNotes').value = ''; $('npKmzInput').value = ''; npFile = null; npSite = null;
+    $('npCat').value = STAGE_LABEL[last.cat] ? last.cat : 'survey'; $('npPurpose').value = PURPOSE_LABEL[last.purpose] ? last.purpose : 'As-plan';
+    $('npSites').hidden = true; npSync(); renderSites();
+  }
+  $('newProjBtn').addEventListener('click', () => { npReset(); openSheet('newProj'); cloudSync(false).then(() => { if (!$('newProj').hidden) renderSites(); }); });
+  $('npCat').addEventListener('change', () => npSync('cat'));
+  $('npPurpose').addEventListener('change', () => npSync('purpose'));
+  $('npName').addEventListener('focus', () => { if (S.team && S.team.src) showSites(true); });
+  $('npName').addEventListener('input', () => { if (S.team && S.team.src) showSites(true); renderSiteRow(); });
+  $('npSitesBtn').addEventListener('click', () => showSites($('npSites').hidden));
+  ['npSites', 'npSitesBtn'].forEach((id) => $(id).addEventListener('mousedown', (e) => e.preventDefault())); // keep the keyboard on the name while picking
+  $('newProj').addEventListener('click', (e) => { if (!e.target.closest('#npSites, #npName, #npSitesBtn')) $('npSites').hidden = true; });
+  $('npSiteFolder').addEventListener('click', () => { const t = npRow(); if (t && t.link) openExternal(t.link); });
+  $('npSiteOpen').addEventListener('click', () => guard(async () => { const have = npRow() && taskProject(npRow().id); if (!have) return; S.project = have; persist(); renderPoles(); await closeAll(); fitProject(); toast(`Now working on: ${have}`); }));
+  $('npKmzBtn').addEventListener('click', () => { $('npKmzInput').value = ''; $('npKmzInput').click(); });
+  $('npKmzInput').addEventListener('change', (e) => { const f = e.target.files[0]; if (!f) return; npFile = f; npFileKind = npStageCat() ? 'stage' : 'ref'; npSync(); });
+  $('npKmzClear').addEventListener('click', () => { npFile = null; $('npKmzInput').value = ''; npSync(); });
+  $('npCreate').addEventListener('click', () => guard(async () => {
+    const k = $('npCat').value, purpose = $('npPurpose').value, name = $('npName').value.trim().slice(0, 100), notes = $('npNotes').value.trim(), f = npFile;
+    const fromFile = npStageCat() && !!f;
+    if (k === 'Cleanup' && !f) { toast('Choose the PAT KMZ'); return; }
+    if (!name && !fromFile) { toast('Type a project name'); $('npName').focus(); return; }
+    if (name && !fromFile && allProjects().includes(name)) { toast('A project with that name already exists'); return; }
+    const t = npRow(), sm = siteMeta(t);
+    S.meta = S.meta || {};
+    LOG.info('project.new', { cat: k, sheet: !!t, kmz: f ? (fromFile ? 'stage' : 'ref') : '' });
+    if (fromFile) {
+      await importStageFile(f, k, { ...sm, ...(notes ? { notes } : {}) }, name || undefined);
+      S.npLast = { cat: k, purpose }; persist();
+      npFile = null; npSite = null; await closeAll(); fitProject(); return;
     }
-    let name = t.project, k = 2;
-    while (allProjects().includes(name)) name = `${t.project} (${k++})`;
-    S.projects.push(name); S.meta = S.meta || {};
-    S.meta[name] = t.category === 'Survey' ? { mode: 'survey', taskId: t.id } : { mode: 'acceptance', stage: t.category, globeRep: '', ...base };
-    await switchProject(name);
-    toast(`${t.category} “${name}” started from the online task list`, 3500);
-  }
-  $('taskSync').addEventListener('click', async () => { $('taskInfo').textContent = 'Reading the online sheet…'; await cloudSync(true); renderTasks(); });
+    S.projects.push(name);
+    S.meta[name] = k === 'survey' ? { mode: 'survey', purpose, ...sm } : { mode: 'acceptance', stage: k, site: '', contractor: '', globeRep: '', inspector: byLine(), ...sm };
+    if (notes) S.meta[name].notes = notes;
+    S.npLast = { cat: k, purpose }; S.project = name; persist(); renderPoles();
+    npFile = null; npSite = null; await closeAll();
+    const label = `${PURPOSE_LABEL[k === 'survey' ? purpose : k]} “${name}” created`;
+    if (f) { try { await loadRefFile(f); } catch (e) { busy(false); LOG.warn('ref.fail', errInfo(e)); toast(`${label}. The KMZ could not be read: ${e.message || e}`, 7000); } }
+    else { fitProject(); toast(label, 3000); }
+  }, 'Project not created'));
 
   /* ---- a PAT from another phone, for its FAT ---- */
-  let pendingFatMeta = null;
   /** The handover file: the acceptance KMZ with the PoleCam data inside (PAT → defect cleanup → FAT). */
   async function sharePackage() {
     if (!needPoints()) return;
@@ -3893,16 +4132,6 @@
     await shareFile(blob, `${accFileBase(M)}_share.kmz`, 'application/vnd.google-earth.kmz');
   }
   $('sendPat').addEventListener('click', () => guard(sharePackage));
-  let pendingStage = null; // set when an online task asks for the file
-  $('fatFromFile').addEventListener('click', () => { pendingFatMeta = null; pendingStage = null; $('patFileInput').value = ''; $('patFileInput').click(); });
-  $('patFileInput').addEventListener('change', (e) => guard(async () => {
-    const f = e.target.files[0]; if (!f) return;
-    const extra = pendingFatMeta ? (({ name, ...rest }) => rest)(pendingFatMeta) : null, want = pendingFatMeta && pendingFatMeta.name; pendingFatMeta = null;
-    const stage = pendingStage || (newMode === 'Cleanup' ? 'Cleanup' : 'FAT'); pendingStage = null;
-    await importStageFile(f, stage, extra, want);
-    if (stack[stack.length - 1] === 'projects') await closeSheet();
-    fitProject();
-  }, 'Not started'));
   /** Save or send a file: the APK's share sheet, the browser's share sheet, or a download. */
   async function shareFile(blob, name, type) {
     if (NATIVE) {

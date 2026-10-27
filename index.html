@@ -138,6 +138,20 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .check input{width:22px;height:22px;margin:1px 0 0;accent-color:var(--accent);flex:none}
 .lbl{font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.02em}
 .field:not(label){display:flex;flex-direction:column;gap:6px}
+.cursub{font-weight:700;font-size:15px;min-width:0;overflow-wrap:anywhere}
+#wfBox .step:not(.now) .t span{display:none}
+details.group{display:block}
+details.more>summary{list-style:none;cursor:pointer;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700;display:flex;align-items:center;justify-content:space-between;min-height:24px}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::after{content:"\25B8";font-size:15px;transition:transform .15s}
+details.more[open]>summary::after{transform:rotate(90deg)}
+.morebody{display:flex;flex-direction:column;gap:12px;margin-top:12px}
+.combo{display:flex;gap:8px}.combo input{flex:1;min-width:0}.combo .btn{flex:none;width:48px;padding:0}
+.suggest{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);max-height:280px;overflow:auto}
+.suggest > button{flex:none;display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:9px 12px;border:0;border-bottom:1px solid var(--line2);background:none;color:inherit;min-height:44px;width:100%}
+.suggest > button b{font-size:15px;overflow-wrap:anywhere}.suggest > button span{font-size:12px;color:var(--muted)}
+.suggest .foot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 4px 4px 12px;font-size:12px;color:var(--muted)}
+.suggest .foot .btn{min-height:34px}
 .sectionh{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:4px 0 -6px;padding:0 2px}
 .pill{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:var(--chip);color:var(--ink)}
 .pill.ok{background:var(--ok);color:#fff}.pill.bad{background:var(--bad);color:#fff}.pill.rect{background:var(--info);color:#fff}.pill.ver{background:var(--verified);color:#fff}.pill.note{background:var(--chip);color:var(--muted)}
@@ -179,15 +193,29 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .camside svg{width:24px;height:24px}
 .camclose{width:44px;height:44px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;display:grid;place-items:center}
 #camMsg{position:absolute;inset:auto 16px 50% 16px;text-align:center;z-index:2}
-#camStage{position:relative;flex:1;min-height:0;display:flex}
-#camStage video{flex:1}
+#camStage{position:relative;flex:1;min-height:0;display:flex;overflow:hidden;touch-action:none}
+#camStage video{flex:1;min-width:0;transform-origin:50% 50%}
+#zoomBar{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:2;display:flex;gap:6px;align-items:center;background:rgba(0,0,0,.5);border-radius:999px;padding:4px}
+#zoomBar[hidden]{display:none}
+#zoomBar button{width:46px;height:38px;border-radius:999px;border:0;background:transparent;color:#fff;font-weight:700;font-size:14px}
+#zoomBar button[aria-pressed=true]{background:rgba(255,255,255,.92);color:#000}
+#zoomVal{color:#ffd43b;font-weight:800;font-size:14px;padding:0 8px}
+#tapRing{position:absolute;width:64px;height:64px;margin:-32px 0 0 -32px;border:2px solid #ffd43b;border-radius:50%;pointer-events:none;z-index:2;animation:tapring .7s ease-out forwards}
+@keyframes tapring{from{transform:scale(1.4);opacity:1}to{transform:scale(.8);opacity:0}}
+#idGuide.track{--c:#ffd43b;border:0;border-radius:6px;box-shadow:0 0 0 2000px rgba(0,0,0,.16);transition:left .16s linear,top .16s linear,width .16s linear,height .16s linear;
+  background:linear-gradient(var(--c),var(--c)) 0 0/24px 4px,linear-gradient(var(--c),var(--c)) 0 0/4px 24px,linear-gradient(var(--c),var(--c)) 100% 0/24px 4px,linear-gradient(var(--c),var(--c)) 100% 0/4px 24px,
+  linear-gradient(var(--c),var(--c)) 0 100%/24px 4px,linear-gradient(var(--c),var(--c)) 0 100%/4px 24px,linear-gradient(var(--c),var(--c)) 100% 100%/24px 4px,linear-gradient(var(--c),var(--c)) 100% 100%/4px 24px;background-repeat:no-repeat}
+#idGuide.track.got{--c:#51cf66}
+#idGuide.track span{background:rgba(0,0,0,.6);border-radius:999px;padding:3px 10px;font-size:14px}
+#idGuide.got span{color:#8ce99a;font-family:var(--mono);font-weight:800}
 #idGuide{position:absolute;left:10%;right:10%;top:40%;height:22%;border:3px solid #fff;border-radius:10px;box-shadow:0 0 0 2000px rgba(0,0,0,.28);pointer-events:none;display:flex;align-items:flex-end;justify-content:center}
 #idGuide.v{left:37%;right:37%;top:15%;height:58%}
 #idGuide span{transform:translateY(130%);white-space:nowrap;font-size:13px;font-weight:600;color:#fff;text-shadow:0 1px 3px #000;text-align:center}
 .camid{min-width:44px;height:44px;border-radius:22px;border:2px solid #fff;background:rgba(0,0,0,.55);color:#fff;font:700 14px var(--mono)}
 .camid[aria-pressed=true]{background:#fff;color:#000}
-#scanPrompt{position:absolute;left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 124px);z-index:3;background:rgba(15,37,71,.9);color:#fff;border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+#scanPrompt{position:absolute;left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));top:calc(env(safe-area-inset-top,0px) + 62px);z-index:3;background:rgba(15,37,71,.9);color:#fff;border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
 #scanPrompt b{font-size:15px}
+#scanPrompt.found{padding:8px 10px;gap:6px;background:rgba(15,37,71,.75)}#scanPrompt.found #scanSub{display:none}#scanPrompt.found .btn{min-height:34px;font-size:13px}
 #scanPrompt span{font-size:13px;opacity:.85}
 #scanPrompt .row{gap:8px}
 #scanPrompt .btn{min-height:40px;background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.35);color:#fff;font-size:14px;padding:0 12px}
@@ -418,12 +446,14 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div id="camMsg" hidden></div>
   <div id="scanPrompt" hidden>
     <b id="scanTitle">Photo kept. Now scan the ID</b>
-    <span id="scanSub">Pole (CC-, WP-, SP-, GT-, BT- …), ODF (FDU_) or any other ID. Fit the painted ID inside the box and tap the shutter.</span>
+    <span id="scanSub">Point the camera at the painted ID: the box finds it and reads it. Pinch or tap 2× / 4× to zoom; tap the ID if the box picks something else.</span>
     <div class="row"><button class="btn" id="orientH" type="button" aria-pressed="true">⇆ Horizontal ID</button><button class="btn" id="orientV" type="button" aria-pressed="false">⇅ Vertical ID</button><button class="btn" id="scanSkip" type="button" style="margin-left:auto">Skip</button></div>
   </div>
   <div id="camStage">
     <video id="video" playsinline muted autoplay></video>
     <div id="idGuide" hidden><span id="idGuideText">Fit the painted ID inside the box</span></div>
+    <i id="tapRing" hidden></i>
+    <div id="zoomBar" hidden><button type="button" data-z="1" aria-pressed="true">1×</button><button type="button" data-z="2" aria-pressed="false">2×</button><button type="button" data-z="4" aria-pressed="false">4×</button><span id="zoomVal" hidden></span></div>
   </div>
   <div id="camCheck" hidden><div class="spin"></div><span id="camCheckText">Checking GPS…</span></div>
   <div id="qualBox" hidden>
@@ -660,6 +690,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <button class="rowbtn" id="goAdmin" type="button"><span class="ic"><svg><use href="#i-shield"/></svg></span><span class="t"><b id="adminRowTitle">Company list and policies</b><span id="teamInfo">–</span></span><span class="lock" id="adminLock">PIN</span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
     </div>
     <p class="hint" id="cloudInfo" hidden></p>
+    <div id="companyKeyBox" class="row" hidden><input type="text" id="companyKey" placeholder="Company access key (from your admin)" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Company access key" style="flex:1"><button class="btn sm" id="companyKeySave" type="button">Save key</button></div>
     <div class="row">
       <button class="btn sm" id="teamUpdate" type="button">Update list</button>
       <button class="btn sm" id="teamShare" type="button">Share list</button>
@@ -671,7 +702,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <p class="hint help">One company on the list is the <b>admin company</b> (e.g. Globe). Its staff enter the admin PIN once and become admins and inspectors: they manage this list, add deficiencies and verify rectifications. Everyone else is a contractor user. Updates travel by QR code or file, signed so a phone only takes versions made with the admin PIN.</p>
     <div class="sectionh">About</div>
     <div class="group">
-      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.5.0</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
+      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.8.0</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
       <p class="hint" id="policyInfo" style="margin:0"></p>
       <label class="check"><input type="checkbox" id="setShowHelp"><span>Keep the help text on every screen open</span></label>
     </div>
@@ -685,6 +716,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="group">
       <h3>After each photo</h3>
       <label class="check"><input type="checkbox" id="setReadId"><span>Ask to scan the painted ID after each new photo</span></label>
+      <label class="check"><input type="checkbox" id="setIdAuto"><span>Live ID reader: use the ID by itself when it is read the same way twice (otherwise tap the shutter)</span></label>
       <label class="field">Painted IDs are usually<select id="setOrient"><option value="h">Horizontal</option><option value="v">Vertical (stacked or sideways)</option></select></label>
     </div>
     <div class="group">
@@ -787,57 +819,71 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <h2 id="projTitle">Projects</h2>
   </header>
   <div class="body">
-    <div class="group" id="taskBox" hidden>
-      <div class="row between"><h3>Assigned tasks (online sheet)</h3><button class="btn sm" id="taskSync" type="button">Sync</button></div>
-      <p class="hint" id="taskInfo">–</p>
-      <div id="taskList" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div class="group">
+      <label class="field">PROJECT<select id="projPick" aria-label="Open a project on this phone"></select></label>
+      <button class="btn primary" id="newProjBtn" type="button">+ New project</button>
     </div>
     <div class="group" id="wfBox">
-      <div class="row between"><h3>Workflow</h3><span class="badge cat" id="projBadge">SURVEY</span></div>
+      <div class="row between" style="flex-wrap:nowrap"><span class="cursub" id="curSub"></span><span class="badge cat" id="projBadge">SURVEY</span></div>
       <div id="wfSteps"></div>
       <button class="btn primary" id="wfNext" type="button">Next</button>
     </div>
-    <div class="group">
-      <h3>Current project</h3>
-      <div class="row"><input type="text" id="renameProject" aria-label="Project name" style="flex:1"><button class="btn" id="doRename">Rename</button></div>
-      <label class="frow" id="purposeRow" hidden><span class="lbl">SURVEY FOR</span><select id="curPurpose"><option value="As-plan">As-plan (before construction)</option><option value="As-built">As-built (after construction)</option></select></label>
-      <div id="refBox" style="display:flex;flex-direction:column;gap:8px">
-        <span class="lbl">REFERENCE KMZ</span>
-        <p class="hint" id="refInfo">No reference loaded.</p>
-        <p class="hint help">A KMZ or KML to follow in the field, for example the HLD with the route, homing and POI pins, or the design route for a PAT. It is shown on the map as a thin dashed overlay and is never changed or exported; you can survey a different route where the HLD route is not doable.</p>
-        <div class="row"><button class="btn grow" id="refLoad" type="button">Load KMZ / KML…</button><button class="btn" id="refToggle" type="button" hidden>Hide</button><button class="btn" id="refRemove" type="button" hidden>Remove</button></div>
-        <input type="file" id="refInput" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/xml,text/xml,application/octet-stream" hidden>
+    <details class="group more" id="curMore">
+      <summary>Project details</summary>
+      <div class="morebody">
+        <div class="row"><input type="text" id="renameProject" aria-label="Project name" style="flex:1"><button class="btn" id="doRename">Rename</button></div>
+        <p class="hint" id="curSite" hidden></p>
+        <button class="btn sm" id="curFolder" type="button" hidden>Project folder (Drive)</button>
+        <label class="frow" id="purposeRow" hidden><span class="lbl">PURPOSE</span><select id="curPurpose"><option value="As-plan">As-Plan Creation</option><option value="As-built">As-Built Creation</option></select></label>
+        <div id="refBox" style="display:flex;flex-direction:column;gap:8px">
+          <span class="lbl">KMZ REFERENCE</span>
+          <p class="hint" id="refInfo">No reference loaded.</p>
+          <div class="row"><button class="btn grow" id="refLoad" type="button">Load KMZ / KML…</button><button class="btn" id="refToggle" type="button" hidden>Hide</button><button class="btn" id="refRemove" type="button" hidden>Remove</button></div>
+          <input type="file" id="refInput" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/xml,text/xml,application/octet-stream" hidden>
+        </div>
+        <label class="field">REMARKS / NOTES<textarea id="curNotes" style="min-height:60px"></textarea></label>
+        <div id="accMeta" hidden style="display:flex;flex-direction:column;gap:12px">
+          <p class="hint" id="accStageInfo" style="font-weight:700;color:var(--ink)"></p>
+          <label class="field">LOCATION / SITE<input type="text" id="mSite" autocomplete="off" placeholder="e.g. KABAN_MIN660"></label>
+          <label class="field">VENDOR (CONTRACTOR)<input type="text" id="mContractor" autocomplete="off" placeholder="e.g. LASAYA RCA BUILDERS INC."></label>
+          <label class="field">CONTRACTOR REPRESENTATIVE<input type="text" id="mVendorRep" autocomplete="off"></label>
+          <label class="field">GLOBE REPRESENTATIVE<input type="text" id="mGlobe" autocomplete="off"></label>
+          <label class="field">INSPECTED BY<input type="text" id="mInspector" autocomplete="off"></label>
+          <div class="field"><span class="lbl">INSPECTION TYPE</span><div class="chips" id="mTypes"></div></div>
+          <label class="field">INSPECTION DATE<input type="date" id="mDate"></label>
+          <button class="btn primary" id="sendPat" type="button">Share the PAT KMZ (for defect cleanup / FAT)</button>
+          <button class="btn" id="startFat" type="button">Start FAT from this PAT on this phone</button>
+        </div>
+        <button class="btn danger" id="delProject">Delete this project…</button>
+        <div id="delProjConfirm" hidden style="display:flex;flex-direction:column;gap:10px"><p style="margin:0" id="delProjText"></p><div class="row"><button class="btn grow" id="delProjNo">Keep</button><button class="btn grow" id="delProjYes" style="background:var(--bad);border-color:var(--bad);color:#fff">Delete project</button></div></div>
       </div>
-      <div id="accMeta" hidden style="display:flex;flex-direction:column;gap:12px">
-        <p class="hint" id="accStageInfo" style="font-weight:700;color:var(--ink)"></p>
-        <p class="hint">These print on the Deficiency List form. Location is the site or cluster code (e.g. KABAN_MIN660); Vendor is the contractor.</p>
-        <label class="field">LOCATION / SITE<input type="text" id="mSite" autocomplete="off" placeholder="e.g. KABAN_MIN660"></label>
-        <label class="field">VENDOR (CONTRACTOR)<input type="text" id="mContractor" autocomplete="off" placeholder="e.g. LASAYA RCA BUILDERS INC."></label>
-        <label class="field">CONTRACTOR REPRESENTATIVE (endorses the list)<input type="text" id="mVendorRep" autocomplete="off"></label>
-        <label class="field">GLOBE REPRESENTATIVE (accepts the list)<input type="text" id="mGlobe" autocomplete="off"></label>
-        <label class="field">INSPECTED BY<input type="text" id="mInspector" autocomplete="off"></label>
-        <div class="field"><span class="lbl">INSPECTION TYPE (ticked on the form)</span><div class="chips" id="mTypes"></div></div>
-        <label class="field">INSPECTION DATE (printed on the form)<input type="date" id="mDate"></label>
-        <button class="btn primary" id="sendPat" type="button">Share the PAT KMZ (for defect cleanup / FAT)</button>
-        <p class="hint help" id="sendPatHint">One KMZ file with every defect pin, punchlist item and photo. It opens in Google Earth, and PoleCam on the contractor's or the FAT phone starts the next stage from it: Projects → New project → Defect cleanup (or FAT) → Open the PAT / cleanup KMZ.</p>
-        <button class="btn" id="startFat" type="button">Start FAT from this PAT on this phone</button>
-        <p class="hint help" id="startFatHint">Copies every element and its punchlist into a new FAT project on this phone, so you can verify each item. This project stays unchanged.</p>
-      </div>
-      <button class="btn danger" id="delProject">Delete this project…</button>
-      <div id="delProjConfirm" hidden style="display:flex;flex-direction:column;gap:10px"><p style="margin:0" id="delProjText"></p><div class="row"><button class="btn grow" id="delProjNo">Keep</button><button class="btn grow" id="delProjYes" style="background:var(--bad);border-color:var(--bad);color:#fff">Delete project</button></div></div>
-    </div>
+    </details>
+  </div>
+</section>
+
+<section class="sheet" id="newProj" hidden aria-labelledby="npTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="npTitle">New project</h2>
+  </header>
+  <div class="body">
     <div class="group">
-      <h3>New project</h3>
-      <span class="lbl">TASK CATEGORY</span>
-      <div class="chips" id="newMode"><button type="button" class="chip" data-v="survey" aria-pressed="true">Survey</button><button type="button" class="chip" data-v="PAT" aria-pressed="false">PAT</button><button type="button" class="chip" data-v="Cleanup" aria-pressed="false">Defect cleanup</button><button type="button" class="chip" data-v="FAT" aria-pressed="false">FAT</button></div>
-      <p class="hint" id="newModeHint">Survey: As-plan before construction or As-built after it. You can load the HLD KMZ as a reference route.</p>
-      <label class="frow" id="newPurposeRow"><span class="lbl">SURVEY FOR</span><select id="newPurpose"><option value="As-plan">As-plan (before construction)</option><option value="As-built">As-built (after construction)</option></select></label>
-      <button class="btn primary" id="fatFromFile" type="button" hidden>Open the PAT / cleanup KMZ…</button>
-      <input type="file" id="patFileInput" accept=".kmz,.zip,application/vnd.google-earth.kmz,application/zip,application/octet-stream" hidden>
-      <div class="row" id="newNameRow"><input type="text" id="newProject" placeholder="e.g. Kabacan Poblacion LLD" style="flex:1"><button class="btn primary" id="addProject">Add</button></div>
+      <div class="field">
+        <label class="lbl" for="npName">PROJECT NAME</label>
+        <div class="combo"><input type="text" id="npName" autocomplete="off" autocapitalize="characters" placeholder="Type a name"><button class="btn" id="npSitesBtn" type="button" aria-label="Sites from the online sheet" hidden>▾</button></div>
+        <div class="suggest" id="npSites" hidden></div>
+        <div class="row" id="npSiteRow" hidden><span class="hint grow" id="npSiteInfo"></span><button class="btn sm" id="npSiteFolder" type="button" hidden>Folder</button><button class="btn sm primary" id="npSiteOpen" type="button" hidden>Open</button></div>
+      </div>
+      <label class="field">TASK CATEGORY<select id="npCat"><option value="survey">Survey</option><option value="PAT">PAT</option><option value="Cleanup">Defect Cleanup</option><option value="FAT">FAT</option></select></label>
+      <label class="field">PURPOSE<select id="npPurpose"><option value="As-plan">As-Plan Creation</option><option value="As-built">As-Built Creation</option><option value="PAT">PAT</option><option value="Cleanup">Defect Rectification</option><option value="FAT">FAT</option></select></label>
+      <div class="field">
+        <span class="lbl" id="npKmzLbl">KMZ REFERENCE</span>
+        <div class="row" style="flex-wrap:nowrap"><button class="btn grow" id="npKmzBtn" type="button">Choose KMZ…</button><button class="btn" id="npKmzClear" type="button" aria-label="Remove the KMZ" hidden>✕</button></div>
+        <input type="file" id="npKmzInput" accept=".kmz,.kml,.zip,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/zip,application/xml,text/xml,application/octet-stream" hidden>
+      </div>
+      <label class="field">REMARKS / NOTES<textarea id="npNotes" style="min-height:60px" placeholder="Optional"></textarea></label>
+      <button class="btn primary" id="npCreate" type="button">Create project</button>
     </div>
-    <div class="sectionh">All projects on this phone</div>
-    <div id="projItems" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
 </section>
 
