@@ -575,17 +575,18 @@
   }
   function renderSummary(pts) {
     const acc = isAcc(), st = projStats(pts), m = pmeta();
+    const W = pts.length ? workflowModel() : null;
     const pill = (cls, text) => `<span class="pill ${cls}">${C.xmlEsc(text)}</span>`;
     if (!pts.length) { $('sumTitle').textContent = 'Nothing captured yet'; $('sumSub').textContent = acc ? 'Tap the camera to record the first element' : 'Tap the camera to capture the first pole'; $('sumPills').innerHTML = ''; return; }
     if (acc) {
       $('sumTitle').textContent = `${st.total} element${st.total === 1 ? '' : 's'} · ${st.items} deficienc${st.items === 1 ? 'y' : 'ies'}${st.notes ? ` · ${st.notes} note${st.notes === 1 ? '' : 's'}` : ''}`;
-      $('sumSub').textContent = [m.site, m.contractor].filter(Boolean).join(' · ') || (st.items ? `${st.itemsOpen} open · ${st.itemsRect} rectified · ${st.itemsVer} verified` : 'No deficiencies recorded');
+      $('sumSub').textContent = W && W.next ? `Next: ${W.next.t}` : [m.site, m.contractor].filter(Boolean).join(' · ') || 'All steps done';
       $('sumPills').innerHTML = [st.itemsOpen && pill('bad', `${st.itemsOpen} open`), st.itemsRect && pill('rect', `${st.itemsRect} to verify`), st.itemsVer && pill('ver', `${st.itemsVer} verified`), !st.items && pill('ok', 'All clear')].filter(Boolean).join('');
     } else {
       const R = routeModel(), linked = st.total - R.off;
       $('sumTitle').textContent = R.spans.length ? `${st.total} pole${st.total === 1 ? '' : 's'} · route ${fmtLen(st.len)} · ${R.spans.length} span${R.spans.length === 1 ? '' : 's'}` : `${st.total} pole${st.total === 1 ? '' : 's'} captured`;
-      $('sumSub').textContent = !R.spans.length ? (st.total > 1 ? 'No route yet: tap the route button to link the poles' : 'Capture the next pole to start the route')
-        : st.long ? `${st.long} span${st.long === 1 ? '' : 's'} over ${pol().maxSpan || 200} m — check the route` : R.off ? `${R.off} pole${R.off === 1 ? '' : 's'} not on the route yet` : 'All spans within the maximum';
+      $('sumSub').textContent = !R.spans.length ? (st.total > 1 ? 'Next: link the route (route button)' : 'Capture the next pole to start the route')
+        : st.long ? `${st.long} span${st.long === 1 ? '' : 's'} over ${pol().maxSpan || 200} m — check the route` : R.off ? `${R.off} pole${R.off === 1 ? '' : 's'} not on the route yet` : W && W.next ? `Next: ${W.next.t}` : 'All steps done';
       $('sumPills').innerHTML = !R.spans.length ? '' : st.long ? pill('bad', `${st.long} long`) : R.off ? pill('note', `${R.off} unlinked`) : pill('ok', 'Spans OK');
     }
   }
@@ -1729,7 +1730,55 @@
 
   /* ================= projects ================= */
   function allProjects() { return [...new Set(S.projects.concat(points.map((p) => p.project)))]; }
+  /** The stage checklist of the current project: what is done, what comes next, and the button that gets there. */
+  function workflowModel() {
+    const m = pmeta(), pts = projPoints(), n = pts.length, ex = m.exports || {}, cat = taskCat();
+    const last = pts.reduce((t, p) => (p.updated > t ? p.updated : t), '');
+    const fresh = (kinds) => kinds.some((k) => ex[k] && ex[k] > last);
+    const go = { capture: () => closeAll().then(() => $('captureBtn').click()), records: () => closeAll().then(() => $('listBtn').click()), export: () => closeAll().then(() => $('exportBtn').click()),
+      route: () => closeAll().then(() => { if (!routeMode) setRouteMode(true); }), form: () => { $('mSite').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('mSite').focus(); },
+      fat: () => $('startFat').click() };
+    const steps = [];
+    if (cat === 'Survey') {
+      const R = routeModel();
+      steps.push({ t: 'Capture the poles', s: n ? `${n} pole${n === 1 ? '' : 's'} captured` : 'Photo, ID scan, pin check for each pole', done: n > 0, go: 'capture', label: 'Capture' });
+      steps.push({ t: 'Link the route', s: !R.spans.length ? 'Tap the route button: link in capture order, then fix branches' : `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${R.long} over ${pol().maxSpan} m · ${R.off} not linked`, done: n > 1 && R.spans.length > 0 && R.off === 0 && !R.long, go: 'route', label: 'Route' });
+      steps.push({ t: 'Export for design', s: fresh(['kmz', 'dxf', 'csv']) ? 'KMZ / DXF / CSV made after the last change' : 'KMZ for Google Earth, DXF for AutoCAD, CSV, photos', done: n > 0 && fresh(['kmz', 'dxf', 'csv']), go: 'export', label: 'Export' });
+      steps.push({ t: 'Back up the project', s: fresh(['backup']) ? `Backup made ${fmtTime(ex.backup)}` : 'Export → Backup, keep the ZIP on Drive or a PC', done: n > 0 && fresh(['backup']), go: 'export', label: 'Backup' });
+    } else if (cat === 'PAT') {
+      const items = pts.flatMap((p) => counting(p)), open = items.filter((d) => defStatusOf(d) === 'Open').length;
+      const formOk = !!(m.site && m.contractor && m.vendorRep && m.globeRep);
+      const handed = allProjects().some((x) => pmeta(x).fromPat === S.project) || !!ex.sent;
+      steps.push({ t: 'Form details', s: formOk ? `${m.site} · ${m.contractor}` : 'Location, vendor, representatives, inspection date (printed on the form)', done: formOk, go: 'form', label: 'Fill in' });
+      steps.push({ t: 'Record elements and deficiencies', s: n ? `${n} element${n === 1 ? '' : 's'} · ${items.length} deficienc${items.length === 1 ? 'y' : 'ies'} · ${open} open` : 'Photo each pole / ODF, add deficiencies with as-found photos', done: n > 0, go: 'capture', label: 'Capture' });
+      steps.push({ t: 'Export the Deficiency List', s: fresh(['pdf', 'xlsx']) ? 'PDF / Excel made after the last change' : 'PDF (form + annexes) and Excel for signing and tracking', done: n > 0 && fresh(['pdf', 'xlsx']), go: 'export', label: 'Export' });
+      steps.push({ t: 'Hand over for rectification', s: handed ? (ex.sent ? `PAT file sent ${fmtTime(ex.sent)}` : 'FAT started on this phone') : 'Start the FAT on this phone, or send the PAT file to the FAT phone', done: handed, go: 'fat', label: 'Start FAT' });
+    } else {
+      const items = pts.flatMap((p) => counting(p)), open = items.filter((d) => defStatusOf(d) === 'Open'), rect = items.filter((d) => defStatusOf(d) === 'Rectified'), ver = items.filter((d) => defStatusOf(d) === 'Verified');
+      steps.push({ t: 'Started from the PAT', s: m.fromPat ? `${m.fromPat} · ${n} element${n === 1 ? '' : 's'} · ${items.length} item${items.length === 1 ? '' : 's'}` : `Started empty · ${n} element${n === 1 ? '' : 's'}`, done: true, go: 'records', label: 'Records' });
+      steps.push({ t: 'Contractor rectifies', s: items.length ? `${rect.length + ver.length} of ${items.length} rectified · ${open.length} open${open.some((d) => (d.reopened || []).length) ? ' (some rejected)' : ''}` : 'No deficiencies to rectify', done: items.length > 0 && !open.length, go: 'records', label: 'Records' });
+      steps.push({ t: 'Inspector verifies', s: items.length ? `${ver.length} verified · ${rect.length} awaiting verification` : '—', done: items.length > 0 && ver.length === items.length, go: 'records', label: 'Records' });
+      steps.push({ t: 'Export the final Deficiency List', s: fresh(['pdf']) ? 'PDF made after the last change' : 'Deficiency List PDF with the verified photos, and the rectification report', done: n > 0 && fresh(['pdf']), go: 'export', label: 'Export' });
+    }
+    const next = steps.find((x) => !x.done) || null;
+    return { cat, steps, next, go };
+  }
+  async function closeAll() { while (stack.length) await closeSheet(); }
+  function renderWorkflow() {
+    const W = workflowModel(), box = $('wfSteps'); box.innerHTML = '';
+    W.steps.forEach((st, i) => {
+      const row = document.createElement('div'); row.className = 'step' + (st.done ? ' done' : st === W.next ? ' now' : '');
+      const nn = document.createElement('span'); nn.className = 'n'; nn.textContent = st.done ? '✓' : String(i + 1);
+      const t = document.createElement('div'); t.className = 't';
+      const b = document.createElement('b'); b.textContent = st.t; const s2 = document.createElement('span'); s2.textContent = st.s; t.append(b, s2);
+      row.append(nn, t); box.appendChild(row);
+    });
+    const btn = $('wfNext');
+    if (W.next) { btn.hidden = false; btn.textContent = `Next: ${W.next.t}`; btn.onclick = () => W.go[W.next.go](); }
+    else { btn.hidden = false; btn.textContent = W.cat === 'Survey' ? 'All done — export again after changes' : 'All done'; btn.onclick = () => W.go.export(); }
+  }
   function renderProjects() {
+    renderWorkflow();
     $('renameProject').value = S.project;
     const m = pmeta(), acc = isAcc(), cat = taskCat();
     $('accMeta').hidden = !acc;
@@ -1892,8 +1941,14 @@
     finally { busy(false); }
     return r;
   }
+  /** Remembers which outputs were made from this project and when, for the workflow checklist. */
+  function noteExport(kind, project) {
+    S.meta = S.meta || {}; const m = { ...pmeta(project || S.project) }; m.exports = { ...(m.exports || {}), [kind]: new Date().toISOString() }; S.meta[project || S.project] = m; persist();
+  }
   function offerResult(blob, name) {
     lastResult = { blob, name };
+    const kind = /_BACKUP\.zip$/i.test(name) ? 'backup' : /_PAT_for_FAT_/i.test(name) ? 'sent' : (name.split('.').pop() || '').toLowerCase();
+    noteExport(kind);
     $('resultName').textContent = `${name} · ${(blob.size / 1048576).toFixed(2)} MB`;
     $('resultBox').hidden = false;
     $('resSave').textContent = NATIVE ? 'Save to Documents' : 'Save to phone';
@@ -3021,6 +3076,7 @@
   $('sendPat').addEventListener('click', () => guard(async () => {
     if (!needPoints()) return;
     const blob = await projectZip(S.project); busy(false);
+    noteExport('sent');
     await shareFile(blob, `${C.safeName(S.project)}_PAT_for_FAT_${stamp8()}.zip`, 'application/zip');
   }));
   $('fatFromFile').addEventListener('click', () => { pendingFatMeta = null; $('patFileInput').value = ''; $('patFileInput').click(); });

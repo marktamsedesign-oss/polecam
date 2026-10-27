@@ -51,6 +51,18 @@ The APK opens the same hosted app, so keep the GitHub Pages site online.
 - **How it stays trustworthy:** the list is signed with a key that travels inside it, encrypted with the admin PIN. A phone accepts a new version of its list only when it was made with that PIN (or, for lists from v1.x, by one of the admins named in it), and rejects a list edited by hand. Each list has a code (e.g. MV3H-EQCB) shown when joining; a different list needs *Switch list* and a warning.
 - Lists made with v1.7–v2.0 (per-person admin keys) keep working. Their admin opens *Manage (admin)* once, sets the admin PIN and saves; after that the admin-company model applies and the old “ask to become an admin” step is gone.
 
+## The process: Survey → PAT → FAT (v2.1)
+
+Each project shows a **Workflow** checklist at the top of the Projects screen (tap the project name on the top bar), with what is done, what is next and a button that opens the right screen. The strip above the navigation shows the next step too.
+
+| Stage | Who | Steps (the app ticks them off) |
+|---|---|---|
+| **Survey** (design) | survey team | 1 Capture the poles (photo → ID scan → pin check) · 2 Link the route (route button, *Link in capture order*, fix branches; long spans are flagged) · 3 Export for design (KMZ, DXF, CSV, photos) · 4 Back up |
+| **PAT** (provisional acceptance) | Globe inspector with the contractor | 1 Form details (site, vendor, representatives, inspection date) · 2 Record elements and deficiencies (as-found photos, MD/D/N) · 3 Export the Deficiency List (PDF for signing, Excel for tracking) · 4 Hand over: *Start FAT* on this phone or *Send PAT file* to the FAT phone |
+| **FAT** (final acceptance) | contractor, then Globe inspector | 1 Started from the PAT · 2 Contractor rectifies (after photo or *Mark rectified*) · 3 Inspector verifies (or rejects with a reason) · 4 Export the final Deficiency List (verified photos in Annex A) and the rectification report |
+
+Tasks assigned in the online sheet (Projects → *Assigned tasks*) start a project with the right category and details already filled in, so a field user only taps **Start** and follows the checklist.
+
 ## Field use
 
 - **Projects = survey areas.** Create one project per area/job (top bar → project name). Each project keeps its own poles, photos, Pole ID numbering, exports, backups and offline maps; nothing from one survey shows up in another. You can rename or delete a project there too.
@@ -266,4 +278,6 @@ Map data © OpenStreetMap contributors (ODbL); offline packs from the Protomaps 
 - **Online map that recovers**: three free tile servers with automatic fallback, request limits and retries, stale tiles shown when a server fails, and a *Test map servers* check on the Maps screen.
 - **Map packs from QGIS**: the PoleCam Map Pack Maker plugin, plus `MAP-PACKS.md` with every way to make and publish a pack.
 - **Less text**: explanations fold behind “i · Help” on every screen (Settings → About keeps them open).
-- **One place for each thing**: the project and its category are on the top bar only (tap it for Projects); the strip above the navigation shows the status; the navigation is Records · camera · Export · Settings.
+- **One place for each thing**: the project and its category are on the top bar only (tap it for Projects); the strip above the navigation shows the status and the next step; the navigation is Records · camera · Export · Settings.
+- **Workflow checklist** per project (Survey, PAT, FAT) with a *Next* button; exports, backups and hand-overs are remembered so the checklist knows what is done.
+- **Map packs per area from QGIS**: the plugin cuts packs along the polygons of a boundary layer (GADM Philippines regions/provinces downloaded in one tap, or any shapefile), with Mindanao / Visayas / Luzon / Metro Manila presets and one pack per area or one merged pack.
