@@ -634,6 +634,164 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
     return pdf;
   }
 
-  const api = { buildXlsxParts, xstyle, Pdf, punchlistPdf, rectificationPdf, acceptanceKml, csv, textWidth, wrapText, jpegInfo, pdfEsc, STYLES, colName, RED, GREEN, BLUE, MUTED, INK, ACCENT };
+  /**
+   * Task completion report (v2.11): page 1 says the task is complete; photo pages follow (v2.12).
+   * model: {title, stageLong, statement, info:[[k,v]], summary:[[label,value,tone]], details:[[k,v]], signers:[{role, name}], footer, footer2,
+   *         photos:[{title, sub, count, layout:'collage'|'chain', items}]}
+   * collage (survey poles): 3 × 4 photos a page; items [{jpeg, head, lines:[], warn}].
+   * chain (PAT / cleanup / FAT): one punchlist item per block, its photos side by side (as found → rectified → verified);
+   *   items [{head, right, rightTone, notes:[], photos:[{label, tone, jpeg, lines:[]}]}]. Items with one photo share a row.
+   */
+  function completionPdf(model) {
+    const pdf = new Pdf(), M = 36, CW = pdf.W - 2 * M, BOTTOM = pdf.H - 46;
+    pdf.addPage(); let y = M;
+    pdf.rect(M, y, 5, 40, { fill: GREEN });
+    pdf.text(M + 14, y + 2, model.title, { size: 17, bold: true });
+    pdf.text(M + 14, y + 24, model.stageLong, { size: 11, color: MUTED });
+    y += 56;
+    pdf.rect(M, y, CW, 34, { fill: [0.92, 0.97, 0.93], stroke: [0.6, 0.8, 0.64] });
+    wrapText(model.statement, CW - 20, 10.5, true).slice(0, 2).forEach((l, k) => pdf.text(M + 10, y + 7 + k * 13, l, { size: 10.5, bold: true, color: GREEN }));
+    y += 48;
+    const colW = (CW - 16) / 2;
+    for (let i = 0; i < model.info.length; i += 2) {
+      let rowH = 0;
+      [model.info[i], model.info[i + 1]].forEach((kv, j) => {
+        if (!kv) return;
+        const x = M + j * (colW + 16);
+        pdf.text(x, y, kv[0].toUpperCase(), { size: 7, bold: true, color: MUTED });
+        const lines = wrapText(kv[1] || '—', colW, 10).slice(0, 3);
+        lines.forEach((l, k) => pdf.text(x, y + 10 + k * 12, l, { size: 10 }));
+        rowH = Math.max(rowH, 12 + lines.length * 12);
+      });
+      y += rowH + 6;
+    }
+    y += 4;
+    if (model.summary.length) {
+      const n = model.summary.length, gap = 8, bw = (CW - gap * (n - 1)) / n;
+      model.summary.forEach(([label, value, tone], i) => {
+        const x = M + i * (bw + gap);
+        pdf.rect(x, y, bw, 46, { stroke: [0.8, 0.83, 0.85], fill: [0.97, 0.97, 0.96] });
+        pdf.text(x + 8, y + 7, String(value), { size: 18, bold: true, color: tone === 'bad' ? RED : tone === 'good' ? GREEN : tone === 'blue' ? BLUE : INK });
+        wrapText(label, bw - 16, 7, true).slice(0, 2).forEach((l, k) => pdf.text(x + 8, y + 29 + k * 8, l.toUpperCase(), { size: 6.5, bold: true, color: MUTED }));
+      });
+      y += 60;
+    }
+    if (model.details.length) {
+      pdf.text(M, y, 'DETAILS', { size: 11, bold: true }); y += 16;
+      model.details.forEach(([k, v]) => {
+        const lines = wrapText(v || '—', CW - 170, 9).slice(0, 3);
+        pdf.text(M, y, k, { size: 9, bold: true, color: MUTED });
+        lines.forEach((l, i) => pdf.text(M + 170, y + i * 11, l, { size: 9 }));
+        y += Math.max(1, lines.length) * 11 + 5;
+      });
+      y += 8;
+    }
+    y = Math.max(y, pdf.H - 46 - 150);
+    pdf.text(M, y, 'SIGN-OFF', { size: 11, bold: true }); y += 18;
+    const sg = model.signers, sw = (CW - 16 * (sg.length - 1)) / sg.length;
+    sg.forEach((s, i) => {
+      const x = M + i * (sw + 16);
+      pdf.rect(x, y, sw, 112, { stroke: [0.75, 0.78, 0.8] });
+      wrapText(s.role, sw - 16, 8.5, true).slice(0, 2).forEach((l, k) => pdf.text(x + 8, y + 8 + k * 10, l, { size: 8.5, bold: true }));
+      ['Name', 'Signature', 'Date'].forEach((lab, k) => {
+        const ly = y + 46 + k * 22;
+        pdf.text(x + 8, ly - 9, lab, { size: 7, color: MUTED });
+        if (k === 0 && s.name) pdf.text(x + 40, ly - 6, s.name, { size: 9 });
+        pdf.line(x + 8, ly + 6, x + sw - 8, ly + 6, { color: [0.5, 0.53, 0.56] });
+      });
+    });
+
+    // ---- photo pages (v2.12): survey poles as a collage; PAT / cleanup / FAT the deficiency photos (v2.12.1)
+    const one = (s, w, size, bold) => { const l = wrapText(s, w, size, bold); return l.length > 1 ? `${l[0].replace(/\s*\S$/, '')}…` : l[0]; };
+    const addImg = (j) => { try { return j ? pdf.addImage(j) : null; } catch (e) { return null; } };
+    const TONE = { bad: RED, blue: BLUE, good: GREEN, muted: MUTED };
+    const secs = (model.photos || []).map((sec) => ({ ...sec,
+      items: sec.layout === 'collage'
+        ? sec.items.map((it) => ({ ...it, jpeg: null, img: addImg(it.jpeg) })).filter((it) => it.img != null)
+        : sec.items.map((it) => ({ ...it, photos: (it.photos || []).map((p) => ({ ...p, jpeg: null, img: addImg(p.jpeg) })).filter((p) => p.img != null) })) })).filter((sec) => sec.items.length);
+    const headH = (sec, cont) => (cont || !sec.sub ? 24 : 36);
+    /** Section title: on a new page, or under the previous section when its first row fits. */
+    const head = (sec, cont, firstRow) => {
+      if (firstRow != null && y + 10 + headH(sec, cont) + firstRow <= BOTTOM + 6) y += 10; else { pdf.addPage(); y = M; }
+      pdf.rect(M, y, 5, headH(sec, cont) - 10, { fill: sec.layout === 'collage' ? ACCENT : BLUE });
+      pdf.text(M + 12, y + 1, `PHOTOS · ${sec.title.toUpperCase()}${cont ? ' (continued)' : sec.count ? ` (${sec.count})` : ` (${sec.items.length})`}`, { size: 11, bold: true });
+      if (sec.sub && !cont) pdf.text(M + 12, y + 15, one(sec.sub, CW - 12, 8), { size: 8, color: MUTED });
+      y += headH(sec, cont);
+    };
+    const tile = [0.92, 0.93, 0.92];
+    const COLS = 3, CGAP = 8, TW = (CW - CGAP * (COLS - 1)) / COLS, TH = 140, CROW = TH + 40; // collage
+    const GAP = 12, HALF = (CW - GAP) / 2, THIRD = (CW - 2 * GAP) / 3; // deficiency items
+    /** One deficiency: title, status, notes for steps without a photo, then its photos side by side (as found → rectified → verified). */
+    const cellOf = (it, w) => {
+      const n = Math.max(1, it.photos.length), pw = it.photos.length >= 3 ? THIRD : it.photos.length === 2 ? HALF : Math.min(w, HALF);
+      const bh = pw > 200 ? 250 : 210;
+      const title = wrapText(it.head, w, 9, true).slice(0, 3), notes = (it.notes || []).flatMap((t) => wrapText(t, w, 7.5));
+      const caps = it.photos.map((p) => (p.lines || []).flatMap((l) => wrapText(l, pw, 7)).slice(0, 6));
+      const capH = caps.length ? Math.max(...caps.map((c) => c.length)) * 8.5 : 0;
+      const h = title.length * 11 + 11 + notes.length * 9.5 + (it.photos.length ? 4 + 10 + bh + 4 + capH : 0) + 14;
+      return { it, w, n, pw, bh, title, notes, caps, h };
+    };
+    const chainRows = (items) => {
+      const rows = [];
+      for (let i = 0; i < items.length;) {
+        const a = items[i], b = items[i + 1];
+        if (a.photos.length <= 1 && b && b.photos.length <= 1) { rows.push([cellOf(a, HALF), cellOf(b, HALF)]); i += 2; } else { rows.push([cellOf(a, a.photos.length <= 1 ? HALF : CW)]); i += 1; }
+      }
+      return rows.map((cells) => ({ cells, h: Math.max(...cells.map((c) => c.h)) }));
+    };
+    const drawCell = (c, x0) => {
+      let ty = y;
+      c.title.forEach((l) => { pdf.text(x0, ty, l, { size: 9, bold: true }); ty += 11; });
+      pdf.text(x0, ty, one(c.it.right || '', c.w, 7.5, true), { size: 7.5, bold: true, color: TONE[c.it.rightTone] || INK }); ty += 11;
+      c.notes.forEach((l) => { pdf.text(x0, ty, l, { size: 7.5, color: MUTED }); ty += 9.5; });
+      if (!c.it.photos.length) return;
+      ty += 4;
+      c.it.photos.forEach((p, j) => {
+        const x = x0 + j * (c.pw + GAP);
+        pdf.text(x, ty, one(p.label, c.pw, 7, true), { size: 7, bold: true, color: TONE[p.tone] || INK });
+        pdf.rect(x, ty + 10, c.pw, c.bh, { fill: tile });
+        pdf.imageFit(p.img, x, ty + 10, c.pw, c.bh);
+        c.caps[j].forEach((l, k) => pdf.text(x, ty + 10 + c.bh + 4 + k * 8.5, l, { size: 7, color: MUTED }));
+      });
+    };
+    secs.forEach((sec, si) => {
+      if (sec.layout === 'collage') {
+        head(sec, false, si ? CROW : null);
+        sec.items.forEach((it, i) => {
+          const c = i % COLS;
+          if (c === 0 && i > 0) { y += CROW; if (y + CROW > BOTTOM + 6) head(sec, true); }
+          const x = M + c * (TW + CGAP);
+          pdf.rect(x, y, TW, TH, { fill: tile });
+          pdf.imageFit(it.img, x, y, TW, TH);
+          let ty = y + TH + 4;
+          pdf.text(x, ty, one(it.head, TW, 8, true), { size: 8, bold: true }); ty += 10;
+          (it.lines || []).slice(0, 1).forEach((l) => { pdf.text(x, ty, one(l, TW, 7), { size: 7, color: MUTED }); ty += 9; });
+          if (it.warn) pdf.text(x, ty, one(it.warn, TW, 7, true), { size: 7, bold: true, color: RED });
+        });
+        y += CROW;
+        return;
+      }
+      const rows = chainRows(sec.items);
+      head(sec, false, si ? rows[0].h : null);
+      rows.forEach(({ cells, h }, ri) => {
+        if (ri && y + h > BOTTOM + 6) head(sec, true);
+        cells.forEach((c, j) => drawCell(c, M + j * (HALF + GAP)));
+        y += h;
+        if (ri < rows.length - 1) pdf.line(M, y - 7, M + CW, y - 7, { color: [0.85, 0.87, 0.89] });
+      });
+    });
+
+    const total = pdf.pages.length;
+    pdf.pages.forEach((pg, i) => {
+      pdf.page = pg;
+      pdf.line(M, pdf.H - 34, pdf.W - M, pdf.H - 34, { color: [0.82, 0.85, 0.87] });
+      pdf.text(M, pdf.H - 28, model.footer, { size: 7.5, color: MUTED });
+      pdf.text(pdf.W - M, pdf.H - 28, `Page ${i + 1} of ${total}`, { size: 7.5, color: MUTED, align: 'right' });
+      if (model.footer2) pdf.text(M, pdf.H - 19, model.footer2, { size: 6.5, color: MUTED });
+    });
+    return pdf;
+  }
+
+  const api = { buildXlsxParts, xstyle, Pdf, punchlistPdf, rectificationPdf, completionPdf, acceptanceKml, csv, textWidth, wrapText, jpegInfo, pdfEsc, STYLES, colName, RED, GREEN, BLUE, MUTED, INK, ACCENT };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleReports = api;
 })(typeof self !== 'undefined' ? self : this);

@@ -88,15 +88,17 @@ New users only enter **name, mobile, email and the company key**. The key tells 
 - The current project's **Workflow** checklist: what is done, what is next, and a *Next* button that opens the right screen. The strip above the navigation shows the next step too.
 - **Project details** (folded): rename, purpose, KMZ reference, remarks / notes, the form details of a PAT / FAT, *Share the KMZ*, delete.
 
-**New project form (v2.10)**
+**New project form (v2.11)**
 
 | Field | What to put |
 |---|---|
-| **Site** | Tap **Choose a site…** to pick one of your company's sites from the online sheet (search by site, PLA ID or vendor), or leave it and type a name. |
-| **Task category / Purpose** | Survey (As-Plan / As-Built) · PAT · Defect Cleanup (Defect Rectification) · FAT. On a site with two vendors in OSP VENDOR (e.g. `NOKIA , HUAXIN`) the **first** vendor can only pick the **As-Plan survey**, the **others** As-Built, PAT, Defect Cleanup and FAT. A site with one vendor, and the admin company, can pick everything. |
-| **Project name** | Filled in from the site: `Category_Project Name_PLA ID_Site Name`, e.g. `PAT_KV_MIN2463_TCFGACGRANDAVAODDS`. You can edit it. |
+| **Site** | Tap **Choose a site…** to pick one of your company's sites from the online sheet (search by site, PLA ID, serial number or vendor), or leave it and type a name. Each site is listed as `Territory_Project Name_Serial Number_PLA ID_Site Name`, e.g. `T7_KV_TRS-PSOW26-KV-0011_MIN2463_TCFGACGRANDAVAODDS`, with the vendors and your part under it. |
+| **Task category** | Not preselected: choose Survey, PAT, Defect Cleanup or FAT. Categories that are not your part of the site are greyed out. |
+| **Purpose** | Only the purposes of the chosen category: **Survey** → As-Plan Creation, As-Built Creation, Audit · **PAT** → PAT · **Defect Cleanup** → Defect Rectification · **FAT** → FAT. On a site with two vendors in OSP VENDOR (e.g. `NOKIA , HUAXIN`) the **first** vendor gets only the **As-Plan survey**; the **others** get As-Built, Audit, PAT, Defect Cleanup and FAT. A site with one vendor, and the admin company, get everything. |
+| **Survey start date** | Survey only: today, or the day the survey starts. It goes to *Survey Start Date* in the online sheet (As-Plan surveys); change it later under Project details and the sheet follows. |
+| **Project name** | Filled in from the site: `CATEGORY_Project Name_Serial Number_PLA ID_Site Name`, e.g. `SURVEY_KV_TRS-PSOW26-KV-0011_MIN2463_TCFGACGRANDAVAODDS` (category codes SURVEY, PAT, CLEANUP, FAT). You can edit it. |
 | **Vendor (contractor)** | Your company (from the site's OSP VENDOR), not editable. |
-| **Location / site** | PLA ID + site name, e.g. `MIN2463 TCFGACGRANDAVAODDS`. |
+| **Location / site** | `Serial Number_PLA ID_Site Name`, e.g. `TRS-PSOW26-KV-0011_MIN2463_TCFGACGRANDAVAODDS`. |
 | **Contractor representative** | You (PAT, cleanup, FAT): printed as *Endorsed by*. |
 | **Globe representative** | Optional: printed as *Accepted by* when given. |
 | **Inspection type** | All ticked (blue); untick what does not apply. |
@@ -104,7 +106,7 @@ New users only enter **name, mobile, email and the company key**. The key tells 
 | **KMZ** | Survey / PAT: the **KMZ reference** (HLD route, homing, POI), optional. Defect Cleanup: the **PAT KMZ** (required). FAT: the **PAT / cleanup KMZ** (without it the FAT starts empty). For Cleanup / FAT with a KMZ the name may stay blank: it comes from the KMZ. |
 | **Remarks / notes** | Optional; kept with the project (Project details). |
 
-The form remembers the last category you used.
+**Finishing a task (v2.11).** The last workflow step of every category is **Complete the task**: Export → **Completion report** (page 1 says the task is complete, with site, vendor, dates, what was recorded and the sign-off boxes; the photo pages follow, see below), or Projects → **✓ Mark task complete**. Either one records today as the completion date and sends it to the online sheet (see "Progress written to the sheet"). *Undo complete* clears it again.
 
 | Stage | Who | Steps (the app ticks them off) |
 |---|---|---|
@@ -266,11 +268,11 @@ The admin keeps three lists in a Google Sheet on their own account; phones read 
 
 **On the phones:** Projects → **+ New project** → *Project name* **▾** lists the open rows for the user's company (admins see all). Picking one fills the project with its category, site and contractor; for a Defect Cleanup or FAT choose the KMZ in the same form. Settings → Administration shows when the sheet was last read, with *Sync online sheet*.
 
-### Updating the script (needed for v2.5 map packs, the Defect cleanup category, v2.6 company filtering, v2.9 list updates through the sheet and v2.10 company keys)
+### Updating the script (needed for v2.5 map packs, the Defect cleanup category, v2.6 company filtering, v2.9 list updates through the sheet, v2.10 company keys and v2.11 progress dates)
 
 1. Open the online Google Sheet → **Extensions → Apps Script**.
 2. Click in the code (`Code.gs`), select all (Ctrl+A), delete, paste the whole new `PoleCam-online-sheet.gs`, **Save** (Ctrl+S).
-3. In the function list at the top choose **setup** → **Run**. If Google asks, **Review permissions** → your account → *Advanced* → *Go to … (unsafe)* → **Allow** (it is your own script). It only adds the new Settings rows and the CompanyKeys tab; nothing is deleted.
+3. In the function list at the top choose **setup** → **Run**. If Google asks, **Review permissions** → your account → *Advanced* → *Go to … (unsafe)* → **Allow** (it is your own script). It only adds the new Settings rows, the CompanyKeys tab and (v2.11) the missing progress columns at the end of the Project Data header; nothing is deleted.
 4. **Deploy → Manage deployments** → pencil (**Edit**) on the existing Web app → *Version*: **New version** → **Deploy**. The URL stays the same, so the phones keep reading it. (Do not use *New deployment*: that makes a new URL.)
 5. On the admin phone: Settings → **Sync online sheet**. The line under it shows the tasks and map packs read.
 
@@ -288,6 +290,22 @@ Paste the script into that spreadsheet and run **setup**: it finds the two tabs 
 **In the app:** Projects → **+ New project** → tap *Project name* (or **▾**): your company's sites are listed; type to filter, tap one (the name, vendor, IDs and Drive folder fill in), or type any other name. A company with no site listed sees *No site listed for you: type a name*, so it can work without the sheet. A site already on the phone shows *on this phone* and an *Open* button. The chosen site's details show under Projects → Project details, with *Project folder (Drive)*.
 
 **Admin company:** in the company list (Administration) choose the same name as the ADMIN row of the Company List (e.g. GLOBE), so its staff get inspector rights with the admin PIN. Being ADMIN in the sheet only decides which sites a phone sees.
+
+### Progress written to the sheet (v2.11)
+
+The phones write four dates back to the site's row in **Project Data**, and the **Status** column works them out:
+
+| Column | Filled in when |
+|---|---|
+| **Survey Start Date** | an As-Plan survey project is created for the site (the start date in the form), and again whenever the start date is changed |
+| **Survey Completion Date** | that survey's completion report is exported or it is marked complete |
+| **PAT Date** | the PAT's completion report is exported or it is marked complete |
+| **FAT Date** | the FAT's completion report is exported or it is marked complete |
+| **Status** | formula: **FAT Done** (FAT Date filled) → **PAT Done** (PAT Date) → **LLD Creation** (Survey Completion Date) → **Ongoing Survey** (start date today or earlier) → **For Survey** (no start date, or one in the future) |
+
+- *Undo complete* clears the date again. Defect Cleanup, As-Built and Audit tasks write no date.
+- **setup** (or **addProgressColumns**) adds the columns that are missing at the end of the header row and puts the Status formula in every row whose Status is empty; rows that get a date also get the formula. To keep your own Status values instead, type `-` in Settings → **Column: Status** (the script then neither reads nor writes that column); the same works for any of the four date columns.
+- Only a phone with a **company key** can write, and only to rows of its own company (the key with *Sees all tasks: Yes*, or the Admin key, can write any row). Without a signal the dates wait on the phone: the **Sync** button on the top bar shows an orange dot until they are sent, and tapping it sends them and reads the sheet again.
 
 ### Tasks from your own database, filtered by company (v2.6)
 
@@ -466,3 +484,22 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.12
+
+- **Photos as proof in the completion report:** after page 1 come the photo pages.
+  - **Survey:** every pole photo as a collage, 12 a page (3 × 4), each with the pole ID and the time it was taken. A photo the camera check had flagged (taken with an older version) is marked in red.
+  - **PAT, Defect Cleanup, FAT (v2.12.1):** only the deficiency photos. Each punchlist item shows, side by side, the photos taken so far: **as found** (PAT), **rectified** (contractor) or the **rejected** fix with the reason, and **verified** (FAT). The item number, element and time are burned into each photo (as in Annex A of the Deficiency List), with GPS and who took it under it, at 1200 px so the defect can be read when zoomed in. A step done without a photo is written out (*Marked rectified without a photo*, *Verified on site without a photo*). Element photos are not included.
+  - Page 1 lists how many photos follow (e.g. *3 as found · 2 rectified · 2 verified*) and which items have no photo at all (observation notes need none).
+- Export → Completion report → *Options*: untick **Add the photo pages** for page 1 only.
+- No change to the online sheet script (the v2.11 script works as is).
+
+## What changed in v2.11
+
+- **Site list** shows `Territory_Project Name_Serial Number_PLA ID_Site Name`. **Project name** = `CATEGORY_Project Name_Serial Number_PLA ID_Site Name`; **Location / site** = `Serial Number_PLA ID_Site Name`.
+- **Task category** is no longer preselected; **Purpose** lists only the purposes of the chosen category (Survey: As-Plan, As-Built, Audit). New purpose **Audit**.
+- **Completion report** (PDF) on the Export screen and **Mark task complete** on the Projects screen; a new last workflow step *Complete the task*.
+- **Progress dates in the online sheet:** Survey Start Date, Survey Completion Date, PAT Date, FAT Date and a Status formula (see "Progress written to the sheet").
+- **Sync button** on the top bar (orange dot = dates waiting to be sent).
+- **KMZ fix:** KMZ files saved from Google Earth with data from Organic Maps / MAPS.ME (`mwm:` tags without their declaration) and KML files with a stray `&` now open; UTF-16 KML files too.
+- Needs the v2.11 `PoleCam-online-sheet.gs`: paste it, **Save**, run **setup** (adds the columns), then **Deploy → Manage deployments → Edit → New version**. The older script still serves the sites; only the dates are not written (the app says so).
