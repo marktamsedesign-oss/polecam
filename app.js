@@ -2,10 +2,10 @@
 (() => {
   'use strict';
   /* A join link (…/polecam/#join=…) carries the signed company list: read it before anything else, then clear the address. */
-  const pendingJoin = /^#join=/.test(location.hash) ? location.hash.slice(6) : null;
-  if (pendingJoin) history.replaceState(null, '', location.pathname + location.search);
-  /* Camera button side for one-hand use: right by default (most field users are right-handed), centre or left in Settings. */
-  const handOf = () => (['left', 'center', 'right'].includes(S && S.hand) ? S.hand : 'right');
+  const H0 = location.hash, pendingJoin = (/[#&]join=([^&#]+)/.exec(H0) || [])[1] || null, pendingKey = (/[#&]ck=([A-Za-z0-9-]+)/.exec(H0) || [])[1] || null;
+  if (pendingJoin || pendingKey) history.replaceState(null, '', location.pathname + location.search);
+  /* Camera button position for one-hand use: centre by default, right or left in Settings → Camera. */
+  const handOf = () => (['left', 'center', 'right'].includes(S && S.hand) ? S.hand : 'center');
   function applyHand() { const h = handOf(); ['left', 'center', 'right'].forEach((x) => document.body.classList.toggle(`hand-${x}`, x === h)); }
   /* ================= app log =================
      A small ring buffer kept in localStorage (written synchronously, so it survives a crash of the app's web view).
@@ -120,6 +120,9 @@
   /** Admin users: when the admin lists their emails, only those people may use the admin company (and its PIN). */
   const adminUserOk = (email) => { const L = pol().adminUsers || []; const e = String(email != null ? email : (S.user && S.user.email) || '').trim().toLowerCase(); return !L.length || L.includes(e); };
   const isInspector = () => { const o = pol().owner; return !o || !S.user || (normCo(S.user.company) === normCo(o) && adminUserOk()); };
+  /** Who records PAT defects and accepts fixes at FAT (v2.10): the vendor's users too, by default (the Globe representative
+      signs the printed form). The admin can keep it to the admin company (Manage → Field standards). */
+  const canRecord = () => pol().vendorRecords !== false || isInspector();
   const DEF = {
     project: 'Default project', projects: ['Default project'],
     stamp: true, maxPx: 2048, myTypes: [],
@@ -472,7 +475,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.9.0';
+  const APP_VER = '2.10.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `PoleCam/${APP_VER} (+${SITE})`;
@@ -1821,7 +1824,7 @@
     } else bytes = new Uint8Array(await cleanBlob.arrayBuffer());
     if (im.close) im.close();
     return C.insertExif(bytes, { lat: P.lat, lon: P.lon, alt: P.alt, accuracy: P.accuracy,
-      description: title.replace(/\s+·\s+/g, ' | '), title: p.poleId, date: new Date(when) });
+      description: title.replace(/\s+·\s+/g, ' | '), title: p.poleId, date: new Date(when), artist: exporterLine(' | ') });
   }
   /** File name for an exported photo per the naming setting. */
   function photoFileName(p, label) {
@@ -1963,7 +1966,7 @@
   $('nptBtn').addEventListener('click', () => {
     if (!ed) return;
     $('poleId').value = NPT; ed.idTouched = true; ed.idRead = null; checkDup(); checkFormat();
-    if (ed.acc && visitStage() !== 'FAT' && isInspector() && !ed.defs.some((d) => /no pole tag|pole id not visible/i.test(d.item))) {
+    if (ed.acc && visitStage() !== 'FAT' && canRecord() && !ed.defs.some((d) => /no pole tag|pole id not visible/i.test(d.item))) {
       const item = (pol().defects.Pole || []).find((x) => /no pole tag|pole id not visible/i.test(x));
       if (item) { startDefDraft(false); defDraft.cat = 'Pole'; defDraft.items = new Set([item]); renderDefPanel(); toast('No pole tag: that defect is ticked below. Save adds it.', 4000); return; }
     }
@@ -2001,7 +2004,7 @@
     ed.q = o.q || null; showQualWarn(ed.q); $('idCands').hidden = true;
     renderTypeChips(ed.type);
     if (acc) { renderElemChips(); applyElement(); renderAccPhotos(); renderDefs(); }
-    if (acc && o.mode === 'new' && visitStage() === 'PAT' && isInspector()) startDefDraft(false); // a PAT records defects: the defect form is ready
+    if (acc && o.mode === 'new' && visitStage() === 'PAT' && canRecord()) startDefDraft(false); // a PAT records defects: the defect form is ready
     $('edTime').textContent = fmtTime(o.takenAt);
     $('edAcc').textContent = ed.gps && Number.isFinite(ed.gps.acc) ? `GPS ±${ed.gps.acc.toFixed(1)} m` : (ed.gps ? 'Location from photo' : 'No location yet');
     $('edSrc').textContent = o.note || '';
@@ -2115,7 +2118,7 @@
     const st = $('defStatus');
     st.textContent = !total ? (ed.defs.length ? 'Notes only' : 'No deficiency') : open ? `${open} open` : ver === total ? 'All verified' : 'All rectified';
     st.className = 'pill ' + (!total ? 'ok' : open ? 'bad' : ver === total ? 'ver' : 'rect');
-    const stage = pmeta().stage || 'PAT', insp = isInspector();
+    const stage = pmeta().stage || 'PAT', insp = canRecord();
     $('addDefBtn').hidden = !insp || !$('defPanel').hidden;
     $('defRoleHint').hidden = insp;
     $('defRoleHint').textContent = `Deficiencies are added and verified by ${pol().owner || 'the admin company'}. You can add after photos and mark items rectified.`;
@@ -2217,7 +2220,7 @@
   /** Does this pin still need the person holding this phone? */
   function needsVisit(r) {
     const items = counting(r);
-    if (visitStage() === 'FAT' && isInspector()) return items.some((d) => defStatusOf(d) !== 'Verified');
+    if (visitStage() === 'FAT' && canRecord()) return items.some((d) => defStatusOf(d) !== 'Verified');
     return items.some((d) => defStatusOf(d) === 'Open');
   }
   function compass(a, b) {
@@ -2264,7 +2267,7 @@
   function renderVisit() {
     const r = points.find((x) => x.id === visitId); if (!r) { closeVisitCard(); return; }
     revokeVisitUrls();
-    const stage = visitStage(), insp = isInspector(), items = (r.defs || []).map((d, i) => ({ d, i }));
+    const stage = visitStage(), insp = canRecord(), items = (r.defs || []).map((d, i) => ({ d, i }));
     $('vcTitle').textContent = `${r.poleId || '(no ID)'} · ${elemOf(r)}`;
     $('vcSub').textContent = visitSub(r);
     const el = $('vcElem'); el.innerHTML = '';
@@ -2414,7 +2417,7 @@
     if (scroll) $('defPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   $('addDefBtn').addEventListener('click', () => {
-    if (!isInspector()) { toast(`Only ${pol().owner || 'the admin company'} adds deficiencies`); return; }
+    if (!canRecord()) { toast(`Only ${pol().owner || 'the admin company'} adds deficiencies`); return; }
     startDefDraft(true);
   });
   $('defSevSel').addEventListener('change', (e) => { if (defDraft) defDraft.sev = e.target.value; });
@@ -2654,12 +2657,12 @@
       steps.push({ t: 'Back up the project', s: fresh(['backup']) ? `Backup made ${fmtTime(ex.backup)}` : 'Export → Backup, keep the ZIP on Drive or a PC', done: n > 0 && fresh(['backup']), go: 'backup', label: 'Backup' });
     } else if (cat === 'PAT') {
       const items = pts.flatMap((p) => counting(p)), open = items.filter((d) => defStatusOf(d) === 'Open').length;
-      const formOk = !!(m.site && m.contractor && m.vendorRep && m.globeRep);
+      const formOk = !!(m.site && m.contractor && (m.vendorRep || (S.user && S.user.name))); // the Globe representative is optional (v2.10)
       const handed = allProjects().some((x) => pmeta(x).fromPat === S.project) || !!ex.sent;
       steps.push({ t: 'Form details', s: formOk ? `${m.site} · ${m.contractor}` : 'Location, vendor, representatives, inspection date (printed on the form)', done: formOk, go: 'form', label: 'Fill in' });
       steps.push({ t: 'Record the defects', s: n ? `${n} element${n === 1 ? '' : 's'} · ${items.length} deficienc${items.length === 1 ? 'y' : 'ies'} · ${open} open` : 'Photo only the poles / ODFs with defects; tag each N, D or MD', done: n > 0, go: 'capture', label: 'Capture' });
       steps.push({ t: 'Export the Deficiency List', s: fresh(['pdf', 'xlsx']) ? 'PDF / Excel made after the last change' : 'PDF (form + annexes) and Excel for signing and tracking', done: n > 0 && fresh(['pdf', 'xlsx']), go: 'export', label: 'Export' });
-      steps.push({ t: 'Share the PAT KMZ with the contractor', s: handed ? (ex.sent ? `PAT KMZ shared ${fmtTime(ex.sent)}` : 'FAT started on this phone') : 'One KMZ with the defect pins and photos, for the defect cleanup and the FAT', done: handed, go: 'share', label: 'Share KMZ' });
+      steps.push({ t: 'Share the PAT KMZ for the defect cleanup', s: handed ? (ex.sent ? `PAT KMZ shared ${fmtTime(ex.sent)}` : 'FAT started on this phone') : 'One KMZ with the defect pins and photos, for the defect cleanup and the FAT', done: handed, go: 'share', label: 'Share KMZ' });
     } else if (cat === 'Cleanup') {
       const items = pts.flatMap((p) => counting(p)), open = items.filter((d) => defStatusOf(d) === 'Open'), noPhoto = items.filter((d) => defDone(d) && !d.afterPid).length;
       steps.push({ t: 'Started from the PAT KMZ', s: `${m.fromPat || 'PAT'} · ${n} pin${n === 1 ? '' : 's'} · ${items.length} item${items.length === 1 ? '' : 's'}`, done: true, go: 'records', label: 'Records' });
@@ -2669,7 +2672,7 @@
       const items = pts.flatMap((p) => counting(p)), open = items.filter((d) => defStatusOf(d) === 'Open'), rect = items.filter((d) => defStatusOf(d) === 'Rectified'), ver = items.filter((d) => defStatusOf(d) === 'Verified');
       steps.push({ t: m.fromStage === 'Cleanup' ? 'Started from the cleanup KMZ' : 'Started from the PAT', s: m.fromPat ? `${m.fromPat} · ${n} element${n === 1 ? '' : 's'} · ${items.length} item${items.length === 1 ? '' : 's'}` : `Started empty · ${n} element${n === 1 ? '' : 's'}`, done: true, go: 'records', label: 'Records' });
       steps.push({ t: 'Contractor rectifies', s: items.length ? `${rect.length + ver.length} of ${items.length} rectified · ${open.length} open${open.some((d) => (d.reopened || []).length) ? ' (some rejected)' : ''}` : 'No deficiencies to rectify', done: items.length > 0 && !open.length, go: 'next', label: 'Next pin' });
-      steps.push({ t: 'Inspector verifies each pin', s: items.length ? `${ver.length} verified · ${rect.length} awaiting verification` : '—', done: items.length > 0 && ver.length === items.length, go: 'next', label: 'Next pin' });
+      steps.push({ t: 'Check and accept each fix', s: items.length ? `${ver.length} verified · ${rect.length} awaiting verification` : '—', done: items.length > 0 && ver.length === items.length, go: 'next', label: 'Next pin' });
       steps.push({ t: 'Export the final Deficiency List', s: fresh(['pdf']) ? 'PDF made after the last change' : 'Deficiency List PDF with the verified photos, and the rectification report', done: n > 0 && fresh(['pdf']), go: 'export', label: 'Export' });
     }
     const next = steps.find((x) => !x.done) || null;
@@ -2715,19 +2718,49 @@
     if (acc) {
       $('accStageInfo').textContent = m.stage === 'FAT' ? `FAT · Final Acceptance Test${m.fromPat ? ` · verifying the PAT “${m.fromPat}”${m.fromStage === 'Cleanup' ? ' after the defect cleanup' : ''}` : ''}`
         : m.stage === 'Cleanup' ? `Defect cleanup · fixing the PAT punchlist${m.fromPat ? ` of “${m.fromPat}”` : ''}` : 'PAT · Provisional Acceptance Test';
-      $('mSite').value = m.site || ''; $('mContractor').value = m.contractor || ''; $('mVendorRep').value = m.vendorRep || ''; $('mGlobe').value = m.globeRep || ''; $('mInspector').value = m.inspector || '';
+      if (!m.vendorRep && S.user && S.user.name) { m.vendorRep = S.user.name; S.meta[S.project] = { ...m }; persist(); } // the contractor representative is the user of the app
+      $('mSite').value = m.site || ''; $('mContractor').value = m.contractor || ''; $('mVendorRep').value = m.vendorRep || ''; $('mGlobe').value = m.globeRep || '';
       $('mDate').value = m.date || '';
-      const types = formText().types || [], chosen = m.inspTypes || pol().inspTypes, box = $('mTypes'); box.innerHTML = '';
+      const types = formText().types || [], chosen = m.inspTypes || allInspTypes(), box = $('mTypes'); box.innerHTML = '';
       types.forEach((t) => {
         const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small'; b.textContent = t; b.setAttribute('aria-pressed', String(chosen.includes(t)));
-        b.addEventListener('click', () => { const cur = new Set(pmeta().inspTypes || pol().inspTypes); if (cur.has(t)) cur.delete(t); else cur.add(t); const mm = { ...pmeta(), inspTypes: types.filter((x) => cur.has(x)) }; S.meta[S.project] = mm; persist(); renderProjects(); });
+        b.addEventListener('click', () => { const cur = new Set(pmeta().inspTypes || allInspTypes()); if (cur.has(t)) cur.delete(t); else cur.add(t); const mm = { ...pmeta(), inspTypes: types.filter((x) => cur.has(x)) }; S.meta[S.project] = mm; persist(); renderProjects(); });
         box.appendChild(b);
       });
-      $('startFat').hidden = $('sendPat').hidden = m.stage === 'FAT';
+      $('accActs').hidden = m.stage === 'FAT'; renderShareWarn('shareWarn');
       $('sendPat').textContent = m.stage === 'Cleanup' ? 'Share the cleanup KMZ (for the FAT)' : 'Share the PAT KMZ (for defect cleanup / FAT)';
       $('startFat').textContent = m.stage === 'Cleanup' ? 'Start FAT from this cleanup on this phone' : 'Start FAT from this PAT on this phone';
     }
+    if (!acc) $('accActs').hidden = true;
     $('delProjConfirm').hidden = true; $('delProject').hidden = false;
+  }
+  /** Inspection types: all ticked unless the user unticks some (v2.10). */
+  const allInspTypes = () => (formText().types || []).slice();
+  /** Before the KMZ goes to the next stage: nothing recorded or no deficiency blocks it; missing photos are flagged. */
+  function shareCheck() {
+    const recs = projPoints(), stage = pmeta().stage || 'PAT', items = recs.flatMap((r) => counting(r)), flags = [];
+    const err = !recs.length ? 'No element recorded yet' : !items.length ? 'No deficiency (N, D or MD) recorded' : '';
+    const noPic = recs.filter((r) => !photosOf(r).length).length;
+    if (noPic) flags.push(`${noPic} element${noPic === 1 ? '' : 's'} without a photo`);
+    if (stage === 'PAT') { const n = items.filter((d) => !d.pid).length; if (n) flags.push(`${n} deficienc${n === 1 ? 'y' : 'ies'} without an as-found photo`); }
+    else {
+      const fixed = items.filter((d) => defStatusOf(d) !== 'Open'), n = fixed.filter((d) => !d.afterPid).length, open = items.length - fixed.length;
+      if (n) flags.push(`${n} fix${n === 1 ? '' : 'es'} without a photo`);
+      if (open) flags.push(`${open} item${open === 1 ? '' : 's'} still open`);
+    }
+    return { err, flags };
+  }
+  function renderShareWarn(id) {
+    const c = shareCheck(), el = $(id);
+    el.textContent = c.err ? `⚠ ${c.err}: nothing to share yet.` : c.flags.length ? `⚠ ${c.flags.join(' · ')}` : '';
+    el.hidden = !el.textContent;
+  }
+  /** Stops the hand-over when there is nothing to hand over, and asks when photos are missing. */
+  async function shareGate(what) {
+    const c = shareCheck();
+    if (c.err) { toast(`${c.err}: nothing to ${what} yet. Record the defects first.`, 5500); return false; }
+    if (!c.flags.length) return true;
+    return ask('Check before you continue', `${c.flags.join('\n')}\n\nContinue anyway?`, [{ label: 'Cancel', value: false }, { label: 'Continue', value: true, primary: true }]);
   }
   function openProjects() { renderProjects(); openSheet('projects'); cloudSync(false); }
   $('projectBtn').addEventListener('click', openProjects);
@@ -2735,10 +2768,10 @@
     const name = $('projPick').value; if (!name || name === S.project) return;
     S.project = name; persist(); renderPoles(); fitProject(); renderProjects(); toast(`Now working on: ${name}`);
   });
-  [['mSite', 'site'], ['mContractor', 'contractor'], ['mVendorRep', 'vendorRep'], ['mGlobe', 'globeRep'], ['mInspector', 'inspector'], ['mDate', 'date'], ['curNotes', 'notes']].forEach(([id, key]) => {
+  [['mSite', 'site'], ['mContractor', 'contractor'], ['mGlobe', 'globeRep'], ['mDate', 'date'], ['curNotes', 'notes']].forEach(([id, key]) => {
     $(id).addEventListener('change', () => { const m = { ...pmeta() }; m[key] = $(id).value.trim(); S.meta = S.meta || {}; S.meta[S.project] = m; persist(); });
   });
-  $('startFat').addEventListener('click', () => guard(() => startFatFrom(S.project), 'FAT not started'));
+  $('startFat').addEventListener('click', () => guard(async () => { if (await shareGate('verify')) await startFatFrom(S.project); }, 'FAT not started'));
   $('curFolder').addEventListener('click', () => { const l = pmeta().siteLink; if (l) openExternal(l); });
   $('curPurpose').addEventListener('change', () => { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), purpose: $('curPurpose').value }; persist(); renderProjects(); });
   /** Copies a PAT or defect-cleanup project (on this phone) into a new FAT project; the source stays unchanged. */
@@ -2754,7 +2787,7 @@
     for (const c of copies) { await dbPut('points', c); points.push(c); }
     const { taskId, date, exports, ...patMeta } = m; // the PAT's own online task, inspection date and exports are not this FAT's
     const extra = Object.fromEntries(Object.entries(extraMeta || {}).filter(([, v]) => v !== '' && v != null)); // blank task cells keep the PAT's details
-    S.meta[name] = { ...patMeta, stage: 'FAT', fromPat: m.fromPat || pat, fromStage: m.stage || 'PAT', inspector: m.inspector || byLine(), ...extra };
+    S.meta[name] = { ...patMeta, stage: 'FAT', fromPat: m.fromPat || pat, fromStage: m.stage || 'PAT', vendorRep: (S.user && S.user.name) || m.vendorRep || '', date: todayIso(), ...extra };
     S.projects.push(name); S.project = name; persist();
     renderPoles(); renderProjects(); busy(false);
     const open = copies.reduce((t, r) => t + openCount(r), 0);
@@ -2911,6 +2944,9 @@
     const n = projPoints().length, acc = isAcc();
     $('exportScope').textContent = acc ? `Acceptance ${pmeta().stage || 'PAT'} “${S.project}” · ${n} element${n === 1 ? '' : 's'}` : `Project “${S.project}” · ${n} pole${n === 1 ? '' : 's'}`;
     $('accExports').hidden = !acc; $('surveyExports').hidden = acc; $('namingRow').hidden = acc; // acceptance photos are named after the form items
+    const stg = pmeta().stage || 'PAT';
+    $('xShareBox').hidden = !acc || stg === 'FAT';
+    if (acc && stg !== 'FAT') { $('xShare').textContent = stg === 'Cleanup' ? 'Share the cleanup KMZ (for the FAT)' : 'Share the PAT KMZ (for defect cleanup / FAT)'; renderShareWarn('xShareWarn'); }
     $('dxfZoneLbl').textContent = `UTM ${S.zone}N`; syncExpUi();
     showExport(exportPick); exportPick = null;
     $('resultBox').hidden = true; openSheet('export');
@@ -2930,6 +2966,11 @@
     const pn = C.safeName(S.project), m = pmeta(), tag = !isAcc() && m.purpose ? m.purpose.replace('-', '').toUpperCase() : '';
     return tag && !new RegExp(tag.replace('AS', 'AS[-_ ]?'), 'i').test(S.project) ? `${pn}_${tag}_${stamp8()}` : `${pn}_${stamp8()}`;
   };
+  /* Who made an export (v2.10): every exported file carries it, so a file can be traced back to the person who sent it. */
+  function exporterInfo() { const u = S.user || {}; return { name: u.name || '', mobile: u.mobile || '', email: u.email || '', company: u.company || '', at: new Date().toISOString(), app: `PoleCam ${APP_VER}` }; }
+  function exporterLine(sep) { const e = exporterInfo(), j = sep || ' · '; return `Exported by ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(j)}${j}${shortTime(e.at)}${j}${e.app}`; }
+  function exporterText() { const e = exporterInfo(); return `PoleCam export\nProject: ${S.project}\nExported by: ${e.name}\nMobile: ${e.mobile}\nEmail: ${e.email}\nCompany: ${e.company}\nDate: ${e.at}\nApp: ${e.app}\n`; }
+  function exporterSheet(st) { const e = exporterInfo(); return { name: 'Exported by', cols: [16, 46], rows: [['Exported by', ''].map((v) => ({ v, s: st.header })), ['Name', e.name], ['Mobile', e.mobile], ['Email', e.email], ['Company', e.company], ['Date', shortTime(e.at)], ['App', e.app], ['Project', S.project]] }; }
   async function guard(fn, label) { try { await fn(); } catch (e) { LOG.error('task.fail', { label: label || 'export', ...errInfo(e) }); toast(`${label === undefined ? 'Export failed: ' : label ? label + ': ' : ''}${e.message || e}`, 7000); } finally { busy(false); } }
 
   /** Square photo icon for a KMZ pin at the chosen size. */
@@ -2953,7 +2994,7 @@
       rows.push(r);
     }
     busy('Building KMZ…', 1);
-    const kml = C.buildKml(rows, { project: `${S.project}${pmeta().purpose ? ` · ${pmeta().purpose}` : ''}`, photoIcons: icons, spans: E.kmzRoute ? routeModel().spans : [], stamped: !!E.kmzStamp, stampFields: E.stampFields });
+    const kml = C.buildKml(rows, { project: `${S.project}${pmeta().purpose ? ` · ${pmeta().purpose}` : ''}`, photoIcons: icons, spans: E.kmzRoute ? routeModel().spans : [], stamped: !!E.kmzStamp, stampFields: E.stampFields, exportedBy: exporterLine() });
     const parts = C.makeZipParts([{ name: 'doc.kml', data: kml }, ...files]);
     offerResult(new Blob(parts, { type: 'application/vnd.google-earth.kmz' }), fileBase() + '.kmz');
   }));
@@ -2977,7 +3018,7 @@
       }
     }
     busy('Building DXF…');
-    const dxf = C.buildDxf(pts, { zone: S.zone, symbolSize: S.sym, textHeight: S.txt, spans: routeModel().spans }, roads);
+    const dxf = C.buildDxf(pts, { zone: S.zone, symbolSize: S.sym, textHeight: S.txt, spans: routeModel().spans, exportedBy: exporterLine(' | ') }, roads);
     offerResult(new Blob([dxf], { type: 'application/dxf' }), `${fileBase()}_UTM${S.zone}N.dxf`);
     if (note) toast(note, 4000);
   }));
@@ -2986,7 +3027,7 @@
     const pts = needPoints(); if (!pts) return;
     const names = uniqueNames(pts);
     const rows = pts.map((p) => ({ ...p, photoName: names[p.id] + '.jpg' }));
-    offerResult(new Blob([C.buildCsv(rows, S.zone)], { type: 'text/csv' }), fileBase() + '.csv');
+    offerResult(new Blob([C.buildCsv(rows, S.zone, exporterLine())], { type: 'text/csv' }), fileBase() + '.csv');
   }));
 
   $('doRouteXlsx').addEventListener('click', () => guard(async () => {
@@ -3029,6 +3070,7 @@
       { name: 'Summary', cols: [30, 44], rows: summary, merges: ['A1:B1', 'A19:B19'] },
       { name: 'Spans', cols: [6, 15, 15, 11, 12, 12, 13, 12, 13], rows: spanRows, freezeRow: 1, autoFilter: `A1:I${spanRows.length}` },
       { name: 'Poles', cols: [6, 15, 12, 14, 9, 11, 12, 13, 13, 13], rows: poleRows, freezeRow: 1, autoFilter: `A1:J${poleRows.length}` },
+      exporterSheet(st),
     ]);
     offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '_route.xlsx');
   }));
@@ -3067,10 +3109,10 @@
       counts[it.label] = (counts[it.label] || 0) + 1;
     }
     const summary = Object.entries(counts).sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k}: ${v}`).join('\n');
-    files.push({ name: 'dataset/labels.csv', data: window.PoleReports.csv(rows) });
+    files.push({ name: 'dataset/labels.csv', data: window.PoleReports.csv(rows) }, { name: 'dataset/exported_by.txt', data: exporterText() });
     files.push({ name: 'dataset/README.txt', data: `PoleCam training photos\nExported ${new Date().toISOString()}\nOne folder per label; photos resized to 640 px. labels.csv lists every file.\n\nPhotos per label:\n${summary}\n\nAim for 200+ photos per label before training a model. Check a sample of each folder: a label is only as good as the photo slot it was taken in.\n` });
     offerResult(new Blob(C.makeZipParts(files), { type: 'application/zip' }), `${dsScope === 'all' ? 'PoleCam_all_projects' : C.safeName(S.project)}_training_photos_${stamp8()}.zip`);
-    toast(`${files.length - 2} photos in ${Object.keys(counts).length} folders`, 3500);
+    toast(`${files.length - 3} photos in ${Object.keys(counts).length} folders`, 3500);
   }));
 
   $('doPhotos').addEventListener('click', () => guard(async () => {
@@ -3082,6 +3124,7 @@
         const ph = await dbGet('photos', list[i].pid);
         if (ph && ph.clean) files.push({ name: list[i].name, data: await exportPhoto(list[i].rec, ph.clean, list[i].title, list[i].meta) });
       }
+      files.push({ name: 'exported_by.txt', data: exporterText() });
       offerResult(new Blob(C.makeZipParts(files), { type: 'application/zip' }), fileBase() + '_photos.zip');
       return;
     }
@@ -3095,13 +3138,14 @@
       used[name.toLowerCase()] = 1;
       files.push({ name: name + '.jpg', data: await exportPhoto(pts[i], ph.clean) });
     }
+    files.push({ name: 'exported_by.txt', data: exporterText() });
     offerResult(new Blob(C.makeZipParts(files), { type: 'application/zip' }), fileBase() + '_photos.zip');
   }));
 
   /** Records + original photos of a project, as files for a backup ZIP (prefix '') or inside a shareable KMZ (prefix 'polecam/'). */
   async function projectFiles(name, prefix) {
     const pre = prefix || '', pts = points.filter((p) => p.project === name).sort((a, b) => (a.created < b.created ? -1 : 1));
-    const files = [{ name: `${pre}points.json`, data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: pmeta(name), exported: new Date().toISOString(), by: byLine(), points: pts }, null, 1) }];
+    const files = [{ name: `${pre}points.json`, data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: pmeta(name), exported: new Date().toISOString(), by: byLine(), exportedBy: exporterInfo(), points: pts }, null, 1) }];
     const pids = [...new Set(pts.flatMap(allPids))];
     for (let i = 0; i < pids.length; i++) {
       busy(`Packing photos ${i + 1} / ${pids.length}`, i / pids.length);
@@ -3162,7 +3206,7 @@
     const { taskId, date, exports, links, ...rest } = fm;
     const extra = Object.fromEntries(Object.entries(extraMeta || {}).filter(([, v]) => v !== '' && v != null));
     S.meta = S.meta || {};
-    S.meta[name] = { ...rest, mode: 'acceptance', stage, fromPat: pat, fromStage: from, fromFile: f.name || '', ...(stage === 'FAT' ? { inspector: rest.inspector || byLine() } : {}), ...extra };
+    S.meta[name] = { ...rest, mode: 'acceptance', stage, fromPat: pat, fromStage: from, fromFile: f.name || '', vendorRep: (S.user && S.user.name) || rest.vendorRep || '', date: todayIso(), ...extra };
     S.projects.push(name); S.project = name; persist();
     renderPoles(); fitProject(); busy(false);
     const open = copies.reduce((t, r) => t + openCount(r), 0), toCheck = copies.reduce((t, r) => t + counting(r).filter((d) => defStatusOf(d) === 'Rectified').length, 0);
@@ -3313,11 +3357,11 @@
     const m = M.m, insp = m.date ? longDate(m.date) : M.stage !== 'PAT' ? (M.fatFirst ? longDate(M.fatFirst) : '') : (M.recs.length ? longDate(M.recs[0].takenAt) : '');
     const signDate = o.dates === 'today' ? longDate(todayIso()) : o.dates === 'insp' ? insp : '';
     return {
-      form: pol().form, logos: o.logos, stage: M.stage === 'FAT' ? 'FAT' : 'PAT', typesChecked: m.inspTypes || pol().inspTypes,
+      form: pol().form, logos: o.logos, stage: M.stage === 'FAT' ? 'FAT' : 'PAT', typesChecked: m.inspTypes || allInspTypes(),
       location: m.site || '', project: (M.stage !== 'PAT' && m.fromPat) || S.project, vendor: m.contractor || '', date: insp,
       items: M.items.map((x) => ({ no: x.no, code: SEV_CODE[sevOf(x.d)], text: itemText(x), rectified: rectifiedDate(x.d) })),
       signers: { left: { name: m.vendorRep || '', date: signDate }, right: { name: m.globeRep || '', date: signDate } },
-      footer: `${S.project} · ${M.stage} · generated with PoleCam ${shortTime(new Date().toISOString())}${byLine() ? ' by ' + byLine() : ''}`,
+      footer: `${S.project} · ${M.stage} · ${exporterLine()}`,
     };
   }
   $('doXlsx').addEventListener('click', () => guard(async () => {
@@ -3331,7 +3375,7 @@
         [{ v: `PUNCHLIST TRACKER — ${STAGE_LONG[M.stage]}`, s: st.title }],
         [lbl('Project'), null, { v: S.project }, null, null, lbl('Location / site'), null, { v: M.m.site || '' }],
         [lbl('Vendor (contractor)'), null, { v: M.m.contractor || '' }, null, null, lbl('Globe representative'), null, { v: M.m.globeRep || '' }],
-        [lbl('Inspected by'), null, { v: M.m.inspector || '' }, null, null, lbl('Inspection date'), null, { v: M.dates }],
+        [lbl('Contractor representative'), null, { v: M.m.vendorRep || M.m.inspector || '' }, null, null, lbl('Inspection date'), null, { v: M.dates }],
         [lbl('Generated'), null, { v: fmtTime(new Date().toISOString()) }, null, null, lbl(M.m.fromPat ? 'PAT reference' : ''), null, { v: M.m.fromPat || '' }],
         [{ v: summaryText(M), s: st.info }],
         [],
@@ -3361,7 +3405,7 @@
     }
     const people = [['Name', 'Company', 'Mobile', 'Email'].map((v) => ({ v, s: st.header }))];
     peopleOf().forEach((x) => people.push([x.name, x.company, x.mobile, x.email]));
-    sheets.push({ name: 'People', cols: [28, 28, 18, 32], rows: people, freezeRow: 1 });
+    sheets.push({ name: 'People', cols: [28, 28, 18, 32], rows: people, freezeRow: 1 }, exporterSheet(st));
     const parts = R.buildXlsxParts(sheets);
     offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), accFileBase(M) + '_deficiency_list.xlsx');
   }));
@@ -3369,7 +3413,8 @@
   $('doAccCsv').addEventListener('click', () => guard(async () => {
     if (!needPoints()) return;
     const M = accModel();
-    const out = window.PoleReports.csv([PUNCH_HEAD, ...punchRows(M).map((r) => r.map((v, i) => ((i === PI.lat || i === PI.lon) && typeof v === 'number' ? v.toFixed(8) : v)))]);
+    const by = exporterLine();
+    const out = window.PoleReports.csv([[...PUNCH_HEAD, 'Exported by'], ...punchRows(M).map((r) => [...r.map((v, i) => ((i === PI.lat || i === PI.lon) && typeof v === 'number' ? v.toFixed(8) : v)), by])]);
     offerResult(new Blob([out], { type: 'text/csv' }), accFileBase(M) + '_punchlist.csv');
   }));
 
@@ -3497,7 +3542,7 @@
     busy('Building PDF…');
     const pdf = window.PoleReports.rectificationPdf({
       title: 'PUNCHLIST RECTIFICATION REPORT', stageLong: `${STAGE_LONG[M.stage]} · status of contractor rectification`,
-      footer: `${S.project} · rectification report · generated ${shortTime(new Date().toISOString())}`,
+      footer: `${S.project} · rectification report`, footer2: exporterLine(),
       info: [['Project', S.project], ['Site / cluster', M.m.site], ['Contractor', M.m.contractor], ['Globe representative', M.m.globeRep],
         ['PAT reference', M.m.fromPat || (M.stage === 'PAT' ? S.project : '')], ['Report period', times.length ? `${fmtTime(times[0])} – ${fmtTime(times[times.length - 1])}` : ''],
         ['Generated', shortTime(new Date().toISOString())], ['Generated by', byLine() || M.m.inspector || ''], ['Recorded by', peopleText()]],
@@ -3544,7 +3589,7 @@
     }
     const data = withData ? await projectFiles(S.project, 'polecam/') : [];
     busy('Building KMZ…', 1);
-    const kml = window.PoleReports.acceptanceKml(recs, { name: `${S.project} · ${M.stage}`, icons });
+    const kml = window.PoleReports.acceptanceKml(recs, { name: `${S.project} · ${M.stage}`, icons, exportedBy: exporterLine() });
     return new Blob(C.makeZipParts([{ name: 'doc.kml', data: kml }, ...files, ...data]), { type: 'application/vnd.google-earth.kmz' });
   }
 
@@ -3635,6 +3680,14 @@
     $('savePreview').textContent = NATIVE ? `Files go to: ${savePath('…').shown.replace(/\/…$/, '/')}` : 'Website version: your browser saves to its Downloads folder.';
     ['setSaveBase', 'setSaveFolder', 'setSaveByProject'].forEach((id) => { $(id).disabled = !NATIVE; });
   }
+  $('expReset').addEventListener('click', async () => {
+    if (!(await ask('Reset export settings?', 'Photo size, stamp, file names, KMZ, PDF, Excel and DXF options and the save folder go back to their defaults.', [{ label: 'Cancel', value: false }, { label: 'Reset', value: true, primary: true }]))) return;
+    S.exp = JSON.parse(JSON.stringify(DEF.exp)); S.zone = DEF.zone; S.sym = DEF.sym; S.txt = DEF.txt;
+    S.saveBase = DEF.saveBase; S.saveFolder = DEF.saveFolder; S.saveByProject = DEF.saveByProject; persist();
+    syncExpUi(); $('dxfZoneLbl').textContent = `UTM ${S.zone}N`;
+    $('setSaveBase').value = S.saveBase; $('setSaveFolder').value = S.saveFolder; $('setSaveByProject').checked = true; updateSavePreview();
+    toast('Export settings reset to the defaults', 2500);
+  });
   $('setSaveBase').addEventListener('change', () => { S.saveBase = $('setSaveBase').value; persist(); updateSavePreview(); });
   $('setSaveFolder').addEventListener('change', () => { S.saveFolder = $('setSaveFolder').value.trim() || 'PoleCam'; persist(); updateSavePreview(); });
   $('setSaveByProject').addEventListener('change', () => { S.saveByProject = $('setSaveByProject').checked; persist(); updateSavePreview(); });
@@ -3681,6 +3734,7 @@
     if (p.defects != null) { if (typeof p.defects !== 'object' || Object.keys(p.defects).length > 20) return false; for (const v of Object.values(p.defects)) if (!list(v, 60, 120)) return false; }
     if (p.poleTypes != null && !(Array.isArray(p.poleTypes) && p.poleTypes.length <= 20 && p.poleTypes.every((t) => t && /^[A-Z]{2,6}$/.test(t.p) && str(t.n, 30)))) return false;
     if (p.adminUsers != null && !list(p.adminUsers, 100, 120)) return false;
+    if (p.vendorRecords != null && typeof p.vendorRecords !== 'boolean') return false;
     if (p.web != null && !(typeof p.web === 'string' && /^https:\/\/\S{1,300}$/.test(p.web))) return false;
     if (p.packs != null && !(Array.isArray(p.packs) && p.packs.length <= 30 && p.packs.every((x) => x && str(x.n, 60) && typeof x.d === 'string' && /^[A-Za-z0-9_-]{20,100}$/.test(x.d) && num(x.mb, 0, 100000)))) return false;
     return true;
@@ -3690,7 +3744,8 @@
   const listCode = (b) => { const id = String(b.id).replace(/[^A-Za-z0-9]/g, ''); return `${id.slice(0, 4)}-${id.slice(-4)}`.toUpperCase(); };
   /* ---- this copy of PoleCam can be tied to one organisation: org.json next to index.html (made by the admin) ---- */
   const validOrg = (o) => !!o && o.type === 'polecam-org' && typeof o.id === 'string' && o.id.length > 0 && o.id.length <= 40 && typeof o.name === 'string' && o.name.length <= 100
-    && (o.key == null || (typeof o.key === 'string' && o.key.length <= 200)) && (o.web == null || (typeof o.web === 'string' && /^https:\/\/\S{1,300}$/.test(o.web)));
+    && (o.key == null || (typeof o.key === 'string' && o.key.length <= 200)) && (o.web == null || (typeof o.web === 'string' && /^https:\/\/\S{1,300}$/.test(o.web)))
+    && (o.src == null || (typeof o.src === 'object' && typeof o.src.url === 'string' && /^https:\/\/\S{1,300}$/.test(o.src.url)));
   let ORG = validOrg(S.org) ? S.org : null;
   async function loadOrg() {
     try {
@@ -3699,8 +3754,11 @@
       if (!r.ok) return;
       const o = await r.json();
       if (!validOrg(o)) { LOG.warn('org.invalid'); return; }
-      ORG = { type: o.type, id: o.id, name: o.name, key: o.key || null, web: o.web || null }; S.org = ORG; persist();
-      LOG.info('org', { name: ORG.name, list: !!S.team && S.team.id === ORG.id }); renderJoin(); renderTeamInfo();
+      ORG = { type: o.type, id: o.id, name: o.name, key: o.key || null, web: o.web || null, src: o.src ? { url: o.src.url } : null }; S.org = ORG; persist();
+      LOG.info('org', { name: ORG.name, list: !!S.team && S.team.id === ORG.id, sheet: !!ORG.src }); renderJoin(); renderTeamInfo(); if (!$('profile').hidden) renderProfileMode();
+      if (ORG.src && navigator.onLine) { // does the organisation use company keys? (no key is sent)
+        try { const j = await cloudRequest({ url: ORG.src.url }, null, { probe: true }); if (j && j.ok && typeof j.strict === 'boolean') { S.sheetStrict = j.strict; persist(); if (!$('profile').hidden) renderProfileMode(); } } catch (e) { /* keep the last answer */ }
+      }
     } catch (e) { /* offline: keep the last one */ }
   }
   /** The address of the web app, for join links (the APK uses the one in org.json or in the list). */
@@ -3715,7 +3773,38 @@
     if (S.team && S.team.src && S.cloud && S.cloud.src === S.team.src.url && S.cloud.companies.length) return S.cloud.companies; // online sheet
     return S.team && Array.isArray(S.team.co) ? S.team.co : [];
   };
-  const profileOk = () => !!(S.user && S.user.name && S.user.mobile && S.user.email && S.user.company && (!teamCos().length || teamCos().includes(S.user.company)));
+  const profileOk = () => !!(S.user && S.user.name && S.user.mobile && S.user.email && S.user.company && (keyMode() ? S.user.company === S.keyCompany : !teamCos().length || teamCos().includes(S.user.company)));
+  /* ---- company keys (v2.10): the key tells the online sheet which company a user belongs to; the company is then fixed ---- */
+  const keyMode = () => !!(S.companyKey && S.keyCompany);
+  const normKey = (k) => String(k || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const sheetUrl = () => (S.team && S.team.src && S.team.src.url) || (ORG && ORG.src && ORG.src.url) || '';
+  /** Key sign-in is offered where the organisation uses company keys (the sheet says so), or the app is tied to one with a sheet. */
+  const keyOffered = () => keyMode() || (!holdsListKey() && !!(sheetUrl() && ((S.cloud && S.cloud.strict) || (ORG && ORG.src && S.sheetStrict !== false) || /company key/.test(cloudErr)))); // the admin who holds the list key may still choose
+  async function keyLogin(raw) {
+    const key = String(raw || '').trim().toUpperCase().replace(/\s+/g, '');
+    if (normKey(key).length < 8) throw new Error('Enter the company key from your admin or a coworker, e.g. 7KQ4-MX2P-9TRW.');
+    const url = sheetUrl();
+    if (!url) throw new Error('Open the invite link or QR code from your admin or a coworker first.');
+    if (!navigator.onLine) throw new Error('Connect to the internet once to check the company key.');
+    const j = await cloudRequest({ url, key: (S.team && S.team.src && S.team.src.key) || '' }, null, { ckey: key });
+    if (!j || !j.ok) throw new Error(j && j.error === 'company key' ? 'This company key is not valid. Ask your admin or a coworker for the right one.' : j && j.error === 'key' ? 'The online sheet does not accept company keys yet: the admin must update its script (v2.10).' : `The online sheet did not answer${j && j.error ? ` (${j.error})` : ''}.`);
+    if (!j.you) throw new Error('The online sheet does not accept company keys yet: the admin must update its script (v2.10).');
+    if (j.list) { // the signed company list comes with the answer: a new phone joins it here, an old one updates
+      let p = null, body = null;
+      try { p = await unpackShare(j.list); body = p && p.kind === 'PCT' ? JSON.parse(p.obj.b) : null; } catch (e) { body = null; }
+      if (body && (!S.team || S.team.id !== body.id || body.rev > S.team.rev)) await acceptTeam(p.obj, true, { quiet: true });
+    }
+    if (!S.team) throw new Error('The online sheet has no company list yet: the admin saves it once with the Admin key.');
+    const nk = normKey(key); S.companyKey = nk.length === 12 ? nk.match(/.{4}/g).join('-') : key; S.keyCompany = s100(j.you); S.cloud = null; persist();
+    LOG.info('key.login', { company: S.keyCompany });
+    return S.keyCompany;
+  }
+  /** Invite link for coworkers: the company key (and, when the app is not tied to the sheet, the list too). */
+  async function inviteLink() {
+    const base = webBase(); if (!base || !keyMode()) return '';
+    if (ORG && ORG.src && S.team && ORG.id === S.team.id) return `${base}#ck=${encodeURIComponent(S.companyKey)}`;
+    return `${base}#join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}&ck=${encodeURIComponent(S.companyKey)}`;
+  }
   const holdsListKey = () => !!(S.adminKey && S.team && (S.team.key === S.adminKey.pub || (S.team.admins || []).some((a) => a.k === S.adminKey.pub)));
   const isAdmin = () => holdsListKey() && adminUserOk();
   const signerName = () => (S.team ? (S.team.key ? `the admin company${S.team.pol && S.team.pol.owner ? ` (${S.team.pol.owner})` : ''}` : S.team.admins && S.team.admins[S.team.k] ? S.team.admins[S.team.k].n : 'admin') : 'admin');
@@ -3730,6 +3819,23 @@
     const own = pol().owner;
     $('pfTeam').textContent = S.team ? `List “${S.team.name}” v${S.team.rev}${own ? ` · ${own} is the admin company (its staff need the admin PIN)` : ''}.${sel && !cos.includes(sel) ? ` “${sel}” is no longer on the list: choose again.` : ''}` : '';
     $('pfJoin').hidden = !!cos.length;
+    renderProfileMode();
+  }
+  /** With company keys the user types (or scans) a key instead of choosing a company, and never sees the company names. */
+  function renderProfileMode() {
+    const keyed = keyOffered(), locked = keyMode();
+    $('pfKeyBox').hidden = !keyed; $('pfCoBox').hidden = keyed && !locked;
+    if (locked) {
+      $('pfKey').value = S.companyKey; $('pfKey').readOnly = true; $('pfKeyScan').hidden = true;
+      $('pfCompany').innerHTML = `<option>${C.xmlEsc(S.keyCompany)}</option>`; $('pfCompany').disabled = true;
+      $('pfKeyInfo').textContent = 'Your company comes from this key. To change it: Settings → Reset user.';
+      $('pfTeam').textContent = '';
+    } else if (keyed) {
+      $('pfKey').readOnly = false; $('pfKeyScan').hidden = false;
+      if (!$('pfKey').value && pendingKey) $('pfKey').value = pendingKey;
+      $('pfKeyInfo').textContent = "From your admin, or scan a coworker's invite QR code.";
+    }
+    $('pfJoin').hidden = keyed || !!teamCos().length;
   }
   function openProfile(first) {
     profileFirst = !!first;
@@ -3748,15 +3854,22 @@
   const mobileOk = (m) => /^\+?\d{7,15}$/.test(m.replace(/[\s\-().]/g, ''));
   $('pfSave').addEventListener('click', async () => {
     const name = $('pfName').value.trim().replace(/\s+/g, ' '), mobile = $('pfMobile').value.trim().replace(/\s+/g, ' ');
-    const email = $('pfEmail').value.trim(), company = $('pfCompany').value;
+    const email = $('pfEmail').value.trim(), keyed = keyOffered() && !keyMode();
+    let company = keyMode() ? S.keyCompany : $('pfCompany').value;
     const err = name.length < 3 ? 'Enter your full name.' : !mobileOk(mobile) ? 'Enter your mobile number, e.g. 0917 123 4567 or +63 917 123 4567.'
       : !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) ? 'Enter a valid email address.'
-        : !company ? (teamCos().length ? 'Choose your company.' : 'Get the company list from your admin first (below).') : '';
+        : keyed ? (normKey($('pfKey').value).length < 8 ? 'Enter your company key.' : '')
+          : !company ? (teamCos().length ? 'Choose your company.' : 'Get the company list from your admin first (below).') : '';
     if (err) { $('pfErr').textContent = err; $('pfErr').hidden = false; return; }
+    if (keyed) { // the key says which company this user belongs to
+      $('pfErr').textContent = 'Checking the company key…'; $('pfErr').hidden = false; $('pfSave').disabled = true;
+      try { company = await keyLogin($('pfKey').value); } catch (e) { $('pfErr').textContent = e.message || String(e); return; } finally { $('pfSave').disabled = false; }
+      $('pfErr').hidden = true; renderProfileMode();
+    }
     const own = pol().owner;
     if (own && normCo(company) === normCo(own) && !adminUserOk(email) && S.team && S.team.src && navigator.onLine) { $('pfErr').textContent = 'Checking with the online sheet…'; $('pfErr').hidden = false; await cloudSync(true); $('pfErr').hidden = true; } // just added by the admin?
     if (own && normCo(company) === normCo(own) && !adminUserOk(email)) { $('pfErr').textContent = `Only the ${own} users added by your admin can choose ${own}. Ask your admin to add ${email.toLowerCase()}, or choose your own company.`; $('pfErr').hidden = false; return; }
-    if (own && normCo(company) === normCo(own) && hasListKey(S.team) && !holdsListKey()) { // the admin company is for its own staff
+    if (own && normCo(company) === normCo(own) && hasListKey(S.team) && !holdsListKey() && !keyMode()) { // the admin company is for its own staff (a company key already proves it)
       const pin = await askPin(`Admin PIN of ${own}`, `${own} is the admin company. Its staff enter the admin PIN once; contractors choose their own company.`);
       if (pin == null) return;
       const jwk = await decPriv(S.team.keyEnc, pin);
@@ -3773,7 +3886,23 @@
     const u = S.user;
     $('whoBox').textContent = u ? u.name : 'Enter your details';
     $('whoSub').textContent = u ? `${u.company} · ${u.mobile} · ${u.email}${isInspector() && pol().owner ? ' · inspector' : ''}` : 'Name, mobile, email and company';
+    $('inviteBtn').hidden = !keyMode();
   }
+  $('inviteBtn').addEventListener('click', () => guard(async () => {
+    const link = await inviteLink();
+    if (!link) { toast('No website address for the invite: open PoleCam from its website once, or ask your admin', 5000); return; }
+    qrLink = link;
+    await showQr(`Invite to ${S.keyCompany}`, `A coworker scans this with the phone's camera (or you send the link), then enters their name, mobile and email. Share it only inside ${S.keyCompany}: it carries your company key.`, link, null);
+  }, 'No invite'));
+  $('resetUser').addEventListener('click', async () => {
+    const ok = await ask('Reset the user of this phone?', 'Your name, mobile, email, company and company key are removed from this phone, and the welcome screen asks for them again. Projects and photos stay on the phone, with the names they were recorded with.',
+      [{ label: 'Cancel', value: false }, { label: 'Reset user', value: true, primary: true }]);
+    if (!ok) return;
+    LOG.info('user.reset', { keyed: keyMode() });
+    S.user = null; S.companyKey = ''; S.keyCompany = ''; S.adminKey = null; S.cloud = null; persist();
+    ['pfName', 'pfMobile', 'pfEmail', 'pfKey'].forEach((id) => { $(id).value = ''; });
+    renderWho(); renderTeamInfo(); openProfile(true);
+  });
   $('editMe').addEventListener('click', () => openProfile(false));
 
   /* ---- signing and packing the list ---- */
@@ -3841,7 +3970,7 @@
 
   /* ---- accepting a list ---- */
   /** allowSwitch: false on the update path, where only a newer version of the same list (from one of its admins) is taken. */
-  async function acceptTeam(obj, allowSwitch) {
+  async function acceptTeam(obj, allowSwitch, opts) {
     let body;
     try { body = JSON.parse(obj.b); } catch (e) { body = null; }
     if (!validTeam(body)) throw new Error('This is not a PoleCam company list');
@@ -3858,8 +3987,9 @@
       if (!trusted.includes(signer.k)) throw new Error(`Not accepted: this update of “${cur.name}” was not made with its admin PIN${signer.n !== 'admin company' ? ` (signed by ${signer.n})` : ''}`);
     } else {
       if (cur && !allowSwitch) throw new Error(`Not accepted: this is a different company list (code ${listCode(body)}), not an update of “${cur.name}” (code ${listCode(cur)}). To change lists, use Settings → Administration → Switch to another list.`);
-      const ok = await ask(cur ? 'Switch to a different company list?' : 'Use this company list?',
-        `${body.name} (code ${listCode(body)})\n${body.pol && body.pol.owner ? `Admin company: ${body.pol.owner}` : body.admins.length ? `Admin${body.admins.length === 1 ? '' : 's'}: ${body.admins.map((a) => a.n).join(', ')}` : 'No admin company set'}\n${body.co.length} compan${body.co.length === 1 ? 'y' : 'ies'}: ${body.co.slice(0, 8).join(', ')}${body.co.length > 8 ? ', …' : ''}`
+      const quiet = opts && opts.quiet && (!cur || (ORG && body.id === ORG.id)); // a company key vouches for it
+      const ok = quiet || await ask(cur ? 'Switch to a different company list?' : 'Use this company list?',
+        `${body.name} (code ${listCode(body)})\n${body.pol && body.pol.owner ? `Admin company: ${body.pol.owner}` : body.admins.length ? `Admin${body.admins.length === 1 ? '' : 's'}: ${body.admins.map((a) => a.n).join(', ')}` : 'No admin company set'}`
         + (cur ? `\n\nThis is NOT an update of “${cur.name}” (code ${listCode(cur)}): it is another list, made by whoever holds its admin key. Switch only if your admin told you to.` : ''),
         [{ label: 'Cancel', value: false }, { label: cur ? 'Switch' : 'Use this list', value: true, primary: true }]);
       if (!ok) return { cancelled: true };
@@ -3867,17 +3997,17 @@
     const wasAdmin = isAdmin();
     S.team = { ...body, b: obj.b, s: obj.s, k: obj.k }; S.teamSeen[body.id] = Math.max(seen, body.rev); persist();
     const note = wasAdmin && !isAdmin() && cur && cur.id === body.id ? ' The admin PIN was changed: enter the new PIN under Manage to stay an admin.' : '';
-    return { ok: true, msg: `Company list “${body.name}” version ${body.rev}: ${body.co.length} compan${body.co.length === 1 ? 'y' : 'ies'}.${note}` };
+    return { ok: true, msg: `Company list “${body.name}” version ${body.rev}.${note}` };
   }
   let teamSwitch = false; // set only by Settings → Switch to another list (or when the phone has no list yet)
-  async function importTeamText(text) {
+  async function importTeamText(text, opts) {
     if (!cryptoOk()) return false;
     let p = null;
     try { p = await unpackShare(joinText(text)); } catch (e) { p = null; }
     if (!p) { toast('That is not a PoleCam join link or company list', 4000); return false; }
     if (p.kind !== 'PCT') { toast('That is an admin request from an older version. Since v2.1 admins are the staff of the admin company: choose that company in your profile and enter the admin PIN.', 6000); return false; }
     try {
-      const r = await acceptTeam(p.obj, teamSwitch || !S.team);
+      const r = await acceptTeam(p.obj, teamSwitch || !S.team, opts);
       if (r.cancelled) return false;
       toast(r.msg, 4500); afterTeamChange();
       if (S.team.src) cloudSync(true).then(() => { afterTeamChange(); if (!$('profile').hidden) renderCoSelect($('pfCompany').value); });
@@ -3894,7 +4024,7 @@
     refreshTypes();
     renderTeamInfo();
     if (!$('profile').hidden) renderCoSelect($('pfCompany').value || (S.user && S.user.company) || '');
-    if (S.user && S.user.company && teamCos().length && !teamCos().includes(S.user.company)) {
+    if (!keyMode() && S.user && S.user.company && teamCos().length && !teamCos().includes(S.user.company)) {
       toast(`“${S.user.company}” is not on the new company list. Choose your company again.`, 5000);
       if ($('profile').hidden) openProfile(true);
     }
@@ -3902,7 +4032,7 @@
   function renderTeamInfo() {
     const t = S.team;
     const own = t && t.pol && t.pol.owner;
-    $('teamInfo').textContent = t ? `“${t.name}” v${t.rev} · ${teamCos().length} compan${teamCos().length === 1 ? 'y' : 'ies'} · ${own ? `admin company ${own}` : t.key ? 'no admin company' : `admin${t.admins.length === 1 ? '' : 's'}: ${t.admins.map((a) => a.n).join(', ')}`}${isAdmin() ? ' · you are an admin' : isInspector() && own ? ' · your company' : ' · contractor user'}`
+    $('teamInfo').textContent = t ? `“${t.name}” v${t.rev} · ${isAdmin() ? `${teamCos().length} compan${teamCos().length === 1 ? 'y' : 'ies'} · ` : ''}${own ? `admin company ${own}` : t.key ? 'no admin company' : `admin${t.admins.length === 1 ? '' : 's'}: ${t.admins.map((a) => a.n).join(', ')}`}${isAdmin() ? ' · you are an admin' : isInspector() && own ? ' · your company' : ' · contractor user'}`
       : ORG ? `Not joined yet. Open the join link from your ${ORG.name} admin.` : 'No company list on this phone yet. Open the join link from your admin.';
     $('teamShare').hidden = !t;
     $('adminLock').textContent = isAdmin() ? 'ADMIN' : canManage() ? 'PIN' : t ? 'VIEW' : 'SET UP';
@@ -3923,14 +4053,27 @@
   async function scanTeamQr(sw) {
     const t = await scanQr('Point the camera at the company list QR code on the admin’s phone');
     if (!t) return;
-    teamSwitch = !!sw; try { await importTeamText(t); } finally { teamSwitch = false; }
+    await handleInvite(t, sw);
+  }
+  /** A join link, an invite (company key, maybe with the list) or the list text itself. */
+  async function handleInvite(text, sw) {
+    const t = String(text || '').trim(), ck = (/[#&?]ck=([A-Za-z0-9%-]+)/.exec(t) || [])[1], hasList = /[#&]join=|^PCT[01]:/.test(t);
+    if (!hasList && !ck) { toast('That is not a PoleCam invite or join link', 4000); return false; }
+    if (hasList) { teamSwitch = !!sw || !S.team || !!ck; try { await importTeamText(t, { quiet: !!ck }); } finally { teamSwitch = false; } }
+    if (!ck) return true;
+    let key = ck; try { key = decodeURIComponent(ck); } catch (e) { /* as is */ }
+    if (keyMode()) { if (normKey(key) !== normKey(S.companyKey)) toast(`This phone already belongs to ${S.keyCompany}. To join another company: Settings → Reset user.`, 6000); return true; }
+    if ($('profile').hidden) openProfile(true);
+    $('pfKey').value = key; renderProfileMode();
+    toast('Company key filled in: enter your name, mobile and email, then Save', 4500);
+    return true;
   }
   async function pasteJoin(sw) {
     let t = '';
     try { t = (navigator.clipboard && navigator.clipboard.readText) ? await withTimeout(navigator.clipboard.readText(), 1500, 'slow') : ''; } catch (e) { t = ''; }
-    if (!/#join=|^PCT[01]:/.test(String(t).trim())) t = await promptText('Paste the join link', 'The link your admin sent (it contains #join=).', 'https://…#join=…', '');
+    if (!/#join=|[#&]ck=|^PCT[01]:/.test(String(t).trim())) t = await promptText('Paste the link', 'The join or invite link your admin or a coworker sent.', 'https://…#…', '');
     if (!t) return;
-    teamSwitch = !!sw || !!S.team; try { await importTeamText(t); } finally { teamSwitch = false; }
+    await handleInvite(t, sw || !!S.team);
   }
   $('pfPaste').addEventListener('click', () => pasteJoin(false));
   /** Welcome screen: join first; creating a new organisation only where this app is not tied to one. */
@@ -3940,6 +4083,7 @@
   }
   renderJoin();
   $('pfScan').addEventListener('click', () => scanTeamQr(false));
+  $('pfKeyScan').addEventListener('click', () => scanTeamQr(false));
   $('pfFile').addEventListener('click', () => openTeamFile(false));
   async function getList(sw) {
     const how = await ask(sw ? 'Switch to another company list' : 'Update the company list',
@@ -3956,7 +4100,7 @@
   let qrLink = '';
   async function showQr(title, note, text, file) {
     $('qrTitle').textContent = title; $('qrText').textContent = note || '';
-    $('qrLinkBtn').hidden = !(qrLink && text === qrLink);
+    $('qrLinkBtn').hidden = !(qrLink && text === qrLink); $('qrLinkBtn').textContent = /[#&]ck=/.test(text) ? 'Send the invite link' : 'Send the join link';
     qrFileData = file || null; $('qrFile').hidden = !file;
     const box = $('qrImg'); box.innerHTML = '';
     if (text.length > 2300 || !window.qrcode) box.innerHTML = '<p class="hint" style="color:#333">Too much for one QR code. Use Share as file.</p>';
@@ -4045,12 +4189,14 @@
     const packs = (Array.isArray(j.packs) ? j.packs : []).filter((p) => p && typeof p === 'object').map((p) => ({ name: s100(p.name), link: s100(p.link, 300), sizeMB: +p.sizeMB || 0, notes: s100(p.notes, 200) }))
       .filter((p) => p.link).slice(0, 50);
     const admins = (Array.isArray(j.admins) ? j.admins : []).map((c) => s100(c)).filter(Boolean).slice(0, 20);
-    return { name: s100(j.name), companies, admins, tasks, packs, scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '' };
+    return { name: s100(j.name), companies, admins, tasks, packs, scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you) };
   }
   let cloudBusy = null, cloudErr = '';
-  async function cloudRequest(src, init) {
+  async function cloudRequest(src, init, q) {
     const u = new URL(src.url);
-    if (!init) {
+    if (q && q.probe) { u.searchParams.set('probe', '1'); u.searchParams.set('v', APP_VER); } // only asks whether the sheet uses company keys
+    else if (q) { u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER); u.searchParams.set('company', ''); u.searchParams.set('ckey', q.ckey); }
+    else if (!init) {
       u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER);
       // the sheet sends only this company's tasks (v2.6 script); a company key makes that split strict
       u.searchParams.set('company', (S.user && S.user.company) || ''); // blank: the sheet sends the company list but no tasks
@@ -4076,7 +4222,7 @@
     cloudBusy = (async () => {
       try {
         const j = await cloudRequest(src);
-        if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : j && j.error === 'company key' ? 'your company access key is missing or wrong (Settings → Administration → Company access key; ask your admin)' : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
+        if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : j && j.error === 'company key' ? (keyMode() ? 'your company key no longer works: ask your admin for the new one (Settings → Reset user, then enter it)' : 'enter your company key (Settings → Your details; ask your admin)') : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
         S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j) }; cloudErr = ''; persist();
         const moved = typeof j.list === 'string' && j.list.length <= 120000 ? await applySheetList(j.list) : false;
         afterTeamChange(); if (!$('newProj').hidden) renderSites();
@@ -4091,11 +4237,12 @@
     el.hidden = !src; $('cloudSyncBtn').hidden = !src; $('companyKeyBox').hidden = true;
     if (!src) return;
     const c = S.cloud && S.cloud.src === src.url ? S.cloud : null;
-    el.textContent = `Online sheet${c && c.name ? ` “${c.name}”` : ''}: ${c ? `last read ${fmtTime(c.at)} · ${c.companies.length} companies · ${c.tasks.length} task${c.tasks.length === 1 ? '' : 's'}${c.scope === 'company' ? ` for ${S.user && S.user.company}` : c.scope === 'all' ? ' (all companies)' : ''} · ${c.packs.length} map packs` : 'not read yet'}${cloudErr ? ` · last try failed: ${cloudErr}` : ''}`;
-    $('companyKeyBox').hidden = !(S.companyKey || /company access key/.test(cloudErr)); $('companyKey').value = S.companyKey || ''; // only where the sheet asks for it
+    el.textContent = `Online sheet${c && c.name ? ` “${c.name}”` : ''}: ${c ? `last read ${fmtTime(c.at)} · ${isAdmin() ? `${c.companies.length} companies · ` : ''}${c.tasks.length} task${c.tasks.length === 1 ? '' : 's'}${c.scope === 'company' ? ` for ${S.user && S.user.company}` : c.scope === 'all' ? ' (all companies)' : ''} · ${c.packs.length} map packs` : 'not read yet'}${cloudErr ? ` · last try failed: ${cloudErr}` : ''}`;
+    $('companyKeyBox').hidden = keyMode() || !/company key/.test(cloudErr); $('companyKey').value = ''; // only where the sheet asks for it
   }
   $('companyKeySave').addEventListener('click', async () => {
-    S.companyKey = $('companyKey').value.trim().slice(0, 60); persist();
+    try { const co = await keyLogin($('companyKey').value); S.user = { ...(S.user || {}), company: co }; persist(); renderWho(); }
+    catch (e) { toast(e.message || String(e), 6000); return; }
     $('cloudInfo').textContent = 'Reading the online sheet…';
     const ok = await cloudSync(true); renderCloudInfo();
     toast(ok ? 'Company key saved · online sheet read' : `Saved, but the sheet was not read: ${cloudErr || 'no internet'}`, 5000);
@@ -4107,7 +4254,8 @@
   });
   window.addEventListener('online', () => { cloudSync(false); });
 
-  /* ---- New project form: name (a site from the online sheet, or typed), category, purpose, KMZ, notes ---- */
+  /* ---- New project form: site from the online sheet (or a typed name), category / purpose limited to the vendor's part
+     of the site, vendor and location from the site, and for PAT / cleanup / FAT the form details printed on the list ---- */
   const taskProject = (id) => allProjects().find((n) => pmeta(n).taskId === id);
   function visibleTasks() {
     const me = S.user && S.user.company, c = S.cloud || {};
@@ -4116,105 +4264,152 @@
     const seeAll = isAdmin() || !me || (pol().owner && isInspector());
     return open.filter((t) => !t.company || seeAll || coList(t.company).includes(normCo(me)));
   }
-  const siteName = (t) => [t.site, t.project].filter(Boolean).join(' ').slice(0, 100);
-  const rowName = (t) => (t.category ? t.project || siteName(t) : siteName(t)); // a task row keeps its project name; a site row is site + name
+  const siteName = (t) => [t.site, t.project].filter(Boolean).join(' ').slice(0, 100); // PLA ID + site name
   const rowCat = (t) => (t.category === 'Survey' ? 'survey' : t.category || '');
-  const siteVendor = (t) => { const me = S.user && S.user.company; return me && coList(t.company).includes(normCo(me)) ? me : t.contractor || t.company || ''; };
-  const siteDetail = (t) => [t.contractor && `Vendor: ${t.contractor}`, ...(t.extra || []).map(([k, v]) => `${k}: ${v}`), t.id && `ID: ${t.id}`].filter(Boolean).join(' · ');
-  /** What a project made from a sheet row keeps (printed on the forms, shown in Projects). */
-  const siteMeta = (t) => (t ? { taskId: t.id, site: t.category ? t.site || siteName(t) : siteName(t), contractor: siteVendor(t), siteLink: t.link || '', siteExtra: t.extra || [], ...(t.globeRep ? { globeRep: t.globeRep } : {}) } : {});
-  let npFile = null, npFileKind = '', npSite = null;
+  const vendorsOf = (t) => String((t && (t.contractor || t.company)) || '').split(/\s*(?:[,;\/&+\n]|\band\b)\s*/i).map((x) => x.trim()).filter(Boolean);
+  const isAdminCo = () => !!(pol().owner && S.user && normCo(S.user.company) === normCo(pol().owner));
+  /** The user's part of a site: a site with several vendors ("NOKIA , HUAXIN") gives the survey (As-Plan) to the first and
+      the construction (As-Built, PAT, defect cleanup, FAT) to the others. One vendor, or the admin company, does all. */
+  function siteRole(t) {
+    const vs = vendorsOf(t).map(normCo), i = vs.indexOf(normCo(S.user && S.user.company));
+    if (!t || vs.length < 2 || isAdminCo() || i < 0) return 'all';
+    return i === 0 ? 'plan' : 'build';
+  }
+  const ROLE_PURPOSES = { all: ['As-plan', 'As-built', 'PAT', 'Cleanup', 'FAT'], plan: ['As-plan'], build: ['As-built', 'PAT', 'Cleanup', 'FAT'] };
+  /** Vendor printed on the form: the user's company, or (admin) the vendor of that part of the site. */
+  function vendorFor(t, purpose) {
+    const me = (S.user && S.user.company) || '', vs = vendorsOf(t);
+    if (!t || !vs.length || (!isAdminCo() && vs.map(normCo).includes(normCo(me)))) return me;
+    if (vs.length < 2) return vs[0];
+    return purpose === 'As-plan' ? vs[0] : vs.slice(1).join(', ');
+  }
+  const extraOf = (t, key) => { const e = (t && t.extra || []).find(([k]) => normCo(k) === normCo(key)); return e ? e[1] : ''; };
+  const CAT_CODE = { survey: 'SURVEY', PAT: 'PAT', Cleanup: 'CLEANUP', FAT: 'FAT' };
+  /** Task category _ project name _ PLA ID _ site name, e.g. PAT_KV_MIN2463_TCFGACGRANDAVAODDS. */
+  const autoName = (t, cat) => [CAT_CODE[cat] || cat, extraOf(t, 'Project Name'), t.site, t.project].map((x) => String(x || '').trim()).filter(Boolean).join('_').slice(0, 100);
+  const siteDetail = (t) => [vendorsOf(t).length && `Vendor: ${vendorsOf(t).join(', ')}`, ...(t.extra || []).slice(0, 2).map(([k, v]) => `${k}: ${v}`), t.id && `ID: ${t.id}`].filter(Boolean).join(' · ');
+  /** What a project made from a sheet row keeps (shown in Projects, printed on the forms). */
+  const siteMeta = (t) => (t ? { taskId: t.id, siteLink: t.link || '', siteExtra: t.extra || [], ...(t.globeRep ? { globeRep: t.globeRep } : {}) } : {});
+  let npFile = null, npFileKind = '', npSite = null, npAuto = '';
   const npStageCat = () => ['Cleanup', 'FAT'].includes($('npCat').value);
-  const npRow = () => (npSite && rowName(npSite) === $('npName').value.trim() ? npSite : null);
-  /** Category and purpose follow each other; the KMZ slot is a reference route (Survey, PAT) or the previous stage's KMZ (Cleanup, FAT). */
+  const npRow = () => npSite;
+  /** Category and purpose follow each other within the user's part of the site; the rest of the form follows them. */
   function npSync(from) {
-    const cat = $('npCat'), pur = $('npPurpose');
+    const cat = $('npCat'), pur = $('npPurpose'), allowed = ROLE_PURPOSES[siteRole(npSite)];
+    [...pur.options].forEach((o) => { o.disabled = !allowed.includes(o.value); });
+    [...cat.options].forEach((o) => { o.disabled = o.value === 'survey' ? !allowed.some((x) => /^As-/.test(x)) : !allowed.includes(o.value); });
     if (from === 'purpose') cat.value = /^As-/.test(pur.value) ? 'survey' : pur.value;
     else if (cat.value !== 'survey') pur.value = cat.value;
-    else if (!/^As-/.test(pur.value)) pur.value = 'As-plan';
-    const k = cat.value, kind = npStageCat() ? 'stage' : 'ref';
+    else if (!/^As-/.test(pur.value) || !allowed.includes(pur.value)) pur.value = allowed.find((x) => /^As-/.test(x)) || pur.value;
+    if (!allowed.includes(pur.value)) { pur.value = allowed[0]; cat.value = /^As-/.test(pur.value) ? 'survey' : pur.value; }
+    const role = siteRole(npSite);
+    $('npScope').hidden = role === 'all';
+    $('npScope').textContent = role === 'plan' ? 'Your part of this site: the survey for the As-Plan.' : role === 'build' ? 'Your part of this site: As-Built, PAT, defect cleanup and FAT.' : '';
+    const k = cat.value, kind = npStageCat() ? 'stage' : 'ref', acc = k !== 'survey';
     if (npFile && npFileKind !== kind) { npFile = null; $('npKmzInput').value = ''; }
     $('npKmzLbl').textContent = k === 'Cleanup' ? 'PAT KMZ' : k === 'FAT' ? 'PAT / CLEANUP KMZ' : 'KMZ REFERENCE';
     $('npKmzBtn').textContent = npFile ? `📎 ${npFile.name}` : kind === 'stage' ? 'Choose KMZ…' : 'Choose KMZ… (optional)';
     $('npKmzBtn').classList.toggle('primary', k === 'Cleanup' && !npFile);
     $('npKmzClear').hidden = !npFile;
-    const hasSites = !!(S.team && S.team.src && visibleTasks().length);
-    $('npName').placeholder = kind === 'stage' && npFile ? 'Optional' : hasSites ? 'Pick ▾ or type a name' : 'Type a name';
+    if (npSite) { const a = autoName(npSite, k); if (!$('npName').value.trim() || $('npName').value === npAuto) $('npName').value = a; npAuto = a; }
+    $('npName').placeholder = kind === 'stage' && npFile ? 'Optional: taken from the KMZ' : 'Type a name';
+    $('npVendor').value = vendorFor(npSite, pur.value);
+    $('npAcc').hidden = !acc;
   }
   function renderSites() {
-    $('npSitesBtn').hidden = !(S.team && S.team.src);
+    const src = S.team && S.team.src, rows = src ? visibleTasks() : [];
+    $('npSiteBox').hidden = !src;
+    if (npSite && !rows.some((t) => t.id === npSite.id)) npSite = null;
+    $('npSiteLbl').textContent = npSite ? siteName(npSite) : rows.length ? 'Choose a site…' : 'No site listed for you: type a name below';
+    $('npSitesBtn').disabled = !!src && !rows.length && !!(S.cloud && S.cloud.src === src.url);
     if (!$('npSites').hidden) showSites(true);
     npSync(); renderSiteRow();
   }
   function showSites(on) {
     const box = $('npSites'), src = S.team && S.team.src;
     if (!on || !src) { box.hidden = true; return; }
-    const rows = visibleTasks(), read = !!(S.cloud && S.cloud.src === src.url), typed = $('npName').value.trim(), q = npRow() ? '' : typed.toLowerCase();
-    const list = (q ? rows.filter((t) => [rowName(t), t.site, t.id, t.contractor].some((x) => x && String(x).toLowerCase().includes(q))) : rows).slice(0, 60);
-    box.innerHTML = '';
+    const rows = visibleTasks(), read = !!(S.cloud && S.cloud.src === src.url), q = $('npSiteQ').value.trim().toLowerCase();
+    const list = (q ? rows.filter((t) => [siteName(t), t.id, t.contractor, extraOf(t, 'Project Name')].some((x) => x && String(x).toLowerCase().includes(q))) : rows).slice(0, 60);
+    const L = $('npSiteList'); L.innerHTML = '';
     for (const t of list) {
       const b = document.createElement('button'); b.type = 'button';
-      const n = document.createElement('b'); n.textContent = rowName(t); b.append(n);
-      const sub = [rowCat(t) && STAGE_LABEL[rowCat(t)], t.contractor, taskProject(t.id) && 'on this phone'].filter(Boolean).join(' · ');
+      const n = document.createElement('b'); n.textContent = siteName(t) || t.id; b.append(n);
+      const role = siteRole(t);
+      const sub = [rowCat(t) && STAGE_LABEL[rowCat(t)], vendorsOf(t).join(', '), role === 'plan' ? 'your part: As-Plan survey' : role === 'build' ? 'your part: construction' : '', taskProject(t.id) && 'on this phone'].filter(Boolean).join(' · ');
       if (sub) { const s = document.createElement('span'); s.textContent = sub; b.append(s); }
       b.addEventListener('click', () => pickSite(t));
-      box.appendChild(b);
+      L.appendChild(b);
     }
     const foot = document.createElement('div'); foot.className = 'foot';
     const info = document.createElement('span');
-    info.textContent = !read ? (cloudErr ? `Sheet not read (${cloudErr}): type a name` : navigator.onLine ? 'Reading the online sheet…' : 'Offline: type a name') : !rows.length ? 'No site listed for you: type a name' : q && !list.length ? 'Not in the sheet: a new name' : `${list.length < rows.length ? `${list.length} of ` : ''}${rows.length} from the online sheet`;
+    info.textContent = !read ? (cloudErr ? `Sheet not read (${cloudErr})` : navigator.onLine ? 'Reading the online sheet…' : 'Offline: type a name below') : !rows.length ? 'No site listed for you: type a name below' : q && !list.length ? 'No match' : `${list.length < rows.length ? `${list.length} of ` : ''}${rows.length} from the online sheet`;
     const r = document.createElement('button'); r.type = 'button'; r.className = 'btn sm'; r.textContent = '↻'; r.setAttribute('aria-label', 'Read the online sheet again');
     r.addEventListener('click', async () => { info.textContent = 'Reading the online sheet…'; await cloudSync(true); renderSites(); showSites(true); });
-    foot.append(info, r); box.appendChild(foot);
+    foot.append(info, r); L.appendChild(foot);
     box.hidden = false;
   }
   function pickSite(t) {
-    npSite = t; $('npName').value = rowName(t);
-    const k = rowCat(t); if (k) { $('npCat').value = k; npSync(); }
+    npSite = t; npAuto = '';
+    const k = rowCat(t); if (k && ROLE_PURPOSES[siteRole(t)].some((x) => (k === 'survey' ? /^As-/.test(x) : x === k))) $('npCat').value = k;
+    $('npName').value = ''; $('npLoc').value = siteName(t);
     if (t.notes && !$('npNotes').value.trim()) $('npNotes').value = t.notes;
-    $('npSites').hidden = true; $('npName').blur(); renderSiteRow();
+    if (t.globeRep && !$('npGlobe').value.trim()) $('npGlobe').value = t.globeRep;
+    $('npSites').hidden = true; $('npSiteLbl').textContent = siteName(t) || t.id;
+    npSync(); renderSiteRow();
   }
   function renderSiteRow() {
-    const t = npRow(), have = t && taskProject(t.id);
-    $('npSiteRow').hidden = !t; $('npSiteInfo').textContent = t ? siteDetail({ ...t, extra: (t.extra || []).slice(0, 2) }) : '';
+    const t = npSite, have = t && taskProject(t.id);
+    $('npSiteRow').hidden = !t; $('npSiteInfo').textContent = t ? siteDetail(t) : '';
     $('npSiteFolder').hidden = !(t && t.link); $('npSiteOpen').hidden = !have;
   }
+  function renderNpTypes(chosen) {
+    const box = $('npTypes'); box.innerHTML = '';
+    allInspTypes().forEach((t) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small'; b.textContent = t; b.setAttribute('aria-pressed', String(chosen.includes(t)));
+      b.addEventListener('click', () => b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true')));
+      box.appendChild(b);
+    });
+  }
+  const npTypesChosen = () => [...$('npTypes').querySelectorAll('.chip')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
   function npReset() {
     const last = S.npLast || {};
-    $('npName').value = ''; $('npNotes').value = ''; $('npKmzInput').value = ''; npFile = null; npSite = null;
+    ['npName', 'npNotes', 'npLoc', 'npGlobe', 'npSiteQ'].forEach((id) => { $(id).value = ''; });
+    $('npKmzInput').value = ''; npFile = null; npSite = null; npAuto = '';
     $('npCat').value = STAGE_LABEL[last.cat] ? last.cat : 'survey'; $('npPurpose').value = PURPOSE_LABEL[last.purpose] ? last.purpose : 'As-plan';
+    $('npRep').value = (S.user && S.user.name) || ''; $('npDate').value = todayIso(); renderNpTypes(allInspTypes());
     $('npSites').hidden = true; npSync(); renderSites();
   }
   $('newProjBtn').addEventListener('click', () => { npReset(); openSheet('newProj'); cloudSync(false).then(() => { if (!$('newProj').hidden) renderSites(); }); });
   $('npCat').addEventListener('change', () => npSync('cat'));
   $('npPurpose').addEventListener('change', () => npSync('purpose'));
-  $('npName').addEventListener('focus', () => { if (S.team && S.team.src) showSites(true); });
-  $('npName').addEventListener('input', () => { if (S.team && S.team.src) showSites(true); renderSiteRow(); });
-  $('npSitesBtn').addEventListener('click', () => showSites($('npSites').hidden));
-  ['npSites', 'npSitesBtn'].forEach((id) => $(id).addEventListener('mousedown', (e) => e.preventDefault())); // keep the keyboard on the name while picking
-  $('newProj').addEventListener('click', (e) => { if (!e.target.closest('#npSites, #npName, #npSitesBtn')) $('npSites').hidden = true; });
-  $('npSiteFolder').addEventListener('click', () => { const t = npRow(); if (t && t.link) openExternal(t.link); });
-  $('npSiteOpen').addEventListener('click', () => guard(async () => { const have = npRow() && taskProject(npRow().id); if (!have) return; S.project = have; persist(); renderPoles(); await closeAll(); fitProject(); toast(`Now working on: ${have}`); }));
+  $('npSitesBtn').addEventListener('click', () => { const open = $('npSites').hidden; showSites(open); if (open && visibleTasks().length > 8) setTimeout(() => $('npSiteQ').focus(), 50); });
+  $('npSiteQ').addEventListener('input', () => showSites(true));
+  $('newProj').addEventListener('click', (e) => { if (!e.target.closest('#npSites, #npSitesBtn')) $('npSites').hidden = true; });
+  $('npSiteClear').addEventListener('click', () => { npSite = null; if ($('npName').value === npAuto) $('npName').value = ''; npAuto = ''; $('npLoc').value = ''; renderSites(); });
+  $('npSiteFolder').addEventListener('click', () => { if (npSite && npSite.link) openExternal(npSite.link); });
+  $('npSiteOpen').addEventListener('click', () => guard(async () => { const have = npSite && taskProject(npSite.id); if (!have) return; S.project = have; persist(); renderPoles(); await closeAll(); fitProject(); toast(`Now working on: ${have}`); }));
   $('npKmzBtn').addEventListener('click', () => { $('npKmzInput').value = ''; $('npKmzInput').click(); });
   $('npKmzInput').addEventListener('change', (e) => { const f = e.target.files[0]; if (!f) return; npFile = f; npFileKind = npStageCat() ? 'stage' : 'ref'; npSync(); });
   $('npKmzClear').addEventListener('click', () => { npFile = null; $('npKmzInput').value = ''; npSync(); });
   $('npCreate').addEventListener('click', () => guard(async () => {
     const k = $('npCat').value, purpose = $('npPurpose').value, name = $('npName').value.trim().slice(0, 100), notes = $('npNotes').value.trim(), f = npFile;
-    const fromFile = npStageCat() && !!f;
+    const fromFile = npStageCat() && !!f, acc = k !== 'survey';
+    if (!ROLE_PURPOSES[siteRole(npSite)].includes(purpose)) { toast('That is not your part of this site'); return; }
     if (k === 'Cleanup' && !f) { toast('Choose the PAT KMZ'); return; }
     if (!name && !fromFile) { toast('Type a project name'); $('npName').focus(); return; }
     if (name && !fromFile && allProjects().includes(name)) { toast('A project with that name already exists'); return; }
-    const t = npRow(), sm = siteMeta(t);
+    const t = npSite, details = { site: $('npLoc').value.trim().slice(0, 120), contractor: $('npVendor').value.trim(),
+      ...(acc ? { vendorRep: (S.user && S.user.name) || '', globeRep: $('npGlobe').value.trim().slice(0, 100), inspTypes: npTypesChosen(), date: $('npDate').value || todayIso() } : {}), ...(notes ? { notes } : {}) };
+    const sm = { ...siteMeta(t), ...details };
     S.meta = S.meta || {};
-    LOG.info('project.new', { cat: k, sheet: !!t, kmz: f ? (fromFile ? 'stage' : 'ref') : '' });
+    LOG.info('project.new', { cat: k, sheet: !!t, role: siteRole(t), kmz: f ? (fromFile ? 'stage' : 'ref') : '' });
     if (fromFile) {
-      await importStageFile(f, k, { ...sm, ...(notes ? { notes } : {}) }, name || undefined);
+      await importStageFile(f, k, sm, name || undefined);
       S.npLast = { cat: k, purpose }; persist();
       npFile = null; npSite = null; await closeAll(); fitProject(); return;
     }
     S.projects.push(name);
-    S.meta[name] = k === 'survey' ? { mode: 'survey', purpose, ...sm } : { mode: 'acceptance', stage: k, site: '', contractor: '', globeRep: '', inspector: byLine(), ...sm };
-    if (notes) S.meta[name].notes = notes;
+    S.meta[name] = k === 'survey' ? { mode: 'survey', purpose, ...sm } : { mode: 'acceptance', stage: k, ...sm };
     S.npLast = { cat: k, purpose }; S.project = name; persist(); renderPoles();
     npFile = null; npSite = null; await closeAll();
     const label = `${PURPOSE_LABEL[k === 'survey' ? purpose : k]} “${name}” created`;
@@ -4226,11 +4421,13 @@
   /** The handover file: the acceptance KMZ with the PoleCam data inside (PAT → defect cleanup → FAT). */
   async function sharePackage() {
     if (!needPoints()) return;
+    if (!(await shareGate('share'))) return;
     const M = accModel(), blob = await buildAccKmz(M, true); busy(false);
     noteExport('sent');
     await shareFile(blob, `${accFileBase(M)}_share.kmz`, 'application/vnd.google-earth.kmz');
   }
   $('sendPat').addEventListener('click', () => guard(sharePackage));
+  $('xShare').addEventListener('click', () => guard(sharePackage));
   /** Save or send a file: the APK's share sheet, the browser's share sheet, or a download. */
   async function shareFile(blob, name, type) {
     if (NATIVE) {
@@ -4322,10 +4519,10 @@
   async function admStart() {
     const create = admMode === 'create' || !S.team;
     const P = pol(), F = formText();
-    const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice(), poleTypes: (P.poleTypes || []).slice(), adminUsers: (P.adminUsers || []).slice(), ...(P.web ? { web: P.web } : {}) };
+    const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice(), poleTypes: (P.poleTypes || []).slice(), adminUsers: (P.adminUsers || []).slice(), ...(P.web ? { web: P.web } : {}), ...(P.vendorRecords === false ? { vendorRecords: false } : {}) };
     $('admPoleTypes').value = typeLines(polDraft.poleTypes);
     $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = '';
-    $('admUsers').value = (P.adminUsers || []).join('\n');
+    $('admUsers').value = (P.adminUsers || []).join('\n'); $('admVendorRec').checked = P.vendorRecords !== false;
     renderOrgBox(create);
     if (create) {
       await newAdminKey(); // the new list's key
@@ -4365,6 +4562,7 @@
     const num = (id, lo, hi, dflt) => { const v = +$(id).value; return v >= lo && v <= hi ? v : dflt; };
     P.maxSpan = num('setMaxSpan', 5, 1000, 200); P.angleDeg = num('setAngle', 1, 90, 15); P.autoGap = num('setAutoGap', 10, 5000, 120);
     P.quality = $('admQuality').value === 'normal' ? 'normal' : 'strict';
+    if ($('admVendorRec').checked) delete P.vendorRecords; else P.vendorRecords = false;
     P.poleTypes = parseTypeLines($('admPoleTypes').value).filter((t) => !BUILTIN_TYPES.some((b) => b.p === t.p));
     P.packs = parsePackLines($('admPacks').value).packs; if (!P.packs.length) delete P.packs;
     if (!P.poleTypes.length) delete P.poleTypes;
@@ -4483,7 +4681,7 @@
   $('admOrg').addEventListener('click', () => guard(async () => {
     if (!S.team || !S.team.key) { toast('Save the list first'); return; }
     const web = webBase();
-    const o = { app: 'PoleCam', type: 'polecam-org', id: S.team.id, name: S.team.name, key: S.team.key, ...(web ? { web } : {}) };
+    const o = { app: 'PoleCam', type: 'polecam-org', id: S.team.id, name: S.team.name, key: S.team.key, ...(web ? { web } : {}), ...(S.team.src ? { src: { url: S.team.src.url } } : {}) };
     await shareFile(new Blob([JSON.stringify(o, null, 2)], { type: 'application/json' }), 'org.json', 'application/json');
   }, 'org.json not made'));
   /** The signed list goes to the sheet too (v2.9 script): phones that read the sheet take each new version by themselves. */
@@ -4971,16 +5169,11 @@
     if (S.dropSatTiles) { // v1.7: satellite imagery kept by older versions is removed (Esri allows offline imagery only in ArcGIS apps)
       try { await tx('tiles', 'readwrite', (st) => st.delete(IDBKeyRange.bound('satellite/', 'satellite/\uffff'))); delete S.dropSatTiles; persist(); } catch (e) { /* try again next start */ }
     }
-    if (pendingJoin) { await loadOrg(); await joinFromAddress(pendingJoin); } else loadOrg(); // a join link waits for the organisation check
+    if (pendingJoin || pendingKey) { await loadOrg(); await handleInvite(`${pendingJoin ? `#join=${pendingJoin}` : ''}${pendingKey ? `&ck=${pendingKey}` : ''}`, true); } else loadOrg(); // a link waits for the organisation check
     if (!profileOk()) openProfile(true);
     cloudSync(false);
   })();
-  window.addEventListener('hashchange', () => { const h = location.hash; if (/^#join=/.test(h)) { history.replaceState(null, '', location.pathname + location.search); joinFromAddress(h.slice(6)); } });
-  async function joinFromAddress(raw) {
-    let t = raw; try { t = decodeURIComponent(raw); } catch (e) { /* as is */ }
-    LOG.info('join.link', { len: t.length, had: !!S.team });
-    teamSwitch = true; try { await importTeamText(t); } finally { teamSwitch = false; }
-  }
+  window.addEventListener('hashchange', () => { const h = location.hash; if (/[#&](join|ck)=/.test(h)) { history.replaceState(null, '', location.pathname + location.search); handleInvite(h, true); } });
   // Files handed to other apps through Share are temporary: clear them each time the APK starts.
   if (NATIVE) nativeCall('Filesystem', 'rmdir', { path: 'share', directory: 'CACHE', recursive: true }).catch(() => {});
   // The APK already carries every file, so the offline cache is only for the website version.

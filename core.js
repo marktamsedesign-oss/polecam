@@ -103,6 +103,7 @@
       { tag: 0x010E, type: 2, bytes: ascii(desc) },            // ImageDescription
       { tag: 0x0131, type: 2, bytes: ascii('PoleCam') },        // Software
       { tag: 0x0132, type: 2, bytes: ascii(date) },             // DateTime
+      ...(meta.artist ? [{ tag: 0x013B, type: 2, bytes: ascii(meta.artist) }] : []), // Artist: who exported the photo
       { tag: 0x9C9B, type: 1, bytes: ucs2(meta.title || '') },   // XPTitle (Windows)
       { tag: 0x9C9C, type: 1, bytes: ucs2(desc) },               // XPComment (Windows)
       { tag: 0x8769, type: 4, bytes: u32(0) },                  // Exif IFD ptr (patched)
@@ -320,7 +321,8 @@
         `<LineString><tessellate>1</tessellate><coordinates>${s.a.lon.toFixed(8)},${s.a.lat.toFixed(8)},0 ${s.b.lon.toFixed(8)},${s.b.lat.toFixed(8)},0</coordinates></LineString></Placemark>`);
       route = `<Folder><name>Route (${o.spans.length} spans, ${o.spans.reduce((t, s) => t + s.len, 0).toFixed(0)} m)</name>\n${lines.join('\n')}\n</Folder>\n`;
     }
-    return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xmlEsc(o.project || 'PoleCam')}</name>\n${styles.join('\n')}\n${route}<Folder><name>Poles</name>\n${marks.join('\n')}\n</Folder></Document></kml>\n`;
+    const by = o.exportedBy ? `<description>${xmlEsc(o.exportedBy)}</description><ExtendedData><Data name="exported_by"><value>${xmlEsc(o.exportedBy)}</value></Data></ExtendedData>\n` : '';
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xmlEsc(o.project || 'PoleCam')}</name>\n${by}${styles.join('\n')}\n${route}<Folder><name>Poles</name>\n${marks.join('\n')}\n</Folder></Document></kml>\n`;
   }
 
   /* ---------------- DXF (R12 ASCII) ---------------- */
@@ -355,12 +357,13 @@
     const roadClasses = [...new Set(roadXY.map((r) => r.cls))];
     // colors: ACI
     const palette = [1, 5, 3, 6, 4, 30, 2, 140];
-    const layers = [['0', 7], ['POLE_LABEL', 7], ['ROAD_NAME', 8]];
+    const layers = [['0', 7], ['POLE_LABEL', 7], ['ROAD_NAME', 8], ...(o.exportedBy ? [['EXPORT_INFO', 8]] : [])];
     types.forEach((t, i) => layers.push([blockName(t), palette[i % palette.length]]));
     const roadColor = { OSM_ROAD_MAJOR: 9, OSM_ROAD_MINOR: 8, OSM_ROAD_PATH: 253 };
     roadClasses.forEach((c) => layers.push([c, roadColor[c] || 8]));
     if (spanXY.length) layers.push(['CABLE_ROUTE', 4], ['SPAN_LONG', 1], ['SPAN_LENGTH', 7]);
 
+    if (o.exportedBy) g(999, dxfText(o.exportedBy)); // a comment line: who exported the drawing
     g(0, 'SECTION'); g(2, 'HEADER');
     g(9, '$ACADVER'); g(1, 'AC1009');
     g(9, '$INSBASE'); g(10, 0); g(20, 0); g(30, 0);
@@ -396,6 +399,7 @@
     g(0, 'ENDSEC');
 
     g(0, 'SECTION'); g(2, 'ENTITIES');
+    if (o.exportedBy) { g(0, 'TEXT'); g(8, 'EXPORT_INFO'); g(10, minX.toFixed(3)); g(20, (minY - o.textHeight * 4).toFixed(3)); g(30, 0); g(40, o.textHeight.toFixed(3)); g(1, dxfText(o.exportedBy)); } // below the drawing, on its own layer
     for (const rd of roadXY) {
       if (rd.xy.length < 2) continue;
       g(0, 'POLYLINE'); g(8, rd.cls); g(66, 1); g(10, 0); g(20, 0); g(30, 0); g(70, 0);
@@ -431,13 +435,13 @@
   }
 
   /* ---------------- CSV ---------------- */
-  function buildCsv(points, zone) {
+  function buildCsv(points, zone, exportedBy) {
     const q = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-    const rows = [['pole_id', 'pole_type', 'latitude', 'longitude', `utm${zone}n_easting`, `utm${zone}n_northing`, 'gps_accuracy_m', 'pin_adjusted', 'captured', 'photo', 'surveyed_by']];
+    const rows = [['pole_id', 'pole_type', 'latitude', 'longitude', `utm${zone}n_easting`, `utm${zone}n_northing`, 'gps_accuracy_m', 'pin_adjusted', 'captured', 'photo', 'surveyed_by', ...(exportedBy ? ['exported_by'] : [])]];
     for (const p of points) {
       const u = utmForward(p.lat, p.lon, zone, p.lat < 0);
       rows.push([p.poleId, p.poleType, p.lat.toFixed(8), p.lon.toFixed(8), u.E.toFixed(3), u.N.toFixed(3),
-        Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : '', p.adjusted ? 'yes' : 'no', p.takenAt, p.photoName || '', p.by || '']);
+        Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : '', p.adjusted ? 'yes' : 'no', p.takenAt, p.photoName || '', p.by || '', ...(exportedBy ? [exportedBy] : [])]);
     }
     return '﻿' + rows.map((r) => r.map(q).join(',')).join('\r\n') + '\r\n';
   }

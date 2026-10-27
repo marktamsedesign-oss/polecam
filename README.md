@@ -59,12 +59,26 @@ The APK opens the same hosted app, so keep the GitHub Pages site online.
 |---|---|
 | **Admin** (you) | Admin company (e.g. GLOBE) + admin PIN, and on the *Admin users* list. Makes and changes the list, sends the join link. |
 | **Other admins / inspectors** | Only people you add: Manage → **Admin users** (one email per line), then they choose GLOBE in their profile and enter the PIN. |
-| **Everyone else** | Joins with your link, chooses their own company (vendor). Cannot open Manage, cannot choose GLOBE. |
+| **Everyone else** | Signs in with their **company key** (v2.10) or joins with your link. Records the PAT defects, the fixes and the FAT checks of their own projects (v2.10, see below). Cannot open Manage, cannot choose GLOBE. |
 
 - **Admin users:** blank = anyone of the admin company with the PIN (as before). When you list emails, only those people can choose the admin company or open Manage, even with the PIN. Removing someone takes their admin rights away when their phone next reads the list. The admin who saves always stays on it. Change the PIN too when someone leaves (Manage → *Change the admin PIN*).
 - **One list only (org.json):** Manage → **Tie the app to this list** → *Download org.json*, then upload `org.json` to the main folder of the GitHub repository (next to `index.html`). The website and the next APK build then carry it: new users only see *Join*, nobody can create another list in the app, and a join link or QR code of any other list is refused. To undo it, delete `org.json` from the repository. If you change the admin PIN twice, download org.json again and replace it (the admin screen reminds you).
 - Without org.json, a new user could still make a list of their own on their own phone. It never changes your list, your sheet or other phones (they only take versions signed with your PIN), but it confuses people, so tie the app once your list is ready.
 - **A phone that already has another list** (for example one made while testing): open your join link on it and tap *Switch*.
+
+## Signing in with a company key (v2.10)
+
+New users only enter **name, mobile, email and the company key**. The key tells the online sheet which company they belong to; they never choose a company and never see the list of companies.
+
+1. **Admin, once:** in the Apps Script editor run **makeCompanyKeys**. Each company gets a key such as `7KQ4-MX2P-9TRW` in the CompanyKeys tab (the admin company gets *Sees all tasks: Yes*).
+2. **Admin:** send each company its own key (Viber, SMS, email), only to the first person of that company.
+3. **First user of a company:** opens PoleCam → enters name, mobile, email and the key → **Save**. The phone joins your company list, its company is fixed (for example FADI), and only that company's sites appear.
+4. **Coworkers:** that user taps Settings → **Invite a coworker (QR)**. The coworker scans it with the phone camera (or gets the link), enters name, mobile and email → Save.
+- The company cannot be changed on the phone. Settings → **Reset user…** removes the name, company and key (projects and photos stay) so another key can be entered.
+- Delete or change a company's key in the CompanyKeys tab to cut that company off; its phones then show "your company key no longer works".
+- The website must be tied to your list with an org.json that carries the sheet address (download it again from Manage after updating to v2.10), so a new phone knows where to check the key. A phone that already has the list does not need it.
+- Company names are shown only to admins (Manage). The sheet sends other users only their own company.
+- Your admin phone (it holds the admin PIN) keeps choosing its company as before; it needs no key.
 
 ## The process: Survey → PAT → Defect cleanup → FAT (v2.5)
 
@@ -74,13 +88,19 @@ The APK opens the same hosted app, so keep the GitHub Pages site online.
 - The current project's **Workflow** checklist: what is done, what is next, and a *Next* button that opens the right screen. The strip above the navigation shows the next step too.
 - **Project details** (folded): rename, purpose, KMZ reference, remarks / notes, the form details of a PAT / FAT, *Share the KMZ*, delete.
 
-**New project form (v2.8)**
+**New project form (v2.10)**
 
 | Field | What to put |
 |---|---|
-| **Project name** | Tap the field (or **▾**) to pick a site from the online sheet, or type any name. Without a sheet, or with no site listed for your company, just type it. |
-| **Task category** | Survey · PAT · Defect Cleanup · FAT |
-| **Purpose** | As-Plan Creation · As-Built Creation · PAT · Defect Rectification · FAT. Category and purpose follow each other (a survey is As-Plan or As-Built). |
+| **Site** | Tap **Choose a site…** to pick one of your company's sites from the online sheet (search by site, PLA ID or vendor), or leave it and type a name. |
+| **Task category / Purpose** | Survey (As-Plan / As-Built) · PAT · Defect Cleanup (Defect Rectification) · FAT. On a site with two vendors in OSP VENDOR (e.g. `NOKIA , HUAXIN`) the **first** vendor can only pick the **As-Plan survey**, the **others** As-Built, PAT, Defect Cleanup and FAT. A site with one vendor, and the admin company, can pick everything. |
+| **Project name** | Filled in from the site: `Category_Project Name_PLA ID_Site Name`, e.g. `PAT_KV_MIN2463_TCFGACGRANDAVAODDS`. You can edit it. |
+| **Vendor (contractor)** | Your company (from the site's OSP VENDOR), not editable. |
+| **Location / site** | PLA ID + site name, e.g. `MIN2463 TCFGACGRANDAVAODDS`. |
+| **Contractor representative** | You (PAT, cleanup, FAT): printed as *Endorsed by*. |
+| **Globe representative** | Optional: printed as *Accepted by* when given. |
+| **Inspection type** | All ticked (blue); untick what does not apply. |
+| **Inspection date** | Today, or the date you set. |
 | **KMZ** | Survey / PAT: the **KMZ reference** (HLD route, homing, POI), optional. Defect Cleanup: the **PAT KMZ** (required). FAT: the **PAT / cleanup KMZ** (without it the FAT starts empty). For Cleanup / FAT with a KMZ the name may stay blank: it comes from the KMZ. |
 | **Remarks / notes** | Optional; kept with the project (Project details). |
 
@@ -89,9 +109,9 @@ The form remembers the last category you used.
 | Stage | Who | Steps (the app ticks them off) |
 |---|---|---|
 | **Survey** (As-plan or As-built) | survey team / contractor | Optional: load the **HLD KMZ** (route, homing, POI) as a reference · 1 Capture the poles (photo → ID scan → pin check; *No tag → NPT* for untagged poles) · 2 Link the route (follow the HLD or reroute where it is not doable) · 3 Export for design (KMZ, DXF, CSV, photos; file names carry ASPLAN / ASBUILT) · 4 Back up |
-| **PAT** (provisional acceptance) | Globe inspector with the contractor | 1 Form details · 2 **Record the defects**: only the elements with defects, each tagged N, D or MD (the defect form opens with the editor; a new PAT record cannot be saved without one) · 3 Export the Deficiency List · 4 **Share the PAT KMZ** with the contractor |
+| **PAT** (provisional acceptance) | contractor (construction vendor), Globe representative signs | 1 Form details · 2 **Record the defects**: only the elements with defects, each tagged N, D or MD (the defect form opens with the editor; a new PAT record cannot be saved without one) · 3 Export the Deficiency List · 4 **Share the PAT KMZ** with the contractor |
 | **Defect cleanup** | contractor | 1 Open the PAT KMZ (Projects → **+ New project** → Defect Cleanup → PAT KMZ) · 2 Walk to each red pin: tap it → **📷 Photo of the fix** (or *Fixed, no photo*), **💬 Comment** · 3 **Share the cleanup KMZ** for the FAT |
-| **FAT** (final acceptance) | Globe inspector | 1 Open the cleanup KMZ (or the PAT KMZ) · 2 Walk to each pin: **✓ Accept**, **📷 Accept with photo** or **✗ Reject** with a reason · 3 Export the final Deficiency List (as found → fixed → checked photos in Annex A) and the rectification report |
+| **FAT** (final acceptance) | contractor, Globe representative signs | 1 Open the cleanup KMZ (or the PAT KMZ) · 2 Walk to each pin: **✓ Accept**, **📷 Accept with photo** or **✗ Reject** with a reason · 3 Export the final Deficiency List (as found → fixed → checked photos in Annex A) and the rectification report |
 
 **Walking the pins (cleanup and FAT).** The map shows the pins and your position. The strip above the bottom bar always points to the nearest pin that still needs you (*Next: CC-0012 · 85 m NE of you*); tap it, or tap any pin, to open its card: the as-found photo, each item with its status, and big buttons. Every button saves at once; there is no separate Save. *Next pin ›* jumps to the next nearest one; *Open full record* opens the full editor.
 
@@ -166,7 +186,7 @@ The Excel/CSV punchlist also has *Days to rectify*, *Rectified by*, *Date verifi
 - **One clear reading is enough:** a known ID (CC-, WP-, SP-, FDU_ … with every digit read) at 85% or more is used at once. Less sure readings still need the same ID twice. Vertical IDs keep the reading way that worked last time.
 - The text reader is loaded when the camera opens, so the first ID of the day does not wait for it.
 - Measured here on the sample pictures with the processor slowed 4×: from the ID step opening to the editor, 3.0–8.7 s before and 1.2–4.7 s now (the stacked sample was also misread as CC-0047 before; it now reads CC-0457). Phones differ: the App log now records *reads* and *ms* for each ID, so send it if it still feels slow.
-- **Camera button position:** Settings → Camera → *Position*: Right (default), Center or Left, for the capture button on the map and the shutter in the camera.
+- **Camera button position:** Settings → Camera → *Position*: Center (default since v2.10), Right or Left, for the capture button on the map and the shutter in the camera.
 
 ## Camera checks, Pole ID reading, route (v1.5)
 
@@ -246,7 +266,7 @@ The admin keeps three lists in a Google Sheet on their own account; phones read 
 
 **On the phones:** Projects → **+ New project** → *Project name* **▾** lists the open rows for the user's company (admins see all). Picking one fills the project with its category, site and contractor; for a Defect Cleanup or FAT choose the KMZ in the same form. Settings → Administration shows when the sheet was last read, with *Sync online sheet*.
 
-### Updating the script (needed for v2.5 map packs, the Defect cleanup category, v2.6 company filtering and v2.9 list updates through the sheet)
+### Updating the script (needed for v2.5 map packs, the Defect cleanup category, v2.6 company filtering, v2.9 list updates through the sheet and v2.10 company keys)
 
 1. Open the online Google Sheet → **Extensions → Apps Script**.
 2. Click in the code (`Code.gs`), select all (Ctrl+A), delete, paste the whole new `PoleCam-online-sheet.gs`, **Save** (Ctrl+S).
@@ -435,3 +455,14 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Tie the app to your list** with org.json: no other lists, no *create* option for anyone.
 - **Faster ID reading** and the photo check during the ID step; **camera button on the right** by default (Settings → Camera).
 - Needs the updated `PoleCam-online-sheet.gs` (see "Updating the script") for the list updates; everything else works with the v2.7 script.
+
+## What changed in v2.10
+
+- **Vendors run the acceptance:** the construction vendor records the PAT defects, fixes them and does the FAT checks (accept / reject); the Globe representative signs the printed form. Manage → Field standards → *Vendors record PAT defects…* turns this off (only the admin company records and accepts).
+- **New project form for vendors:** site picker, category and purpose limited to the vendor's part of a two-vendor site, automatic project name (`Category_Project Name_PLA ID_Site Name`), vendor, location, contractor representative (you), optional Globe representative, all inspection types ticked, today's date.
+- **Inspected by** removed (the contractor representative is the user); the Globe representative is optional.
+- **Share the PAT / cleanup KMZ** and **Start FAT** are buttons on the Projects screen and the Export screen. They stop when nothing is recorded or there is no deficiency, and ask before going on when elements, defects or fixes have no photo.
+- **Company keys:** new users enter name, mobile, email and the company key (or scan a coworker's invite QR); the company is fixed on the phone (Settings → Reset user to change it). Users no longer see the list of companies.
+- **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
+- Export settings: **Reset to defaults** button. Camera button centred by default.
+- Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.

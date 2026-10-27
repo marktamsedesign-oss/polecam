@@ -429,6 +429,7 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
       pdf.line(M, pdf.H - 34, pdf.W - M, pdf.H - 34, { color: [0.82, 0.85, 0.87] });
       pdf.text(M, pdf.H - 28, model.footer, { size: 7.5, color: MUTED });
       pdf.text(pdf.W - M, pdf.H - 28, `Page ${i + 1} of ${total}`, { size: 7.5, color: MUTED, align: 'right' });
+      if (model.footer2) pdf.text(M, pdf.H - 19, model.footer2, { size: 6.5, color: MUTED }); // who exported the file
     });
     return pdf;
   }
@@ -457,7 +458,8 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
       }).join('\n');
       return `<Folder><name>${label[st]} (${list.length})</name>\n${marks}\n</Folder>`;
     }).join('\n');
-    return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xmlEsc(o.name)}</name>\n${styles}\n${own}\n${folders}\n</Document></kml>\n`;
+    const by = o.exportedBy ? `<description>${xmlEsc(o.exportedBy)}</description><ExtendedData><Data name="exported_by"><value>${xmlEsc(o.exportedBy)}</value></Data></ExtendedData>\n` : '';
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xmlEsc(o.name)}</name>\n${by}${styles}\n${own}\n${folders}\n</Document></kml>\n`;
   }
 
   /* ================= rectification report PDF ================= */
@@ -627,6 +629,7 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
       pdf.line(M, pdf.H - 34, pdf.W - M, pdf.H - 34, { color: [0.82, 0.85, 0.87] });
       pdf.text(M, pdf.H - 28, model.footer, { size: 7.5, color: MUTED });
       pdf.text(pdf.W - M, pdf.H - 28, `Page ${i + 1} of ${total}`, { size: 7.5, color: MUTED, align: 'right' });
+      if (model.footer2) pdf.text(M, pdf.H - 19, model.footer2, { size: 6.5, color: MUTED }); // who exported the file
     });
     return pdf;
   }

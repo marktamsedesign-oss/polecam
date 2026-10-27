@@ -130,6 +130,7 @@ textarea{min-height:90px;resize:vertical}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{min-height:42px;padding:0 16px;border-radius:999px;border:1px solid var(--line);background:var(--chip);color:var(--ink);font-weight:600}
 .chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+#mTypes .chip[aria-pressed=true],#npTypes .chip[aria-pressed=true]{background:#1c7ed6;border-color:#1c7ed6;color:#fff}
 .chip.small{min-height:36px;padding:0 12px;font-size:13px;font-weight:600}
 .hint{font-size:13px;color:var(--muted);margin:0}
 #wfSteps{display:flex;flex-direction:column}.step{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line2)}.step:last-child{border-bottom:0}.step .n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--chip);color:var(--muted);flex:none;margin-top:1px}.step.done .n{background:var(--ok);color:#fff}.step.now .n{background:var(--accent);color:var(--accent-ink)}.step .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.step b{font-size:14px}.step span{font-size:12.5px;color:var(--muted)}.step.done b{color:var(--muted);font-weight:600}
@@ -152,7 +153,9 @@ details.more>summary::-webkit-details-marker{display:none}
 details.more>summary::after{content:"\25B8";font-size:15px;transition:transform .15s}
 details.more[open]>summary::after{transform:rotate(90deg)}
 .morebody{display:flex;flex-direction:column;gap:12px;margin-top:12px}
-.combo{display:flex;gap:8px}.combo input{flex:1;min-width:0}.combo .btn{flex:none;width:48px;padding:0}
+.sitepick{justify-content:space-between;text-align:left;font-weight:600}.sitepick span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+#npSiteQ{border:0;border-bottom:1px solid var(--line2);border-radius:0}
+input[readonly]{background:var(--chip);color:var(--muted)}
 .suggest{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);max-height:280px;overflow:auto}
 .suggest > button{flex:none;display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:9px 12px;border:0;border-bottom:1px solid var(--line2);background:none;color:inherit;min-height:44px;width:100%}
 .suggest > button b{font-size:15px;overflow-wrap:anywhere}.suggest > button span{font-size:12px;color:var(--muted)}
@@ -570,6 +573,10 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </header>
   <div class="body">
     <p class="hint" id="exportScope"></p>
+    <div class="group" id="xShareBox" hidden>
+      <button class="btn primary" id="xShare" type="button">Share the PAT KMZ (for defect cleanup / FAT)</button>
+      <p class="warnline" id="xShareWarn" hidden></p>
+    </div>
     <label class="frow xpick"><span class="lbl">FORMAT</span><select id="xFormat" aria-label="Export format"></select></label>
     <div id="accExports" style="display:contents" hidden>
       <div class="xcard">
@@ -680,6 +687,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="rows">
       <button class="rowbtn" id="editMe" type="button"><span class="ic"><svg><use href="#i-user"/></svg></span><span class="t"><b id="whoBox">–</b><span id="whoSub">Name, mobile, email and company</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
     </div>
+    <div class="row"><button class="btn sm primary" id="inviteBtn" type="button" hidden>Invite a coworker (QR)</button><button class="btn sm" id="resetUser" type="button">Reset user…</button></div>
     <div class="sectionh">Field work</div>
     <div class="rows">
       <button class="rowbtn" id="goCamera" type="button"><span class="ic"><svg><use href="#i-cam"/></svg></span><span class="t"><b>Camera</b><span id="camSub">ID scan after each photo, orientation</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
@@ -708,7 +716,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <p class="hint help">One company on the list is the <b>admin company</b> (e.g. Globe). Its admin users enter the admin PIN once and become admins and inspectors: they manage this list, add deficiencies and verify rectifications. Everyone else is a contractor user. New users join with the admin's join link or QR code; later versions come from the online sheet by themselves. A phone only takes versions made with the admin PIN.</p>
     <div class="sectionh">About</div>
     <div class="group">
-      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.9.0</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
+      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.10.0</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
       <p class="hint" id="policyInfo" style="margin:0"></p>
       <label class="check"><input type="checkbox" id="setShowHelp"><span>Keep the help text on every screen open</span></label>
     </div>
@@ -785,6 +793,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <p class="hint mono" id="savePreview">–</p>
       <p class="hint">Projects themselves always stay in the app's private storage, which other apps cannot read.</p>
     </div>
+    <button class="btn" id="expReset" type="button">Reset to defaults</button>
   </div>
 </section>
 
@@ -837,6 +846,11 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <div class="row between" style="flex-wrap:nowrap"><span class="cursub" id="curSub"></span><span class="badge cat" id="projBadge">SURVEY</span></div>
       <div id="wfSteps"></div>
       <button class="btn primary" id="wfNext" type="button">Next</button>
+      <div id="accActs" hidden style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn primary" id="sendPat" type="button">Share the PAT KMZ (for defect cleanup / FAT)</button>
+        <button class="btn primary" id="startFat" type="button">Start FAT from this PAT on this phone</button>
+        <p class="warnline" id="shareWarn" hidden></p>
+      </div>
     </div>
     <details class="group more" id="curMore">
       <summary>Project details</summary>
@@ -856,13 +870,10 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
           <p class="hint" id="accStageInfo" style="font-weight:700;color:var(--ink)"></p>
           <label class="field">LOCATION / SITE<input type="text" id="mSite" autocomplete="off" placeholder="e.g. KABAN_MIN660"></label>
           <label class="field">VENDOR (CONTRACTOR)<input type="text" id="mContractor" autocomplete="off" placeholder="e.g. LASAYA RCA BUILDERS INC."></label>
-          <label class="field">CONTRACTOR REPRESENTATIVE<input type="text" id="mVendorRep" autocomplete="off"></label>
-          <label class="field">GLOBE REPRESENTATIVE<input type="text" id="mGlobe" autocomplete="off"></label>
-          <label class="field">INSPECTED BY<input type="text" id="mInspector" autocomplete="off"></label>
+          <label class="field">CONTRACTOR REPRESENTATIVE (you)<input type="text" id="mVendorRep" autocomplete="off" readonly></label>
+          <label class="field">GLOBE REPRESENTATIVE (optional, signs the form)<input type="text" id="mGlobe" autocomplete="off"></label>
           <div class="field"><span class="lbl">INSPECTION TYPE</span><div class="chips" id="mTypes"></div></div>
           <label class="field">INSPECTION DATE<input type="date" id="mDate"></label>
-          <button class="btn primary" id="sendPat" type="button">Share the PAT KMZ (for defect cleanup / FAT)</button>
-          <button class="btn" id="startFat" type="button">Start FAT from this PAT on this phone</button>
         </div>
         <button class="btn danger" id="delProject">Delete this project…</button>
         <div id="delProjConfirm" hidden style="display:flex;flex-direction:column;gap:10px"><p style="margin:0" id="delProjText"></p><div class="row"><button class="btn grow" id="delProjNo">Keep</button><button class="btn grow" id="delProjYes" style="background:var(--bad);border-color:var(--bad);color:#fff">Delete project</button></div></div>
@@ -878,18 +889,31 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </header>
   <div class="body">
     <div class="group">
-      <div class="field">
-        <label class="lbl" for="npName">PROJECT NAME</label>
-        <div class="combo"><input type="text" id="npName" autocomplete="off" autocapitalize="characters" placeholder="Type a name"><button class="btn" id="npSitesBtn" type="button" aria-label="Sites from the online sheet" hidden>▾</button></div>
-        <div class="suggest" id="npSites" hidden></div>
-        <div class="row" id="npSiteRow" hidden><span class="hint grow" id="npSiteInfo"></span><button class="btn sm" id="npSiteFolder" type="button" hidden>Folder</button><button class="btn sm primary" id="npSiteOpen" type="button" hidden>Open</button></div>
+      <div class="field" id="npSiteBox" hidden>
+        <span class="lbl">SITE (ONLINE SHEET)</span>
+        <button class="btn sitepick" id="npSitesBtn" type="button"><span id="npSiteLbl">Choose a site…</span><span aria-hidden="true">▾</span></button>
+        <div class="suggest" id="npSites" hidden>
+          <input type="search" id="npSiteQ" placeholder="Search site, PLA ID or vendor" autocomplete="off" aria-label="Search the sites">
+          <div id="npSiteList" style="display:flex;flex-direction:column"></div>
+        </div>
+        <div class="row" id="npSiteRow" hidden><span class="hint grow" id="npSiteInfo"></span><button class="btn sm" id="npSiteFolder" type="button" hidden>Folder</button><button class="btn sm primary" id="npSiteOpen" type="button" hidden>Open</button><button class="btn sm" id="npSiteClear" type="button" aria-label="No site">✕</button></div>
       </div>
       <label class="field">TASK CATEGORY<select id="npCat"><option value="survey">Survey</option><option value="PAT">PAT</option><option value="Cleanup">Defect Cleanup</option><option value="FAT">FAT</option></select></label>
       <label class="field">PURPOSE<select id="npPurpose"><option value="As-plan">As-Plan Creation</option><option value="As-built">As-Built Creation</option><option value="PAT">PAT</option><option value="Cleanup">Defect Rectification</option><option value="FAT">FAT</option></select></label>
+      <p class="hint" id="npScope" hidden></p>
+      <label class="field">PROJECT NAME<input type="text" id="npName" autocomplete="off" autocapitalize="characters" placeholder="Type a name"></label>
+      <label class="field">VENDOR (CONTRACTOR)<input type="text" id="npVendor" readonly></label>
+      <label class="field">LOCATION / SITE<input type="text" id="npLoc" autocomplete="off" placeholder="PLA ID and site name"></label>
       <div class="field">
         <span class="lbl" id="npKmzLbl">KMZ REFERENCE</span>
         <div class="row" style="flex-wrap:nowrap"><button class="btn grow" id="npKmzBtn" type="button">Choose KMZ…</button><button class="btn" id="npKmzClear" type="button" aria-label="Remove the KMZ" hidden>✕</button></div>
         <input type="file" id="npKmzInput" accept=".kmz,.kml,.zip,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/zip,application/xml,text/xml,application/octet-stream" hidden>
+      </div>
+      <div id="npAcc" hidden style="display:flex;flex-direction:column;gap:12px">
+        <label class="field">CONTRACTOR REPRESENTATIVE (you)<input type="text" id="npRep" readonly></label>
+        <label class="field">GLOBE REPRESENTATIVE (optional, signs the form)<input type="text" id="npGlobe" autocomplete="off"></label>
+        <div class="field"><span class="lbl">INSPECTION TYPE</span><div class="chips" id="npTypes"></div></div>
+        <label class="field">INSPECTION DATE<input type="date" id="npDate"></label>
       </div>
       <label class="field">REMARKS / NOTES<textarea id="npNotes" style="min-height:60px" placeholder="Optional"></textarea></label>
       <button class="btn primary" id="npCreate" type="button">Create project</button>
@@ -947,7 +971,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <label class="field">FULL NAME <input type="text" id="pfName" autocomplete="name" autocapitalize="words" placeholder="e.g. Juan Dela Cruz"></label>
     <label class="field">MOBILE NUMBER <input type="tel" id="pfMobile" autocomplete="tel" inputmode="tel" placeholder="e.g. 0917 123 4567"></label>
     <label class="field">EMAIL <input type="email" id="pfEmail" autocomplete="email" inputmode="email" autocapitalize="off" placeholder="name@company.com"></label>
-    <div class="field"><span class="lbl">COMPANY</span><select id="pfCompany"></select><p class="hint" id="pfTeam"></p></div>
+    <div class="field" id="pfKeyBox" hidden>
+      <span class="lbl">COMPANY KEY</span>
+      <div class="row" style="flex-wrap:nowrap"><input type="text" id="pfKey" placeholder="e.g. 7KQ4-MX2P-9TRW" autocomplete="off" autocapitalize="characters" spellcheck="false" style="flex:1" aria-label="Company key"><button class="btn" id="pfKeyScan" type="button" aria-label="Scan an invite QR code">QR</button></div>
+      <p class="hint" id="pfKeyInfo">From your admin, or scan a coworker's invite QR code.</p>
+    </div>
+    <div class="field" id="pfCoBox"><span class="lbl">COMPANY</span><select id="pfCompany"></select><p class="hint" id="pfTeam"></p></div>
     <div class="group" id="pfJoin" hidden>
       <h3>Join your team</h3>
       <p class="hint" id="pfJoinText">Open the join link your admin sent you, or scan the admin’s QR code.</p>
@@ -1018,6 +1047,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="row"><label class="field" style="flex:1">Maximum span (m)<input type="number" id="setMaxSpan" step="1" min="5"></label><label class="field" style="flex:1">Angle pole from (°)<input type="number" id="setAngle" step="1" min="1" max="90"></label></div>
         <label class="field">Link in capture order: skip gaps longer than (m)<input type="number" id="setAutoGap" step="5" min="10"></label>
         <label class="field">Extra pole prefixes for everyone, one per line (prefix, then a name)<textarea id="admPoleTypes" style="min-height:60px" placeholder="PLDT PLDT pole"></textarea></label>
+        <label class="check"><input type="checkbox" id="admVendorRec"><span>Vendors record PAT defects and accept fixes at FAT (the Globe representative signs the printed form). Off: only the admin company does.</span></label>
         <label class="field">Photo sharpness required<select id="admQuality"><option value="strict">Strict (recommended)</option><option value="normal">Normal: refuse only clearly blurry</option></select></label>
       </div>
       <div class="group">
