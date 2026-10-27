@@ -38,7 +38,7 @@
     return { ...POL_DEF, ...p, form: { ...(p.form || {}) }, defects: p.defects || DEF_CHECK, inspTypes: p.inspTypes || POL_DEF.inspTypes };
   }
   const formText = () => window.PoleForms.formText(pol().form);
-  /** Users of the inspecting company (and admins) add deficiencies and verify; everyone else can only rectify. */
+  /** Staff of the admin company add deficiencies and verify; everyone else (contractors) can only rectify. */
   const isInspector = () => { const o = pol().owner; return !o || !S.user || String(S.user.company || '').toLowerCase() === o.toLowerCase(); };
   const DEF = {
     project: 'Default project', projects: ['Default project'],
@@ -255,14 +255,47 @@
     if (id === 'profile' && !profileOk()) setTimeout(() => { openProfile(true); toast('Enter your details to start using PoleCam', 3000); }, 0);
   }
 
+  /* ================= help text: folded behind an "i" so screens stay short ================= */
+  function setupHelp() {
+    const isHelp = (el) => el.matches && el.matches('p.hint') && (!el.id || el.classList.contains('help')) && !el.classList.contains('mono');
+    const fold = (host, hints, before) => {
+      if (!hints.length) return;
+      const det = document.createElement('details'); det.className = 'help'; det.open = !!S.showHelp;
+      const sum = document.createElement('summary'); sum.textContent = 'Help'; det.appendChild(sum);
+      host.insertBefore(det, before);
+      hints.forEach((h) => det.appendChild(h));
+    };
+    document.querySelectorAll('.sheet .group, .sheet > .body').forEach((c) => {
+      const hints = [...c.children].filter(isHelp); if (!hints.length) return;
+      fold(c, hints, hints[0]);
+    });
+    document.querySelectorAll('.xcard').forEach((card) => {
+      const head = card.querySelector(':scope > .head'), p = head && head.querySelector('p'); if (!p) return;
+      p.className = 'hint'; fold(card, [p], head.nextSibling);
+    });
+  }
+  setupHelp();
+  $('setShowHelp').checked = !!S.showHelp;
+  $('setShowHelp').addEventListener('change', () => { S.showHelp = $('setShowHelp').checked; persist(); document.querySelectorAll('details.help').forEach((d) => { d.open = S.showHelp; }); });
+
   /* ================= map tiles (cached in IndexedDB) ================= */
-  const SOURCES = {
-    street: { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', max: 19, attr: '© OpenStreetMap contributors' },
-    satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', max: 19, attr: 'Imagery © Esri' },
-  };
+  /* Online street map: several free tile servers; when one stops answering the app moves to the next (or the user picks one). */
+  const STREET_SOURCES = [
+    { id: 'osm', name: 'OpenStreetMap', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', max: 19, attr: '© OpenStreetMap contributors', key: 'street' },
+    { id: 'carto', name: 'CARTO Voyager', url: 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', max: 19, attr: '© OpenStreetMap contributors © CARTO', key: 'carto' },
+    { id: 'esri', name: 'Esri World Street Map', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', max: 19, attr: 'Map © Esri, HERE, Garmin, OpenStreetMap contributors', key: 'esristreet' },
+  ];
+  const SAT_SOURCE = { id: 'sat', name: 'Esri World Imagery', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', max: 19, attr: 'Imagery © Esri' };
+  const streetState = { auto: 0, fails: 0, ok: 0, failed: 0, lastWarn: 0 };
+  /** The street source in use: the one chosen in Settings, or the first one still answering. */
+  function streetSource() {
+    const want = S.streetSrc && S.streetSrc !== 'auto' ? STREET_SOURCES.find((x) => x.id === S.streetSrc) : null;
+    return want || STREET_SOURCES[Math.min(streetState.auto, STREET_SOURCES.length - 1)];
+  }
+  const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.0.0';
+  const APP_VER = '2.1.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `PoleCam/${APP_VER} (+${SITE})`;
@@ -277,29 +310,70 @@
   const nativeGet = (url, headers, responseType) => nativeCall('CapacitorHttp', 'request',
     { url, method: 'GET', headers: { 'User-Agent': APP_UA(), ...(headers || {}) }, responseType: responseType || 'blob', connectTimeout: 20000, readTimeout: 60000 });
   const tileUrl = (src, z, x, y) => SOURCES[src].url.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+  /* At most a few tile requests at a time: a flood of requests is what makes slow connections give up. */
+  const TILE_PAR = 6, TILE_MS = 20000; let tileBusy = 0; const tileQueue = [];
+  const tileSlot = () => new Promise((res) => { if (tileBusy < TILE_PAR) { tileBusy++; res(); } else tileQueue.push(res); });
+  const tileFree = () => { const next = tileQueue.shift(); if (next) next(); else tileBusy--; };
+  /** One tile image from the network (native stack in the APK, fetch on the website); throws on any failure. */
+  async function getTileBlob(url) {
+    if (NATIVE) {
+      const r = await withTimeout(nativeGet(url), TILE_MS, 'timeout');
+      if (r.status !== 200) throw new Error(`HTTP ${r.status}`);
+      return new Blob([nativeBytes(r.data)], { type: 'image/png' });
+    }
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), TILE_MS);
+    try {
+      const r = await fetch(url, { mode: 'cors', credentials: 'omit', signal: ctl.signal });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return await r.blob();
+    } finally { clearTimeout(t); }
+  }
+  function streetFailed() {
+    streetState.fails++; streetState.failed++;
+    if (streetState.fails < 5) return;
+    streetState.fails = 0;
+    const auto = !S.streetSrc || S.streetSrc === 'auto';
+    if (auto && streetState.auto < STREET_SOURCES.length - 1) {
+      const from = STREET_SOURCES[streetState.auto].name; streetState.auto++;
+      toast(`Street map: ${from} is not answering — trying ${streetSource().name}`, 4000);
+      if (mainBase && mainBase.options && mainBase.options.src === 'street') mainBase.redraw();
+      if (pinBase && pinBase.options && pinBase.options.src === 'street') pinBase.redraw();
+    } else if (navigator.onLine !== false && Date.now() - streetState.lastWarn > 300000) { // the browser believes it is online, yet no server answers
+      streetState.lastWarn = Date.now();
+      toast(activePackId() ? 'Map servers not reachable — switch to the offline map (layers button)' : 'Map servers not reachable: check the internet connection, or get an offline map pack', 5000);
+    }
+  }
   async function fetchTile(src, z, x, y) {
-    const k = `${src}/${z}/${x}/${y}`;
     // Satellite imagery is never stored: Esri allows offline imagery only in its own ArcGIS apps.
     if (src === 'satellite') return null;
+    const k = `${streetSource().key}/${z}/${x}/${y}`;
     let hit = null;
     try { hit = await dbGet('tiles', k); } catch (e) { /* ignore */ }
-    // Viewed tiles are reused for 7 days (the tile servers' caching rules), then refreshed when online; offline any age is used.
-    if (hit && (!navigator.onLine || Date.now() - (hit.t || 0) < TILE_KEEP_MS)) return hit.blob;
-    if (!navigator.onLine) return null;
+    // Viewed tiles are reused for 7 days (the tile servers' caching rules), then refreshed; a stale tile is still shown when the server fails.
+    if (hit && Date.now() - (hit.t || 0) < TILE_KEEP_MS) return hit.blob;
+    if (hit && navigator.onLine === false) return hit.blob; // the browser is sure there is no connection
+    await tileSlot();
     try {
+      const url = tileUrl(src, z, x, y);
       let blob;
-      if (NATIVE && src === 'street') {
-        const r = await nativeGet(tileUrl(src, z, x, y));
-        if (r.status !== 200) return hit ? hit.blob : null;
-        blob = new Blob([nativeBytes(r.data)], { type: 'image/png' });
-      } else {
-        const r = await fetch(tileUrl(src, z, x, y), { mode: 'cors', credentials: 'omit' });
-        if (!r.ok) return hit ? hit.blob : null;
-        blob = await r.blob();
-      }
+      try { blob = await getTileBlob(url); } catch (e) { blob = await getTileBlob(url); } // one retry
+      streetState.fails = 0; streetState.ok++;
       dbPut('tiles', { k, blob, t: Date.now() }).catch(() => {});
       return blob;
-    } catch (e) { return hit ? hit.blob : null; }
+    } catch (e) {
+      streetFailed();
+      return hit ? hit.blob : null;
+    } finally { tileFree(); }
+  }
+  /** Tries one small tile from every map server, for the Maps screen ("why is the map blank?"). */
+  async function mapCheck() {
+    const out = [];
+    for (const src of STREET_SOURCES.concat([SAT_SOURCE])) {
+      const url = src.url.replace('{z}', 6).replace('{x}', 54).replace('{y}', 30), t0 = Date.now(); // a tile over Mindanao
+      try { const b = await withTimeout(getTileBlob(url), 12000, 'timeout'); out.push({ src, ok: b.size > 0, ms: Date.now() - t0 }); }
+      catch (e) { out.push({ src, ok: false, ms: Date.now() - t0, err: e.message || String(e) }); }
+    }
+    return out;
   }
   const CachedLayer = L.TileLayer.extend({
     createTile(coords, done) {
@@ -308,9 +382,10 @@
       img.onload = () => done(null, img);
       img.onerror = (e) => done(e, img);
       const src = this.options.src;
-      fetchTile(src, coords.z, coords.x, coords.y).then((blob) => {
+      const get = src === 'satellite' && NATIVE ? tileSlot().then(() => getTileBlob(tileUrl(src, coords.z, coords.x, coords.y)).catch(() => null).finally(tileFree)) : fetchTile(src, coords.z, coords.x, coords.y);
+      get.then((blob) => {
         if (blob) { img._ou = URL.createObjectURL(blob); img.src = img._ou; }
-        else if (navigator.onLine && !(NATIVE && src === 'street')) img.src = tileUrl(src, coords.z, coords.x, coords.y); // uncached fallback
+        else if (!NATIVE && src === 'satellite') img.src = tileUrl(src, coords.z, coords.x, coords.y); // satellite is never cached
         else done(new Error('offline'), img);
       });
       return img;
@@ -483,8 +558,7 @@
     $('projectName').textContent = S.project;
     const cat = taskCat(), mb = $('modeBadge');
     mb.textContent = cat.toUpperCase(); mb.className = `badge cat ${cat.toLowerCase()}`;
-    $('listLbl').textContent = cat;
-    $('pointCount').textContent = pts.length;
+    $('listLbl').textContent = 'Records';
     renderSummary(pts);
     if (typeof drawAreas === 'function') drawAreas();
   }
@@ -502,7 +576,7 @@
   function renderSummary(pts) {
     const acc = isAcc(), st = projStats(pts), m = pmeta();
     const pill = (cls, text) => `<span class="pill ${cls}">${C.xmlEsc(text)}</span>`;
-    if (!pts.length) { $('sumTitle').textContent = `${taskCat()} · nothing captured yet`; $('sumSub').textContent = acc ? 'Tap the camera to record the first element' : 'Tap the camera to capture the first pole'; $('sumPills').innerHTML = ''; return; }
+    if (!pts.length) { $('sumTitle').textContent = 'Nothing captured yet'; $('sumSub').textContent = acc ? 'Tap the camera to record the first element' : 'Tap the camera to capture the first pole'; $('sumPills').innerHTML = ''; return; }
     if (acc) {
       $('sumTitle').textContent = `${st.total} element${st.total === 1 ? '' : 's'} · ${st.items} deficienc${st.items === 1 ? 'y' : 'ies'}${st.notes ? ` · ${st.notes} note${st.notes === 1 ? '' : 's'}` : ''}`;
       $('sumSub').textContent = [m.site, m.contractor].filter(Boolean).join(' · ') || (st.items ? `${st.itemsOpen} open · ${st.itemsRect} rectified · ${st.itemsVer} verified` : 'No deficiencies recorded');
@@ -1359,7 +1433,7 @@
     const stage = pmeta().stage || 'PAT', insp = isInspector();
     $('addDefBtn').hidden = !insp || !$('defPanel').hidden;
     $('defRoleHint').hidden = insp;
-    $('defRoleHint').textContent = `Deficiencies are added and verified by ${pol().owner || 'the inspecting company'}. You can add after photos and mark items rectified.`;
+    $('defRoleHint').textContent = `Deficiencies are added and verified by ${pol().owner || 'the admin company'}. You can add after photos and mark items rectified.`;
     ed.defs.forEach((d, i) => {
       const stt = defStatusOf(d);
       const card = document.createElement('div'); card.className = 'defcard' + (stt === 'Rectified' ? ' rect' : stt === 'Verified' ? ' ver' : stt === 'Note' ? ' note' : '');
@@ -1475,7 +1549,7 @@
     $('defPhotoPrev').src = u; $('defPhotoPrev').hidden = false; $('defPhotoBtn').textContent = 'Retake defect photo';
   }
   $('addDefBtn').addEventListener('click', () => {
-    if (!isInspector()) { toast(`Only ${pol().owner || 'the inspecting company'} adds deficiencies`); return; }
+    if (!isInspector()) { toast(`Only ${pol().owner || 'the admin company'} adds deficiencies`); return; }
     defDraft = { cat: (CATS_FOR[ed.element] || ['Other'])[0], items: new Set(), sev: 'Minor', blob: null };
     $('defNotes').value = ''; $('defPhotoPrev').hidden = true; $('defPhotoBtn').textContent = 'Take defect photo';
     renderDefPanel(); $('defPanel').hidden = false; $('addDefBtn').hidden = true;
@@ -1691,7 +1765,6 @@
   }
   function openProjects() { renderProjects(); renderTasks(); openSheet('projects'); cloudSync(false).then(() => { if (!$('projects').hidden) renderTasks(); }); }
   $('projectBtn').addEventListener('click', openProjects);
-  $('projNavBtn').addEventListener('click', openProjects);
   $('addProject').addEventListener('click', async () => {
     const name = $('newProject').value.trim();
     if (!name) { toast('Type a project name'); return; }
@@ -2455,10 +2528,9 @@
     renderWho(); renderTeamInfo(); cloudSync(false).then(renderCloudInfo);
     $('camSub').textContent = `${S.readId !== false ? 'ID scan after each photo' : 'No ID scan'} · ${S.idOrient === 'v' ? 'vertical' : 'horizontal'} IDs · sharpness ${QUAL_NAME[effectiveQuality()] || 'Strict'}${S.team ? ' (set by admin)' : ''}`;
     const packs = Object.values(S.packs || {}).filter((p) => p.done);
-    $('mapsSub').textContent = packs.length ? `${packs.length} map pack${packs.length === 1 ? '' : 's'} on this phone${S.base === 'offline' ? ' · in use' : ''}` : 'No map pack on this phone yet';
+    $('mapsSub').textContent = `${streetSource().name}${packs.length ? ` · ${packs.length} offline pack${packs.length === 1 ? '' : 's'}${S.base === 'offline' ? ' (in use)' : ''}` : ' · no offline pack yet'}`;
     const P = pol();
-    $('policyInfo').textContent = S.team ? `Policies from “${S.team.name}” v${S.team.rev}: inspecting company ${P.owner || 'not set (everyone may add deficiencies)'} · max span ${P.maxSpan} m · angle from ${P.angleDeg}° · photo check ${QUAL_NAME[P.quality] || 'Strict'}.` : 'No company list yet: the built-in defaults apply (max span 200 m, strict photo check).';
-    $('adminLock').textContent = isAdmin() ? 'ADMIN' : S.team ? 'VIEW' : 'SET UP';
+    $('policyInfo').textContent = S.team ? `Policies from “${S.team.name}” v${S.team.rev}: admin company ${P.owner || 'not set (everyone may manage and verify)'} · max span ${P.maxSpan} m · angle from ${P.angleDeg}° · photo check ${QUAL_NAME[P.quality] || 'Strict'}.` : 'No company list yet: the built-in defaults apply (max span 200 m, strict photo check).';
     $('adminRowTitle').textContent = S.team ? `${S.team.name}` : 'Company list and policies';
     refreshStorageInfo();
   }
@@ -2518,16 +2590,16 @@
   $('goMaps2').addEventListener('click', () => $('offlineBtn').click());
   $('goStorage').addEventListener('click', async () => { openSheet('setStorage'); await refreshStorageInfo(); });
   $('goAdmin').addEventListener('click', () => {
-    if (isAdmin()) openAdmin('manage');
+    if (canManage()) openAdmin('manage');
     else if (!S.team) { if (!S.user || !S.user.name) { toast('Enter your details first (Account), then create the list', 4000); openProfile(false); } else openAdmin('create'); }
     else showPolicies();
   });
   /** What a user (not an admin) sees of the list: who the admins are, the policies, and how to get updates. */
   function showPolicies() {
     const t = S.team, P = pol(), F = formText();
-    ask(`${t.name} · version ${t.rev}`, [`Admin${t.admins.length === 1 ? '' : 's'}: ${t.admins.map((a) => a.n).join(', ')}`, `${teamCos().length} companies on the list`,
-      `Inspecting company: ${P.owner || 'not set'}`, `Form: ${F.company} · ${F.title}`, `Max span ${P.maxSpan} m · angle pole from ${P.angleDeg}° · photo check ${QUAL_NAME[P.quality] || 'Strict'}`,
-      '', 'Only an admin can change these. Use “Update list” to take the admin’s latest version, or “Ask to become an admin”.'].join('\n'), [{ label: 'Close', value: true, primary: true }]);
+    ask(`${t.name} · version ${t.rev}`, [`Admin company: ${P.owner || (t.admins && t.admins.length ? `not set (admins: ${t.admins.map((a) => a.n).join(', ')})` : 'not set')}`, `${teamCos().length} companies on the list`,
+      `Form: ${F.company} · ${F.title}`, `Max span ${P.maxSpan} m · angle pole from ${P.angleDeg}° · photo check ${QUAL_NAME[P.quality] || 'Strict'}`,
+      '', `Only staff of ${P.owner || 'the admin company'} with the admin PIN can change these. Use “Update list” to take the latest version.`].join('\n'), [{ label: 'Close', value: true, primary: true }]);
   }
   /* ================= you + company list ================= */
   /* Everyone enters their name, mobile, email and company once. Company names come from a list kept by an admin on
@@ -2536,9 +2608,12 @@
   /** A list must be well formed before it is stored: a crafted list could otherwise break the settings screen. */
   function validTeam(b) {
     const str = (v, max) => typeof v === 'string' && v.length > 0 && v.length <= max;
+    const ke = b && b.keyEnc;
     return !!b && b.t === 'polecam-team' && str(b.id, 40) && str(b.name, 100) && Number.isInteger(b.rev) && b.rev >= 1
-      && Array.isArray(b.admins) && b.admins.length >= 1 && b.admins.length <= 20
+      && Array.isArray(b.admins) && b.admins.length <= 20 && (b.admins.length >= 1 || str(b.key, 200))
       && b.admins.every((a) => !!a && str(a.n, 100) && str(a.k, 200) && (a.c == null || (typeof a.c === 'string' && a.c.length <= 100)))
+      && (b.key == null || str(b.key, 200)) && (b.prevKey == null || str(b.prevKey, 200))
+      && (ke == null || (typeof ke === 'object' && str(ke.salt, 60) && str(ke.iv, 40) && str(ke.data, 2000)))
       && Array.isArray(b.co) && b.co.length >= 1 && b.co.length <= 300 && b.co.every((c) => str(c, 100))
       && (b.src == null || (typeof b.src === 'object' && /^https:\/\/\S+$/.test(String(b.src.url || '')) && String(b.src.url).length <= 300 && (b.src.key == null || str(b.src.key, 100))))
       && (b.pol == null || validPol(b.pol));
@@ -2556,14 +2631,14 @@
   }
   if (S.team && !validTeam(S.team)) { S.team = null; persist(); }
   /** Short code that tells two lists apart even when their names look the same. */
-  const listCode = (b) => `${String(b.id).replace(/[^A-Za-z0-9]/g, '').slice(-4)}-${String(b.admins[0].k).replace(/[^A-Za-z0-9]/g, '').slice(20, 24)}`.toUpperCase();
+  const listCode = (b) => { const id = String(b.id).replace(/[^A-Za-z0-9]/g, ''); return `${id.slice(0, 4)}-${id.slice(-4)}`.toUpperCase(); };
   const teamCos = () => {
     if (S.team && S.team.src && S.cloud && S.cloud.src === S.team.src.url && S.cloud.companies.length) return S.cloud.companies; // online sheet
     return S.team && Array.isArray(S.team.co) ? S.team.co : [];
   };
   const profileOk = () => !!(S.user && S.user.name && S.user.mobile && S.user.email && S.user.company && (!teamCos().length || teamCos().includes(S.user.company)));
-  const isAdmin = () => !!(S.adminKey && S.team && (S.team.admins || []).some((a) => a.k === S.adminKey.pub));
-  const signerName = () => (S.team && S.team.admins && S.team.admins[S.team.k] ? S.team.admins[S.team.k].n : 'admin');
+  const isAdmin = () => !!(S.adminKey && S.team && (S.team.key === S.adminKey.pub || (S.team.admins || []).some((a) => a.k === S.adminKey.pub)));
+  const signerName = () => (S.team ? (S.team.key ? `the admin company${S.team.pol && S.team.pol.owner ? ` (${S.team.pol.owner})` : ''}` : S.team.admins && S.team.admins[S.team.k] ? S.team.admins[S.team.k].n : 'admin') : 'admin');
   let profileFirst = false;
   function renderCoSelect(sel) {
     const cos = teamCos(), box = $('pfCompany');
@@ -2572,7 +2647,8 @@
       box.disabled = false;
       box.innerHTML = '<option value="">Choose your company…</option>' + cos.map((c) => `<option${c === sel ? ' selected' : ''}>${C.xmlEsc(c)}</option>`).join('');
     }
-    $('pfTeam').textContent = S.team ? `From the company list “${S.team.name}” (code ${listCode(S.team)}, version ${S.team.rev}, by ${signerName()}).${sel && !cos.includes(sel) ? ` “${sel}” is no longer on the list: choose again.` : ''}` : '';
+    const own = pol().owner;
+    $('pfTeam').textContent = S.team ? `List “${S.team.name}” v${S.team.rev}${own ? ` · ${own} is the admin company (its staff need the admin PIN)` : ''}.${sel && !cos.includes(sel) ? ` “${sel}” is no longer on the list: choose again.` : ''}` : '';
     $('pfJoin').hidden = !!cos.length;
   }
   function openProfile(first) {
@@ -2597,6 +2673,14 @@
       : !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) ? 'Enter a valid email address.'
         : !company ? (teamCos().length ? 'Choose your company.' : 'Get the company list from your admin first (below).') : '';
     if (err) { $('pfErr').textContent = err; $('pfErr').hidden = false; return; }
+    const own = pol().owner;
+    if (own && company.toLowerCase() === own.toLowerCase() && hasListKey(S.team) && !isAdmin()) { // the admin company is for its own staff
+      const pin = await askPin(`Admin PIN of ${own}`, `${own} is the admin company. Its staff enter the admin PIN once; contractors choose their own company.`);
+      if (pin == null) return;
+      const jwk = await decPriv(S.team.keyEnc, pin);
+      if (!jwk) { $('pfErr').textContent = `Wrong admin PIN. Only ${own} staff with the PIN can choose ${own}.`; $('pfErr').hidden = false; return; }
+      S.adminKey = { pub: S.team.key, priv: jwk };
+    }
     S.user = { name, mobile, email: email.toLowerCase(), company }; persist();
     profileFirst = false; await closeSheet();
     renderWho(); toast(`Saved: ${byLine()}`);
@@ -2641,7 +2725,20 @@
     const json = m[2] === '1' ? new TextDecoder().decode(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()) : new TextDecoder().decode(raw);
     return { kind: m[1], obj: JSON.parse(json) };
   }
-  async function pinHash(pin, salt) { return b64u.enc(new Uint8Array(await crypto.subtle.digest('SHA-256', enc8(`${salt}:${pin}`)))); }
+  /* The list's private key travels inside the list, encrypted with the admin PIN (PBKDF2 → AES-GCM). */
+  async function pinKey(pin, saltB64) {
+    const base = await crypto.subtle.importKey('raw', enc8(pin), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64u.dec(saltB64), iterations: 120000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  }
+  async function encPriv(jwk, pin) {
+    const salt = b64u.enc(crypto.getRandomValues(new Uint8Array(16))), iv = crypto.getRandomValues(new Uint8Array(12));
+    const data = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await pinKey(pin, salt), enc8(JSON.stringify(jwk))));
+    return { salt, iv: b64u.enc(iv), data: b64u.enc(data) };
+  }
+  async function decPriv(ke, pin) {
+    try { const out = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64u.dec(ke.iv) }, await pinKey(pin, ke.salt), b64u.dec(ke.data)); return JSON.parse(new TextDecoder().decode(out)); }
+    catch (e) { return null; }
+  }
 
   /* ---- small dialog ---- */
   function ask(title, text, buttons) {
@@ -2664,24 +2761,27 @@
     let body;
     try { body = JSON.parse(obj.b); } catch (e) { body = null; }
     if (!validTeam(body)) throw new Error('This is not a PoleCam company list');
-    const signer = Number.isInteger(obj.k) ? body.admins[obj.k] : null;
-    if (!signer || !(await verifyText(obj.b, obj.s, signer.k))) throw new Error('Not accepted: this company list is damaged or was changed after the admin signed it');
+    const signer = obj.k === -1 ? (body.key ? { n: 'admin company', k: body.key } : null) : obj.k === -2 ? (body.prevKey ? { n: 'admin company', k: body.prevKey } : null) : Number.isInteger(obj.k) ? body.admins[obj.k] : null;
+    if (!signer || !(await verifyText(obj.b, obj.s, signer.k))) throw new Error('Not accepted: this company list is damaged or was changed after it was signed');
     const seen = (S.teamSeen = S.teamSeen || {})[body.id] || 0;
     if (body.rev < seen) throw new Error(`Not accepted: this is version ${body.rev} of “${body.name}”, older than version ${seen} this phone already had`);
     const cur = S.team;
     if (cur && cur.id === body.id) {
       if (body.rev <= cur.rev) return { same: true, msg: `This phone already has the latest list (version ${cur.rev})` };
-      if (!cur.admins.some((a) => a.k === signer.k)) throw new Error(`Not accepted: this update was signed by ${signer.n}, who is not an admin of “${cur.name}” on this phone`);
+      const trusted = [cur.key, ...(cur.admins || []).map((a) => a.k)].filter(Boolean);
+      if (!trusted.includes(signer.k)) throw new Error(`Not accepted: this update of “${cur.name}” was not made with its admin PIN${signer.n !== 'admin company' ? ` (signed by ${signer.n})` : ''}`);
     } else {
       if (cur && !allowSwitch) throw new Error(`Not accepted: this is a different company list (code ${listCode(body)}), not an update of “${cur.name}” (code ${listCode(cur)}). To change lists, use Settings → Administration → Switch to another list.`);
       const ok = await ask(cur ? 'Switch to a different company list?' : 'Use this company list?',
-        `${body.name} (code ${listCode(body)})\nAdmin${body.admins.length === 1 ? '' : 's'}: ${body.admins.map((a) => a.n).join(', ')}\n${body.co.length} compan${body.co.length === 1 ? 'y' : 'ies'}: ${body.co.slice(0, 8).join(', ')}${body.co.length > 8 ? ', …' : ''}`
+        `${body.name} (code ${listCode(body)})\n${body.pol && body.pol.owner ? `Admin company: ${body.pol.owner}` : body.admins.length ? `Admin${body.admins.length === 1 ? '' : 's'}: ${body.admins.map((a) => a.n).join(', ')}` : 'No admin company set'}\n${body.co.length} compan${body.co.length === 1 ? 'y' : 'ies'}: ${body.co.slice(0, 8).join(', ')}${body.co.length > 8 ? ', …' : ''}`
         + (cur ? `\n\nThis is NOT an update of “${cur.name}” (code ${listCode(cur)}): it is another list, made by whoever holds its admin key. Switch only if your admin told you to.` : ''),
         [{ label: 'Cancel', value: false }, { label: cur ? 'Switch' : 'Use this list', value: true, primary: true }]);
       if (!ok) return { cancelled: true };
     }
+    const wasAdmin = isAdmin();
     S.team = { ...body, b: obj.b, s: obj.s, k: obj.k }; S.teamSeen[body.id] = Math.max(seen, body.rev); persist();
-    return { ok: true, msg: `Company list “${body.name}” version ${body.rev}: ${body.co.length} compan${body.co.length === 1 ? 'y' : 'ies'}` };
+    const note = wasAdmin && !isAdmin() && cur && cur.id === body.id ? ' The admin PIN was changed: enter the new PIN under Manage to stay an admin.' : '';
+    return { ok: true, msg: `Company list “${body.name}” version ${body.rev}: ${body.co.length} compan${body.co.length === 1 ? 'y' : 'ies'}.${note}` };
   }
   let teamSwitch = false; // set only by Settings → Switch to another list (or when the phone has no list yet)
   async function importTeamText(text) {
@@ -2689,7 +2789,7 @@
     let p = null;
     try { p = await unpackShare(text); } catch (e) { p = null; }
     if (!p) { toast('That is not a PoleCam company list', 4000); return false; }
-    if (p.kind !== 'PCT') { toast('That is an admin request. The admin adds it in Settings → Administration → Manage (admin) → Add an admin.', 5000); return false; }
+    if (p.kind !== 'PCT') { toast('That is an admin request from an older version. Since v2.1 admins are the staff of the admin company: choose that company in your profile and enter the admin PIN.', 6000); return false; }
     try {
       const r = await acceptTeam(p.obj, teamSwitch || !S.team);
       if (r.cancelled) return false;
@@ -2708,12 +2808,13 @@
   }
   function renderTeamInfo() {
     const t = S.team;
-    $('teamInfo').textContent = t ? `“${t.name}” · code ${listCode(t)} · version ${t.rev} · ${teamCos().length} compan${teamCos().length === 1 ? 'y' : 'ies'} · admin${t.admins.length === 1 ? '' : 's'}: ${t.admins.map((a) => a.n).join(', ')}${isAdmin() ? ' · you are an admin' : ''}`
-      : 'No company list on this phone yet. Get it from your PoleCam admin, or create it if you are the admin.';
+    const own = t && t.pol && t.pol.owner;
+    $('teamInfo').textContent = t ? `“${t.name}” v${t.rev} · ${teamCos().length} compan${teamCos().length === 1 ? 'y' : 'ies'} · ${own ? `admin company ${own}` : t.key ? 'no admin company' : `admin${t.admins.length === 1 ? '' : 's'}: ${t.admins.map((a) => a.n).join(', ')}`}${isAdmin() ? ' · you are an admin' : isInspector() && own ? ' · your company' : ' · contractor user'}`
+      : 'No company list on this phone yet. Get it from your admin, or create it if you are the admin.';
     $('teamShare').hidden = !t;
-    $('teamManage').hidden = !isAdmin();
+    $('adminLock').textContent = isAdmin() ? 'ADMIN' : canManage() ? 'PIN' : t ? 'VIEW' : 'SET UP';
+    $('teamManage').hidden = !canManage();
     $('teamCreate').hidden = !!t;
-    $('adminAsk').hidden = !t || isAdmin();
     $('teamSwitch').hidden = !t;
     renderCloudInfo();
   }
@@ -2981,44 +3082,52 @@
     } catch (e) { $('admTestOut').textContent = `Could not reach it: ${e.message}. Check the URL and that the web app is deployed for “Anyone”.`; }
   });
 
-  /* ---- admin: create and manage the list ---- */
-  let admMode = 'manage', admDraft = null, adminUnlocked = false;
+  /* ---- admin: create and manage the list ----
+     One company on the list is the admin company. The list is signed with one key pair ("list key"); its private half travels
+     inside the list, encrypted with the admin PIN, so any phone whose user enters the PIN can make the next version. */
+  let admMode = 'manage', admDraft = null, admPinCache = '';
+  const hasListKey = (t) => !!(t && t.key && t.keyEnc);
+  /** Can this phone open the admin screen at all? (admin company member with a modern list, holder of the key, or a legacy admin) */
+  const canManage = () => !!S.team && (isAdmin() || (hasListKey(S.team) && isInspector()));
   function openAdmin(mode) {
     if (!cryptoOk()) return;
     admMode = mode;
-    $('adminTitle').textContent = mode === 'request' ? 'Ask to become an admin' : mode === 'create' ? 'Create the company list' : 'Administration';
-    const setPin = !S.adminPin;
-    $('admPin').value = ''; $('admPin2').value = ''; $('admPin2').hidden = !setPin;
-    $('admLockTitle').textContent = setPin ? 'Set your admin PIN' : 'Admin PIN';
-    $('admLockHint').textContent = setPin ? 'This PIN protects the company list on this phone. Keep it private; it cannot be recovered.' : 'Enter your admin PIN.';
-    const locked = setPin || !adminUnlocked;
-    $('admLock').hidden = !locked; $('admMain').hidden = true;
+    const create = mode === 'create' || !S.team, migrate = !create && !hasListKey(S.team);
+    $('adminTitle').textContent = create ? 'Create the company list' : 'Administration';
+    $('admPin').value = ''; $('admPin2').value = ''; $('admPin2').hidden = !(create || migrate);
+    $('admLockTitle').textContent = create || migrate ? 'Set the admin PIN' : 'Admin PIN';
+    $('admLockHint').textContent = create ? 'Staff of the admin company enter this PIN once to become admins and inspectors. Keep it inside the admin company; it can be changed later.'
+      : migrate ? 'This list was made by an older version. Set the admin PIN once; from then on, staff of the admin company use it.' : `Enter the admin PIN of ${pol().owner || 'the admin company'}.`;
+    $('admLock').hidden = false; $('admMain').hidden = true;
     openSheet('admin');
-    if (!locked) admStart();
   }
   $('admUnlock').addEventListener('click', async () => {
     const pin = $('admPin').value.trim();
     if (!/^\d{4,8}$/.test(pin)) { toast('The PIN is 4 to 8 digits'); return; }
-    if (!S.adminPin) {
+    const create = admMode === 'create' || !S.team, migrate = !create && !hasListKey(S.team);
+    if (create || migrate) {
       if (pin !== $('admPin2').value.trim()) { toast('The two PINs do not match'); return; }
-      const salt = uid(); S.adminPin = { salt, hash: await pinHash(pin, salt) }; persist();
-    } else if (await pinHash(pin, S.adminPin.salt) !== S.adminPin.hash) { toast('Wrong PIN'); $('admPin').value = ''; return; }
-    adminUnlocked = true; $('admLock').hidden = true; admStart();
+      if (migrate && !isAdmin()) { toast('Only an admin of the older list can set its PIN'); return; }
+      admPinCache = pin;
+    } else {
+      $('admUnlock').disabled = true;
+      try {
+        const jwk = await decPriv(S.team.keyEnc, pin); // the PIN is checked every time, even on a phone that already holds the key
+        if (!jwk) { toast('Wrong admin PIN'); $('admPin').value = ''; return; }
+        S.adminKey = { pub: S.team.key, priv: jwk }; persist(); admPinCache = pin;
+      } finally { $('admUnlock').disabled = false; }
+    }
+    $('admLock').hidden = true; await admStart();
   });
   async function admStart() {
-    if (!S.adminKey) await newAdminKey();
-    const me = () => (!$('profile').hidden && $('pfName').value.trim()) || (S.user && S.user.name) || 'Admin';
-    if (admMode === 'request') {
-      await closeSheet();
-      const text = await packShare('PCA', { n: me(), c: (S.user && S.user.company) || '', k: S.adminKey.pub });
-      showQr('Admin request', `Show this to an admin of “${S.team ? S.team.name : 'the list'}”. They tap Settings → Administration → Manage (admin) → Add an admin and scan it. You become an admin when you update to the list they share next.`, text, null);
-      return;
-    }
+    const create = admMode === 'create' || !S.team;
     const P = pol(), F = formText();
     const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice() };
-    if (admMode === 'create' || !S.team) admDraft = { id: uid(), name: '', co: [], admins: [{ n: me(), k: S.adminKey.pub }], rev: 0, src: null, pol: polDraft };
-    else admDraft = { id: S.team.id, name: S.team.name, co: S.team.co.slice(), admins: S.team.admins.map((a) => ({ ...a })), rev: S.team.rev, src: S.team.src || null, pol: polDraft };
-    if (admMode === 'create' && S.user && S.user.company && !admDraft.co.length) admDraft.co.push(S.user.company);
+    if (create) {
+      await newAdminKey(); // the new list's key
+      admDraft = { id: uid(), name: '', co: [], admins: [], rev: 0, src: null, pol: polDraft, newKey: true };
+      if (S.user && S.user.company) { admDraft.co.push(S.user.company); if (!polDraft.owner) polDraft.owner = S.user.company; }
+    } else admDraft = { id: S.team.id, name: S.team.name, co: S.team.co.slice(), admins: (S.team.admins || []).map((a) => ({ ...a })), rev: S.team.rev, src: S.team.src || null, pol: polDraft, newKey: !hasListKey(S.team) };
     $('admUrl').value = (admDraft.src && admDraft.src.url) || ''; $('admReadKey').value = (admDraft.src && admDraft.src.key) || '';
     $('admWriteKey').value = S.onlineAdminKey || ''; $('admTestOut').textContent = '';
     $('admName').value = admDraft.name; $('admNewCo').value = '';
@@ -3030,6 +3139,7 @@
     $('setDefCat').innerHTML = cats.map((c) => `<option>${C.xmlEsc(c)}</option>`).join('');
     $('setDefItems').value = (polDraft.defects[cats[0]] || []).join('\n');
     $('setMaxSpan').value = polDraft.maxSpan; $('setAngle').value = polDraft.angleDeg; $('setAutoGap').value = polDraft.autoGap; $('admQuality').value = polDraft.quality === 'normal' ? 'normal' : 'strict';
+    $('admChangePin').hidden = create || admDraft.newKey;
     $('admMain').hidden = false; renderAdmDraft();
   }
   /** Reads the policy fields back into the draft (called on Save). */
@@ -3076,22 +3186,10 @@
       b.addEventListener('click', () => { admDraft.co.splice(i, 1); renderAdmDraft(); });
       row.append(t, b); box.appendChild(row);
     });
-    const ab = $('admAdmins'); ab.innerHTML = '';
-    admDraft.admins.forEach((a, i) => {
-      const row = document.createElement('div'); row.className = 'co-item';
-      const t = document.createElement('span'); t.textContent = `${a.n}${a.c ? ` (${a.c})` : ''}${a.k === S.adminKey.pub ? ' · you' : ''}`;
-      row.appendChild(t);
-      if (a.k !== S.adminKey.pub) {
-        const b = document.createElement('button'); b.type = 'button'; b.className = 'btn danger'; b.textContent = 'Remove';
-        b.addEventListener('click', () => { admDraft.admins.splice(i, 1); renderAdmDraft(); });
-        row.appendChild(b);
-      }
-      ab.appendChild(row);
-    });
     const own = $('admOwner'), cur = own.value || admDraft.pol.owner || '';
-    own.innerHTML = '<option value="">Not set: everyone may add and verify deficiencies</option>' + admDraft.co.map((c) => `<option${c === cur ? ' selected' : ''}>${C.xmlEsc(c)}</option>`).join('');
+    own.innerHTML = '<option value="">Not set: every user may manage, add and verify</option>' + admDraft.co.map((c) => `<option${c === cur ? ' selected' : ''}>${C.xmlEsc(c)}</option>`).join('');
     if (cur && !admDraft.co.includes(cur)) own.value = '';
-    $('admRev').textContent = admDraft.rev ? `Saving makes version ${admDraft.rev + 1}. Phones that have version ${admDraft.rev} accept it because you are an admin on their list.` : 'Saving makes version 1 of a new list.';
+    $('admRev').textContent = admDraft.rev ? `Saving makes version ${admDraft.rev + 1}${admDraft.newPin ? ' with the new admin PIN' : ''}. Phones that have version ${admDraft.rev} take it when you share it.` : 'Saving makes version 1 of a new list.';
   }
   $('admAddCo').addEventListener('click', () => {
     const v = $('admNewCo').value.trim().replace(/\s+/g, ' ').slice(0, 80);
@@ -3100,13 +3198,12 @@
     admDraft.co.push(v); $('admNewCo').value = ''; renderAdmDraft(); $('admNewCo').focus();
   });
   $('admNewCo').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('admAddCo').click(); });
-  $('admAddAdmin').addEventListener('click', async () => {
-    const t = await scanQr('Scan the admin request QR code on the other person’s phone'); if (!t) return;
-    let p = null; try { p = await unpackShare(t); } catch (e) { p = null; }
-    if (!p || p.kind !== 'PCA' || !p.obj || !p.obj.k) { toast('That is not an admin request QR code', 4000); return; }
-    if (admDraft.admins.some((a) => a.k === p.obj.k)) { toast(`${p.obj.n} is already an admin`); return; }
-    admDraft.admins.push({ n: String(p.obj.n || 'Admin').slice(0, 80), c: String(p.obj.c || '').slice(0, 80), k: p.obj.k });
-    renderAdmDraft(); toast(`${p.obj.n} added as admin. Tap Save and share the list.`, 4000);
+  $('admChangePin').addEventListener('click', async () => {
+    const p1 = await askPin('New admin PIN', 'Phones that take the next list version will need this PIN. Anyone who had the old PIN stops being an admin.'); if (p1 == null) return;
+    if (!/^\d{4,8}$/.test(p1)) { toast('The PIN is 4 to 8 digits'); return; }
+    const p2 = await askPin('Repeat the new PIN', ''); if (p2 == null) return;
+    if (p1 !== p2) { toast('The two PINs do not match'); return; }
+    admDraft.newPin = p1; renderAdmDraft(); toast('The new PIN takes effect when you save and share the list', 4000);
   });
   $('admSave').addEventListener('click', async () => {
     admDraft.name = $('admName').value.trim().replace(/\s+/g, ' ').slice(0, 80);
@@ -3116,27 +3213,52 @@
     if (url && !/^https:\/\/\S+$/.test(url)) { toast('The online sheet URL must start with https://'); return; }
     if (url && !rkey) { toast('Enter the read key from the sheet’s Settings tab, or clear the URL'); $('admReadKey').focus(); return; }
     if (admDraft.co.length > 300) { toast(`The list has ${admDraft.co.length} companies; the most is 300. Remove some, or keep the full list in the online sheet.`, 6000); return; }
+    const P = readPolDraft();
+    if (!P.owner) { const ok = await ask('No admin company', 'Without an admin company every user can change this list and verify deficiencies. Save anyway?'); if (!ok) return; }
     admDraft.src = url ? { url, key: rkey } : null;
     S.onlineAdminKey = $('admWriteKey').value.trim();
-    const k = admDraft.admins.findIndex((a) => a.k === S.adminKey.pub);
-    if (S.user && S.user.name) Object.assign(admDraft.admins[k], { n: S.user.name, c: S.user.company || '' }); // keep my name on the list current
-    const P = readPolDraft();
-    const body = JSON.stringify({ t: 'polecam-team', v: 2, id: admDraft.id, name: admDraft.name, rev: admDraft.rev + 1, at: new Date().toISOString(),
-      admins: admDraft.admins, co: admDraft.co, ...(admDraft.src ? { src: admDraft.src } : {}), pol: P });
-    if (!validTeam(JSON.parse(body))) { toast('This list cannot be saved: check the name, companies (up to 100 characters each), the form wording and the online sheet fields', 6000); return; }
-    const sig = await signText(body);
-    S.team = { ...JSON.parse(body), b: body, s: sig, k }; (S.teamSeen = S.teamSeen || {})[S.team.id] = S.team.rev; persist();
+    busy('Signing the list…');
+    try {
+      // which key signs, and which key the new version carries
+      const signer = { ...S.adminKey }; // the key this phone holds now: a brand-new list's key, a legacy per-person admin key, or the current list key
+      let listKey = signer, prevKey = null, k = -1;
+      const fresh = admDraft.newKey && !S.team; // a brand-new list is signed by its own key
+      if (!fresh && (admDraft.newKey || admDraft.newPin)) { // migration from per-person keys, or a PIN change: the list gets a fresh key
+        await newAdminKey(); listKey = { ...S.adminKey };
+        const idx = admDraft.admins.findIndex((a) => a.k === signer.pub);
+        if (idx >= 0) k = idx; // the legacy admin key signs the migration
+        else { prevKey = signer.pub; k = -2; } // the previous list key signs the hand-over
+      }
+      const pin = admDraft.newPin || admPinCache;
+      if (!pin) throw new Error('Admin PIN missing — close and open Manage again');
+      const keyEnc = await encPriv(listKey.priv, pin);
+      const body = JSON.stringify({ t: 'polecam-team', v: 3, id: admDraft.id, name: admDraft.name, rev: admDraft.rev + 1, at: new Date().toISOString(),
+        admins: admDraft.admins, key: listKey.pub, keyEnc, ...(prevKey ? { prevKey } : {}), co: admDraft.co, ...(admDraft.src ? { src: admDraft.src } : {}), pol: P });
+      if (!validTeam(JSON.parse(body))) throw new Error('This list cannot be saved: check the name, companies (up to 100 characters each), the form wording and the online sheet fields');
+      S.adminKey = signer; const sig = await signText(body); // sign with the key the other phones trust…
+      S.adminKey = listKey; // …then keep the key the new version carries
+      S.team = { ...JSON.parse(body), b: body, s: sig, k }; (S.teamSeen = S.teamSeen || {})[S.team.id] = S.team.rev; admPinCache = pin; persist();
+    } catch (e) { busy(false); toast(e.message || String(e), 6000); return; }
+    busy(false);
     await closeSheet(); afterTeamChange(); renderPoles();
-    showTeamQr(`Version ${S.team.rev} saved. Show this QR code to each user, or share the file. Phones accept updates only from the admins on this list.`);
+    showTeamQr(`Version ${S.team.rev} saved. Show this QR code to each user, or share the file.${admDraft.newPin ? ' Admins must enter the new PIN after taking it.' : ''}`);
     if (S.team.src) cloudSync(true);
   });
   $('teamManage').addEventListener('click', () => openAdmin('manage'));
   $('teamCreate').addEventListener('click', () => openAdmin('create'));
   $('pfCreate').addEventListener('click', () => {
-    if ($('pfName').value.trim().length < 3) { toast('Enter your full name first: it is shown as the admin of the list', 3500); $('pfName').focus(); return; }
+    if ($('pfName').value.trim().length < 3) { toast('Enter your full name first', 3500); $('pfName').focus(); return; }
     openAdmin('create');
   });
-  $('adminAsk').addEventListener('click', () => openAdmin('request'));
+  /** PIN prompt (the askBox with a password field). */
+  function askPin(title, text) {
+    $('pinTitle').textContent = title; $('pinText').textContent = text || ''; $('pinInput').value = '';
+    return new Promise((res) => {
+      const done = (v) => { $('pinBox').hidden = true; $('pinYes').onclick = $('pinNo').onclick = null; res(v); };
+      $('pinYes').onclick = () => done($('pinInput').value.trim()); $('pinNo').onclick = () => done(null);
+      $('pinBox').hidden = false; setTimeout(() => $('pinInput').focus(), 50);
+    });
+  }
 
   /* ================= offline map screen ================= */
   const areaLayer = L.layerGroup().addTo(map);
@@ -3187,7 +3309,29 @@
     Object.values(S.packs).forEach((p) => { byId[p.id] = { ...(byId[p.id] || { id: p.id, name: p.name, size: p.size, date: p.date, bbox: p.bbox, maxzoom: p.maxzoom, from: 'phone' }), installed: p }; });
     return Object.values(byId);
   }
+  function renderStreetInfo() {
+    const cur = streetSource(), auto = !S.streetSrc || S.streetSrc === 'auto';
+    $('streetSrc').value = auto ? 'auto' : S.streetSrc;
+    $('streetInfo').textContent = `Using ${cur.name}${auto ? ' (automatic)' : ''} · this session: ${streetState.ok} tiles loaded, ${streetState.failed} failed${NATIVE ? ' · fetched by the Android app' : ''}.`;
+  }
+  $('streetSrc').addEventListener('change', () => {
+    S.streetSrc = $('streetSrc').value; persist(); streetState.auto = 0; streetState.fails = 0;
+    if (mainBase && mainBase.options.src === 'street') mainBase.redraw();
+    if (pinBase && pinBase.options && pinBase.options.src === 'street') pinBase.redraw();
+    renderStreetInfo(); toast(`Street map: ${streetSource().name}`, 2000);
+  });
+  $('mapCheckBtn').addEventListener('click', async () => {
+    const out = $('mapCheckOut'); out.hidden = false; out.textContent = 'Testing map servers…'; $('mapCheckBtn').disabled = true;
+    try {
+      const res = await mapCheck();
+      out.textContent = res.map((r) => `${r.src.name}: ${r.ok ? `OK, ${r.ms} ms` : `FAILED (${r.err || 'no image'})`}`).join('\n')
+        + `\n${navigator.onLine === false ? 'The phone reports no internet connection.' : ''}${res.some((r) => r.ok) ? '' : 'No map server answered: check mobile data / Wi-Fi, or use an offline map pack.'}`;
+      const firstOk = res.findIndex((r) => r.ok && r.src.id !== 'sat');
+      if (firstOk >= 0 && (!S.streetSrc || S.streetSrc === 'auto')) { streetState.auto = firstOk; streetState.fails = 0; if (mainBase && mainBase.options.src === 'street') mainBase.redraw(); }
+    } finally { $('mapCheckBtn').disabled = false; renderStreetInfo(); }
+  });
   async function renderOffline() {
+    renderStreetInfo();
     const list = $('packList'); list.innerHTML = '';
     const items = packCatalog(), act = activePackId();
     $('packSource').textContent = packIndexErr || (S.cloud && S.cloud.packs && S.cloud.packs.length ? `Map packs listed in the online sheet “${S.cloud.name || ''}”, updated ${fmtTime(S.cloud.at)}.` : 'Map packs: import a file from this phone, or add a Google Drive link.');

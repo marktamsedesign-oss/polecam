@@ -2,7 +2,7 @@
 
 Three task categories per project: **Survey** (engineering survey), **PAT** and **FAT** (acceptance **List of Deficiencies** on the office form — see "Acceptance mode"). The category shows on the project button at the top right.
 
-**v2.0** — the Deficiency List exports are the office form (PDF and Excel) with photo annexes; deficiencies go through *found → rectified → verified*; the admin sets the company policies (inspecting company, form wording, checklist, field standards) inside the signed company list; the settings are split into what users set and what only the admin sets; every export has detailed options (photo size, stamps, KMZ icons, PDF annexes). See "What changed in v2.0".
+**v2.0** — the Deficiency List exports are the office form (PDF and Excel) with photo annexes; deficiencies go through *found → rectified → verified*; the admin sets the company policies (admin company, form wording, checklist, field standards) inside the signed company list; the settings are split into what users set and what only the admin sets; every export has detailed options (photo size, stamps, KMZ icons, PDF annexes). See "What changed in v2.0".
 
 One phone app that replaces GPS Camera + the Windows geolocator step:
 
@@ -40,15 +40,16 @@ The APK opens the same hosted app, so keep the GitHub Pages site online.
 
 ---
 
-## First use: your details and the company list (v1.7)
+## First use: your details and the company list
 
-- On first use the app asks for **full name, mobile number, email and company**. They stay on the phone and are recorded on every photo, pole and punchlist item (“Mark Tamse · Globe Telecom”) and printed on the reports (Excel *People* sheet, “Recorded by” on the PDFs, *surveyed_by* in the CSV). Change them in Settings → Account.
-- **Company names come from an admin.** The admin is whoever creates the company list on their phone (“I am the admin: create the company list”): they set an admin PIN, name the list (e.g. *Globe OSP Mindanao*) and add each company/vendor.
-- **Sharing the list, offline:** Settings → Administration → *Share list* shows a QR code. Other phones scan it (first use: *Scan admin's QR code*; later: *Update list* → *Scan QR*). *Share as file* sends the same list as a small file through Viber/Messenger/email; the other phone opens it with *Open list file*. Nothing goes through a server.
-- **Updates:** the admin edits the list (Settings → Administration → Manage (admin), PIN), saves, and shares again. The list is signed with the admin's key: a phone accepts an update only from an admin already on its list, and rejects a list that was edited by hand.
-- Each list has a **code** (e.g. V5XQ-VR8B) shown in Settings and when joining. *Update list* accepts only newer versions of the same list; a different list (even with the same name) needs *Switch to another list* and a warning, and older versions are refused.
-- **More admins:** the other person taps *Ask to become an admin* (sets their own PIN) and shows the request QR; the admin taps *Add an admin* and scans it, then shares the new version. That person becomes an admin when their phone takes the update.
-- Limits: anyone can create a separate list on their own phone and call themselves admin; reports show the list name and its admins, so check them. If the only admin loses their phone or PIN, the list cannot be updated: make a new list and have everyone switch to it (keep a second admin to avoid this).
+- On first use the app asks for **full name, mobile number, email and company**. They stay on the phone and are recorded on every photo, pole and deficiency (“Mark Tamse · Globe Telecom”) and printed on the reports. Change them in Settings → Account.
+- **Company names come from the company list**, made once by the admin (“I am the admin: create the company list”). One company on it is the **admin company** (e.g. Globe Telecom), protected by an **admin PIN** (v2.1):
+  - Staff of the admin company choose it in their profile and enter the admin PIN once. From then on they are **admins and inspectors** on that phone: Settings → Company list → *Manage (admin)* (PIN asked again) edits companies, policies, the form wording and the checklist; in acceptance projects they add deficiencies and verify or reject rectifications.
+  - Everyone else (contractors) chooses their own company and is a **user**: they see the list and its policies, take updates, and in acceptance projects they add rectified photos and mark items rectified.
+  - Nobody can pick the admin company without the PIN, so keep it inside the admin company and change it (Manage → *Change the admin PIN*) when someone leaves; phones that take the new version then need the new PIN.
+- **Sharing the list, offline:** Settings → Company list → *Share list* shows a QR code; other phones scan it (first use: *Scan admin's QR code*; later: *Update list* → *Scan QR*). *Share as file* sends the same list as a small file through Viber/Messenger/email; the other phone opens it with *Open list file*. Nothing goes through a server.
+- **How it stays trustworthy:** the list is signed with a key that travels inside it, encrypted with the admin PIN. A phone accepts a new version of its list only when it was made with that PIN (or, for lists from v1.x, by one of the admins named in it), and rejects a list edited by hand. Each list has a code (e.g. MV3H-EQCB) shown when joining; a different list needs *Switch list* and a warning.
+- Lists made with v1.7–v2.0 (per-person admin keys) keep working. Their admin opens *Manage (admin)* once, sets the admin PIN and saves; after that the admin-company model applies and the old “ask to become an admin” step is gone.
 
 ## Field use
 
@@ -64,7 +65,7 @@ The APK opens the same hosted app, so keep the GitHub Pages site online.
 
 Create a project with task category **PAT** (Projects → New project → Task category), or **Start** a PAT task from the online sheet. The project button at the top right shows SURVEY, PAT or FAT, and the list button at the bottom is named after it. Choose **FAT** directly only when the PAT records are not on this phone; otherwise open the PAT project and use *Start FAT from this PAT*, or *Start FAT from a PAT file* sent from another phone.
 
-**Who does what (v2.0).** The admin names the **inspecting company** (Settings → admin → *Inspecting company*; e.g. Globe Telecom). Users of that company are the **inspectors**: they add deficiencies, verify rectifications or reject them. Users of every other company (the contractors) only add *rectified* photos and mark items rectified. With no inspecting company set, everyone may do everything.
+**Who does what.** The **admin company** on the company list (e.g. Globe Telecom) supplies the **inspectors**: its staff (admin PIN) add deficiencies, verify rectifications or reject them. Users of every other company (the contractors) only add *rectified* photos and mark items rectified. With no admin company set, everyone may do everything.
 
 **Recording (one record per location)**
 - Element: **Pole**, **ODF**, **ODC** or **Rack**, with its ID (numbering continues per element type in the project: CC-/WP-/SP- for poles by type, FDU_ for ODFs).
@@ -139,23 +140,27 @@ Settings is one screen: **Account** (your details), **Field work** (Camera, Expo
 
 | Users set (per phone) | Admin sets (for everyone, inside the signed company list) |
 |---|---|
-| Name, mobile, email, company | List name, companies/vendors (typed or CSV), **inspecting company** |
+| Name, mobile, email, company | List name, companies/vendors (typed or CSV), the **admin company** and its **admin PIN** |
 | Camera: ID scan after each photo, horizontal/vertical IDs | Photo sharpness check (strict/normal) — until a phone has a list, the user chooses |
 | Export defaults: photo size and JPEG quality, caption stamp and its fields, file naming; KMZ balloon size, pin icons, route, stamps; PDF annexes and photo size; DXF symbol/label/zone; where files are saved | Deficiency List form wording: company, address, department lines, signatory titles, inspection types, legend, rectified-date sub-label |
 | Offline map packs | Deficiency checklist (defects per category) |
 | | Field standards: maximum span, angle-pole threshold, auto-link gap |
-| | Online Google Sheet address and keys; other admins |
+| | Online Google Sheet address and keys |
 
-Non-admins can open the Administration row to **view** the policies and see who the admins are. The admin edits them under *Manage (admin)* (PIN), saves, and shares the new list version; phones apply the policies when they take the update. The *About* box shows which policies this phone is using.
+Users open the Company list row to **view** the policies. Admin-company staff edit them under *Manage (admin)* (admin PIN), save, and share the new list version; phones apply the policies when they take the update. The *About* box shows which policies this phone is using, and has a switch to keep the help text open on every screen (by default each screen folds its explanations behind an “i · Help” link).
 
 **Photos for AI training**
 - Export → *Photos for AI training*: your labeled photos sorted into one folder per type with a labels.csv, for teaching the app later to recognise poles, NAPs, closures, ODFs, etc. Aim for 200+ photos per type.
 
-## Online map in the Android app (v1.8)
+## Online street map (v2.1)
 
-OpenStreetMap's tile servers refuse map requests from pages loaded from `localhost`, which is how the APK shows its screens, so the APK's street map stayed blank. Since v1.8 the APK fetches street tiles through Android itself, identified as `PoleCam/<version> (+your site address)`, the way OpenStreetMap asks apps to identify themselves. Tiles are kept for 7 days. The website version is unchanged. Google Maps is not used: it needs a Google Cloud billing account.
+The street map comes from a free tile server: **OpenStreetMap** first, and when it stops answering the app moves on to **CARTO Voyager**, then **Esri World Street Map** (all OpenStreetMap-based, all free with attribution; Google Maps needs a billing account and is not used). At most six tiles are requested at a time with a 20-second limit and one retry, so a weak signal no longer leaves the map blank; tiles already seen are kept on the phone for 7 days and shown even when a server fails. The APK fetches tiles through Android itself (identified as `PoleCam/<version>`), because OpenStreetMap refuses requests from the APK's `localhost` page.
 
-## Offline map packs (v1.8)
+If the map still stays blank: **Maps** (cloud button on the map, or Settings → Maps) → **Test map servers** shows which servers answer from this phone and network; the **Map server** choice pins one of them (some networks block one host but not another). With no signal, get an offline map pack.
+
+## Offline map packs
+
+**How to make one: see `MAP-PACKS.md`** — QGIS plugin (`polecam_mappack.zip`, cuts the area shown in QGIS), GitHub Actions, or the `pmtiles` command line — then Google Drive and the MapPacks tab.
 
 - **What a pack is:** one `.pmtiles` file of street map data (OpenStreetMap, ODbL) for a whole area, from the free Protomaps build. Streets, road names, buildings, water and places, drawn on the phone at any zoom. Mindanao mainland is about 200 MB.
 - **Where packs live:** in your **Google Drive**, not on GitHub. Upload the file, set sharing to *Anyone with the link*, and add the link to the **MapPacks** tab of the online sheet (then every phone lists it), or paste it on one phone under *Add a Google Drive link*.
@@ -163,10 +168,7 @@ OpenStreetMap's tile servers refuse map requests from pages loaded from `localho
   - **Android app:** Offline map → **Download**. The app fetches the file from Drive in 4 MB pieces and can **Resume** after a dropped connection. **Cancel** stops at once.
   - **Any phone:** download the file (Drive app, browser, USB, Viber…) and use **Import a pack file**. The website version can only do this, because browsers cannot read Drive files directly.
   - The pack is kept in the app's private file storage (OPFS), or in its database on phones without OPFS. Every storage step has a time limit, so a stuck phone shows a message instead of freezing.
-- **Making the pack files:** either
-  - GitHub: add `.github/workflows/build-map-packs.yml`, list the areas in `maps/packs.json`, then Actions → *Build map packs* → *Run workflow*. The files are attached to a GitHub **Release** (not Pages, not the repository; GitHub states no limit on total size or bandwidth for releases, each file under 2 GB). Download them from the Releases page and upload them to Drive; delete old map releases when you no longer need them.
-  - or on a PC: download `pmtiles` for Windows from https://github.com/protomaps/go-pmtiles/releases, find the newest date at https://maps.protomaps.com/builds, and run  
-    `pmtiles extract https://build.protomaps.com/YYYYMMDD.pmtiles Mindanao.pmtiles --bbox=121.8,4.5,126.7,10.0 --maxzoom=15`
+- **Making the pack files:** `MAP-PACKS.md` has the three ways (QGIS plugin, GitHub Actions, command line).
 - Packs published on the website by v1.6–v1.7 are no longer made; packs already on phones keep working.
 - **Satellite** has no offline version and is not kept on the phone: Esri allows offline imagery only in its own ArcGIS apps. Street map tiles you viewed online are kept for 7 days and can be cleared under *Map tiles you have viewed*.
 
@@ -210,7 +212,7 @@ Teammates' backups can be restored into one phone to merge projects (same projec
 
 ## Updating the app
 
-Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v2.0.1`), and upload again. Phones pick up the new version the next time the app is opened with internet.
+Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v2.1.1`), and upload again. Phones pick up the new version the next time the app is opened with internet.
 
 ## Files
 
@@ -229,6 +231,8 @@ Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v2.0.1`), and upload 
 | `vendor/protomaps/` | Offline map renderer (protomaps-leaflet + PMTiles, BSD-3; licenses in `LICENSES.txt`) |
 | `vendor/qr/` | QR codes for the company list: jsQR 1.4.0 (reader, Apache-2.0) and QR Code Generator 2.0.4 (MIT); licenses in `LICENSES.txt` |
 | `maps/packs.json` | Areas for the optional *Build map packs* workflow |
+| `MAP-PACKS.md` | How to make and publish offline map packs |
+| `polecam_mappack.zip` (sent separately) | QGIS plugin that cuts a map pack from the area shown in QGIS |
 | `.github/workflows/deploy-site.yml` | Publishes the website (app only) |
 | `.github/workflows/build-apk.yml` | Builds the signed Android APK |
 | `.github/workflows/build-map-packs.yml` | Optional: makes map pack files as a GitHub Release |
@@ -250,8 +254,16 @@ Map data © OpenStreetMap contributors (ODbL); offline packs from the Protomaps 
 
 - **Deficiency List on the office form** (PDF and Excel), with the photo evidence as annexes instead of mixed into the report: Annex A per item (as found → rectified → verified) and Annex B photo log. Letter size, 15 items per page, page x of y, legend and signature blocks as on the template.
 - **Found → Rectified → Verified** workflow with inspector and contractor roles by company, rejection with reason, verification photos; the Rectified Date on the form fills in from the app.
-- **Admin vs user settings**: policies (inspecting company, form wording, checklist, field standards, photo check) are set by the admin and signed into the company list; users keep personal and export settings. Non-admins can view the policies.
+- **Admin vs user settings**: policies (admin company, form wording, checklist, field standards, photo check) are set by the admin and signed into the company list; users keep personal and export settings. Non-admins can view the policies.
 - **Detailed export options** on every card and as defaults in Settings: photo size and quality, caption stamp fields, file naming, KMZ balloon size / photo pin icons / route / stamps, PDF annexes and photo size, Excel sheets.
 - **New GUI**: navy top bar with the project and category, a status strip above the navigation (elements, open / to verify / verified, or poles, route length and long spans), Records screen with figures and status filters, grouped editor, export cards with options, settings in sections with sub-screens.
 - Older projects keep working: items saved by v1.x without a status count as *Open*, or *Rectified* when they already have an after photo or date; existing settings are carried over. The deficiency checklist is now set by the admin, so a checklist edited on one phone in v1.x is replaced by the list's checklist (or the built-in one until a list is taken).
 - Rejecting a rectification moves its photo into the item's history (shown as *Rejected* on the card and in Annex A) so the item has no rectified photo until the contractor takes a new one.
+
+## What changed in v2.1
+
+- **Admin company instead of per-person admins.** The list names one admin company and carries an admin PIN; its staff become admins and inspectors by entering the PIN, everyone else is a user. No more “ask to become an admin” / “add an admin” / re-share cycle. Old lists migrate when their admin sets the PIN once.
+- **Online map that recovers**: three free tile servers with automatic fallback, request limits and retries, stale tiles shown when a server fails, and a *Test map servers* check on the Maps screen.
+- **Map packs from QGIS**: the PoleCam Map Pack Maker plugin, plus `MAP-PACKS.md` with every way to make and publish a pack.
+- **Less text**: explanations fold behind “i · Help” on every screen (Settings → About keeps them open).
+- **One place for each thing**: the project and its category are on the top bar only (tap it for Projects); the strip above the navigation shows the status; the navigation is Records · camera · Export · Settings.

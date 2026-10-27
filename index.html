@@ -104,6 +104,7 @@ textarea{min-height:90px;resize:vertical}
 .chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .chip.small{min-height:36px;padding:0 12px;font-size:13px;font-weight:600}
 .hint{font-size:13px;color:var(--muted);margin:0}
+details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-size:12.5px;font-weight:700;color:var(--accent);display:inline-flex;align-items:center;gap:4px;padding:2px 0}details.help>summary::-webkit-details-marker{display:none}details.help>summary::before{content:"i";display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1.5px solid var(--accent);font-size:11px;font-style:italic;font-family:Georgia,serif}details.help[open]>summary{margin-bottom:6px}details.help .hint{margin-bottom:6px}details.help .hint:last-child{margin-bottom:0}
 .warnline{font-size:13px;color:var(--warn);margin:0;font-weight:600}
 .group{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:12px}
 .group h3{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
@@ -313,13 +314,13 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 <div id="app">
   <div id="topbar">
     <div class="brand">Pole<b>Cam</b></div>
-    <button id="projectBtn" aria-label="Change project or task category"><span class="badge cat" id="modeBadge">SURVEY</span><span id="projectName">Project</span><span class="count" id="pointCount">0</span><svg class="i"><use href="#i-chev"/></svg></button>
+    <button id="projectBtn" aria-label="Projects: change project or task category"><span class="badge cat" id="modeBadge">SURVEY</span><span id="projectName">Project</span><svg class="i"><use href="#i-chev"/></svg></button>
   </div>
   <div id="map" role="application" aria-label="Survey map"></div>
   <div id="gpsPill" aria-live="polite"><span class="dot" id="gpsDot"></span><span id="gpsText">GPS off</span></div>
   <div class="mapbtns">
     <button class="round" id="routeBtn" aria-label="Edit cable route and spans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="18" r="2.2"/><circle cx="12" cy="7" r="2.2"/><circle cx="19" cy="15" r="2.2"/><path d="m6.4 16.2 4.3-7.4M13.6 8.6l4.2 4.9"/></svg></button>
-    <button class="round" id="offlineBtn" aria-label="Offline maps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18"/><path d="M12 11v9M8.5 16.5 12 20l3.5-3.5"/></svg></button>
+    <button class="round" id="offlineBtn" aria-label="Maps: online server and offline packs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18"/><path d="M12 11v9M8.5 16.5 12 20l3.5-3.5"/></svg></button>
     <button class="round" id="layerBtn" aria-label="Switch map: street, satellite or offline map pack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button>
     <button class="round" id="locateBtn" aria-label="Go to my location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
   </div>
@@ -336,7 +337,6 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </div>
   <nav id="bottombar">
     <button class="navbtn" id="listBtn"><svg><use href="#i-list"/></svg><span id="listLbl">Records</span></button>
-    <button class="navbtn" id="projNavBtn"><svg><use href="#i-folder"/></svg>Projects</button>
     <button id="captureBtn" aria-label="Capture"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
     <button class="navbtn" id="exportBtn"><svg><use href="#i-export"/></svg>Export</button>
     <button class="navbtn" id="settingsBtn"><svg><use href="#i-gear"/></svg>Settings</button>
@@ -577,30 +577,31 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="rows">
       <button class="rowbtn" id="goCamera" type="button"><span class="ic"><svg><use href="#i-cam"/></svg></span><span class="t"><b>Camera</b><span id="camSub">ID scan after each photo, orientation</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
       <button class="rowbtn" id="goExports" type="button"><span class="ic"><svg><use href="#i-export"/></svg></span><span class="t"><b>Exports and files</b><span>Photo sizes, stamps, KMZ, PDF, where files are saved</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
-      <button class="rowbtn" id="goMaps" type="button"><span class="ic"><svg><use href="#i-map"/></svg></span><span class="t"><b>Offline maps</b><span id="mapsSub">Map packs for no-signal areas</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
+      <button class="rowbtn" id="goMaps" type="button"><span class="ic"><svg><use href="#i-map"/></svg></span><span class="t"><b>Maps</b><span id="mapsSub">Online map server, offline map packs</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
     </div>
     <div class="sectionh">Data</div>
     <div class="rows">
       <button class="rowbtn" id="goStorage" type="button"><span class="ic"><svg><use href="#i-db"/></svg></span><span class="t"><b>Storage</b><span id="storeSub">–</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
     </div>
-    <div class="sectionh">Administration</div>
+    <div class="sectionh">Company list</div>
     <div class="rows">
       <button class="rowbtn" id="goAdmin" type="button"><span class="ic"><svg><use href="#i-shield"/></svg></span><span class="t"><b id="adminRowTitle">Company list and policies</b><span id="teamInfo">–</span></span><span class="lock" id="adminLock">PIN</span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
     </div>
     <p class="hint" id="cloudInfo" hidden></p>
     <div class="row">
-      <button class="btn sm" id="teamShare" type="button">Share list (QR or file)</button>
       <button class="btn sm" id="teamUpdate" type="button">Update list</button>
-      <button class="btn sm" id="teamSwitch" type="button" hidden>Switch to another list</button>
+      <button class="btn sm" id="teamShare" type="button">Share list</button>
       <button class="btn sm" id="cloudSyncBtn" type="button" hidden>Sync online sheet</button>
-      <button class="btn sm" id="adminAsk" type="button" hidden>Ask to become an admin</button>
+      <button class="btn sm" id="teamSwitch" type="button" hidden>Switch list</button>
       <button class="btn sm primary" id="teamManage" type="button" hidden>Manage (admin)</button>
-      <button class="btn sm" id="teamCreate" type="button" hidden>I am the admin: create the company list</button>
+      <button class="btn sm" id="teamCreate" type="button" hidden>Create the company list</button>
     </div>
+    <p class="hint help">One company on the list is the <b>admin company</b> (e.g. Globe). Its staff enter the admin PIN once and become admins and inspectors: they manage this list, add deficiencies and verify rectifications. Everyone else is a contractor user. Updates travel by QR code or file, signed so a phone only takes versions made with the admin PIN.</p>
     <div class="sectionh">About</div>
     <div class="group">
-      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.0.0</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
+      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.1.0</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
       <p class="hint" id="policyInfo" style="margin:0"></p>
+      <label class="check"><input type="checkbox" id="setShowHelp"><span>Keep the help text on every screen open</span></label>
     </div>
   </div>
 </section>
@@ -657,7 +658,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
     <div class="group" id="saveGroup">
       <h3>Where saved files go</h3>
-      <p class="hint" id="saveNote">In the Android app, Save writes exports here. In the website version your browser decides (usually Downloads).</p>
+      <p class="hint help" id="saveNote">In the Android app, Save writes exports here. In the website version your browser decides (usually Downloads).</p>
       <label class="field">Location<select id="setSaveBase"><option value="DOCUMENTS">Documents</option><option value="DOWNLOAD">Download</option></select></label>
       <label class="field">Folder name<input type="text" id="setSaveFolder" autocomplete="off" placeholder="PoleCam"></label>
       <label class="check"><input type="checkbox" id="setSaveByProject"><span>Separate folder for each project</span></label>
@@ -680,7 +681,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <h3>Maps</h3>
       <p class="hint" id="tileInfo">–</p>
       <p class="hint" id="packInfo">–</p>
-      <button class="btn" id="goMaps2" type="button">Manage offline map packs</button>
+      <button class="btn" id="goMaps2" type="button">Open Maps</button>
     </div>
   </div>
 </section>
@@ -711,9 +712,9 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="field"><span class="lbl">INSPECTION TYPE (ticked on the form)</span><div class="chips" id="mTypes"></div></div>
         <label class="field">INSPECTION DATE (printed on the form)<input type="date" id="mDate"></label>
         <button class="btn primary" id="startFat" type="button">Start FAT from this PAT</button>
-        <p class="hint" id="startFatHint">Copies every element and its punchlist into a new FAT project, so you can verify each rectified item. This PAT stays unchanged.</p>
+        <p class="hint help" id="startFatHint">Copies every element and its punchlist into a new FAT project, so you can verify each rectified item. This PAT stays unchanged.</p>
         <button class="btn" id="sendPat" type="button">Send this PAT to another phone (for FAT)</button>
-        <p class="hint" id="sendPatHint">Makes one file with every element, punchlist item and photo. On the other phone: Projects → New project → FAT → Start FAT from a PAT file.</p>
+        <p class="hint help" id="sendPatHint">Makes one file with every element, punchlist item and photo. On the other phone: Projects → New project → FAT → Start FAT from a PAT file.</p>
       </div>
       <button class="btn danger" id="delProject">Delete this project…</button>
       <div id="delProjConfirm" hidden style="display:flex;flex-direction:column;gap:10px"><p style="margin:0" id="delProjText"></p><div class="row"><button class="btn grow" id="delProjNo">Keep</button><button class="btn grow" id="delProjYes" style="background:var(--bad);border-color:var(--bad);color:#fff">Delete project</button></div></div>
@@ -736,9 +737,17 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 <section class="sheet" id="offline" hidden aria-labelledby="offTitle">
   <header>
     <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
-    <h2 id="offTitle">Offline map</h2>
+    <h2 id="offTitle">Maps</h2>
   </header>
   <div class="body">
+    <div class="group">
+      <h3>Online street map</h3>
+      <p class="hint">Street tiles come from a free map server. On “Automatic” the app moves to the next server when one stops answering. If the map stays blank, run the test below and send the result to your admin.</p>
+      <label class="field">Map server<select id="streetSrc"><option value="auto">Automatic (OpenStreetMap first)</option><option value="osm">OpenStreetMap</option><option value="carto">CARTO Voyager</option><option value="esri">Esri World Street Map</option></select></label>
+      <p class="hint" id="streetInfo">–</p>
+      <button class="btn" id="mapCheckBtn" type="button">Test map servers</button>
+      <p class="hint mono" id="mapCheckOut" style="white-space:pre-line" hidden></p>
+    </div>
     <div class="group">
       <h3>Offline map packs</h3>
       <p class="hint">A map pack is a street map of a whole area kept on this phone: roads, buildings, rivers and place names, sharp at every zoom. Get it once on Wi-Fi. When there is no signal the app switches to it by itself; the layers button also switches to it.</p>
@@ -794,13 +803,13 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div class="body">
     <div class="group" id="admLock">
       <h3 id="admLockTitle">Admin PIN</h3>
-      <p class="hint" id="admLockHint">Enter your admin PIN.</p>
+      <p class="hint" id="admLockHint">Enter the admin PIN of the admin company.</p>
       <input type="password" id="admPin" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4 to 8 digits" aria-label="Admin PIN">
       <input type="password" id="admPin2" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="Repeat the PIN" aria-label="Repeat the PIN" hidden>
       <button class="btn primary" id="admUnlock" type="button">Continue</button>
     </div>
     <div id="admMain" hidden style="display:contents">
-      <p class="notice">Everything on this screen goes to every phone that takes your list (QR code or file), signed with your admin key. Users cannot change it.</p>
+      <p class="notice">Everything here goes to every phone that takes the list (QR code or file). Only phones with the admin PIN can change it.</p>
       <div class="group">
         <h3>List name</h3>
         <input type="text" id="admName" placeholder="e.g. Globe OSP Mindanao" aria-label="List name">
@@ -812,7 +821,9 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="row"><input type="text" id="admNewCo" placeholder="Company name" style="flex:1" aria-label="New company name"><button class="btn" id="admAddCo" type="button">Add</button></div>
         <div class="row"><button class="btn grow" id="admCsv" type="button">Import companies from CSV</button></div>
         <input type="file" id="admCsvInput" accept=".csv,text/csv,text/plain" hidden>
-        <label class="field">INSPECTING COMPANY: its users add deficiencies and verify or reject rectifications; other companies only rectify<select id="admOwner"></select></label>
+        <label class="field">ADMIN COMPANY: its staff (with the admin PIN) are admins and inspectors; everyone else is a contractor user<select id="admOwner"></select></label>
+        <div class="row"><button class="btn" id="admChangePin" type="button">Change the admin PIN</button></div>
+        <p class="hint help">Give the admin PIN only to staff of the admin company. Change it when someone leaves: phones that take the new list version need the new PIN.</p>
       </div>
       <div class="group">
         <h3>Deficiency List form</h3>
@@ -849,12 +860,6 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <button class="btn" id="admTest" type="button">Test connection</button>
         <p class="hint" id="admTestOut"></p>
       </div>
-      <div class="group">
-        <h3>Admins</h3>
-        <div id="admAdmins" style="display:flex;flex-direction:column;gap:6px"></div>
-        <button class="btn" id="admAddAdmin" type="button">Add an admin: scan their request QR</button>
-        <p class="hint">The other person opens Settings → Ask to become an admin, and shows you the QR code on their phone.</p>
-      </div>
       <p class="hint" id="admRev"></p>
       <button class="btn primary" id="admSave" type="button">Save and share the list</button>
     </div>
@@ -873,6 +878,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div id="qrFrame"></div>
 </div>
 <div class="overlay" id="askBox" hidden><div class="panel"><h3 id="askTitle"></h3><p id="askText" style="margin:0;white-space:pre-line"></p><div class="row"><button class="btn grow" id="askNo" type="button">Cancel</button><button class="btn primary grow" id="askYes" type="button">OK</button></div></div></div>
+<div class="overlay" id="pinBox" hidden><div class="panel"><h3 id="pinTitle"></h3><p class="hint" id="pinText" style="margin:0"></p><input type="password" id="pinInput" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4 to 8 digits" aria-label="Admin PIN"><div class="row"><button class="btn grow" id="pinNo" type="button">Cancel</button><button class="btn primary grow" id="pinYes" type="button">OK</button></div></div></div>
 <div class="overlay" id="promptBox" hidden><div class="panel"><h3 id="promptTitle"></h3><p class="hint" id="promptText" style="margin:0"></p><textarea id="promptInput" style="min-height:70px"></textarea><div class="row"><button class="btn grow" id="promptNo" type="button">Cancel</button><button class="btn primary grow" id="promptYes" type="button">OK</button></div></div></div>
 
 <div id="busy" hidden><div><span id="busyText">Working…</span><progress id="busyProg" max="1" value="0"></progress><button class="btn" id="busyCancel" hidden style="margin-top:12px;width:100%">Cancel</button></div></div>
