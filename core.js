@@ -566,7 +566,8 @@
       }
       if (!p) continue;
       const id = p === 'FDU' ? `FDU_${num}` : `${p}-${PAD4.includes(p) ? num.padStart(4, '0') : num}`;
-      if (!best || (best.fuzzy && !fuzzy)) best = { id, prefix: p, fuzzy };
+      const padded = PAD4.includes(p) && num.length < 4; // zeros added: a digit may have been missed
+      if (!best || (best.fuzzy && !fuzzy)) best = { id, prefix: p, fuzzy, padded };
     }
     return best;
   }
@@ -580,12 +581,12 @@
     const sep = (lastId || '').match(/[-/_ ]/);
     const joiner = sep ? sep[0].trim() || '-' : '-';
     const found = new Map();
-    const put = (id, conf, fits, score) => { const prev = found.get(id); if (!prev || prev.score < score) found.set(id, { id, conf: Math.round(conf), fits, score }); };
+    const put = (id, conf, fits, score, exact) => { const prev = found.get(id); if (!prev || prev.score < score) found.set(id, { id, conf: Math.round(conf), fits, score, exact: !!exact }); };
     const add = (raw, conf, bonus = 0) => {
       let s = raw.toUpperCase().replace(/[^A-Z0-9\-/_]/g, '').replace(/^[-/_]+|[-/_]+$/g, '');
       if (s.length < 2 || s.length > 20) return;
       const k = knownId(s);
-      if (k) put(k.id, conf, true, conf + bonus + (k.fuzzy ? 8 : 18));
+      if (k) put(k.id, conf, true, conf + bonus + (k.fuzzy ? 8 : 18), !k.fuzzy && !k.padded); // exact: a known prefix and every digit read as they are
       if (!/[0-9]/.test(s)) return;
       const fitted = fitShape(s, target), id = fitted || s, fits = !!fitted;
       put(id, conf, fits, conf + bonus + (fits ? 15 : 0) + (/[A-Z]/.test(id) ? 2 : 0));

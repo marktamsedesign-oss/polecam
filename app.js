@@ -1,6 +1,12 @@
 /* PoleCam Survey — field app. Depends on Leaflet (L) and core.js (PoleCore). */
 (() => {
   'use strict';
+  /* A join link (…/polecam/#join=…) carries the signed company list: read it before anything else, then clear the address. */
+  const pendingJoin = /^#join=/.test(location.hash) ? location.hash.slice(6) : null;
+  if (pendingJoin) history.replaceState(null, '', location.pathname + location.search);
+  /* Camera button side for one-hand use: right by default (most field users are right-handed), centre or left in Settings. */
+  const handOf = () => (['left', 'center', 'right'].includes(S && S.hand) ? S.hand : 'right');
+  function applyHand() { const h = handOf(); ['left', 'center', 'right'].forEach((x) => document.body.classList.toggle(`hand-${x}`, x === h)); }
   /* ================= app log =================
      A small ring buffer kept in localStorage (written synchronously, so it survives a crash of the app's web view).
      Records errors, what the user saw (toasts), and the timing of every step of taking, saving and exporting photos.
@@ -111,7 +117,9 @@
   /** One sheet cell may name several vendors: "NOKIA , HUAXIN". */
   const coList = (v) => String(v || '').split(/\s*(?:[,;/&+\n]|\band\b)\s*/i).map(normCo).filter(Boolean);
   /** Staff of the list's admin company (chosen with the admin PIN). Names compare as in normCo, the same as the PIN check. */
-  const isInspector = () => { const o = pol().owner; return !o || !S.user || normCo(S.user.company) === normCo(o); };
+  /** Admin users: when the admin lists their emails, only those people may use the admin company (and its PIN). */
+  const adminUserOk = (email) => { const L = pol().adminUsers || []; const e = String(email != null ? email : (S.user && S.user.email) || '').trim().toLowerCase(); return !L.length || L.includes(e); };
+  const isInspector = () => { const o = pol().owner; return !o || !S.user || (normCo(S.user.company) === normCo(o) && adminUserOk()); };
   const DEF = {
     project: 'Default project', projects: ['Default project'],
     stamp: true, maxPx: 2048, myTypes: [],
@@ -123,6 +131,7 @@
     saveBase: 'DOCUMENTS', saveFolder: 'PoleCam', saveByProject: true,
   };
   let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem('polecam.settings') || '{}')); } catch (e) { return { ...DEF }; } })();
+  applyHand();
   const persist = () => { try { localStorage.setItem('polecam.settings', JSON.stringify(S)); } catch (e) { /* storage blocked */ } };
   // v1.7: fixed pole types, strict photo check, 200 m maximum span, satellite imagery no longer kept on the phone
   delete S.types;
@@ -463,7 +472,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.8.0';
+  const APP_VER = '2.9.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `PoleCam/${APP_VER} (+${SITE})`;
@@ -1079,6 +1088,7 @@
     openSheet('camera'); startGps();
     $('camMsg').hidden = true; $('camTorch').hidden = true; $('qualBox').hidden = true; camCheck(false);
     showGuide();
+    if ((camTarget === 'new' && S.readId !== false) || camTarget === 'scan') ocrWarm();
     clearInterval(camTick); camTick = setInterval(camGpsTick, 1000); camGpsTick();
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { useNativeCamera(); return; }
     try {
@@ -1125,9 +1135,13 @@
     clearInterval(camTick);
     if (qualResolve) { qualResolve(false); qualResolve = null; }
     if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
-    if (camPending) { // the camera closed during the ID step (Skip, X or Back): the photo is still used
+    if (camPending) { // the camera closed during the ID step (Skip, X or Back): the photo is still used, once its check is done
       const p = camPending; camPending = null;
-      setTimeout(() => gotPhoto(p.blob, p.gps, p.source || 'camera', { q: p.q, takenAt: p.takenAt, crop: p.crop || null, live: p.live || null }), 0);
+      setTimeout(async () => {
+        const q = p.q || (p.qp ? await p.qp : null);
+        if (q && q.flags && q.flags.length) { toast(`${QUAL_TITLE[q.flags[0]] || 'Photo not accepted'}. ${QUAL_TEXT[q.flags[0]] || 'Take it again.'}`, 7000); return; }
+        gotPhoto(p.blob, p.gps, p.source || 'camera', { q, takenAt: p.takenAt, crop: p.crop || null, live: p.live || null });
+      }, 0);
     }
   }
   function camCheck(text) { $('camCheck').hidden = !text; if (text) $('camCheckText').textContent = text; }
@@ -1237,14 +1251,14 @@
      of the picture is searched for a row (or column) of high-contrast strokes, and the best one near the centre (or near
      where you tapped) gets the box. When the box holds still, the text inside is read in the background; the reading is
      shown on the box, and when the same known-format ID is read twice it is used by itself (Settings → Camera). */
-  const finder = { on: false, timer: 0, box: null, score: 0, misses: 0, stable: 0, reading: false, lastOcrAt: 0, read: null, list: null, crop: null, agree: 0, focus: null, cv: null, n: 0, ms: 0, vway: 0 };
+  const finder = { on: false, timer: 0, box: null, score: 0, misses: 0, stable: 0, reading: false, lastOcrAt: 0, read: null, list: null, crop: null, agree: 0, focus: null, cv: null, n: 0, ms: 0, vway: 0, way: null, reads: 0, t0: 0 };
   function finderStart() {
     if (finder.on || !stream) return;
-    Object.assign(finder, { on: true, box: null, score: 0, misses: 0, stable: 0, read: null, list: null, crop: null, agree: 0, n: 0, ms: 0 });
+    Object.assign(finder, { on: true, box: null, score: 0, misses: 0, stable: 0, read: null, list: null, crop: null, agree: 0, n: 0, ms: 0, way: null, reads: 0, t0: performance.now() });
     ocrWorker(); finderLabel('Looking for the ID…'); finderTick();
   }
   function finderStop() {
-    if (finder.on && finder.n) LOG.info('finder', { frames: finder.n, avgMs: Math.round(finder.ms / finder.n), read: finder.read ? finder.read.id : null });
+    if (finder.on && finder.n) LOG.info('finder', { frames: finder.n, avgMs: Math.round(finder.ms / finder.n), reads: finder.reads, ms: Math.round(performance.now() - finder.t0), read: finder.read ? finder.read.id : null });
     finder.on = false; clearTimeout(finder.timer); finder.focus = null; guideReset(); $('scanPrompt').classList.remove('found');
   }
   function finderLabel(t, got) { $('idGuideText').textContent = t; $('idGuide').classList.toggle('got', !!got); }
@@ -1292,7 +1306,7 @@
     }
     if (finder.box) guidePlace(finder.box);
     $('scanPrompt').classList.toggle('found', !!finder.box); // a shorter prompt once the box has found something
-    if (finder.box && finder.stable >= 2 && !finder.reading && Date.now() - finder.lastOcrAt > 700) liveRead(orient);
+    if (finder.box && finder.stable >= 1 && !finder.reading && Date.now() - finder.lastOcrAt > 350) liveRead(orient);
   }
   async function liveRead(orient) {
     finder.reading = true; finder.lastOcrAt = Date.now();
@@ -1300,8 +1314,11 @@
     try {
       const crop = grabGuideCrop(); if (!crop) return;
       if (!finder.read) finderLabel('Reading…');
-      // a vertical ID is either a column of upright characters or a sideways line: each reading tries the next way
-      const way = orient === 'v' ? ['stacked', 'cw', 'ccw'][finder.vway++ % 3] : 'line';
+      // a vertical ID is either a column of upright characters or a sideways line: the way that read the last ID is tried
+      // first, the others in turn until one reads, then that way is kept
+      const VW = ['stacked', 'cw', 'ccw'], v0 = Math.max(0, VW.indexOf(S.vWay));
+      const way = orient !== 'v' ? 'line' : finder.way || VW[(v0 + finder.vway++) % 3];
+      finder.reads++;
       const png = way === 'stacked' ? await prepStacked(crop, 200) : await prepForOcr(way === 'cw' ? rotated(crop, 90) : way === 'ccw' ? rotated(crop, -90) : crop);
       const r = await ocrRun(png, way === 'stacked' ? 6 : 7, { thresholding_method: 0 });
       if (!finder.on || !r.ok || !finder.box || iou(box, finder.box) < 0.4) return; // the box moved on meanwhile
@@ -1309,8 +1326,10 @@
       if (best && best.fits && best.conf >= 55) {
         finder.agree = finder.read && finder.read.id === best.id ? finder.agree + 1 : 1;
         const prev = finder.read; finder.read = best; finder.list = list; finder.crop = crop;
+        if (orient === 'v') { finder.way = way; S.vWay = way; }
         finderLabel(`${best.id} · ${best.conf}%`, true);
-        if (S.idAuto !== false && finder.agree >= 2 && Math.min(best.conf, prev ? prev.conf : 0) >= 65) acceptLive();
+        // one clear reading of a known ID is enough; otherwise the same ID read twice
+        if (S.idAuto !== false && ((best.exact && best.conf >= 85) || (finder.agree >= 2 && Math.min(best.conf, prev ? prev.conf : 0) >= 65))) acceptLive();
       } else if (!finder.read) finderLabel('Reading… zoom in or tap the ID');
     } catch (e) { LOG.warn('finder.read.fail', errInfo(e)); }
     finally { finder.reading = false; }
@@ -1321,7 +1340,7 @@
     const live = liveResult(), crop = finder.crop; if (!live) return;
     finderLabel(`Got ${live.best.id}`, true);
     try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) { /* optional */ }
-    LOG.info('finder.accept', { id: live.best.id, conf: live.best.conf, auto: true });
+    LOG.info('finder.accept', { id: live.best.id, conf: live.best.conf, auto: true, reads: finder.reads, ms: Math.round(performance.now() - finder.t0) });
     finderStop();
     if (camTarget === 'newid' && camPending) { camPending.crop = crop; camPending.live = live; await closeSheet(); }
     else if (camTarget === 'scan') { await closeSheet(); applyLiveRead(live); }
@@ -1422,16 +1441,27 @@
       LOG.info('photo.gps', { ms: Date.now() - tg, ok: !!gps, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0 });
       if (!alive()) return;
       if (!gps) { toast(gpsErr === 1 ? 'Photo not saved: location is off. Turn on location for PoleCam, then take it again.' : 'Photo not saved: GPS has not updated in the last 5 seconds. Wait for the green shutter, then take it again.', 6500); return; }
+      const tq = Date.now(), takenAt = new Date(shotAt).toISOString();
+      const qp = withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] })).then((q) => {
+        perf.check = Date.now() - tq; perf.px = q.w ? `${q.w}×${q.h}` : '';
+        LOG.info('photo.check', { ms: perf.check, px: perf.px, kb: Math.round(blob.size / 1024), flags: q.flags, sharp: q.sharp, level: q.level, during: camTarget === 'newid' ? 'id' : '' });
+        return q;
+      });
+      if (camTarget === 'new' && S.readId !== false) { // aim at the ID straight away; the photo is checked meanwhile
+        const pend = { blob, gps, takenAt, source: 'camera', qp };
+        enterIdStep(pend);
+        qp.then((q) => {
+          pend.q = q;
+          if (!q.flags.length || camPending !== pend || !alive()) return; // fine, or the ID step already ended (checked when the photo is used)
+          camPending = null; finderStop(); camTarget = 'new'; showGuide(); refusePhoto(blob, q);
+        });
+        return;
+      }
       camCheck('Checking photo…');
-      const tq = Date.now();
-      const q = await withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] }));
-      perf.check = Date.now() - tq; perf.px = q.w ? `${q.w}×${q.h}` : '';
-      LOG.info('photo.check', { ms: perf.check, px: perf.px, kb: Math.round(blob.size / 1024), flags: q.flags, sharp: q.sharp, level: q.level });
+      const q = await qp;
       camCheck(false);
       if (!alive()) return;
       if (q.flags.length) { await refusePhoto(blob, q); return; }
-      const takenAt = new Date(shotAt).toISOString();
-      if (camTarget === 'new' && S.readId !== false) { enterIdStep({ blob, gps, q, takenAt, source: 'camera' }); return; }
       await closeSheet();
       gotPhoto(blob, gps, 'camera', { q, takenAt });
     } finally { camBusy = false; $('shutter').disabled = false; camCheck(false); LOG.done('photo.take'); }
@@ -1510,9 +1540,12 @@
     if (ocrW) return ocrW;
     ocrW = new Worker('ocr-worker.js');
     ocrW.onmessage = (e) => { const cb = ocrWait[e.data.id]; if (cb) { delete ocrWait[e.data.id]; cb(e.data); } };
-    ocrW.onerror = (e) => { Object.keys(ocrWait).forEach((k) => { ocrWait[k]({ ok: false, error: e.message || 'Text reader failed to load' }); delete ocrWait[k]; }); ocrW = null; };
+    ocrW.onerror = (e) => { Object.keys(ocrWait).forEach((k) => { ocrWait[k]({ ok: false, error: e.message || 'Text reader failed to load' }); delete ocrWait[k]; }); ocrW = null; ocrWarmed = false; };
     return ocrW;
   }
+  let ocrWarmed = false;
+  /** Loads the text reader in the background (2–4 s on a phone the first time), so the first ID is read without waiting. */
+  function ocrWarm() { if (ocrWarmed && ocrW) return; ocrWarmed = true; try { ocrWorker().postMessage({ id: 0, warm: true }); } catch (e) { ocrWarmed = false; } }
   const ocrRun = (png, psm, vars) => new Promise((res) => {
     const id = ++ocrSeq;
     const tm = setTimeout(() => { if (ocrWait[id]) { delete ocrWait[id]; res({ ok: false, error: 'Text reader timed out' }); } }, 30000);
@@ -3553,13 +3586,14 @@
   function renderTypeInfo() { $('typeInfo').textContent = poleTypes().map((t) => `${t.n} ${t.p}-`).join(' · '); }
   $('goCamera').addEventListener('click', () => {
     $('setMyTypes').value = typeLines(S.myTypes); renderTypeInfo();
-    $('setReadId').checked = S.readId !== false; $('setIdAuto').checked = S.idAuto !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h';
+    $('setReadId').checked = S.readId !== false; $('setIdAuto').checked = S.idAuto !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h'; $('setHand').value = handOf();
     $('setQuality').value = effectiveQuality(); $('setQuality').disabled = !!S.team;
     $('qualityNote').textContent = S.team ? `Set by the admin in the company list “${S.team.name}” — the same on every phone.` : 'Until this phone takes a company list, you can choose this yourself.';
     openSheet('setCamera');
   });
   $('setReadId').addEventListener('change', () => { S.readId = $('setReadId').checked; persist(); });
   $('setIdAuto').addEventListener('change', () => { S.idAuto = $('setIdAuto').checked; persist(); });
+  $('setHand').addEventListener('change', () => { S.hand = $('setHand').value; persist(); applyHand(); toast(`Camera button on the ${handOf()}`, 2000); });
   $('setOrient').addEventListener('change', () => { S.idOrient = $('setOrient').value === 'v' ? 'v' : 'h'; persist(); });
   $('setQuality').addEventListener('change', () => { if (S.team) return; S.quality = $('setQuality').value; persist(); });
   /* export defaults: the same control appears on the Export screen (first id) and under Settings (second id) */
@@ -3646,18 +3680,44 @@
     if (p.form != null) { if (typeof p.form !== 'object') return false; for (const [k, v] of Object.entries(p.form)) { if (k === 'types' ? !list(v, 10, 60) : k === 'codes' ? !(v && typeof v === 'object') : k === 'rowsPerPage' ? v !== 15 : !str(v, 200)) return false; } } // the form layout holds 15 rows per page
     if (p.defects != null) { if (typeof p.defects !== 'object' || Object.keys(p.defects).length > 20) return false; for (const v of Object.values(p.defects)) if (!list(v, 60, 120)) return false; }
     if (p.poleTypes != null && !(Array.isArray(p.poleTypes) && p.poleTypes.length <= 20 && p.poleTypes.every((t) => t && /^[A-Z]{2,6}$/.test(t.p) && str(t.n, 30)))) return false;
+    if (p.adminUsers != null && !list(p.adminUsers, 100, 120)) return false;
+    if (p.web != null && !(typeof p.web === 'string' && /^https:\/\/\S{1,300}$/.test(p.web))) return false;
     if (p.packs != null && !(Array.isArray(p.packs) && p.packs.length <= 30 && p.packs.every((x) => x && str(x.n, 60) && typeof x.d === 'string' && /^[A-Za-z0-9_-]{20,100}$/.test(x.d) && num(x.mb, 0, 100000)))) return false;
     return true;
   }
   if (S.team && !validTeam(S.team)) { S.team = null; persist(); }
   /** Short code that tells two lists apart even when their names look the same. */
   const listCode = (b) => { const id = String(b.id).replace(/[^A-Za-z0-9]/g, ''); return `${id.slice(0, 4)}-${id.slice(-4)}`.toUpperCase(); };
+  /* ---- this copy of PoleCam can be tied to one organisation: org.json next to index.html (made by the admin) ---- */
+  const validOrg = (o) => !!o && o.type === 'polecam-org' && typeof o.id === 'string' && o.id.length > 0 && o.id.length <= 40 && typeof o.name === 'string' && o.name.length <= 100
+    && (o.key == null || (typeof o.key === 'string' && o.key.length <= 200)) && (o.web == null || (typeof o.web === 'string' && /^https:\/\/\S{1,300}$/.test(o.web)));
+  let ORG = validOrg(S.org) ? S.org : null;
+  async function loadOrg() {
+    try {
+      const r = await withTimeout(fetch('org.json', { cache: 'no-cache' }), 6000, 'slow');
+      if (r.status === 404) { if (ORG) { ORG = null; delete S.org; persist(); renderJoin(); renderTeamInfo(); } return; } // the admin removed the lock
+      if (!r.ok) return;
+      const o = await r.json();
+      if (!validOrg(o)) { LOG.warn('org.invalid'); return; }
+      ORG = { type: o.type, id: o.id, name: o.name, key: o.key || null, web: o.web || null }; S.org = ORG; persist();
+      LOG.info('org', { name: ORG.name, list: !!S.team && S.team.id === ORG.id }); renderJoin(); renderTeamInfo();
+    } catch (e) { /* offline: keep the last one */ }
+  }
+  /** The address of the web app, for join links (the APK uses the one in org.json or in the list). */
+  const webBase = () => {
+    if (!NATIVE && location.protocol === 'https:' && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) return location.origin + location.pathname.replace(/index\.html$/, '');
+    return (ORG && ORG.web) || (/^https:\/\//.test(window.POLECAM_SITE || '') ? window.POLECAM_SITE : '') || (S.team && S.team.pol && S.team.pol.web) || ''; // the APK knows its website
+  };
+  const joinLink = (text) => { const b = webBase(); return b ? `${b}#join=${text}` : ''; };
+  /** A pasted or scanned join link, or the list text itself. */
+  const joinText = (t) => { const s = String(t || '').trim(), m = /#join=([^\s&#]+)/.exec(s); if (!m) return s; try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; } };
   const teamCos = () => {
     if (S.team && S.team.src && S.cloud && S.cloud.src === S.team.src.url && S.cloud.companies.length) return S.cloud.companies; // online sheet
     return S.team && Array.isArray(S.team.co) ? S.team.co : [];
   };
   const profileOk = () => !!(S.user && S.user.name && S.user.mobile && S.user.email && S.user.company && (!teamCos().length || teamCos().includes(S.user.company)));
-  const isAdmin = () => !!(S.adminKey && S.team && (S.team.key === S.adminKey.pub || (S.team.admins || []).some((a) => a.k === S.adminKey.pub)));
+  const holdsListKey = () => !!(S.adminKey && S.team && (S.team.key === S.adminKey.pub || (S.team.admins || []).some((a) => a.k === S.adminKey.pub)));
+  const isAdmin = () => holdsListKey() && adminUserOk();
   const signerName = () => (S.team ? (S.team.key ? `the admin company${S.team.pol && S.team.pol.owner ? ` (${S.team.pol.owner})` : ''}` : S.team.admins && S.team.admins[S.team.k] ? S.team.admins[S.team.k].n : 'admin') : 'admin');
   let profileFirst = false;
   function renderCoSelect(sel) {
@@ -3694,7 +3754,9 @@
         : !company ? (teamCos().length ? 'Choose your company.' : 'Get the company list from your admin first (below).') : '';
     if (err) { $('pfErr').textContent = err; $('pfErr').hidden = false; return; }
     const own = pol().owner;
-    if (own && normCo(company) === normCo(own) && hasListKey(S.team) && !isAdmin()) { // the admin company is for its own staff
+    if (own && normCo(company) === normCo(own) && !adminUserOk(email) && S.team && S.team.src && navigator.onLine) { $('pfErr').textContent = 'Checking with the online sheet…'; $('pfErr').hidden = false; await cloudSync(true); $('pfErr').hidden = true; } // just added by the admin?
+    if (own && normCo(company) === normCo(own) && !adminUserOk(email)) { $('pfErr').textContent = `Only the ${own} users added by your admin can choose ${own}. Ask your admin to add ${email.toLowerCase()}, or choose your own company.`; $('pfErr').hidden = false; return; }
+    if (own && normCo(company) === normCo(own) && hasListKey(S.team) && !holdsListKey()) { // the admin company is for its own staff
       const pin = await askPin(`Admin PIN of ${own}`, `${own} is the admin company. Its staff enter the admin PIN once; contractors choose their own company.`);
       if (pin == null) return;
       const jwk = await decPriv(S.team.keyEnc, pin);
@@ -3783,6 +3845,8 @@
     let body;
     try { body = JSON.parse(obj.b); } catch (e) { body = null; }
     if (!validTeam(body)) throw new Error('This is not a PoleCam company list');
+    if (ORG && body.id !== ORG.id) throw new Error(`This PoleCam is set up for “${ORG.name}” only. Ask your admin for its join link.`);
+    if (ORG && ORG.key && !(S.team && S.team.id === body.id) && body.key !== ORG.key && body.prevKey !== ORG.key) throw new Error(`Not accepted: this “${body.name}” list was not made with the admin PIN this PoleCam expects. Ask your admin for a new join link.`);
     const signer = obj.k === -1 ? (body.key ? { n: 'admin company', k: body.key } : null) : obj.k === -2 ? (body.prevKey ? { n: 'admin company', k: body.prevKey } : null) : Number.isInteger(obj.k) ? body.admins[obj.k] : null;
     if (!signer || !(await verifyText(obj.b, obj.s, signer.k))) throw new Error('Not accepted: this company list is damaged or was changed after it was signed');
     const seen = (S.teamSeen = S.teamSeen || {})[body.id] || 0;
@@ -3809,8 +3873,8 @@
   async function importTeamText(text) {
     if (!cryptoOk()) return false;
     let p = null;
-    try { p = await unpackShare(text); } catch (e) { p = null; }
-    if (!p) { toast('That is not a PoleCam company list', 4000); return false; }
+    try { p = await unpackShare(joinText(text)); } catch (e) { p = null; }
+    if (!p) { toast('That is not a PoleCam join link or company list', 4000); return false; }
     if (p.kind !== 'PCT') { toast('That is an admin request from an older version. Since v2.1 admins are the staff of the admin company: choose that company in your profile and enter the admin PIN.', 6000); return false; }
     try {
       const r = await acceptTeam(p.obj, teamSwitch || !S.team);
@@ -3821,6 +3885,12 @@
     } catch (e) { toast(e.message, 6500); return false; }
   }
   function afterTeamChange() {
+    if (S.user && pol().owner && normCo(S.user.company) === normCo(pol().owner) && !adminUserOk()) {
+      S.adminKey = null; S.user = { ...S.user, company: '' }; persist();
+      const msg = `Your admin has not added ${S.user.email} as a ${pol().owner} user. Choose your own company.`;
+      if ($('profile').hidden) openProfile(true);
+      $('pfErr').textContent = msg; $('pfErr').hidden = false; toast(msg, 6500);
+    }
     refreshTypes();
     renderTeamInfo();
     if (!$('profile').hidden) renderCoSelect($('pfCompany').value || (S.user && S.user.company) || '');
@@ -3833,11 +3903,13 @@
     const t = S.team;
     const own = t && t.pol && t.pol.owner;
     $('teamInfo').textContent = t ? `“${t.name}” v${t.rev} · ${teamCos().length} compan${teamCos().length === 1 ? 'y' : 'ies'} · ${own ? `admin company ${own}` : t.key ? 'no admin company' : `admin${t.admins.length === 1 ? '' : 's'}: ${t.admins.map((a) => a.n).join(', ')}`}${isAdmin() ? ' · you are an admin' : isInspector() && own ? ' · your company' : ' · contractor user'}`
-      : 'No company list on this phone yet. Get it from your admin, or create it if you are the admin.';
+      : ORG ? `Not joined yet. Open the join link from your ${ORG.name} admin.` : 'No company list on this phone yet. Open the join link from your admin.';
     $('teamShare').hidden = !t;
     $('adminLock').textContent = isAdmin() ? 'ADMIN' : canManage() ? 'PIN' : t ? 'VIEW' : 'SET UP';
-    $('teamManage').hidden = !canManage();
-    $('teamCreate').hidden = !!t;
+    const foreign = !!(ORG && t && t.id !== ORG.id); // e.g. a list made on this phone before the app was tied to the organisation
+    if (foreign) $('teamInfo').textContent = `This phone has another list (“${t.name}”). Open the join link from your ${ORG.name} admin to switch.`;
+    $('teamManage').hidden = !canManage() || foreign;
+    $('teamCreate').hidden = !!t || !!ORG;
     $('teamSwitch').hidden = !t;
     renderCloudInfo();
   }
@@ -3853,13 +3925,27 @@
     if (!t) return;
     teamSwitch = !!sw; try { await importTeamText(t); } finally { teamSwitch = false; }
   }
+  async function pasteJoin(sw) {
+    let t = '';
+    try { t = (navigator.clipboard && navigator.clipboard.readText) ? await withTimeout(navigator.clipboard.readText(), 1500, 'slow') : ''; } catch (e) { t = ''; }
+    if (!/#join=|^PCT[01]:/.test(String(t).trim())) t = await promptText('Paste the join link', 'The link your admin sent (it contains #join=).', 'https://…#join=…', '');
+    if (!t) return;
+    teamSwitch = !!sw || !!S.team; try { await importTeamText(t); } finally { teamSwitch = false; }
+  }
+  $('pfPaste').addEventListener('click', () => pasteJoin(false));
+  /** Welcome screen: join first; creating a new organisation only where this app is not tied to one. */
+  function renderJoin() {
+    $('pfCreateBox').hidden = !!ORG;
+    $('pfJoinText').textContent = ORG ? `Open the join link your ${ORG.name} admin sent you, or scan the admin's QR code.` : 'Open the join link your admin sent you, or scan the admin’s QR code.';
+  }
+  renderJoin();
   $('pfScan').addEventListener('click', () => scanTeamQr(false));
   $('pfFile').addEventListener('click', () => openTeamFile(false));
   async function getList(sw) {
     const how = await ask(sw ? 'Switch to another company list' : 'Update the company list',
-      sw ? 'Only do this if your admin gave you a new, different list. Scan its QR code or open its file.' : 'Scan the QR code on an admin’s phone, or open the list file the admin sent you.',
-      [{ label: 'Cancel', value: '' }, { label: 'Open file', value: 'file' }, { label: 'Scan QR', value: 'scan', primary: true }]);
-    if (how === 'scan') scanTeamQr(sw); else if (how === 'file') openTeamFile(sw);
+      sw ? 'Only do this if your admin gave you a new, different list: its join link, QR code or file.' : 'Paste the join link from your admin, scan the QR code on an admin’s phone, or open the list file.',
+      [{ label: 'Cancel', value: '' }, { label: 'File', value: 'file' }, { label: 'Paste link', value: 'paste' }, { label: 'Scan QR', value: 'scan', primary: true }]);
+    if (how === 'scan') scanTeamQr(sw); else if (how === 'file') openTeamFile(sw); else if (how === 'paste') pasteJoin(sw);
   }
   $('teamUpdate').addEventListener('click', () => getList(false));
   $('teamSwitch').addEventListener('click', () => getList(true));
@@ -3867,8 +3953,10 @@
 
   /* ---- showing a QR code / sharing the file ---- */
   let qrFileData = null;
+  let qrLink = '';
   async function showQr(title, note, text, file) {
     $('qrTitle').textContent = title; $('qrText').textContent = note || '';
+    $('qrLinkBtn').hidden = !(qrLink && text === qrLink);
     qrFileData = file || null; $('qrFile').hidden = !file;
     const box = $('qrImg'); box.innerHTML = '';
     if (text.length > 2300 || !window.qrcode) box.innerHTML = '<p class="hint" style="color:#333">Too much for one QR code. Use Share as file.</p>';
@@ -3877,11 +3965,20 @@
   }
   async function showTeamQr(note) {
     if (!S.team) { toast('No company list on this phone yet'); return; }
-    const text = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k });
-    await showQr(`Company list: ${S.team.name}`, note || `Version ${S.team.rev} · ${teamCos().length} companies. On the other phone: Settings → Administration → Update list → Scan QR (or, on first use, “Scan admin's QR code”).`, text,
+    const text = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k }), link = joinLink(text);
+    qrLink = link;
+    await showQr(`Join ${S.team.name}`, note || `Version ${S.team.rev} · ${teamCos().length} companies. Scan this with the phone's camera, or send the join link.`, link || text,
       { name: `PoleCam_company_list_${C.safeName(S.team.name)}_v${S.team.rev}.json`, data: JSON.stringify({ app: 'PoleCam', type: 'company-list', name: S.team.name, version: S.team.rev, data: text }) });
   }
   $('qrClose').addEventListener('click', () => closeSheet());
+  $('qrLinkBtn').addEventListener('click', () => guard(async () => { if (qrLink) await shareText(qrLink, `Join ${S.team ? S.team.name : 'PoleCam'}`); }, 'Not sent'));
+  /** Send a short text (a join link): the share sheet, else copy it. */
+  async function shareText(text, title) {
+    if (NATIVE) { try { await nativeCall('Share', 'share', { title, text, dialogTitle: title }); return; } catch (e) { if (/cancel/i.test(String(e && e.message))) return; } }
+    else if (navigator.share) { try { await navigator.share({ title, text }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+    try { await navigator.clipboard.writeText(text); toast('Join link copied: paste it in Viber, Messenger or email', 4000); }
+    catch (e) { await promptText(title, 'Copy this link and send it:', '', text); }
+  }
   $('qrFile').addEventListener('click', async () => {
     if (!qrFileData) return;
     await shareFile(new Blob([qrFileData.data], { type: 'application/json' }), qrFileData.name, 'application/json');
@@ -3981,7 +4078,9 @@
         const j = await cloudRequest(src);
         if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : j && j.error === 'company key' ? 'your company access key is missing or wrong (Settings → Administration → Company access key; ask your admin)' : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
         S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j) }; cloudErr = ''; persist();
+        const moved = typeof j.list === 'string' && j.list.length <= 120000 ? await applySheetList(j.list) : false;
         afterTeamChange(); if (!$('newProj').hidden) renderSites();
+        if (moved === 'moved') setTimeout(() => cloudSync(true), 0); // the new list version points to another sheet
         return true;
       } catch (e) { cloudErr = e.message || String(e); renderCloudInfo(); return false; } finally { cloudBusy = null; }
     })();
@@ -4205,6 +4304,7 @@
     const pin = $('admPin').value.trim();
     if (!/^\d{4,8}$/.test(pin)) { toast('The PIN is 4 to 8 digits'); return; }
     const create = admMode === 'create' || !S.team, migrate = !create && !hasListKey(S.team);
+    if (!create && !adminUserOk()) { toast(`Your email (${(S.user && S.user.email) || 'none'}) is not on the admin users list of this company list`, 5000); return; }
     if (create || migrate) {
       if (pin !== $('admPin2').value.trim()) { toast('The two PINs do not match'); return; }
       if (migrate && !isAdmin()) { toast('Only an admin of the older list can set its PIN'); return; }
@@ -4222,9 +4322,11 @@
   async function admStart() {
     const create = admMode === 'create' || !S.team;
     const P = pol(), F = formText();
-    const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice(), poleTypes: (P.poleTypes || []).slice() };
+    const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice(), poleTypes: (P.poleTypes || []).slice(), adminUsers: (P.adminUsers || []).slice(), ...(P.web ? { web: P.web } : {}) };
     $('admPoleTypes').value = typeLines(polDraft.poleTypes);
     $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = '';
+    $('admUsers').value = (P.adminUsers || []).join('\n');
+    renderOrgBox(create);
     if (create) {
       await newAdminKey(); // the new list's key
       admDraft = { id: uid(), name: '', co: [], admins: [], rev: 0, src: null, pol: polDraft, newKey: true };
@@ -4255,6 +4357,11 @@
     Object.entries(form).forEach(([k, v]) => { if (Array.isArray(v) ? !v.length || v.join('|') === (D[k] || []).join('|') : v === norm(D[k])) delete kept[k]; else kept[k] = v; });
     P.form = kept;
     P.owner = $('admOwner').value || '';
+    P.adminUsers = [...new Set($('admUsers').value.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(x)).map((x) => x.slice(0, 120)))].slice(0, 100);
+    const me = String((S.user && S.user.email) || (!$('profile').hidden && $('pfEmail').value) || '').trim().toLowerCase(); // a new list is made before the profile is saved
+    if (P.adminUsers.length && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(me) && !P.adminUsers.includes(me)) P.adminUsers.unshift(me); // the admin who saves stays an admin
+    if (!P.adminUsers.length) delete P.adminUsers;
+    const web = webBase(); if (web && !NATIVE) P.web = web; // join links from the APK use the website address
     const num = (id, lo, hi, dflt) => { const v = +$(id).value; return v >= lo && v <= hi ? v : dflt; };
     P.maxSpan = num('setMaxSpan', 5, 1000, 200); P.angleDeg = num('setAngle', 1, 90, 15); P.autoGap = num('setAutoGap', 10, 5000, 120);
     P.quality = $('admQuality').value === 'normal' ? 'normal' : 'strict';
@@ -4294,7 +4401,7 @@
     const own = $('admOwner'), cur = own.value || admDraft.pol.owner || '';
     own.innerHTML = '<option value="">Not set: every user may manage, add and verify</option>' + admDraft.co.map((c) => `<option${c === cur ? ' selected' : ''}>${C.xmlEsc(c)}</option>`).join('');
     if (cur && !admDraft.co.includes(cur)) own.value = '';
-    $('admRev').textContent = admDraft.rev ? `Saving makes version ${admDraft.rev + 1}${admDraft.newPin ? ' with the new admin PIN' : ''}. Phones that have version ${admDraft.rev} take it when you share it.` : 'Saving makes version 1 of a new list.';
+    $('admRev').textContent = admDraft.rev ? `Saving makes version ${admDraft.rev + 1}${admDraft.newPin ? ' with the new admin PIN' : ''}. Phones that have version ${admDraft.rev} take it ${admDraft.src && S.onlineAdminKey ? 'from the online sheet by themselves' : 'with the join link or QR code'}.` : 'Saving makes version 1 of a new list.';
   }
   $('admAddCo').addEventListener('click', () => {
     const v = $('admNewCo').value.trim().replace(/\s+/g, ' ').slice(0, 80);
@@ -4346,8 +4453,9 @@
     } catch (e) { busy(false); toast(e.message || String(e), 6000); return; }
     busy(false);
     await closeSheet(); afterTeamChange(); renderPoles();
-    showTeamQr(`Version ${S.team.rev} saved. Show this QR code to each user, or share the file.${admDraft.newPin ? ' Admins must enter the new PIN after taking it.' : ''}`);
-    if (S.team.src) { pushPacksToSheet(S.team.src.url, P.packs || []).finally(() => cloudSync(true)); }
+    const viaSheet = !!(S.team.src && S.onlineAdminKey);
+    showTeamQr(`Version ${S.team.rev} saved. ${viaSheet ? 'Phones that already joined get it from the online sheet by themselves. New users: send the join link or show this QR code.' : 'Send the join link or show this QR code to each user.'}${S.team.src && !S.onlineAdminKey ? ' Enter the sheet’s Admin key (Online Google Sheet) so phones update by themselves.' : ''}${admDraft.newPin ? ' Admins must enter the new PIN after taking it.' : ''}`);
+    if (S.team.src) { pushPacksToSheet(S.team.src.url, P.packs || []).then(() => pushListToSheet(S.team.src.url)).finally(() => cloudSync(true)); }
   });
   /** Admin map packs (name | Drive link | MB), one per line. Only the Drive file id is kept, so the list and its QR stay small. */
   function parsePackLines(text) {
@@ -4366,6 +4474,42 @@
     $('admPacksInfo').textContent = `${packs.length} map pack${packs.length === 1 ? '' : 's'}${bad.length ? ` · not a Google Drive link: ${bad.join('; ')}` : ''}`;
   });
   /** With the online sheet connected and its admin key on this phone, the MapPacks tab follows the list (users then see them after Refresh list). */
+  function renderOrgBox(create) {
+    const t = S.team, tied = !!(ORG && t && ORG.id === t.id), stale = tied && ORG.key && ORG.key !== t.key && ORG.key !== t.prevKey;
+    $('admOrgBox').hidden = !!create || !t || !t.key;
+    $('admOrgInfo').textContent = stale ? 'The admin PIN changed since org.json was made: download it again and replace it on the website, or new users cannot join.'
+      : tied ? `This app is tied to “${t.name}”.` : ORG ? `This app is tied to another list (“${ORG.name}”).` : 'Not tied yet: anyone who opens the app can still create a separate list of their own (it never changes yours).';
+  }
+  $('admOrg').addEventListener('click', () => guard(async () => {
+    if (!S.team || !S.team.key) { toast('Save the list first'); return; }
+    const web = webBase();
+    const o = { app: 'PoleCam', type: 'polecam-org', id: S.team.id, name: S.team.name, key: S.team.key, ...(web ? { web } : {}) };
+    await shareFile(new Blob([JSON.stringify(o, null, 2)], { type: 'application/json' }), 'org.json', 'application/json');
+  }, 'org.json not made'));
+  /** The signed list goes to the sheet too (v2.9 script): phones that read the sheet take each new version by themselves. */
+  async function pushListToSheet(url) {
+    if (!url || !S.onlineAdminKey || !S.team) return;
+    try {
+      const list = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k });
+      const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: S.onlineAdminKey, action: 'setList', list, id: S.team.id, rev: S.team.rev }) });
+      if (!j || !j.ok) throw new Error(j && j.error === 'action' ? 'update the Apps Script in the sheet (v2.9) so phones get the list from it' : (j && j.error) || 'no answer');
+      LOG.info('sheet.list', { rev: S.team.rev });
+    } catch (e) { LOG.warn('sheet.list.fail', errInfo(e)); toast(`The list was not sent to the online sheet: ${e.message || e}. Phones still get it from the join link or QR code.`, 7000); }
+  }
+  /** A newer version of this phone's list, read from the sheet, is taken when it is signed with the admin PIN. */
+  async function applySheetList(text) {
+    if (!text || !S.team) return false;
+    let p = null, body = null;
+    try { p = await unpackShare(text); body = p && p.kind === 'PCT' ? JSON.parse(p.obj.b) : null; } catch (e) { return false; }
+    if (!body || body.id !== S.team.id || !(body.rev > S.team.rev)) return false;
+    const url = S.team.src && S.team.src.url;
+    try {
+      const r = await acceptTeam(p.obj, false);
+      if (!r.ok) return false;
+      LOG.info('list.fromSheet', { rev: body.rev }); toast(`Company list updated from the online sheet: version ${body.rev}`, 4000);
+      return !S.team.src || S.team.src.url !== url ? 'moved' : true;
+    } catch (e) { LOG.warn('list.fromSheet.fail', { rev: body.rev, msg: String(e.message || e).slice(0, 160) }); return false; }
+  }
   async function pushPacksToSheet(url, packs) {
     if (!url || !S.onlineAdminKey) return;
     try {
@@ -4827,9 +4971,16 @@
     if (S.dropSatTiles) { // v1.7: satellite imagery kept by older versions is removed (Esri allows offline imagery only in ArcGIS apps)
       try { await tx('tiles', 'readwrite', (st) => st.delete(IDBKeyRange.bound('satellite/', 'satellite/\uffff'))); delete S.dropSatTiles; persist(); } catch (e) { /* try again next start */ }
     }
+    if (pendingJoin) { await loadOrg(); await joinFromAddress(pendingJoin); } else loadOrg(); // a join link waits for the organisation check
     if (!profileOk()) openProfile(true);
     cloudSync(false);
   })();
+  window.addEventListener('hashchange', () => { const h = location.hash; if (/^#join=/.test(h)) { history.replaceState(null, '', location.pathname + location.search); joinFromAddress(h.slice(6)); } });
+  async function joinFromAddress(raw) {
+    let t = raw; try { t = decodeURIComponent(raw); } catch (e) { /* as is */ }
+    LOG.info('join.link', { len: t.length, had: !!S.team });
+    teamSwitch = true; try { await importTeamText(t); } finally { teamSwitch = false; }
+  }
   // Files handed to other apps through Share are temporary: clear them each time the APK starts.
   if (NATIVE) nativeCall('Filesystem', 'rmdir', { path: 'share', directory: 'CACHE', recursive: true }).catch(() => {});
   // The APK already carries every file, so the offline cache is only for the website version.

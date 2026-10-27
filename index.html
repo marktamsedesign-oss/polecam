@@ -93,6 +93,12 @@ body.visiting #mapSummary{display:none}
 .navbtn svg{width:24px;height:24px}
 #captureBtn{flex:none;width:68px;height:68px;margin-top:-30px;border-radius:50%;border:4px solid var(--navy);background:#fff;color:#0f2547;box-shadow:0 0 0 2px var(--hi),var(--shadow);display:grid;place-items:center}
 #captureBtn svg{width:30px;height:30px}
+/* camera button on the right or left for one-hand use (Settings → Camera) */
+body.hand-right #captureBtn{order:9}body.hand-left #captureBtn{order:-1}
+body.hand-center #captureBtn{order:2}body.hand-center #settingsBtn{order:3;flex:2}
+#camBar #camNative{grid-area:1/1}#camBar #shutter{grid-area:1/2}#camBar #camTorch{grid-area:1/3}
+body.hand-right #camBar #camTorch{grid-area:1/2}body.hand-right #camBar #shutter{grid-area:1/3}
+body.hand-left #camBar #shutter{grid-area:1/1}body.hand-left #camBar #camNative{grid-area:1/2}
 
 /* pole markers on map */
 .pole-label{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font:600 11px/1.3 var(--mono);box-shadow:none}
@@ -183,7 +189,7 @@ details.more[open]>summary::after{transform:rotate(90deg)}
 #camera video{flex:1;width:100%;object-fit:cover;min-height:0;background:#000}
 #camTop{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));display:flex;justify-content:space-between;align-items:center;gap:8px;z-index:2}
 #camTop .pill{background:rgba(0,0,0,.55);border-radius:999px;padding:6px 12px;font-size:13px;display:flex;gap:6px;align-items:center;color:#fff}
-#camBar{display:flex;align-items:center;justify-content:space-around;padding:16px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 20px) max(16px,env(safe-area-inset-left,0px));background:#000}
+#camBar{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;justify-items:center;padding:16px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 20px) max(16px,env(safe-area-inset-left,0px));background:#000}
 #shutter{width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:#868e96;transition:background .2s}
 #shutter.ok{background:#2f9e44}
 #shutter.bad{background:#e03131}
@@ -697,12 +703,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <button class="btn sm" id="cloudSyncBtn" type="button" hidden>Sync online sheet</button>
       <button class="btn sm" id="teamSwitch" type="button" hidden>Switch list</button>
       <button class="btn sm primary" id="teamManage" type="button" hidden>Manage (admin)</button>
-      <button class="btn sm" id="teamCreate" type="button" hidden>Create the company list</button>
+      <button class="btn sm" id="teamCreate" type="button" hidden>Set up a new organisation</button>
     </div>
-    <p class="hint help">One company on the list is the <b>admin company</b> (e.g. Globe). Its staff enter the admin PIN once and become admins and inspectors: they manage this list, add deficiencies and verify rectifications. Everyone else is a contractor user. Updates travel by QR code or file, signed so a phone only takes versions made with the admin PIN.</p>
+    <p class="hint help">One company on the list is the <b>admin company</b> (e.g. Globe). Its admin users enter the admin PIN once and become admins and inspectors: they manage this list, add deficiencies and verify rectifications. Everyone else is a contractor user. New users join with the admin's join link or QR code; later versions come from the online sheet by themselves. A phone only takes versions made with the admin PIN.</p>
     <div class="sectionh">About</div>
     <div class="group">
-      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.8.0</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
+      <p class="hint" style="margin:0"><b style="color:var(--ink)">PoleCam Survey v2.9.0</b><br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
       <p class="hint" id="policyInfo" style="margin:0"></p>
       <label class="check"><input type="checkbox" id="setShowHelp"><span>Keep the help text on every screen open</span></label>
     </div>
@@ -716,8 +722,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="group">
       <h3>After each photo</h3>
       <label class="check"><input type="checkbox" id="setReadId"><span>Ask to scan the painted ID after each new photo</span></label>
-      <label class="check"><input type="checkbox" id="setIdAuto"><span>Live ID reader: use the ID by itself when it is read the same way twice (otherwise tap the shutter)</span></label>
+      <label class="check"><input type="checkbox" id="setIdAuto"><span>Live ID reader: use the ID by itself when it is read clearly (otherwise tap the shutter)</span></label>
       <label class="field">Painted IDs are usually<select id="setOrient"><option value="h">Horizontal</option><option value="v">Vertical (stacked or sideways)</option></select></label>
+    </div>
+    <div class="group">
+      <h3>Camera button</h3>
+      <label class="field">Position, for one-hand use<select id="setHand"><option value="right">Right (right hand)</option><option value="center">Center</option><option value="left">Left (left hand)</option></select></label>
     </div>
     <div class="group">
       <h3>Pole types</h3>
@@ -939,10 +949,11 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <label class="field">EMAIL <input type="email" id="pfEmail" autocomplete="email" inputmode="email" autocapitalize="off" placeholder="name@company.com"></label>
     <div class="field"><span class="lbl">COMPANY</span><select id="pfCompany"></select><p class="hint" id="pfTeam"></p></div>
     <div class="group" id="pfJoin" hidden>
-      <h3>Get the company list</h3>
-      <p class="hint">Company names are set by your PoleCam admin. Ask the admin to show the list's QR code (Settings → Share list), or to send you the list file.</p>
-      <div class="row"><button class="btn grow primary" id="pfScan" type="button">Scan admin's QR code</button><button class="btn grow" id="pfFile" type="button">Open list file</button></div>
-      <button class="btn" id="pfCreate" type="button">I am the admin: create the company list</button>
+      <h3>Join your team</h3>
+      <p class="hint" id="pfJoinText">Open the join link your admin sent you, or scan the admin’s QR code.</p>
+      <div class="row"><button class="btn grow primary" id="pfScan" type="button">Scan QR code</button><button class="btn grow" id="pfPaste" type="button">Paste link</button></div>
+      <button class="btn" id="pfFile" type="button">Open list file</button>
+      <details class="help" id="pfCreateBox"><summary>Setting up PoleCam for a new organisation?</summary><p class="hint">Only the one person who sets up PoleCam for the whole organisation does this. Field users: ask your admin for the join link instead.</p><button class="btn" id="pfCreate" type="button">Create a new organisation list</button></details>
     </div>
     <p class="warnline" id="pfErr" hidden></p>
   </div>
@@ -965,7 +976,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <button class="btn primary" id="admUnlock" type="button">Continue</button>
     </div>
     <div id="admMain" hidden style="display:contents">
-      <p class="notice">Everything here goes to every phone that takes the list (QR code or file). Only phones with the admin PIN can change it.</p>
+      <p class="notice">Everything here goes to every phone in this list (join link, QR code, file or the online sheet). Only admin users with the admin PIN can change it.</p>
       <div class="group">
         <h3>List name</h3>
         <input type="text" id="admName" placeholder="e.g. Globe OSP Mindanao" aria-label="List name">
@@ -978,6 +989,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="row"><button class="btn grow" id="admCsv" type="button">Import companies from CSV</button></div>
         <input type="file" id="admCsvInput" accept=".csv,text/csv,text/plain" hidden>
         <label class="field">ADMIN COMPANY: its staff (with the admin PIN) are admins and inspectors; everyone else is a contractor user<select id="admOwner"></select></label>
+        <label class="field">ADMIN USERS: email of each admin / inspector, one per line. Blank = anyone of the admin company with the PIN<textarea id="admUsers" style="min-height:64px" placeholder="name@globe.com.ph" autocapitalize="off" spellcheck="false"></textarea></label>
         <div class="row"><button class="btn" id="admChangePin" type="button">Change the admin PIN</button></div>
         <p class="hint help">Give the admin PIN only to staff of the admin company. Change it when someone leaves: phones that take the new list version need the new PIN.</p>
       </div>
@@ -1019,9 +1031,15 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <p class="hint">Keep companies, assigned tasks and map pack links in your own Google Sheet (see the setup guide). Phones read it when online and keep a copy for offline use. Photos and survey data never go there.</p>
         <label class="field">WEB APP URL<input type="text" id="admUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
         <label class="field">READ KEY (from the sheet's Settings tab)<input type="text" id="admReadKey" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
-        <label class="field">ADMIN KEY (stays on this phone; lets CSV import add companies to the sheet)<input type="password" id="admWriteKey" autocomplete="off"></label>
+        <label class="field">ADMIN KEY (stays on this phone: each saved list version goes to the sheet, so phones update by themselves; CSV import adds companies)<input type="password" id="admWriteKey" autocomplete="off"></label>
         <button class="btn" id="admTest" type="button">Test connection</button>
         <p class="hint" id="admTestOut"></p>
+      </div>
+      <div class="group" id="admOrgBox" hidden>
+        <h3>Tie the app to this list</h3>
+        <p class="hint" id="admOrgInfo"></p>
+        <button class="btn" id="admOrg" type="button">Download org.json</button>
+        <p class="hint help">Put org.json next to index.html on the website (and in the APK build). From then on new users can only join this list, and nobody can create another one in the app.</p>
       </div>
       <p class="hint" id="admRev"></p>
       <button class="btn primary" id="admSave" type="button">Save and share the list</button>
@@ -1033,7 +1051,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <h3 id="qrTitle">Company list</h3>
   <p class="hint" id="qrText"></p>
   <div id="qrImg"></div>
-  <div class="row"><button class="btn grow" id="qrFile" type="button">Share as file</button><button class="btn primary grow" id="qrClose" type="button">Done</button></div>
+  <button class="btn primary" id="qrLinkBtn" type="button" hidden>Send the join link</button>
+  <div class="row"><button class="btn grow" id="qrFile" type="button">Share as file</button><button class="btn grow" id="qrClose" type="button">Done</button></div>
 </div></div>
 <div id="qrScan" hidden>
   <div class="qtop"><button class="camclose" id="qrScanClose" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="22" height="22"><use href="#i-close"/></svg></button><span id="qrScanText">Point the camera at the QR code</span></div>

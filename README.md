@@ -43,13 +43,28 @@ The APK opens the same hosted app, so keep the GitHub Pages site online.
 ## First use: your details and the company list
 
 - On first use the app asks for **full name, mobile number, email and company**. They stay on the phone and are recorded on every photo, pole and deficiency (“Mark Tamse · Globe Telecom”) and printed on the reports. Change them in Settings → Account.
-- **Company names come from the company list**, made once by the admin (“I am the admin: create the company list”). One company on it is the **admin company** (e.g. Globe Telecom), protected by an **admin PIN** (v2.1):
+- **Company names come from the company list**, made once by the admin (first use → *Setting up PoleCam for a new organisation?*). One company on it is the **admin company** (e.g. Globe Telecom), protected by an **admin PIN** (v2.1):
   - Staff of the admin company choose it in their profile and enter the admin PIN once. From then on they are **admins and inspectors** on that phone: Settings → Company list → *Manage (admin)* (PIN asked again) edits companies, policies, the form wording and the checklist; in acceptance projects they add deficiencies and verify or reject rectifications.
   - Everyone else (contractors) chooses their own company and is a **user**: they see the list and its policies, take updates, and in acceptance projects they add rectified photos and mark items rectified.
   - Nobody can pick the admin company without the PIN, so keep it inside the admin company and change it (Manage → *Change the admin PIN*) when someone leaves; phones that take the new version then need the new PIN.
-- **Sharing the list, offline:** Settings → Company list → *Share list* shows a QR code; other phones scan it (first use: *Scan admin's QR code*; later: *Update list* → *Scan QR*). *Share as file* sends the same list as a small file through Viber/Messenger/email; the other phone opens it with *Open list file*. Nothing goes through a server.
+- **Joining (v2.9):** Settings → Company list → *Share list* → **Send the join link** (Viber, Messenger, email), or let the user scan the QR code with the phone's own camera. Opening the link opens PoleCam in the browser and joins the list; then the user chooses their company. In the APK: *Paste link* or *Scan QR code* on the first screen. *Share as file* still works, and the QR code works with no signal.
+- **Updates (v2.9):** when the online sheet is connected and the sheet's **Admin key** is entered on the admin phone, every saved list version is also kept in the sheet, and each phone takes it by itself when it reads the sheet (on opening the app, at most every 10 minutes, or *Sync online sheet*). Without the sheet, updates go by join link, QR code or file as before.
 - **How it stays trustworthy:** the list is signed with a key that travels inside it, encrypted with the admin PIN. A phone accepts a new version of its list only when it was made with that PIN (or, for lists from v1.x, by one of the admins named in it), and rejects a list edited by hand. Each list has a code (e.g. MV3H-EQCB) shown when joining; a different list needs *Switch list* and a warning.
+- See **Who is admin, and one list for the whole organisation (v2.9)** below for admin users and tying the app to your list.
 - Lists made with v1.7–v2.0 (per-person admin keys) keep working. Their admin opens *Manage (admin)* once, sets the admin PIN and saves; after that the admin-company model applies and the old “ask to become an admin” step is gone.
+
+## Who is admin, and one list for the whole organisation (v2.9)
+
+| Who | What they do |
+|---|---|
+| **Admin** (you) | Admin company (e.g. GLOBE) + admin PIN, and on the *Admin users* list. Makes and changes the list, sends the join link. |
+| **Other admins / inspectors** | Only people you add: Manage → **Admin users** (one email per line), then they choose GLOBE in their profile and enter the PIN. |
+| **Everyone else** | Joins with your link, chooses their own company (vendor). Cannot open Manage, cannot choose GLOBE. |
+
+- **Admin users:** blank = anyone of the admin company with the PIN (as before). When you list emails, only those people can choose the admin company or open Manage, even with the PIN. Removing someone takes their admin rights away when their phone next reads the list. The admin who saves always stays on it. Change the PIN too when someone leaves (Manage → *Change the admin PIN*).
+- **One list only (org.json):** Manage → **Tie the app to this list** → *Download org.json*, then upload `org.json` to the main folder of the GitHub repository (next to `index.html`). The website and the next APK build then carry it: new users only see *Join*, nobody can create another list in the app, and a join link or QR code of any other list is refused. To undo it, delete `org.json` from the repository. If you change the admin PIN twice, download org.json again and replace it (the admin screen reminds you).
+- Without org.json, a new user could still make a list of their own on their own phone. It never changes your list, your sheet or other phones (they only take versions signed with your PIN), but it confuses people, so tie the app once your list is ready.
+- **A phone that already has another list** (for example one made while testing): open your join link on it and tap *Switch*.
 
 ## The process: Survey → PAT → Defect cleanup → FAT (v2.5)
 
@@ -145,6 +160,14 @@ The Excel/CSV punchlist also has *Days to rectify*, *Rectified by*, *Date verifi
 
 **Vendor hand-off:** Globe makes a Backup of the PAT/FAT project → sends the ZIP to the vendor → vendor Restores it on their phone, sets their name, takes after photos at each site → makes a Backup → sends it back → Globe Restores it and exports the rectification report.
 
+## Faster ID reading and the camera button (v2.9)
+
+- **Aim at the ID straight after the photo:** the photo check (blur, dark) now runs while you aim at the ID. A photo that fails the check is still refused, with the reason, before anything is saved.
+- **One clear reading is enough:** a known ID (CC-, WP-, SP-, FDU_ … with every digit read) at 85% or more is used at once. Less sure readings still need the same ID twice. Vertical IDs keep the reading way that worked last time.
+- The text reader is loaded when the camera opens, so the first ID of the day does not wait for it.
+- Measured here on the sample pictures with the processor slowed 4×: from the ID step opening to the editor, 3.0–8.7 s before and 1.2–4.7 s now (the stacked sample was also misread as CC-0047 before; it now reads CC-0457). Phones differ: the App log now records *reads* and *ms* for each ID, so send it if it still feels slow.
+- **Camera button position:** Settings → Camera → *Position*: Right (default), Center or Left, for the capture button on the map and the shutter in the camera.
+
 ## Camera checks, Pole ID reading, route (v1.5)
 
 **Camera checks**
@@ -223,7 +246,7 @@ The admin keeps three lists in a Google Sheet on their own account; phones read 
 
 **On the phones:** Projects → **+ New project** → *Project name* **▾** lists the open rows for the user's company (admins see all). Picking one fills the project with its category, site and contractor; for a Defect Cleanup or FAT choose the KMZ in the same form. Settings → Administration shows when the sheet was last read, with *Sync online sheet*.
 
-### Updating the script (needed for v2.5 map packs, the Defect cleanup category and v2.6 company filtering)
+### Updating the script (needed for v2.5 map packs, the Defect cleanup category, v2.6 company filtering and v2.9 list updates through the sheet)
 
 1. Open the online Google Sheet → **Extensions → Apps Script**.
 2. Click in the code (`Code.gs`), select all (Ctrl+A), delete, paste the whole new `PoleCam-online-sheet.gs`, **Save** (Ctrl+S).
@@ -403,3 +426,12 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **New project form** with five fields: Project name (from the online sheet or typed), Task category, Purpose, KMZ, Remarks / notes. It replaces the category chips, the separate site list, the *Open the PAT KMZ* button and the *Assigned tasks* list. See "Projects screen".
 - **Remarks / notes** per project (also editable under Project details).
 - No change to the online sheet script (v2.7 script works as is).
+
+## What changed in v2.9
+
+- **Join link:** one link (or the QR code, scanned with the phone camera) puts a new phone in your list. The welcome screen now offers *Join* first; creating a new organisation is folded away.
+- **List updates through the online sheet** (with the Admin key on the admin phone and the v2.9 script): phones take each new list version by themselves.
+- **Admin users:** only the emails the admin lists can use the admin company and Manage.
+- **Tie the app to your list** with org.json: no other lists, no *create* option for anyone.
+- **Faster ID reading** and the photo check during the ID step; **camera button on the right** by default (Settings → Camera).
+- Needs the updated `PoleCam-online-sheet.gs` (see "Updating the script") for the list updates; everything else works with the v2.7 script.

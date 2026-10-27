@@ -27,10 +27,11 @@ function parseTsv(tsv) {
 }
 
 self.onmessage = async (e) => {
-  const { id, image, psm, whitelist, vars } = e.data;
+  const { id, image, psm, whitelist, vars, warm } = e.data;
   try {
     if (!ready) ready = init();
     await ready;
+    if (warm) { self.postMessage({ id, ok: true, warm: true }); return; } // loaded ahead of the first ID, while the photo is framed
     TM.FS.writeFile('/input', image);
     if (api.SetImageFile(1, 0) === 1) throw new Error('Could not read the image');
     api.SetVariable('tessedit_char_whitelist', whitelist || '');
