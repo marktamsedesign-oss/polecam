@@ -1150,7 +1150,434 @@
     return best;
   }
 
+  /* ---------------- glyph reader (v2.20) ----------------
+     A small neural network (3 convolution layers, 2 dense) trained on painted, stencilled and embossed characters, run
+     on each character the app cuts out of the picture. Characters as small as 8 px read, in a few milliseconds each.
+     The trained weights are in glyphs.js (setGlyphModel). */
+  const GS = 24, GCLASSES = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ~'; // ~ = not a character
+  let glyphModel = null, gnet = null;
+  function setGlyphModel(m) { glyphModel = m || null; gnet = null; }
+  function b64bytes(s) {
+    if (typeof atob === 'function') { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+    return Uint8Array.from(Buffer.from(s, 'base64')); // node (tests)
+  }
+  function glyphNet() {
+    if (gnet || !glyphModel) return gnet;
+    const L = {};
+    for (const [k, t] of Object.entries(glyphModel.w)) {
+      const q = new Int8Array(b64bytes(t.q).buffer), sc = new Float32Array(b64bytes(t.s).buffer), cols = t.shape[1], w = new Float32Array(q.length);
+      for (let i = 0; i < q.length; i++) w[i] = q[i] * sc[i % cols];
+      L[k] = w;
+    }
+    for (const [k, t] of Object.entries(glyphModel.b)) L[k] = new Float32Array(b64bytes(t).buffer);
+    gnet = { L, ch: glyphModel.ch, hid: glyphModel.hid };
+    return gnet;
+  }
+  const glyphReady = () => !!glyphNet();
+  /** Gray (0..255, float) of RGBA bytes. */
+  function grayOf(rgba, W, H) { const g = new Float32Array(W * H); for (let i = 0, j = 0; i < W * H; i++, j += 4) g[i] = (rgba[j] * 77 + rgba[j + 1] * 150 + rgba[j + 2] * 29) / 256; return g; }
+  /** The network's input for one character box (x0, y0, x1, y1 inclusive) of a gray picture: a square around it, 24×24,
+      contrast-normalised with the ink positive, plus its edge strength. Must match the training (glyphlib.patch). */
+  function glyphPatch(g, W, H, box) {
+    const [x0, y0, x1, y1] = box, bw = x1 - x0 + 1, bh = y1 - y0 + 1, side = Math.max(bw, bh) * 1.25;
+    const cx = (x0 + x1 + 1) / 2, cy = (y0 + y1 + 1) / 2, left = cx - side / 2, top = cy - side / 2, step = side / GS;
+    const n = Math.min(6, Math.max(2, Math.ceil(step))), v = new Float32Array(GS * GS);
+    const at = (y, x) => {
+      y = Math.min(H - 1, Math.max(0, y)); x = Math.min(W - 1, Math.max(0, x));
+      const ya = Math.floor(y), xa = Math.floor(x), yb = Math.min(ya + 1, H - 1), xb = Math.min(xa + 1, W - 1), fy = y - ya, fx = x - xa;
+      const a = g[ya * W + xa] * (1 - fx) + g[ya * W + xb] * fx, b = g[yb * W + xa] * (1 - fx) + g[yb * W + xb] * fx;
+      return a * (1 - fy) + b * fy;
+    };
+    for (let i = 0; i < GS; i++) for (let j = 0; j < GS; j++) {
+      let s = 0;
+      for (let a = 0; a < n; a++) { const y = top + (i + (a + 0.5) / n) * step - 0.5; for (let b = 0; b < n; b++) s += at(y, left + (j + (b + 0.5) / n) * step - 0.5); }
+      v[i * GS + j] = s / (n * n);
+    }
+    let m = 0; for (let i = 0; i < v.length; i++) m += v[i]; m /= v.length;
+    let sd = 0; for (let i = 0; i < v.length; i++) sd += (v[i] - m) ** 2; sd = Math.sqrt(sd / v.length);
+    const z = new Float32Array(GS * GS); for (let i = 0; i < v.length; i++) z[i] = (v[i] - m) / (sd + 8);
+    let ring = 0, rn = 0;
+    for (let i = 0; i < GS; i++) for (let j = 0; j < GS; j++) if (i < 2 || i >= GS - 2 || j < 2 || j >= GS - 2) { ring += z[i * GS + j]; rn++; }
+    if (ring / rn > 0) for (let i = 0; i < z.length; i++) z[i] = -z[i];
+    const out = new Float32Array(2 * GS * GS); out.set(z, 0);
+    const zz = (y, x) => z[Math.min(GS - 1, Math.max(0, y)) * GS + Math.min(GS - 1, Math.max(0, x))];
+    const mag = new Float32Array(GS * GS); let mm = 0;
+    for (let y = 0; y < GS; y++) for (let x = 0; x < GS; x++) {
+      const gx = zz(y - 1, x + 1) + 2 * zz(y, x + 1) + zz(y + 1, x + 1) - zz(y - 1, x - 1) - 2 * zz(y, x - 1) - zz(y + 1, x - 1);
+      const gy = zz(y + 1, x - 1) + 2 * zz(y + 1, x) + zz(y + 1, x + 1) - zz(y - 1, x - 1) - 2 * zz(y - 1, x) - zz(y - 1, x + 1);
+      const v2 = Math.sqrt(gx * gx + gy * gy); mag[y * GS + x] = v2; mm += v2;
+    }
+    mm /= mag.length; let ms = 0; for (let i = 0; i < mag.length; i++) ms += (mag[i] - mm) ** 2; ms = Math.sqrt(ms / mag.length);
+    for (let i = 0; i < mag.length; i++) out[GS * GS + i] = (mag[i] - mm) / (ms + 1e-3);
+    return out;
+  }
+  let gcols = new Float32Array(0);
+  /** 3×3 convolution (padding 1) + ReLU: the patches as rows (im2col), then rows × weights; output channel-first F×H×W. */
+  function convRelu(x, C, H, W, w, b, F) {
+    const HW = H * W, K = C * 9;
+    if (gcols.length < HW * K) gcols = new Float32Array(HW * K);
+    const cols = gcols;
+    for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) {
+      const r = (y * W + xx) * K;
+      for (let c = 0; c < C; c++) for (let ki = 0; ki < 3; ki++) {
+        const sy = y + ki - 1, o = r + c * 9 + ki * 3;
+        if (sy < 0 || sy >= H) { cols[o] = 0; cols[o + 1] = 0; cols[o + 2] = 0; continue; }
+        const base = c * HW + sy * W + xx;
+        cols[o] = xx > 0 ? x[base - 1] : 0; cols[o + 1] = x[base]; cols[o + 2] = xx < W - 1 ? x[base + 1] : 0;
+      }
+    }
+    const acc = new Float32Array(F), out = new Float32Array(F * HW);
+    for (let p = 0; p < HW; p++) {
+      for (let f = 0; f < F; f++) acc[f] = b[f];
+      const r = p * K;
+      for (let k = 0; k < K; k++) { const v = cols[r + k]; if (v === 0) continue; const wr = k * F; for (let f = 0; f < F; f++) acc[f] += v * w[wr + f]; }
+      for (let f = 0; f < F; f++) out[f * HW + p] = acc[f] > 0 ? acc[f] : 0;
+    }
+    return out;
+  }
+  function pool2(x, C, H, W) {
+    const h = H >> 1, w = W >> 1, out = new Float32Array(C * h * w);
+    for (let c = 0; c < C; c++) for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) {
+      const i = c * H * W + 2 * y * W + 2 * xx;
+      out[c * h * w + y * w + xx] = Math.max(x[i], x[i + 1], x[i + W], x[i + W + 1]);
+    }
+    return out;
+  }
+  /** Class probabilities (GCLASSES order) for one patch. */
+  function glyphProbs(p) {
+    const N = glyphNet(); if (!N) return null;
+    const { L, ch, hid } = N; let x = p, H = GS, W = GS;
+    for (let i = 0; i < 3; i++) { x = pool2(convRelu(x, ch[i], H, W, L[`c${i}w`], L[`c${i}b`], ch[i + 1]), ch[i + 1], H, W); H >>= 1; W >>= 1; }
+    const C = ch[3], flat = new Float32Array(C * H * W);
+    for (let c = 0; c < C; c++) for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) flat[(y * W + xx) * C + c] = x[c * H * W + y * W + xx];
+    const a = new Float32Array(hid);
+    for (let j = 0; j < hid; j++) a[j] = L.f0b[j];
+    for (let i = 0; i < flat.length; i++) { const v = flat[i]; if (!v) continue; const r = i * hid; for (let j = 0; j < hid; j++) a[j] += v * L.f0w[r + j]; }
+    const nc = GCLASSES.length, o = new Float32Array(nc);
+    for (let k = 0; k < nc; k++) o[k] = L.f1b[k];
+    for (let j = 0; j < hid; j++) { const v = a[j] > 0 ? a[j] : 0; if (!v) continue; const r = j * nc; for (let k = 0; k < nc; k++) o[k] += v * L.f1w[r + k]; }
+    let mx = -Infinity; for (let k = 0; k < nc; k++) mx = Math.max(mx, o[k]);
+    let s = 0; for (let k = 0; k < nc; k++) { o[k] = Math.exp(o[k] - mx); s += o[k]; }
+    for (let k = 0; k < nc; k++) o[k] /= s;
+    return o;
+  }
+  // look-alikes: in a number a letter is the digit it looks like (O 0, I 1…), in a word the other way round
+  const LOOK_D = { O: '0', Q: '0', D: '0', U: '0', I: '1', L: '1', J: '1', T: '7', Z: '2', S: '5', G: '6', B: '8', A: '4', Y: '4', E: '3', P: '9' };
+  const LOOK_L = { 0: 'O', 1: 'I', 2: 'Z', 5: 'S', 6: 'G', 8: 'B' };
+  /** Best character of a probability vector: {ch, p, digit: {ch, p}, noise}. A digit's probability includes its look-alike letters. */
+  function glyphPick(pr) {
+    let best = -1, bp = -1; for (let k = 0; k < GCLASSES.length - 1; k++) if (pr[k] > bp) { bp = pr[k]; best = k; }
+    const dp = new Float32Array(10); for (let d = 0; d < 10; d++) dp[d] = pr[d];
+    for (const [l, d] of Object.entries(LOOK_D)) dp[+d] += pr[GCLASSES.indexOf(l)];
+    let bd = 0; for (let d = 1; d < 10; d++) if (dp[d] > dp[bd]) bd = d;
+    const lp = (ch) => pr[GCLASSES.indexOf(ch)] + (Object.entries(LOOK_L).find(([, l]) => l === ch) ? pr[+Object.entries(LOOK_L).find(([, l]) => l === ch)[0]] : 0);
+    return { ch: GCLASSES[best], p: bp, digit: { ch: String(bd), p: Math.min(1, dp[bd]) }, letterP: lp, noise: pr[GCLASSES.length - 1], pr };
+  }
+  /** A character box read twice, as cut and with a little more room round it; the two readings averaged (a character the
+      network is not steady about comes out unsure). */
+  const glyphOf = (g, W, H, box) => {
+    const a = glyphProbs(glyphPatch(g, W, H, box)); if (!a) return null;
+    const [x0, y0, x1, y1] = box, px = (x1 - x0 + 1) * 0.08, py = (y1 - y0 + 1) * 0.08, b = glyphProbs(glyphPatch(g, W, H, [x0 - px, y0 - py, x1 + px, y1 + py]));
+    for (let k = 0; k < a.length; k++) a[k] = (a[k] + b[k]) / 2;
+    return glyphPick(a);
+  };
+  /** Picked characters as ID text: a run of two or more letters at the start is the prefix (CC, GT, an owner's name);
+      after it every character is a digit (a letter read there is the digit it looks like: O 0, S 5…) unless it is clearly a
+      letter. -> {text, conf (0..100, the least sure character), alts: [{text, conf}]} */
+  function glyphText(picks) {
+    const dmax = (q) => Math.max(...q.pr.subarray(0, 10)), isL = (q) => !q.hidden && !q.dash && q.ch >= 'A';
+    let pre = 0; while (pre < picks.length && isL(picks[pre])) pre++;
+    if (pre < 2) pre = 0;
+    const chars = picks.map((q, i) => {
+      if (q.dash) return { ch: '-', p: 1, fixed: true };
+      if (q.hidden) return { ch: 'X', p: 1, fixed: true };
+      if (i < pre || (q.ch >= 'A' && q.p >= 0.85 && dmax(q) < 0.05 && !LOOK_D[q.ch])) return { ch: q.ch, p: Math.min(1, q.letterP(q.ch)), alt: q.pr, letter: true };
+      return { ch: q.digit.ch, p: q.digit.p, alt: q.pr };
+    });
+    const real = chars.filter((c) => !c.fixed), conf = real.length ? Math.round(100 * Math.min(...real.map((c) => c.p))) : 0;
+    const text = chars.map((c) => c.ch).join(''), alts = [];
+    // the least sure character's next choice, as a second reading
+    const weak = chars.map((c, i) => [c, i]).filter(([c]) => !c.fixed && c.p < 0.9).sort((a, b) => a[0].p - b[0].p)[0];
+    if (weak) {
+      const [c, i] = weak, order = [...c.alt.keys()].filter((k) => k < GCLASSES.length - 1 && GCLASSES[k] !== c.ch && (c.letter ? k >= 10 : k < 10)).sort((a, b) => c.alt[b] - c.alt[a]);
+      if (order.length) { const k = order[0], t = text.slice(0, i) + GCLASSES[k] + text.slice(i + 1); alts.push({ text: t, conf: Math.round(100 * Math.min(c.alt[k], ...real.filter((r) => r !== c).map((r) => r.p))) }); }
+    }
+    return { text, conf, alts };
+  }
+  /** Connected parts (8-neighbour) of a 0/1 map: [{x0, y0, x1, y1, n}] */
+  function blobs(map, W, H, minN) {
+    const lab = new Int32Array(W * H), st = new Int32Array(W * H), out = [];
+    for (let i = 0; i < W * H; i++) {
+      if (!map[i] || lab[i]) continue;
+      const id = out.length + 1; let sp = 0, n = 0, x0 = W, y0 = H, x1 = 0, y1 = 0; st[sp++] = i; lab[i] = id;
+      while (sp) {
+        const k = st[--sp], y = (k / W) | 0, x = k - y * W; n++;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const yy = y + dy, xx = x + dx; if (yy < 0 || yy >= H || xx < 0 || xx >= W) continue;
+          const j = yy * W + xx; if (map[j] && !lab[j]) { lab[j] = id; st[sp++] = j; }
+        }
+      }
+      if (n >= (minN || 1)) out.push({ x0, y0, x1, y1, n });
+    }
+    return out;
+  }
+  /** The q-quantile of non-negative values (a 2048-bin histogram: no sort). */
+  function quantile(a, q) {
+    let mx = 0; for (let i = 0; i < a.length; i++) if (a[i] > mx) mx = a[i];
+    if (!mx) return 0;
+    const h = new Uint32Array(2048), k = 2047 / mx; for (let i = 0; i < a.length; i++) h[Math.floor(a[i] * k)]++;
+    let n = 0; const want = a.length * q; for (let i = 0; i < 2048; i++) { n += h[i]; if (n >= want) return i / k; }
+    return mx;
+  }
+  /** Ink maps of a crop: dark paint, light paint, and the edges of raised (embossed) or faint characters. */
+  function inkMaps(g, W, H, r) {
+    const W1 = W + 1, ii = new Float64Array(W1 * (H + 1));
+    for (let y = 0; y < H; y++) { let s = 0; for (let x = 0; x < W; x++) { s += g[y * W + x]; ii[(y + 1) * W1 + x + 1] = ii[y * W1 + x + 1] + s; } }
+    const dark = new Uint8Array(W * H), light = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) {
+      const ya = Math.max(0, y - r), yb = Math.min(H, y + r + 1);
+      for (let x = 0; x < W; x++) {
+        const xa = Math.max(0, x - r), xb = Math.min(W, x + r + 1), mean = (ii[yb * W1 + xb] - ii[ya * W1 + xb] - ii[yb * W1 + xa] + ii[ya * W1 + xa]) / ((xb - xa) * (yb - ya));
+        const v = g[y * W + x], t = Math.max(14, mean * 0.15);
+        if (v < mean - t) dark[y * W + x] = 1; else if (v > mean + Math.max(14, (255 - mean) * 0.15)) light[y * W + x] = 1;
+      }
+    }
+    // edges: Sobel strength above most of the crop, closed so a raised character's outline is one piece
+    const mag = new Float32Array(W * H), at = (y, x) => g[Math.min(H - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const gx = at(y - 1, x + 1) + 2 * at(y, x + 1) + at(y + 1, x + 1) - at(y - 1, x - 1) - 2 * at(y, x - 1) - at(y + 1, x - 1);
+      const gy = at(y + 1, x - 1) + 2 * at(y + 1, x) + at(y + 1, x + 1) - at(y - 1, x - 1) - 2 * at(y - 1, x) - at(y - 1, x + 1);
+      mag[y * W + x] = Math.abs(gx) + Math.abs(gy);
+    }
+    const t = Math.max(40, quantile(mag, 0.8));
+    const edge = new Uint8Array(W * H); for (let i = 0; i < W * H; i++) edge[i] = mag[i] > t ? 1 : 0;
+    return { dark, light, edge };
+  }
+  /** Lines of character boxes in a crop: each line [{x0, y0, x1, y1}] left to right, plus a dash where one is. */
+  function textLines(map, W, H) {
+    const minH = Math.max(6, H * 0.1);
+    let cs = blobs(map, W, H, 6).filter((c) => { const w = c.x1 - c.x0 + 1, h = c.y1 - c.y0 + 1; return (h >= minH || (h >= 3 && w >= h * 1.2 && w >= minH * 0.5)) && h <= H * 0.98 && w <= W * 0.6 && w <= Math.max(h * 2.6, minH * 1.6) && c.n >= w * h * 0.08; });
+    if (cs.length > 80) cs = cs.sort((a, b) => b.n - a.n).slice(0, 80); // a busy picture: the biggest pieces
+    // pieces of one character above each other (a stencil's cut, the dot of a broken stroke) or inside each other: one box
+    let merged = true;
+    while (merged) {
+      merged = false;
+      for (let i = 0; i < cs.length && !merged; i++) for (let j = i + 1; j < cs.length && !merged; j++) {
+        const a = cs[i], b = cs[j], ov = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) + 1, mw = Math.min(a.x1 - a.x0, b.x1 - b.x0) + 1;
+        const gap = Math.max(a.y0, b.y0) - Math.min(a.y1, b.y1), hh = Math.max(a.y1 - a.y0, b.y1 - b.y0) + 1;
+        const inside = a.x0 <= b.x0 && a.x1 >= b.x1 && a.y0 <= b.y0 && a.y1 >= b.y1 || b.x0 <= a.x0 && b.x1 >= a.x1 && b.y0 <= a.y0 && b.y1 >= a.y1;
+        if (inside || (ov >= mw * 0.6 && gap <= hh * 0.3)) { cs[i] = { x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1), n: a.n + b.n }; cs.splice(j, 1); merged = true; }
+      }
+    }
+    const lines = [], used = new Set(), cy = (c) => (c.y0 + c.y1) / 2, hh = (c) => c.y1 - c.y0 + 1;
+    const order = cs.map((c, i) => i).sort((a, b) => hh(cs[b]) - hh(cs[a]));
+    for (const s of order) {
+      if (used.has(s) || lines.length >= 3) continue;
+      const c = cs[s], band = cs.map((d, i) => i).filter((i) => !used.has(i) && Math.abs(cy(cs[i]) - cy(c)) <= hh(c) * 0.3 && hh(cs[i]) >= hh(c) * 0.55 && hh(cs[i]) <= hh(c) * 1.5).sort((a, b) => cs[a].x0 - cs[b].x0);
+      // the longest run with no gap over 1.3 character heights
+      let runs = [[]];
+      band.forEach((i) => { const r = runs[runs.length - 1], p = r.length ? cs[r[r.length - 1]] : null; if (p && cs[i].x0 - p.x1 > hh(c) * 1.3) runs.push([i]); else r.push(i); });
+      const run = runs.filter((r) => r.includes(s))[0] || [];
+      if (run.length < 2) continue;
+      run.forEach((i) => used.add(i));
+      const items = run.map((i) => cs[i]), lh = items.map(hh).sort((a, b) => a - b)[items.length >> 1], ly = items.map(cy).sort((a, b) => a - b)[items.length >> 1];
+      // a dash between two characters: short, wide, in the middle of the line
+      cs.forEach((d, i) => {
+        if (used.has(i)) return; const w = d.x1 - d.x0 + 1;
+        if (hh(d) <= lh * 0.4 && w >= hh(d) * 1.2 && w <= lh * 1.2 && Math.abs(cy(d) - ly) <= lh * 0.25 && d.x0 > items[0].x0 && d.x1 < items[items.length - 1].x1) { items.push({ ...d, dash: true }); used.add(i); }
+      });
+      items.sort((a, b) => a.x0 - b.x0);
+      lines.push({ items, h: lh, y: ly });
+    }
+    return lines.sort((a, b) => a.y - b.y);
+  }
+  /** Lines of characters found by their edges (raised letters on a plate of the same colour, faint paint). The edges of a
+      line of letters run together, so the line is cut where its edges thin out between letters (the cuts that do not read
+      as characters are joined again by readLine). Same form as textLines. */
+  function edgeLines(edge, W, H) {
+    // the lines: the closed edge map's big pieces, grouped by height
+    const big = blobs(closeLine(closeLine(edge, W, H, 3, false), W, H, 3, true), W, H, 30).filter((c) => c.y1 - c.y0 + 1 >= 8 && c.y1 - c.y0 + 1 <= H * 0.95);
+    big.sort((a, b) => (b.y1 - b.y0) - (a.y1 - a.y0));
+    const bands = [];
+    for (const c of big) {
+      const ch = c.y1 - c.y0 + 1, b = bands.find((q) => Math.min(q.y1, c.y1) - Math.max(q.y0, c.y0) + 1 >= Math.min(ch, q.y1 - q.y0 + 1) * 0.5);
+      if (b) { b.y0 = Math.min(b.y0, c.y0); b.y1 = Math.max(b.y1, c.y1); b.x0 = Math.min(b.x0, c.x0); b.x1 = Math.max(b.x1, c.x1); b.hs.push(ch); }
+      else if (bands.length < 3) bands.push({ y0: c.y0, y1: c.y1, x0: c.x0, x1: c.x1, hs: [ch] });
+    }
+    const lines = [];
+    for (const b of bands) {
+      const bh = b.y1 - b.y0 + 1, w = b.x1 - b.x0 + 1; if (w < bh * 1.2) continue; // one blob: no line of characters
+      const P = new Float32Array(w); for (let x = 0; x < w; x++) { let s = 0; for (let y = b.y0; y <= b.y1; y++) s += edge[y * W + b.x0 + x]; P[x] = s; }
+      const r = Math.max(1, Math.round(bh * 0.03)), Q = new Float32Array(w);
+      for (let x = 0; x < w; x++) { let s = 0, n = 0; for (let k = Math.max(0, x - r); k <= Math.min(w - 1, x + r); k++) { s += P[k]; n++; } Q[x] = s / n; }
+      // cuts: empty columns, and the low points between letters that touch
+      const on = (x) => Q[x] > bh * 0.06, cuts = new Set([0, w]), win = Math.max(2, Math.round(bh * 0.08)), far = Math.max(4, Math.round(bh * 0.4));
+      for (let x = 1; x < w; x++) if (on(x) !== on(x - 1)) cuts.add(x);
+      for (let x = 1; x < w - 1; x++) {
+        if (!on(x)) continue; let lo = true, hiL = 0, hiR = 0;
+        for (let k = Math.max(0, x - win); k <= Math.min(w - 1, x + win); k++) if (Q[k] < Q[x]) { lo = false; break; }
+        if (!lo) continue;
+        for (let k = Math.max(0, x - far); k < x; k++) hiL = Math.max(hiL, Q[k]);
+        for (let k = x + 1; k <= Math.min(w - 1, x + far); k++) hiR = Math.max(hiR, Q[k]);
+        if (Q[x] < Math.min(hiL, hiR) * 0.9) cuts.add(x);
+      }
+      // cuts closer than a stroke apart: one of them (the lower) is enough
+      const cs0 = [...cuts].sort((a, c) => a - c), minGap = Math.max(2, Math.round(bh * 0.1)), cs = [];
+      for (const x of cs0) { const p = cs[cs.length - 1]; if (p != null && x - p < minGap && x !== w && p !== 0) { if (Q[Math.min(w - 1, x)] < Q[Math.min(w - 1, p)]) cs[cs.length - 1] = x; } else cs.push(x); }
+      const items = [];
+      for (let i = 0; i + 1 < cs.length; i++) {
+        const xa = cs[i], xb = cs[i + 1] - 1; if (xb < xa || !on(Math.round((xa + xb) / 2)) && Math.max(...Q.subarray(xa, xb + 1)) <= bh * 0.06) continue;
+        let y0 = -1, y1 = -1;
+        for (let y = b.y0; y <= b.y1; y++) { let s = 0; for (let x = xa; x <= xb; x++) s += edge[y * W + b.x0 + x]; if (s) { if (y0 < 0) y0 = y; y1 = y; } }
+        if (y0 < 0 || y1 - y0 + 1 < bh * 0.3) continue;
+        // a piece wider than a character (letters run together): cut in narrow strips; the reading joins the right ones again
+        const ch = y1 - y0 + 1, n = xb - xa + 1 > ch * 0.75 ? Math.ceil((xb - xa + 1) / (ch * 0.15)) : 1, sw = (xb - xa + 1) / n;
+        for (let k = 0; k < n; k++) items.push({ x0: b.x0 + xa + Math.round(k * sw), y0, x1: b.x0 + xa + Math.round((k + 1) * sw) - 1, y1 });
+      }
+      const ih = items.map((q) => q.y1 - q.y0 + 1).sort((a, c) => a - c)[items.length >> 1]; // the characters' height (the band may hold more)
+      if (items.length >= 2 && items.length <= Math.max(10, (w / ih) * 7)) lines.push({ items, h: ih, y: (b.y0 + b.y1) / 2, pieces: true });
+    }
+    return lines.sort((a, c) => a.y - c.y);
+  }
+  /** Reads one line: neighbouring pieces are joined into one character when that reads better (a stencil's two halves). */
+  function readLine(g, W, H, line) {
+    const it = line.items, n = it.length, h = line.h;
+    const box = (a, b) => { let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1; for (let k = a; k <= b; k++) { x0 = Math.min(x0, it[k].x0); y0 = Math.min(y0, it[k].y0); x1 = Math.max(x1, it[k].x1); y1 = Math.max(y1, it[k].y1); } return [x0, y0, x1, y1]; };
+    const best = new Float64Array(n + 1).fill(-Infinity), from = new Int32Array(n + 1), pick = new Array(n + 1); best[0] = 0;
+    for (let i = 0; i < n; i++) {
+      if (best[i] === -Infinity) continue;
+      for (let k = 1; k <= (line.pieces ? 7 : 3) && i + k <= n; k++) {
+        if (it.slice(i, i + k).some((q) => q.dash) && k > 1) break;
+        const b = box(i, i + k - 1); if (k > 1 && b[2] - b[0] + 1 > h * 1.05) break;
+        let s, q;
+        if (it[i].dash) { s = 0; q = { dash: true }; } else {
+          q = glyphOf(g, W, H, b); if (!q) return null;
+          // each character read counts for itself (else fewer, wider boxes would always win); a piece that is no character is left out, at a cost
+          s = q.noise > 0.5 ? Math.log(q.noise) - 1.5 : Math.log(Math.max(1e-4, Math.max(q.p, q.digit.p))) + 0.6;
+          if (q.noise > 0.5) q = { skip: true };
+        }
+        if (best[i] + s > best[i + k]) { best[i + k] = best[i] + s; from[i + k] = i; pick[i + k] = { q, b }; }
+      }
+    }
+    const out = []; for (let i = n; i > 0; i = from[i]) out.unshift(pick[i]);
+    return out.filter((o) => !o.q.skip);
+  }
+  /** Reads the ID in a crop with the glyph network. orient 'v': a column of upright characters (stackRows); else lines.
+      -> results in the text reader's form for idCandidates ({words: [{text, conf, line}], stacked}), or null. */
+  function glyphRead(rgba, W, H, orient, quick) {
+    if (!glyphNet()) return null;
+    const g = grayOf(rgba, W, H), results = [];
+    if (orient === 'v') {
+      const rd = stackRows(rgba, W, H, false), rl = stackRows(rgba, W, H, true);
+      const r = !rd ? rl : !rl ? rd : (rl.even > rd.even || (rl.even === rd.even && rl.rows.length > rd.rows.length)) ? rl : rd;
+      if (r && r.rows.length >= 3) {
+        // the column's centre line (a stencil's half-character box would put the window off centre)
+        const ys = r.rows.map((q) => (q.y0 + q.y1) / 2), xs = r.rows.map((q) => (q.x0 + q.x1) / 2), n = ys.length, my = ys.reduce((a, b) => a + b) / n, mx = xs.reduce((a, b) => a + b) / n;
+        let sxy = 0, syy = 0; for (let i = 0; i < n; i++) { sxy += (ys[i] - my) * (xs[i] - mx); syy += (ys[i] - my) ** 2; }
+        const sl = syy ? sxy / syy : 0, xAt = (y) => mx + sl * (y - my);
+        const cyOf = (q) => (q.y0 + q.y1) / 2, steps = [];
+        for (let i = 1; i < r.rows.length; i++) steps.push((cyOf(r.rows[i]) - cyOf(r.rows[i - 1])) / (1 + (r.rows[i].hidden || 0)));
+        const pitch = steps.sort((a, b) => a - b)[steps.length >> 1];
+        const raw = inkMaps(g, W, H, Math.max(4, Math.round(Math.min(W, H / 3) * 0.35)))[r === rl ? 'light' : 'dark']; // all the ink, not only the characters'
+        const parts = blobs(raw, W, H, 3);
+        const inkIn = (ya, yb, xa, xb) => { let n = 0, a = 0; for (let y = Math.max(0, ya); y <= Math.min(H - 1, yb); y++) for (let x = Math.max(0, xa); x <= Math.min(W - 1, xb); x++) { a++; n += raw[y * W + x]; } return a ? n / a : 0; };
+        let cx0 = Math.min(...r.rows.map((q) => q.x0)), cx1 = Math.max(...r.rows.map((q) => q.x1)), cw = cx1 - cx0 + 1;
+        /** The character at a slot of the column (centre yc), read from the ink there if it makes one clear character. */
+        const readSlot = (yc) => {
+          const xc = xAt(yc), mine = parts.filter((c) => { const h = c.y1 - c.y0 + 1, cy = (c.y0 + c.y1) / 2, cx = (c.x0 + c.x1) / 2; return Math.abs(cy - yc) <= r.medH * 0.45 && h <= r.medH * 1.5 && Math.abs(cx - xc) <= cw * 0.6; });
+          if (!mine.length) return null;
+          const bx = [Math.min(...mine.map((c) => c.x0)), Math.min(...mine.map((c) => c.y0)), Math.max(...mine.map((c) => c.x1)), Math.max(...mine.map((c) => c.y1))];
+          if (bx[2] - bx[0] + 1 > cw * 1.6 || bx[3] - bx[1] + 1 < r.medH * 0.6 || bx[3] - bx[1] + 1 > r.medH * 1.5) return null;
+          const p = glyphOf(g, W, H, bx);
+          return p && p.noise < 0.3 && Math.max(p.p, p.digit.p) >= 0.6 ? p : null;
+        };
+        // each row read; a character the column search took as hidden is read if it shows after all (else an X: under a cable)
+        let picks = [];
+        r.rows.forEach((q, qi) => {
+          for (let k = 0; k < (q.hidden || 0); k++) {
+            const prev = r.rows[qi - 1], yc = prev ? cyOf(prev) + (cyOf(q) - cyOf(prev)) * (k + 1) / (q.hidden + 1) : cyOf(q) - pitch * (q.hidden - k);
+            picks.push(readSlot(yc) || { hidden: true });
+          }
+          const qh = q.y1 - q.y0 + 1, qw = q.x1 - q.x0 + 1;
+          if (qh < r.medH * 0.45 && qw >= qh * 1.3) { picks.push({ dash: true, row: q }); return; } // CC-0457 painted downwards
+          const c = xAt((q.y0 + q.y1) / 2), hw = (q.x1 - q.x0) / 2, p = glyphOf(g, W, H, [c - hw, q.y0, c + hw, q.y1]);
+          picks.push(p.noise > 0.5 ? { hidden: true, junk: true, row: q } : { ...p, row: q });
+        });
+        // Something left out that may be a character (an unsure one, a hidden one, a mark above the number) makes the reading
+        // partial: shown, never taken as sure. Only a mark under the number (the star) is left out freely.
+        const weakEnd = (q) => q && (q.junk || (q.hidden && !q.row) || (!q.hidden && !q.dash && Math.max(q.p, q.digit.p) < 0.5));
+        let partial = false;
+        const trim = () => {
+          while (picks.length && weakEnd(picks[0])) { partial = true; picks.shift(); }
+          while (picks.length && weakEnd(picks[picks.length - 1])) { if (!picks[picks.length - 1].junk) partial = true; picks.pop(); }
+        };
+        trim();
+        // after a mark that is no character (the star under the number), at most one more piece: the number ends at the mark
+        const jn = picks.findIndex((q) => q.junk);
+        if (jn > 0 && picks.length - jn - 1 <= 1) { picks = picks.slice(0, jn); trim(); }
+        // beyond each end, step by step: a character the column search missed (read if clear), or one under a cable (X: ink
+        // across the column that runs on beyond it); stops at the first slot with neither. At most two X in all.
+        const rowsIn = picks.filter((q) => q.row).map((q) => q.row);
+        if (rowsIn.length >= 3) {
+          cx0 = Math.min(...rowsIn.map((q) => q.x0)); cx1 = Math.max(...rowsIn.map((q) => q.x1)); cw = cx1 - cx0 + 1;
+          let xs = picks.filter((q) => q.hidden).length;
+          const slot = (yc) => {
+            const ya = Math.round(yc - r.medH / 2), yb = Math.round(yc + r.medH / 2);
+            if (ya < 0 || yb > H - 1) return null; // outside the crop: nothing to say
+            const p = readSlot(yc); if (p) return p;
+            if (inkIn(ya, yb, cx0, cx1) < 0.25) return null;
+            const across = Math.max(inkIn(ya, yb, cx0 - cw, cx0 - 1), inkIn(ya, yb, cx1 + 1, cx1 + cw));
+            if (across < 0.25 || xs >= 2) return null;
+            xs++; return { hidden: true, end: true };
+          };
+          const first = rowsIn[0], last = rowsIn[rowsIn.length - 1];
+          if (picks[0].row === first) for (let k = 1; k <= 3; k++) { const q = slot(cyOf(first) - pitch * k); if (!q) break; picks.unshift(q); }
+          if (picks[picks.length - 1].row === last) for (let k = 1; k <= 2; k++) { const q = slot(cyOf(last) + pitch * k); if (!q) break; picks.push(q); }
+        }
+        if (picks.filter((q) => !q.hidden).length >= 3) {
+          const kr = picks.filter((q) => q.row).map((q) => q.row), t = glyphText(picks), cut = !!kr.length && (kr[0].y0 <= 1 || kr[kr.length - 1].y1 >= H - 2);
+          // a dash belongs after the prefix's letters (CC-0457 painted downwards); anywhere else it is a mark, not part of the ID
+          const di = picks.findIndex((q) => q.dash);
+          if (di >= 0 && (di === 0 || picks.slice(0, di).some((q) => q.hidden || !(q.ch >= 'A')))) partial = true;
+          const k = partial ? 0.5 : 1; // a partial reading: well under the "sure" marks
+          results.push({ ok: true, stacked: true, glyph: true, cut, partial, chars: picks.length, words: [{ text: t.text, conf: Math.round(t.conf * k), line: 0 }] });
+          t.alts.forEach((a) => results.push({ ok: true, stacked: true, glyph: true, alt: true, partial, words: [{ text: a.text, conf: Math.round(a.conf * k), line: 0 }] }));
+        }
+      }
+      return results;
+    }
+    // a dark or flat picture: its contrast stretched first, so the paint stands out as it does in daylight
+    const lo = quantile(g, 0.01), hi = quantile(g, 0.99);
+    if (hi - lo > 8 && hi - lo < 160) { const k = 255 / (hi - lo); for (let i = 0; i < g.length; i++) g[i] = Math.min(255, Math.max(0, (g[i] - lo) * k)); }
+    const r = Math.max(4, Math.round(Math.min(H, W / 3) * 0.35)), maps = inkMaps(g, W, H, r);
+    let bestSet = null;
+    for (const kind of ['dark', 'light', 'relief']) {
+      if (kind === 'relief' && (quick || (bestSet && Math.min(...bestSet.words.map((w) => w.conf)) >= 80))) break; // painted characters read clearly (or a live reading: no time)
+      const lines = kind === 'relief' ? edgeLines(maps.edge, W, H) : textLines(maps[kind], W, H); if (!lines.length) continue;
+      const words = []; let score = 0;
+      lines.forEach((ln, li) => {
+        const read = readLine(g, W, H, ln); if (!read || read.filter((o) => !o.q.dash).length < 2) return;
+        let picks = read.map((o) => ({ ...o.q, box: o.b }));
+        while (picks.length && !picks[0].dash && picks[0].p < 0.5) picks = picks.slice(1);
+        while (picks.length && !picks[picks.length - 1].dash && picks[picks.length - 1].p < 0.5) picks = picks.slice(0, -1);
+        if (picks.filter((q) => !q.dash).length < 2) return;
+        const t = glyphText(picks), n = picks.filter((q) => !q.dash).length;
+        if (n < 4 && /[0-9]/.test(t.text)) return; // a number of one to three characters is no pole ID (a bolt, a scratch, part of a line)
+        if (kind === 'relief') { t.conf = Math.min(t.conf, 75); t.alts.forEach((a) => { a.conf = Math.min(a.conf, 75); }); } // raised letters: offered, to be checked
+        words.push({ text: t.text, conf: t.conf, line: `g${li}`, alts: t.alts, n, boxes: picks.map((q) => q.box) });
+        score += t.conf * n;
+      });
+      if (words.length && (!bestSet || score > bestSet.score)) bestSet = { kind, words, score };
+    }
+    if (!bestSet) return results;
+    results.push({ ok: true, glyph: true, how: bestSet.kind, words: bestSet.words.map(({ text, conf, line }) => ({ text, conf, line })), boxes: bestSet.words.map((w) => w.boxes) });
+    bestSet.words.forEach((w, i) => w.alts.forEach((a) => results.push({ ok: true, glyph: true, alt: true, words: bestSet.words.map((x, j) => (j === i ? { text: a.text, conf: a.conf, line: x.line } : { text: x.text, conf: x.conf, line: x.line })) })));
+    return results;
+  }
+
   const api = { parseCsv, companiesFromCsv, utmForward, analyzeRoute, autoLinks, distM, deflection, idCandidates, fitShape, knownId, setPolePrefixes, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
-    buildKml, buildDxf, buildCsv, roadsFromOverpass, overpassQuery, nextPoleId, safeName, xmlEsc, blockName, findIdBox, stackRows, findStack };
+    buildKml, buildDxf, buildCsv, roadsFromOverpass, overpassQuery, nextPoleId, safeName, xmlEsc, blockName, findIdBox, stackRows, findStack,
+    setGlyphModel, glyphReady, glyphRead, glyphPatch, glyphProbs, GCLASSES, _glyph: { inkMaps, textLines, edgeLines, grayOf, glyphText, readLine } };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleCore = api;
 })(typeof self !== 'undefined' ? self : this);

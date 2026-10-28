@@ -585,7 +585,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.19.0';
+  const APP_VER = '2.20.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1548,11 +1548,11 @@
   const finder = { on: false, timer: 0, box: null, score: 0, misses: 0, stable: 0, reading: false, lastOcrAt: 0, read: null, list: null, crop: null, agree: 0, focus: null, cv: null, n: 0, ms: 0, vway: 0, way: null, reads: 0, t0: 0, flip: 0, manual: false };
   function finderStart() {
     if (finder.on || !stream) return;
-    Object.assign(finder, { on: true, box: null, score: 0, misses: 0, stable: 0, read: null, list: null, crop: null, agree: 0, n: 0, ms: 0, way: null, reads: 0, flip: 0, flipS: 0, user: null, prev: null, motion: null, mSum: 0, mN: 0, held: 0, t0: performance.now() });
+    Object.assign(finder, { glyphHits: 0, on: true, box: null, score: 0, misses: 0, stable: 0, read: null, list: null, crop: null, agree: 0, n: 0, ms: 0, way: null, reads: 0, flip: 0, flipS: 0, user: null, prev: null, motion: null, mSum: 0, mN: 0, held: 0, t0: performance.now() });
     ocrWorker(); finderLabel('Looking for the ID…'); finderTick();
   }
   function finderStop() {
-    if (finder.on && finder.n) LOG.info('finder', { frames: finder.n, avgMs: Math.round(finder.ms / finder.n), reads: finder.reads, ms: Math.round(performance.now() - finder.t0), read: finder.read ? finder.read.id : null, motion: finder.mN ? +(finder.mSum / finder.mN).toFixed(1) : null, held: finder.held, swipe: !!finder.user });
+    if (finder.on && finder.n) LOG.info('finder', { frames: finder.n, avgMs: Math.round(finder.ms / finder.n), reads: finder.reads, ms: Math.round(performance.now() - finder.t0), read: finder.read ? finder.read.id : null, motion: finder.mN ? +(finder.mSum / finder.mN).toFixed(1) : null, held: finder.held, swipe: !!finder.user, glyph: finder.glyphHits || 0 });
     finder.on = false; clearTimeout(finder.timer); finder.focus = null; guideReset(); $('scanPrompt').classList.remove('found');
   }
   function finderLabel(t, got) { $('idGuideText').textContent = t; $('idGuide').classList.toggle('got', !!got); }
@@ -1590,7 +1590,7 @@
       if (prev) { const m = diff / cur.length; finder.motion = finder.motion == null ? m : finder.motion * 0.5 + m * 0.5; finder.mSum += m; finder.mN++; } }
     const steady = finder.motion == null || finder.motion < STEADY || Date.now() - finder.lastOcrAt > 1500;
     const readNow = () => {
-      if (finder.reading || Date.now() - finder.lastOcrAt <= (nativeReader() ? 120 : 220)) return;
+      if (finder.reading || Date.now() - finder.lastOcrAt <= (nativeReader() || glyphOn() ? 120 : 220)) return;
       if (!steady) { finder.held++; if (!finder.read) finderLabel('Hold steady…'); return; }
       liveRead(orient);
     };
@@ -1665,9 +1665,19 @@
       if (!finder.read) finderLabel('Reading…');
       // a vertical ID is either a column of upright characters or a sideways line: the way that read the last ID is tried
       // first, the others in turn until one reads, then that way is kept
+      finder.reads++;
+      // v2.20: the app's own character network first (a few milliseconds); the text reader only when it reads nothing sure
+      if (glyphOn()) {
+        const gres = glyphReadCanvas(crop, orient === 'v' ? 'v' : 'h', true); // live: no search for raised letters (slow)
+        if (gres.length) {
+          const gl = C.idCandidates(gres, lastIdForShape(), idOpts()), gb = gl[0];
+          if (gres[0].cut) { if (!finder.read) finderLabel('Reading… keep the whole ID in the box'); }
+          else if (gb && gb.fits && gb.conf >= 80 && (gb.exact || /X/.test(gb.id))) { liveUse(gb, gl, crop, orient, null, !/[A-Z]/.test(gres[0].words.map((w) => w.text).join('').replace(/X/g, ''))); finder.glyphHits = (finder.glyphHits || 0) + 1; return; }
+        }
+        if ((finder.glyphHits || 0) > 0 && finder.reads % 3) return; // the network has read this ID before: the slow reader only now and then
+      }
       const VW = ['stacked', 'cw', 'ccw'], v0 = Math.max(0, VW.indexOf(S.vWay));
       const way = orient !== 'v' ? 'line' : finder.way || VW[(v0 + finder.vway++) % 3];
-      finder.reads++;
       // v2.16: a column of characters is set out as a line first; only when none is found is the column read as it is
       const strip = way === 'stacked' ? stackToLine(crop) : null, column = way === 'stacked' && !strip;
       const src = way === 'cw' ? rotated(crop, 90) : way === 'ccw' ? rotated(crop, -90) : strip || crop;
@@ -1685,16 +1695,19 @@
       const said = (r.words || []).filter((w) => w.conf >= 20).map((w) => w.text).join('').replace(/[^A-Za-z0-9-]/g, '');
       if (best && strip && (strip._cut || said.length < strip._chars - 1)) { if (!finder.read) finderLabel('Reading… keep the whole ID in the box'); return; }
       const numOnly = !!best && !/[A-Za-z]/.test(said); // painted without a prefix: two matching readings, never one
-      if (best && best.fits && best.conf >= 55) {
-        finder.agree = finder.read && finder.read.id === best.id ? finder.agree + 1 : 1;
-        const prev = finder.read; finder.read = best; finder.list = list; finder.crop = crop;
-        if (orient === 'v') { finder.way = way; S.vWay = way; }
-        finderLabel(`${best.id} · ${best.conf}%`, true);
-        // one clear reading of a known ID is enough; otherwise the same ID read twice
-        if (S.idAuto !== false && ((best.exact && best.conf >= 85 && !numOnly) || (finder.agree >= 2 && Math.min(best.conf, prev ? prev.conf : 0) >= 65))) acceptLive();
-      } else if (!finder.read) finderLabel('Reading… zoom in or tap the ID');
+      if (best && best.fits && best.conf >= 55) liveUse(best, list, crop, orient, way, numOnly);
+      else if (!finder.read) finderLabel('Reading… zoom in or tap the ID');
     } catch (e) { LOG.warn('finder.read.fail', errInfo(e)); }
     finally { finder.reading = false; }
+  }
+  /** A live reading of a known ID format: shown on the box; used by itself when it is clear enough or read the same twice. */
+  function liveUse(best, list, crop, orient, way, numOnly) {
+    finder.agree = finder.read && finder.read.id === best.id ? finder.agree + 1 : 1;
+    const prev = finder.read; finder.read = best; finder.list = list; finder.crop = crop;
+    if (orient === 'v' && way) { finder.way = way; S.vWay = way; }
+    finderLabel(`${best.id} · ${best.conf}%`, true);
+    // one clear reading of a known ID is enough; otherwise the same ID read twice
+    if (S.idAuto !== false && ((best.exact && best.conf >= 85 && !numOnly) || (finder.agree >= 2 && Math.min(best.conf, prev ? prev.conf : 0) >= 65))) acceptLive();
   }
   /** The reading on the box is used: the ID step ends (new photo) or the scan result goes to the editor. */
   function liveResult() { return finder.read ? { best: finder.read, list: finder.list || [finder.read] } : null; }
@@ -2039,7 +2052,44 @@
   /** Readings of two crops in one list (best first, each ID once). */
   const mergeIds = (a, b) => { const m = new Map(); [...a, ...b].forEach((c) => { const p = m.get(c.id); if (!p || p.score < c.score) m.set(c.id, c); }); return [...m.values()].sort((x, y) => y.score - x.score).slice(0, 5); };
   const sureId = (list) => !!(list.length && list[0].fits && list[0].conf >= 70);
+  /* ---- v2.20: the app's own character network (core.js; weights in glyphs.js) ---- */
+  if (window.PoleGlyphModel && C.setGlyphModel) C.setGlyphModel(window.PoleGlyphModel);
+  const glyphOn = () => !!(C.glyphReady && C.glyphReady());
+  /** Reads the ID in a canvas with the character network: orient 'v' a column of upright characters, else a line (or two lines:
+      an owner's name over the number). -> results for idCandidates ([] when nothing is read). */
+  function glyphReadCanvas(cv, orient, quick) {
+    if (!glyphOn() || !cv || !cv.width || !cv.height) return [];
+    const run = (sc) => {
+      const w = Math.max(8, Math.round(cv.width * sc)), h = Math.max(8, Math.round(cv.height * sc));
+      const c2 = document.createElement('canvas'); c2.width = w; c2.height = h;
+      const g = c2.getContext('2d', { willReadFrequently: true }); g.imageSmoothingQuality = 'high'; g.drawImage(cv, 0, 0, w, h);
+      try { return C.glyphRead(g.getImageData(0, 0, w, h).data, w, h, orient, quick) || []; } catch (e) { LOG.warn('glyph.fail', errInfo(e)); return []; }
+    };
+    let res = run(Math.min(1, 900 / Math.max(cv.width, cv.height)));
+    // a column read with a hidden or missing character, or not at all: once more at the size the column reader likes best
+    // (a narrow crop is enlarged, as for the text reader); the reading with fewer X, then the surer one, is kept
+    const xs = (rs) => (rs.length ? (rs[0].words[0].text.match(/X/g) || []).length + (rs[0].partial ? 2 : 0) : 9);
+    if (orient === 'v' && xs(res) > 0) {
+      const s2 = Math.min(3, 300 / cv.width, 900 / cv.height);
+      if (s2 > 1.2) { const r2 = run(s2); if (xs(r2) < xs(res) || (xs(r2) === xs(res) && r2.length && (!res.length || r2[0].words[0].conf > res[0].words[0].conf))) res = r2; }
+    }
+    return res;
+  }
+  /** Two readers' lists as one: an ID both read is worth more. */
+  const agreeIds = (a, b) => { const m = new Map(); a.forEach((c) => m.set(c.id, { ...c })); b.forEach((c) => { const p = m.get(c.id); if (p) { p.score += 15; p.conf = Math.max(p.conf, c.conf); p.both = true; } else m.set(c.id, { ...c }); }); return [...m.values()].sort((x, y) => y.score - x.score).slice(0, 5); };
   async function readIdFrom(canvas) {
+    const v = canvas._orient === 'v', t0 = performance.now();
+    let gres = glyphReadCanvas(canvas, v ? 'v' : 'h');
+    if (v && !gres.length) gres = glyphReadCanvas(rotated(canvas, -90), 'h'); // a line turned sideways
+    const glist = gres.length ? C.idCandidates(gres, lastIdForShape(), idOpts()) : [];
+    if (glyphOn()) LOG.info('glyph.read', { ms: Math.round(performance.now() - t0), v, top: glist[0] ? `${glist[0].id} ${glist[0].conf}` : '', how: gres[0] ? gres[0].how || (gres[0].stacked ? 'column' : '') : '' });
+    // an ID in a known format read exactly as painted, every character at 80 % or more: the text reader is not needed
+    if (glist.length && glist[0].exact && glist[0].conf >= 80 && !(gres[0] && (gres[0].cut || gres[0].partial))) return glist;
+    const list = await readIdText(canvas);
+    // the network's other readings are offered, but count for less than the text reader's (only an exact, sure one is filled by itself)
+    return glist.length ? agreeIds(list, glist.map((c) => (c.conf >= 80 && c.exact ? c : { ...c, conf: Math.round(c.conf * 0.6), score: c.score - 25 }))) : list;
+  }
+  async function readIdText(canvas) {
     const v = canvas._orient === 'v', strip = v ? stackToLine(canvas) : null, opts = idOpts();
     const alt = async (list) => (!sureId(list) && canvas._alt ? mergeIds(list, await readIdFrom(canvas._alt)) : list); // the other way round (v2.16)
     if (nativeReader()) { // ML Kit: the column set out as a line, the crop as it is, and turned both ways for a vertical ID

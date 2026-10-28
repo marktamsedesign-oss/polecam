@@ -366,6 +366,8 @@ Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v2.1.1`), and upload 
 | `reports.js` | Excel (.xlsx, with pictures and page setup) and PDF writers, rectification report, acceptance KML (no dependencies) |
 | `forms.js` | The Deficiency List office form as PDF (with Annex A/B) and as an Excel sheet |
 | `brand/logo-left.jpg`, `brand/logo-right.jpg` | Logos printed on the form |
+| `glyphs.js` | The ID reader's character network (v2.20): its weights, about 140 KB; read by `core.js` |
+| `tools/glyph-training/` | The scripts that trained it (Python); not needed by the app |
 | `ocr-worker.js`, `vendor/tesseract/` | Offline Pole ID reader: Tesseract OCR (tesseract.js-core v7.0.0) and the English model from tessdata_fast, both Apache-2.0 |
 | `sw.js` | Offline cache for the app itself |
 | `manifest.json`, `icons/` | Install as an app |
@@ -516,6 +518,19 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.20
+
+- **G-eSAA's own ID reader.** A small neural network trained for pole tags — painted, stencilled and raised (embossed) characters — now reads each character the app cuts out of the picture (file `glyphs.js`, 140 KB, offline like the rest). It runs first on every reading: the live camera, the shutter, the ID photo, a tap or box on a photo.
+  - **Used by itself only when sure:** an ID in a known format read exactly as painted (CC-0430621, CC-0123, FDU_100), every character at least 80 % sure. Otherwise the text reader (or ML Kit in the Android app) reads as well and the readings are combined; an ID both read counts more, and the network's other readings are offered as choices but never filled by themselves. On the live camera an exact reading (or one with X) still needs the same reading twice for a number painted without a prefix.
+  - **Safer:** each character is read twice (as cut, and with more room round it) and the two averaged, so an unsteady reading comes out unsure. A number of one to three characters is never an ID. In a column, a character the search missed or took as hidden is looked for again, a dash is only accepted after the prefix's letters, and a character half under a cable at either end of the column becomes an X (at most two X); a reading with something left out is shown as unsure.
+  - **Speed (this computer, Chromium):** about 0.1 s for a clear tag, where the text reader took 0.1–0.2 s and up to 2.7 s on the farther 0430621 frame (which it misread as CC-083321; the network reads it right). Live camera, time to the ID being used by itself: 1.4 s (v2.19: 2.2 s) for the 0430621 tag, 2.0 s (2.7 s) for it with a cable across, 1.7 s (2.4 s) with a box drawn round a small tag; a tap on the photo 0.6 s. Phone timings were not measured.
+- **The two IDs that could not be read — results, honestly:**
+  - **CC-04X0652** (the far photo with the cable): the network finds 4, 0, 6 and 2, and marks the character under the cable and the first 0 (half under the cable) as X. The 5 is about 9 px tall in this 1536 × 2048 picture and is read as a 6, so the reading (CC-X4X0662) is only offered, not filled. A closer picture — the 2× / 4× zoom, or the ID photo button, which uses the phone camera's full size — gives the characters the size they need.
+  - **GT-962574** (raised letters on a blue tag): still not read reliably. The owner's name is usually found (GLOBE, or one letter off, which still gives GT); the number only in part (9625, 96254). Type it. The Android app's ML Kit reader is made for such text but could not be tested here.
+- **Checks:** 100 pictures with no ID (leaves, sky, cables, posters, the pole) never gave a reading the app would use by itself; the painted test pictures (CC-0123 painted, blurred, dark and soft, FDU_100, CC-0457 downwards, WP-0088 sideways) read as before; the 0430621 tag reads right in all six crops round it tried (the 4284-px photo at two sizes, camera frames at three distances) and as CC-043XX21 with a cable drawn across; in the camera's whole box on the two farther frames the network is unsure and leaves them to the text reader (live, the box first closes in on the tag).
+- **How it was made:** trained here on 400,000 synthetic characters (22 fonts on this computer, mostly bold, with stencil cuts, blur, noise, JPEG, cables, neighbours and two kinds of raised-letter lighting); none of your photos was used for training. Your photos were used to check it and to tune how characters are cut out of the picture. The training scripts are in `tools/glyph-training/`.
+- `build-apk.yml`: copies `glyphs.js` into the APK (one word added). The online sheet script did not change.
 
 ## What changed in v2.19
 
