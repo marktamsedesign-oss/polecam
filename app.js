@@ -443,6 +443,11 @@
   function byLine() { return S.user && S.user.name ? `${S.user.name}${S.user.company ? ' · ' + S.user.company : ''}` : (S.userName || ''); }
   /** Task category of a project: Survey, PAT or FAT. */
   const taskCat = (name) => (isAcc(name) ? (pmeta(name).stage || 'PAT') : 'Survey');
+  /* v2.16: a completed PAT is a closed record. Nothing in it is added, changed or removed; its items are tagged as fixed in
+     the defect cleanup and the FAT, where what came from the PAT keeps its ID, place and items. Only the company list's
+     admin (or a phone without a company list) can reopen or delete a completed PAT. Surveys stay editable after completion. */
+  const patClosed = (name) => taskCat(name) === 'PAT' && !!pmeta(name).completedAt;
+  const canReopenPat = () => !S.team || isAdmin();
   /** Remember who worked on the current project (printed on the reports). */
   function notePerson() {
     if (!S.user || !S.user.name) return;
@@ -573,7 +578,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.15.0';
+  const APP_VER = '2.16.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1200,16 +1205,20 @@
     b.className = st;
     b.setAttribute('aria-label', st === 'scan' ? 'Read the ID' : st === 'ok' ? 'Take photo (GPS ready)' : 'Take photo (waiting for a fresh GPS fix)');
   }
+  /** The guide box's shape and the H / V buttons follow the ID's orientation. */
+  function setOrientUi() {
+    $('idGuide').classList.toggle('v', S.idOrient === 'v');
+    $('orientH').setAttribute('aria-pressed', String(S.idOrient !== 'v'));
+    $('orientV').setAttribute('aria-pressed', String(S.idOrient === 'v'));
+  }
   function showGuide() {
     const on = scanStep();
     $('idGuide').hidden = !on;
-    $('idGuide').classList.toggle('v', S.idOrient === 'v');
+    setOrientUi();
     $('idGuideText').textContent = S.idOrient === 'v' ? 'Vertical ID inside the box' : 'Fit the painted ID inside the box';
     $('scanPrompt').hidden = !on;
     $('scanTitle').textContent = camTarget === 'newid' ? 'Photo kept · scan the ID' : 'Scan the ID';
     $('scanSkip').hidden = camTarget !== 'newid';
-    $('orientH').setAttribute('aria-pressed', String(S.idOrient !== 'v'));
-    $('orientV').setAttribute('aria-pressed', String(S.idOrient === 'v'));
     $('camReadId').hidden = camTarget !== 'new';
     $('camReadId').setAttribute('aria-pressed', String(S.readId !== false));
     $('camNative').hidden = on;
@@ -1230,12 +1239,13 @@
         { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 });
     }
   }
-  $('orientH').addEventListener('click', () => { S.idOrient = 'h'; persist(); finderStop(); showGuide(); });
+  // a tap on H or V fixes the box's shape for this scan (otherwise it turns by itself to fit the ID, v2.16)
+  $('orientH').addEventListener('click', () => { S.idOrient = 'h'; persist(); finderStop(); showGuide(); finder.manual = true; });
   $('scanHelp').addEventListener('click', () => { const on = $('scanSub').hidden; $('scanSub').hidden = !on; $('scanHelp').setAttribute('aria-expanded', String(on)); });
-  $('orientV').addEventListener('click', () => { S.idOrient = 'v'; persist(); finderStop(); showGuide(); });
+  $('orientV').addEventListener('click', () => { S.idOrient = 'v'; persist(); finderStop(); showGuide(); finder.manual = true; });
   $('scanSkip').addEventListener('click', () => closeSheet()); // the photo is kept; the editor opens without an ID reading
   async function openCamera(target) {
-    camTarget = target || 'new'; camPending = null; camSeq++;
+    camTarget = target || 'new'; camPending = null; camSeq++; finder.manual = false; // the box turns by itself until H / V is tapped
     openSheet('camera'); startGps();
     $('camMsg').hidden = true; $('camTorch').hidden = true; $('qualBox').hidden = true; camCheck(false);
     showGuide();
@@ -1402,10 +1412,10 @@
      of the picture is searched for a row (or column) of high-contrast strokes, and the best one near the centre (or near
      where you tapped) gets the box. When the box holds still, the text inside is read in the background; the reading is
      shown on the box, and when the same known-format ID is read twice it is used by itself (Settings → Camera). */
-  const finder = { on: false, timer: 0, box: null, score: 0, misses: 0, stable: 0, reading: false, lastOcrAt: 0, read: null, list: null, crop: null, agree: 0, focus: null, cv: null, n: 0, ms: 0, vway: 0, way: null, reads: 0, t0: 0 };
+  const finder = { on: false, timer: 0, box: null, score: 0, misses: 0, stable: 0, reading: false, lastOcrAt: 0, read: null, list: null, crop: null, agree: 0, focus: null, cv: null, n: 0, ms: 0, vway: 0, way: null, reads: 0, t0: 0, flip: 0, manual: false };
   function finderStart() {
     if (finder.on || !stream) return;
-    Object.assign(finder, { on: true, box: null, score: 0, misses: 0, stable: 0, read: null, list: null, crop: null, agree: 0, n: 0, ms: 0, way: null, reads: 0, t0: performance.now() });
+    Object.assign(finder, { on: true, box: null, score: 0, misses: 0, stable: 0, read: null, list: null, crop: null, agree: 0, n: 0, ms: 0, way: null, reads: 0, flip: 0, flipS: 0, t0: performance.now() });
     ocrWorker(); finderLabel('Looking for the ID…'); finderTick();
   }
   function finderStop() {
@@ -1437,11 +1447,35 @@
     const cv = finder.cv; if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
     const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(v, vx, vy, vw, vh, 0, 0, W, H);
     const focus = finder.focus && Date.now() < finder.focus.until ? finder.focus : null, orient = S.idOrient === 'v' ? 'v' : 'h';
-    const cand = C.findIdBox(g.getImageData(0, 0, W, H).data, W, H, orient, focus);
+    const px = g.getImageData(0, 0, W, H).data;
+    // v2.16: a tag painted downwards (characters one above the other) is looked for near the centre, at twice the detail;
+    // found while the box is horizontal it turns the box (unless H / V was tapped for this scan), and in vertical mode it
+    // places the box, as cables beside the tag can draw the column box off it
+    const odd = finder.n % 2 === 1, auto = !finder.manual && !finder.read;
+    const stack = orient === 'v' || (auto && !odd) ? stackLook(v, vx, vy, vw, vh, focus, W / vw) : null; // in H: every other frame
+    let cand = orient === 'v' && stack && stack.n >= 4 ? { ...stack, stack: true } : C.findIdBox(px, W, H, orient, focus);
+    if (auto) {
+      let other = null, why = null;
+      // a column of five or more characters, seen twice, turns a horizontal box
+      if (orient === 'h' && !odd) { finder.flipS = stack && stack.n >= 5 ? (finder.flipS || 0) + 1 : 0; if (finder.flipS >= 2) { other = 'v'; why = { stack: stack.n }; } }
+      if (odd && !(cand && cand.stack)) { // the other frames: the other way round is searched too, and a clearly better box there turns it
+        const o2 = orient === 'v' ? 'h' : 'v', alt = C.findIdBox(px, W, H, o2, focus);
+        const better = alt && alt.score >= 4 && alt.score > 1.3 * (cand ? cand.score : 0) && !(cand && cand.stack);
+        finder.flip = better ? (finder.flip || 0) + 1 : 0;
+        if (finder.flip >= 2) { other = o2; why = { score: alt.score, was: cand ? cand.score : 0 }; }
+      }
+      if (other) {
+        S.idOrient = other; persist(); LOG.info('finder.turn', { to: other, ...why });
+        Object.assign(finder, { flip: 0, flipS: 0, box: null, read: null, list: null, agree: 0, stable: 0, way: null, misses: 0 });
+        guideReset(); setOrientUi(); finderLabel(other === 'v' ? 'Vertical ID: box turned' : 'Horizontal ID: box turned');
+        return;
+      }
+    }
     const k = st.width / W; // the visible picture fills the camera area
     if (cand) {
       const padL = (orient === 'h' ? cand.w * 0.1 : cand.w * 0.35) + 4, padS = (orient === 'h' ? cand.h * 0.35 : cand.h * 0.06) + 4;
-      const px = orient === 'h' ? padL : padS, py = orient === 'h' ? padS : padL;
+      // a column of characters gets room above and below: a character the search missed is still in the box to read
+      const px = cand.stack ? cand.w * 0.6 + 4 : orient === 'h' ? padL : padS, py = cand.stack ? cand.h * 0.25 + 4 : orient === 'h' ? padS : padL;
       const x0 = Math.max(0, (cand.x - px) * k), y0 = Math.max(0, (cand.y - py) * k);
       const nb = { x: x0, y: y0, w: Math.min(st.width - x0, (cand.w + 2 * px) * k), h: Math.min(st.height - y0, (cand.h + 2 * py) * k) };
       if (finder.box && iou(finder.box, nb) > 0.3) {
@@ -1459,6 +1493,20 @@
     $('scanPrompt').classList.toggle('found', !!finder.box); // a shorter prompt once the box has found something
     if (finder.box && finder.stable >= 1 && !finder.reading && Date.now() - finder.lastOcrAt > (nativeReader() ? 120 : 220)) liveRead(orient);
   }
+  /** A column of upright characters near the centre (or the tap) of the camera picture, searched at about twice the detail of
+      the box finder (a tag's characters are only a few pixels tall there). The box comes back in the finder's frame pixels. */
+  function stackLook(v, vx, vy, vw, vh, focus, toF) {
+    const fx = focus ? focus.x : 0.5, fy = focus ? focus.y : 0.45, rw = vw * 0.44, rh = vh * 0.8;
+    const rx = Math.max(vx, Math.min(vx + vw - rw, vx + vw * fx - rw / 2)), ry = Math.max(vy, Math.min(vy + vh - rh, vy + vh * fy - rh / 2));
+    const SW = Math.max(40, Math.min(200, Math.round(rw))), SH = Math.max(40, Math.round(SW * rh / rw));
+    if (!finder.scv) finder.scv = document.createElement('canvas');
+    const cv = finder.scv; if (cv.width !== SW || cv.height !== SH) { cv.width = SW; cv.height = SH; }
+    const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(v, rx, ry, rw, rh, 0, 0, SW, SH);
+    const s = C.findStack(g.getImageData(0, 0, SW, SH).data, SW, SH, null, true);
+    if (!s) return null;
+    const k = rw / SW; // search pixels → video pixels
+    return { x: (rx - vx + s.x * k) * toF, y: (ry - vy + s.y * k) * toF, w: s.w * k * toF, h: s.h * k * toF, n: s.n, score: s.score };
+  }
   async function liveRead(orient) {
     finder.reading = true; finder.lastOcrAt = Date.now();
     const box = finder.box && { ...finder.box };
@@ -1470,23 +1518,29 @@
       const VW = ['stacked', 'cw', 'ccw'], v0 = Math.max(0, VW.indexOf(S.vWay));
       const way = orient !== 'v' ? 'line' : finder.way || VW[(v0 + finder.vway++) % 3];
       finder.reads++;
-      const src = way === 'cw' ? rotated(crop, 90) : way === 'ccw' ? rotated(crop, -90) : crop;
+      // v2.16: a column of characters is set out as a line first; only when none is found is the column read as it is
+      const strip = way === 'stacked' ? stackToLine(crop) : null, column = way === 'stacked' && !strip;
+      const src = way === 'cw' ? rotated(crop, 90) : way === 'ccw' ? rotated(crop, -90) : strip || crop;
       let r = null;
       if (nativeReader()) { try { r = await nativeRead(src); } catch (e) { r = null; } } // ML Kit in the Android app
       if (!r) {
         // a smaller picture reads about twice as fast and as well: the text reader scales each line to ~40 px anyway
-        const png = way === 'stacked' ? await prepStacked(crop, 160) : await prepForOcr(src, 112);
-        r = await ocrRun(png, way === 'stacked' ? 6 : 7, { thresholding_method: 0 });
+        const png = column ? await prepStacked(crop, 160) : await prepForOcr(src, strip ? strip.height : 112);
+        r = await ocrRun(png, column ? 6 : 7, { thresholding_method: 0 });
       }
       if (!finder.on || !r.ok || !finder.box || iou(box, finder.box) < 0.4) return; // the box moved on meanwhile
-      const list = C.idCandidates([way === 'stacked' ? { ...r, stacked: true } : r], lastIdForShape(), { numPrefix: numPrefixNow() }), best = list[0];
+      const list = C.idCandidates([column ? { ...r, stacked: true } : r], lastIdForShape(), { numPrefix: numPrefixNow() }), best = list[0];
+      // v2.16: a column read only in part (cut off by the box, or fewer characters read than the column has) is not used
+      const said = (r.words || []).filter((w) => w.conf >= 20).map((w) => w.text).join('').replace(/[^A-Za-z0-9-]/g, '');
+      if (best && strip && (strip._cut || said.length < strip._chars - 1)) { if (!finder.read) finderLabel('Reading… keep the whole ID in the box'); return; }
+      const numOnly = !!best && !/[A-Za-z]/.test(said); // painted without a prefix: two matching readings, never one
       if (best && best.fits && best.conf >= 55) {
         finder.agree = finder.read && finder.read.id === best.id ? finder.agree + 1 : 1;
         const prev = finder.read; finder.read = best; finder.list = list; finder.crop = crop;
         if (orient === 'v') { finder.way = way; S.vWay = way; }
         finderLabel(`${best.id} · ${best.conf}%`, true);
         // one clear reading of a known ID is enough; otherwise the same ID read twice
-        if (S.idAuto !== false && ((best.exact && best.conf >= 85) || (finder.agree >= 2 && Math.min(best.conf, prev ? prev.conf : 0) >= 65))) acceptLive();
+        if (S.idAuto !== false && ((best.exact && best.conf >= 85 && !numOnly) || (finder.agree >= 2 && Math.min(best.conf, prev ? prev.conf : 0) >= 65))) acceptLive();
       } else if (!finder.read) finderLabel('Reading… zoom in or tap the ID');
     } catch (e) { LOG.warn('finder.read.fail', errInfo(e)); }
     finally { finder.reading = false; }
@@ -1651,11 +1705,15 @@
   /** For a scan taken with the phone camera app: the band where the guide box would be. */
   async function centerCrop(blob) {
     try {
-      const im = await loadImage(blob), { w, h } = dims(im), v = S.idOrient === 'v';
-      const cv = document.createElement('canvas'); cv.width = Math.round(w * (v ? 0.26 : 0.8)); cv.height = Math.round(h * (v ? 0.58 : 0.22));
-      cv.getContext('2d').drawImage(im, v ? w * 0.37 : w * 0.1, v ? h * 0.15 : h * 0.4, cv.width, cv.height, 0, 0, cv.width, cv.height);
+      const im = await loadImage(blob), { w, h } = dims(im);
+      const band = (v) => {
+        const cv = document.createElement('canvas'); cv.width = Math.round(w * (v ? 0.26 : 0.8)); cv.height = Math.round(h * (v ? 0.58 : 0.22));
+        cv.getContext('2d').drawImage(im, v ? w * 0.37 : w * 0.1, v ? h * 0.15 : h * 0.4, cv.width, cv.height, 0, 0, cv.width, cv.height);
+        cv._orient = v ? 'v' : 'h'; return cv;
+      };
+      const v = S.idOrient === 'v', cv = band(v);
+      cv._alt = band(!v); // v2.16: read the other way round too when the first way finds no clear ID (a vertical tag in horizontal mode)
       if (im.close) im.close();
-      cv._orient = v ? 'v' : 'h';
       return cv;
     } catch (e) { return null; }
   }
@@ -1753,13 +1811,49 @@
     const g = cv.getContext('2d'); g.translate(cv.width / 2, cv.height / 2); g.rotate(deg * Math.PI / 180); g.drawImage(src, -src.width / 2, -src.height / 2);
     return cv;
   }
+  /** v2.16: an ID painted as a column of upright characters (0-4-3-0-6-2-1 down a pole tag) set out as one line, black on
+      white: each character is cut out of the crop and put beside the one before. Both readers read a line far better than a
+      column, and the pole's edge, cables and leaves beside the tag are left out. null when no column of characters is found. */
+  function stackToLine(src) {
+    const sc = Math.min(3, 300 / src.width, 900 / src.height), W = Math.max(8, Math.round(src.width * sc)), H = Math.max(8, Math.round(src.height * sc));
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const g = cv.getContext('2d', { willReadFrequently: true }); g.imageSmoothingQuality = 'high'; g.drawImage(src, 0, 0, W, H);
+    const px = g.getImageData(0, 0, W, H).data;
+    // dark paint on a light tag, or light paint on a dark pole: the reading that makes the cleaner column of characters
+    const rd = C.stackRows(px, W, H, false), rl = C.stackRows(px, W, H, true);
+    const r = !rd ? rl : !rl ? rd : (rl.even > rd.even || (rl.even === rd.even && rl.rows.length > rd.rows.length)) ? rl : rd;
+    if (!r) return null;
+    const k = 44 / r.medH, gap = Math.round(r.medH * 0.16 * k), pad = 22;
+    const ws = r.rows.map((q) => Math.max(1, Math.round((q.x1 - q.x0 + 1) * k))), hs = r.rows.map((q) => Math.max(1, Math.round((q.y1 - q.y0 + 1) * k)));
+    const out = document.createElement('canvas');
+    out.width = ws.reduce((a, b) => a + b, 0) + gap * (ws.length - 1) + 2 * pad; out.height = Math.max(...hs) + 2 * pad;
+    const o = out.getContext('2d'); o.fillStyle = '#fff'; o.fillRect(0, 0, out.width, out.height); o.imageSmoothingQuality = 'high';
+    const one = document.createElement('canvas'), og = one.getContext('2d');
+    let x = pad;
+    r.rows.forEach((q, i) => {
+      const w = q.x1 - q.x0 + 1, h = q.y1 - q.y0 + 1; one.width = w; one.height = h;
+      const id = og.createImageData(w, h);
+      for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) { const v = r.ink[(q.y0 + yy) * W + q.x0 + xx] ? 0 : 255, j = (yy * w + xx) * 4; id.data[j] = id.data[j + 1] = id.data[j + 2] = v; id.data[j + 3] = 255; }
+      og.putImageData(id, 0, 0);
+      o.drawImage(one, x, pad + Math.round((out.height - 2 * pad - hs[i]) / 2), ws[i], hs[i]); // centred on the line (a dash stays in the middle)
+      x += ws[i] + gap;
+    });
+    out._chars = r.rows.length; out._cut = r.rows[0].y0 <= 1 || r.rows[r.rows.length - 1].y1 >= H - 2; // a character may be outside the crop
+    return out;
+  }
+  /** Readings of two crops in one list (best first, each ID once). */
+  const mergeIds = (a, b) => { const m = new Map(); [...a, ...b].forEach((c) => { const p = m.get(c.id); if (!p || p.score < c.score) m.set(c.id, c); }); return [...m.values()].sort((x, y) => y.score - x.score).slice(0, 5); };
+  const sureId = (list) => !!(list.length && list[0].fits && list[0].conf >= 70);
   async function readIdFrom(canvas) {
-    if (nativeReader()) { // ML Kit: the crop as it is, and turned both ways for a vertical ID
+    const v = canvas._orient === 'v', strip = v ? stackToLine(canvas) : null, opts = { numPrefix: numPrefixNow() };
+    const alt = async (list) => (!sureId(list) && canvas._alt ? mergeIds(list, await readIdFrom(canvas._alt)) : list); // the other way round (v2.16)
+    if (nativeReader()) { // ML Kit: the column set out as a line, the crop as it is, and turned both ways for a vertical ID
       try {
         const nres = [];
-        if (canvas._orient === 'v') { nres.push({ ...(await nativeRead(canvas)), stacked: true }); for (const deg of [-90, 90]) nres.push(await nativeRead(rotated(canvas, deg))); }
+        if (strip) nres.push(await nativeRead(strip));
+        if (v) { nres.push({ ...(await nativeRead(canvas)), stacked: true }); for (const deg of [-90, 90]) nres.push(await nativeRead(rotated(canvas, deg))); }
         else nres.push(await nativeRead(canvas));
-        const list = C.idCandidates(nres, lastIdForShape(), { numPrefix: numPrefixNow() });
+        const list = await alt(C.idCandidates(nres, lastIdForShape(), opts));
         if (list.length) return list;
       } catch (e) { LOG.warn('mlkit.read.fail', errInfo(e)); } // Tesseract below
     }
@@ -1769,8 +1863,13 @@
       if (!r.ok) throw new Error(r.error);
       res.push({ ...r, ...(extra || {}) });
     };
-    if (canvas._orient === 'v') {
-      // vertical IDs: characters stacked upright (read top to bottom), or the whole ID turned sideways (either way)
+    if (v) {
+      // vertical IDs: characters stacked upright (set out as a line first; read top to bottom), or the whole ID turned sideways
+      if (strip) {
+        await run(await prepForOcr(strip, strip.height), 7, 0);
+        const first = C.idCandidates(res, lastIdForShape(), opts);
+        if (sureId(first)) return first;
+      }
       // (the adaptive threshold turns a column of characters into noise, so stacked IDs use two sizes instead)
       for (const w of [200, 140]) await run(await prepStacked(canvas, w), 6, 0, { stacked: true });
       for (const deg of [-90, 90]) await run(await prepForOcr(rotated(canvas, deg)), 6, 0);
@@ -1779,7 +1878,7 @@
       const png = await prepForOcr(canvas);
       for (const thr of [0, 2]) await run(png, 6, thr);
     }
-    return C.idCandidates(res, lastIdForShape(), { numPrefix: numPrefixNow() });
+    return alt(C.idCandidates(res, lastIdForShape(), opts));
   }
   /** The ID reading: the other possible IDs as chips; what the reader says sits behind an ⓘ (v2.15, less text on screen). */
   function renderIdCands(state, list, note) {
@@ -2175,6 +2274,8 @@
     if (o.blob) setTimeout(() => prepImages(o.blob), 400); // made while the ID is checked; the camera is closed by now
     ed = { mode: o.mode, id: o.id || uid(), source: o.source, gps: o.gps || null, newBlob: o.blob || null,
       takenAt: o.takenAt, type: o.type || S.lastType, userMoved: false, acc };
+    // v2.16: 'closed' = a completed PAT (view only); 'carried' = an element from the PAT in the cleanup or FAT (fixes only)
+    ed.lock = !acc ? '' : patClosed() ? 'closed' : o.mode === 'edit' && ['Cleanup', 'FAT'].includes(taskCat()) && (o.patId || (o.defs || []).some((d) => (d.stage || 'PAT') === 'PAT')) ? 'carried' : '';
     if (acc) {
       Object.assign(ed, { element: o.element || 'Pole', photos: (o.photos || []).map((p) => ({ ...p })), pending: {}, removed: [],
         defs: JSON.parse(JSON.stringify(o.defs || [])), mloop: !!o.mloop, nap: !!o.nap, closure: !!o.closure, odf: o.odf || 'New', newBlob: null });
@@ -2228,7 +2329,7 @@
       else { const c = map.getCenter(); pinMap.setView(c, Math.max(map.getZoom(), 16), { animate: false }); }
       ed.userMoved = false; drawEdGps(); updateCoordBox(); drawPinRef();
     });
-    checkFormat();
+    checkFormat(); applyEdLock();
     if (o.live) applyLiveRead(o.live);
     else if (o.crop) runOcrFor(o.crop, true);
     else if (o.mode === 'new' && !o.poleId) setTimeout(() => { const f = $('poleId'); f.focus(); const n = f.value.length; if (/[-_]$/.test(f.value)) f.setSelectionRange(n, n); else f.select(); }, 250);
@@ -2238,7 +2339,7 @@
     if (p.kind === 'acceptance' || isAcc(p.project)) {
       openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType || undefined, lat: p.lat, lon: p.lon, takenAt: p.takenAt, source: p.source,
         gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : { lat: p.lat, lon: p.lon, acc: p.accuracy }, // records from before v1.3 keep no raw fix: the pin stands in
-        element: elemOf(p), photos: p.photos || [], defs: p.defs || [], mloop: p.mloop, nap: p.nap, napId: p.napId, closure: p.closure, closureId: p.closureId, odf: p.odf });
+        element: elemOf(p), photos: p.photos || [], defs: p.defs || [], mloop: p.mloop, nap: p.nap, napId: p.napId, closure: p.closure, closureId: p.closureId, odf: p.odf, patId: p.patId || '' });
       return;
     }
     const ph = await dbGet('photos', id).catch(() => null);
@@ -2247,7 +2348,23 @@
       element: elemOf(p), status: p.status || '', remarks: p.remarks || '', closureId: p.closureId || '', boxes: p.boxes || 0, details: p.details || [], marks: p.marks || [], origPid: p.origPid || '', poleModel: !!p.poleModel });
   }
   function cleanupEditor() {
-    ed = null; showEdPhoto(null); revokeEdUrls(); defDraft = null;
+    ed = null; showEdPhoto(null); revokeEdUrls(); defDraft = null; applyEdLock();
+  }
+  /** v2.16: what the lock allows in the editor. Closed (completed PAT): every field is read only and nothing can be saved.
+      Carried (from the PAT, in the cleanup or FAT): the ID, element, type and pin stay; fixes, photos and remarks are made. */
+  function applyEdLock() {
+    const lock = (ed && ed.lock) || '', root = $('editor');
+    root.classList.toggle('locked', lock === 'closed'); root.classList.toggle('carried', lock === 'carried');
+    root.querySelectorAll('[data-lk]').forEach((el) => { el.disabled = false; delete el.dataset.lk; });
+    const off = (el) => { if (el && !el.disabled) { el.disabled = true; el.dataset.lk = '1'; } };
+    if (lock === 'closed') root.querySelectorAll('.edbody input, .edbody select, .edbody textarea, #snapGps').forEach(off);
+    if (lock === 'carried') ['poleId', 'elemSel', 'typeSel', 'odfSel', 'atMloop', 'atNap', 'atClosure', 'napId', 'closureId', 'snapGps'].forEach((id) => off($(id)));
+    if (pinMap) { if (lock) pinMap.dragging.disable(); else pinMap.dragging.enable(); }
+    const m = pmeta(), note = $('edLock');
+    note.hidden = !lock;
+    note.textContent = lock === 'closed' ? `🔒 PAT completed${m.completedAt ? ` ${longDate(m.completedAt)}` : ''}: this record can't be changed or removed. Its items are tagged as fixed in the defect cleanup and the FAT.`
+      : lock === 'carried' ? '🔒 From the PAT: the ID, place and PAT items stay as recorded. Tag each item as fixed, add photos and remarks.' : '';
+    if (lock) { $('edDelete').hidden = true; $('delConfirm').hidden = true; }
   }
 
   /* ---------- red box / pole model on a survey photo (v2.13; pole model v2.14; editable marks v2.15) ---------- */
@@ -2537,8 +2654,9 @@
       const sel = document.createElement('select'); sel.setAttribute('aria-label', 'Photo label');
       const labels = PHOTO_LABELS.includes(p.label) ? PHOTO_LABELS : PHOTO_LABELS.concat(p.label);
       sel.innerHTML = labels.map((l) => `<option${l === p.label ? ' selected' : ''}>${C.xmlEsc(l)}</option>`).join('');
-      sel.addEventListener('change', () => { p.label = sel.value; });
+      sel.addEventListener('change', () => { p.label = sel.value; }); sel.disabled = ed.lock === 'closed';
       const x = document.createElement('button'); x.type = 'button'; x.className = 'x'; x.textContent = '×'; x.setAttribute('aria-label', 'Remove photo');
+      x.hidden = ed.lock === 'closed' || (ed.lock === 'carried' && !ed.pending[p.pid]); // v2.16: recorded photos stay
       x.addEventListener('click', () => {
         ed.photos.splice(i, 1);
         if (ed.pending[p.pid]) delete ed.pending[p.pid]; else ed.removed.push(p.pid);
@@ -2548,7 +2666,7 @@
     });
     const add = document.createElement('button'); add.type = 'button'; add.className = 'ph add'; add.textContent = '+ Add photo';
     add.addEventListener('click', () => openCamera('add'));
-    box.appendChild(add);
+    if (ed.lock !== 'closed') box.appendChild(add);
   }
   function addEdPhoto(blob, meta) {
     const pid = uid(); ed.photos.push({ pid, label: nextPhotoLabel(), ...meta }); ed.pending[pid] = blob; prepImages(blob);
@@ -2590,7 +2708,7 @@
         f.addEventListener('click', () => showPhoto(pid, `${$('poleId').value || ''} · ${d.item} · ${label}`));
       });
       if (th.childElementCount) card.appendChild(th);
-      const rm = document.createElement('input'); rm.type = 'text'; rm.placeholder = 'Remarks (optional)'; rm.value = d.remarks || '';
+      const rm = document.createElement('input'); rm.type = 'text'; rm.placeholder = 'Remarks (optional)'; rm.value = d.remarks || ''; rm.disabled = ed.lock === 'closed';
       rm.setAttribute('aria-label', 'Remarks'); rm.addEventListener('input', () => { d.remarks = rm.value; });
       card.appendChild(rm);
       const acts = document.createElement('div'); acts.className = 'acts';
@@ -2620,9 +2738,10 @@
         });
         renderDefs();
       }, 'danger');
-      card.appendChild(acts);
+      if (ed.lock !== 'closed') card.appendChild(acts); // a completed PAT: no fix, verify or remove here (v2.16)
       list.appendChild(card);
     });
+    if (ed.lock === 'closed') $('addDefBtn').hidden = true;
   }
   /** Back to Open: the rectified photo and dates move into the log, so the item shows no rectification until a new one is made. */
   function reopenDef(d, reason, stage) {
@@ -2934,6 +3053,7 @@
   $('edDelete').addEventListener('click', () => { $('delName').textContent = $('poleId').value || 'this pole'; $('delConfirm').hidden = false; $('delConfirm').scrollIntoView({ block: 'nearest' }); });
   $('delNo').addEventListener('click', () => { $('delConfirm').hidden = true; });
   $('delYes').addEventListener('click', async () => {
+    if (ed && ed.lock) { $('delConfirm').hidden = true; toast('This record is from a completed PAT and cannot be deleted', 4500); return; }
     const id = ed.id, rec = points.find((p) => p.id === id);
     await dbDel('points', id);
     if (rec) await deletePhotosIfUnused(allPids(rec).concat(Object.keys(ed.pending || {})), new Set([id]));
@@ -2943,6 +3063,7 @@
     await closeSheet(); toast(rec && rec.kind === 'acceptance' ? 'Element deleted' : `${rec && elemOf(rec) !== 'Pole' ? elemOf(rec) : 'Pole'} deleted`);
   });
   $('edSave').addEventListener('click', saveEditor);
+  $('edDone').addEventListener('click', () => closeSheet()); // a completed PAT's record: view only (v2.16)
 
   async function saveEditor() {
     if (!ed || editorSaving) return; // a second tap while saving does nothing
@@ -3022,6 +3143,7 @@
   }
 
   async function saveAcceptance(poleId) {
+    if (ed.lock === 'closed') { toast('This PAT is complete: nothing in it can be changed', 4500); return; }
     // a defect picked but not yet added is added by Save
     if (defDraft && !$('defPanel').hidden && (defDraft.items.size || $('defNotes').value.trim())) $('defAdd').click();
     if (visitStage() === 'PAT' && ed.mode === 'new' && !ed.defs.length) {
@@ -3035,6 +3157,8 @@
       const pid = uid(); ed.photos.unshift({ pid, label: 'Overview', ...(defDraft.meta || {}) }); ed.pending[pid] = defDraft.blob; defDraft.blob = null;
     }
     const c = pinMap.getCenter(), pos = { lat: c.lat, lon: c.lng };
+    const keep = ed.lock === 'carried' ? points.find((x) => x.id === ed.id) : null; // v2.16: the PAT's ID, element, type and place stay
+    if (keep) { poleId = keep.poleId; pos.lat = keep.lat; pos.lon = keep.lon; ed.element = elemOf(keep); ed.type = keep.poleType || ed.type; }
     const btn = $('edSave'); btn.disabled = true;
     const t0 = Date.now();
     LOG.step('save.acceptance', { mode: ed.mode, pending: Object.keys(ed.pending).length, mem: memMB(), map: S.base });
@@ -3219,6 +3343,13 @@
   const asPlanParts = (pts) => ({ site: pts.some((p) => elemOf(p) === 'Site'), odf: pts.some((p) => ['ODF', 'ODC'].includes(elemOf(p))), poi: pts.some(isPoi), nap: pts.filter((p) => elemOf(p) === 'NAP').length });
   /** Why the current project may not be completed yet (As-plan surveys, v2.13); empty when it may. */
   async function completeGaps() {
+    if (taskCat() === 'PAT') { // v2.16: the form is locked with the PAT, so it is filled in first
+      const m = pmeta(), out = [];
+      if (!m.site) out.push('the location (Projects → form details)');
+      if (!m.contractor) out.push('the vendor / contractor (Projects → form details)');
+      if (!(m.vendorRep || (S.user && S.user.name))) out.push('the vendor representative (Projects → form details)');
+      return out;
+    }
     if (isAcc() || svPurpose() !== 'As-plan') return [];
     const pts = projPoints(), g = asPlanParts(pts), poles = pts.filter((p) => elemOf(p) === 'Pole'), out = [];
     if (!poles.length) out.push('the poles, each with a photo');
@@ -3230,7 +3361,9 @@
     if (!g.poi) out.push('a POI: a closure on a pole, or a handhole with its closure ID');
     return out;
   }
-  const notReady = (gaps) => ask('Not ready to complete', `An As-plan survey needs:\n• ${gaps.join('\n• ')}\n\nCapture ${gaps.length === 1 ? 'it' : 'them'}, then complete the task.`, [{ label: 'OK', value: false, primary: true }]);
+  const notReady = (gaps) => (taskCat() === 'PAT'
+    ? ask('Not ready to complete', `The PAT is locked when it is completed, so first fill in:\n• ${gaps.join('\n• ')}`, [{ label: 'OK', value: false, primary: true }])
+    : ask('Not ready to complete', `An As-plan survey needs:\n• ${gaps.join('\n• ')}\n\nCapture ${gaps.length === 1 ? 'it' : 'them'}, then complete the task.`, [{ label: 'OK', value: false, primary: true }]));
   function renderWorkflow() {
     const W = workflowModel(), box = $('wfSteps'); box.innerHTML = '';
     W.steps.forEach((st, i) => {
@@ -3279,8 +3412,9 @@
       types.forEach((t) => {
         const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small'; b.textContent = t; b.setAttribute('aria-pressed', String(chosen.includes(t)));
         b.addEventListener('click', () => { const cur = new Set(pmeta().inspTypes || allInspTypes()); if (cur.has(t)) cur.delete(t); else cur.add(t); const mm = { ...pmeta(), inspTypes: types.filter((x) => cur.has(x)) }; S.meta[S.project] = mm; persist(); renderProjects(); });
-        box.appendChild(b);
+        b.disabled = patClosed(); box.appendChild(b);
       });
+      ['mSite', 'mContractor', 'mVendorRep', 'mGlobe', 'mDate'].forEach((id) => { $(id).disabled = patClosed(); }); // the signed form stays as it was (v2.16)
       $('accActs').hidden = m.stage === 'FAT'; renderShareWarn('shareWarn');
       $('sendPatLbl').textContent = m.stage === 'Cleanup' ? 'Share cleanup KMZ · for the FAT' : 'Share PAT KMZ · for defect cleanup / FAT';
       $('startFat').textContent = m.stage === 'Cleanup' ? 'Start FAT from this cleanup on this phone' : 'Start FAT from this PAT on this phone';
@@ -3288,11 +3422,14 @@
     if (!acc) $('accActs').hidden = true;
     $('doneInfo').hidden = !m.completedAt; $('doneInfo').textContent = m.completedAt ? `✓ Completed ${longDate(m.completedAt)}${progressFields(S.project).length ? (pendingFor(S.project) ? ' · waiting to sync' : ' · in the online sheet') : ''}` : '';
     $('doneBtn').textContent = m.completedAt ? 'Undo complete' : '✓ Mark task complete'; $('doneBtn').classList.toggle('undo', !!m.completedAt);
+    const locked = patClosed(); // v2.16: a completed PAT is locked; only the list's admin can reopen it
+    $('doneBtn').hidden = locked && !canReopenPat();
+    if (locked) $('doneInfo').textContent += ` · 🔒 locked: items are tagged as fixed in the defect cleanup and the FAT${canReopenPat() ? '' : ' (only the admin can reopen it)'}`;
     { const W = S.project ? workflowModel() : null, left = W ? W.steps.filter((x) => !x.done && x.go !== 'complete').length : 0;
       $('doneHint').textContent = m.completedAt ? '' : left ? `${left} step${left === 1 ? '' : 's'} below still open; you can complete when the task is finished.` : 'Every step is done: mark the task complete, or export the completion report.'; }
     $('doneBox').hidden = !S.project;
     $('curStartRow').hidden = acc; $('curStart').value = m.startDate || '';
-    $('delProjConfirm').hidden = true; $('delProject').hidden = false;
+    $('delProjConfirm').hidden = true; $('delProject').hidden = patClosed() && !canReopenPat();
   }
   /** Inspection types: all ticked unless the user unticks some (v2.10). */
   const allInspTypes = () => (formText().types || []).slice();
@@ -3335,10 +3472,13 @@
   $('doneBtn').addEventListener('click', async () => {
     const m = pmeta(), col = progressFields(S.project).filter(([f]) => f !== 'surveyStart').map(([f]) => PROGRESS_COL[f])[0];
     if (!m.completedAt) { const gaps = await completeGaps(); if (gaps.length) { await notReady(gaps); return; } }
+    const pat = taskCat() === 'PAT';
+    if (m.completedAt && pat && !canReopenPat()) { toast('A completed PAT is locked. Only the admin of the company list can reopen it.', 5000); return; }
     const ok = m.completedAt
-      ? await ask('Undo complete?', `The task is no longer marked complete${col ? `, and the ${col} is cleared in the online sheet` : ''}.`, [{ label: 'Cancel', value: false }, { label: 'Undo', value: true, primary: true }])
-      : await ask('Mark the task complete?', `Today is recorded as the completion date${col ? ` (${col} in the online sheet)` : ''}. You can also export the completion report (Export → Completion report).`, [{ label: 'Cancel', value: false }, { label: 'Mark complete', value: true, primary: true }]);
+      ? await ask('Undo complete?', `The task is no longer marked complete${col ? `, and the ${col} is cleared in the online sheet` : ''}.${pat ? ' The PAT is unlocked: its elements and items can be changed and removed again.' : ''}`, [{ label: 'Cancel', value: false }, { label: 'Undo', value: true, primary: true }])
+      : await ask(pat ? 'Complete and lock the PAT?' : 'Mark the task complete?', `Today is recorded as the completion date${col ? ` (${col} in the online sheet)` : ''}. You can also export the completion report (Export → Completion report).${pat ? `\n\nThe PAT is then locked: no element or item can be added, changed or removed, by anyone on this phone. Items are tagged as fixed in the defect cleanup and the FAT.${S.team ? ' Only the admin of the company list can reopen it.' : ''}` : ''}`, [{ label: 'Cancel', value: false }, { label: pat ? 'Complete and lock' : 'Mark complete', value: true, primary: true }]);
     if (!ok) return;
+    if (pat) LOG.info('pat.lock', { on: !m.completedAt, admin: isAdmin() });
     markComplete(!m.completedAt, 'tagged'); renderProjects(); renderPoles();
     toast(m.completedAt ? 'No longer marked complete' : 'Task marked complete', 3000);
   });
@@ -3451,7 +3591,12 @@
   $('doCompletion').addEventListener('click', () => guard(async () => {
     const pts = projPoints(), acc = isAcc();
     if (!pts.length && !(await ask('Nothing recorded', 'This project has no records yet. Make the completion report anyway?', [{ label: 'Cancel', value: false }, { label: 'Make it', value: true, primary: true }]))) return;
-    if (!pmeta().completedAt) { const gaps = await completeGaps(); if (gaps.length) { await notReady(gaps); return; } markComplete(true, 'report'); }
+    if (!pmeta().completedAt) {
+      const gaps = await completeGaps(); if (gaps.length) { await notReady(gaps); return; }
+      // v2.16: the report completes the task, and completing a PAT locks it: asked first
+      if (taskCat() === 'PAT' && !(await ask('Complete and lock the PAT?', `The completion report marks the PAT complete. It is then locked: no element or item can be added, changed or removed, by anyone on this phone. Items are tagged as fixed in the defect cleanup and the FAT.${S.team ? ' Only the admin of the company list can reopen it.' : ''}`, [{ label: 'Cancel', value: false }, { label: 'Complete and lock', value: true, primary: true }]))) return;
+      markComplete(true, 'report');
+    }
     const m = pmeta(), R = window.PoleReports, k = acc ? m.stage || 'PAT' : 'survey';
     const catLabel = STAGE_LABEL[k], purpose = PURPOSE_LABEL[acc ? k : m.purpose || 'As-plan'];
     let summary = [];
@@ -3509,12 +3654,14 @@
     toast(`Renamed to "${name}"`);
   }, 'Rename failed'));
   $('delProject').addEventListener('click', () => {
+    if (patClosed() && !canReopenPat()) { toast('A completed PAT is locked and cannot be deleted. Only the admin of the company list can do that.', 5000); return; }
     const n = projPoints().length, what = isAcc() ? 'element' : 'pole';
     $('delProjText').textContent = `Delete "${S.project}" with its ${n} ${what}${n === 1 ? '' : 's'}, photos and offline maps? Make a backup first if you still need them. This can't be undone.`;
     $('delProjConfirm').hidden = false; $('delProject').hidden = true;
   });
   $('delProjNo').addEventListener('click', () => { $('delProjConfirm').hidden = true; $('delProject').hidden = false; });
   $('delProjYes').addEventListener('click', () => guard(async () => {
+    if (patClosed() && !canReopenPat()) { $('delProjConfirm').hidden = true; return; }
     const name = S.project, pts = points.filter((p) => p.project === name);
     let i = 0;
     const ids = new Set(pts.map((p) => p.id)), pids = [];
@@ -6031,6 +6178,7 @@
   /* ================= start ================= */
   $('captureBtn').addEventListener('click', () => {
     if (!S.project) { toast('Create a project first: photos are taken inside a project', 4500); askNewProject(); return; }
+    if (patClosed()) { toast('This PAT is complete and locked: nothing can be added. Fix its items in the defect cleanup or the FAT (Projects).', 6000); return; }
     if (visitStage() === 'Cleanup') { // the cleanup works on the PAT pins only: photos are taken from a pin's card
       const t = nextTarget();
       toast(t ? 'Open the pin, then tap “📷 Photo of the fix” on the item' : 'All items are fixed. Share the cleanup KMZ from Projects.', 4500);

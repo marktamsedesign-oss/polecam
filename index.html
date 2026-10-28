@@ -213,6 +213,14 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .empty b{color:var(--ink);font-size:calc(16px * var(--fs))}
 .notice{border-left:4px solid var(--info);background:var(--soft);padding:10px 12px;border-radius:8px;font-size:calc(13.5px * var(--fs))}
 .notice.warn{border-color:var(--warn)}
+/* v2.16: a completed PAT is view only; an element from the PAT keeps its ID, place and items in the cleanup and FAT */
+#edDone{display:none}
+#editor.locked #edDone{display:block}
+#editor.locked #edSave,#editor.locked #edSaveTop,#editor.locked #edRetake,#editor.locked #scanIdBtn,#editor.locked #nptBtn,#editor.locked #idCands,
+#editor.locked #addDefBtn,#editor.locked #defPanel,#editor.locked #snapGps,#editor.locked #edDelete,#editor.locked #delConfirm,
+#editor.carried #scanIdBtn,#editor.carried #nptBtn,#editor.carried #idCands,#editor.carried #snapGps,#editor.carried #edDelete,#editor.carried #delConfirm{display:none!important}
+#editor.locked #crosshair,#editor.carried #crosshair{opacity:.75}
+#editor .tchip input:disabled+span,#editor .edbody select:disabled,#editor .edbody input[type=text]:disabled{opacity:.65}
 
 /* settings home rows */
 .body>*{flex:none}
@@ -563,6 +571,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
   </div>
   <div class="body edbody">
+    <p class="notice warn" id="edLock" hidden></p>
     <div class="group">
       <h3>Photo</h3>
       <div id="photoStrip"><span class="thumbwrap"><img id="edPhoto" alt="Captured pole photo" title="Tap to see the full photo, mark it or edit its marks"><span class="zoomico" id="edZoom" aria-hidden="true">⤢</span></span><div class="meta"><span id="edTime">–</span><span id="edAcc">–</span><span id="edSrc"></span></div><button class="btn primary" id="edSaveTop" type="button">Save</button></div>
@@ -624,6 +633,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div class="foot">
     <button class="btn" id="edSkip" hidden>Skip</button>
     <button class="btn" id="edRetake">Retake</button>
+    <button class="btn grow" id="edDone" type="button">Close</button>
     <button class="btn primary grow" id="edSave">Save</button>
   </div>
 </section>

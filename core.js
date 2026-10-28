@@ -696,7 +696,7 @@
       if (!/[0-9]/.test(rawNum) || misread * 2 > rawNum.length) continue; // the number must be mostly real digits (SPOT is not SP-0001)
       const pre = s.slice(0, L).split('').map((c) => (/[0-9]/.test(c) ? (TO_LETTER[c] || c) : c)).join('');
       const num = rawNum.split('').map((c) => (/[A-Z]/.test(c) ? (TO_DIGIT[c] || c) : c)).join('');
-      if (!/^[0-9]{1,6}$/.test(num)) continue;
+      if (!/^[0-9]{1,8}$/.test(num)) continue; // up to 8 digits: owner tags such as 0430621 (v2.16)
       let p = KNOWN_PREFIX.includes(pre) ? pre : null, fuzzy = false;
       if (!p) { // one misread letter, e.g. GC -> CC, FOU -> FDU (only when it points to a single known prefix)
         let near = KNOWN_PREFIX.filter((k) => k.length === L && [...k].filter((ch, i) => ch !== pre[i]).length === 1);
@@ -734,6 +734,9 @@
         put(`${numPrefix}-${num}`, conf, true, conf + bonus + (digits.length >= 4 ? 20 : 6), digits.length >= 4);
         return;
       }
+      // a number with a stray mark after it (the star under a tag's number read as a letter): the number, scored lower (v2.16)
+      const tail = numPrefix && !k ? /^([0-9]{4,8})[A-Z]{1,2}$/.exec(digits) : null;
+      if (tail) { put(`${numPrefix}-${PAD4.includes(numPrefix) ? tail[1].padStart(4, '0') : tail[1]}`, conf * 0.9, true, conf * 0.9 + bonus + 8, false); return; }
       if (!/[0-9]/.test(s)) return;
       const fitted = fitShape(s, target), id = fitted || s, fits = !!fitted;
       put(id, conf, fits, conf + bonus + (fits ? 15 : 0) + (/[A-Z]/.test(id) ? 2 : 0));
@@ -922,13 +925,141 @@
       if (short < 4 || long < A * 0.07 || short > Cn * 0.35 || long > A * 0.95 || aspect < 1.5 || aspect > 16 || dens < 0.06) continue;
       const bx = vert ? p.c0 : p.a0, by = vert ? p.a0 : p.c0, bw = vert ? short : long, bh = vert ? long : short;
       const d = Math.hypot((bx + bw / 2) / W - fx, (by + bh / 2) / H - fy);
-      const score = Math.min(dens, 0.4) * Math.sqrt(box) * Math.min(1, aspect / 2.5) / (1 + (focus ? 6 : 3) * d);
+      // an ID being aimed at is wholly in view: a region running off the picture (leaves, the pole, cables) counts less (v2.16)
+      const cut = (p.a0 <= 1 ? 1 : 0) + (p.a1 >= A - 2 ? 1 : 0);
+      const score = Math.min(dens, 0.4) * Math.sqrt(box) * Math.min(1, aspect / 2.5) / (1 + (focus ? 6 : 3) * d) * (cut ? 0.55 : 1);
       if (!best || score > best.score) best = { x: bx, y: by, w: bw, h: bh, score: Math.round(score * 100) / 100 };
+    }
+    return best;
+  }
+  /**
+   * An ID painted as a column of upright characters, one per line (a pole tag reading 0-4-3-0-6-2-1 downwards):
+   * the characters' boxes, top to bottom (v2.16). Ink is what is darker than its surroundings (light = true: lighter);
+   * the pieces of a stencil character are joined; cables, the pole's edges and the tag's border are left out.
+   * rgba: RGBA W×H (the guide-box crop). -> {rows: [{x0, y0, x1, y1}], ink: Uint8Array W×H (1 = a character's ink), medH} or null.
+   */
+  function stackRows(rgba, W, H, light) {
+    const N = W * H, g = new Uint8Array(N);
+    for (let i = 0, j = 0; i < N; i++, j += 4) { const v = (rgba[j] * 77 + rgba[j + 1] * 150 + rgba[j + 2] * 29) >> 8; g[i] = light ? 255 - v : v; }
+    // dark against the local mean of a window about a character wide (shadows on a round pole stay out)
+    const r = Math.max(4, Math.round(Math.min(W, H / 3) * 0.35)), W1 = W + 1, ii = new Float64Array(W1 * (H + 1));
+    for (let y = 0; y < H; y++) { let s = 0; for (let x = 0; x < W; x++) { s += g[y * W + x]; ii[(y + 1) * W1 + x + 1] = ii[y * W1 + x + 1] + s; } }
+    const ink = new Uint8Array(N);
+    for (let y = 0; y < H; y++) {
+      const ya = Math.max(0, y - r), yb = Math.min(H, y + r + 1);
+      for (let x = 0; x < W; x++) {
+        const xa = Math.max(0, x - r), xb = Math.min(W, x + r + 1);
+        const mean = (ii[yb * W1 + xb] - ii[ya * W1 + xb] - ii[yb * W1 + xa] + ii[ya * W1 + xa]) / ((xb - xa) * (yb - ya));
+        ink[y * W + x] = g[y * W + x] < mean - Math.max(14, mean * 0.15) ? 1 : 0;
+      }
+    }
+    const lab = new Int32Array(N), st = new Int32Array(N), comps = [];
+    for (let s0 = 0; s0 < N; s0++) {
+      if (!ink[s0] || lab[s0]) continue;
+      const id = comps.length + 1; let sp = 0, x0 = W, y0 = H, x1 = 0, y1 = 0, area = 0;
+      st[sp++] = s0; lab[s0] = id;
+      while (sp) {
+        const i = st[--sp], x = i % W, y = (i - x) / W; area++;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+          const j = yy * W + xx; if (ink[j] && !lab[j]) { lab[j] = id; st[sp++] = j; }
+        }
+      }
+      comps.push({ id, x0, y0, x1, y1, area });
+    }
+    // character-sized pieces: not specks, cables, the pole's edges or the tag's border
+    const pc = comps.filter((c) => {
+      const w = c.x1 - c.x0 + 1, h = c.y1 - c.y0 + 1;
+      return c.area >= Math.max(8, N * 0.0001) && h <= H * 0.4 && w <= W * 0.8 && !(h > w * 7 && h > H * 0.12) && w <= h * 4 && c.area / (w * h) > 0.1;
+    });
+    if (pc.length < 3) return null;
+    // the column where the pieces line up (each piece adds its height across its width); cables beside a tag can add up to
+    // more, so the strongest few columns are tried and the one holding the most characters of one size is kept
+    const prof = new Float32Array(W);
+    for (const c of pc) for (let x = c.x0; x <= c.x1; x++) prof[x] += c.y1 - c.y0 + 1;
+    const med = (a) => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[s.length >> 1] : 0; };
+    const chainIn = (b0, b1) => {
+      const sel = pc.filter((c) => { const cx = (c.x0 + c.x1) / 2; return cx >= b0 && cx <= b1; }).sort((a, b) => a.y0 - b.y0);
+      // pieces overlapping top to bottom are one character; then fragments (a stencil's cut) join their neighbour
+      let rows = [];
+      for (const c of sel) {
+        const q = rows[rows.length - 1];
+        if (q && c.y0 <= q.y1) { q.x0 = Math.min(q.x0, c.x0); q.x1 = Math.max(q.x1, c.x1); q.y1 = Math.max(q.y1, c.y1); q.ids.push(c.id); }
+        else rows.push({ x0: c.x0, y0: c.y0, x1: c.x1, y1: c.y1, ids: [c.id] });
+      }
+      let medH = med(rows.map((q) => q.y1 - q.y0 + 1));
+      for (let i = 1; i < rows.length; i++) {
+        const p = rows[i - 1], q = rows[i];
+        if (q.y0 - p.y1 <= Math.max(2, medH * 0.2) && q.y1 - p.y0 + 1 <= medH * 1.3) {
+          p.x0 = Math.min(p.x0, q.x0); p.x1 = Math.max(p.x1, q.x1); p.y1 = Math.max(p.y1, q.y1); p.ids.push(...q.ids); rows.splice(i, 1); i--;
+        }
+      }
+      medH = med(rows.map((q) => q.y1 - q.y0 + 1));
+      const medW = med(rows.filter((q) => q.y1 - q.y0 + 1 >= medH * 0.55).map((q) => q.x1 - q.x0 + 1));
+      rows = rows.filter((q) => { // specks and dirt between the characters go; a dash (CC-0457 painted downwards) stays
+        const w = q.x1 - q.x0 + 1, h = q.y1 - q.y0 + 1;
+        return h >= medH * 0.55 || (h >= 2 && h <= medH * 0.5 && w >= medW * 0.35 && w <= medW * 1.6 && w >= h * 1.5);
+      });
+      // the longest run of characters without a big gap or a mark of another size (the star under a tag, a crack, a sticker)
+      let run = [], cur = [];
+      for (const q of rows) {
+        const h = q.y1 - q.y0 + 1, w = q.x1 - q.x0 + 1;
+        if (h > medH * 1.5 || w > Math.max(medW * 2.2, medH * 1.6)) { cur = []; continue; }
+        if (cur.length && q.y0 - cur[cur.length - 1].y1 > medH * 1.2) cur = [];
+        cur.push(q); if (cur.length > run.length) run = cur.slice();
+      }
+      const mh = med(run.map((q) => q.y1 - q.y0 + 1)), even = run.filter((q) => Math.abs(q.y1 - q.y0 + 1 - mh) <= mh * 0.35).length;
+      return { run, even };
+    };
+    let best = [];
+    for (let k = 0, bestEven = -1; k < 4; k++) {
+      let pk = 0; for (let x = 1; x < W; x++) if (prof[x] > prof[pk]) pk = x;
+      if (!(prof[pk] > 0)) break;
+      let b0 = pk, b1 = pk; const lim = prof[pk] * 0.3;
+      while (b0 > 0 && prof[b0 - 1] >= lim) b0--;
+      while (b1 < W - 1 && prof[b1 + 1] >= lim) b1++;
+      const c = chainIn(b0, b1);
+      if (c.even > bestEven || (c.even === bestEven && c.run.length > best.length)) { best = c.run; bestEven = c.even; }
+      for (let x = b0; x <= b1; x++) prof[x] = 0; // the next strongest column
+    }
+    if (best.length < 3) return null;
+    const keep = new Set(); best.forEach((q) => q.ids.forEach((id) => keep.add(id)));
+    const out = new Uint8Array(N); for (let i = 0; i < N; i++) if (lab[i] && keep.has(lab[i])) out[i] = 1;
+    const medH = med(best.map((q) => q.y1 - q.y0 + 1));
+    return { rows: best.map(({ x0, y0, x1, y1 }) => ({ x0, y0, x1, y1 })), ink: out, medH, even: best.filter((q) => Math.abs(q.y1 - q.y0 + 1 - medH) <= medH * 0.35).length };
+  }
+  /**
+   * v2.16: a tag painted downwards in a small camera frame: four or more characters of one size, one above the other, near
+   * the centre (or the tap). Cables and leaves beside it do not join it, as they can in findIdBox. rgba: RGBA W×H.
+   * -> {x, y, w, h, n (characters), score} in frame pixels, or null.
+   */
+  function findStack(rgba, W, H, focus, whole) {
+    const rw = whole ? W : Math.max(16, Math.round(W * 0.44)), rh = whole ? H : Math.max(16, Math.round(H * 0.8)); // whole: rgba is already the part to search
+    const cx = (focus ? focus.x : 0.5) * W, cy = (focus ? focus.y : 0.45) * H;
+    const x0 = Math.max(0, Math.min(W - rw, Math.round(cx - rw / 2))), y0 = Math.max(0, Math.min(H - rh, Math.round(cy - rh / 2)));
+    const sub = new Uint8Array(rw * rh * 4);
+    for (let y = 0; y < rh; y++) sub.set(rgba.subarray(((y0 + y) * W + x0) * 4, ((y0 + y) * W + x0 + rw) * 4), y * rw * 4);
+    const avg = (a) => a.reduce((t, v) => t + v, 0) / a.length;
+    let best = null;
+    for (const light of [false, true]) {
+      const r = stackRows(sub, rw, rh, light); if (!r || r.rows.length < 4 || r.medH < 5) continue;
+      const full = r.rows.filter((q) => Math.abs(q.y1 - q.y0 + 1 - r.medH) <= r.medH * 0.35);
+      if (full.length < Math.max(4, Math.ceil(r.rows.length * 0.7))) continue; // characters of one size
+      const ws = full.map((q) => q.x1 - q.x0 + 1).sort((a, b) => a - b), medW = ws[ws.length >> 1];
+      // one above the other along a straight line (a leaning pole slants it), not a line of text or leaves
+      const ys = full.map((q) => (q.y0 + q.y1) / 2), xs = full.map((q) => (q.x0 + q.x1) / 2), my = avg(ys), mx = avg(xs);
+      const vy = avg(ys.map((y) => (y - my) ** 2)), slope = vy ? avg(ys.map((y, i) => (y - my) * (xs[i] - mx))) / vy : 0;
+      const sd = Math.sqrt(avg(xs.map((x, i) => (x - mx - slope * (ys[i] - my)) ** 2)));
+      if (Math.abs(slope) > 0.35 || sd > Math.max(1.5, medW * 0.45, r.medH * 0.2) || medW > r.medH * 1.6) continue;
+      const bx0 = Math.min(...r.rows.map((q) => q.x0)), bx1 = Math.max(...r.rows.map((q) => q.x1)), by0 = r.rows[0].y0, by1 = r.rows[r.rows.length - 1].y1;
+      const score = Math.round((full.length * 2 + Math.sqrt((bx1 - bx0 + 1) * (by1 - by0 + 1)) / 4) * 100) / 100;
+      if (!best || score > best.score) best = { x: x0 + bx0, y: y0 + by0, w: bx1 - bx0 + 1, h: by1 - by0 + 1, n: r.rows.length, score };
     }
     return best;
   }
 
   const api = { parseCsv, companiesFromCsv, utmForward, analyzeRoute, autoLinks, distM, deflection, idCandidates, fitShape, knownId, setPolePrefixes, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
-    buildKml, buildDxf, buildCsv, roadsFromOverpass, overpassQuery, nextPoleId, safeName, xmlEsc, blockName, findIdBox };
+    buildKml, buildDxf, buildCsv, roadsFromOverpass, overpassQuery, nextPoleId, safeName, xmlEsc, blockName, findIdBox, stackRows, findStack };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleCore = api;
 })(typeof self !== 'undefined' ? self : this);

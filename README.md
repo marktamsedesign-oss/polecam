@@ -202,7 +202,7 @@ The Excel/CSV punchlist also has *Days to rectify*, *Rectified by*, *Date verifi
 - With the phone's own camera app (fallback), the GPS check uses the fix taken right after you return to PoleCam.
 
 **Reading the painted Pole ID (offline)**
-- **Picture first, then the ID (v1.7):** after the photo is kept, a guide box appears. Get close to the painted ID, fit it in the box and tap the shutter. Choose **Horizontal ID** or **Vertical ID** (characters stacked top to bottom, or the whole ID turned sideways); the app remembers your choice. It reads the ID on the phone (Tesseract OCR, no internet).
+- **Picture first, then the ID (v1.7):** after the photo is kept, a guide box appears. Get close to the painted ID, fit it in the box and tap the shutter. The box turns by itself for a tag painted downwards (v2.16); **⇆ Horizontal** or **⇅ Vertical** (characters stacked top to bottom, or the whole ID turned sideways) fixes it for that scan, and the app remembers the last direction. It reads the ID on the phone (Tesseract OCR, or ML Kit in the APK; no internet).
 - Readings are matched to your formats: CC-/WP-/SP- pole IDs (4 digits), GT-/BT- and any added prefix (number as painted) and FDU_ ODF IDs, e.g. "CCO457" becomes CC-0457, and the pole type (or ODF element) is set from the prefix. The field is filled when the reading is at least 55% sure in a known format (80% otherwise); other readings appear as buttons. Always check the result before saving; faded or hand-painted IDs may not read.
 - **Scan ID** next to the ID field opens the camera just to read an ID again.
 
@@ -515,6 +515,16 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.16
+
+- **Pole tags painted downwards** (one character per line, e.g. 0-4-3-0-6-2-1 with a ★ under it): the ID box now finds a column of characters near the centre by itself and **turns to vertical** (and back for a horizontal ID); tapping ⇆ or ⇅ fixes the box's shape for that scan. Each character is cut out of the picture and set out as one line before it is read, so the pole's edge, cables and leaves beside the tag are left out and the star under the number is ignored. Tested on a field photo (tag 0430621 → **CC-0430621** with Concrete as the type, read by itself in about 2 s when the tag fills roughly a third of the picture's height; a tag that is small in the picture needs the 2× or 4× zoom). A number with no prefix gets the type prefix as in v2.15 (the last pole's type, or the Type in the editor; changing the Type changes the prefix).
+- **Safer reading of vertical IDs:** a reading with fewer characters than the column shows, or a column cut off by the box, is not used; a number painted without a prefix needs the same reading twice before it is taken by itself. Known prefixes now take numbers of up to 8 digits (CC-0430621).
+- **Phone camera app (fallback):** when the ID is not found in the chosen direction, the other direction is read too.
+- **A completed PAT is locked.** *Mark task complete* on a PAT asks **Complete and lock the PAT?** and first needs the form details (location, vendor, vendor representative). After that, on every phone: no element or deficiency can be added, changed or removed, no photo added or removed, and the form details are frozen; records open **view only** (Close instead of Save). Exports, *Share PAT KMZ* and *Start FAT* still work. **Only the admin of the company list can Undo complete or delete a completed PAT** (on a phone with no company list, its user can). Items are tagged as fixed in the next stages:
+  - **Defect cleanup and FAT:** an element that came from the PAT keeps its ID, element, type and pin, cannot be deleted, and its PAT items cannot be removed (as before). Each item is tagged fixed (photo of the fix, Mark rectified), verified or rejected, with remarks and extra photos. New findings added in the FAT can still be removed.
+- **Surveys** (As-plan, As-built, Audit) stay editable after completion: add, change and remove as before.
+- No change to the online sheet script or `build-apk.yml`.
 
 ## What changed in v2.15 (from the design review)
 
