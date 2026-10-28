@@ -202,7 +202,7 @@ The Excel/CSV punchlist also has *Days to rectify*, *Rectified by*, *Date verifi
 - With the phone's own camera app (fallback), the GPS check uses the fix taken right after you return to PoleCam.
 
 **Reading the painted Pole ID (offline)**
-- **Picture first, then the ID (v1.7):** after the photo is kept, a guide box appears. Get close to the painted ID, fit it in the box and tap the shutter. The box turns by itself for a tag painted downwards (v2.16); **⇆ Horizontal** or **⇅ Vertical** (characters stacked top to bottom, or the whole ID turned sideways) fixes it for that scan, and the app remembers the last direction. It reads the ID on the phone (Tesseract OCR, or ML Kit in the APK; no internet).
+- **Picture first, then the ID (v1.7):** after the photo is kept, a guide box appears. Get close to the painted ID, fit it in the box and tap the shutter, or swipe along the ID to mark it (v2.17), or read it from the photo with the picture button (v2.17). The box turns by itself for a tag painted downwards (v2.16); **⇆ Horizontal** or **⇅ Vertical** (characters stacked top to bottom, or the whole ID turned sideways) fixes it for that scan, and the app remembers the last direction. It reads the ID on the phone (Tesseract OCR, or ML Kit in the APK; no internet).
 - Readings are matched to your formats: CC-/WP-/SP- pole IDs (4 digits), GT-/BT- and any added prefix (number as painted) and FDU_ ODF IDs, e.g. "CCO457" becomes CC-0457, and the pole type (or ODF element) is set from the prefix. The field is filled when the reading is at least 55% sure in a known format (80% otherwise); other readings appear as buttons. Always check the result before saving; faded or hand-painted IDs may not read.
 - **Scan ID** next to the ID field opens the camera just to read an ID again.
 
@@ -515,6 +515,13 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.17
+
+- **Swipe to mark the ID (camera):** during the ID scan, swipe your finger along the painted ID — **down** a vertical ID, **across** a horizontal one. The box goes exactly where you swiped and stays there (the app stops searching), its direction follows the swipe, the camera focuses on it, and what is in the box is read until the ID is clear. A tap, a new swipe or a zoom change releases it. Tested on the 0430621 field photo at 1× zoom, where the box could not find the small tag by itself: swiped, it read **CC-0430621** in about 1.5 s.
+- **Tap to focus:** a tap on the ID now focuses the camera at that point of the picture (it pointed at the wrong spot when the picture is wider than the screen) and the box looks there; after about 6 s the camera focuses by itself again. Phones that do not allow focus control ignore it.
+- **Read the ID from the photo:** on the scan bar, the **picture button** opens the photo you just took, ready to read; or tap the photo in the editor → **🔍 Read ID**. Then **tap the painted ID** (the app finds it around your finger) or **swipe along it**. The full-size photo is used, so a small tag reads well; the result fills the Pole ID with the other readings as chips. (Survey photos; in PAT, cleanup and FAT the photo is of the defect, so use *Scan ID* there.)
+- **Steadier live reading:** the app measures how much the picture moves between frames and reads only when it is steady (*Hold steady…* on the box), but never waits more than 1.5 s, so a shaky hand still gets a reading. The camera keeps refocusing by itself (continuous focus) where the phone allows it. The steadiness limit was set on test pictures: the App log records the movement (*motion*) and the readings held back (*held*) for each scan, so it can be tuned from phones. The phone's own image stabilisation cannot be controlled from the app.
 
 ## What changed in v2.16
 

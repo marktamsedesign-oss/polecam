@@ -489,14 +489,16 @@
     pvUrl = URL.createObjectURL(blob);
     $('pvImg').src = pvUrl; $('pvCap').textContent = caption || ''; $('photoView').classList.remove('zoomed'); $('photoView').hidden = false;
     $('pvTools').hidden = true; $('pvHint').textContent = 'Tap the photo to zoom in or out · × or Back to close';
+    $('photoView').classList.remove('reading'); $('pvMark').hidden = true;
     if (!pvOpen) { pvOpen = true; history.pushState({ photo: 1 }, ''); }
   }
-  function hidePhotoView() { $('photoView').hidden = true; $('photoView').classList.remove('zoomed'); $('pvImg').src = ''; if (pvUrl) { URL.revokeObjectURL(pvUrl); pvUrl = ''; } }
+  function hidePhotoView() { $('photoView').hidden = true; $('photoView').classList.remove('zoomed', 'reading'); $('pvMark').hidden = true; $('pvImg').src = ''; if (pvUrl) { URL.revokeObjectURL(pvUrl); pvUrl = ''; } }
   const closePhotoView = () => { if (pvOpen) history.back(); else hidePhotoView(); };
   $('pvClose').addEventListener('click', (e) => { e.stopPropagation(); closePhotoView(); });
   $('photoView').addEventListener('click', (e) => { if (e.target === $('photoView')) closePhotoView(); });
   $('pvImg').addEventListener('click', (e) => {
     e.stopPropagation();
+    if ($('photoView').classList.contains('reading')) return; // a tap reads the ID there (v2.17)
     const v = $('photoView'), box = $('pvScroll'), r = $('pvImg').getBoundingClientRect(), fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
     v.classList.toggle('zoomed');
     if (v.classList.contains('zoomed')) requestAnimationFrame(() => { box.scrollLeft = fx * box.scrollWidth - box.clientWidth / 2; box.scrollTop = fy * box.scrollHeight - box.clientHeight / 2; });
@@ -578,7 +580,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.16.0';
+  const APP_VER = '2.17.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1219,6 +1221,7 @@
     $('scanPrompt').hidden = !on;
     $('scanTitle').textContent = camTarget === 'newid' ? 'Photo kept · scan the ID' : 'Scan the ID';
     $('scanSkip').hidden = camTarget !== 'newid';
+    $('scanPhoto').hidden = !((camTarget === 'newid' && camPending && !isAcc()) || (camTarget === 'scan' && ed && !ed.acc && (ed.newBlob || ed.srcBlob))); // v2.17
     $('camReadId').hidden = camTarget !== 'new';
     $('camReadId').setAttribute('aria-pressed', String(S.readId !== false));
     $('camNative').hidden = on;
@@ -1244,8 +1247,15 @@
   $('scanHelp').addEventListener('click', () => { const on = $('scanSub').hidden; $('scanSub').hidden = !on; $('scanHelp').setAttribute('aria-expanded', String(on)); });
   $('orientV').addEventListener('click', () => { S.idOrient = 'v'; persist(); finderStop(); showGuide(); finder.manual = true; });
   $('scanSkip').addEventListener('click', () => closeSheet()); // the photo is kept; the editor opens without an ID reading
+  // v2.17: read the ID on the photo instead (tap or swipe it there): the editor opens with the photo ready for that
+  let photoReadNext = false;
+  $('scanPhoto').addEventListener('click', async () => {
+    finderStop();
+    if (camTarget === 'newid') { photoReadNext = true; await closeSheet(); return; }
+    await closeSheet(); openPhotoRead();
+  });
   async function openCamera(target) {
-    camTarget = target || 'new'; camPending = null; camSeq++; finder.manual = false; // the box turns by itself until H / V is tapped
+    camTarget = target || 'new'; camPending = null; camSeq++; finder.manual = false; photoReadNext = false; // the box turns by itself until H / V is tapped
     openSheet('camera'); startGps();
     $('camMsg').hidden = true; $('camTorch').hidden = true; $('qualBox').hidden = true; camCheck(false);
     showGuide();
@@ -1271,6 +1281,8 @@
         }).catch((e) => LOG.warn('camera.photoCaps.fail', errInfo(e)));
       }
       const caps = track.getCapabilities ? track.getCapabilities() : {};
+      if ((caps.focusMode || []).includes('continuous')) track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {}); // v2.17: keep refocusing
+      LOG.info('camera.focus', { modes: caps.focusMode || null, poi: !!(track.getSettings && 'pointsOfInterest' in track.getSettings()) });
       $('camTorch').hidden = !caps.torch;
       zoomCaps = caps.zoom && caps.zoom.max > (caps.zoom.min || 1) * 1.2 ? caps.zoom : null; zoomLevel = 1; $('video').style.transform = '';
       LOG.info('camera.zoom', zoomCaps ? { min: zoomCaps.min, max: zoomCaps.max, step: zoomCaps.step } : { digital: true });
@@ -1334,7 +1346,8 @@
   function grabGuideCrop() {
     const v = $('video'), g = $('idGuide');
     if (g.hidden || !v.videoWidth) return null;
-    const vr = v.getBoundingClientRect(), gr = g.getBoundingClientRect();
+    const vr = v.getBoundingClientRect(), st0 = $('camStage').getBoundingClientRect();
+    const gr = finder.user ? { left: st0.left + finder.user.x, top: st0.top + finder.user.y, width: finder.user.w, height: finder.user.h } : g.getBoundingClientRect(); // v2.17: a swiped box as marked
     const sc = Math.max(vr.width / v.videoWidth, vr.height / v.videoHeight); // object-fit: cover
     const ox = (vr.width - v.videoWidth * sc) / 2, oy = (vr.height - v.videoHeight * sc) / 2;
     const sx = Math.max(0, (gr.left - vr.left - ox) / sc), sy = Math.max(0, (gr.top - vr.top - oy) / sc);
@@ -1354,7 +1367,7 @@
   const zoomMax = () => (zoomCaps ? Math.min(10, zoomCaps.max / (zoomCaps.min || 1)) : scanStep() ? 4 : 1);
   async function setZoom(z) {
     const nz = Math.max(1, Math.min(zoomMax(), z || 1));
-    if (Math.abs(nz - zoomLevel) > 0.05 && finder.on) { finder.box = null; finder.read = null; finder.agree = 0; finder.stable = 0; guideReset(); finderLabel('Looking for the ID…'); } // a reading from before the zoom no longer matches the box
+    if (Math.abs(nz - zoomLevel) > 0.05 && finder.on) { finder.box = null; finder.user = null; finder.read = null; finder.agree = 0; finder.stable = 0; guideReset(); finderLabel('Looking for the ID…'); } // a reading from before the zoom no longer matches the box
     zoomLevel = nz;
     const v = $('video');
     if (zoomCaps && stream) {
@@ -1380,31 +1393,77 @@
   }
   $('zoomBar').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setZoom(+b.dataset.z); });
   /* pinch to zoom; a tap points the ID reader (and the focus, where the camera allows it) at that spot */
-  const camPtrs = new Map(); let pinch0 = null, tap0 = null;
+  const camPtrs = new Map(); let pinch0 = null, tap0 = null, swipe = null;
   const ptrDist = () => { const [a, b] = [...camPtrs.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
   $('camStage').addEventListener('pointerdown', (e) => {
     if (e.target.closest('#zoomBar')) return;
     camPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (camPtrs.size === 2) { pinch0 = { d: ptrDist(), z: zoomLevel }; tap0 = null; } else tap0 = { x: e.clientX, y: e.clientY, t: Date.now() };
+    if (camPtrs.size === 2) { pinch0 = { d: ptrDist(), z: zoomLevel }; tap0 = null; swipe = null; drawLine($('swipeLine'), null); } else tap0 = { x: e.clientX, y: e.clientY, t: Date.now() };
   });
   $('camStage').addEventListener('pointermove', (e) => {
     if (!camPtrs.has(e.pointerId)) return;
     camPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pinch0 && camPtrs.size === 2) setZoom(pinch0.z * ptrDist() / pinch0.d);
+    else if (tap0 && camPtrs.size === 1 && scanStep() && (swipe || Math.hypot(e.clientX - tap0.x, e.clientY - tap0.y) > 20)) { // v2.17: a swipe marks the ID
+      swipe = { x0: tap0.x, y0: tap0.y, x1: e.clientX, y1: e.clientY }; drawLine($('swipeLine'), swipe, $('camStage').getBoundingClientRect());
+    }
   });
   const ptrEnd = (e) => {
     if (!camPtrs.has(e.pointerId)) return;
     camPtrs.delete(e.pointerId);
     if (camPtrs.size < 2) pinch0 = null;
-    if (tap0 && e.type === 'pointerup' && Math.hypot(e.clientX - tap0.x, e.clientY - tap0.y) < 12 && Date.now() - tap0.t < 450) camTap(e.clientX, e.clientY);
+    if (swipe) { const sw = swipe; swipe = null; drawLine($('swipeLine'), null); if (e.type === 'pointerup' && !camPtrs.size) markSwipe(sw); }
+    else if (tap0 && e.type === 'pointerup' && Math.hypot(e.clientX - tap0.x, e.clientY - tap0.y) < 12 && Date.now() - tap0.t < 450) camTap(e.clientX, e.clientY);
     tap0 = null;
   };
   $('camStage').addEventListener('pointerup', ptrEnd); $('camStage').addEventListener('pointercancel', ptrEnd);
   function camTap(cx, cy) {
     const st = $('camStage').getBoundingClientRect(), nx = (cx - st.left) / st.width, ny = (cy - st.top) / st.height;
     const ring = $('tapRing'); ring.hidden = true; void ring.offsetWidth; ring.style.left = `${cx - st.left}px`; ring.style.top = `${cy - st.top}px`; ring.hidden = false;
-    finder.focus = { x: nx, y: ny, until: Date.now() + 6000 }; finder.box = null; finder.read = null; finder.agree = 0;
-    if (stream) stream.getVideoTracks()[0].applyConstraints({ advanced: [{ pointsOfInterest: [{ x: nx, y: ny }] }] }).catch(() => {}); // focus there, on phones that support it
+    finder.focus = { x: nx, y: ny, until: Date.now() + 6000 }; finder.box = null; finder.read = null; finder.agree = 0; finder.user = null;
+    focusAt(cx, cy); // the camera focuses there, on phones that allow it
+  }
+  /** A stroke drawn as a bar (el: #swipeLine inside the camera, #pvMark over the photo); sw null hides it. rel: the parent's box. */
+  function drawLine(el, sw, rel) {
+    if (!sw) { el.hidden = true; return; }
+    const ox = rel ? rel.left : 0, oy = rel ? rel.top : 0, L = Math.hypot(sw.x1 - sw.x0, sw.y1 - sw.y0), a = Math.atan2(sw.y1 - sw.y0, sw.x1 - sw.x0);
+    el.classList.remove('box'); el.hidden = false; Object.assign(el.style, { left: `${sw.x0 - ox}px`, top: `${sw.y0 - oy}px`, width: `${L}px`, height: '', transform: `rotate(${a}rad)` });
+  }
+  /** The box a swipe along an ID covers (v2.17): the stroke from end to end and a little more, and across it room for the
+      characters (a fifth of the stroke's length each side, which fits IDs of 3 to 10 characters); a steeper stroke than 45°
+      means a vertical ID. Same units in and out (screen or photo pixels). */
+  function swipeBox(sw) {
+    const dx = sw.x1 - sw.x0, dy = sw.y1 - sw.y0, L = Math.hypot(dx, dy), v = Math.abs(dy) > Math.abs(dx);
+    const a0 = v ? Math.min(sw.y0, sw.y1) : Math.min(sw.x0, sw.x1), a1 = v ? Math.max(sw.y0, sw.y1) : Math.max(sw.x0, sw.x1);
+    const c = v ? (sw.x0 + sw.x1) / 2 : (sw.y0 + sw.y1) / 2, pad = L * 0.08 + 6, half = Math.max(22, L * 0.2) + Math.abs(v ? dx : dy) / 2;
+    return v ? { x: c - half, y: a0 - pad, w: 2 * half, h: a1 - a0 + 2 * pad, v } : { x: a0 - pad, y: c - half, w: a1 - a0 + 2 * pad, h: 2 * half, v };
+  }
+  const clipBox = (b, W, H) => { const x0 = Math.max(0, b.x), y0 = Math.max(0, b.y), x1 = Math.min(W, b.x + b.w), y1 = Math.min(H, b.y + b.h); return { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0), v: b.v }; };
+  /** A swipe on the camera (v2.17): the box goes where the swipe was and stays there (no searching), the direction follows the
+      swipe, the camera focuses on it, and what is in the box is read until the ID is clear. A tap or a new swipe changes it. */
+  function markSwipe(sw) {
+    const st = $('camStage').getBoundingClientRect(), b = swipeBox({ x0: sw.x0 - st.left, y0: sw.y0 - st.top, x1: sw.x1 - st.left, y1: sw.y1 - st.top });
+    if (Math.max(b.w, b.h) < 60) return;
+    const box = clipBox(b, st.width, st.height); if (box.w < 20 || box.h < 20) return;
+    S.idOrient = b.v ? 'v' : 'h'; persist(); setOrientUi();
+    Object.assign(finder, { manual: true, user: { x: box.x, y: box.y, w: box.w, h: box.h }, box: { x: box.x, y: box.y, w: box.w, h: box.h }, stable: 2, read: null, list: null, agree: 0, way: null, misses: 0, flip: 0, flipS: 0, focus: null, lastOcrAt: 0 });
+    $('idGuide').classList.add('fixed'); guidePlace(finder.box); finderLabel(b.v ? 'Reading the marked ID (vertical)…' : 'Reading the marked ID…');
+    focusAt((sw.x0 + sw.x1) / 2, (sw.y0 + sw.y1) / 2);
+    LOG.info('finder.swipe', { v: b.v, w: Math.round(box.w), h: Math.round(box.h) });
+  }
+  /** v2.17: the camera focuses (and sets the light) on a point given in screen pixels, then after a few seconds focuses by
+      itself again. Phones that do not allow it simply ignore it. */
+  let focusTimer = 0;
+  function focusAt(cx, cy) {
+    const v = $('video'); if (!stream || !v.videoWidth) return;
+    const vr = v.getBoundingClientRect(), sc = Math.max(vr.width / v.videoWidth, vr.height / v.videoHeight);
+    const ox = vr.left + (vr.width - v.videoWidth * sc) / 2, oy = vr.top + (vr.height - v.videoHeight * sc) / 2;
+    const x = Math.max(0, Math.min(1, (cx - ox) / sc / v.videoWidth)), y = Math.max(0, Math.min(1, (cy - oy) / sc / v.videoHeight)); // in the camera picture, not the screen
+    const track = stream.getVideoTracks()[0], caps = track.getCapabilities ? track.getCapabilities() : {}, modes = caps.focusMode || [];
+    const one = { pointsOfInterest: [{ x, y }] }; if (modes.includes('single-shot')) one.focusMode = 'single-shot';
+    track.applyConstraints({ advanced: [one] }).catch(() => track.applyConstraints({ advanced: [{ pointsOfInterest: [{ x, y }] }] }).catch(() => {}));
+    clearTimeout(focusTimer);
+    if (modes.includes('continuous')) focusTimer = setTimeout(() => { if (stream) stream.getVideoTracks()[0].applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {}); }, 6000);
   }
 
   /* ================= live ID reader ================= */
@@ -1412,18 +1471,19 @@
      of the picture is searched for a row (or column) of high-contrast strokes, and the best one near the centre (or near
      where you tapped) gets the box. When the box holds still, the text inside is read in the background; the reading is
      shown on the box, and when the same known-format ID is read twice it is used by itself (Settings → Camera). */
+  const STEADY = 6; // mean grey change per frame below which the picture counts as steady (v2.17; set on test pictures, check the App log on phones)
   const finder = { on: false, timer: 0, box: null, score: 0, misses: 0, stable: 0, reading: false, lastOcrAt: 0, read: null, list: null, crop: null, agree: 0, focus: null, cv: null, n: 0, ms: 0, vway: 0, way: null, reads: 0, t0: 0, flip: 0, manual: false };
   function finderStart() {
     if (finder.on || !stream) return;
-    Object.assign(finder, { on: true, box: null, score: 0, misses: 0, stable: 0, read: null, list: null, crop: null, agree: 0, n: 0, ms: 0, way: null, reads: 0, flip: 0, flipS: 0, t0: performance.now() });
+    Object.assign(finder, { on: true, box: null, score: 0, misses: 0, stable: 0, read: null, list: null, crop: null, agree: 0, n: 0, ms: 0, way: null, reads: 0, flip: 0, flipS: 0, user: null, prev: null, motion: null, mSum: 0, mN: 0, held: 0, t0: performance.now() });
     ocrWorker(); finderLabel('Looking for the ID…'); finderTick();
   }
   function finderStop() {
-    if (finder.on && finder.n) LOG.info('finder', { frames: finder.n, avgMs: Math.round(finder.ms / finder.n), reads: finder.reads, ms: Math.round(performance.now() - finder.t0), read: finder.read ? finder.read.id : null });
+    if (finder.on && finder.n) LOG.info('finder', { frames: finder.n, avgMs: Math.round(finder.ms / finder.n), reads: finder.reads, ms: Math.round(performance.now() - finder.t0), read: finder.read ? finder.read.id : null, motion: finder.mN ? +(finder.mSum / finder.mN).toFixed(1) : null, held: finder.held, swipe: !!finder.user });
     finder.on = false; clearTimeout(finder.timer); finder.focus = null; guideReset(); $('scanPrompt').classList.remove('found');
   }
   function finderLabel(t, got) { $('idGuideText').textContent = t; $('idGuide').classList.toggle('got', !!got); }
-  function guideReset() { const g = $('idGuide'); g.classList.remove('track', 'got'); g.style.left = g.style.top = g.style.width = g.style.height = g.style.right = ''; }
+  function guideReset() { const g = $('idGuide'); g.classList.remove('track', 'got', 'fixed'); g.style.left = g.style.top = g.style.width = g.style.height = g.style.right = ''; }
   function guidePlace(b) {
     const g = $('idGuide'); g.classList.add('track');
     g.style.right = 'auto'; g.style.left = `${b.x}px`; g.style.top = `${b.y}px`; g.style.width = `${b.w}px`; g.style.height = `${b.h}px`;
@@ -1448,6 +1508,23 @@
     const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(v, vx, vy, vw, vh, 0, 0, W, H);
     const focus = finder.focus && Date.now() < finder.focus.until ? finder.focus : null, orient = S.idOrient === 'v' ? 'v' : 'h';
     const px = g.getImageData(0, 0, W, H).data;
+    // v2.17: how much the picture moved since the last frame (mean change of a coarse grey copy). Reading waits for a steady
+    // picture, so the crop is sharp, but never more than 1.5 s, so a shaky hand still gets a reading
+    { const gw = Math.floor(W / 3), gh = Math.floor(H / 3), cur = new Uint8Array(gw * gh), prev = finder.prev && finder.prev.length === cur.length ? finder.prev : null;
+      let diff = 0;
+      for (let y = 0, k = 0; y < gh; y++) for (let x = 0; x < gw; x++, k++) { const j = (y * 3 * W + x * 3) * 4; cur[k] = (px[j] * 77 + px[j + 1] * 150 + px[j + 2] * 29) >> 8; if (prev) diff += Math.abs(cur[k] - prev[k]); }
+      finder.prev = cur;
+      if (prev) { const m = diff / cur.length; finder.motion = finder.motion == null ? m : finder.motion * 0.5 + m * 0.5; finder.mSum += m; finder.mN++; } }
+    const steady = finder.motion == null || finder.motion < STEADY || Date.now() - finder.lastOcrAt > 1500;
+    const readNow = () => {
+      if (finder.reading || Date.now() - finder.lastOcrAt <= (nativeReader() ? 120 : 220)) return;
+      if (!steady) { finder.held++; if (!finder.read) finderLabel('Hold steady…'); return; }
+      liveRead(orient);
+    };
+    if (finder.user) { // v2.17: the ID marked with a swipe: the box stays where the swipe put it, nothing is searched
+      finder.box = { ...finder.user }; guidePlace(finder.box); $('scanPrompt').classList.add('found');
+      readNow(); return;
+    }
     // v2.16: a tag painted downwards (characters one above the other) is looked for near the centre, at twice the detail;
     // found while the box is horizontal it turns the box (unless H / V was tapped for this scan), and in vertical mode it
     // places the box, as cables beside the tag can draw the column box off it
@@ -1491,7 +1568,7 @@
     }
     if (finder.box) guidePlace(finder.box);
     $('scanPrompt').classList.toggle('found', !!finder.box); // a shorter prompt once the box has found something
-    if (finder.box && finder.stable >= 1 && !finder.reading && Date.now() - finder.lastOcrAt > (nativeReader() ? 120 : 220)) liveRead(orient);
+    if (finder.box && finder.stable >= 1) readNow();
   }
   /** A column of upright characters near the centre (or the tap) of the camera picture, searched at about twice the detail of
       the box finder (a tag's characters are only a few pixels tall there). The box comes back in the finder's frame pixels. */
@@ -2330,7 +2407,8 @@
       ed.userMoved = false; drawEdGps(); updateCoordBox(); drawPinRef();
     });
     checkFormat(); applyEdLock();
-    if (o.live) applyLiveRead(o.live);
+    if (photoReadNext && o.mode === 'new' && !acc && o.blob) { photoReadNext = false; setTimeout(openPhotoRead, 400); } // v2.17: the picture button
+    else if (o.live) applyLiveRead(o.live);
     else if (o.crop) runOcrFor(o.crop, true);
     else if (o.mode === 'new' && !o.poleId) setTimeout(() => { const f = $('poleId'); f.focus(); const n = f.value.length; if (/[-_]$/.test(f.value)) f.setSelectionRange(n, n); else f.select(); }, 250);
   }
@@ -3034,11 +3112,81 @@
     showBlob(ed.newBlob || ed.srcBlob, `${$('poleId').value || ''} · ${$('edTime').textContent}`);
     if (!ed.acc) { // survey photo: mark it here (red box, model pole); marks stay editable
       $('pvTools').hidden = false; const n = (ed.marks || []).length, pp = proposedPole();
-      $('pvBox').textContent = n ? '▭ Red box · edit marks' : '▭ Red box'; $('pvPole').hidden = !pp && !(ed.marks || []).some((m) => m.k === 'pole');
+      $('pvBox').textContent = n ? '▭ Red box · edit marks' : '▭ Red box'; $('pvPole').hidden = !pp && !(ed.marks || []).some((m) => m.k === 'pole'); $('pvRead').hidden = false;
       $('pvHint').textContent = n ? 'Tap a tool, then tap a mark to move, resize or delete it · tap the photo to zoom' : 'Tap the photo to zoom in or out · × or Back to close';
     }
   });
   $('defPhotoPrev').addEventListener('click', () => { if (defDraft && defDraft.blob) showBlob(defDraft.blob, 'Defect photo (not added yet)'); });
+
+  /* ---------- reading the ID from the photo (v2.17): Read ID, then tap the painted ID or swipe along it ---------- */
+  const PV_HINT_READ = 'Tap the painted ID, or swipe along it: down a vertical ID, across a horizontal one';
+  function setPhotoRead(on) {
+    $('photoView').classList.toggle('reading', on); $('pvMark').hidden = true;
+    $('pvHint').textContent = on ? PV_HINT_READ : 'Tap the photo to zoom in or out · × or Back to close';
+  }
+  /** Opens the editor's photo ready to read the ID on it (the scan bar's picture button). */
+  function openPhotoRead() {
+    if (!ed || ed.acc || !(ed.newBlob || ed.srcBlob)) { toast('No photo to read the ID from'); return; }
+    $('edPhoto').click(); setPhotoRead(true);
+  }
+  $('pvRead').addEventListener('click', (e) => { e.stopPropagation(); setPhotoRead(!$('photoView').classList.contains('reading')); });
+  let pvSw = null;
+  $('pvImg').addEventListener('pointerdown', (e) => {
+    if (!$('photoView').classList.contains('reading')) return;
+    e.preventDefault(); pvSw = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, id: e.pointerId };
+    try { $('pvImg').setPointerCapture(e.pointerId); } catch (er) { /* optional */ }
+  });
+  $('pvImg').addEventListener('pointermove', (e) => {
+    if (!pvSw || e.pointerId !== pvSw.id) return;
+    pvSw.x1 = e.clientX; pvSw.y1 = e.clientY;
+    if (Math.hypot(pvSw.x1 - pvSw.x0, pvSw.y1 - pvSw.y0) > 14) drawLine($('pvMark'), pvSw, null);
+  });
+  $('pvImg').addEventListener('pointerup', (e) => { if (!pvSw || e.pointerId !== pvSw.id) return; const sw = pvSw; pvSw = null; guard(() => readFromPhoto(sw), 'Could not read the photo'); });
+  $('pvImg').addEventListener('pointercancel', () => { pvSw = null; $('pvMark').hidden = true; });
+  /** A crop of the photo (photo pixels), at most 1600 px on its long side, marked with the ID's direction. */
+  function cropOf(im, b, orient) {
+    const k = Math.min(1, 1600 / Math.max(b.w, b.h)), cv = document.createElement('canvas');
+    cv.width = Math.max(8, Math.round(b.w * k)); cv.height = Math.max(8, Math.round(b.h * k));
+    const g = cv.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(im, b.x, b.y, b.w, b.h, 0, 0, cv.width, cv.height);
+    cv._orient = orient; return cv;
+  }
+  /** Where the ID is around a tap on the photo: a column of characters, else a row, else the column-shaped box; null if none. */
+  function idNear(im, IW, IH, fx, fy) {
+    const rw = Math.round(IW * 0.34), rh = Math.round(IH * 0.42), rx = Math.max(0, Math.min(IW - rw, Math.round(fx * IW - rw / 2))), ry = Math.max(0, Math.min(IH - rh, Math.round(fy * IH - rh / 2)));
+    const W = Math.min(360, rw), k = W / rw, H = Math.max(20, Math.round(rh * k)), cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(im, rx, ry, rw, rh, 0, 0, W, H);
+    const px = g.getImageData(0, 0, W, H).data, at = { x: (fx * IW - rx) / rw, y: (fy * IH - ry) / rh };
+    const back = (b) => ({ x: rx + b.x / k, y: ry + b.y / k, w: b.w / k, h: b.h / k });
+    const st = C.findStack(px, W, H, null, true);
+    if (st && st.n >= 4 && Math.abs((st.x + st.w / 2) / W - at.x) < 0.25) { const b = back(st); return { x: b.x - b.w * 0.6, y: b.y - b.h * 0.2, w: b.w * 2.2, h: b.h * 1.4, v: true }; }
+    const hb = C.findIdBox(px, W, H, 'h', at);
+    if (hb) { const b = back(hb); return { x: b.x - b.w * 0.1, y: b.y - b.h * 0.35, w: b.w * 1.2, h: b.h * 1.7, v: false }; }
+    const vb = C.findIdBox(px, W, H, 'v', at);
+    if (vb) { const b = back(vb); return { x: b.x - b.w * 0.4, y: b.y - b.h * 0.08, w: b.w * 1.8, h: b.h * 1.16, v: true }; }
+    return null;
+  }
+  async function readFromPhoto(sw) {
+    const img = $('pvImg'), r = img.getBoundingClientRect(), blob = ed && (ed.newBlob || ed.srcBlob);
+    if (!blob || !r.width) return;
+    const tap = Math.hypot(sw.x1 - sw.x0, sw.y1 - sw.y0) < 14, fx = (x) => (x - r.left) / r.width, fy = (y) => (y - r.top) / r.height;
+    if (fx(sw.x0) < 0 || fx(sw.x0) > 1 || fy(sw.y0) < 0 || fy(sw.y0) > 1) { $('pvMark').hidden = true; return; }
+    $('pvHint').textContent = 'Reading…';
+    const im = await loadImage(blob), { w: IW, h: IH } = dims(im);
+    let b = tap ? idNear(im, IW, IH, fx(sw.x0), fy(sw.y0)) : swipeBox({ x0: fx(sw.x0) * IW, y0: fy(sw.y0) * IH, x1: fx(sw.x1) * IW, y1: fy(sw.y1) * IH }), crop;
+    if (b) { b = clipBox(b, IW, IH); crop = cropOf(im, b, b.v ? 'v' : 'h'); }
+    else { // nothing ID-like found at the tap: a row around it, and a column as the other way round
+      const hb = clipBox({ x: fx(sw.x0) * IW - IW * 0.16, y: fy(sw.y0) * IH - IH * 0.04, w: IW * 0.32, h: IH * 0.08 }, IW, IH), vb = clipBox({ x: fx(sw.x0) * IW - IW * 0.05, y: fy(sw.y0) * IH - IH * 0.16, w: IW * 0.1, h: IH * 0.32 }, IW, IH);
+      crop = cropOf(im, hb, 'h'); crop._alt = cropOf(im, vb, 'v'); b = hb;
+    }
+    if (im.close) im.close();
+    if (!(b.w > 4 && b.h > 4)) { setPhotoRead(true); return; }
+    // show what is read, then back to the editor, where the reading fills the ID
+    const m = $('pvMark'); m.hidden = false; m.classList.add('box');
+    Object.assign(m.style, { left: `${r.left + (b.x / IW) * r.width}px`, top: `${r.top + (b.y / IH) * r.height}px`, width: `${(b.w / IW) * r.width}px`, height: `${(b.h / IH) * r.height}px`, transform: 'none' });
+    LOG.info('photo.readId', { tap, v: crop._orient === 'v', found: !!b, w: Math.round(b.w), h: Math.round(b.h) });
+    await new Promise((res) => setTimeout(res, 450));
+    closePhotoView(); runOcrFor(crop, true);
+  }
   $('edSaveTop').addEventListener('click', saveEditor); // the same Save, next to the photo (v2.14)
   $('scanIdBtn').addEventListener('click', () => openCamera('scan'));
   $('snapGps').addEventListener('click', () => {

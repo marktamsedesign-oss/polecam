@@ -119,6 +119,11 @@ body.visiting #mapSummary{display:none}
 .zoomico.pp{background:#e03131;animation:ppulse 1.6s ease-in-out infinite}@keyframes ppulse{50%{transform:scale(1.15)}}@media (prefers-reduced-motion:reduce){.zoomico.pp{animation:none}}
 #pvScroll{max-width:100%;max-height:82vh;overflow:auto;display:flex;align-items:center;justify-content:center;-webkit-overflow-scrolling:touch}
 #pvScroll img{max-width:100%;max-height:82vh;object-fit:contain;cursor:zoom-in}
+/* v2.17: mark the ID by hand — a swipe on the camera or on the photo, a tap on the photo */
+#swipeLine,#pvMark{position:absolute;left:0;top:0;height:10px;margin-top:-5px;border-radius:5px;background:rgba(255,212,59,.9);box-shadow:0 0 0 2px rgba(0,0,0,.35);transform-origin:0 50%;pointer-events:none;z-index:3}
+#pvMark{position:fixed;z-index:2900}#pvMark.box{height:auto;margin:0;border-radius:6px;background:transparent;border:3px solid #ffd43b;box-shadow:0 0 0 2000px rgba(0,0,0,.35);transform:none}
+#idGuide.track.fixed{transition:none;--c:#ffd43b}
+#photoView.reading #pvImg{cursor:crosshair;touch-action:none}#photoView.reading #pvRead{background:#ffd43b;color:#111;border-color:#ffd43b}
 #photoView.zoomed #pvScroll{width:100%;height:82vh;display:block}#photoView.zoomed #pvScroll img{max-width:none;max-height:none;width:260%;cursor:zoom-out}
 #pvClose{position:absolute;top:calc(env(safe-area-inset-top,0px) + 8px);right:12px;width:44px;height:44px;border-radius:50%;border:0;background:rgba(255,255,255,.18);color:#fff;font-size:calc(28px * var(--fs));line-height:1;z-index:1}#photoView p{color:#fff;font-size:calc(13px * var(--fs));margin:0;text-align:center}
 #bottombar{display:flex;align-items:center;justify-content:space-around;gap:4px;background:var(--navy);padding:6px max(8px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 6px) max(8px,env(safe-area-inset-left,0px));z-index:500}
@@ -475,7 +480,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
 </svg>
-<div id="photoView" hidden role="dialog" aria-label="Photo"><button type="button" id="pvClose" aria-label="Close photo">×</button><div id="pvScroll"><img id="pvImg" alt=""></div><p id="pvCap"></p><div id="pvTools" hidden><button type="button" class="btn" id="pvBox">▭ Red box</button><button type="button" class="btn" id="pvPole">⊥ Pole model</button></div><p id="pvHint" style="opacity:.7">Tap the photo to zoom in or out · × or Back to close</p></div>
+<div id="photoView" hidden role="dialog" aria-label="Photo"><button type="button" id="pvClose" aria-label="Close photo">×</button><div id="pvScroll"><img id="pvImg" alt=""></div><p id="pvCap"></p><div id="pvTools" hidden><button type="button" class="btn" id="pvBox">▭ Red box</button><button type="button" class="btn" id="pvPole">⊥ Pole model</button><button type="button" class="btn" id="pvRead">🔍 Read ID</button></div><i id="pvMark" hidden></i><p id="pvHint" style="opacity:.7">Tap the photo to zoom in or out · × or Back to close</p></div>
 <div id="app">
   <div id="topbar">
     <div class="brand" title="G-eSAA · Geo electronic Survey, Audit &amp; Acceptance"><span>G-e<b>SAA</b></span><small id="brandVer">v2.15.0</small></div>
@@ -528,14 +533,16 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <b id="scanTitle">Scan the ID</b>
     <button class="spb" id="orientH" type="button" aria-pressed="true" aria-label="Horizontal ID" title="Horizontal ID">⇆</button>
     <button class="spb" id="orientV" type="button" aria-pressed="false" aria-label="Vertical ID" title="Vertical ID">⇅</button>
+    <button class="spb" id="scanPhoto" type="button" aria-label="Read the ID from the photo just taken" title="Read the ID from the photo" hidden><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-8 8"/></svg></button>
     <button class="spb" id="scanHelp" type="button" aria-expanded="false" aria-label="How to scan" title="How to scan">i</button>
     <button class="spb skip" id="scanSkip" type="button" aria-label="Skip the ID scan">Skip</button>
-    <span id="scanSub" hidden>Point the camera at the painted ID: the box finds it and reads it. Pinch or tap 2× / 4× to zoom; tap the ID if the box picks something else. ⇆ horizontal ID, ⇅ vertical ID.</span>
+    <span id="scanSub" hidden>Point the camera at the painted ID: the box finds it and reads it. <b>Swipe along the ID</b> to mark it yourself: down a vertical ID, across a horizontal one. <b>Tap the ID</b> to focus there. Hold the phone still for a moment; pinch or tap 2× / 4× to zoom. The picture button reads the ID from the photo you just took: tap or swipe the ID on it.</span>
   </div>
   <div id="camStage">
     <video id="video" playsinline muted autoplay></video>
     <div id="idGuide" hidden><span id="idGuideText">Fit the painted ID inside the box</span></div>
     <i id="tapRing" hidden></i>
+    <i id="swipeLine" hidden></i>
     <div id="zoomBar" hidden><button type="button" data-z="1" aria-pressed="true">1×</button><button type="button" data-z="2" aria-pressed="false">2×</button><button type="button" data-z="4" aria-pressed="false">4×</button><span id="zoomVal" hidden></span></div>
   </div>
   <div id="camCheck" hidden><div class="spin"></div><span id="camCheckText">Checking GPS…</span></div>
