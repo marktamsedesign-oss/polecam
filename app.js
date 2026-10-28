@@ -603,7 +603,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.21.0';
+  const APP_VER = '2.22.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -874,7 +874,7 @@
           dashArray: !acc && p.status === 'Proposed' && !sel ? '3 3' : null,
           fillColor: acc ? STATUS_COLORS[recStatus(p)] : typeColor(p.poleType), fillOpacity: !acc && p.status === 'Proposed' ? 0.5 : 1 });
       const role = R && R.poles[p.id] && (R.poles[p.id].role === 'Angle' ? ` · ${Math.round(R.poles[p.id].deflection)}°` : R.poles[p.id].role === 'Junction' ? ' · junction' : '');
-      m.bindTooltip(`${C.xmlEsc(p.poleId || '(no ID)')}${acc && n ? ` · ${n} open` : ''}${role || ''}`, { permanent: true, direction: 'right', offset: [!acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' });
+      m.bindTooltip(`${C.xmlEsc(recName(p) || '(no ID)')}${acc && n ? ` · ${n} open` : ''}${role || ''}`, { permanent: true, direction: 'right', offset: [!acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' });
       m.on('click', () => (routeMode ? routeTap(p.id) : visitMode() ? openVisit(p.id) : openEditorFor(p.id)));
       m.addTo(poleLayer);
     }
@@ -2147,6 +2147,7 @@
   }
   /** The ID reading: the other possible IDs as chips; what the reader says sits behind an ⓘ (v2.15, less text on screen). */
   function renderIdCands(state, list, note) {
+    if (ed && ed.acc) foldOpen('idGroup', true); // v2.22: a reading to check is shown
     const box = $('idCands'); box.hidden = false; box.innerHTML = ''; $('idNote').hidden = true;
     if (state === 'reading') { box.innerHTML = '<span class="spin" style="border-color:var(--line);border-top-color:var(--accent)"></span><span>Reading…</span>'; return; }
     const msg = state === 'error' ? note || 'Could not read the ID. Type it instead.' : note || (list.length ? 'Possible IDs from the scan: tap one to use it.' : 'No ID found in the box. Type it, or tap Scan ID and get closer.');
@@ -2343,7 +2344,7 @@
   async function exportPhoto(p, cleanBlob, titleText, meta, opts) {
     const o = { maxPx: S.exp.maxPx, quality: S.exp.quality, stamp: S.exp.stamp, fields: S.exp.stampFields, ...(opts || {}) };
     const has = (f) => !o.fields || o.fields.includes(f);
-    const title = titleText || (p.kind !== 'acceptance' && elemOf(p) !== 'Pole' ? `${p.poleId}  ·  ${svDesc(p, svPurpose(p.project))}` : `${p.poleId}  ·  ${p.poleType}`);
+    const title = titleText || (p.kind !== 'acceptance' && elemOf(p) !== 'Pole' ? `${p.poleId}  ·  ${svDesc(p, svPurpose(p.project))}` : `${recName(p)}  ·  ${p.poleType}`);
     const own = meta && meta.lat != null;
     const P = own ? { lat: meta.lat, lon: meta.lon, accuracy: meta.acc, adjusted: false, alt: null } : p;
     const when = (meta && meta.at) || p.takenAt;
@@ -2376,11 +2377,11 @@
     } else bytes = new Uint8Array(await cleanBlob.arrayBuffer());
     if (im.close) im.close();
     return C.insertExif(bytes, { lat: P.lat, lon: P.lon, alt: P.alt, accuracy: P.accuracy,
-      description: title.replace(/\s+·\s+/g, ' | '), title: p.poleId, date: new Date(when), artist: exporterLine(' | ') });
+      description: title.replace(/\s+·\s+/g, ' | '), title: recName(p), date: new Date(when), artist: exporterLine(' | ') });
   }
   /** File name for an exported photo per the naming setting. */
   function photoFileName(p, label) {
-    const id = C.safeName(p.poleId), t = (p.takenAt || '').replace(/[-:]/g, '').replace('T', '_').slice(0, 15);
+    const id = C.safeName(isRef(p) ? recName(p).replace(/\s+/g, '') : p.poleId), t = (p.takenAt || '').replace(/[-:]/g, '').replace('T', '_').slice(0, 15);
     const base = S.exp.naming === 'project_id' ? `${C.safeName(p.project)}_${id}` : S.exp.naming === 'id_time' ? `${id}_${t}` : id;
     return label ? `${base}_${C.safeName(label)}` : base;
   }
@@ -2455,6 +2456,7 @@
   /** A Pole ID prefix picks the pole type; an FDU_ ID makes a new acceptance element an ODF. */
   function syncFromId() {
     if (!ed) return;
+    setTimeout(foldSum, 0); // v2.22: the folded Element details line
     const id = $('poleId').value.trim().toUpperCase();
     const m = new RegExp(`^(${prefixAlt()})-`).exec(id);
     if (ed.acc && ed.mode === 'new' && /^FDU_/.test(id) && ed.element !== 'ODF') { ed.element = 'ODF'; renderElemChips(); applyElement(); }
@@ -2479,6 +2481,7 @@
     else if (id && kind === 'Pole' && !isNpt(id) && !poleIdRe().test(id) && !PP_RE.test(id) && !new RegExp(`^(${prefixAlt()})-(?=[A-Z0-9-]*[0-9])[A-Z0-9][A-Z0-9-]*$`).test(id)) { const pm = polePartRe().exec(id); msg = pm && !pm[2] ? `Add the pole number after the prefix, e.g. ${pm[1]}-${PAD4.includes(pm[1]) ? '0001' : '1234'}.` : `Pole IDs are a prefix, a dash and the number: ${poleTypes().map((t) => `${t.p}-`).join(', ')}. For another owner, tap “+ Other prefix”.`; }
     else if (id && kind === 'ODF' && !ODF_ID_RE.test(id)) msg = /^FDU_?$/.test(id) ? 'Add the ODF number after FDU_, e.g. FDU_100.' : 'ODF IDs are written FDU_ and a number, e.g. FDU_100.';
     el.hidden = !msg; el.textContent = msg;
+    if (msg && ed.acc) foldOpen('idGroup', true); // v2.22: a warning is not left in a closed section
   }
   function drawEdGps() {
     pinGpsLayer.clearLayers();
@@ -2521,6 +2524,7 @@
     const other = id && !isNpt(id) && points.find((p) => p.project === S.project && p.poleId === id && (!el || elemOf(p) === el) && (!ed || p.id !== ed.id));
     $('dupWarn').hidden = !other;
     if (other) $('dupWarn').textContent = `${id} is already used in this project.`;
+    if (other && ed && ed.acc) foldOpen('idGroup', true);
   }
   $('poleId').addEventListener('input', () => { if (ed) ed.idTouched = true; checkDup(); syncFromId(); });
   // a pole painted with a number only (v2.15): typing 123456 gives the type prefix, GT-123456
@@ -2571,6 +2575,7 @@
     ['accPhotos', 'defBox'].forEach((x) => { $(x).hidden = !acc; }); $('accElementBox').hidden = false;
     // v2.19: in PAT, cleanup and FAT the deficiencies are at the top; the element's ID, type, details and what is on the pole are optional
     $('editor').classList.toggle('acc', acc); $('idGroupTitle').textContent = acc ? 'Element details · optional' : 'Identification';
+    foldInit(acc); // v2.22: the optional sections start closed
     $('attachTitle').textContent = acc ? 'On this pole · optional' : 'On this pole';
     $('surveyTypeBox').hidden = ed.element !== 'Pole'; $('edPhoto').hidden = acc; $('nptBtn').hidden = ed.element !== 'Pole';
     ['svStatusBox', 'svClosureBox', 'svRemarksBox'].forEach((x) => { $(x).hidden = acc; });
@@ -2583,7 +2588,7 @@
     $('edSkip').hidden = true; $('edRetake').hidden = acc;
     $('edRetake').textContent = o.mode === 'edit' ? 'New photo' : 'Retake';
     $('edSave').textContent = 'Save';
-    $('poleId').value = o.poleId != null ? o.poleId : suggestId(ed.element || 'Pole', ed.type);
+    $('poleId').value = o.poleId != null ? (acc && DREF_RE.test(o.poleId) ? '' : o.poleId) : suggestId(ed.element || 'Pole', ed.type); // v2.22: no D-0001 in the form
     ed.idTouched = o.poleId != null;
     ed.q = o.q || null; showQualWarn(ed.q); $('idCands').hidden = true; $('idNote').hidden = true;
     renderTypeChips(ed.type);
@@ -2607,6 +2612,7 @@
       ed.userMoved = false; drawEdGps(); updateCoordBox(); drawPinRef();
     });
     checkFormat(); applyEdLock();
+    foldSum(); // v2.22: after the ID and element are set
     draftStart(!!o.restore); // v2.21: kept safe until saved
     if (photoReadNext && o.mode === 'new' && !acc && o.blob) { photoReadNext = false; setTimeout(openPhotoRead, 400); } // v2.17: the picture button
     else if (o.live) applyLiveRead(o.live);
@@ -3372,10 +3378,10 @@
     const r = points.find((x) => x.id === visitId); if (!r) { closeVisitCard(); return; }
     revokeVisitUrls();
     const stage = visitStage(), insp = canRecord(), items = (r.defs || []).map((d, i) => ({ d, i }));
-    $('vcTitle').textContent = `${r.poleId || '(no ID)'} · ${elemOf(r)}`;
+    $('vcTitle').textContent = `${recName(r) || '(no ID)'} · ${elemOf(r)}`;
     $('vcSub').textContent = visitSub(r);
     const el = $('vcElem'); el.innerHTML = '';
-    photosOf(r).slice(0, 4).forEach((p) => el.appendChild(figure(p.pid, p.label || 'Photo', `${r.poleId} · ${p.label || ''}`)));
+    photosOf(r).slice(0, 4).forEach((p) => el.appendChild(figure(p.pid, p.label || 'Photo', `${recName(r)} · ${p.label || ''}`)));
     const box = $('vcItems'); box.innerHTML = '';
     if (!items.length) box.innerHTML = '<p class="hint" style="margin:0">No punchlist items on this pin.</p>';
     items.forEach(({ d, i }) => {
@@ -3394,9 +3400,9 @@
       const sub = document.createElement('span'); sub.className = 's'; sub.textContent = lines.join(' · ');
       card.append(t, pill); if (lines.length) card.appendChild(sub);
       const ph = document.createElement('div'); ph.className = 'vph';
-      if (d.pid) ph.appendChild(figure(d.pid, 'Defect', `${r.poleId} · ${d.item} · defect (as found)`));
-      if (d.afterPid) ph.appendChild(figure(d.afterPid, 'Fixed', `${r.poleId} · ${d.item} · fixed`));
-      if (d.verifyPid) ph.appendChild(figure(d.verifyPid, 'Checked', `${r.poleId} · ${d.item} · checked at ${d.verifyStage || 'FAT'}`));
+      if (d.pid) ph.appendChild(figure(d.pid, 'Defect', `${recName(r)} · ${d.item} · defect (as found)`));
+      if (d.afterPid) ph.appendChild(figure(d.afterPid, 'Fixed', `${recName(r)} · ${d.item} · fixed`));
+      if (d.verifyPid) ph.appendChild(figure(d.verifyPid, 'Checked', `${recName(r)} · ${d.item} · checked at ${d.verifyStage || 'FAT'}`));
       card.appendChild(ph);
       const acts = document.createElement('div'); acts.className = 'acts';
       const mk = (label, fn, cls) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (cls || ''); b.textContent = label; b.addEventListener('click', fn); acts.appendChild(b); };
@@ -3454,7 +3460,7 @@
     busy(false);
     const gone = [...before].filter((p) => !allPids(rec).includes(p));
     if (gone.length) deletePhotosIfUnused(gone, new Set()).catch(() => {}); // a retaken photo replaces the old one
-    renderPoles(); renderVisit(); toast(`${rec.poleId}: ${done}`, 2500);
+    renderPoles(); renderVisit(); toast(`${recName(rec)}: ${done}`, 2500);
     return true;
   }
   /** A photo taken from the card: the fix (contractor) or the check (inspector), within reach of the pin. */
@@ -3463,7 +3469,7 @@
     const r = points.find((x) => x.id === v.rid); if (!r) return;
     if (!gps) { toast('No GPS fix: photo not used. Wait for GPS, then take it again.', 4500); return; }
     const far = haversine(gps, r);
-    if (far > PIN_LIMIT_M) { toast(`Photo not used: you are ${fmtDist(far)} from ${r.poleId}. Take it within ${fmtDist(PIN_LIMIT_M)} of the pin.`, 6000); return; }
+    if (far > PIN_LIMIT_M) { toast(`Photo not used: you are ${fmtDist(far)} from ${recName(r)}. Take it within ${fmtDist(PIN_LIMIT_M)} of the pin.`, 6000); return; }
     prepImages(blob);
     const meta = photoMeta(gps), stage = visitStage();
     if (v.kind === 'verify') visitChange(v.rid, v.did, (d, pid, m) => { d.verifyPid = pid; d.verifyMeta = m; d.status = 'Verified'; d.verifiedAt = m.at; d.verifiedBy = m.by || byLine(); d.verifyStage = stage; }, 'Accepted with photo', blob, meta);
@@ -3481,7 +3487,7 @@
     const t = nextTarget(), ms = $('mapSummary');
     ms.classList.toggle('go', !!t);
     if (!t) return false;
-    $('sumTitle').textContent = `Next: ${t.r.poleId || '(no ID)'} · ${elemOf(t.r)}`;
+    $('sumTitle').textContent = `Next: ${recName(t.r) || '(no ID)'} · ${elemOf(t.r)}`;
     $('sumSub').textContent = t.you ? `${t.d < 8 ? 'You are at this pin' : `${fmtDist(t.d)} ${t.dir} of you`} · tap to open` : 'Tap to open · GPS not ready yet';
     return true;
   }
@@ -3763,6 +3769,44 @@
 
   /** v2.19: the reference of a deficiency record saved without an element ID: D-0001, D-0002… in the project. */
   const DREF_RE = /^D-(\d+)$/;
+  /* v2.22: in a PAT, cleanup or FAT record, Element details and On this pole are optional: they fold, closed when the record
+     opens, with one line saying what is in them. Tap the title to open or close. */
+  const FOLDS = ['idGroup', 'poleAttach'];
+  function foldInit(acc) {
+    FOLDS.forEach((id) => { const g = $(id), h = g.querySelector('h3'); g.classList.toggle('fold', !!acc); g.classList.remove('open');
+      if (acc) { h.setAttribute('role', 'button'); h.tabIndex = 0; h.setAttribute('aria-expanded', 'false'); } else { h.removeAttribute('role'); h.removeAttribute('tabindex'); h.removeAttribute('aria-expanded'); } });
+    foldSum();
+  }
+  function foldOpen(id, on) { const g = $(id); if (!g.classList.contains('fold')) return; g.classList.toggle('open', on); g.querySelector('h3').setAttribute('aria-expanded', String(on)); }
+  function foldSum() {
+    if (!ed || !ed.acc) return;
+    const id = $('poleId').value.trim(), real = id && !new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(id) && !/[-_]$/.test(id);
+    const el = ed.element || 'Pole';
+    $('idGroupSum').textContent = [el, el === 'Pole' ? ed.type : '', real ? id : 'no ID'].filter(Boolean).join(' · ');
+    const on = [ed.mloop && 'MLoop', ed.nap && `NAP${$('napId').value.trim() ? ' ' + $('napId').value.trim() : ''}`, ed.closure && `Closure${$('closureId').value.trim() ? ' ' + $('closureId').value.trim() : ''}`].filter(Boolean);
+    $('attachSum').textContent = on.length ? on.join(' · ') : 'Nothing marked';
+  }
+  FOLDS.forEach((id) => {
+    const h = $(id).querySelector('h3'), tog = () => foldOpen(id, !$(id).classList.contains('open'));
+    h.addEventListener('click', tog);
+    h.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && $(id).classList.contains('fold')) { e.preventDefault(); tog(); } });
+  });
+  $('editor').addEventListener('input', foldSum); $('editor').addEventListener('change', foldSum);
+  /** v2.22: a record saved without its element ID (internal reference D-0001) is shown by the numbers of its items. */
+  const isRef = (r) => DREF_RE.test((r && r.poleId) || '');
+  /** Item numbers per record of a project, as the Deficiency List numbers them (records in capture order, each defect one item). */
+  function itemNos(recs) { const out = {}; let no = 0; recs.forEach((r) => { out[r.id] = (r.defs || []).map(() => ++no); }); return out; }
+  let itemNoCache = null;
+  function recName(r, nos) {
+    if (!r || !isRef(r)) return (r && r.poleId) || '';
+    let n = nos && nos[r.id];
+    if (!n) {
+      const pts = points.filter((p) => p.project === r.project), key = `${r.project}|${pts.length}|${pts.reduce((t, p) => t + (p.defs || []).length, 0)}|${pts.reduce((t, p) => (p.updated > t ? p.updated : t), '')}`;
+      if (!itemNoCache || itemNoCache.key !== key) itemNoCache = { key, nos: itemNos(pts.sort((a, b) => (a.created < b.created ? -1 : 1))) };
+      n = itemNoCache.nos[r.id] || [];
+    }
+    return !n.length ? 'No ID' : n.length === 1 ? `Item ${n[0]}` : `Items ${n[0]}–${n[n.length - 1]}`;
+  }
   function nextDefRef() {
     const n = points.filter((p) => p.project === S.project && DREF_RE.test(p.poleId || '')).reduce((m, p) => Math.max(m, +DREF_RE.exec(p.poleId)[1]), 0);
     return `D-${String(n + 1).padStart(4, '0')}`;
@@ -3834,7 +3878,7 @@
     if (ed) ed.closeOK = true; // saved: the draft goes
     await closeSheet();
     if (wasNew) map.setView([pos2.lat, pos2.lon], Math.max(map.getZoom(), 17));
-    toast(`${poleId} saved${n ? ` · ${n} open deficienc${n === 1 ? 'y' : 'ies'}` : ' · OK'}`);
+    toast(`${DREF_RE.test(poleId) ? 'Element' : poleId} saved${n ? ` · ${n} open deficienc${n === 1 ? 'y' : 'ies'}` : ' · OK'}`);
   }
 
   function saveError(e) {
@@ -3874,13 +3918,33 @@
     pts.sort(cmp);
     const order = acc ? ELEMENTS : SV_ELEMENTS, groups = grouped ? order.map((el) => [el, pts.filter((p) => elemOf(p) === el)]).concat([['Other', pts.filter((p) => !order.includes(elemOf(p)))]]).filter(([, l]) => l.length) : [['', pts]];
     const PLURAL = { Pole: 'Poles', Site: 'Sites', Closure: 'Closures (POI)', Handhole: 'Handholes', Rack: 'Racks' };
+    // v2.22: each group folds; closed by default (open while searching); a group opened stays open while the app runs
+    const gkey = (g) => `${S.project}|${g}`, folded = grouped && groups.length > 0 && groups[0][0];
+    $('listFoldAll').hidden = !folded || !!q || groups.length < 2;
+    if (folded) $('listFoldAll').textContent = groups.every(([g]) => listOpen.has(gkey(g))) ? 'Close all' : 'Open all';
     for (const [gname, list] of groups) {
-    if (gname) { const h = document.createElement('h4'); h.className = 'lgroup'; h.innerHTML = `<span>${C.xmlEsc(PLURAL[gname] || gname)} · ${list.length}</span><i></i>`; box.appendChild(h); }
+    let host = box, thumbs = null;
+    if (gname) {
+      const open = !!q || groups.length === 1 || listOpen.has(gkey(gname)); // a lone group is shown open
+      const h = document.createElement('button'); h.type = 'button'; h.className = 'lfold'; h.setAttribute('aria-expanded', String(open));
+      const nOpen = acc ? list.reduce((t, p) => t + openCount(p), 0) : 0;
+      h.innerHTML = `<span class="ln">${C.xmlEsc(PLURAL[gname] || gname)}</span><span class="lc">${list.length}${acc ? ` · ${nOpen ? `${nOpen} open` : 'none open'}` : ''}</span>`;
+      host = document.createElement('div'); host.className = 'lfoldbody'; host.hidden = !open;
+      thumbs = [];
+      const hostRef = host, th = thumbs;
+      h.addEventListener('click', () => {
+        const on = hostRef.hidden; hostRef.hidden = !on; h.setAttribute('aria-expanded', String(on));
+        if (on) { listOpen.add(gkey(gname)); th.splice(0).forEach((f) => f()); } else listOpen.delete(gkey(gname));
+        $('listFoldAll').textContent = groups.every(([g]) => listOpen.has(gkey(g))) ? 'Close all' : 'Open all';
+      });
+      box.append(h, host);
+      if (open) thumbs = null;
+    }
     for (const p of list) {
       const b = document.createElement('button'); b.className = 'card'; b.type = 'button';
       const img = document.createElement('img'); img.alt = ''; img.loading = 'lazy';
       const info = document.createElement('div');
-      const t = document.createElement('span'); t.className = 't'; t.textContent = p.poleId;
+      const t = document.createElement('span'); t.className = 't'; t.textContent = recName(p);
       const s = document.createElement('span'); s.className = 's';
       if (p.kind === 'acceptance') {
         const st = recStatus(p), n = openCount(p);
@@ -3898,13 +3962,19 @@
       s2.textContent = `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}${Number.isFinite(p.accuracy) ? ` · ±${p.accuracy.toFixed(0)} m` : ''}`;
       info.prepend(t, s, s2); b.append(img, info);
       b.addEventListener('click', () => openEditorFor(p.id));
-      box.appendChild(b);
-      const cp = coverPid(p); if (cp) dbGet('photos', cp).then((ph) => { if (ph && ph.thumb) { const u = URL.createObjectURL(ph.thumb); listUrls.push(u); img.src = u; } }).catch(() => {});
+      host.appendChild(b);
+      const cp = coverPid(p), load = () => { if (cp) dbGet('photos', cp).then((ph) => { if (ph && ph.thumb) { const u = URL.createObjectURL(ph.thumb); listUrls.push(u); img.src = u; } }).catch(() => {}); };
+      if (thumbs) thumbs.push(load); else load(); // the photos of a closed group load when it opens
     }
     }
   }
   $('listSort').addEventListener('change', () => { S.listSort = $('listSort').value; persist(); renderList(); });
   $('listGroup').addEventListener('change', () => { S.listGroup = $('listGroup').checked; persist(); renderList(); });
+  const listOpen = new Set();
+  $('listFoldAll').addEventListener('click', () => {
+    const btns = [...$('listItems').querySelectorAll('.lfold')], all = btns.every((b) => b.getAttribute('aria-expanded') === 'true');
+    btns.forEach((b) => { if ((b.getAttribute('aria-expanded') === 'true') === all) b.click(); });
+  });
   $('listBtn').addEventListener('click', () => { $('listSearch').value = ''; renderList(); openSheet('list'); });
   $('listSearch').addEventListener('input', renderList);
   let listFilter = 'all';
@@ -4000,7 +4070,8 @@
       const b = document.createElement('b'); b.textContent = st.t; const s2 = document.createElement('span'); s2.textContent = st.s; t.append(b, s2);
       row.append(nn, t); box.appendChild(row);
     });
-    const btn = $('wfNext');
+    const btn = $('wfNext'), pm = pmeta();
+    if (pm.completedAt && ['PAT', 'Cleanup'].includes(W.cat)) { btn.hidden = true; return; } // v2.22: the next stage's buttons take over
     if (W.next) { btn.hidden = false; btn.textContent = `Next: ${W.next.t}`; btn.onclick = () => W.go[W.next.go](); }
     else { btn.hidden = false; btn.textContent = W.cat === 'Survey' ? 'All done — export again after changes' : 'All done'; btn.onclick = () => W.go.export(); }
   }
@@ -4015,14 +4086,16 @@
   }
   function renderProjects() {
     renderWorkflow();
-    const m = pmeta(), acc = isAcc(), cat = taskCat();
-    const pick = $('projPick'); pick.innerHTML = '';
-    if (!S.project) pick.add(new Option('No project yet', '', true, true));
-    allProjects().forEach((name) => pick.add(new Option(`${name} · ${STAGE_LABEL[projKind(name)]}`, name, false, name === S.project)));
-    pick.value = S.project; pick.disabled = !allProjects().length;
-    $('noProjHint').hidden = !!S.project; $('wfBox').hidden = !S.project; $('curMore').hidden = !S.project;
-    renderProjSearch(); $('bulkShareBtn').hidden = !allProjects().length;
-    $('curSub').textContent = projSummary(S.project);
+    const m = pmeta(), acc = isAcc(), cat = taskCat(), nrec = projPoints().length;
+    $('noProjHint').hidden = !!S.project; $('wfBox').hidden = !S.project;
+    $('bulkShareBtn').hidden = !allProjects().length;
+    $('curName').textContent = S.project || '';
+    $('curSub').textContent = [projSummary(S.project), m.site && m.site !== S.project ? m.site : '', m.contractor || ''].filter(Boolean).join(' · ');
+    { const st = $('tmState'); st.textContent = m.completedAt ? `${patClosed() ? '🔒 ' : '✓ '}Completed ${dateOnly(m.completedAt)}` : nrec ? 'In progress' : 'Not started'; st.className = `tmstate${m.completedAt ? ' done' : nrec ? ' wip' : ''}`; }
+    { const W = S.project ? workflowModel() : null, done = W ? W.steps.filter((x) => x.done).length : 0, all = W ? W.steps.length : 0;
+      $('tmBar').style.width = all ? `${Math.round((done / all) * 100)}%` : '0'; $('tmProgTxt').textContent = all ? `${done} of ${all} steps done · ${S.tmSteps ? 'hide' : 'show'} steps` : '';
+      $('wfSteps').hidden = !S.tmSteps; $('tmStepsBtn').setAttribute('aria-expanded', String(!!S.tmSteps)); }
+    renderTaskList();
     $('renameProject').value = S.project;
     $('purposeRow').hidden = acc; $('curPurpose').value = m.purpose || 'As-plan'; renderRefInfo();
     $('curNotes').value = m.notes || '';
@@ -4045,20 +4118,97 @@
       ['mSite', 'mContractor', 'mVendorRep', 'mGlobe', 'mDate'].forEach((id) => { $(id).disabled = patClosed(); }); // the signed form stays as it was (v2.16)
       $('accActs').hidden = m.stage === 'FAT'; renderShareWarn('shareWarn');
       $('sendPatLbl').textContent = m.stage === 'Cleanup' ? 'Share cleanup KMZ · for the FAT' : 'Share PAT KMZ · for defect cleanup / FAT';
-      $('startFat').textContent = m.stage === 'Cleanup' ? 'Start FAT from this cleanup on this phone' : 'Start FAT from this PAT on this phone';
+      renderStageActs(m);
     }
     if (!acc) $('accActs').hidden = true;
     $('doneInfo').hidden = !m.completedAt; $('doneInfo').textContent = m.completedAt ? `✓ Completed ${longDate(m.completedAt)}${progressFields(S.project).length ? (pendingFor(S.project) ? ' · waiting to sync' : ' · in the online sheet') : ''}` : '';
     $('doneBtn').textContent = m.completedAt ? 'Undo complete' : '✓ Mark task complete'; $('doneBtn').classList.toggle('undo', !!m.completedAt);
     const locked = patClosed(); // v2.16: a completed PAT is locked; only the list's admin can reopen it
     $('doneBtn').hidden = locked && !canReopenPat();
+    $('doneBtn').disabled = !m.completedAt && !nrec; // v2.22: nothing recorded, nothing to complete
     if (locked) $('doneInfo').textContent += ` · 🔒 locked: items are tagged as fixed in the defect cleanup and the FAT${canReopenPat() ? '' : ' (only the admin can reopen it)'}`;
     { const W = S.project ? workflowModel() : null, left = W ? W.steps.filter((x) => !x.done && x.go !== 'complete').length : 0;
-      $('doneHint').textContent = m.completedAt ? '' : left ? `${left} step${left === 1 ? '' : 's'} below still open; you can complete when the task is finished.` : 'Every step is done: mark the task complete, or export the completion report.'; }
+      $('doneBtn').classList.toggle('ready', !m.completedAt && !!nrec && !left);
+      $('doneHint').textContent = m.completedAt ? '' : !nrec ? `Nothing recorded yet: capture at least one ${acc ? 'element' : 'pole'} before the task can be completed.`
+        : left ? `${left} step${left === 1 ? '' : 's'} still open; complete the task when it is finished.` : 'Every step is done: mark the task complete, or export the completion report.'; }
     $('doneBox').hidden = !S.project;
     $('curStartRow').hidden = acc; $('curStart').value = m.startDate || '';
-    $('delProjConfirm').hidden = true; $('delProject').hidden = patClosed() && !canReopenPat();
+    $('delProjConfirm').hidden = true; $('delProject').hidden = false; // v2.22: a completed project is deleted with an admin's approval
   }
+  /* v2.22: the projects on this phone as a task list (filter, search, progress); tap one to open it. */
+  let tmShow = 'active', tmKind = '';
+  const tmCache = {};
+  function taskInfo(name) {
+    const pts = points.filter((p) => p.project === name), m = pmeta(name);
+    const key = `${pts.length}|${pts.reduce((t, p) => (p.updated > t ? p.updated : t), '')}|${JSON.stringify(m)}|${allProjects().length}`;
+    if (tmCache[name] && tmCache[name].key === key) return tmCache[name];
+    const was = S.project; let W = null;
+    try { S.project = name; W = workflowModel(); } catch (e) { W = null; } finally { S.project = was; }
+    const steps = W ? W.steps : [], done = steps.filter((x) => x.done).length;
+    const last = pts.reduce((t, p) => (p.updated > t ? p.updated : t), m.created || '');
+    return (tmCache[name] = { key, n: pts.length, done, all: steps.length, next: W && W.next ? W.next.t : '', last, completed: !!m.completedAt });
+  }
+  function renderTaskList() {
+    const names = allProjects().filter((n) => n !== S.project), q = $('projSearch').value.trim(), box = $('taskList'); box.innerHTML = '';
+    $('tmListBox').hidden = !names.length;
+    if (!names.length) return;
+    $('projSearch').hidden = names.length < 4 && !q;
+    const info = Object.fromEntries(names.map((n) => [n, taskInfo(n)]));
+    const nAct = names.filter((n) => !info[n].completed).length, nDone = names.length - nAct;
+    if (tmShow === 'active' && !nAct && nDone) tmShow = 'all';
+    const kinds = ['survey', 'PAT', 'Cleanup', 'FAT'].filter((k) => names.some((n) => projKind(n) === k));
+    if (tmKind && !kinds.includes(tmKind)) tmKind = '';
+    const fil = $('tmFilter'); fil.innerHTML = '';
+    const chip = (label, on, fn, cls) => { const c = document.createElement('button'); c.type = 'button'; c.className = `chip small${cls ? ' ' + cls : ''}`; c.textContent = label; c.setAttribute('aria-pressed', String(on)); c.addEventListener('click', fn); fil.appendChild(c); };
+    [['active', `In progress · ${nAct}`], ['done', `Completed · ${nDone}`], ['all', `All · ${names.length}`]].forEach(([k, l]) => chip(l, tmShow === k, () => { tmShow = k; renderTaskList(); }));
+    if (kinds.length > 1) kinds.forEach((k) => chip(STAGE_LABEL[k], tmKind === k, () => { tmKind = tmKind === k ? '' : k; renderTaskList(); }, `kind k-${k.toLowerCase()}`));
+    const shown = names.filter((n) => (tmShow === 'all' || (tmShow === 'done') === info[n].completed) && (!tmKind || projKind(n) === tmKind) && (!q || projMatch(n, q)))
+      .sort((a, b) => (info[a].completed - info[b].completed) || (info[a].last < info[b].last ? 1 : -1));
+    shown.forEach((name) => {
+      const t = info[name], k = projKind(name), m = pmeta(name);
+      const b = document.createElement('button'); b.type = 'button'; b.className = `task k-${k.toLowerCase()}${t.completed ? ' done' : ''}`; b.dataset.name = name;
+      const badge = document.createElement('span'); badge.className = `badge cat ${k === 'survey' ? '' : k.toLowerCase()}`; badge.textContent = (k === 'survey' ? 'SURVEY' : k === 'Cleanup' ? 'CLEANUP' : k).toUpperCase();
+      const ti = document.createElement('span'); ti.className = 'ti';
+      const tn = document.createElement('span'); tn.className = 'tn'; tn.textContent = name;
+      const ts = document.createElement('span'); ts.className = 'ts'; ts.textContent = [projSummary(name), m.site && m.site !== name ? m.site : ''].filter(Boolean).join(' · ');
+      const tp = document.createElement('span'); tp.className = 'tp';
+      const bar = document.createElement('span'); bar.className = 'bar'; const fill = document.createElement('i'); fill.style.width = t.all ? `${Math.round((t.done / t.all) * 100)}%` : '0'; bar.appendChild(fill);
+      const tx = document.createElement('span'); tx.textContent = t.completed ? `${patClosed(name) ? '🔒 ' : '✓ '}Completed ${dateOnly(m.completedAt)}` : !t.n ? 'Not started' : t.next ? `Next: ${t.next}` : `${t.done} of ${t.all} steps`;
+      tp.append(bar, tx); ti.append(tn, ts, tp); b.append(badge, ti);
+      b.addEventListener('click', () => openTask(name));
+      box.appendChild(b);
+    });
+    if (!shown.length) { const p0 = document.createElement('p'); p0.className = 'hint'; p0.style.margin = '4px 2px'; p0.textContent = q ? 'No project matches the search.' : tmShow === 'done' ? 'No completed project.' : 'No project in progress.'; box.appendChild(p0); }
+  }
+  function openTask(name) {
+    if (!name || name === S.project) return;
+    S.project = name; persist(); renderPoles(); fitProject(); $('curMore').open = false; renderProjects();
+    const body = $('projects').querySelector('.body'); if (body) body.scrollTop = 0;
+    toast(`Now working on: ${name}`);
+  }
+  $('tmNew').addEventListener('click', () => openNewProject());
+  $('tmStepsBtn').addEventListener('click', () => { S.tmSteps = !S.tmSteps; persist(); renderProjects(); });
+  /** The next stage from this PAT or cleanup on this phone: start it, or open the one already started. */
+  const childOf = (name, stage) => allProjects().find((x) => pmeta(x).mode === 'acceptance' && pmeta(x).stage === stage && pmeta(x).fromPat === (pmeta(name).fromPat || name) && (stage === 'Cleanup' || pmeta(x).fromStage === (pmeta(name).stage || 'PAT')));
+  /** The FAT of a PAT (started from it or from its cleanup) or of a cleanup. */
+  const fatOf = (name) => childOf(name, 'FAT') || ((pmeta(name).stage || 'PAT') === 'PAT' && childOf(name, 'Cleanup') ? childOf(childOf(name, 'Cleanup'), 'FAT') : null);
+  function renderStageActs(m) {
+    const st = m.stage || 'PAT', done = !!m.completedAt, cl = st === 'PAT' ? childOf(S.project, 'Cleanup') : null, fat = fatOf(S.project);
+    const sc = $('startCleanup'), sf = $('startFat'), hint = $('stageHint');
+    sc.hidden = !(st === 'PAT' && (done || cl));
+    sc.textContent = cl ? `🛠 Open the defect cleanup “${cl}”` : '🛠 Start the defect cleanup (photo each fix)';
+    sf.textContent = fat ? `✓ Open the FAT “${fat}”` : cl ? '✓ Start the FAT from the cleanup (check each fix on site)' : '✓ Start the FAT (check each fix on site)';
+    sf.classList.toggle('primary', done && (st === 'Cleanup' || !!cl));
+    sc.classList.toggle('primary', !cl);
+    hint.hidden = !done;
+    hint.textContent = st === 'PAT' ? 'PAT completed. Next: the defect cleanup — the contractor photographs each fixed item (with a note if needed) — then the FAT, where the inspector checks each fix on site with a photo.'
+      : 'Cleanup completed. Next: the FAT — the inspector checks each fix on site with a photo.';
+  }
+  $('startCleanup').addEventListener('click', () => guard(async () => {
+    const cl = childOf(S.project, 'Cleanup'); if (cl) { openTask(cl); return; }
+    if (!(await shareGate('fix'))) return;
+    await startStageFrom(S.project, 'Cleanup');
+  }, 'Defect cleanup not started'));
   /** Inspection types: all ticked unless the user unticks some (v2.10). */
   const allInspTypes = () => (formText().types || []).slice();
   /** Before the KMZ goes to the next stage: nothing recorded or no deficiency blocks it; missing photos are flagged. */
@@ -4087,31 +4237,10 @@
   }
   function openProjects() { renderProjects(); openSheet('projects'); cloudSync(false); }
   $('projectBtn').addEventListener('click', openProjects);
-  $('projPick').addEventListener('change', () => {
-    const name = $('projPick').value; if (!name || name === S.project) return;
-    S.project = name; persist(); renderPoles(); fitProject(); renderProjects(); toast(`Now working on: ${name}`);
-  });
   /* v2.21: many projects on one phone: a search (name, category, site, vendor, task ID, notes) */
   const projWords = (name) => { const m = pmeta(name); return [name, STAGE_LABEL[projKind(name)], PURPOSE_LABEL[m.purpose] || '', m.site, m.contractor, m.taskId, m.notes, m.fromPat].filter(Boolean).join(' ').toLowerCase(); };
   const projMatch = (name, q) => { const w = projWords(name); return String(q || '').toLowerCase().split(/\s+/).filter(Boolean).every((t) => w.includes(t)); };
-  function renderProjSearch() {
-    const many = allProjects().length >= 6, q = $('projSearch').value.trim(), box = $('projResults');
-    $('projSearch').hidden = !many; box.innerHTML = '';
-    if (!many || !q) { box.hidden = true; return; }
-    const hits = allProjects().filter((n) => projMatch(n, q));
-    hits.slice(0, 15).forEach((name) => {
-      const b = document.createElement('button'); b.type = 'button';
-      const t = document.createElement('b'); t.textContent = name;
-      const sub = document.createElement('span'); const m = pmeta(name); sub.textContent = [projSummary(name), m.site && m.site !== name ? m.site : '', name === S.project ? 'open now' : ''].filter(Boolean).join(' · ');
-      b.append(t, sub);
-      b.addEventListener('click', () => { $('projSearch').value = ''; if (name !== S.project) { S.project = name; persist(); renderPoles(); fitProject(); toast(`Now working on: ${name}`); } renderProjects(); });
-      box.appendChild(b);
-    });
-    if (!hits.length) { const p0 = document.createElement('p'); p0.className = 'hint'; p0.style.margin = '0'; p0.textContent = 'No project matches.'; box.appendChild(p0); }
-    else if (hits.length > 15) { const p0 = document.createElement('p'); p0.className = 'hint'; p0.style.margin = '0'; p0.textContent = `${hits.length - 15} more: type more of the name.`; box.appendChild(p0); }
-    box.hidden = false;
-  }
-  $('projSearch').addEventListener('input', renderProjSearch);
+  $('projSearch').addEventListener('input', renderTaskList);
 
   /* v2.21: several projects in one file, for a colleague of the same company (safe keeping, a handover when someone leaves) */
   let bsSel = new Set(), bsKind = 'all';
@@ -4205,7 +4334,13 @@
   [['mSite', 'site'], ['mContractor', 'contractor'], ['mGlobe', 'globeRep'], ['mDate', 'date'], ['curNotes', 'notes']].forEach(([id, key]) => {
     $(id).addEventListener('change', () => { const m = { ...pmeta() }; m[key] = $(id).value.trim(); S.meta = S.meta || {}; S.meta[S.project] = m; persist(); });
   });
-  $('startFat').addEventListener('click', () => guard(async () => { if (await shareGate('verify')) await startFatFrom(S.project); }, 'FAT not started'));
+  $('startFat').addEventListener('click', () => guard(async () => {
+    const f = fatOf(S.project); if (f) { openTask(f); return; }
+    // v2.22: after a defect cleanup, the FAT starts from the cleanup, which carries the fixes and their photos
+    const cl = taskCat() === 'PAT' ? childOf(S.project, 'Cleanup') : null;
+    if (cl) { await startFatFrom(cl); return; }
+    if (await shareGate('verify')) await startFatFrom(S.project);
+  }, 'FAT not started'));
   $('curFolder').addEventListener('click', () => { const l = pmeta().siteLink; if (l) openExternal(l); });
   $('curStart').addEventListener('change', () => { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), startDate: $('curStart').value }; persist(); queueProgress(S.project, ['surveyStart']); renderProjects(); });
   $('doneBtn').addEventListener('click', async () => {
@@ -4213,6 +4348,8 @@
     if (!m.completedAt) { const gaps = await completeGaps(); if (gaps.length) { await notReady(gaps); return; } }
     const pat = taskCat() === 'PAT';
     if (m.completedAt && pat && !canReopenPat()) { toast('A completed PAT is locked. Only the admin of the company list can reopen it.', 5000); return; }
+    // v2.22: reopening a completed project on a user's phone needs an admin's approval too (it would otherwise get round the delete approval)
+    if (m.completedAt && S.team && !isAdmin() && !(await adminApproves(`Reopening the completed project “${S.project}”`))) return;
     const ok = m.completedAt
       ? await ask('Undo complete?', `The task is no longer marked complete${col ? `, and the ${col} is cleared in the online sheet` : ''}.${pat ? ' The PAT is unlocked: its elements and items can be changed and removed again.' : ''}`, [{ label: 'Cancel', value: false }, { label: 'Undo', value: true, primary: true }])
       : await ask(pat ? 'Complete and lock the PAT?' : 'Mark the task complete?', `Today is recorded as the completion date${col ? ` (${col} in the online sheet)` : ''}. You can also export the completion report (Export → Completion report).${pat ? `\n\nThe PAT is then locked: no element or item can be added, changed or removed, by anyone on this phone. Items are tagged as fixed in the defect cleanup and the FAT.${S.team ? ' Only the admin of the company list can reopen it.' : ''}` : ''}`, [{ label: 'Cancel', value: false }, { label: pat ? 'Complete and lock' : 'Mark complete', value: true, primary: true }]);
@@ -4317,7 +4454,7 @@
       });
       const notes = b.stages.filter((st) => !st.jpeg && !st.pending).map((st) => `${st.label}: ${st.note}${st.lines && st.lines[0] ? ` — ${st.lines[0]}` : ''}`);
       if (!photos.length && b.code !== 'N') none.push(`#${b.no}`); // an observation (note) needs no photo
-      items.push({ head: `#${b.no} · ${b.loc} · ${b.text}`, right: `${b.code} · ${b.status}`, rightTone: b.statusTone, notes, photos });
+      items.push({ head: `#${b.no} · ${b.loc ? `${b.loc} · ` : ''}${b.text}`, right: `${b.code} · ${b.status}`, rightTone: b.statusTone, notes, photos });
     }
     busy(false);
     const parts = [[n.found, 'as found'], [n.fixed, 'rectified'], [n.rejected, `rejected fix${n.rejected === 1 ? '' : 'es'}`], [n.verified, 'verified']].filter(([c]) => c).map(([c, t]) => `${c} ${t}`);
@@ -4329,7 +4466,7 @@
   }
   $('doCompletion').addEventListener('click', () => guard(async () => {
     const pts = projPoints(), acc = isAcc();
-    if (!pts.length && !(await ask('Nothing recorded', 'This project has no records yet. Make the completion report anyway?', [{ label: 'Cancel', value: false }, { label: 'Make it', value: true, primary: true }]))) return;
+    if (!pts.length && !pmeta().completedAt) { toast(`Nothing recorded yet: capture at least one ${acc ? 'element' : 'pole'} before the task can be completed.`, 5000); return; } // v2.22
     if (!pmeta().completedAt) {
       const gaps = await completeGaps(); if (gaps.length) { await notReady(gaps); return; }
       // v2.16: the report completes the task, and completing a PAT locks it: asked first
@@ -4358,23 +4495,28 @@
   }, 'Completion report not made'));
   $('curPurpose').addEventListener('change', () => { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), purpose: $('curPurpose').value }; persist(); renderProjects(); });
   /** Copies a PAT or defect-cleanup project (on this phone) into a new FAT project; the source stays unchanged. */
-  async function startFatFrom(pat, extraMeta, wantName) {
+  const startFatFrom = (pat, extraMeta, wantName) => startStageFrom(pat, 'FAT', extraMeta, wantName);
+  /** v2.22: a defect cleanup or a FAT started on this phone from a PAT (or a FAT from a cleanup) kept here. */
+  async function startStageFrom(pat, stage, extraMeta, wantName) {
     const m = pmeta(pat);
     if (m.mode !== 'acceptance' || !['PAT', 'Cleanup'].includes(m.stage || 'PAT')) throw new Error(`“${pat}” is not a PAT or defect cleanup project`);
-    const base = wantName || `${m.fromPat || pat} – FAT`;
+    if (stage === 'Cleanup' && (m.stage || 'PAT') !== 'PAT') throw new Error('A defect cleanup starts from a PAT');
+    const base = wantName || `${m.fromPat || pat} – ${stage}`;
     let name = base, k = 2;
     while (allProjects().includes(name)) name = `${base} ${wantName ? `(${k++})` : k++}`;
     const src = points.filter((p) => p.project === pat), now = new Date().toISOString();
-    busy('Starting FAT…');
-    const copies = src.map((r) => ({ ...JSON.parse(JSON.stringify(r)), id: uid(), project: name, updated: now, patId: r.id }));
+    busy(`Starting ${stage === 'FAT' ? 'FAT' : 'defect cleanup'}…`);
+    const copies = src.map((r) => ({ ...JSON.parse(JSON.stringify(r)), id: uid(), project: name, updated: now, patId: r.patId || r.id }));
     for (const c of copies) { await dbPut('points', c); points.push(c); }
-    const { taskId, date, exports, ...patMeta } = m; // the PAT's own online task, inspection date and exports are not this FAT's
+    // the PAT's own online task, inspection date, exports and completion are not this stage's (v2.22: a completed PAT no longer makes the new stage “completed”)
+    const { taskId, date, exports, completedAt, completedHow, ...patMeta } = m;
     const extra = Object.fromEntries(Object.entries(extraMeta || {}).filter(([, v]) => v !== '' && v != null)); // blank task cells keep the PAT's details
-    S.meta[name] = { ...patMeta, stage: 'FAT', fromPat: m.fromPat || pat, fromStage: m.stage || 'PAT', vendorRep: (S.user && S.user.name) || m.vendorRep || '', date: todayIso(), ...extra };
+    S.meta[name] = { ...patMeta, stage, fromPat: m.fromPat || pat, fromStage: m.stage || 'PAT', vendorRep: (S.user && S.user.name) || m.vendorRep || '', date: todayIso(), ...extra };
     S.projects.push(name); S.project = name; persist();
     renderPoles(); renderProjects(); busy(false);
     const open = copies.reduce((t, r) => t + openCount(r), 0);
-    toast(`FAT started: ${copies.length} elements, ${open} open item${open === 1 ? '' : 's'} to re-check`, 4500);
+    LOG.info('stage.start', { stage, from: m.stage || 'PAT', records: copies.length, open });
+    toast(stage === 'FAT' ? `FAT started: ${copies.length} elements, ${open} open item${open === 1 ? '' : 's'} to re-check` : `Defect cleanup started: ${open} open item${open === 1 ? '' : 's'}. Tap Next defect, fix it and take its photo.`, 5000);
     return name;
   }
   $('doRename').addEventListener('click', () => guard(async () => {
@@ -4392,16 +4534,20 @@
     S.project = name; persist(); renderPoles(); renderProjects(); drawAreas();
     toast(`Renamed to "${name}"`);
   }, 'Rename failed'));
-  $('delProject').addEventListener('click', () => {
-    if (patClosed() && !canReopenPat()) { toast('A completed PAT is locked and cannot be deleted. Only the admin of the company list can do that.', 5000); return; }
+  let delApproved = '';
+  $('delProject').addEventListener('click', () => guard(async () => {
+    delApproved = '';
+    // v2.22: a completed project (any category) is deleted only with an admin's approval: a one-time code or the admin PIN
+    if (pmeta().completedAt && S.team) { if (!(await adminApproves(`Deleting the completed project “${S.project}”`))) return; delApproved = S.project; }
     const n = projPoints().length, what = isAcc() ? 'element' : 'pole';
     $('delProjText').textContent = `Delete "${S.project}" with its ${n} ${what}${n === 1 ? '' : 's'}, photos and offline maps? Make a backup first if you still need them. This can't be undone.`;
     $('delProjConfirm').hidden = false; $('delProject').hidden = true;
-  });
+  }, 'Not deleted'));
   $('delProjNo').addEventListener('click', () => { $('delProjConfirm').hidden = true; $('delProject').hidden = false; });
   $('delProjYes').addEventListener('click', () => guard(async () => {
-    if (patClosed() && !canReopenPat()) { $('delProjConfirm').hidden = true; return; }
-    const name = S.project, pts = points.filter((p) => p.project === name);
+    if (pmeta().completedAt && S.team && delApproved !== S.project) { $('delProjConfirm').hidden = true; $('delProject').hidden = false; return; }
+    const name = S.project, pts = points.filter((p) => p.project === name); delApproved = '';
+    LOG.info('project.delete', { cat: taskCat(), completed: !!pmeta().completedAt, records: pts.length });
     let i = 0;
     const ids = new Set(pts.map((p) => p.id)), pids = [];
     for (const p of pts) { busy(`Deleting ${++i} / ${pts.length}`, i / pts.length); await dbDel('points', p.id); pids.push(...allPids(p)); }
@@ -4776,12 +4922,23 @@
     return { names: Object.keys(byName), has: (n) => !!byName[n], get };
   }
   /** The PoleCam data inside a backup ZIP or a shareable KMZ: {meta, pre}. */
-  async function readPackage(z) {
+  async function readPackage(z0) {
+    const z = z0.has('polecam/seal.json') ? await unsealZip(z0, 'polecam/') : z0; // v2.22: a locked PAT / cleanup / FAT KMZ
     const pre = z.has('polecam/points.json') ? 'polecam/' : z.has('points.json') ? '' : null;
     if (pre == null) throw new Error(z.names.some((n) => /\.kml$/i.test(n)) ? 'This KMZ has no G-eSAA data. Export it again from G-eSAA (Projects → Project details → Share the KMZ), or tick “Include the PoleCam data” under the KMZ options.' : 'This is not a G-eSAA (PoleCam) file');
     const meta = JSON.parse(new TextDecoder().decode(await z.get(`${pre}points.json`)));
     if (!meta || !Array.isArray(meta.points)) throw new Error('This is not a G-eSAA (PoleCam) file');
-    return { meta, pre };
+    const unsealed = !z.sealed && z.names.some((n) => /(^|\/)doc\.kml$/i.test(n)) && (meta.meta || {}).mode === 'acceptance';
+    return { meta, pre, z, sealed: !!z.sealed, unsealed };
+  }
+  /** v2.22: a PAT / cleanup / FAT KMZ that is not locked, while this company locks them: asked once per file. */
+  async function unsealedOk(f, r) {
+    if (!r.unsealed || !S.team || !pol().kmzPass || (f && f._unsealedOk)) return true;
+    LOG.warn('seal.missing', { name: (f && f.name) || '' });
+    const ok = await ask('This KMZ is not locked', `Your company locks the G-eSAA data in PAT, cleanup and FAT KMZ files, but this one is not locked. It was made by an older version or on a phone without the company list — or its data was taken out and changed. Open it only if you trust where it came from.`,
+      [{ label: 'Cancel', value: false, primary: true }, { label: 'Open anyway', value: true }]);
+    if (ok && f) f._unsealedOk = true;
+    return !!ok;
   }
   async function importPhotos(z, pre, recs) {
     const pids = [...new Set(recs.flatMap(allPids))];
@@ -4796,7 +4953,8 @@
   /** Starts a defect cleanup or a FAT from a PAT / cleanup KMZ (or an older PAT ZIP) made on another phone. */
   async function importStageFile(f, stage, extraMeta, wantName) {
     busy('Reading file…');
-    const z = await zipReader(f), { meta, pre } = await readPackage(z);
+    const rp = await readPackage(await zipReader(f)), { meta, pre, z } = rp;
+    if (!(await unsealedOk(f, rp))) { busy(false); return null; }
     const fm = meta.meta || {}, from = fm.mode === 'acceptance' ? fm.stage || 'PAT' : 'survey';
     if (!STAGE_FROM[stage].includes(from)) throw new Error(`This file is a ${STAGE_NAME[from]} project. A ${STAGE_NAME[stage]} starts from a ${STAGE_FROM[stage].map((x) => STAGE_NAME[x]).join(' or ')} KMZ.`);
     const pat = fm.fromPat || meta.project || 'PAT', base = wantName || `${pat} – ${stage}`;
@@ -4807,7 +4965,7 @@
     const copies = meta.points.map((r) => ({ ...r, id: uid(), project: name, updated: now, patId: r.patId || r.id }));
     busy('Saving…');
     for (const c of copies) { await dbPut('points', c); points.push(c); }
-    const { taskId, date, exports, links, ...rest } = fm;
+    const { taskId, date, exports, links, completedAt, completedHow, ...rest } = fm; // v2.22: the sender's completion is not this stage's
     const extra = Object.fromEntries(Object.entries(extraMeta || {}).filter(([, v]) => v !== '' && v != null));
     S.meta = S.meta || {};
     S.meta[name] = { ...rest, mode: 'acceptance', stage, fromPat: pat, fromStage: from, fromFile: f.name || '', vendorRep: (S.user && S.user.name) || rest.vendorRep || '', date: todayIso(), ...extra };
@@ -4834,7 +4992,8 @@
   async function restoreZip(f, opts) {
     const o = opts || {};
     busy('Reading file…');
-    const z = await zipReader(f), { meta, pre } = await readPackage(z);
+    const rp = await readPackage(await zipReader(f)), { meta, pre, z } = rp;
+    if (!(await unsealedOk(f, rp))) { busy(false); return null; }
     const fm = meta.meta || {}, kind = (m) => (m.mode === 'acceptance' ? m.stage || 'PAT' : 'survey');
     if (o.expectPat && kind(fm) !== 'PAT') throw new Error(`This file is ${kind(fm) === 'survey' ? 'a survey backup' : `a ${kind(fm)} project`}, not a PAT. On the PAT phone use Projects → Send this PAT to another phone.`);
     return restoreMeta(z, meta, pre, o);
@@ -4888,16 +5047,19 @@
   const dateOnly = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }); };
   /** Numbered punchlist + stable photo file names for the current acceptance project. */
   function accModel() {
-    const recs = projPoints(), m = pmeta(), stage = m.stage || 'PAT', base = {}, used = {};
+    const recs = projPoints(), m = pmeta(), stage = m.stage || 'PAT', base = {}, used = {}, nos = itemNos(recs), label = {};
+    // v2.22: an element saved without its ID is named by its item numbers (Item 3), never by its internal reference (D-0001)
     recs.forEach((r) => {
-      const b = C.safeName(`${r.poleId}`); let n = b, k = 2;
+      label[r.id] = recName(r, nos);
+      const b = isRef(r) ? (nos[r.id] && nos[r.id].length ? `item${nos[r.id][0]}` : 'no_id') : C.safeName(`${r.poleId}`); let n = b, k = 2;
       while (used[n.toLowerCase()]) n = `${b}_${k++}`;
       used[n.toLowerCase()] = 1; base[r.id] = n;
     });
     const items = []; let no = 0;
     recs.forEach((r) => (r.defs || []).forEach((d) => {
       no++;
-      items.push({ no, r, d, defectName: d.pid ? `${base[r.id]}_item${no}_asfound.jpg` : '', afterName: d.afterPid ? `${base[r.id]}_item${no}_rectified.jpg` : '', verifyName: d.verifyPid ? `${base[r.id]}_item${no}_verified.jpg` : '' });
+      const fb = isRef(r) ? `item${no}` : `${base[r.id]}_item${no}`;
+      items.push({ no, r, d, defectName: d.pid ? `${fb}_asfound.jpg` : '', afterName: d.afterPid ? `${fb}_rectified.jpg` : '', verifyName: d.verifyPid ? `${fb}_verified.jpg` : '' });
     }));
     const photoName = (r, i, p) => `${base[r.id]}_${i + 1}_${C.safeName(p.label)}.jpg`;
     // after the PAT, the dates of a stage are the dates of its own work (fixes, verifications, items found then)
@@ -4905,18 +5067,19 @@
     const times = stage !== 'PAT' ? fatTimes : recs.map((r) => r.takenAt).filter(Boolean).sort();
     const first = times.length ? dateOnly(times[0]) : '', lastD = times.length ? dateOnly(times[times.length - 1]) : '';
     const counted = items.filter((x) => x.d.sev !== 'Note'), open = counted.filter((x) => !defDone(x.d));
-    return { recs, items, base, photoName, m, stage, dates: first === lastD ? first : `${first} – ${lastD}`, fatFirst: fatTimes[0] || null, open, counted,
+    return { recs, items, base, label, lab: (r) => label[r.id] || r.poleId, photoName, m, stage, dates: first === lastD ? first : `${first} – ${lastD}`, fatFirst: fatTimes[0] || null, open, counted,
       withDef: recs.filter((r) => openCount(r) > 0).length, rectified: counted.filter((x) => x.d.status === 'Rectified').length,
       verified: counted.filter((x) => x.d.status === 'Verified').length, notes: items.length - counted.length,
       major: open.filter((x) => x.d.sev === 'Major').length, minor: open.filter((x) => x.d.sev !== 'Major').length };
   }
   function accPhotoList(M) {
     const list = [];
-    M.recs.forEach((r) => photosOf(r).forEach((p, i) => list.push({ rec: r, pid: p.pid, name: M.photoName(r, i, p), title: `${r.poleId}  ·  ${elemOf(r)}  ·  ${p.label}`, meta: p.at ? p : null })));
+    M.recs.forEach((r) => photosOf(r).forEach((p, i) => list.push({ rec: r, pid: p.pid, name: M.photoName(r, i, p), title: `${M.lab(r)}  ·  ${elemOf(r)}  ·  ${p.label}`, desc: p.label, meta: p.at ? p : null })));
+    const who = (r, no) => (isRef(r) ? `Item ${no}` : `${r.poleId}  ·  Item ${no}`); // v2.22: no D-0001
     M.items.forEach((x) => {
-      if (x.d.pid) list.push({ rec: x.r, pid: x.d.pid, name: x.defectName, title: `${x.r.poleId}  ·  Item ${x.no}  ·  AS FOUND  ·  ${x.d.cat}: ${x.d.item}`, meta: x.d.pidMeta || null });
-      if (x.d.afterPid) list.push({ rec: x.r, pid: x.d.afterPid, name: x.afterName, title: `${x.r.poleId}  ·  Item ${x.no}  ·  RECTIFIED  ·  ${x.d.cat}: ${x.d.item}`, meta: x.d.afterMeta || null });
-      if (x.d.verifyPid) list.push({ rec: x.r, pid: x.d.verifyPid, name: x.verifyName, title: `${x.r.poleId}  ·  Item ${x.no}  ·  VERIFIED  ·  ${x.d.cat}: ${x.d.item}`, meta: x.d.verifyMeta || null });
+      if (x.d.pid) list.push({ rec: x.r, pid: x.d.pid, name: x.defectName, title: `${who(x.r, x.no)}  ·  AS FOUND  ·  ${x.d.cat}: ${x.d.item}`, desc: `AS FOUND · ${x.d.cat}: ${x.d.item}`, no: x.no, meta: x.d.pidMeta || null });
+      if (x.d.afterPid) list.push({ rec: x.r, pid: x.d.afterPid, name: x.afterName, title: `${who(x.r, x.no)}  ·  RECTIFIED  ·  ${x.d.cat}: ${x.d.item}`, desc: `RECTIFIED · ${x.d.cat}: ${x.d.item}`, no: x.no, meta: x.d.afterMeta || null });
+      if (x.d.verifyPid) list.push({ rec: x.r, pid: x.d.verifyPid, name: x.verifyName, title: `${who(x.r, x.no)}  ·  VERIFIED  ·  ${x.d.cat}: ${x.d.item}`, desc: `VERIFIED · ${x.d.cat}: ${x.d.item}`, no: x.no, meta: x.d.verifyMeta || null });
     });
     return list;
   }
@@ -4928,7 +5091,7 @@
   function punchRows(M) {
     return M.items.map((x) => {
       const d = x.d, days = defDone(d) ? daysBetween(d.foundAt, d.fixedAt) : null, dist = distFromPin(d.afterMeta, x.r), rej = d.reopened || [];
-      return [x.no, x.r.poleId, elemOf(x.r), d.cat, d.item, `${SEV_CODE[sevOf(d)]} (${sevOf(d)})`, d.notes || '', defStatusOf(d), d.stage || 'PAT',
+      return [x.no, isRef(x.r) ? '' : x.r.poleId, elemOf(x.r), d.cat, d.item, `${SEV_CODE[sevOf(d)]} (${sevOf(d)})`, d.notes || '', defStatusOf(d), d.stage || 'PAT',
         fmtTime(d.foundAt), defDone(d) && d.fixedAt ? fmtTime(d.fixedAt) : '', days != null ? Math.round(days * 10) / 10 : '', defDone(d) ? d.fixedBy || '' : '',
         d.status === 'Verified' && d.verifiedAt ? fmtTime(d.verifiedAt) : '', d.status === 'Verified' ? d.verifiedBy || '' : '',
         rej.length ? rej.map((q) => `${shortTime(q.at)}${q.by ? ' ' + q.by : ''}: ${q.reason || 'no reason given'}`).join(' | ') : '',
@@ -4940,7 +5103,7 @@
   function elemRows(M) {
     return M.recs.map((r, i) => {
       const pole = elemOf(r) === 'Pole', yn = (v) => (pole ? (v ? 'Yes' : 'No') : '');
-      return [i + 1, elemOf(r), r.poleId, yn(r.mloop), yn(r.nap), r.nap ? r.napId || '' : '', yn(r.closure), r.closure ? r.closureId || '' : '',
+      return [i + 1, elemOf(r), M.lab(r), yn(r.mloop), yn(r.nap), r.nap ? r.napId || '' : '', yn(r.closure), r.closure ? r.closureId || '' : '',
         elemOf(r) === 'ODF' ? `${r.odf || 'New'}` : '', STATUS_TEXT[recStatus(r)], openCount(r), (r.defs || []).length, r.lat, r.lon,
         Number.isFinite(r.accuracy) ? Math.round(r.accuracy * 10) / 10 : '', r.adjusted ? 'Yes' : 'No', fmtTime(r.takenAt),
         photosOf(r).map((p, k) => M.photoName(r, k, p)).join(', ')];
@@ -4966,7 +5129,8 @@
     logoCache = { left: await get('brand/logo-left.jpg'), right: await get('brand/logo-right.jpg') };
     return logoCache;
   }
-  const itemText = (x) => `${x.r.poleId}${elemOf(x.r) !== 'Pole' ? ` (${elemOf(x.r)})` : ''} — ${x.d.cat}: ${x.d.item}${x.d.notes ? ` (${x.d.notes})` : ''}`;
+  const itemText = (x) => (isRef(x.r) ? `${elemOf(x.r) !== x.d.cat ? `${elemOf(x.r)} — ` : ''}${x.d.cat}: ${x.d.item}${x.d.notes ? ` (${x.d.notes})` : ''}` // v2.22: the item number is the reference
+    : `${x.r.poleId}${elemOf(x.r) !== 'Pole' ? ` (${elemOf(x.r)})` : ''} — ${x.d.cat}: ${x.d.item}${x.d.notes ? ` (${x.d.notes})` : ''}`);
   const rectifiedDate = (d) => (defDone(d) ? longDate(d.fixedAt || d.verifiedAt) : '');
   /** Header + rows of the LIST OF DEFICIENCIES form, as the office template has them. */
   function formModel(M, o) {
@@ -5012,8 +5176,8 @@
       const head = ['File name (in the photo ZIP / KMZ)', 'Location ID', 'Element', 'Photo', 'Item No.', 'Taken', 'Taken by', 'GPS latitude', 'GPS longitude', 'GPS accuracy (m)', 'Distance from pin (m)'];
       const prows = [head.map((v) => ({ v, s: st.header }))];
       accPhotoList(M).forEach((p) => {
-        const mt = p.meta || {}, dist = distFromPin(p.meta, p.rec), item = /Item (\d+)/.exec(p.title);
-        prows.push([p.name, p.rec.poleId, elemOf(p.rec), p.title.split('  ·  ').slice(2).join(' · '), item ? +item[1] : '', mt.at ? fmtTime(mt.at) : '', mt.by || '',
+        const mt = p.meta || {}, dist = distFromPin(p.meta, p.rec);
+        prows.push([p.name, isRef(p.rec) ? '' : p.rec.poleId, elemOf(p.rec), p.desc || '', p.no || '', mt.at ? fmtTime(mt.at) : '', mt.by || '',
           mt.lat != null ? mt.lat : '', mt.lon != null ? mt.lon : '', Number.isFinite(mt.acc) ? Math.round(mt.acc * 10) / 10 : '', dist != null ? Math.round(dist) : '']
           .map((v, ci) => ({ v, s: ci === 7 || ci === 8 ? st.coord : st.cell })));
       });
@@ -5067,27 +5231,27 @@
     const foundL = `AS FOUND (${d.stage || 'PAT'})`, rectL = 'RECTIFIED (CONTRACTOR)', verL = `VERIFIED (${d.verifyStage || (stt === 'Verified' ? d.stage || 'PAT' : 'FAT')})`;
     const last = rej[rej.length - 1];
     stages.push(d.pid
-      ? { label: foundL, tone: 'bad', jpeg: await pdfJpeg(d.pid, px, [`AS FOUND · ${r.poleId} · item ${x.no}`, d.pidMeta ? shortTime(d.pidMeta.at) : shortTime(d.foundAt)], '#c92a2a', quality),
+      ? { label: foundL, tone: 'bad', jpeg: await pdfJpeg(d.pid, px, [`AS FOUND · ${isRef(r) ? '' : `${r.poleId} · `}item ${x.no}`, d.pidMeta ? shortTime(d.pidMeta.at) : shortTime(d.foundAt)], '#c92a2a', quality),
         lines: [`Found ${shortTime(d.foundAt)} (${d.stage || 'PAT'})${d.foundBy ? ` by ${d.foundBy}` : ''}`, ...metaLines(d.pidMeta, r, 'Photo').slice(1)] }
       : { label: foundL, tone: stt === 'Note' ? 'muted' : 'bad', plain: stt === 'Note', jpeg: null, note: stt === 'Note' ? 'No photo' : 'No photo taken when the deficiency was recorded', lines: [`Found ${shortTime(d.foundAt)}${d.foundBy ? ` by ${d.foundBy}` : ''}`] });
     if (stt === 'Note') stages.push({ label: rectL, tone: 'muted', pending: true, note: 'Not required — observation only', lines: [] }, { label: verL, tone: 'muted', pending: true, note: 'Not required', lines: [] });
     else {
       if (defDone(d)) stages.push(d.afterPid
-        ? { label: rectL, tone: 'blue', jpeg: await pdfJpeg(d.afterPid, px, [`RECTIFIED · ${r.poleId} · item ${x.no}`, d.afterMeta ? shortTime(d.afterMeta.at) : ''].filter(Boolean), '#1971c2', quality),
+        ? { label: rectL, tone: 'blue', jpeg: await pdfJpeg(d.afterPid, px, [`RECTIFIED · ${isRef(r) ? '' : `${r.poleId} · `}item ${x.no}`, d.afterMeta ? shortTime(d.afterMeta.at) : ''].filter(Boolean), '#1971c2', quality),
           lines: [`Rectified ${shortTime(d.fixedAt)}${d.fixedBy ? ` by ${d.fixedBy}` : ''}`, ...metaLines(d.afterMeta, r, 'Photo').slice(1)] }
         : { label: rectL, tone: 'blue', jpeg: null, note: 'Marked rectified without a photo', lines: [`Rectified ${shortTime(d.fixedAt)}${d.fixedBy ? ` by ${d.fixedBy}` : ''}`] });
-      else if (last && last.pid) stages.push({ label: `${rectL} · REJECTED`, tone: 'bad', jpeg: await pdfJpeg(last.pid, px, [`REJECTED · ${r.poleId} · item ${x.no}`, last.meta ? shortTime(last.meta.at) : ''].filter(Boolean), '#c92a2a', quality),
+      else if (last && last.pid) stages.push({ label: `${rectL} · REJECTED`, tone: 'bad', jpeg: await pdfJpeg(last.pid, px, [`REJECTED · ${isRef(r) ? '' : `${r.poleId} · `}item ${x.no}`, last.meta ? shortTime(last.meta.at) : ''].filter(Boolean), '#c92a2a', quality),
         lines: [`Rectification of ${shortTime(last.fixedAt || last.at)}${last.fixedBy ? ` by ${last.fixedBy}` : ''} rejected ${shortTime(last.at)}${last.by ? ` by ${last.by}` : ''}: ${last.reason || 'no reason given'}`, ...(rej.length > 1 ? [`Rejected ${rej.length} times in all`] : [])] });
       else stages.push({ label: rectL, tone: 'blue', pending: true, note: rej.length ? 'Rectification rejected — pending again' : 'Pending rectification', lines: rej.length ? [`Rejected ${rej.length}×, last ${shortTime(last.at)}${last.by ? ` by ${last.by}` : ''}: ${last.reason || 'no reason given'}`] : [] });
       if (stt === 'Verified') stages.push(d.verifyPid
-        ? { label: verL, tone: 'good', jpeg: await pdfJpeg(d.verifyPid, px, [`VERIFIED · ${r.poleId} · item ${x.no}`, d.verifyMeta ? shortTime(d.verifyMeta.at) : ''].filter(Boolean), '#2b8a3e', quality),
+        ? { label: verL, tone: 'good', jpeg: await pdfJpeg(d.verifyPid, px, [`VERIFIED · ${isRef(r) ? '' : `${r.poleId} · `}item ${x.no}`, d.verifyMeta ? shortTime(d.verifyMeta.at) : ''].filter(Boolean), '#2b8a3e', quality),
           lines: [`Verified ${shortTime(d.verifiedAt)}${d.verifiedBy ? ` by ${d.verifiedBy}` : ''}`, ...metaLines(d.verifyMeta, r, 'Photo').slice(1)] }
         : { label: verL, tone: 'good', jpeg: null, plain: true, note: 'Verified on site without a photo', lines: [`Verified ${shortTime(d.verifiedAt)}${d.verifiedBy ? ` by ${d.verifiedBy}` : ''}`] });
       else stages.push({ label: verL, tone: 'good', pending: true, note: stt === 'Rectified' ? 'Awaiting verification' : 'Pending', lines: [] });
     }
     const statusText = { Open: rej.length ? 'OPEN — REJECTED' : 'OPEN', Rectified: 'RECTIFIED — TO VERIFY', Verified: 'VERIFIED', Note: 'NOTE' }[stt] || stt;
     const tone = { Open: 'bad', Rectified: 'blue', Verified: 'good', Note: 'muted' }[stt];
-    return { no: x.no, loc: r.poleId, element: elemOf(r), code: SEV_CODE[sevOf(d)], text: `${d.cat}: ${d.item}${d.notes ? ' — ' + d.notes : ''}`, status: statusText, statusTone: tone, remarks: d.remarks, stages };
+    return { no: x.no, loc: isRef(r) ? '' : r.poleId, element: elemOf(r), code: SEV_CODE[sevOf(d)], text: `${d.cat}: ${d.item}${d.notes ? ' — ' + d.notes : ''}`, status: statusText, statusTone: tone, remarks: d.remarks, stages };
   }
   $('doPdf').addEventListener('click', () => guard(async () => {
     if (!needPoints()) return;
@@ -5104,7 +5268,7 @@
         const r = M.recs[i]; busy(`Annex B · element ${i + 1} / ${M.recs.length}`, (M.items.length + i) / Math.max(1, M.items.length + M.recs.length));
         for (const p of photosOf(r)) {
           const jpeg = await pdfJpeg(p.pid, size.px); if (!jpeg) continue;
-          model.annexB.push({ jpeg, caption: `${r.poleId} · ${elemOf(r)} · ${p.label}`, sub: `${p.at ? shortTime(p.at) : shortTime(r.takenAt)}${p.by ? ' · ' + p.by : ''} · ${STATUS_TEXT[recStatus(r)]}` });
+          model.annexB.push({ jpeg, caption: `${M.lab(r)} · ${elemOf(r)} · ${p.label}`, sub: `${p.at ? shortTime(p.at) : shortTime(r.takenAt)}${p.by ? ' · ' + p.by : ''} · ${STATUS_TEXT[recStatus(r)]}` });
         }
       }
     }
@@ -5131,7 +5295,7 @@
       const last = byDate[byDate.length - 1];
       if (last && last.date === dt) { last.count++; last.cum = cum; last.pct = cum / total; } else byDate.push({ date: dt, count: 1, cum, pct: cum / total });
     });
-    const head = (x) => `#${x.no}  ${x.r.poleId} · ${elemOf(x.r)}`;
+    const head = (x) => `#${x.no}  ${isRef(x.r) ? '' : `${x.r.poleId} · `}${elemOf(x.r)}`;
     const defect = (x) => `${x.d.cat}: ${x.d.item}${x.d.notes ? ' — ' + x.d.notes : ''}  ·  ${sevOf(x.d)}  ·  found at ${x.d.stage || 'PAT'}`;
     const items = [];
     const n = rect.length + (withOpen ? open.length : 0); let k = 0;
@@ -5139,9 +5303,9 @@
       busy(`Preparing photos ${++k} / ${n}`, k / n);
       const d = x.d, dd = daysBetween(d.foundAt, d.fixedAt);
       items.push({ head: head(x), defect: defect(x), right: `${d.status === 'Verified' ? 'Verified · r' : 'R'}ectified in ${fmtDays(dd)}`, remarks: d.remarks,
-        before: { jpeg: d.pid ? await pdfJpeg(d.pid, 800, [`BEFORE · ${x.r.poleId} · item ${x.no}`, d.pidMeta ? shortTime(d.pidMeta.at) : `Found ${shortTime(d.foundAt)}`], '#c92a2a') : null,
+        before: { jpeg: d.pid ? await pdfJpeg(d.pid, 800, [`BEFORE · ${isRef(x.r) ? '' : `${x.r.poleId} · `}item ${x.no}`, d.pidMeta ? shortTime(d.pidMeta.at) : `Found ${shortTime(d.foundAt)}`], '#c92a2a') : null,
           lines: [`Found ${shortTime(d.foundAt)} (${d.stage || 'PAT'})${d.foundBy ? ` by ${d.foundBy}` : ''}`, ...(d.pid ? metaLines(d.pidMeta, x.r, 'Photo taken').slice(1, 2) : ['No defect photo'])] },
-        after: d.afterPid ? { jpeg: await pdfJpeg(d.afterPid, 800, [`AFTER · ${x.r.poleId} · item ${x.no}`, d.afterMeta ? shortTime(d.afterMeta.at) : ''].filter(Boolean), '#1971c2'),
+        after: d.afterPid ? { jpeg: await pdfJpeg(d.afterPid, 800, [`AFTER · ${isRef(x.r) ? '' : `${x.r.poleId} · `}item ${x.no}`, d.afterMeta ? shortTime(d.afterMeta.at) : ''].filter(Boolean), '#1971c2'),
           lines: metaLines(d.afterMeta, x.r, 'Rectified · photo taken') } : null,
         missingAfter: d.afterPid ? null : ['No after photo', `Marked rectified ${shortTime(d.fixedAt)}`, d.fixedBy ? `by ${d.fixedBy}` : '', 'without photo evidence'].filter(Boolean) });
     }
@@ -5197,13 +5361,14 @@
     for (const r of M.recs) {
       let icon = null;
       if (E.kmzIconPx > 0) { const cp = coverPid(r), ph = cp && await dbGet('photos', cp).catch(() => null); if (ph && (ph.clean || ph.thumb)) { icon = `icons/${r.id}.jpg`; files.push({ name: `files/${icon}`, data: await iconJpeg(ph.clean || ph.thumb, E.kmzIconPx, STATUS_COLORS[recStatus(r)]) }); } }
-      recs.push({ id: r.id, name: r.poleId, title: `${r.poleId} · ${elemOf(r)} · ${STATUS_TEXT[recStatus(r)]}`, status: recStatus(r), lat: r.lat, lon: r.lon, icon,
+      recs.push({ id: r.id, name: M.lab(r), title: `${M.lab(r)} · ${elemOf(r)} · ${STATUS_TEXT[recStatus(r)]}`, status: recStatus(r), lat: r.lat, lon: r.lon, icon,
         // coordinates and time are left out when the balloon photos already carry them in their stamp
         detailsHtml: [...attachText(r), ...(onPhoto(r, 'coords') ? [] : [`Coordinates: ${r.lat.toFixed(7)}, ${r.lon.toFixed(7)}`]), ...(onPhoto(r, 'time') ? [] : [`Captured: ${fmtTime(r.takenAt)}`])].map(C.xmlEsc).join('<br/>'),
         photos: byRec[r.id] || [],
         defs: M.items.filter((x) => x.r === r).map((x) => ({ no: x.no, text: `${x.d.cat}: ${x.d.item}${x.d.notes ? ' — ' + x.d.notes : ''}`, sev: sevOf(x.d), status: defStatusOf(x.d) })) });
     }
-    const data = withData ? await projectFiles(S.project, 'polecam/') : [];
+    let data = withData ? await projectFiles(S.project, 'polecam/') : [];
+    if (withData) { const sealed = await sealFiles(data, 'polecam/'); if (sealed) data = sealed; LOG.info('kmz.share', { sealed: !!sealed, files: data.length }); } // v2.22: the KMZ lock
     busy('Building KMZ…', 1);
     const kml = window.PoleReports.acceptanceKml(recs, { name: `${S.project} · ${M.stage}`, icons, exportedBy: exporterLine() });
     return new Blob(C.makeZipParts([{ name: 'doc.kml', data: kml }, ...files, ...data]), { type: 'application/vnd.google-earth.kmz' });
@@ -5354,6 +5519,8 @@
     if (p.adminUsers != null && !list(p.adminUsers, 100, 120)) return false;
     if (p.vendorRecords != null && typeof p.vendorRecords !== 'boolean') return false;
     if (p.web != null && !(typeof p.web === 'string' && /^https:\/\/\S{1,300}$/.test(p.web))) return false;
+    if (p.otp != null && !(typeof p.otp === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(p.otp))) return false; // v2.22: approval codes
+    if (!str(p.kmzPass, 100) || !list(p.kmzOld, 5, 100)) return false; // v2.22: the shared KMZ lock
     if (p.packs != null && !(Array.isArray(p.packs) && p.packs.length <= 30 && p.packs.every((x) => x && str(x.n, 60) && typeof x.d === 'string' && /^[A-Za-z0-9_-]{20,100}$/.test(x.d) && num(x.mb, 0, 100000)))) return false;
     return true;
   }
@@ -5600,6 +5767,123 @@
   async function decPriv(ke, pin) {
     try { const out = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64u.dec(ke.iv) }, await pinKey(pin, ke.salt), b64u.dec(ke.data)); return JSON.parse(new TextDecoder().decode(out)); }
     catch (e) { return null; }
+  }
+
+  /* ---- v2.22: admin approval codes (deleting a completed project) ---- */
+  const REQ_ABC = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const reqCode = () => { const r = crypto.getRandomValues(new Uint8Array(6)); const c = [...r].map((x) => REQ_ABC[x % REQ_ABC.length]).join(''); return `${c.slice(0, 3)}-${c.slice(3)}`; };
+  const normReq = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  /** The 6-digit approval code for one request code: HMAC-SHA-256 with the list's approval key (pol.otp). */
+  async function approvalCode(secret, req) {
+    const k = await crypto.subtle.importKey('raw', b64u.dec(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const h = new Uint8Array(await crypto.subtle.sign('HMAC', k, enc8(`polecam-delete|${normReq(req)}`)));
+    return String((((h[0] & 0x7f) << 24) | (h[1] << 16) | (h[2] << 8) | h[3]) % 1000000).padStart(6, '0');
+  }
+  /** Asks for an admin's approval on this phone: the approval code for a fresh request code, or the admin PIN typed by an admin. */
+  async function adminApproves(what) {
+    const P = pol(), req = reqCode();
+    if (isAdmin() && !(S.team && S.team.keyEnc) && !P.otp) return true; // an older list with no PIN key and no approval key: its admin's phone decides
+    LOG.info('approve.ask', { what: what.slice(0, 60) });
+    const v = await askPin('Admin approval needed', `${what} needs an admin's approval. Send this request code to an admin (Settings → Administration → Approve a delete) and type the 6-digit code you get back. It works only for this request. An admin who is with you can type the admin PIN instead.`, { code: req, placeholder: 'Approval code or admin PIN' });
+    if (!v) return false;
+    if (/^\d{6}$/.test(v) && P.otp && v === await approvalCode(P.otp, req)) { LOG.info('approve.ok', { by: 'code' }); return true; }
+    if (/^\d{4,8}$/.test(v) && S.team && S.team.keyEnc && (await decPriv(S.team.keyEnc, v))) { LOG.info('approve.ok', { by: 'pin' }); return true; }
+    LOG.warn('approve.wrong');
+    toast(P.otp ? 'Not approved: wrong code or PIN. Each request has its own code: ask the admin again with the new request code.' : 'Not approved: wrong admin PIN. This company list has no approval codes yet: the admin saves the list once with G-eSAA 2.22.', 7000);
+    return false;
+  }
+  $('admKmzPass').addEventListener('input', () => {
+    const v = $('admKmzPass').value.trim();
+    $('admKmzInfo').textContent = !v ? 'Empty: shared KMZ files are not locked.' : kmzHasKey(v) ? '⚠ This password holds your company key: every phone of the list would get it. A random password is safer.' : 'Shared PAT, cleanup and FAT KMZ files are locked with this password. Update every phone to v2.22 first: older versions cannot open locked files.';
+  });
+  $('admOwner').addEventListener('change', () => { if (admKmzAuto && $('admKmzPass').value.trim() === admKmzAuto) { admKmzAuto = autoKmzFor($('admOwner').value); $('admKmzPass').value = admKmzAuto; } });
+  $('admReqGo').addEventListener('click', () => guard(async () => {
+    const req = normReq($('admReq').value), out = $('admReqOut');
+    if (req.length !== 6) { toast('Type the 6-character request code from the user’s phone, e.g. K7Q-2M9'); return; }
+    const sec = S.team && S.team.pol && S.team.pol.otp;
+    if (!sec) { out.hidden = false; out.textContent = 'This list has no approval key yet: tap Save and share the list once, let the phones update, then get the code.'; return; }
+    const code = await approvalCode(sec, req);
+    out.hidden = false; out.textContent = `Approval code for ${req.slice(0, 3)}-${req.slice(3)}: ${code.slice(0, 3)} ${code.slice(3)}`;
+    LOG.info('approve.code');
+  }, 'No code'));
+
+  /* ---- v2.22: the shared KMZ lock. In the KMZ shared for the defect cleanup and the FAT, the G-eSAA data (points.json, the
+     photos) is encrypted and sealed (AES-GCM, key from the list's KMZ password with PBKDF2): Google Earth still shows doc.kml,
+     but the data can be read only with the password, and any change to it makes the file refused. ---- */
+  const SEAL_ITER = 150000;
+  let admKmzAuto = '';
+  const coShort = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9 ]+/g, ' ').trim().split(/\s+/)[0] || 'ORG';
+  /** The suggested password with the admin company chosen on the screen (the random part stays). */
+  const autoKmzFor = (owner) => `${admKmzAuto.split('_')[0]}_${coShort(owner || (S.user && S.user.company))}`;
+  /** A new random KMZ password: 128 bits (26 characters) and the admin company. Not the company key: the password goes to every
+      phone of the list, and a company key there would let anyone sign in to the online sheet as that company. */
+  function suggestKmzPass(company) {
+    const r = crypto.getRandomValues(new Uint8Array(17)), abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let bits = 0, acc = 0, out = '';
+    for (const b of r) { acc = (acc << 8) | b; bits += 8; while (bits >= 5 && out.length < 26) { out += abc[(acc >> (bits - 5)) & 31]; bits -= 5; } }
+    return `${out}_${coShort(company)}`;
+  }
+  /** The KMZ password holds this phone's company key (the format 9CCA68FC9388_GLOBE): warned, as the list would carry the key. */
+  const kmzHasKey = (pass) => { const k = normKey(S.companyKey); return k.length >= 8 && normKey(pass).includes(k); };
+  async function kmzKey(pass, saltB64) {
+    const base = await crypto.subtle.importKey('raw', enc8(pass), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64u.dec(saltB64), iterations: SEAL_ITER, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  }
+  /** files: [{ name: 'polecam/…', data }] → the sealed set (polecam/seal.json, polecam/sealed/…); null when no password is set.
+      Each file is encrypted on its own (its name bound in), with its IV in the encrypted manifest; the plain copy is let go at once. */
+  async function sealFiles(files, pre) {
+    const pass = S.team && pol().kmzPass; if (!pass) return null;
+    const salt = b64u.enc(crypto.getRandomValues(new Uint8Array(16))), key = await kmzKey(pass, salt), out = [], ivs = {};
+    let i = 0;
+    for (const f of files) {
+      busy(`Locking the data ${++i} / ${files.length}`, i / files.length);
+      const rel = f.name.slice(pre.length), iv = crypto.getRandomValues(new Uint8Array(12));
+      const plain = typeof f.data === 'string' ? enc8(f.data) : f.data;
+      f.data = null; // the plain bytes are not kept next to the locked ones (memory on big projects)
+      out.push({ name: `${pre}sealed/${rel}.bin`, data: new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: enc8(rel) }, key, plain)) });
+      ivs[rel] = b64u.enc(iv);
+    }
+    const ivm = crypto.getRandomValues(new Uint8Array(12));
+    const man = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: ivm, additionalData: enc8('manifest') }, key, enc8(JSON.stringify({ v: 1, files: ivs, at: new Date().toISOString() }))));
+    const head = { app: 'G-eSAA', seal: 1, kdf: 'PBKDF2-SHA256', iter: SEAL_ITER, salt, org: S.team.id, orgName: S.team.name, manifest: { iv: b64u.enc(ivm), data: b64u.enc(man) } };
+    return [{ name: `${pre}seal.json`, data: JSON.stringify(head) }, ...out];
+  }
+  /** A sealed KMZ opened: a reader like zipReader's, where pre/points.json, pre/photos/… are the decrypted files. Every locked
+      file is checked before anything is read from it, so a changed file is refused before any record is saved. */
+  async function unsealZip(z, pre) {
+    let head = null; try { head = JSON.parse(new TextDecoder().decode(await z.get(`${pre}seal.json`))); } catch (e) { head = null; }
+    if (!head || head.seal !== 1 || !head.salt || !head.manifest || !(head.iter >= 100000 && head.iter <= 2000000)) throw new Error('This KMZ’s locked G-eSAA data is damaged: it is not opened.');
+    const P = pol(), cands = [...new Set([P.kmzPass, ...(P.kmzOld || [])].filter(Boolean))];
+    const changed = () => new Error('The G-eSAA data in this KMZ was changed after it was shared (or the file is damaged): it is not opened. Ask for the file again.');
+    busy('Unlocking the data…');
+    let key = null, man = null;
+    for (const c of cands) { // the password is found by the manifest it opens (nothing in the file tells it apart)
+      const k = await kmzKey(c, head.salt);
+      try { man = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64u.dec(head.manifest.iv), additionalData: enc8('manifest') }, k, b64u.dec(head.manifest.data)))); key = k; break; } catch (e) { /* not this one */ }
+    }
+    if (!key) {
+      LOG.warn('seal.nokey', { org: head.orgName || '', mine: (S.team && S.team.name) || '' });
+      throw new Error(S.team && head.org === S.team.id ? 'This KMZ is locked with a KMZ password this phone does not have (or its data was changed): update the company list (Settings → Update list, or Sync), then open it again.'
+        : `This KMZ is locked by “${head.orgName || 'another organisation'}”. Only phones with that organisation's company list can open it.`);
+    }
+    const ivs = (man && man.files) || {}, files = new Set(Object.keys(ivs));
+    if (!files.has('points.json')) throw changed();
+    const extra = z.names.filter((n) => n.startsWith(`${pre}sealed/`) && !files.has(n.slice(pre.length + 7, -4)));
+    if (extra.length) throw changed();
+    const dec = async (rel) => {
+      const ct = await z.get(`${pre}sealed/${rel}.bin`); if (!ct) throw changed();
+      try { return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64u.dec(ivs[rel]), additionalData: enc8(rel) }, key, ct)); } catch (e) { throw changed(); }
+    };
+    let n = 0; const plainPts = await dec('points.json');
+    for (const rel of files) { busy(`Checking the locked data ${++n} / ${files.size}`, n / files.size); if (rel !== 'points.json') await dec(rel); } // all checked first
+    LOG.info('seal.open', { files: files.size });
+    const get = async (nm) => {
+      if (!nm.startsWith(pre)) return z.get(nm);
+      const rel = nm.slice(pre.length);
+      if (!files.has(rel)) return null;
+      return rel === 'points.json' ? plainPts : dec(rel);
+    };
+    return { names: [...z.names.filter((x) => !x.startsWith(pre)), ...[...files].map((r) => pre + r)], has: (nm) => (nm.startsWith(pre) ? files.has(nm.slice(pre.length)) : z.has(nm)), get, sealed: true, org: head.orgName || '' };
   }
 
   /* ---- small dialog ---- */
@@ -6161,7 +6445,7 @@
     S.meta = S.meta || {};
     LOG.info('project.new', { cat: k, sheet: !!t, role: siteRole(t), kmz: f ? (fromFile ? 'stage' : 'ref') : '' });
     if (fromFile) {
-      await importStageFile(f, k, sm, name || undefined);
+      if (!(await importStageFile(f, k, sm, name || undefined))) return; // not opened (an unlocked file, cancelled)
       npFile = null; npSite = null; await closeAll(); fitProject(); return;
     }
     S.projects.push(name);
@@ -6200,8 +6484,10 @@
     LOG.info('shared.open', { name: f.name || '', mb: +((f.size || 0) / 1048576).toFixed(1) });
     busy('Reading file…');
     let meta, z;
-    try { z = await zipReader(f); if (!z.has('bundle.json')) meta = (await readPackage(z)).meta; } finally { busy(false); }
-    if (!meta) { await openBundle(z, f); return; } // v2.21: several projects from a colleague
+    let rp = null;
+    try { z = await zipReader(f); if (!z.has('bundle.json')) { rp = await readPackage(z); meta = rp.meta; } } finally { busy(false); }
+    if (!meta) { await openBundle(z, f); return; }
+    if (!(await unsealedOk(f, rp))) return; // v2.21: several projects from a colleague
     const fm = meta.meta || {}, kind = fm.mode === 'acceptance' ? fm.stage || 'PAT' : 'survey', n = meta.points.length;
     const what = `“${meta.project || f.name}”: ${kind === 'survey' ? 'a survey' : `a ${STAGE_NAME[kind]}`} with ${n} record${n === 1 ? '' : 's'}${fm.site && fm.site !== meta.project ? ` · ${fm.site}` : ''}.`;
     const btns = kind === 'PAT' ? [{ label: 'Start the defect cleanup', value: 'Cleanup', primary: true }, { label: 'Start the FAT', value: 'FAT' }, { label: 'Open the PAT itself', value: 'open' }]
@@ -6357,7 +6643,11 @@
   async function admStart() {
     const create = admMode === 'create' || !S.team;
     const P = pol(), F = formText();
-    const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice(), poleTypes: (P.poleTypes || []).slice(), adminUsers: (P.adminUsers || []).slice(), ...(P.web ? { web: P.web } : {}), ...(P.vendorRecords === false ? { vendorRecords: false } : {}) };
+    const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice(), poleTypes: (P.poleTypes || []).slice(), adminUsers: (P.adminUsers || []).slice(), ...(P.web ? { web: P.web } : {}), ...(P.vendorRecords === false ? { vendorRecords: false } : {}),
+      otp: P.otp || b64u.enc(crypto.getRandomValues(new Uint8Array(18))), ...(P.kmzPass ? { kmzPass: P.kmzPass } : {}), ...(P.kmzOld ? { kmzOld: P.kmzOld.slice() } : {}) }; // v2.22
+    admKmzAuto = P.kmzPass ? '' : suggestKmzPass(P.owner || (S.user && S.user.company) || ''); // follows the admin company until edited
+    $('admKmzPass').value = P.kmzPass || admKmzAuto; $('admReq').value = ''; $('admReqOut').hidden = true;
+    $('admKmzInfo').textContent = P.kmzPass ? 'Shared PAT, cleanup and FAT KMZ files are locked with this password.' : 'Not saved yet: shared KMZ files are locked once the list is saved with a password. Update every phone to v2.22 first: older versions cannot open locked files.';
     $('admPoleTypes').value = typeLines(polDraft.poleTypes);
     $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = '';
     $('admUsers').value = (P.adminUsers || []).join('\n'); $('admVendorRec').checked = P.vendorRecords !== false;
@@ -6400,6 +6690,11 @@
     const num = (id, lo, hi, dflt) => { const v = +$(id).value; return v >= lo && v <= hi ? v : dflt; };
     P.maxSpan = num('setMaxSpan', 5, 1000, 200); P.angleDeg = num('setAngle', 1, 90, 15); P.autoGap = num('setAutoGap', 10, 5000, 120);
     P.quality = $('admQuality').value === 'normal' ? 'normal' : 'strict';
+    { let kp = $('admKmzPass').value.trim().replace(/\s+/g, '').slice(0, 100); const was = (S.team && S.team.pol && S.team.pol.kmzPass) || '';
+      if (admKmzAuto && kp === admKmzAuto) kp = autoKmzFor(P.owner);
+      if (kp) P.kmzPass = kp; else delete P.kmzPass;
+      if (was && was !== kp) P.kmzOld = [was, ...(P.kmzOld || []).filter((x) => x !== was && x !== kp)].slice(0, 5); // files locked before still open
+      if (P.kmzOld && !P.kmzOld.length) delete P.kmzOld; }
     if ($('admVendorRec').checked) delete P.vendorRecords; else P.vendorRecords = false;
     P.poleTypes = parseTypeLines($('admPoleTypes').value).filter((t) => !BUILTIN_TYPES.some((b) => b.p === t.p));
     P.packs = parsePackLines($('admPacks').value).packs; if (!P.packs.length) delete P.packs;
@@ -6462,6 +6757,12 @@
     if (url && !rkey) { toast('Enter the read key from the sheet’s Settings tab, or clear the URL'); $('admReadKey').focus(); return; }
     if (admDraft.co.length > 300) { toast(`The list has ${admDraft.co.length} companies; the most is 300. Remove some, or keep the full list in the online sheet.`, 6000); return; }
     const P = readPolDraft();
+    if (P.kmzPass && kmzHasKey(P.kmzPass)) { // v2.22: the KMZ password goes to every phone of the list
+      const c = await ask('KMZ password holds your company key', 'The KMZ password is sent to every phone of the company list, contractors included. With your company key in it, any user could read the key and sign in to the online sheet as your company. Use a random password instead (nobody types it: the phones get it with the list)?',
+        [{ label: 'Cancel', value: '' }, { label: 'Use a random password', value: 'rand', primary: true }, { label: 'Keep mine', value: 'keep' }]);
+      if (!c) return;
+      if (c === 'rand') { const old = P.kmzPass; P.kmzPass = suggestKmzPass(P.owner); $('admKmzPass').value = P.kmzPass; if (P.kmzOld) { P.kmzOld = P.kmzOld.filter((x) => x !== old); if (!P.kmzOld.length) delete P.kmzOld; } }
+    }
     if (!P.owner) { const ok = await ask('No admin company', 'Without an admin company every user can change this list and verify deficiencies. Save anyway?'); if (!ok) return; }
     admDraft.src = url ? { url, key: rkey } : null;
     S.onlineAdminKey = $('admWriteKey').value.trim();
@@ -6595,8 +6896,10 @@
     openAdmin('create');
   });
   /** PIN prompt (the askBox with a password field). */
-  function askPin(title, text) {
+  function askPin(title, text, o) {
+    const x = o || {};
     $('pinTitle').textContent = title; $('pinText').textContent = text || ''; $('pinInput').value = '';
+    $('pinCode').hidden = !x.code; $('pinCode').textContent = x.code || ''; $('pinInput').placeholder = x.placeholder || '4 to 8 digits'; // v2.22: a request code shown large
     return new Promise((res) => {
       const done = (v) => { $('pinBox').hidden = true; $('pinYes').onclick = $('pinNo').onclick = null; res(v); };
       $('pinYes').onclick = () => done($('pinInput').value.trim()); $('pinNo').onclick = () => done(null);

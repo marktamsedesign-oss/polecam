@@ -163,7 +163,7 @@ body.hand-left #camBar #shutter{grid-area:1/1}body.hand-left #camBar #camNative{
 .btn.sm{min-height:38px;padding:0 12px;font-size:calc(13px * var(--fs));border-radius:10px}
 .btn:disabled{opacity:.5}
 label.field{display:flex;flex-direction:column;gap:6px;font-size:calc(13px * var(--fs));color:var(--muted);font-weight:600;letter-spacing:.02em}
-input[type=text],input[type=number],input[type=tel],input[type=email],input[type=password],input[type=date],select,textarea{width:100%;min-height:var(--tap);border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:10px 12px;font-size:calc(16px * var(--fs));color:var(--ink)}
+input[type=text],input[type=search],input[type=number],input[type=tel],input[type=email],input[type=password],input[type=date],select,textarea{width:100%;min-height:var(--tap);border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:10px 12px;font-size:calc(16px * var(--fs));color:var(--ink)}
 input:disabled,select:disabled,textarea:disabled{opacity:.6}
 textarea{min-height:90px;resize:vertical}
 #poleId{font:700 min(calc(22px * var(--fs)), 24px) var(--mono);letter-spacing:.03em;text-transform:uppercase}
@@ -349,6 +349,59 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .listtools{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}.listtools .field.inline{flex-direction:row;align-items:center;gap:8px}.listtools select{min-height:38px;padding:4px 8px}
 .lgroup{margin:6px 2px 0;font-size:calc(13px * var(--fs));letter-spacing:.06em;text-transform:uppercase;color:var(--muted);display:flex;gap:8px;align-items:center}.lgroup i{flex:1;height:1px;background:var(--line)}
 .btn.complete{background:var(--ok);border-color:var(--ok);color:#fff;min-height:52px;font-size:calc(16px * var(--fs))}.btn.complete.undo{background:var(--surface);color:var(--ink);border-color:var(--line);min-height:44px;font-size:inherit}
+/* v2.22: Projects as a task list */
+#projects .body.tm{padding-left:max(16px,calc((100% - 760px) / 2));padding-right:max(16px,calc((100% - 760px) / 2))}
+.tmempty{align-items:flex-start}.tmempty b{font-size:calc(17px * var(--fs))}
+.tmcur{border-left:5px solid var(--accent);gap:10px}
+.tmhead{display:flex;align-items:center;gap:8px;min-width:0}
+.tmstate{font-size:calc(12px * var(--fs));font-weight:700;padding:4px 9px;border-radius:999px;background:var(--chip);color:var(--muted);white-space:nowrap}
+.tmstate.wip{background:var(--soft);color:var(--accent)}.tmstate.done{background:var(--ok);color:#fff}
+.tmopen{font-size:calc(11px * var(--fs));font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.group h3.tmname{font-size:calc(18px * var(--fs));text-transform:none;letter-spacing:0;color:var(--ink);line-height:1.3;overflow-wrap:anywhere}
+.tmsub{font-size:calc(13px * var(--fs));color:var(--muted);margin-top:-4px;overflow-wrap:anywhere}
+.tmprog{display:flex;align-items:center;gap:10px;font-size:calc(12.5px * var(--fs));color:var(--muted);font-weight:600;width:100%;background:none;border:0;padding:6px 0;font-family:inherit;cursor:pointer;text-align:left}
+.tmprog::after{content:"\25B8";font-size:calc(15px * var(--fs));transition:transform .15s}.tmprog[aria-expanded=true]::after{transform:rotate(90deg)}
+.tmprog .bar,.task .bar{flex:1;height:8px;border-radius:99px;background:var(--chip);overflow:hidden;display:block}
+.tmprog .bar i,.task .bar i{display:block;height:100%;border-radius:99px;background:var(--ok)}
+.tmacts,.tmdone,.tmmore{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line2);padding-top:10px}
+.tmmore{display:block}
+.tmstage{margin:0;font-size:calc(13px * var(--fs));font-weight:600;color:var(--ink)}
+.tmdone .btn.complete{background:var(--surface);color:var(--ok);border:1.5px solid var(--ok);min-height:46px;font-size:inherit}
+.tmdone .btn.complete.ready{background:var(--ok);color:#fff}
+.tmdone .btn.complete:disabled{color:var(--muted);border-color:var(--line);background:var(--surface);opacity:.75}
+.tmdone .btn.complete.undo{color:var(--ink);border-color:var(--line)}
+.tmlist{display:flex;flex-direction:column;gap:10px;margin-top:4px}
+.tmlisthead .lgroup{margin:0}
+.tmfil{display:flex;flex-wrap:wrap;gap:6px}
+.tmfil .chip.small{min-height:34px;padding:0 12px;font-size:calc(13px * var(--fs))}
+.tmfil .chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.tasklist{display:flex;flex-direction:column;gap:8px}
+.task{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-left:5px solid #adb5bd;border-radius:var(--r);padding:10px 12px;font:inherit;cursor:pointer}
+.task:active{background:var(--soft)}
+.task.k-pat{border-left-color:#f2b705}.task.k-cleanup{border-left-color:#fd7e14}.task.k-fat{border-left-color:#2f9e44}.task.k-survey{border-left-color:var(--accent)}
+.task .badge{margin-top:2px}
+.task .ti{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.task .tn{font-weight:700;line-height:1.3;overflow-wrap:anywhere}
+.task .ts{font-size:calc(12.5px * var(--fs));color:var(--muted);overflow-wrap:anywhere}
+.task .tp{display:flex;align-items:center;gap:8px;font-size:calc(12px * var(--fs));color:var(--muted);font-weight:600}
+.task .tp .bar{flex:0 0 72px;height:6px}
+.task .tp span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task.done{opacity:.8}.task.done .tn{color:var(--muted)}
+.tmtools{display:flex;flex-wrap:wrap;gap:8px}.tmtools .btn{flex:1 1 220px}
+#pinText{white-space:pre-line}
+.pincode{margin:0;text-align:center;font:700 calc(28px * var(--fs))/1.2 var(--mono);letter-spacing:.12em;color:var(--ink);background:var(--soft);border-radius:10px;padding:10px}
+/* v2.22: PAT / cleanup / FAT record: the optional sections fold (closed when the record opens) */
+.lfold{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink);font:inherit;font-weight:700;text-align:left;cursor:pointer}
+.lfold .ln{flex:1;min-width:0;overflow-wrap:anywhere}.lfold .lc{font-size:calc(12.5px * var(--fs));color:var(--muted);font-weight:600;white-space:nowrap}
+.lfold::after{content:"\25B8";font-size:calc(16px * var(--fs));color:var(--muted);transition:transform .15s}.lfold[aria-expanded=true]::after{transform:rotate(90deg)}
+.lfoldbody{display:flex;flex-direction:column;gap:8px;padding-left:8px;border-left:3px solid var(--line2)}
+.foldsum{display:none;margin:-4px 0 0;font-size:calc(13.5px * var(--fs));font-weight:600;color:var(--ink);overflow-wrap:anywhere}
+#editor.acc .group.fold>h3{cursor:pointer;display:flex;align-items:center;gap:8px;min-height:28px;user-select:none}
+#editor.acc .group.fold>h3::after{content:"\25B8";margin-left:auto;font-size:calc(16px * var(--fs));color:var(--muted);transition:transform .15s}
+#editor.acc .group.fold.open>h3::after{transform:rotate(90deg)}
+#editor.acc .group.fold:not(.open)>:not(h3):not(.foldsum){display:none!important}
+#editor.acc .group.fold:not(.open)>.foldsum{display:block}
+#editor.acc .group.fold:not(.open){gap:6px}
 .pill.done{background:var(--ok);color:#fff}
 .sharerow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}.sharerow .warnline{flex-basis:100%}
 .sharebtn{gap:8px;min-height:40px;padding:0 14px}.sharebtn .shi{width:18px;height:18px;flex:none}
@@ -600,6 +653,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
     <div class="group" id="idGroup">
       <h3 id="idGroupTitle">Identification</h3>
+      <p class="foldsum" id="idGroupSum"></p>
       <label class="frow" id="svStatusBox" hidden><span class="lbl">STATUS</span><select id="svStatus" aria-label="Status"></select></label>
       <div class="pair" id="elemTypeRow">
         <label class="field" id="accElementBox" hidden><span class="lbl">ELEMENT</span><select id="elemSel" aria-label="Element"></select></label>
@@ -620,6 +674,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
     <div class="group" id="poleAttach" hidden>
       <h3 id="attachTitle">On this pole</h3>
+      <p class="foldsum" id="attachSum"></p>
       <div class="toggles">
         <label class="tchip"><input type="checkbox" id="atMloop"><span>MLoop</span></label>
         <label class="tchip"><input type="checkbox" id="atNap"><span>NAP</span></label>
@@ -683,7 +738,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div class="body">
     <div class="group" id="listStats" hidden><div class="stats4" id="listStatRow"></div></div>
     <input type="text" id="listSearch" placeholder="Search ID or type" aria-label="Search records">
-    <div class="listtools"><label class="field inline">SORT<select id="listSort" aria-label="Sort the records"><option value="new">Newest first</option><option value="old">Oldest first</option><option value="id">ID A → Z</option><option value="idd">ID Z → A</option><option value="status">Status</option></select></label><label class="check"><input type="checkbox" id="listGroup"><span>Group by element</span></label></div>
+    <div class="listtools"><label class="field inline">SORT<select id="listSort" aria-label="Sort the records"><option value="new">Newest first</option><option value="old">Oldest first</option><option value="id">ID A → Z</option><option value="idd">ID Z → A</option><option value="status">Status</option></select></label><label class="check"><input type="checkbox" id="listGroup"><span>Group by element</span></label><button class="btn sm" id="listFoldAll" type="button" hidden>Open all</button></div>
     <div class="chips" id="listFilter" hidden><button type="button" class="chip small" data-v="all" aria-pressed="true">All</button><button type="button" class="chip small" data-v="Open" aria-pressed="false">Open</button><button type="button" class="chip small" data-v="Rectified" aria-pressed="false">Rectified</button><button type="button" class="chip small" data-v="Verified" aria-pressed="false">Verified</button><button type="button" class="chip small" data-v="OK" aria-pressed="false">No deficiency</button></div>
     <div id="listItems" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
@@ -974,59 +1029,71 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <h2 id="projTitle">Projects</h2>
     <button class="iconbtn addbtn" id="newProjBtn" type="button" aria-label="New project" title="New project"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
   </header>
-  <div class="body">
-    <div class="group" id="projPickBox">
-      <input type="search" id="projSearch" placeholder="Search projects: name, site, vendor, category" autocomplete="off" aria-label="Search the projects on this phone" hidden>
-      <div id="projResults" class="projres" hidden></div>
-      <label class="field">PROJECT<select id="projPick" aria-label="Open a project on this phone"></select></label>
-      <p class="hint" id="noProjHint" hidden>No project yet. Tap <b>+</b> at the top right to create one; photos are taken inside a project.</p>
-      <button class="btn" id="openShared" type="button" title="A PAT or cleanup KMZ, or a backup ZIP, sent from another phone">📂 Open a shared file (PAT / cleanup KMZ, backup ZIP)</button>
-      <button class="btn" id="bulkShareBtn" type="button" title="Several projects in one file, for a colleague of your company">📤 Share several projects (to a colleague)</button>
-      <input type="file" id="sharedInput" accept=".kmz,.zip,application/vnd.google-earth.kmz,application/zip,application/x-zip-compressed,application/octet-stream" hidden>
+  <div class="body tm">
+    <div class="group tmempty" id="noProjHint" hidden>
+      <b>No project yet</b>
+      <p class="hint" style="margin:0">A project is one task: a survey, a PAT, a defect cleanup or a FAT. Photos are taken inside a project.</p>
+      <button class="btn primary" id="tmNew" type="button">+ New project</button>
     </div>
-    <div class="group" id="doneBox">
-      <p class="okline" id="doneInfo" hidden></p>
-      <button class="btn complete" id="doneBtn" type="button">✓ Mark task complete</button>
-      <p class="hint" id="doneHint" style="margin:0"></p>
-    </div>
-    <div class="group" id="wfBox">
-      <div class="row between" style="flex-wrap:nowrap"><span class="cursub" id="curSub"></span><span class="badge cat" id="projBadge">SURVEY</span></div>
-      <div id="wfSteps"></div>
+    <section class="group tmcur" id="wfBox" aria-labelledby="curName">
+      <div class="tmhead"><span class="badge cat" id="projBadge">SURVEY</span><span class="tmstate" id="tmState"></span><span class="grow"></span><span class="tmopen">Open now</span></div>
+      <h3 class="tmname" id="curName"></h3>
+      <span class="tmsub" id="curSub"></span>
+      <button class="tmprog" id="tmStepsBtn" type="button" aria-expanded="false" aria-controls="wfSteps"><span class="bar"><i id="tmBar"></i></span><span id="tmProgTxt"></span></button>
+      <div id="wfSteps" hidden></div>
       <button class="btn primary" id="wfNext" type="button">Next</button>
-      <div id="accActs" hidden style="display:flex;flex-direction:column;gap:8px">
-        <button class="btn primary sharebtn" id="sendPat" type="button"><svg class="shi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="m8.3 10.8 7.4-4.4M8.3 13.2l7.4 4.4"/></svg><span id="sendPatLbl">Share PAT KMZ · for defect cleanup / FAT</span></button>
-        <button class="btn primary" id="startFat" type="button">Start FAT from this PAT on this phone</button>
+      <div id="accActs" class="tmacts" hidden>
+        <p class="tmstage" id="stageHint" hidden></p>
+        <button class="btn primary" id="startCleanup" type="button" hidden>🛠 Start the defect cleanup</button>
+        <button class="btn" id="startFat" type="button">Start FAT from this PAT on this phone</button>
+        <button class="btn sharebtn" id="sendPat" type="button"><svg class="shi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="m8.3 10.8 7.4-4.4M8.3 13.2l7.4 4.4"/></svg><span id="sendPatLbl">Share PAT KMZ · for defect cleanup / FAT</span></button>
         <p class="warnline" id="shareWarn" hidden></p>
       </div>
-    </div>
-    <details class="group more" id="curMore">
-      <summary>Project details</summary>
-      <div class="morebody">
-        <div class="row"><input type="text" id="renameProject" aria-label="Project name" style="flex:1"><button class="btn" id="doRename">Rename</button></div>
-        <p class="hint" id="curSite" hidden></p>
-        <button class="btn sm" id="curFolder" type="button" hidden>Project folder (Drive)</button>
-        <label class="frow" id="purposeRow" hidden><span class="lbl">PURPOSE</span><select id="curPurpose"><option value="As-plan">As-Plan Creation</option><option value="As-built">As-Built Creation</option><option value="Audit">Audit</option></select></label>
-        <label class="frow" id="curStartRow" hidden><span class="lbl">START DATE</span><input type="date" id="curStart"></label>
-        <div id="refBox" style="display:flex;flex-direction:column;gap:8px">
-          <span class="lbl">KMZ REFERENCE</span>
-          <p class="hint" id="refInfo">No reference loaded.</p>
-          <div class="row"><button class="btn grow" id="refLoad" type="button">Load KMZ / KML…</button><button class="btn" id="refToggle" type="button" hidden>Hide</button><button class="btn" id="refRemove" type="button" hidden>Remove</button></div>
-          <input type="file" id="refInput" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/xml,text/xml,application/octet-stream" hidden>
-        </div>
-        <label class="field">REMARKS / NOTES<textarea id="curNotes" style="min-height:60px"></textarea></label>
-        <div id="accMeta" hidden style="display:flex;flex-direction:column;gap:12px">
-          <p class="hint" id="accStageInfo" style="font-weight:700;color:var(--ink)"></p>
-          <label class="field">LOCATION / SITE<input type="text" id="mSite" autocomplete="off" placeholder="e.g. KABAN_MIN660"></label>
-          <label class="field">VENDOR (CONTRACTOR)<input type="text" id="mContractor" autocomplete="off" placeholder="e.g. LASAYA RCA BUILDERS INC."></label>
-          <label class="field">CONTRACTOR REPRESENTATIVE (you)<input type="text" id="mVendorRep" autocomplete="off" readonly></label>
-          <label class="field">GLOBE REPRESENTATIVE (optional, signs the form)<input type="text" id="mGlobe" autocomplete="off"></label>
-          <div class="field"><span class="lbl">INSPECTION TYPE</span><div class="chips" id="mTypes"></div></div>
-          <label class="field">INSPECTION DATE<input type="date" id="mDate"></label>
-        </div>
-        <button class="btn danger" id="delProject">Delete this project…</button>
-        <div id="delProjConfirm" hidden style="display:flex;flex-direction:column;gap:10px"><p style="margin:0" id="delProjText"></p><div class="row"><button class="btn grow" id="delProjNo">Keep</button><button class="btn grow" id="delProjYes" style="background:var(--bad);border-color:var(--bad);color:#fff">Delete project</button></div></div>
+      <div id="doneBox" class="tmdone">
+        <p class="okline" id="doneInfo" hidden></p>
+        <button class="btn complete" id="doneBtn" type="button">✓ Mark task complete</button>
+        <p class="hint" id="doneHint" style="margin:0"></p>
       </div>
-    </details>
+      <details class="more tmmore" id="curMore">
+        <summary>Project details</summary>
+        <div class="morebody">
+          <div class="row"><input type="text" id="renameProject" aria-label="Project name" style="flex:1"><button class="btn" id="doRename">Rename</button></div>
+          <p class="hint" id="curSite" hidden></p>
+          <button class="btn sm" id="curFolder" type="button" hidden>Project folder (Drive)</button>
+          <label class="frow" id="purposeRow" hidden><span class="lbl">PURPOSE</span><select id="curPurpose"><option value="As-plan">As-Plan Creation</option><option value="As-built">As-Built Creation</option><option value="Audit">Audit</option></select></label>
+          <label class="frow" id="curStartRow" hidden><span class="lbl">START DATE</span><input type="date" id="curStart"></label>
+          <div id="refBox" style="display:flex;flex-direction:column;gap:8px">
+            <span class="lbl">KMZ REFERENCE</span>
+            <p class="hint" id="refInfo">No reference loaded.</p>
+            <div class="row"><button class="btn grow" id="refLoad" type="button">Load KMZ / KML…</button><button class="btn" id="refToggle" type="button" hidden>Hide</button><button class="btn" id="refRemove" type="button" hidden>Remove</button></div>
+            <input type="file" id="refInput" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/xml,text/xml,application/octet-stream" hidden>
+          </div>
+          <label class="field">REMARKS / NOTES<textarea id="curNotes" style="min-height:60px"></textarea></label>
+          <div id="accMeta" hidden style="display:flex;flex-direction:column;gap:12px">
+            <p class="hint" id="accStageInfo" style="font-weight:700;color:var(--ink)"></p>
+            <label class="field">LOCATION / SITE<input type="text" id="mSite" autocomplete="off" placeholder="e.g. KABAN_MIN660"></label>
+            <label class="field">VENDOR (CONTRACTOR)<input type="text" id="mContractor" autocomplete="off" placeholder="e.g. LASAYA RCA BUILDERS INC."></label>
+            <label class="field">CONTRACTOR REPRESENTATIVE (you)<input type="text" id="mVendorRep" autocomplete="off" readonly></label>
+            <label class="field">GLOBE REPRESENTATIVE (optional, signs the form)<input type="text" id="mGlobe" autocomplete="off"></label>
+            <div class="field"><span class="lbl">INSPECTION TYPE</span><div class="chips" id="mTypes"></div></div>
+            <label class="field">INSPECTION DATE<input type="date" id="mDate"></label>
+          </div>
+          <button class="btn danger" id="delProject">Delete this project…</button>
+          <div id="delProjConfirm" hidden style="display:flex;flex-direction:column;gap:10px"><p style="margin:0" id="delProjText"></p><div class="row"><button class="btn grow" id="delProjNo">Keep</button><button class="btn grow" id="delProjYes" style="background:var(--bad);border-color:var(--bad);color:#fff">Delete project</button></div></div>
+        </div>
+      </details>
+    </section>
+    <div class="tmlist" id="tmListBox">
+      <div class="tmlisthead"><h4 class="lgroup" id="tmListTitle"><span>Other projects</span><i></i></h4></div>
+      <input type="search" id="projSearch" placeholder="Search: name, site, vendor, task ID, category" autocomplete="off" aria-label="Search the projects on this phone">
+      <div class="tmfil" id="tmFilter" role="group" aria-label="Show"></div>
+      <div id="taskList" class="tasklist"></div>
+    </div>
+    <div class="tmtools">
+      <button class="btn" id="openShared" type="button" title="A PAT or cleanup KMZ, a backup ZIP, or several projects from a colleague">📂 Open a shared file</button>
+      <button class="btn" id="bulkShareBtn" type="button" title="Several projects in one file, for a colleague of your company">📤 Share several projects</button>
+      <input type="file" id="sharedInput" accept=".kmz,.zip,application/vnd.google-earth.kmz,application/zip,application/x-zip-compressed,application/octet-stream" hidden>
+    </div>
   </div>
 </section>
 
@@ -1216,6 +1283,18 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <label class="field">Photo sharpness required<select id="admQuality"><option value="strict">Strict (recommended)</option><option value="normal">Normal: refuse only clearly blurry</option></select></label>
       </div>
       <div class="group">
+        <h3>Shared KMZ lock (PAT, defect cleanup, FAT)</h3>
+        <p class="hint" style="margin:0">The G-eSAA data inside the KMZ files shared for the defect cleanup and the FAT (records, deficiencies, photos) is locked with this password. Google Earth still shows the map; the data can be read only by G-eSAA phones that have this company list, and a file whose data was changed is refused. Every phone gets the password with the list: nobody types it. Survey KMZ, backups and other exports are not locked.</p>
+        <label class="field">KMZ PASSWORD (a random one is suggested; nobody types it)<input type="text" id="admKmzPass" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="100"></label>
+        <p class="hint" id="admKmzInfo" style="margin:0"></p>
+      </div>
+      <div class="group">
+        <h3>Approve a delete</h3>
+        <p class="hint" style="margin:0">A user deleting a completed project gets a request code. Type it here and give them the 6-digit approval code; it works only for that request.</p>
+        <div class="row"><input type="text" id="admReq" placeholder="Request code, e.g. K7Q-2M9" autocomplete="off" autocapitalize="characters" spellcheck="false" style="flex:1" aria-label="Request code"><button class="btn" id="admReqGo" type="button">Get code</button></div>
+        <p class="okline" id="admReqOut" hidden></p>
+      </div>
+      <div class="group">
         <h3>Offline map packs</h3>
         <p class="hint help">Upload each .pmtiles map pack to Google Drive and share it as “Anyone with the link”. Paste one line per pack: name | Drive link | size in MB. Users see these packs under Maps after they take this list version (join link or QR code), or after Refresh list when the online sheet is connected. Users cannot add links themselves.</p>
         <textarea id="admPacks" style="min-height:80px" placeholder="Mindanao | https://drive.google.com/file/d/…/view | 200" aria-label="Offline map packs, one per line"></textarea>
@@ -1258,7 +1337,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <input type="file" id="qrPickInput" accept="image/*" hidden>
 </div>
 <div class="overlay" id="askBox" hidden><div class="panel"><h3 id="askTitle"></h3><p id="askText" style="margin:0;white-space:pre-line"></p><div class="row"><button class="btn grow" id="askNo" type="button">Cancel</button><button class="btn primary grow" id="askYes" type="button">OK</button></div></div></div>
-<div class="overlay" id="pinBox" hidden><div class="panel"><h3 id="pinTitle"></h3><p class="hint" id="pinText" style="margin:0"></p><input type="password" id="pinInput" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4 to 8 digits" aria-label="Admin PIN"><div class="row"><button class="btn grow" id="pinNo" type="button">Cancel</button><button class="btn primary grow" id="pinYes" type="button">OK</button></div></div></div>
+<div class="overlay" id="pinBox" hidden><div class="panel"><h3 id="pinTitle"></h3><p class="hint" id="pinText" style="margin:0"></p><p class="pincode" id="pinCode" hidden></p><input type="password" id="pinInput" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4 to 8 digits" aria-label="Admin PIN"><div class="row"><button class="btn grow" id="pinNo" type="button">Cancel</button><button class="btn primary grow" id="pinYes" type="button">OK</button></div></div></div>
 <div class="overlay" id="promptBox" hidden><div class="panel"><h3 id="promptTitle"></h3><p class="hint" id="promptText" style="margin:0"></p><textarea id="promptInput" style="min-height:70px"></textarea><div class="row"><button class="btn grow" id="promptNo" type="button">Cancel</button><button class="btn primary grow" id="promptYes" type="button">OK</button></div></div></div>
 
 <div id="busy" hidden><div><span id="busyText">Working…</span><progress id="busyProg" max="1" value="0"></progress><button class="btn" id="busyCancel" hidden style="margin-top:12px;width:100%">Cancel</button></div></div>

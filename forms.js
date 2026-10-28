@@ -167,7 +167,7 @@
       model.annexA.forEach((it) => it.stages.forEach((st) => { st.img = add(st.jpeg); }));
       newPage(`ANNEX A · PHOTO EVIDENCE OF DEFICIENCIES (${model.annexA.length})`, 'One block per punchlist item, in the same order as the form. Each photo was taken live in the app; the time, GPS position and the person are recorded at the moment of capture and printed under it.');
       for (const it of model.annexA) {
-        const head = wrapText(`ITEM ${it.no}   ${it.loc}${it.element ? ' · ' + it.element : ''}${it.code ? '   [' + it.code + ']' : ''}`, W - 150, 10, true);
+        const head = wrapText(`ITEM ${it.no}   ${[it.loc, it.element].filter(Boolean).join(' · ')}${it.code ? '   [' + it.code + ']' : ''}`, W - 150, 10, true);
         const desc = wrapText(it.text, W - 150, 8.5);
         const capN = Math.max(...it.stages.map((st) => (st.lines || []).reduce((n, l) => n + wrapText(l, slotW, 7).length, 0)), 1);
         const h = 6 + head.length * 12 + desc.length * 10 + 6 + 12 + photoH + 4 + capN * 9 + (it.remarks ? 12 : 0) + 14;
