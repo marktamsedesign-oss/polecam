@@ -138,7 +138,8 @@
     meta: {}, defects: JSON.parse(JSON.stringify(DEF_CHECK)), userName: '',
     quality: 'strict', readId: true, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
     exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'utm', 'time', 'by', 'project'], naming: 'id',
-      kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true },
+      kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true,
+      dxfPhotos: true, dxfPhotoW: 6, focPct: 10 },
     saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
   };
   let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem('polecam.settings') || '{}')); } catch (e) { return { ...DEF }; } })();
@@ -353,17 +354,27 @@
   const svPurpose = (name) => pmeta(name).purpose || 'As-plan';
   /** Status choices of a survey element: As-plan proposed / new or existing, As-built new (built) or existing (used), Audit existing. */
   function svStatuses(el, purpose) {
-    if (!el || el === 'Pole') return [];
     const p = purpose || svPurpose();
-    if (p === 'Audit') return ['Existing'];
-    if (p === 'As-built') return ['New', 'Existing'];
+    if (!el) return [];
+    if (p === 'Audit') return el === 'Pole' ? [] : ['Existing'];
+    if (p === 'As-built') return ['New', 'Existing']; // v2.14: poles too — mark the new poles, closures, ODF…
+    if (el === 'Pole') return ['Existing', 'Proposed']; // v2.14: a proposed new pole (PP-0001) in an As-plan
     return el === 'Site' ? ['New', 'Existing'] : ['Proposed', 'Existing'];
   }
-  const svDefaultStatus = (el, purpose) => ((purpose || svPurpose()) === 'As-plan' && ['NAP', 'Closure', 'Handhole'].includes(el) ? 'Existing' : svStatuses(el, purpose)[0] || '');
+  const SV_DEF = { 'As-plan': { Pole: 'Existing', NAP: 'Existing', Closure: 'Existing', Handhole: 'Existing' }, 'As-built': { Pole: 'Existing' } };
+  /** The status a new point starts with: the last one chosen for that element in that kind of survey, else the usual one. */
+  const svDefaultStatus = (el, purpose) => {
+    const p = purpose || svPurpose(), l = svStatuses(el, p), last = (S.lastSt || {})[`${p}|${el}`];
+    return l.includes(last) && !(el === 'Pole' && last === 'Proposed') ? last : (SV_DEF[p] && SV_DEF[p][el]) || l[0] || ''; // a proposed pole is chosen each time
+  };
   const svStatusLabel = (st, purpose) => ((purpose || svPurpose()) === 'As-built' ? { New: 'New (built)', Existing: 'Existing (used)' }[st] : '') || st || '';
   const isPoi = (r) => elemOf(r) === 'Closure' || (elemOf(r) === 'Handhole' && !!r.closureId);
-  /** "ODF · Proposed", "Handhole · Existing · closure CL-0101" (survey points other than poles). */
+  /** "ODF · Proposed", "Handhole · Existing · closure CL-0101", "Pole · Proposed" (survey points). */
   const svDesc = (r, purpose) => [elemOf(r), svStatusLabel(r.status, purpose), elemOf(r) === 'Handhole' && r.closureId ? `closure ${r.closureId}` : ''].filter(Boolean).join(' · ');
+  /* Pole details (v2.14): what else is on the pole, with a count — "Transformer: 1 pc". */
+  const POLE_DETAIL_ITEMS = ['Transformer', 'Streetlight', 'Riser pipe', 'Guy wire', 'Down guy / anchor', 'Crossarm', 'Electric meter', 'Service drop', 'Other telco cable'];
+  const detailsText = (list, sep) => (list || []).filter((x) => x && x.item).map((x) => `${x.item}: ${x.qty || 1} pc${(x.qty || 1) === 1 ? '' : 's'}`).join(sep || '; ');
+  const PP_RE = /^PP-(\d+)$/; // proposed poles: the app numbers them, as there is no painted ID yet
   /** The photo that stands for a record (list, KMZ icon): its element photo, or the first defect photo (v2.13 records have none). */
   const coverPid = (r) => { const p = photosOf(r)[0]; if (p) return p.pid; const d = (r.defs || []).find((x) => x.verifyPid || x.afterPid || x.pid); return d ? d.verifyPid || d.afterPid || d.pid : null; };
   function allPids(r) {
@@ -387,6 +398,10 @@
   function suggestId(element, type) {
     const recs = points.filter((p) => p.project === S.project && (!ed || p.id !== ed.id));
     const latest = (list) => list.reduce((m, p) => (p.created > m.created ? p : m));
+    if ((!element || element === 'Pole') && ed && !ed.acc && ed.status === 'Proposed') {
+      const n = recs.filter((p) => PP_RE.test(p.poleId || '')).reduce((m, p) => Math.max(m, +PP_RE.exec(p.poleId)[1]), 0);
+      return `PP-${String(n + 1).padStart(4, '0')}`;
+    }
     if (!element || element === 'Pole') {
       const pre = typePrefix(type) || typePrefix(S.lastType) || 'CC', re = poleIdRe();
       const same = recs.filter((p) => elemOf(p) === 'Pole' && (re.exec(p.poleId || '') || [])[1] === pre);
@@ -432,6 +447,26 @@
   const fmtTime = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); };
   const stamp8 = () => { const d = new Date(), p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; };
 
+  /* ================= full-size photo (v2.14): tap any photo; tap the photo to zoom; × or Back closes ================= */
+  let pvUrl = '', pvOpen = false;
+  function showBlob(blob, caption) {
+    if (!blob) return;
+    if (pvUrl) URL.revokeObjectURL(pvUrl);
+    pvUrl = URL.createObjectURL(blob);
+    $('pvImg').src = pvUrl; $('pvCap').textContent = caption || ''; $('photoView').classList.remove('zoomed'); $('photoView').hidden = false;
+    if (!pvOpen) { pvOpen = true; history.pushState({ photo: 1 }, ''); }
+  }
+  function hidePhotoView() { $('photoView').hidden = true; $('photoView').classList.remove('zoomed'); $('pvImg').src = ''; if (pvUrl) { URL.revokeObjectURL(pvUrl); pvUrl = ''; } }
+  const closePhotoView = () => { if (pvOpen) history.back(); else hidePhotoView(); };
+  $('pvClose').addEventListener('click', (e) => { e.stopPropagation(); closePhotoView(); });
+  $('photoView').addEventListener('click', (e) => { if (e.target === $('photoView')) closePhotoView(); });
+  $('pvImg').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const v = $('photoView'), box = $('pvScroll'), r = $('pvImg').getBoundingClientRect(), fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+    v.classList.toggle('zoomed');
+    if (v.classList.contains('zoomed')) requestAnimationFrame(() => { box.scrollLeft = fx * box.scrollWidth - box.clientWidth / 2; box.scrollTop = fy * box.scrollHeight - box.clientHeight / 2; });
+  });
+
   /* ================= sheets + back button ================= */
   const stack = []; const pendingClose = [];
   let editorSaving = false;
@@ -445,6 +480,7 @@
     return new Promise((r) => { if (!stack.length) return r(); pendingClose.push(r); history.back(); });
   }
   window.addEventListener('popstate', () => {
+    if (pvOpen) { pvOpen = false; hidePhotoView(); return; } // Back closes the full-size photo first
     if (editorSaving && stack[stack.length - 1] === 'editor') {
       history.pushState({ sheet: 'editor' }, '');
       LOG.info('back.blockedWhileSaving'); toast('Finishing the save. Your photo is still here.'); return;
@@ -484,6 +520,9 @@
     });
   }
   setupHelp();
+  const applyTextSize = () => { const v = [0.9, 1, 1.15, 1.3, 1.45].includes(+S.textScale) ? +S.textScale : 1; document.documentElement.style.setProperty('--fs', String(v)); $('setTextSize').value = String(v); };
+  applyTextSize();
+  $('setTextSize').addEventListener('change', () => { S.textScale = +$('setTextSize').value; persist(); applyTextSize(); if (typeof map !== 'undefined' && map) setTimeout(() => map.invalidateSize(), 50); });
   $('setShowHelp').checked = !!S.showHelp;
   $('setShowHelp').addEventListener('change', () => { S.showHelp = $('setShowHelp').checked; persist(); document.querySelectorAll('details.help').forEach((d) => { d.open = S.showHelp; }); });
 
@@ -504,7 +543,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.13.1';
+  const APP_VER = '2.14.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -770,8 +809,10 @@
       const acc = p.kind === 'acceptance', n = openCount(p), sel = routeMode && p.id === routeSel, el = elemOf(p);
       const m = !acc && el !== 'Pole' && SV_SHORT[el] // survey element: a labelled square (dashed when proposed / new)
         ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svpin${sel ? ' sel' : ''}${p.status === 'Proposed' || p.status === 'New' ? ' new' : ''}" style="--c:${SV_COLORS[el]}">${SV_SHORT[el]}</span>`, iconSize: [30, 24], iconAnchor: [15, 12] }) })
-        : L.circleMarker([p.lat, p.lon], { radius: sel ? 12 : acc && el !== 'Pole' ? 10 : 8, color: sel ? '#17202a' : acc && el !== 'Pole' ? '#17202a' : '#fff', weight: sel ? 4 : 2,
-          fillColor: acc ? STATUS_COLORS[recStatus(p)] : typeColor(p.poleType), fillOpacity: 1 });
+        : L.circleMarker([p.lat, p.lon], { radius: sel ? 12 : acc && el !== 'Pole' ? 10 : 8, weight: sel ? 4 : !acc && p.status === 'New' ? 3 : 2,
+          color: sel ? '#17202a' : acc && el !== 'Pole' ? '#17202a' : !acc && p.status === 'Proposed' ? '#e03131' : !acc && p.status === 'New' ? '#17202a' : '#fff',
+          dashArray: !acc && p.status === 'Proposed' && !sel ? '3 3' : null,
+          fillColor: acc ? STATUS_COLORS[recStatus(p)] : typeColor(p.poleType), fillOpacity: !acc && p.status === 'Proposed' ? 0.5 : 1 });
       const role = R && R.poles[p.id] && (R.poles[p.id].role === 'Angle' ? ` · ${Math.round(R.poles[p.id].deflection)}°` : R.poles[p.id].role === 'Junction' ? ' · junction' : '');
       m.bindTooltip(`${C.xmlEsc(p.poleId || '(no ID)')}${acc && n ? ` · ${n} open` : ''}${role || ''}`, { permanent: true, direction: 'right', offset: [!acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' });
       m.on('click', () => (routeMode ? routeTap(p.id) : visitMode() ? openVisit(p.id) : openEditorFor(p.id)));
@@ -1944,7 +1985,7 @@
     if (!ed) return;
     ed.type = t; renderTypeChips(t);
     const id = $('poleId').value.trim().toUpperCase(), pre = typePrefix(t);
-    if (!pre || (ed.element && ed.element !== 'Pole')) { checkFormat(); return; }
+    if (!pre || (ed.element && ed.element !== 'Pole') || ed.status === 'Proposed') { checkFormat(); return; } // a proposed pole keeps its PP- number
     const m = polePartRe().exec(id);
     if (!id || !ed.idTouched || (m && !m[2])) $('poleId').value = suggestId('Pole', t);
     else if (m && m[1] !== pre) { const num = PAD4.includes(pre) ? padNum(pre, m[2], m[2].length) : m[2]; $('poleId').value = `${pre}-${num}`; toast(`ID changed to ${pre}-${num} for ${t}`, 2500); }
@@ -1958,8 +1999,10 @@
     if (ed.acc && ed.mode === 'new' && /^FDU_/.test(id) && ed.element !== 'ODF') { ed.element = 'ODF'; renderElemChips(); applyElement(); }
     else if (ed.acc && ed.mode === 'new' && m && ed.element !== 'Pole') { ed.element = 'Pole'; renderElemChips(); applyElement(); }
     else if (!ed.acc && ed.mode === 'new') { // survey: FDU_ → ODF, NAP- → NAP, CL- → closure, HH- → handhole, ODC- → ODC, a pole prefix → pole
-      const want = /^FDU_/.test(id) ? 'ODF' : m ? 'Pole' : Object.keys(SV_PREFIX).find((k) => id.startsWith(`${SV_PREFIX[k]}-`)) || null;
-      if (want && want !== ed.element) { ed.element = want; renderElemChips(); applyElement(); }
+      const want = /^FDU_/.test(id) ? 'ODF' : m || /^PP-/.test(id) ? 'Pole' : Object.keys(SV_PREFIX).find((k) => id.startsWith(`${SV_PREFIX[k]}-`)) || null;
+      if (want && want !== ed.element) { ed.element = want; ed.status = svDefaultStatus(want); renderElemChips(); applyElement(); }
+      if (want === 'Pole' && /^PP-/.test(id) && ed.status !== 'Proposed' && svStatuses('Pole').includes('Proposed')) { ed.status = 'Proposed'; applyElement(); }
+      else if (want === 'Pole' && m && ed.status === 'Proposed') { ed.status = svDefaultStatus('Pole'); applyElement(); } // a painted ID: the pole exists
     }
     if (m && prefixType(m[1]) !== ed.type && (ed.element || 'Pole') === 'Pole') { ed.type = prefixType(m[1]); renderTypeChips(ed.type); }
     checkFormat();
@@ -1968,7 +2011,7 @@
     const el = $('fmtWarn'); if (!ed) return;
     const id = $('poleId').value.trim().toUpperCase(), kind = ed.element || 'Pole';
     let msg = '';
-    if (id && kind === 'Pole' && !isNpt(id) && !poleIdRe().test(id)) { const pm = polePartRe().exec(id); msg = pm && !pm[2] ? `Add the pole number after the prefix, e.g. ${pm[1]}-${PAD4.includes(pm[1]) ? '0001' : '1234'}.` : `Pole IDs are a prefix, a dash and the number: ${poleTypes().map((t) => `${t.p}-`).join(', ')}. For another owner, tap “+ Other prefix”.`; }
+    if (id && kind === 'Pole' && !isNpt(id) && !poleIdRe().test(id) && !PP_RE.test(id)) { const pm = polePartRe().exec(id); msg = pm && !pm[2] ? `Add the pole number after the prefix, e.g. ${pm[1]}-${PAD4.includes(pm[1]) ? '0001' : '1234'}.` : `Pole IDs are a prefix, a dash and the number: ${poleTypes().map((t) => `${t.p}-`).join(', ')}. For another owner, tap “+ Other prefix”.`; }
     else if (id && kind === 'ODF' && !ODF_ID_RE.test(id)) msg = /^FDU_?$/.test(id) ? 'Add the ODF number after FDU_, e.g. FDU_100.' : 'ODF IDs are written FDU_ and a number, e.g. FDU_100.';
     el.hidden = !msg; el.textContent = msg;
   }
@@ -2042,7 +2085,7 @@
       if (o.blob && !(o.mode === 'new' && canRecord())) { const pid = uid(); ed.photos.unshift({ pid, label: 'Overview', ...photoMeta(o.gps, o.takenAt), q: o.q || null }); ed.pending[pid] = o.blob; }
       $('napId').value = o.napId || ''; $('closureId').value = o.closureId || '';
     } else { // survey point (v2.13): pole, site, ODC, ODF, NAP, closure or handhole
-      Object.assign(ed, { element: o.element || 'Pole', status: o.status || '', srcBlob: o.blob || o.storedBlob || null, boxes: o.boxes || 0 });
+      Object.assign(ed, { element: o.element || 'Pole', status: o.status || (o.mode === 'new' ? svDefaultStatus(o.element || 'Pole') : ''), srcBlob: o.blob || o.storedBlob || null, boxes: o.boxes || 0, details: JSON.parse(JSON.stringify(o.details || [])) });
       $('svRemarks').value = o.remarks || ''; $('svClosureId').value = o.closureId || '';
     }
     $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
@@ -2100,27 +2143,36 @@
     const ph = await dbGet('photos', id).catch(() => null);
     openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType, lat: p.lat, lon: p.lon, takenAt: p.takenAt,
       gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : null, storedBlob: ph ? (ph.clean || ph.thumb) : null, source: p.source,
-      element: elemOf(p), status: p.status || '', remarks: p.remarks || '', closureId: p.closureId || '', boxes: p.boxes || 0 });
+      element: elemOf(p), status: p.status || '', remarks: p.remarks || '', closureId: p.closureId || '', boxes: p.boxes || 0, details: p.details || [] });
   }
   function cleanupEditor() {
     ed = null; showEdPhoto(null); revokeEdUrls(); defDraft = null;
   }
 
-  /* ---------- red box on a survey photo (v2.13) ---------- */
-  /* Drag on the photo to draw red boxes (the proposed location, the existing ODF to use…). Done burns them into the photo,
-     which is then saved like a new photo; the time, place and camera check of the original are kept with the record. */
+  /* ---------- red box / pole model on a survey photo (v2.13, pole model v2.14) ---------- */
+  /* Drag on the photo to draw red boxes (the proposed location, the existing ODF to use…) or, for a proposed pole, drag from
+     the ground up to place a model pole. Done burns them into the photo, which is then saved like a new photo; the time,
+     place and camera check of the original are kept with the record. */
   let boxer = null;
+  const proposedPole = () => ed && !ed.acc && ed.element === 'Pole' && ed.status === 'Proposed';
   function renderBoxInfo() {
     if (!ed || ed.acc) return;
-    $('boxBtn').textContent = ed.boxes ? '▭ Add another red box' : '▭ Red box';
-    $('boxInfo').textContent = ed.boxes ? `${ed.boxes} red box${ed.boxes === 1 ? '' : 'es'} on the photo${ed.mode === 'edit' && ed.newBlob ? ' (Save keeps it)' : ''}` : 'Mark the spot on the photo (proposed location, the ODF to use…)';
+    const pp = proposedPole();
+    $('boxBtn').textContent = ed.boxes ? (pp ? '⊥ Mark again' : '▭ Add another red box') : pp ? '⊥ Pole model / red box' : '▭ Red box';
+    $('boxInfo').textContent = ed.boxes ? `${ed.boxes} mark${ed.boxes === 1 ? '' : 's'} on the photo${ed.mode === 'edit' && ed.newBlob ? ' (Save keeps it)' : ''}`
+      : pp ? 'Show where the new pole goes: place a model pole on the photo' : 'Mark the spot on the photo (proposed location, the ODF to use…)';
     $('boxBtn').disabled = !(ed.newBlob || ed.srcBlob);
   }
+  function setBoxMode(m) { if (!boxer) return; boxer.mode = m; $('boxModeBox').setAttribute('aria-pressed', String(m === 'box')); $('boxModePole').setAttribute('aria-pressed', String(m === 'pole')); $('boxTitle').textContent = m === 'pole' ? 'Model pole' : 'Red box';
+    $('boxHint').textContent = m === 'pole' ? 'Put your finger where the pole stands on the ground and drag up to its top. Done burns the model pole into the photo.'
+      : 'Drag on the photo to draw a red box around the spot. Draw more than one if needed; Done burns them into the photo.'; }
+  $('boxModeBox').addEventListener('click', () => setBoxMode('box'));
+  $('boxModePole').addEventListener('click', () => setBoxMode('pole'));
   $('boxBtn').addEventListener('click', () => guard(async () => {
     const src = ed && (ed.newBlob || ed.srcBlob); if (!src) { toast('No photo to mark'); return; }
     const im = await loadImage(src, STORE_MAX_PX), { w, h } = dims(im);
-    boxer = { im, w, h, rects: [], drag: null };
-    openSheet('boxer');
+    boxer = { im, w, h, marks: [], drag: null };
+    openSheet('boxer'); setBoxMode(proposedPole() ? 'pole' : 'box');
     requestAnimationFrame(() => { sizeBoxer(); drawBoxer(); });
   }, 'Red box not opened'));
   function sizeBoxer() {
@@ -2130,44 +2182,63 @@
     cv.width = Math.max(1, Math.floor(b.w * sc * dpr)); cv.height = Math.max(1, Math.floor(b.h * sc * dpr));
   }
   const boxLine = (w, h) => Math.max(4, Math.round(Math.max(w, h) * 0.006));
+  /** A model concrete pole standing at (x, yb) up to yt, drawn in image pixels: tapered shaft, crossarm, label. */
+  function drawPoleModel(g, x, yb, yt, lw) {
+    const H = Math.max(10, yb - yt), wb = H * 0.055, wt = H * 0.035, armY = yt + H * 0.1, armW = H * 0.34, armH = Math.max(lw, H * 0.022);
+    g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = '#e03131';
+    g.fillStyle = 'rgba(255,255,255,0.82)';
+    g.beginPath(); g.moveTo(x - wb / 2, yb); g.lineTo(x - wt / 2, yt); g.lineTo(x + wt / 2, yt); g.lineTo(x + wb / 2, yb); g.closePath(); g.fill(); g.stroke();
+    g.beginPath(); g.rect(x - armW / 2, armY, armW, armH); g.fill(); g.stroke();
+    [-0.42, 0.42].forEach((k) => { g.beginPath(); g.arc(x + armW * k, armY - armH * 0.6, armH * 0.7, 0, Math.PI * 2); g.fill(); g.stroke(); });
+    g.beginPath(); g.ellipse(x, yb, wb * 1.4, wb * 0.45, 0, 0, Math.PI * 2); g.stroke(); // where it stands
+    const fs = Math.max(12, H * 0.055); g.font = `700 ${fs}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top';
+    g.lineWidth = Math.max(3, fs * 0.22); g.strokeStyle = '#ffffff'; g.strokeText('PROPOSED POLE', x, yb + wb * 0.6); g.fillStyle = '#e03131'; g.fillText('PROPOSED POLE', x, yb + wb * 0.6);
+    g.restore();
+  }
+  function drawMarks(g, marks, k, lw) {
+    marks.forEach((m) => {
+      if (m.k === 'pole') drawPoleModel(g, m.x * k, m.yb * k, m.yt * k, lw);
+      else { g.strokeStyle = '#e03131'; g.lineWidth = lw; g.lineJoin = 'round'; g.strokeRect(m.x * k, m.y * k, m.w * k, m.h * k); }
+    });
+  }
   function drawBoxer() {
     const b = boxer, cv = $('boxCanvas'); if (!b) return;
     const g = cv.getContext('2d'), k = cv.width / b.w;
     g.drawImage(b.im, 0, 0, cv.width, cv.height);
-    g.strokeStyle = '#e03131'; g.lineWidth = Math.max(2, boxLine(b.w, b.h) * k);
-    b.rects.concat(b.drag ? [b.drag] : []).forEach(([x, y, w, h]) => g.strokeRect(x * k, y * k, w * k, h * k));
-    $('boxUndo').disabled = !b.rects.length; $('boxClear').disabled = !b.rects.length; $('boxDone').textContent = b.rects.length ? `Done · ${b.rects.length} box${b.rects.length === 1 ? '' : 'es'}` : 'Done';
+    drawMarks(g, b.marks.concat(b.drag ? [b.drag] : []), k, Math.max(2, boxLine(b.w, b.h) * k));
+    $('boxUndo').disabled = !b.marks.length; $('boxClear').disabled = !b.marks.length; $('boxDone').textContent = b.marks.length ? `Done · ${b.marks.length} mark${b.marks.length === 1 ? '' : 's'}` : 'Done';
   }
   const boxPt = (e) => { const r = $('boxCanvas').getBoundingClientRect(); return [Math.max(0, Math.min(boxer.w, (e.clientX - r.left) / boxer.sc)), Math.max(0, Math.min(boxer.h, (e.clientY - r.top) / boxer.sc))]; };
-  $('boxCanvas').addEventListener('pointerdown', (e) => { if (!boxer) return; e.preventDefault(); $('boxCanvas').setPointerCapture(e.pointerId); boxer.start = boxPt(e); boxer.drag = [...boxer.start, 0, 0]; });
-  $('boxCanvas').addEventListener('pointermove', (e) => {
-    if (!boxer || !boxer.start) return;
-    const [x0, y0] = boxer.start, [x1, y1] = boxPt(e); boxer.drag = [Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0)]; drawBoxer();
-  });
+  function boxDrag(p) {
+    const [x0, y0] = boxer.start, [x1, y1] = p;
+    boxer.drag = boxer.mode === 'pole' ? { k: 'pole', x: x0, yb: Math.max(y0, y1), yt: Math.min(y0, y1) } : { k: 'box', x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+  }
+  $('boxCanvas').addEventListener('pointerdown', (e) => { if (!boxer) return; e.preventDefault(); $('boxCanvas').setPointerCapture(e.pointerId); boxer.start = boxPt(e); boxDrag(boxer.start); });
+  $('boxCanvas').addEventListener('pointermove', (e) => { if (!boxer || !boxer.start) return; boxDrag(boxPt(e)); drawBoxer(); });
   const boxEnd = () => {
     if (!boxer || !boxer.start) return;
-    const d = boxer.drag; boxer.start = null; boxer.drag = null;
-    if (d && d[2] * boxer.sc > 12 && d[3] * boxer.sc > 12) boxer.rects.push(d); // a tap is not a box
+    const d = boxer.drag, sc = boxer.sc; boxer.start = null; boxer.drag = null;
+    if (d && (d.k === 'pole' ? (d.yb - d.yt) * sc > 30 : d.w * sc > 12 && d.h * sc > 12)) boxer.marks.push(d); // a tap is not a mark
     drawBoxer();
   };
   $('boxCanvas').addEventListener('pointerup', boxEnd); $('boxCanvas').addEventListener('pointercancel', boxEnd);
-  $('boxUndo').addEventListener('click', () => { if (boxer) { boxer.rects.pop(); drawBoxer(); } });
-  $('boxClear').addEventListener('click', () => { if (boxer) { boxer.rects = []; drawBoxer(); } });
+  $('boxUndo').addEventListener('click', () => { if (boxer) { boxer.marks.pop(); drawBoxer(); } });
+  $('boxClear').addEventListener('click', () => { if (boxer) { boxer.marks = []; drawBoxer(); } });
   window.addEventListener('resize', () => { if (boxer && !$('boxer').hidden) { sizeBoxer(); drawBoxer(); } });
   $('boxDone').addEventListener('click', () => guard(async () => {
     const b = boxer; if (!b || !ed) return;
-    if (!b.rects.length) { await closeSheet(); return; }
+    if (!b.marks.length) { await closeSheet(); return; }
     busy('Marking the photo…');
     const cv = document.createElement('canvas'); cv.width = b.w; cv.height = b.h;
     const g = cv.getContext('2d'); g.drawImage(b.im, 0, 0, b.w, b.h);
-    g.strokeStyle = '#e03131'; g.lineWidth = boxLine(b.w, b.h); g.lineJoin = 'round';
-    b.rects.forEach(([x, y, w, h]) => g.strokeRect(x, y, w, h));
+    drawMarks(g, b.marks, 1, boxLine(b.w, b.h));
     const blob = await toBlob(cv, 0.92);
     if (ed.mode === 'edit' && !ed.newBlob) ed.keepQ = true; // the stored photo, only marked: its camera check stays
-    ed.newBlob = blob; ed.boxes = (ed.boxes || 0) + b.rects.length; prepImages(blob); showEdPhoto(blob);
-    LOG.info('photo.redbox', { n: b.rects.length, total: ed.boxes });
+    const n = b.marks.length, poles = b.marks.filter((m) => m.k === 'pole').length;
+    ed.newBlob = blob; ed.boxes = (ed.boxes || 0) + n; if (poles) ed.poleModel = true; prepImages(blob); showEdPhoto(blob);
+    LOG.info('photo.redbox', { n, poles, total: ed.boxes });
     busy(false); await closeSheet(); renderBoxInfo();
-    toast(`${b.rects.length} red box${b.rects.length === 1 ? '' : 'es'} added to the photo${ed.mode === 'edit' ? ' — tap Save to keep it' : ''}`, 3000);
+    toast(`${poles ? `${poles} model pole${poles === 1 ? '' : 's'}` : ''}${poles && n > poles ? ' and ' : ''}${n > poles ? `${n - poles} red box${n - poles === 1 ? '' : 'es'}` : ''} added to the photo${ed.mode === 'edit' ? ' — tap Save to keep it' : ''}`, 3000);
   }, 'Red box not added'));
 
   /* ---------- acceptance form ---------- */
@@ -2186,8 +2257,9 @@
   $('elemSel').addEventListener('change', (e) => {
     if (!ed) return;
     const el = e.target.value; ed.element = el;
+    if (!ed.acc) ed.status = svDefaultStatus(el); // each element starts from its own usual status
     const id = $('poleId').value.trim().toUpperCase();
-    const kindOf = (v) => (/^FDU_/.test(v) ? 'ODF' : poleIdRe().test(v) || polePartRe().test(v) ? 'Pole' : Object.keys(SV_PREFIX).find((k) => v.startsWith(`${SV_PREFIX[k]}-`)) || null);
+    const kindOf = (v) => (/^FDU_/.test(v) ? 'ODF' : poleIdRe().test(v) || polePartRe().test(v) || /^PP-/.test(v) ? 'Pole' : Object.keys(SV_PREFIX).find((k) => v.startsWith(`${SV_PREFIX[k]}-`)) || null);
     // a new record: the suggested ID follows the element; so does an ID that belongs to another element (e.g. a pole ID read by the camera)
     if (ed.mode === 'new' && (!ed.idTouched || !id || (kindOf(id) && kindOf(id) !== el))) { $('poleId').value = suggestId(el, ed.type); ed.idTouched = false; }
     applyElement(); checkDup(); checkFormat();
@@ -2198,13 +2270,15 @@
       const isNew = ed.mode !== 'edit', nm = el === 'Pole' ? 'pole' : el;
       $('editorTitle').textContent = `${isNew ? 'New' : 'Edit'} ${nm}`;
       $('idLabel').textContent = el === 'Site' ? 'SITE NAME / ID' : `${el.toUpperCase()} ID`;
-      $('poleId').placeholder = { Pole: 'e.g. CC-0001', ODF: 'e.g. FDU_100', Site: 'e.g. MIN2463 or the site name', ODC: 'e.g. ODC-01', NAP: 'e.g. NAP-0001', Closure: 'e.g. CL-0001', Handhole: 'e.g. HH-0001' }[el];
-      $('surveyTypeBox').hidden = el !== 'Pole'; $('nptBtn').hidden = el !== 'Pole';
       const sts = svStatuses(el); if (!sts.includes(ed.status)) ed.status = svDefaultStatus(el);
+      $('poleId').placeholder = { Pole: ed.status === 'Proposed' ? 'e.g. PP-0001' : 'e.g. CC-0001', ODF: 'e.g. FDU_100', Site: 'e.g. MIN2463 or the site name', ODC: 'e.g. ODC-01', NAP: 'e.g. NAP-0001', Closure: 'e.g. CL-0001', Handhole: 'e.g. HH-0001' }[el];
+      $('surveyTypeBox').hidden = el !== 'Pole'; $('nptBtn').hidden = el !== 'Pole' || ed.status === 'Proposed';
+      $('svDetailsBox').hidden = el !== 'Pole'; renderDetails();
       const sb = $('svStatus'); sb.innerHTML = ''; sts.forEach((x) => sb.add(new Option(svStatusLabel(x), x, false, x === ed.status)));
       $('svStatusBox').hidden = !sts.length; sb.disabled = sts.length < 2;
       $('svClosureBox').hidden = el !== 'Handhole';
-      $('edHint').textContent = `Drag the map to place the pin on the ${nm}`;
+      $('edHint').textContent = el === 'Pole' && ed.status === 'Proposed' ? 'Drag the map to place the pin where the new pole goes' : `Drag the map to place the pin on the ${nm}`;
+      renderBoxInfo();
       return;
     }
     $('idLabel').textContent = `${el.toUpperCase()} ID`;
@@ -2222,7 +2296,46 @@
   $('atNap').addEventListener('change', (e) => { ed.nap = e.target.checked; markToggles(); $('napId').hidden = !ed.nap; if (ed.nap) $('napId').focus(); });
   $('atClosure').addEventListener('change', (e) => { ed.closure = e.target.checked; markToggles(); $('closureId').hidden = !ed.closure; if (ed.closure) $('closureId').focus(); });
   $('odfSel').addEventListener('change', (e) => { ed.odf = e.target.value; applyElement(); });
-  $('svStatus').addEventListener('change', (e) => { if (ed) ed.status = e.target.value; });
+  $('svStatus').addEventListener('change', (e) => {
+    if (!ed) return;
+    const was = ed.status; ed.status = e.target.value;
+    // a new pole switched to / from Proposed: PP-0001 numbering, or back to the type prefix (an ID read from the pole stays)
+    if (ed.mode === 'new' && ed.element === 'Pole' && (was === 'Proposed') !== (ed.status === 'Proposed')) {
+      const id = $('poleId').value.trim().toUpperCase();
+      if (!ed.idTouched || !id || PP_RE.test(id) || ed.status === 'Proposed') { $('poleId').value = suggestId('Pole', ed.type); ed.idTouched = false; }
+    }
+    applyElement(); checkDup(); checkFormat();
+  });
+  /* pole details list */
+  function renderDetails() {
+    const box = $('svDetails'); if (!ed || ed.acc) return; box.innerHTML = '';
+    (ed.details || []).forEach((d, i) => {
+      const row = document.createElement('div'); row.className = 'pdrow';
+      const t = document.createElement('span'); t.className = 't'; t.textContent = d.item;
+      const mk = (txt, lbl, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn small'; b.textContent = txt; b.setAttribute('aria-label', lbl); b.addEventListener('click', fn); return b; };
+      const q = document.createElement('b'); q.textContent = `${d.qty} pc${d.qty === 1 ? '' : 's'}`;
+      row.append(t, mk('−', `One ${d.item} less`, () => { d.qty = Math.max(1, d.qty - 1); renderDetails(); }), q,
+        mk('+', `One ${d.item} more`, () => { d.qty = Math.min(99, d.qty + 1); renderDetails(); }), mk('×', `Remove ${d.item}`, () => { ed.details.splice(i, 1); renderDetails(); }));
+      box.appendChild(row);
+    });
+    const sel = $('svDetailAdd'), have = new Set((ed.details || []).map((d) => d.item));
+    sel.innerHTML = '<option value="">+ Add a detail (transformer, streetlight…)</option>';
+    POLE_DETAIL_ITEMS.concat((S.myDetails || []).filter((x) => !POLE_DETAIL_ITEMS.includes(x))).filter((x) => !have.has(x)).forEach((x) => sel.add(new Option(x, x)));
+    sel.add(new Option('Other…', '__other'));
+  }
+  $('svDetailAdd').addEventListener('change', async (e) => {
+    if (!ed) return;
+    let v = e.target.value; e.target.value = ''; if (!v) return;
+    if (v === '__other') {
+      v = await promptText('Pole detail', 'What else is on the pole? It is added with a count of 1; tap + for more.', 'e.g. Cable TV amplifier');
+      if (!v) return; v = v.trim().slice(0, 40);
+      if (!POLE_DETAIL_ITEMS.includes(v) && !(S.myDetails || []).includes(v)) { S.myDetails = (S.myDetails || []).concat(v).slice(-20); persist(); }
+    }
+    ed.details = ed.details || [];
+    const have = ed.details.find((d) => d.item.toLowerCase() === v.toLowerCase());
+    if (have) have.qty = Math.min(99, have.qty + 1); else ed.details.push({ item: v, qty: 1 });
+    renderDetails();
+  });
 
   function nextPhotoLabel() {
     if (!ed.photos.length) return 'Overview';
@@ -2238,6 +2351,7 @@
       const cell = document.createElement('div'); cell.className = 'ph';
       const img = document.createElement('img'); img.alt = p.label;
       thumbUrl(p.pid).then((u) => { img.src = u; });
+      img.addEventListener('click', () => showPhoto(p.pid, `${$('poleId').value || ''} · ${p.label || ''}`));
       const sel = document.createElement('select'); sel.setAttribute('aria-label', 'Photo label');
       const labels = PHOTO_LABELS.includes(p.label) ? PHOTO_LABELS : PHOTO_LABELS.concat(p.label);
       sel.innerHTML = labels.map((l) => `<option${l === p.label ? ' selected' : ''}>${C.xmlEsc(l)}</option>`).join('');
@@ -2291,6 +2405,7 @@
         if (!pid) return;
         const f = document.createElement('figure'); const im = document.createElement('img'); im.alt = label; thumbUrl(pid).then((u) => { im.src = u; });
         const c = document.createElement('figcaption'); c.textContent = label; f.append(im, c); th.appendChild(f);
+        f.addEventListener('click', () => showPhoto(pid, `${$('poleId').value || ''} · ${d.item} · ${label}`));
       });
       if (th.childElementCount) card.appendChild(th);
       const rm = document.createElement('input'); rm.type = 'text'; rm.placeholder = 'Remarks (optional)'; rm.value = d.remarks || '';
@@ -2396,13 +2511,13 @@
     const ph = await dbGet('photos', pid).catch(() => null), b = ph && (ph.thumb || ph.clean);
     if (!b) return; const u = URL.createObjectURL(b); visitUrls.push(u); img.src = u;
   }
+  /** A photo of this record, full size: one not saved yet comes from the editor, a saved one from phone storage. */
   async function showPhoto(pid, caption) {
-    const ph = await dbGet('photos', pid).catch(() => null), b = ph && (ph.clean || ph.thumb);
+    let b = ed && ed.pending && ed.pending[pid];
+    if (!b) { const ph = await dbGet('photos', pid).catch(() => null); b = ph && (ph.clean || ph.thumb); }
     if (!b) { toast('Photo not found on this phone'); return; }
-    const u = URL.createObjectURL(b); visitUrls.push(u);
-    $('pvImg').src = u; $('pvCap').textContent = caption || ''; $('photoView').hidden = false;
+    showBlob(b, caption);
   }
-  $('photoView').addEventListener('click', () => { $('photoView').hidden = true; $('pvImg').src = ''; });
   function figure(pid, label, caption) {
     const f = document.createElement('figure'), im = document.createElement('img'), c = document.createElement('figcaption');
     im.alt = label; photoThumb(im, pid); c.textContent = label; f.append(im, c);
@@ -2585,6 +2700,9 @@
     renderDefs(); toast(`${items.length} deficienc${items.length === 1 ? 'y' : 'ies'} added`);
   });
   $('edClose').addEventListener('click', () => closeSheet());
+  $('edPhoto').addEventListener('click', () => { if (ed) showBlob(ed.newBlob || ed.srcBlob, `${$('poleId').value || ''} · ${$('edTime').textContent}`); });
+  $('defPhotoPrev').addEventListener('click', () => { if (defDraft && defDraft.blob) showBlob(defDraft.blob, 'Defect photo (not added yet)'); });
+  $('edSaveTop').addEventListener('click', saveEditor); // the same Save, next to the photo (v2.14)
   $('scanIdBtn').addEventListener('click', () => openCamera('scan'));
   $('snapGps').addEventListener('click', () => {
     const g = (ed && ed.gps) || fix;
@@ -2638,9 +2756,10 @@
       // a new object: the record in memory changes only after the phone's storage has committed the save
       const rec = Object.assign({}, p || { id: ed.id, project: S.project, created: now, takenAt: ed.takenAt || now, source: ed.source || 'camera' }, {
         poleId, poleType: (ed.element || 'Pole') === 'Pole' ? ed.type || '' : '', lat: pos.lat, lon: pos.lon, updated: now, ...(p ? { updatedBy: byLine() } : { by: byLine() }),
-        element: ed.element || 'Pole', status: ed.element && ed.element !== 'Pole' ? ed.status || svDefaultStatus(ed.element) : '',
+        element: ed.element || 'Pole', status: svStatuses(ed.element || 'Pole').length ? ed.status || svDefaultStatus(ed.element || 'Pole') : '',
+        details: (ed.element || 'Pole') === 'Pole' ? (ed.details || []).filter((d) => d && d.item) : [],
         remarks: $('svRemarks').value.trim().slice(0, 500), closureId: ed.element === 'Handhole' ? $('svClosureId').value.trim().toUpperCase().slice(0, 40) : '',
-        boxes: ed.boxes || 0,
+        boxes: ed.boxes || 0, ...(ed.poleModel || (p && p.poleModel) ? { poleModel: true } : {}),
         ...(ed.newBlob && !ed.keepQ ? { q: ed.q || null } : {}), ...(ed.idRead ? { idRead: ed.idRead } : {}),
         gpsLat: g ? g.lat : null, gpsLon: g ? g.lon : null,
         accuracy: g && Number.isFinite(g.acc) ? g.acc : null,
@@ -2658,6 +2777,7 @@
       if (!p) points.push(rec); else points[points.indexOf(p)] = rec;
       if (ed.mode === 'new' && !isNpt(poleId) && (ed.element || 'Pole') === 'Pole') S.lastPoleId = poleId;
       if ((ed.element || 'Pole') === 'Pole' && typeNames().includes(ed.type)) S.lastType = ed.type;
+      if (rec.status) S.lastSt = { ...(S.lastSt || {}), [`${svPurpose()}|${rec.element}`]: rec.status };
       if (ed.newBlob) notePerf(Date.now() - t0);
       persist(); notePerson();
       LOG.info('save.done', { ms: Date.now() - t0 }); LOG.done('save.survey');
@@ -2757,7 +2877,7 @@
     revokeListUrls();
     const q = $('listSearch').value.trim().toUpperCase(), acc = isAcc();
     $('listFilter').hidden = !acc;
-    const pts = projPoints().reverse().filter((p) => (!q || [p.poleId, p.poleType, p.element, p.napId, p.closureId, p.status, p.remarks].join(' ').toUpperCase().includes(q))
+    const pts = projPoints().reverse().filter((p) => (!q || [p.poleId, p.poleType, p.element, p.napId, p.closureId, p.status, p.remarks, detailsText(p.details)].join(' ').toUpperCase().includes(q))
       && (!acc || listFilter === 'all' || recStatus(p) === listFilter));
     const counts = {}; projPoints().forEach((p) => { counts[p.poleId] = (counts[p.poleId] || 0) + 1; });
     const box = $('listItems'); box.innerHTML = '';
@@ -2780,10 +2900,11 @@
         const s3 = document.createElement('span'); s3.className = 's'; s3.textContent = attachText(p).join(' · ');
         if (s3.textContent) info.append(s3);
       } else {
-        const el = elemOf(p), tags = el === 'Pole' ? `<span class="tag">${C.xmlEsc(p.poleType || '—')}</span>`
+        const el = elemOf(p), tags = el === 'Pole' ? `<span class="tag">${C.xmlEsc(p.poleType || '—')}</span>${p.status === 'Proposed' || p.status === 'New' ? `<span class="tag" style="background:${p.status === 'Proposed' ? '#e03131' : '#17202a'};color:#fff">${C.xmlEsc(svStatusLabel(p.status))}</span>` : ''}`
           : `<span class="tag" style="background:${SV_COLORS[el] || '#495057'};color:#fff">${C.xmlEsc(el)}</span>${p.status ? `<span class="tag">${C.xmlEsc(svStatusLabel(p.status))}</span>` : ''}${p.closureId ? `<span class="tag">closure ${C.xmlEsc(p.closureId)}</span>` : ''}`;
         s.innerHTML = `${tags}${p.boxes ? '<span class="tag" style="background:#e03131;color:#fff">red box</span>' : ''}${p.adjusted ? '<span class="tag adj">pin adjusted</span>' : ''}${counts[p.poleId] > 1 ? '<span class="tag dup">duplicate ID</span>' : ''}`;
-        if (p.remarks) { const s3 = document.createElement('span'); s3.className = 's'; s3.textContent = p.remarks; info.append(s3); }
+        const more = [detailsText(p.details, ' · '), p.remarks].filter(Boolean).join(' — ');
+        if (more) { const s3 = document.createElement('span'); s3.className = 's'; s3.textContent = more; info.append(s3); }
       }
       const s2 = document.createElement('span'); s2.className = 's mono';
       s2.textContent = `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}${Number.isFinite(p.accuracy) ? ` · ±${p.accuracy.toFixed(0)} m` : ''}`;
@@ -2814,7 +2935,8 @@
     const steps = [];
     if (cat === 'Survey') {
       const R = routeModel(), purpose = m.purpose || 'As-plan', np = pts.filter((p) => elemOf(p) === 'Pole').length, others = n - np;
-      steps.push({ t: 'Capture the poles', s: np ? `${np} pole${np === 1 ? '' : 's'} captured` : 'Photo, ID scan, pin check for each pole', done: np > 0, go: 'capture', label: 'Capture' });
+      const npp = pts.filter((p) => elemOf(p) === 'Pole' && p.status === 'Proposed').length, nnew = pts.filter((p) => elemOf(p) === 'Pole' && p.status === 'New').length;
+      steps.push({ t: 'Capture the poles', s: np ? `${np} pole${np === 1 ? '' : 's'} captured${npp ? ` · ${npp} proposed` : ''}${nnew ? ` · ${nnew} new` : ''}` : purpose === 'As-plan' ? 'Photo, ID scan, pin check for each pole; Proposed for a new pole (PP-0001)' : 'Photo, ID scan, pin check for each pole', done: np > 0, go: 'capture', label: 'Capture' });
       if (purpose === 'As-plan') {
         const g = asPlanParts(pts), tick = (v) => (v ? '✓' : '✗');
         steps.push({ t: 'Site, ODF / ODC and POI', s: `${tick(g.site)} site · ${tick(g.odf)} ODF / ODC · ${tick(g.poi)} POI (closure or handhole)${g.nap ? ` · ${g.nap} NAP` : ''} · needed to complete`, done: g.site && g.odf && g.poi, go: 'capture', label: 'Capture' });
@@ -3046,7 +3168,7 @@
       const jpeg = await pdfJpeg(p.pid, 640).catch(() => null);
       if (!jpeg) { missing++; continue; }
       const q = p.at ? p.q : r.q, el = elemOf(r);
-      (el === 'Pole' ? poles : other).push({ jpeg, head: el === 'Pole' ? `${r.poleId || 'No ID'}${p.label && !['Overview', 'Photo'].includes(p.label) ? ` · ${p.label}` : ''}` : `${r.poleId || 'No ID'} · ${svDesc(r)}`,
+      (el === 'Pole' ? poles : other).push({ jpeg, head: el === 'Pole' ? `${r.poleId || 'No ID'}${r.status === 'Proposed' || r.status === 'New' ? ` · ${svStatusLabel(r.status)}` : ''}${p.label && !['Overview', 'Photo'].includes(p.label) ? ` · ${p.label}` : ''}` : `${r.poleId || 'No ID'} · ${svDesc(r)}`,
         lines: [`${shortTime(p.at || r.takenAt || r.created)}${r.boxes ? ' · red box' : ''}`], warn: q && q.flags && q.flags.length ? `Camera warning when taken: ${q.flags.join(', ')}` : '' });
     }
     busy(false);
@@ -3218,7 +3340,7 @@
   function offerResult(blob, name) {
     lastResult = { blob, name };
     LOG.info('export.ready', { kind: (name.split('.').pop() || '').toLowerCase(), mb: +(blob.size / 1048576).toFixed(2) });
-    const kind = /_BACKUP\.zip$/i.test(name) ? 'backup' : /_PAT_for_FAT_/i.test(name) ? 'sent' : /_completion_report\.pdf$/i.test(name) ? 'completion' : (name.split('.').pop() || '').toLowerCase();
+    const kind = /_BACKUP\.zip$/i.test(name) ? 'backup' : /_PAT_for_FAT_/i.test(name) ? 'sent' : /_completion_report\.pdf$/i.test(name) ? 'completion' : /_DXF_photos\.zip$/i.test(name) ? 'dxf' : (name.split('.').pop() || '').toLowerCase();
     noteExport(kind);
     $('resultName').textContent = `${name} · ${(blob.size / 1048576).toFixed(2)} MB`;
     $('resultBox').hidden = false;
@@ -3319,7 +3441,7 @@
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i]; busy(`Preparing photos ${i + 1} / ${pts.length}`, i / pts.length);
       const ph = await dbGet('photos', p.id);
-      const r = { ...p, element: elemOf(p), statusLabel: svStatusLabel(p.status) };
+      const r = { ...p, element: elemOf(p), statusLabel: svStatusLabel(p.status), detailsText: detailsText(p.details) };
       if (ph && ph.clean && E.kmzBalloonPx > 0) { r.photoName = `photos/${names[p.id]}.jpg`; files.push({ name: 'files/' + r.photoName, data: await exportPhoto(p, ph.clean, null, null, { maxPx: E.kmzBalloonPx, stamp: E.kmzStamp, quality: 0.85 }) }); }
       if (icons && ph && (ph.clean || ph.thumb)) { r.iconName = `icons/${p.id}.jpg`; files.push({ name: 'files/' + r.iconName, data: await iconJpeg(ph.clean || ph.thumb, E.kmzIconPx, elemOf(p) === 'Pole' ? null : SV_COLORS[elemOf(p)]) }); }
       rows.push(r);
@@ -3348,16 +3470,34 @@
         } catch (e) { note = 'Road download failed — exported poles only'; roads = []; }
       }
     }
+    const E = S.exp, focPct = Math.max(0, Math.min(100, Number.isFinite(+E.focPct) ? +E.focPct : 10)), photoW = Math.max(1, Math.min(50, +E.dxfPhotoW || 6));
+    const rows = pts.map((p) => ({ ...p, element: elemOf(p), detailsText: detailsText(p.details) })), name = `${fileBase()}_UTM${S.zone}N`;
+    const opts = { zone: S.zone, symbolSize: S.sym, textHeight: S.txt, spans: routeModel().spans, exportedBy: exporterLine(' | '), focPct };
+    if (E.dxfPhotos === false) { // plain DXF R12, no photos
+      busy('Building DXF…');
+      offerResult(new Blob([C.buildDxf(rows, { ...opts, version: 'R12' }, roads)], { type: 'application/dxf' }), `${name}.dxf`);
+      if (note) toast(note, 4000); return;
+    }
+    // DXF R2000 with an IMAGE beside each point; the JPEGs sit next to the DXF in the ZIP (AutoCAD finds them in the drawing's folder)
+    const names = uniqueNames(pts), photos = {}, files = [];
+    for (let i = 0; i < pts.length; i++) {
+      busy(`Preparing photos ${i + 1} / ${pts.length}`, i / pts.length);
+      const jpg = await pdfJpeg(coverPid(pts[i]) || pts[i].id, 1024, null, null, 0.82).catch(() => null); if (!jpg) continue;
+      let dim; try { dim = window.PoleReports.jpegInfo(jpg); } catch (e) { continue; }
+      const file = `${names[pts[i].id]}.jpg`; photos[pts[i].id] = { file, px: dim.w, py: dim.h }; files.push({ name: file, data: jpg });
+    }
     busy('Building DXF…');
-    const dxf = C.buildDxf(pts, { zone: S.zone, symbolSize: S.sym, textHeight: S.txt, spans: routeModel().spans, exportedBy: exporterLine(' | ') }, roads);
-    offerResult(new Blob([dxf], { type: 'application/dxf' }), `${fileBase()}_UTM${S.zone}N.dxf`);
+    const dxf = C.buildDxf(rows, { ...opts, version: 'R2000', photos, photoW }, roads);
+    files.unshift({ name: `${name}.dxf`, data: dxf });
+    files.push({ name: 'README.txt', data: `${name}.dxf — DXF R2000 (AutoCAD 2000 or newer), UTM ${S.zone}N, metres.\r\nUnzip everything into ONE folder and open the DXF: each photo is linked by its file name and must stay next to the DXF.\r\nLayers: POLE_<type> circles (…_PROPOSED / …_NEW), POLE_LABEL (IDs), POLE_DETAILS, POINT_PHOTO (photos), CABLE_ROUTE / SPAN_LONG (linked route), FOC_LENGTH (span + ${focPct}%), <ELEMENT>_<STATUS> for site, ODC, ODF, NAP, closures and handholes.\r\n${exporterText()}` });
+    offerResult(new Blob(C.makeZipParts(files), { type: 'application/zip' }), `${name}_DXF_photos.zip`);
     if (note) toast(note, 4000);
   }));
 
   $('doCsv').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
     const names = uniqueNames(pts);
-    const rows = pts.map((p) => ({ ...p, photoName: names[p.id] + '.jpg' }));
+    const rows = pts.map((p) => ({ ...p, photoName: names[p.id] + '.jpg', detailsText: detailsText(p.details) }));
     offerResult(new Blob([C.buildCsv(rows, S.zone, exporterLine())], { type: 'text/csv' }), fileBase() + '.csv');
   }));
 
@@ -3392,17 +3532,17 @@
     const spanRows = [['No.', 'From', 'To', 'Length (m)', 'Longer than maximum', 'From lat', 'From lon', 'To lat', 'To lon'].map((v) => ({ v, s: st.header }))];
     Rt.spans.forEach((s, i) => spanRows.push([{ v: i + 1, s: st.center }, s.from, s.to, { v: Math.round(s.len * 10) / 10, s: s.long ? st.bad : st.cell },
       { v: s.long ? 'Yes' : 'No', s: s.long ? st.bad : st.cell }, { v: s.a.lat, s: st.coord }, { v: s.a.lon, s: st.coord }, { v: s.b.lat, s: st.coord }, { v: s.b.lon, s: st.coord }]));
-    const poleRows = [['No.', 'ID', 'Element', 'Type / status', 'Role on route', 'Spans at point', 'Deflection (°)', 'Latitude', 'Longitude', `UTM ${S.zone}N E`, `UTM ${S.zone}N N`, 'Remarks'].map((v) => ({ v, s: st.header }))];
+    const poleRows = [['No.', 'ID', 'Element', 'Type / status', 'Role on route', 'Spans at point', 'Deflection (°)', 'Latitude', 'Longitude', `UTM ${S.zone}N E`, `UTM ${S.zone}N N`, 'Pole details', 'Remarks'].map((v) => ({ v, s: st.header }))];
     pts.forEach((p, i) => {
       const info = Rt.poles[p.id] || { role: 'On a pole (not a route point)', degree: '', deflection: null }, u = C.utmForward(p.lat, p.lon, S.zone, p.lat < 0), el = elemOf(p);
-      poleRows.push([{ v: i + 1, s: st.center }, p.poleId, el, el === 'Pole' ? p.poleType || '' : [svStatusLabel(p.status), p.closureId ? `closure ${p.closureId}` : ''].filter(Boolean).join(' · '),
+      poleRows.push([{ v: i + 1, s: st.center }, p.poleId, el, [el === 'Pole' ? p.poleType || '' : '', svStatusLabel(p.status), p.closureId ? `closure ${p.closureId}` : ''].filter(Boolean).join(' · '),
         { v: info.role, s: info.role === 'Not on route' ? st.bad : st.cell }, info.degree,
-        info.deflection == null ? '' : Math.round(info.deflection * 10) / 10, { v: p.lat, s: st.coord }, { v: p.lon, s: st.coord }, Math.round(u.E * 1000) / 1000, Math.round(u.N * 1000) / 1000, p.remarks || '']);
+        info.deflection == null ? '' : Math.round(info.deflection * 10) / 10, { v: p.lat, s: st.coord }, { v: p.lon, s: st.coord }, Math.round(u.E * 1000) / 1000, Math.round(u.N * 1000) / 1000, detailsText(p.details), p.remarks || '']);
     });
     const parts = R.buildXlsxParts([
       { name: 'Summary', cols: [30, 44], rows: summary, merges: ['A1:B1', `A${summary.length}:B${summary.length}`] },
       { name: 'Spans', cols: [6, 15, 15, 11, 12, 12, 13, 12, 13], rows: spanRows, freezeRow: 1, autoFilter: `A1:I${spanRows.length}` },
-      { name: 'Points', cols: [6, 15, 10, 18, 16, 9, 11, 12, 13, 13, 13, 30], rows: poleRows, freezeRow: 1, autoFilter: `A1:L${poleRows.length}` },
+      { name: 'Points', cols: [6, 15, 10, 18, 16, 9, 11, 12, 13, 13, 13, 30, 30], rows: poleRows, freezeRow: 1, autoFilter: `A1:M${poleRows.length}` },
       exporterSheet(st),
     ]);
     offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '_route.xlsx');
@@ -3979,7 +4119,8 @@
     ['kmzBalloonPx', 'kmzBalloonPx3', 'kmzBalloonPx', 'num'], ['kmzBalloonPx2', 'kmzBalloonPx3', 'kmzBalloonPx', 'num'], ['kmzIconPx', 'kmzIconPx3', 'kmzIconPx', 'num'], ['kmzIconPx2', 'kmzIconPx3', 'kmzIconPx', 'num'],
     ['kmzRoute', 'kmzRoute2', 'kmzRoute', 'bool'], ['kmzStamp', 'kmzStamp3', 'kmzStamp', 'bool'], ['kmzStamp2', 'kmzStamp3', 'kmzStamp', 'bool'],
     ['pdfPhotoSize', 'pdfPhotoSize2', 'pdfPhotoSize', 'str'], ['pdfAnnexA', 'pdfAnnexA2', 'pdfAnnexA', 'bool'], ['pdfAnnexB', 'pdfAnnexB2', 'pdfAnnexB', 'bool'],
-    ['pdfDates', 'xlsDates', 'pdfDates', 'str'], ['xlsTable', null, 'xlsTable', 'bool'], ['xlsPhotos', null, 'xlsPhotos', 'bool'], ['kmzData', null, 'kmzData', 'bool']];
+    ['pdfDates', 'xlsDates', 'pdfDates', 'str'], ['xlsTable', null, 'xlsTable', 'bool'], ['xlsPhotos', null, 'xlsPhotos', 'bool'], ['kmzData', null, 'kmzData', 'bool'],
+    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num']];
   const expIds = {};
   EXP_PAIRS.forEach(([a, b, key, kind]) => { [a, b].filter(Boolean).forEach((id) => { const l = (expIds[key] = expIds[key] || []); if (!l.some((x) => x[0] === id)) l.push([id, kind]); }); });
   function syncExpUi() {

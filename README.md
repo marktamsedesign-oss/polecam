@@ -16,7 +16,7 @@ One phone app that replaces GPS Camera + the Windows geolocator step:
 4. **Pole ID + type** – Concrete (CC), Wood (WP), Steel (SP): IDs CC-0001, WP-0001, SP-0001; Globe (GT) and Bayantel (BT) poles keep the number painted on them (GT-88123); other owners (PLDT-, …) are added by the admin for everyone or with “+ Other prefix…” at the end of the Type dropdown on one phone. ODFs FDU_100. The next ID is suggested; duplicates are flagged.
 5. **Export** –
    - **KMZ** for Google Earth: pins named by Pole ID, photo as the pin icon, photo in the balloon.
-   - **DXF** for AutoCAD: one block per pole type (`POLE_CONCRETE`, `POLE_WOOD`, …) at **UTM Zone 51N (WGS84) meters**, Pole ID text on layer `POLE_LABEL`, plus optional OpenStreetMap road centerlines (`OSM_ROAD_MAJOR` / `MINOR` / `PATH`, road names on `ROAD_NAME`).
+   - **DXF** for AutoCAD (v2.14): each pole a **circle** at **UTM Zone 51N (WGS84) meters** on its type layer (`POLE_CONCRETE`, `POLE_WOOD`, …; `_PROPOSED` / `_NEW`), its Pole ID beside it on `POLE_LABEL`, pole details on `POLE_DETAILS` and **its photo beside it** on `POINT_PHOTO`; the **linked route** on `CABLE_ROUTE` with the **FOC length** of each span (span + allowance, default 10 %) on `FOC_LENGTH`; optional OpenStreetMap road centerlines (`OSM_ROAD_MAJOR` / `MINOR` / `PATH`, road names on `ROAD_NAME`). With photos it is a ZIP: the DXF (AutoCAD 2000 format) and the JPEGs, kept in one folder. Without photos it is a plain DXF R12.
    - **CSV**: pole ID, type, lat/long, UTM E/N, GPS accuracy, pin-adjusted flag, time, surveyed by.
    - **Geotagged photos (ZIP)**: JPEGs named by Pole ID, stamped with ID/type/coordinates/time, GPS written into EXIF.
    - **Backup / Restore** of a whole project.
@@ -339,12 +339,14 @@ On the PAT phone: Projects → (PAT project) → *Project details* → **Share t
 ## AutoCAD
 
 - Open the DXF directly or `INSERT`/`XATTACH` it into your drawing. Units are **meters**, coordinates are **UTM 51N (WGS84)** — your drawing must use the same system to line up.
-- To use your own pole model: redefine the block (`BEDIT POLE_CONCRETE`, or `-INSERT POLE_CONCRETE=yourpole.dwg`) and every pole of that type updates.
-- Pole symbol radius and label height are set in Settings → CAD export.
+- **Photos (v2.14):** unzip the DXF ZIP and keep the DXF and the JPEGs **in the same folder**; the photos are attached images (like `IMAGEATTACH`), so moving the DXF alone shows empty frames. If AutoCAD shows a frame without the picture, open `EXTERNALREFERENCES` and point the image to the JPEG. Photo width in the drawing (default 6 m) is in the DXF export options.
+- Poles are circles (v2.14), not blocks: select a type with `QSELECT` by layer (`POLE_CONCRETE`, `POLE_CONCRETE_PROPOSED`…). Freeze `POINT_PHOTO`, `POLE_DETAILS` or `FOC_LENGTH` to hide them.
+- **FOC length** on each linked span = straight span × (1 + allowance). The allowance (default 10 %) is in the DXF export options; the export info line at the bottom states it.
+- Pole circle radius and label height are set in Settings → CAD export.
 
 ## Data safety
 
-Settings → Storage shows how much PoleCam uses and the most this phone currently lets it use (for example “up to about 10 GB”). That limit comes from the phone and browser, not from PoleCam; it is a share of the phone's free space and changes as the phone fills up.
+Settings → Storage shows how much G-eSAA uses and the most this phone currently lets it use (for example “up to about 10 GB”). That limit comes from the phone and browser, not from G-eSAA; it is a share of the phone's free space and changes as the phone fills up.
 
 Points and photos live only in the phone's app storage until you export. **Make a Backup after each survey day** and keep the ZIP on Drive/PC. Clearing Chrome's site data or uninstalling the app deletes them.
 Teammates' backups can be restored into one phone to merge projects (same project name = merged).
@@ -386,7 +388,7 @@ A survey records the poles and, as **their own pins**, the network elements arou
 
 | Element | ID | As-plan | As-built | Audit |
 |---|---|---|---|---|
-| **Pole** | CC-0001, WP-, SP-, GT-… | every pole, with its photo | the poles used | existing poles |
+| **Pole** | CC-0001, WP-, SP-, GT-…; a proposed pole **PP-0001** | every existing pole with its photo, and **Proposed** new poles (v2.14) | **New (built)** / Existing (used) (v2.14) | existing poles |
 | **Site** | site name or PLA ID | New or Existing site | New (built) / Existing (used) | Existing |
 | **ODC** | ODC-01 | Proposed location or Existing | New (built) / Existing (used) | Existing |
 | **ODF** | FDU_100 | Proposed location, or the Existing ODF at homing to use | New (built) / Existing (used) | Existing |
@@ -399,7 +401,10 @@ A survey records the poles and, as **their own pins**, the network elements arou
 - **Map:** non-pole points are labelled squares (SITE, ODC, ODF, NAP, CL, HH); a dashed border is proposed / new.
 - **Route:** poles, handholes, the site, ODC and ODF are route points. *Link in capture order* links poles and handholes; link the site, ODC and ODF by hand. NAP and closure pins sit on a pole and are not linked.
 - **As-plan completion rule:** *Mark task complete* and the completion report need every pole with a photo, **the site**, **an ODF or ODC location** and **a POI** (a closure, or a handhole with its closure ID). The checklist shows what is missing.
-- **Exports:** KMZ folders per element (Poles, Sites, ODC, ODF, NAP, Closures (POI), Handholes) with the status in the balloon; DXF blocks per element and status (`ODF_PROPOSED`, `NAP_EXISTING`, `HANDHOLE_EXISTING`…; poles stay `POLE_<type>`); CSV columns `element, status, closure_id, remarks, red_box` added at the end; route Excel sheet *Points* with element and status; the completion report shows the poles collage, then the other points.
+- **Pole details (v2.14):** on a pole, *Pole details* adds what is on it with a count — Transformer: 1 pc, Streetlight: 2 pcs… (pick from the list, or *Other…* to type your own; − / + set the count). They go to the KMZ balloon, CSV (`pole_details`), route Excel and DXF (`POLE_DETAILS`).
+- **Proposed pole (As-plan, v2.14):** set the pole's status to **Proposed**: the ID becomes the next **PP-0001**, and **⊥ Pole model / red box** opens on *Pole model*: put your finger where the new pole stands and drag up to its top; a model pole marked *PROPOSED POLE* is burned into the photo (red boxes can be added too). Proposed poles show as a red dashed ring on the map, a *Poles — proposed* folder in the KMZ and `POLE_<type>_PROPOSED` in the DXF. The status is chosen for each proposed pole (it is not carried to the next pole).
+- **As-built (v2.14):** every pole and element is **New (built)** or **Existing (used)**; the last choice is kept for the next point of that element.
+- **Exports:** KMZ folders per element (Poles, Sites, ODC, ODF, NAP, Closures (POI), Handholes) with the status in the balloon; DXF layers per element and status (`ODF_PROPOSED`, `NAP_EXISTING`, `HANDHOLE_EXISTING`…; poles `POLE_<type>`, `_PROPOSED`, `_NEW`); CSV columns `element, status, closure_id, remarks, red_box, pole_details` added at the end; route Excel sheet *Points* with element and status; the completion report shows the poles collage, then the other points.
 
 ## Offline Android APK (built by GitHub Actions)
 
@@ -510,6 +515,17 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.14
+
+- **DXF with photos and FOC lengths:** each pole is a circle with its Pole ID and photo beside it; the linked route carries the FOC length of each span (span + allowance, default 10 %, set in the DXF options). Exported as a ZIP (DXF in AutoCAD 2000 format + JPEGs, keep them together); untick *Photo beside each point* for a plain DXF R12. See "AutoCAD".
+- **Save beside the photo:** a **Save** button sits to the right of the photo details at the top of the editor (the bottom Save stays).
+- **Text size:** Settings → About → *Text size* (Small, Normal, Large, Extra large, Largest) for the whole app; kept on the phone.
+- **Pole details** on survey poles (Transformer: 1 pc…). See "Survey points".
+- **Full photo:** tap the photo in the editor (also on a saved pin, and defect / rectified / verified photos) to see it full screen; tap the picture to zoom, Back or ✕ to close.
+- **Proposed poles (As-plan):** status *Proposed*, IDs PP-0001, a model pole or red box burned into the photo.
+- **As-built:** poles, closures, ODF and the other elements are marked **New (built)** or **Existing (used)**.
+- No change to the online sheet script.
 
 ## What changed in v2.13
 

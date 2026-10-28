@@ -292,31 +292,35 @@
    * opts: {project, photoIcons:boolean, stamped:boolean (balloon photos carry the caption band), stampFields:[...]}
    */
   /* Survey points other than poles (v2.13): their folder in Google Earth and their pin when there is no photo icon. */
-  const KML_EL = { Pole: ['Poles', 'red-circle'], Site: ['Sites', 'purple-stars'], ODC: ['ODC', 'grn-square'], ODF: ['ODF', 'blu-square'],
-    NAP: ['NAP', 'ylw-diamond'], Closure: ['Closures (POI)', 'pink-diamond'], Handhole: ['Handholes', 'wht-square'] };
+  const KML_EL = { Pole: ['Poles', 'red-circle'], PoleProposed: ['Poles — proposed', 'wht-circle'], PoleNew: ['Poles — new', 'ylw-circle'], Site: ['Sites', 'purple-stars'], ODC: ['ODC', 'grn-square'],
+    ODF: ['ODF', 'blu-square'], NAP: ['NAP', 'ylw-diamond'], Closure: ['Closures (POI)', 'pink-diamond'], Handhole: ['Handholes', 'wht-square'] };
   function buildKml(points, opts) {
     const o = opts || {};
     const styles = [], marks = {};
     for (const p of points) {
       const sid = 's_' + p.id, el = KML_EL[p.element] ? p.element : 'Pole';
-      const href = o.photoIcons && p.iconName ? `files/${p.iconName}` : `http://maps.google.com/mapfiles/kml/paddle/${KML_EL[el][1]}.png`;
+      const fk = el === 'Pole' && (p.status === 'Proposed' || p.status === 'New') ? `Pole${p.status}` : el; // proposed and new poles get their own folder
+      const href = o.photoIcons && p.iconName ? `files/${p.iconName}` : `http://maps.google.com/mapfiles/kml/paddle/${KML_EL[fk][1]}.png`;
       styles.push(`<Style id="${sid}"><IconStyle><scale>${o.photoIcons ? 1.4 : 1.0}</scale><Icon><href>${xmlEsc(href)}</href></Icon></IconStyle><LabelStyle><scale>0.9</scale></LabelStyle></Style>`);
       const img = p.photoName ? `<img src="files/${xmlEsc(p.photoName)}" width="480"/>` : '';
       // The balloon title is already the Pole ID; lines the stamped photo already shows are not repeated under it.
       const onPhoto = new Set(p.photoName && o.stamped ? (o.stampFields || ['id', 'coords', 'utm', 'time', 'by', 'project']) : []);
       const lines = [];
       if (el !== 'Pole') lines.push(xmlEsc([el, p.statusLabel || p.status, p.closureId ? `closure ${p.closureId}` : ''].filter(Boolean).join(' · ')));
-      if (!onPhoto.has('id') && p.poleType) lines.push(`${xmlEsc(p.poleType)} pole`);
+      if (!onPhoto.has('id') && p.poleType) lines.push(`${xmlEsc(p.poleType)} pole${el === 'Pole' && p.status ? ` · ${xmlEsc(p.statusLabel || p.status)}` : ''}`);
+      else if (el === 'Pole' && p.status) lines.push(xmlEsc(p.statusLabel || p.status));
+      if (p.detailsText) lines.push(`Details: ${xmlEsc(p.detailsText)}`);
       if (p.remarks) lines.push(xmlEsc(p.remarks));
       if (p.boxes) lines.push('Red box marked on the photo');
       if (!onPhoto.has('coords')) lines.push(`${p.lat.toFixed(7)}, ${p.lon.toFixed(7)}${Number.isFinite(p.accuracy) ? ` (GPS ±${p.accuracy.toFixed(1)} m${p.adjusted ? ', pin adjusted' : ''})` : ''}`);
       if (!onPhoto.has('time') && fmtDate(p.takenAt)) lines.push(`Captured ${xmlEsc(fmtDate(p.takenAt))}`);
       const desc = img + (img && lines.length ? '<br/>' : '') + lines.join('<br/>');
-      (marks[el] = marks[el] || []).push(`<Placemark><name>${xmlEsc(p.poleId)}</name><styleUrl>#${sid}</styleUrl>` +
+      (marks[fk] = marks[fk] || []).push(`<Placemark><name>${xmlEsc(p.poleId)}</name><styleUrl>#${sid}</styleUrl>` +
         `<description><![CDATA[${desc.replace(/]]>/g, ']]&gt;')}]]></description>` +
         `<ExtendedData><Data name="pole_id"><value>${xmlEsc(p.poleId)}</value></Data><Data name="pole_type"><value>${xmlEsc(p.poleType)}</value></Data>` +
         `<Data name="element"><value>${xmlEsc(el)}</value></Data><Data name="status"><value>${xmlEsc(p.status || '')}</value></Data>` +
         (p.closureId ? `<Data name="closure_id"><value>${xmlEsc(p.closureId)}</value></Data>` : '') + (p.remarks ? `<Data name="remarks"><value>${xmlEsc(p.remarks)}</value></Data>` : '') +
+        (p.detailsText ? `<Data name="pole_details"><value>${xmlEsc(p.detailsText)}</value></Data>` : '') +
         `<Data name="captured"><value>${xmlEsc(p.takenAt)}</value></Data><Data name="accuracy_m"><value>${Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : ''}</value></Data></ExtendedData>` +
         `<Point><coordinates>${p.lon.toFixed(8)},${p.lat.toFixed(8)},0</coordinates></Point></Placemark>`);
     }
@@ -334,7 +338,7 @@
     return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xmlEsc(o.project || 'G-eSAA')}</name>\n${by}${styles.join('\n')}\n${route}${folders}</Document></kml>\n`;
   }
 
-  /* ---------------- DXF (R12 ASCII) ---------------- */
+  /* ---------------- DXF: R2000 with the photo beside each point (v2.14), or R12 without photos ---------------- */
   function dxfText(s) {
     let out = '';
     for (const ch of String(s ?? '')) {
@@ -345,126 +349,233 @@
   }
   function dxfLayerName(s) { return String(s).toUpperCase().replace(/[^A-Z0-9_\-$]/g, '_').slice(0, 31) || 'LAYER'; }
   const blockName = (type) => dxfLayerName('POLE_' + (type || 'UNSPECIFIED'));
-  /** Block / layer of a point: POLE_<type> for poles, <ELEMENT>_<STATUS> for the other survey points (e.g. ODF_PROPOSED). */
-  const pointBlock = (p) => (!p.element || p.element === 'Pole' ? blockName(p.poleType || 'UNSPECIFIED') : dxfLayerName(`${p.element}_${p.status || 'UNSPECIFIED'}`));
+  /** Layer of a point: POLE_<type> (…_PROPOSED / …_NEW) for poles, <ELEMENT>_<STATUS> for the other survey points (e.g. ODF_PROPOSED). */
+  const pointLayer = (p) => (!p.element || p.element === 'Pole'
+    ? dxfLayerName(`POLE_${p.poleType || 'UNSPECIFIED'}${p.status === 'Proposed' || p.status === 'New' ? `_${p.status}` : ''}`)
+    : dxfLayerName(`${p.element}_${p.status || 'UNSPECIFIED'}`));
+  const EL_COLOR = { Site: 6, ODC: 3, ODF: 5, NAP: 2, Closure: 210, Handhole: 8 };
 
   /**
-   * points: [{poleId, poleType, lat, lon}], roads: [{cls, name, coords:[[lat,lon],...]}]
-   * opts: {zone, symbolSize (m), textHeight (m)}
+   * Drawing content in UTM metres, shared by both DXF versions.
+   * points: [{id, poleId, poleType, element, status, lat, lon, detailsText}], roads: [{cls, name, coords:[[lat,lon],…]}]
+   * opts: {zone, symbolSize, textHeight, spans, exportedBy, focPct (FOC allowance %, default 10), photos: {id: {file, px, py}}, photoW (m)}
    */
-  function buildDxf(points, opts, roads) {
-    const o = Object.assign({ zone: 51, symbolSize: 1, textHeight: 1.5 }, opts || {});
-    const L = []; const g = (code, val) => { L.push(String(code), String(val)); };
-    const pr = (pts) => pts.map(({ lat, lon }) => utmForward(lat, lon, o.zone, lat < 0));
-    const xy = pr(points);
-    const roadXY = (roads || []).map((r) => ({ ...r, xy: r.coords.map(([lat, lon]) => utmForward(lat, lon, o.zone, lat < 0)) }));
-    const spanXY = (o.spans || []).map((s) => ({ ...s, A: utmForward(s.a.lat, s.a.lon, o.zone, s.a.lat < 0), B: utmForward(s.b.lat, s.b.lon, o.zone, s.b.lat < 0) }));
-    const all = xy.concat(...roadXY.map((r) => r.xy));
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const p of all) { minX = Math.min(minX, p.E); minY = Math.min(minY, p.N); maxX = Math.max(maxX, p.E); maxY = Math.max(maxY, p.N); }
-    if (!all.length) { minX = minY = 0; maxX = maxY = 1; }
-
-    const blocks = [...new Map(points.map((p) => [pointBlock(p), p.element && p.element !== 'Pole' ? p.element : 'Pole'])).entries()]; // [block, element]
-    const roadClasses = [...new Set(roadXY.map((r) => r.cls))];
-    // colors: ACI
-    const palette = [1, 5, 3, 6, 4, 30, 2, 140];
-    const layers = [['0', 7], ['POLE_LABEL', 7], ['ROAD_NAME', 8], ...(o.exportedBy ? [['EXPORT_INFO', 8]] : [])];
-    blocks.forEach(([bn], i) => layers.push([bn, palette[i % palette.length]]));
+  /** Does the segment (x1,y1)-(x2,y2) cross the rectangle [rx1,rx2]×[ry1,ry2]? (Liang–Barsky clipping) */
+  function segHitsRect(x1, y1, x2, y2, rx1, ry1, rx2, ry2) {
+    let t0 = 0, t1 = 1; const dx = x2 - x1, dy = y2 - y1;
+    for (const [pp, q] of [[-dx, x1 - rx1], [dx, rx2 - x1], [-dy, y1 - ry1], [dy, ry2 - y1]]) {
+      if (pp === 0) { if (q < 0) return false; continue; }
+      const t = q / pp; if (pp < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return t0 <= t1;
+  }
+  function dxfGeom(points, opts, roads) {
+    const o = opts, r = o.symbolSize, th = o.textHeight, pct = Math.max(0, Number.isFinite(+o.focPct) ? +o.focPct : 10);
+    const U = (lat, lon) => utmForward(lat, lon, o.zone, lat < 0);
+    const layers = new Map(), ents = [], palette = [1, 5, 3, 6, 4, 30, 2, 140];
+    const lay = (name, color) => { if (!layers.has(name)) layers.set(name, color != null ? color : palette[layers.size % palette.length]); return name; };
+    lay('0', 7);
+    if (o.exportedBy) lay('EXPORT_INFO', 8);
     const roadColor = { OSM_ROAD_MAJOR: 9, OSM_ROAD_MINOR: 8, OSM_ROAD_PATH: 253 };
-    roadClasses.forEach((c) => layers.push([c, roadColor[c] || 8]));
-    if (spanXY.length) layers.push(['CABLE_ROUTE', 4], ['SPAN_LONG', 1], ['SPAN_LENGTH', 7]);
-
-    if (o.exportedBy) g(999, dxfText(o.exportedBy)); // a comment line: who exported the drawing
-    g(0, 'SECTION'); g(2, 'HEADER');
-    g(9, '$ACADVER'); g(1, 'AC1009');
-    g(9, '$INSBASE'); g(10, 0); g(20, 0); g(30, 0);
-    g(9, '$EXTMIN'); g(10, minX.toFixed(3)); g(20, minY.toFixed(3)); g(30, 0);
-    g(9, '$EXTMAX'); g(10, maxX.toFixed(3)); g(20, maxY.toFixed(3)); g(30, 0);
-    g(9, '$LUNITS'); g(70, 2); g(9, '$LUPREC'); g(70, 3);
-    g(0, 'ENDSEC');
-
-    g(0, 'SECTION'); g(2, 'TABLES');
-    g(0, 'TABLE'); g(2, 'LTYPE'); g(70, 1);
-    g(0, 'LTYPE'); g(2, 'CONTINUOUS'); g(70, 0); g(3, 'Solid line'); g(72, 65); g(73, 0); g(40, 0.0);
-    g(0, 'ENDTAB');
-    g(0, 'TABLE'); g(2, 'LAYER'); g(70, layers.length);
-    for (const [name, color] of layers) { g(0, 'LAYER'); g(2, name); g(70, 0); g(62, color); g(6, 'CONTINUOUS'); }
-    g(0, 'ENDTAB');
-    g(0, 'TABLE'); g(2, 'STYLE'); g(70, 1);
-    g(0, 'STYLE'); g(2, 'STANDARD'); g(70, 0); g(40, 0.0); g(41, 1.0); g(50, 0.0); g(71, 0); g(42, 2.5); g(3, 'txt'); g(4, '');
-    g(0, 'ENDTAB');
-    g(0, 'ENDSEC');
-
-    // Blocks: one per pole type and per element + status (redefine in AutoCAD to swap in your own symbols)
-    const r = o.symbolSize;
-    const ln = (x1, y1, x2, y2) => { g(0, 'LINE'); g(8, '0'); g(10, x1); g(20, y1); g(30, 0); g(11, x2); g(21, y2); g(31, 0); };
-    const poly = (pts) => pts.forEach((a, k) => { const b = pts[(k + 1) % pts.length]; ln(a[0], a[1], b[0], b[1]); });
-    const sq = (k) => poly([[-k, -k], [k, -k], [k, k], [-k, k]]);
-    g(0, 'SECTION'); g(2, 'BLOCKS');
-    let poleIx = 0;
-    blocks.forEach(([bn, el]) => {
-      g(0, 'BLOCK'); g(8, '0'); g(2, bn); g(70, 0); g(10, 0); g(20, 0); g(30, 0); g(3, bn);
-      if (el === 'Pole') {
-        g(0, 'CIRCLE'); g(8, '0'); g(10, 0); g(20, 0); g(30, 0); g(40, r);
-        const style = poleIx++ % 4;   // distinguish pole types visually until replaced
-        if (style === 1 || style === 3) { ln(-r, 0, r, 0); ln(0, -r, 0, r); }
-        if (style === 2 || style === 3) { g(0, 'CIRCLE'); g(8, '0'); g(10, 0); g(20, 0); g(30, 0); g(40, r / 2); }
-      } else if (el === 'Site') { sq(r * 1.4); ln(-r * 1.4, -r * 1.4, r * 1.4, r * 1.4); ln(-r * 1.4, r * 1.4, r * 1.4, -r * 1.4); }
+    for (const rd of roads || []) {
+      const pts = rd.coords.map(([lat, lon]) => U(lat, lon)); if (pts.length < 2) continue;
+      ents.push({ t: 'pline', l: lay(rd.cls, roadColor[rd.cls] || 8), pts: pts.map((p) => [p.E, p.N]) });
+      if (rd.name) {
+        const m = Math.floor((pts.length - 1) / 2), a = pts[m], b = pts[m + 1];
+        let ang = Math.atan2(b.N - a.N, b.E - a.E) * 180 / Math.PI; if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
+        ents.push({ t: 'text', l: lay('ROAD_NAME', 8), x: (a.E + b.E) / 2, y: (a.N + b.N) / 2, h: th * 0.8, s: rd.name, a: ang });
+      }
+    }
+    // the linked FOC route: span lines, and the FOC length (span + allowance) along each span
+    for (const s of o.spans || []) {
+      const A = U(s.a.lat, s.a.lon), B = U(s.b.lat, s.b.lon);
+      ents.push({ t: 'line', l: lay(s.long ? 'SPAN_LONG' : 'CABLE_ROUTE', s.long ? 1 : 4), x1: A.E, y1: A.N, x2: B.E, y2: B.N });
+      let ang = Math.atan2(B.N - A.N, B.E - A.E) * 180 / Math.PI; if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
+      const t = `${(s.len * (1 + pct / 100)).toFixed(1)}m`, h = th * 0.75, rad = ang * Math.PI / 180, half = t.length * h * 0.3;
+      const mx = (A.E + B.E) / 2, my = (A.N + B.N) / 2;
+      ents.push({ t: 'text', l: lay('FOC_LENGTH', 7), x: mx - Math.cos(rad) * half - Math.sin(rad) * h * 0.6, y: my - Math.sin(rad) * half + Math.cos(rad) * h * 0.6, h, s: t, a: ang });
+    }
+    // points: a circle for each pole, a symbol for the other elements, the ID beside it, pole details under it, the photo above it
+    const near = new Map(), addNb = (x, y) => { if (x && y && x.id != null) { if (!near.has(x.id)) near.set(x.id, []); near.get(x.id).push(y); } };
+    for (const s of o.spans || []) { addNb(s.a, s.b); addNb(s.b, s.a); }
+    for (const p of points) {
+      const { E, N } = U(p.lat, p.lon), el = p.element && p.element !== 'Pole' ? p.element : 'Pole', L = lay(pointLayer(p), el === 'Pole' ? (p.status === 'Proposed' ? 1 : null) : EL_COLOR[el]);
+      const ln = (x1, y1, x2, y2) => ents.push({ t: 'line', l: L, x1: E + x1, y1: N + y1, x2: E + x2, y2: N + y2 });
+      const poly = (pts) => pts.forEach((a, k) => { const b = pts[(k + 1) % pts.length]; ln(a[0], a[1], b[0], b[1]); });
+      const sq = (k) => poly([[-k, -k], [k, -k], [k, k], [-k, k]]);
+      if (el === 'Pole') ents.push({ t: 'circle', l: L, x: E, y: N, r });
+      else if (el === 'Site') { sq(r * 1.4); ln(-r * 1.4, -r * 1.4, r * 1.4, r * 1.4); ln(-r * 1.4, r * 1.4, r * 1.4, -r * 1.4); }
       else if (el === 'ODC') sq(r * 1.2);
       else if (el === 'ODF') { sq(r * 1.2); sq(r * 0.6); }
       else if (el === 'NAP') poly([[0, r * 1.2], [r * 1.1, -r * 0.8], [-r * 1.1, -r * 0.8]]);
       else if (el === 'Closure') poly([[0, r * 1.2], [r * 1.2, 0], [0, -r * 1.2], [-r * 1.2, 0]]);
       else { sq(r * 1.2); ln(-r * 1.2, -r * 1.2, r * 1.2, r * 1.2); } // handhole
-      g(0, 'ENDBLK'); g(8, '0');
-    });
-    g(0, 'ENDSEC');
-
-    g(0, 'SECTION'); g(2, 'ENTITIES');
-    if (o.exportedBy) { g(0, 'TEXT'); g(8, 'EXPORT_INFO'); g(10, minX.toFixed(3)); g(20, (minY - o.textHeight * 4).toFixed(3)); g(30, 0); g(40, o.textHeight.toFixed(3)); g(1, dxfText(o.exportedBy)); } // below the drawing, on its own layer
-    for (const rd of roadXY) {
-      if (rd.xy.length < 2) continue;
-      g(0, 'POLYLINE'); g(8, rd.cls); g(66, 1); g(10, 0); g(20, 0); g(30, 0); g(70, 0);
-      for (const p of rd.xy) { g(0, 'VERTEX'); g(8, rd.cls); g(10, p.E.toFixed(3)); g(20, p.N.toFixed(3)); g(30, 0); }
-      g(0, 'SEQEND'); g(8, rd.cls);
-      if (rd.name) {
-        const m = Math.floor((rd.xy.length - 1) / 2), a = rd.xy[m], b = rd.xy[m + 1];
-        let ang = Math.atan2(b.N - a.N, b.E - a.E) * 180 / Math.PI;
-        if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
-        g(0, 'TEXT'); g(8, 'ROAD_NAME'); g(10, ((a.E + b.E) / 2).toFixed(3)); g(20, ((a.N + b.N) / 2).toFixed(3)); g(30, 0);
-        g(40, (o.textHeight * 0.8).toFixed(3)); g(1, dxfText(rd.name)); g(50, ang.toFixed(2));
+      const tx = E + r * 1.5;
+      ents.push({ t: 'text', l: lay('POLE_LABEL', 7), x: tx, y: N - th * 0.4, h: th, s: p.poleId });
+      if (p.detailsText) ents.push({ t: 'text', l: lay('POLE_DETAILS', 8), x: tx, y: N - th * 1.6, h: th * 0.65, s: p.detailsText });
+      const ph = o.photos && o.photos[p.id];
+      if (ph && ph.px > 0 && ph.py > 0) {
+        const w = Math.max(0.5, +o.photoW || 6), h = w * ph.py / ph.px, lx = E - r * 1.5 - w;
+        // above-right of the point by default; else the corner the linked spans do not cross
+        const spots = [[tx, N + th * 0.9], [lx, N + th * 0.9], [lx, N - th * 0.9 - h], [tx, N - th * (p.detailsText ? 2.3 : 1.4) - h]];
+        const nb = (near.get(p.id) || []).map((q) => U(q.lat, q.lon)), hits = ([x, y]) => nb.filter((B) => segHitsRect(E, N, B.E, B.N, x, y, x + w, y + h)).length;
+        let best = spots[0], bh = hits(best);
+        for (const sp of spots.slice(1)) { if (!bh) break; const k = hits(sp); if (k < bh) { best = sp; bh = k; } }
+        ents.push({ t: 'image', l: lay('POINT_PHOTO', 7), x: best[0], y: best[1], w, h, px: ph.px, py: ph.py, file: ph.file });
       }
     }
-    for (const s of spanXY) {
-      const lay = s.long ? 'SPAN_LONG' : 'CABLE_ROUTE';
-      g(0, 'LINE'); g(8, lay); g(10, s.A.E.toFixed(3)); g(20, s.A.N.toFixed(3)); g(30, 0); g(11, s.B.E.toFixed(3)); g(21, s.B.N.toFixed(3)); g(31, 0);
-      let ang = Math.atan2(s.B.N - s.A.N, s.B.E - s.A.E) * 180 / Math.PI;
-      if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
-      const t = `${s.len.toFixed(1)}m`, th = o.textHeight * 0.75, rad = ang * Math.PI / 180;
-      const mx = (s.A.E + s.B.E) / 2, my = (s.A.N + s.B.N) / 2, half = t.length * th * 0.3;
-      // centred on the span, lifted off the line
-      const x = mx - Math.cos(rad) * half - Math.sin(rad) * th * 0.6, y = my - Math.sin(rad) * half + Math.cos(rad) * th * 0.6;
-      g(0, 'TEXT'); g(8, 'SPAN_LENGTH'); g(10, x.toFixed(3)); g(20, y.toFixed(3)); g(30, 0); g(40, th.toFixed(3)); g(1, t); g(50, ang.toFixed(2));
-    }
-    points.forEach((p, i) => {
-      const { E, N } = xy[i], bn = pointBlock(p);
-      g(0, 'INSERT'); g(8, bn); g(2, bn); g(10, E.toFixed(3)); g(20, N.toFixed(3)); g(30, 0);
-      g(0, 'TEXT'); g(8, 'POLE_LABEL'); g(10, (E + r * 1.3).toFixed(3)); g(20, (N + r * 0.3).toFixed(3)); g(30, 0);
-      g(40, o.textHeight.toFixed(3)); g(1, dxfText(p.poleId));
+    if (o.exportedBy) ents.push({ t: 'text', l: 'EXPORT_INFO', h: th, s: o.exportedBy + (o.spans && o.spans.length ? ` | FOC length = span + ${pct}%` : ''), x: null, y: null, info: true });
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const grow = (x, y) => { if (x < minX) minX = x; if (y < minY) minY = y; if (x > maxX) maxX = x; if (y > maxY) maxY = y; };
+    ents.forEach((e) => {
+      if (e.t === 'circle') { grow(e.x - e.r, e.y - e.r); grow(e.x + e.r, e.y + e.r); }
+      else if (e.t === 'line') { grow(e.x1, e.y1); grow(e.x2, e.y2); }
+      else if (e.t === 'pline') e.pts.forEach(([x, y]) => grow(x, y));
+      else if (e.t === 'image') { grow(e.x, e.y); grow(e.x + e.w, e.y + e.h); }
+      else if (e.t === 'text' && !e.info) grow(e.x, e.y);
     });
+    if (minX === Infinity) { minX = minY = 0; maxX = maxY = 1; }
+    const info = ents.find((e) => e.info); if (info) { info.x = minX; info.y = minY - th * 4; grow(info.x, info.y); } // below the drawing
+    return { layers: [...layers.entries()], ents, ext: { minX, minY, maxX, maxY } };
+  }
+  const f3 = (v) => (Math.round(v * 1000) / 1000).toFixed(3);
+
+  /** DXF R12 (AC1009): opens in every CAD program; no photos (R12 has no images). */
+  function dxfR12(G) {
+    const L = [], g = (c, v) => { L.push(String(c), String(v)); }, { minX, minY, maxX, maxY } = G.ext;
+    g(999, 'G-eSAA DXF R12');
+    g(0, 'SECTION'); g(2, 'HEADER');
+    g(9, '$ACADVER'); g(1, 'AC1009');
+    g(9, '$INSBASE'); g(10, 0); g(20, 0); g(30, 0);
+    g(9, '$EXTMIN'); g(10, f3(minX)); g(20, f3(minY)); g(30, 0);
+    g(9, '$EXTMAX'); g(10, f3(maxX)); g(20, f3(maxY)); g(30, 0);
+    g(9, '$LUNITS'); g(70, 2); g(9, '$LUPREC'); g(70, 3);
+    g(0, 'ENDSEC');
+    g(0, 'SECTION'); g(2, 'TABLES');
+    g(0, 'TABLE'); g(2, 'LTYPE'); g(70, 1);
+    g(0, 'LTYPE'); g(2, 'CONTINUOUS'); g(70, 0); g(3, 'Solid line'); g(72, 65); g(73, 0); g(40, 0.0);
+    g(0, 'ENDTAB');
+    g(0, 'TABLE'); g(2, 'LAYER'); g(70, G.layers.length);
+    for (const [name, color] of G.layers) { g(0, 'LAYER'); g(2, name); g(70, 0); g(62, color); g(6, 'CONTINUOUS'); }
+    g(0, 'ENDTAB');
+    g(0, 'TABLE'); g(2, 'STYLE'); g(70, 1);
+    g(0, 'STYLE'); g(2, 'STANDARD'); g(70, 0); g(40, 0.0); g(41, 1.0); g(50, 0.0); g(71, 0); g(42, 2.5); g(3, 'txt'); g(4, '');
+    g(0, 'ENDTAB');
+    g(0, 'ENDSEC');
+    g(0, 'SECTION'); g(2, 'ENTITIES');
+    for (const e of G.ents) {
+      if (e.t === 'circle') { g(0, 'CIRCLE'); g(8, e.l); g(10, f3(e.x)); g(20, f3(e.y)); g(30, 0); g(40, f3(e.r)); }
+      else if (e.t === 'line') { g(0, 'LINE'); g(8, e.l); g(10, f3(e.x1)); g(20, f3(e.y1)); g(30, 0); g(11, f3(e.x2)); g(21, f3(e.y2)); g(31, 0); }
+      else if (e.t === 'text') { g(0, 'TEXT'); g(8, e.l); g(10, f3(e.x)); g(20, f3(e.y)); g(30, 0); g(40, f3(e.h)); g(1, dxfText(e.s)); if (e.a) g(50, e.a.toFixed(2)); }
+      else if (e.t === 'pline') {
+        g(0, 'POLYLINE'); g(8, e.l); g(66, 1); g(10, 0); g(20, 0); g(30, 0); g(70, 0);
+        for (const [x, y] of e.pts) { g(0, 'VERTEX'); g(8, e.l); g(10, f3(x)); g(20, f3(y)); g(30, 0); }
+        g(0, 'SEQEND'); g(8, e.l);
+      }
+    }
     g(0, 'ENDSEC'); g(0, 'EOF');
     return L.join('\r\n') + '\r\n';
+  }
+
+  /* Fixed records of a DXF R2000 drawing (tables, layouts, materials, styles), taken from a reference file written by ezdxf
+     and checked with its audit. Handles below 0x40 are these records; everything the app adds is numbered from 0x100. */
+  const R2K = {"classes":[["0","CLASS","1","ACDBDICTIONARYWDFLT","2","AcDbDictionaryWithDefault","3","ObjectDBX Classes","90","0","280","0","281","0"],["0","CLASS","1","SUN","2","AcDbSun","3","SCENEOE","90","1153","280","0","281","0"],["0","CLASS","1","VISUALSTYLE","2","AcDbVisualStyle","3","ObjectDBX Classes","90","4095","280","0","281","0"],["0","CLASS","1","MATERIAL","2","AcDbMaterial","3","ObjectDBX Classes","90","1153","280","0","281","0"],["0","CLASS","1","SCALE","2","AcDbScale","3","ObjectDBX Classes","90","1153","280","0","281","0"],["0","CLASS","1","TABLESTYLE","2","AcDbTableStyle","3","ObjectDBX Classes","90","4095","280","0","281","0"],["0","CLASS","1","MLEADERSTYLE","2","AcDbMLeaderStyle","3","ACDB_MLEADERSTYLE_CLASS","90","4095","280","0","281","0"],["0","CLASS","1","DICTIONARYVAR","2","AcDbDictionaryVar","3","ObjectDBX Classes","90","0","280","0","281","0"],["0","CLASS","1","CELLSTYLEMAP","2","AcDbCellStyleMap","3","ObjectDBX Classes","90","1152","280","0","281","0"],["0","CLASS","1","MENTALRAYRENDERSETTINGS","2","AcDbMentalRayRenderSettings","3","SCENEOE","90","1024","280","0","281","0"],["0","CLASS","1","ACDBDETAILVIEWSTYLE","2","AcDbDetailViewStyle","3","ObjectDBX Classes","90","1025","280","0","281","0"],["0","CLASS","1","ACDBSECTIONVIEWSTYLE","2","AcDbSectionViewStyle","3","ObjectDBX Classes","90","1025","280","0","281","0"],["0","CLASS","1","RASTERVARIABLES","2","AcDbRasterVariables","3","ISM","90","0","280","0","281","0"],["0","CLASS","1","ACDBPLACEHOLDER","2","AcDbPlaceHolder","3","ObjectDBX Classes","90","0","280","0","281","0"],["0","CLASS","1","LAYOUT","2","AcDbLayout","3","ObjectDBX Classes","90","0","280","0","281","0"],["0","CLASS","1","IMAGE","2","AcDbRasterImage","3","ISM","90","2175","280","0","281","1"],["0","CLASS","1","IMAGEDEF","2","AcDbRasterImageDef","3","ISM","90","0","280","0","281","0"],["0","CLASS","1","IMAGEDEF_REACTOR","2","AcDbRasterImageDefReactor","3","ISM","90","1","280","0","281","0"]],"vport":["0","VPORT","5","23","330","8","100","AcDbSymbolTableRecord","100","AcDbViewportTableRecord","2","*Active","70","0","10","0.0","20","0.0","11","1.0","21","1.0","12","0.0","22","0.0","13","0.0","23","0.0","14","0.5","24","0.5","15","0.5","25","0.5","16","0.0","26","0.0","36","1.0","17","0.0","27","0.0","37","0.0","40","1000.0","41","1.34","42","50.0","43","0.0","44","0.0","50","0.0","51","0.0","71","0","72","1000","73","1","74","3","75","0","76","0","77","0","78","0","281","0","65","0","146","0.0"],"ltypes":[["0","LTYPE","5","24","330","2","100","AcDbSymbolTableRecord","100","AcDbLinetypeTableRecord","2","ByBlock","70","0","3","","72","65","73","0","40","0.0"],["0","LTYPE","5","25","330","2","100","AcDbSymbolTableRecord","100","AcDbLinetypeTableRecord","2","ByLayer","70","0","3","","72","65","73","0","40","0.0"],["0","LTYPE","5","26","330","2","100","AcDbSymbolTableRecord","100","AcDbLinetypeTableRecord","2","Continuous","70","0","3","","72","65","73","0","40","0.0"]],"layer0":["0","LAYER","5","27","330","1","100","AcDbSymbolTableRecord","100","AcDbLayerTableRecord","2","0","70","0","62","7","6","Continuous","370","-3","390","13"],"layerDef":["0","LAYER","5","28","330","1","100","AcDbSymbolTableRecord","100","AcDbLayerTableRecord","2","Defpoints","70","0","62","7","6","Continuous","290","0","370","-3","390","13"],"style":["0","STYLE","5","29","330","5","100","AcDbSymbolTableRecord","100","AcDbTextStyleTableRecord","2","Standard","70","0","40","0.0","41","1.0","50","0.0","71","0","42","2.5","3","txt","4",""],"appid":["0","APPID","5","2A","330","3","100","AcDbSymbolTableRecord","100","AcDbRegAppTableRecord","2","ACAD","70","0"],"dimstyleTable":["0","TABLE","2","DIMSTYLE","5","4","330","0","100","AcDbSymbolTable","70","1","100","AcDbDimStyleTable"],"dimstyle":["0","DIMSTYLE","105","2B","330","4","100","AcDbSymbolTableRecord","100","AcDbDimStyleTableRecord","2","Standard","70","0","3","","4","","40","1.0","41","2.5","42","0.625","43","3.75","44","1.25","45","0.0","46","0.0","47","0.0","48","0.0","140","2.5","141","2.5","142","0.0","143","0.03937007874","144","1.0","145","0.0","146","1.0","147","0.625","148","0.0","71","0","72","0","73","0","74","0","75","0","76","0","77","1","78","8","79","3","170","0","171","3","172","1","173","0","174","0","175","0","176","0","177","0","178","0","179","2","271","2","272","2","273","2","274","3","275","0","276","0","277","2","278","44","279","0","280","0","281","0","282","0","283","0","284","8","285","0","286","0","288","0","289","3","371","-2","372","-2"],"blocks":[["0","BLOCK","5","18","330","17","100","AcDbEntity","8","0","100","AcDbBlockBegin","2","*Model_Space","70","0","10","0.0","20","0.0","30","0.0","3","*Model_Space","1",""],["0","ENDBLK","5","19","330","17","100","AcDbEntity","8","0","100","AcDbBlockEnd"],["0","BLOCK","5","1C","330","1B","100","AcDbEntity","8","0","100","AcDbBlockBegin","2","*Paper_Space","70","0","10","0.0","20","0.0","30","0.0","3","*Paper_Space","1",""],["0","ENDBLK","5","1D","330","1B","100","AcDbEntity","8","0","100","AcDbBlockEnd"]],"static":[["0","DICTIONARY","5","B","330","A","100","AcDbDictionary","281","1"],["0","DICTIONARY","5","C","330","A","100","AcDbDictionary","281","1"],["0","DICTIONARY","5","D","330","A","100","AcDbDictionary","281","1","3","Model","350","1A","3","Layout1","350","1E"],["0","DICTIONARY","5","E","330","A","100","AcDbDictionary","281","1","3","ByBlock","350","1F","3","ByLayer","350","20","3","Global","350","21"],["0","DICTIONARY","5","F","330","A","100","AcDbDictionary","281","1","3","Standard","350","2C"],["0","DICTIONARY","5","10","330","A","100","AcDbDictionary","281","1","3","Standard","350","22"],["0","DICTIONARY","5","11","330","A","100","AcDbDictionary","281","1"],["0","ACDBDICTIONARYWDFLT","5","12","330","A","100","AcDbDictionary","281","1","3","Normal","350","13","100","AcDbDictionaryWithDefault","340","13"],["0","ACDBPLACEHOLDER","5","13","330","12"],["0","DICTIONARY","5","14","330","A","100","AcDbDictionary","281","1"],["0","DICTIONARY","5","15","330","A","100","AcDbDictionary","281","1"],["0","DICTIONARY","5","16","330","A","100","AcDbDictionary","281","1"],["0","LAYOUT","5","1A","330","D","100","AcDbPlotSettings","1","","4","A3","6","","40","7.5","41","20.0","42","7.5","43","20.0","44","420.0","45","297.0","46","0.0","47","0.0","48","0.0","49","0.0","140","0.0","141","0.0","142","1.0","143","1.0","70","1024","72","1","73","0","74","5","7","","75","16","76","0","77","2","78","300","147","1.0","148","0.0","149","0.0","100","AcDbLayout","1","Model","70","1","71","0","10","0.0","20","0.0","11","420.0","21","297.0","12","0.0","22","0.0","32","0.0","14","1e+20","24","1e+20","34","1e+20","15","-1e+20","25","-1e+20","35","-1e+20","146","0.0","13","0.0","23","0.0","33","0.0","16","1.0","26","0.0","36","0.0","17","0.0","27","1.0","37","0.0","76","1","330","17"],["0","LAYOUT","5","1E","330","D","100","AcDbPlotSettings","1","","4","A3","6","","40","7.5","41","20.0","42","7.5","43","20.0","44","420.0","45","297.0","46","0.0","47","0.0","48","0.0","49","0.0","140","0.0","141","0.0","142","1.0","143","1.0","70","0","72","1","73","0","74","5","7","","75","16","76","0","77","2","78","300","147","1.0","148","0.0","149","0.0","100","AcDbLayout","1","Layout1","70","1","71","1","10","0.0","20","0.0","11","420.0","21","297.0","12","0.0","22","0.0","32","0.0","14","1e+20","24","1e+20","34","1e+20","15","-1e+20","25","-1e+20","35","-1e+20","146","0.0","13","0.0","23","0.0","33","0.0","16","1.0","26","0.0","36","0.0","17","0.0","27","1.0","37","0.0","76","1","330","1B"],["0","MATERIAL","5","1F","102","{ACAD_REACTORS","330","E","102","}","330","E","100","AcDbMaterial","1","ByBlock","2","","70","0","40","1.0","71","1","41","1.0","91","-1023410177","42","1.0","72","1","3","","73","1","74","1","75","1","44","0.5","73","0","45","1.0","46","1.0","77","1","4","","78","1","79","1","170","1","48","1.0","171","1","6","","172","1","173","1","174","1","140","1.0","141","1.0","175","1","7","","176","1","177","1","178","1","143","1.0","179","1","8","","270","1","271","1","272","1","145","1.0","146","1.0","273","1","9","","274","1","275","1","276","1","42","1.0","72","1","3","","73","1","74","1","75","1","94","63"],["0","MATERIAL","5","20","102","{ACAD_REACTORS","330","E","102","}","330","E","100","AcDbMaterial","1","ByLayer","2","","70","0","40","1.0","71","1","41","1.0","91","-1023410177","42","1.0","72","1","3","","73","1","74","1","75","1","44","0.5","73","0","45","1.0","46","1.0","77","1","4","","78","1","79","1","170","1","48","1.0","171","1","6","","172","1","173","1","174","1","140","1.0","141","1.0","175","1","7","","176","1","177","1","178","1","143","1.0","179","1","8","","270","1","271","1","272","1","145","1.0","146","1.0","273","1","9","","274","1","275","1","276","1","42","1.0","72","1","3","","73","1","74","1","75","1","94","63"],["0","MATERIAL","5","21","102","{ACAD_REACTORS","330","E","102","}","330","E","100","AcDbMaterial","1","Global","2","","70","0","40","1.0","71","1","41","1.0","91","-1023410177","42","1.0","72","1","3","","73","1","74","1","75","1","44","0.5","73","0","45","1.0","46","1.0","77","1","4","","78","1","79","1","170","1","48","1.0","171","1","6","","172","1","173","1","174","1","140","1.0","141","1.0","175","1","7","","176","1","177","1","178","1","143","1.0","179","1","8","","270","1","271","1","272","1","145","1.0","146","1.0","273","1","9","","274","1","275","1","276","1","42","1.0","72","1","3","","73","1","74","1","75","1","94","63"],["0","MLINESTYLE","5","22","102","{ACAD_REACTORS","330","10","102","}","330","10","100","AcDbMlineStyle","2","Standard","70","0","3","","62","256","51","90.0","52","90.0","71","2","49","0.5","62","256","6","BYLAYER","49","-0.5","62","256","6","BYLAYER"],["0","MLEADERSTYLE","5","2C","102","{ACAD_REACTORS","330","F","102","}","330","F","100","AcDbMLeaderStyle","179","2","170","2","171","1","172","0","90","2","40","0.0","41","0.0","173","1","91","-1056964608","92","-2","290","1","42","2.0","291","1","43","8.0","3","Standard","44","4.0","300","","342","29","174","1","175","1","176","0","178","1","93","-1056964608","45","4.0","292","0","297","0","46","4.0","94","-1056964608","47","1.0","49","1.0","140","1.0","294","1","141","0.0","177","0","142","1.0","295","0","296","0","143","3.75","271","0","272","9","273","9"]]};
+  /** DXF R2000 (AC1015, AutoCAD 2000 or newer): adds an IMAGE beside each point, linked to the JPEG next to the DXF. */
+  function dxfR2000(G) {
+    const L = [], g = (c, v) => { L.push(String(c), String(v)); }, put = (arr) => { for (let i = 0; i < arr.length; i += 2) g(arr[i], arr[i + 1]); };
+    let next = 0x100; const H = () => (next++).toString(16).toUpperCase();
+    const { minX, minY, maxX, maxY } = G.ext, imgs = G.ents.filter((e) => e.t === 'image');
+    // handles: layers, entities, then one IMAGEDEF and one IMAGEDEF_REACTOR per photo
+    const layerH = G.layers.filter(([n]) => n !== '0').map(([n, c]) => [n, c, H()]);
+    G.ents.forEach((e) => { e.hd = H(); }); // handle (e.h is a height)
+    const defs = new Map(); // one IMAGEDEF per file
+    imgs.forEach((e) => { if (!defs.has(e.file)) defs.set(e.file, { h: H(), px: e.px, py: e.py, users: [] }); e.def = defs.get(e.file); e.reactor = H(); e.def.users.push(e); });
+    const seed = H();
+    // HEADER: the few variables AutoCAD needs; the drawing is in metres
+    g(999, 'G-eSAA DXF R2000');
+    g(0, 'SECTION'); g(2, 'HEADER');
+    g(9, '$ACADVER'); g(1, 'AC1015'); g(9, '$ACADMAINTVER'); g(70, 6); g(9, '$DWGCODEPAGE'); g(3, 'ANSI_1252');
+    g(9, '$INSBASE'); g(10, 0); g(20, 0); g(30, 0);
+    g(9, '$EXTMIN'); g(10, f3(minX)); g(20, f3(minY)); g(30, 0);
+    g(9, '$EXTMAX'); g(10, f3(maxX)); g(20, f3(maxY)); g(30, 0);
+    g(9, '$LUNITS'); g(70, 2); g(9, '$LUPREC'); g(70, 3); g(9, '$INSUNITS'); g(70, 6); g(9, '$MEASUREMENT'); g(70, 1);
+    g(9, '$HANDSEED'); g(5, seed);
+    g(0, 'ENDSEC');
+    g(0, 'SECTION'); g(2, 'CLASSES'); R2K.classes.forEach(put); g(0, 'ENDSEC');
+    g(0, 'SECTION'); g(2, 'TABLES');
+    // VPORT: open zoomed to the drawing
+    const vp = R2K.vport.slice(), setv = (code, val) => { const i = vp.findIndex((x, k) => k % 2 === 0 && x === String(code)); if (i >= 0) vp[i + 1] = String(val); };
+    setv(12, f3((minX + maxX) / 2)); setv(22, f3((minY + maxY) / 2)); setv(40, f3(Math.max(10, (maxY - minY) * 1.15))); setv(41, '1.5');
+    g(0, 'TABLE'); g(2, 'VPORT'); g(5, '8'); g(330, '0'); g(100, 'AcDbSymbolTable'); g(70, 1); put(vp); g(0, 'ENDTAB');
+    g(0, 'TABLE'); g(2, 'LTYPE'); g(5, '2'); g(330, '0'); g(100, 'AcDbSymbolTable'); g(70, 3); R2K.ltypes.forEach(put); g(0, 'ENDTAB');
+    g(0, 'TABLE'); g(2, 'LAYER'); g(5, '1'); g(330, '0'); g(100, 'AcDbSymbolTable'); g(70, layerH.length + 2); put(R2K.layer0); put(R2K.layerDef);
+    for (const [name, color, h] of layerH) { g(0, 'LAYER'); g(5, h); g(330, '1'); g(100, 'AcDbSymbolTableRecord'); g(100, 'AcDbLayerTableRecord'); g(2, name); g(70, 0); g(62, color); g(6, 'Continuous'); g(370, -3); g(390, '13'); }
+    g(0, 'ENDTAB');
+    g(0, 'TABLE'); g(2, 'STYLE'); g(5, '5'); g(330, '0'); g(100, 'AcDbSymbolTable'); g(70, 1); put(R2K.style); g(0, 'ENDTAB');
+    g(0, 'TABLE'); g(2, 'VIEW'); g(5, '7'); g(330, '0'); g(100, 'AcDbSymbolTable'); g(70, 0); g(0, 'ENDTAB');
+    g(0, 'TABLE'); g(2, 'UCS'); g(5, '6'); g(330, '0'); g(100, 'AcDbSymbolTable'); g(70, 0); g(0, 'ENDTAB');
+    g(0, 'TABLE'); g(2, 'APPID'); g(5, '3'); g(330, '0'); g(100, 'AcDbSymbolTable'); g(70, 1); put(R2K.appid); g(0, 'ENDTAB');
+    put(R2K.dimstyleTable); put(R2K.dimstyle); g(0, 'ENDTAB');
+    g(0, 'TABLE'); g(2, 'BLOCK_RECORD'); g(5, '9'); g(330, '0'); g(100, 'AcDbSymbolTable'); g(70, 2);
+    g(0, 'BLOCK_RECORD'); g(5, '17'); g(330, '9'); g(100, 'AcDbSymbolTableRecord'); g(100, 'AcDbBlockTableRecord'); g(2, '*Model_Space'); g(340, '1A');
+    g(0, 'BLOCK_RECORD'); g(5, '1B'); g(330, '9'); g(100, 'AcDbSymbolTableRecord'); g(100, 'AcDbBlockTableRecord'); g(2, '*Paper_Space'); g(340, '1E');
+    g(0, 'ENDTAB');
+    g(0, 'ENDSEC');
+    g(0, 'SECTION'); g(2, 'BLOCKS'); R2K.blocks.forEach(put); g(0, 'ENDSEC');
+    g(0, 'SECTION'); g(2, 'ENTITIES');
+    const head = (type, e) => { g(0, type); g(5, e.hd); g(330, '17'); g(100, 'AcDbEntity'); g(8, e.l); };
+    for (const e of G.ents) {
+      if (e.t === 'circle') { head('CIRCLE', e); g(100, 'AcDbCircle'); g(10, f3(e.x)); g(20, f3(e.y)); g(30, 0); g(40, f3(e.r)); }
+      else if (e.t === 'line') { head('LINE', e); g(100, 'AcDbLine'); g(10, f3(e.x1)); g(20, f3(e.y1)); g(30, 0); g(11, f3(e.x2)); g(21, f3(e.y2)); g(31, 0); }
+      else if (e.t === 'text') { head('TEXT', e); g(100, 'AcDbText'); g(10, f3(e.x)); g(20, f3(e.y)); g(30, 0); g(40, f3(e.h)); g(1, dxfText(e.s)); if (e.a) g(50, e.a.toFixed(2)); g(100, 'AcDbText'); }
+      else if (e.t === 'pline') { head('LWPOLYLINE', e); g(100, 'AcDbPolyline'); g(90, e.pts.length); g(70, 0); for (const [x, y] of e.pts) { g(10, f3(x)); g(20, f3(y)); } }
+      else if (e.t === 'image') {
+        head('IMAGE', e); g(100, 'AcDbRasterImage'); g(90, 0);
+        g(10, f3(e.x)); g(20, f3(e.y)); g(30, 0);
+        g(11, (e.w / e.px).toPrecision(10)); g(21, 0); g(31, 0); // one pixel along the width, in metres
+        g(12, 0); g(22, (e.h / e.py).toPrecision(10)); g(32, 0); // one pixel along the height
+        g(13, e.px); g(23, e.py); g(340, e.def.h); g(70, 3); g(280, 0); g(281, 50); g(282, 50); g(283, 0); g(360, e.reactor);
+        g(71, 1); g(91, 2); g(14, -0.5); g(24, -0.5); g(14, e.px - 0.5); g(24, e.py - 0.5);
+      }
+    }
+    g(0, 'ENDSEC');
+    g(0, 'SECTION'); g(2, 'OBJECTS');
+    g(0, 'DICTIONARY'); g(5, 'A'); g(330, '0'); g(100, 'AcDbDictionary'); g(281, 1);
+    [['ACAD_COLOR', 'B'], ['ACAD_GROUP', 'C'], ['ACAD_LAYOUT', 'D'], ['ACAD_MATERIAL', 'E'], ['ACAD_MLEADERSTYLE', 'F'], ['ACAD_MLINESTYLE', '10'], ['ACAD_PLOTSETTINGS', '11'],
+      ['ACAD_PLOTSTYLENAME', '12'], ['ACAD_SCALELIST', '14'], ['ACAD_TABLESTYLE', '15'], ['ACAD_VISUALSTYLE', '16'], ...(defs.size ? [['ACAD_IMAGE_VARS', '32'], ['ACAD_IMAGE_DICT', '33']] : [])]
+      .forEach(([k, h]) => { g(3, k); g(350, h); });
+    R2K.static.forEach(put);
+    if (defs.size) {
+      g(0, 'RASTERVARIABLES'); g(5, '32'); g(102, '{ACAD_REACTORS'); g(330, 'A'); g(102, '}'); g(330, 'A'); g(100, 'AcDbRasterVariables'); g(90, 0); g(70, 0); g(71, 1); g(72, 3);
+      g(0, 'DICTIONARY'); g(5, '33'); g(330, 'A'); g(100, 'AcDbDictionary'); g(281, 1);
+      for (const [file, d] of defs) { g(3, file.replace(/\.[^.]+$/, '')); g(350, d.h); }
+      for (const [file, d] of defs) {
+        g(0, 'IMAGEDEF'); g(5, d.h); g(102, '{ACAD_REACTORS'); g(330, '33'); d.users.forEach((u) => g(330, u.reactor)); g(102, '}'); g(330, '33');
+        g(100, 'AcDbRasterImageDef'); g(90, 0); g(1, file); g(10, d.px); g(20, d.py); g(11, 0.01); g(21, 0.01); g(280, 1); g(281, 0);
+      }
+      for (const e of imgs) { g(0, 'IMAGEDEF_REACTOR'); g(5, e.reactor); g(330, e.hd); g(100, 'AcDbRasterImageDefReactor'); g(90, 2); g(330, e.hd); }
+    }
+    g(0, 'ENDSEC'); g(0, 'EOF');
+    return L.join('\r\n') + '\r\n';
+  }
+
+  /** opts.version 'R2000' (default when photos are given) or 'R12'. See dxfGeom for the other options. */
+  function buildDxf(points, opts, roads) {
+    const o = Object.assign({ zone: 51, symbolSize: 1, textHeight: 1.5, focPct: 10 }, opts || {});
+    const G = dxfGeom(points, o, roads);
+    return (o.version || (o.photos ? 'R2000' : 'R12')) === 'R2000' ? dxfR2000(G) : dxfR12(G);
   }
 
   /* ---------------- CSV ---------------- */
   function buildCsv(points, zone, exportedBy) {
     const q = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const rows = [['pole_id', 'pole_type', 'latitude', 'longitude', `utm${zone}n_easting`, `utm${zone}n_northing`, 'gps_accuracy_m', 'pin_adjusted', 'captured', 'photo', 'surveyed_by',
-      'element', 'status', 'closure_id', 'remarks', 'red_box', ...(exportedBy ? ['exported_by'] : [])]];
+      'element', 'status', 'closure_id', 'remarks', 'red_box', 'pole_details', ...(exportedBy ? ['exported_by'] : [])]];
     for (const p of points) {
       const u = utmForward(p.lat, p.lon, zone, p.lat < 0);
       rows.push([p.poleId, p.poleType, p.lat.toFixed(8), p.lon.toFixed(8), u.E.toFixed(3), u.N.toFixed(3),
         Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : '', p.adjusted ? 'yes' : 'no', p.takenAt, p.photoName || '', p.by || '',
-        p.element || 'Pole', p.status || '', p.closureId || '', p.remarks || '', p.boxes ? 'yes' : 'no', ...(exportedBy ? [exportedBy] : [])]);
+        p.element || 'Pole', p.status || '', p.closureId || '', p.remarks || '', p.boxes ? 'yes' : 'no', p.detailsText || '', ...(exportedBy ? [exportedBy] : [])]);
     }
     return '﻿' + rows.map((r) => r.map(q).join(',')).join('\r\n') + '\r\n';
   }
