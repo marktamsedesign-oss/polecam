@@ -519,6 +519,31 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.21
+
+- **Fixed: the survey photo could not be opened (full view, marks, pole model).** After a PAT, cleanup or FAT record without element photos, the photo row stayed hidden on the next survey record, so the photo could not be tapped. It is shown again for every survey record. (Reproduced on v2.20 and checked fixed.)
+- **Nothing lost on a page refresh.** While a record is open, its photo, the form, the pin and the deficiencies (with their photos) are kept on the phone as a draft; so is a photo just taken while the camera waits for the ID scan. If the page reloads, the phone closes the app in the background, or the app is closed before Save, the next start asks **Unsaved record … Open it again?** — *Open it* brings the record back as it was (check it, then Save); *Discard* drops it. The draft goes when the record is saved, deleted or discarded.
+  - **Back or × on a record with unsaved changes** now asks **Leave without saving?** (*Keep editing* / *Discard*) instead of closing at once. A record opened only to look at closes as before.
+  - Pulling the page down no longer reloads it (Chrome's pull-to-refresh is off), and a reload or closing the tab with unsaved changes makes the browser ask first.
+- **PAT, defect cleanup and FAT: no ID scan after the defect photo.** The photo goes straight to the record with the defect form open. To read the element's ID, tap **Scan ID** in the record (Element details), or turn the scan after each photo back on: Settings → Camera, or the **ID** button on the camera while in a PAT / cleanup / FAT project. Surveys keep their own setting.
+- **Deficiency checklist: new categories show.** A category the admin adds to the checklist (Settings → Administration → *Deficiency checklist*) is now offered under *Where* for every element, before *Other*; before, only the built-in categories were shown. How a checklist change reaches everyone is below.
+- **Project search:** with six or more projects on the phone, Projects has a search box (name, category, site, vendor, task ID, notes); tap a result to open that project.
+- **Share several projects to a colleague:** Projects → **📤 Share several projects**: tick the projects (search and category filter, *Select all shown*), then **Share N projects**. One ZIP holds them all with their photos (and who sent them). The colleague opens it with **Projects → 📂 Open a shared file** (or *Open with G-eSAA*): the projects are listed; if a project of the same name is already on that phone, **Add to them** puts the records together (each record keeps who recorded it; one already there is updated) or **Keep apart** adds the sender's name to the copy. A file from another company asks once more (company names are compared as in the company list: *ABC Builders Inc.* = *ABC Builders Inc*). Opening the same file again with *Keep apart* updates the copy made the first time instead of making another; empty projects are not copied. For safe keeping, or when a user leaves: share all their projects to the colleague who takes over. Files over 1.5 GB of photos are refused: share fewer projects at a time.
+- **Other fixes found while checking:**
+  - A file shared to G-eSAA (Android *Open with* / *Share*) while a record or the camera is open no longer closes the record: it waits (*Save or close this record first*) and opens after the record is saved or closed.
+  - The same file can be picked twice in a row in *Open a shared file* (before, the second pick did nothing).
+  - The ID photo read in the background no longer opens over a record being saved or another screen; Back on a full-size photo no longer leaves a pending close stuck.
+  - If the profile form is closed without saving, a file that was waiting for it is dropped instead of opening later by surprise.
+  - A damaged ID-reader model file now falls back to the text reader instead of failing each scan.
+
+### How a deficiency checklist change reaches all users
+
+The checklist (categories and defects) is part of the **company list** the admin signs; every phone uses the list it has.
+1. The admin changes it: Settings → Administration (admin PIN) → *Deficiency checklist* (add a category, add or edit the defect lines, one per line), then **Save and share the list**. This makes a new list version.
+2. **With the online sheet** (Administration → *Online Google Sheet* set up, with the admin key): Save also writes the new version to the sheet, and every phone takes it the next time it reads the sheet — at start and on changes (at most every 10 minutes), every hour, or only with *Sync*, as each user set under *Sync with the online sheet*. To get it at once, a user taps the **Sync** button (⟳, top bar) or Settings → *Sync online sheet*. The phone shows *Company list updated from the online sheet: version N*. A phone that is offline gets it when it is next online.
+3. **Without the online sheet:** share the new join link or QR code (Settings → *Share list*); each user takes it with Settings → **Update list** (paste the link or scan the QR). Until a user does, their phone keeps the old checklist.
+- Records already made keep the defect text they were saved with; a removed or renamed line does not change them. New records use the new list.
+
 ## What changed in v2.20
 
 - **G-eSAA's own ID reader.** A small neural network trained for pole tags — painted, stencilled and raised (embossed) characters — now reads each character the app cuts out of the picture (file `glyphs.js`, 140 KB, offline like the rest). It runs first on every reading: the live camera, the shutter, the ID photo, a tap or box on a photo.

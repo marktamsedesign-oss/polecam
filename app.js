@@ -111,6 +111,13 @@
   const typeLines = (list) => (list || []).map((t) => (t.n && t.n !== t.p ? `${t.p} ${t.n}` : t.p)).join('\n');
   function refreshTypes() { if (window.PoleCore && window.PoleCore.setPolePrefixes) window.PoleCore.setPolePrefixes(poleTypes().map((t) => t.p)); }
   const CATS_FOR = { Pole: ['Pole', 'Cable / strand', 'MLoop', 'NAP', 'Closure', 'Other'], ODF: ['ODF', 'Other'], ODC: ['ODC', 'Cable / strand', 'Other'], Rack: ['Rack', 'ODF', 'Other'] };
+  /** v2.21: the defect categories offered for an element: its own, then any category the admin added to the checklist (for every
+      element), then Other. */
+  function catsFor(el) {
+    const base = CATS_FOR[el] || ['Other'], known = new Set(Object.values(CATS_FOR).flat().concat(Object.keys(DEF_CHECK)));
+    const extra = Object.keys(pol().defects || {}).filter((k) => !known.has(k));
+    return base.filter((c) => c !== 'Other').concat(extra, base.includes('Other') ? ['Other'] : []);
+  }
   const PHOTO_LABELS = ['Overview', 'Pole tag', 'MLoop', 'NAP', 'Closure', 'Cable', 'ODF', 'ODC', 'Rack', 'Detail'];
   const STATUS_TEXT = { OK: 'No deficiency', Open: 'Open deficiency', Rectified: 'Rectified', Verified: 'Verified' };
   const STATUS_COLORS = { OK: '#2b8a3e', Open: '#c92a2a', Rectified: '#1971c2', Verified: '#0b7285' };
@@ -521,19 +528,30 @@
     return new Promise((r) => { if (!stack.length) return r(); pendingClose.push(r); history.back(); });
   }
   window.addEventListener('popstate', () => {
-    if (pvOpen) { pvOpen = false; hidePhotoView(); return; } // Back closes the full-size photo first
+    if (pvOpen) { pvOpen = false; hidePhotoView(); if (pendingClose.length) history.back(); return; } // Back closes the full-size photo first; a close asked meanwhile goes on
     if (editorSaving && stack[stack.length - 1] === 'editor') {
       history.pushState({ sheet: 'editor' }, '');
       LOG.info('back.blockedWhileSaving'); toast('Finishing the save. Your photo is still here.'); return;
+    }
+    // v2.21: the phone's Back on a record with unsaved changes: it stays open and asks
+    if (!pendingClose.length && stack[stack.length - 1] === 'editor' && ed && !ed.closeOK && edDirty()) {
+      history.pushState({ sheet: 'editor' }, '');
+      askLeaveEditor(); return;
     }
     const id = stack.pop();
     if (id) { $(id).hidden = true; onSheetClosed(id); }
     const r = pendingClose.shift(); if (r) r();
   });
-  document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => closeSheet()));
+  document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => {
+    if (stack[stack.length - 1] === 'editor' && ed && !ed.closeOK && edDirty()) { askLeaveEditor(); return; } // v2.21
+    closeSheet();
+  }));
   function onSheetClosed(id) {
+    if (id !== 'editor' && ed) scheduleDraft(); // back on the record from the camera, the marks or a photo: kept safe (v2.21)
     if (id === 'camera') stopCamera();
     if (id === 'editor') { cleanupEditor(); }
+    if (sharedWaiting && (id === 'editor' || id === 'camera')) setTimeout(sharedResume, id === 'camera' ? 3000 : 400); // v2.21
+    if (id === 'profile' && !profileOk()) sharedWaiting = null; // closed without the details: the file is not opened later by surprise
     if (id === 'boxer') { if (boxer && boxer.im && boxer.im.close) boxer.im.close(); boxer = null; }
     if (id === 'list') revokeListUrls();
     if (id === 'qrScan') stopQrScan();
@@ -585,7 +603,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.20.0';
+  const APP_VER = '2.21.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1205,7 +1223,8 @@
   }
   const scanStep = () => camTarget === 'scan' || camTarget === 'newid';
   /** v2.19: the ID scan after each photo is set apart for surveys and for PAT / cleanup / FAT (where the ID is optional). */
-  const readIdOn = () => (isAcc() ? S.readIdAcc : S.readId) !== false;
+  // v2.21: in PAT, cleanup and FAT the photo is of the defect: no ID scan after it unless turned on (Scan ID in the record stays)
+  const readIdOn = () => (isAcc() ? S.readIdAcc === true : S.readId !== false);
   const gpsFresh = () => !!fix && Date.now() - fix.t <= GPS_WINDOW_MS && gpsErr !== 1;
   /** Shutter colour: green = GPS updated within 5 s (ready), red = GPS old, off or blocked; white while scanning an ID. */
   function shutterState() {
@@ -1325,6 +1344,7 @@
       return;
     }
     renderIdCands('done', list, list.length ? `${ta && tb ? 'The two readings of the ID photo differ' : 'Not read for sure'}: tap the right ID below, or tap the ID on the photo.` : undefined);
+    if (editorSaving || pvOpen || stack[stack.length - 1] !== 'editor') return; // v2.21: not over a save, another sheet or a photo already open
     pvReadBlob = null; showBlob(blob, 'ID photo'); pvReadBlob = blob; setPhotoRead(true);
     toast(list.length ? 'Not read for sure: tap the ID on the photo (or close it and pick a reading)' : 'ID not read: tap the ID on the photo, or draw a box round it', 4500);
   }
@@ -1370,7 +1390,7 @@
   }
   /** Main photo accepted: keep the camera open and ask for the ID (pole, ODF or any other). */
   function enterIdStep(pending) {
-    camPending = pending; camTarget = 'newid';
+    camPending = pending; camTarget = 'newid'; shotDraft(pending); // v2.21: the photo is kept while the ID is scanned
     $('qualBox').hidden = true; showGuide();
   }
   function stopCamera() {
@@ -1386,7 +1406,7 @@
       const p = camPending; camPending = null;
       setTimeout(async () => {
         const q = p.q || (p.qp ? await p.qp : null);
-        if (q && q.flags && q.flags.length) { toast(`${QUAL_TITLE[q.flags[0]] || 'Photo not accepted'}. ${QUAL_TEXT[q.flags[0]] || 'Take it again.'}`, 7000); return; }
+        if (q && q.flags && q.flags.length) { draftClear(); toast(`${QUAL_TITLE[q.flags[0]] || 'Photo not accepted'}. ${QUAL_TEXT[q.flags[0]] || 'Take it again.'}`, 7000); return; }
         gotPhoto(p.blob, p.gps, p.source || 'camera', { q, takenAt: p.takenAt, crop: p.crop || null, live: p.live || null, idShot: p.idShot || null });
       }, 0);
     }
@@ -1828,7 +1848,7 @@
         qp.then((q) => {
           pend.q = q;
           if (!q.flags.length || camPending !== pend || !alive()) return; // fine, or the ID step already ended (checked when the photo is used)
-          camPending = null; finderStop(); camTarget = 'new'; showGuide(); refusePhoto(blob, q);
+          camPending = null; finderStop(); camTarget = 'new'; showGuide(); refusePhoto(blob, q); draftClear();
         });
         return;
       }
@@ -2376,6 +2396,7 @@
     pinMap.setView([12.3, 122.6], 6);
     pinMap.on('move', updateCoordBox);
     pinMap.on('moveend', clampPin);
+    pinMap.on('moveend', () => { if (ed && ed.dragged) scheduleDraft(); }); // v2.21
     pinMap.on('dragstart zoomstart', () => { if (ed) ed.userMoved = true; });
     pinMap.on('dragstart', () => { if (ed) ed.dragged = true; $('edHint').classList.add('gone'); });
   }
@@ -2553,7 +2574,7 @@
     $('attachTitle').textContent = acc ? 'On this pole · optional' : 'On this pole';
     $('surveyTypeBox').hidden = ed.element !== 'Pole'; $('edPhoto').hidden = acc; $('nptBtn').hidden = ed.element !== 'Pole';
     ['svStatusBox', 'svClosureBox', 'svRemarksBox'].forEach((x) => { $(x).hidden = acc; });
-    if (acc) $('accPhotos').closest('.group').hidden = false; // renderAccPhotos hides it when the record has no element photo
+    $('accPhotos').closest('.group').hidden = false; // v2.21 fix: renderAccPhotos hides this group (it holds the survey photo too) for a PAT record without element photos; it stayed hidden for the next survey record
     if (!acc) { $('poleAttach').hidden = true; $('odfBox').hidden = true; }
     $('defPanel').hidden = true; $('addDefBtn').hidden = false;
     $('queueNote').textContent = '';
@@ -2586,13 +2607,157 @@
       ed.userMoved = false; drawEdGps(); updateCoordBox(); drawPinRef();
     });
     checkFormat(); applyEdLock();
+    draftStart(!!o.restore); // v2.21: kept safe until saved
     if (photoReadNext && o.mode === 'new' && !acc && o.blob) { photoReadNext = false; setTimeout(openPhotoRead, 400); } // v2.17: the picture button
     else if (o.live) applyLiveRead(o.live);
     else if (o.crop && o.idShot) readIdShot(o.crop, o.idShot); // v2.19: the ID photo
     else if (o.crop) runOcrFor(o.crop, true);
     else if (o.mode === 'new' && !o.poleId && !acc) setTimeout(() => { const f = $('poleId'); f.focus(); const n = f.value.length; if (/[-_]$/.test(f.value)) f.setSelectionRange(n, n); else f.select(); }, 250);
   }
-  async function openEditorFor(id) {
+  /* ================= v2.21: an unsaved record is kept safe =================
+     While a record is open, what it holds (the photo, the form, the pin, the deficiencies and their photos) is kept as a draft on
+     the phone: in the photo store (pictures, ids draft~…) and in localStorage (the rest). A page reload, the phone closing the app in
+     the background, or the app being closed some other way loses nothing: the next start offers the record again. */
+  const DRAFT_KEY = 'polecam.draft', DRAFT_MAX_MS = 7 * 86400000;
+  let draftTimer = 0, draftChain = Promise.resolve(), draftBlobs = {}, draftAtStart = 0;
+  try { const st0 = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); draftAtStart = (st0 && st0.t) || 0; } catch (e) { draftAtStart = 0; } // the draft left from before this start
+  /** A photo taken, the camera still open for the ID: kept as a draft too, so a reload during the ID scan does not lose it. */
+  function shotDraft(p) {
+    if (!p || !p.blob || ed) return;
+    const st = { v: 1, t: Date.now(), shot: true, project: S.project, mode: 'new', acc: isAcc(), element: 'Pole', gps: p.gps || null, takenAt: p.takenAt || '', source: p.source || 'camera', hasNew: true };
+    draftBlobs = {};
+    draftChain = draftChain.then(async () => {
+      try { await dbPut('photos', { id: 'draft~new', clean: p.blob }); localStorage.setItem(DRAFT_KEY, JSON.stringify(st)); } catch (e) { LOG.warn('draft.fail', errInfo(e)); }
+    });
+  }
+  function draftState() {
+    if (!ed) return null;
+    const c = pinMap && pinMap.getCenter();
+    const dd = defDraft && !$('defPanel').hidden ? { cat: defDraft.cat, items: [...defDraft.items], sev: defDraft.sev, notes: $('defNotes').value, meta: defDraft.meta || null, photo: !!defDraft.blob } : null;
+    return {
+      v: 1, project: S.project, mode: ed.mode, id: ed.id, acc: !!ed.acc, element: ed.element || 'Pole', type: ed.type || '', status: ed.status || '',
+      poleId: $('poleId').value, napId: $('napId').value, closureId: $('closureId').value, svRemarks: $('svRemarks').value, svClosureId: $('svClosureId').value,
+      details: ed.details || [], marks: ed.marks || [], defs: ed.defs || [], photos: ed.photos || [], removed: ed.removed || [],
+      mloop: !!ed.mloop, nap: !!ed.nap, closure: !!ed.closure, odf: ed.odf || '', gps: ed.gps || null, takenAt: ed.takenAt || '', source: ed.source || '', q: ed.q || null,
+      idRead: ed.idRead || null, idTouched: !!ed.idTouched, dragged: !!ed.dragged, pin: ed.dragged && c ? { lat: c.lat, lon: c.lng } : null,
+      origPid: ed.origPid || '', legacyBoxes: ed.legacyBoxes || 0, legacyPole: !!ed.legacyPole, dropOrig: !!ed.dropOrig, baseNew: !!ed.baseNew, keepQ: !!ed.keepQ,
+      pend: Object.keys(ed.pending || {}), hasNew: !!ed.newBlob, hasSrc: !!ed.srcBlob && ed.srcBlob !== ed.newBlob, hasBase: !!ed.base, def: dd,
+    };
+  }
+  const draftSig = (st) => JSON.stringify({ ...st, q: null, pin: st.pin ? [st.pin.lat.toFixed(6), st.pin.lon.toFixed(6)] : null });
+  /** Unsaved changes: a new record always (its photo is not stored yet); an opened one when anything differs from how it opened. */
+  function edDirty() {
+    if (!ed || ed.lock === 'closed') return false;
+    if (ed.mode === 'new') return true;
+    if (!ed.sig0) return false;
+    const st = draftState(); return !!st && draftSig(st) !== ed.sig0;
+  }
+  function saveDraft() {
+    clearTimeout(draftTimer);
+    if (!ed || ed.lock === 'closed' || !edDirty()) return draftChain;
+    const st = draftState(); st.t = Date.now();
+    const blobs = { new: ed.newBlob, src: st.hasSrc ? ed.srcBlob : null, base: ed.base, def: st.def && st.def.photo ? defDraft.blob : null };
+    Object.entries(ed.pending || {}).forEach(([pid, b]) => { blobs[`p:${pid}`] = b; });
+    draftChain = draftChain.then(async () => {
+      try {
+        for (const [k, b] of Object.entries(blobs)) {
+          if (!b || draftBlobs[k] === b) continue;
+          await dbPut('photos', { id: `draft~${k}`, clean: b }); draftBlobs[k] = b;
+        }
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(st));
+      } catch (e) { LOG.warn('draft.fail', errInfo(e)); }
+    });
+    return draftChain;
+  }
+  const scheduleDraft = () => { if (!ed) return; clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 700); };
+  function draftClear() {
+    clearTimeout(draftTimer); draftBlobs = {};
+    try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* private window */ }
+    draftChain = draftChain.then(() => tx('photos', 'readwrite', (st) => st.delete(IDBKeyRange.bound('draft~', 'draft~\uffff'))).catch(() => {}));
+    return draftChain;
+  }
+  /** After a record opens: an older draft goes; a new record's photo is kept at once; an opened one is compared from now on. */
+  function draftStart(restoring) {
+    if (!restoring) { draftClear(); }
+    if (!ed) return;
+    if (ed.mode === 'new') saveDraft();
+    setTimeout(() => { if (ed && !ed.sig0) { const st = draftState(); if (st) ed.sig0 = draftSig(st); } }, 900); // after the pin and the readings settle
+  }
+  $('editor').addEventListener('input', scheduleDraft);
+  $('editor').addEventListener('change', scheduleDraft);
+  $('editor').addEventListener('click', scheduleDraft);
+  document.addEventListener('visibilitychange', () => { if (document.hidden && ed) saveDraft(); });
+  window.addEventListener('pagehide', () => { if (ed) saveDraft(); });
+  // a reload or closing the tab with unsaved changes: the browser asks first (the draft is kept either way)
+  window.addEventListener('beforeunload', (e) => { if (ed && !ed.closeOK && edDirty()) { saveDraft(); e.preventDefault(); e.returnValue = ''; } });
+  /** The phone's Back or × on a record with unsaved changes. */
+  async function askLeaveEditor() {
+    const isNew = ed.mode === 'new';
+    const go = await ask(isNew ? 'Leave without saving?' : 'Leave without saving the changes?', isNew ? 'The photo and what you entered are not saved yet.' : 'What you changed in this record is not saved yet.',
+      [{ label: 'Keep editing', value: false, primary: true }, { label: isNew ? 'Discard the record' : 'Discard the changes', value: true }]);
+    if (!go || !ed) return;
+    ed.closeOK = true; closeSheet();
+  }
+  /** At start: a record that was not saved (reload, the app closed) is offered again. */
+  async function draftOffer() {
+    if (!draftAtStart) return;
+    let st = null; try { st = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch (e) { st = null; }
+    if (!st || !st.t || st.t !== draftAtStart) return; // only the draft left from before this start; a record opened since has its own
+    if (ed || editorSaving || stack.includes('camera')) { setTimeout(() => guard(draftOffer, 'Unsaved record not opened'), 1500); return; } // asked once the camera is closed
+    draftAtStart = null;
+    if (Date.now() - st.t > DRAFT_MAX_MS || !allProjects().includes(st.project) || (st.mode === 'edit' && !points.some((p) => p.id === st.id))) { draftClear(); return; }
+    const what = `${st.mode === 'new' ? 'A new' : 'Changes to the'} ${st.acc ? 'element' : (st.element || 'Pole').toLowerCase()}${st.poleId && !/^[A-Z]{1,6}[-_]?$/.test(st.poleId) ? ` ${st.poleId}` : ''} in “${st.project}” (${fmtTime(new Date(st.t).toISOString())})`;
+    LOG.info('draft.offer', { mode: st.mode, acc: st.acc, age: Math.round((Date.now() - st.t) / 60000) });
+    const ok = await ask('Unsaved record', `${what} was not saved: the app was closed or the page reloaded before Save. Open it again?`,
+      [{ label: 'Discard', value: false }, { label: 'Open it', value: true, primary: true }]);
+    if (!ok) { draftClear(); return; }
+    try { await draftRestore(st); } catch (e) { LOG.error('draft.restore.fail', errInfo(e)); toast(`The unsaved record could not be opened: ${e.message || e}`, 6000); }
+  }
+  async function draftRestore(st) {
+    const get = async (k) => { const r = await dbGet('photos', `draft~${k}`).catch(() => null); return (r && r.clean) || null; };
+    const nb = st.hasNew ? await get('new') : null, sb = st.hasSrc ? await get('src') : null, base = st.hasBase ? await get('base') : null, db = st.def && st.def.photo ? await get('def') : null;
+    const pend = {}; for (const pid of st.pend || []) { const b = await get(`p:${pid}`); if (b) pend[pid] = b; }
+    if (S.project !== st.project) { S.project = st.project; persist(); renderPoles(); fitProject(); }
+    if (st.shot) { // the page reloaded during the ID scan: the photo goes on as if the scan was skipped (checked again first)
+      if (!nb) throw new Error('the photo was not kept');
+      const q = await withTimeout(checkQuality(nb), 15000, 'slow').catch(() => null);
+      if (q && q.flags && q.flags.length) { draftClear(); toast(`${QUAL_TITLE[q.flags[0]] || 'Photo not accepted'}. ${QUAL_TEXT[q.flags[0]] || 'Take it again.'}`, 7000); return; }
+      camTarget = 'new'; gotPhoto(nb, st.gps, st.source || 'camera', { q, takenAt: st.takenAt });
+      return;
+    }
+    if (st.mode === 'edit') { await openEditorFor(st.id, true); if (ed) { const s0 = draftState(); if (s0) ed.sig0 = draftSig(s0); } } // changes are counted from the record as stored
+    else {
+      await openEditor({ mode: 'new', id: st.id, restore: true, gps: st.gps, takenAt: st.takenAt, source: st.source, q: st.q, type: st.type || undefined, element: st.element, status: st.status,
+        poleId: st.poleId, remarks: st.svRemarks, closureId: st.acc ? st.closureId : st.svClosureId, napId: st.napId, details: st.details, marks: st.marks, origPid: st.origPid,
+        photos: st.photos, defs: st.defs, mloop: st.mloop, nap: st.nap, closure: st.closure, odf: st.odf, boxes: (st.legacyBoxes || 0) + (st.marks || []).length, poleModel: st.legacyPole,
+        blob: st.acc ? null : nb || sb, ...(st.pin ? { lat: st.pin.lat, lon: st.pin.lon } : {}) });
+    }
+    if (!ed) return;
+    Object.assign(ed, { pending: { ...ed.pending, ...pend }, removed: st.removed || [], idRead: st.idRead, idTouched: st.idTouched, dragged: st.dragged, element: st.element, type: st.type || ed.type,
+      status: st.status || ed.status, details: st.details || [], defs: st.defs || ed.defs, photos: st.acc ? st.photos || ed.photos : ed.photos, marks: st.acc ? ed.marks : (st.marks || []).map(normMark),
+      mloop: st.mloop, nap: st.nap, closure: st.closure, odf: st.odf || ed.odf, legacyBoxes: st.legacyBoxes, legacyPole: st.legacyPole, dropOrig: st.dropOrig, keepQ: st.keepQ, origPid: st.origPid || ed.origPid });
+    if (!st.acc) {
+      if (nb) { ed.newBlob = nb; prepImages(nb); showEdPhoto(nb); }
+      if (sb) ed.srcBlob = sb; else if (nb && st.mode === 'new') ed.srcBlob = nb;
+      ed.base = base; ed.baseNew = st.baseNew;
+    }
+    $('poleId').value = st.poleId; $('napId').value = st.napId; $('closureId').value = st.closureId; $('svRemarks').value = st.svRemarks; $('svClosureId').value = st.svClosureId;
+    $('napId').hidden = !st.nap; $('closureId').hidden = !st.closure;
+    if (st.def) {
+      if (!defDraft || $('defPanel').hidden) startDefDraft(false);
+      defDraft.cat = st.def.cat; defDraft.items = new Set(st.def.items || []); defDraft.sev = st.def.sev || 'Minor';
+      renderDefPanel(); $('defNotes').value = st.def.notes || '';
+      if (db) setDefPhoto(db, st.def.meta || {});
+    } else if (defDraft) { defDraft = null; $('defPanel').hidden = true; $('addDefBtn').hidden = false; }
+    renderTypeChips(ed.type); renderElemChips(); applyElement(); renderDetails(); renderBoxInfo();
+    if (st.acc) { renderAccPhotos(); renderDefs(); }
+    if (ed.mode === 'edit' && st.pin) pinMap.setView([st.pin.lat, st.pin.lon], pinMap.getZoom(), { animate: false });
+    checkDup(); checkFormat(); applyEdLock();
+    LOG.info('draft.restored', { mode: st.mode, acc: st.acc, photos: Object.keys(pend).length + (nb ? 1 : 0) });
+    toast('The unsaved record is open again: check it, then Save', 4500);
+    saveDraft();
+  }
+  async function openEditorFor(id, restoring) {
     const p = points.find((x) => x.id === id); if (!p) return;
     if (p.kind === 'acceptance' || isAcc(p.project)) {
       openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType || undefined, lat: p.lat, lon: p.lon, takenAt: p.takenAt, source: p.source,
@@ -2606,6 +2771,7 @@
       element: elemOf(p), status: p.status || '', remarks: p.remarks || '', closureId: p.closureId || '', boxes: p.boxes || 0, details: p.details || [], marks: p.marks || [], origPid: p.origPid || '', poleModel: !!p.poleModel });
   }
   function cleanupEditor() {
+    if (ed) { if (!ed.closeOK && edDirty()) saveDraft(); else draftClear(); }
     ed = null; showEdPhoto(null); revokeEdUrls(); defDraft = null; applyEdLock();
   }
   /** v2.16: what the lock allows in the editor. Closed (completed PAT): every field is read only and nothing can be saved.
@@ -2956,7 +3122,7 @@
     $('atMloop').checked = ed.mloop; $('atNap').checked = ed.nap; $('atClosure').checked = ed.closure; markToggles();
     $('napId').hidden = !ed.nap; $('closureId').hidden = !ed.closure;
     $('odfSel').value = ed.odf || 'New';
-    const cats = CATS_FOR[el] || ['Other']; // an open defect form follows the element
+    const cats = catsFor(el); // an open defect form follows the element
     if (defDraft && !$('defPanel').hidden && !cats.includes(defDraft.cat)) { defDraft.cat = cats[0]; defDraft.items = new Set(); renderDefPanel(); }
   }
   function markToggles() { ['atMloop', 'atNap', 'atClosure'].forEach((id) => $(id).closest('.tchip').classList.toggle('on', $(id).checked)); }
@@ -3347,7 +3513,7 @@
   }
 
   function renderDefPanel() {
-    const cats = CATS_FOR[ed.element] || ['Other'];
+    const cats = catsFor(ed.element);
     const cbox = $('defCatSel'); cbox.innerHTML = '';
     cats.forEach((c) => cbox.add(new Option(c, c, false, c === defDraft.cat)));
     const ibox = $('defItems'); ibox.innerHTML = '';
@@ -3377,7 +3543,7 @@
     $('defPhotoPrev').src = u; $('defPhotoPrev').hidden = false; $('defPhotoBtn').textContent = 'Retake defect photo';
   }
   function startDefDraft(scroll) {
-    defDraft = { cat: (CATS_FOR[ed.element] || ['Other'])[0], items: new Set(), sev: 'Minor', blob: null };
+    defDraft = { cat: catsFor(ed.element)[0], items: new Set(), sev: 'Minor', blob: null };
     $('defNotes').value = ''; $('defPhotoPrev').hidden = true; $('defPhotoBtn').textContent = 'Take defect photo';
     renderDefPanel(); showDefList(false); $('defPanel').hidden = false; $('addDefBtn').hidden = true;
     if (scroll) $('defPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3401,7 +3567,7 @@
     defDraft = null; $('defPanel').hidden = true; $('addDefBtn').hidden = false;
     renderDefs(); toast(`${items.length} deficienc${items.length === 1 ? 'y' : 'ies'} added`);
   });
-  $('edClose').addEventListener('click', () => closeSheet());
+  $('edClose').addEventListener('click', () => { if (ed && !ed.closeOK && edDirty()) { askLeaveEditor(); return; } closeSheet(); }); // v2.21
   $('edPhoto').addEventListener('click', () => {
     if (!ed) return;
     showBlob(ed.newBlob || ed.srcBlob, `${$('poleId').value || ''} · ${$('edTime').textContent}`);
@@ -3492,7 +3658,7 @@
   });
   $('edRetake').addEventListener('click', async () => {
     if (ed.mode === 'edit') { openCamera('replace'); return; }
-    await closeSheet(); openCamera('new');
+    ed.closeOK = true; await closeSheet(); openCamera('new');
   });
   $('edDelete').addEventListener('click', () => { $('delName').textContent = $('poleId').value || 'this pole'; $('delConfirm').hidden = false; $('delConfirm').scrollIntoView({ block: 'nearest' }); });
   $('delNo').addEventListener('click', () => { $('delConfirm').hidden = true; });
@@ -3504,10 +3670,11 @@
     points = points.filter((p) => p.id !== id);
     if (links().some(([x, y]) => x === id || y === id)) setLinks(links().filter(([x, y]) => x !== id && y !== id));
     renderPoles(); if (!$('list').hidden) renderList();
+    if (ed) ed.closeOK = true;
     await closeSheet(); toast(rec && rec.kind === 'acceptance' ? 'Element deleted' : `${rec && elemOf(rec) !== 'Pole' ? elemOf(rec) : 'Pole'} deleted`);
   });
   $('edSave').addEventListener('click', saveEditor);
-  $('edDone').addEventListener('click', () => closeSheet()); // a completed PAT's record: view only (v2.16)
+  $('edDone').addEventListener('click', () => { if (ed) ed.closeOK = true; closeSheet(); }); // a completed PAT's record: view only (v2.16)
 
   async function saveEditor() {
     if (!ed || editorSaving) return; // a second tap while saving does nothing
@@ -3588,6 +3755,7 @@
     const wasNew = ed.mode === 'new';
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); renderPoles(); if (!$('list').hidden) renderList(); } catch (e) { LOG.error('save.refresh', errInfo(e)); }
     editorSaving = false;
+    if (ed) ed.closeOK = true; // saved: the draft goes
     await closeSheet();
     if (wasNew) { map.setView([pos.lat, pos.lon], Math.max(map.getZoom(), 17)); toast(`${poleId} saved`); }
     else toast('Changes saved');
@@ -3663,6 +3831,7 @@
     const wasNew = ed.mode === 'new', pos2 = { lat: rec.lat, lon: rec.lon };
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); renderPoles(); if (!$('list').hidden) renderList(); } catch (e) { LOG.error('save.refresh', errInfo(e)); }
     editorSaving = false;
+    if (ed) ed.closeOK = true; // saved: the draft goes
     await closeSheet();
     if (wasNew) map.setView([pos2.lat, pos2.lon], Math.max(map.getZoom(), 17));
     toast(`${poleId} saved${n ? ` · ${n} open deficienc${n === 1 ? 'y' : 'ies'}` : ' · OK'}`);
@@ -3852,6 +4021,7 @@
     allProjects().forEach((name) => pick.add(new Option(`${name} · ${STAGE_LABEL[projKind(name)]}`, name, false, name === S.project)));
     pick.value = S.project; pick.disabled = !allProjects().length;
     $('noProjHint').hidden = !!S.project; $('wfBox').hidden = !S.project; $('curMore').hidden = !S.project;
+    renderProjSearch(); $('bulkShareBtn').hidden = !allProjects().length;
     $('curSub').textContent = projSummary(S.project);
     $('renameProject').value = S.project;
     $('purposeRow').hidden = acc; $('curPurpose').value = m.purpose || 'As-plan'; renderRefInfo();
@@ -3921,6 +4091,117 @@
     const name = $('projPick').value; if (!name || name === S.project) return;
     S.project = name; persist(); renderPoles(); fitProject(); renderProjects(); toast(`Now working on: ${name}`);
   });
+  /* v2.21: many projects on one phone: a search (name, category, site, vendor, task ID, notes) */
+  const projWords = (name) => { const m = pmeta(name); return [name, STAGE_LABEL[projKind(name)], PURPOSE_LABEL[m.purpose] || '', m.site, m.contractor, m.taskId, m.notes, m.fromPat].filter(Boolean).join(' ').toLowerCase(); };
+  const projMatch = (name, q) => { const w = projWords(name); return String(q || '').toLowerCase().split(/\s+/).filter(Boolean).every((t) => w.includes(t)); };
+  function renderProjSearch() {
+    const many = allProjects().length >= 6, q = $('projSearch').value.trim(), box = $('projResults');
+    $('projSearch').hidden = !many; box.innerHTML = '';
+    if (!many || !q) { box.hidden = true; return; }
+    const hits = allProjects().filter((n) => projMatch(n, q));
+    hits.slice(0, 15).forEach((name) => {
+      const b = document.createElement('button'); b.type = 'button';
+      const t = document.createElement('b'); t.textContent = name;
+      const sub = document.createElement('span'); const m = pmeta(name); sub.textContent = [projSummary(name), m.site && m.site !== name ? m.site : '', name === S.project ? 'open now' : ''].filter(Boolean).join(' · ');
+      b.append(t, sub);
+      b.addEventListener('click', () => { $('projSearch').value = ''; if (name !== S.project) { S.project = name; persist(); renderPoles(); fitProject(); toast(`Now working on: ${name}`); } renderProjects(); });
+      box.appendChild(b);
+    });
+    if (!hits.length) { const p0 = document.createElement('p'); p0.className = 'hint'; p0.style.margin = '0'; p0.textContent = 'No project matches.'; box.appendChild(p0); }
+    else if (hits.length > 15) { const p0 = document.createElement('p'); p0.className = 'hint'; p0.style.margin = '0'; p0.textContent = `${hits.length - 15} more: type more of the name.`; box.appendChild(p0); }
+    box.hidden = false;
+  }
+  $('projSearch').addEventListener('input', renderProjSearch);
+
+  /* v2.21: several projects in one file, for a colleague of the same company (safe keeping, a handover when someone leaves) */
+  let bsSel = new Set(), bsKind = 'all';
+  const projPhotos = (name) => new Set(points.filter((p) => p.project === name).flatMap(allPids)).size;
+  function renderBulk() {
+    const q = $('bsSearch').value.trim(), list = $('bsList'); list.innerHTML = '';
+    const kinds = [['all', 'All'], ['survey', 'Survey'], ['PAT', 'PAT'], ['Cleanup', 'Defect Cleanup'], ['FAT', 'FAT']].filter(([k]) => k === 'all' || allProjects().some((n) => projKind(n) === k));
+    const kb = $('bsKinds'); kb.innerHTML = '';
+    kinds.forEach(([k, lbl]) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small'; b.textContent = lbl; b.setAttribute('aria-pressed', String(bsKind === k)); b.addEventListener('click', () => { bsKind = k; renderBulk(); }); kb.appendChild(b); });
+    const shown = allProjects().filter((n) => (bsKind === 'all' || projKind(n) === bsKind) && (!q || projMatch(n, q)));
+    shown.forEach((name) => {
+      const l = document.createElement('label'), cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = bsSel.has(name);
+      cb.addEventListener('change', () => { if (cb.checked) bsSel.add(name); else bsSel.delete(name); bulkCount(); });
+      const d = document.createElement('div'), t = document.createElement('b'); t.textContent = name;
+      const sub = document.createElement('span'); sub.className = 's'; const m = pmeta(name); sub.textContent = [projSummary(name), `${projPhotos(name)} photo${projPhotos(name) === 1 ? '' : 's'}`, m.site && m.site !== name ? m.site : ''].filter(Boolean).join(' · ');
+      d.append(t, sub); l.append(cb, d); list.appendChild(l);
+    });
+    if (!shown.length) { const p0 = document.createElement('p'); p0.className = 'hint'; p0.textContent = 'No project matches.'; list.appendChild(p0); }
+    $('bsAll').onclick = () => { shown.forEach((n) => bsSel.add(n)); renderBulk(); };
+    bulkCount();
+  }
+  function bulkCount() {
+    const names = [...bsSel].filter((n) => allProjects().includes(n)), recs = names.reduce((t, n) => t + points.filter((p) => p.project === n).length, 0), ph = names.reduce((t, n) => t + projPhotos(n), 0);
+    $('bsCount').textContent = names.length ? `${names.length} project${names.length === 1 ? '' : 's'} · ${recs} records · ${ph} photos` : 'None chosen';
+    $('bsGo').disabled = !names.length; $('bsGo').textContent = names.length ? `Share ${names.length} project${names.length === 1 ? '' : 's'}` : 'Share';
+  }
+  $('bulkShareBtn').addEventListener('click', () => { bsSel = new Set(S.project ? [S.project] : []); bsKind = 'all'; $('bsSearch').value = ''; openSheet('bulkShare'); renderBulk(); });
+  $('bsSearch').addEventListener('input', renderBulk);
+  $('bsNone').addEventListener('click', () => { bsSel.clear(); renderBulk(); });
+  $('bsGo').addEventListener('click', () => guard(async () => {
+    const names = [...bsSel].filter((n) => allProjects().includes(n)); if (!names.length) return;
+    if (!profileOk()) { toast('Enter your details first (Settings → You)'); return; }
+    const blob = await bundleZip(names); busy(false);
+    const who = String((S.user && S.user.name) || 'G-eSAA').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 30) || 'G-eSAA';
+    LOG.info('bundle.share', { projects: names.length, mb: +(blob.size / 1048576).toFixed(1) });
+    await shareFile(blob, `G-eSAA_${who}_${names.length}_projects_${new Date().toISOString().slice(0, 10)}.zip`, 'application/zip');
+  }, 'Projects not shared'));
+  /** The chosen projects as one ZIP: bundle.json (what is inside, who sent it), each project as a backup (p1/points.json…), the photos once. */
+  async function bundleZip(names) {
+    const now = new Date().toISOString(), files = [], list = [], seen = new Set(); let bytes = 0, k = 0;
+    const allP = names.reduce((t, n) => t + projPhotos(n), 0); let done = 0;
+    for (const name of names) {
+      k++;
+      const pts = points.filter((p) => p.project === name).sort((a, b) => (a.created < b.created ? -1 : 1));
+      files.push({ name: `p${k}/points.json`, data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: pmeta(name), exported: now, by: byLine(), exportedBy: exporterInfo(), points: pts }, null, 1) });
+      for (const pid of new Set(pts.flatMap(allPids))) {
+        busy(`Packing photos ${++done} / ${allP}`, done / Math.max(1, allP));
+        if (seen.has(pid)) continue; seen.add(pid);
+        const ph = await dbGet('photos', pid).catch(() => null);
+        if (ph && ph.clean) { const d = new Uint8Array(await ph.clean.arrayBuffer()); bytes += d.length; files.push({ name: `photos/${pid}.jpg`, data: d }); }
+        if (ph && ph.thumb) { const d = new Uint8Array(await ph.thumb.arrayBuffer()); bytes += d.length; files.push({ name: `thumbs/${pid}.jpg`, data: d }); }
+        if (bytes > 1.5e9) throw new Error('more than 1.5 GB of photos: share fewer projects at a time');
+      }
+      list.push({ name, file: `p${k}/points.json`, kind: projKind(name), records: pts.length });
+    }
+    files.unshift({ name: 'bundle.json', data: JSON.stringify({ app: 'G-eSAA', kind: 'bundle', v: 1, exported: now, by: byLine(), exportedBy: exporterInfo(), team: S.team ? S.team.id : '', projects: list }, null, 1) });
+    files.push({ name: 'exported_by.txt', data: exporterText().replace(/^Project: .*$/m, `Projects: ${names.join(', ')}`) });
+    busy('Making the file…');
+    return new Blob(C.makeZipParts(files), { type: 'application/zip' });
+  }
+  /** Opens a file of several projects (from bundleZip). */
+  async function openBundle(z, f) {
+    const b = JSON.parse(new TextDecoder().decode(await z.get('bundle.json')));
+    if (!b || b.kind !== 'bundle' || !Array.isArray(b.projects) || !b.projects.length) throw new Error('This is not a G-eSAA projects file');
+    const from = b.exportedBy || {}, mine = (S.user && S.user.company) || '';
+    const other = !!(from.company && mine && normCo(from.company) !== normCo(mine)); // “ABC Builders Inc.” = “ABC Builders, Inc”
+    const clash = b.projects.filter((p) => allProjects().includes(p.name));
+    const lines = b.projects.slice(0, 8).map((p) => `• ${p.name} · ${STAGE_LABEL[p.kind] || p.kind} · ${p.records} record${p.records === 1 ? '' : 's'}`).join('\n') + (b.projects.length > 8 ? `\n• and ${b.projects.length - 8} more` : '');
+    const text = `${b.projects.length} project${b.projects.length === 1 ? '' : 's'} from ${from.name || 'another phone'}${from.company ? ` (${from.company})` : ''}, ${dateOnly(b.exported)}:\n${lines}`
+      + (clash.length ? `\n\n${clash.length} ${clash.length === 1 ? 'has' : 'have'} the same name as a project on this phone. “Add to them” puts the records together (a record already here is updated); “Keep apart” adds the sender's name to the copies.` : '')
+      + (other ? `\n\nThis file is from ${from.company}, not from your company (${mine}).` : '');
+    const btns = clash.length ? [{ label: 'Add to them', value: 'merge', primary: true }, { label: 'Keep apart', value: 'apart' }] : [{ label: `Open ${b.projects.length === 1 ? 'it' : `the ${b.projects.length} projects`}`, value: 'merge', primary: true }];
+    const pick = await ask('Projects from a colleague', text, [{ label: 'Cancel', value: '' }, ...btns]);
+    if (!pick) return;
+    if (other && !(await ask('Another company’s projects', `Open projects of ${from.company} on your phone? Only do this if you are allowed to keep them.`, [{ label: 'Cancel', value: false }, { label: 'Open anyway', value: true, primary: true }]))) return;
+    if (f && sharedDefer(f)) return;
+    let n = 0, recs = 0;
+    try {
+      for (const p of b.projects) {
+        const raw = await z.get(p.file); if (!raw) continue;
+        const meta = JSON.parse(new TextDecoder().decode(raw)); if (!meta || !Array.isArray(meta.points)) continue;
+        busy(`Opening ${p.name}…`, n / b.projects.length);
+        await restoreMeta(z, meta, '', { quiet: true, apart: pick === 'apart' ? (from.name || 'colleague') : '' });
+        n++; recs += meta.points.length;
+      }
+    } finally { busy(false); }
+    LOG.info('bundle.open', { projects: n, records: recs, other, apart: pick === 'apart' });
+    await closeAll(); renderPoles(); fitProject();
+    toast(`${n} project${n === 1 ? '' : 's'} added · ${recs} records`, 5000);
+  }
   [['mSite', 'site'], ['mContractor', 'contractor'], ['mGlobe', 'globeRep'], ['mDate', 'date'], ['curNotes', 'notes']].forEach(([id, key]) => {
     $(id).addEventListener('change', () => { const m = { ...pmeta() }; m[key] = $(id).value.trim(); S.meta = S.meta || {}; S.meta[S.project] = m; persist(); });
   });
@@ -4556,7 +4837,18 @@
     const z = await zipReader(f), { meta, pre } = await readPackage(z);
     const fm = meta.meta || {}, kind = (m) => (m.mode === 'acceptance' ? m.stage || 'PAT' : 'survey');
     if (o.expectPat && kind(fm) !== 'PAT') throw new Error(`This file is ${kind(fm) === 'survey' ? 'a survey backup' : `a ${kind(fm)} project`}, not a PAT. On the PAT phone use Projects → Send this PAT to another phone.`);
+    return restoreMeta(z, meta, pre, o);
+  }
+  /** Puts one project's records and photos (meta = a backup's points.json; photos under pre) on this phone. o.apart: the
+      sender's name, to keep a project of the same name apart; o.quiet: no toast (several projects). */
+  async function restoreMeta(z, meta, pre, o) {
+    const fm = meta.meta || {}, kind = (m) => (m.mode === 'acceptance' ? m.stage || 'PAT' : 'survey');
     let proj = meta.project || (meta.points[0] && meta.points[0].project);
+    const sameOne = proj && meta.points.some((p) => points.some((x) => x.id === p.id && x.project === proj)); // this project came from the same file before
+    if (proj && o.apart && meta.points.length && allProjects().includes(proj) && !sameOne) { // v2.21: a colleague's project kept apart from one of the same name
+      const nm = `${proj} (${o.apart})`; // opened again: the same copy is updated, not a third one made
+      meta.points = meta.points.map((p) => ({ ...p, project: nm })); proj = nm;
+    }
     if (proj && S.meta && S.meta[proj] && meta.meta && kind(S.meta[proj]) !== kind(fm)) { // same name, different kind of project: keep them apart
       const base = `${proj} (${kind(fm) === 'survey' ? 'survey' : kind(fm)} from file)`; let nm = base, k = 2;
       while (allProjects().includes(nm)) nm = `${base} ${k++}`;
@@ -4585,6 +4877,7 @@
       }
       S.project = proj; persist();
     }
+    if (o.quiet) return proj;
     renderPoles(); fitProject(); busy(false);
     toast(`Restored ${meta.points.length} records into “${S.project}”`, 4000);
     return proj;
@@ -4938,7 +5231,7 @@
   const effectiveQuality = () => ((S.team ? pol().quality : S.quality) === 'normal' ? 'normal' : 'strict');
   function renderSettingsHome() {
     renderWho(); renderTeamInfo(); cloudSync(false).then(renderCloudInfo);
-    $('camSub').textContent = `${S.readId !== false ? 'ID scan after each photo' : 'No ID scan'}${(S.readIdAcc !== false) !== (S.readId !== false) ? ` (${S.readIdAcc !== false ? 'on' : 'off'} in PAT / FAT)` : ''} · ${S.idOrient === 'v' ? 'vertical' : 'horizontal'} IDs · sharpness ${QUAL_NAME[effectiveQuality()] || 'Strict'}${S.team ? ' (set by admin)' : ''}`;
+    $('camSub').textContent = `${S.readId !== false ? 'ID scan after each photo' : 'No ID scan'}${(S.readIdAcc === true) !== (S.readId !== false) ? ` (${S.readIdAcc === true ? 'on' : 'off'} in PAT / FAT)` : ''} · ${S.idOrient === 'v' ? 'vertical' : 'horizontal'} IDs · sharpness ${QUAL_NAME[effectiveQuality()] || 'Strict'}${S.team ? ' (set by admin)' : ''}`;
     const packs = Object.values(S.packs || {}).filter((p) => p.done);
     $('mapsSub').textContent = `${streetSource().name}${packs.length ? ` · ${packs.length} offline pack${packs.length === 1 ? '' : 's'}${S.base === 'offline' ? ' (in use)' : ''}` : ' · no offline pack yet'}`;
     const P = pol();
@@ -4954,7 +5247,7 @@
   function renderTypeInfo() { $('typeInfo').textContent = poleTypes().map((t) => `${t.n} ${t.p}-`).join(' · '); }
   $('goCamera').addEventListener('click', () => {
     $('setMyTypes').value = typeLines(S.myTypes); renderTypeInfo();
-    $('setReadId').checked = S.readId !== false; $('setReadIdAcc').checked = S.readIdAcc !== false; $('setIdAuto').checked = S.idAuto !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h'; $('setHand').value = handOf();
+    $('setReadId').checked = S.readId !== false; $('setReadIdAcc').checked = S.readIdAcc === true; $('setIdAuto').checked = S.idAuto !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h'; $('setHand').value = handOf();
     $('setQuality').value = effectiveQuality(); $('setQuality').disabled = !!S.team;
     $('qualityNote').textContent = S.team ? `Set by the admin in the company list “${S.team.name}” — the same on every phone.` : 'Until this phone takes a company list, you can choose this yourself.';
     openSheet('setCamera');
@@ -5884,16 +6177,31 @@
      installed web app. What the file is decides what happens: a PAT starts the defect cleanup (or the FAT), a cleanup the FAT; any
      of them, a FAT or a backup can also be opened as it is (restored into its project). */
   let sharedWaiting = null;
+  /** v2.21: a file shared while a record, the camera or a save is open waits until the record is saved or closed (closing them
+      to open the file would lose the work). */
+  const sharedBlocked = () => editorSaving || !!ed || ['editor', 'camera', 'boxer'].some((x) => stack.includes(x));
+  function sharedDefer(f) {
+    if (!sharedBlocked()) return false;
+    sharedWaiting = f; LOG.info('shared.wait');
+    toast('Save or close this record first: the shared file opens after', 6000);
+    return true;
+  }
+  function sharedResume() {
+    if (!sharedWaiting || !profileOk() || sharedBlocked()) return;
+    const f = sharedWaiting; sharedWaiting = null; openSharedFile(f);
+  }
   $('openShared').addEventListener('click', () => { $('sharedInput').value = ''; $('sharedInput').click(); });
-  $('sharedInput').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) openSharedFile(f); });
+  $('sharedInput').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) openSharedFile(f); }); // cleared: the same file can be chosen again
   function openSharedFile(f) { return guard(() => openShared(f), 'File not opened'); }
   async function openShared(f) {
     if (!f) return;
     if (!profileOk()) { sharedWaiting = f; if ($('profile').hidden) openProfile(true); toast('Enter your details first: the file opens after Save', 5000); return; }
+    if (sharedDefer(f)) return;
     LOG.info('shared.open', { name: f.name || '', mb: +((f.size || 0) / 1048576).toFixed(1) });
     busy('Reading file…');
-    let meta;
-    try { meta = (await readPackage(await zipReader(f))).meta; } finally { busy(false); }
+    let meta, z;
+    try { z = await zipReader(f); if (!z.has('bundle.json')) meta = (await readPackage(z)).meta; } finally { busy(false); }
+    if (!meta) { await openBundle(z, f); return; } // v2.21: several projects from a colleague
     const fm = meta.meta || {}, kind = fm.mode === 'acceptance' ? fm.stage || 'PAT' : 'survey', n = meta.points.length;
     const what = `“${meta.project || f.name}”: ${kind === 'survey' ? 'a survey' : `a ${STAGE_NAME[kind]}`} with ${n} record${n === 1 ? '' : 's'}${fm.site && fm.site !== meta.project ? ` · ${fm.site}` : ''}.`;
     const btns = kind === 'PAT' ? [{ label: 'Start the defect cleanup', value: 'Cleanup', primary: true }, { label: 'Start the FAT', value: 'FAT' }, { label: 'Open the PAT itself', value: 'open' }]
@@ -5901,15 +6209,15 @@
         : [{ label: kind === 'FAT' ? 'Open the FAT' : 'Open the survey', value: 'open', primary: true }];
     const pick = await ask('Open the shared file', `${what}\n\n${kind === 'PAT' ? 'Start the defect cleanup or the FAT from it (a new project), or open the PAT itself to view or continue it.'
       : kind === 'Cleanup' ? 'Start the FAT from it (a new project), or open the cleanup itself to view or continue it.' : 'It opens in its own project on this phone; records already on this phone from the same file are updated.'}`, [{ label: 'Cancel', value: '' }, ...btns]);
-    if (!pick) return;
+    if (!pick || sharedDefer(f)) return;
     if (pick === 'open') {
       await restoreZip(f);
       await closeAll(); fitProject();
       return;
     }
     // a new defect cleanup / FAT project: the New project form, filled, for the details and Create
-    if ($('projects').hidden) openProjects();
-    openNewProject();
+    if (!$('newProj').hidden) npReset(); // the form is already open: filled again, not opened twice (v2.21)
+    else { if ($('projects').hidden) openProjects(); openNewProject(); }
     $('npCat').value = pick; npSync();
     if ($('npCat').value !== pick) { toast(`Your part of this site does not include the ${STAGE_NAME[pick]}`, 5000); return; }
     npFile = f; npFileKind = 'stage'; npSync();
@@ -6746,6 +7054,7 @@
     if (!profileOk()) { if ($('profile').hidden) openProfile(true); }
     else if (!S.project && !/[?&]shared=1/.test(location.search)) askNewProject(); // photos are taken inside a project
     sharedListen(); // v2.19: a file opened with or shared to G-eSAA
+    if (profileOk()) setTimeout(() => guard(draftOffer, 'Unsaved record not opened'), 700); // v2.21: a record left unsaved by a reload
     renderSyncBtn();
     cloudSync(false);
   })();

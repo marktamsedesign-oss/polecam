@@ -30,6 +30,7 @@
 }}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
+html{overscroll-behavior:none}
 body{background:var(--bg);color:var(--ink);font:calc(15px * var(--fs))/1.4 var(--sans);overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
@@ -153,7 +154,7 @@ body.hand-left #camBar #shutter{grid-area:1/1}body.hand-left #camBar #camNative{
 .sheet header #queueNote{color:var(--hi)}
 .iconbtn{width:var(--tap);height:var(--tap);border:0;background:none;color:inherit;display:grid;place-items:center;border-radius:50%}
 .iconbtn svg{width:24px;height:24px}
-.body{flex:1;overflow:auto;padding:14px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 24px) max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:14px}
+.body{flex:1;overflow:auto;overscroll-behavior:contain;padding:14px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 24px) max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:14px}
 .foot{display:flex;gap:10px;padding:10px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 10px) max(16px,env(safe-area-inset-left,0px));background:var(--surface);border-top:1px solid var(--line)}
 .btn{min-height:var(--tap);border-radius:var(--r);border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:0 16px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-align:center}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
@@ -458,6 +459,11 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 .co-item .btn{min-height:36px;padding:0 10px;font-size:calc(13px * var(--fs))}
 .overlay{position:fixed;inset:0;z-index:2600;background:rgba(5,12,25,.72);display:grid;place-items:center;padding:16px}
 #askBox .row.stack{flex-direction:column;align-items:stretch}
+.projres,.bslist{display:flex;flex-direction:column;gap:6px}
+.projres button,.bslist label{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)}
+.projres button span,.bslist label span.s{font-size:calc(12.5px * var(--fs));color:var(--muted)}
+.bslist label{flex-direction:row;align-items:center;gap:10px}.bslist label input{width:22px;height:22px;flex:none}.bslist label div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.bslist label b,.projres button b{overflow-wrap:anywhere}
 .overlay .panel{background:var(--surface);color:var(--ink);border-radius:14px;padding:16px;width:min(420px,100%);max-height:100%;overflow:auto;display:flex;flex-direction:column;gap:12px}
 .overlay h3{margin:0;font-size:calc(17px * var(--fs))}
 #qrImg{background:#fff;padding:12px;border-radius:10px;display:grid;place-items:center}
@@ -859,7 +865,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="group">
       <h3>After each photo</h3>
       <label class="check"><input type="checkbox" id="setReadId"><span>Surveys: ask to scan the painted ID after each new photo</span></label>
-      <label class="check"><input type="checkbox" id="setReadIdAcc"><span>PAT, defect cleanup and FAT: ask to scan the ID after each new photo (the ID is optional there)</span></label>
+      <label class="check"><input type="checkbox" id="setReadIdAcc"><span>PAT, defect cleanup and FAT: also ask to scan the ID after each defect photo (off by default: the ID is optional there; Scan ID in the record reads it when you want)</span></label>
       <label class="check"><input type="checkbox" id="setIdAuto"><span>Live ID reader: use the ID by itself when it is read clearly (otherwise tap the shutter)</span></label>
       <label class="field">Painted IDs are usually<select id="setOrient"><option value="h">Horizontal</option><option value="v">Vertical (stacked or sideways)</option></select></label>
     </div>
@@ -970,9 +976,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </header>
   <div class="body">
     <div class="group" id="projPickBox">
+      <input type="search" id="projSearch" placeholder="Search projects: name, site, vendor, category" autocomplete="off" aria-label="Search the projects on this phone" hidden>
+      <div id="projResults" class="projres" hidden></div>
       <label class="field">PROJECT<select id="projPick" aria-label="Open a project on this phone"></select></label>
       <p class="hint" id="noProjHint" hidden>No project yet. Tap <b>+</b> at the top right to create one; photos are taken inside a project.</p>
       <button class="btn" id="openShared" type="button" title="A PAT or cleanup KMZ, or a backup ZIP, sent from another phone">📂 Open a shared file (PAT / cleanup KMZ, backup ZIP)</button>
+      <button class="btn" id="bulkShareBtn" type="button" title="Several projects in one file, for a colleague of your company">📤 Share several projects (to a colleague)</button>
       <input type="file" id="sharedInput" accept=".kmz,.zip,application/vnd.google-earth.kmz,application/zip,application/x-zip-compressed,application/octet-stream" hidden>
     </div>
     <div class="group" id="doneBox">
@@ -1019,6 +1028,22 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       </div>
     </details>
   </div>
+</section>
+
+<!-- v2.21: several projects in one file -->
+<section class="sheet" id="bulkShare" hidden aria-labelledby="bsTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="bsTitle">Share projects</h2>
+  </header>
+  <div class="body">
+    <p class="hint">Choose the projects to send to a colleague of your company, for safe keeping or when someone leaves. One file holds them all, with their photos; the colleague opens it with Projects → Open a shared file, and the projects (survey, PAT, defect cleanup, FAT) are added to theirs.</p>
+    <input type="search" id="bsSearch" placeholder="Search name, site, vendor" autocomplete="off" aria-label="Search the projects">
+    <div class="chips" id="bsKinds" role="group" aria-label="Category"></div>
+    <div class="row"><button class="btn sm" id="bsAll" type="button">Select all shown</button><button class="btn sm" id="bsNone" type="button">Clear</button><span class="hint grow" id="bsCount" style="margin:0"></span></div>
+    <div id="bsList" class="bslist"></div>
+  </div>
+  <div class="foot"><button class="btn primary grow" id="bsGo" type="button" disabled>Share</button></div>
 </section>
 
 <section class="sheet" id="newProj" hidden aria-labelledby="npTitle">

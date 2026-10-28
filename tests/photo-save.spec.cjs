@@ -74,7 +74,8 @@ async function stored() {
       const db = req.result, tx = db.transaction(['points', 'photos'], 'readonly');
       const a = tx.objectStore('points').getAll(), b = tx.objectStore('photos').getAll();
       tx.oncomplete = () => {
-        db.close(); resolve({ points: a.result, photos: b.result.map(p => ({ id: p.id,
+        // v2.21: an open, unsaved record keeps its photos as draft~… rows (restored after a reload); they are not saved photos
+        db.close(); resolve({ points: a.result, photos: b.result.filter(p => !String(p.id).startsWith('draft~')).map(p => ({ id: p.id,
           clean: Array.from(new Uint8Array(p.clean.__ab)), thumb: Array.from(new Uint8Array(p.thumb.__ab)) })) });
       };
       tx.onerror = () => { db.close(); reject(tx.error); };

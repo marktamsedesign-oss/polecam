@@ -1163,14 +1163,19 @@
   }
   function glyphNet() {
     if (gnet || !glyphModel) return gnet;
-    const L = {};
-    for (const [k, t] of Object.entries(glyphModel.w)) {
-      const q = new Int8Array(b64bytes(t.q).buffer), sc = new Float32Array(b64bytes(t.s).buffer), cols = t.shape[1], w = new Float32Array(q.length);
-      for (let i = 0; i < q.length; i++) w[i] = q[i] * sc[i % cols];
-      L[k] = w;
+    try {
+      const L = {};
+      for (const [k, t] of Object.entries(glyphModel.w)) {
+        const q = new Int8Array(b64bytes(t.q).buffer), sc = new Float32Array(b64bytes(t.s).buffer), cols = t.shape[1], w = new Float32Array(q.length);
+        for (let i = 0; i < q.length; i++) w[i] = q[i] * sc[i % cols];
+        L[k] = w;
+      }
+      for (const [k, t] of Object.entries(glyphModel.b)) L[k] = new Float32Array(b64bytes(t).buffer);
+      gnet = { L, ch: glyphModel.ch, hid: glyphModel.hid };
+    } catch (e) { // a damaged model file: the reader falls back to the text reader instead of failing every scan (v2.21)
+      if (typeof console !== 'undefined') console.warn('glyph model not loaded', e);
+      glyphModel = null; gnet = null;
     }
-    for (const [k, t] of Object.entries(glyphModel.b)) L[k] = new Float32Array(b64bytes(t).buffer);
-    gnet = { L, ch: glyphModel.ch, hid: glyphModel.hid };
     return gnet;
   }
   const glyphReady = () => !!glyphNet();
