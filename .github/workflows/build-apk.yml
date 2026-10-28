@@ -94,6 +94,133 @@ jobs:
           cat capacitor.config.json
           npx cap add android
 
+      - name: Open shared files in the app (KMZ / ZIP from WhatsApp, Files, Drive…)
+        working-directory: build
+        run: |
+          # v2.19: "Open with G-eSAA" and Share → G-eSAA for the PAT / cleanup KMZ and backup ZIPs. The file is copied into the
+          # app's cache and the app is told where it is (event "sharedFile"); the app then asks what to do with it.
+          DIR=$(dirname "$(find android/app/src/main/java -name MainActivity.java | head -1)")
+          cp "$DIR/MainActivity.java" MainActivity.capacitor.java
+          cat > "$DIR/SharedFilePlugin.java" <<'JAVA'
+          package com.marktamse.polecam;
+
+          import android.content.Intent;
+          import android.database.Cursor;
+          import android.net.Uri;
+          import android.provider.OpenableColumns;
+          import com.getcapacitor.JSObject;
+          import com.getcapacitor.Plugin;
+          import com.getcapacitor.annotation.CapacitorPlugin;
+          import java.io.File;
+          import java.io.FileOutputStream;
+          import java.io.InputStream;
+          import java.io.OutputStream;
+
+          /** G-eSAA: a KMZ or ZIP opened with the app or shared to it is copied to the cache and handed to the app. */
+          @CapacitorPlugin(name = "SharedFile")
+          public class SharedFilePlugin extends Plugin {
+
+              @Override
+              public void load() {
+                  final Intent intent = getActivity().getIntent();
+                  if (uriOf(intent) != null) {
+                      getActivity().setIntent(new Intent(Intent.ACTION_MAIN)); // taken: a restart (screen turned) does not open it again
+                      copyAndSend(intent);
+                  }
+              }
+
+              @Override
+              protected void handleOnNewIntent(Intent intent) {
+                  super.handleOnNewIntent(intent);
+                  if (uriOf(intent) != null) copyAndSend(intent);
+              }
+
+              private static Uri uriOf(Intent intent) {
+                  if (intent == null) return null;
+                  String action = intent.getAction();
+                  if (Intent.ACTION_VIEW.equals(action)) return intent.getData();
+                  if (Intent.ACTION_SEND.equals(action)) {
+                      Object o = intent.getExtras() == null ? null : intent.getExtras().get(Intent.EXTRA_STREAM);
+                      return o instanceof Uri ? (Uri) o : null;
+                  }
+                  return null;
+              }
+
+              private String nameOf(Uri uri) {
+                  String name = null;
+                  try (Cursor c = getContext().getContentResolver().query(uri, new String[] { OpenableColumns.DISPLAY_NAME }, null, null, null)) {
+                      if (c != null && c.moveToFirst()) name = c.getString(0);
+                  } catch (Exception ignored) {
+                      // a file:// address or a provider without names
+                  }
+                  if (name == null || name.isEmpty()) name = uri.getLastPathSegment();
+                  if (name == null || name.isEmpty()) name = "shared.kmz";
+                  return name.replaceAll("[^A-Za-z0-9._ ()-]", "_");
+              }
+
+              /** Copies in the background (a KMZ with photos can be large), then sends "sharedFile"; kept until the app listens. */
+              private void copyAndSend(final Intent intent) {
+                  final Uri uri = uriOf(intent);
+                  final String mime = intent.getType();
+                  new Thread(() -> {
+                      JSObject ret = new JSObject();
+                      try {
+                          String name = nameOf(uri);
+                          File dir = new File(getContext().getCacheDir(), "shared_in");
+                          if (!dir.exists() && !dir.mkdirs()) throw new Exception("No room for the file");
+                          File[] old = dir.listFiles();
+                          if (old != null) for (File f : old) f.delete();
+                          File out = new File(dir, name);
+                          try (InputStream in = getContext().getContentResolver().openInputStream(uri); OutputStream os = new FileOutputStream(out)) {
+                              if (in == null) throw new Exception("The file could not be opened");
+                              byte[] buf = new byte[65536];
+                              int n;
+                              while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
+                          }
+                          ret.put("name", name);
+                          ret.put("uri", Uri.fromFile(out).toString());
+                          ret.put("size", String.valueOf(out.length()));
+                          ret.put("mime", mime == null ? "" : mime);
+                      } catch (Exception e) {
+                          ret.put("error", e.getMessage() == null ? "The file could not be read" : e.getMessage());
+                      }
+                      notifyListeners("sharedFile", ret, true);
+                  }).start();
+              }
+          }
+          JAVA
+          cat > "$DIR/MainActivity.java" <<'JAVA'
+          package com.marktamse.polecam;
+
+          import android.os.Bundle;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  registerPlugin(SharedFilePlugin.class); // KMZ / ZIP opened with or shared to G-eSAA (v2.19)
+                  super.onCreate(savedInstanceState);
+              }
+          }
+          JAVA
+          python3 - <<'PY'
+          # "Open with G-eSAA" (VIEW) and Share → G-eSAA (SEND) for KMZ and ZIP files; many apps send a KMZ as application/octet-stream
+          p = 'android/app/src/main/AndroidManifest.xml'
+          s = open(p).read()
+          mimes = ['application/vnd.google-earth.kmz', 'application/zip', 'application/x-zip-compressed', 'application/octet-stream']
+          data = ''.join(f'                <data android:mimeType="{m}" />\n' for m in mimes)
+          filters = ('\n            <intent-filter>\n                <action android:name="android.intent.action.VIEW" />\n'
+                     '                <category android:name="android.intent.category.DEFAULT" />\n                <category android:name="android.intent.category.BROWSABLE" />\n'
+                     '                <data android:scheme="content" />\n                <data android:scheme="file" />\n' + data + '            </intent-filter>\n'
+                     '            <intent-filter>\n                <action android:name="android.intent.action.SEND" />\n'
+                     '                <category android:name="android.intent.category.DEFAULT" />\n' + data + '            </intent-filter>')
+          i = s.index('android.intent.category.LAUNCHER')
+          j = s.index('</intent-filter>', i) + len('</intent-filter>')
+          s = s[:j] + filters + s[j:]
+          open(p, 'w').write(s)
+          print(s)
+          PY
+
       - name: Add the ML Kit reader (pole IDs and QR codes, on the phone)
         working-directory: build
         run: |
@@ -243,6 +370,7 @@ jobs:
           public class MainActivity extends BridgeActivity {
               @Override
               public void onCreate(Bundle savedInstanceState) {
+                  registerPlugin(SharedFilePlugin.class); // KMZ / ZIP opened with or shared to G-eSAA (v2.19)
                   registerPlugin(TextReaderPlugin.class); // ML Kit text and QR reader (G-eSAA v2.15)
                   super.onCreate(savedInstanceState);
               }
@@ -317,6 +445,7 @@ jobs:
         working-directory: build/android
         run: |
           chmod +x gradlew
+          echo "SHARED=included" >> "$GITHUB_ENV"
           if ./gradlew assembleRelease --no-daemon --stacktrace; then
             echo "MLKIT=included" >> "$GITHUB_ENV"
           else
@@ -325,8 +454,15 @@ jobs:
             rm -f "$DIR/TextReaderPlugin.java"
             cp ../MainActivity.orig.java "$DIR/MainActivity.java"
             sed -i '/com.google.mlkit/d' app/build.gradle
-            ./gradlew clean assembleRelease --no-daemon --stacktrace
             echo "MLKIT=not included (the build with it failed, see the warning in this run)" >> "$GITHUB_ENV"
+            if ! ./gradlew clean assembleRelease --no-daemon --stacktrace; then
+              # v2.19: last try without the shared-file opener too (files are then opened from Projects → Open a shared file)
+              echo "::warning::The build with the shared-file opener failed too. Building without it."
+              rm -f "$DIR/SharedFilePlugin.java"
+              cp ../MainActivity.capacitor.java "$DIR/MainActivity.java"
+              echo "SHARED=not included (the build with it failed, see the warning in this run)" >> "$GITHUB_ENV"
+              ./gradlew clean assembleRelease --no-daemon --stacktrace
+            fi
           fi
 
       - name: Sign the APK
@@ -353,7 +489,7 @@ jobs:
           APPVER=$(grep -oP "polecam-v\K[0-9.]+" sw.js || echo "1.0.0")
           gh release create "apk-build-${{ github.run_number }}" G-eSAA.apk PoleCam.apk \
             --title "G-eSAA ${APPVER} – Android APK (build ${{ github.run_number }})" \
-            --notes "Offline APK: all app files are inside, no internet needed to install or run (maps still need internet or a downloaded offline area). ML Kit ID and QR reader: ${MLKIT}.
+            --notes "Offline APK: all app files are inside, no internet needed to install or run (maps still need internet or a downloaded offline area). ML Kit ID and QR reader: ${MLKIT}. Open with / Share to G-eSAA for KMZ and ZIP files: ${SHARED}.
 
           Install: download G-eSAA.apk on the phone, open it, allow 'Install unknown apps' for your browser or file manager, then Install. To update, install the newer APK over the old one (also over PoleCam); your projects stay. PoleCam.apk is the same file under the old name.
 
