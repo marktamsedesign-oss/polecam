@@ -226,6 +226,9 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 #editor.locked #addDefBtn,#editor.locked #defPanel,#editor.locked #snapGps,#editor.locked #edDelete,#editor.locked #delConfirm,
 #editor.carried #scanIdBtn,#editor.carried #nptBtn,#editor.carried #idCands,#editor.carried #snapGps,#editor.carried #edDelete,#editor.carried #delConfirm{display:none!important}
 #editor.locked #crosshair,#editor.carried #crosshair{opacity:.75}
+/* v2.19: in PAT, defect cleanup and FAT the deficiencies come first; the element details are optional */
+#editor.acc #edLock{order:-2}#editor.acc #defBox{order:-1}
+#editor.acc #idGroup h3,#editor.acc #attachTitle{color:var(--muted)}
 #editor .tchip input:disabled+span,#editor .edbody select:disabled,#editor .edbody input[type=text]:disabled{opacity:.65}
 
 /* settings home rows */
@@ -454,6 +457,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 .co-item span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .co-item .btn{min-height:36px;padding:0 10px;font-size:calc(13px * var(--fs))}
 .overlay{position:fixed;inset:0;z-index:2600;background:rgba(5,12,25,.72);display:grid;place-items:center;padding:16px}
+#askBox .row.stack{flex-direction:column;align-items:stretch}
 .overlay .panel{background:var(--surface);color:var(--ink);border-radius:14px;padding:16px;width:min(420px,100%);max-height:100%;overflow:auto;display:flex;flex-direction:column;gap:12px}
 .overlay h3{margin:0;font-size:calc(17px * var(--fs))}
 #qrImg{background:#fff;padding:12px;border-radius:10px;display:grid;place-items:center}
@@ -535,9 +539,10 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <button class="spb" id="orientH" type="button" aria-pressed="true" aria-label="Horizontal ID" title="Horizontal ID">⇆</button>
     <button class="spb" id="orientV" type="button" aria-pressed="false" aria-label="Vertical ID" title="Vertical ID">⇅</button>
     <button class="spb" id="scanPhoto" type="button" aria-label="Read the ID from the photo just taken" title="Read the ID from the photo" hidden><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-8 8"/></svg></button>
+    <button class="spb" id="scanShot" type="button" aria-label="Take a sharp photo of the ID and read it" title="ID photo: a sharp photo focused on the box"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.4"/></svg></button>
     <button class="spb" id="scanHelp" type="button" aria-expanded="false" aria-label="How to scan" title="How to scan">i</button>
     <button class="spb skip" id="scanSkip" type="button" aria-label="Skip the ID scan">Skip</button>
-    <span id="scanSub" hidden>Point the camera at the painted ID: the box finds it and reads it. <b>Draw a box round the ID</b> to mark it yourself (taller than wide for a vertical ID). <b>Tap the ID</b> to focus there. Hold the phone still for a moment; pinch or tap 2× / 4× to zoom. The picture button reads the ID from the photo you just took: tap the ID on it, or draw a box round it. An X in the ID is a character that could not be read.</span>
+    <span id="scanSub" hidden>Point the camera at the painted ID: the box finds it and reads it. <b>Draw a box round the ID</b> to mark it yourself (taller than wide for a vertical ID). <b>Tap the ID</b> to focus there. Hold the phone still for a moment; pinch or tap 2× / 4× to zoom. The camera button takes a sharp photo focused on the box and reads the ID from it; if it cannot, the photo opens: tap the ID on it, or draw a box round it. The picture button reads the ID from the photo you just took the same way. An X in the ID is a character that could not be read.</span>
   </div>
   <div id="camStage">
     <video id="video" playsinline muted autoplay></video>
@@ -587,8 +592,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <div id="accPhotos" class="photo-grid" hidden></div>
       <p class="warnline" id="qualWarn" hidden></p>
     </div>
-    <div class="group">
-      <h3>Identification</h3>
+    <div class="group" id="idGroup">
+      <h3 id="idGroupTitle">Identification</h3>
       <label class="frow" id="svStatusBox" hidden><span class="lbl">STATUS</span><select id="svStatus" aria-label="Status"></select></label>
       <div class="pair" id="elemTypeRow">
         <label class="field" id="accElementBox" hidden><span class="lbl">ELEMENT</span><select id="elemSel" aria-label="Element"></select></label>
@@ -608,7 +613,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <label class="field" id="svRemarksBox" hidden>REMARKS<textarea id="svRemarks" placeholder="Optional: condition, what to use, access, findings of the audit"></textarea></label>
     </div>
     <div class="group" id="poleAttach" hidden>
-      <h3>On this pole</h3>
+      <h3 id="attachTitle">On this pole</h3>
       <div class="toggles">
         <label class="tchip"><input type="checkbox" id="atMloop"><span>MLoop</span></label>
         <label class="tchip"><input type="checkbox" id="atNap"><span>NAP</span></label>
@@ -652,7 +657,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <button class="iconbtn" data-close aria-label="Cancel"><svg><use href="#i-close"/></svg></button>
     <h2 id="boxTitle">Red box</h2>
   </header>
-  <div id="boxModes"><button type="button" class="chip" id="boxModeBox" aria-pressed="true">▭ Red box</button><button type="button" class="chip" id="boxModePole" aria-pressed="false">⊥ Model</button><select id="boxModel" aria-label="Which model"><option value="pole">Proposed pole</option><option value="odf">Proposed ODF</option><option value="hh">Proposed handhole</option><option value="tower">New tower location</option></select></div>
+  <div id="boxModes"><button type="button" class="chip" id="boxModeBox" aria-pressed="true">▭ Red box</button><button type="button" class="chip" id="boxModePole" aria-pressed="false">⊥ Model</button><select id="boxModel" aria-label="Which model"><option value="pole">Proposed pole</option><option value="odc">Proposed ODC (outdoor cabinet)</option><option value="odfp">Proposed ODF (rack panel)</option><option value="rack">Proposed data rack</option><option value="hh">Proposed handhole</option><option value="tower">New tower location</option></select></div>
   <div id="boxWrap"><canvas id="boxCanvas" aria-label="Photo: drag to draw a red box"></canvas></div>
   <p class="hint" id="boxHint" style="margin:0;padding:8px 16px">Drag on the photo to draw a red box around the spot. Tap a mark to move, resize or delete it.</p>
   <div class="foot">
@@ -782,7 +787,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="xcard">
       <div class="head"><span class="ic">ZIP</span><div><b>Backup</b><p>Everything in this project (records and photos) in one file. Restore it on another phone or after reinstalling.</p></div></div>
       <div class="row"><button class="btn grow" id="doBackup">Back up project</button><button class="btn grow" id="doRestore">Restore backup</button></div>
-      <input type="file" id="restoreInput" accept=".zip,application/zip" hidden>
+      <input type="file" id="restoreInput" accept=".zip,.kmz,application/zip,application/vnd.google-earth.kmz,application/octet-stream" hidden>
     </div>
     <div class="xcard">
       <div class="head"><span class="ic">PDF</span><div><b>Completion report · PDF</b><p>Page 1 says the task is complete: site, vendor, dates, what was recorded and the sign-off. Photo pages follow as proof: survey — the poles, then the site, ODC, ODF, NAP, closures and handholes, as a collage; PAT, defect cleanup, FAT — the photos of each deficiency as found, rectified and verified. Making it marks the task complete; the online sheet gets the date.</p></div></div>
@@ -853,7 +858,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div class="body">
     <div class="group">
       <h3>After each photo</h3>
-      <label class="check"><input type="checkbox" id="setReadId"><span>Ask to scan the painted ID after each new photo</span></label>
+      <label class="check"><input type="checkbox" id="setReadId"><span>Surveys: ask to scan the painted ID after each new photo</span></label>
+      <label class="check"><input type="checkbox" id="setReadIdAcc"><span>PAT, defect cleanup and FAT: ask to scan the ID after each new photo (the ID is optional there)</span></label>
       <label class="check"><input type="checkbox" id="setIdAuto"><span>Live ID reader: use the ID by itself when it is read clearly (otherwise tap the shutter)</span></label>
       <label class="field">Painted IDs are usually<select id="setOrient"><option value="h">Horizontal</option><option value="v">Vertical (stacked or sideways)</option></select></label>
     </div>
@@ -966,6 +972,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="group" id="projPickBox">
       <label class="field">PROJECT<select id="projPick" aria-label="Open a project on this phone"></select></label>
       <p class="hint" id="noProjHint" hidden>No project yet. Tap <b>+</b> at the top right to create one; photos are taken inside a project.</p>
+      <button class="btn" id="openShared" type="button" title="A PAT or cleanup KMZ, or a backup ZIP, sent from another phone">📂 Open a shared file (PAT / cleanup KMZ, backup ZIP)</button>
+      <input type="file" id="sharedInput" accept=".kmz,.zip,application/vnd.google-earth.kmz,application/zip,application/x-zip-compressed,application/octet-stream" hidden>
     </div>
     <div class="group" id="doneBox">
       <p class="okline" id="doneInfo" hidden></p>

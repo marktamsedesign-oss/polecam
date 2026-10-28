@@ -404,6 +404,8 @@
   /** Next ID in the current project only, so numbering never carries over: CC-/WP-/SP- per pole type, FDU_ for ODFs.
       With nothing to count from, only the prefix is filled in and the number is typed or scanned. */
   function suggestId(element, type) {
+    // v2.19: in PAT, cleanup and FAT the ID is optional, so no number is guessed: only the prefix is offered (saved as is, the record gets D-0001…)
+    if (ed && ed.acc) return !element || element === 'Pole' ? `${typePrefix(type) || typePrefix(S.lastType) || 'CC'}-` : element === 'ODF' ? 'FDU_' : '';
     const recs = points.filter((p) => p.project === S.project && (!ed || p.id !== ed.id));
     const latest = (list) => list.reduce((m, p) => (p.created > m.created ? p : m));
     if ((!element || element === 'Pole') && ed && !ed.acc && ed.status === 'Proposed') {
@@ -484,7 +486,7 @@
   })();
 
   /* ================= full-size photo (v2.14): tap any photo; tap the photo to zoom; × or Back closes ================= */
-  let pvUrl = '', pvOpen = false;
+  let pvUrl = '', pvOpen = false, pvReadBlob = null; // pvReadBlob: a photo shown only to read the ID on it (v2.19 ID photo)
   function showBlob(blob, caption) {
     if (!blob) return;
     if (pvUrl) URL.revokeObjectURL(pvUrl);
@@ -494,7 +496,7 @@
     $('photoView').classList.remove('reading'); $('pvMark').hidden = true;
     if (!pvOpen) { pvOpen = true; history.pushState({ photo: 1 }, ''); }
   }
-  function hidePhotoView() { $('photoView').hidden = true; $('photoView').classList.remove('zoomed', 'reading'); $('pvMark').hidden = true; $('pvImg').src = ''; if (pvUrl) { URL.revokeObjectURL(pvUrl); pvUrl = ''; } }
+  function hidePhotoView() { pvReadBlob = null; $('photoView').hidden = true; $('photoView').classList.remove('zoomed', 'reading'); $('pvMark').hidden = true; $('pvImg').src = ''; if (pvUrl) { URL.revokeObjectURL(pvUrl); pvUrl = ''; } }
   const closePhotoView = () => { if (pvOpen) history.back(); else hidePhotoView(); };
   $('pvClose').addEventListener('click', (e) => { e.stopPropagation(); closePhotoView(); });
   $('photoView').addEventListener('click', (e) => { if (e.target === $('photoView')) closePhotoView(); });
@@ -583,7 +585,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.18.0';
+  const APP_VER = '2.19.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1202,6 +1204,8 @@
     catch (e) { if (photoOpts) { photoOpts = null; return await imageCapture.takePhoto(); } throw e; }
   }
   const scanStep = () => camTarget === 'scan' || camTarget === 'newid';
+  /** v2.19: the ID scan after each photo is set apart for surveys and for PAT / cleanup / FAT (where the ID is optional). */
+  const readIdOn = () => (isAcc() ? S.readIdAcc : S.readId) !== false;
   const gpsFresh = () => !!fix && Date.now() - fix.t <= GPS_WINDOW_MS && gpsErr !== 1;
   /** Shutter colour: green = GPS updated within 5 s (ready), red = GPS old, off or blocked; white while scanning an ID. */
   function shutterState() {
@@ -1226,7 +1230,7 @@
     $('scanSkip').hidden = camTarget !== 'newid';
     $('scanPhoto').hidden = !((camTarget === 'newid' && camPending && !isAcc()) || (camTarget === 'scan' && ed && !ed.acc && (ed.newBlob || ed.srcBlob))); // v2.17
     $('camReadId').hidden = camTarget !== 'new';
-    $('camReadId').setAttribute('aria-pressed', String(S.readId !== false));
+    $('camReadId').setAttribute('aria-pressed', String(readIdOn()));
     $('camNative').hidden = on;
     shutterState();
     if (on && stream) { if (!finder.on) setZoom(S.scanZoom || 1); finderStart(); }
@@ -1257,12 +1261,79 @@
     if (camTarget === 'newid') { photoReadNext = true; await closeSheet(); return; }
     await closeSheet(); openPhotoRead();
   });
+  /* v2.19: ID photo — the camera focuses on the box and takes a full-size still; the ID is read from the box on the still, which is
+     sharper than the live picture. Nothing sure read: the still opens, to tap the ID on it or draw a box round it. */
+  $('scanShot').addEventListener('click', () => guard(takeIdShot, 'ID photo not taken'));
+  /** The guide box (or the box drawn by hand) as shares of the camera picture. */
+  function guideShare() {
+    const v = $('video'), g = $('idGuide'); if (g.hidden || !v.videoWidth) return null;
+    const vr = v.getBoundingClientRect(), st0 = $('camStage').getBoundingClientRect();
+    const gr = finder.user ? { left: st0.left + finder.user.x, top: st0.top + finder.user.y, width: finder.user.w, height: finder.user.h } : g.getBoundingClientRect();
+    const sc = Math.max(vr.width / v.videoWidth, vr.height / v.videoHeight), ox = vr.left + (vr.width - v.videoWidth * sc) / 2, oy = vr.top + (vr.height - v.videoHeight * sc) / 2;
+    return { x: (gr.left - ox) / sc / v.videoWidth, y: (gr.top - oy) / sc / v.videoHeight, w: gr.width / sc / v.videoWidth, h: gr.height / sc / v.videoHeight,
+      cx: gr.left + gr.width / 2, cy: gr.top + gr.height / 2, va: v.videoWidth / v.videoHeight };
+  }
+  /** The box on the still: the live picture is taken as the centre of the still when their shapes differ (a 16:9 preview of a 4:3 photo). */
+  function shareOnStill(b, IW, IH) {
+    let x0 = 0, y0 = 0, w = IW, h = IH;
+    const sa = IW / IH;
+    if (Math.abs(sa - b.va) > 0.02) { if (sa > b.va) { w = IH * b.va; x0 = (IW - w) / 2; } else { h = IW / b.va; y0 = (IH - h) / 2; } }
+    return { x: x0 + b.x * w, y: y0 + b.y * h, w: b.w * w, h: b.h * h };
+  }
+  async function takeIdShot() {
+    if (camBusy || !stream || !scanStep()) return;
+    const b = guideShare(); if (!b) return;
+    camBusy = true; $('shutter').disabled = true; $('scanShot').disabled = true;
+    const seq = camSeq, orient = S.idOrient === 'v' ? 'v' : 'h', t0 = Date.now();
+    try {
+      finderStop(); focusAt(b.cx, b.cy); camCheck('Focusing on the ID…');
+      await new Promise((r) => setTimeout(r, 900)); // the focus settles
+      if (seq !== camSeq) return;
+      camCheck('Taking the ID photo…');
+      let blob = null;
+      if (imageCapture) { try { blob = await withTimeout(takeStill(), TAKE_MS, 'slow'); } catch (e) { blob = null; LOG.warn('idshot.still.fail', errInfo(e)); } }
+      if (!blob) { const v = $('video'), cv = document.createElement('canvas'); cv.width = v.videoWidth; cv.height = v.videoHeight; cv.getContext('2d').drawImage(v, 0, 0); blob = await toBlob(cv, 0.95); cv.width = cv.height = 0; }
+      if (seq !== camSeq || !blob) return;
+      const im = await loadImage(blob), { w: IW, h: IH } = dims(im), m = shareOnStill(b, IW, IH);
+      const pad = Math.max(m.w, m.h) * 0.12, box = clipBox({ x: m.x - pad, y: m.y - pad, w: m.w + 2 * pad, h: m.h + 2 * pad }, IW, IH);
+      const crop = cropOf(im, box, orient);
+      // a second, separate reading: the ID found on the still around the box, else the box cut closer (used by itself only when both agree)
+      const near = idNear(im, IW, IH, (m.x + m.w / 2) / IW, (m.y + m.h / 2) / IH), nb = near && clipBox(near, IW, IH);
+      if (nb && nb.w > 8 && nb.h > 8) crop._second = cropOf(im, nb, near.v ? 'v' : 'h');
+      else { const p2 = Math.max(m.w, m.h) * 0.04; crop._second = cropOf(im, clipBox({ x: m.x - p2, y: m.y - p2, w: m.w + 2 * p2, h: m.h + 2 * p2 }, IW, IH), orient); }
+      if (im.close) im.close();
+      LOG.info('idshot', { ms: Date.now() - t0, still: !!imageCapture, px: `${IW}×${IH}`, box: [Math.round(box.w), Math.round(box.h)], near: !!near, orient });
+      camCheck(false);
+      if (camTarget === 'newid' && camPending) { camPending.crop = crop; camPending.live = null; camPending.idShot = blob; await closeSheet(); }
+      else if (camTarget === 'scan') { await closeSheet(); readIdShot(crop, blob); }
+    } finally { camBusy = false; $('shutter').disabled = false; $('scanShot').disabled = false; camCheck(false); if (seq === camSeq && scanStep() && !$('camera').hidden) finderStart(); }
+  }
+  /** Reads the ID photo twice (the box, and the ID found around it); the ID is filled only when both readings agree. Otherwise
+      the readings are offered as chips and the ID photo opens for a tap on the ID or a box round it. */
+  async function readIdShot(crop, blob) {
+    if (!ed) return;
+    const token = ed.ocrToken = uid(); renderIdCands('reading');
+    let a = [], b = [];
+    try { a = await readIdFrom(crop); if (crop._second) b = await readIdFrom(crop._second); } catch (e) { LOG.warn('idshot.read.fail', errInfo(e)); }
+    if (!ed || ed.ocrToken !== token) return;
+    const ta = a[0], tb = b[0], list = mergeIds(a, b), same = !!(ta && tb && ta.id === tb.id), best = same ? (ta.score >= tb.score ? ta : tb) : null;
+    LOG.info('idshot.read', { a: ta ? `${ta.id} ${ta.conf}` : '', b: tb ? `${tb.id} ${tb.conf}` : '', same });
+    if (best && best.conf >= (best.fits ? 55 : 80)) {
+      $('poleId').value = best.id; ed.idTouched = true; ed.idRead = { id: best.id, conf: best.conf }; syncFromId(); checkDup();
+      const rest = list.filter((c) => c.id !== best.id && (c.fits || c.conf >= 60));
+      renderIdCands('done', rest, `Filled ${best.id} from the ID photo (read the same twice, ${best.conf}% sure) — check it.${rest.length ? ' Other readings:' : ''}`);
+      return;
+    }
+    renderIdCands('done', list, list.length ? `${ta && tb ? 'The two readings of the ID photo differ' : 'Not read for sure'}: tap the right ID below, or tap the ID on the photo.` : undefined);
+    pvReadBlob = null; showBlob(blob, 'ID photo'); pvReadBlob = blob; setPhotoRead(true);
+    toast(list.length ? 'Not read for sure: tap the ID on the photo (or close it and pick a reading)' : 'ID not read: tap the ID on the photo, or draw a box round it', 4500);
+  }
   async function openCamera(target) {
     camTarget = target || 'new'; camPending = null; camSeq++; finder.manual = false; photoReadNext = false; // the box turns by itself until H / V is tapped
     openSheet('camera'); startGps();
     $('camMsg').hidden = true; $('camTorch').hidden = true; $('qualBox').hidden = true; camCheck(false);
     showGuide();
-    if ((camTarget === 'new' && S.readId !== false) || camTarget === 'scan') ocrWarm();
+    if ((camTarget === 'new' && readIdOn()) || camTarget === 'scan') ocrWarm();
     clearInterval(camTick); camTick = setInterval(camGpsTick, 1000); camGpsTick();
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { useNativeCamera(); return; }
     try {
@@ -1316,13 +1387,16 @@
       setTimeout(async () => {
         const q = p.q || (p.qp ? await p.qp : null);
         if (q && q.flags && q.flags.length) { toast(`${QUAL_TITLE[q.flags[0]] || 'Photo not accepted'}. ${QUAL_TEXT[q.flags[0]] || 'Take it again.'}`, 7000); return; }
-        gotPhoto(p.blob, p.gps, p.source || 'camera', { q, takenAt: p.takenAt, crop: p.crop || null, live: p.live || null });
+        gotPhoto(p.blob, p.gps, p.source || 'camera', { q, takenAt: p.takenAt, crop: p.crop || null, live: p.live || null, idShot: p.idShot || null });
       }, 0);
     }
   }
   function camCheck(text) { $('camCheck').hidden = !text; if (text) $('camCheckText').textContent = text; }
   $('camClose').addEventListener('click', () => closeSheet());
-  $('camReadId').addEventListener('click', () => { S.readId = S.readId === false; persist(); showGuide(); toast(S.readId ? 'After each photo you will be asked to scan the ID' : 'ID scan after each photo turned off', 2200); });
+  $('camReadId').addEventListener('click', () => {
+    const on = !readIdOn(), k = isAcc() ? 'readIdAcc' : 'readId'; S[k] = on; persist(); showGuide();
+    toast(on ? `After each photo you will be asked to scan the ID${isAcc() ? ' (PAT, cleanup and FAT)' : ''}` : `ID scan after each photo turned off${isAcc() ? ' for PAT, cleanup and FAT' : ''}`, 2600);
+  });
   $('camTorch').addEventListener('click', async () => {
     if (!stream) return; torchOn = !torchOn;
     try { await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ torch: torchOn }] }); } catch (e) { toast('Flashlight not supported'); }
@@ -1735,7 +1809,7 @@
         LOG.info('photo.check', { ms: perf.check, px: perf.px, kb: Math.round(blob.size / 1024), flags: q.flags, sharp: q.sharp, level: q.level, during: camTarget === 'newid' ? 'id' : '' });
         return q;
       });
-      if (camTarget === 'new' && S.readId !== false) { // aim at the ID straight away; the photo is checked meanwhile
+      if (camTarget === 'new' && readIdOn()) { // aim at the ID straight away; the photo is checked meanwhile
         const pend = { blob, gps, takenAt, source: 'camera', qp };
         enterIdStep(pend);
         qp.then((q) => {
@@ -1775,7 +1849,7 @@
     }
     prepImages(f);
     const takenAt = new Date(Math.min(back, f.lastModified || back)).toISOString();
-    if (camTarget === 'new' && S.readId !== false && stream && inCam()) { enterIdStep({ blob: f, gps, q, takenAt, source: 'camera' }); return; }
+    if (camTarget === 'new' && readIdOn() && stream && inCam()) { enterIdStep({ blob: f, gps, q, takenAt, source: 'camera' }); return; }
     if (inCam()) await closeSheet();
     gotPhoto(f, gps, 'camera', { q, takenAt });
   });
@@ -1824,7 +1898,7 @@
       toast('Photo replaced — tap Save to keep it');
       return;
     }
-    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), q: qSummary(x.q), crop: x.crop, live: x.live });
+    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), q: qSummary(x.q), crop: x.crop, live: x.live, idShot: x.idShot });
   }
 
   /* ================= reading the painted Pole ID (offline OCR) ================= */
@@ -2034,9 +2108,13 @@
         const rest = list.slice(1).filter((c) => !same(c) && (best.fits && best.conf >= 80 ? c.fits : c.fits || c.conf >= 60));
         if (before && before !== best.id && !explicit) rest.push({ id: before, conf: 0, fits: false });
         renderIdCands('done', rest, `Filled ${best.id} from the scan (${best.conf}% sure) — check it.${rest.length ? ' Other readings:' : ''}`);
-      } else renderIdCands('done', list);
+        return { filled: best.id, list };
+      }
+      renderIdCands('done', list);
+      return { filled: null, list };
     } catch (e) {
       if (ed && ed.ocrToken === token) renderIdCands('error', [], `Could not read the ID (${e.message}). Type it instead.`);
+      return null;
     }
   }
   function scanResult(crop) {
@@ -2323,7 +2401,9 @@
     const el = $('fmtWarn'); if (!ed) return;
     const id = $('poleId').value.trim().toUpperCase(), kind = ed.element || 'Pole';
     let msg = '';
-    if (id && kind === 'Pole' && poleIdXRe().test(id)) msg = 'X = a character the camera could not read. Type it if you can see it on the tag, or keep the X.';
+    // v2.19: in PAT, cleanup and FAT an empty ID (or only the prefix) is fine: the record is saved as D-0001…
+    if (ed.acc && (!id || DREF_RE.test(id) || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(id))) msg = '';
+    else if (id && kind === 'Pole' && poleIdXRe().test(id)) msg = 'X = a character the camera could not read. Type it if you can see it on the tag, or keep the X.';
     // v2.18: the ID after the prefix may mix letters and digits (CC-0123A); only one with no digit at all is flagged
     else if (id && kind === 'Pole' && !isNpt(id) && !poleIdRe().test(id) && !PP_RE.test(id) && !new RegExp(`^(${prefixAlt()})-(?=[A-Z0-9-]*[0-9])[A-Z0-9][A-Z0-9-]*$`).test(id)) { const pm = polePartRe().exec(id); msg = pm && !pm[2] ? `Add the pole number after the prefix, e.g. ${pm[1]}-${PAD4.includes(pm[1]) ? '0001' : '1234'}.` : `Pole IDs are a prefix, a dash and the number: ${poleTypes().map((t) => `${t.p}-`).join(', ')}. For another owner, tap “+ Other prefix”.`; }
     else if (id && kind === 'ODF' && !ODF_ID_RE.test(id)) msg = /^FDU_?$/.test(id) ? 'Add the ODF number after FDU_, e.g. FDU_100.' : 'ODF IDs are written FDU_ and a number, e.g. FDU_100.';
@@ -2400,7 +2480,7 @@
     // v2.16: 'closed' = a completed PAT (view only); 'carried' = an element from the PAT in the cleanup or FAT (fixes only)
     ed.lock = !acc ? '' : patClosed() ? 'closed' : o.mode === 'edit' && ['Cleanup', 'FAT'].includes(taskCat()) && (o.patId || (o.defs || []).some((d) => (d.stage || 'PAT') === 'PAT')) ? 'carried' : '';
     if (acc) {
-      Object.assign(ed, { element: o.element || 'Pole', photos: (o.photos || []).map((p) => ({ ...p })), pending: {}, removed: [],
+      Object.assign(ed, { element: o.element || 'Pole', photos: (o.photos || []).map((p) => ({ ...p })), pending: {}, removed: [], details: JSON.parse(JSON.stringify(o.details || [])),
         defs: JSON.parse(JSON.stringify(o.defs || [])), mloop: !!o.mloop, nap: !!o.nap, closure: !!o.closure, odf: o.odf || 'New', newBlob: null });
       // v2.13: in PAT, cleanup and FAT the photo is of the defect itself (no pole / ODF photo): it becomes the as-found photo
       // of the deficiency started below. A phone that may not record deficiencies keeps it as the element photo.
@@ -2409,7 +2489,7 @@
     } else { // survey point (v2.13): pole, site, ODC, ODF, NAP, closure or handhole
       const mk = Array.isArray(o.marks) ? o.marks : [];
       Object.assign(ed, { element: o.element || 'Pole', status: o.status || (o.mode === 'new' ? svDefaultStatus(o.element || 'Pole') : ''), srcBlob: o.blob || o.storedBlob || null, details: JSON.parse(JSON.stringify(o.details || [])),
-        marks: JSON.parse(JSON.stringify(mk)), origPid: o.origPid || '', legacyBoxes: Math.max(0, (o.boxes || 0) - mk.length), legacyPole: !!o.poleModel && !mk.some((m) => m.k === 'pole'), base: null, baseNew: false, dropOrig: false });
+        marks: JSON.parse(JSON.stringify(mk)).map(normMark), origPid: o.origPid || '', legacyBoxes: Math.max(0, (o.boxes || 0) - mk.length), legacyPole: !!o.poleModel && !mk.some((m) => m.k === 'pole'), base: null, baseNew: false, dropOrig: false });
       $('svRemarks').value = o.remarks || ''; $('svClosureId').value = o.closureId || '';
     }
     $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
@@ -2418,6 +2498,9 @@
     $('edHint').hidden = acc; // v2.15: not shown in PAT, cleanup and FAT, where the pin is the element you stand at
     $('pinMapWrap').classList.toggle('big', !!S.pinBig); $('pinSizeBtn').setAttribute('aria-pressed', String(!!S.pinBig));
     ['accPhotos', 'defBox'].forEach((x) => { $(x).hidden = !acc; }); $('accElementBox').hidden = false;
+    // v2.19: in PAT, cleanup and FAT the deficiencies are at the top; the element's ID, type, details and what is on the pole are optional
+    $('editor').classList.toggle('acc', acc); $('idGroupTitle').textContent = acc ? 'Element details · optional' : 'Identification';
+    $('attachTitle').textContent = acc ? 'On this pole · optional' : 'On this pole';
     $('surveyTypeBox').hidden = ed.element !== 'Pole'; $('edPhoto').hidden = acc; $('nptBtn').hidden = ed.element !== 'Pole';
     ['svStatusBox', 'svClosureBox', 'svRemarksBox'].forEach((x) => { $(x).hidden = acc; });
     if (acc) $('accPhotos').closest('.group').hidden = false; // renderAccPhotos hides it when the record has no element photo
@@ -2455,15 +2538,16 @@
     checkFormat(); applyEdLock();
     if (photoReadNext && o.mode === 'new' && !acc && o.blob) { photoReadNext = false; setTimeout(openPhotoRead, 400); } // v2.17: the picture button
     else if (o.live) applyLiveRead(o.live);
+    else if (o.crop && o.idShot) readIdShot(o.crop, o.idShot); // v2.19: the ID photo
     else if (o.crop) runOcrFor(o.crop, true);
-    else if (o.mode === 'new' && !o.poleId) setTimeout(() => { const f = $('poleId'); f.focus(); const n = f.value.length; if (/[-_]$/.test(f.value)) f.setSelectionRange(n, n); else f.select(); }, 250);
+    else if (o.mode === 'new' && !o.poleId && !acc) setTimeout(() => { const f = $('poleId'); f.focus(); const n = f.value.length; if (/[-_]$/.test(f.value)) f.setSelectionRange(n, n); else f.select(); }, 250);
   }
   async function openEditorFor(id) {
     const p = points.find((x) => x.id === id); if (!p) return;
     if (p.kind === 'acceptance' || isAcc(p.project)) {
       openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType || undefined, lat: p.lat, lon: p.lon, takenAt: p.takenAt, source: p.source,
         gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : { lat: p.lat, lon: p.lon, acc: p.accuracy }, // records from before v1.3 keep no raw fix: the pin stands in
-        element: elemOf(p), photos: p.photos || [], defs: p.defs || [], mloop: p.mloop, nap: p.nap, napId: p.napId, closure: p.closure, closureId: p.closureId, odf: p.odf, patId: p.patId || '' });
+        element: elemOf(p), photos: p.photos || [], defs: p.defs || [], mloop: p.mloop, nap: p.nap, napId: p.napId, closure: p.closure, closureId: p.closureId, odf: p.odf, patId: p.patId || '', details: p.details || [] });
       return;
     }
     const ph = await dbGet('photos', id).catch(() => null);
@@ -2501,10 +2585,16 @@
   /* v2.18: models besides the pole — proposed ODF cabinet, proposed handhole, new tower location. Each is placed like the pole:
      from where it stands (yb) up to its top (yt); for a handhole, from its front edge up to its back edge on the ground.
      half = half its width as a share of that height (for handles and selection). */
-  const MODELS = { pole: { name: 'Proposed pole', label: 'PROPOSED POLE', half: 0.06 }, odf: { name: 'Proposed ODF', label: 'PROPOSED ODF', half: 0.3 },
-    hh: { name: 'Proposed handhole', label: 'PROPOSED HH', half: 0.9 }, tower: { name: 'New tower location', label: 'NEW TOWER LOCATION', half: 0.17 } };
+  /* v2.19: the cabinet is the ODC (outdoor cabinet; saved before as 'odf'); new: the ODF itself (a rack-mount panel, placed corner
+     to corner like a red box: rect) and the data rack it goes in (standing, like the ODC). */
+  const MODELS = { pole: { name: 'Proposed pole', label: 'PROPOSED POLE', half: 0.06 }, odc: { name: 'Proposed ODC (outdoor cabinet)', label: 'PROPOSED ODC', half: 0.3, what: 'ODC cabinet' },
+    odfp: { name: 'Proposed ODF (rack panel)', label: 'PROPOSED ODF', rect: true }, rack: { name: 'Proposed data rack', label: 'PROPOSED DATA RACK', half: 0.17, what: 'data rack' },
+    hh: { name: 'Proposed handhole', label: 'PROPOSED HH', half: 0.9 }, tower: { name: 'New tower location', label: 'NEW TOWER LOCATION', half: 0.17, what: 'tower' } };
+  const MODEL_TAG = { odc: 'ODC model', odf: 'ODC model', odfp: 'ODF model', rack: 'data rack model', hh: 'HH model', tower: 'tower model' };
+  const normMark = (m) => (m && m.k === 'odf' ? { ...m, k: 'odc' } : m); // marks saved by v2.18
   const isModel = (m) => !!MODELS[m.k];
-  const modelFor = () => (!ed ? 'pole' : ['ODF', 'ODC'].includes(ed.element) ? 'odf' : ed.element === 'Handhole' ? 'hh' : ed.element === 'Site' ? 'tower' : 'pole');
+  const isStand = (m) => !!MODELS[m.k] && !MODELS[m.k].rect; // placed from the ground (yb) up to the top (yt); else a rect (x, y, w, h)
+  const modelFor = () => (!ed ? 'pole' : ed.element === 'ODC' ? 'odc' : ed.element === 'ODF' ? 'odfp' : ed.element === 'Handhole' ? 'hh' : ed.element === 'Site' ? 'tower' : 'pole');
   const origPidOf = (id) => `${id}_o`;
   function renderBoxInfo() {
     if (!ed || ed.acc) { $('boxInfo').hidden = true; $('edZoom').classList.remove('pp'); return; }
@@ -2521,7 +2611,8 @@
     $('boxTitle').textContent = m === 'box' ? 'Red box' : `Model: ${MODELS[m].name}`;
     $('boxHint').textContent = m === 'box' ? 'Drag on the photo to draw a red box around the spot. Tap a mark to move, resize or delete it.'
       : m === 'hh' ? 'Put your finger on the front edge of the handhole on the ground and drag up to its back edge. Tap a mark to move, resize or delete it.'
-        : `Put your finger where the ${m === 'tower' ? 'tower' : m === 'odf' ? 'ODF cabinet' : 'pole'} stands on the ground and drag up to its top. Tap a mark to move, resize or delete it.`;
+        : m === 'odfp' ? 'Drag from one corner of the place in the rack to the opposite corner: the ODF panel fills it. Tap a mark to move, resize or delete it.'
+          : `Put your finger where the ${MODELS[m].what || 'pole'} stands on the ${m === 'rack' ? 'floor' : 'ground'} and drag up to its top. Tap a mark to move, resize or delete it.`;
   }
   $('boxModeBox').addEventListener('click', () => setBoxMode('box'));
   $('boxModePole').addEventListener('click', () => setBoxMode($('boxModel').value || modelFor()));
@@ -2538,7 +2629,7 @@
     if (!ed || ed.acc) return;
     const src = await markBase(); if (!src) { toast('No photo to mark'); return; }
     const im = await loadImage(src, STORE_MAX_PX), { w, h } = dims(im);
-    boxer = { im, w, h, base: src, marks: (ed.marks || []).map((m) => (isModel(m) ? { k: m.k, x: m.x * w, yb: m.yb * h, yt: m.yt * h } : { k: 'box', x: m.x * w, y: m.y * h, w: m.w * w, h: m.h * h })), sel: -1, op: null, drag: null };
+    boxer = { im, w, h, base: src, marks: (ed.marks || []).map(normMark).map((m) => (isStand(m) ? { k: m.k, x: m.x * w, yb: m.yb * h, yt: m.yt * h } : { k: isModel(m) ? m.k : 'box', x: m.x * w, y: m.y * h, w: m.w * w, h: m.h * h })), sel: -1, op: null, drag: null };
     if (pvOpen) { pvOpen = false; hidePhotoView(); const el = $('boxer'); el.hidden = false; el.style.zIndex = 1000 + stack.length; stack.push('boxer'); history.replaceState({ sheet: 'boxer' }, ''); LOG.info('open', 'boxer'); }
     else openSheet('boxer');
     setBoxMode(mode === 'model' ? modelFor() : mode || (proposedPole() ? 'pole' : 'box'));
@@ -2573,8 +2664,8 @@
     const fs = Math.max(12, size); g.font = `700 ${fs}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top';
     g.lineWidth = Math.max(3, fs * 0.22); g.strokeStyle = '#ffffff'; g.strokeText(text, x, y); g.fillStyle = '#e03131'; g.fillText(text, x, y);
   }
-  /** A proposed ODF cabinet standing at (x, yb), its top at yt: cabinet with a cap, two doors and a plinth. */
-  function drawOdfModel(g, x, yb, yt, lw) {
+  /** A proposed ODC (outdoor cabinet) standing at (x, yb), its top at yt: cabinet with a cap, two doors and a plinth. */
+  function drawOdcModel(g, x, yb, yt, lw) {
     const H = Math.max(10, yb - yt), W = H * 0.55, cap = H * 0.06, pl = H * 0.08;
     g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = '#e03131';
     const sh = g.createLinearGradient(x - W / 2, 0, x + W / 2, 0); sh.addColorStop(0, 'rgba(255,255,255,0.88)'); sh.addColorStop(1, 'rgba(200,200,200,0.8)');
@@ -2583,7 +2674,7 @@
     g.fillStyle = 'rgba(235,235,235,0.95)'; g.fillRect(x - W / 2 - H * 0.025, yt, W + H * 0.05, cap); g.strokeRect(x - W / 2 - H * 0.025, yt, W + H * 0.05, cap); // cap
     g.beginPath(); g.moveTo(x, yt + cap); g.lineTo(x, yb - pl); g.stroke(); // two doors
     g.lineWidth = Math.max(1, lw * 0.8); g.beginPath(); g.moveTo(x - H * 0.05, yt + H * 0.42); g.lineTo(x - H * 0.05, yt + H * 0.55); g.moveTo(x + H * 0.05, yt + H * 0.42); g.lineTo(x + H * 0.05, yt + H * 0.55); g.stroke(); // handles
-    modelLabel(g, MODELS.odf.label, x, yb + H * 0.04, H * 0.075);
+    modelLabel(g, MODELS.odc.label, x, yb + H * 0.04, H * 0.075);
     g.restore();
   }
   /** A proposed handhole flush with the ground: front edge at yb, back edge at yt, drawn in perspective with its cover. */
@@ -2612,15 +2703,63 @@
     modelLabel(g, MODELS.tower.label, x, yb + bw * 0.3, H * 0.045);
     g.restore();
   }
-  const DRAW_MODEL = { pole: (g, ...a) => drawPoleModel(g, ...a), odf: drawOdfModel, hh: drawHhModel, tower: drawTowerModel };
+  /** v2.19: a proposed ODF, rack-mount panel seen from the front, filling the rect (x, y, w, h): rack ears with their screws,
+      a label strip and four rows of SC adapters (blue, two blocks of 12 per row). */
+  function drawOdfPanel(g, x, y, w, h, lw) {
+    g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = '#e03131';
+    const ear = Math.min(w * 0.05, h * 0.35), px = x + ear, pw = w - ear * 2;
+    g.fillStyle = 'rgba(205,205,205,0.92)'; [x, x + w - ear].forEach((ex) => { // rack ears, two screws each
+      g.fillRect(ex, y, ear, h); g.strokeRect(ex, y, ear, h);
+      g.fillStyle = 'rgba(60,60,60,0.9)'; [0.22, 0.78].forEach((t) => { g.beginPath(); g.arc(ex + ear / 2, y + h * t, Math.max(1.5, ear * 0.2), 0, Math.PI * 2); g.fill(); }); g.fillStyle = 'rgba(205,205,205,0.92)';
+    });
+    const sh = g.createLinearGradient(0, y, 0, y + h); sh.addColorStop(0, 'rgba(235,235,235,0.95)'); sh.addColorStop(1, 'rgba(185,185,185,0.92)');
+    g.fillStyle = sh; g.fillRect(px, y, pw, h); g.strokeRect(px, y, pw, h); // the panel
+    const strip = h * 0.14; g.fillStyle = 'rgba(255,255,255,0.95)'; g.fillRect(px + pw * 0.02, y + h * 0.04, pw * 0.96, strip); // label strip
+    const rows = 4, per = 12, gap = pw * 0.04, top = y + h * 0.04 + strip + h * 0.05, rh = (y + h * 0.95 - top) / rows, bw = (pw * 0.92 - gap) / 2;
+    for (let r = 0; r < rows; r++) for (let b = 0; b < 2; b++) {
+      const bx = px + pw * 0.04 + b * (bw + gap), cw = bw / per, ay = top + r * rh + rh * 0.14, ah = rh * 0.72, aw = cw * 0.72;
+      for (let i = 0; i < per; i++) { // an SC adapter: blue body, dark port
+        const ax = bx + i * cw + (cw - aw) / 2;
+        g.fillStyle = '#1c6dd0'; g.fillRect(ax, ay, aw, ah);
+        g.fillStyle = 'rgba(20,30,50,0.9)'; g.fillRect(ax + aw * 0.28, ay + ah * 0.25, aw * 0.44, ah * 0.5);
+      }
+    }
+    g.strokeRect(x, y, w, h);
+    modelLabel(g, MODELS.odfp.label, x + w / 2, y + h + Math.max(4, h * 0.06), Math.max(h * 0.2, w * 0.035));
+    g.restore();
+  }
+  /** v2.19: a proposed data rack (19-inch cabinet, front view) standing on the floor at (x, yb), its top at yt: frame, top and
+      plinth, mounting rails with their holes, and a few units in it (the top one an ODF panel). */
+  function drawRackModel(g, x, yb, yt, lw) {
+    const H = Math.max(20, yb - yt), W = H * 0.32, top = H * 0.04, base = H * 0.05, l = x - W / 2;
+    g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = '#e03131';
+    g.fillStyle = 'rgba(45,45,50,0.82)'; g.fillRect(l, yt, W, H); g.strokeRect(l, yt, W, H); // the cabinet
+    g.fillStyle = 'rgba(80,80,88,0.9)'; g.fillRect(l, yt, W, top); g.strokeRect(l, yt, W, top); g.fillRect(l, yb - base, W, base); g.strokeRect(l, yb - base, W, base); // top, plinth
+    const ri = W * 0.08, rw = W * 0.06, y0 = yt + top, y1 = yb - base;
+    g.fillStyle = 'rgba(170,170,175,0.9)'; [l + ri, l + W - ri - rw].forEach((rx) => { // rails, holes every U
+      g.fillRect(rx, y0, rw, y1 - y0);
+      g.fillStyle = 'rgba(30,30,30,0.9)'; for (let yy = y0 + H * 0.012; yy < y1; yy += H * 0.022) g.fillRect(rx + rw * 0.3, yy, rw * 0.4, H * 0.006);
+      g.fillStyle = 'rgba(170,170,175,0.9)';
+    });
+    const ux = l + ri + rw, uw = W - 2 * (ri + rw), U = (y1 - y0) / 42; // 42U
+    const unit = (u, n, fill) => { g.fillStyle = fill; g.fillRect(ux, y0 + u * U, uw, n * U); g.lineWidth = Math.max(1, lw * 0.6); g.strokeRect(ux, y0 + u * U, uw, n * U); g.lineWidth = lw; };
+    unit(2, 3, 'rgba(225,225,225,0.95)'); // the ODF panel
+    g.fillStyle = '#1c6dd0'; for (let r = 0; r < 3; r++) for (let i = 0; i < 12; i++) g.fillRect(ux + uw * (0.06 + i * 0.075), y0 + (2.3 + r * 0.9) * U, uw * 0.05, U * 0.55);
+    unit(6, 1, 'rgba(120,120,128,0.95)'); unit(8, 2, 'rgba(95,95,105,0.95)'); unit(11, 1, 'rgba(120,120,128,0.95)'); // switch, equipment, cable manager
+    g.strokeRect(l, yt, W, H);
+    modelLabel(g, MODELS.rack.label, x, yb + H * 0.02, H * 0.05);
+    g.restore();
+  }
+  const DRAW_MODEL = { pole: (g, ...a) => drawPoleModel(g, ...a), odc: drawOdcModel, rack: drawRackModel, hh: drawHhModel, tower: drawTowerModel };
   function drawMarks(g, marks, k, lw) {
     marks.forEach((m) => {
-      if (isModel(m)) DRAW_MODEL[m.k](g, m.x * k, m.yb * k, m.yt * k, lw);
+      if (isStand(m)) DRAW_MODEL[m.k](g, m.x * k, m.yb * k, m.yt * k, lw);
+      else if (m.k === 'odfp') drawOdfPanel(g, m.x * k, m.y * k, m.w * k, m.h * k, lw);
       else { g.strokeStyle = '#e03131'; g.lineWidth = lw; g.lineJoin = 'round'; g.strokeRect(m.x * k, m.y * k, m.w * k, m.h * k); }
     });
   }
   /** Handles of a mark, in image pixels: box corners, or the pole's top and foot. */
-  const handlesOf = (m) => (isModel(m) ? [['top', m.x, m.yt], ['bottom', m.x, m.yb]] : [['nw', m.x, m.y], ['ne', m.x + m.w, m.y], ['sw', m.x, m.y + m.h], ['se', m.x + m.w, m.y + m.h]]);
+  const handlesOf = (m) => (isStand(m) ? [['top', m.x, m.yt], ['bottom', m.x, m.yb]] : [['nw', m.x, m.y], ['ne', m.x + m.w, m.y], ['sw', m.x, m.y + m.h], ['se', m.x + m.w, m.y + m.h]]);
   function drawBoxer() {
     const b = boxer, cv = $('boxCanvas'); if (!b) return;
     const g = cv.getContext('2d'), k = cv.width / b.w, dpr = window.devicePixelRatio || 1;
@@ -2629,7 +2768,7 @@
     const m = b.marks[b.sel];
     if (m) { // the selected mark: dashed outline and handles
       g.save(); g.setLineDash([6 * dpr, 4 * dpr]); g.strokeStyle = '#ffffff'; g.lineWidth = 1.5 * dpr;
-      if (isModel(m)) { const wb = (m.yb - m.yt) * MODELS[m.k].half; g.strokeRect((m.x - wb) * k, m.yt * k, wb * 2 * k, (m.yb - m.yt) * k); } else g.strokeRect(m.x * k, m.y * k, m.w * k, m.h * k);
+      if (isStand(m)) { const wb = (m.yb - m.yt) * MODELS[m.k].half; g.strokeRect((m.x - wb) * k, m.yt * k, wb * 2 * k, (m.yb - m.yt) * k); } else g.strokeRect(m.x * k, m.y * k, m.w * k, m.h * k);
       g.setLineDash([]); const r = 7 * dpr;
       handlesOf(m).forEach(([, x, y]) => { g.fillStyle = '#ffffff'; g.strokeStyle = '#e03131'; g.lineWidth = 2 * dpr; g.beginPath(); g.rect(x * k - r, y * k - r, 2 * r, 2 * r); g.fill(); g.stroke(); });
       g.restore();
@@ -2645,20 +2784,20 @@
     for (const i of order) {
       const m = boxer.marks[i];
       for (const [op, x, y] of handlesOf(m)) if (Math.hypot(pt[0] - x, pt[1] - y) < tol) return { i, op };
-      if (isModel(m)) { const half = Math.max(tol, (m.yb - m.yt) * MODELS[m.k].half); if (Math.abs(pt[0] - m.x) < half && pt[1] > m.yt - tol && pt[1] < m.yb + tol) return { i, op: 'move' }; }
+      if (isStand(m)) { const half = Math.max(tol, (m.yb - m.yt) * MODELS[m.k].half); if (Math.abs(pt[0] - m.x) < half && pt[1] > m.yt - tol && pt[1] < m.yb + tol) return { i, op: 'move' }; }
       else if (pt[0] > m.x - tol && pt[0] < m.x + m.w + tol && pt[1] > m.y - tol && pt[1] < m.y + m.h + tol) return { i, op: 'move' };
     }
     return null;
   }
   function boxDrag(p) {
     const [x0, y0] = boxer.start, [x1, y1] = p;
-    boxer.drag = MODELS[boxer.mode] ? { k: boxer.mode, x: x0, yb: Math.max(y0, y1), yt: Math.min(y0, y1) } : { k: 'box', x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+    boxer.drag = isStand({ k: boxer.mode }) ? { k: boxer.mode, x: x0, yb: Math.max(y0, y1), yt: Math.min(y0, y1) } : { k: MODELS[boxer.mode] ? boxer.mode : 'box', x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
   }
   /** Move or resize the selected mark, kept inside the photo. */
   function boxEdit(p) {
     const o = boxer.op, m0 = o.orig, dx = p[0] - o.start[0], dy = p[1] - o.start[1], W = boxer.w, H = boxer.h, cl = (v, a, b) => Math.max(a, Math.min(b, v));
     let m;
-    if (isModel(m0)) {
+    if (isStand(m0)) {
       if (o.op === 'move') { const sx = cl(dx, -m0.x, W - m0.x), sy = cl(dy, -m0.yt, H - m0.yb); m = { ...m0, x: m0.x + sx, yt: m0.yt + sy, yb: m0.yb + sy }; }
       else if (o.op === 'top') m = { ...m0, yt: cl(m0.yt + dy, 0, m0.yb - 20) };
       else m = { ...m0, x: cl(m0.x + dx, 0, W), yb: cl(m0.yb + dy, m0.yt + 20, H) };
@@ -2667,7 +2806,7 @@
       let x1 = m0.x, y1 = m0.y, x2 = m0.x + m0.w, y2 = m0.y + m0.h;
       if (o.op.includes('w')) x1 = cl(m0.x + dx, 0, x2 - 8); else x2 = cl(x2 + dx, x1 + 8, W);
       if (o.op.includes('n')) y1 = cl(m0.y + dy, 0, y2 - 8); else y2 = cl(y2 + dy, y1 + 8, H);
-      m = { k: 'box', x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+      m = { k: m0.k, x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
     }
     boxer.marks[o.i] = m;
   }
@@ -2687,7 +2826,7 @@
     if (boxer.op) { boxer.op = null; drawBoxer(); return; }
     if (!boxer.start) return;
     const d = boxer.drag, sc = boxer.sc; boxer.start = null; boxer.drag = null;
-    if (d && (isModel(d) ? (d.yb - d.yt) * sc > (d.k === 'hh' ? 12 : 30) : d.w * sc > 12 && d.h * sc > 12)) { boxer.marks.push(d); boxer.sel = boxer.marks.length - 1; } // a tap is not a mark
+    if (d && (isStand(d) ? (d.yb - d.yt) * sc > (d.k === 'hh' ? 12 : 30) : d.w * sc > 12 && d.h * sc > 12)) { boxer.marks.push(d); boxer.sel = boxer.marks.length - 1; } // a tap is not a mark
     drawBoxer();
   };
   $('boxCanvas').addEventListener('pointerup', boxEnd); $('boxCanvas').addEventListener('pointercancel', boxEnd);
@@ -2698,7 +2837,7 @@
   $('boxDone').addEventListener('click', () => guard(async () => {
     const b = boxer; if (!b || !ed) return;
     const before = JSON.stringify(ed.marks || []);
-    const marks = b.marks.map((m) => (isModel(m) ? { k: m.k, x: +(m.x / b.w).toFixed(5), yb: +(m.yb / b.h).toFixed(5), yt: +(m.yt / b.h).toFixed(5) } : { k: 'box', x: +(m.x / b.w).toFixed(5), y: +(m.y / b.h).toFixed(5), w: +(m.w / b.w).toFixed(5), h: +(m.h / b.h).toFixed(5) }));
+    const marks = b.marks.map((m) => (isStand(m) ? { k: m.k, x: +(m.x / b.w).toFixed(5), yb: +(m.yb / b.h).toFixed(5), yt: +(m.yt / b.h).toFixed(5) } : { k: m.k, x: +(m.x / b.w).toFixed(5), y: +(m.y / b.h).toFixed(5), w: +(m.w / b.w).toFixed(5), h: +(m.h / b.h).toFixed(5) }));
     if (JSON.stringify(marks) === before) { await closeSheet(); return; }
     busy('Marking the photo…');
     let blob = b.base;
@@ -2760,7 +2899,8 @@
       return;
     }
     $('idLabel').textContent = `${el.toUpperCase()} ID`;
-    $('poleId').placeholder = el === 'Pole' ? 'e.g. CC-0001' : el === 'ODF' ? 'e.g. FDU_100' : `e.g. ${el}-01`;
+    $('poleId').placeholder = `Optional · ${el === 'Pole' ? 'e.g. CC-0001' : el === 'ODF' ? 'e.g. FDU_100' : `e.g. ${el}-01`}`;
+    $('svDetailsBox').hidden = el !== 'Pole'; renderDetails(); // pole details: optional here too (v2.19)
     $('surveyTypeBox').hidden = el !== 'Pole'; $('nptBtn').hidden = el !== 'Pole';
     $('poleAttach').hidden = el !== 'Pole'; $('odfBox').hidden = el !== 'ODF';
     $('atMloop').checked = ed.mloop; $('atNap').checked = ed.nap; $('atClosure').checked = ed.closure; markToggles();
@@ -2787,14 +2927,16 @@
   });
   /* pole details list */
   function renderDetails() {
-    const box = $('svDetails'); if (!ed || ed.acc) return; box.innerHTML = '';
+    const box = $('svDetails'); if (!ed) return; box.innerHTML = '';
+    const ro = ed.lock === 'closed'; // a completed PAT: the details are shown, not changed
     (ed.details || []).forEach((d, i) => {
       const row = document.createElement('div'); row.className = 'pdrow';
       const t = document.createElement('span'); t.className = 't'; t.textContent = d.item;
       const mk = (txt, lbl, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn small'; b.textContent = txt; b.setAttribute('aria-label', lbl); b.addEventListener('click', fn); return b; };
       const q = document.createElement('b'); q.textContent = String(d.qty); q.setAttribute('aria-label', `${d.qty} pc${d.qty === 1 ? '' : 's'}`); // compact chip (v2.15): Transformer − 1 + ×
       // at 1 pc the minus removes the item (×), so each chip needs only two buttons
-      row.append(t, mk(d.qty > 1 ? '−' : '×', d.qty > 1 ? `One ${d.item} less` : `Remove ${d.item}`, () => { if (d.qty > 1) d.qty -= 1; else ed.details.splice(i, 1); renderDetails(); }), q,
+      if (ro) row.append(t, q);
+      else row.append(t, mk(d.qty > 1 ? '−' : '×', d.qty > 1 ? `One ${d.item} less` : `Remove ${d.item}`, () => { if (d.qty > 1) d.qty -= 1; else ed.details.splice(i, 1); renderDetails(); }), q,
         mk('+', `One ${d.item} more`, () => { d.qty = Math.min(99, d.qty + 1); renderDetails(); }));
       box.appendChild(row);
     });
@@ -3269,7 +3411,7 @@
     return null;
   }
   async function readFromPhoto(sw) {
-    const img = $('pvImg'), r = img.getBoundingClientRect(), blob = ed && (ed.newBlob || ed.srcBlob);
+    const img = $('pvImg'), r = img.getBoundingClientRect(), blob = pvReadBlob || (ed && (ed.newBlob || ed.srcBlob));
     if (!blob || !r.width) return;
     const tap = Math.hypot(sw.x1 - sw.x0, sw.y1 - sw.y0) < 14, fx = (x) => (x - r.left) / r.width, fy = (y) => (y - r.top) / r.height;
     if (fx(sw.x0) < 0 || fx(sw.x0) > 1 || fy(sw.y0) < 0 || fy(sw.y0) > 1) { $('pvMark').hidden = true; return; }
@@ -3327,14 +3469,19 @@
 
   async function saveEditorDraft() {
     const poleId = $('poleId').value.trim().toUpperCase();
-    if (!poleId || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(poleId) || /[-_]$/.test(poleId)) { toast(`Enter the ${ed.element === 'Site' ? 'site name or ID' : `${ed.element || 'Pole'} ID`} first${poleId ? ' (the number is missing)' : ''}`); $('poleId').focus(); return; }
+    if (!ed.acc && (!poleId || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(poleId) || /[-_]$/.test(poleId))) { toast(`Enter the ${ed.element === 'Site' ? 'site name or ID' : `${ed.element || 'Pole'} ID`} first${poleId ? ' (the number is missing)' : ''}`); $('poleId').focus(); return; }
     if (!profileOk()) { toast('Enter your details first (Settings → You)'); openProfile(true); return; }
     {
       const c0 = pinMap.getCenter();
       if (ed.gps && ed.dragged && haversine(ed.gps, { lat: c0.lat, lon: c0.lng }) > PIN_LIMIT_M + 2) { clampPin(); toast(`Pin is more than ${fmtDist(PIN_LIMIT_M)} from where the photo was taken`); return; }
       if (ed.acc && !ed.gps) { toast('Waiting for GPS — acceptance records need the location where the photo was taken', 4000); return; }
     }
-    if (ed.acc) { await saveAcceptance(poleId); return; }
+    if (ed.acc) { // v2.19: the element's ID is optional: left empty (or only the prefix), the record gets a reference D-0001
+      const bare = !poleId || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(poleId) || /[-_]$/.test(poleId);
+      const was = (points.find((x) => x.id === ed.id) || {}).poleId || '';
+      await saveAcceptance(!bare ? poleId : DREF_RE.test(was) ? was : nextDefRef());
+      return;
+    }
     const c = pinMap.getCenter(), pos = { lat: c.lat, lon: c.lng };
     const btn = $('edSave'); btn.disabled = true;
     const t0 = Date.now();
@@ -3352,7 +3499,7 @@
         remarks: $('svRemarks').value.trim().slice(0, 500), closureId: ed.element === 'Handhole' ? $('svClosureId').value.trim().toUpperCase().slice(0, 40) : '',
         boxes: (ed.legacyBoxes || 0) + (ed.marks || []).length, marks: (ed.marks || []).map((m) => ({ ...m })),
         poleModel: (ed.marks || []).some((m) => m.k === 'pole') || !!ed.legacyPole,
-        models: [...new Set((ed.marks || []).filter((m) => isModel(m) && m.k !== 'pole').map((m) => m.k))], // v2.18: odf, hh, tower
+        models: [...new Set((ed.marks || []).map(normMark).filter((m) => isModel(m) && m.k !== 'pole').map((m) => m.k))], // odc, odfp, rack, hh, tower
         ...(ed.newBlob && !ed.keepQ ? { q: ed.q || null } : {}), ...(ed.idRead ? { idRead: ed.idRead } : {}),
         gpsLat: g ? g.lat : null, gpsLon: g ? g.lon : null,
         accuracy: g && Number.isFinite(g.acc) ? g.acc : null,
@@ -3396,6 +3543,12 @@
     else toast('Changes saved');
   }
 
+  /** v2.19: the reference of a deficiency record saved without an element ID: D-0001, D-0002… in the project. */
+  const DREF_RE = /^D-(\d+)$/;
+  function nextDefRef() {
+    const n = points.filter((p) => p.project === S.project && DREF_RE.test(p.poleId || '')).reduce((m, p) => Math.max(m, +DREF_RE.exec(p.poleId)[1]), 0);
+    return `D-${String(n + 1).padStart(4, '0')}`;
+  }
   async function saveAcceptance(poleId) {
     if (ed.lock === 'closed') { toast('This PAT is complete: nothing in it can be changed', 4500); return; }
     // a defect picked but not yet added is added by Save
@@ -3430,6 +3583,7 @@
         closureId: el === 'Pole' && ed.closure ? $('closureId').value.trim().toUpperCase() : '',
         odf: el === 'ODF' ? ed.odf : '',
         photos: ed.photos.map((ph) => ({ ...ph })), defs: JSON.parse(JSON.stringify(ed.defs)),
+        details: el === 'Pole' ? (ed.details || []).filter((d) => d && d.item) : [],
         gpsLat: g ? g.lat : null, gpsLon: g ? g.lon : null,
         accuracy: g && Number.isFinite(g.acc) ? g.acc : null, alt: g && Number.isFinite(g.alt) ? g.alt : null,
         adjusted: g ? haversine(g, pos) > 0.5 : true,
@@ -3517,7 +3671,7 @@
       } else {
         const el = elemOf(p), tags = el === 'Pole' ? `<span class="tag">${C.xmlEsc(p.poleType || '—')}</span>${p.status === 'Proposed' || p.status === 'New' ? `<span class="tag" style="background:${p.status === 'Proposed' ? '#e03131' : '#17202a'};color:#fff">${C.xmlEsc(svStatusLabel(p.status))}</span>` : ''}`
           : `<span class="tag" style="background:${SV_COLORS[el] || '#495057'};color:#fff">${C.xmlEsc(el)}</span>${p.status ? `<span class="tag">${C.xmlEsc(svStatusLabel(p.status))}</span>` : ''}${p.closureId ? `<span class="tag">closure ${C.xmlEsc(p.closureId)}</span>` : ''}`;
-        s.innerHTML = `${tags}${p.boxes ? '<span class="tag" style="background:#e03131;color:#fff">red box</span>' : ''}${(p.models || []).map((k) => `<span class="tag" style="background:#e03131;color:#fff">${{ odf: 'ODF model', hh: 'HH model', tower: 'tower model' }[k] || k}</span>`).join('')}${p.adjusted ? '<span class="tag adj">pin adjusted</span>' : ''}${counts[p.poleId] > 1 ? '<span class="tag dup">duplicate ID</span>' : ''}`;
+        s.innerHTML = `${tags}${(Array.isArray(p.marks) ? p.marks.filter((m) => m.k === 'box').length + Math.max(0, (p.boxes || 0) - p.marks.length) : p.boxes) ? '<span class="tag" style="background:#e03131;color:#fff">red box</span>' : ''}${[...new Set((p.models || []).map((k) => MODEL_TAG[k] || k))].map((t) => `<span class="tag" style="background:#e03131;color:#fff">${t}</span>`).join('')}${p.adjusted ? '<span class="tag adj">pin adjusted</span>' : ''}${counts[p.poleId] > 1 ? '<span class="tag dup">duplicate ID</span>' : ''}`;
         const more = [detailsText(p.details, ' · '), p.remarks].filter(Boolean).join(' — ');
         if (more) { const s3 = document.createElement('span'); s3.className = 's'; s3.textContent = more; info.append(s3); }
       }
@@ -4734,7 +4888,7 @@
   const effectiveQuality = () => ((S.team ? pol().quality : S.quality) === 'normal' ? 'normal' : 'strict');
   function renderSettingsHome() {
     renderWho(); renderTeamInfo(); cloudSync(false).then(renderCloudInfo);
-    $('camSub').textContent = `${S.readId !== false ? 'ID scan after each photo' : 'No ID scan'} · ${S.idOrient === 'v' ? 'vertical' : 'horizontal'} IDs · sharpness ${QUAL_NAME[effectiveQuality()] || 'Strict'}${S.team ? ' (set by admin)' : ''}`;
+    $('camSub').textContent = `${S.readId !== false ? 'ID scan after each photo' : 'No ID scan'}${(S.readIdAcc !== false) !== (S.readId !== false) ? ` (${S.readIdAcc !== false ? 'on' : 'off'} in PAT / FAT)` : ''} · ${S.idOrient === 'v' ? 'vertical' : 'horizontal'} IDs · sharpness ${QUAL_NAME[effectiveQuality()] || 'Strict'}${S.team ? ' (set by admin)' : ''}`;
     const packs = Object.values(S.packs || {}).filter((p) => p.done);
     $('mapsSub').textContent = `${streetSource().name}${packs.length ? ` · ${packs.length} offline pack${packs.length === 1 ? '' : 's'}${S.base === 'offline' ? ' (in use)' : ''}` : ' · no offline pack yet'}`;
     const P = pol();
@@ -4750,12 +4904,13 @@
   function renderTypeInfo() { $('typeInfo').textContent = poleTypes().map((t) => `${t.n} ${t.p}-`).join(' · '); }
   $('goCamera').addEventListener('click', () => {
     $('setMyTypes').value = typeLines(S.myTypes); renderTypeInfo();
-    $('setReadId').checked = S.readId !== false; $('setIdAuto').checked = S.idAuto !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h'; $('setHand').value = handOf();
+    $('setReadId').checked = S.readId !== false; $('setReadIdAcc').checked = S.readIdAcc !== false; $('setIdAuto').checked = S.idAuto !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h'; $('setHand').value = handOf();
     $('setQuality').value = effectiveQuality(); $('setQuality').disabled = !!S.team;
     $('qualityNote').textContent = S.team ? `Set by the admin in the company list “${S.team.name}” — the same on every phone.` : 'Until this phone takes a company list, you can choose this yourself.';
     openSheet('setCamera');
   });
   $('setReadId').addEventListener('change', () => { S.readId = $('setReadId').checked; persist(); });
+  $('setReadIdAcc').addEventListener('change', () => { S.readIdAcc = $('setReadIdAcc').checked; persist(); });
   $('setIdAuto').addEventListener('change', () => { S.idAuto = $('setIdAuto').checked; persist(); });
   $('setHand').addEventListener('change', () => { S.hand = $('setHand').value; persist(); applyHand(); toast(`Camera button on the ${handOf()}`, 2000); });
   $('setOrient').addEventListener('change', () => { S.idOrient = $('setOrient').value === 'v' ? 'v' : 'h'; persist(); });
@@ -5003,6 +5158,7 @@
     if (coChanged) cloudSync(true).then(() => { if (!$('newProj').hidden) renderSites(); }); // the sheet sends each company its own sites
     const first = profileFirst; profileFirst = false; await closeSheet();
     renderWho(); toast(`Saved: ${byLine()}`);
+    if (sharedWaiting) { const f = sharedWaiting; sharedWaiting = null; openSharedFile(f); return; } // v2.19: a shared file waited for the details
     if (first && !S.project) askNewProject();
   });
   function renderWho() {
@@ -5037,7 +5193,7 @@
     if (S.team) { const short = await shortJoin(); list = short ? short.slice(short.indexOf('#') + 1) : `join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}`; }
     const link = `${base}#${list ? `${list}&` : ''}mv=${mv}`;
     qrLink = link; qrAlt = null;
-    await showQr('Move to another phone', 'On the new phone, scan this with the camera, or send yourself the link and open it there. Your company list and details (name, mobile, email, company) are filled in for a check: tap Save. Projects and photos: Export → Backup on this phone, then open the backup ZIP on the new phone. Admins enter the admin PIN again. The link carries your details: send it only to yourself.', link);
+    await showQr('Move to another phone', 'On the new phone, open G-eSAA and tap Scan QR code on its first screen (already set up: Settings → Update the company list → Scan QR), then point it at this code. G-eSAA reads it with its own camera; “From a picture” reads a screenshot of it. Or send yourself the link and open it there. Your company list and details (name, mobile, email, company) are filled in for a check: tap Save. Projects and photos: Export → Backup on this phone, then on the new phone Projects → Open a shared file. Admins enter the admin PIN again. The link carries your details: send it only to yourself.', link);
     $('qrLinkBtn').textContent = 'Send the link to myself';
   }, 'Not ready'));
   async function applyMove(code) {
@@ -5108,8 +5264,10 @@
     const btns = buttons || [{ label: 'Cancel', value: false }, { label: 'OK', value: true, primary: true }];
     $('askTitle').textContent = title; $('askText').textContent = text || '';
     const row = $('askBox').querySelector('.row'); row.innerHTML = '';
+    const stack = btns.length > 2; row.classList.toggle('stack', stack); // v2.19: three or more choices are listed one under another, Cancel last
+    const list = stack ? btns.filter((b) => b.label !== 'Cancel').concat(btns.filter((b) => b.label === 'Cancel')) : btns;
     return new Promise((res) => {
-      btns.forEach((b) => {
+      list.forEach((b) => {
         const el = document.createElement('button'); el.type = 'button'; el.className = `btn grow${b.primary ? ' primary' : ''}`; el.textContent = b.label;
         el.addEventListener('click', () => { $('askBox').hidden = true; res(b.value); });
         row.appendChild(el);
@@ -5198,7 +5356,7 @@
     renderCloudInfo(); renderSyncBtn();
   }
   async function scanTeamQr(sw) {
-    const t = await scanQr('Point the camera at the company list QR code on the admin’s phone');
+    const t = await scanQr('Point the camera at the QR code: the company list on the admin’s phone, an invite, or your own “Move to another phone” code');
     if (!t) return;
     await handleInvite(t, sw);
   }
@@ -5671,6 +5829,73 @@
     if (f) { try { await loadRefFile(f); } catch (e) { busy(false); LOG.warn('ref.fail', errInfo(e)); toast(`${label}. The KMZ could not be read: ${e.message || e}`, 7000); } }
     else { fitProject(); toast(label, 3000); }
   }, 'Project not created'));
+
+  /* ---- v2.19: opening a shared file: Projects → Open a shared file, Android "Open with G-eSAA" / Share to G-eSAA, or Share to the
+     installed web app. What the file is decides what happens: a PAT starts the defect cleanup (or the FAT), a cleanup the FAT; any
+     of them, a FAT or a backup can also be opened as it is (restored into its project). */
+  let sharedWaiting = null;
+  $('openShared').addEventListener('click', () => { $('sharedInput').value = ''; $('sharedInput').click(); });
+  $('sharedInput').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) openSharedFile(f); });
+  function openSharedFile(f) { return guard(() => openShared(f), 'File not opened'); }
+  async function openShared(f) {
+    if (!f) return;
+    if (!profileOk()) { sharedWaiting = f; if ($('profile').hidden) openProfile(true); toast('Enter your details first: the file opens after Save', 5000); return; }
+    LOG.info('shared.open', { name: f.name || '', mb: +((f.size || 0) / 1048576).toFixed(1) });
+    busy('Reading file…');
+    let meta;
+    try { meta = (await readPackage(await zipReader(f))).meta; } finally { busy(false); }
+    const fm = meta.meta || {}, kind = fm.mode === 'acceptance' ? fm.stage || 'PAT' : 'survey', n = meta.points.length;
+    const what = `“${meta.project || f.name}”: ${kind === 'survey' ? 'a survey' : `a ${STAGE_NAME[kind]}`} with ${n} record${n === 1 ? '' : 's'}${fm.site && fm.site !== meta.project ? ` · ${fm.site}` : ''}.`;
+    const btns = kind === 'PAT' ? [{ label: 'Start the defect cleanup', value: 'Cleanup', primary: true }, { label: 'Start the FAT', value: 'FAT' }, { label: 'Open the PAT itself', value: 'open' }]
+      : kind === 'Cleanup' ? [{ label: 'Start the FAT', value: 'FAT', primary: true }, { label: 'Open the cleanup itself', value: 'open' }]
+        : [{ label: kind === 'FAT' ? 'Open the FAT' : 'Open the survey', value: 'open', primary: true }];
+    const pick = await ask('Open the shared file', `${what}\n\n${kind === 'PAT' ? 'Start the defect cleanup or the FAT from it (a new project), or open the PAT itself to view or continue it.'
+      : kind === 'Cleanup' ? 'Start the FAT from it (a new project), or open the cleanup itself to view or continue it.' : 'It opens in its own project on this phone; records already on this phone from the same file are updated.'}`, [{ label: 'Cancel', value: '' }, ...btns]);
+    if (!pick) return;
+    if (pick === 'open') {
+      await restoreZip(f);
+      await closeAll(); fitProject();
+      return;
+    }
+    // a new defect cleanup / FAT project: the New project form, filled, for the details and Create
+    if ($('projects').hidden) openProjects();
+    openNewProject();
+    $('npCat').value = pick; npSync();
+    if ($('npCat').value !== pick) { toast(`Your part of this site does not include the ${STAGE_NAME[pick]}`, 5000); return; }
+    npFile = f; npFileKind = 'stage'; npSync();
+    toast('Check the details, then tap Create', 4000);
+  }
+  /* the installed web app: a file shared to it (Android share sheet) waits in the offline cache; a file opened with it (computer) */
+  async function sharedFromCache() {
+    if (!/[?&]shared=1/.test(location.search) || !('caches' in window)) return;
+    history.replaceState(null, '', location.pathname + location.hash);
+    try {
+      const c = await caches.open('polecam-share'), r = await c.match('shared-file'); if (!r) { toast('The shared file did not arrive. Open it from Projects → Open a shared file.', 6000); return; }
+      await c.delete('shared-file');
+      const b = await r.blob(), nm = decodeURIComponent(r.headers.get('x-name') || 'shared.kmz');
+      openSharedFile(new File([b], nm, { type: b.type || '' }));
+    } catch (e) { LOG.warn('shared.cache.fail', errInfo(e)); }
+  }
+  /* the Android app: "Open with G-eSAA" or Share → G-eSAA (the app copies the file and hands over where it is) */
+  async function sharedFromNative(e) {
+    if (!e) return;
+    if (!e.uri) { if (e.error) toast(`Could not open the shared file (${e.error}). Open it from Projects → Open a shared file.`, 6000); return; }
+    try {
+      const r = await fetch(window.Capacitor.convertFileSrc(e.uri)); if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const b = await r.blob();
+      openSharedFile(new File([b], e.name || 'shared.kmz', { type: e.mime || b.type || '' }));
+    } catch (err) { LOG.warn('shared.native.fail', errInfo(err)); toast(`Could not open the shared file (${err.message || err}). Open it from Projects → Open a shared file.`, 6000); }
+  }
+  function sharedListen() {
+    sharedFromCache();
+    if ('launchQueue' in window && window.launchQueue && typeof window.launchQueue.setConsumer === 'function') {
+      window.launchQueue.setConsumer(async (p) => { if (p && p.files && p.files.length) { try { openSharedFile(await p.files[0].getFile()); } catch (e) { /* not readable */ } } });
+    }
+    if (NATIVE && window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable('SharedFile')) {
+      const pl = nativePlugin('SharedFile');
+      if (pl.proxy) Promise.resolve(pl.proxy.addListener('sharedFile', sharedFromNative)).catch((e) => LOG.warn('shared.listen.fail', errInfo(e)));
+    }
+  }
 
   /* ---- a PAT from another phone, for its FAT ---- */
   /** The handover file: the acceptance KMZ with the PoleCam data inside (PAT → defect cleanup → FAT). */
@@ -6469,7 +6694,8 @@
     }
     if (pendingJoin || pendingKey || pendingJq || pendingMv) { await loadOrg(); await handleInvite(`${pendingJoin ? `#join=${pendingJoin}` : ''}${pendingKey ? `&ck=${pendingKey}` : ''}${pendingJq ? `&jq=${pendingJq}` : ''}${pendingMv ? `&mv=${pendingMv}` : ''}`, true); } else loadOrg(); // a link waits for the organisation check
     if (!profileOk()) { if ($('profile').hidden) openProfile(true); }
-    else if (!S.project) askNewProject(); // photos are taken inside a project
+    else if (!S.project && !/[?&]shared=1/.test(location.search)) askNewProject(); // photos are taken inside a project
+    sharedListen(); // v2.19: a file opened with or shared to G-eSAA
     renderSyncBtn();
     cloudSync(false);
   })();

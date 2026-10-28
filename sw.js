@@ -1,6 +1,6 @@
 /* G-eSAA (PoleCam) offline cache: keeps the app itself available with no signal.
    Map tiles are cached separately by the app (IndexedDB). Bump VERSION after editing any file. */
-const VERSION = 'polecam-v2.18.0';
+const VERSION = 'polecam-v2.19.0';
 const SHELL = [
   './', 'index.html', 'app.js', 'core.js', 'reports.js', 'forms.js', 'manifest.json', 'brand/logo-left.jpg', 'brand/logo-right.jpg',
   'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css', 'vendor/protomaps/protomaps-leaflet.js', 'vendor/qr/qrcode.min.js', 'vendor/qr/jsQR.min.js',
@@ -15,15 +15,27 @@ self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 
+const SHARE = 'polecam-share'; // v2.19: a file shared to the installed app waits here until the app opens it
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys()
-    .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+    .then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k !== SHARE).map((k) => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   const u = new URL(req.url);
+  // v2.19: Share → G-eSAA on Android (installed web app): keep the KMZ / ZIP, then open the app, which reads it from here
+  if (req.method === 'POST' && u.origin === self.location.origin && u.pathname.endsWith('/share-target')) {
+    e.respondWith((async () => {
+      try {
+        const fd = await req.formData(), f = fd.get('file') || [...fd.values()].find((v) => v && typeof v === 'object' && 'size' in v);
+        if (f && f.size) await (await caches.open(SHARE)).put('shared-file', new Response(f, { headers: { 'content-type': f.type || 'application/octet-stream', 'x-name': encodeURIComponent(f.name || 'shared.kmz') } }));
+      } catch (err) { /* the app opens without it and says so */ }
+      return Response.redirect(new URL('./?shared=1', self.registration.scope).href, 303);
+    })());
+    return;
+  }
   if (req.method !== 'GET' || u.origin !== self.location.origin) return; // tiles, roads: not ours
   // Map packs are large and stored by the app itself in pieces; never copy them into this cache.
   if (u.pathname.includes('/maps/') || req.headers.has('range')) return;
