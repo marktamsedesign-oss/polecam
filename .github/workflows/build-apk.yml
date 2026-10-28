@@ -94,6 +94,169 @@ jobs:
           cat capacitor.config.json
           npx cap add android
 
+      - name: Add the ML Kit reader (pole IDs and QR codes, on the phone)
+        working-directory: build
+        run: |
+          # v2.15: Google ML Kit text and QR recognition, models inside the APK (no internet). If the build fails with it,
+          # the next step builds without it and the app reads IDs with its own text reader (Tesseract), as before.
+          DIR=$(dirname "$(find android/app/src/main/java -name MainActivity.java | head -1)")
+          echo "MainActivity in $DIR"
+          cp "$DIR/MainActivity.java" MainActivity.orig.java
+          cat > "$DIR/TextReaderPlugin.java" <<'JAVA'
+          package com.marktamse.polecam;
+
+          import android.graphics.Bitmap;
+          import android.graphics.BitmapFactory;
+          import android.graphics.Rect;
+          import android.util.Base64;
+          import com.getcapacitor.JSArray;
+          import com.getcapacitor.JSObject;
+          import com.getcapacitor.Plugin;
+          import com.getcapacitor.PluginCall;
+          import com.getcapacitor.PluginMethod;
+          import com.getcapacitor.annotation.CapacitorPlugin;
+          import com.google.mlkit.vision.barcode.BarcodeScanner;
+          import com.google.mlkit.vision.barcode.BarcodeScannerOptions;
+          import com.google.mlkit.vision.barcode.BarcodeScanning;
+          import com.google.mlkit.vision.barcode.common.Barcode;
+          import com.google.mlkit.vision.common.InputImage;
+          import com.google.mlkit.vision.text.Text;
+          import com.google.mlkit.vision.text.TextRecognition;
+          import com.google.mlkit.vision.text.TextRecognizer;
+          import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+          import java.lang.reflect.Method;
+
+          /** G-eSAA: reads painted pole IDs and QR codes on the phone with Google ML Kit (models inside the app, no internet). */
+          @CapacitorPlugin(name = "TextReader")
+          public class TextReaderPlugin extends Plugin {
+              private TextRecognizer textReader;
+              private BarcodeScanner qrScanner;
+
+              @Override
+              public void load() {
+                  textReader = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+                  qrScanner = BarcodeScanning.getClient(new BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build());
+              }
+
+              /** The picture sent from the app: base64 JPEG or PNG, optional rotation in degrees. */
+              private InputImage picture(PluginCall call) {
+                  String b64 = call.getString("image");
+                  if (b64 == null || b64.isEmpty()) return null;
+                  int comma = b64.indexOf(',');
+                  if (comma >= 0) b64 = b64.substring(comma + 1);
+                  byte[] bytes = Base64.decode(b64, Base64.DEFAULT);
+                  Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                  if (bmp == null) return null;
+                  Integer rot = call.getInt("rotation", 0);
+                  return InputImage.fromBitmap(bmp, rot == null ? 0 : rot);
+              }
+
+              /** Line confidence where this ML Kit version reports it (0..1), else -1. */
+              private static double confidence(Object o) {
+                  try {
+                      Method m = o.getClass().getMethod("getConfidence");
+                      Object v = m.invoke(o);
+                      if (v instanceof Float) return ((Float) v).doubleValue();
+                  } catch (Exception ignored) {
+                      // older ML Kit: no confidence
+                  }
+                  return -1;
+              }
+
+              @PluginMethod
+              public void read(final PluginCall call) {
+                  InputImage img;
+                  try {
+                      img = picture(call);
+                  } catch (Exception e) {
+                      call.reject("Could not open the picture");
+                      return;
+                  }
+                  if (img == null) {
+                      call.reject("No picture");
+                      return;
+                  }
+                  textReader.process(img)
+                      .addOnSuccessListener(result -> {
+                          JSArray lines = new JSArray();
+                          for (Text.TextBlock block : result.getTextBlocks()) {
+                              for (Text.Line line : block.getLines()) {
+                                  JSObject o = new JSObject();
+                                  o.put("text", line.getText());
+                                  o.put("conf", confidence(line));
+                                  Rect r = line.getBoundingBox();
+                                  if (r != null) {
+                                      o.put("left", r.left);
+                                      o.put("top", r.top);
+                                      o.put("width", r.width());
+                                      o.put("height", r.height());
+                                  }
+                                  JSArray words = new JSArray();
+                                  for (Text.Element el : line.getElements()) words.put(el.getText());
+                                  o.put("words", words);
+                                  lines.put(o);
+                              }
+                          }
+                          JSObject ret = new JSObject();
+                          ret.put("text", result.getText());
+                          ret.put("lines", lines);
+                          call.resolve(ret);
+                      })
+                      .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Text reader failed" : e.getMessage()));
+              }
+
+              @PluginMethod
+              public void qr(final PluginCall call) {
+                  InputImage img;
+                  try {
+                      img = picture(call);
+                  } catch (Exception e) {
+                      call.reject("Could not open the picture");
+                      return;
+                  }
+                  if (img == null) {
+                      call.reject("No picture");
+                      return;
+                  }
+                  qrScanner.process(img)
+                      .addOnSuccessListener(codes -> {
+                          JSObject ret = new JSObject();
+                          for (Barcode b : codes) {
+                              String v = b.getRawValue();
+                              if (v != null) {
+                                  ret.put("value", v);
+                                  break;
+                              }
+                          }
+                          call.resolve(ret);
+                      })
+                      .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "QR reader failed" : e.getMessage()));
+              }
+          }
+          JAVA
+          cat > "$DIR/MainActivity.java" <<'JAVA'
+          package com.marktamse.polecam;
+
+          import android.os.Bundle;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  registerPlugin(TextReaderPlugin.class); // ML Kit text and QR reader (G-eSAA v2.15)
+                  super.onCreate(savedInstanceState);
+              }
+          }
+          JAVA
+          python3 - <<'PY'
+          p = 'android/app/build.gradle'
+          s = open(p).read()
+          deps = "    implementation 'com.google.mlkit:text-recognition:16.0.1'\n    implementation 'com.google.mlkit:barcode-scanning:17.3.0'\n"
+          i = s.index('dependencies {') + len('dependencies {') + 1
+          open(p, 'w').write(s[:i] + deps + s[i:])
+          PY
+          grep -n "mlkit" android/app/build.gradle
+
       - name: Permissions, icon, splash screen and version
         working-directory: build
         run: |
@@ -154,7 +317,17 @@ jobs:
         working-directory: build/android
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon --stacktrace
+          if ./gradlew assembleRelease --no-daemon --stacktrace; then
+            echo "MLKIT=included" >> "$GITHUB_ENV"
+          else
+            echo "::warning::The build with the ML Kit reader failed. Building without it: the app then reads IDs with its own text reader."
+            DIR=$(dirname "$(find app/src/main/java -name MainActivity.java | head -1)")
+            rm -f "$DIR/TextReaderPlugin.java"
+            cp ../MainActivity.orig.java "$DIR/MainActivity.java"
+            sed -i '/com.google.mlkit/d' app/build.gradle
+            ./gradlew clean assembleRelease --no-daemon --stacktrace
+            echo "MLKIT=not included (the build with it failed, see the warning in this run)" >> "$GITHUB_ENV"
+          fi
 
       - name: Sign the APK
         run: |
@@ -180,7 +353,7 @@ jobs:
           APPVER=$(grep -oP "polecam-v\K[0-9.]+" sw.js || echo "1.0.0")
           gh release create "apk-build-${{ github.run_number }}" G-eSAA.apk PoleCam.apk \
             --title "G-eSAA ${APPVER} – Android APK (build ${{ github.run_number }})" \
-            --notes "Offline APK: all app files are inside, no internet needed to install or run (maps still need internet or a downloaded offline area).
+            --notes "Offline APK: all app files are inside, no internet needed to install or run (maps still need internet or a downloaded offline area). ML Kit ID and QR reader: ${MLKIT}.
 
           Install: download G-eSAA.apk on the phone, open it, allow 'Install unknown apps' for your browser or file manager, then Install. To update, install the newer APK over the old one (also over PoleCam); your projects stay. PoleCam.apk is the same file under the old name.
 
