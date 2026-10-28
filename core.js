@@ -688,6 +688,7 @@
   const LOOKALIKE = ['CG', 'GC', 'OD', 'DO', 'OQ', 'QO', 'IL', 'LI', 'IT', 'TI', 'UV', 'VU', 'PR', 'RP', 'BE', 'EB', 'BP', 'PB', 'WV', 'VW', 'SB', 'BS', 'MN', 'NM', 'TJ', 'JT'];
   function knownId(raw) {
     const s = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (/^[0-9]+$/.test(s)) return null; // a number alone is a number-only ID, not a prefix misread as digits (88123 is not BT-123)
     let best = null;
     for (const L of [...new Set(KNOWN_PREFIX.map((k) => k.length))].sort((a, b) => b - a)) {
       if (s.length <= L) continue;
@@ -712,9 +713,11 @@
   /**
    * results: [{words:[{text, conf, line}], stacked?}] (one per OCR pass); lastId: previous ID in the project (may be '').
    * stacked = the ID is a column of upright characters, read top to bottom.
+   * opts.numPrefix: poles painted with a number only (v2.15) are saved as that type prefix + the number (GT-123456).
    * -> [{id, conf, fits}] best first, at most 5.
    */
-  function idCandidates(results, lastId) {
+  function idCandidates(results, lastId, opts) {
+    const numPrefix = opts && /^[A-Z]{2,6}$/.test(opts.numPrefix || '') ? opts.numPrefix : '';
     const target = lastId ? shapeOf(lastId.toUpperCase()) : '';
     const sep = (lastId || '').match(/[-/_ ]/);
     const joiner = sep ? sep[0].trim() || '-' : '-';
@@ -725,6 +728,12 @@
       if (s.length < 2 || s.length > 20) return;
       const k = knownId(s);
       if (k) put(k.id, conf, true, conf + bonus + (k.fuzzy ? 8 : 18), !k.fuzzy && !k.padded); // exact: a known prefix and every digit read as they are
+      const digits = s.replace(/[-/_]/g, '');
+      if (numPrefix && /^[0-9]{3,8}$/.test(digits)) { // a number-only pole ID: the type prefix + the number as painted
+        const num = PAD4.includes(numPrefix) ? digits.padStart(4, '0') : digits;
+        put(`${numPrefix}-${num}`, conf, true, conf + bonus + (digits.length >= 4 ? 20 : 6), digits.length >= 4);
+        return;
+      }
       if (!/[0-9]/.test(s)) return;
       const fitted = fitShape(s, target), id = fitted || s, fits = !!fitted;
       put(id, conf, fits, conf + bonus + (fits ? 15 : 0) + (/[A-Z]/.test(id) ? 2 : 0));

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
 <title>G-eSAA</title>
 <meta name="theme-color" content="#0f2547">
 <meta name="description" content="Capture geotagged pole photos, correct the pin, and export KMZ, DXF (UTM) and CSV for OSP design.">
@@ -41,7 +41,16 @@ svg.i{width:22px;height:22px;flex:none}
 /* ---- main map ---- */
 #app{position:fixed;inset:0;display:flex;flex-direction:column}
 #topbar{display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top,0px) + 8px) max(12px,env(safe-area-inset-right,0px)) 8px max(12px,env(safe-area-inset-left,0px));background:var(--navy);color:var(--navy-ink);z-index:500}
-#topbar .brand{font-weight:800;letter-spacing:.02em;white-space:nowrap}
+#topbar .brand{font-weight:800;letter-spacing:.02em;white-space:nowrap;display:flex;flex-direction:column;line-height:1.05}
+#topbar .brand small{font-size:calc(10px * var(--fs));font-weight:600;opacity:.7;letter-spacing:.04em}
+#legendBtn{position:absolute;top:calc(env(safe-area-inset-top,0px) + 104px);left:max(12px,env(safe-area-inset-left,0px));z-index:450;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:4px 10px;box-shadow:var(--shadow);font-size:calc(12px * var(--fs));font-weight:600}
+#legend{position:absolute;top:calc(env(safe-area-inset-top,0px) + 136px);left:max(12px,env(safe-area-inset-left,0px));z-index:450;background:var(--surface);color:var(--ink);border-radius:12px;padding:8px 12px;box-shadow:var(--shadow);font-size:calc(12.5px * var(--fs));display:flex;flex-direction:column;gap:5px;max-width:min(260px,calc(100% - 90px))}
+#legend .lg{display:flex;align-items:center;gap:8px}#legend .sw{width:14px;height:14px;border-radius:50%;flex:none;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+#legend .sq{width:22px;height:14px;border-radius:3px;flex:none;color:#fff;font-size:8px;font-weight:700;display:grid;place-items:center}
+#legend .ln{width:22px;height:0;border-top:3px dashed #1c7ed6;flex:none}
+body.visiting #legendBtn,body.visiting #legend{top:calc(env(safe-area-inset-top,0px) + 104px)}
+.waylbl{background:#1c7ed6;color:#fff;border-radius:999px;padding:2px 8px;font:600 12px/1.3 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.35);transform:translate(-50%,-50%);display:inline-block}
+.target-ring{animation:tring 1.6s ease-in-out infinite}@keyframes tring{50%{stroke-width:7;stroke-opacity:.45}}@media (prefers-reduced-motion:reduce){.target-ring{animation:none}}
 #topbar .brand b{color:var(--hi)}
 #syncBtn{flex:none;position:relative;width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.08);color:var(--navy-ink);display:grid;place-items:center}
 #syncBtn svg{width:20px;height:20px}#syncBtn.spin svg{animation:spin 1s linear infinite}
@@ -72,7 +81,7 @@ svg.i{width:22px;height:22px;flex:none}
 #mapSummary .pills{display:flex;gap:6px;flex:none}
 body.routing #mapSummary{display:none}
 #mapSummary.go{background:var(--navy);color:var(--navy-ink)}#mapSummary.go .stats span{color:var(--hi)}
-#visitCard{position:absolute;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 84px);max-height:64vh;background:var(--surface);color:var(--ink);border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.35);display:flex;flex-direction:column;overflow:hidden}
+#visitCard{position:absolute;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 84px);max-height:56vh;background:var(--surface);color:var(--ink);border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.35);display:flex;flex-direction:column;overflow:hidden}
 #visitCard[hidden]{display:none}
 .vc-head{display:flex;align-items:flex-start;gap:6px;padding:10px 4px 8px 14px;border-bottom:1px solid var(--line2)}
 .vc-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.vc-t b{font-size:calc(17px * var(--fs))}.vc-t span{font-size:calc(12.5px * var(--fs));color:var(--muted)}
@@ -83,18 +92,31 @@ body.routing #mapSummary{display:none}
 .vci .t{font-weight:700;font-size:calc(15px * var(--fs));line-height:1.3}.vci .s{font-size:calc(12.5px * var(--fs));color:var(--muted)}
 .vci .st{align-self:flex-start}
 .vph{display:flex;gap:8px;overflow-x:auto}.vph:empty{display:none}
+.vph figure,.defcard .thumbs figure{position:relative;cursor:zoom-in}
+.vph figure::after,.defcard .thumbs figure::after{content:'⤢';position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:5px;background:rgba(15,37,71,.75);color:#fff;font:700 12px/18px system-ui,sans-serif;text-align:center;pointer-events:none}
+.btn.dd{justify-content:space-between;text-align:left;font-weight:500;min-height:44px}.btn.dd #defItemsLbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ddlist{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface);margin-top:-4px}
+.ddlist .chip{border-radius:0;border:0;border-bottom:1px solid var(--line2);background:var(--surface);justify-content:flex-start;text-align:left;min-height:40px;padding:6px 12px;font-weight:500;gap:10px;display:flex;align-items:center}
+.ddlist .chip:last-child{border-bottom:0}
+.ddlist .chip::before{content:'';width:18px;height:18px;border:2px solid var(--muted);border-radius:4px;flex:none}
+.ddlist .chip[aria-pressed=true]{background:var(--soft);color:var(--ink)}.ddlist .chip[aria-pressed=true]::before{background:var(--accent);border-color:var(--accent);box-shadow:inset 0 0 0 3px var(--surface)}
 .vph figure{margin:0;display:flex;flex-direction:column;gap:2px;font-size:calc(10.5px * var(--fs));font-weight:700;color:var(--muted);text-align:center;flex:none}
 .vph img{width:76px;height:76px;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:var(--chip)}
 .vci .acts{display:flex;gap:8px;flex-wrap:wrap}.vci .acts .btn{flex:1 1 40%;min-height:46px;padding:0 10px;font-size:calc(14px * var(--fs))}
 .vc-foot{display:flex;gap:8px;padding:8px 12px 10px;justify-content:space-between;border-top:1px solid var(--line2)}
 body.visiting #mapSummary{display:none}
 .ref-label{white-space:nowrap;font-size:calc(11px * var(--fs));font-weight:600;color:#3b2a8f;text-shadow:0 0 2px #fff,0 0 2px #fff,0 0 3px #fff;pointer-events:none}
+#boxer{user-select:none;-webkit-user-select:none}#boxer .foot .btn{padding:0 12px}
 #boxWrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#111;overflow:hidden;touch-action:none}
 #boxCanvas{display:block;touch-action:none}
 .svpin{display:grid;place-items:center;min-width:24px;height:24px;padding:0 4px;box-sizing:border-box;border-radius:6px;background:var(--c);color:#fff;font:700 calc(10px * var(--fs))/1 system-ui,sans-serif;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.45);white-space:nowrap}
 .svpin.new{border-style:dashed}.svpin.sel{border:3px solid #17202a}
 #photoView{position:fixed;inset:0;z-index:2800;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:12px}
 #photoView[hidden]{display:none}
+#pvTools{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}#pvTools .btn{background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.4);min-height:40px}
+.thumbwrap{position:relative;display:inline-block;flex:none;line-height:0}
+.zoomico{position:absolute;right:3px;bottom:3px;width:22px;height:22px;border-radius:6px;background:rgba(15,37,71,.78);color:#fff;font:700 14px/22px system-ui,sans-serif;text-align:center;pointer-events:none}
+.zoomico.pp{background:#e03131;animation:ppulse 1.6s ease-in-out infinite}@keyframes ppulse{50%{transform:scale(1.15)}}@media (prefers-reduced-motion:reduce){.zoomico.pp{animation:none}}
 #pvScroll{max-width:100%;max-height:82vh;overflow:auto;display:flex;align-items:center;justify-content:center;-webkit-overflow-scrolling:touch}
 #pvScroll img{max-width:100%;max-height:82vh;object-fit:contain;cursor:zoom-in}
 #photoView.zoomed #pvScroll{width:100%;height:82vh;display:block}#photoView.zoomed #pvScroll img{max-width:none;max-height:none;width:260%;cursor:zoom-out}
@@ -147,6 +169,13 @@ textarea{min-height:90px;resize:vertical}
 #wfSteps{display:flex;flex-direction:column}.step{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line2)}.step:last-child{border-bottom:0}.step .n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:calc(12px * var(--fs));font-weight:700;background:var(--chip);color:var(--muted);flex:none;margin-top:1px}.step.done .n{background:var(--ok);color:#fff}.step.now .n{background:var(--accent);color:var(--accent-ink)}.step .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.step b{font-size:calc(14px * var(--fs))}.step span{font-size:calc(12.5px * var(--fs));color:var(--muted)}.step.done b{color:var(--muted);font-weight:600}
 details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-size:calc(12.5px * var(--fs));font-weight:700;color:var(--accent);display:inline-flex;align-items:center;gap:4px;padding:2px 0}details.help>summary::-webkit-details-marker{display:none}details.help>summary::before{content:"i";display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1.5px solid var(--accent);font-size:calc(11px * var(--fs));font-style:italic;font-family:Georgia,serif}details.help[open]>summary{margin-bottom:6px}details.help .hint{margin-bottom:6px}details.help .hint:last-child{margin-bottom:0}
 .warnline{font-size:calc(13px * var(--fs));color:var(--warn);margin:0;font-weight:600}
+.warnline.bad{color:var(--bad)}
+.req{color:var(--bad);font-weight:700}
+.field.invalid select,.field.invalid input,.field.invalid textarea{border-color:var(--bad);box-shadow:0 0 0 2px rgba(201,42,42,.15)}
+.sheet header .addbtn{background:rgba(255,255,255,.14)}
+#qrScan .qbot{position:absolute;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);display:flex;flex-direction:column;gap:10px;align-items:center;z-index:2}
+#qrScan .qbot span{background:rgba(0,0,0,.6);border-radius:999px;padding:6px 12px;font-size:calc(13px * var(--fs));text-align:center}
+#qrScan .qbot .btn{background:rgba(255,255,255,.92);color:#132033;border-color:transparent}
 .okline{font-size:calc(13px * var(--fs));color:var(--ok);margin:0;font-weight:700}
 .group{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:12px}
 .group h3{margin:0;font-size:calc(12px * var(--fs));text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
@@ -234,13 +263,13 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 #idGuide span{transform:translateY(130%);white-space:nowrap;font-size:calc(13px * var(--fs));font-weight:600;color:#fff;text-shadow:0 1px 3px #000;text-align:center}
 .camid{min-width:44px;height:44px;border-radius:22px;border:2px solid #fff;background:rgba(0,0,0,.55);color:#fff;font:700 calc(14px * var(--fs)) var(--mono)}
 .camid[aria-pressed=true]{background:#fff;color:#000}
-#scanPrompt{position:absolute;left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));top:calc(env(safe-area-inset-top,0px) + 62px);z-index:3;background:rgba(15,37,71,.9);color:#fff;border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
-#scanPrompt b{font-size:calc(15px * var(--fs))}
-#scanPrompt.found{padding:8px 10px;gap:6px;background:rgba(15,37,71,.75)}#scanPrompt.found #scanSub{display:none}#scanPrompt.found .btn{min-height:34px;font-size:calc(13px * var(--fs))}
-#scanPrompt span{font-size:calc(13px * var(--fs));opacity:.85}
-#scanPrompt .row{gap:8px}
-#scanPrompt .btn{min-height:40px;background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.35);color:#fff;font-size:calc(14px * var(--fs));padding:0 12px}
-#scanPrompt .btn[aria-pressed=true]{background:#fff;color:#0f2547}
+#scanPrompt{position:absolute;left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));top:calc(env(safe-area-inset-top,0px) + 62px);z-index:3;background:rgba(15,37,71,.72);color:#fff;border-radius:22px;padding:4px 4px 4px 14px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+#scanPrompt b{font-size:calc(14px * var(--fs));flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#scanPrompt .spb{width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);color:#fff;font:600 17px/1 system-ui,sans-serif;display:grid;place-items:center;padding:0;flex:none}
+#scanPrompt .spb[aria-pressed=true]{background:#fff;color:#0f2547}
+#scanPrompt #scanHelp{font:700 15px/1 Georgia,serif;font-style:italic}
+#scanPrompt .spb.skip{width:auto;border-radius:18px;padding:0 12px;font-size:calc(14px * var(--fs))}
+#scanPrompt #scanSub{flex-basis:100%;font-size:calc(13px * var(--fs));opacity:.9;padding:2px 10px 8px 0}
 #camCheck{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);z-index:3;background:rgba(0,0,0,.75);color:#fff;border-radius:12px;padding:14px 18px;display:flex;gap:10px;align-items:center;font-weight:600}
 .spin{width:18px;height:18px;border-radius:50%;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -260,9 +289,8 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .maphint.gone{opacity:0}
 #pinMap{position:absolute;inset:0;background:var(--chip)}
 #crosshair{position:absolute;left:50%;top:50%;width:0;height:0;z-index:400;pointer-events:none}
-#crosshair svg{position:absolute;left:-7px;top:-40px;width:14px;height:40px;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.45))}
-#crosshair i{position:absolute;left:-6px;top:-6px;width:12px;height:12px;border-radius:50%;border:2px solid var(--pin);box-shadow:0 0 0 1px #fff,inset 0 0 0 1px #fff}
-#crosshair i::after{content:'';position:absolute;left:3px;top:3px;width:2px;height:2px;border-radius:50%;background:var(--pin)}
+#crosshair svg{position:absolute;left:-15px;top:-41px;width:30px;height:42px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.4))}
+#crosshair i{position:absolute;left:-7px;top:-3px;width:14px;height:6px;border-radius:50%;background:rgba(0,0,0,.35);filter:blur(1px)} /* the pin's shadow: its tip is the spot */
 #pinLayer{position:absolute;top:8px;right:8px;z-index:400;display:flex;align-items:center;gap:6px}
 #pinLayer .round{width:42px;height:42px}
 #pinLayerName{background:var(--surface);border-radius:999px;padding:4px 10px;font-size:calc(12px * var(--fs));font-weight:600;box-shadow:var(--shadow)}
@@ -294,8 +322,24 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .edbody .ph select{min-height:30px;padding:2px 14px 2px 4px;font-size:calc(11.5px * var(--fs));-webkit-appearance:none;appearance:none;background:var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0h8L4 5z' fill='%23667'/%3E%3C/svg%3E") no-repeat right 4px center;text-overflow:ellipsis}
 .edbody .ph .x{width:26px;height:26px;font-size:calc(16px * var(--fs))}
 #photoStrip{display:flex;gap:12px;align-items:center}
-.pdlist{display:flex;flex-direction:column;gap:6px;margin:4px 0 6px}.pdrow{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
-.pdrow .t{flex:1;min-width:0;font-weight:600}.pdrow b{min-width:52px;text-align:center}.pdrow button{min-width:40px;min-height:40px;padding:0 10px}
+.pdlist{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 6px}.pdlist:empty{display:none}
+.pdrow{display:inline-flex;align-items:center;gap:2px;padding:2px 3px 2px 10px;border:1px solid var(--line);border-radius:999px;background:var(--surface);max-width:100%}
+.pdrow .t{min-width:0;font-weight:600;font-size:calc(13.5px * var(--fs));overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:2px}
+.pdrow b{min-width:18px;text-align:center;font-size:calc(13.5px * var(--fs))}
+.pdrow .btn.small{min-width:28px;min-height:28px;width:28px;height:28px;padding:0;border-radius:50%;font-size:calc(15px * var(--fs))}
+#svDetailAdd{width:auto;max-width:100%;min-height:36px;padding:4px 10px}
+.listtools{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}.listtools .field.inline{flex-direction:row;align-items:center;gap:8px}.listtools select{min-height:38px;padding:4px 8px}
+.lgroup{margin:6px 2px 0;font-size:calc(13px * var(--fs));letter-spacing:.06em;text-transform:uppercase;color:var(--muted);display:flex;gap:8px;align-items:center}.lgroup i{flex:1;height:1px;background:var(--line)}
+.btn.complete{background:var(--ok);border-color:var(--ok);color:#fff;min-height:52px;font-size:calc(16px * var(--fs))}.btn.complete.undo{background:var(--surface);color:var(--ink);border-color:var(--line);min-height:44px;font-size:inherit}
+.pill.done{background:var(--ok);color:#fff}
+.sharerow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}.sharerow .warnline{flex-basis:100%}
+.sharebtn{gap:8px;min-height:40px;padding:0 14px}.sharebtn .shi{width:18px;height:18px;flex:none}
+.pair{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:8px}
+.pair .field{margin:0;gap:2px}
+.infoi{width:24px;height:24px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--info);font:700 14px/22px Georgia,serif;font-style:italic;padding:0;flex:none;text-align:center}
+.idnote{flex-basis:100%;font-size:calc(12.5px * var(--fs));color:var(--muted)}
+body.kb #pinMapWrap{display:none}
+body.kb .sheet{bottom:var(--kb,0px)}
 #boxModes{display:flex;gap:8px;padding:8px 16px 0}#boxModes .chip{flex:1;justify-content:center}
 #photoStrip .meta{flex:1}#edSaveTop{flex:none;min-height:44px;padding:0 20px;margin-left:auto}#edPhoto{cursor:zoom-in}
 #photoStrip img{width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none;background:var(--chip)}
@@ -368,7 +412,7 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .opt2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
 /* toast + progress */
-#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 160px);z-index:3000;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;max-width:calc(100% - 32px);text-align:center;box-shadow:var(--shadow)}
+#toast{pointer-events:none;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 160px);z-index:3000;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;max-width:calc(100% - 32px);text-align:center;box-shadow:var(--shadow)}
 body.visiting #toast{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 64px);border-radius:14px} /* keep the card's buttons free */
 #busy{position:fixed;inset:0;z-index:2500;background:rgba(0,0,0,.45);display:grid;place-items:center;padding:24px}
 #busy div{background:var(--surface);border-radius:var(--r);padding:20px;min-width:240px;max-width:100%;text-align:center;font-weight:600}
@@ -423,18 +467,20 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
 </svg>
-<div id="photoView" hidden role="dialog" aria-label="Photo"><button type="button" id="pvClose" aria-label="Close photo">×</button><div id="pvScroll"><img id="pvImg" alt=""></div><p id="pvCap"></p><p style="opacity:.7">Tap the photo to zoom in or out · × or Back to close</p></div>
+<div id="photoView" hidden role="dialog" aria-label="Photo"><button type="button" id="pvClose" aria-label="Close photo">×</button><div id="pvScroll"><img id="pvImg" alt=""></div><p id="pvCap"></p><div id="pvTools" hidden><button type="button" class="btn" id="pvBox">▭ Red box</button><button type="button" class="btn" id="pvPole">⊥ Pole model</button></div><p id="pvHint" style="opacity:.7">Tap the photo to zoom in or out · × or Back to close</p></div>
 <div id="app">
   <div id="topbar">
-    <div class="brand" title="G-eSAA · Geo electronic Survey, Audit &amp; Acceptance">G-e<b>SAA</b></div>
+    <div class="brand" title="G-eSAA · Geo electronic Survey, Audit &amp; Acceptance"><span>G-e<b>SAA</b></span><small id="brandVer">v2.15.0</small></div>
     <button id="projectBtn" aria-label="Projects: change project or task category"><span class="badge cat" id="modeBadge">SURVEY</span><span id="projectName">Project</span><svg class="i"><use href="#i-chev"/></svg></button>
     <button id="syncBtn" type="button" aria-label="Sync with the online sheet" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></svg><span id="syncDot" hidden></span></button>
   </div>
   <div id="map" role="application" aria-label="Survey map"></div>
   <div id="gpsPill" aria-live="polite"><span class="dot" id="gpsDot"></span><span id="gpsText">GPS off</span></div>
+  <button id="legendBtn" type="button" aria-expanded="false" aria-controls="legend">Legend</button>
+  <div id="legend" hidden role="note" aria-label="Map legend"></div>
   <div class="mapbtns">
     <button class="round" id="routeBtn" aria-label="Edit cable route and spans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="18" r="2.2"/><circle cx="12" cy="7" r="2.2"/><circle cx="19" cy="15" r="2.2"/><path d="m6.4 16.2 4.3-7.4M13.6 8.6l4.2 4.9"/></svg></button>
-    <button class="round" id="offlineBtn" aria-label="Maps: online server and offline packs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18"/><path d="M12 11v9M8.5 16.5 12 20l3.5-3.5"/></svg></button>
+    <button class="round" id="offlineBtn" hidden aria-label="Maps: online server and offline packs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18"/><path d="M12 11v9M8.5 16.5 12 20l3.5-3.5"/></svg></button>
     <button class="round" id="layerBtn" aria-label="Switch map: street, satellite or offline map pack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button>
     <button class="round" id="locateBtn" aria-label="Go to my location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
   </div>
@@ -471,9 +517,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </div>
   <div id="camMsg" hidden></div>
   <div id="scanPrompt" hidden>
-    <b id="scanTitle">Photo kept. Now scan the ID</b>
-    <span id="scanSub">Point the camera at the painted ID: the box finds it and reads it. Pinch or tap 2× / 4× to zoom; tap the ID if the box picks something else.</span>
-    <div class="row"><button class="btn" id="orientH" type="button" aria-pressed="true">⇆ Horizontal ID</button><button class="btn" id="orientV" type="button" aria-pressed="false">⇅ Vertical ID</button><button class="btn" id="scanSkip" type="button" style="margin-left:auto">Skip</button></div>
+    <b id="scanTitle">Scan the ID</b>
+    <button class="spb" id="orientH" type="button" aria-pressed="true" aria-label="Horizontal ID" title="Horizontal ID">⇆</button>
+    <button class="spb" id="orientV" type="button" aria-pressed="false" aria-label="Vertical ID" title="Vertical ID">⇅</button>
+    <button class="spb" id="scanHelp" type="button" aria-expanded="false" aria-label="How to scan" title="How to scan">i</button>
+    <button class="spb skip" id="scanSkip" type="button" aria-label="Skip the ID scan">Skip</button>
+    <span id="scanSub" hidden>Point the camera at the painted ID: the box finds it and reads it. Pinch or tap 2× / 4× to zoom; tap the ID if the box picks something else. ⇆ horizontal ID, ⇅ vertical ID.</span>
   </div>
   <div id="camStage">
     <video id="video" playsinline muted autoplay></video>
@@ -504,7 +553,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </header>
   <div id="pinMapWrap">
     <div id="pinMap"></div>
-    <div id="crosshair"><svg viewBox="0 0 14 40"><path d="M7 11V34" stroke="#fff" stroke-width="4" stroke-linecap="round"/><path d="M7 11V34" stroke="#e6007e" stroke-width="2" stroke-linecap="round"/><circle cx="7" cy="7" r="5.5" fill="#e6007e" stroke="#fff" stroke-width="1.6"/></svg><i></i></div>
+    <div id="crosshair"><i></i><svg viewBox="0 0 30 42" aria-hidden="true"><path d="M15 40.5C15 40.5 3 26.4 3 15.2A12 12 0 0 1 27 15.2C27 26.4 15 40.5 15 40.5Z" fill="#e6007e" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><circle cx="15" cy="15" r="5" fill="#fff"/></svg></div>
     <p id="edHint" class="maphint">Drag the map to put the pin on the pole</p>
     <button class="round" id="pinSizeBtn" type="button" aria-label="Bigger map" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <div id="pinLayer"><span id="pinLayerName">Street</span><button class="round" id="pinLayerBtn" type="button" aria-label="Switch map: street, satellite or offline map pack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button></div>
@@ -516,26 +565,29 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div class="body edbody">
     <div class="group">
       <h3>Photo</h3>
-      <div id="photoStrip"><img id="edPhoto" alt="Captured pole photo" title="Tap to see the full photo"><div class="meta"><span id="edTime">–</span><span id="edAcc">–</span><span id="edSrc"></span></div><button class="btn primary" id="edSaveTop" type="button">Save</button></div>
-      <div class="row" id="boxRow" hidden><button class="btn small" id="boxBtn" type="button">▭ Red box</button><span class="hint" id="boxInfo" style="margin:0">Mark the spot on the photo (proposed location, the ODF to use…)</span></div>
+      <div id="photoStrip"><span class="thumbwrap"><img id="edPhoto" alt="Captured pole photo" title="Tap to see the full photo, mark it or edit its marks"><span class="zoomico" id="edZoom" aria-hidden="true">⤢</span></span><div class="meta"><span id="edTime">–</span><span id="edAcc">–</span><span id="edSrc"></span></div><button class="btn primary" id="edSaveTop" type="button">Save</button></div>
+      <p class="hint" id="boxInfo" hidden style="margin:0"></p>
       <div id="accPhotos" class="photo-grid" hidden></div>
       <p class="warnline" id="qualWarn" hidden></p>
     </div>
     <div class="group">
       <h3>Identification</h3>
-      <label class="frow" id="accElementBox" hidden><span class="lbl">ELEMENT</span><select id="elemSel" aria-label="Element"></select></label>
+      <div class="pair" id="elemTypeRow">
+        <label class="field" id="accElementBox" hidden><span class="lbl">ELEMENT</span><select id="elemSel" aria-label="Element"></select></label>
+        <label class="field" id="surveyTypeBox"><span class="lbl">TYPE</span><select id="typeSel" aria-label="Pole type"></select></label>
+      </div>
       <div class="frow"><label class="lbl" for="poleId" id="idLabel">POLE ID</label>
         <div class="idrow"><input type="text" id="poleId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CC-0001"><button class="btn" id="scanIdBtn" type="button" aria-label="Read the ID from the camera">Scan ID</button></div>
       </div>
       <div class="idline"><button type="button" class="chip small" id="nptBtn">No tag → NPT</button><div id="idCands" class="idcands" hidden></div></div>
+      <p class="idnote" id="idNote" hidden></p>
       <p class="warnline" id="dupWarn" hidden></p>
       <p class="warnline" id="fmtWarn" hidden></p>
-      <label class="frow" id="surveyTypeBox"><span class="lbl">TYPE</span><select id="typeSel" aria-label="Pole type"></select></label>
       <label class="frow" id="odfBox" hidden><span class="lbl">ODF</span><select id="odfSel" aria-label="ODF"><option value="New">New ODF</option><option value="Existing">Existing ODF</option></select></label>
       <label class="frow" id="svStatusBox" hidden><span class="lbl">STATUS</span><select id="svStatus" aria-label="Status"></select></label>
       <label class="frow" id="svClosureBox" hidden><span class="lbl">CLOSURE ID</span><input type="text" id="svClosureId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="If a closure is inside (POI)" aria-label="Closure ID in the handhole"></label>
       <div class="field" id="svDetailsBox" hidden><span class="lbl">POLE DETAILS</span><div id="svDetails" class="pdlist"></div>
-        <select id="svDetailAdd" aria-label="Add a pole detail"><option value="">+ Add a detail (transformer, streetlight…)</option></select></div>
+        <select id="svDetailAdd" aria-label="Add a pole detail"><option value="">+ Add detail</option></select></div>
       <label class="field" id="svRemarksBox" hidden>REMARKS<textarea id="svRemarks" placeholder="Optional: condition, what to use, access, findings of the audit"></textarea></label>
     </div>
     <div class="group" id="poleAttach" hidden>
@@ -556,7 +608,9 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <div id="defList" style="display:flex;flex-direction:column;gap:8px"></div>
       <div id="defPanel" class="defpanel" hidden>
         <label class="frow"><span class="lbl">WHERE</span><select id="defCatSel" aria-label="Where"></select></label>
-        <span class="lbl">DEFECT · tap one or more</span><div class="chips" id="defItems"></div>
+        <span class="lbl">DEFECT</span>
+        <button type="button" class="btn dd" id="defItemsBtn" aria-expanded="false" aria-controls="defItems"><span id="defItemsLbl">Choose the defect…</span><span aria-hidden="true">▾</span></button>
+        <div class="ddlist" id="defItems" hidden role="group" aria-label="Defects: tick one or more"></div>
         <label class="frow"><span class="lbl">CATEGORY</span><select id="defSevSel" aria-label="Category"><option value="Major">Major (MD)</option><option value="Minor" selected>Minor (D)</option><option value="Note">Note (N)</option></select></label>
         <label class="field">NOTES<textarea id="defNotes" placeholder="Details, exact spot, what the contractor must do. If no defect above fits, describe it here."></textarea></label>
         <div class="row"><button class="btn" id="defPhotoBtn" type="button">Take defect photo</button><img id="defPhotoPrev" alt="Defect photo" hidden style="width:64px;height:64px;object-fit:cover;border-radius:8px"></div>
@@ -582,8 +636,9 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </header>
   <div id="boxModes"><button type="button" class="chip" id="boxModeBox" aria-pressed="true">▭ Red box</button><button type="button" class="chip" id="boxModePole" aria-pressed="false">⊥ Pole model</button></div>
   <div id="boxWrap"><canvas id="boxCanvas" aria-label="Photo: drag to draw a red box"></canvas></div>
-  <p class="hint" id="boxHint" style="margin:0;padding:8px 16px">Drag on the photo to draw a red box around the spot. Draw more than one if needed; Done burns them into the photo.</p>
+  <p class="hint" id="boxHint" style="margin:0;padding:8px 16px">Drag on the photo to draw a red box around the spot. Tap a mark to move, resize or delete it.</p>
   <div class="foot">
+    <button class="btn" id="boxDel" type="button" disabled aria-label="Delete the selected mark">Delete</button>
     <button class="btn" id="boxUndo" type="button">Undo</button>
     <button class="btn" id="boxClear" type="button">Clear</button>
     <button class="btn primary grow" id="boxDone" type="button">Done</button>
@@ -599,6 +654,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div class="body">
     <div class="group" id="listStats" hidden><div class="stats4" id="listStatRow"></div></div>
     <input type="text" id="listSearch" placeholder="Search ID or type" aria-label="Search records">
+    <div class="listtools"><label class="field inline">SORT<select id="listSort" aria-label="Sort the records"><option value="new">Newest first</option><option value="old">Oldest first</option><option value="id">ID A → Z</option><option value="idd">ID Z → A</option><option value="status">Status</option></select></label><label class="check"><input type="checkbox" id="listGroup"><span>Group by element</span></label></div>
     <div class="chips" id="listFilter" hidden><button type="button" class="chip small" data-v="all" aria-pressed="true">All</button><button type="button" class="chip small" data-v="Open" aria-pressed="false">Open</button><button type="button" class="chip small" data-v="Rectified" aria-pressed="false">Rectified</button><button type="button" class="chip small" data-v="Verified" aria-pressed="false">Verified</button><button type="button" class="chip small" data-v="OK" aria-pressed="false">No deficiency</button></div>
     <div id="listItems" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
@@ -612,8 +668,9 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </header>
   <div class="body">
     <p class="hint" id="exportScope"></p>
-    <div class="group" id="xShareBox" hidden>
-      <button class="btn primary" id="xShare" type="button">Share the PAT KMZ (for defect cleanup / FAT)</button>
+    <div class="sharerow" id="xShareBox" hidden>
+      <button class="btn primary sharebtn" id="xShare" type="button" title="One KMZ with the defect pins and photos, for the defect cleanup and the FAT"><svg class="shi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="m8.3 10.8 7.4-4.4M8.3 13.2l7.4 4.4"/></svg><span id="xShareLbl">Share PAT KMZ</span></button>
+      <span class="hint" id="xShareFor">for defect cleanup / FAT</span>
       <p class="warnline" id="xShareWarn" hidden></p>
     </div>
     <label class="frow xpick"><span class="lbl">FORMAT</span><select id="xFormat" aria-label="Export format"></select></label>
@@ -733,7 +790,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="rows">
       <button class="rowbtn" id="editMe" type="button"><span class="ic"><svg><use href="#i-user"/></svg></span><span class="t"><b id="whoBox">–</b><span id="whoSub">Name, mobile, email and company</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
     </div>
-    <div class="row"><button class="btn sm primary" id="inviteBtn" type="button" hidden>Invite a coworker (QR)</button><button class="btn sm" id="resetUser" type="button">Reset user…</button></div>
+    <div class="row"><button class="btn sm primary" id="inviteBtn" type="button" hidden>Invite a coworker (QR)</button><button class="btn sm" id="moveBtn" type="button">Move to another phone…</button><button class="btn sm" id="resetUser" type="button">Reset user…</button></div>
     <div class="sectionh">Field work</div>
     <div class="rows">
       <button class="rowbtn" id="goCamera" type="button"><span class="ic"><svg><use href="#i-cam"/></svg></span><span class="t"><b>Camera</b><span id="camSub">ID scan after each photo, orientation</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
@@ -749,7 +806,9 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="rows">
       <button class="rowbtn" id="goAdmin" type="button"><span class="ic"><svg><use href="#i-shield"/></svg></span><span class="t"><b id="adminRowTitle">Company list and policies</b><span id="teamInfo">–</span></span><span class="lock" id="adminLock">PIN</span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
     </div>
+    <p class="hint" id="teamMini" hidden></p>
     <p class="hint" id="cloudInfo" hidden></p>
+    <label class="field" id="syncModeBox" hidden>SYNC WITH THE ONLINE SHEET<select id="setSync"><option value="change">On every change (recommended)</option><option value="hour">Every hour</option><option value="manual">Only when I tap Sync</option></select></label>
     <div id="companyKeyBox" class="row" hidden><input type="text" id="companyKey" placeholder="Company access key (from your admin)" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Company access key" style="flex:1"><button class="btn sm" id="companyKeySave" type="button">Save key</button></div>
     <div class="row">
       <button class="btn sm" id="teamUpdate" type="button">Update list</button>
@@ -762,7 +821,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <p class="hint help">One company on the list is the <b>admin company</b> (e.g. Globe). Its admin users enter the admin PIN once and become admins and inspectors: they manage this list, add deficiencies and verify rectifications. Everyone else is a contractor user. New users join with the admin's join link or QR code; later versions come from the online sheet by themselves. A phone only takes versions made with the admin PIN.</p>
     <div class="sectionh">About</div>
     <div class="group">
-      <p class="hint" style="margin:0"><b style="color:var(--ink)">G-eSAA v2.14.0</b> · Geo electronic Survey, Audit &amp; Acceptance — digital from the field (formerly PoleCam)<br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
+      <p class="hint" style="margin:0"><b style="color:var(--ink)">G-eSAA v2.15.0</b> · Geo electronic Survey, Audit &amp; Acceptance — digital from the field (formerly PoleCam)<br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
       <p class="hint" id="policyInfo" style="margin:0"></p>
       <label class="check"><input type="checkbox" id="setShowHelp"><span>Keep the help text on every screen open</span></label>
       <label class="field">Text size<select id="setTextSize"><option value="0.9">Small</option><option value="1">Normal</option><option value="1.15">Large</option><option value="1.3">Extra large</option><option value="1.45">Largest</option></select></label>
@@ -883,23 +942,27 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <header>
     <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
     <h2 id="projTitle">Projects</h2>
+    <button class="iconbtn addbtn" id="newProjBtn" type="button" aria-label="New project" title="New project"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
   </header>
   <div class="body">
-    <div class="group">
+    <div class="group" id="projPickBox">
       <label class="field">PROJECT<select id="projPick" aria-label="Open a project on this phone"></select></label>
-      <button class="btn primary" id="newProjBtn" type="button">+ New project</button>
+      <p class="hint" id="noProjHint" hidden>No project yet. Tap <b>+</b> at the top right to create one; photos are taken inside a project.</p>
+    </div>
+    <div class="group" id="doneBox">
+      <p class="okline" id="doneInfo" hidden></p>
+      <button class="btn complete" id="doneBtn" type="button">✓ Mark task complete</button>
+      <p class="hint" id="doneHint" style="margin:0"></p>
     </div>
     <div class="group" id="wfBox">
       <div class="row between" style="flex-wrap:nowrap"><span class="cursub" id="curSub"></span><span class="badge cat" id="projBadge">SURVEY</span></div>
       <div id="wfSteps"></div>
       <button class="btn primary" id="wfNext" type="button">Next</button>
       <div id="accActs" hidden style="display:flex;flex-direction:column;gap:8px">
-        <button class="btn primary" id="sendPat" type="button">Share the PAT KMZ (for defect cleanup / FAT)</button>
+        <button class="btn primary sharebtn" id="sendPat" type="button"><svg class="shi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="m8.3 10.8 7.4-4.4M8.3 13.2l7.4 4.4"/></svg><span id="sendPatLbl">Share PAT KMZ · for defect cleanup / FAT</span></button>
         <button class="btn primary" id="startFat" type="button">Start FAT from this PAT on this phone</button>
         <p class="warnline" id="shareWarn" hidden></p>
       </div>
-      <p class="okline" id="doneInfo" hidden></p>
-      <button class="btn" id="doneBtn" type="button">✓ Mark task complete</button>
     </div>
     <details class="group more" id="curMore">
       <summary>Project details</summary>
@@ -948,10 +1011,10 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         </div>
         <div class="row" id="npSiteRow" hidden><span class="hint grow" id="npSiteInfo"></span><button class="btn sm" id="npSiteFolder" type="button" hidden>Folder</button><button class="btn sm primary" id="npSiteOpen" type="button" hidden>Open</button><button class="btn sm" id="npSiteClear" type="button" aria-label="No site">✕</button></div>
       </div>
-      <label class="field">TASK CATEGORY<select id="npCat"><option value="" disabled selected>Choose…</option><option value="survey">Survey</option><option value="PAT">PAT</option><option value="Cleanup">Defect Cleanup</option><option value="FAT">FAT</option></select></label>
-      <label class="field">PURPOSE<select id="npPurpose"></select></label>
+      <label class="field" id="npCatBox"><span>TASK CATEGORY <span class="req" aria-hidden="true">*</span></span><select id="npCat" required aria-required="true"><option value="" disabled selected>Choose…</option><option value="survey">Survey</option><option value="PAT">PAT</option><option value="Cleanup">Defect Cleanup</option><option value="FAT">FAT</option></select></label>
+      <label class="field" id="npPurposeBox"><span>PURPOSE <span class="req" aria-hidden="true">*</span></span><select id="npPurpose" required aria-required="true"></select></label>
       <p class="hint" id="npScope" hidden></p>
-      <label class="field">PROJECT NAME<input type="text" id="npName" autocomplete="off" autocapitalize="characters" placeholder="Type a name"></label>
+      <label class="field" id="npNameBox"><span>PROJECT NAME <span class="req" aria-hidden="true">*</span></span><input type="text" id="npName" required aria-required="true" autocomplete="off" autocapitalize="characters" placeholder="Type a name"></label>
       <label class="field">VENDOR (CONTRACTOR)<input type="text" id="npVendor" readonly></label>
       <label class="field">LOCATION / SITE<input type="text" id="npLoc" autocomplete="off" placeholder="Serial number, PLA ID and site name"></label>
       <div class="field">
@@ -959,7 +1022,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="row" style="flex-wrap:nowrap"><button class="btn grow" id="npKmzBtn" type="button">Choose KMZ…</button><button class="btn" id="npKmzClear" type="button" aria-label="Remove the KMZ" hidden>✕</button></div>
         <input type="file" id="npKmzInput" accept=".kmz,.kml,.zip,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/zip,application/xml,text/xml,application/octet-stream" hidden>
       </div>
-      <label class="field" id="npStartBox" hidden>SURVEY START DATE<input type="date" id="npStart"></label>
+      <label class="field" id="npStartBox" hidden><span>SURVEY START DATE <span class="req" aria-hidden="true">*</span></span><input type="date" id="npStart" required aria-required="true"></label>
       <div id="npAcc" hidden style="display:flex;flex-direction:column;gap:12px">
         <label class="field">CONTRACTOR REPRESENTATIVE (you)<input type="text" id="npRep" readonly></label>
         <label class="field">GLOBE REPRESENTATIVE (optional, signs the form)<input type="text" id="npGlobe" autocomplete="off"></label>
@@ -967,6 +1030,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <label class="field">INSPECTION DATE<input type="date" id="npDate"></label>
       </div>
       <label class="field">REMARKS / NOTES<textarea id="npNotes" style="min-height:60px" placeholder="Optional"></textarea></label>
+      <p class="hint"><span class="req">*</span> Required</p>
+      <p class="warnline bad" id="npErr" hidden role="alert"></p>
       <button class="btn primary" id="npCreate" type="button">Create project</button>
     </div>
   </div>
@@ -1032,14 +1097,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <h3>Join your team</h3>
       <p class="hint" id="pfJoinText">Open the join link your admin sent you, or scan the admin’s QR code.</p>
       <div class="row"><button class="btn grow primary" id="pfScan" type="button">Scan QR code</button><button class="btn grow" id="pfPaste" type="button">Paste link</button></div>
-      <button class="btn" id="pfFile" type="button">Open list file</button>
       <details class="help" id="pfCreateBox"><summary>Setting up G-eSAA for a new organisation?</summary><p class="hint">Only the one person who sets up G-eSAA for the whole organisation does this. Field users: ask your admin for the join link instead.</p><button class="btn" id="pfCreate" type="button">Create a new organisation list</button></details>
     </div>
     <p class="warnline" id="pfErr" hidden></p>
   </div>
   <div class="foot"><button class="btn primary grow" id="pfSave" type="button">Save</button></div>
 </section>
-<input type="file" id="teamFileInput" accept=".json,.txt,application/json,text/plain" hidden>
 
 <!-- administration -->
 <section class="sheet" id="admin" hidden aria-labelledby="adminTitle">
@@ -1056,7 +1119,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <button class="btn primary" id="admUnlock" type="button">Continue</button>
     </div>
     <div id="admMain" hidden style="display:contents">
-      <p class="notice">Everything here goes to every phone in this list (join link, QR code, file or the online sheet). Only admin users with the admin PIN can change it.</p>
+      <p class="notice">Everything here goes to every phone in this list (join link, QR code or the online sheet). Only admin users with the admin PIN can change it.</p>
       <div class="group">
         <h3>List name</h3>
         <input type="text" id="admName" placeholder="e.g. Globe OSP Mindanao" aria-label="List name">
@@ -1103,7 +1166,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       </div>
       <div class="group">
         <h3>Offline map packs</h3>
-        <p class="hint help">Upload each .pmtiles map pack to Google Drive and share it as “Anyone with the link”. Paste one line per pack: name | Drive link | size in MB. Users see these packs under Maps after they take this list version (QR or file), or after Refresh list when the online sheet is connected. Users cannot add links themselves.</p>
+        <p class="hint help">Upload each .pmtiles map pack to Google Drive and share it as “Anyone with the link”. Paste one line per pack: name | Drive link | size in MB. Users see these packs under Maps after they take this list version (join link or QR code), or after Refresh list when the online sheet is connected. Users cannot add links themselves.</p>
         <textarea id="admPacks" style="min-height:80px" placeholder="Mindanao | https://drive.google.com/file/d/…/view | 200" aria-label="Offline map packs, one per line"></textarea>
         <p class="hint" id="admPacksInfo"></p>
       </div>
@@ -1132,13 +1195,16 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <h3 id="qrTitle">Company list</h3>
   <p class="hint" id="qrText"></p>
   <div id="qrImg"></div>
+  <button class="btn sm" id="qrFull" type="button" hidden>Show the full code (joins without internet)</button>
   <button class="btn primary" id="qrLinkBtn" type="button" hidden>Send the join link</button>
-  <div class="row"><button class="btn grow" id="qrFile" type="button">Share as file</button><button class="btn grow" id="qrClose" type="button">Done</button></div>
+  <div class="row"><button class="btn grow" id="qrClose" type="button">Done</button></div>
 </div></div>
 <div id="qrScan" hidden>
   <div class="qtop"><button class="camclose" id="qrScanClose" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="22" height="22"><use href="#i-close"/></svg></button><span id="qrScanText">Point the camera at the QR code</span></div>
   <video id="qrVideo" playsinline muted autoplay></video>
   <div id="qrFrame"></div>
+  <div class="qbot"><span id="qrScanTip">Hold the phone 20–30 cm from the code, then move closer until it reads</span><button class="btn" id="qrPick" type="button">🖼 From a picture</button></div>
+  <input type="file" id="qrPickInput" accept="image/*" hidden>
 </div>
 <div class="overlay" id="askBox" hidden><div class="panel"><h3 id="askTitle"></h3><p id="askText" style="margin:0;white-space:pre-line"></p><div class="row"><button class="btn grow" id="askNo" type="button">Cancel</button><button class="btn primary grow" id="askYes" type="button">OK</button></div></div></div>
 <div class="overlay" id="pinBox" hidden><div class="panel"><h3 id="pinTitle"></h3><p class="hint" id="pinText" style="margin:0"></p><input type="password" id="pinInput" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4 to 8 digits" aria-label="Admin PIN"><div class="row"><button class="btn grow" id="pinNo" type="button">Cancel</button><button class="btn primary grow" id="pinYes" type="button">OK</button></div></div></div>

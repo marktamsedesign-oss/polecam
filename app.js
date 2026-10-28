@@ -4,7 +4,9 @@
   'use strict';
   /* A join link (…/polecam/#join=…) carries the signed company list: read it before anything else, then clear the address. */
   const H0 = location.hash, pendingJoin = (/[#&]join=([^&#]+)/.exec(H0) || [])[1] || null, pendingKey = (/[#&]ck=([A-Za-z0-9-]+)/.exec(H0) || [])[1] || null;
-  if (pendingJoin || pendingKey) history.replaceState(null, '', location.pathname + location.search);
+  const pendingJq = (/[#&]jq=([A-Za-z0-9_-]+)/.exec(H0) || [])[1] || null; // v2.15 short join code: the list comes from the online sheet
+  const pendingMv = (/[#&]mv=([A-Za-z0-9_-]+)/.exec(H0) || [])[1] || null; // v2.15 the user moving to this phone
+  if (pendingJoin || pendingKey || pendingJq || pendingMv) history.replaceState(null, '', location.pathname + location.search);
   /* Camera button position for one-hand use: centre by default, right or left in Settings → Camera. */
   const handOf = () => (['left', 'center', 'right'].includes(S && S.hand) ? S.hand : 'center');
   function applyHand() { const h = handOf(); ['left', 'center', 'right'].forEach((x) => document.body.classList.toggle(`hand-${x}`, x === h)); }
@@ -132,10 +134,11 @@
       signs the printed form). The admin can keep it to the admin company (Manage → Field standards). */
   const canRecord = () => pol().vendorRecords !== false || isInspector();
   const DEF = {
-    project: 'Default project', projects: ['Default project'],
+    project: '', projects: [], // v2.15: no default project; the user creates one before the first photo
     stamp: true, maxPx: 2048, myTypes: [],
     zone: 51, sym: 1, txt: 1.5, base: 'street', lastPoleId: '', lastType: 'Concrete', view: null, areas: [],
     meta: {}, defects: JSON.parse(JSON.stringify(DEF_CHECK)), userName: '',
+    listSort: 'new', listGroup: true,
     quality: 'strict', readId: true, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
     exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'utm', 'time', 'by', 'project'], naming: 'id',
       kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true,
@@ -324,6 +327,8 @@
     plugins[name] = { bridge: (method, opts) => cap.nativePromise(name, method, opts || {}) };
     return plugins[name];
   }
+  /** The Android app's own reader (ML Kit text and QR recognition, v2.15), when the APK was built with it. */
+  const nativeReader = () => NATIVE && !!(window.Capacitor && typeof window.Capacitor.isPluginAvailable === 'function' && window.Capacitor.isPluginAvailable('TextReader'));
   const nativeCall0 = (name, method, opts) => { const p = nativePlugin(name); return p.proxy ? p.proxy[method](opts || {}) : p.bridge(method, opts); };
   /** Native calls with their failures in the app log (map tile requests are summarised separately). */
   function nativeCall(name, method, opts) {
@@ -379,6 +384,7 @@
   const coverPid = (r) => { const p = photosOf(r)[0]; if (p) return p.pid; const d = (r.defs || []).find((x) => x.verifyPid || x.afterPid || x.pid); return d ? d.verifyPid || d.afterPid || d.pid : null; };
   function allPids(r) {
     const s = photosOf(r).map((p) => p.pid);
+    if (r.origPid) s.push(r.origPid); // the unmarked photo of a marked survey photo (v2.15)
     (r.defs || []).forEach((d) => { if (d.pid) s.push(d.pid); if (d.afterPid) s.push(d.afterPid); if (d.verifyPid) s.push(d.verifyPid); (d.reopened || []).forEach((q) => { if (q.pid) s.push(q.pid); }); });
     return s;
   }
@@ -447,6 +453,29 @@
   const fmtTime = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); };
   const stamp8 = () => { const d = new Date(), p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; };
 
+  /* ================= on-screen keyboard (v2.15) =================
+     The Save bar stays above the keyboard while typing, and the editor's small map gives way so the field stays in view.
+     With interactive-widget=resizes-content the page itself shrinks; where a phone only shrinks the visible part, the
+     sheets are lifted by the keyboard's height instead. */
+  (() => {
+    let tallest = window.innerHeight;
+    const typing = () => { const a = document.activeElement; return !!a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !/^(checkbox|radio|button|file|range|color|date)$/.test(a.type))); };
+    const update = () => {
+      const vv = window.visualViewport, ih = window.innerHeight;
+      if (!typing()) tallest = Math.max(ih, tallest > ih * 1.6 ? ih : tallest); // a rotated phone starts over
+      const lift = vv ? Math.max(0, Math.round(ih - vv.height - vv.offsetTop)) : 0;
+      const open = typing() && (lift > 80 || ih < tallest - 120);
+      document.documentElement.style.setProperty('--kb', `${lift > 80 ? lift : 0}px`);
+      if (document.body.classList.contains('kb') !== open) {
+        document.body.classList.toggle('kb', open);
+        if (!open) setTimeout(() => { try { if (pinMap) pinMap.invalidateSize({ animate: false }); } catch (e) { /* not ready */ } }, 60);
+      }
+    };
+    if (window.visualViewport) { window.visualViewport.addEventListener('resize', update); window.visualViewport.addEventListener('scroll', update); }
+    window.addEventListener('resize', update);
+    document.addEventListener('focusin', () => setTimeout(update, 300)); document.addEventListener('focusout', () => setTimeout(update, 120));
+  })();
+
   /* ================= full-size photo (v2.14): tap any photo; tap the photo to zoom; × or Back closes ================= */
   let pvUrl = '', pvOpen = false;
   function showBlob(blob, caption) {
@@ -454,6 +483,7 @@
     if (pvUrl) URL.revokeObjectURL(pvUrl);
     pvUrl = URL.createObjectURL(blob);
     $('pvImg').src = pvUrl; $('pvCap').textContent = caption || ''; $('photoView').classList.remove('zoomed'); $('photoView').hidden = false;
+    $('pvTools').hidden = true; $('pvHint').textContent = 'Tap the photo to zoom in or out · × or Back to close';
     if (!pvOpen) { pvOpen = true; history.pushState({ photo: 1 }, ''); }
   }
   function hidePhotoView() { $('photoView').hidden = true; $('photoView').classList.remove('zoomed'); $('pvImg').src = ''; if (pvUrl) { URL.revokeObjectURL(pvUrl); pvUrl = ''; } }
@@ -496,7 +526,7 @@
     if (id === 'boxer') { if (boxer && boxer.im && boxer.im.close) boxer.im.close(); boxer = null; }
     if (id === 'list') revokeListUrls();
     if (id === 'qrScan') stopQrScan();
-    if (id === 'visitCard') { visitId = null; document.body.classList.remove('visiting'); revokeVisitUrls(); }
+    if (id === 'visitCard') { visitId = null; document.body.classList.remove('visiting'); revokeVisitUrls(); wayLayer.clearLayers(); }
     if (id === 'profile' && !profileOk()) setTimeout(() => { openProfile(true); toast('Enter your details to start using G-eSAA', 3000); }, 0);
   }
 
@@ -543,7 +573,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.14.0';
+  const APP_VER = '2.15.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -818,7 +848,7 @@
       m.on('click', () => (routeMode ? routeTap(p.id) : visitMode() ? openVisit(p.id) : openEditorFor(p.id)));
       m.addTo(poleLayer);
     }
-    $('projectName').textContent = S.project;
+    $('projectName').textContent = S.project || 'No project · tap to add';
     if (refFor !== S.project || !refLayer.getLayers().length) drawRef(false);
     const cat = taskCat(), mb = $('modeBadge');
     mb.textContent = cat.toUpperCase(); mb.className = `badge cat ${cat.toLowerCase()}`;
@@ -838,6 +868,13 @@
     return st;
   }
   function renderSummary(pts) {
+    renderSummary0(pts);
+    const W = pts.length && S.project ? workflowModel() : null, ready = !!(W && W.next && W.next.go === 'complete');
+    $('mapSummary').dataset.complete = ready ? '1' : '';
+    if (ready) $('sumPills').insertAdjacentHTML('afterbegin', '<span class="pill ok done">✓ Complete</span>'); // every step done but the last: one tap to complete
+    if (!$('legend').hidden) renderLegend();
+  }
+  function renderSummary0(pts) {
     const acc = isAcc(), st = projStats(pts), m = pmeta();
     const W = pts.length ? workflowModel() : null;
     const pill = (cls, text) => `<span class="pill ${cls}">${C.xmlEsc(text)}</span>`;
@@ -856,7 +893,25 @@
       $('sumPills').innerHTML = !R.spans.length ? '' : st.long ? pill('bad', `${st.long} long`) : R.off ? pill('note', `${R.off} unlinked`) : pill('ok', 'Spans OK');
     }
   }
-  $('mapSummary').addEventListener('click', () => { const t = visitMode() && nextTarget(); if (t) openVisit(t.r.id, true); else $('listBtn').click(); });
+  $('mapSummary').addEventListener('click', () => {
+    if ($('mapSummary').dataset.complete === '1') { openProjects(); requestAnimationFrame(() => $('doneBtn').scrollIntoView({ block: 'center' })); return; } // ready to complete
+    const t = visitMode() && nextTarget(); if (t) openVisit(t.r.id, true); else $('listBtn').click();
+  });
+  /* ---- map legend (v2.15) ---- */
+  function renderLegend() {
+    const L2 = $('legend'), dot = (c, t) => `<span class="lg"><span class="sw" style="background:${c}"></span>${C.xmlEsc(t)}</span>`, sq = (c, k, t) => `<span class="lg"><span class="sq" style="background:${c}">${k}</span>${C.xmlEsc(t)}</span>`;
+    let h = '';
+    if (isAcc()) h = dot(STATUS_COLORS.Open, 'Open defect') + dot(STATUS_COLORS.Rectified, 'Fixed · to check') + dot(STATUS_COLORS.Verified, 'Verified') + dot(STATUS_COLORS.OK, 'No deficiency');
+    else {
+      const used = [...new Set(projPoints().filter((p) => elemOf(p) === 'Pole').map((p) => p.poleType || ''))].filter(Boolean);
+      h = (used.length ? used : [S.lastType || 'Concrete']).map((t) => dot(typeColor(t), `${t} pole`)).join('')
+        + '<span class="lg"><span class="sw" style="background:#fff;border:2px dashed #e03131"></span>Proposed pole</span><span class="lg"><span class="sw" style="background:#fff;border:3px solid #17202a"></span>New pole (As-built)</span>'
+        + Object.keys(SV_SHORT).map((el) => sq(SV_COLORS[el], SV_SHORT[el], el === 'Closure' ? 'Closure (POI)' : el)).join('');
+    }
+    h += '<span class="lg"><span class="sw" style="background:#1c7ed6"></span>You (GPS)</span>' + (isAcc() ? '<span class="lg"><span class="ln"></span>Way to the pin you opened</span>' : '<span class="lg"><span class="ln" style="border-top-style:solid"></span>Linked route, span length</span>');
+    L2.innerHTML = h;
+  }
+  $('legendBtn').addEventListener('click', () => { const on = $('legend').hidden; if (on) renderLegend(); $('legend').hidden = !on; $('legendBtn').setAttribute('aria-expanded', String(on)); });
 
   /* ================= reference KMZ: HLD route, homing and POI pins (read-only overlay) ================= */
   /* Any KMZ / KML can be loaded per project and is drawn under the pins as thin dashed lines and small dots. It is only a
@@ -1151,7 +1206,7 @@
     $('idGuide').classList.toggle('v', S.idOrient === 'v');
     $('idGuideText').textContent = S.idOrient === 'v' ? 'Vertical ID inside the box' : 'Fit the painted ID inside the box';
     $('scanPrompt').hidden = !on;
-    $('scanTitle').textContent = camTarget === 'newid' ? 'Photo kept. Now scan the ID' : 'Scan the ID';
+    $('scanTitle').textContent = camTarget === 'newid' ? 'Photo kept · scan the ID' : 'Scan the ID';
     $('scanSkip').hidden = camTarget !== 'newid';
     $('orientH').setAttribute('aria-pressed', String(S.idOrient !== 'v'));
     $('orientV').setAttribute('aria-pressed', String(S.idOrient === 'v'));
@@ -1176,6 +1231,7 @@
     }
   }
   $('orientH').addEventListener('click', () => { S.idOrient = 'h'; persist(); finderStop(); showGuide(); });
+  $('scanHelp').addEventListener('click', () => { const on = $('scanSub').hidden; $('scanSub').hidden = !on; $('scanHelp').setAttribute('aria-expanded', String(on)); });
   $('orientV').addEventListener('click', () => { S.idOrient = 'v'; persist(); finderStop(); showGuide(); });
   $('scanSkip').addEventListener('click', () => closeSheet()); // the photo is kept; the editor opens without an ID reading
   async function openCamera(target) {
@@ -1401,7 +1457,7 @@
     }
     if (finder.box) guidePlace(finder.box);
     $('scanPrompt').classList.toggle('found', !!finder.box); // a shorter prompt once the box has found something
-    if (finder.box && finder.stable >= 1 && !finder.reading && Date.now() - finder.lastOcrAt > 350) liveRead(orient);
+    if (finder.box && finder.stable >= 1 && !finder.reading && Date.now() - finder.lastOcrAt > (nativeReader() ? 120 : 220)) liveRead(orient);
   }
   async function liveRead(orient) {
     finder.reading = true; finder.lastOcrAt = Date.now();
@@ -1414,10 +1470,16 @@
       const VW = ['stacked', 'cw', 'ccw'], v0 = Math.max(0, VW.indexOf(S.vWay));
       const way = orient !== 'v' ? 'line' : finder.way || VW[(v0 + finder.vway++) % 3];
       finder.reads++;
-      const png = way === 'stacked' ? await prepStacked(crop, 200) : await prepForOcr(way === 'cw' ? rotated(crop, 90) : way === 'ccw' ? rotated(crop, -90) : crop);
-      const r = await ocrRun(png, way === 'stacked' ? 6 : 7, { thresholding_method: 0 });
+      const src = way === 'cw' ? rotated(crop, 90) : way === 'ccw' ? rotated(crop, -90) : crop;
+      let r = null;
+      if (nativeReader()) { try { r = await nativeRead(src); } catch (e) { r = null; } } // ML Kit in the Android app
+      if (!r) {
+        // a smaller picture reads about twice as fast and as well: the text reader scales each line to ~40 px anyway
+        const png = way === 'stacked' ? await prepStacked(crop, 160) : await prepForOcr(src, 112);
+        r = await ocrRun(png, way === 'stacked' ? 6 : 7, { thresholding_method: 0 });
+      }
       if (!finder.on || !r.ok || !finder.box || iou(box, finder.box) < 0.4) return; // the box moved on meanwhile
-      const list = C.idCandidates([way === 'stacked' ? { ...r, stacked: true } : r], lastIdForShape()), best = list[0];
+      const list = C.idCandidates([way === 'stacked' ? { ...r, stacked: true } : r], lastIdForShape(), { numPrefix: numPrefixNow() }), best = list[0];
       if (best && best.fits && best.conf >= 55) {
         finder.agree = finder.read && finder.read.id === best.id ? finder.agree + 1 : 1;
         const prev = finder.read; finder.read = best; finder.list = list; finder.crop = crop;
@@ -1444,7 +1506,7 @@
     if (!ed || !live) return;
     $('poleId').value = live.best.id; ed.idTouched = true; ed.idRead = { id: live.best.id, conf: live.best.conf };
     syncFromId(); checkDup();
-    renderIdCands('done', live.list, `Read by the live camera: ${live.best.id} (${live.best.conf}% sure) — check it.`);
+    renderIdCands('done', live.list.filter((c) => c.id !== live.best.id), `Read by the live camera: ${live.best.id} (${live.best.conf}% sure) — check it.`); // chips: the other readings only
   }
   /* ---- photo check: dark, blank, overexposed or blurry photos are refused ---- */
   const QUAL_T = { normal: 25, strict: 60 };
@@ -1622,7 +1684,8 @@
       return;
     }
     if (camTarget === 'replace' && ed) {
-      ed.newBlob = blob; ed.srcBlob = blob; ed.boxes = 0; ed.keepQ = false; prepImages(blob); ed.q = qSummary(x.q); showEdPhoto(blob); showQualWarn(ed.q); renderBoxInfo();
+      ed.newBlob = blob; ed.srcBlob = blob; ed.keepQ = false; prepImages(blob); ed.q = qSummary(x.q); showEdPhoto(blob); showQualWarn(ed.q);
+      if (ed.origPid) ed.dropOrig = true; ed.marks = []; ed.base = null; ed.baseNew = false; ed.legacyBoxes = 0; ed.legacyPole = false; renderBoxInfo(); // a new photo has no marks yet
       toast('Photo replaced — tap Save to keep it');
       return;
     }
@@ -1650,12 +1713,27 @@
   });
   /** Colour PNG of the crop scaled to ~160 px tall. Colour matters: Tesseract picks the colour channel that best
       separates paint from pole, which a plain grayscale image loses when sky is in the box. */
-  async function prepForOcr(src) {
-    const H = 160, sc = H / src.height, W = Math.min(1400, Math.max(40, Math.round(src.width * sc)));
+  async function prepForOcr(src, h) {
+    const H = h || 160, sc = H / src.height, W = Math.min(1400, Math.max(40, Math.round(src.width * sc)));
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const g = cv.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(src, 0, 0, W, H);
     const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
     return new Uint8Array(await blob.arrayBuffer());
+  }
+  /** Number-only pole IDs are saved with the type prefix (v2.15): the editor's type, else the last type used. */
+  function numPrefixNow() {
+    if (ed && ed.element && ed.element !== 'Pole') return '';
+    return typePrefix((ed && ed.type) || S.lastType || 'Concrete');
+  }
+  /** The Android app reads text with ML Kit (v2.15): fast, on the phone, no internet. Same shape as a Tesseract reading. */
+  async function nativeRead(cv) {
+    const r = await nativeCall('TextReader', 'read', { image: cv.toDataURL('image/jpeg', 0.92).split(',')[1] });
+    const words = [];
+    ((r && r.lines) || []).forEach((l, i) => {
+      const c = typeof l.conf === 'number' && l.conf >= 0 ? Math.round(l.conf * 100) : 80;
+      ((l.words && l.words.length) ? l.words : [l.text]).forEach((t) => { if (t) words.push({ text: String(t), conf: c, line: `n-${i}` }); });
+    });
+    return { ok: true, words, text: (r && r.text) || '', native: true };
   }
   function lastIdForShape() {
     const pts = points.filter((p) => p.project === S.project && (!ed || !ed.acc || elemOf(p) === ed.element) && (!ed || p.id !== ed.id));
@@ -1676,6 +1754,15 @@
     return cv;
   }
   async function readIdFrom(canvas) {
+    if (nativeReader()) { // ML Kit: the crop as it is, and turned both ways for a vertical ID
+      try {
+        const nres = [];
+        if (canvas._orient === 'v') { nres.push({ ...(await nativeRead(canvas)), stacked: true }); for (const deg of [-90, 90]) nres.push(await nativeRead(rotated(canvas, deg))); }
+        else nres.push(await nativeRead(canvas));
+        const list = C.idCandidates(nres, lastIdForShape(), { numPrefix: numPrefixNow() });
+        if (list.length) return list;
+      } catch (e) { LOG.warn('mlkit.read.fail', errInfo(e)); } // Tesseract below
+    }
     const res = [];
     const run = async (png, psm, thr, extra) => {
       const r = await ocrRun(png, psm, { thresholding_method: thr });
@@ -1692,13 +1779,18 @@
       const png = await prepForOcr(canvas);
       for (const thr of [0, 2]) await run(png, 6, thr);
     }
-    return C.idCandidates(res, lastIdForShape());
+    return C.idCandidates(res, lastIdForShape(), { numPrefix: numPrefixNow() });
   }
+  /** The ID reading: the other possible IDs as chips; what the reader says sits behind an ⓘ (v2.15, less text on screen). */
   function renderIdCands(state, list, note) {
-    const box = $('idCands'); box.hidden = false; box.innerHTML = '';
-    if (state === 'reading') { box.innerHTML = '<span class="spin" style="border-color:var(--line);border-top-color:var(--accent)"></span><span>Reading the ID…</span>'; return; }
-    if (state === 'error') { box.textContent = note || 'Could not read the ID. Type it instead.'; return; }
-    const lead = document.createElement('span'); lead.textContent = note || (list.length ? 'Possible IDs from the scan:' : 'No ID found in the box. Type it, or tap Scan ID and get closer.'); box.appendChild(lead);
+    const box = $('idCands'); box.hidden = false; box.innerHTML = ''; $('idNote').hidden = true;
+    if (state === 'reading') { box.innerHTML = '<span class="spin" style="border-color:var(--line);border-top-color:var(--accent)"></span><span>Reading…</span>'; return; }
+    const msg = state === 'error' ? note || 'Could not read the ID. Type it instead.' : note || (list.length ? 'Possible IDs from the scan: tap one to use it.' : 'No ID found in the box. Type it, or tap Scan ID and get closer.');
+    const info = document.createElement('button'); info.type = 'button'; info.className = 'infoi'; info.textContent = 'i';
+    info.setAttribute('aria-label', 'About the ID reading'); info.setAttribute('aria-expanded', 'false'); info.title = msg;
+    info.addEventListener('click', () => { const on = $('idNote').hidden; $('idNote').hidden = !on; $('idNote').textContent = msg; info.setAttribute('aria-expanded', String(on)); });
+    box.appendChild(info);
+    if (state === 'error' || (!list.length && !note)) { const t = document.createElement('span'); t.textContent = state === 'error' ? 'Not read' : 'No ID read'; box.appendChild(t); }
     list.forEach((c) => {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small' + (c.fits ? ' fit' : '');
       b.textContent = c.id; b.title = `${c.conf}% sure${c.fits ? ', matches your numbering' : ''}`;
@@ -2058,6 +2150,12 @@
     if (other) $('dupWarn').textContent = `${id} is already used in this project.`;
   }
   $('poleId').addEventListener('input', () => { if (ed) ed.idTouched = true; checkDup(); syncFromId(); });
+  // a pole painted with a number only (v2.15): typing 123456 gives the type prefix, GT-123456
+  $('poleId').addEventListener('change', () => {
+    if (!ed || (ed.element && ed.element !== 'Pole') || ed.status === 'Proposed') return;
+    const v = $('poleId').value.trim(), pre = typePrefix(ed.type);
+    if (pre && /^[0-9]{3,8}$/.test(v)) { $('poleId').value = `${pre}-${PAD4.includes(pre) ? v.padStart(4, '0') : v}`; checkDup(); syncFromId(); checkFormat(); }
+  });
   /** No tag on the pole: the ID is NPT (several NPT poles may exist; exports keep their file names apart). */
   const NPT = 'NPT';
   const isNpt = (id) => String(id || '').trim().toUpperCase() === NPT;
@@ -2085,16 +2183,19 @@
       if (o.blob && !(o.mode === 'new' && canRecord())) { const pid = uid(); ed.photos.unshift({ pid, label: 'Overview', ...photoMeta(o.gps, o.takenAt), q: o.q || null }); ed.pending[pid] = o.blob; }
       $('napId').value = o.napId || ''; $('closureId').value = o.closureId || '';
     } else { // survey point (v2.13): pole, site, ODC, ODF, NAP, closure or handhole
-      Object.assign(ed, { element: o.element || 'Pole', status: o.status || (o.mode === 'new' ? svDefaultStatus(o.element || 'Pole') : ''), srcBlob: o.blob || o.storedBlob || null, boxes: o.boxes || 0, details: JSON.parse(JSON.stringify(o.details || [])) });
+      const mk = Array.isArray(o.marks) ? o.marks : [];
+      Object.assign(ed, { element: o.element || 'Pole', status: o.status || (o.mode === 'new' ? svDefaultStatus(o.element || 'Pole') : ''), srcBlob: o.blob || o.storedBlob || null, details: JSON.parse(JSON.stringify(o.details || [])),
+        marks: JSON.parse(JSON.stringify(mk)), origPid: o.origPid || '', legacyBoxes: Math.max(0, (o.boxes || 0) - mk.length), legacyPole: !!o.poleModel && !mk.some((m) => m.k === 'pole'), base: null, baseNew: false, dropOrig: false });
       $('svRemarks').value = o.remarks || ''; $('svClosureId').value = o.closureId || '';
     }
     $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
     $('edHint').textContent = `Drag the map to place the pin on the ${acc ? 'element' : 'pole'}`;
-    $('edHint').classList.remove('gone'); clearTimeout(hintTimer); hintTimer = setTimeout(() => $('edHint').classList.add('gone'), 7000);
+    $('edHint').classList.remove('gone'); clearTimeout(hintTimer); hintTimer = setTimeout(() => $('edHint').classList.add('gone'), 5000);
+    $('edHint').hidden = acc; // v2.15: not shown in PAT, cleanup and FAT, where the pin is the element you stand at
     $('pinMapWrap').classList.toggle('big', !!S.pinBig); $('pinSizeBtn').setAttribute('aria-pressed', String(!!S.pinBig));
     ['accPhotos', 'defBox'].forEach((x) => { $(x).hidden = !acc; }); $('accElementBox').hidden = false;
     $('surveyTypeBox').hidden = ed.element !== 'Pole'; $('edPhoto').hidden = acc; $('nptBtn').hidden = ed.element !== 'Pole';
-    ['svStatusBox', 'svClosureBox', 'svRemarksBox', 'boxRow'].forEach((x) => { $(x).hidden = acc; });
+    ['svStatusBox', 'svClosureBox', 'svRemarksBox'].forEach((x) => { $(x).hidden = acc; });
     if (acc) $('accPhotos').closest('.group').hidden = false; // renderAccPhotos hides it when the record has no element photo
     if (!acc) { $('poleAttach').hidden = true; $('odfBox').hidden = true; }
     $('defPanel').hidden = true; $('addDefBtn').hidden = false;
@@ -2106,7 +2207,7 @@
     $('edSave').textContent = 'Save';
     $('poleId').value = o.poleId != null ? o.poleId : suggestId(ed.element || 'Pole', ed.type);
     ed.idTouched = o.poleId != null;
-    ed.q = o.q || null; showQualWarn(ed.q); $('idCands').hidden = true;
+    ed.q = o.q || null; showQualWarn(ed.q); $('idCands').hidden = true; $('idNote').hidden = true;
     renderTypeChips(ed.type);
     renderElemChips(); applyElement(); renderBoxInfo();
     if (acc) { renderAccPhotos(); renderDefs(); }
@@ -2143,38 +2244,55 @@
     const ph = await dbGet('photos', id).catch(() => null);
     openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType, lat: p.lat, lon: p.lon, takenAt: p.takenAt,
       gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : null, storedBlob: ph ? (ph.clean || ph.thumb) : null, source: p.source,
-      element: elemOf(p), status: p.status || '', remarks: p.remarks || '', closureId: p.closureId || '', boxes: p.boxes || 0, details: p.details || [] });
+      element: elemOf(p), status: p.status || '', remarks: p.remarks || '', closureId: p.closureId || '', boxes: p.boxes || 0, details: p.details || [], marks: p.marks || [], origPid: p.origPid || '', poleModel: !!p.poleModel });
   }
   function cleanupEditor() {
     ed = null; showEdPhoto(null); revokeEdUrls(); defDraft = null;
   }
 
-  /* ---------- red box / pole model on a survey photo (v2.13, pole model v2.14) ---------- */
-  /* Drag on the photo to draw red boxes (the proposed location, the existing ODF to use…) or, for a proposed pole, drag from
-     the ground up to place a model pole. Done burns them into the photo, which is then saved like a new photo; the time,
-     place and camera check of the original are kept with the record. */
+  /* ---------- red box / pole model on a survey photo (v2.13; pole model v2.14; editable marks v2.15) ---------- */
+  /* Tap the photo, then ▭ Red box or ⊥ Pole model: drag on the photo to draw a red box (the proposed location, the existing ODF
+     to use…) or, for a proposed pole, drag from the ground up to place a model pole. Done burns the marks into the photo that
+     every export uses. Since v2.15 the unmarked photo and the marks are kept too, so the marks can be selected later and moved,
+     resized or deleted. Marks made before v2.15 are part of the photo and stay as they are. */
   let boxer = null;
   const proposedPole = () => ed && !ed.acc && ed.element === 'Pole' && ed.status === 'Proposed';
+  const origPidOf = (id) => `${id}_o`;
   function renderBoxInfo() {
-    if (!ed || ed.acc) return;
-    const pp = proposedPole();
-    $('boxBtn').textContent = ed.boxes ? (pp ? '⊥ Mark again' : '▭ Add another red box') : pp ? '⊥ Pole model / red box' : '▭ Red box';
-    $('boxInfo').textContent = ed.boxes ? `${ed.boxes} mark${ed.boxes === 1 ? '' : 's'} on the photo${ed.mode === 'edit' && ed.newBlob ? ' (Save keeps it)' : ''}`
-      : pp ? 'Show where the new pole goes: place a model pole on the photo' : 'Mark the spot on the photo (proposed location, the ODF to use…)';
-    $('boxBtn').disabled = !(ed.newBlob || ed.srcBlob);
+    if (!ed || ed.acc) { $('boxInfo').hidden = true; $('edZoom').classList.remove('pp'); return; }
+    const n = (ed.marks || []).length, legacy = ed.legacyBoxes || 0, pp = proposedPole(), hasPole = (ed.marks || []).some((m) => m.k === 'pole') || ed.legacyPole;
+    const txt = n ? `▭ ${n} mark${n === 1 ? '' : 's'} on the photo · tap the photo to change them${legacy ? ` (${legacy} older mark${legacy === 1 ? ' is' : 's are'} part of the photo)` : ''}`
+      : legacy ? `▭ ${legacy} mark${legacy === 1 ? '' : 's'} on the photo` : pp && !hasPole ? '⊥ Tap the photo to place the model pole where the new pole goes' : '';
+    $('boxInfo').textContent = txt; $('boxInfo').hidden = !txt;
+    $('edZoom').classList.toggle('pp', !!(pp && !hasPole)); $('edZoom').textContent = pp && !hasPole ? '⊥' : '⤢';
   }
-  function setBoxMode(m) { if (!boxer) return; boxer.mode = m; $('boxModeBox').setAttribute('aria-pressed', String(m === 'box')); $('boxModePole').setAttribute('aria-pressed', String(m === 'pole')); $('boxTitle').textContent = m === 'pole' ? 'Model pole' : 'Red box';
-    $('boxHint').textContent = m === 'pole' ? 'Put your finger where the pole stands on the ground and drag up to its top. Done burns the model pole into the photo.'
-      : 'Drag on the photo to draw a red box around the spot. Draw more than one if needed; Done burns them into the photo.'; }
+  function setBoxMode(m) {
+    if (!boxer) return; boxer.mode = m; $('boxModeBox').setAttribute('aria-pressed', String(m === 'box')); $('boxModePole').setAttribute('aria-pressed', String(m === 'pole')); $('boxTitle').textContent = m === 'pole' ? 'Model pole' : 'Red box';
+    $('boxHint').textContent = m === 'pole' ? 'Put your finger where the pole stands on the ground and drag up to its top. Tap a mark to move, resize or delete it.'
+      : 'Drag on the photo to draw a red box around the spot. Tap a mark to move, resize or delete it.';
+  }
   $('boxModeBox').addEventListener('click', () => setBoxMode('box'));
   $('boxModePole').addEventListener('click', () => setBoxMode('pole'));
-  $('boxBtn').addEventListener('click', () => guard(async () => {
-    const src = ed && (ed.newBlob || ed.srcBlob); if (!src) { toast('No photo to mark'); return; }
+  /** The unmarked photo the marks are drawn on: kept from this edit, or stored with the record, else the photo itself. */
+  async function markBase() {
+    if (ed.base) return ed.base;
+    if (ed.origPid && !ed.dropOrig) { const ph = await dbGet('photos', ed.origPid).catch(() => null); if (ph && ph.clean) { ed.base = ph.clean; return ed.base; } }
+    if ((ed.marks || []).length) { ed.legacyBoxes = (ed.legacyBoxes || 0) + ed.marks.length; ed.marks = []; } // the original is missing: the marks stay in the photo
+    return ed.newBlob || ed.srcBlob;
+  }
+  /** Opens the marking screen in place of the full-size photo (the same Back step closes it). */
+  async function openBoxer(mode) {
+    if (!ed || ed.acc) return;
+    const src = await markBase(); if (!src) { toast('No photo to mark'); return; }
     const im = await loadImage(src, STORE_MAX_PX), { w, h } = dims(im);
-    boxer = { im, w, h, marks: [], drag: null };
-    openSheet('boxer'); setBoxMode(proposedPole() ? 'pole' : 'box');
+    boxer = { im, w, h, base: src, marks: (ed.marks || []).map((m) => (m.k === 'pole' ? { k: 'pole', x: m.x * w, yb: m.yb * h, yt: m.yt * h } : { k: 'box', x: m.x * w, y: m.y * h, w: m.w * w, h: m.h * h })), sel: -1, op: null, drag: null };
+    if (pvOpen) { pvOpen = false; hidePhotoView(); const el = $('boxer'); el.hidden = false; el.style.zIndex = 1000 + stack.length; stack.push('boxer'); history.replaceState({ sheet: 'boxer' }, ''); LOG.info('open', 'boxer'); }
+    else openSheet('boxer');
+    setBoxMode(mode || (proposedPole() ? 'pole' : 'box'));
     requestAnimationFrame(() => { sizeBoxer(); drawBoxer(); });
-  }, 'Red box not opened'));
+  }
+  $('pvBox').addEventListener('click', (e) => { e.stopPropagation(); guard(() => openBoxer('box'), 'Red box not opened'); });
+  $('pvPole').addEventListener('click', (e) => { e.stopPropagation(); guard(() => openBoxer('pole'), 'Pole model not opened'); });
   function sizeBoxer() {
     const b = boxer, wrap = $('boxWrap'), cv = $('boxCanvas'); if (!b) return;
     const r = wrap.getBoundingClientRect(), sc = Math.min(r.width / b.w, r.height / b.h), dpr = window.devicePixelRatio || 1;
@@ -2182,15 +2300,17 @@
     cv.width = Math.max(1, Math.floor(b.w * sc * dpr)); cv.height = Math.max(1, Math.floor(b.h * sc * dpr));
   }
   const boxLine = (w, h) => Math.max(4, Math.round(Math.max(w, h) * 0.006));
-  /** A model concrete pole standing at (x, yb) up to yt, drawn in image pixels: tapered shaft, crossarm, label. */
+  /** A model pole standing at (x, yb) up to yt, drawn in image pixels: a plain round pole (no crossarm), shaded so it reads
+      as a cylinder, with its footing and a PROPOSED POLE label. */
   function drawPoleModel(g, x, yb, yt, lw) {
-    const H = Math.max(10, yb - yt), wb = H * 0.055, wt = H * 0.035, armY = yt + H * 0.1, armW = H * 0.34, armH = Math.max(lw, H * 0.022);
+    const H = Math.max(10, yb - yt), wb = H * 0.06, wt = H * 0.04;
     g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = '#e03131';
-    g.fillStyle = 'rgba(255,255,255,0.82)';
-    g.beginPath(); g.moveTo(x - wb / 2, yb); g.lineTo(x - wt / 2, yt); g.lineTo(x + wt / 2, yt); g.lineTo(x + wb / 2, yb); g.closePath(); g.fill(); g.stroke();
-    g.beginPath(); g.rect(x - armW / 2, armY, armW, armH); g.fill(); g.stroke();
-    [-0.42, 0.42].forEach((k) => { g.beginPath(); g.arc(x + armW * k, armY - armH * 0.6, armH * 0.7, 0, Math.PI * 2); g.fill(); g.stroke(); });
-    g.beginPath(); g.ellipse(x, yb, wb * 1.4, wb * 0.45, 0, 0, Math.PI * 2); g.stroke(); // where it stands
+    const sh = g.createLinearGradient(x - wb / 2, 0, x + wb / 2, 0); // light from the left: round, not flat
+    sh.addColorStop(0, 'rgba(255,255,255,0.55)'); sh.addColorStop(0.35, 'rgba(255,255,255,0.92)'); sh.addColorStop(1, 'rgba(190,190,190,0.75)');
+    g.fillStyle = sh;
+    g.beginPath(); g.moveTo(x - wb / 2, yb); g.lineTo(x - wt / 2, yt); g.ellipse(x, yt, wt / 2, wt * 0.18, 0, Math.PI, 0); g.lineTo(x + wb / 2, yb); g.ellipse(x, yb, wb / 2, wb * 0.18, 0, 0, Math.PI); g.closePath(); g.fill(); g.stroke();
+    g.beginPath(); g.ellipse(x, yt, wt / 2, wt * 0.18, 0, 0, Math.PI * 2); g.fillStyle = 'rgba(255,255,255,0.95)'; g.fill(); g.stroke(); // round top
+    g.beginPath(); g.ellipse(x, yb, wb * 1.5, wb * 0.45, 0, 0, Math.PI * 2); g.stroke(); // where it stands
     const fs = Math.max(12, H * 0.055); g.font = `700 ${fs}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top';
     g.lineWidth = Math.max(3, fs * 0.22); g.strokeStyle = '#ffffff'; g.strokeText('PROPOSED POLE', x, yb + wb * 0.6); g.fillStyle = '#e03131'; g.fillText('PROPOSED POLE', x, yb + wb * 0.6);
     g.restore();
@@ -2201,45 +2321,105 @@
       else { g.strokeStyle = '#e03131'; g.lineWidth = lw; g.lineJoin = 'round'; g.strokeRect(m.x * k, m.y * k, m.w * k, m.h * k); }
     });
   }
+  /** Handles of a mark, in image pixels: box corners, or the pole's top and foot. */
+  const handlesOf = (m) => (m.k === 'pole' ? [['top', m.x, m.yt], ['bottom', m.x, m.yb]] : [['nw', m.x, m.y], ['ne', m.x + m.w, m.y], ['sw', m.x, m.y + m.h], ['se', m.x + m.w, m.y + m.h]]);
   function drawBoxer() {
     const b = boxer, cv = $('boxCanvas'); if (!b) return;
-    const g = cv.getContext('2d'), k = cv.width / b.w;
+    const g = cv.getContext('2d'), k = cv.width / b.w, dpr = window.devicePixelRatio || 1;
     g.drawImage(b.im, 0, 0, cv.width, cv.height);
     drawMarks(g, b.marks.concat(b.drag ? [b.drag] : []), k, Math.max(2, boxLine(b.w, b.h) * k));
-    $('boxUndo').disabled = !b.marks.length; $('boxClear').disabled = !b.marks.length; $('boxDone').textContent = b.marks.length ? `Done · ${b.marks.length} mark${b.marks.length === 1 ? '' : 's'}` : 'Done';
+    const m = b.marks[b.sel];
+    if (m) { // the selected mark: dashed outline and handles
+      g.save(); g.setLineDash([6 * dpr, 4 * dpr]); g.strokeStyle = '#ffffff'; g.lineWidth = 1.5 * dpr;
+      if (m.k === 'pole') { const wb = (m.yb - m.yt) * 0.06; g.strokeRect((m.x - wb) * k, m.yt * k, wb * 2 * k, (m.yb - m.yt) * k); } else g.strokeRect(m.x * k, m.y * k, m.w * k, m.h * k);
+      g.setLineDash([]); const r = 7 * dpr;
+      handlesOf(m).forEach(([, x, y]) => { g.fillStyle = '#ffffff'; g.strokeStyle = '#e03131'; g.lineWidth = 2 * dpr; g.beginPath(); g.rect(x * k - r, y * k - r, 2 * r, 2 * r); g.fill(); g.stroke(); });
+      g.restore();
+    }
+    $('boxUndo').disabled = !b.marks.length; $('boxClear').disabled = !b.marks.length; $('boxDel').disabled = !m;
+    $('boxDone').textContent = b.marks.length ? `Done (${b.marks.length})` : 'Done';
   }
   const boxPt = (e) => { const r = $('boxCanvas').getBoundingClientRect(); return [Math.max(0, Math.min(boxer.w, (e.clientX - r.left) / boxer.sc)), Math.max(0, Math.min(boxer.h, (e.clientY - r.top) / boxer.sc))]; };
+  /** The mark under the finger (the selected one first): a handle to resize it, else its body to move it. */
+  function hitMark(pt) {
+    const tol = 24 / boxer.sc, order = boxer.marks.map((_, i) => i).reverse();
+    if (boxer.sel >= 0) { order.splice(order.indexOf(boxer.sel), 1); order.unshift(boxer.sel); }
+    for (const i of order) {
+      const m = boxer.marks[i];
+      for (const [op, x, y] of handlesOf(m)) if (Math.hypot(pt[0] - x, pt[1] - y) < tol) return { i, op };
+      if (m.k === 'pole') { const half = Math.max(tol, (m.yb - m.yt) * 0.06); if (Math.abs(pt[0] - m.x) < half && pt[1] > m.yt - tol && pt[1] < m.yb + tol) return { i, op: 'move' }; }
+      else if (pt[0] > m.x - tol && pt[0] < m.x + m.w + tol && pt[1] > m.y - tol && pt[1] < m.y + m.h + tol) return { i, op: 'move' };
+    }
+    return null;
+  }
   function boxDrag(p) {
     const [x0, y0] = boxer.start, [x1, y1] = p;
     boxer.drag = boxer.mode === 'pole' ? { k: 'pole', x: x0, yb: Math.max(y0, y1), yt: Math.min(y0, y1) } : { k: 'box', x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
   }
-  $('boxCanvas').addEventListener('pointerdown', (e) => { if (!boxer) return; e.preventDefault(); $('boxCanvas').setPointerCapture(e.pointerId); boxer.start = boxPt(e); boxDrag(boxer.start); });
-  $('boxCanvas').addEventListener('pointermove', (e) => { if (!boxer || !boxer.start) return; boxDrag(boxPt(e)); drawBoxer(); });
+  /** Move or resize the selected mark, kept inside the photo. */
+  function boxEdit(p) {
+    const o = boxer.op, m0 = o.orig, dx = p[0] - o.start[0], dy = p[1] - o.start[1], W = boxer.w, H = boxer.h, cl = (v, a, b) => Math.max(a, Math.min(b, v));
+    let m;
+    if (m0.k === 'pole') {
+      if (o.op === 'move') { const sx = cl(dx, -m0.x, W - m0.x), sy = cl(dy, -m0.yt, H - m0.yb); m = { ...m0, x: m0.x + sx, yt: m0.yt + sy, yb: m0.yb + sy }; }
+      else if (o.op === 'top') m = { ...m0, yt: cl(m0.yt + dy, 0, m0.yb - 20) };
+      else m = { ...m0, x: cl(m0.x + dx, 0, W), yb: cl(m0.yb + dy, m0.yt + 20, H) };
+    } else if (o.op === 'move') m = { ...m0, x: cl(m0.x + dx, 0, W - m0.w), y: cl(m0.y + dy, 0, H - m0.h) };
+    else {
+      let x1 = m0.x, y1 = m0.y, x2 = m0.x + m0.w, y2 = m0.y + m0.h;
+      if (o.op.includes('w')) x1 = cl(m0.x + dx, 0, x2 - 8); else x2 = cl(x2 + dx, x1 + 8, W);
+      if (o.op.includes('n')) y1 = cl(m0.y + dy, 0, y2 - 8); else y2 = cl(y2 + dy, y1 + 8, H);
+      m = { k: 'box', x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+    }
+    boxer.marks[o.i] = m;
+  }
+  $('boxCanvas').addEventListener('pointerdown', (e) => {
+    if (!boxer) return; e.preventDefault(); $('boxCanvas').setPointerCapture(e.pointerId);
+    const pt = boxPt(e), hit = hitMark(pt);
+    if (hit) { boxer.sel = hit.i; boxer.op = { ...hit, start: pt, orig: { ...boxer.marks[hit.i] } }; drawBoxer(); return; }
+    boxer.sel = -1; boxer.start = pt; boxDrag(pt); drawBoxer();
+  });
+  $('boxCanvas').addEventListener('pointermove', (e) => {
+    if (!boxer) return;
+    if (boxer.op) { boxEdit(boxPt(e)); drawBoxer(); return; }
+    if (!boxer.start) return; boxDrag(boxPt(e)); drawBoxer();
+  });
   const boxEnd = () => {
-    if (!boxer || !boxer.start) return;
+    if (!boxer) return;
+    if (boxer.op) { boxer.op = null; drawBoxer(); return; }
+    if (!boxer.start) return;
     const d = boxer.drag, sc = boxer.sc; boxer.start = null; boxer.drag = null;
-    if (d && (d.k === 'pole' ? (d.yb - d.yt) * sc > 30 : d.w * sc > 12 && d.h * sc > 12)) boxer.marks.push(d); // a tap is not a mark
+    if (d && (d.k === 'pole' ? (d.yb - d.yt) * sc > 30 : d.w * sc > 12 && d.h * sc > 12)) { boxer.marks.push(d); boxer.sel = boxer.marks.length - 1; } // a tap is not a mark
     drawBoxer();
   };
   $('boxCanvas').addEventListener('pointerup', boxEnd); $('boxCanvas').addEventListener('pointercancel', boxEnd);
-  $('boxUndo').addEventListener('click', () => { if (boxer) { boxer.marks.pop(); drawBoxer(); } });
-  $('boxClear').addEventListener('click', () => { if (boxer) { boxer.marks = []; drawBoxer(); } });
+  $('boxDel').addEventListener('click', () => { if (boxer && boxer.sel >= 0) { boxer.marks.splice(boxer.sel, 1); boxer.sel = -1; drawBoxer(); } });
+  $('boxUndo').addEventListener('click', () => { if (boxer) { boxer.marks.pop(); boxer.sel = -1; drawBoxer(); } });
+  $('boxClear').addEventListener('click', () => { if (boxer) { boxer.marks = []; boxer.sel = -1; drawBoxer(); } });
   window.addEventListener('resize', () => { if (boxer && !$('boxer').hidden) { sizeBoxer(); drawBoxer(); } });
   $('boxDone').addEventListener('click', () => guard(async () => {
     const b = boxer; if (!b || !ed) return;
-    if (!b.marks.length) { await closeSheet(); return; }
+    const before = JSON.stringify(ed.marks || []);
+    const marks = b.marks.map((m) => (m.k === 'pole' ? { k: 'pole', x: +(m.x / b.w).toFixed(5), yb: +(m.yb / b.h).toFixed(5), yt: +(m.yt / b.h).toFixed(5) } : { k: 'box', x: +(m.x / b.w).toFixed(5), y: +(m.y / b.h).toFixed(5), w: +(m.w / b.w).toFixed(5), h: +(m.h / b.h).toFixed(5) }));
+    if (JSON.stringify(marks) === before) { await closeSheet(); return; }
     busy('Marking the photo…');
-    const cv = document.createElement('canvas'); cv.width = b.w; cv.height = b.h;
-    const g = cv.getContext('2d'); g.drawImage(b.im, 0, 0, b.w, b.h);
-    drawMarks(g, b.marks, 1, boxLine(b.w, b.h));
-    const blob = await toBlob(cv, 0.92);
+    let blob = b.base;
+    if (marks.length) {
+      const cv = document.createElement('canvas'); cv.width = b.w; cv.height = b.h;
+      const g = cv.getContext('2d'); g.drawImage(b.im, 0, 0, b.w, b.h);
+      drawMarks(g, b.marks, 1, boxLine(b.w, b.h));
+      blob = await toBlob(cv, 0.92);
+    }
     if (ed.mode === 'edit' && !ed.newBlob) ed.keepQ = true; // the stored photo, only marked: its camera check stays
-    const n = b.marks.length, poles = b.marks.filter((m) => m.k === 'pole').length;
-    ed.newBlob = blob; ed.boxes = (ed.boxes || 0) + n; if (poles) ed.poleModel = true; prepImages(blob); showEdPhoto(blob);
-    LOG.info('photo.redbox', { n, poles, total: ed.boxes });
+    const stored = !!(ed.origPid && !ed.dropOrig);
+    if (marks.length && !ed.base) { ed.base = b.base; ed.baseNew = !stored; } // the unmarked photo is kept with the record
+    if (!marks.length && stored) ed.dropOrig = true;
+    ed.marks = marks; ed.newBlob = blob; prepImages(blob); showEdPhoto(blob);
+    const poles = marks.filter((m) => m.k === 'pole').length;
+    LOG.info('photo.marks', { n: marks.length, poles });
     busy(false); await closeSheet(); renderBoxInfo();
-    toast(`${poles ? `${poles} model pole${poles === 1 ? '' : 's'}` : ''}${poles && n > poles ? ' and ' : ''}${n > poles ? `${n - poles} red box${n - poles === 1 ? '' : 'es'}` : ''} added to the photo${ed.mode === 'edit' ? ' — tap Save to keep it' : ''}`, 3000);
-  }, 'Red box not added'));
+    toast(marks.length ? `${marks.length} mark${marks.length === 1 ? '' : 's'} on the photo${ed.mode === 'edit' ? ' — tap Save to keep it' : ''}` : `Marks removed${ed.mode === 'edit' ? ' — tap Save to keep it' : ''}`, 3000);
+  }, 'Marks not added'));
 
   /* ---------- acceptance form ---------- */
   let edUrls = [], defDraft = null;
@@ -2305,6 +2485,7 @@
       if (!ed.idTouched || !id || PP_RE.test(id) || ed.status === 'Proposed') { $('poleId').value = suggestId('Pole', ed.type); ed.idTouched = false; }
     }
     applyElement(); checkDup(); checkFormat();
+    if (ed.status === 'Proposed' && was !== 'Proposed' && !(ed.marks || []).some((m) => m.k === 'pole')) toast('Tap the photo, then ⊥ Pole model, to show where the new pole goes', 4500);
   });
   /* pole details list */
   function renderDetails() {
@@ -2313,13 +2494,14 @@
       const row = document.createElement('div'); row.className = 'pdrow';
       const t = document.createElement('span'); t.className = 't'; t.textContent = d.item;
       const mk = (txt, lbl, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn small'; b.textContent = txt; b.setAttribute('aria-label', lbl); b.addEventListener('click', fn); return b; };
-      const q = document.createElement('b'); q.textContent = `${d.qty} pc${d.qty === 1 ? '' : 's'}`;
-      row.append(t, mk('−', `One ${d.item} less`, () => { d.qty = Math.max(1, d.qty - 1); renderDetails(); }), q,
-        mk('+', `One ${d.item} more`, () => { d.qty = Math.min(99, d.qty + 1); renderDetails(); }), mk('×', `Remove ${d.item}`, () => { ed.details.splice(i, 1); renderDetails(); }));
+      const q = document.createElement('b'); q.textContent = String(d.qty); q.setAttribute('aria-label', `${d.qty} pc${d.qty === 1 ? '' : 's'}`); // compact chip (v2.15): Transformer − 1 + ×
+      // at 1 pc the minus removes the item (×), so each chip needs only two buttons
+      row.append(t, mk(d.qty > 1 ? '−' : '×', d.qty > 1 ? `One ${d.item} less` : `Remove ${d.item}`, () => { if (d.qty > 1) d.qty -= 1; else ed.details.splice(i, 1); renderDetails(); }), q,
+        mk('+', `One ${d.item} more`, () => { d.qty = Math.min(99, d.qty + 1); renderDetails(); }));
       box.appendChild(row);
     });
     const sel = $('svDetailAdd'), have = new Set((ed.details || []).map((d) => d.item));
-    sel.innerHTML = '<option value="">+ Add a detail (transformer, streetlight…)</option>';
+    sel.innerHTML = '<option value="">+ Add detail</option>';
     POLE_DETAIL_ITEMS.concat((S.myDetails || []).filter((x) => !POLE_DETAIL_ITEMS.includes(x))).filter((x) => !have.has(x)).forEach((x) => sel.add(new Option(x, x)));
     sel.add(new Option('Other…', '__other'));
   }
@@ -2401,7 +2583,7 @@
       else tl.innerHTML = `<span class="bad">1 FOUND</span><span class="${defDone(d) ? 'rect' : ''}">2 RECTIFIED</span><span class="${d.status === 'Verified' ? 'ver' : ''}">3 VERIFIED</span>`;
       card.append(t, s, tl);
       const th = document.createElement('div'); th.className = 'thumbs';
-      [[d.pid, 'As found'], ...(d.reopened || []).filter((q) => q.pid).map((q) => [q.pid, 'Rejected']), [d.afterPid, 'Rectified'], [d.verifyPid, 'Verified']].forEach(([pid, label]) => {
+      [[d.pid, 'Defect'], ...(d.reopened || []).filter((q) => q.pid).map((q) => [q.pid, 'Rejected']), [d.afterPid, 'Rectified'], [d.verifyPid, 'Verified']].forEach(([pid, label]) => {
         if (!pid) return;
         const f = document.createElement('figure'); const im = document.createElement('img'); im.alt = label; thumbUrl(pid).then((u) => { im.src = u; });
         const c = document.createElement('figcaption'); c.textContent = label; f.append(im, c); th.appendChild(f);
@@ -2502,9 +2684,9 @@
   function openVisit(id, pan) {
     const r = points.find((x) => x.id === id); if (!r) return;
     visitId = id; document.body.classList.add('visiting');
-    if (pan) map.setView([r.lat, r.lon], Math.max(map.getZoom(), 18));
     renderVisit();
     if (!stack.includes('visitCard')) openSheet('visitCard');
+    requestAnimationFrame(() => drawWay(true)); // you and the pin, both in view above the card
   }
   function revokeVisitUrls() { visitUrls.forEach((u) => URL.revokeObjectURL(u)); visitUrls = []; }
   async function photoThumb(img, pid) {
@@ -2554,7 +2736,7 @@
       const sub = document.createElement('span'); sub.className = 's'; sub.textContent = lines.join(' · ');
       card.append(t, pill); if (lines.length) card.appendChild(sub);
       const ph = document.createElement('div'); ph.className = 'vph';
-      if (d.pid) ph.appendChild(figure(d.pid, 'As found', `${r.poleId} · ${d.item} · as found`));
+      if (d.pid) ph.appendChild(figure(d.pid, 'Defect', `${r.poleId} · ${d.item} · defect (as found)`));
       if (d.afterPid) ph.appendChild(figure(d.afterPid, 'Fixed', `${r.poleId} · ${d.item} · fixed`));
       if (d.verifyPid) ph.appendChild(figure(d.verifyPid, 'Checked', `${r.poleId} · ${d.item} · checked at ${d.verifyStage || 'FAT'}`));
       card.appendChild(ph);
@@ -2650,6 +2832,26 @@
     if (!visitMode() || Date.now() - stripAt < 2500) return; stripAt = Date.now();
     renderVisitStrip();
     const r = visitId && points.find((x) => x.id === visitId); if (r) $('vcSub').textContent = visitSub(r);
+    drawWay(false);
+  }
+  /* ---- the way to the pin (v2.15): during a visit the map shows you, the pin, and a dashed line with the distance,
+     framed in the part of the map above the card ---- */
+  const wayLayer = L.layerGroup().addTo(map);
+  function drawWay(fit) {
+    wayLayer.clearLayers();
+    const r = visitId && points.find((x) => x.id === visitId); if (!r) return;
+    L.circleMarker([r.lat, r.lon], { radius: 17, color: '#e03131', weight: 3, fill: false, interactive: false, className: 'target-ring' }).addTo(wayLayer);
+    if (!fix) { if (fit) map.setView([r.lat, r.lon], Math.max(map.getZoom(), 18)); return; }
+    const d = haversine(fix, r);
+    if (d >= 3) {
+      L.polyline([[fix.lat, fix.lon], [r.lat, r.lon]], { color: '#1c7ed6', weight: 3, dashArray: '7 7', interactive: false }).addTo(wayLayer);
+      L.marker([(fix.lat + r.lat) / 2, (fix.lon + r.lon) / 2], { interactive: false, keyboard: false, icon: L.divIcon({ className: '', html: `<span class="waylbl">${fmtDist(d)} ${compass(fix, r)}</span>`, iconSize: [0, 0] }) }).addTo(wayLayer);
+    }
+    if (!fit) return;
+    const card = $('visitCard').getBoundingClientRect(), mr = map.getContainer().getBoundingClientRect();
+    const below = Math.max(40, mr.bottom - card.top + 24);
+    if (d > 5000) { map.setView([r.lat, r.lon], Math.max(map.getZoom(), 17)); return; } // far away: the pin first
+    map.fitBounds([[fix.lat, fix.lon], [r.lat, r.lon]], { paddingTopLeft: [50, 120], paddingBottomRight: [50, below], maxZoom: 19, animate: false });
   }
 
   function renderDefPanel() {
@@ -2658,16 +2860,24 @@
     cats.forEach((c) => cbox.add(new Option(c, c, false, c === defDraft.cat)));
     const ibox = $('defItems'); ibox.innerHTML = '';
     const items = pol().defects[defDraft.cat] || [];
-    if (!items.length) ibox.innerHTML = '<p class="hint" style="margin:0">No checklist items for this category — describe the defect in notes.</p>';
+    if (!items.length) ibox.innerHTML = '<p class="hint" style="margin:0;padding:8px 12px">No checklist items for this category — describe the defect in notes.</p>';
     items.forEach((it) => {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small'; b.textContent = it;
       b.setAttribute('aria-pressed', String(defDraft.items.has(it)));
-      b.addEventListener('click', () => { if (defDraft.items.has(it)) defDraft.items.delete(it); else defDraft.items.add(it); b.setAttribute('aria-pressed', String(defDraft.items.has(it))); });
+      b.addEventListener('click', () => { if (defDraft.items.has(it)) defDraft.items.delete(it); else defDraft.items.add(it); b.setAttribute('aria-pressed', String(defDraft.items.has(it))); renderDefLbl(); });
       ibox.appendChild(b);
     });
+    renderDefLbl();
     $('defSevSel').value = defDraft.sev;
   }
-  $('defCatSel').addEventListener('change', (e) => { if (!defDraft) return; defDraft.cat = e.target.value; defDraft.items = new Set(); renderDefPanel(); });
+  $('defCatSel').addEventListener('change', (e) => { if (!defDraft) return; defDraft.cat = e.target.value; defDraft.items = new Set(); renderDefPanel(); showDefList(true); });
+  /* v2.15: the defects are a dropdown (tick one or more), so the form stays short */
+  function renderDefLbl() {
+    const n = defDraft ? defDraft.items.size : 0, first = n ? [...defDraft.items][0] : '';
+    $('defItemsLbl').textContent = !n ? 'Choose the defect…' : n === 1 ? first : `${first} +${n - 1}`;
+  }
+  function showDefList(on) { $('defItems').hidden = !on; $('defItemsBtn').setAttribute('aria-expanded', String(on)); }
+  $('defItemsBtn').addEventListener('click', () => showDefList($('defItems').hidden));
   function setDefPhoto(blob, meta) {
     if (!defDraft) return;
     defDraft.blob = blob; defDraft.meta = meta;
@@ -2677,7 +2887,7 @@
   function startDefDraft(scroll) {
     defDraft = { cat: (CATS_FOR[ed.element] || ['Other'])[0], items: new Set(), sev: 'Minor', blob: null };
     $('defNotes').value = ''; $('defPhotoPrev').hidden = true; $('defPhotoBtn').textContent = 'Take defect photo';
-    renderDefPanel(); $('defPanel').hidden = false; $('addDefBtn').hidden = true;
+    renderDefPanel(); showDefList(false); $('defPanel').hidden = false; $('addDefBtn').hidden = true;
     if (scroll) $('defPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   $('addDefBtn').addEventListener('click', () => {
@@ -2700,7 +2910,15 @@
     renderDefs(); toast(`${items.length} deficienc${items.length === 1 ? 'y' : 'ies'} added`);
   });
   $('edClose').addEventListener('click', () => closeSheet());
-  $('edPhoto').addEventListener('click', () => { if (ed) showBlob(ed.newBlob || ed.srcBlob, `${$('poleId').value || ''} · ${$('edTime').textContent}`); });
+  $('edPhoto').addEventListener('click', () => {
+    if (!ed) return;
+    showBlob(ed.newBlob || ed.srcBlob, `${$('poleId').value || ''} · ${$('edTime').textContent}`);
+    if (!ed.acc) { // survey photo: mark it here (red box, model pole); marks stay editable
+      $('pvTools').hidden = false; const n = (ed.marks || []).length, pp = proposedPole();
+      $('pvBox').textContent = n ? '▭ Red box · edit marks' : '▭ Red box'; $('pvPole').hidden = !pp && !(ed.marks || []).some((m) => m.k === 'pole');
+      $('pvHint').textContent = n ? 'Tap a tool, then tap a mark to move, resize or delete it · tap the photo to zoom' : 'Tap the photo to zoom in or out · × or Back to close';
+    }
+  });
   $('defPhotoPrev').addEventListener('click', () => { if (defDraft && defDraft.blob) showBlob(defDraft.blob, 'Defect photo (not added yet)'); });
   $('edSaveTop').addEventListener('click', saveEditor); // the same Save, next to the photo (v2.14)
   $('scanIdBtn').addEventListener('click', () => openCamera('scan'));
@@ -2759,7 +2977,8 @@
         element: ed.element || 'Pole', status: svStatuses(ed.element || 'Pole').length ? ed.status || svDefaultStatus(ed.element || 'Pole') : '',
         details: (ed.element || 'Pole') === 'Pole' ? (ed.details || []).filter((d) => d && d.item) : [],
         remarks: $('svRemarks').value.trim().slice(0, 500), closureId: ed.element === 'Handhole' ? $('svClosureId').value.trim().toUpperCase().slice(0, 40) : '',
-        boxes: ed.boxes || 0, ...(ed.poleModel || (p && p.poleModel) ? { poleModel: true } : {}),
+        boxes: (ed.legacyBoxes || 0) + (ed.marks || []).length, marks: (ed.marks || []).map((m) => ({ ...m })),
+        poleModel: (ed.marks || []).some((m) => m.k === 'pole') || !!ed.legacyPole,
         ...(ed.newBlob && !ed.keepQ ? { q: ed.q || null } : {}), ...(ed.idRead ? { idRead: ed.idRead } : {}),
         gpsLat: g ? g.lat : null, gpsLon: g ? g.lon : null,
         accuracy: g && Number.isFinite(g.acc) ? g.acc : null,
@@ -2772,9 +2991,15 @@
         const tp = Date.now(); photos.push({ id: ed.id, ...await storedImages(ed.newBlob) });
         LOG.info('save.imagesReady', { waited: Date.now() - tp });
       }
+      // v2.15: the unmarked photo is kept with marked photos, so their marks can be edited later
+      if (rec.marks.length && ed.base && ed.baseNew) { photos.push({ id: origPidOf(ed.id), ...await storedImages(ed.base) }); rec.origPid = origPidOf(ed.id); }
+      else if (rec.marks.length && ed.origPid && !ed.dropOrig) rec.origPid = ed.origPid;
+      else delete rec.origPid;
+      if (!rec.poleModel) delete rec.poleModel;
       busy('Writing to phone storage…');
       await saveRecord(rec, photos); // photo and record together, or neither
       if (!p) points.push(rec); else points[points.indexOf(p)] = rec;
+      if (p && p.origPid && !rec.origPid) deletePhotosIfUnused([p.origPid], new Set()).catch(() => {}); // marks removed or a new photo
       if (ed.mode === 'new' && !isNpt(poleId) && (ed.element || 'Pole') === 'Pole') S.lastPoleId = poleId;
       if ((ed.element || 'Pole') === 'Pole' && typeNames().includes(ed.type)) S.lastType = ed.type;
       if (rec.status) S.lastSt = { ...(S.lastSt || {}), [`${svPurpose()}|${rec.element}`]: rec.status };
@@ -2888,7 +3113,19 @@
       : (() => { const np = projPoints().filter((p) => elemOf(p) === 'Pole').length, no = st.total - np;
         return stat(np, 'poles') + stat(fmtLen(st.len), 'route') + stat(st.long, 'long spans') + (no ? stat(no, 'other points') : stat(projPoints().filter((p) => p.adjusted).length, 'pins moved')); })();
     if (!pts.length) { box.innerHTML = `<div class="empty">${q || (acc && listFilter !== 'all') ? 'Nothing matches.' : `No ${acc ? 'elements' : 'points'} yet. Tap the camera button to capture the first one.`}</div>`; return; }
-    for (const p of pts) {
+    // v2.15: sort (newest, oldest, ID, status) and group by element
+    const sort = ['new', 'old', 'id', 'idd', 'status'].includes(S.listSort) ? S.listSort : 'new', grouped = !!S.listGroup;
+    $('listSort').value = sort; $('listGroup').checked = grouped;
+    const idCmp = (a, b) => String(a.poleId || '').localeCompare(String(b.poleId || ''), undefined, { numeric: true, sensitivity: 'base' });
+    const ST_ORDER = acc ? ['Open', 'Rectified', 'Verified', 'OK'] : ['Proposed', 'New', 'Existing', ''];
+    const stOf = (p) => { const i = ST_ORDER.indexOf(acc ? recStatus(p) : p.status || ''); return i < 0 ? 99 : i; };
+    const cmp = { new: (a, b) => (a.created < b.created ? 1 : -1), old: (a, b) => (a.created < b.created ? -1 : 1), id: idCmp, idd: (a, b) => -idCmp(a, b), status: (a, b) => stOf(a) - stOf(b) || idCmp(a, b) }[sort];
+    pts.sort(cmp);
+    const order = acc ? ELEMENTS : SV_ELEMENTS, groups = grouped ? order.map((el) => [el, pts.filter((p) => elemOf(p) === el)]).concat([['Other', pts.filter((p) => !order.includes(elemOf(p)))]]).filter(([, l]) => l.length) : [['', pts]];
+    const PLURAL = { Pole: 'Poles', Site: 'Sites', Closure: 'Closures (POI)', Handhole: 'Handholes', Rack: 'Racks' };
+    for (const [gname, list] of groups) {
+    if (gname) { const h = document.createElement('h4'); h.className = 'lgroup'; h.innerHTML = `<span>${C.xmlEsc(PLURAL[gname] || gname)} · ${list.length}</span><i></i>`; box.appendChild(h); }
+    for (const p of list) {
       const b = document.createElement('button'); b.className = 'card'; b.type = 'button';
       const img = document.createElement('img'); img.alt = ''; img.loading = 'lazy';
       const info = document.createElement('div');
@@ -2913,7 +3150,10 @@
       box.appendChild(b);
       const cp = coverPid(p); if (cp) dbGet('photos', cp).then((ph) => { if (ph && ph.thumb) { const u = URL.createObjectURL(ph.thumb); listUrls.push(u); img.src = u; } }).catch(() => {});
     }
+    }
   }
+  $('listSort').addEventListener('change', () => { S.listSort = $('listSort').value; persist(); renderList(); });
+  $('listGroup').addEventListener('change', () => { S.listGroup = $('listGroup').checked; persist(); renderList(); });
   $('listBtn').addEventListener('click', () => { $('listSearch').value = ''; renderList(); openSheet('list'); });
   $('listSearch').addEventListener('input', renderList);
   let listFilter = 'all';
@@ -3017,8 +3257,10 @@
     renderWorkflow();
     const m = pmeta(), acc = isAcc(), cat = taskCat();
     const pick = $('projPick'); pick.innerHTML = '';
+    if (!S.project) pick.add(new Option('No project yet', '', true, true));
     allProjects().forEach((name) => pick.add(new Option(`${name} · ${STAGE_LABEL[projKind(name)]}`, name, false, name === S.project)));
-    pick.value = S.project;
+    pick.value = S.project; pick.disabled = !allProjects().length;
+    $('noProjHint').hidden = !!S.project; $('wfBox').hidden = !S.project; $('curMore').hidden = !S.project;
     $('curSub').textContent = projSummary(S.project);
     $('renameProject').value = S.project;
     $('purposeRow').hidden = acc; $('curPurpose').value = m.purpose || 'As-plan'; renderRefInfo();
@@ -3040,12 +3282,15 @@
         box.appendChild(b);
       });
       $('accActs').hidden = m.stage === 'FAT'; renderShareWarn('shareWarn');
-      $('sendPat').textContent = m.stage === 'Cleanup' ? 'Share the cleanup KMZ (for the FAT)' : 'Share the PAT KMZ (for defect cleanup / FAT)';
+      $('sendPatLbl').textContent = m.stage === 'Cleanup' ? 'Share cleanup KMZ · for the FAT' : 'Share PAT KMZ · for defect cleanup / FAT';
       $('startFat').textContent = m.stage === 'Cleanup' ? 'Start FAT from this cleanup on this phone' : 'Start FAT from this PAT on this phone';
     }
     if (!acc) $('accActs').hidden = true;
     $('doneInfo').hidden = !m.completedAt; $('doneInfo').textContent = m.completedAt ? `✓ Completed ${longDate(m.completedAt)}${progressFields(S.project).length ? (pendingFor(S.project) ? ' · waiting to sync' : ' · in the online sheet') : ''}` : '';
-    $('doneBtn').textContent = m.completedAt ? 'Undo complete' : '✓ Mark task complete';
+    $('doneBtn').textContent = m.completedAt ? 'Undo complete' : '✓ Mark task complete'; $('doneBtn').classList.toggle('undo', !!m.completedAt);
+    { const W = S.project ? workflowModel() : null, left = W ? W.steps.filter((x) => !x.done && x.go !== 'complete').length : 0;
+      $('doneHint').textContent = m.completedAt ? '' : left ? `${left} step${left === 1 ? '' : 's'} below still open; you can complete when the task is finished.` : 'Every step is done: mark the task complete, or export the completion report.'; }
+    $('doneBox').hidden = !S.project;
     $('curStartRow').hidden = acc; $('curStart').value = m.startDate || '';
     $('delProjConfirm').hidden = true; $('delProject').hidden = false;
   }
@@ -3118,10 +3363,11 @@
     const m = pmeta(name), list = progressFields(name).filter(([f]) => !fields || fields.includes(f)); if (!list.length) return;
     S.syncQ = (S.syncQ || []).filter((q) => !(q.id === m.taskId && list.some(([f]) => f === q.field)));
     list.forEach(([field, date]) => S.syncQ.push({ id: m.taskId, field, date, project: name }));
-    persist(); renderSyncBtn(); flushProgress();
+    persist(); renderSyncBtn(); flushProgress(false);
   }
   /** Sends the waiting dates: phones with a company key (their own sites) or the admin phone. Offline, they wait here. */
-  function flushProgress() {
+  function flushProgress(force) {
+    if (!force && syncMode() !== 'change') return Promise.resolve(false); // hourly or manual: sent with the next sync
     if (flushing) return flushing;
     const q = (S.syncQ || []).slice(), src = S.team && S.team.src, admin = isAdmin() && !!S.onlineAdminKey;
     if (!q.length || !src || !navigator.onLine) return Promise.resolve(false);
@@ -3150,7 +3396,7 @@
     const b = $('syncBtn'); if (b.classList.contains('spin')) return;
     b.classList.add('spin');
     try {
-      const n = (S.syncQ || []).length, sent = n ? await flushProgress() : false, ok = await cloudSync(true);
+      const n = (S.syncQ || []).length, sent = n ? await flushProgress(true) : false, ok = await cloudSync(true);
       if (!$('newProj').hidden) renderSites(); if (!$('projects').hidden) renderProjects();
       toast(!navigator.onLine ? `No internet${n ? `: ${n} update${n === 1 ? '' : 's'} wait on this phone` : ''}`
         : ok ? `Synced with the online sheet${n ? ` · ${sent ? `${n} update${n === 1 ? '' : 's'} sent` : `updates not sent: ${syncErr}`}` : ''}${sent && syncErr ? ` (${syncErr})` : ''}`
@@ -3279,8 +3525,7 @@
     for (const ar of (S.areas || []).filter((x) => x.project === name)) await deleteArea(ar.id);
     if (refInfo(name)) { await dbDel('packs', refKey(refInfo(name).id)).catch(() => {}); const r = { ...S.refs }; delete r[name]; S.refs = r; if (refFor === name) { refGeo = null; refFor = null; } }
     S.projects = S.projects.filter((x) => x !== name);
-    if (!S.projects.length) S.projects = [DEF.project];
-    S.project = allProjects()[0]; persist();
+    S.project = allProjects()[0] || ''; persist();
     renderPoles(); drawAreas(); renderProjects();
     toast(`Deleted "${name}"`);
   }, 'Delete failed'));
@@ -3399,7 +3644,7 @@
     $('accExports').hidden = !acc; $('surveyExports').hidden = acc; $('namingRow').hidden = acc; // acceptance photos are named after the form items
     const stg = pmeta().stage || 'PAT';
     $('xShareBox').hidden = !acc || stg === 'FAT';
-    if (acc && stg !== 'FAT') { $('xShare').textContent = stg === 'Cleanup' ? 'Share the cleanup KMZ (for the FAT)' : 'Share the PAT KMZ (for defect cleanup / FAT)'; renderShareWarn('xShareWarn'); }
+    if (acc && stg !== 'FAT') { $('xShareLbl').textContent = stg === 'Cleanup' ? 'Share cleanup KMZ' : 'Share PAT KMZ'; $('xShareFor').textContent = stg === 'Cleanup' ? 'for the FAT' : 'for defect cleanup / FAT'; renderShareWarn('xShareWarn'); }
     $('dxfZoneLbl').textContent = `UTM ${S.zone}N`; syncExpUi();
     showExport(exportPick); exportPick = null;
     $('resultBox').hidden = true; openSheet('export');
@@ -4311,12 +4556,14 @@
     }
     $('pfJoin').hidden = keyed || !!teamCos().length;
   }
+  let moveFill = null; // details from a move link (v2.15), shown for a check until Save
   function openProfile(first) {
     profileFirst = !!first;
-    const u = S.user || {};
+    const u = { ...(S.user || {}), ...(moveFill || {}) };
     $('pfName').value = u.name || (S.userName ? S.userName.split('·')[0].trim() : '');
     $('pfMobile').value = u.mobile || ''; $('pfEmail').value = u.email || '';
     renderCoSelect(u.company || '');
+    if (moveFill && moveFill.key && !keyMode()) { $('pfKey').value = moveFill.key; renderProfileMode(); }
     $('profBack').hidden = profileFirst;
     $('profTitle').textContent = profileFirst ? 'Welcome to G-eSAA' : 'Your details';
     $('profIntro').textContent = profileFirst
@@ -4351,10 +4598,11 @@
       S.adminKey = { pub: S.team.key, priv: jwk };
     }
     const coChanged = !S.user || S.user.company !== company;
-    S.user = { name, mobile, email: email.toLowerCase(), company }; persist();
+    S.user = { name, mobile, email: email.toLowerCase(), company }; moveFill = null; persist();
     if (coChanged) cloudSync(true).then(() => { if (!$('newProj').hidden) renderSites(); }); // the sheet sends each company its own sites
-    profileFirst = false; await closeSheet();
+    const first = profileFirst; profileFirst = false; await closeSheet();
     renderWho(); toast(`Saved: ${byLine()}`);
+    if (first && !S.project) askNewProject();
   });
   function renderWho() {
     const u = S.user;
@@ -4365,8 +4613,8 @@
   $('inviteBtn').addEventListener('click', () => guard(async () => {
     const link = await inviteLink();
     if (!link) { toast('No website address for the invite: open G-eSAA from its website once, or ask your admin', 5000); return; }
-    qrLink = link;
-    await showQr(`Invite to ${S.keyCompany}`, `A coworker scans this with the phone's camera (or you send the link), then enters their name, mobile and email. Share it only inside ${S.keyCompany}: it carries your company key.`, link, null);
+    qrLink = link; qrAlt = null;
+    await showQr(`Invite to ${S.keyCompany}`, `A coworker scans this with the phone's camera (or you send the link), then enters their name, mobile and email. Share it only inside ${S.keyCompany}: it carries your company key.`, link);
   }, 'No invite'));
   $('resetUser').addEventListener('click', async () => {
     const ok = await ask('Reset the user of this phone?', 'Your name, mobile, email, company and company key are removed from this phone, and the welcome screen asks for them again. Projects and photos stay on the phone, with the names they were recorded with.',
@@ -4378,6 +4626,33 @@
     renderWho(); renderTeamInfo(); openProfile(true);
   });
   $('editMe').addEventListener('click', () => openProfile(false));
+  /* ---- moving the user to another phone (v2.15): one link or QR code with the company list and the user's details ---- */
+  $('moveBtn').addEventListener('click', () => guard(async () => {
+    if (!S.user) { toast('Enter your details first'); return; }
+    const base = webBase();
+    if (!base) { toast('No website address for the link: open G-eSAA from its website once, or ask your admin', 5000); return; }
+    const u = S.user, mv = b64u.enc(enc8(JSON.stringify({ n: u.name, m: u.mobile, e: u.email, c: u.company, ...(S.companyKey ? { k: S.companyKey } : {}) })));
+    let list = '';
+    if (S.team) { const short = await shortJoin(); list = short ? short.slice(short.indexOf('#') + 1) : `join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}`; }
+    const link = `${base}#${list ? `${list}&` : ''}mv=${mv}`;
+    qrLink = link; qrAlt = null;
+    await showQr('Move to another phone', 'On the new phone, scan this with the camera, or send yourself the link and open it there. Your company list and details (name, mobile, email, company) are filled in for a check: tap Save. Projects and photos: Export → Backup on this phone, then open the backup ZIP on the new phone. Admins enter the admin PIN again. The link carries your details: send it only to yourself.', link);
+    $('qrLinkBtn').textContent = 'Send the link to myself';
+  }, 'Not ready'));
+  async function applyMove(code) {
+    let o = null;
+    try { o = JSON.parse(new TextDecoder().decode(b64u.dec(code))); } catch (e) { o = null; }
+    if (!o || !o.n || !o.e) { toast('That move link is damaged. Make a new one on the old phone (Settings → Move to another phone).', 5500); return false; }
+    if (S.user && S.user.email && S.user.email !== String(o.e).toLowerCase()) {
+      const ok = await ask('Use these details on this phone?', `This phone is set up for ${S.user.name}. Replace with ${o.n}? Projects and photos stay on the phone.`, [{ label: 'Cancel', value: false }, { label: 'Replace', value: true, primary: true }]);
+      if (!ok) return false;
+    }
+    moveFill = { name: String(o.n).slice(0, 80), mobile: String(o.m || '').slice(0, 30), email: String(o.e).slice(0, 120), company: String(o.c || '').slice(0, 100), key: o.k ? String(o.k).slice(0, 40) : '' };
+    LOG.info('user.move', { keyed: !!o.k });
+    openProfile(!profileOk());
+    toast('Your details are filled in: check them, then tap Save', 5000);
+    return true;
+  }
 
   /* ---- signing and packing the list ---- */
   const b64u = {
@@ -4508,22 +4783,19 @@
     const own = t && t.pol && t.pol.owner;
     $('teamInfo').textContent = t ? `“${t.name}” v${t.rev} · ${isAdmin() ? `${teamCos().length} compan${teamCos().length === 1 ? 'y' : 'ies'} · ` : ''}${own ? `admin company ${own}` : t.key ? 'no admin company' : `admin${t.admins.length === 1 ? '' : 's'}: ${t.admins.map((a) => a.n).join(', ')}`}${isAdmin() ? ' · you are an admin' : isInspector() && own ? ' · your company' : ' · contractor user'}`
       : ORG ? `Not joined yet. Open the join link from your ${ORG.name} admin.` : 'No company list on this phone yet. Open the join link from your admin.';
-    $('teamShare').hidden = !t;
+    // v2.15: the list's details and its sharing are for the admin company; others see its name and keep it up to date
+    const listAdmin = !t || isAdmin() || canManage();
+    $('goAdmin').hidden = !listAdmin; $('teamShare').hidden = !t || !listAdmin;
+    $('teamMini').hidden = listAdmin || !t; if (t && !listAdmin) $('teamMini').textContent = `Company list “${t.name}” version ${t.rev}${t.src ? ' · updates from the online sheet' : ''}.`;
     $('adminLock').textContent = isAdmin() ? 'ADMIN' : canManage() ? 'PIN' : t ? 'VIEW' : 'SET UP';
     const foreign = !!(ORG && t && t.id !== ORG.id); // e.g. a list made on this phone before the app was tied to the organisation
     if (foreign) $('teamInfo').textContent = `This phone has another list (“${t.name}”). Open the join link from your ${ORG.name} admin to switch.`;
     $('teamManage').hidden = !canManage() || foreign;
     $('teamCreate').hidden = !!t || !!ORG;
-    $('teamSwitch').hidden = !t;
+    $('teamSwitch').hidden = !t || !listAdmin;
+    $('syncModeBox').hidden = !(t && t.src); $('setSync').value = syncMode();
     renderCloudInfo(); renderSyncBtn();
   }
-  $('teamFileInput').addEventListener('change', async (e) => {
-    const f = e.target.files[0]; if (!f) return;
-    let text = await f.text();
-    try { const j = JSON.parse(text); if (j && j.data) text = j.data; } catch (err) { /* plain text file */ }
-    try { await importTeamText(text); } finally { teamSwitch = false; }
-  });
-  const openTeamFile = (sw) => { teamSwitch = !!sw; $('teamFileInput').value = ''; $('teamFileInput').click(); };
   async function scanTeamQr(sw) {
     const t = await scanQr('Point the camera at the company list QR code on the admin’s phone');
     if (!t) return;
@@ -4531,7 +4803,14 @@
   }
   /** A join link, an invite (company key, maybe with the list) or the list text itself. */
   async function handleInvite(text, sw) {
-    const t = String(text || '').trim(), ck = (/[#&?]ck=([A-Za-z0-9%-]+)/.exec(t) || [])[1], hasList = /[#&]join=|^PCT[01]:/.test(t);
+    const t = String(text || '').trim(), ck = (/[#&?]ck=([A-Za-z0-9%-]+)/.exec(t) || [])[1], hasList = /[#&]join=|^PCT[01]:/.test(t), jq = (/[#&]jq=([A-Za-z0-9_-]+)/.exec(t) || [])[1];
+    const mv = (/[#&]mv=([A-Za-z0-9_-]+)/.exec(t) || [])[1];
+    if (mv) { // moving to this phone (v2.15): the list first, then the user's details for a check and Save
+      if (jq && !hasList) await joinShort(jq, sw);
+      else if (hasList) { teamSwitch = !!sw || !S.team; try { await importTeamText(t, { quiet: false }); } finally { teamSwitch = false; } }
+      return applyMove(mv);
+    }
+    if (jq && !hasList) return joinShort(jq, sw);
     if (!hasList && !ck) { toast('That is not a G-eSAA invite or join link', 4000); return false; }
     if (hasList) { teamSwitch = !!sw || !S.team || !!ck; try { await importTeamText(t, { quiet: !!ck }); } finally { teamSwitch = false; } }
     if (!ck) return true;
@@ -4545,7 +4824,7 @@
   async function pasteJoin(sw) {
     let t = '';
     try { t = (navigator.clipboard && navigator.clipboard.readText) ? await withTimeout(navigator.clipboard.readText(), 1500, 'slow') : ''; } catch (e) { t = ''; }
-    if (!/#join=|[#&]ck=|^PCT[01]:/.test(String(t).trim())) t = await promptText('Paste the link', 'The join or invite link your admin or a coworker sent.', 'https://…#…', '');
+    if (!/#join=|[#&]ck=|[#&]jq=|[#&]mv=|^PCT[01]:/.test(String(t).trim())) t = await promptText('Paste the link', 'The join or invite link your admin or a coworker sent.', 'https://…#…', '');
     if (!t) return;
     await handleInvite(t, sw || !!S.team);
   }
@@ -4558,35 +4837,59 @@
   renderJoin();
   $('pfScan').addEventListener('click', () => scanTeamQr(false));
   $('pfKeyScan').addEventListener('click', () => scanTeamQr(false));
-  $('pfFile').addEventListener('click', () => openTeamFile(false));
-  async function getList(sw) {
+  async function getList(sw) { // v2.15: a list is joined by its link or QR code only (no list files)
     const how = await ask(sw ? 'Switch to another company list' : 'Update the company list',
-      sw ? 'Only do this if your admin gave you a new, different list: its join link, QR code or file.' : 'Paste the join link from your admin, scan the QR code on an admin’s phone, or open the list file.',
-      [{ label: 'Cancel', value: '' }, { label: 'File', value: 'file' }, { label: 'Paste link', value: 'paste' }, { label: 'Scan QR', value: 'scan', primary: true }]);
-    if (how === 'scan') scanTeamQr(sw); else if (how === 'file') openTeamFile(sw); else if (how === 'paste') pasteJoin(sw);
+      sw ? 'Only do this if your admin gave you a new, different list: its join link or QR code.' : 'Paste the join link from your admin, or scan the QR code on an admin’s phone.',
+      [{ label: 'Cancel', value: '' }, { label: 'Paste link', value: 'paste' }, { label: 'Scan QR', value: 'scan', primary: true }]);
+    if (how === 'scan') scanTeamQr(sw); else if (how === 'paste') pasteJoin(sw);
   }
   $('teamUpdate').addEventListener('click', () => getList(false));
   $('teamSwitch').addEventListener('click', () => getList(true));
   $('teamShare').addEventListener('click', () => showTeamQr());
 
   /* ---- showing a QR code / sharing the file ---- */
-  let qrFileData = null;
-  let qrLink = '';
-  async function showQr(title, note, text, file) {
-    $('qrTitle').textContent = title; $('qrText').textContent = note || '';
-    $('qrLinkBtn').hidden = !(qrLink && text === qrLink); $('qrLinkBtn').textContent = /[#&]ck=/.test(text) ? 'Send the invite link' : 'Send the join link';
-    qrFileData = file || null; $('qrFile').hidden = !file;
+  let qrLink = '', qrAlt = null;
+  function drawQr(text) {
     const box = $('qrImg'); box.innerHTML = '';
-    if (text.length > 2300 || !window.qrcode) box.innerHTML = '<p class="hint" style="color:#333">Too much for one QR code. Use Share as file.</p>';
-    else { const q = window.qrcode(0, 'L'); q.addData(text); q.make(); box.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); }
+    if (text.length > 2300 || !window.qrcode) { box.innerHTML = '<p class="hint" style="color:#333">Too much for one QR code. Send the join link instead.</p>'; return; }
+    const q = window.qrcode(0, 'L'); q.addData(text); q.make(); box.innerHTML = q.createSvgTag({ cellSize: 4, margin: 4, scalable: true }); // 4 modules of white around it, as QR readers expect
+    box.dataset.size = q.getModuleCount();
+  }
+  let lastQrText = ''; // the text of the QR code on screen (read by the tests)
+  async function showQr(title, note, text) {
+    lastQrText = text;
+    $('qrTitle').textContent = title; $('qrText').textContent = note || '';
+    $('qrLinkBtn').hidden = !(qrLink && (text === qrLink || (qrAlt && text === qrAlt.short))); $('qrLinkBtn').textContent = /[#&]ck=/.test(text) ? 'Send the invite link' : 'Send the join link';
+    $('qrFull').hidden = !(qrAlt && text === qrAlt.short); $('qrFull').textContent = 'Show the full code (joins without internet)';
+    drawQr(text);
     openSheet('qrShow');
+  }
+  $('qrFull').addEventListener('click', () => {
+    if (!qrAlt) return;
+    const full = $('qrFull').textContent.startsWith('Show the full');
+    drawQr(full ? qrAlt.full : qrAlt.short); lastQrText = full ? qrAlt.full : qrAlt.short;
+    $('qrFull').textContent = full ? 'Show the short code (needs internet once)' : 'Show the full code (joins without internet)';
+    $('qrText').textContent = full ? qrAlt.fullNote : qrAlt.shortNote;
+  });
+  /** Short join code (v2.15): where the list is kept in the online sheet, the QR code only names the sheet and the list's
+      key, so it stays small and easy to scan. The new phone downloads the list from the sheet and takes it only when it is
+      that list, signed with that key. */
+  const keyPrint = async (pub) => b64u.enc(new Uint8Array(await crypto.subtle.digest('SHA-256', enc8(String(pub || ''))))).slice(0, 16);
+  async function shortJoin() {
+    const t = S.team, src = t && t.src, base = webBase();
+    if (!t || !t.key || !src || !src.url || !base || !(window.crypto && crypto.subtle)) return '';
+    if (!S.sheetListAt || S.sheetListAt.url !== src.url || S.sheetListAt.id !== t.id || S.sheetListAt.rev !== t.rev) return ''; // the sheet must hold this very version
+    const m = /^https:\/\/script\.google\.com\/macros\/s\/([A-Za-z0-9_-]+)\/exec$/.exec(src.url);
+    const o = { ...(m ? { s: m[1] } : { u: src.url }), r: src.key || '', i: t.id, f: await keyPrint(t.key) };
+    return `${base}#jq=${b64u.enc(enc8(JSON.stringify(o)))}`;
   }
   async function showTeamQr(note) {
     if (!S.team) { toast('No company list on this phone yet'); return; }
-    const text = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k }), link = joinLink(text);
-    qrLink = link;
-    await showQr(`Join ${S.team.name}`, note || `Version ${S.team.rev} · ${teamCos().length} companies. Scan this with the phone's camera, or send the join link.`, link || text,
-      { name: `G-eSAA_company_list_${C.safeName(S.team.name)}_v${S.team.rev}.json`, data: JSON.stringify({ app: 'PoleCam', type: 'company-list', name: S.team.name, version: S.team.rev, data: text }) });
+    const text = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k }), link = joinLink(text), short = await shortJoin();
+    const fullNote = note || `Version ${S.team.rev} · ${teamCos().length} companies. Scan it in G-eSAA (Join your team → Scan QR code) or with the phone's camera, or send the join link.`;
+    const shortNote = `Version ${S.team.rev}. Scan it in G-eSAA (Join your team → Scan QR code) or with the phone's camera. The new phone needs internet once to download the list; without internet, show the full code or send the join link.`;
+    qrLink = link; qrAlt = short && link ? { short, full: link, shortNote, fullNote } : null;
+    await showQr(`Join ${S.team.name}`, qrAlt ? shortNote : fullNote, qrAlt ? short : link || text);
   }
   $('qrClose').addEventListener('click', () => closeSheet());
   $('qrLinkBtn').addEventListener('click', () => guard(async () => { if (qrLink) await shareText(qrLink, `Join ${S.team ? S.team.name : 'G-eSAA'}`); }, 'Not sent'));
@@ -4597,48 +4900,78 @@
     try { await navigator.clipboard.writeText(text); toast('Join link copied: paste it in Viber, Messenger or email', 4000); }
     catch (e) { await promptText(title, 'Copy this link and send it:', '', text); }
   }
-  $('qrFile').addEventListener('click', async () => {
-    if (!qrFileData) return;
-    await shareFile(new Blob([qrFileData.data], { type: 'application/json' }), qrFileData.name, 'application/json');
-  });
 
   /* ---- scanning a QR code ---- */
-  let qrStream = null, qrResolve = null, qrTimer = 0;
+  /* v2.15: a sharper camera (1920 px), the phone's own QR reader when it has one (or ML Kit in the Android app), else jsQR on
+     the whole frame and on its centre at full resolution in turn (a dense code needs its full detail); and a QR code received
+     as a picture (e.g. a screenshot sent in a chat) can be read from the gallery. */
+  let qrStream = null, qrResolve = null, qrTimer = 0, qrDet;
   const scripts = {};
   const loadScript = (src) => scripts[src] || (scripts[src] = new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => { delete scripts[src]; rej(new Error('Could not load ' + src)); }; document.head.appendChild(el); }));
+  async function qrDetector() {
+    if (qrDet !== undefined) return qrDet;
+    qrDet = null;
+    if ('BarcodeDetector' in window) { try { if ((await window.BarcodeDetector.getSupportedFormats()).includes('qr_code')) qrDet = new window.BarcodeDetector({ formats: ['qr_code'] }); } catch (e) { qrDet = null; } }
+    return qrDet;
+  }
+  /** pass: 0 = whole picture, 1 = its centre at full resolution, 'all' = both (pictures). */
+  async function decodeQr(src, w, h, pass) {
+    const det = await qrDetector();
+    if (det) { try { const r = await det.detect(src); if (r.length && r[0].rawValue) return r[0].rawValue; } catch (e) { /* the other readers below */ } }
+    if (nativeReader() && (pass === 'all' || pass === 1)) { // ML Kit in the Android app
+      try { const r = await nativeCall('TextReader', 'qr', { image: await jpegB64(src, w, h, 1600) }); if (r && r.value) return r.value; } catch (e) { /* jsQR below */ }
+    }
+    if (!window.jsQR) await loadScript('vendor/qr/jsQR.min.js');
+    const cv = document.createElement('canvas'), g = cv.getContext('2d', { willReadFrequently: true });
+    const side = Math.min(w, h), c = Math.round(side * 0.75);
+    const tries = { 0: [[0, 0, w, h, Math.min(1, 1000 / Math.max(w, h))]], 1: [[(w - c) / 2, (h - c) / 2, c, c, Math.min(1, 1300 / c)]] };
+    const list = pass === 'all' ? [[0, 0, w, h, Math.min(1, 2000 / Math.max(w, h))], ...tries[1], ...tries[0]] : tries[pass];
+    for (const [x, y, cw, ch, sc] of list) {
+      cv.width = Math.max(1, Math.round(cw * sc)); cv.height = Math.max(1, Math.round(ch * sc)); g.drawImage(src, x, y, cw, ch, 0, 0, cv.width, cv.height);
+      const r = window.jsQR(g.getImageData(0, 0, cv.width, cv.height).data, cv.width, cv.height, { inversionAttempts: 'attemptBoth' });
+      if (r && r.data) return r.data;
+    }
+    return null;
+  }
+  async function jpegB64(src, w, h, max) {
+    const sc = Math.min(1, max / Math.max(w, h)), cv = document.createElement('canvas'); cv.width = Math.round(w * sc); cv.height = Math.round(h * sc);
+    cv.getContext('2d').drawImage(src, 0, 0, cv.width, cv.height);
+    return cv.toDataURL('image/jpeg', 0.9).split(',')[1];
+  }
   async function scanQr(text) {
     $('qrScanText').textContent = text || 'Point the camera at the QR code';
+    $('qrScanTip').textContent = 'Hold the phone 20–30 cm from the code, then move closer until it reads';
     openSheet('qrScan');
-    try { qrStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 } } }); }
-    catch (e) { await closeSheet(); toast('Camera blocked: open the list file instead', 4500); return null; }
-    if ($('qrScan').hidden) { qrStream.getTracks().forEach((t) => t.stop()); qrStream = null; return null; }
-    const v = $('qrVideo'); v.srcObject = qrStream; await v.play().catch(() => {});
-    let det = null;
-    if ('BarcodeDetector' in window) { try { if ((await window.BarcodeDetector.getSupportedFormats()).includes('qr_code')) det = new window.BarcodeDetector({ formats: ['qr_code'] }); } catch (e) { det = null; } }
-    if (!det) { try { await loadScript('vendor/qr/jsQR.min.js'); } catch (e) { await closeSheet(); toast(e.message); return null; } }
-    const cv = document.createElement('canvas'), g = cv.getContext('2d', { willReadFrequently: true });
-    return new Promise((res) => {
-      qrResolve = res;
+    const v = $('qrVideo');
+    const result = new Promise((res) => { qrResolve = res; });
+    try {
+      qrStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+      try { await qrStream.getVideoTracks()[0].applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e) { /* not every camera */ }
+    } catch (e) { qrStream = null; $('qrScanTip').textContent = 'The camera is not available here. Tap “From a picture” to read a QR code you received as a picture.'; }
+    if ($('qrScan').hidden) { if (qrStream) qrStream.getTracks().forEach((t) => t.stop()); qrStream = null; return null; }
+    if (qrStream) {
+      v.srcObject = qrStream; await v.play().catch(() => {});
+      let n = 0;
       const tick = async () => {
         if (!qrResolve) return;
         let txt = null;
-        if (v.videoWidth) {
-          try {
-            if (det) { const r = await det.detect(v); if (r.length) txt = r[0].rawValue; }
-            else {
-              const sc = Math.min(1, 900 / Math.max(v.videoWidth, v.videoHeight));
-              cv.width = Math.round(v.videoWidth * sc); cv.height = Math.round(v.videoHeight * sc); g.drawImage(v, 0, 0, cv.width, cv.height);
-              const r = window.jsQR(g.getImageData(0, 0, cv.width, cv.height).data, cv.width, cv.height, { inversionAttempts: 'attemptBoth' });
-              if (r && r.data) txt = r.data;
-            }
-          } catch (e) { /* keep looking */ }
-        }
+        if (v.videoWidth) { try { txt = await decodeQr(v, v.videoWidth, v.videoHeight, n++ % 2); } catch (e) { /* keep looking */ } }
         if (txt && qrResolve) { const done = qrResolve; qrResolve = null; await closeSheet(); done(txt); return; }
-        qrTimer = setTimeout(tick, 180);
+        qrTimer = setTimeout(tick, 120);
       };
       tick();
-    });
+    }
+    return result;
   }
+  $('qrPick').addEventListener('click', () => { $('qrPickInput').value = ''; $('qrPickInput').click(); });
+  $('qrPickInput').addEventListener('change', async (e) => {
+    const f = e.target.files[0]; if (!f || !qrResolve) return;
+    $('qrScanTip').textContent = 'Reading the picture…';
+    let txt = null;
+    try { const im = await loadImage(f); const { w, h } = dims(im); txt = await decodeQr(im, w, h, 'all'); if (im.close) im.close(); } catch (err) { txt = null; }
+    if (txt && qrResolve) { const done = qrResolve; qrResolve = null; await closeSheet(); done(txt); }
+    else $('qrScanTip').textContent = 'No QR code found in that picture. Use a sharp screenshot of the whole code, or scan it with the camera.';
+  });
   function stopQrScan() {
     clearTimeout(qrTimer);
     if (qrStream) { qrStream.getTracks().forEach((t) => t.stop()); qrStream = null; }
@@ -4667,9 +5000,12 @@
     return { name: s100(j.name), companies, admins, tasks, packs, scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you) };
   }
   let cloudBusy = null, cloudErr = '';
+  /** When the phone talks to the online sheet (v2.15): on every change (default), every hour, or only when Sync is tapped. */
+  const syncMode = () => (['change', 'hour', 'manual'].includes(S.syncMode) ? S.syncMode : 'change');
   async function cloudRequest(src, init, q) {
     const u = new URL(src.url);
     if (q && q.probe) { u.searchParams.set('probe', '1'); u.searchParams.set('v', APP_VER); } // only asks whether the sheet uses company keys
+    else if (q && q.join) { u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER); u.searchParams.set('company', ''); } // a short join code: the list only
     else if (q) { u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER); u.searchParams.set('company', ''); u.searchParams.set('ckey', q.ckey); }
     else if (!init) {
       u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER);
@@ -4692,17 +5028,20 @@
   function cloudSync(force) {
     const src = S.team && S.team.src;
     if (!src || !src.url || !navigator.onLine) return Promise.resolve(false);
-    if (!force && S.cloud && S.cloud.src === src.url && Date.now() - Date.parse(S.cloud.at) < 10 * 60000) return Promise.resolve(true);
+    const fresh = S.cloud && S.cloud.src === src.url;
+    if (!force && syncMode() === 'manual') return Promise.resolve(!!fresh); // only the Sync button reads the sheet
+    if (!force && fresh && Date.now() - Date.parse(S.cloud.at) < (syncMode() === 'hour' ? 60 : 10) * 60000) return Promise.resolve(true);
     if (cloudBusy) return cloudBusy;
     cloudBusy = (async () => {
       try {
         const j = await cloudRequest(src);
         if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : j && j.error === 'company key' ? (keyMode() ? 'your company key no longer works: ask your admin for the new one (Settings → Reset user, then enter it)' : 'enter your company key (Settings → Your details; ask your admin)') : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
         S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j) }; cloudErr = ''; persist();
+        await noteSheetList(src.url, j.list);
         const moved = typeof j.list === 'string' && j.list.length <= 120000 ? await applySheetList(j.list) : false;
         afterTeamChange(); if (!$('newProj').hidden) renderSites();
         if (moved === 'moved') setTimeout(() => cloudSync(true), 0); // the new list version points to another sheet
-        if ((S.syncQ || []).length) flushProgress();
+        if ((S.syncQ || []).length && (force || syncMode() === 'change')) flushProgress(true);
         return true;
       } catch (e) { cloudErr = e.message || String(e); renderCloudInfo(); return false; } finally { cloudBusy = null; }
     })();
@@ -4728,7 +5067,13 @@
     const ok = await cloudSync(true); renderCloudInfo();
     toast(ok ? 'Online sheet read' : navigator.onLine ? `Could not read the online sheet: ${cloudErr}` : 'No internet', 5000);
   });
-  window.addEventListener('online', () => { cloudSync(false); flushProgress(); });
+  window.addEventListener('online', () => { cloudSync(false); flushProgress(false); });
+  $('setSync').addEventListener('change', () => { S.syncMode = $('setSync').value; persist(); toast(syncMode() === 'change' ? 'Syncs on every change' : syncMode() === 'hour' ? 'Syncs every hour while G-eSAA is open' : 'Syncs only when you tap Sync', 3000); });
+  setInterval(() => { // hourly sync (v2.15), while the app is open
+    if (syncMode() !== 'hour' || !(S.team && S.team.src) || !navigator.onLine || document.hidden) return;
+    if (S.cloud && Date.now() - Date.parse(S.cloud.at) < 60 * 60000) return;
+    cloudSync(true).then(() => renderSyncBtn());
+  }, 60000);
 
   /* ---- New project form: site from the online sheet (or a typed name), category / purpose limited to the vendor's part
      of the site, vendor and location from the site, and for PAT / cleanup / FAT the form details printed on the list ---- */
@@ -4773,7 +5118,7 @@
   const siteDetail = (t) => [vendorsOf(t).length && `Vendor: ${vendorsOf(t).join(', ')}`, ...(t.extra || []).slice(0, 2).map(([k, v]) => `${k}: ${v}`), t.id && `ID: ${t.id}`].filter(Boolean).join(' · ');
   /** What a project made from a sheet row keeps (shown in Projects, printed on the forms). */
   const siteMeta = (t) => (t ? { taskId: t.id, siteLink: t.link || '', siteExtra: t.extra || [], ...(t.globeRep ? { globeRep: t.globeRep } : {}) } : {});
-  let npFile = null, npFileKind = '', npSite = null, npAuto = '';
+  let npFile = null, npFileKind = '', npSite = null, npAuto = '', npTried = false;
   const npStageCat = () => ['Cleanup', 'FAT'].includes($('npCat').value);
   const npRow = () => npSite;
   /** Category and purpose follow each other within the user's part of the site; the rest of the form follows them. */
@@ -4784,9 +5129,10 @@
     [...cat.options].forEach((o) => { if (o.value) o.disabled = !CAT_PURPOSES[o.value].some((p) => allowed.includes(p)); });
     if (cat.value && cat.selectedOptions[0] && cat.selectedOptions[0].disabled) cat.value = '';
     const list = cat.value ? CAT_PURPOSES[cat.value].filter((p) => allowed.includes(p)) : [], keep = pur.value;
-    pur.innerHTML = list.length ? '' : '<option value="">Choose the task category first</option>';
+    pur.innerHTML = !list.length ? '<option value="">Choose the task category first</option>' : list.length > 1 ? '<option value="" disabled>Choose…</option>' : '';
     list.forEach((p) => pur.add(new Option(PURPOSE_LABEL[p], p)));
-    pur.value = list.includes(keep) ? keep : list[0] || ''; pur.disabled = !list.length;
+    pur.value = list.includes(keep) ? keep : list.length === 1 ? list[0] : ''; pur.disabled = !list.length;
+    npMark();
     const role = siteRole(npSite);
     $('npScope').hidden = role === 'all';
     $('npScope').textContent = role === 'plan' ? 'Your part of this site: the survey for the As-Plan.' : role === 'build' ? 'Your part of this site: As-Built, PAT, defect cleanup and FAT.' : '';
@@ -4859,12 +5205,19 @@
   const npTypesChosen = () => [...$('npTypes').querySelectorAll('.chip')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
   function npReset() {
     ['npName', 'npNotes', 'npLoc', 'npGlobe', 'npSiteQ'].forEach((id) => { $(id).value = ''; });
-    $('npKmzInput').value = ''; npFile = null; npSite = null; npAuto = '';
+    $('npKmzInput').value = ''; npFile = null; npSite = null; npAuto = ''; npTried = false;
     $('npCat').value = ''; // the user chooses the task category
     $('npRep').value = (S.user && S.user.name) || ''; $('npDate').value = todayIso(); $('npStart').value = todayIso(); renderNpTypes(allInspTypes());
     $('npSites').hidden = true; npSync(); renderSites();
   }
-  $('newProjBtn').addEventListener('click', () => { npReset(); openSheet('newProj'); cloudSync(false).then(() => { if (!$('newProj').hidden) renderSites(); }); });
+  function openNewProject() { npReset(); openSheet('newProj'); cloudSync(false).then(() => { if (!$('newProj').hidden) renderSites(); }); }
+  $('newProjBtn').addEventListener('click', openNewProject);
+  /** No project yet: the Projects screen opens on the New project form (photos are taken inside a project). */
+  function askNewProject() {
+    if (!$('newProj').hidden) return;
+    if ($('projects').hidden) openProjects();
+    openNewProject();
+  }
   $('npCat').addEventListener('change', () => npSync());
   $('npPurpose').addEventListener('change', () => npSync());
   $('npSitesBtn').addEventListener('click', () => { const open = $('npSites').hidden; showSites(open); if (open && visibleTasks().length > 8) setTimeout(() => $('npSiteQ').focus(), 50); });
@@ -4876,13 +5229,29 @@
   $('npKmzBtn').addEventListener('click', () => { $('npKmzInput').value = ''; $('npKmzInput').click(); });
   $('npKmzInput').addEventListener('change', (e) => { const f = e.target.files[0]; if (!f) return; npFile = f; npFileKind = npStageCat() ? 'stage' : 'ref'; npSync(); });
   $('npKmzClear').addEventListener('click', () => { npFile = null; $('npKmzInput').value = ''; npSync(); });
+  /** Required fields (v2.15): marked with *, outlined in red when empty after Create was tapped. */
+  function npMissing() {
+    const k = $('npCat').value, fromFile = npStageCat() && !!npFile, miss = [];
+    if (!k) miss.push(['npCatBox', 'npCat', 'task category']);
+    if (k && !$('npPurpose').value) miss.push(['npPurposeBox', 'npPurpose', 'purpose']);
+    if (!$('npName').value.trim() && !fromFile) miss.push(['npNameBox', 'npName', 'project name']);
+    if (k === 'survey' && !$('npStart').value) miss.push(['npStartBox', 'npStart', 'survey start date']);
+    return miss;
+  }
+  function npMark() {
+    const miss = npTried ? npMissing() : [], ids = miss.map((m) => m[0]);
+    ['npCatBox', 'npPurposeBox', 'npNameBox', 'npStartBox'].forEach((id) => $(id).classList.toggle('invalid', ids.includes(id)));
+    $('npErr').hidden = !miss.length; $('npErr').textContent = miss.length ? `Required: ${miss.map((m) => m[2]).join(', ')}.` : '';
+    return miss;
+  }
+  ['npCat', 'npPurpose', 'npName', 'npStart'].forEach((id) => $(id).addEventListener(id === 'npName' ? 'input' : 'change', () => { if (npTried) npMark(); }));
   $('npCreate').addEventListener('click', () => guard(async () => {
     const k = $('npCat').value, purpose = $('npPurpose').value, name = $('npName').value.trim().slice(0, 100), notes = $('npNotes').value.trim(), f = npFile;
     const fromFile = npStageCat() && !!f, acc = k !== 'survey';
-    if (!k) { toast('Choose the task category'); $('npCat').focus(); return; }
+    npTried = true; const miss = npMark();
+    if (miss.length) { $(miss[0][1]).focus(); return; }
     if (!purpose || !ROLE_PURPOSES[siteRole(npSite)].includes(purpose)) { toast('That is not your part of this site'); return; }
     if (k === 'Cleanup' && !f) { toast('Choose the PAT KMZ'); return; }
-    if (!name && !fromFile) { toast('Type a project name'); $('npName').focus(); return; }
     if (name && !fromFile && allProjects().includes(name)) { toast('A project with that name already exists'); return; }
     const t = npSite, details = { site: $('npLoc').value.trim().slice(0, 120), contractor: $('npVendor').value.trim(),
       ...(acc ? { vendorRep: (S.user && S.user.name) || '', globeRep: $('npGlobe').value.trim().slice(0, 100), inspTypes: npTypesChosen(), date: $('npDate').value || todayIso() } : { startDate: $('npStart').value || todayIso() }), ...(notes ? { notes } : {}) };
@@ -5137,8 +5506,13 @@
     busy(false);
     await closeSheet(); afterTeamChange(); renderPoles();
     const viaSheet = !!(S.team.src && S.onlineAdminKey);
+    if (S.team.src && S.onlineAdminKey && navigator.onLine) { // v2.15: the list reaches the sheet first, so the QR code can be the short one
+      busy('Sending the list to the online sheet…');
+      try { await pushPacksToSheet(S.team.src.url, P.packs || []); await pushListToSheet(S.team.src.url); } finally { busy(false); }
+      cloudSync(true);
+    } else if (S.team.src) { pushPacksToSheet(S.team.src.url, P.packs || []).then(() => pushListToSheet(S.team.src.url)).finally(() => cloudSync(true)); }
     showTeamQr(`Version ${S.team.rev} saved. ${viaSheet ? 'Phones that already joined get it from the online sheet by themselves. New users: send the join link or show this QR code.' : 'Send the join link or show this QR code to each user.'}${S.team.src && !S.onlineAdminKey ? ' Enter the sheet’s Admin key (Online Google Sheet) so phones update by themselves.' : ''}${admDraft.newPin ? ' Admins must enter the new PIN after taking it.' : ''}`);
-    if (S.team.src) { pushPacksToSheet(S.team.src.url, P.packs || []).then(() => pushListToSheet(S.team.src.url)).finally(() => cloudSync(true)); }
+
   });
   /** Admin map packs (name | Drive link | MB), one per line. Only the Drive file id is kept, so the list and its QR stay small. */
   function parsePackLines(text) {
@@ -5176,8 +5550,36 @@
       const list = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k });
       const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: S.onlineAdminKey, action: 'setList', list, id: S.team.id, rev: S.team.rev }) });
       if (!j || !j.ok) throw new Error(j && j.error === 'action' ? 'update the Apps Script in the sheet (v2.9) so phones get the list from it' : (j && j.error) || 'no answer');
-      LOG.info('sheet.list', { rev: S.team.rev });
+      LOG.info('sheet.list', { rev: S.team.rev }); S.sheetListAt = { url, id: S.team.id, rev: S.team.rev }; persist();
     } catch (e) { LOG.warn('sheet.list.fail', errInfo(e)); toast(`The list was not sent to the online sheet: ${e.message || e}. Phones still get it from the join link or QR code.`, 7000); }
+  }
+  /** Which version of this phone's list the online sheet holds (for the short join QR code). */
+  async function noteSheetList(url, text) {
+    if (typeof text !== 'string' || !S.team) return;
+    try { const p = await unpackShare(text), b = p && p.kind === 'PCT' ? JSON.parse(p.obj.b) : null; if (b && b.id === S.team.id) { S.sheetListAt = { url, id: b.id, rev: b.rev }; persist(); } } catch (e) { /* not a list */ }
+  }
+  /** A short join code (#jq=…): the list is downloaded from the online sheet it names and taken only when it is the list the
+      code names, signed with the key the code names. */
+  async function joinShort(code, sw) {
+    let o = null;
+    try { o = JSON.parse(new TextDecoder().decode(b64u.dec(code))); } catch (e) { o = null; }
+    const url = o && (o.s ? `https://script.google.com/macros/s/${o.s}/exec` : String(o.u || ''));
+    if (!o || !o.i || !o.f || !/^https:\/\/[^\s]+$/.test(url || '')) { toast('That QR code is not a G-eSAA join code, or it is damaged. Ask your admin for the join link.', 5500); return false; }
+    if (!cryptoOk()) return false;
+    if (!navigator.onLine) { toast('This short QR code needs internet once to download the company list. Connect and scan again, or ask your admin for the full code or the join link.', 7000); return false; }
+    busy('Getting the company list…');
+    let j = null;
+    try { j = await cloudRequest({ url, key: o.r || '' }, null, { join: true }); } catch (e) { j = { ok: false, error: e.message || String(e) }; } finally { busy(false); }
+    if (!j || !j.ok || typeof j.list !== 'string') {
+      toast(j && j.error === 'company key' ? 'This organisation joins with company keys: ask your admin or a coworker for an invite.' : `The company list could not be downloaded${j && j.error ? ` (${j.error})` : ''}. Ask your admin for the join link.`, 7000);
+      return false;
+    }
+    let p = null, body = null;
+    try { p = await unpackShare(j.list); body = p && p.kind === 'PCT' ? JSON.parse(p.obj.b) : null; } catch (e) { body = null; }
+    const prints = body ? await Promise.all([body.key, body.prevKey].filter(Boolean).map(keyPrint)) : [];
+    if (!body || body.id !== o.i || !prints.includes(o.f)) { toast('Not accepted: the list in the online sheet is not the one this QR code names. Ask your admin for the join link.', 7000); return false; }
+    teamSwitch = !!sw || !S.team;
+    try { return await importTeamText(j.list); } finally { teamSwitch = false; }
   }
   /** A newer version of this phone's list, read from the sheet, is taken when it is signed with the admin PIN. */
   async function applySheetList(text) {
@@ -5628,6 +6030,7 @@
 
   /* ================= start ================= */
   $('captureBtn').addEventListener('click', () => {
+    if (!S.project) { toast('Create a project first: photos are taken inside a project', 4500); askNewProject(); return; }
     if (visitStage() === 'Cleanup') { // the cleanup works on the PAT pins only: photos are taken from a pin's card
       const t = nextTarget();
       toast(t ? 'Open the pin, then tap “📷 Photo of the fix” on the item' : 'All items are fixed. Share the cleanup KMZ from Projects.', 4500);
@@ -5635,6 +6038,7 @@
     }
     openCamera('new');
   });
+  $('brandVer').textContent = `v${APP_VER}`; // the version beside the name (v2.15)
   (async () => {
     const tl = Date.now();
     try { points = await dbAll('points'); } catch (e) { LOG.error('start.loadPoints', errInfo(e)); toast('Storage unavailable: ' + e.message, 6000); }
@@ -5645,7 +6049,14 @@
       for (const st of ['photos', 'tiles', 'packs']) { try { info[st] = await withTimeout(dbCount(st), 8000, 'slow'); } catch (e) { info[st] = `error: ${e.message}`; } }
       LOG.info('storage', info);
     })();
-    if (!S.projects.includes(S.project)) S.projects.push(S.project);
+    // v2.15: no "Default project". An empty one left by an older version is removed; one with records stays as a normal project.
+    if (S.projects.includes('Default project') && !points.some((p) => p.project === 'Default project')) {
+      S.projects = S.projects.filter((x) => x !== 'Default project'); if (S.meta) delete S.meta['Default project'];
+      if (S.project === 'Default project') S.project = '';
+    }
+    if (S.project && !S.projects.includes(S.project)) S.projects.push(S.project);
+    if (!S.project) S.project = allProjects()[0] || '';
+    persist();
     renderPoles(); drawAreas();
     if (!S.view) fitProject();
     if (S.base === 'offline' && !activePackId()) setBase('street', true);
@@ -5654,18 +6065,19 @@
     if (S.dropSatTiles) { // v1.7: satellite imagery kept by older versions is removed (Esri allows offline imagery only in ArcGIS apps)
       try { await tx('tiles', 'readwrite', (st) => st.delete(IDBKeyRange.bound('satellite/', 'satellite/\uffff'))); delete S.dropSatTiles; persist(); } catch (e) { /* try again next start */ }
     }
-    if (pendingJoin || pendingKey) { await loadOrg(); await handleInvite(`${pendingJoin ? `#join=${pendingJoin}` : ''}${pendingKey ? `&ck=${pendingKey}` : ''}`, true); } else loadOrg(); // a link waits for the organisation check
-    if (!profileOk()) openProfile(true);
+    if (pendingJoin || pendingKey || pendingJq || pendingMv) { await loadOrg(); await handleInvite(`${pendingJoin ? `#join=${pendingJoin}` : ''}${pendingKey ? `&ck=${pendingKey}` : ''}${pendingJq ? `&jq=${pendingJq}` : ''}${pendingMv ? `&mv=${pendingMv}` : ''}`, true); } else loadOrg(); // a link waits for the organisation check
+    if (!profileOk()) { if ($('profile').hidden) openProfile(true); }
+    else if (!S.project) askNewProject(); // photos are taken inside a project
     renderSyncBtn();
     cloudSync(false);
   })();
-  window.addEventListener('hashchange', () => { const h = location.hash; if (/[#&](join|ck)=/.test(h)) { history.replaceState(null, '', location.pathname + location.search); handleInvite(h, true); } });
+  window.addEventListener('hashchange', () => { const h = location.hash; if (/[#&](join|ck|jq|mv)=/.test(h)) { history.replaceState(null, '', location.pathname + location.search); handleInvite(h, true); } });
   // Files handed to other apps through Share are temporary: clear them each time the APK starts.
   if (NATIVE) nativeCall('Filesystem', 'rmdir', { path: 'share', directory: 'CACHE', recursive: true }).catch(() => {});
   // The APK already carries every file, so the offline cache is only for the website version.
   if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__polecam = { get points() { return points; }, get S() { return S; }, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
+  window.__polecam = { get points() { return points; }, get S() { return S; }, get lastQr() { return lastQrText; }, shortJoin, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport }; // for testing
 })();

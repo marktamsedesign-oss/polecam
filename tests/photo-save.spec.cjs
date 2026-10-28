@@ -34,6 +34,7 @@ beforeEach(async () => {
     if (!localStorage.getItem('polecam.settings')) localStorage.setItem('polecam.settings', JSON.stringify({
       user: { name: 'Test Surveyor', company: 'Test Company', mobile: '09171234567', email: 'test@example.com' },
       readId: false, view: { lat: 14.5, lon: 121, z: 17 }, v17: 1, v20: 1,
+      project: 'Test project', projects: ['Test project'], // v2.15: no default project, photos are taken inside one
     }));
   });
   page = await context.newPage(); errors = [];
@@ -145,7 +146,7 @@ test('failed record write rolls back a replacement photo and keeps the editor re
 
 test('acceptance photos commit together, or roll back together and retry', async () => {
   // v2.5: a new PAT record needs a deficiency; a FAT may record an element without one, so this test uses a FAT
-  await page.evaluate(() => { window.__polecam.S.meta = { 'Default project': { mode: 'acceptance', stage: 'FAT' } }; });
+  await page.evaluate(() => { window.__polecam.S.meta = { 'Test project': { mode: 'acceptance', stage: 'FAT' } }; });
   await openEditor();
   await page.evaluate(() => window.__polecam.addEdPhoto(window.__photoReplacement, { at: '2026-10-27T02:01:00.000Z', lat: 14.5, lon: 121, acc: 3, by: 'Test Surveyor' }));
   await failPointWrites(); await page.locator('#edSave').click(); await waitForFailure();
