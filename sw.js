@@ -1,6 +1,6 @@
 /* G-eSAA (PoleCam) offline cache: keeps the app itself available with no signal.
    Map tiles are cached separately by the app (IndexedDB). Bump VERSION after editing any file. */
-const VERSION = 'polecam-v2.22.0';
+const VERSION = 'polecam-v2.23.0';
 const SHELL = [
   './', 'index.html', 'app.js', 'core.js', 'glyphs.js', 'reports.js', 'forms.js', 'manifest.json', 'brand/logo-left.jpg', 'brand/logo-right.jpg',
   'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css', 'vendor/protomaps/protomaps-leaflet.js', 'vendor/qr/qrcode.min.js', 'vendor/qr/jsQR.min.js',

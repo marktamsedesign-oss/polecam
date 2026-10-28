@@ -370,6 +370,7 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .tmdone .btn.complete.ready{background:var(--ok);color:#fff}
 .tmdone .btn.complete:disabled{color:var(--muted);border-color:var(--line);background:var(--surface);opacity:.75}
 .tmdone .btn.complete.undo{color:var(--ink);border-color:var(--line)}
+.tmdone .btn.nodef{border:1.5px dashed var(--ok);color:var(--ok);background:var(--surface);min-height:46px}
 .tmlist{display:flex;flex-direction:column;gap:10px;margin-top:4px}
 .tmlisthead .lgroup{margin:0}
 .tmfil{display:flex;flex-wrap:wrap;gap:6px}
@@ -391,6 +392,8 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 #pinText{white-space:pre-line}
 .pincode{margin:0;text-align:center;font:700 calc(28px * var(--fs))/1.2 var(--mono);letter-spacing:.12em;color:var(--ink);background:var(--soft);border-radius:10px;padding:10px}
 /* v2.22: PAT / cleanup / FAT record: the optional sections fold (closed when the record opens) */
+.logopick{display:flex;flex-wrap:wrap;gap:12px}.logopick .lp{flex:1 1 220px;display:flex;flex-direction:column;gap:6px}.lpbox{height:72px;border:1px dashed var(--line);border-radius:10px;background:#fff;display:grid;place-items:center;padding:6px}.lpbox img{max-width:100%;max-height:60px;object-fit:contain}
+.cochips{display:flex;flex-wrap:wrap;gap:6px}.cochips span{padding:6px 10px;border-radius:999px;background:var(--chip);font-size:calc(13px * var(--fs));font-weight:600}.cochips span.own{background:var(--accent);color:var(--accent-ink)}
 .lfold{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink);font:inherit;font-weight:700;text-align:left;cursor:pointer}
 .lfold .ln{flex:1;min-width:0;overflow-wrap:anywhere}.lfold .lc{font-size:calc(12.5px * var(--fs));color:var(--muted);font-weight:600;white-space:nowrap}
 .lfold::after{content:"\25B8";font-size:calc(16px * var(--fs));color:var(--muted);transition:transform .15s}.lfold[aria-expanded=true]::after{transform:rotate(90deg)}
@@ -687,6 +690,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
     <div class="group" id="defBox" hidden>
       <div class="row between"><h3>Deficiencies</h3><span class="grow"></span><span class="pill" id="defStatus"></span><button class="btn small" id="addDefBtn" type="button">+ Add</button></div>
+      <p class="okline" id="noDefNote" hidden>No defects found: this photo of the site is the evidence of the inspection (its GPS position, time and your name are kept). Choose the element if you like, then Save: the PAT is then completed.</p>
       <p class="hint" id="defRoleHint" hidden></p>
       <div id="defList" style="display:flex;flex-direction:column;gap:8px"></div>
       <div id="defPanel" class="defpanel" hidden>
@@ -1052,6 +1056,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <div id="doneBox" class="tmdone">
         <p class="okline" id="doneInfo" hidden></p>
         <button class="btn complete" id="doneBtn" type="button">✓ Mark task complete</button>
+        <button class="btn nodef" id="noDefBtn" type="button" hidden>✓ No defects found · complete the PAT (FAT done)</button>
         <p class="hint" id="doneHint" style="margin:0"></p>
       </div>
       <details class="more tmmore" id="curMore">
@@ -1245,18 +1250,25 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       </div>
       <div class="group">
         <h3>Companies and vendors</h3>
-        <div id="admCos" style="display:flex;flex-direction:column;gap:6px"></div>
-        <div class="row"><input type="text" id="admNewCo" placeholder="Company name" style="flex:1" aria-label="New company name"><button class="btn" id="admAddCo" type="button">Add</button></div>
-        <div class="row"><button class="btn grow" id="admCsv" type="button">Import companies from CSV</button></div>
-        <input type="file" id="admCsvInput" accept=".csv,text/csv,text/plain" hidden>
+        <p class="hint" style="margin:0">The companies and vendors come from the online Google Sheet only (its <b>Company List</b> or <b>Companies</b> tab). Add, rename or remove a company there, then tap <b>Refresh from the sheet</b> and save the list. Set the sheet below (web app URL, read key and admin key).</p>
+        <div id="admCos" class="cochips"></div>
+        <div class="row"><button class="btn grow" id="admCoRefresh" type="button">Refresh from the sheet</button></div>
+        <p class="hint" id="admCoInfo" style="margin:0"></p>
         <label class="field">ADMIN COMPANY: its staff (with the admin PIN) are admins and inspectors; everyone else is a contractor user<select id="admOwner"></select></label>
         <label class="field">ADMIN USERS: email of each admin / inspector, one per line. Blank = anyone of the admin company with the PIN<textarea id="admUsers" style="min-height:64px" placeholder="name@globe.com.ph" autocapitalize="off" spellcheck="false"></textarea></label>
         <div class="row"><button class="btn" id="admChangePin" type="button">Change the admin PIN</button></div>
         <p class="hint help">Give the admin PIN only to staff of the admin company. Change it when someone leaves: phones that take the new list version need the new PIN.</p>
       </div>
       <div class="group">
-        <h3>Deficiency List form</h3>
-        <p class="hint">The header and signature lines printed on the form. The logos come from brand/logo-left.jpg and brand/logo-right.jpg in the app folder.</p>
+        <h3>Deficiency List form and report logos</h3>
+        <p class="hint">The header and signature lines printed on the Deficiency List form, and the two logos printed on the form and at the top of the other PDF reports (completion report, rectification report). They go to every phone with the list.</p>
+        <div class="logopick">
+          <div class="lp"><span class="lbl">LEFT LOGO</span><div class="lpbox"><img id="admLogoLImg" alt="Left logo"></div><span class="hint" id="admLogoLInfo"></span>
+            <div class="row"><button class="btn sm" id="admLogoL" type="button">Choose image…</button><button class="btn sm" id="admLogoLReset" type="button">Built-in</button></div></div>
+          <div class="lp"><span class="lbl">RIGHT LOGO</span><div class="lpbox"><img id="admLogoRImg" alt="Right logo"></div><span class="hint" id="admLogoRInfo"></span>
+            <div class="row"><button class="btn sm" id="admLogoR" type="button">Choose image…</button><button class="btn sm" id="admLogoRReset" type="button">Built-in</button></div></div>
+          <input type="file" id="admLogoInput" accept="image/png,image/jpeg,image/webp" hidden>
+        </div>
         <label class="field">Company name<input type="text" id="pfmCompany" autocomplete="off"></label>
         <label class="field">Address line<input type="text" id="pfmAddress" autocomplete="off"></label>
         <label class="field">Department line 1<input type="text" id="pfmDept1" autocomplete="off"></label>

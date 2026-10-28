@@ -603,7 +603,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.22.0';
+  const APP_VER = '2.23.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1931,7 +1931,7 @@
       toast('Photo replaced — tap Save to keep it');
       return;
     }
-    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), q: qSummary(x.q), crop: x.crop, live: x.live, idShot: x.idShot });
+    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), q: qSummary(x.q), crop: x.crop, live: x.live, idShot: x.idShot, noDef: camTarget === 'nodef' });
   }
 
   /* ================= reading the painted Pole ID (offline OCR) ================= */
@@ -2559,7 +2559,8 @@
         defs: JSON.parse(JSON.stringify(o.defs || [])), mloop: !!o.mloop, nap: !!o.nap, closure: !!o.closure, odf: o.odf || 'New', newBlob: null });
       // v2.13: in PAT, cleanup and FAT the photo is of the defect itself (no pole / ODF photo): it becomes the as-found photo
       // of the deficiency started below. A phone that may not record deficiencies keeps it as the element photo.
-      if (o.blob && !(o.mode === 'new' && canRecord())) { const pid = uid(); ed.photos.unshift({ pid, label: 'Overview', ...photoMeta(o.gps, o.takenAt), q: o.q || null }); ed.pending[pid] = o.blob; }
+      ed.noDef = !!o.noDef && o.mode === 'new'; // v2.23: the site photo of a PAT where no defect was found
+      if (o.blob && (ed.noDef || !(o.mode === 'new' && canRecord()))) { const pid = uid(); ed.photos.unshift({ pid, label: ed.noDef ? 'Site (no defects found)' : 'Overview', ...photoMeta(o.gps, o.takenAt), q: o.q || null }); ed.pending[pid] = o.blob; }
       $('napId').value = o.napId || ''; $('closureId').value = o.closureId || '';
     } else { // survey point (v2.13): pole, site, ODC, ODF, NAP, closure or handhole
       const mk = Array.isArray(o.marks) ? o.marks : [];
@@ -2594,7 +2595,8 @@
     renderTypeChips(ed.type);
     renderElemChips(); applyElement(); renderBoxInfo();
     if (acc) { renderAccPhotos(); renderDefs(); }
-    if (acc && o.mode === 'new' && canRecord()) { // the defect form is ready, with the photo just taken as its as-found photo
+    $('noDefNote').hidden = !(acc && ed.noDef);
+    if (acc && o.mode === 'new' && canRecord() && !ed.noDef) { // the defect form is ready, with the photo just taken as its as-found photo
       startDefDraft(false);
       if (o.blob) setDefPhoto(o.blob, { ...photoMeta(o.gps, o.takenAt), q: o.q || null });
     }
@@ -2647,7 +2649,7 @@
       mloop: !!ed.mloop, nap: !!ed.nap, closure: !!ed.closure, odf: ed.odf || '', gps: ed.gps || null, takenAt: ed.takenAt || '', source: ed.source || '', q: ed.q || null,
       idRead: ed.idRead || null, idTouched: !!ed.idTouched, dragged: !!ed.dragged, pin: ed.dragged && c ? { lat: c.lat, lon: c.lng } : null,
       origPid: ed.origPid || '', legacyBoxes: ed.legacyBoxes || 0, legacyPole: !!ed.legacyPole, dropOrig: !!ed.dropOrig, baseNew: !!ed.baseNew, keepQ: !!ed.keepQ,
-      pend: Object.keys(ed.pending || {}), hasNew: !!ed.newBlob, hasSrc: !!ed.srcBlob && ed.srcBlob !== ed.newBlob, hasBase: !!ed.base, def: dd,
+      noDef: !!ed.noDef, pend: Object.keys(ed.pending || {}), hasNew: !!ed.newBlob, hasSrc: !!ed.srcBlob && ed.srcBlob !== ed.newBlob, hasBase: !!ed.base, def: dd,
     };
   }
   const draftSig = (st) => JSON.stringify({ ...st, q: null, pin: st.pin ? [st.pin.lat.toFixed(6), st.pin.lon.toFixed(6)] : null });
@@ -2736,7 +2738,7 @@
       await openEditor({ mode: 'new', id: st.id, restore: true, gps: st.gps, takenAt: st.takenAt, source: st.source, q: st.q, type: st.type || undefined, element: st.element, status: st.status,
         poleId: st.poleId, remarks: st.svRemarks, closureId: st.acc ? st.closureId : st.svClosureId, napId: st.napId, details: st.details, marks: st.marks, origPid: st.origPid,
         photos: st.photos, defs: st.defs, mloop: st.mloop, nap: st.nap, closure: st.closure, odf: st.odf, boxes: (st.legacyBoxes || 0) + (st.marks || []).length, poleModel: st.legacyPole,
-        blob: st.acc ? null : nb || sb, ...(st.pin ? { lat: st.pin.lat, lon: st.pin.lon } : {}) });
+        blob: st.acc ? null : nb || sb, noDef: !!st.noDef, ...(st.pin ? { lat: st.pin.lat, lon: st.pin.lon } : {}) });
     }
     if (!ed) return;
     Object.assign(ed, { pending: { ...ed.pending, ...pend }, removed: st.removed || [], idRead: st.idRead, idTouched: st.idTouched, dragged: st.dragged, element: st.element, type: st.type || ed.type,
@@ -3664,7 +3666,7 @@
   });
   $('edRetake').addEventListener('click', async () => {
     if (ed.mode === 'edit') { openCamera('replace'); return; }
-    ed.closeOK = true; await closeSheet(); openCamera('new');
+    const nd = ed.noDef; ed.closeOK = true; await closeSheet(); openCamera(nd ? 'nodef' : 'new');
   });
   $('edDelete').addEventListener('click', () => { $('delName').textContent = $('poleId').value || 'this pole'; $('delConfirm').hidden = false; $('delConfirm').scrollIntoView({ block: 'nearest' }); });
   $('delNo').addEventListener('click', () => { $('delConfirm').hidden = true; });
@@ -3815,7 +3817,8 @@
     if (ed.lock === 'closed') { toast('This PAT is complete: nothing in it can be changed', 4500); return; }
     // a defect picked but not yet added is added by Save
     if (defDraft && !$('defPanel').hidden && (defDraft.items.size || $('defNotes').value.trim())) $('defAdd').click();
-    if (visitStage() === 'PAT' && ed.mode === 'new' && !ed.defs.length) {
+    if (ed.noDef && !canRecord()) { toast('Only the admin company records the PAT on this company list.', 5000); return; }
+    if (visitStage() === 'PAT' && ed.mode === 'new' && !ed.defs.length && !ed.noDef) { // v2.23: except the no-defects site photo
       toast('A PAT records only elements with defects: tick the defect and its N / D / MD, then Save. Or close without saving.', 6000);
       if (!defDraft) startDefDraft(true); else $('defPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
@@ -3850,6 +3853,7 @@
         accuracy: g && Number.isFinite(g.acc) ? g.acc : null, alt: g && Number.isFinite(g.alt) ? g.alt : null,
         adjusted: g ? haversine(g, pos) > 0.5 : true,
       });
+      if (ed.noDef && !ed.defs.length) rec.noDef = true; else delete rec.noDef; // v2.23: the site photo of a PAT with no defects
       const used = new Set(allPids(rec));
       const pend = Object.keys(ed.pending).filter((pid) => used.has(pid));
       const photos = [];
@@ -3872,13 +3876,14 @@
     }
     clearTimeout(slow);
     busy(false);
-    const wasNew = ed.mode === 'new', pos2 = { lat: rec.lat, lon: rec.lon };
+    const wasNew = ed.mode === 'new', pos2 = { lat: rec.lat, lon: rec.lon }, noDefDone = !!rec.noDef && taskCat() === 'PAT' && !pmeta().completedAt;
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); renderPoles(); if (!$('list').hidden) renderList(); } catch (e) { LOG.error('save.refresh', errInfo(e)); }
     editorSaving = false;
     if (ed) ed.closeOK = true; // saved: the draft goes
     await closeSheet();
     if (wasNew) map.setView([pos2.lat, pos2.lon], Math.max(map.getZoom(), 17));
     toast(`${DREF_RE.test(poleId) ? 'Element' : poleId} saved${n ? ` · ${n} open deficienc${n === 1 ? 'y' : 'ies'}` : ' · OK'}`);
+    if (noDefDone) setTimeout(() => guard(() => completeNoDefects(), 'PAT not completed'), 350); // v2.23: the site photo is in: complete
   }
 
   function saveError(e) {
@@ -4010,14 +4015,18 @@
       const formOk = !!(m.site && m.contractor && (m.vendorRep || (S.user && S.user.name))); // the Globe representative is optional (v2.10)
       const handed = allProjects().some((x) => pmeta(x).fromPat === S.project) || !!ex.sent;
       steps.push({ t: 'Form details', s: formOk ? `${m.site} · ${m.contractor}` : 'Location, vendor, representatives, inspection date (printed on the form)', done: formOk, go: 'form', label: 'Fill in' });
-      steps.push({ t: 'Record the defects', s: n ? `${n} element${n === 1 ? '' : 's'} · ${items.length} deficienc${items.length === 1 ? 'y' : 'ies'} · ${open} open` : 'Photo each defect (not the pole or ODF); tag it N, D or MD', done: n > 0, go: 'capture', label: 'Capture' });
+      const none = n > 0 && !items.length; // v2.23: no defect found (site photo only)
+      steps.push({ t: 'Record the defects', s: none ? 'No defects found · site photo taken' : n ? `${n} element${n === 1 ? '' : 's'} · ${items.length} deficienc${items.length === 1 ? 'y' : 'ies'} · ${open} open` : 'Photo each defect (not the pole or ODF); tag it N, D or MD — or No defects found', done: n > 0, go: 'capture', label: 'Capture' });
       steps.push({ t: 'Export the Deficiency List', s: fresh(['pdf', 'xlsx']) ? 'PDF / Excel made after the last change' : 'PDF (form + annexes) and Excel for signing and tracking', done: n > 0 && fresh(['pdf', 'xlsx']), go: 'export', label: 'Export' });
-      steps.push({ t: 'Share the PAT KMZ for the defect cleanup', s: handed ? (ex.sent ? `PAT KMZ shared ${fmtTime(ex.sent)}` : 'FAT started on this phone') : 'One KMZ with the defect pins and photos, for the defect cleanup and the FAT', done: handed, go: 'share', label: 'Share KMZ' });
+      if (none || m.noDefects) steps.push({ t: 'No defect cleanup or FAT needed', s: 'No deficiencies: the FAT is recorded as done with the PAT', done: true, go: 'export', label: 'Export' });
+      else steps.push({ t: 'Share the PAT KMZ for the defect cleanup', s: handed ? (ex.sent ? `PAT KMZ shared ${fmtTime(ex.sent)}` : 'FAT started on this phone') : 'One KMZ with the defect pins and photos, for the defect cleanup and the FAT', done: handed, go: 'share', label: 'Share KMZ' });
     } else if (cat === 'Cleanup') {
       const items = pts.flatMap((p) => counting(p)), open = items.filter((d) => defStatusOf(d) === 'Open'), noPhoto = items.filter((d) => defDone(d) && !d.afterPid).length;
       steps.push({ t: 'Started from the PAT KMZ', s: `${m.fromPat || 'PAT'} · ${n} pin${n === 1 ? '' : 's'} · ${items.length} item${items.length === 1 ? '' : 's'}`, done: true, go: 'records', label: 'Records' });
       steps.push({ t: 'Fix each defect and photo it', s: items.length ? `${items.length - open.length} of ${items.length} fixed · ${open.length} open${noPhoto ? ` · ${noPhoto} without photo` : ''}` : 'No deficiencies to fix', done: items.length > 0 && !open.length, go: 'next', label: 'Next defect' });
-      steps.push({ t: 'Share the cleanup KMZ for the FAT', s: fresh(['sent']) ? `Shared ${fmtTime(ex.sent)}` : 'One KMZ with the fixed items and photos, for the inspector', done: n > 0 && fresh(['sent']), go: 'share', label: 'Share KMZ' });
+      // v2.23: completed first: the FAT starts only from a completed cleanup
+      steps.push({ t: 'Complete the cleanup', s: m.completedAt ? `Completed ${longDate(m.completedAt)}` : 'When every item is fixed: Mark task complete', done: !!m.completedAt, go: 'complete', label: 'Complete' });
+      steps.push({ t: 'Share the cleanup KMZ for the FAT', s: fresh(['sent']) && m.completedAt ? `Shared ${fmtTime(ex.sent)}` : 'One KMZ with the fixed items and photos, for the inspector (or start the FAT on this phone)', done: !!m.completedAt && (fresh(['sent']) || !!childOf(S.project, 'FAT')), go: 'share', label: 'Share KMZ' });
     } else {
       const items = pts.flatMap((p) => counting(p)), open = items.filter((d) => defStatusOf(d) === 'Open'), rect = items.filter((d) => defStatusOf(d) === 'Rectified'), ver = items.filter((d) => defStatusOf(d) === 'Verified');
       steps.push({ t: m.fromStage === 'Cleanup' ? 'Started from the cleanup KMZ' : 'Started from the PAT', s: m.fromPat ? `${m.fromPat} · ${n} element${n === 1 ? '' : 's'} · ${items.length} item${items.length === 1 ? '' : 's'}` : `Started empty · ${n} element${n === 1 ? '' : 's'}`, done: true, go: 'records', label: 'Records' });
@@ -4025,7 +4034,7 @@
       steps.push({ t: 'Check and accept each fix', s: items.length ? `${ver.length} verified · ${rect.length} awaiting verification` : '—', done: items.length > 0 && ver.length === items.length, go: 'next', label: 'Next pin' });
       steps.push({ t: 'Export the final Deficiency List', s: fresh(['pdf']) ? 'PDF made after the last change' : 'Deficiency List PDF with the verified photos, and the rectification report', done: n > 0 && fresh(['pdf']), go: 'export', label: 'Export' });
     }
-    steps.push({ t: 'Complete the task', s: m.completedAt ? `Completed ${longDate(m.completedAt)}` : 'Completion report (PDF), or Mark task complete', done: !!m.completedAt, go: 'complete', label: 'Complete' });
+    if (cat !== 'Cleanup') steps.push({ t: 'Complete the task', s: m.completedAt ? `Completed ${longDate(m.completedAt)}` : 'Completion report (PDF), or Mark task complete', done: !!m.completedAt, go: 'complete', label: 'Complete' });
     go.complete = () => closeAll().then(() => { exportPick = 'doCompletion'; $('exportBtn').click(); });
     const next = steps.find((x) => !x.done) || null;
     return { cat, steps, next, go };
@@ -4091,7 +4100,7 @@
     $('bulkShareBtn').hidden = !allProjects().length;
     $('curName').textContent = S.project || '';
     $('curSub').textContent = [projSummary(S.project), m.site && m.site !== S.project ? m.site : '', m.contractor || ''].filter(Boolean).join(' · ');
-    { const st = $('tmState'); st.textContent = m.completedAt ? `${patClosed() ? '🔒 ' : '✓ '}Completed ${dateOnly(m.completedAt)}` : nrec ? 'In progress' : 'Not started'; st.className = `tmstate${m.completedAt ? ' done' : nrec ? ' wip' : ''}`; }
+    { const st = $('tmState'); st.textContent = m.completedAt ? `${patClosed() ? '🔒 ' : '✓ '}Completed ${dateOnly(m.completedAt)}${m.noDefects ? ' · no defects, FAT done' : ''}` : nrec ? 'In progress' : 'Not started'; st.className = `tmstate${m.completedAt ? ' done' : nrec ? ' wip' : ''}`; }
     { const W = S.project ? workflowModel() : null, done = W ? W.steps.filter((x) => x.done).length : 0, all = W ? W.steps.length : 0;
       $('tmBar').style.width = all ? `${Math.round((done / all) * 100)}%` : '0'; $('tmProgTxt').textContent = all ? `${done} of ${all} steps done · ${S.tmSteps ? 'hide' : 'show'} steps` : '';
       $('wfSteps').hidden = !S.tmSteps; $('tmStepsBtn').setAttribute('aria-expanded', String(!!S.tmSteps)); }
@@ -4126,6 +4135,9 @@
     const locked = patClosed(); // v2.16: a completed PAT is locked; only the list's admin can reopen it
     $('doneBtn').hidden = locked && !canReopenPat();
     $('doneBtn').disabled = !m.completedAt && !nrec; // v2.22: nothing recorded, nothing to complete
+    { const pat0 = cat === 'PAT' && !m.completedAt && canRecord() && !projPoints().some((r) => counting(r).length); $('noDefBtn').hidden = !pat0; // v2.23 (where this phone may record the PAT)
+      if (pat0) $('noDefBtn').textContent = nrec ? '✓ No defects found · complete the PAT (FAT done)' : '✓ No defects found · take the site photo, complete the PAT (FAT done)';
+      if (pat0 && !nrec) $('doneBtn').hidden = true; }
     if (locked) $('doneInfo').textContent += ` · 🔒 locked: items are tagged as fixed in the defect cleanup and the FAT${canReopenPat() ? '' : ' (only the admin can reopen it)'}`;
     { const W = S.project ? workflowModel() : null, left = W ? W.steps.filter((x) => !x.done && x.go !== 'complete').length : 0;
       $('doneBtn').classList.toggle('ready', !m.completedAt && !!nrec && !left);
@@ -4173,7 +4185,7 @@
       const ts = document.createElement('span'); ts.className = 'ts'; ts.textContent = [projSummary(name), m.site && m.site !== name ? m.site : ''].filter(Boolean).join(' · ');
       const tp = document.createElement('span'); tp.className = 'tp';
       const bar = document.createElement('span'); bar.className = 'bar'; const fill = document.createElement('i'); fill.style.width = t.all ? `${Math.round((t.done / t.all) * 100)}%` : '0'; bar.appendChild(fill);
-      const tx = document.createElement('span'); tx.textContent = t.completed ? `${patClosed(name) ? '🔒 ' : '✓ '}Completed ${dateOnly(m.completedAt)}` : !t.n ? 'Not started' : t.next ? `Next: ${t.next}` : `${t.done} of ${t.all} steps`;
+      const tx = document.createElement('span'); tx.textContent = t.completed ? `${patClosed(name) ? '🔒 ' : '✓ '}Completed ${dateOnly(m.completedAt)}${m.noDefects ? ' · no defects, FAT done' : ''}` : !t.n ? 'Not started' : t.next ? `Next: ${t.next}` : `${t.done} of ${t.all} steps`;
       tp.append(bar, tx); ti.append(tn, ts, tp); b.append(badge, ti);
       b.addEventListener('click', () => openTask(name));
       box.appendChild(b);
@@ -4195,14 +4207,23 @@
   function renderStageActs(m) {
     const st = m.stage || 'PAT', done = !!m.completedAt, cl = st === 'PAT' ? childOf(S.project, 'Cleanup') : null, fat = fatOf(S.project);
     const sc = $('startCleanup'), sf = $('startFat'), hint = $('stageHint');
+    if (m.noDefects) { // v2.23: nothing to rectify: no cleanup, no FAT
+      sc.hidden = true; sf.hidden = true; $('sendPat').hidden = true; $('shareWarn').hidden = true; hint.hidden = false;
+      hint.textContent = `No deficiencies found: the PAT and the FAT are done (${dateOnly(m.completedAt)}). No defect cleanup or FAT is needed.`; return;
+    }
+    sf.hidden = false; $('sendPat').hidden = false;
+    // v2.23: the FAT only after the contractor's cleanup is completed (on this phone); else no FAT button
+    const clDone = st === 'Cleanup' ? done : !!(cl && pmeta(cl).completedAt);
+    if (!fat && !clDone) sf.hidden = true;
     sc.hidden = !(st === 'PAT' && (done || cl));
     sc.textContent = cl ? `🛠 Open the defect cleanup “${cl}”` : '🛠 Start the defect cleanup (photo each fix)';
-    sf.textContent = fat ? `✓ Open the FAT “${fat}”` : cl ? '✓ Start the FAT from the cleanup (check each fix on site)' : '✓ Start the FAT (check each fix on site)';
+    sf.textContent = fat ? `✓ Open the FAT “${fat}”` : cl ? '✓ Start the FAT from the completed cleanup' : '✓ Start the FAT (check each fix on site)';
     sf.classList.toggle('primary', done && (st === 'Cleanup' || !!cl));
     sc.classList.toggle('primary', !cl);
     hint.hidden = !done;
-    hint.textContent = st === 'PAT' ? 'PAT completed. Next: the defect cleanup — the contractor photographs each fixed item (with a note if needed) — then the FAT, where the inspector checks each fix on site with a photo.'
-      : 'Cleanup completed. Next: the FAT — the inspector checks each fix on site with a photo.';
+    hint.textContent = st === 'PAT' ? (cl && !clDone ? `PAT completed. The defect cleanup “${cl}” is in progress: the FAT starts once it is completed.` : 'PAT completed. Next: the defect cleanup — the contractor photographs each fixed item (with a note if needed) — then, once the cleanup is completed, the FAT, where the inspector checks each fix on site with a photo.')
+      : 'Cleanup completed. Next: the FAT — the inspector checks each fix on site with a photo (share the cleanup KMZ, or start the FAT here).';
+    if (st === 'Cleanup' && !done) { hint.hidden = false; hint.textContent = 'When every item is fixed and photographed, mark the cleanup complete: the FAT starts only from a completed cleanup (here, or from its shared KMZ).'; }
   }
   $('startCleanup').addEventListener('click', () => guard(async () => {
     const cl = childOf(S.project, 'Cleanup'); if (cl) { openTask(cl); return; }
@@ -4338,13 +4359,16 @@
     const f = fatOf(S.project); if (f) { openTask(f); return; }
     // v2.22: after a defect cleanup, the FAT starts from the cleanup, which carries the fixes and their photos
     const cl = taskCat() === 'PAT' ? childOf(S.project, 'Cleanup') : null;
-    if (cl) { await startFatFrom(cl); return; }
+    // v2.23: only from a completed cleanup
+    if (taskCat() === 'PAT') { if (cl && pmeta(cl).completedAt) await startFatFrom(cl); else toast('The FAT starts from the completed defect cleanup: start the cleanup and complete it first.', 5500); return; }
+    if (!pmeta().completedAt) { toast('Mark the defect cleanup complete first: the FAT starts from a completed cleanup.', 5500); return; }
     if (await shareGate('verify')) await startFatFrom(S.project);
   }, 'FAT not started'));
   $('curFolder').addEventListener('click', () => { const l = pmeta().siteLink; if (l) openExternal(l); });
   $('curStart').addEventListener('change', () => { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), startDate: $('curStart').value }; persist(); queueProgress(S.project, ['surveyStart']); renderProjects(); });
   $('doneBtn').addEventListener('click', async () => {
     const m = pmeta(), col = progressFields(S.project).filter(([f]) => f !== 'surveyStart').map(([f]) => PROGRESS_COL[f])[0];
+    if (!m.completedAt && taskCat() === 'PAT' && patNoDefects()) { await completeNoDefects(); return; } // v2.23
     if (!m.completedAt) { const gaps = await completeGaps(); if (gaps.length) { await notReady(gaps); return; } }
     const pat = taskCat() === 'PAT';
     if (m.completedAt && pat && !canReopenPat()) { toast('A completed PAT is locked. Only the admin of the company list can reopen it.', 5000); return; }
@@ -4365,14 +4389,46 @@
     const m = pmeta(name); if (!m.taskId) return [];
     if (m.mode !== 'acceptance') return (m.purpose || 'As-plan') === 'As-plan' ? [['surveyStart', m.startDate || ''], ['surveyDone', m.completedAt || '']] : [];
     const st = m.stage || 'PAT';
-    return st === 'PAT' ? [['pat', m.completedAt || '']] : st === 'FAT' ? [['fat', m.completedAt || '']] : [];
+    // v2.23: a PAT with no defects is also the FAT: both dates go to the online sheet
+    return st === 'PAT' ? [['pat', m.completedAt || ''], ...(m.noDefects ? [['fat', m.completedAt || '']] : [])] : st === 'FAT' ? [['fat', m.completedAt || '']] : [];
   }
   const pendingFor = (name) => (S.syncQ || []).some((q) => q.project === name);
   function markComplete(on, how) {
     const m = { ...pmeta() };
-    if (on) { if (m.completedAt) return; m.completedAt = todayIso(); m.completedHow = how; } else { delete m.completedAt; delete m.completedHow; }
-    S.meta[S.project] = m; persist(); LOG.info('task.complete', { on, how, cat: taskCat() }); queueProgress(S.project, ['surveyDone', 'pat', 'fat']);
+    if (on) {
+      if (m.completedAt) return; m.completedAt = todayIso(); m.completedHow = how;
+      if (taskCat() === 'PAT' && patNoDefects()) m.noDefects = { at: new Date().toISOString(), by: byLine() }; // v2.23: the FAT is done too
+    } else { delete m.completedAt; delete m.completedHow; }
+    S.meta[S.project] = m; persist(); LOG.info('task.complete', { on, how, cat: taskCat(), noDefects: !!m.noDefects }); queueProgress(S.project, ['surveyDone', 'pat', 'fat']);
+    if (!on && m.noDefects) { delete m.noDefects; S.meta[S.project] = m; persist(); } // reopened: its FAT date was cleared above, with the PAT date
   }
+  /** v2.23: a PAT where no defect was found: something recorded (the site photo), no deficiency (N, D or MD) in it. */
+  const patNoDefects = (name) => { const pts = points.filter((p) => p.project === (name || S.project)); return pts.length > 0 && !pts.some((r) => counting(r).length); };
+  /** Completes a PAT where no defect was found: the PAT is locked and the FAT is recorded as done on the same date. */
+  async function completeNoDefects() {
+    if (taskCat() !== 'PAT' || pmeta().completedAt) return;
+    if (!canRecord()) { toast('Only the admin company records the PAT on this company list.', 5000); return; }
+    if (!patNoDefects()) { toast('Deficiencies are recorded in this PAT: complete it with Mark task complete.', 5000); return; }
+    const gaps = await completeGaps(); if (gaps.length) { await notReady(gaps); return; }
+    const col = progressFields(S.project).length || pmeta().taskId;
+    const ok = await ask('Complete the PAT — no defects found?', `Today is recorded as the PAT date and as the FAT date${col ? ' (both in the online sheet)' : ''}: with no deficiency there is nothing to rectify, so no defect cleanup and no FAT are needed.\n\nThe PAT is locked. The Deficiency List, the completion report and the KMZ say “No deficiencies found”.${S.team ? ' Only the admin of the company list can reopen it.' : ''}`,
+      [{ label: 'Cancel', value: false }, { label: 'Complete — no defects', value: true, primary: true }]);
+    if (!ok) return;
+    LOG.info('pat.nodefects', { records: projPoints().length });
+    markComplete(true, 'nodefects'); renderProjects(); renderPoles();
+    toast('PAT completed: no defects found · FAT recorded as done', 4500);
+  }
+  $('noDefBtn').addEventListener('click', () => guard(async () => {
+    if (taskCat() !== 'PAT' || pmeta().completedAt) return;
+    if (!canRecord()) { toast('Only the admin company records the PAT on this company list.', 5000); return; }
+    if (projPoints().some((r) => counting(r).length)) { toast('Deficiencies are recorded in this PAT: complete it with Mark task complete.', 5000); return; }
+    const gaps = await completeGaps(); if (gaps.length) { await notReady(gaps); return; }
+    if (patNoDefects()) { await completeNoDefects(); return; } // a site photo is already there
+    const go = await ask('No defects found', 'You confirm that the inspection found no deficiency at this site.\n\nTake one photo of the site: it is kept with its GPS position, time and your name as the evidence of the inspection. After Save, the PAT is completed and locked, and the FAT is recorded as done on the same date.',
+      [{ label: 'Cancel', value: false }, { label: 'Take the site photo', value: true, primary: true }]);
+    if (!go) return;
+    await closeAll(); openCamera('nodef'); toast('Site photo: the inspected site or element, no defect', 3500);
+  }, 'Not completed'));
   let flushing = null, syncErr = '';
   /** fields: only these (e.g. ['surveyStart'] when the start date is set), so another phone's dates are not cleared. */
   function queueProgress(name, fields) {
@@ -4470,14 +4526,17 @@
     if (!pmeta().completedAt) {
       const gaps = await completeGaps(); if (gaps.length) { await notReady(gaps); return; }
       // v2.16: the report completes the task, and completing a PAT locks it: asked first
-      if (taskCat() === 'PAT' && !(await ask('Complete and lock the PAT?', `The completion report marks the PAT complete. It is then locked: no element or item can be added, changed or removed, by anyone on this phone. Items are tagged as fixed in the defect cleanup and the FAT.${S.team ? ' Only the admin of the company list can reopen it.' : ''}`, [{ label: 'Cancel', value: false }, { label: 'Complete and lock', value: true, primary: true }]))) return;
+      if (taskCat() === 'PAT' && patNoDefects()) { await completeNoDefects(); if (!pmeta().completedAt) return; } // v2.23: no defects: PAT and FAT done
+      else if (taskCat() === 'PAT' && !(await ask('Complete and lock the PAT?', `The completion report marks the PAT complete. It is then locked: no element or item can be added, changed or removed, by anyone on this phone. Items are tagged as fixed in the defect cleanup and the FAT.${S.team ? ' Only the admin of the company list can reopen it.' : ''}`, [{ label: 'Cancel', value: false }, { label: 'Complete and lock', value: true, primary: true }]))) return;
       markComplete(true, 'report');
     }
     const m = pmeta(), R = window.PoleReports, k = acc ? m.stage || 'PAT' : 'survey';
     const catLabel = STAGE_LABEL[k], purpose = PURPOSE_LABEL[acc ? k : m.purpose || 'As-plan'];
     let summary = [];
     if (!acc) { const Rt = routeModel(), len = Rt.spans.reduce((t, s) => t + s.len, 0); summary = [['Poles captured', pts.filter((p) => elemOf(p) === 'Pole').length], ['Other points', pts.filter((p) => elemOf(p) !== 'Pole').length], ['Spans linked', Rt.spans.length], ['Route length (m)', Math.round(len)], ['Long spans', Rt.long, Rt.long ? 'bad' : 'good']]; }
-    else { const M = accModel(); summary = [['Elements', M.recs.length], ['Deficiencies', M.counted.length], ['Still open', M.open.length, M.open.length ? 'bad' : 'good'], [k === 'FAT' ? 'Verified' : 'Rectified', k === 'FAT' ? M.verified : M.rectified + M.verified, 'blue']]; }
+    else { const M = accModel(); summary = !M.counted.length && k === 'PAT' // v2.23: no defects found
+      ? [['Elements', M.recs.length], ['Deficiencies', 0, 'good'], ['To rectify', 0, 'good'], ['FAT', 'Done', 'good']]
+      : [['Elements', M.recs.length], ['Deficiencies', M.counted.length], ['Still open', M.open.length, M.open.length ? 'bad' : 'good'], [k === 'FAT' ? 'Verified' : 'Rectified', k === 'FAT' ? M.verified : M.rectified + M.verified, 'blue']]; }
     const ex = m.exports || {}, made = Object.entries(ex).filter(([kk]) => kk !== 'completion').map(([kk, at]) => `${kk.toUpperCase()} ${shortTime(at)}`).join(' · ');
     const info = [['Project', S.project], ['Task category', catLabel], ['Location / site', m.site || ''], ['Purpose', purpose], ['Vendor (contractor)', m.contractor || (S.user && S.user.company) || ''], ['Site ID (online sheet)', m.taskId || '—'],
       [acc ? 'Inspection date' : 'Started', longDate(acc ? m.date : m.startDate) || '—'], ['Completed', longDate(m.completedAt)]];
@@ -4487,9 +4546,9 @@
     const details = [['Records', acc ? `${pts.length} element${pts.length === 1 ? '' : 's'}` : `${npl} pole${npl === 1 ? '' : 's'}${pts.length > npl ? ` · ${svCountText(pts)}` : ''}`], ['Recorded by', peopleText() || byLine()],
       ['Photos', photoLine], ['Exports made', made || '—'], ['Reference KMZ', (refInfo() && refInfo().name) || '—'], ...(m.fromPat ? [['From', `${m.fromStage || 'PAT'} “${m.fromPat}”`]] : []), ['Remarks / notes', m.notes || '—']];
     const same = purpose === catLabel; // PAT, FAT: the purpose is the category
-    const pdf = R.completionPdf({ title: 'TASK COMPLETION REPORT', stageLong: same ? catLabel : `${catLabel} · ${purpose}`, statement: `${catLabel}${same ? '' : ` (${purpose})`} of ${m.site || S.project} completed on ${longDate(m.completedAt)}.`,
+    const pdf = R.completionPdf({ title: 'TASK COMPLETION REPORT', stageLong: same ? catLabel : `${catLabel} · ${purpose}`, statement: `${catLabel}${same ? '' : ` (${purpose})`} of ${m.site || S.project} completed on ${longDate(m.completedAt)}.${m.noDefects ? ' No deficiencies were found: the FAT is recorded as done on the same date.' : ''}`,
       info, summary, details, signers: [{ role: 'Prepared by (contractor representative)', name: m.vendorRep || (S.user && S.user.name) || '' }, { role: 'Accepted by (Globe representative)', name: m.globeRep || '' }],
-      footer: `${S.project} · completion report`, footer2: exporterLine(), photos: ph ? ph.sections : [] });
+      footer: `${S.project} · completion report`, footer2: exporterLine(), photos: ph ? ph.sections : [], attach: await reportKmz(), logos: await formLogos() });
     LOG.info('completion.pdf', { pages: pdf.pages.length, photos: ph ? ph.line : 'off', missing: ph ? ph.missing : 0 });
     offerResult(new Blob(pdf.output({ title: `${S.project} completion report` }), { type: 'application/pdf' }), `${fileBase()}_completion_report.pdf`);
   }, 'Completion report not made'));
@@ -4501,6 +4560,9 @@
     const m = pmeta(pat);
     if (m.mode !== 'acceptance' || !['PAT', 'Cleanup'].includes(m.stage || 'PAT')) throw new Error(`“${pat}” is not a PAT or defect cleanup project`);
     if (stage === 'Cleanup' && (m.stage || 'PAT') !== 'PAT') throw new Error('A defect cleanup starts from a PAT');
+    if (stage === 'FAT' && (m.stage || 'PAT') === 'PAT') throw new Error('The FAT starts from the completed defect cleanup, not from the PAT'); // v2.23
+    if (stage === 'FAT' && !m.completedAt) throw new Error('The defect cleanup is not completed yet: the FAT starts from a completed cleanup'); // v2.23
+    if (m.noDefects) throw new Error('No deficiencies were found in this PAT: the FAT is done with it.'); // v2.23
     const base = wantName || `${m.fromPat || pat} – ${stage}`;
     let name = base, k = 2;
     while (allProjects().includes(name)) name = `${base} ${wantName ? `(${k++})` : k++}`;
@@ -4701,7 +4763,13 @@
   function exporterLine(sep) { const e = exporterInfo(), j = sep || ' · '; return `Exported by ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(j)}${j}${shortTime(e.at)}${j}${e.app}`; }
   function exporterText() { const e = exporterInfo(); return `G-eSAA export\nProject: ${S.project}\nExported by: ${e.name}\nMobile: ${e.mobile}\nEmail: ${e.email}\nCompany: ${e.company}\nDate: ${e.at}\nApp: ${e.app}\n`; }
   function exporterSheet(st) { const e = exporterInfo(); return { name: 'Exported by', cols: [16, 46], rows: [['Exported by', ''].map((v) => ({ v, s: st.header })), ['Name', e.name], ['Mobile', e.mobile], ['Email', e.email], ['Company', e.company], ['Date', shortTime(e.at)], ['App', e.app], ['Project', S.project]] }; }
-  async function guard(fn, label) { try { await fn(); } catch (e) { LOG.error('task.fail', { label: label || 'export', ...errInfo(e) }); toast(`${label === undefined ? 'Export failed: ' : label ? label + ': ' : ''}${e.message || e}`, 7000); } finally { busy(false); } }
+  async function guard(fn, label) {
+    try { await fn(); } catch (e) {
+      LOG.error('task.fail', { label: label || 'export', ...errInfo(e) });
+      if (e && e.tampered) { busy(false); LOG.warn('seal.tampered'); await ask('⚠ KMZ edited by unauthorized personnel', e.message, [{ label: 'OK', value: true, primary: true }]); return; } // v2.23
+      toast(`${label === undefined ? 'Export failed: ' : label ? label + ': ' : ''}${e.message || e}`, 7000);
+    } finally { busy(false); }
+  }
 
   /** Square photo icon for a KMZ pin at the chosen size. */
   async function iconJpeg(blob, px, border) {
@@ -4714,6 +4782,10 @@
   }
   $('doKmz').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
+    offerResult(await surveyKmzBlob(pts), fileBase() + '.kmz');
+  }));
+  /** The survey KMZ for Google Earth (pins, route, balloon photos), as Export → KMZ makes it. */
+  async function surveyKmzBlob(pts) {
     const E = S.exp, icons = E.kmzIconPx > 0, names = uniqueNames(pts), files = [], rows = [];
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i]; busy(`Preparing photos ${i + 1} / ${pts.length}`, i / pts.length);
@@ -4726,8 +4798,35 @@
     busy('Building KMZ…', 1);
     const kml = C.buildKml(rows, { project: `${S.project}${pmeta().purpose ? ` · ${pmeta().purpose}` : ''}`, photoIcons: icons, spans: E.kmzRoute ? routeModel().spans : [], stamped: !!E.kmzStamp, stampFields: E.stampFields, exportedBy: exporterLine() });
     const parts = C.makeZipParts([{ name: 'doc.kml', data: kml }, ...files]);
-    offerResult(new Blob(parts, { type: 'application/vnd.google-earth.kmz' }), fileBase() + '.kmz');
-  }));
+    return new Blob(parts, { type: 'application/vnd.google-earth.kmz' });
+  }
+  /** v2.23: the KMZ embedded in every PDF report, made from the same records: the survey KMZ, or the PAT / cleanup / FAT KMZ
+      (the defects as found; plus the fixes in the cleanup; plus the verification in the FAT). Map, balloons and photos only:
+      the G-eSAA records travel in the shared KMZ. */
+  async function reportKmz() {
+    try { return await reportKmzMake(); } catch (e) { LOG.warn('pdf.kmz.fail', errInfo(e)); toast(`The KMZ could not be attached to the PDF (${e.message || e}); the PDF is made without it.`, 6000); return null; }
+  }
+  async function reportKmzMake() {
+    const pts = projPoints(); if (!pts.length) return null;
+    let blob, name, title, lines;
+    if (!isAcc()) {
+      blob = await surveyKmzBlob(pts); name = `${fileBase()}.kmz`;
+      const np = pts.filter((p) => elemOf(p) === 'Pole').length, R0 = routeModel();
+      title = 'Survey: the poles and points of this report, for Google Earth';
+      lines = [['Project', S.project], ['Pins', `${pts.length} (${np} pole${np === 1 ? '' : 's'}${pts.length > np ? ` · ${svCountText(pts)}` : ''})`], ['Route', R0.spans.length ? `${R0.spans.length} span${R0.spans.length === 1 ? '' : 's'}` : '—']];
+    } else {
+      const M = accModel(); blob = await buildAccKmz(M, false); name = `${accFileBase(M)}.kmz`;
+      const st = M.stage;
+      title = st === 'PAT' ? 'PAT: the defects as found, for Google Earth' : st === 'Cleanup' ? 'Defect cleanup: the defects and their fixes, for Google Earth' : 'FAT: the defects, their fixes and the verification, for Google Earth';
+      lines = [['Project', S.project], ['Stage', STAGE_LONG[st]], ['Pins', `${M.recs.length} element${M.recs.length === 1 ? '' : 's'}`],
+        ['Items', M.counted.length ? `${M.counted.length} deficienc${M.counted.length === 1 ? 'y' : 'ies'}: ${M.open.length} open · ${M.rectified} rectified · ${M.verified} verified${M.notes ? ` · ${M.notes} note${M.notes === 1 ? '' : 's'}` : ''}` : 'No deficiencies found']];
+    }
+    if (blob.size > 60 * 1048576) { LOG.warn('pdf.kmz.big', { mb: +(blob.size / 1048576).toFixed(1) }); toast(`The KMZ (${(blob.size / 1048576).toFixed(0)} MB) is too large to put in the PDF: export it on its own (Export → KMZ). Lower the KMZ balloon photo size to attach it.`, 7000); return null; }
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((x) => x.toString(16).padStart(2, '0')).join('');
+    LOG.info('pdf.kmz', { kb: Math.round(bytes.length / 1024) });
+    return { bytes, name, title, lines, sha256: sha, mb: (bytes.length / 1048576).toFixed(2), desc: `${title} (${name})` };
+  }
 
   $('doDxf').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
@@ -4956,6 +5055,9 @@
     const rp = await readPackage(await zipReader(f)), { meta, pre, z } = rp;
     if (!(await unsealedOk(f, rp))) { busy(false); return null; }
     const fm = meta.meta || {}, from = fm.mode === 'acceptance' ? fm.stage || 'PAT' : 'survey';
+    if (from === 'PAT' && fm.noDefects) throw new Error('No deficiencies were found in this PAT: the FAT is done with it, so there is no defect cleanup or FAT to start.'); // v2.23
+    if (stage === 'FAT' && from === 'PAT') throw new Error('The FAT starts from the completed defect cleanup, not from the PAT: start the defect cleanup first.'); // v2.23
+    if (stage === 'FAT' && from === 'Cleanup' && !fm.completedAt) throw new Error('This defect cleanup is not completed yet: the FAT starts from a completed cleanup. The contractor marks it complete and shares it again.');
     if (!STAGE_FROM[stage].includes(from)) throw new Error(`This file is a ${STAGE_NAME[from]} project. A ${STAGE_NAME[stage]} starts from a ${STAGE_FROM[stage].map((x) => STAGE_NAME[x]).join(' or ')} KMZ.`);
     const pat = fm.fromPat || meta.project || 'PAT', base = wantName || `${pat} – ${stage}`;
     let name = base, k = 2;
@@ -4968,7 +5070,8 @@
     const { taskId, date, exports, links, completedAt, completedHow, ...rest } = fm; // v2.22: the sender's completion is not this stage's
     const extra = Object.fromEntries(Object.entries(extraMeta || {}).filter(([, v]) => v !== '' && v != null));
     S.meta = S.meta || {};
-    S.meta[name] = { ...rest, mode: 'acceptance', stage, fromPat: pat, fromStage: from, fromFile: f.name || '', vendorRep: (S.user && S.user.name) || rest.vendorRep || '', date: todayIso(), ...extra };
+    // v2.23: started straight from the file: the same site row of the online sheet (its task ID) is kept
+    S.meta[name] = { ...rest, ...(!extraMeta && taskId ? { taskId } : {}), mode: 'acceptance', stage, fromPat: pat, fromStage: from, fromFile: f.name || '', vendorRep: (S.user && S.user.name) || rest.vendorRep || '', date: todayIso(), ...extra };
     S.projects.push(name); S.project = name; persist();
     renderPoles(); fitProject(); busy(false);
     const open = copies.reduce((t, r) => t + openCount(r), 0), toCheck = copies.reduce((t, r) => t + counting(r).filter((d) => defStatusOf(d) === 'Rectified').length, 0);
@@ -5122,11 +5225,14 @@
   const todayIso = () => { const d = new Date(), p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
   const PHOTO_SIZE = { S: { h: 150, px: 520 }, M: { h: 200, px: 720 }, L: { h: 250, px: 960 } };
   let logoCache = null;
-  /** Company logos printed in the form header (bundled with the app, so the form looks the same offline). */
+  const b64std = (s) => { try { return Uint8Array.from(atob(s), (c) => c.charCodeAt(0)); } catch (e) { return null; } };
+  /** The two logos of the form and the PDF reports: uploaded by the admin (v2.23, they come with the company list), else the
+      ones bundled with the app (so the form looks the same offline). */
   async function formLogos() {
-    if (logoCache) return logoCache;
+    const L = pol().logos || {}, key = `${L.left ? L.left.length + L.left.slice(-16) : ''}|${L.right ? L.right.length + L.right.slice(-16) : ''}`;
+    if (logoCache && logoCache.key === key) return logoCache;
     const get = async (u) => { try { const r = await fetch(u); if (!r.ok) return null; return new Uint8Array(await r.arrayBuffer()); } catch (e) { return null; } };
-    logoCache = { left: await get('brand/logo-left.jpg'), right: await get('brand/logo-right.jpg') };
+    logoCache = { key, left: (L.left && b64std(L.left)) || await get('brand/logo-left.jpg'), right: (L.right && b64std(L.right)) || await get('brand/logo-right.jpg') };
     return logoCache;
   }
   const itemText = (x) => (isRef(x.r) ? `${elemOf(x.r) !== x.d.cat ? `${elemOf(x.r)} — ` : ''}${x.d.cat}: ${x.d.item}${x.d.notes ? ` (${x.d.notes})` : ''}` // v2.22: the item number is the reference
@@ -5139,7 +5245,8 @@
     return {
       form: pol().form, logos: o.logos, stage: M.stage === 'FAT' ? 'FAT' : 'PAT', typesChecked: m.inspTypes || allInspTypes(),
       location: m.site || '', project: (M.stage !== 'PAT' && m.fromPat) || S.project, vendor: m.contractor || '', date: insp,
-      items: M.items.map((x) => ({ no: x.no, code: SEV_CODE[sevOf(x.d)], text: itemText(x), rectified: rectifiedDate(x.d) })),
+      items: M.items.length ? M.items.map((x) => ({ no: x.no, code: SEV_CODE[sevOf(x.d)], text: itemText(x), rectified: rectifiedDate(x.d) }))
+        : [{ no: '—', code: '', text: `NO DEFICIENCIES FOUND${m.noDefects ? ` — PAT completed ${longDate(m.completedAt)}; FAT done the same day` : ''}`, rectified: '' }], // v2.23
       signers: { left: { name: m.vendorRep || '', date: signDate }, right: { name: m.globeRep || '', date: signDate } },
       footer: `${S.project} · ${M.stage} · ${exporterLine()}`,
     };
@@ -5272,6 +5379,7 @@
         }
       }
     }
+    model.attach = await reportKmz(); // v2.23
     busy('Building PDF…');
     const pdf = window.PoleForms.deficiencyFormPdf(model);
     offerResult(new Blob(pdf.output({ title: `${S.project} ${M.stage} list of deficiencies` }), { type: 'application/pdf' }), accFileBase(M) + '_deficiency_list.pdf');
@@ -5330,6 +5438,7 @@
         ['Cleared', `${Math.round((rect.length / total) * 100)}%`, rect.length === total ? 'good' : ''], ['Average time to rectify', avg == null ? '—' : fmtDays(avg)]],
       note, progress: byDate, rectified: items, open: openItems,
       signers: ['Submitted by (contractor representative)', 'Verified by (Globe representative)', 'Noted by'],
+      attach: await reportKmz(), logos: await formLogos(), // v2.23
     });
     offerResult(new Blob(pdf.output({ title: `${S.project} rectification report` }), { type: 'application/pdf' }), `${accFileBase(M)}_rectification_report.pdf`);
   }));
@@ -5367,10 +5476,11 @@
         photos: byRec[r.id] || [],
         defs: M.items.filter((x) => x.r === r).map((x) => ({ no: x.no, text: `${x.d.cat}: ${x.d.item}${x.d.notes ? ' — ' + x.d.notes : ''}`, sev: sevOf(x.d), status: defStatusOf(x.d) })) });
     }
-    let data = withData ? await projectFiles(S.project, 'polecam/') : [];
-    if (withData) { const sealed = await sealFiles(data, 'polecam/'); if (sealed) data = sealed; LOG.info('kmz.share', { sealed: !!sealed, files: data.length }); } // v2.22: the KMZ lock
-    busy('Building KMZ…', 1);
     const kml = window.PoleReports.acceptanceKml(recs, { name: `${S.project} · ${M.stage}`, icons, exportedBy: exporterLine() });
+    let data = withData ? await projectFiles(S.project, 'polecam/') : [];
+    // v2.22: the KMZ lock; v2.23: the map part (doc.kml, its photos and icons) is sealed too, so an edit of the pins is seen
+    if (withData) { const sealed = await sealFiles(data, 'polecam/', [{ name: 'doc.kml', data: kml }, ...files]); if (sealed) data = sealed; LOG.info('kmz.share', { sealed: !!sealed, files: data.length }); }
+    busy('Building KMZ…', 1);
     return new Blob(C.makeZipParts([{ name: 'doc.kml', data: kml }, ...files, ...data]), { type: 'application/vnd.google-earth.kmz' });
   }
 
@@ -5521,6 +5631,7 @@
     if (p.web != null && !(typeof p.web === 'string' && /^https:\/\/\S{1,300}$/.test(p.web))) return false;
     if (p.otp != null && !(typeof p.otp === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(p.otp))) return false; // v2.22: approval codes
     if (!str(p.kmzPass, 100) || !list(p.kmzOld, 5, 100)) return false; // v2.22: the shared KMZ lock
+    if (p.logos != null && !(typeof p.logos === 'object' && Object.keys(p.logos).every((k) => (k === 'left' || k === 'right') && typeof p.logos[k] === 'string' && /^[A-Za-z0-9+/]+={0,2}$/.test(p.logos[k]) && p.logos[k].length <= 24000))) return false; // v2.23: logos (JPEG)
     if (p.packs != null && !(Array.isArray(p.packs) && p.packs.length <= 30 && p.packs.every((x) => x && str(x.n, 60) && typeof x.d === 'string' && /^[A-Za-z0-9_-]{20,100}$/.test(x.d) && num(x.mb, 0, 100000)))) return false;
     return true;
   }
@@ -5796,7 +5907,7 @@
     const v = $('admKmzPass').value.trim();
     $('admKmzInfo').textContent = !v ? 'Empty: shared KMZ files are not locked.' : kmzHasKey(v) ? '⚠ This password holds your company key: every phone of the list would get it. A random password is safer.' : 'Shared PAT, cleanup and FAT KMZ files are locked with this password. Update every phone to v2.22 first: older versions cannot open locked files.';
   });
-  $('admOwner').addEventListener('change', () => { if (admKmzAuto && $('admKmzPass').value.trim() === admKmzAuto) { admKmzAuto = autoKmzFor($('admOwner').value); $('admKmzPass').value = admKmzAuto; } });
+  $('admOwner').addEventListener('change', () => { if (admDraft) admDraft.pol.owner = $('admOwner').value; if (admKmzAuto && $('admKmzPass').value.trim() === admKmzAuto) { admKmzAuto = autoKmzFor($('admOwner').value); $('admKmzPass').value = admKmzAuto; } });
   $('admReqGo').addEventListener('click', () => guard(async () => {
     const req = normReq($('admReq').value), out = $('admReqOut');
     if (req.length !== 6) { toast('Type the 6-character request code from the user’s phone, e.g. K7Q-2M9'); return; }
@@ -5811,6 +5922,7 @@
      photos) is encrypted and sealed (AES-GCM, key from the list's KMZ password with PBKDF2): Google Earth still shows doc.kml,
      but the data can be read only with the password, and any change to it makes the file refused. ---- */
   const SEAL_ITER = 150000;
+  const sha256hex = async (bytes) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((x) => x.toString(16).padStart(2, '0')).join('');
   let admKmzAuto = '';
   const coShort = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9 ]+/g, ' ').trim().split(/\s+/)[0] || 'ORG';
   /** The suggested password with the admin company chosen on the screen (the random part stays). */
@@ -5831,7 +5943,7 @@
   }
   /** files: [{ name: 'polecam/…', data }] → the sealed set (polecam/seal.json, polecam/sealed/…); null when no password is set.
       Each file is encrypted on its own (its name bound in), with its IV in the encrypted manifest; the plain copy is let go at once. */
-  async function sealFiles(files, pre) {
+  async function sealFiles(files, pre, outside) {
     const pass = S.team && pol().kmzPass; if (!pass) return null;
     const salt = b64u.enc(crypto.getRandomValues(new Uint8Array(16))), key = await kmzKey(pass, salt), out = [], ivs = {};
     let i = 0;
@@ -5843,8 +5955,10 @@
       out.push({ name: `${pre}sealed/${rel}.bin`, data: new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: enc8(rel) }, key, plain)) });
       ivs[rel] = b64u.enc(iv);
     }
+    const out2 = {}; // v2.23: the SHA-256 of each file of the map part (doc.kml, files/…): an edit of the pins is detected too
+    for (const f of outside || []) out2[f.name] = await sha256hex(typeof f.data === 'string' ? enc8(f.data) : f.data);
     const ivm = crypto.getRandomValues(new Uint8Array(12));
-    const man = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: ivm, additionalData: enc8('manifest') }, key, enc8(JSON.stringify({ v: 1, files: ivs, at: new Date().toISOString() }))));
+    const man = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: ivm, additionalData: enc8('manifest') }, key, enc8(JSON.stringify({ v: 1, files: ivs, outside: out2, at: new Date().toISOString() }))));
     const head = { app: 'G-eSAA', seal: 1, kdf: 'PBKDF2-SHA256', iter: SEAL_ITER, salt, org: S.team.id, orgName: S.team.name, manifest: { iv: b64u.enc(ivm), data: b64u.enc(man) } };
     return [{ name: `${pre}seal.json`, data: JSON.stringify(head) }, ...out];
   }
@@ -5854,7 +5968,8 @@
     let head = null; try { head = JSON.parse(new TextDecoder().decode(await z.get(`${pre}seal.json`))); } catch (e) { head = null; }
     if (!head || head.seal !== 1 || !head.salt || !head.manifest || !(head.iter >= 100000 && head.iter <= 2000000)) throw new Error('This KMZ’s locked G-eSAA data is damaged: it is not opened.');
     const P = pol(), cands = [...new Set([P.kmzPass, ...(P.kmzOld || [])].filter(Boolean))];
-    const changed = () => new Error('The G-eSAA data in this KMZ was changed after it was shared (or the file is damaged): it is not opened. Ask for the file again.');
+    // v2.23: shown as an alert: the KMZ was edited by someone outside the app after it was shared
+    const changed = (what) => Object.assign(new Error(`${what || 'The defect list (the G-eSAA data) in this KMZ'} was changed after the KMZ was shared, outside G-eSAA: it was edited by unauthorized personnel, or the file was damaged on the way. It is not opened. Ask the sender for the original file.`), { tampered: true });
     busy('Unlocking the data…');
     let key = null, man = null;
     for (const c of cands) { // the password is found by the manifest it opens (nothing in the file tells it apart)
@@ -5876,6 +5991,13 @@
     };
     let n = 0; const plainPts = await dec('points.json');
     for (const rel of files) { busy(`Checking the locked data ${++n} / ${files.size}`, n / files.size); if (rel !== 'points.json') await dec(rel); } // all checked first
+    const outside = man.outside; // v2.23: the map part, as shared (older locked files have no list of it)
+    if (outside && typeof outside === 'object') {
+      const now = z.names.filter((x) => !x.startsWith(pre) && !x.endsWith('/'));
+      const mapChanged = () => changed('The map part of this KMZ (doc.kml: the pins, balloons and their photos)');
+      if (now.length !== Object.keys(outside).length || now.some((x) => !(x in outside))) throw mapChanged();
+      for (const [nm, h] of Object.entries(outside)) { const b = await z.get(nm); if (!b || (await sha256hex(b)) !== h) throw mapChanged(); }
+    }
     LOG.info('seal.open', { files: files.size });
     const get = async (nm) => {
       if (!nm.startsWith(pre)) return z.get(nm);
@@ -6490,24 +6612,36 @@
     if (!(await unsealedOk(f, rp))) return; // v2.21: several projects from a colleague
     const fm = meta.meta || {}, kind = fm.mode === 'acceptance' ? fm.stage || 'PAT' : 'survey', n = meta.points.length;
     const what = `“${meta.project || f.name}”: ${kind === 'survey' ? 'a survey' : `a ${STAGE_NAME[kind]}`} with ${n} record${n === 1 ? '' : 's'}${fm.site && fm.site !== meta.project ? ` · ${fm.site}` : ''}.`;
-    const btns = kind === 'PAT' ? [{ label: 'Start the defect cleanup', value: 'Cleanup', primary: true }, { label: 'Start the FAT', value: 'FAT' }, { label: 'Open the PAT itself', value: 'open' }]
-      : kind === 'Cleanup' ? [{ label: 'Start the FAT', value: 'FAT', primary: true }, { label: 'Open the cleanup itself', value: 'open' }]
+    const nodef = kind === 'PAT' && !!fm.noDefects; // v2.23: a PAT with no defects is also the FAT: nothing to start from it
+    // v2.23: the FAT starts only from a COMPLETED defect cleanup (the contractor's fixes), never straight from the PAT
+    const clDone = kind === 'Cleanup' && !!fm.completedAt;
+    const btns = nodef ? [{ label: 'Open the PAT', value: 'open', primary: true }]
+      : kind === 'PAT' ? [{ label: 'Start the defect cleanup', value: 'Cleanup', primary: true }, { label: 'Open the PAT itself', value: 'open' }]
+      : kind === 'Cleanup' ? (clDone ? [{ label: 'Start the FAT', value: 'FAT', primary: true }, { label: 'Open the cleanup itself', value: 'open' }] : [{ label: 'Open the cleanup itself', value: 'open', primary: true }])
         : [{ label: kind === 'FAT' ? 'Open the FAT' : 'Open the survey', value: 'open', primary: true }];
-    const pick = await ask('Open the shared file', `${what}\n\n${kind === 'PAT' ? 'Start the defect cleanup or the FAT from it (a new project), or open the PAT itself to view or continue it.'
-      : kind === 'Cleanup' ? 'Start the FAT from it (a new project), or open the cleanup itself to view or continue it.' : 'It opens in its own project on this phone; records already on this phone from the same file are updated.'}`, [{ label: 'Cancel', value: '' }, ...btns]);
+    const pick = await ask('Open the shared file', `${what}\n\n${nodef ? 'No deficiencies were found: the PAT and the FAT are done, so there is no defect cleanup or FAT to start. It opens as it is.' : kind === 'PAT' ? 'Start the defect cleanup: the PAT\'s items open on the map, with the site and vendor of the file. Or open the PAT itself to view it.'
+      : kind === 'Cleanup' ? (clDone ? `The defect cleanup was completed${fm.completedAt ? ` on ${longDate(fm.completedAt)}` : ''}. Start the FAT: each fix opens on the map to be checked on site. Or open the cleanup itself to view it.` : 'The defect cleanup is not completed yet, so the FAT cannot start from it: the contractor marks the cleanup complete and shares it again. You can open it to view it.')
+        : 'It opens in its own project on this phone; records already on this phone from the same file are updated.'}`, [{ label: 'Cancel', value: '' }, ...btns]);
     if (!pick || sharedDefer(f)) return;
     if (pick === 'open') {
       await restoreZip(f);
       await closeAll(); fitProject();
       return;
     }
-    // a new defect cleanup / FAT project: the New project form, filled, for the details and Create
-    if (!$('newProj').hidden) npReset(); // the form is already open: filled again, not opened twice (v2.21)
-    else { if ($('projects').hidden) openProjects(); openNewProject(); }
-    $('npCat').value = pick; npSync();
-    if ($('npCat').value !== pick) { toast(`Your part of this site does not include the ${STAGE_NAME[pick]}`, 5000); return; }
-    npFile = f; npFileKind = 'stage'; npSync();
-    toast('Check the details, then tap Create', 4000);
+    // v2.23: the defect cleanup / FAT starts at once with the file's project data (site, vendor, form details, who recorded
+    // the PAT) and the map opens on its items; no New project form
+    const fromName = fm.fromPat || meta.project;
+    const have = allProjects().find((x) => { const mx = pmeta(x); return mx.mode === 'acceptance' && mx.stage === pick && mx.fromPat === fromName && (pick === 'Cleanup' || mx.fromStage === kind); });
+    if (have) {
+      const c = await ask(`${pick === 'FAT' ? 'FAT' : 'Defect cleanup'} already on this phone`, `“${have}” was started from this ${STAGE_NAME[kind]} before. Open it, or start a new one?`,
+        [{ label: 'Cancel', value: '' }, { label: 'Open it', value: 'have', primary: true }, { label: 'Start a new one', value: 'new' }]);
+      if (!c) return;
+      if (c === 'have') { if (!$('newProj').hidden || !$('projects').hidden) await closeAll(); S.project = have; persist(); renderPoles(); fitProject(); toast(`Now working on: ${have}`); return; }
+    }
+    const name = await importStageFile(f, pick);
+    if (!name) return;
+    await closeAll(); fitProject();
+    setTimeout(() => { const t = nextTarget(); if (t && !stack.length) openVisit(t.r.id, true); }, 700); // the first item to fix / check
   }
   /* the installed web app: a file shared to it (Android share sheet) waits in the offline cache; a file opened with it (computer) */
   async function sharedFromCache() {
@@ -6545,6 +6679,8 @@
   /** The handover file: the acceptance KMZ with the PoleCam data inside (PAT → defect cleanup → FAT). */
   async function sharePackage() {
     if (!needPoints()) return;
+    if (taskCat() === 'Cleanup' && !pmeta().completedAt && !(await ask('Cleanup not completed', 'The FAT starts only from a completed defect cleanup. Mark the cleanup complete first (Projects → Mark task complete), then share it. Share it anyway, to view only?',
+      [{ label: 'Cancel', value: false, primary: true }, { label: 'Share anyway', value: true }]))) return; // v2.23
     if (!(await shareGate('share'))) return;
     const M = accModel(), blob = await buildAccKmz(M, true); busy(false);
     noteExport('sent');
@@ -6570,27 +6706,65 @@
     toast('Saved to Downloads');
   }
 
-  /* ---- admin: company names from a CSV file ---- */
-  $('admCsv').addEventListener('click', () => { $('admCsvInput').value = ''; $('admCsvInput').click(); });
-  $('admCsvInput').addEventListener('change', (e) => guard(async () => {
-    const f = e.target.files[0]; if (!f || !admDraft) return;
-    const names = C.companiesFromCsv(await f.text());
-    if (!names.length) { toast('No company names found. Put one company per row (first column, or a column named Company).', 5000); return; }
-    const have = new Set(admDraft.co.map((c) => c.toLowerCase())), add = names.filter((n) => !have.has(n.toLowerCase()));
-    const room = Math.max(0, 300 - admDraft.co.length), local = add.slice(0, room);
-    admDraft.co.push(...local); renderAdmDraft();
-    let note = `${local.length} compan${local.length === 1 ? 'y' : 'ies'} added from ${f.name}${names.length > add.length ? ` (${names.length - add.length} already on the list)` : ''}.`;
-    if (add.length > room) note += ` ${add.length - room} not added here: the in-app list holds at most 300 (the online sheet can hold more).`;
-    const url = $('admUrl').value.trim(), wkey = $('admWriteKey').value.trim();
-    if (url && wkey && add.length) {
-      busy('Adding them to the online sheet…');
-      try {
-        const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: wkey, action: 'addCompanies', companies: add }) });
-        note += j && j.ok ? ` ${j.added} added to the online sheet.` : ` The online sheet refused them${j && j.error === 'key' ? ' (wrong admin key)' : ''}.`;
-      } catch (err) { note += ` Could not reach the online sheet (${err.message}).`; } finally { busy(false); }
+  /* ---- v2.23: admin: the companies come only from the online Google Sheet (its Company List / Companies tab) ---- */
+  async function admReadCompanies(quiet) {
+    const url = $('admUrl').value.trim(), key = $('admReadKey').value.trim(), akey = $('admWriteKey').value.trim(), out = $('admCoInfo');
+    if (!/^https:\/\/\S+$/.test(url) || !key) { out.textContent = 'Set the online sheet first (web app URL and read key, below), then tap Refresh from the sheet.'; return false; }
+    out.textContent = 'Reading the companies from the sheet…';
+    try {
+      const u = new URL(url); u.searchParams.set('key', key); u.searchParams.set('v', APP_VER); u.searchParams.set('company', ''); if (akey) u.searchParams.set('akey', akey);
+      const r = await withTimeout(fetch(u.href, { cache: 'no-store', redirect: 'follow' }), 25000, 'The online sheet did not answer');
+      const j = await r.json();
+      if (!j || !j.ok) { out.textContent = `The sheet refused: ${j && j.error === 'key' ? 'wrong read key' : (j && j.error) || 'unknown reason'}.`; return false; }
+      const c = cleanCloud(j), names = c.companies;
+      if (!names.length) { out.textContent = j.strict && !akey ? 'The sheet uses company keys: enter its Admin key (below) to read all the companies, then Refresh.' : 'The sheet has no companies: add them to its Company List / Companies tab, then Refresh.'; return false; }
+      const kept = names.slice(0, 300);
+      admDraft.co = kept; admDraft.coRead = new Date().toISOString();
+      { const own0 = kept.find((x) => normCo(x) === normCo(admDraft.pol.owner)); // the admin company as the sheet writes it, else the sheet's ADMIN company
+        if (own0) admDraft.pol.owner = own0; else if (c.admins && c.admins.length) { const a0 = kept.find((x) => normCo(x) === normCo(c.admins[0])); if (a0) admDraft.pol.owner = a0; } }
+      renderAdmDraft();
+      out.textContent = `${names.length} compan${names.length === 1 ? 'y' : 'ies'} read from the sheet${c.name ? ` “${c.name}”` : ''} ${fmtTime(admDraft.coRead)}.${names.length > 300 ? ' The list keeps the first 300 for phones that are offline; phones that read the sheet see them all.' : ''} Tap Save and share the list.`;
+      LOG.info('admin.companies', { n: names.length });
+      return true;
+    } catch (e) { out.textContent = `Could not reach the sheet: ${e.message}. ${admDraft.co.length ? 'The companies of the saved list are kept.' : ''}`; return false; }
+  }
+  $('admCoRefresh').addEventListener('click', () => guard(() => admReadCompanies(false), 'Companies not read'));
+  /* ---- v2.23: admin: the logos of the form and the reports, uploaded on this phone; they travel in the list (small JPEGs) ---- */
+  function renderLogoPick(P0) {
+    const L = ((P0 || (admDraft && admDraft.pol) || {}).logos) || {};
+    [['left', 'L'], ['right', 'R']].forEach(([k, c]) => {
+      $(`admLogo${c}Img`).src = L[k] ? `data:image/jpeg;base64,${L[k]}` : `brand/logo-${k}.jpg`;
+      $(`admLogo${c}Info`).textContent = L[k] ? `Uploaded · ${Math.round((L[k].length * 3) / 4 / 1024)} KB` : 'Built-in (brand/logo-' + k + '.jpg)';
+      $(`admLogo${c}Reset`).disabled = !L[k];
+    });
+  }
+  let logoSide = 'left';
+  /** An image made into a small JPEG on white (PNG transparency), at most 600 × 200 px and 24,000 base64 characters. */
+  async function logoJpeg(file) {
+    if (file.size > 25 * 1048576) throw new Error('This image is too large: use a logo file under 25 MB');
+    const im = await loadImage(file, 1600), { w, h } = dims(im); // decoded at most 1600 px (memory on phones)
+    if (!w || !h) throw new Error('This image could not be read');
+    for (const [mw, mh, q] of [[600, 200, 0.9], [480, 160, 0.85], [400, 140, 0.8], [320, 110, 0.75], [240, 80, 0.7]]) {
+      const sc = Math.min(1, mw / w, mh / h), cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(w * sc)); cv.height = Math.max(1, Math.round(h * sc));
+      const g = cv.getContext('2d'); g.fillStyle = '#ffffff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(im, 0, 0, cv.width, cv.height);
+      const b = new Uint8Array(await (await toBlob(cv, q)).arrayBuffer()); cv.width = cv.height = 0;
+      let bin = ''; for (let i = 0; i < b.length; i += 8192) bin += String.fromCharCode.apply(null, b.subarray(i, i + 8192));
+      const b64 = btoa(bin);
+      if (b64.length <= 24000) { if (im.close) im.close(); return b64; }
     }
-    toast(`${note} Tap Save and share the list.`, 7000);
-  }));
+    if (im.close) im.close();
+    throw new Error('This image is too detailed to keep small: use a simpler logo');
+  }
+  ['L', 'R'].forEach((c) => {
+    $(`admLogo${c}`).addEventListener('click', () => { logoSide = c === 'L' ? 'left' : 'right'; $('admLogoInput').value = ''; $('admLogoInput').click(); });
+    $(`admLogo${c}Reset`).addEventListener('click', () => { if (!admDraft) return; const L = { ...(admDraft.pol.logos || {}) }; delete L[c === 'L' ? 'left' : 'right']; admDraft.pol.logos = L; renderLogoPick(); });
+  });
+  $('admLogoInput').addEventListener('change', (e) => guard(async () => {
+    const f = e.target.files[0]; if (!f || !admDraft) return;
+    const b64 = await logoJpeg(f);
+    admDraft.pol.logos = { ...(admDraft.pol.logos || {}), [logoSide]: b64 }; renderLogoPick();
+    toast(`${logoSide === 'left' ? 'Left' : 'Right'} logo set: tap Save and share the list`, 3500);
+  }, 'Logo not used'));
   $('admTest').addEventListener('click', async () => {
     const url = $('admUrl').value.trim(), key = $('admReadKey').value.trim();
     if (!/^https:\/\/\S+$/.test(url)) { $('admTestOut').textContent = 'Paste the web app URL (it starts with https://script.google.com/).'; return; }
@@ -6644,9 +6818,10 @@
     const create = admMode === 'create' || !S.team;
     const P = pol(), F = formText();
     const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice(), poleTypes: (P.poleTypes || []).slice(), adminUsers: (P.adminUsers || []).slice(), ...(P.web ? { web: P.web } : {}), ...(P.vendorRecords === false ? { vendorRecords: false } : {}),
-      otp: P.otp || b64u.enc(crypto.getRandomValues(new Uint8Array(18))), ...(P.kmzPass ? { kmzPass: P.kmzPass } : {}), ...(P.kmzOld ? { kmzOld: P.kmzOld.slice() } : {}) }; // v2.22
+      otp: P.otp || b64u.enc(crypto.getRandomValues(new Uint8Array(18))), ...(P.kmzPass ? { kmzPass: P.kmzPass } : {}), ...(P.kmzOld ? { kmzOld: P.kmzOld.slice() } : {}), ...(P.logos ? { logos: { ...P.logos } } : {}) }; // v2.22, v2.23 logos
     admKmzAuto = P.kmzPass ? '' : suggestKmzPass(P.owner || (S.user && S.user.company) || ''); // follows the admin company until edited
-    $('admKmzPass').value = P.kmzPass || admKmzAuto; $('admReq').value = ''; $('admReqOut').hidden = true;
+    $('admKmzPass').value = P.kmzPass || admKmzAuto;
+    renderLogoPick(polDraft); $('admReq').value = ''; $('admReqOut').hidden = true;
     $('admKmzInfo').textContent = P.kmzPass ? 'Shared PAT, cleanup and FAT KMZ files are locked with this password.' : 'Not saved yet: shared KMZ files are locked once the list is saved with a password. Update every phone to v2.22 first: older versions cannot open locked files.';
     $('admPoleTypes').value = typeLines(polDraft.poleTypes);
     $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = '';
@@ -6655,11 +6830,12 @@
     if (create) {
       await newAdminKey(); // the new list's key
       admDraft = { id: uid(), name: '', co: [], admins: [], rev: 0, src: null, pol: polDraft, newKey: true };
-      if (S.user && S.user.company) { admDraft.co.push(S.user.company); if (!polDraft.owner) polDraft.owner = S.user.company; }
+      if (S.user && S.user.company && !polDraft.owner) polDraft.owner = S.user.company; // v2.23: the companies come from the sheet
     } else admDraft = { id: S.team.id, name: S.team.name, co: S.team.co.slice(), admins: (S.team.admins || []).map((a) => ({ ...a })), rev: S.team.rev, src: S.team.src || null, pol: polDraft, newKey: !hasListKey(S.team) };
     $('admUrl').value = (admDraft.src && admDraft.src.url) || ''; $('admReadKey').value = (admDraft.src && admDraft.src.key) || '';
     $('admWriteKey').value = S.onlineAdminKey || ''; $('admTestOut').textContent = '';
-    $('admName').value = admDraft.name; $('admNewCo').value = '';
+    $('admName').value = admDraft.name; $('admCoInfo').textContent = admDraft.co.length ? `${admDraft.co.length} companies on the saved list. Tap Refresh from the sheet to update them.` : '';
+    if ($('admUrl').value.trim() && $('admReadKey').value.trim()) admReadCompanies(true); // the sheet's current companies
     // form wording
     $('pfmCompany').value = F.company; $('pfmAddress').value = F.address || ''; $('pfmDept1').value = F.dept1 || ''; $('pfmDept2').value = F.dept2 || '';
     $('pfmLeftTitle').value = F.leftTitle; $('pfmRightTitle').value = F.rightTitle; $('pfmTypes').value = (F.types || []).join('\n'); $('pfmLegend').value = F.legend || ''; $('pfmDateSub').value = F.colDateSub || '';
@@ -6720,27 +6896,14 @@
     admDraft.pol.defects[$('setDefCat').value] = $('setDefItems').value.split('\n').map((x) => x.trim().slice(0, 120)).filter(Boolean).slice(0, 60);
   });
   function renderAdmDraft() {
-    const box = $('admCos'); box.innerHTML = '';
-    if (!admDraft.co.length) box.innerHTML = '<p class="hint" style="margin:0">No companies yet. Add each company or vendor that will use G-eSAA.</p>';
-    admDraft.co.forEach((c, i) => {
-      const row = document.createElement('div'); row.className = 'co-item';
-      const t = document.createElement('span'); t.textContent = c;
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'btn danger'; b.textContent = 'Remove';
-      b.addEventListener('click', () => { admDraft.co.splice(i, 1); renderAdmDraft(); });
-      row.append(t, b); box.appendChild(row);
-    });
-    const own = $('admOwner'), cur = own.value || admDraft.pol.owner || '';
+    const box = $('admCos'); box.innerHTML = ''; // v2.23: read only: the sheet is the list
+    if (!admDraft.co.length) box.innerHTML = '<p class="hint" style="margin:0">No companies yet: they are read from the online sheet.</p>';
+    admDraft.co.forEach((c) => { const t = document.createElement('span'); t.textContent = c; if (normCo(c) === normCo(admDraft.pol.owner)) t.className = 'own'; box.appendChild(t); });
+    const own = $('admOwner'), cur = admDraft.pol.owner || own.value || ''; // v2.23: the draft's admin company (the sheet's spelling) first
     own.innerHTML = '<option value="">Not set: every user may manage, add and verify</option>' + admDraft.co.map((c) => `<option${c === cur ? ' selected' : ''}>${C.xmlEsc(c)}</option>`).join('');
     if (cur && !admDraft.co.includes(cur)) own.value = '';
     $('admRev').textContent = admDraft.rev ? `Saving makes version ${admDraft.rev + 1}${admDraft.newPin ? ' with the new admin PIN' : ''}. Phones that have version ${admDraft.rev} take it ${admDraft.src && S.onlineAdminKey ? 'from the online sheet by themselves' : 'with the join link or QR code'}.` : 'Saving makes version 1 of a new list.';
   }
-  $('admAddCo').addEventListener('click', () => {
-    const v = $('admNewCo').value.trim().replace(/\s+/g, ' ').slice(0, 80);
-    if (!v) return;
-    if (admDraft.co.some((c) => c.toLowerCase() === v.toLowerCase())) { toast('Already on the list'); return; }
-    admDraft.co.push(v); $('admNewCo').value = ''; renderAdmDraft(); $('admNewCo').focus();
-  });
-  $('admNewCo').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('admAddCo').click(); });
   $('admChangePin').addEventListener('click', async () => {
     const p1 = await askPin('New admin PIN', 'Phones that take the next list version will need this PIN. Anyone who had the old PIN stops being an admin.'); if (p1 == null) return;
     if (!/^\d{4,8}$/.test(p1)) { toast('The PIN is 4 to 8 digits'); return; }
@@ -6751,12 +6914,14 @@
   $('admSave').addEventListener('click', async () => {
     admDraft.name = $('admName').value.trim().replace(/\s+/g, ' ').slice(0, 80);
     if (!admDraft.name) { toast('Give the list a name, e.g. your office or project'); $('admName').focus(); return; }
-    if (!admDraft.co.length) { toast('Add at least one company'); return; }
+    if (!admDraft.co.length) { toast('No companies yet: set the online sheet (URL, read key, admin key) and tap Refresh from the sheet.', 6000); $('admCoRefresh').scrollIntoView({ block: 'center' }); return; }
     const url = $('admUrl').value.trim(), rkey = $('admReadKey').value.trim();
     if (url && !/^https:\/\/\S+$/.test(url)) { toast('The online sheet URL must start with https://'); return; }
     if (url && !rkey) { toast('Enter the read key from the sheet’s Settings tab, or clear the URL'); $('admReadKey').focus(); return; }
     if (admDraft.co.length > 300) { toast(`The list has ${admDraft.co.length} companies; the most is 300. Remove some, or keep the full list in the online sheet.`, 6000); return; }
     const P = readPolDraft();
+    if (P.logos && !P.logos.left && !P.logos.right) delete P.logos;
+    if (JSON.stringify(P).length > 60000) { toast('The list is too large to save: use smaller logo images (or fewer defect lines).', 6000); return; } // v2.23: phones refuse larger lists
     if (P.kmzPass && kmzHasKey(P.kmzPass)) { // v2.22: the KMZ password goes to every phone of the list
       const c = await ask('KMZ password holds your company key', 'The KMZ password is sent to every phone of the company list, contractors included. With your company key in it, any user could read the key and sign in to the online sheet as your company. Use a random password instead (nobody types it: the phones get it with the list)?',
         [{ label: 'Cancel', value: '' }, { label: 'Use a random password', value: 'rand', primary: true }, { label: 'Keep mine', value: 'keep' }]);

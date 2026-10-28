@@ -158,7 +158,7 @@ Create a project with task category **PAT** (Projects → **+ New project** → 
 - **CSV** — the Punchlist table.
 - **Photos ZIP** — file names match the Excel/PDF (e.g. `MKP-0001_1_Overview.jpg`, `MKP-0001_item3_asfound.jpg`, `MKP-0001_item3_rectified.jpg`, `MKP-0001_item3_verified.jpg`).
 
-The logos printed on the form are `brand/logo-left.jpg` and `brand/logo-right.jpg` in the app folder (taken from the template); replace the files to change them. The header wording (company, address, departments, signatory titles, inspection types, legend) is set by the admin and travels with the company list.
+The logos printed on the form (and, since v2.23, at the top of the completion and rectification reports) are uploaded by the admin: Settings → Administration → *Deficiency List form and report logos* → **Choose image…** (left and right); they travel with the company list. Without an uploaded logo, `brand/logo-left.jpg` / `brand/logo-right.jpg` of the app folder are used. The header wording (company, address, **Department line 1 and 2**, signatory titles, inspection types, legend) is set by the admin in the same group and travels with the company list.
 
 PAT and FAT share photos, so deleting one project never removes photos the other still uses.
 
@@ -219,7 +219,7 @@ Settings is one screen: **Account** (your details), **Field work** (Camera, Expo
 
 | Users set (per phone) | Admin sets (for everyone, inside the signed company list) |
 |---|---|
-| Name, mobile, email, company | List name, companies/vendors (typed or CSV), the **admin company** and its **admin PIN** |
+| Name, mobile, email, company | List name, companies/vendors (from the online sheet, v2.23), the **admin company** and its **admin PIN** |
 | Camera: ID scan after each photo, horizontal/vertical IDs | Photo sharpness check (strict/normal) — until a phone has a list, the user chooses |
 | Export defaults: photo size and JPEG quality, caption stamp and its fields, file naming; KMZ balloon size, pin icons, route, stamps; PDF annexes and photo size; DXF symbol/label/zone; where files are saved | Deficiency List form wording: company, address, department lines, signatory titles, inspection types, legend, rectified-date sub-label |
 | Offline map packs | Deficiency checklist (defects per category) |
@@ -266,7 +266,7 @@ The admin keeps three lists in a Google Sheet on their own account; phones read 
 **Setup (admin, once):**
 1. Make a Google Sheet, open **Extensions → Apps Script**, paste `PoleCam-online-sheet.gs`, save, choose **setup** and **Run** (allow the permissions).
 2. **Deploy → New deployment → Web app**, *Execute as: Me*, *Who has access: Anyone* → **Deploy**, copy the URL ending in `/exec`.
-3. In PoleCam: Settings → Administration → **Manage (admin)** → *Online Google Sheet*: paste the URL and the Read key (from the Settings tab), **Test connection**, then **Save and share the list**. Optionally enter the Admin key on your own phone so **Import companies from CSV** also adds them to the sheet.
+3. In PoleCam: Settings → Administration → **Manage (admin)** → *Online Google Sheet*: paste the URL and the Read key (from the Settings tab), **Test connection**, then **Save and share the list**. Enter the Admin key on your own phone too (needed to read all the companies when the sheet uses company keys), then **Refresh from the sheet** under *Companies and vendors*.
 4. Phones get the sheet address with the next list update (join link or QR code). Anyone with the URL and Read key can read the three lists, so treat them like a password.
 
 **On the phones:** Projects → **+ New project** → *Project name* **▾** lists the open rows for the user's company (admins see all). Picking one fills the project with its category, site and contractor; for a Defect Cleanup or FAT choose the KMZ in the same form. Settings → Administration shows when the sheet was last read, with *Sync online sheet*.
@@ -323,7 +323,7 @@ Instead of typing tasks in the Tasks tab, the sheet can read them from your own 
 
 Only the task fields (task ID, project, category, site, contractor, company, Globe representative, notes) go to the phones; other tracker columns never leave Google.
 
-**Company names from a CSV (admin):** Manage (admin) → *Import companies from CSV*: the column named Company/Vendor/Contractor/Name, or the first column; duplicates are skipped. You can also paste names straight into the sheet's Companies tab.
+**Company names (admin, v2.23):** the companies come only from the online sheet's *Company List* / *Companies* tab: type or paste them there (one per row), then in Administration tap **Refresh from the sheet** and **Save and share the list**. The in-app Add and CSV import were removed.
 
 ## The shareable KMZ: PAT → defect cleanup → FAT (v2.5)
 
@@ -364,7 +364,7 @@ Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v2.1.1`), and upload 
 | `core.js` | UTM 51N conversion, EXIF read/write, ZIP, KML, DXF, CSV (no dependencies) |
 | `reports.js` | Excel (.xlsx, with pictures and page setup) and PDF writers, rectification report, acceptance KML (no dependencies) |
 | `forms.js` | The Deficiency List office form as PDF (with Annex A/B) and as an Excel sheet |
-| `brand/logo-left.jpg`, `brand/logo-right.jpg` | Logos printed on the form |
+| `brand/logo-left.jpg`, `brand/logo-right.jpg` | Logos printed on the form and reports when the admin has not uploaded others |
 | `glyphs.js` | The ID reader's character network (v2.20): its weights, about 140 KB; read by `core.js` |
 | `tools/glyph-training/` | The scripts that trained it (Python); not needed by the app |
 | `ocr-worker.js`, `vendor/tesseract/` | Offline Pole ID reader: Tesseract OCR (tesseract.js-core v7.0.0) and the English model from tessdata_fast, both Apache-2.0 |
@@ -517,6 +517,30 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.23
+
+- **Every PDF carries its KMZ.** The completion report, the Deficiency List and the rectification report each embed the KMZ of the same records, so the PDF and the map can be compared:
+  - **Survey:** the survey KMZ (poles, other points, route, balloon photos). **PAT:** the defects as found. **Defect cleanup:** the defects and their fixes. **FAT:** the defects, the fixes and the verification.
+  - The last page, **ATTACHED KMZ**, names the file, what it holds (pins, items open / rectified / verified) and its **SHA-256**, with a paperclip to open it. The PDF opens on its attachments panel where the reader supports it.
+  - **Where it opens:** Adobe Acrobat Reader (computer and phone), Foxit and Firefox show PDF attachments. **Chrome, Edge and many phones' built-in viewers do not**: use one of the readers above. (Checked here with poppler's `pdfdetach`, an independent reader; not tried in each reader.)
+  - The embedded KMZ is the Google Earth part (pins, balloons, photos at the KMZ settings), not the locked G-eSAA data; the PDF grows by its size (about 0.1–0.3 MB for a few elements; more with many photos). A KMZ over 60 MB is left out (the export says so: lower the KMZ balloon photo size, or export the KMZ on its own); if the KMZ cannot be made, the PDF is still made, without it.
+  - Some readers list the KMZ twice (in the attachments list and as the paperclip on the last page): it is the same file.
+- **Shared PAT KMZ: Start the defect cleanup goes straight to the map.** On the contractor's phone, *Projects → Open a shared file* (or *Open with G-eSAA*) → **Start the defect cleanup** no longer opens the New project form: the cleanup project is made at once with the file's project data (site, vendor, Globe representative, form details, the online-sheet site, who recorded the PAT; the contractor representative is you), the map opens on the PAT's pins and the first item to fix is shown (*Photo of the fix*, *Fixed, no photo*, *Comment*, *Next pin*). Opening the same PAT again offers to open the cleanup already on the phone instead of making a second one. The same goes for **Start the FAT** from a completed cleanup.
+- **The FAT only after the contractor's cleanup is completed.**
+  - A shared **PAT** offers *Start the defect cleanup* or *Open the PAT itself* — no longer *Start the FAT*.
+  - A shared **cleanup** offers *Start the FAT* only when that cleanup was **marked complete** before it was shared; otherwise it says the cleanup is not completed and only opens it to view.
+  - On the phone: a PAT shows *Start the FAT* only once its cleanup on this phone is completed (the FAT then starts from the cleanup, with the fixes); a cleanup shows it only once it is completed. The cleanup's steps are now *Fix each defect* → **Complete the cleanup** → *Share the cleanup KMZ*; sharing an unfinished cleanup asks first, as the inspector cannot start the FAT from it.
+  - A FAT can still be created empty from *+ New project* (FAT, no KMZ), as before.
+- **PAT: No defects found.** When a PAT finds no deficiency, the project card shows **✓ No defects found** (on phones that may record the PAT: not on a contractor's phone when the admin turned off vendor recording):
+  1. The form details are needed first (location, vendor, vendor representative), as for any PAT.
+  2. **One site photo** is taken as the evidence of the inspection (GPS position, time, your name); the record has no defect form. Choose the element (and ID) if you like, then Save.
+  3. **Complete the PAT — no defects found?** → the PAT is completed and locked, and **the FAT is recorded as done on the same date** (for a site of the online sheet, its PAT Date and FAT Date are both filled). No defect cleanup or FAT is offered (on this phone, and on any phone that opens its KMZ).
+  - The card shows *Completed · no defects, FAT done*. The Deficiency List shows **NO DEFICIENCIES FOUND — PAT completed …; FAT done the same day**, and the completion report says so. A PAT with records but no deficiency (notes only) is completed the same way with *Mark task complete*.
+  - The admin can *Undo complete*: the PAT and the FAT dates are both cleared.
+- **Companies only from the online sheet.** Administration → *Companies and vendors* no longer has *Add* or *Import CSV*: the companies are read from the sheet's *Company List* / *Companies* tab with **Refresh from the sheet** (the read key, and the admin key when the sheet uses company keys). The admin company is matched to the sheet's name (or its ADMIN company). A new list cannot be saved without the sheet. The list keeps up to 300 names for offline phones; phones that read the sheet see them all.
+- **Logos uploaded by the admin.** Administration → *Deficiency List form and report logos*: **Choose image…** for the left and right logo (PNG or JPEG; made into a small JPEG on white, at most 600 × 200 px). They are printed on the Deficiency List (PDF and Excel) and, new, at the top right of the completion and rectification reports, on every phone that takes the list. *Built-in* goes back to the app's own logos. **Department line 1 and 2** were already editable in the same group. With logos the list is too large for the full join QR code: join with the short code of the online sheet (or the join link).
+- **Edited KMZ: “edited by unauthorized personnel”.** A locked PAT / cleanup / FAT KMZ whose data was changed after it was shared now opens an alert **⚠ KMZ edited by unauthorized personnel** (instead of a short message). New in v2.23: the map part (doc.kml: pins, balloons and their photos) is sealed too, so deleting or moving pins in the file is also detected and refused. The app can tell that the file was changed outside G-eSAA, not who changed it; a file damaged on the way gives the same alert.
 
 ## What changed in v2.22
 

@@ -188,7 +188,10 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
 
   const PAGE_SIZES = { a4: [595.28, 841.89], letter: [612, 792] };
   class Pdf {
-    constructor(o) { const sz = PAGE_SIZES[(o && o.size) || 'a4'] || PAGE_SIZES.a4; this.W = sz[0]; this.H = sz[1]; this.pages = []; this.images = []; this.page = null; }
+    constructor(o) { const sz = PAGE_SIZES[(o && o.size) || 'a4'] || PAGE_SIZES.a4; this.W = sz[0]; this.H = sz[1]; this.pages = []; this.images = []; this.page = null; this.files = []; }
+    /** v2.23: a file embedded in the PDF (the attachments panel of the PDF reader), with an optional paperclip on a page.
+        o.page: page index for the paperclip; o.rect: [x, y, w, h] from the top-left, in pt. */
+    attach(name, bytes, o = {}) { this.files.push({ name: String(name), bytes, mime: o.mime || 'application/octet-stream', desc: o.desc || '', page: o.page, rect: o.rect }); }
     addPage() { this.page = { ops: [] }; this.pages.push(this.page); return this.page; }
     op(s) { this.page.ops.push(s); }
     color(c, stroke) { const [r, g, b] = c; return `${f2(r)} ${f2(g)} ${f2(b)} ${stroke ? 'RG' : 'rg'}`; }
@@ -224,11 +227,18 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
       const parts = []; let pos = 0; const offsets = [];
       const push = (x) => { const u = typeof x === 'string' ? latin1(x) : x; parts.push(u); pos += u.length; };
       const nImg = this.images.length, firstImg = 5, firstPage = firstImg + nImg;
-      const nObj = firstPage + this.pages.length * 2 - 1 + 1; // +1 for info dict
+      // v2.23: each embedded file takes 3 objects (the file stream, its file specification, its paperclip annotation)
+      const firstFile = firstPage + this.pages.length * 2, fileObj = (i, k) => firstFile + i * 3 + k;
+      const nObj = firstFile + this.files.length * 3; // the info dict
       const infoObj = nObj;
-      push('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+      const d = new Date(), p2 = (x) => String(x).padStart(2, '0');
+      const pdfDate = `D:${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+      push(this.files.length ? '%PDF-1.7\n%\xE2\xE3\xCF\xD3\n' : '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
       const obj = (n, body) => { offsets[n] = pos; push(`${n} 0 obj\n`); body(); push('\nendobj\n'); };
-      obj(1, () => push('<< /Type /Catalog /Pages 2 0 R >>'));
+      const fsRefs = this.files.map((_, i) => `${fileObj(i, 1)} 0 R`);
+      const names = this.files.map((f, i) => `(${pdfEsc(f.name)}) ${fsRefs[i]}`).join(' ');
+      // the attachments panel opens by itself (PageMode /UseAttachments) where the reader supports it
+      obj(1, () => push(this.files.length ? `<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [${names}] >> >> /AF [${fsRefs.join(' ')}] /PageMode /UseAttachments >>` : '<< /Type /Catalog /Pages 2 0 R >>'));
       const kids = this.pages.map((_, i) => `${firstPage + i * 2} 0 R`).join(' ');
       obj(2, () => push(`<< /Type /Pages /Kids [${kids}] /Count ${this.pages.length} >>`));
       obj(3, () => push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'));
@@ -241,12 +251,20 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
       const xo = this.images.map((_, i) => `/Im${i} ${firstImg + i} 0 R`).join(' ');
       this.pages.forEach((pg, i) => {
         const pn = firstPage + i * 2, cn = pn + 1;
-        obj(pn, () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${this.W} ${this.H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xo ? ` /XObject << ${xo} >>` : ''} >> /Contents ${cn} 0 R >>`));
+        const annots = this.files.map((f, k) => (f.page === i && f.rect ? `${fileObj(k, 2)} 0 R` : '')).filter(Boolean);
+        obj(pn, () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${this.W} ${this.H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xo ? ` /XObject << ${xo} >>` : ''} >> /Contents ${cn} 0 R${annots.length ? ` /Annots [${annots.join(' ')}]` : ''} >>`));
         const content = latin1(pg.ops.join('\n'));
         obj(cn, () => { push(`<< /Length ${content.length} >>\nstream\n`); push(content); push('\nendstream'); });
       });
-      const d = new Date(), p2 = (x) => String(x).padStart(2, '0');
-      const pdfDate = `D:${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+      this.files.forEach((f, i) => {
+        const mime = f.mime.replace(/[^A-Za-z0-9.+-]/g, (c) => `#${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
+        obj(fileObj(i, 0), () => { push(`<< /Type /EmbeddedFile /Subtype /${mime} /Length ${f.bytes.length} /Params << /Size ${f.bytes.length} /ModDate (${pdfDate}) >> >>\nstream\n`); push(f.bytes); push('\nendstream'); });
+        obj(fileObj(i, 1), () => push(`<< /Type /Filespec /F (${pdfEsc(f.name)}) /UF (${pdfEsc(f.name)}) /Desc (${pdfEsc(f.desc)}) /AFRelationship /Data /EF << /F ${fileObj(i, 0)} 0 R /UF ${fileObj(i, 0)} 0 R >> >>`));
+        const r = f.rect || [0, 0, 0, 0];
+        obj(fileObj(i, 2), () => push(f.page != null && f.rect
+          ? `<< /Type /Annot /Subtype /FileAttachment /Rect [${f2(r[0])} ${f2(this.H - r[1] - r[3])} ${f2(r[0] + r[2])} ${f2(this.H - r[1])}] /FS ${fsRefs[i]} /Name /Paperclip /Contents (${pdfEsc(f.desc || f.name)}) /T (G-eSAA) /C [0.1 0.44 0.76] /F 4 >>`
+          : '<< >>'));
+      });
       obj(infoObj, () => push(`<< /Title (${pdfEsc(info && info.title || '')}) /Producer (G-eSAA) /CreationDate (${pdfDate}) >>`));
       const xref = pos;
       let x = `xref\n0 ${infoObj + 1}\n0000000000 65535 f \n`;
@@ -255,6 +273,16 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
       push(`trailer\n<< /Size ${infoObj + 1} /Root 1 0 R /Info ${infoObj} 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
       return parts;
     }
+  }
+
+  /** v2.23: the two logos (the admin's, else the bundled ones) at the top right of a report's first page, above the subtitle. */
+  function headLogos(pdf, logos, M, y) {
+    if (!logos) return;
+    const add = (b) => { if (!b) return null; try { return pdf.addImage(b); } catch (e) { return null; } };
+    const r = add(logos.right), l = add(logos.left), H = 24, top = y - 8;
+    let x = pdf.W - M;
+    if (r != null) { const { w, h } = pdf.imgSize(r), dw = Math.min(90, (w / h) * H); pdf.imageFit(r, x - dw, top, dw, H); x -= dw + 10; }
+    if (l != null) { const { w, h } = pdf.imgSize(l), dw = Math.min(110, (w / h) * H); pdf.imageFit(l, x - dw, top, dw, H); }
   }
 
   /* ---------------- punchlist PDF layout ---------------- */
@@ -423,6 +451,7 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
     }
 
     // ---- footers
+    if (model.attach) attachmentPage(pdf, model.attach.bytes, model.attach); // v2.23: the KMZ of this report, embedded
     const total = pdf.pages.length;
     pdf.pages.forEach((pg, i) => {
       pdf.page = pg;
@@ -485,6 +514,7 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
     };
 
     newPage();
+    headLogos(pdf, model.logos, M, y);
     pdf.rect(M, y, 5, 40, { fill: BLUE });
     pdf.text(M + 14, y + 2, model.title, { size: 17, bold: true });
     pdf.text(M + 14, y + 24, model.stageLong, { size: 11, color: MUTED });
@@ -623,6 +653,7 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
     });
     y += 124;
 
+    if (model.attach) attachmentPage(pdf, model.attach.bytes, model.attach); // v2.23: the KMZ of this report, embedded
     const total = pdf.pages.length;
     pdf.pages.forEach((pg, i) => {
       pdf.page = pg;
@@ -645,6 +676,7 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
   function completionPdf(model) {
     const pdf = new Pdf(), M = 36, CW = pdf.W - 2 * M, BOTTOM = pdf.H - 46;
     pdf.addPage(); let y = M;
+    headLogos(pdf, model.logos, M, y);
     pdf.rect(M, y, 5, 40, { fill: GREEN });
     pdf.text(M + 14, y + 2, model.title, { size: 17, bold: true });
     pdf.text(M + 14, y + 24, model.stageLong, { size: 11, color: MUTED });
@@ -781,6 +813,7 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
       });
     });
 
+    if (model.attach) attachmentPage(pdf, model.attach.bytes, model.attach); // v2.23: the KMZ of this report, embedded
     const total = pdf.pages.length;
     pdf.pages.forEach((pg, i) => {
       pdf.page = pg;
@@ -792,6 +825,34 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
     return pdf;
   }
 
-  const api = { buildXlsxParts, xstyle, Pdf, punchlistPdf, rectificationPdf, completionPdf, acceptanceKml, csv, textWidth, wrapText, jpegInfo, pdfEsc, STYLES, colName, RED, GREEN, BLUE, MUTED, INK, ACCENT };
+  /** v2.23: the last page names the KMZ embedded in this PDF, what it holds and its SHA-256, with a paperclip to open it.
+      o: { name, mb, sha256, title, lines: [text], note } */
+  function attachmentPage(pdf, bytes, o) {
+    const M = 36, CW = pdf.W - 2 * M;
+    pdf.addPage(); let y = M;
+    pdf.rect(M, y, 5, 34, { fill: ACCENT });
+    pdf.text(M + 14, y + 2, 'ATTACHED KMZ', { size: 15, bold: true, color: INK });
+    pdf.text(M + 14, y + 21, o.title || 'The map data of this report, for Google Earth', { size: 9.5, color: MUTED });
+    y += 52;
+    const clip = [M, y, 30, 30];
+    pdf.rect(M, y, 30, 30, { fill: [0.91, 0.94, 0.98], stroke: BLUE, lw: 1 });
+    pdf.text(M + 15, y + 9, 'KMZ', { size: 8, bold: true, color: BLUE, align: 'center' });
+    const nl = wrapText(o.name, CW - 44, 11, true);
+    nl.forEach((l, i) => pdf.text(M + 42, y + 2 + i * 14, l, { size: 11, bold: true, color: INK }));
+    pdf.text(M + 42, y + 4 + nl.length * 14, `${o.mb} MB · embedded in this PDF`, { size: 9, color: MUTED });
+    y += Math.max(40, 12 + nl.length * 14 + 14);
+    const kv = (k, v) => { const ls = wrapText(v, CW - 130, 9); pdf.text(M, y, k, { size: 9, bold: true, color: MUTED }); ls.forEach((l, i) => pdf.text(M + 130, y + i * 12, l, { size: 9, color: INK })); y += Math.max(1, ls.length) * 12 + 6; };
+    (o.lines || []).forEach(([k, v]) => kv(k, v));
+    kv('SHA-256', o.sha256);
+    y += 8;
+    const how = ['How to get it: in Adobe Acrobat Reader (computer or phone), Foxit or Firefox, open the attachments panel (the paperclip) or click the paperclip box above, then save or open the KMZ. Open it in Google Earth (Pro, web or the app).',
+      'Some built-in viewers (Chrome, Edge, phone gallery or file apps) do not show attachments: use one of the readers above.',
+      'To check it is the same file: its SHA-256 (for example with "certutil -hashfile file.kmz SHA256" on Windows or "shasum -a 256 file.kmz" on Mac) must equal the one above. The counts above are from the same records as this report.'];
+    if (o.note) how.push(o.note);
+    how.forEach((t) => { wrapText(t, CW, 9).forEach((l) => { pdf.text(M, y, l, { size: 9, color: INK }); y += 12; }); y += 6; });
+    pdf.attach(o.name, bytes, { mime: 'application/vnd.google-earth.kmz', desc: o.desc || `KMZ for Google Earth: ${o.name}`, page: pdf.pages.length - 1, rect: clip });
+  }
+
+  const api = { attachmentPage, buildXlsxParts, xstyle, Pdf, punchlistPdf, rectificationPdf, completionPdf, acceptanceKml, csv, textWidth, wrapText, jpegInfo, pdfEsc, STYLES, colName, RED, GREEN, BLUE, MUTED, INK, ACCENT };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleReports = api;
 })(typeof self !== 'undefined' ? self : this);

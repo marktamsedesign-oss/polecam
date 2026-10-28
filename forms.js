@@ -215,6 +215,7 @@
       }
     }
     // ---- page numbers on annex pages
+    if (model.attach) R.attachmentPage(pdf, model.attach.bytes, model.attach); // v2.23: the KMZ of this report, embedded
     const total = pdf.pages.length;
     pdf.pages.forEach((pg, i) => {
       if (i < formPages) return;
