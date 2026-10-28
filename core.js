@@ -693,10 +693,8 @@
     for (const L of [...new Set(KNOWN_PREFIX.map((k) => k.length))].sort((a, b) => b - a)) {
       if (s.length <= L) continue;
       const rawNum = s.slice(L), misread = (rawNum.match(/[A-Z]/g) || []).length;
-      if (!/[0-9]/.test(rawNum) || misread * 2 > rawNum.length) continue; // the number must be mostly real digits (SPOT is not SP-0001)
+      if (!/[0-9]/.test(rawNum)) continue;
       const pre = s.slice(0, L).split('').map((c) => (/[0-9]/.test(c) ? (TO_LETTER[c] || c) : c)).join('');
-      const num = rawNum.split('').map((c) => (/[A-Z]/.test(c) ? (TO_DIGIT[c] || c) : c)).join('');
-      if (!/^[0-9]{1,8}$/.test(num)) continue; // up to 8 digits: owner tags such as 0430621 (v2.16)
       let p = KNOWN_PREFIX.includes(pre) ? pre : null, fuzzy = false;
       if (!p) { // one misread letter, e.g. GC -> CC, FOU -> FDU (only when it points to a single known prefix)
         let near = KNOWN_PREFIX.filter((k) => k.length === L && [...k].filter((ch, i) => ch !== pre[i]).length === 1);
@@ -704,9 +702,23 @@
         if (near.length === 1) { p = near[0]; fuzzy = true; }
       }
       if (!p) continue;
+      // a letter in the number is a misread digit only between digits, or an O, Q or D before them (CCO457); v2.18: an ID
+      // may end or begin with a real letter (GT-0123B), which then stays as it is
+      let mapped = 0;
+      const num = rawNum.split('').map((c, i, a) => { if (!/[A-WYZ]/.test(c) || !TO_DIGIT[c]) return c;
+        if ((i > 0 && i < a.length - 1 && /[0-9]/.test(a[i - 1]) && /[0-9]/.test(a[i + 1])) || (i === 0 && 'OQD'.includes(c) && /[0-9]/.test(a[1] || ''))) { mapped++; return TO_DIGIT[c]; } return c; }).join('');
+      // up to 8 digits: owner tags such as 0430621 (v2.16); X = a character that could not be read, at most 2 (v2.18)
+      const hidden = (num.match(/X/g) || []).length;
+      if (!/^[0-9X]{1,8}$/.test(num) || hidden > 2 || (num.length - hidden < 3 && hidden)) {
+        // v2.18: a known prefix and an ID of letters and digits (GT-0123B), as written; never "exact"
+        if (!fuzzy && p !== 'FDU' && /^[A-Z0-9]{2,10}$/.test(rawNum) && (rawNum.match(/[0-9]/g) || []).length >= 2 && misread * 2 <= rawNum.length && !best)
+          best = { id: `${p}-${rawNum}`, prefix: p, fuzzy: false, padded: false, hidden: 0, alnum: true };
+        continue;
+      }
+      if (misread - mapped > 0 && misread * 2 > rawNum.length) continue; // the number must be mostly real digits (SPOT is not SP-0001)
       const id = p === 'FDU' ? `FDU_${num}` : `${p}-${PAD4.includes(p) ? num.padStart(4, '0') : num}`;
       const padded = PAD4.includes(p) && num.length < 4; // zeros added: a digit may have been missed
-      if (!best || (best.fuzzy && !fuzzy)) best = { id, prefix: p, fuzzy, padded };
+      if (!best || best.alnum || (best.fuzzy && !fuzzy)) best = { id, prefix: p, fuzzy, padded, hidden, mapped };
     }
     return best;
   }
@@ -727,11 +739,27 @@
       let s = raw.toUpperCase().replace(/[^A-Z0-9\-/_]/g, '').replace(/^[-/_]+|[-/_]+$/g, '');
       if (s.length < 2 || s.length > 20) return;
       const k = knownId(s);
-      if (k) put(k.id, conf, true, conf + bonus + (k.fuzzy ? 8 : 18), !k.fuzzy && !k.padded); // exact: a known prefix and every digit read as they are
-      const digits = s.replace(/[-/_]/g, '');
+      if (k) put(k.id, k.hidden || k.alnum ? conf * 0.9 : conf, true, conf + bonus + (k.fuzzy ? 8 : 18) - (k.hidden ? 6 : 0) - (k.alnum ? 6 : 0), !k.fuzzy && !k.padded && !k.hidden && !k.alnum && !k.mapped); // exact: a known prefix and every digit read as they are
+      let digits = s.replace(/[-/_]/g, '');
+      // v2.18: a number read with one or two look-alike letters (O for 0, S for 5, G for 6…) inside it: those become digits.
+      // An ID may mix letters and digits (S0123B), so only a letter between digits (or an O, Q or D before them) is changed,
+      // and the reading as written stays one of the choices
+      if (numPrefix && /[A-Z]/.test(digits.replace(/X/g, '')) && !k) {
+        const isD = (ch) => /[0-9X]/.test(ch || ''); let n = 0;
+        const m = [...digits].map((c, i, a) => { if (!/[A-WYZ]/.test(c) || !TO_DIGIT[c]) return c;
+          if ((i > 0 && i < a.length - 1 && isD(a[i - 1]) && isD(a[i + 1])) || (i === 0 && 'OQD'.includes(c) && isD(a[1]))) { n++; return TO_DIGIT[c]; } return c; }).join('');
+        if (n && n <= 2 && /^[0-9X]+$/.test(m) && m.length - n >= 3) { put(s, conf * 0.85, false, conf * 0.85 + bonus); digits = m; conf *= 0.95; bonus -= 4; }
+      }
+      if (owned.has(digits)) return; // the owner's name was read with it: not the type prefix (v2.18)
       if (numPrefix && /^[0-9]{3,8}$/.test(digits)) { // a number-only pole ID: the type prefix + the number as painted
         const num = PAD4.includes(numPrefix) ? digits.padStart(4, '0') : digits;
-        put(`${numPrefix}-${num}`, conf, true, conf + bonus + (digits.length >= 4 ? 20 : 6), digits.length >= 4);
+        put(`${numPrefix}-${num}`, conf, true, conf + bonus + (digits.length >= 4 ? 20 : 6), digits.length >= 4 && digits === s.replace(/[-/_]/g, ''));
+        return;
+      }
+      // v2.18: a number with one or two hidden characters (X: covered by a cable, faded): kept with the X, never "exact"
+      const nx = (digits.match(/X/g) || []).length;
+      if (numPrefix && nx && nx <= 2 && /^[0-9X]{4,8}$/.test(digits) && digits.length - nx >= 3) {
+        put(`${numPrefix}-${digits}`, conf, true, conf + bonus + 12, false); // not "exact": two matching readings are needed
         return;
       }
       // a number with a stray mark after it (the star under a tag's number read as a letter): the number, scored lower (v2.16)
@@ -741,8 +769,34 @@
       const fitted = fitShape(s, target), id = fitted || s, fits = !!fitted;
       put(id, conf, fits, conf + bonus + (fits ? 15 : 0) + (/[A-Z]/.test(id) ? 2 : 0));
     };
+    // v2.18: an owner's name read with the number (an embossed GLOBE tag: "GLOBE" over "962574") gives that owner's prefix
+    const names = opts && opts.names ? opts.names : null, owned = new Set(); // {GLOBE: 'GT', BAYANTEL: 'BT', …}; numbers given an owner's prefix
+    const nameHit = (t) => {
+      if (!names) return null; const u = t.replace(/0/g, 'O');
+      if (names[u]) return { p: names[u], exact: true };
+      for (const [n, p] of Object.entries(names)) if (n.length >= 5 && u.length === n.length && [...n].filter((c, i) => c !== u[i]).length === 1) return { p, exact: false };
+      return null;
+    };
+    const ownerNumber = (good) => {
+      const ws = good.map((w) => ({ t: String(w.text).toUpperCase().replace(/[^A-Z0-9]/g, ''), conf: w.conf, line: w.line })).filter((w) => w.t);
+      for (const w of ws) {
+        const h = nameHit(w.t); if (!h) continue;
+        const byLine = {}; ws.filter((x) => x !== w).forEach((x) => { (byLine[x.line] = byLine[x.line] || []).push(x); });
+        for (const xs of Object.values(byLine)) {
+          const raw = xs.map((x) => x.t).join(''), cf0 = (w.conf + xs.reduce((t, x) => t + x.conf, 0) / xs.length) / 2;
+          let n = 0; const num = raw.replace(/[A-Z]/g, (c) => { if (!TO_DIGIT[c]) return c; n++; return TO_DIGIT[c]; });
+          if (/^[0-9]{3,8}$/.test(raw) || (/^[0-9]{3,8}$/.test(num) && n <= 2 && raw.length - n >= 3)) {
+            const cf = cf0 * (n ? 0.9 : 1);
+            put(`${h.p}-${PAD4.includes(h.p) ? num.padStart(4, '0') : num}`, cf, true, cf + 22, h.exact && !n && num.length >= 4); owned.add(num); owned.add(raw);
+          }
+          // an ID of letters and digits under the name (GLOBE / KV0123): kept as written, with the owner's prefix
+          if (/^[A-Z0-9]{3,12}$/.test(raw) && /[A-Z]/.test(raw) && (raw.match(/[0-9]/g) || []).length >= 2) { put(`${h.p}-${raw}`, cf0 * 0.95, true, cf0 * 0.95 + 18, false); owned.add(raw); }
+        }
+      }
+    };
     for (const r of results || []) {
       const good = (r.words || []).filter((w) => w.conf >= 20);
+      ownerNumber(good);
       if (r.stacked) { // one character (or a few) per line: the ID is the lines joined top to bottom
         if (good.length) add(good.map((w) => w.text).join(''), good.reduce((t, w) => t + w.conf, 0) / good.length, 1);
         continue;
@@ -980,7 +1034,22 @@
     for (const c of pc) for (let x = c.x0; x <= c.x1; x++) prof[x] += c.y1 - c.y0 + 1;
     const med = (a) => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[s.length >> 1] : 0; };
     const chainIn = (b0, b1) => {
-      const sel = pc.filter((c) => { const cx = (c.x0 + c.x1) / 2; return cx >= b0 && cx <= b1; }).sort((a, b) => a.y0 - b.y0);
+      let sel = pc.filter((c) => { const cx = (c.x0 + c.x1) / 2; return cx >= b0 && cx <= b1; }).sort((a, b) => a.y0 - b.y0);
+      // a piece far bigger than the column's characters (a cable or the tag's edge crossing it) is left out, so the characters
+      // beside it stay apart; the character it covers is counted as hidden below (v2.17). Sizes from the larger pieces (not dirt).
+      const big = sel.slice().sort((a, b) => b.area - a.area).slice(0, Math.max(3, Math.ceil(sel.length / 2)));
+      const ph = med(big.map((c) => c.y1 - c.y0 + 1)), pw = med(big.map((c) => c.x1 - c.x0 + 1));
+      if (big.length >= 4) sel = sel.filter((c) => c.y1 - c.y0 + 1 <= ph * 1.9 && c.x1 - c.x0 + 1 <= Math.max(pw * 2.6, ph * 1.6));
+      // pieces off the column's line (the tag's edge, a cable beside it) are left out too; the line may slant with the pole
+      if (big.length >= 4) {
+        // a robust line (median of the slopes between pieces, median offset): the star or dirt below the tag does not pull it
+        const P = big.map((c) => [(c.y0 + c.y1) / 2, (c.x0 + c.x1) / 2]), my = med(P.map((q) => q[0])), sls = [];
+        for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) { const dy = P[j][0] - P[i][0]; if (Math.abs(dy) >= ph * 0.5) sls.push((P[j][1] - P[i][1]) / dy); }
+        const sl = sls.length ? Math.max(-0.35, Math.min(0.35, med(sls))) : 0, mx = med(P.map((q) => q[1] - sl * (q[0] - my)));
+        // only thin upright slivers beside it (the tag's edge) and pieces well away from it go; a stencil's fragments stay
+        sel = sel.filter((c) => { const d = Math.abs((c.x0 + c.x1) / 2 - (mx + sl * ((c.y0 + c.y1) / 2 - my))), w = c.x1 - c.x0 + 1, h = c.y1 - c.y0 + 1;
+          return d <= Math.max(4, pw * 0.75, ph * 0.5) || (d <= Math.max(6, pw * 1.3, ph * 0.9) && !(h >= ph * 0.6 && w <= pw * 0.35)); });
+      }
       // pieces overlapping top to bottom are one character; then fragments (a stencil's cut) join their neighbour
       let rows = [];
       for (const c of sel) {
@@ -989,9 +1058,10 @@
         else rows.push({ x0: c.x0, y0: c.y0, x1: c.x1, y1: c.y1, ids: [c.id] });
       }
       let medH = med(rows.map((q) => q.y1 - q.y0 + 1));
+      const charH = big.length >= 4 ? Math.max(medH, ph) : medH; // a stencil cut into halves: its pieces are not the character's height
       for (let i = 1; i < rows.length; i++) {
         const p = rows[i - 1], q = rows[i];
-        if (q.y0 - p.y1 <= Math.max(2, medH * 0.2) && q.y1 - p.y0 + 1 <= medH * 1.3) {
+        if (q.y0 - p.y1 <= Math.max(2, charH * 0.2) && q.y1 - p.y0 + 1 <= charH * 1.3) {
           p.x0 = Math.min(p.x0, q.x0); p.x1 = Math.max(p.x1, q.x1); p.y1 = Math.max(p.y1, q.y1); p.ids.push(...q.ids); rows.splice(i, 1); i--;
         }
       }
@@ -1001,14 +1071,32 @@
         const w = q.x1 - q.x0 + 1, h = q.y1 - q.y0 + 1;
         return h >= medH * 0.55 || (h >= 2 && h <= medH * 0.5 && w >= medW * 0.35 && w <= medW * 1.6 && w >= h * 1.5);
       });
-      // the longest run of characters without a big gap or a mark of another size (the star under a tag, a crack, a sticker)
+      // the longest run of characters without a big gap or a mark of another size (the star under a tag, a crack, a sticker).
+      // v2.17: a character hidden by a cable or dirt leaves a gap of one or two characters in the column's rhythm; when the
+      // column goes on after it, the gap is kept as hidden characters (q.hidden = how many before q, read as X)
+      const cy = (q) => (q.y0 + q.y1) / 2, odd = (q) => q.y1 - q.y0 + 1 > medH * 1.5 || q.x1 - q.x0 + 1 > Math.max(medW * 2.2, medH * 1.6);
+      const steps = []; { const ok = rows.filter((q) => !odd(q)); for (let i = 1; i < ok.length; i++) if (ok[i].y0 - ok[i - 1].y1 <= medH * 0.6) steps.push(cy(ok[i]) - cy(ok[i - 1])); }
+      const pitch = steps.length >= 2 ? med(steps) : 0;
+      // after a hidden character the column goes on with characters of its size, in line with the one before the gap (a
+      // leaning pole slants the line a little); not the star or the tag's end
+      const like = (q, p) => Math.abs(q.y1 - q.y0 + 1 - medH) <= medH * 0.3 && q.x1 - q.x0 + 1 <= medW * 1.35
+        && (!p || Math.abs((q.x0 + q.x1) / 2 - (p.x0 + p.x1) / 2) <= Math.max(3, medW * 0.6) + Math.abs(cy(q) - cy(p)) * 0.15);
       let run = [], cur = [];
+      const realN = (r) => r.length; // characters seen (a row marked hidden is a seen character after the hidden ones)
       for (const q of rows) {
-        const h = q.y1 - q.y0 + 1, w = q.x1 - q.x0 + 1;
-        if (h > medH * 1.5 || w > Math.max(medW * 2.2, medH * 1.6)) { cur = []; continue; }
-        if (cur.length && q.y0 - cur[cur.length - 1].y1 > medH * 1.2) cur = [];
-        cur.push(q); if (cur.length > run.length) run = cur.slice();
+        delete q.hidden;
+        if (odd(q)) continue; // left out; a hidden character is found from the gap it leaves
+        if (cur.length) {
+          const last = cur[cur.length - 1], gap = q.y0 - last.y1, d = cy(q) - cy(last), k = pitch ? Math.round(d / pitch) - 1 : 0;
+          if (gap > medH * 0.6 && k >= 1 && k <= 2 && Math.abs(d - (k + 1) * pitch) < pitch * 0.35 && like(q, last) && like(last)) q.hidden = k;
+          else if (gap > medH * 1.2) cur = [];
+        }
+        cur.push(q);
+        if (realN(cur) > realN(run)) run = cur.slice();
       }
+      // a hidden character needs two or more characters after it (one mark after a gap is the star under a tag, not the ID)
+      for (let i = run.length - 1; i >= 0; i--) if (run[i].hidden && (run.length - i < 2 || !like(run[i + 1], run[i]))) { run = run.slice(0, i); break; }
+      if (run.length && run[0].hidden) delete run[0].hidden;
       const mh = med(run.map((q) => q.y1 - q.y0 + 1)), even = run.filter((q) => Math.abs(q.y1 - q.y0 + 1 - mh) <= mh * 0.35).length;
       return { run, even };
     };
@@ -1025,9 +1113,12 @@
     }
     if (best.length < 3) return null;
     const keep = new Set(); best.forEach((q) => q.ids.forEach((id) => keep.add(id)));
+    // every piece of ink inside a character's box is drawn (a stencil's loose fragment set aside while finding the column)
+    for (const c of comps) if (!keep.has(c.id) && best.some((q) => c.x0 >= q.x0 - 1 && c.x1 <= q.x1 + 1 && c.y0 >= q.y0 - 1 && c.y1 <= q.y1 + 1)) keep.add(c.id);
     const out = new Uint8Array(N); for (let i = 0; i < N; i++) if (lab[i] && keep.has(lab[i])) out[i] = 1;
     const medH = med(best.map((q) => q.y1 - q.y0 + 1));
-    return { rows: best.map(({ x0, y0, x1, y1 }) => ({ x0, y0, x1, y1 })), ink: out, medH, even: best.filter((q) => Math.abs(q.y1 - q.y0 + 1 - medH) <= medH * 0.35).length };
+    return { rows: best.map(({ x0, y0, x1, y1, hidden }) => (hidden ? { x0, y0, x1, y1, hidden } : { x0, y0, x1, y1 })), ink: out, medH, even: best.filter((q) => Math.abs(q.y1 - q.y0 + 1 - medH) <= medH * 0.35).length,
+      hidden: best.reduce((t, q) => t + (q.hidden || 0), 0) };
   }
   /**
    * v2.16: a tag painted downwards in a small camera frame: four or more characters of one size, one above the other, near

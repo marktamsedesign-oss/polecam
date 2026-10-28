@@ -95,6 +95,8 @@
   const prefixAlt = () => poleTypes().map((t) => t.p).sort((a, b) => b.length - a.length).join('|');
   const poleIdRe = () => new RegExp(`^(${prefixAlt()})-(\\d+)$`);
   const polePartRe = () => new RegExp(`^(${prefixAlt()})-?(\\d*)$`);
+  /** v2.18: a pole number with one or two characters that could not be read, written X (CC-04X0652). */
+  const poleIdXRe = () => new RegExp(`^(${prefixAlt()})-(?=(?:[0-9]*X){1,2}[0-9]*$)(?=(?:X*[0-9]){3})[0-9X]+$`);
   const padNum = (pre, n, len) => (PAD4.includes(pre) ? String(n).padStart(Math.max(4, len || 0), '0') : String(n).padStart(len || 0, '0'));
   /** "PLDT PLDT pole" lines -> [{p, n}] (2–6 letter prefix, optional name). */
   function parseTypeLines(text) {
@@ -557,7 +559,8 @@
     });
   }
   setupHelp();
-  const applyTextSize = () => { const v = [0.9, 1, 1.15, 1.3, 1.45].includes(+S.textScale) ? +S.textScale : 1; document.documentElement.style.setProperty('--fs', String(v)); $('setTextSize').value = String(v); };
+  // v2.18: text is Small unless another size was chosen; Very small added
+  const applyTextSize = () => { const v = [0.8, 0.9, 1, 1.15, 1.3, 1.45].includes(+S.textScale) ? +S.textScale : 0.9; document.documentElement.style.setProperty('--fs', String(v)); $('setTextSize').value = String(v); };
   applyTextSize();
   $('setTextSize').addEventListener('change', () => { S.textScale = +$('setTextSize').value; persist(); applyTextSize(); if (typeof map !== 'undefined' && map) setTimeout(() => map.invalidateSize(), 50); });
   $('setShowHelp').checked = !!S.showHelp;
@@ -580,7 +583,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.17.0';
+  const APP_VER = '2.18.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1398,21 +1401,21 @@
   $('camStage').addEventListener('pointerdown', (e) => {
     if (e.target.closest('#zoomBar')) return;
     camPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (camPtrs.size === 2) { pinch0 = { d: ptrDist(), z: zoomLevel }; tap0 = null; swipe = null; drawLine($('swipeLine'), null); } else tap0 = { x: e.clientX, y: e.clientY, t: Date.now() };
+    if (camPtrs.size === 2) { pinch0 = { d: ptrDist(), z: zoomLevel }; tap0 = null; swipe = null; drawRect($('swipeLine'), null); } else tap0 = { x: e.clientX, y: e.clientY, t: Date.now() };
   });
   $('camStage').addEventListener('pointermove', (e) => {
     if (!camPtrs.has(e.pointerId)) return;
     camPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pinch0 && camPtrs.size === 2) setZoom(pinch0.z * ptrDist() / pinch0.d);
-    else if (tap0 && camPtrs.size === 1 && scanStep() && (swipe || Math.hypot(e.clientX - tap0.x, e.clientY - tap0.y) > 20)) { // v2.17: a swipe marks the ID
-      swipe = { x0: tap0.x, y0: tap0.y, x1: e.clientX, y1: e.clientY }; drawLine($('swipeLine'), swipe, $('camStage').getBoundingClientRect());
+    else if (tap0 && camPtrs.size === 1 && scanStep() && (swipe || Math.hypot(e.clientX - tap0.x, e.clientY - tap0.y) > 20)) { // v2.18: a drag draws a box round the ID
+      swipe = { x0: tap0.x, y0: tap0.y, x1: e.clientX, y1: e.clientY }; drawRect($('swipeLine'), swipe, $('camStage').getBoundingClientRect());
     }
   });
   const ptrEnd = (e) => {
     if (!camPtrs.has(e.pointerId)) return;
     camPtrs.delete(e.pointerId);
     if (camPtrs.size < 2) pinch0 = null;
-    if (swipe) { const sw = swipe; swipe = null; drawLine($('swipeLine'), null); if (e.type === 'pointerup' && !camPtrs.size) markSwipe(sw); }
+    if (swipe) { const sw = swipe; swipe = null; drawRect($('swipeLine'), null); if (e.type === 'pointerup' && !camPtrs.size) markDrawn(sw); }
     else if (tap0 && e.type === 'pointerup' && Math.hypot(e.clientX - tap0.x, e.clientY - tap0.y) < 12 && Date.now() - tap0.t < 450) camTap(e.clientX, e.clientY);
     tap0 = null;
   };
@@ -1423,33 +1426,29 @@
     finder.focus = { x: nx, y: ny, until: Date.now() + 6000 }; finder.box = null; finder.read = null; finder.agree = 0; finder.user = null;
     focusAt(cx, cy); // the camera focuses there, on phones that allow it
   }
-  /** A stroke drawn as a bar (el: #swipeLine inside the camera, #pvMark over the photo); sw null hides it. rel: the parent's box. */
-  function drawLine(el, sw, rel) {
+  /** The box being drawn between two corners (el: #swipeLine on the camera, #pvMark on the photo); sw null hides it. rel: the parent's box. */
+  function drawRect(el, sw, rel) {
     if (!sw) { el.hidden = true; return; }
-    const ox = rel ? rel.left : 0, oy = rel ? rel.top : 0, L = Math.hypot(sw.x1 - sw.x0, sw.y1 - sw.y0), a = Math.atan2(sw.y1 - sw.y0, sw.x1 - sw.x0);
-    el.classList.remove('box'); el.hidden = false; Object.assign(el.style, { left: `${sw.x0 - ox}px`, top: `${sw.y0 - oy}px`, width: `${L}px`, height: '', transform: `rotate(${a}rad)` });
+    const ox = rel ? rel.left : 0, oy = rel ? rel.top : 0, r = rectOf(sw);
+    el.hidden = false; Object.assign(el.style, { left: `${r.x - ox}px`, top: `${r.y - oy}px`, width: `${r.w}px`, height: `${r.h}px` });
   }
-  /** The box a swipe along an ID covers (v2.17): the stroke from end to end and a little more, and across it room for the
-      characters (a fifth of the stroke's length each side, which fits IDs of 3 to 10 characters); a steeper stroke than 45°
-      means a vertical ID. Same units in and out (screen or photo pixels). */
-  function swipeBox(sw) {
-    const dx = sw.x1 - sw.x0, dy = sw.y1 - sw.y0, L = Math.hypot(dx, dy), v = Math.abs(dy) > Math.abs(dx);
-    const a0 = v ? Math.min(sw.y0, sw.y1) : Math.min(sw.x0, sw.x1), a1 = v ? Math.max(sw.y0, sw.y1) : Math.max(sw.x0, sw.x1);
-    const c = v ? (sw.x0 + sw.x1) / 2 : (sw.y0 + sw.y1) / 2, pad = L * 0.08 + 6, half = Math.max(22, L * 0.2) + Math.abs(v ? dx : dy) / 2;
-    return v ? { x: c - half, y: a0 - pad, w: 2 * half, h: a1 - a0 + 2 * pad, v } : { x: a0 - pad, y: c - half, w: a1 - a0 + 2 * pad, h: 2 * half, v };
-  }
+  /** Two corners -> {x, y, w, h, v}: v (a vertical ID) when the box is taller than wide. */
+  const rectOf = (sw) => { const x = Math.min(sw.x0, sw.x1), y = Math.min(sw.y0, sw.y1), w = Math.abs(sw.x1 - sw.x0), h = Math.abs(sw.y1 - sw.y0); return { x, y, w, h, v: h > w }; };
   const clipBox = (b, W, H) => { const x0 = Math.max(0, b.x), y0 = Math.max(0, b.y), x1 = Math.min(W, b.x + b.w), y1 = Math.min(H, b.y + b.h); return { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0), v: b.v }; };
-  /** A swipe on the camera (v2.17): the box goes where the swipe was and stays there (no searching), the direction follows the
-      swipe, the camera focuses on it, and what is in the box is read until the ID is clear. A tap or a new swipe changes it. */
-  function markSwipe(sw) {
-    const st = $('camStage').getBoundingClientRect(), b = swipeBox({ x0: sw.x0 - st.left, y0: sw.y0 - st.top, x1: sw.x1 - st.left, y1: sw.y1 - st.top });
-    if (Math.max(b.w, b.h) < 60) return;
-    const box = clipBox(b, st.width, st.height); if (box.w < 20 || box.h < 20) return;
+  /** A box drawn round the ID on the camera (v2.18; a swipe in v2.17): the box stays where it was drawn (no searching), a taller
+      than wide box means a vertical ID, the camera focuses on it, and what is in it is read until the ID is clear. A tap, a new
+      box or a zoom change releases it. */
+  function markDrawn(sw) {
+    const st = $('camStage').getBoundingClientRect(), b = rectOf({ x0: sw.x0 - st.left, y0: sw.y0 - st.top, x1: sw.x1 - st.left, y1: sw.y1 - st.top });
+    if (b.w < 24 || b.h < 24) return;
+    // room round the drawn box, mostly across the ID (a box drawn tight on the characters still reads)
+    const ps = Math.min(b.w, b.h) * 0.25 + 6, pl = Math.max(b.w, b.h) * 0.05 + 4, padX = b.v ? ps : pl, padY = b.v ? pl : ps;
+    const box = clipBox({ x: b.x - padX, y: b.y - padY, w: b.w + 2 * padX, h: b.h + 2 * padY, v: b.v }, st.width, st.height); if (box.w < 20 || box.h < 20) return;
     S.idOrient = b.v ? 'v' : 'h'; persist(); setOrientUi();
     Object.assign(finder, { manual: true, user: { x: box.x, y: box.y, w: box.w, h: box.h }, box: { x: box.x, y: box.y, w: box.w, h: box.h }, stable: 2, read: null, list: null, agree: 0, way: null, misses: 0, flip: 0, flipS: 0, focus: null, lastOcrAt: 0 });
-    $('idGuide').classList.add('fixed'); guidePlace(finder.box); finderLabel(b.v ? 'Reading the marked ID (vertical)…' : 'Reading the marked ID…');
-    focusAt((sw.x0 + sw.x1) / 2, (sw.y0 + sw.y1) / 2);
-    LOG.info('finder.swipe', { v: b.v, w: Math.round(box.w), h: Math.round(box.h) });
+    $('idGuide').classList.add('fixed'); guidePlace(finder.box); finderLabel(b.v ? 'Reading the boxed ID (vertical)…' : 'Reading the boxed ID…');
+    focusAt(st.left + box.x + box.w / 2, st.top + box.y + box.h / 2);
+    LOG.info('finder.box', { v: b.v, w: Math.round(box.w), h: Math.round(box.h) });
   }
   /** v2.17: the camera focuses (and sets the light) on a point given in screen pixels, then after a few seconds focuses by
       itself again. Phones that do not allow it simply ignore it. */
@@ -1599,14 +1598,15 @@
       const strip = way === 'stacked' ? stackToLine(crop) : null, column = way === 'stacked' && !strip;
       const src = way === 'cw' ? rotated(crop, 90) : way === 'ccw' ? rotated(crop, -90) : strip || crop;
       let r = null;
-      if (nativeReader()) { try { r = await nativeRead(src); } catch (e) { r = null; } } // ML Kit in the Android app
+      if (nativeReader()) { try { r = strip ? await readStrip(strip, true) : await nativeRead(src); } catch (e) { r = null; } } // ML Kit in the Android app
+      if (!r && strip) r = await readStrip(strip, false);
       if (!r) {
         // a smaller picture reads about twice as fast and as well: the text reader scales each line to ~40 px anyway
         const png = column ? await prepStacked(crop, 160) : await prepForOcr(src, strip ? strip.height : 112);
         r = await ocrRun(png, column ? 6 : 7, { thresholding_method: 0 });
       }
       if (!finder.on || !r.ok || !finder.box || iou(box, finder.box) < 0.4) return; // the box moved on meanwhile
-      const list = C.idCandidates([column ? { ...r, stacked: true } : r], lastIdForShape(), { numPrefix: numPrefixNow() }), best = list[0];
+      const list = C.idCandidates([column ? { ...r, stacked: true } : r], lastIdForShape(), idOpts()), best = list[0];
       // v2.16: a column read only in part (cut off by the box, or fewer characters read than the column has) is not used
       const said = (r.words || []).filter((w) => w.conf >= 20).map((w) => w.text).join('').replace(/[^A-Za-z0-9-]/g, '');
       if (best && strip && (strip._cut || said.length < strip._chars - 1)) { if (!finder.read) finderLabel('Reading… keep the whole ID in the box'); return; }
@@ -1870,6 +1870,8 @@
     });
     return { ok: true, words, text: (r && r.text) || '', native: true };
   }
+  /** What the reader needs to know: the prefix for a number-only tag, and the owners' names that stand for a prefix (v2.18). */
+  const idOpts = () => ({ numPrefix: numPrefixNow(), names: Object.fromEntries(poleTypes().map((t) => [String(t.n).toUpperCase().replace(/[^A-Z]/g, ''), t.p]).filter(([n]) => n.length >= 3)) });
   function lastIdForShape() {
     const pts = points.filter((p) => p.project === S.project && (!ed || !ed.acc || elemOf(p) === ed.element) && (!ed || p.id !== ed.id));
     if (!pts.length) return '';
@@ -1900,34 +1902,76 @@
     const rd = C.stackRows(px, W, H, false), rl = C.stackRows(px, W, H, true);
     const r = !rd ? rl : !rl ? rd : (rl.even > rd.even || (rl.even === rd.even && rl.rows.length > rd.rows.length)) ? rl : rd;
     if (!r) return null;
-    const k = 44 / r.medH, gap = Math.round(r.medH * 0.16 * k), pad = 22;
-    const ws = r.rows.map((q) => Math.max(1, Math.round((q.x1 - q.x0 + 1) * k))), hs = r.rows.map((q) => Math.max(1, Math.round((q.y1 - q.y0 + 1) * k)));
-    const out = document.createElement('canvas');
-    out.width = ws.reduce((a, b) => a + b, 0) + gap * (ws.length - 1) + 2 * pad; out.height = Math.max(...hs) + 2 * pad;
-    const o = out.getContext('2d'); o.fillStyle = '#fff'; o.fillRect(0, 0, out.width, out.height); o.imageSmoothingQuality = 'high';
-    const one = document.createElement('canvas'), og = one.getContext('2d');
-    let x = pad;
-    r.rows.forEach((q, i) => {
-      const w = q.x1 - q.x0 + 1, h = q.y1 - q.y0 + 1; one.width = w; one.height = h;
-      const id = og.createImageData(w, h);
-      for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) { const v = r.ink[(q.y0 + yy) * W + q.x0 + xx] ? 0 : 255, j = (yy * w + xx) * 4; id.data[j] = id.data[j + 1] = id.data[j + 2] = v; id.data[j + 3] = 255; }
-      og.putImageData(id, 0, 0);
-      o.drawImage(one, x, pad + Math.round((out.height - 2 * pad - hs[i]) / 2), ws[i], hs[i]); // centred on the line (a dash stays in the middle)
-      x += ws[i] + gap;
-    });
-    out._chars = r.rows.length; out._cut = r.rows[0].y0 <= 1 || r.rows[r.rows.length - 1].y1 >= H - 2; // a character may be outside the crop
+    const k = 44 / r.medH, gap = Math.round(r.medH * 0.16 * k), pad = 22, one = document.createElement('canvas'), og = one.getContext('2d');
+    const line = (rows) => { // the characters side by side, black on white, centred on one line (a dash stays in the middle)
+      const ws = rows.map((q) => Math.max(1, Math.round((q.x1 - q.x0 + 1) * k))), hs = rows.map((q) => Math.max(1, Math.round((q.y1 - q.y0 + 1) * k)));
+      const out = document.createElement('canvas');
+      out.width = ws.reduce((a, b) => a + b, 0) + gap * (ws.length - 1) + 2 * pad; out.height = Math.max(...hs) + 2 * pad;
+      const o = out.getContext('2d'); o.fillStyle = '#fff'; o.fillRect(0, 0, out.width, out.height); o.imageSmoothingQuality = 'high';
+      let x = pad;
+      rows.forEach((q, i) => {
+        const w = q.x1 - q.x0 + 1, h = q.y1 - q.y0 + 1; one.width = w; one.height = h;
+        const id = og.createImageData(w, h);
+        for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) { const v = r.ink[(q.y0 + yy) * W + q.x0 + xx] ? 0 : 255, j = (yy * w + xx) * 4; id.data[j] = id.data[j + 1] = id.data[j + 2] = v; id.data[j + 3] = 255; }
+        og.putImageData(id, 0, 0);
+        o.drawImage(one, x, pad + Math.round((out.height - 2 * pad - hs[i]) / 2), ws[i], hs[i]);
+        x += ws[i] + gap;
+      });
+      return out;
+    };
+    const out = line(r.rows);
+    out._n = r.rows.length; out._chars = r.rows.length + (r.hidden || 0); out._cut = r.rows[0].y0 <= 1 || r.rows[r.rows.length - 1].y1 >= H - 2; // a character may be outside the crop
+    if (r.hidden) { // v2.18: characters hidden by a cable or dirt: the parts around them are read one by one and joined with X
+      const parts = [[]], gaps = [];
+      r.rows.forEach((q) => { if (q.hidden) { parts.push([]); gaps.push(q.hidden); } parts[parts.length - 1].push(q); });
+      out._parts = parts.map(line); out._gaps = gaps; out._partN = parts.map((x) => x.length);
+    }
     return out;
+  }
+  /** Reads a strip from stackToLine with ML Kit (native) or Tesseract. With hidden characters, each part is read on its own and
+      the readings are joined with an X for each hidden character (v2.18): one word, the least sure part's confidence. */
+  async function readStrip(strip, native) {
+    const scaled = (cv, f) => { const c = document.createElement('canvas'); c.width = Math.round(cv.width * f); c.height = Math.round(cv.height * f); const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(cv, 0, 0, c.width, c.height); return c; };
+    // try 0: as drawn; 1: at 80 % (the reader can add a character at one size and not at another); 2: as one word (Tesseract)
+    const one = async (cv, t) => (native ? nativeRead(t ? scaled(cv, 0.8) : cv) : ocrRun(await prepForOcr(cv, Math.round(cv.height * (t === 1 ? 0.8 : 1))), t === 2 ? 8 : 7, { thresholding_method: 0 }));
+    const said = (o) => (o.words || []).filter((w) => w.conf >= 20).map((w) => w.text).join('').replace(/[^A-Za-z0-9-]/g, '');
+    const minConf = (o) => { const cs = (o.words || []).filter((w) => w.conf >= 20).map((w) => w.conf); return cs.length ? Math.min(...cs) : 0; };
+    // the column says how many characters there are: a reading with extra marks (a stencil's loose piece read as a letter,
+    // "a4" for 4) keeps its digits when that gives the right count (v2.18)
+    const fit = (t, n) => { if (!n || t.length === n) return t; const d = t.replace(/[^0-9]/g, ''); return d.length === n ? d : t; };
+    // a reading with more characters than the column has, or two fewer, is not this ID (a mark read twice, a part missed)
+    const counts = (t, n) => !n || (t.length <= n && t.length >= n - 1);
+    /** Reads one strip until a reading has the right count (at most three tries). -> {o, text} or {o, text: null} */
+    const readCounted = async (cv, n) => {
+      let o = null;
+      for (let t = 0; t < (native ? 2 : 3); t++) {
+        o = await one(cv, t); if (!o.ok) return { o, text: null };
+        const f = fit(said(o), n);
+        if (f && counts(f, n) && (n !== 1 || f.length === 1)) return { o, text: f, conf: minConf(o) * (t ? 0.95 : 1) };
+      }
+      return { o, text: null, miscount: said(o) };
+    };
+    if (!strip._parts) {
+      const r = await readCounted(strip, strip._n);
+      if (!r.o.ok) return r.o;
+      if (r.text == null) return { ok: true, words: [], text: '', miscount: r.miscount };
+      return { ok: true, words: [{ text: r.text, conf: Math.round(r.conf), line: 'strip' }], text: r.text };
+    }
+    const reads = [];
+    for (let i = 0; i < strip._parts.length; i++) { const r = await readCounted(strip._parts[i], strip._partN[i]); if (!r.o.ok) return r.o; if (r.text == null) return { ok: true, words: [], text: '' }; reads.push(r); }
+    const text = reads.map((r, i) => r.text + (i < strip._gaps.length ? 'X'.repeat(strip._gaps[i]) : '')).join('');
+    return { ok: true, words: [{ text, conf: Math.round(Math.min(...reads.map((r) => r.conf))), line: 'x-0' }], text, hidden: strip._gaps.reduce((a, b) => a + b, 0) };
   }
   /** Readings of two crops in one list (best first, each ID once). */
   const mergeIds = (a, b) => { const m = new Map(); [...a, ...b].forEach((c) => { const p = m.get(c.id); if (!p || p.score < c.score) m.set(c.id, c); }); return [...m.values()].sort((x, y) => y.score - x.score).slice(0, 5); };
   const sureId = (list) => !!(list.length && list[0].fits && list[0].conf >= 70);
   async function readIdFrom(canvas) {
-    const v = canvas._orient === 'v', strip = v ? stackToLine(canvas) : null, opts = { numPrefix: numPrefixNow() };
+    const v = canvas._orient === 'v', strip = v ? stackToLine(canvas) : null, opts = idOpts();
     const alt = async (list) => (!sureId(list) && canvas._alt ? mergeIds(list, await readIdFrom(canvas._alt)) : list); // the other way round (v2.16)
     if (nativeReader()) { // ML Kit: the column set out as a line, the crop as it is, and turned both ways for a vertical ID
       try {
         const nres = [];
-        if (strip) nres.push(await nativeRead(strip));
+        if (strip) nres.push(await readStrip(strip, true));
         if (v) { nres.push({ ...(await nativeRead(canvas)), stacked: true }); for (const deg of [-90, 90]) nres.push(await nativeRead(rotated(canvas, deg))); }
         else nres.push(await nativeRead(canvas));
         const list = await alt(C.idCandidates(nres, lastIdForShape(), opts));
@@ -1943,9 +1987,9 @@
     if (v) {
       // vertical IDs: characters stacked upright (set out as a line first; read top to bottom), or the whole ID turned sideways
       if (strip) {
-        await run(await prepForOcr(strip, strip.height), 7, 0);
+        const sr = await readStrip(strip, false); if (!sr.ok) throw new Error(sr.error); res.push(sr);
         const first = C.idCandidates(res, lastIdForShape(), opts);
-        if (sureId(first)) return first;
+        if (sureId(first) || strip._parts) return first; // with hidden characters (X) the column is what there is to read
       }
       // (the adaptive threshold turns a column of characters into noise, so stacked IDs use two sizes instead)
       for (const w of [200, 140]) await run(await prepStacked(canvas, w), 6, 0, { stacked: true });
@@ -2279,7 +2323,9 @@
     const el = $('fmtWarn'); if (!ed) return;
     const id = $('poleId').value.trim().toUpperCase(), kind = ed.element || 'Pole';
     let msg = '';
-    if (id && kind === 'Pole' && !isNpt(id) && !poleIdRe().test(id) && !PP_RE.test(id)) { const pm = polePartRe().exec(id); msg = pm && !pm[2] ? `Add the pole number after the prefix, e.g. ${pm[1]}-${PAD4.includes(pm[1]) ? '0001' : '1234'}.` : `Pole IDs are a prefix, a dash and the number: ${poleTypes().map((t) => `${t.p}-`).join(', ')}. For another owner, tap “+ Other prefix”.`; }
+    if (id && kind === 'Pole' && poleIdXRe().test(id)) msg = 'X = a character the camera could not read. Type it if you can see it on the tag, or keep the X.';
+    // v2.18: the ID after the prefix may mix letters and digits (CC-0123A); only one with no digit at all is flagged
+    else if (id && kind === 'Pole' && !isNpt(id) && !poleIdRe().test(id) && !PP_RE.test(id) && !new RegExp(`^(${prefixAlt()})-(?=[A-Z0-9-]*[0-9])[A-Z0-9][A-Z0-9-]*$`).test(id)) { const pm = polePartRe().exec(id); msg = pm && !pm[2] ? `Add the pole number after the prefix, e.g. ${pm[1]}-${PAD4.includes(pm[1]) ? '0001' : '1234'}.` : `Pole IDs are a prefix, a dash and the number: ${poleTypes().map((t) => `${t.p}-`).join(', ')}. For another owner, tap “+ Other prefix”.`; }
     else if (id && kind === 'ODF' && !ODF_ID_RE.test(id)) msg = /^FDU_?$/.test(id) ? 'Add the ODF number after FDU_, e.g. FDU_100.' : 'ODF IDs are written FDU_ and a number, e.g. FDU_100.';
     el.hidden = !msg; el.textContent = msg;
   }
@@ -2452,6 +2498,13 @@
      resized or deleted. Marks made before v2.15 are part of the photo and stay as they are. */
   let boxer = null;
   const proposedPole = () => ed && !ed.acc && ed.element === 'Pole' && ed.status === 'Proposed';
+  /* v2.18: models besides the pole — proposed ODF cabinet, proposed handhole, new tower location. Each is placed like the pole:
+     from where it stands (yb) up to its top (yt); for a handhole, from its front edge up to its back edge on the ground.
+     half = half its width as a share of that height (for handles and selection). */
+  const MODELS = { pole: { name: 'Proposed pole', label: 'PROPOSED POLE', half: 0.06 }, odf: { name: 'Proposed ODF', label: 'PROPOSED ODF', half: 0.3 },
+    hh: { name: 'Proposed handhole', label: 'PROPOSED HH', half: 0.9 }, tower: { name: 'New tower location', label: 'NEW TOWER LOCATION', half: 0.17 } };
+  const isModel = (m) => !!MODELS[m.k];
+  const modelFor = () => (!ed ? 'pole' : ['ODF', 'ODC'].includes(ed.element) ? 'odf' : ed.element === 'Handhole' ? 'hh' : ed.element === 'Site' ? 'tower' : 'pole');
   const origPidOf = (id) => `${id}_o`;
   function renderBoxInfo() {
     if (!ed || ed.acc) { $('boxInfo').hidden = true; $('edZoom').classList.remove('pp'); return; }
@@ -2462,12 +2515,17 @@
     $('edZoom').classList.toggle('pp', !!(pp && !hasPole)); $('edZoom').textContent = pp && !hasPole ? '⊥' : '⤢';
   }
   function setBoxMode(m) {
-    if (!boxer) return; boxer.mode = m; $('boxModeBox').setAttribute('aria-pressed', String(m === 'box')); $('boxModePole').setAttribute('aria-pressed', String(m === 'pole')); $('boxTitle').textContent = m === 'pole' ? 'Model pole' : 'Red box';
-    $('boxHint').textContent = m === 'pole' ? 'Put your finger where the pole stands on the ground and drag up to its top. Tap a mark to move, resize or delete it.'
-      : 'Drag on the photo to draw a red box around the spot. Tap a mark to move, resize or delete it.';
+    if (!boxer) return; if (m !== 'box' && !MODELS[m]) m = 'pole';
+    boxer.mode = m; $('boxModeBox').setAttribute('aria-pressed', String(m === 'box')); $('boxModePole').setAttribute('aria-pressed', String(m !== 'box'));
+    if (m !== 'box') $('boxModel').value = m;
+    $('boxTitle').textContent = m === 'box' ? 'Red box' : `Model: ${MODELS[m].name}`;
+    $('boxHint').textContent = m === 'box' ? 'Drag on the photo to draw a red box around the spot. Tap a mark to move, resize or delete it.'
+      : m === 'hh' ? 'Put your finger on the front edge of the handhole on the ground and drag up to its back edge. Tap a mark to move, resize or delete it.'
+        : `Put your finger where the ${m === 'tower' ? 'tower' : m === 'odf' ? 'ODF cabinet' : 'pole'} stands on the ground and drag up to its top. Tap a mark to move, resize or delete it.`;
   }
   $('boxModeBox').addEventListener('click', () => setBoxMode('box'));
-  $('boxModePole').addEventListener('click', () => setBoxMode('pole'));
+  $('boxModePole').addEventListener('click', () => setBoxMode($('boxModel').value || modelFor()));
+  $('boxModel').addEventListener('change', () => setBoxMode($('boxModel').value));
   /** The unmarked photo the marks are drawn on: kept from this edit, or stored with the record, else the photo itself. */
   async function markBase() {
     if (ed.base) return ed.base;
@@ -2480,14 +2538,14 @@
     if (!ed || ed.acc) return;
     const src = await markBase(); if (!src) { toast('No photo to mark'); return; }
     const im = await loadImage(src, STORE_MAX_PX), { w, h } = dims(im);
-    boxer = { im, w, h, base: src, marks: (ed.marks || []).map((m) => (m.k === 'pole' ? { k: 'pole', x: m.x * w, yb: m.yb * h, yt: m.yt * h } : { k: 'box', x: m.x * w, y: m.y * h, w: m.w * w, h: m.h * h })), sel: -1, op: null, drag: null };
+    boxer = { im, w, h, base: src, marks: (ed.marks || []).map((m) => (isModel(m) ? { k: m.k, x: m.x * w, yb: m.yb * h, yt: m.yt * h } : { k: 'box', x: m.x * w, y: m.y * h, w: m.w * w, h: m.h * h })), sel: -1, op: null, drag: null };
     if (pvOpen) { pvOpen = false; hidePhotoView(); const el = $('boxer'); el.hidden = false; el.style.zIndex = 1000 + stack.length; stack.push('boxer'); history.replaceState({ sheet: 'boxer' }, ''); LOG.info('open', 'boxer'); }
     else openSheet('boxer');
-    setBoxMode(mode || (proposedPole() ? 'pole' : 'box'));
+    setBoxMode(mode === 'model' ? modelFor() : mode || (proposedPole() ? 'pole' : 'box'));
     requestAnimationFrame(() => { sizeBoxer(); drawBoxer(); });
   }
   $('pvBox').addEventListener('click', (e) => { e.stopPropagation(); guard(() => openBoxer('box'), 'Red box not opened'); });
-  $('pvPole').addEventListener('click', (e) => { e.stopPropagation(); guard(() => openBoxer('pole'), 'Pole model not opened'); });
+  $('pvPole').addEventListener('click', (e) => { e.stopPropagation(); guard(() => openBoxer('model'), 'Model not opened'); });
   function sizeBoxer() {
     const b = boxer, wrap = $('boxWrap'), cv = $('boxCanvas'); if (!b) return;
     const r = wrap.getBoundingClientRect(), sc = Math.min(r.width / b.w, r.height / b.h), dpr = window.devicePixelRatio || 1;
@@ -2510,14 +2568,59 @@
     g.lineWidth = Math.max(3, fs * 0.22); g.strokeStyle = '#ffffff'; g.strokeText('PROPOSED POLE', x, yb + wb * 0.6); g.fillStyle = '#e03131'; g.fillText('PROPOSED POLE', x, yb + wb * 0.6);
     g.restore();
   }
+  /** The model's name under it, red on a white outline (as the pole's). */
+  function modelLabel(g, text, x, y, size) {
+    const fs = Math.max(12, size); g.font = `700 ${fs}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top';
+    g.lineWidth = Math.max(3, fs * 0.22); g.strokeStyle = '#ffffff'; g.strokeText(text, x, y); g.fillStyle = '#e03131'; g.fillText(text, x, y);
+  }
+  /** A proposed ODF cabinet standing at (x, yb), its top at yt: cabinet with a cap, two doors and a plinth. */
+  function drawOdfModel(g, x, yb, yt, lw) {
+    const H = Math.max(10, yb - yt), W = H * 0.55, cap = H * 0.06, pl = H * 0.08;
+    g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = '#e03131';
+    const sh = g.createLinearGradient(x - W / 2, 0, x + W / 2, 0); sh.addColorStop(0, 'rgba(255,255,255,0.88)'); sh.addColorStop(1, 'rgba(200,200,200,0.8)');
+    g.fillStyle = 'rgba(160,160,160,0.85)'; g.fillRect(x - W / 2 - H * 0.03, yb - pl, W + H * 0.06, pl); g.strokeRect(x - W / 2 - H * 0.03, yb - pl, W + H * 0.06, pl); // plinth
+    g.fillStyle = sh; g.fillRect(x - W / 2, yt + cap, W, H - cap - pl); g.strokeRect(x - W / 2, yt + cap, W, H - cap - pl); // body
+    g.fillStyle = 'rgba(235,235,235,0.95)'; g.fillRect(x - W / 2 - H * 0.025, yt, W + H * 0.05, cap); g.strokeRect(x - W / 2 - H * 0.025, yt, W + H * 0.05, cap); // cap
+    g.beginPath(); g.moveTo(x, yt + cap); g.lineTo(x, yb - pl); g.stroke(); // two doors
+    g.lineWidth = Math.max(1, lw * 0.8); g.beginPath(); g.moveTo(x - H * 0.05, yt + H * 0.42); g.lineTo(x - H * 0.05, yt + H * 0.55); g.moveTo(x + H * 0.05, yt + H * 0.42); g.lineTo(x + H * 0.05, yt + H * 0.55); g.stroke(); // handles
+    modelLabel(g, MODELS.odf.label, x, yb + H * 0.04, H * 0.075);
+    g.restore();
+  }
+  /** A proposed handhole flush with the ground: front edge at yb, back edge at yt, drawn in perspective with its cover. */
+  function drawHhModel(g, x, yb, yt, lw) {
+    const D = Math.max(8, yb - yt), wf = D * 0.9, wb = D * 0.7; // half widths at the front and the back
+    g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = '#e03131';
+    const quad = (f, b, y0, y1) => { g.beginPath(); g.moveTo(x - f, y0); g.lineTo(x + f, y0); g.lineTo(x + b, y1); g.lineTo(x - b, y1); g.closePath(); };
+    quad(wf, wb, yb, yt); g.fillStyle = 'rgba(170,170,170,0.85)'; g.fill(); g.stroke(); // concrete rim
+    const i = 0.16, fy = yb - D * i, by = yt + D * i; quad(wf * (1 - i), wb * (1 - i), fy, by); g.fillStyle = 'rgba(90,90,90,0.85)'; g.fill(); g.stroke(); // cover
+    g.lineWidth = Math.max(1, lw * 0.7); g.beginPath(); g.moveTo(x, fy); g.lineTo(x, by); g.stroke(); // cover seam
+    modelLabel(g, MODELS.hh.label, x, yb + D * 0.1, D * 0.22);
+    g.restore();
+  }
+  /** A new tower (lattice, four legs seen as two) standing at (x, yb) up to yt, with cross bracing and antennas on top. */
+  function drawTowerModel(g, x, yb, yt, lw) {
+    const H = Math.max(20, yb - yt), bw = H * 0.17, tw = H * 0.035, top = yt + H * 0.1, n = 6;
+    const at = (t) => [x - (bw + (tw - bw) * t), x + (bw + (tw - bw) * t), yb + (top - yb) * t]; // left, right, y at height t (0 bottom, 1 top)
+    g.save(); g.lineJoin = 'round'; g.lineCap = 'round'; g.lineWidth = lw; g.strokeStyle = '#e03131';
+    const [l1, r1, y1] = at(1); g.beginPath(); g.moveTo(x - bw, yb); g.lineTo(l1, y1); g.moveTo(x + bw, yb); g.lineTo(r1, y1); g.stroke(); // legs
+    g.lineWidth = Math.max(1, lw * 0.6); g.beginPath();
+    for (let s2 = 0; s2 < n; s2++) { const [la, ra, ya] = at(s2 / n), [lb, rb, yb2] = at((s2 + 1) / n); g.moveTo(la, ya); g.lineTo(rb, yb2); g.moveTo(ra, ya); g.lineTo(lb, yb2); g.moveTo(lb, yb2); g.lineTo(rb, yb2); } // bracing
+    g.stroke(); g.lineWidth = lw;
+    g.beginPath(); g.moveTo(x, top); g.lineTo(x, yt); g.stroke(); // mast
+    g.fillStyle = 'rgba(255,255,255,0.95)'; [[-1, 0.035], [1, 0.035]].forEach(([sd, off]) => { const ax = x + sd * (tw + H * 0.01); g.fillRect(ax - H * 0.008, yt + H * off, H * 0.016, H * 0.06); g.strokeRect(ax - H * 0.008, yt + H * off, H * 0.016, H * 0.06); }); // panel antennas
+    g.beginPath(); g.ellipse(x, yb, bw * 1.3, bw * 0.22, 0, 0, Math.PI * 2); g.stroke(); // footing
+    modelLabel(g, MODELS.tower.label, x, yb + bw * 0.3, H * 0.045);
+    g.restore();
+  }
+  const DRAW_MODEL = { pole: (g, ...a) => drawPoleModel(g, ...a), odf: drawOdfModel, hh: drawHhModel, tower: drawTowerModel };
   function drawMarks(g, marks, k, lw) {
     marks.forEach((m) => {
-      if (m.k === 'pole') drawPoleModel(g, m.x * k, m.yb * k, m.yt * k, lw);
+      if (isModel(m)) DRAW_MODEL[m.k](g, m.x * k, m.yb * k, m.yt * k, lw);
       else { g.strokeStyle = '#e03131'; g.lineWidth = lw; g.lineJoin = 'round'; g.strokeRect(m.x * k, m.y * k, m.w * k, m.h * k); }
     });
   }
   /** Handles of a mark, in image pixels: box corners, or the pole's top and foot. */
-  const handlesOf = (m) => (m.k === 'pole' ? [['top', m.x, m.yt], ['bottom', m.x, m.yb]] : [['nw', m.x, m.y], ['ne', m.x + m.w, m.y], ['sw', m.x, m.y + m.h], ['se', m.x + m.w, m.y + m.h]]);
+  const handlesOf = (m) => (isModel(m) ? [['top', m.x, m.yt], ['bottom', m.x, m.yb]] : [['nw', m.x, m.y], ['ne', m.x + m.w, m.y], ['sw', m.x, m.y + m.h], ['se', m.x + m.w, m.y + m.h]]);
   function drawBoxer() {
     const b = boxer, cv = $('boxCanvas'); if (!b) return;
     const g = cv.getContext('2d'), k = cv.width / b.w, dpr = window.devicePixelRatio || 1;
@@ -2526,7 +2629,7 @@
     const m = b.marks[b.sel];
     if (m) { // the selected mark: dashed outline and handles
       g.save(); g.setLineDash([6 * dpr, 4 * dpr]); g.strokeStyle = '#ffffff'; g.lineWidth = 1.5 * dpr;
-      if (m.k === 'pole') { const wb = (m.yb - m.yt) * 0.06; g.strokeRect((m.x - wb) * k, m.yt * k, wb * 2 * k, (m.yb - m.yt) * k); } else g.strokeRect(m.x * k, m.y * k, m.w * k, m.h * k);
+      if (isModel(m)) { const wb = (m.yb - m.yt) * MODELS[m.k].half; g.strokeRect((m.x - wb) * k, m.yt * k, wb * 2 * k, (m.yb - m.yt) * k); } else g.strokeRect(m.x * k, m.y * k, m.w * k, m.h * k);
       g.setLineDash([]); const r = 7 * dpr;
       handlesOf(m).forEach(([, x, y]) => { g.fillStyle = '#ffffff'; g.strokeStyle = '#e03131'; g.lineWidth = 2 * dpr; g.beginPath(); g.rect(x * k - r, y * k - r, 2 * r, 2 * r); g.fill(); g.stroke(); });
       g.restore();
@@ -2542,20 +2645,20 @@
     for (const i of order) {
       const m = boxer.marks[i];
       for (const [op, x, y] of handlesOf(m)) if (Math.hypot(pt[0] - x, pt[1] - y) < tol) return { i, op };
-      if (m.k === 'pole') { const half = Math.max(tol, (m.yb - m.yt) * 0.06); if (Math.abs(pt[0] - m.x) < half && pt[1] > m.yt - tol && pt[1] < m.yb + tol) return { i, op: 'move' }; }
+      if (isModel(m)) { const half = Math.max(tol, (m.yb - m.yt) * MODELS[m.k].half); if (Math.abs(pt[0] - m.x) < half && pt[1] > m.yt - tol && pt[1] < m.yb + tol) return { i, op: 'move' }; }
       else if (pt[0] > m.x - tol && pt[0] < m.x + m.w + tol && pt[1] > m.y - tol && pt[1] < m.y + m.h + tol) return { i, op: 'move' };
     }
     return null;
   }
   function boxDrag(p) {
     const [x0, y0] = boxer.start, [x1, y1] = p;
-    boxer.drag = boxer.mode === 'pole' ? { k: 'pole', x: x0, yb: Math.max(y0, y1), yt: Math.min(y0, y1) } : { k: 'box', x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+    boxer.drag = MODELS[boxer.mode] ? { k: boxer.mode, x: x0, yb: Math.max(y0, y1), yt: Math.min(y0, y1) } : { k: 'box', x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
   }
   /** Move or resize the selected mark, kept inside the photo. */
   function boxEdit(p) {
     const o = boxer.op, m0 = o.orig, dx = p[0] - o.start[0], dy = p[1] - o.start[1], W = boxer.w, H = boxer.h, cl = (v, a, b) => Math.max(a, Math.min(b, v));
     let m;
-    if (m0.k === 'pole') {
+    if (isModel(m0)) {
       if (o.op === 'move') { const sx = cl(dx, -m0.x, W - m0.x), sy = cl(dy, -m0.yt, H - m0.yb); m = { ...m0, x: m0.x + sx, yt: m0.yt + sy, yb: m0.yb + sy }; }
       else if (o.op === 'top') m = { ...m0, yt: cl(m0.yt + dy, 0, m0.yb - 20) };
       else m = { ...m0, x: cl(m0.x + dx, 0, W), yb: cl(m0.yb + dy, m0.yt + 20, H) };
@@ -2584,7 +2687,7 @@
     if (boxer.op) { boxer.op = null; drawBoxer(); return; }
     if (!boxer.start) return;
     const d = boxer.drag, sc = boxer.sc; boxer.start = null; boxer.drag = null;
-    if (d && (d.k === 'pole' ? (d.yb - d.yt) * sc > 30 : d.w * sc > 12 && d.h * sc > 12)) { boxer.marks.push(d); boxer.sel = boxer.marks.length - 1; } // a tap is not a mark
+    if (d && (isModel(d) ? (d.yb - d.yt) * sc > (d.k === 'hh' ? 12 : 30) : d.w * sc > 12 && d.h * sc > 12)) { boxer.marks.push(d); boxer.sel = boxer.marks.length - 1; } // a tap is not a mark
     drawBoxer();
   };
   $('boxCanvas').addEventListener('pointerup', boxEnd); $('boxCanvas').addEventListener('pointercancel', boxEnd);
@@ -2595,7 +2698,7 @@
   $('boxDone').addEventListener('click', () => guard(async () => {
     const b = boxer; if (!b || !ed) return;
     const before = JSON.stringify(ed.marks || []);
-    const marks = b.marks.map((m) => (m.k === 'pole' ? { k: 'pole', x: +(m.x / b.w).toFixed(5), yb: +(m.yb / b.h).toFixed(5), yt: +(m.yt / b.h).toFixed(5) } : { k: 'box', x: +(m.x / b.w).toFixed(5), y: +(m.y / b.h).toFixed(5), w: +(m.w / b.w).toFixed(5), h: +(m.h / b.h).toFixed(5) }));
+    const marks = b.marks.map((m) => (isModel(m) ? { k: m.k, x: +(m.x / b.w).toFixed(5), yb: +(m.yb / b.h).toFixed(5), yt: +(m.yt / b.h).toFixed(5) } : { k: 'box', x: +(m.x / b.w).toFixed(5), y: +(m.y / b.h).toFixed(5), w: +(m.w / b.w).toFixed(5), h: +(m.h / b.h).toFixed(5) }));
     if (JSON.stringify(marks) === before) { await closeSheet(); return; }
     busy('Marking the photo…');
     let blob = b.base;
@@ -2611,7 +2714,7 @@
     if (!marks.length && stored) ed.dropOrig = true;
     ed.marks = marks; ed.newBlob = blob; prepImages(blob); showEdPhoto(blob);
     const poles = marks.filter((m) => m.k === 'pole').length;
-    LOG.info('photo.marks', { n: marks.length, poles });
+    LOG.info('photo.marks', { n: marks.length, poles, models: marks.filter((m) => isModel(m) && m.k !== 'pole').map((m) => m.k) });
     busy(false); await closeSheet(); renderBoxInfo();
     toast(marks.length ? `${marks.length} mark${marks.length === 1 ? '' : 's'} on the photo${ed.mode === 'edit' ? ' — tap Save to keep it' : ''}` : `Marks removed${ed.mode === 'edit' ? ' — tap Save to keep it' : ''}`, 3000);
   }, 'Marks not added'));
@@ -2634,7 +2737,7 @@
     const el = e.target.value; ed.element = el;
     if (!ed.acc) ed.status = svDefaultStatus(el); // each element starts from its own usual status
     const id = $('poleId').value.trim().toUpperCase();
-    const kindOf = (v) => (/^FDU_/.test(v) ? 'ODF' : poleIdRe().test(v) || polePartRe().test(v) || /^PP-/.test(v) ? 'Pole' : Object.keys(SV_PREFIX).find((k) => v.startsWith(`${SV_PREFIX[k]}-`)) || null);
+    const kindOf = (v) => (/^FDU_/.test(v) ? 'ODF' : poleIdRe().test(v) || poleIdXRe().test(v) || polePartRe().test(v) || /^PP-/.test(v) ? 'Pole' : Object.keys(SV_PREFIX).find((k) => v.startsWith(`${SV_PREFIX[k]}-`)) || null);
     // a new record: the suggested ID follows the element; so does an ID that belongs to another element (e.g. a pole ID read by the camera)
     if (ed.mode === 'new' && (!ed.idTouched || !id || (kindOf(id) && kindOf(id) !== el))) { $('poleId').value = suggestId(el, ed.type); ed.idTouched = false; }
     applyElement(); checkDup(); checkFormat();
@@ -3112,14 +3215,14 @@
     showBlob(ed.newBlob || ed.srcBlob, `${$('poleId').value || ''} · ${$('edTime').textContent}`);
     if (!ed.acc) { // survey photo: mark it here (red box, model pole); marks stay editable
       $('pvTools').hidden = false; const n = (ed.marks || []).length, pp = proposedPole();
-      $('pvBox').textContent = n ? '▭ Red box · edit marks' : '▭ Red box'; $('pvPole').hidden = !pp && !(ed.marks || []).some((m) => m.k === 'pole'); $('pvRead').hidden = false;
+      $('pvBox').textContent = n ? '▭ Red box · edit marks' : '▭ Red box'; $('pvPole').hidden = false; $('pvRead').hidden = false; // v2.18: models for every survey photo (pole, ODF, handhole, tower)
       $('pvHint').textContent = n ? 'Tap a tool, then tap a mark to move, resize or delete it · tap the photo to zoom' : 'Tap the photo to zoom in or out · × or Back to close';
     }
   });
   $('defPhotoPrev').addEventListener('click', () => { if (defDraft && defDraft.blob) showBlob(defDraft.blob, 'Defect photo (not added yet)'); });
 
   /* ---------- reading the ID from the photo (v2.17): Read ID, then tap the painted ID or swipe along it ---------- */
-  const PV_HINT_READ = 'Tap the painted ID, or swipe along it: down a vertical ID, across a horizontal one';
+  const PV_HINT_READ = 'Tap the painted ID, or draw a box round it';
   function setPhotoRead(on) {
     $('photoView').classList.toggle('reading', on); $('pvMark').hidden = true;
     $('pvHint').textContent = on ? PV_HINT_READ : 'Tap the photo to zoom in or out · × or Back to close';
@@ -3139,7 +3242,7 @@
   $('pvImg').addEventListener('pointermove', (e) => {
     if (!pvSw || e.pointerId !== pvSw.id) return;
     pvSw.x1 = e.clientX; pvSw.y1 = e.clientY;
-    if (Math.hypot(pvSw.x1 - pvSw.x0, pvSw.y1 - pvSw.y0) > 14) drawLine($('pvMark'), pvSw, null);
+    if (Math.hypot(pvSw.x1 - pvSw.x0, pvSw.y1 - pvSw.y0) > 14) { $('pvMark').classList.add('box'); drawRect($('pvMark'), pvSw, null); }
   });
   $('pvImg').addEventListener('pointerup', (e) => { if (!pvSw || e.pointerId !== pvSw.id) return; const sw = pvSw; pvSw = null; guard(() => readFromPhoto(sw), 'Could not read the photo'); });
   $('pvImg').addEventListener('pointercancel', () => { pvSw = null; $('pvMark').hidden = true; });
@@ -3172,7 +3275,8 @@
     if (fx(sw.x0) < 0 || fx(sw.x0) > 1 || fy(sw.y0) < 0 || fy(sw.y0) > 1) { $('pvMark').hidden = true; return; }
     $('pvHint').textContent = 'Reading…';
     const im = await loadImage(blob), { w: IW, h: IH } = dims(im);
-    let b = tap ? idNear(im, IW, IH, fx(sw.x0), fy(sw.y0)) : swipeBox({ x0: fx(sw.x0) * IW, y0: fy(sw.y0) * IH, x1: fx(sw.x1) * IW, y1: fy(sw.y1) * IH }), crop;
+    let b = tap ? idNear(im, IW, IH, fx(sw.x0), fy(sw.y0)) : rectOf({ x0: fx(sw.x0) * IW, y0: fy(sw.y0) * IH, x1: fx(sw.x1) * IW, y1: fy(sw.y1) * IH }), crop;
+    if (b && !tap) { const p = Math.max(b.w, b.h) * 0.04; b = { x: b.x - p, y: b.y - p, w: b.w + 2 * p, h: b.h + 2 * p, v: b.v }; } // a little room round the drawn box
     if (b) { b = clipBox(b, IW, IH); crop = cropOf(im, b, b.v ? 'v' : 'h'); }
     else { // nothing ID-like found at the tap: a row around it, and a column as the other way round
       const hb = clipBox({ x: fx(sw.x0) * IW - IW * 0.16, y: fy(sw.y0) * IH - IH * 0.04, w: IW * 0.32, h: IH * 0.08 }, IW, IH), vb = clipBox({ x: fx(sw.x0) * IW - IW * 0.05, y: fy(sw.y0) * IH - IH * 0.16, w: IW * 0.1, h: IH * 0.32 }, IW, IH);
@@ -3248,6 +3352,7 @@
         remarks: $('svRemarks').value.trim().slice(0, 500), closureId: ed.element === 'Handhole' ? $('svClosureId').value.trim().toUpperCase().slice(0, 40) : '',
         boxes: (ed.legacyBoxes || 0) + (ed.marks || []).length, marks: (ed.marks || []).map((m) => ({ ...m })),
         poleModel: (ed.marks || []).some((m) => m.k === 'pole') || !!ed.legacyPole,
+        models: [...new Set((ed.marks || []).filter((m) => isModel(m) && m.k !== 'pole').map((m) => m.k))], // v2.18: odf, hh, tower
         ...(ed.newBlob && !ed.keepQ ? { q: ed.q || null } : {}), ...(ed.idRead ? { idRead: ed.idRead } : {}),
         gpsLat: g ? g.lat : null, gpsLon: g ? g.lon : null,
         accuracy: g && Number.isFinite(g.acc) ? g.acc : null,
@@ -3265,6 +3370,7 @@
       else if (rec.marks.length && ed.origPid && !ed.dropOrig) rec.origPid = ed.origPid;
       else delete rec.origPid;
       if (!rec.poleModel) delete rec.poleModel;
+      if (!rec.models.length) delete rec.models;
       busy('Writing to phone storage…');
       await saveRecord(rec, photos); // photo and record together, or neither
       if (!p) points.push(rec); else points[points.indexOf(p)] = rec;
@@ -3411,7 +3517,7 @@
       } else {
         const el = elemOf(p), tags = el === 'Pole' ? `<span class="tag">${C.xmlEsc(p.poleType || '—')}</span>${p.status === 'Proposed' || p.status === 'New' ? `<span class="tag" style="background:${p.status === 'Proposed' ? '#e03131' : '#17202a'};color:#fff">${C.xmlEsc(svStatusLabel(p.status))}</span>` : ''}`
           : `<span class="tag" style="background:${SV_COLORS[el] || '#495057'};color:#fff">${C.xmlEsc(el)}</span>${p.status ? `<span class="tag">${C.xmlEsc(svStatusLabel(p.status))}</span>` : ''}${p.closureId ? `<span class="tag">closure ${C.xmlEsc(p.closureId)}</span>` : ''}`;
-        s.innerHTML = `${tags}${p.boxes ? '<span class="tag" style="background:#e03131;color:#fff">red box</span>' : ''}${p.adjusted ? '<span class="tag adj">pin adjusted</span>' : ''}${counts[p.poleId] > 1 ? '<span class="tag dup">duplicate ID</span>' : ''}`;
+        s.innerHTML = `${tags}${p.boxes ? '<span class="tag" style="background:#e03131;color:#fff">red box</span>' : ''}${(p.models || []).map((k) => `<span class="tag" style="background:#e03131;color:#fff">${{ odf: 'ODF model', hh: 'HH model', tower: 'tower model' }[k] || k}</span>`).join('')}${p.adjusted ? '<span class="tag adj">pin adjusted</span>' : ''}${counts[p.poleId] > 1 ? '<span class="tag dup">duplicate ID</span>' : ''}`;
         const more = [detailsText(p.details, ' · '), p.remarks].filter(Boolean).join(' — ');
         if (more) { const s3 = document.createElement('span'); s3.className = 's'; s3.textContent = more; info.append(s3); }
       }
@@ -6375,5 +6481,5 @@
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
   window.__polecam = { get points() { return points; }, get S() { return S; }, get lastQr() { return lastQrText; }, shortJoin, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
-    packShare, unpackShare, importTeamText, readIdFrom, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport }; // for testing
+    packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport }; // for testing
 })();

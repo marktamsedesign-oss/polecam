@@ -120,9 +120,10 @@ body.visiting #mapSummary{display:none}
 #pvScroll{max-width:100%;max-height:82vh;overflow:auto;display:flex;align-items:center;justify-content:center;-webkit-overflow-scrolling:touch}
 #pvScroll img{max-width:100%;max-height:82vh;object-fit:contain;cursor:zoom-in}
 /* v2.17: mark the ID by hand — a swipe on the camera or on the photo, a tap on the photo */
-#swipeLine,#pvMark{position:absolute;left:0;top:0;height:10px;margin-top:-5px;border-radius:5px;background:rgba(255,212,59,.9);box-shadow:0 0 0 2px rgba(0,0,0,.35);transform-origin:0 50%;pointer-events:none;z-index:3}
-#pvMark{position:fixed;z-index:2900}#pvMark.box{height:auto;margin:0;border-radius:6px;background:transparent;border:3px solid #ffd43b;box-shadow:0 0 0 2000px rgba(0,0,0,.35);transform:none}
-#idGuide.track.fixed{transition:none;--c:#ffd43b}
+/* v2.18: the box drawn round an ID (camera or photo), slim lines */
+#swipeLine,#pvMark{position:absolute;left:0;top:0;border:1.5px dashed #ffd43b;border-radius:4px;background:rgba(255,212,59,.08);pointer-events:none;z-index:3}
+#pvMark{position:fixed;z-index:2900}#pvMark.box{border-style:solid;box-shadow:0 0 0 2000px rgba(0,0,0,.3)}
+#idGuide.track.fixed{transition:none;--c:#ffd43b;border:1.5px solid #ffd43b;background:none}
 #photoView.reading #pvImg{cursor:crosshair;touch-action:none}#photoView.reading #pvRead{background:#ffd43b;color:#111;border-color:#ffd43b}
 #photoView.zoomed #pvScroll{width:100%;height:82vh;display:block}#photoView.zoomed #pvScroll img{max-width:none;max-height:none;width:260%;cursor:zoom-out}
 #pvClose{position:absolute;top:calc(env(safe-area-inset-top,0px) + 8px);right:12px;width:44px;height:44px;border-radius:50%;border:0;background:rgba(255,255,255,.18);color:#fff;font-size:calc(28px * var(--fs));line-height:1;z-index:1}#photoView p{color:#fff;font-size:calc(13px * var(--fs));margin:0;text-align:center}
@@ -266,12 +267,12 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 #tapRing{position:absolute;width:64px;height:64px;margin:-32px 0 0 -32px;border:2px solid #ffd43b;border-radius:50%;pointer-events:none;z-index:2;animation:tapring .7s ease-out forwards}
 @keyframes tapring{from{transform:scale(1.4);opacity:1}to{transform:scale(.8);opacity:0}}
 #idGuide.track{--c:#ffd43b;border:0;border-radius:6px;box-shadow:0 0 0 2000px rgba(0,0,0,.16);transition:left .16s linear,top .16s linear,width .16s linear,height .16s linear;
-  background:linear-gradient(var(--c),var(--c)) 0 0/24px 4px,linear-gradient(var(--c),var(--c)) 0 0/4px 24px,linear-gradient(var(--c),var(--c)) 100% 0/24px 4px,linear-gradient(var(--c),var(--c)) 100% 0/4px 24px,
-  linear-gradient(var(--c),var(--c)) 0 100%/24px 4px,linear-gradient(var(--c),var(--c)) 0 100%/4px 24px,linear-gradient(var(--c),var(--c)) 100% 100%/24px 4px,linear-gradient(var(--c),var(--c)) 100% 100%/4px 24px;background-repeat:no-repeat}
+  background:linear-gradient(var(--c),var(--c)) 0 0/18px 2px,linear-gradient(var(--c),var(--c)) 0 0/2px 18px,linear-gradient(var(--c),var(--c)) 100% 0/18px 2px,linear-gradient(var(--c),var(--c)) 100% 0/2px 18px,
+  linear-gradient(var(--c),var(--c)) 0 100%/18px 2px,linear-gradient(var(--c),var(--c)) 0 100%/2px 18px,linear-gradient(var(--c),var(--c)) 100% 100%/18px 2px,linear-gradient(var(--c),var(--c)) 100% 100%/2px 18px;background-repeat:no-repeat}
 #idGuide.track.got{--c:#51cf66}
 #idGuide.track span{background:rgba(0,0,0,.6);border-radius:999px;padding:3px 10px;font-size:calc(14px * var(--fs))}
 #idGuide.got span{color:#8ce99a;font-family:var(--mono);font-weight:800}
-#idGuide{position:absolute;left:10%;right:10%;top:40%;height:22%;border:3px solid #fff;border-radius:10px;box-shadow:0 0 0 2000px rgba(0,0,0,.28);pointer-events:none;display:flex;align-items:flex-end;justify-content:center}
+#idGuide{position:absolute;left:10%;right:10%;top:40%;height:22%;border:1.5px solid #fff;border-radius:8px;box-shadow:0 0 0 2000px rgba(0,0,0,.28);pointer-events:none;display:flex;align-items:flex-end;justify-content:center}
 #idGuide.v{left:37%;right:37%;top:15%;height:58%}
 #idGuide span{transform:translateY(130%);white-space:nowrap;font-size:calc(13px * var(--fs));font-weight:600;color:#fff;text-shadow:0 1px 3px #000;text-align:center}
 .camid{min-width:44px;height:44px;border-radius:22px;border:2px solid #fff;background:rgba(0,0,0,.55);color:#fff;font:700 calc(14px * var(--fs)) var(--mono)}
@@ -353,7 +354,7 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .idnote{flex-basis:100%;font-size:calc(12.5px * var(--fs));color:var(--muted)}
 body.kb #pinMapWrap{display:none}
 body.kb .sheet{bottom:var(--kb,0px)}
-#boxModes{display:flex;gap:8px;padding:8px 16px 0}#boxModes .chip{flex:1;justify-content:center}
+#boxModes{display:flex;gap:8px;padding:8px 16px 0;align-items:center}#boxModes .chip{flex:none;justify-content:center;padding:0 12px}#boxModel{flex:1;min-width:0;min-height:38px}
 #photoStrip .meta{flex:1}#edSaveTop{flex:none;min-height:44px;padding:0 20px;margin-left:auto}#edPhoto{cursor:zoom-in}
 #photoStrip img{width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none;background:var(--chip)}
 #photoStrip .meta{font-size:calc(13px * var(--fs));color:var(--muted);display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -480,7 +481,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
 </svg>
-<div id="photoView" hidden role="dialog" aria-label="Photo"><button type="button" id="pvClose" aria-label="Close photo">×</button><div id="pvScroll"><img id="pvImg" alt=""></div><p id="pvCap"></p><div id="pvTools" hidden><button type="button" class="btn" id="pvBox">▭ Red box</button><button type="button" class="btn" id="pvPole">⊥ Pole model</button><button type="button" class="btn" id="pvRead">🔍 Read ID</button></div><i id="pvMark" hidden></i><p id="pvHint" style="opacity:.7">Tap the photo to zoom in or out · × or Back to close</p></div>
+<div id="photoView" hidden role="dialog" aria-label="Photo"><button type="button" id="pvClose" aria-label="Close photo">×</button><div id="pvScroll"><img id="pvImg" alt=""></div><p id="pvCap"></p><div id="pvTools" hidden><button type="button" class="btn" id="pvBox">▭ Red box</button><button type="button" class="btn" id="pvPole">⊥ Model</button><button type="button" class="btn" id="pvRead">🔍 Read ID</button></div><i id="pvMark" hidden></i><p id="pvHint" style="opacity:.7">Tap the photo to zoom in or out · × or Back to close</p></div>
 <div id="app">
   <div id="topbar">
     <div class="brand" title="G-eSAA · Geo electronic Survey, Audit &amp; Acceptance"><span>G-e<b>SAA</b></span><small id="brandVer">v2.15.0</small></div>
@@ -536,7 +537,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <button class="spb" id="scanPhoto" type="button" aria-label="Read the ID from the photo just taken" title="Read the ID from the photo" hidden><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-8 8"/></svg></button>
     <button class="spb" id="scanHelp" type="button" aria-expanded="false" aria-label="How to scan" title="How to scan">i</button>
     <button class="spb skip" id="scanSkip" type="button" aria-label="Skip the ID scan">Skip</button>
-    <span id="scanSub" hidden>Point the camera at the painted ID: the box finds it and reads it. <b>Swipe along the ID</b> to mark it yourself: down a vertical ID, across a horizontal one. <b>Tap the ID</b> to focus there. Hold the phone still for a moment; pinch or tap 2× / 4× to zoom. The picture button reads the ID from the photo you just took: tap or swipe the ID on it.</span>
+    <span id="scanSub" hidden>Point the camera at the painted ID: the box finds it and reads it. <b>Draw a box round the ID</b> to mark it yourself (taller than wide for a vertical ID). <b>Tap the ID</b> to focus there. Hold the phone still for a moment; pinch or tap 2× / 4× to zoom. The picture button reads the ID from the photo you just took: tap the ID on it, or draw a box round it. An X in the ID is a character that could not be read.</span>
   </div>
   <div id="camStage">
     <video id="video" playsinline muted autoplay></video>
@@ -588,6 +589,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
     <div class="group">
       <h3>Identification</h3>
+      <label class="frow" id="svStatusBox" hidden><span class="lbl">STATUS</span><select id="svStatus" aria-label="Status"></select></label>
       <div class="pair" id="elemTypeRow">
         <label class="field" id="accElementBox" hidden><span class="lbl">ELEMENT</span><select id="elemSel" aria-label="Element"></select></label>
         <label class="field" id="surveyTypeBox"><span class="lbl">TYPE</span><select id="typeSel" aria-label="Pole type"></select></label>
@@ -600,7 +602,6 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <p class="warnline" id="dupWarn" hidden></p>
       <p class="warnline" id="fmtWarn" hidden></p>
       <label class="frow" id="odfBox" hidden><span class="lbl">ODF</span><select id="odfSel" aria-label="ODF"><option value="New">New ODF</option><option value="Existing">Existing ODF</option></select></label>
-      <label class="frow" id="svStatusBox" hidden><span class="lbl">STATUS</span><select id="svStatus" aria-label="Status"></select></label>
       <label class="frow" id="svClosureBox" hidden><span class="lbl">CLOSURE ID</span><input type="text" id="svClosureId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="If a closure is inside (POI)" aria-label="Closure ID in the handhole"></label>
       <div class="field" id="svDetailsBox" hidden><span class="lbl">POLE DETAILS</span><div id="svDetails" class="pdlist"></div>
         <select id="svDetailAdd" aria-label="Add a pole detail"><option value="">+ Add detail</option></select></div>
@@ -651,7 +652,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <button class="iconbtn" data-close aria-label="Cancel"><svg><use href="#i-close"/></svg></button>
     <h2 id="boxTitle">Red box</h2>
   </header>
-  <div id="boxModes"><button type="button" class="chip" id="boxModeBox" aria-pressed="true">▭ Red box</button><button type="button" class="chip" id="boxModePole" aria-pressed="false">⊥ Pole model</button></div>
+  <div id="boxModes"><button type="button" class="chip" id="boxModeBox" aria-pressed="true">▭ Red box</button><button type="button" class="chip" id="boxModePole" aria-pressed="false">⊥ Model</button><select id="boxModel" aria-label="Which model"><option value="pole">Proposed pole</option><option value="odf">Proposed ODF</option><option value="hh">Proposed handhole</option><option value="tower">New tower location</option></select></div>
   <div id="boxWrap"><canvas id="boxCanvas" aria-label="Photo: drag to draw a red box"></canvas></div>
   <p class="hint" id="boxHint" style="margin:0;padding:8px 16px">Drag on the photo to draw a red box around the spot. Tap a mark to move, resize or delete it.</p>
   <div class="foot">
@@ -841,7 +842,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <p class="hint" style="margin:0"><b style="color:var(--ink)">G-eSAA v2.15.0</b> · Geo electronic Survey, Audit &amp; Acceptance — digital from the field (formerly PoleCam)<br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
       <p class="hint" id="policyInfo" style="margin:0"></p>
       <label class="check"><input type="checkbox" id="setShowHelp"><span>Keep the help text on every screen open</span></label>
-      <label class="field">Text size<select id="setTextSize"><option value="0.9">Small</option><option value="1">Normal</option><option value="1.15">Large</option><option value="1.3">Extra large</option><option value="1.45">Largest</option></select></label>
+      <label class="field">Text size<select id="setTextSize"><option value="0.8">Very small</option><option value="0.9">Small (default)</option><option value="1">Normal</option><option value="1.15">Large</option><option value="1.3">Extra large</option><option value="1.45">Largest</option></select></label>
     </div>
   </div>
 </section>
