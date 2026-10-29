@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=resizes-content">
 <title>G-eSAA</title>
 <meta name="theme-color" content="#0f2547">
 <meta name="description" content="Capture geotagged pole photos, correct the pin, and export KMZ, DXF (UTM) and CSV for OSP design.">
@@ -43,6 +43,8 @@ svg.i{width:22px;height:22px;flex:none}
 #app{position:fixed;inset:0;display:flex;flex-direction:column}
 #topbar{display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top,0px) + 8px) max(12px,env(safe-area-inset-right,0px)) 8px max(12px,env(safe-area-inset-left,0px));background:var(--navy);color:var(--navy-ink);z-index:500}
 #topbar .brand{font-weight:800;letter-spacing:.02em;white-space:nowrap;display:flex;flex-direction:column;line-height:1.05}
+#topbar button.brand{background:none;border:0;padding:0;margin:0;color:inherit;font:inherit;font-weight:800;text-align:left;cursor:pointer;align-items:flex-start}
+html,body{touch-action:pan-x pan-y}
 #topbar .brand small{font-size:calc(10px * var(--fs));font-weight:600;opacity:.7;letter-spacing:.04em}
 #legendBtn{position:absolute;top:calc(env(safe-area-inset-top,0px) + 104px);left:max(12px,env(safe-area-inset-left,0px));z-index:450;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:4px 10px;box-shadow:var(--shadow);font-size:calc(12px * var(--fs));font-weight:600}
 #legend{position:absolute;top:calc(env(safe-area-inset-top,0px) + 136px);left:max(12px,env(safe-area-inset-left,0px));z-index:450;background:var(--surface);color:var(--ink);border-radius:12px;padding:8px 12px;box-shadow:var(--shadow);font-size:calc(12.5px * var(--fs));display:flex;flex-direction:column;gap:5px;max-width:min(260px,calc(100% - 90px))}
@@ -554,6 +556,7 @@ body.visiting #toast{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 64px);b
 .rb-head span{font-size:calc(12px * var(--fs));color:var(--muted)}
 .rb-hint{margin:0;font-size:calc(13px * var(--fs));color:var(--muted)}
 .rb-btns{display:flex;gap:6px;flex-wrap:wrap}
+.rb-cable{display:flex;gap:6px;align-items:center}.rb-cable label{font-size:calc(11px * var(--fs));font-weight:700;color:var(--muted)}.rb-cable select{flex:1;min-width:0;min-height:38px}.rb-cable .btn{min-height:38px;white-space:nowrap}
 .rb-btns .btn{min-height:40px;padding:0 10px;font-size:calc(13px * var(--fs));flex:1 1 auto}
 .span-label{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:0 4px;font:600 calc(10px * var(--fs))/1.5 var(--mono);white-space:nowrap;box-shadow:none}
 .span-label.long{background:var(--bad);color:#fff;border-color:var(--bad)}
@@ -610,7 +613,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 <div id="photoView" hidden role="dialog" aria-label="Photo"><button type="button" id="pvClose" aria-label="Close photo">×</button><div id="pvScroll"><img id="pvImg" alt=""></div><p id="pvCap"></p><div id="pvTools" hidden><button type="button" class="btn" id="pvBox">✎ Box · FOC · Text</button><button type="button" class="btn" id="pvPole">⊥ Model</button><button type="button" class="btn" id="pvRead">🔍 Read ID</button></div><i id="pvMark" hidden></i><p id="pvHint" style="opacity:.7">Tap the photo to zoom in or out · × or Back to close</p></div>
 <div id="app">
   <div id="topbar">
-    <div class="brand" title="G-eSAA · Geo electronic Survey, Audit &amp; Acceptance"><span>G-e<b>SAA</b></span><small id="brandVer">v2.15.0</small></div>
+    <button class="brand" id="brandBtn" type="button" title="G-eSAA · tap to reload and check for a new version" aria-label="G-eSAA: reload the app and check for a new version"><span>G-e<b>SAA</b></span><small id="brandVer">v2.15.0</small></button>
     <button id="projectBtn" aria-label="Projects: change project or task category"><span class="badge cat" id="modeBadge">SURVEY</span><span id="projectName">Project</span><svg class="i"><use href="#i-chev"/></svg></button>
     <button id="syncBtn" type="button" aria-label="Sync with the online sheet" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></svg><span id="syncDot" hidden></span></button>
   </div>
@@ -633,6 +636,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div id="routeBar" hidden>
     <div class="rb-head"><b id="rbTitle">Route</b><span id="rbStats"></span></div>
     <p class="rb-hint" id="rbHint">Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.</p>
+    <div class="rb-cable"><label for="rbCable">CABLE</label><select id="rbCable" aria-label="Cable type of the spans you link"></select><button class="btn sm" id="rbCableAll" type="button">Set on all spans</button></div>
     <div class="rb-btns">
       <button class="btn" id="rbAuto" type="button">Link in capture order</button>
       <button class="btn" id="rbUndo" type="button">Undo</button>
@@ -1167,6 +1171,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
           <button class="btn sm" id="curFolder" type="button" hidden>Project folder (Drive)</button>
           <label class="frow" id="purposeRow" hidden><span class="lbl">PURPOSE</span><select id="curPurpose"><option value="As-plan">As-Plan Creation</option><option value="As-built">As-Built Creation</option><option value="Audit">Audit</option></select></label>
           <label class="frow" id="curStartRow" hidden><span class="lbl">START DATE</span><input type="date" id="curStart"></label>
+          <label class="frow" id="curRegionRow" hidden><span class="lbl">REGION (BOQ)</span><select id="curRegion" aria-label="Region of the project, for the BOQ"></select></label>
+          <p class="hint" id="curRegionHint" hidden style="margin:0"></p>
           <div id="refBox" style="display:flex;flex-direction:column;gap:8px">
             <span class="lbl">KMZ REFERENCE</span>
             <p class="hint" id="refInfo">No reference loaded.</p>
@@ -1283,6 +1289,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <p class="hint">A map pack is a street map of a whole area kept on this phone: roads, buildings, rivers and place names, sharp at every zoom. Get it once on Wi-Fi. When there is no signal the app switches to it by itself; the layers button also switches to it.</p>
       <p class="hint" id="packSource">–</p>
       <div id="packList" style="display:flex;flex-direction:column;gap:8px"></div>
+      <button class="btn primary" id="areaDl" type="button">⬇ Download an area for offline use</button>
+      <p class="hint" id="areaDlInfo" style="margin:0">The map view or the project's area, cut from the Protomaps basemap build (OpenStreetMap data) and kept as a pack. Use Wi-Fi: a town is a few MB.</p>
       <div class="row"><button class="btn grow primary" id="packImport" type="button">Import a pack file</button><button class="btn grow" id="packRefresh" type="button">Refresh list</button></div>
       <input type="file" id="packFileInput" hidden>
       <div id="packLinkBox" style="display:flex;flex-direction:column;gap:8px">
@@ -1435,6 +1443,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <h3>Field standards</h3>
         <div class="row"><label class="field" style="flex:1">Maximum span (m)<input type="number" id="setMaxSpan" step="1" min="5"></label><label class="field" style="flex:1">Angle pole from (°)<input type="number" id="setAngle" step="1" min="1" max="90"></label></div>
         <label class="field">Link in capture order: skip gaps longer than (m)<input type="number" id="setAutoGap" step="5" min="10"></label>
+        <label class="field">Maintenance loop (MLoop) length (m)<input type="number" id="setMloopLen" step="0.5" min="1" max="100"></label>
         <label class="field">Extra pole prefixes for everyone, one per line (prefix, then a name)<textarea id="admPoleTypes" style="min-height:60px" placeholder="PLDT PLDT pole"></textarea></label>
         <details class="admsub" id="admBoqBox"><summary>Sizes for the BOQ / BOM and pole details</summary>
           <p class="hint">One value per line, in the order they show. Edit, add or remove; a list of more than 4 shows as a dropdown in the record. Empty = the built-in list.</p>
@@ -1442,6 +1451,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
           <div class="pair"><label class="field">New Globe pole sizes<textarea id="admBoqHeight" rows="4"></textarea></label><label class="field">New Globe pole classes<textarea id="admBoqCls" rows="4"></textarea></label></div>
           <div class="pair"><label class="field">ODF sizes<textarea id="admBoqOdf" rows="6"></textarea></label><label class="field">ODF connectors<textarea id="admBoqConn" rows="6"></textarea></label></div>
           <div class="pair"><label class="field">Closure sizes<textarea id="admBoqClo" rows="6"></textarea></label><label class="field">Pole details (what else is on the pole)<textarea id="admDetailItems" rows="6"></textarea></label></div>
+          <div class="pair"><label class="field">New arms<textarea id="admBoqArm" rows="5"></textarea></label><label class="field">Guying<textarea id="admBoqGuy" rows="5"></textarea></label></div>
         </details>
         <label class="check"><input type="checkbox" id="admVendorRec"><span>Vendors record PAT defects and accept fixes at FAT (the Globe representative signs the printed form). Off: only the admin company does.</span></label>
         <label class="field">Photo sharpness required<select id="admQuality"><option value="strict">Strict (recommended)</option><option value="normal">Normal: refuse only clearly blurry</option></select></label>
@@ -1462,6 +1472,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <h3>Offline map packs</h3>
         <p class="hint help">Upload each .pmtiles map pack to Google Drive and share it as “Anyone with the link”. Paste one line per pack: name | Drive link | size in MB. Users see these packs under Maps after they take this list version (join link or QR code), or after Refresh list when the online sheet is connected. Users cannot add links themselves.</p>
         <textarea id="admPacks" style="min-height:80px" placeholder="Mindanao | https://drive.google.com/file/d/…/view | 200" aria-label="Offline map packs, one per line"></textarea>
+        <label class="field">AREA DOWNLOAD SOURCE (optional): a .pmtiles file on your own storage that allows range requests, e.g. a copy of a Protomaps build on Cloudflare R2. Blank = the Protomaps daily build.<input type="url" id="admAreaSrc" placeholder="https://…/planet.pmtiles" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
         <p class="hint" id="admPacksInfo"></p>
       </div>
       <div class="group">

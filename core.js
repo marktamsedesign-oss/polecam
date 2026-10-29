@@ -329,13 +329,14 @@
     let route = '';
     if (o.spans && o.spans.length) {
       styles.push('<Style id="span_ok"><LineStyle><color>ffe6a01c</color><width>3</width></LineStyle></Style>',
-        '<Style id="span_long"><LineStyle><color>ff2a2ac9</color><width>4</width></LineStyle></Style>');
+        '<Style id="span_long"><LineStyle><color>ff2a2ac9</color><width>4</width></LineStyle></Style>',
+        ...Object.entries(CABLES).map(([k, c]) => `<Style id="cable_${k}"><LineStyle><color>${c.kml}</color><width>3</width></LineStyle></Style>`)); // v2.29: one colour per cable type
       // v2.28: the route as continuous lines (one per run between ends and junctions), not one line per span; each line lists
       // its spans; spans longer than the maximum are drawn again in red on top
       const chains = routeChains(o.spans), ll = (p) => `${p.lon.toFixed(8)},${p.lat.toFixed(8)},0`;
-      const lines = chains.map((c, i) => `<Placemark><name>${xmlEsc(`${chains.length > 1 ? `Route ${i + 1}` : 'Route'}: ${c.pts[0].poleId || ''} → ${c.pts[c.pts.length - 1].poleId || ''} · ${c.len.toFixed(0)} m`)}</name><styleUrl>#span_ok</styleUrl>` +
+      const lines = chains.map((c, i) => `<Placemark><name>${xmlEsc(`${chains.length > 1 ? `Route ${i + 1}` : 'Route'}: ${c.pts[0].poleId || ''} → ${c.pts[c.pts.length - 1].poleId || ''} · ${c.len.toFixed(0)} m${CABLES[c.cable] ? ` · ${CABLES[c.cable].short}` : ''}`)}</name><styleUrl>#${CABLES[c.cable] ? `cable_${c.cable}` : 'span_ok'}</styleUrl>` +
         `<description>${xmlEsc(`${c.spans.length} span${c.spans.length === 1 ? '' : 's'}, ${c.len.toFixed(1)} m\n${c.spans.map((s) => `${s.from} → ${s.to}: ${s.len.toFixed(1)} m${s.long ? ' (longer than the maximum span)' : ''}`).join('\n')}`)}</description>` +
-        `<ExtendedData><Data name="length_m"><value>${c.len.toFixed(1)}</value></Data><Data name="spans"><value>${c.spans.length}</value></Data></ExtendedData>` +
+        `<ExtendedData><Data name="length_m"><value>${c.len.toFixed(1)}</value></Data><Data name="spans"><value>${c.spans.length}</value></Data>${CABLES[c.cable] ? `<Data name="cable"><value>${xmlEsc(CABLES[c.cable].label)}</value></Data><Data name="method"><value>${CABLES[c.cable].method}</value></Data>` : ''}</ExtendedData>` +
         `<LineString><tessellate>1</tessellate><coordinates>${c.pts.map(ll).join(' ')}</coordinates></LineString></Placemark>`);
       const longs = o.spans.filter((s) => s.long).map((s) => `<Placemark><name>${xmlEsc(`${s.from} → ${s.to}: ${s.len.toFixed(1)} m (long span)`)}</name><styleUrl>#span_long</styleUrl>` +
         `<LineString><tessellate>1</tessellate><coordinates>${ll(s.a)} ${ll(s.b)}</coordinates></LineString></Placemark>`);
@@ -397,7 +398,8 @@
     // the linked FOC route: span lines, and the FOC length (span + allowance) along each span
     for (const s of o.spans || []) {
       const A = U(s.a.lat, s.a.lon), B = U(s.b.lat, s.b.lon);
-      ents.push({ t: 'line', l: lay(s.long ? 'SPAN_LONG' : 'CABLE_ROUTE', s.long ? 1 : 4), x1: A.E, y1: A.N, x2: B.E, y2: B.N });
+      const cab = CABLES[s.cable]; // v2.29: a layer per cable type
+      ents.push({ t: 'line', l: lay(s.long ? 'SPAN_LONG' : cab ? cab.layer : 'CABLE_ROUTE', s.long ? 1 : cab ? cab.aci : 4), x1: A.E, y1: A.N, x2: B.E, y2: B.N });
       let ang = Math.atan2(B.N - A.N, B.E - A.E) * 180 / Math.PI; if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
       const t = `${(s.len * (1 + pct / 100)).toFixed(1)}m`, h = th * 0.75, rad = ang * Math.PI / 180, half = t.length * h * 0.3;
       const mx = (A.E + B.E) / 2, my = (A.N + B.N) / 2;
@@ -575,7 +577,7 @@
   }
 
   /* v2.26: the BOQ / BOM sizes of a point (p.boq) in the CSV and the KMZ data */
-  const BOQ_COLS = [['owner', 'pole_owner'], ['clamp', 'clamp_size'], ['height', 'new_pole_size'], ['cls', 'pole_class'], ['odf', 'odf_size'], ['conn', 'odf_connector'], ['clo', 'closure_size'], ['cloSt', 'closure_status']];
+  const BOQ_COLS = [['owner', 'pole_owner'], ['clamp', 'clamp_size'], ['height', 'new_pole_size'], ['cls', 'pole_class'], ['odf', 'odf_size'], ['conn', 'odf_connector'], ['clo', 'closure_size'], ['cloSt', 'closure_status'], ['arm', 'new_arm'], ['guy', 'guying'], ['mloop', 'mloop']]; // v2.29: arm, guying, maintenance loop
   /* ---------------- CSV ---------------- */
   function buildCsv(points, zone, exportedBy) {
     const q = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
@@ -637,15 +639,22 @@
    * points: [{id, poleId, lat, lon}], links: [[idA, idB]], o: {maxSpan, angleDeg}
    * -> {spans:[{a,b,from,to,len,long}], poles:{id:{degree, deflection, role}}, total, long, angle, terminal, junction, inline, off}
    */
+  /** v2.29: the FOC cable types a span can carry: label, short label, method (AE aerial / UG underground), KML colour (aabbggrr),
+      DXF layer and colour. A span without a type is "cable not set". */
+  const CABLES = {
+    F72: { label: 'AE Figure 8 72C FOC', short: 'Fig-8 72C', method: 'AE', kml: 'ffe8487f', css: '#7f48e8', layer: 'FOC_AE_FIG8_72C', aci: 6 },
+    L12: { label: 'Light cable 12C', short: 'Light 12C', method: 'AE', kml: 'ffe6a01c', css: '#1c7ed6', layer: 'FOC_AE_LIGHT_12C', aci: 4 },
+    U144: { label: 'UG 144C air-blown fiber', short: 'UG 144C', method: 'UG', kml: 'ff449e2f', css: '#2f9e44', layer: 'FOC_UG_144C', aci: 3 },
+  };
   function analyzeRoute(points, links, o) {
     const by = {}; points.forEach((p) => { by[p.id] = p; });
     const nb = {}; points.forEach((p) => { nb[p.id] = []; });
     const spans = [];
-    for (const [ia, ib] of links || []) {
+    for (const [ia, ib, cab] of links || []) { // v2.29: a link may carry its cable type (CABLES key)
       const a = by[ia], b = by[ib];
       if (!a || !b || ia === ib) continue;
       const len = distM(a, b);
-      spans.push({ ia, ib, a, b, from: a.poleId, to: b.poleId, len, long: len > o.maxSpan });
+      spans.push({ ia, ib, a, b, from: a.poleId, to: b.poleId, len, long: len > o.maxSpan, cable: CABLES[cab] ? cab : '' });
       nb[ia].push(b); nb[ib].push(a);
     }
     const poles = {}; const cnt = { long: 0, angle: 0, terminal: 0, junction: 0, inline: 0, off: 0 };
@@ -671,12 +680,12 @@
       for (;;) {
         used[e] = true; const s = spans[e], nx = String(s.ia) === String(cur) ? s.ib : s.ia; pts.push(node[nx]); sp.push(s); cur = nx; // ids as text (object keys)
         if (String(cur) === String(start) || adj[cur].length !== 2) break;
-        const ne = adj[cur].find((k) => !used[k]); if (ne == null) break; e = ne;
+        const ne = adj[cur].find((k) => !used[k] && (spans[k].cable || '') === (s.cable || '')); if (ne == null) break; e = ne; // v2.29: one run per cable type
       }
-      return { pts, spans: sp, len: sp.reduce((t, s) => t + s.len, 0) };
+      return { pts, spans: sp, len: sp.reduce((t, s) => t + s.len, 0), cable: sp[0].cable || '' };
     };
-    const out = [];
-    Object.keys(adj).filter((id) => adj[id].length !== 2).forEach((id) => adj[id].forEach((e) => { if (!used[e]) out.push(walk(id, e)); }));
+    const out = [], ends = (id) => adj[id].length !== 2 || (spans[adj[id][0]].cable || '') !== (spans[adj[id][1]].cable || ''); // a change of cable ends a run
+    Object.keys(adj).filter(ends).forEach((id) => adj[id].forEach((e) => { if (!used[e]) out.push(walk(id, e)); }));
     spans.forEach((s, e) => { if (!used[e]) out.push(walk(s.ia, e)); }); // loops
     return out;
   }
@@ -1610,7 +1619,7 @@
     return results;
   }
 
-  const api = { parseCsv, companiesFromCsv, utmForward, analyzeRoute, routeChains, autoLinks, distM, deflection, idCandidates, fitShape, knownId, setPolePrefixes, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
+  const api = { CABLES, parseCsv, companiesFromCsv, utmForward, analyzeRoute, routeChains, autoLinks, distM, deflection, idCandidates, fitShape, knownId, setPolePrefixes, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
     buildKml, buildDxf, buildCsv, roadsFromOverpass, overpassQuery, nextPoleId, safeName, xmlEsc, blockName, findIdBox, stackRows, findStack,
     setGlyphModel, glyphReady, glyphRead, glyphPatch, glyphProbs, GCLASSES, _glyph: { inkMaps, textLines, edgeLines, grayOf, glyphText, readLine } };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleCore = api;

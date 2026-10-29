@@ -405,8 +405,12 @@
      size and class (and clamp); ODF: fibre count and connector; closure: core count. v2.26.1: only in the As-Plan and As-Built
      surveys (the BOQ of the plan and of what was built); the As-Built compares with the As-Plan (its KMZ as the reference). */
   const BOQ_OPT = { owner: ['Electric', 'PLDT', 'DITO', 'CONVERGE'], clamp: ['5-7', '8-9', '10-12'], height: ['7.5m', '9.14m', '10.6m'], cls: ['7A', '7AR', 'Light'],
-    odf: ['12F', '24F', '48F', '72F', '144F', '288F'], conn: ['APC', 'UPC'], clo: ['12C', '24C', '48C', '72C', '144C', '288C'], cloSt: ['Existing', 'New'] };
-  const BOQ_LABEL = { owner: 'POLE OWNER', clamp: 'CLAMP SIZE', height: 'NEW GLOBE POLE · SIZE', cls: 'NEW GLOBE POLE · CLASS', odf: 'ODF SIZE', conn: 'ODF CONNECTOR', clo: 'CLOSURE SIZE', cloSt: 'CLOSURE' };
+    odf: ['12F', '24F', '48F', '72F', '144F', '288F'], conn: ['APC', 'UPC'], clo: ['12C', '24C', '48C', '72C', '144C', '288C'], cloSt: ['Existing', 'New'],
+    // v2.29: from the legend of the drawing template: a new arm on the pole, its guying (several), a maintenance loop
+    arm: ['Single arm', 'Double arm', 'Extension arm 26"', 'Extension arm 44.5"', '10-pin alley arm'], guy: ['Head guy', 'Side guy', 'Sidewalk guy', 'Sidewalk head guy', 'Pole-to-pole guy', 'Down guy'], mloop: ['Yes'] };
+  const BOQ_MULTI = new Set(['guy']); // several at once: "Head guy + Side guy"
+  const mloopLen = () => (Number.isFinite(+pol().mloopLen) && +pol().mloopLen > 0 ? +pol().mloopLen : 15); // v2.29: MLoop = 15 m unless the admin sets another
+  const BOQ_LABEL = { owner: 'POLE OWNER', clamp: 'CLAMP SIZE', height: 'NEW GLOBE POLE · SIZE', cls: 'NEW GLOBE POLE · CLASS', odf: 'ODF SIZE', conn: 'ODF CONNECTOR', clo: 'CLOSURE SIZE', cloSt: 'CLOSURE', arm: 'NEW ARM', guy: 'NEW GUYING (one or more)', mloop: 'MAINTENANCE LOOP' };
   const BOQ_PURPOSES = ['As-plan', 'As-built'];
   /** The BOQ is part of the As-Plan and As-Built surveys only (not Audit, PAT, defect cleanup or FAT). */
   const boqOn = (name) => !isAcc(name) && BOQ_PURPOSES.includes(svPurpose(name));
@@ -416,7 +420,7 @@
   const boqOwners = () => [...new Set([...boqList('owner'), ...(S.myOwners || [])].map((x) => String(x || '').trim()).filter(Boolean))];
   /** The BOQ fields of a survey element: by element and status (existing, or proposed / new); a closure in the handhole adds its size. */
   function boqKeys(el, status, closureHere) {
-    if (el === 'Pole') return status === 'Proposed' || status === 'New' ? ['height', 'cls', 'clamp'] : ['owner', 'clamp'];
+    if (el === 'Pole') return (status === 'Proposed' || status === 'New' ? ['height', 'cls', 'clamp'] : ['owner', 'clamp']).concat(['arm', 'guy', 'mloop']); // v2.29
     if (el === 'ODF') return ['odf', 'conn'];
     if (el === 'Closure') return ['clo'];
     if (el === 'Handhole') return closureHere ? ['clo'] : [];
@@ -430,10 +434,11 @@
     if (b.clamp) parts.push(`Clamp ${b.clamp}`);
     if (b.odf || b.conn) parts.push(`ODF ${[b.odf, b.conn].filter(Boolean).join(' ')}`);
     if (b.clo || b.cloSt) parts.push(`Closure ${[b.clo, b.cloSt].filter(Boolean).join(' ')}`);
+    if (b.arm) parts.push(`Arm ${b.arm}`); if (b.guy) parts.push(`Guying ${b.guy}`); if (b.mloop) parts.push(`MLoop ${mloopLen()} m`); // v2.29
     return parts.join(' · ');
   }
   /** Only the fields that apply to the element as saved. */
-  function boqPick(b, keys) { const o = {}; keys.forEach((k) => { if (b && b[k]) o[k] = String(b[k]).slice(0, 40); }); return o; }
+  function boqPick(b, keys) { const o = {}; keys.forEach((k) => { if (b && b[k]) o[k] = String(b[k]).slice(0, k === 'guy' ? 120 : 40); }); return o; }
   const PP_RE = /^PP-(\d+)$/; // proposed poles: the app numbers them, as there is no painted ID yet
   /** The photo that stands for a record (list, KMZ icon): its element photo, or the first defect photo (v2.13 records have none). */
   const coverPid = (r) => { const p = photosOf(r)[0]; if (p) return p.pid; const d = (r.defs || []).find((x) => x.verifyPid || x.afterPid || x.pid); return d ? d.verifyPid || d.afterPid || d.pid : null; };
@@ -650,7 +655,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.28.0';
+  const APP_VER = '2.29.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1131,7 +1136,8 @@
       const used = [...new Set(projPoints().filter((p) => elemOf(p) === 'Pole').map((p) => p.poleType || ''))].filter(Boolean);
       h = (used.length ? used : [S.lastType || 'Concrete']).map((t) => dot(typeColor(t), `${t} pole`)).join('')
         + '<span class="lg"><span class="sw" style="background:#fff;border:2px dashed #e03131"></span>Proposed pole</span><span class="lg"><span class="sw" style="background:#fff;border:3px solid #17202a"></span>New pole (As-built)</span>'
-        + Object.keys(SV_SHORT).map((el) => sq(SV_COLORS[el], SV_SHORT[el], el === 'Closure' ? 'Closure (POI)' : el)).join('');
+        + Object.keys(SV_SHORT).map((el) => sq(SV_COLORS[el], SV_SHORT[el], el === 'Closure' ? 'Closure (POI)' : el)).join('')
+        + Object.values(CAB).map((c) => `<span class="lg"><span class="ln" style="border-top:4px ${c.method === 'UG' ? 'dotted' : 'solid'} ${c.css}"></span>${C.xmlEsc(c.short)} (${c.method})</span>`).join('') + '<span class="lg"><span class="ln" style="border-top:4px solid #868e96"></span>Cable not set</span>'; // v2.29
     }
     h += '<span class="lg"><span class="sw" style="background:#1c7ed6"></span>You (GPS)</span>' + (isAcc() ? '<span class="lg"><span class="ln"></span>Way to the pin you opened</span>' : '<span class="lg"><span class="ln" style="border-top-style:solid"></span>Linked route, span length</span>');
     L2.innerHTML = h;
@@ -1178,7 +1184,7 @@
     const folderOf = (pm) => { for (let el = pm.parentElement; el; el = el.parentElement) if (el.localName === 'Folder') return txt(el, 'name'); return ''; };
     const out = { points: [], lines: [], polys: [] };
     /* v2.26.1: a G-eSAA survey KMZ (the As-Plan) carries each element's ID, status and sizes as data: kept for the As-Built */
-    const dataOf = (pm) => { const o = {}; all(pm, 'Data').forEach((d) => { const k = d.getAttribute('name'); if (k && KML_DATA.has(k)) { const v = txt(d, 'value').slice(0, 60); if (v) o[k] = v; } }); return o.element ? o : null; };
+    const dataOf = (pm) => { const o = {}; all(pm, 'Data').forEach((d) => { const k = d.getAttribute('name'); if (k && KML_DATA.has(k)) { const v = txt(d, 'value').slice(0, 120); if (v) o[k] = v; } }); return o.element ? o : null; };
     for (const pm of all(doc, 'Placemark')) {
       const n = txt(pm, 'name').slice(0, 80), f = folderOf(pm).slice(0, 60), st = styleOf(pm);
       for (const g of all(pm, 'Point')) { const c = coords(g)[0], x = dataOf(pm); if (c && out.points.length < REF_MAX_PTS) out.points.push({ n, f, c, col: st.icon || null, ...(x ? { x } : {}) }); }
@@ -1188,7 +1194,7 @@
     return out;
   }
   /** v2.26.1: the data names of a G-eSAA survey KMZ (core.js) read back from a reference; BOQ_KML maps them to the record's sizes. */
-  const BOQ_KML = { pole_owner: 'owner', clamp_size: 'clamp', new_pole_size: 'height', pole_class: 'cls', odf_size: 'odf', odf_connector: 'conn', closure_size: 'clo', closure_status: 'cloSt' };
+  const BOQ_KML = { pole_owner: 'owner', clamp_size: 'clamp', new_pole_size: 'height', pole_class: 'cls', odf_size: 'odf', odf_connector: 'conn', closure_size: 'clo', closure_status: 'cloSt', new_arm: 'arm', guying: 'guy', mloop: 'mloop' }; // v2.29: + arm, guying, loop
   const KML_DATA = new Set(['pole_id', 'element', 'status', 'closure_id', ...Object.keys(BOQ_KML)]);
   /** The elements of the As-Plan (this As-Built project's reference KMZ) as records: ID, element, status, position, sizes. */
   function planRecsOf(geo) {
@@ -1294,6 +1300,15 @@
   const routeLayer = L.layerGroup().addTo(map);
   const links = () => (pmeta().links || []);
   function setLinks(l) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), links: l }; persist(); }
+  /* v2.29: each span carries its FOC cable type (the third value of the link): AE Figure 8 72C, Light cable 12C or UG 144C air-blown */
+  const CAB = C.CABLES;
+  const cableSel = () => { const k = pmeta().cable; return k === '' || CAB[k] ? k : 'L12'; }; // the cable new links get: the project's last choice
+  const cableName = (k) => (CAB[k] ? CAB[k].label : 'Cable not set');
+  const linkWith = (a, b, k) => (k ? [a, b, k] : [a, b]);
+  function renderCableSel() {
+    const sel = $('rbCable'); if (!sel.options.length) { Object.entries(CAB).forEach(([k, c]) => sel.add(new Option(`${c.label} · ${c.method}`, k))); sel.add(new Option('Cable not set', '')); }
+    sel.value = cableSel();
+  }
   /** Points the cable route runs through: poles, handholes, the site, ODC and ODF (NAP and closure pins sit on a pole). */
   const routePts = () => projPoints().filter((p) => ROUTE_ELS.includes(elemOf(p)));
   const routeModel = () => C.analyzeRoute(routePts(), links(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 });
@@ -1302,8 +1317,9 @@
     routeLayer.clearLayers();
     if (isAcc()) return null;
     const R = routeModel();
-    for (const s of R.spans) {
-      L.polyline([[s.a.lat, s.a.lon], [s.b.lat, s.b.lon]], { color: s.long ? '#c92a2a' : '#1c7ed6', weight: 4, opacity: 0.9, dashArray: s.long ? '8 6' : null, interactive: false }).addTo(routeLayer);
+    for (const s of R.spans) { // v2.29: coloured by cable type (grey: cable not set); long spans red
+      const cab = CAB[s.cable];
+      L.polyline([[s.a.lat, s.a.lon], [s.b.lat, s.b.lon]], { color: s.long ? '#c92a2a' : cab ? cab.css : '#868e96', weight: 4, opacity: 0.9, dashArray: s.long ? '8 6' : cab && cab.method === 'UG' ? '2 7' : null, lineCap: 'round', interactive: false }).addTo(routeLayer);
       L.marker([(s.a.lat + s.b.lat) / 2, (s.a.lon + s.b.lon) / 2], { interactive: false, keyboard: false,
         icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label${s.long ? ' long' : ''}">${s.len.toFixed(0)} m</span>`, iconSize: null }) }).addTo(routeLayer);
     }
@@ -1317,7 +1333,8 @@
   }
   function updateRouteBar(R) {
     $('rbTitle').textContent = `Route · ${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}`;
-    $('rbStats').textContent = `${R.long} longer than ${pol().maxSpan || 200} m · ${R.angle} angle · ${R.junction} junction · ${R.off} not linked`;
+    const byCab = {}; R.spans.forEach((s) => { byCab[s.cable] = (byCab[s.cable] || 0) + s.len; });
+    $('rbStats').textContent = `${R.long} longer than ${pol().maxSpan || 200} m · ${R.angle} angle · ${R.junction} junction · ${R.off} not linked · ${Object.entries(byCab).map(([k, m]) => `${CAB[k] ? CAB[k].short : 'not set'} ${fmtLen(m)}`).join(' · ')}`;
     const sel = routeSel && points.find((p) => p.id === routeSel);
     $('rbHint').textContent = sel ? `${sel.poleId} selected. Tap the next pole to link it (tap a linked pole to unlink), or tap ${sel.poleId} again to stop.`
       : 'Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.';
@@ -1325,7 +1342,7 @@
   }
   function setRouteMode(on) {
     routeMode = on; routeSel = null; routeUndo = [];
-    $('routeBar').hidden = !on; $('routeBtn').setAttribute('aria-pressed', String(on));
+    $('routeBar').hidden = !on; $('routeBtn').setAttribute('aria-pressed', String(on)); if (on) renderCableSel();
     document.body.classList.toggle('routing', on);
     renderPoles();
     if (on) { // frame all poles above the route bar so they are easy to tap
@@ -1337,9 +1354,10 @@
     const tapped = points.find((p) => p.id === id);
     if (tapped && !ROUTE_ELS.includes(elemOf(tapped))) { toast(`${tapped.poleId}: ${elemOf(tapped)} pins sit on a pole and are not linked. Tap the pole.`, 3500); return; }
     if (!routeSel || routeSel === id) { routeSel = routeSel === id ? null : id; renderPoles(); return; }
-    const l = links().map((x) => x.slice()), k = l.findIndex(([x, y]) => (x === routeSel && y === id) || (x === id && y === routeSel));
+    const l = links().map((x) => x.slice()), k = l.findIndex(([x, y]) => (x === routeSel && y === id) || (x === id && y === routeSel)), cab = cableSel();
     routeUndo.push(links());
-    if (k >= 0) l.splice(k, 1); else l.push([routeSel, id]);
+    if (k >= 0 && (l[k][2] || '') !== cab) { l[k] = linkWith(l[k][0], l[k][1], cab); toast(`Span changed to ${cableName(cab)}`, 2200); } // v2.29: a linked pair with another cable chosen: the span takes it
+    else if (k >= 0) l.splice(k, 1); else l.push(linkWith(routeSel, id, cab));
     setLinks(l); routeSel = id; renderPoles();
   }
   $('routeBtn').addEventListener('click', () => {
@@ -1347,12 +1365,18 @@
     setRouteMode(!routeMode);
   });
   $('rbDone').addEventListener('click', () => setRouteMode(false));
+  $('rbCable').addEventListener('change', () => { S.meta[S.project] = { ...pmeta(), cable: $('rbCable').value }; persist(); updateRouteBar(routeModel()); toast(`New links: ${cableName($('rbCable').value)}. Tap a linked pair to give it this cable.`, 3500); });
+  $('rbCableAll').addEventListener('click', () => {
+    const cab = cableSel(), l = links(); if (!l.length) { toast('No span yet'); return; }
+    routeUndo.push(l); setLinks(l.map(([a, b]) => linkWith(a, b, cab))); renderPoles();
+    toast(`Every span: ${cableName(cab)} (Undo to go back)`, 3000);
+  });
   $('rbUndo').addEventListener('click', () => { if (routeUndo.length) { setLinks(routeUndo.pop()); renderPoles(); } });
   $('rbAuto').addEventListener('click', () => {
     const have = new Set(links().map(([x, y]) => [x, y].sort().join('|')));
     const add = C.autoLinks(projPoints().filter((p) => ['Pole', 'Handhole'].includes(elemOf(p))), pol().autoGap || 120).filter(([x, y]) => !have.has([x, y].sort().join('|'))); // the site, ODC and ODF are linked by hand
     if (!add.length) { toast('No new links: poles are already linked, or consecutive poles are farther apart than the gap setting'); return; }
-    routeUndo.push(links()); setLinks(links().concat(add)); renderPoles();
+    routeUndo.push(links()); setLinks(links().concat(add.map(([x, y]) => linkWith(x, y, cableSel())))); renderPoles();
     toast(`${add.length} span${add.length === 1 ? '' : 's'} added in capture order. Check branches and street corners.`, 4000);
   });
   $('rbClear').addEventListener('click', () => {
@@ -3513,6 +3537,21 @@
         if (!boqOwners().some((x) => x.toLowerCase() === v.toLowerCase())) { S.myOwners = (S.myOwners || []).concat(v).slice(-20); persist(); }
         ed.boq.owner = boqOwners().find((x) => x.toLowerCase() === v.toLowerCase()) || v; ed.boqTouched = true; renderBoq(); foldSum();
       };
+      if (BOQ_MULTI.has(k)) { // v2.29: several at once (guying): each chip on or off
+        const cur = new Set(String(ed.boq[k] || '').split(' + ').filter(Boolean));
+        cur.forEach((v) => { if (!opts.includes(v)) opts.push(v); });
+        opts.forEach((v) => {
+          const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = v; c.setAttribute('aria-pressed', String(cur.has(v))); c.disabled = ro;
+          c.addEventListener('click', () => { if (cur.has(v)) cur.delete(v); else cur.add(v); ed.boq[k] = opts.filter((x) => cur.has(x)).join(' + '); if (!ed.boq[k]) delete ed.boq[k]; ed.boqTouched = true; renderBoq(); foldSum(); });
+          chips.appendChild(c);
+        });
+        row.appendChild(chips); rows.appendChild(row); return;
+      }
+      if (k === 'mloop') { // v2.29: one chip, on or off
+        const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = `MLoop ${mloopLen()} m`; c.setAttribute('aria-pressed', String(!!ed.boq.mloop)); c.disabled = ro;
+        c.addEventListener('click', () => { if (ed.boq.mloop) delete ed.boq.mloop; else ed.boq.mloop = 'Yes'; ed.boqTouched = true; renderBoq(); foldSum(); });
+        chips.appendChild(c); row.appendChild(chips); rows.appendChild(row); return;
+      }
       if (opts.length > 4) { // v2.28: a long list is a dropdown
         const sel = document.createElement('select'); sel.className = 'boqsel'; sel.dataset.k = k; sel.setAttribute('aria-label', BOQ_LABEL[k]); sel.disabled = ro;
         sel.add(new Option('— none —', '', false, !ed.boq[k])); opts.forEach((v) => sel.add(new Option(v, v, false, ed.boq[k] === v)));
@@ -4601,6 +4640,17 @@
         : left ? `${left} step${left === 1 ? '' : 's'} still open; complete the task when it is finished.` : 'Every step is done: mark the task complete, or export the completion report.'; }
     $('doneBox').hidden = !S.project;
     $('curStartRow').hidden = acc; $('curStart').value = m.startDate || '';
+    { // v2.29: the region for the BOQ, suggested from the GPS (approximate), set by the user
+      const on = !acc && boqOn(), sel = $('curRegion'), sug = on ? regionSuggest() : '';
+      $('curRegionRow').hidden = !on; $('curRegionHint').hidden = !on;
+      if (on) {
+        sel.innerHTML = ''; sel.add(new Option(m.region ? '— not set —' : sug ? `Choose… (suggested: ${REGION_BY[sug][1]})` : 'Choose…', ''));
+        PH_REGIONS.forEach(([k]) => sel.add(new Option(`${regionLabel(k)}${k === sug ? ' · suggested from GPS' : ''}`, k)));
+        sel.value = m.region || '';
+        $('curRegionHint').textContent = m.region ? `${regionLabel(m.region)}${sug && sug !== m.region ? ` (the GPS suggests ${REGION_BY[sug][1]}: check it)` : ''}`
+          : sug ? `Suggested from the GPS: ${regionLabel(sug)}. Approximate near a regional border: choose it above to confirm.` : 'Choose the region: it goes on the BOQ (no record with GPS yet to suggest it).';
+      }
+    }
     $('delProjConfirm').hidden = true; $('delProject').hidden = false; // v2.22: a completed project is deleted with an admin's approval
   }
   /* v2.22: the projects on this phone as a task list (filter, search, progress); tap one to open it. */
@@ -4900,6 +4950,7 @@
     if (await shareGate('verify')) await startFatFrom(S.project);
   }, 'FAT not started'));
   $('curFolder').addEventListener('click', () => { const l = pmeta().siteLink; if (l) openExternal(l); });
+  $('curRegion').addEventListener('change', () => { S.meta = S.meta || {}; const m = { ...pmeta() }; if ($('curRegion').value) m.region = $('curRegion').value; else delete m.region; S.meta[S.project] = m; persist(); renderProjects(); }); // v2.29
   $('curStart').addEventListener('change', () => { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), startDate: $('curStart').value }; persist(); queueProgress(S.project, ['surveyStart']); renderProjects(); });
   $('doneBtn').addEventListener('click', async () => {
     const m = pmeta(), col = progressFields(S.project).filter(([f]) => f !== 'surveyStart').map(([f]) => PROGRESS_COL[f])[0];
@@ -5443,6 +5494,44 @@
     offerResult(new Blob([C.buildCsv(rows, S.zone, exporterLine())], { type: 'text/csv' }), fileBase() + '.csv');
   }));
 
+  /* ---- v2.29: the region of a project for the BOQ (e.g. "Region 12"), suggested from the GPS and confirmed by the user ----
+     APPROXIMATE: the nearest of the places below (provincial capitals and some large towns, about 1 km precise). Near a
+     regional border it can be wrong, so the user checks it in Project details. */
+  const PH_REGIONS = [['NCR', 'NCR', 'National Capital Region'], ['CAR', 'CAR', 'Cordillera Administrative Region'], ['R1', 'Region 1', 'Ilocos Region'], ['R2', 'Region 2', 'Cagayan Valley'],
+    ['R3', 'Region 3', 'Central Luzon'], ['R4A', 'Region 4-A', 'CALABARZON'], ['R4B', 'Region 4-B', 'MIMAROPA'], ['R5', 'Region 5', 'Bicol Region'], ['R6', 'Region 6', 'Western Visayas'],
+    ['NIR', 'NIR', 'Negros Island Region'], ['R7', 'Region 7', 'Central Visayas'], ['R8', 'Region 8', 'Eastern Visayas'], ['R9', 'Region 9', 'Zamboanga Peninsula'],
+    ['R10', 'Region 10', 'Northern Mindanao'], ['R11', 'Region 11', 'Davao Region'], ['R12', 'Region 12', 'SOCCSKSARGEN'], ['R13', 'Region 13', 'Caraga'], ['BARMM', 'BARMM', 'Bangsamoro (BARMM)']];
+  const REGION_BY = Object.fromEntries(PH_REGIONS.map((r) => [r[0], r]));
+  const regionLabel = (k) => (REGION_BY[k] ? `${REGION_BY[k][1]} · ${REGION_BY[k][2]}` : '');
+  const PH_PLACES = [ // [lat, lon, region]
+    [14.5995, 120.9842, 'NCR'], [14.676, 121.0437, 'NCR'], [14.5547, 121.0244, 'NCR'], [14.6507, 120.9667, 'NCR'], [14.5764, 121.0851, 'NCR'], [14.5176, 121.0509, 'NCR'], [14.4793, 121.0198, 'NCR'], [14.4081, 121.0415, 'NCR'], [14.7011, 120.983, 'NCR'], [14.6507, 121.1029, 'NCR'],
+    [17.5966, 120.6179, 'CAR'], [18.0236, 121.1836, 'CAR'], [16.4555, 120.587, 'CAR'], [16.4023, 120.596, 'CAR'], [16.7957, 121.125, 'CAR'], [17.4189, 121.4443, 'CAR'], [17.0896, 120.9779, 'CAR'],
+    [18.1977, 120.5936, 'R1'], [17.5747, 120.3869, 'R1'], [16.6159, 120.3166, 'R1'], [16.0218, 120.2319, 'R1'], [16.0433, 120.3333, 'R1'], [15.9761, 120.5711, 'R1'],
+    [20.4487, 121.9702, 'R2'], [17.6132, 121.727, 'R2'], [18.3567, 121.6402, 'R2'], [17.1489, 121.8893, 'R2'], [16.688, 121.5487, 'R2'], [16.484, 121.1456, 'R2'], [16.51, 121.522, 'R2'],
+    [15.7593, 121.5621, 'R3'], [14.676, 120.5363, 'R3'], [14.8443, 120.8114, 'R3'], [15.5422, 121.0828, 'R3'], [15.4865, 120.9667, 'R3'], [15.0286, 120.6898, 'R3'], [15.145, 120.5887, 'R3'], [15.4802, 120.5979, 'R3'], [15.3276, 119.9783, 'R3'], [14.8292, 120.2828, 'R3'],
+    [13.7565, 121.0583, 'R4A'], [14.4297, 120.9367, 'R4A'], [14.2833, 120.8667, 'R4A'], [14.2814, 121.4161, 'R4A'], [14.2117, 121.1653, 'R4A'], [13.9373, 121.617, 'R4A'], [14.5864, 121.176, 'R4A'], [14.74, 121.65, 'R4A'], [13.92, 122.1, 'R4A'], [13.59, 122.33, 'R4A'],
+    [13.4467, 121.8406, 'R4B'], [13.2233, 120.596, 'R4B'], [12.3527, 121.0676, 'R4B'], [13.4115, 121.18, 'R4B'], [9.7392, 118.7353, 'R4B'], [12.001, 120.2043, 'R4B'], [11.1784, 119.39, 'R4B'], [8.78, 117.83, 'R4B'], [12.577, 122.2691, 'R4B'],
+    [13.1391, 123.7438, 'R5'], [14.1122, 122.9553, 'R5'], [13.5833, 123.3, 'R5'], [13.6218, 123.1948, 'R5'], [13.581, 124.2304, 'R5'], [12.37, 123.62, 'R5'], [12.9742, 124.005, 'R5'],
+    [11.7061, 122.364, 'R6'], [10.7445, 121.9408, 'R6'], [11.5853, 122.7511, 'R6'], [10.6599, 122.5964, 'R6'], [10.7202, 122.5621, 'R6'],
+    [10.6765, 122.9509, 'NIR'], [9.9833, 122.8167, 'NIR'], [10.48, 123.42, 'NIR'], [9.3068, 123.3054, 'NIR'], [9.36, 122.8, 'NIR'], [10.12, 123.27, 'NIR'], [9.214, 123.515, 'NIR'],
+    [9.65, 123.85, 'R7'], [10.06, 124.47, 'R7'], [10.3157, 123.8854, 'R7'], [11.0517, 124.0055, 'R7'], [10.11, 123.64, 'R7'],
+    [11.561, 124.396, 'R8'], [11.6081, 125.4319, 'R8'], [11.2433, 125.004, 'R8'], [11.0064, 124.6075, 'R8'], [12.499, 124.638, 'R8'], [11.7753, 124.8862, 'R8'], [10.1335, 124.8447, 'R8'],
+    [8.5872, 123.3409, 'R9'], [8.24, 122.99, 'R9'], [7.87, 122.67, 'R9'], [7.8257, 123.437, 'R9'], [7.7844, 122.5864, 'R9'], [6.9214, 122.079, 'R9'], [6.7013, 121.9707, 'R9'],
+    [8.1575, 125.1278, 'R10'], [7.9062, 125.0942, 'R10'], [9.2504, 124.7156, 'R10'], [8.05, 123.7833, 'R10'], [8.228, 124.2452, 'R10'], [8.4858, 123.8044, 'R10'], [8.1481, 123.8405, 'R10'], [8.4542, 124.6319, 'R10'], [8.8237, 125.1013, 'R10'],
+    [7.6078, 125.9664, 'R11'], [7.4478, 125.8078, 'R11'], [6.7497, 125.3572, 'R11'], [6.4038, 125.6132, 'R11'], [6.9551, 126.2166, 'R11'], [7.57, 126.56, 'R11'], [7.1907, 125.4553, 'R11'],
+    [7.0083, 125.0894, 'R12'], [7.1063, 124.8291, 'R12'], [7.1906, 124.5306, 'R12'], [6.1023, 125.2903, 'R12'], [5.82, 125.2, 'R12'], [5.99, 124.62, 'R12'], [6.5031, 124.8469, 'R12'], [6.1164, 125.1716, 'R12'], [6.37, 124.75, 'R12'], [6.6295, 124.605, 'R12'], [6.6925, 124.6763, 'R12'], [6.55, 124.05, 'R12'],
+    [9.1236, 125.5345, 'R13'], [8.9475, 125.5406, 'R13'], [8.6057, 125.9153, 'R13'], [8.71, 125.75, 'R13'], [10.0089, 125.57, 'R13'], [9.784, 125.4888, 'R13'], [9.0783, 126.1986, 'R13'], [8.2153, 126.3218, 'R13'],
+    [6.65, 122.1333, 'BARMM'], [8.0034, 124.2839, 'BARMM'], [7.59, 124.07, 'BARMM'], [7.1667, 124.2667, 'BARMM'], [6.7144, 124.7867, 'BARMM'], [7.2236, 124.2464, 'BARMM'], [6.0522, 121.0022, 'BARMM'], [5.0291, 119.7731, 'BARMM'],
+  ];
+  /** The region of a position: the nearest place of the list (approximate near a border). */
+  function regionAt(lat, lon) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < 4 || lat > 21.5 || lon < 116 || lon > 127.5) return '';
+    let best = '', bd = Infinity; const k = Math.cos(lat * Math.PI / 180);
+    for (const [a, b, r] of PH_PLACES) { const d = (a - lat) ** 2 + ((b - lon) * k) ** 2; if (d < bd) { bd = d; best = r; } }
+    return best;
+  }
+  /** The region suggested for a project: from its first record, else the GPS now. */
+  function regionSuggest(name) { const p = points.find((x) => x.project === (name || S.project)); return p ? regionAt(p.lat, p.lon) : fix ? regionAt(fix.lat, fix.lon) : ''; }
   /* v2.26: the BOQ / BOM sizes of a project, counted by item and size (a sheet of its own; also in the route table) */
   /* v2.26.1: the BOQ of an As-Plan (what the plan needs) or of an As-Built (what was built, against the As-Plan when its KMZ is the
      project's reference). One table for the BOQ Excel, the Route and spans Excel and the Completion report. */
@@ -5456,6 +5545,9 @@
         if (b.height || b.cls) add('New Globe pole', [b.height, b.cls].filter(Boolean).join(' '), 'New', id);
         if (b.clamp) add('Pole clamp', b.clamp, b.owner ? `${b.owner} pole` : stn === 'New' || b.height ? 'New Globe pole' : 'Pole', id);
         if (!b.clamp && !b.height && !b.cls) missing.pole++;
+        if (b.arm) add('New arm', b.arm, b.height || b.cls || stn === 'New' ? 'New Globe pole' : 'Pole', id); // v2.29
+        if (b.guy) String(b.guy).split(' + ').filter(Boolean).forEach((x) => add('Guying', x, 'Pole', id));
+        if (b.mloop) add('Maintenance loop', `${mloopLen()} m`, 'Pole', id);
       } else if (el === 'ODF') { if (b.odf || b.conn) add('ODF', [b.odf, b.conn].filter(Boolean).join(' '), stn, id); else missing.ODF++; }
       else if (el === 'Closure' || (el === 'Handhole' && p.closureId)) { if (b.clo) add('Closure', b.clo, stn, el === 'Handhole' ? p.closureId : id); else missing.closure++; }
     });
@@ -5471,7 +5563,7 @@
   }
   function boqTable(pts, plan) {
     const B = boqGroups(pts), P = plan && plan.recs.length ? boqGroups(plan.recs) : null, compare = !!P;
-    const order = ['New Globe pole', 'Pole clamp', 'ODF', 'Closure'];
+    const order = ['New Globe pole', 'Pole clamp', 'New arm', 'Guying', 'Maintenance loop', 'ODF', 'Closure'];
     const keys = [...new Set([...B.groups.keys(), ...(P ? P.groups.keys() : [])])];
     const g = (k) => B.groups.get(k) || P.groups.get(k);
     keys.sort((a, c) => { const x = g(a), y = g(c); return order.indexOf(x.item) - order.indexOf(y.item) || String(x.size).localeCompare(String(y.size), undefined, { numeric: true }) || String(x.forWhat).localeCompare(String(y.forWhat)); });
@@ -5495,6 +5587,54 @@
     notes.push({ t: 'Quantities are what was recorded in the field: one per element (a clamp size counts the poles that need it). Add spares and allowances per your design standard.', tone: 'info' });
     return { compare, head, rows, notes, title: svPurpose() === 'As-built' ? (compare ? 'BOQ / BOM \u2014 As-Built against the As-Plan' : 'BOQ / BOM \u2014 As-Built') : 'BOQ / BOM \u2014 As-Plan' };
   }
+  /** v2.29: the survey quantities the BOQ rules will use, each with a code (the BOQ template's formulas will point at these):
+      span lengths by cable type and method, maintenance loops, FOC length with loops, detailed engineering (spans without
+      loops), new poles by size and class, arms, guying, ODF, closures, NAPs, poles on each cable, the region. */
+  function surveyQty(pts) {
+    const R = C.analyzeRoute(pts.filter((p) => ROUTE_ELS.includes(elemOf(p))), links(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 });
+    const rows = [], add = (code, qty, unit, desc) => rows.push([code, qty, unit, desc]), r1 = (v) => Math.round(v * 10) / 10, isNew = (p) => ['Proposed', 'New'].includes(p.status);
+    const keys = [...Object.keys(CAB), ''], lenBy = {}, polesBy = {}, loopsBy = {}, ml = mloopLen();
+    keys.forEach((k) => { lenBy[k] = 0; polesBy[k] = new Set(); loopsBy[k] = 0; });
+    R.spans.forEach((sp) => { lenBy[sp.cable] += sp.len; polesBy[sp.cable].add(sp.ia); polesBy[sp.cable].add(sp.ib); });
+    const cabAt = (id) => { const sp = R.spans.find((x) => x.ia === id || x.ib === id); return sp ? sp.cable : null; };
+    let loops = 0, loopsOff = 0;
+    pts.forEach((p) => { if (elemOf(p) === 'Pole' && p.boq && p.boq.mloop) { loops++; const c = cabAt(p.id); if (c == null) loopsOff++; else loopsBy[c]++; } });
+    const tag = (k) => (k ? k : 'NOTSET'), nm = (k) => (k ? CAB[k].label : 'cable not set');
+    add('SPAN_TOTAL', r1(R.total), 'm', `All spans (${R.spans.length}), straight pole-to-pole lengths`);
+    keys.forEach((k) => { if (lenBy[k] || k) add(`SPAN_${tag(k)}`, r1(lenBy[k]), 'm', `Spans with ${nm(k)}`); });
+    add('SPAN_AE', r1(keys.filter((k) => k && CAB[k].method === 'AE').reduce((t, k) => t + lenBy[k], 0)), 'm', 'Aerial (AE) spans');
+    add('SPAN_UG', r1(keys.filter((k) => k && CAB[k].method === 'UG').reduce((t, k) => t + lenBy[k], 0)), 'm', 'Underground (UG) spans');
+    add('MLOOP_LEN', ml, 'm', 'Maintenance loop length (Administration → Field standards)');
+    add('MLOOP_COUNT', loops, 'each', `Poles with a maintenance loop${loopsOff ? ` (${loopsOff} not on the route)` : ''}`);
+    keys.forEach((k) => { if (k || loopsBy[k]) add(`MLOOP_${tag(k)}`, loopsBy[k], 'each', `Maintenance loops on ${nm(k)}`); });
+    keys.forEach((k) => { if (k || lenBy[k]) add(`FOC_${tag(k)}`, r1(lenBy[k] + loopsBy[k] * ml), 'm', `${k ? CAB[k].label : 'Cable not set'}: spans + ${ml} m per loop`); });
+    add('FOC_TOTAL', r1(R.total + (loops - loopsOff) * ml), 'm', 'All FOC: spans + loops');
+    add('DE', r1(R.total), 'cable-m', 'Detailed engineering: FOC length without the maintenance loops');
+    keys.forEach((k) => { if (k || polesBy[k].size) add(`POLES_${tag(k)}`, polesBy[k].size, 'each', `Route points (poles, handholes, ODF…) on ${nm(k)} spans`); });
+    add('SPANS_LONG', R.long, 'each', `Spans longer than ${pol().maxSpan || 200} m`);
+    const poles = pts.filter((p) => elemOf(p) === 'Pole'), cnt = (list, f) => { const m = new Map(); list.forEach((p) => { const v = f(p); if (v) String(v).split(' + ').forEach((x) => m.set(x, (m.get(x) || 0) + 1)); }); return [...m.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0]), undefined, { numeric: true })); };
+    const slug = (v) => String(v).toUpperCase().replace(/[^A-Z0-9.]+/g, '_').replace(/^_|_$/g, '');
+    add('POLES_TOTAL', poles.length, 'each', 'Poles recorded'); add('POLES_NEW', poles.filter(isNew).length, 'each', 'Proposed / new poles');
+    cnt(poles.filter(isNew), (p) => [p.boq && p.boq.height, p.boq && p.boq.cls].filter(Boolean).join(' ') || 'size not set').forEach(([v, n]) => add(`NEWPOLE_${slug(v)}`, n, 'each', `New ${globeType()} pole ${v}`));
+    cnt(poles, (p) => p.boq && p.boq.arm).forEach(([v, n]) => add(`ARM_${slug(v)}`, n, 'each', `New arm: ${v}`));
+    cnt(poles, (p) => p.boq && p.boq.guy).forEach(([v, n]) => add(`GUY_${slug(v)}`, n, 'each', `Guying: ${v}`));
+    cnt(poles, (p) => p.boq && p.boq.clamp && `${p.boq.clamp}`).forEach(([v, n]) => add(`CLAMP_${slug(v)}`, n, 'each', `Pole clamp ${v}`));
+    const odfs = pts.filter((p) => elemOf(p) === 'ODF'), clos = pts.filter((p) => elemOf(p) === 'Closure' || (elemOf(p) === 'Handhole' && p.closureId)), naps = pts.filter((p) => elemOf(p) === 'NAP');
+    cnt(odfs.filter(isNew), (p) => [p.boq && p.boq.odf, p.boq && p.boq.conn].filter(Boolean).join(' ') || 'size not set').forEach(([v, n]) => add(`ODF_NEW_${slug(v)}`, n, 'each', `New ODF ${v}`));
+    add('ODF_NEW_FIBERS', odfs.filter(isNew).reduce((t, p) => t + (parseInt(String((p.boq && p.boq.odf) || ''), 10) || 0), 0), 'fiber(s)', 'Fibers of the new ODFs (e.g. 12 for a 12F)');
+    cnt(clos.filter((p) => isNew(p) || (p.boq && p.boq.cloSt === 'New')), (p) => (p.boq && p.boq.clo) || 'size not set').forEach(([v, n]) => add(`CLOSURE_NEW_${slug(v)}`, n, 'each', `New closure ${v}`));
+    add('NAP_NEW', naps.filter(isNew).length, 'each', 'Proposed / new NAPs'); add('NAP_EXISTING', naps.filter((p) => !isNew(p)).length, 'each', 'Existing NAPs');
+    const reg = pmeta().region, sug = regionSuggest();
+    add('REGION', reg ? REGION_BY[reg][1] : '', '', reg ? regionLabel(reg) : `Not set${sug ? ` (GPS suggests ${regionLabel(sug)})` : ''}: Project details → Region`);
+    return { rows, route: R, lenBy, loops, ml };
+  }
+  function qtySheet(pts, st) {
+    const Q = surveyQty(pts), rows = [[{ v: `SURVEY QUANTITIES — ${S.project}`, s: st.title }], [{ v: 'The figures the BOQ / BOM rules use (rules to come). Each has a code for the formulas.', s: st.info }], [],
+      ['Code', 'Quantity', 'Unit', 'What it counts'].map((v) => ({ v, s: st.header }))];
+    Q.rows.forEach(([c, q, u, d]) => rows.push([{ v: c, s: st.label }, typeof q === 'number' ? { v: q, s: st.center } : q, u, d]));
+    rows.push([], [{ v: 'Span lengths are straight lines between the pins (no sag). Cable type and method come from each span (route builder); loops from each pole record (MLoop).', s: st.info }]);
+    return { name: 'Survey quantities', cols: [24, 12, 10, 70], rows, freezeRow: 4 };
+  }
   function boqSheet(pts, st, plan) {
     const T = boqTable(pts, plan), rows = [T.head.map((v) => ({ v, s: st.header }))];
     T.rows.forEach((r) => rows.push(r.cells.map((v, ci) => (T.compare && ci === 5 ? { v, s: v ? st.bad : st.good } : (T.compare ? ci >= 3 && ci <= 4 : ci === 3) ? { v, s: st.center } : v))));
@@ -5506,7 +5646,7 @@
     const R = window.PoleReports, st = R.STYLES, plan = await planFor(), T = boqTable(pts, plan);
     const head = [[{ v: `${T.title.toUpperCase()} \u2014 ${S.project}`, s: st.title }], [{ v: 'Generated', s: st.label }, fmtTime(new Date().toISOString())], [{ v: 'Records', s: st.label }, pts.length], []];
     const sh = boqSheet(pts, st, plan);
-    const parts = R.buildXlsxParts([{ ...sh, rows: head.concat(sh.rows), freezeRow: head.length + 1 }, exporterSheet(st)]);
+    const parts = R.buildXlsxParts([{ ...sh, rows: head.concat(sh.rows), freezeRow: head.length + 1 }, qtySheet(pts, st), exporterSheet(st)]); // v2.29: + the survey quantities
     LOG.info('export.boq', { records: pts.length, plan: plan ? plan.recs.length : -1 });
     offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '_BOQ.xlsx');
   }
@@ -5528,6 +5668,7 @@
       [lbl('Spans longer than maximum'), { v: Rt.long, s: Rt.long ? st.bad : st.good }],
       [lbl('Average span (m)'), Math.round((Rt.total / Rt.spans.length) * 10) / 10],
       [lbl('Longest span'), `${longest.from} → ${longest.to}: ${longest.len.toFixed(1)} m`],
+      ...(() => { const by = {}; Rt.spans.forEach((sp) => { by[sp.cable] = (by[sp.cable] || 0) + sp.len; }); return Object.entries(by).map(([k, m]) => [lbl(`${CAB[k] ? `${CAB[k].label} (${CAB[k].method})` : 'Cable not set'} (m)`), { v: Math.round(m * 10) / 10, s: CAB[k] ? st.cell : st.bad }]); })(), // v2.29
       [],
       [lbl('Poles in project'), pts.filter((p) => elemOf(p) === 'Pole').length],
       [lbl('Other points (site, ODC, ODF, NAP, closures, handholes)'), pts.filter((p) => elemOf(p) !== 'Pole').length],
@@ -5539,9 +5680,9 @@
       [],
       [{ v: 'Span lengths are straight lines between pole pins, not cable lengths: add sag, slack and MLoop allowance per your design standard.', s: st.info }],
     ];
-    const spanRows = [['No.', 'From', 'To', 'Length (m)', 'Longer than maximum', 'From lat', 'From lon', 'To lat', 'To lon'].map((v) => ({ v, s: st.header }))];
+    const spanRows = [['No.', 'From', 'To', 'Length (m)', 'Longer than maximum', 'Cable', 'Method', 'From lat', 'From lon', 'To lat', 'To lon'].map((v) => ({ v, s: st.header }))];
     Rt.spans.forEach((s, i) => spanRows.push([{ v: i + 1, s: st.center }, s.from, s.to, { v: Math.round(s.len * 10) / 10, s: s.long ? st.bad : st.cell },
-      { v: s.long ? 'Yes' : 'No', s: s.long ? st.bad : st.cell }, { v: s.a.lat, s: st.coord }, { v: s.a.lon, s: st.coord }, { v: s.b.lat, s: st.coord }, { v: s.b.lon, s: st.coord }]));
+      { v: s.long ? 'Yes' : 'No', s: s.long ? st.bad : st.cell }, CAB[s.cable] ? CAB[s.cable].label : { v: 'not set', s: st.bad }, CAB[s.cable] ? CAB[s.cable].method : '', { v: s.a.lat, s: st.coord }, { v: s.a.lon, s: st.coord }, { v: s.b.lat, s: st.coord }, { v: s.b.lon, s: st.coord }])); // v2.29: cable, method
     const poleRows = [['No.', 'ID', 'Element', 'Type / status', 'Role on route', 'Spans at point', 'Deflection (°)', 'Latitude', 'Longitude', `UTM ${S.zone}N E`, `UTM ${S.zone}N N`, 'Pole details', 'Remarks', 'Size (BOQ)'].map((v) => ({ v, s: st.header }))];
     pts.forEach((p, i) => {
       const info = Rt.poles[p.id] || { role: 'On a pole (not a route point)', degree: '', deflection: null }, u = C.utmForward(p.lat, p.lon, S.zone, p.lat < 0), el = elemOf(p);
@@ -5551,9 +5692,9 @@
     });
     const parts = R.buildXlsxParts([
       { name: 'Summary', cols: [30, 44], rows: summary, merges: ['A1:B1', `A${summary.length}:B${summary.length}`] },
-      { name: 'Spans', cols: [6, 15, 15, 11, 12, 12, 13, 12, 13], rows: spanRows, freezeRow: 1, autoFilter: `A1:I${spanRows.length}` },
+      { name: 'Spans', cols: [6, 15, 15, 11, 12, 24, 8, 12, 13, 12, 13], rows: spanRows, freezeRow: 1, autoFilter: `A1:K${spanRows.length}` },
       { name: 'Points', cols: [6, 15, 10, 18, 16, 9, 11, 12, 13, 13, 13, 30, 30, 30], rows: poleRows, freezeRow: 1, autoFilter: `A1:N${poleRows.length}` },
-      ...(boqOn() ? [boqSheet(pts, st, await planFor())] : []), // v2.26 (v2.26.1: As-Plan / As-Built, planned against built)
+      ...(boqOn() ? [boqSheet(pts, st, await planFor()), qtySheet(pts, st)] : []), // v2.26 (v2.26.1: As-Plan / As-Built, planned against built; v2.29: quantities)
       exporterSheet(st),
     ]);
     offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '_route.xlsx');
@@ -6490,6 +6631,7 @@
     if (p.poleTypes != null && !(Array.isArray(p.poleTypes) && p.poleTypes.length <= 20 && p.poleTypes.every((t) => t && /^[A-Z]{2,6}$/.test(t.p) && str(t.n, 30)))) return false;
     if (p.adminUsers != null && !list(p.adminUsers, 100, 120)) return false;
     if (p.adminJobs != null && !(typeof p.adminJobs === 'object' && Object.keys(p.adminJobs).length <= 100 && Object.entries(p.adminJobs).every(([k, v]) => k.length <= 120 && Array.isArray(v) && v.length <= 4 && v.every((x) => JOB_NAME[x])))) return false; // v2.28
+    if (!num(p.mloopLen, 1, 100) || !str(p.areaSrc, 300)) return false; // v2.29
     if (p.boqLists != null && !(typeof p.boqLists === 'object' && Object.entries(p.boqLists).every(([k, v]) => BOQ_OPT[k] && list(v, 40, 40)))) return false; // v2.28
     if (!list(p.detailItems, 40, 40)) return false; // v2.28
     if (p.vendorRecords != null && typeof p.vendorRecords !== 'boolean') return false;
@@ -8007,12 +8149,12 @@
     }
     $('admLock').hidden = true; await admStart();
   });
-  const ADM_LISTS = [['admPoleOwners', 'owner'], ['admBoqClamp', 'clamp'], ['admBoqHeight', 'height'], ['admBoqCls', 'cls'], ['admBoqOdf', 'odf'], ['admBoqConn', 'conn'], ['admBoqClo', 'clo'], ['admDetailItems', 'details']];
+  const ADM_LISTS = [['admPoleOwners', 'owner'], ['admBoqClamp', 'clamp'], ['admBoqHeight', 'height'], ['admBoqCls', 'cls'], ['admBoqOdf', 'odf'], ['admBoqConn', 'conn'], ['admBoqClo', 'clo'], ['admDetailItems', 'details'], ['admBoqArm', 'arm'], ['admBoqGuy', 'guy']]; // v2.29: arms, guying
   let admSheetPrefill = null;
   async function admStart() {
     const create = admMode === 'create' || !S.team;
     const P = pol(), F = formText();
-    const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice(), poleTypes: (P.poleTypes || []).slice(), ...(P.poleOwners ? { poleOwners: P.poleOwners.slice() } : {}), ...(P.boqLists ? { boqLists: JSON.parse(JSON.stringify(P.boqLists)) } : {}), ...(P.detailItems ? { detailItems: P.detailItems.slice() } : {}), adminUsers: (P.adminUsers || []).slice(), ...(P.web ? { web: P.web } : {}), ...(P.vendorRecords === false ? { vendorRecords: false } : {}),
+    const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, ...(P.mloopLen ? { mloopLen: P.mloopLen } : {}), quality: P.quality, inspTypes: P.inspTypes.slice(), poleTypes: (P.poleTypes || []).slice(), ...(P.poleOwners ? { poleOwners: P.poleOwners.slice() } : {}), ...(P.boqLists ? { boqLists: JSON.parse(JSON.stringify(P.boqLists)) } : {}), ...(P.detailItems ? { detailItems: P.detailItems.slice() } : {}), adminUsers: (P.adminUsers || []).slice(), ...(P.web ? { web: P.web } : {}), ...(P.vendorRecords === false ? { vendorRecords: false } : {}),
       otp: P.otp || b64u.enc(crypto.getRandomValues(new Uint8Array(18))), ...(P.kmzPass ? { kmzPass: P.kmzPass } : {}), ...(P.kmzOld ? { kmzOld: P.kmzOld.slice() } : {}), ...(P.logos ? { logos: { ...P.logos } } : {}) }; // v2.22, v2.23 logos
     admKmzAuto = P.kmzPass ? '' : suggestKmzPass(P.owner || (S.user && S.user.company) || ''); // follows the admin company until edited
     $('admKmzPass').value = P.kmzPass || admKmzAuto;
@@ -8021,7 +8163,7 @@
     $('admPoleTypes').value = typeLines(polDraft.poleTypes);
     { const L0 = pol(); const was = (k) => { const L = L0.boqLists; return L && Array.isArray(L[k]) && L[k].length ? L[k] : k === 'owner' ? [...BOQ_OPT.owner, ...(L0.poleOwners || [])] : BOQ_OPT[k]; }; // v2.28: the lists as they are now
       ADM_LISTS.forEach(([id, k]) => { $(id).value = (k === 'details' ? (Array.isArray(L0.detailItems) && L0.detailItems.length ? L0.detailItems : POLE_DETAIL_ITEMS) : was(k)).join('\n'); }); }
-    $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = '';
+    $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = ''; $('admAreaSrc').value = P.areaSrc || ''; // v2.29
     $('admUsers').value = (P.adminUsers || []).map((e) => `${e}${(P.adminJobs || {})[e] ? ` ${P.adminJobs[e].map((k) => JOB_NAME[k]).join(', ')}` : ''}`).join('\n'); $('admVendorRec').checked = P.vendorRecords !== false; // v2.28: with the job
     renderOrgBox(create);
     admSheetPrefill = { users: S.cloud && S.cloud.adminUsers, kmz: S.cloud && S.cloud.kmzPass };
@@ -8043,7 +8185,7 @@
     const cats = Object.keys(polDraft.defects);
     $('setDefCat').innerHTML = cats.map((c) => `<option>${C.xmlEsc(c)}</option>`).join('');
     $('setDefItems').value = (polDraft.defects[cats[0]] || []).join('\n');
-    $('setMaxSpan').value = polDraft.maxSpan; $('setAngle').value = polDraft.angleDeg; $('setAutoGap').value = polDraft.autoGap; $('admQuality').value = polDraft.quality === 'normal' ? 'normal' : 'strict';
+    $('setMaxSpan').value = polDraft.maxSpan; $('setAngle').value = polDraft.angleDeg; $('setAutoGap').value = polDraft.autoGap; $('setMloopLen').value = polDraft.mloopLen || 15; $('admQuality').value = polDraft.quality === 'normal' ? 'normal' : 'strict';
     $('admChangePin').hidden = create || admDraft.newKey;
     $('admMain').hidden = false; renderAdmDraft();
   }
@@ -8072,7 +8214,7 @@
     if (!P.adminUsers.length) delete P.adminUsers;
     const web = webBase(); if (web && !NATIVE) P.web = web; // join links from the APK use the website address
     const num = (id, lo, hi, dflt) => { const v = +$(id).value; return v >= lo && v <= hi ? v : dflt; };
-    P.maxSpan = num('setMaxSpan', 5, 1000, 200); P.angleDeg = num('setAngle', 1, 90, 15); P.autoGap = num('setAutoGap', 10, 5000, 120);
+    P.maxSpan = num('setMaxSpan', 5, 1000, 200); P.angleDeg = num('setAngle', 1, 90, 15); P.autoGap = num('setAutoGap', 10, 5000, 120); P.mloopLen = num('setMloopLen', 1, 100, 15); // v2.29
     P.quality = $('admQuality').value === 'normal' ? 'normal' : 'strict';
     { let kp = (admDraft.sheetKmz || $('admKmzPass').value).trim().replace(/\s+/g, '').slice(0, 100); const was = (S.team && S.team.pol && S.team.pol.kmzPass) || ''; // v2.28: the sheet's password where it has one
       if (admKmzAuto && kp === admKmzAuto) kp = autoKmzFor(P.owner);
@@ -8092,6 +8234,7 @@
       if (Object.keys(L).length) P.boqLists = L; else delete P.boqLists;
       if (L.owner) { const extra = L.owner.filter((x) => !BOQ_OPT.owner.includes(x)); if (extra.length) P.poleOwners = extra; } } // phones before v2.28 still get the extra owners
     P.packs = parsePackLines($('admPacks').value).packs; if (!P.packs.length) delete P.packs;
+    { const a = $('admAreaSrc').value.trim(); if (/^https:\/\/\S+$/.test(a) && a.length <= 300) P.areaSrc = a; else delete P.areaSrc; } // v2.29
     if (!P.poleTypes.length) delete P.poleTypes;
     const types = form.types.length ? form.types : D.types;
     P.inspTypes = (P.inspTypes || []).filter((x) => types.includes(x)); if (!P.inspTypes.length) P.inspTypes = [types[0]];
@@ -8474,6 +8617,173 @@
       if (!$('offline').hidden) renderOffline();
     }
   }
+  /* ================= v2.29: download the area on the map as an offline pack =================
+     The street map tile servers forbid saving areas for offline use, so the area is cut instead from a Protomaps
+     basemap build (OpenStreetMap data, ODbL), the same source as the map packs: like "pmtiles extract --bbox", the app
+     reads only the parts of the build file it needs (range requests) and writes them as a .pmtiles pack on the phone.
+     The admin can point to the company's own copy of a build instead (Administration → Offline map packs). */
+  const AREA_MAXZ = 15, AREA_MAX_TILES = 6000, AREA_PAR = 6, AREA_MAX_BYTES = 400 * 1048576; // a dense city's tiles are big: the download also stops at 400 MB
+  const pmBuildUrls = () => { const out = []; const d = new Date(); for (let i = 0; i < 10; i++) { const x = new Date(d.getTime() - i * 86400000); out.push(`https://build.protomaps.com/${x.getUTCFullYear()}${two(x.getUTCMonth() + 1)}${two(x.getUTCDate())}.pmtiles`); } return out; };
+  /** Bytes of a remote file by a range request (Android's HTTP stack in the APK); refuses a server that sends the whole file. */
+  async function rangeBytes(url, offset, length, signal) {
+    const hdr = { Range: `bytes=${offset}-${offset + length - 1}` };
+    if (NATIVE) {
+      const r = await withTimeout(nativeGet(url, hdr), 90000, 'The map server did not answer');
+      if (r.status !== 206) throw new Error(r.status === 200 ? 'The map server sent the whole file instead of a part' : `The map server answered HTTP ${r.status}`);
+      return nativeBytes(r.data);
+    }
+    const ctl = new AbortController(), stop = () => ctl.abort(); if (signal) signal.addEventListener('abort', stop);
+    try {
+      const r = await withTimeout(fetch(url, { headers: hdr, cache: 'no-store', mode: 'cors', credentials: 'omit', signal: ctl.signal }), 90000, 'The map server did not answer');
+      if (r.status !== 206) { ctl.abort(); throw new Error(r.status === 200 ? 'The map server sent the whole file instead of a part' : `The map server answered HTTP ${r.status}`); }
+      return new Uint8Array(await r.arrayBuffer());
+    } finally { if (signal) signal.removeEventListener('abort', stop); }
+  }
+  class RangeSource {
+    constructor(url, signal) { this.url = url; this.signal = signal; this.n = 0; this.bytes = 0; }
+    getKey() { return this.url; }
+    async getBytes(offset, length) { const u = await rangeBytes(this.url, offset, length, this.signal); this.n++; this.bytes += u.length; return { data: u.buffer.slice(u.byteOffset, u.byteOffset + u.length) }; }
+  }
+  /** Tile ID of z/x/y on the PMTiles Hilbert curve (PMTiles v3 specification). */
+  function pmTileId(z, x, y) {
+    let acc = 0; for (let i = 0; i < z; i++) acc += 4 ** i;
+    const n = 2 ** z; let d = 0, tx = x, ty = y;
+    for (let s = n / 2; s >= 1; s /= 2) {
+      const rx = (tx & s) > 0 ? 1 : 0, ry = (ty & s) > 0 ? 1 : 0;
+      d += s * s * ((3 * rx) ^ ry);
+      if (ry === 0) { if (rx === 1) { tx = n - 1 - tx; ty = n - 1 - ty; } const t = tx; tx = ty; ty = t; }
+    }
+    return acc + d;
+  }
+  const lon2tx = (lon, z) => Math.min(2 ** z - 1, Math.max(0, Math.floor((lon + 180) / 360 * 2 ** z)));
+  const lat2ty = (lat, z) => { const r = Math.max(-85.0511, Math.min(85.0511, lat)) * Math.PI / 180; return Math.min(2 ** z - 1, Math.max(0, Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z))); };
+  /** The tiles of a bbox [w, s, e, n] from zoom 0 to maxz. */
+  function areaTiles(b, maxz) {
+    const out = [];
+    for (let z = 0; z <= maxz; z++) for (let x = lon2tx(b[0], z); x <= lon2tx(b[2], z); x++) for (let y = lat2ty(b[3], z); y <= lat2ty(b[1], z); y++) out.push([z, x, y]);
+    return out;
+  }
+  const isGz = (u) => u.length > 2 && u[0] === 0x1f && u[1] === 0x8b;
+  async function gzipBytes(u) {
+    if (!('CompressionStream' in window)) return null;
+    return new Uint8Array(await new Response(new Blob([u]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+  }
+  function pushVarint(arr, v) { while (v >= 128) { arr.push((v % 128) | 128); v = Math.floor(v / 128); } arr.push(v); }
+  /** A PMTiles v3 directory, serialized (entries: tileId, offset, length, runLength), then gzipped. */
+  async function pmDir(entries) {
+    const a = []; pushVarint(a, entries.length);
+    let last = 0; entries.forEach((e) => { pushVarint(a, e.tileId - last); last = e.tileId; });
+    entries.forEach((e) => pushVarint(a, e.runLength));
+    entries.forEach((e) => pushVarint(a, e.length));
+    entries.forEach((e, i) => { pushVarint(a, i > 0 && e.offset === entries[i - 1].offset + entries[i - 1].length ? 0 : e.offset + 1); });
+    const raw = new Uint8Array(a), gz = await gzipBytes(raw);
+    return gz ? { bytes: gz, comp: 2 } : { bytes: raw, comp: 1 };
+  }
+  /** A PMTiles v3 file from tiles [{z, x, y, data}] (vector tiles, gzip), with the source's metadata. */
+  async function buildPmtiles(tiles, bbox, minz, maxz, meta) {
+    const rows = tiles.map((t) => ({ id: pmTileId(t.z, t.x, t.y), data: t.data })).sort((a, b) => a.id - b.id);
+    const seen = new Map(), entries = [], blobs = []; let off = 0;
+    for (const r of rows) { // identical tiles (sea, empty land) are stored once
+      const key = r.data.length < 2048 ? `${r.data.length}:${Array.from(r.data.subarray(0, 64)).join(',')}:${r.data.length > 64 ? Array.from(r.data.subarray(r.data.length - 64)).join(',') : ''}` : null;
+      let e = key && seen.get(key);
+      if (e && e.bytes.length === r.data.length && e.bytes.every((v, i) => v === r.data[i])) {
+        const prev = entries[entries.length - 1];
+        if (prev && prev.offset === e.offset && prev.tileId + prev.runLength === r.id) prev.runLength++; else entries.push({ tileId: r.id, offset: e.offset, length: e.length, runLength: 1 });
+        continue;
+      }
+      e = { offset: off, length: r.data.length, bytes: r.data }; if (key) seen.set(key, e);
+      entries.push({ tileId: r.id, offset: off, length: r.data.length, runLength: 1 }); blobs.push(r.data); off += r.data.length;
+    }
+    let root = await pmDir(entries), leaves = { bytes: new Uint8Array(0) };
+    if (127 + root.bytes.length > 16384) { // too many entries for the first 16 KB: leaf directories
+      let per = 4096, rootEntries, leafParts;
+      for (;;) {
+        rootEntries = []; leafParts = []; let lo = 0;
+        for (let i = 0; i < entries.length; i += per) { const d = await pmDir(entries.slice(i, i + per)); rootEntries.push({ tileId: entries[i].tileId, offset: lo, length: d.bytes.length, runLength: 0 }); leafParts.push(d.bytes); lo += d.bytes.length; }
+        root = await pmDir(rootEntries); if (127 + root.bytes.length <= 16384 || per > entries.length) break; per *= 2;
+      }
+      const L = leafParts.reduce((t, x) => t + x.length, 0), lb = new Uint8Array(L); let p = 0; leafParts.forEach((x) => { lb.set(x, p); p += x.length; }); leaves = { bytes: lb };
+    }
+    const mraw = enc8(JSON.stringify({ ...(meta || {}), description: `G-eSAA area pack cut from ${(meta && meta.source) || 'a Protomaps basemap build'}`, 'g-esaa:bbox': bbox })), mgz = (await gzipBytes(mraw)) || mraw;
+    const comp = root.comp, H = new Uint8Array(127), dv = new DataView(H.buffer);
+    'PMTiles'.split('').forEach((c, i) => { H[i] = c.charCodeAt(0); }); H[7] = 3;
+    const u64 = (o, v) => { dv.setUint32(o, v % 4294967296, true); dv.setUint32(o + 4, Math.floor(v / 4294967296), true); };
+    const rootOff = 127, metaOff = rootOff + root.bytes.length, leafOff = metaOff + mgz.length, dataOff = leafOff + leaves.bytes.length;
+    u64(8, rootOff); u64(16, root.bytes.length); u64(24, metaOff); u64(32, mgz.length); u64(40, leafOff); u64(48, leaves.bytes.length); u64(56, dataOff); u64(64, off);
+    u64(72, rows.length); u64(80, entries.length); u64(88, blobs.length);
+    H[96] = 1; H[97] = comp; H[98] = rows.length && isGz(rows[0].data) ? 2 : 1; H[99] = 1; H[100] = minz; H[101] = maxz; // tiles: gzip, or none on a phone without gzip
+    const e7 = (o, v) => dv.setInt32(o, Math.round(v * 1e7), true);
+    e7(102, bbox[0]); e7(106, bbox[1]); e7(110, bbox[2]); e7(114, bbox[3]); H[118] = Math.min(maxz, 14); e7(119, (bbox[0] + bbox[2]) / 2); e7(123, (bbox[1] + bbox[3]) / 2);
+    if (comp === 1 && mgz === mraw) H[97] = 1; // no gzip on this phone: nothing compressed
+    return new Blob([H, root.bytes, mgz, leaves.bytes, ...blobs], { type: 'application/octet-stream' });
+  }
+  /** Finds a source build that answers (the admin's own copy, else the newest Protomaps daily build of the last 10 days). */
+  async function areaSource(signal) {
+    const own = pol().areaSrc, urls = own ? [own] : pmBuildUrls();
+    let lastErr = null;
+    for (const url of urls) {
+      try { const u = await rangeBytes(url, 0, 127, signal); if (pmtilesHeader(u)) return url; } catch (e) { lastErr = e; if (/did not answer/.test(e.message) && !own) break; }
+    }
+    throw new Error(own ? `The admin's map source did not answer (${lastErr ? lastErr.message : 'not a map file'})` : `No Protomaps build answered${lastErr ? ` (${lastErr.message})` : ''}. ${NATIVE ? 'Check the internet connection.' : 'The website version may be blocked from reading it: use the Android app, or Import a pack file.'}`);
+  }
+  /** The area to cut: the map view, or the project's records with a margin. */
+  function areaBbox(which) {
+    if (which === 'project') {
+      const pts = projPoints(); if (!pts.length) return null;
+      const lat = pts.map((p) => p.lat), lon = pts.map((p) => p.lon), m = 0.01; // about 1 km round it
+      return [Math.min(...lon) - m, Math.min(...lat) - m, Math.max(...lon) + m, Math.max(...lat) + m];
+    }
+    const b = map.getBounds(); return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+  }
+  const bboxKm = (b) => { const k = Math.cos(((b[1] + b[3]) / 2) * Math.PI / 180); return [Math.abs(b[2] - b[0]) * 111.32 * k, Math.abs(b[3] - b[1]) * 110.57]; };
+  async function downloadArea() {
+    if (!window.protomapsL || !window.protomapsL.PMTiles) { toast('The offline map reader is not loaded on this phone: open G-eSAA once with internet.', 5000); return; }
+    if (navigator.onLine === false) { toast('Connect to the internet (Wi-Fi is best) to download an area', 4000); return; }
+    const hasProj = !!(S.project && projPoints().length);
+    const which = await ask('Download an area for offline use', `The street map of the area is cut from the Protomaps basemap build (OpenStreetMap data) and kept on this phone as an offline map pack. Zoom 0 to ${AREA_MAXZ}; the map stays sharp closer in.\n\nThe map view: about ${bboxKm(areaBbox('view')).map((v) => v.toFixed(1)).join(' × ')} km.${hasProj ? `\nThe project “${S.project}”: about ${bboxKm(areaBbox('project')).map((v) => v.toFixed(1)).join(' × ')} km.` : ''}`,
+      [{ label: 'Cancel', value: null }, ...(hasProj ? [{ label: 'The project’s area', value: 'project' }] : []), { label: 'The map view', value: 'view', primary: true }]);
+    if (!which) return;
+    const bbox = areaBbox(which), tiles = areaTiles(bbox, AREA_MAXZ);
+    if (tiles.length > AREA_MAX_TILES) { toast(`That area is too big for one download (${tiles.length.toLocaleString()} tiles; at most ${AREA_MAX_TILES.toLocaleString()}). Zoom the map in, or ask your admin for a map pack.`, 7000); return; }
+    const ctl = new AbortController(); let cancelled = false;
+    cancelFlag = false; const watch = setInterval(() => { if (cancelFlag && !cancelled) { cancelled = true; ctl.abort(); } }, 200); // Cancel on the busy screen
+    busy('Finding the map source…', null, true);
+    try {
+      const url = await areaSource(ctl.signal), src = new RangeSource(url, ctl.signal), pm = new window.protomapsL.PMTiles(src);
+      const hdr = await pm.getHeader();
+      if (hdr.tileType !== 1) throw new Error('The map source has picture tiles, not a vector map');
+      const maxz = Math.min(AREA_MAXZ, hdr.maxZoom), minz = 0, list = tiles.filter(([z]) => z <= maxz && z >= hdr.minZoom);
+      let meta = {}; try { meta = await pm.getMetadata(); } catch (e) { meta = {}; }
+      meta = { ...(meta && typeof meta === 'object' ? meta : {}), source: url };
+      const got = []; let i = 0, done = 0, bytes = 0, failure = null;
+      const work = async () => { try { await work1(); } catch (e) { if (!failure && !cancelled) { failure = e; ctl.abort(); } } }; // one failure stops the others
+      const work1 = async () => {
+        while (i < list.length && !cancelled && !failure) {
+          const [z, x, y] = list[i++];
+          let t = null, tries = 0;
+          for (;;) { try { t = await pm.getZxy(z, x, y, ctl.signal); break; } catch (e) { if (cancelled || failure) return; if (++tries > 3) throw e; await sleep(1500 * tries); } }
+          if (t && t.data && t.data.byteLength) { let u = new Uint8Array(t.data); if (!isGz(u)) u = (await gzipBytes(u)) || u; got.push({ z, x, y, data: u }); bytes += u.length; }
+          if (bytes > AREA_MAX_BYTES) throw new Error(`The area passed ${fmtMB(AREA_MAX_BYTES)} before it was complete: zoom the map in and download a smaller area, or ask your admin for a map pack`);
+          done++; busy(`Downloading the area: ${done} of ${list.length} tiles · ${fmtMB(bytes)}`, done / list.length, true);
+        }
+      };
+      await Promise.all(Array.from({ length: AREA_PAR }, work));
+      if (failure) throw failure;
+      if (cancelled) throw CANCEL;
+      if (!got.length) throw new Error('The source has no map data for this area');
+      busy('Making the map pack…');
+      const blob = await buildPmtiles(got, bbox, minz, maxz, meta);
+      busy(false);
+      const when = new Date(), name = `${which === 'project' ? S.project : 'Area'} ${when.toLocaleDateString([], { month: 'short', day: 'numeric' })}`, id = `area-${when.getTime()}`;
+      LOG.info('area.download', { tiles: got.length, of: list.length, mb: +(blob.size / 1048576).toFixed(1), requests: src.n, src: url.replace(/^https:\/\//, '').slice(0, 60) });
+      await runPackJob({ id, name, size: blob.size, bbox, maxzoom: maxz, date: '' }, pumpFile(blob), 'Saving');
+      renderOffline();
+    } catch (e) {
+      busy(false);
+      if (e === CANCEL || cancelled) { toast('Area download stopped', 2500); return; }
+      throw e;
+    } finally { clearInterval(watch); }
+  }
   /** Cancel answers at once: the screen is released immediately and the job stops at its next step. */
   $('busyCancel').addEventListener('click', () => {
     const job = dl;
@@ -8619,6 +8929,7 @@
     const known = packCatalog().find((x) => x.size === f.size && (x.name || '').toLowerCase().replace(/[^a-z0-9]/g, '').includes(C.safeName(base).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8)));
     await runPackJob({ id: known && known.drive ? known.id : id, name: known ? known.name : base.replace(/[_-]+/g, ' '), size: f.size, bbox: hdr.bbox, maxzoom: hdr.maxzoom }, pumpFile(f), 'Importing');
   });
+  $('areaDl').addEventListener('click', () => guard(downloadArea, 'Area not downloaded')); // v2.29
   $('packAddLink').addEventListener('click', () => {
     const v = $('packLink').value.trim(), id = driveId(v);
     if (!id) { toast('Paste a Google Drive share link, e.g. https://drive.google.com/file/d/…/view'); return; }
@@ -8719,6 +9030,42 @@
     openCamera('new');
   });
   $('brandVer').textContent = `v${APP_VER}`; // the version beside the name (v2.15)
+  /* v2.29: tap G-eSAA (top left) to reload the app and check for a new version. Asked first, and not while a photo, a
+     record or the marking screen is open, so a stray tap during capture or editing does nothing. */
+  const verNum = (v) => String(v || '').split('.').map((x) => parseInt(x, 10) || 0);
+  const verNewer = (a, b) => { const x = verNum(a), y = verNum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
+  function reloadBlocked() {
+    const open = (id) => { const e = $(id); return !!e && !e.hidden; };
+    return ['camera', 'editor', 'boxer', 'photoView', 'qrScan', 'busy', 'askBox', 'pinBox', 'promptBox', 'pickBox'].some(open) || !!ed;
+  }
+  $('brandBtn').addEventListener('click', () => guard(async () => {
+    if (reloadBlocked()) return; // capture or editing in progress: the tap does nothing
+    if (!(await ask('Reload G-eSAA?', `Version ${APP_VER}. The app reloads${NATIVE ? ' and checks the website for a newer version' : ' and takes the newest version from the website'}. Your projects, photos and settings stay on this phone.`,
+      [{ label: 'Cancel', value: false }, { label: 'Reload', value: true, primary: true }]))) return;
+    persist(); LOG.info('app.reload', { native: NATIVE });
+    if (NATIVE) { // the APK carries its own files: a new version comes as a new APK
+      const base = webBase(); let latest = '';
+      if (base && navigator.onLine !== false) {
+        busy('Checking for a new version…');
+        try { const t = await withTimeout(fetch(`${base}sw.js?ts=${Date.now()}`, { cache: 'no-store' }).then((r) => (r.ok ? r.text() : '')), 10000, 'no answer'); latest = ((/polecam-v(\d+\.\d+\.\d+)/.exec(t) || [])[1]) || ''; } catch (e) { latest = ''; } finally { busy(false); }
+      }
+      if (latest && verNewer(latest, APP_VER)) {
+        const gh = /^https:\/\/([^.]+)\.github\.io\/([^/]+)\//.exec(base || ''), rel = gh ? `https://github.com/${gh[1]}/${gh[2]}/releases/latest` : base;
+        if (await ask(`Version ${latest} is out`, `This app is ${APP_VER}. Install the new APK over this one (same app, your data stays): open the download page?`, [{ label: 'Later', value: false }, { label: 'Get the new APK', value: true, primary: true }])) { openExternal(rel); return; }
+      }
+      location.reload(); return;
+    }
+    busy('Getting the newest version…');
+    try {
+      const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
+      if (reg) { await withTimeout(reg.update(), 10000, 'slow').catch(() => {}); const w = reg.installing || reg.waiting; if (w) await withTimeout(new Promise((res) => { const f = () => { if (w.state === 'activated' || w.state === 'redundant') res(); }; w.addEventListener('statechange', f); f(); }), 15000, 'slow').catch(() => {}); }
+    } finally { busy(false); }
+    location.reload();
+  }, 'Not reloaded'));
+  // v2.29: no accidental zoom of the whole screen with two fingers (the map, the photo and the drawing keep their own pinch)
+  const ownPinch = (t) => !!(t && t.closest && t.closest('#map, #pinMap, #boxWrap, #pvImg, #photoView, #drawWrap, #camStage, .leaflet-container'));
+  document.addEventListener('touchmove', (e) => { if (e.touches && e.touches.length > 1 && !ownPinch(e.target)) e.preventDefault(); }, { passive: false });
+  ['gesturestart', 'gesturechange'].forEach((k) => document.addEventListener(k, (e) => { if (!ownPinch(e.target)) e.preventDefault(); }, { passive: false })); // iPhone Safari
   $('aboutVer').textContent = `G-eSAA v${APP_VER}`; // v2.25: Settings → About shows the real version too
   (async () => {
     const tl = Date.now();
@@ -8763,5 +9110,6 @@
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
   window.__polecam = { get points() { return points; }, get S() { return S; }, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
-    packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport }; // for testing
+    packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
+    surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource }; // for testing
 })();

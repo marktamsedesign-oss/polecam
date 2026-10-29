@@ -1,4 +1,4 @@
-/* G-eSAA tutorial (v2.25; v2.28): the topics of the in-app Tutorial (bottom bar → Tutorial).
+/* G-eSAA tutorial (v2.25; v2.29): the topics of the in-app Tutorial (bottom bar → Tutorial).
    aud: 'user' (everyone) or 'admin' (shown only to users of the admin company).
    Each step: t = the text (**bold**); go = the screen the guided tour opens for it (map, projects, newProject, projectDetails,
    records, export, settings, profile, camera, exports, maps, storage, log, admin); hl = the control it rings (CSS selectors,
@@ -27,6 +27,7 @@
       steps: [
         { t: 'The **project button** on the top bar shows the task category (SURVEY, PAT, CLEANUP, FAT) and the project name. Tap it to open Projects.', go: 'map', hl: '#projectBtn' },
         { t: 'The **GPS pill**: green ≤ 5 m, amber ≤ 15 m, red > 15 m. Wait for green when you can.', go: 'map', hl: '#gpsPill' },
+        { t: 'Tap **G-eSAA** (top left) to reload the app and get the newest version: it asks first, and does nothing while the camera, a record or the marking screen is open. In the Android app it checks the website and offers the new APK when there is one. Your data stays.', go: 'map', hl: '#brandBtn' },
         { t: 'Map buttons: the **route** (survey), **map layer** (street, satellite, offline pack) and **my location**.', go: 'map', hl: '.mapbtns' },
         { t: 'The strip above the bottom bar shows the project totals; tap it to open the records.', go: 'map', hl: '#mapSummary' },
         { t: 'The bottom bar: **Drawing** (As-Plan and As-Built) or **Find** (every other task), the big **Capture** button, **Export**, **Settings** and this **Tutorial**.', go: 'map', hl: '#bottombar' },
@@ -74,12 +75,13 @@
         { t: '**FOC route**: draw the line with your finger (e.g. from pole to pole) and lift to finish. **Text**: tap where the comment goes and type it; tap it once to move it, again to change it.', hl: '#boxCanvas', when: 'It is on the marking screen.' },
         { t: 'Tap a mark to select it (move, resize, **Delete**), then **Done**. The marks are drawn on a copy of the photo; the original is kept, so you can change them later.', hl: '#boxDone', when: 'It is on the marking screen.' },
       ] },
-    { id: 'route', aud: 'user', cat: 'Survey', title: 'Link the cable route', kw: 'route span link poles cable capture order undo clear angle long span',
+    { id: 'route', aud: 'user', cat: 'Survey', title: 'Link the cable route', kw: 'route span link poles cable capture order undo clear angle long span cable type figure 8 72c light 12c ug 144c air-blown aerial underground ae method',
       steps: [
         { t: 'Tap the **route** button on the map.', go: 'map', hl: '#routeBtn', when: 'It shows in a Survey project.' },
-        { t: 'Tap a pole, then the next pole, to link them. Tap a linked pair again to unlink it.', hl: '#rbHint', when: 'It shows after you tap the route button.' },
+        { t: 'Choose the **CABLE** first: *AE Figure 8 72C FOC*, *Light cable 12C* (both aerial, AE) or *UG 144C air-blown fiber* (underground, UG). Each span you link takes it; the map draws each cable in its own colour (UG dotted, grey = not set).', hl: '#rbCable', when: 'It shows after you tap the route button.' },
+        { t: 'Tap a pole, then the next pole, to link them. Tap a linked pair again to unlink it. With another cable chosen, tapping a linked pair gives that span the new cable instead (tap it again to unlink). **Set on all spans** gives every span the chosen cable; **Undo** goes back.', hl: '#rbHint', when: 'It shows after you tap the route button.' },
         { t: '**Link in capture order** links the poles in the order they were taken (gaps longer than the admin\'s limit are skipped). **Undo** and **Clear** if needed.', hl: '#rbAuto', when: 'It shows after you tap the route button.' },
-        { t: 'Tap **Done** when finished. Spans longer than the maximum span and angle poles are flagged; Export → FORMAT **Route and spans · Excel** lists them.', hl: '#rbDone', when: 'It shows after you tap the route button.' },
+        { t: 'Tap **Done** when finished. Spans longer than the maximum span and angle poles are flagged. The bar sums each cable; Export → FORMAT **Route and spans · Excel** lists every span with its cable and method, the KMZ draws one line per cable run and the DXF puts each cable on its own layer.', hl: '#rbDone', when: 'It shows after you tap the route button.' },
       ] },
     { id: 'drawing', aud: 'user', cat: 'Survey', title: 'Drawing and Find', kw: 'drawing dxf preview plan utm find search pin id element status defect labels fit',
       steps: [
@@ -98,13 +100,16 @@
         { t: '**Table · CSV**, **Route and spans · Excel** and **Geotagged photos · ZIP** too. Each card has its **Options**; the defaults are in Settings → Exports and files.', go: 'export', hl: '#doCsv', when: 'The survey exports show in a Survey project.' },
         { t: '**Completion report · PDF** marks the task complete and sends the date to the online sheet.', go: 'export', hl: '#doCompletion' },
       ] },
-    { id: 'boq', aud: 'user', cat: 'Survey', title: 'BOQ / BOM in the As-Plan and As-Built', kw: 'boq bom size sizes clamp owner electric pldt dito converge new globe pole 7.5m 9.14m 10.6m 7a 7ar light odf 12f 24f 48f 72f 144f 288f apc upc closure 12c 24c 48c 72c 144c 288c as-plan as-built planned built difference materials',
+    { id: 'boq', aud: 'user', cat: 'Survey', title: 'BOQ / BOM in the As-Plan and As-Built', kw: 'boq bom size sizes clamp owner electric pldt dito converge new globe pole 7.5m 9.14m 10.6m 7a 7ar light odf 12f 24f 48f 72f 144f 288f apc upc closure 12c 24c 48c 72c 144c 288c as-plan as-built planned built difference materials arm double arm extension alley guy guying head guy side guy sidewalk down guy mloop maintenance loop region quantities detailed engineering foc length',
       steps: [
         { t: 'The BOQ is part of the **As-Plan Creation** survey (what the plan needs) and the **As-Built Creation** survey (what was built). Audit, PAT, defect cleanup and FAT have no sizes. Open a record: tap **Capture** for a new one, or a pin for one you have.', go: 'map', hl: '#captureBtn' },
         { t: 'In the record, **Size · for the BOQ / BOM** (under Identification): tap the size, tap it again to clear (a list of more than 4, e.g. the ODF and closure sizes, is a dropdown: choose it there; your admin sets the lists). An **existing pole**: its **owner** (Electric, PLDT, DITO, CONVERGE, or **+ Other**) and **clamp size** (5-7, 8-9, 10-12). A **proposed / new Globe pole**: its **size** (7.5m, 9.14m, 10.6m), **class** (7A, 7AR, Light) and clamp size.', hl: '#boqBox', when: 'It is in the record of a pole, an ODF or a closure, in an As-Plan or As-Built project.' },
+        { t: 'A pole also has **NEW ARM** (single, double, extension 26" or 44.5", 10-pin alley arm), **NEW GUYING** (tap each one it needs: head, side, sidewalk, sidewalk head, pole-to-pole, down guy) and **MAINTENANCE LOOP** (tap **MLoop 15 m** when the cable is looped at that pole; your admin sets the length).', hl: '#boqBox', when: 'It is in the record of a pole, in an As-Plan or As-Built project.' },
         { t: '**ODF**: 12F to 288F and **APC** or **UPC**. **Closure**: 12C to 288C. Whether it is new or existing is the record\'s **Status**.' },
+        { t: 'Projects → Project details → **REGION (BOQ)**: the GPS suggests the region (e.g. Region 12); choose it to confirm. It is approximate near a regional border, so check it.', go: 'projectDetails', hl: '#curRegion', when: 'In an As-Plan or As-Built project: Projects → Project details.' },
         { t: '**As-Built**: load the **As-Plan KMZ** (exported from G-eSAA) as the project\'s reference here. Each As-Built element then starts with its planned sizes and status (the same ID, else the nearest planned one within 15 m). The purple line in the record shows the plan; it turns orange when what was built differs, with **Use the planned sizes**.', go: 'projectDetails', hl: '#refLoad', when: 'In an As-Built project: Projects → Project details → KMZ reference.' },
         { t: 'The BOQ comes out with the survey: a **BOQ / BOM page** in the **Completion report**, a **BOQ sheet** in **Route and spans · Excel**, and on its own as **BOQ / BOM sizes · Excel**. In the As-Built it shows **Planned, Built and the Difference**, the planned elements not found and what was built outside the plan.', go: 'export', hl: '#doBoq' },
+        { t: 'Both Excel files also have a **Survey quantities** sheet: span length by cable and method (AE / UG), maintenance loops, FOC length with the loops, **detailed engineering** (the FOC length without the loops), new poles by size, arms, guying, clamps, ODF, closures, NAPs and the region, each with a code for the BOQ rules.' },
       ] },
     { id: 'pat', aud: 'user', cat: 'PAT, defect cleanup and FAT', title: 'Record a PAT (defects as found)', kw: 'pat provisional acceptance defect deficiency punchlist major minor note md d n where photo add',
       steps: [
@@ -201,9 +206,10 @@
         { t: 'In the camera, **0.5×** shows when the phone lets the app use its ultra-wide lens; many phones give a web app 1× and up only.' },
         { t: 'At the bottom of Settings: **Text size**, and keep the help text open on every screen.', go: 'settings' },
       ] },
-    { id: 'offline', aud: 'user', cat: 'Settings', title: 'Offline maps', kw: 'offline map pack no signal download import pmtiles satellite street layer tiles',
+    { id: 'offline', aud: 'user', cat: 'Settings', title: 'Offline maps', kw: 'offline map pack no signal download import pmtiles satellite street layer tiles area download protomaps openstreetmap',
       steps: [
         { t: 'Before going to a no-signal area, on Wi-Fi: Settings → **Maps** → Offline map packs: download your area\'s pack (from your admin\'s list) or **Import a pack file**.', go: 'settings', hl: '#goMaps' },
+        { t: 'Or **Download an area for offline use**: the map view or the project\'s area (about 1 km round its records), cut from the Protomaps basemap build (OpenStreetMap data) and kept as a pack, zoom 0 to 15. A town is a few MB; a very big area is refused (zoom in). Cancel stops it.', go: 'maps', hl: '#areaDl' },
         { t: 'With no signal the map switches to it by itself. The **layer** button also cycles street → satellite → offline.', go: 'map', hl: '#layerBtn' },
         { t: 'Map tiles you viewed online are kept too; Settings → **Storage** shows how much space they use.', go: 'settings', hl: '#goStorage' },
       ] },
@@ -270,8 +276,8 @@
       ] },
     { id: 'adm-standards', aud: 'admin', cat: 'Administration', title: 'Field standards and who records', kw: 'field standards maximum span angle pole prefixes vendors record sharpness pole owners boq',
       steps: [
-        { t: '**Maximum span**, **Angle pole from (°)**, the gap limit of *Link in capture order*, and **Extra pole prefixes for everyone**.', go: 'admin', hl: '#setMaxSpan', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
-        { t: '**Sizes for the BOQ / BOM and pole details**: the pole owners, clamp sizes, new Globe pole sizes and classes, ODF sizes and connectors, closure sizes and the pole details, one value per line. Add, rename or remove; empty = the built-in list. A list of more than 4 shows as a dropdown in the record.', go: 'admin', hl: '#admBoqBox', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '**Maximum span**, **Angle pole from (°)**, the gap limit of *Link in capture order*, the **maintenance loop (MLoop) length** (15 m unless you change it) and **Extra pole prefixes for everyone**.', go: 'admin', hl: '#setMaxSpan', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '**Sizes for the BOQ / BOM and pole details**: the pole owners, clamp sizes, new Globe pole sizes and classes, ODF sizes and connectors, closure sizes, new arms, guying and the pole details, one value per line. Add, rename or remove; empty = the built-in list. A list of more than 4 shows as a dropdown in the record.', go: 'admin', hl: '#admBoqBox', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '**Vendors record PAT defects and accept fixes at FAT**: on = vendors may record; off = only the admin company does.', go: 'admin', hl: '#admVendorRec', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '**Photo sharpness required**: Strict (recommended) or Normal.', go: 'admin', hl: '#admQuality', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
@@ -292,6 +298,7 @@
       steps: [
         { t: 'Upload each .pmtiles map pack to Google Drive and share it as "Anyone with the link".' },
         { t: 'Administration → **Offline map packs**: one line per pack, *name | Drive link | size in MB*. Users see them under Maps once they take this list version.', go: 'admin', hl: '#admPacks', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '**Area download source** (optional): users\' *Download an area* reads the Protomaps daily build, which Protomaps asks not to rely on for production. For heavy use, put a copy of a build on your own storage that allows range requests (e.g. Cloudflare R2) and enter its https address here.', go: 'admin', hl: '#admAreaSrc', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
     { id: 'adm-save', aud: 'admin', cat: 'Administration', title: 'Save and share the list', kw: 'save share list version join link qr org.json tie website apk',
       steps: [
@@ -305,5 +312,5 @@
         { t: 'Sites: the admin company sees every company\'s sites from the sheet, narrowed by your own regions and territories (Your details).', go: 'profile', hl: '#pfAreaBox' },
       ] },
   ];
-  root.GESAA_TUTORIAL = { version: '2.28', topics: T };
+  root.GESAA_TUTORIAL = { version: '2.29', topics: T };
 })(typeof self !== 'undefined' ? self : this);
