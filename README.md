@@ -520,6 +520,18 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.25.1
+
+- **Tutorial: the guided tour goes on to the end of the topic.** In v2.25.0, *Show me* pointed at one button and the tip disappeared as soon as you tapped it (for example the camera button in *Capture poles*). Now:
+  - **▶ Guide me through it** (top of each topic) or **Show me** on a step starts a tour that stays on screen while you use the real app.
+  - **Tap the ringed button** to do the step: the tip moves to the next step on whatever screen opens. In *Capture poles* that is Capture → the shutter in the camera → Skip at the ID step → Reset to GPS and Save in the record → Records. The same goes for the PAT defect form, the pin card of the defect cleanup and FAT (Photo of the fix, the camera, Next pin), the route bar, Settings, Projects and Administration.
+  - **Next ›** moves on without doing it; **Open it ›** opens the step's screen when you are elsewhere; **✕** ends the tour; **Back to the tutorial** returns to the topic.
+  - While a dialog is open (a question, the PIN, a QR code, a file being made) the tip waits behind it. The tour never closes a record or the camera by itself, and after you did a step it never leaves the screen you are on until you tap **Open it ›** or **Next ›** (so a saved PDF or a QR code stays in front of you).
+  - When the app skips a screen (the pole ID read by itself, so the record opens at once), the tour skips that step too. A control below the screen is scrolled into view once.
+  - Admin guide topics now point at the real fields of Administration (after the admin PIN).
+  - It is the real app: a photo taken during the tour is a real record in the open project (delete it afterwards if it was only practice).
+- Settings → About shows the app's real version (it said v2.15.0).
+
 ## What changed in v2.25
 
 - **Tutorial** (bottom bar, at the lower right beside Settings): an interactive guide inside the app, offline like the rest.

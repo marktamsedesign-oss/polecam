@@ -603,7 +603,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.25.0';
+  const APP_VER = '2.25.1';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -5569,10 +5569,11 @@
     tutCur = t;
     $('tutTopicTitle').textContent = t.title;
     $('tutTopicCat').textContent = `${t.aud === 'admin' ? 'Admin guide' : 'User guide'} · ${t.cat}`;
+    $('tutTour').onclick = () => tutStart(t, 0);
     const ol = $('tutSteps'); ol.innerHTML = '';
     t.steps.forEach((st, i) => {
       const li = document.createElement('li'), d = document.createElement('div'); tutRich(d, st.t, words || []); li.appendChild(d);
-      if (st.go || st.hl) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm show'; b.textContent = 'Show me'; b.addEventListener('click', () => tutShow(t, i)); li.appendChild(b); }
+      if (st.go || st.hl) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm show'; b.textContent = 'Show me'; b.addEventListener('click', () => tutStart(t, i)); li.appendChild(b); }
       ol.appendChild(li);
     });
     const seq = tutTopics().filter((x) => x.aud === t.aud), k = seq.indexOf(t);
@@ -5582,60 +5583,144 @@
     $('tutTopic').querySelector('.body').scrollTop = 0;
   }
   function openTutorial() { renderTutList(); openSheet('tutorial'); }
-  /** "Show me": the screen of the step, then a ring round its control with the step's text. */
+
+  /* v2.25.1: the guided tour. "Show me" (or "Guide me through it") starts at a step and goes on to the end of the topic: the
+     tip stays on screen while the user works in the real app. Tapping the ringed button does it and moves to the next step
+     (whatever screen it opens: camera, record, dialog…); Next › moves on without it; ✕ ends the tour. While a dialog is open
+     the tip waits; it never leaves an open record or the camera by itself. */
+  const TUT_SCREEN = { map: '', projects: 'projects', newProject: 'newProj', projectDetails: 'projects', records: 'list', export: 'export', settings: 'settings',
+    profile: 'profile', camera: 'setCamera', exports: 'setExports', maps: 'offline', storage: 'setStorage', log: 'logSheet', admin: 'admin' };
+  const tutTop = () => stack[stack.length - 1] || '';
+  const tutOnScreen = (go) => (go === 'map' ? !stack.length : go === 'projectDetails' ? tutTop() === 'projects' && $('curMore').open : tutTop() === TUT_SCREEN[go]);
+  const tutModal = () => ['askBox', 'pinBox', 'promptBox', 'qrShow', 'busy', 'qrScan'].some((id) => { const e = $(id); return e && !e.hidden; });
+  const tutBusyScreen = () => stack.includes('editor') || stack.includes('camera'); // never closed by the tour
+  let tutTour = null, tutTimer = 0;
   async function tutGo(go) {
     switch (go) {
-      case 'projects': openProjects(); break;
-      case 'newProject': openProjects(); await tutWait(150); openNewProject(); break;
-      case 'projectDetails': openProjects(); await tutWait(150); $('curMore').open = true; break;
-      case 'records': $('listBtn').click(); break;
-      case 'export': $('exportBtn').click(); break;
-      case 'settings': $('settingsBtn').click(); break;
-      case 'profile': $('settingsBtn').click(); await tutWait(150); openProfile(false); break;
+      case 'projects': if (tutTop() !== 'projects') openProjects(); break;
+      case 'newProject': if (tutTop() !== 'projects') openProjects(); await tutWait(150); openNewProject(); break;
+      case 'projectDetails': if (tutTop() !== 'projects') openProjects(); await tutWait(150); $('curMore').open = true; break;
+      case 'records': if (tutTop() !== 'list') $('listBtn').click(); break;
+      case 'export': if (tutTop() !== 'export') $('exportBtn').click(); break;
+      case 'settings': if (tutTop() !== 'settings') $('settingsBtn').click(); break;
+      case 'profile': if (tutTop() !== 'settings') $('settingsBtn').click(); await tutWait(150); openProfile(false); break;
+      case 'admin': if (tutTop() !== 'settings') $('settingsBtn').click(); await tutWait(150); $('goAdmin').click(); break;
       case 'camera': case 'exports': case 'maps': case 'storage': case 'log':
-        $('settingsBtn').click(); await tutWait(150); $({ camera: 'goCamera', exports: 'goExports', maps: 'goMaps', storage: 'goStorage', log: 'goLog' }[go]).click(); break;
+        if (tutTop() !== 'settings') $('settingsBtn').click(); await tutWait(150); $({ camera: 'goCamera', exports: 'goExports', maps: 'goMaps', storage: 'goStorage', log: 'goLog' }[go]).click(); break;
       default: break; // the map
     }
   }
-  async function tutShow(t, i) {
-    const st = t.steps[i]; if (!st) return;
-    tutSpotClear();
-    if (st.go) {
-      await closeAll();
-      try { await tutGo(st.go); if (st.go === 'export' && st.hl && /^#do[A-Za-z]+$/.test(st.hl) && !$('export').hidden) showExport(st.hl.slice(1)); } catch (e) { LOG.warn('tut.go', errInfo(e)); } // the export of the step, under FORMAT
-      await tutWait(450);
-    }
-    tutSpot(t, i);
+  /** Opens the step's screen unless it is already open; waits while a dialog, a record or the camera is open. */
+  async function tutScreen(st) {
+    const tour = tutTour; if (!tour) return;
+    tour.pending = null;
+    if (!st.go || tutOnScreen(st.go)) return;
+    if (tutModal() || tutBusyScreen()) { tour.pending = st; return; }
+    // back to the step's base screen when it is open underneath (Settings or Projects), else to the map; then on to the screen
+    const base = ['settings', 'profile', 'admin', 'camera', 'exports', 'maps', 'storage', 'log'].includes(st.go) ? 'settings' : ['projects', 'newProject', 'projectDetails'].includes(st.go) ? 'projects' : '';
+    if (base && stack.includes(base)) { while (tutTop() !== base) await closeSheet(); } else await closeAll();
+    try { await tutGo(st.go); if (st.go === 'export' && st.hl && /^#do[A-Za-z]+$/.test(st.hl) && !$('export').hidden) showExport(st.hl.slice(1)); } catch (e) { LOG.warn('tut.go', errInfo(e)); }
+    await tutWait(400);
   }
-  function tutSpotClear() { ['tutSpot', 'tutTip'].forEach((id) => { const e = document.getElementById(id); if (e) e.remove(); }); document.removeEventListener('pointerdown', tutSpotAway, true); }
-  function tutSpotAway(e) { if (e.target && e.target.closest && e.target.closest('#tutTip')) return; tutSpotClear(); }
-  function tutSpot(t, i) {
-    const st = t.steps[i], el = st.hl ? document.querySelector(st.hl) : null;
-    const vis = !!(el && el.getClientRects().length && !el.closest('[hidden]'));
-    const tip = document.createElement('div'); tip.id = 'tutTip'; tip.setAttribute('role', 'dialog'); tip.setAttribute('aria-label', `Tutorial: ${t.title}`);
-    const head = document.createElement('div'); head.className = 'hint'; head.textContent = `${t.title} · step ${i + 1} of ${t.steps.length}`; tip.appendChild(head);
-    const p = document.createElement('div'); p.style.marginTop = '4px'; tutRich(p, st.t, []); tip.appendChild(p);
-    if (st.hl && !vis) { const h = document.createElement('p'); h.className = 'hint'; h.textContent = st.when || 'Not on this screen right now: it shows when it applies to the open project.'; tip.appendChild(h); }
+  /** The first control of the step that is on screen (not under another screen), or null. */
+  function tutTarget(st) {
+    if (!st || !st.hl) return null;
+    const onTop = (el) => { // on screen and not under another screen, a fixed footer or a dialog
+      const r = el.getBoundingClientRect();
+      if (r.bottom < 4 || r.top > innerHeight - 4 || r.right < 0 || r.left > innerWidth) return false;
+      const x = Math.min(innerWidth - 2, Math.max(1, r.left + r.width / 2)), y = Math.min(innerHeight - 2, Math.max(1, r.top + Math.min(r.height / 2, 20)));
+      const hit = document.elementsFromPoint(x, y).find((h) => h.id !== 'tutSpot' && h.id !== 'tutTip' && !h.closest('#tutTip'));
+      return !!hit && (el === hit || el.contains(hit) || hit.contains(el));
+    };
+    for (const el of document.querySelectorAll(st.hl)) {
+      if (!el.getClientRects().length || el.closest('[hidden]')) continue;
+      if (onTop(el)) return el;
+      if (tutTour && tutTour.scrolled !== tutTour.i) { // once per step (the user may scroll away): bring it into view
+        tutTour.scrolled = tutTour.i; el.scrollIntoView({ block: 'center', inline: 'nearest' });
+        if (onTop(el)) return el;
+      }
+    }
+    return null;
+  }
+  function tutEnd() {
+    clearInterval(tutTimer); tutTimer = 0; tutTour = null;
+    ['tutSpot', 'tutTip'].forEach((id) => { const e = document.getElementById(id); if (e) e.remove(); });
+    document.removeEventListener('click', tutTapped, true);
+  }
+  /** The ringed control was tapped: the app does its part, then the tour moves on. */
+  function tutTapped(e) {
+    const tour = tutTour, st = tour && tour.t.steps[tour.i];
+    let el = null; try { el = st && st.hl && e.target && e.target.closest ? e.target.closest(st.hl) : null; } catch (x) { el = null; }
+    if (!el || !el.matches('button, a, summary, [role="button"], .rowbtn, .chip') || el.disabled) return;
+    const at = tour.i; setTimeout(() => { if (tutTour === tour && tour.i === at) tutNext(true); }, 350);
+  }
+  async function tutStart(t, i) {
+    tutEnd();
+    while (['tutTopic', 'tutorial'].includes(tutTop())) await closeSheet();
+    tutTour = { t, i, el: null, pending: null, scrolled: -1 };
+    document.addEventListener('click', tutTapped, true);
+    await tutScreen(t.steps[i]); tutRender();
+    tutTimer = setInterval(tutTrack, 300);
+    LOG.info('tut.tour', { topic: t.id, from: i + 1 });
+  }
+  /** byTap: the user did the step in the app; the next step's screen is then opened only when the user asks (Open it ›), so
+      a result, a saved file or a dialog on screen is never closed under them. */
+  async function tutNext(byTap) {
+    const tour = tutTour; if (!tour) return;
+    if (tour.i >= tour.t.steps.length - 1) { tutEnd(); toast(`Tutorial: “${tour.t.title}” done`, 3000); return; }
+    tour.i++; tour.el = null; tour.pending = null; tour.miss = 0;
+    tutRender(); if (!byTap) await tutScreen(tour.t.steps[tour.i]); if (tutTour === tour) tutTrack();
+  }
+  function tutRender() {
+    const tour = tutTour; if (!tour) return;
+    const { t, i } = tour, st = t.steps[i], last = i >= t.steps.length - 1;
+    let tip = document.getElementById('tutTip');
+    if (!tip) { tip = document.createElement('div'); tip.id = 'tutTip'; tip.setAttribute('role', 'dialog'); document.body.appendChild(tip); }
+    tip.setAttribute('aria-label', `Tutorial: ${t.title}`); tip.innerHTML = '';
+    const head = document.createElement('div'); head.className = 'tuthead';
+    const ht = document.createElement('span'); ht.textContent = `${t.title} · step ${i + 1} of ${t.steps.length}`;
+    const x = document.createElement('button'); x.type = 'button'; x.className = 'iconbtn tutx'; x.setAttribute('aria-label', 'End the tutorial'); x.textContent = '✕'; x.addEventListener('click', tutEnd);
+    head.append(ht, x); tip.appendChild(head);
+    const p = document.createElement('div'); p.className = 'tuttext'; tutRich(p, st.t, []); tip.appendChild(p);
+    if (st.hl) { const n = document.createElement('p'); n.className = 'hint tutwhen'; n.hidden = true; n.textContent = st.when || 'Not on this screen right now: it shows when it applies.'; tip.appendChild(n); }
+    if (st.hl && !last) { const n = document.createElement('p'); n.className = 'hint tutdo'; n.textContent = 'Tap the ringed button to do it, or Next ›'; tip.appendChild(n); }
     const row = document.createElement('div'); row.className = 'row';
     const btn = (label, cls, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = `btn sm${cls ? ` ${cls}` : ''}`; b.textContent = label; b.addEventListener('click', fn); row.appendChild(b); };
-    btn('Back to the tutorial', '', async () => { tutSpotClear(); await closeAll(); openTutorial(); openTutTopic(t); });
-    if (i < t.steps.length - 1) btn('Next step ›', '', () => tutShow(t, i + 1));
-    btn('Got it', 'primary', () => tutSpotClear());
-    tip.appendChild(row); document.body.appendChild(tip);
-    if (vis) {
-      el.scrollIntoView({ block: 'center', inline: 'nearest' });
-      requestAnimationFrame(() => {
-        const r = el.getBoundingClientRect(), pad = 6, spot = document.createElement('div'); spot.id = 'tutSpot';
-        Object.assign(spot.style, { left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.width + 2 * pad}px`, height: `${r.height + 2 * pad}px` });
-        document.body.appendChild(spot);
-        const below = r.top + r.height / 2 < innerHeight / 2;
-        tip.style.top = `${below ? Math.min(innerHeight - tip.offsetHeight - 10, r.bottom + pad + 12) : Math.max(10, r.top - pad - 12 - tip.offsetHeight)}px`;
-      });
-    } else tip.style.top = `${Math.max(10, (innerHeight - tip.offsetHeight) / 2)}px`;
-    setTimeout(() => document.addEventListener('pointerdown', tutSpotAway, true), 60);
-    LOG.info('tut.show', { topic: t.id, step: i + 1, shown: vis });
+    btn('Back to the tutorial', '', async () => { const tt = tour.t; tutEnd(); if (!tutBusyScreen() && !tutModal()) await closeAll(); openTutorial(); openTutTopic(tt); });
+    if (st.go) btn('Open it ›', 'tutopen', async () => { await tutScreen(st); tutTrack(); });
+    btn(last ? 'Done' : 'Next ›', 'primary', () => tutNext(false));
+    tip.appendChild(row);
+    tutTrack();
   }
-  window.addEventListener('popstate', tutSpotClear);
+  /** Every 0.3 s while the tour runs: the ring follows its control from screen to screen; the tip waits behind dialogs. */
+  function tutTrack() {
+    const tour = tutTour, tip = document.getElementById('tutTip'); if (!tour || !tip) return;
+    const st = tour.t.steps[tour.i], modal = tutModal();
+    if (tour.pending && !modal && !tutBusyScreen()) { const pend = tour.pending; tour.pending = null; tutScreen(pend).then(() => tutTrack()); return; }
+    tip.style.display = modal ? 'none' : '';
+    const el = modal ? null : tutTarget(st); tour.el = el;
+    // the app skipped this step's screen (e.g. the pole ID read by itself: the record is already open): on to the next step
+    if (!el && !modal && st.hl && !st.go && tour.i < tour.t.steps.length - 1) {
+      const nx = tour.t.steps[tour.i + 1];
+      if (!tour.miss) tour.miss = Date.now();
+      else if (Date.now() - tour.miss > 1500 && nx.hl && !nx.go && tutTarget(nx)) { tour.miss = 0; tutNext(true); return; }
+    } else tour.miss = 0;
+    let spot = document.getElementById('tutSpot');
+    if (!el) { if (spot) spot.remove(); }
+    else {
+      if (!spot) { spot = document.createElement('div'); spot.id = 'tutSpot'; document.body.appendChild(spot); }
+      const r = el.getBoundingClientRect(), pad = 6;
+      Object.assign(spot.style, { left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.width + 2 * pad}px`, height: `${r.height + 2 * pad}px` });
+    }
+    const away = !!st.go && !tutOnScreen(st.go); // the step's screen is not open: Open it › (or it opens when a dialog closes)
+    const o = tip.querySelector('.tutopen'); if (o) o.hidden = !away || !!tour.pending;
+    const w = tip.querySelector('.tutwhen'); if (w) w.hidden = !!el || modal || away;
+    const d = tip.querySelector('.tutdo'); if (d) d.hidden = !el;
+    if (modal) return;
+    const h = tip.offsetHeight;
+    if (el) { const r = el.getBoundingClientRect(), below = r.top + r.height / 2 < innerHeight / 2; tip.style.top = `${below ? Math.min(innerHeight - h - 10, r.bottom + 18) : Math.max(10, r.top - 18 - h)}px`; }
+    else tip.style.top = `${Math.max(10, Math.min(70, innerHeight - h - 10))}px`;
+  }
   $('tutorialBtn').addEventListener('click', openTutorial);
   $('tutQ').addEventListener('input', renderTutList);
   $('tutQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') { renderTutList(); $('tutQ').blur(); } });
@@ -7702,6 +7787,7 @@
     openCamera('new');
   });
   $('brandVer').textContent = `v${APP_VER}`; // the version beside the name (v2.15)
+  $('aboutVer').textContent = `G-eSAA v${APP_VER}`; // v2.25: Settings → About shows the real version too
   (async () => {
     const tl = Date.now();
     try { points = await dbAll('points'); } catch (e) { LOG.error('start.loadPoints', errInfo(e)); toast('Storage unavailable: ' + e.message, 6000); }

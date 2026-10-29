@@ -191,10 +191,13 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .tutsteps li.cur{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .tutsteps .show{margin-top:8px}
 .tutnav{display:flex;gap:8px;margin-top:6px}.tutnav .btn{flex:1}
-#tutSpot{position:fixed;z-index:4000;border:3px solid #ffd43b;border-radius:12px;box-shadow:0 0 0 9999px rgba(0,0,0,.5);pointer-events:none;animation:tutPulse 1.2s ease-in-out infinite}
+#tutSpot{position:fixed;z-index:4000;border:3px solid #ffd43b;border-radius:12px;box-shadow:0 0 0 9999px rgba(0,0,0,.35);pointer-events:none;animation:tutPulse 1.2s ease-in-out infinite;transition:left .2s,top .2s,width .2s,height .2s}
 @keyframes tutPulse{50%{border-color:#fff;transform:scale(1.03)}}
 #tutTip{position:fixed;z-index:4001;left:12px;right:12px;max-width:440px;margin:0 auto;background:var(--surface);color:var(--ink);border-radius:14px;padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,.35);font-size:calc(14.5px * var(--fs));line-height:1.45}
 #tutTip .row{margin-top:10px;display:flex;gap:8px;justify-content:flex-end}#tutTip .hint{margin-top:6px}
+#tutTip .tuthead{display:flex;align-items:center;gap:8px;font-size:calc(12px * var(--fs));color:var(--muted);font-weight:700}#tutTip .tuthead span{flex:1}
+#tutTip .tutx{width:32px;height:32px;min-height:32px;background:none;border:0;color:var(--muted);font-size:18px}#tutTip .tuttext{margin-top:2px}
+#tutTour{width:100%;margin:4px 0 2px}
 .warnline.bad{color:var(--bad)}
 .req{color:var(--bad);font-weight:700}
 .field.invalid select,.field.invalid input,.field.invalid textarea{border-color:var(--bad);box-shadow:0 0 0 2px rgba(201,42,42,.15)}
@@ -930,7 +933,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <p class="hint help">One company on the list is the <b>admin company</b> (e.g. Globe). Its admin users enter the admin PIN once and become admins and inspectors: they manage this list, add deficiencies and verify rectifications. Everyone else is a contractor user. New users join with the admin's join link or QR code; later versions come from the online sheet by themselves. A phone only takes versions made with the admin PIN.</p>
     <div class="sectionh">About</div>
     <div class="group">
-      <p class="hint" style="margin:0"><b style="color:var(--ink)">G-eSAA v2.15.0</b> · Geo electronic Survey, Audit &amp; Acceptance — digital from the field (formerly PoleCam)<br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
+      <p class="hint" style="margin:0"><b style="color:var(--ink)" id="aboutVer">G-eSAA</b> · Geo electronic Survey, Audit &amp; Acceptance — digital from the field (formerly PoleCam)<br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
       <p class="hint" id="policyInfo" style="margin:0"></p>
       <label class="check"><input type="checkbox" id="setShowHelp"><span>Keep the help text on every screen open</span></label>
       <label class="field">Text size<select id="setTextSize"><option value="0.8">Very small</option><option value="0.9">Small (default)</option><option value="1">Normal</option><option value="1.15">Large</option><option value="1.3">Extra large</option><option value="1.45">Largest</option></select></label>
@@ -1276,6 +1279,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </header>
   <div class="body">
     <p class="hint" id="tutTopicCat"></p>
+    <button class="btn primary" id="tutTour" type="button">▶ Guide me through it</button>
     <ol class="tutsteps" id="tutSteps"></ol>
     <div class="tutnav"><button class="btn" id="tutPrev" type="button">‹ Previous topic</button><button class="btn" id="tutNext" type="button">Next topic ›</button></div>
   </div>

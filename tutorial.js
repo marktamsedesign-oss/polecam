@@ -1,15 +1,16 @@
 /* G-eSAA tutorial (v2.25): the topics of the in-app Tutorial (bottom bar → Tutorial).
    aud: 'user' (everyone) or 'admin' (shown only to users of the admin company).
-   Each step: t = the text (**bold**); go = the screen "Show me" opens (map, projects, newProject, projectDetails, records,
-   export, settings, profile, camera, exports, maps, storage, log); hl = the control it points at (CSS selector);
-   when = shown when that control is not on screen right now. */
+   Each step: t = the text (**bold**); go = the screen the guided tour opens for it (map, projects, newProject, projectDetails,
+   records, export, settings, profile, camera, exports, maps, storage, log, admin); hl = the control it rings (CSS selectors,
+   the first one on screen); when = shown while that control is not on screen. A step with hl and no go follows the previous
+   one on whatever screen it opened (camera, record…). v2.25.1: the tour goes on from step to step. */
 (function (root) {
   'use strict';
   const T = [
     /* ===================== USER GUIDE ===================== */
     { id: 'join', aud: 'user', cat: 'Getting started', title: 'Join your company (first time)', kw: 'invite qr link sign in register welcome company key profile name mobile email',
       steps: [
-        { t: 'Open the **invite** from your admin or a coworker: scan its QR code with the phone camera, or open the invite link. In G-eSAA the first screen also has **Scan invite QR** and **Paste invite link**.' },
+        { t: 'Open the **invite** from your admin or a coworker: scan its QR code with the phone camera, or open the invite link. In G-eSAA the first screen also has **Scan invite QR** and **Paste invite link**.', go: 'profile', hl: '#pfKeyScan, #pfScan', when: 'This is on the first screen, before you join. You have already joined: tap Next.' },
         { t: 'Enter your **full name**, **mobile number** and **email**. They are recorded on every photo and printed on the reports.', go: 'profile', hl: '#pfName' },
         { t: 'Tick your **Region** and **Territory** (all that apply). Only the online sheet\'s projects in those areas are listed for you; nothing ticked = every area.', go: 'profile', hl: '#pfAreaBox' },
         { t: 'Tap **Save**. With an invite, your company comes from it and cannot be changed on this phone (Settings → Reset user to start again). Without company keys, you choose your company from the list instead.', go: 'profile', hl: '#pfSave' },
@@ -40,46 +41,50 @@
     { id: 'area', aud: 'user', cat: 'Getting started', title: 'Your region and territory', kw: 'region territory nlz slz ncr vis min t1 t2 t3 t4 t5 t6 t7 t8 filter area sites hidden',
       steps: [
         { t: 'Settings → your name (**Your details**).', go: 'settings', hl: '#editMe' },
-        { t: 'Tick every **Region** (NLZ, SLZ, NCR, VIS, MIN) and every **Territory** (T1–T8) you work in, then **Save**.', go: 'profile', hl: '#pfAreaBox' },
-        { t: 'The phone reads the online sheet again. **Choose a site…** then lists only the projects of those regions and territories (a row with no region or territory is listed for everyone); its last line says your area and how many others are hidden.' },
+        { t: 'Tick every **Region** (NLZ, SLZ, NCR, VIS, MIN) and every **Territory** (T1–T8) you work in. A blue chip is ticked; tap it again to untick.', go: 'profile', hl: '#pfAreaBox' },
+        { t: 'Tap **Save**. The phone reads the online sheet again.', go: 'profile', hl: '#pfSave' },
+        { t: 'Projects → **+** → **Choose a site…** now lists only the projects of your regions and territories (a row with no region or territory is listed for everyone). The last line of the list says your area and how many others are hidden.', go: 'newProject', hl: '#npSitesBtn', when: 'It shows when your company list has an online sheet.' },
         { t: 'Nothing ticked = every area. Change it any time in Your details.' },
       ] },
-
-    { id: 'capture', aud: 'user', cat: 'Survey', title: 'Capture poles (survey)', kw: 'photo camera shutter pole id scan npt no tag pin gps green red blurry save record',
+    { id: 'capture', aud: 'user', cat: 'Survey', title: 'Capture poles (survey)', kw: 'photo camera shutter pole id scan npt no tag pin gps green red blurry save record reset',
       steps: [
-        { t: 'Open a Survey project, stand at the pole and tap **Capture**.', go: 'map', hl: '#captureBtn' },
-        { t: 'The shutter is **green** when the GPS updated within the last 5 seconds; with a **red** shutter the photo is refused after 5 seconds. Dark, blank and blurry photos are refused: take them again.' },
-        { t: 'After the photo, aim at the painted **pole ID**: it is used by itself when read clearly; tap **Skip** if there is none. For an untagged pole use **No tag → NPT** in the record.' },
-        { t: 'In the record, drag the map so the pin sits on the pole (at most 1 km from where the photo was taken); **Reset to GPS** puts it back. Set the type and details, then **Save**.' },
-        { t: 'Tap any pin on the map, or a row in Records, to open the record again: edit it, replace the photo or delete it.' },
+        { t: 'Open a Survey project, stand at the pole and tap **Capture**. (This is the real app: the record is saved in the open project; delete it afterwards if it was only practice.)', go: 'map', hl: '#captureBtn' },
+        { t: 'Aim at the pole and tap the **shutter**. It is **green** when the GPS updated within the last 5 seconds; with a **red** shutter the photo is refused after 5 seconds. Dark, blank and blurry photos are refused: take them again.', hl: '#shutter', when: 'The shutter is in the camera: tap Capture first.' },
+        { t: 'Now aim at the painted **pole ID**: it is used by itself when read clearly. Tap **Skip** if the pole has none.', hl: '#scanSkip', when: 'The ID step shows right after the photo. When the ID was read by itself, the record is already open: tap Next.' },
+        { t: 'The record opens. Drag the map so the pin sits on the pole (at most 1 km from where the photo was taken); **Reset to GPS** puts it back.', hl: '#snapGps', when: 'It is in the record, which opens after the photo.' },
+        { t: 'Check the pole ID (for an untagged pole: **No tag → NPT**), set the type and details, then tap **Save**.', hl: '#edSave, #edSaveTop', when: 'It is in the record, which opens after the photo.' },
+        { t: 'Done: the pole is on the map. Tap any pin, or a row in **Records**, to open it again: edit it, replace the photo or delete it.', go: 'map', hl: '#listBtn' },
       ] },
     { id: 'route', aud: 'user', cat: 'Survey', title: 'Link the cable route', kw: 'route span link poles cable capture order undo clear angle long span',
       steps: [
         { t: 'Tap the **route** button on the map.', go: 'map', hl: '#routeBtn', when: 'It shows in a Survey project.' },
-        { t: 'Tap a pole, then the next pole, to link them. Tap a linked pair again to unlink it.' },
-        { t: '**Link in capture order** links the poles in the order they were taken (gaps longer than the admin\'s limit are skipped). **Undo** and **Clear** as needed, **Done** when finished.' },
-        { t: 'Spans longer than the maximum span and angle poles are flagged. Export → FORMAT **Route and spans · Excel** lists them.' },
+        { t: 'Tap a pole, then the next pole, to link them. Tap a linked pair again to unlink it.', hl: '#rbHint', when: 'It shows after you tap the route button.' },
+        { t: '**Link in capture order** links the poles in the order they were taken (gaps longer than the admin\'s limit are skipped). **Undo** and **Clear** if needed.', hl: '#rbAuto', when: 'It shows after you tap the route button.' },
+        { t: 'Tap **Done** when finished. Spans longer than the maximum span and angle poles are flagged; Export → FORMAT **Route and spans · Excel** lists them.', hl: '#rbDone', when: 'It shows after you tap the route button.' },
       ] },
-    { id: 'surveyexport', aud: 'user', cat: 'Survey', title: 'Survey exports (KMZ, DXF, CSV, photos)', kw: 'export kmz google earth dxf autocad csv excel photos zip design lld',
+    { id: 'surveyexport', aud: 'user', cat: 'Survey', title: 'Survey exports (KMZ, DXF, CSV, photos)', kw: 'export kmz google earth dxf autocad csv excel photos zip design lld format',
       steps: [
-        { t: 'Tap **Export**, then choose the export under **FORMAT** at the top: one export is shown at a time.', go: 'map', hl: '#exportBtn' },
+        { t: 'Tap **Export**.', go: 'map', hl: '#exportBtn' },
+        { t: 'Choose the export under **FORMAT** at the top: one export is shown at a time.', go: 'export', hl: '#xFormat' },
         { t: '**Google Earth · KMZ**: pins named by pole ID with the photo in each balloon, and the route. **AutoCAD · DXF**: poles at UTM 51N with their IDs, details, photos and the route (keep the files of the ZIP together).', go: 'export', hl: '#doKmz', when: 'The survey exports show in a Survey project.' },
         { t: '**Table · CSV**, **Route and spans · Excel** and **Geotagged photos · ZIP** too. Each card has its **Options**; the defaults are in Settings → Exports and files.', go: 'export', hl: '#doCsv', when: 'The survey exports show in a Survey project.' },
         { t: '**Completion report · PDF** marks the task complete and sends the date to the online sheet.', go: 'export', hl: '#doCompletion' },
       ] },
-
     { id: 'pat', aud: 'user', cat: 'PAT, defect cleanup and FAT', title: 'Record a PAT (defects as found)', kw: 'pat provisional acceptance defect deficiency punchlist major minor note md d n where photo add',
       steps: [
-        { t: 'Make a project with task category **PAT** and fill its form details (Projects → **Project details**: location / site, vendor, representatives, inspection type and date).', go: 'projectDetails', hl: '#curMore' },
-        { t: 'Record only the elements **with defects**: tap **Capture** and photograph **the defect itself**. The defect form opens with that photo as the as-found photo.', go: 'map', hl: '#captureBtn' },
-        { t: 'Choose **Where**, the **Defect** (one or more), the category **Major (MD)**, **Minor (D)** or **Note (N)**, add notes, then **Add to punchlist**. A new PAT record cannot be saved without a defect.' },
-        { t: 'More defects on the same element: **+ Add** under Deficiencies. Its pin turns **red** (open).' },
+        { t: 'Make a project with task category **PAT** and fill its form details here (location / site, vendor, representatives, inspection type and date).', go: 'projectDetails', hl: '#curMore' },
+        { t: 'Record only the elements **with defects**: stand at the defect and tap **Capture**. (This is the real app: the record is saved in the open project.)', go: 'map', hl: '#captureBtn' },
+        { t: 'Photograph **the defect itself** with the **shutter**: that photo becomes the as-found photo of the defect.', hl: '#shutter', when: 'The shutter is in the camera: tap Capture first.' },
+        { t: 'In the defect form choose **Where**, the **Defect** (one or more), the category **Major (MD)**, **Minor (D)** or **Note (N)**, add notes, then tap **Add to punchlist**. A new PAT record cannot be saved without a defect.', hl: '#defAdd', when: 'The defect form opens after the photo.' },
+        { t: 'More defects on the same element: **+ Add** under Deficiencies. The pin turns **red** (open).', hl: '#addDefBtn', when: 'It is in the record, under Deficiencies.' },
+        { t: 'Tap **Save** to keep the record.', hl: '#edSave, #edSaveTop', when: 'It is in the record.' },
         { t: 'Who records: the admin company\'s inspectors, and the vendors too when the admin allows it.' },
       ] },
     { id: 'nodefects', aud: 'user', cat: 'PAT, defect cleanup and FAT', title: 'No defects found', kw: 'no defects none clean pass fat done site photo complete pat',
       steps: [
-        { t: 'On a PAT with no defect recorded, Projects shows **✓ No defects found · complete the PAT (FAT done)**.', go: 'projects', hl: '#noDefBtn', when: 'It shows on a PAT that is not completed and has no defect yet.' },
-        { t: 'Take the **site photo**: it is the evidence of the inspection (its GPS position, time and your name are kept). Choose the element if you like, then **Save**.' },
+        { t: 'On a PAT with no defect recorded, Projects shows **✓ No defects found · complete the PAT (FAT done)**. Tap it.', go: 'projects', hl: '#noDefBtn', when: 'It shows on a PAT that is not completed and has no defect yet.' },
+        { t: 'Take the **site photo** with the shutter: it is the evidence of the inspection (its GPS position, time and your name are kept).', hl: '#shutter', when: 'The camera opens after you tap No defects found.' },
+        { t: 'Choose the element if you like, then tap **Save**.', hl: '#edSave, #edSaveTop', when: 'The record opens after the photo.' },
         { t: 'The PAT is completed and the FAT is recorded as done the same day: no defect cleanup or FAT is needed. The reports say *No deficiencies found*.' },
       ] },
     { id: 'patdone', aud: 'user', cat: 'PAT, defect cleanup and FAT', title: 'Complete and share the PAT', kw: 'complete lock pat share kmz send contractor cleanup start',
@@ -92,14 +97,17 @@
     { id: 'cleanup', aud: 'user', cat: 'PAT, defect cleanup and FAT', title: 'Defect cleanup (contractor)', kw: 'cleanup rectify rectification fix photo of the fix fixed no photo comment next pin contractor shared file',
       steps: [
         { t: 'Projects → **📂 Open a shared file** → the PAT KMZ → **Start the defect cleanup**. The map opens on the PAT\'s pins with the first item to fix; the project takes the PAT\'s site, vendor and Globe representative.', go: 'projects', hl: '#openShared' },
-        { t: 'Walk to each **red pin**: the strip above the bottom bar points to the nearest one. Tap it to open its card.' },
-        { t: 'On each item: **📷 Photo of the fix** (or **Fixed, no photo**), and **💬 Comment** if needed. Every button saves at once. **Next pin ›** goes to the next nearest one.' },
+        { t: 'Walk to each **red pin**: the strip above the bottom bar points to the nearest one. Tap a pin to open its card.', hl: '#visitCard', when: 'The card opens on the map when you tap a pin of a defect cleanup or FAT.' },
+        { t: 'On each item: **📷 Photo of the fix** (or **Fixed, no photo**), and **💬 Comment** if needed. Every button saves at once.', hl: '#vcItems .acts .btn.primary', when: 'It is on the card of a pin with an open item.' },
+        { t: 'Photograph the fixed item with the **shutter**.', hl: '#shutter', when: 'The camera opens after Photo of the fix.' },
+        { t: '**Next pin ›** goes to the next nearest pin that still needs you.', hl: '#vcNext', when: 'It is on the card of a pin.' },
         { t: 'When every item is fixed: Projects → **✓ Mark task complete**, then **Share cleanup KMZ · for the FAT**.', go: 'projects', hl: '#doneBtn' },
       ] },
     { id: 'fat', aud: 'user', cat: 'PAT, defect cleanup and FAT', title: 'FAT: verify the fixes', kw: 'fat final acceptance verify accept reject reason inspector check fix',
       steps: [
         { t: 'The FAT starts only from a **completed defect cleanup**: on this phone with **✓ Start the FAT from the completed cleanup**, or from the shared cleanup KMZ (Open a shared file → **Start the FAT**).', go: 'projects', hl: '#startFat', when: 'It shows once the defect cleanup is completed.' },
-        { t: 'Walk to each pin: **✓ Accept**, **📷 Accept with photo**, or **✗ Reject** with the reason (the item goes back to open; the reason is kept and printed).' },
+        { t: 'Walk to each pin and tap it to open its card.', hl: '#visitCard', when: 'The card opens on the map when you tap a pin of the FAT.' },
+        { t: '**✓ Accept**, **📷 Accept with photo**, or **✗ Reject** with the reason (the item goes back to open; the reason is kept and printed).', hl: '#vcItems .acts .btn', when: 'It is on the card of a pin with a fixed item.' },
         { t: 'Then export the final **Deficiency List** (as found → rectified → verified photos in Annex A) and the **Rectification progress** report, and **✓ Mark task complete**.', go: 'export', hl: '#doPdf' },
       ] },
     { id: 'records', aud: 'user', cat: 'PAT, defect cleanup and FAT', title: 'Records, pins and statuses', kw: 'records list filter open rectified verified status colors red blue teal green timeline',
@@ -138,11 +146,10 @@
       ] },
     { id: 'delete', aud: 'user', cat: 'Reports and files', title: 'Delete a project', kw: 'delete remove project request code approval admin 6-digit',
       steps: [
-        { t: 'Projects → **Project details** → **Delete this project…**. A project in progress is deleted once you confirm.', go: 'projectDetails', hl: '#delProject' },
-        { t: 'A **completed** project needs an admin\'s approval: the app shows a **request code** (e.g. 674-8SC). Send it to your admin.' },
-        { t: 'Type the admin\'s **6-digit approval code** (it works only for that request), or an admin who is with you types the admin PIN.' },
+        { t: 'Projects → **Project details** → **Delete this project…**.', go: 'projectDetails', hl: '#delProject' },
+        { t: 'A project in progress: **Delete project** to confirm, or **Keep**.', hl: '#delProjYes', when: 'It shows after Delete this project…' },
+        { t: 'A **completed** project needs an admin\'s approval: the app shows a **request code** (e.g. 674-8SC). Send it to your admin, then type the admin\'s **6-digit approval code** (it works only for that request), or an admin who is with you types the admin PIN.' },
       ] },
-
     { id: 'fieldsettings', aud: 'user', cat: 'Settings', title: 'Camera and other settings', kw: 'settings camera id scan orientation button position left right sharpness exports stamps text size help',
       steps: [
         { t: 'Settings → **Camera**: scan the ID after each photo, the live ID reader, how IDs are painted, the camera button position (right, center or left hand) and the photo sharpness.', go: 'settings', hl: '#goCamera' },
@@ -176,69 +183,73 @@
     /* ===================== ADMIN GUIDE (admin company only) ===================== */
     { id: 'adm-open', aud: 'admin', cat: 'Administration', title: 'Open Administration', kw: 'admin pin administration manage company list policies',
       steps: [
-        { t: 'Settings → the **company list** row (under COMPANY LIST, with your list\'s name), or **Manage (admin)**, then type the **admin PIN**.', go: 'settings', hl: '#goAdmin' },
-        { t: 'Everything there goes to every phone of the list when you tap **Save and share the list** at the bottom.' },
-        { t: 'Staff of the admin company with the PIN are admins and inspectors. Use **Change the admin PIN** when someone leaves.' },
+        { t: 'Settings → the **company list** row (under COMPANY LIST, with your list\'s name), or **Manage (admin)**.', go: 'settings', hl: '#goAdmin' },
+        { t: 'Type the **admin PIN**, then tap **Continue**.', go: 'admin', hl: '#admUnlock', when: 'The PIN is asked when Administration opens. Already unlocked: tap Next.' },
+        { t: 'Everything here goes to every phone of the list when you tap **Save and share the list** (at the bottom). Tap it only when you changed something.', go: 'admin', hl: '#admSave', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: 'Staff of the admin company with the PIN are admins and inspectors. Use **Change the admin PIN** when someone leaves.', go: 'admin', hl: '#admChangePin', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
     { id: 'adm-sheet', aud: 'admin', cat: 'Administration', title: 'Connect the online Google Sheet', kw: 'google sheet apps script deploy web app url read key admin key test connection project data region territory update script',
       steps: [
         { t: 'In the sheet: Extensions → Apps Script, paste **PoleCam-online-sheet.gs**, Save, Run **setup**, then Deploy → New deployment → Web app (Execute as: Me; Who has access: Anyone). Copy the URL ending in /exec.' },
-        { t: 'Administration → **Online Google Sheet**: paste the **Web app URL**, the **Read key** (the sheet\'s Settings tab) and the **Admin key**, then **Test connection**.' },
+        { t: 'Administration → **Online Google Sheet**: paste the **Web app URL**…', go: 'admin', hl: '#admUrl', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '…the **Read key** (the sheet\'s Settings tab) and the **Admin key**, then tap **Test connection**.', go: 'admin', hl: '#admTest', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: 'Updating the script: paste the new code, Save, Run **setup** once, then Deploy → Manage deployments → Edit → Version: **New version**. Never New deployment: that changes the URL and phones stop reading the sheet.' },
         { t: 'The sites come from the **Project Data** tab (Tasks source tab). Its **Region** and **Territory** columns narrow what each user sees (script v2.25).' },
       ] },
     { id: 'adm-companies', aud: 'admin', cat: 'Administration', title: 'Companies, admin company and admin users', kw: 'companies vendors refresh admin company admin users email inspector',
       steps: [
-        { t: 'Companies and vendors come only from the sheet\'s **Company List** / **Companies** tab: edit them there, then **Refresh from the sheet**.' },
-        { t: '**Admin company**: its staff with the PIN are admins and inspectors; everyone else is a contractor user.' },
-        { t: '**Admin users**: the email of each admin / inspector, one per line. Blank = anyone of the admin company with the PIN.' },
+        { t: 'Companies and vendors come only from the sheet\'s **Company List** / **Companies** tab: edit them there, then tap **Refresh from the sheet**.', go: 'admin', hl: '#admCoRefresh', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '**Admin company**: its staff with the PIN are admins and inspectors; everyone else is a contractor user.', go: 'admin', hl: '#admOwner', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '**Admin users**: the email of each admin / inspector, one per line. Blank = anyone of the admin company with the PIN.', go: 'admin', hl: '#admUsers', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
     { id: 'adm-invite', aud: 'admin', cat: 'Administration', title: 'Invite a company\'s users (company keys)', kw: 'invite company key makecompanykeys first user qr link contractor join',
       steps: [
         { t: 'In the Apps Script editor run **makeCompanyKeys** once: each company gets a key in the CompanyKeys tab.' },
-        { t: 'Administration → **Invite a company\'s users**: paste one company\'s key (the field hides it) → **Make the invite**. The sheet confirms whose key it is; a wrong key is refused.' },
+        { t: 'Administration → **Invite a company\'s users**: paste one company\'s key (the field hides it)…', go: 'admin', hl: '#admInvKey', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '…and tap **Make the invite**. The sheet confirms whose key it is; a wrong key is refused.', go: 'admin', hl: '#admInvMake', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: 'Show the **QR code** or **Send the invite link** to that company\'s first user; they then invite their coworkers.' },
         { t: 'Users never see or type a key. Anyone who has an invite can join that company: to stop old invites, change the company\'s key in the sheet and make new ones.' },
       ] },
     { id: 'adm-logos', aud: 'admin', cat: 'Administration', title: 'Logos and form wording', kw: 'logo image header department line form wording signatory legend inspection types',
       steps: [
-        { t: '**Deficiency List form and report logos** → **Choose image…** for the left and the right logo; **Built-in** puts the bundled one back. They print on the form and on the completion and rectification reports.' },
-        { t: 'The header wording in the same group: company name, address, **Department line 1 and 2**, signatory titles, inspection types, legend and the rectified-date sub-label.' },
+        { t: '**Deficiency List form and report logos** → **Choose image…** for the left and the right logo; **Built-in** puts the bundled one back. They print on the form and on the completion and rectification reports.', go: 'admin', hl: '#admLogoL', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: 'The header wording below: company name, address, **Department line 1 and 2**, signatory titles, inspection types, legend and the rectified-date sub-label.', go: 'admin', hl: '#pfmDept1', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
     { id: 'adm-checklist', aud: 'admin', cat: 'Administration', title: 'Deficiency checklist', kw: 'checklist defects category add defect list items',
       steps: [
-        { t: 'Choose a **Category** and edit its **Defects**, one per line.' },
-        { t: '**Add category** for a new one (e.g. Manhole). A category with no defects left is removed when you save.' },
-        { t: 'The changes reach every phone with the next list version.' },
+        { t: 'Choose a **Category**…', go: 'admin', hl: '#setDefCat', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '…and edit its **Defects**, one per line.', go: 'admin', hl: '#setDefItems', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '**Add category** for a new one (e.g. Manhole). A category with no defects left is removed when you save. The changes reach every phone with the next list version.', go: 'admin', hl: '#admAddCat', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
     { id: 'adm-standards', aud: 'admin', cat: 'Administration', title: 'Field standards and who records', kw: 'field standards maximum span angle pole prefixes vendors record sharpness',
       steps: [
-        { t: '**Maximum span**, **Angle pole from (°)**, the gap limit of *Link in capture order*, and **Extra pole prefixes for everyone**.' },
-        { t: '**Vendors record PAT defects and accept fixes at FAT**: on = vendors may record; off = only the admin company does.' },
-        { t: '**Photo sharpness required**: Strict (recommended) or Normal.' },
+        { t: '**Maximum span**, **Angle pole from (°)**, the gap limit of *Link in capture order*, and **Extra pole prefixes for everyone**.', go: 'admin', hl: '#setMaxSpan', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '**Vendors record PAT defects and accept fixes at FAT**: on = vendors may record; off = only the admin company does.', go: 'admin', hl: '#admVendorRec', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '**Photo sharpness required**: Strict (recommended) or Normal.', go: 'admin', hl: '#admQuality', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
     { id: 'adm-kmz', aud: 'admin', cat: 'Administration', title: 'Shared KMZ lock', kw: 'kmz password lock shared protect tamper edited unauthorized google earth',
       steps: [
-        { t: 'The G-eSAA data in the shared PAT, cleanup and FAT KMZ files is locked with the **KMZ password**; Google Earth still shows the map.' },
+        { t: 'The G-eSAA data in the shared PAT, cleanup and FAT KMZ files is locked with the **KMZ password**; Google Earth still shows the map.', go: 'admin', hl: '#admKmzPass', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: 'A random password is suggested: nobody types it, every phone gets it with the list. Do not put a company key in it.' },
         { t: 'A file changed outside G-eSAA is refused with **⚠ KMZ edited by unauthorized personnel**.' },
       ] },
     { id: 'adm-approve', aud: 'admin', cat: 'Administration', title: 'Approve a delete', kw: 'approve delete request code 6-digit approval completed project',
       steps: [
         { t: 'A user who deletes a completed project gets a **request code**.' },
-        { t: 'Administration → **Approve a delete** → type the code → **Get code**, and give them the **6-digit approval code**. It works only for that request.' },
+        { t: 'Administration → **Approve a delete**: type the code…', go: 'admin', hl: '#admReq', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '…tap **Get code**, and give them the **6-digit approval code**. It works only for that request.', go: 'admin', hl: '#admReqGo', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: 'When you are with the user, type the admin PIN on their phone instead.' },
       ] },
     { id: 'adm-packs', aud: 'admin', cat: 'Administration', title: 'Offline map packs for everyone', kw: 'map packs pmtiles google drive offline link size',
       steps: [
         { t: 'Upload each .pmtiles map pack to Google Drive and share it as "Anyone with the link".' },
-        { t: 'Administration → **Offline map packs**: one line per pack, *name | Drive link | size in MB*. Users see them under Maps once they take this list version.' },
+        { t: 'Administration → **Offline map packs**: one line per pack, *name | Drive link | size in MB*. Users see them under Maps once they take this list version.', go: 'admin', hl: '#admPacks', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
     { id: 'adm-save', aud: 'admin', cat: 'Administration', title: 'Save and share the list', kw: 'save share list version join link qr org.json tie website apk',
       steps: [
-        { t: 'Tap **Save and share the list**: a new list version, signed with the admin PIN.' },
+        { t: 'Tap **Save and share the list**: a new list version, signed with the admin PIN.', go: 'admin', hl: '#admSave', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: 'New phones join with the **join link or QR code**. Phones that already joined take new versions from the online sheet by themselves (with the Admin key set).' },
-        { t: '**Tie the app to this list** → **Download org.json**, and put it next to index.html on the website (and in the APK build): new users can then only join this list.' },
+        { t: '**Tie the app to this list** → **Download org.json**, and put it next to index.html on the website (and in the APK build): new users can then only join this list.', go: 'admin', hl: '#admOrg', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
     { id: 'adm-inspect', aud: 'admin', cat: 'Administration', title: 'Inspecting as the admin company', kw: 'inspector verify accept reject reopen pat undo complete all sites',
       steps: [
@@ -246,5 +257,5 @@
         { t: 'Sites: the admin company sees every company\'s sites from the sheet, narrowed by your own regions and territories (Your details).', go: 'profile', hl: '#pfAreaBox' },
       ] },
   ];
-  root.GESAA_TUTORIAL = { version: '2.25', topics: T };
+  root.GESAA_TUTORIAL = { version: '2.25.1', topics: T };
 })(typeof self !== 'undefined' ? self : this);
