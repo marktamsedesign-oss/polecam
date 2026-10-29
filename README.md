@@ -63,7 +63,7 @@ The APK opens the same hosted app, so keep the GitHub Pages site online.
 |---|---|
 | **Admin** (you) | Admin company (e.g. GLOBE) + admin PIN, and on the *Admin users* list. Makes and changes the list, sends the join link. |
 | **Other admins / inspectors** | Only people you add: Manage → **Admin users** (one email per line), then they choose GLOBE in their profile and enter the PIN. |
-| **Everyone else** | Signs in with their **company key** (v2.10) or joins with your link. Records the PAT defects, the fixes and the FAT checks of their own projects (v2.10, see below). Cannot open Manage, cannot choose GLOBE. |
+| **Everyone else** | Joins with a **company invite** (QR code or link; v2.24: the company key itself is never shown) or with your join link. Records the PAT defects, the fixes and the FAT checks of their own projects (v2.10, see below). Cannot open Manage, cannot choose GLOBE. |
 
 - **Admin users:** blank = anyone of the admin company with the PIN (as before). When you list emails, only those people can choose the admin company or open Manage, even with the PIN. Removing someone takes their admin rights away when their phone next reads the list. The admin who saves always stays on it. Change the PIN too when someone leaves (Manage → *Change the admin PIN*).
 - **One list only (org.json):** Manage → **Tie the app to this list** → *Download org.json*, then upload `org.json` to the main folder of the GitHub repository (next to `index.html`). The website and the next APK build then carry it: new users only see *Join*, nobody can create another list in the app, and a join link or QR code of any other list is refused. To undo it, delete `org.json` from the repository. If you change the admin PIN twice, download org.json again and replace it (the admin screen reminds you).
@@ -72,13 +72,15 @@ The APK opens the same hosted app, so keep the GitHub Pages site online.
 
 ## Signing in with a company key (v2.10)
 
-New users only enter **name, mobile, email and the company key**. The key tells the online sheet which company they belong to; they never choose a company and never see the list of companies.
+New users only open a **company invite** (QR code or link) and enter **name, mobile and email**. The invite carries the company key, which tells the online sheet which company they belong to; they never choose a company and never see the list of companies. **Since v2.24 the key is never shown in the app and cannot be typed**: it travels only inside invites, masked so it cannot be read off the link.
 
 1. **Admin, once:** in the Apps Script editor run **makeCompanyKeys**. Each company gets a key such as `7KQ4-MX2P-9TRW` in the CompanyKeys tab (the admin company gets *Sees all tasks: Yes*).
-2. **Admin:** send each company its own key (Viber, SMS, email), only to the first person of that company.
-3. **First user of a company:** opens PoleCam → enters name, mobile, email and the key → **Save**. The phone joins your company list, its company is fixed (for example FADI), and only that company's sites appear.
-4. **Coworkers:** that user taps Settings → **Invite a coworker (QR)**. The coworker scans it with the phone camera (or gets the link), enters name, mobile and email → Save.
-- The company cannot be changed on the phone. Settings → **Reset user…** removes the name, company and key (projects and photos stay) so another key can be entered.
+2. **Admin:** Settings → Administration → **Invite a company's users** → paste that company's key from the CompanyKeys tab (the field hides it) → **Make the invite**. The sheet confirms whose key it is and the app shows **Invite to FADI** (QR code and *Send the invite link*). Send it only to the first person of that company.
+3. **First user of a company:** scans the QR code with the phone camera or opens the link (or, in G-eSAA, *Scan invite QR* / *Paste invite link*) → enters name, mobile and email → **Save**. The phone joins your company list, its company is fixed (for example FADI), and only that company's sites appear. The profile shows *Joined FADI with its company key (hidden)*.
+4. **Coworkers:** that user taps Settings → **Invite a coworker (QR)**: a QR code and *Send the invite link*. The coworker scans it or opens the link, enters name, mobile and email → Save.
+- The key inside an invite is masked, not encrypted: it stops people reading or retyping it, but **anyone who has the invite can join that company**, so send it only to that company's people. To cut a company off, change its key in the CompanyKeys tab (old invites stop working) and make new invites.
+- Invites made by v2.23 or older (`#ck=` links, the key readable) still work. The *Move to another phone* code carries the key masked too.
+- The company cannot be changed on the phone. Settings → **Reset user…** removes the name, company and key (projects and photos stay) so another invite can be opened.
 - Delete or change a company's key in the CompanyKeys tab to cut that company off; its phones then show "your company key no longer works".
 - The website must be tied to your list with an org.json that carries the sheet address (download it again from Manage after updating to v2.10), so a new phone knows where to check the key. A phone that already has the list does not need it.
 - Company names are shown only to admins (Manage). The sheet sends other users only their own company.
@@ -271,7 +273,7 @@ The admin keeps three lists in a Google Sheet on their own account; phones read 
 
 **On the phones:** Projects → **+ New project** → *Project name* **▾** lists the open rows for the user's company (admins see all). Picking one fills the project with its category, site and contractor; for a Defect Cleanup or FAT choose the KMZ in the same form. Settings → Administration shows when the sheet was last read, with *Sync online sheet*.
 
-### Updating the script (needed for v2.5 map packs, the Defect cleanup category, v2.6 company filtering, v2.9 list updates through the sheet, v2.10 company keys and v2.11 progress dates)
+### Updating the script (needed for v2.5 map packs, the Defect cleanup category, v2.6 company filtering, v2.9 list updates through the sheet, v2.10 company keys, v2.11 progress dates and v2.25 Region / Territory)
 
 1. Open the online Google Sheet → **Extensions → Apps Script**.
 2. Click in the code (`Code.gs`), select all (Ctrl+A), delete, paste the whole new `PoleCam-online-sheet.gs`, **Save** (Ctrl+S).
@@ -319,7 +321,7 @@ Instead of typing tasks in the Tasks tab, the sheet can read them from your own 
 3. Optional: **Only rows where** (e.g. `Region = MIN`), **Default category** (when the tracker has no Survey/PAT/FAT column), **Closed statuses** (rows whose status starts with these are not sent, e.g. Accepted, Closed).
 4. **Companies that see all tasks**: the admin company, e.g. `Globe Telecom`. Its users get every task; every other company gets only its rows (and rows with no company, unless *Blank company = everyone* is No). Company names match without case, punctuation or Inc./Corp. endings, so "ABC BUILDERS, INC" and "ABC Builders Inc." are the same company.
 5. In the Apps Script editor choose **testSource** → **Run** → *Execution log*: it lists the columns it found, how many rows were read and skipped, and how many tasks each company gets. Fix the Column rows until it looks right. Changes reach the phones within 5 minutes (the script keeps a copy for 5 minutes so a large tracker is not re-read on every request).
-6. **Strict split (optional):** without keys, each phone reports its own company, so someone who has the Read key and changes the app could ask for another company's rows. For a strict split choose **makeCompanyKeys** → **Run**: every company in the Companies tab gets a key in the CompanyKeys tab (the admin company gets *Sees all tasks: Yes*). Send each company only its own key; their users enter it once under Settings → Administration → **Company access key** (the field appears when the sheet asks for it). From then on a phone without the right key gets no tasks, and phones older than v2.6 get none either. Delete a row's key to cut a company off.
+6. **Strict split (optional):** without keys, each phone reports its own company, so someone who has the Read key and changes the app could ask for another company's rows. For a strict split choose **makeCompanyKeys** → **Run**: every company in the Companies tab gets a key in the CompanyKeys tab (the admin company gets *Sees all tasks: Yes*). Then make each company's invite in Administration → **Invite a company's users** (v2.24: users never see or type the key; they join with the invite QR code or link). From then on a phone without the right key gets no tasks, and phones older than v2.6 get none either. Delete a row's key to cut a company off.
 
 Only the task fields (task ID, project, category, site, contractor, company, Globe representative, notes) go to the phones; other tracker columns never leave Google.
 
@@ -518,14 +520,44 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.25
+
+- **Tutorial** (bottom bar, at the lower right beside Settings): an interactive guide inside the app, offline like the rest.
+  - Topics grouped by subject (Getting started, Survey, PAT / defect cleanup / FAT, Reports and files, Settings), each in numbered steps. **Show me** opens the right screen and puts a ring round the real button with the step's text (*Back to the tutorial*, *Next step ›*, *Got it*); when the button does not apply to the open project, the note says when it shows.
+  - **Search** (box and button at the top): finds topics by any word in their title or steps (e.g. *invite*, *FAT*, *offline*, *approve*) and marks the words.
+  - **User guide / Admin guide:** users of the **admin company** (and the admin) see both, with the admin settings in the Admin guide. Users of every other company see only the user guide; admin topics do not show up in their search either.
+  - The topics are in `tutorial.js` (one file, easy to edit). It is a new file: upload it with the others, and the APK workflow (`build-apk.yml`) now copies it.
+- **Region and Territory** on each user's details: Settings → your name → **Region** (NLZ, SLZ, NCR, VIS, MIN) and **Territory** (T1–T8), tick all that apply.
+  - *Choose a site…* in the New project form then lists only the online sheet's projects whose **Region** and **Territory** columns (Project Data) match: one of your regions **and** one of your territories. A row with a blank Region or Territory is listed for everyone; nothing ticked = every area. It works the same for the admin company and contractors; the company split is unchanged.
+  - The site list's last line says your area and how many other sites are hidden. The *Move to another phone* code carries your choices.
+  - Cell values understood: NLZ / SLZ / NCR / VIS / MIN or North Luzon, South Luzon, Metro Manila (National Capital Region), Visayas, Mindanao; T1–T8, *Territory 3*, *3*, *MIN T3*. Several in one cell ("T1, T2") are fine. Anything else matches no choice (that row is hidden from users who ticked a region / territory).
+  - **Update the online sheet's script** (`PoleCam-online-sheet.gs` v2.25, see "Updating the script"; Run setup once, then a *New version* of the same deployment). With it, the sheet reads the Region and Territory columns (*Column: Region* / *Column: Territory* in Settings; blank = found by the header) and sends each phone only the rows of its area. Until it is updated, the phone filters by itself where the sheet already sends those columns (*Show also*). Either way the script reads at most 2,000 open rows of Project Data, as before, and the phone keeps up to 500 sites, its own area's first.
+
+## What changed in v2.24
+
+- **The company key is hidden; users join only with an invite (QR code or link).** See "Signing in with a company key":
+  - The profile has no key field any more: *Scan invite QR* / *Paste invite link*, then *Invite received (the company key stays hidden)*; after Save, *Joined FADI with its company key (hidden)*. The key is not shown anywhere in the app.
+  - Invite links carry the key masked (`#ci=…`); the QR dialog shows no key; the *Move to another phone* code carries it masked too. Old `#ck=` invites still work.
+  - **Admin:** Administration → **Invite a company's users**: paste a company's key from the sheet's CompanyKeys tab (hidden field) → **Make the invite** → QR code and link for that company's first user. The sheet checks the key first (a wrong key is refused).
+  - Settings: where the online sheet asks for a company, the old key box is now *Scan invite QR* / *Paste invite link*.
+  - Masked is not encrypted: anyone who has an invite can join that company. Change a company's key in the sheet to stop old invites.
+  - No change to the online sheet script.
+- **The attached KMZ is now a small stamp, not a page.** On every PDF that carries its KMZ (completion report, Deficiency List, rectification report), the full *ATTACHED KMZ* last page is gone. Instead, a low-profile stamp sits at the **lower right of the first page only**, in small text (5–6 pt), with a paperclip:
+  - **Line 1:** KMZ ATTACHED · the file name · its size (a long name is shortened in the middle, keeping the date and `.kmz`).
+  - **Line 2:** what it holds: the stage, the pins and the items (open / rectified / verified), or *no deficiencies found*; for a survey, the pins, poles and spans.
+  - **Line 3:** the file's **SHA-256** (the text can be selected and copied), to check the KMZ is the one of this PDF.
+  - The stamp is the click target of the embedded file in Adobe Acrobat Reader, Foxit and Firefox (open or save); its tooltip says where to find the attachments. Chrome, Edge and phones' built-in viewers still do not show PDF attachments.
+  - The page layout is not changed: on the reports the stamp sits in the footer band, right of the page number (the footer line and *Page 1 of N* end just before it); on the Deficiency List form it sits under the form frame, right of the footer line. A long footer line beside it is set in smaller type (or two lines), not cut. The form's header and logos are untouched. Without a KMZ (too large, or it could not be made), the first page is as before.
+  - The KMZ inside the PDF is the same as in v2.23; only how it is shown changed. Checked here with poppler (`pdfdetach`, `pdftotext`, rendering) and `qpdf`; not tried in each reader.
+
 ## What changed in v2.23
 
 - **Every PDF carries its KMZ.** The completion report, the Deficiency List and the rectification report each embed the KMZ of the same records, so the PDF and the map can be compared:
   - **Survey:** the survey KMZ (poles, other points, route, balloon photos). **PAT:** the defects as found. **Defect cleanup:** the defects and their fixes. **FAT:** the defects, the fixes and the verification.
-  - The last page, **ATTACHED KMZ**, names the file, what it holds (pins, items open / rectified / verified) and its **SHA-256**, with a paperclip to open it. The PDF opens on its attachments panel where the reader supports it.
+  - A small **KMZ ATTACHED** stamp at the lower right of the first page (v2.24; v2.23 used a last page) names the file, what it holds and its **SHA-256**; click it to open the file. The PDF opens on its attachments panel where the reader supports it.
   - **Where it opens:** Adobe Acrobat Reader (computer and phone), Foxit and Firefox show PDF attachments. **Chrome, Edge and many phones' built-in viewers do not**: use one of the readers above. (Checked here with poppler's `pdfdetach`, an independent reader; not tried in each reader.)
   - The embedded KMZ is the Google Earth part (pins, balloons, photos at the KMZ settings), not the locked G-eSAA data; the PDF grows by its size (about 0.1–0.3 MB for a few elements; more with many photos). A KMZ over 60 MB is left out (the export says so: lower the KMZ balloon photo size, or export the KMZ on its own); if the KMZ cannot be made, the PDF is still made, without it.
-  - Some readers list the KMZ twice (in the attachments list and as the paperclip on the last page): it is the same file.
+  - Some readers list the KMZ twice (in the attachments list and as the stamp on the first page): it is the same file.
 - **Shared PAT KMZ: Start the defect cleanup goes straight to the map.** On the contractor's phone, *Projects → Open a shared file* (or *Open with G-eSAA*) → **Start the defect cleanup** no longer opens the New project form: the cleanup project is made at once with the file's project data (site, vendor, Globe representative, form details, the online-sheet site, who recorded the PAT; the contractor representative is you), the map opens on the PAT's pins and the first item to fix is shown (*Photo of the fix*, *Fixed, no photo*, *Comment*, *Next pin*). Opening the same PAT again offers to open the cleanup already on the phone instead of making a second one. The same goes for **Start the FAT** from a completed cleanup.
 - **The FAT only after the contractor's cleanup is completed.**
   - A shared **PAT** offers *Start the defect cleanup* or *Open the PAT itself* — no longer *Start the FAT*.

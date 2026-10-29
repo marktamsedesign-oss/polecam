@@ -148,7 +148,12 @@
       });
       y += sh;
       pdf.rect(X0 - 3, MT - 3, W + 6, y - MT + 6, { stroke: BLACK, lw: 1.4 }); // outer frame
-      if (model.footer) pdf.text(X0, pdf.H - 20, model.footer, { size: 6.5, color: MUTED });
+      // v2.24: the KMZ of this report as a small stamp at the lower right of the first page, under the form
+      const sb = pg === 0 && model.attach ? R.attachStamp(pdf, model.attach.bytes, model.attach, X1 + 3, y + 8) : null;
+      if (model.footer) {
+        const f = sb ? R.footerLines(model.footer, sb.x - 8 - X0, 6.5) : { lines: [model.footer], size: 6.5 };
+        f.lines.forEach((l, k) => pdf.text(X0, pdf.H - (f.lines.length > 1 ? 24 : 20) + k * 6.5, l, { size: f.size, color: MUTED }));
+      }
     }
 
     // ---- Annex A: photo evidence per item (as found → rectified → verified)
@@ -215,7 +220,6 @@
       }
     }
     // ---- page numbers on annex pages
-    if (model.attach) R.attachmentPage(pdf, model.attach.bytes, model.attach); // v2.23: the KMZ of this report, embedded
     const total = pdf.pages.length;
     pdf.pages.forEach((pg, i) => {
       if (i < formPages) return;

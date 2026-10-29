@@ -3,7 +3,7 @@
 (() => {
   'use strict';
   /* A join link (…/polecam/#join=…) carries the signed company list: read it before anything else, then clear the address. */
-  const H0 = location.hash, pendingJoin = (/[#&]join=([^&#]+)/.exec(H0) || [])[1] || null, pendingKey = (/[#&]ck=([A-Za-z0-9-]+)/.exec(H0) || [])[1] || null;
+  const H0 = location.hash, pendingJoin = (/[#&]join=([^&#]+)/.exec(H0) || [])[1] || null, pendingKey = (/[#&](ck=[A-Za-z0-9-]+|ci=[A-Za-z0-9_-]+)/.exec(H0) || [])[1] || null; // v2.24: ci= (the key masked) or the old ck=
   const pendingJq = (/[#&]jq=([A-Za-z0-9_-]+)/.exec(H0) || [])[1] || null; // v2.15 short join code: the list comes from the online sheet
   const pendingMv = (/[#&]mv=([A-Za-z0-9_-]+)/.exec(H0) || [])[1] || null; // v2.15 the user moving to this phone
   if (pendingJoin || pendingKey || pendingJq || pendingMv) history.replaceState(null, '', location.pathname + location.search);
@@ -603,7 +603,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.23.0';
+  const APP_VER = '2.25.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -4808,24 +4808,24 @@
   }
   async function reportKmzMake() {
     const pts = projPoints(); if (!pts.length) return null;
-    let blob, name, title, lines;
+    let blob, name, title, short; // v2.24: short = the one line of the stamp on the PDF's first page
+    const pl = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
     if (!isAcc()) {
       blob = await surveyKmzBlob(pts); name = `${fileBase()}.kmz`;
       const np = pts.filter((p) => elemOf(p) === 'Pole').length, R0 = routeModel();
       title = 'Survey: the poles and points of this report, for Google Earth';
-      lines = [['Project', S.project], ['Pins', `${pts.length} (${np} pole${np === 1 ? '' : 's'}${pts.length > np ? ` · ${svCountText(pts)}` : ''})`], ['Route', R0.spans.length ? `${R0.spans.length} span${R0.spans.length === 1 ? '' : 's'}` : '—']];
+      short = `Survey · ${pl(pts.length, 'pin')} (${pl(np, 'pole')})${R0.spans.length ? ` · ${pl(R0.spans.length, 'span')}` : ''}`;
     } else {
       const M = accModel(); blob = await buildAccKmz(M, false); name = `${accFileBase(M)}.kmz`;
       const st = M.stage;
       title = st === 'PAT' ? 'PAT: the defects as found, for Google Earth' : st === 'Cleanup' ? 'Defect cleanup: the defects and their fixes, for Google Earth' : 'FAT: the defects, their fixes and the verification, for Google Earth';
-      lines = [['Project', S.project], ['Stage', STAGE_LONG[st]], ['Pins', `${M.recs.length} element${M.recs.length === 1 ? '' : 's'}`],
-        ['Items', M.counted.length ? `${M.counted.length} deficienc${M.counted.length === 1 ? 'y' : 'ies'}: ${M.open.length} open · ${M.rectified} rectified · ${M.verified} verified${M.notes ? ` · ${M.notes} note${M.notes === 1 ? '' : 's'}` : ''}` : 'No deficiencies found']];
+      short = `${st === 'Cleanup' ? 'Defect cleanup' : st} · ${pl(M.recs.length, 'pin')} · ${M.counted.length ? `${pl(M.counted.length, 'item')}: ${M.open.length} open · ${M.rectified} rectified · ${M.verified} verified` : 'no deficiencies found'}`;
     }
     if (blob.size > 60 * 1048576) { LOG.warn('pdf.kmz.big', { mb: +(blob.size / 1048576).toFixed(1) }); toast(`The KMZ (${(blob.size / 1048576).toFixed(0)} MB) is too large to put in the PDF: export it on its own (Export → KMZ). Lower the KMZ balloon photo size to attach it.`, 7000); return null; }
     const bytes = new Uint8Array(await blob.arrayBuffer());
     const sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((x) => x.toString(16).padStart(2, '0')).join('');
     LOG.info('pdf.kmz', { kb: Math.round(bytes.length / 1024) });
-    return { bytes, name, title, lines, sha256: sha, mb: (bytes.length / 1048576).toFixed(2), desc: `${title} (${name})` };
+    return { bytes, name, title, short, sha256: sha, mb: (bytes.length / 1048576).toFixed(2), desc: `${title} (${name})` };
   }
 
   $('doDxf').addEventListener('click', () => guard(async () => {
@@ -5515,6 +5515,132 @@
     refreshStorageInfo();
   }
   $('settingsBtn').addEventListener('click', () => { renderSettingsHome(); renderLog(); openSheet('settings'); });
+
+  /* ---- v2.25: Tutorial (bottom bar, beside Settings): the topics of tutorial.js, with search. The admin guide is shown only
+     to users of the admin company; everyone else sees the user guide. "Show me" opens the screen and points at the control. ---- */
+  const tutAdmin = () => isAdmin() || isAdminCo();
+  let tutAudSel = 'user', tutCur = null;
+  const tutTopics = () => ((window.GESAA_TUTORIAL && window.GESAA_TUTORIAL.topics) || []).filter((t) => t && Array.isArray(t.steps) && (t.aud === 'user' || (t.aud === 'admin' && tutAdmin())));
+  const tutWait = (ms) => new Promise((r) => setTimeout(r, ms));
+  /** Text with **bold**, *italic* and the search words marked, built from text nodes only. */
+  function tutRich(el, text, words) {
+    el.textContent = '';
+    const mark = (host, str) => {
+      if (!words || !words.length) { host.appendChild(document.createTextNode(str)); return; }
+      const re = new RegExp(`([\\w'’-]*(?:${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})[\\w'’-]*)`, 'ig'); // the whole word
+      str.split(re).forEach((x, i) => { if (!x) return; if (i % 2) { const m = document.createElement('mark'); m.textContent = x; host.appendChild(m); } else host.appendChild(document.createTextNode(x)); });
+    };
+    String(text || '').split(/(\*\*[^*]+\*\*|\*[^*]+\*)/).forEach((part) => {
+      if (!part) return;
+      const bold = /^\*\*[\s\S]*\*\*$/.test(part), it = !bold && /^\*[\s\S]*\*$/.test(part);
+      if (!bold && !it) { mark(el, part); return; }
+      const h = document.createElement(bold ? 'b' : 'i'); mark(h, bold ? part.slice(2, -2) : part.slice(1, -1)); el.appendChild(h);
+    });
+  }
+  const tutHay = (t) => [t.title, t.kw, t.cat, ...t.steps.map((x) => x.t)].join(' ').toLowerCase().replace(/\*/g, '');
+  /** A search word without its ending, so "approve" finds "approval" and "deleting" finds "delete". */
+  const tutStem = (w) => (w.length > 4 ? w.replace(/(ings?|ed|es|s|e|al)$/, '') : w);
+  function renderTutList() {
+    const adm = tutAdmin(), q = $('tutQ').value.trim().toLowerCase(), words = q.split(/\s+/).filter((w) => w.length > 1).map(tutStem);
+    if (!adm) tutAudSel = 'user';
+    $('tutAud').hidden = !adm;
+    [...$('tutAud').children].forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.aud === tutAudSel)));
+    $('tutWho').textContent = words.length ? '' : adm ? `You are a user of the admin company${pol().owner ? ` (${pol().owner})` : ''}: the user guide and the admin guide.` : 'How to use G-eSAA. Tap a topic; “Show me” opens the screen and points at the button.';
+    const all = tutTopics(), L = $('tutList'); L.innerHTML = '';
+    if (!all.length) { const p = document.createElement('p'); p.className = 'hint'; p.textContent = 'The tutorial is not loaded on this phone: open G-eSAA once with internet.'; L.appendChild(p); return; }
+    let list = words.length ? all.filter((t) => words.every((w) => tutHay(t).includes(w))) : all.filter((t) => t.aud === tutAudSel);
+    if (words.length) list = list.map((t, i) => ({ t, i, s: words.filter((w) => t.title.toLowerCase().includes(w)).length })).sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.t);
+    if (!list.length) { const p = document.createElement('p'); p.className = 'hint'; p.textContent = `No topic for “${q}”. Try another word, e.g. photo, PAT, invite, offline.`; L.appendChild(p); return; }
+    if (words.length) { const h = document.createElement('div'); h.className = 'tutcat'; h.textContent = `${list.length} topic${list.length === 1 ? '' : 's'} found`; L.appendChild(h); }
+    let cat = '';
+    list.forEach((t) => {
+      if (!words.length && t.cat !== cat) { cat = t.cat; const h = document.createElement('div'); h.className = 'tutcat'; h.textContent = cat; L.appendChild(h); }
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'tuttopic'; b.dataset.topic = t.id;
+      if (words.length && adm) { const a = document.createElement('span'); a.className = 'aud'; a.textContent = t.aud === 'admin' ? 'ADMIN GUIDE' : 'USER GUIDE'; b.appendChild(a); }
+      const n = document.createElement('b'); tutRich(n, t.title, words); b.appendChild(n);
+      const hit = words.length ? t.steps.find((x) => words.some((w) => x.t.toLowerCase().replace(/\*/g, '').includes(w))) : null;
+      const sub = document.createElement('span'); const plain = (hit || t.steps[0]).t.replace(/\*/g, ''); tutRich(sub, plain.length > 110 ? `${plain.slice(0, 108)}…` : plain, words); b.appendChild(sub);
+      b.addEventListener('click', () => openTutTopic(t, words));
+      L.appendChild(b);
+    });
+  }
+  function openTutTopic(t, words) {
+    if (!t) return;
+    tutCur = t;
+    $('tutTopicTitle').textContent = t.title;
+    $('tutTopicCat').textContent = `${t.aud === 'admin' ? 'Admin guide' : 'User guide'} · ${t.cat}`;
+    const ol = $('tutSteps'); ol.innerHTML = '';
+    t.steps.forEach((st, i) => {
+      const li = document.createElement('li'), d = document.createElement('div'); tutRich(d, st.t, words || []); li.appendChild(d);
+      if (st.go || st.hl) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm show'; b.textContent = 'Show me'; b.addEventListener('click', () => tutShow(t, i)); li.appendChild(b); }
+      ol.appendChild(li);
+    });
+    const seq = tutTopics().filter((x) => x.aud === t.aud), k = seq.indexOf(t);
+    $('tutPrev').disabled = k <= 0; $('tutNext').disabled = k < 0 || k >= seq.length - 1;
+    $('tutPrev').onclick = () => openTutTopic(seq[k - 1]); $('tutNext').onclick = () => openTutTopic(seq[k + 1]);
+    if (stack[stack.length - 1] !== 'tutTopic') openSheet('tutTopic');
+    $('tutTopic').querySelector('.body').scrollTop = 0;
+  }
+  function openTutorial() { renderTutList(); openSheet('tutorial'); }
+  /** "Show me": the screen of the step, then a ring round its control with the step's text. */
+  async function tutGo(go) {
+    switch (go) {
+      case 'projects': openProjects(); break;
+      case 'newProject': openProjects(); await tutWait(150); openNewProject(); break;
+      case 'projectDetails': openProjects(); await tutWait(150); $('curMore').open = true; break;
+      case 'records': $('listBtn').click(); break;
+      case 'export': $('exportBtn').click(); break;
+      case 'settings': $('settingsBtn').click(); break;
+      case 'profile': $('settingsBtn').click(); await tutWait(150); openProfile(false); break;
+      case 'camera': case 'exports': case 'maps': case 'storage': case 'log':
+        $('settingsBtn').click(); await tutWait(150); $({ camera: 'goCamera', exports: 'goExports', maps: 'goMaps', storage: 'goStorage', log: 'goLog' }[go]).click(); break;
+      default: break; // the map
+    }
+  }
+  async function tutShow(t, i) {
+    const st = t.steps[i]; if (!st) return;
+    tutSpotClear();
+    if (st.go) {
+      await closeAll();
+      try { await tutGo(st.go); if (st.go === 'export' && st.hl && /^#do[A-Za-z]+$/.test(st.hl) && !$('export').hidden) showExport(st.hl.slice(1)); } catch (e) { LOG.warn('tut.go', errInfo(e)); } // the export of the step, under FORMAT
+      await tutWait(450);
+    }
+    tutSpot(t, i);
+  }
+  function tutSpotClear() { ['tutSpot', 'tutTip'].forEach((id) => { const e = document.getElementById(id); if (e) e.remove(); }); document.removeEventListener('pointerdown', tutSpotAway, true); }
+  function tutSpotAway(e) { if (e.target && e.target.closest && e.target.closest('#tutTip')) return; tutSpotClear(); }
+  function tutSpot(t, i) {
+    const st = t.steps[i], el = st.hl ? document.querySelector(st.hl) : null;
+    const vis = !!(el && el.getClientRects().length && !el.closest('[hidden]'));
+    const tip = document.createElement('div'); tip.id = 'tutTip'; tip.setAttribute('role', 'dialog'); tip.setAttribute('aria-label', `Tutorial: ${t.title}`);
+    const head = document.createElement('div'); head.className = 'hint'; head.textContent = `${t.title} · step ${i + 1} of ${t.steps.length}`; tip.appendChild(head);
+    const p = document.createElement('div'); p.style.marginTop = '4px'; tutRich(p, st.t, []); tip.appendChild(p);
+    if (st.hl && !vis) { const h = document.createElement('p'); h.className = 'hint'; h.textContent = st.when || 'Not on this screen right now: it shows when it applies to the open project.'; tip.appendChild(h); }
+    const row = document.createElement('div'); row.className = 'row';
+    const btn = (label, cls, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = `btn sm${cls ? ` ${cls}` : ''}`; b.textContent = label; b.addEventListener('click', fn); row.appendChild(b); };
+    btn('Back to the tutorial', '', async () => { tutSpotClear(); await closeAll(); openTutorial(); openTutTopic(t); });
+    if (i < t.steps.length - 1) btn('Next step ›', '', () => tutShow(t, i + 1));
+    btn('Got it', 'primary', () => tutSpotClear());
+    tip.appendChild(row); document.body.appendChild(tip);
+    if (vis) {
+      el.scrollIntoView({ block: 'center', inline: 'nearest' });
+      requestAnimationFrame(() => {
+        const r = el.getBoundingClientRect(), pad = 6, spot = document.createElement('div'); spot.id = 'tutSpot';
+        Object.assign(spot.style, { left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.width + 2 * pad}px`, height: `${r.height + 2 * pad}px` });
+        document.body.appendChild(spot);
+        const below = r.top + r.height / 2 < innerHeight / 2;
+        tip.style.top = `${below ? Math.min(innerHeight - tip.offsetHeight - 10, r.bottom + pad + 12) : Math.max(10, r.top - pad - 12 - tip.offsetHeight)}px`;
+      });
+    } else tip.style.top = `${Math.max(10, (innerHeight - tip.offsetHeight) / 2)}px`;
+    setTimeout(() => document.addEventListener('pointerdown', tutSpotAway, true), 60);
+    LOG.info('tut.show', { topic: t.id, step: i + 1, shown: vis });
+  }
+  window.addEventListener('popstate', tutSpotClear);
+  $('tutorialBtn').addEventListener('click', openTutorial);
+  $('tutQ').addEventListener('input', renderTutList);
+  $('tutQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') { renderTutList(); $('tutQ').blur(); } });
+  $('tutGo').addEventListener('click', () => { renderTutList(); $('tutQ').blur(); });
+  [...$('tutAud').children].forEach((b) => b.addEventListener('click', () => { tutAudSel = b.dataset.aud === 'admin' && tutAdmin() ? 'admin' : 'user'; $('tutQ').value = ''; renderTutList(); }));
   $('setMyTypes').addEventListener('change', () => {
     S.myTypes = parseTypeLines($('setMyTypes').value).filter((t) => !BUILTIN_TYPES.some((b) => b.p === t.p)); persist(); refreshTypes();
     $('setMyTypes').value = typeLines(S.myTypes); renderTypeInfo();
@@ -5672,18 +5798,26 @@
   const profileOk = () => !!(S.user && S.user.name && S.user.mobile && S.user.email && S.user.company && (keyMode() ? S.user.company === S.keyCompany : !teamCos().length || teamCos().includes(S.user.company)));
   /* ---- company keys (v2.10): the key tells the online sheet which company a user belongs to; the company is then fixed ---- */
   const keyMode = () => !!(S.companyKey && S.keyCompany);
+  var keyIn = ''; // v2.24: the key of an invite received on this phone, until Save signs in with it (never shown)
   const normKey = (k) => String(k || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const sheetUrl = () => (S.team && S.team.src && S.team.src.url) || (ORG && ORG.src && ORG.src.url) || '';
   /** Key sign-in is offered where the organisation uses company keys (the sheet says so), or the app is tied to one with a sheet. */
-  const keyOffered = () => keyMode() || (!holdsListKey() && !!(sheetUrl() && ((S.cloud && S.cloud.strict) || (ORG && ORG.src && S.sheetStrict !== false) || /company key/.test(cloudErr)))); // the admin who holds the list key may still choose
+  const keyOffered = () => keyMode() || !!keyIn || (!holdsListKey() && !!(sheetUrl() && ((S.cloud && S.cloud.strict) || (ORG && ORG.src && S.sheetStrict !== false) || /company key/.test(cloudErr)))); // the admin who holds the list key may still choose
+  /* v2.24: the company key is never shown in the app. It reaches a new phone only in an invite QR code or link (or the user's
+     own move code), masked there (#ci=…) so that it cannot be read off the link; the app keeps it out of every field. */
+  const keyPad = (i) => { const m = new TextEncoder().encode('G-eSAA/ci/v1'); return m[i % m.length] ^ ((i * 73 + 41) & 255); };
+  const hideKey = (k) => 'k' + b64u.enc(new TextEncoder().encode(normKey(k)).map((x, i) => x ^ keyPad(i)));
+  const unhideKey = (t) => {
+    try { t = String(t || ''); if (t[0] !== 'k') return ''; const k = new TextDecoder().decode(b64u.dec(t.slice(1)).map((x, i) => x ^ keyPad(i))); return /^[A-Z0-9]{8,40}$/.test(k) ? k : ''; } catch (e) { return ''; }
+  };
   async function keyLogin(raw) {
     const key = String(raw || '').trim().toUpperCase().replace(/\s+/g, '');
-    if (normKey(key).length < 8) throw new Error('Enter the company key from your admin or a coworker, e.g. 7KQ4-MX2P-9TRW.');
+    if (normKey(key).length < 8) throw new Error('Scan the invite QR code or open the invite link from your admin or a coworker first.');
     const url = sheetUrl();
     if (!url) throw new Error('Open the invite link or QR code from your admin or a coworker first.');
     if (!navigator.onLine) throw new Error('Connect to the internet once to check the company key.');
-    const j = await cloudRequest({ url, key: (S.team && S.team.src && S.team.src.key) || '' }, null, { ckey: key });
-    if (!j || !j.ok) throw new Error(j && j.error === 'company key' ? 'This company key is not valid. Ask your admin or a coworker for the right one.' : j && j.error === 'key' ? 'The online sheet does not accept company keys yet: the admin must update its script (v2.10).' : `The online sheet did not answer${j && j.error ? ` (${j.error})` : ''}.`);
+    const j = await cloudRequest({ url, key: '' }, null, { ckey: key }); // v2.24: the key alone (with the read key, a wrong key would not be named)
+    if (!j || !j.ok) throw new Error(j && j.error === 'company key' ? 'This invite is no longer valid (its company key is not in the online sheet). Ask your admin or a coworker for a new invite.' : j && j.error === 'key' ? 'The online sheet does not accept company keys yet: the admin must update its script (v2.10).' : `The online sheet did not answer${j && j.error ? ` (${j.error})` : ''}.`);
     if (!j.you) throw new Error('The online sheet does not accept company keys yet: the admin must update its script (v2.10).');
     if (j.list) { // the signed company list comes with the answer: a new phone joins it here, an old one updates
       let p = null, body = null;
@@ -5695,15 +5829,59 @@
     LOG.info('key.login', { company: S.keyCompany });
     return S.keyCompany;
   }
-  /** Invite link for coworkers: the company key (and, when the app is not tied to the sheet, the list too). */
-  async function inviteLink() {
-    const base = webBase(); if (!base || !keyMode()) return '';
-    if (ORG && ORG.src && S.team && ORG.id === S.team.id) return `${base}#ck=${encodeURIComponent(S.companyKey)}`;
-    return `${base}#join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}&ck=${encodeURIComponent(S.companyKey)}`;
+  /** Invite link for a company: its key, masked (and, when the app is not tied to the sheet, the list too). */
+  async function inviteLinkFor(key) {
+    const base = webBase(); if (!base || !S.team || normKey(key).length < 8) return '';
+    if (ORG && ORG.src && ORG.id === S.team.id) return `${base}#ci=${hideKey(key)}`;
+    return `${base}#join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}&ci=${hideKey(key)}`;
   }
+  /** Invite link for coworkers: this phone's company key. */
+  const inviteLink = () => (keyMode() ? inviteLinkFor(S.companyKey) : Promise.resolve(''));
   const holdsListKey = () => !!(S.adminKey && S.team && (S.team.key === S.adminKey.pub || (S.team.admins || []).some((a) => a.k === S.adminKey.pub)));
   const isAdmin = () => holdsListKey() && adminUserOk();
   const signerName = () => (S.team ? (S.team.key ? `the admin company${S.team.pol && S.team.pol.owner ? ` (${S.team.pol.owner})` : ''}` : S.team.admins && S.team.admins[S.team.k] ? S.team.admins[S.team.k].n : 'admin') : 'admin');
+  /* ---- v2.25: the user's regions and territories filter the online sheet's projects (its Region and Territory columns) ---- */
+  const REGIONS = ['NLZ', 'SLZ', 'NCR', 'VIS', 'MIN'], TERRS = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8'];
+  /** A Region cell as one of the codes (the long names too); anything else is kept as written and matches no choice. */
+  function regionCode(v) {
+    const c = String(v || '').toUpperCase().replace(/[^A-Z0-9]+/g, '');
+    if (!c) return '';
+    if (/^(NLZ|NL|NLUZ|NORTHLUZON|NORTHERNLUZON)$/.test(c)) return 'NLZ';
+    if (/^(SLZ|SL|SLUZ|SOUTHLUZON|SOUTHERNLUZON)$/.test(c)) return 'SLZ';
+    if (/^(NCR|METROMANILA|NATIONALCAPITALREGION)$/.test(c)) return 'NCR';
+    if (/^(VIS|VISAYAS)$/.test(c)) return 'VIS';
+    if (/^(MIN|MINDANAO)$/.test(c)) return 'MIN';
+    return c;
+  }
+  /** A Territory cell as T1…T8 ("T1", "Territory 1", "1", "MIN T1"); anything else is kept as written. */
+  function terrCode(v) {
+    const c = String(v || '').toUpperCase().replace(/[^A-Z0-9]+/g, '');
+    if (!c) return '';
+    const m = /^(?:NLZ|SLZ|NCR|VIS|MIN)?(?:T|TER|TERR|TERRITORY)?0*([1-8])$/.exec(c);
+    return m ? `T${m[1]}` : c;
+  }
+  const cellCodes = (v, f) => String(v || '').split(/\s*[,;\/&+\n]\s*/).map(f).filter(Boolean);
+  const myRegions = () => ((S.user && Array.isArray(S.user.regions)) ? S.user.regions.filter((x) => REGIONS.includes(x)) : []);
+  const myTerrs = () => ((S.user && Array.isArray(S.user.terrs)) ? S.user.terrs.filter((x) => TERRS.includes(x)) : []);
+  /** A sheet row is listed when its region and territory are among the user's (a blank cell, or nothing chosen, lets it through). */
+  function areaOk(t) {
+    const R = myRegions(), T = myTerrs();
+    const rs = cellCodes(t.region || extraOfT(t, 'Region'), regionCode), ts = cellCodes(t.territory || extraOfT(t, 'Territory'), terrCode);
+    return (!R.length || !rs.length || rs.some((x) => R.includes(x))) && (!T.length || !ts.length || ts.some((x) => T.includes(x)));
+  }
+  const extraOfT = (t, key) => { const e = (t && t.extra || []).find(([k]) => normCo(k) === normCo(key)); return e ? e[1] : ''; };
+  function renderAreaChips(regions, terrs) {
+    const mk = (box, all, on) => {
+      box.innerHTML = '';
+      all.forEach((v) => {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small'; b.textContent = v; b.setAttribute('aria-pressed', String(on.includes(v)));
+        b.addEventListener('click', () => b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true')));
+        box.appendChild(b);
+      });
+    };
+    mk($('pfRegions'), REGIONS, regions || []); mk($('pfTerrs'), TERRS, terrs || []);
+  }
+  const chosenChips = (id) => [...$(id).querySelectorAll('.chip')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
   let profileFirst = false;
   function renderCoSelect(sel) {
     const cos = teamCos(), box = $('pfCompany');
@@ -5717,19 +5895,22 @@
     $('pfJoin').hidden = !!cos.length;
     renderProfileMode();
   }
-  /** With company keys the user types (or scans) a key instead of choosing a company, and never sees the company names. */
+  /** With company keys the user joins with an invite (QR code or link) instead of choosing a company, and never sees the
+      company names. v2.24: the key itself is never shown or typed. */
   function renderProfileMode() {
     const keyed = keyOffered(), locked = keyMode();
     $('pfKeyBox').hidden = !keyed; $('pfCoBox').hidden = keyed && !locked;
     if (locked) {
-      $('pfKey').value = S.companyKey; $('pfKey').readOnly = true; $('pfKeyScan').hidden = true;
+      $('pfKeyState').textContent = `🔒 Joined ${S.keyCompany} with its company key (hidden)`;
+      $('pfKeyBtns').hidden = true;
       $('pfCompany').innerHTML = `<option>${C.xmlEsc(S.keyCompany)}</option>`; $('pfCompany').disabled = true;
-      $('pfKeyInfo').textContent = 'Your company comes from this key. To change it: Settings → Reset user.';
+      $('pfKeyInfo').textContent = 'Your company comes from the invite. Invite coworkers: Settings → Invite a coworker (QR code or link). To change company: Settings → Reset user.';
       $('pfTeam').textContent = '';
     } else if (keyed) {
-      $('pfKey').readOnly = false; $('pfKeyScan').hidden = false;
-      if (!$('pfKey').value && pendingKey) $('pfKey').value = pendingKey;
-      $('pfKeyInfo').textContent = "From your admin, or scan a coworker's invite QR code.";
+      $('pfKeyBtns').hidden = false;
+      $('pfKeyState').textContent = keyIn ? '✓ Invite received (the company key stays hidden)' : 'No invite yet';
+      $('pfKeyInfo').textContent = keyIn ? 'Enter your name, mobile and email, then Save: the online sheet tells which company the invite is for.'
+        : 'Scan the invite QR code, or open or paste the invite link, from your admin or a coworker.';
     }
     $('pfJoin').hidden = keyed || !!teamCos().length;
   }
@@ -5739,8 +5920,9 @@
     const u = { ...(S.user || {}), ...(moveFill || {}) };
     $('pfName').value = u.name || (S.userName ? S.userName.split('·')[0].trim() : '');
     $('pfMobile').value = u.mobile || ''; $('pfEmail').value = u.email || '';
+    renderAreaChips(u.regions || [], u.terrs || []);
     renderCoSelect(u.company || '');
-    if (moveFill && moveFill.key && !keyMode()) { $('pfKey').value = moveFill.key; renderProfileMode(); }
+    if (moveFill && moveFill.key && !keyMode()) { keyIn = moveFill.key; renderProfileMode(); }
     $('profBack').hidden = profileFirst;
     $('profTitle').textContent = profileFirst ? 'Welcome to G-eSAA' : 'Your details';
     $('profIntro').textContent = profileFirst
@@ -5756,13 +5938,13 @@
     let company = keyMode() ? S.keyCompany : $('pfCompany').value;
     const err = name.length < 3 ? 'Enter your full name.' : !mobileOk(mobile) ? 'Enter your mobile number, e.g. 0917 123 4567 or +63 917 123 4567.'
       : !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) ? 'Enter a valid email address.'
-        : keyed ? (normKey($('pfKey').value).length < 8 ? 'Enter your company key.' : '')
+        : keyed ? (normKey(keyIn).length < 8 ? 'Scan the invite QR code or open the invite link from your admin or a coworker first.' : '')
           : !company ? (teamCos().length ? 'Choose your company.' : 'Get the company list from your admin first (below).') : '';
     if (err) { $('pfErr').textContent = err; $('pfErr').hidden = false; return; }
     if (keyed) { // the key says which company this user belongs to
-      $('pfErr').textContent = 'Checking the company key…'; $('pfErr').hidden = false; $('pfSave').disabled = true;
-      try { company = await keyLogin($('pfKey').value); } catch (e) { $('pfErr').textContent = e.message || String(e); return; } finally { $('pfSave').disabled = false; }
-      $('pfErr').hidden = true; renderProfileMode();
+      $('pfErr').textContent = 'Checking the invite with the online sheet…'; $('pfErr').hidden = false; $('pfSave').disabled = true;
+      try { company = await keyLogin(keyIn); } catch (e) { $('pfErr').textContent = e.message || String(e); return; } finally { $('pfSave').disabled = false; }
+      keyIn = ''; $('pfErr').hidden = true; renderProfileMode();
     }
     const own = pol().owner;
     if (own && normCo(company) === normCo(own) && !adminUserOk(email) && S.team && S.team.src && navigator.onLine) { $('pfErr').textContent = 'Checking with the online sheet…'; $('pfErr').hidden = false; await cloudSync(true); $('pfErr').hidden = true; } // just added by the admin?
@@ -5774,8 +5956,9 @@
       if (!jwk) { $('pfErr').textContent = `Wrong admin PIN. Only ${own} staff with the PIN can choose ${own}.`; $('pfErr').hidden = false; return; }
       S.adminKey = { pub: S.team.key, priv: jwk };
     }
-    const coChanged = !S.user || S.user.company !== company;
-    S.user = { name, mobile, email: email.toLowerCase(), company }; moveFill = null; persist();
+    const regions = chosenChips('pfRegions').filter((x) => REGIONS.includes(x)), terrs = chosenChips('pfTerrs').filter((x) => TERRS.includes(x));
+    const coChanged = !S.user || S.user.company !== company || String(myRegions()) !== String(regions) || String(myTerrs()) !== String(terrs);
+    S.user = { name, mobile, email: email.toLowerCase(), company, ...(regions.length ? { regions } : {}), ...(terrs.length ? { terrs } : {}) }; moveFill = null; persist();
     if (coChanged) cloudSync(true).then(() => { if (!$('newProj').hidden) renderSites(); }); // the sheet sends each company its own sites
     const first = profileFirst; profileFirst = false; await closeSheet();
     renderWho(); toast(`Saved: ${byLine()}`);
@@ -5785,14 +5968,35 @@
   function renderWho() {
     const u = S.user;
     $('whoBox').textContent = u ? u.name : 'Enter your details';
-    $('whoSub').textContent = u ? `${u.company} · ${u.mobile} · ${u.email}${isInspector() && pol().owner ? ' · inspector' : ''}` : 'Name, mobile, email and company';
+    const area = [...myRegions(), ...myTerrs()].join(' ');
+    $('whoSub').textContent = u ? `${u.company} · ${u.mobile} · ${u.email}${isInspector() && pol().owner ? ' · inspector' : ''}${area ? ` · ${area}` : ''}` : 'Name, mobile, email and company';
     $('inviteBtn').hidden = !keyMode();
   }
+  /** v2.24: Administration → Invite a company's users: the admin pastes one company's key from the CompanyKeys tab of the
+      online sheet; the sheet confirms whose key it is; the app shows the invite (QR code and link), never the key. */
+  $('admInvMake').addEventListener('click', () => guard(async () => {
+    const info = (t) => { $('admInvInfo').textContent = t; }, key = normKey($('admInvKey').value), url = sheetUrl();
+    if (key.length < 8) { info('Paste the key of one company from the CompanyKeys tab of the online sheet.'); return; }
+    if (!url) { info('This list has no online sheet: company keys work only with one (Online sheet, above).'); return; }
+    if (!webBase()) { info('No website address for the invite: open G-eSAA from its website once.'); return; }
+    if (!navigator.onLine) { info('Connect to the internet: the key is checked with the online sheet.'); return; }
+    info('Checking the key with the online sheet…');
+    let j = null;
+    // the key alone: the sheet says whose it is, or that it is not one
+    try { j = await cloudRequest({ url, key: '' }, null, { ckey: key }); } catch (e) { info(`The online sheet did not answer (${e.message || e}).`); return; }
+    if (!j || !j.ok || !j.you) { info(j && j.error === 'company key' ? 'This key is not in the CompanyKeys tab of the online sheet. Copy it again (the whole key).' : (j && j.error === 'key') || (j && j.ok && !j.you) ? 'The online sheet does not accept company keys yet: update its script (v2.10) and run makeCompanyKeys.' : `The online sheet did not answer${j && j.error ? ` (${j.error})` : ''}.`); return; }
+    const link = await inviteLinkFor(key);
+    if (!link) { info('The invite could not be made: save the company list first.'); return; }
+    $('admInvKey').value = ''; info(`Invite made for ${j.you}. Make a new one any time from the key in the sheet.`);
+    LOG.info('admin.invite', { company: j.you });
+    qrLink = link; qrAlt = null;
+    await showQr(`Invite to ${j.you}`, `For the users of ${j.you}: they scan this with the phone's camera (or you send the link), then enter their name, mobile and email. The company key inside stays hidden, but the invite works for anyone who has it: send it only to ${j.you}.`, link);
+  }, 'No invite'));
   $('inviteBtn').addEventListener('click', () => guard(async () => {
     const link = await inviteLink();
     if (!link) { toast('No website address for the invite: open G-eSAA from its website once, or ask your admin', 5000); return; }
     qrLink = link; qrAlt = null;
-    await showQr(`Invite to ${S.keyCompany}`, `A coworker scans this with the phone's camera (or you send the link), then enters their name, mobile and email. Share it only inside ${S.keyCompany}: it carries your company key.`, link);
+    await showQr(`Invite to ${S.keyCompany}`, `A coworker scans this with the phone's camera (or you send the link), then enters their name, mobile and email. The company key inside stays hidden, but the invite works for anyone who has it: share it only inside ${S.keyCompany}.`, link);
   }, 'No invite'));
   $('resetUser').addEventListener('click', async () => {
     const ok = await ask('Reset the user of this phone?', 'Your name, mobile, email, company and company key are removed from this phone, and the welcome screen asks for them again. Projects and photos stay on the phone, with the names they were recorded with.',
@@ -5800,7 +6004,7 @@
     if (!ok) return;
     LOG.info('user.reset', { keyed: keyMode() });
     S.user = null; S.companyKey = ''; S.keyCompany = ''; S.adminKey = null; S.cloud = null; persist();
-    ['pfName', 'pfMobile', 'pfEmail', 'pfKey'].forEach((id) => { $(id).value = ''; });
+    ['pfName', 'pfMobile', 'pfEmail'].forEach((id) => { $(id).value = ''; }); keyIn = ''; renderAreaChips([], []);
     renderWho(); renderTeamInfo(); openProfile(true);
   });
   $('editMe').addEventListener('click', () => openProfile(false));
@@ -5809,7 +6013,7 @@
     if (!S.user) { toast('Enter your details first'); return; }
     const base = webBase();
     if (!base) { toast('No website address for the link: open G-eSAA from its website once, or ask your admin', 5000); return; }
-    const u = S.user, mv = b64u.enc(enc8(JSON.stringify({ n: u.name, m: u.mobile, e: u.email, c: u.company, ...(S.companyKey ? { k: S.companyKey } : {}) })));
+    const u = S.user, mv = b64u.enc(enc8(JSON.stringify({ n: u.name, m: u.mobile, e: u.email, c: u.company, ...(S.companyKey ? { h: hideKey(S.companyKey) } : {}), ...(myRegions().length ? { r: myRegions() } : {}), ...(myTerrs().length ? { t: myTerrs() } : {}) }))); // v2.24: the key masked (h); v2.25: regions, territories
     let list = '';
     if (S.team) { const short = await shortJoin(); list = short ? short.slice(short.indexOf('#') + 1) : `join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}`; }
     const link = `${base}#${list ? `${list}&` : ''}mv=${mv}`;
@@ -5825,8 +6029,9 @@
       const ok = await ask('Use these details on this phone?', `This phone is set up for ${S.user.name}. Replace with ${o.n}? Projects and photos stay on the phone.`, [{ label: 'Cancel', value: false }, { label: 'Replace', value: true, primary: true }]);
       if (!ok) return false;
     }
-    moveFill = { name: String(o.n).slice(0, 80), mobile: String(o.m || '').slice(0, 30), email: String(o.e).slice(0, 120), company: String(o.c || '').slice(0, 100), key: o.k ? String(o.k).slice(0, 40) : '' };
-    LOG.info('user.move', { keyed: !!o.k });
+    moveFill = { name: String(o.n).slice(0, 80), mobile: String(o.m || '').slice(0, 30), email: String(o.e).slice(0, 120), company: String(o.c || '').slice(0, 100), key: o.h ? unhideKey(o.h) : o.k ? normKey(o.k).slice(0, 40) : '',
+      regions: Array.isArray(o.r) ? o.r.filter((x) => REGIONS.includes(x)) : [], terrs: Array.isArray(o.t) ? o.t.filter((x) => TERRS.includes(x)) : [] };
+    LOG.info('user.move', { keyed: !!(o.h || o.k) });
     openProfile(!profileOk());
     toast('Your details are filled in: check them, then tap Save', 5000);
     return true;
@@ -6111,7 +6316,7 @@
   }
   /** A join link, an invite (company key, maybe with the list) or the list text itself. */
   async function handleInvite(text, sw) {
-    const t = String(text || '').trim(), ck = (/[#&?]ck=([A-Za-z0-9%-]+)/.exec(t) || [])[1], hasList = /[#&]join=|^PCT[01]:/.test(t), jq = (/[#&]jq=([A-Za-z0-9_-]+)/.exec(t) || [])[1];
+    const t = String(text || '').trim(), ci = (/[#&?]ci=([A-Za-z0-9_-]+)/.exec(t) || [])[1], ck = ci ? unhideKey(ci) || 'x' : (/[#&?]ck=([A-Za-z0-9%-]+)/.exec(t) || [])[1], hasList = /[#&]join=|^PCT[01]:/.test(t), jq = (/[#&]jq=([A-Za-z0-9_-]+)/.exec(t) || [])[1];
     const mv = (/[#&]mv=([A-Za-z0-9_-]+)/.exec(t) || [])[1];
     if (mv) { // moving to this phone (v2.15): the list first, then the user's details for a check and Save
       if (jq && !hasList) await joinShort(jq, sw);
@@ -6123,16 +6328,18 @@
     if (hasList) { teamSwitch = !!sw || !S.team || !!ck; try { await importTeamText(t, { quiet: !!ck }); } finally { teamSwitch = false; } }
     if (!ck) return true;
     let key = ck; try { key = decodeURIComponent(ck); } catch (e) { /* as is */ }
+    if (normKey(key).length < 8) { toast('That invite link is damaged. Ask for a new one.', 5000); return false; }
     if (keyMode()) { if (normKey(key) !== normKey(S.companyKey)) toast(`This phone already belongs to ${S.keyCompany}. To join another company: Settings → Reset user.`, 6000); return true; }
-    if ($('profile').hidden) openProfile(true);
-    $('pfKey').value = key; renderProfileMode();
-    toast('Company key filled in: enter your name, mobile and email, then Save', 4500);
+    keyIn = normKey(key);
+    if ($('profile').hidden) openProfile(!profileOk());
+    renderProfileMode();
+    toast('Invite received: enter your name, mobile and email, then Save', 4500);
     return true;
   }
   async function pasteJoin(sw) {
     let t = '';
     try { t = (navigator.clipboard && navigator.clipboard.readText) ? await withTimeout(navigator.clipboard.readText(), 1500, 'slow') : ''; } catch (e) { t = ''; }
-    if (!/#join=|[#&]ck=|[#&]jq=|[#&]mv=|^PCT[01]:/.test(String(t).trim())) t = await promptText('Paste the link', 'The join or invite link your admin or a coworker sent.', 'https://…#…', '');
+    if (!/#join=|[#&]c[ki]=|[#&]jq=|[#&]mv=|^PCT[01]:/.test(String(t).trim())) t = await promptText('Paste the link', 'The join or invite link your admin or a coworker sent.', 'https://…#…', '');
     if (!t) return;
     await handleInvite(t, sw || !!S.team);
   }
@@ -6145,6 +6352,7 @@
   renderJoin();
   $('pfScan').addEventListener('click', () => scanTeamQr(false));
   $('pfKeyScan').addEventListener('click', () => scanTeamQr(false));
+  $('pfKeyPaste').addEventListener('click', () => pasteJoin(false));
   async function getList(sw) { // v2.15: a list is joined by its link or QR code only (no list files)
     const how = await ask(sw ? 'Switch to another company list' : 'Update the company list',
       sw ? 'Only do this if your admin gave you a new, different list: its join link or QR code.' : 'Paste the join link from your admin, or scan the QR code on an admin’s phone.',
@@ -6167,7 +6375,7 @@
   async function showQr(title, note, text) {
     lastQrText = text;
     $('qrTitle').textContent = title; $('qrText').textContent = note || '';
-    $('qrLinkBtn').hidden = !(qrLink && (text === qrLink || (qrAlt && text === qrAlt.short))); $('qrLinkBtn').textContent = /[#&]ck=/.test(text) ? 'Send the invite link' : 'Send the join link';
+    $('qrLinkBtn').hidden = !(qrLink && (text === qrLink || (qrAlt && text === qrAlt.short))); $('qrLinkBtn').textContent = /[#&]c[ki]=/.test(text) ? 'Send the invite link' : 'Send the join link';
     $('qrFull').hidden = !(qrAlt && text === qrAlt.short); $('qrFull').textContent = 'Show the full code (joins without internet)';
     drawQr(text);
     openSheet('qrShow');
@@ -6293,19 +6501,21 @@
      know where to read. Only those three lists come from the sheet; photos and survey data stay on the phones. */
   const TASK_CATS = ['Survey', 'PAT', 'Cleanup', 'FAT'];
   const s100 = (v, n) => String(v == null ? '' : v).trim().slice(0, n || 100);
-  function cleanCloud(j) {
+  function cleanCloud(j, opts) {
     const companies = [...new Set((Array.isArray(j.companies) ? j.companies : []).map((c) => s100(c)).filter(Boolean))].slice(0, 500);
-    const tasks = (Array.isArray(j.tasks) ? j.tasks : []).filter((t) => t && typeof t === 'object').map((t) => {
+    let tasks = (Array.isArray(j.tasks) ? j.tasks : []).filter((t) => t && typeof t === 'object').map((t) => {
       const raw = s100(t.category).toLowerCase(), cat = !raw ? '' : /clean|rectif/.test(raw) ? 'Cleanup' : TASK_CATS.find((c) => c.toLowerCase() === raw) || 'Survey'; // blank: a site, the user picks the category
       const link = s100(t.link, 300), extra = (Array.isArray(t.extra) ? t.extra : []).filter((x) => Array.isArray(x) && x[1]).slice(0, 8).map((x) => [s100(x[0], 40), s100(x[1])]);
       return { id: s100(t.id, 40), project: s100(t.project), category: cat, site: s100(t.site), contractor: s100(t.contractor), globeRep: s100(t.globeRep),
         company: s100(t.company, 200), status: s100(t.status, 40) || 'Active', notes: s100(t.notes, 300), link: /^https:\/\//.test(link) ? link : '', extra,
+        region: s100(t.region, 60), territory: s100(t.territory, 60),
         dates: t.dates && typeof t.dates === 'object' ? { surveyStart: s100(t.dates.surveyStart, 20), surveyDone: s100(t.dates.surveyDone, 20), pat: s100(t.dates.pat, 20), fat: s100(t.dates.fat, 20) } : null };
-    }).filter((t) => t.id && t.project).slice(0, 500);
+    }).filter((t) => t.id && t.project);
+    if (opts && opts.area) { const mine = tasks.filter((t) => areaOk(t)); tasks = mine.concat(tasks.filter((t) => !areaOk(t))); } // v2.25: the user's regions first, then the cap
     const packs = (Array.isArray(j.packs) ? j.packs : []).filter((p) => p && typeof p === 'object').map((p) => ({ name: s100(p.name), link: s100(p.link, 300), sizeMB: +p.sizeMB || 0, notes: s100(p.notes, 200) }))
       .filter((p) => p.link).slice(0, 50);
     const admins = (Array.isArray(j.admins) ? j.admins : []).map((c) => s100(c)).filter(Boolean).slice(0, 20);
-    return { name: s100(j.name), companies, admins, tasks, packs, scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you) };
+    return { name: s100(j.name), companies, admins, tasks: tasks.slice(0, 500), packs, scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you) };
   }
   let cloudBusy = null, cloudErr = '';
   /** When the phone talks to the online sheet (v2.15): on every change (default), every hour, or only when Sync is tapped. */
@@ -6321,6 +6531,8 @@
       u.searchParams.set('company', (S.user && S.user.company) || ''); // blank: the sheet sends the company list but no tasks
       if (S.companyKey) u.searchParams.set('ckey', S.companyKey);
       if (isAdmin() && S.onlineAdminKey) u.searchParams.set('akey', S.onlineAdminKey);
+      if (myRegions().length) u.searchParams.set('region', myRegions().join(',')); // v2.25: the sheet (v2.25 script) sends only these regions
+      if (myTerrs().length) u.searchParams.set('terr', myTerrs().join(','));
     }
     try {
       const r = await withTimeout(fetch(u.href, { cache: 'no-store', redirect: 'follow', ...(init || {}) }), 25000, 'The online sheet did not answer');
@@ -6343,8 +6555,8 @@
     cloudBusy = (async () => {
       try {
         const j = await cloudRequest(src);
-        if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : j && j.error === 'company key' ? (keyMode() ? 'your company key no longer works: ask your admin for the new one (Settings → Reset user, then enter it)' : 'enter your company key (Settings → Your details; ask your admin)') : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
-        S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j) }; cloudErr = ''; persist();
+        if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : j && j.error === 'company key' ? (keyMode() ? 'your company key no longer works: ask your admin for a new invite (Settings → Reset user, then open the invite)' : 'join with your company invite (QR code or link from your admin or a coworker)') : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
+        S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j, { area: true }) }; cloudErr = ''; persist();
         await noteSheetList(src.url, j.list);
         const moved = typeof j.list === 'string' && j.list.length <= 120000 ? await applySheetList(j.list) : false;
         afterTeamChange(); if (!$('newProj').hidden) renderSites();
@@ -6361,15 +6573,11 @@
     if (!src) return;
     const c = S.cloud && S.cloud.src === src.url ? S.cloud : null;
     el.textContent = `Online sheet${c && c.name ? ` “${c.name}”` : ''}: ${c ? `last read ${fmtTime(c.at)} · ${isAdmin() ? `${c.companies.length} companies · ` : ''}${c.tasks.length} task${c.tasks.length === 1 ? '' : 's'}${c.scope === 'company' ? ` for ${S.user && S.user.company}` : c.scope === 'all' ? ' (all companies)' : ''} · ${c.packs.length} map packs` : 'not read yet'}${cloudErr ? ` · last try failed: ${cloudErr}` : ''}`;
-    $('companyKeyBox').hidden = keyMode() || !/company key/.test(cloudErr); $('companyKey').value = ''; // only where the sheet asks for it
+    $('companyKeyBox').hidden = keyMode() || !/company key/.test(cloudErr); // only where the sheet asks for it
   }
-  $('companyKeySave').addEventListener('click', async () => {
-    try { const co = await keyLogin($('companyKey').value); S.user = { ...(S.user || {}), company: co }; persist(); renderWho(); }
-    catch (e) { toast(e.message || String(e), 6000); return; }
-    $('cloudInfo').textContent = 'Reading the online sheet…';
-    const ok = await cloudSync(true); renderCloudInfo();
-    toast(ok ? 'Company key saved · online sheet read' : `Saved, but the sheet was not read: ${cloudErr || 'no internet'}`, 5000);
-  });
+  // v2.24: the sheet asks for a company key: the user joins with an invite (QR code or link); the profile's Save signs in with it
+  $('companyKeyScan').addEventListener('click', () => scanTeamQr(false));
+  $('companyKeyPaste').addEventListener('click', () => pasteJoin(false));
   $('cloudSyncBtn').addEventListener('click', async () => {
     $('cloudInfo').textContent = 'Reading the online sheet…';
     const ok = await cloudSync(true); renderCloudInfo();
@@ -6386,9 +6594,9 @@
   /* ---- New project form: site from the online sheet (or a typed name), category / purpose limited to the vendor's part
      of the site, vendor and location from the site, and for PAT / cleanup / FAT the form details printed on the list ---- */
   const taskProject = (id) => allProjects().find((n) => pmeta(n).taskId === id);
-  function visibleTasks() {
+  function visibleTasks(anyArea) {
     const me = S.user && S.user.company, c = S.cloud || {};
-    const open = (c.tasks || []).filter((t) => !/^(closed|done|cancel)/i.test(t.status));
+    const open = (c.tasks || []).filter((t) => !/^(closed|done|cancel)/i.test(t.status) && (anyArea || areaOk(t))); // v2.25: and the user's regions / territories
     if (c.scope === 'company') return open; // the sheet already sent only this company's rows
     const seeAll = isAdmin() || !me || (pol().owner && isInspector());
     return open.filter((t) => !t.company || seeAll || coList(t.company).includes(normCo(me)));
@@ -6418,7 +6626,7 @@
   /** Task category _ project name _ PLA ID _ site name, e.g. PAT_KV_MIN2463_TCFGACGRANDAVAODDS. */
   const joinParts = (parts) => parts.map((x) => String(x || '').trim()).filter(Boolean).join('_');
   /** Site in the picker: Territory_Project Name_Serial Number_PLA ID_Site name (v2.11). */
-  const siteLabel = (t) => joinParts([extraOf(t, 'Territory'), extraOf(t, 'Project Name'), extraOf(t, 'Serial Number'), t.site, t.project]).slice(0, 140) || t.id;
+  const siteLabel = (t) => joinParts([t.territory || extraOf(t, 'Territory'), extraOf(t, 'Project Name'), extraOf(t, 'Serial Number'), t.site, t.project]).slice(0, 140) || t.id;
   /** Location / site on the forms: Serial Number_PLA ID_Site name. */
   const siteLoc = (t) => joinParts([extraOf(t, 'Serial Number'), t.site, t.project]).slice(0, 120);
   /** Project name: Task category_Project Name_Serial Number_PLA ID_Site name, e.g. PAT_KV_TRS-PSOW26-KV-0011_MIN2463_TCFGACGRANDAVAODDS. */
@@ -6482,7 +6690,9 @@
     }
     const foot = document.createElement('div'); foot.className = 'foot';
     const info = document.createElement('span');
-    info.textContent = !read ? (cloudErr ? `Sheet not read (${cloudErr})` : navigator.onLine ? 'Reading the online sheet…' : 'Offline: type a name below') : !rows.length ? 'No site listed for you: type a name below' : q && !list.length ? 'No match' : `${list.length < rows.length ? `${list.length} of ` : ''}${rows.length} from the online sheet`;
+    const area = [...myRegions(), ...myTerrs()].join(', '), hid = area ? visibleTasks(true).length - rows.length : 0; // v2.25
+    info.textContent = (!read ? (cloudErr ? `Sheet not read (${cloudErr})` : navigator.onLine ? 'Reading the online sheet…' : 'Offline: type a name below') : !rows.length ? 'No site listed for you: type a name below' : q && !list.length ? 'No match' : `${list.length < rows.length ? `${list.length} of ` : ''}${rows.length} from the online sheet`)
+      + (area ? ` · your area: ${area}${hid > 0 ? ` (${hid} other${hid === 1 ? '' : 's'} hidden)` : ''}` : '');
     const r = document.createElement('button'); r.type = 'button'; r.className = 'btn sm'; r.textContent = '↻'; r.setAttribute('aria-label', 'Read the online sheet again');
     r.addEventListener('click', async () => { info.textContent = 'Reading the online sheet…'; await cloudSync(true); renderSites(); showSites(true); });
     foot.append(info, r); L.appendChild(foot);
@@ -7518,7 +7728,7 @@
     if (S.dropSatTiles) { // v1.7: satellite imagery kept by older versions is removed (Esri allows offline imagery only in ArcGIS apps)
       try { await tx('tiles', 'readwrite', (st) => st.delete(IDBKeyRange.bound('satellite/', 'satellite/\uffff'))); delete S.dropSatTiles; persist(); } catch (e) { /* try again next start */ }
     }
-    if (pendingJoin || pendingKey || pendingJq || pendingMv) { await loadOrg(); await handleInvite(`${pendingJoin ? `#join=${pendingJoin}` : ''}${pendingKey ? `&ck=${pendingKey}` : ''}${pendingJq ? `&jq=${pendingJq}` : ''}${pendingMv ? `&mv=${pendingMv}` : ''}`, true); } else loadOrg(); // a link waits for the organisation check
+    if (pendingJoin || pendingKey || pendingJq || pendingMv) { await loadOrg(); await handleInvite(`${pendingJoin ? `#join=${pendingJoin}` : ''}${pendingKey ? `&${pendingKey}` : ''}${pendingJq ? `&jq=${pendingJq}` : ''}${pendingMv ? `&mv=${pendingMv}` : ''}`, true); } else loadOrg(); // a link waits for the organisation check
     if (!profileOk()) { if ($('profile').hidden) openProfile(true); }
     else if (!S.project && !/[?&]shared=1/.test(location.search)) askNewProject(); // photos are taken inside a project
     sharedListen(); // v2.19: a file opened with or shared to G-eSAA
@@ -7526,7 +7736,7 @@
     renderSyncBtn();
     cloudSync(false);
   })();
-  window.addEventListener('hashchange', () => { const h = location.hash; if (/[#&](join|ck|jq|mv)=/.test(h)) { history.replaceState(null, '', location.pathname + location.search); handleInvite(h, true); } });
+  window.addEventListener('hashchange', () => { const h = location.hash; if (/[#&](join|ck|ci|jq|mv)=/.test(h)) { history.replaceState(null, '', location.pathname + location.search); handleInvite(h, true); } });
   // Files handed to other apps through Share are temporary: clear them each time the APK starts.
   if (NATIVE) nativeCall('Filesystem', 'rmdir', { path: 'share', directory: 'CACHE', recursive: true }).catch(() => {});
   // The APK already carries every file, so the offline cache is only for the website version.

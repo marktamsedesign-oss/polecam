@@ -189,8 +189,8 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
   const PAGE_SIZES = { a4: [595.28, 841.89], letter: [612, 792] };
   class Pdf {
     constructor(o) { const sz = PAGE_SIZES[(o && o.size) || 'a4'] || PAGE_SIZES.a4; this.W = sz[0]; this.H = sz[1]; this.pages = []; this.images = []; this.page = null; this.files = []; }
-    /** v2.23: a file embedded in the PDF (the attachments panel of the PDF reader), with an optional paperclip on a page.
-        o.page: page index for the paperclip; o.rect: [x, y, w, h] from the top-left, in pt. */
+    /** v2.23: a file embedded in the PDF (the attachments panel of the PDF reader), with an optional click target on a page.
+        o.page: page index; o.rect: [x, y, w, h] from the top-left, in pt (v2.24: drawn by the page itself, see attachStamp). */
     attach(name, bytes, o = {}) { this.files.push({ name: String(name), bytes, mime: o.mime || 'application/octet-stream', desc: o.desc || '', page: o.page, rect: o.rect }); }
     addPage() { this.page = { ops: [] }; this.pages.push(this.page); return this.page; }
     op(s) { this.page.ops.push(s); }
@@ -227,9 +227,10 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
       const parts = []; let pos = 0; const offsets = [];
       const push = (x) => { const u = typeof x === 'string' ? latin1(x) : x; parts.push(u); pos += u.length; };
       const nImg = this.images.length, firstImg = 5, firstPage = firstImg + nImg;
-      // v2.23: each embedded file takes 3 objects (the file stream, its file specification, its paperclip annotation)
-      const firstFile = firstPage + this.pages.length * 2, fileObj = (i, k) => firstFile + i * 3 + k;
-      const nObj = firstFile + this.files.length * 3; // the info dict
+      // v2.23: each embedded file takes 4 objects (the file stream, its file specification, its annotation, v2.24: an empty
+      // appearance for the annotation, so that every reader shows the stamp drawn on the page and no icon of its own over it)
+      const firstFile = firstPage + this.pages.length * 2, fileObj = (i, k) => firstFile + i * 4 + k;
+      const nObj = firstFile + this.files.length * 4; // the info dict
       const infoObj = nObj;
       const d = new Date(), p2 = (x) => String(x).padStart(2, '0');
       const pdfDate = `D:${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
@@ -262,8 +263,9 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
         obj(fileObj(i, 1), () => push(`<< /Type /Filespec /F (${pdfEsc(f.name)}) /UF (${pdfEsc(f.name)}) /Desc (${pdfEsc(f.desc)}) /AFRelationship /Data /EF << /F ${fileObj(i, 0)} 0 R /UF ${fileObj(i, 0)} 0 R >> >>`));
         const r = f.rect || [0, 0, 0, 0];
         obj(fileObj(i, 2), () => push(f.page != null && f.rect
-          ? `<< /Type /Annot /Subtype /FileAttachment /Rect [${f2(r[0])} ${f2(this.H - r[1] - r[3])} ${f2(r[0] + r[2])} ${f2(this.H - r[1])}] /FS ${fsRefs[i]} /Name /Paperclip /Contents (${pdfEsc(f.desc || f.name)}) /T (G-eSAA) /C [0.1 0.44 0.76] /F 4 >>`
+          ? `<< /Type /Annot /Subtype /FileAttachment /Rect [${f2(r[0])} ${f2(this.H - r[1] - r[3])} ${f2(r[0] + r[2])} ${f2(this.H - r[1])}] /FS ${fsRefs[i]} /Name /Paperclip /Contents (${pdfEsc(f.desc || f.name)}) /T (G-eSAA) /C [0.1 0.44 0.76] /F 4 /AP << /N ${fileObj(i, 3)} 0 R >> >>`
           : '<< >>'));
+        obj(fileObj(i, 3), () => push(`<< /Type /XObject /Subtype /Form /BBox [0 0 ${f2(Math.max(1, r[2]))} ${f2(Math.max(1, r[3]))}] /Resources << >> /Length 0 >>\nstream\n\nendstream`));
       });
       obj(infoObj, () => push(`<< /Title (${pdfEsc(info && info.title || '')}) /Producer (G-eSAA) /CreationDate (${pdfDate}) >>`));
       const xref = pos;
@@ -451,15 +453,7 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
     }
 
     // ---- footers
-    if (model.attach) attachmentPage(pdf, model.attach.bytes, model.attach); // v2.23: the KMZ of this report, embedded
-    const total = pdf.pages.length;
-    pdf.pages.forEach((pg, i) => {
-      pdf.page = pg;
-      pdf.line(M, pdf.H - 34, pdf.W - M, pdf.H - 34, { color: [0.82, 0.85, 0.87] });
-      pdf.text(M, pdf.H - 28, model.footer, { size: 7.5, color: MUTED });
-      pdf.text(pdf.W - M, pdf.H - 28, `Page ${i + 1} of ${total}`, { size: 7.5, color: MUTED, align: 'right' });
-      if (model.footer2) pdf.text(M, pdf.H - 19, model.footer2, { size: 6.5, color: MUTED }); // who exported the file
-    });
+    reportFooters(pdf, model, M);
     return pdf;
   }
 
@@ -653,15 +647,7 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
     });
     y += 124;
 
-    if (model.attach) attachmentPage(pdf, model.attach.bytes, model.attach); // v2.23: the KMZ of this report, embedded
-    const total = pdf.pages.length;
-    pdf.pages.forEach((pg, i) => {
-      pdf.page = pg;
-      pdf.line(M, pdf.H - 34, pdf.W - M, pdf.H - 34, { color: [0.82, 0.85, 0.87] });
-      pdf.text(M, pdf.H - 28, model.footer, { size: 7.5, color: MUTED });
-      pdf.text(pdf.W - M, pdf.H - 28, `Page ${i + 1} of ${total}`, { size: 7.5, color: MUTED, align: 'right' });
-      if (model.footer2) pdf.text(M, pdf.H - 19, model.footer2, { size: 6.5, color: MUTED }); // who exported the file
-    });
+    reportFooters(pdf, model, M);
     return pdf;
   }
 
@@ -813,46 +799,78 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
       });
     });
 
-    if (model.attach) attachmentPage(pdf, model.attach.bytes, model.attach); // v2.23: the KMZ of this report, embedded
-    const total = pdf.pages.length;
-    pdf.pages.forEach((pg, i) => {
-      pdf.page = pg;
-      pdf.line(M, pdf.H - 34, pdf.W - M, pdf.H - 34, { color: [0.82, 0.85, 0.87] });
-      pdf.text(M, pdf.H - 28, model.footer, { size: 7.5, color: MUTED });
-      pdf.text(pdf.W - M, pdf.H - 28, `Page ${i + 1} of ${total}`, { size: 7.5, color: MUTED, align: 'right' });
-      if (model.footer2) pdf.text(M, pdf.H - 19, model.footer2, { size: 6.5, color: MUTED });
-    });
+    reportFooters(pdf, model, M);
     return pdf;
   }
 
   /** v2.23: the last page names the KMZ embedded in this PDF, what it holds and its SHA-256, with a paperclip to open it.
       o: { name, mb, sha256, title, lines: [text], note } */
-  function attachmentPage(pdf, bytes, o) {
-    const M = 36, CW = pdf.W - 2 * M;
-    pdf.addPage(); let y = M;
-    pdf.rect(M, y, 5, 34, { fill: ACCENT });
-    pdf.text(M + 14, y + 2, 'ATTACHED KMZ', { size: 15, bold: true, color: INK });
-    pdf.text(M + 14, y + 21, o.title || 'The map data of this report, for Google Earth', { size: 9.5, color: MUTED });
-    y += 52;
-    const clip = [M, y, 30, 30];
-    pdf.rect(M, y, 30, 30, { fill: [0.91, 0.94, 0.98], stroke: BLUE, lw: 1 });
-    pdf.text(M + 15, y + 9, 'KMZ', { size: 8, bold: true, color: BLUE, align: 'center' });
-    const nl = wrapText(o.name, CW - 44, 11, true);
-    nl.forEach((l, i) => pdf.text(M + 42, y + 2 + i * 14, l, { size: 11, bold: true, color: INK }));
-    pdf.text(M + 42, y + 4 + nl.length * 14, `${o.mb} MB · embedded in this PDF`, { size: 9, color: MUTED });
-    y += Math.max(40, 12 + nl.length * 14 + 14);
-    const kv = (k, v) => { const ls = wrapText(v, CW - 130, 9); pdf.text(M, y, k, { size: 9, bold: true, color: MUTED }); ls.forEach((l, i) => pdf.text(M + 130, y + i * 12, l, { size: 9, color: INK })); y += Math.max(1, ls.length) * 12 + 6; };
-    (o.lines || []).forEach(([k, v]) => kv(k, v));
-    kv('SHA-256', o.sha256);
-    y += 8;
-    const how = ['How to get it: in Adobe Acrobat Reader (computer or phone), Foxit or Firefox, open the attachments panel (the paperclip) or click the paperclip box above, then save or open the KMZ. Open it in Google Earth (Pro, web or the app).',
-      'Some built-in viewers (Chrome, Edge, phone gallery or file apps) do not show attachments: use one of the readers above.',
-      'To check it is the same file: its SHA-256 (for example with "certutil -hashfile file.kmz SHA256" on Windows or "shasum -a 256 file.kmz" on Mac) must equal the one above. The counts above are from the same records as this report.'];
-    if (o.note) how.push(o.note);
-    how.forEach((t) => { wrapText(t, CW, 9).forEach((l) => { pdf.text(M, y, l, { size: 9, color: INK }); y += 12; }); y += 6; });
-    pdf.attach(o.name, bytes, { mime: 'application/vnd.google-earth.kmz', desc: o.desc || `KMZ for Google Earth: ${o.name}`, page: pdf.pages.length - 1, rect: clip });
+  /* ---------------- v2.24: the attached KMZ as a small stamp at the lower right of the first page ---------------- */
+  /** h: the stamp's height; maxText: the widest line in it (pt) */
+  const STAMP = { h: 23, maxText: 200 };
+  /** a line of text cut to a width, with an ellipsis */
+  const fitLine = (str, w, size, bold) => { let t = String(str || ''); if (textWidth(t, size, bold) <= w) return t; while (t.length > 1 && textWidth(t + '\u2026', size, bold) > w) t = t.slice(0, -1); return t.replace(/\s+$/, '') + '\u2026'; };
+  /** A footer line in the width left of the stamp: smaller type (down to 5.5 pt), else two lines. */
+  function footerLines(str, w, size) {
+    const t = String(str || '');
+    for (let z = size; z >= 5.5; z -= 0.5) if (textWidth(t, z) <= w) return { lines: [t], size: z };
+    const ls = wrapText(t, w, 5.5); // two lines (an extremely long one is cut at the end of the second)
+    return { lines: ls.length <= 2 ? ls : [ls[0], fitLine(ls.slice(1).join(' '), w, 5.5)], size: 5.5 };
+  }
+  /** The footer of every report page; v2.24: on the first page, the KMZ stamp at the lower right, with the footer line and the
+      page number ending just before it. */
+  function reportFooters(pdf, model, M) {
+    const total = pdf.pages.length, sb = model.attach ? attachStamp(pdf, model.attach.bytes, model.attach, pdf.W - M, pdf.H - 38) : null;
+    pdf.pages.forEach((pg, i) => {
+      pdf.page = pg;
+      const right = i === 0 && sb ? sb.x - 8 : pdf.W - M, pn = `Page ${i + 1} of ${total}`;
+      pdf.line(M, pdf.H - 34, i === 0 && sb ? sb.x - 6 : pdf.W - M, pdf.H - 34, { color: [0.82, 0.85, 0.87] });
+      pdf.text(M, pdf.H - 28, fitLine(model.footer, right - M - textWidth(pn, 7.5) - 12, 7.5), { size: 7.5, color: MUTED });
+      pdf.text(right, pdf.H - 28, pn, { size: 7.5, color: MUTED, align: 'right' });
+      if (model.footer2) { // who exported the file
+        const f = i === 0 && sb ? footerLines(model.footer2, right - M, 6.5) : { lines: [model.footer2], size: 6.5 };
+        f.lines.forEach((l, k) => pdf.text(M, pdf.H - (f.lines.length > 1 ? 20 : 19) + k * 6.5, l, { size: f.size, color: MUTED }));
+      }
+    });
+  }
+  /** a small paperclip, 5.8 x 12.8 units of s pt, at x, y (top-left) */
+  function clipIcon(pdf, x, y, s, color) {
+    const k = 0.5523, P = (u, v) => `${f2(x + u * s)} ${f2(pdf.H - (y + v * s))}`;
+    const top = (cx, cy, r) => `${P(cx - r, cy - k * r)} ${P(cx - k * r, cy - r)} ${P(cx, cy - r)} c ${P(cx + k * r, cy - r)} ${P(cx + r, cy - k * r)} ${P(cx + r, cy)} c`;
+    const bot = (cx, cy, r) => `${P(cx + r, cy + k * r)} ${P(cx + k * r, cy + r)} ${P(cx, cy + r)} c ${P(cx - k * r, cy + r)} ${P(cx - r, cy + k * r)} ${P(cx - r, cy)} c`;
+    pdf.op(`q ${pdf.color(color, true)} ${f2(0.75 * s)} w 1 J 1 j ${P(2.2, 9.5)} m ${P(2.2, 3.2)} l ${top(3.2, 3.2, 1)} ${P(4.2, 11)} l ${bot(2.4, 11, 1.8)} ${P(0.6, 2.6)} l ${top(3.2, 2.6, 2.6)} ${P(5.8, 9)} l S Q`);
+  }
+  /** v2.24: the KMZ of this report, embedded in the PDF and shown as a low-profile stamp at the lower right of the first page:
+      the file name and size, what it holds (o.short) and its SHA-256, in small text. The whole stamp is the file's click target
+      (Adobe Acrobat Reader, Foxit, Firefox); the PDF also opens on its attachments panel where the reader supports it.
+      right: the stamp's right edge; top: its top (pt, from the top-left). */
+  function attachStamp(pdf, bytes, o, right, top) {
+    const keep = pdf.page; pdf.page = pdf.pages[0];
+    const T = STAMP.maxText, ell = '\u2026', fit = (str, size, bold) => fitLine(str, T, size, bold);
+    const head = 'KMZ ATTACHED', gap = textWidth(head + ' ', 6, true), tail = ` \u00b7 ${o.mb} MB`;
+    let name = String(o.name || 'map.kmz');
+    if (gap + textWidth(name + tail, 6) > T) { // a long name: keep its start and its end (the date, .kmz), shorten the middle
+      const n0 = name; let k = n0.length - 1;
+      const cut = (k) => n0.slice(0, Math.ceil(k / 2)) + ell + n0.slice(n0.length - Math.floor(k / 2));
+      while (k > 8 && gap + textWidth(cut(k) + tail, 6) > T) k--;
+      name = cut(k);
+    }
+    const l2 = fit(o.short, 5.5, false), l3 = fit(`SHA-256 ${o.sha256 || ''}`, 5, false);
+    const pad = 4, icon = 9, h = STAMP.h;
+    const w = pad + icon + Math.max(gap + textWidth(name + tail, 6), textWidth(l2, 5.5), textWidth(l3, 5)) + pad, x = right - w, y = top;
+    pdf.rect(x, y, w, h, { fill: [0.955, 0.97, 0.99], stroke: [0.62, 0.71, 0.82], lw: 0.5 });
+    clipIcon(pdf, x + pad, y + (h - 12.8 * 0.95) / 2, 0.95, BLUE);
+    const tx = x + pad + icon;
+    pdf.text(tx, y + 3.2, head, { size: 6, bold: true, color: ACCENT });
+    pdf.text(tx + gap, y + 3.2, name + tail, { size: 6, color: INK });
+    pdf.text(tx, y + 10, l2, { size: 5.5, color: INK });
+    pdf.text(tx, y + 16.2, l3, { size: 5, color: MUTED });
+    const desc = `${o.desc || `KMZ for Google Earth: ${o.name}`}. Open or save it from the attachments (paperclip) in Adobe Acrobat Reader, Foxit or Firefox. SHA-256 ${o.sha256 || ''}`;
+    pdf.attach(o.name, bytes, { mime: 'application/vnd.google-earth.kmz', desc, page: 0, rect: [x, y, w, h] });
+    pdf.page = keep;
+    return { x, y, w, h };
   }
 
-  const api = { attachmentPage, buildXlsxParts, xstyle, Pdf, punchlistPdf, rectificationPdf, completionPdf, acceptanceKml, csv, textWidth, wrapText, jpegInfo, pdfEsc, STYLES, colName, RED, GREEN, BLUE, MUTED, INK, ACCENT };
+  const api = { attachStamp, STAMP, fitLine, footerLines, buildXlsxParts, xstyle, Pdf, punchlistPdf, rectificationPdf, completionPdf, acceptanceKml, csv, textWidth, wrapText, jpegInfo, pdfEsc, STYLES, colName, RED, GREEN, BLUE, MUTED, INK, ACCENT };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleReports = api;
 })(typeof self !== 'undefined' ? self : this);

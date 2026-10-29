@@ -135,7 +135,7 @@ body.visiting #mapSummary{display:none}
 #captureBtn svg{width:30px;height:30px}
 /* camera button on the right or left for one-hand use (Settings → Camera) */
 body.hand-right #captureBtn{order:9}body.hand-left #captureBtn{order:-1}
-body.hand-center #captureBtn{order:2}body.hand-center #settingsBtn{order:3;flex:2}
+body.hand-center #captureBtn{order:2}body.hand-center #settingsBtn{order:3}body.hand-center #tutorialBtn{order:4}
 #camBar #camNative{grid-area:1/1}#camBar #shutter{grid-area:1/2}#camBar #camTorch{grid-area:1/3}
 body.hand-right #camBar #camTorch{grid-area:1/2}body.hand-right #camBar #shutter{grid-area:1/3}
 body.hand-left #camBar #shutter{grid-area:1/1}body.hand-left #camBar #camNative{grid-area:1/2}
@@ -176,6 +176,25 @@ textarea{min-height:90px;resize:vertical}
 #wfSteps{display:flex;flex-direction:column}.step{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line2)}.step:last-child{border-bottom:0}.step .n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:calc(12px * var(--fs));font-weight:700;background:var(--chip);color:var(--muted);flex:none;margin-top:1px}.step.done .n{background:var(--ok);color:#fff}.step.now .n{background:var(--accent);color:var(--accent-ink)}.step .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.step b{font-size:calc(14px * var(--fs))}.step span{font-size:calc(12.5px * var(--fs));color:var(--muted)}.step.done b{color:var(--muted);font-weight:600}
 details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-size:calc(12.5px * var(--fs));font-weight:700;color:var(--accent);display:inline-flex;align-items:center;gap:4px;padding:2px 0}details.help>summary::-webkit-details-marker{display:none}details.help>summary::before{content:"i";display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1.5px solid var(--accent);font-size:calc(11px * var(--fs));font-style:italic;font-family:Georgia,serif}details.help[open]>summary{margin-bottom:6px}details.help .hint{margin-bottom:6px}details.help .hint:last-child{margin-bottom:0}
 .warnline{font-size:calc(13px * var(--fs));color:var(--warn);margin:0;font-weight:600}
+.keystate{margin:2px 0 4px;font-weight:700;font-size:calc(14px * var(--fs))}
+/* v2.25 tutorial */
+.tutsearch{display:flex;gap:8px;align-items:center}.tutsearch input{flex:1;min-width:0}
+#tutAud{margin:2px 0}
+.tutcat{margin:14px 0 6px;font-size:calc(12px * var(--fs));font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.tuttopic{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:0 0 8px;color:var(--ink);font:inherit}
+.tuttopic b{font-size:calc(15px * var(--fs))}.tuttopic span{font-size:calc(12.5px * var(--fs));color:var(--muted)}
+.tuttopic .aud{font-size:calc(11px * var(--fs));font-weight:800;color:var(--accent);letter-spacing:.04em}
+.tuttopic mark,.tutsteps mark{background:#ffe066;color:inherit;border-radius:3px;padding:0 1px}
+.tutsteps{list-style:none;margin:8px 0 0;padding:0;counter-reset:st}
+.tutsteps li{counter-increment:st;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px 10px 44px;margin:0 0 10px;font-size:calc(14.5px * var(--fs));line-height:1.45}
+.tutsteps li::before{content:counter(st);position:absolute;left:12px;top:10px;width:24px;height:24px;border-radius:50%;background:var(--navy);color:#fff;display:grid;place-items:center;font-size:calc(12px * var(--fs));font-weight:800}
+.tutsteps li.cur{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.tutsteps .show{margin-top:8px}
+.tutnav{display:flex;gap:8px;margin-top:6px}.tutnav .btn{flex:1}
+#tutSpot{position:fixed;z-index:4000;border:3px solid #ffd43b;border-radius:12px;box-shadow:0 0 0 9999px rgba(0,0,0,.5);pointer-events:none;animation:tutPulse 1.2s ease-in-out infinite}
+@keyframes tutPulse{50%{border-color:#fff;transform:scale(1.03)}}
+#tutTip{position:fixed;z-index:4001;left:12px;right:12px;max-width:440px;margin:0 auto;background:var(--surface);color:var(--ink);border-radius:14px;padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,.35);font-size:calc(14.5px * var(--fs));line-height:1.45}
+#tutTip .row{margin-top:10px;display:flex;gap:8px;justify-content:flex-end}#tutTip .hint{margin-top:6px}
 .warnline.bad{color:var(--bad)}
 .req{color:var(--bad);font-weight:700}
 .field.invalid select,.field.invalid input,.field.invalid textarea{border-color:var(--bad);box-shadow:0 0 0 2px rgba(201,42,42,.15)}
@@ -545,6 +564,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9.3 9.2a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.4-2.7 4.1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17.6" r="1.2" fill="currentColor"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
 </svg>
 <div id="photoView" hidden role="dialog" aria-label="Photo"><button type="button" id="pvClose" aria-label="Close photo">×</button><div id="pvScroll"><img id="pvImg" alt=""></div><p id="pvCap"></p><div id="pvTools" hidden><button type="button" class="btn" id="pvBox">▭ Red box</button><button type="button" class="btn" id="pvPole">⊥ Model</button><button type="button" class="btn" id="pvRead">🔍 Read ID</button></div><i id="pvMark" hidden></i><p id="pvHint" style="opacity:.7">Tap the photo to zoom in or out · × or Back to close</p></div>
@@ -585,6 +605,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <button id="captureBtn" aria-label="Capture"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
     <button class="navbtn" id="exportBtn"><svg><use href="#i-export"/></svg>Export</button>
     <button class="navbtn" id="settingsBtn"><svg><use href="#i-gear"/></svg>Settings</button>
+    <button class="navbtn" id="tutorialBtn"><svg><use href="#i-help"/></svg>Tutorial</button>
   </nav>
 </div>
 
@@ -897,7 +918,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <p class="hint" id="teamMini" hidden></p>
     <p class="hint" id="cloudInfo" hidden></p>
     <label class="field" id="syncModeBox" hidden>SYNC WITH THE ONLINE SHEET<select id="setSync"><option value="change">On every change (recommended)</option><option value="hour">Every hour</option><option value="manual">Only when I tap Sync</option></select></label>
-    <div id="companyKeyBox" class="row" hidden><input type="text" id="companyKey" placeholder="Company access key (from your admin)" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Company access key" style="flex:1"><button class="btn sm" id="companyKeySave" type="button">Save key</button></div>
+    <div id="companyKeyBox" hidden><p class="hint" style="margin:0">The online sheet asks for your company: join with the invite from your admin or a coworker (QR code or link).</p><div class="row"><button class="btn sm primary" id="companyKeyScan" type="button">Scan invite QR</button><button class="btn sm" id="companyKeyPaste" type="button">Paste invite link</button></div></div>
     <div class="row">
       <button class="btn sm" id="teamUpdate" type="button">Update list</button>
       <button class="btn sm" id="teamShare" type="button">Share list</button>
@@ -1211,11 +1232,19 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <label class="field">MOBILE NUMBER <input type="tel" id="pfMobile" autocomplete="tel" inputmode="tel" placeholder="e.g. 0917 123 4567"></label>
     <label class="field">EMAIL <input type="email" id="pfEmail" autocomplete="email" inputmode="email" autocapitalize="off" placeholder="name@company.com"></label>
     <div class="field" id="pfKeyBox" hidden>
-      <span class="lbl">COMPANY KEY</span>
-      <div class="row" style="flex-wrap:nowrap"><input type="text" id="pfKey" placeholder="e.g. 7KQ4-MX2P-9TRW" autocomplete="off" autocapitalize="characters" spellcheck="false" style="flex:1" aria-label="Company key"><button class="btn" id="pfKeyScan" type="button" aria-label="Scan an invite QR code">QR</button></div>
-      <p class="hint" id="pfKeyInfo">From your admin, or scan a coworker's invite QR code.</p>
+      <span class="lbl">COMPANY INVITE</span>
+      <p class="keystate" id="pfKeyState">No invite yet</p>
+      <div class="row" id="pfKeyBtns"><button class="btn grow primary" id="pfKeyScan" type="button">Scan invite QR</button><button class="btn grow" id="pfKeyPaste" type="button">Paste invite link</button></div>
+      <p class="hint" id="pfKeyInfo">Scan the invite QR code, or open or paste the invite link, from your admin or a coworker.</p>
     </div>
     <div class="field" id="pfCoBox"><span class="lbl">COMPANY</span><select id="pfCompany"></select><p class="hint" id="pfTeam"></p></div>
+    <div class="field" id="pfAreaBox">
+      <span class="lbl">REGION (select all that apply)</span>
+      <div class="chips" id="pfRegions" role="group" aria-label="Region"></div>
+      <span class="lbl" style="margin-top:8px">TERRITORY (select all that apply)</span>
+      <div class="chips" id="pfTerrs" role="group" aria-label="Territory"></div>
+      <p class="hint" id="pfAreaInfo">Only the online sheet's projects in your regions and territories are listed for you. None selected: all.</p>
+    </div>
     <div class="group" id="pfJoin" hidden>
       <h3>Join your team</h3>
       <p class="hint" id="pfJoinText">Open the join link your admin sent you, or scan the admin’s QR code.</p>
@@ -1225,6 +1254,31 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <p class="warnline" id="pfErr" hidden></p>
   </div>
   <div class="foot"><button class="btn primary grow" id="pfSave" type="button">Save</button></div>
+</section>
+
+<!-- v2.25 tutorial -->
+<section class="sheet" id="tutorial" hidden aria-labelledby="tutTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="tutTitle">Tutorial</h2>
+  </header>
+  <div class="body">
+    <div class="tutsearch"><input type="search" id="tutQ" placeholder="Search a topic, e.g. invite, FAT, offline map" autocomplete="off" aria-label="Search the tutorial"><button class="btn primary" id="tutGo" type="button">Search</button></div>
+    <div class="chips" id="tutAud" role="group" aria-label="Guide" hidden><button class="chip small" type="button" data-aud="user" aria-pressed="true">User guide</button><button class="chip small" type="button" data-aud="admin" aria-pressed="false">Admin guide</button></div>
+    <p class="hint" id="tutWho"></p>
+    <div id="tutList"></div>
+  </div>
+</section>
+<section class="sheet" id="tutTopic" hidden aria-labelledby="tutTopicTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back to the topics"><svg><use href="#i-back"/></svg></button>
+    <h2 id="tutTopicTitle">Topic</h2>
+  </header>
+  <div class="body">
+    <p class="hint" id="tutTopicCat"></p>
+    <ol class="tutsteps" id="tutSteps"></ol>
+    <div class="tutnav"><button class="btn" id="tutPrev" type="button">‹ Previous topic</button><button class="btn" id="tutNext" type="button">Next topic ›</button></div>
+  </div>
 </section>
 
 <!-- administration -->
@@ -1258,6 +1312,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <label class="field">ADMIN USERS: email of each admin / inspector, one per line. Blank = anyone of the admin company with the PIN<textarea id="admUsers" style="min-height:64px" placeholder="name@globe.com.ph" autocapitalize="off" spellcheck="false"></textarea></label>
         <div class="row"><button class="btn" id="admChangePin" type="button">Change the admin PIN</button></div>
         <p class="hint help">Give the admin PIN only to staff of the admin company. Change it when someone leaves: phones that take the new list version need the new PIN.</p>
+      </div>
+      <div class="group" id="admInvBox">
+        <h3>Invite a company's users (company keys)</h3>
+        <p class="hint" style="margin:0">Where the online sheet uses company keys, users never see or type a key: they join only with an <b>invite QR code or link</b>. Copy one company's key from the sheet's <b>CompanyKeys</b> tab, paste it here and tap <b>Make the invite</b>, then show the QR code or send the link to the first user of that company. That user then invites coworkers (Settings → Invite a coworker). The key is not shown again, and is hidden in the link.</p>
+        <div class="row" style="flex-wrap:nowrap"><input type="password" id="admInvKey" autocomplete="new-password" autocapitalize="characters" spellcheck="false" placeholder="Paste the company key (hidden)" aria-label="Company key from the CompanyKeys tab" style="flex:1"><button class="btn" id="admInvMake" type="button">Make the invite</button></div>
+        <p class="hint" id="admInvInfo" style="margin:0"></p>
       </div>
       <div class="group">
         <h3>Deficiency List form and report logos</h3>
@@ -1362,6 +1422,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 <script src="core.js"></script>
 <script src="reports.js"></script>
 <script src="forms.js"></script>
+<script src="tutorial.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
