@@ -309,6 +309,7 @@
       if (el !== 'Pole') lines.push(xmlEsc([el, p.statusLabel || p.status, p.closureId ? `closure ${p.closureId}` : ''].filter(Boolean).join(' · ')));
       if (!onPhoto.has('id') && p.poleType) lines.push(`${xmlEsc(p.poleType)} pole${el === 'Pole' && p.status ? ` · ${xmlEsc(p.statusLabel || p.status)}` : ''}`);
       else if (el === 'Pole' && p.status) lines.push(xmlEsc(p.statusLabel || p.status));
+      if (p.boqText) lines.push(`Size: ${xmlEsc(p.boqText)}`);
       if (p.detailsText) lines.push(`Details: ${xmlEsc(p.detailsText)}`);
       if (p.remarks) lines.push(xmlEsc(p.remarks));
       if (p.boxes) lines.push('Red box marked on the photo');
@@ -321,6 +322,7 @@
         `<Data name="element"><value>${xmlEsc(el)}</value></Data><Data name="status"><value>${xmlEsc(p.status || '')}</value></Data>` +
         (p.closureId ? `<Data name="closure_id"><value>${xmlEsc(p.closureId)}</value></Data>` : '') + (p.remarks ? `<Data name="remarks"><value>${xmlEsc(p.remarks)}</value></Data>` : '') +
         (p.detailsText ? `<Data name="pole_details"><value>${xmlEsc(p.detailsText)}</value></Data>` : '') +
+        BOQ_COLS.filter((c) => p.boq && p.boq[c[0]]).map((c) => `<Data name="${c[1]}"><value>${xmlEsc(p.boq[c[0]])}</value></Data>`).join('') +
         `<Data name="captured"><value>${xmlEsc(p.takenAt)}</value></Data><Data name="accuracy_m"><value>${Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : ''}</value></Data></ExtendedData>` +
         `<Point><coordinates>${p.lon.toFixed(8)},${p.lat.toFixed(8)},0</coordinates></Point></Placemark>`);
     }
@@ -566,16 +568,18 @@
     return (o.version || (o.photos ? 'R2000' : 'R12')) === 'R2000' ? dxfR2000(G) : dxfR12(G);
   }
 
+  /* v2.26: the BOQ / BOM sizes of a point (p.boq) in the CSV and the KMZ data */
+  const BOQ_COLS = [['owner', 'pole_owner'], ['clamp', 'clamp_size'], ['height', 'new_pole_size'], ['cls', 'pole_class'], ['odf', 'odf_size'], ['conn', 'odf_connector'], ['clo', 'closure_size'], ['cloSt', 'closure_status']];
   /* ---------------- CSV ---------------- */
   function buildCsv(points, zone, exportedBy) {
     const q = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const rows = [['pole_id', 'pole_type', 'latitude', 'longitude', `utm${zone}n_easting`, `utm${zone}n_northing`, 'gps_accuracy_m', 'pin_adjusted', 'captured', 'photo', 'surveyed_by',
-      'element', 'status', 'closure_id', 'remarks', 'red_box', 'pole_details', ...(exportedBy ? ['exported_by'] : [])]];
+      'element', 'status', 'closure_id', 'remarks', 'red_box', 'pole_details', ...BOQ_COLS.map((c) => c[1]), ...(exportedBy ? ['exported_by'] : [])]];
     for (const p of points) {
       const u = utmForward(p.lat, p.lon, zone, p.lat < 0);
       rows.push([p.poleId, p.poleType, p.lat.toFixed(8), p.lon.toFixed(8), u.E.toFixed(3), u.N.toFixed(3),
         Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : '', p.adjusted ? 'yes' : 'no', p.takenAt, p.photoName || '', p.by || '',
-        p.element || 'Pole', p.status || '', p.closureId || '', p.remarks || '', p.boxes ? 'yes' : 'no', p.detailsText || '', ...(exportedBy ? [exportedBy] : [])]);
+        p.element || 'Pole', p.status || '', p.closureId || '', p.remarks || '', p.boxes ? 'yes' : 'no', p.detailsText || '', ...BOQ_COLS.map((c) => (p.boq && p.boq[c[0]]) || ''), ...(exportedBy ? [exportedBy] : [])]);
     }
     return '﻿' + rows.map((r) => r.map(q).join(',')).join('\r\n') + '\r\n';
   }

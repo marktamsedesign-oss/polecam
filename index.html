@@ -178,6 +178,8 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .warnline{font-size:calc(13px * var(--fs));color:var(--warn);margin:0;font-weight:600}
 .keystate{margin:2px 0 4px;font-weight:700;font-size:calc(14px * var(--fs))}
 /* v2.25 tutorial */
+.boq .boqrow{margin:6px 0 2px}.boq .boqrow .lbl{display:block;margin-bottom:4px}.boq .chips{gap:6px}.boq .chip{min-height:36px;padding:0 12px}
+.boq .chip[aria-pressed="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
 .tutsearch{display:flex;gap:8px;align-items:center}.tutsearch input{flex:1;min-width:0}
 #tutAud{margin:2px 0}
 .tutcat{margin:14px 0 6px;font-size:calc(12px * var(--fs));font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
@@ -399,6 +401,16 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .tmfil .chip.small{min-height:34px;padding:0 12px;font-size:calc(13px * var(--fs))}
 .tmfil .chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .tasklist{display:flex;flex-direction:column;gap:8px}
+/* v2.26: Share, Folder and Delete on every project */
+.tmtools{display:flex;gap:6px;flex-wrap:wrap}
+.tmtool{flex:1 1 0;min-width:84px;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-weight:700;font-size:calc(13px * var(--fs));cursor:pointer}
+.tmtool svg{width:18px;height:18px;flex:none}.tmtool:active{background:var(--soft)}
+.tmtool.del{color:var(--bad)}.tmtool.share{color:var(--accent)}
+.taskcard{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.taskcard{border-left:5px solid #adb5bd}.taskcard .task{border:0;border-radius:0}
+.taskcard.k-pat{border-left-color:#f2b705}.taskcard.k-cleanup{border-left-color:#fd7e14}.taskcard.k-fat{border-left-color:#2f9e44}.taskcard.k-survey{border-left-color:var(--accent)}
+.taskcard .tmtools{padding:0 10px 10px 12px;gap:6px}.taskcard .tmtool{min-height:34px;min-width:70px;font-size:calc(12.5px * var(--fs))}
+.badge.sample{background:#7048e8;color:#fff;align-self:flex-start;width:max-content;flex:none}
 .task{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-left:5px solid #adb5bd;border-radius:var(--r);padding:10px 12px;font:inherit;cursor:pointer}
 .task:active{background:var(--soft)}
 .task.k-pat{border-left-color:#f2b705}.task.k-cleanup{border-left-color:#fd7e14}.task.k-fat{border-left-color:#2f9e44}.task.k-survey{border-left-color:var(--accent)}
@@ -697,6 +709,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <label class="frow" id="svClosureBox" hidden><span class="lbl">CLOSURE ID</span><input type="text" id="svClosureId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="If a closure is inside (POI)" aria-label="Closure ID in the handhole"></label>
       <div class="field" id="svDetailsBox" hidden><span class="lbl">POLE DETAILS</span><div id="svDetails" class="pdlist"></div>
         <select id="svDetailAdd" aria-label="Add a pole detail"><option value="">+ Add detail</option></select></div>
+      <div class="field boq" id="boqBox" hidden><span class="lbl">SIZE · FOR THE BOQ / BOM</span><div id="boqRows"></div><p class="hint" style="margin:0">Optional. Tap the size; tap it again to clear.</p></div>
       <label class="field" id="svRemarksBox" hidden>REMARKS<textarea id="svRemarks" placeholder="Optional: condition, what to use, access, findings of the audit"></textarea></label>
     </div>
     <div class="group" id="poleAttach" hidden>
@@ -825,8 +838,16 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="head"><span class="ic">CSV</span><div><b>Punchlist · CSV</b><p>The punchlist table as plain text, for your acceptance tracker.</p></div></div>
         <button class="btn" id="doAccCsv">Export CSV</button>
       </div>
+      <div class="xcard">
+        <div class="head"><span class="ic">BOQ</span><div><b>BOQ / BOM sizes · Excel</b><p>Poles, clamps, ODF and closures counted by size (as recorded in each element), with the IDs, and what has no size yet.</p></div></div>
+        <button class="btn" id="doAccBoq">Export BOQ</button>
+      </div>
     </div>
     <div id="surveyExports" style="display:contents">
+    <div class="xcard">
+      <div class="head"><span class="ic">BOQ</span><div><b>BOQ / BOM sizes · Excel</b><p>New Globe poles by size and class, clamps by size and pole owner, ODF by size and connector, closures by size, with the IDs, and what has no size yet.</p></div></div>
+      <button class="btn" id="doBoq">Export BOQ</button>
+    </div>
     <div class="xcard">
       <div class="head"><span class="ic">KMZ</span><div><b>Google Earth · KMZ</b><p>Pins named by Pole ID, the photo in each balloon, optional photo pin icons and the cable route.</p></div></div>
       <details><summary>Options</summary><div class="opts">
@@ -1067,6 +1088,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <div class="tmhead"><span class="badge cat" id="projBadge">SURVEY</span><span class="tmstate" id="tmState"></span><span class="grow"></span><span class="tmopen">Open now</span></div>
       <h3 class="tmname" id="curName"></h3>
       <span class="tmsub" id="curSub"></span>
+      <div class="tmtools" id="curTools" role="group" aria-label="This project"></div>
       <button class="tmprog" id="tmStepsBtn" type="button" aria-expanded="false" aria-controls="wfSteps"><span class="bar"><i id="tmBar"></i></span><span id="tmProgTxt"></span></button>
       <div id="wfSteps" hidden></div>
       <button class="btn primary" id="wfNext" type="button">Next</button>
@@ -1121,6 +1143,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="tmtools">
       <button class="btn" id="openShared" type="button" title="A PAT or cleanup KMZ, a backup ZIP, or several projects from a colleague">📂 Open a shared file</button>
       <button class="btn" id="bulkShareBtn" type="button" title="Several projects in one file, for a colleague of your company">📤 Share several projects</button>
+      <button class="btn" id="addSampleBtn" type="button" title="A sample survey to try the screens, exports and the tutorial (no real data)" hidden>📘 Add the sample project</button>
       <input type="file" id="sharedInput" accept=".kmz,.zip,application/vnd.google-earth.kmz,application/zip,application/x-zip-compressed,application/octet-stream" hidden>
     </div>
   </div>
@@ -1355,6 +1378,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="row"><label class="field" style="flex:1">Maximum span (m)<input type="number" id="setMaxSpan" step="1" min="5"></label><label class="field" style="flex:1">Angle pole from (°)<input type="number" id="setAngle" step="1" min="1" max="90"></label></div>
         <label class="field">Link in capture order: skip gaps longer than (m)<input type="number" id="setAutoGap" step="5" min="10"></label>
         <label class="field">Extra pole prefixes for everyone, one per line (prefix, then a name)<textarea id="admPoleTypes" style="min-height:60px" placeholder="PLDT PLDT pole"></textarea></label>
+        <label class="field">Pole owners for the BOQ besides Electric, PLDT, DITO and CONVERGE, one per line<textarea id="admPoleOwners" style="min-height:52px" placeholder="e.g. SKYCABLE"></textarea></label>
         <label class="check"><input type="checkbox" id="admVendorRec"><span>Vendors record PAT defects and accept fixes at FAT (the Globe representative signs the printed form). Off: only the admin company does.</span></label>
         <label class="field">Photo sharpness required<select id="admQuality"><option value="strict">Strict (recommended)</option><option value="normal">Normal: refuse only clearly blurry</option></select></label>
       </div>

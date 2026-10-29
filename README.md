@@ -367,6 +367,8 @@ Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v2.1.1`), and upload 
 | `reports.js` | Excel (.xlsx, with pictures and page setup) and PDF writers, rectification report, acceptance KML (no dependencies) |
 | `forms.js` | The Deficiency List office form as PDF (with Annex A/B) and as an Excel sheet |
 | `brand/logo-left.jpg`, `brand/logo-right.jpg` | Logos printed on the form and reports when the admin has not uploaded others |
+| `tutorial.js` | The Tutorial's topics and steps (v2.25) |
+| `sample/G-eSAA_sample.zip` | The sample project a new phone gets (v2.26) |
 | `glyphs.js` | The ID reader's character network (v2.20): its weights, about 140 KB; read by `core.js` |
 | `tools/glyph-training/` | The scripts that trained it (Python); not needed by the app |
 | `ocr-worker.js`, `vendor/tesseract/` | Offline Pole ID reader: Tesseract OCR (tesseract.js-core v7.0.0) and the English model from tessdata_fast, both Apache-2.0 |
@@ -519,6 +521,26 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.26
+
+- **Sample project for a new user.** The first time the app opens on a phone (no project yet), it adds **SAMPLE_Survey_As-plan**: 5 existing poles with photos, pole details and sizes, marked **SAMPLE** on its card. It is made from the dummy project you sent (`sample/G-eSAA_sample.zip`): the people, company, vendor, task ID, Drive link and serial were replaced with *Sample user*, *SAMPLE*, *SAMPLE VENDOR*, *123*; the photos were re-saved at 1200 × 1600 without their EXIF data. The **photos and the GPS positions are still the real ones** (Davao area, Region MIN / T7), and the file is on the public website: replace `sample/G-eSAA_sample.zip` with another export (Projects → Share → Project file) if that is not wanted.
+  - It is not opened by itself: the user picks it from Projects. **Delete** removes it at once (no admin approval) and it never goes to the online sheet. **📘 Add the sample project** (bottom of Projects) brings it back.
+- **Projects: Share, Folder and Delete on every card.** The open project shows **Share** and **Delete** under its name (Project details no longer has to be opened), and every project in the list has its own **Share**, **Folder** (when the online sheet gives it a Google Drive folder) and **Delete**.
+  - **Share**: the project file (records and photos, opened in G-eSAA with *Open a shared file*); on a PAT / defect cleanup / FAT project you choose the project file or the PAT / cleanup KMZ. *Share several projects* stays at the bottom.
+  - **Delete** on another project's card deletes that project only (the open one stays open); a completed project still needs the admin's approval, as before.
+- **Invites: a short link and a small QR code.** Where the online sheet holds the company list (the admin saved it with the Admin key), the invite link names the sheet and the list instead of carrying the whole list, so the QR code is small (a few hundred characters instead of several thousand: no more *Too much for one QR code*) and messaging apps do not cut the link. The invited phone downloads the list from the sheet (it needs internet once) and checks it is that list, signed by the admin.
+  - **The invited user is not asked for a QR code or a link again**: opening the link goes straight to *Invite received*: name, mobile, email, Save. A phone that joined this way makes short invites for its coworkers too.
+  - Without the sheet (or an app tied to it with `org.json`), the invite still carries the list, as before.
+- **Open in the G-eSAA app.** A G-eSAA link (invite, join, move) opened in a browser on Android asks *Open in the G-eSAA app?*: the app opens with the invite (its details and projects are separate from the browser's). *Continue in this browser* is remembered on that browser. **The APK must be rebuilt** with the new `build-apk.yml` for the app to receive these links; an older APK does not, and a phone without the app falls back to the website.
+- **Sizes for the BOQ / BOM** in each record (*Size · for the BOQ / BOM*, under Identification; tap a size, tap it again to clear; optional):
+  - **Existing pole** (survey): **owner** — Electric, PLDT, DITO, CONVERGE, the admin's extra owners, or **+ Other** (typed once, kept on that phone) — and **clamp size** 5-7, 8-9, 10-12.
+  - **Proposed / new Globe pole** (survey): **size** 7.5m, 9.14m, 10.6m, **class** 7A, 7AR, Light, and clamp size.
+  - **ODF**: 12F, 24F, 48F, 72F, 144F, 288F and **APC** / **UPC**. **Closure**: 12C to 288C (a survey closure's Existing / Proposed is its status). A handhole with a closure ID gets the closure size.
+  - **PAT / cleanup / FAT pole**: owner, clamp, new pole size and class; with *Closure* ticked on the pole, the closure size and **Existing / New**.
+  - **Export → BOQ / BOM sizes · Excel** (survey and PAT): the quantities by item and size (new Globe poles by size and class, clamps by size and pole owner, ODFs, closures) with the IDs of each line, and the elements that have no size yet. The sizes are also in the CSV (`pole_owner`, `clamp_size`, `new_pole_size`, `pole_class`, `odf_size`, `odf_connector`, `closure_size`, `closure_status`), the KMZ balloons and data, the DXF labels, the route and element Excel sheets (*Size (BOQ)*), the folded record summary, the record list and its search.
+  - Administration → **Pole owners** (one per line): extra owners every phone of the list gets with the next list update.
+- The online sheet's script is unchanged since v2.25.
 
 ## What changed in v2.25.1
 

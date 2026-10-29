@@ -388,6 +388,35 @@
   /* Pole details (v2.14): what else is on the pole, with a count — "Transformer: 1 pc". */
   const POLE_DETAIL_ITEMS = ['Transformer', 'Streetlight', 'Riser pipe', 'Guy wire', 'Down guy / anchor', 'Crossarm', 'Electric meter', 'Service drop', 'Other telco cable'];
   const detailsText = (list, sep) => (list || []).filter((x) => x && x.item).map((x) => `${x.item}: ${x.qty || 1} pc${(x.qty || 1) === 1 ? '' : 's'}`).join(sep || '; ');
+  /* v2.26: sizes for the BOQ / BOM, per element (r.boq). Existing poles: owner and clamp size; a proposed / new Globe pole: its
+     size and class (and clamp); ODF: fibre count and connector; closure: core count (and, on a PAT pole, existing or new). */
+  const BOQ_OPT = { owner: ['Electric', 'PLDT', 'DITO', 'CONVERGE'], clamp: ['5-7', '8-9', '10-12'], height: ['7.5m', '9.14m', '10.6m'], cls: ['7A', '7AR', 'Light'],
+    odf: ['12F', '24F', '48F', '72F', '144F', '288F'], conn: ['APC', 'UPC'], clo: ['12C', '24C', '48C', '72C', '144C', '288C'], cloSt: ['Existing', 'New'] };
+  const BOQ_LABEL = { owner: 'POLE OWNER', clamp: 'CLAMP SIZE', height: 'NEW GLOBE POLE · SIZE', cls: 'NEW GLOBE POLE · CLASS', odf: 'ODF SIZE', conn: 'ODF CONNECTOR', clo: 'CLOSURE SIZE', cloSt: 'CLOSURE' };
+  const boqOwners = () => [...new Set([...BOQ_OPT.owner, ...(Array.isArray(pol().poleOwners) ? pol().poleOwners : []), ...(S.myOwners || [])].map((x) => String(x || '').trim()).filter(Boolean))];
+  /** The BOQ fields of an element: by element, survey status (existing or proposed / new) and mode; a closure on the pole or in the handhole adds its size. */
+  function boqKeys(el, status, acc, closureHere) {
+    if (el === 'Pole') {
+      const k = acc ? ['owner', 'clamp', 'height', 'cls'] : status === 'Proposed' || status === 'New' ? ['height', 'cls', 'clamp'] : ['owner', 'clamp'];
+      return acc && closureHere ? k.concat(['clo', 'cloSt']) : k;
+    }
+    if (el === 'ODF') return ['odf', 'conn'];
+    if (el === 'Closure') return ['clo'];
+    if (el === 'Handhole') return closureHere ? ['clo'] : [];
+    return [];
+  }
+  /** "Owner PLDT · Clamp 8-9", "New pole 9.14m 7A · Clamp 8-9", "ODF 48F UPC", "Closure 24C New". */
+  function boqText(r) {
+    const b = (r && r.boq) || {}, parts = [];
+    if (b.owner) parts.push(`Owner ${b.owner}`);
+    if (b.height || b.cls) parts.push(`New pole ${[b.height, b.cls].filter(Boolean).join(' ')}`);
+    if (b.clamp) parts.push(`Clamp ${b.clamp}`);
+    if (b.odf || b.conn) parts.push(`ODF ${[b.odf, b.conn].filter(Boolean).join(' ')}`);
+    if (b.clo || b.cloSt) parts.push(`Closure ${[b.clo, b.cloSt].filter(Boolean).join(' ')}`);
+    return parts.join(' · ');
+  }
+  /** Only the fields that apply to the element as saved. */
+  function boqPick(b, keys) { const o = {}; keys.forEach((k) => { if (b && b[k]) o[k] = String(b[k]).slice(0, 40); }); return o; }
   const PP_RE = /^PP-(\d+)$/; // proposed poles: the app numbers them, as there is no painted ID yet
   /** The photo that stands for a record (list, KMZ icon): its element photo, or the first defect photo (v2.13 records have none). */
   const coverPid = (r) => { const p = photosOf(r)[0]; if (p) return p.pid; const d = (r.defs || []).find((x) => x.verifyPid || x.afterPid || x.pid); return d ? d.verifyPid || d.afterPid || d.pid : null; };
@@ -404,9 +433,10 @@
     for (const pid of new Set(pids)) if (!used.has(pid)) await dbDel('photos', pid);
   }
   function attachText(r) {
-    if (elemOf(r) === 'Pole') return [`MLoop: ${r.mloop ? 'Yes' : 'No'}`, `NAP: ${r.nap ? `Yes${r.napId ? ` (${r.napId})` : ' (no ID)'}` : 'No'}`, `Closure: ${r.closure ? `Yes${r.closureId ? ` (${r.closureId})` : ' (no ID)'}` : 'No'}`];
-    if (elemOf(r) === 'ODF') return [`${r.odf || 'New'} ODF`];
-    return [];
+    const size = boqText(r) ? [`Size: ${boqText(r)}`] : []; // v2.26
+    if (elemOf(r) === 'Pole') return [`MLoop: ${r.mloop ? 'Yes' : 'No'}`, `NAP: ${r.nap ? `Yes${r.napId ? ` (${r.napId})` : ' (no ID)'}` : 'No'}`, `Closure: ${r.closure ? `Yes${r.closureId ? ` (${r.closureId})` : ' (no ID)'}` : 'No'}`, ...size];
+    if (elemOf(r) === 'ODF') return [`${r.odf || 'New'} ODF`, ...size];
+    return size;
   }
   /** Next ID in the current project only, so numbering never carries over: CC-/WP-/SP- per pole type, FDU_ for ODFs.
       With nothing to count from, only the prefix is filled in and the number is typed or scanned. */
@@ -603,7 +633,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.25.1';
+  const APP_VER = '2.26.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -2551,7 +2581,7 @@
     const acc = isAcc();
     if (o.blob) setTimeout(() => prepImages(o.blob), 400); // made while the ID is checked; the camera is closed by now
     ed = { mode: o.mode, id: o.id || uid(), source: o.source, gps: o.gps || null, newBlob: o.blob || null,
-      takenAt: o.takenAt, type: o.type || S.lastType, userMoved: false, acc };
+      takenAt: o.takenAt, type: o.type || S.lastType, userMoved: false, acc, boq: JSON.parse(JSON.stringify(o.boq || {})) };
     // v2.16: 'closed' = a completed PAT (view only); 'carried' = an element from the PAT in the cleanup or FAT (fixes only)
     ed.lock = !acc ? '' : patClosed() ? 'closed' : o.mode === 'edit' && ['Cleanup', 'FAT'].includes(taskCat()) && (o.patId || (o.defs || []).some((d) => (d.stage || 'PAT') === 'PAT')) ? 'carried' : '';
     if (acc) {
@@ -2646,7 +2676,7 @@
       v: 1, project: S.project, mode: ed.mode, id: ed.id, acc: !!ed.acc, element: ed.element || 'Pole', type: ed.type || '', status: ed.status || '',
       poleId: $('poleId').value, napId: $('napId').value, closureId: $('closureId').value, svRemarks: $('svRemarks').value, svClosureId: $('svClosureId').value,
       details: ed.details || [], marks: ed.marks || [], defs: ed.defs || [], photos: ed.photos || [], removed: ed.removed || [],
-      mloop: !!ed.mloop, nap: !!ed.nap, closure: !!ed.closure, odf: ed.odf || '', gps: ed.gps || null, takenAt: ed.takenAt || '', source: ed.source || '', q: ed.q || null,
+      mloop: !!ed.mloop, nap: !!ed.nap, closure: !!ed.closure, odf: ed.odf || '', boq: ed.boq || {}, gps: ed.gps || null, takenAt: ed.takenAt || '', source: ed.source || '', q: ed.q || null,
       idRead: ed.idRead || null, idTouched: !!ed.idTouched, dragged: !!ed.dragged, pin: ed.dragged && c ? { lat: c.lat, lon: c.lng } : null,
       origPid: ed.origPid || '', legacyBoxes: ed.legacyBoxes || 0, legacyPole: !!ed.legacyPole, dropOrig: !!ed.dropOrig, baseNew: !!ed.baseNew, keepQ: !!ed.keepQ,
       noDef: !!ed.noDef, pend: Object.keys(ed.pending || {}), hasNew: !!ed.newBlob, hasSrc: !!ed.srcBlob && ed.srcBlob !== ed.newBlob, hasBase: !!ed.base, def: dd,
@@ -2737,13 +2767,13 @@
     else {
       await openEditor({ mode: 'new', id: st.id, restore: true, gps: st.gps, takenAt: st.takenAt, source: st.source, q: st.q, type: st.type || undefined, element: st.element, status: st.status,
         poleId: st.poleId, remarks: st.svRemarks, closureId: st.acc ? st.closureId : st.svClosureId, napId: st.napId, details: st.details, marks: st.marks, origPid: st.origPid,
-        photos: st.photos, defs: st.defs, mloop: st.mloop, nap: st.nap, closure: st.closure, odf: st.odf, boxes: (st.legacyBoxes || 0) + (st.marks || []).length, poleModel: st.legacyPole,
+        photos: st.photos, defs: st.defs, mloop: st.mloop, nap: st.nap, closure: st.closure, odf: st.odf, boq: st.boq || {}, boxes: (st.legacyBoxes || 0) + (st.marks || []).length, poleModel: st.legacyPole,
         blob: st.acc ? null : nb || sb, noDef: !!st.noDef, ...(st.pin ? { lat: st.pin.lat, lon: st.pin.lon } : {}) });
     }
     if (!ed) return;
     Object.assign(ed, { pending: { ...ed.pending, ...pend }, removed: st.removed || [], idRead: st.idRead, idTouched: st.idTouched, dragged: st.dragged, element: st.element, type: st.type || ed.type,
       status: st.status || ed.status, details: st.details || [], defs: st.defs || ed.defs, photos: st.acc ? st.photos || ed.photos : ed.photos, marks: st.acc ? ed.marks : (st.marks || []).map(normMark),
-      mloop: st.mloop, nap: st.nap, closure: st.closure, odf: st.odf || ed.odf, legacyBoxes: st.legacyBoxes, legacyPole: st.legacyPole, dropOrig: st.dropOrig, keepQ: st.keepQ, origPid: st.origPid || ed.origPid });
+      mloop: st.mloop, nap: st.nap, closure: st.closure, odf: st.odf || ed.odf, boq: st.boq || ed.boq || {}, legacyBoxes: st.legacyBoxes, legacyPole: st.legacyPole, dropOrig: st.dropOrig, keepQ: st.keepQ, origPid: st.origPid || ed.origPid });
     if (!st.acc) {
       if (nb) { ed.newBlob = nb; prepImages(nb); showEdPhoto(nb); }
       if (sb) ed.srcBlob = sb; else if (nb && st.mode === 'new') ed.srcBlob = nb;
@@ -3118,6 +3148,7 @@
       const sb = $('svStatus'); sb.innerHTML = ''; sts.forEach((x) => sb.add(new Option(svStatusLabel(x), x, false, x === ed.status)));
       $('svStatusBox').hidden = !sts.length; sb.disabled = sts.length < 2;
       $('svClosureBox').hidden = el !== 'Handhole';
+      renderBoq();
       $('edHint').textContent = el === 'Pole' && ed.status === 'Proposed' ? 'Drag the map to place the pin where the new pole goes' : `Drag the map to place the pin on the ${nm}`;
       renderBoxInfo();
       return;
@@ -3130,13 +3161,46 @@
     $('atMloop').checked = ed.mloop; $('atNap').checked = ed.nap; $('atClosure').checked = ed.closure; markToggles();
     $('napId').hidden = !ed.nap; $('closureId').hidden = !ed.closure;
     $('odfSel').value = ed.odf || 'New';
+    renderBoq();
     const cats = catsFor(el); // an open defect form follows the element
     if (defDraft && !$('defPanel').hidden && !cats.includes(defDraft.cat)) { defDraft.cat = cats[0]; defDraft.items = new Set(); renderDefPanel(); }
   }
   function markToggles() { ['atMloop', 'atNap', 'atClosure'].forEach((id) => $(id).closest('.tchip').classList.toggle('on', $(id).checked)); }
   $('atMloop').addEventListener('change', (e) => { ed.mloop = e.target.checked; markToggles(); });
   $('atNap').addEventListener('change', (e) => { ed.nap = e.target.checked; markToggles(); $('napId').hidden = !ed.nap; if (ed.nap) $('napId').focus(); });
-  $('atClosure').addEventListener('change', (e) => { ed.closure = e.target.checked; markToggles(); $('closureId').hidden = !ed.closure; if (ed.closure) $('closureId').focus(); });
+  $('atClosure').addEventListener('change', (e) => { ed.closure = e.target.checked; markToggles(); $('closureId').hidden = !ed.closure; renderBoq(); if (ed.closure) $('closureId').focus(); });
+  $('svClosureId').addEventListener('input', () => { if (ed && !ed.acc && ed.element === 'Handhole') { const was = !$('boqBox').hidden; if (was !== !!$('svClosureId').value.trim()) renderBoq(); } });
+  /** v2.26: the BOQ sizes of the element in the record: one row of chips per field (tap again to clear). */
+  const edBoqKeys = () => (ed ? boqKeys(ed.element || 'Pole', ed.acc ? '' : ed.status, !!ed.acc, ed.acc ? !!ed.closure : !!$('svClosureId').value.trim()) : []);
+  function renderBoq() {
+    const box = $('boqBox'), rows = $('boqRows'); if (!ed) return;
+    const keys = edBoqKeys(); box.hidden = !keys.length; rows.innerHTML = '';
+    ed.boq = ed.boq || {};
+    const ro = ed.lock === 'closed';
+    keys.forEach((k) => {
+      const row = document.createElement('div'); row.className = 'boqrow';
+      const l = document.createElement('span'); l.className = 'lbl'; l.textContent = BOQ_LABEL[k]; row.appendChild(l);
+      const chips = document.createElement('div'); chips.className = 'chips'; chips.setAttribute('role', 'group'); chips.setAttribute('aria-label', BOQ_LABEL[k]); chips.dataset.k = k;
+      const opts = k === 'owner' ? boqOwners() : BOQ_OPT[k];
+      if (ed.boq[k] && !opts.includes(ed.boq[k])) opts.push(ed.boq[k]); // a value from another phone's list
+      opts.forEach((v) => {
+        const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = v; c.setAttribute('aria-pressed', String(ed.boq[k] === v)); c.disabled = ro;
+        c.addEventListener('click', () => { ed.boq[k] = ed.boq[k] === v ? '' : v; renderBoq(); foldSum(); });
+        chips.appendChild(c);
+      });
+      if (k === 'owner' && !ro) {
+        const o = document.createElement('button'); o.type = 'button'; o.className = 'chip small'; o.textContent = '+ Other';
+        o.addEventListener('click', async () => {
+          let v = await promptText('Pole owner', 'Whose pole is it? It is kept on this phone for the next poles (your admin can add owners for everyone).', 'e.g. SKYCABLE');
+          v = String(v || '').trim().replace(/\s+/g, ' ').slice(0, 30); if (!v) return;
+          if (!boqOwners().some((x) => x.toLowerCase() === v.toLowerCase())) { S.myOwners = (S.myOwners || []).concat(v).slice(-20); persist(); }
+          ed.boq.owner = boqOwners().find((x) => x.toLowerCase() === v.toLowerCase()) || v; renderBoq(); foldSum();
+        });
+        chips.appendChild(o);
+      }
+      row.appendChild(chips); rows.appendChild(row);
+    });
+  }
   $('odfSel').addEventListener('change', (e) => { ed.odf = e.target.value; applyElement(); });
   $('svStatus').addEventListener('change', (e) => {
     if (!ed) return;
@@ -3721,6 +3785,7 @@
         poleId, poleType: (ed.element || 'Pole') === 'Pole' ? ed.type || '' : '', lat: pos.lat, lon: pos.lon, updated: now, ...(p ? { updatedBy: byLine() } : { by: byLine() }),
         element: ed.element || 'Pole', status: svStatuses(ed.element || 'Pole').length ? ed.status || svDefaultStatus(ed.element || 'Pole') : '',
         details: (ed.element || 'Pole') === 'Pole' ? (ed.details || []).filter((d) => d && d.item) : [],
+        boq: boqPick(ed.boq, edBoqKeys()),
         remarks: $('svRemarks').value.trim().slice(0, 500), closureId: ed.element === 'Handhole' ? $('svClosureId').value.trim().toUpperCase().slice(0, 40) : '',
         boxes: (ed.legacyBoxes || 0) + (ed.marks || []).length, marks: (ed.marks || []).map((m) => ({ ...m })),
         poleModel: (ed.marks || []).some((m) => m.k === 'pole') || !!ed.legacyPole,
@@ -3742,6 +3807,7 @@
       else if (rec.marks.length && ed.origPid && !ed.dropOrig) rec.origPid = ed.origPid;
       else delete rec.origPid;
       if (!rec.poleModel) delete rec.poleModel;
+      if (!Object.keys(rec.boq || {}).length) delete rec.boq; // v2.26
       if (!rec.models.length) delete rec.models;
       busy('Writing to phone storage…');
       await saveRecord(rec, photos); // photo and record together, or neither
@@ -3784,7 +3850,7 @@
     if (!ed || !ed.acc) return;
     const id = $('poleId').value.trim(), real = id && !new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(id) && !/[-_]$/.test(id);
     const el = ed.element || 'Pole';
-    $('idGroupSum').textContent = [el, el === 'Pole' ? ed.type : '', real ? id : 'no ID'].filter(Boolean).join(' · ');
+    $('idGroupSum').textContent = [el, el === 'Pole' ? ed.type : '', real ? id : 'no ID', boqText({ boq: boqPick(ed.boq, edBoqKeys()) })].filter(Boolean).join(' · ');
     const on = [ed.mloop && 'MLoop', ed.nap && `NAP${$('napId').value.trim() ? ' ' + $('napId').value.trim() : ''}`, ed.closure && `Closure${$('closureId').value.trim() ? ' ' + $('closureId').value.trim() : ''}`].filter(Boolean);
     $('attachSum').textContent = on.length ? on.join(' · ') : 'Nothing marked';
   }
@@ -3849,11 +3915,13 @@
         odf: el === 'ODF' ? ed.odf : '',
         photos: ed.photos.map((ph) => ({ ...ph })), defs: JSON.parse(JSON.stringify(ed.defs)),
         details: el === 'Pole' ? (ed.details || []).filter((d) => d && d.item) : [],
+        boq: boqPick(ed.boq, edBoqKeys()),
         gpsLat: g ? g.lat : null, gpsLon: g ? g.lon : null,
         accuracy: g && Number.isFinite(g.acc) ? g.acc : null, alt: g && Number.isFinite(g.alt) ? g.alt : null,
         adjusted: g ? haversine(g, pos) > 0.5 : true,
       });
       if (ed.noDef && !ed.defs.length) rec.noDef = true; else delete rec.noDef; // v2.23: the site photo of a PAT with no defects
+      if (!Object.keys(rec.boq || {}).length) delete rec.boq; // v2.26
       const used = new Set(allPids(rec));
       const pend = Object.keys(ed.pending).filter((pid) => used.has(pid));
       const photos = [];
@@ -3902,7 +3970,7 @@
     revokeListUrls();
     const q = $('listSearch').value.trim().toUpperCase(), acc = isAcc();
     $('listFilter').hidden = !acc;
-    const pts = projPoints().reverse().filter((p) => (!q || [p.poleId, p.poleType, p.element, p.napId, p.closureId, p.status, p.remarks, detailsText(p.details)].join(' ').toUpperCase().includes(q))
+    const pts = projPoints().reverse().filter((p) => (!q || [p.poleId, p.poleType, p.element, p.napId, p.closureId, p.status, p.remarks, detailsText(p.details), boqText(p)].join(' ').toUpperCase().includes(q))
       && (!acc || listFilter === 'all' || recStatus(p) === listFilter));
     const counts = {}; projPoints().forEach((p) => { counts[p.poleId] = (counts[p.poleId] || 0) + 1; });
     const box = $('listItems'); box.innerHTML = '';
@@ -3960,7 +4028,7 @@
         const el = elemOf(p), tags = el === 'Pole' ? `<span class="tag">${C.xmlEsc(p.poleType || '—')}</span>${p.status === 'Proposed' || p.status === 'New' ? `<span class="tag" style="background:${p.status === 'Proposed' ? '#e03131' : '#17202a'};color:#fff">${C.xmlEsc(svStatusLabel(p.status))}</span>` : ''}`
           : `<span class="tag" style="background:${SV_COLORS[el] || '#495057'};color:#fff">${C.xmlEsc(el)}</span>${p.status ? `<span class="tag">${C.xmlEsc(svStatusLabel(p.status))}</span>` : ''}${p.closureId ? `<span class="tag">closure ${C.xmlEsc(p.closureId)}</span>` : ''}`;
         s.innerHTML = `${tags}${(Array.isArray(p.marks) ? p.marks.filter((m) => m.k === 'box').length + Math.max(0, (p.boxes || 0) - p.marks.length) : p.boxes) ? '<span class="tag" style="background:#e03131;color:#fff">red box</span>' : ''}${[...new Set((p.models || []).map((k) => MODEL_TAG[k] || k))].map((t) => `<span class="tag" style="background:#e03131;color:#fff">${t}</span>`).join('')}${p.adjusted ? '<span class="tag adj">pin adjusted</span>' : ''}${counts[p.poleId] > 1 ? '<span class="tag dup">duplicate ID</span>' : ''}`;
-        const more = [detailsText(p.details, ' · '), p.remarks].filter(Boolean).join(' — ');
+        const more = [boqText(p), detailsText(p.details, ' · '), p.remarks].filter(Boolean).join(' — ');
         if (more) { const s3 = document.createElement('span'); s3.className = 's'; s3.textContent = more; info.append(s3); }
       }
       const s2 = document.createElement('span'); s2.className = 's mono';
@@ -4098,7 +4166,10 @@
     const m = pmeta(), acc = isAcc(), cat = taskCat(), nrec = projPoints().length;
     $('noProjHint').hidden = !!S.project; $('wfBox').hidden = !S.project;
     $('bulkShareBtn').hidden = !allProjects().length;
+    $('addSampleBtn').hidden = allProjects().some((n) => pmeta(n).sample); // v2.26
+    { const pb0 = $('projBadge').parentElement, sb = pb0.querySelector('.badge.sample'); if (sb) sb.remove(); if (S.project && pmeta().sample) { const b = document.createElement('span'); b.className = 'badge sample'; b.textContent = 'SAMPLE'; $('projBadge').after(b); } }
     $('curName').textContent = S.project || '';
+    { const ct = $('curTools'); ct.replaceWith(Object.assign(projTools(S.project, false), { id: 'curTools' })); $('curTools').hidden = !S.project; }
     $('curSub').textContent = [projSummary(S.project), m.site && m.site !== S.project ? m.site : '', m.contractor || ''].filter(Boolean).join(' · ');
     { const st = $('tmState'); st.textContent = m.completedAt ? `${patClosed() ? '🔒 ' : '✓ '}Completed ${dateOnly(m.completedAt)}${m.noDefects ? ' · no defects, FAT done' : ''}` : nrec ? 'In progress' : 'Not started'; st.className = `tmstate${m.completedAt ? ' done' : nrec ? ' wip' : ''}`; }
     { const W = S.project ? workflowModel() : null, done = W ? W.steps.filter((x) => x.done).length : 0, all = W ? W.steps.length : 0;
@@ -4187,10 +4258,74 @@
       const bar = document.createElement('span'); bar.className = 'bar'; const fill = document.createElement('i'); fill.style.width = t.all ? `${Math.round((t.done / t.all) * 100)}%` : '0'; bar.appendChild(fill);
       const tx = document.createElement('span'); tx.textContent = t.completed ? `${patClosed(name) ? '🔒 ' : '✓ '}Completed ${dateOnly(m.completedAt)}${m.noDefects ? ' · no defects, FAT done' : ''}` : !t.n ? 'Not started' : t.next ? `Next: ${t.next}` : `${t.done} of ${t.all} steps`;
       tp.append(bar, tx); ti.append(tn, ts, tp); b.append(badge, ti);
+      if (m.sample) { const sb = document.createElement('span'); sb.className = 'badge sample'; sb.textContent = 'SAMPLE'; ti.prepend(sb); }
       b.addEventListener('click', () => openTask(name));
-      box.appendChild(b);
+      const card = document.createElement('div'); card.className = `taskcard k-${k.toLowerCase()}${t.completed ? ' done' : ''}`; card.dataset.name = name;
+      card.append(b, projTools(name, true)); // v2.26: Share, Folder and Delete on every project
+      box.appendChild(card);
     });
     if (!shown.length) { const p0 = document.createElement('p'); p0.className = 'hint'; p0.style.margin = '4px 2px'; p0.textContent = q ? 'No project matches the search.' : tmShow === 'done' ? 'No completed project.' : 'No project in progress.'; box.appendChild(p0); }
+  }
+  /* v2.26: the tools of a project, on its card: Share, Folder (its Drive folder from the online sheet) and Delete */
+  const TOOL_ICON = { share: 'M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M12 3v12M7 8l5-5 5 5', folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z', del: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6' };
+  function projTools(name, small) {
+    const row = document.createElement('div'); row.className = 'tmtools'; row.setAttribute('role', 'group'); row.setAttribute('aria-label', `Project ${name}`);
+    if (!name) return row;
+    const m = pmeta(name);
+    const mk = (kind, label, fn, title) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = `tmtool ${kind}`; b.dataset.tool = kind; b.title = title;
+      b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${TOOL_ICON[kind]}"/></svg>`;
+      b.appendChild(document.createTextNode(label)); b.setAttribute('aria-label', `${label} ${name}`);
+      b.addEventListener('click', (e) => { e.stopPropagation(); guard(() => fn(name), `${label} failed`); });
+      row.appendChild(b);
+    };
+    mk('share', 'Share', shareProject, 'Send this project to a colleague (a file with its records and photos)');
+    if (m.siteLink) mk('folder', 'Folder', (n) => openExternal(pmeta(n).siteLink), 'Open its Google Drive folder');
+    mk('del', 'Delete', deleteProject, 'Delete this project from this phone');
+    return row;
+  }
+  /** Share one project: the project file (records and photos, for a colleague of your company); a PAT or cleanup can also go as
+      its locked KMZ for the next stage. */
+  async function shareProject(name) {
+    const m = pmeta(name), st = m.mode === 'acceptance' ? m.stage || 'PAT' : '';
+    let how = 'file';
+    if ((st === 'PAT' || st === 'Cleanup') && !m.noDefects && !m.sample) {
+      how = await ask(`Share “${name}”`, st === 'PAT'
+        ? 'PAT KMZ: for the contractor\'s defect cleanup or the FAT (locked: Google Earth shows the map, G-eSAA phones of your list open the records).\n\nProject file: the project itself, for a colleague of your company.'
+        : 'Cleanup KMZ: for the FAT.\n\nProject file: the project itself, for a colleague of your company.',
+      [{ label: 'Cancel', value: '' }, { label: 'Project file', value: 'file' }, { label: st === 'PAT' ? 'PAT KMZ' : 'Cleanup KMZ', value: 'kmz', primary: true }]);
+      if (!how) return;
+    }
+    if (how === 'kmz') { if (name !== S.project) openTask(name); await tutWait(150); $('sendPat').click(); return; }
+    if (!profileOk()) { toast('Enter your details first (Settings → You)'); return; }
+    const blob = await bundleZip([name]); busy(false);
+    LOG.info('project.share', { kind: projKind(name), mb: +(blob.size / 1048576).toFixed(1) });
+    await shareFile(blob, `G-eSAA_${String(name).replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 60)}_${new Date().toISOString().slice(0, 10)}.zip`, 'application/zip');
+  }
+  /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
+  async function deleteProject(name) {
+    const m = pmeta(name), n = points.filter((p) => p.project === name).length, acc = m.mode === 'acceptance';
+    if (m.completedAt && S.team && !m.sample && !(await adminApproves(`Deleting the completed project “${name}”`))) return;
+    const ok = await ask(`Delete “${name}”?`, `Its ${n} ${acc ? 'element' : 'record'}${n === 1 ? '' : 's'}, photos and offline maps are removed from this phone. Make a backup or share it first if you still need it. This can't be undone.`,
+      [{ label: 'Keep', value: false }, { label: 'Delete project', value: true, primary: true }]);
+    if (ok) await deleteProjectNow(name);
+  }
+  async function deleteProjectNow(name) {
+    const pts = points.filter((p) => p.project === name), m = pmeta(name);
+    LOG.info('project.delete', { cat: projKind(name), completed: !!m.completedAt, records: pts.length, sample: !!m.sample });
+    let i = 0;
+    const ids = new Set(pts.map((p) => p.id)), pids = [];
+    for (const p of pts) { busy(`Deleting ${++i} / ${pts.length}`, i / pts.length); await dbDel('points', p.id); pids.push(...allPids(p)); }
+    await deletePhotosIfUnused(pids, ids); busy(false);
+    points = points.filter((p) => p.project !== name);
+    if (S.meta) delete S.meta[name];
+    for (const ar of (S.areas || []).filter((x) => x.project === name)) await deleteArea(ar.id);
+    if (refInfo(name)) { await dbDel('packs', refKey(refInfo(name).id)).catch(() => {}); const r = { ...S.refs }; delete r[name]; S.refs = r; if (refFor === name) { refGeo = null; refFor = null; } }
+    S.projects = S.projects.filter((x) => x !== name);
+    if (S.project === name) S.project = allProjects()[0] || '';
+    persist();
+    renderPoles(); drawAreas(); renderProjects();
+    toast(`Deleted "${name}"`);
   }
   function openTask(name) {
     if (!name || name === S.project) return;
@@ -4600,28 +4735,16 @@
   $('delProject').addEventListener('click', () => guard(async () => {
     delApproved = '';
     // v2.22: a completed project (any category) is deleted only with an admin's approval: a one-time code or the admin PIN
-    if (pmeta().completedAt && S.team) { if (!(await adminApproves(`Deleting the completed project “${S.project}”`))) return; delApproved = S.project; }
+    if (pmeta().completedAt && S.team && !pmeta().sample) { if (!(await adminApproves(`Deleting the completed project “${S.project}”`))) return; delApproved = S.project; }
     const n = projPoints().length, what = isAcc() ? 'element' : 'pole';
     $('delProjText').textContent = `Delete "${S.project}" with its ${n} ${what}${n === 1 ? '' : 's'}, photos and offline maps? Make a backup first if you still need them. This can't be undone.`;
     $('delProjConfirm').hidden = false; $('delProject').hidden = true;
   }, 'Not deleted'));
   $('delProjNo').addEventListener('click', () => { $('delProjConfirm').hidden = true; $('delProject').hidden = false; });
   $('delProjYes').addEventListener('click', () => guard(async () => {
-    if (pmeta().completedAt && S.team && delApproved !== S.project) { $('delProjConfirm').hidden = true; $('delProject').hidden = false; return; }
-    const name = S.project, pts = points.filter((p) => p.project === name); delApproved = '';
-    LOG.info('project.delete', { cat: taskCat(), completed: !!pmeta().completedAt, records: pts.length });
-    let i = 0;
-    const ids = new Set(pts.map((p) => p.id)), pids = [];
-    for (const p of pts) { busy(`Deleting ${++i} / ${pts.length}`, i / pts.length); await dbDel('points', p.id); pids.push(...allPids(p)); }
-    await deletePhotosIfUnused(pids, ids);
-    points = points.filter((p) => p.project !== name);
-    if (S.meta) delete S.meta[name];
-    for (const ar of (S.areas || []).filter((x) => x.project === name)) await deleteArea(ar.id);
-    if (refInfo(name)) { await dbDel('packs', refKey(refInfo(name).id)).catch(() => {}); const r = { ...S.refs }; delete r[name]; S.refs = r; if (refFor === name) { refGeo = null; refFor = null; } }
-    S.projects = S.projects.filter((x) => x !== name);
-    S.project = allProjects()[0] || ''; persist();
-    renderPoles(); drawAreas(); renderProjects();
-    toast(`Deleted "${name}"`);
+    if (pmeta().completedAt && S.team && !pmeta().sample && delApproved !== S.project) { $('delProjConfirm').hidden = true; $('delProject').hidden = false; return; }
+    const name = S.project; delApproved = '';
+    await deleteProjectNow(name); // v2.26: the same as Delete on the project card
   }, 'Delete failed'));
 
   /* ================= export ================= */
@@ -4790,7 +4913,7 @@
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i]; busy(`Preparing photos ${i + 1} / ${pts.length}`, i / pts.length);
       const ph = await dbGet('photos', p.id);
-      const r = { ...p, element: elemOf(p), statusLabel: svStatusLabel(p.status), detailsText: detailsText(p.details) };
+      const r = { ...p, element: elemOf(p), statusLabel: svStatusLabel(p.status), detailsText: detailsText(p.details), boqText: boqText(p) };
       if (ph && ph.clean && E.kmzBalloonPx > 0) { r.photoName = `photos/${names[p.id]}.jpg`; files.push({ name: 'files/' + r.photoName, data: await exportPhoto(p, ph.clean, null, null, { maxPx: E.kmzBalloonPx, stamp: E.kmzStamp, quality: 0.85 }) }); }
       if (icons && ph && (ph.clean || ph.thumb)) { r.iconName = `icons/${p.id}.jpg`; files.push({ name: 'files/' + r.iconName, data: await iconJpeg(ph.clean || ph.thumb, E.kmzIconPx, elemOf(p) === 'Pole' ? null : SV_COLORS[elemOf(p)]) }); }
       rows.push(r);
@@ -4847,7 +4970,7 @@
       }
     }
     const E = S.exp, focPct = Math.max(0, Math.min(100, Number.isFinite(+E.focPct) ? +E.focPct : 10)), photoW = Math.max(1, Math.min(50, +E.dxfPhotoW || 6));
-    const rows = pts.map((p) => ({ ...p, element: elemOf(p), detailsText: detailsText(p.details) })), name = `${fileBase()}_UTM${S.zone}N`;
+    const rows = pts.map((p) => ({ ...p, element: elemOf(p), detailsText: [boqText(p), detailsText(p.details)].filter(Boolean).join('; ') })), name = `${fileBase()}_UTM${S.zone}N`;
     const opts = { zone: S.zone, symbolSize: S.sym, textHeight: S.txt, spans: routeModel().spans, exportedBy: exporterLine(' | '), focPct };
     if (E.dxfPhotos === false) { // plain DXF R12, no photos
       busy('Building DXF…');
@@ -4873,10 +4996,46 @@
   $('doCsv').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
     const names = uniqueNames(pts);
-    const rows = pts.map((p) => ({ ...p, photoName: names[p.id] + '.jpg', detailsText: detailsText(p.details) }));
+    const rows = pts.map((p) => ({ ...p, photoName: names[p.id] + '.jpg', detailsText: detailsText(p.details), boq: p.boq || {} }));
     offerResult(new Blob([C.buildCsv(rows, S.zone, exporterLine())], { type: 'text/csv' }), fileBase() + '.csv');
   }));
 
+  /* v2.26: the BOQ / BOM sizes of a project, counted by item and size (a sheet of its own; also in the route table) */
+  function boqSheet(pts, st) {
+    const groups = new Map(), missing = { pole: 0, ODF: 0, closure: 0 };
+    const add = (item, size, forWhat, id) => { const k = [item, size, forWhat].join('|'), g = groups.get(k) || { item, size, forWhat, qty: 0, ids: [] }; g.qty++; if (id) g.ids.push(id); groups.set(k, g); };
+    pts.forEach((p) => {
+      const el = elemOf(p), b = p.boq || {}, id = p.poleId && !DREF_RE.test(p.poleId) ? p.poleId : '', stl = svStatusLabel(p.status);
+      if (el === 'Pole') {
+        const isNew = p.status === 'Proposed' || p.status === 'New';
+        if (b.height || b.cls) add('New Globe pole', [b.height, b.cls].filter(Boolean).join(' '), stl || 'New', id);
+        if (b.clamp) add('Pole clamp', b.clamp, b.owner ? `${b.owner} pole` : isNew || b.height ? 'New Globe pole' : 'Pole', id);
+        if (!b.clamp && !b.height && !b.cls) missing.pole++;
+        if (b.clo) add('Closure', b.clo, b.cloSt || 'On the pole', p.closureId || id);
+      } else if (el === 'ODF') { if (b.odf || b.conn) add('ODF', [b.odf, b.conn].filter(Boolean).join(' '), stl || p.odf || '', id); else missing.ODF++; }
+      else if (el === 'Closure' || (el === 'Handhole' && p.closureId)) { if (b.clo) add('Closure', b.clo, stl || '', el === 'Handhole' ? p.closureId : id); else missing.closure++; }
+    });
+    const order = ['New Globe pole', 'Pole clamp', 'ODF', 'Closure'];
+    const list = [...groups.values()].sort((a, c) => order.indexOf(a.item) - order.indexOf(c.item) || String(a.size).localeCompare(String(c.size), undefined, { numeric: true }) || String(a.forWhat).localeCompare(String(c.forWhat)));
+    const rows = [['Item', 'Size / type', 'For / status', 'Quantity', 'IDs'].map((v) => ({ v, s: st.header }))];
+    list.forEach((g) => rows.push([g.item, g.size, g.forWhat, { v: g.qty, s: st.center }, g.ids.join(', ')]));
+    if (!list.length) rows.push([{ v: 'No size recorded yet: set them in each record (Size · for the BOQ / BOM).', s: st.info }]);
+    const miss = Object.entries(missing).filter(([, n]) => n);
+    if (miss.length) { rows.push([]); rows.push([{ v: `Without a size yet: ${miss.map(([k, n]) => `${n} ${k}${n === 1 ? '' : k === 'ODF' ? 's' : 's'}`).join(', ')}`, s: st.bad }]); }
+    rows.push([]); rows.push([{ v: 'Quantities are what was recorded in the field: one per element (a clamp size counts the poles that need it). Add spares and allowances per your design standard.', s: st.info }]);
+    return { name: 'BOQ', cols: [18, 16, 22, 10, 70], rows, freezeRow: 1 };
+  }
+  async function exportBoq() {
+    const pts = projPoints(); if (!pts.length) { toast('Nothing recorded in this project yet'); return; }
+    const R = window.PoleReports, st = R.STYLES;
+    const head = [[{ v: `BOQ / BOM SIZES — ${S.project}`, s: st.title }], [{ v: 'Generated', s: st.label }, fmtTime(new Date().toISOString())], [{ v: 'Records', s: st.label }, pts.length], []];
+    const sh = boqSheet(pts, st);
+    const parts = R.buildXlsxParts([{ ...sh, rows: head.concat(sh.rows), freezeRow: head.length + 1 }, exporterSheet(st)]);
+    LOG.info('export.boq', { records: pts.length });
+    offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '_BOQ.xlsx');
+  }
+  $('doBoq').addEventListener('click', () => guard(exportBoq));
+  $('doAccBoq').addEventListener('click', () => guard(exportBoq));
   $('doRouteXlsx').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
     const Rt = routeModel();
@@ -4908,17 +5067,18 @@
     const spanRows = [['No.', 'From', 'To', 'Length (m)', 'Longer than maximum', 'From lat', 'From lon', 'To lat', 'To lon'].map((v) => ({ v, s: st.header }))];
     Rt.spans.forEach((s, i) => spanRows.push([{ v: i + 1, s: st.center }, s.from, s.to, { v: Math.round(s.len * 10) / 10, s: s.long ? st.bad : st.cell },
       { v: s.long ? 'Yes' : 'No', s: s.long ? st.bad : st.cell }, { v: s.a.lat, s: st.coord }, { v: s.a.lon, s: st.coord }, { v: s.b.lat, s: st.coord }, { v: s.b.lon, s: st.coord }]));
-    const poleRows = [['No.', 'ID', 'Element', 'Type / status', 'Role on route', 'Spans at point', 'Deflection (°)', 'Latitude', 'Longitude', `UTM ${S.zone}N E`, `UTM ${S.zone}N N`, 'Pole details', 'Remarks'].map((v) => ({ v, s: st.header }))];
+    const poleRows = [['No.', 'ID', 'Element', 'Type / status', 'Role on route', 'Spans at point', 'Deflection (°)', 'Latitude', 'Longitude', `UTM ${S.zone}N E`, `UTM ${S.zone}N N`, 'Pole details', 'Remarks', 'Size (BOQ)'].map((v) => ({ v, s: st.header }))];
     pts.forEach((p, i) => {
       const info = Rt.poles[p.id] || { role: 'On a pole (not a route point)', degree: '', deflection: null }, u = C.utmForward(p.lat, p.lon, S.zone, p.lat < 0), el = elemOf(p);
       poleRows.push([{ v: i + 1, s: st.center }, p.poleId, el, [el === 'Pole' ? p.poleType || '' : '', svStatusLabel(p.status), p.closureId ? `closure ${p.closureId}` : ''].filter(Boolean).join(' · '),
         { v: info.role, s: info.role === 'Not on route' ? st.bad : st.cell }, info.degree,
-        info.deflection == null ? '' : Math.round(info.deflection * 10) / 10, { v: p.lat, s: st.coord }, { v: p.lon, s: st.coord }, Math.round(u.E * 1000) / 1000, Math.round(u.N * 1000) / 1000, detailsText(p.details), p.remarks || '']);
+        info.deflection == null ? '' : Math.round(info.deflection * 10) / 10, { v: p.lat, s: st.coord }, { v: p.lon, s: st.coord }, Math.round(u.E * 1000) / 1000, Math.round(u.N * 1000) / 1000, detailsText(p.details), p.remarks || '', boqText(p)]);
     });
     const parts = R.buildXlsxParts([
       { name: 'Summary', cols: [30, 44], rows: summary, merges: ['A1:B1', `A${summary.length}:B${summary.length}`] },
       { name: 'Spans', cols: [6, 15, 15, 11, 12, 12, 13, 12, 13], rows: spanRows, freezeRow: 1, autoFilter: `A1:I${spanRows.length}` },
-      { name: 'Points', cols: [6, 15, 10, 18, 16, 9, 11, 12, 13, 13, 13, 30, 30], rows: poleRows, freezeRow: 1, autoFilter: `A1:M${poleRows.length}` },
+      { name: 'Points', cols: [6, 15, 10, 18, 16, 9, 11, 12, 13, 13, 13, 30, 30, 30], rows: poleRows, freezeRow: 1, autoFilter: `A1:N${poleRows.length}` },
+      boqSheet(pts, st), // v2.26
       exporterSheet(st),
     ]);
     offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '_route.xlsx');
@@ -5202,14 +5362,14 @@
         dist != null ? Math.round(dist) : '', x.verifyName, d.verifyMeta ? fmtTime(d.verifyMeta.at) : ''];
     });
   }
-  const ELEM_HEAD = ['No.', 'Element', 'Location ID', 'With MLoop', 'With NAP', 'NAP ID', 'With closure', 'Closure ID', 'ODF', 'Status', 'Open items', 'Total items', 'Latitude', 'Longitude', 'GPS accuracy (m)', 'Pin adjusted', 'Captured', 'Photos'];
+  const ELEM_HEAD = ['No.', 'Element', 'Location ID', 'With MLoop', 'With NAP', 'NAP ID', 'With closure', 'Closure ID', 'ODF', 'Status', 'Open items', 'Total items', 'Latitude', 'Longitude', 'GPS accuracy (m)', 'Pin adjusted', 'Captured', 'Photos', 'Size (BOQ)'];
   function elemRows(M) {
     return M.recs.map((r, i) => {
       const pole = elemOf(r) === 'Pole', yn = (v) => (pole ? (v ? 'Yes' : 'No') : '');
       return [i + 1, elemOf(r), M.lab(r), yn(r.mloop), yn(r.nap), r.nap ? r.napId || '' : '', yn(r.closure), r.closure ? r.closureId || '' : '',
         elemOf(r) === 'ODF' ? `${r.odf || 'New'}` : '', STATUS_TEXT[recStatus(r)], openCount(r), (r.defs || []).length, r.lat, r.lon,
         Number.isFinite(r.accuracy) ? Math.round(r.accuracy * 10) / 10 : '', r.adjusted ? 'Yes' : 'No', fmtTime(r.takenAt),
-        photosOf(r).map((p, k) => M.photoName(r, k, p)).join(', ')];
+        photosOf(r).map((p, k) => M.photoName(r, k, p)).join(', '), boqText(r)];
     });
   }
   const peopleOf = () => Object.values(pmeta().people || {});
@@ -5276,7 +5436,7 @@
         autoFilter: `A8:${LC}${8 + Math.max(1, M.items.length)}` });
       const erows = [ELEM_HEAD.map((v) => ({ v, s: st.header }))];
       elemRows(M).forEach((r) => erows.push(r.map((v, ci) => ({ v, s: ci === 0 ? st.center : ci === 9 ? statusStyle(v) : ci === 12 || ci === 13 ? st.coord : st.cell }))));
-      sheets.push({ name: 'Elements', cols: [6, 9, 15, 10, 9, 14, 11, 14, 10, 15, 9, 9, 12, 13, 10, 10, 17, 40], rows: erows, freezeRow: 1,
+      sheets.push({ name: 'Elements', cols: [6, 9, 15, 10, 9, 14, 11, 14, 10, 15, 9, 9, 12, 13, 10, 10, 17, 40, 30], rows: erows, freezeRow: 1,
         autoFilter: `A1:${R.colName(ELEM_HEAD.length - 1)}${Math.max(2, erows.length)}` });
     }
     if (E.xlsPhotos) {
@@ -5918,6 +6078,8 @@
   async function inviteLinkFor(key) {
     const base = webBase(); if (!base || !S.team || normKey(key).length < 8) return '';
     if (ORG && ORG.src && ORG.id === S.team.id) return `${base}#ci=${hideKey(key)}`;
+    const short = await shortJoin(); // v2.26: where the online sheet holds this list version, a short link and a small QR code
+    if (short) return `${short}&ci=${hideKey(key)}`;
     return `${base}#join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}&ci=${hideKey(key)}`;
   }
   /** Invite link for coworkers: this phone's company key. */
@@ -6408,10 +6570,12 @@
       else if (hasList) { teamSwitch = !!sw || !S.team; try { await importTeamText(t, { quiet: false }); } finally { teamSwitch = false; } }
       return applyMove(mv);
     }
-    if (jq && !hasList) return joinShort(jq, sw);
-    if (!hasList && !ck) { toast('That is not a G-eSAA invite or join link', 4000); return false; }
-    if (hasList) { teamSwitch = !!sw || !S.team || !!ck; try { await importTeamText(t, { quiet: !!ck }); } finally { teamSwitch = false; } }
-    if (!ck) return true;
+    if (jq && !hasList) { const ok = await joinShort(jq, sw, !!ck); if (!ok || !ck) return ok; } // v2.26: a short invite: the list from the sheet, then its key
+    else {
+      if (!hasList && !ck) { toast('That is not a G-eSAA invite or join link', 4000); return false; }
+      if (hasList) { teamSwitch = !!sw || !S.team || !!ck; try { await importTeamText(t, { quiet: !!ck }); } finally { teamSwitch = false; } }
+      if (!ck) return true;
+    }
     let key = ck; try { key = decodeURIComponent(ck); } catch (e) { /* as is */ }
     if (normKey(key).length < 8) { toast('That invite link is damaged. Ask for a new one.', 5000); return false; }
     if (keyMode()) { if (normKey(key) !== normKey(S.companyKey)) toast(`This phone already belongs to ${S.keyCompany}. To join another company: Settings → Reset user.`, 6000); return true; }
@@ -6892,6 +7056,31 @@
     const f = sharedWaiting; sharedWaiting = null; openSharedFile(f);
   }
   $('openShared').addEventListener('click', () => { $('sharedInput').value = ''; $('sharedInput').click(); });
+  /* v2.26: the sample project (sample/G-eSAA_sample.zip, a short survey with no personal data): added once on a new phone,
+     so a first user can try the screens, exports and the tutorial; it can be deleted any time and added again from Projects. */
+  async function addSample(open) {
+    try {
+      const r = await fetch('sample/G-eSAA_sample.zip', { cache: 'no-store' }); if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const z = await zipReader(await r.blob());
+      const b = JSON.parse(new TextDecoder().decode(await z.get('bundle.json')));
+      const keep = S.project; let name = '';
+      for (const p of b.projects || []) {
+        const raw = await z.get(p.file); if (!raw) continue;
+        const meta = JSON.parse(new TextDecoder().decode(raw)); meta.meta = { ...(meta.meta || {}), sample: true };
+        name = await restoreMeta(z, meta, '', { quiet: true }) || name;
+      }
+      busy(false);
+      S.project = open && name ? name : keep; persist();
+      renderPoles(); if (open) fitProject();
+      if (!$('projects').hidden) renderProjects();
+      LOG.info('sample.added', { project: name, open: !!open });
+      return name;
+    } catch (e) { busy(false); LOG.warn('sample.fail', errInfo(e)); return ''; }
+  }
+  $('addSampleBtn').addEventListener('click', () => guard(async () => {
+    const n = await addSample(true);
+    toast(n ? `Sample project added: “${n}” (try the Tutorial on it; delete it any time)` : 'The sample project could not be loaded: open G-eSAA with internet once.', 5000);
+  }, 'Sample not added'));
   $('sharedInput').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) openSharedFile(f); }); // cleared: the same file can be chosen again
   function openSharedFile(f) { return guard(() => openShared(f), 'File not opened'); }
   async function openShared(f) {
@@ -6959,6 +7148,28 @@
       openSharedFile(new File([b], e.name || 'shared.kmz', { type: e.mime || b.type || '' }));
     } catch (err) { LOG.warn('shared.native.fail', errInfo(err)); toast(`Could not open the shared file (${err.message || err}). Open it from Projects → Open a shared file.`, 6000); }
   }
+  /* v2.26: a G-eSAA link (invite, join, move) opened in an Android browser: offer to open it in the G-eSAA app (the APK keeps
+     its own details and projects, apart from the browser). The app gets it as gesaa://open?h=… (Android intent). */
+  const linkHashNow = () => [pendingJoin ? `#join=${pendingJoin}` : '', pendingKey ? `&${pendingKey}` : '', pendingJq ? `&jq=${pendingJq}` : '', pendingMv ? `&mv=${pendingMv}` : ''].join('');
+  async function linkToApp() {
+    if (NATIVE || !/Android/i.test(navigator.userAgent || '') || /[?&]web=1/.test(location.search) || S.linkWeb) return false;
+    if (window.matchMedia && (matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches)) return false; // the installed web app
+    const h = linkHashNow(); if (!h) return false;
+    const pick = await ask('Open in the G-eSAA app?', 'This is a G-eSAA link. If the G-eSAA app is installed on this phone, open it there: your details, company and projects are kept in the app. Otherwise continue here in the browser.',
+      [{ label: 'Continue in this browser', value: 'web' }, { label: 'Open in the G-eSAA app', value: 'app', primary: true }]);
+    if (pick !== 'app') { S.linkWeb = true; persist(); return false; }
+    const back = `${location.origin}${location.pathname}?web=1${h.startsWith('#') ? h : `#${h.slice(1)}`}`;
+    LOG.info('link.toApp', { kind: pendingKey ? 'invite' : pendingMv ? 'move' : 'join' });
+    location.href = `intent://open?h=${encodeURIComponent(h)}#Intent;scheme=gesaa;package=com.marktamse.polecam;S.browser_fallback_url=${encodeURIComponent(back)};end`;
+    return true;
+  }
+  /** The APK opened by a G-eSAA link (gesaa://open?h=…): the invite, join or move code inside it. */
+  function linkFromNative(e) {
+    let h = '';
+    try { const u = String((e && e.url) || ''); h = decodeURIComponent((/[?&]h=([^&#]*)/.exec(u) || [])[1] || ''); } catch (err) { h = ''; }
+    LOG.info('link.native', { ok: !!h });
+    if (h && /[#&](join|ck|ci|jq|mv)=/.test(h)) loadOrg().then(() => handleInvite(h, true)); else if (e && e.url) toast('That link could not be read: paste it in Settings → Scan invite QR / Paste invite link.', 6000);
+  }
   function sharedListen() {
     sharedFromCache();
     if ('launchQueue' in window && window.launchQueue && typeof window.launchQueue.setConsumer === 'function') {
@@ -6967,6 +7178,7 @@
     if (NATIVE && window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable('SharedFile')) {
       const pl = nativePlugin('SharedFile');
       if (pl.proxy) Promise.resolve(pl.proxy.addListener('sharedFile', sharedFromNative)).catch((e) => LOG.warn('shared.listen.fail', errInfo(e)));
+      if (pl.proxy) Promise.resolve(pl.proxy.addListener('sharedLink', linkFromNative)).catch((e) => LOG.warn('link.listen.fail', errInfo(e))); // v2.26
     }
   }
 
@@ -7112,13 +7324,14 @@
   async function admStart() {
     const create = admMode === 'create' || !S.team;
     const P = pol(), F = formText();
-    const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice(), poleTypes: (P.poleTypes || []).slice(), adminUsers: (P.adminUsers || []).slice(), ...(P.web ? { web: P.web } : {}), ...(P.vendorRecords === false ? { vendorRecords: false } : {}),
+    const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice(), poleTypes: (P.poleTypes || []).slice(), ...(P.poleOwners ? { poleOwners: P.poleOwners.slice() } : {}), adminUsers: (P.adminUsers || []).slice(), ...(P.web ? { web: P.web } : {}), ...(P.vendorRecords === false ? { vendorRecords: false } : {}),
       otp: P.otp || b64u.enc(crypto.getRandomValues(new Uint8Array(18))), ...(P.kmzPass ? { kmzPass: P.kmzPass } : {}), ...(P.kmzOld ? { kmzOld: P.kmzOld.slice() } : {}), ...(P.logos ? { logos: { ...P.logos } } : {}) }; // v2.22, v2.23 logos
     admKmzAuto = P.kmzPass ? '' : suggestKmzPass(P.owner || (S.user && S.user.company) || ''); // follows the admin company until edited
     $('admKmzPass').value = P.kmzPass || admKmzAuto;
     renderLogoPick(polDraft); $('admReq').value = ''; $('admReqOut').hidden = true;
     $('admKmzInfo').textContent = P.kmzPass ? 'Shared PAT, cleanup and FAT KMZ files are locked with this password.' : 'Not saved yet: shared KMZ files are locked once the list is saved with a password. Update every phone to v2.22 first: older versions cannot open locked files.';
     $('admPoleTypes').value = typeLines(polDraft.poleTypes);
+    $('admPoleOwners').value = (polDraft.poleOwners || []).join('\n'); // v2.26
     $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = '';
     $('admUsers').value = (P.adminUsers || []).join('\n'); $('admVendorRec').checked = P.vendorRecords !== false;
     renderOrgBox(create);
@@ -7168,6 +7381,8 @@
       if (P.kmzOld && !P.kmzOld.length) delete P.kmzOld; }
     if ($('admVendorRec').checked) delete P.vendorRecords; else P.vendorRecords = false;
     P.poleTypes = parseTypeLines($('admPoleTypes').value).filter((t) => !BUILTIN_TYPES.some((b) => b.p === t.p));
+    P.poleOwners = [...new Set($('admPoleOwners').value.split(/\n/).map((x) => x.trim().replace(/\s+/g, ' ').slice(0, 30)).filter((x) => x && !BOQ_OPT.owner.some((o) => o.toLowerCase() === x.toLowerCase())))].slice(0, 30); // v2.26
+    if (!P.poleOwners.length) delete P.poleOwners;
     P.packs = parsePackLines($('admPacks').value).packs; if (!P.packs.length) delete P.packs;
     if (!P.poleTypes.length) delete P.poleTypes;
     const types = form.types.length ? form.types : D.types;
@@ -7305,7 +7520,7 @@
   }
   /** A short join code (#jq=…): the list is downloaded from the online sheet it names and taken only when it is the list the
       code names, signed with the key the code names. */
-  async function joinShort(code, sw) {
+  async function joinShort(code, sw, quiet) {
     let o = null;
     try { o = JSON.parse(new TextDecoder().decode(b64u.dec(code))); } catch (e) { o = null; }
     const url = o && (o.s ? `https://script.google.com/macros/s/${o.s}/exec` : String(o.u || ''));
@@ -7324,7 +7539,10 @@
     const prints = body ? await Promise.all([body.key, body.prevKey].filter(Boolean).map(keyPrint)) : [];
     if (!body || body.id !== o.i || !prints.includes(o.f)) { toast('Not accepted: the list in the online sheet is not the one this QR code names. Ask your admin for the join link.', 7000); return false; }
     teamSwitch = !!sw || !S.team;
-    try { return await importTeamText(j.list); } finally { teamSwitch = false; }
+    let ok = false;
+    try { ok = await importTeamText(j.list, quiet ? { quiet: true } : undefined); } finally { teamSwitch = false; }
+    if (ok && S.team && S.team.id === body.id && S.team.rev === body.rev) { S.sheetListAt = { url, id: body.id, rev: body.rev }; persist(); } // v2.26: this phone's invites are short too
+    return ok;
   }
   /** A newer version of this phone's list, read from the sheet, is taken when it is signed with the admin PIN. */
   async function applySheetList(text) {
@@ -7814,9 +8032,10 @@
     if (S.dropSatTiles) { // v1.7: satellite imagery kept by older versions is removed (Esri allows offline imagery only in ArcGIS apps)
       try { await tx('tiles', 'readwrite', (st) => st.delete(IDBKeyRange.bound('satellite/', 'satellite/\uffff'))); delete S.dropSatTiles; persist(); } catch (e) { /* try again next start */ }
     }
-    if (pendingJoin || pendingKey || pendingJq || pendingMv) { await loadOrg(); await handleInvite(`${pendingJoin ? `#join=${pendingJoin}` : ''}${pendingKey ? `&${pendingKey}` : ''}${pendingJq ? `&jq=${pendingJq}` : ''}${pendingMv ? `&mv=${pendingMv}` : ''}`, true); } else loadOrg(); // a link waits for the organisation check
+    if (pendingJoin || pendingKey || pendingJq || pendingMv) { await loadOrg(); if ((await linkToApp()) && (await tutWait(2500), document.visibilityState !== 'visible')) { /* the G-eSAA app took the link */ } else await handleInvite(`${pendingJoin ? `#join=${pendingJoin}` : ''}${pendingKey ? `&${pendingKey}` : ''}${pendingJq ? `&jq=${pendingJq}` : ''}${pendingMv ? `&mv=${pendingMv}` : ''}`, true); } else loadOrg(); // a link waits for the organisation check
     if (!profileOk()) { if ($('profile').hidden) openProfile(true); }
     else if (!S.project && !/[?&]shared=1/.test(location.search)) askNewProject(); // photos are taken inside a project
+    if (!S.sampleDone) { S.sampleDone = true; persist(); if (!allProjects().length) addSample(false); } // v2.26: the sample project, once, on a new phone (never later, when a user deletes all projects)
     sharedListen(); // v2.19: a file opened with or shared to G-eSAA
     if (profileOk()) setTimeout(() => guard(draftOffer, 'Unsaved record not opened'), 700); // v2.21: a record left unsaved by a reload
     renderSyncBtn();
@@ -7829,6 +8048,6 @@
   if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__polecam = { get points() { return points; }, get S() { return S; }, get lastQr() { return lastQrText; }, shortJoin, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
+  window.__polecam = { get points() { return points; }, get S() { return S; }, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport }; // for testing
 })();
