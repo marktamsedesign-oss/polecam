@@ -78,12 +78,13 @@
         { t: '**Table · CSV**, **Route and spans · Excel** and **Geotagged photos · ZIP** too. Each card has its **Options**; the defaults are in Settings → Exports and files.', go: 'export', hl: '#doCsv', when: 'The survey exports show in a Survey project.' },
         { t: '**Completion report · PDF** marks the task complete and sends the date to the online sheet.', go: 'export', hl: '#doCompletion' },
       ] },
-    { id: 'boq', aud: 'user', cat: 'Survey', title: 'Sizes for the BOQ / BOM', kw: 'boq bom size clamp owner electric pldt dito converge new globe pole 7.5m 9.14m 10.6m 7a 7ar light odf 12f 24f 48f 72f 144f 288f apc upc closure 12c 24c 48c 72c 144c 288c',
+    { id: 'boq', aud: 'user', cat: 'Survey', title: 'BOQ / BOM in the As-Plan and As-Built', kw: 'boq bom size sizes clamp owner electric pldt dito converge new globe pole 7.5m 9.14m 10.6m 7a 7ar light odf 12f 24f 48f 72f 144f 288f apc upc closure 12c 24c 48c 72c 144c 288c as-plan as-built planned built difference materials',
       steps: [
-        { t: 'Open a record: tap **Capture** for a new one, or a pin on the map for one you have.', go: 'map', hl: '#captureBtn' },
-        { t: 'In the record, **Size · for the BOQ / BOM** (under Identification): tap the size, tap it again to clear. An **existing pole**: its **owner** (Electric, PLDT, DITO, CONVERGE, or **+ Other**) and **clamp size** (5-7, 8-9, 10-12). A **proposed / new Globe pole**: its **size** (7.5m, 9.14m, 10.6m), **class** (7A, 7AR, Light) and clamp size.', hl: '#boqBox', when: 'It is in the record of a pole, an ODF or a closure.' },
-        { t: '**ODF**: 12F to 288F and **APC** or **UPC**. **Closure**: 12C to 288C (its status, Existing or New / Proposed, is the record\'s status; on a PAT pole you choose Existing or New).' },
-        { t: 'Export → FORMAT **BOQ / BOM sizes · Excel**: everything counted by size, with the IDs, and what has no size yet. The sizes are also in the CSV, the KMZ balloons, the DXF labels and the Excel lists.', go: 'export', hl: '#doBoq, #doAccBoq' },
+        { t: 'The BOQ is part of the **As-Plan Creation** survey (what the plan needs) and the **As-Built Creation** survey (what was built). Audit, PAT, defect cleanup and FAT have no sizes. Open a record: tap **Capture** for a new one, or a pin for one you have.', go: 'map', hl: '#captureBtn' },
+        { t: 'In the record, **Size · for the BOQ / BOM** (under Identification): tap the size, tap it again to clear. An **existing pole**: its **owner** (Electric, PLDT, DITO, CONVERGE, or **+ Other**) and **clamp size** (5-7, 8-9, 10-12). A **proposed / new Globe pole**: its **size** (7.5m, 9.14m, 10.6m), **class** (7A, 7AR, Light) and clamp size.', hl: '#boqBox', when: 'It is in the record of a pole, an ODF or a closure, in an As-Plan or As-Built project.' },
+        { t: '**ODF**: 12F to 288F and **APC** or **UPC**. **Closure**: 12C to 288C. Whether it is new or existing is the record\'s **Status**.' },
+        { t: '**As-Built**: load the **As-Plan KMZ** (exported from G-eSAA) as the project\'s reference here. Each As-Built element then starts with its planned sizes and status (the same ID, else the nearest planned one within 15 m). The purple line in the record shows the plan; it turns orange when what was built differs, with **Use the planned sizes**.', go: 'projectDetails', hl: '#refLoad', when: 'In an As-Built project: Projects → Project details → KMZ reference.' },
+        { t: 'The BOQ comes out with the survey: a **BOQ / BOM page** in the **Completion report**, a **BOQ sheet** in **Route and spans · Excel**, and on its own as **BOQ / BOM sizes · Excel**. In the As-Built it shows **Planned, Built and the Difference**, the planned elements not found and what was built outside the plan.', go: 'export', hl: '#doBoq' },
       ] },
     { id: 'pat', aud: 'user', cat: 'PAT, defect cleanup and FAT', title: 'Record a PAT (defects as found)', kw: 'pat provisional acceptance defect deficiency punchlist major minor note md d n where photo add',
       steps: [
@@ -274,5 +275,5 @@
         { t: 'Sites: the admin company sees every company\'s sites from the sheet, narrowed by your own regions and territories (Your details).', go: 'profile', hl: '#pfAreaBox' },
       ] },
   ];
-  root.GESAA_TUTORIAL = { version: '2.26', topics: T };
+  root.GESAA_TUTORIAL = { version: '2.26.1', topics: T };
 })(typeof self !== 'undefined' ? self : this);

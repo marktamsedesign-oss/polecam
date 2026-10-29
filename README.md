@@ -522,6 +522,19 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.26.1
+
+- **The BOQ belongs to the As-Plan and As-Built surveys.** There is no BOQ survey purpose: New project → Survey purpose is still As-Plan Creation, As-Built Creation or Audit.
+  - The **Size · for the BOQ / BOM** fields show only in **As-Plan Creation** and **As-Built Creation** records. Audit, PAT, defect cleanup and FAT records have none (the PAT BOQ export and the *Size (BOQ)* column of the PAT Excel are gone).
+  - **As-Plan**: the BOQ is what the plan needs (proposed new Globe poles by size and class, clamps by size and pole owner, ODF, closures).
+  - **As-Built follows the As-Plan.** Load the As-Plan KMZ exported by G-eSAA (v2.26 or later) as the As-Built project's reference (Projects → Project details → KMZ reference); the reference line then says how many planned elements and sizes it holds. In each As-Built record the planned element is found by the same ID (a painted pole ID), else the nearest planned element of the same kind within 15 m of the pin. A **new** record starts with its **planned sizes and status** (a proposed pole of the plan is *New (built)*); a line above the sizes shows the plan (*filled in from the plan*), turns orange when what was built differs, and **Use the planned sizes** copies the plan back. What you tap yourself is never overwritten. Without the As-Plan KMZ the record says how to load it.
+- **The BOQ comes out with the survey**, and still on its own:
+  - **Completion report (PDF)**: a **BOQ / BOM page** after page 1 (page 1 lists it under Details).
+  - **Route and spans · Excel**: a **BOQ** sheet.
+  - **BOQ / BOM sizes · Excel** (Export → FORMAT, As-Plan and As-Built only; no longer the first choice).
+  - In an **As-Built** with the As-Plan KMZ: columns **Planned, Built and Difference** (built minus planned), the planned elements not found in the As-Built (same ID or within 15 m) and what was built outside the plan. The status column reads *New* (proposed / new) or *Existing* in both.
+- An As-Plan KMZ made before v2.26 has no sizes in it: export it again from the As-Plan project.
+
 ## What changed in v2.26
 
 - **Sample project for a new user.** The first time the app opens on a phone (no project yet), it adds **SAMPLE_Survey_As-plan**: 5 existing poles with photos, pole details and sizes, marked **SAMPLE** on its card. It is made from the dummy project you sent (`sample/G-eSAA_sample.zip`): the people, company, vendor, task ID, Drive link and serial were replaced with *Sample user*, *SAMPLE*, *SAMPLE VENDOR*, *123*; the photos were re-saved at 1200 × 1600 without their EXIF data. The **photos and the GPS positions are still the real ones** (Davao area, Region MIN / T7), and the file is on the public website: replace `sample/G-eSAA_sample.zip` with another export (Projects → Share → Project file) if that is not wanted.

@@ -180,6 +180,7 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 /* v2.25 tutorial */
 .boq .boqrow{margin:6px 0 2px}.boq .boqrow .lbl{display:block;margin-bottom:4px}.boq .chips{gap:6px}.boq .chip{min-height:36px;padding:0 12px}
 .boq .chip[aria-pressed="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
+.boqplan{margin:2px 0 4px;padding:7px 10px;border-radius:10px;background:#ede7fd;color:#3b2a8a;font-size:calc(13px * var(--fs));line-height:1.35}.boqplan.warn{background:#fff4e0;color:#8a4b00}#boqUsePlan{align-self:flex-start;margin-top:4px}
 .tutsearch{display:flex;gap:8px;align-items:center}.tutsearch input{flex:1;min-width:0}
 #tutAud{margin:2px 0}
 .tutcat{margin:14px 0 6px;font-size:calc(12px * var(--fs));font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
@@ -709,7 +710,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <label class="frow" id="svClosureBox" hidden><span class="lbl">CLOSURE ID</span><input type="text" id="svClosureId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="If a closure is inside (POI)" aria-label="Closure ID in the handhole"></label>
       <div class="field" id="svDetailsBox" hidden><span class="lbl">POLE DETAILS</span><div id="svDetails" class="pdlist"></div>
         <select id="svDetailAdd" aria-label="Add a pole detail"><option value="">+ Add detail</option></select></div>
-      <div class="field boq" id="boqBox" hidden><span class="lbl">SIZE · FOR THE BOQ / BOM</span><div id="boqRows"></div><p class="hint" style="margin:0">Optional. Tap the size; tap it again to clear.</p></div>
+      <div class="field boq" id="boqBox" hidden><span class="lbl">SIZE · FOR THE BOQ / BOM</span><p class="boqplan" id="boqPlan" hidden></p><div id="boqRows"></div><button class="btn small" id="boqUsePlan" type="button" hidden>Use the planned sizes</button><p class="hint" style="margin:0">Optional. Tap the size; tap it again to clear.</p></div>
       <label class="field" id="svRemarksBox" hidden>REMARKS<textarea id="svRemarks" placeholder="Optional: condition, what to use, access, findings of the audit"></textarea></label>
     </div>
     <div class="group" id="poleAttach" hidden>
@@ -838,16 +839,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="head"><span class="ic">CSV</span><div><b>Punchlist · CSV</b><p>The punchlist table as plain text, for your acceptance tracker.</p></div></div>
         <button class="btn" id="doAccCsv">Export CSV</button>
       </div>
-      <div class="xcard">
-        <div class="head"><span class="ic">BOQ</span><div><b>BOQ / BOM sizes · Excel</b><p>Poles, clamps, ODF and closures counted by size (as recorded in each element), with the IDs, and what has no size yet.</p></div></div>
-        <button class="btn" id="doAccBoq">Export BOQ</button>
-      </div>
     </div>
     <div id="surveyExports" style="display:contents">
-    <div class="xcard">
-      <div class="head"><span class="ic">BOQ</span><div><b>BOQ / BOM sizes · Excel</b><p>New Globe poles by size and class, clamps by size and pole owner, ODF by size and connector, closures by size, with the IDs, and what has no size yet.</p></div></div>
-      <button class="btn" id="doBoq">Export BOQ</button>
-    </div>
     <div class="xcard">
       <div class="head"><span class="ic">KMZ</span><div><b>Google Earth · KMZ</b><p>Pins named by Pole ID, the photo in each balloon, optional photo pin icons and the cable route.</p></div></div>
       <details><summary>Options</summary><div class="opts">
@@ -876,6 +869,10 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="xcard">
       <div class="head"><span class="ic">XLS</span><div><b>Route and spans · Excel</b><p>Summary (route length, spans, too-long spans, angle poles, junctions), every span with its length, and every pole's role and deflection angle.</p></div></div>
       <button class="btn" id="doRouteXlsx">Export route table</button>
+    </div>
+    <div class="xcard" id="boqCard">
+      <div class="head"><span class="ic">BOQ</span><div><b>BOQ / BOM sizes · Excel</b><p id="boqCardText">New Globe poles by size and class, clamps by size and pole owner, ODF by size and connector, closures by size, with the IDs, and what has no size yet. The same BOQ is in the Completion report and in Route and spans · Excel.</p></div></div>
+      <button class="btn" id="doBoq">Export BOQ</button>
     </div>
     </div>
     <div class="xcard">

@@ -389,17 +389,18 @@
   const POLE_DETAIL_ITEMS = ['Transformer', 'Streetlight', 'Riser pipe', 'Guy wire', 'Down guy / anchor', 'Crossarm', 'Electric meter', 'Service drop', 'Other telco cable'];
   const detailsText = (list, sep) => (list || []).filter((x) => x && x.item).map((x) => `${x.item}: ${x.qty || 1} pc${(x.qty || 1) === 1 ? '' : 's'}`).join(sep || '; ');
   /* v2.26: sizes for the BOQ / BOM, per element (r.boq). Existing poles: owner and clamp size; a proposed / new Globe pole: its
-     size and class (and clamp); ODF: fibre count and connector; closure: core count (and, on a PAT pole, existing or new). */
+     size and class (and clamp); ODF: fibre count and connector; closure: core count. v2.26.1: only in the As-Plan and As-Built
+     surveys (the BOQ of the plan and of what was built); the As-Built compares with the As-Plan (its KMZ as the reference). */
   const BOQ_OPT = { owner: ['Electric', 'PLDT', 'DITO', 'CONVERGE'], clamp: ['5-7', '8-9', '10-12'], height: ['7.5m', '9.14m', '10.6m'], cls: ['7A', '7AR', 'Light'],
     odf: ['12F', '24F', '48F', '72F', '144F', '288F'], conn: ['APC', 'UPC'], clo: ['12C', '24C', '48C', '72C', '144C', '288C'], cloSt: ['Existing', 'New'] };
   const BOQ_LABEL = { owner: 'POLE OWNER', clamp: 'CLAMP SIZE', height: 'NEW GLOBE POLE · SIZE', cls: 'NEW GLOBE POLE · CLASS', odf: 'ODF SIZE', conn: 'ODF CONNECTOR', clo: 'CLOSURE SIZE', cloSt: 'CLOSURE' };
+  const BOQ_PURPOSES = ['As-plan', 'As-built'];
+  /** The BOQ is part of the As-Plan and As-Built surveys only (not Audit, PAT, defect cleanup or FAT). */
+  const boqOn = (name) => !isAcc(name) && BOQ_PURPOSES.includes(svPurpose(name));
   const boqOwners = () => [...new Set([...BOQ_OPT.owner, ...(Array.isArray(pol().poleOwners) ? pol().poleOwners : []), ...(S.myOwners || [])].map((x) => String(x || '').trim()).filter(Boolean))];
-  /** The BOQ fields of an element: by element, survey status (existing or proposed / new) and mode; a closure on the pole or in the handhole adds its size. */
-  function boqKeys(el, status, acc, closureHere) {
-    if (el === 'Pole') {
-      const k = acc ? ['owner', 'clamp', 'height', 'cls'] : status === 'Proposed' || status === 'New' ? ['height', 'cls', 'clamp'] : ['owner', 'clamp'];
-      return acc && closureHere ? k.concat(['clo', 'cloSt']) : k;
-    }
+  /** The BOQ fields of a survey element: by element and status (existing, or proposed / new); a closure in the handhole adds its size. */
+  function boqKeys(el, status, closureHere) {
+    if (el === 'Pole') return status === 'Proposed' || status === 'New' ? ['height', 'cls', 'clamp'] : ['owner', 'clamp'];
     if (el === 'ODF') return ['odf', 'conn'];
     if (el === 'Closure') return ['clo'];
     if (el === 'Handhole') return closureHere ? ['clo'] : [];
@@ -633,7 +634,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.26.0';
+  const APP_VER = '2.26.1';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1012,14 +1013,35 @@
     const coords = (el) => txt(el, 'coordinates').split(/\s+/).map((c) => c.split(',').map(Number)).filter((c) => c.length >= 2 && Number.isFinite(c[0]) && Number.isFinite(c[1]) && Math.abs(c[1]) <= 90).map((c) => [+c[1].toFixed(7), +c[0].toFixed(7)]);
     const folderOf = (pm) => { for (let el = pm.parentElement; el; el = el.parentElement) if (el.localName === 'Folder') return txt(el, 'name'); return ''; };
     const out = { points: [], lines: [], polys: [] };
+    /* v2.26.1: a G-eSAA survey KMZ (the As-Plan) carries each element's ID, status and sizes as data: kept for the As-Built */
+    const dataOf = (pm) => { const o = {}; all(pm, 'Data').forEach((d) => { const k = d.getAttribute('name'); if (k && KML_DATA.has(k)) { const v = txt(d, 'value').slice(0, 60); if (v) o[k] = v; } }); return o.element ? o : null; };
     for (const pm of all(doc, 'Placemark')) {
       const n = txt(pm, 'name').slice(0, 80), f = folderOf(pm).slice(0, 60), st = styleOf(pm);
-      for (const g of all(pm, 'Point')) { const c = coords(g)[0]; if (c && out.points.length < REF_MAX_PTS) out.points.push({ n, f, c, col: st.icon || null }); }
+      for (const g of all(pm, 'Point')) { const c = coords(g)[0], x = dataOf(pm); if (c && out.points.length < REF_MAX_PTS) out.points.push({ n, f, c, col: st.icon || null, ...(x ? { x } : {}) }); }
       for (const g of all(pm, 'LineString')) { const c = coords(g); if (c.length > 1 && out.lines.length < REF_MAX_LINES) out.lines.push({ n, f, c, col: st.line || null, w: st.w }); }
       for (const g of all(pm, 'Polygon')) { const ob = all(g, 'outerBoundaryIs')[0], ring = ob && all(ob, 'LinearRing')[0], c = ring ? coords(ring) : []; if (c.length > 2 && out.lines.length < REF_MAX_LINES) out.polys.push({ n, f, c, col: st.line || st.poly || null }); }
     }
     return out;
   }
+  /** v2.26.1: the data names of a G-eSAA survey KMZ (core.js) read back from a reference; BOQ_KML maps them to the record's sizes. */
+  const BOQ_KML = { pole_owner: 'owner', clamp_size: 'clamp', new_pole_size: 'height', pole_class: 'cls', odf_size: 'odf', odf_connector: 'conn', closure_size: 'clo', closure_status: 'cloSt' };
+  const KML_DATA = new Set(['pole_id', 'element', 'status', 'closure_id', ...Object.keys(BOQ_KML)]);
+  /** The elements of the As-Plan (this As-Built project's reference KMZ) as records: ID, element, status, position, sizes. */
+  function planRecsOf(geo) {
+    return ((geo && geo.points) || []).filter((p) => p.x && p.x.element).map((p) => {
+      const boq = {}; Object.entries(BOQ_KML).forEach(([k, f]) => { if (p.x[k]) boq[f] = p.x[k]; });
+      return { poleId: p.x.pole_id || p.n || '', element: p.x.element, status: p.x.status || '', closureId: p.x.closure_id || '', lat: p.c[0], lon: p.c[1], boq };
+    });
+  }
+  /** The plan of an As-Built project: { name, recs } (recs empty when the reference is not a G-eSAA KMZ), or null. */
+  async function planFor(name) {
+    const nm = name || S.project;
+    if (isAcc(nm) || svPurpose(nm) !== 'As-built') return null;
+    const info = refInfo(nm); if (!info) return null;
+    const geo = await refGeoFor(nm).catch(() => null);
+    return { name: info.name, recs: planRecsOf(geo) };
+  }
+  const PLAN_NEAR_M = 15; // an As-Built element without the planned ID is matched to the nearest planned one of its kind within this distance
   const lineLen = (c) => c.reduce((t, p, i) => (i ? t + haversine({ lat: c[i - 1][0], lon: c[i - 1][1] }, { lat: p[0], lon: p[1] }) : 0), 0);
   /** KML text: UTF-8, or UTF-16 when the file starts with its byte-order mark. */
   const kmlText = (u8) => new TextDecoder(u8[0] === 0xFF && u8[1] === 0xFE ? 'utf-16le' : u8[0] === 0xFE && u8[1] === 0xFF ? 'utf-16be' : 'utf-8').decode(u8);
@@ -1033,7 +1055,8 @@
       text = kmlText(await z.get(name));
     } else text = kmlText(new Uint8Array(await f.arrayBuffer()));
     const geo = parseKml(text);
-    const n = { pins: geo.points.length, lines: geo.lines.length, areas: geo.polys.length, km: +(geo.lines.reduce((t, l) => t + lineLen(l.c), 0) / 1000).toFixed(2) };
+    const pr = planRecsOf(geo); // v2.26.1: a G-eSAA As-Plan KMZ: its elements and their sizes
+    const n = { pins: geo.points.length, lines: geo.lines.length, areas: geo.polys.length, km: +(geo.lines.reduce((t, l) => t + lineLen(l.c), 0) / 1000).toFixed(2), plan: pr.length, sized: pr.filter((r) => Object.keys(r.boq).length).length };
     if (!n.pins && !n.lines && !n.areas) throw new Error('No pins, lines or areas found in this file');
     const old = refInfo(), id = uid();
     await dbPut('packs', { k: refKey(id), geo });
@@ -1042,7 +1065,8 @@
     refGeo = geo; refFor = S.project; busy(false);
     LOG.info('ref.loaded', n);
     drawRef(true); renderRefInfo();
-    toast(`Reference loaded: ${n.lines ? `${n.lines} line${n.lines === 1 ? '' : 's'} (${n.km} km)` : ''}${n.lines && n.pins ? ' · ' : ''}${n.pins ? `${n.pins} pin${n.pins === 1 ? '' : 's'}` : ''}${n.areas ? ` · ${n.areas} area${n.areas === 1 ? '' : 's'}` : ''}`, 4000);
+    const planTxt = boqOn() && svPurpose() === 'As-built' ? (n.plan ? ` · As-Plan: ${n.plan} element${n.plan === 1 ? '' : 's'}, ${n.sized} with sizes for the BOQ` : ' · no G-eSAA sizes in it (not an As-Plan KMZ from G-eSAA)') : '';
+    toast(`Reference loaded: ${n.lines ? `${n.lines} line${n.lines === 1 ? '' : 's'} (${n.km} km)` : ''}${n.lines && n.pins ? ' · ' : ''}${n.pins ? `${n.pins} pin${n.pins === 1 ? '' : 's'}` : ''}${n.areas ? ` · ${n.areas} area${n.areas === 1 ? '' : 's'}` : ''}${planTxt}`, 5000);
   }
   async function refGeoFor(name) {
     const info = refInfo(name); if (!info) return null;
@@ -1087,7 +1111,7 @@
   }
   function renderRefInfo() {
     const info = refInfo(), hidden = (S.refHidden || {})[S.project];
-    $('refInfo').textContent = info ? `${info.name}: ${[info.n.lines && `${info.n.lines} line${info.n.lines === 1 ? '' : 's'} (${info.n.km} km)`, info.n.pins && `${info.n.pins} pin${info.n.pins === 1 ? '' : 's'}`, info.n.areas && `${info.n.areas} area${info.n.areas === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}${hidden ? ' · hidden' : ''}` : 'No reference loaded.';
+    $('refInfo').textContent = info ? `${info.name}: ${[info.n.lines && `${info.n.lines} line${info.n.lines === 1 ? '' : 's'} (${info.n.km} km)`, info.n.pins && `${info.n.pins} pin${info.n.pins === 1 ? '' : 's'}`, info.n.areas && `${info.n.areas} area${info.n.areas === 1 ? '' : 's'}`, info.n.plan && `As-Plan: ${info.n.plan} element${info.n.plan === 1 ? '' : 's'}, ${info.n.sized || 0} with sizes`].filter(Boolean).join(' · ')}${hidden ? ' · hidden' : ''}` : boqOn() && svPurpose() === 'As-built' ? 'No reference loaded. Load the As-Plan KMZ (exported by G-eSAA): the As-Built then starts each element with its planned sizes and the BOQ shows planned against built.' : 'No reference loaded.';
     $('refToggle').hidden = $('refRemove').hidden = !info; $('refToggle').textContent = hidden ? 'Show' : 'Hide';
     $('refLoad').textContent = info ? 'Replace…' : 'Load KMZ / KML…';
   }
@@ -2428,6 +2452,7 @@
     pinMap.on('move', updateCoordBox);
     pinMap.on('moveend', clampPin);
     pinMap.on('moveend', () => { if (ed && ed.dragged) scheduleDraft(); }); // v2.21
+    pinMap.on('moveend', () => { if (ed && ed.plan) applyPlan(); }); // v2.26.1: the planned element nearest the pin
     pinMap.on('dragstart zoomstart', () => { if (ed) ed.userMoved = true; });
     pinMap.on('dragstart', () => { if (ed) ed.dragged = true; $('edHint').classList.add('gone'); });
   }
@@ -2487,6 +2512,7 @@
   function syncFromId() {
     if (!ed) return;
     setTimeout(foldSum, 0); // v2.22: the folded Element details line
+    if (ed.plan) setTimeout(applyPlan, 0); // v2.26.1: the planned element with this ID
     const id = $('poleId').value.trim().toUpperCase();
     const m = new RegExp(`^(${prefixAlt()})-`).exec(id);
     if (ed.acc && ed.mode === 'new' && /^FDU_/.test(id) && ed.element !== 'ODF') { ed.element = 'ODF'; renderElemChips(); applyElement(); }
@@ -2644,6 +2670,8 @@
       ed.userMoved = false; drawEdGps(); updateCoordBox(); drawPinRef();
     });
     checkFormat(); applyEdLock();
+    ed.boqTouched = !!o.restore; // v2.26.1: a restored record keeps its sizes
+    if (!acc && boqOn() && svPurpose() === 'As-built') { const eid = ed.id; planFor().then((pl) => requestAnimationFrame(() => { if (ed && ed.id === eid) { ed.plan = pl || { none: true, name: '', recs: [] }; applyPlan(); } })).catch((e) => LOG.warn('plan.fail', errInfo(e))); }
     foldSum(); // v2.22: after the ID and element are set
     draftStart(!!o.restore); // v2.21: kept safe until saved
     if (photoReadNext && o.mode === 'new' && !acc && o.blob) { photoReadNext = false; setTimeout(openPhotoRead, 400); } // v2.17: the picture button
@@ -3133,7 +3161,7 @@
     const kindOf = (v) => (/^FDU_/.test(v) ? 'ODF' : poleIdRe().test(v) || poleIdXRe().test(v) || polePartRe().test(v) || /^PP-/.test(v) ? 'Pole' : Object.keys(SV_PREFIX).find((k) => v.startsWith(`${SV_PREFIX[k]}-`)) || null);
     // a new record: the suggested ID follows the element; so does an ID that belongs to another element (e.g. a pole ID read by the camera)
     if (ed.mode === 'new' && (!ed.idTouched || !id || (kindOf(id) && kindOf(id) !== el))) { $('poleId').value = suggestId(el, ed.type); ed.idTouched = false; }
-    applyElement(); checkDup(); checkFormat();
+    applyElement(); checkDup(); checkFormat(); applyPlan();
   });
   function applyElement() {
     const el = ed.element;
@@ -3171,7 +3199,7 @@
   $('atClosure').addEventListener('change', (e) => { ed.closure = e.target.checked; markToggles(); $('closureId').hidden = !ed.closure; renderBoq(); if (ed.closure) $('closureId').focus(); });
   $('svClosureId').addEventListener('input', () => { if (ed && !ed.acc && ed.element === 'Handhole') { const was = !$('boqBox').hidden; if (was !== !!$('svClosureId').value.trim()) renderBoq(); } });
   /** v2.26: the BOQ sizes of the element in the record: one row of chips per field (tap again to clear). */
-  const edBoqKeys = () => (ed ? boqKeys(ed.element || 'Pole', ed.acc ? '' : ed.status, !!ed.acc, ed.acc ? !!ed.closure : !!$('svClosureId').value.trim()) : []);
+  const edBoqKeys = () => (ed && !ed.acc && boqOn() ? boqKeys(ed.element || 'Pole', ed.status, !!$('svClosureId').value.trim()) : []);
   function renderBoq() {
     const box = $('boqBox'), rows = $('boqRows'); if (!ed) return;
     const keys = edBoqKeys(); box.hidden = !keys.length; rows.innerHTML = '';
@@ -3185,7 +3213,7 @@
       if (ed.boq[k] && !opts.includes(ed.boq[k])) opts.push(ed.boq[k]); // a value from another phone's list
       opts.forEach((v) => {
         const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = v; c.setAttribute('aria-pressed', String(ed.boq[k] === v)); c.disabled = ro;
-        c.addEventListener('click', () => { ed.boq[k] = ed.boq[k] === v ? '' : v; renderBoq(); foldSum(); });
+        c.addEventListener('click', () => { ed.boq[k] = ed.boq[k] === v ? '' : v; ed.boqTouched = true; renderBoq(); foldSum(); });
         chips.appendChild(c);
       });
       if (k === 'owner' && !ro) {
@@ -3194,17 +3222,57 @@
           let v = await promptText('Pole owner', 'Whose pole is it? It is kept on this phone for the next poles (your admin can add owners for everyone).', 'e.g. SKYCABLE');
           v = String(v || '').trim().replace(/\s+/g, ' ').slice(0, 30); if (!v) return;
           if (!boqOwners().some((x) => x.toLowerCase() === v.toLowerCase())) { S.myOwners = (S.myOwners || []).concat(v).slice(-20); persist(); }
-          ed.boq.owner = boqOwners().find((x) => x.toLowerCase() === v.toLowerCase()) || v; renderBoq(); foldSum();
+          ed.boq.owner = boqOwners().find((x) => x.toLowerCase() === v.toLowerCase()) || v; ed.boqTouched = true; renderBoq(); foldSum();
         });
         chips.appendChild(o);
       }
       row.appendChild(chips); rows.appendChild(row);
     });
+    renderPlanLine(keys, ro);
+  }
+  /* v2.26.1: the As-Built follows the As-Plan. With the As-Plan KMZ as the project's reference, the record shows the planned
+     element (same ID, else the nearest of its kind within 15 m) and a new record starts with its planned sizes and status. */
+  function renderPlanLine(keys, ro) {
+    const pn = $('boqPlan'), pb = $('boqUsePlan'), pl = ed && !ed.acc ? ed.plan : null, m = ed && ed.planHit;
+    pn.hidden = !pl || !keys.length; pb.hidden = true; pn.classList.remove('warn');
+    if (pn.hidden) return;
+    if (m) {
+      const plan = boqText({ boq: boqPick(m.r.boq, keys) }), now = boqText({ boq: boqPick(ed.boq, keys) }), differs = plan !== now;
+      pn.textContent = `As-Plan ${m.r.poleId || m.r.element}${m.by === 'near' ? ` (${fmtDist(m.d)} from the pin)` : m.d > PLAN_NEAR_M ? ` (same ID, ${fmtDist(m.d)} from the pin)` : ''}: ${boqText(m.r) || 'no size in the plan'}${!differs && ed.boqFromPlan && !ed.boqTouched ? ' · filled in from the plan: change what was built differently' : differs ? ' · built differs from the plan' : ''}`;
+      pn.classList.toggle('warn', differs); pb.hidden = !differs || ro || !plan;
+    } else if (pl.none) pn.textContent = 'Load the As-Plan KMZ as this project\u2019s reference (Projects \u2192 Project details \u2192 KMZ reference): each element then starts with its planned sizes, and the BOQ shows planned against built.';
+    else if (!pl.recs.length) pn.textContent = `The reference \u201c${pl.name}\u201d has no G-eSAA sizes: load the As-Plan KMZ exported by G-eSAA (v2.26 or later) as the reference.`;
+    else pn.textContent = `Not in the As-Plan: no planned ${(ed.element || 'Pole').toLowerCase()} with this ID or within ${PLAN_NEAR_M} m of the pin.`;
+  }
+  $('boqUsePlan').addEventListener('click', () => { if (!ed || !ed.planHit) return; ed.boq = { ...ed.boq, ...boqPick(ed.planHit.r.boq, edBoqKeys()) }; edBoqKeys().forEach((k) => { if (!ed.planHit.r.boq[k]) delete ed.boq[k]; }); ed.boqTouched = true; ed.boqFromPlan = true; renderBoq(); foldSum(); });
+  /** The planned element of the open As-Built record: same ID (a painted pole ID), else the nearest of its kind within PLAN_NEAR_M. */
+  function planMatch() {
+    const pl = ed && ed.plan; if (!pl || !pl.recs.length || !pinMap) return null;
+    const el = ed.element || 'Pole', id = $('poleId').value.trim().toUpperCase(), same = pl.recs.filter((r) => r.element === el);
+    const c = pinMap.getCenter(), here = { lat: c.lat, lon: c.lng };
+    const byId = id.length > 4 && !PP_RE.test(id) && !/[-_]$/.test(id) ? same.find((r) => String(r.poleId).toUpperCase() === id) : null;
+    if (byId) return { r: byId, d: haversine(here, byId), by: 'id' };
+    let best = null;
+    same.forEach((r) => { const d = haversine(here, r); if (d <= PLAN_NEAR_M && (!best || d < best.d)) best = { r, d, by: 'near' }; });
+    return best;
+  }
+  function applyPlan() {
+    if (!ed || ed.acc || !ed.plan) return;
+    const m = planMatch(), was = ed.planHit, moved = (m && m.r) !== (was && was.r);
+    ed.planHit = m;
+    if (ed.mode === 'new' && !ed.boqTouched && moved) {
+      if (m) {
+        const want = m.r.status === 'Proposed' || m.r.status === 'New' ? 'New' : 'Existing'; // a proposed element of the plan is a new one in the As-Built
+        if (!ed.stTouched && ed.status !== want && svStatuses(ed.element || 'Pole').includes(want)) { ed.status = want; applyElement(); }
+        ed.boq = { ...m.r.boq }; ed.boqFromPlan = true;
+      } else if (ed.boqFromPlan) { ed.boq = {}; ed.boqFromPlan = false; }
+    }
+    renderBoq(); foldSum();
   }
   $('odfSel').addEventListener('change', (e) => { ed.odf = e.target.value; applyElement(); });
   $('svStatus').addEventListener('change', (e) => {
     if (!ed) return;
-    const was = ed.status; ed.status = e.target.value;
+    const was = ed.status; ed.status = e.target.value; ed.stTouched = true;
     // a new pole switched to / from Proposed: PP-0001 numbering, or back to the type prefix (an ID read from the pole stays)
     if (ed.mode === 'new' && ed.element === 'Pole' && (was === 'Proposed') !== (ed.status === 'Proposed')) {
       const id = $('poleId').value.trim().toUpperCase();
@@ -4678,12 +4746,17 @@
     const ph = $('complPhotos').checked && pts.length ? await (acc ? defectPhotos(accModel()) : polePhotos(pts)) : null;
     const photoLine = ph ? ph.line + (ph.missing ? ` · ${ph.missing} record photo${ph.missing === 1 ? '' : 's'} missing on this phone` : '') : pts.length ? 'Not included' : '—';
     const npl = pts.filter((p) => elemOf(p) === 'Pole').length;
+    const boqT = !acc && boqOn() && pts.length ? boqTable(pts, await planFor()) : null; // v2.26.1: the BOQ of the As-Plan / As-Built, on its own page
+    const photoAt = (t) => (boqT ? t.replace('(from page 2)', '(after the BOQ / BOM page)') : t);
     const details = [['Records', acc ? `${pts.length} element${pts.length === 1 ? '' : 's'}` : `${npl} pole${npl === 1 ? '' : 's'}${pts.length > npl ? ` · ${svCountText(pts)}` : ''}`], ['Recorded by', peopleText() || byLine()],
-      ['Photos', photoLine], ['Exports made', made || '—'], ['Reference KMZ', (refInfo() && refInfo().name) || '—'], ...(m.fromPat ? [['From', `${m.fromStage || 'PAT'} “${m.fromPat}”`]] : []), ['Remarks / notes', m.notes || '—']];
+      ['Photos', photoAt(photoLine)], ['Exports made', made || '—'], ['Reference KMZ', (refInfo() && refInfo().name) || '—'],
+      ...(boqT ? [['BOQ / BOM', `${boqT.rows.length ? `${boqT.rows.length} line${boqT.rows.length === 1 ? '' : 's'}${boqT.compare ? ', planned against built' : ''}` : 'no size recorded yet'} \u2014 see the BOQ / BOM page`]] : []), ...(m.fromPat ? [['From', `${m.fromStage || 'PAT'} “${m.fromPat}”`]] : []), ['Remarks / notes', m.notes || '—']];
     const same = purpose === catLabel; // PAT, FAT: the purpose is the category
     const pdf = R.completionPdf({ title: 'TASK COMPLETION REPORT', stageLong: same ? catLabel : `${catLabel} · ${purpose}`, statement: `${catLabel}${same ? '' : ` (${purpose})`} of ${m.site || S.project} completed on ${longDate(m.completedAt)}.${m.noDefects ? ' No deficiencies were found: the FAT is recorded as done on the same date.' : ''}`,
       info, summary, details, signers: [{ role: 'Prepared by (contractor representative)', name: m.vendorRep || (S.user && S.user.name) || '' }, { role: 'Accepted by (Globe representative)', name: m.globeRep || '' }],
-      footer: `${S.project} · completion report`, footer2: exporterLine(), photos: ph ? ph.sections : [], attach: await reportKmz(), logos: await formLogos() });
+      footer: `${S.project} · completion report`, footer2: exporterLine(), photos: ph ? ph.sections : [],
+      tables: boqT ? [{ title: boqT.title, sub: `${S.project}${m.site ? ` \u00b7 ${m.site}` : ''}`, head: boqT.head, widths: boqT.compare ? [17, 14, 15, 9, 8, 11, 26] : [18, 15, 18, 10, 39],
+        rows: boqT.rows.map((r) => ({ cells: r.cells, tones: boqT.compare ? r.cells.map((v, i) => (i === 5 ? (r.diff ? 'bad' : 'good') : null)) : null })), notes: boqT.notes }] : [], attach: await reportKmz(), logos: await formLogos() });
     LOG.info('completion.pdf', { pages: pdf.pages.length, photos: ph ? ph.line : 'off', missing: ph ? ph.missing : 0 });
     offerResult(new Blob(pdf.output({ title: `${S.project} completion report` }), { type: 'application/pdf' }), `${fileBase()}_completion_report.pdf`);
   }, 'Completion report not made'));
@@ -4843,12 +4916,15 @@
   /* Export screen: one format at a time, picked from the Format dropdown (the last choice is kept per Survey / acceptance). */
   let exportPick = null;
   const xKey = (card) => card.querySelector('button[id^="do"]').id;
-  function exportCards() { return [...document.querySelectorAll('#export .xcard')].filter((c) => { const g = c.closest('#accExports, #surveyExports'); return !g || !g.hidden; }); }
+  function exportCards() { return [...document.querySelectorAll('#export .xcard')].filter((c) => { const g = c.closest('#accExports, #surveyExports'); return (!g || !g.hidden) && (c.id !== 'boqCard' || boqOn()); }); } // v2.26.1: the BOQ in As-Plan and As-Built only
   function showExport(pick) {
     const cards = exportCards(), sel = $('xFormat'), acc = isAcc();
     const want = cards.find((c) => c.querySelector('#' + pick)) || cards.find((c) => xKey(c) === (S.xPick || {})[acc ? 'acc' : 'survey']) || cards[0];
     sel.innerHTML = '';
     cards.forEach((c) => sel.add(new Option(c.querySelector('.head b').textContent, xKey(c), false, c === want)));
+    $('boqCardText').textContent = svPurpose() === 'As-built' && !acc // v2.26.1
+      ? 'What was built, by size, against the As-Plan (its KMZ as this project\u2019s reference): planned, built and the difference, with the IDs, the planned elements not found and what was built outside the plan. The same BOQ is in the Completion report and in Route and spans \u00b7 Excel.'
+      : 'What the plan needs, by size: new Globe poles by size and class, clamps by size and pole owner, ODF by size and connector, closures by size, with the IDs, and what has no size yet. The same BOQ is in the Completion report and in Route and spans \u00b7 Excel.';
     document.querySelectorAll('#export .xcard').forEach((c) => c.classList.toggle('xoff', c !== want));
   }
   $('xFormat').addEventListener('change', (e) => {
@@ -5001,41 +5077,73 @@
   }));
 
   /* v2.26: the BOQ / BOM sizes of a project, counted by item and size (a sheet of its own; also in the route table) */
-  function boqSheet(pts, st) {
+  /* v2.26.1: the BOQ of an As-Plan (what the plan needs) or of an As-Built (what was built, against the As-Plan when its KMZ is the
+     project's reference). One table for the BOQ Excel, the Route and spans Excel and the Completion report. */
+  const boqStNorm = (st) => (st === 'Proposed' || st === 'New' ? 'New' : st || '');
+  function boqGroups(pts) {
     const groups = new Map(), missing = { pole: 0, ODF: 0, closure: 0 };
     const add = (item, size, forWhat, id) => { const k = [item, size, forWhat].join('|'), g = groups.get(k) || { item, size, forWhat, qty: 0, ids: [] }; g.qty++; if (id) g.ids.push(id); groups.set(k, g); };
     pts.forEach((p) => {
-      const el = elemOf(p), b = p.boq || {}, id = p.poleId && !DREF_RE.test(p.poleId) ? p.poleId : '', stl = svStatusLabel(p.status);
+      const el = elemOf(p), b = p.boq || {}, id = p.poleId && !DREF_RE.test(p.poleId) ? p.poleId : '', stn = boqStNorm(p.status);
       if (el === 'Pole') {
-        const isNew = p.status === 'Proposed' || p.status === 'New';
-        if (b.height || b.cls) add('New Globe pole', [b.height, b.cls].filter(Boolean).join(' '), stl || 'New', id);
-        if (b.clamp) add('Pole clamp', b.clamp, b.owner ? `${b.owner} pole` : isNew || b.height ? 'New Globe pole' : 'Pole', id);
+        if (b.height || b.cls) add('New Globe pole', [b.height, b.cls].filter(Boolean).join(' '), 'New', id);
+        if (b.clamp) add('Pole clamp', b.clamp, b.owner ? `${b.owner} pole` : stn === 'New' || b.height ? 'New Globe pole' : 'Pole', id);
         if (!b.clamp && !b.height && !b.cls) missing.pole++;
-        if (b.clo) add('Closure', b.clo, b.cloSt || 'On the pole', p.closureId || id);
-      } else if (el === 'ODF') { if (b.odf || b.conn) add('ODF', [b.odf, b.conn].filter(Boolean).join(' '), stl || p.odf || '', id); else missing.ODF++; }
-      else if (el === 'Closure' || (el === 'Handhole' && p.closureId)) { if (b.clo) add('Closure', b.clo, stl || '', el === 'Handhole' ? p.closureId : id); else missing.closure++; }
+      } else if (el === 'ODF') { if (b.odf || b.conn) add('ODF', [b.odf, b.conn].filter(Boolean).join(' '), stn, id); else missing.ODF++; }
+      else if (el === 'Closure' || (el === 'Handhole' && p.closureId)) { if (b.clo) add('Closure', b.clo, stn, el === 'Handhole' ? p.closureId : id); else missing.closure++; }
     });
+    return { groups, missing };
+  }
+  const BOQ_ELEMS = (p) => ['Pole', 'ODF', 'Closure'].includes(elemOf(p)) || (elemOf(p) === 'Handhole' && !!p.closureId);
+  /** Elements of one list with no element of the other list (same kind) by ID or within PLAN_NEAR_M. */
+  function boqUnmatched(from, to) {
+    return from.filter(BOQ_ELEMS).filter((a) => {
+      const id = String(a.poleId || '').toUpperCase();
+      return !to.some((b) => elemOf(b) === elemOf(a) && ((id && !PP_RE.test(id) && String(b.poleId || '').toUpperCase() === id) || haversine(a, b) <= PLAN_NEAR_M));
+    });
+  }
+  function boqTable(pts, plan) {
+    const B = boqGroups(pts), P = plan && plan.recs.length ? boqGroups(plan.recs) : null, compare = !!P;
     const order = ['New Globe pole', 'Pole clamp', 'ODF', 'Closure'];
-    const list = [...groups.values()].sort((a, c) => order.indexOf(a.item) - order.indexOf(c.item) || String(a.size).localeCompare(String(c.size), undefined, { numeric: true }) || String(a.forWhat).localeCompare(String(c.forWhat)));
-    const rows = [['Item', 'Size / type', 'For / status', 'Quantity', 'IDs'].map((v) => ({ v, s: st.header }))];
-    list.forEach((g) => rows.push([g.item, g.size, g.forWhat, { v: g.qty, s: st.center }, g.ids.join(', ')]));
-    if (!list.length) rows.push([{ v: 'No size recorded yet: set them in each record (Size · for the BOQ / BOM).', s: st.info }]);
-    const miss = Object.entries(missing).filter(([, n]) => n);
-    if (miss.length) { rows.push([]); rows.push([{ v: `Without a size yet: ${miss.map(([k, n]) => `${n} ${k}${n === 1 ? '' : k === 'ODF' ? 's' : 's'}`).join(', ')}`, s: st.bad }]); }
-    rows.push([]); rows.push([{ v: 'Quantities are what was recorded in the field: one per element (a clamp size counts the poles that need it). Add spares and allowances per your design standard.', s: st.info }]);
-    return { name: 'BOQ', cols: [18, 16, 22, 10, 70], rows, freezeRow: 1 };
+    const keys = [...new Set([...B.groups.keys(), ...(P ? P.groups.keys() : [])])];
+    const g = (k) => B.groups.get(k) || P.groups.get(k);
+    keys.sort((a, c) => { const x = g(a), y = g(c); return order.indexOf(x.item) - order.indexOf(y.item) || String(x.size).localeCompare(String(y.size), undefined, { numeric: true }) || String(x.forWhat).localeCompare(String(y.forWhat)); });
+    const head = compare ? ['Item', 'Size / type', 'For / status', 'Planned', 'Built', 'Difference', 'IDs (built)'] : ['Item', 'Size / type', 'For / status', 'Quantity', 'IDs'];
+    const rows = keys.map((k) => {
+      const x = g(k), b = B.groups.get(k), pq = P && P.groups.get(k) ? P.groups.get(k).qty : 0, bq = b ? b.qty : 0;
+      return compare ? { cells: [x.item, x.size, x.forWhat, pq, bq, bq - pq, b ? b.ids.join(', ') : ''], diff: bq - pq } : { cells: [x.item, x.size, x.forWhat, bq, b.ids.join(', ')] };
+    });
+    const notes = [], plural = (n, w) => `${n} ${w}${n === 1 ? '' : w === 'ODF' ? 's' : 's'}`;
+    if (!rows.length) notes.push({ t: 'No size recorded yet: set them in each record (Size · for the BOQ / BOM).', tone: 'info' });
+    const miss = Object.entries(B.missing).filter(([, n]) => n);
+    if (miss.length) notes.push({ t: `${compare ? 'Built without a size yet' : 'Without a size yet'}: ${miss.map(([k, n]) => plural(n, k)).join(', ')}`, tone: 'bad' });
+    if (compare) {
+      const notBuilt = boqUnmatched(plan.recs, pts), notPlanned = boqUnmatched(pts, plan.recs);
+      const ids = (l) => l.slice(0, 60).map((r) => r.poleId || `${elemOf(r)} at ${r.lat.toFixed(5)}, ${r.lon.toFixed(5)}`).join(', ') + (l.length > 60 ? ` … and ${l.length - 60} more` : '');
+      notes.push({ t: `Planned: the As-Plan KMZ \u201c${plan.name}\u201d (this project's reference), ${plural(plan.recs.length, 'element')}. Difference = built minus planned.`, tone: 'info' });
+      if (notBuilt.length) notes.push({ t: `In the As-Plan, not found in the As-Built (same ID or within ${PLAN_NEAR_M} m): ${notBuilt.length} \u2014 ${ids(notBuilt)}`, tone: 'bad' });
+      if (notPlanned.length) notes.push({ t: `Built, not in the As-Plan: ${notPlanned.length} \u2014 ${ids(notPlanned)}`, tone: 'bad' });
+    } else if (plan) notes.push({ t: `The reference \u201c${plan.name}\u201d has no G-eSAA sizes: load the As-Plan KMZ exported by G-eSAA as the reference to compare planned and built.`, tone: 'info' });
+    else if (svPurpose() === 'As-built' && !isAcc()) notes.push({ t: 'No As-Plan to compare with: load the As-Plan KMZ as this project\u2019s reference (Projects, Project details, KMZ reference).', tone: 'info' });
+    notes.push({ t: 'Quantities are what was recorded in the field: one per element (a clamp size counts the poles that need it). Add spares and allowances per your design standard.', tone: 'info' });
+    return { compare, head, rows, notes, title: svPurpose() === 'As-built' ? (compare ? 'BOQ / BOM \u2014 As-Built against the As-Plan' : 'BOQ / BOM \u2014 As-Built') : 'BOQ / BOM \u2014 As-Plan' };
+  }
+  function boqSheet(pts, st, plan) {
+    const T = boqTable(pts, plan), rows = [T.head.map((v) => ({ v, s: st.header }))];
+    T.rows.forEach((r) => rows.push(r.cells.map((v, ci) => (T.compare && ci === 5 ? { v, s: v ? st.bad : st.good } : (T.compare ? ci >= 3 && ci <= 4 : ci === 3) ? { v, s: st.center } : v))));
+    T.notes.forEach((n, k) => { if (!k || n.tone === 'bad') rows.push([]); rows.push([{ v: n.t, s: n.tone === 'bad' ? st.bad : st.info }]); });
+    return { name: 'BOQ', cols: T.compare ? [18, 16, 18, 10, 10, 11, 60] : [18, 16, 22, 10, 70], rows, freezeRow: 1 };
   }
   async function exportBoq() {
     const pts = projPoints(); if (!pts.length) { toast('Nothing recorded in this project yet'); return; }
-    const R = window.PoleReports, st = R.STYLES;
-    const head = [[{ v: `BOQ / BOM SIZES — ${S.project}`, s: st.title }], [{ v: 'Generated', s: st.label }, fmtTime(new Date().toISOString())], [{ v: 'Records', s: st.label }, pts.length], []];
-    const sh = boqSheet(pts, st);
+    const R = window.PoleReports, st = R.STYLES, plan = await planFor(), T = boqTable(pts, plan);
+    const head = [[{ v: `${T.title.toUpperCase()} \u2014 ${S.project}`, s: st.title }], [{ v: 'Generated', s: st.label }, fmtTime(new Date().toISOString())], [{ v: 'Records', s: st.label }, pts.length], []];
+    const sh = boqSheet(pts, st, plan);
     const parts = R.buildXlsxParts([{ ...sh, rows: head.concat(sh.rows), freezeRow: head.length + 1 }, exporterSheet(st)]);
-    LOG.info('export.boq', { records: pts.length });
+    LOG.info('export.boq', { records: pts.length, plan: plan ? plan.recs.length : -1 });
     offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '_BOQ.xlsx');
   }
   $('doBoq').addEventListener('click', () => guard(exportBoq));
-  $('doAccBoq').addEventListener('click', () => guard(exportBoq));
   $('doRouteXlsx').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
     const Rt = routeModel();
@@ -5078,7 +5186,7 @@
       { name: 'Summary', cols: [30, 44], rows: summary, merges: ['A1:B1', `A${summary.length}:B${summary.length}`] },
       { name: 'Spans', cols: [6, 15, 15, 11, 12, 12, 13, 12, 13], rows: spanRows, freezeRow: 1, autoFilter: `A1:I${spanRows.length}` },
       { name: 'Points', cols: [6, 15, 10, 18, 16, 9, 11, 12, 13, 13, 13, 30, 30, 30], rows: poleRows, freezeRow: 1, autoFilter: `A1:N${poleRows.length}` },
-      boqSheet(pts, st), // v2.26
+      ...(boqOn() ? [boqSheet(pts, st, await planFor())] : []), // v2.26 (v2.26.1: As-Plan / As-Built, planned against built)
       exporterSheet(st),
     ]);
     offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '_route.xlsx');
@@ -5362,14 +5470,14 @@
         dist != null ? Math.round(dist) : '', x.verifyName, d.verifyMeta ? fmtTime(d.verifyMeta.at) : ''];
     });
   }
-  const ELEM_HEAD = ['No.', 'Element', 'Location ID', 'With MLoop', 'With NAP', 'NAP ID', 'With closure', 'Closure ID', 'ODF', 'Status', 'Open items', 'Total items', 'Latitude', 'Longitude', 'GPS accuracy (m)', 'Pin adjusted', 'Captured', 'Photos', 'Size (BOQ)'];
+  const ELEM_HEAD = ['No.', 'Element', 'Location ID', 'With MLoop', 'With NAP', 'NAP ID', 'With closure', 'Closure ID', 'ODF', 'Status', 'Open items', 'Total items', 'Latitude', 'Longitude', 'GPS accuracy (m)', 'Pin adjusted', 'Captured', 'Photos'];
   function elemRows(M) {
     return M.recs.map((r, i) => {
       const pole = elemOf(r) === 'Pole', yn = (v) => (pole ? (v ? 'Yes' : 'No') : '');
       return [i + 1, elemOf(r), M.lab(r), yn(r.mloop), yn(r.nap), r.nap ? r.napId || '' : '', yn(r.closure), r.closure ? r.closureId || '' : '',
         elemOf(r) === 'ODF' ? `${r.odf || 'New'}` : '', STATUS_TEXT[recStatus(r)], openCount(r), (r.defs || []).length, r.lat, r.lon,
         Number.isFinite(r.accuracy) ? Math.round(r.accuracy * 10) / 10 : '', r.adjusted ? 'Yes' : 'No', fmtTime(r.takenAt),
-        photosOf(r).map((p, k) => M.photoName(r, k, p)).join(', '), boqText(r)];
+        photosOf(r).map((p, k) => M.photoName(r, k, p)).join(', ')];
     });
   }
   const peopleOf = () => Object.values(pmeta().people || {});
@@ -5436,7 +5544,7 @@
         autoFilter: `A8:${LC}${8 + Math.max(1, M.items.length)}` });
       const erows = [ELEM_HEAD.map((v) => ({ v, s: st.header }))];
       elemRows(M).forEach((r) => erows.push(r.map((v, ci) => ({ v, s: ci === 0 ? st.center : ci === 9 ? statusStyle(v) : ci === 12 || ci === 13 ? st.coord : st.cell }))));
-      sheets.push({ name: 'Elements', cols: [6, 9, 15, 10, 9, 14, 11, 14, 10, 15, 9, 9, 12, 13, 10, 10, 17, 40, 30], rows: erows, freezeRow: 1,
+      sheets.push({ name: 'Elements', cols: [6, 9, 15, 10, 9, 14, 11, 14, 10, 15, 9, 9, 12, 13, 10, 10, 17, 40], rows: erows, freezeRow: 1,
         autoFilter: `A1:${R.colName(ELEM_HEAD.length - 1)}${Math.max(2, erows.length)}` });
     }
     if (E.xlsPhotos) {

@@ -772,6 +772,35 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
         c.caps[j].forEach((l, k) => pdf.text(x, ty + 10 + c.bh + 4 + k * 8.5, l, { size: 7, color: MUTED }));
       });
     };
+    // ---- v2.26.1: tables after page 1 (the BOQ / BOM of an As-Plan or As-Built), before the photo pages
+    (model.tables || []).forEach((tb) => {
+      const fr = tb.widths || tb.head.map(() => 1), tot = fr.reduce((a, b) => a + b, 0), ws = fr.map((f) => (f / tot) * CW);
+      const xs = ws.map((w, i) => M + ws.slice(0, i).reduce((a, b) => a + b, 0));
+      const title = (cont) => { pdf.addPage(); y = M; pdf.rect(M, y, 5, 14, { fill: ACCENT }); pdf.text(M + 12, y + 1, `${tb.title.toUpperCase()}${cont ? ' (continued)' : ''}`, { size: 11, bold: true }); y += 18;
+        if (tb.sub && !cont) { wrapText(tb.sub, CW, 8).slice(0, 2).forEach((l) => { pdf.text(M, y, l, { size: 8, color: MUTED }); y += 10; }); } y += 6; };
+      const headRow = () => {
+        const ls = tb.head.map((h, i) => wrapText(String(h), ws[i] - 8, 8, true).slice(0, 2)), h = Math.max(...ls.map((l) => l.length)) * 10 + 8;
+        pdf.rect(M, y, CW, h, { fill: [0.11, 0.2, 0.36] });
+        ls.forEach((l, i) => l.forEach((t, k) => pdf.text(xs[i] + 4, y + 4 + k * 10, t, { size: 8, bold: true, color: [1, 1, 1] })));
+        y += h;
+      };
+      title(false); headRow();
+      tb.rows.forEach((r, ri) => {
+        const ls = r.cells.map((v, i) => wrapText(String(v ?? ''), ws[i] - 8, 8.5, !!(r.tones && r.tones[i])).slice(0, 8)), h = Math.max(1, ...ls.map((l) => l.length)) * 10.5 + 7;
+        if (y + h > BOTTOM) { title(true); headRow(); }
+        if (ri % 2) pdf.rect(M, y, CW, h, { fill: [0.96, 0.97, 0.98] });
+        ls.forEach((l, i) => l.forEach((t, k) => pdf.text(xs[i] + 4, y + 4 + k * 10.5, t, { size: 8.5, bold: !!(r.tones && r.tones[i]), color: TONE[r.tones && r.tones[i]] || INK })));
+        pdf.line(M, y + h, M + CW, y + h, { color: [0.85, 0.87, 0.89] });
+        y += h;
+      });
+      y += 10;
+      (tb.notes || []).forEach((n) => {
+        const ls = wrapText(n.t, CW, 8.5, n.tone === 'bad');
+        if (y + ls.length * 11 > BOTTOM) title(true);
+        ls.forEach((l) => { pdf.text(M, y, l, { size: 8.5, bold: n.tone === 'bad', color: n.tone === 'bad' ? RED : MUTED }); y += 11; });
+        y += 4;
+      });
+    });
     secs.forEach((sec, si) => {
       if (sec.layout === 'collage') {
         head(sec, false, si ? CROW : null);
