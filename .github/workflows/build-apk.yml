@@ -48,7 +48,7 @@ jobs:
       - name: Create the Capacitor project
         run: |
           mkdir -p build/www
-          cp -r index.html app.js core.js glyphs.js reports.js forms.js tutorial.js ocr-worker.js manifest.json icons vendor brand build/www/
+          cp -r index.html app.js core.js glyphs.js reports.js forms.js tutorial.js ocr-worker.js manifest.json icons vendor brand sample build/www/
           # org.json (made by the admin: Manage → Tie the app to this list) ties the APK to the organisation's list
           if [ -f org.json ]; then cp org.json build/www/; echo "org.json included"; fi
           cd build
@@ -123,6 +123,11 @@ jobs:
               @Override
               public void load() {
                   final Intent intent = getActivity().getIntent();
+                  if (linkOf(intent) != null) { // v2.26: a G-eSAA link (invite, join, move) handed over by the browser
+                      getActivity().setIntent(new Intent(Intent.ACTION_MAIN));
+                      sendLink(intent);
+                      return;
+                  }
                   if (uriOf(intent) != null) {
                       getActivity().setIntent(new Intent(Intent.ACTION_MAIN)); // taken: a restart (screen turned) does not open it again
                       copyAndSend(intent);
@@ -132,13 +137,27 @@ jobs:
               @Override
               protected void handleOnNewIntent(Intent intent) {
                   super.handleOnNewIntent(intent);
+                  if (linkOf(intent) != null) { sendLink(intent); return; }
                   if (uriOf(intent) != null) copyAndSend(intent);
+              }
+
+              /** v2.26: gesaa://open?h=… — an invite, join or move link opened in the browser and handed to the app. */
+              private static String linkOf(Intent intent) {
+                  if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return null;
+                  Uri d = intent.getData();
+                  return d != null && "gesaa".equals(d.getScheme()) ? d.toString() : null;
+              }
+
+              private void sendLink(Intent intent) {
+                  JSObject ret = new JSObject();
+                  ret.put("url", linkOf(intent));
+                  notifyListeners("sharedLink", ret, true); // kept until the app listens
               }
 
               private static Uri uriOf(Intent intent) {
                   if (intent == null) return null;
                   String action = intent.getAction();
-                  if (Intent.ACTION_VIEW.equals(action)) return intent.getData();
+                  if (Intent.ACTION_VIEW.equals(action)) { Uri d = intent.getData(); return d != null && "gesaa".equals(d.getScheme()) ? null : d; }
                   if (Intent.ACTION_SEND.equals(action)) {
                       Object o = intent.getExtras() == null ? null : intent.getExtras().get(Intent.EXTRA_STREAM);
                       return o instanceof Uri ? (Uri) o : null;
@@ -204,7 +223,8 @@ jobs:
           }
           JAVA
           python3 - <<'PY'
-          # "Open with G-eSAA" (VIEW) and Share → G-eSAA (SEND) for KMZ and ZIP files; many apps send a KMZ as application/octet-stream
+          # "Open with G-eSAA" (VIEW) and Share → G-eSAA (SEND) for KMZ and ZIP files; many apps send a KMZ as application/octet-stream;
+          # v2.26: and gesaa:// links (invites opened in the browser)
           p = 'android/app/src/main/AndroidManifest.xml'
           s = open(p).read()
           mimes = ['application/vnd.google-earth.kmz', 'application/zip', 'application/x-zip-compressed', 'application/octet-stream']
@@ -213,7 +233,11 @@ jobs:
                      '                <category android:name="android.intent.category.DEFAULT" />\n                <category android:name="android.intent.category.BROWSABLE" />\n'
                      '                <data android:scheme="content" />\n                <data android:scheme="file" />\n' + data + '            </intent-filter>\n'
                      '            <intent-filter>\n                <action android:name="android.intent.action.SEND" />\n'
-                     '                <category android:name="android.intent.category.DEFAULT" />\n' + data + '            </intent-filter>')
+                     '                <category android:name="android.intent.category.DEFAULT" />\n' + data + '            </intent-filter>\n'
+                     # v2.26: gesaa:// links (an invite, join or move link opened in the browser and handed to the app)
+                     '            <intent-filter>\n                <action android:name="android.intent.action.VIEW" />\n'
+                     '                <category android:name="android.intent.category.DEFAULT" />\n                <category android:name="android.intent.category.BROWSABLE" />\n'
+                     '                <data android:scheme="gesaa" />\n            </intent-filter>')
           i = s.index('android.intent.category.LAUNCHER')
           j = s.index('</intent-filter>', i) + len('</intent-filter>')
           s = s[:j] + filters + s[j:]
