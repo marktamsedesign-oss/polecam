@@ -48,7 +48,7 @@ jobs:
       - name: Create the Capacitor project
         run: |
           mkdir -p build/www
-          cp -r index.html app.js core.js glyphs.js reports.js forms.js ocr-worker.js manifest.json icons vendor brand build/www/
+          cp -r index.html app.js core.js glyphs.js reports.js forms.js tutorial.js ocr-worker.js manifest.json icons vendor brand build/www/
           # org.json (made by the admin: Manage → Tie the app to this list) ties the APK to the organisation's list
           if [ -f org.json ]; then cp org.json build/www/; echo "org.json included"; fi
           cd build
