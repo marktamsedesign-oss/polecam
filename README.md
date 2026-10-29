@@ -273,7 +273,7 @@ The admin keeps three lists in a Google Sheet on their own account; phones read 
 
 **On the phones:** Projects → **+ New project** → *Project name* **▾** lists the open rows for the user's company (admins see all). Picking one fills the project with its category, site and contractor; for a Defect Cleanup or FAT choose the KMZ in the same form. Settings → Administration shows when the sheet was last read, with *Sync online sheet*.
 
-### Updating the script (needed for v2.5 map packs, the Defect cleanup category, v2.6 company filtering, v2.9 list updates through the sheet, v2.10 company keys, v2.11 progress dates and v2.25 Region / Territory)
+### Updating the script (needed for v2.5 map packs, the Defect cleanup category, v2.6 company filtering, v2.9 list updates through the sheet, v2.10 company keys, v2.11 progress dates, v2.25 Region / Territory and v2.27 no sites without them)
 
 1. Open the online Google Sheet → **Extensions → Apps Script**.
 2. Click in the code (`Code.gs`), select all (Ctrl+A), delete, paste the whole new `PoleCam-online-sheet.gs`, **Save** (Ctrl+S).
@@ -521,6 +521,18 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.27
+
+- **A proposed pole is a Globe (GT) pole.** In an As-Plan, when a pole's Status is *Proposed*, its type is set to Globe (GT) and locked. In an As-Built, a pole set to *New (built)* starts as Globe (GT) and can still be changed. A proposed pole no longer becomes the type the next pole starts with.
+- **Saved without an ID: a generic number.** A survey record saved with an empty ID (or only the prefix, e.g. *CC-*) gets the next free number of its own in the project: **P-0001** for a pole, ODF-0001, SITE-0001, ODC-0001, NAP-0001, CL-0001, HH-0001 (a proposed pole keeps its PP- number). The toast says so; open the pin later to put the real ID.
+- **Marking the photo** (tap the photo in a survey record → **✎ Box · FOC · Text** or **⊥ Model**): the tools are now **▭ Box**, **⊥ Model**, **〰 FOC route** and **T Text**.
+  - **Data rack model**: an empty rack (frame, top, plinth, rails). The assumed ODF panel and equipment are gone. Add the ODF yourself with **Proposed ODF (rack panel)**: dragged over its place in the rack, it fits between the rails, in whole rack units (1U steps). Moving the rack moves its ODF panels too.
+  - **FOC route**: draw the route with your finger (e.g. from pole to pole); it is drawn red with a white edge and *PROPOSED FOC* at its middle. Tap a route to move or delete it.
+  - **Text**: tap where the comment goes and type it (up to 200 characters); it is written in a white box on the photo. Tap it to move it, tap it again to change it (empty removes it).
+  - Like the other marks, they are drawn on a copy of the photo (the original is kept, so they stay editable), and the record list tags them (*FOC route*, *note on photo*).
+- **Region and Territory: nothing ticked = nothing to show.** A user who has not ticked at least one region **and** one territory gets no site from the online sheet (the site list says to tick them; saving your details without them says so too). Rows with a blank Region or Territory cell are still listed for everyone who ticked theirs. The phone filters by itself; the online sheet's script **v2.27** (`PoleCam-online-sheet.gs`) also stops sending those sites (update it as in "Updating the script").
+- Tutorial: a new topic *Mark the photo: models, FOC route, text*; the capture and region topics follow the changes above.
 
 ## What changed in v2.26.1
 

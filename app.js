@@ -90,6 +90,8 @@
     return out;
   }
   const typeNames = () => poleTypes().map((t) => t.n);
+  /** v2.27: a proposed pole (As-Plan) is always a Globe pole (GT); a new pole in the As-Built starts as one. */
+  const globeType = () => (poleTypes().find((t) => t.p === 'GT') || { n: 'Globe' }).n;
   const typePrefix = (name) => { const t = poleTypes().find((x) => x.n === name); return t ? t.p : ''; };
   const prefixType = (pre) => { const t = poleTypes().find((x) => x.p === pre); return t ? t.n : ''; };
   const prefixAlt = () => poleTypes().map((t) => t.p).sort((a, b) => b.length - a.length).join('|');
@@ -634,7 +636,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.26.1';
+  const APP_VER = '2.27.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -2872,7 +2874,8 @@
   const MODELS = { pole: { name: 'Proposed pole', label: 'PROPOSED POLE', half: 0.06 }, odc: { name: 'Proposed ODC (outdoor cabinet)', label: 'PROPOSED ODC', half: 0.3, what: 'ODC cabinet' },
     odfp: { name: 'Proposed ODF (rack panel)', label: 'PROPOSED ODF', rect: true }, rack: { name: 'Proposed data rack', label: 'PROPOSED DATA RACK', half: 0.17, what: 'data rack' },
     hh: { name: 'Proposed handhole', label: 'PROPOSED HH', half: 0.9 }, tower: { name: 'New tower location', label: 'NEW TOWER LOCATION', half: 0.17, what: 'tower' } };
-  const MODEL_TAG = { odc: 'ODC model', odf: 'ODC model', odfp: 'ODF model', rack: 'data rack model', hh: 'HH model', tower: 'tower model' };
+  const MODEL_TAG = { odc: 'ODC model', odf: 'ODC model', odfp: 'ODF model', rack: 'data rack model', hh: 'HH model', tower: 'tower model', foc: 'FOC route', text: 'note on photo' };
+  const DRAWN = new Set(['foc', 'text']); // v2.27: an FOC route drawn by hand and a comment written on the photo
   const normMark = (m) => (m && m.k === 'odf' ? { ...m, k: 'odc' } : m); // marks saved by v2.18
   const isModel = (m) => !!MODELS[m.k];
   const isStand = (m) => !!MODELS[m.k] && !MODELS[m.k].rect; // placed from the ground (yb) up to the top (yt); else a rect (x, y, w, h)
@@ -2886,17 +2889,26 @@
     $('boxInfo').textContent = txt; $('boxInfo').hidden = !txt;
     $('edZoom').classList.toggle('pp', !!(pp && !hasPole)); $('edZoom').textContent = pp && !hasPole ? '⊥' : '⤢';
   }
+  const BOX_TOOLS = { box: 'boxModeBox', foc: 'boxModeFoc', text: 'boxModeText' };
   function setBoxMode(m) {
-    if (!boxer) return; if (m !== 'box' && !MODELS[m]) m = 'pole';
-    boxer.mode = m; $('boxModeBox').setAttribute('aria-pressed', String(m === 'box')); $('boxModePole').setAttribute('aria-pressed', String(m !== 'box'));
-    if (m !== 'box') $('boxModel').value = m;
-    $('boxTitle').textContent = m === 'box' ? 'Red box' : `Model: ${MODELS[m].name}`;
+    if (!boxer) return; if (!BOX_TOOLS[m] && !MODELS[m]) m = 'pole';
+    const model = !!MODELS[m]; boxer.mode = m;
+    Object.entries(BOX_TOOLS).forEach(([k, id]) => $(id).setAttribute('aria-pressed', String(m === k)));
+    $('boxModePole').setAttribute('aria-pressed', String(model)); $('boxModel').hidden = !model;
+    if (model) $('boxModel').value = m;
+    $('boxTitle').textContent = m === 'box' ? 'Red box' : m === 'foc' ? 'FOC route' : m === 'text' ? 'Text on the photo' : `Model: ${MODELS[m].name}`;
     $('boxHint').textContent = m === 'box' ? 'Drag on the photo to draw a red box around the spot. Tap a mark to move, resize or delete it.'
-      : m === 'hh' ? 'Put your finger on the front edge of the handhole on the ground and drag up to its back edge. Tap a mark to move, resize or delete it.'
-        : m === 'odfp' ? 'Drag from one corner of the place in the rack to the opposite corner: the ODF panel fills it. Tap a mark to move, resize or delete it.'
-          : `Put your finger where the ${MODELS[m].what || 'pole'} stands on the ${m === 'rack' ? 'floor' : 'ground'} and drag up to its top. Tap a mark to move, resize or delete it.`;
+      : m === 'foc' ? 'Draw the FOC route with your finger, e.g. from pole to pole, and lift to finish. Tap a route to move or delete it.'
+        : m === 'text' ? 'Tap where the comment goes, then type it. Tap a comment to move it; tap it again to change the text.'
+          : m === 'hh' ? 'Put your finger on the front edge of the handhole on the ground and drag up to its back edge. Tap a mark to move, resize or delete it.'
+            : m === 'odfp' ? 'Drag over the place of the ODF panel. Inside a data rack model it fits between the rails, in whole rack units. Tap a mark to move, resize or delete it.'
+              : m === 'rack' ? 'Put your finger where the data rack stands on the floor and drag up to its top: an empty rack. Then add the ODF: Proposed ODF (rack panel), dragged over its place in the rack.'
+                : `Put your finger where the ${MODELS[m].what || 'pole'} stands on the ground and drag up to its top. Tap a mark to move, resize or delete it.`;
+    drawBoxer();
   }
   $('boxModeBox').addEventListener('click', () => setBoxMode('box'));
+  $('boxModeFoc').addEventListener('click', () => setBoxMode('foc'));
+  $('boxModeText').addEventListener('click', () => setBoxMode('text'));
   $('boxModePole').addEventListener('click', () => setBoxMode($('boxModel').value || modelFor()));
   $('boxModel').addEventListener('change', () => setBoxMode($('boxModel').value));
   /** The unmarked photo the marks are drawn on: kept from this edit, or stored with the record, else the photo itself. */
@@ -2911,7 +2923,8 @@
     if (!ed || ed.acc) return;
     const src = await markBase(); if (!src) { toast('No photo to mark'); return; }
     const im = await loadImage(src, STORE_MAX_PX), { w, h } = dims(im);
-    boxer = { im, w, h, base: src, marks: (ed.marks || []).map(normMark).map((m) => (isStand(m) ? { k: m.k, x: m.x * w, yb: m.yb * h, yt: m.yt * h } : { k: isModel(m) ? m.k : 'box', x: m.x * w, y: m.y * h, w: m.w * w, h: m.h * h })), sel: -1, op: null, drag: null };
+    boxer = { im, w, h, base: src, marks: (ed.marks || []).map(normMark).map((m) => (m.k === 'foc' ? { k: 'foc', pts: (m.pts || []).map(([x, y]) => [x * w, y * h]) } : m.k === 'text' ? { k: 'text', x: m.x * w, y: m.y * h, t: m.t || '', s: m.s || 1 }
+      : isStand(m) ? { k: m.k, x: m.x * w, yb: m.yb * h, yt: m.yt * h } : { k: isModel(m) ? m.k : 'box', x: m.x * w, y: m.y * h, w: m.w * w, h: m.h * h })), sel: -1, op: null, drag: null, mode: 'box' };
     if (pvOpen) { pvOpen = false; hidePhotoView(); const el = $('boxer'); el.hidden = false; el.style.zIndex = 1000 + stack.length; stack.push('boxer'); history.replaceState({ sheet: 'boxer' }, ''); LOG.info('open', 'boxer'); }
     else openSheet('boxer');
     setBoxMode(mode === 'model' ? modelFor() : mode || (proposedPole() ? 'pole' : 'box'));
@@ -3011,7 +3024,11 @@
     g.restore();
   }
   /** v2.19: a proposed data rack (19-inch cabinet, front view) standing on the floor at (x, yb), its top at yt: frame, top and
-      plinth, mounting rails with their holes, and a few units in it (the top one an ODF panel). */
+      plinth and the mounting rails with their holes. v2.27: empty — the user adds the ODF panel (Proposed ODF) where it goes. */
+  function rackInner(m) { // the space between the rails (image pixels) and one rack unit (42U)
+    const H = Math.max(20, m.yb - m.yt), W = H * 0.32, l = m.x - W / 2, ri = W * 0.08, rw = W * 0.06, y0 = m.yt + H * 0.04, y1 = m.yb - H * 0.05;
+    return { l, r: l + W, t: m.yt, b: m.yb, ux: l + ri + rw, uw: W - 2 * (ri + rw), y0, U: (y1 - y0) / 42 };
+  }
   function drawRackModel(g, x, yb, yt, lw) {
     const H = Math.max(20, yb - yt), W = H * 0.32, top = H * 0.04, base = H * 0.05, l = x - W / 2;
     g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = '#e03131';
@@ -3023,34 +3040,79 @@
       g.fillStyle = 'rgba(30,30,30,0.9)'; for (let yy = y0 + H * 0.012; yy < y1; yy += H * 0.022) g.fillRect(rx + rw * 0.3, yy, rw * 0.4, H * 0.006);
       g.fillStyle = 'rgba(170,170,175,0.9)';
     });
-    const ux = l + ri + rw, uw = W - 2 * (ri + rw), U = (y1 - y0) / 42; // 42U
-    const unit = (u, n, fill) => { g.fillStyle = fill; g.fillRect(ux, y0 + u * U, uw, n * U); g.lineWidth = Math.max(1, lw * 0.6); g.strokeRect(ux, y0 + u * U, uw, n * U); g.lineWidth = lw; };
-    unit(2, 3, 'rgba(225,225,225,0.95)'); // the ODF panel
-    g.fillStyle = '#1c6dd0'; for (let r = 0; r < 3; r++) for (let i = 0; i < 12; i++) g.fillRect(ux + uw * (0.06 + i * 0.075), y0 + (2.3 + r * 0.9) * U, uw * 0.05, U * 0.55);
-    unit(6, 1, 'rgba(120,120,128,0.95)'); unit(8, 2, 'rgba(95,95,105,0.95)'); unit(11, 1, 'rgba(120,120,128,0.95)'); // switch, equipment, cable manager
     g.strokeRect(l, yt, W, H);
     modelLabel(g, MODELS.rack.label, x, yb + H * 0.02, H * 0.05);
     g.restore();
   }
+  /** v2.27: an ODF panel dropped in a data rack model fits between its rails, on whole rack units. */
+  function snapToRack(m) {
+    if (!boxer || !m || m.k !== 'odfp') return m;
+    const cx = m.x + m.w / 2, cy = m.y + m.h / 2;
+    const R = boxer.marks.filter((r) => r.k === 'rack').map(rackInner).reverse().find((q) => cx > q.l && cx < q.r && cy > q.t && cy < q.b);
+    if (!R) return m;
+    const n = Math.max(1, Math.min(42, Math.round(m.h / R.U))), u = Math.max(0, Math.min(42 - n, Math.round((m.y - R.y0) / R.U)));
+    return { ...m, x: R.ux, w: R.uw, y: R.y0 + u * R.U, h: n * R.U };
+  }
+  /** v2.27: an FOC route drawn by hand: a red line with a white edge, its two ends, and PROPOSED FOC at its middle. */
+  function drawFocRoute(g, pts, lw) {
+    if (!pts || pts.length < 2) return;
+    g.save(); g.lineJoin = 'round'; g.lineCap = 'round';
+    const path = () => { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); };
+    path(); g.strokeStyle = 'rgba(255,255,255,0.9)'; g.lineWidth = lw * 2.4; g.stroke();
+    path(); g.strokeStyle = '#e03131'; g.lineWidth = lw * 1.1; g.stroke();
+    [pts[0], pts[pts.length - 1]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, lw * 1.3, 0, Math.PI * 2); g.fillStyle = '#e03131'; g.fill(); g.lineWidth = Math.max(1, lw * 0.5); g.strokeStyle = '#ffffff'; g.stroke(); });
+    const L = []; let tot = 0;
+    for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); L.push(d); tot += d; }
+    let half = tot / 2, i = 0; while (i < L.length - 1 && half > L[i]) { half -= L[i]; i++; }
+    const t = L[i] ? half / L[i] : 0, mx = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t, my = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t;
+    modelLabel(g, 'PROPOSED FOC', mx, my + lw * 1.6, lw * 3.2);
+    g.restore();
+  }
+  /** v2.27: a comment written on the photo: dark text in a white box with a red edge, its top-left corner at (x, y), kept inside
+      the photo. Its size in photo pixels is kept on the mark (to select it). */
+  function drawTextNote(g, m, k, lw, full) {
+    const fs = Math.max(11, full * k * 0.028 * (m.s || 1)), pad = fs * 0.45, maxW = full * k * 0.5, lh = fs * 1.22;
+    g.save(); g.font = `600 ${fs}px sans-serif`; g.textBaseline = 'top'; g.textAlign = 'left';
+    const lines = [];
+    String(m.t || '').split(/\n/).forEach((para) => { let line = ''; para.split(/\s+/).filter(Boolean).forEach((w) => { const tt = line ? `${line} ${w}` : w; if (line && g.measureText(tt).width > maxW) { lines.push(line); line = w; } else line = tt; }); lines.push(line); });
+    const bw = Math.max(...lines.map((l) => g.measureText(l).width)) + pad * 2, bh = lines.length * lh - (lh - fs) + pad * 2;
+    const x = Math.max(0, Math.min(m.x * k, g.canvas.width - bw)), y = Math.max(0, Math.min(m.y * k, g.canvas.height - bh)), r = fs * 0.3;
+    g.beginPath(); g.moveTo(x + r, y); g.lineTo(x + bw - r, y); g.quadraticCurveTo(x + bw, y, x + bw, y + r); g.lineTo(x + bw, y + bh - r); g.quadraticCurveTo(x + bw, y + bh, x + bw - r, y + bh);
+    g.lineTo(x + r, y + bh); g.quadraticCurveTo(x, y + bh, x, y + bh - r); g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y); g.closePath();
+    g.fillStyle = 'rgba(255,255,255,0.93)'; g.fill(); g.strokeStyle = '#e03131'; g.lineWidth = Math.max(1.5, lw * 0.6); g.stroke();
+    g.fillStyle = '#1b1b1b'; lines.forEach((l, i) => g.fillText(l, x + pad, y + pad + i * lh));
+    g.restore();
+    m._x = x / k; m._y = y / k; m._bw = bw / k; m._bh = bh / k;
+  }
   const DRAW_MODEL = { pole: (g, ...a) => drawPoleModel(g, ...a), odc: drawOdcModel, rack: drawRackModel, hh: drawHhModel, tower: drawTowerModel };
-  function drawMarks(g, marks, k, lw) {
+  function drawMarks(g, marks, k, lw, full) {
     marks.forEach((m) => {
-      if (isStand(m)) DRAW_MODEL[m.k](g, m.x * k, m.yb * k, m.yt * k, lw);
+      if (m.k === 'foc') drawFocRoute(g, (m.pts || []).map(([x, y]) => [x * k, y * k]), lw);
+      else if (m.k === 'text') drawTextNote(g, m, k, lw, full || g.canvas.width / k);
+      else if (isStand(m)) DRAW_MODEL[m.k](g, m.x * k, m.yb * k, m.yt * k, lw);
       else if (m.k === 'odfp') drawOdfPanel(g, m.x * k, m.y * k, m.w * k, m.h * k, lw);
       else { g.strokeStyle = '#e03131'; g.lineWidth = lw; g.lineJoin = 'round'; g.strokeRect(m.x * k, m.y * k, m.w * k, m.h * k); }
     });
   }
   /** Handles of a mark, in image pixels: box corners, or the pole's top and foot. */
-  const handlesOf = (m) => (isStand(m) ? [['top', m.x, m.yt], ['bottom', m.x, m.yb]] : [['nw', m.x, m.y], ['ne', m.x + m.w, m.y], ['sw', m.x, m.y + m.h], ['se', m.x + m.w, m.y + m.h]]);
+  const handlesOf = (m) => (DRAWN.has(m.k) ? [] : isStand(m) ? [['top', m.x, m.yt], ['bottom', m.x, m.yb]] : [['nw', m.x, m.y], ['ne', m.x + m.w, m.y], ['sw', m.x, m.y + m.h], ['se', m.x + m.w, m.y + m.h]]);
+  /** A mark's outline in photo pixels: [x, y, w, h]. */
+  function bboxOf(m) {
+    if (m.k === 'foc') { const xs = m.pts.map((p) => p[0]), ys = m.pts.map((p) => p[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)]; }
+    if (m.k === 'text') return [m._x != null ? m._x : m.x, m._y != null ? m._y : m.y, m._bw || 0, m._bh || 0];
+    if (isStand(m)) { const wb = (m.yb - m.yt) * MODELS[m.k].half; return [m.x - wb, m.yt, wb * 2, m.yb - m.yt]; }
+    return [m.x, m.y, m.w, m.h];
+  }
+  const segDist = (p, a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = dx * dx + dy * dy, t = L ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L)) : 0; return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy); };
   function drawBoxer() {
     const b = boxer, cv = $('boxCanvas'); if (!b) return;
     const g = cv.getContext('2d'), k = cv.width / b.w, dpr = window.devicePixelRatio || 1;
     g.drawImage(b.im, 0, 0, cv.width, cv.height);
-    drawMarks(g, b.marks.concat(b.drag ? [b.drag] : []), k, Math.max(2, boxLine(b.w, b.h) * k));
+    drawMarks(g, b.marks.concat(b.drag ? [b.drag] : []), k, Math.max(2, boxLine(b.w, b.h) * k), Math.max(b.w, b.h));
     const m = b.marks[b.sel];
     if (m) { // the selected mark: dashed outline and handles
       g.save(); g.setLineDash([6 * dpr, 4 * dpr]); g.strokeStyle = '#ffffff'; g.lineWidth = 1.5 * dpr;
-      if (isStand(m)) { const wb = (m.yb - m.yt) * MODELS[m.k].half; g.strokeRect((m.x - wb) * k, m.yt * k, wb * 2 * k, (m.yb - m.yt) * k); } else g.strokeRect(m.x * k, m.y * k, m.w * k, m.h * k);
+      const bb = bboxOf(m), pad = DRAWN.has(m.k) ? 6 * dpr : 0; g.strokeRect(bb[0] * k - pad, bb[1] * k - pad, bb[2] * k + pad * 2, bb[3] * k + pad * 2);
       g.setLineDash([]); const r = 7 * dpr;
       handlesOf(m).forEach(([, x, y]) => { g.fillStyle = '#ffffff'; g.strokeStyle = '#e03131'; g.lineWidth = 2 * dpr; g.beginPath(); g.rect(x * k - r, y * k - r, 2 * r, 2 * r); g.fill(); g.stroke(); });
       g.restore();
@@ -3063,8 +3125,12 @@
   function hitMark(pt) {
     const tol = 24 / boxer.sc, order = boxer.marks.map((_, i) => i).reverse();
     if (boxer.sel >= 0) { order.splice(order.indexOf(boxer.sel), 1); order.unshift(boxer.sel); }
+    const can = (m) => (boxer.mode === 'foc' ? m.k === 'foc' : boxer.mode === 'text' ? m.k === 'text' : boxer.mode === 'odfp' ? m.k !== 'rack' : true); // v2.27: a route, a text or an ODF panel in a rack starts on top of other marks
     for (const i of order) {
       const m = boxer.marks[i];
+      if (!can(m)) continue;
+      if (m.k === 'foc') { if (m.pts.some((p, j) => j && segDist(pt, m.pts[j - 1], p) < tol)) return { i, op: 'move' }; continue; }
+      if (m.k === 'text') { const bb = bboxOf(m); if (pt[0] > bb[0] - tol / 2 && pt[0] < bb[0] + bb[2] + tol / 2 && pt[1] > bb[1] - tol / 2 && pt[1] < bb[1] + bb[3] + tol / 2) return { i, op: 'move' }; continue; }
       for (const [op, x, y] of handlesOf(m)) if (Math.hypot(pt[0] - x, pt[1] - y) < tol) return { i, op };
       if (isStand(m)) { const half = Math.max(tol, (m.yb - m.yt) * MODELS[m.k].half); if (Math.abs(pt[0] - m.x) < half && pt[1] > m.yt - tol && pt[1] < m.yb + tol) return { i, op: 'move' }; }
       else if (pt[0] > m.x - tol && pt[0] < m.x + m.w + tol && pt[1] > m.y - tol && pt[1] < m.y + m.h + tol) return { i, op: 'move' };
@@ -3072,6 +3138,8 @@
     return null;
   }
   function boxDrag(p) {
+    if (boxer.mode === 'text') return; // a tap places the text
+    if (boxer.mode === 'foc') { const d = boxer.drag && boxer.drag.k === 'foc' ? boxer.drag : (boxer.drag = { k: 'foc', pts: [boxer.start] }), last = d.pts[d.pts.length - 1]; if (Math.hypot(p[0] - last[0], p[1] - last[1]) * boxer.sc >= 4) d.pts.push(p); return; }
     const [x0, y0] = boxer.start, [x1, y1] = p;
     boxer.drag = isStand({ k: boxer.mode }) ? { k: boxer.mode, x: x0, yb: Math.max(y0, y1), yt: Math.min(y0, y1) } : { k: MODELS[boxer.mode] ? boxer.mode : 'box', x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
   }
@@ -3079,8 +3147,11 @@
   function boxEdit(p) {
     const o = boxer.op, m0 = o.orig, dx = p[0] - o.start[0], dy = p[1] - o.start[1], W = boxer.w, H = boxer.h, cl = (v, a, b) => Math.max(a, Math.min(b, v));
     let m;
-    if (isStand(m0)) {
-      if (o.op === 'move') { const sx = cl(dx, -m0.x, W - m0.x), sy = cl(dy, -m0.yt, H - m0.yb); m = { ...m0, x: m0.x + sx, yt: m0.yt + sy, yb: m0.yb + sy }; }
+    o.moved = Math.max(o.moved || 0, Math.hypot(dx, dy) * boxer.sc);
+    if (m0.k === 'foc') { const [bx, by, bw, bh] = bboxOf(m0), sx = cl(dx, -bx, W - bx - bw), sy = cl(dy, -by, H - by - bh); m = { k: 'foc', pts: m0.pts.map(([x, y]) => [x + sx, y + sy]) }; }
+    else if (m0.k === 'text') { const [bx, by, bw, bh] = bboxOf(m0); m = { ...m0, x: cl(bx + dx, 0, Math.max(0, W - bw)), y: cl(by + dy, 0, Math.max(0, H - bh)) }; }
+    else if (isStand(m0)) {
+      if (o.op === 'move') { const sx = cl(dx, -m0.x, W - m0.x), sy = cl(dy, -m0.yt, H - m0.yb); m = { ...m0, x: m0.x + sx, yt: m0.yt + sy, yb: m0.yb + sy }; (o.kids || []).forEach((c) => { boxer.marks[c.i] = { ...c.orig, x: c.orig.x + sx, y: c.orig.y + sy }; }); }
       else if (o.op === 'top') m = { ...m0, yt: cl(m0.yt + dy, 0, m0.yb - 20) };
       else m = { ...m0, x: cl(m0.x + dx, 0, W), yb: cl(m0.yb + dy, m0.yt + 20, H) };
     } else if (o.op === 'move') m = { ...m0, x: cl(m0.x + dx, 0, W - m0.w), y: cl(m0.y + dy, 0, H - m0.h) };
@@ -3095,8 +3166,12 @@
   $('boxCanvas').addEventListener('pointerdown', (e) => {
     if (!boxer) return; e.preventDefault(); $('boxCanvas').setPointerCapture(e.pointerId);
     const pt = boxPt(e), hit = hitMark(pt);
-    if (hit) { boxer.sel = hit.i; boxer.op = { ...hit, start: pt, orig: { ...boxer.marks[hit.i] } }; drawBoxer(); return; }
-    boxer.sel = -1; boxer.start = pt; boxDrag(pt); drawBoxer();
+    if (hit) {
+      const m0 = boxer.marks[hit.i], R = m0.k === 'rack' ? rackInner(m0) : null;
+      const kids = R && hit.op === 'move' ? boxer.marks.map((c, i) => ({ c, i })).filter(({ c }) => c.k === 'odfp' && c.x + c.w / 2 > R.l && c.x + c.w / 2 < R.r && c.y + c.h / 2 > R.t && c.y + c.h / 2 < R.b).map(({ c, i }) => ({ i, orig: { ...c } })) : [];
+      boxer.op = { ...hit, start: pt, orig: { ...m0 }, wasSel: boxer.sel === hit.i, kids }; boxer.sel = hit.i; drawBoxer(); return;
+    }
+    boxer.sel = -1; boxer.start = pt; boxer.drag = null; boxDrag(pt); drawBoxer();
   });
   $('boxCanvas').addEventListener('pointermove', (e) => {
     if (!boxer) return;
@@ -3105,12 +3180,44 @@
   });
   const boxEnd = () => {
     if (!boxer) return;
-    if (boxer.op) { boxer.op = null; drawBoxer(); return; }
+    if (boxer.op) {
+      const o = boxer.op, m = boxer.marks[o.i]; boxer.op = null;
+      if (m && m.k === 'text' && o.wasSel && (o.moved || 0) < 6) { editBoxText(o.i); return; } // a selected text tapped again: change it
+      if (m && m.k === 'odfp') boxer.marks[o.i] = snapToRack(m);
+      if (m && m.k === 'rack') (o.kids || []).forEach((c) => { boxer.marks[c.i] = snapToRack(boxer.marks[c.i]); });
+      drawBoxer(); return;
+    }
     if (!boxer.start) return;
-    const d = boxer.drag, sc = boxer.sc; boxer.start = null; boxer.drag = null;
-    if (d && (isStand(d) ? (d.yb - d.yt) * sc > (d.k === 'hh' ? 12 : 30) : d.w * sc > 12 && d.h * sc > 12)) { boxer.marks.push(d); boxer.sel = boxer.marks.length - 1; } // a tap is not a mark
+    const d = boxer.drag, sc = boxer.sc, at = boxer.start; boxer.start = null; boxer.drag = null;
+    if (boxer.mode === 'text') { drawBoxer(); addBoxText(at); return; }
+    if (d && d.k === 'foc') {
+      const len = d.pts.reduce((t, p, i) => (i ? t + Math.hypot(p[0] - d.pts[i - 1][0], p[1] - d.pts[i - 1][1]) : 0), 0);
+      if (len * sc > 30) { boxer.marks.push({ k: 'foc', pts: simplifyPts(d.pts, 1.5 / sc).slice(0, 400) }); boxer.sel = boxer.marks.length - 1; }
+    } else if (d && (isStand(d) ? (d.yb - d.yt) * sc > (d.k === 'hh' ? 12 : 30) : d.w * sc > 12 && d.h * sc > 12)) { boxer.marks.push(snapToRack(d)); boxer.sel = boxer.marks.length - 1; } // a tap is not a mark
     drawBoxer();
   };
+  /** Fewer points on a hand-drawn line (Ramer–Douglas–Peucker), the shape kept within tol photo pixels. */
+  function simplifyPts(pts, tol) {
+    if (pts.length < 3) return pts;
+    const keep = new Array(pts.length).fill(false); keep[0] = keep[pts.length - 1] = true;
+    const st = [[0, pts.length - 1]];
+    while (st.length) { const [a, b] = st.pop(); let md = 0, mi = -1; for (let i = a + 1; i < b; i++) { const d = segDist(pts[i], pts[a], pts[b]); if (d > md) { md = d; mi = i; } } if (md > tol) { keep[mi] = true; st.push([a, mi], [mi, b]); } }
+    return pts.filter((_, i) => keep[i]).map(([x, y]) => [+x.toFixed(1), +y.toFixed(1)]);
+  }
+  /** v2.27: a comment on the photo, placed where the photo was tapped. */
+  async function addBoxText(at) {
+    const t = await promptText('Text on the photo', 'Your comment, written on the photo where you tapped (e.g. “Splice here”, “Cross the road at 6 m”).', 'Comment', '');
+    const v = String(t || '').trim().slice(0, 200); if (!v || !boxer) return;
+    boxer.marks.push({ k: 'text', x: at[0], y: at[1], t: v, s: 1 }); boxer.sel = boxer.marks.length - 1; drawBoxer();
+  }
+  async function editBoxText(i) {
+    const m = boxer && boxer.marks[i]; if (!m) return;
+    const t = await promptText('Change the text', 'Leave it empty to remove the comment.', 'Comment', m.t || '');
+    if (t == null || !boxer) { drawBoxer(); return; }
+    const v = String(t).trim().slice(0, 200);
+    if (!v) { boxer.marks.splice(i, 1); boxer.sel = -1; } else boxer.marks[i] = { ...m, t: v };
+    drawBoxer();
+  }
   $('boxCanvas').addEventListener('pointerup', boxEnd); $('boxCanvas').addEventListener('pointercancel', boxEnd);
   $('boxDel').addEventListener('click', () => { if (boxer && boxer.sel >= 0) { boxer.marks.splice(boxer.sel, 1); boxer.sel = -1; drawBoxer(); } });
   $('boxUndo').addEventListener('click', () => { if (boxer) { boxer.marks.pop(); boxer.sel = -1; drawBoxer(); } });
@@ -3119,14 +3226,16 @@
   $('boxDone').addEventListener('click', () => guard(async () => {
     const b = boxer; if (!b || !ed) return;
     const before = JSON.stringify(ed.marks || []);
-    const marks = b.marks.map((m) => (isStand(m) ? { k: m.k, x: +(m.x / b.w).toFixed(5), yb: +(m.yb / b.h).toFixed(5), yt: +(m.yt / b.h).toFixed(5) } : { k: m.k, x: +(m.x / b.w).toFixed(5), y: +(m.y / b.h).toFixed(5), w: +(m.w / b.w).toFixed(5), h: +(m.h / b.h).toFixed(5) }));
+    const marks = b.marks.map((m) => (m.k === 'foc' ? { k: 'foc', pts: m.pts.map(([x, y]) => [+(x / b.w).toFixed(4), +(y / b.h).toFixed(4)]) }
+      : m.k === 'text' ? { k: 'text', x: +((m._x != null ? m._x : m.x) / b.w).toFixed(5), y: +((m._y != null ? m._y : m.y) / b.h).toFixed(5), t: m.t, ...(m.s && m.s !== 1 ? { s: m.s } : {}) }
+        : isStand(m) ? { k: m.k, x: +(m.x / b.w).toFixed(5), yb: +(m.yb / b.h).toFixed(5), yt: +(m.yt / b.h).toFixed(5) } : { k: m.k, x: +(m.x / b.w).toFixed(5), y: +(m.y / b.h).toFixed(5), w: +(m.w / b.w).toFixed(5), h: +(m.h / b.h).toFixed(5) }));
     if (JSON.stringify(marks) === before) { await closeSheet(); return; }
     busy('Marking the photo…');
     let blob = b.base;
     if (marks.length) {
       const cv = document.createElement('canvas'); cv.width = b.w; cv.height = b.h;
       const g = cv.getContext('2d'); g.drawImage(b.im, 0, 0, b.w, b.h);
-      drawMarks(g, b.marks, 1, boxLine(b.w, b.h));
+      drawMarks(g, b.marks, 1, boxLine(b.w, b.h), Math.max(b.w, b.h));
       blob = await toBlob(cv, 0.92);
     }
     if (ed.mode === 'edit' && !ed.newBlob) ed.keepQ = true; // the stored photo, only marked: its camera check stays
@@ -3135,7 +3244,7 @@
     if (!marks.length && stored) ed.dropOrig = true;
     ed.marks = marks; ed.newBlob = blob; prepImages(blob); showEdPhoto(blob);
     const poles = marks.filter((m) => m.k === 'pole').length;
-    LOG.info('photo.marks', { n: marks.length, poles, models: marks.filter((m) => isModel(m) && m.k !== 'pole').map((m) => m.k) });
+    LOG.info('photo.marks', { n: marks.length, poles, models: marks.filter((m) => (isModel(m) && m.k !== 'pole') || DRAWN.has(m.k)).map((m) => m.k) });
     busy(false); await closeSheet(); renderBoxInfo();
     toast(marks.length ? `${marks.length} mark${marks.length === 1 ? '' : 's'} on the photo${ed.mode === 'edit' ? ' — tap Save to keep it' : ''}` : `Marks removed${ed.mode === 'edit' ? ' — tap Save to keep it' : ''}`, 3000);
   }, 'Marks not added'));
@@ -3172,6 +3281,9 @@
       const sts = svStatuses(el); if (!sts.includes(ed.status)) ed.status = svDefaultStatus(el);
       $('poleId').placeholder = { Pole: ed.status === 'Proposed' ? 'e.g. PP-0001' : 'e.g. CC-0001', ODF: 'e.g. FDU_100', Site: 'e.g. MIN2463 or the site name', ODC: 'e.g. ODC-01', NAP: 'e.g. NAP-0001', Closure: 'e.g. CL-0001', Handhole: 'e.g. HH-0001' }[el];
       $('surveyTypeBox').hidden = el !== 'Pole'; $('nptBtn').hidden = el !== 'Pole' || ed.status === 'Proposed';
+      const ppGlobe = el === 'Pole' && ed.status === 'Proposed'; // v2.27: a proposed pole is a Globe pole (GT)
+      if (ppGlobe && ed.type !== globeType()) { ed.type = globeType(); renderTypeChips(ed.type); }
+      $('typeSel').disabled = ppGlobe || ed.lock === 'closed'; $('surveyTypeBox').title = ppGlobe ? 'A proposed pole is a Globe pole (GT)' : '';
       $('svDetailsBox').hidden = el !== 'Pole'; renderDetails();
       const sb = $('svStatus'); sb.innerHTML = ''; sts.forEach((x) => sb.add(new Option(svStatusLabel(x), x, false, x === ed.status)));
       $('svStatusBox').hidden = !sts.length; sb.disabled = sts.length < 2;
@@ -3183,6 +3295,7 @@
     }
     $('idLabel').textContent = `${el.toUpperCase()} ID`;
     $('poleId').placeholder = `Optional · ${el === 'Pole' ? 'e.g. CC-0001' : el === 'ODF' ? 'e.g. FDU_100' : `e.g. ${el}-01`}`;
+    if (!ed.lock) $('typeSel').disabled = false; // v2.27: (a proposed survey pole locks it to Globe)
     $('svDetailsBox').hidden = el !== 'Pole'; renderDetails(); // pole details: optional here too (v2.19)
     $('surveyTypeBox').hidden = el !== 'Pole'; $('nptBtn').hidden = el !== 'Pole';
     $('poleAttach').hidden = el !== 'Pole'; $('odfBox').hidden = el !== 'ODF';
@@ -3263,7 +3376,7 @@
     if (ed.mode === 'new' && !ed.boqTouched && moved) {
       if (m) {
         const want = m.r.status === 'Proposed' || m.r.status === 'New' ? 'New' : 'Existing'; // a proposed element of the plan is a new one in the As-Built
-        if (!ed.stTouched && ed.status !== want && svStatuses(ed.element || 'Pole').includes(want)) { ed.status = want; applyElement(); }
+        if (!ed.stTouched && ed.status !== want && svStatuses(ed.element || 'Pole').includes(want)) { ed.status = want; applyElement(); if (want === 'New' && (ed.element || 'Pole') === 'Pole' && ed.type !== globeType()) setPoleType(globeType()); }
         ed.boq = { ...m.r.boq }; ed.boqFromPlan = true;
       } else if (ed.boqFromPlan) { ed.boq = {}; ed.boqFromPlan = false; }
     }
@@ -3273,6 +3386,7 @@
   $('svStatus').addEventListener('change', (e) => {
     if (!ed) return;
     const was = ed.status; ed.status = e.target.value; ed.stTouched = true;
+    if (ed.status === 'New' && was !== 'New' && (ed.element || 'Pole') === 'Pole' && ed.type !== globeType()) setPoleType(globeType()); // v2.27: a new pole is a Globe pole (changeable)
     // a new pole switched to / from Proposed: PP-0001 numbering, or back to the type prefix (an ID read from the pole stays)
     if (ed.mode === 'new' && ed.element === 'Pole' && (was === 'Proposed') !== (ed.status === 'Proposed')) {
       const id = $('poleId').value.trim().toUpperCase();
@@ -3713,7 +3827,7 @@
     showBlob(ed.newBlob || ed.srcBlob, `${$('poleId').value || ''} · ${$('edTime').textContent}`);
     if (!ed.acc) { // survey photo: mark it here (red box, model pole); marks stay editable
       $('pvTools').hidden = false; const n = (ed.marks || []).length, pp = proposedPole();
-      $('pvBox').textContent = n ? '▭ Red box · edit marks' : '▭ Red box'; $('pvPole').hidden = false; $('pvRead').hidden = false; // v2.18: models for every survey photo (pole, ODF, handhole, tower)
+      $('pvBox').textContent = n ? '✎ Edit the marks' : '✎ Box · FOC · Text'; // v2.27 $('pvPole').hidden = false; $('pvRead').hidden = false; // v2.18: models for every survey photo (pole, ODF, handhole, tower)
       $('pvHint').textContent = n ? 'Tap a tool, then tap a mark to move, resize or delete it · tap the photo to zoom' : 'Tap the photo to zoom in or out · × or Back to close';
     }
   });
@@ -3825,8 +3939,9 @@
   }
 
   async function saveEditorDraft() {
-    const poleId = $('poleId').value.trim().toUpperCase();
-    if (!ed.acc && (!poleId || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(poleId) || /[-_]$/.test(poleId))) { toast(`Enter the ${ed.element === 'Site' ? 'site name or ID' : `${ed.element || 'Pole'} ID`} first${poleId ? ' (the number is missing)' : ''}`); $('poleId').focus(); return; }
+    let poleId = $('poleId').value.trim().toUpperCase(), genId = false;
+    // v2.27: a survey record saved without its ID (or with only the prefix) gets a generic number of its own: P-0001, ODF-0001…
+    if (!ed.acc && (!poleId || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(poleId) || /[-_]$/.test(poleId))) { poleId = genSvId(ed.element || 'Pole', ed.status); $('poleId').value = poleId; genId = true; }
     if (!profileOk()) { toast('Enter your details first (Settings → You)'); openProfile(true); return; }
     {
       const c0 = pinMap.getCenter();
@@ -3857,7 +3972,7 @@
         remarks: $('svRemarks').value.trim().slice(0, 500), closureId: ed.element === 'Handhole' ? $('svClosureId').value.trim().toUpperCase().slice(0, 40) : '',
         boxes: (ed.legacyBoxes || 0) + (ed.marks || []).length, marks: (ed.marks || []).map((m) => ({ ...m })),
         poleModel: (ed.marks || []).some((m) => m.k === 'pole') || !!ed.legacyPole,
-        models: [...new Set((ed.marks || []).map(normMark).filter((m) => isModel(m) && m.k !== 'pole').map((m) => m.k))], // odc, odfp, rack, hh, tower
+        models: [...new Set((ed.marks || []).map(normMark).filter((m) => (isModel(m) && m.k !== 'pole') || DRAWN.has(m.k)).map((m) => m.k))], // odc, odfp, rack, hh, tower; v2.27 foc, text
         ...(ed.newBlob && !ed.keepQ ? { q: ed.q || null } : {}), ...(ed.idRead ? { idRead: ed.idRead } : {}),
         gpsLat: g ? g.lat : null, gpsLon: g ? g.lon : null,
         accuracy: g && Number.isFinite(g.acc) ? g.acc : null,
@@ -3881,8 +3996,8 @@
       await saveRecord(rec, photos); // photo and record together, or neither
       if (!p) points.push(rec); else points[points.indexOf(p)] = rec;
       if (p && p.origPid && !rec.origPid) deletePhotosIfUnused([p.origPid], new Set()).catch(() => {}); // marks removed or a new photo
-      if (ed.mode === 'new' && !isNpt(poleId) && (ed.element || 'Pole') === 'Pole') S.lastPoleId = poleId;
-      if ((ed.element || 'Pole') === 'Pole' && typeNames().includes(ed.type)) S.lastType = ed.type;
+      if (ed.mode === 'new' && !isNpt(poleId) && !genId && (ed.element || 'Pole') === 'Pole') S.lastPoleId = poleId;
+      if ((ed.element || 'Pole') === 'Pole' && typeNames().includes(ed.type) && !['Proposed', 'New'].includes(ed.status)) S.lastType = ed.type; // v2.27: not the Globe type of a proposed / new pole
       if (rec.status) S.lastSt = { ...(S.lastSt || {}), [`${svPurpose()}|${rec.element}`]: rec.status };
       if (ed.newBlob) notePerf(Date.now() - t0);
       persist(); notePerson();
@@ -3899,8 +4014,18 @@
     editorSaving = false;
     if (ed) ed.closeOK = true; // saved: the draft goes
     await closeSheet();
-    if (wasNew) { map.setView([pos.lat, pos.lon], Math.max(map.getZoom(), 17)); toast(`${poleId} saved`); }
-    else toast('Changes saved');
+    if (wasNew) map.setView([pos.lat, pos.lon], Math.max(map.getZoom(), 17));
+    if (genId) toast(`No ID entered: saved as ${poleId}, a generic number. Change it when the ID is known (open the pin).`, 5000);
+    else toast(wasNew ? `${poleId} saved` : 'Changes saved');
+  }
+  /** v2.27: the generic number of a survey record saved without its ID: P-0001 (pole), ODF-0001, SITE-0001, ODC-, NAP-, CL-, HH-0001;
+      a proposed pole keeps its PP- number. The next free number in the project. */
+  const GEN_PRE = { Pole: 'P', ODF: 'ODF', Site: 'SITE', ODC: 'ODC', NAP: 'NAP', Closure: 'CL', Handhole: 'HH' };
+  function genSvId(el, status) {
+    if (el === 'Pole' && status === 'Proposed') return suggestId('Pole', ed && ed.type);
+    const pre = GEN_PRE[el] || 'X', re = new RegExp(`^${pre}-(\\d+)$`);
+    const n = points.filter((p) => p.project === S.project && (!ed || p.id !== ed.id)).reduce((m, p) => { const x = re.exec(String(p.poleId || '').toUpperCase()); return x ? Math.max(m, +x[1]) : m; }, 0);
+    return `${pre}-${String(n + 1).padStart(4, '0')}`;
   }
 
   /** v2.19: the reference of a deficiency record saved without an element ID: D-0001, D-0002… in the project. */
@@ -6218,11 +6343,14 @@
   const cellCodes = (v, f) => String(v || '').split(/\s*[,;\/&+\n]\s*/).map(f).filter(Boolean);
   const myRegions = () => ((S.user && Array.isArray(S.user.regions)) ? S.user.regions.filter((x) => REGIONS.includes(x)) : []);
   const myTerrs = () => ((S.user && Array.isArray(S.user.terrs)) ? S.user.terrs.filter((x) => TERRS.includes(x)) : []);
-  /** A sheet row is listed when its region and territory are among the user's (a blank cell, or nothing chosen, lets it through). */
+  /** A sheet row is listed when its region and territory are among the user's (a blank cell lets it through).
+      v2.27: with no region or no territory ticked, nothing is listed for the user. */
+  const areaSet = () => myRegions().length > 0 && myTerrs().length > 0;
   function areaOk(t) {
     const R = myRegions(), T = myTerrs();
+    if (!R.length || !T.length) return false;
     const rs = cellCodes(t.region || extraOfT(t, 'Region'), regionCode), ts = cellCodes(t.territory || extraOfT(t, 'Territory'), terrCode);
-    return (!R.length || !rs.length || rs.some((x) => R.includes(x))) && (!T.length || !ts.length || ts.some((x) => T.includes(x)));
+    return (!rs.length || rs.some((x) => R.includes(x))) && (!ts.length || ts.some((x) => T.includes(x)));
   }
   const extraOfT = (t, key) => { const e = (t && t.extra || []).find(([k]) => normCo(k) === normCo(key)); return e ? e[1] : ''; };
   function renderAreaChips(regions, terrs) {
@@ -6316,7 +6444,7 @@
     S.user = { name, mobile, email: email.toLowerCase(), company, ...(regions.length ? { regions } : {}), ...(terrs.length ? { terrs } : {}) }; moveFill = null; persist();
     if (coChanged) cloudSync(true).then(() => { if (!$('newProj').hidden) renderSites(); }); // the sheet sends each company its own sites
     const first = profileFirst; profileFirst = false; await closeSheet();
-    renderWho(); toast(`Saved: ${byLine()}`);
+    renderWho(); toast(regions.length && terrs.length ? `Saved: ${byLine()}` : `Saved: ${byLine()}. No ${regions.length ? 'territory' : terrs.length ? 'region' : 'region or territory'} ticked: no site from the online sheet is listed for you.`, regions.length && terrs.length ? 2500 : 6000); // v2.27
     if (sharedWaiting) { const f = sharedWaiting; sharedWaiting = null; openSharedFile(f); return; } // v2.19: a shared file waited for the details
     if (first && !S.project) askNewProject();
   });
@@ -6888,6 +7016,7 @@
       u.searchParams.set('company', (S.user && S.user.company) || ''); // blank: the sheet sends the company list but no tasks
       if (S.companyKey) u.searchParams.set('ckey', S.companyKey);
       if (isAdmin() && S.onlineAdminKey) u.searchParams.set('akey', S.onlineAdminKey);
+      u.searchParams.set('area', '1'); // v2.27: with no region or territory ticked, the sheet (v2.27 script) sends no site
       if (myRegions().length) u.searchParams.set('region', myRegions().join(',')); // v2.25: the sheet (v2.25 script) sends only these regions
       if (myTerrs().length) u.searchParams.set('terr', myTerrs().join(','));
     }
@@ -7025,7 +7154,7 @@
     const src = S.team && S.team.src, rows = src ? visibleTasks() : [];
     $('npSiteBox').hidden = !src;
     if (npSite && !rows.some((t) => t.id === npSite.id)) npSite = null;
-    $('npSiteLbl').textContent = npSite ? siteLabel(npSite) : rows.length ? 'Choose a site…' : 'No site listed for you: type a name below';
+    $('npSiteLbl').textContent = npSite ? siteLabel(npSite) : rows.length ? 'Choose a site…' : src && !areaSet() ? 'No site for you: tick your Region and Territory (Settings \u2192 your name), or type a name below' : 'No site listed for you: type a name below'; // v2.27
     $('npSitesBtn').disabled = !!src && !rows.length && !!(S.cloud && S.cloud.src === src.url);
     if (!$('npSites').hidden) showSites(true);
     npSync(); renderSiteRow();
@@ -7048,7 +7177,7 @@
     const foot = document.createElement('div'); foot.className = 'foot';
     const info = document.createElement('span');
     const area = [...myRegions(), ...myTerrs()].join(', '), hid = area ? visibleTasks(true).length - rows.length : 0; // v2.25
-    info.textContent = (!read ? (cloudErr ? `Sheet not read (${cloudErr})` : navigator.onLine ? 'Reading the online sheet…' : 'Offline: type a name below') : !rows.length ? 'No site listed for you: type a name below' : q && !list.length ? 'No match' : `${list.length < rows.length ? `${list.length} of ` : ''}${rows.length} from the online sheet`)
+    info.textContent = (!read ? (cloudErr ? `Sheet not read (${cloudErr})` : navigator.onLine ? 'Reading the online sheet…' : 'Offline: type a name below') : !areaSet() ? 'No site for you: tick your Region and Territory (Settings \u2192 your name), or type a name below' : !rows.length ? 'No site listed for you: type a name below' : q && !list.length ? 'No match' : `${list.length < rows.length ? `${list.length} of ` : ''}${rows.length} from the online sheet`)
       + (area ? ` · your area: ${area}${hid > 0 ? ` (${hid} other${hid === 1 ? '' : 's'} hidden)` : ''}` : '');
     const r = document.createElement('button'); r.type = 'button'; r.className = 'btn sm'; r.textContent = '↻'; r.setAttribute('aria-label', 'Read the online sheet again');
     r.addEventListener('click', async () => { info.textContent = 'Reading the online sheet…'; await cloudSync(true); renderSites(); showSites(true); });

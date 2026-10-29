@@ -449,7 +449,7 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .idnote{flex-basis:100%;font-size:calc(12.5px * var(--fs));color:var(--muted)}
 body.kb #pinMapWrap{display:none}
 body.kb .sheet{bottom:var(--kb,0px)}
-#boxModes{display:flex;gap:8px;padding:8px 16px 0;align-items:center}#boxModes .chip{flex:none;justify-content:center;padding:0 12px}#boxModel{flex:1;min-width:0;min-height:38px}
+#boxModes{display:flex;flex-wrap:wrap;gap:6px 8px;padding:8px 16px 0;align-items:center}#boxModes .chip{flex:1 1 auto;justify-content:center;padding:0 10px}#boxModel{flex:1 1 100%;min-width:0;min-height:38px}
 #photoStrip .meta{flex:1}#edSaveTop{flex:none;min-height:44px;padding:0 20px;margin-left:auto}#edPhoto{cursor:zoom-in}
 #photoStrip img{width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none;background:var(--chip)}
 #photoStrip .meta{font-size:calc(13px * var(--fs));color:var(--muted);display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -583,7 +583,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9.3 9.2a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.4-2.7 4.1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17.6" r="1.2" fill="currentColor"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
 </svg>
-<div id="photoView" hidden role="dialog" aria-label="Photo"><button type="button" id="pvClose" aria-label="Close photo">×</button><div id="pvScroll"><img id="pvImg" alt=""></div><p id="pvCap"></p><div id="pvTools" hidden><button type="button" class="btn" id="pvBox">▭ Red box</button><button type="button" class="btn" id="pvPole">⊥ Model</button><button type="button" class="btn" id="pvRead">🔍 Read ID</button></div><i id="pvMark" hidden></i><p id="pvHint" style="opacity:.7">Tap the photo to zoom in or out · × or Back to close</p></div>
+<div id="photoView" hidden role="dialog" aria-label="Photo"><button type="button" id="pvClose" aria-label="Close photo">×</button><div id="pvScroll"><img id="pvImg" alt=""></div><p id="pvCap"></p><div id="pvTools" hidden><button type="button" class="btn" id="pvBox">✎ Box · FOC · Text</button><button type="button" class="btn" id="pvPole">⊥ Model</button><button type="button" class="btn" id="pvRead">🔍 Read ID</button></div><i id="pvMark" hidden></i><p id="pvHint" style="opacity:.7">Tap the photo to zoom in or out · × or Back to close</p></div>
 <div id="app">
   <div id="topbar">
     <div class="brand" title="G-eSAA · Geo electronic Survey, Audit &amp; Acceptance"><span>G-e<b>SAA</b></span><small id="brandVer">v2.15.0</small></div>
@@ -760,7 +760,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <button class="iconbtn" data-close aria-label="Cancel"><svg><use href="#i-close"/></svg></button>
     <h2 id="boxTitle">Red box</h2>
   </header>
-  <div id="boxModes"><button type="button" class="chip" id="boxModeBox" aria-pressed="true">▭ Red box</button><button type="button" class="chip" id="boxModePole" aria-pressed="false">⊥ Model</button><select id="boxModel" aria-label="Which model"><option value="pole">Proposed pole</option><option value="odc">Proposed ODC (outdoor cabinet)</option><option value="odfp">Proposed ODF (rack panel)</option><option value="rack">Proposed data rack</option><option value="hh">Proposed handhole</option><option value="tower">New tower location</option></select></div>
+  <div id="boxModes" role="group" aria-label="Tool"><button type="button" class="chip" id="boxModeBox" aria-pressed="true">▭ Box</button><button type="button" class="chip" id="boxModePole" aria-pressed="false">⊥ Model</button><button type="button" class="chip" id="boxModeFoc" aria-pressed="false">〰 FOC route</button><button type="button" class="chip" id="boxModeText" aria-pressed="false">T Text</button><select id="boxModel" aria-label="Which model" hidden><option value="pole">Proposed pole</option><option value="odc">Proposed ODC (outdoor cabinet)</option><option value="odfp">Proposed ODF (rack panel)</option><option value="rack">Proposed data rack</option><option value="hh">Proposed handhole</option><option value="tower">New tower location</option></select></div>
   <div id="boxWrap"><canvas id="boxCanvas" aria-label="Photo: drag to draw a red box"></canvas></div>
   <p class="hint" id="boxHint" style="margin:0;padding:8px 16px">Drag on the photo to draw a red box around the spot. Tap a mark to move, resize or delete it.</p>
   <div class="foot">
@@ -1266,7 +1266,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <div class="chips" id="pfRegions" role="group" aria-label="Region"></div>
       <span class="lbl" style="margin-top:8px">TERRITORY (select all that apply)</span>
       <div class="chips" id="pfTerrs" role="group" aria-label="Territory"></div>
-      <p class="hint" id="pfAreaInfo">Only the online sheet's projects in your regions and territories are listed for you. None selected: all.</p>
+      <p class="hint" id="pfAreaInfo">Only the online sheet's projects in your regions and territories are listed for you. Tick at least one region and one territory: with none ticked, no project is listed for you.</p>
     </div>
     <div class="group" id="pfJoin" hidden>
       <h3>Join your team</h3>

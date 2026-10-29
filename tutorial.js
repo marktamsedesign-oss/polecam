@@ -13,7 +13,7 @@
         { t: 'Open the **invite** from your admin or a coworker: scan its QR code with the phone camera, or tap the invite link. In G-eSAA the first screen also has **Scan invite QR** and **Paste invite link**.', go: 'profile', hl: '#pfKeyScan, #pfScan', when: 'This is on the first screen, before you join. You have already joined: tap Next.' },
         { t: 'Using the G-eSAA **app** (APK)? A link opens in Chrome first: tap **Open in the G-eSAA app** there, and the invite goes to the app with nothing to scan or paste.' },
         { t: 'Enter your **full name**, **mobile number** and **email**. They are recorded on every photo and printed on the reports.', go: 'profile', hl: '#pfName' },
-        { t: 'Tick your **Region** and **Territory** (all that apply). Only the online sheet\'s projects in those areas are listed for you; nothing ticked = every area.', go: 'profile', hl: '#pfAreaBox' },
+        { t: 'Tick your **Region** and **Territory** (all that apply). Only the online sheet\'s projects in those areas are listed for you; with nothing ticked, no project is listed.', go: 'profile', hl: '#pfAreaBox' },
         { t: 'Tap **Save**. With an invite, your company comes from it and cannot be changed on this phone (Settings → Reset user to start again). Without company keys, you choose your company from the list instead.', go: 'profile', hl: '#pfSave' },
       ] },
     { id: 'sample', aud: 'user', cat: 'Getting started', title: 'Try the sample project', kw: 'sample demo dummy practice try example training first',
@@ -52,16 +52,25 @@
         { t: 'Tick every **Region** (NLZ, SLZ, NCR, VIS, MIN) and every **Territory** (T1–T8) you work in. A blue chip is ticked; tap it again to untick.', go: 'profile', hl: '#pfAreaBox' },
         { t: 'Tap **Save**. The phone reads the online sheet again.', go: 'profile', hl: '#pfSave' },
         { t: 'Projects → **+** → **Choose a site…** now lists only the projects of your regions and territories (a row with no region or territory is listed for everyone). The last line of the list says your area and how many others are hidden.', go: 'newProject', hl: '#npSitesBtn', when: 'It shows when your company list has an online sheet.' },
-        { t: 'Nothing ticked = every area. Change it any time in Your details.' },
+        { t: 'Tick at least one region **and** one territory: with nothing ticked, no site is listed for you (the list says so). Change it any time in Your details.' },
       ] },
-    { id: 'capture', aud: 'user', cat: 'Survey', title: 'Capture poles (survey)', kw: 'photo camera shutter pole id scan npt no tag pin gps green red blurry save record reset',
+    { id: 'capture', aud: 'user', cat: 'Survey', title: 'Capture poles (survey)', kw: 'photo camera shutter pole id scan npt no tag pin gps green red blurry save record reset generic number p-0001 no id',
       steps: [
         { t: 'Open a Survey project, stand at the pole and tap **Capture**. (This is the real app: the record is saved in the open project; delete it afterwards if it was only practice.)', go: 'map', hl: '#captureBtn' },
         { t: 'Aim at the pole and tap the **shutter**. It is **green** when the GPS updated within the last 5 seconds; with a **red** shutter the photo is refused after 5 seconds. Dark, blank and blurry photos are refused: take them again.', hl: '#shutter', when: 'The shutter is in the camera: tap Capture first.' },
         { t: 'Now aim at the painted **pole ID**: it is used by itself when read clearly. Tap **Skip** if the pole has none.', hl: '#scanSkip', when: 'The ID step shows right after the photo. When the ID was read by itself, the record is already open: tap Next.' },
         { t: 'The record opens. Drag the map so the pin sits on the pole (at most 1 km from where the photo was taken); **Reset to GPS** puts it back.', hl: '#snapGps', when: 'It is in the record, which opens after the photo.' },
-        { t: 'Check the pole ID (for an untagged pole: **No tag → NPT**), set the type and details, then tap **Save**.', hl: '#edSave, #edSaveTop', when: 'It is in the record, which opens after the photo.' },
+        { t: 'Check the pole ID (for an untagged pole: **No tag → NPT**), set the type and details, then tap **Save**. Saved with no ID, the record gets a generic number (**P-0001** for a pole, ODF-0001, NAP-0001…): open the pin later to put the real ID.', hl: '#edSave, #edSaveTop', when: 'It is in the record, which opens after the photo.' },
         { t: 'Done: the pole is on the map. Tap any pin, or a row in **Records**, to open it again: edit it, replace the photo or delete it.', go: 'map', hl: '#listBtn' },
+      ] },
+    { id: 'marks', aud: 'user', cat: 'Survey', title: 'Mark the photo: models, FOC route, text', kw: 'mark photo red box model proposed pole globe gt odc odf panel data rack handhole tower foc route draw line text comment note burn',
+      steps: [
+        { t: 'In a survey record, tap the **photo**: it opens full size. Then **✎ Box · FOC · Text** or **⊥ Model**.', hl: '#edPhoto', when: 'It is in a survey record (Capture, or a pin).' },
+        { t: 'The tools at the top: **▭ Box** (a red box round a spot), **⊥ Model** (proposed pole, ODC, ODF panel, data rack, handhole, tower), **〰 FOC route** and **T Text**.', hl: '#boxModes', when: 'It is on the marking screen (tap the photo in a record).' },
+        { t: 'A **proposed pole** is always a **Globe (GT)** pole: its type is set and locked when the Status is Proposed. Its model goes from the ground up to its top.' },
+        { t: '**Data rack**: drag from the floor up to its top: an **empty rack**. Then **Proposed ODF (rack panel)** and drag over its place in the rack: it fits between the rails, in whole rack units. Moving the rack moves its ODF too.' },
+        { t: '**FOC route**: draw the line with your finger (e.g. from pole to pole) and lift to finish. **Text**: tap where the comment goes and type it; tap it once to move it, again to change it.', hl: '#boxCanvas', when: 'It is on the marking screen.' },
+        { t: 'Tap a mark to select it (move, resize, **Delete**), then **Done**. The marks are drawn on a copy of the photo; the original is kept, so you can change them later.', hl: '#boxDone', when: 'It is on the marking screen.' },
       ] },
     { id: 'route', aud: 'user', cat: 'Survey', title: 'Link the cable route', kw: 'route span link poles cable capture order undo clear angle long span',
       steps: [
@@ -211,7 +220,7 @@
         { t: 'Administration → **Online Google Sheet**: paste the **Web app URL**…', go: 'admin', hl: '#admUrl', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '…the **Read key** (the sheet\'s Settings tab) and the **Admin key**, then tap **Test connection**.', go: 'admin', hl: '#admTest', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: 'Updating the script: paste the new code, Save, Run **setup** once, then Deploy → Manage deployments → Edit → Version: **New version**. Never New deployment: that changes the URL and phones stop reading the sheet.' },
-        { t: 'The sites come from the **Project Data** tab (Tasks source tab). Its **Region** and **Territory** columns narrow what each user sees (script v2.25).' },
+        { t: 'The sites come from the **Project Data** tab (Tasks source tab). Its **Region** and **Territory** columns narrow what each user sees (script v2.25; v2.27: a user with nothing ticked gets no site).' },
       ] },
     { id: 'adm-companies', aud: 'admin', cat: 'Administration', title: 'Companies, admin company and admin users', kw: 'companies vendors refresh admin company admin users email inspector',
       steps: [
@@ -275,5 +284,5 @@
         { t: 'Sites: the admin company sees every company\'s sites from the sheet, narrowed by your own regions and territories (Your details).', go: 'profile', hl: '#pfAreaBox' },
       ] },
   ];
-  root.GESAA_TUTORIAL = { version: '2.26.1', topics: T };
+  root.GESAA_TUTORIAL = { version: '2.27', topics: T };
 })(typeof self !== 'undefined' ? self : this);
