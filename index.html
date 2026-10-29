@@ -163,6 +163,8 @@ body.hand-left #camBar #shutter{grid-area:1/1}body.hand-left #camBar #camNative{
 .btn.sm{min-height:38px;padding:0 12px;font-size:calc(13px * var(--fs));border-radius:10px}
 .btn:disabled{opacity:.5}
 label.field{display:flex;flex-direction:column;gap:6px;font-size:calc(13px * var(--fs));color:var(--muted);font-weight:600;letter-spacing:.02em}
+.field .opt{font-weight:400;letter-spacing:0}
+.apprbox{display:flex;flex-direction:column;gap:6px;border:1px dashed var(--line);border-radius:10px;padding:8px}#qrShow .qrcount{font-weight:700;color:var(--ink)}
 input[type=text],input[type=search],input[type=number],input[type=tel],input[type=email],input[type=password],input[type=date],select,textarea{width:100%;min-height:var(--tap);border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:10px 12px;font-size:calc(16px * var(--fs));color:var(--ink)}
 input:disabled,select:disabled,textarea:disabled{opacity:.6}
 textarea{min-height:90px;resize:vertical}
@@ -180,10 +182,21 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 /* v2.25 tutorial */
 .boq .boqrow{margin:6px 0 2px}.boq .boqrow .lbl{display:block;margin-bottom:4px}.boq .chips{gap:6px}.boq .chip{min-height:36px;padding:0 12px}
 .boq .chip[aria-pressed="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
+.msel{position:relative}.msel>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:46px;padding:0 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font:inherit;cursor:pointer}
+.msel>summary::-webkit-details-marker{display:none}.msel>summary::after{content:'▾';color:var(--muted)}.msel[open]>summary::after{content:'▴'}
+.mopts{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:20;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:6px;display:flex;flex-direction:column;max-height:300px;overflow:auto}
+.mopts label{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 8px;border-radius:8px;cursor:pointer}.mopts label:active{background:var(--soft)}.mopts input{width:20px;height:20px;margin:0}.mopts label.all{border-bottom:1px solid var(--line);font-weight:700;border-radius:8px 8px 0 0}
+.pfco-lock{display:flex;align-items:center;gap:8px}
+#drawWrap{flex:1;min-height:0;position:relative;background:#fbfbf8;touch-action:none;overflow:hidden}#drawCanvas{display:block;width:100%;height:100%;touch-action:none}
+#drawInfo{position:absolute;left:12px;right:12px;bottom:12px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:calc(13px * var(--fs));box-shadow:0 4px 14px rgba(0,0,0,.15)}
+.findlist{display:flex;flex-direction:column;gap:6px;margin:10px 0}.findlist button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:9px 12px;color:var(--ink);font:inherit}
+.findlist b{font:700 calc(15px * var(--fs)) var(--mono)}.findlist span{font-size:calc(12.5px * var(--fs));color:var(--muted)}
+.tmtoggle{cursor:pointer;user-select:none}.tmtoggle b{font:600 calc(12px * var(--fs)) var(--mono, monospace);color:var(--muted)}.tmtoggle .chev{font-style:normal;color:var(--muted);transition:transform .15s}.tmlist.shut .tmtoggle .chev{transform:rotate(-90deg)}.tmlist.shut #tmListBody{display:none}
 .boqplan{margin:2px 0 4px;padding:7px 10px;border-radius:10px;background:#ede7fd;color:#3b2a8a;font-size:calc(13px * var(--fs));line-height:1.35}.boqplan.warn{background:#fff4e0;color:#8a4b00}#boqUsePlan{align-self:flex-start;margin-top:4px}
 .tutsearch{display:flex;gap:8px;align-items:center}.tutsearch input{flex:1;min-width:0}
 #tutAud{margin:2px 0}
 .tutcat{margin:14px 0 6px;font-size:calc(12px * var(--fs));font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.tutfold{display:flex;align-items:center;gap:8px;width:100%;background:none;border:0;border-bottom:1px solid var(--line);padding:6px 2px;cursor:pointer;text-align:left;font-family:inherit}.tutfold span{flex:1}.tutfold b{font-weight:700;color:var(--muted)}.tutfold em{font-style:normal}
 .tuttopic{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:0 0 8px;color:var(--ink);font:inherit}
 .tuttopic b{font-size:calc(15px * var(--fs))}.tuttopic span{font-size:calc(12.5px * var(--fs));color:var(--muted)}
 .tuttopic .aud{font-size:calc(11px * var(--fs));font-weight:800;color:var(--accent);letter-spacing:.04em}
@@ -200,6 +213,8 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 #tutTip .row{margin-top:10px;display:flex;gap:8px;justify-content:flex-end}#tutTip .hint{margin-top:6px}
 #tutTip .tuthead{display:flex;align-items:center;gap:8px;font-size:calc(12px * var(--fs));color:var(--muted);font-weight:700}#tutTip .tuthead span{flex:1}
 #tutTip .tutx{width:32px;height:32px;min-height:32px;background:none;border:0;color:var(--muted);font-size:18px}#tutTip .tuttext{margin-top:2px}
+#tutTip{max-height:42vh;overflow:auto}#tutTip .tutmin{width:32px;height:32px;min-height:32px;background:none;border:0;color:var(--muted);font-size:16px}
+#tutTip.mini{padding:4px 6px 4px 12px;max-width:300px;left:auto;right:12px;border-radius:999px}#tutTip.mini>:not(.tuthead){display:none}#tutTip.mini .tuthead{cursor:pointer}
 #tutTour{width:100%;margin:4px 0 2px}
 .warnline.bad{color:var(--bad)}
 .req{color:var(--bad);font-weight:700}
@@ -449,7 +464,14 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .idnote{flex-basis:100%;font-size:calc(12.5px * var(--fs));color:var(--muted)}
 body.kb #pinMapWrap{display:none}
 body.kb .sheet{bottom:var(--kb,0px)}
-#boxModes{display:flex;flex-wrap:wrap;gap:6px 8px;padding:8px 16px 0;align-items:center}#boxModes .chip{flex:1 1 auto;justify-content:center;padding:0 10px}#boxModel{flex:1 1 100%;min-width:0;min-height:38px}
+#boxModes{display:flex;flex-wrap:wrap;gap:6px;padding:8px 16px 0;align-items:center}#boxModel{flex:1 1 100%;min-width:0;min-height:38px}
+#boxModes .tool{width:44px;height:40px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);padding:0}#boxModes .tool svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}#boxModes .tool[aria-pressed="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
+#boxModes .tsep{flex:1}#boxColors{display:flex;gap:6px}#boxColors .sw{width:30px;height:30px;border-radius:50%;border:3px solid var(--surface);background:var(--c);box-shadow:0 0 0 1px var(--line);padding:0}#boxColors .sw[aria-pressed="true"]{box-shadow:0 0 0 2px var(--ink)}
+.boqsel{width:100%;min-height:42px}
+.admusers{display:flex;flex-direction:column;gap:4px}.admusers div{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:var(--bg)}.admusers b{font-size:calc(14px * var(--fs))}.admusers span{font-size:calc(12.5px * var(--fs));color:var(--muted)}
+#admin .group.shut>:not(h3){display:none!important}#admin .group>h3.afold{cursor:pointer;display:flex;align-items:center;gap:8px}#admin .group>h3.afold::after{content:'▾';margin-left:auto;color:var(--muted)}#admin .group.shut>h3.afold::after{content:'▸'}
+.xmulti{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 12px}.xmulti>summary{cursor:pointer;font-weight:700;min-height:32px;display:flex;align-items:center}.xmulti[open]{display:flex;flex-direction:column;gap:8px}
+#xMultiList{display:flex;flex-direction:column}#xMultiList label{display:flex;align-items:center;gap:10px;min-height:40px;border-bottom:1px solid var(--line)}#xMultiList input{width:20px;height:20px;margin:0}.admsub>summary{cursor:pointer;font-weight:700;margin:6px 0}
 #photoStrip .meta{flex:1}#edSaveTop{flex:none;min-height:44px;padding:0 20px;margin-left:auto}#edPhoto{cursor:zoom-in}
 #photoStrip img{width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none;background:var(--chip)}
 #photoStrip .meta{font-size:calc(13px * var(--fs));color:var(--muted);display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -578,6 +600,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <symbol id="i-map" viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Zm0 0v14m6-12v14" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-draw" viewBox="0 0 24 24"><path d="M3 21h18M5 17l9.5-9.5 3 3L8 20H5v-3ZM14.5 7.5l2-2 3 3-2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-find" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m15.5 15.5 5 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9.3 9.2a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.4-2.7 4.1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17.6" r="1.2" fill="currentColor"/></symbol>
@@ -617,7 +641,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
   </div>
   <nav id="bottombar">
-    <button class="navbtn" id="listBtn"><svg><use href="#i-list"/></svg><span id="listLbl">Records</span></button>
+    <button class="navbtn" id="listBtn" hidden><svg><use href="#i-list"/></svg><span id="listLbl">Records</span></button>
+    <button class="navbtn" id="drawBtn"><svg><use id="drawIco" href="#i-draw"/></svg><span id="drawLbl">Drawing</span></button>
     <button id="captureBtn" aria-label="Capture"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
     <button class="navbtn" id="exportBtn"><svg><use href="#i-export"/></svg>Export</button>
     <button class="navbtn" id="settingsBtn"><svg><use href="#i-gear"/></svg>Settings</button>
@@ -648,7 +673,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div id="idGuide" hidden><span id="idGuideText">Fit the painted ID inside the box</span></div>
     <i id="tapRing" hidden></i>
     <i id="swipeLine" hidden></i>
-    <div id="zoomBar" hidden><button type="button" data-z="1" aria-pressed="true">1×</button><button type="button" data-z="2" aria-pressed="false">2×</button><button type="button" data-z="4" aria-pressed="false">4×</button><span id="zoomVal" hidden></span></div>
+    <div id="zoomBar" hidden><button type="button" data-z="0.5" aria-pressed="false" hidden>0.5×</button><button type="button" data-z="1" aria-pressed="true">1×</button><button type="button" data-z="2" aria-pressed="false">2×</button><button type="button" data-z="4" aria-pressed="false">4×</button><span id="zoomVal" hidden></span></div>
   </div>
   <div id="camCheck" hidden><div class="spin"></div><span id="camCheckText">Checking GPS…</span></div>
   <div id="qualBox" hidden>
@@ -657,7 +682,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="row"><button class="btn primary grow" id="qualRetake">Retake</button></div>
   </div>
   <div id="camBar">
-    <button class="camside" id="camNative" aria-label="Use phone camera app"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><path d="M12 10v6M9 13h6"/></svg></button>
+    <button class="camside" id="camNative" aria-label="Use phone camera app" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><path d="M12 10v6M9 13h6"/></svg></button>
     <button id="shutter" aria-label="Take photo"></button>
     <button class="camside" id="camTorch" aria-label="Toggle flashlight"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg></button>
   </div>
@@ -758,9 +783,9 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 <section class="sheet" id="boxer" hidden aria-labelledby="boxTitle">
   <header>
     <button class="iconbtn" data-close aria-label="Cancel"><svg><use href="#i-close"/></svg></button>
-    <h2 id="boxTitle">Red box</h2>
+    <h2 id="boxTitle">Box</h2>
   </header>
-  <div id="boxModes" role="group" aria-label="Tool"><button type="button" class="chip" id="boxModeBox" aria-pressed="true">▭ Box</button><button type="button" class="chip" id="boxModePole" aria-pressed="false">⊥ Model</button><button type="button" class="chip" id="boxModeFoc" aria-pressed="false">〰 FOC route</button><button type="button" class="chip" id="boxModeText" aria-pressed="false">T Text</button><select id="boxModel" aria-label="Which model" hidden><option value="pole">Proposed pole</option><option value="odc">Proposed ODC (outdoor cabinet)</option><option value="odfp">Proposed ODF (rack panel)</option><option value="rack">Proposed data rack</option><option value="hh">Proposed handhole</option><option value="tower">New tower location</option></select></div>
+  <div id="boxModes" role="group" aria-label="Tool"><button type="button" class="tool" id="boxModeBox" aria-pressed="true" aria-label="Box" title="Box"><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></button><button type="button" class="tool" id="boxModePole" aria-pressed="false" aria-label="Model" title="Model"><svg viewBox="0 0 24 24"><path d="M12 3v15M7 21h10M9 18h6"/></svg></button><button type="button" class="tool" id="boxModeFoc" aria-pressed="false" aria-label="FOC route" title="FOC route"><svg viewBox="0 0 24 24"><path d="M3 15c3-6 5-6 7 0s4 6 7 0 3-5 4-5"/><circle cx="3" cy="15" r="1.6"/><circle cx="21" cy="10" r="1.6"/></svg></button><button type="button" class="tool" id="boxModeText" aria-pressed="false" aria-label="Text" title="Text"><svg viewBox="0 0 24 24"><path d="M5 6h14M12 6v13M9 19h6"/></svg></button><span class="tsep" aria-hidden="true"></span><span id="boxColors" role="group" aria-label="Colour"><button type="button" class="sw" data-c="red" aria-label="Red (proposed)" title="Red: proposed" aria-pressed="true" style="--c:#e03131"></button><button type="button" class="sw" data-c="navy" aria-label="Navy blue (existing)" title="Navy blue: existing" aria-pressed="false" style="--c:#1c3f94"></button><button type="button" class="sw" data-c="green" aria-label="Green" title="Green" aria-pressed="false" style="--c:#2f9e44"></button><button type="button" class="sw" data-c="orange" aria-label="Orange" title="Orange" aria-pressed="false" style="--c:#e8590c"></button></span><select id="boxModel" aria-label="Which model" hidden><option value="pole">Proposed pole</option><option value="odc">Proposed ODC (outdoor cabinet)</option><option value="odfp">Proposed ODF (rack panel)</option><option value="rack">Proposed data rack</option><option value="hh">Proposed handhole</option><option value="tower">New tower location</option></select></div>
   <div id="boxWrap"><canvas id="boxCanvas" aria-label="Photo: drag to draw a red box"></canvas></div>
   <p class="hint" id="boxHint" style="margin:0;padding:8px 16px">Drag on the photo to draw a red box around the spot. Tap a mark to move, resize or delete it.</p>
   <div class="foot">
@@ -771,6 +796,28 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </div>
 </section>
 
+<!-- v2.28: drawing (DXF preview) of an As-Plan / As-Built -->
+<section class="sheet" id="drawing" hidden aria-labelledby="drawTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="drawTitle">Drawing</h2>
+  </header>
+  <div id="drawWrap"><canvas id="drawCanvas" aria-label="Drawing of the project: poles, route and spans"></canvas><div id="drawInfo" hidden></div></div>
+  <p class="hint" id="drawHint" style="margin:0;padding:8px 16px"></p>
+  <div class="foot"><button class="btn" id="drawFit" type="button">Fit</button><button class="btn" id="drawLabels" type="button" aria-pressed="true">Labels</button><button class="btn primary grow" id="drawDxf" type="button">Export DXF</button></div>
+</section>
+<!-- v2.28: find a pin -->
+<section class="sheet" id="find" hidden aria-labelledby="findTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="findTitle">Find a pin</h2>
+  </header>
+  <div class="body">
+    <input type="search" id="findQ" placeholder="ID, element, status, defect…" autocomplete="off" aria-label="Find a pin">
+    <div id="findList" class="findlist"></div>
+    <button class="btn" id="findAll" type="button">All records ›</button>
+  </div>
+</section>
 <!-- records list -->
 <section class="sheet" id="list" hidden aria-labelledby="listTitle">
   <header>
@@ -800,6 +847,11 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <p class="warnline" id="xShareWarn" hidden></p>
     </div>
     <label class="frow xpick"><span class="lbl">FORMAT</span><select id="xFormat" aria-label="Export format"></select></label>
+    <details class="xmulti" id="xMulti"><summary>Several formats at once, in one ZIP</summary>
+      <div id="xMultiList" role="group" aria-label="Formats to export"></div>
+      <button class="btn primary" id="xMultiGo" type="button">Export the ticked formats (ZIP)</button>
+      <p class="hint" id="xMultiInfo" style="margin:0">Each format uses its own options (below, per format). Questions some formats ask still come up one by one.</p>
+    </details>
     <div id="accExports" style="display:contents" hidden>
       <div class="xcard">
         <div class="head"><span class="ic">PDF</span><div><b>Deficiency List · PDF</b><p>The office form (List of Deficiencies, PAT or FAT ticked, 15 items per page, signature blocks), then Annex A with the photo evidence of each item and Annex B with the inspection photo log.</p></div></div>
@@ -920,7 +972,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="rows">
       <button class="rowbtn" id="editMe" type="button"><span class="ic"><svg><use href="#i-user"/></svg></span><span class="t"><b id="whoBox">–</b><span id="whoSub">Name, mobile, email and company</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
     </div>
-    <div class="row"><button class="btn sm primary" id="inviteBtn" type="button" hidden>Invite a coworker (QR)</button><button class="btn sm" id="moveBtn" type="button">Move to another phone…</button><button class="btn sm" id="resetUser" type="button">Reset user…</button></div>
+    <div class="row"><button class="btn sm primary" id="inviteBtn" type="button" hidden>Invite a coworker (QR)</button><button class="btn sm primary" id="apprShowBtn" type="button" hidden>On-site approval QR</button><button class="btn sm" id="moveBtn" type="button">Move to another phone…</button><button class="btn sm" id="resetUser" type="button">Reset user…</button></div>
     <div class="sectionh">Field work</div>
     <div class="rows">
       <button class="rowbtn" id="goCamera" type="button"><span class="ic"><svg><use href="#i-cam"/></svg></span><span class="t"><b>Camera</b><span id="camSub">ID scan after each photo, orientation</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
@@ -1098,6 +1150,11 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       </div>
       <div id="doneBox" class="tmdone">
         <p class="okline" id="doneInfo" hidden></p>
+        <div class="apprbox" id="apprBox" hidden>
+          <p class="okline" id="apprInfo" hidden></p>
+          <div class="row"><button class="btn grow" id="apprScan" type="button">Scan the inspector’s approval QR</button><button class="btn grow" id="apprSelf" type="button" hidden>Approve on this phone</button></div>
+          <p class="hint" id="apprHint" style="margin:0"></p>
+        </div>
         <button class="btn complete" id="doneBtn" type="button">✓ Mark task complete</button>
         <button class="btn nodef" id="noDefBtn" type="button" hidden>✓ No defects found · complete the PAT (FAT done)</button>
         <p class="hint" id="doneHint" style="margin:0"></p>
@@ -1132,10 +1189,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       </details>
     </section>
     <div class="tmlist" id="tmListBox">
-      <div class="tmlisthead"><h4 class="lgroup" id="tmListTitle"><span>Other projects</span><i></i></h4></div>
+      <div class="tmlisthead"><h4 class="lgroup tmtoggle" id="tmListTitle" role="button" tabindex="0" aria-expanded="true" aria-controls="tmListBody"><span>Other projects</span><b id="tmListCount"></b><i></i><em class="chev" aria-hidden="true">▾</em></h4></div>
+      <div id="tmListBody">
       <input type="search" id="projSearch" placeholder="Search: name, site, vendor, task ID, category" autocomplete="off" aria-label="Search the projects on this phone">
       <div class="tmfil" id="tmFilter" role="group" aria-label="Show"></div>
       <div id="taskList" class="tasklist"></div>
+      </div>
     </div>
     <div class="tmtools">
       <button class="btn" id="openShared" type="button" title="A PAT or cleanup KMZ, a backup ZIP, or several projects from a colleague">📂 Open a shared file</button>
@@ -1199,9 +1258,9 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <label class="field">REMARKS / NOTES<textarea id="npNotes" style="min-height:60px" placeholder="Optional"></textarea></label>
       <p class="hint"><span class="req">*</span> Required</p>
       <p class="warnline bad" id="npErr" hidden role="alert"></p>
-      <button class="btn primary" id="npCreate" type="button">Create project</button>
     </div>
   </div>
+  <div class="foot"><button class="btn primary grow" id="npCreate" type="button">Create project</button></div>
 </section>
 
 <!-- offline maps -->
@@ -1254,6 +1313,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <label class="field">FULL NAME <input type="text" id="pfName" autocomplete="name" autocapitalize="words" placeholder="e.g. Juan Dela Cruz"></label>
     <label class="field">MOBILE NUMBER <input type="tel" id="pfMobile" autocomplete="tel" inputmode="tel" placeholder="e.g. 0917 123 4567"></label>
     <label class="field">EMAIL <input type="email" id="pfEmail" autocomplete="email" inputmode="email" autocapitalize="off" placeholder="name@company.com"></label>
+    <label class="field"><span>COMPANY ID NO. <span class="opt">(optional · inspectors: needed for the on-site approval QR)</span></span><input type="text" id="pfIdNo" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="40" placeholder="e.g. 10012345"></label>
     <div class="field" id="pfKeyBox" hidden>
       <span class="lbl">COMPANY INVITE</span>
       <p class="keystate" id="pfKeyState">No invite yet</p>
@@ -1262,10 +1322,10 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
     <div class="field" id="pfCoBox"><span class="lbl">COMPANY</span><select id="pfCompany"></select><p class="hint" id="pfTeam"></p></div>
     <div class="field" id="pfAreaBox">
-      <span class="lbl">REGION (select all that apply)</span>
-      <div class="chips" id="pfRegions" role="group" aria-label="Region"></div>
-      <span class="lbl" style="margin-top:8px">TERRITORY (select all that apply)</span>
-      <div class="chips" id="pfTerrs" role="group" aria-label="Territory"></div>
+      <div class="pair">
+        <div class="field"><span class="lbl">REGION</span><details class="msel" id="pfRegionsBox"><summary id="pfRegionsSum">Choose…</summary><div class="mopts" id="pfRegions" role="group" aria-label="Region"></div></details></div>
+        <div class="field"><span class="lbl">TERRITORY</span><details class="msel" id="pfTerrsBox"><summary id="pfTerrsSum">Choose…</summary><div class="mopts" id="pfTerrs" role="group" aria-label="Territory"></div></details></div>
+      </div>
       <p class="hint" id="pfAreaInfo">Only the online sheet's projects in your regions and territories are listed for you. Tick at least one region and one territory: with none ticked, no project is listed for you.</p>
     </div>
     <div class="group" id="pfJoin" hidden>
@@ -1333,7 +1393,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="row"><button class="btn grow" id="admCoRefresh" type="button">Refresh from the sheet</button></div>
         <p class="hint" id="admCoInfo" style="margin:0"></p>
         <label class="field">ADMIN COMPANY: its staff (with the admin PIN) are admins and inspectors; everyone else is a contractor user<select id="admOwner"></select></label>
-        <label class="field">ADMIN USERS: email of each admin / inspector, one per line. Blank = anyone of the admin company with the PIN<textarea id="admUsers" style="min-height:64px" placeholder="name@globe.com.ph" autocapitalize="off" spellcheck="false"></textarea></label>
+        <div class="field" id="admUsersSheet" hidden><span class="lbl">ADMIN USERS · FROM THE ONLINE SHEET (ADMIN USERS TAB)</span><div id="admUsersList" class="admusers"></div><p class="hint" id="admUsersInfo" style="margin:0"></p></div>
+        <label class="field" id="admUsersBox">ADMIN USERS: one per line, the email then the job (PAT/FAT inspector, As-Plan approver, Audit approver, As-Built approver). Blank = anyone of the admin company with the PIN. Or list them in the online sheet's Admin users tab<textarea id="admUsers" style="min-height:64px" placeholder="name@globe.com.ph PAT/FAT inspector" autocapitalize="off" spellcheck="false"></textarea></label>
         <div class="row"><button class="btn" id="admChangePin" type="button">Change the admin PIN</button></div>
         <p class="hint help">Give the admin PIN only to staff of the admin company. Change it when someone leaves: phones that take the new list version need the new PIN.</p>
       </div>
@@ -1375,7 +1436,13 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="row"><label class="field" style="flex:1">Maximum span (m)<input type="number" id="setMaxSpan" step="1" min="5"></label><label class="field" style="flex:1">Angle pole from (°)<input type="number" id="setAngle" step="1" min="1" max="90"></label></div>
         <label class="field">Link in capture order: skip gaps longer than (m)<input type="number" id="setAutoGap" step="5" min="10"></label>
         <label class="field">Extra pole prefixes for everyone, one per line (prefix, then a name)<textarea id="admPoleTypes" style="min-height:60px" placeholder="PLDT PLDT pole"></textarea></label>
-        <label class="field">Pole owners for the BOQ besides Electric, PLDT, DITO and CONVERGE, one per line<textarea id="admPoleOwners" style="min-height:52px" placeholder="e.g. SKYCABLE"></textarea></label>
+        <details class="admsub" id="admBoqBox"><summary>Sizes for the BOQ / BOM and pole details</summary>
+          <p class="hint">One value per line, in the order they show. Edit, add or remove; a list of more than 4 shows as a dropdown in the record. Empty = the built-in list.</p>
+          <div class="pair"><label class="field">Pole owners<textarea id="admPoleOwners" rows="5"></textarea></label><label class="field">Clamp sizes<textarea id="admBoqClamp" rows="5"></textarea></label></div>
+          <div class="pair"><label class="field">New Globe pole sizes<textarea id="admBoqHeight" rows="4"></textarea></label><label class="field">New Globe pole classes<textarea id="admBoqCls" rows="4"></textarea></label></div>
+          <div class="pair"><label class="field">ODF sizes<textarea id="admBoqOdf" rows="6"></textarea></label><label class="field">ODF connectors<textarea id="admBoqConn" rows="6"></textarea></label></div>
+          <div class="pair"><label class="field">Closure sizes<textarea id="admBoqClo" rows="6"></textarea></label><label class="field">Pole details (what else is on the pole)<textarea id="admDetailItems" rows="6"></textarea></label></div>
+        </details>
         <label class="check"><input type="checkbox" id="admVendorRec"><span>Vendors record PAT defects and accept fixes at FAT (the Globe representative signs the printed form). Off: only the admin company does.</span></label>
         <label class="field">Photo sharpness required<select id="admQuality"><option value="strict">Strict (recommended)</option><option value="normal">Normal: refuse only clearly blurry</option></select></label>
       </div>
@@ -1433,6 +1500,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div class="qbot"><span id="qrScanTip">Hold the phone 20–30 cm from the code, then move closer until it reads</span><button class="btn" id="qrPick" type="button">🖼 From a picture</button></div>
   <input type="file" id="qrPickInput" accept="image/*" hidden>
 </div>
+<div class="overlay" id="pickBox" hidden><div class="panel"><h3 id="pickTitle"></h3><p class="hint" id="pickText" style="margin:0"></p><select id="pickSel" aria-label="Choose"></select><div class="row"><button class="btn grow" id="pickNo" type="button">Cancel</button><button class="btn primary grow" id="pickYes" type="button">OK</button></div></div></div>
 <div class="overlay" id="askBox" hidden><div class="panel"><h3 id="askTitle"></h3><p id="askText" style="margin:0;white-space:pre-line"></p><div class="row"><button class="btn grow" id="askNo" type="button">Cancel</button><button class="btn primary grow" id="askYes" type="button">OK</button></div></div></div>
 <div class="overlay" id="pinBox" hidden><div class="panel"><h3 id="pinTitle"></h3><p class="hint" id="pinText" style="margin:0"></p><p class="pincode" id="pinCode" hidden></p><input type="password" id="pinInput" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4 to 8 digits" aria-label="Admin PIN"><div class="row"><button class="btn grow" id="pinNo" type="button">Cancel</button><button class="btn primary grow" id="pinYes" type="button">OK</button></div></div></div>
 <div class="overlay" id="promptBox" hidden><div class="panel"><h3 id="promptTitle"></h3><p class="hint" id="promptText" style="margin:0"></p><textarea id="promptInput" style="min-height:70px"></textarea><div class="row"><button class="btn grow" id="promptNo" type="button">Cancel</button><button class="btn primary grow" id="promptYes" type="button">OK</button></div></div></div>

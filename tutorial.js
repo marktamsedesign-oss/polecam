@@ -1,4 +1,4 @@
-/* G-eSAA tutorial (v2.25): the topics of the in-app Tutorial (bottom bar → Tutorial).
+/* G-eSAA tutorial (v2.25; v2.28): the topics of the in-app Tutorial (bottom bar → Tutorial).
    aud: 'user' (everyone) or 'admin' (shown only to users of the admin company).
    Each step: t = the text (**bold**); go = the screen the guided tour opens for it (map, projects, newProject, projectDetails,
    records, export, settings, profile, camera, exports, maps, storage, log, admin); hl = the control it rings (CSS selectors,
@@ -13,8 +13,9 @@
         { t: 'Open the **invite** from your admin or a coworker: scan its QR code with the phone camera, or tap the invite link. In G-eSAA the first screen also has **Scan invite QR** and **Paste invite link**.', go: 'profile', hl: '#pfKeyScan, #pfScan', when: 'This is on the first screen, before you join. You have already joined: tap Next.' },
         { t: 'Using the G-eSAA **app** (APK)? A link opens in Chrome first: tap **Open in the G-eSAA app** there, and the invite goes to the app with nothing to scan or paste.' },
         { t: 'Enter your **full name**, **mobile number** and **email**. They are recorded on every photo and printed on the reports.', go: 'profile', hl: '#pfName' },
-        { t: 'Tick your **Region** and **Territory** (all that apply). Only the online sheet\'s projects in those areas are listed for you; with nothing ticked, no project is listed.', go: 'profile', hl: '#pfAreaBox' },
-        { t: 'Tap **Save**. With an invite, your company comes from it and cannot be changed on this phone (Settings → Reset user to start again). Without company keys, you choose your company from the list instead.', go: 'profile', hl: '#pfSave' },
+        { t: 'Open **Region** and **Territory** and tick all that apply (**All** ticks every one). Only the online sheet\'s projects in those areas are listed for you; with nothing ticked, no project is listed.', go: 'profile', hl: '#pfAreaBox' },
+        { t: 'Inspectors and approvers of the admin company: enter your **Company ID no.** too. It is printed when you approve a task on site.', go: 'profile', hl: '#pfIdNo' },
+        { t: 'Tap **Save**. With an invite (QR code or link), your company comes from it and cannot be changed here (Settings → Reset user to start again), and **Join your team** is not shown. Without an invite, you choose your company from the list.', go: 'profile', hl: '#pfSave' },
       ] },
     { id: 'sample', aud: 'user', cat: 'Getting started', title: 'Try the sample project', kw: 'sample demo dummy practice try example training first',
       steps: [
@@ -28,14 +29,15 @@
         { t: 'The **GPS pill**: green ≤ 5 m, amber ≤ 15 m, red > 15 m. Wait for green when you can.', go: 'map', hl: '#gpsPill' },
         { t: 'Map buttons: the **route** (survey), **map layer** (street, satellite, offline pack) and **my location**.', go: 'map', hl: '.mapbtns' },
         { t: 'The strip above the bottom bar shows the project totals; tap it to open the records.', go: 'map', hl: '#mapSummary' },
-        { t: 'The bottom bar: **Records**, the big **Capture** button, **Export**, **Settings** and this **Tutorial**.', go: 'map', hl: '#bottombar' },
+        { t: 'The bottom bar: **Drawing** (As-Plan and As-Built) or **Find** (every other task), the big **Capture** button, **Export**, **Settings** and this **Tutorial**.', go: 'map', hl: '#bottombar' },
       ] },
     { id: 'projects', aud: 'user', cat: 'Getting started', title: 'Projects: your task list', kw: 'project list task manager open switch filter search next step progress share folder delete',
       steps: [
         { t: 'Tap the project button on the top bar to open **Projects**.', go: 'map', hl: '#projectBtn' },
         { t: 'The open project is at the top: its state, its progress (tap it to show the steps) and the **Next** button, which takes you to the next step.', go: 'projects', hl: '#wfBox' },
         { t: 'Every project has its tools on its card: **Share** (send it to a colleague), **Folder** (its Google Drive folder, when the online sheet has one) and **Delete**.', go: 'projects', hl: '#curTools' },
-        { t: 'Your other projects are listed below, each with the same tools. Filter *In progress / Completed / All* and by category, or search by name, site, vendor, task ID or notes. Tap a card to open that project.', go: 'projects', hl: '#tmListBox', when: 'It is listed once you have more than one project.' },
+        { t: 'Your **other projects** are listed below, each with the same tools; tap the heading to fold or unfold them. Filter *In progress / Completed / All* and by category, or search by name, site, vendor, task ID or notes. Tap a card to open that project.', go: 'projects', hl: '#tmListBox', when: 'It is listed once you have more than one project.' },
+        { t: 'The open project\'s card also has **KMZ**: load, show, hide or replace its reference KMZ (e.g. the As-Plan for an As-Built) straight from the card.', go: 'projects', hl: '#curTools .tmtool.ref', when: 'It shows on the card of the open project.' },
         { t: 'The **+** at the top right makes a new project. **Open a shared file** and **Share several projects** are at the bottom.', go: 'projects', hl: '#newProjBtn' },
       ] },
     { id: 'newproject', aud: 'user', cat: 'Getting started', title: 'Create a new project', kw: 'new project site online sheet category purpose survey pat cleanup fat create name pla',
@@ -61,12 +63,12 @@
         { t: 'Now aim at the painted **pole ID**: it is used by itself when read clearly. Tap **Skip** if the pole has none.', hl: '#scanSkip', when: 'The ID step shows right after the photo. When the ID was read by itself, the record is already open: tap Next.' },
         { t: 'The record opens. Drag the map so the pin sits on the pole (at most 1 km from where the photo was taken); **Reset to GPS** puts it back.', hl: '#snapGps', when: 'It is in the record, which opens after the photo.' },
         { t: 'Check the pole ID (for an untagged pole: **No tag → NPT**), set the type and details, then tap **Save**. Saved with no ID, the record gets a generic number (**P-0001** for a pole, ODF-0001, NAP-0001…): open the pin later to put the real ID.', hl: '#edSave, #edSaveTop', when: 'It is in the record, which opens after the photo.' },
-        { t: 'Done: the pole is on the map. Tap any pin, or a row in **Records**, to open it again: edit it, replace the photo or delete it.', go: 'map', hl: '#listBtn' },
+        { t: 'Done: the pole is on the map. Tap any pin, or the strip above the bottom bar for the **records**, to open it again: edit it, replace the photo or delete it.', go: 'map', hl: '#mapSummary' },
       ] },
     { id: 'marks', aud: 'user', cat: 'Survey', title: 'Mark the photo: models, FOC route, text', kw: 'mark photo red box model proposed pole globe gt odc odf panel data rack handhole tower foc route draw line text comment note burn',
       steps: [
         { t: 'In a survey record, tap the **photo**: it opens full size. Then **✎ Box · FOC · Text** or **⊥ Model**.', hl: '#edPhoto', when: 'It is in a survey record (Capture, or a pin).' },
-        { t: 'The tools at the top: **▭ Box** (a red box round a spot), **⊥ Model** (proposed pole, ODC, ODF panel, data rack, handhole, tower), **〰 FOC route** and **T Text**.', hl: '#boxModes', when: 'It is on the marking screen (tap the photo in a record).' },
+        { t: 'The tool icons at the top: **box** (round a spot), **model** (proposed pole, ODC, ODF panel, data rack, handhole, tower), **FOC route** and **text**; the colour dots set the colour of the next mark, or of the selected one. **Navy blue** means existing: its label reads EXISTING.', hl: '#boxModes', when: 'It is on the marking screen (tap the photo in a record).' },
         { t: 'A **proposed pole** is always a **Globe (GT)** pole: its type is set and locked when the Status is Proposed. Its model goes from the ground up to its top.' },
         { t: '**Data rack**: drag from the floor up to its top: an **empty rack**. Then **Proposed ODF (rack panel)** and drag over its place in the rack: it fits between the rails, in whole rack units. Moving the rack moves its ODF too.' },
         { t: '**FOC route**: draw the line with your finger (e.g. from pole to pole) and lift to finish. **Text**: tap where the comment goes and type it; tap it once to move it, again to change it.', hl: '#boxCanvas', when: 'It is on the marking screen.' },
@@ -79,18 +81,27 @@
         { t: '**Link in capture order** links the poles in the order they were taken (gaps longer than the admin\'s limit are skipped). **Undo** and **Clear** if needed.', hl: '#rbAuto', when: 'It shows after you tap the route button.' },
         { t: 'Tap **Done** when finished. Spans longer than the maximum span and angle poles are flagged; Export → FORMAT **Route and spans · Excel** lists them.', hl: '#rbDone', when: 'It shows after you tap the route button.' },
       ] },
+    { id: 'drawing', aud: 'user', cat: 'Survey', title: 'Drawing and Find', kw: 'drawing dxf preview plan utm find search pin id element status defect labels fit',
+      steps: [
+        { t: 'In an As-Plan or As-Built survey, **Drawing** on the bottom bar shows the project as the DXF draws it: poles, route and spans in UTM metres. In other tasks the same button is **Find**.', go: 'map', hl: '#drawBtn' },
+        { t: 'Drag to pan, pinch or scroll to zoom, tap a point to see it. **Fit** shows everything, **Labels** turns the IDs on or off, **Export DXF** makes the file.', hl: '#drawFit', when: 'It is in the Drawing (As-Plan or As-Built survey).' },
+        { t: 'Editing the drawing on your own DXF template is not there yet: it comes once the template is provided.' },
+        { t: '**Find**: type an ID, element, status or defect and tap a result: the map goes to that pin. **All records ›** opens the full list.', hl: '#findQ', when: 'It is in Find (tasks other than As-Plan and As-Built).' },
+        { t: 'On the map, pole and span labels move apart (or hide) so they do not overlap; zoom in to see them all.' },
+      ] },
     { id: 'surveyexport', aud: 'user', cat: 'Survey', title: 'Survey exports (KMZ, DXF, CSV, photos)', kw: 'export kmz google earth dxf autocad csv excel photos zip design lld format',
       steps: [
         { t: 'Tap **Export**.', go: 'map', hl: '#exportBtn' },
         { t: 'Choose the export under **FORMAT** at the top: one export is shown at a time.', go: 'export', hl: '#xFormat' },
-        { t: '**Google Earth · KMZ**: pins named by pole ID with the photo in each balloon, and the route. **AutoCAD · DXF**: poles at UTM 51N with their IDs, details, photos and the route (keep the files of the ZIP together).', go: 'export', hl: '#doKmz', when: 'The survey exports show in a Survey project.' },
+        { t: '**Several formats at once, in one ZIP**: tick the formats you need (e.g. KMZ, DXF and the completion report) and make them all in one file.', go: 'export', hl: '#xMulti' },
+        { t: '**Google Earth · KMZ**: pins named by pole ID with the photo in each balloon, and the route as one continuous line from end to end (long spans also in their own folder). **AutoCAD · DXF**: poles at UTM 51N with their IDs, details, photos and the route (keep the files of the ZIP together).', go: 'export', hl: '#doKmz', when: 'The survey exports show in a Survey project.' },
         { t: '**Table · CSV**, **Route and spans · Excel** and **Geotagged photos · ZIP** too. Each card has its **Options**; the defaults are in Settings → Exports and files.', go: 'export', hl: '#doCsv', when: 'The survey exports show in a Survey project.' },
         { t: '**Completion report · PDF** marks the task complete and sends the date to the online sheet.', go: 'export', hl: '#doCompletion' },
       ] },
     { id: 'boq', aud: 'user', cat: 'Survey', title: 'BOQ / BOM in the As-Plan and As-Built', kw: 'boq bom size sizes clamp owner electric pldt dito converge new globe pole 7.5m 9.14m 10.6m 7a 7ar light odf 12f 24f 48f 72f 144f 288f apc upc closure 12c 24c 48c 72c 144c 288c as-plan as-built planned built difference materials',
       steps: [
         { t: 'The BOQ is part of the **As-Plan Creation** survey (what the plan needs) and the **As-Built Creation** survey (what was built). Audit, PAT, defect cleanup and FAT have no sizes. Open a record: tap **Capture** for a new one, or a pin for one you have.', go: 'map', hl: '#captureBtn' },
-        { t: 'In the record, **Size · for the BOQ / BOM** (under Identification): tap the size, tap it again to clear. An **existing pole**: its **owner** (Electric, PLDT, DITO, CONVERGE, or **+ Other**) and **clamp size** (5-7, 8-9, 10-12). A **proposed / new Globe pole**: its **size** (7.5m, 9.14m, 10.6m), **class** (7A, 7AR, Light) and clamp size.', hl: '#boqBox', when: 'It is in the record of a pole, an ODF or a closure, in an As-Plan or As-Built project.' },
+        { t: 'In the record, **Size · for the BOQ / BOM** (under Identification): tap the size, tap it again to clear (a list of more than 4, e.g. the ODF and closure sizes, is a dropdown: choose it there; your admin sets the lists). An **existing pole**: its **owner** (Electric, PLDT, DITO, CONVERGE, or **+ Other**) and **clamp size** (5-7, 8-9, 10-12). A **proposed / new Globe pole**: its **size** (7.5m, 9.14m, 10.6m), **class** (7A, 7AR, Light) and clamp size.', hl: '#boqBox', when: 'It is in the record of a pole, an ODF or a closure, in an As-Plan or As-Built project.' },
         { t: '**ODF**: 12F to 288F and **APC** or **UPC**. **Closure**: 12C to 288C. Whether it is new or existing is the record\'s **Status**.' },
         { t: '**As-Built**: load the **As-Plan KMZ** (exported from G-eSAA) as the project\'s reference here. Each As-Built element then starts with its planned sizes and status (the same ID, else the nearest planned one within 15 m). The purple line in the record shows the plan; it turns orange when what was built differs, with **Use the planned sizes**.', go: 'projectDetails', hl: '#refLoad', when: 'In an As-Built project: Projects → Project details → KMZ reference.' },
         { t: 'The BOQ comes out with the survey: a **BOQ / BOM page** in the **Completion report**, a **BOQ sheet** in **Route and spans · Excel**, and on its own as **BOQ / BOM sizes · Excel**. In the As-Built it shows **Planned, Built and the Difference**, the planned elements not found and what was built outside the plan.', go: 'export', hl: '#doBoq' },
@@ -137,7 +148,7 @@
       ] },
     { id: 'records', aud: 'user', cat: 'PAT, defect cleanup and FAT', title: 'Records, pins and statuses', kw: 'records list filter open rectified verified status colors red blue teal green timeline',
       steps: [
-        { t: 'Tap **Records** (it is named after the task category).', go: 'map', hl: '#listBtn' },
+        { t: 'Tap the strip above the bottom bar (or **Find** → **All records**) to open the records.', go: 'map', hl: '#mapSummary' },
         { t: 'Filter **All / Open / Rectified / Verified / No deficiency**, sort, and group by element; tap a group to open or close it.', go: 'records' },
         { t: 'Pin colours: **red** open deficiency, **blue** rectified and waiting for verification, **teal** all verified, **green** no deficiency.' },
         { t: 'Each item keeps its timeline: FOUND → RECTIFIED → VERIFIED, with who and when. A rejection keeps its reason.' },
@@ -160,7 +171,14 @@
       steps: [
         { t: 'Export → FORMAT **Completion report · PDF**: page 1 says the task is complete (site, vendor, dates, what was recorded, sign-off); the photo pages follow.', go: 'export', hl: '#doCompletion' },
         { t: 'Making it marks the task complete, like Projects → **✓ Mark task complete**; the online sheet gets the date.', go: 'projects', hl: '#doneBtn' },
-        { t: '**Undo complete** clears it again. A completed PAT is reopened only by the admin.' },
+        { t: '**Undo complete** clears it again (and the on-site approval with it). A completed PAT is reopened only by the admin.' },
+      ] },
+    { id: 'approval', aud: 'user', cat: 'Reports and files', title: 'Approval on site (inspector\'s QR code)', kw: 'approve approval on site qr inspector approver signature id number accept sign-off pat fat as-plan as-built audit',
+      steps: [
+        { t: 'When the task is completed, the inspector approves it on site: Projects → **Scan the inspector\'s approval QR**.', go: 'projects', hl: '#apprScan', when: 'It shows on a completed task.' },
+        { t: 'The inspector shows it on their phone: Settings → **On-site approval QR**. It is signed with the admin key of the company list, holds their name, company ID no., mobile and email, and is valid 10 minutes (it renews every minute while open).', go: 'settings', hl: '#apprShowBtn', when: 'It shows on the phone of an admin user of the admin company.' },
+        { t: 'Only the right approver is accepted: a **PAT/FAT inspector** approves the PAT, the defect cleanup and the FAT; the **As-Plan**, **Audit** and **As-Built approvers** approve those surveys (the admin sets the jobs). A copied, changed or old code is refused.' },
+        { t: 'The task keeps who approved, the time and the GPS position. The **Completion report** prints it in a green box and next to the signature line, so the PDF stands without a written signature; signing the printed copy is still possible.', go: 'export', hl: '#doCompletion' },
       ] },
     { id: 'share', aud: 'user', cat: 'Reports and files', title: 'Share, open and back up files', kw: 'share project send colleague open shared file backup restore zip several projects edited unauthorized tampered',
       steps: [
@@ -180,6 +198,7 @@
       steps: [
         { t: 'Settings → **Camera**: scan the ID after each photo, the live ID reader, how IDs are painted, the camera button position (right, center or left hand) and the photo sharpness.', go: 'settings', hl: '#goCamera' },
         { t: 'Settings → **Exports and files**: photo sizes and stamps, KMZ, PDF and DXF defaults, where files are saved.', go: 'settings', hl: '#goExports' },
+        { t: 'In the camera, **0.5×** shows when the phone lets the app use its ultra-wide lens; many phones give a web app 1× and up only.' },
         { t: 'At the bottom of Settings: **Text size**, and keep the help text open on every screen.', go: 'settings' },
       ] },
     { id: 'offline', aud: 'user', cat: 'Settings', title: 'Offline maps', kw: 'offline map pack no signal download import pmtiles satellite street layer tiles',
@@ -190,7 +209,7 @@
       ] },
     { id: 'account', aud: 'user', cat: 'Settings', title: 'Invite a coworker, move phones, reset', kw: 'invite coworker qr link move phone new phone reset user change company',
       steps: [
-        { t: 'Settings → **Invite a coworker (QR)**: a small QR code and **Send the invite link** for someone of your company. The coworker scans it or taps the link (in the G-eSAA app: *Open in the G-eSAA app*), then fills in name, mobile and email. The company key inside stays hidden; send it only inside your company.', go: 'settings', hl: '#inviteBtn', when: 'It shows when you joined with a company invite.' },
+        { t: 'Settings → **Invite a coworker (QR)**: a small QR code and **Send the invite link** for someone of your company. The coworker scans it or taps the link (in the G-eSAA app: *Open in the G-eSAA app*), then fills in name, mobile and email; the company comes from the invite. A company key inside stays hidden; send it only inside your company.', go: 'settings', hl: '#inviteBtn', when: 'It shows once you joined a company list.' },
         { t: '**Move to another phone…**: one QR code or link with your company list and your details. Move projects and photos with **Share** on each project card (or Export → Back up project).', go: 'settings', hl: '#moveBtn' },
         { t: '**Reset user…** removes your name, company and key from this phone; projects and photos stay.', go: 'settings', hl: '#resetUser' },
       ] },
@@ -211,6 +230,7 @@
       steps: [
         { t: 'Settings → the **company list** row (under COMPANY LIST, with your list\'s name), or **Manage (admin)**.', go: 'settings', hl: '#goAdmin' },
         { t: 'Type the **admin PIN**, then tap **Continue**.', go: 'admin', hl: '#admUnlock', when: 'The PIN is asked when Administration opens. Already unlocked: tap Next.' },
+        { t: 'Each section folds: tap its heading to open or close it.' },
         { t: 'Everything here goes to every phone of the list when you tap **Save and share the list** (at the bottom). Tap it only when you changed something.', go: 'admin', hl: '#admSave', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: 'Staff of the admin company with the PIN are admins and inspectors. Use **Change the admin PIN** when someone leaves.', go: 'admin', hl: '#admChangePin', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
@@ -226,7 +246,8 @@
       steps: [
         { t: 'Companies and vendors come only from the sheet\'s **Company List** / **Companies** tab: edit them there, then tap **Refresh from the sheet**.', go: 'admin', hl: '#admCoRefresh', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '**Admin company**: its staff with the PIN are admins and inspectors; everyone else is a contractor user.', go: 'admin', hl: '#admOwner', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
-        { t: '**Admin users**: the email of each admin / inspector, one per line. Blank = anyone of the admin company with the PIN.', go: 'admin', hl: '#admUsers', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '**Admin users**: best kept in the online sheet\'s **Admin users** tab (email, name, company ID no., mobile, job; script v2.28). Refresh from the sheet shows them here; Save puts them in the list.', go: 'admin', hl: '#admUsersSheet, #admUsers', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: 'The **job** decides who approves what on site: *PAT/FAT inspector* (PAT, defect cleanup and FAT), *As-Plan approver*, *Audit approver*, *As-Built approver* (several in one cell is fine). Without the sheet tab, type one line per user: the email, then the job. Blank = anyone of the admin company with the PIN; once any user has a job, a user with none approves nothing.' },
       ] },
     { id: 'adm-invite', aud: 'admin', cat: 'Administration', title: 'Invite a company\'s users (company keys)', kw: 'invite company key makecompanykeys first user qr link contractor join',
       steps: [
@@ -250,14 +271,14 @@
     { id: 'adm-standards', aud: 'admin', cat: 'Administration', title: 'Field standards and who records', kw: 'field standards maximum span angle pole prefixes vendors record sharpness pole owners boq',
       steps: [
         { t: '**Maximum span**, **Angle pole from (°)**, the gap limit of *Link in capture order*, and **Extra pole prefixes for everyone**.', go: 'admin', hl: '#setMaxSpan', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
-        { t: '**Pole owners for the BOQ** besides Electric, PLDT, DITO and CONVERGE (one per line): every phone gets them in the pole\'s owner choices.', go: 'admin', hl: '#admPoleOwners', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '**Sizes for the BOQ / BOM and pole details**: the pole owners, clamp sizes, new Globe pole sizes and classes, ODF sizes and connectors, closure sizes and the pole details, one value per line. Add, rename or remove; empty = the built-in list. A list of more than 4 shows as a dropdown in the record.', go: 'admin', hl: '#admBoqBox', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '**Vendors record PAT defects and accept fixes at FAT**: on = vendors may record; off = only the admin company does.', go: 'admin', hl: '#admVendorRec', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '**Photo sharpness required**: Strict (recommended) or Normal.', go: 'admin', hl: '#admQuality', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
     { id: 'adm-kmz', aud: 'admin', cat: 'Administration', title: 'Shared KMZ lock', kw: 'kmz password lock shared protect tamper edited unauthorized google earth',
       steps: [
         { t: 'The G-eSAA data in the shared PAT, cleanup and FAT KMZ files is locked with the **KMZ password**; Google Earth still shows the map.', go: 'admin', hl: '#admKmzPass', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
-        { t: 'A random password is suggested: nobody types it, every phone gets it with the list. Do not put a company key in it.' },
+        { t: 'Best set in the online sheet: **Settings → KMZ password** (script v2.28). Administration then only shows it; every phone of the list gets it. Without it, a random password is suggested here: nobody types it. Do not put a company key in it.' },
         { t: 'A file changed outside G-eSAA is refused with **⚠ KMZ edited by unauthorized personnel**.' },
       ] },
     { id: 'adm-approve', aud: 'admin', cat: 'Administration', title: 'Approve a delete', kw: 'approve delete request code 6-digit approval completed project',
@@ -275,7 +296,7 @@
     { id: 'adm-save', aud: 'admin', cat: 'Administration', title: 'Save and share the list', kw: 'save share list version join link qr org.json tie website apk',
       steps: [
         { t: 'Tap **Save and share the list**: a new list version, signed with the admin PIN.', go: 'admin', hl: '#admSave', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
-        { t: 'New phones join with the **join link or QR code**. Phones that already joined take new versions from the online sheet by themselves (with the Admin key set).' },
+        { t: 'With the online sheet (Admin key set), phones that joined take the new version by themselves; no QR code is shown. To add users, tap **Make an invite** (or Settings → **Share list**) and choose their company: the invite names it, so they do not choose it. Without the sheet, the join QR code and link show after Save.' },
         { t: '**Tie the app to this list** → **Download org.json**, and put it next to index.html on the website (and in the APK build): new users can then only join this list.', go: 'admin', hl: '#admOrg', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
     { id: 'adm-inspect', aud: 'admin', cat: 'Administration', title: 'Inspecting as the admin company', kw: 'inspector verify accept reject reopen pat undo complete all sites',
@@ -284,5 +305,5 @@
         { t: 'Sites: the admin company sees every company\'s sites from the sheet, narrowed by your own regions and territories (Your details).', go: 'profile', hl: '#pfAreaBox' },
       ] },
   ];
-  root.GESAA_TUTORIAL = { version: '2.27', topics: T };
+  root.GESAA_TUTORIAL = { version: '2.28', topics: T };
 })(typeof self !== 'undefined' ? self : this);

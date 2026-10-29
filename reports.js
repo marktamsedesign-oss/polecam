@@ -653,7 +653,8 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
 
   /**
    * Task completion report (v2.11): page 1 says the task is complete; photo pages follow (v2.12).
-   * model: {title, stageLong, statement, info:[[k,v]], summary:[[label,value,tone]], details:[[k,v]], signers:[{role, name}], footer, footer2,
+   * model: {title, stageLong, statement, info:[[k,v]], summary:[[label,value,tone]], details:[[k,v]], signers:[{role, name, note}], footer, footer2,
+   *         approval:{title, lines:[]} (v2.28, approved on site with a signed QR code),
    *         photos:[{title, sub, count, layout:'collage'|'chain', items}]}
    * collage (survey poles): 3 × 4 photos a page; items [{jpeg, head, lines:[], warn}].
    * chain (PAT / cleanup / FAT): one punchlist item per block, its photos side by side (as found → rectified → verified);
@@ -704,6 +705,14 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
       });
       y += 8;
     }
+    if (model.approval) { // v2.28: approved on site with the inspector's signed QR code: the report stands without a written signature
+      const A = model.approval, lines = A.lines.flatMap((l) => wrapText(l, CW - 24, 8.5).slice(0, 2)).slice(0, 7), h = 24 + lines.length * 11;
+      if (y + h + 10 > pdf.H - 46 - 150) { pdf.addPage(); y = M; } // the sign-off follows on the next page
+      pdf.rect(M, y, CW, h, { fill: [0.92, 0.97, 0.93], stroke: [0.6, 0.8, 0.64] });
+      pdf.text(M + 10, y + 7, A.title, { size: 9.5, bold: true, color: GREEN });
+      lines.forEach((l, k) => pdf.text(M + 10, y + 21 + k * 11, l, { size: 8.5 }));
+      y += h + 10;
+    }
     y = Math.max(y, pdf.H - 46 - 150);
     pdf.text(M, y, 'SIGN-OFF', { size: 11, bold: true }); y += 18;
     const sg = model.signers, sw = (CW - 16 * (sg.length - 1)) / sg.length;
@@ -715,6 +724,7 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
         const ly = y + 46 + k * 22;
         pdf.text(x + 8, ly - 9, lab, { size: 7, color: MUTED });
         if (k === 0 && s.name) pdf.text(x + 40, ly - 6, s.name, { size: 9 });
+        if (k === 1 && s.note) pdf.text(x + 52, ly - 6, wrapText(s.note, sw - 64, 7.5)[0], { size: 7.5, color: GREEN }); // v2.28: approved on site
         pdf.line(x + 8, ly + 6, x + sw - 8, ly + 6, { color: [0.5, 0.53, 0.56] });
       });
     });

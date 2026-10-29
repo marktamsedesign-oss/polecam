@@ -6,7 +6,8 @@
   const H0 = location.hash, pendingJoin = (/[#&]join=([^&#]+)/.exec(H0) || [])[1] || null, pendingKey = (/[#&](ck=[A-Za-z0-9-]+|ci=[A-Za-z0-9_-]+)/.exec(H0) || [])[1] || null; // v2.24: ci= (the key masked) or the old ck=
   const pendingJq = (/[#&]jq=([A-Za-z0-9_-]+)/.exec(H0) || [])[1] || null; // v2.15 short join code: the list comes from the online sheet
   const pendingMv = (/[#&]mv=([A-Za-z0-9_-]+)/.exec(H0) || [])[1] || null; // v2.15 the user moving to this phone
-  if (pendingJoin || pendingKey || pendingJq || pendingMv) history.replaceState(null, '', location.pathname + location.search);
+  const pendingCo = (/[#&]co=([^&#]+)/.exec(H0) || [])[1] || null; // v2.28 the company the invite is for (lists without company keys)
+  if (pendingJoin || pendingKey || pendingJq || pendingMv || pendingCo) history.replaceState(null, '', location.pathname + location.search);
   /* Camera button position for one-hand use: centre by default, right or left in Settings → Camera. */
   const handOf = () => (['left', 'center', 'right'].includes(S && S.hand) ? S.hand : 'center');
   function applyHand() { const h = handOf(); ['left', 'center', 'right'].forEach((x) => document.body.classList.toggle(`hand-${x}`, x === h)); }
@@ -139,6 +140,16 @@
   const coList = (v) => String(v || '').split(/\s*(?:[,;/&+\n]|\band\b)\s*/i).map(normCo).filter(Boolean);
   /** Staff of the list's admin company (chosen with the admin PIN). Names compare as in normCo, the same as the PIN check. */
   /** Admin users: when the admin lists their emails, only those people may use the admin company (and its PIN). */
+  /** v2.28: the jobs of an admin user (Admin users tab of the sheet, or the email line in Administration): which completed
+      tasks they approve on site. acc = PAT, defect cleanup and FAT; the survey purposes by name. */
+  function jobKeys(text) {
+    const t = String(text || '').toUpperCase(), k = new Set();
+    if (/ALL|ADMIN/.test(t)) ['acc', 'As-plan', 'Audit', 'As-built'].forEach((x) => k.add(x));
+    if (/PAT|FAT|INSPECT|CLEAN|ACCEPT/.test(t)) k.add('acc');
+    if (/PLAN/.test(t)) k.add('As-plan'); if (/AUDIT/.test(t)) k.add('Audit'); if (/BUILT/.test(t)) k.add('As-built');
+    return [...k];
+  }
+  const JOB_NAME = { acc: 'PAT/FAT inspector', 'As-plan': 'As-Plan approver', Audit: 'Audit approver', 'As-built': 'As-Built approver' };
   const adminUserOk = (email) => { const L = pol().adminUsers || []; const e = String(email != null ? email : (S.user && S.user.email) || '').trim().toLowerCase(); return !L.length || L.includes(e); };
   const isInspector = () => { const o = pol().owner; return !o || !S.user || (normCo(S.user.company) === normCo(o) && adminUserOk()); };
   /** Who records PAT defects and accepts fixes at FAT (v2.10): the vendor's users too, by default (the Globe representative
@@ -399,7 +410,10 @@
   const BOQ_PURPOSES = ['As-plan', 'As-built'];
   /** The BOQ is part of the As-Plan and As-Built surveys only (not Audit, PAT, defect cleanup or FAT). */
   const boqOn = (name) => !isAcc(name) && BOQ_PURPOSES.includes(svPurpose(name));
-  const boqOwners = () => [...new Set([...BOQ_OPT.owner, ...(Array.isArray(pol().poleOwners) ? pol().poleOwners : []), ...(S.myOwners || [])].map((x) => String(x || '').trim()).filter(Boolean))];
+  /** v2.28: the admin's lists (Administration → Sizes for the BOQ / BOM), else the built-in ones (owners: + the v2.26 extra owners). */
+  const boqList = (k) => { const L = pol().boqLists; return L && Array.isArray(L[k]) && L[k].length ? L[k] : k === 'owner' ? [...BOQ_OPT.owner, ...(Array.isArray(pol().poleOwners) ? pol().poleOwners : [])] : BOQ_OPT[k]; };
+  const detailItems = () => (Array.isArray(pol().detailItems) && pol().detailItems.length ? pol().detailItems : POLE_DETAIL_ITEMS);
+  const boqOwners = () => [...new Set([...boqList('owner'), ...(S.myOwners || [])].map((x) => String(x || '').trim()).filter(Boolean))];
   /** The BOQ fields of a survey element: by element and status (existing, or proposed / new); a closure in the handhole adds its size. */
   function boqKeys(el, status, closureHere) {
     if (el === 'Pole') return status === 'Proposed' || status === 'New' ? ['height', 'cls', 'clamp'] : ['owner', 'clamp'];
@@ -636,7 +650,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.27.0';
+  const APP_VER = '2.28.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -916,7 +930,8 @@
     const cat = taskCat(), mb = $('modeBadge');
     mb.textContent = cat.toUpperCase(); mb.className = `badge cat ${cat.toLowerCase()}`;
     $('listLbl').textContent = 'Records';
-    renderSummary(pts);
+    const dr = drawOn(); $('drawLbl').textContent = dr ? 'Drawing' : 'Find'; $('drawIco').setAttribute('href', dr ? '#i-draw' : '#i-find'); // v2.28
+    renderSummary(pts); declutterSoon();
     if (typeof drawAreas === 'function') drawAreas();
   }
   /** Project status at a glance: the strip above the navigation bar and the figures on the Records screen. */
@@ -960,6 +975,153 @@
     if ($('mapSummary').dataset.complete === '1') { openProjects(); requestAnimationFrame(() => $('doneBtn').scrollIntoView({ block: 'center' })); return; } // ready to complete
     const t = visitMode() && nextTarget(); if (t) openVisit(t.r.id, true); else $('listBtn').click();
   });
+  /* ================= v2.28: the bar's Drawing (As-Plan / As-Built) or Find (every other project) ================= */
+  const drawOn = () => !!S.project && !isAcc() && BOQ_PURPOSES.includes(svPurpose());
+  $('drawBtn').addEventListener('click', () => { if (!S.project) { openProjects(); return; } if (drawOn()) openDrawing(); else openFind(); });
+  /* Drawing: a preview of the DXF of the project (UTM metres): the route with its span lengths, poles and other points with
+     their IDs, the KMZ reference faint behind; pan with a finger, pinch or the wheel to zoom, tap a point for its details.
+     (Editing it on your DXF template comes later.) */
+  let drw = null;
+  function openDrawing() {
+    const pts = projPoints(); if (!pts.length) { toast('Nothing recorded in this project yet'); return; }
+    const z = S.zone, U = (p) => { const u = C.utmForward(p.lat, p.lon, z, p.lat < 0); return [u.E, u.N]; };
+    const R = routeModel(), items = pts.map((p) => ({ p, xy: U(p) }));
+    const ref = []; refGeoFor(S.project).then((g) => { if (!g || !drw) return; (g.lines || []).forEach((l) => ref.push(l.c.map(([la, lo]) => U({ lat: la, lon: lo })))); drawDrawing(); }).catch(() => {});
+    drw = { items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), ref, labels: true, view: null, ptrs: new Map(), sel: null };
+    $('drawTitle').textContent = `Drawing · ${S.project}`;
+    $('drawHint').textContent = `Preview of the DXF (UTM ${z}N metres): ${pts.filter((p) => elemOf(p) === 'Pole').length} poles, ${R.spans.length} spans, ${fmtLen(R.total)}. Drag to pan, pinch or scroll to zoom, tap a point. Editing on your DXF template comes later.`;
+    $('drawInfo').hidden = true; $('drawLabels').setAttribute('aria-pressed', 'true');
+    openSheet('drawing');
+    requestAnimationFrame(() => { sizeDrawing(); fitDrawing(); drawDrawing(); });
+  }
+  function sizeDrawing() { const cv = $('drawCanvas'), r = $('drawWrap').getBoundingClientRect(), d = window.devicePixelRatio || 1; cv.width = Math.max(1, Math.round(r.width * d)); cv.height = Math.max(1, Math.round(r.height * d)); }
+  function fitDrawing() {
+    if (!drw) return;
+    const xs = drw.items.map((i) => i.xy[0]), ys = drw.items.map((i) => i.xy[1]), cv = $('drawCanvas');
+    const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys);
+    const w = Math.max(20, maxx - minx), h = Math.max(20, maxy - miny), sc = Math.min(cv.width / (w * 1.25), cv.height / (h * 1.25));
+    drw.view = { cx: (minx + maxx) / 2, cy: (miny + maxy) / 2, sc };
+  }
+  const drwPx = (xy) => { const v = drw.view, cv = $('drawCanvas'); return [cv.width / 2 + (xy[0] - v.cx) * v.sc, cv.height / 2 - (xy[1] - v.cy) * v.sc]; };
+  function drawDrawing() {
+    if (!drw || !drw.view) return;
+    const cv = $('drawCanvas'), g = cv.getContext('2d'), d = window.devicePixelRatio || 1, v = drw.view;
+    g.fillStyle = '#fbfbf8'; g.fillRect(0, 0, cv.width, cv.height);
+    // grid every 10 / 50 / 100 m, by zoom
+    const step = [5, 10, 20, 50, 100, 200, 500, 1000].find((m) => m * v.sc > 60 * d) || 1000;
+    g.strokeStyle = 'rgba(28,63,148,0.08)'; g.lineWidth = 1;
+    const x0 = v.cx - cv.width / 2 / v.sc, y0 = v.cy - cv.height / 2 / v.sc;
+    for (let x = Math.floor(x0 / step) * step; x < x0 + cv.width / v.sc; x += step) { const px = drwPx([x, 0])[0]; g.beginPath(); g.moveTo(px, 0); g.lineTo(px, cv.height); g.stroke(); }
+    for (let y = Math.floor(y0 / step) * step; y < y0 + cv.height / v.sc; y += step) { const py = drwPx([0, y])[1]; g.beginPath(); g.moveTo(0, py); g.lineTo(cv.width, py); g.stroke(); }
+    g.lineJoin = 'round'; g.lineCap = 'round';
+    drw.ref.forEach((l) => { g.strokeStyle = 'rgba(112,72,232,0.45)'; g.lineWidth = 2 * d; g.setLineDash([6 * d, 5 * d]); g.beginPath(); l.forEach((xy, i) => { const [px, py] = drwPx(xy); if (i) g.lineTo(px, py); else g.moveTo(px, py); }); g.stroke(); });
+    g.setLineDash([]);
+    const fs = 11 * d; g.font = `600 ${fs}px ui-monospace, monospace`;
+    drw.spans.forEach(({ sp, a, b }) => { // the CABLE_ROUTE layer and the span length (FOC_LENGTH) at its middle
+      const [ax, ay] = drwPx(a), [bx, by] = drwPx(b);
+      g.strokeStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.lineWidth = 2.2 * d; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
+      if (drw.labels && Math.hypot(bx - ax, by - ay) > 46 * d) {
+        let ang = Math.atan2(by - ay, bx - ax); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
+        g.save(); g.translate((ax + bx) / 2, (ay + by) / 2); g.rotate(ang); g.textAlign = 'center'; g.textBaseline = 'bottom'; g.fillStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.fillText(`${sp.len.toFixed(1)} m`, 0, -3 * d); g.restore();
+      }
+    });
+    const placed = [];
+    drw.items.forEach(({ p, xy }) => {
+      const [px, py] = drwPx(xy), el = elemOf(p), r = (el === 'Pole' ? 5 : 6) * d, prop = p.status === 'Proposed' || p.status === 'New';
+      g.lineWidth = 1.8 * d; g.strokeStyle = prop ? '#e03131' : '#1b1b1b'; g.fillStyle = drw.sel === p.id ? '#ffd43b' : '#ffffff';
+      g.beginPath();
+      if (el === 'Pole') g.arc(px, py, r, 0, Math.PI * 2); else if (el === 'Handhole' || el === 'ODC' || el === 'ODF') g.rect(px - r, py - r, r * 2, r * 2); else { g.moveTo(px, py - r * 1.2); g.lineTo(px + r, py + r * 0.8); g.lineTo(px - r, py + r * 0.8); g.closePath(); }
+      g.fill(); g.stroke();
+      if (el !== 'Pole') { g.fillStyle = SV_COLORS[el] || '#495057'; g.beginPath(); g.arc(px, py, r * 0.35, 0, Math.PI * 2); g.fill(); }
+      if (!drw.labels) return;
+      const t = p.poleId || el, w = g.measureText(t).width; // the ID beside the point, moved down or left when it would cover another
+      const tries = [[r + 4 * d, -fs / 2], [r + 4 * d, fs * 0.6], [-r - 4 * d - w, -fs / 2], [-w / 2, -r - fs - 4 * d], [-w / 2, r + 4 * d]];
+      let pos = tries[0];
+      for (const tr of tries) { const bx = [px + tr[0], py + tr[1], w, fs]; if (!placed.some((q) => bx[0] < q[0] + q[2] && bx[0] + bx[2] > q[0] && bx[1] < q[1] + q[3] && bx[1] + bx[3] > q[1])) { pos = tr; break; } }
+      placed.push([px + pos[0], py + pos[1], w, fs]);
+      g.fillStyle = 'rgba(251,251,248,0.85)'; g.fillRect(px + pos[0] - 2, py + pos[1] - 1, w + 4, fs + 2);
+      g.fillStyle = prop ? '#c92a2a' : '#1b1b1b'; g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText(t, px + pos[0], py + pos[1]);
+    });
+    // north arrow and scale bar
+    g.fillStyle = '#1b1b1b'; g.strokeStyle = '#1b1b1b'; g.lineWidth = 1.5 * d;
+    const nx = cv.width - 26 * d, ny = 30 * d; g.beginPath(); g.moveTo(nx, ny - 14 * d); g.lineTo(nx + 7 * d, ny + 8 * d); g.lineTo(nx, ny + 3 * d); g.lineTo(nx - 7 * d, ny + 8 * d); g.closePath(); g.fill();
+    g.font = `700 ${11 * d}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText('N', nx, ny + 10 * d);
+    const sb = [10, 20, 50, 100, 200, 500, 1000, 2000].find((m) => m * v.sc > 70 * d) || 2000, sx = 16 * d, sy = cv.height - 18 * d;
+    g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx + sb * v.sc, sy); g.moveTo(sx, sy - 5 * d); g.lineTo(sx, sy + 5 * d); g.moveTo(sx + sb * v.sc, sy - 5 * d); g.lineTo(sx + sb * v.sc, sy + 5 * d); g.stroke();
+    g.textBaseline = 'bottom'; g.fillText(sb >= 1000 ? `${sb / 1000} km` : `${sb} m`, sx + sb * v.sc / 2, sy - 4 * d);
+  }
+  (() => { // pan, pinch, wheel and tap on the drawing
+    const cv = $('drawCanvas'), d = () => window.devicePixelRatio || 1;
+    let last = null, moved = 0, pinch = null;
+    cv.addEventListener('pointerdown', (e) => { if (!drw) return; cv.setPointerCapture(e.pointerId); drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; moved = 0;
+      if (drw.ptrs.size === 2) { const [a, b] = [...drw.ptrs.values()]; pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), sc: drw.view.sc }; } });
+    cv.addEventListener('pointermove', (e) => {
+      if (!drw || !drw.ptrs.has(e.pointerId)) return; drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+      if (drw.ptrs.size === 2 && pinch) { const [a, b] = [...drw.ptrs.values()]; drw.view.sc = Math.max(0.01, pinch.sc * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.dist); moved = 99; drawDrawing(); return; }
+      const dx = e.clientX - last[0], dy = e.clientY - last[1]; last = [e.clientX, e.clientY]; moved += Math.abs(dx) + Math.abs(dy);
+      drw.view.cx -= dx * d() / drw.view.sc; drw.view.cy += dy * d() / drw.view.sc; drawDrawing();
+    });
+    const up = (e) => {
+      if (!drw) return; drw.ptrs.delete(e.pointerId); if (drw.ptrs.size < 2) pinch = null;
+      if (moved < 8 && e.type === 'pointerup') { // a tap: the nearest point
+        const r = cv.getBoundingClientRect(), tx = (e.clientX - r.left) * d(), ty = (e.clientY - r.top) * d();
+        let best = null; drw.items.forEach((it) => { const [px, py] = drwPx(it.xy), dd = Math.hypot(px - tx, py - ty); if (dd < 24 * d() && (!best || dd < best.dd)) best = { it, dd }; });
+        drw.sel = best ? best.it.p.id : null; const info = $('drawInfo');
+        if (best) { const p = best.it.p, u = best.it.xy; info.textContent = `${p.poleId || elemOf(p)} · ${svDesc(p)}${boqText(p) ? ` · ${boqText(p)}` : ''} · E ${u[0].toFixed(1)} N ${u[1].toFixed(1)}`; info.hidden = false; } else info.hidden = true;
+        drawDrawing();
+      }
+    };
+    cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+    cv.addEventListener('wheel', (e) => { if (!drw) return; e.preventDefault(); drw.view.sc *= e.deltaY < 0 ? 1.15 : 1 / 1.15; drawDrawing(); }, { passive: false });
+    window.addEventListener('resize', () => { if (drw && !$('drawing').hidden) { sizeDrawing(); drawDrawing(); } });
+  })();
+  $('drawFit').addEventListener('click', () => { fitDrawing(); drawDrawing(); });
+  $('drawLabels').addEventListener('click', () => { if (!drw) return; drw.labels = !drw.labels; $('drawLabels').setAttribute('aria-pressed', String(drw.labels)); drawDrawing(); });
+  $('drawDxf').addEventListener('click', () => { exportPick = 'doDxf'; closeSheet().then(() => $('exportBtn').click()); });
+  /* Find: search the project's pins by ID, element, status or defect; tap one to fly to it on the map and open it. */
+  function openFind() { $('findQ').value = ''; renderFind(); openSheet('find'); setTimeout(() => $('findQ').focus(), 120); }
+  function renderFind() {
+    const q = $('findQ').value.trim().toUpperCase(), box = $('findList'); box.innerHTML = '';
+    const here = fix ? { lat: fix.lat, lon: fix.lon } : null;
+    const hay = (p) => [recName(p), p.poleId, elemOf(p), p.status, p.napId, p.closureId, p.remarks, ...(p.defs || []).map((d) => `${d.cat || ''} ${(d.items || []).join(' ')} ${d.notes || ''}`)].join(' ').toUpperCase();
+    let pts = projPoints().filter((p) => !q || hay(p).includes(q));
+    if (here) pts = pts.map((p) => ({ p, d: haversine(here, p) })).sort((a, b) => a.d - b.d).map((x) => ({ ...x.p, _d: x.d }));
+    pts.slice(0, 60).forEach((p) => {
+      const b = document.createElement('button'); b.type = 'button';
+      const n = document.createElement('b'); n.textContent = recName(p) || '(no ID)';
+      const sub = document.createElement('span'); sub.textContent = [isAcc() ? `${elemOf(p)} · ${STATUS_TEXT[recStatus(p)] || ''}${openCount(p) ? ` · ${openCount(p)} open` : ''}` : svDesc(p), p._d != null ? `${fmtDist(p._d)} away` : ''].filter(Boolean).join(' · ');
+      b.append(n, sub);
+      b.addEventListener('click', async () => { await closeSheet(); map.setView([p.lat, p.lon], Math.max(map.getZoom(), 19)); setTimeout(() => (visitMode() ? openVisit(p.id) : openEditorFor(p.id)), 350); });
+      box.appendChild(b);
+    });
+    if (!pts.length) { const e = document.createElement('p'); e.className = 'hint'; e.textContent = q ? `Nothing matches “${$('findQ').value.trim()}”.` : 'Nothing recorded in this project yet.'; box.appendChild(e); }
+    else if (pts.length > 60) { const e = document.createElement('p'); e.className = 'hint'; e.textContent = `${pts.length - 60} more: type more of the ID.`; box.appendChild(e); }
+  }
+  $('findQ').addEventListener('input', renderFind);
+  $('findAll').addEventListener('click', () => closeSheet().then(() => $('listBtn').click()));
+  /* v2.28: map labels (pole IDs and span lengths) moved apart where they would cover each other; a span length that has no
+     free place is hidden until the map is zoomed in. */
+  let declutterTimer = 0;
+  function declutterSoon() { clearTimeout(declutterTimer); declutterTimer = setTimeout(() => requestAnimationFrame(declutterLabels), 60); }
+  function declutterLabels() {
+    const mapEl = $('map'); if (!mapEl || mapEl.classList.contains('hide-labels')) return;
+    const vr = mapEl.getBoundingClientRect();
+    const poles = [...mapEl.querySelectorAll('.leaflet-tooltip.pole-label')], spans = [...mapEl.querySelectorAll('.span-label')];
+    [...poles, ...spans].forEach((el) => { el.style.marginTop = ''; el.style.marginLeft = ''; el.style.visibility = ''; });
+    const pins = [...mapEl.querySelectorAll('.leaflet-marker-icon:not(.span-icon)')].map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.right > vr.left && r.left < vr.right && r.bottom > vr.top && r.top < vr.bottom);
+    const placed = [...pins], hit = (r) => placed.some((q) => r.left < q.right - 1 && r.right > q.left + 1 && r.top < q.bottom - 1 && r.bottom > q.top + 1);
+    const place = (el, tries, hideIfStuck) => {
+      const r0 = el.getBoundingClientRect(); if (!r0.width || r0.right < vr.left || r0.left > vr.right || r0.bottom < vr.top || r0.top > vr.bottom) return;
+      for (const [dx, dy] of tries) {
+        const r = { left: r0.left + dx, right: r0.right + dx, top: r0.top + dy, bottom: r0.bottom + dy };
+        if (!hit(r)) { if (dx) el.style.marginLeft = `${dx}px`; if (dy) el.style.marginTop = `${dy}px`; placed.push(r); return; }
+      }
+      if (hideIfStuck) el.style.visibility = 'hidden'; else placed.push(r0);
+    };
+    poles.forEach((el) => place(el, [[0, 0], [0, -14], [0, 14], [0, -26], [0, 26]], false));
+    spans.forEach((el) => place(el, [[0, 0], [0, -16], [0, 16], [16, 0], [-16, 0], [0, -30], [0, 30]], true));
+  }
+  map.on('zoomend moveend', declutterSoon);
   /* ---- map legend (v2.15) ---- */
   function renderLegend() {
     const L2 = $('legend'), dot = (c, t) => `<span class="lg"><span class="sw" style="background:${c}"></span>${C.xmlEsc(t)}</span>`, sq = (c, k, t) => `<span class="lg"><span class="sq" style="background:${c}">${k}</span>${C.xmlEsc(t)}</span>`;
@@ -1116,6 +1278,7 @@
     $('refInfo').textContent = info ? `${info.name}: ${[info.n.lines && `${info.n.lines} line${info.n.lines === 1 ? '' : 's'} (${info.n.km} km)`, info.n.pins && `${info.n.pins} pin${info.n.pins === 1 ? '' : 's'}`, info.n.areas && `${info.n.areas} area${info.n.areas === 1 ? '' : 's'}`, info.n.plan && `As-Plan: ${info.n.plan} element${info.n.plan === 1 ? '' : 's'}, ${info.n.sized || 0} with sizes`].filter(Boolean).join(' · ')}${hidden ? ' · hidden' : ''}` : boqOn() && svPurpose() === 'As-built' ? 'No reference loaded. Load the As-Plan KMZ (exported by G-eSAA): the As-Built then starts each element with its planned sizes and the BOQ shows planned against built.' : 'No reference loaded.';
     $('refToggle').hidden = $('refRemove').hidden = !info; $('refToggle').textContent = hidden ? 'Show' : 'Hide';
     $('refLoad').textContent = info ? 'Replace…' : 'Load KMZ / KML…';
+    const rb = document.querySelector('#curTools .tmtool.ref'); if (rb && rb.lastChild) rb.lastChild.textContent = info ? 'KMZ ✓' : 'KMZ'; // v2.28: the card's tool
   }
   $('refLoad').addEventListener('click', () => { $('refInput').value = ''; $('refInput').click(); });
   $('refInput').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (f) await loadRefFile(f); }, 'Reference not loaded'));
@@ -1149,6 +1312,7 @@
       if (info && (info.role === 'Angle' || info.role === 'Junction')) L.circleMarker([p.lat, p.lon], { radius: 14, color: info.role === 'Angle' ? '#e8590c' : '#9c36b5', weight: 2, fill: false, interactive: false }).addTo(routeLayer);
     }
     if (routeMode) updateRouteBar(R);
+    if (typeof declutterSoon === 'function') declutterSoon(); // v2.28
     return R;
   }
   function updateRouteBar(R) {
@@ -1306,7 +1470,7 @@
     $('scanPhoto').hidden = !((camTarget === 'newid' && camPending && !isAcc()) || (camTarget === 'scan' && ed && !ed.acc && (ed.newBlob || ed.srcBlob))); // v2.17
     $('camReadId').hidden = camTarget !== 'new';
     $('camReadId').setAttribute('aria-pressed', String(readIdOn()));
-    $('camNative').hidden = on;
+    $('camNative').hidden = true; // v2.28: the phone's own camera app is no longer offered (photos are taken live, with the GPS check)
     shutterState();
     if (on && stream) { if (!finder.on) setZoom(S.scanZoom || 1); finderStart(); }
     else { finderStop(); if (stream && zoomLevel > zoomMax()) setZoom(1); else renderZoomBar(); }
@@ -1434,7 +1598,7 @@
       if ((caps.focusMode || []).includes('continuous')) track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {}); // v2.17: keep refocusing
       LOG.info('camera.focus', { modes: caps.focusMode || null, poi: !!(track.getSettings && 'pointsOfInterest' in track.getSettings()) });
       $('camTorch').hidden = !caps.torch;
-      zoomCaps = caps.zoom && caps.zoom.max > (caps.zoom.min || 1) * 1.2 ? caps.zoom : null; zoomLevel = 1; $('video').style.transform = '';
+      zoomCaps = caps.zoom && (caps.zoom.max > (caps.zoom.min || 1) * 1.2 || caps.zoom.min < 0.95) ? caps.zoom : null; zoomLevel = 1; $('video').style.transform = '';
       LOG.info('camera.zoom', zoomCaps ? { min: zoomCaps.min, max: zoomCaps.max, step: zoomCaps.step } : { digital: true });
       showGuide(); // the zoom buttons and the live ID reader need the stream
       try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* optional */ }
@@ -1517,9 +1681,12 @@
   /* The phone's own camera zoom when the camera offers it (the photo is zoomed too); otherwise a digital zoom of the
      picture, offered only while reading the ID (the ID is read from what is on screen, so it gains the same detail). */
   let zoomCaps = null, zoomLevel = 1, zoomBusy = false, zoomWant = null;
-  const zoomMax = () => (zoomCaps ? Math.min(10, zoomCaps.max / (zoomCaps.min || 1)) : scanStep() ? 4 : 1);
+  /* v2.28: 1× is the main camera; a camera that zooms out below 1 (its wide lens, e.g. 0.5×) offers 0.5× too */
+  const zoomBase = () => (zoomCaps ? (zoomCaps.min < 0.95 ? 1 : zoomCaps.min || 1) : 1);
+  const zoomMin = () => (zoomCaps && zoomCaps.min < 0.95 ? Math.max(0.3, zoomCaps.min) : 1);
+  const zoomMax = () => (zoomCaps ? Math.min(10, zoomCaps.max / zoomBase()) : scanStep() ? 4 : 1);
   async function setZoom(z) {
-    const nz = Math.max(1, Math.min(zoomMax(), z || 1));
+    const nz = Math.max(zoomMin(), Math.min(zoomMax(), z || 1));
     if (Math.abs(nz - zoomLevel) > 0.05 && finder.on) { finder.box = null; finder.user = null; finder.read = null; finder.agree = 0; finder.stable = 0; guideReset(); finderLabel('Looking for the ID…'); } // a reading from before the zoom no longer matches the box
     zoomLevel = nz;
     const v = $('video');
@@ -1527,7 +1694,7 @@
       if (zoomBusy) { zoomWant = zoomLevel; renderZoomBar(); return; } // a pinch sends many steps: keep only the last
       zoomBusy = true;
       try {
-        const base = zoomCaps.min || 1, step = zoomCaps.step || 0.1;
+        const base = zoomBase(), step = zoomCaps.step || 0.1;
         await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ zoom: Math.min(zoomCaps.max, Math.max(zoomCaps.min, Math.round((base * zoomLevel) / step) * step)) }] });
         v.style.transform = '';
       } catch (e) { LOG.warn('camera.zoom.fail', errInfo(e)); zoomCaps = null; } // use the digital zoom instead
@@ -1541,7 +1708,7 @@
   function renderZoomBar() {
     const max = zoomMax(), bar = $('zoomBar'); bar.hidden = !stream || max <= 1.01;
     let preset = false;
-    bar.querySelectorAll('button').forEach((b) => { const z = +b.dataset.z, on = Math.abs(z - zoomLevel) < 0.05; b.hidden = z > max + 0.01; b.setAttribute('aria-pressed', String(on)); preset = preset || on; });
+    bar.querySelectorAll('button').forEach((b) => { const z = +b.dataset.z, on = Math.abs(z - zoomLevel) < 0.05; b.hidden = z > max + 0.01 || z < zoomMin() - 0.01; b.setAttribute('aria-pressed', String(on)); preset = preset || on; });
     $('zoomVal').hidden = preset; $('zoomVal').textContent = `${zoomLevel.toFixed(1)}×`;
   }
   $('zoomBar').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setZoom(+b.dataset.z); });
@@ -2875,7 +3042,12 @@
     odfp: { name: 'Proposed ODF (rack panel)', label: 'PROPOSED ODF', rect: true }, rack: { name: 'Proposed data rack', label: 'PROPOSED DATA RACK', half: 0.17, what: 'data rack' },
     hh: { name: 'Proposed handhole', label: 'PROPOSED HH', half: 0.9 }, tower: { name: 'New tower location', label: 'NEW TOWER LOCATION', half: 0.17, what: 'tower' } };
   const MODEL_TAG = { odc: 'ODC model', odf: 'ODC model', odfp: 'ODF model', rack: 'data rack model', hh: 'HH model', tower: 'tower model', foc: 'FOC route', text: 'note on photo' };
-  const DRAWN = new Set(['foc', 'text']); // v2.27: an FOC route drawn by hand and a comment written on the photo
+  const DRAWN = new Set(['foc', 'text']);
+  /* v2.28: a colour for every mark: red = proposed (the default), navy blue = existing (the label then says EXISTING), green, orange */
+  const MCOL = { red: '#e03131', navy: '#1c3f94', green: '#2f9e44', orange: '#e8590c' };
+  let MC = MCOL.red, MX = false;
+  const lblFor = (t) => (MX ? String(t).replace(/^(PROPOSED|NEW) /, 'EXISTING ').replace(/ LOCATION$/, '') : t);
+  const withC = (m, o) => (m && m.c && m.c !== 'red' ? { ...o, c: m.c } : o); // v2.27: an FOC route drawn by hand and a comment written on the photo
   const normMark = (m) => (m && m.k === 'odf' ? { ...m, k: 'odc' } : m); // marks saved by v2.18
   const isModel = (m) => !!MODELS[m.k];
   const isStand = (m) => !!MODELS[m.k] && !MODELS[m.k].rect; // placed from the ground (yb) up to the top (yt); else a rect (x, y, w, h)
@@ -2892,12 +3064,12 @@
   const BOX_TOOLS = { box: 'boxModeBox', foc: 'boxModeFoc', text: 'boxModeText' };
   function setBoxMode(m) {
     if (!boxer) return; if (!BOX_TOOLS[m] && !MODELS[m]) m = 'pole';
-    const model = !!MODELS[m]; boxer.mode = m;
+    const model = !!MODELS[m]; if (boxer.mode !== m) boxer.sel = -1; boxer.mode = m; // v2.28: another tool: the next mark is new (its colour from the dots)
     Object.entries(BOX_TOOLS).forEach(([k, id]) => $(id).setAttribute('aria-pressed', String(m === k)));
     $('boxModePole').setAttribute('aria-pressed', String(model)); $('boxModel').hidden = !model;
     if (model) $('boxModel').value = m;
-    $('boxTitle').textContent = m === 'box' ? 'Red box' : m === 'foc' ? 'FOC route' : m === 'text' ? 'Text on the photo' : `Model: ${MODELS[m].name}`;
-    $('boxHint').textContent = m === 'box' ? 'Drag on the photo to draw a red box around the spot. Tap a mark to move, resize or delete it.'
+    $('boxTitle').textContent = m === 'box' ? 'Box' : m === 'foc' ? 'FOC route' : m === 'text' ? 'Text on the photo' : `Model: ${MODELS[m].name}`;
+    $('boxHint').textContent = m === 'box' ? 'Drag on the photo to draw a box around the spot (the dots set its colour). Tap a mark to move, resize, recolour or delete it.'
       : m === 'foc' ? 'Draw the FOC route with your finger, e.g. from pole to pole, and lift to finish. Tap a route to move or delete it.'
         : m === 'text' ? 'Tap where the comment goes, then type it. Tap a comment to move it; tap it again to change the text.'
           : m === 'hh' ? 'Put your finger on the front edge of the handhole on the ground and drag up to its back edge. Tap a mark to move, resize or delete it.'
@@ -2906,6 +3078,16 @@
                 : `Put your finger where the ${MODELS[m].what || 'pole'} stands on the ground and drag up to its top. Tap a mark to move, resize or delete it.`;
     drawBoxer();
   }
+  function renderSwatches() {
+    if (!boxer) return; const m = boxer.marks[boxer.sel], c = m ? m.c || 'red' : boxer.color;
+    document.querySelectorAll('#boxColors .sw').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.c === c)));
+  }
+  document.querySelectorAll('#boxColors .sw').forEach((b) => b.addEventListener('click', () => {
+    if (!boxer) return; const c = b.dataset.c, m = boxer.marks[boxer.sel];
+    if (m) { if (c === 'red') delete m.c; else m.c = c; } // the selected mark changes colour
+    boxer.color = c; S.markColor = c; persist(); drawBoxer();
+    toast(c === 'navy' ? 'Navy blue: an EXISTING element (its label says EXISTING)' : c === 'red' ? 'Red: a PROPOSED element' : `${b.getAttribute('aria-label')}`, 2200);
+  }));
   $('boxModeBox').addEventListener('click', () => setBoxMode('box'));
   $('boxModeFoc').addEventListener('click', () => setBoxMode('foc'));
   $('boxModeText').addEventListener('click', () => setBoxMode('text'));
@@ -2923,8 +3105,8 @@
     if (!ed || ed.acc) return;
     const src = await markBase(); if (!src) { toast('No photo to mark'); return; }
     const im = await loadImage(src, STORE_MAX_PX), { w, h } = dims(im);
-    boxer = { im, w, h, base: src, marks: (ed.marks || []).map(normMark).map((m) => (m.k === 'foc' ? { k: 'foc', pts: (m.pts || []).map(([x, y]) => [x * w, y * h]) } : m.k === 'text' ? { k: 'text', x: m.x * w, y: m.y * h, t: m.t || '', s: m.s || 1 }
-      : isStand(m) ? { k: m.k, x: m.x * w, yb: m.yb * h, yt: m.yt * h } : { k: isModel(m) ? m.k : 'box', x: m.x * w, y: m.y * h, w: m.w * w, h: m.h * h })), sel: -1, op: null, drag: null, mode: 'box' };
+    boxer = { im, w, h, base: src, marks: (ed.marks || []).map(normMark).map((m) => withC(m, m.k === 'foc' ? { k: 'foc', pts: (m.pts || []).map(([x, y]) => [x * w, y * h]) } : m.k === 'text' ? { k: 'text', x: m.x * w, y: m.y * h, t: m.t || '', s: m.s || 1 }
+      : isStand(m) ? { k: m.k, x: m.x * w, yb: m.yb * h, yt: m.yt * h } : { k: isModel(m) ? m.k : 'box', x: m.x * w, y: m.y * h, w: m.w * w, h: m.h * h })), sel: -1, op: null, drag: null, mode: 'box', color: MCOL[S.markColor] ? S.markColor : 'red' };
     if (pvOpen) { pvOpen = false; hidePhotoView(); const el = $('boxer'); el.hidden = false; el.style.zIndex = 1000 + stack.length; stack.push('boxer'); history.replaceState({ sheet: 'boxer' }, ''); LOG.info('open', 'boxer'); }
     else openSheet('boxer');
     setBoxMode(mode === 'model' ? modelFor() : mode || (proposedPole() ? 'pole' : 'box'));
@@ -2943,7 +3125,7 @@
       as a cylinder, with its footing and a PROPOSED POLE label. */
   function drawPoleModel(g, x, yb, yt, lw) {
     const H = Math.max(10, yb - yt), wb = H * 0.06, wt = H * 0.04;
-    g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = '#e03131';
+    g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = MC;
     const sh = g.createLinearGradient(x - wb / 2, 0, x + wb / 2, 0); // light from the left: round, not flat
     sh.addColorStop(0, 'rgba(255,255,255,0.55)'); sh.addColorStop(0.35, 'rgba(255,255,255,0.92)'); sh.addColorStop(1, 'rgba(190,190,190,0.75)');
     g.fillStyle = sh;
@@ -2951,18 +3133,18 @@
     g.beginPath(); g.ellipse(x, yt, wt / 2, wt * 0.18, 0, 0, Math.PI * 2); g.fillStyle = 'rgba(255,255,255,0.95)'; g.fill(); g.stroke(); // round top
     g.beginPath(); g.ellipse(x, yb, wb * 1.5, wb * 0.45, 0, 0, Math.PI * 2); g.stroke(); // where it stands
     const fs = Math.max(12, H * 0.055); g.font = `700 ${fs}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top';
-    g.lineWidth = Math.max(3, fs * 0.22); g.strokeStyle = '#ffffff'; g.strokeText('PROPOSED POLE', x, yb + wb * 0.6); g.fillStyle = '#e03131'; g.fillText('PROPOSED POLE', x, yb + wb * 0.6);
+    g.lineWidth = Math.max(3, fs * 0.22); g.strokeStyle = '#ffffff'; g.strokeText(lblFor('PROPOSED POLE'), x, yb + wb * 0.6); g.fillStyle = MC; g.fillText(lblFor('PROPOSED POLE'), x, yb + wb * 0.6);
     g.restore();
   }
   /** The model's name under it, red on a white outline (as the pole's). */
   function modelLabel(g, text, x, y, size) {
     const fs = Math.max(12, size); g.font = `700 ${fs}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top';
-    g.lineWidth = Math.max(3, fs * 0.22); g.strokeStyle = '#ffffff'; g.strokeText(text, x, y); g.fillStyle = '#e03131'; g.fillText(text, x, y);
+    text = lblFor(text); g.lineWidth = Math.max(3, fs * 0.22); g.strokeStyle = '#ffffff'; g.strokeText(text, x, y); g.fillStyle = MC; g.fillText(text, x, y);
   }
   /** A proposed ODC (outdoor cabinet) standing at (x, yb), its top at yt: cabinet with a cap, two doors and a plinth. */
   function drawOdcModel(g, x, yb, yt, lw) {
     const H = Math.max(10, yb - yt), W = H * 0.55, cap = H * 0.06, pl = H * 0.08;
-    g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = '#e03131';
+    g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = MC;
     const sh = g.createLinearGradient(x - W / 2, 0, x + W / 2, 0); sh.addColorStop(0, 'rgba(255,255,255,0.88)'); sh.addColorStop(1, 'rgba(200,200,200,0.8)');
     g.fillStyle = 'rgba(160,160,160,0.85)'; g.fillRect(x - W / 2 - H * 0.03, yb - pl, W + H * 0.06, pl); g.strokeRect(x - W / 2 - H * 0.03, yb - pl, W + H * 0.06, pl); // plinth
     g.fillStyle = sh; g.fillRect(x - W / 2, yt + cap, W, H - cap - pl); g.strokeRect(x - W / 2, yt + cap, W, H - cap - pl); // body
@@ -2975,7 +3157,7 @@
   /** A proposed handhole flush with the ground: front edge at yb, back edge at yt, drawn in perspective with its cover. */
   function drawHhModel(g, x, yb, yt, lw) {
     const D = Math.max(8, yb - yt), wf = D * 0.9, wb = D * 0.7; // half widths at the front and the back
-    g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = '#e03131';
+    g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = MC;
     const quad = (f, b, y0, y1) => { g.beginPath(); g.moveTo(x - f, y0); g.lineTo(x + f, y0); g.lineTo(x + b, y1); g.lineTo(x - b, y1); g.closePath(); };
     quad(wf, wb, yb, yt); g.fillStyle = 'rgba(170,170,170,0.85)'; g.fill(); g.stroke(); // concrete rim
     const i = 0.16, fy = yb - D * i, by = yt + D * i; quad(wf * (1 - i), wb * (1 - i), fy, by); g.fillStyle = 'rgba(90,90,90,0.85)'; g.fill(); g.stroke(); // cover
@@ -2987,7 +3169,7 @@
   function drawTowerModel(g, x, yb, yt, lw) {
     const H = Math.max(20, yb - yt), bw = H * 0.17, tw = H * 0.035, top = yt + H * 0.1, n = 6;
     const at = (t) => [x - (bw + (tw - bw) * t), x + (bw + (tw - bw) * t), yb + (top - yb) * t]; // left, right, y at height t (0 bottom, 1 top)
-    g.save(); g.lineJoin = 'round'; g.lineCap = 'round'; g.lineWidth = lw; g.strokeStyle = '#e03131';
+    g.save(); g.lineJoin = 'round'; g.lineCap = 'round'; g.lineWidth = lw; g.strokeStyle = MC;
     const [l1, r1, y1] = at(1); g.beginPath(); g.moveTo(x - bw, yb); g.lineTo(l1, y1); g.moveTo(x + bw, yb); g.lineTo(r1, y1); g.stroke(); // legs
     g.lineWidth = Math.max(1, lw * 0.6); g.beginPath();
     for (let s2 = 0; s2 < n; s2++) { const [la, ra, ya] = at(s2 / n), [lb, rb, yb2] = at((s2 + 1) / n); g.moveTo(la, ya); g.lineTo(rb, yb2); g.moveTo(ra, ya); g.lineTo(lb, yb2); g.moveTo(lb, yb2); g.lineTo(rb, yb2); } // bracing
@@ -3001,7 +3183,7 @@
   /** v2.19: a proposed ODF, rack-mount panel seen from the front, filling the rect (x, y, w, h): rack ears with their screws,
       a label strip and four rows of SC adapters (blue, two blocks of 12 per row). */
   function drawOdfPanel(g, x, y, w, h, lw) {
-    g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = '#e03131';
+    g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = MC;
     const ear = Math.min(w * 0.05, h * 0.35), px = x + ear, pw = w - ear * 2;
     g.fillStyle = 'rgba(205,205,205,0.92)'; [x, x + w - ear].forEach((ex) => { // rack ears, two screws each
       g.fillRect(ex, y, ear, h); g.strokeRect(ex, y, ear, h);
@@ -3031,7 +3213,7 @@
   }
   function drawRackModel(g, x, yb, yt, lw) {
     const H = Math.max(20, yb - yt), W = H * 0.32, top = H * 0.04, base = H * 0.05, l = x - W / 2;
-    g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = '#e03131';
+    g.save(); g.lineJoin = 'round'; g.lineWidth = lw; g.strokeStyle = MC;
     g.fillStyle = 'rgba(45,45,50,0.82)'; g.fillRect(l, yt, W, H); g.strokeRect(l, yt, W, H); // the cabinet
     g.fillStyle = 'rgba(80,80,88,0.9)'; g.fillRect(l, yt, W, top); g.strokeRect(l, yt, W, top); g.fillRect(l, yb - base, W, base); g.strokeRect(l, yb - base, W, base); // top, plinth
     const ri = W * 0.08, rw = W * 0.06, y0 = yt + top, y1 = yb - base;
@@ -3059,8 +3241,8 @@
     g.save(); g.lineJoin = 'round'; g.lineCap = 'round';
     const path = () => { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); };
     path(); g.strokeStyle = 'rgba(255,255,255,0.9)'; g.lineWidth = lw * 2.4; g.stroke();
-    path(); g.strokeStyle = '#e03131'; g.lineWidth = lw * 1.1; g.stroke();
-    [pts[0], pts[pts.length - 1]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, lw * 1.3, 0, Math.PI * 2); g.fillStyle = '#e03131'; g.fill(); g.lineWidth = Math.max(1, lw * 0.5); g.strokeStyle = '#ffffff'; g.stroke(); });
+    path(); g.strokeStyle = MC; g.lineWidth = lw * 1.1; g.stroke();
+    [pts[0], pts[pts.length - 1]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, lw * 1.3, 0, Math.PI * 2); g.fillStyle = MC; g.fill(); g.lineWidth = Math.max(1, lw * 0.5); g.strokeStyle = '#ffffff'; g.stroke(); });
     const L = []; let tot = 0;
     for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); L.push(d); tot += d; }
     let half = tot / 2, i = 0; while (i < L.length - 1 && half > L[i]) { half -= L[i]; i++; }
@@ -3079,7 +3261,7 @@
     const x = Math.max(0, Math.min(m.x * k, g.canvas.width - bw)), y = Math.max(0, Math.min(m.y * k, g.canvas.height - bh)), r = fs * 0.3;
     g.beginPath(); g.moveTo(x + r, y); g.lineTo(x + bw - r, y); g.quadraticCurveTo(x + bw, y, x + bw, y + r); g.lineTo(x + bw, y + bh - r); g.quadraticCurveTo(x + bw, y + bh, x + bw - r, y + bh);
     g.lineTo(x + r, y + bh); g.quadraticCurveTo(x, y + bh, x, y + bh - r); g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y); g.closePath();
-    g.fillStyle = 'rgba(255,255,255,0.93)'; g.fill(); g.strokeStyle = '#e03131'; g.lineWidth = Math.max(1.5, lw * 0.6); g.stroke();
+    g.fillStyle = 'rgba(255,255,255,0.93)'; g.fill(); g.strokeStyle = MC; g.lineWidth = Math.max(1.5, lw * 0.6); g.stroke();
     g.fillStyle = '#1b1b1b'; lines.forEach((l, i) => g.fillText(l, x + pad, y + pad + i * lh));
     g.restore();
     m._x = x / k; m._y = y / k; m._bw = bw / k; m._bh = bh / k;
@@ -3087,11 +3269,12 @@
   const DRAW_MODEL = { pole: (g, ...a) => drawPoleModel(g, ...a), odc: drawOdcModel, rack: drawRackModel, hh: drawHhModel, tower: drawTowerModel };
   function drawMarks(g, marks, k, lw, full) {
     marks.forEach((m) => {
+      MC = MCOL[m.c] || MCOL.red; MX = m.c === 'navy'; // v2.28: the mark's colour; navy = existing
       if (m.k === 'foc') drawFocRoute(g, (m.pts || []).map(([x, y]) => [x * k, y * k]), lw);
       else if (m.k === 'text') drawTextNote(g, m, k, lw, full || g.canvas.width / k);
       else if (isStand(m)) DRAW_MODEL[m.k](g, m.x * k, m.yb * k, m.yt * k, lw);
       else if (m.k === 'odfp') drawOdfPanel(g, m.x * k, m.y * k, m.w * k, m.h * k, lw);
-      else { g.strokeStyle = '#e03131'; g.lineWidth = lw; g.lineJoin = 'round'; g.strokeRect(m.x * k, m.y * k, m.w * k, m.h * k); }
+      else { g.strokeStyle = MC; g.lineWidth = lw; g.lineJoin = 'round'; g.strokeRect(m.x * k, m.y * k, m.w * k, m.h * k); }
     });
   }
   /** Handles of a mark, in image pixels: box corners, or the pole's top and foot. */
@@ -3117,7 +3300,7 @@
       handlesOf(m).forEach(([, x, y]) => { g.fillStyle = '#ffffff'; g.strokeStyle = '#e03131'; g.lineWidth = 2 * dpr; g.beginPath(); g.rect(x * k - r, y * k - r, 2 * r, 2 * r); g.fill(); g.stroke(); });
       g.restore();
     }
-    $('boxUndo').disabled = !b.marks.length; $('boxClear').disabled = !b.marks.length; $('boxDel').disabled = !m;
+    $('boxUndo').disabled = !b.marks.length; $('boxClear').disabled = !b.marks.length; $('boxDel').disabled = !m; renderSwatches();
     $('boxDone').textContent = b.marks.length ? `Done (${b.marks.length})` : 'Done';
   }
   const boxPt = (e) => { const r = $('boxCanvas').getBoundingClientRect(); return [Math.max(0, Math.min(boxer.w, (e.clientX - r.left) / boxer.sc)), Math.max(0, Math.min(boxer.h, (e.clientY - r.top) / boxer.sc))]; };
@@ -3139,16 +3322,16 @@
   }
   function boxDrag(p) {
     if (boxer.mode === 'text') return; // a tap places the text
-    if (boxer.mode === 'foc') { const d = boxer.drag && boxer.drag.k === 'foc' ? boxer.drag : (boxer.drag = { k: 'foc', pts: [boxer.start] }), last = d.pts[d.pts.length - 1]; if (Math.hypot(p[0] - last[0], p[1] - last[1]) * boxer.sc >= 4) d.pts.push(p); return; }
+    if (boxer.mode === 'foc') { const d = boxer.drag && boxer.drag.k === 'foc' ? boxer.drag : (boxer.drag = withC({ c: boxer.color }, { k: 'foc', pts: [boxer.start] })), last = d.pts[d.pts.length - 1]; if (Math.hypot(p[0] - last[0], p[1] - last[1]) * boxer.sc >= 4) d.pts.push(p); return; }
     const [x0, y0] = boxer.start, [x1, y1] = p;
-    boxer.drag = isStand({ k: boxer.mode }) ? { k: boxer.mode, x: x0, yb: Math.max(y0, y1), yt: Math.min(y0, y1) } : { k: MODELS[boxer.mode] ? boxer.mode : 'box', x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+    boxer.drag = withC({ c: boxer.color }, isStand({ k: boxer.mode }) ? { k: boxer.mode, x: x0, yb: Math.max(y0, y1), yt: Math.min(y0, y1) } : { k: MODELS[boxer.mode] ? boxer.mode : 'box', x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) });
   }
   /** Move or resize the selected mark, kept inside the photo. */
   function boxEdit(p) {
     const o = boxer.op, m0 = o.orig, dx = p[0] - o.start[0], dy = p[1] - o.start[1], W = boxer.w, H = boxer.h, cl = (v, a, b) => Math.max(a, Math.min(b, v));
     let m;
     o.moved = Math.max(o.moved || 0, Math.hypot(dx, dy) * boxer.sc);
-    if (m0.k === 'foc') { const [bx, by, bw, bh] = bboxOf(m0), sx = cl(dx, -bx, W - bx - bw), sy = cl(dy, -by, H - by - bh); m = { k: 'foc', pts: m0.pts.map(([x, y]) => [x + sx, y + sy]) }; }
+    if (m0.k === 'foc') { const [bx, by, bw, bh] = bboxOf(m0), sx = cl(dx, -bx, W - bx - bw), sy = cl(dy, -by, H - by - bh); m = { ...m0, pts: m0.pts.map(([x, y]) => [x + sx, y + sy]) }; }
     else if (m0.k === 'text') { const [bx, by, bw, bh] = bboxOf(m0); m = { ...m0, x: cl(bx + dx, 0, Math.max(0, W - bw)), y: cl(by + dy, 0, Math.max(0, H - bh)) }; }
     else if (isStand(m0)) {
       if (o.op === 'move') { const sx = cl(dx, -m0.x, W - m0.x), sy = cl(dy, -m0.yt, H - m0.yb); m = { ...m0, x: m0.x + sx, yt: m0.yt + sy, yb: m0.yb + sy }; (o.kids || []).forEach((c) => { boxer.marks[c.i] = { ...c.orig, x: c.orig.x + sx, y: c.orig.y + sy }; }); }
@@ -3159,7 +3342,7 @@
       let x1 = m0.x, y1 = m0.y, x2 = m0.x + m0.w, y2 = m0.y + m0.h;
       if (o.op.includes('w')) x1 = cl(m0.x + dx, 0, x2 - 8); else x2 = cl(x2 + dx, x1 + 8, W);
       if (o.op.includes('n')) y1 = cl(m0.y + dy, 0, y2 - 8); else y2 = cl(y2 + dy, y1 + 8, H);
-      m = { k: m0.k, x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+      m = withC(m0, { k: m0.k, x: x1, y: y1, w: x2 - x1, h: y2 - y1 });
     }
     boxer.marks[o.i] = m;
   }
@@ -3192,7 +3375,7 @@
     if (boxer.mode === 'text') { drawBoxer(); addBoxText(at); return; }
     if (d && d.k === 'foc') {
       const len = d.pts.reduce((t, p, i) => (i ? t + Math.hypot(p[0] - d.pts[i - 1][0], p[1] - d.pts[i - 1][1]) : 0), 0);
-      if (len * sc > 30) { boxer.marks.push({ k: 'foc', pts: simplifyPts(d.pts, 1.5 / sc).slice(0, 400) }); boxer.sel = boxer.marks.length - 1; }
+      if (len * sc > 30) { boxer.marks.push(withC(d, { k: 'foc', pts: simplifyPts(d.pts, 1.5 / sc).slice(0, 400) })); boxer.sel = boxer.marks.length - 1; }
     } else if (d && (isStand(d) ? (d.yb - d.yt) * sc > (d.k === 'hh' ? 12 : 30) : d.w * sc > 12 && d.h * sc > 12)) { boxer.marks.push(snapToRack(d)); boxer.sel = boxer.marks.length - 1; } // a tap is not a mark
     drawBoxer();
   };
@@ -3208,7 +3391,7 @@
   async function addBoxText(at) {
     const t = await promptText('Text on the photo', 'Your comment, written on the photo where you tapped (e.g. “Splice here”, “Cross the road at 6 m”).', 'Comment', '');
     const v = String(t || '').trim().slice(0, 200); if (!v || !boxer) return;
-    boxer.marks.push({ k: 'text', x: at[0], y: at[1], t: v, s: 1 }); boxer.sel = boxer.marks.length - 1; drawBoxer();
+    boxer.marks.push(withC({ c: boxer.color }, { k: 'text', x: at[0], y: at[1], t: v, s: 1 })); boxer.sel = boxer.marks.length - 1; drawBoxer();
   }
   async function editBoxText(i) {
     const m = boxer && boxer.marks[i]; if (!m) return;
@@ -3226,7 +3409,7 @@
   $('boxDone').addEventListener('click', () => guard(async () => {
     const b = boxer; if (!b || !ed) return;
     const before = JSON.stringify(ed.marks || []);
-    const marks = b.marks.map((m) => (m.k === 'foc' ? { k: 'foc', pts: m.pts.map(([x, y]) => [+(x / b.w).toFixed(4), +(y / b.h).toFixed(4)]) }
+    const marks = b.marks.map((m) => withC(m, m.k === 'foc' ? { k: 'foc', pts: m.pts.map(([x, y]) => [+(x / b.w).toFixed(4), +(y / b.h).toFixed(4)]) }
       : m.k === 'text' ? { k: 'text', x: +((m._x != null ? m._x : m.x) / b.w).toFixed(5), y: +((m._y != null ? m._y : m.y) / b.h).toFixed(5), t: m.t, ...(m.s && m.s !== 1 ? { s: m.s } : {}) }
         : isStand(m) ? { k: m.k, x: +(m.x / b.w).toFixed(5), yb: +(m.yb / b.h).toFixed(5), yt: +(m.yt / b.h).toFixed(5) } : { k: m.k, x: +(m.x / b.w).toFixed(5), y: +(m.y / b.h).toFixed(5), w: +(m.w / b.w).toFixed(5), h: +(m.h / b.h).toFixed(5) }));
     if (JSON.stringify(marks) === before) { await closeSheet(); return; }
@@ -3322,8 +3505,21 @@
       const row = document.createElement('div'); row.className = 'boqrow';
       const l = document.createElement('span'); l.className = 'lbl'; l.textContent = BOQ_LABEL[k]; row.appendChild(l);
       const chips = document.createElement('div'); chips.className = 'chips'; chips.setAttribute('role', 'group'); chips.setAttribute('aria-label', BOQ_LABEL[k]); chips.dataset.k = k;
-      const opts = k === 'owner' ? boqOwners() : BOQ_OPT[k];
+      const opts = (k === 'owner' ? boqOwners() : boqList(k)).slice();
       if (ed.boq[k] && !opts.includes(ed.boq[k])) opts.push(ed.boq[k]); // a value from another phone's list
+      const other = async () => {
+        let v = await promptText('Pole owner', 'Whose pole is it? It is kept on this phone for the next poles (your admin can add owners for everyone).', 'e.g. SKYCABLE');
+        v = String(v || '').trim().replace(/\s+/g, ' ').slice(0, 30); if (!v) { renderBoq(); return; }
+        if (!boqOwners().some((x) => x.toLowerCase() === v.toLowerCase())) { S.myOwners = (S.myOwners || []).concat(v).slice(-20); persist(); }
+        ed.boq.owner = boqOwners().find((x) => x.toLowerCase() === v.toLowerCase()) || v; ed.boqTouched = true; renderBoq(); foldSum();
+      };
+      if (opts.length > 4) { // v2.28: a long list is a dropdown
+        const sel = document.createElement('select'); sel.className = 'boqsel'; sel.dataset.k = k; sel.setAttribute('aria-label', BOQ_LABEL[k]); sel.disabled = ro;
+        sel.add(new Option('— none —', '', false, !ed.boq[k])); opts.forEach((v) => sel.add(new Option(v, v, false, ed.boq[k] === v)));
+        if (k === 'owner' && !ro) sel.add(new Option('+ Other…', '__other'));
+        sel.addEventListener('change', () => { if (sel.value === '__other') { other(); return; } ed.boq[k] = sel.value; ed.boqTouched = true; renderBoq(); foldSum(); });
+        row.appendChild(sel); rows.appendChild(row); return;
+      }
       opts.forEach((v) => {
         const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = v; c.setAttribute('aria-pressed', String(ed.boq[k] === v)); c.disabled = ro;
         c.addEventListener('click', () => { ed.boq[k] = ed.boq[k] === v ? '' : v; ed.boqTouched = true; renderBoq(); foldSum(); });
@@ -3331,12 +3527,7 @@
       });
       if (k === 'owner' && !ro) {
         const o = document.createElement('button'); o.type = 'button'; o.className = 'chip small'; o.textContent = '+ Other';
-        o.addEventListener('click', async () => {
-          let v = await promptText('Pole owner', 'Whose pole is it? It is kept on this phone for the next poles (your admin can add owners for everyone).', 'e.g. SKYCABLE');
-          v = String(v || '').trim().replace(/\s+/g, ' ').slice(0, 30); if (!v) return;
-          if (!boqOwners().some((x) => x.toLowerCase() === v.toLowerCase())) { S.myOwners = (S.myOwners || []).concat(v).slice(-20); persist(); }
-          ed.boq.owner = boqOwners().find((x) => x.toLowerCase() === v.toLowerCase()) || v; ed.boqTouched = true; renderBoq(); foldSum();
-        });
+        o.addEventListener('click', other);
         chips.appendChild(o);
       }
       row.appendChild(chips); rows.appendChild(row);
@@ -3412,7 +3603,7 @@
     });
     const sel = $('svDetailAdd'), have = new Set((ed.details || []).map((d) => d.item));
     sel.innerHTML = '<option value="">+ Add detail</option>';
-    POLE_DETAIL_ITEMS.concat((S.myDetails || []).filter((x) => !POLE_DETAIL_ITEMS.includes(x))).filter((x) => !have.has(x)).forEach((x) => sel.add(new Option(x, x)));
+    detailItems().concat((S.myDetails || []).filter((x) => !detailItems().includes(x))).filter((x) => !have.has(x)).forEach((x) => sel.add(new Option(x, x)));
     sel.add(new Option('Other…', '__other'));
   }
   $('svDetailAdd').addEventListener('change', async (e) => {
@@ -3421,7 +3612,7 @@
     if (v === '__other') {
       v = await promptText('Pole detail', 'What else is on the pole? It is added with a count of 1; tap + for more.', 'e.g. Cable TV amplifier');
       if (!v) return; v = v.trim().slice(0, 40);
-      if (!POLE_DETAIL_ITEMS.includes(v) && !(S.myDetails || []).includes(v)) { S.myDetails = (S.myDetails || []).concat(v).slice(-20); persist(); }
+      if (!detailItems().includes(v) && !(S.myDetails || []).includes(v)) { S.myDetails = (S.myDetails || []).concat(v).slice(-20); persist(); }
     }
     ed.details = ed.details || [];
     const have = ed.details.find((d) => d.item.toLowerCase() === v.toLowerCase());
@@ -4396,6 +4587,7 @@
     if (!acc) $('accActs').hidden = true;
     $('doneInfo').hidden = !m.completedAt; $('doneInfo').textContent = m.completedAt ? `✓ Completed ${longDate(m.completedAt)}${progressFields(S.project).length ? (pendingFor(S.project) ? ' · waiting to sync' : ' · in the online sheet') : ''}` : '';
     $('doneBtn').textContent = m.completedAt ? 'Undo complete' : '✓ Mark task complete'; $('doneBtn').classList.toggle('undo', !!m.completedAt);
+    renderAppr(m); // v2.28
     const locked = patClosed(); // v2.16: a completed PAT is locked; only the list's admin can reopen it
     $('doneBtn').hidden = locked && !canReopenPat();
     $('doneBtn').disabled = !m.completedAt && !nrec; // v2.22: nothing recorded, nothing to complete
@@ -4424,10 +4616,15 @@
     const last = pts.reduce((t, p) => (p.updated > t ? p.updated : t), m.created || '');
     return (tmCache[name] = { key, n: pts.length, done, all: steps.length, next: W && W.next ? W.next.t : '', last, completed: !!m.completedAt });
   }
+  /** v2.28: Other projects folds open or shut (kept on this phone). */
+  const otherToggle = () => { S.otherShut = !S.otherShut; persist(); renderTaskList(); };
+  $('tmListTitle').addEventListener('click', otherToggle);
+  $('tmListTitle').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); otherToggle(); } });
   function renderTaskList() {
     const names = allProjects().filter((n) => n !== S.project), q = $('projSearch').value.trim(), box = $('taskList'); box.innerHTML = '';
     $('tmListBox').hidden = !names.length;
     if (!names.length) return;
+    $('tmListCount').textContent = String(names.length); $('tmListBox').classList.toggle('shut', !!S.otherShut); $('tmListTitle').setAttribute('aria-expanded', String(!S.otherShut)); // v2.28
     $('projSearch').hidden = names.length < 4 && !q;
     const info = Object.fromEntries(names.map((n) => [n, taskInfo(n)]));
     const nAct = names.filter((n) => !info[n].completed).length, nDone = names.length - nAct;
@@ -4460,7 +4657,7 @@
     if (!shown.length) { const p0 = document.createElement('p'); p0.className = 'hint'; p0.style.margin = '4px 2px'; p0.textContent = q ? 'No project matches the search.' : tmShow === 'done' ? 'No completed project.' : 'No project in progress.'; box.appendChild(p0); }
   }
   /* v2.26: the tools of a project, on its card: Share, Folder (its Drive folder from the online sheet) and Delete */
-  const TOOL_ICON = { share: 'M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M12 3v12M7 8l5-5 5 5', folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z', del: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6' };
+  const TOOL_ICON = { ref: 'M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2ZM9 4v14M15 6v14', share: 'M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M12 3v12M7 8l5-5 5 5', folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z', del: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6' };
   function projTools(name, small) {
     const row = document.createElement('div'); row.className = 'tmtools'; row.setAttribute('role', 'group'); row.setAttribute('aria-label', `Project ${name}`);
     if (!name) return row;
@@ -4474,8 +4671,18 @@
     };
     mk('share', 'Share', shareProject, 'Send this project to a colleague (a file with its records and photos)');
     if (m.siteLink) mk('folder', 'Folder', (n) => openExternal(pmeta(n).siteLink), 'Open its Google Drive folder');
+    if (!small && name === S.project) mk('ref', refInfo(name) ? 'KMZ ✓' : 'KMZ', refTool, 'The KMZ reference of this project (e.g. the As-Plan for an As-Built): load, show or hide, replace'); // v2.28
     mk('del', 'Delete', deleteProject, 'Delete this project from this phone');
     return row;
+  }
+  /** v2.28: the KMZ reference from the open project's card: load one, or show / hide, replace or remove it. */
+  async function refTool(name) {
+    const info = refInfo(name);
+    if (!info) { $('refInput').value = ''; $('refInput').click(); return; }
+    const hidden = (S.refHidden || {})[name];
+    const how = await ask('KMZ reference', `${info.name}: ${[info.n.lines && `${info.n.lines} line${info.n.lines === 1 ? '' : 's'}`, info.n.pins && `${info.n.pins} pin${info.n.pins === 1 ? '' : 's'}`, info.n.plan && `As-Plan: ${info.n.plan} element${info.n.plan === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}${hidden ? ' · hidden on the map' : ''}.`,
+      [{ label: 'Cancel', value: '' }, { label: hidden ? 'Show on the map' : 'Hide on the map', value: 'toggle' }, { label: 'Remove', value: 'remove' }, { label: 'Replace…', value: 'replace', primary: true }]);
+    if (how === 'toggle') $('refToggle').click(); else if (how === 'remove') $('refRemove').click(); else if (how === 'replace') { $('refInput').value = ''; $('refInput').click(); }
   }
   /** Share one project: the project file (records and photos, for a colleague of your company); a PAT or cleanup can also go as
       its locked KMZ for the next stage. */
@@ -4726,7 +4933,7 @@
     if (on) {
       if (m.completedAt) return; m.completedAt = todayIso(); m.completedHow = how;
       if (taskCat() === 'PAT' && patNoDefects()) m.noDefects = { at: new Date().toISOString(), by: byLine() }; // v2.23: the FAT is done too
-    } else { delete m.completedAt; delete m.completedHow; }
+    } else { delete m.completedAt; delete m.completedHow; delete m.approval; } // v2.28: reopened: the on-site approval no longer stands
     S.meta[S.project] = m; persist(); LOG.info('task.complete', { on, how, cat: taskCat(), noDefects: !!m.noDefects }); queueProgress(S.project, ['surveyDone', 'pat', 'fat']);
     if (!on && m.noDefects) { delete m.noDefects; S.meta[S.project] = m; persist(); } // reopened: its FAT date was cleared above, with the PAT date
   }
@@ -4877,8 +5084,10 @@
       ['Photos', photoAt(photoLine)], ['Exports made', made || '—'], ['Reference KMZ', (refInfo() && refInfo().name) || '—'],
       ...(boqT ? [['BOQ / BOM', `${boqT.rows.length ? `${boqT.rows.length} line${boqT.rows.length === 1 ? '' : 's'}${boqT.compare ? ', planned against built' : ''}` : 'no size recorded yet'} \u2014 see the BOQ / BOM page`]] : []), ...(m.fromPat ? [['From', `${m.fromStage || 'PAT'} “${m.fromPat}”`]] : []), ['Remarks / notes', m.notes || '—']];
     const same = purpose === catLabel; // PAT, FAT: the purpose is the category
+    const ap = m.approval || null; // v2.28: the on-site approval (signed QR code)
     const pdf = R.completionPdf({ title: 'TASK COMPLETION REPORT', stageLong: same ? catLabel : `${catLabel} · ${purpose}`, statement: `${catLabel}${same ? '' : ` (${purpose})`} of ${m.site || S.project} completed on ${longDate(m.completedAt)}.${m.noDefects ? ' No deficiencies were found: the FAT is recorded as done on the same date.' : ''}`,
-      info, summary, details, signers: [{ role: 'Prepared by (contractor representative)', name: m.vendorRep || (S.user && S.user.name) || '' }, { role: 'Accepted by (Globe representative)', name: m.globeRep || '' }],
+      info, summary, details, signers: [{ role: 'Prepared by (contractor representative)', name: m.vendorRep || (S.user && S.user.name) || '' }, { role: 'Accepted by (Globe representative)', name: (ap && ap.n) || m.globeRep || '', ...(ap ? { note: `Approved on site (signed QR) ${fmtTime(ap.at)}` } : {}) }],
+      approval: ap ? { title: `APPROVED ON SITE BY ${ap.n.toUpperCase()}`, lines: apprLines(ap) } : null, // v2.28
       footer: `${S.project} · completion report`, footer2: exporterLine(), photos: ph ? ph.sections : [],
       tables: boqT ? [{ title: boqT.title, sub: `${S.project}${m.site ? ` \u00b7 ${m.site}` : ''}`, head: boqT.head, widths: boqT.compare ? [17, 14, 15, 9, 8, 11, 26] : [18, 15, 18, 10, 39],
         rows: boqT.rows.map((r) => ({ cells: r.cells, tones: boqT.compare ? r.cells.map((v, i) => (i === 5 ? (r.diff ? 'bad' : 'good') : null)) : null })), notes: boqT.notes }] : [], attach: await reportKmz(), logos: await formLogos() });
@@ -4997,7 +5206,9 @@
   function noteExport(kind, project) {
     S.meta = S.meta || {}; const m = { ...pmeta(project || S.project) }; m.exports = { ...(m.exports || {}), [kind]: new Date().toISOString() }; S.meta[project || S.project] = m; persist();
   }
+  let xCollect = null; // v2.28: while exporting several formats at once, the files are gathered here
   function offerResult(blob, name) {
+    if (xCollect) { xCollect.push({ blob, name }); const kind0 = /_completion_report\.pdf$/i.test(name) ? 'completion' : /_BACKUP\.zip$/i.test(name) ? 'backup' : /_DXF_photos\.zip$/i.test(name) ? 'dxf' : (name.split('.').pop() || '').toLowerCase(); noteExport(kind0); return; }
     lastResult = { blob, name };
     LOG.info('export.ready', { kind: (name.split('.').pop() || '').toLowerCase(), mb: +(blob.size / 1048576).toFixed(2) });
     const kind = /_BACKUP\.zip$/i.test(name) ? 'backup' : /_PAT_for_FAT_/i.test(name) ? 'sent' : /_completion_report\.pdf$/i.test(name) ? 'completion' : /_DXF_photos\.zip$/i.test(name) ? 'dxf' : (name.split('.').pop() || '').toLowerCase();
@@ -5052,6 +5263,34 @@
       : 'What the plan needs, by size: new Globe poles by size and class, clamps by size and pole owner, ODF by size and connector, closures by size, with the IDs, and what has no size yet. The same BOQ is in the Completion report and in Route and spans \u00b7 Excel.';
     document.querySelectorAll('#export .xcard').forEach((c) => c.classList.toggle('xoff', c !== want));
   }
+  /** v2.28: Several formats at once: tick them, one ZIP with every file. */
+  function renderXMulti() {
+    const box = $('xMultiList'), keep = new Set([...box.querySelectorAll('input:checked')].map((c) => c.value)); box.innerHTML = '';
+    exportCards().forEach((c) => {
+      const b = c.querySelector('button[id^="do"]'); if (!b) return;
+      const l = document.createElement('label'), cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = b.id; cb.checked = keep.has(b.id);
+      l.append(cb, document.createTextNode(c.querySelector('.head b').textContent)); box.appendChild(l);
+    });
+  }
+  $('xMulti').addEventListener('toggle', () => { if ($('xMulti').open) renderXMulti(); });
+  $('xMultiGo').addEventListener('click', async () => {
+    const ids = [...$('xMultiList').querySelectorAll('input:checked')].map((c) => c.value);
+    if (ids.length < 2) { toast('Tick two or more formats (one format: use its own Export button below)', 4000); return; }
+    xCollect = []; const failed = [];
+    try {
+      for (const id of ids) {
+        const n0 = xCollect.length; lastGuard = null; $(id).click(); await (lastGuard || Promise.resolve());
+        if (xCollect.length === n0) failed.push((exportCards().find((c) => c.querySelector('#' + id)) || { querySelector: () => ({ textContent: id }) }).querySelector('.head b').textContent);
+      }
+    } finally { const files = xCollect; xCollect = null; if (files.length) {
+      busy('Putting the files in one ZIP…');
+      const parts = []; for (const f of files) parts.push({ name: f.name, data: new Uint8Array(await f.blob.arrayBuffer()) });
+      busy(false);
+      offerResult(new Blob(C.makeZipParts(parts), { type: 'application/zip' }), `${fileBase()}_exports_${stamp8()}.zip`);
+      LOG.info('export.multi', { files: files.length, failed: failed.length });
+      if (failed.length) toast(`In the ZIP: ${files.length} file${files.length === 1 ? '' : 's'}. Not made: ${failed.join(', ')} (see the message above)`, 7000);
+    } else toast(`No file was made${failed.length ? `: ${failed.join(', ')}` : ''}`, 6000); }
+  });
   $('xFormat').addEventListener('change', (e) => {
     S.xPick = { ...(S.xPick || {}), [isAcc() ? 'acc' : 'survey']: e.target.value }; persist();
     showExport(e.target.value); $('export').querySelector('.body').scrollTop = 0;
@@ -5087,7 +5326,10 @@
   function exporterLine(sep) { const e = exporterInfo(), j = sep || ' · '; return `Exported by ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(j)}${j}${shortTime(e.at)}${j}${e.app}`; }
   function exporterText() { const e = exporterInfo(); return `G-eSAA export\nProject: ${S.project}\nExported by: ${e.name}\nMobile: ${e.mobile}\nEmail: ${e.email}\nCompany: ${e.company}\nDate: ${e.at}\nApp: ${e.app}\n`; }
   function exporterSheet(st) { const e = exporterInfo(); return { name: 'Exported by', cols: [16, 46], rows: [['Exported by', ''].map((v) => ({ v, s: st.header })), ['Name', e.name], ['Mobile', e.mobile], ['Email', e.email], ['Company', e.company], ['Date', shortTime(e.at)], ['App', e.app], ['Project', S.project]] }; }
-  async function guard(fn, label) {
+  /** v2.28: the last run of guard (an export button's work), awaited by Several formats at once. */
+  let lastGuard = null;
+  function guard(fn, label) { const p = guardRun(fn, label); lastGuard = p; return p; }
+  async function guardRun(fn, label) {
     try { await fn(); } catch (e) {
       LOG.error('task.fail', { label: label || 'export', ...errInfo(e) });
       if (e && e.tampered) { busy(false); LOG.warn('seal.tampered'); await ask('⚠ KMZ edited by unauthorized personnel', e.message, [{ label: 'OK', value: true, primary: true }]); return; } // v2.23
@@ -5425,7 +5667,7 @@
   }
   /** v2.22: a PAT / cleanup / FAT KMZ that is not locked, while this company locks them: asked once per file. */
   async function unsealedOk(f, r) {
-    if (!r.unsealed || !S.team || !pol().kmzPass || (f && f._unsealedOk)) return true;
+    if (!r.unsealed || !S.team || !kmzPassNow() || (f && f._unsealedOk)) return true;
     LOG.warn('seal.missing', { name: (f && f.name) || '' });
     const ok = await ask('This KMZ is not locked', `Your company locks the G-eSAA data in PAT, cleanup and FAT KMZ files, but this one is not locked. It was made by an older version or on a phone without the company list — or its data was taken out and changed. Open it only if you trust where it came from.`,
       [{ label: 'Cancel', value: false, primary: true }, { label: 'Open anyway', value: true }]);
@@ -5946,8 +6188,16 @@
     if (!list.length) { const p = document.createElement('p'); p.className = 'hint'; p.textContent = `No topic for “${q}”. Try another word, e.g. photo, PAT, invite, offline.`; L.appendChild(p); return; }
     if (words.length) { const h = document.createElement('div'); h.className = 'tutcat'; h.textContent = `${list.length} topic${list.length === 1 ? '' : 's'} found`; L.appendChild(h); }
     let cat = '';
+    const shut = S.tutShut || {};
     list.forEach((t) => {
-      if (!words.length && t.cat !== cat) { cat = t.cat; const h = document.createElement('div'); h.className = 'tutcat'; h.textContent = cat; L.appendChild(h); }
+      if (!words.length && t.cat !== cat) { // v2.28: each subject folds open or shut
+        cat = t.cat; const c0 = cat, n = list.filter((x) => x.cat === c0).length;
+        const h = document.createElement('button'); h.type = 'button'; h.className = 'tutcat tutfold'; h.dataset.cat = c0; h.setAttribute('aria-expanded', String(!shut[c0]));
+        h.innerHTML = `<span></span><b>${n}</b><em aria-hidden="true">${shut[c0] ? '▸' : '▾'}</em>`; h.firstChild.textContent = c0;
+        h.addEventListener('click', () => { S.tutShut = { ...(S.tutShut || {}), [c0]: !(S.tutShut || {})[c0] }; persist(); renderTutList(); });
+        L.appendChild(h);
+      }
+      if (!words.length && shut[t.cat]) return;
       const b = document.createElement('button'); b.type = 'button'; b.className = 'tuttopic'; b.dataset.topic = t.id;
       if (words.length && adm) { const a = document.createElement('span'); a.className = 'aud'; a.textContent = t.aud === 'admin' ? 'ADMIN GUIDE' : 'USER GUIDE'; b.appendChild(a); }
       const n = document.createElement('b'); tutRich(n, t.title, words); b.appendChild(n);
@@ -6026,6 +6276,10 @@
       return !!hit && (el === hit || el.contains(hit) || hit.contains(el));
     };
     for (const el of document.querySelectorAll(st.hl)) {
+      if (!$('admin').hidden && !$('admMain').hidden && el.closest('#admMain')) { // v2.28: a folded Administration section opens for the step
+        const g = el.closest('#admMain > .group.shut'); if (g) { g.classList.remove('shut'); g.querySelector(':scope > h3').setAttribute('aria-expanded', 'true'); }
+        const dz = el.closest('details:not([open])'); if (dz) dz.open = true;
+      }
       if (!el.getClientRects().length || el.closest('[hidden]')) continue;
       if (onTop(el)) return el;
       if (tutTour && tutTour.scrolled !== tutTour.i) { // once per step (the user may scroll away): bring it into view
@@ -6073,7 +6327,11 @@
     const head = document.createElement('div'); head.className = 'tuthead';
     const ht = document.createElement('span'); ht.textContent = `${t.title} · step ${i + 1} of ${t.steps.length}`;
     const x = document.createElement('button'); x.type = 'button'; x.className = 'iconbtn tutx'; x.setAttribute('aria-label', 'End the tutorial'); x.textContent = '✕'; x.addEventListener('click', tutEnd);
-    head.append(ht, x); tip.appendChild(head);
+    // v2.28: the tip folds down to its title line so it does not hide the screen (the ring still shows what to tap)
+    const mn = document.createElement('button'); mn.type = 'button'; mn.className = 'iconbtn tutmin'; mn.setAttribute('aria-label', tour.mini ? 'Show the tip' : 'Make the tip small'); mn.textContent = tour.mini ? '▴' : '▾';
+    mn.addEventListener('click', () => { tour.mini = !tour.mini; tutRender(); });
+    head.append(ht, mn, x); tip.appendChild(head); tip.classList.toggle('mini', !!tour.mini);
+    if (tour.mini) head.addEventListener('click', (e) => { if (e.target === head || e.target === ht) { tour.mini = false; tutRender(); } });
     const p = document.createElement('div'); p.className = 'tuttext'; tutRich(p, st.t, []); tip.appendChild(p);
     if (st.hl) { const n = document.createElement('p'); n.className = 'hint tutwhen'; n.hidden = true; n.textContent = st.when || 'Not on this screen right now: it shows when it applies.'; tip.appendChild(n); }
     if (st.hl && !last) { const n = document.createElement('p'); n.className = 'hint tutdo'; n.textContent = 'Tap the ringed button to do it, or Next ›'; tip.appendChild(n); }
@@ -6231,6 +6489,9 @@
     if (p.defects != null) { if (typeof p.defects !== 'object' || Object.keys(p.defects).length > 20) return false; for (const v of Object.values(p.defects)) if (!list(v, 60, 120)) return false; }
     if (p.poleTypes != null && !(Array.isArray(p.poleTypes) && p.poleTypes.length <= 20 && p.poleTypes.every((t) => t && /^[A-Z]{2,6}$/.test(t.p) && str(t.n, 30)))) return false;
     if (p.adminUsers != null && !list(p.adminUsers, 100, 120)) return false;
+    if (p.adminJobs != null && !(typeof p.adminJobs === 'object' && Object.keys(p.adminJobs).length <= 100 && Object.entries(p.adminJobs).every(([k, v]) => k.length <= 120 && Array.isArray(v) && v.length <= 4 && v.every((x) => JOB_NAME[x])))) return false; // v2.28
+    if (p.boqLists != null && !(typeof p.boqLists === 'object' && Object.entries(p.boqLists).every(([k, v]) => BOQ_OPT[k] && list(v, 40, 40)))) return false; // v2.28
+    if (!list(p.detailItems, 40, 40)) return false; // v2.28
     if (p.vendorRecords != null && typeof p.vendorRecords !== 'boolean') return false;
     if (p.web != null && !(typeof p.web === 'string' && /^https:\/\/\S{1,300}$/.test(p.web))) return false;
     if (p.otp != null && !(typeof p.otp === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(p.otp))) return false; // v2.22: approval codes
@@ -6268,7 +6529,7 @@
   };
   const joinLink = (text) => { const b = webBase(); return b ? `${b}#join=${text}` : ''; };
   /** A pasted or scanned join link, or the list text itself. */
-  const joinText = (t) => { const s = String(t || '').trim(), m = /#join=([^\s&#]+)/.exec(s); if (!m) return s; try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; } };
+  const joinText = (t) => { const s = String(t || '').trim(), m = /#join=([^\s&#]+)/.exec(s); if (!m) return /^PC[TA][01]:/.test(s) ? s.split('&')[0] : s; try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; } };
   const teamCos = () => {
     if (S.team && S.team.src && S.cloud && S.cloud.src === S.team.src.url && S.cloud.companies.length) return S.cloud.companies; // online sheet
     return S.team && Array.isArray(S.team.co) ? S.team.co : [];
@@ -6316,7 +6577,17 @@
     return `${base}#join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}&ci=${hideKey(key)}`;
   }
   /** Invite link for coworkers: this phone's company key. */
-  const inviteLink = () => (keyMode() ? inviteLinkFor(S.companyKey) : Promise.resolve(''));
+  const inviteLink = async () => { // v2.28: without company keys, the join link names the company
+    if (keyMode()) return inviteLinkFor(S.companyKey);
+    return S.user && S.user.company ? joinLinkFor(S.user.company) : '';
+  };
+  /** v2.28: a join link that names the company (short where the online sheet holds the list). */
+  async function joinLinkFor(co) {
+    const base = webBase(); if (!base || !S.team) return '';
+    const tail = co ? `&co=${encodeURIComponent(co)}` : '', short = await shortJoin();
+    if (short) return short + tail;
+    return `${base}#join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}${tail}`;
+  }
   const holdsListKey = () => !!(S.adminKey && S.team && (S.team.key === S.adminKey.pub || (S.team.admins || []).some((a) => a.k === S.adminKey.pub)));
   const isAdmin = () => holdsListKey() && adminUserOk();
   const signerName = () => (S.team ? (S.team.key ? `the admin company${S.team.pol && S.team.pol.owner ? ` (${S.team.pol.owner})` : ''}` : S.team.admins && S.team.admins[S.team.k] ? S.team.admins[S.team.k].n : 'admin') : 'admin');
@@ -6353,28 +6624,42 @@
     return (!rs.length || rs.some((x) => R.includes(x))) && (!ts.length || ts.some((x) => T.includes(x)));
   }
   const extraOfT = (t, key) => { const e = (t && t.extra || []).find(([k]) => normCo(k) === normCo(key)); return e ? e[1] : ''; };
+  /** v2.28: Region and Territory as dropdowns: tick several, or All. */
   function renderAreaChips(regions, terrs) {
-    const mk = (box, all, on) => {
+    const mk = (box, sum, all, on, what) => {
       box.innerHTML = '';
-      all.forEach((v) => {
-        const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small'; b.textContent = v; b.setAttribute('aria-pressed', String(on.includes(v)));
-        b.addEventListener('click', () => b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true')));
-        box.appendChild(b);
-      });
+      const row = (v, label, cls) => { const l = document.createElement('label'); if (cls) l.className = cls; const c = document.createElement('input'); c.type = 'checkbox'; c.value = v; c.checked = v === '*' ? all.every((x) => on.includes(x)) : on.includes(v); l.append(c, document.createTextNode(label)); box.appendChild(l); return c; };
+      const allBox = row('*', `All ${what}`, 'all'), boxes = all.map((v) => row(v, v));
+      const show = () => { const n = boxes.filter((c) => c.checked).map((c) => c.value); allBox.checked = n.length === all.length; allBox.indeterminate = n.length > 0 && n.length < all.length;
+        sum.textContent = !n.length ? `None: tap to choose your ${what}` : n.length === all.length ? `All ${what} (${all.length})` : n.join(', '); sum.classList.toggle('none', !n.length); };
+      allBox.addEventListener('change', () => { boxes.forEach((c) => { c.checked = allBox.checked; }); show(); });
+      boxes.forEach((c) => c.addEventListener('change', show));
+      show();
     };
-    mk($('pfRegions'), REGIONS, regions || []); mk($('pfTerrs'), TERRS, terrs || []);
+    mk($('pfRegions'), $('pfRegionsSum'), REGIONS, regions || [], 'regions'); mk($('pfTerrs'), $('pfTerrsSum'), TERRS, terrs || [], 'territories');
+    $('pfRegionsBox').open = false; $('pfTerrsBox').open = false;
   }
-  const chosenChips = (id) => [...$(id).querySelectorAll('.chip')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
+  const chosenChips = (id) => [...$(id).querySelectorAll('input[type=checkbox]')].filter((b) => b.checked && b.value !== '*').map((b) => b.value);
+  document.addEventListener('click', (e) => { ['pfRegionsBox', 'pfTerrsBox'].forEach((id) => { const d = $(id); if (d.open && !d.contains(e.target)) d.open = false; }); }); // a tap outside closes the dropdown
   let profileFirst = false;
+  /** v2.28: the company comes from the invite (QR code or link), the details saved or moved, never typed; only the admin who
+      holds the list key chooses it. A company no longer on the list may be chosen again. */
+  function lockedCo() {
+    if (keyMode()) return S.keyCompany;
+    if (holdsListKey()) return '';
+    const cos = teamCos(), c = (moveFill && moveFill.company) || (S.user && S.user.company) || S.inviteCo || '';
+    return cos.find((x) => normCo(x) === normCo(c)) || '';
+  }
   function renderCoSelect(sel) {
-    const cos = teamCos(), box = $('pfCompany');
+    const cos = teamCos(), box = $('pfCompany'), lock = lockedCo();
     if (!cos.length) { box.innerHTML = '<option value="">No company list on this phone yet</option>'; box.disabled = true; }
+    else if (lock) { box.innerHTML = `<option selected>${C.xmlEsc(lock)}</option>`; box.disabled = true; }
     else {
       box.disabled = false;
       box.innerHTML = '<option value="">Choose your company…</option>' + cos.map((c) => `<option${c === sel ? ' selected' : ''}>${C.xmlEsc(c)}</option>`).join('');
     }
     const own = pol().owner;
-    $('pfTeam').textContent = S.team ? `List “${S.team.name}” v${S.team.rev}${own ? ` · ${own} is the admin company (its staff need the admin PIN)` : ''}.${sel && !cos.includes(sel) ? ` “${sel}” is no longer on the list: choose again.` : ''}` : '';
+    $('pfTeam').textContent = S.team ? `${lock && !keyMode() ? `Your company comes from your invite. To change company: Settings → Reset user. ` : cos.length && !holdsListKey() ? 'Your invite did not name a company: choose yours (it is kept from then on). ' : ''}List “${S.team.name}” v${S.team.rev}${own ? ` · ${own} is the admin company (its staff need the admin PIN)` : ''}.${sel && !cos.includes(sel) ? ` “${sel}” is no longer on the list: choose again.` : ''}` : '';
     $('pfJoin').hidden = !!cos.length;
     renderProfileMode();
   }
@@ -6390,7 +6675,7 @@
       $('pfKeyInfo').textContent = 'Your company comes from the invite. Invite coworkers: Settings → Invite a coworker (QR code or link). To change company: Settings → Reset user.';
       $('pfTeam').textContent = '';
     } else if (keyed) {
-      $('pfKeyBtns').hidden = false;
+      $('pfKeyBtns').hidden = !!keyIn; // v2.28: the invite is here: no second scan or paste
       $('pfKeyState').textContent = keyIn ? '✓ Invite received (the company key stays hidden)' : 'No invite yet';
       $('pfKeyInfo').textContent = keyIn ? 'Enter your name, mobile and email, then Save: the online sheet tells which company the invite is for.'
         : 'Scan the invite QR code, or open or paste the invite link, from your admin or a coworker.';
@@ -6402,7 +6687,7 @@
     profileFirst = !!first;
     const u = { ...(S.user || {}), ...(moveFill || {}) };
     $('pfName').value = u.name || (S.userName ? S.userName.split('·')[0].trim() : '');
-    $('pfMobile').value = u.mobile || ''; $('pfEmail').value = u.email || '';
+    $('pfMobile').value = u.mobile || ''; $('pfEmail').value = u.email || ''; $('pfIdNo').value = u.idno || ''; // v2.28
     renderAreaChips(u.regions || [], u.terrs || []);
     renderCoSelect(u.company || '');
     if (moveFill && moveFill.key && !keyMode()) { keyIn = moveFill.key; renderProfileMode(); }
@@ -6417,7 +6702,7 @@
   const mobileOk = (m) => /^\+?\d{7,15}$/.test(m.replace(/[\s\-().]/g, ''));
   $('pfSave').addEventListener('click', async () => {
     const name = $('pfName').value.trim().replace(/\s+/g, ' '), mobile = $('pfMobile').value.trim().replace(/\s+/g, ' ');
-    const email = $('pfEmail').value.trim(), keyed = keyOffered() && !keyMode();
+    const email = $('pfEmail').value.trim(), keyed = keyOffered() && !keyMode(), idno = $('pfIdNo').value.trim().replace(/\s+/g, ' ').slice(0, 40); // v2.28: company ID no.
     let company = keyMode() ? S.keyCompany : $('pfCompany').value;
     const err = name.length < 3 ? 'Enter your full name.' : !mobileOk(mobile) ? 'Enter your mobile number, e.g. 0917 123 4567 or +63 917 123 4567.'
       : !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) ? 'Enter a valid email address.'
@@ -6441,7 +6726,7 @@
     }
     const regions = chosenChips('pfRegions').filter((x) => REGIONS.includes(x)), terrs = chosenChips('pfTerrs').filter((x) => TERRS.includes(x));
     const coChanged = !S.user || S.user.company !== company || String(myRegions()) !== String(regions) || String(myTerrs()) !== String(terrs);
-    S.user = { name, mobile, email: email.toLowerCase(), company, ...(regions.length ? { regions } : {}), ...(terrs.length ? { terrs } : {}) }; moveFill = null; persist();
+    S.user = { name, mobile, email: email.toLowerCase(), company, ...(idno ? { idno } : {}), ...(regions.length ? { regions } : {}), ...(terrs.length ? { terrs } : {}) }; moveFill = null; persist();
     if (coChanged) cloudSync(true).then(() => { if (!$('newProj').hidden) renderSites(); }); // the sheet sends each company its own sites
     const first = profileFirst; profileFirst = false; await closeSheet();
     renderWho(); toast(regions.length && terrs.length ? `Saved: ${byLine()}` : `Saved: ${byLine()}. No ${regions.length ? 'territory' : terrs.length ? 'region' : 'region or territory'} ticked: no site from the online sheet is listed for you.`, regions.length && terrs.length ? 2500 : 6000); // v2.27
@@ -6453,7 +6738,8 @@
     $('whoBox').textContent = u ? u.name : 'Enter your details';
     const area = [...myRegions(), ...myTerrs()].join(' ');
     $('whoSub').textContent = u ? `${u.company} · ${u.mobile} · ${u.email}${isInspector() && pol().owner ? ' · inspector' : ''}${area ? ` · ${area}` : ''}` : 'Name, mobile, email and company';
-    $('inviteBtn').hidden = !keyMode();
+    $('inviteBtn').hidden = !keyMode() && !(S.team && u && u.company);
+    $('apprShowBtn').hidden = !canShowAppr(); // v2.28
   }
   /** v2.24: Administration → Invite a company's users: the admin pastes one company's key from the CompanyKeys tab of the
       online sheet; the sheet confirms whose key it is; the app shows the invite (QR code and link), never the key. */
@@ -6479,15 +6765,17 @@
     const link = await inviteLink();
     if (!link) { toast('No website address for the invite: open G-eSAA from its website once, or ask your admin', 5000); return; }
     qrLink = link; qrAlt = null;
-    await showQr(`Invite to ${S.keyCompany}`, `A coworker scans this with the phone's camera (or you send the link), then enters their name, mobile and email. The company key inside stays hidden, but the invite works for anyone who has it: share it only inside ${S.keyCompany}.`, link);
+    const co = keyMode() ? S.keyCompany : S.user.company;
+    await showQr(`Invite to ${co}`, keyMode() ? `A coworker scans this with the phone's camera (or you send the link), then enters their name, mobile and email. The company key inside stays hidden, but the invite works for anyone who has it: share it only inside ${co}.`
+      : `A coworker scans this with the phone's camera (or you send the link), then enters their name, mobile and email. The invite names ${co}: they do not choose the company.`, link);
   }, 'No invite'));
   $('resetUser').addEventListener('click', async () => {
     const ok = await ask('Reset the user of this phone?', 'Your name, mobile, email, company and company key are removed from this phone, and the welcome screen asks for them again. Projects and photos stay on the phone, with the names they were recorded with.',
       [{ label: 'Cancel', value: false }, { label: 'Reset user', value: true, primary: true }]);
     if (!ok) return;
     LOG.info('user.reset', { keyed: keyMode() });
-    S.user = null; S.companyKey = ''; S.keyCompany = ''; S.adminKey = null; S.cloud = null; persist();
-    ['pfName', 'pfMobile', 'pfEmail'].forEach((id) => { $(id).value = ''; }); keyIn = ''; renderAreaChips([], []);
+    S.user = null; S.companyKey = ''; S.keyCompany = ''; S.adminKey = null; S.cloud = null; S.inviteCo = ''; persist();
+    ['pfName', 'pfMobile', 'pfEmail', 'pfIdNo'].forEach((id) => { $(id).value = ''; }); keyIn = ''; renderAreaChips([], []);
     renderWho(); renderTeamInfo(); openProfile(true);
   });
   $('editMe').addEventListener('click', () => openProfile(false));
@@ -6496,7 +6784,7 @@
     if (!S.user) { toast('Enter your details first'); return; }
     const base = webBase();
     if (!base) { toast('No website address for the link: open G-eSAA from its website once, or ask your admin', 5000); return; }
-    const u = S.user, mv = b64u.enc(enc8(JSON.stringify({ n: u.name, m: u.mobile, e: u.email, c: u.company, ...(S.companyKey ? { h: hideKey(S.companyKey) } : {}), ...(myRegions().length ? { r: myRegions() } : {}), ...(myTerrs().length ? { t: myTerrs() } : {}) }))); // v2.24: the key masked (h); v2.25: regions, territories
+    const u = S.user, mv = b64u.enc(enc8(JSON.stringify({ n: u.name, m: u.mobile, e: u.email, c: u.company, ...(u.idno ? { i: u.idno } : {}), ...(S.companyKey ? { h: hideKey(S.companyKey) } : {}), ...(myRegions().length ? { r: myRegions() } : {}), ...(myTerrs().length ? { t: myTerrs() } : {}) }))); // v2.24: the key masked (h); v2.25: regions, territories
     let list = '';
     if (S.team) { const short = await shortJoin(); list = short ? short.slice(short.indexOf('#') + 1) : `join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}`; }
     const link = `${base}#${list ? `${list}&` : ''}mv=${mv}`;
@@ -6512,7 +6800,7 @@
       const ok = await ask('Use these details on this phone?', `This phone is set up for ${S.user.name}. Replace with ${o.n}? Projects and photos stay on the phone.`, [{ label: 'Cancel', value: false }, { label: 'Replace', value: true, primary: true }]);
       if (!ok) return false;
     }
-    moveFill = { name: String(o.n).slice(0, 80), mobile: String(o.m || '').slice(0, 30), email: String(o.e).slice(0, 120), company: String(o.c || '').slice(0, 100), key: o.h ? unhideKey(o.h) : o.k ? normKey(o.k).slice(0, 40) : '',
+    moveFill = { name: String(o.n).slice(0, 80), mobile: String(o.m || '').slice(0, 30), email: String(o.e).slice(0, 120), company: String(o.c || '').slice(0, 100), idno: String(o.i || '').slice(0, 40), key: o.h ? unhideKey(o.h) : o.k ? normKey(o.k).slice(0, 40) : '',
       regions: Array.isArray(o.r) ? o.r.filter((x) => REGIONS.includes(x)) : [], terrs: Array.isArray(o.t) ? o.t.filter((x) => TERRS.includes(x)) : [] };
     LOG.info('user.move', { keyed: !!(o.h || o.k) });
     openProfile(!profileOk());
@@ -6625,6 +6913,11 @@
   }
   /** The KMZ password holds this phone's company key (the format 9CCA68FC9388_GLOBE): warned, as the list would carry the key. */
   const kmzHasKey = (pass) => { const k = normKey(S.companyKey); return k.length >= 8 && normKey(pass).includes(k); };
+  /** v2.28: the KMZ lock password: the online sheet's (Settings → KMZ password) where it has one, else the company list's. */
+  /** v2.28: the KMZ password: the one in the signed list (the admin saves the sheet's into it), else the online sheet's, so
+      every phone of a list version locks with the same one; files are opened with either (and the older ones). */
+  const sheetKmzPass = () => (S.team && S.team.src && S.cloud && S.cloud.src === S.team.src.url && S.cloud.kmzPass) || '';
+  const kmzPassNow = () => pol().kmzPass || sheetKmzPass() || '';
   async function kmzKey(pass, saltB64) {
     const base = await crypto.subtle.importKey('raw', enc8(pass), 'PBKDF2', false, ['deriveKey']);
     return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64u.dec(saltB64), iterations: SEAL_ITER, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
@@ -6632,7 +6925,7 @@
   /** files: [{ name: 'polecam/…', data }] → the sealed set (polecam/seal.json, polecam/sealed/…); null when no password is set.
       Each file is encrypted on its own (its name bound in), with its IV in the encrypted manifest; the plain copy is let go at once. */
   async function sealFiles(files, pre, outside) {
-    const pass = S.team && pol().kmzPass; if (!pass) return null;
+    const pass = S.team && kmzPassNow(); if (!pass) return null;
     const salt = b64u.enc(crypto.getRandomValues(new Uint8Array(16))), key = await kmzKey(pass, salt), out = [], ivs = {};
     let i = 0;
     for (const f of files) {
@@ -6655,7 +6948,7 @@
   async function unsealZip(z, pre) {
     let head = null; try { head = JSON.parse(new TextDecoder().decode(await z.get(`${pre}seal.json`))); } catch (e) { head = null; }
     if (!head || head.seal !== 1 || !head.salt || !head.manifest || !(head.iter >= 100000 && head.iter <= 2000000)) throw new Error('This KMZ’s locked G-eSAA data is damaged: it is not opened.');
-    const P = pol(), cands = [...new Set([P.kmzPass, ...(P.kmzOld || [])].filter(Boolean))];
+    const P = pol(), cands = [...new Set([kmzPassNow(), sheetKmzPass(), P.kmzPass, ...(P.kmzOld || [])].filter(Boolean))];
     // v2.23: shown as an alert: the KMZ was edited by someone outside the app after it was shared
     const changed = (what) => Object.assign(new Error(`${what || 'The defect list (the G-eSAA data) in this KMZ'} was changed after the KMZ was shared, outside G-eSAA: it was edited by unauthorized personnel, or the file was damaged on the way. It is not opened. Ask the sender for the original file.`), { tampered: true });
     busy('Unlocking the data…');
@@ -6791,6 +7084,7 @@
     $('teamSwitch').hidden = !t || !listAdmin;
     $('syncModeBox').hidden = !(t && t.src); $('setSync').value = syncMode();
     renderCloudInfo(); renderSyncBtn();
+    $('apprShowBtn').hidden = !canShowAppr(); // v2.28
   }
   async function scanTeamQr(sw) {
     const t = await scanQr('Point the camera at the QR code: the company list on the admin’s phone, an invite, or your own “Move to another phone” code');
@@ -6801,16 +7095,18 @@
   async function handleInvite(text, sw) {
     const t = String(text || '').trim(), ci = (/[#&?]ci=([A-Za-z0-9_-]+)/.exec(t) || [])[1], ck = ci ? unhideKey(ci) || 'x' : (/[#&?]ck=([A-Za-z0-9%-]+)/.exec(t) || [])[1], hasList = /[#&]join=|^PCT[01]:/.test(t), jq = (/[#&]jq=([A-Za-z0-9_-]+)/.exec(t) || [])[1];
     const mv = (/[#&]mv=([A-Za-z0-9_-]+)/.exec(t) || [])[1];
+    const co = (/[#&?]co=([^&#]+)/.exec(t) || [])[1]; // v2.28: the company the invite is for (the user does not choose it)
+    if (co) { let c = co; try { c = decodeURIComponent(co); } catch (e) { /* as is */ } S.inviteCo = String(c).replace(/\s+/g, ' ').trim().slice(0, 100); persist(); }
     if (mv) { // moving to this phone (v2.15): the list first, then the user's details for a check and Save
       if (jq && !hasList) await joinShort(jq, sw);
       else if (hasList) { teamSwitch = !!sw || !S.team; try { await importTeamText(t, { quiet: false }); } finally { teamSwitch = false; } }
       return applyMove(mv);
     }
-    if (jq && !hasList) { const ok = await joinShort(jq, sw, !!ck); if (!ok || !ck) return ok; } // v2.26: a short invite: the list from the sheet, then its key
+    if (jq && !hasList) { const ok = await joinShort(jq, sw, !!ck); if (!ok || !ck) { if (ok && co && !$('profile').hidden) renderCoSelect(S.inviteCo); return ok; } } // v2.26: a short invite: the list from the sheet, then its key
     else {
       if (!hasList && !ck) { toast('That is not a G-eSAA invite or join link', 4000); return false; }
       if (hasList) { teamSwitch = !!sw || !S.team || !!ck; try { await importTeamText(t, { quiet: !!ck }); } finally { teamSwitch = false; } }
-      if (!ck) return true;
+      if (!ck) { if (co && !$('profile').hidden) renderCoSelect(S.inviteCo); return true; }
     }
     let key = ck; try { key = decodeURIComponent(ck); } catch (e) { /* as is */ }
     if (normKey(key).length < 8) { toast('That invite link is damaged. Ask for a new one.', 5000); return false; }
@@ -6846,7 +7142,22 @@
   }
   $('teamUpdate').addEventListener('click', () => getList(false));
   $('teamSwitch').addEventListener('click', () => getList(true));
-  $('teamShare').addEventListener('click', () => showTeamQr());
+  $('teamShare').addEventListener('click', () => guard(async () => { // v2.28: which company the invite is for
+    const cos = teamCos();
+    const co = cos.length ? await pickFrom('Invite to which company?', 'The invite names the company, so the new user does not choose it. Make one invite per company.', cos.map((c) => [c, c]).concat([['', 'Any company (the user chooses)']])) : '';
+    if (co == null) return;
+    await showTeamQr(undefined, co);
+  }, 'No invite'));
+  /** v2.28: one choice from a list (a dropdown in a dialog): the value, or null when cancelled. */
+  function pickFrom(title, text, options) {
+    $('pickTitle').textContent = title; $('pickText').textContent = text || '';
+    const sel = $('pickSel'); sel.innerHTML = ''; options.forEach(([v, l]) => sel.add(new Option(l, v)));
+    return new Promise((res) => {
+      const done = (v) => { $('pickBox').hidden = true; $('pickYes').onclick = null; $('pickNo').onclick = null; res(v); };
+      $('pickYes').onclick = () => done(sel.value); $('pickNo').onclick = () => done(null);
+      $('pickBox').hidden = false; sel.focus();
+    });
+  }
 
   /* ---- showing a QR code / sharing the file ---- */
   let qrLink = '', qrAlt = null;
@@ -6860,7 +7171,7 @@
   async function showQr(title, note, text) {
     lastQrText = text;
     $('qrTitle').textContent = title; $('qrText').textContent = note || '';
-    $('qrLinkBtn').hidden = !(qrLink && (text === qrLink || (qrAlt && text === qrAlt.short))); $('qrLinkBtn').textContent = /[#&]c[ki]=/.test(text) ? 'Send the invite link' : 'Send the join link';
+    $('qrLinkBtn').hidden = !(qrLink && (text === qrLink || (qrAlt && text === qrAlt.short))); $('qrLinkBtn').textContent = /[#&](c[ki]|co)=/.test(text) ? 'Send the invite link' : 'Send the join link';
     $('qrFull').hidden = !(qrAlt && text === qrAlt.short); $('qrFull').textContent = 'Show the full code (joins without internet)';
     drawQr(text);
     openSheet('qrShow');
@@ -6884,15 +7195,120 @@
     const o = { ...(m ? { s: m[1] } : { u: src.url }), r: src.key || '', i: t.id, f: await keyPrint(t.key) };
     return `${base}#jq=${b64u.enc(enc8(JSON.stringify(o)))}`;
   }
-  async function showTeamQr(note) {
+  async function showTeamQr(note, co) {
     if (!S.team) { toast('No company list on this phone yet'); return; }
-    const text = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k }), link = joinLink(text), short = await shortJoin();
+    const tail = co ? `&co=${encodeURIComponent(co)}` : ''; // v2.28: the invite names the company
+    const text = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k }), link = joinLink(text) && joinLink(text) + tail, short = (await shortJoin()) && (await shortJoin()) + tail;
     const fullNote = note || `Version ${S.team.rev} · ${teamCos().length} companies. Scan it in G-eSAA (Join your team → Scan QR code) or with the phone's camera, or send the join link.`;
     const shortNote = `Version ${S.team.rev}. Scan it in G-eSAA (Join your team → Scan QR code) or with the phone's camera. The new phone needs internet once to download the list; without internet, show the full code or send the join link.`;
     qrLink = link; qrAlt = short && link ? { short, full: link, shortNote, fullNote } : null;
-    await showQr(`Join ${S.team.name}`, qrAlt ? shortNote : fullNote, qrAlt ? short : link || text);
+    await showQr(co ? `Invite to ${co} · ${S.team.name}` : `Join ${S.team.name}`, qrAlt ? shortNote : fullNote, qrAlt ? short : link || text + tail); // no website: the list text, with the company
   }
   $('qrClose').addEventListener('click', () => closeSheet());
+
+  /* ---- v2.28: on-site approval. The inspector's phone shows a QR code signed with the list's admin key (it holds the
+     inspector's name, company ID no., mobile and email; valid 10 minutes, renewed every minute). The vendor scans it on the
+     completed task; the task keeps who approved, when and where (GPS), and the completion report prints it, so the PDF
+     stands without a written signature (the signature lines stay). ---- */
+  const APPR_TAG = 'G-eSAA approval:', APPR_MS = 10 * 60 * 1000;
+  function taskJob(name) { return taskCat(name) === 'Survey' ? pmeta(name).purpose || 'As-plan' : 'acc'; }
+  /** The jobs of an admin user on this list; null when the list sets no jobs (then every admin user approves). */
+  function jobsOf(email) { const J = pol().adminJobs; return J ? J[String(email || '').trim().toLowerCase()] || [] : null; }
+  function mayApprove(email, job) { const L = jobsOf(email); return L == null || L.includes(job); }
+  function canShowAppr() { return !!(S.team && S.adminKey && S.user && isAdmin()); }
+  async function apprText() {
+    const u = S.user, J = jobsOf(u.email);
+    const o = { v: 1, l: S.team.id, n: u.name, i: u.idno || '', m: u.mobile, e: u.email, c: u.company, ...(J ? { j: J } : {}), t: Date.now() };
+    const body = JSON.stringify(o);
+    return `${APPR_TAG}${b64u.enc(enc8(body))}.${await signText(body)}`;
+  }
+  let apprTimer = 0;
+  async function showApprQr() {
+    if (!canShowAppr()) { toast('Only an admin user of the company list (with the admin PIN) shows an approval QR code.', 5000); return; }
+    if (!cryptoOk()) return;
+    if (!S.user.idno) { toast('Enter your company ID no. in Your details first: it is printed on the approved report.', 5000); openProfile(false); setTimeout(() => $('pfIdNo').focus(), 300); return; }
+    const J = jobsOf(S.user.email);
+    if (J && !J.length) { toast('Your admin user has no job on this list, so you approve nothing. Ask your admin to set it in the Admin users tab.', 6000); return; }
+    const draw = async () => {
+      const text = await apprText(), until = new Date(Date.now() + APPR_MS);
+      const jobs = J ? J.map((k) => JOB_NAME[k]).join(', ') : 'any completed task';
+      const note = `${S.user.name} · ID ${S.user.idno} · ${S.user.mobile}. The vendor opens the completed task and taps “Scan the inspector’s approval QR”. Approves: ${jobs}. Valid until ${until.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}; it renews every minute while open.`;
+      if ($('qrShow').hidden) { qrLink = ''; qrAlt = null; await showQr('On-site approval', note, text); }
+      else { lastQrText = text; drawQr(text); $('qrText').textContent = note; }
+    };
+    clearInterval(apprTimer);
+    await draw(); LOG.info('approval.show', { jobs: J ? J.length : 'all' });
+    apprTimer = setInterval(() => { if ($('qrShow').hidden || !lastQrText.startsWith(APPR_TAG)) { clearInterval(apprTimer); apprTimer = 0; return; } draw().catch(() => {}); }, 60000);
+  }
+  $('apprShowBtn').addEventListener('click', () => guard(showApprQr, 'No approval QR'));
+  /** A fresh GPS fix (the last one if under a minute old, else waits up to 8 s). */
+  async function freshFix() {
+    if (fix && Date.now() - fix.t < 60000) return fix;
+    if (!('geolocation' in navigator)) return null;
+    return new Promise((res) => navigator.geolocation.getCurrentPosition((p) => res({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, t: p.timestamp }), () => res(fix || null), { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }));
+  }
+  const apprCode = async (sig) => { const h = b64u.enc(new Uint8Array(await crypto.subtle.digest('SHA-256', enc8(sig)))).replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 8); return `${h.slice(0, 4)}-${h.slice(4)}`; };
+  /** Checks an approval QR code for the open task: signed by the list's admin key, this list, at most 10 minutes old, an
+      admin user whose job covers the task. Returns the approver, else throws the reason. */
+  async function readApproval(text, name) {
+    const m = new RegExp(`^${APPR_TAG}([A-Za-z0-9_-]+)\\.([A-Za-z0-9_-]+)$`).exec(String(text || '').trim());
+    if (!m) throw new Error('This is not an approval QR code. The inspector opens Settings → On-site approval QR.');
+    let body = '', o = null;
+    try { body = new TextDecoder().decode(b64u.dec(m[1])); o = JSON.parse(body); } catch (e) { throw new Error('The approval QR code could not be read. Ask for a fresh one.'); }
+    if (!o || o.v !== 1 || typeof o.n !== 'string' || typeof o.e !== 'string' || !Number.isFinite(o.t)) throw new Error('The approval QR code could not be read. Ask for a fresh one.');
+    if (!S.team || o.l !== S.team.id) throw new Error('This approval QR code is for another company list.');
+    const keys = [S.team.key, S.team.prevKey, ...(S.team.admins || []).map((a) => a.k)].filter(Boolean);
+    let ok = false; for (const k of keys) { if (await verifyText(body, m[2], k)) { ok = true; break; } }
+    if (!ok) throw new Error('Not signed by the admin company of this list. Update the list (Settings → Update list) and scan again; if it still fails, do not accept it.');
+    const age = Date.now() - o.t;
+    if (age > APPR_MS) throw new Error(`This approval QR code expired ${Math.round(age / 60000)} minutes ago. Ask the inspector to show it again.`);
+    if (age < -2 * 60000) throw new Error('The two phones’ clocks differ by more than 2 minutes. Set both to automatic time, then scan again.');
+    const email = o.e.trim().toLowerCase();
+    if (!adminUserOk(email)) throw new Error(`${o.n} (${email}) is not an admin user of this company list.`);
+    const job = taskJob(name);
+    if (!mayApprove(email, job)) throw new Error(`${o.n} is not an approver for this task (${job === 'acc' ? 'PAT, defect cleanup and FAT need a PAT/FAT inspector' : `${PURPOSE_LABEL[job] || job} needs the ${JOB_NAME[job] || job}`}).`);
+    if (!String(o.i || '').trim()) throw new Error(`${o.n} has no company ID no. in their details: they enter it, then show the QR code again.`);
+    return { n: o.n.slice(0, 80), i: String(o.i).slice(0, 40), m: String(o.m || '').slice(0, 30), e: email.slice(0, 120), c: String(o.c || '').slice(0, 100), job, qrAt: new Date(o.t).toISOString(), code: await apprCode(m[2]) };
+  }
+  async function recordApproval(a, how) {
+    const f = await freshFix(), name = S.project;
+    const rec = { ...a, at: new Date().toISOString(), how, by: byLine(), ...(f ? { gps: { lat: +f.lat.toFixed(7), lon: +f.lon.toFixed(7), acc: Math.round(f.acc) } } : {}) };
+    S.meta[name] = { ...pmeta(name), approval: rec, ...(pmeta(name).globeRep ? {} : { globeRep: a.n }) }; persist();
+    LOG.info('approval.record', { how, job: a.job, gps: !!f });
+    renderProjects();
+    toast(`Approved on site by ${a.n} (ID ${a.i}). The completion report prints it.${f ? '' : ' No GPS fix: the place is not recorded.'}`, 5000);
+  }
+  $('apprScan').addEventListener('click', () => guard(async () => {
+    if (!pmeta().completedAt) { toast('Complete the task first: the approval is for a completed task.', 4000); return; }
+    if (!cryptoOk()) return;
+    const name = S.project, t = await scanQr('Point the camera at the approval QR code on the inspector’s phone');
+    if (!t) return;
+    await recordApproval(await readApproval(t, name), 'qr');
+  }, 'Not approved'));
+  $('apprSelf').addEventListener('click', () => guard(async () => { // the inspector approves on their own phone
+    if (!canShowAppr() || !pmeta().completedAt || !cryptoOk()) return;
+    if (!S.user.idno) { toast('Enter your company ID no. in Your details first: it is printed on the approved report.', 5000); openProfile(false); return; }
+    const name = S.project, a = await readApproval(await apprText(), name);
+    if (!(await ask('Approve this task?', `${a.n} · ID ${a.i} · ${a.m}\n${a.c}\nRecorded with the time and the GPS position, and printed on the completion report.`, [{ label: 'Cancel', value: false }, { label: 'Approve', value: true, primary: true }]))) return;
+    await recordApproval(a, 'self');
+  }, 'Not approved'));
+  /** v2.28: the lines of an on-site approval, as printed on the completion report. */
+  function apprLines(a) {
+    const jobN = a.job === 'acc' ? JOB_NAME.acc : JOB_NAME[a.job] || a.job;
+    return [`${a.n} \u00b7 ${jobN}${a.c ? ` \u00b7 ${a.c}` : ''}`, `Company ID no. ${a.i} \u00b7 mobile ${a.m || '\u2014'} \u00b7 ${a.e}`,
+      `Scanned ${shortTime(a.at)}${a.gps ? ` at ${a.gps.lat.toFixed(6)}, ${a.gps.lon.toFixed(6)} (\u00b1${a.gps.acc} m)` : ' (no GPS fix)'} \u00b7 QR code made ${shortTime(a.qrAt)}`,
+      `${a.how === 'self' ? 'Approved on the inspector\u2019s own phone' : 'QR code signed with the admin key of the company list and checked on this phone'} \u00b7 verification ${a.code}`];
+  }
+  function renderAppr(m) {
+    const on = !!(S.project && m.completedAt && S.team && S.team.key);
+    $('apprBox').hidden = !on; if (!on) return;
+    const a = m.approval;
+    $('apprInfo').hidden = !a;
+    if (a) $('apprInfo').textContent = `✓ Approved on site by ${a.n} · ID ${a.i} · ${a.m} · ${fmtTime(a.at)}${a.gps ? ` · GPS ±${a.gps.acc} m` : ' · no GPS'}`;
+    $('apprScan').textContent = a ? 'Scan again (replaces the approval)' : 'Scan the inspector’s approval QR';
+    const self = canShowAppr() && mayApprove(S.user.email, taskJob(S.project)) && !a; $('apprSelf').hidden = !self;
+    $('apprHint').textContent = a ? '' : 'The inspector shows the approval QR code (Settings → On-site approval QR); it records their name, company ID no. and contact, with the time and place. A signature on the printed report is still possible.';
+  }
   $('qrLinkBtn').addEventListener('click', () => guard(async () => { if (qrLink) await shareText(qrLink, `Join ${S.team ? S.team.name : 'G-eSAA'}`); }, 'Not sent'));
   /** Send a short text (a join link): the share sheet, else copy it. */
   async function shareText(text, title) {
@@ -7000,7 +7416,10 @@
     const packs = (Array.isArray(j.packs) ? j.packs : []).filter((p) => p && typeof p === 'object').map((p) => ({ name: s100(p.name), link: s100(p.link, 300), sizeMB: +p.sizeMB || 0, notes: s100(p.notes, 200) }))
       .filter((p) => p.link).slice(0, 50);
     const admins = (Array.isArray(j.admins) ? j.admins : []).map((c) => s100(c)).filter(Boolean).slice(0, 20);
-    return { name: s100(j.name), companies, admins, tasks: tasks.slice(0, 500), packs, scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you) };
+    const adminUsers = Array.isArray(j.adminUsers) ? j.adminUsers.filter((u) => u && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(u.e || ''))).slice(0, 100)
+      .map((u) => ({ e: s100(u.e, 120).toLowerCase(), n: s100(u.n, 80), i: s100(u.i, 40), m: s100(u.m, 30), j: s100(u.j, 120) })) : null; // v2.28: admin phones only
+    return { name: s100(j.name), companies, admins, tasks: tasks.slice(0, 500), packs, scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you),
+      ...(j.kmzPass ? { kmzPass: s100(j.kmzPass, 100) } : {}), ...(adminUsers ? { adminUsers } : {}) };
   }
   let cloudBusy = null, cloudErr = '';
   /** When the phone talks to the online sheet (v2.15): on every change (default), every hour, or only when Sync is tapped. */
@@ -7387,7 +7806,7 @@
   }
   /* v2.26: a G-eSAA link (invite, join, move) opened in an Android browser: offer to open it in the G-eSAA app (the APK keeps
      its own details and projects, apart from the browser). The app gets it as gesaa://open?h=… (Android intent). */
-  const linkHashNow = () => [pendingJoin ? `#join=${pendingJoin}` : '', pendingKey ? `&${pendingKey}` : '', pendingJq ? `&jq=${pendingJq}` : '', pendingMv ? `&mv=${pendingMv}` : ''].join('');
+  const linkHashNow = () => [pendingJoin ? `#join=${pendingJoin}` : '', pendingKey ? `&${pendingKey}` : '', pendingJq ? `&jq=${pendingJq}` : '', pendingMv ? `&mv=${pendingMv}` : '', pendingCo ? `&co=${pendingCo}` : ''].join('');
   async function linkToApp() {
     if (NATIVE || !/Android/i.test(navigator.userAgent || '') || /[?&]web=1/.test(location.search) || S.linkWeb) return false;
     if (window.matchMedia && (matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches)) return false; // the installed web app
@@ -7464,6 +7883,7 @@
       if (!names.length) { out.textContent = j.strict && !akey ? 'The sheet uses company keys: enter its Admin key (below) to read all the companies, then Refresh.' : 'The sheet has no companies: add them to its Company List / Companies tab, then Refresh.'; return false; }
       const kept = names.slice(0, 300);
       admDraft.co = kept; admDraft.coRead = new Date().toISOString();
+      if (c.adminUsers) admDraft.sheetUsers = c.adminUsers; if (c.kmzPass) admDraft.sheetKmz = c.kmzPass; renderAdmSheet(); // v2.28
       { const own0 = kept.find((x) => normCo(x) === normCo(admDraft.pol.owner)); // the admin company as the sheet writes it, else the sheet's ADMIN company
         if (own0) admDraft.pol.owner = own0; else if (c.admins && c.admins.length) { const a0 = kept.find((x) => normCo(x) === normCo(c.admins[0])); if (a0) admDraft.pol.owner = a0; } }
       renderAdmDraft();
@@ -7473,6 +7893,35 @@
     } catch (e) { out.textContent = `Could not reach the sheet: ${e.message}. ${admDraft.co.length ? 'The companies of the saved list are kept.' : ''}`; return false; }
   }
   $('admCoRefresh').addEventListener('click', () => guard(() => admReadCompanies(false), 'Companies not read'));
+  /** v2.28: the admin users read from the sheet's Admin users tab (with their jobs), shown instead of the email lines; and the
+      sheet's KMZ password, shown instead of the field. */
+  function renderAdmSheet() {
+    const U = admDraft && admDraft.sheetUsers, on = Array.isArray(U) && U.length > 0;
+    $('admUsersSheet').hidden = !on; $('admUsersBox').hidden = on;
+    if (on) {
+      const box = $('admUsersList'); box.innerHTML = '';
+      U.forEach((u) => { const d = document.createElement('div'), b = document.createElement('b'), sp = document.createElement('span'); b.textContent = u.n || u.e;
+        const jobs = jobKeys(u.j).map((k) => JOB_NAME[k]); sp.textContent = [u.e, u.i && `ID ${u.i}`, u.m, jobs.length ? jobs.join(', ') : 'no job set'].filter(Boolean).join(' · '); d.append(b, sp); box.appendChild(d); });
+      $('admUsersInfo').textContent = `${U.length} admin user${U.length === 1 ? '' : 's'} from the sheet. Change them in its Admin users tab, then Refresh from the sheet and Save. The job decides who approves which completed task on site; once any user has a job, a user with no job approves nothing.`;
+    }
+    const kp = admDraft && admDraft.sheetKmz;
+    $('admKmzPass').readOnly = !!kp;
+    if (kp) { $('admKmzPass').value = kp; $('admKmzInfo').textContent = 'From the online sheet (Settings → KMZ password): change it there, then Refresh from the sheet and Save. Every phone locks shared KMZ files with it from that list version; files locked before still open.'; }
+  }
+  /* ---- v2.28: the Administration sections fold (tap the heading); List name and Companies stay open at first ---- */
+  const admGroups = [...document.querySelectorAll('#admMain > .group')].filter((g) => g.querySelector(':scope > h3'));
+  const admKeyOf = (g) => g.querySelector(':scope > h3').textContent.trim();
+  function admFoldApply() {
+    const F = S.admFold || {};
+    admGroups.forEach((g, i) => { const k = admKeyOf(g), open = k in F ? !!F[k] : i < 2; g.classList.toggle('shut', !open); g.querySelector(':scope > h3').setAttribute('aria-expanded', String(open)); });
+  }
+  const admOpenFor = (id) => { const g = $(id) && $(id).closest('#admMain > .group'); if (g) { g.classList.remove('shut'); g.querySelector(':scope > h3').setAttribute('aria-expanded', 'true'); } };
+  admGroups.forEach((g) => {
+    const h = g.querySelector(':scope > h3'); h.classList.add('afold'); h.tabIndex = 0; h.setAttribute('role', 'button');
+    const tg = () => { S.admFold = { ...(S.admFold || {}), [admKeyOf(g)]: g.classList.contains('shut') }; persist(); admFoldApply(); };
+    h.addEventListener('click', tg); h.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tg(); } });
+  });
+  admFoldApply();
   /* ---- v2.23: admin: the logos of the form and the reports, uploaded on this phone; they travel in the list (small JPEGs) ---- */
   function renderLogoPick(P0) {
     const L = ((P0 || (admDraft && admDraft.pol) || {}).logos) || {};
@@ -7558,25 +8007,31 @@
     }
     $('admLock').hidden = true; await admStart();
   });
+  const ADM_LISTS = [['admPoleOwners', 'owner'], ['admBoqClamp', 'clamp'], ['admBoqHeight', 'height'], ['admBoqCls', 'cls'], ['admBoqOdf', 'odf'], ['admBoqConn', 'conn'], ['admBoqClo', 'clo'], ['admDetailItems', 'details']];
+  let admSheetPrefill = null;
   async function admStart() {
     const create = admMode === 'create' || !S.team;
     const P = pol(), F = formText();
-    const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice(), poleTypes: (P.poleTypes || []).slice(), ...(P.poleOwners ? { poleOwners: P.poleOwners.slice() } : {}), adminUsers: (P.adminUsers || []).slice(), ...(P.web ? { web: P.web } : {}), ...(P.vendorRecords === false ? { vendorRecords: false } : {}),
+    const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, quality: P.quality, inspTypes: P.inspTypes.slice(), poleTypes: (P.poleTypes || []).slice(), ...(P.poleOwners ? { poleOwners: P.poleOwners.slice() } : {}), ...(P.boqLists ? { boqLists: JSON.parse(JSON.stringify(P.boqLists)) } : {}), ...(P.detailItems ? { detailItems: P.detailItems.slice() } : {}), adminUsers: (P.adminUsers || []).slice(), ...(P.web ? { web: P.web } : {}), ...(P.vendorRecords === false ? { vendorRecords: false } : {}),
       otp: P.otp || b64u.enc(crypto.getRandomValues(new Uint8Array(18))), ...(P.kmzPass ? { kmzPass: P.kmzPass } : {}), ...(P.kmzOld ? { kmzOld: P.kmzOld.slice() } : {}), ...(P.logos ? { logos: { ...P.logos } } : {}) }; // v2.22, v2.23 logos
     admKmzAuto = P.kmzPass ? '' : suggestKmzPass(P.owner || (S.user && S.user.company) || ''); // follows the admin company until edited
     $('admKmzPass').value = P.kmzPass || admKmzAuto;
     renderLogoPick(polDraft); $('admReq').value = ''; $('admReqOut').hidden = true;
     $('admKmzInfo').textContent = P.kmzPass ? 'Shared PAT, cleanup and FAT KMZ files are locked with this password.' : 'Not saved yet: shared KMZ files are locked once the list is saved with a password. Update every phone to v2.22 first: older versions cannot open locked files.';
     $('admPoleTypes').value = typeLines(polDraft.poleTypes);
-    $('admPoleOwners').value = (polDraft.poleOwners || []).join('\n'); // v2.26
+    { const L0 = pol(); const was = (k) => { const L = L0.boqLists; return L && Array.isArray(L[k]) && L[k].length ? L[k] : k === 'owner' ? [...BOQ_OPT.owner, ...(L0.poleOwners || [])] : BOQ_OPT[k]; }; // v2.28: the lists as they are now
+      ADM_LISTS.forEach(([id, k]) => { $(id).value = (k === 'details' ? (Array.isArray(L0.detailItems) && L0.detailItems.length ? L0.detailItems : POLE_DETAIL_ITEMS) : was(k)).join('\n'); }); }
     $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = '';
-    $('admUsers').value = (P.adminUsers || []).join('\n'); $('admVendorRec').checked = P.vendorRecords !== false;
+    $('admUsers').value = (P.adminUsers || []).map((e) => `${e}${(P.adminJobs || {})[e] ? ` ${P.adminJobs[e].map((k) => JOB_NAME[k]).join(', ')}` : ''}`).join('\n'); $('admVendorRec').checked = P.vendorRecords !== false; // v2.28: with the job
     renderOrgBox(create);
+    admSheetPrefill = { users: S.cloud && S.cloud.adminUsers, kmz: S.cloud && S.cloud.kmzPass };
     if (create) {
       await newAdminKey(); // the new list's key
       admDraft = { id: uid(), name: '', co: [], admins: [], rev: 0, src: null, pol: polDraft, newKey: true };
       if (S.user && S.user.company && !polDraft.owner) polDraft.owner = S.user.company; // v2.23: the companies come from the sheet
     } else admDraft = { id: S.team.id, name: S.team.name, co: S.team.co.slice(), admins: (S.team.admins || []).map((a) => ({ ...a })), rev: S.team.rev, src: S.team.src || null, pol: polDraft, newKey: !hasListKey(S.team) };
+    if (admSheetPrefill) { if (Array.isArray(admSheetPrefill.users)) admDraft.sheetUsers = admSheetPrefill.users; if (admSheetPrefill.kmz) admDraft.sheetKmz = admSheetPrefill.kmz; } // v2.28: from the last sheet read
+    renderAdmSheet();
     $('admUrl').value = (admDraft.src && admDraft.src.url) || ''; $('admReadKey').value = (admDraft.src && admDraft.src.key) || '';
     $('admWriteKey').value = S.onlineAdminKey || ''; $('admTestOut').textContent = '';
     $('admName').value = admDraft.name; $('admCoInfo').textContent = admDraft.co.length ? `${admDraft.co.length} companies on the saved list. Tap Refresh from the sheet to update them.` : '';
@@ -7603,7 +8058,15 @@
     Object.entries(form).forEach(([k, v]) => { if (Array.isArray(v) ? !v.length || v.join('|') === (D[k] || []).join('|') : v === norm(D[k])) delete kept[k]; else kept[k] = v; });
     P.form = kept;
     P.owner = $('admOwner').value || '';
-    P.adminUsers = [...new Set($('admUsers').value.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(x)).map((x) => x.slice(0, 120)))].slice(0, 100);
+    { // v2.28: from the sheet's Admin users tab, else one line per user: the email, then the job
+      const rows = Array.isArray(admDraft.sheetUsers) && admDraft.sheetUsers.length ? admDraft.sheetUsers.map((u) => [u.e, u.j])
+        : $('admUsers').value.split(/\n/).map((l) => l.trim()).filter(Boolean).flatMap((l) => { const es = l.split(/[\s,;]+/).filter((x) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(x)); // one email and its job, or several emails
+          return es.length === 1 ? [[es[0].toLowerCase(), l.replace(es[0], '').replace(/^[\s,;:–-]+/, '')]] : es.map((x) => [x.toLowerCase(), '']); });
+      const seen = new Set(), jobs = {};
+      P.adminUsers = rows.map(([e]) => e.slice(0, 120)).filter((e) => !seen.has(e) && seen.add(e)).slice(0, 100);
+      rows.forEach(([e, j]) => { const k = jobKeys(j); if (k.length && P.adminUsers.includes(e)) jobs[e] = k; });
+      if (Object.keys(jobs).length) P.adminJobs = jobs; else delete P.adminJobs;
+    }
     const me = String((S.user && S.user.email) || (!$('profile').hidden && $('pfEmail').value) || '').trim().toLowerCase(); // a new list is made before the profile is saved
     if (P.adminUsers.length && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(me) && !P.adminUsers.includes(me)) P.adminUsers.unshift(me); // the admin who saves stays an admin
     if (!P.adminUsers.length) delete P.adminUsers;
@@ -7611,15 +8074,23 @@
     const num = (id, lo, hi, dflt) => { const v = +$(id).value; return v >= lo && v <= hi ? v : dflt; };
     P.maxSpan = num('setMaxSpan', 5, 1000, 200); P.angleDeg = num('setAngle', 1, 90, 15); P.autoGap = num('setAutoGap', 10, 5000, 120);
     P.quality = $('admQuality').value === 'normal' ? 'normal' : 'strict';
-    { let kp = $('admKmzPass').value.trim().replace(/\s+/g, '').slice(0, 100); const was = (S.team && S.team.pol && S.team.pol.kmzPass) || '';
+    { let kp = (admDraft.sheetKmz || $('admKmzPass').value).trim().replace(/\s+/g, '').slice(0, 100); const was = (S.team && S.team.pol && S.team.pol.kmzPass) || ''; // v2.28: the sheet's password where it has one
       if (admKmzAuto && kp === admKmzAuto) kp = autoKmzFor(P.owner);
       if (kp) P.kmzPass = kp; else delete P.kmzPass;
       if (was && was !== kp) P.kmzOld = [was, ...(P.kmzOld || []).filter((x) => x !== was && x !== kp)].slice(0, 5); // files locked before still open
       if (P.kmzOld && !P.kmzOld.length) delete P.kmzOld; }
     if ($('admVendorRec').checked) delete P.vendorRecords; else P.vendorRecords = false;
     P.poleTypes = parseTypeLines($('admPoleTypes').value).filter((t) => !BUILTIN_TYPES.some((b) => b.p === t.p));
-    P.poleOwners = [...new Set($('admPoleOwners').value.split(/\n/).map((x) => x.trim().replace(/\s+/g, ' ').slice(0, 30)).filter((x) => x && !BOQ_OPT.owner.some((o) => o.toLowerCase() === x.toLowerCase())))].slice(0, 30); // v2.26
-    if (!P.poleOwners.length) delete P.poleOwners;
+    { // v2.28: the BOQ lists and pole details, each kept only when it differs from the built-in one
+      const lines = (id) => [...new Set($(id).value.split(/\n/).map((x) => x.trim().replace(/\s+/g, ' ').slice(0, 40)).filter(Boolean))].slice(0, 40);
+      const L = {}; delete P.poleOwners; delete P.detailItems;
+      ADM_LISTS.forEach(([id, k]) => {
+        const v = lines(id), def = k === 'details' ? POLE_DETAIL_ITEMS : BOQ_OPT[k];
+        if (!v.length || v.join('|') === def.join('|')) return;
+        if (k === 'details') P.detailItems = v; else L[k] = v;
+      });
+      if (Object.keys(L).length) P.boqLists = L; else delete P.boqLists;
+      if (L.owner) { const extra = L.owner.filter((x) => !BOQ_OPT.owner.includes(x)); if (extra.length) P.poleOwners = extra; } } // phones before v2.28 still get the extra owners
     P.packs = parsePackLines($('admPacks').value).packs; if (!P.packs.length) delete P.packs;
     if (!P.poleTypes.length) delete P.poleTypes;
     const types = form.types.length ? form.types : D.types;
@@ -7661,10 +8132,10 @@
   $('admSave').addEventListener('click', async () => {
     admDraft.name = $('admName').value.trim().replace(/\s+/g, ' ').slice(0, 80);
     if (!admDraft.name) { toast('Give the list a name, e.g. your office or project'); $('admName').focus(); return; }
-    if (!admDraft.co.length) { toast('No companies yet: set the online sheet (URL, read key, admin key) and tap Refresh from the sheet.', 6000); $('admCoRefresh').scrollIntoView({ block: 'center' }); return; }
+    if (!admDraft.co.length) { toast('No companies yet: set the online sheet (URL, read key, admin key) and tap Refresh from the sheet.', 6000); admOpenFor('admUrl'); $('admCoRefresh').scrollIntoView({ block: 'center' }); return; }
     const url = $('admUrl').value.trim(), rkey = $('admReadKey').value.trim();
     if (url && !/^https:\/\/\S+$/.test(url)) { toast('The online sheet URL must start with https://'); return; }
-    if (url && !rkey) { toast('Enter the read key from the sheet’s Settings tab, or clear the URL'); $('admReadKey').focus(); return; }
+    if (url && !rkey) { toast('Enter the read key from the sheet’s Settings tab, or clear the URL'); admOpenFor('admReadKey'); $('admReadKey').focus(); return; }
     if (admDraft.co.length > 300) { toast(`The list has ${admDraft.co.length} companies; the most is 300. Remove some, or keep the full list in the online sheet.`, 6000); return; }
     const P = readPolDraft();
     if (P.logos && !P.logos.left && !P.logos.right) delete P.logos;
@@ -7708,7 +8179,13 @@
       try { await pushPacksToSheet(S.team.src.url, P.packs || []); await pushListToSheet(S.team.src.url); } finally { busy(false); }
       cloudSync(true);
     } else if (S.team.src) { pushPacksToSheet(S.team.src.url, P.packs || []).then(() => pushListToSheet(S.team.src.url)).finally(() => cloudSync(true)); }
-    showTeamQr(`Version ${S.team.rev} saved. ${viaSheet ? 'Phones that already joined get it from the online sheet by themselves. New users: send the join link or show this QR code.' : 'Send the join link or show this QR code to each user.'}${S.team.src && !S.onlineAdminKey ? ' Enter the sheet’s Admin key (Online Google Sheet) so phones update by themselves.' : ''}${admDraft.newPin ? ' Admins must enter the new PIN after taking it.' : ''}`);
+    if (viaSheet) { // v2.28: the online sheet carries the list: no join QR code after Save; invites are made per company
+      const go = await ask(`Version ${S.team.rev} saved`, `Phones that joined get it from the online sheet by themselves.${admDraft.newPin ? ' Admins must enter the new PIN after taking it.' : ''}\n\nTo add users, make an invite for their company: Settings → company list → Share${pol().owner ? ', or Administration → Invite a company\u2019s users (company keys)' : ''}.`,
+        [{ label: 'OK', value: false }, { label: 'Make an invite', value: true, primary: true }]);
+      if (go) $('teamShare').click();
+      return;
+    }
+    showTeamQr(`Version ${S.team.rev} saved. Send the join link or show this QR code to each user.${S.team.src && !S.onlineAdminKey ? ' Enter the sheet’s Admin key (Online Google Sheet) so phones update by themselves.' : ''}${admDraft.newPin ? ' Admins must enter the new PIN after taking it.' : ''}`);
 
   });
   /** Admin map packs (name | Drive link | MB), one per line. Only the Drive file id is kept, so the list and its QR stay small. */
@@ -8269,7 +8746,7 @@
     if (S.dropSatTiles) { // v1.7: satellite imagery kept by older versions is removed (Esri allows offline imagery only in ArcGIS apps)
       try { await tx('tiles', 'readwrite', (st) => st.delete(IDBKeyRange.bound('satellite/', 'satellite/\uffff'))); delete S.dropSatTiles; persist(); } catch (e) { /* try again next start */ }
     }
-    if (pendingJoin || pendingKey || pendingJq || pendingMv) { await loadOrg(); if ((await linkToApp()) && (await tutWait(2500), document.visibilityState !== 'visible')) { /* the G-eSAA app took the link */ } else await handleInvite(`${pendingJoin ? `#join=${pendingJoin}` : ''}${pendingKey ? `&${pendingKey}` : ''}${pendingJq ? `&jq=${pendingJq}` : ''}${pendingMv ? `&mv=${pendingMv}` : ''}`, true); } else loadOrg(); // a link waits for the organisation check
+    if (pendingJoin || pendingKey || pendingJq || pendingMv) { await loadOrg(); if ((await linkToApp()) && (await tutWait(2500), document.visibilityState !== 'visible')) { /* the G-eSAA app took the link */ } else await handleInvite(`${pendingJoin ? `#join=${pendingJoin}` : ''}${pendingKey ? `&${pendingKey}` : ''}${pendingJq ? `&jq=${pendingJq}` : ''}${pendingMv ? `&mv=${pendingMv}` : ''}${pendingCo ? `&co=${pendingCo}` : ''}`, true); } else loadOrg(); // a link waits for the organisation check
     if (!profileOk()) { if ($('profile').hidden) openProfile(true); }
     else if (!S.project && !/[?&]shared=1/.test(location.search)) askNewProject(); // photos are taken inside a project
     if (!S.sampleDone) { S.sampleDone = true; persist(); if (!allProjects().length) addSample(false); } // v2.26: the sample project, once, on a new phone (never later, when a user deletes all projects)

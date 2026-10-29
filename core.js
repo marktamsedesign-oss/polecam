@@ -330,10 +330,16 @@
     if (o.spans && o.spans.length) {
       styles.push('<Style id="span_ok"><LineStyle><color>ffe6a01c</color><width>3</width></LineStyle></Style>',
         '<Style id="span_long"><LineStyle><color>ff2a2ac9</color><width>4</width></LineStyle></Style>');
-      const lines = o.spans.map((s) => `<Placemark><name>${s.len.toFixed(1)} m</name><styleUrl>#${s.long ? 'span_long' : 'span_ok'}</styleUrl>` +
-        `<description>${xmlEsc(`${s.from} → ${s.to}: ${s.len.toFixed(1)} m${s.long ? ' (longer than the maximum span)' : ''}`)}</description>` +
-        `<LineString><tessellate>1</tessellate><coordinates>${s.a.lon.toFixed(8)},${s.a.lat.toFixed(8)},0 ${s.b.lon.toFixed(8)},${s.b.lat.toFixed(8)},0</coordinates></LineString></Placemark>`);
-      route = `<Folder><name>Route (${o.spans.length} spans, ${o.spans.reduce((t, s) => t + s.len, 0).toFixed(0)} m)</name>\n${lines.join('\n')}\n</Folder>\n`;
+      // v2.28: the route as continuous lines (one per run between ends and junctions), not one line per span; each line lists
+      // its spans; spans longer than the maximum are drawn again in red on top
+      const chains = routeChains(o.spans), ll = (p) => `${p.lon.toFixed(8)},${p.lat.toFixed(8)},0`;
+      const lines = chains.map((c, i) => `<Placemark><name>${xmlEsc(`${chains.length > 1 ? `Route ${i + 1}` : 'Route'}: ${c.pts[0].poleId || ''} → ${c.pts[c.pts.length - 1].poleId || ''} · ${c.len.toFixed(0)} m`)}</name><styleUrl>#span_ok</styleUrl>` +
+        `<description>${xmlEsc(`${c.spans.length} span${c.spans.length === 1 ? '' : 's'}, ${c.len.toFixed(1)} m\n${c.spans.map((s) => `${s.from} → ${s.to}: ${s.len.toFixed(1)} m${s.long ? ' (longer than the maximum span)' : ''}`).join('\n')}`)}</description>` +
+        `<ExtendedData><Data name="length_m"><value>${c.len.toFixed(1)}</value></Data><Data name="spans"><value>${c.spans.length}</value></Data></ExtendedData>` +
+        `<LineString><tessellate>1</tessellate><coordinates>${c.pts.map(ll).join(' ')}</coordinates></LineString></Placemark>`);
+      const longs = o.spans.filter((s) => s.long).map((s) => `<Placemark><name>${xmlEsc(`${s.from} → ${s.to}: ${s.len.toFixed(1)} m (long span)`)}</name><styleUrl>#span_long</styleUrl>` +
+        `<LineString><tessellate>1</tessellate><coordinates>${ll(s.a)} ${ll(s.b)}</coordinates></LineString></Placemark>`);
+      route = `<Folder><name>Route (${o.spans.length} spans, ${o.spans.reduce((t, s) => t + s.len, 0).toFixed(0)} m)</name>\n${lines.join('\n')}\n${longs.length ? `<Folder><name>Long spans (${longs.length})</name>\n${longs.join('\n')}\n</Folder>\n` : ''}</Folder>\n`;
     }
     const by = o.exportedBy ? `<description>${xmlEsc(o.exportedBy)}</description><ExtendedData><Data name="exported_by"><value>${xmlEsc(o.exportedBy)}</value></Data></ExtendedData>\n` : '';
     const folders = Object.keys(KML_EL).filter((k) => marks[k]).map((k) => `<Folder><name>${KML_EL[k][0]}</name>\n${marks[k].join('\n')}\n</Folder>`).join('\n') || '<Folder><name>Poles</name>\n</Folder>';
@@ -654,6 +660,25 @@
     }
     cnt.long = spans.filter((s) => s.long).length;
     return { spans, poles, total: spans.reduce((t, s) => t + s.len, 0), ...cnt };
+  }
+  /** v2.28: the route's spans joined into continuous runs: from an end or a junction to the next end or junction (a loop as one
+      run). Each run: its points in order, its spans and its length. */
+  function routeChains(spans) {
+    const adj = {}, used = new Array(spans.length).fill(false), node = {};
+    spans.forEach((s, i) => { (adj[s.ia] = adj[s.ia] || []).push(i); (adj[s.ib] = adj[s.ib] || []).push(i); node[s.ia] = s.a; node[s.ib] = s.b; });
+    const walk = (start, first) => {
+      const pts = [node[start]], sp = []; let cur = start, e = first;
+      for (;;) {
+        used[e] = true; const s = spans[e], nx = String(s.ia) === String(cur) ? s.ib : s.ia; pts.push(node[nx]); sp.push(s); cur = nx; // ids as text (object keys)
+        if (String(cur) === String(start) || adj[cur].length !== 2) break;
+        const ne = adj[cur].find((k) => !used[k]); if (ne == null) break; e = ne;
+      }
+      return { pts, spans: sp, len: sp.reduce((t, s) => t + s.len, 0) };
+    };
+    const out = [];
+    Object.keys(adj).filter((id) => adj[id].length !== 2).forEach((id) => adj[id].forEach((e) => { if (!used[e]) out.push(walk(id, e)); }));
+    spans.forEach((s, e) => { if (!used[e]) out.push(walk(s.ia, e)); }); // loops
+    return out;
   }
   /** Link poles in capture order, skipping jumps longer than maxLink metres (a new street, a gap in the survey). */
   function autoLinks(points, maxLink) {
@@ -1585,7 +1610,7 @@
     return results;
   }
 
-  const api = { parseCsv, companiesFromCsv, utmForward, analyzeRoute, autoLinks, distM, deflection, idCandidates, fitShape, knownId, setPolePrefixes, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
+  const api = { parseCsv, companiesFromCsv, utmForward, analyzeRoute, routeChains, autoLinks, distM, deflection, idCandidates, fitShape, knownId, setPolePrefixes, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
     buildKml, buildDxf, buildCsv, roadsFromOverpass, overpassQuery, nextPoleId, safeName, xmlEsc, blockName, findIdBox, stackRows, findStack,
     setGlyphModel, glyphReady, glyphRead, glyphPatch, glyphProbs, GCLASSES, _glyph: { inkMaps, textLines, edgeLines, grayOf, glyphText, readLine } };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleCore = api;
