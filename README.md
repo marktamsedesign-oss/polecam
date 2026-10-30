@@ -340,7 +340,7 @@ On the PAT phone: Projects → (PAT project) → *Project details* → **Share t
 
 ## AutoCAD
 
-- **On the company plan template (v2.30):** Export → AutoCAD · DXF → DRAWING *On the company plan template* gives a ZIP with the DXF and a README of the fields left blank. Open the DXF in AutoCAD (it is a full drawing, not an insert). The template (the *seed*) comes from the admin's Drive link; see *What changed in v2.30*.
+- **On the company plan template (v2.30, drawn like the template's sample since v2.31):** Export → AutoCAD · DXF → DRAWING *On the company plan template* gives a ZIP with the DXF and a README of the fields left blank. Open the DXF in AutoCAD (it is a full drawing, not an insert). The template (the *seed*) comes from the admin's Drive link; see *What changed in v2.30*.
 - Open the DXF directly or `INSERT`/`XATTACH` it into your drawing. Units are **meters**, coordinates are **UTM 51N (WGS84)** — your drawing must use the same system to line up.
 - **Photos (v2.14):** unzip the DXF ZIP and keep the DXF and the JPEGs **in the same folder**; the photos are attached images (like `IMAGEATTACH`), so moving the DXF alone shows empty frames. If AutoCAD shows a frame without the picture, open `EXTERNALREFERENCES` and point the image to the JPEG. Photo width in the drawing (default 6 m) is in the DXF export options.
 - Poles are circles (v2.14), not blocks: select a type with `QSELECT` by layer (`POLE_CONCRETE`, `POLE_CONCRETE_PROPOSED`…). Freeze `POINT_PHOTO`, `POLE_DETAILS` or `FOC_LENGTH` to hide them.
@@ -524,6 +524,33 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.31
+
+- **The plan template comes by itself.** Once the admin has put the template's Google Drive link in Administration, Export → AutoCAD · DXF is already set to *On the company plan template* (nothing to choose; *Simple* only when you pick it).
+  - **Android app:** the first plan export downloads the template from the admin's link, keeps it on the phone and goes on with the export, so there is no separate download step. The app also fetches it in the background a few seconds after it starts, when the link is there and the phone is online. When the admin shares a newer template (a new link), the export takes the new one, and the card shows *Update from your admin*.
+  - **Website:** *Get the template* downloads it directly when the browser is allowed to read the Google Drive file. When it is not (Google decides that, and I could not test it from here), it says so and offers *Open in Drive* and *Load the downloaded file*. Either way it is done once: the template stays on the phone.
+- **The plan DXF is drawn like the template's sample** (stage 2, second pass). I compared it with the sample route in your template (GEO sheet C-5) and its legend:
+  - **Roads** from OpenStreetMap get their width from their class: primary 12 m, secondary 9, tertiary 7.5, residential / unclassified 6, living street 5, service 4, track 3.5. A road with an OSM *width* or *lanes* tag uses that instead (lanes × 3.3 m). These widths are my defaults; tell me yours if they differ.
+  - **Junctions:** the pavement edges are now one outline of all the roads together. Where roads meet there are no lines across the junction, and ways that continue one another are joined first, so bends close. Footpaths are a grey centre line, hidden where they run inside a road. Bridges get the template's BRIDGE lines.
+  - **Poles beside the road:** each pole within 25 m of a road is drawn beside it, on the side of its pin, just outside the pavement edge, like the sample. A corner pole is also kept out of the cross road. The latitude / longitude written beside each pole is still its GPS position, and the README in the ZIP says how many poles were moved. A pole on the centre line takes the side of its neighbour on the same road.
+  - **The cable** runs on the road side of the poles, about 3 m from the pole symbol (in the sample it is about 2 m inside the pavement edge), so it no longer crosses the pole models. A pole with a **new arm** gets the template's arm model (single, double, extension 26", extension 44.5", 10-pin alley arm) from the pole to the cable, and the cable is attached at the end of the arm.
+  - **Guys** use the template's guy models (side, head, sidewalk, sidewalk head, pole-to-pole; a down guy is drawn as a head guy marked DG), with no fiber attached. Each guy points against the pull of the cable: a head guy goes in line with the span at a dead end; a side guy goes away from the angle at an angle pole (or out from the road on a straight run). Several guys on one pole are spread apart. The label is the type only (SG, HG, SW, SWH, P2P, DG), because the app does not record the lead length (the template's "6M" / "10M" are its legend examples).
+  - **The template's models with their attributes:**
+    - Proposed pole: P-POLE on P-GPOLE, labelled PROP.POLE / height / clamp, e.g. *CA 8-9*.
+    - Existing electric pole: material / pole tag (or NPT).
+    - Telco pole (Globe, Bayantel, or an owner other than electric): material / ID.
+    - Also the template's own models for loops (on the cable, "15.0m LOOP"), closures (PROPOSED / closure ID), NAPs, the site and the ODF.
+    - The v2.30 "G-ESAA POLE" block is gone.
+  - **Labels where they do not overlap:**
+    - Pole labels point out from the road, and turn when a neighbour's label is in the way.
+    - Pole numbers in circles go near their own pole, off the roads.
+    - Span lengths sit on the road side, mid-span. Loop texts, closure labels, the cable name and street names are slid to free space.
+    - In tight spots (a 9 m span, poles at a corner) some still overlap: check those in AutoCAD.
+  - **Named buildings and places** within about 250 m of the route (shops, schools, churches, offices, barangay halls…), from OpenStreetMap or the offline pack. They are written on the template's *House Number* layer where they do not cover the route.
+- Offline roads from a map pack are now cut exactly at each tile's edge and joined again, so there are no gaps at the tile edges (about every 2.4 km). The road classes and named places also come from the pack. I have not run this path against a real pack here.
+- **Arm symbols: please check the direction.** The template's sample has no arms or guys in use, only in the legend, so I chose the orientation myself: the stem or arrow tip of the arm points from the pole to the cable. If your team draws them the other way, tell me.
+- Tested on your own sample export: its 6 poles and its roads, with an arm, guys, a loop, a closure and a NAP added for the test. The structure checker finds no new problems. AutoCAD itself is not available to me, so the first open in AutoCAD is the real check.
 
 ## What changed in v2.30
 

@@ -601,7 +601,7 @@
       if (el.type !== 'way' || !el.geometry || !el.tags || !el.tags.highway) continue;
       const h = el.tags.highway;
       const cls = MAJOR.has(h) ? 'OSM_ROAD_MAJOR' : MINOR.has(h) ? 'OSM_ROAD_MINOR' : 'OSM_ROAD_PATH';
-      out.push({ cls, name: el.tags.name || el.tags.ref || '', coords: el.geometry.map((g) => [g.lat, g.lon]) });
+      out.push({ cls, name: el.tags.name || el.tags.ref || '', coords: el.geometry.map((g) => [g.lat, g.lon]), hw: h, lanes: el.tags.lanes || '', width: el.tags.width || '', bridge: !!el.tags.bridge && el.tags.bridge !== 'no' }); // v2.31: class, lanes, width, bridge for the plan
     }
     return out;
   }

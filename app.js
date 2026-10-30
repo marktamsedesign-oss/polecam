@@ -677,7 +677,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.30.0';
+  const APP_VER = '2.31.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -5552,12 +5552,14 @@
      from the AutoCAD template by tools/dxf-seed) on Google Drive and its link in Administration; each phone downloads it
      once (the Android app), or loads the file (Load template file). It is kept on the phone. dxftpl.js fills a copy. */
   const SEED_KEY = '~dxfseed';
-  const dxfMode = () => (S.exp.dxfMode === 'simple' || (S.exp.dxfMode !== 'tpl' && !S.dxfSeed) ? 'simple' : 'tpl');
+  // v2.31: the company template is the default as soon as the admin shares one (or one is on the phone); Simple only when chosen
+  const dxfMode = () => (S.exp.dxfMode === 'simple' || (S.exp.dxfMode !== 'tpl' && !S.dxfSeed && !driveId(pol().dxfSeed || '')) ? 'simple' : 'tpl');
   function seedOk(text) { return typeof text === 'string' && /\bSECTION\b/.test(text.slice(0, 4000)) && /@@\w+@@/.test(text) && /\nGEO\r?\n/.test(text); }
   async function storeSeed(text, name, from) {
     if (!seedOk(text)) throw new Error('This is not the prepared G-eSAA plan template (no @@ fields or no GEO sheet). Use the seed made from your AutoCAD template, e.g. G-eSAA_seed….dxf, not the template itself.');
     await dbPut('packs', { k: SEED_KEY, text });
-    S.dxfSeed = { name: String(name || 'template.dxf').slice(0, 80), size: text.length, at: new Date().toISOString(), from: from || 'file' }; S.exp.dxfMode = 'tpl'; persist();
+    S.dxfSeed = { name: String(name || 'template.dxf').slice(0, 80), size: text.length, at: new Date().toISOString(), from: from || 'file', id: from === 'drive' ? driveId(pol().dxfSeed || '') : '' };
+    if (S.exp.dxfMode !== 'simple') S.exp.dxfMode = 'tpl'; persist();
     LOG.info('dxf.seed', { kb: Math.round(text.length / 1024), from }); renderDxfTpl();
     toast(`Plan template ready: ${S.dxfSeed.name}`, 3500);
   }
@@ -5567,83 +5569,141 @@
     $('dxfMode').value = tpl ? 'tpl' : 'simple'; $('dxfTplBox').hidden = !tpl;
     $('dxfDescTpl').hidden = !tpl; $('dxfDescSimple').hidden = tpl;
     ['dxfPhotos', 'dxfPhotoW', 'setSym'].forEach((k) => { const el = $(k); const row = el && (el.closest('.opt2') || el.closest('label')); if (row) row.hidden = tpl; });
-    $('dxfTplInfo').textContent = info ? `Template: ${info.name} (${fmtMB(info.size)}), on this phone since ${fmtTime(info.at)}.` : id ? 'No plan template on this phone yet. Your admin has shared it: download it below (Android app), or open the link, download the file and Load it.' : 'No plan template on this phone yet. Load the prepared template file (from your admin), or ask your admin to put its link in Administration.';
-    $('dxfTplGet').hidden = !id; $('dxfTplGet').textContent = info ? 'Download it again from your admin’s link' : 'Download it from your admin’s link';
+    const stale = info && id && info.from === 'drive' && info.id && info.id !== id;
+    $('dxfTplInfo').textContent = info ? `Template: ${info.name} (${fmtMB(info.size)}), on this phone since ${fmtTime(info.at)}.${stale ? ' Your admin has shared a newer one: tap Update.' : ''}` : id ? (NATIVE ? 'Your admin has shared the plan template: it downloads by itself when you export (or tap Get the template now), then stays on this phone.' : 'Your admin has shared the plan template: tap Get the template (once; it stays on this phone).') : 'No plan template on this phone yet. Load the prepared template file (from your admin), or ask your admin to put its link in Administration.';
+    $('dxfTplGet').hidden = !id; $('dxfTplGet').textContent = info ? (stale ? 'Update from your admin' : 'Download it again') : 'Get the template';
+    $('dxfTplGet').classList.toggle('primary', !info || !!stale);
     $('dxfTplLoad').textContent = info ? 'Load another template file…' : 'Load template file…';
   }
   $('dxfMode').addEventListener('change', () => { S.exp.dxfMode = $('dxfMode').value; persist(); renderDxfTpl(); });
   $('dxfTplLoad').addEventListener('click', () => { $('dxfTplFile').value = ''; $('dxfTplFile').click(); });
   $('dxfTplFile').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (!f) return; busy('Reading the plan template…'); try { await storeSeed(await f.text(), f.name, 'file'); } finally { busy(false); } }, 'Template not loaded'));
-  async function downloadSeed() {
+  /** v2.31: the admin's template, fetched and kept: the Android app through Android (Google Drive allows it); the website tries the
+      same link and, when the browser is not allowed to read Google Drive, says how to get the file instead. quiet: no busy
+      screen and no message (a download in the background). Returns true when the template is on the phone afterwards. */
+  async function downloadSeed(quiet) {
     const id = driveId(pol().dxfSeed || ''); if (!id) throw new Error('Your admin has not shared a plan template link');
-    if (!NATIVE) { openExternal(driveViewUrl(id)); toast('Download the template file in Drive, then come back and tap Load template file', 7000); return false; }
-    busy('Downloading the plan template…');
+    if (!quiet) busy('Downloading the plan template…');
     try {
-      const r = await withTimeout(nativeGet(driveDownloadUrl(id), {}, 'text'), 90000, 'Google Drive did not answer');
-      if (r.status !== 200) throw new Error(`Google Drive answered HTTP ${r.status}`);
-      const text = typeof r.data === 'string' ? r.data : new TextDecoder().decode(nativeBytes(r.data));
-      if (/^\s*<!DOCTYPE html|<html/i.test(text.slice(0, 300))) throw new Error('Google Drive sent a web page instead of the template. Set the file’s sharing to “Anyone with the link”.');
+      let text = '';
+      if (NATIVE) {
+        const r = await withTimeout(nativeGet(driveDownloadUrl(id), {}, 'text'), 90000, 'Google Drive did not answer');
+        if (r.status !== 200) throw new Error(`Google Drive answered HTTP ${r.status}`);
+        text = typeof r.data === 'string' ? r.data : new TextDecoder().decode(nativeBytes(r.data));
+      } else {
+        let r = null;
+        try { r = await withTimeout(fetch(driveDownloadUrl(id), { credentials: 'omit' }), 60000, 'Google Drive did not answer'); } catch (e) { LOG.warn('dxf.seed.web', errInfo(e)); r = null; }
+        if (!r || !r.ok) {
+          if (quiet) return false;
+          busy(false);
+          const how = await ask('Get the plan template', 'This browser is not allowed to read the file from Google Drive by itself (the Android app can).\n\n1. Open in Drive and download the file.\n2. Come back and tap Load the downloaded file.\n\nIt stays on this phone afterwards.', [{ label: 'Cancel', value: '' }, { label: 'Load the downloaded file', value: 'load' }, { label: 'Open in Drive', value: 'drive', primary: true }]);
+          if (how === 'drive') openExternal(driveViewUrl(id)); else if (how === 'load') { $('dxfTplFile').value = ''; $('dxfTplFile').click(); }
+          return false;
+        }
+        text = await r.text();
+      }
+      if (/^\s*<!DOCTYPE html|<html/i.test(text.slice(0, 300))) throw new Error('Google Drive sent a web page instead of the template. Ask your admin to set the file’s sharing to “Anyone with the link”.');
       await storeSeed(text, 'Template from your admin (Google Drive)', 'drive');
       return true;
-    } finally { busy(false); }
+    } finally { if (!quiet) busy(false); }
   }
+  /** The template ready for an export: on the phone, else downloaded now (and updated when the admin's link changed). */
+  async function ensureSeed() {
+    let seed = await seedText(); const id = driveId(pol().dxfSeed || ''), info = S.dxfSeed;
+    const stale = seed && id && info && info.from === 'drive' && info.id && info.id !== id;
+    if ((!seed || stale) && id && navigator.onLine !== false) {
+      try { if (await downloadSeed(!!seed && !NATIVE)) seed = await seedText(); } catch (e) { if (!seed) throw e; LOG.warn('dxf.seed.update', errInfo(e)); }
+    }
+    return seed;
+  }
+  /** Android app: the admin's template fetched in the background once the list has a link, so the first export does not wait. */
+  function seedInBackground() {
+    if (!NATIVE || S.dxfSeed && !(S.dxfSeed.from === 'drive' && S.dxfSeed.id && S.dxfSeed.id !== driveId(pol().dxfSeed || ''))) return;
+    if (!driveId(pol().dxfSeed || '') || navigator.onLine === false) return;
+    downloadSeed(true).catch((e) => LOG.warn('dxf.seed.bg', errInfo(e)));
+  }
+  setTimeout(() => { try { seedInBackground(); } catch (e) { /* not ready */ } }, 8000);
   $('dxfTplGet').addEventListener('click', () => guard(downloadSeed, 'Template not downloaded'));
   /** The roads around the plan: OpenStreetMap from the internet (Overpass), else from an offline map pack that covers them. */
-  async function planRoads(bb) { // bb: [south, west, north, east]
-    const conv = (list) => list.map((r) => ({ cls: r.cls === 'OSM_ROAD_MAJOR' ? 'major' : r.cls === 'OSM_ROAD_PATH' ? 'path' : 'minor', name: r.name || '', pts: r.coords.map(([la, lo]) => { const u = C.utmForward(la, lo, S.zone, la < 0); return [u.E, u.N]; }) }));
+  /** The roads and named places around the plan: OpenStreetMap from the internet (Overpass), else from an offline map pack that
+      covers them. bb: [south, west, north, east] of the vicinity; nb: the same for the places (round the route only). */
+  async function planRoads(bb, nb) {
+    const U = (la, lo) => { const u = C.utmForward(la, lo, S.zone, la < 0); return [u.E, u.N]; };
+    const conv = (list) => list.map((r) => ({ cls: r.cls === 'OSM_ROAD_MAJOR' ? 'major' : r.cls === 'OSM_ROAD_PATH' ? 'path' : 'minor', hw: r.hw || '', lanes: r.lanes || '', width: r.width || '', bridge: !!r.bridge, name: r.name || '', pts: r.coords.map(([la, lo]) => U(la, lo)) }));
     if (navigator.onLine !== false) {
       try {
-        busy('Downloading the roads from OpenStreetMap…');
-        const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 60000);
-        const q = `[out:json][timeout:60];way["highway"](${bb.map((v) => v.toFixed(6)).join(',')});out geom;`;
+        busy('Downloading the roads and places from OpenStreetMap…');
+        const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 90000), B = bb.map((v) => v.toFixed(6)).join(','), NB = (nb || bb).map((v) => v.toFixed(6)).join(',');
+        const kinds = ['building', 'amenity', 'shop', 'office', 'leisure', 'tourism', 'healthcare', 'craft', 'historic'];
+        const q = `[out:json][timeout:90];way["highway"](${B});out geom;(${kinds.map((k) => `nwr["name"]["${k}"](${NB});`).join('')});out center tags;`;
         const r = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(q) });
         clearTimeout(tm);
-        if (r.ok) { const roads = conv(C.roadsFromOverpass(await r.json())); return { roads, note: `${roads.length} roads from OpenStreetMap (Overpass)` }; }
+        if (r.ok) {
+          const js = await r.json(), roads = conv(C.roadsFromOverpass(js)), pois = [];
+          for (const el of js.elements || []) {
+            if (!el.tags || !el.tags.name || el.tags.highway) continue;
+            const la = el.lat != null ? el.lat : el.center && el.center.lat, lo = el.lon != null ? el.lon : el.center && el.center.lon; if (la == null || lo == null) continue;
+            const [E, N] = U(la, lo); pois.push({ name: el.tags.name, kind: kinds.map((k) => el.tags[k]).find(Boolean) || '', E, N });
+          }
+          return { roads, pois, note: `${roads.length} roads and ${pois.length} named places from OpenStreetMap (Overpass)` };
+        }
       } catch (e) { LOG.warn('plan.roads.online', errInfo(e)); }
     }
-    try { const R = await roadsFromPack(bb); if (R) return R; } catch (e) { LOG.warn('plan.roads.pack', errInfo(e)); }
-    return { roads: [], note: navigator.onLine === false ? 'no roads: offline, and no offline map pack covers the area' : 'no roads: OpenStreetMap did not answer and no offline map pack covers the area' };
+    try { const R = await roadsFromPack(bb, nb); if (R) return R; } catch (e) { LOG.warn('plan.roads.pack', errInfo(e)); }
+    return { roads: [], pois: [], note: navigator.onLine === false ? 'no roads: offline, and no offline map pack covers the area' : 'no roads: OpenStreetMap did not answer and no offline map pack covers the area' };
   }
-  /** Roads read from a downloaded map pack (Protomaps vector tiles, zoom 14) that covers the area. */
-  async function roadsFromPack(bb) {
+  /** Roads and named places read from a downloaded map pack (Protomaps vector tiles, zoom 14) that covers the area. Each road is
+      cut exactly at its tile's edge, so the pieces of neighbouring tiles meet (the plan joins them again). */
+  async function roadsFromPack(bb, nb) {
     if (!window.protomapsL || !window.protomapsL.PmtilesSource) return null;
     const pk = Object.values(S.packs || {}).find((p) => p.done && p.bbox && p.bbox[0] <= bb[1] && p.bbox[2] >= bb[3] && p.bbox[1] <= bb[0] && p.bbox[3] >= bb[2])
       || Object.values(S.packs || {}).find((p) => p.done && p.bbox && !(p.bbox[2] < bb[1] || p.bbox[0] > bb[3] || p.bbox[3] < bb[0] || p.bbox[1] > bb[2]));
     if (!pk) return null;
     busy(`Reading the roads from the offline map ${pk.name}…`);
     const src = new window.protomapsL.PmtilesSource(new window.protomapsL.PMTiles(new PackSource(pk.id)), false), z = Math.min(14, pk.maxzoom || 14), TS = 4096, n = 2 ** z;
-    const x0 = lon2tx(bb[1], z), x1 = lon2tx(bb[3], z), y0 = lat2ty(bb[2], z), y1 = lat2ty(bb[0], z), out = [];
+    const x0 = lon2tx(bb[1], z), x1 = lon2tx(bb[3], z), y0 = lat2ty(bb[2], z), y1 = lat2ty(bb[0], z), out = [], pois = [], P = nb || bb;
     if ((x1 - x0 + 1) * (y1 - y0 + 1) > 64) return null;
     const toLL = (x, y, px, py) => { const lon = (x + px / TS) / n * 360 - 180, m = Math.PI * (1 - 2 * (y + py / TS) / n); return [Math.atan(Math.sinh(m)) * 180 / Math.PI, lon]; };
+    const KIND = { highway: 'trunk', major_road: 'secondary', minor_road: 'residential', path: 'footway', other: 'service' };
+    const clip = window.GeDxfTpl && window.GeDxfTpl.clipLine;
     for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
       const layers = await src.get({ z, x, y }, TS), roads = layers.get('roads') || [];
       for (const f of roads) {
         if (f.geomType !== 2) continue;
-        const k = String((f.props && f.props.kind) || ''), cls = /highway|major/.test(k) ? 'OSM_ROAD_MAJOR' : /path/.test(k) ? 'OSM_ROAD_PATH' : 'OSM_ROAD_MINOR';
-        for (const line of f.geom) { // the part inside this tile only (tiles overlap a little)
-          const pts = line.map((q) => [q.x, q.y]); let cur = [];
-          const inT = (q) => q[0] >= 0 && q[0] <= TS && q[1] >= 0 && q[1] <= TS;
-          pts.forEach((q) => { if (inT(q)) cur.push(q); else { if (cur.length > 1) out.push({ cls, name: (f.props && f.props.name) || '', coords: cur.map((c) => toLL(x, y, c[0], c[1])) }); cur = []; } });
-          if (cur.length > 1) out.push({ cls, name: (f.props && f.props.name) || '', coords: cur.map((c) => toLL(x, y, c[0], c[1])) });
+        const pr = f.props || {}, k = String(pr.kind || ''), cls = /highway|major/.test(k) ? 'OSM_ROAD_MAJOR' : /path/.test(k) ? 'OSM_ROAD_PATH' : 'OSM_ROAD_MINOR';
+        let hw = String(pr.kind_detail || KIND[k] || 'residential'); if (pr.is_link && !/_link$/.test(hw)) hw += '_link';
+        for (const line of f.geom) {
+          const pts = line.map((q) => [q.x, q.y]);
+          const pieces = clip ? clip(pts, [0, 0, TS, TS]) : [pts.filter((q) => q[0] >= 0 && q[0] <= TS && q[1] >= 0 && q[1] <= TS)];
+          for (const pc of pieces) if (pc.length > 1) out.push({ cls, hw, bridge: !!pr.is_bridge, name: pr.name || '', coords: pc.map((c) => toLL(x, y, c[0], c[1])) });
         }
       }
+      for (const f of layers.get('pois') || []) { // named places (shops, schools, churches…)
+        const pr = f.props || {}; if (f.geomType !== 1 || !pr.name) continue;
+        for (const line of f.geom) for (const q of line) { const [la, lo] = toLL(x, y, q.x, q.y); if (la >= P[0] && la <= P[2] && lo >= P[1] && lo <= P[3]) { const u = C.utmForward(la, lo, S.zone, la < 0); pois.push({ name: pr.name, kind: pr.kind || '', E: u.E, N: u.N }); } }
+      }
     }
-    const conv = (list) => list.map((r) => ({ cls: r.cls === 'OSM_ROAD_MAJOR' ? 'major' : r.cls === 'OSM_ROAD_PATH' ? 'path' : 'minor', name: r.name || '', pts: r.coords.map(([la, lo]) => { const u = C.utmForward(la, lo, S.zone, la < 0); return [u.E, u.N]; }) }));
-    return { roads: conv(out), note: `${out.length} road pieces from the offline map ${pk.name} (OpenStreetMap)` };
+    const conv = (list) => list.map((r) => ({ cls: r.cls === 'OSM_ROAD_MAJOR' ? 'major' : r.cls === 'OSM_ROAD_PATH' ? 'path' : 'minor', hw: r.hw, bridge: r.bridge, name: r.name || '', pts: r.coords.map(([la, lo]) => { const u = C.utmForward(la, lo, S.zone, la < 0); return [u.E, u.N]; }) }));
+    return { roads: conv(out), pois, note: `${out.length} road pieces and ${pois.length} named places from the offline map ${pk.name} (OpenStreetMap)` };
   }
   const CAB_TITLE = { F72: 'PROPOSED 72C FIGURE 8 FOC', L12: 'PROPOSED 12C LIGHT CABLE', U144: 'PROPOSED 144C AIR-BLOWN UG FOC' };
   /** The material code of a pole for the drawing (CC / WP / SP …, or NPT when it has no pole tag). */
   function matCode(p) { if (/^NPT/i.test(p.poleId || '')) return 'NPT'; const t = poleTypes().find((x) => x.n === p.poleType); return t ? t.p : ''; }
   async function exportPlanDxf(pts) {
     if (!window.GeDxfTpl) await loadScript('dxftpl.js');
-    let seed = await seedText();
-    if (!seed && pol().dxfSeed && NATIVE) { if (await downloadSeed()) seed = await seedText(); }
-    if (!seed) { toast(pol().dxfSeed ? 'Download the plan template first (Export → AutoCAD · DXF)' : 'Load the plan template file first (Export → AutoCAD · DXF), or choose Simple', 6000); renderDxfTpl(); return; }
+    const seed = await ensureSeed();
+    if (!seed) { if (!pol().dxfSeed) toast('Load the plan template file first (Export → AutoCAD · DXF), or choose Simple', 6000); renderDxfTpl(); return; }
     busy('Preparing the plan drawing…');
     const m = pmeta(), zone = S.zone, U = (q) => { const u = C.utmForward(q.lat, q.lon, zone, q.lat < 0); return [u.E, u.N]; };
     const R = routeModel(), Q = surveyQty(pts), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
-    const rows = pts.map((p) => { const [E, N] = U(p), el = elemOf(p); return { id: p.id, poleId: p.poleId || '', el, status: p.status || '', mat: el === 'Pole' ? matCode(p) : '', E, N, lat: p.lat, lon: p.lon,
-      mloop: !!(p.mloop || (p.boq && p.boq.mloop)), nap: !!p.nap, napId: p.napId || '', closure: !!p.closure, closureId: p.closureId || '', siteName: el === 'Site' ? (m.site || '') : '', plaId: '' }; });
+    // v2.31: what the template's pole models show: proposed pole (its ID unless generic) / height / clamp; an existing pole's material
+    // and pole tag (electric) or material and ID (telco pole: Globe, Bayantel, or a telco owner); the new arm and guying
+    const TELCO_TYPES = new Set(['GT', 'BT']);
+    const rows = pts.map((p) => { const [E, N] = U(p), el = elemOf(p), b = p.boq || {}, pre = typePrefix(p.poleType), own = String(b.owner || '').trim(), generic = !p.poleId || /^P{1,2}-?\d+$/i.test(p.poleId);
+      return { id: p.id, poleId: p.poleId || '', el, status: p.status || '', mat: el === 'Pole' ? (TELCO_TYPES.has(pre) ? '' : pre) : '', tag: el === 'Pole' ? (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId) : '',
+        telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: b.clamp || '',
+        armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon,
+        mloop: !!(p.mloop || b.mloop), nap: !!p.nap, napId: p.napId || '', closure: !!p.closure, closureId: p.closureId || '', siteName: el === 'Site' ? (m.site || '') : '', plaId: '' }; });
     const spans = R.spans.map((s) => ({ ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long }));
     const runs = C.routeChains(R.spans).map((ch) => ({ cable: ch.cable, label: CAB_TITLE[ch.cable] || '', pts: ch.pts.map(U) }));
     // the area of the vicinity map: three times the route, at least 1.5 km
@@ -5651,8 +5711,9 @@
     const cE = (Math.max(...xs) + Math.min(...xs)) / 2, cN = (Math.max(...ys) + Math.min(...ys)) / 2;
     const la = pts.map((p) => p.lat), lo = pts.map((p) => p.lon), cla = (Math.max(...la) + Math.min(...la)) / 2, clo = (Math.max(...lo) + Math.min(...lo)) / 2;
     const dLa = size / 2 / 110574, dLo = size / 2 / (111320 * Math.cos(cla * Math.PI / 180));
-    let roads = [], roadsNote = 'roads not added (Options: untick to leave them out)';
-    if ($('dxfRoads').checked) ({ roads, note: roadsNote } = await planRoads([cla - dLa, clo - dLo, cla + dLa, clo + dLo]));
+    let roads = [], pois = [], roadsNote = 'roads not added (Options: untick to leave them out)';
+    const nLa = (Math.max(...la) - Math.min(...la)) / 2 + 250 / 110574, nLo = (Math.max(...lo) - Math.min(...lo)) / 2 + 250 / (111320 * Math.cos(cla * Math.PI / 180));
+    if ($('dxfRoads').checked) ({ roads, pois, note: roadsNote } = await planRoads([cla - dLa, clo - dLo, cla + dLa, clo + dLo], [cla - nLa, clo - nLo, cla + nLa, clo + nLo]));
     const poles = pts.filter((p) => elemOf(p) === 'Pole'), isNew = (p) => ['Proposed', 'New'].includes(p.status), exist = poles.filter((p) => !isNew(p));
     const own = (p) => String((p.boq && p.boq.owner) || '').toUpperCase(), gt = (p) => /^(GT|GLOBE)/i.test(matCode(p)) || /globe/i.test(p.poleType || '');
     const m1 = (v) => `${(Math.round(v * 10) / 10).toFixed(1)}m`;
@@ -5671,7 +5732,7 @@
     };
     busy('Drawing the plan on the template…');
     await sleep(30);
-    const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinity: [cE, cN, size], date: new Date() });
+    const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinity: [cE, cN, size], date: new Date() });
     const rp = out.report, name = `${fileBase()}_PLAN_UTM${zone}N`;
     const readme = [`${name}.dxf — the plan on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres.`,
       `Sheets: TITLE, TOC, LEGENDS, VICINITY MAP, ROW AREA COVERAGE, KEYMAP, ${rp.sheets.join(', ')}, PMI.`,
@@ -5679,7 +5740,10 @@
       `Roads: ${roadsNote}.`, '',
       `Left blank (not known to the app; fill them in CAD): ${rp.blanks.join(', ') || 'none'}.`,
       'PMI table from the survey: total cable = spans + maintenance loops; aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures. HDD, trenches, maxcell, manhole and service box are not in the survey.',
-      'Proposed poles are red on layer P-GPOLE, existing poles on ELECTRIC POLE (block G-ESAA POLE: CC = material or NPT, NPT = the pole ID).', '', exporterText()].join('\r\n');
+      'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE (PROP.POLE / height / clamp), existing electric pole on ELECTRIC POLE (material / pole tag or NPT), telco pole on GT-POLE (material / ID); new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
+      `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it).`,
+      `Road widths by OpenStreetMap class (or its width / lanes): primary 12 m, secondary 9, tertiary 7.5, residential 6, service 4, track 3.5; paths as a grey centre line. Building and place names: ${rp.counts.pois || 0}.`,
+      'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD.', '', exporterText()].join('\r\n');
     LOG.info('export.plan', { sheets: rp.sheets.length, roads: rp.counts.roads, blanks: rp.blanks.length, mb: +(out.text.length / 1048576).toFixed(2) });
     busy(false);
     offerResult(new Blob(C.makeZipParts([{ name: `${name}.dxf`, data: out.text }, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`);
@@ -9335,5 +9399,5 @@
   }
   window.__polecam = { get points() { return points; }, get S() { return S; }, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
-    surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource }; // for testing
+    surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads }; // for testing
 })();
