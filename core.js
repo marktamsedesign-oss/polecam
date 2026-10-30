@@ -627,6 +627,97 @@
     return `[out:json][timeout:60];way["highway"](${(s - dLat).toFixed(6)},${(w - dLon).toFixed(6)},${(n + dLat).toFixed(6)},${(e + dLon).toFixed(6)});out geom;`;
   }
 
+  /* ---------------- v2.35: G-eSAA road packs (made by tools/osm-pack/make_road_packs.py) ----------------
+     A file: "GESAARP1", the header size (4 bytes), the header (JSON: region, date, bbox, the gzip chunks of each tile), then
+     the chunks. A tile chunk: { r: [[id, class, name, flags, x0, y0, dx1, dy1, …]], p: [[kind, name, x, y]] }; an area chunk:
+     { a: [[level, name, city/municipality, province, [x0, y0, x1, y1], [ring, …]]] }; coordinates in millionths of a degree
+     (x = longitude), each point after the first as the difference from the one before. */
+  const RP_MAGIC = 'GESAARP1';
+  function rpCoords(a, from) {
+    const out = []; let x = 0, y = 0;
+    for (let i = from; i + 1 < a.length; i += 2) { x += a[i]; y += a[i + 1]; out.push([y / 1e6, x / 1e6]); }
+    return out;
+  }
+  /** The tile chunks ([offset, length]) of a road pack header that cover bb = [south, west, north, east]. */
+  function roadPackTiles(h, bb, area) {
+    const c = (area ? h.acell : h.cell) || (area ? 0.25 : 0.05), T = (area ? h.atiles : h.tiles) || {}, out = [];
+    for (let tx = Math.floor(bb[1] / c); tx <= Math.floor(bb[3] / c); tx++) for (let ty = Math.floor(bb[0] / c); ty <= Math.floor(bb[2] / c); ty++) if (T[`${tx},${ty}`]) out.push(T[`${tx},${ty}`]);
+    return out;
+  }
+  /** Roads touching bb and named landmarks inside nb (default bb) from decoded tile chunks: each road once (by its id), and a
+      landmark mapped both as a point and as an area once. Roads come in the shape of roadsFromOverpass. */
+  function roadPackFeatures(chunks, bb, nb) {
+    const seen = new Set(), roads = [], pois = [], P = nb || bb;
+    for (const ch of chunks) {
+      for (const r of ch.r || []) {
+        if (seen.has(r[0])) continue;
+        const coords = rpCoords(r, 4); if (coords.length < 2) continue;
+        let s = 90, w = 180, n = -90, e = -180;
+        for (const [la, lo] of coords) { if (la < s) s = la; if (la > n) n = la; if (lo < w) w = lo; if (lo > e) e = lo; }
+        if (n < bb[0] || s > bb[2] || e < bb[1] || w > bb[3]) continue;
+        seen.add(r[0]);
+        let h = String(r[1] || 'road'); if (/^track_grade/.test(h)) h = 'track'; else if (h === 'unknown') h = 'road';
+        roads.push({ cls: MAJOR.has(h) ? 'OSM_ROAD_MAJOR' : MINOR.has(h) ? 'OSM_ROAD_MINOR' : 'OSM_ROAD_PATH', name: r[2] || '', coords, hw: h, lanes: '', width: '', bridge: !!(r[3] & 1), tunnel: !!(r[3] & 2) });
+      }
+      for (const p of ch.p || []) {
+        const la = p[3] / 1e6, lo = p[2] / 1e6;
+        if (la < P[0] || la > P[2] || lo < P[1] || lo > P[3] || !p[1]) continue;
+        if (pois.some((q) => q.name === p[1] && Math.abs(q.lat - la) < 0.0005 && Math.abs(q.lon - lo) < 0.0005)) continue;
+        pois.push({ name: p[1], kind: p[0] || '', lat: la, lon: lo });
+      }
+    }
+    return { roads, pois };
+  }
+  /** Is (lat, lon) inside an area of a road pack (even-odd over its rings, so holes count)? */
+  function inPackArea(a, lat, lon) {
+    const x = Math.round(lon * 1e6), y = Math.round(lat * 1e6), b = a[4];
+    if (!b || x < b[0] || x > b[2] || y < b[1] || y > b[3]) return false;
+    if (!a._r) a._r = (a[5] || []).map((r) => { const xs = [], ys = []; let px = 0, py = 0; for (let i = 0; i + 1 < r.length; i += 2) { px += r[i]; py += r[i + 1]; xs.push(px); ys.push(py); } return [xs, ys]; });
+    let inside = false;
+    for (const [xs, ys] of a._r) {
+      for (let i = 0, j = xs.length - 1; i < xs.length; j = i++) {
+        if ((ys[i] > y) !== (ys[j] > y) && x < (xs[j] - xs[i]) * (y - ys[i]) / (ys[j] - ys[i]) + xs[i]) inside = !inside;
+      }
+    }
+    return inside;
+  }
+  /** For each point {lat, lon}: the province, city / municipality and barangay that contain it ('' when no area does). A barangay
+      area may carry its own city / municipality and province names (a PSA file); they come first. */
+  function packAdminAt(areas, points) {
+    const lv = (k) => areas.filter((a) => a[0] === k);
+    const P4 = lv(4), P6 = lv(6), P10 = lv(10), find = (L, q) => L.find((a) => inPackArea(a, q.lat, q.lon));
+    return points.map((q) => {
+      const b = find(P10, q), m = find(P6, q), p = find(P4, q);
+      return { brgy: b ? b[1] : '', muni: (b && b[2]) || (m ? m[1] : ''), prov: (b && b[3]) || (p ? p[1] : '') };
+    });
+  }
+  /** The ROW AREA COVERAGE table of the template (city / municipality cell 1 over barangay rows 1–4, cell 2 over rows 5–7, and
+      the totals) from the places along the route, in route order. Names in capitals; what does not fit: "+N MORE". */
+  function rowCoverage(hits) {
+    const groups = [];
+    for (const h of hits) {
+      if (!h.muni && !h.brgy) continue;
+      let g = groups.find((x) => x.muni === h.muni); if (!g) groups.push(g = { muni: h.muni, brgys: [] });
+      if (h.brgy && !g.brgys.includes(h.brgy)) g.brgys.push(h.brgy);
+    }
+    const U = (s) => String(s || '').toUpperCase(), more = (n) => `+${n} MORE`;
+    const fit = (list, n) => (list.length <= n ? list.map(U) : [...list.slice(0, n - 1).map(U), more(list.length - n + 1)]);
+    const v = {}, nM = groups.filter((g) => g.muni).length, nB = groups.reduce((t, g) => t + g.brgys.length, 0);
+    let m1 = '', m2 = '', r1 = [], r2 = [];
+    if (groups.length === 1) {
+      const g = groups[0]; m1 = U(g.muni); r1 = g.brgys.slice(0, 4).map(U);
+      if (g.brgys.length > 4) { m2 = m1; r2 = fit(g.brgys.slice(4), 3); }
+    } else if (groups.length > 1) {
+      const [g0, g1, ...rest] = groups; m1 = U(g0.muni); r1 = fit(g0.brgys, 4);
+      m2 = U(g1.muni) + (rest.length ? ` ${more(rest.length)}` : ''); r2 = fit([...g1.brgys, ...rest.flatMap((g) => g.brgys)], 3);
+    }
+    v.ROW_MUNICIPALITY_1 = m1; v.ROW_MUNICIPALITY_2 = m2;
+    for (let i = 0; i < 4; i++) v[`ROW_BARANGAY_${i + 1}`] = r1[i] || '';
+    for (let i = 0; i < 3; i++) v[`ROW_BARANGAY_${i + 5}`] = r2[i] || '';
+    v.ROW_MUNICIPALITIES = nM ? String(nM) : ''; v.ROW_BARANGAYS = nB ? String(nB) : '';
+    return { values: v, groups };
+  }
+
   /* ---------------- Pole ID helper ---------------- */
   function nextPoleId(prev) {
     const m = /^(.*?)(\d+)(\D*)$/.exec(prev || '');
@@ -1636,6 +1727,8 @@
 
   const api = { CABLES, parseCsv, companiesFromCsv, utmForward, utmInverse, analyzeRoute, routeChains, autoLinks, distM, deflection, idCandidates, fitShape, knownId, setPolePrefixes, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
     buildKml, buildDxf, buildCsv, roadsFromOverpass, overpassQuery, nextPoleId, safeName, xmlEsc, blockName, findIdBox, stackRows, findStack,
+    RP_MAGIC, roadPackTiles, roadPackFeatures, inPackArea, packAdminAt, rowCoverage, // v2.35
+
     setGlyphModel, glyphReady, glyphRead, glyphPatch, glyphProbs, GCLASSES, _glyph: { inkMaps, textLines, edgeLines, grayOf, glyphText, readLine } };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleCore = api;
 })(typeof self !== 'undefined' ? self : this);

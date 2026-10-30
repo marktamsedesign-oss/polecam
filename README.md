@@ -251,6 +251,7 @@ If the map still stays blank: **Maps** (cloud button on the map, or Settings →
   - The pack is kept in the app's private file storage (OPFS), or in its database on phones without OPFS. Every storage step has a time limit, so a stuck phone shows a message instead of freezing.
 - **Making the pack files:** `MAP-PACKS.md` has the three ways (QGIS plugin, GitHub Actions, command line).
 - Packs published on the website by v1.6–v1.7 are no longer made; packs already on phones keep working.
+- **Road packs (v2.35)** are not maps to look at: one `.roadpack` file per region (18 for the Philippines) with the OpenStreetMap roads, named landmarks, cities / municipalities and barangays, made on a computer from the Geofabrik shapefile with `tools/osm-pack/make_road_packs.py`. They are uploaded, listed by the admin and downloaded or imported exactly like map packs (the list shows *road pack for the plan drawings*). The plan drawing takes its roads, street names, landmarks and the ROW table's cities / municipalities and barangays from the road pack covering the route, with no internet. See `tools/osm-pack/README.md`.
 - **Satellite** has no offline version and is not kept on the phone: Esri allows offline imagery only in its own ArcGIS apps. Street map tiles you viewed online are kept for 7 days and can be cleared under *Map tiles you have viewed*.
 
 ## Online Google Sheet: companies, tasks, map packs (v1.8)
@@ -341,6 +342,7 @@ On the PAT phone: Projects → (PAT project) → *Project details* → **Share t
 ## AutoCAD
 
 - **On the company plan template (v2.30, drawn like the template's sample since v2.31):** Export → AutoCAD · DXF → DRAWING *On the company plan template* gives a ZIP with the DXF, the pole photos, the vicinity street map (v2.32) and a README of the fields left blank. **Unzip everything into one folder** and open the DXF in AutoCAD (it is a full drawing, not an insert). The template (the *seed*) comes from the admin (v2.32: by itself, through the online sheet); see *What changed in v2.30* and *v2.32*.
+- **Roads, landmarks and the ROW table (v2.35):** from the road pack of the region on the phone first (no internet needed, the same roads every time); with no road pack, from OpenStreetMap online (Overpass), then from an offline map pack. The README in the ZIP says which was used and the data date. The ROW AREA COVERAGE table lists the cities / municipalities and barangays the route passes, from the road pack's boundaries; a barangay with no boundary in the pack stays blank and the README says how many points of the route had none.
 - Open the DXF directly or `INSERT`/`XATTACH` it into your drawing. Units are **meters**, coordinates are **UTM 51N (WGS84)** — your drawing must use the same system to line up.
 - **Photos (v2.14):** unzip the DXF ZIP and keep the DXF and the JPEGs **in the same folder**; the photos are attached images (like `IMAGEATTACH`), so moving the DXF alone shows empty frames. If AutoCAD shows a frame without the picture, open `EXTERNALREFERENCES` and point the image to the JPEG. Photo width in the drawing (default 6 m) is in the DXF export options.
 - Poles are circles (v2.14), not blocks: select a type with `QSELECT` by layer (`POLE_CONCRETE`, `POLE_CONCRETE_PROPOSED`…). Freeze `POINT_PHOTO`, `POLE_DETAILS` or `FOC_LENGTH` to hide them.
@@ -371,6 +373,7 @@ Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v2.1.1`), and upload 
 | `tutorial.js` | The Tutorial's topics and steps (v2.25) |
 | `dxftpl.js` | The plan DXF on the company template (v2.30): fills a copy of the seed with the survey; loaded only when that export is made |
 | `tools/dxf-seed/` | Makes the seed from the company's AutoCAD template, fills it for checks, and checks a DXF's structure (Python); not needed by the app |
+| `tools/osm-pack/` | Makes the road packs (v2.35) from the Geofabrik OpenStreetMap shapefile, with an optional barangay boundary file (Python, standard library only); not needed by the app |
 | `sample/G-eSAA_sample.zip` | The sample project a new phone gets (v2.26) |
 | `glyphs.js` | The ID reader's character network (v2.20): its weights, about 140 KB; read by `core.js` |
 | `tools/glyph-training/` | The scripts that trained it (Python); not needed by the app |
@@ -524,6 +527,16 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.35
+
+- **Road packs:** the plan drawing no longer depends on OpenStreetMap answering online. `tools/osm-pack/make_road_packs.py` turns the Geofabrik shapefile of the Philippines (philippines-YYMMDD-free.shp.zip, or its unzipped folder) into one road pack per region (18 files, 2–12 MB each, about 105 MB in all for the 19 Aug 2026 data): roads with class, name, bridge / tunnel; named landmarks (shops, schools, churches, stations…); provinces, cities / municipalities and barangays. The admin uploads them to Google Drive and lists them with the map packs (paste the `packs.txt` the tool writes, with the Drive links filled in; lines starting with # are skipped). Users download (Android app) or import (any phone) the pack of their region once. See `tools/osm-pack/README.md`.
+- **Export → AutoCAD · DXF** takes the roads, street names and landmarks from the road pack covering the route first; OpenStreetMap online and the offline map pack remain as before when no road pack covers it.
+- **ROW AREA COVERAGE** is filled: the cities / municipalities and barangays the route passes (every 20 m of each span and every point), from the road pack's boundaries. The template has two city / municipality cells and seven barangay rows; more than fits shows *+N MORE* and the README lists them all. A long name is made smaller to stay on its row. OpenStreetMap has every province, about half of the cities / municipalities and about 12 % of the barangays (4,904 of about 42,000 in the August 2026 data); for full barangays, give the tool a barangay boundary file (e.g. PSA / NAMRIA on HDX: `--barangays file.zip`), whose names then also give the city / municipality.
+- **Vicinity map:** the route line is three times wider, with longer dashes, so it shows on the street map.
+- **Title sheet:** the company logo at the top right (from v2.34's *Add company logo…*), in place of the company name.
+- The admin's pack list holds 30 packs at most (the signed company list is checked by every phone, older versions too): the 18 road packs leave room for 12 map packs. The app says when lines are left out.
+- No change to the online sheet script (v2.34 stays).
 
 ## What changed in v2.34
 

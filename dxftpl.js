@@ -1,4 +1,4 @@
-/* G-eSAA v2.30–2.34: the plan drawing (DXF) on the company's drawing template.
+/* G-eSAA v2.30–2.35: the plan drawing (DXF) on the company's drawing template.
    The template is prepared once into a "seed" (tools/dxf-seed/make_seed.py): its sample route removed and every field the app
    fills marked @@TOKEN@@. This module fills a copy of the seed with a survey: the sheet grid (440 m cells at 1:1100), one GEO
    sheet per cell the route uses (GEO sheets are copied or removed to match), the viewports of the GEO sheets, KEYMAP and
@@ -18,6 +18,8 @@
    labels; every named road named on every GEO sheet; places turned along their road and kept inside a sheet; the vicinity
    route a broken line with no label; the company logo (or its name, centred) in every title block; the title sheet's
    AFI PLAN / AS-BUILT PLAN; field values that differ by place (title sheet, title block).
+   v2.35: the company logo on the title sheet too; the vicinity route 3 × wider; the ROW table's cities / municipalities and
+   barangays (from the app's road pack boundaries) each on one line of its cell.
    v2.33: each pole label one stack as the template's sample: material / tag without the material / (size) / latitude /
    longitude; a photo's line to its pole crosses no label and no road.
    Only the seed's own layers, blocks and text styles are used (the guy symbols are copied without their fixed "SG 6M" text,
@@ -1068,7 +1070,7 @@
       R.paths.forEach((l) => o.lwpoly(VLAY, l.map(vsh), { color: 8 }));
     }
     const vlt = S.ltypes.has('DASHED') ? 'DASHED' : null;
-    for (const ch of chains) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: 4 * vk, color: ch.existing ? 5 : 1, lt: vlt, lts: vlt ? 7 : 0, gen: true });
+    for (const ch of chains) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: 12 * vk, color: ch.existing ? 5 : 1, lt: vlt, lts: vlt ? 20 * vk : 0, gen: true }); // v2.35: 3 × wider, dashes to match
     if (!job.vicImage) { // no picture: the names of the roads written large
       const done = new Set();
       for (const r of R.roads.slice().sort((a, b) => b.hw - a.hw)) {
@@ -1125,7 +1127,7 @@
       IDX_TL: (sh) => idx(sh, -1, 1), IDX_T: (sh) => idx(sh, 0, 1), IDX_TR: (sh) => idx(sh, 1, 1), IDX_L: (sh) => idx(sh, -1, 0), IDX_C: (sh) => idx(sh, 0, 0), IDX_R: (sh) => idx(sh, 1, 0), IDX_BL: (sh) => idx(sh, -1, -1), IDX_B: (sh) => idx(sh, 0, -1), IDX_BR: (sh) => idx(sh, 1, -1),
       TOC_GEO: () => String(N), TOC_LEGEND: () => String(sheetNames.filter((n) => /^LEGENDS?( \(\d+\))?$/.test(n)).length), TOC_TOTAL: () => String(sheetNames.filter((n) => n !== 'Model').length),
     };
-    const blanks = new Set(), filled = new Set();
+    const blanks = new Set(), filled = new Set(), rowCells = [];
     const fill = (r, sheet, inBlockText) => {
       const t = typ(r); if (t !== 'TEXT' && t !== 'MTEXT') return;
       const txt = (t === 'MTEXT' ? all(r, 3).join('') : '') + (get(r, 1) || ''); if (txt.indexOf('@@') < 0) return;
@@ -1140,6 +1142,7 @@
         if (Array.isArray(v) ? v.length : v !== '') filled.add(k); else blanks.add(k);
         if (Array.isArray(v)) return t === 'MTEXT' ? v.map(mtextEsc).join('\\P') : v.join(' / ');
         v = String(v);
+        if (t === 'MTEXT' && /^ROW_(BARANGAY|MUNICIPALITY)_\d$/.test(k) && v) rowCells.push([r, v]); // v2.35: fitted to its cell below
         if (t === 'MTEXT') { v = mtextEsc(v); if (plain && k === 'LOCATION' && inBlockText && v.includes('_')) { const q = v.lastIndexOf('_'); v = `${v.slice(0, q + 1)}\\P${v.slice(q + 1)}`; } }
         return v;
       });
@@ -1154,11 +1157,22 @@
     // v2.34: the plan's title on the title sheet: the template's AFI PLAN, or AS-BUILT PLAN for an As-Built
     if (job.planTitle) { const tl = S.layouts.find((L) => L.name === 'TITLE'); if (tl) for (const r of layoutEnts(d, S, tl)) { const t = typ(r); if ((t === 'MTEXT' || t === 'TEXT') && textOf(r).includes('AFI PLAN')) setText(r, textOf(r).replace(/AFI PLAN/g, t === 'MTEXT' ? mtextEsc(job.planTitle) : job.planTitle)); } }
     for (const r of d.sec('ENTITIES').recs) { const ow = owner(r); if (ow === S.modelH && String(get(r, 67, '0')).trim() !== '1') fill(r, null, false); }
+    // v2.35: a city / municipality or barangay of the ROW table on one line of its cell: the text box as wide as the cell, and a
+    // long name made smaller (the rows are one line tall)
+    if (rowCells.length) {
+      const mod = d.sec('ENTITIES').recs.filter((r) => owner(r) === S.modelH && (typ(r) === 'LINE' || typ(r) === 'LWPOLYLINE'));
+      for (const [r, v] of rowCells) {
+        const h = +get(r, 40) || 9, x = +get(r, 10), y = +get(r, 20), box = cellOf(mod, x + 1, y - h / 2);
+        const avail = box ? box.x1 - x - h * 0.3 : (+get(r, 41) || 20 * h), need = v.length * h * 0.7;
+        setFirst(r, 41, F(Math.max(+get(r, 41) || 0, avail)));
+        if (need > avail) setFirst(r, 40, F(Math.max(h * 0.45, h * avail / need)));
+      }
+    }
     rep.blanks = [...blanks].filter((k) => !filled.has(k) && !/^IDX_/.test(k)).sort(); // an empty index key = no sheet on that side, not a missing field
     rep.partly = [...blanks].filter((k) => filled.has(k)).sort();
     rep.counts = { ...o.n, roads: nRoads, roadEdges: R.edges.length, pois: nPois, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length };
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0] };
     return { text: d.text(), report: rep };
   }
-  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, version: '2.34' };
+  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, version: '2.35' };
 }));

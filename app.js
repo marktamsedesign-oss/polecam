@@ -677,7 +677,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.34.0';
+  const APP_VER = '2.35.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -797,9 +797,10 @@
   S.packs = S.packs || {};
   Object.values(S.packs).forEach((p) => { if (!p.store) { p.store = 'idb'; p.ch = p.ch || 4 * 1024 * 1024; p.bytes = p.done ? p.size : (p.chunks || 0) * p.ch; } });
   const OPFS_OK = !!(navigator.storage && navigator.storage.getDirectory && window.FileSystemFileHandle && 'createWritable' in window.FileSystemFileHandle.prototype);
-  const installedPacks = () => Object.values(S.packs).filter((p) => p.done);
+  const isRoadPack = (p) => !!p && p.kind === 'roads'; // v2.35: a road pack is data for the drawings, not a map to show
+  const installedPacks = () => Object.values(S.packs).filter((p) => p.done && !isRoadPack(p));
   function activePackId() {
-    if (S.activePack && S.packs[S.activePack] && S.packs[S.activePack].done) return S.activePack;
+    if (S.activePack && S.packs[S.activePack] && S.packs[S.activePack].done && !isRoadPack(S.packs[S.activePack])) return S.activePack;
     const first = installedPacks()[0];
     return first ? first.id : null;
   }
@@ -905,6 +906,62 @@
     if (u8.length < 127 || String.fromCharCode(...u8.subarray(0, 7)) !== 'PMTiles' || u8[7] !== 3) return null;
     const dv = new DataView(u8.buffer, u8.byteOffset, 127), e7 = (o) => dv.getInt32(o, true) / 1e7;
     return { tileType: u8[99], minzoom: u8[100], maxzoom: u8[101], bbox: [e7(102), e7(106), e7(110), e7(114)] };
+  }
+  /* v2.35: road packs (tools/osm-pack): OpenStreetMap roads, landmarks and boundaries of a region for the plan drawings */
+  function roadPackMagic(u8) { return u8.length >= 12 && String.fromCharCode(...u8.subarray(0, 8)) === C.RP_MAGIC; }
+  const rpHeads = new Map();
+  async function roadPackHead(id) {
+    const p = S.packs[id], key = `${id}:${p && p.size}`;
+    if (rpHeads.has(key)) return rpHeads.get(key);
+    const src = new PackSource(id), a = new Uint8Array((await src.getBytes(0, 12)).data);
+    if (!roadPackMagic(a)) return null;
+    const n = new DataView(a.buffer, a.byteOffset, 12).getUint32(8, true);
+    const h = JSON.parse(new TextDecoder().decode(new Uint8Array((await src.getBytes(12, n)).data)));
+    h.base = 12 + n; rpHeads.set(key, h);
+    return h;
+  }
+  async function gunzipJson(u8) {
+    if (typeof DecompressionStream === 'undefined') throw new Error('This phone\'s browser cannot read road packs (no gzip support): update Android System WebView or Chrome');
+    return JSON.parse(await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream('gzip'))).text());
+  }
+  async function roadPackChunk(id, h, [off, len]) { return gunzipJson(new Uint8Array((await new PackSource(id).getBytes(h.base + off, len)).data)); }
+  /** The road packs on this phone that overlap bb = [south, west, north, east], the one holding bb's centre first. */
+  function roadPacksFor(bb) {
+    const cy = (bb[0] + bb[2]) / 2, cx = (bb[1] + bb[3]) / 2, b = (p) => p.bbox;
+    const all = Object.values(S.packs || {}).filter((p) => p.done && isRoadPack(p) && b(p) && !(b(p)[2] < bb[1] || b(p)[0] > bb[3] || b(p)[3] < bb[0] || b(p)[1] > bb[2]));
+    return all.filter((p) => !all.some((q) => q !== p && q.region && q.region === p.region && String(q.date || '') > String(p.date || ''))) // an older copy of a region: the newest only
+      .sort((p, q) => (b(q)[0] <= cx && b(q)[2] >= cx && b(q)[1] <= cy && b(q)[3] >= cy) - (b(p)[0] <= cx && b(p)[2] >= cx && b(p)[1] <= cy && b(p)[3] >= cy));
+  }
+  const rpDate = (h) => (h && h.date) || '';
+  /** Roads and named places for the plan from the road packs covering the area, or null when no road pack covers it. */
+  async function roadsFromRoadPacks(bb, nb) {
+    const packs = roadPacksFor(bb); if (!packs.length) return null;
+    busy(`Reading the roads from ${packs.map((p) => p.name).join(', ')}…`);
+    const chunks = [], used = [];
+    for (const p of packs) {
+      const h = await roadPackHead(p.id); if (!h) continue;
+      const T = C.roadPackTiles(h, bb); if (!T.length) continue;
+      for (const t of T) chunks.push(await roadPackChunk(p.id, h, t));
+      used.push(`${h.region || p.name} (OpenStreetMap ${rpDate(h)})`);
+    }
+    if (!used.length) return null;
+    const F = C.roadPackFeatures(chunks, bb, nb);
+    if (!F.roads.length) return null;
+    return { roads: F.roads, pois: F.pois, note: `${F.roads.length} roads and ${F.pois.length} named places from the road pack ${used.join(' + ')}` };
+  }
+  /** The province, city / municipality and barangay of each point {lat, lon} from the road packs' boundaries, with what was used. */
+  async function adminFromRoadPacks(points) {
+    if (!points.length) return null;
+    const la = points.map((q) => q.lat), lo = points.map((q) => q.lon), bb = [Math.min(...la), Math.min(...lo), Math.max(...la), Math.max(...lo)];
+    const packs = roadPacksFor(bb); if (!packs.length) return null;
+    const areas = [], seen = new Set(), src = [];
+    for (const p of packs) {
+      const h = await roadPackHead(p.id); if (!h || !h.abig) continue;
+      for (const t of [h.abig, ...C.roadPackTiles(h, bb, true)]) for (const a of (await roadPackChunk(p.id, h, t)).a || []) { const k = `${a[0]}|${a[1]}|${a[4]}`; if (!seen.has(k)) { seen.add(k); areas.push(a); } }
+      src.push(`${h.region} (cities / municipalities: OpenStreetMap ${rpDate(h)}; barangays: ${h.barangays || 'OpenStreetMap'})`);
+    }
+    if (!src.length) return null;
+    return { hits: C.packAdminAt(areas, points), src: src.join(' + ') };
   }
   function offlineLayer() {
     const id = activePackId();
@@ -5665,6 +5722,11 @@
   async function planRoads(bb, nb) {
     const U = (la, lo) => { const u = C.utmForward(la, lo, S.zone, la < 0); return [u.E, u.N]; };
     const conv = (list) => list.map((r) => ({ cls: r.cls === 'OSM_ROAD_MAJOR' ? 'major' : r.cls === 'OSM_ROAD_PATH' ? 'path' : 'minor', hw: r.hw || '', lanes: r.lanes || '', width: r.width || '', bridge: !!r.bridge, name: r.name || '', pts: r.coords.map(([la, lo]) => U(la, lo)) }));
+    // v2.35: a road pack on the phone first: no internet needed, and the same roads every time
+    try {
+      const P = await roadsFromRoadPacks(bb, nb);
+      if (P) return { roads: conv(P.roads), pois: P.pois.map((q) => { const [E, N] = U(q.lat, q.lon); return { name: q.name, kind: q.kind, E, N }; }), note: P.note };
+    } catch (e) { LOG.warn('plan.roads.roadpack', errInfo(e)); }
     if (navigator.onLine !== false) {
       try {
         busy('Downloading the roads and places from OpenStreetMap…');
@@ -5685,14 +5747,15 @@
       } catch (e) { LOG.warn('plan.roads.online', errInfo(e)); }
     }
     try { const R = await roadsFromPack(bb, nb); if (R) return R; } catch (e) { LOG.warn('plan.roads.pack', errInfo(e)); }
-    return { roads: [], pois: [], note: navigator.onLine === false ? 'no roads: offline, and no offline map pack covers the area' : 'no roads: OpenStreetMap did not answer and no offline map pack covers the area' };
+    return { roads: [], pois: [], note: navigator.onLine === false ? 'no roads: offline, and no road pack or offline map pack covers the area' : 'no roads: OpenStreetMap did not answer and no road pack or offline map pack covers the area' };
   }
   /** Roads and named places read from a downloaded map pack (Protomaps vector tiles, zoom 14) that covers the area. Each road is
       cut exactly at its tile's edge, so the pieces of neighbouring tiles meet (the plan joins them again). */
   async function roadsFromPack(bb, nb) {
     if (!window.protomapsL || !window.protomapsL.PmtilesSource) return null;
-    const pk = Object.values(S.packs || {}).find((p) => p.done && p.bbox && p.bbox[0] <= bb[1] && p.bbox[2] >= bb[3] && p.bbox[1] <= bb[0] && p.bbox[3] >= bb[2])
-      || Object.values(S.packs || {}).find((p) => p.done && p.bbox && !(p.bbox[2] < bb[1] || p.bbox[0] > bb[3] || p.bbox[3] < bb[0] || p.bbox[1] > bb[2]));
+    const maps = Object.values(S.packs || {}).filter((p) => p.done && !isRoadPack(p) && p.bbox);
+    const pk = maps.find((p) => p.bbox[0] <= bb[1] && p.bbox[2] >= bb[3] && p.bbox[1] <= bb[0] && p.bbox[3] >= bb[2])
+      || maps.find((p) => !(p.bbox[2] < bb[1] || p.bbox[0] > bb[3] || p.bbox[3] < bb[0] || p.bbox[1] > bb[2]));
     if (!pk) return null;
     busy(`Reading the roads from the offline map ${pk.name}…`);
     const src = new window.protomapsL.PmtilesSource(new window.protomapsL.PMTiles(new PackSource(pk.id)), false), z = Math.min(14, pk.maxzoom || 14), TS = 4096, n = 2 ** z;
@@ -5896,6 +5959,23 @@
       PMI_RTA_OTHER_PLDT: String(exist.filter((p) => !gt(p) && own(p) && !/CONVERGE|ELECTRIC/.test(own(p))).length),
       PMI_FIBER_TERMINATION: String(q.ODF_NEW_FIBERS || 0), PMI_HYBRID_CLOSURE: String(Object.entries(q).filter(([k]) => /^CLOSURE_NEW_/.test(k)).reduce((t, [, v]) => t + (+v || 0), 0)),
     };
+    // v2.35: the ROW AREA COVERAGE sheet: the cities / municipalities and barangays the route passes (every 20 m of each span and
+    // every point), from the boundaries in a road pack on this phone
+    let rowNote = 'no road pack on this phone covers the route, so the table is left blank (Maps → Offline map packs → Roads · your region)';
+    try {
+      const samp = [];
+      for (const s of R.spans) { const n = Math.max(1, Math.ceil((s.len || 0) / 20)); for (let k = 0; k <= n; k++) samp.push({ lat: s.a.lat + (s.b.lat - s.a.lat) * k / n, lon: s.a.lon + (s.b.lon - s.a.lon) * k / n }); }
+      pts.forEach((p) => samp.push({ lat: p.lat, lon: p.lon }));
+      busy('Finding the barangays along the route…');
+      const A = await adminFromRoadPacks(samp);
+      if (A) {
+        const rc = C.rowCoverage(A.hits), noB = A.hits.filter((h) => !h.brgy).length, noM = A.hits.filter((h) => !h.muni).length;
+        Object.assign(values, rc.values);
+        rowNote = rc.groups.length ? `${rc.groups.map((g) => `${g.muni || '(city / municipality not in the boundaries)'}: ${g.brgys.join(', ') || 'no barangay boundary'}`).join('; ')}`
+          + `${noB ? ` · ${noB} of ${A.hits.length} points along the route are in no barangay boundary of the road pack (OpenStreetMap has only part of the barangays): fill those in CAD` : ''}${noM ? ` · ${noM} points are in no city / municipality boundary` : ''}. Source: ${A.src}`
+          : `the route is in no city / municipality or barangay boundary of the road pack (${A.src}): the table is left blank`;
+      }
+    } catch (e) { LOG.warn('plan.row', errInfo(e)); rowNote = `not filled: ${e.message || e}`; }
     // v2.32: the photo of each pole beside it on the drawing (the JPEGs go next to the DXF), and the street map on the vicinity sheet
     const names = uniqueNames(pts), photos = {}, files = [];
     for (let i = 0; i < poles.length; i++) {
@@ -5926,7 +6006,8 @@
       'Cables: red = new fiber, blue = existing; broken line = aerial, solid line = underground.',
       `Sheets: TITLE, TOC, LEGENDS, VICINITY MAP, ROW AREA COVERAGE, KEYMAP, ${rp.sheets.join(', ')}, PMI.`,
       `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${rp.grid.cell} m (1:1100 on the GEO sheets).`,
-      `Roads: ${roadsNote}.`, '',
+      `Roads: ${roadsNote}.`,
+      `Right of way (ROW AREA COVERAGE): ${rowNote}.`, '',
       `Left blank (not known to the app; fill them in CAD): ${rp.blanks.join(', ') || 'none'}.`,
       'PMI table from the survey: total cable = spans + maintenance loops; aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures. HDD, trenches, maxcell, manhole and service box are not in the survey.',
       'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE (PROP.POLE / height / clamp), existing electric pole on ELECTRIC POLE (material / pole tag or NPT), telco pole on GT-POLE (material / ID); new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
@@ -8821,18 +8902,19 @@
   /** Admin map packs (name | Drive link | MB), one per line. Only the Drive file id is kept, so the list and its QR stay small. */
   function parsePackLines(text) {
     const packs = [], bad = [];
-    String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).forEach((l) => {
+    String(text || '').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#')).forEach((l) => { // v2.35: # lines (packs.txt) skipped
       const parts = l.split(/\s*[|\t]\s*/), link = parts.find((x) => driveId(x)), d = link && driveId(link);
       if (!d) { bad.push(l.slice(0, 40)); return; }
       const name = (parts[0] && parts[0] !== link ? parts[0] : 'Map pack').slice(0, 60), mb = +String(parts.find((x, i) => i > 0 && x !== link && /^\d+(\.\d+)?\s*(mb)?$/i.test(x)) || '').replace(/[^\d.]/g, '') || 0;
       if (!packs.some((x) => x.d === d)) packs.push({ n: name, d, ...(mb ? { mb: Math.min(100000, Math.round(mb)) } : {}) });
     });
-    return { packs: packs.slice(0, 30), bad };
+    return { packs: packs.slice(0, 30), bad }; // 30 at most: phones check the signed list (18 road packs leave 12 for map packs)
   }
   const packLines = (list) => (list || []).map((x) => `${x.n} | https://drive.google.com/file/d/${x.d}/view${x.mb ? ` | ${x.mb}` : ''}`).join('\n');
   $('admPacks').addEventListener('change', () => {
     const { packs, bad } = parsePackLines($('admPacks').value);
-    $('admPacksInfo').textContent = `${packs.length} map pack${packs.length === 1 ? '' : 's'}${bad.length ? ` · not a Google Drive link: ${bad.join('; ')}` : ''}`;
+    const n = String($('admPacks').value || '').split('\n').filter((l) => l.trim() && !l.trim().startsWith('#') && driveId(l)).length;
+    $('admPacksInfo').textContent = `${packs.length} map pack${packs.length === 1 ? '' : 's'}${n > packs.length ? ` · only the first 30 are kept (${n - packs.length} left out): the list holds 30 at most` : ''}${bad.length ? ` · not a Google Drive link: ${bad.join('; ')}` : ''}`;
   });
   /** With the online sheet connected and its admin key on this phone, the MapPacks tab follows the list (users then see them after Refresh list). */
   function renderOrgBox(create) {
@@ -9016,9 +9098,11 @@
       const d = document.createElement('div');
       const t = document.createElement('span'); t.className = 't'; t.textContent = p.name || p.id;
       const s2 = document.createElement('span'); s2.className = 's';
-      const size = (inst && inst.size) || p.size;
-      s2.textContent = [size ? fmtMB(size) : '', p.date || (inst && inst.date) ? `map data ${fmtDate8((inst && inst.date) || p.date)}` : '',
-        done ? (p.id === act ? 'on this phone · in use' : 'on this phone') : partial ? `${size ? Math.round((inst.bytes / size) * 100) + '% ' : fmtMB(inst.bytes) + ' '}downloaded` : 'not on this phone',
+      const size = (inst && inst.size) || p.size, road = isRoadPack(inst) || (!inst && /^roads\b/i.test(p.name || ''));
+      const cn = inst && inst.counts;
+      s2.textContent = [road ? 'road pack for the plan drawings' : '', size ? fmtMB(size) : '', p.date || (inst && inst.date) ? `${road ? 'OpenStreetMap' : 'map data'} ${fmtDate8((inst && inst.date) || p.date)}` : '',
+        done && road && cn ? `${(cn.roads || 0).toLocaleString()} roads · ${(cn.landmarks || 0).toLocaleString()} landmarks · ${cn.municipalities || 0} cities / municipalities · ${cn.barangays || 0} barangays${inst.barangays && inst.barangays !== 'OpenStreetMap' ? ` (${inst.barangays})` : ''}` : '',
+        done ? (road ? 'on this phone' : p.id === act ? 'on this phone · in use' : 'on this phone') : partial ? `${size ? Math.round((inst.bytes / size) * 100) + '% ' : fmtMB(inst.bytes) + ' '}downloaded` : 'not on this phone',
         p.drive && !done ? 'Google Drive' : '', p.notes || ''].filter(Boolean).join(' · ');
       d.append(t, s2);
       const mk = (label, cls, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (cls || ''); b.textContent = label; b.addEventListener('click', fn); return b; };
@@ -9028,8 +9112,8 @@
         else if (p.drive && NATIVE) btns.push(mk(partial ? 'Resume' : 'Download', 'primary', () => downloadPack(p)));
         if (p.drive) btns.push(mk('Open in Drive', '', () => { openExternal(driveViewUrl(p.drive)); if (!NATIVE) toast('Download the file in Drive, then come back and tap Import a pack file', 6000); }));
       }
-      if (done && p.id !== act) btns.push(mk('Use', '', () => { S.activePack = p.id; persist(); if (S.base === 'offline') setBase('offline', true); renderOffline(); }));
-      if (done) btns.push(mk('Show', '', async () => { S.activePack = p.id; persist(); await closeSheet(); setBase('offline'); const b = inst.bbox; if (b) map.fitBounds([[b[1], b[0]], [b[3], b[2]]]); }));
+      if (done && !road && p.id !== act) btns.push(mk('Use', '', () => { S.activePack = p.id; persist(); if (S.base === 'offline') setBase('offline', true); renderOffline(); }));
+      if (done && !road) btns.push(mk('Show', '', async () => { S.activePack = p.id; persist(); await closeSheet(); setBase('offline'); const b = inst.bbox; if (b) map.fitBounds([[b[1], b[0]], [b[3], b[2]]]); }));
       if (inst || p.from === 'link') btns.push(mk(inst ? 'Delete' : 'Remove', 'danger', function () {
         if (!this.dataset.armed) { this.dataset.armed = '1'; this.textContent = 'Confirm'; setTimeout(() => { delete this.dataset.armed; this.textContent = inst ? 'Delete' : 'Remove'; }, 4000); return; }
         guard(async () => {
@@ -9084,7 +9168,15 @@
       job.step = 'saving to phone storage';
       await (await getWriter()).finish(size);
       st.size = size; st.bytes = size;
-      const hdr = pmtilesHeader(new Uint8Array((await new PackSource(st.id).getBytes(0, 127)).data));
+      const head = new Uint8Array((await new PackSource(st.id).getBytes(0, 127)).data), hdr = pmtilesHeader(head);
+      if (!hdr && roadPackMagic(head)) { // v2.35: a road pack: roads, landmarks and boundaries for the plan drawings
+        st.done = true; const h = await roadPackHead(st.id).catch(() => null); st.done = false;
+        if (!h || !h.tiles) { await removePackData(st); delete S.packs[st.id]; persist(); throw new Error('This road pack is damaged: download it again'); }
+        Object.assign(st, { kind: 'roads', bbox: h.bbox, date: String(h.date || '').replace(/-/g, ''), region: h.region || '', counts: h.counts || {}, barangays: h.barangays || '', done: true });
+        persist(); busy(false);
+        toast(`${st.name} is ready: the plan drawings take their roads, landmarks and barangays from it`, 4500);
+        return;
+      }
       if (!hdr || hdr.tileType !== 1) {
         await removePackData(st); delete S.packs[st.id]; persist();
         throw new Error(hdr ? 'This map file has picture tiles; G-eSAA needs a vector map pack (.pmtiles from Protomaps)' : 'This file is not a map pack (.pmtiles, PMTiles version 3)');
@@ -9409,8 +9501,14 @@
   $('packImport').addEventListener('click', () => { $('packFileInput').value = ''; $('packFileInput').click(); });
   $('packFileInput').addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
-    const hdr = pmtilesHeader(new Uint8Array(await f.slice(0, 127).arrayBuffer()));
-    if (!hdr) { toast('That file is not a map pack (.pmtiles). Choose the .pmtiles file you downloaded.', 6000); return; }
+    const head = new Uint8Array(await f.slice(0, 127).arrayBuffer()), hdr = pmtilesHeader(head);
+    if (!hdr && roadPackMagic(head)) { // v2.35: a road pack file
+      const base = f.name.replace(/\.roadpack$/i, ''), id = `file-${C.safeName(base).toLowerCase()}-${f.size}`;
+      const known = packCatalog().find((x) => x.size && Math.abs(x.size - f.size) < 1048576 && /roads/i.test(x.name || '') && (x.name || '').toLowerCase().replace(/[^a-z]/g, '').includes(base.toLowerCase().replace(/^g-?esaa roads\s*-\s*/, '').replace(/\s*-\s*\d{4}-\d\d-\d\d$/, '').replace(/[^a-z]/g, '')));
+      await runPackJob({ id: known && known.drive ? known.id : id, name: known ? known.name : base.replace(/^G-eSAA roads - /i, 'Roads · ').replace(/ - \d{4}-\d\d-\d\d$/, ''), size: f.size }, pumpFile(f), 'Importing');
+      return;
+    }
+    if (!hdr) { toast('That file is not a map pack (.pmtiles) or a road pack (.roadpack). Choose the file you downloaded.', 6000); return; }
     if (hdr.tileType !== 1) { toast('That map file has picture tiles; G-eSAA needs a vector map pack (.pmtiles from Protomaps)', 6000); return; }
     const base = f.name.replace(/\.pmtiles$/i, ''), id = `file-${C.safeName(base).toLowerCase()}-${f.size}`;
     const known = packCatalog().find((x) => x.size === f.size && (x.name || '').toLowerCase().replace(/[^a-z0-9]/g, '').includes(C.safeName(base).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8)));

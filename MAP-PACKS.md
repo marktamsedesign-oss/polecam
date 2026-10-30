@@ -54,6 +54,10 @@ Users of a company list cannot add links themselves. Phones without any company 
 
 Streets change slowly; a new pack every few months is plenty. Make it with the newest build, upload it, change the link in the MapPacks row (same name), and phones see “update available” after the next refresh. The old file in Drive can be deleted once everyone has updated.
 
+## Road packs for the plan drawings (v2.35)
+
+A road pack (`.roadpack`) is not a map to look at: it holds the OpenStreetMap roads, named landmarks and the province / city / municipality / barangay boundaries of one region, for Export → AutoCAD · DXF (roads, street names, landmarks, ROW table) with no internet. Make them with `tools/osm-pack/make_road_packs.py` from the Geofabrik shapefile of the Philippines (`philippines-latest-free.shp.zip`): one file per region, 18 in all. Upload and list them exactly as in section 4: the tool writes `packs.txt`, the lines to paste once each `PASTE-THE-DRIVE-LINK` is replaced by the file's Drive link. The list holds 30 packs at most (road packs and map packs together). Details: `tools/osm-pack/README.md`.
+
 ## Terms
 
 Map data © OpenStreetMap contributors, ODbL; builds by Protomaps (free, daily). The `pmtiles` tool is BSD-3 licensed. Keep the attribution that PoleCam shows on the map.

@@ -1309,7 +1309,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
     <div class="group">
       <h3>Offline map packs</h3>
-      <p class="hint">A map pack is a street map of a whole area kept on this phone: roads, buildings, rivers and place names, sharp at every zoom. Get it once on Wi-Fi. When there is no signal the app switches to it by itself; the layers button also switches to it.</p>
+      <p class="hint">A map pack is a street map of a whole area kept on this phone: roads, buildings, rivers and place names, sharp at every zoom. Get it once on Wi-Fi. When there is no signal the app switches to it by itself; the layers button also switches to it. A <b>road pack</b> (Roads · region) is not a map to look at: the plan drawing (Export → AutoCAD · DXF) takes its roads, landmarks, cities / municipalities and barangays from it, with no internet.</p>
       <p class="hint" id="packSource">–</p>
       <div id="packList" style="display:flex;flex-direction:column;gap:8px"></div>
       <button class="btn primary" id="areaDl" type="button">⬇ Download an area for offline use</button>
@@ -1493,7 +1493,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       </div>
       <div class="group">
         <h3>Offline map packs</h3>
-        <p class="hint help">Upload each .pmtiles map pack to Google Drive and share it as “Anyone with the link”. Paste one line per pack: name | Drive link | size in MB. Users see these packs under Maps after they take this list version (join link or QR code), or after Refresh list when the online sheet is connected. Users cannot add links themselves.</p>
+        <p class="hint help">Upload each .pmtiles map pack and each .roadpack road pack (made with tools/osm-pack) to Google Drive and share it as “Anyone with the link”. Paste one line per pack: name | Drive link | size in MB (lines starting with # are skipped; 30 packs at most). Users see these packs under Maps after they take this list version (join link or QR code), or after Refresh list when the online sheet is connected. Users cannot add links themselves.</p>
         <textarea id="admPacks" style="min-height:80px" placeholder="Mindanao | https://drive.google.com/file/d/…/view | 200" aria-label="Offline map packs, one per line"></textarea>
         <label class="field">AREA DOWNLOAD SOURCE (optional): a .pmtiles file on your own storage that allows range requests, e.g. a copy of a Protomaps build on Cloudflare R2. Blank = the Protomaps daily build.<input type="url" id="admAreaSrc" placeholder="https://…/planet.pmtiles" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
         <label class="field">DRAWING TEMPLATE (DXF seed): a Google Drive link to the prepared plan template. Phones download it for Export → AutoCAD · DXF on the template; it is company property and is not inside the app. Sharing *Anyone with the link*: the Android app downloads it by itself (and anyone given the link can open it). Restricted to company accounts: users download it signed in and load the file.<input type="url" id="admDxfSeed" placeholder="https://drive.google.com/file/d/…" autocomplete="off"></label>
