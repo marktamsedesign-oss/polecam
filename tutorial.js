@@ -29,6 +29,7 @@
         { t: 'The **GPS pill**: green ≤ 5 m, amber ≤ 15 m, red > 15 m. Wait for green when you can.', go: 'map', hl: '#gpsPill' },
         { t: 'Tap **G-eSAA** (top left) to reload the app and get the newest version: it asks first, and does nothing while the camera, a record or the marking screen is open. In the Android app it checks the website and offers the new APK when there is one. Your data stays.', go: 'map', hl: '#brandBtn' },
         { t: 'Map buttons: the **route** (survey), **map layer** (street, satellite, offline pack) and **my location**.', go: 'map', hl: '.mapbtns' },
+        { t: 'The **map** button is your reference KMZ (e.g. the As-Plan, or the HLD route). With none loaded, a tap loads one. With one loaded, it shows or hides the **reference**, **its pins** or **its lines / route**, and this project\'s own **pins** and **route**. A red dot on it means something is hidden.', go: 'map', hl: '#refBtn' },
         { t: 'The strip above the bottom bar shows the project totals; tap it to open the records.', go: 'map', hl: '#mapSummary' },
         { t: 'The bottom bar: **Drawing** (As-Plan and As-Built) or **Find** (every other task), the big **Capture** button, **Export**, **Settings** and this **Tutorial**.', go: 'map', hl: '#bottombar' },
       ] },
@@ -62,8 +63,8 @@
         { t: 'Open a Survey project, stand at the pole and tap **Capture**. (This is the real app: the record is saved in the open project; delete it afterwards if it was only practice.)', go: 'map', hl: '#captureBtn' },
         { t: 'Aim at the pole and tap the **shutter**. It is **green** when the GPS updated within the last 5 seconds; with a **red** shutter the photo is refused after 5 seconds. Dark, blank and blurry photos are refused: take them again.', hl: '#shutter', when: 'The shutter is in the camera: tap Capture first.' },
         { t: 'Now aim at the painted **pole ID**: it is used by itself when read clearly. Tap **Skip** if the pole has none.', hl: '#scanSkip', when: 'The ID step shows right after the photo. When the ID was read by itself, the record is already open: tap Next.' },
-        { t: 'The record opens. Drag the map so the pin sits on the pole (at most 1 km from where the photo was taken); **Reset to GPS** puts it back.', hl: '#snapGps', when: 'It is in the record, which opens after the photo.' },
-        { t: 'Check the pole ID (for an untagged pole: **No tag → NPT**), set the type and details, then tap **Save**. Saved with no ID, the record gets a generic number (**P-0001** for a pole, ODF-0001, NAP-0001…): open the pin later to put the real ID.', hl: '#edSave, #edSaveTop', when: 'It is in the record, which opens after the photo.' },
+        { t: 'The record opens with the map and pin in view: the keyboard does not open by itself (with no ID read, the ID box blinks). Drag the map so the pin sits on the pole (at most 1 km from where the photo was taken); **Reset to GPS** puts it back. Once you touch the map, the GPS no longer moves the pin, and the keyboard opening or closing keeps the same spot under it.', hl: '#snapGps', when: 'It is in the record, which opens after the photo.' },
+        { t: 'Check the pole ID (for an untagged pole: **No tag → NPT**), set the type and details, then tap **Save**. While the keyboard is up, only the field you type in shows, under a small map: **Done ✓** (or Enter, or Back) brings the form and Save back. Saved with no ID, the record gets a generic number (**P-0001** for a pole, ODF-0001, NAP-0001…): open the pin later to put the real ID.', hl: '#edSave, #edSaveTop', when: 'It is in the record, which opens after the photo.' },
         { t: 'Done: the pole is on the map. Tap any pin, or the strip above the bottom bar for the **records**, to open it again: edit it, replace the photo or delete it.', go: 'map', hl: '#mapSummary' },
       ] },
     { id: 'marks', aud: 'user', cat: 'Survey', title: 'Mark the photo: models, FOC route, text', kw: 'mark photo red box model proposed pole globe gt odc odf panel data rack handhole tower foc route draw line text comment note burn',
@@ -87,7 +88,7 @@
       steps: [
         { t: 'In an As-Plan or As-Built survey, **Drawing** on the bottom bar shows the project as the DXF draws it: poles, route and spans in UTM metres. In other tasks the same button is **Find**.', go: 'map', hl: '#drawBtn' },
         { t: 'Drag to pan, pinch or scroll to zoom, tap a point to see it. **Fit** shows everything, **Labels** turns the IDs on or off, **Export DXF** makes the file.', hl: '#drawFit', when: 'It is in the Drawing (As-Plan or As-Built survey).' },
-        { t: 'Editing the drawing on your own DXF template is not there yet: it comes once the template is provided.' },
+        { t: 'For the plan on your company\'s AutoCAD template, use Export → **AutoCAD · DXF** → DRAWING *On the company plan template* (see *Plan DXF on the company template*).' },
         { t: '**Find**: type an ID, element, status or defect and tap a result: the map goes to that pin. **All records ›** opens the full list.', hl: '#findQ', when: 'It is in Find (tasks other than As-Plan and As-Built).' },
         { t: 'On the map, pole and span labels move apart (or hide) so they do not overlap; zoom in to see them all.' },
       ] },
@@ -99,6 +100,13 @@
         { t: '**Google Earth · KMZ**: pins named by pole ID with the photo in each balloon, and the route as one continuous line from end to end (long spans also in their own folder). **AutoCAD · DXF**: poles at UTM 51N with their IDs, details, photos and the route (keep the files of the ZIP together).', go: 'export', hl: '#doKmz', when: 'The survey exports show in a Survey project.' },
         { t: '**Table · CSV**, **Route and spans · Excel** and **Geotagged photos · ZIP** too. Each card has its **Options**; the defaults are in Settings → Exports and files.', go: 'export', hl: '#doCsv', when: 'The survey exports show in a Survey project.' },
         { t: '**Completion report · PDF** marks the task complete and sends the date to the online sheet.', go: 'export', hl: '#doCompletion' },
+      ] },
+    { id: 'plandxf', aud: 'user', cat: 'Survey', title: 'Plan DXF on the company template', kw: 'dxf autocad template seed plan geo sheet keymap vicinity title block legend grid 1100 roads street names openstreetmap drafting',
+      steps: [
+        { t: 'Export → FORMAT **AutoCAD · DXF** → DRAWING **On the company plan template**. (*Simple* is the older drawing: points and photos at UTM.)', go: 'export', hl: '#dxfMode', when: 'It is on the DXF card: Export → FORMAT AutoCAD · DXF, in a Survey project.' },
+        { t: 'The template comes from your admin: **Download it from your admin\'s link** (Android app), or open the link, download the file and **Load template file…**. It stays on this phone; the app does not carry it (it is company property).', go: 'export', hl: '#dxfTplBox', when: 'It shows under DRAWING when *On the company plan template* is chosen.' },
+        { t: 'Tap **Export DXF**. You get a ZIP: the DXF on the template and a README listing the fields left blank. Every sheet of the template is kept: title, table of contents, legend, vicinity map, keymap, **one GEO sheet per 440 m grid cell the route crosses (1:1100)**, and the PMI; sheet numbers, index keys, the date and *Exported by* are filled.', go: 'export', hl: '#doDxf', when: 'The survey exports show in a Survey project.' },
+        { t: 'On the drawing: poles with their material and ID (proposed poles red, on their own layer), span lengths (over the maximum span in red), each cable on its template layer, loops, closures, NAPs, the site and ODF, the latitude / longitude of each pole, and the roads and street names from OpenStreetMap (online, or the offline map pack). Fields the app does not know stay blank; where labels crowd, move them in AutoCAD.' },
       ] },
     { id: 'boq', aud: 'user', cat: 'Survey', title: 'BOQ / BOM in the As-Plan and As-Built', kw: 'boq bom size sizes clamp owner electric pldt dito converge new globe pole 7.5m 9.14m 10.6m 7a 7ar light odf 12f 24f 48f 72f 144f 288f apc upc closure 12c 24c 48c 72c 144c 288c as-plan as-built planned built difference materials arm double arm extension alley guy guying head guy side guy sidewalk down guy mloop maintenance loop region quantities detailed engineering foc length',
       steps: [
@@ -188,6 +196,8 @@
     { id: 'share', aud: 'user', cat: 'Reports and files', title: 'Share, open and back up files', kw: 'share project send colleague open shared file backup restore zip several projects edited unauthorized tampered',
       steps: [
         { t: '**Share** on a project card sends that project (records and photos) as one file to a colleague of your company. On a PAT or a cleanup it asks: the **project file**, or the locked **KMZ** for the next stage.', go: 'projects', hl: '#curTools .tmtool.share' },
+        { t: 'Share opens the phone\'s **share sheet**: WhatsApp, Viber, email, Drive, **Save to Files**, and to a phone nearby **Quick Share** (Android) or **AirDrop** (iPhone). On the website a panel comes first: tap **Share…** there. Chrome on Android cannot hand a .zip or .kmz from a website to other apps: then **Save to phone** and send it from the Files app, or use the Android app, which shares any file.' },
+        { t: '**To a Globe representative beside you, without signal**: Android to Android, Share → **Quick Share** (Bluetooth / Wi-Fi Direct, no data used); iPhone to iPhone, **AirDrop**. Android to iPhone has no common offline way: send it by a chat app when there is signal, or show the completion report (PDF) on your screen. The other phone opens a project or PAT / cleanup KMZ with Projects → **📂 Open a shared file** (its G-eSAA must be on your company list for a locked KMZ).' },
         { t: 'Projects → **📂 Open a shared file** opens a shared project, a PAT or cleanup KMZ, a backup ZIP, or several projects from a colleague.', go: 'projects', hl: '#openShared' },
         { t: 'Projects → **📤 Share several projects** puts several projects in one file.', go: 'projects', hl: '#bulkShareBtn', when: 'It shows when there are projects on this phone.' },
         { t: 'Export → FORMAT **Backup** → **Back up project** or **Restore backup**: everything in this project in one file.', go: 'export', hl: '#doBackup' },
@@ -299,6 +309,12 @@
         { t: 'Upload each .pmtiles map pack to Google Drive and share it as "Anyone with the link".' },
         { t: 'Administration → **Offline map packs**: one line per pack, *name | Drive link | size in MB*. Users see them under Maps once they take this list version.', go: 'admin', hl: '#admPacks', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '**Area download source** (optional): users\' *Download an area* reads the Protomaps daily build, which Protomaps asks not to rely on for production. For heavy use, put a copy of a build on your own storage that allows range requests (e.g. Cloudflare R2) and enter its https address here.', go: 'admin', hl: '#admAreaSrc', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+      ] },
+    { id: 'adm-dxf', aud: 'admin', cat: 'Administration', title: 'Plan DXF template for everyone', kw: 'dxf template seed autocad google drive link plan export',
+      steps: [
+        { t: 'Prepare the seed from the company\'s AutoCAD plan template (`tools/dxf-seed/make_seed.py`, with the template exported as a text DXF) and upload it to Google Drive.' },
+        { t: 'Administration → **Drawing template (DXF seed)**: paste its Drive link. Phones take it with the list and download it for Export → AutoCAD · DXF.', go: 'admin', hl: '#admDxfSeed', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: 'The template is company property. *Anyone with the link* lets the Android app download it by itself, and anyone given the link can open it. With a link restricted to company accounts, users open it signed in, download the file and tap **Load template file…**.' },
       ] },
     { id: 'adm-save', aud: 'admin', cat: 'Administration', title: 'Save and share the list', kw: 'save share list version join link qr org.json tie website apk',
       steps: [

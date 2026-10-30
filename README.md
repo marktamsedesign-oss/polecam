@@ -340,6 +340,7 @@ On the PAT phone: Projects → (PAT project) → *Project details* → **Share t
 
 ## AutoCAD
 
+- **On the company plan template (v2.30):** Export → AutoCAD · DXF → DRAWING *On the company plan template* gives a ZIP with the DXF and a README of the fields left blank. Open the DXF in AutoCAD (it is a full drawing, not an insert). The template (the *seed*) comes from the admin's Drive link; see *What changed in v2.30*.
 - Open the DXF directly or `INSERT`/`XATTACH` it into your drawing. Units are **meters**, coordinates are **UTM 51N (WGS84)** — your drawing must use the same system to line up.
 - **Photos (v2.14):** unzip the DXF ZIP and keep the DXF and the JPEGs **in the same folder**; the photos are attached images (like `IMAGEATTACH`), so moving the DXF alone shows empty frames. If AutoCAD shows a frame without the picture, open `EXTERNALREFERENCES` and point the image to the JPEG. Photo width in the drawing (default 6 m) is in the DXF export options.
 - Poles are circles (v2.14), not blocks: select a type with `QSELECT` by layer (`POLE_CONCRETE`, `POLE_CONCRETE_PROPOSED`…). Freeze `POINT_PHOTO`, `POLE_DETAILS` or `FOC_LENGTH` to hide them.
@@ -368,6 +369,8 @@ Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v2.1.1`), and upload 
 | `forms.js` | The Deficiency List office form as PDF (with Annex A/B) and as an Excel sheet |
 | `brand/logo-left.jpg`, `brand/logo-right.jpg` | Logos printed on the form and reports when the admin has not uploaded others |
 | `tutorial.js` | The Tutorial's topics and steps (v2.25) |
+| `dxftpl.js` | The plan DXF on the company template (v2.30): fills a copy of the seed with the survey; loaded only when that export is made |
+| `tools/dxf-seed/` | Makes the seed from the company's AutoCAD template, fills it for checks, and checks a DXF's structure (Python); not needed by the app |
 | `sample/G-eSAA_sample.zip` | The sample project a new phone gets (v2.26) |
 | `glyphs.js` | The ID reader's character network (v2.20): its weights, about 140 KB; read by `core.js` |
 | `tools/glyph-training/` | The scripts that trained it (Python); not needed by the app |
@@ -521,6 +524,28 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.30
+
+- **Map button for the reference KMZ** (right side of the map). With no reference loaded it loads one (KMZ or KML). With one loaded it opens a panel: show or hide the **reference**, only **its pins** or only **its lines / route**, and this project's own **pins** and **route**; *Replace…* loads another file. A red dot on the button means something is hidden. The choices are kept per project.
+- **The pin stays where you put it.**
+  - After the photo the keyboard no longer opens by itself on the ID box, so the map and pin stay in view; with no ID read, the ID box blinks instead.
+  - The pin is the centre of the small map. When the map changes size (the keyboard opens or closes, Bigger map), the same spot is put back under the pin. Before, the keyboard hid the map and a resize could shift it under the pin, so the saved position could differ from the one you set.
+  - A photo taken with a GPS fix of 15 m or better keeps its pin: a better fix arriving later no longer moves it. (A photo taken before the GPS locked still follows the GPS until a usable fix comes or you touch the map.) Once you touch or drag the map, the GPS never moves the pin.
+- **Typing shows only that field.** In a record, while the phone's keyboard is up, only the field you are typing in (its name and its box) shows, under a smaller map. The rest of the form and the Save bar come back with **Done ✓**, Enter, or closing the keyboard with Back. With a hardware keyboard or on a computer, the whole form stays.
+- **Share** (on project cards and on every export result, PDFs included) opens the phone's share sheet: WhatsApp, Viber, email, Drive, Save to Files, Quick Share (Android) or AirDrop (iPhone).
+  - On the **website**, a panel shows first and its **Share…** button opens the share sheet. Browsers open the share sheet only straight from a tap, and the file is made after your first tap, so Share could do nothing before.
+  - **Chrome on Android shares only pictures, PDF and text from a website**, not .zip, .kmz or .dxf. The panel then says so and offers **Save to phone** (send it from the Files app). The **Android app** shares any file. If the Android app's share fails, it now saves the file instead and says so, and the reason goes to the app log.
+  - **Nearby, without signal** (e.g. showing a completed PAT or FAT to a Globe representative): Android to Android, **Quick Share** in the share sheet (Bluetooth / Wi-Fi Direct); iPhone to iPhone, **AirDrop**. Android to iPhone has no common offline way: a chat app when there is signal, or show the completion report PDF on your screen. A personal hotspot alone does not move files; it only gives the other phone internet through yours. The other phone opens the project or KMZ with Projects → 📂 Open a shared file.
+- **Plan DXF on the company template (stage 2 of 4).** Export → AutoCAD · DXF → DRAWING **On the company plan template**:
+  - The template's own layers, blocks, text styles and sheets. **One GEO sheet per 440 m grid cell the route crosses** (the GEO sheet is copied as many times as needed, viewports at 1:1100). The grid is placed so the route uses as few sheets as it can and keeps away from the sheet edges. Each GEO sheet gets its cell name, its sheet number and its index key (the neighbouring cells that have sheets). The **KEYMAP** shows the whole grid and route, and the **VICINITY MAP** about 3× the route (at least 1.5 km).
+  - **Poles**: a pole symbol (the X of the template's *existing electric pole*) with the material (CC / WP / SP…) and the pole ID as attributes. Proposed poles are red, on their own layer (P-GPOLE); existing poles go on ELECTRIC POLE. Each pole's number in a circle, and its latitude / longitude.
+  - **Cables** on the template's layers: 72C Figure 8 and 12C light cable aerial, 144C UG on the duct layer. Span lengths, and spans over the maximum span in red *(OVER 200m)*. Maintenance loops with *15.0m LOOP*, closures, NAPs, the site (BTS symbol with its name) and the ODF.
+  - **Roads** as double lines with street names, from **OpenStreetMap** (online), or from the offline map pack covering the area when there is no signal. The OpenStreetMap credit is written on the drawing. Your road.shp is not needed for this. If OpenStreetMap is missing roads in your areas, it can be added later as a source.
+  - Filled by the app: the date, *Exported by* (your name, mobile and email), the scale, sheet numbers, the table of contents, the title cable, the site name, the company, and the PMI cable lengths and counts that come from the survey. Fields the app does not know (network, issue no., drawing no., signatories, barangays, location…) stay blank, and the README in the ZIP lists them.
+  - The template is **not inside the app** (company property). The admin puts its Drive link in Administration → *Drawing template (DXF seed)*. Phones download it (Android app), or the user loads the file; it is kept on the phone. Your spec asked for a bundled copy as a fallback, but bundling it would publish it with the website, so I left it out.
+  - **Where it is approximate.** Labels are placed at fixed offsets from the route (pole numbers on the right, the run label and NAPs on the left), so they can crowd on short or sharply turning spans; move them in AutoCAD. Which PMI fields the survey counts fill is my reading of the template; check them. Stage 3 (plan setup screen for the blank fields) and stage 4 (PDF) are still to come.
+- Light cable is named **Light cable 12C** everywhere.
 
 ## What changed in v2.29
 

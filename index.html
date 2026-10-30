@@ -76,6 +76,11 @@ body.visiting #legendBtn,body.visiting #legend{top:calc(env(safe-area-inset-top,
 .mapbtns{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 164px);z-index:450;display:flex;flex-direction:column;gap:10px}
 .round{width:var(--tap);height:var(--tap);border-radius:50%;border:0;background:var(--surface);color:var(--ink);box-shadow:var(--shadow);display:grid;place-items:center}
 .round svg{width:22px;height:22px}
+#refBtn{position:relative}#refBtn .refdot{position:absolute;top:6px;right:6px;width:9px;height:9px;border-radius:50%;background:var(--bad);border:2px solid var(--surface);display:none}#refBtn.partial .refdot{display:block}
+#refBtn[data-state=none] svg{opacity:.55}#refBtn[data-state=none]::after{content:'+';position:absolute;right:5px;bottom:2px;font:800 15px/1 system-ui;color:var(--accent)}
+#refMenu{position:absolute;right:calc(max(12px,env(safe-area-inset-right,0px)) + var(--tap) + 10px);bottom:calc(env(safe-area-inset-bottom,0px) + 164px);z-index:460;background:var(--surface);color:var(--ink);border-radius:var(--r);box-shadow:var(--shadow);padding:12px;display:flex;flex-direction:column;gap:8px;width:min(300px,calc(100vw - 100px))}
+#refMenu[hidden]{display:none}#refMenu .rmname{font-size:calc(12.5px * var(--fs));color:var(--muted);overflow-wrap:anywhere}#refMenu .rmrow{display:flex;flex-wrap:wrap;gap:6px}#refMenu .rmsub{font-size:calc(11px * var(--fs));font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+body.routing #refMenu{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 .round[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
 #mapSummary{position:absolute;left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 92px);z-index:450;background:var(--surface);color:var(--ink);border-radius:var(--r);box-shadow:var(--shadow);padding:10px 12px;display:flex;align-items:center;gap:12px;border:0;text-align:left;width:auto}
 #mapSummary .stats{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
@@ -464,7 +469,12 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .pair .field{margin:0;gap:2px}
 .infoi{width:24px;height:24px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--info);font:700 14px/22px Georgia,serif;font-style:italic;padding:0;flex:none;text-align:center}
 .idnote{flex-basis:100%;font-size:calc(12.5px * var(--fs));color:var(--muted)}
-body.kb #pinMapWrap{display:none}
+/* v2.30: typing in a record: the small map stays, only the field being typed shows below it */
+#editor.kbfield .edbody>:not(.kbshow),#editor.kbfield .edbody .kbshow:not(.kbbox)>:not(.kbshow),#editor.kbfield>.foot,#editor.kbfield #edHint,#editor.kbfield #pinInfo{display:none!important}
+#editor.kbfield #pinMapWrap{height:min(30vh,240px);min-height:120px}
+#kbDone{display:none;position:absolute;right:8px;bottom:8px;z-index:450;min-height:40px;padding:0 16px}#editor.kbfield #kbDone{display:block}
+#editor.kbfield .edbody .group.kbshow{padding-top:10px}
+#poleId.nudge{animation:nudge 1.2s ease-in-out 2}@keyframes nudge{50%{box-shadow:0 0 0 4px rgba(28,126,214,.45)}}
 body.kb .sheet{bottom:var(--kb,0px)}
 #boxModes{display:flex;flex-wrap:wrap;gap:6px;padding:8px 16px 0;align-items:center}#boxModel{flex:1 1 100%;min-width:0;min-height:38px}
 #boxModes .tool{width:44px;height:40px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);padding:0}#boxModes .tool svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}#boxModes .tool[aria-pressed="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
@@ -624,6 +634,14 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div class="mapbtns">
     <button class="round" id="routeBtn" aria-label="Edit cable route and spans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="18" r="2.2"/><circle cx="12" cy="7" r="2.2"/><circle cx="19" cy="15" r="2.2"/><path d="m6.4 16.2 4.3-7.4M13.6 8.6l4.2 4.9"/></svg></button>
     <button class="round" id="offlineBtn" hidden aria-label="Maps: online server and offline packs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18"/><path d="M12 11v9M8.5 16.5 12 20l3.5-3.5"/></svg></button>
+    <button class="round" id="refBtn" type="button" aria-label="Reference KMZ: load it, or show and hide it"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg><i class="refdot" aria-hidden="true"></i></button>
+    <div id="refMenu" hidden role="dialog" aria-label="Show on the map">
+      <b id="rmTitle">Reference KMZ</b><span id="rmName" class="rmname"></span>
+      <div class="rmrow" id="rmRefRow"><button type="button" class="chip small" id="rmRef" aria-pressed="true">Reference</button><button type="button" class="chip small" id="rmRefPins" aria-pressed="true">Its pins</button><button type="button" class="chip small" id="rmRefLines" aria-pressed="true">Its lines / route</button></div>
+      <span class="rmsub">This project</span>
+      <div class="rmrow"><button type="button" class="chip small" id="rmPins" aria-pressed="true">Pins</button><button type="button" class="chip small" id="rmRoute" aria-pressed="true">Route</button></div>
+      <div class="rmrow"><button type="button" class="btn small" id="rmLoad">Load KMZ / KML…</button><button type="button" class="btn small" id="rmClose">Close</button></div>
+    </div>
     <button class="round" id="layerBtn" aria-label="Switch map: street, satellite or offline map pack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button>
     <button class="round" id="locateBtn" aria-label="Go to my location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
   </div>
@@ -704,6 +722,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div id="pinMap"></div>
     <div id="crosshair"><i></i><svg viewBox="0 0 30 42" aria-hidden="true"><path d="M15 40.5C15 40.5 3 26.4 3 15.2A12 12 0 0 1 27 15.2C27 26.4 15 40.5 15 40.5Z" fill="#e6007e" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><circle cx="15" cy="15" r="5" fill="#fff"/></svg></div>
     <p id="edHint" class="maphint">Drag the map to put the pin on the pole</p>
+    <button class="btn" id="kbDone" type="button">Done ✓</button>
     <button class="round" id="pinSizeBtn" type="button" aria-label="Bigger map" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <div id="pinLayer"><span id="pinLayerName">Street</span><button class="round" id="pinLayerBtn" type="button" aria-label="Switch map: street, satellite or offline map pack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button></div>
     <div id="pinInfo">
@@ -908,7 +927,9 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <button class="btn primary" id="doKmz">Export KMZ</button>
     </div>
     <div class="xcard">
-      <div class="head"><span class="ic">DXF</span><div><b>AutoCAD · DXF</b><p>Each pole a circle at <span id="dxfZoneLbl">UTM 51N</span> meters with its ID, pole details and photo beside it (DXF R2000 + the photos in one ZIP: keep them in the same folder); the linked route on CABLE_ROUTE with the FOC length of each span (span + allowance) on FOC_LENGTH; site, ODC, ODF, NAP, closures and handholes on their own layers.</p></div></div>
+      <div class="head"><span class="ic">DXF</span><div><b>AutoCAD · DXF</b><p><span id="dxfDescTpl">On your company’s plan template: all its sheets (title, table of contents, legend, vicinity map, keymap, one GEO sheet per 440 m grid cell at 1:1100, PMI), with the route, poles, loops, closures, NAPs and OpenStreetMap roads at <span id="dxfZoneLbl2">UTM 51N</span>; fields the app does not know stay blank.</span><span id="dxfDescSimple">Each pole a circle at <span id="dxfZoneLbl">UTM 51N</span> meters with its ID, pole details and photo beside it (DXF R2000 + the photos in one ZIP: keep them in the same folder); the linked route on CABLE_ROUTE with the FOC length of each span (span + allowance) on FOC_LENGTH; site, ODC, ODF, NAP, closures and handholes on their own layers.</span></p></div></div>
+      <label class="field">DRAWING<select id="dxfMode"><option value="tpl">On the company plan template</option><option value="simple">Simple: points and photos at UTM</option></select></label>
+      <div id="dxfTplBox" class="dxftpl"><p class="hint" id="dxfTplInfo" style="margin:0"></p><div class="row"><button class="btn small" id="dxfTplLoad" type="button">Load template file…</button><button class="btn small" id="dxfTplGet" type="button" hidden>Download it from your admin’s link</button></div><input type="file" id="dxfTplFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden></div>
       <details><summary>Options</summary><div class="opts">
         <label class="check"><input type="checkbox" id="dxfRoads" checked><span>Add road centerlines from OpenStreetMap around the poles (needs internet)</span></label>
         <label class="check"><input type="checkbox" id="dxfPhotos"><span>Photo beside each point (DXF R2000, AutoCAD 2000 or newer; a ZIP with the DXF and its photos). Untick for a plain DXF R12 without photos.</span></label>
@@ -1473,6 +1494,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <p class="hint help">Upload each .pmtiles map pack to Google Drive and share it as “Anyone with the link”. Paste one line per pack: name | Drive link | size in MB. Users see these packs under Maps after they take this list version (join link or QR code), or after Refresh list when the online sheet is connected. Users cannot add links themselves.</p>
         <textarea id="admPacks" style="min-height:80px" placeholder="Mindanao | https://drive.google.com/file/d/…/view | 200" aria-label="Offline map packs, one per line"></textarea>
         <label class="field">AREA DOWNLOAD SOURCE (optional): a .pmtiles file on your own storage that allows range requests, e.g. a copy of a Protomaps build on Cloudflare R2. Blank = the Protomaps daily build.<input type="url" id="admAreaSrc" placeholder="https://…/planet.pmtiles" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <label class="field">DRAWING TEMPLATE (DXF seed): a Google Drive link to the prepared plan template. Phones download it for Export → AutoCAD · DXF on the template; it is company property and is not inside the app. Sharing *Anyone with the link*: the Android app downloads it by itself (and anyone given the link can open it). Restricted to company accounts: users download it signed in and load the file.<input type="url" id="admDxfSeed" placeholder="https://drive.google.com/file/d/…" autocomplete="off"></label>
         <p class="hint" id="admPacksInfo"></p>
       </div>
       <div class="group">
@@ -1513,6 +1535,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 </div>
 <div class="overlay" id="pickBox" hidden><div class="panel"><h3 id="pickTitle"></h3><p class="hint" id="pickText" style="margin:0"></p><select id="pickSel" aria-label="Choose"></select><div class="row"><button class="btn grow" id="pickNo" type="button">Cancel</button><button class="btn primary grow" id="pickYes" type="button">OK</button></div></div></div>
 <div class="overlay" id="askBox" hidden><div class="panel"><h3 id="askTitle"></h3><p id="askText" style="margin:0;white-space:pre-line"></p><div class="row"><button class="btn grow" id="askNo" type="button">Cancel</button><button class="btn primary grow" id="askYes" type="button">OK</button></div></div></div>
+<div class="overlay" id="sendBox" hidden><div class="panel"><h3 id="sendTitle">Ready to send</h3><p id="sendName" style="margin:0;overflow-wrap:anywhere;font-weight:600"></p><p class="hint" id="sendNote" style="margin:0;white-space:pre-line"></p><button class="btn primary" id="sendGo" type="button" style="width:100%">Share…</button><div class="row"><button class="btn grow" id="sendSave" type="button">Save to phone</button><button class="btn grow" id="sendNo" type="button">Close</button></div></div></div>
 <div class="overlay" id="pinBox" hidden><div class="panel"><h3 id="pinTitle"></h3><p class="hint" id="pinText" style="margin:0"></p><p class="pincode" id="pinCode" hidden></p><input type="password" id="pinInput" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4 to 8 digits" aria-label="Admin PIN"><div class="row"><button class="btn grow" id="pinNo" type="button">Cancel</button><button class="btn primary grow" id="pinYes" type="button">OK</button></div></div></div>
 <div class="overlay" id="promptBox" hidden><div class="panel"><h3 id="promptTitle"></h3><p class="hint" id="promptText" style="margin:0"></p><textarea id="promptInput" style="min-height:70px"></textarea><div class="row"><button class="btn grow" id="promptNo" type="button">Cancel</button><button class="btn primary grow" id="promptYes" type="button">OK</button></div></div></div>
 

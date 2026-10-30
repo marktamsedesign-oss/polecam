@@ -536,12 +536,34 @@
       document.documentElement.style.setProperty('--kb', `${lift > 80 ? lift : 0}px`);
       if (document.body.classList.contains('kb') !== open) {
         document.body.classList.toggle('kb', open);
-        if (!open) setTimeout(() => { try { if (pinMap) pinMap.invalidateSize({ animate: false }); } catch (e) { /* not ready */ } }, 60);
+        if (typing() && kbField) kbField(open ? document.activeElement : null); // v2.30: Back closed the keyboard with the field still selected → the form comes back; a tap on it again → only the field
+        if (!open && !window.ResizeObserver) setTimeout(() => { try { if (pinMap) pinMap.invalidateSize({ animate: false }); } catch (e) { /* not ready */ } }, 60); // v2.30: else the pin map keeps its spot by itself
       }
     };
     if (window.visualViewport) { window.visualViewport.addEventListener('resize', update); window.visualViewport.addEventListener('scroll', update); }
     window.addEventListener('resize', update);
     document.addEventListener('focusin', () => setTimeout(update, 300)); document.addEventListener('focusout', () => setTimeout(update, 120));
+    /* v2.30: typing in a record shows only that field (its name and its box) under the small map, so the pin stays in view
+       and nothing covers the field; the rest of the form and the Save bar come back when the keyboard closes. */
+    let kbField = null; // only while an on-screen keyboard is up: a hardware keyboard or a computer keeps the whole form
+    const ed0 = document.getElementById('editor'), body0 = ed0 && ed0.querySelector('.edbody');
+    const fieldOf = (el) => (el && body0 && body0.contains(el) && typing() ? el.closest('.frow, .field, .pair, .defpanel') : null);
+    let kbOff = 0;
+    const clearKb = () => { ed0.classList.remove('kbfield'); body0.querySelectorAll('.kbshow').forEach((x) => x.classList.remove('kbshow', 'kbbox')); };
+    if (body0) {
+      kbField = (el) => {
+        const box = fieldOf(el); clearTimeout(kbOff); clearKb(); if (!box) return;
+        for (let x = box; x && x !== body0; x = x.parentElement) x.classList.add('kbshow');
+        box.classList.add('kbbox');
+        ed0.classList.add('kbfield');
+        setTimeout(() => { try { box.scrollIntoView({ block: 'nearest' }); } catch (err) { /* gone */ } }, 320);
+      };
+      body0.addEventListener('focusin', (e) => { if (document.body.classList.contains('kb')) kbField(e.target); }); // the keyboard stays up from field to field (Next): follow the field
+      const done = document.getElementById('kbDone');
+      if (done) { done.addEventListener('pointerdown', (e) => e.preventDefault()); done.addEventListener('click', () => { const a = document.activeElement; if (a && a.blur) a.blur(); clearKb(); }); } // Done: closes the keyboard (also for Remarks, where Enter is a new line)
+      body0.addEventListener('focusout', () => { clearTimeout(kbOff); kbOff = setTimeout(() => { if (!fieldOf(document.activeElement)) clearKb(); }, 160); });
+      body0.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT' && fieldOf(e.target)) { e.preventDefault(); e.target.blur(); } }); // Enter / Done closes the keyboard
+    }
   })();
 
   /* ================= full-size photo (v2.14): tap any photo; tap the photo to zoom; × or Back closes ================= */
@@ -655,7 +677,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.29.0';
+  const APP_VER = '2.30.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -916,8 +938,9 @@
     if (isAcc() && routeMode) setRouteMode(false);
     $('routeBtn').hidden = isAcc();
     const R = drawRoute();
-    const pts = projPoints();
+    const pts = projPoints(), hidePins = viewHide().pins && !routeMode; // v2.30: pins hidden from the map button (shown while linking the route)
     for (const p of pts) {
+      if (hidePins) break;
       const acc = p.kind === 'acceptance', n = openCount(p), sel = routeMode && p.id === routeSel, el = elemOf(p);
       const m = !acc && el !== 'Pole' && SV_SHORT[el] // survey element: a labelled square (dashed when proposed / new)
         ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svpin${sel ? ' sel' : ''}${p.status === 'Proposed' || p.status === 'New' ? ' new' : ''}" style="--c:${SV_COLORS[el]}">${SV_SHORT[el]}</span>`, iconSize: [30, 24], iconAnchor: [15, 12] }) })
@@ -938,6 +961,7 @@
     const dr = drawOn(); $('drawLbl').textContent = dr ? 'Drawing' : 'Find'; $('drawIco').setAttribute('href', dr ? '#i-draw' : '#i-find'); // v2.28
     renderSummary(pts); declutterSoon();
     if (typeof drawAreas === 'function') drawAreas();
+    renderRefBtn(); // v2.30
   }
   /** Project status at a glance: the strip above the navigation bar and the figures on the Records screen. */
   function projStats(pts) {
@@ -1151,6 +1175,10 @@
   const refKey = (id) => `~ref:${id}`;
   let refGeo = null, refFor = null;
   const refInfo = (name) => (S.refs || {})[name || S.project] || null;
+  /* v2.30: what shows on the map: the reference's pins and its lines (route, areas), and this project's pins and route */
+  const refParts = (name) => ({ pins: true, lines: true, ...((S.refParts || {})[name || S.project] || {}) });
+  const viewHide = (name) => ({ pins: false, route: false, ...((S.viewHide || {})[name || S.project] || {}) });
+  const refShown = (geo, name) => { const pt = refParts(name); return { points: pt.pins ? geo.points : [], lines: pt.lines ? geo.lines : [], polys: pt.lines ? geo.polys : [] }; };
   function kmlColor(t) { const v = String(t || '').trim(); return /^[0-9a-f]{8}$/i.test(v) ? `#${v.slice(6, 8)}${v.slice(4, 6)}${v.slice(2, 4)}` : null; }
   /** Pins, lines and areas of a KML document, with their colours and folder names. */
   /** KML that Google Earth opens but a strict XML reader refuses: prefixes used without being declared (e.g. mwm: from
@@ -1256,14 +1284,14 @@
     refLayer.clearLayers(); refLabels.clearLayers();
     const info = refInfo(); if (!info || (S.refHidden || {})[S.project]) return;
     const geo = await refGeoFor(S.project); if (!geo || refFor !== S.project) return;
-    addRefShapes(refLayer, geo, refRenderer, 'refPane');
+    addRefShapes(refLayer, refShown(geo), refRenderer, 'refPane');
     if (fit) { const b = L.latLngBounds([...geo.points.map((g) => g.c), ...geo.lines.flatMap((g) => g.c), ...geo.polys.flatMap((g) => g.c)]); if (b.isValid()) map.fitBounds(b, { padding: [30, 30], maxZoom: 18 }); }
     refLabelUpdate();
   }
   /** Names of the reference pins and lines, only when zoomed in (there can be thousands of homing pins). */
   function refLabelUpdate() {
     refLabels.clearLayers();
-    if (!refGeo || refFor !== S.project || (S.refHidden || {})[S.project] || !refInfo() || map.getZoom() < 18) return;
+    if (!refGeo || refFor !== S.project || (S.refHidden || {})[S.project] || !refInfo() || !refParts().pins || map.getZoom() < 18) return;
     const b = map.getBounds().pad(0.1); let k = 0;
     for (const g of refGeo.points) { if (!g.n || !b.contains(g.c)) continue; if (++k > 120) break;
       L.marker(g.c, { pane: 'refPane', interactive: false, icon: L.divIcon({ className: 'ref-label', html: C.xmlEsc(g.n), iconSize: null, iconAnchor: [-6, 8] }) }).addTo(refLabels); }
@@ -1277,7 +1305,7 @@
     pinRefLayer.clearLayers();
     if (!refInfo() || (S.refHidden || {})[S.project]) return;
     const geo = await refGeoFor(S.project); if (!geo) return;
-    addRefShapes(pinRefLayer, geo, pinRefRenderer, 'refPane');
+    addRefShapes(pinRefLayer, refShown(geo), pinRefRenderer, 'refPane');
   }
   function renderRefInfo() {
     const info = refInfo(), hidden = (S.refHidden || {})[S.project];
@@ -1285,7 +1313,38 @@
     $('refToggle').hidden = $('refRemove').hidden = !info; $('refToggle').textContent = hidden ? 'Show' : 'Hide';
     $('refLoad').textContent = info ? 'Replace…' : 'Load KMZ / KML…';
     const rb = document.querySelector('#curTools .tmtool.ref'); if (rb && rb.lastChild) rb.lastChild.textContent = info ? 'KMZ ✓' : 'KMZ'; // v2.28: the card's tool
+    renderRefBtn();
   }
+  /* v2.30: the map button for the reference KMZ: with none loaded it loads one; else it opens a small panel to show or hide
+     the reference, its pins or its lines, and this project's pins or route. */
+  function renderRefBtn() {
+    const b = $('refBtn'), info = refInfo(), pt = refParts(), vh = viewHide(), hid = !!(S.refHidden || {})[S.project];
+    b.hidden = !S.project;
+    b.dataset.state = info ? (hid ? 'hidden' : 'shown') : 'none';
+    b.classList.toggle('partial', !!((info && (hid || !pt.pins || !pt.lines)) || vh.pins || vh.route));
+    b.setAttribute('aria-label', info ? `Reference KMZ ${info.name}: show or hide it, its pins or its lines` : 'Load a reference KMZ (design route, homing, POI)');
+    $('rmName').textContent = info ? info.name : 'No reference KMZ loaded.';
+    $('rmRefRow').hidden = !info;
+    const set = (id, on) => $(id).setAttribute('aria-pressed', String(on));
+    set('rmRef', !hid); set('rmRefPins', pt.pins); set('rmRefLines', pt.lines); set('rmPins', !vh.pins); set('rmRoute', !vh.route);
+    $('rmRefPins').disabled = $('rmRefLines').disabled = hid;
+    $('rmLoad').textContent = info ? 'Replace…' : 'Load KMZ / KML…';
+  }
+  const refMenuOpen = (on) => { $('refMenu').hidden = !on; if (on) renderRefBtn(); };
+  $('refBtn').addEventListener('click', () => {
+    if (!refInfo() && !$('refMenu').hidden) { refMenuOpen(false); return; }
+    if (!refInfo() && !viewHide().pins && !viewHide().route) { $('refInput').value = ''; $('refInput').click(); return; } // nothing loaded: load one
+    refMenuOpen($('refMenu').hidden);
+  });
+  const setPart = (key, k, v) => { S[key] = { ...(S[key] || {}), [S.project]: { ...((S[key] || {})[S.project] || {}), [k]: v } }; persist(); };
+  $('rmRef').addEventListener('click', () => { S.refHidden = { ...(S.refHidden || {}), [S.project]: !(S.refHidden || {})[S.project] }; persist(); drawRef(false); drawPinRef(); renderRefInfo(); });
+  $('rmRefPins').addEventListener('click', () => { setPart('refParts', 'pins', !refParts().pins); drawRef(false); drawPinRef(); renderRefBtn(); });
+  $('rmRefLines').addEventListener('click', () => { setPart('refParts', 'lines', !refParts().lines); drawRef(false); drawPinRef(); renderRefBtn(); });
+  $('rmPins').addEventListener('click', () => { setPart('viewHide', 'pins', !viewHide().pins); renderPoles(); renderRefBtn(); if (viewHide().pins) toast('This project’s pins are hidden: the map button shows a red dot until you show them again', 3500); });
+  $('rmRoute').addEventListener('click', () => { setPart('viewHide', 'route', !viewHide().route); renderPoles(); renderRefBtn(); });
+  $('rmLoad').addEventListener('click', () => { refMenuOpen(false); $('refInput').value = ''; $('refInput').click(); });
+  $('rmClose').addEventListener('click', () => refMenuOpen(false));
+  map.on('click movestart', () => { if (!$('refMenu').hidden) refMenuOpen(false); });
   $('refLoad').addEventListener('click', () => { $('refInput').value = ''; $('refInput').click(); });
   $('refInput').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (f) await loadRefFile(f); }, 'Reference not loaded'));
   $('refToggle').addEventListener('click', () => { S.refHidden = { ...(S.refHidden || {}), [S.project]: !(S.refHidden || {})[S.project] }; persist(); drawRef(false); renderRefInfo(); });
@@ -1317,6 +1376,7 @@
     routeLayer.clearLayers();
     if (isAcc()) return null;
     const R = routeModel();
+    if (viewHide().route && !routeMode) { if (typeof declutterSoon === 'function') declutterSoon(); return R; } // v2.30: route hidden from the map button
     for (const s of R.spans) { // v2.29: coloured by cable type (grey: cable not set); long spans red
       const cab = CAB[s.cable];
       L.polyline([[s.a.lat, s.a.lon], [s.b.lat, s.b.lon]], { color: s.long ? '#c92a2a' : cab ? cab.css : '#868e96', weight: 4, opacity: 0.9, dashArray: s.long ? '8 6' : cab && cab.method === 'UG' ? '2 7' : null, lineCap: 'round', interactive: false }).addTo(routeLayer);
@@ -2648,7 +2708,18 @@
     pinMap.on('moveend', () => { if (ed && ed.plan) applyPlan(); }); // v2.26.1: the planned element nearest the pin
     pinMap.on('dragstart zoomstart', () => { if (ed) ed.userMoved = true; });
     pinMap.on('dragstart', () => { if (ed) ed.dragged = true; $('edHint').classList.add('gone'); });
+    /* v2.30: the pin is the centre of the small map. When the map changes size (the keyboard opens or closes, Bigger map,
+       the record shown again), the same spot is put back under the pin, so the pin never drifts from where it was set. */
+    pinMap.on('moveend', () => { if (!pinResizing && pinMap._loaded) { const c = pinMap.getCenter(); pinSpot = { lat: c.lat, lng: c.lng, z: pinMap.getZoom() }; } });
+    const keep = () => {
+      const el = $('pinMap'); if (!el.clientWidth || !el.clientHeight || !pinSpot) return; // hidden: nothing to keep yet
+      pinResizing = true;
+      try { pinMap.invalidateSize({ animate: false, pan: false }); pinMap.setView([pinSpot.lat, pinSpot.lng], pinSpot.z, { reset: true }); } finally { pinResizing = false; }
+    };
+    if (window.ResizeObserver) new ResizeObserver(() => requestAnimationFrame(keep)).observe($('pinMap'));
+    ['touchstart', 'mousedown', 'wheel'].forEach((k) => $('pinMap').addEventListener(k, () => { if (ed) ed.userMoved = true; }, { passive: true })); // a touch on the map: the GPS no longer moves the pin
   }
+  let pinSpot = null, pinResizing = false;
   let hintTimer = 0;
   $('pinSizeBtn').addEventListener('click', () => {
     S.pinBig = !S.pinBig; persist();
@@ -2751,7 +2822,7 @@
   function editorGpsUpdate() {
     // A fresh photo taken before GPS locked: adopt the first fix (and keep improving it) until the user moves the pin.
     if (ed.mode !== 'new' || ed.source !== 'camera' || ed.userMoved) return;
-    if (ed.gps && ed.gps.acc != null && ed.gps.acc <= fix.acc) return;
+    if (ed.gps && ed.gps.acc != null && (ed.gps.acc <= fix.acc || ed.gps.acc <= 15)) return; // v2.30: a photo with a usable fix keeps its pin (it no longer creeps as the GPS improves)
     ed.gps = { ...fix }; drawEdGps();
     pinMap.setView([fix.lat, fix.lon], Math.max(pinMap.getZoom(), 19), { animate: false });
     ed.userMoved = false;
@@ -2871,7 +2942,7 @@
     else if (o.live) applyLiveRead(o.live);
     else if (o.crop && o.idShot) readIdShot(o.crop, o.idShot); // v2.19: the ID photo
     else if (o.crop) runOcrFor(o.crop, true);
-    else if (o.mode === 'new' && !o.poleId && !acc) setTimeout(() => { const f = $('poleId'); f.focus(); const n = f.value.length; if (/[-_]$/.test(f.value)) f.setSelectionRange(n, n); else f.select(); }, 250);
+    else if (o.mode === 'new' && !o.poleId && !acc) setTimeout(() => { const f = $('poleId'); f.classList.add('nudge'); setTimeout(() => f.classList.remove('nudge'), 2600); }, 250); // v2.30: no keyboard over the map: check the pin, then tap the ID
   }
   /* ================= v2.21: an unsaved record is kept safe =================
      While a record is open, what it holds (the photo, the form, the pin, the deficiencies and their photos) is kept as a draft on
@@ -5267,7 +5338,7 @@
     $('resultName').textContent = `${name} · ${(blob.size / 1048576).toFixed(2)} MB`;
     $('resultBox').hidden = false;
     $('resSave').textContent = NATIVE ? 'Save to Documents' : 'Save to phone';
-    $('resShare').hidden = !NATIVE && !(navigator.canShare && navigator.canShare({ files: [new File([blob], name, { type: blob.type })] }));
+    $('resShare').hidden = false; // v2.30: always offered; a browser that cannot share this kind of file says what to do instead
     $('resultBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
   $('resSave').addEventListener('click', async () => {
@@ -5286,25 +5357,13 @@
     setTimeout(() => URL.revokeObjectURL(u), 60000);
     toast('Saved to Downloads');
   });
-  $('resShare').addEventListener('click', async () => {
-    if (!lastResult) return;
-    if (NATIVE) {
-      const t0 = Date.now(); LOG.step('file.share', { mb: +(lastResult.blob.size / 1048576).toFixed(2) });
-      try {
-        const r = await nativePrivate(lastResult);
-        LOG.info('file.share.written', { ms: Date.now() - t0 }); LOG.done('file.share');
-        await nativeCall('Share', 'share', { title: r.name, dialogTitle: `Send ${r.name}`, files: [r.cacheUri] });
-      } catch (e) { LOG.done('file.share'); if (!/cancel/i.test(String(e && e.message))) { LOG.error('file.share.fail', { ms: Date.now() - t0, ...errInfo(e) }); toast('Sharing failed: ' + (e.message || e), 5000); } }
-      return;
-    }
-    try { await navigator.share({ files: [new File([lastResult.blob], lastResult.name, { type: lastResult.blob.type })], title: lastResult.name }); }
-    catch (e) { if (e.name !== 'AbortError') toast('Sharing failed — use Save to phone'); }
-  });
+  $('resShare').addEventListener('click', () => { if (lastResult) guard(() => shareFile(lastResult.blob, lastResult.name, lastResult.blob.type)); }); // v2.30: one send path for every Share button
   /* Export screen: one format at a time, picked from the Format dropdown (the last choice is kept per Survey / acceptance). */
   let exportPick = null;
   const xKey = (card) => card.querySelector('button[id^="do"]').id;
   function exportCards() { return [...document.querySelectorAll('#export .xcard')].filter((c) => { const g = c.closest('#accExports, #surveyExports'); return (!g || !g.hidden) && (c.id !== 'boqCard' || boqOn()); }); } // v2.26.1: the BOQ in As-Plan and As-Built only
   function showExport(pick) {
+    renderDxfTpl(); // v2.30
     const cards = exportCards(), sel = $('xFormat'), acc = isAcc();
     const want = cards.find((c) => c.querySelector('#' + pick)) || cards.find((c) => xKey(c) === (S.xPick || {})[acc ? 'acc' : 'survey']) || cards[0];
     sel.innerHTML = '';
@@ -5353,7 +5412,7 @@
     const stg = pmeta().stage || 'PAT';
     $('xShareBox').hidden = !acc || stg === 'FAT';
     if (acc && stg !== 'FAT') { $('xShareLbl').textContent = stg === 'Cleanup' ? 'Share cleanup KMZ' : 'Share PAT KMZ'; $('xShareFor').textContent = stg === 'Cleanup' ? 'for the FAT' : 'for defect cleanup / FAT'; renderShareWarn('xShareWarn'); }
-    $('dxfZoneLbl').textContent = `UTM ${S.zone}N`; syncExpUi();
+    $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`; syncExpUi();
     showExport(exportPick); exportPick = null;
     $('resultBox').hidden = true; openSheet('export');
   });
@@ -5447,6 +5506,7 @@
 
   $('doDxf').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
+    if (dxfMode() === 'tpl') { await exportPlanDxf(pts); return; } // v2.30
     let roads = [], note = '';
     if ($('dxfRoads').checked) {
       if (!navigator.onLine) note = 'Offline — exported without roads';
@@ -5486,6 +5546,145 @@
     offerResult(new Blob(C.makeZipParts(files), { type: 'application/zip' }), `${name}_DXF_photos.zip`);
     if (note) toast(note, 4000);
   }));
+
+  /* ================= v2.30: the plan drawing on the company template =================
+     The template is company property: it is not inside the app. The admin puts the prepared template (the "seed", made once
+     from the AutoCAD template by tools/dxf-seed) on Google Drive and its link in Administration; each phone downloads it
+     once (the Android app), or loads the file (Load template file). It is kept on the phone. dxftpl.js fills a copy. */
+  const SEED_KEY = '~dxfseed';
+  const dxfMode = () => (S.exp.dxfMode === 'simple' || (S.exp.dxfMode !== 'tpl' && !S.dxfSeed) ? 'simple' : 'tpl');
+  function seedOk(text) { return typeof text === 'string' && /\bSECTION\b/.test(text.slice(0, 4000)) && /@@\w+@@/.test(text) && /\nGEO\r?\n/.test(text); }
+  async function storeSeed(text, name, from) {
+    if (!seedOk(text)) throw new Error('This is not the prepared G-eSAA plan template (no @@ fields or no GEO sheet). Use the seed made from your AutoCAD template, e.g. G-eSAA_seed….dxf, not the template itself.');
+    await dbPut('packs', { k: SEED_KEY, text });
+    S.dxfSeed = { name: String(name || 'template.dxf').slice(0, 80), size: text.length, at: new Date().toISOString(), from: from || 'file' }; S.exp.dxfMode = 'tpl'; persist();
+    LOG.info('dxf.seed', { kb: Math.round(text.length / 1024), from }); renderDxfTpl();
+    toast(`Plan template ready: ${S.dxfSeed.name}`, 3500);
+  }
+  async function seedText() { const r = await dbGet('packs', SEED_KEY).catch(() => null); return r && r.text; }
+  function renderDxfTpl() {
+    const tpl = dxfMode() === 'tpl', info = S.dxfSeed, link = pol().dxfSeed, id = link && driveId(link);
+    $('dxfMode').value = tpl ? 'tpl' : 'simple'; $('dxfTplBox').hidden = !tpl;
+    $('dxfDescTpl').hidden = !tpl; $('dxfDescSimple').hidden = tpl;
+    ['dxfPhotos', 'dxfPhotoW', 'setSym'].forEach((k) => { const el = $(k); const row = el && (el.closest('.opt2') || el.closest('label')); if (row) row.hidden = tpl; });
+    $('dxfTplInfo').textContent = info ? `Template: ${info.name} (${fmtMB(info.size)}), on this phone since ${fmtTime(info.at)}.` : id ? 'No plan template on this phone yet. Your admin has shared it: download it below (Android app), or open the link, download the file and Load it.' : 'No plan template on this phone yet. Load the prepared template file (from your admin), or ask your admin to put its link in Administration.';
+    $('dxfTplGet').hidden = !id; $('dxfTplGet').textContent = info ? 'Download it again from your admin’s link' : 'Download it from your admin’s link';
+    $('dxfTplLoad').textContent = info ? 'Load another template file…' : 'Load template file…';
+  }
+  $('dxfMode').addEventListener('change', () => { S.exp.dxfMode = $('dxfMode').value; persist(); renderDxfTpl(); });
+  $('dxfTplLoad').addEventListener('click', () => { $('dxfTplFile').value = ''; $('dxfTplFile').click(); });
+  $('dxfTplFile').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (!f) return; busy('Reading the plan template…'); try { await storeSeed(await f.text(), f.name, 'file'); } finally { busy(false); } }, 'Template not loaded'));
+  async function downloadSeed() {
+    const id = driveId(pol().dxfSeed || ''); if (!id) throw new Error('Your admin has not shared a plan template link');
+    if (!NATIVE) { openExternal(driveViewUrl(id)); toast('Download the template file in Drive, then come back and tap Load template file', 7000); return false; }
+    busy('Downloading the plan template…');
+    try {
+      const r = await withTimeout(nativeGet(driveDownloadUrl(id), {}, 'text'), 90000, 'Google Drive did not answer');
+      if (r.status !== 200) throw new Error(`Google Drive answered HTTP ${r.status}`);
+      const text = typeof r.data === 'string' ? r.data : new TextDecoder().decode(nativeBytes(r.data));
+      if (/^\s*<!DOCTYPE html|<html/i.test(text.slice(0, 300))) throw new Error('Google Drive sent a web page instead of the template. Set the file’s sharing to “Anyone with the link”.');
+      await storeSeed(text, 'Template from your admin (Google Drive)', 'drive');
+      return true;
+    } finally { busy(false); }
+  }
+  $('dxfTplGet').addEventListener('click', () => guard(downloadSeed, 'Template not downloaded'));
+  /** The roads around the plan: OpenStreetMap from the internet (Overpass), else from an offline map pack that covers them. */
+  async function planRoads(bb) { // bb: [south, west, north, east]
+    const conv = (list) => list.map((r) => ({ cls: r.cls === 'OSM_ROAD_MAJOR' ? 'major' : r.cls === 'OSM_ROAD_PATH' ? 'path' : 'minor', name: r.name || '', pts: r.coords.map(([la, lo]) => { const u = C.utmForward(la, lo, S.zone, la < 0); return [u.E, u.N]; }) }));
+    if (navigator.onLine !== false) {
+      try {
+        busy('Downloading the roads from OpenStreetMap…');
+        const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 60000);
+        const q = `[out:json][timeout:60];way["highway"](${bb.map((v) => v.toFixed(6)).join(',')});out geom;`;
+        const r = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(q) });
+        clearTimeout(tm);
+        if (r.ok) { const roads = conv(C.roadsFromOverpass(await r.json())); return { roads, note: `${roads.length} roads from OpenStreetMap (Overpass)` }; }
+      } catch (e) { LOG.warn('plan.roads.online', errInfo(e)); }
+    }
+    try { const R = await roadsFromPack(bb); if (R) return R; } catch (e) { LOG.warn('plan.roads.pack', errInfo(e)); }
+    return { roads: [], note: navigator.onLine === false ? 'no roads: offline, and no offline map pack covers the area' : 'no roads: OpenStreetMap did not answer and no offline map pack covers the area' };
+  }
+  /** Roads read from a downloaded map pack (Protomaps vector tiles, zoom 14) that covers the area. */
+  async function roadsFromPack(bb) {
+    if (!window.protomapsL || !window.protomapsL.PmtilesSource) return null;
+    const pk = Object.values(S.packs || {}).find((p) => p.done && p.bbox && p.bbox[0] <= bb[1] && p.bbox[2] >= bb[3] && p.bbox[1] <= bb[0] && p.bbox[3] >= bb[2])
+      || Object.values(S.packs || {}).find((p) => p.done && p.bbox && !(p.bbox[2] < bb[1] || p.bbox[0] > bb[3] || p.bbox[3] < bb[0] || p.bbox[1] > bb[2]));
+    if (!pk) return null;
+    busy(`Reading the roads from the offline map ${pk.name}…`);
+    const src = new window.protomapsL.PmtilesSource(new window.protomapsL.PMTiles(new PackSource(pk.id)), false), z = Math.min(14, pk.maxzoom || 14), TS = 4096, n = 2 ** z;
+    const x0 = lon2tx(bb[1], z), x1 = lon2tx(bb[3], z), y0 = lat2ty(bb[2], z), y1 = lat2ty(bb[0], z), out = [];
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 64) return null;
+    const toLL = (x, y, px, py) => { const lon = (x + px / TS) / n * 360 - 180, m = Math.PI * (1 - 2 * (y + py / TS) / n); return [Math.atan(Math.sinh(m)) * 180 / Math.PI, lon]; };
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
+      const layers = await src.get({ z, x, y }, TS), roads = layers.get('roads') || [];
+      for (const f of roads) {
+        if (f.geomType !== 2) continue;
+        const k = String((f.props && f.props.kind) || ''), cls = /highway|major/.test(k) ? 'OSM_ROAD_MAJOR' : /path/.test(k) ? 'OSM_ROAD_PATH' : 'OSM_ROAD_MINOR';
+        for (const line of f.geom) { // the part inside this tile only (tiles overlap a little)
+          const pts = line.map((q) => [q.x, q.y]); let cur = [];
+          const inT = (q) => q[0] >= 0 && q[0] <= TS && q[1] >= 0 && q[1] <= TS;
+          pts.forEach((q) => { if (inT(q)) cur.push(q); else { if (cur.length > 1) out.push({ cls, name: (f.props && f.props.name) || '', coords: cur.map((c) => toLL(x, y, c[0], c[1])) }); cur = []; } });
+          if (cur.length > 1) out.push({ cls, name: (f.props && f.props.name) || '', coords: cur.map((c) => toLL(x, y, c[0], c[1])) });
+        }
+      }
+    }
+    const conv = (list) => list.map((r) => ({ cls: r.cls === 'OSM_ROAD_MAJOR' ? 'major' : r.cls === 'OSM_ROAD_PATH' ? 'path' : 'minor', name: r.name || '', pts: r.coords.map(([la, lo]) => { const u = C.utmForward(la, lo, S.zone, la < 0); return [u.E, u.N]; }) }));
+    return { roads: conv(out), note: `${out.length} road pieces from the offline map ${pk.name} (OpenStreetMap)` };
+  }
+  const CAB_TITLE = { F72: 'PROPOSED 72C FIGURE 8 FOC', L12: 'PROPOSED 12C LIGHT CABLE', U144: 'PROPOSED 144C AIR-BLOWN UG FOC' };
+  /** The material code of a pole for the drawing (CC / WP / SP …, or NPT when it has no pole tag). */
+  function matCode(p) { if (/^NPT/i.test(p.poleId || '')) return 'NPT'; const t = poleTypes().find((x) => x.n === p.poleType); return t ? t.p : ''; }
+  async function exportPlanDxf(pts) {
+    if (!window.GeDxfTpl) await loadScript('dxftpl.js');
+    let seed = await seedText();
+    if (!seed && pol().dxfSeed && NATIVE) { if (await downloadSeed()) seed = await seedText(); }
+    if (!seed) { toast(pol().dxfSeed ? 'Download the plan template first (Export → AutoCAD · DXF)' : 'Load the plan template file first (Export → AutoCAD · DXF), or choose Simple', 6000); renderDxfTpl(); return; }
+    busy('Preparing the plan drawing…');
+    const m = pmeta(), zone = S.zone, U = (q) => { const u = C.utmForward(q.lat, q.lon, zone, q.lat < 0); return [u.E, u.N]; };
+    const R = routeModel(), Q = surveyQty(pts), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
+    const rows = pts.map((p) => { const [E, N] = U(p), el = elemOf(p); return { id: p.id, poleId: p.poleId || '', el, status: p.status || '', mat: el === 'Pole' ? matCode(p) : '', E, N, lat: p.lat, lon: p.lon,
+      mloop: !!(p.mloop || (p.boq && p.boq.mloop)), nap: !!p.nap, napId: p.napId || '', closure: !!p.closure, closureId: p.closureId || '', siteName: el === 'Site' ? (m.site || '') : '', plaId: '' }; });
+    const spans = R.spans.map((s) => ({ ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long }));
+    const runs = C.routeChains(R.spans).map((ch) => ({ cable: ch.cable, label: CAB_TITLE[ch.cable] || '', pts: ch.pts.map(U) }));
+    // the area of the vicinity map: three times the route, at least 1.5 km
+    const xs = rows.map((r) => r.E), ys = rows.map((r) => r.N), size = Math.max(1500, 3 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)));
+    const cE = (Math.max(...xs) + Math.min(...xs)) / 2, cN = (Math.max(...ys) + Math.min(...ys)) / 2;
+    const la = pts.map((p) => p.lat), lo = pts.map((p) => p.lon), cla = (Math.max(...la) + Math.min(...la)) / 2, clo = (Math.max(...lo) + Math.min(...lo)) / 2;
+    const dLa = size / 2 / 110574, dLo = size / 2 / (111320 * Math.cos(cla * Math.PI / 180));
+    let roads = [], roadsNote = 'roads not added (Options: untick to leave them out)';
+    if ($('dxfRoads').checked) ({ roads, note: roadsNote } = await planRoads([cla - dLa, clo - dLo, cla + dLa, clo + dLo]));
+    const poles = pts.filter((p) => elemOf(p) === 'Pole'), isNew = (p) => ['Proposed', 'New'].includes(p.status), exist = poles.filter((p) => !isNew(p));
+    const own = (p) => String((p.boq && p.boq.owner) || '').toUpperCase(), gt = (p) => /^(GT|GLOBE)/i.test(matCode(p)) || /globe/i.test(p.poleType || '');
+    const m1 = (v) => `${(Math.round(v * 10) / 10).toFixed(1)}m`;
+    const aeLoops = (q.MLOOP_F72 || 0) + (q.MLOOP_L12 || 0), ugLoops = q.MLOOP_U144 || 0, ml = q.MLOOP_LEN || mloopLen();
+    const cabs = [...new Set(R.spans.map((s) => s.cable).filter(Boolean))];
+    const e = exporterInfo();
+    const values = {
+      EXPORTED_BY: `Exported by ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' · ')} · ${e.app} · ${new Date().toISOString().slice(0, 10)}`,
+      TITLE_CABLE: cabs.map((k) => CAB_TITLE[k]).join(' / '), SITE_NAME: m.site || '', COMPANY_NAME: m.contractor || '',
+      SITE_ID: ((m.siteExtra || []).find(([k]) => /pla|site\s*id/i.test(k)) || [])[1] || '', PROJECT_CODE: ((m.siteExtra || []).find(([k]) => /project\s*code|network\s*code/i.test(k)) || [])[1] || '',
+      PMI_TOTAL_CABLE_LENGTH: R.spans.length ? m1((q.SPAN_TOTAL || 0) + (q.MLOOP_COUNT || 0) * ml) : '', PMI_AERIAL_CABLE_LENGTH: R.spans.length ? m1((q.SPAN_AE || 0) + aeLoops * ml) : '', PMI_UG_CABLE_LENGTH: R.spans.length ? m1((q.SPAN_UG || 0) + ugLoops * ml) : '',
+      PMI_PROPOSED_POLE: String(poles.filter(isNew).length), PMI_EXISTING_GT_POLE: String(exist.filter(gt).length),
+      PMI_RTA_CONVERGE: String(exist.filter((p) => !gt(p) && /CONVERGE/.test(own(p))).length), PMI_RTA_LOCAL_COOP: String(exist.filter((p) => !gt(p) && /ELECTRIC/.test(own(p))).length),
+      PMI_RTA_OTHER_PLDT: String(exist.filter((p) => !gt(p) && own(p) && !/CONVERGE|ELECTRIC/.test(own(p))).length),
+      PMI_FIBER_TERMINATION: String(q.ODF_NEW_FIBERS || 0), PMI_HYBRID_CLOSURE: String(Object.entries(q).filter(([k]) => /^CLOSURE_NEW_/.test(k)).reduce((t, [, v]) => t + (+v || 0), 0)),
+    };
+    busy('Drawing the plan on the template…');
+    await sleep(30);
+    const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinity: [cE, cN, size], date: new Date() });
+    const rp = out.report, name = `${fileBase()}_PLAN_UTM${zone}N`;
+    const readme = [`${name}.dxf — the plan on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres.`,
+      `Sheets: TITLE, TOC, LEGENDS, VICINITY MAP, ROW AREA COVERAGE, KEYMAP, ${rp.sheets.join(', ')}, PMI.`,
+      `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${rp.grid.cell} m (1:1100 on the GEO sheets).`,
+      `Roads: ${roadsNote}.`, '',
+      `Left blank (not known to the app; fill them in CAD): ${rp.blanks.join(', ') || 'none'}.`,
+      'PMI table from the survey: total cable = spans + maintenance loops; aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures. HDD, trenches, maxcell, manhole and service box are not in the survey.',
+      'Proposed poles are red on layer P-GPOLE, existing poles on ELECTRIC POLE (block G-ESAA POLE: CC = material or NPT, NPT = the pole ID).', '', exporterText()].join('\r\n');
+    LOG.info('export.plan', { sheets: rp.sheets.length, roads: rp.counts.roads, blanks: rp.blanks.length, mb: +(out.text.length / 1048576).toFixed(2) });
+    busy(false);
+    offerResult(new Blob(C.makeZipParts([{ name: `${name}.dxf`, data: out.text }, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`);
+    toast(`Plan: ${rp.sheets.length} GEO sheet${rp.sheets.length === 1 ? '' : 's'} · ${roadsNote}`, 5000);
+  }
 
   $('doCsv').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
@@ -6403,7 +6602,7 @@
     // back to the step's base screen when it is open underneath (Settings or Projects), else to the map; then on to the screen
     const base = ['settings', 'profile', 'admin', 'camera', 'exports', 'maps', 'storage', 'log'].includes(st.go) ? 'settings' : ['projects', 'newProject', 'projectDetails'].includes(st.go) ? 'projects' : '';
     if (base && stack.includes(base)) { while (tutTop() !== base) await closeSheet(); } else await closeAll();
-    try { await tutGo(st.go); if (st.go === 'export' && st.hl && /^#do[A-Za-z]+$/.test(st.hl) && !$('export').hidden) showExport(st.hl.slice(1)); } catch (e) { LOG.warn('tut.go', errInfo(e)); }
+    try { await tutGo(st.go); if (st.go === 'export' && st.hl && !$('export').hidden) { const card = /^#do[A-Za-z]+$/.test(st.hl) ? st.hl.slice(1) : /^#dxf(Mode|TplBox)$/.test(st.hl) ? 'doDxf' : ''; if (card) { showExport(card); if (st.hl === '#dxfTplBox' && $('dxfTplBox').hidden) { $('dxfMode').value = 'tpl'; $('dxfMode').dispatchEvent(new Event('change')); } } } } catch (e) { LOG.warn('tut.go', errInfo(e)); }
     await tutWait(400);
   }
   /** The first control of the step that is on screen (not under another screen), or null. */
@@ -6564,7 +6763,7 @@
     const set = new Set(S.exp.stampFields); if (set.has(c.dataset.v)) set.delete(c.dataset.v); else set.add(c.dataset.v);
     S.exp.stampFields = DEF.exp.stampFields.filter((f) => set.has(f)); persist(); syncExpUi();
   }));
-  [['setZone', 'setZone2']].forEach((ids) => ids.forEach((id) => $(id).addEventListener('change', () => { S.zone = +$(id).value; persist(); syncExpUi(); $('dxfZoneLbl').textContent = `UTM ${S.zone}N`; })));
+  [['setZone', 'setZone2']].forEach((ids) => ids.forEach((id) => $(id).addEventListener('change', () => { S.zone = +$(id).value; persist(); syncExpUi(); $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`; })));
   [['setSym', 'sym'], ['setSym2', 'sym'], ['setTxt', 'txt'], ['setTxt2', 'txt']].forEach(([id, key]) => $(id).addEventListener('change', () => { const v = +$(id).value; if (v > 0) { S[key] = v; persist(); } syncExpUi(); }));
   syncExpUi();
   $('goExports').addEventListener('click', () => {
@@ -6580,7 +6779,7 @@
     if (!(await ask('Reset export settings?', 'Photo size, stamp, file names, KMZ, PDF, Excel and DXF options and the save folder go back to their defaults.', [{ label: 'Cancel', value: false }, { label: 'Reset', value: true, primary: true }]))) return;
     S.exp = JSON.parse(JSON.stringify(DEF.exp)); S.zone = DEF.zone; S.sym = DEF.sym; S.txt = DEF.txt;
     S.saveBase = DEF.saveBase; S.saveFolder = DEF.saveFolder; S.saveByProject = DEF.saveByProject; persist();
-    syncExpUi(); $('dxfZoneLbl').textContent = `UTM ${S.zone}N`;
+    syncExpUi(); $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`;
     $('setSaveBase').value = S.saveBase; $('setSaveFolder').value = S.saveFolder; $('setSaveByProject').checked = true; updateSavePreview();
     toast('Export settings reset to the defaults', 2500);
   });
@@ -6631,7 +6830,7 @@
     if (p.poleTypes != null && !(Array.isArray(p.poleTypes) && p.poleTypes.length <= 20 && p.poleTypes.every((t) => t && /^[A-Z]{2,6}$/.test(t.p) && str(t.n, 30)))) return false;
     if (p.adminUsers != null && !list(p.adminUsers, 100, 120)) return false;
     if (p.adminJobs != null && !(typeof p.adminJobs === 'object' && Object.keys(p.adminJobs).length <= 100 && Object.entries(p.adminJobs).every(([k, v]) => k.length <= 120 && Array.isArray(v) && v.length <= 4 && v.every((x) => JOB_NAME[x])))) return false; // v2.28
-    if (!num(p.mloopLen, 1, 100) || !str(p.areaSrc, 300)) return false; // v2.29
+    if (!num(p.mloopLen, 1, 100) || !str(p.areaSrc, 300) || !str(p.dxfSeed, 300)) return false; // v2.29; v2.30: the plan template link
     if (p.boqLists != null && !(typeof p.boqLists === 'object' && Object.entries(p.boqLists).every(([k, v]) => BOQ_OPT[k] && list(v, 40, 40)))) return false; // v2.28
     if (!list(p.detailItems, 40, 40)) return false; // v2.28
     if (p.vendorRecords != null && typeof p.vendorRecords !== 'boolean') return false;
@@ -7993,19 +8192,43 @@
   }
   $('sendPat').addEventListener('click', () => guard(sharePackage));
   $('xShare').addEventListener('click', () => guard(sharePackage));
-  /** Save or send a file: the APK's share sheet, the browser's share sheet, or a download. */
+  /** Save or send a file: the APK's share sheet, the browser's share sheet, or a download. v2.30: the browser's share sheet
+      opens from a fresh tap (iPhone and Chrome refuse it after a long wait), and a browser that cannot share the kind of file
+      says so instead of failing quietly. */
   async function shareFile(blob, name, type) {
     if (NATIVE) {
-      try { const r = await nativePrivate({ blob, name }); await nativeCall('Share', 'share', { title: name, dialogTitle: `Send ${name}`, files: [r.cacheUri] }); return; }
-      catch (e) { if (/cancel/i.test(String(e && e.message))) return; }
-      try { const r = await nativeSave({ blob, name }); toast(`Could not open sharing; saved to ${r.where} instead`, 6000); }
+      const t0 = Date.now(); LOG.step('file.share', { mb: +(blob.size / 1048576).toFixed(2), kind: (name.split('.').pop() || '').toLowerCase() });
+      try { const r = await nativePrivate({ blob, name }); await nativeCall('Share', 'share', { title: name, dialogTitle: `Send ${name}`, files: [r.cacheUri] }); LOG.done('file.share'); return; }
+      catch (e) { LOG.done('file.share'); if (/cancel/i.test(String(e && e.message))) return; LOG.error('file.share.fail', { ms: Date.now() - t0, ...errInfo(e) }); }
+      try { const r = await nativeSave({ blob, name }); toast(`Sharing did not open on this phone; the file is saved to ${r.where} instead. Send it from the Files app.`, 7000); }
       catch (e) { toast(`Could not share or save the file: ${e.message || e}`, 6000); }
       return;
     }
-    try {
-      const file = new File([blob], name, { type: type || blob.type });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; }
-    } catch (e) { if (e && (e.name === 'AbortError' || /cancel/i.test(String(e.message)))) return; }
+    const file = new File([blob], name, { type: type || blob.type || 'application/octet-stream' });
+    const can = !!(navigator.share && navigator.canShare && (() => { try { return navigator.canShare({ files: [file] }); } catch (e) { return false; } })());
+    sendSheet(file, can);
+  }
+  /** The send panel of the website version: Share (the phone's share sheet: WhatsApp, AirDrop, Quick Share, Save to Files…),
+      Save to phone, Close. Share is called straight from the tap. */
+  function sendSheet(file, can) {
+    $('sendName').textContent = `${file.name} · ${fmtMB(file.size)}`;
+    const ext = (file.name.split('.').pop() || '').toUpperCase();
+    $('sendNote').textContent = can ? 'Share opens the phone’s own share sheet: a chat app, AirDrop (iPhone) or Quick Share (Android) to a phone nearby, email, or Save to Files.'
+      : `This browser cannot hand a .${ext.toLowerCase()} file to other apps (Chrome on Android shares only pictures, PDF and text from a website). Save it to the phone, then send it from the Files or Downloads app; or use the G-eSAA Android app, which shares any file.`;
+    $('sendGo').hidden = !can;
+    const close = () => { $('sendBox').hidden = true; $('sendGo').onclick = $('sendSave').onclick = $('sendNo').onclick = null; };
+    $('sendGo').onclick = () => {
+      navigator.share({ files: [file], title: file.name }).then(close).catch((e) => {
+        if (e && e.name === 'AbortError') return; // the user closed the share sheet: the panel stays for another try
+        LOG.warn('web.share.fail', { name: e && e.name, msg: String(e && e.message).slice(0, 120) });
+        $('sendNote').textContent = `The share sheet refused this file (${(e && (e.name || e.message)) || 'unknown reason'}). Use Save to phone, then send it from the Files app.`; $('sendGo').hidden = true;
+      });
+    };
+    $('sendSave').onclick = () => { saveBlob(file, file.name); close(); };
+    $('sendNo').onclick = close;
+    $('sendBox').hidden = false;
+  }
+  function saveBlob(blob, name) {
     const a = document.createElement('a'), u = URL.createObjectURL(blob);
     a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 60000);
     toast('Saved to Downloads');
@@ -8163,7 +8386,7 @@
     $('admPoleTypes').value = typeLines(polDraft.poleTypes);
     { const L0 = pol(); const was = (k) => { const L = L0.boqLists; return L && Array.isArray(L[k]) && L[k].length ? L[k] : k === 'owner' ? [...BOQ_OPT.owner, ...(L0.poleOwners || [])] : BOQ_OPT[k]; }; // v2.28: the lists as they are now
       ADM_LISTS.forEach(([id, k]) => { $(id).value = (k === 'details' ? (Array.isArray(L0.detailItems) && L0.detailItems.length ? L0.detailItems : POLE_DETAIL_ITEMS) : was(k)).join('\n'); }); }
-    $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = ''; $('admAreaSrc').value = P.areaSrc || ''; // v2.29
+    $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = ''; $('admAreaSrc').value = P.areaSrc || ''; $('admDxfSeed').value = P.dxfSeed || ''; // v2.29, v2.30
     $('admUsers').value = (P.adminUsers || []).map((e) => `${e}${(P.adminJobs || {})[e] ? ` ${P.adminJobs[e].map((k) => JOB_NAME[k]).join(', ')}` : ''}`).join('\n'); $('admVendorRec').checked = P.vendorRecords !== false; // v2.28: with the job
     renderOrgBox(create);
     admSheetPrefill = { users: S.cloud && S.cloud.adminUsers, kmz: S.cloud && S.cloud.kmzPass };
@@ -8235,6 +8458,7 @@
       if (L.owner) { const extra = L.owner.filter((x) => !BOQ_OPT.owner.includes(x)); if (extra.length) P.poleOwners = extra; } } // phones before v2.28 still get the extra owners
     P.packs = parsePackLines($('admPacks').value).packs; if (!P.packs.length) delete P.packs;
     { const a = $('admAreaSrc').value.trim(); if (/^https:\/\/\S+$/.test(a) && a.length <= 300) P.areaSrc = a; else delete P.areaSrc; } // v2.29
+    { const a = $('admDxfSeed').value.trim(); if (driveId(a) && a.length <= 300) P.dxfSeed = a; else delete P.dxfSeed; } // v2.30: the plan template (DXF seed) on Google Drive
     if (!P.poleTypes.length) delete P.poleTypes;
     const types = form.types.length ? form.types : D.types;
     P.inspTypes = (P.inspTypes || []).filter((x) => types.includes(x)); if (!P.inspTypes.length) P.inspTypes = [types[0]];
