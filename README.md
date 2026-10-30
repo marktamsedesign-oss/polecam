@@ -273,11 +273,11 @@ The admin keeps three lists in a Google Sheet on their own account; phones read 
 
 **On the phones:** Projects → **+ New project** → *Project name* **▾** lists the open rows for the user's company (admins see all). Picking one fills the project with its category, site and contractor; for a Defect Cleanup or FAT choose the KMZ in the same form. Settings → Administration shows when the sheet was last read, with *Sync online sheet*.
 
-### Updating the script (needed for v2.5 map packs, the Defect cleanup category, v2.6 company filtering, v2.9 list updates through the sheet, v2.10 company keys, v2.11 progress dates, v2.25 Region / Territory, v2.27 no sites without them and v2.28 Admin users / KMZ password)
+### Updating the script (needed for v2.5 map packs, the Defect cleanup category, v2.6 company filtering, v2.9 list updates through the sheet, v2.10 company keys, v2.11 progress dates, v2.25 Region / Territory, v2.27 no sites without them, v2.28 Admin users / KMZ password and v2.32 the plan template for every phone)
 
 1. Open the online Google Sheet → **Extensions → Apps Script**.
 2. Click in the code (`Code.gs`), select all (Ctrl+A), delete, paste the whole new `PoleCam-online-sheet.gs`, **Save** (Ctrl+S).
-3. In the function list at the top choose **setup** → **Run**. If Google asks, **Review permissions** → your account → *Advanced* → *Go to … (unsafe)* → **Allow** (it is your own script). It only adds the new Settings rows, the CompanyKeys tab and (v2.11) the missing progress columns at the end of the Project Data header; nothing is deleted.
+3. In the function list at the top choose **setup** → **Run**. If Google asks, **Review permissions** → your account → *Advanced* → *Go to … (unsafe)* → **Allow** (it is your own script; v2.32 adds *Connect to an external service*, used only to download the plan template from its Drive link). It only adds the new Settings rows, the CompanyKeys tab and (v2.11) the missing progress columns at the end of the Project Data header; nothing is deleted.
 4. **Deploy → Manage deployments** → pencil (**Edit**) on the existing Web app → *Version*: **New version** → **Deploy**. The URL stays the same, so the phones keep reading it. (Do not use *New deployment*: that makes a new URL.)
 5. On the admin phone: Settings → **Sync online sheet**. The line under it shows the tasks and map packs read.
 
@@ -340,7 +340,7 @@ On the PAT phone: Projects → (PAT project) → *Project details* → **Share t
 
 ## AutoCAD
 
-- **On the company plan template (v2.30, drawn like the template's sample since v2.31):** Export → AutoCAD · DXF → DRAWING *On the company plan template* gives a ZIP with the DXF and a README of the fields left blank. Open the DXF in AutoCAD (it is a full drawing, not an insert). The template (the *seed*) comes from the admin's Drive link; see *What changed in v2.30*.
+- **On the company plan template (v2.30, drawn like the template's sample since v2.31):** Export → AutoCAD · DXF → DRAWING *On the company plan template* gives a ZIP with the DXF, the pole photos, the vicinity street map (v2.32) and a README of the fields left blank. **Unzip everything into one folder** and open the DXF in AutoCAD (it is a full drawing, not an insert). The template (the *seed*) comes from the admin (v2.32: by itself, through the online sheet); see *What changed in v2.30* and *v2.32*.
 - Open the DXF directly or `INSERT`/`XATTACH` it into your drawing. Units are **meters**, coordinates are **UTM 51N (WGS84)** — your drawing must use the same system to line up.
 - **Photos (v2.14):** unzip the DXF ZIP and keep the DXF and the JPEGs **in the same folder**; the photos are attached images (like `IMAGEATTACH`), so moving the DXF alone shows empty frames. If AutoCAD shows a frame without the picture, open `EXTERNALREFERENCES` and point the image to the JPEG. Photo width in the drawing (default 6 m) is in the DXF export options.
 - Poles are circles (v2.14), not blocks: select a type with `QSELECT` by layer (`POLE_CONCRETE`, `POLE_CONCRETE_PROPOSED`…). Freeze `POINT_PHOTO`, `POLE_DETAILS` or `FOC_LENGTH` to hide them.
@@ -524,6 +524,26 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.32
+
+- **The plan template with no tapping (website too).** Once the admin has shared the template, every phone gets it **by itself in the background**, on the website as well as in the Android app, and keeps it. The DXF card then shows **✓ Plan template ready** and the user only taps **Export DXF**. When the admin shares a newer template, phones replace theirs by themselves.
+  - It goes **through the online sheet**: the sheet script (v2.32) downloads the template from its Drive link and hands it to the phones of the list (Read key or company key). Browsers cannot read Google Drive files themselves; the sheet can. Only that one file is sent, and only to the phones of your list.
+  - **The admin does one thing:** update the sheet script to v2.32 (see *Updating the script*; Google asks for one new permission, *Connect to an external service*) and save the company list once from the admin phone, so the sheet learns the template link. Instead, the link can be put in the sheet's Settings → *Plan template*.
+  - Without the v2.32 script, it works as in v2.31: the Android app downloads from Drive; the website offers *Open in Drive* / *Load the downloaded file*.
+- **The plan drawing (your list of 8):**
+  1. **Road corners are rounded** (4 m radius, real arcs), and the pavement edges are joined into long polylines instead of many short pieces.
+  2. **Red for new fiber, blue for existing** (cables, their labels, the vicinity route). *All spans the app records are new*, so everything is red for now: see *Not done* below.
+  3. **Aerial cable as a broken line, underground solid.** The aerial line uses the template's own **DASHED** linetype at linetype scale 7 (9 for existing), as in your template's sample route, continuous over the poles (no dash restarting at each pole).
+  4. **The pole photo instead of the number**, beside its pole, **upright**, in a thin frame with a line to its pole. The JPEGs are in the ZIP next to the DXF: **unzip everything into one folder**, or AutoCAD shows empty frames. A pole without a photo keeps its number.
+  5. **Span lengths smaller where spans are short** (text 1.4 to 2.5 m high), written **along the cable**.
+  6. **Poles:** the symbols and labels are **smaller where poles stand close together** (down to 60 %), and the label lines are written as plain text **all in the same direction as the pole ID**. The template's pole attributes are kept but hidden (AutoCAD placed some of them on its own, which is what turned the CC text in your screenshot). **Pole size:** the app records the clamp size (e.g. *CA 8-9*) and, for a proposed pole, its height; those are written. The size of an existing pole (height / class) is not recorded by the app: see below.
+  7. **The vicinity map has the map and the route:** the street map of the area (the map in use, OpenStreetMap by default) is put in as a picture, turned to the drawing's UTM grid, with the route in bold red on it and its name. That sheet shows only the map and the route; the GEO sheets and the keymap do not show the map. With no internet, the map tiles already on the phone are used; with none at all, the roads are drawn instead with their names written large. In model space the vicinity map is drawn beside the plan (east of it), so it never covers the plan when you work there.
+  8. **One tap for vendors:** see the first point. The DXF card is shorter and says plainly whether the template is ready.
+- **Not done (needs your decision):**
+  - **Existing fiber:** the app has no way yet to mark a span as existing fiber, so blue never shows. The drawing already supports it; I can add an *Existing fiber* choice to the route bar (it would then be left out of the new cable quantities and the PMI).
+  - **Existing pole size:** only the clamp is recorded for existing poles. I can add a pole height / class field if you want it on the drawing.
+- Checked here: the structure checker (no new problems), rendered previews of the GEO, KEYMAP and VICINITY MAP sheets, the vicinity picture's position against its map tiles, and the sheet script against a mock of Google's services. **Not checked here:** AutoCAD itself, and the real Apps Script / Google Drive download (I cannot run them from here).
 
 ## What changed in v2.31
 

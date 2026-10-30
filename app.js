@@ -677,7 +677,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.31.0';
+  const APP_VER = '2.32.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -5552,28 +5552,39 @@
      from the AutoCAD template by tools/dxf-seed) on Google Drive and its link in Administration; each phone downloads it
      once (the Android app), or loads the file (Load template file). It is kept on the phone. dxftpl.js fills a copy. */
   const SEED_KEY = '~dxfseed';
+  /** v2.32: the Drive id of the admin's template: from the company list, else the one the online sheet names. */
+  const seedId = () => driveId(pol().dxfSeed || '') || (S.cloud && S.team && S.team.src && S.cloud.src === S.team.src.url && S.cloud.dxfSeed) || '';
+  const viaSheet = () => !!(S.team && S.team.src && S.team.src.url);
+  const seedStale = () => { const i = S.dxfSeed, id = seedId(); return !!(i && id && i.from === 'drive' && i.id && i.id !== id); };
+  let seedBusy = null; // the background download, while it runs
   // v2.31: the company template is the default as soon as the admin shares one (or one is on the phone); Simple only when chosen
-  const dxfMode = () => (S.exp.dxfMode === 'simple' || (S.exp.dxfMode !== 'tpl' && !S.dxfSeed && !driveId(pol().dxfSeed || '')) ? 'simple' : 'tpl');
+  const dxfMode = () => (S.exp.dxfMode === 'simple' || (S.exp.dxfMode !== 'tpl' && !S.dxfSeed && !seedId()) ? 'simple' : 'tpl');
   function seedOk(text) { return typeof text === 'string' && /\bSECTION\b/.test(text.slice(0, 4000)) && /@@\w+@@/.test(text) && /\nGEO\r?\n/.test(text); }
-  async function storeSeed(text, name, from) {
+  async function storeSeed(text, name, from, id) {
     if (!seedOk(text)) throw new Error('This is not the prepared G-eSAA plan template (no @@ fields or no GEO sheet). Use the seed made from your AutoCAD template, e.g. G-eSAA_seed….dxf, not the template itself.');
     await dbPut('packs', { k: SEED_KEY, text });
-    S.dxfSeed = { name: String(name || 'template.dxf').slice(0, 80), size: text.length, at: new Date().toISOString(), from: from || 'file', id: from === 'drive' ? driveId(pol().dxfSeed || '') : '' };
+    S.dxfSeed = { name: String(name || 'template.dxf').slice(0, 80), size: text.length, at: new Date().toISOString(), from: from || 'file', id: from === 'drive' ? id || seedId() : '' };
     if (S.exp.dxfMode !== 'simple') S.exp.dxfMode = 'tpl'; persist();
     LOG.info('dxf.seed', { kb: Math.round(text.length / 1024), from }); renderDxfTpl();
-    toast(`Plan template ready: ${S.dxfSeed.name}`, 3500);
+    toast('Plan template ready ✓', 3000);
   }
   async function seedText() { const r = await dbGet('packs', SEED_KEY).catch(() => null); return r && r.text; }
+  /* v2.32: the card in plain words: a tick when the template is on the phone, "Getting…" while it downloads by itself */
   function renderDxfTpl() {
-    const tpl = dxfMode() === 'tpl', info = S.dxfSeed, link = pol().dxfSeed, id = link && driveId(link);
+    const tpl = dxfMode() === 'tpl', info = S.dxfSeed, id = seedId(), stale = seedStale();
     $('dxfMode').value = tpl ? 'tpl' : 'simple'; $('dxfTplBox').hidden = !tpl;
     $('dxfDescTpl').hidden = !tpl; $('dxfDescSimple').hidden = tpl;
     ['dxfPhotos', 'dxfPhotoW', 'setSym'].forEach((k) => { const el = $(k); const row = el && (el.closest('.opt2') || el.closest('label')); if (row) row.hidden = tpl; });
-    const stale = info && id && info.from === 'drive' && info.id && info.id !== id;
-    $('dxfTplInfo').textContent = info ? `Template: ${info.name} (${fmtMB(info.size)}), on this phone since ${fmtTime(info.at)}.${stale ? ' Your admin has shared a newer one: tap Update.' : ''}` : id ? (NATIVE ? 'Your admin has shared the plan template: it downloads by itself when you export (or tap Get the template now), then stays on this phone.' : 'Your admin has shared the plan template: tap Get the template (once; it stays on this phone).') : 'No plan template on this phone yet. Load the prepared template file (from your admin), or ask your admin to put its link in Administration.';
-    $('dxfTplGet').hidden = !id; $('dxfTplGet').textContent = info ? (stale ? 'Update from your admin' : 'Download it again') : 'Get the template';
-    $('dxfTplGet').classList.toggle('primary', !info || !!stale);
-    $('dxfTplLoad').textContent = info ? 'Load another template file…' : 'Load template file…';
+    const el = $('dxfTplInfo'); el.classList.toggle('ok', !!info && !stale && !seedBusy);
+    el.textContent = seedBusy ? 'Getting the plan template from your admin…'
+      : info ? `✓ Plan template ready on this phone (${info.name})${stale ? ' — your admin has shared a newer one: tap Update' : ''}. Tap Export DXF.`
+        : id ? 'Your admin has shared the plan template. Tap Get the template (once: it stays on this phone), or just tap Export DXF.'
+          : 'No plan template yet. Ask your admin to share it, or load the template file they sent you.';
+    $('dxfTplGet').hidden = !id || (!!info && !stale); $('dxfTplGet').disabled = !!seedBusy;
+    $('dxfTplGet').textContent = stale ? 'Update the template' : 'Get the template';
+    $('dxfTplGet').classList.toggle('primary', true);
+    $('dxfTplLoad').textContent = info ? 'Use another template file…' : 'Load template file…';
+    $('dxfTplLoad').classList.toggle('link', !!id); // with an admin link, loading a file by hand is the exception
   }
   $('dxfMode').addEventListener('change', () => { S.exp.dxfMode = $('dxfMode').value; persist(); renderDxfTpl(); });
   $('dxfTplLoad').addEventListener('click', () => { $('dxfTplFile').value = ''; $('dxfTplFile').click(); });
@@ -5581,49 +5592,72 @@
   /** v2.31: the admin's template, fetched and kept: the Android app through Android (Google Drive allows it); the website tries the
       same link and, when the browser is not allowed to read Google Drive, says how to get the file instead. quiet: no busy
       screen and no message (a download in the background). Returns true when the template is on the phone afterwards. */
+  /** v2.32: the template through the online sheet (script v2.32): the website cannot read Google Drive itself, the sheet can.
+      Null when there is no sheet or its script is older. */
+  async function seedFromSheet() {
+    if (!viaSheet() || navigator.onLine === false) return null;
+    const src = S.team.src, u = new URL(src.url);
+    u.searchParams.set('dxfseed', '1'); u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER); u.searchParams.set('company', (S.user && S.user.company) || '');
+    if (S.companyKey) u.searchParams.set('ckey', S.companyKey);
+    let j = null;
+    try { const r = await withTimeout(fetch(u.href, { cache: 'no-store', redirect: 'follow' }), 120000, 'The online sheet did not answer'); j = await r.json(); }
+    catch (e) {
+      if (!NATIVE) throw e;
+      const r = await withTimeout(nativeCall('CapacitorHttp', 'request', { url: u.href, method: 'GET', responseType: 'json', headers: { 'User-Agent': APP_UA() }, connectTimeout: 20000, readTimeout: 120000 }), 120000, 'The online sheet did not answer');
+      j = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+    }
+    if (j && j.ok && typeof j.text === 'string') return j;
+    if (j && !j.ok && j.error && !/^(key|company key|action)$/.test(j.error)) throw new Error(`Online sheet: ${j.error}`);
+    return null; // an older sheet script: it does not send the template
+  }
   async function downloadSeed(quiet) {
-    const id = driveId(pol().dxfSeed || ''); if (!id) throw new Error('Your admin has not shared a plan template link');
-    if (!quiet) busy('Downloading the plan template…');
+    const id = seedId(); if (!id && !viaSheet()) throw new Error('Your admin has not shared the plan template');
+    if (!quiet) busy('Getting the plan template from your admin…');
     try {
-      let text = '';
+      let text = '', sheetErr = null;
+      try { const j = await seedFromSheet(); if (j) { await storeSeed(j.text, j.name || 'Template from your admin', 'drive', j.id); return true; } } catch (e) { sheetErr = e; LOG.warn('dxf.seed.sheet', errInfo(e)); }
+      if (!id) { if (quiet) return false; throw sheetErr || new Error('Your admin has not shared the plan template'); }
       if (NATIVE) {
         const r = await withTimeout(nativeGet(driveDownloadUrl(id), {}, 'text'), 90000, 'Google Drive did not answer');
         if (r.status !== 200) throw new Error(`Google Drive answered HTTP ${r.status}`);
         text = typeof r.data === 'string' ? r.data : new TextDecoder().decode(nativeBytes(r.data));
       } else {
+        if (quiet) return false; // in the background the website goes through the online sheet only (browsers may not read Drive)
         let r = null;
         try { r = await withTimeout(fetch(driveDownloadUrl(id), { credentials: 'omit' }), 60000, 'Google Drive did not answer'); } catch (e) { LOG.warn('dxf.seed.web', errInfo(e)); r = null; }
         if (!r || !r.ok) {
-          if (quiet) return false;
           busy(false);
-          const how = await ask('Get the plan template', 'This browser is not allowed to read the file from Google Drive by itself (the Android app can).\n\n1. Open in Drive and download the file.\n2. Come back and tap Load the downloaded file.\n\nIt stays on this phone afterwards.', [{ label: 'Cancel', value: '' }, { label: 'Load the downloaded file', value: 'load' }, { label: 'Open in Drive', value: 'drive', primary: true }]);
+          const why = sheetErr ? `\n\n(${sheetErr.message || sheetErr})` : viaSheet() ? '\n\nFor your admin: with the online sheet script v2.32 the template comes by itself.' : '';
+          const how = await ask('Get the plan template', `This browser is not allowed to read the file from Google Drive by itself (the Android app can).\n\n1. Open in Drive and download the file.\n2. Come back and tap Load the downloaded file.\n\nIt stays on this phone afterwards.${why}`, [{ label: 'Cancel', value: '' }, { label: 'Load the downloaded file', value: 'load' }, { label: 'Open in Drive', value: 'drive', primary: true }]);
           if (how === 'drive') openExternal(driveViewUrl(id)); else if (how === 'load') { $('dxfTplFile').value = ''; $('dxfTplFile').click(); }
           return false;
         }
         text = await r.text();
       }
       if (/^\s*<!DOCTYPE html|<html/i.test(text.slice(0, 300))) throw new Error('Google Drive sent a web page instead of the template. Ask your admin to set the file’s sharing to “Anyone with the link”.');
-      await storeSeed(text, 'Template from your admin (Google Drive)', 'drive');
+      await storeSeed(text, 'Template from your admin (Google Drive)', 'drive', id);
       return true;
     } finally { if (!quiet) busy(false); }
   }
   /** The template ready for an export: on the phone, else downloaded now (and updated when the admin's link changed). */
   async function ensureSeed() {
-    let seed = await seedText(); const id = driveId(pol().dxfSeed || ''), info = S.dxfSeed;
-    const stale = seed && id && info && info.from === 'drive' && info.id && info.id !== id;
-    if ((!seed || stale) && id && navigator.onLine !== false) {
+    if (seedBusy) await seedBusy.catch(() => {});
+    let seed = await seedText(); const id = seedId();
+    if ((!seed || seedStale()) && id && navigator.onLine !== false) {
       try { if (await downloadSeed(!!seed && !NATIVE)) seed = await seedText(); } catch (e) { if (!seed) throw e; LOG.warn('dxf.seed.update', errInfo(e)); }
     }
     return seed;
   }
-  /** Android app: the admin's template fetched in the background once the list has a link, so the first export does not wait. */
+  /** v2.32: the admin's template fetched in the background (website and app) as soon as the phone knows of it (company list or
+      online sheet), and again when the admin shares a newer one, so the user never has to tap anything for it. */
   function seedInBackground() {
-    if (!NATIVE || S.dxfSeed && !(S.dxfSeed.from === 'drive' && S.dxfSeed.id && S.dxfSeed.id !== driveId(pol().dxfSeed || ''))) return;
-    if (!driveId(pol().dxfSeed || '') || navigator.onLine === false) return;
-    downloadSeed(true).catch((e) => LOG.warn('dxf.seed.bg', errInfo(e)));
+    if (seedBusy || (S.dxfSeed && !seedStale()) || !seedId() || navigator.onLine === false || S.exp.dxfMode === 'simple') return;
+    if (!NATIVE && !viaSheet()) return; // the website reads Google Drive only through the sheet
+    seedBusy = downloadSeed(true).catch((e) => { LOG.warn('dxf.seed.bg', errInfo(e)); return false; }).finally(() => { seedBusy = null; try { renderDxfTpl(); } catch (e) { /* not shown */ } });
+    try { renderDxfTpl(); } catch (e) { /* not shown */ }
   }
   setTimeout(() => { try { seedInBackground(); } catch (e) { /* not ready */ } }, 8000);
-  $('dxfTplGet').addEventListener('click', () => guard(downloadSeed, 'Template not downloaded'));
+  $('dxfTplGet').addEventListener('click', () => guard(() => downloadSeed(false), 'Template not downloaded'));
   /** The roads around the plan: OpenStreetMap from the internet (Overpass), else from an offline map pack that covers them. */
   /** The roads and named places around the plan: OpenStreetMap from the internet (Overpass), else from an offline map pack that
       covers them. bb: [south, west, north, east] of the vicinity; nb: the same for the places (round the route only). */
@@ -5689,10 +5723,61 @@
   const CAB_TITLE = { F72: 'PROPOSED 72C FIGURE 8 FOC', L12: 'PROPOSED 12C LIGHT CABLE', U144: 'PROPOSED 144C AIR-BLOWN UG FOC' };
   /** The material code of a pole for the drawing (CC / WP / SP …, or NPT when it has no pole tag). */
   function matCode(p) { if (/^NPT/i.test(p.poleId || '')) return 'NPT'; const t = poleTypes().find((x) => x.n === p.poleType); return t ? t.p : ''; }
+  /** v2.32: the picture of the VICINITY MAP sheet: the street map in use (tiles already seen on this phone first) over the vicinity
+      square, turned to the UTM grid of the drawing, as a JPEG. Null when offline or when too much of the map does not come. */
+  async function vicinityJpeg(cE, cN, size, zone, south, progress) {
+    const say = progress || (() => {});
+    if (navigator.onLine === false) return null;
+    const PX = 1800, h = size / 2, src = streetSource();
+    const ll = [[cE - h, cN + h], [cE + h, cN + h], [cE - h, cN - h]].map(([E, N]) => C.utmInverse(E, N, zone, south)); // top left, top right, bottom left
+    const merc = (la, lo, z) => { const n = 256 * 2 ** z, s = Math.sin(la * Math.PI / 180); return [(lo + 180) / 360 * n, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n]; };
+    let z = Math.min(17, src.max || 17), m, tx0, tx1, ty0, ty1;
+    for (; z >= 11; z--) { // the most detailed map that needs at most 64 tiles
+      m = ll.map(([la, lo]) => merc(la, lo, z)); const m4 = [...m, [m[1][0] + m[2][0] - m[0][0], m[1][1] + m[2][1] - m[0][1]]];
+      tx0 = Math.floor(Math.min(...m4.map((q) => q[0])) / 256); tx1 = Math.floor(Math.max(...m4.map((q) => q[0])) / 256);
+      ty0 = Math.floor(Math.min(...m4.map((q) => q[1])) / 256); ty1 = Math.floor(Math.max(...m4.map((q) => q[1])) / 256);
+      if ((tx1 - tx0 + 1) * (ty1 - ty0 + 1) <= 64) break;
+    }
+    if (z < 11) return null;
+    const jobs = []; for (let x = tx0; x <= tx1; x++) for (let y = ty0; y <= ty1; y++) jobs.push({ x, y });
+    // the tiles: from this phone's map cache when seen recently, else from the server (not counted as map failures: the map's own
+    // server switching is left alone); stops as soon as too many are missing for a usable picture
+    const maxMiss = Math.floor(jobs.length * 0.15); let got = 0, miss = 0;
+    const one = async (j) => {
+      const k = `${src.key}/${z}/${j.x}/${j.y}`; let hit = null;
+      try { hit = await dbGet('tiles', k); } catch (e) { /* no cache */ }
+      if (hit && hit.blob && Date.now() - (hit.t || 0) < TILE_KEEP_MS) return hit.blob;
+      if (miss > maxMiss) return null;
+      try {
+        const blob = await getTileBlob(src.url.replace('{z}', z).replace('{x}', j.x).replace('{y}', j.y), NATIVE && src.id === 'osm');
+        dbPut('tiles', { k, blob, t: Date.now() }).catch(() => {}); return blob;
+      } catch (e) { return hit ? hit.blob : null; }
+    };
+    // six at a time, its own queue (the map's tile queue waits while the busy screen shows)
+    say(`Getting the vicinity map (${jobs.length} map tiles)…`, 0);
+    let next = 0;
+    const worker = async () => { while (next < jobs.length) { const j = jobs[next++]; j.blob = await one(j).catch(() => null); if (!j.blob || !j.blob.size) miss++; got++; say(`Getting the vicinity map (${got} / ${jobs.length})…`, got / jobs.length); } };
+    await Promise.all(Array.from({ length: Math.min(6, jobs.length) }, worker));
+    const ok = jobs.filter((j) => j.blob && j.blob.size > 0);
+    if (ok.length < jobs.length - maxMiss) { LOG.warn('plan.vicinity', { tiles: jobs.length, ok: ok.length, z }); return null; }
+    const cv = document.createElement('canvas'); cv.width = cv.height = PX; const g = cv.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, PX, PX); g.imageSmoothingQuality = 'high';
+    // map pixel (zoom z) → picture pixel: the affine map that puts the three corners in place (the area is small enough to be flat)
+    const ux = m[1][0] - m[0][0], uy = m[1][1] - m[0][1], vx = m[2][0] - m[0][0], vy = m[2][1] - m[0][1], det = ux * vy - vx * uy;
+    const a = PX * vy / det, c = -PX * vx / det, b = -PX * uy / det, d = PX * ux / det;
+    g.setTransform(a, b, c, d, -(a * m[0][0] + c * m[0][1]), -(b * m[0][0] + d * m[0][1]));
+    for (const j of ok) {
+      try { const im = await loadImage(j.blob); g.drawImage(im, j.x * 256, j.y * 256, 256.6, 256.6); if (im.close) im.close(); } catch (e) { /* a broken tile stays white */ }
+    }
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    const jpg = new Uint8Array(await (await toBlob(cv, 0.85)).arrayBuffer());
+    LOG.info('plan.vicinity', { tiles: jobs.length, ok: ok.length, z, kb: Math.round(jpg.length / 1024) });
+    return { jpg, px: PX, py: PX, z, credit: src.attr || '© OpenStreetMap contributors' };
+  }
   async function exportPlanDxf(pts) {
     if (!window.GeDxfTpl) await loadScript('dxftpl.js');
     const seed = await ensureSeed();
-    if (!seed) { if (!pol().dxfSeed) toast('Load the plan template file first (Export → AutoCAD · DXF), or choose Simple', 6000); renderDxfTpl(); return; }
+    if (!seed) { if (!seedId()) toast('No plan template yet: ask your admin to share it, or load the template file they sent you', 6000); renderDxfTpl(); return; }
     busy('Preparing the plan drawing…');
     const m = pmeta(), zone = S.zone, U = (q) => { const u = C.utmForward(q.lat, q.lon, zone, q.lat < 0); return [u.E, u.N]; };
     const R = routeModel(), Q = surveyQty(pts), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
@@ -5730,11 +5815,25 @@
       PMI_RTA_OTHER_PLDT: String(exist.filter((p) => !gt(p) && own(p) && !/CONVERGE|ELECTRIC/.test(own(p))).length),
       PMI_FIBER_TERMINATION: String(q.ODF_NEW_FIBERS || 0), PMI_HYBRID_CLOSURE: String(Object.entries(q).filter(([k]) => /^CLOSURE_NEW_/.test(k)).reduce((t, [, v]) => t + (+v || 0), 0)),
     };
+    // v2.32: the photo of each pole beside it on the drawing (the JPEGs go next to the DXF), and the street map on the vicinity sheet
+    const names = uniqueNames(pts), photos = {}, files = [];
+    for (let i = 0; i < poles.length; i++) {
+      busy(`Preparing the pole photos ${i + 1} / ${poles.length}`, i / poles.length);
+      const jpg = await pdfJpeg(coverPid(poles[i]) || poles[i].id, 800, null, null, 0.8).catch(() => null); if (!jpg) continue;
+      let dim; try { dim = window.PoleReports.jpegInfo(jpg); } catch (e) { continue; }
+      const file = `${names[poles[i].id]}.jpg`; photos[poles[i].id] = { file, px: dim.w, py: dim.h }; files.push({ name: file, data: jpg });
+    }
+    let vicImage = null;
+    try { const v = await vicinityJpeg(cE, cN, size, zone, cla < 0, busy); if (v) { vicImage = { file: 'VICINITY_MAP.jpg', px: v.px, py: v.py, credit: v.credit }; files.push({ name: 'VICINITY_MAP.jpg', data: v.jpg }); } } catch (e) { LOG.warn('plan.vicinity', errInfo(e)); }
     busy('Drawing the plan on the template…');
     await sleep(30);
-    const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinity: [cE, cN, size], date: new Date() });
+    const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinity: [cE, cN, size], photos, vicImage, date: new Date() });
     const rp = out.report, name = `${fileBase()}_PLAN_UTM${zone}N`;
+    const nPh = Object.keys(photos).length;
     const readme = [`${name}.dxf — the plan on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres.`,
+      files.length ? 'UNZIP EVERYTHING INTO ONE FOLDER, then open the DXF: the pictures (pole photos, vicinity map) are linked by file name and must stay next to the DXF.' : '',
+      `Pole photos: ${nPh} of ${poles.length} poles (a pole without a photo shows its number). Vicinity map: ${vicImage ? `street map picture VICINITY_MAP.jpg (${vicImage.credit})` : 'no picture (offline or the map did not come): the roads are drawn instead'}.`,
+      'Cables: red = new fiber, blue = existing; broken line = aerial, solid line = underground.',
       `Sheets: TITLE, TOC, LEGENDS, VICINITY MAP, ROW AREA COVERAGE, KEYMAP, ${rp.sheets.join(', ')}, PMI.`,
       `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${rp.grid.cell} m (1:1100 on the GEO sheets).`,
       `Roads: ${roadsNote}.`, '',
@@ -5746,7 +5845,7 @@
       'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD.', '', exporterText()].join('\r\n');
     LOG.info('export.plan', { sheets: rp.sheets.length, roads: rp.counts.roads, blanks: rp.blanks.length, mb: +(out.text.length / 1048576).toFixed(2) });
     busy(false);
-    offerResult(new Blob(C.makeZipParts([{ name: `${name}.dxf`, data: out.text }, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`);
+    offerResult(new Blob(C.makeZipParts([{ name: `${name}.dxf`, data: out.text }, ...files, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`);
     toast(`Plan: ${rp.sheets.length} GEO sheet${rp.sheets.length === 1 ? '' : 's'} · ${roadsNote}`, 5000);
   }
 
@@ -7824,7 +7923,7 @@
     const adminUsers = Array.isArray(j.adminUsers) ? j.adminUsers.filter((u) => u && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(u.e || ''))).slice(0, 100)
       .map((u) => ({ e: s100(u.e, 120).toLowerCase(), n: s100(u.n, 80), i: s100(u.i, 40), m: s100(u.m, 30), j: s100(u.j, 120) })) : null; // v2.28: admin phones only
     return { name: s100(j.name), companies, admins, tasks: tasks.slice(0, 500), packs, scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you),
-      ...(j.kmzPass ? { kmzPass: s100(j.kmzPass, 100) } : {}), ...(adminUsers ? { adminUsers } : {}) };
+      ...(j.kmzPass ? { kmzPass: s100(j.kmzPass, 100) } : {}), ...(adminUsers ? { adminUsers } : {}), ...(/^[A-Za-z0-9_-]{20,80}$/.test(String(j.dxfSeed || '')) ? { dxfSeed: String(j.dxfSeed) } : {}) }; // v2.32: the plan template's id
   }
   let cloudBusy = null, cloudErr = '';
   /** When the phone talks to the online sheet (v2.15): on every change (default), every hour, or only when Sync is tapped. */
@@ -7872,6 +7971,7 @@
         afterTeamChange(); if (!$('newProj').hidden) renderSites();
         if (moved === 'moved') setTimeout(() => cloudSync(true), 0); // the new list version points to another sheet
         if ((S.syncQ || []).length && (force || syncMode() === 'change')) flushProgress(true);
+        try { seedInBackground(); } catch (e) { /* not ready */ } // v2.32: a new plan template from the admin comes by itself
         return true;
       } catch (e) { cloudErr = e.message || String(e); renderCloudInfo(); return false; } finally { cloudBusy = null; }
     })();
@@ -8653,7 +8753,7 @@
     if (!url || !S.onlineAdminKey || !S.team) return;
     try {
       const list = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k });
-      const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: S.onlineAdminKey, action: 'setList', list, id: S.team.id, rev: S.team.rev }) });
+      const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: S.onlineAdminKey, action: 'setList', list, id: S.team.id, rev: S.team.rev, dxfSeed: driveId(pol().dxfSeed || '') || '' }) }); // v2.32: and its plan template
       if (!j || !j.ok) throw new Error(j && j.error === 'action' ? 'update the Apps Script in the sheet (v2.9) so phones get the list from it' : (j && j.error) || 'no answer');
       LOG.info('sheet.list', { rev: S.team.rev }); S.sheetListAt = { url, id: S.team.id, rev: S.team.rev }; persist();
     } catch (e) { LOG.warn('sheet.list.fail', errInfo(e)); toast(`The list was not sent to the online sheet: ${e.message || e}. Phones still get it from the join link or QR code.`, 7000); }
@@ -9397,7 +9497,7 @@
   if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__polecam = { get points() { return points; }, get S() { return S; }, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
+  window.__polecam = { get points() { return points; }, get S() { return S; }, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
     surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads }; // for testing
 })();

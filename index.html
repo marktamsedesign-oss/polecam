@@ -380,6 +380,7 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .pair{display:flex;gap:8px}.pair > *{flex:1;min-width:0}.pair > [hidden]{display:none}
 .pair input{min-height:44px;padding:8px 10px}
 .btn.small{min-height:36px;padding:0 12px;font-size:calc(13px * var(--fs))}
+.dxftpl .hint.ok{color:var(--ok);font-weight:600}.dxftpl .btn.small.link{background:none;border-color:transparent;box-shadow:none;color:var(--muted);text-decoration:underline;padding:0 6px}
 .grow{flex:1}
 .edbody #photoStrip img{width:64px;height:64px}
 .edbody #photoStrip .meta{flex-direction:row;flex-wrap:wrap;column-gap:10px}
@@ -927,7 +928,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <button class="btn primary" id="doKmz">Export KMZ</button>
     </div>
     <div class="xcard">
-      <div class="head"><span class="ic">DXF</span><div><b>AutoCAD · DXF</b><p><span id="dxfDescTpl">On your company’s plan template, with its own models: all its sheets (one GEO sheet per 440 m grid cell at 1:1100), each pole beside its road, the cable on the road side, arms, guys, loops, closures, NAPs, the roads by class with their names and named places nearby (OpenStreetMap), at <span id="dxfZoneLbl2">UTM 51N</span>; fields the app does not know stay blank.</span><span id="dxfDescSimple">Each pole a circle at <span id="dxfZoneLbl">UTM 51N</span> meters with its ID, pole details and photo beside it (DXF R2000 + the photos in one ZIP: keep them in the same folder); the linked route on CABLE_ROUTE with the FOC length of each span (span + allowance) on FOC_LENGTH; site, ODC, ODF, NAP, closures and handholes on their own layers.</span></p></div></div>
+      <div class="head"><span class="ic">DXF</span><div><b>AutoCAD · DXF</b><p><span id="dxfDescTpl">The plan drawing on your company’s template, ready to open in AutoCAD: every sheet, each pole beside its road with its photo, the cable (red new, blue existing; broken line aerial, solid underground), arms, guys, loops, closures, NAPs, the roads and the street map of the area, at <span id="dxfZoneLbl2">UTM 51N</span>. Fields the app does not know stay blank.</span><span id="dxfDescSimple">Each pole a circle at <span id="dxfZoneLbl">UTM 51N</span> meters with its ID, pole details and photo beside it (DXF R2000 + the photos in one ZIP: keep them in the same folder); the linked route on CABLE_ROUTE with the FOC length of each span (span + allowance) on FOC_LENGTH; site, ODC, ODF, NAP, closures and handholes on their own layers.</span></p></div></div>
       <label class="field">DRAWING<select id="dxfMode"><option value="tpl">On the company plan template</option><option value="simple">Simple: points and photos at UTM</option></select></label>
       <div id="dxfTplBox" class="dxftpl"><p class="hint" id="dxfTplInfo" style="margin:0"></p><div class="row"><button class="btn small" id="dxfTplLoad" type="button">Load template file…</button><button class="btn small" id="dxfTplGet" type="button" hidden>Get the template</button></div><input type="file" id="dxfTplFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden></div>
       <details><summary>Options</summary><div class="opts">

@@ -1,4 +1,4 @@
-/* G-eSAA v2.30–2.31: the plan drawing (DXF) on the company's drawing template.
+/* G-eSAA v2.30–2.32: the plan drawing (DXF) on the company's drawing template.
    The template is prepared once into a "seed" (tools/dxf-seed/make_seed.py): its sample route removed and every field the app
    fills marked @@TOKEN@@. This module fills a copy of the seed with a survey: the sheet grid (440 m cells at 1:1100), one GEO
    sheet per cell the route uses (GEO sheets are copied or removed to match), the viewports of the GEO sheets, KEYMAP and
@@ -7,6 +7,12 @@
    one outline where roads meet; each pole beside its road on the side of its pin, the cable on the road side of the poles (past
    an arm when the pole has one); the template's own models with their attributes (proposed pole, electric pole, telco pole,
    arms, guys, loop, closure, NAP, site, ODF); labels placed where they do not overlap; named buildings and places nearby.
+   v2.32: rounded road corners (arcs); cables red (new) / blue (existing), aerial as a broken line (the template's DASHED at
+   linetype scale 7, as its sample), underground solid; pole symbols and labels smaller where poles stand close, the labels as
+   text in the ID's direction (the template's attributes kept, hidden); the photo of each pole beside it (IMAGE, the JPEG next to
+   the DXF); span lengths along the cable, sized to the span; the vicinity map: a street map picture (when the phone has one),
+   the route in bold, and only that in its viewport (layers frozen per viewport). A layer the seed does not have is added
+   (copied from layer 0) only for the photos and the vicinity map.
    Only the seed's own layers, blocks and text styles are used (the guy symbols are copied without their fixed "SG 6M" text,
    so the app writes a readable one). A field the app does not know stays blank.
    The output is plain AutoCAD 2018 DXF text; nothing here touches the network or the phone. Works in the browser
@@ -87,8 +93,9 @@
     B.forEach((r) => { const t = typ(r); if (t === 'BLOCK') { cur = { name: get(r, 2), begin: r, ents: [], end: null }; blocks.set(cur.name, cur); } else if (t === 'ENDBLK') { if (cur) cur.end = r; cur = null; } else if (cur) cur.ents.push(r); });
     const layers = new Map(); T.forEach((r) => { if (typ(r) === 'LAYER') layers.set(get(r, 2), r); });
     const styles = new Set(); T.forEach((r) => { if (typ(r) === 'STYLE') styles.add(get(r, 2)); });
+    const ltypes = new Set(); T.forEach((r) => { if (typ(r) === 'LTYPE') ltypes.add(get(r, 2)); });
     const model = brByName.get('*Model_Space'), paper = brByName.get('*Paper_Space');
-    return { T, B, O, E, br, brByName, layouts, blocks, layers, styles, modelH: get(model, 5), paperH: get(paper, 5) };
+    return { T, B, O, E, br, brByName, layouts, blocks, layers, styles, ltypes, modelH: get(model, 5), paperH: get(paper, 5) };
   }
   function layoutEnts(d, S, L) {
     const r = S.br.get(L.brh), bn = get(r, 2);
@@ -156,15 +163,17 @@
     constructor(d, S) { this.d = d; this.S = S; this.model = []; this.n = {}; }
     base(t, layer, extra) {
       const r = [[0, t], [5, this.d.newHandle()], [330, this.S.modelH], [100, 'AcDbEntity'], [8, layer]];
-      if (extra && extra.color != null) r.push([62, I(extra.color)]);
+      (this.used || (this.used = new Set())).add(layer); // the layers the plan uses (the vicinity map turns them off)
       if (extra && extra.lt) r.push([6, extra.lt]);
+      if (extra && extra.color != null) r.push([62, I(extra.color)]);
+      if (extra && extra.lts) r.push([48, F(extra.lts)]); // linetype scale
       this.n[t] = (this.n[t] || 0) + 1;
       return r;
     }
     add(r) { this.model.push(r); return r; }
     lwpoly(layer, pts, o) {
-      const r = this.base('LWPOLYLINE', layer, o); r.push([100, 'AcDbPolyline'], [90, I(pts.length)], [70, I(o && o.closed ? 1 : 0)], [43, F(o && o.w ? o.w : 0)]);
-      pts.forEach(([x, y]) => r.push([10, F(x)], [20, F(y)]));
+      const r = this.base('LWPOLYLINE', layer, o); r.push([100, 'AcDbPolyline'], [90, I(pts.length)], [70, I((o && o.closed ? 1 : 0) | (o && o.gen ? 128 : 0))], [43, F(o && o.w ? o.w : 0)]);
+      pts.forEach(([x, y, b]) => { r.push([10, F(x)], [20, F(y)]); if (b) r.push([42, F(b)]); }); // b: bulge of the arc to the next point
       return this.add(r);
     }
     text(layer, x, y, h, s, o) {
@@ -211,7 +220,7 @@
           if (given.rot) at.push([50, F(given.rot)]);
           at.push([7, this.style(get(df, 7))]);
           if (gha || gva) at.push([72, I(gha)], [11, F(given.x)], [21, F(given.y)], [31, '0.0']);
-          at.push([100, 'AcDbAttribute'], [2, tag], [70, I(v ? 0 : 1)]); if (gva) at.push([74, I(gva)]);
+          at.push([100, 'AcDbAttribute'], [2, tag], [70, I(v && !given.hidden ? 0 : 1)]); if (gva) at.push([74, I(gva)]);
         } else {
           at.push([100, 'AcDbText'], [10, F(p[0])], [20, F(p[1])], [30, '0.0'], [40, F(h)], [1, v]);
           if (rot) at.push([50, F(rot)]);
@@ -249,6 +258,67 @@
     }
     return xs.length ? [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] : null;
   }
+  /* ---------------- v2.32: layers, raster images (pole photos, the vicinity map), layers off in some viewports ---------------- */
+  /** A layer the template does not have (a copy of an existing one's record), e.g. for the pole photos. Returns its handle. */
+  function addLayer(d, S, name, color) {
+    if (S.layers.has(name)) return get(S.layers.get(name), 5);
+    const T = d.sec('TABLES').recs, tb = T.find((r) => typ(r) === 'TABLE' && get(r, 2) === 'LAYER'), src = S.layers.get('0') || [...S.layers.values()][0];
+    const h = d.newHandle(), r = stripGroups(src).filter(([c]) => c < 1000).map(([c, v]) => [c, c === 5 ? h : c === 2 ? name : c === 62 ? I(color) : c === 70 ? I(0) : c === 6 ? 'Continuous' : v]);
+    if (!r.some(([c]) => c === 62)) r.splice(r.findIndex(([c]) => c === 70) + 1, 0, [62, I(color)]);
+    const last = T.reduce((k, x, i) => (typ(x) === 'LAYER' ? i : k), -1); T.splice(last + 1, 0, r);
+    setFirst(tb, 70, I(parseInt(get(tb, 70, '0'), 10) + 1));
+    d.index(); S.layers.set(name, r);
+    return h;
+  }
+  /** Turns layers off (frozen) in one viewport of a sheet only. */
+  function vpFreeze(vp, handles) {
+    if (!vp || !handles.length) return;
+    const k = vp.findIndex(([c]) => c === 90); const add = handles.filter((h) => !vp.some(([c, v]) => c === 341 && v === h)).map((h) => [341, h]);
+    vp.splice(k >= 0 ? k : vp.length, 0, ...add);
+  }
+  /** Raster images: the classes AutoCAD needs, the image dictionary, one IMAGEDEF per file and an IMAGE (with its reactor). */
+  class Images {
+    constructor(d, S) {
+      this.d = d; this.S = S; this.defs = new Map(); this.n = 0;
+      const O = d.sec('OBJECTS').recs, root = O[0], k = root.findIndex(([c, v]) => c === 3 && v === 'ACAD_IMAGE_DICT');
+      this.dict = k >= 0 ? d.byHandle.get(root[k + 1][1]) : null;
+      if (!this.dict) { // a drawing without images yet: the dictionary
+        const h = d.newHandle(); this.dict = [[0, 'DICTIONARY'], [5, h], [102, '{ACAD_REACTORS'], [330, get(root, 5)], [102, '}'], [330, get(root, 5)], [100, 'AcDbDictionary'], [281, I(1)]];
+        O.push(this.dict); root.push([3, 'ACAD_IMAGE_DICT'], [350, h]); d.index();
+      }
+    }
+    classes() { // IMAGE and IMAGEDEF_REACTOR are classes of their own in the DXF (the template has IMAGEDEF only)
+      const raw = this.d.sec('CLASSES').raw, have = new Set(raw.filter(([c]) => c === 1).map(([, v]) => v));
+      const add = (n, cpp, flags, ent) => { if (!have.has(n)) raw.push([0, 'CLASS'], [1, n], [2, cpp], [3, 'ISM'], [90, I(flags)], [91, I(0)], [280, I(0)], [281, I(ent ? 1 : 0)]); };
+      add('IMAGE', 'AcDbRasterImage', 2175, true); add('IMAGEDEF', 'AcDbRasterImageDef', 0, false); add('IMAGEDEF_REACTOR', 'AcDbRasterImageDefReactor', 1, false); add('RASTERVARIABLES', 'AcDbRasterVariables', 0, false);
+    }
+    /** An IMAGE in model space: lower left corner (x, y), w × h metres, of a file of px × py pixels next to the drawing. */
+    image(o, layer, file, px, py, x, y, w, h) {
+      this.classes();
+      let def = this.defs.get(file);
+      if (!def) {
+        def = { h: this.d.newHandle(), users: [], file, px, py }; this.defs.set(file, def);
+        this.dict.push([3, `GESAA_${file.replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 60)}_${this.defs.size}`], [350, def.h]);
+      }
+      const r = o.base('IMAGE', layer), ih = get(r, 5), rh = this.d.newHandle(); def.users.push(rh);
+      r.push([100, 'AcDbRasterImage'], [90, I(0)], [10, F(x)], [20, F(y)], [30, '0.0'], [11, String((w / px).toPrecision(12))], [21, '0.0'], [31, '0.0'], [12, '0.0'], [22, String((h / py).toPrecision(12))], [32, '0.0'],
+        [13, F(px)], [23, F(py)], [340, def.h], [70, I(7)], [280, I(0)], [281, I(50)], [282, I(50)], [283, I(0)], [360, rh], [71, I(1)], [91, I(2)], [14, '-0.5'], [24, '-0.5'], [14, F(px - 0.5)], [24, F(py - 0.5)], [290, I(0)]);
+      o.add(r); this.reactors = (this.reactors || []).concat([[rh, ih]]); this.n++;
+      return r;
+    }
+    /** The objects: written once, after the entities. */
+    finish() {
+      if (!this.defs.size) return;
+      const O = this.d.sec('OBJECTS').recs, dh = get(this.dict, 5);
+      for (const def of this.defs.values()) O.push([[0, 'IMAGEDEF'], [5, def.h], [102, '{ACAD_REACTORS'], [330, dh], ...def.users.map((u) => [330, u]), [102, '}'], [330, dh], [100, 'AcDbRasterImageDef'], [90, I(0)], [1, def.file], [10, F(def.px)], [20, F(def.py)], [11, '0.01'], [21, '0.01'], [280, I(1)], [281, I(0)]]);
+      for (const [rh, ih] of this.reactors || []) O.push([[0, 'IMAGEDEF_REACTOR'], [5, rh], [330, ih], [100, 'AcDbRasterImageDefReactor'], [90, I(2)], [330, ih]]);
+      const raw = this.d.sec('CLASSES').raw; for (let i = 0; i < raw.length; i++) if (raw[i][0] === 1 && (raw[i][1] === 'IMAGE' || raw[i][1] === 'IMAGEDEF_REACTOR')) { const j = raw.findIndex((p, k) => k > i && p[0] === 91); if (j > 0) raw[j] = [91, I(this.n)]; }
+      this.d.index();
+    }
+  }
+  /** The colour and layer of each attribute of a block (for the labels written beside it). */
+  function attrLook(S, name) { const out = new Map(); const b = S.blocks.get(name); if (b) for (const e of b.ents) if (typ(e) === 'ATTDEF') out.set(get(e, 2), { color: get(e, 62), layer: get(e, 8, '0') }); return out; }
+
   /* ---------------- geometry helpers ---------------- */
   const letters = (k) => { let s = ''; k += 1; while (k > 0) { const m = (k - 1) % 26; s = String.fromCharCode(65 + m) + s; k = Math.floor((k - 1) / 26); } return s; };
   const angDeg = (a, b) => Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
@@ -414,10 +484,10 @@
         if (e) r.ext.push(np); else r.ext.unshift(np);
       });
     });
-    const idx = new SegIndex(rs, 40), edges = [], paths = [], bridges = [];
+    const idx = new SegIndex(rs, 40), raw = [], paths = [], bridges = [];
     rs.forEach((r, ri) => {
       if (r.hw > 0) {
-        for (const side of [1, -1]) for (const part of keepOutside(offsetLine(r.ext, side * r.hw), idx, ri)) for (const c of clipLine(part, box)) edges.push(c);
+        for (const side of [1, -1]) for (const part of keepOutside(offsetLine(r.ext, side * r.hw), idx, ri)) for (const c of clipLine(part, box)) raw.push(c);
         if (r.bridge) for (const side of [1, -1]) { // a bridge: a line each side, its ends turned out
           const L = offsetLine(r.pts, side * (r.hw + 1.5)); if (L.length < 2) continue;
           const f0 = unit(L[0], L[1]), fe = unit(L[L.length - 2], L[L.length - 1]), n = L.length - 1;
@@ -426,7 +496,43 @@
         }
       } else for (const part of keepOutside(r.pts, idx, -1)) for (const c of clipLine(part, box)) paths.push(c);
     });
+    const edges = joinLines(raw, 0.05).map((l) => roundCorners(l.pts, l.closed, 4));
     return { roads: rs, idx, edges, paths, bridges };
+  }
+  /** Joins lines that meet end to end (an edge cut at a junction continues as the other road's edge). */
+  function joinLines(lines, tol) {
+    const cell = tol * 4, K = (x, y) => `${x},${y}`, ends = new Map(), used = new Array(lines.length).fill(false);
+    lines.forEach((l, i) => [0, 1].forEach((e) => { const p = e ? l[l.length - 1] : l[0], k = K(Math.floor(p[0] / cell), Math.floor(p[1] / cell)); (ends.get(k) || ends.set(k, []).get(k)).push([i, e, p]); }));
+    const next = (p) => { // an unused line with an end within tol × 2 of p (the cut points of two roads are found separately, to about 1 cm)
+      const gx = Math.floor(p[0] / cell), gy = Math.floor(p[1] / cell);
+      for (let x = gx - 1; x <= gx + 1; x++) for (let y = gy - 1; y <= gy + 1; y++) for (const c of ends.get(K(x, y)) || []) if (!used[c[0]] && dist2(c[2], p) <= tol * 2) return c;
+      return null;
+    };
+    const out = [];
+    lines.forEach((l, i) => {
+      if (used[i]) return; used[i] = true; let pts = l.slice();
+      for (let n = 0; n < lines.length; n++) { const c = next(pts[pts.length - 1]); if (!c) break; used[c[0]] = true; const q = c[1] ? lines[c[0]].slice().reverse() : lines[c[0]]; pts = pts.concat(q.slice(1)); }
+      for (let n = 0; n < lines.length; n++) { const c = next(pts[0]); if (!c) break; used[c[0]] = true; const q = c[1] ? lines[c[0]] : lines[c[0]].slice().reverse(); pts = q.slice(0, -1).concat(pts); }
+      const closed = pts.length > 3 && dist2(pts[0], pts[pts.length - 1]) < tol * 2; if (closed) pts.pop();
+      out.push({ pts, closed });
+    });
+    return out;
+  }
+  /** Corners turned into arcs (radius up to R, smaller where the sides are short): [x, y, bulge] points. */
+  function roundCorners(pts, closed, R) {
+    const n = pts.length; if (n < 3) return { pts: pts.map((p) => [p[0], p[1], 0]), closed };
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const prev = pts[(i - 1 + n) % n], p = pts[i], nx = pts[(i + 1) % n];
+      if (!closed && (i === 0 || i === n - 1)) { out.push([p[0], p[1], 0]); continue; }
+      const d1 = unit(prev, p), d2 = unit(p, nx), dot = Math.max(-1, Math.min(1, d1[0] * d2[0] + d1[1] * d2[1])), th = Math.acos(dot);
+      if (th < 12 * Math.PI / 180 || th > 170 * Math.PI / 180) { out.push([p[0], p[1], 0]); continue; }
+      const tmax = 0.45 * Math.min(dist2(prev, p), dist2(p, nx)), t = Math.min(R * Math.tan(th / 2), tmax);
+      if (t < 0.2) { out.push([p[0], p[1], 0]); continue; }
+      const cross = d1[0] * d2[1] - d1[1] * d2[0], b = Math.tan(th / 4) * (cross > 0 ? 1 : -1);
+      out.push([p[0] - d1[0] * t, p[1] - d1[1] * t, b], [p[0] + d2[0] * t, p[1] + d2[1] * t, 0]);
+    }
+    return { pts: out, closed };
   }
   /** Where to write each street name: on its longest straight pieces, at most one per ~350 m, away from the route. */
   function streetNames(rs, avoid, box) {
@@ -475,10 +581,10 @@
   const add2 = (p, v, k) => [p[0] + v[0] * k, p[1] + v[1] * k];
 
   /* ---------------- the template's models for poles, arms and guys ---------------- */
-  const POLE_SYM = {
-    prop: { b: 'P-POLE', layer: 'P-GPOLE', sc: 2.353662133855192, r: 3.53 },
-    elec: { b: 'existing electric pole', layer: 'ELECTRIC POLE', sc: 0.99, r: 2.6 },
-    tel: { b: 'existing telecom pole', layer: 'GT-POLE', sc: 3.0, r: 3.69 },
+  const POLE_SYM = { // v2.32: about two thirds of the legend's size, smaller again where poles stand close together
+    prop: { b: 'P-POLE', layer: 'P-GPOLE', sc: 1.4667, r: 2.2 },
+    elec: { b: 'existing electric pole', layer: 'ELECTRIC POLE', sc: 0.647, r: 1.7 },
+    tel: { b: 'existing telecom pole', layer: 'GT-POLE', sc: 1.87, r: 2.3 },
   };
   // an arm: its block, the way from the pole to the cable in the block, how far it reaches (m), its layer
   const ARMS = [
@@ -539,17 +645,17 @@
   }
   /** Chains of spans with the same cable (ids in order), like the app's route runs. */
   function chainsOf(spans) {
-    const adj = new Map(), used = new Array(spans.length).fill(false), K = (v) => String(v);
+    const adj = new Map(), used = new Array(spans.length).fill(false), K = (v) => String(v), kind = (s) => `${s.cable || ''}|${s.existing ? 1 : 0}`; // a run: one cable type, new or existing
     spans.forEach((s, i) => { [s.ia, s.ib].forEach((id) => (adj.get(K(id)) || adj.set(K(id), []).get(K(id))).push(i)); });
-    const ends = (id) => { const a = adj.get(id); return a.length !== 2 || (spans[a[0]].cable || '') !== (spans[a[1]].cable || ''); };
+    const ends = (id) => { const a = adj.get(id); return a.length !== 2 || kind(spans[a[0]]) !== kind(spans[a[1]]); };
     const walk = (start, first) => {
       const ids = [start]; let cur = start, e = first;
       for (;;) {
         used[e] = true; const s = spans[e], nx = K(s.ia) === cur ? K(s.ib) : K(s.ia); ids.push(nx); cur = nx;
         if (cur === start || adj.get(cur).length !== 2) break;
-        const ne = adj.get(cur).find((k) => !used[k] && (spans[k].cable || '') === (s.cable || '')); if (ne == null) break; e = ne;
+        const ne = adj.get(cur).find((k) => !used[k] && kind(spans[k]) === kind(s)); if (ne == null) break; e = ne;
       }
-      return { ids, cable: spans[first].cable || '' };
+      return { ids, cable: spans[first].cable || '', existing: !!spans[first].existing };
     };
     const out = [];
     [...adj.keys()].filter(ends).forEach((id) => adj.get(id).forEach((e) => { if (!used[e]) out.push(walk(id, e)); }));
@@ -558,7 +664,8 @@
   }
 
   /* ---------------- the build ---------------- */
-  const CABLE_STYLE = { F72: { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776 }, L12: { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 6, w: 0.7776 }, U144: { layer: 'Proposed foc duct', color: null, w: 0.7776 }, '': { layer: 'PROPOSED FOC AERIAL 6 CORE', color: null, w: 0.7776 } };
+  // v2.32: new fiber red, existing fiber blue (the drafting rule); aerial dashed, underground solid
+  const CABLE_STYLE = { F72: { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true }, L12: { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true }, U144: { layer: 'Proposed foc duct', color: 1, w: 0.7776, aerial: false }, '': { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true } };
   const months = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
   const dateText = (d) => `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
   const mtextEsc = (s) => String(s).replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}');
@@ -620,7 +727,9 @@
     if (km) aim(bigVp(km), (gx0 + gx1) / 2, (gy0 + gy1) / 2, kmH);
     const xs = pts.map((p) => p.E), ys = pts.map((p) => p.N), rx0 = Math.min(...xs), rx1 = Math.max(...xs), ry0 = Math.min(...ys), ry1 = Math.max(...ys);
     const vic = job.vicinity || [ (rx0 + rx1) / 2, (ry0 + ry1) / 2, Math.max(1500, Math.max(rx1 - rx0, ry1 - ry0) * 3) ];
-    const vm = S.layouts.find((L) => L.name === 'VICINITY MAP'); if (vm) aim(bigVp(vm), vic[0], vic[1], vic[2]);
+    // v2.32: the vicinity map is drawn beside the plan in model space (east of it), so it never covers the plan there
+    const VDX = vic[2] * 1.5, vsh = (q) => [q[0] + VDX, q[1], q[2] || 0];
+    const vm = S.layouts.find((L) => L.name === 'VICINITY MAP'); if (vm) aim(bigVp(vm), vic[0] + VDX, vic[1], vic[2]);
     /* 4. model space */
     const o = new Out(d, S);
     const lay = (n, fallback) => (S.layers.has(n) ? n : fallback || '0');
@@ -635,8 +744,12 @@
     }
     // roads (OpenStreetMap): pavement edges by class, one outline where roads meet; paths as grey centre lines; bridges
     const vb = [vic[0] - vic[2] / 2, vic[1] - vic[2] / 2, vic[0] + vic[2] / 2, vic[1] + vic[2] / 2];
+    // v2.32: the vicinity map: a street map picture of the area (when the phone could get one), under everything else
+    let imgs = null; const getImgs = () => imgs || (imgs = new Images(d, S));
+    const VLAY = 'G-ESAA VICINITY', VMAP = 'G-ESAA VICINITY MAP';
+    if (job.vicImage && job.vicImage.file) { addLayer(d, S, VMAP, 7); getImgs().image(o, VMAP, job.vicImage.file, job.vicImage.px, job.vicImage.py, vb[0] + VDX, vb[1], vic[2], vic[2]); }
     const R = layoutRoads(job.roads || [], vb);
-    R.edges.forEach((l) => o.lwpoly(lay('ROAD PAVEMENT'), l));
+    R.edges.forEach((l) => o.lwpoly(lay('ROAD PAVEMENT'), l.pts, { closed: l.closed }));
     R.paths.forEach((l) => o.lwpoly(lay('ROAD PAVEMENT'), l, { color: 8 }));
     R.bridges.forEach((l) => o.lwpoly(lay('BRIDGE', 'ROAD PAVEMENT'), l, { color: 5 }));
     const nRoads = R.roads.length;
@@ -646,11 +759,14 @@
     const spots = new Spots(), byId = new Map(pts.map((p) => [String(p.id), p])), nb = new Map();
     spans.forEach((s) => [[s.ia, s.ib], [s.ib, s.ia]].forEach(([x, y]) => { const P = byId.get(String(x)), Q = byId.get(String(y)); if (P && Q && P !== Q) (nb.get(P) || nb.set(P, []).get(P)).push(Q); }));
     const symOf = (p) => (p.status === 'Proposed' || p.status === 'New' ? POLE_SYM.prop : p.telco ? POLE_SYM.tel : POLE_SYM.elec);
-    // 1. each pole beside the nearest road (within 25 m of its edge), on the side of its pin
+    // 1. each pole beside the nearest road (within 25 m of its edge), on the side of its pin; its symbol and labels smaller
+    //    where poles stand close together (k: 1 at 25 m or more from the nearest pole, down to 0.6)
+    const polesOnly = pts.filter((p) => p.el === 'Pole');
+    for (const p of polesOnly) { let nn = 1e9; for (const q of polesOnly) if (q !== p) nn = Math.min(nn, Math.hypot(q.E - p.E, q.N - p.N)); p.k = Math.max(0.6, Math.min(1, nn / 25)); }
     for (const p of pts) {
       p.dp = [p.E, p.N]; p.td = null; p.near = null;
       if (p.el !== 'Pole') continue;
-      p.sym = S.blocks.has(symOf(p).b) ? symOf(p) : { ...symOf(p), b: null }; p.rp = p.sym.r;
+      p.sym = S.blocks.has(symOf(p).b) ? symOf(p) : { ...symOf(p), b: null }; p.rp = p.sym.r * p.k;
       const near = nearestRoad(R.roads, p.dp, 25); if (!near) continue;
       p.near = near; p.side = near.d < 0.4 ? 0 : near.side;
     }
@@ -674,7 +790,10 @@
     const chains = chainsOf(spans), label = new Map((runs || []).map((r) => [r.cable, r.label]));
     for (const ch of chains) {
       const line = ch.ids.map((id) => byId.get(id)).filter(Boolean).map((p) => p.A); if (line.length < 2) continue;
-      const st = CABLE_STYLE[ch.cable] || CABLE_STYLE['']; o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { w: st.w, color: st.color }); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; });
+      // v2.32: aerial cable as a broken line (DASHED at linetype scale 7, 9 when existing, as the template's own sample drawing),
+      // underground solid; red new, blue existing
+      const st = CABLE_STYLE[ch.cable] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous';
+      o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { w: st.w, color: ch.existing ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ch.existing ? 9 : 7) : 0, gen: true }); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; });
       ch.line = line;
     }
     // 4. poles and the other points: symbols first (they are fixed), then the labels round them
@@ -740,11 +859,12 @@
       .forEach((ch) => startOf(ch).forEach((id) => { const p = byId.get(id); if (p && p.el === 'Pole' && !seen.has(p)) { seen.add(p); poleOrder.push(p); } }));
     pts.forEach((p) => { if (p.el === 'Pole' && !seen.has(p)) { seen.add(p); poleOrder.push(p); } });
     let seq = 0;
-    const H = 3.0;
     for (const p of poleOrder) {
       seq++;
+      const H = Math.max(1.5, 2.2 * p.k), HL = Math.max(0.9, 1.2 * p.k), size = p.size || (p.clamp ? `CA ${p.clamp}` : ''); // size: the clamp size (the app records no other size of an existing pole)
+      const tag = p.tag != null && p.tag !== '' ? p.tag : (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId);
       const lines = p.sym.r === POLE_SYM.prop.r ? [['GT-POLE', p.label1 || 'PROP.POLE'], ['PHEIGHT', p.height || ''], ['POLE_CLAMP', p.clamp ? `CA ${p.clamp}` : '']]
-        : p.sym.b === 'existing telecom pole' ? [['OC', p.mat || ''], ['GT-001', p.poleId || '']] : [['CC', p.mat || ''], ['NPT', p.tag != null && p.tag !== '' ? p.tag : (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId)], ['B', p.size || '']];
+        : p.sym.b === 'existing telecom pole' ? [['OC', p.mat || ''], ['GT-001', p.poleId || ''], ['', size]] : [['CC', p.mat || ''], ['NPT', tag], ['B', size]];
       const shown = lines.filter(([, v]) => v);
       const ll = `{\\fSimSun|b0|i0|c134|p2;${p.lat.toFixed(6)}%%D\\P${p.lon.toFixed(6)}%%D}`;
       const longest = Math.max(4, ...shown.map(([, v]) => v.length)) * H * CHW;
@@ -752,16 +872,19 @@
       for (const a of [0, 30, -30, 60, -60, 90, -90]) {
         const ov = rotv([-p.td[0], -p.td[1]], a), dg = deg(ov), rr = readable(dg), flip = Math.abs(((dg - rr) % 360 + 360) % 360 - 180) < 1, ha = flip ? 2 : 0;
         const up = rotv([Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], 90), n = shown.length;
-        const base = add2(p.dp, ov, p.rp + 1.5), boxes = [], place = [];
-        shown.forEach(([tag, v], k) => { const q = add2(base, up, ((n - 1) / 2 - k) * H * 1.5); place.push([tag, v, q]); boxes.push(textBox(q[0], q[1], H, v, rr, ha, 2)); });
-        const llAt = add2(base, ov, longest + 2), llBox = Spots.box(...add2(llAt, ov, 6), 13, 5, rr);
+        const base = add2(p.dp, ov, p.rp + 1.2), boxes = [], place = [];
+        shown.forEach(([t, v], k) => { const q = add2(base, up, ((n - 1) / 2 - k) * H * 1.5); place.push([t, v, q]); boxes.push(textBox(q[0], q[1], H, v, rr, ha, 2)); });
+        const llAt = add2(base, ov, longest + 1.5), llBox = Spots.box(...add2(llAt, ov, 5.5 * HL / 1.2), 11 * HL / 1.2, 4 * HL / 1.2, rr);
         cands.push({ boxes: [...boxes, llBox], place, rr, ha, llAt, ov, flip });
       }
       const c = pick(spots, cands); spots.add(c.boxes, 'label:' + p.poleId);
-      const attrs = {}; c.place.forEach(([tag, v, q]) => { attrs[tag] = { v, x: q[0], y: q[1], rot: c.rr, h: H, ha: c.ha, va: 2 }; });
-      lines.forEach(([tag, v]) => { if (!attrs[tag]) attrs[tag] = { v: '', x: p.dp[0], y: p.dp[1], rot: c.rr, h: H, ha: 0, va: 0 }; });
-      if (p.sym.b) o.insert(lay(p.sym.layer), p.sym.b, p.dp[0], p.dp[1], { scale: p.sym.sc, center: true, attrs }); else o.circle(lay(p.sym.layer), p.dp[0], p.dp[1], p.rp);
-      o.mtext(lay('LATLONG'), c.llAt[0], c.llAt[1], 1.5, ll, { style: '样式 1', att: c.flip ? 6 : 4, dir: [Math.cos(c.rr * Math.PI / 180), Math.sin(c.rr * Math.PI / 180)] });
+      // the block keeps the values in its attributes (hidden); the labels are plain texts in one direction (the pole blocks
+      // of the template are dynamic blocks, and AutoCAD would put some of their attributes back where the block wants them)
+      const attrs = {}; lines.forEach(([t, v]) => { if (t) attrs[t] = { v, x: p.dp[0], y: p.dp[1], rot: c.rr, h: H, ha: 0, va: 0, hidden: true }; });
+      if (p.sym.b) o.insert(lay(p.sym.layer), p.sym.b, p.dp[0], p.dp[1], { scale: p.sym.sc * p.k, center: true, attrs }); else o.circle(lay(p.sym.layer), p.dp[0], p.dp[1], p.rp);
+      const look = p.sym.b ? attrLook(S, p.sym.b) : new Map();
+      c.place.forEach(([t, v, q]) => { const lk = look.get(t) || {}; o.text(lk.layer && lk.layer !== '0' ? lay(lk.layer) : lay(p.sym.layer), q[0], q[1], H, v, { rot: c.rr, ha: c.ha, va: 2, style: 'arial', color: lk.color != null ? +lk.color : null }); });
+      o.mtext(lay('LATLONG'), c.llAt[0], c.llAt[1], HL, ll, { style: '样式 1', att: c.flip ? 6 : 4, dir: [Math.cos(c.rr * Math.PI / 180), Math.sin(c.rr * Math.PI / 180)] });
       p.seq = seq; p.ov = c.ov;
     }
     // 5. span lengths: mid-span, on the road side of the cable (a span over the maximum in red)
@@ -770,10 +893,10 @@
       const a = P.A, b = Q.A, m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], t = unit(a, b), rd = readable(deg(t)), nl = [-t[1], t[0]];
       const toward = [(P.td ? P.td[0] : 0) + (Q.td ? Q.td[0] : 0), (P.td ? P.td[1] : 0) + (Q.td ? Q.td[1] : 0)], sgn = (nl[0] * toward[0] + nl[1] * toward[1]) < 0 ? -1 : 1;
       const txt = `${s.len.toFixed(1)}m${s.long ? ` (OVER ${job.maxSpan || 200}m)` : ''}`;
-      const L = dist2(a, b), cs = [];
-      for (const [f, k] of [[0, 3.5], [0, -3.5], [0, 7.5], [0, -7.5], [0.25, 3.5], [-0.25, 3.5], [0.25, -3.5], [-0.25, -3.5], [0, 11], [0, -11]]) { const q = add2(add2(m, t, f * L), nl, k * sgn); cs.push({ q, boxes: [textBox(q[0], q[1], 4, txt, rd, 1, 2)] }); }
+      const L = dist2(a, b), cs = [], th = Math.max(1.4, Math.min(2.5, (L * 0.6) / (`${s.len.toFixed(1)}m`.length * CHW))), off = th * 0.9 + 0.8; // v2.32: smaller, sized to the span, along the cable
+      for (const [f, k] of [[0, 1], [0, -1], [0, 2], [0, -2], [0.25, 1], [-0.25, 1], [0.25, -1], [-0.25, -1], [0, 3], [0, -3]]) { const q = add2(add2(m, t, f * L), nl, k * off * sgn); cs.push({ q, boxes: [textBox(q[0], q[1], th, txt, rd, 1, 2)] }); }
       const c = pick(spots, cs);
-      o.text(lay('Distance Data'), c.q[0], c.q[1], 4.0, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : null }); spots.add(c.boxes);
+      o.text(lay('Distance Data'), c.q[0], c.q[1], th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : null }); spots.add(c.boxes);
     }
     // 6. loops (on the cable) and closures (beside it), at the poles that have them
     for (const p of pts) {
@@ -800,17 +923,27 @@
       for (const f of [0.3, 0.7, 0.5, 0.15, 0.85]) for (const k of [7.5, -7.5, 11, -11]) { const q = add2(add2(best.a, t, best.L * f), nl, k); cands.push({ q, boxes: [textBox(q[0], q[1], 3, txt, rd, 1, 2)] }); }
       const c = pick(spots, cands); o.text(lay('MISC'), c.q[0], c.q[1], 3.0, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: (CABLE_STYLE[ch.cable] || {}).color || null }); spots.add(c.boxes);
     }
-    for (const p of poleOrder) { // the pole numbers, once every label is placed: close to the pole, where there is room
+    // the photo of each pole beside it, upright, joined to its pole by a thin line (v2.32: instead of the pole number); a pole
+    // without a photo keeps its number in a circle
+    const photos = job.photos || {}, havePhotos = Object.keys(photos).length > 0, photoLayer = havePhotos ? (addLayer(d, S, 'G-ESAA POLE PHOTO', 7), 'G-ESAA POLE PHOTO') : null;
+    for (const p of poleOrder) {
+      const ph = photos[p.id] || photos[String(p.id)], Lp = Math.max(12, 18 * p.k);
+      const w = ph ? (ph.px >= ph.py ? Lp : Lp * ph.px / ph.py) : 19, h = ph ? (ph.px >= ph.py ? Lp * ph.py / ph.px : Lp) : 19, rad = Math.hypot(w, h) / 2;
       const nc = [], loose = [];
-      for (const dd of [14, 19, 25, 32, 40, 50]) for (const a of [30, -30, 0, 50, -50, 70, -70, 90, -90, 110, -110, 15, -15]) {
-        const q = add2(p.dp, rotv(p.ov, a), p.rp + dd); if (R.idx.inside(q, -1, -2)) continue; // off the roads
+      for (const dd of [0.6, 0.8, 1.05, 1.35, 1.7, 2.1]) for (const a of [30, -30, 0, 50, -50, 70, -70, 90, -90, 110, -110, 15, -15]) {
+        const q = add2(p.dp, rotv(p.ov, a), p.rp + 3 + rad * dd); if (R.idx.inside(q, -1, -2)) continue; // off the roads
         const mine = !poleOrder.some((x) => x !== p && dist2(x.dp, q) < dist2(p.dp, q)); // nearer its own pole than any other
-        (mine ? nc : loose).push({ q, boxes: [Spots.box(q[0], q[1], 19, 19, 0)] });
+        (mine ? nc : loose).push({ q, boxes: [Spots.box(q[0], q[1], w + 1.5, h + 1.5, 0)] });
       }
-      if (!nc.some((x) => !x.boxes.some((b) => spots.hits(b)))) nc.push(...loose);
-      if (!nc.length) { const q = add2(p.dp, p.ov, p.rp + 14); nc.push({ q, boxes: [Spots.box(q[0], q[1], 19, 19, 0)] }); }
-      const cn = pick(spots, nc); spots.add(cn.boxes, "num");
-      o.circle(lay('p-pole'), cn.q[0], cn.q[1], 9); o.text(lay('p-pole'), cn.q[0], cn.q[1], 7, String(p.seq), { ha: 1, va: 2, style: 'arial' });
+      if (!nc.some((x) => !x.boxes.some((bx) => spots.hits(bx)))) nc.push(...loose);
+      if (!nc.length) { const q = add2(p.dp, p.ov, p.rp + 3 + rad); nc.push({ q, boxes: [Spots.box(q[0], q[1], w + 1.5, h + 1.5, 0)] }); }
+      const cn = pick(spots, nc); spots.add(cn.boxes, ph ? 'photo' : 'num');
+      if (ph && havePhotos) {
+        getImgs().image(o, lay(photoLayer), ph.file, ph.px, ph.py, cn.q[0] - w / 2, cn.q[1] - h / 2, w, h);
+        o.lwpoly(lay(photoLayer), [[cn.q[0] - w / 2, cn.q[1] - h / 2], [cn.q[0] + w / 2, cn.q[1] - h / 2], [cn.q[0] + w / 2, cn.q[1] + h / 2], [cn.q[0] - w / 2, cn.q[1] + h / 2]], { closed: true, color: 8 }); // its frame
+        const u = unit(cn.q, p.dp), t = Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9);
+        const e0 = add2(cn.q, u, t), e1 = add2(p.dp, u, -p.rp * 1.2); if (dist2(cn.q, e1) > t) o.lwpoly(lay(photoLayer), [e0, e1], { color: 8 }); // the line to its pole
+      } else { o.circle(lay('p-pole'), cn.q[0], cn.q[1], 9); o.text(lay('p-pole'), cn.q[0], cn.q[1], 7, String(p.seq), { ha: 1, va: 2, style: 'arial' }); }
     }
     // 11. coordinates of the points that are not poles
     for (const p of pts) if (p.el !== 'Pole') o.mtext(lay('LATLONG'), p.E + 4, p.N - 5, 1.5, `{\\fSimSun|b0|i0|c134|p2;${p.lat.toFixed(6)}%%D\\P${p.lon.toFixed(6)}%%D}`, { style: '样式 1' });
@@ -835,7 +968,39 @@
       const c = cands.find((x) => !x.boxes.some((b) => spots.hits(b))); if (!c) continue;
       o.mtext(lay('House Number', 'MISC'), c.q[0], c.q[1], 2.5, lines.map(mtextEsc).join('\\P'), { style: 'PDF Arial', att: 5, color: 7 }); spots.add(c.boxes); placed.push({ name, q: q0 }); nPois++;
     }
+    /* the vicinity map, beside the plan: the route bold in red over the street map (or a copy of the roads), a label, the names
+       of the main streets large enough at that scale. Its viewport shows only that; the GEO sheets and the keymap do not. */
+    const vlayH = addLayer(d, S, VLAY, 1), vk = vic[2] / 1500;
+    if (!job.vicImage) { // no picture: the roads, thin
+      R.edges.forEach((l) => o.lwpoly(VLAY, l.pts.map(vsh), { closed: l.closed, color: 7 }));
+      R.paths.forEach((l) => o.lwpoly(VLAY, l.map(vsh), { color: 8 }));
+    }
+    for (const ch of chains) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: 5 * vk, color: ch.existing ? 5 : 1 });
+    const allA = chains.flatMap((ch) => ch.line || []); if (!allA.length) pts.forEach((p) => allA.push(p.dp));
+    if (allA.length) {
+      const cx = allA.reduce((t, q) => t + q[0], 0) / allA.length, cy = allA.reduce((t, q) => t + q[1], 0) / allA.length, ymax = Math.max(...allA.map((q) => q[1]));
+      o.text(VLAY, cx + VDX, ymax + 22 * vk, 11 * vk, job.vicinityLabel || 'PROPOSED FIBER ROUTE', { ha: 1, va: 2, style: 'arial', color: 1 });
+      o.circle(VLAY, allA[0][0] + VDX, allA[0][1], 6 * vk, { color: 1 });
+    }
+    if (!job.vicImage) { // no picture: the names of the roads written large
+      const done = new Set();
+      for (const r of R.roads.slice().sort((a, b) => b.hw - a.hw)) {
+        if (!(r.hw > 0) || !r.name || done.has(r.name)) continue; let best = null;
+        for (const piece of clipLine(r.pts, vb)) for (let k = 1; k < piece.length; k++) { const L = dist2(piece[k - 1], piece[k]); if (L > 80 * vk && (!best || L > best.L)) best = { L, a: piece[k - 1], b: piece[k] }; }
+        if (!best) continue; done.add(r.name); if (done.size > 25) break;
+        o.text(VLAY, (best.a[0] + best.b[0]) / 2 + VDX, (best.a[1] + best.b[1]) / 2, 8 * vk, r.name.toUpperCase(), { rot: readable(deg(unit(best.a, best.b))), ha: 1, va: 2, style: 'arial', color: 8 });
+      }
+    } else o.text(VLAY, vb[0] + VDX + 8 * vk, vb[1] + 8 * vk, 6 * vk, String(job.vicImage.credit || '© OpenStreetMap contributors').toUpperCase(), { style: 'arial', color: 8 });
+    const layerH = (n) => (S.layers.has(n) ? get(S.layers.get(n), 5) : null);
+    const vicOnly = [layerH(VLAY), layerH(VMAP)].filter(Boolean);
+    const keepInVic = new Set([VLAY, VMAP]);
+    const offInVic = [...(o.used || [])].filter((n) => !keepInVic.has(n)).map(layerH).filter(Boolean);
+    for (const L of S.layouts) {
+      const vp = bigVp(L); if (!vp) continue;
+      if (L.name === 'VICINITY MAP') vpFreeze(vp, offInVic); else if (/^GEO( \(\d+\))?$/.test(L.name) || L.name === 'KEYMAP') vpFreeze(vp, vicOnly);
+    }
     const ents = d.sec('ENTITIES').recs; ents.push(...o.model);
+    if (imgs) imgs.finish();
     d.index();
     /* 5. the fields */
     const V = job.values || {}, sheetNames = S.layouts.map((L) => L.name);
@@ -875,5 +1040,5 @@
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0] };
     return { text: d.text(), report: rep };
   }
-  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, version: '2.31' };
+  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, version: '2.32' };
 }));

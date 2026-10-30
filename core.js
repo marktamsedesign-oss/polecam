@@ -30,6 +30,21 @@
     }
     return { E: 500000 + K0 * A * E, N: (south ? 10000000 : 0) + K0 * A * N };
   }
+  /** v2.32: UTM back to latitude / longitude (degrees), the inverse Krüger series (about a millimetre): for the vicinity map picture. */
+  function utmInverse(E, N, zone, south) {
+    const { a, f } = WGS84;
+    const n = f / (2 - f), n2 = n * n, n3 = n2 * n, n4 = n3 * n;
+    const A = a / (1 + n) * (1 + n2 / 4 + n4 / 64);
+    const be = [0, n / 2 - 2 * n2 / 3 + 37 * n3 / 96 - n4 / 360, n2 / 48 + n3 / 15 - 437 * n4 / 1440, 17 * n3 / 480 - 37 * n4 / 840, 4397 * n4 / 161280];
+    const de = [0, 2 * n - 2 * n2 / 3 - 2 * n3 + 116 * n4 / 45, 7 * n2 / 3 - 8 * n3 / 5 - 227 * n4 / 45, 56 * n3 / 15 - 136 * n4 / 35, 4279 * n4 / 630];
+    const xi = (N - (south ? 10000000 : 0)) / (K0 * A), eta = (E - 500000) / (K0 * A);
+    let x = xi, y = eta;
+    for (let j = 1; j <= 4; j++) { x -= be[j] * Math.sin(2 * j * xi) * Math.cosh(2 * j * eta); y -= be[j] * Math.cos(2 * j * xi) * Math.sinh(2 * j * eta); }
+    const chi = Math.asin(Math.sin(x) / Math.cosh(y));
+    let phi = chi; for (let j = 1; j <= 4; j++) phi += de[j] * Math.sin(2 * j * chi);
+    const lon0 = (zone * 6 - 183) * Math.PI / 180;
+    return [phi * 180 / Math.PI, (lon0 + Math.atan2(Math.sinh(y), Math.cos(x))) * 180 / Math.PI];
+  }
 
   /* ---------------- small binary helpers ---------------- */
   const enc = (s) => new TextEncoder().encode(s);
@@ -1619,7 +1634,7 @@
     return results;
   }
 
-  const api = { CABLES, parseCsv, companiesFromCsv, utmForward, analyzeRoute, routeChains, autoLinks, distM, deflection, idCandidates, fitShape, knownId, setPolePrefixes, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
+  const api = { CABLES, parseCsv, companiesFromCsv, utmForward, utmInverse, analyzeRoute, routeChains, autoLinks, distM, deflection, idCandidates, fitShape, knownId, setPolePrefixes, buildExif, insertExif, readExif, parseExifDate, crc32, makeZip, makeZipParts, readZip,
     buildKml, buildDxf, buildCsv, roadsFromOverpass, overpassQuery, nextPoleId, safeName, xmlEsc, blockName, findIdBox, stackRows, findStack,
     setGlyphModel, glyphReady, glyphRead, glyphPatch, glyphProbs, GCLASSES, _glyph: { inkMaps, textLines, edgeLines, grayOf, glyphText, readLine } };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleCore = api;
