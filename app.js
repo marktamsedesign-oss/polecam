@@ -677,7 +677,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.32.0';
+  const APP_VER = '2.34.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -5585,6 +5585,7 @@
     $('dxfTplGet').classList.toggle('primary', true);
     $('dxfTplLoad').textContent = info ? 'Use another template file…' : 'Load template file…';
     $('dxfTplLoad').classList.toggle('link', !!id); // with an admin link, loading a file by hand is the exception
+    $('dxfTplBox').querySelector('.dxflogo').hidden = !tpl; if (tpl) renderLogo(); // v2.34
   }
   $('dxfMode').addEventListener('change', () => { S.exp.dxfMode = $('dxfMode').value; persist(); renderDxfTpl(); });
   $('dxfTplLoad').addEventListener('click', () => { $('dxfTplFile').value = ''; $('dxfTplFile').click(); });
@@ -5774,6 +5775,80 @@
     LOG.info('plan.vicinity', { tiles: jobs.length, ok: ok.length, z, kb: Math.round(jpg.length / 1024) });
     return { jpg, px: PX, py: PX, z, credit: src.attr || '© OpenStreetMap contributors' };
   }
+  /** v2.34: the vicinity map drawn as a street map from the OpenStreetMap roads the export already has (online or from an offline
+      map pack), when the map tiles do not come: land, roads with their casing by class, footpaths, street names. Same square and
+      size as the tile picture. */
+  async function vicinityFromRoads(roads, cE, cN, size) {
+    const PX = 1800, k = PX / size, x0 = cE - size / 2, y1 = cN + size / 2, X = (q) => [(q[0] - x0) * k, (y1 - q[1]) * k];
+    const cv = document.createElement('canvas'); cv.width = cv.height = PX; const g = cv.getContext('2d');
+    g.fillStyle = '#F2EFE9'; g.fillRect(0, 0, PX, PX); g.lineCap = 'round'; g.lineJoin = 'round';
+    const W = (r) => { try { return window.GeDxfTpl.roadWidth(r); } catch (e) { return 6; } };
+    const major = (r) => /^(motorway|trunk|primary|secondary)/.test(r.hw || '') || r.cls === 'major', mid = (r) => /^tertiary/.test(r.hw || '');
+    const path = (r) => { g.beginPath(); r.pts.forEach((q, i) => { const [a, b] = X(q); if (i) g.lineTo(a, b); else g.moveTo(a, b); }); };
+    const list = roads.filter((r) => r.pts && r.pts.length > 1), paths = list.filter((r) => r.cls === 'path' || !(W(r) > 0)), streets = list.filter((r) => !paths.includes(r));
+    g.setLineDash([4, 3]); g.strokeStyle = '#B3A79A'; g.lineWidth = 1.4; paths.forEach((r) => { path(r); g.stroke(); }); g.setLineDash([]);
+    streets.sort((a, b) => W(a) - W(b));
+    for (const r of streets) { path(r); g.strokeStyle = major(r) ? '#C9A26A' : '#BDB6AC'; g.lineWidth = Math.max(3, W(r) * k) + 2.4; g.stroke(); }
+    for (const r of streets) { path(r); g.strokeStyle = major(r) ? '#FCD6A4' : mid(r) ? '#FDFBD0' : '#FFFFFF'; g.lineWidth = Math.max(3, W(r) * k); g.stroke(); }
+    // the names: once per road, on its longest straight piece inside the picture, where no other name is
+    const boxes = [], done = new Set(); g.font = '600 15px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (const r of streets.slice().sort((a, b) => W(b) - W(a))) {
+      if (!r.name || done.has(r.name)) continue;
+      let best = null; for (let i = 1; i < r.pts.length; i++) { const a = X(r.pts[i - 1]), b = X(r.pts[i]), L = Math.hypot(b[0] - a[0], b[1] - a[1]), mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2; if (mx > 20 && mx < PX - 20 && my > 20 && my < PX - 20 && (!best || L > best.L)) best = { a, b, L, mx, my }; }
+      const tw = g.measureText(r.name).width; if (!best || best.L < tw * 0.9) continue;
+      let ang = Math.atan2(best.b[1] - best.a[1], best.b[0] - best.a[0]); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
+      const hw = Math.abs(Math.cos(ang)) * tw / 2 + 9, hh = Math.abs(Math.sin(ang)) * tw / 2 + 9, bx = [best.mx - hw, best.my - hh, best.mx + hw, best.my + hh];
+      if (boxes.some((o) => !(bx[2] < o[0] || bx[0] > o[2] || bx[3] < o[1] || bx[1] > o[3]))) continue;
+      boxes.push(bx); done.add(r.name);
+      g.save(); g.translate(best.mx, best.my); g.rotate(ang); g.lineWidth = 4; g.strokeStyle = 'rgba(255,255,255,0.9)'; g.strokeText(r.name, 0, 0); g.fillStyle = '#4A4A4A'; g.fillText(r.name, 0, 0); g.restore();
+    }
+    g.font = '13px system-ui, sans-serif'; g.textAlign = 'left'; g.fillStyle = '#555'; g.fillText('Roads © OpenStreetMap contributors (drawn by G-eSAA)', 12, PX - 14);
+    const jpg = new Uint8Array(await (await toBlob(cv, 0.85)).arrayBuffer());
+    LOG.info('plan.vicinity.drawn', { roads: streets.length, names: done.size, kb: Math.round(jpg.length / 1024) });
+    return { jpg, px: PX, py: PX, credit: '© OpenStreetMap contributors' };
+  }
+  /* ---- v2.34: the vendor's logo on the plan drawings: one per company, kept on the phone and shared with the company's users
+     through the online sheet (script v2.34: Logos tab) ---- */
+  const LOGO_KEY = '~logo';
+  async function logoGet() { const r = await dbGet('packs', LOGO_KEY).catch(() => null); const co = normCo((S.user && S.user.company) || ''); return r && r.data && (!r.co || normCo(r.co) === co) ? r : null; }
+  async function logoStore(o) { await dbPut('packs', { k: LOGO_KEY, ...o }); S.logoInfo = { co: o.co, at: o.at, px: o.px, py: o.py }; persist(); renderLogo(); }
+  /** A picture made small for the title block: at most 600 × 220 px, PNG (or JPEG when that is smaller), under 34 KB. */
+  async function logoPrepare(file) {
+    const im = await loadImage(file), { w, h } = dims(im);
+    for (const max of [[600, 220], [480, 176], [360, 132], [240, 88]]) {
+      const sc = Math.min(1, max[0] / w, max[1] / h), cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(w * sc)); cv.height = Math.max(1, Math.round(h * sc));
+      const g = cv.getContext('2d'); g.fillStyle = '#FFFFFF'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(im, 0, 0, cv.width, cv.height);
+      const png = await new Promise((res) => cv.toBlob(res, 'image/png')), jpg = await toBlob(cv, 0.9);
+      const best = png && png.size <= jpg.size * 1.3 ? png : jpg;
+      if (best.size <= 34000) { if (im.close) im.close(); const u = new Uint8Array(await best.arrayBuffer()); let b = ''; for (let i = 0; i < u.length; i += 0x8000) b += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return { type: best.type || 'image/png', data: btoa(b), px: cv.width, py: cv.height }; }
+    }
+    if (im.close) im.close(); throw new Error('This picture stays too big even when made small. Use a simpler logo (PNG or JPEG).');
+  }
+  function renderLogo() {
+    const i = S.logoInfo, co = (S.user && S.user.company) || '', mine = i && normCo(i.co || '') === normCo(co);
+    if (!$('dxfLogoInfo')) return;
+    $('dxfLogoInfo').textContent = mine ? `${co} logo on the drawings ✓` : co ? `No ${co} logo yet: the drawings show the company name.` : 'Choose your company in Your details first.';
+    $('dxfLogoSet').textContent = mine ? 'Change logo…' : 'Add company logo…'; $('dxfLogoSet').disabled = !co;
+    logoGet().then((r) => { const img = $('dxfLogoImg'); if (r) { img.src = `data:${r.type};base64,${r.data}`; img.hidden = false; } else { img.hidden = true; img.removeAttribute('src'); } }).catch(() => {});
+  }
+  $('dxfLogoSet').addEventListener('click', () => { $('dxfLogoFile').value = ''; $('dxfLogoFile').click(); });
+  $('dxfLogoFile').addEventListener('change', (e) => guard(async () => {
+    const f = e.target.files[0]; if (!f) return; const co = (S.user && S.user.company) || ''; if (!co) throw new Error('Choose your company in Your details first');
+    busy('Preparing the logo…');
+    try {
+      const L = await logoPrepare(f), at = new Date().toISOString();
+      await logoStore({ co, at, ...L });
+      let shared = false;
+      if (S.team && S.team.src && S.team.src.url && navigator.onLine !== false) {
+        busy('Sharing the logo with your company…');
+        try {
+          const j = await cloudRequest({ url: S.team.src.url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'setLogo', company: co, type: L.type, data: L.data, at, ...(keyMode() ? { ckey: S.companyKey } : {}), ...(isAdmin() && S.onlineAdminKey ? { key: S.onlineAdminKey } : {}) }) });
+          shared = !!(j && j.ok); if (!shared) LOG.warn('logo.share', { error: j && j.error });
+        } catch (e2) { LOG.warn('logo.share', errInfo(e2)); }
+      }
+      toast(shared ? `Logo saved and shared with ${co} users` : 'Logo saved on this phone (not shared: the online sheet did not take it)', 4500);
+    } finally { busy(false); }
+  }, 'Logo not saved'));
   async function exportPlanDxf(pts) {
     if (!window.GeDxfTpl) await loadScript('dxftpl.js');
     const seed = await ensureSeed();
@@ -5805,10 +5880,16 @@
     const aeLoops = (q.MLOOP_F72 || 0) + (q.MLOOP_L12 || 0), ugLoops = q.MLOOP_U144 || 0, ml = q.MLOOP_LEN || mloopLen();
     const cabs = [...new Set(R.spans.map((s) => s.cable).filter(Boolean))];
     const e = exporterInfo();
+    // v2.34: the site from the online sheet's project details (name, PLA ID, serial number), for the title sheet and every title block
+    const task = m.taskId && S.cloud && (S.cloud.tasks || []).find((t) => t.id === m.taskId);
+    const sName = m.siteName || (task && task.project) || '', sPla = m.plaId || (task && task.site) || '', sSerial = m.serial || (task && extraOf(task, 'Serial Number')) || ((m.siteExtra || []).find(([k]) => /serial/i.test(k)) || [])[1] || '';
+    const known = !!(sName || sPla || sSerial);
     const values = {
       EXPORTED_BY: `Exported by ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' · ')} · ${e.app} · ${new Date().toISOString().slice(0, 10)}`,
-      TITLE_CABLE: cabs.map((k) => CAB_TITLE[k]).join(' / '), SITE_NAME: m.site || '', COMPANY_NAME: m.contractor || '',
-      SITE_ID: ((m.siteExtra || []).find(([k]) => /pla|site\s*id/i.test(k)) || [])[1] || '', PROJECT_CODE: ((m.siteExtra || []).find(([k]) => /project\s*code|network\s*code/i.test(k)) || [])[1] || '',
+      TITLE_CABLE: cabs.map((k) => CAB_TITLE[k]).join(' / '), COMPANY_NAME: m.contractor || (S.user && S.user.company) || '',
+      SITE_NAME: { TITLE: known ? [sName, sPla, sSerial].filter(Boolean) : (m.site || '') }, // the title sheet: site name, PLA ID and serial number, one per line
+      LOCATION: { PAGING: known ? [sName, sPla].filter(Boolean).join('_') : (m.site || '') }, SITE_ID: { PAGING: known ? sSerial : '' }, // every title block: SITENAME_PLAID, then the serial number
+      PROJECT_CODE: ((m.siteExtra || []).find(([k]) => /project\s*code|network\s*code/i.test(k)) || [])[1] || '',
       PMI_TOTAL_CABLE_LENGTH: R.spans.length ? m1((q.SPAN_TOTAL || 0) + (q.MLOOP_COUNT || 0) * ml) : '', PMI_AERIAL_CABLE_LENGTH: R.spans.length ? m1((q.SPAN_AE || 0) + aeLoops * ml) : '', PMI_UG_CABLE_LENGTH: R.spans.length ? m1((q.SPAN_UG || 0) + ugLoops * ml) : '',
       PMI_PROPOSED_POLE: String(poles.filter(isNew).length), PMI_EXISTING_GT_POLE: String(exist.filter(gt).length),
       PMI_RTA_CONVERGE: String(exist.filter((p) => !gt(p) && /CONVERGE/.test(own(p))).length), PMI_RTA_LOCAL_COOP: String(exist.filter((p) => !gt(p) && /ELECTRIC/.test(own(p))).length),
@@ -5823,16 +5904,25 @@
       let dim; try { dim = window.PoleReports.jpegInfo(jpg); } catch (e) { continue; }
       const file = `${names[poles[i].id]}.jpg`; photos[poles[i].id] = { file, px: dim.w, py: dim.h }; files.push({ name: file, data: jpg });
     }
-    let vicImage = null;
-    try { const v = await vicinityJpeg(cE, cN, size, zone, cla < 0, busy); if (v) { vicImage = { file: 'VICINITY_MAP.jpg', px: v.px, py: v.py, credit: v.credit }; files.push({ name: 'VICINITY_MAP.jpg', data: v.jpg }); } } catch (e) { LOG.warn('plan.vicinity', errInfo(e)); }
+    let vicImage = null, vicDrawn = false;
+    try {
+      let v = await vicinityJpeg(cE, cN, size, zone, cla < 0, busy);
+      if (!v && roads.length) { v = await vicinityFromRoads(roads, cE, cN, size); vicDrawn = !!v; } // v2.34: no map tiles: a street map drawn from the roads
+      if (v) { vicImage = { file: 'VICINITY_MAP.jpg', px: v.px, py: v.py, credit: v.credit }; files.push({ name: 'VICINITY_MAP.jpg', data: v.jpg }); }
+    } catch (e) { LOG.warn('plan.vicinity', errInfo(e)); }
+    // v2.34: the vendor's logo in every title block (set in Export → AutoCAD · DXF, shared with the company's users through the sheet)
+    let logo = null;
+    try { const lg = await logoGet(); if (lg) { const ext = lg.type === 'image/png' ? 'png' : 'jpg'; logo = { file: `COMPANY_LOGO.${ext}`, px: lg.px, py: lg.py }; files.push({ name: logo.file, data: b64ToBytes(lg.data) }); } } catch (e) { LOG.warn('plan.logo', errInfo(e)); }
     busy('Drawing the plan on the template…');
     await sleep(30);
-    const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinity: [cE, cN, size], photos, vicImage, date: new Date() });
+    const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinity: [cE, cN, size], photos, vicImage, logo,
+      planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
     const rp = out.report, name = `${fileBase()}_PLAN_UTM${zone}N`;
     const nPh = Object.keys(photos).length;
     const readme = [`${name}.dxf — the plan on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres.`,
       files.length ? 'UNZIP EVERYTHING INTO ONE FOLDER, then open the DXF: the pictures (pole photos, vicinity map) are linked by file name and must stay next to the DXF.' : '',
-      `Pole photos: ${nPh} of ${poles.length} poles (a pole without a photo shows its number). Vicinity map: ${vicImage ? `street map picture VICINITY_MAP.jpg (${vicImage.credit})` : 'no picture (offline or the map did not come): the roads are drawn instead'}.`,
+      `Pole photos: ${nPh} of ${poles.length} poles (a pole without a photo shows its number). Vicinity map: ${vicImage ? (vicDrawn ? 'street map VICINITY_MAP.jpg drawn from the OpenStreetMap roads (the map tiles did not come)' : `street map picture VICINITY_MAP.jpg (${vicImage.credit})`) : 'no picture (no map tiles and no roads): the roads are drawn instead'}.`,
+      `Title blocks: ${known ? `${[sName, sPla].filter(Boolean).join('_')} / ${sSerial || '(no serial number)'} from the online sheet's project details` : 'no project details from the online sheet: the project\'s location text is used'}; company ${logo ? 'logo COMPANY_LOGO' : 'name (no logo set)'}; title ${m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN'}.`,
       'Cables: red = new fiber, blue = existing; broken line = aerial, solid line = underground.',
       `Sheets: TITLE, TOC, LEGENDS, VICINITY MAP, ROW AREA COVERAGE, KEYMAP, ${rp.sheets.join(', ')}, PMI.`,
       `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${rp.grid.cell} m (1:1100 on the GEO sheets).`,
@@ -7940,6 +8030,7 @@
       if (S.companyKey) u.searchParams.set('ckey', S.companyKey);
       if (isAdmin() && S.onlineAdminKey) u.searchParams.set('akey', S.onlineAdminKey);
       u.searchParams.set('area', '1'); // v2.27: with no region or territory ticked, the sheet (v2.27 script) sends no site
+      u.searchParams.set('logoat', (S.logoInfo && S.logoInfo.at) || ''); // v2.34: the company logo comes only when it changed
       if (myRegions().length) u.searchParams.set('region', myRegions().join(',')); // v2.25: the sheet (v2.25 script) sends only these regions
       if (myTerrs().length) u.searchParams.set('terr', myTerrs().join(','));
     }
@@ -7966,6 +8057,13 @@
         const j = await cloudRequest(src);
         if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : j && j.error === 'company key' ? (keyMode() ? 'your company key no longer works: ask your admin for a new invite (Settings → Reset user, then open the invite)' : 'join with your company invite (QR code or link from your admin or a coworker)') : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
         S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j, { area: true }) }; cloudErr = ''; persist();
+        try { // v2.34: the company's logo from the sheet (newer than the one on this phone)
+          const lg = j.logo, co = (S.user && S.user.company) || '';
+          if (lg && co && typeof lg.data === 'string' && lg.data.length <= 60000 && /^image\/(png|jpeg)$/.test(lg.type || '') && /^[A-Za-z0-9+/=]+$/.test(lg.data) && String(lg.at || '') > String((S.logoInfo && S.logoInfo.at) || '')) {
+            const im = await loadImage(new Blob([b64ToBytes(lg.data)], { type: lg.type })), { w, h } = dims(im); if (im.close) im.close();
+            await logoStore({ co, at: String(lg.at).slice(0, 40), type: lg.type, data: lg.data, px: w, py: h });
+          }
+        } catch (e) { LOG.warn('logo.sync', errInfo(e)); }
         await noteSheetList(src.url, j.list);
         const moved = typeof j.list === 'string' && j.list.length <= 120000 ? await applySheetList(j.list) : false;
         afterTeamChange(); if (!$('newProj').hidden) renderSites();
@@ -8043,7 +8141,8 @@
   const autoName = (t, cat) => joinParts([CAT_CODE[cat] || '', extraOf(t, 'Project Name'), extraOf(t, 'Serial Number'), t.site, t.project]).slice(0, 100);
   const siteDetail = (t) => [vendorsOf(t).length && `Vendor: ${vendorsOf(t).join(', ')}`, ...(t.extra || []).slice(0, 2).map(([k, v]) => `${k}: ${v}`), t.id && `ID: ${t.id}`].filter(Boolean).join(' · ');
   /** What a project made from a sheet row keeps (shown in Projects, printed on the forms). */
-  const siteMeta = (t) => (t ? { taskId: t.id, siteLink: t.link || '', siteExtra: t.extra || [], ...(t.globeRep ? { globeRep: t.globeRep } : {}) } : {});
+  const siteMeta = (t) => (t ? { taskId: t.id, siteLink: t.link || '', siteExtra: t.extra || [], ...(t.globeRep ? { globeRep: t.globeRep } : {}),
+    siteName: t.project || '', plaId: t.site || '', serial: extraOf(t, 'Serial Number') || '' } : {}); // v2.34: for the plan drawing's title blocks
   let npFile = null, npFileKind = '', npSite = null, npAuto = '', npTried = false;
   const npStageCat = () => ['Cleanup', 'FAT'].includes($('npCat').value);
   const npRow = () => npSite;
@@ -9497,7 +9596,7 @@
   if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__polecam = { get points() { return points; }, get S() { return S; }, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
+  window.__polecam = { get points() { return points; }, get S() { return S; }, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
     surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads }; // for testing
 })();

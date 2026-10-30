@@ -525,6 +525,29 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.34
+
+From your review of the 2.33 plan drawing (21 comments):
+
+- **One size for everything of a kind:** every pole symbol, every pole ID (a little larger) and its details (smaller), every photo and every span length has the same size in a drawing. The size still adapts to the drawing: closer poles make all of them smaller together.
+- **Photos right beside their pole**, with no line to the pole, covering nothing: no label, cable, road line, symbol or other photo. When too many photos find no free place, all of them are made smaller.
+- **Span lengths:** one style and size; placed along the cable where they cover neither the cable nor a road line.
+- **The cable easy to follow:** it now runs 2 m outside the road edge, between the road and the poles, about 1 m from the pole (it was 3 m from the pole, inside the pavement). Poles on one side of a straight road give a straight cable; a span that crosses the road is drawn across it from pole to pole.
+- **Street names on every sheet:** each named road is named on every GEO sheet it crosses (OpenStreetMap names; a road with no name there stays unnamed).
+- **Landmarks** (named buildings and places) are turned along their nearest road and kept wholly inside the sheet.
+- **Title blocks:** *SITENAME_PLAID* and the *serial number* from the online sheet's project details, under DETAILED DRAWING DESIGN on every sheet; the title sheet shows *(SITE NAME / PLA ID / SERIAL NUMBER)* and **AFI PLAN** for an As-Plan, **AS-BUILT PLAN** for an As-Built.
+- **Company logo:** Export → AutoCAD · DXF → **Add company logo…** puts your company's logo in the title block of every sheet and at the top right of the title sheet (instead of the company name). With the online sheet script v2.34 it is shared with all users of your company (they get it at their next sync). Without a logo, the company name is centred in its box.
+- **Vicinity map:** the route is a bold red broken line, with no label. When the phone cannot get the street map tiles, it now draws a street map from the OpenStreetMap roads it already has (online or from an offline map pack), so the vicinity sheet always has a street map.
+- **Online sheet script v2.34:** the Logos tab. Update it as before (paste, Run setup, Manage deployments → Edit → New version); no new permission.
+- Not changed, from the review: the sheet titles (DETAILED DRAWING DESIGN, VICINITY MAP…), the TOC heading and the legend texts are the template's own texts, set to be centred or in a narrow font; in AutoCAD they should look as in the template. My preview pictures drew them wrongly (no centred paragraphs, wider font); the previews are fixed.
+- Projects made before 2.34 keep their site details only when the online sheet still lists their site; otherwise the title block shows the project's location text.
+
+## What changed in v2.33
+
+- **Pole labels like your template's sample:** one stack in the direction of the pole ID, read from the pole outward: the **material** (CC), the **pole tag without the material** (CC-0430621 is written 0430621; NPT stays NPT), the size when one is recorded (e.g. CA 8-9), then the **latitude and longitude** right under them, smaller. Before, the tag kept its CC- and the coordinates sat further out on their own. The template's pole attributes carry the same values (hidden).
+- **Pole photos:** the line from a photo to its pole no longer crosses that pole's label or a road, and no part of a photo lies on a road. Where nothing nearby is free, the photo goes a little further out rather than over a label.
+- A design review page for the plan DXF (your 14:29 export drawn again with this version) to pin comments on the drawings.
+
 ## What changed in v2.32
 
 - **The plan template with no tapping (website too).** Once the admin has shared the template, every phone gets it **by itself in the background**, on the website as well as in the Android app, and keeps it. The DXF card then shows **✓ Plan template ready** and the user only taps **Export DXF**. When the admin shares a newer template, phones replace theirs by themselves.

@@ -1,4 +1,4 @@
-/* G-eSAA v2.30–2.32: the plan drawing (DXF) on the company's drawing template.
+/* G-eSAA v2.30–2.34: the plan drawing (DXF) on the company's drawing template.
    The template is prepared once into a "seed" (tools/dxf-seed/make_seed.py): its sample route removed and every field the app
    fills marked @@TOKEN@@. This module fills a copy of the seed with a survey: the sheet grid (440 m cells at 1:1100), one GEO
    sheet per cell the route uses (GEO sheets are copied or removed to match), the viewports of the GEO sheets, KEYMAP and
@@ -13,6 +13,13 @@
    the DXF); span lengths along the cable, sized to the span; the vicinity map: a street map picture (when the phone has one),
    the route in bold, and only that in its viewport (layers frozen per viewport). A layer the seed does not have is added
    (copied from layer 0) only for the photos and the vicinity map.
+   v2.34 (your review of 2.33): one size for every pole, label, photo and span length of a drawing; photos right beside their
+   pole with no line, covering nothing; the cable 2 m outside the road edge, close to the poles; road lines are obstacles for
+   labels; every named road named on every GEO sheet; places turned along their road and kept inside a sheet; the vicinity
+   route a broken line with no label; the company logo (or its name, centred) in every title block; the title sheet's
+   AFI PLAN / AS-BUILT PLAN; field values that differ by place (title sheet, title block).
+   v2.33: each pole label one stack as the template's sample: material / tag without the material / (size) / latitude /
+   longitude; a photo's line to its pole crosses no label and no road.
    Only the seed's own layers, blocks and text styles are used (the guy symbols are copied without their fixed "SG 6M" text,
    so the app writes a readable one). A field the app does not know stays blank.
    The output is plain AutoCAD 2018 DXF text; nothing here touches the network or the phone. Works in the browser
@@ -316,6 +323,38 @@
       this.d.index();
     }
   }
+  /** v2.34: writes entities into an existing block (e.g. the company logo into the title block PAGING, so it is on every sheet). */
+  function blockOut(d, S, name) {
+    const blk = S.blocks.get(name), brec = S.brByName.get(name); if (!blk || !brec || !blk.end) return null;
+    const own = get(brec, 5), B = d.sec('BLOCKS').recs;
+    return { base(t, layer, extra) { const r = [[0, t], [5, d.newHandle()], [330, own], [100, 'AcDbEntity'], [8, layer]]; if (extra && extra.color != null) r.push([62, I(extra.color)]); return r; },
+      add(r) { B.splice(B.indexOf(blk.end), 0, r); blk.ents.push(r); return r; } };
+  }
+  /** v2.34: the box of the title block cell round a point of a block (its nearest lines above, below, left and right), or null. */
+  function cellOf(ents, px, py) {
+    const hs = [], vs = [];
+    for (const r of ents) {
+      const t = typ(r); let P = null;
+      if (t === 'LINE') P = [[+get(r, 10), +get(r, 20)], [+get(r, 11), +get(r, 21)]];
+      else if (t === 'LWPOLYLINE') { const xs = all(r, 10).map(Number), ys = all(r, 20).map(Number); P = xs.map((x, i) => [x, ys[i]]); if ((+get(r, 70) || 0) & 1) P.push(P[0]); }
+      if (!P) continue;
+      for (let i = 1; i < P.length; i++) { const a = P[i - 1], b = P[i];
+        if (Math.abs(a[1] - b[1]) < 0.01) hs.push([Math.min(a[0], b[0]), Math.max(a[0], b[0]), a[1]]);
+        else if (Math.abs(a[0] - b[0]) < 0.01) vs.push([Math.min(a[1], b[1]), Math.max(a[1], b[1]), a[0]]); }
+    }
+    const top = Math.min(...hs.filter(([l, r, y]) => l <= px && r >= px && y > py).map((h) => h[2])), bot = Math.max(...hs.filter(([l, r, y]) => l <= px && r >= px && y < py).map((h) => h[2]));
+    const left = Math.max(...vs.filter(([b, t, x]) => b <= py && t >= py && x < px).map((v) => v[2])), right = Math.min(...vs.filter(([b, t, x]) => b <= py && t >= py && x > px).map((v) => v[2]));
+    return [top, bot, left, right].every(Number.isFinite) ? { x0: left, y0: bot, x1: right, y1: top } : null;
+  }
+  /** Replaces the whole text of a TEXT or MTEXT (an MTEXT keeps its text in 250-character pieces). */
+  function setText(r, nt) {
+    if (typ(r) === 'MTEXT') {
+      const first = r.findIndex((p, i) => i > 0 && (p[0] === 3 || p[0] === 1)), one = r.findIndex((p, i) => i > 0 && p[0] === 1);
+      const chunks = []; for (let i = 0; i < nt.length; i += 250) chunks.push(nt.slice(i, i + 250)); if (!chunks.length) chunks.push('');
+      r.splice(first, one - first + 1, ...chunks.slice(0, -1).map((c) => [3, c]), [1, chunks[chunks.length - 1]]);
+    } else setFirst(r, 1, nt);
+  }
+  const textOf = (r) => (typ(r) === 'MTEXT' ? all(r, 3).join('') : '') + (get(r, 1) || '');
   /** The colour and layer of each attribute of a block (for the labels written beside it). */
   function attrLook(S, name) { const out = new Map(); const b = S.blocks.get(name); if (b) for (const e of b.ents) if (typ(e) === 'ATTDEF') out.set(get(e, 2), { color: get(e, 62), layer: get(e, 8, '0') }); return out; }
 
@@ -759,10 +798,20 @@
     const spots = new Spots(), byId = new Map(pts.map((p) => [String(p.id), p])), nb = new Map();
     spans.forEach((s) => [[s.ia, s.ib], [s.ib, s.ia]].forEach(([x, y]) => { const P = byId.get(String(x)), Q = byId.get(String(y)); if (P && Q && P !== Q) (nb.get(P) || nb.set(P, []).get(P)).push(Q); }));
     const symOf = (p) => (p.status === 'Proposed' || p.status === 'New' ? POLE_SYM.prop : p.telco ? POLE_SYM.tel : POLE_SYM.elec);
-    // 1. each pole beside the nearest road (within 25 m of its edge), on the side of its pin; its symbol and labels smaller
-    //    where poles stand close together (k: 1 at 25 m or more from the nearest pole, down to 0.6)
+    // v2.34: the road edges near the route are obstacles too: labels, span lengths and photos keep off the road lines
+    { const nearRoute = (m) => pts.some((p) => Math.abs(p.E - m[0]) < 160 && Math.abs(p.N - m[1]) < 160);
+      for (const l of R.edges) for (let k = 1; k < l.pts.length + (l.closed ? 1 : 0); k++) {
+        const a = l.pts[k - 1], b = l.pts[k % l.pts.length], m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], L = dist2(a, b);
+        if (L > 0.05 && nearRoute(m)) spots.add(Spots.box(m[0], m[1], L, 0.25, deg(unit(a, b))), 'road');
+      } }
+    // 1. each pole beside the nearest road (within 25 m of its edge), on the side of its pin. v2.34: one size for every pole,
+    //    label and photo of the drawing, smaller when poles stand close (k: 1 when most poles are 25 m apart or more, down to
+    //    0.6; set by the closest fifth of the poles, so one close pair does not shrink everything)
+    const POLE_GAP = 3.0, CABLE_OFF = 1.0; // pole centre = road edge + its radius + POLE_GAP; cable = pole edge + CABLE_OFF (2 m outside the road edge)
     const polesOnly = pts.filter((p) => p.el === 'Pole');
-    for (const p of polesOnly) { let nn = 1e9; for (const q of polesOnly) if (q !== p) nn = Math.min(nn, Math.hypot(q.E - p.E, q.N - p.N)); p.k = Math.max(0.6, Math.min(1, nn / 25)); }
+    const nns = polesOnly.map((p) => { let nn = 1e9; for (const q of polesOnly) if (q !== p) nn = Math.min(nn, Math.hypot(q.E - p.E, q.N - p.N)); return nn; }).filter((v) => v < 1e8).sort((a, b) => a - b);
+    const kG = Math.max(0.6, Math.min(1, (nns.length ? nns[Math.floor(nns.length * 0.2)] : 25) / 25));
+    for (const p of polesOnly) p.k = kG;
     for (const p of pts) {
       p.dp = [p.E, p.N]; p.td = null; p.near = null;
       if (p.el !== 'Pole') continue;
@@ -774,8 +823,9 @@
     for (const p of pts) {
       if (!p.near) continue;
       const out = (nr, side) => [-nr.dir[1] * side, nr.dir[0] * side], n = out(p.near, p.side);
-      let q = add2(p.near.c, n, p.near.r.hw + p.rp + 1.0);
-      for (let it = 0; it < 4; it++) { const o2 = nearestRoad(R.roads, q, p.rp + 0.9); if (!o2) break; q = add2(o2.c, out(o2, o2.side), o2.r.hw + p.rp + 1.0); } // a corner pole: out of the other road too
+      // v2.34: the pole POLE_GAP from the road edge, so the cable runs between the edge and the pole, outside the pavement lines
+      let q = add2(p.near.c, n, p.near.r.hw + p.rp + POLE_GAP);
+      for (let it = 0; it < 4; it++) { const o2 = nearestRoad(R.roads, q, p.rp + POLE_GAP - 0.1); if (!o2) break; q = add2(o2.c, out(o2, o2.side), o2.r.hw + p.rp + POLE_GAP); } // a corner pole: out of the other road too
       p.dp = q; p.td = [-n[0], -n[1]]; p.moved = dist2(q, [p.E, p.N]);
     }
     const tangent = (p) => { const Q = nb.get(p) || []; return Q.length >= 2 ? unit(Q[0].dp, Q[1].dp) : Q.length === 1 ? unit(p.dp, Q[0].dp) : [1, 0]; };
@@ -784,7 +834,7 @@
       if (p.el !== 'Pole') { p.A = p.dp; continue; }
       p.arm = armOf(p.armType); if (p.arm && !S.blocks.has(p.arm.b)) p.arm = null;
       if (!p.td) { const t = tangent(p), L = [-t[1], t[0]], q = (nb.get(p) || []).find((x) => x.td); let s = 1; if (q) { const tq = tangent(q); s = Math.sign(q.td[0] * -tq[1] + q.td[1] * tq[0]) || 1; } p.td = [L[0] * s, L[1] * s]; p.free = true; }
-      p.A = add2(p.dp, p.td, p.rp + (p.arm ? p.arm.reach : 3.0));
+      p.A = add2(p.dp, p.td, p.rp + (p.arm ? p.arm.reach : CABLE_OFF)); // v2.34: close to the pole (was 3 m), outside the road edge
     }
     // 3. the cable runs
     const chains = chainsOf(spans), label = new Map((runs || []).map((r) => [r.cable, r.label]));
@@ -862,20 +912,26 @@
     for (const p of poleOrder) {
       seq++;
       const H = Math.max(1.5, 2.2 * p.k), HL = Math.max(0.9, 1.2 * p.k), size = p.size || (p.clamp ? `CA ${p.clamp}` : ''); // size: the clamp size (the app records no other size of an existing pole)
-      const tag = p.tag != null && p.tag !== '' ? p.tag : (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId);
+      // v2.33: the pole tag without its material prefix (material CC + tag CC-0430621 → CC / 0430621), as the template's sample
+      const bare = (v) => { const m = String(p.mat || '').trim(), t = String(v || ''); return m && t.toUpperCase().startsWith(m.toUpperCase()) && /^([-_ .][A-Z0-9]|\d)/i.test(t.slice(m.length)) && t.length > m.length ? t.slice(m.length).replace(/^[-_ .]/, '') : t; };
+      const tag = bare(p.tag != null && p.tag !== '' ? p.tag : (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId));
       const lines = p.sym.r === POLE_SYM.prop.r ? [['GT-POLE', p.label1 || 'PROP.POLE'], ['PHEIGHT', p.height || ''], ['POLE_CLAMP', p.clamp ? `CA ${p.clamp}` : '']]
-        : p.sym.b === 'existing telecom pole' ? [['OC', p.mat || ''], ['GT-001', p.poleId || ''], ['', size]] : [['CC', p.mat || ''], ['NPT', tag], ['B', size]];
+        : p.sym.b === 'existing telecom pole' ? [['OC', p.mat || ''], ['GT-001', bare(p.poleId || '')], ['', size]] : [['CC', p.mat || ''], ['NPT', tag], ['B', size]];
       const shown = lines.filter(([, v]) => v);
+      const lat = `${p.lat.toFixed(6)}°`, lon = `${p.lon.toFixed(6)}°`;
       const ll = `{\\fSimSun|b0|i0|c134|p2;${p.lat.toFixed(6)}%%D\\P${p.lon.toFixed(6)}%%D}`;
-      const longest = Math.max(4, ...shown.map(([, v]) => v.length)) * H * CHW;
+      // one stack in the direction of the ID, read from the pole outward: material / tag (/ size), then latitude / longitude
+      // smaller under them (v2.33: the coordinates are part of the stack, as in the template's sample)
+      const n = shown.length, gap = 0.35 * H, llH = HL * (1 + 5 / 3), T = n * 1.5 * H + gap + llH;
       const cands = [];
-      for (const a of [0, 30, -30, 60, -60, 90, -90]) {
+      for (const a of [0, 30, -30, 60, -60, 90, -90, 120, -120]) {
         const ov = rotv([-p.td[0], -p.td[1]], a), dg = deg(ov), rr = readable(dg), flip = Math.abs(((dg - rr) % 360 + 360) % 360 - 180) < 1, ha = flip ? 2 : 0;
-        const up = rotv([Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], 90), n = shown.length;
+        const up = rotv([Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], 90);
         const base = add2(p.dp, ov, p.rp + 1.2), boxes = [], place = [];
-        shown.forEach(([t, v], k) => { const q = add2(base, up, ((n - 1) / 2 - k) * H * 1.5); place.push([t, v, q]); boxes.push(textBox(q[0], q[1], H, v, rr, ha, 2)); });
-        const llAt = add2(base, ov, longest + 1.5), llBox = Spots.box(...add2(llAt, ov, 5.5 * HL / 1.2), 11 * HL / 1.2, 4 * HL / 1.2, rr);
-        cands.push({ boxes: [...boxes, llBox], place, rr, ha, llAt, ov, flip });
+        shown.forEach(([t, v], k) => { const q = add2(base, up, T / 2 - (k + 0.5) * 1.5 * H); place.push([t, v, q]); boxes.push(textBox(q[0], q[1], H, v, rr, ha, 2)); });
+        const llAt = add2(base, up, T / 2 - n * 1.5 * H - gap - llH / 2);
+        [[lat, HL * 5 / 6], [lon, -HL * 5 / 6]].forEach(([v, dy]) => { const q = add2(llAt, up, dy); boxes.push(textBox(q[0], q[1], HL, v, rr, ha, 2)); });
+        cands.push({ boxes, place, rr, ha, llAt, ov, flip });
       }
       const c = pick(spots, cands); spots.add(c.boxes, 'label:' + p.poleId);
       // the block keeps the values in its attributes (hidden); the labels are plain texts in one direction (the pole blocks
@@ -893,8 +949,9 @@
       const a = P.A, b = Q.A, m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], t = unit(a, b), rd = readable(deg(t)), nl = [-t[1], t[0]];
       const toward = [(P.td ? P.td[0] : 0) + (Q.td ? Q.td[0] : 0), (P.td ? P.td[1] : 0) + (Q.td ? Q.td[1] : 0)], sgn = (nl[0] * toward[0] + nl[1] * toward[1]) < 0 ? -1 : 1;
       const txt = `${s.len.toFixed(1)}m${s.long ? ` (OVER ${job.maxSpan || 200}m)` : ''}`;
-      const L = dist2(a, b), cs = [], th = Math.max(1.4, Math.min(2.5, (L * 0.6) / (`${s.len.toFixed(1)}m`.length * CHW))), off = th * 0.9 + 0.8; // v2.32: smaller, sized to the span, along the cable
-      for (const [f, k] of [[0, 1], [0, -1], [0, 2], [0, -2], [0.25, 1], [-0.25, 1], [0.25, -1], [-0.25, -1], [0, 3], [0, -3]]) { const q = add2(add2(m, t, f * L), nl, k * off * sgn); cs.push({ q, boxes: [textBox(q[0], q[1], th, txt, rd, 1, 2)] }); }
+      // v2.34: one size and style for every span length of the drawing, along the cable, where it covers neither the cable nor a road line
+      const L = dist2(a, b), cs = [], th = Math.max(1.4, 2.0 * kG), off = th * 0.75 + 0.6;
+      for (const [f, k] of [[0, 1], [0, -1], [0.2, 1], [-0.2, 1], [0.2, -1], [-0.2, -1], [0, 1.7], [0, -1.7], [0.35, 1], [-0.35, 1], [0.35, -1], [-0.35, -1], [0.2, 1.7], [-0.2, 1.7], [0.2, -1.7], [-0.2, -1.7], [0, 2.5], [0, -2.5], [0, 3.4], [0, -3.4]]) { const q = add2(add2(m, t, f * L), nl, k * off * sgn); cs.push({ q, boxes: [textBox(q[0], q[1], th, txt, rd, 1, 2)] }); }
       const c = pick(spots, cs);
       o.text(lay('Distance Data'), c.q[0], c.q[1], th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : null }); spots.add(c.boxes);
     }
@@ -923,65 +980,95 @@
       for (const f of [0.3, 0.7, 0.5, 0.15, 0.85]) for (const k of [7.5, -7.5, 11, -11]) { const q = add2(add2(best.a, t, best.L * f), nl, k); cands.push({ q, boxes: [textBox(q[0], q[1], 3, txt, rd, 1, 2)] }); }
       const c = pick(spots, cands); o.text(lay('MISC'), c.q[0], c.q[1], 3.0, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: (CABLE_STYLE[ch.cable] || {}).color || null }); spots.add(c.boxes);
     }
-    // the photo of each pole beside it, upright, joined to its pole by a thin line (v2.32: instead of the pole number); a pole
-    // without a photo keeps its number in a circle
+    // the photo of each pole right beside it, upright (v2.32: instead of the pole number). v2.34: every photo one size, no line
+    // to the pole, covering nothing (labels, cable, road lines, symbols, other photos); when too many find no free place, all the
+    // photos are made smaller (twice at most). A pole without a photo keeps its number in a circle.
     const photos = job.photos || {}, havePhotos = Object.keys(photos).length > 0, photoLayer = havePhotos ? (addLayer(d, S, 'G-ESAA POLE PHOTO', 7), 'G-ESAA POLE PHOTO') : null;
-    for (const p of poleOrder) {
-      const ph = photos[p.id] || photos[String(p.id)], Lp = Math.max(12, 18 * p.k);
-      const w = ph ? (ph.px >= ph.py ? Lp : Lp * ph.px / ph.py) : 19, h = ph ? (ph.px >= ph.py ? Lp * ph.py / ph.px : Lp) : 19, rad = Math.hypot(w, h) / 2;
-      const nc = [], loose = [];
-      for (const dd of [0.6, 0.8, 1.05, 1.35, 1.7, 2.1]) for (const a of [30, -30, 0, 50, -50, 70, -70, 90, -90, 110, -110, 15, -15]) {
-        const q = add2(p.dp, rotv(p.ov, a), p.rp + 3 + rad * dd); if (R.idx.inside(q, -1, -2)) continue; // off the roads
-        const mine = !poleOrder.some((x) => x !== p && dist2(x.dp, q) < dist2(p.dp, q)); // nearer its own pole than any other
-        (mine ? nc : loose).push({ q, boxes: [Spots.box(q[0], q[1], w + 1.5, h + 1.5, 0)] });
+    const ANG = []; for (let a = -165; a <= 180; a += 15) ANG.push(a);
+    ANG.sort((x, y) => Math.abs(Math.abs(x) - 80) - Math.abs(Math.abs(y) - 80)); // beside the label first, not over it or the road
+    const placePhotos = (Lp) => {
+      const mark = spots.list.length, out = []; let miss = 0;
+      for (const p of poleOrder) {
+        const ph = photos[p.id] || photos[String(p.id)];
+        const w = ph ? (ph.px >= ph.py ? Lp : Lp * ph.px / ph.py) : 19, h = ph ? (ph.px >= ph.py ? Lp * ph.py / ph.px : Lp) : 19;
+        const free = [], rest = [];
+        look: for (const gap of [0.8, 2.5, 5, 8, 12, 17]) for (const a of ANG) {
+          const u = rotv(p.ov || [1, 0], a), t = Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9);
+          const q = add2(p.dp, u, p.rp + gap + t);
+          if ([[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].some(([sx, sy]) => R.idx.inside([q[0] + sx * w / 2, q[1] + sy * h / 2], -1, -2))) continue; // off the roads
+          const mine = !poleOrder.some((x) => x !== p && dist2(x.dp, q) < dist2(p.dp, q) - 1); // nearer its own pole than any other
+          const c = { q, gap, boxes: [Spots.box(q[0], q[1], w + 1.0, h + 1.0, 0)] };
+          if (mine && !spots.hits(c.boxes[0])) { free.push(c); break look; }
+          if (mine) rest.push(c);
+        }
+        let cn = free[0];
+        if (!cn) { miss++; cn = rest.reduce((b, x) => (!b || spots.hits(x.boxes[0]) * 10 + x.gap < spots.hits(b.boxes[0]) * 10 + b.gap ? x : b), null) || { q: add2(p.dp, p.ov || [1, 0], p.rp + 2 + Math.hypot(w, h) / 2), boxes: [] }; }
+        spots.add(cn.boxes, ph ? 'photo' : 'num'); out.push({ p, ph, w, h, q: cn.q });
       }
-      if (!nc.some((x) => !x.boxes.some((bx) => spots.hits(bx)))) nc.push(...loose);
-      if (!nc.length) { const q = add2(p.dp, p.ov, p.rp + 3 + rad); nc.push({ q, boxes: [Spots.box(q[0], q[1], w + 1.5, h + 1.5, 0)] }); }
-      const cn = pick(spots, nc); spots.add(cn.boxes, ph ? 'photo' : 'num');
+      return { out, miss, mark };
+    };
+    let Lp = Math.max(12, 18 * kG), photoPl = placePhotos(Lp);
+    for (let tries = 0; tries < 2 && photoPl.miss > Math.max(1, poleOrder.length / 4); tries++) { spots.list.length = photoPl.mark; Lp *= 0.8; photoPl = placePhotos(Lp); }
+    for (const { p, ph, w, h, q } of photoPl.out) {
       if (ph && havePhotos) {
-        getImgs().image(o, lay(photoLayer), ph.file, ph.px, ph.py, cn.q[0] - w / 2, cn.q[1] - h / 2, w, h);
-        o.lwpoly(lay(photoLayer), [[cn.q[0] - w / 2, cn.q[1] - h / 2], [cn.q[0] + w / 2, cn.q[1] - h / 2], [cn.q[0] + w / 2, cn.q[1] + h / 2], [cn.q[0] - w / 2, cn.q[1] + h / 2]], { closed: true, color: 8 }); // its frame
-        const u = unit(cn.q, p.dp), t = Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9);
-        const e0 = add2(cn.q, u, t), e1 = add2(p.dp, u, -p.rp * 1.2); if (dist2(cn.q, e1) > t) o.lwpoly(lay(photoLayer), [e0, e1], { color: 8 }); // the line to its pole
-      } else { o.circle(lay('p-pole'), cn.q[0], cn.q[1], 9); o.text(lay('p-pole'), cn.q[0], cn.q[1], 7, String(p.seq), { ha: 1, va: 2, style: 'arial' }); }
+        getImgs().image(o, lay(photoLayer), ph.file, ph.px, ph.py, q[0] - w / 2, q[1] - h / 2, w, h);
+        o.lwpoly(lay(photoLayer), [[q[0] - w / 2, q[1] - h / 2], [q[0] + w / 2, q[1] - h / 2], [q[0] + w / 2, q[1] + h / 2], [q[0] - w / 2, q[1] + h / 2]], { closed: true, color: 8 }); // its frame
+      } else { o.circle(lay('p-pole'), q[0], q[1], 9); o.text(lay('p-pole'), q[0], q[1], 7, String(p.seq), { ha: 1, va: 2, style: 'arial' }); }
     }
+    rep.photoSize = +Lp.toFixed(1); rep.photosNotFree = photoPl.miss;
     // 11. coordinates of the points that are not poles
     for (const p of pts) if (p.el !== 'Pole') o.mtext(lay('LATLONG'), p.E + 4, p.N - 5, 1.5, `{\\fSimSun|b0|i0|c134|p2;${p.lat.toFixed(6)}%%D\\P${p.lon.toFixed(6)}%%D}`, { style: '样式 1' });
-    // 12. the street names, then buildings and places nearby (named in OpenStreetMap), where they do not cover the route
-    const routePts = pts.map((p) => p.dp);
-    for (const s of streetNames(R.roads, routePts, vb)) { // on the road, slid along it when a label is in the way
-      const rd = readable(deg(unit(s.a, s.b))), txt = s.name.toUpperCase(), u = unit(s.a, s.b);
-      const c = [0, 0.25, -0.25, 0.4, -0.4].map((f) => { const q = add2(s.m, u, f * s.L); return { q, boxes: [textBox(q[0], q[1], 3.5, txt, rd, 1, 2)] }; }).find((x) => !x.boxes.some((b) => spots.hits(b)));
-      if (!c) continue;
-      o.text(lay('STREET NAME'), c.q[0], c.q[1], 3.5, txt, { rot: rd, ha: 1, va: 2, style: 'arial' }); spots.add(c.boxes, 'street');
+    // 12. v2.34: the name of every named road on every GEO sheet it crosses (once per sheet), on the road where it covers no label;
+    //     then buildings and places nearby (named in OpenStreetMap), turned along their road, wholly inside a sheet
+    const wins = geoCells.map((c) => [gox + c.i * cell, goy + c.j * cell, gox + (c.i + 1) * cell, goy + (c.j + 1) * cell]);
+    const corners = (b) => [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, c]) => [b.cx + b.ux * b.hw * a + b.vx * b.hh * c, b.cy + b.uy * b.hw * a + b.vy * b.hh * c]);
+    const inside = (b, W, m) => corners(b).every(([x, y]) => x >= W[0] + m && x <= W[2] - m && y >= W[1] + m && y <= W[3] - m);
+    const byName = new Map(); R.roads.forEach((r) => { if (r.hw > 0 && r.name) (byName.get(r.name) || byName.set(r.name, []).get(r.name)).push(r); });
+    let nStreets = 0, unnamedNear = 0;
+    for (const W of wins) {
+      for (const [name, list] of byName) {
+        const txt = name.toUpperCase(), segs = [];
+        for (const r of list) for (const piece of clipLine(r.pts, [W[0] + 3, W[1] + 3, W[2] - 3, W[3] - 3])) for (let k = 1; k < piece.length; k++) { const L = dist2(piece[k - 1], piece[k]); if (L >= 8) segs.push({ a: piece[k - 1], b: piece[k], L }); }
+        if (!segs.length) continue;
+        segs.sort((x, y) => y.L - x.L);
+        let done = false;
+        for (const sg of segs.slice(0, 8)) {
+          const u = unit(sg.a, sg.b), rd = readable(deg(u));
+          for (const f of [0.5, 0.3, 0.7, 0.15, 0.85]) {
+            const q = add2(sg.a, u, f * sg.L), b = textBox(q[0], q[1], 3.5, txt, rd, 1, 2);
+            if (!inside(b, W, 1) || spots.hits(b)) continue;
+            o.text(lay('STREET NAME'), q[0], q[1], 3.5, txt, { rot: rd, ha: 1, va: 2, style: 'arial' }); spots.add(b, 'street'); nStreets++; done = true; break;
+          }
+          if (done) break;
+        }
+      }
     }
+    for (const p of polesOnly) if (p.near && !p.near.r.name) unnamedNear++;
+    rep.streetNames = nStreets; rep.polesOnUnnamedRoads = unnamedNear;
     let nPois = 0; const placed = [];
-    const cellsBox = (q) => [...used.values()].some((c) => q[0] >= gox + (c.i - 0.15) * cell && q[0] <= gox + (c.i + 1.15) * cell && q[1] >= goy + (c.j - 0.15) * cell && q[1] <= goy + (c.j + 1.15) * cell);
     for (const poi of job.pois || []) {
       const name = String(poi.name || '').trim().toUpperCase(); if (!name || !Number.isFinite(poi.E) || !Number.isFinite(poi.N)) continue;
-      const q0 = [poi.E, poi.N]; if (!cellsBox(q0) || placed.some((x) => x.name === name && dist2(x.q, q0) < 60)) continue;
+      const q0 = [poi.E, poi.N], W = wins.find((w) => q0[0] >= w[0] && q0[0] <= w[2] && q0[1] >= w[1] && q0[1] <= w[3]);
+      if (!W || placed.some((x) => x.name === name && dist2(x.q, q0) < 60)) continue;
       const lines = []; for (const w of name.split(/\s+/)) { const l = lines.length - 1; if (l >= 0 && (lines[l] + ' ' + w).length <= 22) lines[l] += ' ' + w; else lines.push(w); } // two lines at most
       if (lines.length > 2) { lines.length = 2; lines[1] = lines[1].slice(0, 20) + '...'; }
       const wide = lines.reduce((a, b) => (b.length > a.length ? b : a), ''), tall = lines.length;
-      const ring = [[0, 0]]; for (const rr of [5, 9, 14]) for (let k = 0; k < 8; k++) ring.push([Math.round(rr * Math.cos(k * Math.PI / 4) * 10) / 10, Math.round(rr * Math.sin(k * Math.PI / 4) * 10) / 10]);
-      const cands = ring.map(([dx, dy]) => { const q = [q0[0] + dx, q0[1] + dy], b = textBox(q[0], q[1], 2.5, wide, 0, 1, 2); b.hh *= tall; return { q, boxes: [b] }; }).filter((c) => !R.idx.inside(c.q, -1, -1));
-      const c = cands.find((x) => !x.boxes.some((b) => spots.hits(b))); if (!c) continue;
-      o.mtext(lay('House Number', 'MISC'), c.q[0], c.q[1], 2.5, lines.map(mtextEsc).join('\\P'), { style: 'PDF Arial', att: 5, color: 7 }); spots.add(c.boxes); placed.push({ name, q: q0 }); nPois++;
+      const nr = nearestRoad(R.roads, q0, 45), u = nr ? nr.dir : [1, 0], rd = readable(deg(u)), ru = [Math.cos(rd * Math.PI / 180), Math.sin(rd * Math.PI / 180)], rv = [-ru[1], ru[0]];
+      const cands = [];
+      for (const b of [0, 5, -5, 9, -9, 14, -14]) for (const a of [0, 6, -6, 12, -12]) { const q = add2(add2(q0, ru, a), rv, b), bx = textBox(q[0], q[1], 2.5, wide, rd, 1, 2); bx.hh *= tall; if (!R.idx.inside(q, -1, -1) && inside(bx, W, 1)) cands.push({ q, boxes: [bx] }); }
+      const c = cands.find((x) => !x.boxes.some((bb) => spots.hits(bb))); if (!c) continue;
+      o.mtext(lay('House Number', 'MISC'), c.q[0], c.q[1], 2.5, lines.map(mtextEsc).join('\\P'), { style: 'PDF Arial', att: 5, color: 7, dir: ru }); spots.add(c.boxes); placed.push({ name, q: q0 }); nPois++;
     }
-    /* the vicinity map, beside the plan: the route bold in red over the street map (or a copy of the roads), a label, the names
-       of the main streets large enough at that scale. Its viewport shows only that; the GEO sheets and the keymap do not. */
+    /* the vicinity map, beside the plan: the route as a bold red broken line over the street map (or a copy of the roads), the
+       names of the main streets large enough at that scale (v2.34: no label, no start mark: just the route). Its viewport shows
+       only that; the GEO sheets and the keymap do not. */
     const vlayH = addLayer(d, S, VLAY, 1), vk = vic[2] / 1500;
     if (!job.vicImage) { // no picture: the roads, thin
       R.edges.forEach((l) => o.lwpoly(VLAY, l.pts.map(vsh), { closed: l.closed, color: 7 }));
       R.paths.forEach((l) => o.lwpoly(VLAY, l.map(vsh), { color: 8 }));
     }
-    for (const ch of chains) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: 5 * vk, color: ch.existing ? 5 : 1 });
-    const allA = chains.flatMap((ch) => ch.line || []); if (!allA.length) pts.forEach((p) => allA.push(p.dp));
-    if (allA.length) {
-      const cx = allA.reduce((t, q) => t + q[0], 0) / allA.length, cy = allA.reduce((t, q) => t + q[1], 0) / allA.length, ymax = Math.max(...allA.map((q) => q[1]));
-      o.text(VLAY, cx + VDX, ymax + 22 * vk, 11 * vk, job.vicinityLabel || 'PROPOSED FIBER ROUTE', { ha: 1, va: 2, style: 'arial', color: 1 });
-      o.circle(VLAY, allA[0][0] + VDX, allA[0][1], 6 * vk, { color: 1 });
-    }
+    const vlt = S.ltypes.has('DASHED') ? 'DASHED' : null;
+    for (const ch of chains) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: 4 * vk, color: ch.existing ? 5 : 1, lt: vlt, lts: vlt ? 7 : 0, gen: true });
     if (!job.vicImage) { // no picture: the names of the roads written large
       const done = new Set();
       for (const r of R.roads.slice().sort((a, b) => b.hw - a.hw)) {
@@ -1000,9 +1087,34 @@
       if (L.name === 'VICINITY MAP') vpFreeze(vp, offInVic); else if (/^GEO( \(\d+\))?$/.test(L.name) || L.name === 'KEYMAP') vpFreeze(vp, vicOnly);
     }
     const ents = d.sec('ENTITIES').recs; ents.push(...o.model);
-    if (imgs) imgs.finish();
     d.index();
-    /* 5. the fields */
+    // v2.34: the vendor's company in the title block (PAGING, on every sheet): its logo when the app has one, else its name centred
+    // in the box
+    const pg = S.blocks.get('PAGING'), cnm = pg && pg.ents.find((r) => (typ(r) === 'MTEXT' || typ(r) === 'TEXT') && textOf(r).includes('@@COMPANY_NAME@@'));
+    if (cnm) {
+      const hh = +get(cnm, 40) || 3, box = cellOf(pg.ents, +get(cnm, 10) + 1, +get(cnm, 20) - hh / 2);
+      if (box) {
+        const cx = (box.x0 + box.x1) / 2, cy = (box.y0 + box.y1) / 2, bw = box.x1 - box.x0, bh = box.y1 - box.y0, lg = job.logo, bo = lg && lg.file && blockOut(d, S, 'PAGING');
+        if (bo && lg.px > 0 && lg.py > 0) {
+          const m = 0.1 * Math.min(bw, bh), sc = Math.min((bw - 2 * m) / lg.px, (bh - 2 * m) / lg.py), w = lg.px * sc, h = lg.py * sc;
+          getImgs().image(bo, '0', lg.file, lg.px, lg.py, cx - w / 2, cy - h / 2, w, h); setText(cnm, ''); rep.logo = true;
+        } else if (typ(cnm) === 'MTEXT') { setFirst(cnm, 71, I(5)); setFirst(cnm, 10, F(cx)); setFirst(cnm, 20, F(cy)); setFirst(cnm, 41, F(bw - 4)); }
+      }
+    }
+    // v2.34: the title sheet names the vendor at the top right (opposite the client's logo): its logo there too, when the app has one
+    const tl0 = job.logo && job.logo.file && S.layouts.find((L) => L.name === 'TITLE'), tbn = tl0 && get(S.br.get(tl0.brh), 2);
+    if (tbn && tbn !== '*Paper_Space' && job.logo.px > 0 && job.logo.py > 0) {
+      const tnm = (S.blocks.get(tbn) || { ents: [] }).ents.find((r) => (typ(r) === 'MTEXT' || typ(r) === 'TEXT') && textOf(r).includes('@@COMPANY_NAME@@')), bo = tnm && blockOut(d, S, tbn);
+      if (bo) {
+        const lg = job.logo, th = +get(tnm, 40) || 100, att = typ(tnm) === 'MTEXT' ? (+get(tnm, 71) || 1) : 1, cw = (typ(tnm) === 'MTEXT' && +get(tnm, 41)) || 20 * th;
+        const col = (att - 1) % 3, row = Math.floor((att - 1) / 3), x0 = +get(tnm, 10), y0 = +get(tnm, 20);
+        const cx = typ(tnm) === 'MTEXT' ? x0 + (1 - col) * cw / 2 : x0 + cw / 2, cy = typ(tnm) === 'MTEXT' ? y0 + (row - 1) * th / 2 : y0 + th / 2;
+        const sc = Math.min(cw / lg.px, 5 * th / lg.py), w = lg.px * sc, h = lg.py * sc;
+        getImgs().image(bo, '0', lg.file, lg.px, lg.py, cx - w / 2, cy - h / 2, w, h); setText(tnm, ''); rep.logoTitle = true;
+      }
+    }
+    if (imgs) imgs.finish(); // the pictures' objects, once every picture is in (the photos, the vicinity map, the logo)
+    /* 5. the fields (v2.34: a value may differ by place: { TITLE: …, PAGING: … (the title block of every sheet), '*': … }) */
     const V = job.values || {}, sheetNames = S.layouts.map((L) => L.name);
     const paging = S.brByName.get('PAGING');
     const idx = (nm, di, dj) => { const k = geoNames(N).indexOf(nm); if (k < 0) return ''; const c = geoCells[k], kk = key(c.i + di, c.j + dj); return sheetOf.has(kk) ? cellName(c.i + di, c.j + dj) : ''; };
@@ -1017,12 +1129,18 @@
     const fill = (r, sheet, inBlockText) => {
       const t = typ(r); if (t !== 'TEXT' && t !== 'MTEXT') return;
       const txt = (t === 'MTEXT' ? all(r, 3).join('') : '') + (get(r, 1) || ''); if (txt.indexOf('@@') < 0) return;
-      const nt = txt.replace(/@@(\w+)@@/g, (m, k) => {
-        let v = V[k]; if (v && typeof v === 'object') v = v[sheet];
-        if ((v == null || v === '') && auto[k]) v = auto[k](sheet);
-        v = v == null ? '' : String(v);
-        if (v) filled.add(k); else blanks.add(k);
-        if (t === 'MTEXT') { v = mtextEsc(v); if (k === 'LOCATION' && inBlockText && v.includes('_')) { const q = v.lastIndexOf('_'); v = `${v.slice(0, q + 1)}\\P${v.slice(q + 1)}`; } }
+      const ctx = sheet || (inBlockText ? 'PAGING' : 'MODEL');
+      const val = (k) => { const v = V[k]; return v && typeof v === 'object' && !Array.isArray(v) ? (v[ctx] != null ? v[ctx] : v['*']) : v; };
+      // v2.34: a value given as lines (an array) is written one per line, without the template's brackets round the field
+      const nt = txt.replace(/\((@@(\w+)@@)\)/g, (m, tok, k) => (Array.isArray(val(k)) && t === 'MTEXT' ? tok : m)).replace(/@@(\w+)@@/g, (m, k) => {
+        const plain = !(V[k] && typeof V[k] === 'object'); let v = val(k);
+        if (Array.isArray(v)) v = v.filter((x) => x != null && String(x) !== '').map(String);
+        if ((v == null || v === '' || (Array.isArray(v) && !v.length)) && auto[k]) v = auto[k](sheet);
+        if (v == null) v = '';
+        if (Array.isArray(v) ? v.length : v !== '') filled.add(k); else blanks.add(k);
+        if (Array.isArray(v)) return t === 'MTEXT' ? v.map(mtextEsc).join('\\P') : v.join(' / ');
+        v = String(v);
+        if (t === 'MTEXT') { v = mtextEsc(v); if (plain && k === 'LOCATION' && inBlockText && v.includes('_')) { const q = v.lastIndexOf('_'); v = `${v.slice(0, q + 1)}\\P${v.slice(q + 1)}`; } }
         return v;
       });
       if (t === 'MTEXT') { // the text is the 3 chunks then the 1: replaced in place
@@ -1033,6 +1151,8 @@
     };
     for (const L of S.layouts) { if (L.name === 'Model') continue; for (const r of layoutEnts(d, S, L)) fill(r, L.name, L.name === 'TITLE'); }
     if (paging) for (const r of S.blocks.get('PAGING').ents) fill(r, null, true);
+    // v2.34: the plan's title on the title sheet: the template's AFI PLAN, or AS-BUILT PLAN for an As-Built
+    if (job.planTitle) { const tl = S.layouts.find((L) => L.name === 'TITLE'); if (tl) for (const r of layoutEnts(d, S, tl)) { const t = typ(r); if ((t === 'MTEXT' || t === 'TEXT') && textOf(r).includes('AFI PLAN')) setText(r, textOf(r).replace(/AFI PLAN/g, t === 'MTEXT' ? mtextEsc(job.planTitle) : job.planTitle)); } }
     for (const r of d.sec('ENTITIES').recs) { const ow = owner(r); if (ow === S.modelH && String(get(r, 67, '0')).trim() !== '1') fill(r, null, false); }
     rep.blanks = [...blanks].filter((k) => !filled.has(k) && !/^IDX_/.test(k)).sort(); // an empty index key = no sheet on that side, not a missing field
     rep.partly = [...blanks].filter((k) => filled.has(k)).sort();
@@ -1040,5 +1160,5 @@
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0] };
     return { text: d.text(), report: rep };
   }
-  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, version: '2.32' };
+  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, version: '2.34' };
 }));
