@@ -1320,7 +1320,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <span class="lbl">ADD A GOOGLE DRIVE LINK (THIS PHONE ONLY)</span>
       <input type="text" id="packLink" placeholder="https://drive.google.com/file/d/…/view" autocomplete="off" aria-label="Google Drive link to a .pmtiles file">
       <div class="row"><input type="text" id="packLinkName" placeholder="Name, e.g. Mindanao" style="flex:1" aria-label="Name for this map pack"><button class="btn" id="packAddLink" type="button">Add</button></div>
-      <p class="hint" id="packLinkHint">The Drive file must be shared as “Anyone with the link”. The Android app downloads it directly; the website version opens it in Drive so you can download it and import it here.</p>
+      <p class="hint" id="packLinkHint">The Drive file must be shared as “Anyone with the link”. The Android app downloads it directly; the website version too when the admin has added a Google Drive API key, otherwise it opens it in Drive so you can download it and import it here.</p>
       </div>
     </div>
     <div class="group">
@@ -1496,6 +1496,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <p class="hint help">Upload each .pmtiles map pack and each .roadpack road pack (made with tools/osm-pack) to Google Drive and share it as “Anyone with the link”. Paste one line per pack: name | Drive link | size in MB (lines starting with # are skipped; 30 packs at most). Users see these packs under Maps after they take this list version (join link or QR code), or after Refresh list when the online sheet is connected. Users cannot add links themselves.</p>
         <textarea id="admPacks" style="min-height:80px" placeholder="Mindanao | https://drive.google.com/file/d/…/view | 200" aria-label="Offline map packs, one per line"></textarea>
         <label class="field">AREA DOWNLOAD SOURCE (optional): a .pmtiles file on your own storage that allows range requests, e.g. a copy of a Protomaps build on Cloudflare R2. Blank = the Protomaps daily build.<input type="url" id="admAreaSrc" placeholder="https://…/planet.pmtiles" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <label class="field">GOOGLE DRIVE API KEY (optional): lets the website and iPhones download the Drive packs above with one tap (Download), like the Android app. Make it once in Google Cloud (Google Drive API, key restricted to this website); the packs must be shared <i>Anyone with the link</i>. Blank = website users open the pack in Drive and import the file.<input type="text" id="admDriveKey" placeholder="AIza…" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="60"></label>
         <label class="field">DRAWING TEMPLATE (DXF seed): a Google Drive link to the prepared plan template. Phones download it for Export → AutoCAD · DXF on the template; it is company property and is not inside the app. Sharing *Anyone with the link*: the Android app downloads it by itself (and anyone given the link can open it). Restricted to company accounts: users download it signed in and load the file.<input type="url" id="admDxfSeed" placeholder="https://drive.google.com/file/d/…" autocomplete="off"></label>
         <p class="hint" id="admPacksInfo"></p>
       </div>

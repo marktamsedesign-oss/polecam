@@ -128,7 +128,7 @@ Rows of the online sheet appear in the New project form under **Project name ▾
 
 - **Projects = survey areas.** Create one project per area/job (top bar → project name). Each project keeps its own poles, photos, Pole ID numbering, exports, backups and offline maps; nothing from one survey shows up in another. You can rename or delete a project there too.
 - **Taking a photo:** the shutter is **green** when the GPS updated within the last 5 seconds and **red** when the GPS is old, off or blocked. A red shutter still tries for 5 seconds, then refuses the photo. After the photo is kept, the app asks you to scan the ID (Skip if there is none); the ID button at the top right turns this step off.
-- **Offline map (before going to a no-signal area):** tap the cloud button on the map → **Download** the pack for your area (Android app, from Google Drive) or **Import a pack file** you already have, on Wi-Fi (see "Offline map packs" below). With no signal the map switches to it by itself; the layer button also cycles Street → Satellite → Offline.
+- **Offline map (before going to a no-signal area):** tap the cloud button on the map → **Download** the pack for your area (Android app; the website and iPhones too once the admin has added a Google Drive API key) or **Import a pack file** you already have, on Wi-Fi (see "Offline map packs" below). With no signal the map switches to it by itself; the layer button also cycles Street → Satellite → Offline.
 - GPS pill colors: green ≤ 5 m, amber ≤ 15 m, red > 15 m. Wait for green when you can.
 - *Reset to GPS* puts the pin back on the raw GPS fix. Points you moved are tagged **pin adjusted**.
 - Tap any pole on the map or in *Points* to edit it, replace the photo, or delete it.
@@ -247,7 +247,8 @@ If the map still stays blank: **Maps** (cloud button on the map, or Settings →
 - **Where packs live:** in your **Google Drive**, not on GitHub. Upload the file and set sharing to *Anyone with the link*. The **admin** enters the links in the app: Settings → Administration → Manage → **Offline map packs** (one line per pack: name | Drive link | size in MB), then *Save and share the list*. Users see the packs under Maps after they take that list version, or after **Refresh list** when the online sheet is connected. With a company list, users cannot add links themselves (only phones without a list, and admins, see *Add a Google Drive link*).
 - **Getting it on the phone:**
   - **Android app:** Offline map → **Download**. The app fetches the file from Drive in 4 MB pieces and can **Resume** after a dropped connection. **Cancel** stops at once.
-  - **Any phone:** download the file (Drive app, browser, USB, Viber…) and use **Import a pack file**. The website version can only do this, because browsers cannot read Drive files directly.
+  - **Website and iPhone (v2.35.1):** the same one-tap **Download** (4 MB pieces, **Resume**), once the admin has entered a **Google Drive API key** (Administration → Offline map packs; see `MAP-PACKS.md`, section 4). A browser may read Drive files only through the Google Drive API with such a key. Without the key the button is **Open in Drive**: download the file, then **Import a pack file**.
+  - **Any phone:** a file you already have (Drive app, browser, USB, Viber…): **Import a pack file**.
   - The pack is kept in the app's private file storage (OPFS), or in its database on phones without OPFS. Every storage step has a time limit, so a stuck phone shows a message instead of freezing.
 - **Making the pack files:** `MAP-PACKS.md` has the three ways (QGIS plugin, GitHub Actions, command line).
 - Packs published on the website by v1.6–v1.7 are no longer made; packs already on phones keep working.
@@ -527,6 +528,14 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.35.1
+
+- **One-tap Download on the website and iPhones:** the admin pastes a **Google Drive API key** once (Settings → Administration → Offline map packs; made free in Google Cloud, restricted to the Google Drive API and this website). Each Drive pack (road pack or map pack) then has a **Download** button on every phone: the app fetches the file through the Google Drive API in 4 MB pieces (**Resume** after a dropped connection) and puts it to use at once: a road pack for the plan drawings, a map pack as the offline map in use. No more Open in Drive → download → Import a pack file. Without a key, the website works as in v2.35.0.
+- A map pack just downloaded or imported becomes the offline map in use (*Use* switches back to another).
+- When Google refuses a file (not shared *Anyone with the link*, or the key does not allow it), the app says so and offers **Open in Drive** again for that pack.
+- The key travels in the signed company list (older phones ignore it). It is not a secret: like every website key it can be seen by anyone with the list, which is why it is restricted to this website and to reading files shared *Anyone with the link*.
+- No change to the online sheet script (v2.34 stays).
 
 ## What changed in v2.35
 

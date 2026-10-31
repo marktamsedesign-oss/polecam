@@ -219,7 +219,7 @@
       ] },
     { id: 'offline', aud: 'user', cat: 'Settings', title: 'Offline maps', kw: 'offline map pack no signal download import pmtiles satellite street layer tiles area download protomaps openstreetmap road pack roadpack',
       steps: [
-        { t: 'Before going to a no-signal area, on Wi-Fi: Settings → **Maps** → Offline map packs: download your area\'s pack (from your admin\'s list) or **Import a pack file**. Also take the **road pack** of your region (*Roads · region*): it is not a map to look at; the plan drawing takes its roads, landmarks and barangays from it.', go: 'settings', hl: '#goMaps' },
+        { t: 'Before going to a no-signal area, on Wi-Fi: Settings → **Maps** → Offline map packs: tap **Download** beside your area\'s pack (from your admin\'s list) or **Import a pack file**. Also take the **road pack** of your region (*Roads · region*): it is not a map to look at; the plan drawing takes its roads, landmarks and barangays from it.', go: 'settings', hl: '#goMaps' },
         { t: 'Or **Download an area for offline use**: the map view or the project\'s area (about 1 km round its records), cut from the Protomaps basemap build (OpenStreetMap data) and kept as a pack, zoom 0 to 15. A town is a few MB; a very big area is refused (zoom in). Cancel stops it.', go: 'maps', hl: '#areaDl' },
         { t: 'With no signal the map switches to it by itself. The **layer** button also cycles street → satellite → offline.', go: 'map', hl: '#layerBtn' },
         { t: 'Map tiles you viewed online are kept too; Settings → **Storage** shows how much space they use.', go: 'settings', hl: '#goStorage' },
@@ -305,11 +305,12 @@
         { t: '…tap **Get code**, and give them the **6-digit approval code**. It works only for that request.', go: 'admin', hl: '#admReqGo', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: 'When you are with the user, type the admin PIN on their phone instead.' },
       ] },
-    { id: 'adm-packs', aud: 'admin', cat: 'Administration', title: 'Offline map packs for everyone', kw: 'map packs pmtiles google drive offline link size road pack roadpack geofabrik shapefile barangay',
+    { id: 'adm-packs', aud: 'admin', cat: 'Administration', title: 'Offline map packs for everyone', kw: 'map packs pmtiles google drive offline link size road pack roadpack geofabrik shapefile barangay api key one tap download iphone website',
       steps: [
         { t: 'Upload each .pmtiles map pack, and each .roadpack road pack (made on a computer with tools/osm-pack from the Geofabrik shapefile: one per region, with a packs.txt to paste), to Google Drive and share it as "Anyone with the link". The list holds 30 packs at most.' },
         { t: 'Administration → **Offline map packs**: one line per pack, *name | Drive link | size in MB*. Users see them under Maps once they take this list version.', go: 'admin', hl: '#admPacks', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '**Area download source** (optional): users\' *Download an area* reads the Protomaps daily build, which Protomaps asks not to rely on for production. For heavy use, put a copy of a build on your own storage that allows range requests (e.g. Cloudflare R2) and enter its https address here.', go: 'admin', hl: '#admAreaSrc', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '**Google Drive API key** (optional): with it, the website and iPhones get the same one-tap **Download** as the Android app (without it they open the pack in Drive and import the file). Make it once in Google Cloud (console.cloud.google.com): enable the *Google Drive API*, create an *API key*, restrict it to your website address and to the Google Drive API, and paste it here. It only reads files shared "Anyone with the link".', go: 'admin', hl: '#admDriveKey', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
     { id: 'adm-dxf', aud: 'admin', cat: 'Administration', title: 'Plan DXF template for everyone', kw: 'dxf template seed autocad google drive link plan export',
       steps: [

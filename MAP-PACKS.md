@@ -46,7 +46,19 @@ Finding a bbox: in QGIS the status bar shows the coordinates of the map view (se
 1. Upload the `.pmtiles` file to Google Drive (any folder of the admin's account).
 2. Right-click → **Share** → General access **Anyone with the link** → **Copy link**.
 3. On the admin's phone: Settings → Administration → **Manage** (admin PIN) → **Offline map packs**: one line per pack, `name | Drive link | size in MB`, for example `Mindanao | https://drive.google.com/file/d/…/view | 200`. Then **Save and share the list**. Keep old lines while phones still use them; delete a line to retire a pack.
-4. On the phones: they get the packs with the new list version (QR code or file), or with **Refresh list** on the Maps screen when the online sheet is connected (the admin's phone also writes the packs to the sheet's MapPacks tab when its Admin key is entered; update the sheet's Apps Script to v2.5 first). Then **Maps** (cloud button on the map) → **Download** next to the pack (Android app; Wi-Fi for big files, it can resume). The website version cannot read Drive directly: open the link, download the file, and use **Import a pack file**.
+4. On the phones: they get the packs with the new list version (QR code or file), or with **Refresh list** on the Maps screen when the online sheet is connected (the admin's phone also writes the packs to the sheet's MapPacks tab when its Admin key is entered; update the sheet's Apps Script to v2.5 first). Then **Maps** (cloud button on the map) → **Download** next to the pack (Wi-Fi for big files, it can resume). On the website and iPhones the **Download** button needs the admin's Google Drive API key (below); without it, they open the link, download the file and use **Import a pack file**.
+
+### One-tap Download on the website and iPhones: the Google Drive API key (v2.35.1)
+
+Browsers may read a Drive file only through the Google Drive API, with an API key. Make one once (free; a Google account is enough):
+
+1. https://console.cloud.google.com → project list (top) → **New project**, e.g. *G-eSAA packs* → **Create**.
+2. **APIs & Services → Library** → *Google Drive API* → **Enable**.
+3. **APIs & Services → Credentials → Create credentials → API key**. Copy the key (it starts with `AIza`).
+4. Open the key → **Application restrictions: Websites** → add `https://<your-username>.github.io/*` (the address the website runs at). **API restrictions: Restrict key** → *Google Drive API* → **Save**. Restrictions take a few minutes to apply.
+5. On the admin's phone: Settings → Administration → Manage → **Offline map packs** → *Google Drive API key* → paste → **Save and share the list**.
+
+Phones take the new list version (**Refresh list**, or the join link / QR code); each Drive pack then shows **Download**. The key reads only files shared *Anyone with the link*; it cannot see or change anything else in the account. It is visible to anyone with the company list, which is why step 4 restricts it. A file Google refuses (HTTP 403) means the file is not shared *Anyone with the link*, or the key's restrictions do not match; Drive also limits how often one file is downloaded in a day (*download quota*): wait a day, or upload a copy and use its link.
 
 Users of a company list cannot add links themselves. Phones without any company list can still paste a link under **Add a Google Drive link**, or import a file sent to them (Viber, USB).
 

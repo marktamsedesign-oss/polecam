@@ -26,7 +26,7 @@ The packs go to a folder **G-eSAA road packs** beside the source (or `--out FOLD
 1. Upload the `.roadpack` files to Google Drive; sharing **Anyone with the link**.
 2. Open `packs.txt` and replace each `PASTE-THE-DRIVE-LINK` with the file's Drive link (Share → Copy link). Lines starting with `#` may stay.
 3. Admin phone: Settings → Administration → Manage → **Offline map packs**: paste the lines (with your map pack lines), **Save and share the list**. The list holds 30 packs at most.
-4. Users: Maps (cloud button) → **Download** next to *Roads · their region* (Android app), or download the file from Drive and **Import a pack file** (any phone). The list says *road pack for the plan drawings*; there is no *Use* or *Show* (it is not a map).
+4. Users: Maps (cloud button) → **Download** next to *Roads · their region* (Android app; website and iPhones once the admin has added a Google Drive API key, see `MAP-PACKS.md` section 4), or download the file from Drive and **Import a pack file** (any phone). The list says *road pack for the plan drawings*; there is no *Use* or *Show* (it is not a map).
 
 ## 4. Updating
 

@@ -677,7 +677,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.35.0';
+  const APP_VER = '2.35.1';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -7165,6 +7165,7 @@
     if (p.adminUsers != null && !list(p.adminUsers, 100, 120)) return false;
     if (p.adminJobs != null && !(typeof p.adminJobs === 'object' && Object.keys(p.adminJobs).length <= 100 && Object.entries(p.adminJobs).every(([k, v]) => k.length <= 120 && Array.isArray(v) && v.length <= 4 && v.every((x) => JOB_NAME[x])))) return false; // v2.28
     if (!num(p.mloopLen, 1, 100) || !str(p.areaSrc, 300) || !str(p.dxfSeed, 300)) return false; // v2.29; v2.30: the plan template link
+    if (p.driveKey != null && !(typeof p.driveKey === 'string' && /^[A-Za-z0-9_-]{20,60}$/.test(p.driveKey))) return false; // v2.35: Drive API key (website downloads)
     if (p.boqLists != null && !(typeof p.boqLists === 'object' && Object.entries(p.boqLists).every(([k, v]) => BOQ_OPT[k] && list(v, 40, 40)))) return false; // v2.28
     if (!list(p.detailItems, 40, 40)) return false; // v2.28
     if (p.vendorRecords != null && typeof p.vendorRecords !== 'boolean') return false;
@@ -8730,7 +8731,7 @@
     $('admPoleTypes').value = typeLines(polDraft.poleTypes);
     { const L0 = pol(); const was = (k) => { const L = L0.boqLists; return L && Array.isArray(L[k]) && L[k].length ? L[k] : k === 'owner' ? [...BOQ_OPT.owner, ...(L0.poleOwners || [])] : BOQ_OPT[k]; }; // v2.28: the lists as they are now
       ADM_LISTS.forEach(([id, k]) => { $(id).value = (k === 'details' ? (Array.isArray(L0.detailItems) && L0.detailItems.length ? L0.detailItems : POLE_DETAIL_ITEMS) : was(k)).join('\n'); }); }
-    $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = ''; $('admAreaSrc').value = P.areaSrc || ''; $('admDxfSeed').value = P.dxfSeed || ''; // v2.29, v2.30
+    $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = ''; $('admAreaSrc').value = P.areaSrc || ''; $('admDxfSeed').value = P.dxfSeed || ''; $('admDriveKey').value = P.driveKey || ''; // v2.29, v2.30, v2.35
     $('admUsers').value = (P.adminUsers || []).map((e) => `${e}${(P.adminJobs || {})[e] ? ` ${P.adminJobs[e].map((k) => JOB_NAME[k]).join(', ')}` : ''}`).join('\n'); $('admVendorRec').checked = P.vendorRecords !== false; // v2.28: with the job
     renderOrgBox(create);
     admSheetPrefill = { users: S.cloud && S.cloud.adminUsers, kmz: S.cloud && S.cloud.kmzPass };
@@ -8802,6 +8803,7 @@
       if (L.owner) { const extra = L.owner.filter((x) => !BOQ_OPT.owner.includes(x)); if (extra.length) P.poleOwners = extra; } } // phones before v2.28 still get the extra owners
     P.packs = parsePackLines($('admPacks').value).packs; if (!P.packs.length) delete P.packs;
     { const a = $('admAreaSrc').value.trim(); if (/^https:\/\/\S+$/.test(a) && a.length <= 300) P.areaSrc = a; else delete P.areaSrc; } // v2.29
+    { const k = $('admDriveKey').value.trim(); if (/^[A-Za-z0-9_-]{20,60}$/.test(k)) P.driveKey = k; else delete P.driveKey; } // v2.35
     { const a = $('admDxfSeed').value.trim(); if (driveId(a) && a.length <= 300) P.dxfSeed = a; else delete P.dxfSeed; } // v2.30: the plan template (DXF seed) on Google Drive
     if (!P.poleTypes.length) delete P.poleTypes;
     const types = form.types.length ? form.types : D.types;
@@ -9036,6 +9038,10 @@
   }
   const driveDownloadUrl = (id) => `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t`;
   const driveViewUrl = (id) => `https://drive.google.com/file/d/${id}/view`;
+  /** v2.35: the Drive API answers browsers (CORS) for files shared "Anyone with the link", with the admin's API key. */
+  const driveApiUrl = (id, key) => `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true&key=${encodeURIComponent(key)}`;
+  const webDriveKey = () => (!NATIVE && pol().driveKey) || '';
+  const webDriveFailed = new Set(); // Drive files whose one-tap download failed here: Open in Drive is offered again
   const DRIVE_HTML_ERR = 'Google Drive sent a web page instead of the map file. Set the file’s sharing to “Anyone with the link”, or open it in Drive, download it and use Import a pack file.';
   /** Opens a link outside the app (the APK hands it to the phone's browser). */
   function openExternal(url) {
@@ -9109,8 +9115,8 @@
       const btns = [];
       if (!done) {
         if (p.url) btns.push(mk(partial ? 'Resume' : 'Download', 'primary', () => downloadPack(p)));
-        else if (p.drive && NATIVE) btns.push(mk(partial ? 'Resume' : 'Download', 'primary', () => downloadPack(p)));
-        if (p.drive) btns.push(mk('Open in Drive', '', () => { openExternal(driveViewUrl(p.drive)); if (!NATIVE) toast('Download the file in Drive, then come back and tap Import a pack file', 6000); }));
+        else if (p.drive && (NATIVE || webDriveKey())) btns.push(mk(partial ? 'Resume' : 'Download', 'primary', () => downloadPack(p)));
+        if (p.drive && (NATIVE || !webDriveKey() || webDriveFailed.has(p.drive))) btns.push(mk('Open in Drive', '', () => { openExternal(driveViewUrl(p.drive)); if (!NATIVE) toast(webDriveKey() ? 'Download the file in Drive, then come back and tap Import a pack file' : 'Download the file in Drive, then come back and tap Import a pack file. One-tap Download: ask your admin to add a Google Drive API key.', 7000); }));
       }
       if (done && !road && p.id !== act) btns.push(mk('Use', '', () => { S.activePack = p.id; persist(); if (S.base === 'offline') setBase('offline', true); renderOffline(); }));
       if (done && !road) btns.push(mk('Show', '', async () => { S.activePack = p.id; persist(); await closeSheet(); setBase('offline'); const b = inst.bbox; if (b) map.fitBounds([[b[1], b[0]], [b[3], b[2]]]); }));
@@ -9182,9 +9188,9 @@
         throw new Error(hdr ? 'This map file has picture tiles; G-eSAA needs a vector map pack (.pmtiles from Protomaps)' : 'This file is not a map pack (.pmtiles, PMTiles version 3)');
       }
       Object.assign(st, { bbox: st.bbox || hdr.bbox, maxzoom: hdr.maxzoom, done: true });
-      if (!S.activePack) S.activePack = st.id;
+      S.activePack = st.id; // v2.35: the pack just downloaded is the offline map in use (Use switches back)
       persist(); busy(false);
-      toast(`${st.name} is ready for offline use`, 3500);
+      toast(`${st.name} is ready: the offline map now uses it`, 3500);
       if (S.base === 'offline') setBase('offline', true);
     } catch (e) {
       if (wr) await wr.stop().catch(() => {});
@@ -9492,10 +9498,23 @@
     }
     return file.size;
   };
+  /** v2.35: website / iPhone: a Drive pack in one tap, through the Drive API (resumable pieces), with plain-words errors. */
+  const pumpDriveApi = (fileId, key) => async (st, getWriter, job, progress) => {
+    try { return await pumpUrl(driveApiUrl(fileId, key))(st, getWriter, job, progress); }
+    catch (e) {
+      if (e === CANCEL || job.cancelled) throw e;
+      webDriveFailed.add(fileId);
+      const m = String((e && e.message) || e);
+      if (/HTTP 40[34]/.test(m)) throw new Error(`Google Drive refused the download (${/403/.test(m) ? 'HTTP 403' : 'HTTP 404'}): the file must be shared "Anyone with the link", and the admin's Drive API key must allow the Google Drive API and this website. Meanwhile: Open in Drive, then Import a pack file.`);
+      if (/Failed to fetch|Load failed|NetworkError|keeps failing/i.test(m)) throw new Error(`Google Drive could not be reached from this browser. Check the connection and tap Resume; if it keeps failing, the admin's Drive API key may not allow this website.`);
+      throw e;
+    }
+  };
   function downloadPack(p) {
     if (!navigator.onLine) { toast('Connect to the internet (Wi-Fi recommended) to download map packs'); return; }
     if (p.url) return runPackJob(p, pumpUrl(p.url), 'Downloading');
     if (p.drive && NATIVE) return runPackJob(p, pumpDrive(p.drive), 'Downloading');
+    if (p.drive && webDriveKey()) return runPackJob(p, pumpDriveApi(p.drive, webDriveKey()), 'Downloading');
     return null;
   }
   $('packImport').addEventListener('click', () => { $('packFileInput').value = ''; $('packFileInput').click(); });
@@ -9521,7 +9540,7 @@
     S.packLinks = (S.packLinks || []).filter((x) => x.drive !== id);
     S.packLinks.push({ drive: id, name: $('packLinkName').value.trim() || 'Map pack from Google Drive' });
     persist(); $('packLink').value = ''; $('packLinkName').value = ''; renderOffline();
-    toast(NATIVE ? 'Link added. Tap Download.' : 'Link added. Tap Open in Drive, download the file, then Import a pack file.', 4000);
+    toast(NATIVE || webDriveKey() ? 'Link added. Tap Download.' : 'Link added. Tap Open in Drive, download the file, then Import a pack file.', 4000);
   });
   $('offlineBtn').addEventListener('click', async () => { openSheet('offline'); renderOffline(); await Promise.all([loadPackIndex(), cloudSync(false)]); renderOffline(); });
   $('packRefresh').addEventListener('click', async () => { $('packSource').textContent = 'Checking for map packs…'; await Promise.all([loadPackIndex(), cloudSync(true)]); renderOffline(); });
