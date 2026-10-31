@@ -219,7 +219,7 @@
       ] },
     { id: 'offline', aud: 'user', cat: 'Settings', title: 'Offline maps', kw: 'offline map pack no signal download import pmtiles satellite street layer tiles area download protomaps openstreetmap road pack roadpack',
       steps: [
-        { t: 'Before going to a no-signal area, on Wi-Fi: Settings → **Maps** → Offline map packs: tap **Download** beside your area\'s pack (from your admin\'s list) or **Import a pack file**. Close up, the offline map shows the landmarks (schools, churches, markets, banks…) with the icons of the OpenStreetMap street map and their names; the plan drawing puts the same icons as AutoCAD blocks (layer G-ESAA LANDMARK). If the offline map goes blank when you zoom in close, the pack on this phone is incomplete: Maps marks it **INCOMPLETE**; tap **Download again** on Wi-Fi. Also take the **road pack** of your region (*Roads · region*): it is not a map to look at; the plan drawing takes its roads, landmarks and barangays from it.', go: 'settings', hl: '#goMaps' },
+        { t: 'Before going to a no-signal area, on Wi-Fi: Settings → **Maps** → Offline map packs: tap **Download** beside your area\'s pack (from your admin\'s list) or **Import a pack file**. Close up, the offline map shows the landmarks (schools, churches, markets, banks…) with the icons of the OpenStreetMap street map and their names; the plan drawing puts the same icons as AutoCAD blocks (layer G-ESAA LANDMARK). If the offline map goes blank when you zoom in close, Maps says why beside the pack: **INCOMPLETE** (tap **Download again** on Wi-Fi) or, on an iPhone, **DAMAGED: saved wrongly by this phone\'s browser** (tap **Repair**: fixed on the phone, no download). Also take the **road pack** of your region (*Roads · region*): it is not a map to look at; the plan drawing takes its roads, landmarks and barangays from it.', go: 'settings', hl: '#goMaps' },
         { t: 'Or **Download an area for offline use**: the map view or the project\'s area (about 1 km round its records), cut from the Protomaps basemap build (OpenStreetMap data) and kept as a pack, zoom 0 to 15. A town is a few MB; a very big area is refused (zoom in). Cancel stops it.', go: 'maps', hl: '#areaDl' },
         { t: 'With no signal the map switches to it by itself. The **layer** button also cycles street → satellite → offline.', go: 'map', hl: '#layerBtn' },
         { t: 'Map tiles you viewed online are kept too; Settings → **Storage** shows how much space they use.', go: 'settings', hl: '#goStorage' },
@@ -389,5 +389,5 @@
         { t: 'Done: tap **Save and share the list**.', go: 'admin', hl: '#admSave', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
   ];
-  root.GESAA_TUTORIAL = { version: '2.35.2', topics: T };
+  root.GESAA_TUTORIAL = { version: '2.35.7', topics: T };
 })(typeof self !== 'undefined' ? self : this);

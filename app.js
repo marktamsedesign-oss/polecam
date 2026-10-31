@@ -677,7 +677,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.35.6';
+  const APP_VER = '2.35.7';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -863,7 +863,7 @@
           while (v.length) {
             if (!w) await open(Math.floor(this.pos / OPFS_PART), partFill > 0);
             const n = Math.min(v.length, OPFS_PART - partFill);
-            await withTimeout(w.write(v.subarray(0, n)), STORE_MS, STORE_ERR);
+            await withTimeout(w.write(ownBytes(v.subarray(0, n))), STORE_MS, STORE_ERR); // v2.35.7: its own exact buffer (iPhones wrote the whole buffer)
             partFill += n; v = v.subarray(n);
             if (partFill === OPFS_PART) { await close(); part += 1; partFill = 0; }
           }
@@ -920,18 +920,166 @@
     const head = new Uint8Array((await src.getBytes(0, 127)).data), hdr = pmtilesHeader(head);
     if (hdr) need = hdr.need;
     else if (roadPackMagic(head)) { const h = await roadPackHead(st.id).catch(() => null); need = h ? roadPackNeed(h) : 0; }
-    let have = st.size || 0;
-    if (have && st.store === 'opfs') { // the last part file holds what it should
-      const n = Math.ceil(have / OPFS_PART), last = await src.part(n - 1).catch(() => null);
-      have = last ? (n - 1) * OPFS_PART + Math.min(last.size, have - (n - 1) * OPFS_PART) : 0;
-      for (let i = 0; have && i < n - 1; i++) { const f = await src.part(i).catch(() => null); if (!f || f.size < OPFS_PART) { have = i * OPFS_PART + (f ? f.size : 0); break; } }
+    let have = st.size || 0, over = false, parts = null;
+    if (have && st.store === 'opfs') { // every part file holds what it should
+      const n = Math.ceil(have / OPFS_PART), exp = (i) => (i < n - 1 ? OPFS_PART : have - (n - 1) * OPFS_PART);
+      parts = []; for (let i = 0; i < n; i++) { const f = await src.part(i).catch(() => null); parts.push(f ? f.size : -1); }
+      over = parts.some((s, i) => s > exp(i)); // v2.35.7: a part larger than it should be: written wrongly (the iPhone write bug, see ownBytes)
+      const i = parts.findIndex((s, k) => s < exp(k)); if (i >= 0) have = i * OPFS_PART + Math.max(0, parts[i]);
     } else if (have && st.chunks) { // v2.35.5: every piece is there (Safari keeps packs in its database)
       const ch = st.ch || 4 * 1024 * 1024;
       for (const i of [0, st.chunks - 1]) if (!(await dbGet('packs', `${st.id}:${i}`).catch(() => null))) { have = i * ch; break; }
       const n = await dbCount('packs', IDBKeyRange.bound(`${st.id}:`, `${st.id}:\uffff`)).catch(() => null);
       if (have && n != null && n < st.chunks) have = Math.min(have, n * ch);
     }
-    return { need, have };
+    return { need, have, over, parts };
+  }
+  /* v2.35.7: iPhones saved map packs wrongly. On Safari 26 and 27 (every browser on an iPhone uses it) writing part of a
+     buffer to a file writes the whole buffer: FileSystemWritableFileStream.write(view) ignores the view's start and length
+     (a WebKit bug, also reported in unoplatform/uno#25684). A pack is kept as 8 MB part files; the piece of the download that
+     crossed from one part into the next was written whole on both sides, so every part after the first began with bytes of
+     the part before it. The first 8 MB (the overview levels) drew; everything past it (every close-up level, zoom 13 and up
+     on the Mindanao pack) was read from the wrong place: "Failed to Decode Data.", a blank map close up, unreadable road pack
+     chunks. Each write now gets its own exact buffer. A pack saved before is found (a part file larger than 8 MB) and
+     repaired on the phone without a download: a part's true start is where its first bytes stop repeating the end of the
+     part before it. The result is checked (the tiles where the pack's directory says, readable) before any file is changed. */
+  const PACK_CHECK = 2; // v2.35.7: packs on the phone are checked again for this
+  const ownBytes = (u) => (u.byteOffset === 0 && u.byteLength === u.buffer.byteLength ? u : u.slice());
+  async function gunzipBytes(u8) { return new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()); }
+  /** A PMTiles v3 directory: [{ id, run, len, off }] (run 0: a leaf directory). */
+  function pmDirRead(u8) {
+    let i = 0; const rd = () => { let r = 0, s = 1, b; do { if (i >= u8.length) throw new Error('directory cut short'); b = u8[i++]; r += (b & 0x7f) * s; s *= 128; } while (b & 0x80); return r; };
+    const n = rd(), e = []; if (n > 1e7) throw new Error('bad directory');
+    let id = 0; for (let k = 0; k < n; k++) { id += rd(); e.push({ id }); }
+    for (const x of e) x.run = rd();
+    for (const x of e) x.len = rd();
+    e.forEach((x, k) => { const v = rd(); x.off = v === 0 && k > 0 ? e[k - 1].off + e[k - 1].len : v - 1; });
+    return e;
+  }
+  /** Where a pack's gzip pieces are (map tiles, road pack chunks): [[offset, length], …] from its header and directories;
+      null for a pack this check does not know. read(offset, length) → Uint8Array. */
+  async function packSpans(read) {
+    const head = await read(0, 127), hdr = pmtilesHeader(head);
+    if (hdr) {
+      const dv = new DataView(head.buffer, head.byteOffset, 127), u64 = (o) => dv.getUint32(o, true) + dv.getUint32(o + 4, true) * 4294967296;
+      const ic = head[97], tc = head[98], lo = u64(40), dataOff = u64(56), spans = [];
+      if (tc !== 2 || (ic !== 1 && ic !== 2)) return null; // not gzip tiles: nothing to check against
+      const walk = async (o, l, depth) => {
+        if (depth > 4) throw new Error('directories too deep');
+        const raw = await read(o, l);
+        for (const e of pmDirRead(ic === 2 ? await gunzipBytes(raw) : raw)) { if (e.run === 0) await walk(lo + e.off, e.len, depth + 1); else spans.push([dataOff + e.off, e.len]); }
+      };
+      await walk(u64(8), u64(16), 0);
+      return spans;
+    }
+    if (roadPackMagic(head)) {
+      const n = new DataView(head.buffer, head.byteOffset, 12).getUint32(8, true), h = JSON.parse(new TextDecoder().decode(await read(12, n))), base = 12 + n, spans = [];
+      const add = (t) => { if (Array.isArray(t) && t.length === 2) spans.push([base + t[0], t[1]]); };
+      Object.values(h.tiles || {}).forEach(add); add(h.abig); Object.values(h.atiles || {}).forEach(add);
+      return spans;
+    }
+    return null;
+  }
+  /** Reads, in every 8 MB of the pack, its first, middle and last gzip piece and unpacks them: { checked, bad: [...] }. */
+  async function packDataCheck(read, spans) {
+    const by = new Map(), bad = []; let checked = 0;
+    for (const s of spans) { const k = Math.floor(s[0] / OPFS_PART); if (!by.has(k)) by.set(k, []); by.get(k).push(s); }
+    for (const [k, list] of [...by].sort((a, b) => a[0] - b[0])) {
+      list.sort((a, b) => a[0] - b[0]);
+      for (const [o, l] of new Set([list[0], list[list.length >> 1], list[list.length - 1]])) {
+        checked++;
+        const u = await read(o, l).catch(() => new Uint8Array(0));
+        if (u.length !== l || u[0] !== 0x1f || u[1] !== 0x8b) { bad.push({ part: k, off: o, len: l, why: 'no gzip start', head: [...u.subarray(0, 4)] }); continue; }
+        if (typeof DecompressionStream === 'undefined') continue;
+        try { await gunzipBytes(u); } catch (e) { bad.push({ part: k, off: o, len: l, why: String(e.message || e).slice(0, 80) }); }
+      }
+    }
+    return { checked, bad };
+  }
+  /** Checks the data of a pack on this phone: null when it cannot be checked (not a known kind). */
+  async function packVerify(st) {
+    if (typeof DecompressionStream === 'undefined') return null; // the map library unpacks without it; this check needs it
+    const src = new PackSource(st.id), read = async (o, l) => new Uint8Array((await src.getBytes(o, l)).data);
+    const spans = await packSpans(read);
+    return spans ? packDataCheck(read, spans) : null;
+  }
+  /** Each part's true start (pre[k]) in a pack written by the iPhone bug: the piece written on both sides of a part boundary
+      ends the part before (its tail) and starts this part whole, so this part's first bytes repeat the end of the part before
+      (that piece's head, then its tail); its own data starts after them. null: the parts are as they should be. */
+  async function repairPlan(st) {
+    const dir = await packDir(), N = Math.ceil(st.size / OPFS_PART), exp = (k) => (k < N - 1 ? OPFS_PART : st.size - (N - 1) * OPFS_PART);
+    const files = []; for (let k = 0; k < N; k++) files.push(await (await dir.getFileHandle(`${st.id}.${k}`)).getFile());
+    const sizes = files.map((f) => f.size);
+    if (sizes.every((s, k) => s === exp(k))) return null;
+    const short = sizes.findIndex((s, k) => s < exp(k)); if (short >= 0) throw new Error(`part ${short + 1} of ${N} is missing data`);
+    const pre = [0];
+    for (let k = 1; k < N; k++) {
+      const e = sizes[k - 1] - pre[k - 1] - exp(k - 1), maxN = sizes[k] - exp(k); // e: this part's bytes at the end of the part before
+      if (e < 0) throw new Error(`part ${k} of ${N} does not line up`);
+      if (e === 0) { pre.push(0); continue; } // that piece ended at the boundary: nothing was written twice
+      const a = new Uint8Array(await files[k - 1].slice(Math.max(0, sizes[k - 1] - e - maxN), sizes[k - 1]).arrayBuffer());
+      const b = new Uint8Array(await files[k].slice(0, maxN + e).arrayBuffer()), T = a.subarray(a.length - e);
+      let found = -1;
+      for (let n = maxN; n >= 0 && found < 0; n--) { // the largest: the whole piece
+        if (b[n] !== T[0] || b[n + e - 1] !== T[e - 1]) continue;
+        let ok = true;
+        for (let i = 0; ok && i < e; i++) if (b[n + i] !== T[i]) ok = false;
+        for (let i = 0, o = a.length - e - n; ok && i < n; i++) if (o + i < 0 || b[i] !== a[o + i]) ok = false;
+        if (ok) found = n;
+      }
+      if (found < 0) throw new Error(`part ${k + 1} of ${N} does not line up`);
+      pre.push(found);
+    }
+    return { pre, sizes };
+  }
+  let packRepairing = false;
+  /** Repairs a pack written by the iPhone bug, on the phone. Checks the repaired data before changing any file; remembers
+      the plan first (st.fix), so a repair stopped half way (the app closed) goes on from where it was. */
+  async function repairPack(st) {
+    const N = Math.ceil(st.size / OPFS_PART), exp = (k) => (k < N - 1 ? OPFS_PART : st.size - (N - 1) * OPFS_PART);
+    LOG.step('pack.repair', { id: st.id, size: st.size });
+    packRepairing = true;
+    try {
+      busy(`Checking ${st.name}…`, null);
+      const plan = (st.fix && st.fix.pre && st.fix.pre.length === N) ? st.fix : await repairPlan(st);
+      const dir = await packDir(), handles = [], files = [];
+      for (let k = 0; k < N; k++) { handles.push(await dir.getFileHandle(`${st.id}.${k}`)); files.push(await handles[k].getFile()); }
+      // where each part's data starts now (a part already rewritten by a repair that was stopped starts at 0)
+      const pre = files.map((f, k) => (f.size === exp(k) ? 0 : plan && f.size === plan.sizes[k] ? plan.pre[k] : NaN));
+      if (!plan) { if (pre.some((x) => x !== 0)) throw new Error('the parts do not have the sizes they should'); }
+      if (pre.some((x) => !(x >= 0))) throw new Error('a part changed since the repair started');
+      const read = async (off, len) => {
+        const out = new Uint8Array(Math.max(0, Math.min(len, st.size - off))); let pos = 0;
+        while (pos < out.length) {
+          const a = off + pos, k = Math.floor(a / OPFS_PART), o = a - k * OPFS_PART, n = Math.min(out.length - pos, OPFS_PART - o);
+          out.set(new Uint8Array(await files[k].slice(pre[k] + o, pre[k] + o + n).arrayBuffer()), pos); pos += n;
+        }
+        return out;
+      };
+      const spans = await packSpans(read);
+      if (!spans) throw new Error('this kind of pack cannot be checked');
+      const chk = await packDataCheck(read, spans);
+      LOG.info('pack.repair.check', { id: st.id, pre, checked: chk.checked, bad: chk.bad.slice(0, 3) });
+      if (chk.bad.length) throw new Error(`the repaired data did not check out (${chk.bad.length} of ${chk.checked} pieces unreadable)`);
+      if (plan) { st.fix = { pre: plan.pre, sizes: plan.sizes }; persist(); }
+      for (let k = 0; k < N; k++) {
+        if (files[k].size === exp(k)) continue;
+        busy(`Repairing ${st.name}: part ${k + 1} of ${N}…`, k / N);
+        const data = new Uint8Array(await files[k].slice(pre[k], pre[k] + exp(k)).arrayBuffer());
+        if (data.length !== exp(k)) throw new Error(`part ${k + 1} is too short`);
+        const w = await withTimeout(handles[k].createWritable({ keepExistingData: false }), STORE_MS, STORE_ERR);
+        await withTimeout(w.write(data), STORE_MS, STORE_ERR); await withTimeout(w.close(), STORE_MS, STORE_ERR);
+      }
+      delete st.fix;
+      const w = await packWhole(st), v = await packVerify(st);
+      if (w.over || (w.need && w.have < w.need) || (v && v.bad.length)) throw new Error('the pack still does not check out');
+      delete st.damaged; st.checked = st.size; st.chkv = PACK_CHECK; persist();
+      LOG.info('pack.repaired', { id: st.id, parts: N, fixed: pre.filter((x, k) => files[k].size !== exp(k)).length });
+      return true;
+    } finally {
+      LOG.done('pack.repair'); packRepairing = false; persist();
+      if (S.base === 'offline' && (st.id === activePackId())) setBase('offline', true); // the map reads the repaired files
+    }
   }
   /* v2.35: road packs (tools/osm-pack): OpenStreetMap roads, landmarks and boundaries of a region for the plan drawings */
   function roadPackMagic(u8) { return u8.length >= 12 && String.fromCharCode(...u8.subarray(0, 8)) === C.RP_MAGIC; }
@@ -1082,9 +1230,12 @@
   let offlineProblemAt = 0; window.__offlineProblem = (m) => offlineProblem(m);
   function offlineProblem(what, z) {
     const msg = String((what && what.message) || what || 'unknown').slice(0, 160);
+    if (packRepairing) return;
     LOG.warn('offline.draw', { z, msg, ua: navigator.userAgent.slice(0, 120) });
     if (Date.now() - offlineProblemAt < 60000 || S.base !== 'offline') return;
     offlineProblemAt = Date.now();
+    const ap = S.packs[activePackId()];
+    if (ap && ap.damaged) { toast(ap.damaged === 'parts' ? `${ap.name} was saved wrongly by this phone's browser (an iPhone bug): close up it cannot be drawn. Maps → Repair (on the phone, no download).` : `${ap.name} cannot be read in places (damaged). Maps → Download again.`, 9000); return; }
     toast(`The offline map could not draw this part${z ? ` (zoom ${z})` : ''}: ${msg}. Please send Settings → App log.`, 9000);
   }
   function watchOfflineDraw(lyr) {
@@ -9274,6 +9425,8 @@
       s2.textContent = [road ? 'road pack for the plan drawings' : '', size ? fmtMB(size) : '', p.date || (inst && inst.date) ? `${road ? 'OpenStreetMap' : 'map data'} ${fmtDate8((inst && inst.date) || p.date)}` : '',
         done && road && cn ? `${(cn.roads || 0).toLocaleString()} roads · ${(cn.landmarks || 0).toLocaleString()} landmarks · ${cn.municipalities || 0} cities / municipalities · ${cn.barangays || 0} barangays${inst.barangays && inst.barangays !== 'OpenStreetMap' ? ` (${inst.barangays})` : ''}` : '',
         done && inst.short ? `INCOMPLETE: ${fmtMB(inst.have || 0)} of ${fmtMB(inst.need || 0)} on this phone, close up parts are missing · download it again` :
+        done && inst.damaged === 'parts' ? `DAMAGED: saved wrongly by this phone's browser (an iPhone bug), close up the ${road ? 'roads could not be read' : 'map was blank'} · tap Repair (on the phone, no download)` : // v2.35.7
+        done && inst.damaged ? 'DAMAGED: parts of it cannot be read · download it again' :
         done ? (road ? 'on this phone' : p.id === act ? 'on this phone · in use' : 'on this phone') : partial ? `${size ? Math.round((inst.bytes / size) * 100) + '% ' : fmtMB(inst.bytes) + ' '}downloaded` : 'not on this phone',
         p.drive && !done ? 'Google Drive' : '', p.notes || ''].filter(Boolean).join(' · ');
       d.append(t, s2);
@@ -9284,11 +9437,19 @@
         else if (p.drive && (NATIVE || webDriveKey())) btns.push(mk(partial ? 'Resume' : 'Download', 'primary', () => downloadPack(p)));
         if (p.drive && (NATIVE || !webDriveKey() || webDriveFailed.has(p.drive))) btns.push(mk('Open in Drive', '', () => { openExternal(driveViewUrl(p.drive)); if (!NATIVE) toast(webDriveKey() ? 'Download the file in Drive, then come back and tap Import a pack file' : 'Download the file in Drive, then come back and tap Import a pack file. One-tap Download: ask your admin to add a Google Drive API key.', 7000); }));
       }
-      if (done && inst.short && (p.url || (p.drive && (NATIVE || webDriveKey())))) btns.push(mk('Download again', 'primary', () => guard(async () => { // v2.35.4
+      const redo = done && (inst.short || inst.damaged === 'data');
+      if (done && inst.damaged === 'parts') btns.push(mk('Repair', 'primary', () => guard(async () => { // v2.35.7
+        if (dl) { toast('Wait until the download has finished'); return; }
+        if (packRepairing) return;
+        try { await repairPack(inst); toast(`${inst.name} is repaired: ${road ? 'the plan drawings can read its roads again' : 'the map draws close up again'}`, 5000); }
+        catch (e) { LOG.warn('pack.repair.fail', errInfo(e)); throw new Error(`${e.message || e}. ${inst.fix ? 'Tap Repair again; if it keeps failing, delete' : 'Delete'} it and ${p.drive || p.url ? 'download it again' : 'import the file again'}`); }
+        finally { renderOffline(); }
+      }, 'Not repaired')));
+      if (redo && (p.url || (p.drive && (NATIVE || webDriveKey())))) btns.push(mk('Download again', 'primary', () => guard(async () => { // v2.35.4
         if (dl) { toast('A map pack is already downloading'); return; }
         await deletePack(p.id); renderOffline(); await downloadPack(p);
       }, 'Not downloaded')));
-      else if (done && inst.short) btns.push(mk(p.drive ? 'Open in Drive' : 'How to fix', '', () => { if (p.drive) openExternal(driveViewUrl(p.drive)); toast('Download the complete file again on Wi-Fi, then Delete this pack and tap Import a pack file.', 8000); }));
+      else if (redo) btns.push(mk(p.drive ? 'Open in Drive' : 'How to fix', '', () => { if (p.drive) openExternal(driveViewUrl(p.drive)); toast('Download the complete file again on Wi-Fi, then Delete this pack and tap Import a pack file.', 8000); }));
       if (done && !road && p.id !== act) btns.push(mk('Use', '', () => { S.activePack = p.id; persist(); if (S.base === 'offline') setBase('offline', true); renderOffline(); }));
       if (done && !road) btns.push(mk('Show', '', async () => { S.activePack = p.id; persist(); await closeSheet(); setBase('offline'); const b = inst.bbox; if (b) map.fitBounds([[b[1], b[0]], [b[3], b[2]]]); }));
       if (inst || p.from === 'link') btns.push(mk(inst ? 'Delete' : 'Remove', 'danger', function () {
@@ -9306,16 +9467,24 @@
   }
   /** v2.35.4: the packs on this phone that were saved before this check are checked once; an incomplete one says so. */
   async function checkPacks() {
-    let warn = null;
+    let warn = null, dmg = null;
     for (const st of Object.values(S.packs || {})) {
-      if (!st.done || st.checked === st.size) continue;
+      if (!st.done || (st.checked === st.size && st.chkv === PACK_CHECK && !st.fix)) continue;
       const w = await packWhole(st).catch(() => null); if (!w) continue;
-      st.checked = st.size; st.short = !!(w.need && w.have < w.need); if (st.short) { st.need = w.need; st.have = w.have; LOG.warn('pack.short', { id: st.id, have: w.have, need: w.need }); }
+      st.checked = st.size; st.chkv = PACK_CHECK; st.short = !!(w.need && w.have < w.need); if (st.short) { st.need = w.need; st.have = w.have; LOG.warn('pack.short', { id: st.id, have: w.have, need: w.need }); }
       else { delete st.need; delete st.have; }
+      // v2.35.7: saved wrongly by the iPhone write bug (repairable on the phone), or data that cannot be read (download again)
+      let why = '';
+      if (!st.short && (w.over || st.fix)) why = 'parts';
+      else if (!st.short) { const v = await packVerify(st).catch(() => null); if (v && v.bad.length) { why = 'data'; LOG.warn('pack.unreadable', { id: st.id, checked: v.checked, bad: v.bad.slice(0, 3) }); } }
+      if (why) { st.damaged = why; LOG.warn('pack.damaged', { id: st.id, why, parts: w.parts, size: st.size }); } else delete st.damaged;
       if (st.short && (st.id === activePackId() || isRoadPack(st))) warn = warn || st;
+      if (st.damaged && (st.id === activePackId() || isRoadPack(st))) dmg = dmg || st;
     }
     persist();
-    if (warn) toast(`${warn.name} on this phone is incomplete (${fmtMB(warn.have)} of ${fmtMB(warn.need)}): close up, parts of the ${isRoadPack(warn) ? 'roads' : 'map'} are missing. Maps → Download again.`, 9000);
+    if (dmg) toast(dmg.damaged === 'parts' ? `${dmg.name} was saved wrongly by this phone's browser (an iPhone bug), so close up the ${isRoadPack(dmg) ? 'roads could not be read' : 'map was blank'}. Maps → Repair: it is fixed on the phone, no download.`
+      : `${dmg.name} on this phone cannot be read in places (damaged). Maps → Download again.`, 10000);
+    else if (warn) toast(`${warn.name} on this phone is incomplete (${fmtMB(warn.have)} of ${fmtMB(warn.need)}): close up, parts of the ${isRoadPack(warn) ? 'roads' : 'map'} are missing. Maps → Download again.`, 9000);
     if (!$('offline').hidden) renderOffline();
   }
   setTimeout(() => checkPacks().catch((e) => LOG.warn('pack.check', errInfo(e))), 2500);
@@ -9364,7 +9533,15 @@
       { st.done = true; const w = await packWhole(st).catch(() => null); st.done = false; // v2.35.4: whole, or it was cut short
         if (w && w.need && w.have < w.need) { await removePackData(st); delete S.packs[st.id]; persist(); LOG.warn('pack.short', { id: st.id, have: w.have, need: w.need });
           throw new Error(`${st.name} arrived incomplete: ${fmtMB(w.have)} of ${fmtMB(w.need)}. ${verb === 'Importing' ? 'The file was cut short when it was downloaded: download it again on Wi-Fi, then import it.' : 'Tap Download to try again on Wi-Fi. If it happens again, the file on Google Drive is incomplete: ask the admin to upload it again.'}`); }
-        if (w) { st.checked = size; delete st.short; delete st.need; delete st.have; } }
+        if (w) { st.checked = size; st.chkv = PACK_CHECK; delete st.short; delete st.need; delete st.have; delete st.damaged; }
+        if (w && w.over) { // v2.35.7: should not happen any more (ownBytes)
+          LOG.warn('pack.over', { id: st.id, parts: w.parts });
+          try { await repairPack(st); } catch (e) { await removePackData(st); delete S.packs[st.id]; persist(); throw new Error(`${st.name} could not be saved correctly on this phone (${e.message || e}). Try again; if it happens again, send Settings → App log.`); }
+          busy(`${verb} ${st.name}…`, 1, false);
+        }
+        const v = await packVerify(st).catch((e) => ({ checked: 0, bad: [{ why: String(e.message || e).slice(0, 80) }] })); // v2.35.7: the data can be read
+        if (v && v.bad.length) { LOG.warn('pack.unreadable', { id: st.id, checked: v.checked, bad: v.bad.slice(0, 3), ua: navigator.userAgent.slice(0, 120) }); await removePackData(st); delete S.packs[st.id]; persist();
+          throw new Error(`${st.name} could not be saved correctly on this phone (${v.bad.length} of ${v.checked} checked pieces unreadable). ${verb === 'Importing' ? 'The file may be damaged: download it again, then import it.' : 'Tap Download to try again.'} If it happens again, send Settings → App log.`); } }
       if (!hdr && roadPackMagic(head)) { // v2.35: a road pack: roads, landmarks and boundaries for the plan drawings
         st.done = true; const h = await roadPackHead(st.id).catch(() => null); st.done = false;
         if (!h || !h.tiles) { await removePackData(st); delete S.packs[st.id]; persist(); throw new Error('This road pack is damaged: download it again'); }

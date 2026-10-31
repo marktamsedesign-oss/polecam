@@ -530,6 +530,13 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.35.7
+
+- **iPhone offline map blank close up: found and fixed.** The iPhone's App log showed "Failed to Decode Data." for every map tile at zoom 13 and closer. The cause is a bug in Safari 26 and 27 (every browser on an iPhone uses Safari's engine): when the app saves part of a block of data to a file, Safari saves the whole block. A map pack is kept as 8 MB part files, so the piece of the download that crossed from one part to the next was saved whole on both sides, and every part after the first began with bytes that belong to the part before it. The first 8 MB (the overview levels) drew; everything past it (every close-up level) was read from the wrong place. Road packs were hit the same way (the barangay boundaries and the roads past the first 8 MB). Android was never affected.
+  - Each save now hands Safari a block of exactly the right size, so packs downloaded or imported with v2.35.7 are saved correctly.
+  - Packs saved before are found after the update: Maps shows **DAMAGED: saved wrongly by this phone's browser** with a **Repair** button, and the app says so. Repair fixes the pack on the phone, with no download: it lines each part up again, checks that the map's tiles (or the road pack's pieces) can be read before it changes any file, and goes on where it stopped if the app is closed half way.
+  - Every new pack is now also checked after it is saved (a few tiles in every 8 MB are read back); a pack that cannot be read is not kept, and says so. A pack on the phone whose data cannot be read for another reason shows **DAMAGED** with **Download again**.
+
 ## What changed in v2.35.6
 
 - **Landmark icons, as on the OpenStreetMap street map:** every kind of place in the map packs (about 300 kinds) has the icon of the openstreetmap.org street map (OpenStreetMap Carto), or of Mapbox Maki where the street map has none (schools, colleges, covered courts, groceries…), in the street map's colours: red health, brown public services, schools and banks, black places of worship (by religion: church, mosque, Buddhist and Taoist temples…), blue transport and lodging, orange food, purple shops, green sport and parks. The name is in dark text beside it. Kinds with no icon keep a small dot. Both icon sets are public domain (CC0 1.0); see `vendor/icons/LICENSE-icons.txt`.
