@@ -175,6 +175,8 @@
       (this.used || (this.used = new Set())).add(layer); // the layers the plan uses (the vicinity map turns them off)
       if (extra && extra.lt) r.push([6, extra.lt]);
       if (extra && extra.color != null) r.push([62, I(extra.color)]);
+      if (extra && extra.tc != null) r.push([420, I(extra.tc)]); // v2.36: a true colour (e.g. pure white)
+      if (extra && extra.lwt != null) r.push([370, I(extra.lwt)]); // v2.36: line weight (1/100 mm)
       if (extra && extra.lts) r.push([48, F(extra.lts)]); // linetype scale
       this.n[t] = (this.n[t] || 0) + 1;
       return r;
@@ -201,6 +203,7 @@
       const chunks = []; for (let i = 0; i < s.length; i += 250) chunks.push(s.slice(i, i + 250)); if (!chunks.length) chunks.push('');
       chunks.slice(0, -1).forEach((c) => r.push([3, c])); r.push([1, chunks[chunks.length - 1]]);
       r.push([7, this.style(o.style)]); r.push([73, I(1)], [44, '1.0']);
+      if (o.mask) r.push([90, I(1)], [63, I(o.mask)], [45, '1.35']); // v2.36: a background box (readable over a satellite picture)
       return this.add(r);
     }
     circle(layer, x, y, rad, o) { const r = this.base('CIRCLE', layer, o); r.push([100, 'AcDbCircle'], [10, F(x)], [20, F(y)], [30, '0.0'], [40, F(rad)]); return this.add(r); }
@@ -222,7 +225,7 @@
         const given = vals[tag] != null && typeof vals[tag] === 'object' ? vals[tag] : null; // v2.31: { v, x, y, rot, h, ha, va } placed by the caller
         const v = given ? String(given.v || '') : vals[tag] != null ? String(vals[tag]) : (o.keepDefaults ? get(df, 1, '') : '');
         const dl = get(df, 8, '0'), at = [[0, 'ATTRIB'], [5, this.d.newHandle()], [330, H], [100, 'AcDbEntity'], [8, dl === '0' ? layer : dl]]; // an attribute of layer 0 follows the insert's layer
-        const col = get(df, 62); if (col != null) at.push([62, col]);
+        const col = o.attrColor != null ? I(o.attrColor) : get(df, 62); if (col != null) at.push([62, col]); // v2.36: a pin's own colour
         if (given) {
           const gha = given.ha || 0, gva = given.va || 0;
           at.push([100, 'AcDbText'], [10, F(given.x)], [20, F(given.y)], [30, '0.0'], [40, F(given.h || h)], [1, v]);
@@ -278,6 +281,25 @@
     setFirst(tb, 70, I(parseInt(get(tb, 70, '0'), 10) + 1));
     d.index(); S.layers.set(name, r);
     return h;
+  }
+  /** v2.36: moves a model-space entity by (dx, dy): every point of it (a direction or a size stays); false for a kind not handled. */
+  const SHIFT_PTS = { LINE: [10, 11], LWPOLYLINE: [10], CIRCLE: [10], ARC: [10], ELLIPSE: [10], POINT: [10], TEXT: [10, 11], ATTRIB: [10, 11], ATTDEF: [10, 11], MTEXT: [10], INSERT: [10], SOLID: [10, 11, 12, 13], TRACE: [10, 11, 12, 13], SEQEND: [] };
+  function shiftRec(r, dx, dy) {
+    const t = typ(r), neg = num(r, 230, 1) < 0 && !['LINE', 'MTEXT', 'POINT'].includes(t) ? -1 : 1; // an object space turned over: its x runs the other way
+    if (t === 'MULTILEADER') { // the points of its context data only (a 10 after it is the block's scale)
+      let inCtx = false; const out = [];
+      for (const q of r) {
+        if (q[0] === 300 && q[1] === 'CONTEXT_DATA{') inCtx = true;
+        if (inCtx && [10, 12, 110].includes(q[0])) q[1] = F(+q[1] + dx); else if (inCtx && [20, 22, 120].includes(q[0])) q[1] = F(+q[1] + dy);
+        if (q[0] === 301 && q[1] === '}') inCtx = false;
+        if (q[0] === 310 || q[0] === 160) continue; // its picture for other programs (proxy graphics): stale once moved
+        out.push(q);
+      }
+      r.length = 0; r.push(...out); return true;
+    }
+    const pts = SHIFT_PTS[t]; if (!pts) return false;
+    for (const q of r) { if (pts.includes(q[0])) q[1] = F(+q[1] + neg * dx); else if (pts.includes(q[0] - 10)) q[1] = F(+q[1] + dy); }
+    return true;
   }
   /** Turns layers off (frozen) in one viewport of a sheet only. */
   function vpFreeze(vp, handles) {
@@ -748,6 +770,9 @@
   /* ---------------- the build ---------------- */
   // v2.32: new fiber red, existing fiber blue (the drafting rule); aerial dashed, underground solid
   const CABLE_STYLE = { F72: { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true }, L12: { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true }, U144: { layer: 'Proposed foc duct', color: 1, w: 0.7776, aerial: false }, '': { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true } };
+  const PIN_ACI = { red: 1, navy: 5, green: 3, orange: 30 }; // v2.36: the colours of the app's marks and pins (AutoCAD colour numbers)
+  const pinColor = (p) => (p && p.color && PIN_ACI[p.color] != null ? PIN_ACI[p.color] : null);
+  const CABLE_LWT = 70; // v2.36: 0.70 mm, about the template's 0.78 m wide cable at 1 : 1200
   const months = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
   const dateText = (d) => `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
   const mtextEsc = (s) => String(s).replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}');
@@ -856,7 +881,7 @@
     const kG = Math.max(0.6, Math.min(1, (nns.length ? nns[Math.floor(nns.length * 0.2)] : 25) / 25));
     for (const p of polesOnly) p.k = kG;
     for (const p of pts) {
-      p.dp = [p.E, p.N]; p.td = null; p.near = null;
+      p.dp = [p.E, p.N]; p.td = null; p.near = null; p.keep = !!(p.adjusted || p.status === 'Proposed' || p.status === 'New');
       if (p.el !== 'Pole') continue;
       p.sym = S.blocks.has(symOf(p).b) ? symOf(p) : { ...symOf(p), b: null }; p.rp = p.sym.r * p.k;
       const near = nearestRoad(R.roads, p.dp, 25); if (!near) continue;
@@ -866,6 +891,9 @@
     for (const p of pts) {
       if (!p.near) continue;
       const out = (nr, side) => [-nr.dir[1] * side, nr.dir[0] * side], n = out(p.near, p.side);
+      // v2.36: a pole placed or moved by hand (a proposed pole, a pin dragged on the map) stays at its pin, unless the pin is on
+      // the road itself: it may stand inside a property to reach a site. Only the cable side is set from the road.
+      if (p.keep && p.near.edge > 0) { p.td = [-n[0], -n[1]]; p.moved = 0; p.kept = true; continue; }
       // v2.34: the pole POLE_GAP from the road edge, so the cable runs between the edge and the pole, outside the pavement lines
       let q = add2(p.near.c, n, p.near.r.hw + p.rp + POLE_GAP);
       for (let it = 0; it < 4; it++) { const o2 = nearestRoad(R.roads, q, p.rp + POLE_GAP - 0.1); if (!o2) break; q = add2(o2.c, out(o2, o2.side), o2.r.hw + p.rp + POLE_GAP); } // a corner pole: out of the other road too
@@ -886,7 +914,9 @@
       // v2.32: aerial cable as a broken line (DASHED at linetype scale 7, 9 when existing, as the template's own sample drawing),
       // underground solid; red new, blue existing
       const st = CABLE_STYLE[ch.cable] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous';
-      o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { w: st.w, color: ch.existing ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ch.existing ? 9 : 7) : 0, gen: true }); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; });
+      // v2.36: its thickness as a line weight (0.70 mm), not a polyline width: PDF converters other than AutoCAD (the one used to
+      // check the plan) drew a wide polyline solid, without its dashes
+      o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: CABLE_LWT, color: ch.existing ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ch.existing ? 9 : 7) : 0, gen: true }); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; });
       ch.line = line;
     }
     // 4. poles and the other points: symbols first (they are fixed), then the labels round them
@@ -900,13 +930,13 @@
           o.insert(lay(p.arm.layer), p.arm.b, at[0] - e[0], at[1] - e[1], { scale: sc, rot });
           const m = add2(p.dp, p.td, p.rp + p.arm.reach / 2); spots.add(Spots.box(m[0], m[1], p.arm.reach, 4, deg(p.td)));
         }
-      } else if (p.el === 'Site') {
-        o.insert(lay('X-BTS'), 'X-BTS', p.E, p.N, { scale: 2.4, attrs: { BTS_NAME: p.siteName || p.poleId || '', PLA_ID: p.plaId || '' } }); spots.add(Spots.box(p.E, p.N + 24, 26, 50, 0));
+      } else if (p.el === 'Site') { // v2.36: a pin's name in its colour (a pin placed on the map has one)
+        o.insert(lay('X-BTS'), 'X-BTS', p.E, p.N, { scale: 2.4, attrs: { BTS_NAME: p.siteName || p.poleId || '', PLA_ID: p.plaId || '' }, attrColor: pinColor(p) }); spots.add(Spots.box(p.E, p.N + 24, 26, 50, 0));
       } else if (p.el === 'ODF') {
-        o.insert(isNew ? lay('P-HOST') : lay('X-HOST'), isNew ? 'P-HOST' : 'X-HOST', p.E, p.N, { scale: 0.28, attrs: { HST_NAM: p.poleId || '', HST_COD: '', HST_LET: 'H' } }); spots.add(Spots.box(p.E, p.N, 10, 10, 0));
+        o.insert(isNew ? lay('P-HOST') : lay('X-HOST'), isNew ? 'P-HOST' : 'X-HOST', p.E, p.N, { scale: 0.28, attrs: { HST_NAM: p.poleId || '', HST_COD: '', HST_LET: 'H' }, attrColor: pinColor(p) }); spots.add(Spots.box(p.E, p.N, 10, 10, 0));
       } else if (p.el === 'ODC') {
         o.insert(isNew ? lay('PROPOSED LCP') : lay('EXISTING LCP'), isNew ? 'proposed LCP' : 'existing LCP', p.E, p.N, { scale: 0.7803353843555049, center: true }); spots.add(Spots.box(p.E, p.N, 20, 9, 0));
-        if (p.poleId) { o.text(lay('Proposed LCP ID', 'MISC'), p.E, p.N - 8, 2.5, p.poleId, { ha: 1, va: 2, style: 'arial' }); spots.add(textBox(p.E, p.N - 8, 2.5, p.poleId, 0, 1, 2)); }
+        if (p.poleId) { o.text(lay('Proposed LCP ID', 'MISC'), p.E, p.N - 8, 2.5, p.poleId, { ha: 1, va: 2, style: 'arial', color: pinColor(p) }); spots.add(textBox(p.E, p.N - 8, 2.5, p.poleId, 0, 1, 2)); }
       } else if (p.el === 'NAP') {
         o.insert(isNew ? lay('PROPOSED NAP') : lay('EXISTING NAP'), isNew ? 'proposed NAP' : 'existing NAP', p.E, p.N, { scale: 0.7803353843555049, center: true }); spots.add(Spots.box(p.E, p.N, 20, 9, 0));
         if (p.poleId) { o.text(lay('Proposed NAP ID', 'MISC'), p.E, p.N - 7, 2.5, p.poleId, { ha: 1, va: 2, style: 'arial' }); spots.add(textBox(p.E, p.N - 7, 2.5, p.poleId, 0, 1, 2)); }
@@ -914,7 +944,7 @@
         o.insert(lay('P-JOINT'), 'P-Joint', p.E, p.N, { scale: 4.35, attrs: { JT_ID: p.poleId || p.closureId || '', JOINT: 'JT' } }); spots.add(Spots.box(p.E, p.N, 9, 9, 0));
       } else if (p.el === 'Handhole') {
         o.insert(isNew ? lay('PROPOSED HH') : lay('EXISTING HH'), isNew ? 'proposed Handhole' : 'HANDHOLE', p.E, p.N, { scale: 0.7803353843555049, center: true }); spots.add(Spots.box(p.E, p.N, 7, 7, 0));
-        if (p.poleId) o.text(lay('MISC'), p.E, p.N - 7, 2.5, p.poleId, { ha: 1, va: 2, style: 'arial' });
+        if (p.poleId) o.text(lay('MISC'), p.E, p.N - 7, 2.5, p.poleId, { ha: 1, va: 2, style: 'arial', color: pinColor(p) });
       } else o.circle(lay('MISC'), p.E, p.N, 2);
     }
     // 7. guys: against the pull of the cable (a head guy in line with it), drawn with the template's guy symbols
@@ -1119,8 +1149,17 @@
       R.edges.forEach((l) => o.lwpoly(VLAY, l.pts.map(vsh), { closed: l.closed, color: 7 }));
       R.paths.forEach((l) => o.lwpoly(VLAY, l.map(vsh), { color: 8 }));
     }
-    const vlt = S.ltypes.has('DASHED') ? 'DASHED' : null;
+    const vlt = S.ltypes.has('DASHED') ? 'DASHED' : null, WHITE = { color: 255, tc: 0xFFFFFF };
+    // v2.36: the route stands out on any picture: a white band under the red broken line, a red dot with a white rim at each
+    // pole and point, and a circle round the area marked PROJECT AREA (yellow over a satellite picture, red over a street map)
+    const vDot = (q, r, col) => o.lwpoly(VLAY, [[q[0] - r / 2, q[1], 1], [q[0] + r / 2, q[1], 1]], { closed: true, w: r, ...col }); // a filled disc of radius r
+    for (const ch of chains) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: 22 * vk, ...WHITE, gen: true });
     for (const ch of chains) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: 12 * vk, color: ch.existing ? 5 : 1, lt: vlt, lts: vlt ? 20 * vk : 0, gen: true }); // v2.35: 3 × wider, dashes to match
+    for (const p of pts) { if (p.el === 'NAP' || p.el === 'Closure') continue; const q = vsh(p.dp || [p.E, p.N]); vDot(q, 9 * vk, WHITE); vDot(q, 6 * vk, { color: 1 }); }
+    { const dps = pts.map((p) => p.dp || [p.E, p.N]), xs = dps.map((q) => q[0]), ys = dps.map((q) => q[1]), c = vsh([(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]);
+      const rad = Math.max(70 * vk, Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 + 45 * vk), col = job.vicImage && job.vicImage.sat ? 2 : 1;
+      o.lwpoly(VLAY, [[c[0] - rad, c[1], 1], [c[0] + rad, c[1], 1]], { closed: true, w: 4 * vk, color: col });
+      o.mtext(VLAY, c[0], c[1] + rad + 8 * vk, 16 * vk, 'PROJECT AREA', { att: 8, style: 'arial', color: 7, mask: 255 }); rep.vicinityMark = { r: rad }; }
     if (!job.vicImage) { // no picture: the names of the roads written large
       const done = new Set();
       for (const r of R.roads.slice().sort((a, b) => b.hw - a.hw)) {
@@ -1129,7 +1168,7 @@
         if (!best) continue; done.add(r.name); if (done.size > 25) break;
         o.text(VLAY, (best.a[0] + best.b[0]) / 2 + VDX, (best.a[1] + best.b[1]) / 2, 8 * vk, r.name.toUpperCase(), { rot: readable(deg(unit(best.a, best.b))), ha: 1, va: 2, style: 'arial', color: 8 });
       }
-    } else o.text(VLAY, vb[0] + VDX + 8 * vk, vb[1] + 8 * vk, 6 * vk, String(job.vicImage.credit || '© OpenStreetMap contributors').toUpperCase(), { style: 'arial', color: 8 });
+    } else o.mtext(VLAY, vb[0] + VDX + 8 * vk, vb[1] + 14 * vk, 6 * vk, mtextEsc(String(job.vicImage.credit || '© OpenStreetMap contributors').toUpperCase()), { att: 7, style: 'arial', color: 7, mask: 255 }); // v2.36: on a white box (readable on a satellite picture)
     const layerH = (n) => (S.layers.has(n) ? get(S.layers.get(n), 5) : null);
     const vicOnly = [layerH(VLAY), layerH(VMAP)].filter(Boolean);
     const keepInVic = new Set([VLAY, VMAP]);
@@ -1218,11 +1257,65 @@
         if (need > avail) setFirst(r, 40, F(Math.max(h * 0.45, h * avail / need)));
       }
     }
+    /* 6. v2.36: the template's tables in model space (legend, ROW table, project management table) moved right beside the plan,
+       in a row below the key map grid and the vicinity map, instead of where the template has them (about 1,100 km from the
+       plan's UTM coordinates); the sheets that show them follow. The plan itself stays at its true UTM coordinates. */
+    {
+      const vps = (L) => layoutEnts(d, S, L).filter((e) => typ(e) === 'VIEWPORT').slice(1).filter((e) => parseInt(get(e, 69, '0'), 10) !== 1 && num(e, 40, 0) > 0 && num(e, 45, 0) > 0); // the first is the sheet itself
+      const win = (vp) => { const cx = num(vp, 17, 0) + num(vp, 12, 0), cy = num(vp, 27, 0) + num(vp, 22, 0), h = num(vp, 45, 0), w = h * num(vp, 40, 1) / (num(vp, 41, 1) || 1); return [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]; };
+      const groups = [];
+      for (const L of S.layouts) {
+        if (!/^(LEGENDS?( \(\d+\))?|ROW AREA COVERAGE|PMI)$/.test(L.name)) continue;
+        for (const vp of vps(L)) {
+          const w = win(vp), g = groups.find((x) => !(w[2] < x.w[0] || w[0] > x.w[2] || w[3] < x.w[1] || w[1] > x.w[3]));
+          if (g) { g.vps.push(vp); g.w = [Math.min(g.w[0], w[0]), Math.min(g.w[1], w[1]), Math.max(g.w[2], w[2]), Math.max(g.w[3], w[3])]; g.names.add(L.name); }
+          else groups.push({ w, vps: [vp], names: new Set([L.name]) });
+        }
+      }
+      // only what lies away from the plan (a window over the plan, e.g. a sheet of the plan itself, stays)
+      const planBox = [gx0 - cell, Math.min(gy0, vb[1]) - cell, Math.max(gx1, vb[2] + VDX) + cell, Math.max(gy1, vb[3]) + cell];
+      const away = groups.filter((g) => g.w[2] < planBox[0] || g.w[0] > planBox[2] || g.w[3] < planBox[1] || g.w[1] > planBox[3]).sort((a, b) => a.w[0] - b.w[0]);
+      const ents = d.sec('ENTITIES').recs, kids = new Map(); // an INSERT's attributes (and SEQEND) follow it
+      for (const r of ents) { const ow = owner(r); if (ow && ow !== S.modelH) (kids.get(ow) || kids.set(ow, []).get(ow)).push(r); }
+      const model = ents.filter((r) => owner(r) === S.modelH && String(get(r, 67, '0')).trim() !== '1');
+      // each entity away from the plan goes with the nearest table (the template keeps notes and samples beside its tables too)
+      const dWin = (q, w) => Math.hypot(Math.max(w[0] - q[0], 0, q[0] - w[2]), Math.max(w[1] - q[1], 0, q[1] - w[3]));
+      for (const g of away) { g.recs = []; g.ext = g.w.slice(); }
+      const refOf = (r) => { // where an entity shows (an INSERT's block may be drawn far from its base point)
+        const q = [num(r, 10, NaN), num(r, 20, NaN)]; if (typ(r) !== 'INSERT') return q;
+        const bb = blockBox(S, get(r, 2)), at = (kids.get(get(r, 5)) || []).find((k) => typ(k) === 'ATTRIB'); if (!bb) return at ? [num(at, 10, q[0]), num(at, 20, q[1])] : q; // a block of fills only: its attributes show where
+        const sx = num(r, 41, 1), sy = num(r, 42, 1), a = num(r, 50, 0) * Math.PI / 180, x = (bb[0] + bb[2]) / 2 * sx, y = (bb[1] + bb[3]) / 2 * sy;
+        return [q[0] + x * Math.cos(a) - y * Math.sin(a), q[1] + x * Math.sin(a) + y * Math.cos(a)];
+      };
+      for (const r of model) {
+        const q = refOf(r); if (!Number.isFinite(q[0]) || !Number.isFinite(q[1])) continue;
+        if (!(q[0] < planBox[0] || q[0] > planBox[2] || q[1] < planBox[1] || q[1] > planBox[3])) continue;
+        let best = null; for (const g of away) { const dd = dWin(q, g.w); if (dd < 1000 && (!best || dd < best.dd)) best = { g, dd }; }
+        if (!best) continue;
+        const g = best.g; g.recs.push(r);
+        const X = all(r, 10).map(Number).concat(all(r, 11).map(Number)), Y = all(r, 20).map(Number).concat(all(r, 21).map(Number)); // its extent, roughly (text width not counted)
+        if (typ(r) === 'INSERT') { g.ext[0] = Math.min(g.ext[0], q[0]); g.ext[2] = Math.max(g.ext[2], q[0]); g.ext[1] = Math.min(g.ext[1], q[1]); g.ext[3] = Math.max(g.ext[3], q[1]); }
+        else if (typ(r) !== 'MTEXT' && typ(r) !== 'MULTILEADER') { X.forEach((v) => { g.ext[0] = Math.min(g.ext[0], v); g.ext[2] = Math.max(g.ext[2], v); }); Y.forEach((v) => { g.ext[1] = Math.min(g.ext[1], v); g.ext[3] = Math.max(g.ext[3], v); }); }
+        else { g.ext[0] = Math.min(g.ext[0], q[0]); g.ext[2] = Math.max(g.ext[2], q[0] + num(r, 41, 0)); g.ext[1] = Math.min(g.ext[1], q[1] - num(r, 40, 0)); g.ext[3] = Math.max(g.ext[3], q[1]); }
+      }
+      const GAP = 60, top = Math.min(gy0, vb[1], (gy0 + gy1) / 2 - kmH / 2) - GAP; let x = gx0, moved = 0; // below the grid, the vicinity map and what the keymap sheet shows
+      for (const g of away) {
+        const dx = x - g.ext[0], dy = top - g.ext[3];
+        for (const r of g.recs) {
+          if (shiftRec(r, dx, dy)) { moved++; (kids.get(get(r, 5)) || []).forEach((k) => shiftRec(k, dx, dy)); } else rep.notes.push(`${typ(r)} in ${[...g.names].join(' / ')} not moved`);
+          if (typ(r) === 'LWPOLYLINE' && num(r, 43, 0) > 0 && ['DASHED', 'AERCA', 'AERCAB'].includes(get(r, 6, ''))) { setFirst(r, 43, F(0)); if (get(r, 370) == null) r.splice(r.findIndex((q) => q[0] === 8) + 1, 0, [370, I(CABLE_LWT)]); } // the legend's cable samples as the plan's cable
+        }
+        for (const vp of g.vps) { setFirst(vp, 17, F(num(vp, 17, 0) + dx)); setFirst(vp, 27, F(num(vp, 27, 0) + dy)); }
+        x += g.ext[2] - g.ext[0] + GAP;
+      }
+      rep.tablesMoved = { groups: away.map((g) => [...g.names].join(' / ')), entities: moved };
+    }
+    { const lw = d.headerVar('$LWDISPLAY'); if (lw) lw[1] = I(1); } // v2.36: line weights shown on screen (the cable's thickness)
     rep.blanks = [...blanks].filter((k) => !filled.has(k) && !/^IDX_/.test(k)).sort(); // an empty index key = no sheet on that side, not a missing field
     rep.partly = [...blanks].filter((k) => filled.has(k)).sort();
-    rep.counts = { ...o.n, roads: nRoads, roadEdges: R.edges.length, pois: nPois, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length };
+    rep.counts = { ...o.n, roads: nRoads, roadEdges: R.edges.length, pois: nPois, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesKept: pts.filter((p) => p.kept).length };
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0] };
     return { text: d.text(), report: rep };
   }
-  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, version: '2.35' };
+  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, version: '2.36' };
 }));

@@ -677,7 +677,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.35.7';
+  const APP_VER = '2.36.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1283,18 +1283,18 @@
   function renderPoles() {
     poleLayer.clearLayers();
     if (isAcc() && routeMode) setRouteMode(false);
-    $('routeBtn').hidden = isAcc();
+    $('routeBtn').hidden = isAcc(); $('pinAddBtn').hidden = !S.project || isAcc(); // v2.36
     const R = drawRoute();
     const pts = projPoints(), hidePins = viewHide().pins && !routeMode; // v2.30: pins hidden from the map button (shown while linking the route)
     for (const p of pts) {
       if (hidePins) break;
       const acc = p.kind === 'acceptance', n = openCount(p), sel = routeMode && p.id === routeSel, el = elemOf(p);
       const m = !acc && el !== 'Pole' && SV_SHORT[el] // survey element: a labelled square (dashed when proposed / new)
-        ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svpin${sel ? ' sel' : ''}${p.status === 'Proposed' || p.status === 'New' ? ' new' : ''}" style="--c:${SV_COLORS[el]}">${SV_SHORT[el]}</span>`, iconSize: [30, 24], iconAnchor: [15, 12] }) })
+        ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svpin${sel ? ' sel' : ''}${p.status === 'Proposed' || p.status === 'New' ? ' new' : ''}" style="--c:${pinCol(p) || SV_COLORS[el]}">${SV_SHORT[el]}</span>`, iconSize: [30, 24], iconAnchor: [15, 12] }) })
         : L.circleMarker([p.lat, p.lon], { radius: sel ? 12 : acc && el !== 'Pole' ? 10 : 8, weight: sel ? 4 : !acc && p.status === 'New' ? 3 : 2,
-          color: sel ? '#17202a' : acc && el !== 'Pole' ? '#17202a' : !acc && p.status === 'Proposed' ? '#e03131' : !acc && p.status === 'New' ? '#17202a' : '#fff',
+          color: sel ? '#17202a' : acc && el !== 'Pole' ? '#17202a' : !acc && pinCol(p) ? pinCol(p) : !acc && p.status === 'Proposed' ? '#e03131' : !acc && p.status === 'New' ? '#17202a' : '#fff',
           dashArray: !acc && p.status === 'Proposed' && !sel ? '3 3' : null,
-          fillColor: acc ? STATUS_COLORS[recStatus(p)] : typeColor(p.poleType), fillOpacity: !acc && p.status === 'Proposed' ? 0.5 : 1 });
+          fillColor: acc ? STATUS_COLORS[recStatus(p)] : pinCol(p) || typeColor(p.poleType), fillOpacity: !acc && p.status === 'Proposed' ? 0.5 : 1 });
       const role = R && R.poles[p.id] && (R.poles[p.id].role === 'Angle' ? ` · ${Math.round(R.poles[p.id].deflection)}°` : R.poles[p.id].role === 'Junction' ? ' · junction' : '');
       m.bindTooltip(`${C.xmlEsc(recName(p) || '(no ID)')}${acc && n ? ` · ${n} open` : ''}${role || ''}`, { permanent: true, direction: 'right', offset: [!acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' });
       m.on('click', () => (routeMode ? routeTap(p.id) : visitMode() ? openVisit(p.id) : openEditorFor(p.id)));
@@ -1354,6 +1354,19 @@
   /* ================= v2.28: the bar's Drawing (As-Plan / As-Built) or Find (every other project) ================= */
   const drawOn = () => !!S.project && !isAcc() && BOQ_PURPOSES.includes(svPurpose());
   $('drawBtn').addEventListener('click', () => { if (!S.project) { openProjects(); return; } if (drawOn()) openDrawing(); else openFind(); });
+  /* v2.36: a pin placed on the map by hand (no photo needed): a proposed pole, a site / tower, an ODC, an ODF or a handhole, with
+     its name and colour. It is a survey record like the others: the route links it, the exports and the plan drawing have it
+     (drawn exactly where it is placed). A photo can be added later (open the pin → Add photo). */
+  $('pinAddBtn').addEventListener('click', async () => {
+    if (!S.project) { openProjects(); return; }
+    if (isAcc()) return;
+    const el = await ask('Add a pin on the map', 'What is it? Then drag the map to place it, type its name and pick its colour. A photo is optional. For a homing site or ODC (where the route starts or ends), choose Site or ODC and set Existing.', [
+      { label: 'Proposed pole', value: 'Pole' }, { label: 'Site / tower', value: 'Site' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'ODF', value: 'ODF' }, { label: 'Handhole', value: 'Handhole' }, { label: 'Cancel', value: '' }]);
+    if (!el) return;
+    const c = map.getCenter();
+    LOG.info('pin.add', { el });
+    await openEditor({ mode: 'new', element: el, status: el === 'Pole' ? 'Proposed' : undefined, lat: c.lat, lon: c.lng, source: 'map', takenAt: new Date().toISOString(), note: 'Placed on the map · photo optional' });
+  });
   /* Drawing: a preview of the DXF of the project (UTM metres): the route with its span lengths, poles and other points with
      their IDs, the KMZ reference faint behind; pan with a finger, pinch or the wheel to zoom, tap a point for its details.
      (Editing it on your DXF template comes later.) */
@@ -1363,9 +1376,10 @@
     const z = S.zone, U = (p) => { const u = C.utmForward(p.lat, p.lon, z, p.lat < 0); return [u.E, u.N]; };
     const R = routeModel(), items = pts.map((p) => ({ p, xy: U(p) }));
     const ref = []; refGeoFor(S.project).then((g) => { if (!g || !drw) return; (g.lines || []).forEach((l) => ref.push(l.c.map(([la, lo]) => U({ lat: la, lon: lo })))); drawDrawing(); }).catch(() => {});
-    drw = { items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), ref, labels: true, view: null, ptrs: new Map(), sel: null };
+    drw = { items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), ref, labels: true, view: null, ptrs: new Map(), sel: null, map: !!S.drawMap, under: null, zone: z, south: pts[0].lat < 0 };
+    $('drawMap').setAttribute('aria-pressed', String(drw.map));
     $('drawTitle').textContent = `Drawing · ${S.project}`;
-    $('drawHint').textContent = `Preview of the DXF (UTM ${z}N metres): ${pts.filter((p) => elemOf(p) === 'Pole').length} poles, ${R.spans.length} spans, ${fmtLen(R.total)}. Drag to pan, pinch or scroll to zoom, tap a point. Editing on your DXF template comes later.`;
+    $('drawHint').textContent = `Preview of the DXF (UTM ${z}N metres): ${pts.filter((p) => elemOf(p) === 'Pole').length} poles, ${R.spans.length} spans, ${fmtLen(R.total)}. Drag to pan, pinch or scroll to zoom, tap a point. **Map** shows the map in use under it, to check where the pins are.`.replace(/\*\*/g, '');
     $('drawInfo').hidden = true; $('drawLabels').setAttribute('aria-pressed', 'true');
     openSheet('drawing');
     requestAnimationFrame(() => { sizeDrawing(); fitDrawing(); drawDrawing(); });
@@ -1383,6 +1397,7 @@
     if (!drw || !drw.view) return;
     const cv = $('drawCanvas'), g = cv.getContext('2d'), d = window.devicePixelRatio || 1, v = drw.view;
     g.fillStyle = '#fbfbf8'; g.fillRect(0, 0, cv.width, cv.height);
+    if (drw.map) { drawUnderlay(g); underlaySoon(); } // v2.36: the map in use under the drawing
     // grid every 10 / 50 / 100 m, by zoom
     const step = [5, 10, 20, 50, 100, 200, 500, 1000].find((m) => m * v.sc > 60 * d) || 1000;
     g.strokeStyle = 'rgba(28,63,148,0.08)'; g.lineWidth = 1;
@@ -1404,11 +1419,11 @@
     const placed = [];
     drw.items.forEach(({ p, xy }) => {
       const [px, py] = drwPx(xy), el = elemOf(p), r = (el === 'Pole' ? 5 : 6) * d, prop = p.status === 'Proposed' || p.status === 'New';
-      g.lineWidth = 1.8 * d; g.strokeStyle = prop ? '#e03131' : '#1b1b1b'; g.fillStyle = drw.sel === p.id ? '#ffd43b' : '#ffffff';
+      g.lineWidth = 1.8 * d; g.strokeStyle = pinCol(p) || (prop ? '#e03131' : '#1b1b1b'); g.fillStyle = drw.sel === p.id ? '#ffd43b' : '#ffffff';
       g.beginPath();
       if (el === 'Pole') g.arc(px, py, r, 0, Math.PI * 2); else if (el === 'Handhole' || el === 'ODC' || el === 'ODF') g.rect(px - r, py - r, r * 2, r * 2); else { g.moveTo(px, py - r * 1.2); g.lineTo(px + r, py + r * 0.8); g.lineTo(px - r, py + r * 0.8); g.closePath(); }
       g.fill(); g.stroke();
-      if (el !== 'Pole') { g.fillStyle = SV_COLORS[el] || '#495057'; g.beginPath(); g.arc(px, py, r * 0.35, 0, Math.PI * 2); g.fill(); }
+      if (el !== 'Pole') { g.fillStyle = pinCol(p) || SV_COLORS[el] || '#495057'; g.beginPath(); g.arc(px, py, r * 0.35, 0, Math.PI * 2); g.fill(); }
       if (!drw.labels) return;
       const t = p.poleId || el, w = g.measureText(t).width; // the ID beside the point, moved down or left when it would cover another
       const tries = [[r + 4 * d, -fs / 2], [r + 4 * d, fs * 0.6], [-r - 4 * d - w, -fs / 2], [-w / 2, -r - fs - 4 * d], [-w / 2, r + 4 * d]];
@@ -1416,7 +1431,7 @@
       for (const tr of tries) { const bx = [px + tr[0], py + tr[1], w, fs]; if (!placed.some((q) => bx[0] < q[0] + q[2] && bx[0] + bx[2] > q[0] && bx[1] < q[1] + q[3] && bx[1] + bx[3] > q[1])) { pos = tr; break; } }
       placed.push([px + pos[0], py + pos[1], w, fs]);
       g.fillStyle = 'rgba(251,251,248,0.85)'; g.fillRect(px + pos[0] - 2, py + pos[1] - 1, w + 4, fs + 2);
-      g.fillStyle = prop ? '#c92a2a' : '#1b1b1b'; g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText(t, px + pos[0], py + pos[1]);
+      g.fillStyle = pinCol(p) || (prop ? '#c92a2a' : '#1b1b1b'); g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText(t, px + pos[0], py + pos[1]);
     });
     // north arrow and scale bar
     g.fillStyle = '#1b1b1b'; g.strokeStyle = '#1b1b1b'; g.lineWidth = 1.5 * d;
@@ -1452,6 +1467,74 @@
     window.addEventListener('resize', () => { if (drw && !$('drawing').hidden) { sizeDrawing(); drawDrawing(); } });
   })();
   $('drawFit').addEventListener('click', () => { fitDrawing(); drawDrawing(); });
+  /* v2.36: the map under the drawing (Map on the Drawing screen): the map in use on the main screen (street map, satellite or the
+     offline map pack) for the area on screen, turned and scaled to the drawing's UTM metres, a little faded so the drawing reads
+     on top. Drawn again when the drawing stops moving; satellite pictures are never kept on the phone (Esri terms). */
+  $('drawMap').addEventListener('click', () => {
+    if (!drw) return; drw.map = !drw.map; S.drawMap = drw.map; persist(); $('drawMap').setAttribute('aria-pressed', String(drw.map));
+    if (drw.map) { drw.under = null; drw.underKey = ''; } drawDrawing();
+    if (drw.map) toast(S.base === 'satellite' ? 'Satellite map under the drawing' : S.base === 'offline' ? 'Offline map under the drawing' : 'Street map under the drawing (switch the map on the main screen for satellite)', 3000);
+  });
+  let underTimer = 0;
+  const underlaySoon = () => { clearTimeout(underTimer); underTimer = setTimeout(() => refreshUnderlay().catch((e) => LOG.warn('draw.map', errInfo(e))), 350); };
+  /** The drawing's canvas pixel of a Web Mercator world pixel (zoom z). */
+  function mercToPx(mx, my, z) {
+    const n = 256 * 2 ** z, lon = mx / n * 360 - 180, lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * my / n))) * 180 / Math.PI, u = C.utmForward(lat, lon, drw.zone, lat < 0);
+    return drwPx([u.E, u.N]);
+  }
+  function drawUnderlay(g) {
+    const U0 = drw.under; if (!U0) return;
+    // the affine map from the picture's pixels to the canvas, from three of its corners (the area on screen is flat enough)
+    const p0 = mercToPx(U0.x0, U0.y0, U0.z), p1 = mercToPx(U0.x0 + U0.canvas.width, U0.y0, U0.z), p2 = mercToPx(U0.x0, U0.y0 + U0.canvas.height, U0.z);
+    const W = U0.canvas.width, H = U0.canvas.height;
+    g.save(); g.setTransform((p1[0] - p0[0]) / W, (p1[1] - p0[1]) / W, (p2[0] - p0[0]) / H, (p2[1] - p0[1]) / H, p0[0], p0[1]);
+    g.imageSmoothingQuality = 'high'; g.drawImage(U0.canvas, 0, 0); g.restore();
+    g.fillStyle = 'rgba(251,251,248,0.28)'; g.fillRect(0, 0, g.canvas.width, g.canvas.height);
+  }
+  async function refreshUnderlay() {
+    if (!drw || !drw.map || $('drawing').hidden) return;
+    const cv = $('drawCanvas'), v = drw.view, hw = cv.width / 2 / v.sc, hh = cv.height / 2 / v.sc, south = !!drw.south;
+    const corners = [[v.cx - hw, v.cy + hh], [v.cx + hw, v.cy + hh], [v.cx - hw, v.cy - hh], [v.cx + hw, v.cy - hh]].map(([E, N]) => C.utmInverse(E, N, drw.zone, south));
+    const base = S.base === 'offline' && activePackId() ? 'offline' : S.base === 'satellite' ? 'satellite' : 'street';
+    const key = `${base}|${v.cx.toFixed(0)}|${v.cy.toFixed(0)}|${v.sc.toFixed(4)}|${cv.width}x${cv.height}`;
+    if (drw.underKey === key) return;
+    const want = key, cur = drw.under; // the picture on screen still covers the view at about this scale: kept
+    if (cur && cur.base === base && cur.sc > v.sc / 1.6 && cur.sc < v.sc * 1.6 && corners.every(([la, lo]) => la <= cur.ll[0] && la >= cur.ll[2] && lo >= cur.ll[1] && lo <= cur.ll[3])) { drw.underKey = key; return; }
+    // a margin round the screen, so a short pan needs no new picture
+    const m = 0.35, ext = [[v.cx - hw * (1 + m), v.cy + hh * (1 + m)], [v.cx + hw * (1 + m), v.cy + hh * (1 + m)], [v.cx - hw * (1 + m), v.cy - hh * (1 + m)], [v.cx + hw * (1 + m), v.cy - hh * (1 + m)]].map(([E, N]) => C.utmInverse(E, N, drw.zone, south));
+    let pic = null; const seq = drw.underSeq = (drw.underSeq || 0) + 1;
+    if (base === 'offline') pic = await packPicture(activePackId(), ext, Math.max(cv.width, cv.height) * 1.4).catch(() => null);
+    else pic = await tilePicture(base === 'satellite' ? SAT_SOURCE : streetSource(), ext, v.sc).catch(() => null);
+    if (!drw || drw.underSeq !== seq || drw.underKey === want) return; // a newer view asked meanwhile
+    if (!pic) { drw.underKey = key; if (!drw.underWarned) { drw.underWarned = true; toast(navigator.onLine === false ? 'No map under the drawing: offline, and no offline map pack covers it' : 'The map did not load under the drawing', 3500); } return; }
+    const lats = ext.map((q) => q[0]), lons = ext.map((q) => q[1]);
+    drw.under = { ...pic, base, sc: v.sc, ll: [Math.max(...lats), Math.min(...lons), Math.min(...lats), Math.max(...lons)] }; drw.underKey = key;
+    drawDrawing();
+  }
+  /** Map tiles stitched for the box round the corners ll [[lat, lon], …], at the zoom that matches sc (canvas pixels per metre):
+      { canvas, z, x0, y0 } like packPicture. Street tiles go through the phone's tile cache; satellite tiles are not kept. */
+  async function tilePicture(src, ll, sc) {
+    const lat = ll.reduce((t, q) => t + q[0], 0) / ll.length;
+    let z = Math.max(3, Math.min(src.max || 19, Math.round(Math.log2(156543.03 * Math.cos(lat * Math.PI / 180) * sc))));
+    const merc = (la, lo, zz) => { const n = 256 * 2 ** zz, s = Math.sin(la * Math.PI / 180); return [(lo + 180) / 360 * n, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n]; };
+    let tx0, ty0, tx1, ty1;
+    for (; z >= 3; z--) { const m = ll.map(([la, lo]) => merc(la, lo, z)); tx0 = Math.floor(Math.min(...m.map((q) => q[0])) / 256); tx1 = Math.floor(Math.max(...m.map((q) => q[0])) / 256); ty0 = Math.floor(Math.min(...m.map((q) => q[1])) / 256); ty1 = Math.floor(Math.max(...m.map((q) => q[1])) / 256); if ((tx1 - tx0 + 1) * (ty1 - ty0 + 1) <= 64) break; }
+    const cv = document.createElement('canvas'); cv.width = (tx1 - tx0 + 1) * 256; cv.height = (ty1 - ty0 + 1) * 256; const g = cv.getContext('2d');
+    const jobs = []; for (let x = tx0; x <= tx1; x++) for (let y = ty0; y <= ty1; y++) jobs.push({ x, y });
+    let next = 0, ok = 0;
+    const one = async (j) => {
+      let blob = null;
+      const url = src.url.replace('{z}', z).replace('{x}', j.x).replace('{y}', j.y);
+      if (src.id === 'sat') blob = await getTileBlob(url, NATIVE).catch(() => null);
+      else blob = await fetchTile('street', z, j.x, j.y, () => !!drw).catch(() => null);
+      if (!blob && src.id === 'sat') { try { const im = await new Promise((res, rej) => { const x = new Image(); x.onload = () => res(x); x.onerror = rej; x.src = url; }); g.drawImage(im, (j.x - tx0) * 256, (j.y - ty0) * 256, 256.5, 256.5); ok++; } catch (e) { /* not this tile */ } return; } // the browser's own loading (as the map does)
+      if (!blob) return;
+      try { const im = await loadImage(blob); g.drawImage(im, (j.x - tx0) * 256, (j.y - ty0) * 256, 256.5, 256.5); if (im.close) im.close(); ok++; } catch (e) { /* a broken tile stays empty */ }
+    };
+    const worker = async () => { while (next < jobs.length) await one(jobs[next++]); };
+    await Promise.all(Array.from({ length: Math.min(6, jobs.length) }, worker));
+    return ok ? { canvas: cv, z, x0: tx0 * 256, y0: ty0 * 256 } : null;
+  }
   $('drawLabels').addEventListener('click', () => { if (!drw) return; drw.labels = !drw.labels; $('drawLabels').setAttribute('aria-pressed', String(drw.labels)); drawDrawing(); });
   $('drawDxf').addEventListener('click', () => { exportPick = 'doDxf'; closeSheet().then(() => $('exportBtn').click()); });
   /* Find: search the project's pins by ID, element, status or defect; tap one to fly to it on the map and open it. */
@@ -2582,7 +2665,7 @@
     if (camTarget === 'replace' && ed) {
       ed.newBlob = blob; ed.srcBlob = blob; ed.keepQ = false; prepImages(blob); ed.q = qSummary(x.q); showEdPhoto(blob); showQualWarn(ed.q);
       if (ed.origPid) ed.dropOrig = true; ed.marks = []; ed.base = null; ed.baseNew = false; ed.legacyBoxes = 0; ed.legacyPole = false; renderBoxInfo(); // a new photo has no marks yet
-      toast('Photo replaced — tap Save to keep it');
+      toast(ed.mapPin || ed.mode === 'edit' && !ed.hadPhoto ? 'Photo added — tap Save to keep it' : 'Photo replaced — tap Save to keep it');
       return;
     }
     openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), q: qSummary(x.q), crop: x.crop, live: x.live, idShot: x.idShot, noDef: camTarget === 'nodef' });
@@ -3079,6 +3162,7 @@
     if (edPhotoUrl) URL.revokeObjectURL(edPhotoUrl);
     edPhotoUrl = blob ? URL.createObjectURL(blob) : '';
     $('edPhoto').src = edPhotoUrl;
+    $('edPhoto').closest('.thumbwrap').hidden = !blob; // v2.36: a pin placed on the map may have no photo
   }
   const OTHER_PREFIX = '__other';
   /** Pole type dropdown: the built-in and admin types, this phone's own prefixes, then “+ Other prefix…”. */
@@ -3218,7 +3302,7 @@
     const acc = isAcc();
     if (o.blob) setTimeout(() => prepImages(o.blob), 400); // made while the ID is checked; the camera is closed by now
     ed = { mode: o.mode, id: o.id || uid(), source: o.source, gps: o.gps || null, newBlob: o.blob || null,
-      takenAt: o.takenAt, type: o.type || S.lastType, userMoved: false, acc, boq: JSON.parse(JSON.stringify(o.boq || {})) };
+      takenAt: o.takenAt, type: o.type || S.lastType, userMoved: false, acc, boq: JSON.parse(JSON.stringify(o.boq || {})), hadPhoto: !!(o.blob || o.storedBlob) };
     // v2.16: 'closed' = a completed PAT (view only); 'carried' = an element from the PAT in the cleanup or FAT (fixes only)
     ed.lock = !acc ? '' : patClosed() ? 'closed' : o.mode === 'edit' && ['Cleanup', 'FAT'].includes(taskCat()) && (o.patId || (o.defs || []).some((d) => (d.stage || 'PAT') === 'PAT')) ? 'carried' : '';
     if (acc) {
@@ -3234,9 +3318,11 @@
       Object.assign(ed, { element: o.element || 'Pole', status: o.status || (o.mode === 'new' ? svDefaultStatus(o.element || 'Pole') : ''), srcBlob: o.blob || o.storedBlob || null, details: JSON.parse(JSON.stringify(o.details || [])),
         marks: JSON.parse(JSON.stringify(mk)).map(normMark), origPid: o.origPid || '', legacyBoxes: Math.max(0, (o.boxes || 0) - mk.length), legacyPole: !!o.poleModel && !mk.some((m) => m.k === 'pole'), base: null, baseNew: false, dropOrig: false });
       $('svRemarks').value = o.remarks || ''; $('svClosureId').value = o.closureId || '';
+      ed.color = MCOL[o.color] ? o.color : ''; ed.mapPin = o.source === 'map' && !o.blob && !o.storedBlob && o.mode === 'new'; // v2.36: a pin placed on the map (photo optional)
     }
-    $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
-    $('edHint').textContent = `Drag the map to place the pin on the ${acc ? 'element' : 'pole'}`;
+    $('svColorBox').hidden = acc; if (!acc) renderPinColors();
+    $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : ed.mapPin ? `New ${({ Pole: 'proposed pole', Site: 'site / tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole' })[ed.element] || 'pin'} on the map` : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
+    $('edHint').textContent = ed.mapPin ? 'Drag the map to place the pin where it goes' : `Drag the map to place the pin on the ${acc ? 'element' : 'pole'}`;
     $('edHint').classList.remove('gone'); clearTimeout(hintTimer); hintTimer = setTimeout(() => $('edHint').classList.add('gone'), 5000);
     $('edHint').hidden = acc; // v2.15: not shown in PAT, cleanup and FAT, where the pin is the element you stand at
     $('pinMapWrap').classList.toggle('big', !!S.pinBig); $('pinSizeBtn').setAttribute('aria-pressed', String(!!S.pinBig));
@@ -3254,7 +3340,7 @@
     $('saveIssue').hidden = true;
     $('edDelete').hidden = o.mode !== 'edit'; $('delConfirm').hidden = true;
     $('edSkip').hidden = true; $('edRetake').hidden = acc;
-    $('edRetake').textContent = o.mode === 'edit' ? 'New photo' : 'Retake';
+    $('edRetake').textContent = o.mode === 'edit' ? (o.storedBlob ? 'New photo' : 'Add photo') : ed.mapPin ? 'Add photo' : 'Retake';
     $('edSave').textContent = 'Save';
     $('poleId').value = o.poleId != null ? (acc && DREF_RE.test(o.poleId) ? '' : o.poleId) : suggestId(ed.element || 'Pole', ed.type); // v2.22: no D-0001 in the form
     ed.idTouched = o.poleId != null;
@@ -3316,7 +3402,7 @@
       poleId: $('poleId').value, napId: $('napId').value, closureId: $('closureId').value, svRemarks: $('svRemarks').value, svClosureId: $('svClosureId').value,
       details: ed.details || [], marks: ed.marks || [], defs: ed.defs || [], photos: ed.photos || [], removed: ed.removed || [],
       mloop: !!ed.mloop, nap: !!ed.nap, closure: !!ed.closure, odf: ed.odf || '', boq: ed.boq || {}, gps: ed.gps || null, takenAt: ed.takenAt || '', source: ed.source || '', q: ed.q || null,
-      idRead: ed.idRead || null, idTouched: !!ed.idTouched, dragged: !!ed.dragged, pin: ed.dragged && c ? { lat: c.lat, lon: c.lng } : null,
+      idRead: ed.idRead || null, idTouched: !!ed.idTouched, dragged: !!ed.dragged, pin: (ed.dragged || ed.mapPin) && c ? { lat: c.lat, lon: c.lng } : null, color: ed.color || '',
       origPid: ed.origPid || '', legacyBoxes: ed.legacyBoxes || 0, legacyPole: !!ed.legacyPole, dropOrig: !!ed.dropOrig, baseNew: !!ed.baseNew, keepQ: !!ed.keepQ,
       noDef: !!ed.noDef, pend: Object.keys(ed.pending || {}), hasNew: !!ed.newBlob, hasSrc: !!ed.srcBlob && ed.srcBlob !== ed.newBlob, hasBase: !!ed.base, def: dd,
     };
@@ -3407,7 +3493,7 @@
       await openEditor({ mode: 'new', id: st.id, restore: true, gps: st.gps, takenAt: st.takenAt, source: st.source, q: st.q, type: st.type || undefined, element: st.element, status: st.status,
         poleId: st.poleId, remarks: st.svRemarks, closureId: st.acc ? st.closureId : st.svClosureId, napId: st.napId, details: st.details, marks: st.marks, origPid: st.origPid,
         photos: st.photos, defs: st.defs, mloop: st.mloop, nap: st.nap, closure: st.closure, odf: st.odf, boq: st.boq || {}, boxes: (st.legacyBoxes || 0) + (st.marks || []).length, poleModel: st.legacyPole,
-        blob: st.acc ? null : nb || sb, noDef: !!st.noDef, ...(st.pin ? { lat: st.pin.lat, lon: st.pin.lon } : {}) });
+        blob: st.acc ? null : nb || sb, noDef: !!st.noDef, color: st.color || '', ...(st.pin ? { lat: st.pin.lat, lon: st.pin.lon } : {}) });
     }
     if (!ed) return;
     Object.assign(ed, { pending: { ...ed.pending, ...pend }, removed: st.removed || [], idRead: st.idRead, idTouched: st.idTouched, dragged: st.dragged, element: st.element, type: st.type || ed.type,
@@ -3445,7 +3531,7 @@
     const ph = await dbGet('photos', id).catch(() => null);
     openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType, lat: p.lat, lon: p.lon, takenAt: p.takenAt,
       gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : null, storedBlob: ph ? (ph.clean || ph.thumb) : null, source: p.source,
-      element: elemOf(p), status: p.status || '', remarks: p.remarks || '', closureId: p.closureId || '', boxes: p.boxes || 0, details: p.details || [], marks: p.marks || [], origPid: p.origPid || '', poleModel: !!p.poleModel });
+      element: elemOf(p), status: p.status || '', remarks: p.remarks || '', closureId: p.closureId || '', boxes: p.boxes || 0, details: p.details || [], marks: p.marks || [], origPid: p.origPid || '', poleModel: !!p.poleModel, color: p.color || '' });
   }
   function cleanupEditor() {
     if (ed) { if (!ed.closeOK && edDirty()) saveDraft(); else draftClear(); }
@@ -3520,6 +3606,13 @@
                 : `Put your finger where the ${MODELS[m].what || 'pole'} stands on the ground and drag up to its top. Tap a mark to move, resize or delete it.`;
     drawBoxer();
   }
+  /** v2.36: the pin colour row of a survey record: Automatic (red proposed / new, navy existing), red, navy blue, green, orange. */
+  function renderPinColors() { document.querySelectorAll('#svColors .sw').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.c === ((ed && ed.color) || '')))); }
+  document.querySelectorAll('#svColors .sw').forEach((b) => b.addEventListener('click', () => {
+    if (!ed || ed.acc || ed.lock) return; ed.color = b.dataset.c; renderPinColors(); // the editor's click keeps the draft
+  }));
+  /** The colour a survey pin shows: its own, or red for proposed / new and navy blue for existing (null: the usual colours). */
+  const pinCol = (p) => (p && MCOL[p.color] ? MCOL[p.color] : null);
   function renderSwatches() {
     if (!boxer) return; const m = boxer.marks[boxer.sel], c = m ? m.c || 'red' : boxer.color;
     document.querySelectorAll('#boxColors .sw').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.c === c)));
@@ -3901,7 +3994,7 @@
     const el = ed.element;
     if (!ed.acc) { // survey point
       const isNew = ed.mode !== 'edit', nm = el === 'Pole' ? 'pole' : el;
-      $('editorTitle').textContent = `${isNew ? 'New' : 'Edit'} ${nm}`;
+      $('editorTitle').textContent = ed.mapPin ? `New ${({ Pole: ed.status === 'Proposed' ? 'proposed pole' : 'pole', Site: 'site / tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole' })[el] || el} on the map` : `${isNew ? 'New' : 'Edit'} ${nm}`; // v2.36
       $('idLabel').textContent = el === 'Site' ? 'SITE NAME / ID' : `${el.toUpperCase()} ID`;
       const sts = svStatuses(el); if (!sts.includes(ed.status)) ed.status = svDefaultStatus(el);
       $('poleId').placeholder = { Pole: ed.status === 'Proposed' ? 'e.g. PP-0001' : 'e.g. CC-0001', ODF: 'e.g. FDU_100', Site: 'e.g. MIN2463 or the site name', ODC: 'e.g. ODC-01', NAP: 'e.g. NAP-0001', Closure: 'e.g. CL-0001', Handhole: 'e.g. HH-0001' }[el];
@@ -4471,7 +4564,7 @@
   });
   $('edClose').addEventListener('click', () => { if (ed && !ed.closeOK && edDirty()) { askLeaveEditor(); return; } closeSheet(); }); // v2.21
   $('edPhoto').addEventListener('click', () => {
-    if (!ed) return;
+    if (!ed || !(ed.newBlob || ed.srcBlob)) return;
     showBlob(ed.newBlob || ed.srcBlob, `${$('poleId').value || ''} · ${$('edTime').textContent}`);
     if (!ed.acc) { // survey photo: mark it here (red box, model pole); marks stay editable
       $('pvTools').hidden = false; const n = (ed.marks || []).length, pp = proposedPole();
@@ -4559,7 +4652,7 @@
     pinMap.setView([g.lat, g.lon], Math.max(pinMap.getZoom(), 19)); ed.userMoved = false;
   });
   $('edRetake').addEventListener('click', async () => {
-    if (ed.mode === 'edit') { openCamera('replace'); return; }
+    if (ed.mode === 'edit' || ed.mapPin) { openCamera('replace'); return; } // v2.36: a map pin keeps its place and name
     const nd = ed.noDef; ed.closeOK = true; await closeSheet(); openCamera(nd ? 'nodef' : 'new');
   });
   $('edDelete').addEventListener('click', () => { $('delName').textContent = $('poleId').value || 'this pole'; $('delConfirm').hidden = false; $('delConfirm').scrollIntoView({ block: 'nearest' }); });
@@ -4626,7 +4719,9 @@
         accuracy: g && Number.isFinite(g.acc) ? g.acc : null,
         alt: g && Number.isFinite(g.alt) ? g.alt : null,
         adjusted: g ? haversine(g, pos) > 0.5 : true,
+        color: ed.color || '', // v2.36: the pin's own colour ('' = by its status)
       });
+      if (!rec.color) delete rec.color;
       const photos = [];
       if (ed.newBlob) {
         busy('Preparing photo…');
@@ -4967,9 +5062,10 @@
     }
     if (isAcc() || svPurpose() !== 'As-plan') return [];
     const pts = projPoints(), g = asPlanParts(pts), poles = pts.filter((p) => elemOf(p) === 'Pole'), out = [];
-    if (!poles.length) out.push('the poles, each with a photo');
+    if (!poles.length) out.push('the poles, each existing one with a photo');
     let noPic = 0;
-    for (const p of poles) { const ph = await dbGet('photos', p.id).catch(() => null); if (!ph || !(ph.clean || ph.thumb)) noPic++; }
+    // v2.36: a proposed pole placed on the map may have no photo (it is not there yet)
+    for (const p of poles.filter((q) => !['Proposed', 'New'].includes(q.status))) { const ph = await dbGet('photos', p.id).catch(() => null); if (!ph || !(ph.clean || ph.thumb)) noPic++; }
     if (noPic) out.push(`a photo of ${noPic} pole${noPic === 1 ? '' : 's'}`);
     if (!g.site) out.push('the site (new or existing)');
     if (!g.odf) out.push('the ODF or ODC location');
@@ -6099,10 +6195,10 @@
   function matCode(p) { if (/^NPT/i.test(p.poleId || '')) return 'NPT'; const t = poleTypes().find((x) => x.n === p.poleType); return t ? t.p : ''; }
   /** v2.32: the picture of the VICINITY MAP sheet: the street map in use (tiles already seen on this phone first) over the vicinity
       square, turned to the UTM grid of the drawing, as a JPEG. Null when offline or when too much of the map does not come. */
-  async function vicinityJpeg(cE, cN, size, zone, south, progress) {
+  async function vicinityJpeg(cE, cN, size, zone, south, progress, source) {
     const say = progress || (() => {});
     if (navigator.onLine === false) return null;
-    const PX = 1800, h = size / 2, src = streetSource();
+    const PX = 1800, h = size / 2, src = source || streetSource(), sat = src.id === 'sat'; // v2.36: or the satellite imagery (never kept on the phone: Esri terms)
     const ll = [[cE - h, cN + h], [cE + h, cN + h], [cE - h, cN - h]].map(([E, N]) => C.utmInverse(E, N, zone, south)); // top left, top right, bottom left
     const merc = (la, lo, z) => { const n = 256 * 2 ** z, s = Math.sin(la * Math.PI / 180); return [(lo + 180) / 360 * n, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n]; };
     let z = Math.min(17, src.max || 17), m, tx0, tx1, ty0, ty1;
@@ -6118,6 +6214,7 @@
     // server switching is left alone); stops as soon as too many are missing for a usable picture
     const maxMiss = Math.floor(jobs.length * 0.15); let got = 0, miss = 0;
     const one = async (j) => {
+      if (sat) { if (miss > maxMiss) return null; try { return await getTileBlob(src.url.replace('{z}', z).replace('{x}', j.x).replace('{y}', j.y), NATIVE); } catch (e) { return null; } }
       const k = `${src.key}/${z}/${j.x}/${j.y}`; let hit = null;
       try { hit = await dbGet('tiles', k); } catch (e) { /* no cache */ }
       if (hit && hit.blob && Date.now() - (hit.t || 0) < TILE_KEEP_MS) return hit.blob;
@@ -6128,7 +6225,7 @@
       } catch (e) { return hit ? hit.blob : null; }
     };
     // six at a time, its own queue (the map's tile queue waits while the busy screen shows)
-    say(`Getting the vicinity map (${jobs.length} map tiles)…`, 0);
+    say(`Getting the vicinity map (${jobs.length} ${sat ? 'satellite' : 'map'} tiles)…`, 0);
     let next = 0;
     const worker = async () => { while (next < jobs.length) { const j = jobs[next++]; j.blob = await one(j).catch(() => null); if (!j.blob || !j.blob.size) miss++; got++; say(`Getting the vicinity map (${got} / ${jobs.length})…`, got / jobs.length); } };
     await Promise.all(Array.from({ length: Math.min(6, jobs.length) }, worker));
@@ -6145,8 +6242,49 @@
     }
     g.setTransform(1, 0, 0, 1, 0, 0);
     const jpg = new Uint8Array(await (await toBlob(cv, 0.85)).arrayBuffer());
-    LOG.info('plan.vicinity', { tiles: jobs.length, ok: ok.length, z, kb: Math.round(jpg.length / 1024) });
-    return { jpg, px: PX, py: PX, z, credit: src.attr || '© OpenStreetMap contributors' };
+    LOG.info('plan.vicinity', { src: src.id, tiles: jobs.length, ok: ok.length, z, kb: Math.round(jpg.length / 1024) });
+    return { jpg, px: PX, py: PX, z, sat, credit: sat ? ESRI_CREDIT() : src.attr || '© OpenStreetMap contributors' };
+  }
+  /** v2.36: Esri's caption for its map pictures in a report for a client (doc.arcgis.com: terms of use for static maps). */
+  const ESRI_CREDIT = () => `Map image is the intellectual property of Esri and is used herein under license. Copyright © ${new Date().getFullYear()} Esri and its licensors. All rights reserved.`;
+  /** v2.36: the vicinity map from the offline map pack on this phone (no internet): the pack drawn by protomaps for the area's
+      square, turned and fitted to UTM like the map tiles. null when no pack covers the area. */
+  async function vicinityFromPack(cE, cN, size, zone, south) {
+    const id = activePackId(); if (!id || !window.protomapsL || !window.protomapsL.Static) return null;
+    const pk = S.packs[id], PX = 1800, h = size / 2;
+    const ll = [[cE - h, cN + h], [cE + h, cN + h], [cE - h, cN - h]].map(([E, N]) => C.utmInverse(E, N, zone, south));
+    const ctr = C.utmInverse(cE, cN, zone, south), b = pk.bbox;
+    if (b && !(ctr[1] >= b[0] && ctr[1] <= b[2] && ctr[0] >= b[1] && ctr[0] <= b[3])) return null; // the pack does not cover it
+    const merc = (la, lo, z) => { const n = 256 * 2 ** z, s = Math.sin(la * Math.PI / 180); return [(lo + 180) / 360 * n, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n]; };
+    const img = await packPicture(id, ll, 2400); if (!img) return null;
+    const m = ll.map(([la, lo]) => merc(la, lo, img.z));
+    const cv = document.createElement('canvas'); cv.width = cv.height = PX; const g = cv.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, PX, PX); g.imageSmoothingQuality = 'high';
+    const ux = m[1][0] - m[0][0], uy = m[1][1] - m[0][1], vx = m[2][0] - m[0][0], vy = m[2][1] - m[0][1], det = ux * vy - vx * uy;
+    const a = PX * vy / det, c = -PX * vx / det, bb = -PX * uy / det, d = PX * ux / det;
+    g.setTransform(a, bb, c, d, -(a * m[0][0] + c * m[0][1]), -(bb * m[0][0] + d * m[0][1]));
+    g.drawImage(img.canvas, img.x0, img.y0); g.setTransform(1, 0, 0, 1, 0, 0);
+    const jpg = new Uint8Array(await (await toBlob(cv, 0.85)).arrayBuffer());
+    LOG.info('plan.vicinity', { src: 'pack', z: img.z, kb: Math.round(jpg.length / 1024) });
+    return { jpg, px: PX, py: PX, z: img.z, credit: `Offline map ${pk.name}: © OpenStreetMap contributors · Protomaps` };
+  }
+  /** v2.36: an offline map pack drawn (protomaps) over the Web Mercator box round the corners ll [[lat, lon], …], at the most
+      detailed zoom whose picture stays within maxPx: { canvas, z, x0, y0 } (x0, y0: the picture's top left in world pixels). */
+  async function packPicture(id, ll, maxPx) {
+    const pk = S.packs[id]; if (!pk) return null;
+    const merc = (la, lo, z) => { const n = 256 * 2 ** z, s = Math.sin(la * Math.PI / 180); return [(lo + 180) / 360 * n, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n]; };
+    let z = 19, box = null;
+    for (; z >= 8; z--) {
+      const m = ll.map(([la, lo]) => merc(la, lo, z)); if (ll.length === 3) m.push([m[1][0] + m[2][0] - m[0][0], m[1][1] + m[2][1] - m[0][1]]);
+      box = [Math.min(...m.map((q) => q[0])), Math.min(...m.map((q) => q[1])), Math.max(...m.map((q) => q[0])), Math.max(...m.map((q) => q[1]))];
+      if (box[2] - box[0] <= maxPx && box[3] - box[1] <= maxPx) break;
+    }
+    const W = Math.ceil(box[2] - box[0]), H = Math.ceil(box[3] - box[1]), n = 256 * 2 ** z, cx = (box[0] + box[2]) / 2, cy = (box[1] + box[3]) / 2;
+    const lng = cx / n * 360 - 180, lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * cy / n))) * 180 / Math.PI;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d'); if (!g) return null;
+    const st = new window.protomapsL.Static({ url: new window.protomapsL.PMTiles(new PackSource(id)), flavor: 'light', lang: 'en', maxDataZoom: pk.maxzoom || 15 });
+    await withTimeout(st.drawContext(g, W, H, { x: lng, y: lat }, z), 60000, 'the offline map took too long to draw');
+    return { canvas: cv, z, x0: cx - W / 2, y0: cy - H / 2 };
   }
   /** v2.34: the vicinity map drawn as a street map from the OpenStreetMap roads the export already has (online or from an offline
       map pack), when the map tiles do not come: land, roads with their casing by class, footpaths, street names. Same square and
@@ -6236,7 +6374,8 @@
       return { id: p.id, poleId: p.poleId || '', el, status: p.status || '', mat: el === 'Pole' ? (TELCO_TYPES.has(pre) ? '' : pre) : '', tag: el === 'Pole' ? (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId) : '',
         telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: b.clamp || '',
         armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon,
-        mloop: !!(p.mloop || b.mloop), nap: !!p.nap, napId: p.napId || '', closure: !!p.closure, closureId: p.closureId || '', siteName: el === 'Site' ? (m.site || '') : '', plaId: '' }; });
+        mloop: !!(p.mloop || b.mloop), nap: !!p.nap, napId: p.napId || '', closure: !!p.closure, closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
+        adjusted: !!p.adjusted, color: p.color || '' }; }); // v2.36: a pin set by hand stays where it is on the drawing; a map pin's colour
     const spans = R.spans.map((s) => ({ ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long }));
     const runs = C.routeChains(R.spans).map((ch) => ({ cable: ch.cable, label: CAB_TITLE[ch.cable] || '', pts: ch.pts.map(U) }));
     // the area of the vicinity map: three times the route, at least 1.5 km
@@ -6297,11 +6436,14 @@
       let dim; try { dim = window.PoleReports.jpegInfo(jpg); } catch (e) { continue; }
       const file = `${names[poles[i].id]}.jpg`; photos[poles[i].id] = { file, px: dim.w, py: dim.h }; files.push({ name: file, data: jpg });
     }
-    let vicImage = null, vicDrawn = false;
+    let vicImage = null, vicDrawn = false, vicKind = 'street';
     try {
-      let v = await vicinityJpeg(cE, cN, size, zone, cla < 0, busy);
+      // v2.36: online, the satellite picture (else the street map); offline, the offline map pack; else a street map drawn from the roads
+      let v = navigator.onLine === false ? null : await vicinityJpeg(cE, cN, size, zone, cla < 0, busy, SAT_SOURCE).catch((e) => { LOG.warn('plan.vicinity.sat', errInfo(e)); return null; });
+      if (!v) v = await vicinityJpeg(cE, cN, size, zone, cla < 0, busy);
+      if (!v) { busy('Drawing the vicinity map from the offline map…'); v = await vicinityFromPack(cE, cN, size, zone, cla < 0).catch((e) => { LOG.warn('plan.vicinity.pack', errInfo(e)); return null; }); if (v) vicKind = 'pack'; }
       if (!v && roads.length) { v = await vicinityFromRoads(roads, cE, cN, size); vicDrawn = !!v; } // v2.34: no map tiles: a street map drawn from the roads
-      if (v) { vicImage = { file: 'VICINITY_MAP.jpg', px: v.px, py: v.py, credit: v.credit }; files.push({ name: 'VICINITY_MAP.jpg', data: v.jpg }); }
+      if (v) { if (v.sat) vicKind = 'sat'; vicImage = { file: 'VICINITY_MAP.jpg', px: v.px, py: v.py, credit: v.credit, sat: !!v.sat }; files.push({ name: 'VICINITY_MAP.jpg', data: v.jpg }); }
     } catch (e) { LOG.warn('plan.vicinity', errInfo(e)); }
     // v2.34: the vendor's logo in every title block (set in Export → AutoCAD · DXF, shared with the company's users through the sheet)
     let logo = null;
@@ -6314,7 +6456,7 @@
     const nPh = Object.keys(photos).length;
     const readme = [`${name}.dxf — the plan on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres.`,
       files.length ? 'UNZIP EVERYTHING INTO ONE FOLDER, then open the DXF: the pictures (pole photos, vicinity map) are linked by file name and must stay next to the DXF.' : '',
-      `Pole photos: ${nPh} of ${poles.length} poles (a pole without a photo shows its number). Vicinity map: ${vicImage ? (vicDrawn ? 'street map VICINITY_MAP.jpg drawn from the OpenStreetMap roads (the map tiles did not come)' : `street map picture VICINITY_MAP.jpg (${vicImage.credit})`) : 'no picture (no map tiles and no roads): the roads are drawn instead'}.`,
+      `Pole photos: ${nPh} of ${poles.length} poles (a pole without a photo shows its number). Vicinity map: ${vicImage ? (vicDrawn ? 'street map VICINITY_MAP.jpg drawn from the OpenStreetMap roads (the map tiles did not come)' : `${vicKind === 'sat' ? 'satellite picture' : vicKind === 'pack' ? 'offline map picture' : 'street map picture'} VICINITY_MAP.jpg (${vicImage.credit})`) : 'no picture (no map tiles and no roads): the roads are drawn instead'}; the project area circled.`,
       `Title blocks: ${known ? `${[sName, sPla].filter(Boolean).join('_')} / ${sSerial || '(no serial number)'} from the online sheet's project details` : 'no project details from the online sheet: the project\'s location text is used'}; company ${logo ? 'logo COMPANY_LOGO' : 'name (no logo set)'}; title ${m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN'}.`,
       'Cables: red = new fiber, blue = existing; broken line = aerial, solid line = underground.',
       `Sheets: TITLE, TOC, LEGENDS, VICINITY MAP, ROW AREA COVERAGE, KEYMAP, ${rp.sheets.join(', ')}, PMI.`,
@@ -10081,7 +10223,7 @@
   if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__polecam = { get points() { return points; }, get S() { return S; }, get map() { return map; }, planRoads, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
+  window.__polecam = { get points() { return points; }, get S() { return S; }, get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
     surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads }; // for testing
 })();

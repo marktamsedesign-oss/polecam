@@ -479,6 +479,7 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 body.kb .sheet{bottom:var(--kb,0px)}
 #boxModes{display:flex;flex-wrap:wrap;gap:6px;padding:8px 16px 0;align-items:center}#boxModel{flex:1 1 100%;min-width:0;min-height:38px}
 #boxModes .tool{width:44px;height:40px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);padding:0}#boxModes .tool svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}#boxModes .tool[aria-pressed="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
+#svColors{display:flex;gap:8px;align-items:center;flex-wrap:wrap}#svColors .sw{width:30px;height:30px;border-radius:50%;border:3px solid var(--surface);background:var(--c);box-shadow:0 0 0 1px var(--line);padding:0}#svColors .sw[aria-pressed="true"]{box-shadow:0 0 0 2px var(--ink)}#svColors .sw.auto{background:conic-gradient(#e03131 0 50%,#1c3f94 0);color:#fff;font:700 12px/1 system-ui,sans-serif}
 #boxModes .tsep{flex:1}#boxColors{display:flex;gap:6px}#boxColors .sw{width:30px;height:30px;border-radius:50%;border:3px solid var(--surface);background:var(--c);box-shadow:0 0 0 1px var(--line);padding:0}#boxColors .sw[aria-pressed="true"]{box-shadow:0 0 0 2px var(--ink)}
 .boqsel{width:100%;min-height:42px}
 .admusers{display:flex;flex-direction:column;gap:4px}.admusers div{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:var(--bg)}.admusers b{font-size:calc(14px * var(--fs))}.admusers span{font-size:calc(12.5px * var(--fs));color:var(--muted)}
@@ -633,6 +634,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <button id="legendBtn" type="button" aria-expanded="false" aria-controls="legend">Legend</button>
   <div id="legend" hidden role="note" aria-label="Map legend"></div>
   <div class="mapbtns">
+    <button class="round" id="pinAddBtn" type="button" hidden aria-label="Add a pin on the map: proposed pole, site or tower, ODC, ODF or handhole" title="Add a pin on the map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.8-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 15.2 12 21 12 21Z"/><path d="M12 6.8v6M9 9.8h6"/></svg></button>
     <button class="round" id="routeBtn" aria-label="Edit cable route and spans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="18" r="2.2"/><circle cx="12" cy="7" r="2.2"/><circle cx="19" cy="15" r="2.2"/><path d="m6.4 16.2 4.3-7.4M13.6 8.6l4.2 4.9"/></svg></button>
     <button class="round" id="offlineBtn" hidden aria-label="Maps: online server and offline packs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18"/><path d="M12 11v9M8.5 16.5 12 20l3.5-3.5"/></svg></button>
     <button class="round" id="refBtn" type="button" aria-label="Reference KMZ: load it, or show and hide it"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg><i class="refdot" aria-hidden="true"></i></button>
@@ -744,6 +746,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <h3 id="idGroupTitle">Identification</h3>
       <p class="foldsum" id="idGroupSum"></p>
       <label class="frow" id="svStatusBox" hidden><span class="lbl">STATUS</span><select id="svStatus" aria-label="Status"></select></label>
+      <div class="frow" id="svColorBox" hidden><span class="lbl">PIN COLOUR</span><span id="svColors" role="group" aria-label="Pin colour"><button type="button" class="sw auto" data-c="" aria-label="Automatic: red when proposed or new, navy blue when existing" title="Automatic (by status)" aria-pressed="true">A</button><button type="button" class="sw" data-c="red" aria-label="Red" title="Red" aria-pressed="false" style="--c:#e03131"></button><button type="button" class="sw" data-c="navy" aria-label="Navy blue" title="Navy blue" aria-pressed="false" style="--c:#1c3f94"></button><button type="button" class="sw" data-c="green" aria-label="Green" title="Green" aria-pressed="false" style="--c:#2f9e44"></button><button type="button" class="sw" data-c="orange" aria-label="Orange" title="Orange" aria-pressed="false" style="--c:#e8590c"></button></span></div>
       <div class="pair" id="elemTypeRow">
         <label class="field" id="accElementBox" hidden><span class="lbl">ELEMENT</span><select id="elemSel" aria-label="Element"></select></label>
         <label class="field" id="surveyTypeBox"><span class="lbl">TYPE</span><select id="typeSel" aria-label="Pole type"></select></label>
@@ -828,7 +831,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </header>
   <div id="drawWrap"><canvas id="drawCanvas" aria-label="Drawing of the project: poles, route and spans"></canvas><div id="drawInfo" hidden></div></div>
   <p class="hint" id="drawHint" style="margin:0;padding:8px 16px"></p>
-  <div class="foot"><button class="btn" id="drawFit" type="button">Fit</button><button class="btn" id="drawLabels" type="button" aria-pressed="true">Labels</button><button class="btn primary grow" id="drawDxf" type="button">Export DXF</button></div>
+  <div class="foot"><button class="btn" id="drawFit" type="button">Fit</button><button class="btn" id="drawLabels" type="button" aria-pressed="true">Labels</button><button class="btn" id="drawMap" type="button" aria-pressed="false" title="The map under the drawing, to check where the pins are">Map</button><button class="btn primary grow" id="drawDxf" type="button">Export DXF</button></div>
 </section>
 <!-- v2.28: find a pin -->
 <section class="sheet" id="find" hidden aria-labelledby="findTitle">

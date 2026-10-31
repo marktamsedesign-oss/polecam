@@ -530,6 +530,17 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.36.0
+
+From your review of the plan DXF and its PDF:
+
+- **Poles placed by hand stay where you put them:** a proposed pole, or any pin you dragged, is drawn exactly at its pin (e.g. inside a property to reach a site), unless the pin is on the road itself. Poles straight from the GPS beside a road are still tidied beside it.
+- **Legend beside the drawing:** in AutoCAD's Model tab, the legend, the ROW table and the project management table now sit in a row just below the plan instead of about 1,100 km away. The plan stays at its true UTM coordinates. The sheets show exactly what they showed before.
+- **The cable stays a broken line in any PDF:** its thickness is now a line weight (0.70 mm) instead of a polyline width. PDF converters other than AutoCAD (such as the one used for the review PDF) drew a wide polyline solid. The legend's cable samples are drawn the same way, and line weights show on screen.
+- **Vicinity map:** the satellite picture of the area when online, with Esri's credit line printed on it (Esri allows its map pictures in reports for a client with that line). With no internet it uses the offline map pack, then a street map drawn from the roads. The route is red on a white band, with a dot at each pole, and the area is circled and marked **PROJECT AREA**.
+- **Pins placed on the map:** a new **pin +** button on the map (survey projects) adds a proposed pole, a site or tower, an ODC, an ODF or a handhole where you place it, with its name and a **pin colour**: automatic, red, navy blue, green or orange. A photo is optional (**Add photo** in the record, now or later). The route links these pins like poles. The plan DXF draws them with the template's models exactly where they are placed, with the name in the pin's colour. A homing site or ODC is a site or ODC with Status Existing at the start or end of the route.
+- **Drawing over the map:** **Map** on the Drawing screen shows the map in use (street map, satellite or offline map pack) under the drawing, to check that the pins and the route sit where they should.
+
 ## What changed in v2.35.7
 
 - **iPhone offline map blank close up: found and fixed.** The iPhone's App log showed "Failed to Decode Data." for every map tile at zoom 13 and closer. The cause is a bug in Safari 26 and 27 (every browser on an iPhone uses Safari's engine): when the app saves part of a block of data to a file, Safari saves the whole block. A map pack is kept as 8 MB part files, so the piece of the download that crossed from one part to the next was saved whole on both sides, and every part after the first began with bytes that belong to the part before it. The first 8 MB (the overview levels) drew; everything past it (every close-up level) was read from the wrong place. Road packs were hit the same way (the barangay boundaries and the roads past the first 8 MB). Android was never affected.
