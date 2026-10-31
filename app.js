@@ -677,7 +677,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.35.1';
+  const APP_VER = '2.35.3';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -967,11 +967,31 @@
     const id = activePackId();
     if (!id || !window.protomapsL) return null;
     const p = S.packs[id], b = p.bbox;
-    return window.protomapsL.leafletLayer({
+    const lyr = window.protomapsL.leafletLayer({
       url: new window.protomapsL.PMTiles(new PackSource(id)), flavor: 'light', lang: 'en',
       maxDataZoom: p.maxzoom || 15, maxZoom: 21, bounds: b ? [[b[1], b[0]], [b[3], b[2]]] : undefined,
+      devicePixelRatio: Math.min(2, window.devicePixelRatio || 1), // v2.35.3: 3x phones (iPhones) draw at 2x: half the memory, quicker
       attribution: 'Offline map © OpenStreetMap contributors · Protomaps',
     });
+    tuneOverzoom(lyr, p.maxzoom || 15);
+    return lyr;
+  }
+  /** v2.35.3: a pack holds every road, building and name at zoom 15 (the Protomaps build stops there); closer zooms enlarge
+      that data. The style stopped widening roads at zoom 18, so close up they were hairlines, and past zoom 19 the library
+      spread street names so far apart that none were on screen. Here roads keep widening with the zoom like real roads
+      (x2 per zoom level), and street names come a little closer together past zoom 18 instead of spreading out. */
+  function tuneOverzoom(lyr, dz) {
+    const wrap = (attr, get) => Object.assign(Object.create(Object.getPrototypeOf(attr)), attr, { get });
+    for (const r of lyr.paintRules || []) {
+      const s = r.symbolizer, w = s && s.width;
+      if (r.dataLayer !== 'roads' || !w || typeof w.get !== 'function') continue;
+      s.width = wrap(w, (z, f) => { const v = w.get(Math.min(z, 18), f); return z > 18 ? v * 2 ** (z - 18) : v; });
+    }
+    for (const r of lyr.labelRules || []) {
+      const s = r.symbolizer, rd = s && s.repeatDistance;
+      if (!rd || typeof rd.get !== 'function') continue;
+      s.repeatDistance = wrap(rd, (z, f) => { const v = rd.get(z, f) * (z > 18 ? 0.6 : 1), oz = z - dz; return oz > 4 ? v / 2 ** (oz - 4) : v; }); // the library multiplies by 2^(oz-4); close up a name every ~150 px
+    }
   }
 
   /* ================= main map ================= */
@@ -6832,9 +6852,12 @@
   const tutTopics = () => ((window.GESAA_TUTORIAL && window.GESAA_TUTORIAL.topics) || []).filter((t) => t && Array.isArray(t.steps) && (t.aud === 'user' || (t.aud === 'admin' && tutAdmin())));
   const tutWait = (ms) => new Promise((r) => setTimeout(r, ms));
   /** Text with **bold**, *italic* and the search words marked, built from text nodes only. */
+  /** v2.35.1: {site} in a tutorial step = this website's address for a Google Cloud website restriction (the site part, then /*). */
+  const tutSite = () => { try { const b = webBase(); return b ? `${new URL(b).origin}/*` : ''; } catch (e) { return ''; } };
   function tutRich(el, text, words) {
     el.textContent = '';
     const mark = (host, str) => {
+      if (str.includes('{site}')) str = str.replace(/\{site\}/g, tutSite() || 'https://<your website>/*'); // after the bold / italic split: its * is not markup
       if (!words || !words.length) { host.appendChild(document.createTextNode(str)); return; }
       const re = new RegExp(`([\\w'’-]*(?:${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})[\\w'’-]*)`, 'ig'); // the whole word
       str.split(re).forEach((x, i) => { if (!x) return; if (i % 2) { const m = document.createElement('mark'); m.textContent = x; host.appendChild(m); } else host.appendChild(document.createTextNode(x)); });
@@ -9713,7 +9736,7 @@
   if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__polecam = { get points() { return points; }, get S() { return S; }, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
+  window.__polecam = { get points() { return points; }, get S() { return S; }, get map() { return map; }, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
     surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads }; // for testing
 })();

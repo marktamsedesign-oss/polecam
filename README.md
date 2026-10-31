@@ -529,6 +529,16 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.35.3
+
+- **Offline map close up:** a map pack holds every road, building and name at zoom 15 (the Protomaps build stops there); closer zooms are drawn by enlarging that data. Past zoom 18 the roads now keep widening like real roads (they stayed hairline-thin at 19–21) and street names stay on screen at zoom 19–21 (the drawing library spread them so far apart that none showed). Zoom 15–18 look as before.
+- iPhones and other 3x screens draw the offline map at 2x: about half the memory, quicker to draw.
+- No change to the map packs or the QGIS plugin: packs made at max zoom 15 already hold all the detail there is.
+
+## What changed in v2.35.2
+
+- **Admin guide** (Tutorial → Admin guide): every admin setting, how to set it up and how to remove it. New topics: *One-tap Download: Google Drive API key (step by step)*, with this website's address filled in for the Google Cloud restriction, and *Remove or undo admin settings*, every removal in one place.
+
 ## What changed in v2.35.1
 
 - **One-tap Download on the website and iPhones:** the admin pastes a **Google Drive API key** once (Settings → Administration → Offline map packs; made free in Google Cloud, restricted to the Google Drive API and this website). Each Drive pack (road pack or map pack) then has a **Download** button on every phone: the app fetches the file through the Google Drive API in 4 MB pieces (**Resume** after a dropped connection) and puts it to use at once: a road pack for the plan drawings, a map pack as the offline map in use. No more Open in Drive → download → Import a pack file. Without a key, the website works as in v2.35.0.
