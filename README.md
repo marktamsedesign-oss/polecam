@@ -374,6 +374,7 @@ Edit the files, change `VERSION` in `sw.js` (e.g. `polecam-v2.1.1`), and upload 
 | `tutorial.js` | The Tutorial's topics and steps (v2.25) |
 | `dxftpl.js` | The plan DXF on the company template (v2.30): fills a copy of the seed with the survey; loaded only when that export is made |
 | `tools/dxf-seed/` | Makes the seed from the company's AutoCAD template, fills it for checks, and checks a DXF's structure (Python); not needed by the app |
+| `tools/landmark-icons/` | Makes `vendor/icons` (landmark icons for the offline map and the AutoCAD blocks) from OpenStreetMap Carto and Mapbox Maki (both CC0); not needed by the app |
 | `tools/osm-pack/` | Makes the road packs (v2.35) from the Geofabrik OpenStreetMap shapefile, with an optional barangay boundary file (Python, standard library only); not needed by the app |
 | `sample/G-eSAA_sample.zip` | The sample project a new phone gets (v2.26) |
 | `glyphs.js` | The ID reader's character network (v2.20): its weights, about 140 KB; read by `core.js` |
@@ -528,6 +529,26 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.35.6
+
+- **Landmark icons, as on the OpenStreetMap street map:** every kind of place in the map packs (about 300 kinds) has the icon of the openstreetmap.org street map (OpenStreetMap Carto), or of Mapbox Maki where the street map has none (schools, colleges, covered courts, groceries…), in the street map's colours: red health, brown public services, schools and banks, black places of worship (by religion: church, mosque, Buddhist and Taoist temples…), blue transport and lodging, orange food, purple shops, green sport and parks. The name is in dark text beside it. Kinds with no icon keep a small dot. Both icon sets are public domain (CC0 1.0); see `vendor/icons/LICENSE-icons.txt`.
+- **The icons in the plan drawing (Export → AutoCAD · DXF):** each landmark placed on the plan gets its icon as an AutoCAD block (`GESAA_LM_…`, solid hatches in the icon's colours, 4 m wide) at the place, on its own layer **G-ESAA LANDMARK**, with the name beside it. A block is made once per icon and inserted for each place; turn the layer off to hide them all. Road pack landmarks (Geofabrik classes such as christian_catholic, market_place) get their icons too.
+- `tools/landmark-icons/build_icons.py` makes `vendor/icons` (the kinds and colours, the icon picture for the map, the fills for the blocks) from the two icon sets; it checks each icon's fills against the original.
+
+## What changed in v2.35.5
+
+- **Landmarks on the offline map:** the map packs hold the named places of OpenStreetMap (schools, churches, health centres, government offices, banks and pawnshops, gas stations, covered courts, markets, malls, shops, restaurants…), but the map style drew none. They now show as a coloured dot and the name, each from the zoom it belongs to (zoom 15 to 18): purple schools, brown churches, red health, blue government, green banks, teal transport and fuel, olive sports and parks, orange shops, food and the rest. Subdivision and compound names show in grey italics.
+- **Landmarks in the plan drawing (Export → AutoCAD · DXF) without a road pack:** taken from the map pack's most detailed level (zoom 15), which holds about four times the named places of zoom 14 that was read before. Schools, churches, health, government, banks and transport are placed first, shops and food after. With a road pack on the phone, the road pack's landmarks are used as before.
+- **iPhone offline map:** when a part of the offline map cannot be drawn, the app now says why on screen (and in Settings → App log), so the cause can be found. On Android the same packs draw close up as they should.
+
+## What changed in v2.35.4
+
+- **Offline map blank close up:** a map pack whose download stopped part way, or a file that arrived cut short and was imported, still showed the map up to zoom 15, because the most detailed level (zoom 15, used for every closer zoom) fills the last ~85% of the file; close up the map was blank. The app now checks every pack against the size its own header asks for (and that the stored data is all there):
+  - an incomplete file is refused at import, with what arrived and what it should be;
+  - a download that ends incomplete is not kept, and says so;
+  - packs already on the phone are checked once after the update: an incomplete one shows **INCOMPLETE: X of Y MB** in Maps with **Download again**, and the app says so when it is the map in use (or a road pack).
+- The five map packs made on 30 Oct 2026 were checked on the computer: all complete.
 
 ## What changed in v2.35.3
 

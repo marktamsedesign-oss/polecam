@@ -671,6 +671,47 @@
     d.index(); Object.assign(S, structure(d));
     return true;
   }
+  /** v2.35.6: the nearest AutoCAD colour index of an RGB colour (the hatches also carry the colour itself, group 420). */
+  const ACI = [[1, 255, 0, 0], [2, 255, 255, 0], [3, 0, 255, 0], [4, 0, 255, 255], [5, 0, 0, 255], [6, 255, 0, 255], [8, 128, 128, 128], [9, 192, 192, 192],
+    [32, 204, 102, 0], [34, 153, 76, 0], [36, 127, 63, 0], [94, 0, 153, 0], [96, 0, 127, 0], [140, 0, 191, 255], [150, 0, 127, 255], [151, 127, 191, 255],
+    [212, 204, 0, 204], [214, 153, 0, 153], [254, 212, 212, 212]];
+  function aciOf(rgb) {
+    const r = rgb >> 16, g = (rgb >> 8) & 255, b = rgb & 255;
+    if (Math.max(r, g, b) < 60) return 7; // black: AutoCAD's black / white
+    let best = 7, bd = Infinity; for (const [c, R, G, B] of ACI) { const dd = (r - R) ** 2 + (g - G) ** 2 + (b - B) ** 2; if (dd < bd) { bd = dd; best = c; } }
+    return best;
+  }
+  /** v2.35.6: new blocks made of solid fills (the landmark icons). list: [{ name, icon: { w, h, f: [{ c: '#RRGGBB', l: [[x, y, …], …] }] } }],
+      icon units with y down; each block is drawn 1 unit wide, centred on its base point. Each fill is one HATCH: its first loop the
+      outline, the next ones its holes (filled odd-even). */
+  function fillBlocks(d, S, list) {
+    const T = d.sec('TABLES').recs, B = d.sec('BLOCKS').recs, tb = T.find((r) => typ(r) === 'TABLE' && get(r, 2) === 'BLOCK_RECORD');
+    if (!tb) return 0; let n = 0;
+    for (const { name, icon } of list) {
+      if (S.blocks.has(name) || !icon || !Array.isArray(icon.f)) continue;
+      const brH = d.newHandle(), k = 1 / Math.max(icon.w || 1, icon.h || 1), cx = (icon.w || 0) / 2, cy = (icon.h || 0) / 2;
+      const brec = [[0, 'BLOCK_RECORD'], [5, brH], [330, get(tb, 5)], [100, 'AcDbSymbolTableRecord'], [100, 'AcDbBlockTableRecord'], [2, name], [340, '0'], [70, I(0)], [280, I(1)], [281, I(0)]];
+      const last = T.reduce((q, r, i) => (typ(r) === 'BLOCK_RECORD' ? i : q), -1); T.splice(last + 1, 0, brec);
+      setFirst(tb, 70, I(parseInt(get(tb, 70, '0'), 10) + 1));
+      const ents = icon.f.filter((f) => f.l && f.l.length && f.l[0].length >= 6).map((f) => {
+        const rgb = parseInt(String(f.c || '#000000').slice(1), 16) || 0;
+        const r = [[0, 'HATCH'], [5, d.newHandle()], [330, brH], [100, 'AcDbEntity'], [8, '0'], [62, I(aciOf(rgb))], [420, I(rgb)], [100, 'AcDbHatch'],
+          [10, '0.0'], [20, '0.0'], [30, '0.0'], [210, '0.0'], [220, '0.0'], [230, '1.0'], [2, 'SOLID'], [70, I(1)], [71, I(0)], [91, I(f.l.length)]];
+        f.l.forEach((L, j) => {
+          const m = Math.floor(L.length / 2); r.push([92, I(j ? 6 : 7)], [72, I(0)], [73, I(1)], [93, I(m)]);
+          for (let i = 0; i < m; i++) r.push([10, F((L[2 * i] - cx) * k)], [20, F((cy - L[2 * i + 1]) * k)]);
+          r.push([97, I(0)]);
+        });
+        r.push([75, I(0)], [76, I(1)], [47, '0.001'], [98, I(1)], [10, '0.0'], [20, '0.0']);
+        return r;
+      });
+      B.push([[0, 'BLOCK'], [5, d.newHandle()], [330, brH], [100, 'AcDbEntity'], [8, '0'], [100, 'AcDbBlockBegin'], [2, name], [70, I(0)], [10, '0.0'], [20, '0.0'], [30, '0.0'], [3, name], [1, '']],
+        ...ents, [[0, 'ENDBLK'], [5, d.newHandle()], [330, brH], [100, 'AcDbEntity'], [8, '0'], [100, 'AcDbBlockEnd']]);
+      n++;
+    }
+    if (n) { d.index(); Object.assign(S, structure(d)); }
+    return n;
+  }
   /** Ends of a block's drawn lines along its x axis: [the leftmost vertex, the rightmost vertex]. */
   function lineEnds(S, name) {
     const b = S.blocks.get(name); if (!b) return null; let lo = null, hi = null;
@@ -1047,18 +1088,27 @@
     }
     for (const p of polesOnly) if (p.near && !p.near.r.name) unnamedNear++;
     rep.streetNames = nStreets; rep.polesOnUnnamedRoads = unnamedNear;
-    let nPois = 0; const placed = [];
+    let nPois = 0, nIcons = 0; const placed = [];
+    // v2.35.6: the landmark's icon (OpenStreetMap Carto / Maki, CC0) as a block of solid fills, on its own layer
+    const LMB = Array.isArray(job.lmBlocks) ? job.lmBlocks : null, lmRefs = job.lmRefs || [], ICON = 4, LMLAY = 'G-ESAA LANDMARK';
+    const iconName = (i) => 'GESAA_LM_' + String(lmRefs[i] || i).replace(/^[cm]:/, '').replace(/[^A-Za-z0-9]+/g, '_').toUpperCase();
+    const wantIcons = LMB ? [...new Set((job.pois || []).map((q) => q.icon).filter((i) => Number.isInteger(i) && i >= 0 && LMB[i]))] : [];
+    if (wantIcons.length) { addLayer(d, S, LMLAY, 7); fillBlocks(d, S, wantIcons.map((i) => ({ name: iconName(i), icon: LMB[i] }))); }
     for (const poi of job.pois || []) {
       const name = String(poi.name || '').trim().toUpperCase(); if (!name || !Number.isFinite(poi.E) || !Number.isFinite(poi.N)) continue;
       const q0 = [poi.E, poi.N], W = wins.find((w) => q0[0] >= w[0] && q0[0] <= w[2] && q0[1] >= w[1] && q0[1] <= w[3]);
       if (!W || placed.some((x) => x.name === name && dist2(x.q, q0) < 60)) continue;
+      const ic = Number.isInteger(poi.icon) && poi.icon >= 0 && S.blocks.has(iconName(poi.icon)) ? iconName(poi.icon) : null;
+      const ib = ic ? Spots.box(q0[0], q0[1], ICON * 1.1, ICON * 1.1, 0) : null, useIcon = !!(ib && !spots.hits(ib) && !R.idx.inside(q0, -1, -1));
       const lines = []; for (const w of name.split(/\s+/)) { const l = lines.length - 1; if (l >= 0 && (lines[l] + ' ' + w).length <= 22) lines[l] += ' ' + w; else lines.push(w); } // two lines at most
       if (lines.length > 2) { lines.length = 2; lines[1] = lines[1].slice(0, 20) + '...'; }
       const wide = lines.reduce((a, b) => (b.length > a.length ? b : a), ''), tall = lines.length;
       const nr = nearestRoad(R.roads, q0, 45), u = nr ? nr.dir : [1, 0], rd = readable(deg(u)), ru = [Math.cos(rd * Math.PI / 180), Math.sin(rd * Math.PI / 180)], rv = [-ru[1], ru[0]];
       const cands = [];
-      for (const b of [0, 5, -5, 9, -9, 14, -14]) for (const a of [0, 6, -6, 12, -12]) { const q = add2(add2(q0, ru, a), rv, b), bx = textBox(q[0], q[1], 2.5, wide, rd, 1, 2); bx.hh *= tall; if (!R.idx.inside(q, -1, -1) && inside(bx, W, 1)) cands.push({ q, boxes: [bx] }); }
-      const c = cands.find((x) => !x.boxes.some((bb) => spots.hits(bb))); if (!c) continue;
+      const bi = ICON * 0.55 + 1.25 * tall * 1.25 / 2 + 0.4; // with an icon: right beside it first
+      for (const b of useIcon ? [bi, -bi, 0, 5, -5, 9, -9, 14, -14] : [0, 5, -5, 9, -9, 14, -14]) for (const a of [0, 6, -6, 12, -12]) { const q = add2(add2(q0, ru, a), rv, b), bx = textBox(q[0], q[1], 2.5, wide, rd, 1, 2); bx.hh *= tall; if (!R.idx.inside(q, -1, -1) && inside(bx, W, 1)) cands.push({ q, boxes: [bx] }); }
+      const c = cands.find((x) => !x.boxes.some((bb) => spots.hits(bb) || (useIcon && Spots.hit(bb, ib)))); if (!c) continue;
+      if (useIcon) { o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON }); spots.add(ib); nIcons++; }
       o.mtext(lay('House Number', 'MISC'), c.q[0], c.q[1], 2.5, lines.map(mtextEsc).join('\\P'), { style: 'PDF Arial', att: 5, color: 7, dir: ru }); spots.add(c.boxes); placed.push({ name, q: q0 }); nPois++;
     }
     /* the vicinity map, beside the plan: the route as a bold red broken line over the street map (or a copy of the roads), the
@@ -1170,7 +1220,7 @@
     }
     rep.blanks = [...blanks].filter((k) => !filled.has(k) && !/^IDX_/.test(k)).sort(); // an empty index key = no sheet on that side, not a missing field
     rep.partly = [...blanks].filter((k) => filled.has(k)).sort();
-    rep.counts = { ...o.n, roads: nRoads, roadEdges: R.edges.length, pois: nPois, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length };
+    rep.counts = { ...o.n, roads: nRoads, roadEdges: R.edges.length, pois: nPois, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length };
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0] };
     return { text: d.text(), report: rep };
   }

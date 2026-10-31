@@ -43,7 +43,7 @@
   const errInfo = (e) => (e ? { name: e.name || '', msg: String(e.message || e).slice(0, 300), stack: e.stack ? String(e.stack).split('\n').slice(0, 4).join(' | ').slice(0, 500) : undefined } : null);
   window.addEventListener('error', (ev) => LOG.error('js.error', { msg: String(ev.message || '').slice(0, 300), src: String(ev.filename || '').split('/').pop(), line: ev.lineno, col: ev.colno, stack: ev.error && ev.error.stack ? String(ev.error.stack).split('\n').slice(0, 4).join(' | ') : undefined }));
   window.addEventListener('unhandledrejection', (ev) => LOG.error('js.unhandled', errInfo(ev.reason)));
-  { const ce = console.error.bind(console); console.error = (...a) => { try { LOG.error('console.error', { msg: a.map((x) => (x && x.message) || (typeof x === 'string' ? x : JSON.stringify(x))).join(' ').slice(0, 400) }); } catch (e) { /* ignore */ } ce(...a); }; }
+  { const ce = console.error.bind(console); console.error = (...a) => { try { LOG.error('console.error', { msg: a.map((x) => (x && x.message) || (typeof x === 'string' ? x : JSON.stringify(x))).join(' ').slice(0, 400) }); if (typeof a[0] === 'string' && /canvas context/i.test(a[0]) && window.__offlineProblem) window.__offlineProblem('the phone gave no drawing surface (canvas memory full)'); } catch (e) { /* ignore */ } ce(...a); }; }
   window.addEventListener('pagehide', () => LOG.flush());
   document.addEventListener('visibilitychange', () => { LOG.info(document.hidden ? 'app.hidden' : 'app.visible'); if (document.hidden) LOG.flush(); });
   for (const lo of LOG.leftover()) LOG.warn('previous.session.stopped.during', { step: lo.step, secondsAgo: Math.round((Date.now() - lo.t) / 1000), d: lo.d }); // the app was closed or crashed in the middle of it
@@ -253,7 +253,7 @@
   const dbPut = async (st, v) => { const p = await pack(v); return tx(st, 'readwrite', (s) => s.put(p)); };
   const dbDel = (st, k) => tx(st, 'readwrite', (s) => s.delete(k));
   const dbAll = async (st) => (await tx(st, 'readonly', (s) => s.getAll())).map(unpack);
-  const dbCount = (st) => tx(st, 'readonly', (s) => s.count());
+  const dbCount = (st, range) => tx(st, 'readonly', (s) => s.count(range));
   const dbClear = (st) => tx(st, 'readwrite', (s) => s.clear());
   const dbDelMany = (st, keys) => tx(st, 'readwrite', (s) => { keys.forEach((k) => s.delete(k)); });
 
@@ -677,7 +677,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.35.3';
+  const APP_VER = '2.35.6';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -904,8 +904,34 @@
   /** Reads bounds and zoom range from a PMTiles v3 header (first 127 bytes). */
   function pmtilesHeader(u8) {
     if (u8.length < 127 || String.fromCharCode(...u8.subarray(0, 7)) !== 'PMTiles' || u8[7] !== 3) return null;
-    const dv = new DataView(u8.buffer, u8.byteOffset, 127), e7 = (o) => dv.getInt32(o, true) / 1e7;
-    return { tileType: u8[99], minzoom: u8[100], maxzoom: u8[101], bbox: [e7(102), e7(106), e7(110), e7(114)] };
+    const dv = new DataView(u8.buffer, u8.byteOffset, 127), e7 = (o) => dv.getInt32(o, true) / 1e7, u64 = (o) => dv.getUint32(o, true) + dv.getUint32(o + 4, true) * 4294967296;
+    let need = 0; for (let o = 8; o < 72; o += 16) need = Math.max(need, u64(o) + u64(o + 8)); // v2.35.4: the end of its last part (directories, metadata, tiles)
+    return { tileType: u8[99], minzoom: u8[100], maxzoom: u8[101], bbox: [e7(102), e7(106), e7(110), e7(114)], need };
+  }
+  /** v2.35.4: the size a road pack must have: the end of its last chunk. */
+  const roadPackNeed = (h) => { let e = 0; const add = (t) => { if (Array.isArray(t) && t.length === 2) e = Math.max(e, (h.base || 0) + t[0] + t[1]); }; Object.values(h.tiles || {}).forEach(add); add(h.abig); Object.values(h.atiles || {}).forEach(add); return e; };
+  /** v2.35.4: is a pack on this phone whole? A download that stopped part way (or a file that arrived cut short, then imported)
+      still shows the map up to zoom 15, because the most detailed level (zoom 15, used for every closer zoom) fills the last
+      ~85% of the file: close up the map was blank. Checks the size the file's header asks for and that the stored data is
+      all there. Returns { need, have } in bytes (have < need: incomplete). */
+  async function packWhole(st) {
+    const src = new PackSource(st.id);
+    let need = 0;
+    const head = new Uint8Array((await src.getBytes(0, 127)).data), hdr = pmtilesHeader(head);
+    if (hdr) need = hdr.need;
+    else if (roadPackMagic(head)) { const h = await roadPackHead(st.id).catch(() => null); need = h ? roadPackNeed(h) : 0; }
+    let have = st.size || 0;
+    if (have && st.store === 'opfs') { // the last part file holds what it should
+      const n = Math.ceil(have / OPFS_PART), last = await src.part(n - 1).catch(() => null);
+      have = last ? (n - 1) * OPFS_PART + Math.min(last.size, have - (n - 1) * OPFS_PART) : 0;
+      for (let i = 0; have && i < n - 1; i++) { const f = await src.part(i).catch(() => null); if (!f || f.size < OPFS_PART) { have = i * OPFS_PART + (f ? f.size : 0); break; } }
+    } else if (have && st.chunks) { // v2.35.5: every piece is there (Safari keeps packs in its database)
+      const ch = st.ch || 4 * 1024 * 1024;
+      for (const i of [0, st.chunks - 1]) if (!(await dbGet('packs', `${st.id}:${i}`).catch(() => null))) { have = i * ch; break; }
+      const n = await dbCount('packs', IDBKeyRange.bound(`${st.id}:`, `${st.id}:\uffff`)).catch(() => null);
+      if (have && n != null && n < st.chunks) have = Math.min(have, n * ch);
+    }
+    return { need, have };
   }
   /* v2.35: road packs (tools/osm-pack): OpenStreetMap roads, landmarks and boundaries of a region for the plan drawings */
   function roadPackMagic(u8) { return u8.length >= 12 && String.fromCharCode(...u8.subarray(0, 8)) === C.RP_MAGIC; }
@@ -974,7 +1000,100 @@
       attribution: 'Offline map © OpenStreetMap contributors · Protomaps',
     });
     tuneOverzoom(lyr, p.maxzoom || 15);
+    addLandmarks(lyr); watchOfflineDraw(lyr); // v2.35.5
     return lyr;
+  }
+  /* v2.35.5: landmarks. A pack holds them (layer "pois": schools, churches, markets, banks, shops…, each with the zoom it
+     belongs to), but the map style drew none. v2.35.6: each kind has the icon of the OpenStreetMap street map (OpenStreetMap
+     Carto) or, where it has none, of Mapbox Maki (both CC0; vendor/icons, made by tools/landmark-icons), in the street map's
+     colours, the name in dark text beside it. The most useful for a plan come first (they win the space on the map and in
+     the drawing): public services, schools and banks, churches, health, transport and lodging, sport, food, shops. */
+  const LM = window.GESAA_LANDMARKS || null;
+  const LM_ORDER = ['public', 'religion', 'health', 'transport', 'leisure', 'food', 'shop', 'other'];
+  const LM_AREAS = new Set((LM && LM.areas) || ['residential']), LM_SKIP = new Set((LM && LM.skip) || []);
+  /** The icon of a place: its index in vendor/icons (-1: none). kind: OpenStreetMap / Protomaps kind or Geofabrik class; detail: the religion. */
+  function lmIcon(kind, detail) {
+    if (!LM) return -1;
+    const k = String(kind || ''), d = String(detail || '').toLowerCase();
+    if (/^(place_of_worship|religious|monastery|shrine)$/.test(k) || /^(christian|muslim|buddhist|taoist|hindu|jewish|sikh|shinto)/.test(k)) {
+      const r = Object.keys(LM.religion).find((x) => d.startsWith(x) || k.startsWith(x)); if (r) return LM.religion[r];
+    }
+    const e = LM.kinds[k]; return e ? e[0] : -1;
+  }
+  const lmGroup = (kind, detail) => { const i = lmIcon(kind, detail); return i >= 0 ? LM.icons[i].g : ''; };
+  const poiRank = (kind, detail) => { const k = String(kind || ''); if (LM_AREAS.has(k)) return LM_ORDER.length + 1; const g = lmGroup(k, detail), i = LM_ORDER.indexOf(g); return i < 0 ? LM_ORDER.length : i; };
+  const POI_SKIP = { test: (k) => LM_SKIP.has(k) || LM_AREAS.has(k) || /^(crossing|turning_circle|traffic_signals|tree)$/.test(k) };
+  /** The icons in their colours (vendor/icons/landmarks.png), loaded once; the map is drawn again when they are there. */
+  let lmAtlas = null;
+  function landmarkAtlas(onReady) {
+    if (!LM) return null;
+    if (!lmAtlas) {
+      const img = new Image(); lmAtlas = { img, ready: false, wait: [] };
+      img.onload = () => { lmAtlas.ready = true; const w = lmAtlas.wait; lmAtlas.wait = []; w.forEach((f) => { try { f(); } catch (e) { /* layer gone */ } }); };
+      img.onerror = () => LOG.warn('landmarks.icons', { src: img.src });
+      img.src = 'vendor/icons/landmarks.png';
+    }
+    if (!lmAtlas.ready && onReady) lmAtlas.wait.push(onReady);
+    return lmAtlas;
+  }
+  const LM_PX = 16; // the icon on the map, CSS px
+  /** The icons as solid fills for the AutoCAD blocks (vendor/icons/landmark-blocks.js, 170 KB), loaded at the first plan export. */
+  let lmBlocksP = null;
+  function loadLandmarkBlocks() {
+    if (window.GESAA_LANDMARK_BLOCKS) return Promise.resolve(window.GESAA_LANDMARK_BLOCKS);
+    if (!lmBlocksP) lmBlocksP = new Promise((res) => {
+      const sc = document.createElement('script'); sc.src = 'vendor/icons/landmark-blocks.js';
+      sc.onload = () => res(window.GESAA_LANDMARK_BLOCKS || null);
+      sc.onerror = () => { LOG.warn('landmarks.blocks', {}); lmBlocksP = null; res(null); }; // the names are written without icons
+      document.head.appendChild(sc);
+    });
+    return lmBlocksP;
+  }
+  /** A label symbolizer (protomaps-leaflet's place() contract): the icon of the place, or a small grey dot for a kind without one. */
+  const lmSymbolizer = {
+    place(layout, geom, f) {
+      const a = geom && geom[0] && geom[0][0]; if (!a) return undefined;
+      const i = lmIcon(f.props.kind, f.props.kind_detail), at = lmAtlas;
+      if (i >= 0 && at && at.ready) {
+        const c = LM.cell, sx = (i % LM.cols) * c, sy = Math.floor(i / LM.cols) * c, h = LM_PX / 2;
+        return [{ anchor: a, bboxes: [{ minX: a.x - h, minY: a.y - h, maxX: a.x + h, maxY: a.y + h }], draw: (ctx) => { ctx.globalAlpha = 1; ctx.drawImage(at.img, sx, sy, c, c, -h, -h, LM_PX, LM_PX); } }];
+      }
+      const r = 3.5, col = i >= 0 ? LM.groups[LM.icons[i].g] : '#757575';
+      return [{ anchor: a, bboxes: [{ minX: a.x - r, minY: a.y - r, maxX: a.x + r, maxY: a.y + r }], draw: (ctx) => { ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(0, 0, r + 0.8, 0, 2 * Math.PI); ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.beginPath(); ctx.arc(0, 0, r, 0, 2 * Math.PI); ctx.fillStyle = col; ctx.fill(); } }];
+    },
+  };
+  function addLandmarks(lyr) {
+    const P = window.protomapsL; if (!P || !P.GroupSymbolizer || !P.OffsetTextSymbolizer || !Array.isArray(lyr.labelRules)) return;
+    const due = (z, f, dflt) => z + 0.01 >= (+f.props.min_zoom || dflt);
+    const hasIcon = (f) => lmIcon(f.props.kind, f.props.kind_detail) >= 0 && lmAtlas && lmAtlas.ready;
+    lyr.labelRules.push({ dataLayer: 'pois', minzoom: 15, filter: (z, f) => !!f.props.name && !POI_SKIP.test(String(f.props.kind || '')) && due(z, f, 15),
+      sort: (a, b) => poiRank(a.kind, a.kind_detail) - poiRank(b.kind, b.kind_detail),
+      symbolizer: new P.GroupSymbolizer([
+        lmSymbolizer,
+        new P.OffsetTextSymbolizer({ labelProps: ['name'], fill: '#37352f', stroke: '#ffffff', width: 2.5, font: '600 11px sans-serif',
+          offsetX: (z, f) => (hasIcon(f) ? LM_PX / 2 + 3 : 6), offsetY: 0, placements: [P.TextPlacements.E], maxLineChars: 18 }),
+      ]) });
+    lyr.labelRules.push({ dataLayer: 'pois', minzoom: 14, filter: (z, f) => !!f.props.name && LM_AREAS.has(String(f.props.kind || '')) && due(z, f, 14), // subdivisions, compounds: the area's name
+      symbolizer: new P.CenteredTextSymbolizer({ labelProps: ['name'], fill: '#8d8277', stroke: '#ffffff', width: 2, font: 'italic 500 12px sans-serif', maxLineChars: 14 }) });
+    landmarkAtlas(() => { if (lyr._map) { lyr.clearLayout(); lyr.rerenderTiles(); } });
+  }
+  /** v2.35.5: when a part of the offline map cannot be drawn (it failed on iPhones close up, not on Android), say why on
+      screen and in the App log, so the cause can be found. */
+  let offlineProblemAt = 0; window.__offlineProblem = (m) => offlineProblem(m);
+  function offlineProblem(what, z) {
+    const msg = String((what && what.message) || what || 'unknown').slice(0, 160);
+    LOG.warn('offline.draw', { z, msg, ua: navigator.userAgent.slice(0, 120) });
+    if (Date.now() - offlineProblemAt < 60000 || S.base !== 'offline') return;
+    offlineProblemAt = Date.now();
+    toast(`The offline map could not draw this part${z ? ` (zoom ${z})` : ''}: ${msg}. Please send Settings → App log.`, 9000);
+  }
+  function watchOfflineDraw(lyr) {
+    if (!(lyr.views instanceof Map)) return;
+    for (const v of lyr.views.values()) {
+      if (!v || typeof v.getDisplayTile !== 'function') continue;
+      const g = v.getDisplayTile.bind(v);
+      v.getDisplayTile = (c) => g(c).catch((e) => { if (!e || e.name !== 'AbortError') offlineProblem(e, c && c.z); throw e; });
+    }
   }
   /** v2.35.3: a pack holds every road, building and name at zoom 15 (the Protomaps build stops there); closer zooms enlarge
       that data. The style stopped widening roads at zoom 18, so close up they were hairlines, and past zoom 19 the library
@@ -5779,7 +5898,8 @@
     if (!pk) return null;
     busy(`Reading the roads from the offline map ${pk.name}…`);
     const src = new window.protomapsL.PmtilesSource(new window.protomapsL.PMTiles(new PackSource(pk.id)), false), z = Math.min(14, pk.maxzoom || 14), TS = 4096, n = 2 ** z;
-    const x0 = lon2tx(bb[1], z), x1 = lon2tx(bb[3], z), y0 = lat2ty(bb[2], z), y1 = lat2ty(bb[0], z), out = [], pois = [], P = nb || bb;
+    const x0 = lon2tx(bb[1], z), x1 = lon2tx(bb[3], z), y0 = lat2ty(bb[2], z), y1 = lat2ty(bb[0], z), out = [], P = nb || bb;
+    let pois = [];
     if ((x1 - x0 + 1) * (y1 - y0 + 1) > 64) return null;
     const toLL = (x, y, px, py) => { const lon = (x + px / TS) / n * 360 - 180, m = Math.PI * (1 - 2 * (y + py / TS) / n); return [Math.atan(Math.sinh(m)) * 180 / Math.PI, lon]; };
     const KIND = { highway: 'trunk', major_road: 'secondary', minor_road: 'residential', path: 'footway', other: 'service' };
@@ -5798,7 +5918,26 @@
       }
       for (const f of layers.get('pois') || []) { // named places (shops, schools, churches…)
         const pr = f.props || {}; if (f.geomType !== 1 || !pr.name) continue;
-        for (const line of f.geom) for (const q of line) { const [la, lo] = toLL(x, y, q.x, q.y); if (la >= P[0] && la <= P[2] && lo >= P[1] && lo <= P[3]) { const u = C.utmForward(la, lo, S.zone, la < 0); pois.push({ name: pr.name, kind: pr.kind || '', E: u.E, N: u.N }); } }
+        for (const line of f.geom) for (const q of line) { const [la, lo] = toLL(x, y, q.x, q.y); if (la >= P[0] && la <= P[2] && lo >= P[1] && lo <= P[3]) { const u = C.utmForward(la, lo, S.zone, la < 0); pois.push({ name: pr.name, kind: pr.kind || '', detail: pr.kind_detail || '', E: u.E, N: u.N }); } }
+      }
+    }
+    if ((pk.maxzoom || 14) >= 15) { // v2.35.5: the landmarks from zoom 15, which holds about 4 times the named places of zoom 14
+      const z5 = 15, n5 = 2 ** z5, a0 = lon2tx(P[1], z5), a1 = lon2tx(P[3], z5), b0 = lat2ty(P[2], z5), b1 = lat2ty(P[0], z5), p15 = [], seen = new Set();
+      const ll5 = (x, y, px, py) => { const lon = (x + px / TS) / n5 * 360 - 180, m = Math.PI * (1 - 2 * (y + py / TS) / n5); return [Math.atan(Math.sinh(m)) * 180 / Math.PI, lon]; };
+      if ((a1 - a0 + 1) * (b1 - b0 + 1) <= 64) {
+        try {
+          for (let x = a0; x <= a1; x++) for (let y = b0; y <= b1; y++) {
+            for (const f of (await src.get({ z: z5, x, y }, TS)).get('pois') || []) {
+              const pr = f.props || {}; if (f.geomType !== 1 || !pr.name || POI_SKIP.test(String(pr.kind || '')) && !LM_AREAS.has(String(pr.kind || ''))) continue; // places and area names (subdivisions…)
+              for (const line of f.geom) for (const q of line) {
+                const [la, lo] = ll5(x, y, q.x, q.y), k = `${pr.name}|${la.toFixed(4)}|${lo.toFixed(4)}`;
+                if (la < P[0] || la > P[2] || lo < P[1] || lo > P[3] || seen.has(k)) continue;
+                seen.add(k); const u = C.utmForward(la, lo, S.zone, la < 0); p15.push({ name: pr.name, kind: pr.kind || '', detail: pr.kind_detail || '', E: u.E, N: u.N });
+              }
+            }
+          }
+          if (p15.length) pois = p15;
+        } catch (e) { LOG.warn('pack.pois15', errInfo(e)); }
       }
     }
     const conv = (list) => list.map((r) => ({ cls: r.cls === 'OSM_ROAD_MAJOR' ? 'major' : r.cls === 'OSM_ROAD_PATH' ? 'path' : 'minor', hw: r.hw, bridge: r.bridge, name: r.name || '', pts: r.coords.map(([la, lo]) => { const u = C.utmForward(la, lo, S.zone, la < 0); return [u.E, u.N]; }) }));
@@ -5957,6 +6096,9 @@
     let roads = [], pois = [], roadsNote = 'roads not added (Options: untick to leave them out)';
     const nLa = (Math.max(...la) - Math.min(...la)) / 2 + 250 / 110574, nLo = (Math.max(...lo) - Math.min(...lo)) / 2 + 250 / (111320 * Math.cos(cla * Math.PI / 180));
     if ($('dxfRoads').checked) ({ roads, pois, note: roadsNote } = await planRoads([cla - dLa, clo - dLo, cla + dLa, clo + dLo], [cla - nLa, clo - nLo, cla + nLa, clo + nLo]));
+    if (pois && pois.length) pois = pois.slice().sort((a, b) => poiRank(a.kind, a.detail) - poiRank(b.kind, b.detail)); // v2.35.5: public services, churches, health… placed first
+    let lmBlocks = null; // v2.35.6: the landmarks' icons as AutoCAD blocks
+    if (pois && pois.length && LM) { pois = pois.map((q) => ({ ...q, icon: lmIcon(q.kind, q.detail) })); if (pois.some((q) => q.icon >= 0)) lmBlocks = await loadLandmarkBlocks(); }
     const poles = pts.filter((p) => elemOf(p) === 'Pole'), isNew = (p) => ['Proposed', 'New'].includes(p.status), exist = poles.filter((p) => !isNew(p));
     const own = (p) => String((p.boq && p.boq.owner) || '').toUpperCase(), gt = (p) => /^(GT|GLOBE)/i.test(matCode(p)) || /globe/i.test(p.poleType || '');
     const m1 = (v) => `${(Math.round(v * 10) / 10).toFixed(1)}m`;
@@ -6015,7 +6157,7 @@
     try { const lg = await logoGet(); if (lg) { const ext = lg.type === 'image/png' ? 'png' : 'jpg'; logo = { file: `COMPANY_LOGO.${ext}`, px: lg.px, py: lg.py }; files.push({ name: logo.file, data: b64ToBytes(lg.data) }); } } catch (e) { LOG.warn('plan.logo', errInfo(e)); }
     busy('Drawing the plan on the template…');
     await sleep(30);
-    const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinity: [cE, cN, size], photos, vicImage, logo,
+    const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinity: [cE, cN, size], photos, vicImage, logo,
       planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
     const rp = out.report, name = `${fileBase()}_PLAN_UTM${zone}N`;
     const nPh = Object.keys(photos).length;
@@ -6032,7 +6174,7 @@
       'PMI table from the survey: total cable = spans + maintenance loops; aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures. HDD, trenches, maxcell, manhole and service box are not in the survey.',
       'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE (PROP.POLE / height / clamp), existing electric pole on ELECTRIC POLE (material / pole tag or NPT), telco pole on GT-POLE (material / ID); new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
       `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it).`,
-      `Road widths by OpenStreetMap class (or its width / lanes): primary 12 m, secondary 9, tertiary 7.5, residential 6, service 4, track 3.5; paths as a grey centre line. Building and place names: ${rp.counts.pois || 0}.`,
+      `Road widths by OpenStreetMap class (or its width / lanes): primary 12 m, secondary 9, tertiary 7.5, residential 6, service 4, track 3.5; paths as a grey centre line. Building and place names: ${rp.counts.pois || 0}${rp.counts.landmarkIcons ? `, ${rp.counts.landmarkIcons} with their icon (blocks GESAA_LM_…, layer G-ESAA LANDMARK; icons of the OpenStreetMap street map and Mapbox Maki, public domain)` : ''}.`,
       'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD.', '', exporterText()].join('\r\n');
     LOG.info('export.plan', { sheets: rp.sheets.length, roads: rp.counts.roads, blanks: rp.blanks.length, mb: +(out.text.length / 1048576).toFixed(2) });
     busy(false);
@@ -9131,6 +9273,7 @@
       const cn = inst && inst.counts;
       s2.textContent = [road ? 'road pack for the plan drawings' : '', size ? fmtMB(size) : '', p.date || (inst && inst.date) ? `${road ? 'OpenStreetMap' : 'map data'} ${fmtDate8((inst && inst.date) || p.date)}` : '',
         done && road && cn ? `${(cn.roads || 0).toLocaleString()} roads · ${(cn.landmarks || 0).toLocaleString()} landmarks · ${cn.municipalities || 0} cities / municipalities · ${cn.barangays || 0} barangays${inst.barangays && inst.barangays !== 'OpenStreetMap' ? ` (${inst.barangays})` : ''}` : '',
+        done && inst.short ? `INCOMPLETE: ${fmtMB(inst.have || 0)} of ${fmtMB(inst.need || 0)} on this phone, close up parts are missing · download it again` :
         done ? (road ? 'on this phone' : p.id === act ? 'on this phone · in use' : 'on this phone') : partial ? `${size ? Math.round((inst.bytes / size) * 100) + '% ' : fmtMB(inst.bytes) + ' '}downloaded` : 'not on this phone',
         p.drive && !done ? 'Google Drive' : '', p.notes || ''].filter(Boolean).join(' · ');
       d.append(t, s2);
@@ -9141,6 +9284,11 @@
         else if (p.drive && (NATIVE || webDriveKey())) btns.push(mk(partial ? 'Resume' : 'Download', 'primary', () => downloadPack(p)));
         if (p.drive && (NATIVE || !webDriveKey() || webDriveFailed.has(p.drive))) btns.push(mk('Open in Drive', '', () => { openExternal(driveViewUrl(p.drive)); if (!NATIVE) toast(webDriveKey() ? 'Download the file in Drive, then come back and tap Import a pack file' : 'Download the file in Drive, then come back and tap Import a pack file. One-tap Download: ask your admin to add a Google Drive API key.', 7000); }));
       }
+      if (done && inst.short && (p.url || (p.drive && (NATIVE || webDriveKey())))) btns.push(mk('Download again', 'primary', () => guard(async () => { // v2.35.4
+        if (dl) { toast('A map pack is already downloading'); return; }
+        await deletePack(p.id); renderOffline(); await downloadPack(p);
+      }, 'Not downloaded')));
+      else if (done && inst.short) btns.push(mk(p.drive ? 'Open in Drive' : 'How to fix', '', () => { if (p.drive) openExternal(driveViewUrl(p.drive)); toast('Download the complete file again on Wi-Fi, then Delete this pack and tap Import a pack file.', 8000); }));
       if (done && !road && p.id !== act) btns.push(mk('Use', '', () => { S.activePack = p.id; persist(); if (S.base === 'offline') setBase('offline', true); renderOffline(); }));
       if (done && !road) btns.push(mk('Show', '', async () => { S.activePack = p.id; persist(); await closeSheet(); setBase('offline'); const b = inst.bbox; if (b) map.fitBounds([[b[1], b[0]], [b[3], b[2]]]); }));
       if (inst || p.from === 'link') btns.push(mk(inst ? 'Delete' : 'Remove', 'danger', function () {
@@ -9156,6 +9304,21 @@
     }
     try { const n = await dbCount('tiles'); $('offTotal').textContent = `${n.toLocaleString()} viewed street-map tiles kept on this phone.`; } catch (e) { /* ignore */ }
   }
+  /** v2.35.4: the packs on this phone that were saved before this check are checked once; an incomplete one says so. */
+  async function checkPacks() {
+    let warn = null;
+    for (const st of Object.values(S.packs || {})) {
+      if (!st.done || st.checked === st.size) continue;
+      const w = await packWhole(st).catch(() => null); if (!w) continue;
+      st.checked = st.size; st.short = !!(w.need && w.have < w.need); if (st.short) { st.need = w.need; st.have = w.have; LOG.warn('pack.short', { id: st.id, have: w.have, need: w.need }); }
+      else { delete st.need; delete st.have; }
+      if (st.short && (st.id === activePackId() || isRoadPack(st))) warn = warn || st;
+    }
+    persist();
+    if (warn) toast(`${warn.name} on this phone is incomplete (${fmtMB(warn.have)} of ${fmtMB(warn.need)}): close up, parts of the ${isRoadPack(warn) ? 'roads' : 'map'} are missing. Maps → Download again.`, 9000);
+    if (!$('offline').hidden) renderOffline();
+  }
+  setTimeout(() => checkPacks().catch((e) => LOG.warn('pack.check', errInfo(e))), 2500);
   async function deletePack(id) {
     const p = S.packs[id];
     if (p) await removePackData(p);
@@ -9198,6 +9361,10 @@
       await (await getWriter()).finish(size);
       st.size = size; st.bytes = size;
       const head = new Uint8Array((await new PackSource(st.id).getBytes(0, 127)).data), hdr = pmtilesHeader(head);
+      { st.done = true; const w = await packWhole(st).catch(() => null); st.done = false; // v2.35.4: whole, or it was cut short
+        if (w && w.need && w.have < w.need) { await removePackData(st); delete S.packs[st.id]; persist(); LOG.warn('pack.short', { id: st.id, have: w.have, need: w.need });
+          throw new Error(`${st.name} arrived incomplete: ${fmtMB(w.have)} of ${fmtMB(w.need)}. ${verb === 'Importing' ? 'The file was cut short when it was downloaded: download it again on Wi-Fi, then import it.' : 'Tap Download to try again on Wi-Fi. If it happens again, the file on Google Drive is incomplete: ask the admin to upload it again.'}`); }
+        if (w) { st.checked = size; delete st.short; delete st.need; delete st.have; } }
       if (!hdr && roadPackMagic(head)) { // v2.35: a road pack: roads, landmarks and boundaries for the plan drawings
         st.done = true; const h = await roadPackHead(st.id).catch(() => null); st.done = false;
         if (!h || !h.tiles) { await removePackData(st); delete S.packs[st.id]; persist(); throw new Error('This road pack is damaged: download it again'); }
@@ -9551,6 +9718,7 @@
       return;
     }
     if (!hdr) { toast('That file is not a map pack (.pmtiles) or a road pack (.roadpack). Choose the file you downloaded.', 6000); return; }
+    if (hdr.need && f.size < hdr.need) { toast(`That file is incomplete: ${fmtMB(f.size)} of ${fmtMB(hdr.need)}. Its download stopped part way: download it again on Wi-Fi, then import it.`, 9000); LOG.warn('pack.short.file', { name: f.name.slice(0, 60), have: f.size, need: hdr.need }); return; } // v2.35.4
     if (hdr.tileType !== 1) { toast('That map file has picture tiles; G-eSAA needs a vector map pack (.pmtiles from Protomaps)', 6000); return; }
     const base = f.name.replace(/\.pmtiles$/i, ''), id = `file-${C.safeName(base).toLowerCase()}-${f.size}`;
     const known = packCatalog().find((x) => x.size === f.size && (x.name || '').toLowerCase().replace(/[^a-z0-9]/g, '').includes(C.safeName(base).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8)));
@@ -9736,7 +9904,7 @@
   if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__polecam = { get points() { return points; }, get S() { return S; }, get map() { return map; }, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
+  window.__polecam = { get points() { return points; }, get S() { return S; }, get map() { return map; }, planRoads, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
     surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads }; // for testing
 })();
