@@ -552,11 +552,16 @@
    * Roads ready to draw: clipped to `box` (+ a margin, so no road ends inside it), joined, given a width, extended at the ends
    * that meet another road (so corners close). Returns { roads, idx, edges, paths, bridges } with lines clipped to `box`.
    */
-  function layoutRoads(list, box) {
+  function layoutRoads(list, box, keep) {
     const M = 60, big = [box[0] - M, box[1] - M, box[2] + M, box[3] + M];
     let rs = [];
-    for (const r of list || []) { const w = roadWidth(r); for (const piece of clipLine(r.pts, big)) if (piece.length > 1) rs.push({ pts: piece.map((p) => [+p[0], +p[1]]), w, hw: w / 2, name: String(r.name || '').trim(), bridge: !!r.bridge }); }
+    // v2.38: keep(x, y): only the roads on the plan's sheets (and a margin), not the whole area
+    for (const r of list || []) { const w = roadWidth(r); for (const p0 of clipLine(r.pts, big)) for (const piece of keep ? keepPieces(p0, keep, 15) : [p0]) if (piece.length > 1) rs.push({ pts: piece.map((p) => [+p[0], +p[1]]), w, hw: w / 2, name: String(r.name || '').trim(), bridge: !!r.bridge }); }
     rs = mergeRoads(rs);
+    // v2.38: the road ends by place (a grid of 2 m cells), so a corner is found among the few ends there, not among every road
+    const endsAt = new Map(), EK = (p) => `${Math.floor(p[0] / 2)},${Math.floor(p[1] / 2)}`;
+    rs.forEach((o2, oj) => { if (!(o2.hw > 0) || o2.pts.length < 2) return; [o2.pts[0], o2.pts[o2.pts.length - 1]].forEach((p) => { const k = EK(p); (endsAt.get(k) || endsAt.set(k, []).get(k)).push(oj); }); });
+    const endsNear = (p) => { const gx = Math.floor(p[0] / 2), gy = Math.floor(p[1] / 2), s = new Set(); for (let x = gx - 1; x <= gx + 1; x++) for (let y = gy - 1; y <= gy + 1; y++) for (const j of endsAt.get(`${x},${y}`) || []) s.add(j); return s; };
     // an end that meets another road is carried on into it (by the narrower half width), so outer corners close
     rs.forEach((r, ri) => {
       r.ext = r.pts.slice();
@@ -564,7 +569,7 @@
       [0, 1].forEach((e) => {
         const p = e ? r.pts[r.pts.length - 1] : r.pts[0], q = e ? r.pts[r.pts.length - 2] : r.pts[1];
         let other = 0; // the narrowest road whose end is here too (a corner); a road met in its middle (a T) needs nothing
-        rs.forEach((o2, oj) => { if (oj === ri || !(o2.hw > 0)) return; if (dist2(o2.pts[0], p) < 1.0 || dist2(o2.pts[o2.pts.length - 1], p) < 1.0) other = other ? Math.min(other, o2.hw) : o2.hw; });
+        endsNear(p).forEach((oj) => { const o2 = rs[oj]; if (oj === ri || !(o2.hw > 0)) return; if (dist2(o2.pts[0], p) < 1.0 || dist2(o2.pts[o2.pts.length - 1], p) < 1.0) other = other ? Math.min(other, o2.hw) : o2.hw; });
         if (!other) return;
         const u = unit(q, p), ext = Math.min(r.hw, other) - 0.1, np = [p[0] + u[0] * ext, p[1] + u[1] * ext];
         if (e) r.ext.push(np); else r.ext.unshift(np);
@@ -649,8 +654,29 @@
       }
       return true;
     }
-    hits(b) { let n = 0; for (const x of this.list) if (Spots.hit(b, x)) n++; return n; }
-    add(b, tag) { if (Array.isArray(b)) b.forEach((x) => { if (tag) x.tag = tag; this.list.push(x); }); else { if (tag) b.tag = tag; this.list.push(b); } return b; }
+    // v2.38: the boxes indexed by place (16 m cells), so a test looks only at the boxes nearby (a 10 km route has tens of thousands)
+    cellsOf(b, f) {
+      const C = 16, ex = Math.abs(b.ux) * b.hw + Math.abs(b.vx) * b.hh, ey = Math.abs(b.uy) * b.hw + Math.abs(b.vy) * b.hh;
+      const x0 = Math.floor((b.cx - ex) / C), x1 = Math.floor((b.cx + ex) / C), y0 = Math.floor((b.cy - ey) / C), y1 = Math.floor((b.cy + ey) / C);
+      if (!Number.isFinite(x0 + x1 + y0 + y1) || (x1 - x0 + 1) * (y1 - y0 + 1) > 2500) return false; // too big to index: always tested
+      for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) f(`${x},${y}`);
+      return true;
+    }
+    hits(b) {
+      if (!this.g) return 0;
+      let n = 0; const seen = new Set(), test = (x) => { if (x._k > 0 && !seen.has(x)) { seen.add(x); if (Spots.hit(b, x)) n += x._k; } };
+      this.big.forEach(test);
+      if (!this.cellsOf(b, (k) => { const a = this.g.get(k); if (a) a.forEach(test); })) this.list.forEach(test);
+      return n;
+    }
+    put(x) {
+      this.list.push(x); x._k = (x._k || 0) + 1; if (x._k > 1 || x._in) return;
+      x._in = true; if (!this.g) { this.g = new Map(); this.big = []; }
+      if (!this.cellsOf(x, (k) => { (this.g.get(k) || this.g.set(k, []).get(k)).push(x); })) this.big.push(x);
+    }
+    add(b, tag) { if (Array.isArray(b)) b.forEach((x) => { if (tag) x.tag = tag; this.put(x); }); else { if (tag) b.tag = tag; this.put(b); } return b; }
+    /** Takes back the boxes added after the first n. */
+    truncate(n) { for (const x of this.list.slice(n)) x._k--; this.list.length = n; }
     line(pts, w) { for (let k = 1; k < pts.length; k++) { const a = pts[k - 1], b = pts[k], L = dist2(a, b); if (L > 0.01) this.add(Spots.box((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, L, w, Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI)); } }
   }
   const CHW = 0.72; // width of a character / text height (Arial capitals and digits, a little generous)
@@ -796,6 +822,38 @@
     const vk = size / 1500, xs = xy.map((q) => q[0]), ys = xy.map((q) => q[1]);
     return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2, Math.max(70 * vk, Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 + 45 * vk)];
   }
+  /** v2.38: the places of a project, each drawn on its own vicinity map and key map: a point more than `gap` metres (1 km) from
+      every other point starts a new place; a span joins its two ends. pts: [{ id, E, N }], spans: [{ ia, ib }]. Returns
+      [{ idx: [indexes into pts], box: [x0, y0, x1, y1] }], in the order of their first point. */
+  const LOC_GAP = 1000, VIC_MARGIN = 500;
+  function locations(pts, spans, gap) {
+    const G = gap || LOC_GAP, par = pts.map((_, i) => i);
+    const find = (i) => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
+    const join = (a, b) => { a = find(a); b = find(b); if (a !== b) par[Math.max(a, b)] = Math.min(a, b); };
+    const g = new Map(), K = (x, y) => `${x},${y}`; // gap-sized cells: only neighbouring cells are compared
+    pts.forEach((p, i) => { const k = K(Math.floor(p.E / G), Math.floor(p.N / G)); (g.get(k) || g.set(k, []).get(k)).push(i); });
+    pts.forEach((p, i) => { const gx = Math.floor(p.E / G), gy = Math.floor(p.N / G); for (let x = gx - 1; x <= gx + 1; x++) for (let y = gy - 1; y <= gy + 1; y++) for (const j of g.get(K(x, y)) || []) if (j > i && Math.hypot(pts[j].E - p.E, pts[j].N - p.N) <= G) join(i, j); });
+    const at = new Map(pts.map((p, i) => [String(p.id), i]));
+    (spans || []).forEach((s) => { const a = at.get(String(s.ia)), b = at.get(String(s.ib)); if (a != null && b != null) join(a, b); });
+    const groups = new Map(); pts.forEach((p, i) => { const r = find(i); (groups.get(r) || groups.set(r, []).get(r)).push(i); });
+    return [...groups.values()].sort((a, b) => a[0] - b[0]).map((idx) => { const xs = idx.map((i) => pts[i].E), ys = idx.map((i) => pts[i].N); return { idx, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] }; });
+  }
+  /** v2.38: the vicinity map of a place: its points with a 500 m margin round them, at least 1.5 km across: [E, N, size]. */
+  function vicArea(box) { return [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2, Math.max(1500, Math.max(box[2] - box[0], box[3] - box[1]) + 2 * VIC_MARGIN)]; }
+  /** v2.38: the parts of a line inside keep(x, y) (the plan's sheets and a margin), tested every `step` metres; a vertex is added
+      only where the line goes in or out. */
+  function keepPieces(line, keep, step) {
+    const out = []; let cur = null;
+    for (let k = 1; k < line.length; k++) {
+      const a = line[k - 1], b = line[k], n = Math.max(1, Math.ceil(dist2(a, b) / step)), at = (t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+      for (let s = 0; s < n; s++) {
+        const m = at((s + 0.5) / n);
+        if (keep(m[0], m[1])) { if (!cur) { cur = [at(s / n)]; out.push(cur); } if (s === n - 1) cur.push(b); }
+        else if (cur) { cur.push(at(s / n)); cur = null; }
+      }
+    }
+    return out.filter((l) => l.length > 1);
+  }
   /* ---------------- the build ---------------- */
   // v2.32: new fiber red, existing fiber blue (the drafting rule); aerial dashed, underground solid
   const CABLE_STYLE = { F72: { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true }, L12: { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true }, U144: { layer: 'Proposed foc duct', color: 3, w: 0.7776, aerial: false }, '': { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true } };
@@ -823,9 +881,13 @@
     if (!pts.length) throw new Error('Nothing to draw: the project has no records');
     /* 1. the grid: 440 m cells placed so the route uses as few sheets as it can and keeps away from the sheet edges
        (job.gridOrigin [E, N] fixes it instead); the cells the route uses, in route order */
+    // v2.38: the project's places (points more than 1 km apart): each has its own vicinity map and key map
+    const locs = locations(pts, spans, job.locGap), nL = locs.length, locOfPt = new Map();
+    locs.forEach((L, k) => L.idx.forEach((i) => locOfPt.set(pts[i], k)));
+    const ptById = new Map(pts.map((p) => [String(p.id), p])), locOfId = (id) => { const p = ptById.get(String(id)); return p ? locOfPt.get(p) || 0 : 0; };
     const samp = [];
-    spans.forEach((sp) => { const a = sp.a, b = sp.b; if (!a || !b) return; const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 10)); for (let s = 0; s <= n; s++) samp.push([a[0] + (b[0] - a[0]) * s / n, a[1] + (b[1] - a[1]) * s / n]); });
-    pts.forEach((p) => samp.push([p.E, p.N]));
+    spans.forEach((sp) => { const a = sp.a, b = sp.b; if (!a || !b) return; const lk = locOfId(sp.ia), n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 10)); for (let s = 0; s <= n; s++) samp.push([a[0] + (b[0] - a[0]) * s / n, a[1] + (b[1] - a[1]) * s / n, lk]); });
+    pts.forEach((p) => samp.push([p.E, p.N, locOfPt.get(p) || 0]));
     let gox = 0, goy = 0;
     if (job.gridOrigin) { gox = +job.gridOrigin[0] || 0; goy = +job.gridOrigin[1] || 0; } else {
       const steps = 22, st = cell / steps, every = Math.max(1, Math.ceil(samp.length / 6000)); let best = null;
@@ -838,19 +900,30 @@
     }
     const ci = (E) => Math.floor((E - gox) / cell), cj = (N) => Math.floor((N - goy) / cell), key = (i, j) => `${i},${j}`;
     const used = new Map(), order = [];
-    const visit = (E, N) => { const k = key(ci(E), cj(N)); if (!used.has(k)) { used.set(k, { i: ci(E), j: cj(N) }); order.push(k); } };
-    samp.forEach((q) => visit(q[0], q[1]));
-    const I0 = Math.min(...[...used.values()].map((c) => c.i)) - 1, I1 = Math.max(...[...used.values()].map((c) => c.i)) + 1;
-    const J0 = Math.min(...[...used.values()].map((c) => c.j)) - 1, J1 = Math.max(...[...used.values()].map((c) => c.j)) + 1;
-    const cellName = (i, j) => `${letters(J1 - j)}-${i - I0 + 1}`;
-    const geoCells = order.map((k) => used.get(k)), N = geoCells.length;
+    const visit = (E, N, lk) => { const k = key(ci(E), cj(N)); if (!used.has(k)) { used.set(k, { i: ci(E), j: cj(N), loc: lk }); order.push(k); } };
+    samp.forEach((q) => visit(q[0], q[1], q[2]));
+    // v2.38: each place's cells with a ring of cells round them (its key map), named within the place: row letters from the top,
+    // column numbers from the left (with several places, the place's number first: 1B-3, 2A-1)
+    const lr = locs.map((_, k) => { const cs = [...used.values()].filter((c) => c.loc === k); if (!cs.length) return null; const is = cs.map((c) => c.i), js = cs.map((c) => c.j); return { I0: Math.min(...is) - 1, I1: Math.max(...is) + 1, J0: Math.min(...js) - 1, J1: Math.max(...js) + 1 }; });
+    const lrs = lr.filter(Boolean), I0 = Math.min(...lrs.map((r) => r.I0)), I1 = Math.max(...lrs.map((r) => r.I1)), J0 = Math.min(...lrs.map((r) => r.J0)), J1 = Math.max(...lrs.map((r) => r.J1));
+    const locOfCell = (i, j) => { const c = used.get(key(i, j)); if (c) return c.loc; const k = lr.findIndex((r) => r && i >= r.I0 && i <= r.I1 && j >= r.J0 && j <= r.J1); return k < 0 ? 0 : k; };
+    const cellName = (i, j) => { const k = locOfCell(i, j), r = lr[k] || lrs[0]; return `${nL > 1 ? k + 1 : ''}${letters(r.J1 - j)}-${i - r.I0 + 1}`; };
+    const geoCells = order.map((k, n) => [used.get(k), n]).sort((a, b) => a[0].loc - b[0].loc || a[1] - b[1]).map((x) => x[0]), N = geoCells.length; // place by place, in route order
     /* 2. the GEO sheets: as many as the cells used (copied from GEO, or the extra ones removed) */
     const geoNames = (n) => Array.from({ length: n }, (_, k) => (k ? `GEO (${k + 1})` : 'GEO'));
     let have = S.layouts.filter((L) => /^GEO( \(\d+\))?$/.test(L.name));
     for (const L of have) if (!geoNames(N).includes(L.name)) { removeLayout(d, S, L); S = structure(d); }
     for (const nm of geoNames(N)) if (!S.layouts.some((L) => L.name === nm)) { cloneLayout(d, S, S.layouts.find((L) => L.name === 'GEO'), nm); S = structure(d); }
-    // tab order: TITLE, TOC, LEGENDS, VICINITY MAP, ROW AREA COVERAGE, KEYMAP, GEO…, PMI, then anything else
-    const want = ['TITLE', 'TOC', 'LEGENDS', 'VICINITY MAP', 'ROW AREA COVERAGE', 'KEYMAP', ...geoNames(N), 'PMI'];
+    // v2.38: a VICINITY MAP and a KEYMAP sheet for each place (copied from the template's own)
+    const many = (base, n) => Array.from({ length: n }, (_, k) => (k ? `${base} (${k + 1})` : base));
+    const vicNames = many('VICINITY MAP', nL), kmNames = many('KEYMAP', nL);
+    for (const [base, names] of [['VICINITY MAP', vicNames], ['KEYMAP', kmNames]]) {
+      if (!S.layouts.some((L) => L.name === base)) continue;
+      for (const L of S.layouts.filter((x) => x.name.startsWith(`${base} (`) && !names.includes(x.name))) { removeLayout(d, S, L); S = structure(d); }
+      for (const nm of names) if (!S.layouts.some((L) => L.name === nm)) { cloneLayout(d, S, S.layouts.find((L) => L.name === base), nm); S = structure(d); }
+    }
+    // tab order: TITLE, TOC, LEGENDS, VICINITY MAP(s), ROW AREA COVERAGE, KEYMAP(s), GEO…, PMI, then anything else
+    const want = ['TITLE', 'TOC', 'LEGENDS', ...vicNames, 'ROW AREA COVERAGE', ...kmNames, ...geoNames(N), 'PMI'];
     const rank = (n) => (n === 'Model' ? -1 : want.includes(n) ? want.indexOf(n) : 100);
     S.layouts.slice().sort((a, b) => rank(a.name) - rank(b.name)).forEach((L, k) => { if (L.name !== 'Model') setIn(L.rec, 'AcDbLayout', 71, I(k)); });
     /* 3. viewports */
@@ -859,13 +932,27 @@
     const sheetOf = new Map();
     geoCells.forEach((c, k) => { const nm = geoNames(N)[k], L = S.layouts.find((x) => x.name === nm); aim(bigVp(L), gox + (c.i + 0.5) * cell, goy + (c.j + 0.5) * cell, viewH); sheetOf.set(key(c.i, c.j), nm); rep.sheets.push(`${nm}: ${cellName(c.i, c.j)}`); rep.cells.push(cellName(c.i, c.j)); });
     const gx0 = gox + I0 * cell, gy0 = goy + J0 * cell, gx1 = gox + (I1 + 1) * cell, gy1 = goy + (J1 + 1) * cell;
-    const km = S.layouts.find((L) => L.name === 'KEYMAP'), kmH = Math.max(gx1 - gx0, gy1 - gy0) * 1.02;
-    if (km) aim(bigVp(km), (gx0 + gx1) / 2, (gy0 + gy1) / 2, kmH);
-    const xs = pts.map((p) => p.E), ys = pts.map((p) => p.N), rx0 = Math.min(...xs), rx1 = Math.max(...xs), ry0 = Math.min(...ys), ry1 = Math.max(...ys);
-    const vic = job.vicinity || [ (rx0 + rx1) / 2, (ry0 + ry1) / 2, Math.max(1500, Math.max(rx1 - rx0, ry1 - ry0) * 3) ];
-    // v2.32: the vicinity map is drawn beside the plan in model space (east of it), so it never covers the plan there
-    const VDX = vic[2] * 1.5, vsh = (q) => [q[0] + VDX, q[1], q[2] || 0];
-    const vm = S.layouts.find((L) => L.name === 'VICINITY MAP'); if (vm) aim(bigVp(vm), vic[0] + VDX, vic[1], vic[2]);
+    // v2.38: each place's key map shows its own cells (a place far away no longer shrinks it)
+    const kmBox = lr.map((r) => (r ? [gox + r.I0 * cell, goy + r.J0 * cell, gox + (r.I1 + 1) * cell, goy + (r.J1 + 1) * cell] : [gx0, gy0, gx1, gy1]));
+    const kmH = kmBox.map((b) => Math.max(b[2] - b[0], b[3] - b[1]) * 1.02);
+    kmNames.forEach((nm, k) => { const L = S.layouts.find((x) => x.name === nm); if (L) aim(bigVp(L), (kmBox[k][0] + kmBox[k][2]) / 2, (kmBox[k][1] + kmBox[k][3]) / 2, kmH[k]); });
+    // v2.38: each place's vicinity map: the app's (job.vicinities[k]: { c: [E, N], size, image, circle }), else its points with a
+    // 500 m margin (job.vicinity / vicImage / vicCircle: the one place of an older caller)
+    const JV = Array.isArray(job.vicinities) ? job.vicinities : null;
+    const vics = locs.map((L, k) => {
+      const jv = JV && JV[k], one = !JV && nL === 1;
+      const area = jv && jv.c ? [+jv.c[0], +jv.c[1], +jv.size] : one && job.vicinity ? job.vicinity : vicArea(L.box);
+      return { area, image: jv ? jv.image || null : one ? job.vicImage || null : null, circle: jv ? jv.circle || null : one ? job.vicCircle || null : null };
+    });
+    // v2.32: the vicinity map is drawn beside the plan in model space (east of it), so it never covers the plan there; v2.38: further
+    // east when that spot is taken (by another place or its vicinity map)
+    const ovl = (a, b, m) => !(a[2] + m < b[0] || b[2] + m < a[0] || a[3] + m < b[1] || b[3] + m < a[1]), vplaced = [];
+    vics.forEach((v) => {
+      const [cx, cy, sz] = v.area; let dx = sz * 1.5, box = null;
+      for (let t = 0; t < 400; t++) { box = [cx - sz / 2 + dx, cy - sz / 2, cx + sz / 2 + dx, cy + sz / 2]; if (!kmBox.some((b) => ovl(box, b, 100)) && !vplaced.some((b) => ovl(box, b, 100))) break; dx += sz * 0.5; }
+      vplaced.push(box); v.dx = dx; v.vb = [cx - sz / 2, cy - sz / 2, cx + sz / 2, cy + sz / 2]; v.sb = box; v.sh = (q) => [q[0] + dx, q[1], q[2] || 0];
+    });
+    vicNames.forEach((nm, k) => { const L = S.layouts.find((x) => x.name === nm), v = vics[k]; if (L) aim(bigVp(L), v.area[0] + v.dx, v.area[1], v.area[2]); });
     /* 4. model space */
     const o = new Out(d, S);
     const lay = (n, fallback) => (S.layers.has(n) ? n : fallback || '0');
@@ -878,18 +965,21 @@
       o.lwpoly(lay('GRIDS'), [[x0, y0], [x0 + cell, y0], [x0 + cell, y0 + cell], [x0, y0 + cell]], { closed: true, color: 6 });
       o.mtext(lay('GRIDNO.', 'GRIDNO'), x0 + cell - cell * 0.04, y0 + cell - cell * 0.03, gh, cellName(i, j), { att: 3 });
     }
-    // roads (OpenStreetMap): pavement edges by class, one outline where roads meet; paths as grey centre lines; bridges
-    const vb = [vic[0] - vic[2] / 2, vic[1] - vic[2] / 2, vic[0] + vic[2] / 2, vic[1] + vic[2] / 2];
     // v2.32: the vicinity map: a street map picture of the area (when the phone could get one), under everything else
     let imgs = null; const getImgs = () => imgs || (imgs = new Images(d, S));
     const VLAY = 'G-ESAA VICINITY', VMAP = 'G-ESAA VICINITY MAP';
-    if (job.vicImage && job.vicImage.file) { addLayer(d, S, VMAP, 7); getImgs().image(o, VMAP, job.vicImage.file, job.vicImage.px, job.vicImage.py, vb[0] + VDX, vb[1], vic[2], vic[2]); }
-    const R = layoutRoads(job.roads || [], vb);
+    for (const v of vics) if (v.image && v.image.file) { addLayer(d, S, VMAP, 7); getImgs().image(o, VMAP, v.image.file, v.image.px, v.image.py, v.vb[0] + v.dx, v.vb[1], v.area[2], v.area[2]); }
+    // roads (OpenStreetMap): pavement edges by class, one outline where roads meet; paths as grey centre lines; bridges.
+    // v2.38: only on the plan's sheets (the cells the route uses) and 60 m round them, not the whole vicinity area
+    const RM = 60, cells = [...used.values()];
+    const keepAt = (x, y) => { const i = ci(x), j = cj(y); for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { if (!used.has(key(i + a, j + b))) continue; const x0 = gox + (i + a) * cell, y0 = goy + (j + b) * cell; if (x >= x0 - RM && x <= x0 + cell + RM && y >= y0 - RM && y <= y0 + cell + RM) return true; } return false; };
+    const rbox = [gox + Math.min(...cells.map((c) => c.i)) * cell - RM, goy + Math.min(...cells.map((c) => c.j)) * cell - RM, gox + (Math.max(...cells.map((c) => c.i)) + 1) * cell + RM, goy + (Math.max(...cells.map((c) => c.j)) + 1) * cell + RM];
+    const R = layoutRoads(job.roads || [], rbox, keepAt);
     R.edges.forEach((l) => o.lwpoly(lay('ROAD PAVEMENT'), l.pts, { closed: l.closed }));
     R.paths.forEach((l) => o.lwpoly(lay('ROAD PAVEMENT'), l, { color: 8 }));
     R.bridges.forEach((l) => o.lwpoly(lay('BRIDGE', 'ROAD PAVEMENT'), l, { color: 5 }));
     const nRoads = R.roads.length;
-    if (nRoads) o.text(lay('BASEMAP'), gx0 + 5, gy0 - 12, 4, `ROADS: (c) OPENSTREETMAP CONTRIBUTORS (ODbL)${job.roadsNote ? ` · ${String(job.roadsNote).toUpperCase()}` : ''}`, { style: 'arial' });
+    if (nRoads) kmBox.forEach((b) => o.text(lay('BASEMAP'), b[0] + 5, b[1] - 12, 4, `ROADS: (c) OPENSTREETMAP CONTRIBUTORS (ODbL)${job.roadsNote ? ` · ${String(job.roadsNote).toUpperCase()}` : ''}`, { style: 'arial' }));
 
     /* the route: poles beside their road, the cable on the road side of the poles, every label where it does not overlap */
     const spots = new Spots(), byId = new Map(pts.map((p) => [String(p.id), p])), nb = new Map();
@@ -1281,7 +1371,7 @@
       return { out, miss, mark };
     };
     let Lp = Math.max(12, 18 * kG), photoPl = placePhotos(Lp);
-    for (let tries = 0; tries < 2 && photoPl.miss > Math.max(1, poleOrder.length / 4); tries++) { spots.list.length = photoPl.mark; Lp *= 0.8; photoPl = placePhotos(Lp); }
+    for (let tries = 0; tries < 2 && photoPl.miss > Math.max(1, poleOrder.length / 4); tries++) { spots.truncate(photoPl.mark); Lp *= 0.8; photoPl = placePhotos(Lp); }
     for (const { p, ph, w, h, q } of photoPl.out) {
       if (ph && havePhotos) {
         getImgs().image(o, lay(photoLayer), ph.file, ph.px, ph.py, q[0] - w / 2, q[1] - h / 2, w, h);
@@ -1351,44 +1441,52 @@
     /* the vicinity map, beside the plan: the route as a bold red broken line over the street map (or a copy of the roads), the
        names of the main streets large enough at that scale (v2.34: no label, no start mark: just the route). Its viewport shows
        only that; the GEO sheets and the keymap do not. */
-    const vlayH = addLayer(d, S, VLAY, 1), vk = vic[2] / 1500;
-    if (!job.vicImage) { // no picture: the roads, thin
-      R.edges.forEach((l) => o.lwpoly(VLAY, l.pts.map(vsh), { closed: l.closed, color: 7 }));
-      R.paths.forEach((l) => o.lwpoly(VLAY, l.map(vsh), { color: 8 }));
-    }
+    const vlayH = addLayer(d, S, VLAY, 1);
     const vlt = S.ltypes.has('DASHED') ? 'DASHED' : null, WHITE = { color: 255, tc: 0xFFFFFF };
-    // v2.36: the route stands out on any picture: a white band under the red broken line, a red dot with a white rim at each
-    // pole and point, and a circle round the area marked PROJECT AREA (yellow over a satellite picture, red over a street map).
-    // v2.37: bolder (the band, the line, the dots and the circle), the label in yellow on a dark box with a yellow frame; the app
-    // darkens and greys the picture outside the circle (job.vicCircle: the same circle)
-    const vDot = (q, r, col) => o.lwpoly(VLAY, [[q[0] - r / 2, q[1], 1], [q[0] + r / 2, q[1], 1]], { closed: true, w: r, ...col }); // a filled disc of radius r
-    for (const ch of chains) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: 30 * vk, ...WHITE, gen: true });
-    for (const ch of chains) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: 15 * vk, color: ch.existing ? 5 : ch.ug ? 3 : 1, lt: ch.ug ? null : vlt, lts: vlt && !ch.ug ? 24 * vk : 0, gen: true });
-    for (const p of pts) { if (p.el === 'NAP' || p.el === 'Closure') continue; const q = vsh(p.dp || [p.E, p.N]); vDot(q, 14 * vk, WHITE); vDot(q, 9.5 * vk, { color: 1 }); }
-    { const dps = pts.map((p) => p.dp || [p.E, p.N]), xs = dps.map((q) => q[0]), ys = dps.map((q) => q[1]);
-      const vc = Array.isArray(job.vicCircle) && job.vicCircle.length === 3 ? job.vicCircle : null;
-      const c = vsh(vc ? [vc[0], vc[1]] : [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]);
-      const rad = vc ? vc[2] : Math.max(70 * vk, Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 + 45 * vk), col = job.vicImage && job.vicImage.sat ? 2 : 1;
-      o.lwpoly(VLAY, [[c[0] - rad, c[1], 1], [c[0] + rad, c[1], 1]], { closed: true, w: 7 * vk, color: col });
-      const lh = 18 * vk, lw = 'PROJECT AREA'.length * lh * 0.74, ly = c[1] + rad + 8 * vk + lh * 0.9; // the label on a dark box, framed
-      o.lwpoly(VLAY, [[c[0] - lw / 2 - lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly + lh * 0.9], [c[0] - lw / 2 - lh * 0.6, ly + lh * 0.9]], { closed: true, w: 2 * vk, color: 2 });
-      o.mtext(VLAY, c[0], ly, lh, 'PROJECT AREA', { att: 5, style: 'arial', color: 2, mask: 250 }); rep.vicinityMark = { r: rad }; }
-    if (!job.vicImage) { // no picture: the names of the roads written large
-      const done = new Set();
-      for (const r of R.roads.slice().sort((a, b) => b.hw - a.hw)) {
-        if (!(r.hw > 0) || !r.name || done.has(r.name)) continue; let best = null;
-        for (const piece of clipLine(r.pts, vb)) for (let k = 1; k < piece.length; k++) { const L = dist2(piece[k - 1], piece[k]); if (L > 80 * vk && (!best || L > best.L)) best = { L, a: piece[k - 1], b: piece[k] }; }
-        if (!best) continue; done.add(r.name); if (done.size > 25) break;
-        o.text(VLAY, (best.a[0] + best.b[0]) / 2 + VDX, (best.a[1] + best.b[1]) / 2, 8 * vk, r.name.toUpperCase(), { rot: readable(deg(unit(best.a, best.b))), ha: 1, va: 2, style: 'arial', color: 8 });
+    rep.vicinities = [];
+    vics.forEach((v, lk) => { // v2.38: one vicinity map for each place: its route, its points, its circle
+      const vic = v.area, vb = v.vb, VDX = v.dx, vsh = v.sh, vk = vic[2] / 1500, img = v.image;
+      const inLoc = (p) => (locOfPt.get(p) || 0) === lk, lpts = pts.filter(inLoc);
+      if (!img) { // no picture: the roads, thin
+        R.edges.forEach((l) => { for (const c of clipLine(l.pts.concat(l.closed ? [l.pts[0]] : []), vb)) if (c.length > 1) o.lwpoly(VLAY, c.map(vsh), { color: 7 }); });
+        R.paths.forEach((l) => { for (const c of clipLine(l, vb)) if (c.length > 1) o.lwpoly(VLAY, c.map(vsh), { color: 8 }); });
       }
-    } else o.mtext(VLAY, vb[0] + VDX + 8 * vk, vb[1] + 14 * vk, 6 * vk, mtextEsc(String(job.vicImage.credit || '© OpenStreetMap contributors').toUpperCase()), { att: 7, style: 'arial', color: 7, mask: 255 }); // v2.36: on a white box (readable on a satellite picture)
+      // v2.36: the route stands out on any picture: a white band under the red broken line, a red dot with a white rim at each
+      // pole and point, and a circle round the area marked PROJECT AREA (yellow over a satellite picture, red over a street map).
+      // v2.37: bolder (the band, the line, the dots and the circle), the label in yellow on a dark box with a yellow frame; the app
+      // darkens and greys the picture outside the circle (the same circle)
+      const vDot = (q, r, col) => o.lwpoly(VLAY, [[q[0] - r / 2, q[1], 1], [q[0] + r / 2, q[1], 1]], { closed: true, w: r, ...col }); // a filled disc of radius r
+      const lch = chains.filter((ch) => ch.ids && ch.ids.length && locOfId(ch.ids[0]) === lk);
+      for (const ch of lch) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: 30 * vk, ...WHITE, gen: true });
+      for (const ch of lch) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: 15 * vk, color: ch.existing ? 5 : ch.ug ? 3 : 1, lt: ch.ug ? null : vlt, lts: vlt && !ch.ug ? 24 * vk : 0, gen: true });
+      for (const p of lpts) { if (p.el === 'NAP' || p.el === 'Closure') continue; const q = vsh(p.dp || [p.E, p.N]); vDot(q, 14 * vk, WHITE); vDot(q, 9.5 * vk, { color: 1 }); }
+      { const dps = lpts.map((p) => p.dp || [p.E, p.N]), xs = dps.map((q) => q[0]), ys = dps.map((q) => q[1]);
+        const vc = Array.isArray(v.circle) && v.circle.length === 3 ? v.circle : null;
+        const c = vsh(vc ? [vc[0], vc[1]] : [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]);
+        const rad = vc ? vc[2] : Math.max(70 * vk, Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 + 45 * vk), col = img && img.sat ? 2 : 1;
+        o.lwpoly(VLAY, [[c[0] - rad, c[1], 1], [c[0] + rad, c[1], 1]], { closed: true, w: 7 * vk, color: col });
+        const lh = 18 * vk, lw = 'PROJECT AREA'.length * lh * 0.74, ly = c[1] + rad + 8 * vk + lh * 0.9; // the label on a dark box, framed
+        o.lwpoly(VLAY, [[c[0] - lw / 2 - lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly + lh * 0.9], [c[0] - lw / 2 - lh * 0.6, ly + lh * 0.9]], { closed: true, w: 2 * vk, color: 2 });
+        o.mtext(VLAY, c[0], ly, lh, 'PROJECT AREA', { att: 5, style: 'arial', color: 2, mask: 250 });
+        if (!lk) rep.vicinityMark = { r: rad };
+        rep.vicinities.push({ sheet: vicNames[lk], area: vic.slice(), dx: VDX, points: lpts.length, circle: [c[0] - VDX, c[1], rad], picture: img ? img.file : null }); }
+      if (!img) { // no picture: the names of the roads written large
+        const done = new Set();
+        for (const r of R.roads.slice().sort((a, b) => b.hw - a.hw)) {
+          if (!(r.hw > 0) || !r.name || done.has(r.name)) continue; let best = null;
+          for (const piece of clipLine(r.pts, vb)) for (let k = 1; k < piece.length; k++) { const L = dist2(piece[k - 1], piece[k]); if (L > 80 * vk && (!best || L > best.L)) best = { L, a: piece[k - 1], b: piece[k] }; }
+          if (!best) continue; done.add(r.name); if (done.size > 25) break;
+          o.text(VLAY, (best.a[0] + best.b[0]) / 2 + VDX, (best.a[1] + best.b[1]) / 2, 8 * vk, r.name.toUpperCase(), { rot: readable(deg(unit(best.a, best.b))), ha: 1, va: 2, style: 'arial', color: 8 });
+        }
+      } else o.mtext(VLAY, vb[0] + VDX + 8 * vk, vb[1] + 14 * vk, 6 * vk, mtextEsc(String(img.credit || '© OpenStreetMap contributors').toUpperCase()), { att: 7, style: 'arial', color: 7, mask: 255 }); // v2.36: on a white box (readable on a satellite picture)
+    });
     const layerH = (n) => (S.layers.has(n) ? get(S.layers.get(n), 5) : null);
     const vicOnly = [layerH(VLAY), layerH(VMAP)].filter(Boolean);
     const keepInVic = new Set([VLAY, VMAP]);
     const offInVic = [...(o.used || [])].filter((n) => !keepInVic.has(n)).map(layerH).filter(Boolean);
     for (const L of S.layouts) {
       const vp = bigVp(L); if (!vp) continue;
-      if (L.name === 'VICINITY MAP') vpFreeze(vp, offInVic); else if (/^GEO( \(\d+\))?$/.test(L.name) || L.name === 'KEYMAP') vpFreeze(vp, vicOnly);
+      if (vicNames.includes(L.name)) vpFreeze(vp, offInVic); else if (/^GEO( \(\d+\))?$/.test(L.name) || kmNames.includes(L.name)) vpFreeze(vp, vicOnly); // v2.38: every place's sheets
     }
     const ents = d.sec('ENTITIES').recs; ents.push(...o.model);
     d.index();
@@ -1425,7 +1523,7 @@
     const auto = {
       SHEET_NO: (sh) => { const k = geoNames(N).indexOf(sh); return k >= 0 ? `${k + 1} OF ${N}` : '1 OF 1'; },
       DATE: () => dateText(job.date || new Date()),
-      SCALE: (sh) => (geoNames(N).includes(sh) ? `1 : ${(viewH / 400 * 1000).toLocaleString('en-US')} METERS` : sh === 'KEYMAP' ? `1 : ${(Math.round(kmH / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : sh === 'VICINITY MAP' ? `1 : ${(Math.round(vic[2] / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : ''),
+      SCALE: (sh) => (geoNames(N).includes(sh) ? `1 : ${(viewH / 400 * 1000).toLocaleString('en-US')} METERS` : kmNames.includes(sh) ? `1 : ${(Math.round(kmH[kmNames.indexOf(sh)] / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : vicNames.includes(sh) ? `1 : ${(Math.round(vics[vicNames.indexOf(sh)].area[2] / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : ''),
       IDX_TL: (sh) => idx(sh, -1, 1), IDX_T: (sh) => idx(sh, 0, 1), IDX_TR: (sh) => idx(sh, 1, 1), IDX_L: (sh) => idx(sh, -1, 0), IDX_C: (sh) => idx(sh, 0, 0), IDX_R: (sh) => idx(sh, 1, 0), IDX_BL: (sh) => idx(sh, -1, -1), IDX_B: (sh) => idx(sh, 0, -1), IDX_BR: (sh) => idx(sh, 1, -1),
       TOC_GEO: () => String(N), TOC_LEGEND: () => String(sheetNames.filter((n) => /^LEGENDS?( \(\d+\))?$/.test(n)).length), TOC_TOTAL: () => String(sheetNames.filter((n) => n !== 'Model').length),
     };
@@ -1486,7 +1584,7 @@
         }
       }
       // only what lies away from the plan (a window over the plan, e.g. a sheet of the plan itself, stays)
-      const planBox = [gx0 - cell, Math.min(gy0, vb[1]) - cell, Math.max(gx1, vb[2] + VDX) + cell, Math.max(gy1, vb[3]) + cell];
+      const planBox = [gx0 - cell, Math.min(gy0, ...vics.map((v) => v.sb[1])) - cell, Math.max(gx1, ...vics.map((v) => v.sb[2])) + cell, Math.max(gy1, ...vics.map((v) => v.sb[3])) + cell]; // v2.38: every place and vicinity map
       const away = groups.filter((g) => g.w[2] < planBox[0] || g.w[0] > planBox[2] || g.w[3] < planBox[1] || g.w[1] > planBox[3]).sort((a, b) => a.w[0] - b.w[0]);
       const ents = d.sec('ENTITIES').recs, kids = new Map(); // an INSERT's attributes (and SEQEND) follow it
       for (const r of ents) { const ow = owner(r); if (ow && ow !== S.modelH) (kids.get(ow) || kids.set(ow, []).get(ow)).push(r); }
@@ -1511,7 +1609,7 @@
         else if (typ(r) !== 'MTEXT' && typ(r) !== 'MULTILEADER') { X.forEach((v) => { g.ext[0] = Math.min(g.ext[0], v); g.ext[2] = Math.max(g.ext[2], v); }); Y.forEach((v) => { g.ext[1] = Math.min(g.ext[1], v); g.ext[3] = Math.max(g.ext[3], v); }); }
         else { g.ext[0] = Math.min(g.ext[0], q[0]); g.ext[2] = Math.max(g.ext[2], q[0] + num(r, 41, 0)); g.ext[1] = Math.min(g.ext[1], q[1] - num(r, 40, 0)); g.ext[3] = Math.max(g.ext[3], q[1]); }
       }
-      const GAP = 60, top = Math.min(gy0, vb[1], (gy0 + gy1) / 2 - kmH / 2) - GAP; let x = gx0, moved = 0; // below the grid, the vicinity map and what the keymap sheet shows
+      const GAP = 60, top = Math.min(gy0, ...vics.map((v) => v.sb[1]), ...kmBox.map((b, k) => (b[1] + b[3]) / 2 - kmH[k] / 2)) - GAP; let x = gx0, moved = 0; // below the grid, the vicinity maps and what the keymap sheets show
       for (const g of away) {
         const dx = x - g.ext[0], dy = top - g.ext[3];
         for (const r of g.recs) {
@@ -1535,5 +1633,5 @@
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0] };
     return { text: d.text(), report: rep };
   }
-  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, version: '2.37' };
+  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, version: '2.38' };
 }));

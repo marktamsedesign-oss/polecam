@@ -530,6 +530,13 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.38.0
+
+- **Several places in one project:** points more than 1 km from every other point form a separate place (two sites in one project, say). Each place gets its own **VICINITY MAP** and **KEYMAP** sheet, centred on it; its GEO sheets come together, with its number before the cell name (1A-1, 2A-1). Before, one vicinity map and one keymap covered everything, so two places 84 km apart made a map 250 km wide.
+- **The vicinity map is focused:** each place's points with **500 m round them**, at least 1.5 km across (before: three times the whole route). The 10 km test route, 6.8 km across, now gets a 7.8 km map instead of 20.4 km.
+- **Roads only round the route:** the roads and building names are read and drawn only round each place (the cells of its GEO sheets and 60 m round them), not over the whole vicinity area. The vicinity map is a picture (satellite, street map or offline map), so it does not need them. Only when no picture can be had at all are the vicinity area's roads read, to draw one.
+- **Faster on long routes:** placing the labels looks only at what is near each label, and road corners are matched by place. Measured on the test machine: the plan of a 10 km sample route (260 points) took 10 s instead of 62 s (DXF 3.9 MB instead of 22 MB), and a 10-point project with two places 84 km apart 2 s instead of 11 minutes (DXF 1.9 MB instead of 137 MB; it had read 108,737 roads).
+
 ## What changed in v2.37.0
 
 From the design review of the v2.36.0 plan DXF (rounds 1 and 2):

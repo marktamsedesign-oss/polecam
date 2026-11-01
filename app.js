@@ -683,7 +683,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.37.0';
+  const APP_VER = '2.38.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -6504,14 +6504,22 @@
         napType: el === 'NAP' ? b.napType || '' : '', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', ground: !!b.ground, riser: !!b.riser, p2pTo: b.p2p || null }; });
     const spans = R.spans.map((s) => ({ ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long }));
     const runs = C.routeChains(R.spans).map((ch) => ({ cable: ch.cable, label: CAB_TITLE[ch.cable] || '', pts: ch.pts.map(U) }));
-    // the area of the vicinity map: three times the route, at least 1.5 km
-    const xs = rows.map((r) => r.E), ys = rows.map((r) => r.N), size = Math.max(1500, 3 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)));
-    const cE = (Math.max(...xs) + Math.min(...xs)) / 2, cN = (Math.max(...ys) + Math.min(...ys)) / 2;
-    const la = pts.map((p) => p.lat), lo = pts.map((p) => p.lon), cla = (Math.max(...la) + Math.min(...la)) / 2, clo = (Math.max(...lo) + Math.min(...lo)) / 2;
-    const dLa = size / 2 / 110574, dLo = size / 2 / (111320 * Math.cos(cla * Math.PI / 180));
+    // v2.38: the project's places (points more than 1 km apart), each with its own vicinity map (its points with a 500 m margin, at
+    // least 1.5 km across); the roads and places only round the route (500 m round each place's points, for its plan sheets), not
+    // the whole vicinity area
+    const south = rows.some((r) => r.lat < 0), locs = window.GeDxfTpl.locations(rows, spans), nLoc = locs.length;
+    const llBox = (b, m) => { const c = [[b[0] - m, b[1] - m], [b[2] + m, b[1] - m], [b[0] - m, b[3] + m], [b[2] + m, b[3] + m]].map(([E, N]) => C.utmInverse(E, N, zone, south)); return [Math.min(...c.map((q) => q[0])), Math.min(...c.map((q) => q[1])), Math.max(...c.map((q) => q[0])), Math.max(...c.map((q) => q[1]))]; };
     let roads = [], pois = [], roadsNote = 'roads not added (Options: untick to leave them out)';
-    const nLa = (Math.max(...la) - Math.min(...la)) / 2 + 250 / 110574, nLo = (Math.max(...lo) - Math.min(...lo)) / 2 + 250 / (111320 * Math.cos(cla * Math.PI / 180));
-    if ($('dxfRoads').checked) ({ roads, pois, note: roadsNote } = await planRoads([cla - dLa, clo - dLo, cla + dLa, clo + dLo], [cla - nLa, clo - nLo, cla + nLa, clo + nLo]));
+    if ($('dxfRoads').checked) {
+      const notes = [], seenR = new Set(), seenP = new Set();
+      for (let k = 0; k < nLoc; k++) {
+        if (nLoc > 1) busy(`Roads and places: place ${k + 1} of ${nLoc}…`);
+        const r = await planRoads(llBox(locs[k].box, 500), llBox(locs[k].box, 250)); notes.push(r.note);
+        for (const x of r.roads || []) { const a = x.pts[0], b = x.pts[x.pts.length - 1], kk = `${x.name}|${x.pts.length}|${Math.round(a[0])},${Math.round(a[1])}|${Math.round(b[0])},${Math.round(b[1])}`; if (!seenR.has(kk)) { seenR.add(kk); roads.push(x); } }
+        for (const q of r.pois || []) { const kk = `${q.name}|${Math.round(q.E)},${Math.round(q.N)}`; if (!seenP.has(kk)) { seenP.add(kk); pois.push(q); } }
+      }
+      roadsNote = nLoc > 1 ? notes.map((n, k) => `place ${k + 1}: ${n}`).join('; ') : notes[0];
+    }
     if (pois && pois.length) pois = pois.slice().sort((a, b) => poiRank(a.kind, a.detail) - poiRank(b.kind, b.detail)); // v2.35.5: public services, churches, health… placed first
     let lmBlocks = null; // v2.35.6: the landmarks' icons as AutoCAD blocks
     if (pois && pois.length && LM) { pois = pois.map((q) => ({ ...q, icon: lmIcon(q.kind, q.detail) })); if (pois.some((q) => q.icon >= 0)) lmBlocks = await loadLandmarkBlocks(); }
@@ -6562,32 +6570,42 @@
       let dim; try { dim = window.PoleReports.jpegInfo(jpg); } catch (e) { continue; }
       const file = `${names[poles[i].id]}.jpg`; photos[poles[i].id] = { file, px: dim.w, py: dim.h }; files.push({ name: file, data: jpg });
     }
-    let vicImage = null, vicDrawn = false, vicKind = 'street';
-    const vicC = window.GeDxfTpl.vicCircle ? window.GeDxfTpl.vicCircle(rows.map((r) => [r.E, r.N]), size) : null; // v2.37: the PROJECT AREA circle
-    try {
-      // v2.36: online, the satellite picture (else the street map); offline, the offline map pack; else a street map drawn from the roads
-      let v = navigator.onLine === false ? null : await vicinityJpeg(cE, cN, size, zone, cla < 0, busy, SAT_SOURCE).catch((e) => { LOG.warn('plan.vicinity.sat', errInfo(e)); return null; });
-      if (!v) v = await vicinityJpeg(cE, cN, size, zone, cla < 0, busy);
-      if (!v) { busy('Drawing the vicinity map from the offline map…'); v = await vicinityFromPack(cE, cN, size, zone, cla < 0).catch((e) => { LOG.warn('plan.vicinity.pack', errInfo(e)); return null; }); if (v) vicKind = 'pack'; }
-      if (!v && roads.length) { v = await vicinityFromRoads(roads, cE, cN, size); vicDrawn = !!v; } // v2.34: no map tiles: a street map drawn from the roads
-      if (v && vicC) v = await vicFocus(v, cE, cN, size, vicC); // v2.37: grey and darker outside the circle
-      if (v) { if (v.sat) vicKind = 'sat'; vicImage = { file: 'VICINITY_MAP.jpg', px: v.px, py: v.py, credit: v.credit, sat: !!v.sat }; files.push({ name: 'VICINITY_MAP.jpg', data: v.jpg }); }
-    } catch (e) { LOG.warn('plan.vicinity', errInfo(e)); }
+    // v2.38: a vicinity map for each place
+    const vics = [], vicSay = [];
+    for (let k = 0; k < nLoc; k++) {
+      const [cE, cN, size] = window.GeDxfTpl.vicArea(locs[k].box), vicC = window.GeDxfTpl.vicCircle(locs[k].idx.map((i) => [rows[i].E, rows[i].N]), size); // v2.37: the PROJECT AREA circle
+      const file = k ? `VICINITY_MAP_${k + 1}.jpg` : 'VICINITY_MAP.jpg'; let image = null, kind = 'street', drawn = false;
+      if (nLoc > 1) busy(`Vicinity map ${k + 1} of ${nLoc}…`);
+      try {
+        // v2.36: online, the satellite picture (else the street map); offline, the offline map pack; else a street map drawn from the roads
+        let v = navigator.onLine === false ? null : await vicinityJpeg(cE, cN, size, zone, south, busy, SAT_SOURCE).catch((e) => { LOG.warn('plan.vicinity.sat', errInfo(e)); return null; });
+        if (!v) v = await vicinityJpeg(cE, cN, size, zone, south, busy);
+        if (!v) { busy('Drawing the vicinity map from the offline map…'); v = await vicinityFromPack(cE, cN, size, zone, south).catch((e) => { LOG.warn('plan.vicinity.pack', errInfo(e)); return null; }); if (v) kind = 'pack'; }
+        if (!v && $('dxfRoads').checked) { // v2.34: no map tiles: a street map drawn from the roads of the vicinity area (read only for this)
+          const vr = await planRoads(llBox([cE - size / 2, cN - size / 2, cE + size / 2, cN + size / 2], 0)).catch(() => null);
+          if (vr && vr.roads.length) { v = await vicinityFromRoads(vr.roads, cE, cN, size); drawn = !!v; }
+        }
+        if (v) v = await vicFocus(v, cE, cN, size, vicC); // v2.37: grey and darker outside the circle
+        if (v) { if (v.sat) kind = 'sat'; image = { file, px: v.px, py: v.py, credit: v.credit, sat: !!v.sat }; files.push({ name: file, data: v.jpg }); }
+      } catch (e) { LOG.warn('plan.vicinity', errInfo(e)); }
+      vics.push({ c: [cE, cN], size, circle: vicC, image });
+      vicSay.push(image ? (drawn ? `street map ${file} drawn from the OpenStreetMap roads (the map tiles did not come)` : `${kind === 'sat' ? 'satellite picture' : kind === 'pack' ? 'offline map picture' : 'street map picture'} ${file} (${image.credit})`) + `, ${(size / 1000).toFixed(1)} km across` : 'no picture (no map tiles and no roads): the roads are drawn instead');
+    }
     // v2.34: the vendor's logo in every title block (set in Export → AutoCAD · DXF, shared with the company's users through the sheet)
     let logo = null;
     try { const lg = await logoGet(); if (lg) { const ext = lg.type === 'image/png' ? 'png' : 'jpg'; logo = { file: `COMPANY_LOGO.${ext}`, px: lg.px, py: lg.py }; files.push({ name: logo.file, data: b64ToBytes(lg.data) }); } } catch (e) { LOG.warn('plan.logo', errInfo(e)); }
     busy('Drawing the plan on the template…');
     await sleep(30);
-    const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinity: [cE, cN, size], vicCircle: vicC, photos, vicImage, logo,
+    const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos, logo,
       planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
     const rp = out.report, name = `${fileBase()}_PLAN_UTM${zone}N`;
     const nPh = Object.keys(photos).length;
     const readme = [`${name}.dxf — the plan on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres.`,
       files.length ? 'UNZIP EVERYTHING INTO ONE FOLDER, then open the DXF: the pictures (pole photos, vicinity map) are linked by file name and must stay next to the DXF.' : '',
-      `Pole photos: ${nPh} of ${poles.length} poles (a pole without a photo shows its number). Vicinity map: ${vicImage ? (vicDrawn ? 'street map VICINITY_MAP.jpg drawn from the OpenStreetMap roads (the map tiles did not come)' : `${vicKind === 'sat' ? 'satellite picture' : vicKind === 'pack' ? 'offline map picture' : 'street map picture'} VICINITY_MAP.jpg (${vicImage.credit})`) : 'no picture (no map tiles and no roads): the roads are drawn instead'}; the project area circled.`,
+      `Pole photos: ${nPh} of ${poles.length} poles (a pole without a photo shows its number). ${nLoc > 1 ? `The points are in ${nLoc} places more than 1 km apart: each has its own VICINITY MAP and KEYMAP sheet, and its own GEO sheets (cells named with the place's number first: 1A-1, 2A-1). ` : ''}Vicinity map${nLoc > 1 ? 's' : ''}: ${vicSay.map((t, k) => (nLoc > 1 ? `place ${k + 1}: ${t}` : t)).join('; ')}; the project area circled. Roads and building names are drawn round the route only (the cells of the GEO sheets and 60 m round them), not over the whole vicinity area.`,
       `Title blocks: ${known ? `${[sName, sPla].filter(Boolean).join('_')} / ${sSerial || '(no serial number)'} from the online sheet's project details` : 'no project details from the online sheet: the project\'s location text is used'}; company ${logo ? 'logo COMPANY_LOGO' : 'name (no logo set)'}; title ${m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN'}.`,
       'Cables: red = new fiber, blue = existing; broken line = aerial, solid line = underground.',
-      `Sheets: TITLE, TOC, LEGENDS, VICINITY MAP, ROW AREA COVERAGE, KEYMAP, ${rp.sheets.join(', ')}, PMI.`,
+      `Sheets: TITLE, TOC, LEGENDS, ${(rp.vicinities || [{ sheet: 'VICINITY MAP' }]).map((v) => v.sheet).join(', ')}, ROW AREA COVERAGE, ${(rp.vicinities || [0]).map((_, k) => (k ? `KEYMAP (${k + 1})` : 'KEYMAP')).join(', ')}, ${rp.sheets.join(', ')}, PMI.`,
       `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${rp.grid.cell} m (1:1100 on the GEO sheets).`,
       `Roads: ${roadsNote}.`,
       `Right of way (ROW AREA COVERAGE): ${rowNote}.`, '',
