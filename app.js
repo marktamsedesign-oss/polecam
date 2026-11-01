@@ -164,7 +164,7 @@
     quality: 'strict', readId: true, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
     exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'utm', 'time', 'by', 'project'], naming: 'id',
       kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true,
-      dxfPhotos: true, dxfPhotoW: 6, focPct: 10 },
+      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {} },
     saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
   };
   let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem('polecam.settings') || '{}')); } catch (e) { return { ...DEF }; } })();
@@ -686,7 +686,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.39.0';
+  const APP_VER = '2.40.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1867,6 +1867,14 @@
     return out;
   }
   const clampOf = (p, R, all) => (p.boq && p.boq.clampType ? String(p.boq.clampType).split(' + ').filter(Boolean) : clampAuto(p, R, all || projPoints()));
+  /** v2.40: the sizes of each point for the KMZ, the CSV and the BOQ, a pole's CLAMP TYPE filled with the clamps the plan picks when its
+      record leaves it blank (as on the plan); in a survey project only. Returns p => its sizes. */
+  function boqFilled(pts) {
+    if (isAcc()) return (p) => p.boq;
+    const R = routeModel(), all = projPoints(), m = new Map();
+    pts.forEach((p) => { if (elemOf(p) === 'Pole' && !(p.boq && p.boq.clampType)) { const t = clampAuto(p, R, all); if (t.length) m.set(p.id, { ...(p.boq || {}), clampType: t.join(' + ') }); } });
+    return (p) => m.get(p.id) || p.boq;
+  }
   function routeAdvice(R) {
     const out = []; if (!R || !R.spans.length) return out;
     const pts = projPoints(), poles = pts.filter((p) => elemOf(p) === 'Pole'), onPole = (q) => { let best = null, bd = 30; for (const p of poles) { const d = haversine(p, q); if (d < bd) { bd = d; best = p; } } return best; };
@@ -5970,7 +5978,7 @@
     cards.forEach((c) => sel.add(new Option(c.querySelector('.head b').textContent, xKey(c), false, c === want)));
     $('boqCardText').textContent = svPurpose() === 'As-built' && !acc // v2.26.1
       ? 'What was built, by size, against the As-Plan (its KMZ as this project\u2019s reference): planned, built and the difference, with the IDs, the planned elements not found and what was built outside the plan. The same BOQ is in the Completion report and in Route and spans \u00b7 Excel.'
-      : 'What the plan needs, by size: new Globe poles by size and class, clamps by size and pole owner, ODF by size and connector, closures by size, with the IDs, and what has no size yet. The same BOQ is in the Completion report and in Route and spans \u00b7 Excel.';
+      : 'What the plan needs, by size: new Globe poles by size and class, clamps by size and pole owner, clamp types by size, ODF by size and connector, closures by size, with the IDs, and what has no size yet. The same BOQ is in the Completion report and in Route and spans \u00b7 Excel.';
     document.querySelectorAll('#export .xcard').forEach((c) => c.classList.toggle('xoff', c !== want));
   }
   /** v2.28: Several formats at once: tick them, one ZIP with every file. */
@@ -6062,9 +6070,9 @@
   }));
   /** The survey KMZ for Google Earth (pins, route, balloon photos), as Export → KMZ makes it. */
   async function surveyKmzBlob(pts) {
-    const E = S.exp, icons = E.kmzIconPx > 0, names = uniqueNames(pts), files = [], rows = [];
+    const E = S.exp, icons = E.kmzIconPx > 0, names = uniqueNames(pts), files = [], rows = [], fb = boqFilled(pts); // v2.40: with the clamp types
     for (let i = 0; i < pts.length; i++) {
-      const p = pts[i]; busy(`Preparing photos ${i + 1} / ${pts.length}`, i / pts.length);
+      const p0 = pts[i], p = fb(p0) === p0.boq ? p0 : { ...p0, boq: fb(p0) }; busy(`Preparing photos ${i + 1} / ${pts.length}`, i / pts.length);
       const ph = await dbGet('photos', p.id);
       const r = { ...p, element: elemOf(p), statusLabel: svStatusLabel(p.status), detailsText: detailsText(p.details), boqText: boqText(p) };
       if (ph && ph.clean && E.kmzBalloonPx > 0) { r.photoName = `photos/${names[p.id]}.jpg`; files.push({ name: 'files/' + r.photoName, data: await exportPhoto(p, ph.clean, null, null, { maxPx: E.kmzBalloonPx, stamp: E.kmzStamp, quality: 0.85 }) }); }
@@ -6186,8 +6194,31 @@
     $('dxfTplLoad').textContent = info ? 'Use another template file…' : 'Load template file…';
     $('dxfTplLoad').classList.toggle('link', !!id); // with an admin link, loading a file by hand is the exception
     $('dxfTplBox').querySelector('.dxflogo').hidden = !tpl; if (tpl) renderLogo(); // v2.34
+    if (tpl) renderDxfMarks(); // v2.40
   }
   $('dxfMode').addEventListener('change', () => { S.exp.dxfMode = $('dxfMode').value; persist(); renderDxfTpl(); });
+  /* v2.40: which points of the plan get their photo or number: a pole by its pole type (its ID prefix: CC, WP, SP, GT, BT, PLDT…), the
+     other points that stand on their own (handholes, manholes, service boxes, ODC, site, ODF) together; a NAP or closure pin is drawn on
+     its pole and has none. The choice is kept per project (an RTA plan for one owner's poles). */
+  function markKey(p) { const el = elemOf(p); return el === 'Pole' ? typePrefix(p.poleType) || '_none' : el === 'NAP' || el === 'Closure' ? null : '_other'; }
+  function markName(k) { return k === '_other' ? 'Other points (handholes, ODC, site…)' : k === '_none' ? 'Poles with no type' : prefixType(k) || k; }
+  function noMarkOf() { const by = S.exp.dxfNoMarkBy || {}; return new Set(Array.isArray(by[S.project]) ? by[S.project] : []); }
+  function setNoMark(set) { S.exp.dxfNoMarkBy = { ...(S.exp.dxfNoMarkBy || {}) }; if (set.size) S.exp.dxfNoMarkBy[S.project] = [...set]; else delete S.exp.dxfNoMarkBy[S.project]; persist(); renderDxfMarks(); }
+  /** The points that get a photo or number, and the pole types left out. */
+  function dxfMarkSel(pts) { const no = noMarkOf(), ids = pts.filter((p) => { const k = markKey(p); return k && !no.has(k); }).map((p) => p.id); return { ids, no }; }
+  function markGroups() { const cnt = new Map(); projPoints().forEach((p) => { const k = markKey(p); if (k) cnt.set(k, (cnt.get(k) || 0) + 1); });
+    return { cnt, keys: [...poleTypes().map((t) => t.p).filter((k) => cnt.has(k)), ...['_none', '_other'].filter((k) => cnt.has(k))] }; }
+  function renderDxfMarks() {
+    const box = $('dxfMarkTypes'); if (!box) return;
+    const { cnt, keys } = markGroups(), no = noMarkOf(), on = keys.filter((k) => !no.has(k)), n = on.reduce((t, k) => t + cnt.get(k), 0), num = S.exp.dxfMarks === 'num';
+    box.innerHTML = keys.map((k) => `<button type="button" class="chip small" data-v="${C.xmlEsc(k)}" aria-pressed="${!no.has(k)}">${C.xmlEsc(markName(k))} · ${cnt.get(k)}</button>`).join('');
+    $('dxfMarkInfo').textContent = !keys.length ? 'No points in this project yet.' : on.length === keys.length ? `Every pole and point: ${n}, each with its ${num ? 'number' : 'photo'}.`
+      : !on.length ? 'None: no point gets a number or photo.' : `Only ${on.map(markName).join(', ')}: ${n} point${n === 1 ? '' : 's'}, numbered 1 to ${n} along the route; the others get none.`;
+    $('dxfMarkAll').hidden = !no.size;
+  }
+  $('dxfMarkTypes').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c) return; const set = noMarkOf(); if (set.has(c.dataset.v)) set.delete(c.dataset.v); else set.add(c.dataset.v); setNoMark(set); });
+  $('dxfMarkAll').addEventListener('click', () => setNoMark(new Set()));
+  $('dxfMarks').addEventListener('change', () => setTimeout(renderDxfMarks, 0));
   $('dxfTplLoad').addEventListener('click', () => { $('dxfTplFile').value = ''; $('dxfTplFile').click(); });
   $('dxfTplFile').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (!f) return; busy('Reading the plan template…'); try { await storeSeed(await f.text(), f.name, 'file'); } finally { busy(false); } }, 'Template not loaded'));
   /** v2.31: the admin's template, fetched and kept: the Android app through Android (Google Drive allows it); the website tries the
@@ -6524,6 +6555,7 @@
     busy('Preparing the plan drawing…');
     const m = pmeta(), zone = S.zone, U = (q) => { const u = C.utmForward(q.lat, q.lon, zone, q.lat < 0); return [u.E, u.N]; };
     const R = routeModel(), Q = surveyQty(pts), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
+    const showCT = S.exp.dxfClampType !== false, numOnly = S.exp.dxfMarks === 'num', MS = dxfMarkSel(pts), markSet = new Set(MS.ids); // v2.40: the plan's options
     // v2.31: what the template's pole models show: proposed pole (its ID unless generic) / height / clamp; an existing pole's material
     // and pole tag (electric) or material and ID (telco pole: Globe, Bayantel, or a telco owner); the new arm and guying
     const TELCO_TYPES = new Set(['GT', 'BT']);
@@ -6535,7 +6567,7 @@
         adjusted: !!p.adjusted, color: p.color || '', // v2.36: a pin set by hand stays where it is on the drawing; a map pin's colour
         // v2.37: the NAP's kind, a double LCP, the site's kind, grounding, a riser, the pole a pole-to-pole guy goes to
         napType: el === 'NAP' ? b.napType || '' : '', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', ground: !!b.ground, riser: !!b.riser, p2pTo: b.p2p || null,
-        clampType: el === 'Pole' ? clampOf(p, R, pts).join('+') : '', clampAuto: el === 'Pole' && !b.clampType }; }); // v2.39: the pole's clamps (picked by the plan when left blank)
+        clampType: el === 'Pole' && showCT ? clampOf(p, R, pts).join('+') : '', clampAuto: el === 'Pole' && !b.clampType }; }); // v2.39: the pole's clamps (picked by the plan when left blank); v2.40: or the size only
     const spans = R.spans.map((s) => ({ ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long }));
     const runs = C.routeChains(R.spans).map((ch) => ({ cable: ch.cable, label: CAB_TITLE[ch.cable] || '', pts: ch.pts.map(U) }));
     // v2.38: the project's places (points more than 1 km apart), each with its own vicinity map (its points with a 500 m margin, at
@@ -6596,13 +6628,18 @@
           : `the route is in no city / municipality or barangay boundary of the road pack (${A.src}): the table is left blank`;
       }
     } catch (e) { LOG.warn('plan.row', errInfo(e)); rowNote = `not filled: ${e.message || e}`; }
+    // v2.39.1: a place that no road pack on this phone covers has no city / municipality or barangay in the table: say which pack
+    const noPack = locs.map((L, k) => ({ k, b: llBox(L.box, 0) })).filter(({ b }) => !roadPacksFor(b).length)
+      .map(({ k, b }) => { const r = REGION_BY[regionAt((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)]; return { k, region: r ? r[2] : '' }; });
+    if (noPack.length) rowNote += ` · ${noPack.map(({ k, region }) => `${nLoc > 1 ? `place ${k + 1}` : 'the route'} is in no road pack on this phone, so its city / municipality and barangays are not in the table: add Maps → Offline map packs → Roads · ${region || 'its region'} and export again`).join(' · ')}`;
     // v2.32: the photo of each pole beside it on the drawing (the JPEGs go next to the DXF), and the street map on the vicinity sheet
-    const names = uniqueNames(pts), photos = {}, files = [];
-    for (let i = 0; i < poles.length; i++) {
-      busy(`Preparing the pole photos ${i + 1} / ${poles.length}`, i / poles.length);
-      const jpg = await pdfJpeg(coverPid(poles[i]) || poles[i].id, 800, null, null, 0.8).catch(() => null); if (!jpg) continue;
+    // v2.40: the photos of the points chosen for the plan (poles of the chosen types, handholes and the other points), none for numbers only
+    const names = uniqueNames(pts), photos = {}, files = [], withPh = numOnly ? [] : pts.filter((p) => markSet.has(p.id));
+    for (let i = 0; i < withPh.length; i++) {
+      busy(`Preparing the photos ${i + 1} / ${withPh.length}`, i / withPh.length);
+      const jpg = await pdfJpeg(coverPid(withPh[i]) || withPh[i].id, 800, null, null, 0.8).catch(() => null); if (!jpg) continue;
       let dim; try { dim = window.PoleReports.jpegInfo(jpg); } catch (e) { continue; }
-      const file = `${names[poles[i].id]}.jpg`; photos[poles[i].id] = { file, px: dim.w, py: dim.h }; files.push({ name: file, data: jpg });
+      const file = `${names[withPh[i].id]}.jpg`; photos[withPh[i].id] = { file, px: dim.w, py: dim.h }; files.push({ name: file, data: jpg });
     }
     // v2.38: a vicinity map for each place
     const vics = [], vicSay = [];
@@ -6630,13 +6667,19 @@
     try { const lg = await logoGet(); if (lg) { const ext = lg.type === 'image/png' ? 'png' : 'jpg'; logo = { file: `COMPANY_LOGO.${ext}`, px: lg.px, py: lg.py }; files.push({ name: logo.file, data: b64ToBytes(lg.data) }); } } catch (e) { LOG.warn('plan.logo', errInfo(e)); }
     busy('Drawing the plan on the template…');
     await sleep(30);
-    const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos, logo,
+    const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos, logo, marks: MS.ids, markNum: numOnly,
       planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
     const rp = out.report, name = `${fileBase()}_PLAN_UTM${zone}N`;
     const nPh = Object.keys(photos).length;
+    // v2.40: the numbers on the plan, for the README (and an RTA application): number, ID, pole type, position
+    const MK = rp.marks || [], byPt = new Map(pts.map((p) => [String(p.id), p])), MG = markGroups(), mOn = MG.keys.filter((k) => !MS.no.has(k));
+    const markFor = MS.no.size ? (mOn.length ? `only ${mOn.map(markName).join(', ')}` : 'no point (all left out)') : 'every pole and the other points (handholes, ODC, site…)';
+    const markLines = MK.map(([n, id]) => { const p = byPt.get(id) || {}; return `  ${n}  ${p.poleId || '(no ID)'}  ${elemOf(p) === 'Pole' ? p.poleType || 'pole' : elemOf(p)}  ${(+p.lat).toFixed(6)}, ${(+p.lon).toFixed(6)}`; });
     const readme = [`${name}.dxf — the plan on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres.`,
       files.length ? 'UNZIP EVERYTHING INTO ONE FOLDER, then open the DXF: the pictures (pole photos, vicinity map) are linked by file name and must stay next to the DXF.' : '',
-      `Pole photos: ${nPh} of ${poles.length} poles (a pole without a photo shows its number). ${nLoc > 1 ? `The points are in ${nLoc} places more than 1 km apart: each has its own VICINITY MAP and KEYMAP sheet, and its own GEO sheets (cells named with the place's number first: 1A-1, 2A-1). ` : ''}Vicinity map${nLoc > 1 ? 's' : ''}: ${vicSay.map((t, k) => (nLoc > 1 ? `place ${k + 1}: ${t}` : t)).join('; ')}; the project area circled. Roads and building names are drawn round the route only (the cells of the GEO sheets and 60 m round them), not over the whole vicinity area.`,
+      `Beside the points: ${numOnly ? 'their number only (no photos)' : `their photo (${nPh} of ${MK.length}; a point without a photo shows its number)`}, for ${markFor}: ${MK.length} numbered 1 to ${MK.length} along the route (the list is at the end).`,
+      `Clamp types: ${showCT ? 'on the plan, before the clamp size (e.g. CA 8-10, 2A 10-12)' : 'left off the plan (the clamp size only); they are in the BOQ, the KMZ and the CSV'}.`,
+      `${nLoc > 1 ? `The points are in ${nLoc} places more than 1 km apart: each has its own VICINITY MAP and KEYMAP sheet, and its own GEO sheets (cells named with the place's number first: 1A-1, 2A-1). ` : ''}Vicinity map${nLoc > 1 ? 's' : ''}: ${vicSay.map((t, k) => (nLoc > 1 ? `place ${k + 1}: ${t}` : t)).join('; ')}; the project area circled. Roads and building names are drawn round the route only (the cells of the GEO sheets and 60 m round them), not over the whole vicinity area.`,
       `Title blocks: ${known ? `${[sName, sPla].filter(Boolean).join('_')} / ${sSerial || '(no serial number)'} from the online sheet's project details` : 'no project details from the online sheet: the project\'s location text is used'}; company ${logo ? 'logo COMPANY_LOGO' : 'name (no logo set)'}; title ${m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN'}.`,
       'Cables: red = new fiber, blue = existing; broken line = aerial, solid line = underground.',
       `Sheets: TITLE, TOC, LEGENDS, ${(rp.vicinities || [{ sheet: 'VICINITY MAP' }]).map((v) => v.sheet).join(', ')}, ROW AREA COVERAGE, ${(rp.vicinities || [0]).map((_, k) => (k ? `KEYMAP (${k + 1})` : 'KEYMAP')).join(', ')}, ${rp.sheets.join(', ')}, PMI.`,
@@ -6649,12 +6692,13 @@
       `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; a pin placed by hand more than 6 m from the road edge stays where it is: ${rp.counts.polesKept || 0}; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it; a side guy never into the road; a pole-to-pole guy to its chosen pole, with a head guy there: ${rp.counts.poleToPole || 0}).`,
       `On the cable (the cable meets their two sides, the ID below): NAPs of every kind (1x8, 1x16, dummy, changed to 1:16, double; a NAP pin is drawn on its pole), the ODC (single or double LCP), handholes, manholes and service boxes: ${rp.counts.inlineBlocks || 0}. Loops on the cable beside their pole; closures on the cable. Grounding at every pole with a loop or marked for it: ${rp.counts.grounding || 0}. Risers where the cable goes from aerial to underground (or marked): ${rp.counts.risers || 0}. Directional boring (HDD) where an underground cable crosses a road: ${rp.counts.hdd || 0}. A new tower is red; an OLT site is drawn with the OLT model (${rp.counts.olt || 0}).`,
       ...(() => { const A = routeAdvice(R); return A.length ? [`Route check (${A.length}): ${A.map((a) => a.text).join(' · ')}.`] : []; })(),
-      `Road widths by OpenStreetMap class (or its width / lanes): primary 12 m, secondary 9, tertiary 7.5, residential 6, service 4, track 3.5; paths as a grey centre line. Building and place names: ${rp.counts.pois || 0}${rp.counts.landmarkIcons ? `, ${rp.counts.landmarkIcons} with their icon (blocks GESAA_LM_…, layer G-ESAA LANDMARK; icons of the OpenStreetMap street map and Mapbox Maki, public domain)` : ''}.`,
-      'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD.', '', exporterText()].join('\r\n');
+      `Road widths by OpenStreetMap class (or its width / lanes): primary 12 m, secondary 9, tertiary 7.5, residential 6, service 4, track 3.5; paths as a grey centre line. Building and place names: ${rp.counts.pois || 0} of the ${rp.counts.poisGiven || 0} named in OpenStreetMap round the route (its area and 250 m round it; not written: ${rp.counts.poisOutside || 0} outside the GEO sheets, ${rp.counts.poisNoRoom || 0} with no free room beside them, ${rp.counts.poisDuplicate || 0} repeated names)${rp.counts.landmarkIcons ? `, ${rp.counts.landmarkIcons} with their icon (blocks GESAA_LM_…, layer G-ESAA LANDMARK; icons of the OpenStreetMap street map and Mapbox Maki, public domain)` : ''}.`,
+      'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD.', '',
+      ...(MK.length ? [`Numbers on the plan (${MK.length}${MS.no.size ? `: ${markFor}` : ''}): number, ID, type, latitude, longitude`, ...markLines, ''] : []), exporterText()].join('\r\n');
     LOG.info('export.plan', { sheets: rp.sheets.length, roads: rp.counts.roads, blanks: rp.blanks.length, mb: +(out.text.length / 1048576).toFixed(2) });
     busy(false);
     offerResult(new Blob(C.makeZipParts([{ name: `${name}.dxf`, data: out.text }, ...files, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`);
-    { const A = routeAdvice(R); toast(`Plan: ${rp.sheets.length} GEO sheet${rp.sheets.length === 1 ? '' : 's'} · ${roadsNote}${A.length ? ` · ${A.length} route check${A.length === 1 ? '' : 's'} in the README` : ''}`, 5000); }
+    { const A = routeAdvice(R); toast(`Plan: ${rp.sheets.length} GEO sheet${rp.sheets.length === 1 ? '' : 's'}${MS.no.size ? ` · numbered: ${markFor} (${MK.length})` : ''} · ${roadsNote}${A.length ? ` · ${A.length} route check${A.length === 1 ? '' : 's'} in the README` : ''}${noPack.length ? ` · no road pack for ${noPack.map(({ region }) => region || 'a place').join(', ')}: its ROW table is blank (see the README)` : ''}`, noPack.length ? 9000 : 5000); }
   }
   /** v2.37: the vicinity picture in grey and darker outside the PROJECT AREA circle (the circle's inside as it is, a soft edge), so the
       route stands out among the houses; the same in AutoCAD and in any PDF converter. vc: [E, N, radius] in UTM metres. */
@@ -6678,7 +6722,7 @@
   $('doCsv').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
     const names = uniqueNames(pts);
-    const rows = pts.map((p) => ({ ...p, photoName: names[p.id] + '.jpg', detailsText: detailsText(p.details), boq: p.boq || {} }));
+    const fb = boqFilled(pts), rows = pts.map((p) => ({ ...p, photoName: names[p.id] + '.jpg', detailsText: detailsText(p.details), boq: fb(p) || {} })); // v2.40: with the clamp types
     offerResult(new Blob([C.buildCsv(rows, S.zone, exporterLine())], { type: 'text/csv' }), fileBase() + '.csv');
   }));
 
@@ -6724,14 +6768,16 @@
   /* v2.26.1: the BOQ of an As-Plan (what the plan needs) or of an As-Built (what was built, against the As-Plan when its KMZ is the
      project's reference). One table for the BOQ Excel, the Route and spans Excel and the Completion report. */
   const boqStNorm = (st) => (st === 'Proposed' || st === 'New' ? 'New' : st || '');
-  function boqGroups(pts) {
-    const groups = new Map(), missing = { pole: 0, ODF: 0, closure: 0 };
+  function boqGroups(pts, fill) {
+    const groups = new Map(), missing = { pole: 0, ODF: 0, closure: 0 }, fb = fill || ((p) => p.boq);
     const add = (item, size, forWhat, id) => { const k = [item, size, forWhat].join('|'), g = groups.get(k) || { item, size, forWhat, qty: 0, ids: [] }; g.qty++; if (id) g.ids.push(id); groups.set(k, g); };
     pts.forEach((p) => {
       const el = elemOf(p), b = p.boq || {}, id = p.poleId && !DREF_RE.test(p.poleId) ? p.poleId : '', stn = boqStNorm(p.status);
       if (el === 'Pole') {
         if (b.height || b.cls) add('New Globe pole', [b.height, b.cls].filter(Boolean).join(' '), 'New', id);
         if (b.clamp) add('Pole clamp', b.clamp, b.owner ? `${b.owner} pole` : stn === 'New' || b.height ? 'New Globe pole' : 'Pole', id);
+        // v2.40: each clamp type the pole needs, with its size (the record's types, else the ones the plan picks)
+        if (b.clamp) String((fb(p) || {}).clampType || '').split(/\s*\+\s*/).filter(Boolean).forEach((t) => add('Pole clamp type', `${t} ${b.clamp}`, 'Pole', id));
         if (!b.clamp && !b.height && !b.cls) missing.pole++;
         if (b.arm) add('New arm', b.arm, b.height || b.cls || stn === 'New' ? 'New Globe pole' : 'Pole', id); // v2.29
         if (b.guy) String(b.guy).split(' + ').filter(Boolean).forEach((x) => add('Guying', x, 'Pole', id));
@@ -6750,8 +6796,11 @@
     });
   }
   function boqTable(pts, plan) {
-    const B = boqGroups(pts), P = plan && plan.recs.length ? boqGroups(plan.recs) : null, compare = !!P;
-    const order = ['New Globe pole', 'Pole clamp', 'New arm', 'Guying', 'Maintenance loop', 'ODF', 'Closure'];
+    const B = boqGroups(pts, boqFilled(pts)), P = plan && plan.recs.length ? boqGroups(plan.recs) : null, compare = !!P;
+    // v2.40: an As-Plan KMZ made before v2.40 has no clamp types: they are not compared (the clamp sizes are)
+    const noPlanTypes = compare && ![...P.groups.values()].some((x) => x.item === 'Pole clamp type');
+    if (noPlanTypes) [...B.groups.keys()].forEach((k) => { if (B.groups.get(k).item === 'Pole clamp type') B.groups.delete(k); });
+    const order = ['New Globe pole', 'Pole clamp', 'Pole clamp type', 'New arm', 'Guying', 'Maintenance loop', 'ODF', 'Closure'];
     const keys = [...new Set([...B.groups.keys(), ...(P ? P.groups.keys() : [])])];
     const g = (k) => B.groups.get(k) || P.groups.get(k);
     keys.sort((a, c) => { const x = g(a), y = g(c); return order.indexOf(x.item) - order.indexOf(y.item) || String(x.size).localeCompare(String(y.size), undefined, { numeric: true }) || String(x.forWhat).localeCompare(String(y.forWhat)); });
@@ -6772,7 +6821,8 @@
       if (notPlanned.length) notes.push({ t: `Built, not in the As-Plan: ${notPlanned.length} \u2014 ${ids(notPlanned)}`, tone: 'bad' });
     } else if (plan) notes.push({ t: `The reference \u201c${plan.name}\u201d has no G-eSAA sizes: load the As-Plan KMZ exported by G-eSAA as the reference to compare planned and built.`, tone: 'info' });
     else if (svPurpose() === 'As-built' && !isAcc()) notes.push({ t: 'No As-Plan to compare with: load the As-Plan KMZ as this project\u2019s reference (Projects, Project details, KMZ reference).', tone: 'info' });
-    notes.push({ t: 'Quantities are what was recorded in the field: one per element (a clamp size counts the poles that need it). Add spares and allowances per your design standard.', tone: 'info' });
+    if (noPlanTypes) notes.push({ t: 'Clamp types are not compared: the As-Plan KMZ has none (made before v2.40). The clamp sizes are.', tone: 'info' });
+    notes.push({ t: 'Quantities are what was recorded in the field: one per element (a clamp size counts the poles that need it; a pole clamp type counts each type a pole needs, the record\'s or, left blank, the ones the plan picks). Add spares and allowances per your design standard.', tone: 'info' });
     return { compare, head, rows, notes, title: svPurpose() === 'As-built' ? (compare ? 'BOQ / BOM \u2014 As-Built against the As-Plan' : 'BOQ / BOM \u2014 As-Built') : 'BOQ / BOM \u2014 As-Plan' };
   }
   /** v2.29: the survey quantities the BOQ rules will use, each with a code (the BOQ template's formulas will point at these):
@@ -6807,6 +6857,7 @@
     cnt(poles, (p) => p.boq && p.boq.arm).forEach(([v, n]) => add(`ARM_${slug(v)}`, n, 'each', `New arm: ${v}`));
     cnt(poles, (p) => p.boq && p.boq.guy).forEach(([v, n]) => add(`GUY_${slug(v)}`, n, 'each', `Guying: ${v}`));
     cnt(poles, (p) => p.boq && p.boq.clamp && `${p.boq.clamp}`).forEach(([v, n]) => add(`CLAMP_${slug(v)}`, n, 'each', `Pole clamp ${v}`));
+    { const fb = boqFilled(pts); cnt(poles, (p) => p.boq && p.boq.clamp && String((fb(p) || {}).clampType || '').split(/\s*\+\s*/).filter(Boolean).map((t) => `${t} ${p.boq.clamp}`).join(' + ')).forEach(([v, n]) => add(`CLAMP_${slug(v)}`, n, 'each', `Pole clamp ${v} (type and size)`)); } // v2.40
     const odfs = pts.filter((p) => elemOf(p) === 'ODF'), clos = pts.filter((p) => elemOf(p) === 'Closure' || (elemOf(p) === 'Handhole' && p.closureId)), naps = pts.filter((p) => elemOf(p) === 'NAP');
     cnt(odfs.filter(isNew), (p) => [p.boq && p.boq.odf, p.boq && p.boq.conn].filter(Boolean).join(' ') || 'size not set').forEach(([v, n]) => add(`ODF_NEW_${slug(v)}`, n, 'each', `New ODF ${v}`));
     add('ODF_NEW_FIBERS', odfs.filter(isNew).reduce((t, p) => t + (parseInt(String((p.boq && p.boq.odf) || ''), 10) || 0), 0), 'fiber(s)', 'Fibers of the new ODFs (e.g. 12 for a 12F)');
@@ -7594,7 +7645,7 @@
     // back to the step's base screen when it is open underneath (Settings or Projects), else to the map; then on to the screen
     const base = ['settings', 'profile', 'admin', 'camera', 'exports', 'maps', 'storage', 'log'].includes(st.go) ? 'settings' : ['projects', 'newProject', 'projectDetails'].includes(st.go) ? 'projects' : '';
     if (base && stack.includes(base)) { while (tutTop() !== base) await closeSheet(); } else await closeAll();
-    try { await tutGo(st.go); if (st.go === 'export' && st.hl && !$('export').hidden) { const card = /^#do[A-Za-z]+$/.test(st.hl) ? st.hl.slice(1) : /^#dxf(Mode|TplBox)$/.test(st.hl) ? 'doDxf' : ''; if (card) { showExport(card); if (st.hl === '#dxfTplBox' && $('dxfTplBox').hidden) { $('dxfMode').value = 'tpl'; $('dxfMode').dispatchEvent(new Event('change')); } } } } catch (e) { LOG.warn('tut.go', errInfo(e)); }
+    try { await tutGo(st.go); if (st.go === 'export' && st.hl && !$('export').hidden) { const card = /^#do[A-Za-z]+$/.test(st.hl) ? st.hl.slice(1) : /^#dxf(Mode|TplBox|PlanOpts)$/.test(st.hl) ? 'doDxf' : ''; if (card) { showExport(card); if ((st.hl === '#dxfTplBox' || st.hl === '#dxfPlanOpts') && $('dxfTplBox').hidden) { $('dxfMode').value = 'tpl'; $('dxfMode').dispatchEvent(new Event('change')); } } } } catch (e) { LOG.warn('tut.go', errInfo(e)); }
     await tutWait(400);
   }
   /** The first control of the step that is on screen (not under another screen), or null. */
@@ -7733,7 +7784,7 @@
     ['kmzRoute', 'kmzRoute2', 'kmzRoute', 'bool'], ['kmzStamp', 'kmzStamp3', 'kmzStamp', 'bool'], ['kmzStamp2', 'kmzStamp3', 'kmzStamp', 'bool'],
     ['pdfPhotoSize', 'pdfPhotoSize2', 'pdfPhotoSize', 'str'], ['pdfAnnexA', 'pdfAnnexA2', 'pdfAnnexA', 'bool'], ['pdfAnnexB', 'pdfAnnexB2', 'pdfAnnexB', 'bool'],
     ['pdfDates', 'xlsDates', 'pdfDates', 'str'], ['xlsTable', null, 'xlsTable', 'bool'], ['xlsPhotos', null, 'xlsPhotos', 'bool'], ['kmzData', null, 'kmzData', 'bool'],
-    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num']];
+    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['dxfClampType', null, 'dxfClampType', 'bool'], ['dxfMarks', null, 'dxfMarks', 'str']];
   const expIds = {};
   EXP_PAIRS.forEach(([a, b, key, kind]) => { [a, b].filter(Boolean).forEach((id) => { const l = (expIds[key] = expIds[key] || []); if (!l.some((x) => x[0] === id)) l.push([id, kind]); }); });
   function syncExpUi() {

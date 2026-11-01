@@ -530,6 +530,29 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.40.0
+
+Three plan options on the DXF card (Export → AutoCAD · DXF, drawing on the company plan template), for plans such as an **RTA application** to a pole owner (attachments on poles that are not Globe's or Bayantel's):
+
+- **Clamp types on the plan** (ticked by default): the clamp types before the clamp size, as v2.39 (*CA 8-10*, *2A 10-12*). Untick for the clamp size only (*8-10*); the types stay in the BOQ, the KMZ and the CSV.
+- **Beside each point**: **its photo** (as before; now also the handholes, manholes, service boxes, the ODC, the site and the ODF, not only the poles; a point without a photo shows its number) or **its number only** (a number in a circle, no photos on the plan or in the ZIP). A NAP or closure pin is drawn on its pole and has none of its own.
+- **Numbers and photos for**: a chip for each pole type in the project, with its count (Concrete, Wood, Steel, Globe, Bayantel, and your own types such as PLDT), and **Other points**. Tap a chip to leave that type out: only the points left get a number or photo, **numbered 1, 2, 3… along the route counting only those**. Examples: only **PLDT** for an RTA to PLDT; **Globe + Bayantel**; **Concrete + Wood + Steel** for the electric poles. The other poles are still drawn with their labels. The choice is kept for each project; **All** puts every point back.
+- **Vicinity map: the cable route only.** The red dot with a white rim at every pole is gone: on a long route (260 poles on a 7.8 km map) the dots covered the line. The route is the red line on its white band (broken when aerial, green when underground), its width set by the map's size: 1.1 % of the map's width (86 m on a 7.8 km map, 16 m on a 1.5 km one), so it reads the same on any map. A place whose points are not linked into a route yet keeps a dot at each point.
+- **Clamp types in the KMZ, the CSV and the BOQ:** a pole whose record leaves CLAMP TYPE blank now gets the clamps the plan picks there too (before: only a type ticked in the record). The BOQ has a **Pole clamp type** item by type and size (e.g. *CA 8-9*, *2A 10-12*; a pole needing GCA + CA + RL counts one of each), and the survey quantities a code for each (e.g. `CLAMP_CA_8_9`), beside the clamp sizes as before. An As-Built compared with an As-Plan KMZ made before v2.40 (which has no clamp types) compares the clamp sizes only, and says so.
+- The README ends with the **numbers on the plan**: number, pole ID, type and latitude / longitude, one per line, ready for the RTA list; it also says what was numbered and whether the clamp types are on the plan. The toast says what was numbered when only some types are.
+
+## What changed in v2.39.1
+
+From your 2-place project and its v2.38 / v2.39 drawings:
+
+- **ROW table for every place:** the city / municipality and barangays come from the road packs on the phone, one per region. Your second place (M'lang, Cotabato) is in SOCCSKSARGEN, and only the Davao Region pack was on the laptop, so only Davao City was listed. With both packs the table lists *Davao City: Buhangin (Pob.); M'lang: Dagong* (tested). Now, when a place is in no pack on the phone, the toast and the README name the pack to add (*Roads · SOCCSKSARGEN*) instead of leaving it silently out.
+- **A NAP on a pole with an arm:** the arm crossed the NAP (from the pole to the cable under the NAP), so the NAP looked laid over the cable. The cable already met the NAP's two sides; now the arm keeps its usual length and ends at the NAP's side, the pole standing that much further out.
+- **The best of v2.38 and v2.39 together:** v2.39 moved the cable into the road (as the company's plans) and repeated the cable's name on every sheet, which took the room the street names had in v2.38 (263 → 244 on your project), and NAP / handhole IDs could fall on pole labels. v2.39.1 keeps v2.39's drawing rules and clamps and:
+  - places the **street names first** (in the middle of the road, else across it from the cable, a smaller size on a narrow road): 285 on your project;
+  - puts the IDs of NAPs, handholes and the ODC on the side away from their pole;
+  - places the cable's name after the street names (on each sheet only where it covers nothing; the one fallback never over a street name if it can help it).
+- **More building and place names:** a name's whole text must be off the roads, and when nothing is free close by it looks a little further (to 24 m), then a smaller size: 142 on your project (v2.38: 106, v2.39: 108). The README now says why the others are not written: of the 374 OpenStreetMap names round the route, 219 are **outside the GEO sheets** (the 250 m round the route reaches past the sheets) and 13 had no free room.
+
 ## What changed in v2.39.0
 
 From your two company plans (an access route, tower to POI, and an ODN with many NAPs and LCPs) and the OSP standard on arm and pole clamp types:
