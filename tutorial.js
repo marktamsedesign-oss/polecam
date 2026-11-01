@@ -408,5 +408,5 @@
         { t: 'Done: tap **Save and share the list**.', go: 'admin', hl: '#admSave', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
   ];
-  root.GESAA_TUTORIAL = { version: '2.41.0', topics: T };
+  root.GESAA_TUTORIAL = { version: '2.41.1', topics: T };
 })(typeof self !== 'undefined' ? self : this);

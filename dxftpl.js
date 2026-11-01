@@ -637,6 +637,27 @@
     }
     return { pts: out, closed };
   }
+  /** v2.41.1: the edge lines as drawn: their rounded corners (bulges) as short straight pieces (about every 10°). */
+  function flatEdges(edges) {
+    return edges.map((l) => {
+      const P = l.pts, n = P.length, out = [], m = l.closed ? n : n - 1;
+      if (!n) return out;
+      out.push([P[0][0], P[0][1]]);
+      for (let i = 0; i < m; i++) {
+        const a = P[i], b = P[(i + 1) % n], bu = a[2] || 0;
+        if (Math.abs(bu) > 1e-9) {
+          const dx = b[0] - a[0], dy = b[1] - a[1], c = Math.hypot(dx, dy);
+          if (c > 1e-6) {
+            const h = c * (1 - bu * bu) / (4 * bu), C = [(a[0] + b[0]) / 2 - dy / c * h, (a[1] + b[1]) / 2 + dx / c * h], r = Math.hypot(a[0] - C[0], a[1] - C[1]);
+            const a0 = Math.atan2(a[1] - C[1], a[0] - C[0]), sw = 4 * Math.atan(bu), k = Math.max(2, Math.ceil(Math.abs(sw) / (10 * Math.PI / 180)));
+            for (let j = 1; j < k; j++) out.push([C[0] + r * Math.cos(a0 + sw * j / k), C[1] + r * Math.sin(a0 + sw * j / k)]);
+          }
+        }
+        out.push([b[0], b[1]]);
+      }
+      return out;
+    });
+  }
   /** Where to write each street name: on its longest straight pieces, at most one per ~350 m, away from the route. */
   function streetNames(rs, avoid, box) {
     const byName = new Map();
@@ -708,7 +729,16 @@
   }
   const ROADLINE_W = (t) => (t === 'road' ? 0.2 : 1); // v2.39.1: a text across a road edge line is better than over a label
   const POLELBL_W = (t) => (t === 'road' ? 1 : t === 'cable' ? 2.5 : 4); // v2.41: a pole's label: over a road edge line rather than the cable, over the cable rather than another label
+  const NUM_W = (t) => (t === 'road' || t === 'cable' ? 0 : 1); // v2.41.1: a number's box (its circle is checked against the road itself)
+  const LEAD_W = () => 1, LEAD_W2 = (t) => (t === 'road' || t === 'cable' ? 0 : 1); // v2.41.1: what a number's leader line may not cross
   const LL_W = (t) => (t === 'road' ? 0.15 : t === 'cable' ? 0.5 : 3); // v2.41: the lat/long of a point that is not a pole
+  /** v2.41.1: the first free candidate in order of cost (how far from the usual place), else the one covering least (then the cheaper). */
+  function pickC(spots, cands, w) { const L = cands.slice().sort((x, y) => x.cost - y.cost); let best = null; for (const c of L) { const n = c.boxes.reduce((t, b) => t + spots.hitsW(b, w), 0); if (!n) return c; if (!best || n < best.n - 1e-9 || (Math.abs(n - best.n) < 1e-9 && c.cost < best.cost)) best = { ...c, n }; } return best; }
+  // v2.41.1: the places tried for a pole's label: straight out (a 0), moved sideways along the cable (sh) or further out (ex) first, then turned
+  const LBL_VAR = (() => { const v = [];
+    for (const ex of [0, 2, 4]) for (const sh of [0, 2, -2, 4, -4, 6, -6, 8, -8, 10, -10]) v.push({ a: 0, ex, sh, cost: ex * 0.5 + Math.abs(sh) * (sh > 0 ? 0.25 : 0.3) }); // (ahead first: the photo or number goes behind)
+    for (const ex of [0, 2, 4]) for (const a of [15, -15, 30, -30, 45, -45, 60, -60, 90, -90, 120, -120, 150, -150]) v.push({ a, ex, sh: 0, cost: 2 + Math.abs(a) / 15 + ex * 0.5 });
+    return v; })();
   /** v2.39.1: first candidate that is free, else the one covering least (weighted). */
   function pickW(spots, cands, w) { let best = null; for (const c of cands) { const n = c.boxes.reduce((t, b) => t + spots.hitsW(b, w), 0); if (!n) return c; if (!best || n < best.n) best = { ...c, n }; } return best; }
   /** First candidate that is free (else the one with the fewest overlaps). */
@@ -720,7 +750,7 @@
   /* ---------------- the template's models for poles, arms and guys ---------------- */
   const POLE_SYM = { // v2.32: about two thirds of the legend's size, smaller again where poles stand close together
     prop: { b: 'P-POLE', layer: 'P-GPOLE', sc: 1.4667, r: 2.2 },
-    elec: { b: 'existing electric pole', layer: 'ELECTRIC POLE', sc: 0.647, r: 1.7 },
+    elec: { b: 'existing electric pole', layer: 'ELECTRIC POLE', sc: 0.647, r: 1.7, x: true }, // x: an X (its corners reach r·√2)
     tel: { b: 'existing telecom pole', layer: 'GT-POLE', sc: 1.87, r: 2.3 },
   };
   // an arm: its block, the way from the pole to the cable in the block, how far it reaches (m), its layer
@@ -1076,11 +1106,18 @@
     spans.forEach((s) => [[s.ia, s.ib], [s.ib, s.ia]].forEach(([x, y]) => { const P = byId.get(String(x)), Q = byId.get(String(y)); if (P && Q && P !== Q) (nb.get(P) || nb.set(P, []).get(P)).push(Q); }));
     const symOf = (p) => (p.status === 'Proposed' || p.status === 'New' ? POLE_SYM.prop : p.telco ? POLE_SYM.tel : POLE_SYM.elec);
     // v2.34: the road edges near the route are obstacles too: labels, span lengths and photos keep off the road lines
+    // v2.41.1: with their rounded corners as drawn (the straight line across a corner missed up to a metre of the curve); the same
+    //          pieces, by place, keep the pole symbols off the road lines (step 1)
+    const EDGE_C = 12, edgeG = new Map();
     { const nearRoute = (m) => pts.some((p) => Math.abs(p.E - m[0]) < 160 && Math.abs(p.N - m[1]) < 160);
-      for (const l of R.edges) for (let k = 1; k < l.pts.length + (l.closed ? 1 : 0); k++) {
-        const a = l.pts[k - 1], b = l.pts[k % l.pts.length], m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], L = dist2(a, b);
-        if (L > 0.05 && nearRoute(m)) spots.add(Spots.box(m[0], m[1], L, 0.25, deg(unit(a, b))), 'road');
+      for (const l of flatEdges(R.edges)) for (let k = 1; k < l.length; k++) {
+        const a = l[k - 1], b = l[k], m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], L = dist2(a, b);
+        if (!(L > 0.05) || !nearRoute(m)) continue;
+        spots.add(Spots.box(m[0], m[1], L, 0.25, deg(unit(a, b))), 'road');
+        for (let x = Math.floor(Math.min(a[0], b[0]) / EDGE_C); x <= Math.floor(Math.max(a[0], b[0]) / EDGE_C); x++)
+          for (let y = Math.floor(Math.min(a[1], b[1]) / EDGE_C); y <= Math.floor(Math.max(a[1], b[1]) / EDGE_C); y++) { const key = `${x},${y}`; (edgeG.get(key) || edgeG.set(key, []).get(key)).push([a, b]); }
       } }
+    const edgesNear = (q) => { const gx = Math.floor(q[0] / EDGE_C), gy = Math.floor(q[1] / EDGE_C), s = new Set(); for (let x = gx - 1; x <= gx + 1; x++) for (let y = gy - 1; y <= gy + 1; y++) for (const e of edgeG.get(`${x},${y}`) || []) s.add(e); return [...s]; };
     // 1. each pole beside the nearest road (within 25 m of its edge), on the side of its pin. v2.34: one size for every pole,
     //    label and photo of the drawing, smaller when poles stand close (k: 1 when most poles are 25 m apart or more, down to
     //    0.6; set by the closest fifth of the poles, so one close pair does not shrink everything)
@@ -1112,6 +1149,26 @@
       let q = add2(p.near.c, n, p.near.r.hw + off);
       if (off > 0) for (let it = 0; it < 4; it++) { const o2 = nearestRoad(R.roads, q, off - 0.1); if (!o2) break; q = add2(o2.c, out(o2, o2.side), o2.r.hw + off); } // a corner: out of the other road too
       p.dp = q; p.td = [-n[0], -n[1]]; p.moved = dist2(q, [p.E, p.N]); if (p.el === 'Pole') p.cab = off + CABLE_IN; // from the pole's centre to the cable
+    }
+    // v2.41.1: a pole symbol that would touch a road edge line (a rounded street corner, or the corners of the X of an electric pole
+    //          beside a slanted road) is moved off it, by as little as needed (3 m at most) and never into a road; the cable stays where
+    //          it was. Where that is not possible the pole stays as it was.
+    let nCleared = 0;
+    for (const p of pts) {
+      if (p.el !== 'Pole' || !p.near || p.kept) continue;
+      const reach = (v) => p.rp * (p.sym.x && p.sym.b ? Math.abs(v[0]) + Math.abs(v[1]) : 1) + 0.3; // the symbol's reach in direction v, and a little room
+      const worst = (q) => { let w = null; for (const [a, b] of edgesNear(q)) {
+        const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1e-9, t = Math.max(0, Math.min(1, ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / L2));
+        const c = [a[0] + t * dx, a[1] + t * dy], d = dist2(q, c), v = d > 1e-6 ? [(q[0] - c[0]) / d, (q[1] - c[1]) / d] : [-p.td[0], -p.td[1]], need = reach(v) - d;
+        if (need > 0 && (!w || need > w.need)) w = { need, v };
+      } return w; };
+      let q = p.dp.slice(), w = worst(q);
+      if (!w) continue;
+      for (let it = 0; it < 10 && w; it++) { q = add2(q, w.v, w.need + 0.02); w = worst(q); }
+      if (w || dist2(q, p.dp) > 3 || R.idx.inside(q, -1, -0.2)) continue; // no room: as it was
+      const mv = [q[0] - p.dp[0], q[1] - p.dp[1]];
+      if (p.cab) p.cab -= mv[0] * p.td[0] + mv[1] * p.td[1];
+      p.dp = q; p.moved = dist2(q, [p.E, p.N]); nCleared++;
     }
     const tangent = (p) => { const Q = nb.get(p) || []; return Q.length >= 2 ? unit(Q[0].dp, Q[1].dp) : Q.length === 1 ? unit(p.dp, Q[0].dp) : [1, 0]; };
     // 2. where the cable meets each pole: on its road side, past its arm when it has one
@@ -1400,6 +1457,16 @@
     chains.slice().sort((x, y) => (y.ids.some((id) => (byId.get(id) || {}).el === 'Site' || (byId.get(id) || {}).el === 'ODF') ? 1 : 0) - (x.ids.some((id) => (byId.get(id) || {}).el === 'Site' || (byId.get(id) || {}).el === 'ODF') ? 1 : 0))
       .forEach((ch) => startOf(ch).forEach((id) => { const p = byId.get(id); if (p && p.el === 'Pole' && !seen.has(p)) { seen.add(p); poleOrder.push(p); } }));
     pts.forEach((p) => { if (p.el === 'Pole' && !p.onPole && !seen.has(p)) { seen.add(p); poleOrder.push(p); } });
+    // v2.41.1: each pole's frame: fw along the route (away from the homing), on straight out from the cable on the pole's side (away
+    //          from the road); the labels, photos and numbers take the same place in it at every pole where there is room
+    { const linked = (a, b) => !!a && !!b && (nb.get(a) || []).includes(b);
+      poleOrder.forEach((p, i) => {
+        const a = poleOrder[i - 1], b = poleOrder[i + 1], okA = linked(p, a), okB = linked(p, b);
+        let t = okA && okB ? unit(a.dp, b.dp) : okB ? unit(p.dp, b.dp) : okA ? unit(a.dp, p.dp) : tangent(p);
+        if (!(Math.hypot(t[0], t[1]) > 0.5)) t = [1, 0];
+        let n = [-t[1], t[0]]; if (p.td && n[0] * p.td[0] + n[1] * p.td[1] > 0) n = [-n[0], -n[1]];
+        p.fw = t; p.on = n;
+      }); }
     for (const p of poleOrder) {
       const H = Math.max(1.5, 2.2 * p.k), HL = Math.max(0.9, 1.2 * p.k), size = p.size || clampText(p); // size: the clamps and their size (the app records no other size of an existing pole)
       // v2.33: the pole tag without its material prefix (material CC + tag CC-0430621 → CC / 0430621), as the template's sample
@@ -1414,17 +1481,20 @@
       // smaller under them (v2.33: the coordinates are part of the stack, as in the template's sample)
       const n = shown.length, gap = 0.35 * H, llH = HL * (1 + 5 / 3), T = n * 1.5 * H + gap + llH;
       const cands = [];
-      // v2.41: also a little further out (2.5 m, 5 m) before covering anything; a road edge line counts least, the cable more, a label most
-      for (const ex of [0, 2.5, 5]) for (const a of [0, 30, -30, 60, -60, 90, -90, 120, -120, 150, -150]) {
-        const ov = rotv([-p.td[0], -p.td[1]], a), dg = deg(ov), rr = readable(dg), flip = Math.abs(((dg - rr) % 360 + 360) % 360 - 180) < 1, ha = flip ? 2 : 0;
+      // v2.41: also a little further out before covering anything; a road edge line counts least, the cable more, a label most.
+      // v2.41.1: every label in the same direction (straight out from the cable, at right angles to it) where there is room: moved a
+      //          little sideways or further out before it is turned (the commonest thing in the way, a side guy, points straight out too)
+      for (const v of LBL_VAR) {
+        const ov = rotv(p.on, v.a), dg = deg(ov), rr = readable(dg), flip = Math.abs(((dg - rr) % 360 + 360) % 360 - 180) < 1, ha = flip ? 2 : 0;
         const up = rotv([Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], 90);
-        const base = add2(p.dp, ov, p.rp + 1.2 + ex), boxes = [], place = [];
+        const base = add2(add2(p.dp, ov, p.rp + 1.2 + v.ex), p.fw, v.sh), boxes = [], place = [];
         shown.forEach(([t, v], k) => { const q = add2(base, up, T / 2 - (k + 0.5) * 1.5 * H); place.push([t, v, q]); boxes.push(textBox(q[0], q[1], H, v, rr, ha, 2)); });
         const llAt = add2(base, up, T / 2 - n * 1.5 * H - gap - llH / 2);
         [[lat, HL * 5 / 6], [lon, -HL * 5 / 6]].forEach(([v, dy]) => { const q = add2(llAt, up, dy); boxes.push(textBox(q[0], q[1], HL, v, rr, ha, 2)); });
-        cands.push({ boxes, place, rr, ha, llAt, ov, flip });
+        cands.push({ boxes, place, rr, ha, llAt, ov, flip, cost: v.cost, v });
       }
-      const c = pickW(spots, cands, POLELBL_W); spots.add(c.boxes, 'label:' + p.poleId);
+      const c = pickC(spots, cands, POLELBL_W); spots.add(c.boxes, 'label:' + p.poleId); p.lblVar = c.v;
+      p.lblS = c.v.a === 0 ? [c.v.sh - T / 2 - 0.8, c.v.sh + T / 2 + 0.8] : null; // v2.41.1: where the label is along the cable (its photo goes beside it)
       // the block keeps the values in its attributes (hidden); the labels are plain texts in one direction (the pole blocks
       // of the template are dynamic blocks, and AutoCAD would put some of their attributes back where the block wants them)
       const attrs = {}; lines.forEach(([t, v]) => { if (t) attrs[t] = { v, x: p.dp[0], y: p.dp[1], rot: c.rr, h: H, ha: 0, va: 0, hidden: true }; });
@@ -1432,7 +1502,7 @@
       const look = p.sym.b ? attrLook(S, p.sym.b) : new Map();
       c.place.forEach(([t, v, q]) => { const lk = look.get(t) || {}; o.text(lk.layer && lk.layer !== '0' ? lay(lk.layer) : lay(p.sym.layer), q[0], q[1], H, v, { rot: c.rr, ha: c.ha, va: 2, style: 'arial', color: lk.color != null ? +lk.color : null }); });
       o.mtext(lay('LATLONG'), c.llAt[0], c.llAt[1], HL, ll, { style: '样式 1', att: c.flip ? 6 : 4, dir: [Math.cos(c.rr * Math.PI / 180), Math.sin(c.rr * Math.PI / 180)] });
-      p.ov = c.ov;
+      p.ov = c.ov; p._rr = c.rr;
     }
     // 5. span lengths: mid-span, on the road side of the cable (a span over the maximum in red)
     for (const s of spans) {
@@ -1469,28 +1539,75 @@
     ANG.sort((x, y) => Math.abs(Math.abs(x) - 80) - Math.abs(Math.abs(y) - 80)); // beside the label first, not over it or the road
     const ANG_OUT = [0, 15, -15, 30, -30, 45, -45, 60, -60, 75, -75, 90, -90, 120, -120, 150, -150, 180]; // straight out from the road first
     const numD = (p) => Math.max(NS.d, String(p.seq).length * NS.h * CHW + NS.h * 0.6); // the number's circle (wider for a long number)
+    const RING = []; for (let a = 0; a < 360; a += 30) RING.push([Math.cos(a * Math.PI / 180), Math.sin(a * Math.PI / 180)]); RING.push([0, 0]);
+    const MARK_USUAL = 3.5; // v2.41.1: how far (in cost) from its usual place a photo or number may go in the first round
+    const MARK_PHI = 70, NUM_PHI = 80; // v2.41.1: a pole's photo 70° round from straight out toward the homing (beside its label), a number 80° (its leader line under the label)
     const placePhotos = (Lp) => {
       const mark = spots.list.length, out = []; let miss = 0;
-      for (const p of [...markOrder.filter((x) => x.el === 'Pole'), ...markOrder.filter((x) => x.el !== 'Pole')]) { // v2.40: the poles' first
+      const setup = (p) => {
         const ph = photos[p.id] || photos[String(p.id)], nd = ph ? 0 : numD(p);
         const w = ph ? (ph.px >= ph.py ? Lp : Lp * ph.px / ph.py) : nd, h = ph ? (ph.px >= ph.py ? Lp * ph.py / ph.px : Lp) : nd;
         const out1 = !ph && NS.place === 'out' && p.td, base = out1 ? [-p.td[0], -p.td[1]] : p.ov || [1, 0], angs = out1 ? ANG_OUT : ANG;
         const gaps = ph ? [0.8, 2.5, 5, 8, 12, 17] : [NS.g, NS.g + 1.5, NS.g + 3.5, NS.g + 6, NS.g + 10, NS.g + 15].map((g) => Math.max(0.3, g));
-        const free = [], rest = [];
-        look: for (const gap of gaps) for (const a of angs) {
-          const u = rotv(base, a), t = ph ? Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9) : nd / 2;
-          const q = add2(p.dp, u, rOf(p) + gap + t);
-          if ([[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].some(([sx, sy]) => R.idx.inside([q[0] + sx * w / 2, q[1] + sy * h / 2], -1, -2))) continue; // off the roads
+        // v2.41.1: a pole's photo or number in the same place at every pole where there is room: in the pole's frame (see step 8), on the
+        //          side away from the road, beside its label toward the homing (or straight out, as chosen); a little further out before
+        //          it is turned, turned before it goes to the label's other side, never across the road unless nothing else is free
+        const tries = [];
+        if (p.on) {
+          const phi0 = !ph && NS.place === 'out' ? 0 : ph ? -MARK_PHI : -NUM_PHI, g0 = gaps[0];
+          for (const gap of gaps) for (let k = -11; k <= 12; k++) { const f = ((phi0 + k * 15 + 540) % 360) - 180;
+            const dv = (x) => Math.abs(((f - x + 540) % 360) - 180), ang = phi0 ? Math.min(dv(phi0) / 15 * 1.5, 4 + dv(-phi0) / 15 * 1.5) : dv(0) / 15 * 1.5 + (f > 0 ? 0.4 : 0); // (straight out: turned toward the homing rather than away)
+            const r = f * Math.PI / 180; tries.push({ u: [p.on[0] * Math.cos(r) + p.fw[0] * Math.sin(r), p.on[1] * Math.cos(r) + p.fw[1] * Math.sin(r)], gap, cost: ang + (gap - g0) * 0.3 + (Math.abs(f) > 100 ? 5 : 0) });
+          }
+          if (ph) { // a photo: in a slot beside its label (toward the homing), as near the road as allowed; then a little further; then the other side
+            tries.forEach((x) => { x.cost += 6; });
+            const ext = (d) => (w * Math.abs(d[0]) + h * Math.abs(d[1])) / 2, es = ext(p.fw), eo = ext(p.on), L0 = p.lblS ? p.lblS[0] : -6, L1 = p.lblS ? p.lblS[1] : 6, o0 = eo - 0.2;
+            for (const [side, sb] of [[-1, L0 - 1 - es], [1, L1 + 1 + es]]) for (const ds of [0, 2, 4, 7, 10]) for (const dO of [0, 1, 2.5, 4, 6, 9]) {
+              const q = add2(add2(p.dp, p.fw, sb + side * ds), p.on, o0 + dO); tries.push({ q, u: unit(p.dp, q), gap: ds + dO, cost: (side > 0 ? 4 : 0) + (ds + dO) * 0.3 });
+            }
+          }
+          tries.sort((x, y) => x.cost - y.cost);
+        } else for (const gap of gaps) for (const a of angs) tries.push({ u: rotv(base, a), gap, cost: 0 });
+        return { p, ph, nd, w, h, tries };
+      };
+      const search = ({ p, ph, nd, w, h, tries }, maxCost, LW = LEAD_W) => {
+        const rest = [];
+        for (const tr of tries) {
+          if (tr.cost > maxCost) break;
+          const { u, gap } = tr, t = ph ? Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9) : nd / 2;
+          const q = tr.q || add2(p.dp, u, rOf(p) + gap + t);
+          if (ph ? [[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].some(([sx, sy]) => R.idx.inside([q[0] + sx * w / 2, q[1] + sy * h / 2], -1, -2))
+            : RING.some(([cx, cy]) => R.idx.inside([q[0] + cx * nd / 2, q[1] + cy * nd / 2], -1, -0.6))) continue; // off the roads (v2.41.1: a number by its circle, 0.6 m from the edge)
           const mine = !anchors.some((x) => x !== p && dist2(x.dp, q) < dist2(p.dp, q) - 1); // nearer its own point than any other
-          const c = { q, u, gap, boxes: [Spots.box(q[0], q[1], w + 1.0, h + 1.0, 0)] };
-          if (mine && !spots.hits(c.boxes[0])) { free.push(c); break look; }
-          if (mine) rest.push(c);
+          const c = { q, u, gap, boxes: [Spots.box(q[0], q[1], w + (ph ? 1.0 : 0.6), h + (ph ? 1.0 : 0.6), 0)] };
+          // v2.41.1: a number's leader line must not cross a label, a symbol or a road edge line either
+          let lead = null; if (!ph && NS.leader) { const la = add2(p.dp, u, rOf(p) * 1.6 + 0.3), lb = add2(q, u, -nd / 2 - 0.2), L = dist2(la, lb); if (L > 0.5 && (la[0] - p.dp[0]) * (lb[0] - la[0]) + (la[1] - p.dp[1]) * (lb[1] - la[1]) > 0) { const m = [(la[0] + lb[0]) / 2, (la[1] + lb[1]) / 2]; lead = Spots.box(m[0], m[1], L, 0.4, deg(u)); } }
+          // (a number's circle is kept off the road by RING above: the road lines and the cable inside the road do not count for its box)
+          if (lead) { const la = add2(p.dp, u, rOf(p) + 0.2), L = dist2(la, q) - nd / 2; let thru = false; for (let k = 1; k * 1.0 < L; k++) if (R.idx.inside(add2(la, u, k * 1.0), -1, 0.3)) { thru = true; break; } if (thru) continue; } // (never through a road)
+          if (mine && !(ph ? spots.hits(c.boxes[0]) : spots.hitsW(c.boxes[0], NUM_W)) && !(lead && spots.hitsW(lead, LW))) return { free: c, rest };
+          if (mine) { c.lead = lead; c.cost = tr.cost || 0; rest.push(c); }
         }
-        let cn = free[0];
-        if (!cn) { miss++; cn = rest.reduce((b, x) => (!b || spots.hits(x.boxes[0]) * 10 + x.gap < spots.hits(b.boxes[0]) * 10 + b.gap ? x : b), null) || { q: add2(p.dp, p.ov || [1, 0], rOf(p) + 2 + Math.hypot(w, h) / 2), u: p.ov || [1, 0], boxes: [] }; }
+        return { free: null, rest };
+      };
+      const commit = ({ p, ph, nd, w, h }, cn, how) => {
         spots.add(cn.boxes, ph ? 'photo' : 'num');
         if (!ph && NS.leader) { const la = add2(p.dp, cn.u, rOf(p) + 0.2), lb = add2(cn.q, cn.u, -nd / 2); if (dist2(la, lb) > 0.5) spots.line([la, lb], 0.4); } // its leader line
-        out.push({ p, ph, w, h, q: cn.q, u: cn.u });
+        out.push({ p, ph, w, h, q: cn.q, u: cn.u, how });
+      };
+      // v2.41.1: first every pole in its usual place (or a little further), so a pole that has no room there does not take its neighbour's
+      //          place (one pole on the other side used to send the next ones over too); then the poles left over and the other points
+      const later = [];
+      for (const p of [...markOrder.filter((x) => x.el === 'Pole'), ...markOrder.filter((x) => x.el !== 'Pole')]) { // v2.40: the poles' first
+        const S0 = setup(p);
+        if (p.on) { const r = search(S0, MARK_USUAL); if (r.free) { commit(S0, r.free, 'usual'); continue; } }
+        later.push(S0);
+      }
+      for (const S0 of later) {
+        const { p, w, h } = S0; let r = search(S0, Infinity), how = 'other'; if (!r.free && !S0.ph && NS.leader) { r = search(S0, Infinity, LEAD_W2); how = 'leader over a road line'; } let cn = r.free; // (last: its leader across a road line)
+        // nothing free: the place covering least (v2.41.1: a number's circle over something counts more than its leader line across it)
+        const bad = (x) => (S0.ph ? spots.hits(x.boxes[0]) : spots.hitsW(x.boxes[0], NUM_W)) * 10 + (x.lead ? Math.min(1, spots.hitsW(x.lead, LEAD_W2)) * 3 + spots.hitsW(x.lead, LEAD_W2) * 0.2 : 0) + (p.on ? x.cost * 0.5 : x.gap);
+        if (!cn) { how = 'not free'; miss++; cn = r.rest.reduce((b, x) => (!b || bad(x) < bad(b) ? x : b), null) || { q: add2(p.dp, p.ov || [1, 0], rOf(p) + 2 + Math.hypot(w, h) / 2), u: p.ov || [1, 0], boxes: [] }; }
+        commit(S0, cn, how);
       }
       return { out, miss, mark };
     };
@@ -1514,6 +1631,7 @@
         if (NS.leader) { const la = add2(p.dp, u, rOf(p) + 0.2), lb = add2(q, u, -(D || NS.h) / 2 - 0.2); if (dist2(la, lb) > 0.5) o.lwpoly(nLay, [la, lb], { color: bCol }); }
       }
     }
+    if (job.debug) rep.layout = { poles: poleOrder.map((p) => ({ id: String(p.id), dp: p.dp, td: p.td, ov: p.ov, rr: p._rr })), marks: photoPl.out.map(({ p, ph, w, h, q, u, how }) => ({ id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
     rep.photoSize = +Lp.toFixed(1); rep.photosNotFree = photoPl.miss; rep.markMode = markMode;
     rep.marks = markOrder.map((p) => [p.seq, String(p.id), photos[p.id] || photos[String(p.id)] ? (markMode === 'both' ? 'photo+number' : 'photo') : 'number']); // v2.40: the numbers on the plan
     // 11. coordinates of the points that are not poles
@@ -1817,9 +1935,9 @@
     rep.partly = [...blanks].filter((k) => filled.has(k)).sort();
     if (job.debug) rep.pts = pts.map((p) => ({ id: p.id, poleId: p.poleId, el: p.el, dp: p.dp, A: p.A, kept: !!p.kept, moved: p.moved || 0, onPole: p.onPole ? p.onPole.id : null }));
     if (job.debug) rep.inline = [...inl.values()].map((it) => ({ b: it.b, at: it.at, hl: it.hl, hlo: it.hlo, hhi: it.hhi, hh: it.hh, sc: it.sc, rot: it.rot, box: blockBox(S, it.b, 0), boxT: blockBoxT(S, it.b), c: blockCenter(S, it.b) }));
-    rep.counts = { ...o.n, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length };
+    rep.counts = { ...o.n, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesOffRoadLine: nCleared, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length };
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0] };
     return { text: d.text(), report: rep };
   }
-  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.41.0' };
+  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.41.1' };
 }));

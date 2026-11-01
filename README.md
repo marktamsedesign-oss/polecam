@@ -535,6 +535,16 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.41.1
+
+From the review of the plan drawing's layout (1 Nov 2026): the pole details, photos and numbers were not placed the same way at every pole, and some pole symbols sat on a road line.
+
+- **Pole labels point straight out from the cable** at every pole where there is room (93% of the 232 poles of the 10 km sample, 43% before). Where something is in the way, most often a side guy (it points straight out too), the label is first moved a few metres sideways or further out, and turned only when that does not help.
+- **Photos and numbers take the same place at every pole**: beside the pole, on the side away from the road, toward the homing (the photo beside the label, the number just past the pole with its leader line under the label). The poles are placed first in their usual place, then the ones that have no room there: one pole on the other side no longer pushes the next ones over too (side changes along the sample route: numbers 106 → 43, photos 112 → 64).
+- **A number's leader line no longer runs across a label or through a road** (leader lines across a text on the sample: 81 → 26). A number is kept 0.6 m off the road by its circle. Where a crowded corner leaves no free place at all, the number may touch a label (11 of 238 on the sample, 5 before).
+- **Pole symbols off the road lines**: the road edges are checked with their rounded corners as drawn (a straight line across each corner was used before), and a pole symbol that would touch one (at a street corner, or the corners of an electric pole's X beside a slanted road) is moved off it by as little as needed, at most 3 m and never into a road; the cable stays where it was (poles touching or within 0.25 m of a road line on the sample: 102 → 5).
+- Drawing style: the number's place is now *Beside the pole* (as above) or *Straight out from the road*.
+
 ## What changed in v2.41.0
 
 From the two design reviews of 1 Nov 2026 (the plan review, 23 comments; the app screens, 27 comments) and the three requests that followed.
@@ -544,7 +554,7 @@ From the two design reviews of 1 Nov 2026 (the plan review, 23 comments; the app
 - **Fit**, **Labels**, **Map** and **i** (the information line on or off) sit on the drawing at its lower right, as on the map; the **legend** at its upper left (folded on a phone until opened). **Map**: *No map*, *Offline map* (your map pack, the default), *Satellite* or *Street map* (online).
 - At the bottom: **Photos / Numbers / Photos + no.**, the **CA** button (clamp types on the plan or not) and the **points** dropdown: *Electric poles* (concrete, wood, steel), *Globe*, *Bayantel*, *PLDT* and any pole type added for your area that the project has, then the other points one by one (ODC, ODF, sites, handholes…), each with its count. NAPs and closures are not in it: they are on their poles.
 - The preview now shows what the plan will: zoomed in, each point's **number** (the same order as the DXF) or a photo frame (its number at its upper left with *Photos + no.*), the pole's clamp text, and small tags for what is on each pole (**ARM**, **NAP** / **DN** dummy NAP / **LCP**, **LOOP**, **CL** closure, **G** guys, **GR** grounding, **R** riser), a double check. A NAP or closure pin from an older version has a dotted line to the pole it stands on.
-- **Drawing style** (palette button on the Drawing, and *Drawing style…* on the DXF card), kept on this phone, with a live preview: the numbers' colour, circle colour, height, circle diameter (0 = none), distance from the point, leader line and place (first free spot or straight out from the road); defaults as chosen in the review: **yellow, 3 m (2.7 mm), circle Ø 7 m, 2 m from the point, leader line, first free spot**. The IDs of NAPs, LCPs, the ODC and handholes: bold or not, colour, height (default as before: 2.5 m, by layer). The vicinity map: the circle's colour and width (yellow by default, as before v2.40) and the route's colour and width. The README of each DXF states the style used.
+- **Drawing style** (palette button on the Drawing, and *Drawing style…* on the DXF card), kept on this phone, with a live preview: the numbers' colour, circle colour, height, circle diameter (0 = none), distance from the point, leader line and place (beside the pole, toward the homing, or straight out from the road); defaults as chosen in the review: **yellow, 3 m (2.7 mm), circle Ø 7 m, 2 m from the point, leader line, first free spot**. The IDs of NAPs, LCPs, the ODC and handholes: bold or not, colour, height (default as before: 2.5 m, by layer). The vicinity map: the circle's colour and width (yellow by default, as before v2.40) and the route's colour and width. The README of each DXF states the style used.
 
 **DXF card**
 
