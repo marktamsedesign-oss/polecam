@@ -535,6 +535,16 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.0
+
+From the review of 2 Nov 2026 (three requests).
+
+- **Arms drawn at their own length again** (as v2.37 and the template's legend: single and double arm 5 m, extension arm 26" 6 m, 44.5" 7 m), the cable meeting the arm's end. v2.39 to v2.41.1 drew an arm only from the pole to the cable's usual line, about 2 m, too small to read. On a narrow road the pole is set back from the road (3 m at most) so the cable stays in the road, 1 m from its far side; only beyond that is the arm drawn shorter.
+- **Two boxes on one pole** (e.g. an **LCP 1:4** and a **NAP 1:16**): on the pole, tick NAP, then **+ 2nd box on this pole**. The other kind is offered first (an LCP with a NAP 1x16, any other with an LCP 1x4), with its own New / Existing, size (dummy NAP) and ID. The plan draws the two side by side on the cable at the pole, the first toward the homing, each with its ID; the BOQ, the survey quantities, the KMZ (nap2_type, nap2_size, nap2_status, nap2_id), the CSV (new columns nap_id and nap2_id) and the Drawing's tags count both. A NAP recorded as its own pin beside a pole that already has one becomes that pole's second box on the plan.
+- Fixed (v2.41): a pole reopened from the list lost its NAP and closure ticks, so saving it again dropped them.
+- **Settings → Invite a vendor** (the admin phone with the online sheet): tick the vendor, several vendors, or **Let the user choose their company (any vendor)**. The admin company is never offered there. The online sheet makes the invite and hands the new phone its company's key by itself (no key to paste). "Any vendor" is kept by the sheet as *any company of the Companies tab that is not an admin company*, so a vendor added later can use the same invite (its key made with makeCompanyKeys). **Invite admin staff** is the separate invite for the admin company. These two replace *Share list* on the admin phone.
+- Needs the online sheet script v2.42 (`PoleCam-online-sheet.gs`): paste it, Save, Deploy → Manage deployments → Edit → New version (not a new deployment).
+
 ## What changed in v2.41.1
 
 From the review of the plan drawing's layout (1 Nov 2026): the pole details, photos and numbers were not placed the same way at every pole, and some pole symbols sat on a road line.

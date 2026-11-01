@@ -1178,7 +1178,17 @@
       if (!p.td) { const t = tangent(p), L = [-t[1], t[0]], q = (nb.get(p) || []).find((x) => x.td); let s = 1; if (q) { const tq = tangent(q); s = Math.sign(q.td[0] * -tq[1] + q.td[1] * tq[0]) || 1; } p.td = [L[0] * s, L[1] * s]; p.free = true; }
       // v2.39: beside a road the cable runs along its line inside the road, an arm reaching it; a pole away from the roads keeps the
       // cable close by (past its arm when it has one)
-      const reach = p.cab ? p.cab : p.rp + (p.arm ? p.arm.reach : CABLE_OFF);
+      let reach = p.cab ? p.cab : p.rp + (p.arm ? p.arm.reach : CABLE_OFF);
+      // v2.42: an arm is drawn at its own length again (v2.37, and the template's legend: single and double 5 m, extension 6–7 m), the
+      //        cable meeting its end (v2.39 to v2.41 drew it only from the pole to the cable's usual line, 2 m or so, too small to read).
+      //        On a narrow road the pole is set back from the road (3 m at most) so the cable stays in the road, 1 m from its far side;
+      //        only beyond that is the arm drawn shorter.
+      if (p.arm && p.cab && p.near) {
+        const want = p.rp + p.arm.reach, maxDepth = Math.max(CABLE_IN, 2 * p.near.r.hw - 1.0); let dE = p.cab - CABLE_IN; // pole centre → road edge
+        const over = want - dE - maxDepth;
+        if (over > 0) { const back = Math.min(3, over); p.dp = add2(p.dp, p.td, -back); dE += back; p.moved = dist2(p.dp, [p.E, p.N]); }
+        reach = Math.min(want, dE + maxDepth);
+      }
       p.armLen = p.arm ? Math.max(1, reach - p.rp) : 0;
       p.A = add2(p.dp, p.td, reach);
     }
@@ -1202,6 +1212,7 @@
       let best = null, bd = 30; for (const p of polesOnly) { if (!nb.has(p)) continue; const dd = Math.hypot(p.E - q.E, p.N - q.N); if (dd < bd) { bd = dd; best = p; } }
       if (!best) continue;
       if (q.el === 'NAP' && !best.nap && !best.napId) { best.nap = true; best.napId = q.poleId || ''; best.napType = best.napType || q.napType || ''; best.napOld = q.status === 'Existing'; q.onPole = best; }
+      else if (q.el === 'NAP' && !best.nap2 && !best.nap2Id && (q.poleId || '') !== (best.napId || '')) { best.nap2 = true; best.nap2Id = q.poleId || ''; best.nap2Type = q.napType || ''; best.nap2Old = q.status === 'Existing'; q.onPole = best; } // v2.42: its second box
       if (q.el === 'Closure' && !best.closure && !best.closureId) { best.closure = true; best.closureId = q.poleId || q.closureId || ''; q.onPole = best; }
     }
     // v2.37: the blocks that sit ON the cable (NAPs of every kind, the ODC, handholes, manholes, service boxes): turned along the
@@ -1231,11 +1242,18 @@
     for (const p of pts) {
       if (p.onPole) continue;
       const isNew = p.status === 'Proposed' || p.status === 'New';
-      if (p.el === 'Pole' && (p.nap || p.napId)) {
-        const k = NAPK[p.napType || ''] || NAPK[''], old = p.napOld && k[2] && S.blocks.has(k[2]), b = old ? k[2] : k[0];
-        if (!S.blocks.has(b)) continue;
-        const it = inlineOf(p, b, old ? k[3] : k[1], 0, true, !!k[4]); if (!it) continue;
-        it.label = p.napId || ''; it.kind = 'nap'; inl.set(p, it);
+      if (p.el === 'Pole' && (p.nap || p.napId || p.nap2 || p.nap2Id)) {
+        // v2.42: a pole may carry two boxes (e.g. an LCP 1:4 and a NAP 1:16): side by side on the cable, the first toward the homing
+        const boxOf = (type, isOld, id) => { const k = NAPK[type || ''] || NAPK[''], old = isOld && k[2] && S.blocks.has(k[2]), b = old ? k[2] : k[0]; if (!S.blocks.has(b)) return null; const x = inlineOf(p, b, old ? k[3] : k[1], 0, true, !!k[4]); if (x) x.label = id || ''; return x; };
+        const one = p.nap || p.napId ? boxOf(p.napType, p.napOld, p.napId) : null, two = p.nap2 || p.nap2Id ? boxOf(p.nap2Type, p.nap2Old, p.nap2Id) : null;
+        let it = one || two; if (!it) continue;
+        if (one && two) {
+          const G = 1.2, c1 = add2(p.A, one.ax, -(one.hhi + G / 2)), c2 = add2(p.A, two.ax, two.hlo + G / 2);
+          one.at = c1; two.at = c2;
+          it = { ...one, at: p.A, parts: [one, two], inner: [[add2(c1, one.ax, one.hhi), add2(c2, two.ax, -two.hlo)]], hlo: one.hlo + one.hhi + G / 2, hhi: two.hlo + two.hhi + G / 2, hh: Math.max(one.hh, two.hh) };
+          it.hl = Math.max(it.hlo, it.hhi);
+        }
+        it.kind = 'nap'; inl.set(p, it);
         // the pole symbol beside the NAP, not under it
         // v2.39.1: an arm keeps its usual length and ends at the NAP's side (it crossed the NAP); the pole stands that much further out
         const need = it.hh + p.rp + (p.arm ? Math.max(0.8, p.armLen) : 0.8), cur = dist2(p.dp, p.A);
@@ -1265,6 +1283,7 @@
         const ein = prev ? near(prev) : null; let eout = next ? near(next) : null;
         if (ein && eout && ein === eout) eout = ein === e1 ? e2 : e1;
         if (ein) { cur.push(ein); pieces.push(cur); }
+        if (it.inner) it.inner.forEach((seg) => pieces.push(seg.slice())); // v2.42: the cable between two boxes on one pole
         cur = eout ? [eout] : [];
       });
       if (cur.length) pieces.push(cur);
@@ -1316,9 +1335,9 @@
         const { w, h, isNew, sc } = it.odc, col = it.col != null ? it.col : isNew ? 1 : 5;
         o.insert(it.layer, ODC_BLOCK, it.at[0], it.at[1], { scale: sc, color: col }); spots.add(Spots.box(it.at[0], it.at[1], w, h, 0)); nInline++; nOdc++; continue;
       }
-      o.insert(it.layer, it.b, it.at[0], it.at[1], { scale: it.sc, rot: it.rot, center: true }); spots.add(Spots.box(it.at[0], it.at[1], it.hl * 2, it.hh * 2, it.rot)); nInline++;
+      for (const x of it.parts || [it]) { o.insert(x.layer, x.b, x.at[0], x.at[1], { scale: x.sc, rot: x.rot, center: true }); spots.add(Spots.box(x.at[0], x.at[1], x.hl * 2, x.hh * 2, x.rot)); nInline++; }
     }
-    for (const it of inl.values()) {
+    for (const it of [...inl.values()].flatMap((x) => (x.parts ? x.parts.map((y) => ({ ...y, kind: x.kind })) : [x]))) { // (v2.42: each box's own ID)
       if (!it.label) continue;
       const rr = it.odc ? 0 : readable(it.rot), ux = [Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], dn = [ux[1], -ux[0]], th0 = IDS.h; // (the ODC's picture is upright: its ID level under it)
       // v2.39.1: on the side away from its pole first (the pole's own label goes on the pole's side), then a little further out or
@@ -1939,5 +1958,5 @@
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0] };
     return { text: d.text(), report: rep };
   }
-  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.41.1' };
+  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.0' };
 }));

@@ -523,6 +523,7 @@ body.kb .sheet{bottom:var(--kb,0px)}
 .xmulti{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 12px;display:flex;flex-direction:column;gap:4px}.xmulti>.lbl{font-size:calc(12px * var(--fs));font-weight:700;color:var(--muted);letter-spacing:.04em}
 .attrow{display:flex;flex-direction:column;gap:6px;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:12px}.attrow[hidden]{display:none}
 .attsel{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.attsel select{flex:1 1 90px;min-width:0;min-height:40px;padding:0 6px}.attsel select[hidden],.attsel[hidden]{display:none}.attlbl{font-size:calc(12px * var(--fs));font-weight:700;color:var(--muted);flex:0 0 auto}
+.nap2add{align-self:flex-start}.nap2add[hidden],.nap2row[hidden]{display:none}.nap2row{display:flex;flex-direction:column;gap:6px;padding-top:6px;border-top:1px dashed var(--line)}.nap2del{flex:none;min-width:40px;padding:0}
 .attid{display:flex;gap:6px}.attid input{flex:1;min-width:0}.attid .btn{flex:none;font-family:var(--mono)}
 .btn.iconb{flex:none;width:52px;padding:0;display:grid;place-items:center}.btn.iconb svg{width:24px;height:24px}
 .pickmlist{display:flex;flex-direction:column;max-height:45vh;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:4px 10px}.pickmlist label{display:flex;align-items:center;gap:10px;min-height:42px;border-bottom:1px solid var(--line2)}.pickmlist label:last-child{border-bottom:0}.pickmlist input{width:20px;height:20px;margin:0;flex:none}.pickmlist label.any{font-weight:700}
@@ -825,6 +826,12 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="attsel"><select id="napTypeSel" aria-label="NAP type"></select><select id="napSzSel" aria-label="Dummy NAP size"></select><select id="napStSel" aria-label="NAP new or existing"><option value="New">New</option><option value="Existing">Existing</option></select></div>
         <div class="attid"><input type="text" id="napId" placeholder="NAP ID, e.g. DVO_003_L913_N01" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="NAP ID"><button class="btn small" id="napIdSug" type="button" hidden title="The dummy NAP ID: PLA ID_cable leg_number"></button></div>
         <p class="hint" id="napHint" hidden></p>
+        <!-- v2.42: a second box on the same pole (e.g. an LCP 1:4 and a NAP 1:16), in the same small dropdowns -->
+        <button class="btn small nap2add" id="nap2Add" type="button">+ 2nd box on this pole</button>
+        <div class="nap2row" id="nap2Row" hidden>
+          <div class="attsel"><span class="attlbl">2nd box</span><select id="nap2TypeSel" aria-label="Second box type"></select><select id="nap2SzSel" aria-label="Second box: dummy NAP size"></select><select id="nap2StSel" aria-label="Second box new or existing"><option value="New">New</option><option value="Existing">Existing</option></select><button class="btn small nap2del" id="nap2Del" type="button" aria-label="Remove the second box" title="Remove the second box">✕</button></div>
+          <div class="attid"><input type="text" id="nap2Id" placeholder="2nd box ID" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Second box ID"><button class="btn small" id="nap2IdSug" type="button" hidden title="The dummy NAP ID: PLA ID_cable leg_number"></button></div>
+        </div>
       </div>
       <div class="attrow" id="cloBox" hidden>
         <div class="attsel"><span class="attlbl">Hybrid closure</span><select id="cloSzSel" aria-label="Closure size"></select><select id="cloStSel" aria-label="Closure new or existing"><option value="New">New</option><option value="Existing">Existing</option></select></div>
@@ -1142,6 +1149,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <label class="field" id="syncModeBox" hidden>SYNC WITH THE ONLINE SHEET<select id="setSync"><option value="change">On every change (recommended)</option><option value="hour">Every hour</option><option value="manual">Only when I tap Sync</option></select></label>
     <div id="companyKeyBox" hidden><p class="hint" style="margin:0">The online sheet asks for your company: join with the invite from your admin or a coworker (QR code or link).</p><div class="row"><button class="btn sm primary" id="companyKeyScan" type="button">Scan invite QR</button><button class="btn sm" id="companyKeyPaste" type="button">Paste invite link</button></div></div>
     <div class="row">
+      <button class="btn sm primary" id="inviteVendor" type="button" hidden>Invite a vendor</button>
+      <button class="btn sm" id="inviteAdminStaff" type="button" hidden>Invite admin staff</button>
       <button class="btn sm" id="teamUpdate" type="button">Update list</button>
       <button class="btn sm" id="teamShare" type="button">Share list</button>
       <button class="btn sm" id="cloudSyncBtn" type="button" hidden>Sync online sheet</button>
@@ -1556,7 +1565,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       </div>
       <div class="group" id="admInvBox">
         <h3>Invite a company's users (company keys)</h3>
-        <p class="hint" style="margin:0">Where the online sheet uses company keys, users never see or type a key: they join only with an <b>invite QR code or link</b>. Copy one company's key from the sheet's <b>CompanyKeys</b> tab, paste it here and tap <b>Make the invite</b>, then show the QR code or send the link to the first user of that company. That user then invites coworkers (Settings → Invite a coworker). The key is not shown again, and is hidden in the link.</p>
+        <p class="hint" style="margin:0">Where the online sheet uses company keys, users never see or type a key: they join only with an <b>invite QR code or link</b>. Copy one company's key from the sheet's <b>CompanyKeys</b> tab, paste it here and tap <b>Make the invite</b>, then show the QR code or send the link to the first user of that company. That user then invites coworkers (Settings → Invite a coworker). The key is not shown again, and is hidden in the link. <b>Easier (v2.42): Settings → Invite a vendor</b> takes the key from the online sheet by itself.</p>
         <div class="row" style="flex-wrap:nowrap"><input type="password" id="admInvKey" autocomplete="new-password" autocapitalize="characters" spellcheck="false" placeholder="Paste the company key (hidden)" aria-label="Company key from the CompanyKeys tab" style="flex:1"><button class="btn" id="admInvMake" type="button">Make the invite</button></div>
         <p class="hint" id="admInvInfo" style="margin:0"></p>
       </div>

@@ -335,7 +335,7 @@
         `<description><![CDATA[${desc.replace(/]]>/g, ']]&gt;')}]]></description>` +
         `<ExtendedData><Data name="pole_id"><value>${xmlEsc(p.poleId)}</value></Data><Data name="pole_type"><value>${xmlEsc(p.poleType)}</value></Data>` +
         `<Data name="element"><value>${xmlEsc(el)}</value></Data><Data name="status"><value>${xmlEsc(p.status || '')}</value></Data>` +
-        (p.closureId ? `<Data name="closure_id"><value>${xmlEsc(p.closureId)}</value></Data>` : '') + (p.remarks ? `<Data name="remarks"><value>${xmlEsc(p.remarks)}</value></Data>` : '') +
+        (p.closureId ? `<Data name="closure_id"><value>${xmlEsc(p.closureId)}</value></Data>` : '') + (p.nap && p.napId ? `<Data name="nap_id"><value>${xmlEsc(p.napId)}</value></Data>` : '') + (p.nap && p.nap2 && p.nap2Id ? `<Data name="nap2_id"><value>${xmlEsc(p.nap2Id)}</value></Data>` : '') + (p.remarks ? `<Data name="remarks"><value>${xmlEsc(p.remarks)}</value></Data>` : '') +
         (p.detailsText ? `<Data name="pole_details"><value>${xmlEsc(p.detailsText)}</value></Data>` : '') +
         BOQ_COLS.filter((c) => p.boq && p.boq[c[0]]).map((c) => `<Data name="${c[1]}"><value>${xmlEsc(p.boq[c[0]])}</value></Data>`).join('') +
         `<Data name="captured"><value>${xmlEsc(p.takenAt)}</value></Data><Data name="accuracy_m"><value>${Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : ''}</value></Data></ExtendedData>` +
@@ -592,17 +592,17 @@
   }
 
   /* v2.26: the BOQ / BOM sizes of a point (p.boq) in the CSV and the KMZ data */
-  const BOQ_COLS = [['owner', 'pole_owner'], ['clamp', 'clamp_size'], ['height', 'new_pole_size'], ['cls', 'pole_class'], ['odf', 'odf_size'], ['conn', 'odf_connector'], ['clo', 'closure_size'], ['cloSt', 'closure_status'], ['arm', 'new_arm'], ['guy', 'guying'], ['mloop', 'mloop'], ['napType', 'nap_type'], ['napSz', 'nap_size'], ['napSt', 'nap_status'], ['lcp', 'lcp'], ['ground', 'grounding'], ['riser', 'riser'], ['clampType', 'clamp_type']]; // v2.39: + clamp type; v2.29: arm, guying, maintenance loop; v2.37: NAP type, LCP, grounding, riser
+  const BOQ_COLS = [['owner', 'pole_owner'], ['clamp', 'clamp_size'], ['height', 'new_pole_size'], ['cls', 'pole_class'], ['odf', 'odf_size'], ['conn', 'odf_connector'], ['clo', 'closure_size'], ['cloSt', 'closure_status'], ['arm', 'new_arm'], ['guy', 'guying'], ['mloop', 'mloop'], ['napType', 'nap_type'], ['napSz', 'nap_size'], ['napSt', 'nap_status'], ['nap2Type', 'nap2_type'], ['nap2Sz', 'nap2_size'], ['nap2St', 'nap2_status'], ['lcp', 'lcp'], ['ground', 'grounding'], ['riser', 'riser'], ['clampType', 'clamp_type']]; // v2.39: + clamp type; v2.29: arm, guying, maintenance loop; v2.37: NAP type, LCP, grounding, riser; v2.42: a second box on the pole
   /* ---------------- CSV ---------------- */
   function buildCsv(points, zone, exportedBy) {
     const q = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const rows = [['pole_id', 'pole_type', 'latitude', 'longitude', `utm${zone}n_easting`, `utm${zone}n_northing`, 'gps_accuracy_m', 'pin_adjusted', 'captured', 'photo', 'surveyed_by',
-      'element', 'status', 'closure_id', 'remarks', 'red_box', 'pole_details', ...BOQ_COLS.map((c) => c[1]), ...(exportedBy ? ['exported_by'] : [])]];
+      'element', 'status', 'closure_id', 'nap_id', 'nap2_id', 'remarks', 'red_box', 'pole_details', ...BOQ_COLS.map((c) => c[1]), ...(exportedBy ? ['exported_by'] : [])]]; // v2.42: + the IDs of the boxes on a pole
     for (const p of points) {
       const u = utmForward(p.lat, p.lon, zone, p.lat < 0);
       rows.push([p.poleId, p.poleType, p.lat.toFixed(8), p.lon.toFixed(8), u.E.toFixed(3), u.N.toFixed(3),
         Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : '', p.adjusted ? 'yes' : 'no', p.takenAt, p.photoName || '', p.by || '',
-        p.element || 'Pole', p.status || '', p.closureId || '', p.remarks || '', p.boxes ? 'yes' : 'no', p.detailsText || '', ...BOQ_COLS.map((c) => (p.boq && p.boq[c[0]]) || ''), ...(exportedBy ? [exportedBy] : [])]);
+        p.element || 'Pole', p.status || '', p.closureId || '', p.nap ? p.napId || '' : '', p.nap && p.nap2 ? p.nap2Id || '' : '', p.remarks || '', p.boxes ? 'yes' : 'no', p.detailsText || '', ...BOQ_COLS.map((c) => (p.boq && p.boq[c[0]]) || ''), ...(exportedBy ? [exportedBy] : [])]);
     }
     return '﻿' + rows.map((r) => r.map(q).join(',')).join('\r\n') + '\r\n';
   }

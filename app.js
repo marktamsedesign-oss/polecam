@@ -7,7 +7,10 @@
   const pendingJq = (/[#&]jq=([A-Za-z0-9_-]+)/.exec(H0) || [])[1] || null; // v2.15 short join code: the list comes from the online sheet
   const pendingMv = (/[#&]mv=([A-Za-z0-9_-]+)/.exec(H0) || [])[1] || null; // v2.15 the user moving to this phone
   const pendingCo = (/[#&]co=([^&#]+)/.exec(H0) || [])[1] || null; // v2.28 the company the invite is for (lists without company keys)
-  if (pendingJoin || pendingKey || pendingJq || pendingMv || pendingCo) history.replaceState(null, '', location.pathname + location.search);
+  // v2.42: an invite's companies (cos=A|B or * for any vendor) and its code (iv=): v2.41 dropped them when the link opened the app
+  const pendingCos = (/[#&]cos=([^&#]+)/.exec(H0) || [])[1] || null, pendingIv = (/[#&]iv=([A-Za-z0-9]{8,24})(?=[&#]|$)/.exec(H0) || [])[1] || null;
+  const pendingTail = () => `${pendingCo ? `&co=${pendingCo}` : ''}${pendingCos ? `&cos=${pendingCos}` : ''}${pendingIv ? `&iv=${pendingIv}` : ''}`;
+  if (pendingJoin || pendingKey || pendingJq || pendingMv || pendingCo || pendingCos || pendingIv) history.replaceState(null, '', location.pathname + location.search);
   /* Camera button position for one-hand use: centre by default, right or left in Settings → Camera. */
   const handOf = () => (['left', 'center', 'right'].includes(S && S.hand) ? S.hand : 'center');
   function applyHand() { const h = handOf(); ['left', 'center', 'right'].forEach((x) => document.body.classList.toggle(`hand-${x}`, x === h)); }
@@ -465,7 +468,7 @@
   }
   function attachText(r) {
     const size = boqText(r) ? [`Size: ${boqText(r)}`] : []; // v2.26
-    if (elemOf(r) === 'Pole') return [`MLoop: ${r.mloop ? 'Yes' : 'No'}`, `NAP: ${r.nap ? `Yes${r.napId ? ` (${r.napId})` : ' (no ID)'}` : 'No'}`, `Closure: ${r.closure ? `Yes${r.closureId ? ` (${r.closureId})` : ' (no ID)'}` : 'No'}`, ...size];
+    if (elemOf(r) === 'Pole') return [`MLoop: ${r.mloop ? 'Yes' : 'No'}`, `NAP: ${r.nap ? `Yes${r.napId ? ` (${r.napId})` : ' (no ID)'}${r.nap2 ? ` + ${(r.boq || {}).nap2Type || '2nd box'}${r.nap2Id ? ` (${r.nap2Id})` : ''}` : ''}` : 'No'}`, `Closure: ${r.closure ? `Yes${r.closureId ? ` (${r.closureId})` : ' (no ID)'}` : 'No'}`, ...size];
     if (elemOf(r) === 'ODF') return [`${r.odf || 'New'} ODF`, ...size];
     return size;
   }
@@ -686,7 +689,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.41.1';
+  const APP_VER = '2.42.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1433,6 +1436,7 @@
     const naps = drw.items.filter((x) => x.on === it), napPin = naps.find((x) => x.el === 'NAP'), clPin = naps.find((x) => x.el === 'Closure');
     if (b.arm) out.push(['ARM', '#7048e8']);
     if (p.nap || p.napId || napPin) { const nt = (p.nap || p.napId ? b.napType : ((napPin && napPin.p.boq) || {}).napType) || ''; out.push([/lcp/i.test(nt) ? 'LCP' : /dummy/i.test(nt) ? 'DN' : 'NAP', '#f08c00']); }
+    if (p.nap2 || p.nap2Id) { const nt = b.nap2Type || ''; out.push([/lcp/i.test(nt) ? 'LCP' : /dummy/i.test(nt) ? 'DN' : 'NAP', '#f08c00']); } // v2.42: its second box
     if (p.mloop || b.mloop) out.push(['LOOP', '#e03131']);
     if (p.closure || p.closureId || clPin) out.push(['CL', '#c2255c']);
     if (nGuy) out.push([nGuy > 1 ? `G${nGuy}` : 'G', '#1971c2']);
@@ -1763,7 +1767,7 @@
   function renderFind() {
     const q = $('findQ').value.trim().toUpperCase(), box = $('findList'); box.innerHTML = '';
     const here = fix ? { lat: fix.lat, lon: fix.lon } : null;
-    const hay = (p) => [recName(p), p.poleId, elemOf(p), p.status, p.napId, p.closureId, p.remarks, ...(p.defs || []).map((d) => `${d.cat || ''} ${(d.items || []).join(' ')} ${d.notes || ''}`)].join(' ').toUpperCase();
+    const hay = (p) => [recName(p), p.poleId, elemOf(p), p.status, p.napId, p.nap2Id, p.closureId, p.remarks, ...(p.defs || []).map((d) => `${d.cat || ''} ${(d.items || []).join(' ')} ${d.notes || ''}`)].join(' ').toUpperCase();
     let pts = projPoints().filter((p) => !q || hay(p).includes(q));
     if (here) pts = pts.map((p) => ({ p, d: haversine(here, p) })).sort((a, b) => a.d - b.d).map((x) => ({ ...x.p, _d: x.d }));
     pts.slice(0, 60).forEach((p) => {
@@ -1873,13 +1877,13 @@
     return out;
   }
   /** v2.26.1: the data names of a G-eSAA survey KMZ (core.js) read back from a reference; BOQ_KML maps them to the record's sizes. */
-  const BOQ_KML = { pole_owner: 'owner', clamp_size: 'clamp', new_pole_size: 'height', pole_class: 'cls', odf_size: 'odf', odf_connector: 'conn', closure_size: 'clo', closure_status: 'cloSt', new_arm: 'arm', guying: 'guy', mloop: 'mloop', nap_type: 'napType', nap_size: 'napSz', nap_status: 'napSt', lcp: 'lcp', grounding: 'ground', riser: 'riser', clamp_type: 'clampType' }; // v2.29: + arm, guying, loop; v2.37: NAP type, LCP, grounding, riser; v2.39: clamp type
-  const KML_DATA = new Set(['pole_id', 'element', 'status', 'closure_id', ...Object.keys(BOQ_KML)]);
+  const BOQ_KML = { pole_owner: 'owner', clamp_size: 'clamp', new_pole_size: 'height', pole_class: 'cls', odf_size: 'odf', odf_connector: 'conn', closure_size: 'clo', closure_status: 'cloSt', new_arm: 'arm', guying: 'guy', mloop: 'mloop', nap_type: 'napType', nap_size: 'napSz', nap_status: 'napSt', nap2_type: 'nap2Type', nap2_size: 'nap2Sz', nap2_status: 'nap2St', lcp: 'lcp', grounding: 'ground', riser: 'riser', clamp_type: 'clampType' }; // v2.29: + arm, guying, loop; v2.37: NAP type, LCP, grounding, riser; v2.39: clamp type
+  const KML_DATA = new Set(['pole_id', 'element', 'status', 'closure_id', 'nap_id', 'nap2_id', ...Object.keys(BOQ_KML)]);
   /** The elements of the As-Plan (this As-Built project's reference KMZ) as records: ID, element, status, position, sizes. */
   function planRecsOf(geo) {
     return ((geo && geo.points) || []).filter((p) => p.x && p.x.element).map((p) => {
       const boq = {}; Object.entries(BOQ_KML).forEach(([k, f]) => { if (p.x[k]) boq[f] = p.x[k]; });
-      return { poleId: p.x.pole_id || p.n || '', element: p.x.element, status: p.x.status || '', closureId: p.x.closure_id || '', lat: p.c[0], lon: p.c[1], boq };
+      return { poleId: p.x.pole_id || p.n || '', element: p.x.element, status: p.x.status || '', closureId: p.x.closure_id || '', napId: p.x.nap_id || '', nap2Id: p.x.nap2_id || '', nap: !!(p.x.nap_id || boq.napType), nap2: !!(p.x.nap2_id || boq.nap2Type), lat: p.c[0], lon: p.c[1], boq };
     });
   }
   /** The plan of an As-Built project: { name, recs } (recs empty when the reference is not a G-eSAA KMZ), or null. */
@@ -2095,6 +2099,7 @@
       if (el === 'NAP' && (q.boq || {}).napType === 'Dummy NAP') { const p = onPole(q); if (p) dn.set(p.id, q); }
       if (el === 'Pole' && (q.closure || q.closureId)) clo.add(q.id); // v2.41: on the pole
       if (el === 'Pole' && (q.nap || q.napId) && (q.boq || {}).napType === 'Dummy NAP') dn.set(q.id, q);
+      if (el === 'Pole' && (q.nap2 || q.nap2Id) && (q.boq || {}).nap2Type === 'Dummy NAP' && !dn.has(q.id)) dn.set(q.id, q); // v2.42
     }
     // distance from the homing along the route
     const adj = new Map(); R.spans.forEach((s) => { [[s.ia, s.ib], [s.ib, s.ia]].forEach(([a, b]) => (adj.get(a) || adj.set(a, []).get(a)).push([b, s.len])); });
@@ -3611,15 +3616,15 @@
       // of the deficiency started below. A phone that may not record deficiencies keeps it as the element photo.
       ed.noDef = !!o.noDef && o.mode === 'new'; // v2.23: the site photo of a PAT where no defect was found
       if (o.blob && (ed.noDef || !(o.mode === 'new' && canRecord()))) { const pid = uid(); ed.photos.unshift({ pid, label: ed.noDef ? 'Site (no defects found)' : 'Overview', ...photoMeta(o.gps, o.takenAt), q: o.q || null }); ed.pending[pid] = o.blob; }
-      $('napId').value = o.napId || ''; $('closureId').value = o.closureId || '';
+      $('napId').value = o.napId || ''; $('closureId').value = o.closureId || ''; ed.nap2 = !!o.nap2; $('nap2Id').value = o.nap2Id || '';
     } else { // survey point (v2.13): pole, site, ODC, ODF, NAP, closure or handhole
       const mk = Array.isArray(o.marks) ? o.marks : [];
       Object.assign(ed, { element: o.element || 'Pole', status: o.status || (o.mode === 'new' ? svDefaultStatus(o.element || 'Pole') : ''), srcBlob: o.blob || o.storedBlob || null, details: JSON.parse(JSON.stringify(o.details || [])),
         marks: JSON.parse(JSON.stringify(mk)).map(normMark), origPid: o.origPid || '', legacyBoxes: Math.max(0, (o.boxes || 0) - mk.length), legacyPole: !!o.poleModel && !mk.some((m) => m.k === 'pole'), base: null, baseNew: false, dropOrig: false,
-        nap: !!o.nap, closure: !!o.closure }); // v2.41: the NAP and the hybrid closure on the pole
+        nap: !!o.nap, nap2: !!o.nap2, closure: !!o.closure }); // v2.41: the NAP and the hybrid closure on the pole (v2.42: a second box)
       const onPoleRec = (o.element || 'Pole') === 'Pole';
       $('svRemarks').value = o.remarks || ''; $('svClosureId').value = onPoleRec ? '' : o.closureId || '';
-      $('napId').value = onPoleRec ? o.napId || '' : ''; $('closureId').value = onPoleRec ? o.closureId || '' : '';
+      $('napId').value = onPoleRec ? o.napId || '' : ''; $('closureId').value = onPoleRec ? o.closureId || '' : ''; $('nap2Id').value = onPoleRec ? o.nap2Id || '' : '';
       ed.color = MCOL[o.color] ? o.color : ''; ed.mapPin = o.source === 'map' && !o.blob && !o.storedBlob && o.mode === 'new'; // v2.36: a pin placed on the map (photo optional)
       ed.siteKind = o.siteKind === 'OLT' ? 'OLT' : 'Tower'; // v2.37: a site is a tower or an OLT
     }
@@ -3703,9 +3708,9 @@
     const dd = defDraft && !$('defPanel').hidden ? { cat: defDraft.cat, items: [...defDraft.items], sev: defDraft.sev, notes: $('defNotes').value, meta: defDraft.meta || null, photo: !!defDraft.blob } : null;
     return {
       v: 1, project: S.project, mode: ed.mode, id: ed.id, acc: !!ed.acc, element: ed.element || 'Pole', type: ed.type || '', status: ed.status || '',
-      poleId: $('poleId').value, napId: $('napId').value, closureId: $('closureId').value, svRemarks: $('svRemarks').value, svClosureId: $('svClosureId').value,
+      poleId: $('poleId').value, napId: $('napId').value, nap2Id: $('nap2Id').value, closureId: $('closureId').value, svRemarks: $('svRemarks').value, svClosureId: $('svClosureId').value,
       details: ed.details || [], marks: ed.marks || [], defs: ed.defs || [], photos: ed.photos || [], removed: ed.removed || [],
-      mloop: !!ed.mloop, nap: !!ed.nap, closure: !!ed.closure, odf: ed.odf || '', boq: ed.boq || {}, gps: ed.gps || null, takenAt: ed.takenAt || '', source: ed.source || '', q: ed.q || null,
+      mloop: !!ed.mloop, nap: !!ed.nap, nap2: !!ed.nap2, closure: !!ed.closure, odf: ed.odf || '', boq: ed.boq || {}, gps: ed.gps || null, takenAt: ed.takenAt || '', source: ed.source || '', q: ed.q || null,
       idRead: ed.idRead || null, idTouched: !!ed.idTouched, dragged: !!ed.dragged, pin: (ed.dragged || ed.mapPin) && c ? { lat: c.lat, lon: c.lng } : null, color: ed.color || '', siteKind: ed.siteKind || '',
       origPid: ed.origPid || '', legacyBoxes: ed.legacyBoxes || 0, legacyPole: !!ed.legacyPole, dropOrig: !!ed.dropOrig, baseNew: !!ed.baseNew, keepQ: !!ed.keepQ,
       noDef: !!ed.noDef, pend: Object.keys(ed.pending || {}), hasNew: !!ed.newBlob, hasSrc: !!ed.srcBlob && ed.srcBlob !== ed.newBlob, hasBase: !!ed.base, def: dd,
@@ -3795,8 +3800,8 @@
     if (st.mode === 'edit') { await openEditorFor(st.id, true); if (ed) { const s0 = draftState(); if (s0) ed.sig0 = draftSig(s0); } } // changes are counted from the record as stored
     else {
       await openEditor({ mode: 'new', id: st.id, restore: true, gps: st.gps, takenAt: st.takenAt, source: st.source, q: st.q, type: st.type || undefined, element: st.element, status: st.status,
-        poleId: st.poleId, remarks: st.svRemarks, closureId: st.acc ? st.closureId : st.svClosureId, napId: st.napId, details: st.details, marks: st.marks, origPid: st.origPid,
-        photos: st.photos, defs: st.defs, mloop: st.mloop, nap: st.nap, closure: st.closure, odf: st.odf, boq: st.boq || {}, boxes: (st.legacyBoxes || 0) + (st.marks || []).length, poleModel: st.legacyPole,
+        poleId: st.poleId, remarks: st.svRemarks, closureId: st.acc ? st.closureId : st.svClosureId, napId: st.napId, nap2Id: st.nap2Id || '', details: st.details, marks: st.marks, origPid: st.origPid,
+        photos: st.photos, defs: st.defs, mloop: st.mloop, nap: st.nap, nap2: !!st.nap2, closure: st.closure, odf: st.odf, boq: st.boq || {}, boxes: (st.legacyBoxes || 0) + (st.marks || []).length, poleModel: st.legacyPole,
         blob: st.acc ? null : nb || sb, noDef: !!st.noDef, color: st.color || '', siteKind: st.siteKind || '', ...(st.pin ? { lat: st.pin.lat, lon: st.pin.lon } : {}) });
     }
     if (!ed) return;
@@ -3809,7 +3814,7 @@
       if (sb) ed.srcBlob = sb; else if (nb && st.mode === 'new') ed.srcBlob = nb;
       ed.base = base; ed.baseNew = st.baseNew;
     }
-    $('poleId').value = st.poleId; $('napId').value = st.napId; $('closureId').value = st.closureId; $('svRemarks').value = st.svRemarks; $('svClosureId').value = st.svClosureId;
+    $('poleId').value = st.poleId; $('napId').value = st.napId; $('nap2Id').value = st.nap2Id || ''; $('closureId').value = st.closureId; $('svRemarks').value = st.svRemarks; $('svClosureId').value = st.svClosureId;
     renderAttach();
     if (st.def) {
       if (!defDraft || $('defPanel').hidden) startDefDraft(false);
@@ -3830,14 +3835,15 @@
     if (p.kind === 'acceptance' || isAcc(p.project)) {
       openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType || undefined, lat: p.lat, lon: p.lon, takenAt: p.takenAt, source: p.source,
         gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : { lat: p.lat, lon: p.lon, acc: p.accuracy }, // records from before v1.3 keep no raw fix: the pin stands in
-        element: elemOf(p), photos: p.photos || [], defs: p.defs || [], mloop: p.mloop, nap: p.nap, napId: p.napId, closure: p.closure, closureId: p.closureId, odf: p.odf, patId: p.patId || '', details: p.details || [] });
+        element: elemOf(p), photos: p.photos || [], defs: p.defs || [], mloop: p.mloop, nap: p.nap, napId: p.napId, nap2: p.nap2, nap2Id: p.nap2Id, closure: p.closure, closureId: p.closureId, odf: p.odf, patId: p.patId || '', details: p.details || [] });
       return;
     }
     const ph = await dbGet('photos', id).catch(() => null);
     openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType, lat: p.lat, lon: p.lon, takenAt: p.takenAt,
       gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : null, storedBlob: ph ? (ph.clean || ph.thumb) : null, source: p.source,
       element: elemOf(p), status: p.status || '', remarks: p.remarks || '', closureId: p.closureId || '', boxes: p.boxes || 0, details: p.details || [], marks: p.marks || [], origPid: p.origPid || '', poleModel: !!p.poleModel, color: p.color || '',
-      boq: p.boq || {}, siteKind: p.siteKind || '' }); // v2.37: the record's sizes and its site kind come back with it
+      boq: p.boq || {}, siteKind: p.siteKind || '', // v2.37: the record's sizes and its site kind come back with it
+      nap: !!p.nap, napId: p.napId || '', nap2: !!p.nap2, nap2Id: p.nap2Id || '', closure: !!p.closure }); // v2.42: and what is on the pole (v2.41 left it out: a reopened pole lost its NAP when saved)
   }
   function cleanupEditor() {
     if (ed) { if (!ed.closeOK && edDirty()) saveDraft(); else draftClear(); }
@@ -3851,7 +3857,7 @@
     root.querySelectorAll('[data-lk]').forEach((el) => { el.disabled = false; delete el.dataset.lk; });
     const off = (el) => { if (el && !el.disabled) { el.disabled = true; el.dataset.lk = '1'; } };
     if (lock === 'closed') root.querySelectorAll('.edbody input, .edbody select, .edbody textarea, #snapGps').forEach(off);
-    if (lock === 'carried') ['poleId', 'elemSel', 'typeSel', 'odfSel', 'atMloop', 'atNap', 'atClosure', 'napId', 'closureId', 'snapGps', 'napTypeSel', 'napSzSel', 'napStSel', 'cloSzSel', 'cloStSel', 'napIdSug'].forEach((id) => off($(id)));
+    if (lock === 'carried') ['poleId', 'elemSel', 'typeSel', 'odfSel', 'atMloop', 'atNap', 'atClosure', 'napId', 'closureId', 'snapGps', 'napTypeSel', 'napSzSel', 'napStSel', 'cloSzSel', 'cloStSel', 'napIdSug', 'nap2Add', 'nap2Del', 'nap2TypeSel', 'nap2SzSel', 'nap2StSel', 'nap2Id', 'nap2IdSug'].forEach((id) => off($(id)));
     if (pinMap) { if (lock) pinMap.dragging.disable(); else pinMap.dragging.enable(); }
     const m = pmeta(), note = $('edLock');
     note.hidden = !lock;
@@ -4420,7 +4426,7 @@
      (MIN123_C01_D01). Kept in the record's sizes (napType, napSz, napSt, clo, cloSt): the BOQ, the KMZ and the plan use them. */
   const POLE_NAP_TYPES = ['NAP 1x8', 'NAP 1x16', 'Dummy NAP', 'NAP changed to 1:16', 'Double NAP', 'LCP 1x4', 'Double LCP 2x1:8'];
   const isDummy = () => !!ed && (ed.boq || {}).napType === 'Dummy NAP';
-  const attKeys = () => (ed && !ed.acc && (ed.element || 'Pole') === 'Pole' ? [...(ed.nap ? ['napType', 'napSz', 'napSt'] : []), ...(ed.closure ? ['clo', 'cloSt'] : [])] : []);
+  const attKeys = () => (ed && !ed.acc && (ed.element || 'Pole') === 'Pole' ? [...(ed.nap ? ['napType', 'napSz', 'napSt'] : []), ...(ed.nap && ed.nap2 ? ['nap2Type', 'nap2Sz', 'nap2St'] : []), ...(ed.closure ? ['clo', 'cloSt'] : [])] : []);
   function renderAttach() {
     if (!ed) return; ed.boq = ed.boq || {};
     const pole = (ed.element || 'Pole') === 'Pole', on = !ed.acc && pole, b = ed.boq, ro = ed.lock === 'closed';
@@ -4439,17 +4445,31 @@
       $('napHint').hidden = !(dn && cab && cab !== 'L12'); $('napHint').textContent = dn && cab && cab !== 'L12' ? `A dummy NAP is for the 12C light cable: this pole is on ${(CAB[cab] || {}).short || cab}.` : '';
     }
     if (on && ed.closure) { if (!b.cloSt) b.cloSt = 'New'; fill('cloSzSel', boqList('clo') || BOQ_OPT.clo, b.clo || '', '— size —'); $('cloStSel').value = b.cloSt; $('cloStSel').disabled = ro; }
+    // v2.42: a second box on the pole (e.g. an LCP 1:4 with a NAP 1:16): the other kind is offered first
+    $('nap2Add').hidden = !(on && ed.nap && !ed.nap2) || ro; $('nap2Row').hidden = !(pole && ed.nap && ed.nap2); $('nap2Row').querySelector('.attsel').hidden = !on;
+    if (!on) $('nap2IdSug').hidden = true;
+    if (on && ed.nap && ed.nap2) {
+      if (!b.nap2Type) b.nap2Type = /LCP/i.test(b.napType || '') ? 'NAP 1x16' : 'LCP 1x4';
+      if (!b.nap2St) b.nap2St = 'New';
+      fill('nap2TypeSel', POLE_NAP_TYPES, b.nap2Type); $('nap2StSel').value = b.nap2St; $('nap2StSel').disabled = ro; $('nap2Del').disabled = ro;
+      const dn2 = b.nap2Type === 'Dummy NAP'; $('nap2SzSel').hidden = !dn2;
+      if (dn2) { if (!b.nap2Sz) b.nap2Sz = '12C'; fill('nap2SzSel', boqList('clo') || BOQ_OPT.clo, b.nap2Sz, '— size —'); } else delete b.nap2Sz;
+      $('nap2Id').placeholder = dn2 ? 'Dummy NAP ID, e.g. MIN123_C01_D02' : /LCP/i.test(b.nap2Type) ? '2nd box ID (the LCP)' : '2nd box ID, e.g. DVO_003_L913_N02';
+      const sug2 = dn2 ? dummyNapId(true) : ''; $('nap2IdSug').hidden = !sug2 || ro || $('nap2Id').value.trim().toUpperCase() === sug2; $('nap2IdSug').textContent = sug2 ? `Use ${sug2}` : '';
+    }
   }
   /** The cable of the spans at a pole (the first one), or ''. */
   function cableAt(id) { const R = routeModel(), s = R.spans.find((x) => x.ia === id || x.ib === id); return s ? s.cable || '' : ''; }
   /** v2.41: a dummy NAP's ID: PLA ID_Cxx_Dyy: xx the 12C light cable leg the pole is on (its run of the route, counted from the homing),
       yy the next number on that leg. */
-  function dummyNapId() {
+  function dummyNapId(second) {
     if (!ed) return '';
     const pla = String(sfMeta(siteFieldsOf()).plaId || pmeta().plaId || '').replace(/\s+/g, '').toUpperCase() || 'PLA';
     const R = routeModel(), legs = C.routeChains(R.spans).filter((ch) => ch.cable === 'L12');
     let leg = legs.findIndex((ch) => ch.spans.some((sp) => sp.ia === ed.id || sp.ib === ed.id)) + 1; if (leg < 1) leg = 1;
-    const tag = `${pla}_C${String(leg).padStart(2, '0')}_D`, used = projPoints().filter((p) => p.id !== ed.id && p.napId && p.napId.startsWith(tag)).map((p) => parseInt(p.napId.slice(tag.length), 10) || 0);
+    const tag = `${pla}_C${String(leg).padStart(2, '0')}_D`, ids = projPoints().filter((p) => p.id !== ed.id).flatMap((p) => [p.napId, p.nap2Id]).filter((x) => x && x.startsWith(tag));
+    if (second) { const v = $('napId').value.trim().toUpperCase(); if (v.startsWith(tag)) ids.push(v); } // (v2.42: the second box after the first)
+    const used = ids.map((x) => parseInt(x.slice(tag.length), 10) || 0);
     return `${tag}${String((used.length ? Math.max(...used) : 0) + 1).padStart(2, '0')}`;
   }
   $('napTypeSel').addEventListener('change', () => { if (!ed) return; ed.boq.napType = $('napTypeSel').value; ed.boqTouched = true; const dn = isDummy(); renderAttach(); if (dn && !$('napId').value.trim()) $('napId').value = dummyNapId(); renderAttach(); renderEdSym(); });
@@ -4458,6 +4478,14 @@
   $('cloSzSel').addEventListener('change', () => { if (!ed) return; if ($('cloSzSel').value) ed.boq.clo = $('cloSzSel').value; else delete ed.boq.clo; ed.boqTouched = true; });
   $('cloStSel').addEventListener('change', () => { if (!ed) return; ed.boq.cloSt = $('cloStSel').value; ed.boqTouched = true; });
   $('napIdSug').addEventListener('click', () => { if (!ed) return; $('napId').value = dummyNapId(); renderAttach(); });
+  // v2.42: the second box
+  $('nap2Add').addEventListener('click', () => { if (!ed) return; ed.nap2 = true; ed.boqTouched = true; renderAttach(); if (ed.boq.nap2Type === 'Dummy NAP' && !$('nap2Id').value.trim()) $('nap2Id').value = dummyNapId(true); else $('nap2Id').focus(); renderAttach(); });
+  $('nap2Del').addEventListener('click', () => { if (!ed) return; ed.nap2 = false; ['nap2Type', 'nap2Sz', 'nap2St'].forEach((k) => delete ed.boq[k]); $('nap2Id').value = ''; ed.boqTouched = true; renderAttach(); });
+  $('nap2TypeSel').addEventListener('change', () => { if (!ed) return; ed.boq.nap2Type = $('nap2TypeSel').value; ed.boqTouched = true; renderAttach(); if (ed.boq.nap2Type === 'Dummy NAP' && !$('nap2Id').value.trim()) $('nap2Id').value = dummyNapId(true); renderAttach(); });
+  $('nap2SzSel').addEventListener('change', () => { if (!ed) return; if ($('nap2SzSel').value) ed.boq.nap2Sz = $('nap2SzSel').value; else delete ed.boq.nap2Sz; ed.boqTouched = true; });
+  $('nap2StSel').addEventListener('change', () => { if (!ed) return; ed.boq.nap2St = $('nap2StSel').value; ed.boqTouched = true; });
+  $('nap2IdSug').addEventListener('click', () => { if (!ed) return; $('nap2Id').value = dummyNapId(true); renderAttach(); });
+  $('nap2Id').addEventListener('input', () => { if (ed && ed.boq.nap2Type === 'Dummy NAP') $('nap2IdSug').hidden = $('nap2Id').value.trim().toUpperCase() === dummyNapId(true); });
   $('napId').addEventListener('input', () => { if (ed && isDummy()) $('napIdSug').hidden = $('napId').value.trim().toUpperCase() === dummyNapId(); });
   $('svClosureId').addEventListener('input', () => { if (ed && !ed.acc && ed.element === 'Handhole') { const was = !$('boqBox').hidden; if (was !== !!$('svClosureId').value.trim()) renderBoq(); } });
   /** v2.26: the BOQ sizes of the element in the record: one row of chips per field (tap again to clear). */
@@ -5158,7 +5186,8 @@
         boq: boqPick(ed.boq, edBoqKeys().concat(attKeys())), // v2.41: + the NAP's and the closure's kind, size and status
         remarks: $('svRemarks').value.trim().slice(0, 500), closureId: ed.element === 'Handhole' ? $('svClosureId').value.trim().toUpperCase().slice(0, 40) : (ed.element || 'Pole') === 'Pole' && ed.closure ? $('closureId').value.trim().toUpperCase().slice(0, 40) : '',
         // v2.41: the NAP and the hybrid closure on the pole (their kind, size and status are in the sizes above)
-        nap: (ed.element || 'Pole') === 'Pole' && !!ed.nap, napId: (ed.element || 'Pole') === 'Pole' && ed.nap ? $('napId').value.trim().toUpperCase().slice(0, 40) : '', closure: (ed.element || 'Pole') === 'Pole' && !!ed.closure,
+        nap: (ed.element || 'Pole') === 'Pole' && !!ed.nap, napId: (ed.element || 'Pole') === 'Pole' && ed.nap ? $('napId').value.trim().toUpperCase().slice(0, 40) : '',
+        nap2: (ed.element || 'Pole') === 'Pole' && !!ed.nap && !!ed.nap2, nap2Id: (ed.element || 'Pole') === 'Pole' && ed.nap && ed.nap2 ? $('nap2Id').value.trim().toUpperCase().slice(0, 40) : '', closure: (ed.element || 'Pole') === 'Pole' && !!ed.closure,
         boxes: (ed.legacyBoxes || 0) + (ed.marks || []).length, marks: (ed.marks || []).map((m) => ({ ...m })),
         poleModel: (ed.marks || []).some((m) => m.k === 'pole') || !!ed.legacyPole,
         models: [...new Set((ed.marks || []).map(normMark).filter((m) => (isModel(m) && m.k !== 'pole') || DRAWN.has(m.k)).map((m) => m.k))], // odc, odfp, rack, hh, tower; v2.27 foc, text
@@ -5236,7 +5265,7 @@
     const id = $('poleId').value.trim(), real = id && !new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(id) && !/[-_]$/.test(id);
     const el = ed.element || 'Pole';
     $('idGroupSum').textContent = [el, el === 'Pole' ? ed.type : '', real ? id : 'no ID', boqText({ boq: boqPick(ed.boq, edBoqKeys()) })].filter(Boolean).join(' · ');
-    const on = [ed.mloop && 'MLoop', ed.nap && `NAP${$('napId').value.trim() ? ' ' + $('napId').value.trim() : ''}`, ed.closure && `Closure${$('closureId').value.trim() ? ' ' + $('closureId').value.trim() : ''}`].filter(Boolean);
+    const on = [ed.mloop && 'MLoop', ed.nap && `NAP${$('napId').value.trim() ? ' ' + $('napId').value.trim() : ''}${ed.nap2 ? ` + 2nd box${$('nap2Id').value.trim() ? ' ' + $('nap2Id').value.trim() : ''}` : ''}`, ed.closure && `Closure${$('closureId').value.trim() ? ' ' + $('closureId').value.trim() : ''}`].filter(Boolean);
     $('attachSum').textContent = on.length ? on.join(' · ') : 'Nothing marked';
   }
   FOLDS.forEach((id) => {
@@ -5296,6 +5325,7 @@
         ...(p ? { updatedBy: byLine() } : { by: byLine() }),
         mloop: el === 'Pole' && ed.mloop, nap: el === 'Pole' && ed.nap, closure: el === 'Pole' && ed.closure,
         napId: el === 'Pole' && ed.nap ? $('napId').value.trim().toUpperCase() : '',
+        nap2: el === 'Pole' && !!ed.nap && !!ed.nap2, nap2Id: el === 'Pole' && ed.nap && ed.nap2 ? $('nap2Id').value.trim().toUpperCase() : '',
         closureId: el === 'Pole' && ed.closure ? $('closureId').value.trim().toUpperCase() : '',
         odf: el === 'ODF' ? ed.odf : '',
         photos: ed.photos.map((ph) => ({ ...ph })), defs: JSON.parse(JSON.stringify(ed.defs)),
@@ -5355,7 +5385,7 @@
     revokeListUrls();
     const q = $('listSearch').value.trim().toUpperCase(), acc = isAcc();
     $('listFilter').hidden = !acc;
-    const pts = projPoints().reverse().filter((p) => (!q || [p.poleId, p.poleType, p.element, p.napId, p.closureId, p.status, p.remarks, detailsText(p.details), boqText(p)].join(' ').toUpperCase().includes(q))
+    const pts = projPoints().reverse().filter((p) => (!q || [p.poleId, p.poleType, p.element, p.napId, p.nap2Id, p.closureId, p.status, p.remarks, detailsText(p.details), boqText(p)].join(' ').toUpperCase().includes(q))
       && (!acc || listFilter === 'all' || recStatus(p) === listFilter));
     const counts = {}; projPoints().forEach((p) => { counts[p.poleId] = (counts[p.poleId] || 0) + 1; });
     const box = $('listItems'); box.innerHTML = '';
@@ -6886,7 +6916,7 @@
       return { id: p.id, poleId: p.poleId || '', el, status: p.status || '', mat: el === 'Pole' ? (TELCO_TYPES.has(pre) ? '' : pre) : '', tag: el === 'Pole' ? (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId) : '',
         telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: b.clamp || '',
         armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon,
-        mloop: !!(p.mloop || b.mloop), nap: !!p.nap, napId: p.napId || '', closure: !!p.closure, closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
+        mloop: !!(p.mloop || b.mloop), nap: !!p.nap, napId: p.napId || '', nap2: el === 'Pole' && !!p.nap2, nap2Id: el === 'Pole' && p.nap2 ? p.nap2Id || '' : '', nap2Type: el === 'Pole' && p.nap2 ? b.nap2Type || '' : '', nap2Old: el === 'Pole' && !!p.nap2 && b.nap2St === 'Existing', closure: !!p.closure, closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
         adjusted: !!p.adjusted, color: p.color || '', // v2.36: a pin set by hand stays where it is on the drawing; a map pin's colour
         // v2.37: the NAP's kind, a double LCP, the site's kind, grounding, a riser, the pole a pole-to-pole guy goes to
         napType: el === 'NAP' || (el === 'Pole' && (p.nap || p.napId)) ? b.napType || '' : '', napOld: el === 'Pole' && b.napSt === 'Existing', closureOld: el === 'Pole' && b.cloSt === 'Existing', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', ground: !!b.ground, riser: !!b.riser, p2pTo: b.p2p || null,
@@ -7120,6 +7150,7 @@
         if (b.mloop) add('Maintenance loop', `${mloopLen()} m`, 'Pole', id);
         // v2.41: the NAP and the hybrid closure on the pole (New unless set Existing)
         if (p.nap || p.napId) { if (b.napType === 'Dummy NAP') add('Dummy NAP', b.napSz || 'size not set', b.napSt || 'New', p.napId || id); else add('NAP', b.napType || 'NAP', b.napSt || 'New', p.napId || id); }
+        if (p.nap2 || p.nap2Id) { if (b.nap2Type === 'Dummy NAP') add('Dummy NAP', b.nap2Sz || 'size not set', b.nap2St || 'New', p.nap2Id || id); else add('NAP', b.nap2Type || 'NAP', b.nap2St || 'New', p.nap2Id || id); } // v2.42: its second box
         if (p.closure || p.closureId) { if (b.clo) add('Closure', b.clo, b.cloSt || 'New', p.closureId || id); else missing.closure++; }
       } else if (el === 'ODF') { if (b.odf || b.conn) add('ODF', [b.odf, b.conn].filter(Boolean).join(' '), stn, id); else missing.ODF++; }
       else if (el === 'Closure' || (el === 'Handhole' && p.closureId)) { if (b.clo) add('Closure', b.clo, stn, el === 'Handhole' ? p.closureId : id); else missing.closure++; }
@@ -7201,12 +7232,14 @@
     const odfs = pts.filter((p) => elemOf(p) === 'ODF'), clos = pts.filter((p) => elemOf(p) === 'Closure' || (elemOf(p) === 'Handhole' && p.closureId)), naps = pts.filter((p) => elemOf(p) === 'NAP');
     // v2.41: the NAPs and hybrid closures on the poles (New unless set Existing)
     const poleClo = poles.filter((p) => p.closure || p.closureId), poleNap = poles.filter((p) => p.nap || p.napId), stOf = (p, k) => ((p.boq || {})[k] === 'Existing' ? 'Existing' : 'New');
-    const dnaps = poleNap.filter((p) => (p.boq || {}).napType === 'Dummy NAP');
+    // v2.42: each box on a pole (a pole may carry two, e.g. an LCP 1:4 and a NAP 1:16)
+    const boxes = poles.flatMap((p) => { const b = p.boq || {}; return [(p.nap || p.napId) && { type: b.napType, sz: b.napSz, st: stOf(p, 'napSt') }, (p.nap2 || p.nap2Id) && { type: b.nap2Type, sz: b.nap2Sz, st: stOf(p, 'nap2St') }].filter(Boolean); });
+    const dnaps = boxes.filter((x) => x.type === 'Dummy NAP');
     cnt(odfs.filter(isNew), (p) => [p.boq && p.boq.odf, p.boq && p.boq.conn].filter(Boolean).join(' ') || 'size not set').forEach(([v, n]) => add(`ODF_NEW_${slug(v)}`, n, 'each', `New ODF ${v}`));
     add('ODF_NEW_FIBERS', odfs.filter(isNew).reduce((t, p) => t + (parseInt(String((p.boq && p.boq.odf) || ''), 10) || 0), 0), 'fiber(s)', 'Fibers of the new ODFs (e.g. 12 for a 12F)');
     cnt(clos.filter((p) => isNew(p) || (p.boq && p.boq.cloSt === 'New')).concat(poleClo.filter((p) => stOf(p, 'cloSt') === 'New')), (p) => (p.boq && p.boq.clo) || 'size not set').forEach(([v, n]) => add(`CLOSURE_NEW_${slug(v)}`, n, 'each', `New closure ${v}`));
-    cnt(dnaps.filter((p) => stOf(p, 'napSt') === 'New'), (p) => (p.boq && p.boq.napSz) || 'size not set').forEach(([v, n]) => add(`DUMMY_NAP_NEW_${slug(v)}`, n, 'each', `New dummy NAP ${v}`));
-    add('NAP_NEW', naps.filter(isNew).length + poleNap.filter((p) => stOf(p, 'napSt') === 'New').length, 'each', 'Proposed / new NAPs (dummy NAPs and LCPs included)'); add('NAP_EXISTING', naps.filter((p) => !isNew(p)).length + poleNap.filter((p) => stOf(p, 'napSt') === 'Existing').length, 'each', 'Existing NAPs');
+    cnt(dnaps.filter((x) => x.st === 'New'), (x) => x.sz || 'size not set').forEach(([v, n]) => add(`DUMMY_NAP_NEW_${slug(v)}`, n, 'each', `New dummy NAP ${v}`));
+    add('NAP_NEW', naps.filter(isNew).length + boxes.filter((x) => x.st === 'New').length, 'each', 'Proposed / new NAPs (dummy NAPs and LCPs included)'); add('NAP_EXISTING', naps.filter((p) => !isNew(p)).length + boxes.filter((x) => x.st === 'Existing').length, 'each', 'Existing NAPs');
     const reg = pmeta().region, sug = regionSuggest();
     add('REGION', reg ? REGION_BY[reg][1] : '', '', reg ? regionLabel(reg) : `Not set${sug ? ` (GPS suggests ${regionLabel(sug)})` : ''}: Project details → Region`);
     return { rows, route: R, lenBy, loops, ml };
@@ -7565,7 +7598,7 @@
   function elemRows(M) {
     return M.recs.map((r, i) => {
       const pole = elemOf(r) === 'Pole', yn = (v) => (pole ? (v ? 'Yes' : 'No') : '');
-      return [i + 1, elemOf(r), M.lab(r), yn(r.mloop), yn(r.nap), r.nap ? r.napId || '' : '', yn(r.closure), r.closure ? r.closureId || '' : '',
+      return [i + 1, elemOf(r), M.lab(r), yn(r.mloop), yn(r.nap), r.nap ? [r.napId, r.nap2 ? r.nap2Id || '2nd box' : ''].filter(Boolean).join(' + ') : '', yn(r.closure), r.closure ? r.closureId || '' : '',
         elemOf(r) === 'ODF' ? `${r.odf || 'New'}` : '', STATUS_TEXT[recStatus(r)], openCount(r), (r.defs || []).length, r.lat, r.lon,
         Number.isFinite(r.accuracy) ? Math.round(r.accuracy * 10) / 10 : '', r.adjusted ? 'Yes' : 'No', fmtTime(r.takenAt),
         photosOf(r).map((p, k) => M.photoName(r, k, p)).join(', ')];
@@ -8386,11 +8419,11 @@
     else if (lock) { box.innerHTML = `<option selected>${C.xmlEsc(lock)}</option>`; box.disabled = true; }
     else {
       box.disabled = false;
-      const inv = (S.inviteCos || []).map((x) => cos.find((c) => normCo(c) === normCo(x))).filter(Boolean), list = inv.length ? inv : cos; // v2.41: an invite for several companies: only those
+      const inv = (S.inviteCos || [])[0] === '*' ? vendorCos() : (S.inviteCos || []).map((x) => cos.find((c) => normCo(c) === normCo(x))).filter(Boolean), list = inv.length ? inv : cos; // v2.41: an invite for several companies: only those (v2.42: * = the vendors)
       box.innerHTML = `<option value="">${inv.length ? 'Choose your company (from your invite)…' : 'Choose your company…'}</option>` + list.map((c) => `<option${c === sel ? ' selected' : ''}>${C.xmlEsc(c)}</option>`).join('');
     }
     const own = pol().owner;
-    $('pfTeam').textContent = S.team ? `${lock && !keyMode() ? `Your company comes from your invite. To change company: Settings → Reset user. ` : (S.inviteCos || []).length > 1 && !holdsListKey() ? 'Your invite is for several companies: choose yours. It is kept from then on (it cannot be changed). ' : cos.length && !holdsListKey() ? 'Your invite did not name a company: choose yours (it is kept from then on). ' : ''}List “${S.team.name}” v${S.team.rev}${own ? ` · ${own} is the admin company (its staff need the admin PIN)` : ''}.${sel && !cos.includes(sel) ? ` “${sel}” is no longer on the list: choose again.` : ''}` : '';
+    $('pfTeam').textContent = S.team ? `${lock && !keyMode() ? `Your company comes from your invite. To change company: Settings → Reset user. ` : (S.inviteCos || [])[0] === '*' && !holdsListKey() ? 'Your invite is for the vendors on the list: choose your company. It is kept from then on (it cannot be changed). ' : (S.inviteCos || []).length > 1 && !holdsListKey() ? 'Your invite is for several companies: choose yours. It is kept from then on (it cannot be changed). ' : cos.length && !holdsListKey() ? 'Your invite did not name a company: choose yours (it is kept from then on). ' : ''}List “${S.team.name}” v${S.team.rev}${own ? ` · ${own} is the admin company (its staff need the admin PIN)` : ''}.${sel && !cos.includes(sel) ? ` “${sel}” is no longer on the list: choose again.` : ''}` : '';
     $('pfJoin').hidden = !!cos.length;
     renderProfileMode();
   }
@@ -8826,7 +8859,11 @@
       : ORG ? `Not joined yet. Open the join link from your ${ORG.name} admin.` : 'No company list on this phone yet. Open the join link from your admin.';
     // v2.15: the list's details and its sharing are for the admin company; others see its name and keep it up to date
     const listAdmin = !t || isAdmin() || canManage();
-    $('goAdmin').hidden = !listAdmin; $('teamShare').hidden = !t || !listAdmin;
+    // v2.42: on the admin phone with an online sheet: Invite a vendor (the vendor companies only, the key from the sheet) and Invite admin
+    //        staff (the admin company), in place of Share list
+    const sheetAdmin = !!(t && t.src && isAdmin());
+    $('inviteVendor').hidden = !sheetAdmin; $('inviteAdminStaff').hidden = !sheetAdmin;
+    $('goAdmin').hidden = !listAdmin; $('teamShare').hidden = !t || !listAdmin || sheetAdmin;
     $('teamMini').hidden = listAdmin || !t; if (t && !listAdmin) $('teamMini').textContent = `Company list “${t.name}” version ${t.rev}${t.src ? ' · updates from the online sheet' : ''}.`;
     $('adminLock').textContent = isAdmin() ? 'ADMIN' : canManage() ? 'PIN' : t ? 'VIEW' : 'SET UP';
     const foreign = !!(ORG && t && t.id !== ORG.id); // e.g. a list made on this phone before the app was tied to the organisation
@@ -8849,7 +8886,8 @@
     const mv = (/[#&]mv=([A-Za-z0-9_-]+)/.exec(t) || [])[1];
     let co = (/[#&?]co=([^&#]+)/.exec(t) || [])[1]; // v2.28: the company the invite is for (the user does not choose it)
     const cosRaw = (/[#&?]cos=([^&#]+)/.exec(t) || [])[1], iv = (/[#&?]iv=([A-Za-z0-9]{8,24})(?=[&#]|$)/.exec(t) || [])[1]; // v2.41: several companies (the user chooses one), the sheet's invite code
-    if (cosRaw) { let c = cosRaw; try { c = decodeURIComponent(cosRaw); } catch (e) { /* as is */ } S.inviteCos = c.split('|').map((x) => x.replace(/\s+/g, ' ').trim().slice(0, 100)).filter(Boolean).slice(0, 50); S.inviteCo = ''; if (S.inviteCos.length === 1) co = encodeURIComponent(S.inviteCos[0]); persist(); }
+    if (cosRaw === '*') { S.inviteCos = ['*']; S.inviteCo = ''; persist(); } // v2.42: any vendor on the list
+    else if (cosRaw) { let c = cosRaw; try { c = decodeURIComponent(cosRaw); } catch (e) { /* as is */ } S.inviteCos = c.split('|').map((x) => x.replace(/\s+/g, ' ').trim().slice(0, 100)).filter(Boolean).slice(0, 50); S.inviteCo = ''; if (S.inviteCos.length === 1) co = encodeURIComponent(S.inviteCos[0]); persist(); }
     if (iv && !keyMode()) { S.inviteCode = iv; persist(); }
     if (co) { let c = co; try { c = decodeURIComponent(co); } catch (e) { /* as is */ } S.inviteCo = String(c).replace(/\s+/g, ' ').trim().slice(0, 100); if (!cosRaw) S.inviteCos = []; persist(); }
     if (mv) { // moving to this phone (v2.15): the list first, then the user's details for a check and Save
@@ -8914,6 +8952,46 @@
     }
     await showTeamQr(undefined, picked, code, why);
   }, 'No invite'));
+  /** v2.42: the list's admin companies (the policies' admin company and the online sheet's admin companies), and the others (vendors). */
+  const adminCoSet = () => new Set([pol().owner, ...((S.cloud && S.cloud.admins) || [])].filter(Boolean).map(normCo));
+  const vendorCos = () => { const A = adminCoSet(); return teamCos().filter((c) => !A.has(normCo(c))); };
+  const adminCos = () => { const A = adminCoSet(), on = teamCos().filter((c) => A.has(normCo(c))); return on.length ? on : pol().owner ? [pol().owner] : []; };
+  /** v2.42: an invite kept by the online sheet (script v2.41+): the new phone gets its company's key from the sheet with the code. */
+  async function sheetInvite(cos) {
+    if (!sheetUrl()) return { why: 'no online sheet' };
+    if (!S.onlineAdminKey) return { why: 'no Admin key on this phone (Administration → Online sheet)', noKey: true };
+    if (!navigator.onLine) return { why: 'no internet' };
+    try {
+      const j = await cloudRequest({ url: sheetUrl() }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'makeInvite', key: S.onlineAdminKey, cos, days: 14, by: (S.user && S.user.email) || '' }) });
+      if (j && j.ok && /^[A-Za-z0-9]{8,24}$/.test(String(j.code || ''))) return { code: j.code };
+      return { why: j && j.error === 'action' ? 'the online sheet script is older than v2.41: update it' : j && /key/i.test(String(j.error || '')) && j.company ? `${j.company} has no key in the CompanyKeys tab (run makeCompanyKeys)` : `the online sheet answered ${(j && j.error) || 'nothing'}` };
+    } catch (e) { return { why: e.message || String(e) }; }
+  }
+  /** v2.42: Settings → Invite a vendor: one vendor (its users join it), or several / any vendor (the new user chooses theirs the first
+      time; then it is fixed). The admin company is not offered here: admin staff have their own invite. The key comes from the sheet. */
+  $('inviteVendor').addEventListener('click', () => guard(async () => {
+    const V = vendorCos();
+    if (!V.length) { toast('No vendor companies on the list yet: add them to the online sheet (Companies tab), then Sync', 5000); return; }
+    if (!S.onlineAdminKey) { await ask('Admin key needed', 'A vendor invite takes the company\u2019s key from the online sheet. Enter the sheet\u2019s Admin key once on this phone: Administration → Online Google Sheet → Admin key, then Save.', [{ label: 'OK', value: true, primary: true }]); return; }
+    const picked = await pickMany('Invite a vendor', 'Tick the vendor whose users you invite. Tick several, or let the user choose, and the new user picks their company the first time (it cannot be changed afterwards). The phone then gets that company\u2019s key from the online sheet by itself, and the user can invite coworkers. Admin staff: Invite admin staff.', V, 'Let the user choose their company (any vendor)');
+    if (picked == null) return;
+    // any vendor: the sheet (script v2.42) keeps it as '*', checked when the invite is used (a vendor added later can use it too); a
+    // v2.41 sheet does not know '*': then the vendors on the list now
+    const any = !picked.length, cos = any ? V : picked; let r = await sheetInvite(any ? ['*'] : cos);
+    if (any && !r.code && /\*/.test(r.why || '')) r = await sheetInvite(cos);
+    LOG.info('admin.invite.vendor', { n: cos.length, any, code: !!r.code });
+    if (!r.code) { await ask('No invite made', `The online sheet did not make the invite: ${r.why}.`, [{ label: 'OK', value: true, primary: true }]); return; }
+    await showTeamQr(undefined, any ? ['*'] : cos, r.code, '', any ? V : null);
+  }, 'No invite'));
+  /** v2.42: Settings → Invite admin staff: an invite to the admin company only (its own invite, apart from the vendors'). */
+  $('inviteAdminStaff').addEventListener('click', () => guard(async () => {
+    let cos = adminCos();
+    if (!cos.length) { toast('No admin company set: Administration → Admin company', 5000); return; }
+    if (cos.length > 1) { const p = await pickMany('Invite admin staff', 'Which admin company?', cos); if (p == null) return; if (p.length) cos = p; }
+    const r = await sheetInvite(cos); // with the admin company's key when the sheet has one; without, the plain invite to the list
+    LOG.info('admin.invite.staff', { n: cos.length, code: !!r.code });
+    await showTeamQr(undefined, cos, r.code || '', r.code ? '' : r.why);
+  }, 'No invite'));
   /** v2.41: several choices from a list (check boxes in a dialog): the values ticked ([] = the "any" choice), or null when cancelled. */
   function pickMany(title, text, options, anyLabel) {
     $('pickMTitle').textContent = title; $('pickMText').textContent = text || '';
@@ -8975,18 +9053,19 @@
     const o = { ...(m ? { s: m[1] } : { u: src.url }), r: src.key || '', i: t.id, f: await keyPrint(t.key) };
     return `${base}#jq=${b64u.enc(enc8(JSON.stringify(o)))}`;
   }
-  async function showTeamQr(note, co, code, why) {
+  async function showTeamQr(note, co, code, why, anyOf) {
     if (!S.team) { toast('No company list on this phone yet'); return; }
     const cos = Array.isArray(co) ? co : co ? [co] : [];
+    // v2.42: cos ['*'] = any vendor on the list (anyOf: those vendors): the link says cos=* (a short QR code); the phone offers the vendors
     // v2.28: the invite names the company. v2.41: or several (cos=A|B: the user chooses one), and the sheet's invite code (iv=)
-    const tail = (cos.length === 1 ? `&co=${encodeURIComponent(cos[0])}` : cos.length ? `&cos=${encodeURIComponent(cos.join('|'))}` : '') + (code ? `&iv=${code}` : '');
+    const tail = (cos[0] === '*' ? '&cos=*' : cos.length === 1 ? `&co=${encodeURIComponent(cos[0])}` : cos.length ? `&cos=${encodeURIComponent(cos.join('|'))}` : '') + (code ? `&iv=${code}` : '');
     const text = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k }), link = joinLink(text) && joinLink(text) + tail, short = (await shortJoin()) && (await shortJoin()) + tail;
     const fullNote = note || `Version ${S.team.rev} · ${teamCos().length} companies. Scan it in G-eSAA (Join your team → Scan QR code) or with the phone's camera, or send the join link.`;
-    const shortNote = `Version ${S.team.rev}. Scan it in G-eSAA (Join your team → Scan QR code) or with the phone's camera. The new phone needs internet once to download the list; without internet, show the full code or send the join link.`;
+    const shortNote = `Version ${S.team.rev}. Scan it in G-eSAA (Join your team → Scan QR code) or with the phone's camera. The new phone needs internet once to download the list; without internet, send the join link.`;
     qrLink = link; qrAlt = short && link ? { short, full: link, shortNote, fullNote } : null;
-    const coNote = cos.length > 1 ? ` The new user chooses one of: ${cos.join(', ')} (it cannot be changed afterwards).` : '';
+    const coNote = cos[0] === '*' ? ` The new user chooses their company from the ${anyOf ? anyOf.length + ' ' : ''}vendors on the list (not the admin company); it cannot be changed afterwards.` : cos.length > 1 ? ` The new user chooses one of: ${cos.join(', ')} (it cannot be changed afterwards).` : '';
     const keyNote = cos.length ? (code ? ' The phone then gets that company\u2019s key from the online sheet by itself (this invite works for 14 days; the sheet\u2019s Invites tab lists it, set Active to No to stop it, and Invite log shows who joined).' : why ? ` (No company key comes with this invite: ${why}.)` : '') : '';
-    await showQr(cos.length === 1 ? `Invite to ${cos[0]} · ${S.team.name}` : cos.length ? `Invite to ${cos.length} companies · ${S.team.name}` : `Join ${S.team.name}`, (qrAlt ? shortNote : fullNote) + coNote + keyNote, qrAlt ? short : link || text + tail); // no website: the list text, with the company
+    await showQr(cos[0] === '*' ? `Invite a vendor (any) · ${S.team.name}` : cos.length === 1 ? `Invite to ${cos[0]} · ${S.team.name}` : cos.length ? `Invite to ${cos.length} companies · ${S.team.name}` : `Join ${S.team.name}`, (qrAlt ? shortNote : fullNote) + coNote + keyNote, qrAlt ? short : link || text + tail); // no website: the list text, with the company
   }
   $('qrClose').addEventListener('click', () => closeSheet());
 
@@ -9641,7 +9720,7 @@
   }
   /* v2.26: a G-eSAA link (invite, join, move) opened in an Android browser: offer to open it in the G-eSAA app (the APK keeps
      its own details and projects, apart from the browser). The app gets it as gesaa://open?h=… (Android intent). */
-  const linkHashNow = () => [pendingJoin ? `#join=${pendingJoin}` : '', pendingKey ? `&${pendingKey}` : '', pendingJq ? `&jq=${pendingJq}` : '', pendingMv ? `&mv=${pendingMv}` : '', pendingCo ? `&co=${pendingCo}` : ''].join('');
+  const linkHashNow = () => [pendingJoin ? `#join=${pendingJoin}` : '', pendingKey ? `&${pendingKey}` : '', pendingJq ? `&jq=${pendingJq}` : '', pendingMv ? `&mv=${pendingMv}` : '', pendingTail()].join('');
   async function linkToApp() {
     if (NATIVE || !/Android/i.test(navigator.userAgent || '') || /[?&]web=1/.test(location.search) || S.linkWeb) return false;
     if (window.matchMedia && (matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches)) return false; // the installed web app
@@ -10051,9 +10130,9 @@
       cloudSync(true);
     } else if (S.team.src) { pushPacksToSheet(S.team.src.url, P.packs || []).then(() => pushListToSheet(S.team.src.url)).finally(() => cloudSync(true)); }
     if (viaSheet) { // v2.28: the online sheet carries the list: no join QR code after Save; invites are made per company
-      const go = await ask(`Version ${S.team.rev} saved`, `Phones that joined get it from the online sheet by themselves.${admDraft.newPin ? ' Admins must enter the new PIN after taking it.' : ''}\n\nTo add users, make an invite for their company: Settings → company list → Share${pol().owner ? ', or Administration → Invite a company\u2019s users (company keys)' : ''}.`,
+      const go = await ask(`Version ${S.team.rev} saved`, `Phones that joined get it from the online sheet by themselves.${admDraft.newPin ? ' Admins must enter the new PIN after taking it.' : ''}\n\nTo add users, make an invite for their company: Settings → company list → Invite a vendor (admin staff: Invite admin staff)${pol().owner ? ', or Administration → Invite a company\u2019s users (company keys)' : ''}.`,
         [{ label: 'OK', value: false }, { label: 'Make an invite', value: true, primary: true }]);
-      if (go) $('teamShare').click();
+      if (go) $(!$('inviteVendor').hidden ? 'inviteVendor' : 'teamShare').click(); // v2.42
       return;
     }
     showTeamQr(`Version ${S.team.rev} saved. Send the join link or show this QR code to each user.${S.team.src && !S.onlineAdminKey ? ' Enter the sheet’s Admin key (Online Google Sheet) so phones update by themselves.' : ''}${admDraft.newPin ? ' Admins must enter the new PIN after taking it.' : ''}`);
@@ -10907,7 +10986,7 @@
     if (S.dropSatTiles) { // v1.7: satellite imagery kept by older versions is removed (Esri allows offline imagery only in ArcGIS apps)
       try { await tx('tiles', 'readwrite', (st) => st.delete(IDBKeyRange.bound('satellite/', 'satellite/\uffff'))); delete S.dropSatTiles; persist(); } catch (e) { /* try again next start */ }
     }
-    if (pendingJoin || pendingKey || pendingJq || pendingMv) { await loadOrg(); if ((await linkToApp()) && (await tutWait(2500), document.visibilityState !== 'visible')) { /* the G-eSAA app took the link */ } else await handleInvite(`${pendingJoin ? `#join=${pendingJoin}` : ''}${pendingKey ? `&${pendingKey}` : ''}${pendingJq ? `&jq=${pendingJq}` : ''}${pendingMv ? `&mv=${pendingMv}` : ''}${pendingCo ? `&co=${pendingCo}` : ''}`, true); } else loadOrg(); // a link waits for the organisation check
+    if (pendingJoin || pendingKey || pendingJq || pendingMv) { await loadOrg(); if ((await linkToApp()) && (await tutWait(2500), document.visibilityState !== 'visible')) { /* the G-eSAA app took the link */ } else await handleInvite(`${pendingJoin ? `#join=${pendingJoin}` : ''}${pendingKey ? `&${pendingKey}` : ''}${pendingJq ? `&jq=${pendingJq}` : ''}${pendingMv ? `&mv=${pendingMv}` : ''}${pendingTail()}`, true); } else loadOrg(); // a link waits for the organisation check
     if (!profileOk()) { if ($('profile').hidden) openProfile(true); }
     else if (!S.project && !/[?&]shared=1/.test(location.search)) askNewProject(); // photos are taken inside a project
     if (!S.sampleDone) { S.sampleDone = true; persist(); if (!allProjects().length) addSample(false); } // v2.26: the sample project, once, on a new phone (never later, when a user deletes all projects)
@@ -10923,7 +11002,7 @@
   if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__polecam = { get points() { return points; }, get S() { return S; }, drwSeq: () => (drw ? { n: drw.seq.size, max: Math.max(0, ...drw.seq.values()) } : null), get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
+  window.__polecam = { get points() { return points; }, get S() { return S; }, drwSeq: () => (drw ? { n: drw.seq.size, max: Math.max(0, ...drw.seq.values()) } : null), get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, get lastQrLink() { return qrLink; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
     surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads, routeAdvice: () => routeAdvice(routeModel()), renderPoles, persist,
     clamps: () => { const R = routeModel(), all = projPoints(); return Object.fromEntries(all.filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, clampOf(p, R, all).join('+')])); } }; // for testing (v2.39: the poles' clamps)
