@@ -854,6 +854,9 @@
     }
     return out.filter((l) => l.length > 1);
   }
+  /** v2.39: a pole's clamp label: its clamp types (the app's, picked from the route when the record left them blank) and its clamp
+      size, e.g. "DEG+GCA 8-9" (v2.38 and before wrote CA for every pole: CA is only one of the types). */
+  const clampText = (p) => [p.clampType, p.clamp].filter(Boolean).join(' ');
   /* ---------------- the build ---------------- */
   // v2.32: new fiber red, existing fiber blue (the drafting rule); aerial dashed, underground solid
   const CABLE_STYLE = { F72: { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true }, L12: { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true }, U144: { layer: 'Proposed foc duct', color: 3, w: 0.7776, aerial: false }, '': { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true } };
@@ -958,7 +961,7 @@
     const lay = (n, fallback) => (S.layers.has(n) ? n : fallback || '0');
     // grid
     const cellsI = I1 - I0 + 1, cellsJ = J1 - J0 + 1, gridAll = cellsI * cellsJ <= 900;
-    const gh = 96.127 * cell / 479.12;
+    const gh = cell * 0.1; // v2.39: a tenth of the cell (the template's sample: a fifth, covering the plan; the company's plans: 4 to 12 %)
     for (let i = I0; i <= I1; i++) for (let j = J0; j <= J1; j++) {
       if (!gridAll && ![-1, 0, 1].some((di) => [-1, 0, 1].some((dj) => used.has(key(i + di, j + dj))))) continue;
       const x0 = gox + i * cell, y0 = goy + j * cell;
@@ -994,7 +997,9 @@
     // 1. each pole beside the nearest road (within 25 m of its edge), on the side of its pin. v2.34: one size for every pole,
     //    label and photo of the drawing, smaller when poles stand close (k: 1 when most poles are 25 m apart or more, down to
     //    0.6; set by the closest fifth of the poles, so one close pair does not shrink everything)
-    const POLE_GAP = 3.0, CABLE_OFF = 1.0; // pole centre = road edge + its radius + POLE_GAP; cable = pole edge + CABLE_OFF (2 m outside the road edge)
+    // v2.39: as the company's own plans (measured on two of them): the pole's centre 2.5 m outside the road edge, the cable 1.4 m inside
+    // the road along that edge (v2.34 to v2.38: 2 m outside the edge); a point the cable runs through (ODC, handhole…) on the cable
+    const POLE_OUT = 2.5, CABLE_IN = 1.4, CABLE_OFF = 1.0; // CABLE_OFF: a pole off the road (kept at its pin): the cable this far past its edge
     // v2.37: a pin placed or moved by hand (and a proposed pole) within KEEP_EDGE of the road edge is tidied beside the road like the
     // others; farther from the road (inside a property, to reach a site) it stays where it was put
     const KEEP_EDGE = 6;
@@ -1016,11 +1021,10 @@
       const out = (nr, side) => [-nr.dir[1] * side, nr.dir[0] * side], n = out(p.near, p.side);
       // an ODC is always set in line with the road (v2.37); the others keep a hand-placed pin that is well off the road
       if (p.keep && p.near.edge > KEEP_EDGE && p.el !== 'ODC') { p.td = [-n[0], -n[1]]; p.moved = 0; p.kept = true; continue; }
-      const off = p.el === 'Pole' ? p.rp + POLE_GAP : POLE_GAP - CABLE_OFF; // a pole beside the cable; the others on it
-      // v2.34: the pole POLE_GAP from the road edge, so the cable runs between the edge and the pole, outside the pavement lines
+      const off = p.el === 'Pole' ? Math.max(POLE_OUT, p.rp + 0.6) : -CABLE_IN; // a pole beside the road, the cable's line inside it; the others on that line
       let q = add2(p.near.c, n, p.near.r.hw + off);
-      for (let it = 0; it < 4; it++) { const o2 = nearestRoad(R.roads, q, off - 0.1); if (!o2) break; q = add2(o2.c, out(o2, o2.side), o2.r.hw + off); } // a corner: out of the other road too
-      p.dp = q; p.td = [-n[0], -n[1]]; p.moved = dist2(q, [p.E, p.N]);
+      if (off > 0) for (let it = 0; it < 4; it++) { const o2 = nearestRoad(R.roads, q, off - 0.1); if (!o2) break; q = add2(o2.c, out(o2, o2.side), o2.r.hw + off); } // a corner: out of the other road too
+      p.dp = q; p.td = [-n[0], -n[1]]; p.moved = dist2(q, [p.E, p.N]); if (p.el === 'Pole') p.cab = off + CABLE_IN; // from the pole's centre to the cable
     }
     const tangent = (p) => { const Q = nb.get(p) || []; return Q.length >= 2 ? unit(Q[0].dp, Q[1].dp) : Q.length === 1 ? unit(p.dp, Q[0].dp) : [1, 0]; };
     // 2. where the cable meets each pole: on its road side, past its arm when it has one
@@ -1028,8 +1032,11 @@
       if (p.el !== 'Pole') { p.A = p.dp; continue; }
       p.arm = armOf(p.armType); if (p.arm && !S.blocks.has(p.arm.b)) p.arm = null;
       if (!p.td) { const t = tangent(p), L = [-t[1], t[0]], q = (nb.get(p) || []).find((x) => x.td); let s = 1; if (q) { const tq = tangent(q); s = Math.sign(q.td[0] * -tq[1] + q.td[1] * tq[0]) || 1; } p.td = [L[0] * s, L[1] * s]; p.free = true; }
-      p.armLen = p.arm ? p.arm.reach : 0;
-      p.A = add2(p.dp, p.td, p.rp + (p.arm ? p.arm.reach : CABLE_OFF)); // v2.34: close to the pole (was 3 m), outside the road edge
+      // v2.39: beside a road the cable runs along its line inside the road, an arm reaching it; a pole away from the roads keeps the
+      // cable close by (past its arm when it has one)
+      const reach = p.cab ? p.cab : p.rp + (p.arm ? p.arm.reach : CABLE_OFF);
+      p.armLen = p.arm ? Math.max(1, reach - p.rp) : 0;
+      p.A = add2(p.dp, p.td, reach);
     }
     // v2.37: how far each point is from the homing (a site or an ODF on the route) along the route: a NAP or an ODC faces it
     const homeD = new Map();
@@ -1264,7 +1271,7 @@
         // the loop's straight line (the cable) laid on the cable, its circle hanging on the road side
         const le = lineEnds(S, 'loopp'), mid = le ? [(le[0][0] + le[1][0]) / 2, (le[0][1] + le[1][1]) / 2] : [0, 0], mo = rotv([mid[0] * sc, mid[1] * sc], rot);
         o.insert(lay('PROPOSED LOOP'), 'loopp', Q0[0] - mo[0], Q0[1] - mo[1], { scale: sc, rot }); spots.add(Spots.box(c0[0], c0[1], lw, lh, deg(dir)));
-        const txt = `${(job.mloopLen || 15).toFixed(1)}m LOOP`, cs = [];
+        const txt = `${+(+(job.mloopLen || 15)).toFixed(1)}m LOOP`, cs = []; // v2.39: 15m LOOP (15.0m before), as the company's plans
         for (const j of [lh + 2.2, -2.6, lh + 5.5, -5.5]) for (const k of [0, 4, -4, 9, -9]) { const q = add2(add2(Q0, p.td, j), dir, k); cs.push({ q, boxes: [textBox(q[0], q[1], 2.8125, txt, rd, 1, 2)] }); }
         const c = pick(spots, cs);
         o.text(lay('PROPOSED LOOP'), c.q[0], c.q[1], 2.8125, txt, { rot: rd, ha: 1, va: 2 }); spots.add(c.boxes, 'loop');
@@ -1289,11 +1296,11 @@
     let seq = 0;
     for (const p of poleOrder) {
       seq++;
-      const H = Math.max(1.5, 2.2 * p.k), HL = Math.max(0.9, 1.2 * p.k), size = p.size || (p.clamp ? `CA ${p.clamp}` : ''); // size: the clamp size (the app records no other size of an existing pole)
+      const H = Math.max(1.5, 2.2 * p.k), HL = Math.max(0.9, 1.2 * p.k), size = p.size || clampText(p); // size: the clamps and their size (the app records no other size of an existing pole)
       // v2.33: the pole tag without its material prefix (material CC + tag CC-0430621 → CC / 0430621), as the template's sample
       const bare = (v) => { const m = String(p.mat || '').trim(), t = String(v || ''); return m && t.toUpperCase().startsWith(m.toUpperCase()) && /^([-_ .][A-Z0-9]|\d)/i.test(t.slice(m.length)) && t.length > m.length ? t.slice(m.length).replace(/^[-_ .]/, '') : t; };
       const tag = bare(p.tag != null && p.tag !== '' ? p.tag : (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId));
-      const lines = p.sym.r === POLE_SYM.prop.r ? [['GT-POLE', p.label1 || 'PROP.POLE'], ['PHEIGHT', p.height || ''], ['POLE_CLAMP', p.clamp ? `CA ${p.clamp}` : '']]
+      const lines = p.sym.r === POLE_SYM.prop.r ? [['GT-POLE', p.label1 || 'PROP.POLE'], ['PHEIGHT', p.height || ''], ['POLE_CLAMP', clampText(p)]]
         : p.sym.b === 'existing telecom pole' ? [['OC', p.mat || ''], ['GT-001', bare(p.poleId || '')], ['', size]] : [['CC', p.mat || ''], ['NPT', tag], ['B', size]];
       const shown = lines.filter(([, v]) => v);
       const lat = `${p.lat.toFixed(6)}°`, lon = `${p.lon.toFixed(6)}°`;
@@ -1326,22 +1333,34 @@
       const P = byId.get(String(s.ia)), Q = byId.get(String(s.ib)); if (!P || !Q) continue;
       const a = P.A, b = Q.A, m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], t = unit(a, b), rd = readable(deg(t)), nl = [-t[1], t[0]];
       const toward = [(P.td ? P.td[0] : 0) + (Q.td ? Q.td[0] : 0), (P.td ? P.td[1] : 0) + (Q.td ? Q.td[1] : 0)], sgn = (nl[0] * toward[0] + nl[1] * toward[1]) < 0 ? -1 : 1;
-      const txt = `${s.len.toFixed(1)}m${s.long ? ` (OVER ${job.maxSpan || 200}m)` : ''}`;
+      const txt = `${Math.round(s.len)}m${s.long ? ` (OVER ${job.maxSpan || 200}m)` : ''}`; // v2.39: whole metres, as the company's plans
       // v2.34: one size and style for every span length of the drawing, along the cable, where it covers neither the cable nor a road line
       const L = dist2(a, b), cs = [], th = Math.max(1.4, 2.0 * kG), off = th * 0.75 + 0.6;
       for (const [f, k] of [[0, 1], [0, -1], [0.2, 1], [-0.2, 1], [0.2, -1], [-0.2, -1], [0, 1.7], [0, -1.7], [0.35, 1], [-0.35, 1], [0.35, -1], [-0.35, -1], [0.2, 1.7], [-0.2, 1.7], [0.2, -1.7], [-0.2, -1.7], [0, 2.5], [0, -2.5], [0, 3.4], [0, -3.4]]) { const q = add2(add2(m, t, f * L), nl, k * off * sgn); cs.push({ q, boxes: [textBox(q[0], q[1], th, txt, rd, 1, 2)] }); }
       const c = pick(spots, cs);
       o.text(lay('Distance Data'), c.q[0], c.q[1], th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : null }); spots.add(c.boxes);
     }
-    // 10. the cable's name along each run, where there is room: v2.37 the size of the span lengths, close along the cable
+    // 10. the cable's name along each run, where there is room: v2.37 the size of the span lengths, close along the cable. v2.39: on
+    //     every GEO sheet the run crosses (where 40 m of it are on the sheet), as the company's plans repeat it; else once
+    const sheetWins = geoCells.map((c) => [gox + c.i * cell, goy + c.j * cell, gox + (c.i + 1) * cell, goy + (c.j + 1) * cell]);
+    const boxIn = (b, W, m) => [[1, 1], [1, -1], [-1, 1], [-1, -1]].every(([u, v]) => { const x = b.cx + b.ux * b.hw * u + b.vx * b.hh * v, y = b.cy + b.uy * b.hw * u + b.vy * b.hh * v; return x >= W[0] + m && x <= W[2] - m && y >= W[1] + m && y <= W[3] - m; });
+    let nCableNames = 0;
     for (const ch of chains) {
       const txt = label.get(ch.cable); if (!txt || !ch.pieces || !ch.pieces.length) continue;
-      const th = Math.max(1.4, 2.0 * kG), off = th * 0.75 + 0.6, segs = [], cands = [];
-      for (const line of ch.pieces) for (let k = 1; k < line.length; k++) { const L = dist2(line[k - 1], line[k]); if (L > 1) segs.push({ L, a: line[k - 1], b: line[k] }); }
-      if (!segs.length) continue;
-      segs.sort((x, y) => y.L - x.L);
-      for (const sg of segs.slice(0, 12)) { const t = unit(sg.a, sg.b), rd = readable(deg(t)), nl = [-t[1], t[0]]; for (const k of [1, -1, 1.7, -1.7, 2.5, -2.5]) for (const f of [0.5, 0.3, 0.7, 0.15, 0.85]) { const q = add2(add2(sg.a, t, sg.L * f), nl, k * off); cands.push({ q, rd, boxes: [textBox(q[0], q[1], th, txt, rd, 1, 2)] }); } }
-      const c = pick(spots, cands), rd = c.rd; o.text(lay('MISC'), c.q[0], c.q[1], th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: (CABLE_STYLE[ch.cable] || {}).color || null }); spots.add(c.boxes);
+      const th = Math.max(1.4, 2.0 * kG), off = th * 0.75 + 0.6;
+      const place = (W) => {
+        const segs = [], cands = []; let total = 0;
+        for (const line of ch.pieces) for (const piece of W ? clipLine(line, [W[0] + 4, W[1] + 4, W[2] - 4, W[3] - 4]) : [line]) for (let k = 1; k < piece.length; k++) { const L = dist2(piece[k - 1], piece[k]); total += L; if (L > 1) segs.push({ L, a: piece[k - 1], b: piece[k] }); }
+        if (!segs.length || (W && total < 40)) return false;
+        segs.sort((x, y) => y.L - x.L);
+        for (const sg of segs.slice(0, 12)) { const t = unit(sg.a, sg.b), rd = readable(deg(t)), nl = [-t[1], t[0]]; for (const k of [1, -1, 1.7, -1.7, 2.5, -2.5]) for (const f of [0.5, 0.3, 0.7, 0.15, 0.85]) { const q = add2(add2(sg.a, t, sg.L * f), nl, k * off), bx = textBox(q[0], q[1], th, txt, rd, 1, 2); if (!W || boxIn(bx, W, 1)) cands.push({ q, rd, boxes: [bx] }); } }
+        if (!cands.length) return false;
+        const c = pick(spots, cands); if (W && c.n > 0) return false; // on a sheet: only where it covers nothing
+        o.text(lay('MISC'), c.q[0], c.q[1], th, txt, { rot: c.rd, ha: 1, va: 2, style: 'arial', color: (CABLE_STYLE[ch.cable] || {}).color || null }); spots.add(c.boxes); nCableNames++;
+        return true;
+      };
+      let n = 0; for (const W of sheetWins) if (place(W)) n++;
+      if (!n) place(null);
     }
     // the photo of each pole right beside it, upright (v2.32: instead of the pole number). v2.34: every photo one size, no line
     // to the pole, covering nothing (labels, cable, road lines, symbols, other photos); when too many find no free place, all the
@@ -1629,9 +1648,9 @@
     rep.partly = [...blanks].filter((k) => filled.has(k)).sort();
     if (job.debug) rep.pts = pts.map((p) => ({ id: p.id, poleId: p.poleId, el: p.el, dp: p.dp, A: p.A, kept: !!p.kept, moved: p.moved || 0, onPole: p.onPole ? p.onPole.id : null }));
     if (job.debug) rep.inline = [...inl.values()].map((it) => ({ b: it.b, at: it.at, hl: it.hl, hlo: it.hlo, hhi: it.hhi, hh: it.hh, sc: it.sc, rot: it.rot, box: blockBox(S, it.b, 0), boxT: blockBoxT(S, it.b), c: blockCenter(S, it.b) }));
-    rep.counts = { ...o.n, roads: nRoads, roadEdges: R.edges.length, pois: nPois, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, hdd: nHdd, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length };
+    rep.counts = { ...o.n, roads: nRoads, roadEdges: R.edges.length, pois: nPois, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length };
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0] };
     return { text: d.text(), report: rep };
   }
-  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, version: '2.38' };
+  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, version: '2.39' };
 }));

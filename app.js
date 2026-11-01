@@ -404,16 +404,19 @@
   /* v2.26: sizes for the BOQ / BOM, per element (r.boq). Existing poles: owner and clamp size; a proposed / new Globe pole: its
      size and class (and clamp); ODF: fibre count and connector; closure: core count. v2.26.1: only in the As-Plan and As-Built
      surveys (the BOQ of the plan and of what was built); the As-Built compares with the As-Plan (its KMZ as the reference). */
-  const BOQ_OPT = { owner: ['Electric', 'PLDT', 'DITO', 'CONVERGE'], clamp: ['5-7', '8-9', '10-12'], height: ['7.5m', '9.14m', '10.6m'], cls: ['7A', '7AR', 'Light'],
+  // v2.39: the pole clamp sizes of the OSP standard (round concrete pole clamps 2A, CA, RL, GCA, DEG; GCA and DEG to 18-20)
+  const BOQ_OPT = { owner: ['Electric', 'PLDT', 'DITO', 'CONVERGE'], clamp: ['3-5', '5-7', '6-8', '7-9', '8-10', '9-11', '10-12', '11-13', '12-14', '13-15', '14-16', '18-20', '19-21', '20-22', '23-25'], height: ['7.5m', '9.14m', '10.6m'], cls: ['7A', '7AR', 'Light'],
     odf: ['12F', '24F', '48F', '72F', '144F', '288F'], conn: ['APC', 'UPC'], clo: ['12C', '24C', '48C', '72C', '144C', '288C'], cloSt: ['Existing', 'New'],
     // v2.29: from the legend of the drawing template: a new arm on the pole, its guying (several), a maintenance loop
     arm: ['Single arm', 'Double arm', 'Extension arm 26"', 'Extension arm 44.5"', '10-pin alley arm'], guy: ['Head guy', 'Side guy', 'Sidewalk guy', 'Sidewalk head guy', 'Pole-to-pole guy', 'Down guy'], mloop: ['Yes'],
     // v2.37: the NAP's kind, a double LCP, grounding and a riser on the pole (drawn with their models on the plan)
-    napType: ['NAP 1x8', 'NAP 1x16', 'Dummy NAP', 'NAP changed to 1:16', 'Double NAP'], lcp: ['Single LCP', 'Double LCP'], ground: ['Yes'], riser: ['Yes'] };
-  const BOQ_MULTI = new Set(['guy']); // several at once: "Head guy + Side guy"
+    napType: ['NAP 1x8', 'NAP 1x16', 'Dummy NAP', 'NAP changed to 1:16', 'Double NAP'], lcp: ['Single LCP', 'Double LCP'], ground: ['Yes'], riser: ['Yes'],
+    // v2.39: the pole clamps (figure 8, messenger and guys); left blank, the plan picks them from the route, the guys and the arm
+    clampType: ['CA', 'GCA', '2A', 'DEG', 'RL'] };
+  const BOQ_MULTI = new Set(['guy', 'clampType']); // several at once: "Head guy + Side guy", "DEG + GCA" (v2.39)
   const mloopLen = () => (Number.isFinite(+pol().mloopLen) && +pol().mloopLen > 0 ? +pol().mloopLen : 15); // v2.29: MLoop = 15 m unless the admin sets another
   const BOQ_LABEL = { owner: 'POLE OWNER', clamp: 'CLAMP SIZE', height: 'NEW GLOBE POLE · SIZE', cls: 'NEW GLOBE POLE · CLASS', odf: 'ODF SIZE', conn: 'ODF CONNECTOR', clo: 'CLOSURE SIZE', cloSt: 'CLOSURE', arm: 'NEW ARM', guy: 'NEW GUYING (one or more)', mloop: 'MAINTENANCE LOOP',
-    napType: 'NAP TYPE', lcp: 'LCP', ground: 'GROUNDING', riser: 'RISER (AERIAL TO UNDERGROUND)', p2p: 'POLE-TO-POLE GUY TO' };
+    napType: 'NAP TYPE', lcp: 'LCP', ground: 'GROUNDING', riser: 'RISER (AERIAL TO UNDERGROUND)', p2p: 'POLE-TO-POLE GUY TO', clampType: 'CLAMP TYPE (optional: left blank, the plan picks it)' };
   const BOQ_PURPOSES = ['As-plan', 'As-built'];
   /** The BOQ is part of the As-Plan and As-Built surveys only (not Audit, PAT, defect cleanup or FAT). */
   const boqOn = (name) => !isAcc(name) && BOQ_PURPOSES.includes(svPurpose(name));
@@ -423,7 +426,7 @@
   const boqOwners = () => [...new Set([...boqList('owner'), ...(S.myOwners || [])].map((x) => String(x || '').trim()).filter(Boolean))];
   /** The BOQ fields of a survey element: by element and status (existing, or proposed / new); a closure in the handhole adds its size. */
   function boqKeys(el, status, closureHere, b) {
-    if (el === 'Pole') return (status === 'Proposed' || status === 'New' ? ['height', 'cls', 'clamp'] : ['owner', 'clamp']).concat(['arm', 'guy'], b && /pole.?to.?pole/i.test(b.guy || '') ? ['p2p'] : [], ['mloop', 'ground', 'riser']); // v2.29; v2.37 + pole-to-pole target, grounding, riser
+    if (el === 'Pole') return (status === 'Proposed' || status === 'New' ? ['height', 'cls', 'clamp', 'clampType'] : ['owner', 'clamp', 'clampType']).concat(['arm', 'guy'], b && /pole.?to.?pole/i.test(b.guy || '') ? ['p2p'] : [], ['mloop', 'ground', 'riser']); // v2.29; v2.37 + pole-to-pole target, grounding, riser
     if (el === 'NAP') return ['napType']; // v2.37
     if (el === 'ODC') return ['lcp']; // v2.37
     if (el === 'ODF') return ['odf', 'conn'];
@@ -436,7 +439,7 @@
     const b = (r && r.boq) || {}, parts = [];
     if (b.owner) parts.push(`Owner ${b.owner}`);
     if (b.height || b.cls) parts.push(`New pole ${[b.height, b.cls].filter(Boolean).join(' ')}`);
-    if (b.clamp) parts.push(`Clamp ${b.clamp}`);
+    if (b.clamp || b.clampType) parts.push(`Clamp ${[b.clampType, b.clamp].filter(Boolean).join(' ')}`); // v2.39: its type too
     if (b.odf || b.conn) parts.push(`ODF ${[b.odf, b.conn].filter(Boolean).join(' ')}`);
     if (b.clo || b.cloSt) parts.push(`Closure ${[b.clo, b.cloSt].filter(Boolean).join(' ')}`);
     if (b.arm) parts.push(`Arm ${b.arm}`); if (b.guy) parts.push(`Guying ${b.guy}`); if (b.mloop) parts.push(`MLoop ${mloopLen()} m`); // v2.29
@@ -683,7 +686,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.38.0';
+  const APP_VER = '2.39.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1661,7 +1664,7 @@
     return out;
   }
   /** v2.26.1: the data names of a G-eSAA survey KMZ (core.js) read back from a reference; BOQ_KML maps them to the record's sizes. */
-  const BOQ_KML = { pole_owner: 'owner', clamp_size: 'clamp', new_pole_size: 'height', pole_class: 'cls', odf_size: 'odf', odf_connector: 'conn', closure_size: 'clo', closure_status: 'cloSt', new_arm: 'arm', guying: 'guy', mloop: 'mloop', nap_type: 'napType', lcp: 'lcp', grounding: 'ground', riser: 'riser' }; // v2.29: + arm, guying, loop; v2.37: NAP type, LCP, grounding, riser
+  const BOQ_KML = { pole_owner: 'owner', clamp_size: 'clamp', new_pole_size: 'height', pole_class: 'cls', odf_size: 'odf', odf_connector: 'conn', closure_size: 'clo', closure_status: 'cloSt', new_arm: 'arm', guying: 'guy', mloop: 'mloop', nap_type: 'napType', lcp: 'lcp', grounding: 'ground', riser: 'riser', clamp_type: 'clampType' }; // v2.29: + arm, guying, loop; v2.37: NAP type, LCP, grounding, riser; v2.39: clamp type
   const KML_DATA = new Set(['pole_id', 'element', 'status', 'closure_id', ...Object.keys(BOQ_KML)]);
   /** The elements of the As-Plan (this As-Built project's reference KMZ) as records: ID, element, status, position, sizes. */
   function planRecsOf(geo) {
@@ -1834,6 +1837,36 @@
       counted from the homing (a site or ODF; else the run's first end): the last pole before the limit is recommended. A dummy NAP
       cannot be on a 72C cable or at a point of insertion (a pole with a closure). NAP and closure pins count on their nearest pole
       (30 m). Returns [{ id, poleId, kind: 'closure' | 'dnap' | 'flag', text }]. */
+  /** v2.39: the clamps of a pole (figure 8, messenger and guys) when its record leaves CLAMP TYPE blank, from the OSP standard and
+      technical guidelines (arm and pole clamp types). The cable's, by the pole's place on the aerial route: an end (the last pole
+      before a site, ODF, ODC, handhole or the underground) 2A; a straight run GCA with a guy, CA without; a bend of up to 90° CA
+      (a curved suspension clamp), a sharper corner DEG; a branch starting there adds a 2A. An arm (26", 44 1/2" or 10-pin) CA + RL,
+      another arm CA; on a straight run the arm's clamps replace the cable's CA / GCA. Each guy: a side guy GCA; a sidewalk guy
+      GCA + CA + RL (its fixture is a 44 1/2" arm); a head, down or pole-to-pole guy 2A (a pole-to-pole guy's other pole too); a
+      sidewalk head guy 2A + CA + RL. Returns the clamp types once each, in that order, e.g. ['DEG', 'GCA']. */
+  const GUY_CLAMP = [[/sidewalk head/i, ['2A', 'CA', 'RL']], [/sidewalk guy/i, ['GCA', 'CA', 'RL']], [/head guy/i, ['2A']], [/down guy/i, ['2A']], [/pole.?to.?pole/i, ['2A']], [/side guy/i, ['GCA']]];
+  function clampAuto(p, R, all) {
+    const b = p.boq || {}, guys = String(b.guy || '').split(' + ').filter(Boolean), arm = String(b.arm || '');
+    // the aerial spans to other poles hold the cable on this pole; a span under the ground or to a site, ODF, ODC or handhole ends the
+    // aerial run here
+    const at = R.spans.filter((s) => s.ia === p.id || s.ib === p.id), other = (s) => (s.ia === p.id ? s.b : s.a);
+    const aer = at.filter((s) => !(CAB[s.cable] && CAB[s.cable].method === 'UG') && elemOf(other(s)) === 'Pole').map(other);
+    let cab = [];
+    if (at.length && aer.length <= 1) cab = ['2A'];
+    else if (aer.length >= 2) {
+      let straightest = 180; // the run through the pole: its two straightest spans
+      for (let i = 0; i < aer.length; i++) for (let j = i + 1; j < aer.length; j++) straightest = Math.min(straightest, C.deflection(p, aer[i], aer[j]));
+      cab = [straightest > 90 ? 'DEG' : straightest >= (pol().angleDeg || 15) ? 'CA' : guys.length ? 'GCA' : 'CA'];
+      if (at.length > 2) cab.push('2A'); // a branch (or a riser) starts here
+    }
+    const armT = /extension|26|44|10.?pin|alley/i.test(arm) ? ['CA', 'RL'] : arm ? ['CA'] : [];
+    if (armT.length) cab = cab.filter((t) => t !== 'CA' && t !== 'GCA');
+    const out = [...cab, ...armT], add = (t) => { if (!out.includes(t)) out.push(t); };
+    for (const g of guys) { const m = GUY_CLAMP.find(([re]) => re.test(g)); if (m) m[1].forEach(add); }
+    if ((all || []).some((q) => q !== p && q.boq && q.boq.p2p === p.id && /pole.?to.?pole/i.test(q.boq.guy || ''))) add('2A'); // the other end of a pole-to-pole guy
+    return out;
+  }
+  const clampOf = (p, R, all) => (p.boq && p.boq.clampType ? String(p.boq.clampType).split(' + ').filter(Boolean) : clampAuto(p, R, all || projPoints()));
   function routeAdvice(R) {
     const out = []; if (!R || !R.spans.length) return out;
     const pts = projPoints(), poles = pts.filter((p) => elemOf(p) === 'Pole'), onPole = (q) => { let best = null, bd = 30; for (const p of poles) { const d = haversine(p, q); if (d < bd) { bd = d; best = p; } } return best; };
@@ -6501,7 +6534,8 @@
         mloop: !!(p.mloop || b.mloop), nap: !!p.nap, napId: p.napId || '', closure: !!p.closure, closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
         adjusted: !!p.adjusted, color: p.color || '', // v2.36: a pin set by hand stays where it is on the drawing; a map pin's colour
         // v2.37: the NAP's kind, a double LCP, the site's kind, grounding, a riser, the pole a pole-to-pole guy goes to
-        napType: el === 'NAP' ? b.napType || '' : '', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', ground: !!b.ground, riser: !!b.riser, p2pTo: b.p2p || null }; });
+        napType: el === 'NAP' ? b.napType || '' : '', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', ground: !!b.ground, riser: !!b.riser, p2pTo: b.p2p || null,
+        clampType: el === 'Pole' ? clampOf(p, R, pts).join('+') : '', clampAuto: el === 'Pole' && !b.clampType }; }); // v2.39: the pole's clamps (picked by the plan when left blank)
     const spans = R.spans.map((s) => ({ ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long }));
     const runs = C.routeChains(R.spans).map((ch) => ({ cable: ch.cable, label: CAB_TITLE[ch.cable] || '', pts: ch.pts.map(U) }));
     // v2.38: the project's places (points more than 1 km apart), each with its own vicinity map (its points with a 500 m margin, at
@@ -10391,5 +10425,6 @@
   }
   window.__polecam = { get points() { return points; }, get S() { return S; }, get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
-    surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads, routeAdvice: () => routeAdvice(routeModel()), renderPoles, persist }; // for testing
+    surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads, routeAdvice: () => routeAdvice(routeModel()), renderPoles, persist,
+    clamps: () => { const R = routeModel(), all = projPoints(); return Object.fromEntries(all.filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, clampOf(p, R, all).join('+')])); } }; // for testing (v2.39: the poles' clamps)
 })();

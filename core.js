@@ -592,7 +592,7 @@
   }
 
   /* v2.26: the BOQ / BOM sizes of a point (p.boq) in the CSV and the KMZ data */
-  const BOQ_COLS = [['owner', 'pole_owner'], ['clamp', 'clamp_size'], ['height', 'new_pole_size'], ['cls', 'pole_class'], ['odf', 'odf_size'], ['conn', 'odf_connector'], ['clo', 'closure_size'], ['cloSt', 'closure_status'], ['arm', 'new_arm'], ['guy', 'guying'], ['mloop', 'mloop'], ['napType', 'nap_type'], ['lcp', 'lcp'], ['ground', 'grounding'], ['riser', 'riser']]; // v2.29: arm, guying, maintenance loop; v2.37: NAP type, LCP, grounding, riser
+  const BOQ_COLS = [['owner', 'pole_owner'], ['clamp', 'clamp_size'], ['height', 'new_pole_size'], ['cls', 'pole_class'], ['odf', 'odf_size'], ['conn', 'odf_connector'], ['clo', 'closure_size'], ['cloSt', 'closure_status'], ['arm', 'new_arm'], ['guy', 'guying'], ['mloop', 'mloop'], ['napType', 'nap_type'], ['lcp', 'lcp'], ['ground', 'grounding'], ['riser', 'riser'], ['clampType', 'clamp_type']]; // v2.39: + clamp type; v2.29: arm, guying, maintenance loop; v2.37: NAP type, LCP, grounding, riser
   /* ---------------- CSV ---------------- */
   function buildCsv(points, zone, exportedBy) {
     const q = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };

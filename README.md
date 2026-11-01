@@ -530,6 +530,22 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.39.0
+
+From your two company plans (an access route, tower to POI, and an ODN with many NAPs and LCPs) and the OSP standard on arm and pole clamp types:
+
+- **Pole clamp type:** a pole's record has **CLAMP TYPE** (CA, GCA, 2A, DEG, RL; tap each one it needs). It is optional: left blank, the plan picks the clamps from the OSP standard:
+  - **The cable on the pole:** the first or last pole of an aerial run (before a site, ODF, ODC, handhole or the underground) **2A**; a straight run **GCA** with a guy, **CA** without; a bend of up to 90° **CA** (curved suspension clamp); a sharper corner **DEG**; a branch starting at the pole adds **2A**.
+  - **An arm** (26", 44 1/2" or 10-pin) **CA + RL** (RL: the special pole clamp for reinforcing links); another arm **CA**. On a straight run the arm's clamps replace the cable's CA / GCA.
+  - **Each guy:** side guy **GCA**; sidewalk guy **GCA + CA + RL** (its fixture is a 44 1/2" arm); head, down or pole-to-pole guy **2A** (a pole-to-pole guy: at both poles); sidewalk head guy **2A + CA + RL**.
+- The plan writes the clamps with the clamp size beside each pole (e.g. *CA 8-10*, *2A 10-12*, *GCA+CA+RL 7-9*). Until v2.38 it wrote **CA** before every clamp size, copied from the template's sample "CA 7-9"; CA is only one of the types.
+- **Clamp sizes** in the record are the standard's: 3-5, 5-7, 6-8, 7-9, 8-10, 9-11, 10-12, 11-13, 12-14, 13-15, 14-16, 18-20, 19-21, 20-22, 23-25 (a dropdown). A record with an older size (8-9) keeps it; your admin can still set the list.
+- The KMZ and the CSV have a **clamp_type** column (what the record says); the record and the BOQ text show it with the size ("Clamp DEG 8-10").
+- **The cable inside the road, as in the company's plans:** measured on them, the pole's centre stands about 2.5 m outside the road edge and the cable runs about 1.4 m inside the road along that edge. The plan now does the same (v2.34 to v2.38: the cable 2 m outside the edge). An arm reaches the cable; an ODC, handhole, manhole or service box sits on it. A pole kept at its pin away from the road is unchanged.
+- **Span lengths in whole metres** ("45m", as the company's plans; the BOQ keeps the exact lengths), and the loop text "15m LOOP".
+- **The cable's name on every GEO sheet** it crosses (where at least 40 m of it is on the sheet and the name covers nothing), as the company's plans repeat it; before, once per run.
+- **Smaller grid numbers:** a tenth of the cell (the template's sample used a fifth, which covered the plan).
+
 ## What changed in v2.38.0
 
 - **Several places in one project:** points more than 1 km from every other point form a separate place (two sites in one project, say). Each place gets its own **VICINITY MAP** and **KEYMAP** sheet, centred on it; its GEO sheets come together, with its number before the cell name (1A-1, 2A-1). Before, one vicinity map and one keymap covered everything, so two places 84 km apart made a map 250 km wide.
