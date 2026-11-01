@@ -60,7 +60,7 @@ Browsers may read a Drive file only through the Google Drive API, with an API ke
 
 Phones take the new list version (**Refresh list**, or the join link / QR code); each Drive pack then shows **Download**. The key reads only files shared *Anyone with the link*; it cannot see or change anything else in the account. It is visible to anyone with the company list, which is why step 4 restricts it. A file Google refuses (HTTP 403) means the file is not shared *Anyone with the link*, or the key's restrictions do not match; Drive also limits how often one file is downloaded in a day (*download quota*): wait a day, or upload a copy and use its link.
 
-Users of a company list cannot add links themselves. Phones without any company list can still paste a link under **Add a Google Drive link**, or import a file sent to them (Viber, USB).
+Users cannot add links themselves (v2.41: the *Add a Google Drive link* box is gone): packs come from the admin's list, or import a pack file sent to them (Viber, USB).
 
 ## Updating a pack
 

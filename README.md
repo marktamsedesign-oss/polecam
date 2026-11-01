@@ -244,7 +244,7 @@ If the map still stays blank: **Maps** (cloud button on the map, or Settings →
 **How to make one: see `MAP-PACKS.md`** — QGIS plugin (`polecam_mappack.zip`, cuts the area shown in QGIS), GitHub Actions, or the `pmtiles` command line — then Google Drive and the MapPacks tab.
 
 - **What a pack is:** one `.pmtiles` file of street map data (OpenStreetMap, ODbL) for a whole area, from the free Protomaps build. Streets, road names, buildings, water and places, drawn on the phone at any zoom. Mindanao mainland is about 200 MB.
-- **Where packs live:** in your **Google Drive**, not on GitHub. Upload the file and set sharing to *Anyone with the link*. The **admin** enters the links in the app: Settings → Administration → Manage → **Offline map packs** (one line per pack: name | Drive link | size in MB), then *Save and share the list*. Users see the packs under Maps after they take that list version, or after **Refresh list** when the online sheet is connected. With a company list, users cannot add links themselves (only phones without a list, and admins, see *Add a Google Drive link*).
+- **Where packs live:** in your **Google Drive**, not on GitHub. Upload the file and set sharing to *Anyone with the link*. The **admin** enters the links in the app: Settings → Administration → Manage → **Offline map packs** (one line per pack: name | Drive link | size in MB), then *Save and share the list*. Users see the packs under Maps after they take that list version, or after **Refresh list** when the online sheet is connected. Users cannot add links themselves (v2.41: the *Add a Google Drive link* box is gone); a pack file can still be imported (*Import a pack file*).
 - **Getting it on the phone:**
   - **Android app:** Offline map → **Download**. The app fetches the file from Drive in 4 MB pieces and can **Resume** after a dropped connection. **Cancel** stops at once.
   - **Website and iPhone (v2.35.1):** the same one-tap **Download** (4 MB pieces, **Resume**), once the admin has entered a **Google Drive API key** (Administration → Offline map packs; see `MAP-PACKS.md`, section 4). A browser may read Drive files only through the Google Drive API with such a key. Without the key the button is **Open in Drive**: download the file, then **Import a pack file**.
@@ -297,6 +297,11 @@ Paste the script into that spreadsheet and run **setup**: it finds the two tabs 
 **In the app:** Projects → **+ New project** → tap *Project name* (or **▾**): your company's sites are listed; type to filter, tap one (the name, vendor, IDs and Drive folder fill in), or type any other name. A company with no site listed sees *No site listed for you: type a name*, so it can work without the sheet. A site already on the phone shows *on this phone* and an *Open* button. The chosen site's details show under Projects → Project details, with *Project folder (Drive)*.
 
 **Admin company:** in the company list (Administration) choose the same name as the ADMIN row of the Company List (e.g. GLOBE), so its staff get inspector rights with the admin PIN. Being ADMIN in the sheet only decides which sites a phone sees.
+
+### Site details and invites for several companies (v2.41)
+
+- With each site the phones get the columns between **Territory** and **OSP VENDOR** of the sites tab (e.g. Project Name, Serial Number, PLA ID, site name), shown and editable in New project and Project details, and used on the plan's title blocks and the reports. Corrections stay on the phone.
+- **Make an invite** on the admin phone (with the Admin key) can name several companies: the sheet keeps it in **Invites** and hands the chosen company's key to the new phone, writing it in **Invite log**. Anyone with such an invite can choose any of its companies: make one per company where that matters.
 
 ### Progress written to the sheet (v2.11)
 
@@ -529,6 +534,57 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.41.0
+
+From the two design reviews of 1 Nov 2026 (the plan review, 23 comments; the app screens, 27 comments) and the three requests that followed.
+
+**Drawing screen: the plan's options are set here** (they were on the DXF card)
+
+- **Fit**, **Labels**, **Map** and **i** (the information line on or off) sit on the drawing at its lower right, as on the map; the **legend** at its upper left (folded on a phone until opened). **Map**: *No map*, *Offline map* (your map pack, the default), *Satellite* or *Street map* (online).
+- At the bottom: **Photos / Numbers / Photos + no.**, the **CA** button (clamp types on the plan or not) and the **points** dropdown: *Electric poles* (concrete, wood, steel), *Globe*, *Bayantel*, *PLDT* and any pole type added for your area that the project has, then the other points one by one (ODC, ODF, sites, handholes…), each with its count. NAPs and closures are not in it: they are on their poles.
+- The preview now shows what the plan will: zoomed in, each point's **number** (the same order as the DXF) or a photo frame (its number at its upper left with *Photos + no.*), the pole's clamp text, and small tags for what is on each pole (**ARM**, **NAP** / **DN** dummy NAP / **LCP**, **LOOP**, **CL** closure, **G** guys, **GR** grounding, **R** riser), a double check. A NAP or closure pin from an older version has a dotted line to the pole it stands on.
+- **Drawing style** (palette button on the Drawing, and *Drawing style…* on the DXF card), kept on this phone, with a live preview: the numbers' colour, circle colour, height, circle diameter (0 = none), distance from the point, leader line and place (first free spot or straight out from the road); defaults as chosen in the review: **yellow, 3 m (2.7 mm), circle Ø 7 m, 2 m from the point, leader line, first free spot**. The IDs of NAPs, LCPs, the ODC and handholes: bold or not, colour, height (default as before: 2.5 m, by layer). The vicinity map: the circle's colour and width (yellow by default, as before v2.40) and the route's colour and width. The README of each DXF states the style used.
+
+**DXF card**
+
+- **ON THE PLAN** says what the Drawing set (*Numbers beside PLDT only (12) · clamp types off the plan*), with **Set it in the Drawing** and **Drawing style…**.
+- **DRAWINGS IN THIS EXPORT**: tick several for several DXFs in one ZIP (the photos once, one README listing each drawing and its numbers): *As set in the Drawing*, *Every point · photos*, *· numbers*, *· photos with their numbers* (the number at each photo's upper left), and *Only electric poles · numbers*, *Only PLDT poles · numbers*… one for each pole group of the project (an RTA application for each owner).
+- **Use another template file…** is hidden when your admin shares the plan template, unless Administration → *Users may load a plan template file of their own* is ticked (off by default).
+
+**On the plan**
+
+- **ODC:** drawn with G-eSAA's own block **G-ESAA ODC**, an isometric view of the cabinet of the photo marker (plinth, body, two doors with handles, label plate, cap), red when new, blue existing (layers G-ESAA PROPOSED / EXISTING ODC); the template has no ODC model. v2.37–v2.40 used the LCP model, which is wrong: the **LCP** (L4 = a 1:4 splitter) is a box on the pole for broadband, now a **NAP type** (*LCP 1x4*, *Double LCP 2x1:8*) drawn with the template's LCP models on its pole.
+- **Loops** sit right in front of their pole (just past its NAP), not along the span.
+- **Pole details and coordinates** also try 2.5 m and 5 m further out before covering the cable or a road edge (the cable counts more than a road edge line, another label most).
+- **The cable's name never runs past its line:** on a short run it is made smaller to fit (down to 0.9 m). **Street names** step down 3.2 / 2.6 / 2.0 / 1.6 m and keep a little room round them; **IDs** of NAPs, the ODC and handholes go a size smaller (twice at most) before covering anything.
+- **Vicinity map:** the PROJECT AREA circle is yellow again (your colour and width), and the picture is the **satellite** view when online, else the **offline map pack**, else the street map online, else the roads drawn.
+- An existing hybrid closure is labelled EXISTING.
+
+**NAP and hybrid closure on the pole** (like an arm)
+
+- The record's element list has **no NAP and no Closure** any more (older NAP / closure records keep theirs and still draw on their pole). In a survey record of a pole, **ON THIS POLE** has **NAP** and **Hybrid closure**, each with small dropdowns: the NAP's kind (*NAP (1x8)*, *NAP 1x16*, *Dummy NAP (12C light cable)*, *NAP changed to 1:16*, *Double NAP*, *LCP 1x4*, *Double LCP 2x1:8*), a dummy NAP's size, and **New / Existing**; the closure's size (**12C to 288C**, any cable) and **New / Existing**.
+- The **NAP ID** is typed (e.g. *DVO_003_L913_N01*). A **dummy NAP's ID** is offered as **PLA ID_cable leg_number**, e.g. *MIN123_C01_D01*: the PLA ID of the project's site, C01 the 12C light cable run of the route the pole is on, D01 the next number on it (change it if needed). A dummy NAP on another cable is flagged. The closure ID is kept as typed.
+- They go to the BOQ (*Dummy NAP 12C New*, *NAP 1x8 New*, *Closure 48C Existing*, with their IDs), the survey quantities (`DUMMY_NAP_NEW_12C`, `CLOSURE_NEW_48C`, NAPs new / existing), the KMZ and CSV (`nap_type`, `nap_size`, `nap_status`, `closure_size`, `closure_status`), the route check (a closure or dummy NAP on a pole counts) and the plan (the template's NAP, dummy NAP or LCP model on the pole; the closure with its ID).
+
+**App screens**
+
+- **Projects:** every project shows its **Last edit**. **Open shared projects** (was *Open a shared file*) takes only the .zip and .kmz files G-eSAA makes.
+- **Project details** and **New project:** the **site details from the Project Data sheet** (the columns between Territory and OSP VENDOR: Project Name, Serial Number, PLA ID, site name…), editable. They go on the plan's title blocks (site name, PLA ID and serial number; *Project Name* fills the PROJECT TYPE field), the completion report and the DXF's README. A correction stays with the project on the phone; nothing is written back to the sheet.
+- **Administration:** *A new Survey or PAT project must use a site of the online sheet* (only the admin can switch it; it travels in the signed company list).
+- **Record:** your **most used clamp sizes** come first (a chip each, and at the top of the list), learnt on the phone. **Clamp type:** ticking two types no longer adds an extra "GCA + DEG" chip.
+- **Marking:** an ODF panel's label (PROPOSED / EXISTING ODF and the record's ODF size) is inside the panel's label strip, so panels stack in a rack; **Delete** and **Undo** are icons.
+- **Export:** no **FORMAT** dropdown. Tick the formats in one list: one shows its card and its own button; several show their cards and one button **Export N formats (one ZIP)** (PAT exports too).
+- **Completion report:** the BOQ page keeps short notes only (the long ones stay in the Excel).
+- **Send panel:** when the browser cannot pass the file to another app, three plain steps: *Save to phone* (Downloads), open the chat app, attach it as a File / Document.
+- **Maps:** the *Add a Google Drive link* box is gone (packs come from the admin, or *Import a pack file*).
+- **Invites:** **one invite for several companies** (tick them). A new user chooses one of them the first time; it cannot be changed afterwards. With the online sheet script v2.41, company keys (makeCompanyKeys) and the Admin key on the admin's phone, the new phone then **gets that company's key from the sheet by itself**, and the user can invite coworkers. The invite QR no longer offers *Show the full code*.
+
+**Online sheet script v2.41** (`PoleCam-online-sheet.gs`; paste it over the old one, Save, run *setup* once, then Deploy → Manage deployments → Edit → New version):
+
+- sends with each site the columns between Territory and OSP VENDOR (`cols`), for the site details;
+- keeps the multi-company invites in the tab **Invites** (code, companies, valid until, Active, uses, max uses, made by) and hands a company's key to a phone that brings a valid code and one of its companies, writing each in **Invite log** (time, code, company, name, mobile, email). An invite works 14 days and at most 50 times; set *Active* to *No* to stop it.
+- **Security:** anyone who has a multi-company invite can choose **any** of its companies and get that company's key (that is what the invite is for). Make one invite per company where that matters, send each only to the people it is for, check Invite log, and switch an invite off when it is no longer needed. To cancel a company's key altogether, delete its CompanyKeys row and run makeCompanyKeys again (as before).
 
 ## What changed in v2.40.0
 

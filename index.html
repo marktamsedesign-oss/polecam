@@ -187,6 +187,7 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .warnline{font-size:calc(13px * var(--fs));color:var(--warn);margin:0;font-weight:600}
 .keystate{margin:2px 0 4px;font-weight:700;font-size:calc(14px * var(--fs))}
 /* v2.25 tutorial */
+.boq .chips.often{margin-bottom:6px}.boq .chips.often .chip{border-style:dashed}
 .boq .boqrow{margin:6px 0 2px}.boq .boqrow .lbl{display:block;margin-bottom:4px}.boq .chips{gap:6px}.boq .chip{min-height:36px;padding:0 12px}
 .boq .chip[aria-pressed="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
 .msel{position:relative}.msel>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:46px;padding:0 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font:inherit;cursor:pointer}
@@ -195,7 +196,33 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .mopts label{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 8px;border-radius:8px;cursor:pointer}.mopts label:active{background:var(--soft)}.mopts input{width:20px;height:20px;margin:0}.mopts label.all{border-bottom:1px solid var(--line);font-weight:700;border-radius:8px 8px 0 0}
 .pfco-lock{display:flex;align-items:center;gap:8px}
 #drawWrap{flex:1;min-height:0;position:relative;background:#fbfbf8;touch-action:none;overflow:hidden}#drawCanvas{display:block;width:100%;height:100%;touch-action:none}
-#drawInfo{position:absolute;left:12px;right:12px;bottom:12px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:calc(13px * var(--fs));box-shadow:0 4px 14px rgba(0,0,0,.15)}
+#drawInfo{position:absolute;left:12px;right:calc(var(--tap) + 24px);bottom:12px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:calc(13px * var(--fs));box-shadow:0 4px 14px rgba(0,0,0,.15)}
+/* v2.41: the Drawing screen: tools on the drawing (as on the map), legend, information line, the plan's options at the bottom */
+.drwtools{position:absolute;right:12px;bottom:12px;display:flex;flex-direction:column;gap:10px;z-index:5}
+.drwtools .round{position:relative}.drwtools .round[aria-pressed=false]{opacity:.62}
+.drwmapdot{position:absolute;right:5px;bottom:5px;font:800 9px/1 system-ui;color:var(--accent);font-style:normal}
+.drwmenu{position:absolute;right:calc(var(--tap) + 22px);bottom:12px;z-index:6;background:var(--surface);color:var(--ink);border-radius:var(--r);box-shadow:var(--shadow);padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:210px}
+.drwmenu[hidden]{display:none}.drwmenu b{font-size:calc(12px * var(--fs));color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.drwmenu label{display:flex;align-items:center;gap:10px;min-height:40px;cursor:pointer}.drwmenu input{width:20px;height:20px;margin:0}
+.drwlegend{position:absolute;left:10px;top:10px;z-index:5;background:rgba(255,255,255,.93);color:#1b1b1b;border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.12);font-size:calc(11.5px * var(--fs));max-width:min(230px,58%);max-height:calc(100% - 90px);overflow:auto}
+.drwlegend>summary{list-style:none;cursor:pointer;padding:6px 10px;font-weight:700}.drwlegend>summary::-webkit-details-marker{display:none}.drwlegend>summary::after{content:' ▾';color:#868e96}.drwlegend[open]>summary::after{content:' ▴'}
+#drawLegendBody{display:grid;grid-template-columns:22px 1fr;gap:3px 6px;padding:0 10px 8px;align-items:center}#drawLegendBody svg{width:22px;height:16px;display:block}
+.drwhint{position:absolute;left:12px;right:calc(var(--tap) + 24px);bottom:12px;margin:0;background:rgba(255,255,255,.93);color:#343a40;border-radius:10px;padding:6px 10px;font-size:calc(12px * var(--fs));box-shadow:0 2px 8px rgba(0,0,0,.1)}.drwhint[hidden]{display:none}
+.drwbar{align-items:center;gap:8px;flex-wrap:nowrap;position:relative}.drwbar select{min-height:44px;flex:0 1 128px;min-width:84px;padding:0 6px}
+.drwicon{flex:none;width:52px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--muted);display:grid;place-items:center;padding:0}.drwicon svg{width:34px;height:26px}
+.drwicon[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.drwtypes{flex:1 1 auto;min-width:0;position:static}.drwtypes .mopts.up{left:10px;right:10px;bottom:calc(100% - 4px);min-width:0}.drwtypes>summary{min-height:44px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;line-height:42px;padding-right:26px;position:relative}.drwtypes>summary::after{position:absolute;right:10px}
+.mopts.up{top:auto;bottom:calc(100% + 6px);max-height:min(360px,60vh);min-width:250px}
+.mopts .cnt{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums}.mopts .grp{font-size:calc(11px * var(--fs));font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:6px 8px 2px}
+.drwbar #drawDxf{flex:none;white-space:nowrap;padding:0 14px}
+@media (max-width:420px){.drwbar{gap:6px;padding-left:10px;padding-right:10px}.drwbar #drawDxf{padding:0 10px}.drwicon{width:44px}.drwbar select{flex-basis:104px;min-width:78px}}
+/* v2.41: the drawing style */
+.stprev,.stvic{background:#000;border-radius:12px;overflow:hidden;border:1px solid var(--line)}.stprev svg{display:block;width:100%;height:auto}.stvic{max-width:300px}.stvic svg{display:block;width:100%;height:auto}
+.stgrp{border-top:1px solid var(--line);margin-top:14px;padding-top:6px}.stgrp h3{margin:6px 0 8px;font-size:calc(14px * var(--fs))}
+.strow{display:flex;flex-direction:column;gap:6px;margin:10px 0}.strow .lbl{display:flex;justify-content:space-between;gap:8px;font-size:calc(12.5px * var(--fs));font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}.strow output{text-transform:none;letter-spacing:0;color:var(--ink);font-weight:600}
+.strow input[type=range]{width:100%}.seg{display:flex;gap:6px;flex-wrap:wrap}
+.sws{display:flex;gap:8px;flex-wrap:wrap}.sws .sw2{width:34px;height:34px;border-radius:50%;border:2px solid var(--line);background:var(--c);padding:0;position:relative}.sws .sw2[aria-checked=true]{outline:3px solid var(--accent);outline-offset:2px}
+.sws .sw2.txt{width:auto;border-radius:999px;padding:0 10px;background:var(--chip);color:var(--ink);font-size:calc(12px * var(--fs));font-weight:600}
 .findlist{display:flex;flex-direction:column;gap:6px;margin:10px 0}.findlist button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:9px 12px;color:var(--ink);font:inherit}
 .findlist b{font:700 calc(15px * var(--fs)) var(--mono)}.findlist span{font-size:calc(12.5px * var(--fs));color:var(--muted)}
 .tmtoggle{cursor:pointer;user-select:none}.tmtoggle b{font:600 calc(12px * var(--fs)) var(--mono, monospace);color:var(--muted)}.tmtoggle .chev{font-style:normal;color:var(--muted);transition:transform .15s}.tmlist.shut .tmtoggle .chev{transform:rotate(-90deg)}.tmlist.shut #tmListBody{display:none}
@@ -385,6 +412,9 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .pair{display:flex;gap:8px}.pair > *{flex:1;min-width:0}.pair > [hidden]{display:none}
 .pair input{min-height:44px;padding:8px 10px}
 .btn.small{min-height:36px;padding:0 12px;font-size:calc(13px * var(--fs))}
+.sitefields{border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin:6px 0;background:var(--surface)}.sitefields>b{display:block;font-size:calc(12px * var(--fs));color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:2px 0 4px}
+.sitefields .sf{display:grid;grid-template-columns:minmax(90px,38%) 1fr;gap:8px;align-items:center;margin:4px 0}.sitefields .sf span{font-size:calc(12.5px * var(--fs));color:var(--muted);overflow-wrap:anywhere}.sitefields .sf input{min-height:38px}.sitefields .hint{margin:4px 0 0}
+.dxfsets{display:flex;flex-direction:column}.dxfsets label{display:flex;align-items:center;gap:10px;min-height:40px;border-bottom:1px solid var(--line)}.dxfsets input{width:20px;height:20px;margin:0;flex:none}
 .dxftpl .dxfplan{display:flex;flex-direction:column;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line2)}.dxftpl .hint.ok{color:var(--ok);font-weight:600}.dxftpl .dxflogo{align-items:center;gap:8px;flex-wrap:wrap}.dxftpl .dxflogo img{height:32px;max-width:120px;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:4px;padding:2px}.dxftpl .dxflogo .hint{flex:1 1 140px;margin:0}.dxftpl .btn.small.link{background:none;border-color:transparent;box-shadow:none;color:var(--muted);text-decoration:underline;padding:0 6px}
 .grow{flex:1}
 .edbody #photoStrip img{width:64px;height:64px}
@@ -447,6 +477,7 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .task .ti{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .task .tn{font-weight:700;line-height:1.3;overflow-wrap:anywhere}
 .task .ts{font-size:calc(12.5px * var(--fs));color:var(--muted);overflow-wrap:anywhere}
+.task .tl,.tmsub.tl{font-size:calc(11.5px * var(--fs));color:var(--muted);font-style:italic}
 .task .tp{display:flex;align-items:center;gap:8px;font-size:calc(12px * var(--fs));color:var(--muted);font-weight:600}
 .task .tp .bar{flex:0 0 72px;height:6px}
 .task .tp span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -489,7 +520,16 @@ body.kb .sheet{bottom:var(--kb,0px)}
 .boqsel{width:100%;min-height:42px}
 .admusers{display:flex;flex-direction:column;gap:4px}.admusers div{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:var(--bg)}.admusers b{font-size:calc(14px * var(--fs))}.admusers span{font-size:calc(12.5px * var(--fs));color:var(--muted)}
 #admin .group.shut>:not(h3){display:none!important}#admin .group>h3.afold{cursor:pointer;display:flex;align-items:center;gap:8px}#admin .group>h3.afold::after{content:'▾';margin-left:auto;color:var(--muted)}#admin .group.shut>h3.afold::after{content:'▸'}
-.xmulti{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 12px}.xmulti>summary{cursor:pointer;font-weight:700;min-height:32px;display:flex;align-items:center}.xmulti[open]{display:flex;flex-direction:column;gap:8px}
+.xmulti{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 12px;display:flex;flex-direction:column;gap:4px}.xmulti>.lbl{font-size:calc(12px * var(--fs));font-weight:700;color:var(--muted);letter-spacing:.04em}
+.attrow{display:flex;flex-direction:column;gap:6px;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:12px}.attrow[hidden]{display:none}
+.attsel{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.attsel select{flex:1 1 90px;min-width:0;min-height:40px;padding:0 6px}.attsel select[hidden],.attsel[hidden]{display:none}.attlbl{font-size:calc(12px * var(--fs));font-weight:700;color:var(--muted);flex:0 0 auto}
+.attid{display:flex;gap:6px}.attid input{flex:1;min-width:0}.attid .btn{flex:none;font-family:var(--mono)}
+.btn.iconb{flex:none;width:52px;padding:0;display:grid;place-items:center}.btn.iconb svg{width:24px;height:24px}
+.pickmlist{display:flex;flex-direction:column;max-height:45vh;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:4px 10px}.pickmlist label{display:flex;align-items:center;gap:10px;min-height:42px;border-bottom:1px solid var(--line2)}.pickmlist label:last-child{border-bottom:0}.pickmlist input{width:20px;height:20px;margin:0;flex:none}.pickmlist label.any{font-weight:700}
+.sendsteps{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:10px;font-size:calc(14px * var(--fs))}.sendsteps li{padding-left:4px}.sendsteps li span{display:block}.sendsteps li .btn{margin-top:6px;width:100%}
+.sendsteps li.done{color:var(--muted)}.sendsteps li.done::marker{content:'✓  ';color:var(--ok);font-weight:800}
+.xgo{display:flex;flex-direction:column;gap:6px}.xgo[hidden]{display:none}.xgo .btn{width:100%}
+.xcard.xmany>button[id^="do"]{display:none}
 #xMultiList{display:flex;flex-direction:column}#xMultiList label{display:flex;align-items:center;gap:10px;min-height:40px;border-bottom:1px solid var(--line)}#xMultiList input{width:20px;height:20px;margin:0}.admsub>summary{cursor:pointer;font-weight:700;margin:6px 0}
 #photoStrip .meta{flex:1}#edSaveTop{flex:none;min-height:44px;padding:0 20px;margin-left:auto}#edPhoto{cursor:zoom-in}
 #photoStrip img{width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:none;background:var(--chip)}
@@ -778,11 +818,17 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <div class="toggles">
         <label class="tchip"><input type="checkbox" id="atMloop"><span>MLoop</span></label>
         <label class="tchip"><input type="checkbox" id="atNap"><span>NAP</span></label>
-        <label class="tchip"><input type="checkbox" id="atClosure"><span>Closure</span></label>
+        <label class="tchip"><input type="checkbox" id="atClosure"><span>Hybrid closure</span></label>
       </div>
-      <div class="pair">
-        <input type="text" id="napId" placeholder="NAP ID" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="NAP ID" hidden>
-        <input type="text" id="closureId" placeholder="Closure ID" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Closure ID" hidden>
+      <!-- v2.41: the NAP and the closure are on the pole (like an arm): their kind, size and New / Existing in small dropdowns, then the ID -->
+      <div class="attrow" id="napBox" hidden>
+        <div class="attsel"><select id="napTypeSel" aria-label="NAP type"></select><select id="napSzSel" aria-label="Dummy NAP size"></select><select id="napStSel" aria-label="NAP new or existing"><option value="New">New</option><option value="Existing">Existing</option></select></div>
+        <div class="attid"><input type="text" id="napId" placeholder="NAP ID, e.g. DVO_003_L913_N01" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="NAP ID"><button class="btn small" id="napIdSug" type="button" hidden title="The dummy NAP ID: PLA ID_cable leg_number"></button></div>
+        <p class="hint" id="napHint" hidden></p>
+      </div>
+      <div class="attrow" id="cloBox" hidden>
+        <div class="attsel"><span class="attlbl">Hybrid closure</span><select id="cloSzSel" aria-label="Closure size"></select><select id="cloStSel" aria-label="Closure new or existing"><option value="New">New</option><option value="Existing">Existing</option></select></div>
+        <div class="attid"><input type="text" id="closureId" placeholder="Closure ID" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Closure ID"></div>
       </div>
     </div>
     <div class="group" id="defBox" hidden>
@@ -823,8 +869,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div id="boxWrap"><canvas id="boxCanvas" aria-label="Photo: drag to draw a red box"></canvas></div>
   <p class="hint" id="boxHint" style="margin:0;padding:8px 16px">Drag on the photo to draw a red box around the spot. Tap a mark to move, resize or delete it.</p>
   <div class="foot">
-    <button class="btn" id="boxDel" type="button" disabled aria-label="Delete the selected mark">Delete</button>
-    <button class="btn" id="boxUndo" type="button">Undo</button>
+    <button class="btn iconb" id="boxDel" type="button" disabled aria-label="Delete the selected mark" title="Delete the selected mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg></button>
+    <button class="btn iconb" id="boxUndo" type="button" aria-label="Undo the last mark" title="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
     <button class="btn" id="boxClear" type="button">Clear</button>
     <button class="btn primary grow" id="boxDone" type="button">Done</button>
   </div>
@@ -835,10 +881,71 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <header>
     <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
     <h2 id="drawTitle">Drawing</h2>
+    <button class="iconbtn" id="drawStyleBtn" type="button" aria-label="Drawing style: numbers, IDs, vicinity map" title="Drawing style"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.6"/><circle cx="17.5" cy="10.5" r="1.6"/><circle cx="8.5" cy="7.5" r="1.6"/><circle cx="6.5" cy="12.5" r="1.6"/><path d="M12 2a10 10 0 1 0 0 20c1 0 1.7-.8 1.7-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7h2a5.6 5.6 0 0 0 5.6-5.6C22 6 17.5 2 12 2Z"/></svg></button>
   </header>
-  <div id="drawWrap"><canvas id="drawCanvas" aria-label="Drawing of the project: poles, route and spans"></canvas><div id="drawInfo" hidden></div></div>
-  <p class="hint" id="drawHint" style="margin:0;padding:8px 16px"></p>
-  <div class="foot"><button class="btn" id="drawFit" type="button">Fit</button><button class="btn" id="drawLabels" type="button" aria-pressed="true">Labels</button><button class="btn" id="drawMap" type="button" aria-pressed="false" title="The map under the drawing, to check where the pins are">Map</button><button class="btn primary grow" id="drawDxf" type="button">Export DXF</button></div>
+  <div id="drawWrap"><canvas id="drawCanvas" aria-label="Drawing of the project: poles, route and spans"></canvas>
+    <!-- v2.41: the legend (top left), the tools on the drawing (lower right, as on the map), the information line -->
+    <details class="drwlegend" id="drawLegend" open><summary>Legend</summary><div id="drawLegendBody"></div></details>
+    <div class="drwtools">
+      <button class="round" id="drawFit" type="button" aria-label="Fit: the whole drawing" title="Fit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+      <button class="round" id="drawLabels" type="button" aria-pressed="true" aria-label="Labels on or off" title="Labels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M12 6v13M9 19h6"/></svg></button>
+      <button class="round" id="drawMap" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Map under the drawing: off, offline map, satellite or street map" title="Map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg><i class="drwmapdot" aria-hidden="true"></i></button>
+      <button class="round" id="drawInfoBtn" type="button" aria-pressed="true" aria-label="Information line on or off" title="Information"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg></button>
+    </div>
+    <div class="drwmenu" id="drawMapMenu" role="radiogroup" aria-label="Map under the drawing" hidden>
+      <b>Map under the drawing</b>
+      <label><input type="radio" name="drawMapKind" value="off"><span>No map</span></label>
+      <label><input type="radio" name="drawMapKind" value="offline"><span>Offline map (map pack)</span></label>
+      <label><input type="radio" name="drawMapKind" value="sat"><span>Satellite (online)</span></label>
+      <label><input type="radio" name="drawMapKind" value="street"><span>Street map (online)</span></label>
+    </div>
+    <p class="drwhint" id="drawHint"></p>
+    <div id="drawInfo" hidden></div>
+  </div>
+  <!-- v2.41: the plan's options, here (they were on the DXF card): photos or numbers, clamp types, which points -->
+  <div class="foot drwbar">
+    <select id="drawMarks" aria-label="Beside each point: photo, number or both" title="Beside each point"><option value="photo">Photos</option><option value="num">Numbers</option><option value="both">Photos + no.</option></select>
+    <button class="drwicon" id="drawCT" type="button" aria-pressed="true" aria-label="Clamp types on the plan" title="Clamp types on the plan (CA, GCA, 2A, DEG, RL before the size)"><svg viewBox="0 0 32 24" aria-hidden="true"><rect x="2" y="3" width="28" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><text x="16" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="currentColor" font-family="system-ui, sans-serif">CA</text></svg></button>
+    <details class="msel drwtypes" id="drawTypesBox"><summary id="drawTypesSum">All points</summary><div class="mopts up" id="drawTypes" role="group" aria-label="Which points get a photo or number"></div></details>
+    <button class="btn primary" id="drawDxf" type="button">Export DXF</button>
+  </div>
+</section>
+<!-- v2.41: the drawing style (the user's): numbers, the IDs of the points, the vicinity map, with a preview -->
+<section class="sheet" id="drwStyle" hidden aria-labelledby="drwStyleTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="drwStyleTitle">Drawing style</h2>
+  </header>
+  <div class="body">
+    <p class="hint" style="margin-top:0">Your style for the plan DXF (on this phone). The preview changes as you set it: three poles on a street, drawn at 1:1100 like the GEO sheets.</p>
+    <div class="stprev"><svg id="stPrev" viewBox="0 0 120 70" role="img" aria-label="Preview: a street with three poles, their numbers and a NAP ID"></svg></div>
+    <div class="stgrp" id="stNum">
+      <h3>Numbers beside the points</h3>
+      <div class="strow"><span class="lbl">Number colour <output id="stNumColO"></output></span><div class="sws" id="stNumCol" role="radiogroup" aria-label="Number colour"></div></div>
+      <div class="strow"><span class="lbl">Circle colour <output id="stNumBColO"></output></span><div class="sws" id="stNumBCol" role="radiogroup" aria-label="Circle colour"></div></div>
+      <div class="strow"><label class="lbl" for="stNumH">Number height <output id="stNumHO"></output></label><input type="range" id="stNumH" min="1.5" max="9" step="0.5"></div>
+      <div class="strow"><label class="lbl" for="stNumD">Circle diameter <output id="stNumDO"></output></label><input type="range" id="stNumD" min="0" max="20" step="1"></div>
+      <div class="strow"><label class="lbl" for="stNumG">Distance from the point <output id="stNumGO"></output></label><input type="range" id="stNumG" min="0" max="20" step="0.5"></div>
+      <div class="strow"><span class="lbl">Leader line to the point</span><div class="seg" id="stNumLeader" role="radiogroup" aria-label="Leader line"><button type="button" class="chip small" data-v="0">Off</button><button type="button" class="chip small" data-v="1">On</button></div></div>
+      <div class="strow"><span class="lbl">Where the number goes</span><div class="seg" id="stNumPlace" role="radiogroup" aria-label="Where the number goes"><button type="button" class="chip small" data-v="auto">First free spot</button><button type="button" class="chip small" data-v="out">Straight out from the road</button></div></div>
+    </div>
+    <div class="stgrp" id="stId">
+      <h3>IDs of NAPs, LCPs, the ODC, handholes…</h3>
+      <div class="strow"><span class="lbl">Bold</span><div class="seg" id="stIdBold" role="radiogroup" aria-label="Bold IDs"><button type="button" class="chip small" data-v="0">Normal</button><button type="button" class="chip small" data-v="1">Bold</button></div></div>
+      <div class="strow"><span class="lbl">ID colour <output id="stIdColO"></output></span><div class="sws" id="stIdCol" role="radiogroup" aria-label="ID colour"></div></div>
+      <div class="strow"><label class="lbl" for="stIdH">ID height <output id="stIdHO"></output></label><input type="range" id="stIdH" min="1.5" max="5" step="0.25"></div>
+    </div>
+    <div class="stgrp" id="stVic">
+      <h3>Vicinity map</h3>
+      <div class="stvic"><svg id="stVicPrev" viewBox="0 0 60 40" role="img" aria-label="Preview of the vicinity map: the route and the project area circle"></svg></div>
+      <div class="strow"><span class="lbl">Project area circle colour <output id="stVicColO"></output></span><div class="sws" id="stVicCol" role="radiogroup" aria-label="Circle colour"></div></div>
+      <div class="strow"><label class="lbl" for="stVicW">Circle line width <output id="stVicWO"></output></label><input type="range" id="stVicW" min="2" max="20" step="1"></div>
+      <div class="strow"><span class="lbl">Route colour <output id="stVicRColO"></output></span><div class="sws" id="stVicRCol" role="radiogroup" aria-label="Route colour"></div></div>
+      <div class="strow"><label class="lbl" for="stVicRW">Route line width <output id="stVicRWO"></output></label><input type="range" id="stVicRW" min="6" max="40" step="0.5"></div>
+    </div>
+    <p class="hint" id="stSum"></p>
+  </div>
+  <div class="foot"><button class="btn" id="stReset" type="button">Defaults</button><button class="btn primary grow" id="stDone" type="button">Done</button></div>
 </section>
 <!-- v2.28: find a pin -->
 <section class="sheet" id="find" hidden aria-labelledby="findTitle">
@@ -880,12 +987,11 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <span class="hint" id="xShareFor">for defect cleanup / FAT</span>
       <p class="warnline" id="xShareWarn" hidden></p>
     </div>
-    <label class="frow xpick"><span class="lbl">FORMAT</span><select id="xFormat" aria-label="Export format"></select></label>
-    <details class="xmulti" id="xMulti"><summary>Several formats at once, in one ZIP</summary>
+    <!-- v2.41: the formats to export, ticked here (no Format dropdown): one format shows its card and its button; several, their
+         cards (options) and one button for a ZIP with them all -->
+    <div class="xmulti" id="xMulti"><span class="lbl">FORMATS · TICK ONE OR MORE</span>
       <div id="xMultiList" role="group" aria-label="Formats to export"></div>
-      <button class="btn primary" id="xMultiGo" type="button">Export the ticked formats (ZIP)</button>
-      <p class="hint" id="xMultiInfo" style="margin:0">Each format uses its own options (below, per format). Questions some formats ask still come up one by one.</p>
-    </details>
+    </div>
     <div id="accExports" style="display:contents" hidden>
       <div class="xcard">
         <div class="head"><span class="ic">PDF</span><div><b>Deficiency List · PDF</b><p>The office form (List of Deficiencies, PAT or FAT ticked, 15 items per page, signature blocks), then Annex A with the photo evidence of each item and Annex B with the inspection photo log.</p></div></div>
@@ -943,9 +1049,9 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <div id="dxfTplBox" class="dxftpl"><p class="hint" id="dxfTplInfo" style="margin:0"></p><div class="row"><button class="btn small" id="dxfTplLoad" type="button">Load template file…</button><button class="btn small" id="dxfTplGet" type="button" hidden>Get the template</button></div><input type="file" id="dxfTplFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden>
         <div class="row dxflogo"><img id="dxfLogoImg" alt="Your company logo" hidden><span class="hint" id="dxfLogoInfo"></span><button class="btn small" id="dxfLogoSet" type="button">Add company logo…</button><input type="file" id="dxfLogoFile" accept="image/png,image/jpeg" hidden></div>
         <div class="dxfplan" id="dxfPlanOpts">
-          <label class="check"><input type="checkbox" id="dxfClampType"><span>Clamp types on the plan (CA, GCA, 2A, DEG, RL before the clamp size). Untick for the size only: the types stay in the BOQ, KMZ and CSV.</span></label>
-          <label class="field">BESIDE EACH POINT<select id="dxfMarks"><option value="photo">Its photo (a point without one shows its number)</option><option value="num">Its number only (no photos)</option></select></label>
-          <div class="field"><span class="lbl">NUMBERS AND PHOTOS FOR</span><div class="chips" id="dxfMarkTypes"></div><p class="hint" style="margin:0"><span id="dxfMarkInfo"></span> <button type="button" class="btn small link" id="dxfMarkAll">All</button></p><p class="hint" style="margin:0">For an RTA application to a pole owner, keep only their poles: e.g. PLDT, Globe + Bayantel, or Concrete + Wood + Steel for electric poles. The numbers count only those.</p></div>
+          <div class="field"><span class="lbl">ON THE PLAN</span><p class="hint" id="dxfPlanSum" style="margin:0"></p>
+            <div class="row"><button class="btn small" id="dxfOpenDrawing" type="button">Set it in the Drawing</button><button class="btn small" id="dxfStyleBtn" type="button">Drawing style…</button></div></div>
+          <div class="field"><span class="lbl">DRAWINGS IN THIS EXPORT</span><div id="dxfSets" class="dxfsets" role="group" aria-label="Drawings in this export"></div><p class="hint" id="dxfSetsInfo" style="margin:0"></p></div>
         </div></div>
       <details><summary>Options</summary><div class="opts">
         <label class="check"><input type="checkbox" id="dxfRoads" checked><span>Add road centerlines from OpenStreetMap around the poles (needs internet)</span></label>
@@ -995,6 +1101,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <details><summary>Options</summary><div class="opts"><label class="check"><input type="checkbox" id="complPhotos" checked><span>Add the photo pages (survey: photo collage · PAT, cleanup, FAT: deficiency photos)</span></label></div></details>
       <button class="btn primary" id="doCompletion">Export completion report</button>
     </div>
+    <div class="xgo" id="xGoBox" hidden><button class="btn primary" id="xMultiGo" type="button">Export the ticked formats (ZIP)</button><p class="hint" id="xMultiInfo" style="margin:0">One ZIP with every file. Each format uses its own options (above); questions some formats ask still come up one by one.</p></div>
     <div class="group" id="resultBox" hidden>
       <h3>Ready</h3>
       <p id="resultName" class="mono" style="margin:0;word-break:break-all"></p>
@@ -1179,6 +1286,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <div class="tmhead"><span class="badge cat" id="projBadge">SURVEY</span><span class="tmstate" id="tmState"></span><span class="grow"></span><span class="tmopen">Open now</span></div>
       <h3 class="tmname" id="curName"></h3>
       <span class="tmsub" id="curSub"></span>
+      <span class="tmsub tl" id="curLast" hidden></span>
       <div class="tmtools" id="curTools" role="group" aria-label="This project"></div>
       <button class="tmprog" id="tmStepsBtn" type="button" aria-expanded="false" aria-controls="wfSteps"><span class="bar"><i id="tmBar"></i></span><span id="tmProgTxt"></span></button>
       <div id="wfSteps" hidden></div>
@@ -1206,6 +1314,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="morebody">
           <div class="row"><input type="text" id="renameProject" aria-label="Project name" style="flex:1"><button class="btn" id="doRename">Rename</button></div>
           <p class="hint" id="curSite" hidden></p>
+          <div class="sitefields" id="curSiteFields" hidden></div>
           <button class="btn sm" id="curFolder" type="button" hidden>Project folder (Drive)</button>
           <label class="frow" id="purposeRow" hidden><span class="lbl">PURPOSE</span><select id="curPurpose"><option value="As-plan">As-Plan Creation</option><option value="As-built">As-Built Creation</option><option value="Audit">Audit</option></select></label>
           <label class="frow" id="curStartRow" hidden><span class="lbl">START DATE</span><input type="date" id="curStart"></label>
@@ -1241,7 +1350,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       </div>
     </div>
     <div class="tmtools">
-      <button class="btn" id="openShared" type="button" title="A PAT or cleanup KMZ, a backup ZIP, or several projects from a colleague">📂 Open a shared file</button>
+      <button class="btn" id="openShared" type="button" title="Projects from a colleague (.zip), a PAT or cleanup KMZ (.kmz), or a backup (.zip)">📂 Open shared projects</button>
       <button class="btn" id="bulkShareBtn" type="button" title="Several projects in one file, for a colleague of your company">📤 Share several projects</button>
       <button class="btn" id="addSampleBtn" type="button" title="A sample survey to try the screens, exports and the tutorial (no real data)" hidden>📘 Add the sample project</button>
       <input type="file" id="sharedInput" accept=".kmz,.zip,application/vnd.google-earth.kmz,application/zip,application/x-zip-compressed,application/octet-stream" hidden>
@@ -1280,6 +1389,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
           <div id="npSiteList" style="display:flex;flex-direction:column"></div>
         </div>
         <div class="row" id="npSiteRow" hidden><span class="hint grow" id="npSiteInfo"></span><button class="btn sm" id="npSiteFolder" type="button" hidden>Folder</button><button class="btn sm primary" id="npSiteOpen" type="button" hidden>Open</button><button class="btn sm" id="npSiteClear" type="button" aria-label="No site">✕</button></div>
+        <div class="sitefields" id="npSiteFields" hidden></div>
       </div>
       <label class="field" id="npCatBox"><span>TASK CATEGORY <span class="req" aria-hidden="true">*</span></span><select id="npCat" required aria-required="true"><option value="" disabled selected>Choose…</option><option value="survey">Survey</option><option value="PAT">PAT</option><option value="Cleanup">Defect Cleanup</option><option value="FAT">FAT</option></select></label>
       <label class="field" id="npPurposeBox"><span>PURPOSE <span class="req" aria-hidden="true">*</span></span><select id="npPurpose" required aria-required="true"></select></label>
@@ -1491,6 +1601,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
           <div class="pair"><label class="field">Closure sizes<textarea id="admBoqClo" rows="6"></textarea></label><label class="field">Pole details (what else is on the pole)<textarea id="admDetailItems" rows="6"></textarea></label></div>
           <div class="pair"><label class="field">New arms<textarea id="admBoqArm" rows="5"></textarea></label><label class="field">Guying<textarea id="admBoqGuy" rows="5"></textarea></label></div>
         </details>
+        <label class="check"><input type="checkbox" id="admSiteReq"><span>A new Survey or PAT project must use a site of the online sheet (Project Data): users cannot type a name of their own. Only the admin can switch this.</span></label>
         <label class="check"><input type="checkbox" id="admVendorRec"><span>Vendors record PAT defects and accept fixes at FAT (the Globe representative signs the printed form). Off: only the admin company does.</span></label>
         <label class="field">Photo sharpness required<select id="admQuality"><option value="strict">Strict (recommended)</option><option value="normal">Normal: refuse only clearly blurry</option></select></label>
       </div>
@@ -1513,6 +1624,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <label class="field">AREA DOWNLOAD SOURCE (optional): a .pmtiles file on your own storage that allows range requests, e.g. a copy of a Protomaps build on Cloudflare R2. Blank = the Protomaps daily build.<input type="url" id="admAreaSrc" placeholder="https://…/planet.pmtiles" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
         <label class="field">GOOGLE DRIVE API KEY (optional): lets the website and iPhones download the Drive packs above with one tap (Download), like the Android app. Make it once in Google Cloud (Google Drive API, key restricted to this website); the packs must be shared <i>Anyone with the link</i>. Blank = website users open the pack in Drive and import the file.<input type="text" id="admDriveKey" placeholder="AIza…" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="60"></label>
         <label class="field">DRAWING TEMPLATE (DXF seed): a Google Drive link to the prepared plan template. Phones download it for Export → AutoCAD · DXF on the template; it is company property and is not inside the app. Sharing *Anyone with the link*: the Android app downloads it by itself (and anyone given the link can open it). Restricted to company accounts: users download it signed in and load the file.<input type="url" id="admDxfSeed" placeholder="https://drive.google.com/file/d/…" autocomplete="off"></label>
+        <label class="check"><input type="checkbox" id="admUserTpl"><span>Users may load a plan template file of their own (off: everyone uses the template above).</span></label>
         <p class="hint" id="admPacksInfo"></p>
       </div>
       <div class="group">
@@ -1551,9 +1663,17 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <div class="qbot"><span id="qrScanTip">Hold the phone 20–30 cm from the code, then move closer until it reads</span><button class="btn" id="qrPick" type="button">🖼 From a picture</button></div>
   <input type="file" id="qrPickInput" accept="image/*" hidden>
 </div>
+<div class="overlay" id="pickMBox" hidden><div class="panel"><h3 id="pickMTitle"></h3><p class="hint" id="pickMText" style="margin:0"></p><div class="pickmlist" id="pickMList" role="group"></div><div class="row"><button class="btn grow" id="pickMNo" type="button">Cancel</button><button class="btn primary grow" id="pickMYes" type="button">OK</button></div></div></div>
 <div class="overlay" id="pickBox" hidden><div class="panel"><h3 id="pickTitle"></h3><p class="hint" id="pickText" style="margin:0"></p><select id="pickSel" aria-label="Choose"></select><div class="row"><button class="btn grow" id="pickNo" type="button">Cancel</button><button class="btn primary grow" id="pickYes" type="button">OK</button></div></div></div>
 <div class="overlay" id="askBox" hidden><div class="panel"><h3 id="askTitle"></h3><p id="askText" style="margin:0;white-space:pre-line"></p><div class="row"><button class="btn grow" id="askNo" type="button">Cancel</button><button class="btn primary grow" id="askYes" type="button">OK</button></div></div></div>
-<div class="overlay" id="sendBox" hidden><div class="panel"><h3 id="sendTitle">Ready to send</h3><p id="sendName" style="margin:0;overflow-wrap:anywhere;font-weight:600"></p><p class="hint" id="sendNote" style="margin:0;white-space:pre-line"></p><button class="btn primary" id="sendGo" type="button" style="width:100%">Share…</button><div class="row"><button class="btn grow" id="sendSave" type="button">Save to phone</button><button class="btn grow" id="sendNo" type="button">Close</button></div></div></div>
+<div class="overlay" id="sendBox" hidden><div class="panel"><h3 id="sendTitle">Ready to send</h3><p id="sendName" style="margin:0;overflow-wrap:anywhere;font-weight:600"></p><p class="hint" id="sendNote" style="margin:0;white-space:pre-line"></p>
+  <ol class="sendsteps" id="sendSteps" hidden>
+    <li id="sendStep1"><span><b>Save it on the phone.</b> It goes to Downloads.</span><button class="btn primary" id="sendSave2" type="button">Save to phone</button></li>
+    <li><span><b>Open your chat app</b> (Viber, WhatsApp, Messenger, Gmail…) and the chat or email to send it to.</span></li>
+    <li><span><b>Attach it as a file:</b> 📎 (or +) → <b>File</b> / <b>Document</b> → <b>Downloads</b> → <b id="sendFileName"></b> → Send.</span></li>
+  </ol>
+  <p class="hint" id="sendTip" hidden style="margin:0">Tip: the G-eSAA Android app sends any file in one tap.</p>
+  <button class="btn primary" id="sendGo" type="button" style="width:100%">Share…</button><div class="row"><button class="btn grow" id="sendSave" type="button">Save to phone</button><button class="btn grow" id="sendNo" type="button">Close</button></div></div></div>
 <div class="overlay" id="pinBox" hidden><div class="panel"><h3 id="pinTitle"></h3><p class="hint" id="pinText" style="margin:0"></p><p class="pincode" id="pinCode" hidden></p><input type="password" id="pinInput" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="4 to 8 digits" aria-label="Admin PIN"><div class="row"><button class="btn grow" id="pinNo" type="button">Cancel</button><button class="btn primary grow" id="pinYes" type="button">OK</button></div></div></div>
 <div class="overlay" id="promptBox" hidden><div class="panel"><h3 id="promptTitle"></h3><p class="hint" id="promptText" style="margin:0"></p><textarea id="promptInput" style="min-height:70px"></textarea><div class="row"><button class="btn grow" id="promptNo" type="button">Cancel</button><button class="btn primary grow" id="promptYes" type="button">OK</button></div></div></div>
 

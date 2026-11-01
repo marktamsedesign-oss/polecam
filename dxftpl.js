@@ -305,6 +305,18 @@
     d.index(); S.layers.set(name, r);
     return h;
   }
+  /** v2.41: a bold Arial text style (a copy of the template's arial style with the bold Arial font), for the IDs when the user wants
+      them bold: a plain TEXT, the same in AutoCAD and in PDF converters. */
+  function addBoldStyle(d, S, name) {
+    if (S.styles.has(name)) return name;
+    const T = d.sec('TABLES').recs, tb = T.find((r) => typ(r) === 'TABLE' && get(r, 2) === 'STYLE'), src = T.find((r) => typ(r) === 'STYLE' && /^arial$/i.test(get(r, 2) || '')) || T.find((r) => typ(r) === 'STYLE');
+    if (!tb || !src) return null;
+    const h = d.newHandle(), r = src.map(([c, v]) => [c, c === 5 ? h : c === 2 ? name : c === 3 ? 'arialbd.ttf' : c === 1071 ? I(33554466) : c === 70 ? I(0) : v]); // 1071: Arial, bold (0x2000000) + pitch and family 34
+    const last = T.reduce((k, x, i) => (typ(x) === 'STYLE' ? i : k), -1); T.splice(last + 1, 0, r);
+    setFirst(tb, 70, I(parseInt(get(tb, 70, '0'), 10) + 1));
+    d.index(); S.styles.add(name);
+    return name;
+  }
   /** v2.36: moves a model-space entity by (dx, dy): every point of it (a direction or a size stays); false for a kind not handled. */
   const SHIFT_PTS = { LINE: [10, 11], LWPOLYLINE: [10], CIRCLE: [10], ARC: [10], ELLIPSE: [10], POINT: [10], TEXT: [10, 11], ATTRIB: [10, 11], ATTDEF: [10, 11], MTEXT: [10], INSERT: [10], SOLID: [10, 11, 12, 13], TRACE: [10, 11, 12, 13], SEQEND: [] };
   function shiftRec(r, dx, dy) {
@@ -695,6 +707,8 @@
     return Spots.box(x + ux * du + vx * dv, y + uy * du + vy * dv, w + h * 0.3, h * 1.25, deg);
   }
   const ROADLINE_W = (t) => (t === 'road' ? 0.2 : 1); // v2.39.1: a text across a road edge line is better than over a label
+  const POLELBL_W = (t) => (t === 'road' ? 1 : t === 'cable' ? 2.5 : 4); // v2.41: a pole's label: over a road edge line rather than the cable, over the cable rather than another label
+  const LL_W = (t) => (t === 'road' ? 0.15 : t === 'cable' ? 0.5 : 3); // v2.41: the lat/long of a point that is not a pole
   /** v2.39.1: first candidate that is free, else the one covering least (weighted). */
   function pickW(spots, cands, w) { let best = null; for (const c of cands) { const n = c.boxes.reduce((t, b) => t + spots.hitsW(b, w), 0); if (!n) return c; if (!best || n < best.n) best = { ...c, n }; } return best; }
   /** First candidate that is free (else the one with the fewest overlaps). */
@@ -752,6 +766,46 @@
     const pos = B.indexOf(b.end); B.splice(pos >= 0 ? pos + 1 : B.length, 0, ...out);
     d.index(); Object.assign(S, structure(d));
     return true;
+  }
+  /** v2.41: a new block made of the given entities (polylines [[x, y]…, closed] and texts), drawn in BYBLOCK colour on layer 0 so the
+      insert's layer and colour show (the ODC cabinet). */
+  function defineBlock(d, S, name, polys, texts) {
+    if (S.blocks.has(name)) return true;
+    const T = d.sec('TABLES').recs, B = d.sec('BLOCKS').recs, tb = T.find((r) => typ(r) === 'TABLE' && get(r, 2) === 'BLOCK_RECORD');
+    if (!tb) return false;
+    const brH = d.newHandle(), head = (t) => [[0, t], [5, d.newHandle()], [330, brH], [100, 'AcDbEntity'], [8, '0'], [62, I(0)]];
+    const brec = [[0, 'BLOCK_RECORD'], [5, brH], [330, get(tb, 5)], [100, 'AcDbSymbolTableRecord'], [100, 'AcDbBlockTableRecord'], [2, name], [340, '0'], [70, I(0)], [280, I(1)], [281, I(0)]];
+    const last = T.reduce((k, r, i) => (typ(r) === 'BLOCK_RECORD' ? i : k), -1); T.splice(last + 1, 0, brec);
+    setFirst(tb, 70, I(parseInt(get(tb, 70, '0'), 10) + 1));
+    const ents = [];
+    polys.forEach(({ pts, closed, w }) => { const r = head('LWPOLYLINE'); r.push([100, 'AcDbPolyline'], [90, I(pts.length)], [70, I(closed ? 1 : 0)], [43, F(w || 0)]); pts.forEach(([x, y]) => r.push([10, F(x)], [20, F(y)])); ents.push(r); });
+    (texts || []).forEach(({ x, y, h, s: str, rot, obl, style }) => { const r = head('TEXT'); r.push([100, 'AcDbText'], [10, F(x)], [20, F(y)], [30, '0.0'], [40, F(h)], [1, str], [50, F(rot || 0)], [51, F(obl || 0)], [7, style && S.styles.has(style) ? style : 'Standard'], [72, I(1)], [11, F(x)], [21, F(y)], [31, '0.0'], [100, 'AcDbText'], [73, I(2)]); ents.push(r); });
+    B.push([[0, 'BLOCK'], [5, d.newHandle()], [330, brH], [100, 'AcDbEntity'], [8, '0'], [100, 'AcDbBlockBegin'], [2, name], [70, I(0)], [10, '0.0'], [20, '0.0'], [30, '0.0'], [3, name], [1, '']], ...ents,
+      [[0, 'ENDBLK'], [5, d.newHandle()], [330, brH], [100, 'AcDbEntity'], [8, '0'], [100, 'AcDbBlockEnd']]);
+    d.index(); Object.assign(S, structure(d));
+    return true;
+  }
+  /** v2.41: the ODC cabinet as on the photo marker (plinth, body with two doors and their handles, cap), in an isometric view: 1 unit
+      high, its front (doors) on the right face. Centred on its picture. */
+  function odcIso() {
+    const c30 = Math.cos(Math.PI / 6), s30 = 0.5, H = 1, W = 0.55, Dp = 0.36, cap = 0.06, pl = 0.08, e1 = 0.03, e2 = 0.025;
+    const P = (x, y, z) => [(x - y) * c30, (x + y) * s30 + z]; // x: along the front (right and up), y: the depth (left and up), z: up
+    const polys = [], box = (x0, x1, y0, y1, z0, z1, top) => {
+      polys.push({ pts: [P(x0, y0, z0), P(x1, y0, z0), P(x1, y0, z1), P(x0, y0, z1)], closed: true }); // the front (y = y0)
+      polys.push({ pts: [P(x0, y0, z0), P(x0, y1, z0), P(x0, y1, z1), P(x0, y0, z1)], closed: true }); // the side (x = x0)
+      if (top) polys.push({ pts: [P(x0, y0, z1), P(x1, y0, z1), P(x1, y1, z1), P(x0, y1, z1)], closed: true });
+    };
+    box(-e1, W + e1, -e1, Dp + e1, 0, pl, false); // plinth
+    box(0, W, 0, Dp, pl, H - cap, false); // body
+    box(-e2, W + e2, -e2, Dp + e2, H - cap, H, true); // cap
+    polys.push({ pts: [P(0, 0, 0.7), P(W, 0, 0.7)] }); // the top panel over the doors
+    polys.push({ pts: [P(W / 2, 0, pl), P(W / 2, 0, 0.7)] }); // two doors
+    [W / 2 - 0.05, W / 2 + 0.05].forEach((x) => polys.push({ pts: [P(x, 0, 0.42), P(x, 0, 0.55)], w: 0.012 })); // their handles
+    polys.push({ pts: [P(0.06, 0, 0.74), P(W - 0.06, 0, 0.74), P(W - 0.06, 0, 0.88), P(0.06, 0, 0.88)], closed: true }); // the label plate
+    const all = polys.flatMap((q) => q.pts), cx = (Math.min(...all.map((q) => q[0])) + Math.max(...all.map((q) => q[0]))) / 2, cy = (Math.min(...all.map((q) => q[1])) + Math.max(...all.map((q) => q[1]))) / 2;
+    polys.forEach((q) => { q.pts = q.pts.map(([x, y]) => [x - cx, y - cy]); });
+    const t = P(W / 2, 0, 0.81); // ODC on the plate, in the plane of the front (turned 30°, slanted 30°)
+    return { polys, texts: [{ x: t[0] - cx, y: t[1] - cy, h: 0.1, s: 'ODC', rot: 30, obl: 30, style: 'arial' }], w: Math.max(...all.map((q) => q[0])) - Math.min(...all.map((q) => q[0])), h: Math.max(...all.map((q) => q[1])) - Math.min(...all.map((q) => q[1])) };
   }
   /** v2.35.6: the nearest AutoCAD colour index of an RGB colour (the hatches also carry the colour itself, group 420). */
   const ACI = [[1, 255, 0, 0], [2, 255, 255, 0], [3, 0, 255, 0], [4, 0, 255, 255], [5, 0, 0, 255], [6, 255, 0, 255], [8, 128, 128, 128], [9, 192, 192, 192],
@@ -827,6 +881,17 @@
     return out;
   }
 
+  /** v2.41: the order the plan numbers its marked points in (ids as strings): along each cable run from the homing (runs that
+      reach a site or an ODF first), then the rest. The Drawing screen shows the same numbers as the DXF. */
+  function markOrder(pts, spans, marks) {
+    const byId = new Map(pts.map((p) => [String(p.id), p])), set = new Set((marks || []).map(String)), out = [], seen = new Set();
+    const take = (p) => { if (p && !p.onPole && set.has(String(p.id)) && !seen.has(p)) { seen.add(p); out.push(String(p.id)); } };
+    const home = (ch) => (ch.ids.some((id) => { const q = byId.get(String(id)) || {}; return q.el === 'Site' || q.el === 'ODF'; }) ? 1 : 0);
+    const startOf = (ch) => { const a = byId.get(String(ch.ids[0])), b = byId.get(String(ch.ids[ch.ids.length - 1])); return (b && b.el !== 'Pole' && !(a && a.el !== 'Pole')) ? ch.ids.slice().reverse() : ch.ids; };
+    chainsOf(spans).sort((x, y) => home(y) - home(x)).forEach((ch) => startOf(ch).forEach((id) => take(byId.get(String(id)))));
+    pts.forEach(take);
+    return out;
+  }
   /** v2.37: the PROJECT AREA circle of the vicinity map (E, N, radius) for points [[E, N], ...] and the map size (m): the app darkens
       the picture outside it, the drawing draws it. */
   function vicCircle(xy, size) {
@@ -872,6 +937,13 @@
   // v2.32: new fiber red, existing fiber blue (the drafting rule); aerial dashed, underground solid
   const CABLE_STYLE = { F72: { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true }, L12: { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true }, U144: { layer: 'Proposed foc duct', color: 3, w: 0.7776, aerial: false }, '': { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true } };
   const PIN_ACI = { red: 1, navy: 5, green: 3, orange: 30 }; // v2.36: the colours of the app's marks and pins (AutoCAD colour numbers)
+  /* v2.41: the user's drawing style (the app's Drawing style screen; these are the defaults). Colours are AutoCAD colour numbers
+     (1 red, 2 yellow, 3 green, 4 cyan, 5 blue, 6 magenta, 7 white); 0 = by layer. Sizes in metres of the drawing (1:1100 on the
+     GEO sheets: 1 m = 0.9 mm). */
+  const NUM_STYLE = { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto' }; // the number beside a point: text colour, circle colour (0 = as the text), text height, circle diameter (0 = none), distance from the point, leader line, first free spot / straight out from the road
+  const ID_STYLE = { bold: false, color: 0, h: 2.5 }; // the IDs of NAPs, the ODC, handholes… (v2.40 and before: 2.5 m, by layer, not bold)
+  const VIC_STYLE = { circle: 2, circleW: 7, route: 0, routeW: 16.5 }; // the vicinity map: the PROJECT AREA circle (yellow) and the route (0: by cable, red new / blue existing); widths per 1.5 km of map
+  const ODC_H = 9, ODC_BLOCK = 'G-ESAA ODC'; // v2.41: the ODC cabinet on the plan: its block (an isometric view), 9 m high
   const pinColor = (p) => (p && p.color && PIN_ACI[p.color] != null ? PIN_ACI[p.color] : null);
   const CABLE_LWT = 70; // v2.36: 0.70 mm, about the template's 0.78 m wide cable at 1 : 1200
   const months = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
@@ -997,6 +1069,10 @@
 
     /* the route: poles beside their road, the cable on the road side of the poles, every label where it does not overlap */
     const spots = new Spots(), byId = new Map(pts.map((p) => [String(p.id), p])), nb = new Map();
+    // v2.41: the user's style for the numbers, the IDs of the points on the cable and the vicinity map (the app's Drawing style)
+    const NS = { ...NUM_STYLE, ...(job.numStyle || {}) }, IDS = { ...ID_STYLE, ...(job.idStyle || {}) }, VS = { ...VIC_STYLE, ...(job.vicStyle || {}) };
+    const idStyle = IDS.bold ? addBoldStyle(d, S, 'G-ESAA BOLD') || 'arial' : 'arial';
+    const idText = (ly, x, y, h, txt, rr, col) => o.text(ly, x, y, h, txt, { rot: rr, ha: 1, va: 2, style: idStyle, color: col != null ? col : IDS.color || null }); // an ID, bold or not, in its colour (a pin's own colour first)
     spans.forEach((s) => [[s.ia, s.ib], [s.ib, s.ia]].forEach(([x, y]) => { const P = byId.get(String(x)), Q = byId.get(String(y)); if (P && Q && P !== Q) (nb.get(P) || nb.set(P, []).get(P)).push(Q); }));
     const symOf = (p) => (p.status === 'Proposed' || p.status === 'New' ? POLE_SYM.prop : p.telco ? POLE_SYM.tel : POLE_SYM.elec);
     // v2.34: the road edges near the route are obstacles too: labels, span lengths and photos keep off the road lines
@@ -1077,14 +1153,16 @@
     const NAPK = {
       '': ['proposed NAP', 'PROPOSED NAP', 'existing NAP', 'EXISTING NAP'], 'NAP 1x8': ['proposed NAP', 'PROPOSED NAP', 'existing NAP', 'EXISTING NAP'],
       'NAP 1x16': ['1_16NAP', 'PROPOSED NAP'], 'Dummy NAP': ['dummy nap', 'PROPOSED NAP'], 'NAP changed to 1:16': ['AUGMENT NAP 1X16', 'PROPOSED NAP', null, null, true],
-      'Double NAP': ['proposed Double NAP', 'PROPOSED DOUBLE NAP', 'existing Double NAP', 'EXISTING DOUBLE NAP'] };
-    const BLK = { // element: [new block, layer, scale, existing block, layer, scale]
-      ODC: ['proposed LCP', 'PROPOSED LCP', 0.7803353843555049, 'existing LCP', 'EXISTING LCP', 0.7803353843555049],
-      ODC2: ['LCP 2', 'PROPOSED DOUBLE LCP', 0, 'EXISTING DOUBLE LCP', 'EXISTING DOUBLE LCP', 0],
+      'Double NAP': ['proposed Double NAP', 'PROPOSED DOUBLE NAP', 'existing Double NAP', 'EXISTING DOUBLE NAP'],
+      // v2.41: the LCP (local convergence point, a box on the pole for broadband: L4 = a 1:4 splitter) is a kind of NAP, on its pole
+      'LCP 1x4': ['proposed LCP', 'PROPOSED LCP', 'existing LCP', 'EXISTING LCP'], 'Double LCP 2x1:8': ['LCP 2', 'PROPOSED DOUBLE LCP', 'EXISTING DOUBLE LCP', 'EXISTING DOUBLE LCP'] };
+    const BLK = { // element: [new block, layer, scale, existing block, layer, scale]. v2.41: the ODC is not an LCP (it has its own cabinet below)
       Handhole: ['proposed Handhole', 'PROPOSED HH', 0.7803353843555049, 'HANDHOLE', 'EXISTING HH', 0.7803353843555049],
       Manhole: ['PROPOSED MAN HOLE', 'PROPOSED MH', 0.7803353843555049, 'MH', 'EXISTING MH', 1.749630906627053],
       'Service box': ['proposed service box', 'PROPOSED SERVICE BOX', 0.7803353843555049, 'SB', 'EXISTING SERVICE BOX', 1.749630906627053] };
     const inl = new Map();
+    const odcBlk = odcIso(); // v2.41: the ODC block (made when the plan has an ODC)
+    if (pts.some((p) => p.el === 'ODC')) { addLayer(d, S, 'G-ESAA PROPOSED ODC', 1); addLayer(d, S, 'G-ESAA EXISTING ODC', 5); defineBlock(d, S, ODC_BLOCK, odcBlk.polys, odcBlk.texts); }
     const inlineOf = (p, b, layer, sc, faced, flip) => {
       const bb = blockBox(S, b, 0), bt = blockBoxT(S, b); if (!bb || !bt) return null;
       const w = bb[2] - bb[0], h = bb[3] - bb[1]; if (!sc) sc = NAP_W / ((bt[2] - bt[0]) || w || 1); // as wide as the NAP, its texts included
@@ -1106,8 +1184,13 @@
         const need = it.hh + p.rp + (p.arm ? Math.max(0.8, p.armLen) : 0.8), cur = dist2(p.dp, p.A);
         if (cur < need) p.dp = add2(p.A, p.td, -need);
         if (p.arm) p.armLen = Math.max(0.8, dist2(p.dp, p.A) - p.rp - it.hh);
+      } else if (p.el === 'ODC') { // v2.41: the ODC cabinet (the template has no ODC model): G-eSAA's block, an isometric view of the cabinet of the
+        // photo marker, upright, on the cable (the cable meets its two sides)
+        const t = downAt(p), rot = readable(deg(t)), ax = rotv([1, 0], rot), sc = ODC_H, w = odcBlk.w * sc, h = odcBlk.h * sc;
+        const it = { p, at: p.A, b: ODC_BLOCK, odc: { w, h, isNew, sc }, layer: lay(isNew ? 'G-ESAA PROPOSED ODC' : 'G-ESAA EXISTING ODC'), sc, rot: 0, ax, hl: w / 2, hlo: w / 2, hhi: w / 2, hh: h / 2, lrot: rot };
+        it.label = p.poleId || ''; it.kind = 'ODC'; it.col = pinColor(p); inl.set(p, it);
       } else if (INLINE_EL.has(p.el)) {
-        const key = p.el === 'ODC' && /double/i.test(p.lcp || '') ? 'ODC2' : p.el, k = BLK[key];
+        const key = p.el, k = BLK[key];
         const old = !isNew && S.blocks.has(k[3]), b = old ? k[3] : k[0]; if (!S.blocks.has(b)) continue;
         const it = inlineOf(p, b, old ? k[4] : k[1], old ? k[5] : k[2], p.el === 'ODC', false); if (!it) continue;
         it.label = p.poleId || ''; it.kind = p.el; it.col = pinColor(p); inl.set(p, it);
@@ -1165,24 +1248,30 @@
         o.insert(isNew ? lay('P-HOST') : lay('X-HOST'), isNew ? 'P-HOST' : 'X-HOST', p.E, p.N, { scale: 0.28, attrs: { HST_NAM: p.poleId || '', HST_COD: '', HST_LET: 'H' }, attrColor: pinColor(p) }); spots.add(Spots.box(p.E, p.N, 10, 10, 0));
       } else if (p.el === 'NAP') { // a NAP pin away from every pole of the route: where it is
         o.insert(isNew ? lay('PROPOSED NAP') : lay('EXISTING NAP'), isNew ? 'proposed NAP' : 'existing NAP', p.E, p.N, { scale: 0.7803353843555049, center: true }); spots.add(Spots.box(p.E, p.N, 20, 9, 0));
-        if (p.poleId) { o.text(lay('Proposed NAP ID', 'MISC'), p.E, p.N - 7, 2.5, p.poleId, { ha: 1, va: 2, style: 'arial' }); spots.add(textBox(p.E, p.N - 7, 2.5, p.poleId, 0, 1, 2)); }
+        if (p.poleId) { idText(lay('Proposed NAP ID', 'MISC'), p.E, p.N - 7, IDS.h, p.poleId, 0, null); spots.add(textBox(p.E, p.N - 7, IDS.h, p.poleId, 0, 1, 2)); }
       } else if (p.el === 'Closure') {
         o.insert(lay('P-JOINT'), 'P-Joint', p.E, p.N, { scale: 4.35, attrs: { JT_ID: p.poleId || p.closureId || '', JOINT: 'JT' } }); spots.add(Spots.box(p.E, p.N, 9, 9, 0));
       } else if (!inl.has(p) && !INLINE_EL.has(p.el)) o.circle(lay('MISC'), p.E, p.N, 2);
     }
+    let nOdc = 0;
     for (const it of inl.values()) { // the blocks on the cable, then their IDs below them (above when that place is taken)
+      if (it.odc) { // v2.41: the ODC block (isometric cabinet), upright; red when new, blue existing (or the pin's colour)
+        const { w, h, isNew, sc } = it.odc, col = it.col != null ? it.col : isNew ? 1 : 5;
+        o.insert(it.layer, ODC_BLOCK, it.at[0], it.at[1], { scale: sc, color: col }); spots.add(Spots.box(it.at[0], it.at[1], w, h, 0)); nInline++; nOdc++; continue;
+      }
       o.insert(it.layer, it.b, it.at[0], it.at[1], { scale: it.sc, rot: it.rot, center: true }); spots.add(Spots.box(it.at[0], it.at[1], it.hl * 2, it.hh * 2, it.rot)); nInline++;
     }
     for (const it of inl.values()) {
       if (!it.label) continue;
-      const rr = readable(it.rot), ux = [Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], dn = [ux[1], -ux[0]], th = 2.5;
+      const rr = it.odc ? 0 : readable(it.rot), ux = [Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], dn = [ux[1], -ux[0]], th0 = IDS.h; // (the ODC's picture is upright: its ID level under it)
       // v2.39.1: on the side away from its pole first (the pole's own label goes on the pole's side), then a little further out or
-      // along the cable; crossing a road edge line rather than covering a label or a symbol
+      // along the cable; crossing a road edge line rather than covering a label or a symbol. v2.41: where every place is taken at the
+      // ID's size, a size smaller (twice at most) before covering anything
       const pole = it.p && it.p.el === 'Pole' && it.p.dp ? it.p : null, away = pole ? -(Math.sign((pole.dp[0] - it.at[0]) * dn[0] + (pole.dp[1] - it.at[1]) * dn[1]) || -1) : 1;
-      const lc = []; for (const sd of [away, -away]) for (const ex of [0, 1.5, 3]) for (const a of [0, 4, -4, 8, -8]) { const q = add2(add2(it.at, dn, sd * (it.hh + th * 0.9 + ex)), ux, a); lc.push({ q, boxes: [textBox(q[0], q[1], th, it.label, rr, 1, 2)] }); }
+      const lc = []; for (const th of [th0, th0 * 0.8, th0 * 0.64]) for (const sd of [away, -away]) for (const ex of [0, 1.5, 3]) for (const a of [0, 4, -4, 8, -8]) { const q = add2(add2(it.at, dn, sd * (it.hh + th * 0.9 + ex)), ux, a); lc.push({ q, th, boxes: [textBox(q[0], q[1], th, it.label, rr, 1, 2)] }); }
       const c = pickW(spots, lc, ROADLINE_W);
-      const ly = it.kind === 'nap' ? lay('Proposed NAP ID', 'MISC') : it.kind === 'ODC' ? lay('Proposed LCP ID', 'MISC') : lay('MISC');
-      o.text(ly, c.q[0], c.q[1], th, it.label, { rot: rr, ha: 1, va: 2, style: 'arial', color: it.col != null ? it.col : null }); spots.add(c.boxes);
+      const ly = it.kind === 'nap' ? lay('Proposed NAP ID', 'MISC') : it.kind === 'ODC' ? it.layer : lay('MISC');
+      idText(ly, c.q[0], c.q[1], c.th, it.label, rr, it.col); spots.add(c.boxes);
     }
     // 7. guys: against the pull of the cable (a head guy in line with it), drawn with the template's guy symbols. v2.37: a side guy
     //    that would point into the road is turned round; a head guy on a pole with spans both ways leans away from the longer
@@ -1284,7 +1373,8 @@
       if (p.mloop && S.blocks.has('loopp')) {
         const bb = blockBox(S, 'loopp', 0), sc = 2.470465709436871, lw = bb ? (bb[2] - bb[0]) * sc : 9.5, lh = bb ? (bb[3] - bb[1]) * sc : 7.1;
         const Q = nb.get(p) || [], Qn = Q.filter((q) => hd(q) > hd(p)).sort((x, y) => hd(x) - hd(y)), dir = Qn.length ? unit(p.A, Qn[0].A) : Q.length ? unit(p.A, Q[0].A) : t; // along the span down the route (at the end, back along its span)
-        const s = Math.max(p.rp + 2, napHl + 1.5) + lw / 2, Q0 = add2(p.A, dir, s), c0 = add2(Q0, p.td, lh / 2), rot = deg(p.td) + 90;
+        // v2.41: right in front of its pole (where its arm meets the cable), or just past its NAP: a loop is on the pole, not along the span
+        const s = napHl ? napHl + 0.6 + lw / 2 : 0, Q0 = add2(p.A, dir, s), c0 = add2(Q0, p.td, lh / 2), rot = deg(p.td) + 90;
         // the loop's straight line (the cable) laid on the cable, its circle hanging on the road side
         const le = lineEnds(S, 'loopp'), mid = le ? [(le[0][0] + le[1][0]) / 2, (le[0][1] + le[1][1]) / 2] : [0, 0], mo = rotv([mid[0] * sc, mid[1] * sc], rot);
         o.insert(lay('PROPOSED LOOP'), 'loopp', Q0[0] - mo[0], Q0[1] - mo[1], { scale: sc, rot }); spots.add(Spots.box(c0[0], c0[1], lw, lh, deg(dir)));
@@ -1299,7 +1389,7 @@
         const cands = []; for (const off of [9.5, 14, 19]) for (const k of [0, -6, 6, -12, 12, -18, 18, -24]) for (const side of [1, -1]) { const q = add2(base, back, Math.max(-6, Math.min(6, k))), tq = add2(add2(q, ow, side * off), back, k - Math.max(-6, Math.min(6, k))), lx = tq[0] - tw / 2; // the symbol near its pole, the texts beside it where they cover nothing
           cands.push({ q, lx, ty: tq[1], boxes: [textBox(lx - 1.5, tq[1] + 1.8, 3, 'PROPOSED  ', 0, 0, 2), textBox(lx - 1.5, tq[1] - 2.6, 3, cid + '  ', 0, 0, 2), Spots.box(q[0], q[1], 9, 4, rd)] }); } // (a little room round the texts)
         const c = pick(spots, cands);
-        const jt = { JT_ID: { v: 'PROPOSED', x: c.lx, y: c.ty + 1.8, h: 3.0, ha: 0, va: 2 }, JOINT: { v: cid, x: c.lx, y: c.ty - 2.6, h: 3.0, ha: 0, va: 2 } };
+        const jt = { JT_ID: { v: p.closureOld ? 'EXISTING' : 'PROPOSED', x: c.lx, y: c.ty + 1.8, h: 3.0, ha: 0, va: 2 }, JOINT: { v: cid, x: c.lx, y: c.ty - 2.6, h: 3.0, ha: 0, va: 2 } }; // v2.41: an existing hybrid closure says so
         o.insert(lay('P-JOINT'), 'P-Joint', c.q[0], c.q[1], { scale: 4.35, rot: rd, attrs: jt }); spots.add(c.boxes);
       }
     }
@@ -1324,16 +1414,17 @@
       // smaller under them (v2.33: the coordinates are part of the stack, as in the template's sample)
       const n = shown.length, gap = 0.35 * H, llH = HL * (1 + 5 / 3), T = n * 1.5 * H + gap + llH;
       const cands = [];
-      for (const a of [0, 30, -30, 60, -60, 90, -90, 120, -120]) {
+      // v2.41: also a little further out (2.5 m, 5 m) before covering anything; a road edge line counts least, the cable more, a label most
+      for (const ex of [0, 2.5, 5]) for (const a of [0, 30, -30, 60, -60, 90, -90, 120, -120, 150, -150]) {
         const ov = rotv([-p.td[0], -p.td[1]], a), dg = deg(ov), rr = readable(dg), flip = Math.abs(((dg - rr) % 360 + 360) % 360 - 180) < 1, ha = flip ? 2 : 0;
         const up = rotv([Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], 90);
-        const base = add2(p.dp, ov, p.rp + 1.2), boxes = [], place = [];
+        const base = add2(p.dp, ov, p.rp + 1.2 + ex), boxes = [], place = [];
         shown.forEach(([t, v], k) => { const q = add2(base, up, T / 2 - (k + 0.5) * 1.5 * H); place.push([t, v, q]); boxes.push(textBox(q[0], q[1], H, v, rr, ha, 2)); });
         const llAt = add2(base, up, T / 2 - n * 1.5 * H - gap - llH / 2);
         [[lat, HL * 5 / 6], [lon, -HL * 5 / 6]].forEach(([v, dy]) => { const q = add2(llAt, up, dy); boxes.push(textBox(q[0], q[1], HL, v, rr, ha, 2)); });
         cands.push({ boxes, place, rr, ha, llAt, ov, flip });
       }
-      const c = pick(spots, cands); spots.add(c.boxes, 'label:' + p.poleId);
+      const c = pickW(spots, cands, POLELBL_W); spots.add(c.boxes, 'label:' + p.poleId);
       // the block keeps the values in its attributes (hidden); the labels are plain texts in one direction (the pole blocks
       // of the template are dynamic blocks, and AutoCAD would put some of their attributes back where the block wants them)
       const attrs = {}; lines.forEach(([t, v]) => { if (t) attrs[t] = { v, x: p.dp[0], y: p.dp[1], rot: c.rr, h: H, ha: 0, va: 0, hidden: true }; });
@@ -1370,47 +1461,69 @@
     markOrder.forEach((p, i) => { p.seq = i + 1; });
     const rOf = (p) => (p.el === 'Pole' ? p.rp : inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : p.el === 'Site' ? 8 : 4);
     const anchors = [...new Set([...poleOrder, ...markOrder])]; // a photo nearer its own point than any pole or other marked point
-    const photos = job.markNum ? {} : job.photos || {}, havePhotos = Object.keys(photos).length > 0, photoLayer = havePhotos ? (addLayer(d, S, 'G-ESAA POLE PHOTO', 7), 'G-ESAA POLE PHOTO') : null;
+    // v2.41: job.markMode 'photo' (a point without a photo shows its number), 'num' (numbers only) or 'both' (each photo with its number
+    // at its upper left); the number in the user's style (NS: colour, size, circle, distance, leader line, where)
+    const markMode = job.markMode || (job.markNum ? 'num' : 'photo');
+    const photos = markMode === 'num' ? {} : job.photos || {}, havePhotos = Object.keys(photos).length > 0, photoLayer = havePhotos ? (addLayer(d, S, 'G-ESAA POLE PHOTO', 7), 'G-ESAA POLE PHOTO') : null;
     const ANG = []; for (let a = -165; a <= 180; a += 15) ANG.push(a);
     ANG.sort((x, y) => Math.abs(Math.abs(x) - 80) - Math.abs(Math.abs(y) - 80)); // beside the label first, not over it or the road
+    const ANG_OUT = [0, 15, -15, 30, -30, 45, -45, 60, -60, 75, -75, 90, -90, 120, -120, 150, -150, 180]; // straight out from the road first
+    const numD = (p) => Math.max(NS.d, String(p.seq).length * NS.h * CHW + NS.h * 0.6); // the number's circle (wider for a long number)
     const placePhotos = (Lp) => {
       const mark = spots.list.length, out = []; let miss = 0;
       for (const p of [...markOrder.filter((x) => x.el === 'Pole'), ...markOrder.filter((x) => x.el !== 'Pole')]) { // v2.40: the poles' first
-        const ph = photos[p.id] || photos[String(p.id)];
-        const w = ph ? (ph.px >= ph.py ? Lp : Lp * ph.px / ph.py) : 19, h = ph ? (ph.px >= ph.py ? Lp * ph.py / ph.px : Lp) : 19;
+        const ph = photos[p.id] || photos[String(p.id)], nd = ph ? 0 : numD(p);
+        const w = ph ? (ph.px >= ph.py ? Lp : Lp * ph.px / ph.py) : nd, h = ph ? (ph.px >= ph.py ? Lp * ph.py / ph.px : Lp) : nd;
+        const out1 = !ph && NS.place === 'out' && p.td, base = out1 ? [-p.td[0], -p.td[1]] : p.ov || [1, 0], angs = out1 ? ANG_OUT : ANG;
+        const gaps = ph ? [0.8, 2.5, 5, 8, 12, 17] : [NS.g, NS.g + 1.5, NS.g + 3.5, NS.g + 6, NS.g + 10, NS.g + 15].map((g) => Math.max(0.3, g));
         const free = [], rest = [];
-        look: for (const gap of [0.8, 2.5, 5, 8, 12, 17]) for (const a of ANG) {
-          const u = rotv(p.ov || [1, 0], a), t = Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9);
+        look: for (const gap of gaps) for (const a of angs) {
+          const u = rotv(base, a), t = ph ? Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9) : nd / 2;
           const q = add2(p.dp, u, rOf(p) + gap + t);
           if ([[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].some(([sx, sy]) => R.idx.inside([q[0] + sx * w / 2, q[1] + sy * h / 2], -1, -2))) continue; // off the roads
           const mine = !anchors.some((x) => x !== p && dist2(x.dp, q) < dist2(p.dp, q) - 1); // nearer its own point than any other
-          const c = { q, gap, boxes: [Spots.box(q[0], q[1], w + 1.0, h + 1.0, 0)] };
+          const c = { q, u, gap, boxes: [Spots.box(q[0], q[1], w + 1.0, h + 1.0, 0)] };
           if (mine && !spots.hits(c.boxes[0])) { free.push(c); break look; }
           if (mine) rest.push(c);
         }
         let cn = free[0];
-        if (!cn) { miss++; cn = rest.reduce((b, x) => (!b || spots.hits(x.boxes[0]) * 10 + x.gap < spots.hits(b.boxes[0]) * 10 + b.gap ? x : b), null) || { q: add2(p.dp, p.ov || [1, 0], rOf(p) + 2 + Math.hypot(w, h) / 2), boxes: [] }; }
-        spots.add(cn.boxes, ph ? 'photo' : 'num'); out.push({ p, ph, w, h, q: cn.q });
+        if (!cn) { miss++; cn = rest.reduce((b, x) => (!b || spots.hits(x.boxes[0]) * 10 + x.gap < spots.hits(b.boxes[0]) * 10 + b.gap ? x : b), null) || { q: add2(p.dp, p.ov || [1, 0], rOf(p) + 2 + Math.hypot(w, h) / 2), u: p.ov || [1, 0], boxes: [] }; }
+        spots.add(cn.boxes, ph ? 'photo' : 'num');
+        if (!ph && NS.leader) { const la = add2(p.dp, cn.u, rOf(p) + 0.2), lb = add2(cn.q, cn.u, -nd / 2); if (dist2(la, lb) > 0.5) spots.line([la, lb], 0.4); } // its leader line
+        out.push({ p, ph, w, h, q: cn.q, u: cn.u });
       }
       return { out, miss, mark };
     };
     let Lp = Math.max(12, 18 * kG), photoPl = placePhotos(Lp);
     for (let tries = 0; tries < 2 && photoPl.miss > Math.max(1, markOrder.length / 4); tries++) { spots.truncate(photoPl.mark); Lp *= 0.8; photoPl = placePhotos(Lp); }
-    for (const { p, ph, w, h, q } of photoPl.out) {
+    const nCol = NS.color || null, bCol = NS.bcolor || NS.color || null, nLay = lay('p-pole');
+    for (const { p, ph, w, h, q, u } of photoPl.out) {
       if (ph && havePhotos) {
         getImgs().image(o, lay(photoLayer), ph.file, ph.px, ph.py, q[0] - w / 2, q[1] - h / 2, w, h);
         o.lwpoly(lay(photoLayer), [[q[0] - w / 2, q[1] - h / 2], [q[0] + w / 2, q[1] - h / 2], [q[0] + w / 2, q[1] + h / 2], [q[0] - w / 2, q[1] + h / 2]], { closed: true, color: 8 }); // its frame
-      } else { o.circle(lay('p-pole'), q[0], q[1], 9); o.text(lay('p-pole'), q[0], q[1], 7, String(p.seq), { ha: 1, va: 2, style: 'arial' }); }
+        if (markMode === 'both') { // v2.41: its number at the photo's upper left, on a dark box (it reads on any photo)
+          const th = Math.max(1.2, Math.min(NS.h, h * 0.3)), D = NS.d > 0 ? Math.max(th * 1.7, String(p.seq).length * th * CHW + th * 0.6) : 0, r0 = (D || th * 1.6) / 2;
+          const c = [q[0] - w / 2 + r0 + 0.4, q[1] + h / 2 - r0 - 0.4];
+          if (D) o.circle(nLay, c[0], c[1], D / 2, { color: bCol });
+          o.mtext(nLay, c[0], c[1], th, String(p.seq), { att: 5, style: 'arial', color: nCol, mask: 250 });
+        }
+      } else {
+        const D = NS.d > 0 ? numD(p) : 0;
+        if (D) o.circle(nLay, q[0], q[1], D / 2, { color: bCol });
+        o.text(nLay, q[0], q[1], NS.h, String(p.seq), { ha: 1, va: 2, style: 'arial', color: nCol });
+        if (NS.leader) { const la = add2(p.dp, u, rOf(p) + 0.2), lb = add2(q, u, -(D || NS.h) / 2 - 0.2); if (dist2(la, lb) > 0.5) o.lwpoly(nLay, [la, lb], { color: bCol }); }
+      }
     }
-    rep.photoSize = +Lp.toFixed(1); rep.photosNotFree = photoPl.miss;
-    rep.marks = markOrder.map((p) => [p.seq, String(p.id), photos[p.id] || photos[String(p.id)] ? 'photo' : 'number']); // v2.40: the numbers on the plan
+    rep.photoSize = +Lp.toFixed(1); rep.photosNotFree = photoPl.miss; rep.markMode = markMode;
+    rep.marks = markOrder.map((p) => [p.seq, String(p.id), photos[p.id] || photos[String(p.id)] ? (markMode === 'both' ? 'photo+number' : 'photo') : 'number']); // v2.40: the numbers on the plan
     // 11. coordinates of the points that are not poles
     // v2.37: smaller, where they cover nothing (none for a NAP or closure drawn on its pole)
     for (const p of pts) {
       if (p.el === 'Pole' || p.onPole) continue;
       const q0 = inl.has(p) ? inl.get(p).at : [p.E, p.N], ext = inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : 3, hL = 1.2, w = 10 * hL * CHW, h = 2 * 1.67 * hL;
-      const cs = []; for (const r of [ext + 1.5, ext + 5, ext + 9]) for (const a of [-45, 45, -135, 135, -90, 90, 0, 180]) { const u = rotv([1, 0], a), c = add2(q0, u, r + w / 2 * Math.abs(u[0]) + h / 2 * Math.abs(u[1])); cs.push({ q: [c[0] - w / 2, c[1] + h / 2], boxes: [Spots.box(c[0], c[1], w, h, 0)] }); }
-      const c = pick(spots, cs); spots.add(c.boxes);
+      // v2.41: where every place is taken, over a road edge line or the cable rather than over an ID, a number or a photo
+      const cs = []; for (const r of [ext + 1.5, ext + 5, ext + 9, ext + 13, ext + 18]) for (const a of [-45, 45, -135, 135, -90, 90, 0, 180]) { const u = rotv([1, 0], a), c = add2(q0, u, r + w / 2 * Math.abs(u[0]) + h / 2 * Math.abs(u[1])); cs.push({ q: [c[0] - w / 2, c[1] + h / 2], boxes: [Spots.box(c[0], c[1], w * 1.1, h, 0)] }); }
+      const c = pickW(spots, cs, LL_W); spots.add(c.boxes);
       o.mtext(lay('LATLONG'), c.q[0], c.q[1], hL, `{\\fSimSun|b0|i0|c134|p2;${p.lat.toFixed(6)}%%D\\P${p.lon.toFixed(6)}%%D}`, { style: '样式 1' });
     }
     // 12. v2.34: the name of every named road on every GEO sheet it crosses (once per sheet), on the road where it covers no label;
@@ -1428,10 +1541,12 @@
         segs.sort((x, y) => y.L - x.L);
         let done = false;
         // v2.39.1: on the middle of the road, else across it from the cable (the cable runs inside the road), smaller on a narrow road
-        look: for (const h of [3.5, 2.8, 2.2]) for (const sg of segs.slice(0, 8)) {
+        // v2.41: a size smaller again (2 m, 1.6 m) before giving up, and a little more room round it so it does not run into a span
+        //        length or a label beside it
+        look: for (const h of [3.2, 2.6, 2.0, 1.6]) for (const sg of segs.slice(0, 8)) {
           const u = unit(sg.a, sg.b), rd = readable(deg(u)), nv = [-u[1], u[0]];
           for (const f of [0.5, 0.3, 0.7, 0.15, 0.85]) for (const dd of [0, 0.4, -0.4, 0.6, -0.6]) {
-            const q = add2(add2(sg.a, u, f * sg.L), nv, dd * sg.hw), b0 = textBox(q[0], q[1], h, txt, rd, 1, 2), b = { ...b0, hw: b0.hw + h * 0.5 }; // a little room at its ends
+            const q = add2(add2(sg.a, u, f * sg.L), nv, dd * sg.hw), b0 = textBox(q[0], q[1], h, txt, rd, 1, 2), b = { ...b0, hw: b0.hw + h * 1.2, hh: b0.hh + 0.35 }; // room at its ends and sides
             if (!inside(b0, W, 1) || spots.hits(b)) continue;
             o.text(lay('STREET NAME'), q[0], q[1], h, txt, { rot: rd, ha: 1, va: 2, style: 'arial' }); spots.add(b, 'street'); nStreets++; done = true; break look;
           }
@@ -1455,13 +1570,20 @@
         segs.sort((x, y) => y.L - x.L);
         const ks = W ? [1, -1, 1.7, -1.7, 2.5, -2.5] : [1, -1, 1.7, -1.7, 2.5, -2.5, 3.5, -3.5]; // v2.39.1: the one fallback looks a little further out
         // v2.40: the one fallback, crowded (a short underground run between handholes), also a size smaller
-        for (const h of W ? [th] : [th, th * 0.8]) { const o2 = h * 0.75 + 0.6; for (const sg of segs.slice(0, 12)) { const t = unit(sg.a, sg.b), rd = readable(deg(t)), nl = [-t[1], t[0]]; for (const k of ks) for (const f of [0.5, 0.3, 0.7, 0.15, 0.85]) { const q = add2(add2(sg.a, t, sg.L * f), nl, k * o2), bx = textBox(q[0], q[1], h, txt, rd, 1, 2); if (!W || boxIn(bx, W, 1)) cands.push({ q, rd, h, k: Math.abs(k), boxes: [bx] }); } } }
+        // v2.41: the name never runs past the line it names: on a short piece of cable it is made smaller to fit (down to 0.9 m)
+        const tw1 = txt.length * CHW; // its width for a height of 1 m
+        for (const h0 of W ? [th] : [th, th * 0.8]) for (const sg of segs.slice(0, 12)) {
+          const h = Math.min(h0, (sg.L * 0.92) / tw1); if (h < 0.9) continue;
+          const o2 = h * 0.75 + 0.6, t = unit(sg.a, sg.b), rd = readable(deg(t)), nl = [-t[1], t[0]], fs = h * tw1 > sg.L * 0.6 ? [0.5] : [0.5, 0.3, 0.7, 0.15, 0.85];
+          for (const k of ks) for (const f of fs) { const q = add2(add2(sg.a, t, sg.L * f), nl, k * o2), bx = textBox(q[0], q[1], h, txt, rd, 1, 2); if (!W || boxIn(bx, W, 1)) cands.push({ q, rd, h, k: Math.abs(k), boxes: [bx] }); }
+        }
         if (!cands.length) return false;
-        if (!W) cands.sort((x, y) => (x.h < th) - (y.h < th) || (x.k > 2.5) - (y.k > 2.5)); // the fallback: full size close to the cable first, further out, then smaller
+        cands.sort((x, y) => (x.h < th - 1e-9) - (y.h < th - 1e-9) || (!W && ((x.k > 2.5) - (y.k > 2.5)))); // full size first (close to the cable first, then further out), then smaller
         // on a sheet: only where it covers nothing; the one fallback: where it covers least, never over a street name if it can help it
         const wf = (t) => (t === 'street' ? 6 : t === 'road' ? 0.2 : 1), nOf = (x) => (x && x.n) || 0;
-        let c = W ? pick(spots, cands) : pickW(spots, cands.filter((x) => x.h === th), wf); if (W && c.n > 0) return false;
-        if (!W && nOf(c) >= 1) { const s2 = pickW(spots, cands.filter((x) => x.h !== th), wf); if (s2 && nOf(s2) < nOf(c)) c = s2; } // smaller only when the full size would cover a label
+        const full = cands.filter((x) => x.h >= th - 1e-9), small = cands.filter((x) => x.h < th - 1e-9);
+        let c = W ? pick(spots, cands) : full.length ? pickW(spots, full, wf) : pickW(spots, small, wf); if (W && c.n > 0) return false;
+        if (!W && nOf(c) >= 1 && small.length && full.length) { const s2 = pickW(spots, small, wf); if (s2 && nOf(s2) < nOf(c)) c = s2; } // smaller only when the full size would cover a label
         o.text(lay('MISC'), c.q[0], c.q[1], c.h || th, txt, { rot: c.rd, ha: 1, va: 2, style: 'arial', color: (CABLE_STYLE[ch.cable] || {}).color || null }); spots.add(c.boxes); nCableNames++;
         return true;
       };
@@ -1518,16 +1640,19 @@
       //        map's width / 1500 m) so it reads the same on a 1.5 km or an 8 km map: the red line 1.1 % of the map's width, on a white band
       //        twice as wide
       const lch = chains.filter((ch) => ch.ids && ch.ids.length && locOfId(ch.ids[0]) === lk);
-      for (const ch of lch) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: 33 * vk, ...WHITE, gen: true });
-      for (const ch of lch) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: 16.5 * vk, color: ch.existing ? 5 : ch.ug ? 3 : 1, lt: ch.ug ? null : vlt, lts: vlt && !ch.ug ? 26 * vk : 0, gen: true });
+      // v2.41: its colour and width as the user set them (Drawing style; by default red / blue / green by cable, 16.5 m per 1.5 km)
+      const rw = VS.routeW * vk;
+      for (const ch of lch) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: rw * 2, ...WHITE, gen: true });
+      for (const ch of lch) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: rw, color: VS.route || (ch.existing ? 5 : ch.ug ? 3 : 1), lt: ch.ug ? null : vlt, lts: vlt && !ch.ug ? rw * 26 / 16.5 : 0, gen: true });
       if (!lch.some((ch) => ch.line && ch.line.length > 1)) { // a place with no cable route (points not linked yet): a dot at each point, as before
         const vDot = (q, r, col) => o.lwpoly(VLAY, [[q[0] - r / 2, q[1], 1], [q[0] + r / 2, q[1], 1]], { closed: true, w: r, ...col }); // a filled disc of radius r
         for (const p of lpts) { if (p.el === 'NAP' || p.el === 'Closure') continue; const q = vsh(p.dp || [p.E, p.N]); vDot(q, 14 * vk, WHITE); vDot(q, 9.5 * vk, { color: 1 }); } }
       { const dps = lpts.map((p) => p.dp || [p.E, p.N]), xs = dps.map((q) => q[0]), ys = dps.map((q) => q[1]);
         const vc = Array.isArray(v.circle) && v.circle.length === 3 ? v.circle : null;
         const c = vsh(vc ? [vc[0], vc[1]] : [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]);
-        const rad = vc ? vc[2] : Math.max(70 * vk, Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 + 45 * vk), col = img && img.sat ? 2 : 1;
-        o.lwpoly(VLAY, [[c[0] - rad, c[1], 1], [c[0] + rad, c[1], 1]], { closed: true, w: 7 * vk, color: col });
+        // v2.41: the circle yellow again on every map (v2.40: red over a street map), its colour and width as the user set them
+        const rad = vc ? vc[2] : Math.max(70 * vk, Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 + 45 * vk), col = VS.circle || 2;
+        o.lwpoly(VLAY, [[c[0] - rad, c[1], 1], [c[0] + rad, c[1], 1]], { closed: true, w: VS.circleW * vk, color: col });
         const lh = 18 * vk, lw = 'PROJECT AREA'.length * lh * 0.74, ly = c[1] + rad + 8 * vk + lh * 0.9; // the label on a dark box, framed
         o.lwpoly(VLAY, [[c[0] - lw / 2 - lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly + lh * 0.9], [c[0] - lw / 2 - lh * 0.6, ly + lh * 0.9]], { closed: true, w: 2 * vk, color: 2 });
         o.mtext(VLAY, c[0], ly, lh, 'PROJECT AREA', { att: 5, style: 'arial', color: 2, mask: 250 });
@@ -1692,9 +1817,9 @@
     rep.partly = [...blanks].filter((k) => filled.has(k)).sort();
     if (job.debug) rep.pts = pts.map((p) => ({ id: p.id, poleId: p.poleId, el: p.el, dp: p.dp, A: p.A, kept: !!p.kept, moved: p.moved || 0, onPole: p.onPole ? p.onPole.id : null }));
     if (job.debug) rep.inline = [...inl.values()].map((it) => ({ b: it.b, at: it.at, hl: it.hl, hlo: it.hlo, hhi: it.hhi, hh: it.hh, sc: it.sc, rot: it.rot, box: blockBox(S, it.b, 0), boxT: blockBoxT(S, it.b), c: blockCenter(S, it.b) }));
-    rep.counts = { ...o.n, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length };
+    rep.counts = { ...o.n, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length };
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0] };
     return { text: d.text(), report: rep };
   }
-  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, version: '2.40.0' };
+  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.41.0' };
 }));
