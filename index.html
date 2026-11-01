@@ -355,6 +355,11 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 #pinMap{position:absolute;inset:0;background:var(--chip)}
 #crosshair{position:absolute;left:50%;top:50%;width:0;height:0;z-index:400;pointer-events:none}
 #crosshair svg{position:absolute;left:-15px;top:-41px;width:30px;height:42px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.4))}
+#crossSym{position:absolute;left:-19px;top:-82px;width:38px;height:38px;border-radius:9px;background:#fff;border:2px solid #e6007e;display:grid;place-items:center;box-shadow:0 2px 4px rgba(0,0,0,.35)}#crossSym[hidden]{display:none}#crossSym svg{position:static;width:30px;height:30px;filter:none}
+.edsym{margin:0;display:flex;flex-direction:column;align-items:center;gap:3px;flex:none}.edsym svg{display:block;width:84px;height:84px;border-radius:8px;border:1px solid var(--line);background:#fff}.edsym figcaption{font-size:calc(11px * var(--fs));color:var(--muted);max-width:100px;text-align:center;line-height:1.2}.edbody .edsym svg{width:64px;height:64px}
+.svsym{display:grid;place-items:center;width:30px;height:30px;border-radius:8px;background:#fff;border:2px solid var(--c);box-shadow:0 1px 3px rgba(0,0,0,.35)}.svsym.sel{outline:3px solid #17202a}.svsym svg{display:block}
+.pole-label.oth{opacity:.8;font-size:11px}
+.rb-advice{margin:4px 0 0;font-size:calc(12px * var(--fs));color:#b35c00;line-height:1.35}
 #crosshair i{position:absolute;left:-7px;top:-3px;width:14px;height:6px;border-radius:50%;background:rgba(0,0,0,.35);filter:blur(1px)} /* the pin's shadow: its tip is the spot */
 #pinLayer{position:absolute;top:8px;right:8px;z-index:400;display:flex;align-items:center;gap:6px}
 #pinLayer .round{width:42px;height:42px}
@@ -656,6 +661,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </section>
   <div id="routeBar" hidden>
     <div class="rb-head"><b id="rbTitle">Route</b><span id="rbStats"></span></div>
+    <p class="rb-advice" id="rbAdvice" hidden></p>
     <p class="rb-hint" id="rbHint">Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.</p>
     <div class="rb-cable"><label for="rbCable">CABLE</label><select id="rbCable" aria-label="Cable type of the spans you link"></select><button class="btn sm" id="rbCableAll" type="button">Set on all spans</button></div>
     <div class="rb-btns">
@@ -723,7 +729,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </header>
   <div id="pinMapWrap">
     <div id="pinMap"></div>
-    <div id="crosshair"><i></i><svg viewBox="0 0 30 42" aria-hidden="true"><path d="M15 40.5C15 40.5 3 26.4 3 15.2A12 12 0 0 1 27 15.2C27 26.4 15 40.5 15 40.5Z" fill="#e6007e" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><circle cx="15" cy="15" r="5" fill="#fff"/></svg></div>
+    <div id="crosshair"><span id="crossSym" hidden></span><i></i><svg viewBox="0 0 30 42" aria-hidden="true"><path d="M15 40.5C15 40.5 3 26.4 3 15.2A12 12 0 0 1 27 15.2C27 26.4 15 40.5 15 40.5Z" fill="#e6007e" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><circle cx="15" cy="15" r="5" fill="#fff"/></svg></div>
     <p id="edHint" class="maphint">Drag the map to put the pin on the pole</p>
     <button class="btn" id="kbDone" type="button">Done ✓</button>
     <button class="round" id="pinSizeBtn" type="button" aria-label="Bigger map" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
@@ -737,7 +743,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <p class="notice warn" id="edLock" hidden></p>
     <div class="group">
       <h3>Photo</h3>
-      <div id="photoStrip"><span class="thumbwrap"><img id="edPhoto" alt="Captured pole photo" title="Tap to see the full photo, mark it or edit its marks"><span class="zoomico" id="edZoom" aria-hidden="true">⤢</span></span><div class="meta"><span id="edTime">–</span><span id="edAcc">–</span><span id="edSrc"></span></div><button class="btn primary" id="edSaveTop" type="button">Save</button></div>
+      <div id="photoStrip"><span class="thumbwrap"><img id="edPhoto" alt="Captured pole photo" title="Tap to see the full photo, mark it or edit its marks"><span class="zoomico" id="edZoom" aria-hidden="true">⤢</span></span><figure id="edSym" class="edsym" hidden><span id="edSymImg"></span><figcaption id="edSymCap"></figcaption></figure><div class="meta"><span id="edTime">–</span><span id="edAcc">–</span><span id="edSrc"></span></div></div>
       <p class="hint" id="boxInfo" hidden style="margin:0"></p>
       <div id="accPhotos" class="photo-grid" hidden></div>
       <p class="warnline" id="qualWarn" hidden></p>
@@ -759,6 +765,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <p class="warnline" id="dupWarn" hidden></p>
       <p class="warnline" id="fmtWarn" hidden></p>
       <label class="frow" id="odfBox" hidden><span class="lbl">ODF</span><select id="odfSel" aria-label="ODF"><option value="New">New ODF</option><option value="Existing">Existing ODF</option></select></label>
+      <label class="frow" id="siteKindBox" hidden><span class="lbl">SITE TYPE</span><select id="siteKindSel" aria-label="Site type"><option value="Tower">Tower</option><option value="OLT">OLT</option></select></label>
       <label class="frow" id="svClosureBox" hidden><span class="lbl">CLOSURE ID</span><input type="text" id="svClosureId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="If a closure is inside (POI)" aria-label="Closure ID in the handhole"></label>
       <div class="field" id="svDetailsBox" hidden><span class="lbl">POLE DETAILS</span><div id="svDetails" class="pdlist"></div>
         <select id="svDetailAdd" aria-label="Add a pole detail"><option value="">+ Add detail</option></select></div>
@@ -1033,7 +1040,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <p class="hint help">One company on the list is the <b>admin company</b> (e.g. Globe). Its admin users enter the admin PIN once and become admins and inspectors: they manage this list, add deficiencies and verify rectifications. Everyone else is a contractor user. New users join with the admin's join link or QR code; later versions come from the online sheet by themselves. A phone only takes versions made with the admin PIN.</p>
     <div class="sectionh">About</div>
     <div class="group">
-      <p class="hint" style="margin:0"><b style="color:var(--ink)" id="aboutVer">G-eSAA</b> · Geo electronic Survey, Audit &amp; Acceptance — digital from the field (formerly PoleCam)<br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.</p>
+      <p class="hint" style="margin:0"><b style="color:var(--ink)" id="aboutVer">G-eSAA</b> · Geo electronic Survey, Audit &amp; Acceptance — digital from the field (formerly PoleCam)<br>Map data © OpenStreetMap contributors (ODbL) · Satellite imagery © Esri (online only) · Offline map packs from Protomaps · OCR by Tesseract.<br>© MarkT. All rights reserved.</p>
       <p class="hint" id="policyInfo" style="margin:0"></p>
       <label class="check"><input type="checkbox" id="setShowHelp"><span>Keep the help text on every screen open</span></label>
       <label class="field">Text size<select id="setTextSize"><option value="0.8">Very small</option><option value="0.9">Small (default)</option><option value="1">Normal</option><option value="1.15">Large</option><option value="1.3">Extra large</option><option value="1.45">Largest</option></select></label>

@@ -308,7 +308,7 @@
    */
   /* Survey points other than poles (v2.13): their folder in Google Earth and their pin when there is no photo icon. */
   const KML_EL = { Pole: ['Poles', 'red-circle'], PoleProposed: ['Poles — proposed', 'wht-circle'], PoleNew: ['Poles — new', 'ylw-circle'], Site: ['Sites', 'purple-stars'], ODC: ['ODC', 'grn-square'],
-    ODF: ['ODF', 'blu-square'], NAP: ['NAP', 'ylw-diamond'], Closure: ['Closures (POI)', 'pink-diamond'], Handhole: ['Handholes', 'wht-square'] };
+    ODF: ['ODF', 'blu-square'], NAP: ['NAP', 'ylw-diamond'], Closure: ['Closures (POI)', 'pink-diamond'], Handhole: ['Handholes', 'wht-square'], Manhole: ['Manholes', 'wht-square'], 'Service box': ['Service boxes', 'wht-square'] };
   function buildKml(points, opts) {
     const o = opts || {};
     const styles = [], marks = {};
@@ -377,7 +377,7 @@
   const pointLayer = (p) => (!p.element || p.element === 'Pole'
     ? dxfLayerName(`POLE_${p.poleType || 'UNSPECIFIED'}${p.status === 'Proposed' || p.status === 'New' ? `_${p.status}` : ''}`)
     : dxfLayerName(`${p.element}_${p.status || 'UNSPECIFIED'}`));
-  const EL_COLOR = { Site: 6, ODC: 3, ODF: 5, NAP: 2, Closure: 210, Handhole: 8 };
+  const EL_COLOR = { Site: 6, ODC: 3, ODF: 5, NAP: 2, Closure: 210, Handhole: 8, Manhole: 8, 'Service box': 8 };
 
   /**
    * Drawing content in UTM metres, shared by both DXF versions.
@@ -592,7 +592,7 @@
   }
 
   /* v2.26: the BOQ / BOM sizes of a point (p.boq) in the CSV and the KMZ data */
-  const BOQ_COLS = [['owner', 'pole_owner'], ['clamp', 'clamp_size'], ['height', 'new_pole_size'], ['cls', 'pole_class'], ['odf', 'odf_size'], ['conn', 'odf_connector'], ['clo', 'closure_size'], ['cloSt', 'closure_status'], ['arm', 'new_arm'], ['guy', 'guying'], ['mloop', 'mloop']]; // v2.29: arm, guying, maintenance loop
+  const BOQ_COLS = [['owner', 'pole_owner'], ['clamp', 'clamp_size'], ['height', 'new_pole_size'], ['cls', 'pole_class'], ['odf', 'odf_size'], ['conn', 'odf_connector'], ['clo', 'closure_size'], ['cloSt', 'closure_status'], ['arm', 'new_arm'], ['guy', 'guying'], ['mloop', 'mloop'], ['napType', 'nap_type'], ['lcp', 'lcp'], ['ground', 'grounding'], ['riser', 'riser']]; // v2.29: arm, guying, maintenance loop; v2.37: NAP type, LCP, grounding, riser
   /* ---------------- CSV ---------------- */
   function buildCsv(points, zone, exportedBy) {
     const q = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };

@@ -530,6 +530,23 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.37.0
+
+From the design review of the v2.36.0 plan DXF (rounds 1 and 2):
+
+- **Poles beside the road again:** a pole placed or dragged by hand within **6 m** of the road edge is set beside the road like the others (CC-X4X0652 no longer sits on the road line). Farther from the road, e.g. inside a property to reach a site, it stays at its pin.
+- **Blocks on the cable:** every NAP (1x8, 1x16, dummy, changed to 1:16, double), the ODC (single or double LCP), handholes, manholes and service boxes are drawn **on the cable**, turned along it, with the cable meeting their two sides and the **ID below**. A NAP and an ODC face the homing with their input side. A NAP or closure recorded as its own pin is drawn on its pole. The pole symbol stands clear of its NAP.
+- **Loop, closure, guys:** the loop lies on the cable beside its pole and its text always reads the right way up; the closure is on the cable at its pole. Guys still point against the pull of the cable (a head or down guy in line with it), a side guy never points into the road, and a **pole-to-pole guy** goes to the pole you choose for it, with a head guy there.
+- **New drawings:** grounding at every pole with a loop or marked for it (half the legend's size); a riser where the cable goes from aerial to underground (or marked); directional boring (HDD) wherever an underground cable crosses a road; the underground cable solid and **green**, as the legend; a **new tower red**; an **OLT** site with the OLT model.
+- **Labels:** the cable's name is as small as the span lengths and runs close along the cable; the coordinates of the other points are smaller and placed where they cover nothing; labels are placed after every symbol, so they keep off them.
+- **Vicinity map, easier to spot:** the picture is grey and darker outside the PROJECT AREA circle, the circle and the route are bolder, the dots bigger, and PROJECT AREA sits on a dark box. The darkening is in the picture itself, so AutoCAD and PDF converters show the same thing.
+- **Pins on the map:** the pin menu offers **Tower**, **OLT** and **ODC** only (poles, ODFs and handholes are recorded with the camera). A pin carries its model while you place it, and a tower, an OLT or an ODC shows as its model on the map. A site's **SITE TYPE** (Tower or OLT) can be changed in its record.
+- **The record:** the project's other points and the route show faintly on the record's map as a guide. The Save button inside the photo box is gone (Save stays at the bottom); the element's **legend symbol** shows beside the photo.
+- **New settings (As-Plan / As-Built):** NAP type, ODC double LCP, pole grounding and riser, and the pole a pole-to-pole guy goes to. New elements: **Manhole** and **Service box** (on the route like a handhole).
+- **Route check:** a 72C run needs a closure before every 4 km and a 12C run a dummy NAP (or a closure) before every 2 km, counted from the homing; the route bar names the last pole before the limit and rings it on the map. A dummy NAP on a 72C cable or at a point of insertion is flagged. The plan's README lists them too.
+- **Fixed:** editing a survey record showed its BOQ sizes empty and saving it then dropped them. Some template blocks (NAP 1x16, OLT) are drawn millions of metres from their base point, where the rounding of the written scale moved them metres; the scale and angle are now computed as written.
+- © MarkT. All rights reserved (Settings → About).
+
 ## What changed in v2.36.0
 
 From your review of the plan DXF and its PDF:

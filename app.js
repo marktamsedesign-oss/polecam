@@ -67,11 +67,11 @@
   const ELEMENTS = ['Pole', 'ODF', 'ODC', 'Rack'];
   /* Survey points (v2.13): the poles and the network elements an As-plan, As-built or Audit survey records, each its own pin
      with one photo. A POI (point of insertion) is a closure on a pole, or a handhole with a closure inside. */
-  const SV_ELEMENTS = ['Pole', 'Site', 'ODC', 'ODF', 'NAP', 'Closure', 'Handhole'];
-  const SV_PREFIX = { ODC: 'ODC', NAP: 'NAP', Closure: 'CL', Handhole: 'HH' };
-  const SV_COLORS = { Pole: '#e8590c', Site: '#9c36b5', ODC: '#2b8a3e', ODF: '#1971c2', NAP: '#f08c00', Closure: '#c2255c', Handhole: '#495057' };
-  const SV_SHORT = { Site: 'SITE', ODC: 'ODC', ODF: 'ODF', NAP: 'NAP', Closure: 'CL', Handhole: 'HH' };
-  const ROUTE_ELS = ['Pole', 'Handhole', 'Site', 'ODC', 'ODF']; // NAP and closure pins sit on a pole: they are not route points
+  const SV_ELEMENTS = ['Pole', 'Site', 'ODC', 'ODF', 'NAP', 'Closure', 'Handhole', 'Manhole', 'Service box']; // v2.37: + manhole, service box
+  const SV_PREFIX = { ODC: 'ODC', NAP: 'NAP', Closure: 'CL', Handhole: 'HH', Manhole: 'MH', 'Service box': 'SB' };
+  const SV_COLORS = { Pole: '#e8590c', Site: '#9c36b5', ODC: '#2b8a3e', ODF: '#1971c2', NAP: '#f08c00', Closure: '#c2255c', Handhole: '#495057', Manhole: '#5c5f66', 'Service box': '#868e96' };
+  const SV_SHORT = { Site: 'SITE', ODC: 'ODC', ODF: 'ODF', NAP: 'NAP', Closure: 'CL', Handhole: 'HH', Manhole: 'MH', 'Service box': 'SB' };
+  const ROUTE_ELS = ['Pole', 'Handhole', 'Manhole', 'Service box', 'Site', 'ODC', 'ODF']; // NAP and closure pins sit on a pole: they are not route points
   /* Location integrity: the pin may move at most PIN_LIMIT_M from where the photo was taken, and in acceptance
      projects every photo must be live (in-app camera, fresh GPS) and taken within PIN_LIMIT_M of the element. */
   const PIN_LIMIT_M = 1000, MAX_PHOTO_AGE_MS = 2 * 60000, STORE_MAX_PX = 2048; // photos are kept at 2048 px; exports may shrink copies
@@ -407,10 +407,13 @@
   const BOQ_OPT = { owner: ['Electric', 'PLDT', 'DITO', 'CONVERGE'], clamp: ['5-7', '8-9', '10-12'], height: ['7.5m', '9.14m', '10.6m'], cls: ['7A', '7AR', 'Light'],
     odf: ['12F', '24F', '48F', '72F', '144F', '288F'], conn: ['APC', 'UPC'], clo: ['12C', '24C', '48C', '72C', '144C', '288C'], cloSt: ['Existing', 'New'],
     // v2.29: from the legend of the drawing template: a new arm on the pole, its guying (several), a maintenance loop
-    arm: ['Single arm', 'Double arm', 'Extension arm 26"', 'Extension arm 44.5"', '10-pin alley arm'], guy: ['Head guy', 'Side guy', 'Sidewalk guy', 'Sidewalk head guy', 'Pole-to-pole guy', 'Down guy'], mloop: ['Yes'] };
+    arm: ['Single arm', 'Double arm', 'Extension arm 26"', 'Extension arm 44.5"', '10-pin alley arm'], guy: ['Head guy', 'Side guy', 'Sidewalk guy', 'Sidewalk head guy', 'Pole-to-pole guy', 'Down guy'], mloop: ['Yes'],
+    // v2.37: the NAP's kind, a double LCP, grounding and a riser on the pole (drawn with their models on the plan)
+    napType: ['NAP 1x8', 'NAP 1x16', 'Dummy NAP', 'NAP changed to 1:16', 'Double NAP'], lcp: ['Single LCP', 'Double LCP'], ground: ['Yes'], riser: ['Yes'] };
   const BOQ_MULTI = new Set(['guy']); // several at once: "Head guy + Side guy"
   const mloopLen = () => (Number.isFinite(+pol().mloopLen) && +pol().mloopLen > 0 ? +pol().mloopLen : 15); // v2.29: MLoop = 15 m unless the admin sets another
-  const BOQ_LABEL = { owner: 'POLE OWNER', clamp: 'CLAMP SIZE', height: 'NEW GLOBE POLE · SIZE', cls: 'NEW GLOBE POLE · CLASS', odf: 'ODF SIZE', conn: 'ODF CONNECTOR', clo: 'CLOSURE SIZE', cloSt: 'CLOSURE', arm: 'NEW ARM', guy: 'NEW GUYING (one or more)', mloop: 'MAINTENANCE LOOP' };
+  const BOQ_LABEL = { owner: 'POLE OWNER', clamp: 'CLAMP SIZE', height: 'NEW GLOBE POLE · SIZE', cls: 'NEW GLOBE POLE · CLASS', odf: 'ODF SIZE', conn: 'ODF CONNECTOR', clo: 'CLOSURE SIZE', cloSt: 'CLOSURE', arm: 'NEW ARM', guy: 'NEW GUYING (one or more)', mloop: 'MAINTENANCE LOOP',
+    napType: 'NAP TYPE', lcp: 'LCP', ground: 'GROUNDING', riser: 'RISER (AERIAL TO UNDERGROUND)', p2p: 'POLE-TO-POLE GUY TO' };
   const BOQ_PURPOSES = ['As-plan', 'As-built'];
   /** The BOQ is part of the As-Plan and As-Built surveys only (not Audit, PAT, defect cleanup or FAT). */
   const boqOn = (name) => !isAcc(name) && BOQ_PURPOSES.includes(svPurpose(name));
@@ -419,8 +422,10 @@
   const detailItems = () => (Array.isArray(pol().detailItems) && pol().detailItems.length ? pol().detailItems : POLE_DETAIL_ITEMS);
   const boqOwners = () => [...new Set([...boqList('owner'), ...(S.myOwners || [])].map((x) => String(x || '').trim()).filter(Boolean))];
   /** The BOQ fields of a survey element: by element and status (existing, or proposed / new); a closure in the handhole adds its size. */
-  function boqKeys(el, status, closureHere) {
-    if (el === 'Pole') return (status === 'Proposed' || status === 'New' ? ['height', 'cls', 'clamp'] : ['owner', 'clamp']).concat(['arm', 'guy', 'mloop']); // v2.29
+  function boqKeys(el, status, closureHere, b) {
+    if (el === 'Pole') return (status === 'Proposed' || status === 'New' ? ['height', 'cls', 'clamp'] : ['owner', 'clamp']).concat(['arm', 'guy'], b && /pole.?to.?pole/i.test(b.guy || '') ? ['p2p'] : [], ['mloop', 'ground', 'riser']); // v2.29; v2.37 + pole-to-pole target, grounding, riser
+    if (el === 'NAP') return ['napType']; // v2.37
+    if (el === 'ODC') return ['lcp']; // v2.37
     if (el === 'ODF') return ['odf', 'conn'];
     if (el === 'Closure') return ['clo'];
     if (el === 'Handhole') return closureHere ? ['clo'] : [];
@@ -435,6 +440,7 @@
     if (b.odf || b.conn) parts.push(`ODF ${[b.odf, b.conn].filter(Boolean).join(' ')}`);
     if (b.clo || b.cloSt) parts.push(`Closure ${[b.clo, b.cloSt].filter(Boolean).join(' ')}`);
     if (b.arm) parts.push(`Arm ${b.arm}`); if (b.guy) parts.push(`Guying ${b.guy}`); if (b.mloop) parts.push(`MLoop ${mloopLen()} m`); // v2.29
+    if (b.p2p) { const t = points.find((x) => x.id === b.p2p); parts.push(`Pole-to-pole guy to ${t ? t.poleId || '(no ID)' : '(deleted pole)'}`); } if (b.ground) parts.push('Grounding'); if (b.riser) parts.push('Riser'); if (b.napType) parts.push(b.napType); if (b.lcp) parts.push(b.lcp); // v2.37
     return parts.join(' · ');
   }
   /** Only the fields that apply to the element as saved. */
@@ -677,7 +683,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.36.0';
+  const APP_VER = '2.37.0';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1289,14 +1295,16 @@
     for (const p of pts) {
       if (hidePins) break;
       const acc = p.kind === 'acceptance', n = openCount(p), sel = routeMode && p.id === routeSel, el = elemOf(p);
-      const m = !acc && el !== 'Pole' && SV_SHORT[el] // survey element: a labelled square (dashed when proposed / new)
+      const sy = !acc && (el === 'Site' || el === 'ODC') ? symOfRec(el, p.status, p.siteKind, p.boq, p.poleType) : null; // v2.37: a tower, OLT or ODC shows its model
+      const m = sy ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svsym${sel ? ' sel' : ''}" style="--c:${pinCol(p) || SV_COLORS[el]}">${symSvg(sy.kind, sy.isNew, 26)}</span>`, iconSize: [32, 32], iconAnchor: [16, 16] }) })
+        : !acc && el !== 'Pole' && SV_SHORT[el] // survey element: a labelled square (dashed when proposed / new)
         ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svpin${sel ? ' sel' : ''}${p.status === 'Proposed' || p.status === 'New' ? ' new' : ''}" style="--c:${pinCol(p) || SV_COLORS[el]}">${SV_SHORT[el]}</span>`, iconSize: [30, 24], iconAnchor: [15, 12] }) })
         : L.circleMarker([p.lat, p.lon], { radius: sel ? 12 : acc && el !== 'Pole' ? 10 : 8, weight: sel ? 4 : !acc && p.status === 'New' ? 3 : 2,
           color: sel ? '#17202a' : acc && el !== 'Pole' ? '#17202a' : !acc && pinCol(p) ? pinCol(p) : !acc && p.status === 'Proposed' ? '#e03131' : !acc && p.status === 'New' ? '#17202a' : '#fff',
           dashArray: !acc && p.status === 'Proposed' && !sel ? '3 3' : null,
           fillColor: acc ? STATUS_COLORS[recStatus(p)] : pinCol(p) || typeColor(p.poleType), fillOpacity: !acc && p.status === 'Proposed' ? 0.5 : 1 });
       const role = R && R.poles[p.id] && (R.poles[p.id].role === 'Angle' ? ` · ${Math.round(R.poles[p.id].deflection)}°` : R.poles[p.id].role === 'Junction' ? ' · junction' : '');
-      m.bindTooltip(`${C.xmlEsc(recName(p) || '(no ID)')}${acc && n ? ` · ${n} open` : ''}${role || ''}`, { permanent: true, direction: 'right', offset: [!acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' });
+      m.bindTooltip(`${C.xmlEsc(recName(p) || '(no ID)')}${acc && n ? ` · ${n} open` : ''}${role || ''}`, { permanent: true, direction: 'right', offset: [sy ? 16 : !acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' });
       m.on('click', () => (routeMode ? routeTap(p.id) : visitMode() ? openVisit(p.id) : openEditorFor(p.id)));
       m.addTo(poleLayer);
     }
@@ -1354,18 +1362,19 @@
   /* ================= v2.28: the bar's Drawing (As-Plan / As-Built) or Find (every other project) ================= */
   const drawOn = () => !!S.project && !isAcc() && BOQ_PURPOSES.includes(svPurpose());
   $('drawBtn').addEventListener('click', () => { if (!S.project) { openProjects(); return; } if (drawOn()) openDrawing(); else openFind(); });
-  /* v2.36: a pin placed on the map by hand (no photo needed): a proposed pole, a site / tower, an ODC, an ODF or a handhole, with
+  /* v2.36: a pin placed on the map by hand (no photo needed): v2.37 a tower or OLT site, or an ODC, with
      its name and colour. It is a survey record like the others: the route links it, the exports and the plan drawing have it
      (drawn exactly where it is placed). A photo can be added later (open the pin → Add photo). */
   $('pinAddBtn').addEventListener('click', async () => {
     if (!S.project) { openProjects(); return; }
     if (isAcc()) return;
-    const el = await ask('Add a pin on the map', 'What is it? Then drag the map to place it, type its name and pick its colour. A photo is optional. For a homing site or ODC (where the route starts or ends), choose Site or ODC and set Existing.', [
-      { label: 'Proposed pole', value: 'Pole' }, { label: 'Site / tower', value: 'Site' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'ODF', value: 'ODF' }, { label: 'Handhole', value: 'Handhole' }, { label: 'Cancel', value: '' }]);
-    if (!el) return;
-    const c = map.getCenter();
-    LOG.info('pin.add', { el });
-    await openEditor({ mode: 'new', element: el, status: el === 'Pole' ? 'Proposed' : undefined, lat: c.lat, lon: c.lng, source: 'map', takenAt: new Date().toISOString(), note: 'Placed on the map · photo optional' });
+    // v2.37: only the models: a tower or an OLT site, or an ODC (poles, ODFs and handholes are recorded from the camera)
+    const k = await ask('Add a pin on the map', 'Tower, OLT or ODC? Then drag the map to place it, type its name and pick its colour. A photo is optional. For the homing site or ODC (where the route starts or ends), set Existing.', [
+      { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
+    if (!k) return;
+    const c = map.getCenter(), el = k === 'ODC' ? 'ODC' : 'Site';
+    LOG.info('pin.add', { el, k });
+    await openEditor({ mode: 'new', element: el, siteKind: el === 'Site' ? k : '', lat: c.lat, lon: c.lng, source: 'map', takenAt: new Date().toISOString(), note: 'Placed on the map · photo optional' });
   });
   /* Drawing: a preview of the DXF of the project (UTM metres): the route with its span lengths, poles and other points with
      their IDs, the KMZ reference faint behind; pan with a finger, pinch or the wheel to zoom, tap a point for its details.
@@ -1421,7 +1430,7 @@
       const [px, py] = drwPx(xy), el = elemOf(p), r = (el === 'Pole' ? 5 : 6) * d, prop = p.status === 'Proposed' || p.status === 'New';
       g.lineWidth = 1.8 * d; g.strokeStyle = pinCol(p) || (prop ? '#e03131' : '#1b1b1b'); g.fillStyle = drw.sel === p.id ? '#ffd43b' : '#ffffff';
       g.beginPath();
-      if (el === 'Pole') g.arc(px, py, r, 0, Math.PI * 2); else if (el === 'Handhole' || el === 'ODC' || el === 'ODF') g.rect(px - r, py - r, r * 2, r * 2); else { g.moveTo(px, py - r * 1.2); g.lineTo(px + r, py + r * 0.8); g.lineTo(px - r, py + r * 0.8); g.closePath(); }
+      if (el === 'Pole') g.arc(px, py, r, 0, Math.PI * 2); else if (el === 'Handhole' || el === 'Manhole' || el === 'Service box' || el === 'ODC' || el === 'ODF') g.rect(px - r, py - r, r * 2, r * 2); else { g.moveTo(px, py - r * 1.2); g.lineTo(px + r, py + r * 0.8); g.lineTo(px - r, py + r * 0.8); g.closePath(); }
       g.fill(); g.stroke();
       if (el !== 'Pole') { g.fillStyle = pinCol(p) || SV_COLORS[el] || '#495057'; g.beginPath(); g.arc(px, py, r * 0.35, 0, Math.PI * 2); g.fill(); }
       if (!drw.labels) return;
@@ -1652,7 +1661,7 @@
     return out;
   }
   /** v2.26.1: the data names of a G-eSAA survey KMZ (core.js) read back from a reference; BOQ_KML maps them to the record's sizes. */
-  const BOQ_KML = { pole_owner: 'owner', clamp_size: 'clamp', new_pole_size: 'height', pole_class: 'cls', odf_size: 'odf', odf_connector: 'conn', closure_size: 'clo', closure_status: 'cloSt', new_arm: 'arm', guying: 'guy', mloop: 'mloop' }; // v2.29: + arm, guying, loop
+  const BOQ_KML = { pole_owner: 'owner', clamp_size: 'clamp', new_pole_size: 'height', pole_class: 'cls', odf_size: 'odf', odf_connector: 'conn', closure_size: 'clo', closure_status: 'cloSt', new_arm: 'arm', guying: 'guy', mloop: 'mloop', nap_type: 'napType', lcp: 'lcp', grounding: 'ground', riser: 'riser' }; // v2.29: + arm, guying, loop; v2.37: NAP type, LCP, grounding, riser
   const KML_DATA = new Set(['pole_id', 'element', 'status', 'closure_id', ...Object.keys(BOQ_KML)]);
   /** The elements of the As-Plan (this As-Built project's reference KMZ) as records: ID, element, status, position, sizes. */
   function planRecsOf(geo) {
@@ -1817,14 +1826,52 @@
       const info = R.poles[p.id];
       if (info && (info.role === 'Angle' || info.role === 'Junction')) L.circleMarker([p.lat, p.lon], { radius: 14, color: info.role === 'Angle' ? '#e8590c' : '#9c36b5', weight: 2, fill: false, interactive: false }).addTo(routeLayer);
     }
-    if (routeMode) updateRouteBar(R);
+    if (routeMode) { updateRouteBar(R); const by = new Map(projPoints().map((p) => [p.id, p])); routeAdvice(R).forEach((a) => { const p = by.get(a.id); if (p) L.circleMarker([p.lat, p.lon], { radius: 17, color: a.kind === 'flag' ? '#c92a2a' : '#e8590c', weight: 2.5, dashArray: '5 4', fill: false, interactive: false }).addTo(routeLayer); }); }
     if (typeof declutterSoon === 'function') declutterSoon(); // v2.28
     return R;
+  }
+  /** v2.37: the route check. A 72C run needs a closure before every 4 km and a 12C run a dummy NAP (or a closure) before every 2 km,
+      counted from the homing (a site or ODF; else the run's first end): the last pole before the limit is recommended. A dummy NAP
+      cannot be on a 72C cable or at a point of insertion (a pole with a closure). NAP and closure pins count on their nearest pole
+      (30 m). Returns [{ id, poleId, kind: 'closure' | 'dnap' | 'flag', text }]. */
+  function routeAdvice(R) {
+    const out = []; if (!R || !R.spans.length) return out;
+    const pts = projPoints(), poles = pts.filter((p) => elemOf(p) === 'Pole'), onPole = (q) => { let best = null, bd = 30; for (const p of poles) { const d = haversine(p, q); if (d < bd) { bd = d; best = p; } } return best; };
+    const clo = new Set(), dn = new Map();
+    for (const q of pts) {
+      const el = elemOf(q);
+      if (el === 'Closure') { const p = onPole(q); if (p) clo.add(p.id); }
+      if (el === 'Handhole' && q.closureId) clo.add(q.id);
+      if (el === 'NAP' && (q.boq || {}).napType === 'Dummy NAP') { const p = onPole(q); if (p) dn.set(p.id, q); }
+    }
+    // distance from the homing along the route
+    const adj = new Map(); R.spans.forEach((s) => { [[s.ia, s.ib], [s.ib, s.ia]].forEach(([a, b]) => (adj.get(a) || adj.set(a, []).get(a)).push([b, s.len])); });
+    const hd = new Map(), q0 = pts.filter((p) => ['Site', 'ODF'].includes(elemOf(p)) && adj.has(p.id)).map((p) => p.id);
+    if (!q0.length) q0.push(R.spans[0].ia);
+    q0.forEach((id) => hd.set(id, 0));
+    for (let it = 0, ch = true; ch && it < pts.length + 2; it++) { ch = false; for (const [a, L] of adj) { const da = hd.get(a); if (da == null) continue; for (const [b, l] of L) if (!(hd.get(b) <= da + l)) { hd.set(b, da + l); ch = true; } } }
+    const by = new Map(pts.map((p) => [p.id, p])), name = (id) => (by.get(id) || {}).poleId || '(no ID)';
+    for (const chn of C.routeChains(R.spans)) {
+      const lim = chn.cable === 'F72' ? 4000 : chn.cable === 'L12' ? 2000 : 0; if (!lim) continue;
+      let ids = chn.pts.map((p) => p.id); if ((hd.get(ids[0]) ?? 1e12) > (hd.get(ids[ids.length - 1]) ?? 1e12)) ids = ids.reverse();
+      const joint = (id) => clo.has(id) || (chn.cable === 'L12' && dn.has(id));
+      let acc = 0;
+      for (let k = 1; k < ids.length; k++) {
+        const a = by.get(ids[k - 1]), b = by.get(ids[k]); if (!a || !b) continue;
+        const l = haversine(a, b);
+        if (acc + l > lim && k > 1 && elemOf(a) === 'Pole' && !joint(a.id)) { out.push({ id: a.id, poleId: a.poleId, kind: chn.cable === 'F72' ? 'closure' : 'dnap', text: chn.cable === 'F72' ? `closure recommended at ${name(a.id)} (the 72C run passes 4 km after it)` : `dummy NAP recommended at ${name(a.id)} (the 12C run passes 2 km after it)` }); acc = 0; }
+        acc += l; if (joint(b.id)) acc = 0;
+      }
+      if (chn.cable === 'F72') for (const id of ids) if (dn.has(id)) out.push({ id, poleId: name(id), kind: 'flag', text: `dummy NAP ${dn.get(id).poleId || ''} at ${name(id)} is on a 72C cable: use a closure` });
+    }
+    for (const [id, q] of dn) if (clo.has(id)) out.push({ id, poleId: name(id), kind: 'flag', text: `dummy NAP ${q.poleId || ''} at ${name(id)} is at a point of insertion: use a closure` });
+    return out;
   }
   function updateRouteBar(R) {
     $('rbTitle').textContent = `Route · ${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}`;
     const byCab = {}; R.spans.forEach((s) => { byCab[s.cable] = (byCab[s.cable] || 0) + s.len; });
     $('rbStats').textContent = `${R.long} longer than ${pol().maxSpan || 200} m · ${R.angle} angle · ${R.junction} junction · ${R.off} not linked · ${Object.entries(byCab).map(([k, m]) => `${CAB[k] ? CAB[k].short : 'not set'} ${fmtLen(m)}`).join(' · ')}`;
+    const A = routeAdvice(R); $('rbAdvice').hidden = !A.length; $('rbAdvice').textContent = A.length ? `⚠ ${A.map((a) => a.text).join(' · ')}` : ''; // v2.37
     const sel = routeSel && points.find((p) => p.id === routeSel);
     $('rbHint').textContent = sel ? `${sel.poleId} selected. Tap the next pole to link it (tap a linked pole to unlink), or tap ${sel.poleId} again to stop.`
       : 'Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.';
@@ -1864,7 +1911,7 @@
   $('rbUndo').addEventListener('click', () => { if (routeUndo.length) { setLinks(routeUndo.pop()); renderPoles(); } });
   $('rbAuto').addEventListener('click', () => {
     const have = new Set(links().map(([x, y]) => [x, y].sort().join('|')));
-    const add = C.autoLinks(projPoints().filter((p) => ['Pole', 'Handhole'].includes(elemOf(p))), pol().autoGap || 120).filter(([x, y]) => !have.has([x, y].sort().join('|'))); // the site, ODC and ODF are linked by hand
+    const add = C.autoLinks(projPoints().filter((p) => ['Pole', 'Handhole', 'Manhole', 'Service box'].includes(elemOf(p))), pol().autoGap || 120).filter(([x, y]) => !have.has([x, y].sort().join('|'))); // the site, ODC and ODF are linked by hand
     if (!add.length) { toast('No new links: poles are already linked, or consecutive poles are farther apart than the gap setting'); return; }
     routeUndo.push(links()); setLinks(links().concat(add.map(([x, y]) => linkWith(x, y, cableSel())))); renderPoles();
     toast(`${add.length} span${add.length === 1 ? '' : 's'} added in capture order. Check branches and street corners.`, 4000);
@@ -3195,7 +3242,7 @@
   /** Choosing a pole type sets the ID prefix: a suggested ID is re-suggested, a typed/scanned one keeps its number. */
   function setPoleType(t) {
     if (!ed) return;
-    ed.type = t; renderTypeChips(t);
+    ed.type = t; renderTypeChips(t); renderEdSym(); // v2.37: a telco pole has its own symbol
     const id = $('poleId').value.trim().toUpperCase(), pre = typePrefix(t);
     if (!pre || (ed.element && ed.element !== 'Pole') || ed.status === 'Proposed') { checkFormat(); return; } // a proposed pole keeps its PP- number
     const m = polePartRe().exec(id);
@@ -3319,9 +3366,11 @@
         marks: JSON.parse(JSON.stringify(mk)).map(normMark), origPid: o.origPid || '', legacyBoxes: Math.max(0, (o.boxes || 0) - mk.length), legacyPole: !!o.poleModel && !mk.some((m) => m.k === 'pole'), base: null, baseNew: false, dropOrig: false });
       $('svRemarks').value = o.remarks || ''; $('svClosureId').value = o.closureId || '';
       ed.color = MCOL[o.color] ? o.color : ''; ed.mapPin = o.source === 'map' && !o.blob && !o.storedBlob && o.mode === 'new'; // v2.36: a pin placed on the map (photo optional)
+      ed.siteKind = o.siteKind === 'OLT' ? 'OLT' : 'Tower'; // v2.37: a site is a tower or an OLT
     }
     $('svColorBox').hidden = acc; if (!acc) renderPinColors();
-    $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : ed.mapPin ? `New ${({ Pole: 'proposed pole', Site: 'site / tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole' })[ed.element] || 'pin'} on the map` : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
+    $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : ed.mapPin ? `New ${({ Pole: 'proposed pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole' })[ed.element] || 'pin'} on the map` : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
+    $('siteKindBox').hidden = true; // shown for a site (survey)
     $('edHint').textContent = ed.mapPin ? 'Drag the map to place the pin where it goes' : `Drag the map to place the pin on the ${acc ? 'element' : 'pole'}`;
     $('edHint').classList.remove('gone'); clearTimeout(hintTimer); hintTimer = setTimeout(() => $('edHint').classList.add('gone'), 5000);
     $('edHint').hidden = acc; // v2.15: not shown in PAT, cleanup and FAT, where the pin is the element you stand at
@@ -3364,7 +3413,7 @@
       pinMap.invalidateSize();
       if (start) pinMap.setView([start.lat, start.lon], 19, { animate: false });
       else { const c = map.getCenter(); pinMap.setView(c, Math.max(map.getZoom(), 16), { animate: false }); }
-      ed.userMoved = false; drawEdGps(); updateCoordBox(); drawPinRef();
+      ed.userMoved = false; drawEdGps(); updateCoordBox(); drawPinRef(); drawPinOthers();
     });
     checkFormat(); applyEdLock();
     ed.boqTouched = !!o.restore; // v2.26.1: a restored record keeps its sizes
@@ -3402,7 +3451,7 @@
       poleId: $('poleId').value, napId: $('napId').value, closureId: $('closureId').value, svRemarks: $('svRemarks').value, svClosureId: $('svClosureId').value,
       details: ed.details || [], marks: ed.marks || [], defs: ed.defs || [], photos: ed.photos || [], removed: ed.removed || [],
       mloop: !!ed.mloop, nap: !!ed.nap, closure: !!ed.closure, odf: ed.odf || '', boq: ed.boq || {}, gps: ed.gps || null, takenAt: ed.takenAt || '', source: ed.source || '', q: ed.q || null,
-      idRead: ed.idRead || null, idTouched: !!ed.idTouched, dragged: !!ed.dragged, pin: (ed.dragged || ed.mapPin) && c ? { lat: c.lat, lon: c.lng } : null, color: ed.color || '',
+      idRead: ed.idRead || null, idTouched: !!ed.idTouched, dragged: !!ed.dragged, pin: (ed.dragged || ed.mapPin) && c ? { lat: c.lat, lon: c.lng } : null, color: ed.color || '', siteKind: ed.siteKind || '',
       origPid: ed.origPid || '', legacyBoxes: ed.legacyBoxes || 0, legacyPole: !!ed.legacyPole, dropOrig: !!ed.dropOrig, baseNew: !!ed.baseNew, keepQ: !!ed.keepQ,
       noDef: !!ed.noDef, pend: Object.keys(ed.pending || {}), hasNew: !!ed.newBlob, hasSrc: !!ed.srcBlob && ed.srcBlob !== ed.newBlob, hasBase: !!ed.base, def: dd,
     };
@@ -3493,12 +3542,13 @@
       await openEditor({ mode: 'new', id: st.id, restore: true, gps: st.gps, takenAt: st.takenAt, source: st.source, q: st.q, type: st.type || undefined, element: st.element, status: st.status,
         poleId: st.poleId, remarks: st.svRemarks, closureId: st.acc ? st.closureId : st.svClosureId, napId: st.napId, details: st.details, marks: st.marks, origPid: st.origPid,
         photos: st.photos, defs: st.defs, mloop: st.mloop, nap: st.nap, closure: st.closure, odf: st.odf, boq: st.boq || {}, boxes: (st.legacyBoxes || 0) + (st.marks || []).length, poleModel: st.legacyPole,
-        blob: st.acc ? null : nb || sb, noDef: !!st.noDef, color: st.color || '', ...(st.pin ? { lat: st.pin.lat, lon: st.pin.lon } : {}) });
+        blob: st.acc ? null : nb || sb, noDef: !!st.noDef, color: st.color || '', siteKind: st.siteKind || '', ...(st.pin ? { lat: st.pin.lat, lon: st.pin.lon } : {}) });
     }
     if (!ed) return;
     Object.assign(ed, { pending: { ...ed.pending, ...pend }, removed: st.removed || [], idRead: st.idRead, idTouched: st.idTouched, dragged: st.dragged, element: st.element, type: st.type || ed.type,
       status: st.status || ed.status, details: st.details || [], defs: st.defs || ed.defs, photos: st.acc ? st.photos || ed.photos : ed.photos, marks: st.acc ? ed.marks : (st.marks || []).map(normMark),
-      mloop: st.mloop, nap: st.nap, closure: st.closure, odf: st.odf || ed.odf, boq: st.boq || ed.boq || {}, legacyBoxes: st.legacyBoxes, legacyPole: st.legacyPole, dropOrig: st.dropOrig, keepQ: st.keepQ, origPid: st.origPid || ed.origPid });
+      mloop: st.mloop, nap: st.nap, closure: st.closure, odf: st.odf || ed.odf, boq: st.boq || ed.boq || {}, legacyBoxes: st.legacyBoxes, legacyPole: st.legacyPole, dropOrig: st.dropOrig, keepQ: st.keepQ, origPid: st.origPid || ed.origPid,
+      ...(st.siteKind ? { siteKind: st.siteKind } : {}) });
     if (!st.acc) {
       if (nb) { ed.newBlob = nb; prepImages(nb); showEdPhoto(nb); }
       if (sb) ed.srcBlob = sb; else if (nb && st.mode === 'new') ed.srcBlob = nb;
@@ -3531,7 +3581,8 @@
     const ph = await dbGet('photos', id).catch(() => null);
     openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType, lat: p.lat, lon: p.lon, takenAt: p.takenAt,
       gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : null, storedBlob: ph ? (ph.clean || ph.thumb) : null, source: p.source,
-      element: elemOf(p), status: p.status || '', remarks: p.remarks || '', closureId: p.closureId || '', boxes: p.boxes || 0, details: p.details || [], marks: p.marks || [], origPid: p.origPid || '', poleModel: !!p.poleModel, color: p.color || '' });
+      element: elemOf(p), status: p.status || '', remarks: p.remarks || '', closureId: p.closureId || '', boxes: p.boxes || 0, details: p.details || [], marks: p.marks || [], origPid: p.origPid || '', poleModel: !!p.poleModel, color: p.color || '',
+      boq: p.boq || {}, siteKind: p.siteKind || '' }); // v2.37: the record's sizes and its site kind come back with it
   }
   function cleanupEditor() {
     if (ed) { if (!ed.closeOK && edDirty()) saveDraft(); else draftClear(); }
@@ -3994,10 +4045,11 @@
     const el = ed.element;
     if (!ed.acc) { // survey point
       const isNew = ed.mode !== 'edit', nm = el === 'Pole' ? 'pole' : el;
-      $('editorTitle').textContent = ed.mapPin ? `New ${({ Pole: ed.status === 'Proposed' ? 'proposed pole' : 'pole', Site: 'site / tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole' })[el] || el} on the map` : `${isNew ? 'New' : 'Edit'} ${nm}`; // v2.36
+      $('editorTitle').textContent = ed.mapPin ? `New ${({ Pole: ed.status === 'Proposed' ? 'proposed pole' : 'pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole' })[el] || el} on the map` : `${isNew ? 'New' : 'Edit'} ${el === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT site' : 'tower site') : nm}`; // v2.36
+      $('siteKindBox').hidden = el !== 'Site'; $('siteKindSel').value = ed.siteKind === 'OLT' ? 'OLT' : 'Tower'; // v2.37
       $('idLabel').textContent = el === 'Site' ? 'SITE NAME / ID' : `${el.toUpperCase()} ID`;
       const sts = svStatuses(el); if (!sts.includes(ed.status)) ed.status = svDefaultStatus(el);
-      $('poleId').placeholder = { Pole: ed.status === 'Proposed' ? 'e.g. PP-0001' : 'e.g. CC-0001', ODF: 'e.g. FDU_100', Site: 'e.g. MIN2463 or the site name', ODC: 'e.g. ODC-01', NAP: 'e.g. NAP-0001', Closure: 'e.g. CL-0001', Handhole: 'e.g. HH-0001' }[el];
+      $('poleId').placeholder = { Pole: ed.status === 'Proposed' ? 'e.g. PP-0001' : 'e.g. CC-0001', ODF: 'e.g. FDU_100', Site: 'e.g. MIN2463 or the site name', ODC: 'e.g. ODC-01', NAP: 'e.g. NAP-0001', Closure: 'e.g. CL-0001', Handhole: 'e.g. HH-0001', Manhole: 'e.g. MH-0001', 'Service box': 'e.g. SB-0001' }[el];
       $('surveyTypeBox').hidden = el !== 'Pole'; $('nptBtn').hidden = el !== 'Pole' || ed.status === 'Proposed';
       const ppGlobe = el === 'Pole' && ed.status === 'Proposed'; // v2.27: a proposed pole is a Globe pole (GT)
       if (ppGlobe && ed.type !== globeType()) { ed.type = globeType(); renderTypeChips(ed.type); }
@@ -4008,10 +4060,10 @@
       $('svClosureBox').hidden = el !== 'Handhole';
       renderBoq();
       $('edHint').textContent = el === 'Pole' && ed.status === 'Proposed' ? 'Drag the map to place the pin where the new pole goes' : `Drag the map to place the pin on the ${nm}`;
-      renderBoxInfo();
+      renderBoxInfo(); renderEdSym(); // v2.37: the legend symbol beside the photo, and on the pin
       return;
     }
-    $('idLabel').textContent = `${el.toUpperCase()} ID`;
+    $('idLabel').textContent = `${el.toUpperCase()} ID`; renderEdSym();
     $('poleId').placeholder = `Optional · ${el === 'Pole' ? 'e.g. CC-0001' : el === 'ODF' ? 'e.g. FDU_100' : `e.g. ${el}-01`}`;
     if (!ed.lock) $('typeSel').disabled = false; // v2.27: (a proposed survey pole locks it to Globe)
     $('svDetailsBox').hidden = el !== 'Pole'; renderDetails(); // pole details: optional here too (v2.19)
@@ -4024,15 +4076,78 @@
     const cats = catsFor(el); // an open defect form follows the element
     if (defDraft && !$('defPanel').hidden && !cats.includes(defDraft.cat)) { defDraft.cat = cats[0]; defDraft.items = new Set(); renderDefPanel(); }
   }
+  /* v2.37: the record's legend symbol beside its photo (as the plan draws it), and the model on the pin while placing a tower, an
+     OLT or an ODC. Plain drawings of the legend's symbols (red: proposed / new, navy: existing). */
+  const SYM_RED = '#e03131', SYM_NAVY = '#1c3f94', SYM_GREEN = '#2f9e44';
+  function symSvg(kind, isNew, sz) {
+    const c = isNew ? SYM_RED : SYM_NAVY, s = sz || 64, w = (b) => `<svg viewBox="0 0 64 64" width="${s}" height="${s}" aria-hidden="true">${b}</svg>`;
+    const T = (x, y, t, fs, col) => `<text x="${x}" y="${y}" font-family="Arial,Helvetica,sans-serif" font-size="${fs}" font-weight="700" fill="${col}" text-anchor="middle" dominant-baseline="central">${t}</text>`;
+    switch (kind) {
+      case 'tower': return w(`<g fill="none" stroke="${c}" stroke-width="2.2" stroke-linejoin="round"><path d="M32 6 18 58M32 6 46 58M22 42h20M25 30h14M28 18h8M22 42 39 30M42 42 25 30M25 30 36 18M39 30 28 18"/><ellipse cx="44" cy="16" rx="3.5" ry="4.5"/></g>`);
+      case 'olt': return w(`<path d="M32 6 54 19v26L32 58 10 45V19Z" fill="${isNew ? '#ffd43b' : 'none'}" stroke="${isNew ? '#e8590c' : c}" stroke-width="2.5"/><circle cx="32" cy="32" r="13" fill="none" stroke="${isNew ? '#17202a' : c}" stroke-width="2"/>${T(32, 33, 'N', 17, isNew ? '#17202a' : c)}`);
+      case 'odc': case 'odc2': return w(`<rect x="5" y="20" width="54" height="24" rx="12" fill="none" stroke="${SYM_GREEN}" stroke-width="2.4"/>${kind === 'odc2' ? `<rect x="8" y="23" width="48" height="18" rx="9" fill="none" stroke="${SYM_GREEN}" stroke-width="1.5"/>` : ''}${T(30, 32, kind === 'odc2' ? 'L8' : 'L4', 17, SYM_RED)}<path d="M42 25v14" stroke="${SYM_GREEN}" stroke-width="2"/>`);
+      case 'odf': return w(`<circle cx="32" cy="34" r="17" fill="none" stroke="${c}" stroke-width="2.4"/><circle cx="32" cy="34" r="9" fill="none" stroke="${c}" stroke-width="1.6"/>${T(32, 35, 'H', 11, c)}`);
+      case 'nap': case 'nap16': case 'dnap': case 'napc': case 'nap2': {
+        const g = isNew ? SYM_GREEN : SYM_NAVY;
+        if (kind === 'dnap') return w(`<rect x="7" y="21" width="50" height="22" rx="3" fill="none" stroke="${g}" stroke-width="2.4"/>${T(32, 32, 'DN', 16, g)}`);
+        if (kind === 'nap16' || kind === 'nap2' || kind === 'napc') return w(`<path d="M6 32 30 22v20Z" fill="none" stroke="${kind === 'napc' ? '#e8590c' : g}" stroke-width="2.2" stroke-linejoin="round"/>${T(26, 32, 'N', 13, kind === 'napc' ? '#e8590c' : '#17202a')}${T(45, 32, '16', 16, kind === 'napc' ? '#e8590c' : g)}${kind === 'nap2' ? `<path d="M6 36 30 46" stroke="${g}" stroke-width="1.6"/>` : ''}`);
+        return w(`<rect x="6" y="20" width="52" height="24" rx="12" fill="none" stroke="${g}" stroke-width="2.4"/><circle cx="28" cy="28" r="3.5" fill="none" stroke="${g}" stroke-width="1.6"/><circle cx="28" cy="36" r="3.5" fill="none" stroke="${g}" stroke-width="1.6"/><path d="M22 24v16" stroke="${g}" stroke-width="1.6"/>${T(42, 32, 'N', 17, '#17202a')}`);
+      }
+      case 'closure': return w(`<path d="M32 12 52 27 44 52H20L12 27Z" fill="${isNew ? SYM_RED : 'none'}" stroke="${c}" stroke-width="2.4" stroke-linejoin="round"/>`);
+      case 'hh': case 'mh': case 'sb': return w(`<rect x="${kind === 'sb' ? 14 : 16}" y="${kind === 'sb' ? 22 : 16}" width="${kind === 'sb' ? 36 : 32}" height="${kind === 'sb' ? 20 : 32}" fill="none" stroke="${c}" stroke-width="2.4"/>${T(32, 32, kind.toUpperCase(), kind === 'sb' ? 13 : 15, '#17202a')}`);
+      case 'pp': return w(`<circle cx="32" cy="32" r="13" fill="${SYM_RED}"/>`);
+      case 'tel': return w(`<circle cx="32" cy="32" r="16" fill="none" stroke="#17202a" stroke-width="2.4"/><path d="M21 21l22 22M43 21 21 43" stroke="#17202a" stroke-width="2.4"/>`);
+      default: return w(`<path d="M18 18l28 28M46 18 18 46" stroke="#17202a" stroke-width="2.6" stroke-linecap="round"/>`); // an electric pole
+    }
+  }
+  const SYM_CAP = { tower: 'tower', olt: 'OLT', odc: 'ODC (LCP)', odc2: 'ODC (double LCP)', odf: 'ODF', nap: 'NAP', nap16: 'NAP 1:16', dnap: 'dummy NAP', napc: 'NAP changed to 1:16', nap2: 'double NAP', closure: 'closure', hh: 'handhole', mh: 'manhole', sb: 'service box', pp: 'proposed pole', tel: 'telco pole', pole: 'electric pole' };
+  /** The symbol of a survey record: { kind, isNew }. */
+  function symOfRec(el, status, kind, boq, type) {
+    const isNew = status === 'Proposed' || status === 'New', b = boq || {};
+    if (el === 'Site') return { kind: kind === 'OLT' ? 'olt' : 'tower', isNew };
+    if (el === 'ODC') return { kind: /double/i.test(b.lcp || '') ? 'odc2' : 'odc', isNew };
+    if (el === 'ODF') return { kind: 'odf', isNew };
+    if (el === 'NAP') return { kind: ({ 'NAP 1x16': 'nap16', 'Dummy NAP': 'dnap', 'NAP changed to 1:16': 'napc', 'Double NAP': 'nap2' })[b.napType] || 'nap', isNew };
+    if (el === 'Closure') return { kind: 'closure', isNew };
+    if (el === 'Handhole') return { kind: 'hh', isNew }; if (el === 'Manhole') return { kind: 'mh', isNew }; if (el === 'Service box') return { kind: 'sb', isNew };
+    if (isNew) return { kind: 'pp', isNew };
+    const own = String(b.owner || '').trim(); return { kind: ['GT', 'BT'].includes(typePrefix(type)) || (own && !/electric|coop|power/i.test(own)) ? 'tel' : 'pole', isNew };
+  }
+  function renderEdSym() {
+    const box = $('edSym'); if (!box) return;
+    if (!ed || ed.acc) { box.hidden = true; $('crossSym').hidden = true; return; }
+    const sy = symOfRec(ed.element || 'Pole', ed.status, ed.siteKind, ed.boq, ed.type);
+    $('edSymImg').innerHTML = symSvg(sy.kind, sy.isNew); $('edSymCap').textContent = `${sy.isNew && !['pp'].includes(sy.kind) ? 'New ' : sy.kind === 'pp' ? '' : 'Existing '}${SYM_CAP[sy.kind]}`.replace(/^./, (x) => x.toUpperCase());
+    box.hidden = false;
+    const model = ['Site', 'ODC'].includes(ed.element); // the pin shows the model while it is placed
+    $('crossSym').hidden = !model; if (model) $('crossSym').innerHTML = symSvg(sy.kind, sy.isNew, 30);
+  }
+  $('siteKindSel').addEventListener('change', (e) => { if (!ed) return; ed.siteKind = e.target.value === 'OLT' ? 'OLT' : 'Tower'; applyElement(); scheduleDraft(); });
+  /* v2.37: the project's other points (and its route) faint on the record's map, as a guide for placing the pin: not tappable */
+  let pinOthers = null;
+  function drawPinOthers() {
+    if (!pinMap) return;
+    if (!pinOthers) { pinMap.createPane('othPane'); pinMap.getPane('othPane').style.zIndex = 380; pinMap.getPane('othPane').style.pointerEvents = 'none'; pinOthers = L.layerGroup().addTo(pinMap); }
+    pinOthers.clearLayers();
+    if (!ed || ed.acc || isAcc()) return;
+    const pts = projPoints().filter((p) => p.id !== ed.id), by = new Map(pts.map((p) => [p.id, p]));
+    for (const [a, b] of links()) { const A = by.get(a), B = by.get(b); if (A && B) L.polyline([[A.lat, A.lon], [B.lat, B.lon]], { pane: 'othPane', color: '#1c3f94', weight: 2.5, opacity: 0.5, dashArray: '6 5', interactive: false }).addTo(pinOthers); }
+    for (const p of pts) {
+      const el = elemOf(p), nw = p.status === 'Proposed' || p.status === 'New', col = pinCol(p) || (el === 'Pole' ? (nw ? '#e03131' : '#495057') : SV_COLORS[el] || '#495057');
+      L.circleMarker([p.lat, p.lon], { pane: 'othPane', radius: 5.5, color: '#fff', weight: 2, fillColor: col, fillOpacity: 0.85, interactive: false })
+        .bindTooltip(C.xmlEsc(recName(p) || p.poleId || ''), { permanent: true, direction: 'right', offset: [6, 0], className: 'pole-label oth', interactive: false }).addTo(pinOthers);
+    }
+  }
   function markToggles() { ['atMloop', 'atNap', 'atClosure'].forEach((id) => $(id).closest('.tchip').classList.toggle('on', $(id).checked)); }
   $('atMloop').addEventListener('change', (e) => { ed.mloop = e.target.checked; markToggles(); });
   $('atNap').addEventListener('change', (e) => { ed.nap = e.target.checked; markToggles(); $('napId').hidden = !ed.nap; if (ed.nap) $('napId').focus(); });
   $('atClosure').addEventListener('change', (e) => { ed.closure = e.target.checked; markToggles(); $('closureId').hidden = !ed.closure; renderBoq(); if (ed.closure) $('closureId').focus(); });
   $('svClosureId').addEventListener('input', () => { if (ed && !ed.acc && ed.element === 'Handhole') { const was = !$('boqBox').hidden; if (was !== !!$('svClosureId').value.trim()) renderBoq(); } });
   /** v2.26: the BOQ sizes of the element in the record: one row of chips per field (tap again to clear). */
-  const edBoqKeys = () => (ed && !ed.acc && boqOn() ? boqKeys(ed.element || 'Pole', ed.status, !!$('svClosureId').value.trim()) : []);
+  const edBoqKeys = () => (ed && !ed.acc && boqOn() ? boqKeys(ed.element || 'Pole', ed.status, !!$('svClosureId').value.trim(), ed.boq) : []);
   function renderBoq() {
     const box = $('boqBox'), rows = $('boqRows'); if (!ed) return;
+    setTimeout(renderEdSym, 0); // v2.37: an owner, a NAP kind or a double LCP changes the symbol
     const keys = edBoqKeys(); box.hidden = !keys.length; rows.innerHTML = '';
     ed.boq = ed.boq || {};
     const ro = ed.lock === 'closed';
@@ -4040,7 +4155,7 @@
       const row = document.createElement('div'); row.className = 'boqrow';
       const l = document.createElement('span'); l.className = 'lbl'; l.textContent = BOQ_LABEL[k]; row.appendChild(l);
       const chips = document.createElement('div'); chips.className = 'chips'; chips.setAttribute('role', 'group'); chips.setAttribute('aria-label', BOQ_LABEL[k]); chips.dataset.k = k;
-      const opts = (k === 'owner' ? boqOwners() : boqList(k)).slice();
+      const opts = ((k === 'owner' ? boqOwners() : boqList(k)) || []).slice(); // (v2.37: the pole-to-pole guy's pole has no list)
       if (ed.boq[k] && !opts.includes(ed.boq[k])) opts.push(ed.boq[k]); // a value from another phone's list
       const other = async () => {
         let v = await promptText('Pole owner', 'Whose pole is it? It is kept on this phone for the next poles (your admin can add owners for everyone).', 'e.g. SKYCABLE');
@@ -4053,14 +4168,23 @@
         cur.forEach((v) => { if (!opts.includes(v)) opts.push(v); });
         opts.forEach((v) => {
           const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = v; c.setAttribute('aria-pressed', String(cur.has(v))); c.disabled = ro;
-          c.addEventListener('click', () => { if (cur.has(v)) cur.delete(v); else cur.add(v); ed.boq[k] = opts.filter((x) => cur.has(x)).join(' + '); if (!ed.boq[k]) delete ed.boq[k]; ed.boqTouched = true; renderBoq(); foldSum(); });
+          c.addEventListener('click', () => { if (cur.has(v)) cur.delete(v); else cur.add(v); ed.boq[k] = opts.filter((x) => cur.has(x)).join(' + '); if (!ed.boq[k]) delete ed.boq[k]; if (k === 'guy' && !/pole.?to.?pole/i.test(ed.boq.guy || '')) delete ed.boq.p2p; ed.boqTouched = true; renderBoq(); foldSum(); });
           chips.appendChild(c);
         });
         row.appendChild(chips); rows.appendChild(row); return;
       }
-      if (k === 'mloop') { // v2.29: one chip, on or off
-        const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = `MLoop ${mloopLen()} m`; c.setAttribute('aria-pressed', String(!!ed.boq.mloop)); c.disabled = ro;
-        c.addEventListener('click', () => { if (ed.boq.mloop) delete ed.boq.mloop; else ed.boq.mloop = 'Yes'; ed.boqTouched = true; renderBoq(); foldSum(); });
+      if (k === 'p2p') { // v2.37: the pole the pole-to-pole guy goes to (a head guy is drawn there too): the nearest poles first
+        const here = pinMap ? (() => { const c = pinMap.getCenter(); return { lat: c.lat, lon: c.lng }; })() : null;
+        const list = projPoints().filter((q) => q.id !== ed.id && elemOf(q) === 'Pole').map((q) => ({ q, d: here ? haversine(here, q) : 0 })).sort((a, b) => a.d - b.d).slice(0, 12);
+        const sel = document.createElement('select'); sel.className = 'boqsel'; sel.dataset.k = k; sel.setAttribute('aria-label', BOQ_LABEL[k]); sel.disabled = ro;
+        sel.add(new Option('— choose the pole —', '', false, !ed.boq.p2p)); list.forEach(({ q, d }) => sel.add(new Option(`${q.poleId || '(no ID)'} · ${Math.round(d)} m`, q.id, false, ed.boq.p2p === q.id)));
+        if (ed.boq.p2p && !list.some(({ q }) => q.id === ed.boq.p2p)) { const t = points.find((x) => x.id === ed.boq.p2p); sel.add(new Option(t ? t.poleId || '(no ID)' : '(deleted pole)', ed.boq.p2p, false, true)); }
+        sel.addEventListener('change', () => { if (sel.value) ed.boq.p2p = sel.value; else delete ed.boq.p2p; ed.boqTouched = true; renderBoq(); foldSum(); });
+        row.appendChild(sel); rows.appendChild(row); return;
+      }
+      if (k === 'mloop' || k === 'ground' || k === 'riser') { // v2.29: one chip, on or off (v2.37: grounding and riser too)
+        const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = k === 'mloop' ? `MLoop ${mloopLen()} m` : k === 'ground' ? 'Grounding' : 'Riser'; c.setAttribute('aria-pressed', String(!!ed.boq[k])); c.disabled = ro;
+        c.addEventListener('click', () => { if (ed.boq[k]) delete ed.boq[k]; else ed.boq[k] = 'Yes'; ed.boqTouched = true; renderBoq(); foldSum(); });
         chips.appendChild(c); row.appendChild(chips); rows.appendChild(row); return;
       }
       if (opts.length > 4) { // v2.28: a long list is a dropdown
@@ -4644,7 +4768,6 @@
     await new Promise((res) => setTimeout(res, 450));
     closePhotoView(); runOcrFor(crop, true);
   }
-  $('edSaveTop').addEventListener('click', saveEditor); // the same Save, next to the photo (v2.14)
   $('scanIdBtn').addEventListener('click', () => openCamera('scan'));
   $('snapGps').addEventListener('click', () => {
     const g = (ed && ed.gps) || fix;
@@ -4720,8 +4843,9 @@
         alt: g && Number.isFinite(g.alt) ? g.alt : null,
         adjusted: g ? haversine(g, pos) > 0.5 : true,
         color: ed.color || '', // v2.36: the pin's own colour ('' = by its status)
+        siteKind: ed.element === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT' : 'Tower') : '', // v2.37
       });
-      if (!rec.color) delete rec.color;
+      if (!rec.color) delete rec.color; if (!rec.siteKind) delete rec.siteKind;
       const photos = [];
       if (ed.newBlob) {
         busy('Preparing photo…');
@@ -5047,7 +5171,7 @@
   /** "1 site · 1 ODF · 2 NAP · 1 closure" for the survey points other than poles. */
   function svCountText(pts) {
     return SV_ELEMENTS.filter((el) => el !== 'Pole').map((el) => [el, pts.filter((p) => elemOf(p) === el).length]).filter(([, k]) => k)
-      .map(([el, k]) => `${k} ${el === 'Site' ? `site${k === 1 ? '' : 's'}` : el === 'Closure' ? `closure${k === 1 ? '' : 's'}` : el === 'Handhole' ? `handhole${k === 1 ? '' : 's'}` : el}`).join(' · ');
+      .map(([el, k]) => `${k} ${el === 'Site' ? `site${k === 1 ? '' : 's'}` : el === 'Closure' ? `closure${k === 1 ? '' : 's'}` : el === 'Handhole' ? `handhole${k === 1 ? '' : 's'}` : el === 'Manhole' ? `manhole${k === 1 ? '' : 's'}` : el === 'Service box' ? `service box${k === 1 ? '' : 'es'}` : el}`).join(' · ');
   }
   /** What an As-plan survey must have: a site, an ODF or ODC location, a POI (closure on a pole or handhole with a closure). */
   const asPlanParts = (pts) => ({ site: pts.some((p) => elemOf(p) === 'Site'), odf: pts.some((p) => ['ODF', 'ODC'].includes(elemOf(p))), poi: pts.some(isPoi), nap: pts.filter((p) => elemOf(p) === 'NAP').length });
@@ -6375,7 +6499,9 @@
         telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: b.clamp || '',
         armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon,
         mloop: !!(p.mloop || b.mloop), nap: !!p.nap, napId: p.napId || '', closure: !!p.closure, closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
-        adjusted: !!p.adjusted, color: p.color || '' }; }); // v2.36: a pin set by hand stays where it is on the drawing; a map pin's colour
+        adjusted: !!p.adjusted, color: p.color || '', // v2.36: a pin set by hand stays where it is on the drawing; a map pin's colour
+        // v2.37: the NAP's kind, a double LCP, the site's kind, grounding, a riser, the pole a pole-to-pole guy goes to
+        napType: el === 'NAP' ? b.napType || '' : '', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', ground: !!b.ground, riser: !!b.riser, p2pTo: b.p2p || null }; });
     const spans = R.spans.map((s) => ({ ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long }));
     const runs = C.routeChains(R.spans).map((ch) => ({ cable: ch.cable, label: CAB_TITLE[ch.cable] || '', pts: ch.pts.map(U) }));
     // the area of the vicinity map: three times the route, at least 1.5 km
@@ -6437,12 +6563,14 @@
       const file = `${names[poles[i].id]}.jpg`; photos[poles[i].id] = { file, px: dim.w, py: dim.h }; files.push({ name: file, data: jpg });
     }
     let vicImage = null, vicDrawn = false, vicKind = 'street';
+    const vicC = window.GeDxfTpl.vicCircle ? window.GeDxfTpl.vicCircle(rows.map((r) => [r.E, r.N]), size) : null; // v2.37: the PROJECT AREA circle
     try {
       // v2.36: online, the satellite picture (else the street map); offline, the offline map pack; else a street map drawn from the roads
       let v = navigator.onLine === false ? null : await vicinityJpeg(cE, cN, size, zone, cla < 0, busy, SAT_SOURCE).catch((e) => { LOG.warn('plan.vicinity.sat', errInfo(e)); return null; });
       if (!v) v = await vicinityJpeg(cE, cN, size, zone, cla < 0, busy);
       if (!v) { busy('Drawing the vicinity map from the offline map…'); v = await vicinityFromPack(cE, cN, size, zone, cla < 0).catch((e) => { LOG.warn('plan.vicinity.pack', errInfo(e)); return null; }); if (v) vicKind = 'pack'; }
       if (!v && roads.length) { v = await vicinityFromRoads(roads, cE, cN, size); vicDrawn = !!v; } // v2.34: no map tiles: a street map drawn from the roads
+      if (v && vicC) v = await vicFocus(v, cE, cN, size, vicC); // v2.37: grey and darker outside the circle
       if (v) { if (v.sat) vicKind = 'sat'; vicImage = { file: 'VICINITY_MAP.jpg', px: v.px, py: v.py, credit: v.credit, sat: !!v.sat }; files.push({ name: 'VICINITY_MAP.jpg', data: v.jpg }); }
     } catch (e) { LOG.warn('plan.vicinity', errInfo(e)); }
     // v2.34: the vendor's logo in every title block (set in Export → AutoCAD · DXF, shared with the company's users through the sheet)
@@ -6450,7 +6578,7 @@
     try { const lg = await logoGet(); if (lg) { const ext = lg.type === 'image/png' ? 'png' : 'jpg'; logo = { file: `COMPANY_LOGO.${ext}`, px: lg.px, py: lg.py }; files.push({ name: logo.file, data: b64ToBytes(lg.data) }); } } catch (e) { LOG.warn('plan.logo', errInfo(e)); }
     busy('Drawing the plan on the template…');
     await sleep(30);
-    const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinity: [cE, cN, size], photos, vicImage, logo,
+    const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinity: [cE, cN, size], vicCircle: vicC, photos, vicImage, logo,
       planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
     const rp = out.report, name = `${fileBase()}_PLAN_UTM${zone}N`;
     const nPh = Object.keys(photos).length;
@@ -6464,15 +6592,35 @@
       `Roads: ${roadsNote}.`,
       `Right of way (ROW AREA COVERAGE): ${rowNote}.`, '',
       `Left blank (not known to the app; fill them in CAD): ${rp.blanks.join(', ') || 'none'}.`,
-      'PMI table from the survey: total cable = spans + maintenance loops; aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures. HDD, trenches, maxcell, manhole and service box are not in the survey.',
+      'PMI table from the survey: total cable = spans + maintenance loops; aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures. Trenches and maxcell are not in the survey.',
       'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE (PROP.POLE / height / clamp), existing electric pole on ELECTRIC POLE (material / pole tag or NPT), telco pole on GT-POLE (material / ID); new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
-      `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it).`,
+      `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; a pin placed by hand more than 6 m from the road edge stays where it is: ${rp.counts.polesKept || 0}; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it; a side guy never into the road; a pole-to-pole guy to its chosen pole, with a head guy there: ${rp.counts.poleToPole || 0}).`,
+      `On the cable (the cable meets their two sides, the ID below): NAPs of every kind (1x8, 1x16, dummy, changed to 1:16, double; a NAP pin is drawn on its pole), the ODC (single or double LCP), handholes, manholes and service boxes: ${rp.counts.inlineBlocks || 0}. Loops on the cable beside their pole; closures on the cable. Grounding at every pole with a loop or marked for it: ${rp.counts.grounding || 0}. Risers where the cable goes from aerial to underground (or marked): ${rp.counts.risers || 0}. Directional boring (HDD) where an underground cable crosses a road: ${rp.counts.hdd || 0}. A new tower is red; an OLT site is drawn with the OLT model (${rp.counts.olt || 0}).`,
+      ...(() => { const A = routeAdvice(R); return A.length ? [`Route check (${A.length}): ${A.map((a) => a.text).join(' · ')}.`] : []; })(),
       `Road widths by OpenStreetMap class (or its width / lanes): primary 12 m, secondary 9, tertiary 7.5, residential 6, service 4, track 3.5; paths as a grey centre line. Building and place names: ${rp.counts.pois || 0}${rp.counts.landmarkIcons ? `, ${rp.counts.landmarkIcons} with their icon (blocks GESAA_LM_…, layer G-ESAA LANDMARK; icons of the OpenStreetMap street map and Mapbox Maki, public domain)` : ''}.`,
       'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD.', '', exporterText()].join('\r\n');
     LOG.info('export.plan', { sheets: rp.sheets.length, roads: rp.counts.roads, blanks: rp.blanks.length, mb: +(out.text.length / 1048576).toFixed(2) });
     busy(false);
     offerResult(new Blob(C.makeZipParts([{ name: `${name}.dxf`, data: out.text }, ...files, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`);
-    toast(`Plan: ${rp.sheets.length} GEO sheet${rp.sheets.length === 1 ? '' : 's'} · ${roadsNote}`, 5000);
+    { const A = routeAdvice(R); toast(`Plan: ${rp.sheets.length} GEO sheet${rp.sheets.length === 1 ? '' : 's'} · ${roadsNote}${A.length ? ` · ${A.length} route check${A.length === 1 ? '' : 's'} in the README` : ''}`, 5000); }
+  }
+  /** v2.37: the vicinity picture in grey and darker outside the PROJECT AREA circle (the circle's inside as it is, a soft edge), so the
+      route stands out among the houses; the same in AutoCAD and in any PDF converter. vc: [E, N, radius] in UTM metres. */
+  async function vicFocus(v, cE, cN, size, vc) {
+    try {
+      const im = await loadImage(new Blob([v.jpg], { type: 'image/jpeg' })), W = v.px, H = v.py, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+      const g = cv.getContext('2d'); g.drawImage(im, 0, 0, W, H); if (im.close) im.close();
+      const kx = W / size, ky = H / size, cx = (vc[0] - (cE - size / 2)) * kx, cy = (cN + size / 2 - vc[1]) * ky, r = vc[2] * kx, edge = Math.max(2, r * 0.03);
+      const D = g.getImageData(0, 0, W, H), a = D.data;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const d = Math.hypot(x - cx, y - cy) - r; if (d <= -edge) continue;
+        const t = Math.min(1, (d + edge) / (2 * edge)), i = (y * W + x) * 4, grey = 0.3 * a[i] + 0.59 * a[i + 1] + 0.11 * a[i + 2];
+        for (let c = 0; c < 3; c++) a[i + c] = Math.round(a[i + c] * (1 - t) + grey * 0.55 * t);
+      }
+      g.putImageData(D, 0, 0);
+      const jpg = new Uint8Array(await (await toBlob(cv, 0.86)).arrayBuffer());
+      return { ...v, jpg };
+    } catch (e) { LOG.warn('plan.vicFocus', errInfo(e)); return v; }
   }
 
   $('doCsv').addEventListener('click', () => guard(async () => {
@@ -10225,5 +10373,5 @@
   }
   window.__polecam = { get points() { return points; }, get S() { return S; }, get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
-    surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads }; // for testing
+    surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads, routeAdvice: () => routeAdvice(routeModel()), renderPoles, persist }; // for testing
 })();
