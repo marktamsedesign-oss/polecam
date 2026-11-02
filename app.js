@@ -426,6 +426,10 @@
   /** v2.28: the admin's lists (Administration → Sizes for the BOQ / BOM), else the built-in ones (owners: + the v2.26 extra owners). */
   const boqList = (k) => { const L = pol().boqLists; return L && Array.isArray(L[k]) && L[k].length ? L[k] : k === 'owner' ? [...BOQ_OPT.owner, ...(Array.isArray(pol().poleOwners) ? pol().poleOwners : [])] : BOQ_OPT[k]; };
   const detailItems = () => (Array.isArray(pol().detailItems) && pol().detailItems.length ? pol().detailItems : POLE_DETAIL_ITEMS);
+  /* v2.42.1: an electric pole (concrete, wood, steel) has two details only: its transformer, and a telco arm (the extra arm the electric
+     cooperative puts up for telco cables; not every pole has one: the plan draws it) */
+  const ELEC_DETAIL_ITEMS = ['Transformer', 'Telco arm'];
+  const hasTelcoArm = (p) => (p.details || []).some((d) => d && /^telco\s*arm$/i.test(String(d.item || '').trim()));
   const boqOwners = () => [...new Set([...boqList('owner'), ...(S.myOwners || [])].map((x) => String(x || '').trim()).filter(Boolean))];
   /** The BOQ fields of a survey element: by element and status (existing, or proposed / new); a closure in the handhole adds its size. */
   function boqKeys(el, status, closureHere, b) {
@@ -689,7 +693,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.0';
+  const APP_VER = '2.42.2';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1442,6 +1446,7 @@
     if (nGuy) out.push([nGuy > 1 ? `G${nGuy}` : 'G', '#1971c2']);
     if (b.ground) out.push(['GR', '#2b8a3e']);
     if (b.riser) out.push(['R', '#495057']);
+    if (hasTelcoArm(p)) out.push(['TA', '#0c8599']); // v2.42.1
     return out;
   }
   function drawDrawing() {
@@ -1673,7 +1678,7 @@
     const mode = S.exp.dxfMarks || 'photo';
     rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[plStyle().num.bcolor] || ACI_INK[plStyle().num.color] || '#d9a400'}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[plStyle().num.color] || '#d9a400'}" font-family="system-ui,sans-serif">1</text>`), 'Number on the plan']);
     if (mode !== 'num') rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), mode === 'both' ? 'Photo with its number' : 'Photo on the plan']);
-    const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser']];
+    const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)']];
     const present = new Set(); if (drw) drw.items.forEach((it) => { if (it.el === 'Pole') poleTags(it).forEach(([t]) => present.add(/^G\d*$/.test(t) ? 'G' : t === 'LCP' || t === 'DN' ? 'NAP' : t)); });
     T.forEach(([t, c, n]) => { if (present.has(t)) rows.push([tag(t, c), n]); });
     $('drawLegendBody').innerHTML = rows.map(([i, t]) => `${i}<span>${C.xmlEsc(t)}</span>`).join('');
@@ -3499,7 +3504,7 @@
   /** Choosing a pole type sets the ID prefix: a suggested ID is re-suggested, a typed/scanned one keeps its number. */
   function setPoleType(t) {
     if (!ed) return;
-    ed.type = t; renderTypeChips(t); renderEdSym(); // v2.37: a telco pole has its own symbol
+    ed.type = t; renderTypeChips(t); renderEdSym(); renderDetails(); // v2.37: a telco pole has its own symbol (v2.42.1: an electric pole its two details)
     const id = $('poleId').value.trim().toUpperCase(), pre = typePrefix(t);
     if (!pre || (ed.element && ed.element !== 'Pole') || ed.status === 'Proposed') { checkFormat(); return; } // a proposed pole keeps its PP- number
     const m = polePartRe().exec(id);
@@ -4628,8 +4633,10 @@
     });
     const sel = $('svDetailAdd'), have = new Set((ed.details || []).map((d) => d.item));
     sel.innerHTML = '<option value="">+ Add detail</option>';
-    detailItems().concat((S.myDetails || []).filter((x) => !detailItems().includes(x))).filter((x) => !have.has(x)).forEach((x) => sel.add(new Option(x, x)));
-    sel.add(new Option('Other…', '__other'));
+    const elec = (ed.element || 'Pole') === 'Pole' && ELEC_TYPES.has(typePrefix(ed.type)); // v2.42.1: an electric pole: Transformer and Telco arm only
+    (elec ? ELEC_DETAIL_ITEMS : detailItems().concat((S.myDetails || []).filter((x) => !detailItems().includes(x)))).filter((x) => !have.has(x)).forEach((x) => sel.add(new Option(x, x)));
+    if (!elec) sel.add(new Option('Other…', '__other'));
+    sel.hidden = elec && sel.options.length < 2; // both added: nothing left to add
   }
   $('svDetailAdd').addEventListener('change', async (e) => {
     if (!ed) return;
@@ -6915,7 +6922,7 @@
     const rows = pts.map((p) => { const [E, N] = U(p), el = elemOf(p), b = p.boq || {}, pre = typePrefix(p.poleType), own = String(b.owner || '').trim(), generic = !p.poleId || /^P{1,2}-?\d+$/i.test(p.poleId);
       return { id: p.id, poleId: p.poleId || '', el, status: p.status || '', mat: el === 'Pole' ? (TELCO_TYPES.has(pre) ? '' : pre) : '', tag: el === 'Pole' ? (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId) : '',
         telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: b.clamp || '',
-        armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon,
+        armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon, telcoArm: el === 'Pole' && hasTelcoArm(p), // v2.42.1: the plan draws it
         mloop: !!(p.mloop || b.mloop), nap: !!p.nap, napId: p.napId || '', nap2: el === 'Pole' && !!p.nap2, nap2Id: el === 'Pole' && p.nap2 ? p.nap2Id || '' : '', nap2Type: el === 'Pole' && p.nap2 ? b.nap2Type || '' : '', nap2Old: el === 'Pole' && !!p.nap2 && b.nap2St === 'Existing', closure: !!p.closure, closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
         adjusted: !!p.adjusted, color: p.color || '', // v2.36: a pin set by hand stays where it is on the drawing; a map pin's colour
         // v2.37: the NAP's kind, a double LCP, the site's kind, grounding, a riser, the pole a pole-to-pole guy goes to

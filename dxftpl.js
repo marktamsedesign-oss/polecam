@@ -799,17 +799,18 @@
   }
   /** v2.41: a new block made of the given entities (polylines [[x, y]…, closed] and texts), drawn in BYBLOCK colour on layer 0 so the
       insert's layer and colour show (the ODC cabinet). */
-  function defineBlock(d, S, name, polys, texts) {
+  function defineBlock(d, S, name, polys, texts, solids) {
     if (S.blocks.has(name)) return true;
     const T = d.sec('TABLES').recs, B = d.sec('BLOCKS').recs, tb = T.find((r) => typ(r) === 'TABLE' && get(r, 2) === 'BLOCK_RECORD');
     if (!tb) return false;
-    const brH = d.newHandle(), head = (t) => [[0, t], [5, d.newHandle()], [330, brH], [100, 'AcDbEntity'], [8, '0'], [62, I(0)]];
+    const brH = d.newHandle(), head = (t, c) => [[0, t], [5, d.newHandle()], [330, brH], [100, 'AcDbEntity'], [8, '0'], [62, I(c == null ? 0 : c)]]; // (v2.42.1: c, an entity's own colour; else by block)
     const brec = [[0, 'BLOCK_RECORD'], [5, brH], [330, get(tb, 5)], [100, 'AcDbSymbolTableRecord'], [100, 'AcDbBlockTableRecord'], [2, name], [340, '0'], [70, I(0)], [280, I(1)], [281, I(0)]];
     const last = T.reduce((k, r, i) => (typ(r) === 'BLOCK_RECORD' ? i : k), -1); T.splice(last + 1, 0, brec);
     setFirst(tb, 70, I(parseInt(get(tb, 70, '0'), 10) + 1));
     const ents = [];
-    polys.forEach(({ pts, closed, w }) => { const r = head('LWPOLYLINE'); r.push([100, 'AcDbPolyline'], [90, I(pts.length)], [70, I(closed ? 1 : 0)], [43, F(w || 0)]); pts.forEach(([x, y]) => r.push([10, F(x)], [20, F(y)])); ents.push(r); });
-    (texts || []).forEach(({ x, y, h, s: str, rot, obl, style }) => { const r = head('TEXT'); r.push([100, 'AcDbText'], [10, F(x)], [20, F(y)], [30, '0.0'], [40, F(h)], [1, str], [50, F(rot || 0)], [51, F(obl || 0)], [7, style && S.styles.has(style) ? style : 'Standard'], [72, I(1)], [11, F(x)], [21, F(y)], [31, '0.0'], [100, 'AcDbText'], [73, I(2)]); ents.push(r); });
+    (solids || []).forEach(({ pts: q, c }) => { const r = head('SOLID', c); r.push([100, 'AcDbTrace']); [[10, 20, 0], [11, 21, 1], [12, 22, 3], [13, 23, 2]].forEach(([gx, gy, k]) => r.push([gx, F(q[k][0])], [gy, F(q[k][1])], [gx + 20, '0.0'])); ents.push(r); }); // v2.42.2: filled (a quad: its corners in turn), first so the lines and text sit on top
+    polys.forEach(({ pts, closed, w, c }) => { const r = head('LWPOLYLINE', c); r.push([100, 'AcDbPolyline'], [90, I(pts.length)], [70, I(closed ? 1 : 0)], [43, F(w || 0)]); pts.forEach(([x, y]) => r.push([10, F(x)], [20, F(y)])); ents.push(r); });
+    (texts || []).forEach(({ x, y, h, s: str, rot, obl, style, c }) => { const r = head('TEXT', c); r.push([100, 'AcDbText'], [10, F(x)], [20, F(y)], [30, '0.0'], [40, F(h)], [1, str], [50, F(rot || 0)], [51, F(obl || 0)], [7, style && S.styles.has(style) ? style : 'Standard'], [72, I(1)], [11, F(x)], [21, F(y)], [31, '0.0'], [100, 'AcDbText'], [73, I(2)]); ents.push(r); });
     B.push([[0, 'BLOCK'], [5, d.newHandle()], [330, brH], [100, 'AcDbEntity'], [8, '0'], [100, 'AcDbBlockBegin'], [2, name], [70, I(0)], [10, '0.0'], [20, '0.0'], [30, '0.0'], [3, name], [1, '']], ...ents,
       [[0, 'ENDBLK'], [5, d.newHandle()], [330, brH], [100, 'AcDbEntity'], [8, '0'], [100, 'AcDbBlockEnd']]);
     d.index(); Object.assign(S, structure(d));
@@ -836,6 +837,21 @@
     polys.forEach((q) => { q.pts = q.pts.map(([x, y]) => [x - cx, y - cy]); });
     const t = P(W / 2, 0, 0.81); // ODC on the plate, in the plane of the front (turned 30°, slanted 30°)
     return { polys, texts: [{ x: t[0] - cx, y: t[1] - cy, h: 0.1, s: 'ODC', rot: 30, obl: 30, style: 'arial' }], w: Math.max(...all.map((q) => q[0])) - Math.min(...all.map((q) => q[0])), h: Math.max(...all.map((q) => q[1])) - Math.min(...all.map((q) => q[1])) };
+  }
+  /** v2.42.2: the telco arm seen from above (design H1, approved): the mounting plate on the pole with its two bolts, the steel channel
+      filled white with TELCO in bold red on it, the suspension clamp across it where the cable passes (about three quarters along,
+      as on the field photo), the channel going on a little past it to its end. Metres at scale 1 from the pole's face (x = 0); the
+      clamp at x = 2.7. flip: TELCO turned round (for an arm pointing left or down, so it reads the right way up). */
+  function telcoArmTop(flip, bold) {
+    const G = 8, W = 255, END = 3.7; // grey lines (seen on black and on white), white fill (stays white when printed)
+    const polys = [], rect = (x0, y0, x1, y1, c) => polys.push({ pts: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], closed: true, c });
+    const solids = [{ pts: [[0.12, -0.5], [END, -0.5], [END, 0.5], [0.12, 0.5]], c: W }]; // the channel, filled white
+    rect(0.12, -0.5, END, 0.5); polys.push({ pts: [[0.12, 0.38], [END, 0.38]], c: G }); polys.push({ pts: [[0.12, -0.38], [END, -0.38]], c: G }); // its outline and lips
+    polys.push({ pts: [[END - 0.1, -0.5], [END - 0.1, 0.5]], c: G }); // the end cap
+    rect(-0.12, -0.78, 0.12, 0.78); [0.6, -0.6].forEach((y) => polys.push({ pts: [[-0.06, y - 0.06], [0.06, y - 0.06], [0.06, y + 0.06], [-0.06, y + 0.06]], closed: true })); // the plate, its bolts
+    rect(2.48, -0.66, 2.92, 0.66, G); polys.push({ pts: [[2.62, 0], [2.78, 0]], c: 1 }); polys.push({ pts: [[2.7, -0.08], [2.7, 0.08]], c: 1 }); // the clamp, its bolt (red: the cable)
+    const texts = [{ x: 1.3, y: 0, h: 0.44, s: 'TELCO', rot: flip ? 180 : 0, style: bold || 'arial', c: 1 }]; // bold Arial TELCO is about 4.85 × its height long: 0.44 sits between the pole bracket (0.12) and the clamp (2.48)
+    return { polys, texts, solids, clampX: 2.7, end: END };
   }
   /** v2.35.6: the nearest AutoCAD colour index of an RGB colour (the hatches also carry the colour itself, group 420). */
   const ACI = [[1, 255, 0, 0], [2, 255, 255, 0], [3, 0, 255, 0], [4, 0, 255, 255], [5, 0, 0, 255], [6, 255, 0, 255], [8, 128, 128, 128], [9, 192, 192, 192],
@@ -973,6 +989,7 @@
   const NUM_STYLE = { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto' }; // the number beside a point: text colour, circle colour (0 = as the text), text height, circle diameter (0 = none), distance from the point, leader line, first free spot / straight out from the road
   const ID_STYLE = { bold: false, color: 0, h: 2.5 }; // the IDs of NAPs, the ODC, handholes… (v2.40 and before: 2.5 m, by layer, not bold)
   const VIC_STYLE = { circle: 2, circleW: 7, route: 0, routeW: 16.5 }; // the vicinity map: the PROJECT AREA circle (yellow) and the route (0: by cable, red new / blue existing); widths per 1.5 km of map
+  const TA_BLOCK = 'G-ESAA TELCO ARM'; // v2.42.1: the telco arm on the plan (from above); v2.42.2: and its twin 'G-ESAA TELCO ARM R' (TELCO turned round)
   const ODC_H = 9, ODC_BLOCK = 'G-ESAA ODC'; // v2.41: the ODC cabinet on the plan: its block (an isometric view), 9 m high
   const pinColor = (p) => (p && p.color && PIN_ACI[p.color] != null ? PIN_ACI[p.color] : null);
   const CABLE_LWT = 70; // v2.36: 0.70 mm, about the template's 0.78 m wide cable at 1 : 1200
@@ -1296,7 +1313,7 @@
       for (const line of ch.pieces) { o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: CABLE_LWT, color: ch.existing ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ch.existing ? 9 : 7) : 0, gen: true }); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); }
     }
     // 4. poles and the other points: symbols first (they are fixed), then the labels round them
-    let nOlt = 0, nInline = 0;
+    let nOlt = 0, nInline = 0, nTelco = 0, taDef = false; const taBlk = telcoArmTop(false);
     for (const p of pts) {
       if (p.onPole) continue;
       const isNew = p.status === 'Proposed' || p.status === 'New';
@@ -1307,6 +1324,22 @@
           const end = p.arm.dir[0] ? [bb[0], (bb[1] + bb[3]) / 2] : [top ? top[0] : (bb[0] + bb[2]) / 2, bb[3]], rot = deg(p.td) - deg(p.arm.dir), at = add2(p.dp, p.td, p.rp), e = rotv([end[0] * sc, end[1] * sc], rot);
           o.insert(lay(p.arm.layer), p.arm.b, at[0] - e[0], at[1] - e[1], { scale: sc, rot });
           const m = add2(p.dp, p.td, p.rp + reach / 2); spots.add(Spots.box(m[0], m[1], reach, 4, deg(p.td)));
+        }
+        if (p.telcoArm) { // v2.42.1: the telco arm (from above): from the pole's face to the cable, the clamp where the cable passes; TELCO ARM beside it (v2.42.2: design H1, along the pole and the arm)
+          if (!taDef) { addLayer(d, S, 'G-ESAA TELCO ARM', 7); const bs = addBoldStyle(d, S, 'G-ESAA BOLD'); [false, true].forEach((f) => { const B = telcoArmTop(f, bs); defineBlock(d, S, TA_BLOCK + (f ? ' R' : ''), B.polys, B.texts, B.solids); }); taDef = true; }
+          const side = rotv(p.td, 90), off = p.arm ? 1.2 : 0, face = add2(add2(p.dp, p.td, p.rp), side, off); // beside a new arm when the pole has one too
+          const hhN = inl.has(p) ? inl.get(p).hh : 0, L = Math.max(1.5, dist2(face, add2(p.A, side, off)) - hhN), sc = L / taBlk.clampX, rot = deg(p.td);
+          const up = Math.abs(((readable(rot) - rot) % 360 + 360) % 360) < 1; // TELCO reads the right way up
+          o.insert(lay('G-ESAA TELCO ARM'), TA_BLOCK + (up ? '' : ' R'), face[0], face[1], { scale: sc, rot }); nTelco++;
+          const mid = add2(face, p.td, (taBlk.end * sc) / 2); spots.add(Spots.box(mid[0], mid[1], taBlk.end * sc * 1.05, 1.7 * sc, rot));
+          // its name along the pole and the arm (0.8 m high): from the pole's back to the arm's end, clear of the pole symbol
+          const txt = 'TELCO ARM', h = 0.8 * Math.min(1, p.k || 1), cands = [], rr = readable(rot), from = add2(p.dp, p.td, -p.rp), span = p.rp * 2 + taBlk.end * sc;
+          for (const sd of [1, -1]) for (const g of [0, 0.6, 1.4]) for (const a of [0, -0.6, 0.6]) {
+            const q = add2(add2(from, p.td, span / 2 + a), side, sd * (Math.max(p.rp * 1.05, 0.78 * sc) + h / 2 + 0.25 + g));
+            cands.push({ q, rr, cost: (sd < 0 ? 0.4 : 0) + g * 0.6 + Math.abs(a) * 0.3, boxes: [textBox(q[0], q[1], h, txt, rr, 1, 2)] });
+          }
+          const c = pickC(spots, cands, ROADLINE_W);
+          o.text(lay('G-ESAA TELCO ARM'), c.q[0], c.q[1], h, txt, { rot: c.rr, ha: 1, va: 2, style: 'arial' }); spots.add(c.boxes, 'telco');
         }
       } else if (p.el === 'Site' && /olt/i.test(p.siteKind || '')) { // v2.37: an OLT site: the OLT model (yellow when new, blue existing), its name above
         const nb0 = isNew && S.blocks.has('7') ? ['7', 'PORPOSED OLT', 0.0001060994181900193] : ['OLT1', 'EXISTING OLT', 1.749630906627053];
@@ -1954,9 +1987,9 @@
     rep.partly = [...blanks].filter((k) => filled.has(k)).sort();
     if (job.debug) rep.pts = pts.map((p) => ({ id: p.id, poleId: p.poleId, el: p.el, dp: p.dp, A: p.A, kept: !!p.kept, moved: p.moved || 0, onPole: p.onPole ? p.onPole.id : null }));
     if (job.debug) rep.inline = [...inl.values()].map((it) => ({ b: it.b, at: it.at, hl: it.hl, hlo: it.hlo, hhi: it.hhi, hh: it.hh, sc: it.sc, rot: it.rot, box: blockBox(S, it.b, 0), boxT: blockBoxT(S, it.b), c: blockCenter(S, it.b) }));
-    rep.counts = { ...o.n, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesOffRoadLine: nCleared, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length };
+    rep.counts = { ...o.n, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesOffRoadLine: nCleared, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length, telcoArms: nTelco };
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0] };
     return { text: d.text(), report: rep };
   }
-  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.0' };
+  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.2' };
 }));

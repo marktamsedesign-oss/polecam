@@ -320,7 +320,7 @@
     { id: 'adm-standards', aud: 'admin', cat: 'Administration', title: 'Field standards and who records', kw: 'field standards maximum span angle pole prefixes vendors record sharpness pole owners boq remove default built-in',
       steps: [
         { t: '**Maximum span**, **Angle pole from (°)**, the gap limit of *Link in capture order*, the **maintenance loop (MLoop) length** (15 m unless you change it) and **Extra pole prefixes for everyone**.', go: 'admin', hl: '#setMaxSpan', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
-        { t: '**Sizes for the BOQ / BOM and pole details**: the pole owners, clamp sizes, new Globe pole sizes and classes, ODF sizes and connectors, closure sizes, new arms, guying and the pole details, one value per line. Add, rename or remove; empty = the built-in list. A list of more than 4 shows as a dropdown in the record.', go: 'admin', hl: '#admBoqBox', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
+        { t: '**Sizes for the BOQ / BOM and pole details**: the pole owners, clamp sizes, new Globe pole sizes and classes, ODF sizes and connectors, closure sizes, new arms, guying and the pole details (an electric pole offers Transformer and Telco arm only; the plan draws a telco arm), one value per line. Add, rename or remove; empty = the built-in list. A list of more than 4 shows as a dropdown in the record.', go: 'admin', hl: '#admBoqBox', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '**Vendors record PAT defects and accept fixes at FAT**: on = vendors may record; off = only the admin company does.', go: 'admin', hl: '#admVendorRec', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '**Photo sharpness required**: Strict (recommended) or Normal.', go: 'admin', hl: '#admQuality', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
         { t: '**To go back to the built-in values:** clear the box: maximum span 200 m, angle pole 15°, link gap 120 m, MLoop 15 m. **Extra pole prefixes:** delete the line. **A size list** left empty goes back to the built-in list. Then Save.', go: 'admin', hl: '#setMaxSpan', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
@@ -409,5 +409,5 @@
         { t: 'Done: tap **Save and share the list**.', go: 'admin', hl: '#admSave', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
   ];
-  root.GESAA_TUTORIAL = { version: '2.42.0', topics: T };
+  root.GESAA_TUTORIAL = { version: '2.42.2', topics: T };
 })(typeof self !== 'undefined' ? self : this);
