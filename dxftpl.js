@@ -69,7 +69,7 @@
     text() {
       const hs = this.headerVar('$HANDSEED'); hs[1] = this.next.toString(16).toUpperCase();
       const out = [];
-      const put = (p) => { out.push(codeStr(p[0])); out.push(p[1]); };
+      const put = (p) => { out.push(codeStr(p[0])); out.push(typeof p[1] === 'string' && /[\r\n]/.test(p[1]) ? p[1].replace(/[\r\n]+/g, ' ') : p[1]); }; // v2.42.4: a line break in a value (a sheet cell with Alt+Enter) broke the file
       this.head.forEach(put);
       for (const s of this.secs) {
         put([0, 'SECTION']); put([2, s.name]);
@@ -1991,5 +1991,5 @@
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0] };
     return { text: d.text(), report: rep };
   }
-  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.2' };
+  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.4' };
 }));

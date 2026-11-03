@@ -1,6 +1,6 @@
 /* G-eSAA (PoleCam) offline cache: keeps the app itself available with no signal.
    Map tiles are cached separately by the app (IndexedDB). Bump VERSION after editing any file. */
-const VERSION = 'polecam-v2.42.2';
+const VERSION = 'polecam-v2.42.5';
 const SHELL = [
   './', 'index.html', 'app.js', 'core.js', 'glyphs.js', 'reports.js', 'forms.js', 'tutorial.js', 'dxftpl.js', 'manifest.json', 'brand/logo-left.jpg', 'brand/logo-right.jpg',
   'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css', 'vendor/protomaps/protomaps-leaflet.js', 'vendor/icons/landmarks.js', 'vendor/icons/landmarks.png', 'vendor/icons/landmark-blocks.js', 'vendor/qr/qrcode.min.js', 'vendor/qr/jsQR.min.js',
@@ -12,7 +12,7 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting())); // v2.42.4: from the server, not the browser's copy (a new release cached an old file)
 });
 
 const SHARE = 'polecam-share'; // v2.19: a file shared to the installed app waits here until the app opens it

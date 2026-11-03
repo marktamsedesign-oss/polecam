@@ -535,6 +535,70 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.5
+
+Four decisions from the review of 3 Nov 2026. **Update the online sheet's script too** (`PoleCam-online-sheet_v2.42.5.gs`), and update the admin company's phones first (see the last point).
+
+- **Any change after an on-site approval cancels it.** A record saved with a change, added or deleted, or the route changed, after the task was approved: the approval is removed and the app says so; the inspector approves it again. A Save with no change keeps it. On a FAT the FAT is also no longer complete (its FAT date is cleared in the online sheet): it is completed again with the inspector's approval QR.
+- **A FAT is completed with the inspector's approval.** *Mark task complete* (or the completion report) on a FAT asks for the inspector's on-site approval QR: on a vendor's phone it opens the camera to scan the QR on the inspector's phone; on an inspector's own phone it asks to "Complete and approve". The completion report of a FAT is made only after the approval (a FAT completed before v2.42.5 asks for it when its report is made). Vendors still accept fixes at the FAT, as before.
+- **An incomplete PAT is not shared for the cleanup.** *Share PAT KMZ* on a PAT that is not completed asks to complete and lock it first (*Complete and share*). A defect cleanup can no longer be started from an incomplete PAT KMZ (made by an older version), nor on the same phone (items added after it was shared never reached the cleanup or the FAT).
+- **The encrypted admin key is no longer in the join links.** Until v2.42.4 every join link, QR code, vendor invite and the online sheet carried the list's admin key, encrypted with the admin PIN, so anyone holding one could try PINs offline. Now the list says only that it has an admin key; the encrypted key goes to the admin company only:
+  - in **Invite admin staff** (and Share list with only the admin company ticked), in a **coworker invite from an admin-company phone** (Settings → Invite a coworker), and in **Move to another phone** of admin staff;
+  - from the online sheet, to the admin phone (Admin key) and to phones reading with the admin company's company key; never with the Read key alone;
+  - vendor invites and vendors' coworker invites never carry it, and a vendor's phone drops the copy an older list gave it.
+  - Coworker sharing works as before: a vendor's coworkers join with the vendor's invite; an admin-company coworker's invite carries the admin key, so the new inspector can enter the PIN.
+  - **Update the admin company's phones to v2.42.5 before saving the next list version.** A phone still on v2.42.4 that takes a new version can no longer enter the PIN (it says "Wrong admin PIN"); phones that already had the key keep it when they update. Then **change the admin PIN once** (Manage → Change the admin PIN): the key that older links carried is then useless. After a PIN change, staff phones get the new key from the online sheet when they read it with the admin company's key; otherwise send them a new Invite admin staff.
+
+## What changed in v2.42.4
+
+From a full review of the app (3 Nov 2026). Bug fixes only; nothing changes in how the app is used. **Update the online sheet's script too** (`PoleCam-online-sheet_v2.42.4.gs`: paste, Save, Deploy → Manage deployments → Edit → New version).
+
+**Records and drafts**
+- An unsaved edit restored after the app was closed ("Open it") kept the pole's stored 2nd NAP box and pin colour instead of the ones being edited: it now brings them back.
+- Editing and saving any record wiped its GPS altitude (used in the photos' EXIF): kept now.
+- A restored new record no longer takes the phone's current GPS position in place of the photo's (it moved the pin to wherever the phone was when reopened).
+- An ID typed while the ID reading was still running is no longer overwritten by the reading (the reading is offered as a chip).
+- Route linking ends when another project is opened (Undo wrote the first project's links into the second).
+- A new photo on an existing record carries its own time (and gives a pin placed on the map its GPS fix).
+- A manhole or service box saved without a number gets MH-0001 / SB-0001 (was X-0001); a site is no longer pre-filled with a made-up next site ID; NPT poles are not marked "duplicate ID" in the list; a failed delete says so.
+- The As-Built plan match no longer drops the kind of NAP / closure ticked on the pole; a project changed between As-plan and As-built keeps Proposed / New poles' sizes.
+
+**Acceptance (PAT, defect cleanup, FAT)**
+- An on-site approval no longer carries over to the next stage (a FAT started from an approved cleanup showed "Approved on site" though nobody had approved it).
+- Fixes are verified at the FAT only, in the record as on the pin card (in the cleanup a contractor could verify its own fix from the record).
+- Undoing an acceptance removes its verification photo (the report still showed it as VERIFIED); a contractor taking back its own fix is no longer counted as a rejection.
+- "Fixed now: photo + accept" records the fix time (the report printed 1 Jan 1970) and the report says it was fixed on the spot.
+- The FAT summary shows the fixes not accepted yet (it showed "Still open 0" for unchecked fixes); items of old versions are counted by their status; Next pin goes round every pin still to visit (it went back and forth between two close pins); an item of an old version gets its own ID (a photo could go to another item).
+
+**Exports**
+- A line break in a site name or other field (Alt+Enter in a sheet cell) no longer breaks the plan DXF.
+- The 2nd box on a pole is in the "Size" text (KMZ balloon, DXF labels, route Excel, records search).
+- The CSV's photo column names each photo as the Photos export does (the naming setting, numbering), blank for a record without a photo.
+- Photo file names use plain letters (Niño → Nino), so CAD finds the photos linked in the DXF.
+- File dates use the phone's date (some used UTC: the day before until 8 am).
+
+**Backups, shared files and storage**
+- Restoring a backup or opening a shared PAT / cleanup / FAT file keeps the records changed on this phone since (it put the older ones back); a second copy of the same name (another crew's cleanup, a colleague's backup) opens as its own project instead of merging.
+- A restore cut short no longer leaves records without their project's details; a file cut short when saving to the phone is removed; a record just saved no longer comes back as "not saved" at the next start; if the records do not load at start, an unsaved record is kept and projects cannot be deleted until the app is reopened.
+- When the phone refuses to keep the app's settings (storage full), the app says so.
+- Only G-eSAA files (.zip, .kmz) are opened from every way in (a map pack shared to the app was read whole).
+- The app log no longer keeps names, emails, phone numbers or coordinates from messages (as it promises); an update downloads every app file fresh.
+
+**Company list, invites and the online sheet**
+- A phone tied to the organisation no longer accepts a list that names the organisation's key without being signed by it.
+- Sheet script: an any-vendor invite no longer hands out the key of a company that sees all tasks; an invite's companies are kept apart with " | " (a name with "/", "&" or "and" in it is matched whole); a second admin phone cannot replace a saved list version with a different list of the same version.
+- Invite admin staff no longer shows an invite that cannot work where the sheet uses company keys; Invite a coworker through the sheet is for an admin's phone only; a vendor added in the sheet (not yet in a new list version) can be chosen with its invite.
+- A user moved onto a phone set up for another company no longer keeps that company's key; an admin-staff user taken off the list loses the admin company's key; Reset user also forgets the sheet's Admin key; an invite whose list is refused leaves nothing behind; the invite code is used once even when a sync and Save run together; an old sheet's answer is not repeated at every sync; the app notices when the sheet starts asking for company keys.
+
+## What changed in v2.42.3
+
+From the screen recording of 3 Nov 2026 (*Invite a coworker* QR code).
+
+- **Invite a coworker works where the online sheet uses company keys, from a phone without one** (the admin phone, which reads the sheet with its Admin key). Until v2.42.2 that invite named the company (e.g. GLOBE) but carried no key, so the new phone downloaded the list ("This phone already has the latest list"), stayed at *No invite yet* and could not Save. Now the phone asks the online sheet for an invite for its company (as *Invite admin staff* does): the QR code and link carry the sheet's invite code, and the new phone gets that company's key from the sheet when its user saves. The invite works for 14 days and is listed in the sheet's Invites tab.
+- **Admin company staff joining with such an invite** (or with *Invite admin staff*) get the admin company's key from the sheet and are **not asked for the admin PIN**: the key proves the company, as a key invite from a coworker always did. They are users of the admin company, not list admins (the admin PIN is still needed under Manage).
+- A phone without a company key and without the sheet's Admin key no longer shows an invite that cannot work: it says why, and what to do.
+- **An old invite without a key** (made by v2.42.2 or older on such a phone), scanned on the welcome screen, now says plainly that it has no company key and to ask for a new one, instead of leaving *No invite yet*.
+
 ## What changed in v2.42.2
 
 - **The telco arm on the plan, redrawn (design H1, approved 2 Nov 2026)**, still seen from above: the mounting plate on the pole with its two bolts, the steel channel **filled white** with **TELCO** in **bold red** on it, the suspension clamp across the channel where the cable passes, and the channel going on about a metre past the clamp to its end, so it reads as an arm. TELCO always reads the right way up: an arm pointing left or down uses the twin block *G-ESAA TELCO ARM R* (the same arm, TELCO turned round). Both blocks are on layer G-ESAA TELCO ARM.

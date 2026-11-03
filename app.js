@@ -9,8 +9,9 @@
   const pendingCo = (/[#&]co=([^&#]+)/.exec(H0) || [])[1] || null; // v2.28 the company the invite is for (lists without company keys)
   // v2.42: an invite's companies (cos=A|B or * for any vendor) and its code (iv=): v2.41 dropped them when the link opened the app
   const pendingCos = (/[#&]cos=([^&#]+)/.exec(H0) || [])[1] || null, pendingIv = (/[#&]iv=([A-Za-z0-9]{8,24})(?=[&#]|$)/.exec(H0) || [])[1] || null;
-  const pendingTail = () => `${pendingCo ? `&co=${pendingCo}` : ''}${pendingCos ? `&cos=${pendingCos}` : ''}${pendingIv ? `&iv=${pendingIv}` : ''}`;
-  if (pendingJoin || pendingKey || pendingJq || pendingMv || pendingCo || pendingCos || pendingIv) history.replaceState(null, '', location.pathname + location.search);
+  const pendingKe = (/[#&]ke=([A-Za-z0-9_-]{20,4000})(?=[&#]|$)/.exec(H0) || [])[1] || null; // v2.42.5: an admin-staff invite's encrypted admin key
+  const pendingTail = () => `${pendingCo ? `&co=${pendingCo}` : ''}${pendingCos ? `&cos=${pendingCos}` : ''}${pendingIv ? `&iv=${pendingIv}` : ''}${pendingKe ? `&ke=${pendingKe}` : ''}`;
+  if (pendingJoin || pendingKey || pendingJq || pendingMv || pendingCo || pendingCos || pendingIv || pendingKe) history.replaceState(null, '', location.pathname + location.search);
   /* Camera button position for one-hand use: centre by default, right or left in Settings → Camera. */
   const handOf = () => (['left', 'center', 'right'].includes(S && S.hand) ? S.hand : 'center');
   function applyHand() { const h = handOf(); ['left', 'center', 'right'].forEach((x) => document.body.classList.toggle(`hand-${x}`, x === h)); }
@@ -172,7 +173,12 @@
   };
   let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem('polecam.settings') || '{}')); } catch (e) { return { ...DEF }; } })();
   applyHand();
-  const persist = () => { try { localStorage.setItem('polecam.settings', JSON.stringify(S)); } catch (e) { /* storage blocked */ } };
+  let persistWarned = 0, pointsLost = false; // v2.42.4: pointsLost: the records did not load at start
+  const persist = () => {
+    try { localStorage.setItem('polecam.settings', JSON.stringify(S)); } catch (e) { // storage full or blocked (v2.42.4: said, at most once a minute; it was silent)
+      if (Date.now() - persistWarned > 60000) { persistWarned = Date.now(); setTimeout(() => { try { LOG.error('persist.fail', errInfo(e)); } catch (x) { /* early */ } toast('The phone did not keep the app\u2019s settings and project details (storage full or blocked): free some space, or the last changes may be lost when the app closes.', 8000); }, 0); }
+    }
+  };
   // v1.7: fixed pole types, strict photo check, 200 m maximum span, satellite imagery no longer kept on the phone
   delete S.types;
   if (!Array.isArray(S.myTypes)) S.myTypes = [];
@@ -256,6 +262,7 @@
   const dbPut = async (st, v) => { const p = await pack(v); return tx(st, 'readwrite', (s) => s.put(p)); };
   const dbDel = (st, k) => tx(st, 'readwrite', (s) => s.delete(k));
   const dbAll = async (st) => (await tx(st, 'readonly', (s) => s.getAll())).map(unpack);
+  const dbKeys = (st) => tx(st, 'readonly', (s) => s.getAllKeys()); // v2.42.4
   const dbCount = (st, range) => tx(st, 'readonly', (s) => s.count(range));
   const dbClear = (st) => tx(st, 'readwrite', (s) => s.clear());
   const dbDelMany = (st, keys) => tx(st, 'readwrite', (s) => { keys.forEach((k) => s.delete(k)); });
@@ -319,8 +326,14 @@
 
   /* ================= UI helpers ================= */
   let toastTimer = 0;
+  /** v2.42.4: a message as the app log keeps it: without names, emails, phone numbers, ID numbers or coordinates (as the log promises). */
+  function logSafe(t) {
+    let s = String(t == null ? '' : t); const u = S.user || {};
+    [u.name, u.mobile, u.idno, u.email].filter((x) => x && String(x).trim().length >= 3).forEach((x) => { s = s.split(String(x).trim()).join('[you]'); });
+    return s.replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, '[email]').replace(/(?<![\w-])\+?\d[\d\s().,-]{5,}\d/g, '[number]').replace(/\b(by|By|BY) ((?:[A-Z][\w.'-]*|[A-Z]\.)(?: (?:[A-Z][\w.'-]*|de|del|dela|ng)){0,4})/g, '$1 [name]').replace(/\bID (?:no\.? )?[A-Za-z0-9-]{3,}/g, 'ID [no]');
+  }
   function toast(msg, ms) {
-    LOG.info('toast', String(msg).slice(0, 200));
+    LOG.info('toast', logSafe(msg).slice(0, 200));
     const t = $('toast'); t.textContent = msg; t.hidden = false;
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms || 2600);
   }
@@ -450,7 +463,7 @@
     if (b.odf || b.conn) parts.push(`ODF ${[b.odf, b.conn].filter(Boolean).join(' ')}`);
     if (b.clo || b.cloSt) parts.push(`Closure ${[b.clo, b.cloSt].filter(Boolean).join(' ')}`);
     if (b.arm) parts.push(`Arm ${b.arm}`); if (b.guy) parts.push(`Guying ${b.guy}`); if (b.mloop) parts.push(`MLoop ${mloopLen()} m`); // v2.29
-    if (b.p2p) { const t = points.find((x) => x.id === b.p2p); parts.push(`Pole-to-pole guy to ${t ? t.poleId || '(no ID)' : '(deleted pole)'}`); } if (b.ground) parts.push('Grounding'); if (b.riser) parts.push('Riser'); if (b.napType) parts.push([b.napType, b.napSz, b.napSt].filter(Boolean).join(' ')); if (b.lcp) parts.push(b.lcp); // v2.37 (v2.41: a dummy NAP's size, New / Existing)
+    if (b.p2p) { const t = points.find((x) => x.id === b.p2p); parts.push(`Pole-to-pole guy to ${t ? t.poleId || '(no ID)' : '(deleted pole)'}`); } if (b.ground) parts.push('Grounding'); if (b.riser) parts.push('Riser'); if (b.napType) parts.push([b.napType, b.napSz, b.napSt].filter(Boolean).join(' ')); if (b.nap2Type) parts.push([b.nap2Type, b.nap2Sz, b.nap2St].filter(Boolean).join(' ')); if (b.lcp) parts.push(b.lcp); // v2.37 (v2.41: a dummy NAP's size, New / Existing)
     return parts.join(' · ');
   }
   /** Only the fields that apply to the element as saved. */
@@ -502,6 +515,7 @@
     }
     const pts = recs.filter((p) => elemOf(p) === element);
     if (!isAcc() && SV_ELEMENTS.includes(element)) { // survey: NAP-, CL-, HH-, ODC- and the number; a site keeps its own name
+      if (element === 'Site') return ''; // v2.42.4: (MIN2463 suggested MIN2464, a made-up site ID)
       const nx = pts.length ? C.nextPoleId(latest(pts).poleId) : '';
       return nx || (SV_PREFIX[element] ? `${SV_PREFIX[element]}-` : '');
     }
@@ -693,7 +707,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.2';
+  const APP_VER = '2.42.5';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1298,7 +1312,7 @@
 
   function renderPoles() {
     poleLayer.clearLayers();
-    if (isAcc() && routeMode) setRouteMode(false);
+    if (routeMode && (isAcc() || routeProj !== S.project)) setRouteMode(false); // v2.42.4: + another project
     $('routeBtn').hidden = isAcc(); $('pinAddBtn').hidden = !S.project || isAcc(); // v2.36
     const R = drawRoute();
     const pts = projPoints(), hidePins = viewHide().pins && !routeMode; // v2.30: pins hidden from the map button (shown while linking the route)
@@ -2015,10 +2029,10 @@
     drawRef(false); renderRefInfo(); toast('Reference removed');
   }, 'Reference not removed'));
   /* ================= route and spans (survey projects) ================= */
-  let routeMode = false, routeSel = null, routeUndo = [];
+  let routeMode = false, routeSel = null, routeUndo = [], routeProj = null; // v2.42.4: routeProj: the project being linked
   const routeLayer = L.layerGroup().addTo(map);
   const links = () => (pmeta().links || []);
-  function setLinks(l) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), links: l }; persist(); }
+  function setLinks(l) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), links: l }; persist(); changedAfterApproval(S.project, 'route'); } // v2.42.5: + the approval
   /* v2.29: each span carries its FOC cable type (the third value of the link): AE Figure 8 72C, Light cable 12C or UG 144C air-blown */
   const CAB = C.CABLES;
   const cableSel = () => { const k = pmeta().cable; return k === '' || CAB[k] ? k : 'L12'; }; // the cable new links get: the project's last choice
@@ -2140,7 +2154,7 @@
     $('rbUndo').disabled = !routeUndo.length;
   }
   function setRouteMode(on) {
-    routeMode = on; routeSel = null; routeUndo = [];
+    routeMode = on; routeSel = null; routeUndo = []; routeProj = on ? S.project : null;
     $('routeBar').hidden = !on; $('routeBtn').setAttribute('aria-pressed', String(on)); if (on) renderCableSel();
     document.body.classList.toggle('routing', on);
     renderPoles();
@@ -2374,13 +2388,13 @@
       the readings are offered as chips and the ID photo opens for a tap on the ID or a box round it. */
   async function readIdShot(crop, blob) {
     if (!ed) return;
-    const token = ed.ocrToken = uid(); renderIdCands('reading');
+    const token = ed.ocrToken = uid(), before = $('poleId').value; renderIdCands('reading'); // v2.42.4: before: what the field held
     let a = [], b = [];
     try { a = await readIdFrom(crop); if (crop._second) b = await readIdFrom(crop._second); } catch (e) { LOG.warn('idshot.read.fail', errInfo(e)); }
     if (!ed || ed.ocrToken !== token) return;
     const ta = a[0], tb = b[0], list = mergeIds(a, b), same = !!(ta && tb && ta.id === tb.id), best = same ? (ta.score >= tb.score ? ta : tb) : null;
     LOG.info('idshot.read', { a: ta ? `${ta.id} ${ta.conf}` : '', b: tb ? `${tb.id} ${tb.conf}` : '', same });
-    if (best && best.conf >= (best.fits ? 55 : 80)) {
+    if (best && best.conf >= (best.fits ? 55 : 80) && $('poleId').value === before) { // v2.42.4: not over an ID typed meanwhile
       $('poleId').value = best.id; ed.idTouched = true; ed.idRead = { id: best.id, conf: best.conf }; syncFromId(); checkDup();
       const rest = list.filter((c) => c.id !== best.id && (c.fits || c.conf >= 60));
       renderIdCands('done', rest, `Filled ${best.id} from the ID photo (read the same twice, ${best.conf}% sure) — check it.${rest.length ? ' Other readings:' : ''}`);
@@ -2972,6 +2986,7 @@
       return;
     }
     if (camTarget === 'replace' && ed) {
+      ed.photoAt = x.takenAt || new Date().toISOString(); if (gps && !ed.gps) ed.gps = { ...gps }; if (ed.mode === 'new') ed.takenAt = ed.photoAt; // v2.42.4: the new photo's time (and a map pin's first GPS fix); the pole's own fix stays
       ed.newBlob = blob; ed.srcBlob = blob; ed.keepQ = false; prepImages(blob); ed.q = qSummary(x.q); showEdPhoto(blob); showQualWarn(ed.q);
       if (ed.origPid) ed.dropOrig = true; ed.marks = []; ed.base = null; ed.baseNew = false; ed.legacyBoxes = 0; ed.legacyPole = false; renderBoxInfo(); // a new photo has no marks yet
       toast(ed.mapPin || ed.mode === 'edit' && !ed.hadPhoto ? 'Photo added — tap Save to keep it' : 'Photo replaced — tap Save to keep it');
@@ -3218,7 +3233,7 @@
       if (!ed || ed.ocrToken !== token) return;
       const best = list[0];
       // Fill the field when sure enough: a reading in a known format (CC-0001, FDU_100) or the project's own numbering needs 55%, anything else 80%.
-      if (best && (explicit ? best.conf >= (best.fits ? 55 : 80) : (!ed.idTouched && best.conf >= 80))) {
+      if (best && $('poleId').value === before && (explicit ? best.conf >= (best.fits ? 55 : 80) : (!ed.idTouched && best.conf >= 80))) { // v2.42.4: not over an ID typed meanwhile
         $('poleId').value = best.id; ed.idTouched = true; ed.idRead = { id: best.id, conf: best.conf }; syncFromId(); checkDup();
         // other readings worth a tap: leave out weak or garbled ones, and the same ID written differently
         const same = (c) => { const k = C.knownId(c.id); return c.id === best.id || (k && k.id === best.id); };
@@ -3561,7 +3576,7 @@
   }
   function editorGpsUpdate() {
     // A fresh photo taken before GPS locked: adopt the first fix (and keep improving it) until the user moves the pin.
-    if (ed.mode !== 'new' || ed.source !== 'camera' || ed.userMoved) return;
+    if (ed.mode !== 'new' || ed.source !== 'camera' || ed.userMoved || ed.restored) return; // v2.42.4: not a restored record (its photo was taken elsewhere, earlier)
     if (ed.gps && ed.gps.acc != null && (ed.gps.acc <= fix.acc || ed.gps.acc <= 15)) return; // v2.30: a photo with a usable fix keeps its pin (it no longer creeps as the GPS improves)
     ed.gps = { ...fix }; drawEdGps();
     pinMap.setView([fix.lat, fix.lon], Math.max(pinMap.getZoom(), 19), { animate: false });
@@ -3616,7 +3631,7 @@
     ed.lock = !acc ? '' : patClosed() ? 'closed' : o.mode === 'edit' && ['Cleanup', 'FAT'].includes(taskCat()) && (o.patId || (o.defs || []).some((d) => (d.stage || 'PAT') === 'PAT')) ? 'carried' : '';
     if (acc) {
       Object.assign(ed, { element: o.element || 'Pole', photos: (o.photos || []).map((p) => ({ ...p })), pending: {}, removed: [], details: JSON.parse(JSON.stringify(o.details || [])),
-        defs: JSON.parse(JSON.stringify(o.defs || [])), mloop: !!o.mloop, nap: !!o.nap, closure: !!o.closure, odf: o.odf || 'New', newBlob: null });
+        defs: JSON.parse(JSON.stringify(o.defs || [])).map((d) => (d && !d.id ? { ...d, id: uid() } : d)), /* v2.42.4: an id for items of old versions (a photo went to the wrong one) */ mloop: !!o.mloop, nap: !!o.nap, closure: !!o.closure, odf: o.odf || 'New', newBlob: null });
       // v2.13: in PAT, cleanup and FAT the photo is of the defect itself (no pole / ODF photo): it becomes the as-found photo
       // of the deficiency started below. A phone that may not record deficiencies keeps it as the element photo.
       ed.noDef = !!o.noDef && o.mode === 'new'; // v2.23: the site photo of a PAT where no defect was found
@@ -3682,6 +3697,7 @@
     });
     checkFormat(); applyEdLock();
     ed.boqTouched = !!o.restore; // v2.26.1: a restored record keeps its sizes
+    ed.restored = !!o.restore; // v2.42.4: and its photo's GPS fix
     if (!acc && boqOn() && svPurpose() === 'As-built') { const eid = ed.id; planFor().then((pl) => requestAnimationFrame(() => { if (ed && ed.id === eid) { ed.plan = pl || { none: true, name: '', recs: [] }; applyPlan(); } })).catch((e) => LOG.warn('plan.fail', errInfo(e))); }
     foldSum(); // v2.22: after the ID and element are set
     draftStart(!!o.restore); // v2.21: kept safe until saved
@@ -3696,7 +3712,7 @@
      the phone: in the photo store (pictures, ids draft~…) and in localStorage (the rest). A page reload, the phone closing the app in
      the background, or the app being closed some other way loses nothing: the next start offers the record again. */
   const DRAFT_KEY = 'polecam.draft', DRAFT_MAX_MS = 7 * 86400000;
-  let draftTimer = 0, draftChain = Promise.resolve(), draftBlobs = {}, draftAtStart = 0;
+  let draftTimer = 0, draftChain = Promise.resolve(), draftBlobs = {}, draftAtStart = 0, draftGen = 0; // v2.42.4: draftGen
   try { const st0 = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); draftAtStart = (st0 && st0.t) || 0; } catch (e) { draftAtStart = 0; } // the draft left from before this start
   /** A photo taken, the camera still open for the ID: kept as a draft too, so a reload during the ID scan does not lose it. */
   function shotDraft(p) {
@@ -3732,7 +3748,8 @@
   function saveDraft() {
     clearTimeout(draftTimer);
     if (!ed || ed.lock === 'closed' || !edDirty()) return draftChain;
-    const st = draftState(); st.t = Date.now();
+    if (editorSaving) return draftChain; // v2.42.4: not while the record is being saved
+    const st = draftState(); st.t = Date.now(); const gen = draftGen;
     const blobs = { new: ed.newBlob, src: st.hasSrc ? ed.srcBlob : null, base: ed.base, def: st.def && st.def.photo ? defDraft.blob : null };
     Object.entries(ed.pending || {}).forEach(([pid, b]) => { blobs[`p:${pid}`] = b; });
     draftChain = draftChain.then(async () => {
@@ -3741,6 +3758,7 @@
           if (!b || draftBlobs[k] === b) continue;
           await dbPut('photos', { id: `draft~${k}`, clean: b }); draftBlobs[k] = b;
         }
+        if (gen !== draftGen) return; // v2.42.4: the record was saved (or the draft cleared) meanwhile: an “unsaved record” came back at the next start
         localStorage.setItem(DRAFT_KEY, JSON.stringify(st));
       } catch (e) { LOG.warn('draft.fail', errInfo(e)); }
     });
@@ -3748,7 +3766,7 @@
   }
   const scheduleDraft = () => { if (!ed) return; clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 700); };
   function draftClear() {
-    clearTimeout(draftTimer); draftBlobs = {};
+    clearTimeout(draftTimer); draftBlobs = {}; draftGen++;
     try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* private window */ }
     draftChain = draftChain.then(() => tx('photos', 'readwrite', (st) => st.delete(IDBKeyRange.bound('draft~', 'draft~\uffff'))).catch(() => {}));
     return draftChain;
@@ -3782,6 +3800,7 @@
     if (!st || !st.t || st.t !== draftAtStart) return; // only the draft left from before this start; a record opened since has its own
     if (ed || editorSaving || stack.includes('camera')) { setTimeout(() => guard(draftOffer, 'Unsaved record not opened'), 1500); return; } // asked once the camera is closed
     draftAtStart = null;
+    if (pointsLost) return; // v2.42.4: the records did not load: the draft waits for the next start (it was thrown away)
     if (Date.now() - st.t > DRAFT_MAX_MS || !allProjects().includes(st.project) || (st.mode === 'edit' && !points.some((p) => p.id === st.id))) { draftClear(); return; }
     const what = `${st.mode === 'new' ? 'A new' : 'Changes to the'} ${st.acc ? 'element' : (st.element || 'Pole').toLowerCase()}${st.poleId && !/^[A-Z]{1,6}[-_]?$/.test(st.poleId) ? ` ${st.poleId}` : ''} in “${st.project}” (${fmtTime(new Date(st.t).toISOString())})`;
     LOG.info('draft.offer', { mode: st.mode, acc: st.acc, age: Math.round((Date.now() - st.t) / 60000) });
@@ -3812,7 +3831,7 @@
     if (!ed) return;
     Object.assign(ed, { pending: { ...ed.pending, ...pend }, removed: st.removed || [], idRead: st.idRead, idTouched: st.idTouched, dragged: st.dragged, element: st.element, type: st.type || ed.type,
       status: st.status || ed.status, details: st.details || [], defs: st.defs || ed.defs, photos: st.acc ? st.photos || ed.photos : ed.photos, marks: st.acc ? ed.marks : (st.marks || []).map(normMark),
-      mloop: st.mloop, nap: st.nap, closure: st.closure, odf: st.odf || ed.odf, boq: st.boq || ed.boq || {}, legacyBoxes: st.legacyBoxes, legacyPole: st.legacyPole, dropOrig: st.dropOrig, keepQ: st.keepQ, origPid: st.origPid || ed.origPid,
+      mloop: st.mloop, nap: st.nap, nap2: !!st.nap2, color: st.color != null ? st.color : ed.color, closure: st.closure, odf: st.odf || ed.odf, /* v2.42.4: + nap2, color (an edit's draft lost them) */ boq: st.boq || ed.boq || {}, legacyBoxes: st.legacyBoxes, legacyPole: st.legacyPole, dropOrig: st.dropOrig, keepQ: st.keepQ, origPid: st.origPid || ed.origPid,
       ...(st.siteKind ? { siteKind: st.siteKind } : {}) });
     if (!st.acc) {
       if (nb) { ed.newBlob = nb; prepImages(nb); showEdPhoto(nb); }
@@ -3839,13 +3858,13 @@
     const p = points.find((x) => x.id === id); if (!p) return;
     if (p.kind === 'acceptance' || isAcc(p.project)) {
       openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType || undefined, lat: p.lat, lon: p.lon, takenAt: p.takenAt, source: p.source,
-        gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : { lat: p.lat, lon: p.lon, acc: p.accuracy }, // records from before v1.3 keep no raw fix: the pin stands in
+        gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy, alt: p.alt } : { lat: p.lat, lon: p.lon, acc: p.accuracy, alt: p.alt }, // records from before v1.3 keep no raw fix: the pin stands in (v2.42.4: + alt)
         element: elemOf(p), photos: p.photos || [], defs: p.defs || [], mloop: p.mloop, nap: p.nap, napId: p.napId, nap2: p.nap2, nap2Id: p.nap2Id, closure: p.closure, closureId: p.closureId, odf: p.odf, patId: p.patId || '', details: p.details || [] });
       return;
     }
     const ph = await dbGet('photos', id).catch(() => null);
     openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType, lat: p.lat, lon: p.lon, takenAt: p.takenAt,
-      gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy } : null, storedBlob: ph ? (ph.clean || ph.thumb) : null, source: p.source,
+      gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy, alt: p.alt } : null, /* v2.42.4: + alt (Save wiped it) */ storedBlob: ph ? (ph.clean || ph.thumb) : null, source: p.source,
       element: elemOf(p), status: p.status || '', remarks: p.remarks || '', closureId: p.closureId || '', boxes: p.boxes || 0, details: p.details || [], marks: p.marks || [], origPid: p.origPid || '', poleModel: !!p.poleModel, color: p.color || '',
       boq: p.boq || {}, siteKind: p.siteKind || '', // v2.37: the record's sizes and its site kind come back with it
       nap: !!p.nap, napId: p.napId || '', nap2: !!p.nap2, nap2Id: p.nap2Id || '', closure: !!p.closure }); // v2.42: and what is on the pole (v2.41 left it out: a reopened pole lost its NAP when saved)
@@ -4325,6 +4344,7 @@
       if (ppGlobe && ed.type !== globeType()) { ed.type = globeType(); renderTypeChips(ed.type); }
       $('typeSel').disabled = ppGlobe || ed.lock === 'closed'; $('surveyTypeBox').title = ppGlobe ? 'A proposed pole is a Globe pole (GT)' : '';
       $('svDetailsBox').hidden = el !== 'Pole'; renderDetails();
+      if (ed.status && sts.length && !sts.includes(ed.status)) { const alt = { Proposed: 'New', New: 'Proposed' }[ed.status]; if (alt && sts.includes(alt)) ed.status = alt; } // v2.42.4: the project's purpose was changed
       const sb = $('svStatus'); sb.innerHTML = ''; sts.forEach((x) => sb.add(new Option(svStatusLabel(x), x, false, x === ed.status)));
       $('svStatusBox').hidden = !sts.length; sb.disabled = sts.length < 2;
       $('svClosureBox').hidden = el !== 'Handhole';
@@ -4600,6 +4620,7 @@
         if (!ed.stTouched && ed.status !== want && svStatuses(ed.element || 'Pole').includes(want)) { ed.status = want; applyElement(); if (want === 'New' && (ed.element || 'Pole') === 'Pole' && ed.type !== globeType()) setPoleType(globeType()); }
         ed.boq = { ...m.r.boq }; ed.boqFromPlan = true;
       } else if (ed.boqFromPlan) { ed.boq = {}; ed.boqFromPlan = false; }
+      renderAttach(); // v2.42.4: the NAP / closure ticked on the pole get their kind and status again (the plan's sizes dropped them)
     }
     renderBoq(); foldSum();
   }
@@ -4734,7 +4755,7 @@
         mk('Mark rectified', () => { d.status = 'Rectified'; d.fixedAt = new Date().toISOString(); d.fixedStage = stage; d.fixedBy = byLine(); renderDefs(); });
       } else if (stt === 'Rectified') {
         mk('Retake after photo', () => { ed.afterFor = d.id; openCamera('after'); });
-        if (insp) {
+        if (insp && stage === 'FAT') { // v2.42.4: fixes are accepted at the FAT only (in the cleanup a contractor could verify its own fix)
           mk('Verify', () => { d.status = 'Verified'; d.verifiedAt = new Date().toISOString(); d.verifiedBy = byLine(); d.verifyStage = stage; renderDefs(); }, 'primary');
           mk('Verify with photo', () => { ed.verifyFor = d.id; openCamera('verify'); });
           mk('Reject', async () => {
@@ -4742,9 +4763,9 @@
             if (reason == null) return;
             reopenDef(d, reason, stage); renderDefs();
           }, 'danger');
-        } else if (d.fixedBy === byLine() || !d.afterPid) mk('Reopen', () => { reopenDef(d, 'Reopened by the contractor', stage); renderDefs(); });
-      } else if (stt === 'Verified' && insp) {
-        mk('Undo verification', () => { d.status = 'Rectified'; d.verifiedAt = null; d.verifiedBy = ''; renderDefs(); });
+        } else if (d.fixedBy === byLine() || !d.afterPid) mk('Reopen', () => { if (d.afterPid) { if (ed.pending[d.afterPid]) delete ed.pending[d.afterPid]; else ed.removed.push(d.afterPid); } undoFix(d); renderDefs(); }); // v2.42.4: not a rejection
+      } else if (stt === 'Verified' && insp && stage === 'FAT') {
+        mk('Undo verification', () => { if (d.verifyPid) { if (ed.pending[d.verifyPid]) delete ed.pending[d.verifyPid]; else ed.removed.push(d.verifyPid); } undoAccept(d); renderDefs(); }); // v2.42.4: its photo goes too
       }
       if (insp && (d.stage || 'PAT') === stage) mk('Remove', () => {
         ed.defs.splice(i, 1);
@@ -4760,6 +4781,10 @@
     if (ed.lock === 'closed') $('addDefBtn').hidden = true;
   }
   /** Back to Open: the rectified photo and dates move into the log, so the item shows no rectification until a new one is made. */
+  /** v2.42.4: the contractor takes back its own fix: back to Open, not counted as a rejection (its photo is dropped). */
+  function undoFix(d) { d.status = 'Open'; d.fixedAt = null; d.fixedStage = null; d.fixedBy = ''; d.afterPid = null; d.afterMeta = null; }
+  /** v2.42.4: an acceptance taken back: back to Rectified, without the verification photo (it was shown as VERIFIED in the reports). */
+  function undoAccept(d) { d.status = 'Rectified'; d.verifiedAt = null; d.verifiedBy = ''; d.verifyPid = null; d.verifyMeta = null; d.verifyStage = null; }
   function reopenDef(d, reason, stage) {
     (d.reopened = d.reopened || []).push({ at: new Date().toISOString(), by: byLine(), reason, stage, pid: d.afterPid || null, meta: d.afterMeta || null, fixedAt: d.fixedAt || null, fixedBy: d.fixedBy || '' });
     d.status = 'Open'; d.fixedAt = null; d.fixedStage = null; d.fixedBy = ''; d.afterPid = null; d.afterMeta = null;
@@ -4811,9 +4836,11 @@
   }
   const herePos = () => (fix ? { lat: fix.lat, lon: fix.lon } : (() => { const c = map.getCenter(); return { lat: c.lat, lon: c.lng }; })());
   /** The nearest pin that still needs this user (skipping one, for “Next pin”). */
-  function nextTarget(skipId) {
+  const visitSeen = new Set(); // v2.42.4: the pins passed with Next pin in this round
+  function nextTarget(skipId, seen) {
     const here = herePos(); let best = null;
-    for (const r of projPoints()) { if (r.id === skipId || !needsVisit(r)) continue; const d = haversine(here, r); if (!best || d < best.d) best = { r, d }; }
+    for (const r of projPoints()) { if (r.id === skipId || (seen && seen.has(r.id)) || !needsVisit(r)) continue; const d = haversine(here, r); if (!best || d < best.d) best = { r, d }; }
+    if (!best && seen && seen.size) { seen.clear(); return nextTarget(skipId); } // all passed once: round again
     return best && { ...best, dir: compass(here, best.r), you: !!fix };
   }
   function openVisit(id, pan) {
@@ -4896,9 +4923,9 @@
             }, 'danger');
           } else {
             mk('📷 Retake the fix photo', cam('fix'));
-            if (d.fixedBy === byLine() || !d.afterPid) mk('Undo fixed', () => visitChange(r.id, key, (x) => reopenDef(x, 'Undone by the contractor', stage), 'Back to open'));
+            if (d.fixedBy === byLine() || !d.afterPid) mk('Undo fixed', () => visitChange(r.id, key, (x) => undoFix(x), 'Back to open')); // v2.42.4: not a rejection
           }
-        } else if (st === 'Verified' && fatInsp) mk('Undo acceptance', () => visitChange(r.id, key, (x) => { x.status = 'Rectified'; x.verifiedAt = null; x.verifiedBy = ''; }, 'Acceptance undone'));
+        } else if (st === 'Verified' && fatInsp) mk('Undo acceptance', () => visitChange(r.id, key, (x) => undoAccept(x), 'Acceptance undone')); // v2.42.4: with its photo
       }
       mk(d.remarks ? '💬 Edit comment' : '💬 Comment', async () => {
         const v = await promptText('Comment', `${d.cat}: ${d.item}`, 'e.g. replaced the NAP cover', d.remarks || '');
@@ -4920,7 +4947,7 @@
       rec.updated = new Date().toISOString(); rec.updatedBy = byLine();
       busy('Writing to phone storage…');
       await saveRecord(rec, photos);
-      points[points.indexOf(cur)] = rec;
+      points[points.indexOf(cur)] = rec; changedAfterApproval(rec.project, 'item'); // v2.42.5: a change after the approval cancels it
       persist(); notePerson();
       LOG.info('save.done', { ms: Date.now() - t0, visit: done }); LOG.done('save.visit');
     } catch (e) {
@@ -4943,7 +4970,10 @@
     if (far > PIN_LIMIT_M) { toast(`Photo not used: you are ${fmtDist(far)} from ${recName(r)}. Take it within ${fmtDist(PIN_LIMIT_M)} of the pin.`, 6000); return; }
     prepImages(blob);
     const meta = photoMeta(gps), stage = visitStage();
-    if (v.kind === 'verify') visitChange(v.rid, v.did, (d, pid, m) => { d.verifyPid = pid; d.verifyMeta = m; d.status = 'Verified'; d.verifiedAt = m.at; d.verifiedBy = m.by || byLine(); d.verifyStage = stage; }, 'Accepted with photo', blob, meta);
+    if (v.kind === 'verify') visitChange(v.rid, v.did, (d, pid, m) => {
+      if (!defDone(d)) { d.fixedAt = m.at; d.fixedBy = m.by || byLine(); d.fixedStage = stage; d.fixedNow = true; } // v2.42.4: fixed now (Open → Verified): its fix time (reports printed 1 Jan 1970)
+      d.verifyPid = pid; d.verifyMeta = m; d.status = 'Verified'; d.verifiedAt = m.at; d.verifiedBy = m.by || byLine(); d.verifyStage = stage;
+    }, 'Accepted with photo', blob, meta);
     else visitChange(v.rid, v.did, (d, pid, m) => {
       d.afterPid = pid; d.afterMeta = m;
       if (d.status !== 'Verified') { d.status = 'Rectified'; d.fixedAt = m.at; d.fixedStage = stage; d.fixedBy = m.by || byLine(); } // the photo is the evidence, so its time is the fix time
@@ -4952,7 +4982,7 @@
   function closeVisitCard() { if (stack[stack.length - 1] === 'visitCard') closeSheet(); }
   $('vcClose').addEventListener('click', closeVisitCard);
   $('vcOpen').addEventListener('click', async () => { const id = visitId; await closeSheet(); openEditorFor(id); });
-  $('vcNext').addEventListener('click', () => { const t = nextTarget(visitId); if (t) openVisit(t.r.id, true); });
+  $('vcNext').addEventListener('click', () => { if (visitId) visitSeen.add(visitId); const t = nextTarget(visitId, visitSeen); if (t) openVisit(t.r.id, true); });
   /** The strip above the bottom bar points to the nearest pin still to visit. */
   function renderVisitStrip() {
     const t = nextTarget(), ms = $('mapSummary');
@@ -5138,17 +5168,18 @@
   });
   $('edDelete').addEventListener('click', () => { $('delName').textContent = $('poleId').value || 'this pole'; $('delConfirm').hidden = false; $('delConfirm').scrollIntoView({ block: 'nearest' }); });
   $('delNo').addEventListener('click', () => { $('delConfirm').hidden = true; });
-  $('delYes').addEventListener('click', async () => {
+  $('delYes').addEventListener('click', () => guard(async () => { // v2.42.4: a failure is said (it was silent)
     if (ed && ed.lock) { $('delConfirm').hidden = true; toast('This record is from a completed PAT and cannot be deleted', 4500); return; }
     const id = ed.id, rec = points.find((p) => p.id === id);
     await dbDel('points', id);
     if (rec) await deletePhotosIfUnused(allPids(rec).concat(Object.keys(ed.pending || {})), new Set([id]));
     points = points.filter((p) => p.id !== id);
     if (links().some(([x, y]) => x === id || y === id)) setLinks(links().filter(([x, y]) => x !== id && y !== id));
+    if (rec) changedAfterApproval(rec.project, 'delete'); // v2.42.5
     renderPoles(); if (!$('list').hidden) renderList();
     if (ed) ed.closeOK = true;
     await closeSheet(); toast(rec && rec.kind === 'acceptance' ? 'Element deleted' : `${rec && elemOf(rec) !== 'Pole' ? elemOf(rec) : 'Pole'} deleted`);
-  });
+  }, 'Not deleted'));
   $('edSave').addEventListener('click', saveEditor);
   $('edDone').addEventListener('click', () => { if (ed) ed.closeOK = true; closeSheet(); }); // a completed PAT's record: view only (v2.16)
 
@@ -5161,6 +5192,7 @@
   }
 
   async function saveEditorDraft() {
+    const dirty0 = edDirty(); // v2.42.5: whether anything changed (for the on-site approval)
     let poleId = $('poleId').value.trim().toUpperCase(), genId = false;
     // v2.27: a survey record saved without its ID (or with only the prefix) gets a generic number of its own: P-0001, ODF-0001…
     if (!ed.acc && (!poleId || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(poleId) || /[-_]$/.test(poleId))) { poleId = genSvId(ed.element || 'Pole', ed.status); $('poleId').value = poleId; genId = true; }
@@ -5173,7 +5205,7 @@
     if (ed.acc) { // v2.19: the element's ID is optional: left empty (or only the prefix), the record gets a reference D-0001
       const bare = !poleId || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(poleId) || /[-_]$/.test(poleId);
       const was = (points.find((x) => x.id === ed.id) || {}).poleId || '';
-      await saveAcceptance(!bare ? poleId : DREF_RE.test(was) ? was : nextDefRef());
+      await saveAcceptance(!bare ? poleId : DREF_RE.test(was) ? was : nextDefRef(), dirty0);
       return;
     }
     const c = pinMap.getCenter(), pos = { lat: c.lat, lon: c.lng };
@@ -5187,7 +5219,7 @@
       const g = ed.gps;
       // a new object: the record in memory changes only after the phone's storage has committed the save
       const rec = Object.assign({}, p || { id: ed.id, project: S.project, created: now, takenAt: ed.takenAt || now, source: ed.source || 'camera' }, {
-        poleId, poleType: (ed.element || 'Pole') === 'Pole' ? ed.type || '' : '', lat: pos.lat, lon: pos.lon, updated: now, ...(p ? { updatedBy: byLine() } : { by: byLine() }),
+        poleId, poleType: (ed.element || 'Pole') === 'Pole' ? ed.type || '' : '', lat: pos.lat, lon: pos.lon, updated: now, ...(p ? { updatedBy: byLine() } : { by: byLine() }), ...(p && ed.newBlob && ed.photoAt ? { takenAt: ed.photoAt } : {}), /* v2.42.4: a new photo's time */
         element: ed.element || 'Pole', status: svStatuses(ed.element || 'Pole').length ? ed.status || svDefaultStatus(ed.element || 'Pole') : '',
         details: (ed.element || 'Pole') === 'Pole' ? (ed.details || []).filter((d) => d && d.item) : [],
         boq: boqPick(ed.boq, edBoqKeys().concat(attKeys())), // v2.41: + the NAP's and the closure's kind, size and status
@@ -5222,6 +5254,7 @@
       if (!rec.models.length) delete rec.models;
       busy('Writing to phone storage…');
       await saveRecord(rec, photos); // photo and record together, or neither
+      if (dirty0) changedAfterApproval(rec.project, 'record'); // v2.42.5: a change after the approval cancels it (a Save with no change does not)
       if (!p) points.push(rec); else points[points.indexOf(p)] = rec;
       if (p && p.origPid && !rec.origPid) deletePhotosIfUnused([p.origPid], new Set()).catch(() => {}); // marks removed or a new photo
       if (ed.mode === 'new' && !isNpt(poleId) && !genId && (ed.element || 'Pole') === 'Pole') S.lastPoleId = poleId;
@@ -5248,7 +5281,7 @@
   }
   /** v2.27: the generic number of a survey record saved without its ID: P-0001 (pole), ODF-0001, SITE-0001, ODC-, NAP-, CL-, HH-0001;
       a proposed pole keeps its PP- number. The next free number in the project. */
-  const GEN_PRE = { Pole: 'P', ODF: 'ODF', Site: 'SITE', ODC: 'ODC', NAP: 'NAP', Closure: 'CL', Handhole: 'HH' };
+  const GEN_PRE = { Pole: 'P', ODF: 'ODF', Site: 'SITE', ODC: 'ODC', NAP: 'NAP', Closure: 'CL', Handhole: 'HH', Manhole: 'MH', 'Service box': 'SB' }; // v2.42.4: + MH, SB (they got X-0001)
   function genSvId(el, status) {
     if (el === 'Pole' && status === 'Proposed') return suggestId('Pole', ed && ed.type);
     const pre = GEN_PRE[el] || 'X', re = new RegExp(`^${pre}-(\\d+)$`);
@@ -5300,7 +5333,7 @@
     const n = points.filter((p) => p.project === S.project && DREF_RE.test(p.poleId || '')).reduce((m, p) => Math.max(m, +DREF_RE.exec(p.poleId)[1]), 0);
     return `D-${String(n + 1).padStart(4, '0')}`;
   }
-  async function saveAcceptance(poleId) {
+  async function saveAcceptance(poleId, dirty0) { // v2.42.5: dirty0: anything changed
     if (ed.lock === 'closed') { toast('This PAT is complete: nothing in it can be changed', 4500); return; }
     // a defect picked but not yet added is added by Save
     if (defDraft && !$('defPanel').hidden && (defDraft.items.size || $('defNotes').value.trim())) $('defAdd').click();
@@ -5354,6 +5387,7 @@
       }
       busy('Writing to phone storage…');
       await saveRecord(rec, photos); // all photos and the record together, or none
+      if (dirty0) changedAfterApproval(rec.project, 'record'); // v2.42.5
       if (!p) points.push(rec); else points[points.indexOf(p)] = rec;
       deletePhotosIfUnused(ed.removed.filter((pid) => !used.has(pid)), new Set([rec.id])).catch(() => {}); // cleanup can finish in the background
       if (el === 'Pole' && typeNames().includes(ed.type)) S.lastType = ed.type;
@@ -5394,7 +5428,7 @@
     $('listFilter').hidden = !acc;
     const pts = projPoints().reverse().filter((p) => (!q || [p.poleId, p.poleType, p.element, p.napId, p.nap2Id, p.closureId, p.status, p.remarks, detailsText(p.details), boqText(p)].join(' ').toUpperCase().includes(q))
       && (!acc || listFilter === 'all' || recStatus(p) === listFilter));
-    const counts = {}; projPoints().forEach((p) => { counts[p.poleId] = (counts[p.poleId] || 0) + 1; });
+    const counts = {}; projPoints().forEach((p) => { if (p.poleId !== NPT) counts[p.poleId] = (counts[p.poleId] || 0) + 1; }); // v2.42.4: NPT (no pole tag) repeats by design
     const box = $('listItems'); box.innerHTML = '';
     $('listTitle').textContent = `${taskCat()} · ${S.project}`;
     const st = projStats(projPoints()), stat = (n, l) => `<div class="stat"><b>${n}</b><span>${l}</span></div>`;
@@ -5756,10 +5790,11 @@
     if (!profileOk()) { toast('Enter your details first (Settings → You)'); return; }
     const blob = await bundleZip([name]); busy(false);
     LOG.info('project.share', { kind: projKind(name), mb: +(blob.size / 1048576).toFixed(1) });
-    await shareFile(blob, `G-eSAA_${String(name).replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 60)}_${new Date().toISOString().slice(0, 10)}.zip`, 'application/zip');
+    await shareFile(blob, `G-eSAA_${String(name).replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 60)}_${todayIso()}.zip`, 'application/zip'); // v2.42.4: the phone's date (was UTC)
   }
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
+    if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
     const m = pmeta(name), n = points.filter((p) => p.project === name).length, acc = m.mode === 'acceptance';
     if (m.completedAt && S.team && !m.sample && !(await adminApproves(`Deleting the completed project “${name}”`))) return;
     const ok = await ask(`Delete “${name}”?`, `Its ${n} ${acc ? 'element' : 'record'}${n === 1 ? '' : 's'}, photos and offline maps are removed from this phone. Make a backup or share it first if you still need it. This can't be undone.`,
@@ -5888,7 +5923,7 @@
     const blob = await bundleZip(names); busy(false);
     const who = String((S.user && S.user.name) || 'G-eSAA').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 30) || 'G-eSAA';
     LOG.info('bundle.share', { projects: names.length, mb: +(blob.size / 1048576).toFixed(1) });
-    await shareFile(blob, `G-eSAA_${who}_${names.length}_projects_${new Date().toISOString().slice(0, 10)}.zip`, 'application/zip');
+    await shareFile(blob, `G-eSAA_${who}_${names.length}_projects_${todayIso()}.zip`, 'application/zip'); // v2.42.4: the phone's date
   }, 'Projects not shared'));
   /** The chosen projects as one ZIP: bundle.json (what is inside, who sent it), each project as a backup (p1/points.json…), the photos once. */
   async function bundleZip(names) {
@@ -5962,6 +5997,7 @@
     const m = pmeta(), col = progressFields(S.project).filter(([f]) => f !== 'surveyStart').map(([f]) => PROGRESS_COL[f])[0];
     if (!m.completedAt && taskCat() === 'PAT' && patNoDefects()) { await completeNoDefects(); return; } // v2.23
     if (!m.completedAt) { const gaps = await completeGaps(); if (gaps.length) { await notReady(gaps); return; } }
+    if (!m.completedAt && taskCat() === 'FAT') { try { await completeFat('approved'); } catch (e) { toast(e.message || String(e), 7000); } return; } // v2.42.5: with the inspector's approval QR
     const pat = taskCat() === 'PAT';
     if (m.completedAt && pat && !canReopenPat()) { toast('A completed PAT is locked. Only the admin of the company list can reopen it.', 5000); return; }
     // v2.22: reopening a completed project on a user's phone needs an admin's approval too (it would otherwise get round the delete approval)
@@ -6119,8 +6155,13 @@
       const gaps = await completeGaps(); if (gaps.length) { await notReady(gaps); return; }
       // v2.16: the report completes the task, and completing a PAT locks it: asked first
       if (taskCat() === 'PAT' && patNoDefects()) { await completeNoDefects(); if (!pmeta().completedAt) return; } // v2.23: no defects: PAT and FAT done
+      else if (taskCat() === 'FAT') { if (!(await completeFat('report'))) return; } // v2.42.5: the FAT is completed with the inspector's approval QR
       else if (taskCat() === 'PAT' && !(await ask('Complete and lock the PAT?', `The completion report marks the PAT complete. It is then locked: no element or item can be added, changed or removed, by anyone on this phone. Items are tagged as fixed in the defect cleanup and the FAT.${S.team ? ' Only the admin of the company list can reopen it.' : ''}`, [{ label: 'Cancel', value: false }, { label: 'Complete and lock', value: true, primary: true }]))) return;
       markComplete(true, 'report');
+    }
+    if (taskCat() === 'FAT' && !pmeta().approval) { // v2.42.5: a FAT completed before (or its approval cancelled since): the report waits for the inspector's approval
+      const r = await fatApproval(); if (!r) return;
+      await recordApproval(r[0], r[1]);
     }
     const m = pmeta(), R = window.PoleReports, k = acc ? m.stage || 'PAT' : 'survey';
     const catLabel = STAGE_LABEL[k], purpose = PURPOSE_LABEL[acc ? k : m.purpose || 'As-plan'];
@@ -6128,7 +6169,7 @@
     if (!acc) { const Rt = routeModel(), len = Rt.spans.reduce((t, s) => t + s.len, 0); summary = [['Poles captured', pts.filter((p) => elemOf(p) === 'Pole').length], ['Other points', pts.filter((p) => elemOf(p) !== 'Pole').length], ['Spans linked', Rt.spans.length], ['Route length (m)', Math.round(len)], ['Long spans', Rt.long, Rt.long ? 'bad' : 'good']]; }
     else { const M = accModel(); summary = !M.counted.length && k === 'PAT' // v2.23: no defects found
       ? [['Elements', M.recs.length], ['Deficiencies', 0, 'good'], ['To rectify', 0, 'good'], ['FAT', 'Done', 'good']]
-      : [['Elements', M.recs.length], ['Deficiencies', M.counted.length], ['Still open', M.open.length, M.open.length ? 'bad' : 'good'], [k === 'FAT' ? 'Verified' : 'Rectified', k === 'FAT' ? M.verified : M.rectified + M.verified, 'blue']]; }
+      : [['Elements', M.recs.length], ['Deficiencies', M.counted.length], ['Still open', M.open.length, M.open.length ? 'bad' : 'good'], ...(k === 'FAT' ? [['Fixed, not accepted yet', M.rectified, M.rectified ? 'bad' : 'good']] : []), [k === 'FAT' ? 'Verified' : 'Rectified', k === 'FAT' ? M.verified : M.rectified + M.verified, 'blue']]; } // v2.42.4: FAT: fixes not accepted (showed Still open 0)
     const ex = m.exports || {}, made = Object.entries(ex).filter(([kk]) => kk !== 'completion').map(([kk, at]) => `${kk.toUpperCase()} ${shortTime(at)}`).join(' · ');
     const info = [['Project', S.project], ['Task category', catLabel], ['Location / site', m.site || ''], ['Purpose', purpose], ['Vendor (contractor)', m.contractor || (S.user && S.user.company) || ''], ['Site ID (online sheet)', m.taskId || '—'],
       [acc ? 'Inspection date' : 'Started', longDate(acc ? m.date : m.startDate) || '—'], ['Completed', longDate(m.completedAt)]];
@@ -6159,6 +6200,7 @@
     const m = pmeta(pat);
     if (m.mode !== 'acceptance' || !['PAT', 'Cleanup'].includes(m.stage || 'PAT')) throw new Error(`“${pat}” is not a PAT or defect cleanup project`);
     if (stage === 'Cleanup' && (m.stage || 'PAT') !== 'PAT') throw new Error('A defect cleanup starts from a PAT');
+    if (stage === 'Cleanup' && !m.completedAt) throw new Error('The PAT is not completed yet: complete and lock it first (Mark task complete), so that the defect cleanup has every item.'); // v2.42.5
     if (stage === 'FAT' && (m.stage || 'PAT') === 'PAT') throw new Error('The FAT starts from the completed defect cleanup, not from the PAT'); // v2.23
     if (stage === 'FAT' && !m.completedAt) throw new Error('The defect cleanup is not completed yet: the FAT starts from a completed cleanup'); // v2.23
     if (m.noDefects) throw new Error('No deficiencies were found in this PAT: the FAT is done with it.'); // v2.23
@@ -6170,7 +6212,7 @@
     const copies = src.map((r) => ({ ...JSON.parse(JSON.stringify(r)), id: uid(), project: name, updated: now, patId: r.patId || r.id }));
     for (const c of copies) { await dbPut('points', c); points.push(c); }
     // the PAT's own online task, inspection date, exports and completion are not this stage's (v2.22: a completed PAT no longer makes the new stage “completed”)
-    const { taskId, date, exports, completedAt, completedHow, ...patMeta } = m;
+    const { taskId, date, exports, completedAt, completedHow, approval, ...patMeta } = m; // v2.42.4: + its on-site approval (it carried over to the next stage)
     const extra = Object.fromEntries(Object.entries(extraMeta || {}).filter(([, v]) => v !== '' && v != null)); // blank task cells keep the PAT's details
     S.meta[name] = { ...patMeta, stage, fromPat: m.fromPat || pat, fromStage: m.stage || 'PAT', vendorRep: (S.user && S.user.name) || m.vendorRep || '', date: todayIso(), ...extra };
     S.projects.push(name); S.project = name; persist();
@@ -6223,12 +6265,17 @@
   }
   /** Write a blob to a native folder in 3 MB pieces (large KMZ/PDF files would not fit through the bridge at once). */
   async function nativeWrite(blob, path, directory) {
-    const CH = 3 * 1024 * 1024; let uri = '';
-    for (let off = 0; off < Math.max(1, blob.size); off += CH) {
-      const data = await blobChunkB64(blob, off, Math.min(blob.size, off + CH));
-      if (off === 0) uri = (await nativeCall('Filesystem', 'writeFile', { path, data, directory, recursive: true })).uri;
-      else await nativeCall('Filesystem', 'appendFile', { path, data, directory });
-      if (blob.size > CH) busy(`Saving ${Math.min(100, Math.round(((off + CH) / blob.size) * 100))}%…`, Math.min(1, (off + CH) / blob.size));
+    const CH = 3 * 1024 * 1024; let uri = '', started = false;
+    try {
+      for (let off = 0; off < Math.max(1, blob.size); off += CH) {
+        const data = await blobChunkB64(blob, off, Math.min(blob.size, off + CH));
+        if (off === 0) { uri = (await nativeCall('Filesystem', 'writeFile', { path, data, directory, recursive: true })).uri; started = true; }
+        else await nativeCall('Filesystem', 'appendFile', { path, data, directory });
+        if (blob.size > CH) busy(`Saving ${Math.min(100, Math.round(((off + CH) / blob.size) * 100))}%…`, Math.min(1, (off + CH) / blob.size));
+      }
+    } catch (e) { // v2.42.4: a file cut short (phone full) is removed, not left under its name (a ZIP that would not open)
+      if (started) await Promise.resolve(nativeCall('Filesystem', 'deleteFile', { path, directory })).catch(() => {});
+      throw e;
     }
     return uri;
   }
@@ -6351,6 +6398,17 @@
     $('resultBox').hidden = true; openSheet('export');
   });
   function needPoints() { const pts = projPoints(); if (!pts.length) { toast('Nothing captured in this project yet'); return null; } return pts; }
+  /** v2.42.4: each record's photo file name as the Photos export names it (by the naming setting, numbered when the same), '' without a photo. */
+  function photoNames(pts, have) {
+    const used = {}, out = {};
+    for (const p of pts) {
+      if (!have.has(p.id)) { out[p.id] = ''; continue; }
+      let name = photoFileName(p), k = 2; const base = name;
+      while (used[name.toLowerCase()]) name = `${base}_${k++}`;
+      used[name.toLowerCase()] = 1; out[p.id] = name;
+    }
+    return out;
+  }
   function uniqueNames(pts) {
     const used = {}, out = {};
     for (const p of pts) {
@@ -6961,7 +7019,7 @@
     const sName = sfm.siteName || m.siteName || (task && task.project) || '', sPla = sfm.plaId || m.plaId || (task && task.site) || '', sSerial = sfm.serial || m.serial || (task && extraOf(task, 'Serial Number')) || ((m.siteExtra || []).find(([k]) => /serial/i.test(k)) || [])[1] || '';
     const known = !!(sName || sPla || sSerial);
     const values = {
-      EXPORTED_BY: `Exported by ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' · ')} · ${e.app} · ${new Date().toISOString().slice(0, 10)}`,
+      EXPORTED_BY: `Exported by ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' · ')} · ${e.app} · ${todayIso()}`, // v2.42.4: the phone's date (was UTC: the day before until 8 am)
       TITLE_CABLE: cabs.map((k) => CAB_TITLE[k]).join(' / '), COMPANY_NAME: m.contractor || (S.user && S.user.company) || '',
       SITE_NAME: { TITLE: known ? [sName, sPla, sSerial].filter(Boolean) : (m.site || '') }, // the title sheet: site name, PLA ID and serial number, one per line
       LOCATION: { PAGING: known ? [sName, sPla].filter(Boolean).join('_') : (m.site || '') }, SITE_ID: { PAGING: known ? sSerial : '' }, // every title block: SITENAME_PLAID, then the serial number
@@ -7094,8 +7152,8 @@
 
   $('doCsv').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
-    const names = uniqueNames(pts);
-    const fb = boqFilled(pts), rows = pts.map((p) => ({ ...p, photoName: names[p.id] + '.jpg', detailsText: detailsText(p.details), boq: fb(p) || {} })); // v2.40: with the clamp types
+    const names = photoNames(pts, new Set(await dbKeys('photos'))); // v2.42.4: as the Photos export names them (and none for a record without a photo)
+    const fb = boqFilled(pts), rows = pts.map((p) => ({ ...p, photoName: names[p.id] ? names[p.id] + '.jpg' : '', detailsText: detailsText(p.details), boq: fb(p) || {} })); // v2.40: with the clamp types
     offerResult(new Blob([C.buildCsv(rows, S.zone, exporterLine())], { type: 'text/csv' }), fileBase() + '.csv');
   }));
 
@@ -7432,7 +7490,7 @@
   /** v2.22: a PAT / cleanup / FAT KMZ that is not locked, while this company locks them: asked once per file. */
   async function unsealedOk(f, r) {
     if (!r.unsealed || !S.team || !kmzPassNow() || (f && f._unsealedOk)) return true;
-    LOG.warn('seal.missing', { name: (f && f.name) || '' });
+    LOG.warn('seal.missing', { ext: (/\.[A-Za-z0-9]+$/.exec((f && f.name) || '') || [''])[0] }); // v2.42.4: not the file's name (it can carry a person's name)
     const ok = await ask('This KMZ is not locked', `Your company locks the G-eSAA data in PAT, cleanup and FAT KMZ files, but this one is not locked. It was made by an older version or on a phone without the company list — or its data was taken out and changed. Open it only if you trust where it came from.`,
       [{ label: 'Cancel', value: false, primary: true }, { label: 'Open anyway', value: true }]);
     if (ok && f) f._unsealedOk = true;
@@ -7456,6 +7514,7 @@
     const fm = meta.meta || {}, from = fm.mode === 'acceptance' ? fm.stage || 'PAT' : 'survey';
     if (from === 'PAT' && fm.noDefects) throw new Error('No deficiencies were found in this PAT: the FAT is done with it, so there is no defect cleanup or FAT to start.'); // v2.23
     if (stage === 'FAT' && from === 'PAT') throw new Error('The FAT starts from the completed defect cleanup, not from the PAT: start the defect cleanup first.'); // v2.23
+    if (stage === 'Cleanup' && from === 'PAT' && !fm.completedAt) throw new Error('This PAT is not completed yet: the defect cleanup starts from a completed PAT, so that it has every item. Ask the inspector to complete the PAT and share it again.'); // v2.42.5 (items added after it was shared never reached the cleanup)
     if (stage === 'FAT' && from === 'Cleanup' && !fm.completedAt) throw new Error('This defect cleanup is not completed yet: the FAT starts from a completed cleanup. The contractor marks it complete and shares it again.');
     if (!STAGE_FROM[stage].includes(from)) throw new Error(`This file is a ${STAGE_NAME[from]} project. A ${STAGE_NAME[stage]} starts from a ${STAGE_FROM[stage].map((x) => STAGE_NAME[x]).join(' or ')} KMZ.`);
     const pat = fm.fromPat || meta.project || 'PAT', base = wantName || `${pat} – ${stage}`;
@@ -7466,7 +7525,7 @@
     const copies = meta.points.map((r) => ({ ...r, id: uid(), project: name, updated: now, patId: r.patId || r.id }));
     busy('Saving…');
     for (const c of copies) { await dbPut('points', c); points.push(c); }
-    const { taskId, date, exports, links, completedAt, completedHow, ...rest } = fm; // v2.22: the sender's completion is not this stage's
+    const { taskId, date, exports, links, completedAt, completedHow, approval, ...rest } = fm; // v2.22: the sender's completion is not this stage's (v2.42.4: nor its on-site approval)
     const extra = Object.fromEntries(Object.entries(extraMeta || {}).filter(([, v]) => v !== '' && v != null));
     S.meta = S.meta || {};
     // v2.23: started straight from the file: the same site row of the online sheet (its task ID) is kept
@@ -7510,14 +7569,28 @@
       const nm = `${proj} (${o.apart})`; // opened again: the same copy is updated, not a third one made
       meta.points = meta.points.map((p) => ({ ...p, project: nm })); proj = nm;
     }
+    if (proj && !o.apart && meta.points.length && !sameOne && points.some((x) => x.project === proj) && !meta.points.some((p) => points.some((x) => x.id === p.id))) { // v2.42.4: another copy of the same name (a second crew's cleanup, a colleague's backup): its own project (they were merged, every element twice)
+      let nm = `${proj} (2)`, k = 3; while (allProjects().includes(nm)) nm = `${proj} (${k++})`;
+      meta.points = meta.points.map((p) => ({ ...p, project: nm })); proj = nm;
+    }
     if (proj && S.meta && S.meta[proj] && meta.meta && kind(S.meta[proj]) !== kind(fm)) { // same name, different kind of project: keep them apart
       const base = `${proj} (${kind(fm) === 'survey' ? 'survey' : kind(fm)} from file)`; let nm = base, k = 2;
       while (allProjects().includes(nm)) nm = `${base} ${k++}`;
       meta.points = meta.points.map((p) => ({ ...p, project: nm })); proj = nm;
     }
-    let n = 0;
+    if (proj) { // v2.42.4: the project's details first (a restore cut short left records with none: a PAT showed as an open survey)
+      if (!S.projects.includes(proj)) S.projects.push(proj);
+      S.meta = S.meta || {};
+      if (meta.meta && !S.meta[proj]) S.meta[proj] = meta.meta;
+      persist();
+    }
+    let n = 0, kept = 0;
     for (const p of meta.points) {
       busy(`Restoring ${++n} / ${meta.points.length}`, n / meta.points.length);
+      // v2.42.4: this phone's copy stays when it is newer, or now in another project (renamed): an older backup or a shared file sent
+      // back no longer undoes the work done since (accepted items went back to Rectified)
+      const cur = points.find((x) => x.id === p.id);
+      if (cur && (cur.project !== p.project || String(cur.updated || '') > String(p.updated || ''))) { kept++; continue; }
       for (const pid of allPids(p)) {
         const clean = await z.get(`${pre}photos/${pid}.jpg`), thumb = await z.get(`${pre}thumbs/${pid}.jpg`);
         if (clean || thumb) await dbPut('photos', { id: pid, clean: clean && new Blob([clean], { type: 'image/jpeg' }), thumb: thumb && new Blob([thumb], { type: 'image/jpeg' }) });
@@ -7526,10 +7599,7 @@
       const i = points.findIndex((x) => x.id === p.id); if (i >= 0) points[i] = p; else points.push(p);
     }
     if (proj) {
-      if (!S.projects.includes(proj)) S.projects.push(proj);
-      S.meta = S.meta || {};
-      if (meta.meta && !S.meta[proj]) S.meta[proj] = meta.meta;
-      else if (meta.meta) {
+      if (meta.meta && S.meta[proj] !== meta.meta) {
         if (meta.meta.people) S.meta[proj].people = { ...(S.meta[proj].people || {}), ...meta.meta.people };
         if (meta.meta.links) {
           const have = new Set((S.meta[proj].links || []).map(([x, y]) => [x, y].sort().join('|')));
@@ -7540,7 +7610,7 @@
     }
     if (o.quiet) return proj;
     renderPoles(); fitProject(); busy(false);
-    toast(`Restored ${meta.points.length} records into “${S.project}”`, 4000);
+    toast(`Restored ${meta.points.length - kept} records into “${S.project}”${kept ? `; ${kept} kept as they are on this phone (newer here)` : ''}`, kept ? 6000 : 4000);
     return proj;
   }
 
@@ -7570,8 +7640,8 @@
     const first = times.length ? dateOnly(times[0]) : '', lastD = times.length ? dateOnly(times[times.length - 1]) : '';
     const counted = items.filter((x) => x.d.sev !== 'Note'), open = counted.filter((x) => !defDone(x.d));
     return { recs, items, base, label, lab: (r) => label[r.id] || r.poleId, photoName, m, stage, dates: first === lastD ? first : `${first} – ${lastD}`, fatFirst: fatTimes[0] || null, open, counted,
-      withDef: recs.filter((r) => openCount(r) > 0).length, rectified: counted.filter((x) => x.d.status === 'Rectified').length,
-      verified: counted.filter((x) => x.d.status === 'Verified').length, notes: items.length - counted.length,
+      withDef: recs.filter((r) => openCount(r) > 0).length, rectified: counted.filter((x) => defStatusOf(x.d) === 'Rectified').length,
+      verified: counted.filter((x) => defStatusOf(x.d) === 'Verified').length, notes: items.length - counted.length, // v2.42.4: defStatusOf (items of old versions have no status)
       major: open.filter((x) => x.d.sev === 'Major').length, minor: open.filter((x) => x.d.sev !== 'Major').length };
   }
   function accPhotoList(M) {
@@ -7745,7 +7815,7 @@
       if (defDone(d)) stages.push(d.afterPid
         ? { label: rectL, tone: 'blue', jpeg: await pdfJpeg(d.afterPid, px, [`RECTIFIED · ${isRef(r) ? '' : `${r.poleId} · `}item ${x.no}`, d.afterMeta ? shortTime(d.afterMeta.at) : ''].filter(Boolean), '#1971c2', quality),
           lines: [`Rectified ${shortTime(d.fixedAt)}${d.fixedBy ? ` by ${d.fixedBy}` : ''}`, ...metaLines(d.afterMeta, r, 'Photo').slice(1)] }
-        : { label: rectL, tone: 'blue', jpeg: null, note: 'Marked rectified without a photo', lines: [`Rectified ${shortTime(d.fixedAt)}${d.fixedBy ? ` by ${d.fixedBy}` : ''}`] });
+        : { label: rectL, tone: 'blue', jpeg: null, note: d.fixedNow && d.verifyPid ? 'Fixed on the spot during the FAT: see the verification photo' : 'Marked rectified without a photo', lines: [`Rectified ${shortTime(d.fixedAt)}${d.fixedBy ? ` by ${d.fixedBy}` : ''}`] });
       else if (last && last.pid) stages.push({ label: `${rectL} · REJECTED`, tone: 'bad', jpeg: await pdfJpeg(last.pid, px, [`REJECTED · ${isRef(r) ? '' : `${r.poleId} · `}item ${x.no}`, last.meta ? shortTime(last.meta.at) : ''].filter(Boolean), '#c92a2a', quality),
         lines: [`Rectification of ${shortTime(last.fixedAt || last.at)}${last.fixedBy ? ` by ${last.fixedBy}` : ''} rejected ${shortTime(last.at)}${last.by ? ` by ${last.by}` : ''}: ${last.reason || 'no reason given'}`, ...(rej.length > 1 ? [`Rejected ${rej.length} times in all`] : [])] });
       else stages.push({ label: rectL, tone: 'blue', pending: true, note: rej.length ? 'Rectification rejected — pending again' : 'Pending rectification', lines: rej.length ? [`Rejected ${rej.length}×, last ${shortTime(last.at)}${last.by ? ` by ${last.by}` : ''}: ${last.reason || 'no reason given'}`] : [] });
@@ -7791,7 +7861,7 @@
     const withOpen = $('rectOpen').checked;
     const rect = M.counted.filter((x) => defDone(x.d)).sort((a, b) => (Date.parse(a.d.fixedAt) || 0) - (Date.parse(b.d.fixedAt) || 0));
     const open = M.counted.filter((x) => !defDone(x.d));
-    const noEvidence = rect.filter((x) => !x.d.afterPid);
+    const noEvidence = rect.filter((x) => !x.d.afterPid && !(x.d.fixedNow && x.d.verifyPid)); // v2.42.4: fixed on the spot: the verification photo
     const days = rect.map((x) => daysBetween(x.d.foundAt, x.d.fixedAt)).filter((v) => v != null && v >= 0);
     const avg = days.length ? days.reduce((s, v) => s + v, 0) / days.length : null;
     // progress by rectification date
@@ -8311,7 +8381,10 @@
   const normKey = (k) => String(k || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const sheetUrl = () => (S.team && S.team.src && S.team.src.url) || (ORG && ORG.src && ORG.src.url) || '';
   /** Key sign-in is offered where the organisation uses company keys (the sheet says so), or the app is tied to one with a sheet. */
-  const keyOffered = () => keyMode() || !!keyIn || (!holdsListKey() && !S.inviteCode && !!(sheetUrl() && ((S.cloud && S.cloud.strict) || (ORG && ORG.src && S.sheetStrict !== false) || /company key/.test(cloudErr)))); // the admin who holds the list key may still choose
+  var strictAt = ''; // v2.42.3: the sheet that said (asked by an invite) that it uses company keys
+  const orgKeyed = () => !!(sheetUrl() && ((S.cloud && S.cloud.strict) || (ORG && ORG.src && S.sheetStrict !== false) || /company key/.test(cloudErr) || strictAt === sheetUrl())); // v2.42.3: the online sheet uses company keys
+  const keyOffered = () => keyMode() || !!keyIn || (!holdsListKey() && !S.inviteCode && orgKeyed()); // the admin who holds the list key may still choose
+  var inviteNoKey = ''; // v2.42.3: the invite scanned on the welcome screen had no company key where the sheet needs one (its company, or '-')
   /* v2.24: the company key is never shown in the app. It reaches a new phone only in an invite QR code or link (or the user's
      own move code), masked there (#ci=…) so that it cannot be read off the link; the app keeps it out of every field. */
   const keyPad = (i) => { const m = new TextEncoder().encode('G-eSAA/ci/v1'); return m[i % m.length] ^ ((i * 73 + 41) & 255); };
@@ -8332,6 +8405,7 @@
       let p = null, body = null;
       try { p = await unpackShare(j.list); body = p && p.kind === 'PCT' ? JSON.parse(p.obj.b) : null; } catch (e) { body = null; }
       if (body && (!S.team || S.team.id !== body.id || body.rev > S.team.rev)) await acceptTeam(p.obj, true, { quiet: true });
+      if (j.ke && S.team && keApart(S.team) && Number(j.listRev) === S.team.rev) keepListKe(j.ke, S.team, true); // v2.42.5
     }
     if (!S.team) throw new Error('The online sheet has no company list yet: the admin saves it once with the Admin key.');
     const nk = normKey(key); S.companyKey = nk.length === 12 ? nk.match(/.{4}/g).join('-') : key; S.keyCompany = s100(j.you); S.cloud = null; persist();
@@ -8348,8 +8422,8 @@
   }
   /** Invite link for coworkers: this phone's company key. */
   const inviteLink = async () => { // v2.28: without company keys, the join link names the company
-    if (keyMode()) return inviteLinkFor(S.companyKey);
-    return S.user && S.user.company ? joinLinkFor(S.user.company) : '';
+    if (keyMode()) { const l = await inviteLinkFor(S.companyKey); return l && l + keTail([S.keyCompany]); } // v2.42.5: + the admin key for a coworker of the admin company
+    const l = S.user && S.user.company ? await joinLinkFor(S.user.company) : ''; return l && l + keTail([S.user.company]);
   };
   /** v2.28: a join link that names the company (short where the online sheet holds the list). */
   async function joinLinkFor(co) {
@@ -8418,7 +8492,7 @@
     if (keyMode()) return S.keyCompany;
     if (holdsListKey()) return '';
     const cos = teamCos(), c = (moveFill && moveFill.company) || (S.user && S.user.company) || S.inviteCo || '';
-    return cos.find((x) => normCo(x) === normCo(c)) || '';
+    return cos.find((x) => normCo(x) === normCo(c)) || (S.inviteCode && S.inviteCo && normCo(c) === normCo(S.inviteCo) ? S.inviteCo : ''); // v2.42.4: + a company only the sheet has yet
   }
   function renderCoSelect(sel) {
     const cos = teamCos(), box = $('pfCompany'), lock = lockedCo();
@@ -8426,11 +8500,11 @@
     else if (lock) { box.innerHTML = `<option selected>${C.xmlEsc(lock)}</option>`; box.disabled = true; }
     else {
       box.disabled = false;
-      const inv = (S.inviteCos || [])[0] === '*' ? vendorCos() : (S.inviteCos || []).map((x) => cos.find((c) => normCo(c) === normCo(x))).filter(Boolean), list = inv.length ? inv : cos; // v2.41: an invite for several companies: only those (v2.42: * = the vendors)
+      const inv = (S.inviteCos || [])[0] === '*' ? vendorCos() : (S.inviteCos || []).map((x) => cos.find((c) => normCo(c) === normCo(x)) || (S.inviteCode ? x : null)).filter(Boolean), list = inv.length ? inv : cos; // v2.42.4: + one only the sheet has yet // v2.41: an invite for several companies: only those (v2.42: * = the vendors)
       box.innerHTML = `<option value="">${inv.length ? 'Choose your company (from your invite)…' : 'Choose your company…'}</option>` + list.map((c) => `<option${c === sel ? ' selected' : ''}>${C.xmlEsc(c)}</option>`).join('');
     }
     const own = pol().owner;
-    $('pfTeam').textContent = S.team ? `${lock && !keyMode() ? `Your company comes from your invite. To change company: Settings → Reset user. ` : (S.inviteCos || [])[0] === '*' && !holdsListKey() ? 'Your invite is for the vendors on the list: choose your company. It is kept from then on (it cannot be changed). ' : (S.inviteCos || []).length > 1 && !holdsListKey() ? 'Your invite is for several companies: choose yours. It is kept from then on (it cannot be changed). ' : cos.length && !holdsListKey() ? 'Your invite did not name a company: choose yours (it is kept from then on). ' : ''}List “${S.team.name}” v${S.team.rev}${own ? ` · ${own} is the admin company (its staff need the admin PIN)` : ''}.${sel && !cos.includes(sel) ? ` “${sel}” is no longer on the list: choose again.` : ''}` : '';
+    $('pfTeam').textContent = S.team ? `${lock && !keyMode() ? `Your company comes from your invite. To change company: Settings → Reset user. ` : (S.inviteCos || [])[0] === '*' && !holdsListKey() ? 'Your invite is for the vendors on the list: choose your company. It is kept from then on (it cannot be changed). ' : (S.inviteCos || []).length > 1 && !holdsListKey() ? 'Your invite is for several companies: choose yours. It is kept from then on (it cannot be changed). ' : cos.length && !holdsListKey() ? 'Your invite did not name a company: choose yours (it is kept from then on). ' : ''}List “${S.team.name}” v${S.team.rev}${own ? ` · ${own} is the admin company (${S.inviteCode && !keyMode() && normCo(lock || sel) === normCo(own) ? 'your invite brings its key from the online sheet: no admin PIN' : 'its staff need the admin PIN'})` : ''}.${sel && !cos.includes(sel) ? ` “${sel}” is no longer on the list: choose again.` : ''}` : '';
     $('pfJoin').hidden = !!cos.length;
     renderProfileMode();
   }
@@ -8447,9 +8521,10 @@
       $('pfTeam').textContent = '';
     } else if (keyed) {
       $('pfKeyBtns').hidden = !!keyIn; // v2.28: the invite is here: no second scan or paste
-      $('pfKeyState').textContent = keyIn ? '✓ Invite received (the company key stays hidden)' : 'No invite yet';
+      $('pfKeyState').textContent = keyIn ? '✓ Invite received (the company key stays hidden)' : inviteNoKey ? `✗ That invite${inviteNoKey !== '-' ? ` to ${inviteNoKey}` : ''} has no company key` : 'No invite yet';
       $('pfKeyInfo').textContent = keyIn ? 'Enter your name, mobile and email, then Save: the online sheet tells which company the invite is for.'
-        : 'Scan the invite QR code, or open or paste the invite link, from your admin or a coworker.';
+        : inviteNoKey ? 'Your organisation joins with company keys, and that invite was made on a phone without one (G-eSAA 2.42.2 or older). Ask for a new invite: from your admin (Settings → Invite admin staff or Invite a vendor), or from a coworker whose G-eSAA is 2.42.3 or later.' // v2.42.3
+          : 'Scan the invite QR code, or open or paste the invite link, from your admin or a coworker.';
     }
     $('pfJoin').hidden = keyed || !!teamCos().length;
   }
@@ -8489,15 +8564,22 @@
     if (own && normCo(company) === normCo(own) && !adminUserOk(email) && S.team && S.team.src && navigator.onLine) { $('pfErr').textContent = 'Checking with the online sheet…'; $('pfErr').hidden = false; await cloudSync(true); $('pfErr').hidden = true; } // just added by the admin?
     if (own && normCo(company) === normCo(own) && !adminUserOk(email)) { $('pfErr').textContent = `Only the ${own} users added by your admin can choose ${own}. Ask your admin to add ${email.toLowerCase()}, or choose your own company.`; $('pfErr').hidden = false; return; }
     if (own && normCo(company) === normCo(own) && hasListKey(S.team) && !holdsListKey() && !keyMode()) { // the admin company is for its own staff (a company key already proves it)
-      const pin = await askPin(`Admin PIN of ${own}`, `${own} is the admin company. Its staff enter the admin PIN once; contractors choose their own company.`);
-      if (pin == null) return;
-      const jwk = await decPriv(S.team.keyEnc, pin);
-      if (!jwk) { $('pfErr').textContent = `Wrong admin PIN. Only ${own} staff with the PIN can choose ${own}.`; $('pfErr').hidden = false; return; }
-      S.adminKey = { pub: S.team.key, priv: jwk };
+      // v2.42.3: an invite with the sheet's code brings the admin company's own key, which proves the company as a key invite does: no PIN
+      if (S.inviteCode && await redeemInvite(true, true, { name, mobile, email: email.toLowerCase(), company })) company = S.keyCompany;
+      else {
+        if (!listKeyEnc()) { $('pfErr').textContent = NO_KE(); $('pfErr').hidden = false; return; } // v2.42.5
+        const pin = await askPin(`Admin PIN of ${own}`, `${own} is the admin company. Its staff enter the admin PIN once; contractors choose their own company.`);
+        if (pin == null) return;
+        const jwk = await unlockListKey(pin); // v2.42.5: this phone's copy, checked against the list's key
+        if (!jwk) { $('pfErr').textContent = `Wrong admin PIN. Only ${own} staff with the PIN can choose ${own}.`; $('pfErr').hidden = false; return; }
+        S.adminKey = { pub: S.team.key, priv: jwk };
+      }
     }
     const regions = chosenChips('pfRegions').filter((x) => REGIONS.includes(x)), terrs = chosenChips('pfTerrs').filter((x) => TERRS.includes(x));
     const coChanged = !S.user || S.user.company !== company || String(myRegions()) !== String(regions) || String(myTerrs()) !== String(terrs);
-    S.user = { name, mobile, email: email.toLowerCase(), company, ...(idno ? { idno } : {}), ...(regions.length ? { regions } : {}), ...(terrs.length ? { terrs } : {}) }; moveFill = null; persist();
+    S.user = { name, mobile, email: email.toLowerCase(), company, ...(idno ? { idno } : {}), ...(regions.length ? { regions } : {}), ...(terrs.length ? { terrs } : {}) }; moveFill = null;
+    if (S.listKe && !staffPhone()) S.listKe = null; // v2.42.5: only the admin company's phones keep the encrypted admin key
+    persist();
     if (S.inviteCode && !keyMode()) await redeemInvite(true); // v2.41: the company's key comes from the online sheet
     if (coChanged) cloudSync(true).then(() => { if (!$('newProj').hidden) renderSites(); }); // the sheet sends each company its own sites
     const first = profileFirst; profileFirst = false; await closeSheet();
@@ -8508,21 +8590,25 @@
   /** v2.41: an invite with the sheet's invite code: the online sheet (script v2.41) checks the code and the chosen company (one of
       the invite's) and sends that company's key; from then on the phone reads the sheet with it (its company fixed, as with a key
       invite), and the user can invite coworkers. Without internet it is tried again at the next sync. */
-  async function redeemInvite(say, inSync) {
-    const url = sheetUrl(), u = S.user;
+  let redeeming = null; // v2.42.4: one at a time (a sync and Save used the invite twice)
+  function redeemInvite(say, inSync, who) { if (redeeming) return redeeming; redeeming = redeemInvite0(say, inSync, who).finally(() => { redeeming = null; }); return redeeming; }
+  async function redeemInvite0(say, inSync, who) { // v2.42.3: who: the details being saved (S.user is set after)
+    const url = sheetUrl(), u = who || S.user;
     if (!S.inviteCode || keyMode() || !url || !u || !u.company || !navigator.onLine) return false;
     let j = null;
     try { j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'redeemInvite', code: S.inviteCode, company: u.company, name: u.name, mobile: u.mobile, email: u.email }) }); }
     catch (e) { LOG.warn('invite.redeem', errInfo(e)); if (say) toast(`Your company key did not come yet (${e.message || e}): it is tried again at the next sync`, 6000); return false; }
     const key = j && j.ok ? normKey(j.key) : '';
     if (key.length >= 8 && j.you) {
-      S.companyKey = key.length === 12 ? key.match(/.{4}/g).join('-') : key; S.keyCompany = s100(j.you); S.inviteCode = ''; S.cloud = null; persist();
+      S.companyKey = key.length === 12 ? key.match(/.{4}/g).join('-') : key; S.keyCompany = s100(j.you); S.inviteCode = ''; S.cloud = null;
+      if (S.user && normCo(S.user.company) === normCo(S.keyCompany)) S.user = { ...S.user, company: S.keyCompany }; // v2.42.3: as the sheet spells it (a phone with a key keeps that name)
+      persist();
       LOG.info('invite.redeem.ok', { company: S.keyCompany }); if (say) toast(`✓ Joined ${S.keyCompany}: your company key came from the online sheet. Invite coworkers: Settings → Invite a coworker.`, 6000);
       if (!inSync) cloudSync(true); renderWho(); return true;
     }
     const e = j && j.error;
     if (/^(invite|expired|closed|company|used)$/.test(e || '')) { S.inviteCode = ''; persist(); } // this invite will not work: ask for a new one
-    if (say || e) toast(e === 'expired' ? 'Your invite has expired: ask your admin for a new one (your company stays as chosen)' : e === 'closed' || e === 'used' ? 'Your invite was closed by the admin: ask for a new one' : e === 'company' ? 'Your company is not one of the invite\u2019s: ask your admin' : e === 'action' ? 'The online sheet cannot hand out company keys yet (script older than v2.41): ask your admin for a key invite' : `Your company key did not come${e ? ` (${e})` : ''}`, 7000);
+    if (say || (e && !/^(key|action)$/.test(e))) toast(e === 'expired' ? 'Your invite has expired: ask your admin for a new one (your company stays as chosen)' : e === 'closed' || e === 'used' ? 'Your invite was closed by the admin: ask for a new one' : e === 'company' ? 'Your company is not one of the invite\u2019s: ask your admin' : e === 'action' || e === 'key' ? 'The online sheet cannot hand out company keys yet (script older than v2.41): ask your admin for a key invite' : `Your company key did not come${e ? ` (${e})` : ''}`, 7000);
     return false;
   }
   function renderWho() {
@@ -8546,7 +8632,7 @@
     // the key alone: the sheet says whose it is, or that it is not one
     try { j = await cloudRequest({ url, key: '' }, null, { ckey: key }); } catch (e) { info(`The online sheet did not answer (${e.message || e}).`); return; }
     if (!j || !j.ok || !j.you) { info(j && j.error === 'company key' ? 'This key is not in the CompanyKeys tab of the online sheet. Copy it again (the whole key).' : (j && j.error === 'key') || (j && j.ok && !j.you) ? 'The online sheet does not accept company keys yet: update its script (v2.10) and run makeCompanyKeys.' : `The online sheet did not answer${j && j.error ? ` (${j.error})` : ''}.`); return; }
-    const link = await inviteLinkFor(key);
+    const link0 = await inviteLinkFor(key), link = link0 && link0 + (j.you ? keTail([j.you]) : ''); // v2.42.5: the admin company's invite carries the admin key
     if (!link) { info('The invite could not be made: save the company list first.'); return; }
     $('admInvKey').value = ''; info(`Invite made for ${j.you}. Make a new one any time from the key in the sheet.`);
     LOG.info('admin.invite', { company: j.you });
@@ -8554,6 +8640,15 @@
     await showQr(`Invite to ${j.you}`, `For the users of ${j.you}: they scan this with the phone's camera (or you send the link), then enter their name, mobile and email. The company key inside stays hidden, but the invite works for anyone who has it: send it only to ${j.you}.`, link);
   }, 'No invite'));
   $('inviteBtn').addEventListener('click', () => guard(async () => {
+    if (!keyMode() && orgKeyed() && S.user && S.user.company) { // v2.42.3: the sheet uses company keys and this phone has none to pass on
+      const co = S.user.company, r = isAdmin() ? await sheetInvite([co]) : { noKey: true, why: 'not an admin phone' }; // (the admin phone, which reads with the Admin key): an invite the sheet keeps (v2.42.4: an admin's only)
+      LOG.info('invite.coworker.sheet', { code: !!r.code });
+      if (!r.code) {
+        await ask('No invite made', `Your organisation’s online sheet uses company keys: a coworker needs one to join, and this phone has none to pass on. ${r.noKey ? 'On the admin phone, enter the sheet’s Admin key once (Administration → Online Google Sheet → Admin key) and try again; or ask your admin for an invite (Settings → Invite admin staff or Invite a vendor).' : `The online sheet did not make the invite: ${r.why}.`}`, [{ label: 'OK', value: true, primary: true }]);
+        return;
+      }
+      await showTeamQr(undefined, [co], r.code, ''); return;
+    }
     const link = await inviteLink();
     if (!link) { toast('No website address for the invite: open G-eSAA from its website once, or ask your admin', 5000); return; }
     qrLink = link; qrAlt = null;
@@ -8566,7 +8661,7 @@
       [{ label: 'Cancel', value: false }, { label: 'Reset user', value: true, primary: true }]);
     if (!ok) return;
     LOG.info('user.reset', { keyed: keyMode() });
-    S.user = null; S.companyKey = ''; S.keyCompany = ''; S.adminKey = null; S.cloud = null; S.inviteCo = ''; S.inviteCos = []; S.inviteCode = ''; persist();
+    S.user = null; S.companyKey = ''; S.keyCompany = ''; S.adminKey = null; S.onlineAdminKey = ''; S.listKe = null; S.cloud = null; S.inviteCo = ''; S.inviteCos = []; S.inviteCode = ''; inviteNoKey = ''; moveFill = null; persist(); // v2.42.4: + the sheet's Admin key, a move
     ['pfName', 'pfMobile', 'pfEmail', 'pfIdNo'].forEach((id) => { $(id).value = ''; }); keyIn = ''; renderAreaChips([], []);
     renderWho(); renderTeamInfo(); openProfile(true);
   });
@@ -8576,7 +8671,8 @@
     if (!S.user) { toast('Enter your details first'); return; }
     const base = webBase();
     if (!base) { toast('No website address for the link: open G-eSAA from its website once, or ask your admin', 5000); return; }
-    const u = S.user, mv = b64u.enc(enc8(JSON.stringify({ n: u.name, m: u.mobile, e: u.email, c: u.company, ...(u.idno ? { i: u.idno } : {}), ...(S.companyKey ? { h: hideKey(S.companyKey) } : {}), ...(myRegions().length ? { r: myRegions() } : {}), ...(myTerrs().length ? { t: myTerrs() } : {}) }))); // v2.24: the key masked (h); v2.25: regions, territories
+    const keM = staffPhone() ? listKeyEnc() : null; // v2.42.5: the admin company's staff take the encrypted admin key along
+    const u = S.user, mv = b64u.enc(enc8(JSON.stringify({ n: u.name, m: u.mobile, e: u.email, c: u.company, ...(u.idno ? { i: u.idno } : {}), ...(keM ? { ke: { salt: keM.salt, iv: keM.iv, data: keM.data } } : {}), ...(S.companyKey ? { h: hideKey(S.companyKey) } : {}), ...(myRegions().length ? { r: myRegions() } : {}), ...(myTerrs().length ? { t: myTerrs() } : {}) }))); // v2.24: the key masked (h); v2.25: regions, territories
     let list = '';
     if (S.team) { const short = await shortJoin(); list = short ? short.slice(short.indexOf('#') + 1) : `join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}`; }
     const link = `${base}#${list ? `${list}&` : ''}mv=${mv}`;
@@ -8591,10 +8687,12 @@
     if (S.user && S.user.email && S.user.email !== String(o.e).toLowerCase()) {
       const ok = await ask('Use these details on this phone?', `This phone is set up for ${S.user.name}. Replace with ${o.n}? Projects and photos stay on the phone.`, [{ label: 'Cancel', value: false }, { label: 'Replace', value: true, primary: true }]);
       if (!ok) return false;
+      if (keyMode() && normCo(String(o.c || '')) !== normCo(S.keyCompany)) { S.companyKey = ''; S.keyCompany = ''; S.cloud = null; S.adminKey = null; persist(); } // v2.42.4: the phone's key was another company's (kept, it stamped the new user's records with it)
     }
     moveFill = { name: String(o.n).slice(0, 80), mobile: String(o.m || '').slice(0, 30), email: String(o.e).slice(0, 120), company: String(o.c || '').slice(0, 100), idno: String(o.i || '').slice(0, 40), key: o.h ? unhideKey(o.h) : o.k ? normKey(o.k).slice(0, 40) : '',
       regions: Array.isArray(o.r) ? o.r.filter((x) => REGIONS.includes(x)) : [], terrs: Array.isArray(o.t) ? o.t.filter((x) => TERRS.includes(x)) : [] };
-    LOG.info('user.move', { keyed: !!(o.h || o.k) });
+    if (o.ke && S.team && moveFill.company && adminCoSet().has(normCo(moveFill.company))) keepListKe(o.ke, S.team); // v2.42.5: the admin company's staff only
+    LOG.info('user.move', { keyed: !!(o.h || o.k), ke: !!o.ke });
     openProfile(!profileOk());
     toast('Your details are filled in: check them, then tap Save', 5000);
     return true;
@@ -8647,6 +8745,41 @@
     try { const out = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64u.dec(ke.iv) }, await pinKey(pin, ke.salt), b64u.dec(ke.data)); return JSON.parse(new TextDecoder().decode(out)); }
     catch (e) { return null; }
   }
+  /* v2.42.5: the list's admin key, encrypted with the admin PIN, is no longer inside the list that every join link, QR code, vendor
+     invite and the online sheet carry (anyone holding it could try PINs offline). The list says only that it has one (KE_APART: an
+     older phone then asks for the PIN and refuses it, as for a wrong PIN). The encrypted key goes to the admin company's staff only:
+     in their invites (admin staff, a coworker of the admin company, Move to another phone) and from the online sheet to the admin
+     phone and the admin company's company key. Each phone keeps its copy in S.listKe, for the list key it opens. */
+  const KE_APART = { salt: 'apart', iv: 'apart', data: 'apart', apart: 1 };
+  const keApart = (t) => !!(t && t.keyEnc && t.keyEnc.apart);
+  const keOk = (ke) => !!ke && typeof ke === 'object' && !ke.apart && ['salt', 'iv', 'data'].every((k) => typeof ke[k] === 'string' && /^[A-Za-z0-9_-]{8,2000}$/.test(ke[k]));
+  /** The encrypted admin key of this phone's list: inside an older list, else this phone's copy for the list's key; null if none. */
+  function listKeyEnc() {
+    const t = S.team; if (!t || !t.keyEnc) return null;
+    if (!keApart(t)) return t.keyEnc;
+    const L = S.listKe; return L && L.id === t.id && L.key === t.key && keOk(L.ke) ? L.ke : null;
+  }
+  /** Keeps an encrypted admin key for a list (force: from the admin's own save or the online sheet; else only when none is kept). */
+  function keepListKe(ke, team, force) {
+    if (!keOk(ke) || !team || !team.key) return false;
+    const L = S.listKe; if (!force && L && L.id === team.id && L.key === team.key && keOk(L.ke)) return false;
+    S.listKe = { id: team.id, key: team.key, ke: { salt: ke.salt, iv: ke.iv, data: ke.data } }; persist(); return true;
+  }
+  /** Does a decrypted key belong to this public key (raw P-256, base64url)? A wrong copy then counts as a wrong PIN. */
+  const jwkIsKey = (jwk, pub) => { try { const r = b64u.dec(pub); return !!jwk && r.length === 65 && b64u.enc(r.slice(1, 33)) === jwk.x && b64u.enc(r.slice(33, 65)) === jwk.y; } catch (e) { return false; } };
+  const NO_KE = () => `This phone does not have the admin key of \u201c${(S.team && S.team.name) || 'the list'}\u201d: since v2.42.5 it is no longer in the join links. Ask your admin for an invite for admin staff (Settings \u2192 Invite admin staff, or Share list with only your admin company ticked), or a coworker of the admin company for theirs (Settings \u2192 Invite a coworker).`;
+  /** v2.42.5: the list's admin key with the PIN: null for a wrong PIN; throws when this phone has no encrypted copy. */
+  async function unlockListKey(pin) {
+    const ke = listKeyEnc(); if (!ke) throw new Error(NO_KE());
+    const jwk = await decPriv(ke, pin); return jwk && jwkIsKey(jwk, S.team.key) ? jwk : null;
+  }
+  /** Is this phone the admin company's (its staff may hold and pass on the encrypted admin key)? */
+  const staffPhone = () => holdsListKey() || (keyMode() ? adminCoSet().has(normCo(S.keyCompany)) : !!(S.user && S.user.company && adminCoSet().has(normCo(S.user.company))));
+  /** The &ke= part of an invite: only for the admin company (all the invite's companies are admin companies) and from its staff. */
+  function keTail(cos) {
+    const ke = listKeyEnc(), L = (cos || []).filter(Boolean);
+    return ke && L.length && L[0] !== '*' && L.every((c) => adminCoSet().has(normCo(c))) && staffPhone() ? `&ke=${b64u.enc(enc8(JSON.stringify({ salt: ke.salt, iv: ke.iv, data: ke.data })))}` : '';
+  }
 
   /* ---- v2.22: admin approval codes (deleting a completed project) ---- */
   const REQ_ABC = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -8666,7 +8799,7 @@
     const v = await askPin('Admin approval needed', `${what} needs an admin's approval. Send this request code to an admin (Settings → Administration → Approve a delete) and type the 6-digit code you get back. It works only for this request. An admin who is with you can type the admin PIN instead.`, { code: req, placeholder: 'Approval code or admin PIN' });
     if (!v) return false;
     if (/^\d{6}$/.test(v) && P.otp && v === await approvalCode(P.otp, req)) { LOG.info('approve.ok', { by: 'code' }); return true; }
-    if (/^\d{4,8}$/.test(v) && S.team && S.team.keyEnc && (await decPriv(S.team.keyEnc, v))) { LOG.info('approve.ok', { by: 'pin' }); return true; }
+    if (/^\d{4,8}$/.test(v) && S.team && listKeyEnc() && (await unlockListKey(v).catch(() => null))) { LOG.info('approve.ok', { by: 'pin' }); return true; } // v2.42.5: this phone's copy of the admin key
     LOG.warn('approve.wrong');
     toast(P.otp ? 'Not approved: wrong code or PIN. Each request has its own code: ask the admin again with the new request code.' : 'Not approved: wrong admin PIN. This company list has no approval codes yet: the admin saves the list once with G-eSAA 2.22.', 7000);
     return false;
@@ -8805,7 +8938,7 @@
     try { body = JSON.parse(obj.b); } catch (e) { body = null; }
     if (!validTeam(body)) throw new Error('This is not a G-eSAA company list');
     if (ORG && body.id !== ORG.id) throw new Error(`This G-eSAA is set up for “${ORG.name}” only. Ask your admin for its join link.`);
-    if (ORG && ORG.key && !(S.team && S.team.id === body.id) && body.key !== ORG.key && body.prevKey !== ORG.key) throw new Error(`Not accepted: this “${body.name}” list was not made with the admin PIN this G-eSAA expects. Ask your admin for a new join link.`);
+    if (ORG && ORG.key && !(S.team && S.team.id === body.id) && body.key !== ORG.key && !(body.prevKey === ORG.key && obj.k === -2)) throw new Error(`Not accepted: this “${body.name}” list was not made with the admin PIN this G-eSAA expects. Ask your admin for a new join link.`);
     const signer = obj.k === -1 ? (body.key ? { n: 'admin company', k: body.key } : null) : obj.k === -2 ? (body.prevKey ? { n: 'admin company', k: body.prevKey } : null) : Number.isInteger(obj.k) ? body.admins[obj.k] : null;
     if (!signer || !(await verifyText(obj.b, obj.s, signer.k))) throw new Error('Not accepted: this company list is damaged or was changed after it was signed');
     const seen = (S.teamSeen = S.teamSeen || {})[body.id] || 0;
@@ -8825,6 +8958,7 @@
       if (!ok) return { cancelled: true };
     }
     const wasAdmin = isAdmin();
+    if (keApart(body) && cur && cur.id === body.id && cur.key === body.key && keOk(cur.keyEnc) && staffPhone()) keepListKe(cur.keyEnc, cur); // v2.42.5: the admin company's phones keep the key they had; the others drop it
     S.team = { ...body, b: obj.b, s: obj.s, k: obj.k }; S.teamSeen[body.id] = Math.max(seen, body.rev); persist();
     const note = wasAdmin && !isAdmin() && cur && cur.id === body.id ? ' The admin PIN was changed: enter the new PIN under Manage to stay an admin.' : '';
     return { ok: true, msg: `Company list “${body.name}” version ${body.rev}.${note}` };
@@ -8846,7 +8980,9 @@
   }
   function afterTeamChange() {
     if (S.user && pol().owner && normCo(S.user.company) === normCo(pol().owner) && !adminUserOk()) {
-      S.adminKey = null; S.user = { ...S.user, company: '' }; persist();
+      S.adminKey = null; S.user = { ...S.user, company: '' };
+      if (keyMode() && normCo(S.keyCompany) === normCo(pol().owner)) { S.companyKey = ''; S.keyCompany = ''; S.cloud = null; } // v2.42.4: its key read every task
+      persist();
       const msg = `Your admin has not added ${S.user.email} as a ${pol().owner} user. Choose your own company.`;
       if ($('profile').hidden) openProfile(true);
       $('pfErr').textContent = msg; $('pfErr').hidden = false; toast(msg, 6500);
@@ -8891,8 +9027,11 @@
   async function handleInvite(text, sw) {
     const t = String(text || '').trim(), ci = (/[#&?]ci=([A-Za-z0-9_-]+)/.exec(t) || [])[1], ck = ci ? unhideKey(ci) || 'x' : (/[#&?]ck=([A-Za-z0-9%-]+)/.exec(t) || [])[1], hasList = /[#&]join=|^PCT[01]:/.test(t), jq = (/[#&]jq=([A-Za-z0-9_-]+)/.exec(t) || [])[1];
     const mv = (/[#&]mv=([A-Za-z0-9_-]+)/.exec(t) || [])[1];
+    let keInv = null; try { const r = (/[#&?]ke=([A-Za-z0-9_-]{20,4000})(?=[&#]|$)/.exec(t) || [])[1]; keInv = r ? JSON.parse(new TextDecoder().decode(b64u.dec(r))) : null; } catch (e) { keInv = null; } // v2.42.5
+    const keKeep = () => { if (keInv && S.team && (!S.user || staffPhone()) && keepListKe(keInv, S.team)) LOG.info('invite.ke', {}); }; // a new phone (the invite names the admin company) or the admin company's
     let co = (/[#&?]co=([^&#]+)/.exec(t) || [])[1]; // v2.28: the company the invite is for (the user does not choose it)
     const cosRaw = (/[#&?]cos=([^&#]+)/.exec(t) || [])[1], iv = (/[#&?]iv=([A-Za-z0-9]{8,24})(?=[&#]|$)/.exec(t) || [])[1]; // v2.41: several companies (the user chooses one), the sheet's invite code
+    const inv0 = { co: S.inviteCo, cos: S.inviteCos, code: S.inviteCode }, undoInv = () => { S.inviteCo = inv0.co; S.inviteCos = inv0.cos; S.inviteCode = inv0.code; persist(); }; // v2.42.4: put back when its list is refused
     if (cosRaw === '*') { S.inviteCos = ['*']; S.inviteCo = ''; persist(); } // v2.42: any vendor on the list
     else if (cosRaw) { let c = cosRaw; try { c = decodeURIComponent(cosRaw); } catch (e) { /* as is */ } S.inviteCos = c.split('|').map((x) => x.replace(/\s+/g, ' ').trim().slice(0, 100)).filter(Boolean).slice(0, 50); S.inviteCo = ''; if (S.inviteCos.length === 1) co = encodeURIComponent(S.inviteCos[0]); persist(); }
     if (iv && !keyMode()) { S.inviteCode = iv; persist(); }
@@ -8902,11 +9041,12 @@
       else if (hasList) { teamSwitch = !!sw || !S.team; try { await importTeamText(t, { quiet: false }); } finally { teamSwitch = false; } }
       return applyMove(mv);
     }
-    if (jq && !hasList) { const ok = await joinShort(jq, sw, !!ck); if (!ok || !ck) { if (ok && co && !$('profile').hidden) renderCoSelect(S.inviteCo); return ok; } } // v2.26: a short invite: the list from the sheet, then its key
+    if (jq && !hasList) { const ok = await joinShort(jq, sw, !!ck); if (!ok) undoInv(); else keKeep(); if (!ok || !ck) { if (ok) await inviteDone(co); return ok; } } // v2.26: a short invite: the list from the sheet, then its key
     else {
       if (!hasList && !ck) { toast('That is not a G-eSAA invite or join link', 4000); return false; }
-      if (hasList) { teamSwitch = !!sw || !S.team || !!ck; try { await importTeamText(t, { quiet: !!ck }); } finally { teamSwitch = false; } }
-      if (!ck) { if (co && !$('profile').hidden) renderCoSelect(S.inviteCo); return true; }
+      if (!hasList && S.team) keKeep(); // v2.42.5: a key invite without the list (the phone has it)
+      if (hasList) { teamSwitch = !!sw || !S.team || !!ck; let okL = false; try { okL = await importTeamText(t, { quiet: !!ck }); } finally { teamSwitch = false; } if (!okL) { let lid = null; try { const p = await unpackShare(joinText(t)); lid = p && p.kind === 'PCT' ? JSON.parse(p.obj.b).id : null; } catch (e) { lid = null; } if (!(S.team && lid && S.team.id === lid)) { undoInv(); return false; } } keKeep(); } // v2.42.4: another list refused or cancelled: no invite either (an older version of this phone's list still brings its key)
+      if (!ck) { await inviteDone(co); return true; }
     }
     let key = ck; try { key = decodeURIComponent(ck); } catch (e) { /* as is */ }
     if (normKey(key).length < 8) { toast('That invite link is damaged. Ask for a new one.', 5000); return false; }
@@ -8916,6 +9056,18 @@
     renderProfileMode();
     toast('Invite received: enter your name, mobile and email, then Save', 4500);
     return true;
+  }
+  /** v2.42.3: after an invite without a company key: what it gave, or, where the online sheet needs a key and the phone has none,
+      why it is not enough (v2.42.2 left "This phone already has the latest list" and "No invite yet", Save blocked). */
+  async function inviteDone(co) {
+    if (co && !S.inviteCode && !keyIn && !keyMode() && !holdsListKey() && !orgKeyed() && sheetUrl() && navigator.onLine) { // a new phone does not know yet whether the sheet uses company keys: ask it
+      try { const j = await cloudRequest({ url: sheetUrl() }, null, { probe: true }); if (j && j.ok && j.strict === true) strictAt = sheetUrl(); } catch (e) { /* the next sync tells */ }
+    }
+    const vis = !$('profile').hidden, dead = keyOffered() && !keyMode() && !keyIn && !!(co || vis);
+    inviteNoKey = dead ? S.inviteCo || '-' : '';
+    if (vis) { if (co) renderCoSelect(S.inviteCo); else renderProfileMode(); }
+    if (dead) { LOG.warn('invite.nokey', { co: !!co }); toast(`That invite${S.inviteCo ? ` to ${S.inviteCo}` : ''} has no company key, and your organisation’s online sheet needs one. Ask for a new invite (see Company invite).`, 8000); }
+    else if (co || S.inviteCode) toast('Invite received: enter your name, mobile and email, then Save', 4500);
   }
   async function pasteJoin(sw) {
     let t = '';
@@ -8997,6 +9149,7 @@
     if (cos.length > 1) { const p = await pickMany('Invite admin staff', 'Which admin company?', cos); if (p == null) return; if (p.length) cos = p; }
     const r = await sheetInvite(cos); // with the admin company's key when the sheet has one; without, the plain invite to the list
     LOG.info('admin.invite.staff', { n: cos.length, code: !!r.code });
+    if (!r.code && orgKeyed()) { await ask('No invite made', `Your organisation\u2019s online sheet uses company keys, so admin staff join with one, and the sheet did not make the invite: ${r.why}.`, [{ label: 'OK', value: true, primary: true }]); return; } // v2.42.4 (a plain invite there cannot work)
     await showTeamQr(undefined, cos, r.code || '', r.code ? '' : r.why);
   }, 'No invite'));
   /** v2.41: several choices from a list (check boxes in a dialog): the values ticked ([] = the "any" choice), or null when cancelled. */
@@ -9065,7 +9218,7 @@
     const cos = Array.isArray(co) ? co : co ? [co] : [];
     // v2.42: cos ['*'] = any vendor on the list (anyOf: those vendors): the link says cos=* (a short QR code); the phone offers the vendors
     // v2.28: the invite names the company. v2.41: or several (cos=A|B: the user chooses one), and the sheet's invite code (iv=)
-    const tail = (cos[0] === '*' ? '&cos=*' : cos.length === 1 ? `&co=${encodeURIComponent(cos[0])}` : cos.length ? `&cos=${encodeURIComponent(cos.join('|'))}` : '') + (code ? `&iv=${code}` : '');
+    const tail = keTail(cos) + (cos[0] === '*' ? '&cos=*' : cos.length === 1 ? `&co=${encodeURIComponent(cos[0])}` : cos.length ? `&cos=${encodeURIComponent(cos.join('|'))}` : '') + (code ? `&iv=${code}` : '');
     const text = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k }), link = joinLink(text) && joinLink(text) + tail, short = (await shortJoin()) && (await shortJoin()) + tail;
     const fullNote = note || `Version ${S.team.rev} · ${teamCos().length} companies. Scan it in G-eSAA (Join your team → Scan QR code) or with the phone's camera, or send the join link.`;
     const shortNote = `Version ${S.team.rev}. Scan it in G-eSAA (Join your team → Scan QR code) or with the phone's camera. The new phone needs internet once to download the list; without internet, send the join link.`;
@@ -9139,6 +9292,40 @@
     if (!mayApprove(email, job)) throw new Error(`${o.n} is not an approver for this task (${job === 'acc' ? 'PAT, defect cleanup and FAT need a PAT/FAT inspector' : `${PURPOSE_LABEL[job] || job} needs the ${JOB_NAME[job] || job}`}).`);
     if (!String(o.i || '').trim()) throw new Error(`${o.n} has no company ID no. in their details: they enter it, then show the QR code again.`);
     return { n: o.n.slice(0, 80), i: String(o.i).slice(0, 40), m: String(o.m || '').slice(0, 30), e: email.slice(0, 120), c: String(o.c || '').slice(0, 100), job, qrAt: new Date(o.t).toISOString(), code: await apprCode(m[2]) };
+  }
+  /** v2.42.5: any change to a task after its on-site approval (a record saved, added or deleted, the route) cancels the approval; a
+      FAT is then no longer complete either: it is completed again with the inspector's approval QR. */
+  function changedAfterApproval(name, what) {
+    const m = name && S.meta && S.meta[name]; if (!m || !m.approval) return;
+    const fat = m.mode === 'acceptance' && (m.stage || 'PAT') === 'FAT', nm = { ...m }; delete nm.approval;
+    if (fat) { delete nm.completedAt; delete nm.completedHow; }
+    S.meta[name] = nm; persist(); LOG.info('approval.void', { what, fat });
+    if (fat) queueProgress(name, ['fat']); // its FAT date is cleared in the online sheet
+    setTimeout(() => toast(fat ? 'The FAT changed after its on-site approval: the approval is cancelled and the FAT is no longer complete. Complete it again with the inspector\u2019s approval QR.'
+      : 'The task changed after its on-site approval: the approval is cancelled. The inspector approves it again (approval QR).', 7500), 2700);
+    try { renderProjects(); } catch (e) { /* not ready */ }
+  }
+  /** v2.42.5: the inspector's approval that completes a FAT: their approval QR scanned on this phone or, on an inspector's own
+      phone, their own approval. [approval, how], or null when not given. */
+  async function fatApproval() {
+    if (!S.team || !S.team.key) { await ask('The inspector approves the FAT', 'A FAT is completed with the inspector\u2019s on-site approval QR, which needs the company list on this phone: join it first (Settings).', [{ label: 'OK', value: true, primary: true }]); return null; }
+    if (!cryptoOk()) return null;
+    const name = S.project;
+    if (canShowAppr() && mayApprove(S.user.email, taskJob(name))) {
+      if (!S.user.idno) { toast('Enter your company ID no. in Your details first: it is printed on the approved report.', 5000); openProfile(false); return null; }
+      const a = await readApproval(await apprText(), name);
+      if (!(await ask('Complete and approve the FAT?', `${a.n} \u00b7 ID ${a.i} \u00b7 ${a.m}\n${a.c}\nYour approval is recorded with the time and GPS position and printed on the completion report.`, [{ label: 'Cancel', value: false }, { label: 'Complete and approve', value: true, primary: true }]))) return null;
+      return [a, 'self'];
+    }
+    if (!(await ask('The inspector approves the FAT', 'A FAT is completed with the inspector\u2019s on-site approval: the inspector shows the approval QR code (Settings \u2192 On-site approval QR) and you scan it now. The completion report can be made after that.', [{ label: 'Cancel', value: false }, { label: 'Scan the approval QR', value: true, primary: true }]))) return null;
+    const t = await scanQr('Point the camera at the approval QR code on the inspector\u2019s phone'); if (!t) return null;
+    return [await readApproval(t, name), 'qr'];
+  }
+  /** v2.42.5: completes the FAT with the inspector's approval (true when done). */
+  async function completeFat(how) {
+    const r = await fatApproval(); if (!r) return false;
+    markComplete(true, how); await recordApproval(r[0], r[1]); renderProjects(); renderPoles();
+    return true;
   }
   async function recordApproval(a, how) {
     const f = await freshFix(), name = S.project;
@@ -9333,6 +9520,7 @@
       try {
         if (S.inviteCode && !keyMode() && S.user && S.user.company) await redeemInvite(false, true).catch(() => false); // v2.41: a key invite not redeemed yet (the read below then uses the key)
         const j = await cloudRequest(src);
+        if (j && j.error === 'company key') strictAt = sheetUrl(); // v2.42.4: the sheet uses company keys (the message below no longer says “company key”)
         if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : j && j.error === 'company key' ? (keyMode() ? 'your company key no longer works: ask your admin for a new invite (Settings → Reset user, then open the invite)' : 'join with your company invite (QR code or link from your admin or a coworker)') : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
         S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j, { area: true }) }; cloudErr = ''; persist();
         try { // v2.34: the company's logo from the sheet (newer than the one on this phone)
@@ -9344,6 +9532,7 @@
         } catch (e) { LOG.warn('logo.sync', errInfo(e)); }
         await noteSheetList(src.url, j.list);
         const moved = typeof j.list === 'string' && j.list.length <= 120000 ? await applySheetList(j.list) : false;
+        if (j.ke && S.team && keApart(S.team) && Number(j.listRev) === S.team.rev) keepListKe(j.ke, S.team, true); // v2.42.5: the encrypted admin key (the sheet sends it to the admin phone and the admin company's key)
         afterTeamChange(); if (!$('newProj').hidden) renderSites();
         if (moved === 'moved') setTimeout(() => cloudSync(true), 0); // the new list version points to another sheet
         if ((S.syncQ || []).length && (force || syncMode() === 'change')) flushProgress(true);
@@ -9359,7 +9548,7 @@
     if (!src) return;
     const c = S.cloud && S.cloud.src === src.url ? S.cloud : null;
     el.textContent = `Online sheet${c && c.name ? ` “${c.name}”` : ''}: ${c ? `last read ${fmtTime(c.at)} · ${isAdmin() ? `${c.companies.length} companies · ` : ''}${c.tasks.length} task${c.tasks.length === 1 ? '' : 's'}${c.scope === 'company' ? ` for ${S.user && S.user.company}` : c.scope === 'all' ? ' (all companies)' : ''} · ${c.packs.length} map packs` : 'not read yet'}${cloudErr ? ` · last try failed: ${cloudErr}` : ''}`;
-    $('companyKeyBox').hidden = keyMode() || !/company key/.test(cloudErr); // only where the sheet asks for it
+    $('companyKeyBox').hidden = keyMode() || !(/company key/.test(cloudErr) || (strictAt && strictAt === sheetUrl())); // only where the sheet asks for it (v2.42.4: strictAt)
   }
   // v2.24: the sheet asks for a company key: the user joins with an invite (QR code or link); the profile's Save signs in with it
   $('companyKeyScan').addEventListener('click', () => scanTeamQr(false));
@@ -9664,7 +9853,8 @@
     if (!f) return;
     if (!profileOk()) { sharedWaiting = f; if ($('profile').hidden) openProfile(true); toast('Enter your details first: the file opens after Save', 5000); return; }
     if (sharedDefer(f)) return;
-    LOG.info('shared.open', { name: f.name || '', mb: +((f.size || 0) / 1048576).toFixed(1) });
+    if (f.name && !/\.(zip|kmz)$/i.test(f.name)) { toast(`“${String(f.name).slice(0, 60)}” is not a G-eSAA file. G-eSAA opens the .zip (projects, backup) and .kmz (PAT, cleanup) files it makes${/\.pmtiles$/i.test(f.name) ? '; a map pack goes in Settings → Offline maps' : ''}.`, 7000); return; } // v2.42.4: every way in (it was checked on the file picker only)
+    LOG.info('shared.open', { ext: (/\.[A-Za-z0-9]+$/.exec(f.name || '') || [''])[0], mb: +((f.size || 0) / 1048576).toFixed(1) }); // v2.42.4: not its name (a bundle's name has its sender's name)
     busy('Reading file…');
     let meta, z;
     let rp = null;
@@ -9763,6 +9953,12 @@
   /** The handover file: the acceptance KMZ with the PoleCam data inside (PAT → defect cleanup → FAT). */
   async function sharePackage() {
     if (!needPoints()) return;
+    if (taskCat() === 'PAT' && !pmeta().completedAt) { // v2.42.5: an incomplete PAT is not shared (items added after it was shared never reached the cleanup)
+      if (!(await ask('Complete the PAT first', 'The contractor starts the defect cleanup only from a completed PAT, so that it has every item. Complete and lock the PAT now, then share it?', [{ label: 'Cancel', value: false }, { label: 'Complete and share', value: true, primary: true }]))) return;
+      if (patNoDefects()) { await completeNoDefects(); return; } // no defects: there is no cleanup to share it for
+      const gaps = await completeGaps(); if (gaps.length) { await notReady(gaps); return; }
+      LOG.info('pat.lock', { on: true, admin: isAdmin(), via: 'share' }); markComplete(true, 'tagged'); renderProjects(); renderPoles();
+    }
     if (taskCat() === 'Cleanup' && !pmeta().completedAt && !(await ask('Cleanup not completed', 'The FAT starts only from a completed defect cleanup. Mark the cleanup complete first (Projects → Mark task complete), then share it. Share it anyway, to view only?',
       [{ label: 'Cancel', value: false, primary: true }, { label: 'Share anyway', value: true }]))) return; // v2.23
     if (!(await shareGate('share'))) return;
@@ -9951,7 +10147,8 @@
     } else {
       $('admUnlock').disabled = true;
       try {
-        const jwk = await decPriv(S.team.keyEnc, pin); // the PIN is checked every time, even on a phone that already holds the key
+        if (!listKeyEnc()) { await ask('No admin key on this phone', NO_KE(), [{ label: 'OK', value: true, primary: true }]); return; } // v2.42.5
+        const jwk = await unlockListKey(pin); // the PIN is checked every time, even on a phone that already holds the key (v2.42.5: this phone's copy)
         if (!jwk) { toast('Wrong admin PIN'); $('admPin').value = ''; return; }
         S.adminKey = { pub: S.team.key, priv: jwk }; persist(); admPinCache = pin;
       } finally { $('admUnlock').disabled = false; }
@@ -10122,11 +10319,12 @@
       if (!pin) throw new Error('Admin PIN missing — close and open Manage again');
       const keyEnc = await encPriv(listKey.priv, pin);
       const body = JSON.stringify({ t: 'polecam-team', v: 3, id: admDraft.id, name: admDraft.name, rev: admDraft.rev + 1, at: new Date().toISOString(),
-        admins: admDraft.admins, key: listKey.pub, keyEnc, ...(prevKey ? { prevKey } : {}), co: admDraft.co, ...(admDraft.src ? { src: admDraft.src } : {}), pol: P });
+        admins: admDraft.admins, key: listKey.pub, keyEnc: KE_APART, ...(prevKey ? { prevKey } : {}), co: admDraft.co, /* v2.42.5: not in the list (keepListKe below) */ ...(admDraft.src ? { src: admDraft.src } : {}), pol: P });
       if (!validTeam(JSON.parse(body))) throw new Error('This list cannot be saved: check the name, companies (up to 100 characters each), the form wording and the online sheet fields');
       S.adminKey = signer; const sig = await signText(body); // sign with the key the other phones trust…
       S.adminKey = listKey; // …then keep the key the new version carries
       S.team = { ...JSON.parse(body), b: body, s: sig, k }; (S.teamSeen = S.teamSeen || {})[S.team.id] = S.team.rev; admPinCache = pin; persist();
+      keepListKe(keyEnc, S.team, true); // v2.42.5: the encrypted admin key stays on this phone (and goes to the sheet and to admin staff's invites)
     } catch (e) { busy(false); toast(e.message || String(e), 6000); return; }
     busy(false);
     await closeSheet(); afterTeamChange(); renderPoles();
@@ -10142,7 +10340,7 @@
       if (go) $(!$('inviteVendor').hidden ? 'inviteVendor' : 'teamShare').click(); // v2.42
       return;
     }
-    showTeamQr(`Version ${S.team.rev} saved. Send the join link or show this QR code to each user.${S.team.src && !S.onlineAdminKey ? ' Enter the sheet’s Admin key (Online Google Sheet) so phones update by themselves.' : ''}${admDraft.newPin ? ' Admins must enter the new PIN after taking it.' : ''}`);
+    showTeamQr(`Version ${S.team.rev} saved. Send the join link or show this QR code to each user (admin staff: Share list with only your admin company ticked, so that their invite carries the admin key).${S.team.src && !S.onlineAdminKey ? ' Enter the sheet’s Admin key (Online Google Sheet) so phones update by themselves.' : ''}${admDraft.newPin ? ' Admins must enter the new PIN after taking it.' : ''}`);
 
   });
   /** Admin map packs (name | Drive link | MB), one per line. Only the Drive file id is kept, so the list and its QR stay small. */
@@ -10180,8 +10378,8 @@
     if (!url || !S.onlineAdminKey || !S.team) return;
     try {
       const list = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k });
-      const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: S.onlineAdminKey, action: 'setList', list, id: S.team.id, rev: S.team.rev, dxfSeed: driveId(pol().dxfSeed || '') || '' }) }); // v2.32: and its plan template
-      if (!j || !j.ok) throw new Error(j && j.error === 'action' ? 'update the Apps Script in the sheet (v2.9) so phones get the list from it' : (j && j.error) || 'no answer');
+      const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: S.onlineAdminKey, action: 'setList', list, id: S.team.id, rev: S.team.rev, ...(listKeyEnc() && keApart(S.team) ? { ke: listKeyEnc() } : {}), /* v2.42.5 */ dxfSeed: driveId(pol().dxfSeed || '') || '' }) }); // v2.32: and its plan template
+      if (!j || !j.ok) throw new Error(j && j.error === 'action' ? 'update the Apps Script in the sheet (v2.9) so phones get the list from it' : j && j.error === 'same version' ? `another admin phone already saved version ${S.team.rev} with other changes: update this phone's list (Settings → Update list), then save your change again` : (j && j.error) || 'no answer'); // v2.42.4: same version
       LOG.info('sheet.list', { rev: S.team.rev }); S.sheetListAt = { url, id: S.team.id, rev: S.team.rev }; persist();
     } catch (e) { LOG.warn('sheet.list.fail', errInfo(e)); toast(`The list was not sent to the online sheet: ${e.message || e}. Phones still get it from the join link or QR code.`, 7000); }
   }
@@ -10969,7 +11167,7 @@
   $('aboutVer').textContent = `G-eSAA v${APP_VER}`; // v2.25: Settings → About shows the real version too
   (async () => {
     const tl = Date.now();
-    try { points = await dbAll('points'); } catch (e) { LOG.error('start.loadPoints', errInfo(e)); toast('Storage unavailable: ' + e.message, 6000); }
+    try { points = await dbAll('points'); } catch (e) { pointsLost = true; LOG.error('start.loadPoints', errInfo(e)); toast('Storage unavailable: ' + e.message + '. Close and reopen G-eSAA before changing anything.', 9000); } // v2.42.4: pointsLost
     LOG.mark('app.start', { ver: APP_VER, apk: NATIVE, chrome: (/Chrome\/([\d.]+)/.exec(navigator.userAgent) || [])[1], android: (/Android ([\d.]+)/.exec(navigator.userAgent) || [])[1], memoryGB: navigator.deviceMemory, cores: navigator.hardwareConcurrency, opfs: OPFS_OK, records: points.length, loadMs: Date.now() - tl, heapMB: memMB() });
     (async () => {
       const info = {};

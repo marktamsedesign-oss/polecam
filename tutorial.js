@@ -212,6 +212,8 @@
         { t: 'The inspector shows it on their phone: Settings → **On-site approval QR**. It is signed with the admin key of the company list, holds their name, company ID no., mobile and email, and is valid 10 minutes (it renews every minute while open).', go: 'settings', hl: '#apprShowBtn', when: 'It shows on the phone of an admin user of the admin company.' },
         { t: 'Only the right approver is accepted: a **PAT/FAT inspector** approves the PAT, the defect cleanup and the FAT; the **As-Plan**, **Audit** and **As-Built approvers** approve those surveys (the admin sets the jobs). A copied, changed or old code is refused.' },
         { t: 'The task keeps who approved, the time and the GPS position. The **Completion report** prints it in a green box and next to the signature line, so the PDF stands without a written signature; signing the printed copy is still possible.', go: 'export', hl: '#doCompletion' },
+        { t: 'A **FAT** is completed with the approval: **Mark task complete** asks to scan the inspector\'s QR (on the inspector\'s own phone: **Complete and approve**), and the FAT\'s completion report is made after it.', go: 'projects', hl: '#doneBtn' },
+        { t: 'Any change after the approval (a record changed, added or deleted, the route) **cancels it**: the inspector approves the task again. A FAT is then no longer complete either.' },
       ] },
     { id: 'share', aud: 'user', cat: 'Reports and files', title: 'Share, open and back up files', kw: 'share project send colleague open shared file backup restore zip several projects edited unauthorized tampered',
       steps: [
@@ -409,5 +411,5 @@
         { t: 'Done: tap **Save and share the list**.', go: 'admin', hl: '#admSave', when: 'Type the admin PIN and tap Continue first: then the ring shows it.' },
       ] },
   ];
-  root.GESAA_TUTORIAL = { version: '2.42.2', topics: T };
+  root.GESAA_TUTORIAL = { version: '2.42.5', topics: T };
 })(typeof self !== 'undefined' ? self : this);

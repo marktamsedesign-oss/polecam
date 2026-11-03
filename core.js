@@ -297,7 +297,7 @@
   /* ---------------- text helpers ---------------- */
   const xmlEsc = (s) => String(s ?? '').replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c]));
   function safeName(s) {
-    return String(s || 'point').replace(/[\u2010-\u2015]/g, '-').replace(/[\\/:*?"<>|\s]+/g, '_').replace(/_?-_?/g, '-').replace(/_+/g, '_').replace(/^[_-]+|[_-]+$/g, '').slice(0, 60) || 'point';
+    return String(s || 'point').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\u2010-\u2015]/g, '-').replace(/[^\x20-\x7e]+/g, '_').replace(/[\\/:*?"<>|\s]+/g, '_') /* v2.42.4: plain letters (Niño → Nino): a CAD photo link or a ZIP name with ñ broke */.replace(/_?-_?/g, '-').replace(/_+/g, '_').replace(/^[_-]+|[_-]+$/g, '').slice(0, 60) || 'point';
   }
   function fmtDate(iso) { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString(); }
 
