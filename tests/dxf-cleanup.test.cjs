@@ -62,8 +62,13 @@ sec('ENTITIES', () => {
     101, 'Embedded Object', 70, 1, 10, '785100.0', 20, '785950.0', 30, '0.0', 11, '1.0', 21, '0.0', 31, '0.0', 40, '0.0093', 41, '25.0', 42, '51.5', 43, '25.0', 71, 0); // (LibreDWG: insertion and direction swapped)
   rec('MTEXT', '5B', '1F', 100, 'AcDbEntity', 8, 'LEGEND', 100, 'AcDbMText', 10, '785300.0', 20, '785900.0', 30, '0.0', 40, '5.0', 41, '120.0', 46, '30.0', 71, 1, 72, 5, 1, 'PROPOSED 72C FIGURE 8 FOC / PROPOSED 12C LIGHT CABLE', 7, 'Standard', 73, 1, 44, '1.0',
     101, 'Embedded Object', 70, 1, 10, '785300.0', 20, '785900.0', 30, '0.0', 11, '1.0', 21, '0.0', 31, '0.0', 40, '120.0', 41, '0.0', 42, '100.0', 43, '12.0', 71, 2, 72, 1, 44, '120.0', 45, '3.0', 73, 0, 74, 0, 46, '30.0');
+  rec('MTEXT', '5C', '1F', 100, 'AcDbEntity', 8, 'LEGEND', 100, 'AcDbMText', 10, '785400.0', 20, '785800.0', 30, '0.0', 40, '5.0', 41, '50.0', 46, '30.0', 71, 2, 72, 5, 1, 'NOTES IN TWO COLUMNS: ONE, TWO, THREE, FOUR, FIVE, SIX', 7, 'Standard', 73, 1, 44, '1.0',
+    101, 'Embedded Object', 70, 2, 10, '785400.0', 20, '785800.0', 30, '0.0', 11, '1.0', 21, '0.0', 31, '0.0', 40, '50.0', 41, '30.0', 42, '100.0', 43, '30.0', 71, 1, 72, 2, 44, '50.0', 45, '4.0', 73, 0, 74, 0);
   rec('IMAGE', '59', '1F', 100, 'AcDbEntity', 8, 'G-ESAA VICINITY', 100, 'AcDbRasterImage', 90, 0, 10, '785600.0', 20, '786000.0', 30, '0.0', 11, '0.25', 21, '0.0', 31, '0.0', 12, '0.0', 22, '0.25', 32, '0.0', 13, '1800.0', 23, '1800.0', 340, '61', 70, 7, 280, 0, 281, 50, 282, 50, 283, 0, 360, '62', 71, 1, 91, 2, 14, '-0.5', 24, '-0.5', 14, '1799.5', 24, '1799.5', 290, 0);
   square('5A', '1F', 'G-ESAA VICINITY', 785600, 786000, 450);
+  rec('VIEWPORT', '5D', '1B', 100, 'AcDbEntity', 67, 1, 8, '0', 100, 'AcDbViewport', 10, '210.0', 20, '148.5', 30, '0.0', 40, '420.0', 41, '420.0', 68, 0, 69, 0, 12, '785300.0', 22, '786000.0', 13, '0.0', 23, '0.0', 14, '10.0', 24, '10.0', 15, '10.0', 25, '10.0', 16, '0.0', 26, '0.0', 36, '1.0', 17, '0.0', 27, '0.0', 37, '0.0', 42, '50.0', 43, '0.0', 44, '0.0', 45, '600.0', 50, '0.0', 51, '0.0', 72, 1000, 90, 819200, 1, '', 281, 0, 71, 1, 74, 0, 110, '0.0', 120, '0.0', 130, '0.0', 111, '1.0', 121, '0.0', 131, '0.0', 112, '0.0', 122, '1.0', 132, '0.0', 79, 0, 146, '0.0', 170, 0);
+  rec('VIEWPORT', '5E', '1B', 100, 'AcDbEntity', 67, 1, 8, '0', 100, 'AcDbViewport', 10, '210.0', 20, '148.5', 30, '0.0', 40, '200.0', 41, '200.0', 68, 0, 69, 0, 12, '785300.0', 22, '786000.0', 13, '0.0', 23, '0.0', 14, '10.0', 24, '10.0', 15, '10.0', 25, '10.0', 16, '0.0', 26, '0.0', 36, '1.0', 17, '0.0', 27, '0.0', 37, '0.0', 42, '50.0', 43, '0.0', 44, '0.0', 45, '600.0', 50, '0.0', 51, '0.0', 72, 1000, 341, '11', 90, 819200, 1, '', 281, 0, 71, 1, 74, 0, 110, '0.0', 120, '0.0', 130, '0.0', 111, '1.0', 121, '0.0', 131, '0.0', 112, '0.0', 122, '1.0', 132, '0.0', 79, 0, 146, '0.0', 170, 0);
+  // (5E: a layer frozen under 341, as G-eSAA wrote it before v2.42.10; AutoCAD reads 331)
 });
 sec('OBJECTS', () => {
   rec('DICTIONARY', 'C', '0', 100, 'AcDbDictionary', 281, 1, 3, 'ACAD_GEOGRAPHICDATA', 350, '66', 3, 'ACAD_GROUP', 350, 'D', 3, 'ACAD_IMAGE_DICT', 350, '60', 3, 'ACAD_IMAGE_VARS', 350, '65', 3, 'ACAD_LAYOUT', 350, '1A', 3, 'ACAD_MATERIAL', 350, '6E', 3, 'ACAD_VISUALSTYLE', 350, '6F', 3, 'AcDbVariableDictionary', 350, '1ACD9');
@@ -108,13 +113,15 @@ const st = of('SORTENTSTABLE')[0], k = st ? st.findIndex((p) => p[0] === 100 && 
 ok(st && st[k + 1][0] === 330 && st[k + 1][1] === '40' && !st.some((p) => p[1] === '9999'), '9 SORTENTSTABLE: its block record after the subclass marker', st && JSON.stringify(st));
 ok(!of('VISUALSTYLE').length && !out.includes('$INTERFEREOBJVS'), '10 VISUALSTYLE and the header variable pointing to it gone');
 const mt = d1.byHandle.get('58');
-const mc = d1.byHandle.get('5B'), mce = mc ? mc.slice(mc.findIndex((p) => p[0] === 101)) : [];
-ok(mt && !mt.some((p) => p[0] === 101) && mc && get(mce, 10) === '1.0' && get(mce, 11) === '785300.0' && get(mce, 21) === '785900.0' && get(mce, 40) === '120.0',
-  '17 MTEXT embedded object (insertion and direction swapped by LibreDWG): dropped without columns, written as AutoCAD reads it with columns', mc && JSON.stringify(mce));
+const mc = d1.byHandle.get('5B'), m2 = d1.byHandle.get('5C'), m2e = m2 ? m2.slice(m2.findIndex((p) => p[0] === 101)) : [];
+ok(mt && !mt.some((p) => p[0] === 101) && mc && !mc.some((p) => p[0] === 101) && m2 && get(m2e, 10) === '1.0' && get(m2e, 20) === '0.0' && get(m2e, 11) === '785348.0' && get(m2e, 21) === '785800.0',
+  '17 MTEXT embedded object (insertion and direction swapped by LibreDWG): dropped with no column or one, two columns written as AutoCAD reads them (11: their upper left corner)', m2 && JSON.stringify(m2e));
 ok(mt && Math.abs(parseFloat(get(mt, 41)) - 51.5) < 1e-6 && !/\^J/.test(get(mt, 1)) && /\\P/.test(get(mt, 1)), '12 MTEXT width set to its real width, ^J as \\P', mt && `${get(mt, 41)} ${get(mt, 1)}`);
 ok(of('IMAGEDEF').length === 1 && get(of('IMAGEDEF')[0], 1) === 'VICINITY_MAP.jpg' && !out.includes('C:\\Users'), '13 unused IMAGEDEF (absolute path) dropped');
 const vst = of('STYLE').find((r) => get(r, 2) === 'MtXpl_Vineta_BT');
 ok(vst && get(vst, 3) === 'arial.ttf' && get(vst, 1000) === 'Arial' && !/\\fVineta/i.test(out) && /\\fArial\|/.test(get(mt, 1)), '16 Vineta BT set to Arial (the style keeps its name)', vst && JSON.stringify(vst.slice(-6)));
+const vf = d1.byHandle.get('5E');
+ok(vf && !vf.some((p) => p[0] === 341) && vf.filter((p) => p[0] === 331 && p[1] === '11').length === 1 && vf.findIndex((p) => p[0] === 331) < vf.findIndex((p) => p[0] === 90), '18 viewport frozen layer under 331, before 90', vf && JSON.stringify(vf.filter((p) => p[0] >= 300 || p[0] === 90)));
 ok(parseInt(get(of('DIMSTYLE')[0], 176), 10) === 0 && parseInt(get(of('DIMSTYLE')[0], 177), 10) === 5, '14 DIMSTYLE packed colours as colour indexes');
 const hs = parseInt(d1.headerVar('$HANDSEED')[1], 16), mx = Math.max(...recs.map((r) => parseInt(get(r, 5) || get(r, 105) || '0', 16)));
 ok(hs > mx, '$HANDSEED above every handle', `${hs.toString(16)} > ${mx.toString(16)}`);

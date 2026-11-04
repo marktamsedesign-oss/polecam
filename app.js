@@ -709,7 +709,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.9';
+  const APP_VER = '2.42.10';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;

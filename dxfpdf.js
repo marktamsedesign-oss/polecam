@@ -285,7 +285,7 @@
         const tx = num(vp, 17, 0), ty = num(vp, 27, 0), vcx = num(vp, 12, 0), vcy = num(vp, 22, 0);
         // model -> paper: (x, y) - target, turned by -twist, - view centre, scaled, + the viewport's centre
         const VM = mul(mul(mul(TR(pcx, pcy), SC(s, s)), TR(-vcx, -vcy)), mul(RO(-tw), TR(-tx, -ty)));
-        const frozen = new Set(all(vp, 341).map((h2) => LH.get(h2)).filter(Boolean));
+        const frozen = new Set([...all(vp, 331), ...all(vp, 341)].map((h2) => LH.get(h2)).filter(Boolean)); // 331 (341: G-eSAA before v2.42.10)
         const half = Math.hypot(vw, vh) / 2 / s, mc = ap(mul(RO(tw), TR(0, 0)), vcx, vcy), cull = [mc[0] + tx - half, mc[1] + ty - half, mc[0] + tx + half, mc[1] + ty + half];
         const a = ap(PM, pcx - vw / 2, pcy - vh / 2), b = ap(PM, pcx + vw / 2, pcy + vh / 2);
         ops.push(`q ${f2(a[0])} ${f2(a[1])} ${f2(b[0] - a[0])} ${f2(b[1] - a[1])} re W n`);

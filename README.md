@@ -535,6 +535,19 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.10
+
+Fixes after the v2.42.9 plan was opened in AutoCAD and printed. **Export the plan again.** No change to the online sheet's script.
+
+- **Cover, PMI and ROW titles:** AutoCAD laid out these texts from their top-left corner, not from their centre. They ran from the middle of the sheet to the right, off the frame. The cleanup now removes that layout information from every such text: all 15 in the template have a single column, and AutoCAD does not need it. The cover's cable list wraps over two centred lines again. It had also been run onto one line in the app's PDF.
+- **Fonts:** AutoCAD for Mac drew stand-ins for fonts it does not have, such as the wide-spaced letters in the table of contents. These now use standard fonts: Swiss 721 bold condensed outline becomes Arial bold; SimSun and CG Omega become Arial; the SASB, hand1 and SUPEROS fonts become ROMANS. Texts that were in the condensed font are narrowed to its width (0.78), so the table of contents stays inside its columns.
+- **Vicinity map:** aerial cable is a red broken line, with dashes about three times the line's width on the sheet. Before, a dash was about 30 times the width, so the line showed long gaps. Underground cable is a solid red line; it was green.
+- **Keymap:** each cell's name is written large in the middle of the cell, yellow over a dark shadow, so it can be read at the keymap's scale. These names are on a layer of their own (G-ESAA KEYMAP GRID) that shows on the keymap only. The small corner names are turned off on the keymap.
+- **Layers shown on one sheet only:** G-eSAA wrote a sheet's frozen layers under a code AutoCAD does not read (341 instead of 331). In AutoCAD, nothing was turned off per sheet. This was G-eSAA's own mistake, present since the vicinity map was added. Each viewport now freezes its layers under 331, and the cleanup corrects older exports.
+- **Cable name on every GEO sheet:** a sheet with no free room still gets the cable's name along the cable, a size smaller where needed. Before, five of the 25 sheets of the 10 km sample had none.
+- **Site name:** a site's name stays inside its GEO sheet; it was cut off at the sheet's edge.
+- **Names of places:** now 2 m high (1.6 m where crowded) instead of 2.5 m. They are spaced using the width AutoCAD actually draws capitals at, so they no longer overlap one another.
+
 ## What changed in v2.42.9
 
 v2.42.8 opened in AutoCAD, but many texts were turned or missing: the legend's descriptions, the tables, the title blocks, and the cover ("AFI PLAN" turned 45°). **Export the plan again with v2.42.9.** No change to the online sheet's script.

@@ -124,15 +124,25 @@
       5 MULTILEADER dropped                         6, 11 pointers (347 materials, 340, 348, 331, 360…) to missing objects removed
       7 dictionary entries to missing objects removed     8 objects whose owner is missing dropped (repeated)
       9 SORTENTSTABLE: its block record (330) after the subclass marker   10 LibreDWG's styles and settings objects dropped
-     12 MTEXT reference width (41) far below its text's width: set to the real width or 0 (no wrapping); ^J written as \P
+     12 MTEXT reference width (41) far below its text's width: set to the real width or 0 (no wrapping); over 1000 times its text's
+        width (v2.42.10): 0; ^J written as \P
      13 IMAGEDEFs no IMAGE uses dropped (with their dictionary entries; RASTERVARIABLES too when no image is left)
      14 DIMSTYLE colours written as packed true colours (176-178): their colour index
      15 a block drawn more than 1 km from its base point: its drawing moved to the base point, its inserts moved to match (nothing
         drawn moves; the insertion points sit on their symbols)
-     16 Vineta BT (in a text style or an MTEXT): Arial
-     17 (v2.42.9) MTEXT: the embedded object LibreDWG wrote with its direction and insertion swapped (AutoCAD turned and moved those texts):
-        dropped (no columns) or written as AutoCAD reads it
+     16 fonts AutoCAD for Mac may not have (Vineta BT; v2.42.10: Swiss 721 BdCnOul, SimSun, CG Omega, SASB / hand1 / SUPEROS SHX):
+        Arial, Arial bold or ROMANS (in the text styles and inside MTEXT)
+     17 (v2.42.9, .10) MTEXT: the embedded object LibreDWG wrote with its direction and insertion swapped (AutoCAD turned and moved
+        those texts): dropped (one column or none) or written as AutoCAD reads it (several columns)
+     18 (v2.42.10) VIEWPORT: frozen layers under 331, not 341 (G-eSAA's own mistake before v2.42.10; AutoCAD froze nothing)
      and: header variables pointing to missing objects removed; $HANDSEED above every handle; each table's count its records. */
+  // v2.42.10: fonts AutoCAD for Mac may not have, and their stand-ins (16)
+  const FONT_TTF = [
+    { file: /vinet/i, face: /^\s*Vineta BT\s*$/i, to: 'arial.ttf' }, { file: /swisscbo/i, face: /^\s*Swis721 BdCnOul BT\s*$/i, to: 'arialbd.ttf', bold: true, narrow: 0.78 }, // (condensed: Arial bold narrowed to its width)
+    { file: /simsun/i, face: /^\s*SimSun\s*$/i, to: 'arial.ttf' }, { file: /^(?!)$/, face: /^\s*CG Omega\s*$/i, to: 'arial.ttf' },
+  ];
+  const FONT_SHX = /^(SASB____|hand1|SUPEROS)\.shx$/i;
+  const FONT_INLINE = /\\f\s*(Vineta BT|SimSun|CG Omega|Swis721 BdCnOul BT)\|b(\d)\|i(\d)[^;]*;/i;
   const DROP_OBJ = new Set(['GEODATA', 'SUN', 'VISUALSTYLE', 'TABLESTYLE', 'MLEADERSTYLE', 'ACDBSECTIONVIEWSTYLE', 'ACDBDETAILVIEWSTYLE', 'ACDB_DYNAMICBLOCKPURGEPREVENTER_VERSION']);
   const PTR = (c) => (c >= 331 && c <= 369) || c === 390;
   /** An MTEXT's text without its format codes, as lines (to measure it). */
@@ -223,42 +233,76 @@
       if (br && typ(br) === 'BLOCK_RECORD') { r.splice(k + 1, 0, [330, brh]); inc('SORTENTSTABLE: block record added'); return true; }
       inc('SORTENTSTABLE dropped (no block record)'); return false;
     });
+    // 18. (v2.42.10) VIEWPORT: the layers frozen in it under 331 (the DXF reference's code). G-eSAA wrote them under 341 before
+    // v2.42.10, which AutoCAD does not read: the layers meant for one sheet only (the keymap's grid, the vicinity map) showed on every sheet
+    for (const r of [...E.recs, ...B.recs]) if (typ(r) === 'VIEWPORT') for (const p of r) if (p[0] === 341) { p[0] = 331; inc('viewport frozen layer written under 331 (AutoCAD read none under 341)'); }
     // 14. DIMSTYLE colours written as packed true colours
     for (const r of T.recs) if (typ(r) === 'DIMSTYLE') for (const p of r) if ((p[0] === 176 || p[0] === 177 || p[0] === 178) && /^\s*-?\d+\s*$/.test(p[1])) {
       const n = parseInt(p[1], 10); if (n >= -32768 && n <= 32767) continue;
       const u = n >>> 0, m = u >>> 24; p[1] = I(m === 0xC1 ? 0 : m === 0xC3 ? (u & 0xFF) : 256); inc('DIMSTYLE colour set to a colour index');
     }
-    // 16. Vineta BT (a decorative font AutoCAD for Mac does not have): Arial
-    for (const r of T.recs) if (typ(r) === 'STYLE' && r.some((p) => (p[0] === 3 && /vinet/i.test(p[1])) || (p[0] === 1000 && /^\s*Vineta BT\s*$/i.test(p[1])))) {
-      for (const p of r) { if (p[0] === 3 && /vinet/i.test(p[1])) p[1] = 'arial.ttf'; else if (p[0] === 1000 && /^\s*Vineta BT\s*$/i.test(p[1])) p[1] = 'Arial'; }
-      inc('text style in Vineta BT set to Arial');
+    // 16. fonts AutoCAD for Mac may not have (v2.42.8: Vineta BT; v2.42.10: the table of contents' Swiss 721 bold condensed outline,
+    // SimSun, CG Omega, and SHX fonts that are not AutoCAD's own): Arial / Arial bold, or ROMANS; AutoCAD drew stand-ins for them
+    const narrowed = new Map(); // style name -> width factor (a condensed font: its texts narrowed, once, when the style's font is set)
+    for (const r of T.recs) {
+      if (typ(r) !== 'STYLE') continue;
+      const f3 = String(get(r, 3, '')), faces = all(r, 1000).map(String), hit = FONT_TTF.find((m) => m.file.test(f3) || faces.some((f) => m.face.test(f)));
+      if (hit) {
+        let ch = false;
+        for (let i = 1; i < r.length; i++) {
+          const p = r[i];
+          if (p[0] === 3 && p[1] !== hit.to) { p[1] = hit.to; ch = true; }
+          else if (p[0] === 1000 && FONT_TTF.some((m) => m.face.test(p[1]))) { p[1] = 'Arial'; ch = true; }
+          else if (p[0] === 1071) { const n = parseInt(p[1], 10) || 0, m = ((hit.bold ? n | 0x2000000 : n) & ~0xFF00) >>> 0; if (m !== n) { p[1] = I(m); ch = true; } } // (bold; no Chinese character set)
+        }
+        if (ch) inc('text style font set to Arial (AutoCAD may not have it)');
+        if (ch && hit.narrow) { const k = r.findIndex((q) => q[0] === 41), w0 = k >= 0 ? parseFloat(r[k][1]) || 1 : 1; if (k >= 0) r[k][1] = F(w0 * hit.narrow); narrowed.set(get(r, 2), hit.narrow); }
+      } else if (FONT_SHX.test(f3.replace(/^.*[\\/]/, ''))) {
+        setFirst(r, 3, 'romans.shx'); if (get(r, 4)) setFirst(r, 4, ''); inc('text style SHX font set to ROMANS (not one of AutoCAD\'s)');
+      }
     }
-    // 12. MTEXT: reference width and ^J (16: a Vineta BT font change inside it: Arial)
+    // (16) the texts in a condensed font's style: their width factor (41) narrowed as much (the table of contents ran out of its columns)
+    if (narrowed.size) for (const s of [B, E]) for (const r of s.recs) {
+      const t = typ(r); if ((t !== 'TEXT' && t !== 'ATTRIB' && t !== 'ATTDEF') || !narrowed.has(get(r, 7))) continue;
+      const a = r.findIndex((q) => q[0] === 100 && q[1] === 'AcDbText'); if (a < 0) continue;
+      let k = -1, k1 = -1; for (let i = a + 1; i < r.length && !(r[i][0] === 100); i++) { if (r[i][0] === 41) k = i; if (r[i][0] === 1) k1 = i; }
+      const fct = narrowed.get(get(r, 7));
+      if (k >= 0) r[k][1] = F((parseFloat(r[k][1]) || 1) * fct); else if (k1 >= 0) r.splice(k1 + 1, 0, [41, F(fct)]); else continue;
+      inc('text in a condensed font narrowed (Arial bold is wider)');
+    }
+    // 12. MTEXT: reference width and ^J (16: a font change inside it to a font AutoCAD may not have: Arial)
     for (const s of [B, E]) for (const r of s.recs) {
       if (typ(r) !== 'MTEXT') continue;
       let t0 = textOf(r);
-      if (/\\f\s*Vineta BT\|/i.test(t0)) { t0 = t0.replace(/\\f\s*Vineta BT\|/gi, '\\fArial|'); setText(r, t0); inc('MTEXT font Vineta BT set to Arial'); }
+      if (FONT_INLINE.test(t0)) { t0 = t0.replace(new RegExp(FONT_INLINE.source, 'gi'), (m, face, b, i2) => `\\fArial|b${/swis/i.test(face) ? 1 : b}|i${i2}|c0|p34;`); setText(r, t0); inc('MTEXT font set to Arial'); }
       if (/\^J/.test(t0)) { setText(r, t0.replace(/\^J(\\P)?/g, '\\P')); inc('MTEXT ^J written as \\P'); }
       const k = mtextIdx(r, 41), w = k >= 0 ? parseFloat(r[k][1]) : 0, need = mtextWidth(r);
       if (k >= 0 && w > 0 && need > 0 && w < 0.2 * need) {
         const e = r.findIndex((p) => p[0] === 101), ext = e >= 0 ? r.slice(e).find((p) => p[0] === 42) : null, ew = ext ? parseFloat(ext[1]) : 0;
         r[k][1] = F(ew >= 0.2 * need ? ew : 0); inc('MTEXT width fixed');
       }
+      else if (k >= 0 && need > 0 && w > 1000 * need) { r[k][1] = '0.0'; inc('MTEXT width far beyond its text set to 0 (no wrapping; it drew the same)'); } // v2.42.10: LibreDWG's stray widths (180 km for "SW 10M")
       // 17. (v2.42.9) its embedded object (101): LibreDWG writes the insertion point where AutoCAD reads the text's direction (10) and the
       // direction where AutoCAD reads the insertion (11), so AutoCAD turned each such text by the angle of its own coordinates
       // and drew it far from its place (the legend's descriptions, the tables' texts and the title blocks went missing or
-      // turned). Without columns the object is not needed: dropped; with columns: written as AutoCAD reads it.
+      // turned). v2.42.10: AutoCAD also lays a text with columns out from the columns' upper left corner, not from its
+      // attachment point (a centred title ran from its centre to the right): an object with one column or none is dropped
+      // (AutoCAD needs none; every one in the template); several columns: written as AutoCAD reads it (11: the upper left corner).
       const e0 = r.findIndex((p) => p[0] === 101);
       if (e0 >= 0) {
         let e1 = r.length; for (let i = e0 + 1; i < r.length; i++) if (r[i][0] >= 1000) { e1 = i; break; } // (its xdata stays)
         const at = (c) => { for (let i = e0 + 1; i < e1; i++) if (r[i][0] === c) return i; return -1; };
-        const cols = at(71) >= 0 ? parseInt(r[at(71)][1], 10) || 0 : 0;
-        if (!cols) { r.splice(e0, e1 - e0); inc('MTEXT embedded object dropped (AutoCAD read it turned)'); }
+        const cols = at(71) >= 0 ? parseInt(r[at(71)][1], 10) || 0 : 0, count = at(72) >= 0 ? parseInt(r[at(72)][1], 10) || 0 : 0;
+        if (!cols || count <= 1) { r.splice(e0, e1 - e0); inc('MTEXT embedded object dropped (AutoCAD read it turned and moved)'); }
         else {
-          const own = (c, d) => { const i = mtextIdx(r, c); return i >= 0 ? r[i][1] : d; };
-          const want = { 10: own(11, '1.0'), 20: own(21, '0.0'), 30: own(31, '0.0'), 11: own(10, '0.0'), 21: own(20, '0.0'), 31: own(30, '0.0'), 40: own(41, '0.0') };
+          const own = (c, dd) => { const i = mtextIdx(r, c); return i >= 0 ? parseFloat(r[i][1]) : dd; };
+          const ux = own(11, 1), uy = own(21, 0), un = Math.hypot(ux, uy) || 1, u = [ux / un, uy / un], v = [-u[1], u[0]];
+          const cw = at(44) >= 0 ? parseFloat(r[at(44)][1]) || own(41, 0) : own(41, 0), gut = at(45) >= 0 ? parseFloat(r[at(45)][1]) || 0 : 0, Wt = cw * count + gut * (count - 1);
+          const Ht = own(46, 0) || (at(41) >= 0 ? parseFloat(r[at(41)][1]) || 0 : 0), att = Math.min(9, Math.max(1, own(71, 1))), ci = (att - 1) % 3, ri = Math.floor((att - 1) / 3);
+          const x0 = own(10, 0) - u[0] * ci * Wt / 2 + v[0] * ri * Ht / 2, y0 = own(20, 0) - u[1] * ci * Wt / 2 + v[1] * ri * Ht / 2;
+          const want = { 10: F(u[0]), 20: F(u[1]), 30: '0.0', 11: F(x0), 21: F(y0), 31: '0.0' };
           let ch = false;
-          for (const c of [10, 20, 30, 11, 21, 31, 40]) { const i = at(c); if (i >= 0 && String(r[i][1]).trim() !== String(want[c]).trim()) { r[i][1] = want[c]; ch = true; } }
+          for (const c of [10, 20, 30, 11, 21, 31]) { const i = at(c); if (i >= 0 && String(r[i][1]).trim() !== want[c]) { r[i][1] = want[c]; ch = true; } }
           if (ch) inc('MTEXT embedded object written as AutoCAD reads it');
         }
       }
@@ -466,15 +510,16 @@
         const v = given ? String(given.v || '') : vals[tag] != null ? String(vals[tag]) : (o.keepDefaults ? get(df, 1, '') : '');
         const dl = get(df, 8, '0'), at = [[0, 'ATTRIB'], [5, this.d.newHandle()], [330, H], [100, 'AcDbEntity'], [8, dl === '0' ? layer : dl]]; // an attribute of layer 0 follows the insert's layer
         const col = o.attrColor != null ? I(o.attrColor) : get(df, 62); if (col != null) at.push([62, col]); // v2.36: a pin's own colour
+        const wf = parseFloat(get(df, 41, '1')), wfp = Number.isFinite(wf) && wf > 0 && Math.abs(wf - 1) > 1e-9 ? [[41, F(wf)]] : []; // v2.42.10: its definition's width factor (AutoCAD copies it too)
         if (given) {
           const gha = given.ha || 0, gva = given.va || 0;
-          at.push([100, 'AcDbText'], [10, F(given.x)], [20, F(given.y)], [30, '0.0'], [40, F(given.h || h)], [1, v]);
+          at.push([100, 'AcDbText'], [10, F(given.x)], [20, F(given.y)], [30, '0.0'], [40, F(given.h || h)], [1, v], ...wfp);
           if (given.rot) at.push([50, F(given.rot)]);
           at.push([7, this.style(get(df, 7))]);
           if (gha || gva) at.push([72, I(gha)], [11, F(given.x)], [21, F(given.y)], [31, '0.0']);
           at.push([100, 'AcDbAttribute'], [2, tag], [70, I(v && !given.hidden ? 0 : 1)]); if (gva) at.push([74, I(gva)]);
         } else {
-          at.push([100, 'AcDbText'], [10, F(p[0])], [20, F(p[1])], [30, '0.0'], [40, F(h)], [1, v]);
+          at.push([100, 'AcDbText'], [10, F(p[0])], [20, F(p[1])], [30, '0.0'], [40, F(h)], [1, v], ...wfp);
           if (rot) at.push([50, F(rot)]);
           at.push([7, this.style(get(df, 7))]);
           if (ha || va) at.push([72, I(ha)], [11, F(q[0])], [21, F(q[1])], [31, '0.0']);
@@ -596,7 +641,7 @@
   /** Turns layers off (frozen) in one viewport of a sheet only. */
   function vpFreeze(vp, handles) {
     if (!vp || !handles.length) return;
-    const k = vp.findIndex(([c]) => c === 90); const add = handles.filter((h) => !vp.some(([c, v]) => c === 341 && v === h)).map((h) => [341, h]);
+    const k = vp.findIndex(([c]) => c === 90); const add = handles.filter((h) => !vp.some(([c, v]) => c === 331 && v === h)).map((h) => [331, h]); // 331 (v2.42.10; was 341, which AutoCAD does not read)
     vp.splice(k >= 0 ? k : vp.length, 0, ...add);
   }
   /** v2.42.8: about where an entity is drawn: [x0, y0, x1, y1] (an INSERT through its block, a text from its height and length), or null. */
@@ -1415,14 +1460,42 @@
     /* 4. model space */
     const o = new Out(d, S);
     const lay = (n, fallback) => (S.layers.has(n) ? n : fallback || '0');
+    /** v2.42.10: the attributes of an insert moved (all together) so they stay inside the GEO cell its point is in (2 m in), the
+        sheet's viewport cutting them off otherwise. */
+    const cellHolds = (bx, E, N) => { // v2.42.10: a text's box inside the GEO cell of the point (E, N), 2 m in (its capitals a little wider than the estimate)
+      const ci = Math.floor((E - gox) / cell), cj = Math.floor((N - goy) / cell), W = [gox + ci * cell + 2, goy + cj * cell + 2, gox + (ci + 1) * cell - 2, goy + (cj + 1) * cell - 2];
+      return [[1, 1], [1, -1], [-1, 1], [-1, -1]].every(([a, c]) => { const x = bx.cx + bx.ux * bx.hw * 1.3 * a + bx.vx * bx.hh * c, y = bx.cy + bx.uy * bx.hw * 1.3 * a + bx.vy * bx.hh * c; return x >= W[0] && x <= W[2] && y >= W[1] && y <= W[3]; });
+    };
+    let nInCell = 0;
+    const inCell = (ins, E, N) => {
+      const H = get(ins, 5), k0 = o.model.indexOf(ins), at = o.model.slice(k0 + 1).filter((e) => typ(e) === 'ATTRIB' && owner(e) === H && String(get(e, 1, '')).trim());
+      if (!at.length) return;
+      const ci = Math.floor((E - gox) / cell), cj = Math.floor((N - goy) / cell), W = [gox + ci * cell + 2, goy + cj * cell + 2, gox + (ci + 1) * cell - 2, goy + (cj + 1) * cell - 2];
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const e of at) {
+        const ha = parseInt(get(e, 72, '0'), 10) || 0, va = parseInt(get(e, 74, '0'), 10) || 0, q = ha || va ? [num(e, 11, 0), num(e, 21, 0)] : [num(e, 10, 0), num(e, 20, 0)];
+        const bx = textBox(q[0], q[1], num(e, 40, 1), get(e, 1, ''), num(e, 50, 0), ha === 4 ? 1 : ha > 2 ? 0 : ha, va === 1 ? 0 : va); bx.hw *= 1.35; // (bold capitals: wider than the estimate)
+        for (const [x, y] of [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, c]) => [bx.cx + bx.ux * bx.hw * a + bx.vx * bx.hh * c, bx.cy + bx.uy * bx.hw * a + bx.vy * bx.hh * c])) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+      }
+      const dx = x1 > W[2] ? Math.max(W[2] - x1, W[0] - x0) : x0 < W[0] ? W[0] - x0 : 0, dy = y1 > W[3] ? Math.max(W[3] - y1, W[1] - y0) : y0 < W[1] ? W[1] - y0 : 0;
+      if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
+      for (const e of at) for (const p of e) { if (p[0] === 10 || p[0] === 11) p[1] = F(+p[1] + dx); else if (p[0] === 20 || p[0] === 21) p[1] = F(+p[1] + dy); }
+      nInCell++;
+    };
     // grid
     const cellsI = I1 - I0 + 1, cellsJ = J1 - J0 + 1, gridAll = cellsI * cellsJ <= 900;
+    const KMLAY = 'G-ESAA KEYMAP GRID'; if (kmNames.length) addLayer(d, S, KMLAY, 2);
     const gh = cell * 0.1; // v2.39: a tenth of the cell (the template's sample: a fifth, covering the plan; the company's plans: 4 to 12 %)
     for (let i = I0; i <= I1; i++) for (let j = J0; j <= J1; j++) {
       if (!gridAll && ![-1, 0, 1].some((di) => [-1, 0, 1].some((dj) => used.has(key(i + di, j + dj))))) continue;
       const x0 = gox + i * cell, y0 = goy + j * cell;
       o.lwpoly(lay('GRIDS'), [[x0, y0], [x0 + cell, y0], [x0 + cell, y0 + cell], [x0, y0 + cell]], { closed: true, color: 6 });
       o.mtext(lay('GRIDNO.', 'GRIDNO'), x0 + cell - cell * 0.04, y0 + cell - cell * 0.03, gh, cellName(i, j), { att: 3 });
+      if (kmNames.length) { // v2.42.10: for the KEYMAP sheet only (its layer frozen on the others): the cell's name large in the cell's
+        // centre, yellow over a dark shadow (the small yellow name at the corner could not be read at the keymap's scale)
+        const kh = cell * 0.17, sh = kh * 0.07, nm = `{\\fArial|b1|i0|c0|p34;${cellName(i, j)}}`, cx = x0 + cell / 2, cy = y0 + cell / 2;
+        o.mtext(KMLAY, cx + sh, cy - sh, kh, nm, { att: 5, style: 'arial', color: 250 }); o.mtext(KMLAY, cx, cy, kh, nm, { att: 5, style: 'arial', color: 2 });
+      }
     }
     // v2.32: the vicinity map: a street map picture of the area (when the phone could get one), under everything else
     let imgs = null; const getImgs = () => imgs || (imgs = new Images(d, S));
@@ -1670,7 +1743,9 @@
       } else if (p.el === 'Site' && /olt/i.test(p.siteKind || '')) { // v2.37: an OLT site: the OLT model (yellow when new, blue existing), its name above
         const nb0 = isNew && S.blocks.has('7') ? ['7', 'PORPOSED OLT', 0.0001060994181900193] : ['OLT1', 'EXISTING OLT', 1.749630906627053];
         if (S.blocks.has(nb0[0])) { o.insert(lay(nb0[1], 'X-BTS'), nb0[0], p.E, p.N, { scale: nb0[2], center: true }); spots.add(Spots.box(p.E, p.N, 13, 15, 0)); nOlt++; }
-        const nm = p.siteName || p.poleId || ''; if (nm) { const c = pick(spots, [[0, 10.5], [0, -10.5], [12, 0], [-12, 0]].map(([dx, dy]) => { const q = [p.E + dx, p.N + dy]; return { q, boxes: [textBox(q[0], q[1], 3, nm, 0, dx > 0 ? 0 : dx < 0 ? 2 : 1, 2)], ha: dx > 0 ? 0 : dx < 0 ? 2 : 1 }; }));
+        const nm = p.siteName || p.poleId || ''; if (nm) {
+          const all4 = [[0, 10.5], [0, -10.5], [12, 0], [-12, 0], [-12, 10.5], [12, 10.5], [-12, -10.5], [12, -10.5]].map(([dx, dy]) => { const q = [p.E + dx, p.N + dy]; return { q, boxes: [textBox(q[0], q[1], 3, nm, 0, dx > 0 ? 0 : dx < 0 ? 2 : 1, 2)], ha: dx > 0 ? 0 : dx < 0 ? 2 : 1 }; });
+          const inC = all4.filter((x) => cellHolds(x.boxes[0], p.E, p.N)), c = pick(spots, inC.length ? inC : all4.slice(0, 4)); // v2.42.10: inside its GEO sheet first
           o.text(lay('X-BTS'), c.q[0], c.q[1], 3, nm, { ha: c.ha, va: 2, style: 'arial', color: pinColor(p) != null ? pinColor(p) : isNew ? 1 : 5 }); spots.add(c.boxes); }
       } else if (p.el === 'Site') { // v2.36: a pin's name in its colour (a pin placed on the map has one). v2.37: a new tower red
         let bn = 'X-BTS';
@@ -1678,7 +1753,8 @@
           bn = 'G-ESAA P-BTS';
           if (!S.redBts) { S.redBts = true; for (const e of S.blocks.get(bn).ents) { if (typ(e) === 'ATTDEF') continue; const k = e.findIndex((q) => q[0] === 62); if (k >= 0) e[k][1] = I(1); else e.splice(e.findIndex((q) => q[0] === 8) + 1, 0, [62, I(1)]); } }
         }
-        o.insert(lay('X-BTS'), bn, p.E, p.N, { scale: 2.4, attrs: { BTS_NAME: p.siteName || p.poleId || '', PLA_ID: p.plaId || '' }, attrColor: pinColor(p) }); spots.add(Spots.box(p.E, p.N + 24, 26, 50, 0));
+        const ins = o.insert(lay('X-BTS'), bn, p.E, p.N, { scale: 2.4, attrs: { BTS_NAME: p.siteName || p.poleId || '', PLA_ID: p.plaId || '' }, attrColor: pinColor(p) }); spots.add(Spots.box(p.E, p.N + 24, 26, 50, 0));
+        if (ins) inCell(ins, p.E, p.N); // v2.42.10: its name kept inside its GEO sheet (it ran past the sheet's edge)
       } else if (p.el === 'ODF') {
         o.insert(isNew ? lay('P-HOST') : lay('X-HOST'), isNew ? 'P-HOST' : 'X-HOST', p.E, p.N, { scale: 0.28, attrs: { HST_NAM: p.poleId || '', HST_COD: '', HST_LET: 'H' }, attrColor: pinColor(p) }); spots.add(Spots.box(p.E, p.N, 10, 10, 0));
       } else if (p.el === 'NAP') { // a NAP pin away from every pole of the route: where it is
@@ -2059,31 +2135,31 @@
     for (const ch of chains) {
       const txt = label.get(ch.cable); if (!txt || !ch.pieces || !ch.pieces.length) continue;
       const th = Math.max(1.4, 2.0 * kG), off = th * 0.75 + 0.6;
-      const place = (W) => {
+      const place = (W, relaxed) => { // v2.42.10 relaxed: a sheet with no free room still gets the name, where it covers least, smaller first
         const segs = [], cands = []; let total = 0;
         for (const line of ch.pieces) for (const piece of W ? clipLine(line, [W[0] + 4, W[1] + 4, W[2] - 4, W[3] - 4]) : [line]) for (let k = 1; k < piece.length; k++) { const L = dist2(piece[k - 1], piece[k]); total += L; if (L > 1) segs.push({ L, a: piece[k - 1], b: piece[k] }); }
-        if (!segs.length || (W && total < 40)) return false;
+        if (!segs.length || (W && total < (relaxed ? 25 : 40))) return false;
         segs.sort((x, y) => y.L - x.L);
-        const ks = W ? [1, -1, 1.7, -1.7, 2.5, -2.5] : [1, -1, 1.7, -1.7, 2.5, -2.5, 3.5, -3.5]; // v2.39.1: the one fallback looks a little further out
+        const ks = W && !relaxed ? [1, -1, 1.7, -1.7, 2.5, -2.5] : [1, -1, 1.7, -1.7, 2.5, -2.5, 3.5, -3.5]; // v2.39.1: the one fallback looks a little further out
         // v2.40: the one fallback, crowded (a short underground run between handholes), also a size smaller
         // v2.41: the name never runs past the line it names: on a short piece of cable it is made smaller to fit (down to 0.9 m)
         const tw1 = txt.length * CHW; // its width for a height of 1 m
-        for (const h0 of W ? [th] : [th, th * 0.8]) for (const sg of segs.slice(0, 12)) {
+        for (const h0 of W && !relaxed ? [th] : [th, th * 0.8]) for (const sg of segs.slice(0, 12)) {
           const h = Math.min(h0, (sg.L * 0.92) / tw1); if (h < 0.9) continue;
           const o2 = h * 0.75 + 0.6, t = unit(sg.a, sg.b), rd = readable(deg(t)), nl = [-t[1], t[0]], fs = h * tw1 > sg.L * 0.6 ? [0.5] : [0.5, 0.3, 0.7, 0.15, 0.85];
           for (const k of ks) for (const f of fs) { const q = add2(add2(sg.a, t, sg.L * f), nl, k * o2), bx = textBox(q[0], q[1], h, txt, rd, 1, 2); if (!W || boxIn(bx, W, 1)) cands.push({ q, rd, h, k: Math.abs(k), boxes: [bx] }); }
         }
         if (!cands.length) return false;
-        cands.sort((x, y) => (x.h < th - 1e-9) - (y.h < th - 1e-9) || (!W && ((x.k > 2.5) - (y.k > 2.5)))); // full size first (close to the cable first, then further out), then smaller
+        cands.sort((x, y) => (x.h < th - 1e-9) - (y.h < th - 1e-9) || ((!W || relaxed) && ((x.k > 2.5) - (y.k > 2.5)))); // full size first (close to the cable first, then further out), then smaller
         // on a sheet: only where it covers nothing; the one fallback: where it covers least, never over a street name if it can help it
         const wf = (t) => (t === 'street' ? 6 : t === 'road' ? 0.2 : 1), nOf = (x) => (x && x.n) || 0;
         const full = cands.filter((x) => x.h >= th - 1e-9), small = cands.filter((x) => x.h < th - 1e-9);
-        let c = W ? pick(spots, cands) : full.length ? pickW(spots, full, wf) : pickW(spots, small, wf); if (W && c.n > 0) return false;
-        if (!W && nOf(c) >= 1 && small.length && full.length) { const s2 = pickW(spots, small, wf); if (s2 && nOf(s2) < nOf(c)) c = s2; } // smaller only when the full size would cover a label
+        let c = W && !relaxed ? pick(spots, cands) : full.length ? pickW(spots, full, wf) : pickW(spots, small, wf); if (W && !relaxed && c.n > 0) return false;
+        if ((!W || relaxed) && nOf(c) >= 1 && small.length && full.length) { const s2 = pickW(spots, small, wf); if (s2 && nOf(s2) < nOf(c)) c = s2; } // smaller only when the full size would cover a label
         o.text(lay('MISC'), c.q[0], c.q[1], c.h || th, txt, { rot: c.rd, ha: 1, va: 2, style: 'arial', color: (CABLE_STYLE[ch.cable] || {}).color || null }); spots.add(c.boxes); nCableNames++;
         return true;
       };
-      let n = 0; for (const W of sheetWins) if (place(W)) n++;
+      let n = 0; for (const W of sheetWins) if (place(W) || place(W, true)) n++; // v2.42.10: on every GEO sheet the run crosses
       if (!n) place(null);
     }
     let nPois = 0, nIcons = 0; const placed = [], poiSkip = { outside: 0, dup: 0, noRoom: 0 }; // v2.39.1: why a place was not written
@@ -2103,12 +2179,14 @@
       const wide = lines.reduce((a, b) => (b.length > a.length ? b : a), ''), tall = lines.length;
       const nr = nearestRoad(R.roads, q0, 45), u = nr ? nr.dir : [1, 0], rd = readable(deg(u)), ru = [Math.cos(rd * Math.PI / 180), Math.sin(rd * Math.PI / 180)], rv = [-ru[1], ru[0]];
       const cands = [];
-      const bi = ICON * 0.55 + 1.25 * tall * 1.25 / 2 + 0.4; // with an icon: right beside it first
+      const bi = ICON * 0.55 + 2.0 * (1 + (5 / 3) * (tall - 1)) * 0.65 + 0.4; // with an icon: right beside it first
       // v2.39.1: the whole text off the roads; when nothing is free close by, a little further (to 20 m), then smaller (2.0)
       let c = null;
-      for (const [th, B, A] of [[2.5, [0, 5, -5, 9, -9, 14, -14], [0, 6, -6, 12, -12]], [2.5, [19, -19, 24, -24], [0, 6, -6, 12, -12, 18, -18]], [2.0, [0, 4, -4, 8, -8, 12, -12, 16, -16, 20, -20], [0, 5, -5, 10, -10, 15, -15]]]) {
-        const bs = useIcon && th === 2.5 && B[0] === 0 ? [bi, -bi, ...B] : B;
-        for (const b of bs) for (const a of A) { const q = add2(add2(q0, ru, a), rv, b), bx = textBox(q[0], q[1], th, wide, rd, 1, 2); bx.hh *= tall; if (!R.idx.inside(q, -1, -1) && !corners(bx).some((cq) => R.idx.inside(cq, -1, -1)) && inside(bx, W, 1)) cands.push({ q, th, boxes: [bx] }); }
+      // v2.42.10: a size smaller (2 m, else 1.6 m: they crowded the plan), and their boxes as wide as AutoCAD draws the capitals, two
+      // lines as tall as AutoCAD spaces them (the names overlapped one another in AutoCAD)
+      for (const [th, B, A] of [[2.0, [0, 4, -4, 8, -8, 12, -12], [0, 5, -5, 10, -10]], [2.0, [16, -16, 20, -20], [0, 5, -5, 10, -10, 15, -15]], [1.6, [0, 3.5, -3.5, 7, -7, 10.5, -10.5, 14, -14, 17.5, -17.5], [0, 4, -4, 8, -8, 12, -12]]]) {
+        const bs = useIcon && th === 2.0 && B[0] === 0 ? [bi, -bi, ...B] : B;
+        for (const b of bs) for (const a of A) { const q = add2(add2(q0, ru, a), rv, b), bx = textBox(q[0], q[1], th, wide, rd, 1, 2); bx.hw *= 1.3; bx.hh = th * (1 + (5 / 3) * (tall - 1)) * 0.65; if (!R.idx.inside(q, -1, -1) && !corners(bx).some((cq) => R.idx.inside(cq, -1, -1)) && inside(bx, W, 1)) cands.push({ q, th, boxes: [bx] }); }
         c = cands.find((x) => !x.boxes.some((bb) => spots.hits(bb) || (useIcon && Spots.hit(bb, ib)))); if (c) break; cands.length = 0;
       }
       if (!c) { poiSkip.noRoom++; continue; }
@@ -2139,7 +2217,12 @@
       // v2.41: its colour and width as the user set them (Drawing style; by default red / blue / green by cable, 16.5 m per 1.5 km)
       const rw = VS.routeW * vk;
       for (const ch of lch) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: rw * 2, ...WHITE, gen: true });
-      for (const ch of lch) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: rw, color: VS.route || (ch.existing ? 5 : ch.ug ? 3 : 1), lt: ch.ug ? null : vlt, lts: vlt && !ch.ug ? rw * 26 / 16.5 : 0, gen: true });
+      // v2.42.10: aerial a red broken line, underground a solid red line (existing: blue); the dashes about three times the line's
+      // width on the sheet (the sheets scale line types to paper, PSLTSCALE 1: the dash was 30 times the map's line before)
+      const vL = S.layouts.find((x) => x.name === vicNames[lk]), vvp = vL && bigVp(vL), kv = (vvp ? num(vvp, 41, 400) : 400) / (vic[2] || 1500);
+      const dash0 = (() => { const lt = S.T.find((r) => typ(r) === 'LTYPE' && get(r, 2) === vlt), d0 = lt ? Math.abs(num(lt, 49, 0.5)) : 0.5; return d0 > 0 ? d0 : 0.5; })();
+      const vlts = Math.max(0.5, (3 * rw * kv) / dash0);
+      for (const ch of lch) if (ch.line && ch.line.length > 1) o.lwpoly(VLAY, ch.line.map(vsh), { w: rw, color: VS.route || (ch.existing ? 5 : 1), lt: ch.ug ? null : vlt, lts: vlt && !ch.ug ? vlts : 0, gen: true });
       if (!lch.some((ch) => ch.line && ch.line.length > 1)) { // a place with no cable route (points not linked yet): a dot at each point, as before
         const vDot = (q, r, col) => o.lwpoly(VLAY, [[q[0] - r / 2, q[1], 1], [q[0] + r / 2, q[1], 1]], { closed: true, w: r, ...col }); // a filled disc of radius r
         for (const p of lpts) { if (p.el === 'NAP' || p.el === 'Closure') continue; const q = vsh(p.dp || [p.E, p.N]); vDot(q, 14 * vk, WHITE); vDot(q, 9.5 * vk, { color: 1 }); } }
@@ -2171,6 +2254,8 @@
     for (const L of S.layouts) {
       const vp = bigVp(L); if (!vp) continue;
       if (vicNames.includes(L.name)) vpFreeze(vp, offInVic); else if (/^GEO( \(\d+\))?$/.test(L.name) || kmNames.includes(L.name)) vpFreeze(vp, vicOnly); // v2.38: every place's sheets
+      // v2.42.10: the keymap's own cell names on the keymap only; there, not the small corner names
+      if (kmNames.includes(L.name)) vpFreeze(vp, [layerH(lay('GRIDNO.', 'GRIDNO'))].filter(Boolean)); else if (layerH(KMLAY)) vpFreeze(vp, [layerH(KMLAY)]);
     }
     const ents = d.sec('ENTITIES').recs; ents.push(...o.model);
     d.index();
@@ -2251,8 +2336,8 @@
     { const inRow = new Set(rowCells.map(([r]) => r)), wOf = (str, h) => h * [...str].reduce((a, ch) => a + (/[A-Z]/.test(ch) ? 0.98 : /[0-9]/.test(ch) ? 0.78 : /[a-z]/.test(ch) ? 0.72 : ch === ' ' ? 0.39 : 0.45), 0);
       for (const r of filledM) {
         if (inRow.has(r)) continue; const L = mtextLines(textOf(r)).filter((x) => x.trim()); if (L.length !== 1) continue;
-        const k = mtextIdx(r, 41), w = k >= 0 ? parseFloat(r[k][1]) : 0, need = wOf(L[0].trim(), num(r, 40, 0)) * 1.1;
-        if (k >= 0 && w > 0 && need > w) r[k][1] = F(need);
+        const k = mtextIdx(r, 41), w = k >= 0 ? parseFloat(r[k][1]) : 0, h = num(r, 40, 0), need = wOf(L[0].trim(), h) * 1.1;
+        if (k >= 0 && w > 0 && w < 15 * h && need > w) r[k][1] = F(need); // v2.42.10: a small cell's box only (the cover's cable list wraps in its wide box)
       } }
     // v2.42.9: a sheet's index keys (the 3 x 3 cells of the title block) fitted to their cell: a key such as Q-12 written at the
     // template's height ran into the next cell
@@ -2346,7 +2431,7 @@
     rep.partly = [...blanks].filter((k) => filled.has(k)).sort();
     if (job.debug) rep.pts = pts.map((p) => ({ id: p.id, poleId: p.poleId, el: p.el, dp: p.dp, A: p.A, kept: !!p.kept, moved: p.moved || 0, onPole: p.onPole ? p.onPole.id : null }));
     if (job.debug) rep.inline = [...inl.values()].map((it) => ({ b: it.b, at: it.at, hl: it.hl, hlo: it.hlo, hhi: it.hhi, hh: it.hh, sc: it.sc, rot: it.rot, box: blockBox(S, it.b, 0), boxT: blockBoxT(S, it.b), c: blockCenter(S, it.b) }));
-    rep.counts = { ...o.n, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesOffRoadLine: nCleared, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length, telcoArms: nTelco };
+    rep.counts = { ...o.n, namesInCell: nInCell, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesOffRoadLine: nCleared, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length, telcoArms: nTelco };
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0] };
     // v2.42.8: the cleanup again on the whole drawing, then its extents and opening view
     rep.cleanup = { template: clean0, final: clean(d), oldBlocks };
@@ -2354,5 +2439,5 @@
     rep.frame = frame(d, S, [[gx0, gy0, gx1, gy1], ...vics.map((v) => v.sb), ...(tablesBox ? [tablesBox] : [])], rep);
     return { text: d.text(), report: rep };
   }
-  return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.9' };
+  return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.10' };
 }));
