@@ -157,6 +157,7 @@ body.hand-left #camBar #shutter{grid-area:1/1}body.hand-left #camBar #camNative{
 /* ---- sheets ---- */
 .sheet{position:fixed;inset:0;z-index:1000;background:var(--bg);display:flex;flex-direction:column}
 .sheet header{display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top,0px) + 6px) max(8px,env(safe-area-inset-right,0px)) 6px max(8px,env(safe-area-inset-left,0px));background:var(--navy);color:var(--navy-ink)}
+.crpill{flex:none;font:700 calc(12px * var(--fs))/1.1 system-ui,sans-serif;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.16);color:var(--navy-ink);white-space:nowrap;max-width:46vw;overflow:hidden;text-overflow:ellipsis}.crpill[hidden]{display:none}.crpill.low{background:#c0392b;color:#fff}
 .sheet header h2{flex:1;margin:0;font-size:calc(17px * var(--fs));min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sheet header #queueNote{color:var(--hi)}
 .iconbtn{width:var(--tap);height:var(--tap);border:0;background:none;color:inherit;display:grid;place-items:center;border-radius:50%}
@@ -634,6 +635,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 .overlay{position:fixed;inset:0;z-index:2600;background:rgba(5,12,25,.72);display:grid;place-items:center;padding:16px}
 #askBox .row.stack{flex-direction:column;align-items:stretch}
 .projres,.bslist{display:flex;flex-direction:column;gap:6px}
+.crrow{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;width:100%;cursor:pointer}.crrow b{overflow-wrap:anywhere}.crrow .s{font-size:calc(12.5px * var(--fs));color:var(--muted)}.crrow .s.low{color:#c0392b;font-weight:700}.crrow .s.unl{color:var(--accent);font-weight:700}
 .projres button,.bslist label{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)}
 .projres button span,.bslist label span.s{font-size:calc(12.5px * var(--fs));color:var(--muted)}
 .bslist label{flex-direction:row;align-items:center;gap:10px}.bslist label input{width:22px;height:22px;flex:none}.bslist label div{display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -888,6 +890,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <header>
     <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
     <h2 id="drawTitle">Drawing</h2>
+    <span class="crpill" id="drawCredit" hidden></span>
     <button class="iconbtn" id="drawStyleBtn" type="button" aria-label="Drawing style: numbers, IDs, vicinity map" title="Drawing style"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.6"/><circle cx="17.5" cy="10.5" r="1.6"/><circle cx="8.5" cy="7.5" r="1.6"/><circle cx="6.5" cy="12.5" r="1.6"/><path d="M12 2a10 10 0 1 0 0 20c1 0 1.7-.8 1.7-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7h2a5.6 5.6 0 0 0 5.6-5.6C22 6 17.5 2 12 2Z"/></svg></button>
   </header>
   <div id="drawWrap"><canvas id="drawCanvas" aria-label="Drawing of the project: poles, route and spans"></canvas>
@@ -986,6 +989,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   <header>
     <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
     <h2 id="exportTitle">Export</h2>
+    <span class="crpill" id="exportCredit" hidden></span>
   </header>
   <div class="body">
     <p class="hint" id="exportScope"></p>
@@ -1113,6 +1117,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="group" id="resultBox" hidden>
       <h3>Ready</h3>
       <p id="resultName" class="mono" style="margin:0;word-break:break-all"></p>
+      <p id="resultCredit" class="hint" style="margin:4px 0 0" hidden></p>
       <div class="result"><button class="btn primary grow" id="resSave">Save to phone</button><button class="btn grow" id="resShare">Share…</button></div>
     </div>
   </div>
@@ -1129,6 +1134,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="rows">
       <button class="rowbtn" id="editMe" type="button"><span class="ic"><svg><use href="#i-user"/></svg></span><span class="t"><b id="whoBox">–</b><span id="whoSub">Name, mobile, email and company</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
     </div>
+    <p class="hint" id="creditMe" hidden></p>
     <div class="row"><button class="btn sm primary" id="inviteBtn" type="button" hidden>Invite a coworker (QR)</button><button class="btn sm primary" id="apprShowBtn" type="button" hidden>On-site approval QR</button><button class="btn sm" id="moveBtn" type="button">Move to another phone…</button><button class="btn sm" id="resetUser" type="button">Reset user…</button></div>
     <div class="sectionh">Field work</div>
     <div class="rows">
@@ -1152,6 +1158,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="row">
       <button class="btn sm primary" id="inviteVendor" type="button" hidden>Invite a vendor</button>
       <button class="btn sm" id="inviteAdminStaff" type="button" hidden>Invite admin staff</button>
+      <button class="btn sm" id="creditsBtn" type="button" hidden>User credits</button>
       <button class="btn sm" id="teamUpdate" type="button">Update list</button>
       <button class="btn sm" id="teamShare" type="button">Share list</button>
       <button class="btn sm" id="cloudSyncBtn" type="button" hidden>Sync online sheet</button>
@@ -1369,6 +1376,19 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 </section>
 
 <!-- v2.21: several projects in one file -->
+<!-- v2.42.7: the admin phone manages the users' credits (the online sheet's Credits tab) -->
+<section class="sheet" id="credits" hidden aria-labelledby="crTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="crTitle">User credits</h2>
+  </header>
+  <div class="body">
+    <p class="hint" id="crInfo"></p>
+    <input type="search" id="crSearch" placeholder="Search email or company" autocomplete="off" aria-label="Search the users">
+    <div id="crList" class="bslist"></div>
+  </div>
+  <div class="foot"><button class="btn grow" id="crAdd" type="button">Add a user</button><button class="btn primary grow" id="crRefresh" type="button">Refresh</button></div>
+</section>
 <section class="sheet" id="bulkShare" hidden aria-labelledby="bsTitle">
   <header>
     <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>

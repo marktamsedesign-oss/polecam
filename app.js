@@ -709,7 +709,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.6';
+  const APP_VER = '2.42.7';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1430,6 +1430,7 @@
     $('drawInfo').hidden = true; $('drawLabels').setAttribute('aria-pressed', 'true'); $('drawMapMenu').hidden = true; $('drawTypesBox').open = false;
     $('drawLegend').open = S.drawLegendOpen != null ? S.drawLegendOpen !== false : window.innerWidth > 700; // folded on a phone until opened
     renderDrawMap(); renderDrawBar(); renderDrawLegend();
+    try { renderCredit(); } catch (e) { /* not ready */ } // v2.42.7: the balance at the upper right
     openSheet('drawing');
     requestAnimationFrame(() => { sizeDrawing(); fitDrawing(); drawDrawing(); drawSeqSoon(); });
   }
@@ -6322,6 +6323,7 @@
     const kind = /_BACKUP\.zip$/i.test(name) ? 'backup' : /_PAT_for_FAT_/i.test(name) ? 'sent' : /_completion_report\.pdf$/i.test(name) ? 'completion' : /_DXF_photos\.zip$/i.test(name) ? 'dxf' : (name.split('.').pop() || '').toLowerCase();
     noteExport(kind);
     $('resultName').textContent = `${name} · ${(blob.size / 1048576).toFixed(2)} MB`;
+    $('resultCredit').textContent = creditNote; $('resultCredit').hidden = !creditNote; creditNote = ''; // v2.42.7: what this export used
     $('resultBox').hidden = false;
     $('resSave').textContent = NATIVE ? 'Save to Documents' : 'Save to phone';
     $('resShare').hidden = false; // v2.30: always offered; a browser that cannot share this kind of file says what to do instead
@@ -6398,7 +6400,7 @@
     $('xShareBox').hidden = !acc || stg === 'FAT';
     if (acc && stg !== 'FAT') { $('xShareLbl').textContent = stg === 'Cleanup' ? 'Share cleanup KMZ' : 'Share PAT KMZ'; $('xShareFor').textContent = stg === 'Cleanup' ? 'for the FAT' : 'for defect cleanup / FAT'; renderShareWarn('xShareWarn'); }
     $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`; syncExpUi();
-    showExport(exportPick); exportPick = null; renderCredit(); // v2.42.6
+    showExport(exportPick); exportPick = null; renderCredit(); creditNote = ''; // v2.42.6 (v2.42.7: a new export, no old note)
     $('resultBox').hidden = true; openSheet('export');
   });
   function needPoints() { const pts = projPoints(); if (!pts.length) { toast('Nothing captured in this project yet'); return null; } return pts; }
@@ -6481,7 +6483,7 @@
   }
   function noteCredit(j) { // the sheet's answer (a read or a charge): on, unlimited, the balance; old: a script older than v2.42.6
     if (!j || typeof j !== 'object') return;
-    S.credit = { src: sheetUrl(), at: new Date().toISOString(), on: j.on !== false && !j.off, unl: !!j.unl, bal: Number.isFinite(+j.bal) ? Math.round(+j.bal) : null, err: String(j.err || '').slice(0, 40), ...(j.old ? { old: true } : {}) };
+    S.credit = { src: sheetUrl(), at: new Date().toISOString(), on: j.on !== false && !j.off, unl: !!j.unl, bal: Number.isFinite(+j.bal) ? Math.round(+j.bal) : null, err: String(j.err || '').slice(0, 40), ...(j.old ? { old: true } : {}), ...(/^\d{4}-\d{2}-\d{2}$/.test(String(j.until || '')) ? { until: j.until } : {}) }; // v2.42.7: until: unlimited until that day
     persist();
   }
   const creditOwed = () => (S.creditQ || []).reduce((a, q) => a + (Number(q.need) || 0), 0);
@@ -6494,14 +6496,15 @@
     const covered = () => { S.meta[S.project] = { ...pmeta(), creditM: route }; persist(); };
     if (c && c.on === false && Date.now() - Date.parse(c.at || '') < 10 * 60000) return true; // off (or an older script) at a read of the last 10 minutes
     if (navigator.onLine) {
-      if (!quiet) busy('Checking your credits…');
+      const say1 = !quiet && !!(c && c.on); // v2.42.7: no credit message at all while credits are off (the request is silent)
+      if (say1) busy('Checking your credits…');
       let j = null;
-      try { j = await creditPost({ project: S.project, pkey, route, kind }); } catch (e) { j = null; } finally { if (!quiet) busy(false); }
+      try { j = await creditPost({ project: S.project, pkey, route, kind }); } catch (e) { j = null; } finally { if (say1) busy(false); }
       if (j && j.ok && j.off) { noteCredit(j); renderCredit(); return true; } // credits are off: nothing counted (nor kept as counted)
       if (j && j.ok) {
         covered(); noteCredit(j); renderCredit();
         LOG.info('credit.ok', { kind, route, charged: j.charged || 0, unl: !!j.unl });
-        if (j.charged > 0 && !quiet) toast(`Credits: ${fmtM(j.charged)} for the route of “${S.project}” · ${fmtM(j.bal)} left`, 5000);
+        if (j.charged > 0) { creditNote = `Credits: ${fmtM(j.charged)} used for the route of “${S.project}” · ${fmtM(j.bal)} left.`; if (!quiet) toast(creditNote, 5000); } // v2.42.7: also in the Ready box (a later message of the export replaced the toast)
         return true;
       }
       if (j && j.error === 'credits') {
@@ -6517,9 +6520,10 @@
     const prev = (S.creditQ || []).find((q) => q.pkey === pkey), base = prev && Number.isFinite(+prev.base) ? Math.min(+prev.base, have) : have, need = Math.max(0, route - base); // the metres above what was counted before the first export queued
     S.creditQ = [...(S.creditQ || []).filter((q) => q.pkey !== pkey), { pkey, project: S.project, route: Math.max(route, prev ? Number(prev.route) || 0 : 0), kind, base, need, email: S.user.email, company: S.user.company || '', ckey: S.companyKey || '', at: new Date().toISOString() }].slice(-200); persist();
     LOG.info('credit.queued', { kind, need });
-    if (c && c.on) { covered(); if (!c.unl && !quiet) toast(`No internet: ${fmtM(route - have)} of credits are counted at the next sync`, 5000); } // (unlimited: the sheet still logs the metres)
+    if (c && c.on) { covered(); if (!c.unl) { creditNote = `Credits: no internet, ${fmtM(route - have)} are counted at the next sync.`; if (!quiet) toast(creditNote, 5000); } } // (unlimited: the sheet still logs the metres)
     renderCredit(); return true;
   }
+  let creditNote = ''; // v2.42.7: what the last export used, shown with its file (Ready)
   let creditBusy = null;
   /** The exports made without internet: counted now, as the user who made them (the balance may go below zero). */
   function flushCredits() {
@@ -6539,11 +6543,24 @@
   /** Export (a survey) and Settings: the balance, where credits are on for this user. */
   function renderCredit() {
     const c = creditOf(), on = !!(c && c.on && !creditFree() && !pmeta().sample), owed = creditOwed();
+    const me = $('creditMe'), mine = !!(c && c.on && !creditFree()); // v2.42.7: Settings → Account, under Your details
+    if (me) {
+      me.hidden = !mine;
+      if (mine) me.textContent = c.unl ? `Credits: unlimited${c.until ? ` until ${c.until}` : ''}.` : c.err ? (c.err === 'company' ? 'Credits: your email is under another company in the online sheet\u2019s Credits tab: ask your admin.' : 'Credits: not available yet (Sync).')
+        : `Credits: ${fmtM((c.bal || 0) - owed)} left${owed ? ` (${fmtM(owed)} counted at the next sync)` : ''}. 1 credit = 1 m of survey route, used by KMZ and DXF exports, once per project. As of ${fmtTime(c.at)}: Sync to update.`;
+    }
+    const pill = on && !isAcc(), left = c && !c.unl && !c.err ? (c.bal || 0) - owed : null; // v2.42.7: at the upper right of Export and Drawing
+    ['exportCredit', 'drawCredit'].forEach((id) => {
+      const b = $(id); if (!b) return; b.hidden = !pill; if (!pill) return;
+      b.textContent = c.unl ? (c.until ? `Unlimited to ${c.until}` : 'Credits: unlimited') : c.err ? 'Credits: ?' : `Credits: ${fmtM(left)}`;
+      b.classList.toggle('low', left != null && left <= 0);
+      b.title = c.unl ? `Unlimited credits${c.until ? ` until ${c.until}` : ''}` : `Your credits: 1 credit = 1 m of survey route, used by KMZ and DXF exports, once per project. As of ${fmtTime(c.at)}.`;
+    });
     const el = $('creditInfo'); if (!el) return;
     el.hidden = !on || isAcc();
     if (el.hidden) return;
     const route = creditRouteM(), have = Math.max(0, Number(pmeta().creditM) || 0);
-    el.textContent = c.unl ? 'Credits: unlimited for you.' : c.err ? `Credits: ${c.err === 'company' ? 'your email is under another company in the online sheet’s Credits tab: ask your admin' : 'not available yet (Sync)'}.`
+    el.textContent = c.unl ? `Credits: unlimited for you${c.until ? ` until ${c.until}` : ''}.` : c.err ? `Credits: ${c.err === 'company' ? 'your email is under another company in the online sheet’s Credits tab: ask your admin' : 'not available yet (Sync)'}.`
       : `Credits: ${fmtM((c.bal || 0) - owed)} left${owed ? ` (${fmtM(owed)} counted at the next sync)` : ''}. KMZ and DXF use 1 credit per metre of route, once per project: this route ${fmtM(route)}${have ? `, ${fmtM(Math.min(have, route))} counted` : ''}${route > have ? ` → ${fmtM(route - have)} at the next export` : ' → free'}.`;
   }
 
@@ -8729,6 +8746,7 @@
     const area = [...myRegions(), ...myTerrs()].join(' ');
     $('whoSub').textContent = u ? `${u.company} · ${u.mobile} · ${u.email}${isInspector() && pol().owner ? ' · inspector' : ''}${area ? ` · ${area}` : ''}` : 'Name, mobile, email and company';
     $('inviteBtn').hidden = !keyMode() && !(S.team && u && u.company);
+    try { renderCredit(); } catch (e) { /* before the list is read at start */ } // v2.42.7: the credits under Your details
     $('apprShowBtn').hidden = !canShowAppr(); // v2.28
   }
   /** v2.24: Administration → Invite a company's users: the admin pastes one company's key from the CompanyKeys tab of the
@@ -9131,7 +9149,7 @@
     // v2.42: on the admin phone with an online sheet: Invite a vendor (the vendor companies only, the key from the sheet) and Invite admin
     //        staff (the admin company), in place of Share list
     const sheetAdmin = !!(t && t.src && isAdmin());
-    $('inviteVendor').hidden = !sheetAdmin; $('inviteAdminStaff').hidden = !sheetAdmin;
+    $('inviteVendor').hidden = !sheetAdmin; $('inviteAdminStaff').hidden = !sheetAdmin; $('creditsBtn').hidden = !(sheetAdmin && S.onlineAdminKey); // v2.42.7
     $('goAdmin').hidden = !listAdmin; $('teamShare').hidden = !t || !listAdmin || sheetAdmin;
     $('teamMini').hidden = listAdmin || !t; if (t && !listAdmin) $('teamMini').textContent = `Company list “${t.name}” version ${t.rev}${t.src ? ' · updates from the online sheet' : ''}.`;
     $('adminLock').textContent = isAdmin() ? 'ADMIN' : canManage() ? 'PIN' : t ? 'VIEW' : 'SET UP';
@@ -9263,6 +9281,77 @@
       return { why: (j && j.error) || 'no answer' };
     } catch (e) { return { why: e.message || String(e) }; }
   }
+  /* ---- v2.42.7: Settings → User credits (the admin phone with the sheet's Admin key): the online sheet's Credits tab; add credits,
+     set a balance, make a user unlimited (always or until a date) or limited again. The user's phone sees it at its next sync. ---- */
+  let crUsers = [], crOn = false;
+  const crInfoText = () => `${crOn ? 'Credits are ON.' : 'Credits are OFF (online sheet: Settings → Credits = No): nothing is counted and users see nothing until you turn them on.'} ${crUsers.length} user${crUsers.length === 1 ? '' : 's'}. 1 credit = 1 m of survey route, used by KMZ and DXF exports, once per project; the admin company never needs credits. Tap a user to change; their phone sees it at its next sync.`;
+  const crStatus = (u) => (u.unl ? `Unlimited${u.until ? ` until ${u.until}` : ''}` : `${fmtM(u.bal)} left · used ${fmtM(u.used)} of ${fmtM(u.credits)}`);
+  function renderCreditsList() {
+    const q = /** @type {HTMLInputElement} */ ($('crSearch')).value.trim().toLowerCase(), box = $('crList'); box.innerHTML = '';
+    const shown = crUsers.filter((u) => !q || u.email.includes(q) || String(u.company || '').toLowerCase().includes(q));
+    shown.forEach((u) => {
+      const b = document.createElement('button'), t = document.createElement('b'), c = document.createElement('span'), st = document.createElement('span');
+      b.type = 'button'; b.className = 'crrow'; t.textContent = u.email; c.className = 's'; c.textContent = `${u.company || 'company not set'}${u.last ? ` · last export ${fmtTime(u.last)}` : ''}`;
+      st.className = `s${u.unl ? ' unl' : u.bal <= 0 ? ' low' : ''}`; st.textContent = crStatus(u);
+      b.append(t, c, st); b.addEventListener('click', () => guard(() => creditsEdit(u), 'Not changed')); box.appendChild(b);
+    });
+    if (!shown.length) { const p0 = document.createElement('p'); p0.className = 'hint'; p0.textContent = crUsers.length ? 'No user matches.' : 'No user listed yet: users are listed at their first sync while Credits = Yes (or Add a user).'; box.appendChild(p0); }
+  }
+  async function creditsLoad() {
+    $('crInfo').textContent = 'Reading the online sheet…'; $('crList').innerHTML = '';
+    let j = null;
+    try { j = await cloudRequest({ url: sheetUrl(), key: (S.team && S.team.src && S.team.src.key) || '' }, null, { credits: true }); } catch (e) { j = { ok: false, error: e.message || String(e) }; }
+    if (!j || !j.ok || !Array.isArray(j.users)) {
+      $('crInfo').textContent = j && j.ok ? 'The online sheet’s script is older than v2.42.7: update it to manage credits here (or edit its Credits tab).' : j && j.error === 'key' ? 'The online sheet refused this phone’s Admin key (Administration → Online Google Sheet → Admin key).' : `The online sheet did not answer${j && j.error ? ` (${j.error})` : ''}.`;
+      return;
+    }
+    crUsers = j.users.filter((u) => u && typeof u.email === 'string').slice(0, 3000).map((u) => ({ email: s100(u.email, 120).toLowerCase(), company: s100(u.company), credits: +u.credits || 0, used: +u.used || 0, bal: +u.bal || 0, unl: !!u.unl, until: /^\d{4}-\d{2}-\d{2}$/.test(String(u.until || '')) ? u.until : '', last: s100(u.last, 30) }));
+    crOn = !!j.on; $('crInfo').textContent = crInfoText();
+    renderCreditsList(); LOG.info('credits.admin.list', { n: crUsers.length, on: !!j.on });
+  }
+  async function creditsEdit(u) {
+    const op = await ask(u.email, `${u.company || 'Company not set'} · ${crStatus(u)}.`, [{ label: 'Cancel', value: '' }, { label: 'Add credits', value: 'add', primary: true }, { label: 'Set the balance', value: 'set' },
+      u.unl ? { label: 'Make limited again', value: 'limit' } : { label: 'Make unlimited', value: 'unl' }]);
+    if (!op) return;
+    const body = { action: 'setCredit', key: S.onlineAdminKey, email: u.email, company: u.company || '', op, by: (S.user && S.user.email) || '' };
+    if (op === 'add' || op === 'set') {
+      const t = await promptText(op === 'add' ? 'Add credits' : 'Set the balance', op === 'add' ? `Metres of credit to add for ${u.email} (1 credit = 1 m of survey route).` : `The balance of ${u.email} becomes this many metres (used so far: ${fmtM(u.used)}).`, 'e.g. 5000', '');
+      if (t == null) return;
+      const m = Math.round(Number(String(t).replace(/[,\s]/g, '').replace(/m$/i, '')));
+      if (!Number.isFinite(m) || m < 0 || m > 1e7) { toast('Type a number of metres, e.g. 5000', 4000); return; }
+      body.m = m;
+    } else if (op === 'unl') {
+      const how = await ask('Make unlimited', `${u.email}: no credits are counted while unlimited (e.g. a beta tester, or a trial until a date).`, [{ label: 'Cancel', value: '' }, { label: 'Always', value: 'always', primary: true }, { label: 'Until a date', value: 'until' }]);
+      if (!how) return;
+      if (how === 'until') {
+        const d = await promptText('Unlimited until', 'The last day it is unlimited (YYYY-MM-DD).', 'e.g. 2026-12-31', '');
+        if (d == null) return;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d.trim())) { toast('Type the date as YYYY-MM-DD, e.g. 2026-12-31', 4000); return; }
+        body.until = d.trim();
+      }
+    }
+    busy('Saving in the online sheet…');
+    let j = null;
+    try { j = await cloudRequest({ url: sheetUrl() }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) }); } catch (e) { j = { ok: false, error: e.message || String(e) }; } finally { busy(false); }
+    if (!j || !j.ok || !j.user) { toast(j && j.error === 'date' ? 'That date has passed or is not a date' : j && j.error === 'action' ? 'The online sheet’s script is older than v2.42.7: update it' : `Not saved${j && j.error ? ` (${j.error})` : ''}`, 6000); return; }
+    const n = j.user, i = crUsers.findIndex((x) => x.email === n.email), nu = { ...u, ...n, until: n.until || '' };
+    if (i >= 0) crUsers[i] = nu; else crUsers.unshift(nu);
+    $('crInfo').textContent = crInfoText(); renderCreditsList(); LOG.info('credits.admin.set', { op });
+    toast(`Saved: ${n.email} · ${crStatus(nu)}`, 4500);
+  }
+  $('creditsBtn').addEventListener('click', () => { openSheet('credits'); /** @type {HTMLInputElement} */ ($('crSearch')).value = ''; guard(creditsLoad, 'Credits not read'); });
+  $('crRefresh').addEventListener('click', () => guard(creditsLoad, 'Credits not read'));
+  $('crSearch').addEventListener('input', renderCreditsList);
+  $('crAdd').addEventListener('click', () => guard(async () => {
+    const e = await promptText('Add a user', 'The user’s email, as they typed it in G-eSAA (Your details).', 'name@company.com', '');
+    if (e == null) return;
+    const email = e.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { toast('Type a valid email address', 4000); return; }
+    const have = crUsers.find((x) => x.email === email); if (have) { await creditsEdit(have); return; }
+    const V = vendorCos(), co = V.length ? await pickFrom('Their company', `The company of ${email}.`, V.map((c) => [c, c])) : '';
+    if (co == null) return;
+    await creditsEdit({ email, company: co || '', credits: 0, used: 0, bal: 0, unl: false, until: '' });
+  }, 'Not added'));
   /** v2.42: Settings → Invite a vendor: one vendor (its users join it), or several / any vendor (the new user chooses theirs the first
       time; then it is fixed). The admin company is not offered here: admin staff have their own invite. The key comes from the sheet. */
   $('inviteVendor').addEventListener('click', () => guard(async () => {
@@ -9636,6 +9725,7 @@
     const u = new URL(src.url);
     if (q && q.probe) { u.searchParams.set('probe', '1'); u.searchParams.set('v', APP_VER); } // only asks whether the sheet uses company keys
     else if (q && (q.inv || q.mvc)) { u.searchParams.set(q.inv ? 'inv' : 'mvc', q.inv || q.mvc); u.searchParams.set('v', APP_VER); } // v2.42.6: a short invite or move link (its code only)
+    else if (q && q.credits) { u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER); u.searchParams.set('company', ''); u.searchParams.set('akey', S.onlineAdminKey || ''); u.searchParams.set('credits', '1'); } // v2.42.7: User credits (Admin key)
     else if (q && q.join) { u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER); u.searchParams.set('company', ''); } // a short join code: the list only
     else if (q) { u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER); u.searchParams.set('company', ''); u.searchParams.set('ckey', q.ckey); }
     else if (!init) {
@@ -9686,6 +9776,7 @@
         const moved = typeof j.list === 'string' && j.list.length <= 120000 ? await applySheetList(j.list) : false;
         if (j.ke && S.team && keApart(S.team) && Number(j.listRev) === S.team.rev) keepListKe(j.ke, S.team, true); // v2.42.5: the encrypted admin key (the sheet sends it to the admin phone and the admin company's key)
         if (j.credit && typeof j.credit === 'object') noteCredit(j.credit); else if (S.user && S.user.email) noteCredit({ off: true, old: true }); // v2.42.6: credits (none: a script older than v2.42.6)
+        renderCredit(); // v2.42.7: the balance in Settings
         if ((S.creditQ || []).length) flushCredits();
         afterTeamChange(); if (!$('newProj').hidden) renderSites();
         if (moved === 'moved') setTimeout(() => cloudSync(true), 0); // the new list version points to another sheet

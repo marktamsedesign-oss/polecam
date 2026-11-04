@@ -535,6 +535,17 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.7
+
+Credits, easier to manage, and still off until you turn them on: with Settings → Credits = No (the default) users see nothing about credits and nothing is counted. **Update the online sheet's script too** (`PoleCam-online-sheet_v2.42.7.gs`: paste, Save, Deploy → Manage deployments → Edit → New version).
+
+- **Users are listed by themselves.** With Settings → Credits = Yes, each user of G-eSAA 2.42.6 or later is added to the Credits tab at their first sync (before, only at their first export), with "Free credits for a new user (m)". You can give credits before anyone exports. The admin company is not listed (it never needs credits).
+- **Users already in the Invite log:** in the Apps Script editor, choose the function `addCreditUsers` and Run it once. It adds every vendor email of the Invite log not listed yet, also users still on an older G-eSAA (which does not send its email). Users who joined with an older key invite are not in the Invite log: they appear at their first sync after they update.
+- **Users see their credits** at the upper right of the Export and Drawing screens of a survey ("Credits: 900 m", red at 0 or below), in Settings under Your details ("Credits: 900 m left …", as of the last sync, or "Credits: unlimited until 2026-12-31"), and on the Export screen with what the next export will use.
+- **The admin phone manages the credits:** Settings → **User credits** (on the admin phone with the sheet's Admin key) lists every user with their balance, what they used and when they last exported (search by email or company). Tap a user to **Add credits**, **Set the balance**, **Make unlimited** (always, or until a date for a trial) or **Make limited again**; **Add a user** gives credits to an email not listed yet. Each change goes into the Credit log with who made it, and the user's phone sees it at its next sync. Needs the v2.42.7 sheet script.
+- **Nothing shows while credits are off:** the short check before an export no longer says "Checking your credits…" when the last sync said credits are off.
+- **After each KMZ or DXF export** (from Export, from the Drawing tab's Export DXF, or several formats in one ZIP), the Ready box says what it used: "Credits: 100 m used for the route of … · 900 m left". Before, a later message of the DXF export (the roads) replaced that message.
+
 ## What changed in v2.42.6
 
 Shorter invite, join and move links, and credits for vendor exports. **Update the online sheet's script too** (`PoleCam-online-sheet_v2.42.6.gs`: paste, Save, Run `setup` once, Deploy → Manage deployments → Edit → New version), and install the v2.42.6 Android app on phones that use it (see the last point).
