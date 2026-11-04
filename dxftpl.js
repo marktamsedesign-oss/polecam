@@ -44,6 +44,7 @@
       const pairs = new Array(lines.length / 2);
       for (let i = 0, j = 0; i < lines.length; i += 2, j++) pairs[j] = [parseInt(lines[i], 10), lines[i + 1]];
       this.nl = nl; this.head = []; this.secs = []; this.tail = [];
+      this.keepRaster = false; // v2.42.8: clean() keeps the picture settings (RASTERVARIABLES) of a drawing with no picture yet
       let i = 0;
       while (i < pairs.length && !(pairs[i][0] === 0 && pairs[i][1] === 'SECTION')) this.head.push(pairs[i++]);
       while (i < pairs.length) {
@@ -77,7 +78,7 @@
         put([0, 'ENDSEC']);
       }
       this.tail.forEach(put);
-      return out.join(this.nl) + this.nl;
+      return out.join('\r\n') + '\r\n'; // v2.42.8: CRLF always (AutoCAD's own; the template's line ends were kept before)
     }
   }
   const typ = (r) => r[0][1];
@@ -110,6 +111,223 @@
     const r = S.br.get(L.brh), bn = get(r, 2);
     if (bn === '*Paper_Space') return S.E.filter((e) => String(get(e, 67, '0')).trim() === '1');
     return S.blocks.get(bn).ents;
+  }
+
+  /* ---------------- v2.42.8: the cleanup pass ----------------
+     The company template was turned into DXF by LibreDWG 0.14, which leaves records AutoCAD refuses ("Invalid symbol table record
+     name: *Multiple", "Premature end of object", "GEODATA … DXF read error"); lenient viewers open such a file, AutoCAD discards it.
+     This pass repairs them. It runs on the template before it is filled and again on every export, and it is idempotent: run on its
+     own output it changes nothing. The rules (the team's fix_dxf.py, tested in AutoCAD for Mac, rules 1-11; 12-13 and the rest new):
+      1 one *Active VPORT only                      2 ATTRIB / ATTDEF: the bogus embedded AcDbXrecord tail stripped
+      3 GEODATA dropped                             4 REGION / 3DSOLID / BODY dropped when there is no ACDSDATA section
+                                                    (and an INSERT of a block left empty)
+      5 MULTILEADER dropped                         6, 11 pointers (347 materials, 340, 348, 331, 360…) to missing objects removed
+      7 dictionary entries to missing objects removed     8 objects whose owner is missing dropped (repeated)
+      9 SORTENTSTABLE: its block record (330) after the subclass marker   10 LibreDWG's styles and settings objects dropped
+     12 MTEXT reference width (41) far below its text's width: set to the real width or 0 (no wrapping); ^J written as \P
+     13 IMAGEDEFs no IMAGE uses dropped (with their dictionary entries; RASTERVARIABLES too when no image is left)
+     14 DIMSTYLE colours written as packed true colours (176-178): their colour index
+     15 a block drawn more than 1 km from its base point: its drawing moved to the base point, its inserts moved to match (nothing
+        drawn moves; the insertion points sit on their symbols)
+     16 Vineta BT (in a text style or an MTEXT): Arial
+     and: header variables pointing to missing objects removed; $HANDSEED above every handle; each table's count its records. */
+  const DROP_OBJ = new Set(['GEODATA', 'SUN', 'VISUALSTYLE', 'TABLESTYLE', 'MLEADERSTYLE', 'ACDBSECTIONVIEWSTYLE', 'ACDBDETAILVIEWSTYLE', 'ACDB_DYNAMICBLOCKPURGEPREVENTER_VERSION']);
+  const PTR = (c) => (c >= 331 && c <= 369) || c === 390;
+  /** An MTEXT's text without its format codes, as lines (to measure it). */
+  function mtextLines(s) {
+    return String(s).replace(/\\\\/g, '\\').replace(/\\[{}]/g, 'x').replace(/\\p[^;]*;/g, '').replace(/\\[fFcCHhWwAaQqTt][^;]*;/g, '')
+      .replace(/\\S([^;]*);/g, (m, a) => a.replace(/[\^#/]/g, ' ')).replace(/\\[LlOoKk]/g, '').replace(/\\[PN]/g, '\n').replace(/\\~/g, ' ')
+      .replace(/[{}]/g, '').replace(/\^J/g, '\n').replace(/\^I/g, ' ').split('\n');
+  }
+  /** About how wide an MTEXT's longest line is (its height × 0.6 per character). */
+  function mtextWidth(r) { const h = num(r, 40, 0), L = mtextLines(textOf(r)); return h * 0.6 * Math.max(0, ...L.map((x) => x.trim().length)); }
+  /** Index of the first code c of the MTEXT's own part (after 100 AcDbMText, before its embedded object). */
+  function mtextIdx(r, c) { const k = r.findIndex((p) => p[0] === 100 && p[1] === 'AcDbMText'); for (let i = k + 1; k >= 0 && i < r.length; i++) { if (r[i][0] === 101 || r[i][0] === 100) return -1; if (r[i][0] === c) return i; } return -1; }
+  function clean(d) {
+    const log = {}, inc = (k, n) => { log[k] = (log[k] || 0) + (n == null ? 1 : n); };
+    const T = d.sec('TABLES'), B = d.sec('BLOCKS'), E = d.sec('ENTITIES'), O = d.sec('OBJECTS'), hasAcds = !!d.sec('ACDSDATA');
+    const drop = new Set(); // records dropped (by identity)
+    // 1. one *Active VPORT
+    let active = false;
+    for (const r of T.recs) if (typ(r) === 'VPORT') { const nm = String(get(r, 2, '')); if (nm.toUpperCase() === '*ACTIVE' && !active) active = true; else { drop.add(r); inc(`VPORT ${nm} dropped`); } }
+    // 3, 10. LibreDWG's objects; 4, 5. entities AutoCAD cannot read
+    for (const r of O.recs) if (DROP_OBJ.has(typ(r))) { drop.add(r); inc(`${typ(r)} dropped`); }
+    for (const s of [B, E]) for (const r of s.recs) { const t = typ(r); if (t === 'MULTILEADER' || (!hasAcds && (t === 'REGION' || t === '3DSOLID' || t === 'BODY'))) { drop.add(r); inc(`${t} dropped`); } }
+    // 13. IMAGEDEFs no IMAGE uses
+    const usedDefs = new Set(); for (const s of [B, E]) for (const r of s.recs) if (typ(r) === 'IMAGE' && !drop.has(r)) { const h = get(r, 340); if (h) usedDefs.add(h); }
+    for (const r of O.recs) if (typ(r) === 'IMAGEDEF' && !usedDefs.has(get(r, 5))) { drop.add(r); inc('unused IMAGEDEF dropped'); }
+    if (!usedDefs.size) for (const r of O.recs) if (typ(r) === 'RASTERVARIABLES' && d.keepRaster !== true) { drop.add(r); inc('RASTERVARIABLES dropped (no image)'); }
+    const sections = d.secs.filter((s) => s.recs);
+    const prune = () => { for (const s of sections) if (s.recs.some((r) => drop.has(r))) s.recs = s.recs.filter((r) => !drop.has(r)); };
+    prune();
+    // 4. an INSERT of a block left with nothing in it (its REGIONs dropped): it drew nothing, and its insertion point is far away
+    const empty = new Set([...structure(d).blocks].filter(([n, b]) => !/^\*/.test(n) && !b.ents.length).map(([n]) => n));
+    if (empty.size) { for (const s of [B, E]) for (const r of s.recs) if (typ(r) === 'INSERT' && empty.has(get(r, 2))) { drop.add(r); inc('INSERT of an empty block dropped'); } prune(); }
+    // 6-8, 11. owners and pointers to missing objects, repeated until nothing changes
+    for (let it = 0; it < 20; it++) {
+      const live = new Set(); for (const s of sections) for (const r of s.recs) { const h = handleOf(r); if (h) live.add(h); }
+      let changed = false;
+      for (const s of [O, B, E]) for (const r of s.recs) { // objects (and attributes) whose owner is missing
+        const t = typ(r); if (s !== O && !(t === 'ATTRIB' || t === 'SEQEND' || t === 'VERTEX')) continue;
+        const ow = owner(r); if (ow && ow !== '0' && !live.has(ow)) { drop.add(r); inc(`${t} dropped (owner missing)`); changed = true; }
+        if (t === 'IMAGE' && get(r, 340) && !live.has(get(r, 340))) { drop.add(r); inc('IMAGE dropped (its IMAGEDEF missing)'); changed = true; }
+      }
+      if (changed) { prune(); continue; }
+      for (const s of sections) for (let n = 0; n < s.recs.length; n++) {
+        const r = s.recs[n], t = typ(r), isDict = t === 'DICTIONARY' || t === 'ACDBDICTIONARYWDFLT';
+        if (!r.some((p, i) => i > 0 && (PTR(p[0]) || p[0] === 330) && p[1] && p[1] !== '0' && !live.has(p[1]))) continue;
+        const out = [r[0]]; let grp = null, cut = false;
+        for (let i = 1; i < r.length; i++) {
+          const [c, v] = r[i];
+          if (c === 102) { grp = String(v).startsWith('{') ? v : null; out.push(r[i]); continue; }
+          const dead = !!v && v !== '0' && !live.has(String(v).trim());
+          if (isDict && c === 3 && r[i + 1] && (r[i + 1][0] === 350 || r[i + 1][0] === 360) && !live.has(String(r[i + 1][1]).trim())) { i++; inc('dictionary entry to a missing object removed'); cut = true; continue; }
+          if (t === 'SORTENTSTABLE' && c === 331 && dead) { if (r[i + 1] && r[i + 1][0] === 5) i++; inc('sort entry to a missing entity removed'); cut = true; continue; }
+          if (dead && c === 330 && grp === '{ACAD_REACTORS') { inc('reactor to a missing object removed'); cut = true; continue; }
+          if (dead && c === 360 && grp === '{ACAD_XDICTIONARY') { inc('extension dictionary pointer removed'); cut = true; continue; }
+          if (dead && PTR(c)) { inc(`pointer ${c} to a missing object removed`); cut = true; continue; } // (in a group too: {BLKREFS 331…})
+          out.push(r[i]);
+        }
+        const tidy = []; for (const p of out) { if (p[0] === 102 && p[1] === '}' && tidy.length && tidy[tidy.length - 1][0] === 102 && String(tidy[tidy.length - 1][1]).startsWith('{')) { tidy.pop(); continue; } tidy.push(p); } // empty 102 groups
+        if (cut) { s.recs[n] = tidy; changed = true; }
+      }
+      // header variables pointing to missing objects ($CMATERIAL, $INTERFEREOBJVS, $INTERFEREVPVS, $CMLEADERSTYLE…)
+      const H = d.sec('HEADER').raw, keep = [];
+      for (let i = 0; i < H.length;) {
+        let j = i + 1; while (j < H.length && H[j][0] !== 9) j++;
+        const body = H.slice(i + 1, j);
+        if (H[i][0] === 9 && body.some(([c, v]) => (PTR(c) || c === 330) && v && String(v).trim() !== '0' && !live.has(String(v).trim()))) { inc(`header ${H[i][1]} removed (points to nothing)`); changed = true; }
+        else keep.push(...H.slice(i, j));
+        i = j;
+      }
+      d.sec('HEADER').raw = keep;
+      if (!changed) break;
+    }
+    d.index();
+    // 2. the bogus AcDbXrecord tail of ATTRIB / ATTDEF
+    for (const s of [B, E]) s.recs = s.recs.map((r) => {
+      const t = typ(r); if (t !== 'ATTRIB' && t !== 'ATTDEF') return r;
+      const k = r.findIndex((p) => p[0] === 100 && p[1] === 'AcDbXrecord'); if (k < 0) return r;
+      let j = k; while (j < r.length && r[j][0] < 1000) j++;
+      inc(`${t}: AcDbXrecord tail stripped`); return r.slice(0, k).concat(r.slice(j));
+    });
+    // 9. SORTENTSTABLE: its block record right after the subclass marker
+    d.index();
+    O.recs = O.recs.filter((r) => {
+      if (typ(r) !== 'SORTENTSTABLE') return true;
+      const k = r.findIndex((p) => p[0] === 100 && p[1] === 'AcDbSortentsTable'); if (k < 0) return true;
+      if (r[k + 1] && r[k + 1][0] === 330) return true;
+      const dict = d.byHandle.get(owner(r)), brh = dict ? owner(dict) : null, br = brh ? d.byHandle.get(brh) : null;
+      if (br && typ(br) === 'BLOCK_RECORD') { r.splice(k + 1, 0, [330, brh]); inc('SORTENTSTABLE: block record added'); return true; }
+      inc('SORTENTSTABLE dropped (no block record)'); return false;
+    });
+    // 14. DIMSTYLE colours written as packed true colours
+    for (const r of T.recs) if (typ(r) === 'DIMSTYLE') for (const p of r) if ((p[0] === 176 || p[0] === 177 || p[0] === 178) && /^\s*-?\d+\s*$/.test(p[1])) {
+      const n = parseInt(p[1], 10); if (n >= -32768 && n <= 32767) continue;
+      const u = n >>> 0, m = u >>> 24; p[1] = I(m === 0xC1 ? 0 : m === 0xC3 ? (u & 0xFF) : 256); inc('DIMSTYLE colour set to a colour index');
+    }
+    // 16. Vineta BT (a decorative font AutoCAD for Mac does not have): Arial
+    for (const r of T.recs) if (typ(r) === 'STYLE' && r.some((p) => (p[0] === 3 && /vinet/i.test(p[1])) || (p[0] === 1000 && /^\s*Vineta BT\s*$/i.test(p[1])))) {
+      for (const p of r) { if (p[0] === 3 && /vinet/i.test(p[1])) p[1] = 'arial.ttf'; else if (p[0] === 1000 && /^\s*Vineta BT\s*$/i.test(p[1])) p[1] = 'Arial'; }
+      inc('text style in Vineta BT set to Arial');
+    }
+    // 12. MTEXT: reference width and ^J (16: a Vineta BT font change inside it: Arial)
+    for (const s of [B, E]) for (const r of s.recs) {
+      if (typ(r) !== 'MTEXT') continue;
+      let t0 = textOf(r);
+      if (/\\f\s*Vineta BT\|/i.test(t0)) { t0 = t0.replace(/\\f\s*Vineta BT\|/gi, '\\fArial|'); setText(r, t0); inc('MTEXT font Vineta BT set to Arial'); }
+      if (/\^J/.test(t0)) { setText(r, t0.replace(/\^J(\\P)?/g, '\\P')); inc('MTEXT ^J written as \\P'); }
+      const k = mtextIdx(r, 41), w = k >= 0 ? parseFloat(r[k][1]) : 0, need = mtextWidth(r);
+      if (k >= 0 && w > 0 && need > 0 && w < 0.2 * need) {
+        const e = r.findIndex((p) => p[0] === 101), ext = e >= 0 ? r.slice(e).find((p) => p[0] === 42) : null, ew = ext ? parseFloat(ext[1]) : 0;
+        r[k][1] = F(ew >= 0.2 * need ? ew : 0); inc('MTEXT width fixed');
+      }
+    }
+    // 15. blocks drawn far from their base point
+    rebase(d, inc);
+    // $HANDSEED above every handle; the VPORT table's count
+    let mx = 0; for (const s of sections) for (const r of s.recs) { const h = handleOf(r); if (h) mx = Math.max(mx, parseInt(h, 16) || 0); }
+    if (d.next <= mx) d.next = mx + 1;
+    // each table's count (70): its records (the VPORT table after rule 1, the block table after old blocks removed)
+    for (let i = 0; i < T.recs.length; i++) if (typ(T.recs[i]) === 'TABLE') {
+      let n = 0, j = i + 1; for (; j < T.recs.length && typ(T.recs[j]) !== 'ENDTAB'; j++) n++;
+      if (get(T.recs[i], 70) != null && parseInt(get(T.recs[i], 70), 10) !== n) { setFirst(T.recs[i], 70, I(n)); inc('table count set to its records'); }
+      i = j;
+    }
+    d.index();
+    return log;
+  }
+  /** v2.42.8 (rule 15): a block whose drawing sits more than 1 km from its base point (the template's NAP and legend blocks: 3 km to
+      28,000 km): its drawing is moved to its base point and every insert of it moved to match, so nothing drawn moves and every
+      insertion point sits on its symbol. Left as it is: a block with a base point other than 0, 0 (the app places blocks from 0, 0), an
+      entity of a kind that cannot be moved point by point (a spline, an ellipse turned over…), or an insert with an extrusion, columns or rows. */
+  const FAR_BLOCK = 1000; // metres
+  function textPtsBox(ents) {
+    const P = ents.filter((e) => ['TEXT', 'MTEXT', 'ATTDEF', 'POINT'].includes(typ(e))).map((e) => [num(e, 10, NaN), num(e, 20, NaN)]).filter((q) => Number.isFinite(q[0]) && Number.isFinite(q[1]));
+    return P.length ? [Math.min(...P.map((q) => q[0])), Math.min(...P.map((q) => q[1])), Math.max(...P.map((q) => q[0])), Math.max(...P.map((q) => q[1]))] : null;
+  }
+  function rebase(d, inc) {
+    const S = structure(d), refs = new Map();
+    for (const s of [d.sec('BLOCKS'), d.sec('ENTITIES')]) for (const r of s.recs) if (typ(r) === 'INSERT') { const n = get(r, 2); (refs.get(n) || refs.set(n, []).get(n)).push(r); }
+    centerCache.clear();
+    const far = [];
+    for (const [name, b] of S.blocks) {
+      if (/^\*/.test(name)) continue;
+      const box = blockBox(S, name, 0) || textPtsBox(b.ents); if (!box) continue; // (a block of attributes only: where they are)
+      const cx = (box[0] + box[2]) / 2, cy = (box[1] + box[3]) / 2, bx = num(b.begin, 10, 0), by = num(b.begin, 20, 0);
+      if (Math.hypot(cx - bx, cy - by) < FAR_BLOCK) continue;
+      if (Math.abs(bx) > 1e-9 || Math.abs(by) > 1e-9) { inc('far block left (base point not 0, 0)'); continue; }
+      const movable = (t) => !!SHIFT_PTS[t] || t === 'HATCH';
+      if (b.ents.some((e) => !movable(typ(e)) || (num(e, 230, 1) < 0 && typ(e) !== 'HATCH'))) { inc(`far block left (${[...new Set(b.ents.map(typ).filter((t) => !movable(t)))].join(', ') || 'turned over'})`); continue; }
+      const R = refs.get(name) || [];
+      if (R.some((r) => Math.abs(num(r, 230, 1) - 1) > 1e-9 || parseInt(get(r, 70, '0'), 10) > 1 || parseInt(get(r, 71, '0'), 10) > 1)) { inc('far block left (an insert with an extrusion or columns)'); continue; }
+      far.push({ name, b, R, cx, cy });
+    }
+    for (const { b, R, cx, cy } of far) {
+      for (const e of b.ents) shiftRec(e, -cx, -cy);
+      for (const r of R) {
+        const sx = num(r, 41, 1), sy = num(r, 42, 1), a = num(r, 50, 0) * Math.PI / 180;
+        setFirst(r, 10, F(num(r, 10, 0) + cx * sx * Math.cos(a) - cy * sy * Math.sin(a))); setFirst(r, 20, F(num(r, 20, 0) + cx * sx * Math.sin(a) + cy * sy * Math.cos(a)));
+      }
+      inc('far block moved to its base point');
+    }
+    centerCache.clear();
+  }
+
+  /** v2.42.8: the template's unused blocks that still carry another project's title block text (copies of the sample title block:
+      "NSB PROJECT", "Brgy.LittleBaguio_Malita(Capital)_DavaOccidental", "MARAND_MIN601"): removed, so no old project text is left in
+      the file. A block anything inserts or points to is kept (the title block the sheets use holds the fields to fill). */
+  const OLD_TEXT = /NSB PROJECT|LITTLE ?BAGUIO|DAVAO ?OCCIDENTAL|MARAND_MIN\d/i;
+  function purgeOld(d) {
+    const S = structure(d), used = new Set();
+    for (const s of ['BLOCKS', 'ENTITIES']) for (const r of d.sec(s).recs) if (typ(r) === 'INSERT' || typ(r) === 'DIMENSION') used.add(get(r, 2));
+    const cand = new Map();
+    for (const [name, b] of S.blocks) {
+      if (/^\*/.test(name) || used.has(name) || !S.brByName.get(name)) continue;
+      if (b.ents.some((e) => ['MTEXT', 'TEXT', 'ATTDEF'].includes(typ(e)) && OLD_TEXT.test(textOf(e)) && !/@@\w+@@/.test(textOf(e)))) cand.set(get(S.brByName.get(name), 5), name);
+    }
+    if (!cand.size) return [];
+    const under = (r) => { let h = owner(r); for (let k = 0; h && h !== '0' && k < 12; k++) { if (cand.has(h)) return h; const o = d.byHandle.get(h); h = o ? owner(o) : null; } return null; }; // the block's own records
+    for (const sec of ['TABLES', 'BLOCKS', 'ENTITIES', 'OBJECTS']) for (const r of d.sec(sec).recs) { // pointed to from outside itself: kept
+      const h = handleOf(r);
+      for (let i = 1; i < r.length; i++) { const [c, v] = r[i]; if (HANDLE_CODES(c) && cand.has(v) && h !== v && under(r) !== v) cand.delete(v); }
+      if (!cand.size) return [];
+    }
+    removeHandles(d, new Set(cand.keys()));
+    return [...cand.values()];
+  }
+
+  /** v2.42.8: a DXF exported before (or the template itself) repaired for AutoCAD: the cleanup, the old title block copies removed,
+      its extents and opening view on the plan (its grid and vicinity map, when it has them). The drawing is not redrawn: its legend
+      stays where it was. Returns { text, report }. */
+  function repair(text) {
+    const d = new Doc(text), rep = { notes: [] };
+    rep.cleanup = clean(d); rep.oldBlocks = purgeOld(d); if (rep.oldBlocks.length) rep.cleanup2 = clean(d);
+    const S = structure(d); centerCache.clear();
+    const boxes = d.sec('ENTITIES').recs.filter((r) => owner(r) === S.modelH && String(get(r, 67, '0')).trim() !== '1' && /^(GRIDS|G-ESAA VICINITY( MAP)?)$/i.test(String(get(r, 8, ''))))
+      .map((r) => drawnBox(S, r)).filter(Boolean);
+    if (boxes.length) rep.frame = frame(d, S, boxes, rep); else rep.notes.push('no grid in model space: the extents and opening view are left as they were');
+    return { text: d.text(), report: rep };
   }
 
   /* ---------------- removing records (a GEO sheet not needed) ---------------- */
@@ -332,6 +550,19 @@
       }
       r.length = 0; r.push(...out); return true;
     }
+    if (t === 'HATCH') { // v2.42.8: its boundary and seed points, line and spline fit points, pattern base points (not its elevation
+      // point, nor an ellipse edge's axis or a spline's tangents, which are relative)
+      const k = r.findIndex((q) => q[0] === 100 && q[1] === 'AcDbHatch'); if (k < 0) return false;
+      let elev = 2, poly = false, edge = 0;
+      for (let i = k + 1; i < r.length; i++) {
+        const q = r[i], c = q[0]; if (c >= 1000) break;
+        if (elev && (c === 10 || c === 20)) { elev--; continue; }
+        if (c === 92) { poly = (parseInt(q[1], 10) & 2) !== 0; edge = 0; } else if (c === 72 && !poly) edge = parseInt(q[1], 10) || 0; else if (c === 75) { poly = false; edge = 0; }
+        const xy = c === 10 || c === 43 || ((edge === 1 || edge === 4) && c === 11) ? 1 : c === 20 || c === 44 || ((edge === 1 || edge === 4) && c === 21) ? 2 : 0;
+        if (xy === 1) q[1] = F(+q[1] + neg * dx); else if (xy === 2) q[1] = F(+q[1] + dy);
+      }
+      return true;
+    }
     const pts = SHIFT_PTS[t]; if (!pts) return false;
     for (const q of r) { if (pts.includes(q[0])) q[1] = F(+q[1] + neg * dx); else if (pts.includes(q[0] - 10)) q[1] = F(+q[1] + dy); }
     return true;
@@ -341,6 +572,65 @@
     if (!vp || !handles.length) return;
     const k = vp.findIndex(([c]) => c === 90); const add = handles.filter((h) => !vp.some(([c, v]) => c === 341 && v === h)).map((h) => [341, h]);
     vp.splice(k >= 0 ? k : vp.length, 0, ...add);
+  }
+  /** v2.42.8: about where an entity is drawn: [x0, y0, x1, y1] (an INSERT through its block, a text from its height and length), or null. */
+  function drawnBox(S, r) {
+    const t = typ(r), xs = [], ys = [], add = (x, y) => { if (Number.isFinite(x) && Number.isFinite(y)) { xs.push(x); ys.push(y); } };
+    const pairs = (cx) => { const X = all(r, cx).map(Number), Y = all(r, cx + 10).map(Number); X.forEach((x, i) => add(x, Y[i])); };
+    if (t === 'VIEWPORT' || t === 'SEQEND' || t === 'ATTRIB' && !get(r, 1)) return null;
+    if (t === 'LINE') { add(num(r, 10), num(r, 20)); add(num(r, 11), num(r, 21)); }
+    else if (t === 'CIRCLE' || t === 'ARC') { const x = num(r, 10), y = num(r, 20), q = num(r, 40, 0); add(x - q, y - q); add(x + q, y + q); }
+    else if (t === 'ELLIPSE') { const x = num(r, 10), y = num(r, 20), q = Math.hypot(num(r, 11, 0), num(r, 21, 0)); add(x - q, y - q); add(x + q, y + q); }
+    else if (t === 'TEXT' || t === 'MTEXT' || t === 'ATTRIB') {
+      const x = num(r, 10), y = num(r, 20), h = num(r, 40, 0), L = t === 'MTEXT' ? mtextLines(textOf(r)) : [String(get(r, 1, ''))];
+      const w = h * 0.6 * Math.max(1, ...L.map((q) => q.length)), n = h * 1.7 * L.length; add(x - w, y - n); add(x + w, y + n); // round its point: its alignment not known
+    }
+    else if (t === 'INSERT') {
+      const blk = S.blocks.get(get(r, 2)), bb = blockBox(S, get(r, 2), 0), ix = num(r, 10, 0), iy = num(r, 20, 0);
+      if (!bb || !blk) add(ix, iy);
+      else {
+        const bx = num(blk.begin, 10, 0), by = num(blk.begin, 20, 0), sx = num(r, 41, 1), sy = num(r, 42, 1), a = num(r, 50, 0) * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a);
+        for (const [u, v] of [[bb[0], bb[1]], [bb[2], bb[1]], [bb[0], bb[3]], [bb[2], bb[3]]]) { const X = (u - bx) * sx, Y = (v - by) * sy; add(ix + X * c - Y * sn, iy + X * sn + Y * c); }
+      }
+    }
+    else if (t === 'IMAGE') {
+      const x = num(r, 10), y = num(r, 20), ux = num(r, 11, 0) * num(r, 13, 0), uy = num(r, 21, 0) * num(r, 13, 0), vx = num(r, 12, 0) * num(r, 23, 0), vy = num(r, 22, 0) * num(r, 23, 0);
+      add(x, y); add(x + ux, y + uy); add(x + vx, y + vy); add(x + ux + vx, y + uy + vy);
+    }
+    else if (t === 'HATCH') { const X = all(r, 10).map(Number).slice(1), Y = all(r, 20).map(Number).slice(1); X.forEach((x, i) => add(x, Y[i])); } // (not its elevation point)
+    else { pairs(10); if (t === 'SOLID' || t === 'TRACE' || t === '3DFACE') { pairs(11); pairs(12); pairs(13); } }
+    return xs.length ? [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] : null;
+  }
+  /** v2.42.8: the drawing's extents ($EXTMIN / $EXTMAX) and the view it opens on (the *Active VPORT): what model space draws within
+      2 km of the plan's boxes (the grid, the vicinity maps, the tables). Anything further out (none expected: the template's far
+      blocks are moved by the cleanup) is named in the report and left out of the extents. */
+  function frame(d, S, boxes, rep) {
+    const M = 2000, B0 = [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))];
+    const outOf = (x, y) => x < B0[0] - M || x > B0[2] + M || y < B0[1] - M || y > B0[3] + M;
+    let ext = null, far = 0; const farList = [], ins = new Set();
+    for (const r of d.sec('ENTITIES').recs) {
+      const ow = owner(r);
+      if (ow === S.modelH && typ(r) === 'INSERT') ins.add(get(r, 5));
+      if (!(ow === S.modelH || (typ(r) === 'ATTRIB' && ins.has(ow))) || String(get(r, 67, '0')).trim() === '1') continue;
+      const b = drawnBox(S, r); if (!b) continue;
+      if (outOf(b[0], b[1]) || outOf(b[2], b[3]) || (typ(r) === 'INSERT' && outOf(num(r, 10, 0), num(r, 20, 0)))) { far++; if (farList.length < 8) farList.push(`${typ(r)} ${get(r, 5)} (${get(r, 8)})`); continue; }
+      ext = ext ? [Math.min(ext[0], b[0]), Math.min(ext[1], b[1]), Math.max(ext[2], b[2]), Math.max(ext[3], b[3])] : b.slice();
+    }
+    if (!ext) ext = B0;
+    if (far) rep.notes.push(`${far} object(s) in model space more than 2 km from the plan, left out of its extents: ${farList.join(', ')}${far > farList.length ? '…' : ''}`);
+    const H = d.sec('HEADER').raw, setPt = (name, x, y) => {
+      const k = H.findIndex((p) => p[0] === 9 && p[1] === name); if (k < 0) return;
+      for (let i = k + 1; i < H.length && H[i][0] !== 9; i++) { if (H[i][0] === 10) H[i] = [10, F(x)]; else if (H[i][0] === 20) H[i] = [20, F(y)]; else if (H[i][0] === 30) H[i] = [30, '0.0']; }
+    };
+    setPt('$EXTMIN', ext[0], ext[1]); setPt('$EXTMAX', ext[2], ext[3]);
+    const vp = d.sec('TABLES').recs.find((r) => typ(r) === 'VPORT' && String(get(r, 2, '')).toUpperCase() === '*ACTIVE');
+    if (vp) {
+      const asp = num(vp, 41, 0) > 0.05 && num(vp, 41, 0) < 20 ? num(vp, 41, 0) : 1.6, w = ext[2] - ext[0], h = ext[3] - ext[1];
+      const set = (c, v) => { if (get(vp, c) != null) setFirst(vp, c, v); };
+      setFirst(vp, 12, F((ext[0] + ext[2]) / 2)); setFirst(vp, 22, F((ext[1] + ext[3]) / 2)); setFirst(vp, 40, F(Math.max(h, w / asp, 1) * 1.05));
+      set(16, '0.0'); set(26, '0.0'); set(36, '1.0'); set(17, '0.0'); set(27, '0.0'); set(37, '0.0'); set(51, '0.0'); // looking straight down, no twist
+    }
+    return { box: ext.map((v) => Math.round(v)), far };
   }
   /** Raster images: the classes AutoCAD needs, the image dictionary, one IMAGEDEF per file and an IMAGE (with its reactor). */
   class Images {
@@ -378,6 +668,13 @@
       const O = this.d.sec('OBJECTS').recs, dh = get(this.dict, 5);
       for (const def of this.defs.values()) O.push([[0, 'IMAGEDEF'], [5, def.h], [102, '{ACAD_REACTORS'], [330, dh], ...def.users.map((u) => [330, u]), [102, '}'], [330, dh], [100, 'AcDbRasterImageDef'], [90, I(0)], [1, def.file], [10, F(def.px)], [20, F(def.py)], [11, '0.01'], [21, '0.01'], [280, I(1)], [281, I(0)]]);
       for (const [rh, ih] of this.reactors || []) O.push([[0, 'IMAGEDEF_REACTOR'], [5, rh], [330, ih], [100, 'AcDbRasterImageDefReactor'], [90, I(2)], [330, ih]]);
+      const root = O[0], rv = root.findIndex(([c, v]) => c === 3 && v === 'ACAD_IMAGE_VARS'); // v2.42.8: the picture settings (frame shown, high quality), when the drawing has none
+      if (rv < 0 || !this.d.byHandle.get(String(root[rv + 1] && root[rv + 1][1]))) {
+        const h = this.d.newHandle(), rh0 = get(root, 5);
+        if (rv >= 0) root.splice(rv, 2);
+        O.push([[0, 'RASTERVARIABLES'], [5, h], [102, '{ACAD_REACTORS'], [330, rh0], [102, '}'], [330, rh0], [100, 'AcDbRasterVariables'], [90, I(0)], [70, I(1)], [71, I(1)], [72, I(0)]]);
+        root.push([3, 'ACAD_IMAGE_VARS'], [350, h]);
+      }
       const raw = this.d.sec('CLASSES').raw; for (let i = 0; i < raw.length; i++) if (raw[i][0] === 1 && (raw[i][1] === 'IMAGE' || raw[i][1] === 'IMAGEDEF_REACTOR')) { const j = raw.findIndex((p, k) => k > i && p[0] === 91); if (j > 0) raw[j] = [91, I(this.n)]; }
       this.d.index();
     }
@@ -1006,7 +1303,10 @@
    */
   function build(seedText, job) {
     centerCache.clear();
-    const d = new Doc(seedText); let S = structure(d);
+    const d = new Doc(seedText);
+    d.keepRaster = true; const clean0 = clean(d); d.keepRaster = false; // v2.42.8: the template repaired before it is filled (its picture settings kept for the photos)
+    const oldBlocks = purgeOld(d);
+    let S = structure(d);
     if (!S.layouts.some((L) => L.name === 'GEO')) throw new Error('This is not the G-eSAA drawing template: it has no GEO sheet');
     if (!/@@\w+@@/.test(seedText)) throw new Error('This drawing template has no @@ fields: load the prepared seed (G-eSAA_seed…dxf), not the original template');
     const cell = job.cell || 440, viewH = job.viewH || cell, pts = job.pts || [], spans = job.spans || [], runs = job.runs || [];
@@ -1926,13 +2226,14 @@
         if (need > avail) setFirst(r, 40, F(Math.max(h * 0.45, h * avail / need)));
       }
     }
+    let tablesBox = null;
     /* 6. v2.36: the template's tables in model space (legend, ROW table, project management table) moved right beside the plan,
        in a row below the key map grid and the vicinity map, instead of where the template has them (about 1,100 km from the
        plan's UTM coordinates); the sheets that show them follow. The plan itself stays at its true UTM coordinates. */
     {
       const vps = (L) => layoutEnts(d, S, L).filter((e) => typ(e) === 'VIEWPORT').slice(1).filter((e) => parseInt(get(e, 69, '0'), 10) !== 1 && num(e, 40, 0) > 0 && num(e, 45, 0) > 0); // the first is the sheet itself
       const win = (vp) => { const cx = num(vp, 17, 0) + num(vp, 12, 0), cy = num(vp, 27, 0) + num(vp, 22, 0), h = num(vp, 45, 0), w = h * num(vp, 40, 1) / (num(vp, 41, 1) || 1); return [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]; };
-      const groups = [];
+      const groups = /** @type {any[]} */ ([]);
       for (const L of S.layouts) {
         if (!/^(LEGENDS?( \(\d+\))?|ROW AREA COVERAGE|PMI)$/.test(L.name)) continue;
         for (const vp of vps(L)) {
@@ -1967,7 +2268,13 @@
         else if (typ(r) !== 'MTEXT' && typ(r) !== 'MULTILEADER') { X.forEach((v) => { g.ext[0] = Math.min(g.ext[0], v); g.ext[2] = Math.max(g.ext[2], v); }); Y.forEach((v) => { g.ext[1] = Math.min(g.ext[1], v); g.ext[3] = Math.max(g.ext[3], v); }); }
         else { g.ext[0] = Math.min(g.ext[0], q[0]); g.ext[2] = Math.max(g.ext[2], q[0] + num(r, 41, 0)); g.ext[1] = Math.min(g.ext[1], q[1] - num(r, 40, 0)); g.ext[3] = Math.max(g.ext[3], q[1]); }
       }
-      const GAP = 60, top = Math.min(gy0, ...vics.map((v) => v.sb[1]), ...kmBox.map((b, k) => (b[1] + b[3]) / 2 - kmH[k] / 2)) - GAP; let x = gx0, moved = 0; // below the grid, the vicinity maps and what the keymap sheets show
+      // below the grid, the vicinity maps and what the keymap sheets show; v2.42.8: and below whatever of the plan reaches lower (a
+      // label, a photo), the row ending at the grid's right edge (a row wider than the grid starts at its left edge)
+      const GAP = 60, inGroup = new Set(away.flatMap((g) => g.recs));
+      let low = Math.min(gy0, ...vics.map((v) => v.sb[1]), ...kmBox.map((b, k) => (b[1] + b[3]) / 2 - kmH[k] / 2));
+      for (const r of model) { if (inGroup.has(r)) continue; const b = drawnBox(S, r); if (b && b[1] < low && b[3] >= planBox[1] && b[1] <= planBox[3] && b[2] >= planBox[0] && b[0] <= planBox[2]) low = b[1]; }
+      const rowW = away.reduce((a, g) => a + g.ext[2] - g.ext[0], 0) + GAP * Math.max(0, away.length - 1);
+      const top = low - GAP; let x = rowW <= gx1 - gx0 ? gx1 - rowW : gx0, moved = 0;
       for (const g of away) {
         const dx = x - g.ext[0], dy = top - g.ext[3];
         for (const r of g.recs) {
@@ -1978,9 +2285,11 @@
           }
         }
         for (const vp of g.vps) { setFirst(vp, 17, F(num(vp, 17, 0) + dx)); setFirst(vp, 27, F(num(vp, 27, 0) + dy)); }
+        const b = [g.ext[0] + dx, g.ext[1] + dy, g.ext[2] + dx, g.ext[3] + dy];
+        tablesBox = tablesBox ? [Math.min(tablesBox[0], b[0]), Math.min(tablesBox[1], b[1]), Math.max(tablesBox[2], b[2]), Math.max(tablesBox[3], b[3])] : b;
         x += g.ext[2] - g.ext[0] + GAP;
       }
-      rep.tablesMoved = { groups: away.map((g) => [...g.names].join(' / ')), entities: moved };
+      rep.tablesMoved = { groups: away.map((g) => [...g.names].join(' / ')), entities: moved, box: tablesBox };
     }
     { const lw = d.headerVar('$LWDISPLAY'); if (lw) lw[1] = I(1); } // v2.36: line weights shown on screen (the cable's thickness)
     rep.blanks = [...blanks].filter((k) => !filled.has(k) && !/^IDX_/.test(k)).sort(); // an empty index key = no sheet on that side, not a missing field
@@ -1989,7 +2298,11 @@
     if (job.debug) rep.inline = [...inl.values()].map((it) => ({ b: it.b, at: it.at, hl: it.hl, hlo: it.hlo, hhi: it.hhi, hh: it.hh, sc: it.sc, rot: it.rot, box: blockBox(S, it.b, 0), boxT: blockBoxT(S, it.b), c: blockCenter(S, it.b) }));
     rep.counts = { ...o.n, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesOffRoadLine: nCleared, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length, telcoArms: nTelco };
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0] };
+    // v2.42.8: the cleanup again on the whole drawing, then its extents and opening view
+    rep.cleanup = { template: clean0, final: clean(d), oldBlocks };
+    S = structure(d); centerCache.clear();
+    rep.frame = frame(d, S, [[gx0, gy0, gx1, gy1], ...vics.map((v) => v.sb), ...(tablesBox ? [tablesBox] : [])], rep);
     return { text: d.text(), report: rep };
   }
-  return { build, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.4' };
+  return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.8' };
 }));

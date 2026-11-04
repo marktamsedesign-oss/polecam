@@ -535,6 +535,20 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.8
+
+The plan DXF opens in AutoCAD (File → Open) without an error. The company template was turned into DXF by LibreDWG, which left records AutoCAD refuses ("Invalid symbol table record name: *Multiple", "Premature end of object" in ATTRIB, "DXF read error" in GEODATA). No change to the online sheet's script.
+
+- **Cleaned at every export:** the app repairs the template before filling it and the whole drawing again before saving it: one `*Active` viewport; the bogus `AcDbXrecord` tail of 69 attributes; GEODATA, REGION (no ACIS data), MULTILEADER and LibreDWG's style objects dropped; materials, dictionary entries, reactors and pointers to missing objects removed; leftover dynamic-block objects dropped; the block record of each SORTENTSTABLE; the template's 118 unused pictures (one with a `C:\Users\…` path); DIMSTYLE colours. Running it again changes nothing.
+- **Legend readable:** MTEXT boxes written far too narrow (each letter on its own line: "UPDATED LEGENDS", "Reference", "LEGEND") get their real width; `^J` becomes a line break; the Vineta BT font becomes Arial.
+- **NAP symbols and legend samples:** the template's blocks are drawn up to 28,000 km from their base point. The symbols were already drawn in the right place, but their insertion points were far away, so the coordinates looked wrong (and some programs zoomed out to them). Now each block's drawing sits on its base point and every insertion point is on its symbol. Nothing drawn moves.
+- **Opens on the plan:** the drawing's extents and the Model view are set to the plan, the vicinity map and the tables (before, they were the template's old values).
+- **Legend, ROW and PMI tables** sit below everything of the plan (labels and photos too), ending at the grid's right edge.
+- **No old project text:** four unused copies of the sample title block ("NSB PROJECT … LittleBaguio … DavaOccidental") are removed.
+- Line ends are always CRLF (AutoCAD's own).
+- **Open it right:** unzip the ZIP into one folder, then use File → Open. Don't drag the DXF into an open drawing: its pictures would be looked for next to that other drawing. For a lighter ZIP without pole photos, choose numbers on the Drawing screen. The photos are in the Completion report PDF. The README in the ZIP and the tutorial say this too.
+- **Older exports:** `node tools/dxf-seed/repair_dxf.cjs old.dxf repaired.dxf` repairs a plan exported before, with the same code. `python3 -I tools/dxf-seed/check_plan.py plan.dxf` checks a plan against the AutoCAD list. The GitHub workflow *Plan DXF check* runs the cleanup test on a synthetic drawing (no company data) and `ezdxf audit`.
+
 ## What changed in v2.42.7
 
 Credits, easier to manage, and still off until you turn them on: with Settings → Credits = No (the default) users see nothing about credits and nothing is counted. **Update the online sheet's script too** (`PoleCam-online-sheet_v2.42.7.gs`: paste, Save, Deploy → Manage deployments → Edit → New version).

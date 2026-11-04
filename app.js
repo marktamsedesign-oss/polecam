@@ -709,7 +709,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.7';
+  const APP_VER = '2.42.8';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -7223,13 +7223,14 @@
       const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, markMode: st.mode, markNum: st.mode === 'num',
         numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
-      LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2) });
+      LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
     }
     const rp = outs[0].out.report;
     // v2.40: the numbers on the plan, for the README (and an RTA application): number, ID, pole type, position
     const markLinesOf = (MK) => MK.map(([n, id]) => { const p = byPt.get(id) || {}; return `  ${n}  ${p.poleId || '(no ID)'}  ${elemOf(p) === 'Pole' ? p.poleType || 'pole' : elemOf(p)}  ${(+p.lat).toFixed(6)}, ${(+p.lon).toFixed(6)}`; });
     const besideOf = (o) => { const MK = o.out.report.marks || [], n = MK.length; return `${o.st.mode === 'num' ? 'their number only (no photos)' : o.st.mode === 'both' ? `their photo with its number at its upper left (${o.nPh} of ${n}; a point without a photo shows its number)` : `their photo (${o.nPh} of ${n}; a point without a photo shows its number)`}, for ${o.st.what}: ${n} numbered 1 to ${n} along the route`; };
-    const setFirst = files.length ? 'UNZIP EVERYTHING INTO ONE FOLDER, then open the DXF: the pictures (pole photos, vicinity map) are linked by file name and must stay next to the DXF.' : '';
+    const setFirst = files.length ? 'UNZIP EVERYTHING INTO ONE FOLDER, then open the DXF in AutoCAD with File > Open: the pictures (pole photos, vicinity map) are linked by file name and must stay next to the DXF. Do not drag the DXF into an open drawing (it becomes a block there and its pictures are looked for next to that other drawing).'
+      : 'Open the DXF in AutoCAD with File > Open (do not drag it into an open drawing).'; // v2.42.8
     const head = many ? [`${outs.length} plan drawings on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres, the same plan with different numbers or photos beside the points:`,
       ...outs.map((o) => `  ${o.file}: ${besideOf(o)}.`), setFirst]
       : [`${outs[0].file} — the plan on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres.`, setFirst, `Beside the points: ${besideOf(outs[0])} (the list is at the end).`];
@@ -7246,6 +7247,7 @@
       `Roads: ${roadsNote}.`,
       `Right of way (ROW AREA COVERAGE): ${rowNote}.`, '',
       `Left blank (not known to the app; fill them in CAD): ${rp.blanks.join(', ') || 'none'}.`,
+      ...(() => { const N = [...new Set(outs.flatMap((o) => o.out.report.notes || []))]; return N.length ? [`Drawing checks (${N.length}): ${N.join(' · ')}.`] : []; })(), // v2.42.8: e.g. an object far from the plan
       'PMI table from the survey: total cable = spans + maintenance loops; aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures. Trenches and maxcell are not in the survey.',
       'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE (PROP.POLE / height / clamp), existing electric pole on ELECTRIC POLE (material / pole tag or NPT), telco pole on GT-POLE (material / ID); new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
       `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; a pin placed by hand more than 6 m from the road edge stays where it is: ${rp.counts.polesKept || 0}; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it; a side guy never into the road; a pole-to-pole guy to its chosen pole, with a head guy there: ${rp.counts.poleToPole || 0}).`,
