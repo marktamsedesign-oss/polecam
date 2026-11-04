@@ -10,8 +10,10 @@
   // v2.42: an invite's companies (cos=A|B or * for any vendor) and its code (iv=): v2.41 dropped them when the link opened the app
   const pendingCos = (/[#&]cos=([^&#]+)/.exec(H0) || [])[1] || null, pendingIv = (/[#&]iv=([A-Za-z0-9]{8,24})(?=[&#]|$)/.exec(H0) || [])[1] || null;
   const pendingKe = (/[#&]ke=([A-Za-z0-9_-]{20,4000})(?=[&#]|$)/.exec(H0) || [])[1] || null; // v2.42.5: an admin-staff invite's encrypted admin key
+  // v2.42.6: the short links: j= (join), i= (an invite the online sheet keeps), m= (a move the sheet keeps): sheet.code.list key
+  const pendingShort = (/[#&]([jim]=[A-Za-z0-9_-]{20,120}\.[A-Za-z0-9_-]{0,64}\.[A-Za-z0-9_-]{12,24})(?=[&#]|$)/.exec(H0) || [])[1] || null;
   const pendingTail = () => `${pendingCo ? `&co=${pendingCo}` : ''}${pendingCos ? `&cos=${pendingCos}` : ''}${pendingIv ? `&iv=${pendingIv}` : ''}${pendingKe ? `&ke=${pendingKe}` : ''}`;
-  if (pendingJoin || pendingKey || pendingJq || pendingMv || pendingCo || pendingCos || pendingIv || pendingKe) history.replaceState(null, '', location.pathname + location.search);
+  if (pendingJoin || pendingKey || pendingJq || pendingMv || pendingShort || pendingCo || pendingCos || pendingIv || pendingKe) history.replaceState(null, '', location.pathname + location.search);
   /* Camera button position for one-hand use: centre by default, right or left in Settings → Camera. */
   const handOf = () => (['left', 'center', 'right'].includes(S && S.hand) ? S.hand : 'center');
   function applyHand() { const h = handOf(); ['left', 'center', 'right'].forEach((x) => document.body.classList.toggle(`hand-${x}`, x === h)); }
@@ -707,7 +709,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.5';
+  const APP_VER = '2.42.6';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -5176,6 +5178,7 @@
     points = points.filter((p) => p.id !== id);
     if (links().some(([x, y]) => x === id || y === id)) setLinks(links().filter(([x, y]) => x !== id && y !== id));
     if (rec) changedAfterApproval(rec.project, 'delete'); // v2.42.5
+    if (rec && !points.some((p) => p.project === rec.project) && S.meta && S.meta[rec.project] && (S.meta[rec.project].cid || S.meta[rec.project].creditM)) { const m = { ...S.meta[rec.project] }; delete m.cid; delete m.creditM; S.meta[rec.project] = m; persist(); } // v2.42.6: its last record deleted: a new survey for the credits
     renderPoles(); if (!$('list').hidden) renderList();
     if (ed) ed.closeOK = true;
     await closeSheet(); toast(rec && rec.kind === 'acceptance' ? 'Element deleted' : `${rec && elemOf(rec) !== 'Pole' ? elemOf(rec) : 'Pole'} deleted`);
@@ -5932,6 +5935,7 @@
     for (const name of names) {
       k++;
       const pts = points.filter((p) => p.project === name).sort((a, b) => (a.created < b.created ? -1 : 1));
+      if (!isAcc(name)) projKey(name); // v2.42.6: the credits' project key travels with it
       files.push({ name: `p${k}/points.json`, data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: pmeta(name), exported: now, by: byLine(), exportedBy: exporterInfo(), points: pts }, null, 1) });
       for (const pid of new Set(pts.flatMap(allPids))) {
         busy(`Packing photos ${++done} / ${allP}`, done / Math.max(1, allP));
@@ -6394,7 +6398,7 @@
     $('xShareBox').hidden = !acc || stg === 'FAT';
     if (acc && stg !== 'FAT') { $('xShareLbl').textContent = stg === 'Cleanup' ? 'Share cleanup KMZ' : 'Share PAT KMZ'; $('xShareFor').textContent = stg === 'Cleanup' ? 'for the FAT' : 'for defect cleanup / FAT'; renderShareWarn('xShareWarn'); }
     $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`; syncExpUi();
-    showExport(exportPick); exportPick = null;
+    showExport(exportPick); exportPick = null; renderCredit(); // v2.42.6
     $('resultBox').hidden = true; openSheet('export');
   });
   function needPoints() { const pts = projPoints(); if (!pts.length) { toast('Nothing captured in this project yet'); return null; } return pts; }
@@ -6439,6 +6443,110 @@
     } finally { busy(false); }
   }
 
+  /* ---- v2.42.6: credits. With the online sheet's Credits on (script v2.42.6), a vendor user's Export → KMZ and DXF of a survey (and
+     the KMZ inside its completion report) use 1 credit per metre of the project's route: the linked spans, but at least the shortest line
+     joining all its route elements. A project's metres are counted once: exporting again is free, a longer route pays only the
+     new metres (the sheet keeps them per project key, so a project shared to a coworker is not counted twice). The admin company's
+     phones, phones without an online sheet, an older sheet script and credits off in the sheet count nothing. Without internet, the
+     export goes ahead while the last known balance lasts and is counted at the next sync (the balance may go below zero). ---- */
+  function fmtM(n) { return `${Math.round(Number(n) || 0).toLocaleString()} m`; }
+  /** The metres a survey is counted for: its linked spans, but at least the shortest line joining all its route elements (so poles
+      left unlinked count too; a full linked route is never shorter than that line). */
+  function creditRouteM() {
+    const R = routeModel(), linked = R.spans.reduce((a, x) => a + x.len, 0), P = routePts().filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+    let mst = 0; // Prim's minimum spanning tree over the route elements
+    if (P.length > 1 && P.length <= 4000) {
+      const best = new Array(P.length).fill(Infinity), used = new Array(P.length).fill(false); best[0] = 0;
+      for (let n = 0; n < P.length; n++) {
+        let u = -1; for (let i = 0; i < P.length; i++) if (!used[i] && (u < 0 || best[i] < best[u])) u = i;
+        used[u] = true; mst += best[u];
+        for (let i = 0; i < P.length; i++) if (!used[i]) { const d = haversine(P[u], P[i]); if (d < best[i]) best[i] = d; }
+      }
+    }
+    return Math.round(Math.max(linked, mst));
+  }
+  /** The project's key for the credits: made with the project (or, for an older one, at its first export or share), kept with it. */
+  function projKey(name) {
+    const nm = name || S.project, m = pmeta(nm); if (/^[A-Za-z0-9_-]{6,40}$/.test(String(m.cid || ''))) return m.cid;
+    const cid = `${uid()}${Math.random().toString(36).slice(2, 6)}`.replace(/[^A-Za-z0-9]/g, '').slice(0, 24);
+    if (nm && (S.projects || []).includes(nm)) { S.meta = S.meta || {}; S.meta[nm] = { ...m, cid }; persist(); }
+    return cid;
+  }
+  function creditOf() { return S.credit && S.credit.src === sheetUrl() ? S.credit : null; }
+  function creditFree() { return !sheetUrl() || !S.team || !S.team.src || staffPhone(); } // the admin company's phones never pay
+  function creditPost(o) {
+    const src = S.team.src;
+    return cloudRequest({ url: sheetUrl() }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'credit', email: o.email || (S.user && S.user.email) || '', company: o.company || (S.user && S.user.company) || '',
+      ckey: o.ckey != null ? o.ckey : S.companyKey || '', key: (src && src.key) || '', project: String(o.project || '').slice(0, 120), pkey: o.pkey, route: o.route, kind: o.kind, ...(o.allowNeg ? { allowNeg: true } : {}) }) });
+  }
+  function noteCredit(j) { // the sheet's answer (a read or a charge): on, unlimited, the balance; old: a script older than v2.42.6
+    if (!j || typeof j !== 'object') return;
+    S.credit = { src: sheetUrl(), at: new Date().toISOString(), on: j.on !== false && !j.off, unl: !!j.unl, bal: Number.isFinite(+j.bal) ? Math.round(+j.bal) : null, err: String(j.err || '').slice(0, 40), ...(j.old ? { old: true } : {}) };
+    persist();
+  }
+  const creditOwed = () => (S.creditQ || []).reduce((a, q) => a + (Number(q.need) || 0), 0);
+  /** Before a survey's KMZ / DXF export: true = go ahead (counted, free, or counted at the next sync). quiet: no dialog (a report). */
+  async function creditGate(kind, quiet) {
+    if (isAcc() || pmeta().sample || creditFree() || !S.user || !S.user.email) return true; // the sample project is free
+    const route = creditRouteM(), have = Math.max(0, Number(pmeta().creditM) || 0);
+    if (route <= have) return true; // these metres were counted already
+    const c = creditOf(), pkey = projKey(), say = (t, x) => (quiet ? (LOG.info('credit.refused', { kind }), false) : ask(t, x, [{ label: 'OK', value: true, primary: true }]).then(() => false));
+    const covered = () => { S.meta[S.project] = { ...pmeta(), creditM: route }; persist(); };
+    if (c && c.on === false && Date.now() - Date.parse(c.at || '') < 10 * 60000) return true; // off (or an older script) at a read of the last 10 minutes
+    if (navigator.onLine) {
+      if (!quiet) busy('Checking your credits…');
+      let j = null;
+      try { j = await creditPost({ project: S.project, pkey, route, kind }); } catch (e) { j = null; } finally { if (!quiet) busy(false); }
+      if (j && j.ok && j.off) { noteCredit(j); renderCredit(); return true; } // credits are off: nothing counted (nor kept as counted)
+      if (j && j.ok) {
+        covered(); noteCredit(j); renderCredit();
+        LOG.info('credit.ok', { kind, route, charged: j.charged || 0, unl: !!j.unl });
+        if (j.charged > 0 && !quiet) toast(`Credits: ${fmtM(j.charged)} for the route of “${S.project}” · ${fmtM(j.bal)} left`, 5000);
+        return true;
+      }
+      if (j && j.error === 'credits') {
+        noteCredit({ on: true, bal: j.bal }); renderCredit(); LOG.info('credit.short', { kind, need: j.need, bal: j.bal });
+        return say('Not enough credits', `This export needs ${fmtM(j.need)} of credits: the route of “${S.project}” is ${fmtM(j.route)}${j.covered ? `, of which ${fmtM(j.covered)} were counted before` : ''} (1 credit = 1 m of route, counted once per project). Your balance: ${fmtM(j.bal)}. Ask your admin to add credits (online sheet, Credits tab).`);
+      }
+      if (j && j.error === 'credit company') return say('Credits not available', `Your email (${S.user.email}) is under another company in the online sheet’s Credits tab. Ask your admin to correct it.`);
+      if (j && (j.error === 'action' || (j.error === 'key' && c && c.old))) { noteCredit({ off: true, old: true }); return true; } // the sheet's script is older than v2.42.6: no credits
+      LOG.warn('credit.noanswer', { kind, err: j && j.error ? String(j.error).slice(0, 40) : 'none' }); // as without internet below
+    }
+    // without internet (or no answer): while the last known balance lasts; counted at the next sync (the balance may go below zero)
+    if (c && c.on && !c.unl && (Number(c.bal) || 0) - creditOwed() <= 0) return say('No credits left', `Your credit balance is ${fmtM(c.bal)}${creditOwed() ? `, and ${fmtM(creditOwed())} more is counted at the next sync` : ''}. Connect to the internet to see a top-up, or ask your admin to add credits (online sheet, Credits tab).`);
+    const prev = (S.creditQ || []).find((q) => q.pkey === pkey), base = prev && Number.isFinite(+prev.base) ? Math.min(+prev.base, have) : have, need = Math.max(0, route - base); // the metres above what was counted before the first export queued
+    S.creditQ = [...(S.creditQ || []).filter((q) => q.pkey !== pkey), { pkey, project: S.project, route: Math.max(route, prev ? Number(prev.route) || 0 : 0), kind, base, need, email: S.user.email, company: S.user.company || '', ckey: S.companyKey || '', at: new Date().toISOString() }].slice(-200); persist();
+    LOG.info('credit.queued', { kind, need });
+    if (c && c.on) { covered(); if (!c.unl && !quiet) toast(`No internet: ${fmtM(route - have)} of credits are counted at the next sync`, 5000); } // (unlimited: the sheet still logs the metres)
+    renderCredit(); return true;
+  }
+  let creditBusy = null;
+  /** The exports made without internet: counted now, as the user who made them (the balance may go below zero). */
+  function flushCredits() {
+    if (creditBusy || !(S.creditQ || []).length || !sheetUrl() || !S.team || !S.team.src || !navigator.onLine) return creditBusy;
+    creditBusy = (async () => {
+      const done = [];
+      for (const q of S.creditQ.slice()) {
+        let j = null; try { j = await creditPost({ ...q, allowNeg: true }); } catch (e) { j = null; }
+        const e = String((j && j.error) || '');
+        if (j && (j.ok || /^(action|project|email|credit company|company key|credits)$/.test(e) || (e === 'key' && creditOf() && creditOf().old))) { done.push(q); if (j.ok && !j.off && S.user && q.email === S.user.email) noteCredit(j); LOG.info('credit.flush', { charged: (j && j.charged) || 0, err: e }); }
+        else break; // no answer (or a key the sheet refuses for now): the next sync
+      }
+      S.creditQ = (S.creditQ || []).filter((q) => !done.includes(q)); persist(); renderCredit();
+    })().finally(() => { creditBusy = null; });
+    return creditBusy;
+  }
+  /** Export (a survey) and Settings: the balance, where credits are on for this user. */
+  function renderCredit() {
+    const c = creditOf(), on = !!(c && c.on && !creditFree() && !pmeta().sample), owed = creditOwed();
+    const el = $('creditInfo'); if (!el) return;
+    el.hidden = !on || isAcc();
+    if (el.hidden) return;
+    const route = creditRouteM(), have = Math.max(0, Number(pmeta().creditM) || 0);
+    el.textContent = c.unl ? 'Credits: unlimited for you.' : c.err ? `Credits: ${c.err === 'company' ? 'your email is under another company in the online sheet’s Credits tab: ask your admin' : 'not available yet (Sync)'}.`
+      : `Credits: ${fmtM((c.bal || 0) - owed)} left${owed ? ` (${fmtM(owed)} counted at the next sync)` : ''}. KMZ and DXF use 1 credit per metre of route, once per project: this route ${fmtM(route)}${have ? `, ${fmtM(Math.min(have, route))} counted` : ''}${route > have ? ` → ${fmtM(route - have)} at the next export` : ' → free'}.`;
+  }
+
   /** Square photo icon for a KMZ pin at the chosen size. */
   async function iconJpeg(blob, px, border) {
     const im = await loadImage(blob), { w, h } = dims(im), side = Math.min(w, h);
@@ -6450,6 +6558,7 @@
   }
   $('doKmz').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
+    if (!(await creditGate('kmz'))) return; // v2.42.6
     offerResult(await surveyKmzBlob(pts), fileBase() + '.kmz');
   }));
   /** The survey KMZ for Google Earth (pins, route, balloon photos), as Export → KMZ makes it. */
@@ -6478,6 +6587,7 @@
     const pts = projPoints(); if (!pts.length) return null;
     let blob, name, title, short; // v2.24: short = the one line of the stamp on the PDF's first page
     const pl = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+    if (!isAcc() && !(await creditGate('pdf', true))) { toast('The completion report is made without its KMZ: not enough credits for this project\u2019s route (Export shows your balance).', 7000); return null; } // v2.42.6
     if (!isAcc()) {
       blob = await surveyKmzBlob(pts); name = `${fileBase()}.kmz`;
       const np = pts.filter((p) => elemOf(p) === 'Pole').length, R0 = routeModel();
@@ -6498,6 +6608,7 @@
 
   $('doDxf').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
+    if (!(await creditGate('dxf'))) return; // v2.42.6
     if (dxfMode() === 'tpl') { await exportPlanDxf(pts); return; } // v2.30
     let roads = [], note = '';
     if ($('dxfRoads').checked) {
@@ -7451,6 +7562,7 @@
   /** Records + original photos of a project, as files for a backup ZIP (prefix '') or inside a shareable KMZ (prefix 'polecam/'). */
   async function projectFiles(name, prefix) {
     const pre = prefix || '', pts = points.filter((p) => p.project === name).sort((a, b) => (a.created < b.created ? -1 : 1));
+    if (!isAcc(name)) projKey(name); // v2.42.6: the credits' project key travels with it
     const files = [{ name: `${pre}points.json`, data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: pmeta(name), exported: new Date().toISOString(), by: byLine(), exportedBy: exporterInfo(), points: pts }, null, 1) }];
     const pids = [...new Set(pts.flatMap(allPids))];
     for (let i = 0; i < pids.length; i++) {
@@ -8647,7 +8759,12 @@
         await ask('No invite made', `Your organisation’s online sheet uses company keys: a coworker needs one to join, and this phone has none to pass on. ${r.noKey ? 'On the admin phone, enter the sheet’s Admin key once (Administration → Online Google Sheet → Admin key) and try again; or ask your admin for an invite (Settings → Invite admin staff or Invite a vendor).' : `The online sheet did not make the invite: ${r.why}.`}`, [{ label: 'OK', value: true, primary: true }]);
         return;
       }
-      await showTeamQr(undefined, [co], r.code, ''); return;
+      await showTeamQr(undefined, [co], r.code, '', null, r.inv); return;
+    }
+    if (keyMode() && depOf(sheetUrl()) && navigator.onLine && (await shortJoin())) { // v2.42.6: an invite the sheet keeps for this key's company: a short link, no key in it
+      const r = await sheetInviteKey();
+      LOG.info('invite.coworker.short', { code: !!r.code, why: r.why ? String(r.why).slice(0, 60) : '' });
+      if (r.code && r.inv) { await showTeamQr(undefined, [S.keyCompany], r.code, '', null, true); return; }
     }
     const link = await inviteLink();
     if (!link) { toast('No website address for the invite: open G-eSAA from its website once, or ask your admin', 5000); return; }
@@ -8661,7 +8778,7 @@
       [{ label: 'Cancel', value: false }, { label: 'Reset user', value: true, primary: true }]);
     if (!ok) return;
     LOG.info('user.reset', { keyed: keyMode() });
-    S.user = null; S.companyKey = ''; S.keyCompany = ''; S.adminKey = null; S.onlineAdminKey = ''; S.listKe = null; S.cloud = null; S.inviteCo = ''; S.inviteCos = []; S.inviteCode = ''; inviteNoKey = ''; moveFill = null; persist(); // v2.42.4: + the sheet's Admin key, a move
+    S.user = null; S.companyKey = ''; S.keyCompany = ''; S.adminKey = null; S.onlineAdminKey = ''; S.listKe = null; S.cloud = null; S.inviteCo = ''; S.inviteCos = []; S.inviteCode = ''; inviteNoKey = ''; moveFill = null; S.credit = null; persist(); // v2.42.4: + the sheet's Admin key, a move (v2.42.6: the credits shown; exports owed stay)
     ['pfName', 'pfMobile', 'pfEmail', 'pfIdNo'].forEach((id) => { $(id).value = ''; }); keyIn = ''; renderAreaChips([], []);
     renderWho(); renderTeamInfo(); openProfile(true);
   });
@@ -8673,11 +8790,20 @@
     if (!base) { toast('No website address for the link: open G-eSAA from its website once, or ask your admin', 5000); return; }
     const keM = staffPhone() ? listKeyEnc() : null; // v2.42.5: the admin company's staff take the encrypted admin key along
     const u = S.user, mv = b64u.enc(enc8(JSON.stringify({ n: u.name, m: u.mobile, e: u.email, c: u.company, ...(u.idno ? { i: u.idno } : {}), ...(keM ? { ke: { salt: keM.salt, iv: keM.iv, data: keM.data } } : {}), ...(S.companyKey ? { h: hideKey(S.companyKey) } : {}), ...(myRegions().length ? { r: myRegions() } : {}), ...(myTerrs().length ? { t: myTerrs() } : {}) }))); // v2.24: the key masked (h); v2.25: regions, territories
-    let list = '';
-    if (S.team) { const short = await shortJoin(); list = short ? short.slice(short.indexOf('#') + 1) : `join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}`; }
-    const link = `${base}#${list ? `${list}&` : ''}mv=${mv}`;
+    let list = '', link = '';
+    if (S.team && depOf(sheetUrl()) && navigator.onLine && (await shortJoin())) { // v2.42.6: the sheet keeps the details 6 hours: the link names only their code
+      try {
+        const j = await cloudRequest({ url: sheetUrl() }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'makeMove', rkey: (S.team.src && S.team.src.key) || '', ckey: S.companyKey || '', ...(S.onlineAdminKey ? { key: S.onlineAdminKey } : {}), mv }) });
+        if (j && j.ok && /^[A-Za-z0-9]{8,24}$/.test(String(j.code || ''))) link = await shortCodeLink(j.code, 'm');
+        LOG.info('user.move.short', { ok: !!link, err: j && j.error ? String(j.error).slice(0, 40) : '' });
+      } catch (e) { LOG.warn('user.move.short', errInfo(e)); }
+    }
+    if (!link) {
+      if (S.team) { const short = await shortJoin(); list = short ? short.slice(short.indexOf('#') + 1) : `join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}`; }
+      link = `${base}#${list ? `${list}&` : ''}mv=${mv}`;
+    }
     qrLink = link; qrAlt = null;
-    await showQr('Move to another phone', 'On the new phone, open G-eSAA and tap Scan QR code on its first screen (already set up: Settings → Update the company list → Scan QR), then point it at this code. G-eSAA reads it with its own camera; “From a picture” reads a screenshot of it. Or send yourself the link and open it there. Your company list and details (name, mobile, email, company) are filled in for a check: tap Save. Projects and photos: Export → Backup on this phone, then on the new phone Projects → Open shared projects. Admins enter the admin PIN again. The link carries your details: send it only to yourself.', link);
+    await showQr('Move to another phone', `${/#m=/.test(link) ? 'This link works for 6 hours, and for 10 minutes after it is first opened; the new phone needs internet. ' : ''}On the new phone, open G-eSAA and tap Scan QR code on its first screen (already set up: Settings → Update the company list → Scan QR), then point it at this code. G-eSAA reads it with its own camera; “From a picture” reads a screenshot of it. Or send yourself the link and open it there. Your company list and details (name, mobile, email, company) are filled in for a check: tap Save. Projects and photos: Export → Backup on this phone, then on the new phone Projects → Open shared projects. Admins enter the admin PIN again. The link carries your details: send it only to yourself.`, link);
     $('qrLinkBtn').textContent = 'Send the link to myself';
   }, 'Not ready'));
   async function applyMove(code) {
@@ -9026,22 +9152,31 @@
   /** A join link, an invite (company key, maybe with the list) or the list text itself. */
   async function handleInvite(text, sw) {
     const t = String(text || '').trim(), ci = (/[#&?]ci=([A-Za-z0-9_-]+)/.exec(t) || [])[1], ck = ci ? unhideKey(ci) || 'x' : (/[#&?]ck=([A-Za-z0-9%-]+)/.exec(t) || [])[1], hasList = /[#&]join=|^PCT[01]:/.test(t), jq = (/[#&]jq=([A-Za-z0-9_-]+)/.exec(t) || [])[1];
-    const mv = (/[#&]mv=([A-Za-z0-9_-]+)/.exec(t) || [])[1];
+    // v2.42.6: the short links: j= (a join: the sheet, its read key, the list's key), i= (an invite the online sheet keeps: its code) and
+    // m= (a move the sheet keeps 6 hours): the sheet answers with the list (checked against the key the link names) and the rest
+    const sj = /[#&?]j=([A-Za-z0-9_-]{20,120})\.([A-Za-z0-9_-]{0,64})\.([A-Za-z0-9_-]{12,24})(?=[&#]|$)/.exec(t), sx = /[#&?]([im])=([A-Za-z0-9_-]{20,120})\.([A-Za-z0-9]{8,24})\.([A-Za-z0-9_-]{12,24})(?=[&#]|$)/.exec(t);
+    const jqo = sj ? { s: sj[1], r: sj[2], f: sj[3] } : jq ? jqDecode(jq) : null;
+    let got = null;
+    if (sx && !hasList) { got = await sheetShort(sx[1], sx[2], sx[3], sx[4]); if (!got) return false; }
+    const gi = !!(got && sx[1] === 'i'), mv = got && sx[1] === 'm' ? got.mv : (/[#&]mv=([A-Za-z0-9_-]+)/.exec(t) || [])[1];
     let keInv = null; try { const r = (/[#&?]ke=([A-Za-z0-9_-]{20,4000})(?=[&#]|$)/.exec(t) || [])[1]; keInv = r ? JSON.parse(new TextDecoder().decode(b64u.dec(r))) : null; } catch (e) { keInv = null; } // v2.42.5
     const keKeep = () => { if (keInv && S.team && (!S.user || staffPhone()) && keepListKe(keInv, S.team)) LOG.info('invite.ke', {}); }; // a new phone (the invite names the admin company) or the admin company's
     let co = (/[#&?]co=([^&#]+)/.exec(t) || [])[1]; // v2.28: the company the invite is for (the user does not choose it)
-    const cosRaw = (/[#&?]cos=([^&#]+)/.exec(t) || [])[1], iv = (/[#&?]iv=([A-Za-z0-9]{8,24})(?=[&#]|$)/.exec(t) || [])[1]; // v2.41: several companies (the user chooses one), the sheet's invite code
+    const cosRaw = gi ? (got.any ? '*' : encodeURIComponent(got.cos.join('|')) || undefined) : (/[#&?]cos=([^&#]+)/.exec(t) || [])[1], iv = gi ? sx[3] : (/[#&?]iv=([A-Za-z0-9]{8,24})(?=[&#]|$)/.exec(t) || [])[1]; // v2.41: several companies (the user chooses one), the sheet's invite code (v2.42.6: or from the sheet)
     const inv0 = { co: S.inviteCo, cos: S.inviteCos, code: S.inviteCode }, undoInv = () => { S.inviteCo = inv0.co; S.inviteCos = inv0.cos; S.inviteCode = inv0.code; persist(); }; // v2.42.4: put back when its list is refused
     if (cosRaw === '*') { S.inviteCos = ['*']; S.inviteCo = ''; persist(); } // v2.42: any vendor on the list
     else if (cosRaw) { let c = cosRaw; try { c = decodeURIComponent(cosRaw); } catch (e) { /* as is */ } S.inviteCos = c.split('|').map((x) => x.replace(/\s+/g, ' ').trim().slice(0, 100)).filter(Boolean).slice(0, 50); S.inviteCo = ''; if (S.inviteCos.length === 1) co = encodeURIComponent(S.inviteCos[0]); persist(); }
     if (iv && !keyMode()) { S.inviteCode = iv; persist(); }
     if (co) { let c = co; try { c = decodeURIComponent(co); } catch (e) { /* as is */ } S.inviteCo = String(c).replace(/\s+/g, ' ').trim().slice(0, 100); if (!cosRaw) S.inviteCos = []; persist(); }
     if (mv) { // moving to this phone (v2.15): the list first, then the user's details for a check and Save
-      if (jq && !hasList) await joinShort(jq, sw);
+      if (got) { if (got.list) await takeSheetList(got.url, got.list, got.fp, '', sw, false); }
+      else if (jqo && !hasList) await joinShort(jqo, sw);
       else if (hasList) { teamSwitch = !!sw || !S.team; try { await importTeamText(t, { quiet: false }); } finally { teamSwitch = false; } }
       return applyMove(mv);
     }
-    if (jq && !hasList) { const ok = await joinShort(jq, sw, !!ck); if (!ok) undoInv(); else keKeep(); if (!ok || !ck) { if (ok) await inviteDone(co); return ok; } } // v2.26: a short invite: the list from the sheet, then its key
+    if ((jqo || got) && !hasList) { const ok = got ? await takeSheetList(got.url, got.list, got.fp, '', sw, !!ck) : await joinShort(jqo, sw, !!ck); if (!ok) undoInv(); else keKeep();
+      if (ok && gi && keyMode()) { undoInv(); toast(`This phone already belongs to ${S.keyCompany}. To join another company: Settings → Reset user.`, 6000); return true; } // v2.42.6 (as a key invite says)
+      if (!ok || !ck) { if (ok) await inviteDone(co); return ok; } } // v2.26: a short invite: the list from the sheet, then its key
     else {
       if (!hasList && !ck) { toast('That is not a G-eSAA invite or join link', 4000); return false; }
       if (!hasList && S.team) keKeep(); // v2.42.5: a key invite without the list (the phone has it)
@@ -9072,7 +9207,7 @@
   async function pasteJoin(sw) {
     let t = '';
     try { t = (navigator.clipboard && navigator.clipboard.readText) ? await withTimeout(navigator.clipboard.readText(), 1500, 'slow') : ''; } catch (e) { t = ''; }
-    if (!/#join=|[#&]c[ki]=|[#&]jq=|[#&]mv=|^PCT[01]:/.test(String(t).trim())) t = await promptText('Paste the link', 'The join or invite link your admin or a coworker sent.', 'https://…#…', '');
+    if (!/#join=|[#&]c[ki]=|[#&]jq=|[#&]mv=|[#&][jim]=|^PCT[01]:/.test(String(t).trim())) t = await promptText('Paste the link', 'The join or invite link your admin or a coworker sent.', 'https://…#…', '');
     if (!t) return;
     await handleInvite(t, sw || !!S.team);
   }
@@ -9098,18 +9233,12 @@
     const cos = teamCos();
     const picked = cos.length ? await pickMany('Invite which companies?', 'Tick one or more. A new user chooses one of them the first time, and it cannot be changed afterwards. With company keys in the online sheet, the phone then gets that company\u2019s key by itself, and the user can invite coworkers.', cos, 'Any company on the list (the user chooses)') : [];
     if (picked == null) return;
-    let code = '', why = '';
+    let r = /** @type {any} */ ({ code: '', why: '' });
     if (picked.length && sheetUrl()) { // v2.41: the online sheet keeps the invite (script v2.41): it hands the chosen company's key to the new phone
-      if (!S.onlineAdminKey) why = 'no Admin key on this phone (Administration → Online sheet)'; else if (!navigator.onLine) why = 'no internet';
-      else {
-        try {
-          const j = await cloudRequest({ url: sheetUrl() }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'makeInvite', key: S.onlineAdminKey, cos: picked, days: 14, by: (S.user && S.user.email) || '' }) });
-          if (j && j.ok && /^[A-Za-z0-9]{8,24}$/.test(String(j.code || ''))) code = j.code; else why = j && j.error === 'action' ? 'the online sheet script is older than v2.41' : `the online sheet answered ${(j && j.error) || 'nothing'}`;
-        } catch (e) { why = e.message || String(e); }
-      }
-      LOG.info('admin.invite.multi', { n: picked.length, code: !!code });
+      r = await sheetInvite(picked); // v2.42.6: the same request as the other invites (and its short link)
+      LOG.info('admin.invite.multi', { n: picked.length, code: !!r.code });
     }
-    await showTeamQr(undefined, picked, code, why);
+    await showTeamQr(undefined, picked, r.code || '', r.code ? '' : r.why || '', null, r.inv);
   }, 'No invite'));
   /** v2.42: the list's admin companies (the policies' admin company and the online sheet's admin companies), and the others (vendors). */
   const adminCoSet = () => new Set([pol().owner, ...((S.cloud && S.cloud.admins) || [])].filter(Boolean).map(normCo));
@@ -9122,8 +9251,16 @@
     if (!navigator.onLine) return { why: 'no internet' };
     try {
       const j = await cloudRequest({ url: sheetUrl() }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'makeInvite', key: S.onlineAdminKey, cos, days: 14, by: (S.user && S.user.email) || '' }) });
-      if (j && j.ok && /^[A-Za-z0-9]{8,24}$/.test(String(j.code || ''))) return { code: j.code };
+      if (j && j.ok && /^[A-Za-z0-9]{8,24}$/.test(String(j.code || ''))) return { code: j.code, inv: j.inv === 1 }; // v2.42.6: inv: the sheet answers its short link
       return { why: j && j.error === 'action' ? 'the online sheet script is older than v2.41: update it' : j && /key/i.test(String(j.error || '')) && j.company ? `${j.company} has no key in the CompanyKeys tab (run makeCompanyKeys)` : `the online sheet answered ${(j && j.error) || 'nothing'}` };
+    } catch (e) { return { why: e.message || String(e) }; }
+  }
+  /** v2.42.6: Invite a coworker on a phone with a company key: the sheet (script v2.42.6) makes an invite for that key's company. */
+  async function sheetInviteKey() {
+    try {
+      const j = await cloudRequest({ url: sheetUrl() }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'makeInvite', ckey: S.companyKey, by: (S.user && S.user.email) || '' }) });
+      if (j && j.ok && /^[A-Za-z0-9]{8,24}$/.test(String(j.code || ''))) return { code: j.code, inv: j.inv === 1 };
+      return { why: (j && j.error) || 'no answer' };
     } catch (e) { return { why: e.message || String(e) }; }
   }
   /** v2.42: Settings → Invite a vendor: one vendor (its users join it), or several / any vendor (the new user chooses theirs the first
@@ -9140,7 +9277,7 @@
     if (any && !r.code && /\*/.test(r.why || '')) r = await sheetInvite(cos);
     LOG.info('admin.invite.vendor', { n: cos.length, any, code: !!r.code });
     if (!r.code) { await ask('No invite made', `The online sheet did not make the invite: ${r.why}.`, [{ label: 'OK', value: true, primary: true }]); return; }
-    await showTeamQr(undefined, any ? ['*'] : cos, r.code, '', any ? V : null);
+    await showTeamQr(undefined, any ? ['*'] : cos, r.code, '', any ? V : null, r.inv);
   }, 'No invite'));
   /** v2.42: Settings → Invite admin staff: an invite to the admin company only (its own invite, apart from the vendors'). */
   $('inviteAdminStaff').addEventListener('click', () => guard(async () => {
@@ -9150,7 +9287,7 @@
     const r = await sheetInvite(cos); // with the admin company's key when the sheet has one; without, the plain invite to the list
     LOG.info('admin.invite.staff', { n: cos.length, code: !!r.code });
     if (!r.code && orgKeyed()) { await ask('No invite made', `Your organisation\u2019s online sheet uses company keys, so admin staff join with one, and the sheet did not make the invite: ${r.why}.`, [{ label: 'OK', value: true, primary: true }]); return; } // v2.42.4 (a plain invite there cannot work)
-    await showTeamQr(undefined, cos, r.code || '', r.code ? '' : r.why);
+    await showTeamQr(undefined, cos, r.code || '', r.code ? '' : r.why, null, r.inv);
   }, 'No invite'));
   /** v2.41: several choices from a list (check boxes in a dialog): the values ticked ([] = the "any" choice), or null when cancelled. */
   function pickMany(title, text, options, anyLabel) {
@@ -9189,7 +9326,7 @@
   async function showQr(title, note, text) {
     lastQrText = text;
     $('qrTitle').textContent = title; $('qrText').textContent = note || '';
-    $('qrLinkBtn').hidden = !(qrLink && (text === qrLink || (qrAlt && text === qrAlt.short))); $('qrLinkBtn').textContent = /[#&](c[ki]|co)=/.test(text) ? 'Send the invite link' : 'Send the join link';
+    $('qrLinkBtn').hidden = !(qrLink && (text === qrLink || (qrAlt && text === qrAlt.short))); $('qrLinkBtn').textContent = /[#&](c[ki]|co|cos|iv|i)=/.test(text) ? 'Send the invite link' : 'Send the join link';
     $('qrFull').hidden = true; $('qrFull').textContent = 'Show the full code (joins without internet)'; // v2.41: not shown (the short code and the link are enough)
     drawQr(text);
     openSheet('qrShow');
@@ -9205,24 +9342,37 @@
       key, so it stays small and easy to scan. The new phone downloads the list from the sheet and takes it only when it is
       that list, signed with that key. */
   const keyPrint = async (pub) => b64u.enc(new Uint8Array(await crypto.subtle.digest('SHA-256', enc8(String(pub || ''))))).slice(0, 16);
+  /** v2.42.6: the online sheet's deployment ID (https://script.google.com/macros/s/<ID>/exec), '' for another address. */
+  const depOf = (url) => (/^https:\/\/script\.google\.com\/macros\/s\/([A-Za-z0-9_-]{20,120})\/exec$/.exec(String(url || '')) || [])[1] || '';
   async function shortJoin() {
     const t = S.team, src = t && t.src, base = webBase();
     if (!t || !t.key || !src || !src.url || !base || !(window.crypto && crypto.subtle)) return '';
     if (!S.sheetListAt || S.sheetListAt.url !== src.url || S.sheetListAt.id !== t.id || S.sheetListAt.rev !== t.rev) return ''; // the sheet must hold this very version
+    const dep = depOf(src.url); // v2.42.6: …#j=<sheet>.<read key>.<12 characters of the list key's print> (about half the jq= code)
+    if (dep && /^[A-Za-z0-9_-]{0,64}$/.test(src.key || '')) return `${base}#j=${dep}.${src.key || ''}.${(await keyPrint(t.key)).slice(0, 12)}`;
     const m = /^https:\/\/script\.google\.com\/macros\/s\/([A-Za-z0-9_-]+)\/exec$/.exec(src.url);
     const o = { ...(m ? { s: m[1] } : { u: src.url }), r: src.key || '', i: t.id, f: await keyPrint(t.key) };
     return `${base}#jq=${b64u.enc(enc8(JSON.stringify(o)))}`;
   }
-  async function showTeamQr(note, co, code, why, anyOf) {
+  /** v2.42.6: a short invite (i=) or move (m=) link for a code the online sheet keeps: …#i=<sheet>.<code>.<list key print>. */
+  async function shortCodeLink(code, kind) {
+    const j = await shortJoin(), m = /#j=([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]*\.([A-Za-z0-9_-]{12,24})$/.exec(j || '');
+    return m && /^[A-Za-z0-9]{8,24}$/.test(String(code || '')) ? `${webBase()}#${kind || 'i'}=${m[1]}.${code}.${m[2]}` : '';
+  }
+  async function showTeamQr(note, co, code, why, anyOf, inv) {
     if (!S.team) { toast('No company list on this phone yet'); return; }
     const cos = Array.isArray(co) ? co : co ? [co] : [];
+    let iLink = code && inv ? await shortCodeLink(code) : ''; // v2.42.6: the sheet keeps the invite: the link names only its code
+    // the admin company's staff get the encrypted admin key from the sheet with their company's key, where the sheet marks the company
+    // ADMIN (Companies tab); otherwise it still goes in the link
+    if (iLink && cos.length && cos[0] !== '*' && !cos.every((c) => ((S.cloud && S.cloud.admins) || []).some((a) => normCo(a) === normCo(c)))) iLink += keTail(cos);
     // v2.42: cos ['*'] = any vendor on the list (anyOf: those vendors): the link says cos=* (a short QR code); the phone offers the vendors
     // v2.28: the invite names the company. v2.41: or several (cos=A|B: the user chooses one), and the sheet's invite code (iv=)
     const tail = keTail(cos) + (cos[0] === '*' ? '&cos=*' : cos.length === 1 ? `&co=${encodeURIComponent(cos[0])}` : cos.length ? `&cos=${encodeURIComponent(cos.join('|'))}` : '') + (code ? `&iv=${code}` : '');
-    const text = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k }), link = joinLink(text) && joinLink(text) + tail, short = (await shortJoin()) && (await shortJoin()) + tail;
+    const text = await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k }), link = joinLink(text) && joinLink(text) + tail, short = iLink || ((await shortJoin()) && (await shortJoin()) + tail);
     const fullNote = note || `Version ${S.team.rev} · ${teamCos().length} companies. Scan it in G-eSAA (Join your team → Scan QR code) or with the phone's camera, or send the join link.`;
-    const shortNote = `Version ${S.team.rev}. Scan it in G-eSAA (Join your team → Scan QR code) or with the phone's camera. The new phone needs internet once to download the list; without internet, send the join link.`;
-    qrLink = link; qrAlt = short && link ? { short, full: link, shortNote, fullNote } : null;
+    const shortNote = `Version ${S.team.rev}. Scan it in G-eSAA (Join your team → Scan QR code) or with the phone's camera, or send the link. The new phone needs internet once to download the list.`;
+    qrLink = short || link; qrAlt = short && link ? { short, full: link, shortNote, fullNote } : null; // v2.42.6: the link sent is the short one too (it was the whole list)
     const coNote = cos[0] === '*' ? ` The new user chooses their company from the ${anyOf ? anyOf.length + ' ' : ''}vendors on the list (not the admin company); it cannot be changed afterwards.` : cos.length > 1 ? ` The new user chooses one of: ${cos.join(', ')} (it cannot be changed afterwards).` : '';
     const keyNote = cos.length ? (code ? ' The phone then gets that company\u2019s key from the online sheet by itself (this invite works for 14 days; the sheet\u2019s Invites tab lists it, set Active to No to stop it, and Invite log shows who joined).' : why ? ` (No company key comes with this invite: ${why}.)` : '') : '';
     await showQr(cos[0] === '*' ? `Invite a vendor (any) · ${S.team.name}` : cos.length === 1 ? `Invite to ${cos[0]} · ${S.team.name}` : cos.length ? `Invite to ${cos.length} companies · ${S.team.name}` : `Join ${S.team.name}`, (qrAlt ? shortNote : fullNote) + coNote + keyNote, qrAlt ? short : link || text + tail); // no website: the list text, with the company
@@ -9485,6 +9635,7 @@
   async function cloudRequest(src, init, q) {
     const u = new URL(src.url);
     if (q && q.probe) { u.searchParams.set('probe', '1'); u.searchParams.set('v', APP_VER); } // only asks whether the sheet uses company keys
+    else if (q && (q.inv || q.mvc)) { u.searchParams.set(q.inv ? 'inv' : 'mvc', q.inv || q.mvc); u.searchParams.set('v', APP_VER); } // v2.42.6: a short invite or move link (its code only)
     else if (q && q.join) { u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER); u.searchParams.set('company', ''); } // a short join code: the list only
     else if (q) { u.searchParams.set('key', src.key || ''); u.searchParams.set('v', APP_VER); u.searchParams.set('company', ''); u.searchParams.set('ckey', q.ckey); }
     else if (!init) {
@@ -9493,6 +9644,7 @@
       u.searchParams.set('company', (S.user && S.user.company) || ''); // blank: the sheet sends the company list but no tasks
       if (S.companyKey) u.searchParams.set('ckey', S.companyKey);
       if (isAdmin() && S.onlineAdminKey) u.searchParams.set('akey', S.onlineAdminKey);
+      if (S.user && S.user.email) u.searchParams.set('email', S.user.email); // v2.42.6: the user's credits (the sheet's Credits tab)
       u.searchParams.set('area', '1'); // v2.27: with no region or territory ticked, the sheet (v2.27 script) sends no site
       u.searchParams.set('logoat', (S.logoInfo && S.logoInfo.at) || ''); // v2.34: the company logo comes only when it changed
       if (myRegions().length) u.searchParams.set('region', myRegions().join(',')); // v2.25: the sheet (v2.25 script) sends only these regions
@@ -9533,6 +9685,8 @@
         await noteSheetList(src.url, j.list);
         const moved = typeof j.list === 'string' && j.list.length <= 120000 ? await applySheetList(j.list) : false;
         if (j.ke && S.team && keApart(S.team) && Number(j.listRev) === S.team.rev) keepListKe(j.ke, S.team, true); // v2.42.5: the encrypted admin key (the sheet sends it to the admin phone and the admin company's key)
+        if (j.credit && typeof j.credit === 'object') noteCredit(j.credit); else if (S.user && S.user.email) noteCredit({ off: true, old: true }); // v2.42.6: credits (none: a script older than v2.42.6)
+        if ((S.creditQ || []).length) flushCredits();
         afterTeamChange(); if (!$('newProj').hidden) renderSites();
         if (moved === 'moved') setTimeout(() => cloudSync(true), 0); // the new list version points to another sheet
         if ((S.syncQ || []).length && (force || syncMode() === 'change')) flushProgress(true);
@@ -9547,7 +9701,8 @@
     el.hidden = !src; $('cloudSyncBtn').hidden = !src; $('companyKeyBox').hidden = true;
     if (!src) return;
     const c = S.cloud && S.cloud.src === src.url ? S.cloud : null;
-    el.textContent = `Online sheet${c && c.name ? ` “${c.name}”` : ''}: ${c ? `last read ${fmtTime(c.at)} · ${isAdmin() ? `${c.companies.length} companies · ` : ''}${c.tasks.length} task${c.tasks.length === 1 ? '' : 's'}${c.scope === 'company' ? ` for ${S.user && S.user.company}` : c.scope === 'all' ? ' (all companies)' : ''} · ${c.packs.length} map packs` : 'not read yet'}${cloudErr ? ` · last try failed: ${cloudErr}` : ''}`;
+    let crTxt = ''; try { const cr = creditOf(); if (cr && cr.on && !creditFree()) crTxt = ` · credits: ${cr.unl ? 'unlimited' : cr.err ? 'see Export' : `${fmtM((cr.bal || 0) - creditOwed())} left`}`; } catch (e) { crTxt = ''; } // v2.42.6
+    el.textContent = `Online sheet${c && c.name ? ` “${c.name}”` : ''}: ${c ? `last read ${fmtTime(c.at)} · ${isAdmin() ? `${c.companies.length} companies · ` : ''}${c.tasks.length} task${c.tasks.length === 1 ? '' : 's'}${c.scope === 'company' ? ` for ${S.user && S.user.company}` : c.scope === 'all' ? ' (all companies)' : ''} · ${c.packs.length} map packs${crTxt}` : 'not read yet'}${cloudErr ? ` · last try failed: ${cloudErr}` : ''}`;
     $('companyKeyBox').hidden = keyMode() || !(/company key/.test(cloudErr) || (strictAt && strictAt === sheetUrl())); // only where the sheet asks for it (v2.42.4: strictAt)
   }
   // v2.24: the sheet asks for a company key: the user joins with an invite (QR code or link); the profile's Save signs in with it
@@ -9558,7 +9713,7 @@
     const ok = await cloudSync(true); renderCloudInfo();
     toast(ok ? 'Online sheet read' : navigator.onLine ? `Could not read the online sheet: ${cloudErr}` : 'No internet', 5000);
   });
-  window.addEventListener('online', () => { cloudSync(false); flushProgress(false); });
+  window.addEventListener('online', () => { cloudSync(false); flushProgress(false); flushCredits(); });
   $('setSync').addEventListener('change', () => { S.syncMode = $('setSync').value; persist(); toast(syncMode() === 'change' ? 'Syncs on every change' : syncMode() === 'hour' ? 'Syncs every hour while G-eSAA is open' : 'Syncs only when you tap Sync', 3000); });
   setInterval(() => { // hourly sync (v2.15), while the app is open
     if (syncMode() !== 'hour' || !(S.team && S.team.src) || !navigator.onLine || document.hidden) return;
@@ -9794,6 +9949,7 @@
     }
     S.projects.push(name);
     S.meta[name] = k === 'survey' ? { mode: 'survey', purpose, ...sm } : { mode: 'acceptance', stage: k, ...sm };
+    if (k === 'survey') projKey(name); // v2.42.6: the credits' project key, with the project from the start (it travels with shares and backups)
     S.project = name; persist(); renderPoles(); queueProgress(name, ['surveyStart']); // the survey start date goes to the online sheet
     npFile = null; npSite = null; await closeAll();
     const label = `${PURPOSE_LABEL[k === 'survey' ? purpose : k]} “${name}” created`;
@@ -9917,7 +10073,7 @@
   }
   /* v2.26: a G-eSAA link (invite, join, move) opened in an Android browser: offer to open it in the G-eSAA app (the APK keeps
      its own details and projects, apart from the browser). The app gets it as gesaa://open?h=… (Android intent). */
-  const linkHashNow = () => [pendingJoin ? `#join=${pendingJoin}` : '', pendingKey ? `&${pendingKey}` : '', pendingJq ? `&jq=${pendingJq}` : '', pendingMv ? `&mv=${pendingMv}` : '', pendingTail()].join('');
+  const linkHashNow = () => [pendingJoin ? `#join=${pendingJoin}` : '', pendingKey ? `&${pendingKey}` : '', pendingJq ? `&jq=${pendingJq}` : '', pendingMv ? `&mv=${pendingMv}` : '', pendingShort ? `&${pendingShort}` : '', pendingTail()].join('');
   async function linkToApp() {
     if (NATIVE || !/Android/i.test(navigator.userAgent || '') || /[?&]web=1/.test(location.search) || S.linkWeb) return false;
     if (window.matchMedia && (matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches)) return false; // the installed web app
@@ -9926,7 +10082,7 @@
       [{ label: 'Continue in this browser', value: 'web' }, { label: 'Open in the G-eSAA app', value: 'app', primary: true }]);
     if (pick !== 'app') { S.linkWeb = true; persist(); return false; }
     const back = `${location.origin}${location.pathname}?web=1${h.startsWith('#') ? h : `#${h.slice(1)}`}`;
-    LOG.info('link.toApp', { kind: pendingKey ? 'invite' : pendingMv ? 'move' : 'join' });
+    LOG.info('link.toApp', { kind: pendingKey || /^i/.test(pendingShort || '') ? 'invite' : pendingMv || /^m/.test(pendingShort || '') ? 'move' : 'join' });
     location.href = `intent://open?h=${encodeURIComponent(h)}#Intent;scheme=gesaa;package=com.marktamse.polecam;S.browser_fallback_url=${encodeURIComponent(back)};end`;
     return true;
   }
@@ -9935,7 +10091,7 @@
     let h = '';
     try { const u = String((e && e.url) || ''); h = decodeURIComponent((/[?&]h=([^&#]*)/.exec(u) || [])[1] || ''); } catch (err) { h = ''; }
     LOG.info('link.native', { ok: !!h });
-    if (h && /[#&](join|ck|ci|jq|mv)=/.test(h)) loadOrg().then(() => handleInvite(h, true)); else if (e && e.url) toast('That link could not be read: paste it in Settings → Scan invite QR / Paste invite link.', 6000);
+    if (h && /[#&](join|ck|ci|jq|mv|j|i|m)=/.test(h)) loadOrg().then(() => handleInvite(h, true)); else if (e && e.url) toast('That link could not be read: paste it in Settings → Scan invite QR / Paste invite link.', 6000);
   }
   function sharedListen() {
     sharedFromCache();
@@ -10390,11 +10546,10 @@
   }
   /** A short join code (#jq=…): the list is downloaded from the online sheet it names and taken only when it is the list the
       code names, signed with the key the code names. */
-  async function joinShort(code, sw, quiet) {
-    let o = null;
-    try { o = JSON.parse(new TextDecoder().decode(b64u.dec(code))); } catch (e) { o = null; }
+  const jqDecode = (code) => { try { return JSON.parse(new TextDecoder().decode(b64u.dec(code))); } catch (e) { return null; } };
+  async function joinShort(o, sw, quiet) { // v2.42.6: o: a jq= code read, or a j= link {s, r, f}
     const url = o && (o.s ? `https://script.google.com/macros/s/${o.s}/exec` : String(o.u || ''));
-    if (!o || !o.i || !o.f || !/^https:\/\/[^\s]+$/.test(url || '')) { toast('That QR code is not a G-eSAA join code, or it is damaged. Ask your admin for the join link.', 5500); return false; }
+    if (!o || !o.f || !/^https:\/\/[^\s]+$/.test(url || '')) { toast('That QR code is not a G-eSAA join code, or it is damaged. Ask your admin for the join link.', 5500); return false; }
     if (!cryptoOk()) return false;
     if (!navigator.onLine) { toast('This short QR code needs internet once to download the company list. Connect and scan again, or ask your admin for the full code or the join link.', 7000); return false; }
     busy('Getting the company list…');
@@ -10404,15 +10559,44 @@
       toast(j && j.error === 'company key' ? 'This organisation joins with company keys: ask your admin or a coworker for an invite.' : `The company list could not be downloaded${j && j.error ? ` (${j.error})` : ''}. Ask your admin for the join link.`, 7000);
       return false;
     }
+    return takeSheetList(url, j.list, o.f, o.i, sw, quiet);
+  }
+  /** The list a short link downloaded: taken only when it is signed with the key the link names (its print: 16 characters in a
+      jq= code, the first 12 in the v2.42.6 links) and, for a jq= code, it is the list the code names. */
+  async function takeSheetList(url, list, fp, id, sw, quiet) {
     let p = null, body = null;
-    try { p = await unpackShare(j.list); body = p && p.kind === 'PCT' ? JSON.parse(p.obj.b) : null; } catch (e) { body = null; }
-    const prints = body ? await Promise.all([body.key, body.prevKey].filter(Boolean).map(keyPrint)) : [];
-    if (!body || body.id !== o.i || !prints.includes(o.f)) { toast('Not accepted: the list in the online sheet is not the one this QR code names. Ask your admin for the join link.', 7000); return false; }
+    try { p = await unpackShare(list); body = p && p.kind === 'PCT' ? JSON.parse(p.obj.b) : null; } catch (e) { body = null; }
+    // v2.42.6: the key that SIGNED it (as acceptTeam finds it) must be the one the link names; an update of this phone's own list
+    // signed by a legacy admin key is checked by acceptTeam against the keys this phone trusts
+    const k = p && p.obj ? p.obj.k : null, signer = !body ? '' : k === -1 ? body.key : k === -2 ? body.prevKey : Number.isInteger(k) && Array.isArray(body.admins) && body.admins[k] ? body.admins[k].k : '';
+    const f = String(fp || ''), mine = Number.isInteger(k) && k >= 0 && !!(S.team && body && S.team.id === body.id);
+    if (!body || (id && body.id !== id) || f.length < 12 || !(mine || (signer && (await keyPrint(signer)).startsWith(f)))) { toast('Not accepted: the list in the online sheet is not the one this link or QR code names. Ask your admin for a new one.', 7000); return false; }
     teamSwitch = !!sw || !S.team;
     let ok = false;
-    try { ok = await importTeamText(j.list, quiet ? { quiet: true } : undefined); } finally { teamSwitch = false; }
+    try { ok = await importTeamText(list, quiet ? { quiet: true } : undefined); } finally { teamSwitch = false; }
     if (ok && S.team && S.team.id === body.id && S.team.rev === body.rev) { S.sheetListAt = { url, id: body.id, rev: body.rev }; persist(); } // v2.26: this phone's invites are short too
     return ok;
+  }
+  /** v2.42.6: a short invite (i=) or move (m=) link: the online sheet it names answers with the list and the invite's companies, or
+      the user's details (once). null (with a message) when it cannot. */
+  async function sheetShort(kind, dep, code, fp) {
+    const url = `https://script.google.com/macros/s/${dep}/exec`, mvK = kind === 'm';
+    if (!cryptoOk()) return null;
+    if (!navigator.onLine) { toast(`This ${mvK ? 'move' : 'invite'} link needs internet: connect and open it again.`, 6000); return null; }
+    busy(mvK ? 'Getting your details…' : 'Getting the invite…');
+    let j = null;
+    try { j = await cloudRequest({ url }, null, mvK ? { mvc: code } : { inv: code }); } catch (e) { j = { ok: false, error: e.message || String(e) }; } finally { busy(false); }
+    const e = j && j.error;
+    if (!j || !j.ok || (mvK ? typeof j.mv !== 'string' || !/^[A-Za-z0-9_-]{8,6000}$/.test(j.mv) : typeof j.list !== 'string')) {
+      LOG.warn('link.short.fail', { kind, err: String(e || 'answer').slice(0, 60) });
+      toast(e === 'key' || e === 'action' ? 'The online sheet cannot read this short link (its script is older than v2.42.6): ask your admin to update it, or for a new link.'
+        : mvK ? (e === 'move' ? 'This move link was used already, or is older than 6 hours: make a new one on the old phone (Settings → Move to another phone).' : `Your details could not be downloaded${e ? ` (${e})` : ''}. Try again, or make a new link on the old phone.`)
+          : e === 'expired' ? 'This invite has expired: ask your admin for a new one.' : e === 'closed' || e === 'used' ? 'This invite was closed by the admin: ask for a new one.' : e === 'invite' ? 'The online sheet does not know this invite: ask for a new one.'
+            : `The invite could not be downloaded${e ? ` (${e})` : ''}. Try again, or ask for a new invite.`, 7000);
+      return null;
+    }
+    LOG.info('link.short', { kind });
+    return { url, fp, list: typeof j.list === 'string' ? j.list : '', mv: mvK ? j.mv : '', any: !!j.any, cos: Array.isArray(j.cos) ? j.cos.map((c) => s100(c)).filter(Boolean).slice(0, 50) : [] };
   }
   /** A newer version of this phone's list, read from the sheet, is taken when it is signed with the admin PIN. */
   async function applySheetList(text) {
@@ -11191,7 +11375,7 @@
     if (S.dropSatTiles) { // v1.7: satellite imagery kept by older versions is removed (Esri allows offline imagery only in ArcGIS apps)
       try { await tx('tiles', 'readwrite', (st) => st.delete(IDBKeyRange.bound('satellite/', 'satellite/\uffff'))); delete S.dropSatTiles; persist(); } catch (e) { /* try again next start */ }
     }
-    if (pendingJoin || pendingKey || pendingJq || pendingMv) { await loadOrg(); if ((await linkToApp()) && (await tutWait(2500), document.visibilityState !== 'visible')) { /* the G-eSAA app took the link */ } else await handleInvite(`${pendingJoin ? `#join=${pendingJoin}` : ''}${pendingKey ? `&${pendingKey}` : ''}${pendingJq ? `&jq=${pendingJq}` : ''}${pendingMv ? `&mv=${pendingMv}` : ''}${pendingTail()}`, true); } else loadOrg(); // a link waits for the organisation check
+    if (pendingJoin || pendingKey || pendingJq || pendingMv || pendingShort) { await loadOrg(); if ((await linkToApp()) && (await tutWait(2500), document.visibilityState !== 'visible')) { /* the G-eSAA app took the link */ } else await handleInvite(`${pendingJoin ? `#join=${pendingJoin}` : ''}${pendingKey ? `&${pendingKey}` : ''}${pendingJq ? `&jq=${pendingJq}` : ''}${pendingMv ? `&mv=${pendingMv}` : ''}${pendingShort ? `&${pendingShort}` : ''}${pendingTail()}`, true); } else loadOrg(); // a link waits for the organisation check
     if (!profileOk()) { if ($('profile').hidden) openProfile(true); }
     else if (!S.project && !/[?&]shared=1/.test(location.search)) askNewProject(); // photos are taken inside a project
     if (!S.sampleDone) { S.sampleDone = true; persist(); if (!allProjects().length) addSample(false); } // v2.26: the sample project, once, on a new phone (never later, when a user deletes all projects)
@@ -11200,14 +11384,14 @@
     renderSyncBtn();
     cloudSync(false);
   })();
-  window.addEventListener('hashchange', () => { const h = location.hash; if (/[#&](join|ck|ci|jq|mv)=/.test(h)) { history.replaceState(null, '', location.pathname + location.search); handleInvite(h, true); } });
+  window.addEventListener('hashchange', () => { const h = location.hash; if (/[#&](join|ck|ci|jq|mv|j|i|m)=/.test(h)) { history.replaceState(null, '', location.pathname + location.search); handleInvite(h, true); } });
   // Files handed to other apps through Share are temporary: clear them each time the APK starts.
   if (NATIVE) nativeCall('Filesystem', 'rmdir', { path: 'share', directory: 'CACHE', recursive: true }).catch(() => {});
   // The APK already carries every file, so the offline cache is only for the website version.
   if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__polecam = { get points() { return points; }, get S() { return S; }, drwSeq: () => (drw ? { n: drw.seq.size, max: Math.max(0, ...drw.seq.values()) } : null), get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, get lastQrLink() { return qrLink; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
+  window.__polecam = { get points() { return points; }, get S() { return S; }, drwSeq: () => (drw ? { n: drw.seq.size, max: Math.max(0, ...drw.seq.values()) } : null), get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, get lastQrLink() { return qrLink; }, get lastQrFull() { return qrAlt ? qrAlt.full : qrLink; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
     surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads, routeAdvice: () => routeAdvice(routeModel()), renderPoles, persist,
     clamps: () => { const R = routeModel(), all = projPoints(); return Object.fromEntries(all.filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, clampOf(p, R, all).join('+')])); } }; // for testing (v2.39: the poles' clamps)

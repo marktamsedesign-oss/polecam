@@ -535,6 +535,32 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.6
+
+Shorter invite, join and move links, and credits for vendor exports. **Update the online sheet's script too** (`PoleCam-online-sheet_v2.42.6.gs`: paste, Save, Run `setup` once, Deploy → Manage deployments → Edit → New version), and install the v2.42.6 Android app on phones that use it (see the last point).
+
+**Shorter links and QR codes**
+- Invites the online sheet keeps (Invite a vendor, Invite admin staff, Share list with companies ticked, Invite a coworker) are now a short link: `…#i=<sheet>.<invite code>.<list key print>`, about 140 characters with a smaller QR code (was 270 characters for a vendor invite, 760 for admin staff). The link holds no company name, no company key, no Read key and no encrypted admin key: the new phone asks the sheet for the invite's companies and the company list with the code, and gets its company's key when the user saves, as before. Admin staff then get the encrypted admin key from the sheet with the admin company's key.
+- **Send the invite link** now sends that short link. Until v2.42.5 it sent the whole company list (about 1,500 characters) even when the QR code was short.
+- **Invite a coworker** on a phone with a company key: the sheet makes an invite for that phone's company (14 days, at most 50 uses, listed in the Invites tab with who made it; set Active to No to stop it). It stops by itself when you replace that company's key in CompanyKeys. The company key is no longer inside a coworker's link. Without internet, or with an older sheet script, the older link is made.
+- **Move to another phone**: the sheet keeps your details for 6 hours under a code, and the link (`…#m=…`) names only that code. It works for 6 hours, and for 10 minutes after it is first opened (so a retry works, but not a copy found later); the new phone needs internet.
+- The plain join link is `…#j=<sheet>.<read key>.<list key print>` (about 145 characters). Older `#jq=`, `#join=` and invite links still work.
+
+**Credits (optional, off until you turn them on)**
+- In the online sheet: Settings → **Credits** = Yes. The tab **Credits** lists each user: Email, Company, Credits (m), Unlimited, Used (m), Balance (m), Last export, Notes. **Credit log** lists every charge.
+- 1 credit = 1 m of a survey's route. Credits are used only by **Export → KMZ** and **Export → DXF** of a survey (and the KMZ inside its completion report). The route is the project's linked spans, but at least the shortest line joining all its poles (so poles left unlinked count too). The sample project is free.
+- **Each metre is counted once per project**: exporting again (KMZ after DXF, or the same KMZ again) is free; a longer route pays only the new metres. A project shared to a coworker is not counted twice.
+- **The admin company never needs credits** (Companies that see all tasks, ADMIN in the Companies tab). PAT, defect cleanup and FAT exports and the shared project files are not counted.
+- **Unlimited**: Yes, or a date such as 2026-12-31 (unlimited until that day), for beta testers or a trial period.
+- A new email is added to the Credits tab by itself at its first export, with "Free credits for a new user (m)" from Settings (0 unless you change it). **Top up** by raising Credits (m); Balance = Credits − Used.
+- Where the sheet uses company keys, an email counts only with its own company's key (the Company column, filled in at first use). Until Google sign-in, the email is the one the user typed: a user could type a coworker's email of the same company, or a new email to get the free credits again; keep "Free credits for a new user" at 0 if that matters.
+- When the credits run out, the export stops and says how many metres it needs. Without internet the export goes ahead while the last known balance lasts and is counted at the next sync (the balance can go below zero; then exports stop until topped up).
+- Export shows the balance ("Credits: … m left"), and so does Settings → Online sheet.
+- Credits are counted by G-eSAA v2.42.6 and later. The website updates by itself; phones with the Android app count them once they install the v2.42.6 app.
+
+**Rollout**
+- Update the sheet's script first, then the website. Phones with the Android app need the v2.42.6 app to open the new links: on an older app, tap "Continue in this browser" (or install the new app first).
+
 ## What changed in v2.42.5
 
 Four decisions from the review of 3 Nov 2026. **Update the online sheet's script too** (`PoleCam-online-sheet_v2.42.5.gs`), and update the admin company's phones first (see the last point).
