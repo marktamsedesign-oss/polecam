@@ -535,6 +535,18 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.9
+
+v2.42.8 opened in AutoCAD, but many texts were turned or missing: the legend's descriptions, the tables, the title blocks, and the cover ("AFI PLAN" turned 45°). **Export the plan again with v2.42.9.** No change to the online sheet's script.
+
+- **The cause:** LibreDWG wrote each MTEXT's "embedded object" with two of its points swapped. AutoCAD reads the first of them as the text's direction, but LibreDWG had put the text's position there. So AutoCAD turned each text by the angle of its own coordinates and drew it away from its place. For example, "AFI PLAN" was turned −44.6°: the angle of its position (6919, −6812). Other viewers ignore the embedded object, which is why the file looked right there.
+- **The fix:** the cleanup drops the embedded object of an MTEXT without columns (296 of them; AutoCAD does not need it). For the 15 with columns, it writes the object the way AutoCAD reads it. `check_plan.py` now flags any MTEXT left with the swapped points.
+- **Title block:**
+  - A field's box is now at least as wide as its value, so the date stays on one line ("NOVEMBER 4, 2026" was broken over two).
+  - The index keys (Q-12, Q-13…) fit their cells.
+  - The *Exported by* line starts after the CONFIDENTIAL line instead of on top of it.
+- **The sheets as a PDF (new):** tick **Also the sheets as a PDF** on the DXF card. The ZIP then also holds `<name>_SHEETS.pdf`, one A3 page per sheet in the template's order, drawn by the app from the DXF on the phone. It includes the title blocks, the plan in each GEO sheet, the legend, the tables, the vicinity map and the pole photos. It is a stand-in for printing from AutoCAD: texts are in Helvetica and pattern hatches are left out.
+
 ## What changed in v2.42.8
 
 The plan DXF opens in AutoCAD (File → Open) without an error. The company template was turned into DXF by LibreDWG, which left records AutoCAD refuses ("Invalid symbol table record name: *Multiple", "Premature end of object" in ATTRIB, "DXF read error" in GEODATA). No change to the online sheet's script.

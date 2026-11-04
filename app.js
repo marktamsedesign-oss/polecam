@@ -170,7 +170,7 @@
     quality: 'strict', readId: true, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
     exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'utm', 'time', 'by', 'project'], naming: 'id',
       kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true,
-      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'] },
+      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false },
     saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
   };
   let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem('polecam.settings') || '{}')); } catch (e) { return { ...DEF }; } })();
@@ -709,7 +709,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.8';
+  const APP_VER = '2.42.9';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -3317,6 +3317,14 @@
   }
   const dims = (im) => ({ w: im.naturalWidth || im.width, h: im.naturalHeight || im.height });
   /** A few Android WebViews never call toBlob's callback. Use the synchronous encoder after a short wait. */
+  /** v2.42.9: a PNG (the company logo) as a JPEG on white, for the plan PDF (which holds JPEG pictures only); null when it fails. */
+  async function pngToJpeg(bytes) {
+    try {
+      const bm = await createImageBitmap(new Blob([bytes], { type: 'image/png' })), cv = document.createElement('canvas'); cv.width = bm.width; cv.height = bm.height;
+      const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(bm, 0, 0);
+      return new Uint8Array(await (await toBlob(cv, 0.92)).arrayBuffer());
+    } catch (e) { return null; }
+  }
   function toBlob(cv, q) {
     return new Promise((res, rej) => {
       if (!(cv.width > 0) || !(cv.height > 0)) { rej(new Error('The photo has no image pixels. Take it again.')); return; }
@@ -7225,6 +7233,23 @@
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
     }
+    // v2.42.9: the sheets as a PDF too (drawn by the app from each DXF), when ticked on the DXF card: for printing, or when the DXF
+    // does not open as it should
+    const pdfFiles = [];
+    if (S.exp.dxfPdf) {
+      try {
+        if (!window.GeDxfPdf) await loadScript('dxfpdf.js');
+        const images = {};
+        for (const f of files) { if (/\.jpe?g$/i.test(f.name)) images[f.name] = f.data; else if (/\.png$/i.test(f.name)) { const j = await pngToJpeg(f.data); if (j) images[f.name] = j; } }
+        const deflate = 'CompressionStream' in window ? async (u) => new Uint8Array(await new Response(new Blob([u]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer()) : null;
+        for (let k = 0; k < outs.length; k++) {
+          busy(many ? `The sheets as a PDF (${k + 1} of ${outs.length})…` : 'The sheets as a PDF…', k / outs.length); await sleep(30);
+          const pdf = await window.GeDxfPdf.toPdf(outs[k].out.text, { images, title: outs[k].file.replace(/\.dxf$/i, ''), deflate });
+          pdfFiles.push({ name: outs[k].file.replace(/\.dxf$/i, '_SHEETS.pdf'), data: pdf });
+          LOG.info('export.planpdf', { sheets: pdf.report.sheets.length, pictures: pdf.report.pictures, missing: pdf.report.missing.length, mb: +(pdf.length / 1048576).toFixed(2) });
+        }
+      } catch (e) { LOG.warn('export.planpdf', errInfo(e)); pdfFiles.length = 0; toast('The PDF of the sheets could not be made: the DXF is in the ZIP', 5000); }
+    }
     const rp = outs[0].out.report;
     // v2.40: the numbers on the plan, for the README (and an RTA application): number, ID, pole type, position
     const markLinesOf = (MK) => MK.map(([n, id]) => { const p = byPt.get(id) || {}; return `  ${n}  ${p.poleId || '(no ID)'}  ${elemOf(p) === 'Pole' ? p.poleType || 'pole' : elemOf(p)}  ${(+p.lat).toFixed(6)}, ${(+p.lon).toFixed(6)}`; });
@@ -7234,6 +7259,7 @@
     const head = many ? [`${outs.length} plan drawings on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres, the same plan with different numbers or photos beside the points:`,
       ...outs.map((o) => `  ${o.file}: ${besideOf(o)}.`), setFirst]
       : [`${outs[0].file} — the plan on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres.`, setFirst, `Beside the points: ${besideOf(outs[0])} (the list is at the end).`];
+    if (pdfFiles.length) head.push(`${pdfFiles.map((f) => f.name).join(', ')}: the sheets as a PDF (A3), drawn by G-eSAA from the DXF for printing (texts in Helvetica, pattern hatches left out; AutoCAD's own plot is the reference).`); // v2.42.9
     head.splice(0, head.length, ...head.filter(Boolean));
     const readme = [...head,
       `Clamp types: ${showCT ? 'on the plan, before the clamp size (e.g. CA 8-10, 2A 10-12)' : 'left off the plan (the clamp size only); they are in the BOQ, the KMZ and the CSV'}.`,
@@ -7257,7 +7283,7 @@
       'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD. Each pole\'s label points straight out from the cable, and its photo or number sits beside the pole on the side toward the homing, the same at every pole where there is room (elsewhere a little further, turned, or on the other side).', '',
       ...outs.flatMap((o) => { const MK = o.out.report.marks || []; return MK.length ? [`Numbers on the plan${many ? ` in ${o.file}` : ''} (${MK.length}${o.st.no.size ? `: ${o.st.what}` : ''}): number, ID, type, latitude, longitude`, ...markLinesOf(MK), ''] : []; }), exporterText()].join('\r\n');
     busy(false);
-    offerResult(new Blob(C.makeZipParts([...outs.map((o) => ({ name: o.file, data: o.out.text })), ...files, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`);
+    offerResult(new Blob(C.makeZipParts([...outs.map((o) => ({ name: o.file, data: o.out.text })), ...files, ...pdfFiles, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`);
     { const A = routeAdvice(R), o0 = outs[0], MK0 = o0.out.report.marks || [];
       toast(`Plan: ${many ? `${outs.length} drawings · ` : ''}${rp.sheets.length} GEO sheet${rp.sheets.length === 1 ? '' : 's'}${!many && o0.st.no.size ? ` · numbered: ${o0.st.what} (${MK0.length})` : ''} · ${roadsNote}${A.length ? ` · ${A.length} route check${A.length === 1 ? '' : 's'} in the README` : ''}${noPack.length ? ` · no road pack for ${noPack.map(({ region }) => region || 'a place').join(', ')}: its ROW table is blank (see the README)` : ''}`, noPack.length ? 9000 : 5000); }
   }
@@ -8369,7 +8395,7 @@
     ['kmzRoute', 'kmzRoute2', 'kmzRoute', 'bool'], ['kmzStamp', 'kmzStamp3', 'kmzStamp', 'bool'], ['kmzStamp2', 'kmzStamp3', 'kmzStamp', 'bool'],
     ['pdfPhotoSize', 'pdfPhotoSize2', 'pdfPhotoSize', 'str'], ['pdfAnnexA', 'pdfAnnexA2', 'pdfAnnexA', 'bool'], ['pdfAnnexB', 'pdfAnnexB2', 'pdfAnnexB', 'bool'],
     ['pdfDates', 'xlsDates', 'pdfDates', 'str'], ['xlsTable', null, 'xlsTable', 'bool'], ['xlsPhotos', null, 'xlsPhotos', 'bool'], ['kmzData', null, 'kmzData', 'bool'],
-    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['drawMarks', null, 'dxfMarks', 'str']]; // v2.41: the plan's options are on the Drawing screen
+    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['drawMarks', null, 'dxfMarks', 'str'], ['dxfPdf', null, 'dxfPdf', 'bool']]; // v2.41: the plan's options are on the Drawing screen
   const expIds = {};
   EXP_PAIRS.forEach(([a, b, key, kind]) => { [a, b].filter(Boolean).forEach((id) => { const l = (expIds[key] = expIds[key] || []); if (!l.some((x) => x[0] === id)) l.push([id, kind]); }); });
   function syncExpUi() {

@@ -59,7 +59,9 @@ sec('ENTITIES', () => {
   rec('MULTILEADER', '56', '1F', 100, 'AcDbEntity', 8, '0', 100, 'AcDbMLeader', 270, 2, 300, 'CONTEXT_DATA{', 40, '1.0', 10, '1.0', 20, '1.0', 30, '0.0', 301, '}');
   rec('REGION', '57', '1F', 100, 'AcDbEntity', 8, '0', 100, 'AcDbModelerGeometry', 290, 1, 2, '{00000000-0000-0000-0000-000000000001}', 100, 'AcDb3dSolid', 350, '0');
   rec('MTEXT', '58', '1F', 100, 'AcDbEntity', 8, 'LEGEND', 100, 'AcDbMText', 10, '785100.0', 20, '785950.0', 30, '0.0', 40, '10.0', 41, '0.0093', 46, '0.0', 71, 1, 72, 1, 1, '{\\fVineta BT|b1|i0|c0|p82;UPDATED^JLEGENDS}', 7, 'MtXpl_Vineta_BT', 73, 1, 44, '1.0',
-    101, 'Embedded Object', 70, 1, 10, '1.0', 20, '0.0', 30, '0.0', 11, '785100.0', 21, '785950.0', 31, '0.0', 40, '0.0093', 41, '25.0', 42, '51.5', 43, '25.0', 71, 2, 72, 1, 44, '1.0', 45, '1.0', 73, 0, 74, 0, 46, '0.0');
+    101, 'Embedded Object', 70, 1, 10, '785100.0', 20, '785950.0', 30, '0.0', 11, '1.0', 21, '0.0', 31, '0.0', 40, '0.0093', 41, '25.0', 42, '51.5', 43, '25.0', 71, 0); // (LibreDWG: insertion and direction swapped)
+  rec('MTEXT', '5B', '1F', 100, 'AcDbEntity', 8, 'LEGEND', 100, 'AcDbMText', 10, '785300.0', 20, '785900.0', 30, '0.0', 40, '5.0', 41, '120.0', 46, '30.0', 71, 1, 72, 5, 1, 'PROPOSED 72C FIGURE 8 FOC / PROPOSED 12C LIGHT CABLE', 7, 'Standard', 73, 1, 44, '1.0',
+    101, 'Embedded Object', 70, 1, 10, '785300.0', 20, '785900.0', 30, '0.0', 11, '1.0', 21, '0.0', 31, '0.0', 40, '120.0', 41, '0.0', 42, '100.0', 43, '12.0', 71, 2, 72, 1, 44, '120.0', 45, '3.0', 73, 0, 74, 0, 46, '30.0');
   rec('IMAGE', '59', '1F', 100, 'AcDbEntity', 8, 'G-ESAA VICINITY', 100, 'AcDbRasterImage', 90, 0, 10, '785600.0', 20, '786000.0', 30, '0.0', 11, '0.25', 21, '0.0', 31, '0.0', 12, '0.0', 22, '0.25', 32, '0.0', 13, '1800.0', 23, '1800.0', 340, '61', 70, 7, 280, 0, 281, 50, 282, 50, 283, 0, 360, '62', 71, 1, 91, 2, 14, '-0.5', 24, '-0.5', 14, '1799.5', 24, '1799.5', 290, 0);
   square('5A', '1F', 'G-ESAA VICINITY', 785600, 786000, 450);
 });
@@ -106,6 +108,9 @@ const st = of('SORTENTSTABLE')[0], k = st ? st.findIndex((p) => p[0] === 100 && 
 ok(st && st[k + 1][0] === 330 && st[k + 1][1] === '40' && !st.some((p) => p[1] === '9999'), '9 SORTENTSTABLE: its block record after the subclass marker', st && JSON.stringify(st));
 ok(!of('VISUALSTYLE').length && !out.includes('$INTERFEREOBJVS'), '10 VISUALSTYLE and the header variable pointing to it gone');
 const mt = d1.byHandle.get('58');
+const mc = d1.byHandle.get('5B'), mce = mc ? mc.slice(mc.findIndex((p) => p[0] === 101)) : [];
+ok(mt && !mt.some((p) => p[0] === 101) && mc && get(mce, 10) === '1.0' && get(mce, 11) === '785300.0' && get(mce, 21) === '785900.0' && get(mce, 40) === '120.0',
+  '17 MTEXT embedded object (insertion and direction swapped by LibreDWG): dropped without columns, written as AutoCAD reads it with columns', mc && JSON.stringify(mce));
 ok(mt && Math.abs(parseFloat(get(mt, 41)) - 51.5) < 1e-6 && !/\^J/.test(get(mt, 1)) && /\\P/.test(get(mt, 1)), '12 MTEXT width set to its real width, ^J as \\P', mt && `${get(mt, 41)} ${get(mt, 1)}`);
 ok(of('IMAGEDEF').length === 1 && get(of('IMAGEDEF')[0], 1) === 'VICINITY_MAP.jpg' && !out.includes('C:\\Users'), '13 unused IMAGEDEF (absolute path) dropped');
 const vst = of('STYLE').find((r) => get(r, 2) === 'MtXpl_Vineta_BT');

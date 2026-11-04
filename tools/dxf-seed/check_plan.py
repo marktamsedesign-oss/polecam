@@ -1,4 +1,4 @@
-"""AutoCAD acceptance check of a plan DXF exported by G-eSAA (v2.42.8). Standard library only; nothing in the file is executed.
+"""AutoCAD acceptance check of a plan DXF exported by G-eSAA (v2.42.8; v2.42.9: MTEXT embedded objects). Standard library only; nothing in the file is executed.
     python3 -I check_plan.py plan.dxf [--margin 2000] [--list 20]
 Exit status 0 when no problem is found, 1 otherwise.
 
@@ -12,7 +12,8 @@ What AutoCAD for Mac refused in the LibreDWG-made template, and what the export 
              its subclass marker
   images     every IMAGEDEF used by an IMAGE and named in ACAD_IMAGE_DICT, with a plain file name (no folder); each IMAGE
              points to its IMAGEDEF (340) and its own IMAGEDEF_REACTOR (360)
-  texts      no MTEXT whose width (41) is below 20 % of its text's width; no ^J in MTEXT; no @@ field left; no sample project
+  texts      no MTEXT whose width (41) is below 20 % of its text's width; no ^J in MTEXT; an MTEXT's embedded object (101) as
+             AutoCAD reads it (10 its direction, 11 its insertion: LibreDWG swaps them); no @@ field left; no sample project
              text ("NSB PROJECT", "LittleBaguio"...); no Vineta BT font
   placement  model space within the plan (grid and vicinity map) plus the margin, drawn geometry and insertion points both;
              $EXTMIN / $EXTMAX round the plan; the *Active VPORT opens on it
@@ -206,6 +207,11 @@ def main():
             if OLD_TEXT.search(s): probs['texts'].append(f'{t} {handle(r)}: sample project text: {s[:60]!r}')
             if t != 'MTEXT': continue
             if '^J' in s: probs['texts'].append(f'MTEXT {handle(r)}: ^J in its text')
+            k = next((i for i, p in enumerate(r) if p[0] == 101), None)
+            if k is not None:  # its embedded object as AutoCAD reads it: 10 = the text's direction (a unit vector), 11 = its insertion point
+                emb = [(c, v) for c, v in r[k + 1:] if c < 1000]; eg = lambda c: next((float(v) for cc, v in emb if cc == c), 0.0)
+                if abs(math.hypot(eg(10), eg(20), eg(30)) - 1) > 1e-3 or math.hypot(eg(11) - gf(r, 10), eg(21) - gf(r, 20)) > 1e-3:
+                    probs['texts'].append(f'MTEXT {handle(r)}: embedded object with its direction / insertion swapped (AutoCAD turns and moves it): {s[:30]!r}')
             if re.search(r'\\f\s*Vineta', s, re.I): probs['texts'].append(f'MTEXT {handle(r)}: Vineta BT font')
             w = mtext_own(r, 41); h = gf(r, 40)
             need = h * 0.6 * max([0] + [len(x.strip()) for x in mtext_lines(s)])

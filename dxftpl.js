@@ -130,6 +130,8 @@
      15 a block drawn more than 1 km from its base point: its drawing moved to the base point, its inserts moved to match (nothing
         drawn moves; the insertion points sit on their symbols)
      16 Vineta BT (in a text style or an MTEXT): Arial
+     17 (v2.42.9) MTEXT: the embedded object LibreDWG wrote with its direction and insertion swapped (AutoCAD turned and moved those texts):
+        dropped (no columns) or written as AutoCAD reads it
      and: header variables pointing to missing objects removed; $HANDSEED above every handle; each table's count its records. */
   const DROP_OBJ = new Set(['GEODATA', 'SUN', 'VISUALSTYLE', 'TABLESTYLE', 'MLEADERSTYLE', 'ACDBSECTIONVIEWSTYLE', 'ACDBDETAILVIEWSTYLE', 'ACDB_DYNAMICBLOCKPURGEPREVENTER_VERSION']);
   const PTR = (c) => (c >= 331 && c <= 369) || c === 390;
@@ -241,6 +243,24 @@
       if (k >= 0 && w > 0 && need > 0 && w < 0.2 * need) {
         const e = r.findIndex((p) => p[0] === 101), ext = e >= 0 ? r.slice(e).find((p) => p[0] === 42) : null, ew = ext ? parseFloat(ext[1]) : 0;
         r[k][1] = F(ew >= 0.2 * need ? ew : 0); inc('MTEXT width fixed');
+      }
+      // 17. (v2.42.9) its embedded object (101): LibreDWG writes the insertion point where AutoCAD reads the text's direction (10) and the
+      // direction where AutoCAD reads the insertion (11), so AutoCAD turned each such text by the angle of its own coordinates
+      // and drew it far from its place (the legend's descriptions, the tables' texts and the title blocks went missing or
+      // turned). Without columns the object is not needed: dropped; with columns: written as AutoCAD reads it.
+      const e0 = r.findIndex((p) => p[0] === 101);
+      if (e0 >= 0) {
+        let e1 = r.length; for (let i = e0 + 1; i < r.length; i++) if (r[i][0] >= 1000) { e1 = i; break; } // (its xdata stays)
+        const at = (c) => { for (let i = e0 + 1; i < e1; i++) if (r[i][0] === c) return i; return -1; };
+        const cols = at(71) >= 0 ? parseInt(r[at(71)][1], 10) || 0 : 0;
+        if (!cols) { r.splice(e0, e1 - e0); inc('MTEXT embedded object dropped (AutoCAD read it turned)'); }
+        else {
+          const own = (c, d) => { const i = mtextIdx(r, c); return i >= 0 ? r[i][1] : d; };
+          const want = { 10: own(11, '1.0'), 20: own(21, '0.0'), 30: own(31, '0.0'), 11: own(10, '0.0'), 21: own(20, '0.0'), 31: own(30, '0.0'), 40: own(41, '0.0') };
+          let ch = false;
+          for (const c of [10, 20, 30, 11, 21, 31, 40]) { const i = at(c); if (i >= 0 && String(r[i][1]).trim() !== String(want[c]).trim()) { r[i][1] = want[c]; ch = true; } }
+          if (ch) inc('MTEXT embedded object written as AutoCAD reads it');
+        }
       }
     }
     // 15. blocks drawn far from their base point
@@ -561,6 +581,12 @@
         const xy = c === 10 || c === 43 || ((edge === 1 || edge === 4) && c === 11) ? 1 : c === 20 || c === 44 || ((edge === 1 || edge === 4) && c === 21) ? 2 : 0;
         if (xy === 1) q[1] = F(+q[1] + neg * dx); else if (xy === 2) q[1] = F(+q[1] + dy);
       }
+      return true;
+    }
+    if (t === 'MTEXT') { // v2.42.9: its own point, and the insertion point of its embedded object (11; its 10 is a direction)
+      const e0 = r.findIndex((q) => q[0] === 101);
+      r.forEach((q, i) => { const emb = e0 >= 0 && i > e0, c = q[0]; if (q[0] >= 1000) return;
+        if ((!emb && c === 10) || (emb && c === 11)) q[1] = F(+q[1] + dx); else if ((!emb && c === 20) || (emb && c === 21)) q[1] = F(+q[1] + dy); });
       return true;
     }
     const pts = SHIFT_PTS[t]; if (!pts) return false;
@@ -2185,7 +2211,7 @@
       IDX_TL: (sh) => idx(sh, -1, 1), IDX_T: (sh) => idx(sh, 0, 1), IDX_TR: (sh) => idx(sh, 1, 1), IDX_L: (sh) => idx(sh, -1, 0), IDX_C: (sh) => idx(sh, 0, 0), IDX_R: (sh) => idx(sh, 1, 0), IDX_BL: (sh) => idx(sh, -1, -1), IDX_B: (sh) => idx(sh, 0, -1), IDX_BR: (sh) => idx(sh, 1, -1),
       TOC_GEO: () => String(N), TOC_LEGEND: () => String(sheetNames.filter((n) => /^LEGENDS?( \(\d+\))?$/.test(n)).length), TOC_TOTAL: () => String(sheetNames.filter((n) => n !== 'Model').length),
     };
-    const blanks = new Set(), filled = new Set(), rowCells = [];
+    const blanks = new Set(), filled = new Set(), rowCells = [], idxTexts = new Set(), filledM = new Set();
     const fill = (r, sheet, inBlockText) => {
       const t = typ(r); if (t !== 'TEXT' && t !== 'MTEXT') return;
       const txt = (t === 'MTEXT' ? all(r, 3).join('') : '') + (get(r, 1) || ''); if (txt.indexOf('@@') < 0) return;
@@ -2198,23 +2224,47 @@
         if ((v == null || v === '' || (Array.isArray(v) && !v.length)) && auto[k]) v = auto[k](sheet);
         if (v == null) v = '';
         if (Array.isArray(v) ? v.length : v !== '') filled.add(k); else blanks.add(k);
+        if (t === 'TEXT' && /^IDX_/.test(k)) idxTexts.add(r); // v2.42.9: fitted to its cell below
         if (Array.isArray(v)) return t === 'MTEXT' ? v.map(mtextEsc).join('\\P') : v.join(' / ');
         v = String(v);
         if (t === 'MTEXT' && /^ROW_(BARANGAY|MUNICIPALITY)_\d$/.test(k) && v) rowCells.push([r, v]); // v2.35: fitted to its cell below
         if (t === 'MTEXT') { v = mtextEsc(v); if (plain && k === 'LOCATION' && inBlockText && v.includes('_')) { const q = v.lastIndexOf('_'); v = `${v.slice(0, q + 1)}\\P${v.slice(q + 1)}`; } }
         return v;
       });
+      if (t === 'MTEXT') filledM.add(r);
       if (t === 'MTEXT') { // the text is the 3 chunks then the 1: replaced in place
         const first = r.findIndex((p, i) => i > 0 && (p[0] === 3 || p[0] === 1)), one = r.findIndex((p, i) => i > 0 && p[0] === 1);
         const chunks = []; for (let i = 0; i < nt.length; i += 250) chunks.push(nt.slice(i, i + 250)); if (!chunks.length) chunks.push('');
         r.splice(first, one - first + 1, ...chunks.slice(0, -1).map((c) => [3, c]), [1, chunks[chunks.length - 1]]);
       } else setFirst(r, 1, nt);
     };
+    // v2.42.9: the Exported by line (put by the seed tool at 6478, -6209.5 on each sheet) starts after the sheet's CONFIDENTIAL line,
+    // which AutoCAD draws wider than the seed tool reckoned (ROMANS): the two overlapped
+    for (const L of S.layouts) { if (L.name === 'Model') continue; for (const r of layoutEnts(d, S, L)) if (typ(r) === 'MTEXT' && textOf(r).includes('@@EXPORTED_BY@@') && Math.abs(num(r, 10, 0) - 6478) < 0.5 && Math.abs(num(r, 20, 0) + 6209.5) < 0.5) setFirst(r, 10, F(6508)); }
     for (const L of S.layouts) { if (L.name === 'Model') continue; for (const r of layoutEnts(d, S, L)) fill(r, L.name, L.name === 'TITLE'); }
     if (paging) for (const r of S.blocks.get('PAGING').ents) fill(r, null, true);
     // v2.34: the plan's title on the title sheet: the template's AFI PLAN, or AS-BUILT PLAN for an As-Built
     if (job.planTitle) { const tl = S.layouts.find((L) => L.name === 'TITLE'); if (tl) for (const r of layoutEnts(d, S, tl)) { const t = typ(r); if ((t === 'MTEXT' || t === 'TEXT') && textOf(r).includes('AFI PLAN')) setText(r, textOf(r).replace(/AFI PLAN/g, t === 'MTEXT' ? mtextEsc(job.planTitle) : job.planTitle)); } }
     for (const r of d.sec('ENTITIES').recs) { const ow = owner(r); if (ow === S.modelH && String(get(r, 67, '0')).trim() !== '1') fill(r, null, false); }
+    // v2.42.9: a field's text box (MTEXT width 41) at least as wide as its one line of text: the template's box fits its sample
+    // text (DATE: "1 OF 25"), so AutoCAD broke a longer value ("NOVEMBER 4, 2026") over two lines. (The ROW cells: below.)
+    { const inRow = new Set(rowCells.map(([r]) => r)), wOf = (str, h) => h * [...str].reduce((a, ch) => a + (/[A-Z]/.test(ch) ? 0.98 : /[0-9]/.test(ch) ? 0.78 : /[a-z]/.test(ch) ? 0.72 : ch === ' ' ? 0.39 : 0.45), 0);
+      for (const r of filledM) {
+        if (inRow.has(r)) continue; const L = mtextLines(textOf(r)).filter((x) => x.trim()); if (L.length !== 1) continue;
+        const k = mtextIdx(r, 41), w = k >= 0 ? parseFloat(r[k][1]) : 0, need = wOf(L[0].trim(), num(r, 40, 0)) * 1.1;
+        if (k >= 0 && w > 0 && need > w) r[k][1] = F(need);
+      } }
+    // v2.42.9: a sheet's index keys (the 3 x 3 cells of the title block) fitted to their cell: a key such as Q-12 written at the
+    // template's height ran into the next cell
+    if (idxTexts.size) {
+      const byOwner = new Map(); for (const r of idxTexts) { const ow = owner(r) || ''; (byOwner.get(ow) || byOwner.set(ow, []).get(ow)).push(r); }
+      const em = (str) => [...String(str)].reduce((a, ch) => a + (/[MW]/.test(ch) ? 0.85 : /[A-Z]/.test(ch) ? 0.72 : /[0-9]/.test(ch) ? 0.56 : ch === '-' ? 0.34 : 0.5), 0);
+      for (const R2 of byOwner.values()) {
+        const xs = [...new Set(R2.map((r) => Math.round(num(r, 10, 0) * 100) / 100))].sort((a, b) => a - b), gaps = xs.slice(1).map((x, i) => x - xs[i]).filter((g) => g > 1);
+        const pitch = gaps.length ? Math.min(...gaps) : 12.2;
+        for (const r of R2) { const w = em(get(r, 1, '')), h = num(r, 40, 0); if (w > 0 && h > 0) { const fit = pitch * 0.9 * 0.716 / w; if (fit < h) setFirst(r, 40, F(fit)); } }
+      }
+    }
     // v2.35: a city / municipality or barangay of the ROW table on one line of its cell: the text box as wide as the cell, and a
     // long name made smaller (the rows are one line tall)
     if (rowCells.length) {
@@ -2304,5 +2354,5 @@
     rep.frame = frame(d, S, [[gx0, gy0, gx1, gy1], ...vics.map((v) => v.sb), ...(tablesBox ? [tablesBox] : [])], rep);
     return { text: d.text(), report: rep };
   }
-  return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.8' };
+  return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.9' };
 }));
