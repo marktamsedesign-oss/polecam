@@ -172,6 +172,7 @@
       kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true,
       dxfPhotos: true, dxfPhotoW: 6, focPct: 10, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false },
     saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
+    sig: { design: '', project: '', head: '', cse: '', cseAuto: '' }, // v2.42.12: the names in the plan's title blocks (cseAuto: the last CSE Lead the online sheet gave)
   };
   let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem('polecam.settings') || '{}')); } catch (e) { return { ...DEF }; } })();
   applyHand();
@@ -189,6 +190,7 @@
   if (S.quality !== 'normal') S.quality = 'strict';
   if (!S.v17) { S.v17 = 1; S.quality = 'strict'; S.maxSpan = 200; S.dropSatTiles = true; }
   S.exp = { ...DEF.exp, ...(S.exp || {}) };
+  S.sig = { ...DEF.sig, ...(S.sig && typeof S.sig === 'object' ? S.sig : {}) };
   if (S.stamp === false && !S.v20) S.exp.stamp = false;
   if (S.maxPx && !S.v20) S.exp.maxPx = S.maxPx;
   S.v20 = 1;
@@ -709,7 +711,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.10';
+  const APP_VER = '2.42.12';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1336,6 +1338,7 @@
     }
     $('projectName').textContent = S.project || 'No project · tap to add';
     if (refFor !== S.project || !refLayer.getLayers().length) drawRef(false);
+    if (drw && drw.project !== S.project) { if ($('drawing').hidden || !projPoints().length || !drawOn()) drw = null; else openDrawing(true); } // v2.42.12: the Drawing is of the project chosen (not the one before)
     const cat = taskCat(), mb = $('modeBadge');
     mb.textContent = cat.toUpperCase(); mb.className = `badge cat ${cat.toLowerCase()}`;
     $('listLbl').textContent = 'Records';
@@ -1415,15 +1418,17 @@
   const ACI_INK = { 1: '#e03131', 2: '#d9a400', 3: '#2b8a3e', 4: '#0c8599', 5: '#1c3f94', 6: '#ae3ec9', 7: '#495057' }; // the same colours, readable on the light preview
   const drwMapKind = () => (['off', 'offline', 'sat', 'street'].includes(S.drawMapKind) ? S.drawMapKind : 'offline'); // v2.41: the offline map by default
   const drwBase = () => { const k = drw ? drw.mapKind : drwMapKind(); return k === 'offline' ? (activePackId() ? 'offline' : 'off') : k === 'sat' ? 'satellite' : k === 'street' ? 'street' : 'off'; };
-  function openDrawing() {
+  function openDrawing(again) { // again: drawn anew in the open sheet (v2.42.12: another project was chosen)
     const pts = projPoints(); if (!pts.length) { toast('Nothing recorded in this project yet'); return; }
     const z = S.zone, U = (p) => { const u = C.utmForward(p.lat, p.lon, z, p.lat < 0); return [u.E, u.N]; };
     const R = routeModel(), items = pts.map((p) => ({ p, xy: U(p), el: elemOf(p) }));
-    const ref = []; refGeoFor(S.project).then((g) => { if (!g || !drw) return; (g.lines || []).forEach((l) => ref.push(l.c.map(([la, lo]) => U({ lat: la, lon: lo })))); drawDrawing(); }).catch(() => {});
+    // the project's reference KMZ faint behind, as the map shows it (v2.42.12: hidden there, or its lines hidden: not drawn either)
+    const ref = [], proj = S.project, refOn = !!refInfo(proj) && !(S.refHidden || {})[proj] && refParts(proj).lines;
+    if (refOn) refGeoFor(proj).then((g) => { if (!g || !drw || drw.ref !== ref || S.project !== proj) return; (g.lines || []).concat(g.polys || []).forEach((l) => ref.push(l.c.map(([la, lo]) => U({ lat: la, lon: lo })))); drawDrawing(); renderDrawLegend(); }).catch(() => {});
     // a NAP or closure pin stands on its pole: the nearest pole of the route within 30 m (as the plan draws it)
     const onRoute = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])), poles = items.filter((it) => it.el === 'Pole' && onRoute.has(it.p.id));
     items.forEach((it) => { if (it.el !== 'NAP' && it.el !== 'Closure') return; let best = null, bd = 30; poles.forEach((q) => { const dd = Math.hypot(q.xy[0] - it.xy[0], q.xy[1] - it.xy[1]); if (dd < bd) { bd = dd; best = q; } }); it.on = best; });
-    drw = { items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), R, ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
+    drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), R, ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
     $('drawTitle').textContent = `Drawing · ${S.project}`;
     $('drawHint').textContent = `Preview of the DXF (UTM ${z}N metres): ${pts.filter((p) => elemOf(p) === 'Pole').length} poles, ${R.spans.length} spans, ${fmtLen(R.total)}. Drag to pan, pinch or scroll to zoom, tap a point. Zoom in for the numbers or photos and, under each pole, what the plan draws on it: ARM, NAP, LOOP, CL (closure), G (guys), GR (grounding), R (riser).`;
     $('drawHint').hidden = !!S.drawHintOff; $('drawInfoBtn').setAttribute('aria-pressed', String(!S.drawHintOff));
@@ -1431,7 +1436,7 @@
     $('drawLegend').open = S.drawLegendOpen != null ? S.drawLegendOpen !== false : window.innerWidth > 700; // folded on a phone until opened
     renderDrawMap(); renderDrawBar(); renderDrawLegend();
     try { renderCredit(); } catch (e) { /* not ready */ } // v2.42.7: the balance at the upper right
-    openSheet('drawing');
+    if (!again) openSheet('drawing');
     requestAnimationFrame(() => { sizeDrawing(); fitDrawing(); drawDrawing(); drawSeqSoon(); });
   }
   /** v2.41: the numbers of the plan in the preview: the same order as the DXF (along the route from the homing). */
@@ -1692,6 +1697,7 @@
     if (has((x) => x.on)) rows.push([sv('<path d="M2 8h18" stroke="#f08c00" stroke-width="1.8" stroke-dasharray="2 2.5"/>'), 'Pin on its pole']);
     rows.push([sv('<path d="M1 8h20" stroke="#1c3f94" stroke-width="2.2" stroke-dasharray="4 2.5"/>'), 'Cable, aerial (solid: underground)']);
     if (drw && drw.spans.some((x) => x.sp.long)) rows.push([sv('<path d="M1 8h20" stroke="#c92a2a" stroke-width="2.2"/>'), `Span over ${pol().maxSpan || 200} m`]);
+    if (drw && drw.ref.length) { const ri = refInfo(drw.project); rows.push([sv('<path d="M1 8h20" stroke="rgba(112,72,232,0.6)" stroke-width="2" stroke-dasharray="4 3"/>'), `Reference KMZ of this project${ri ? ` (${ri.name})` : ''}: not in the DXF; hide or remove it with the map's KMZ button`]); } // v2.42.12
     const mode = S.exp.dxfMarks || 'photo';
     rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[plStyle().num.bcolor] || ACI_INK[plStyle().num.color] || '#d9a400'}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[plStyle().num.color] || '#d9a400'}" font-family="system-ui,sans-serif">1</text>`), 'Number on the plan']);
     if (mode !== 'num') rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), mode === 'both' ? 'Photo with its number' : 'Photo on the plan']);
@@ -6754,12 +6760,48 @@
   }
   const dxfSetsOn = () => { const ids = new Set(dxfSetList().map((x) => x.id)), v = (Array.isArray(S.exp.dxfSets) ? S.exp.dxfSets : ['sel']).filter((x) => ids.has(x)); return v.length ? v : ['sel']; };
   function renderDxfMarks() {
+    renderSig(); // v2.42.12
     const box = $('dxfSets'); if (!box) return;
     $('dxfPlanSum').textContent = planOptsText();
     const on = new Set(dxfSetsOn()); box.innerHTML = '';
     dxfSetList().forEach((x) => { const l = document.createElement('label'), cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = x.id; cb.checked = on.has(x.id); l.append(cb, document.createTextNode(x.name)); box.appendChild(l); });
     $('dxfSetsInfo').textContent = on.size > 1 ? `${on.size} drawings in one ZIP, with their photos and one README.` : 'One drawing. Tick more for several drawings in one ZIP (e.g. one for each pole owner).';
   }
+  /* v2.42.12: the names in the title block of every sheet (above the signature lines): Design Engineer, Project Engineer and
+     Head-Cable Engineering typed once and kept on this phone; the CSE Lead from the online sheet's CSE LEAD tab (Territory, Full
+     Name), by the project's territory (Project Data → Territory), at each sync; Junior Engineer left blank. A CSE Lead typed by
+     hand stays until the sheet gives another name (a new name there, or a project of another territory). */
+  const SIG_IDS = [['sigDesign', 'design'], ['sigProject', 'project'], ['sigHead', 'head'], ['sigCse', 'cse']];
+  function projTerritory(m) {
+    m = m || pmeta(); const task = m.taskId && S.cloud && (S.cloud.tasks || []).find((t) => t.id === m.taskId);
+    return s100((task && (task.territory || extraOf(task, 'Territory'))) || m.territory || ((m.siteExtra || []).find(([k]) => /^territory$/i.test(String(k).trim())) || [])[1] || sfGet(siteFieldsOf(), /^territory$/i), 60);
+  }
+  /** The CSE Lead(s) of a territory from the online sheet: { names, terr } (null: the sheet sent no CSE LEAD list). */
+  function cseLeadsFor(terr) {
+    const L = S.cloud && Array.isArray(S.cloud.cseLeads) ? S.cloud.cseLeads : null; if (!L) return null;
+    const want = cellCodes(terr, terrCode); if (!want.length) return { names: [], terr: '' };
+    return { names: [...new Set(L.filter((x) => cellCodes(x.t, terrCode).some((c) => want.includes(c))).map((x) => x.n))], terr: want.join(', ') };
+  }
+  function cseLeadSync(m) {
+    const r = cseLeadsFor(projTerritory(m)); if (!r || !r.terr) return r;
+    const v = r.names.join(' / ').slice(0, 120), g = S.sig;
+    if (v && v !== g.cseAuto) { g.cse = v; g.cseAuto = v; persist(); }
+    else if (!v && g.cseAuto && g.cse === g.cseAuto) { g.cse = ''; g.cseAuto = ''; persist(); } // the name was another territory's
+    return r;
+  }
+  function renderSig() {
+    if (!$('sigCse')) return;
+    let r = null; try { r = cseLeadSync(); } catch (e) { /* the names are shown as kept */ }
+    SIG_IDS.forEach(([id, k]) => { if (document.activeElement !== $(id)) $(id).value = S.sig[k] || ''; });
+    const terr = r && r.terr, fromSheet = !!(r && r.names.length && S.sig.cse === S.sig.cseAuto);
+    $('sigInfo').textContent = `Written above the signature lines in every sheet's title block (Junior Engineer is left blank). CSE Lead: ${
+      !r ? 'type it here (the online sheet sends no CSE LEAD list: the admin adds a CSE LEAD tab with Territory and Full Name, and the sheet\'s script v2.42.12)'
+      : !terr ? 'type it here (this project has no territory from the online sheet\'s Project Data)'
+      : !r.names.length ? `the CSE LEAD tab has no name for territory ${terr}: type it here`
+      : fromSheet ? `from the online sheet's CSE LEAD tab, territory ${terr} (updated at each sync)` : `yours (the sheet has ${r.names.join(' / ')} for territory ${terr}; a new name there replaces yours)`}.`;
+  }
+  SIG_IDS.forEach(([id, k]) => { const el = $(id); if (el) el.addEventListener('input', () => { S.sig[k] = s100(el.value, k === 'cse' ? 120 : 80); persist(); }); });
+  SIG_IDS.forEach(([id]) => { const el = $(id); if (el) el.addEventListener('change', () => renderSig()); });
   $('dxfSets').addEventListener('change', () => { const v = [...$('dxfSets').querySelectorAll('input:checked')].map((c) => c.value); S.exp.dxfSets = v.length ? v : ['sel']; persist(); renderDxfMarks(); });
   $('dxfOpenDrawing').addEventListener('click', () => { closeSheet().then(() => { if (drawOn()) openDrawing(); else toast('The Drawing is for As-Plan and As-Built surveys'); }); });
   $('dxfStyleBtn').addEventListener('click', () => openStyle());
@@ -7154,6 +7196,7 @@
     const SF = siteFieldsOf(), sfm = sfMeta(SF); // v2.41: the site's details as kept (and corrected) in Project details
     const sName = sfm.siteName || m.siteName || (task && task.project) || '', sPla = sfm.plaId || m.plaId || (task && task.site) || '', sSerial = sfm.serial || m.serial || (task && extraOf(task, 'Serial Number')) || ((m.siteExtra || []).find(([k]) => /serial/i.test(k)) || [])[1] || '';
     const known = !!(sName || sPla || sSerial);
+    try { cseLeadSync(m); } catch (e) { /* the CSE Lead as kept */ }
     const values = {
       EXPORTED_BY: `Exported by ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' · ')} · ${e.app} · ${todayIso()}`, // v2.42.4: the phone's date (was UTC: the day before until 8 am)
       TITLE_CABLE: cabs.map((k) => CAB_TITLE[k]).join(' / '), COMPANY_NAME: m.contractor || (S.user && S.user.company) || '',
@@ -7165,6 +7208,8 @@
       PMI_PROPOSED_POLE: String(poles.filter(isNew).length), PMI_EXISTING_GT_POLE: String(exist.filter(gt).length),
       PMI_RTA_CONVERGE: String(exist.filter((p) => !gt(p) && /CONVERGE/.test(own(p))).length), PMI_RTA_LOCAL_COOP: String(exist.filter((p) => !gt(p) && /ELECTRIC/.test(own(p))).length),
       PMI_RTA_OTHER_PLDT: String(exist.filter((p) => !gt(p) && own(p) && !/CONVERGE|ELECTRIC/.test(own(p))).length),
+      // v2.42.12: the names above the signature lines of every title block (the CSE Lead from the online sheet's copy on this phone)
+      SIG_DESIGN_ENGINEER: S.sig.design || '', SIG_PROJECT_ENGINEER: S.sig.project || '', SIG_HEAD_CABLE_ENGINEERING: S.sig.head || '', SIG_JUNIOR_ENGINEER: '', SIG_CSE_LEAD: S.sig.cse || '',
       PMI_FIBER_TERMINATION: String(q.ODF_NEW_FIBERS || 0), PMI_HYBRID_CLOSURE: String(Object.entries(q).filter(([k]) => /^CLOSURE_NEW_/.test(k)).reduce((t, [, v]) => t + (+v || 0), 0)),
     };
     // v2.35: the ROW AREA COVERAGE sheet: the cities / municipalities and barangays the route passes (every 20 m of each span and
@@ -8824,6 +8869,7 @@
       [{ label: 'Cancel', value: false }, { label: 'Reset user', value: true, primary: true }]);
     if (!ok) return;
     LOG.info('user.reset', { keyed: keyMode() });
+    S.sig = { ...DEF.sig }; // v2.42.12: the title block's names go with the user
     S.user = null; S.companyKey = ''; S.keyCompany = ''; S.adminKey = null; S.onlineAdminKey = ''; S.listKe = null; S.cloud = null; S.inviteCo = ''; S.inviteCos = []; S.inviteCode = ''; inviteNoKey = ''; moveFill = null; S.credit = null; persist(); // v2.42.4: + the sheet's Admin key, a move (v2.42.6: the credits shown; exports owed stay)
     ['pfName', 'pfMobile', 'pfEmail', 'pfIdNo'].forEach((id) => { $(id).value = ''; }); keyIn = ''; renderAreaChips([], []);
     renderWho(); renderTeamInfo(); openProfile(true);
@@ -9743,7 +9789,8 @@
     const admins = (Array.isArray(j.admins) ? j.admins : []).map((c) => s100(c)).filter(Boolean).slice(0, 20);
     const adminUsers = Array.isArray(j.adminUsers) ? j.adminUsers.filter((u) => u && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(u.e || ''))).slice(0, 100)
       .map((u) => ({ e: s100(u.e, 120).toLowerCase(), n: s100(u.n, 80), i: s100(u.i, 40), m: s100(u.m, 30), j: s100(u.j, 120) })) : null; // v2.28: admin phones only
-    return { name: s100(j.name), companies, admins, tasks: tasks.slice(0, 500), packs, scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you),
+    const cseLeads = Array.isArray(j.cseLeads) ? j.cseLeads.filter((x) => x && typeof x === 'object').map((x) => ({ t: s100(x.t, 60), n: s100(x.n, 80) })).filter((x) => x.t && x.n).slice(0, 200) : null; // v2.42.12: the CSE LEAD tab
+    return { name: s100(j.name), companies, admins, tasks: tasks.slice(0, 500), packs, ...(cseLeads ? { cseLeads } : {}), scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you),
       ...(j.kmzPass ? { kmzPass: s100(j.kmzPass, 100) } : {}), ...(adminUsers ? { adminUsers } : {}), ...(/^[A-Za-z0-9_-]{20,80}$/.test(String(j.dxfSeed || '')) ? { dxfSeed: String(j.dxfSeed) } : {}) }; // v2.32: the plan template's id
   }
   let cloudBusy = null, cloudErr = '';
@@ -9793,6 +9840,7 @@
         if (j && j.error === 'company key') strictAt = sheetUrl(); // v2.42.4: the sheet uses company keys (the message below no longer says “company key”)
         if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : j && j.error === 'company key' ? (keyMode() ? 'your company key no longer works: ask your admin for a new invite (Settings → Reset user, then open the invite)' : 'join with your company invite (QR code or link from your admin or a coworker)') : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
         S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j, { area: true }) }; cloudErr = ''; persist();
+        try { renderSig(); } catch (e) { /* v2.42.12: the CSE Lead of the project's territory */ }
         try { // v2.34: the company's logo from the sheet (newer than the one on this phone)
           const lg = j.logo, co = (S.user && S.user.company) || '';
           if (lg && co && typeof lg.data === 'string' && lg.data.length <= 60000 && /^image\/(png|jpeg)$/.test(lg.type || '') && /^[A-Za-z0-9+/=]+$/.test(lg.data) && String(lg.at || '') > String((S.logoInfo && S.logoInfo.at) || '')) {
@@ -9883,7 +9931,7 @@
   const siteDetail = (t) => [vendorsOf(t).length && `Vendor: ${vendorsOf(t).join(', ')}`, ...(t.extra || []).slice(0, 2).map(([k, v]) => `${k}: ${v}`), t.id && `ID: ${t.id}`].filter(Boolean).join(' · ');
   /** What a project made from a sheet row keeps (shown in Projects, printed on the forms). */
   const siteMeta = (t) => (t ? { taskId: t.id, siteLink: t.link || '', siteExtra: t.extra || [], ...(t.globeRep ? { globeRep: t.globeRep } : {}),
-    siteName: t.project || '', plaId: t.site || '', serial: extraOf(t, 'Serial Number') || '' } : {}); // v2.34: for the plan drawing's title blocks
+    siteName: t.project || '', plaId: t.site || '', serial: extraOf(t, 'Serial Number') || '', territory: t.territory || extraOf(t, 'Territory') || '' } : {}); // v2.34: for the plan drawing's title blocks (v2.42.12: its territory, for the CSE Lead)
   /* v2.41: the site's details from the Project Data sheet: the columns between Territory and OSP VENDOR (Project Name, Serial Number,
      PLA ID, site name…), which the vendor keeps up to date. Shown in New project and Project details, editable there (the changes stay
      with the project on this phone); they go on the plan's title blocks, the completion report and the DXF's README. The sheet script
@@ -11512,6 +11560,6 @@
   }
   window.__polecam = { get points() { return points; }, get S() { return S; }, drwSeq: () => (drw ? { n: drw.seq.size, max: Math.max(0, ...drw.seq.values()) } : null), get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, get lastQrLink() { return qrLink; }, get lastQrFull() { return qrAlt ? qrAlt.full : qrLink; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
-    surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads, routeAdvice: () => routeAdvice(routeModel()), renderPoles, persist,
+    surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads, routeAdvice: () => routeAdvice(routeModel()), renderPoles, persist, cloudSync: (f) => cloudSync(f), renderSig, // v2.42.12
     clamps: () => { const R = routeModel(), all = projPoints(); return Object.fromEntries(all.filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, clampOf(p, R, all).join('+')])); } }; // for testing (v2.39: the poles' clamps)
 })();

@@ -266,6 +266,7 @@ The admin keeps three lists in a Google Sheet on their own account; phones read 
 | **MapPacks** | Name, Google Drive link, size in MB, notes. Since v2.5 the admin types the packs in the app (Administration → Offline map packs); with the Admin key on the admin's phone, saving the list rewrites this tab (update the Apps Script: Deploy → Manage deployments → Edit → New version). |
 | **Settings** | List name, **Read key** (phones), **Admin key** (admins only), who sees which tasks, and where tasks come from (see "Tasks from your own database"). |
 | **CompanyKeys** | Optional (v2.6): one key per company for a strict split of the tasks. Empty = not used. |
+| **CSE LEAD** | Optional (v2.42.12): columns **Territory** and **Full Name**, one row per territory. The CSE Lead written in the plan's title blocks for a project of that territory (Project Data → Territory). Put it in the spreadsheet of the sites (Tasks source) or in this one. |
 
 **Setup (admin, once):**
 1. Make a Google Sheet, open **Extensions → Apps Script**, paste `PoleCam-online-sheet.gs`, save, choose **setup** and **Run** (allow the permissions).
@@ -534,6 +535,27 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - **Who exported it:** every export carries the exporter's name, mobile, email, company, date and app version: PDF footers, an *Exported by* sheet in Excel, a column in CSV, the KMZ description, a DXF comment and text on layer EXPORT_INFO, `exported_by.txt` in ZIPs, the EXIF *Artist* of exported photos, and the backup / shareable KMZ data.
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
+
+## What changed in v2.42.12
+
+Names in the plan's title block, and two layout fixes. **Update the online sheet's script too** (`PoleCam-online-sheet_v2.42.12.gs`: paste it, Save, then Deploy → Manage deployments → Edit → New version; nothing new to allow). Until you update it, everything works as before, but the CSE Lead has to be typed by hand.
+
+- **Names in the title block:** the DXF card has a new box, **NAMES IN THE TITLE BLOCK**, with these fields:
+  - **Design Engineer**, **Project Engineer** and **Head-Cable Engineering:** typed once and kept on the phone.
+  - **CSE Lead:** comes from the online sheet. Add a tab **CSE LEAD** with the columns **Territory** and **Full Name**. At each sync the phone gets the list and fills in the name for the project's territory (Project Data → Territory). If a territory has several rows, their names are joined with " / ". The user can type another name. That name stays until the sheet gives a different one: a new name in the tab, or a project in another territory.
+  - **Junior Engineer:** left blank.
+
+  The names are written above their signature lines in the title block of every sheet, in the DXF and in the app's PDF. A name too long for its cell is made smaller to fit. **Reset user** clears these names. In the Apps Script editor, **testCseLeads** lists what the phones get.
+- **Cover:** the site's name, PLA ID and serial number sit one line higher. The location line on the cover was always empty, so it is no longer added.
+- **Drawing:** the faint purple broken line in a project's Drawing is that project's **reference KMZ**, the one loaded with the map's KMZ button (it is not in the DXF). Before, the Drawing showed it even when it was hidden on the map. The Drawing now follows the map: when the reference, or its lines, is hidden there, the Drawing leaves it out, and the legend names the file. Remove it in Projects → Project details → KMZ REFERENCE → Remove. The Drawing of the previous project is also let go when another project is chosen.
+- **Title block:** the site's details (SITENAME_PLAID, then the serial number) are made smaller to fit their box. A long site name ran past the sheet's frame. A name that would need less than 60 % of the normal size is also broken after its last "_".
+
+## What changed in v2.42.11
+
+Two fixes to the plan's labels. **Export the plan again.**
+
+- **Street names:** black and slanted (15°) instead of yellow, which could not be read on white paper. The slant sets them apart from the poles' labels, which are upright.
+- **Tower name:** 3 m high (2.4 m where crowded) instead of 4.1 m. It is placed beside its tower where it covers nothing: the cable, the poles and their labels, and the span lengths. It is also kept inside the tower's GEO sheet. Before, it sat above the tower, and when moved inside the sheet it ran over the cable and the labels.
 
 ## What changed in v2.42.10
 

@@ -1065,6 +1065,10 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
             <div class="row"><button class="btn small" id="dxfOpenDrawing" type="button">Set it in the Drawing</button><button class="btn small" id="dxfStyleBtn" type="button">Drawing style…</button></div></div>
           <div class="field"><span class="lbl">DRAWINGS IN THIS EXPORT</span><div id="dxfSets" class="dxfsets" role="group" aria-label="Drawings in this export"></div><p class="hint" id="dxfSetsInfo" style="margin:0"></p></div>
           <label class="check"><input type="checkbox" id="dxfPdf"><span>Also the sheets as a PDF (A3) in the ZIP, drawn by the app from the DXF: for printing, or when AutoCAD is not at hand</span></label>
+          <div class="field" id="sigBox"><span class="lbl">NAMES IN THE TITLE BLOCK</span>
+            <div class="opt2"><label class="field">Design Engineer<input type="text" id="sigDesign" maxlength="80" autocomplete="off" placeholder="Name"></label><label class="field">Project Engineer<input type="text" id="sigProject" maxlength="80" autocomplete="off" placeholder="Name"></label></div>
+            <div class="opt2"><label class="field">Head-Cable Engineering<input type="text" id="sigHead" maxlength="80" autocomplete="off" placeholder="Name"></label><label class="field">CSE Lead<input type="text" id="sigCse" maxlength="120" autocomplete="off" placeholder="From the online sheet"></label></div>
+            <p class="hint" id="sigInfo" style="margin:0"></p></div>
         </div></div>
       <details><summary>Options</summary><div class="opts">
         <label class="check"><input type="checkbox" id="dxfRoads" checked><span>Add road centerlines from OpenStreetMap around the poles (needs internet)</span></label>

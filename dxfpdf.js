@@ -216,9 +216,9 @@
     }
     const enc = (s) => (R.pdfEsc ? R.pdfEsc(s) : String(s).replace(/[()\\]/g, (m) => `\\${m}`));
     const widthEm = (s, bold) => R.textWidth(s, 1, bold); // in em (font size 1)
-    function textLine(ops, M, col, s, x, y, ang, h, wf, bold) { // (x, y): the baseline's left end, in the entity's space
+    function textLine(ops, M, col, s, x, y, ang, h, wf, bold, obl) { // (x, y): the baseline's left end, in the entity's space; obl: slant (degrees)
       if (!s || !(h > 0)) return;
-      const fs = h / CAP, c = Math.cos(ang), sn = Math.sin(ang), o0 = ap(M, x, y), u = lin(M, c * fs * wf, sn * fs * wf), v = lin(M, -sn * fs, c * fs);
+      const fs = h / CAP, c = Math.cos(ang), sn = Math.sin(ang), k = obl ? Math.tan(obl * Math.PI / 180) : 0, o0 = ap(M, x, y), u = lin(M, c * fs * wf, sn * fs * wf), v = lin(M, (-sn + c * k) * fs, (c + sn * k) * fs);
       if (Math.hypot(v[0], v[1]) < 0.4) return; // under 0.4 pt: not readable
       ops.push(`BT ${f4(col[0] / 255)} ${f4(col[1] / 255)} ${f4(col[2] / 255)} rg /${bold ? 'F2' : 'F1'} 1 Tf ${f4(u[0])} ${f4(u[1])} ${f4(v[0])} ${f4(v[1])} ${f2(o0[0])} ${f2(o0[1])} Tm (${enc(s)}) Tj ET`);
     }
@@ -233,7 +233,7 @@
       else dx = ha === 1 || ha === 4 ? -w / 2 : ha === 2 ? -w : 0;
       dy = ha === 4 ? -h / 2 : va === 1 ? 0.29 * h : va === 2 ? -h / 2 : va === 3 ? -h : 0;
       const c = Math.cos(ang), sn = Math.sin(ang);
-      textLine(ops, M, col, s, ax + dx * c - dy * sn, ay + dx * sn + dy * c, ang, h, wfx, bold);
+      textLine(ops, M, col, s, ax + dx * c - dy * sn, ay + dx * sn + dy * c, ang, h, wfx, bold, num(r, 51, 0)); // (51: v2.42.11, the street names slanted)
     }
     function mtextOps(r, M, col, ops) {
       const raw = all(r, 3).join('') + get(r, 1, ''), s = special(plain(raw)); if (!s.trim()) return;

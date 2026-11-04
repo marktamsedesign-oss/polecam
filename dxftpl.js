@@ -473,6 +473,7 @@
       o = o || {}; const r = this.base('TEXT', layer, o), ha = o.ha || 0, va = o.va || 0;
       r.push([100, 'AcDbText'], [10, F(x)], [20, F(y)], [30, '0.0'], [40, F(h)], [1, s]);
       if (o.rot) r.push([50, F(o.rot)]);
+      if (o.obl) r.push([51, F(o.obl)]); // v2.42.11: slanted (oblique angle, degrees)
       r.push([7, this.style(o.style)]);
       if (ha || va) r.push([72, I(ha)], [11, F(x)], [21, F(y)], [31, '0.0']);
       r.push([100, 'AcDbText']); if (va) r.push([73, I(va)]);
@@ -1460,28 +1461,12 @@
     /* 4. model space */
     const o = new Out(d, S);
     const lay = (n, fallback) => (S.layers.has(n) ? n : fallback || '0');
-    /** v2.42.10: the attributes of an insert moved (all together) so they stay inside the GEO cell its point is in (2 m in), the
-        sheet's viewport cutting them off otherwise. */
-    const cellHolds = (bx, E, N) => { // v2.42.10: a text's box inside the GEO cell of the point (E, N), 2 m in (its capitals a little wider than the estimate)
+    /** v2.42.10: a text's box inside the GEO cell of the point (E, N), 2 m in (the sheet's viewport cuts it off otherwise). */
+    const cellHolds = (bx, E, N) => { // (its capitals a little wider than the estimate)
       const ci = Math.floor((E - gox) / cell), cj = Math.floor((N - goy) / cell), W = [gox + ci * cell + 2, goy + cj * cell + 2, gox + (ci + 1) * cell - 2, goy + (cj + 1) * cell - 2];
       return [[1, 1], [1, -1], [-1, 1], [-1, -1]].every(([a, c]) => { const x = bx.cx + bx.ux * bx.hw * 1.3 * a + bx.vx * bx.hh * c, y = bx.cy + bx.uy * bx.hw * 1.3 * a + bx.vy * bx.hh * c; return x >= W[0] && x <= W[2] && y >= W[1] && y <= W[3]; });
     };
-    let nInCell = 0;
-    const inCell = (ins, E, N) => {
-      const H = get(ins, 5), k0 = o.model.indexOf(ins), at = o.model.slice(k0 + 1).filter((e) => typ(e) === 'ATTRIB' && owner(e) === H && String(get(e, 1, '')).trim());
-      if (!at.length) return;
-      const ci = Math.floor((E - gox) / cell), cj = Math.floor((N - goy) / cell), W = [gox + ci * cell + 2, goy + cj * cell + 2, gox + (ci + 1) * cell - 2, goy + (cj + 1) * cell - 2];
-      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-      for (const e of at) {
-        const ha = parseInt(get(e, 72, '0'), 10) || 0, va = parseInt(get(e, 74, '0'), 10) || 0, q = ha || va ? [num(e, 11, 0), num(e, 21, 0)] : [num(e, 10, 0), num(e, 20, 0)];
-        const bx = textBox(q[0], q[1], num(e, 40, 1), get(e, 1, ''), num(e, 50, 0), ha === 4 ? 1 : ha > 2 ? 0 : ha, va === 1 ? 0 : va); bx.hw *= 1.35; // (bold capitals: wider than the estimate)
-        for (const [x, y] of [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, c]) => [bx.cx + bx.ux * bx.hw * a + bx.vx * bx.hh * c, bx.cy + bx.uy * bx.hw * a + bx.vy * bx.hh * c])) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
-      }
-      const dx = x1 > W[2] ? Math.max(W[2] - x1, W[0] - x0) : x0 < W[0] ? W[0] - x0 : 0, dy = y1 > W[3] ? Math.max(W[3] - y1, W[1] - y0) : y0 < W[1] ? W[1] - y0 : 0;
-      if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
-      for (const e of at) for (const p of e) { if (p[0] === 10 || p[0] === 11) p[1] = F(+p[1] + dx); else if (p[0] === 20 || p[0] === 21) p[1] = F(+p[1] + dy); }
-      nInCell++;
-    };
+    let nInCell = 0; // v2.42.10: site names kept inside their GEO sheet
     // grid
     const cellsI = I1 - I0 + 1, cellsJ = J1 - J0 + 1, gridAll = cellsI * cellsJ <= 900;
     const KMLAY = 'G-ESAA KEYMAP GRID'; if (kmNames.length) addLayer(d, S, KMLAY, 2);
@@ -1712,7 +1697,7 @@
       for (const line of ch.pieces) { o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: CABLE_LWT, color: ch.existing ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ch.existing ? 9 : 7) : 0, gen: true }); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); }
     }
     // 4. poles and the other points: symbols first (they are fixed), then the labels round them
-    let nOlt = 0, nInline = 0, nTelco = 0, taDef = false; const taBlk = telcoArmTop(false);
+    let nOlt = 0, nInline = 0, nTelco = 0, taDef = false; const taBlk = telcoArmTop(false), siteLate = []; // (v2.42.11: towers drawn after the labels, see below)
     for (const p of pts) {
       if (p.onPole) continue;
       const isNew = p.status === 'Proposed' || p.status === 'New';
@@ -1753,8 +1738,7 @@
           bn = 'G-ESAA P-BTS';
           if (!S.redBts) { S.redBts = true; for (const e of S.blocks.get(bn).ents) { if (typ(e) === 'ATTDEF') continue; const k = e.findIndex((q) => q[0] === 62); if (k >= 0) e[k][1] = I(1); else e.splice(e.findIndex((q) => q[0] === 8) + 1, 0, [62, I(1)]); } }
         }
-        const ins = o.insert(lay('X-BTS'), bn, p.E, p.N, { scale: 2.4, attrs: { BTS_NAME: p.siteName || p.poleId || '', PLA_ID: p.plaId || '' }, attrColor: pinColor(p) }); spots.add(Spots.box(p.E, p.N + 24, 26, 50, 0));
-        if (ins) inCell(ins, p.E, p.N); // v2.42.10: its name kept inside its GEO sheet (it ran past the sheet's edge)
+        spots.add(Spots.box(p.E, p.N + 24, 26, 50, 0)); siteLate.push({ p, bn }); // the tower's place now; the tower and its name after the span lengths
       } else if (p.el === 'ODF') {
         o.insert(isNew ? lay('P-HOST') : lay('X-HOST'), isNew ? 'P-HOST' : 'X-HOST', p.E, p.N, { scale: 0.28, attrs: { HST_NAM: p.poleId || '', HST_COD: '', HST_LET: 'H' }, attrColor: pinColor(p) }); spots.add(Spots.box(p.E, p.N, 10, 10, 0));
       } else if (p.el === 'NAP') { // a NAP pin away from every pole of the route: where it is
@@ -1970,6 +1954,31 @@
       const c = pick(spots, cs);
       o.text(lay('Distance Data'), c.q[0], c.q[1], th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : null }); spots.add(c.boxes);
     }
+    // v2.42.11: each tower, its name 3 m high (2.4 m where crowded; it was 4.1 m, over the cable and the poles' labels) beside the
+    // tower where it covers nothing (the cable, the poles, their labels, the span lengths), inside the tower's GEO sheet
+    const SITE_W = (t) => (t === 'road' ? 0.3 : t === 'cable' ? 3 : 4);
+    for (const { p, bn } of siteLate) {
+      const nm = String(p.siteName || p.poleId || ''), pla = String(p.plaId || ''); let attrs = /** @type {any} */ ({ BTS_NAME: '', PLA_ID: '' });
+      if (nm) {
+        const cands = []; let k = 0;
+        for (const h of [3.0, 2.4]) {
+          const g = h * 0.6 + 0.5, two = !!pla, sub = h * 1.6; // (the PLA ID a line below the name, 0.8 its size)
+          const ys = [40, 30, 20, 10, 2], at = [];
+          for (const y of ys) { at.push([12.4 + g, y, 0]); at.push([-12.4 - g, y, 2]); }
+          for (const x of [0, 12, -12]) { at.push([x, 48 + g + h / 2 + (two ? sub : 0), x > 0 ? 2 : x < 0 ? 0 : 1]); at.push([x, -g - h / 2, x > 0 ? 2 : x < 0 ? 0 : 1]); }
+          for (const y of [30, 10]) { at.push([20 + g, y, 0]); at.push([-20 - g, y, 2]); }
+          for (const [dx, dy, ha] of at) {
+            const q = [p.E + dx, p.N + dy], boxes = [textBox(q[0], q[1], h, nm, 0, ha, 2)]; if (two) boxes.push(textBox(q[0], q[1] - sub, h * 0.8, pla, 0, ha, 2));
+            cands.push({ q, h, ha, sub, cost: k++ + (h < 3 ? 1000 : 0), boxes });
+          }
+        }
+        const inC = cands.filter((c) => c.boxes.every((b) => cellHolds(b, p.E, p.N))), c = pickC(spots, inC.length ? inC : cands, SITE_W);
+        if (inC.length) nInCell++;
+        spots.add(c.boxes, 'label:site');
+        attrs = { BTS_NAME: { v: nm, x: c.q[0], y: c.q[1], h: c.h, ha: c.ha, va: 2 }, PLA_ID: { v: pla, x: c.q[0], y: c.q[1] - c.sub, h: c.h * 0.8, ha: c.ha, va: 2 } };
+      }
+      o.insert(lay('X-BTS'), bn, p.E, p.N, { scale: 2.4, attrs, attrColor: pinColor(p) });
+    }
     // 10. the cable's name: after the street names (v2.39.1), see below
     // the photo of each pole right beside it, upright (v2.32: instead of the pole number). v2.34: every photo one size, no line
     // to the pole, covering nothing (labels, cable, road lines, symbols, other photos); when too many find no free place, all the
@@ -2120,7 +2129,7 @@
           for (const f of [0.5, 0.3, 0.7, 0.15, 0.85]) for (const dd of [0, 0.4, -0.4, 0.6, -0.6]) {
             const q = add2(add2(sg.a, u, f * sg.L), nv, dd * sg.hw), b0 = textBox(q[0], q[1], h, txt, rd, 1, 2), b = { ...b0, hw: b0.hw + h * 1.2, hh: b0.hh + 0.35 }; // room at its ends and sides
             if (!inside(b0, W, 1) || spots.hits(b)) continue;
-            o.text(lay('STREET NAME'), q[0], q[1], h, txt, { rot: rd, ha: 1, va: 2, style: 'arial' }); spots.add(b, 'street'); nStreets++; done = true; break look;
+            o.text(lay('STREET NAME'), q[0], q[1], h, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: 7, obl: 15 }); spots.add(b, 'street'); nStreets++; done = true; break look; // v2.42.11: black, slanted 15° (the yellow could not be read on paper)
           }
         }
       }
@@ -2296,14 +2305,20 @@
       IDX_TL: (sh) => idx(sh, -1, 1), IDX_T: (sh) => idx(sh, 0, 1), IDX_TR: (sh) => idx(sh, 1, 1), IDX_L: (sh) => idx(sh, -1, 0), IDX_C: (sh) => idx(sh, 0, 0), IDX_R: (sh) => idx(sh, 1, 0), IDX_BL: (sh) => idx(sh, -1, -1), IDX_B: (sh) => idx(sh, 0, -1), IDX_BR: (sh) => idx(sh, 1, -1),
       TOC_GEO: () => String(N), TOC_LEGEND: () => String(sheetNames.filter((n) => /^LEGENDS?( \(\d+\))?$/.test(n)).length), TOC_TOTAL: () => String(sheetNames.filter((n) => n !== 'Model').length),
     };
-    const blanks = new Set(), filled = new Set(), rowCells = [], idxTexts = new Set(), filledM = new Set();
+    const blanks = new Set(), filled = new Set(), rowCells = [], idxTexts = new Set(), filledM = new Set(), locTexts = new Set(), sigTexts = new Set();
     const fill = (r, sheet, inBlockText) => {
       const t = typ(r); if (t !== 'TEXT' && t !== 'MTEXT') return;
       const txt = (t === 'MTEXT' ? all(r, 3).join('') : '') + (get(r, 1) || ''); if (txt.indexOf('@@') < 0) return;
       const ctx = sheet || (inBlockText ? 'PAGING' : 'MODEL');
       const val = (k) => { const v = V[k]; return v && typeof v === 'object' && !Array.isArray(v) ? (v[ctx] != null ? v[ctx] : v['*']) : v; };
+      const none = (v) => v == null || v === '' || (Array.isArray(v) && !v.filter((x) => x != null && String(x) !== '').length);
+      // v2.42.12: on the title sheet, the line of the location (given for the title blocks only) is left out when it is blank there:
+      // the site's name moves one line up (an empty line sat between the project type and it)
+      const src0 = t === 'MTEXT' && sheet === 'TITLE' ? txt.replace(/@@LOCATION@@\\P/g, (m) => (none(val('LOCATION')) ? '' : m)) : txt;
+      if (t === 'MTEXT' && ctx === 'PAGING' && src0.includes('@@LOCATION@@')) locTexts.add(r); // v2.42.12: fitted to its box below
+      if (t === 'MTEXT' && /@@SIG_\w+@@/.test(src0)) sigTexts.add(r); // v2.42.12: a name fitted to its cell below
       // v2.34: a value given as lines (an array) is written one per line, without the template's brackets round the field
-      const nt = txt.replace(/\((@@(\w+)@@)\)/g, (m, tok, k) => (Array.isArray(val(k)) && t === 'MTEXT' ? tok : m)).replace(/@@(\w+)@@/g, (m, k) => {
+      const nt = src0.replace(/\((@@(\w+)@@)\)/g, (m, tok, k) => (Array.isArray(val(k)) && t === 'MTEXT' ? tok : m)).replace(/@@(\w+)@@/g, (m, k) => {
         const plain = !(V[k] && typeof V[k] === 'object'); let v = val(k);
         if (Array.isArray(v)) v = v.filter((x) => x != null && String(x) !== '').map(String);
         if ((v == null || v === '' || (Array.isArray(v) && !v.length)) && auto[k]) v = auto[k](sheet);
@@ -2350,6 +2365,35 @@
         for (const r of R2) { const w = em(get(r, 1, '')), h = num(r, 40, 0); if (w > 0 && h > 0) { const fit = pitch * 0.9 * 0.716 / w; if (fit < h) setFirst(r, 40, F(fit)); } }
       }
     }
+    // v2.42.12: the site's details in the title block (SITENAME_PLAID, then the serial number) fitted to their box: a long name ran
+    // past the sheet's frame. Smaller first (to 60 %), then broken after its last "_" and fitted again. The names of the title
+    // block's signatures (Design Engineer…) likewise fitted to their cell.
+    { const EM = (ch, b) => (/[MW]/.test(ch) ? (ch === 'M' ? 0.833 : 0.944) : /[IJ]/.test(ch) ? (ch === 'I' ? 0.278 : 0.556) : /[EFLTZ]/.test(ch) ? 0.611 : /[GOQ]/.test(ch) ? 0.778 : /[PS]/.test(ch) ? 0.667 : /[A-Z]/.test(ch) ? 0.722
+        : /[0-9_]/.test(ch) ? 0.556 : /[ijl]/.test(ch) ? 0.278 : /[ft]/.test(ch) ? 0.333 : /[mw]/.test(ch) ? (ch === 'm' ? 0.889 : 0.778) : /[a-z]/.test(ch) ? (b ? 0.611 : 0.556) : /[ .,]/.test(ch) ? 0.278 : 0.333) * (b && /[A-Z]/.test(ch) ? 1 : b ? 1.02 : 0.93);
+      const wOfL = (str, h, b) => [...String(str)].reduce((a, ch) => a + EM(ch, b), 0) * h / 0.716; // (h: the capitals' height)
+      for (const r of locTexts) {
+        const h = num(r, 40, 0), k = mtextIdx(r, 41), w = k >= 0 ? parseFloat(r[k][1]) || 0 : 0; if (!(h > 0 && w > 0)) continue;
+        // the room: the text is centred on its box (41), so twice the distance from the box's middle to the nearer side of its cell
+        const att = parseInt(get(r, 71, '1'), 10) || 1, ci = (att - 1) % 3, cx = num(r, 10, 0) + (ci === 0 ? w / 2 : ci === 2 ? -w / 2 : 0), cy = num(r, 20, 0) - (att <= 3 ? h * 0.6 : att >= 7 ? -h * 0.6 : 0);
+        const pgE = S.blocks.get('PAGING'), cb = pgE && owner(r) === get(S.brByName.get('PAGING') || [], 5) ? cellOf(pgE.ents, cx, cy) : null;
+        const avail = (cb && cb.x1 - cb.x0 < w * 1.5 ? Math.min(w, 2 * Math.min(cx - cb.x0, cb.x1 - cx)) : w) * 0.96, bold = /\\f[^;|]*\|b1/i.test(textOf(r)), need = () => Math.max(0, ...mtextLines(textOf(r)).map((x) => wOfL(x.trim(), h, bold)));
+        let n = need();
+        if (n > avail / 0.6) { // too long even at 60 %: broken after its last "_" (the name, then the PLA ID)
+          const L0 = mtextLines(textOf(r)).map((x) => x.trim()).filter(Boolean), long = L0.reduce((a, b) => (wOfL(b, h, bold) > wOfL(a, h, bold) ? b : a), ''), q = long.lastIndexOf('_');
+          if (q > 0 && q < long.length - 1) { const raw = textOf(r), i = raw.indexOf(long); if (i >= 0) { setText(r, raw.slice(0, i + q + 1) + '\\P' + raw.slice(i + q + 1)); n = need(); } }
+        }
+        if (n > avail) setFirst(r, 40, F(Math.max(h * 0.45, h * avail / n)));
+      }
+      const ownerEnts = new Map(); for (const L of S.layouts) { if (L.name !== 'Model') ownerEnts.set(L.brh, () => layoutEnts(d, S, L)); }
+      const sigAll = [...sigTexts];
+      for (const r of sigTexts) {
+        const h = num(r, 40, 0), L = mtextLines(textOf(r)).map((x) => x.trim()).filter(Boolean); if (!(h > 0) || !L.length) continue;
+        const ents = ownerEnts.get(owner(r)), x = num(r, 10, 0), y = num(r, 20, 0), box = ents ? cellOf(ents(), x, y + h * 0.6) : null;
+        // the room: up to the next signature of its row (their names are centred on their lines), within the title block's panel
+        const dxs = sigAll.filter((o) => o !== r && owner(o) === owner(r) && Math.abs(num(o, 20, 0) - y) < 1).map((o) => Math.abs(num(o, 10, 0) - x)).filter((v) => v > 1);
+        const edge = box ? 2 * Math.min(x - box.x0, box.x1 - x) : Infinity, avail = Math.min(dxs.length ? Math.min(...dxs) : Infinity, edge, 200) * 0.92, n = Math.max(...L.map((s1) => wOfL(s1, h, false)));
+        if (n > avail) setFirst(r, 40, F(Math.max(h * 0.45, h * avail / n)));
+      } }
     // v2.35: a city / municipality or barangay of the ROW table on one line of its cell: the text box as wide as the cell, and a
     // long name made smaller (the rows are one line tall)
     if (rowCells.length) {
@@ -2439,5 +2483,5 @@
     rep.frame = frame(d, S, [[gx0, gy0, gx1, gy1], ...vics.map((v) => v.sb), ...(tablesBox ? [tablesBox] : [])], rep);
     return { text: d.text(), report: rep };
   }
-  return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.10' };
+  return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.12' };
 }));
