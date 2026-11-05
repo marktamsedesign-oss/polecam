@@ -170,7 +170,7 @@
     quality: 'strict', readId: true, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
     exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'utm', 'time', 'by', 'project'], naming: 'id',
       kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true,
-      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false },
+      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfRows: null, dxfRowSel: 0 }, // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
     saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
     sig: { design: '', project: '', head: '', cse: '', cseAuto: '' }, // v2.42.12: the names in the plan's title blocks (cseAuto: the last CSE Lead the online sheet gave)
   };
@@ -711,7 +711,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.12';
+  const APP_VER = '2.42.14';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1496,7 +1496,7 @@
     });
     // a NAP or closure pin: a dotted line to the pole it stands on
     drw.items.forEach((it) => { if (!it.on) return; const [ax, ay] = drwPx(it.xy), [bx, by] = drwPx(it.on.xy); g.strokeStyle = 'rgba(240,140,0,0.9)'; g.lineWidth = 1.6 * d; g.setLineDash([2 * d, 3 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); });
-    const placed = [], near = v.sc >= 1.4 * d, ct = S.exp.dxfClampType !== false, mode = S.exp.dxfMarks || 'photo', NS = plStyle().num;
+    const placed = [], near = v.sc >= 1.4 * d, ct = S.exp.dxfClampType !== false, mode = curRow().mode, NS = plStyle().num; // (v2.42.14: the drawing shown)
     const roomy = v.sc * 30 >= 26 * d; // the numbers / photos once the poles are far enough apart on screen (zoom in to see them)
     const nCol = ACI_INK[NS.color] || '#d9a400', bCol = ACI_INK[NS.bcolor] || nCol;
     const free = (bx) => !placed.some((q) => bx[0] < q[0] + q[2] && bx[0] + bx[2] > q[0] && bx[1] < q[1] + q[3] && bx[1] + bx[3] > q[1]);
@@ -1520,8 +1520,12 @@
           placed.push([cx - 10 * d, cy - 8 * d, 20 * d, 16 * d]);
         } else {
           const rr = Math.max(7, 3 + String(n).length * 3.2) * d;
-          g.fillStyle = '#ffffff'; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.fill(); if (NS.d > 0) { g.strokeStyle = bCol; g.lineWidth = 1.6 * d; g.stroke(); }
-          g.font = `700 ${9.5 * d}px system-ui, sans-serif`; g.fillStyle = nCol; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(n), cx, cy + 0.5 * d);
+          const sh = [2, 3, 4].includes(+NS.color), so = 1.1 * d; // v2.42.13: a light number over a dark shadow, as on the plan
+          g.fillStyle = '#ffffff'; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.fill();
+          if (NS.d > 0) { if ([2, 3, 4].includes(+(NS.bcolor || NS.color))) { g.strokeStyle = 'rgba(52,58,64,0.9)'; g.lineWidth = 1.6 * d; g.beginPath(); g.arc(cx + so, cy + so, rr, 0, Math.PI * 2); g.stroke(); } g.strokeStyle = bCol; g.lineWidth = 1.6 * d; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.stroke(); }
+          g.font = `700 ${9.5 * d}px system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+          if (sh) { g.fillStyle = 'rgba(52,58,64,0.9)'; g.fillText(String(n), cx + so, cy + 0.5 * d + so); }
+          g.fillStyle = nCol; g.fillText(String(n), cx, cy + 0.5 * d);
           placed.push([cx - rr, cy - rr, rr * 2, rr * 2]);
         }
         g.font = `600 ${fs}px ui-monospace, monospace`;
@@ -1665,9 +1669,11 @@
   }
   /** v2.41: the plan's options at the bottom of the Drawing: photos, numbers or both; clamp types; which points (a dropdown). */
   function renderDrawBar() {
-    $('drawMarks').value = ['photo', 'num', 'both'].includes(S.exp.dxfMarks) ? S.exp.dxfMarks : 'photo';
+    const R0 = dxfRows(), r0 = curRow(), rs = $('drawRow'); // v2.42.14: which drawing of the export is shown (and edited here)
+    rs.hidden = R0.length < 2; rs.innerHTML = R0.map((r, i) => `<option value="${i}" title="${C.xmlEsc(rowText(r))}">Drawing ${i + 1} of ${R0.length}</option>`).join(''); rs.value = String(rowIdx()); rs.title = rowText(r0);
+    $('drawMarks').value = r0.mode;
     $('drawCT').setAttribute('aria-pressed', String(S.exp.dxfClampType !== false));
-    const { cnt, keys } = markGroups(), no = noMarkOf(), box = $('drawTypes'); box.innerHTML = '';
+    const { cnt, keys } = markGroups(), no = rowSel(r0, projPoints()).no, box = $('drawTypes'); box.innerHTML = '';
     const on = keys.filter((k) => !no.has(k)), all = document.createElement('label'); all.className = 'all';
     all.innerHTML = `<input type="checkbox" value="__all"><span>All points</span><span class="cnt">${keys.reduce((t, k) => t + cnt.get(k), 0)}</span>`; all.querySelector('input').checked = on.length === keys.length; box.appendChild(all);
     let grp = '';
@@ -1681,11 +1687,13 @@
   }
   $('drawTypes').addEventListener('change', (e) => {
     const cb = e.target; if (!cb || cb.type !== 'checkbox') return;
-    const { keys } = markGroups(); let set = noMarkOf();
-    if (cb.value === '__all') set = cb.checked ? new Set() : new Set(keys); else if (cb.checked) set.delete(cb.value); else set.add(cb.value);
-    setNoMark(set); renderDrawBar(); drawSeqSoon();
+    const { keys } = markGroups(), R = dxfRows(), r = R[rowIdx()], extra = r.pts.filter((k) => k !== '*' && !keys.includes(k)); // (groups not in this project stay chosen)
+    const on = new Set(r.pts.includes('*') ? keys : r.pts.filter((k) => keys.includes(k)));
+    if (cb.value === '__all') { if (cb.checked) keys.forEach((k) => on.add(k)); else on.clear(); } else if (cb.checked) on.add(cb.value); else on.delete(cb.value);
+    r.pts = keys.length && on.size === keys.length && !extra.length ? ['*'] : [...on, ...extra]; setRows(R); renderDrawBar(); drawSeqSoon();
   });
-  $('drawMarks').addEventListener('change', () => { S.exp.dxfMarks = $('drawMarks').value; persist(); syncExpUi(); drawDrawing(); });
+  $('drawMarks').addEventListener('change', () => { const R = dxfRows(); R[rowIdx()].mode = $('drawMarks').value; setRows(R); renderDrawBar(); drawDrawing(); renderDrawLegend(); });
+  $('drawRow').addEventListener('change', () => { S.exp.dxfRowSel = +$('drawRow').value || 0; persist(); renderDrawBar(); drawSeqSoon(); drawDrawing(); renderDrawLegend(); }); // v2.42.14
   $('drawCT').addEventListener('click', () => { S.exp.dxfClampType = S.exp.dxfClampType === false; persist(); renderDrawBar(); syncExpUi(); drawDrawing(); toast(S.exp.dxfClampType ? 'Clamp types on the plan (e.g. CA 8-10)' : 'Clamp sizes only on the plan: the types stay in the BOQ, KMZ and CSV', 3000); });
   /** v2.41: the legend of the preview (only what this project has). */
   function renderDrawLegend() {
@@ -1698,7 +1706,7 @@
     rows.push([sv('<path d="M1 8h20" stroke="#1c3f94" stroke-width="2.2" stroke-dasharray="4 2.5"/>'), 'Cable, aerial (solid: underground)']);
     if (drw && drw.spans.some((x) => x.sp.long)) rows.push([sv('<path d="M1 8h20" stroke="#c92a2a" stroke-width="2.2"/>'), `Span over ${pol().maxSpan || 200} m`]);
     if (drw && drw.ref.length) { const ri = refInfo(drw.project); rows.push([sv('<path d="M1 8h20" stroke="rgba(112,72,232,0.6)" stroke-width="2" stroke-dasharray="4 3"/>'), `Reference KMZ of this project${ri ? ` (${ri.name})` : ''}: not in the DXF; hide or remove it with the map's KMZ button`]); } // v2.42.12
-    const mode = S.exp.dxfMarks || 'photo';
+    const mode = curRow().mode;
     rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[plStyle().num.bcolor] || ACI_INK[plStyle().num.color] || '#d9a400'}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[plStyle().num.color] || '#d9a400'}" font-family="system-ui,sans-serif">1</text>`), 'Number on the plan']);
     if (mode !== 'num') rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), mode === 'both' ? 'Photo with its number' : 'Photo on the plan']);
     const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)']];
@@ -6740,33 +6748,104 @@
     return out;
   }
   function setNoMark(set) { S.exp.dxfNoMarkBy = { ...(S.exp.dxfNoMarkBy || {}) }; if (set.size) S.exp.dxfNoMarkBy[S.project] = [...set]; else delete S.exp.dxfNoMarkBy[S.project]; persist(); renderDxfMarks(); }
-  /** The points that get a photo or number, and the groups left out. */
-  function dxfMarkSel(pts, no) { no = no || noMarkOf(); const ids = pts.filter((p) => { const k = markKey(p); return k && !no.has(k); }).map((p) => p.id); return { ids, no }; }
+  /* v2.42.14: the drawings of an export, each a row: its points (every point, or groups: electric poles, PLDT, Globe…, sites,
+     handholes…) and what goes beside them (photos, numbers, or photos with their numbers); the other points get nothing. One DXF
+     each in the ZIP. The Drawing screen shows and edits one of them. (Before: "As set in the Drawing", "Every point · …" and "Only
+     … · numbers" ticked in a list, and the Drawing's choice counted only for the first: an "Every point" drawing put photos on
+     every pole although the Drawing showed the electric poles only.) */
+  const ROW_MODES = ['photo', 'num', 'both'], ROW_MAX = 8;
+  const MODE_NAME = { photo: 'Photos (numbers where there is no photo)', num: 'Numbers', both: 'Photos with their numbers' };
+  function cleanRows(R) {
+    return (Array.isArray(R) ? R : []).filter((r) => r && typeof r === 'object').slice(0, ROW_MAX)
+      .map((r) => ({ pts: Array.isArray(r.pts) ? [...new Set(r.pts.map((x) => String(x).slice(0, 40)))].slice(0, 30) : ['*'], mode: ROW_MODES.includes(r.mode) ? r.mode : 'photo' }))
+      .map((r) => (r.pts.includes('*') ? { ...r, pts: ['*'] } : r));
+  }
+  /** The drawings set before v2.42.14, as rows (once): the Drawing's choice, Every point · …, Only … · numbers. */
+  function rowsFromSets() {
+    const sets = Array.isArray(S.exp.dxfSets) && S.exp.dxfSets.length ? S.exp.dxfSets : ['sel'], out = [];
+    const add = (pts, mode) => { if (!out.some((r) => r.mode === mode && r.pts.join('|') === pts.join('|'))) out.push({ pts, mode }); };
+    for (const id of sets) {
+      if (id === 'sel') { const no = noMarkOf(), { keys } = markGroups(), on = keys.filter((k) => !no.has(k)); add(!no.size || on.length === keys.length ? ['*'] : on, ROW_MODES.includes(S.exp.dxfMarks) ? S.exp.dxfMarks : 'photo'); continue; }
+      const m = /^all:(photo|num|both)$/.exec(id); if (m) { add(['*'], m[1]); continue; }
+      const g = /^g:(.+):num$/.exec(id); if (g) add([g[1]], 'num');
+    }
+    return out.length ? out : [{ pts: ['*'], mode: 'photo' }];
+  }
+  function dxfRows() {
+    let R = cleanRows(S.exp.dxfRows);
+    if (!R.length) { R = cleanRows(rowsFromSets()); S.exp.dxfRows = R; persist(); }
+    return R;
+  }
+  const setRows = (R) => { S.exp.dxfRows = cleanRows(R); if (!S.exp.dxfRows.length) S.exp.dxfRows = [{ pts: ['*'], mode: 'photo' }]; S.exp.dxfRowSel = Math.min(Math.max(0, S.exp.dxfRowSel | 0), S.exp.dxfRows.length - 1); persist(); };
+  const rowIdx = () => Math.min(Math.max(0, S.exp.dxfRowSel | 0), dxfRows().length - 1);
+  const curRow = () => dxfRows()[rowIdx()];
+  const rowHas = (r, k) => r.pts.includes('*') || r.pts.includes(k);
+  /** The points of a row (a photo or number beside them) and the groups left out. */
+  function rowSel(r, pts) { const ids = pts.filter((p) => { const k = markKey(p); return k && rowHas(r, k); }).map((p) => p.id); return { ids, no: new Set(markGroups(pts).keys.filter((k) => !rowHas(r, k))) }; }
+  /** The points that get a photo or number (the drawing shown in the Drawing, or the groups left out given), and the groups left out. */
+  function dxfMarkSel(pts, no) { if (!no) return rowSel(curRow(), pts); const ids = pts.filter((p) => { const k = markKey(p); return k && !no.has(k); }).map((p) => p.id); return { ids, no }; }
   function markGroups(pts) { const cnt = new Map(); (pts || projPoints()).forEach((p) => { const k = markKey(p); if (k) cnt.set(k, (cnt.get(k) || 0) + 1); });
     const poleKeys = ['ELEC', ...poleTypes().map((t) => t.p).filter((k) => !ELEC_TYPES.has(k))];
     return { cnt, keys: [...poleKeys.filter((k) => cnt.has(k)), ...['_none'].filter((k) => cnt.has(k)), ...MARK_ELS.map((e) => `el:${e}`).filter((k) => cnt.has(k))] }; }
-  /** v2.41: the plan's options as one line (the DXF card shows it; they are set on the Drawing screen). */
-  function planOptsText() {
-    const { cnt, keys } = markGroups(), no = noMarkOf(), on = keys.filter((k) => !no.has(k)), n = on.reduce((t, k) => t + cnt.get(k), 0), mode = S.exp.dxfMarks || 'photo';
-    return `${mode === 'num' ? 'Numbers' : mode === 'both' ? 'Photos with their numbers' : 'Photos (numbers where there is no photo)'} beside ${!keys.length ? 'the points' : on.length === keys.length ? `every pole and point (${n})` : !on.length ? 'no point' : `${on.map(markShort).join(' + ')} only (${n})`} · clamp types ${S.exp.dxfClampType !== false ? 'on the plan' : 'off the plan (sizes only)'}`;
+  const chipName = (k) => (k === 'ELEC' ? 'Electric poles' : k === '_none' ? 'Poles with no type' : k.startsWith('el:') ? (MARK_EL_NAME[k.slice(3)] || k.slice(3)).replace(/ \(.*\)$/, '') : `${prefixType(k) || k} poles`);
+  /** A row in words: "Photos with their numbers beside the electric poles (120)". */
+  function rowText(r, short) {
+    const { cnt, keys } = markGroups(), all = r.pts.includes('*'), on = all ? keys : keys.filter((k) => r.pts.includes(k)), n = on.reduce((t, k) => t + cnt.get(k), 0);
+    const who = all ? `every pole and point (${n})` : !on.length ? (r.pts.length ? `${r.pts.map(chipName).join(' + ')} (none in this project)` : 'no point') : `${on.map(chipName).join(' + ')} only (${n})`;
+    return short ? `${({ photo: 'Photos', num: 'Numbers', both: 'Photos + numbers' })[r.mode]} · ${who}` : `${MODE_NAME[r.mode]} beside ${who}`;
   }
-  /* v2.41: several plan DXFs in one export (one ZIP): every point with photos, with numbers, with both; only the electric poles, only
-     one pole type (PLDT, Globe…), with numbers (for an RTA application); and the choice made on the Drawing screen. */
-  function dxfSetList() {
-    const { cnt, keys } = markGroups(), out = [{ id: 'sel', name: `As set in the Drawing: ${planOptsText().split(' · ')[0].toLowerCase()}` },
-      { id: 'all:photo', name: 'Every point · photos' }, { id: 'all:num', name: 'Every point · numbers' }, { id: 'all:both', name: 'Every point · photos with their numbers' }];
-    keys.filter((k) => !k.startsWith('el:') && k !== '_none').forEach((k) => out.push({ id: `g:${k}:num`, name: `Only ${markName(k).replace(/ \(concrete, wood, steel\)/, '')} · numbers (${cnt.get(k)})` }));
-    return out;
+  /** v2.41: the plan's options as one line (the DXF card shows it; they are set on the Drawing screen). v2.42.14: the drawing shown. */
+  function planOptsText() { return `Clamp types ${S.exp.dxfClampType !== false ? 'on the plan' : 'off the plan (sizes only)'}; the Drawing shows drawing ${rowIdx() + 1}${dxfRows().length > 1 ? ` of ${dxfRows().length}` : ''}`; }
+  /** The file name's part for a row: ALL_PHOTOS, ELECTRIC_POLES_PHOTOS_NUMBERS, PLDT_POLES_NUMBERS, SITES_NUMBERS… */
+  function rowTag(r) {
+    const md = { photo: 'PHOTOS', num: 'NUMBERS', both: 'PHOTOS_NUMBERS' }[r.mode];
+    if (r.pts.includes('*')) return `ALL_${md}`; if (!r.pts.length) return 'NO_MARKS';
+    const cl = (x) => String(x).toUpperCase().replace(/[^A-Z0-9]+/g, '');
+    const poles = r.pts.filter((k) => !k.startsWith('el:')).map((k) => (k === 'ELEC' ? 'ELECTRIC' : k === '_none' ? 'UNTYPED' : cl(k))), els = r.pts.filter((k) => k.startsWith('el:')).map((k) => cl(k.slice(3)));
+    return [poles.length ? `${poles.join('_')}_POLES` : '', els.join('_'), md].filter(Boolean).join('_').slice(0, 60);
   }
-  const dxfSetsOn = () => { const ids = new Set(dxfSetList().map((x) => x.id)), v = (Array.isArray(S.exp.dxfSets) ? S.exp.dxfSets : ['sel']).filter((x) => ids.has(x)); return v.length ? v : ['sel']; };
   function renderDxfMarks() {
     renderSig(); // v2.42.12
     const box = $('dxfSets'); if (!box) return;
     $('dxfPlanSum').textContent = planOptsText();
-    const on = new Set(dxfSetsOn()); box.innerHTML = '';
-    dxfSetList().forEach((x) => { const l = document.createElement('label'), cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = x.id; cb.checked = on.has(x.id); l.append(cb, document.createTextNode(x.name)); box.appendChild(l); });
-    $('dxfSetsInfo').textContent = on.size > 1 ? `${on.size} drawings in one ZIP, with their photos and one README.` : 'One drawing. Tick more for several drawings in one ZIP (e.g. one for each pole owner).';
+    const R = dxfRows(), { cnt, keys } = markGroups(), total = keys.reduce((t, k) => t + cnt.get(k), 0); box.innerHTML = '';
+    R.forEach((r, i) => {
+      const d = document.createElement('div'); d.className = 'dxfrow'; d.dataset.i = String(i);
+      const hd = document.createElement('div'); hd.className = 'dxfrowhd';
+      const t = document.createElement('b'); t.textContent = `Drawing ${i + 1}`; const sm = document.createElement('span'); sm.className = 'hint'; sm.textContent = rowText(r);
+      const pv = document.createElement('button'); pv.type = 'button'; pv.className = 'btn small'; pv.dataset.act = 'prev'; pv.textContent = 'Preview'; pv.setAttribute('aria-label', `Preview drawing ${i + 1} in the Drawing`);
+      hd.append(t, pv);
+      if (R.length > 1) { const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'btn small'; rm.dataset.act = 'del'; rm.textContent = 'Remove'; rm.setAttribute('aria-label', `Remove drawing ${i + 1}`); hd.appendChild(rm); }
+      const ch = document.createElement('div'); ch.className = 'chips dxfchips'; ch.setAttribute('role', 'group'); ch.setAttribute('aria-label', `Points of drawing ${i + 1}`);
+      const chip = (k, label, n) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small'; b.dataset.k = k; b.setAttribute('aria-pressed', String(k === '*' ? r.pts.includes('*') : !r.pts.includes('*') && r.pts.includes(k))); b.textContent = n == null ? label : `${label} · ${n}`; ch.appendChild(b); };
+      chip('*', 'Every point', total);
+      keys.forEach((k) => chip(k, chipName(k), cnt.get(k)));
+      r.pts.filter((k) => k !== '*' && !keys.includes(k)).forEach((k) => chip(k, `${chipName(k)} (none here)`, null));
+      const ml = document.createElement('label'); ml.className = 'field'; ml.textContent = 'Beside them';
+      const sel = document.createElement('select'); sel.dataset.act = 'mode'; sel.setAttribute('aria-label', `What goes beside the points of drawing ${i + 1}`);
+      ROW_MODES.forEach((m) => { const o = document.createElement('option'); o.value = m; o.textContent = MODE_NAME[m]; sel.appendChild(o); }); sel.value = r.mode; ml.appendChild(sel);
+      d.append(hd, sm, ch, ml); box.appendChild(d);
+    });
+    $('dxfRowAdd').hidden = R.length >= ROW_MAX;
+    $('dxfSetsInfo').textContent = R.length > 1 ? `${R.length} drawings in one ZIP (one DXF each), with their photos and one README. A point not chosen in a drawing gets no photo or number there.` : 'One drawing. Add a drawing for another set of points (e.g. one for each pole owner, numbers only).';
   }
+  $('dxfSets').addEventListener('click', (e) => {
+    const b = e.target.closest('button'), row = e.target.closest('.dxfrow'); if (!b || !row) return;
+    const i = +row.dataset.i, R = dxfRows(), r = R[i]; if (!r) return;
+    if (b.dataset.act === 'del') { R.splice(i, 1); if (S.exp.dxfRowSel >= i && S.exp.dxfRowSel > 0) S.exp.dxfRowSel--; setRows(R); renderDxfMarks(); return; }
+    if (b.dataset.act === 'prev') { S.exp.dxfRowSel = i; persist(); closeSheet().then(() => { if (drawOn()) openDrawing(); else toast('The Drawing is for As-Plan and As-Built surveys'); }); return; }
+    const k = b.dataset.k; if (!k) return;
+    const { keys } = markGroups();
+    if (k === '*') r.pts = r.pts.includes('*') ? [] : ['*']; // Every point, or none (the plan without photos or numbers)
+    else if (r.pts.includes('*')) r.pts = [k]; // from every point: that group only
+    else { const on = new Set(r.pts); if (on.has(k)) on.delete(k); else on.add(k); const list = [...on]; r.pts = keys.length && keys.every((x) => on.has(x)) && list.every((x) => keys.includes(x)) ? ['*'] : list; } // more groups, or fewer
+    setRows(R); renderDxfMarks();
+  });
+  $('dxfSets').addEventListener('change', (e) => {
+    const s0 = e.target; if (!s0 || s0.dataset.act !== 'mode') return; const row = s0.closest('.dxfrow'), R = dxfRows(), r = R[+row.dataset.i]; if (!r) return;
+    r.mode = ROW_MODES.includes(s0.value) ? s0.value : 'photo'; setRows(R); renderDxfMarks();
+  });
+  $('dxfRowAdd').addEventListener('click', () => { const R = dxfRows(); if (R.length >= ROW_MAX) return; R.push({ pts: ['*'], mode: 'num' }); setRows(R); renderDxfMarks(); });
   /* v2.42.12: the names in the title block of every sheet (above the signature lines): Design Engineer, Project Engineer and
      Head-Cable Engineering typed once and kept on this phone; the CSE Lead from the online sheet's CSE LEAD tab (Territory, Full
      Name), by the project's territory (Project Data → Territory), at each sync; Junior Engineer left blank. A CSE Lead typed by
@@ -6802,7 +6881,6 @@
   }
   SIG_IDS.forEach(([id, k]) => { const el = $(id); if (el) el.addEventListener('input', () => { S.sig[k] = s100(el.value, k === 'cse' ? 120 : 80); persist(); }); });
   SIG_IDS.forEach(([id]) => { const el = $(id); if (el) el.addEventListener('change', () => renderSig()); });
-  $('dxfSets').addEventListener('change', () => { const v = [...$('dxfSets').querySelectorAll('input:checked')].map((c) => c.value); S.exp.dxfSets = v.length ? v : ['sel']; persist(); renderDxfMarks(); });
   $('dxfOpenDrawing').addEventListener('click', () => { closeSheet().then(() => { if (drawOn()) openDrawing(); else toast('The Drawing is for As-Plan and As-Built surveys'); }); });
   $('dxfStyleBtn').addEventListener('click', () => openStyle());
   $('dxfTplLoad').addEventListener('click', () => { $('dxfTplFile').value = ''; $('dxfTplFile').click(); });
@@ -7145,12 +7223,11 @@
     // v2.41: the drawings of this export: the Drawing's choice, and / or every point with photos, numbers or both, and one pole group
     //        with numbers (an RTA application for each owner); one DXF each, in one ZIP
     const MG0 = markGroups(pts), allNo = new Set();
-    const SETS = dxfSetsOn().map((id) => {
-      if (id === 'sel') { const MS = dxfMarkSel(pts); const on = MG0.keys.filter((k) => !MS.no.has(k)); return { id, tag: 'DRAWING_CHOICE', mode: ['photo', 'num', 'both'].includes(S.exp.dxfMarks) ? S.exp.dxfMarks : 'photo', ids: MS.ids, no: MS.no, what: MS.no.size ? (on.length ? `only ${on.map(markName).join(', ')}` : 'no point (all left out)') : 'every pole and the other points (handholes, ODC, site…)' }; }
-      const m = /^all:(photo|num|both)$/.exec(id); if (m) return { id, tag: { photo: 'ALL_PHOTOS', num: 'ALL_NUMBERS', both: 'ALL_PHOTOS_NUMBERS' }[m[1]], mode: m[1], ids: dxfMarkSel(pts, allNo).ids, no: allNo, what: 'every pole and the other points (handholes, ODC, site…)' };
-      const g = /^g:(.+):num$/.exec(id), k = g ? g[1] : '', no = new Set(MG0.keys.filter((x) => x !== k));
-      return { id, tag: `${k === 'ELEC' ? 'ELECTRIC' : k.replace(/[^A-Z0-9]+/gi, '')}_POLES_NUMBERS`, mode: 'num', ids: dxfMarkSel(pts, no).ids, no, what: `only ${markName(k)}` };
+    const SETS = dxfRows().map((r, i) => { // v2.42.14: each drawing of the export: its points and what goes beside them; the other points nothing
+      const MS = rowSel(r, pts), on = MG0.keys.filter((k) => rowHas(r, k));
+      return { id: `row${i + 1}`, tag: rowTag(r), mode: r.mode, ids: MS.ids, no: MS.no, what: r.pts.includes('*') ? 'every pole and the other points (handholes, ODC, site…)' : on.length ? `only ${on.map(markName).join(', ')}` : r.pts.length ? `only ${r.pts.map(markName).join(', ')}: none in this project (no photo or number)` : 'no point (no photo or number)' };
     });
+    { const seen = new Map(); SETS.forEach((x) => { const n = (seen.get(x.tag) || 0) + 1; seen.set(x.tag, n); if (n > 1) x.tag = `${x.tag}_${n}`; }); } // two alike: _2
     const markSet = new Set(SETS.filter((x) => x.mode !== 'num').flatMap((x) => x.ids)); // the points whose photo some drawing shows
     // v2.31: what the template's pole models show: proposed pole (its ID unless generic) / height / clamp; an existing pole's material
     // and pole tag (electric) or material and ID (telco pole: Globe, Bayantel, or a telco owner); the new arm and guying
@@ -8440,7 +8517,7 @@
     ['kmzRoute', 'kmzRoute2', 'kmzRoute', 'bool'], ['kmzStamp', 'kmzStamp3', 'kmzStamp', 'bool'], ['kmzStamp2', 'kmzStamp3', 'kmzStamp', 'bool'],
     ['pdfPhotoSize', 'pdfPhotoSize2', 'pdfPhotoSize', 'str'], ['pdfAnnexA', 'pdfAnnexA2', 'pdfAnnexA', 'bool'], ['pdfAnnexB', 'pdfAnnexB2', 'pdfAnnexB', 'bool'],
     ['pdfDates', 'xlsDates', 'pdfDates', 'str'], ['xlsTable', null, 'xlsTable', 'bool'], ['xlsPhotos', null, 'xlsPhotos', 'bool'], ['kmzData', null, 'kmzData', 'bool'],
-    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['drawMarks', null, 'dxfMarks', 'str'], ['dxfPdf', null, 'dxfPdf', 'bool']]; // v2.41: the plan's options are on the Drawing screen
+    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['dxfPdf', null, 'dxfPdf', 'bool']]; // v2.41: the plan's options are on the Drawing screen
   const expIds = {};
   EXP_PAIRS.forEach(([a, b, key, kind]) => { [a, b].filter(Boolean).forEach((id) => { const l = (expIds[key] = expIds[key] || []); if (!l.some((x) => x[0] === id)) l.push([id, kind]); }); });
   function syncExpUi() {
@@ -11561,5 +11638,6 @@
   window.__polecam = { get points() { return points; }, get S() { return S; }, drwSeq: () => (drw ? { n: drw.seq.size, max: Math.max(0, ...drw.seq.values()) } : null), get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, get lastQrLink() { return qrLink; }, get lastQrFull() { return qrAlt ? qrAlt.full : qrLink; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
     surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads, routeAdvice: () => routeAdvice(routeModel()), renderPoles, persist, cloudSync: (f) => cloudSync(f), renderSig, // v2.42.12
+    setDxfRows: (R, sel) => { setRows(R); if (sel != null) { S.exp.dxfRowSel = sel; persist(); } renderDxfMarks(); }, dxfRows: () => dxfRows(), // v2.42.14
     clamps: () => { const R = routeModel(), all = projPoints(); return Object.fromEntries(all.filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, clampOf(p, R, all).join('+')])); } }; // for testing (v2.39: the poles' clamps)
 })();

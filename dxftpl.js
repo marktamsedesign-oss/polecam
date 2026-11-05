@@ -1090,6 +1090,13 @@
     line(pts, w) { for (let k = 1; k < pts.length; k++) { const a = pts[k - 1], b = pts[k], L = dist2(a, b); if (L > 0.01) this.add(Spots.box((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, L, w, Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI)); } }
   }
   const CHW = 0.72; // width of a character / text height (Arial capitals and digits, a little generous)
+  /** v2.42.13: how wide AutoCAD draws a one-line text in Arial (bold: Arial bold), h its height (the capitals' height): the widths of
+      the font's letters, not one width for all (a tower's name was placed over the cable: it is wider than the estimate). */
+  function arialW(str, h, bold) {
+    const em = (ch) => (/[MW]/.test(ch) ? (ch === 'M' ? 0.833 : 0.944) : /[IJ]/.test(ch) ? (ch === 'I' ? 0.278 : 0.556) : /[EFLTZ]/.test(ch) ? 0.611 : /[GOQ]/.test(ch) ? 0.778 : /[PS]/.test(ch) ? 0.667 : /[A-Z]/.test(ch) ? 0.722
+      : /[0-9_]/.test(ch) ? 0.556 : /[ijl]/.test(ch) ? 0.278 : /[ft]/.test(ch) ? 0.333 : /[mw]/.test(ch) ? (ch === 'm' ? 0.889 : 0.778) : /[a-z]/.test(ch) ? (bold ? 0.611 : 0.556) : /[ .,]/.test(ch) ? 0.278 : 0.333);
+    return [...String(str)].reduce((a, ch) => a + em(ch) * (bold && !/[A-Z]/.test(ch) ? 1.02 : !bold && /[A-Z]/.test(ch) ? 0.93 : 1), 0) * h / 0.716;
+  }
   /** The box of a one-line text: anchored at (x, y) by ha (0 left, 1 centre, 2 right) and va (0 base, 2 middle, 3 top). */
   function textBox(x, y, h, s, deg, ha, va) {
     const w = Math.max(1, String(s).length) * h * CHW, a = (deg || 0) * Math.PI / 180, ux = Math.cos(a), uy = Math.sin(a), vx = -uy, vy = ux;
@@ -1954,26 +1961,40 @@
       const c = pick(spots, cs);
       o.text(lay('Distance Data'), c.q[0], c.q[1], th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : null }); spots.add(c.boxes);
     }
-    // v2.42.11: each tower, its name 3 m high (2.4 m where crowded; it was 4.1 m, over the cable and the poles' labels) beside the
-    // tower where it covers nothing (the cable, the poles, their labels, the span lengths), inside the tower's GEO sheet
-    const SITE_W = (t) => (t === 'road' ? 0.3 : t === 'cable' ? 3 : 4);
+    // v2.42.11: each tower, its name beside the tower where it covers nothing (the cable, the road lines, the poles, their labels,
+    // the span lengths), inside the tower's GEO sheet. v2.42.13: its box as wide as AutoCAD draws it (Arial bold at the attribute's
+    // width factor; it was narrower, so a name was put over the cable and the road), more places round the tower (beside it at every
+    // height, above and below it ending at its middle or its sides, further out), and smaller where none is free (3, 2.4, 2, 1.6 m);
+    // the place covering least only when no size has a free one
+    const SITE_W = (t) => (t === 'road' ? 0.5 : t === 'cable' ? 3 : 4);
+    const attW = (bn, tag) => { const b = S.blocks.get(bn), df = b && b.ents.find((e) => typ(e) === 'ATTDEF' && get(e, 2) === tag); const w = df ? parseFloat(get(df, 41, '1')) : 1; return Number.isFinite(w) && w > 0 ? w : 1; };
+    const inCellBox = (b, E, N) => { // the box's corners inside the GEO cell of the point (2 m in)
+      const ci = Math.floor((E - gox) / cell), cj = Math.floor((N - goy) / cell), W = [gox + ci * cell + 2, goy + cj * cell + 2, gox + (ci + 1) * cell - 2, goy + (cj + 1) * cell - 2];
+      return [[1, 1], [1, -1], [-1, 1], [-1, -1]].every(([a, c]) => { const x = b.cx + b.ux * b.hw * a + b.vx * b.hh * c, y = b.cy + b.uy * b.hw * a + b.vy * b.hh * c; return x >= W[0] && x <= W[2] && y >= W[1] && y <= W[3]; });
+    };
     for (const { p, bn } of siteLate) {
       const nm = String(p.siteName || p.poleId || ''), pla = String(p.plaId || ''); let attrs = /** @type {any} */ ({ BTS_NAME: '', PLA_ID: '' });
       if (nm) {
-        const cands = []; let k = 0;
-        for (const h of [3.0, 2.4]) {
-          const g = h * 0.6 + 0.5, two = !!pla, sub = h * 1.6; // (the PLA ID a line below the name, 0.8 its size)
-          const ys = [40, 30, 20, 10, 2], at = [];
-          for (const y of ys) { at.push([12.4 + g, y, 0]); at.push([-12.4 - g, y, 2]); }
-          for (const x of [0, 12, -12]) { at.push([x, 48 + g + h / 2 + (two ? sub : 0), x > 0 ? 2 : x < 0 ? 0 : 1]); at.push([x, -g - h / 2, x > 0 ? 2 : x < 0 ? 0 : 1]); }
-          for (const y of [30, 10]) { at.push([20 + g, y, 0]); at.push([-20 - g, y, 2]); }
-          for (const [dx, dy, ha] of at) {
-            const q = [p.E + dx, p.N + dy], boxes = [textBox(q[0], q[1], h, nm, 0, ha, 2)]; if (two) boxes.push(textBox(q[0], q[1] - sub, h * 0.8, pla, 0, ha, 2));
-            cands.push({ q, h, ha, sub, cost: k++ + (h < 3 ? 1000 : 0), boxes });
-          }
+        const wfN = attW(bn, 'BTS_NAME'), wfP = attW(bn, 'PLA_ID'), two = !!pla, bySize = [];
+        const boxAt = (x, y, w, h, ha) => Spots.box(x + (ha === 0 ? w / 2 : ha === 2 ? -w / 2 : 0), y, w, h, 0);
+        for (const h of [3.0, 2.4, 2.0, 1.6]) {
+          const wN = arialW(nm, h, true) * wfN + h * 0.5, hp = h * 0.8, wP = two ? arialW(pla, hp, false) * wfP + hp * 0.5 : 0, sub = h * 1.6, g = h * 0.4 + 0.6;
+          const tallUp = h * 0.65 + 0.3, tallDn = two ? sub + hp * 0.65 + 0.3 : tallUp; // the name's middle to the top of its box, to the bottom of the PLA ID
+          const at = []; // [x, y, ha] of the name's middle-left / -centre / -right; nearest first
+          for (const dy of [30, 22, 38, 14, 44, 6]) { at.push([-12.4 - g, dy, 2]); at.push([12.4 + g, dy, 0]); }
+          for (const [x, ha] of [[0, 1], [12.4, 2], [-12.4, 0], [3, 2], [-3, 0]]) { at.push([x, 48 + g + tallDn, ha]); at.push([x, -g - tallUp, ha]); }
+          for (const dx of [6, 12, 20]) for (const dy of [30, 14, 44, 2]) { at.push([-12.4 - g - dx, dy, 2]); at.push([12.4 + g + dx, dy, 0]); }
+          const cs = at.map(([dx, dy, ha], k) => {
+            const q = [p.E + dx, p.N + dy], boxes = [boxAt(q[0], q[1], wN, h * 1.3, ha)]; if (two) boxes.push(boxAt(q[0], q[1] - sub, wP, hp * 1.3, ha));
+            return { q, h, ha, sub, cost: k, boxes };
+          }).filter((c) => c.boxes.every((b) => inCellBox(b, p.E, p.N)));
+          bySize.push(cs);
         }
-        const inC = cands.filter((c) => c.boxes.every((b) => cellHolds(b, p.E, p.N))), c = pickC(spots, inC.length ? inC : cands, SITE_W);
-        if (inC.length) nInCell++;
+        let c = null;
+        for (const cs of bySize) { c = cs.find((x) => x.boxes.reduce((t, b) => t + spots.hitsW(b, SITE_W), 0) === 0); if (c) break; } // the largest size with a free place
+        if (!c) { const all = bySize.flat(); if (all.length) c = pickC(spots, all.map((x) => ({ ...x, cost: x.cost + (3 - x.h) * 40 })), SITE_W); } // none free: the place covering least (bigger first)
+        if (!c) { const h = 2.0, q = [p.E - 12.4 - 1.4, p.N + 30]; c = { q, h, ha: 2, sub: h * 1.6, boxes: [boxAt(q[0], q[1], arialW(nm, h, true) * wfN, h * 1.3, 2)] }; } // (no place inside the sheet: at its left)
+        else nInCell++;
         spots.add(c.boxes, 'label:site');
         attrs = { BTS_NAME: { v: nm, x: c.q[0], y: c.q[1], h: c.h, ha: c.ha, va: 2 }, PLA_ID: { v: pla, x: c.q[0], y: c.q[1] - c.sub, h: c.h * 0.8, ha: c.ha, va: 2 } };
       }
@@ -2077,6 +2098,10 @@
     let Lp = Math.max(12, 18 * kG), photoPl = placePhotos(Lp);
     for (let tries = 0; tries < 2 && photoPl.miss > Math.max(1, markOrder.length / 4); tries++) { spots.truncate(photoPl.mark); Lp *= 0.8; photoPl = placePhotos(Lp); }
     const nCol = NS.color || null, bCol = NS.bcolor || NS.color || null, nLay = lay('p-pole');
+    // v2.42.13: a number in a light colour (yellow, the default; green or cyan) over a dark shadow, its circle and leader line too: on
+    // white paper the yellow could not be read
+    const layCol = (n) => { const L = S.layers.get(n); return L ? Math.abs(parseInt(get(L, 62, '7'), 10) || 7) : 7; };
+    const lightCol = (c) => [2, 3, 4].includes(c), shN = lightCol(nCol != null ? +nCol : layCol(nLay)), shB = lightCol(bCol != null ? +bCol : layCol(nLay)), SH = 250, so = NS.h * 0.08;
     for (const { p, ph, w, h, q, u } of photoPl.out) {
       if (ph && havePhotos) {
         getImgs().image(o, lay(photoLayer), ph.file, ph.px, ph.py, q[0] - w / 2, q[1] - h / 2, w, h);
@@ -2089,9 +2114,12 @@
         }
       } else {
         const D = NS.d > 0 ? numD(p) : 0;
+        const la = NS.leader ? add2(p.dp, u, rOf(p) + 0.2) : null, lb = NS.leader ? add2(q, u, -(D || NS.h) / 2 - 0.2) : null, lead = la && dist2(la, lb) > 0.5;
+        if (shB) { if (D) o.circle(nLay, q[0] + so, q[1] - so, D / 2, { color: SH }); if (lead) o.lwpoly(nLay, [[la[0] + so, la[1] - so], [lb[0] + so, lb[1] - so]], { color: SH }); } // the shadows first (drawn under)
+        if (shN) o.text(nLay, q[0] + so, q[1] - so, NS.h, String(p.seq), { ha: 1, va: 2, style: 'arial', color: SH });
         if (D) o.circle(nLay, q[0], q[1], D / 2, { color: bCol });
         o.text(nLay, q[0], q[1], NS.h, String(p.seq), { ha: 1, va: 2, style: 'arial', color: nCol });
-        if (NS.leader) { const la = add2(p.dp, u, rOf(p) + 0.2), lb = add2(q, u, -(D || NS.h) / 2 - 0.2); if (dist2(la, lb) > 0.5) o.lwpoly(nLay, [la, lb], { color: bCol }); }
+        if (lead) o.lwpoly(nLay, [la, lb], { color: bCol });
       }
     }
     if (job.debug) rep.layout = { poles: poleOrder.map((p) => ({ id: String(p.id), dp: p.dp, td: p.td, ov: p.ov, rr: p._rr })), marks: photoPl.out.map(({ p, ph, w, h, q, u, how }) => ({ id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
@@ -2483,5 +2511,5 @@
     rep.frame = frame(d, S, [[gx0, gy0, gx1, gy1], ...vics.map((v) => v.sb), ...(tablesBox ? [tablesBox] : [])], rep);
     return { text: d.text(), report: rep };
   }
-  return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.12' };
+  return { build, clean, repair, mtextWidth, mtextLines, blockBox, drawnBox, Doc, structure, clipLine, roadWidth, layoutRoads, vicCircle, locations, vicArea, markOrder, NUM_STYLE, ID_STYLE, VIC_STYLE, version: '2.42.14' };
 }));

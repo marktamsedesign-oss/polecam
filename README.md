@@ -536,6 +536,31 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.14
+
+The drawings of a plan export, redesigned. **Export the plan again.** No change to the online sheet's script. (v2.42.13, below, was not released separately: its fixes are in this version.)
+
+- **Why:** a drawing ticked as *Every point · photos with their numbers* put a photo and a number on every pole, although the Drawing showed the electric poles only. The Drawing's choice counted only for *As set in the Drawing*, and there was no way to get photos with numbers for one group only.
+- **Now:** the DXF card's **DRAWINGS IN THIS EXPORT** has one box per drawing. In each box:
+  - **Points:** tap **Every point**, or one or more groups: **Electric poles**, **Globe poles**, **PLDT poles**… and the sites, handholes, ODC…. From *Every point*, one tap on a group keeps that group only; tap more groups to add them.
+  - **Beside them:** **Photos**, **Numbers** or **Photos with their numbers**.
+
+  The points not chosen get **no photo and no number** in that drawing. **+ Add a drawing** adds another, up to 8, and **Remove** takes one away. You get one DXF per drawing in the ZIP, named by its points and what is beside them (e.g. `…_ELECTRIC_POLES_PHOTOS_NUMBERS.dxf`, `…_PLDT_POLES_NUMBERS.dxf`, `…_ALL_PHOTOS.dxf`).
+- **Drawing screen:** **Preview** on a box opens the Drawing on that drawing. With several drawings, the bar has a chooser (*Drawing 2 of 3*), and the bar's *Photos / Numbers / Photos + no.* and points choice change the drawing shown.
+- The drawings ticked in an older G-eSAA become boxes the first time: *As set in the Drawing*, *Every point · …* and *Only … · numbers*. The drawings are kept on the phone for every project. A group a project does not have gives a drawing without photos or numbers, and the README says so.
+
+## What changed in v2.42.13
+
+Two fixes to the plan's labels. **Export the plan again.** No change to the online sheet's script.
+
+- **Tower name:** the name is measured at the width AutoCAD actually draws it (Arial bold). Before, it was measured narrower, so a name was put across the cable and the road. The app tries more places round the tower, nearest first:
+  - beside it at every height;
+  - above and below it, starting at its middle or at either side;
+  - further out.
+
+  The name goes at the largest size that fits a free place (3 m, 2.4 m, 2 m or 1.6 m), clear of the cable, the road lines, the poles and their labels, and inside the tower's GEO sheet. Only when no size fits a free place does it take the place that covers the least.
+- **Pole numbers:** a number in a light colour (yellow, the default; also green or cyan) is drawn over a dark shadow, and so are its circle and leader line. The yellow could not be read on white paper. The Drawing preview shows the shadow too.
+
 ## What changed in v2.42.12
 
 Names in the plan's title block, and two layout fixes. **Update the online sheet's script too** (`PoleCam-online-sheet_v2.42.12.gs`: paste it, Save, then Deploy → Manage deployments → Edit → New version; nothing new to allow). Until you update it, everything works as before, but the CSE Lead has to be typed by hand.
@@ -742,7 +767,11 @@ From the two design reviews of 1 Nov 2026 (the plan review, 23 comments; the app
 **DXF card**
 
 - **ON THE PLAN** says what the Drawing set (*Numbers beside PLDT only (12) · clamp types off the plan*), with **Set it in the Drawing** and **Drawing style…**.
-- **DRAWINGS IN THIS EXPORT**: tick several for several DXFs in one ZIP (the photos once, one README listing each drawing and its numbers): *As set in the Drawing*, *Every point · photos*, *· numbers*, *· photos with their numbers* (the number at each photo's upper left), and *Only electric poles · numbers*, *Only PLDT poles · numbers*… one for each pole group of the project (an RTA application for each owner).
+- **DRAWINGS IN THIS EXPORT** (v2.42.14): one box per drawing, one DXF each in one ZIP (the photos once, one README listing each drawing and its numbers). In each box:
+  - **Points:** *Every point*, or one or more groups: *Electric poles*, *Globe poles*, *PLDT poles*… and the other points by element (ODC, ODF, sites, handholes…).
+  - **Beside them:** *Photos* (numbers where there is no photo), *Numbers*, or *Photos with their numbers* (the number at each photo's upper left).
+
+  Points not chosen get nothing in that drawing. **+ Add a drawing** for another one, for example one per pole owner with numbers for an RTA application. **Preview** opens it in the Drawing.
 - **Use another template file…** is hidden when your admin shares the plan template, unless Administration → *Users may load a plan template file of their own* is ticked (off by default).
 
 **On the plan**
