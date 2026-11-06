@@ -536,6 +536,23 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.20
+
+Fibers (named runs). No update of the online sheet needed.
+
+- **Fiber 1, Fiber 2…** In Route, each FOC cable can be a fiber with its own way from its start to its end. The **FIBERS** row in the route bar: All, a chip for each fiber (e.g. *F2 · 12C · right*), **+ Fiber**.
+- **+ Fiber, + Add points**: tap the start, then each pole along its way. A pole further along the spans brings in the poles between, so Fiber 3 can follow Fiber 2's poles while Fiber 2 keeps its own way; a pole with no span to it gets a new span. Undo, Reverse, Delete (the fibers after it move down a number).
+- **The whole stretch**: tap a fiber's chip and its whole way lights up with arrows, the others fade; its card shows its ends (closure, NAP, ODF, ODC or site; New or Existing as the record, or set here), cable, side, and what it shares with other fibers.
+- **Side by side**: fibers on the same span are drawn as separate lines in their own colours, ordered by where each goes after the split so they don't cross. The span reads *50 m F2 F3*; tap it to list its fibers. The record's map tags its spans the same way.
+- **Right / left** as on the plan: of the legs out of one closure, the one ending furthest east is right and furthest west left; you can set it yourself.
+- **Your common design**: select the closure pole (the bar shows *Closure CL-0001 at CC-2000: F1 ends · F2 starts (right) · F3 starts (left)*) and tap + Fiber for each leg. A fiber can start and end at an ODF, ODC, site, closure or NAP, existing or new.
+- **Existing cable**: a fiber set to *Existing cable (drawn only)* is drawn on the plan (dashed; blue in the DXF), and left out of the BOQ, the cable lengths, the loops and the hardware.
+- **Loops**: each fiber gets its own: at a closure, one loop mark with a loop for each fiber there (*15m+10m+10m LOOP*, *10m LOOP x2*); a surveyor's loop on a pole, one for each fiber there; a NAP's, LCP's, dummy NAP's or riser's one loop on one fiber; the entrance loops where a fiber starts or ends; and the app's loops along each fiber (72C every 250–300 m, 12C every 450–500 m).
+- **Hardware**: the retractors are shared (2 on the pole, 1 at an end); each 12C fiber adds its own span clamps (2 where it passes, 1 at its end). On a telco arm: J-hooks shared, 2 span clamps for each 12C fiber, a suspension clamp for each 72C fiber.
+- **Exports**: the plan DXF and the Drawing put each fiber in its lane, with F1, F2… after each span length when the project has 2 or more fibers. Route and spans · Excel has a **Fibers** sheet (ends, side, spans, loops, cable length, its way), and the Spans sheet's Run column says F1, F2…. The KMZ has a **Fibers** folder; the survey quantities FIBERS, FIBER_1, FIBER_2…. Share carries the fibers with the route.
+- **Checks**: a span on no fiber (grey, dashed), a fiber missing a span (e.g. after a pole is deleted), a fiber starting or ending at a plain pole, and a span that had more runs before the fibers than it has fibers now.
+- **Projects made before**: nothing changes until you make a fiber; spans on no fiber work as before (their cable and runs).
+
 ## What changed in v2.42.19
 
 Fixes from the field: no update of the online sheet needed.

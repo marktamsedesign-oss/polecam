@@ -1709,11 +1709,20 @@
       const P0 = byId.get(String(s.ia)), Q0 = byId.get(String(s.ib)); if (!P0 || !Q0 || !P0.A || !Q0.A) continue;
       const a = P0.A, b = Q0.A, t = unit(a, b), nl = [-t[1], t[0]], r0 = Math.max(P0.rp || 0, 1.5), r1 = Math.max(Q0.rp || 0, 1.5), gap = 1.2 * kG;
       if (dist2(a, b) <= r0 + r1 + 1) continue;
-      more.forEach((cab, i) => {
-        const st = CABLE_STYLE[cab] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', off = gap * (i + 1);
+      more.forEach((cab, i) => { // v2.42.20: a fiber in its lane (moreOff, beside the first fiber's line), an existing cable blue
+        const st = CABLE_STYLE[cab] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', off = gap * (s.moreOff ? s.moreOff[i] : i + 1), ex = !!(s.moreEx && s.moreEx[i]);
         const line = [add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)];
-        o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: CABLE_LWT, color: st.color, lt, lts: lt === 'DASHED' ? 7 : 0, gen: true }); spots.line(line, 1.0);
+        o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: CABLE_LWT, color: ex ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ex ? 9 : 7) : 0, gen: true }); spots.line(line, 1.0);
       });
+    }
+    // v2.42.20: an existing cable put on the plan (a fiber marked existing) where no new cable runs: blue, dashed, in its lane
+    for (const s of job.exSpans || []) {
+      const P0 = byId.get(String(s.ia)), Q0 = byId.get(String(s.ib)); if (!P0 || !Q0 || !P0.A || !Q0.A) continue;
+      const a = P0.A, b = Q0.A, t = unit(a, b), nl = [-t[1], t[0]], r0 = Math.max(P0.rp || 0, 1.5), r1 = Math.max(Q0.rp || 0, 1.5), gap = 1.2 * kG;
+      if (dist2(a, b) <= r0 + r1 + 1) continue;
+      const st = CABLE_STYLE[s.cab] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', off = gap * (s.off || 0);
+      const line = [add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)];
+      o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: CABLE_LWT, color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true }); spots.line(line, 1.0);
     }
     // 4. poles and the other points: symbols first (they are fixed), then the labels round them
     let nOlt = 0, nInline = 0, nTelco = 0, taDef = false; const taBlk = telcoArmTop(false), siteLate = []; // (v2.42.11: towers drawn after the labels, see below)
@@ -1893,7 +1902,8 @@
       // the loop's straight line (the cable) laid on the cable, its circle hanging on the road side
       const le = lineEnds(S, 'loopp'), mid = le ? [(le[0][0] + le[1][0]) / 2, (le[0][1] + le[1][1]) / 2] : [0, 0], mo = rotv([mid[0] * sc, mid[1] * sc], rot);
       o.insert(lay('PROPOSED LOOP'), 'loopp', Q0[0] - mo[0], Q0[1] - mo[1], { scale: sc, rot }); spots.add(Spots.box(c0[0], c0[1], lw, lh, deg(dir)));
-      const txt = `${+(+(p.mloopM || job.mloopLen || 15)).toFixed(1)}m LOOP`, cs = []; // v2.42.18: each loop its own length // v2.39: 15m LOOP (15.0m before), as the company's plans
+      const mL = Array.isArray(p.mloopL) && p.mloopL.length > 1 ? p.mloopL : null; // v2.42.20: a loop for each fiber there: 10m LOOP x2, or 15m+10m LOOP
+      const txt = mL ? (mL.every((v) => +v === +mL[0]) ? `${+(+mL[0]).toFixed(1)}m LOOP x${mL.length}` : `${mL.map((v) => `${+(+v).toFixed(1)}m`).join('+')} LOOP`) : `${+(+(p.mloopM || job.mloopLen || 15)).toFixed(1)}m LOOP`, cs = []; // v2.42.18: each loop its own length // v2.39: 15m LOOP (15.0m before), as the company's plans
       for (const j of [lh + 2.2, -2.6, lh + 5.5, -5.5]) for (const k of [0, 4, -4, 9, -9]) { const q = add2(add2(Q0, side, j), dir, k); cs.push({ q, boxes: [textBox(q[0], q[1], 2.8125, txt, rd, 1, 2)] }); }
       // v2.42.16: where all those are taken (a span length, a photo, a street name…), a little further out before covering anything
       for (const j of [lh + 9, -9, lh + 13, -13]) for (const k of [0, 5, -5, 10, -10, 16, -16]) { const q = add2(add2(Q0, side, j), dir, k); cs.push({ q, boxes: [textBox(q[0], q[1], 2.8125, txt, rd, 1, 2)] }); }
@@ -1974,7 +1984,7 @@
       const P = byId.get(String(s.ia)), Q = byId.get(String(s.ib)); if (!P || !Q) continue;
       const a = P.A, b = Q.A, m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], t = unit(a, b), rd = readable(deg(t)), nl = [-t[1], t[0]];
       const toward = [(P.td ? P.td[0] : 0) + (Q.td ? Q.td[0] : 0), (P.td ? P.td[1] : 0) + (Q.td ? Q.td[1] : 0)], sgn = (nl[0] * toward[0] + nl[1] * toward[1]) < 0 ? -1 : 1;
-      const txt = `${Math.round(s.len)}m${(s.more || []).length ? ` (${s.more.length + 1} RUNS)` : ''}${s.long ? ` (OVER ${job.maxSpan || 200}m)` : ''}`; // v2.39: whole metres, as the company's plans (v2.42.18: + the runs)
+      const txt = `${Math.round(s.len)}m${s.tags ? ` (${s.tags})` : (s.more || []).length ? ` (${s.more.length + 1} RUNS)` : ''}${s.long ? ` (OVER ${job.maxSpan || 200}m)` : ''}`; // v2.39: whole metres, as the company's plans (v2.42.18: + the runs)
       // v2.34: one size and style for every span length of the drawing, along the cable, where it covers neither the cable nor a road line
       const L = dist2(a, b), cs = [], th = Math.max(1.4, 2.0 * kG), off = th * 0.75 + 0.6;
       for (const [f, k] of [[0, 1], [0, -1], [0.2, 1], [-0.2, 1], [0.2, -1], [-0.2, -1], [0, 1.7], [0, -1.7], [0.35, 1], [-0.35, 1], [0.35, -1], [-0.35, -1], [0.2, 1.7], [-0.2, 1.7], [0.2, -1.7], [-0.2, -1.7], [0, 2.5], [0, -2.5], [0, 3.4], [0, -3.4]]) { const q = add2(add2(m, t, f * L), nl, k * off * sgn); cs.push({ q, boxes: [textBox(q[0], q[1], th, txt, rd, 1, 2)] }); }

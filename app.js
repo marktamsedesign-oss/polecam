@@ -732,7 +732,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.19';
+  const APP_VER = '2.42.20';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1468,7 +1468,7 @@
     // a NAP or closure pin stands on its pole: the nearest pole of the route within 30 m (as the plan draws it)
     const onRoute = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])), poles = items.filter((it) => it.el === 'Pole' && onRoute.has(it.p.id));
     items.forEach((it) => { if (it.el !== 'NAP' && it.el !== 'Closure') return; let best = null, bd = 30; poles.forEach((q) => { const dd = Math.hypot(q.xy[0] - it.xy[0], q.xy[1] - it.xy[1]); if (dd < bd) { bd = dd; best = q; } }); it.on = best; });
-    drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), R, LA: autoLoops(pts, R), ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
+    drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), exHops: R.fib ? [...R.fib.hops.values()].filter((h) => !h.s && h.fs.some((f) => f.ex)).map((h) => ({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)) })) : [], R, LA: autoLoops(pts, R), /* v2.42.20: + exHops, existing cables off the new route */ ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
     $('drawTitle').textContent = `Drawing · ${S.project}`;
     $('drawHint').textContent = `Preview of the DXF (UTM ${z}N metres): ${pts.filter((p) => elemOf(p) === 'Pole').length} poles, ${R.spans.length} spans, ${fmtLen(R.total)}. Drag to pan, pinch or scroll to zoom, tap a point. Zoom in for the numbers or photos and, under each pole, what the plan draws on it: ARM, NAP, LOOP, CL (closure), G (guys), GR (grounding), R (riser).`;
     $('drawHint').hidden = !!S.drawHintOff; $('drawInfoBtn').setAttribute('aria-pressed', String(!S.drawHintOff));
@@ -1503,7 +1503,9 @@
     if (b.arm) out.push(['ARM', '#7048e8']);
     if (p.nap || p.napId || napPin) { const nt = (p.nap || p.napId ? b.napType : ((napPin && napPin.p.boq) || {}).napType) || ''; out.push([/lcp/i.test(nt) ? 'LCP' : /dummy/i.test(nt) ? 'DN' : 'NAP', '#f08c00']); }
     if (p.nap2 || p.nap2Id) { const nt = b.nap2Type || ''; out.push([/lcp/i.test(nt) ? 'LCP' : /dummy/i.test(nt) ? 'DN' : 'NAP', '#f08c00']); } // v2.42: its second box
-    if (p.mloop || loopYes(b) || loopOwnOf(p) || napPin || clPin) out.push(['LOOP', '#e03131']); else if (drw && drw.LA && drw.LA.has(p.id)) out.push(['LOOP*', '#e03131']); // v2.42.16: * added by the app
+    const fL = drw && drw.LA && drw.LA.fib && drw.LA.fib.list.get(p.id); // v2.42.20: a loop for each fiber there (×2…)
+    if (fL) out.push([`LOOP${fL.every((e) => e.why === 'auto') ? '*' : ''}${fL.length > 1 ? `×${fL.length}` : ''}`, '#e03131']);
+    else if (p.mloop || loopYes(b) || loopOwnOf(p) || napPin || clPin) out.push(['LOOP', '#e03131']); else if (drw && drw.LA && drw.LA.has(p.id)) out.push(['LOOP*', '#e03131']); // v2.42.16: * added by the app
     if (p.closure || p.closureId || clPin) out.push(['CL', '#c2255c']);
     if (nGuy) out.push([nGuy > 1 ? `G${nGuy}` : 'G', '#1971c2']);
     if (b.ground) out.push(['GR', '#2b8a3e']);
@@ -1529,15 +1531,17 @@
     drw.spans.forEach(({ sp, a, b }) => { // the CABLE_ROUTE layer and the span length (FOC_LENGTH) at its middle; aerial broken, underground solid
       const [ax, ay] = drwPx(a), [bx, by] = drwPx(b), ug = /^U/.test(sp.cable || '');
       g.strokeStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.lineWidth = 2.2 * d; g.setLineDash(sp.cable && !ug ? [7 * d, 4 * d] : []); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]);
-      (sp.runs || []).slice(1).forEach((k, i) => { // v2.42.18: the span's other runs, parallel to run 1
-        const Ln = Math.hypot(bx - ax, by - ay) || 1, nx = (by - ay) / Ln, ny = -(bx - ax) / Ln, f = 5 * d * (i + 1);
-        g.strokeStyle = '#1c3f94'; g.lineWidth = 1.8 * d; g.setLineDash(k && !/^U/.test(k) ? [7 * d, 4 * d] : []); g.beginPath(); g.moveTo(ax + nx * f, ay + ny * f); g.lineTo(bx + nx * f, by + ny * f); g.stroke(); g.setLineDash([]);
+      const ln = sp.lanes && sp.lanes.length ? sp.lanes : null, main = ln ? sp.fibers.slice().sort((x, y) => x.n - y.n)[0] || null : null, mi = ln ? (main ? ln.indexOf(main) : (ln.length - 1) / 2) : 0; // v2.42.20: each fiber in its lane
+      (ln ? ln.filter((f) => f !== main).map((f) => [f.cab, ln.indexOf(f) - mi, !!f.ex]) : (sp.runs || []).slice(1).map((k, i) => [k, i + 1, false])).forEach(([k, lane, ex]) => { // v2.42.18: the span's other runs, parallel to run 1
+        const Ln = Math.hypot(bx - ax, by - ay) || 1, nx = (by - ay) / Ln, ny = -(bx - ax) / Ln, f = 5 * d * lane;
+        g.strokeStyle = ex ? '#4dabf7' : '#1c3f94'; g.lineWidth = 1.8 * d; g.setLineDash(k && !/^U/.test(k) ? [7 * d, 4 * d] : []); g.beginPath(); g.moveTo(ax + nx * f, ay + ny * f); g.lineTo(bx + nx * f, by + ny * f); g.stroke(); g.setLineDash([]);
       });
       if (drw.labels && Math.hypot(bx - ax, by - ay) > 46 * d) {
         let ang = Math.atan2(by - ay, bx - ax); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
-        g.save(); g.translate((ax + bx) / 2, (ay + by) / 2); g.rotate(ang); g.textAlign = 'center'; g.textBaseline = 'bottom'; g.fillStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.fillText(`${sp.len.toFixed(1)} m${(sp.runs || []).length > 1 ? ` ×${sp.runs.length}` : ''}`, 0, -3 * d); g.restore();
+        g.save(); g.translate((ax + bx) / 2, (ay + by) / 2); g.rotate(ang); g.textAlign = 'center'; g.textBaseline = 'bottom'; g.fillStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.fillText(`${sp.len.toFixed(1)} m${ln ? (drw.R.fib && drw.R.fib.list.length > 1 ? ` ${ln.slice().sort((x, y) => x.n - y.n).map(fibTag).join('+')}` : '') : (sp.runs || []).length > 1 ? ` ×${sp.runs.length}` : ''}`, 0, -3 * d); g.restore();
       }
     });
+    (drw.exHops || []).forEach(({ a, b }) => { const [ax, ay] = drwPx(a), [bx, by] = drwPx(b); g.strokeStyle = '#4dabf7'; g.lineWidth = 1.8 * d; g.setLineDash([7 * d, 4 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); }); // v2.42.20: an existing cable
     // a NAP or closure pin: a dotted line to the pole it stands on
     drw.items.forEach((it) => { if (!it.on) return; const [ax, ay] = drwPx(it.xy), [bx, by] = drwPx(it.on.xy); g.strokeStyle = 'rgba(240,140,0,0.9)'; g.lineWidth = 1.6 * d; g.setLineDash([2 * d, 3 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); });
     const placed = [], near = v.sc >= 1.4 * d, ct = S.exp.dxfClampType !== false, mode = curRow().mode, NS = plStyle().num; // (v2.42.14: the drawing shown)
@@ -1753,8 +1757,10 @@
     const mode = curRow().mode;
     rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[plStyle().num.bcolor] || ACI_INK[plStyle().num.color] || '#d9a400'}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[plStyle().num.color] || '#d9a400'}" font-family="system-ui,sans-serif">1</text>`), 'Number on the plan']);
     if (mode !== 'num') rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), mode === 'both' ? 'Photo with its number' : 'Photo on the plan']);
-    const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop'], ['LOOP*', '#e03131', 'Maintenance loop added by the app (As-Plan)'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)']];
-    const present = new Set(); if (drw) drw.items.forEach((it) => { if (it.el === 'Pole') poleTags(it).forEach(([t]) => present.add(/^G\d*$/.test(t) ? 'G' : t === 'LCP' || t === 'DN' ? 'NAP' : t)); });
+    const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop (LOOP×2: one for each of 2 fibers there)'], ['LOOP*', '#e03131', 'Maintenance loop added by the app (As-Plan)'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)']];
+    if (drw && drw.R && drw.R.fib && drw.R.fib.list.length > 1) rows.push([sv('<path d="M1 6h20M1 10h20" stroke="#1c3f94" stroke-width="1.6" stroke-dasharray="4 2.5"/>'), 'Fibers: each its own line on a shared span; F1, F2… after the span length']); // v2.42.20
+    if (drw && drw.R && drw.R.fib && drw.R.fib.list.some((f) => f.ex)) rows.push([sv('<path d="M1 8h20" stroke="#4dabf7" stroke-width="1.8" stroke-dasharray="4 2.5"/>'), 'Existing cable (drawn only, not counted)']);
+    const present = new Set(); if (drw) drw.items.forEach((it) => { if (it.el === 'Pole') poleTags(it).forEach(([t0]) => { const t = t0.replace(/×\d+$/, ''); present.add(/^G\d*$/.test(t) ? 'G' : t === 'LCP' || t === 'DN' ? 'NAP' : t); }); }); // (v2.42.20: LOOP×2 is a LOOP)
     T.forEach(([t, c, n]) => { if (present.has(t)) rows.push([tag(t, c), n]); });
     $('drawLegendBody').innerHTML = rows.map(([i, t]) => `${i}<span>${C.xmlEsc(t)}</span>`).join('');
   }
@@ -2091,10 +2097,29 @@
   }, 'Reference not removed'));
   /* ================= route and spans (survey projects) ================= */
   let routeMode = false, routeSel = null, routeUndo = [], routeProj = null, spanSel = null; // v2.42.18: spanSel: the span whose runs are shown // v2.42.4: routeProj: the project being linked
-  const routeLayer = L.layerGroup().addTo(map);
+  let fibSel = null, fibAdd = null, lastR = null; // v2.42.20: the fiber selected (its whole way lit), the fiber points are being added to, the route last drawn
+  const routeLayer = L.layerGroup().addTo(map), fibLayer = L.layerGroup().addTo(map);
   map.createPane('routePane'); map.getPane('routePane').style.zIndex = 395; // v2.42.19: the route under the pins (overlay 400), whatever is drawn last: a pin is tapped, not the span under it
   const links = () => (pmeta().links || []);
   function setLinks(l) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), links: l, linksAt: new Date().toISOString() }; persist(); changedAfterApproval(S.project, 'route'); } // v2.42.5: + the approval; v2.42.18: + its time (Share)
+  /* ================= v2.42.20: fibers (named runs) =================
+     A fiber is one FOC cable from its start to its end, point by point: { n, cab, side ('auto', 'right', 'left', 'none'), ex (an
+     existing cable: drawn on the plan only, not counted), path: [ids], fromSt, toSt (Existing / New; '' = as its record) }.
+     Fiber 1, Fiber 2… in the order made. A span carries the fibers whose path steps over it (each its own cable, loops and span
+     clamps); a span on no fiber works as before. Kept in the project (fibers) with the route's time (linksAt) for Share. */
+  const FIB_COLORS = ['#7048e8', '#0c8599', '#d6336c', '#1971c2', '#2f9e44', '#ae3ec9', '#5c940d', '#495057', '#0b7285', '#a61e4d'];
+  const fibColor = (f) => FIB_COLORS[(Math.max(1, f.n) - 1) % FIB_COLORS.length];
+  const fibTag = (f) => `F${f.n}${f.ex ? '·EX' : ''}`;
+  const spanKey = (a, b) => (String(a) < String(b) ? `${a}|${b}` : `${b}|${a}`);
+  function fibers(name) { const F = pmeta(name).fibers; return Array.isArray(F) ? F.filter((f) => f && Array.isArray(f.path) && f.n > 0).map((f) => ({ ...f, path: f.path.slice() })) : []; }
+  function setRoute(l, F) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), ...(l ? { links: l } : {}), ...(F ? { fibers: F } : {}), linksAt: new Date().toISOString() }; persist(); changedAfterApproval(S.project, 'route'); }
+  const routeSnap = () => ({ l: links(), f: fibers() });
+  /** The links as the route analysis reads them: a span on new fibers carries their cables (the lowest-numbered fiber's first). */
+  function effLinks() {
+    const L = links(), F = fibers().filter((f) => !f.ex && f.path.length > 1).sort((a, b) => a.n - b.n); if (!F.length) return L;
+    const on = new Map(); F.forEach((f) => f.path.forEach((id, i) => { if (i) { const k = spanKey(f.path[i - 1], id); (on.get(k) || on.set(k, []).get(k)).push(f.cab || ''); } }));
+    return L.map((l) => { const c = on.get(spanKey(l[0], l[1])); return c ? linkWith(l[0], l[1], c[0], c.slice(1)) : l; });
+  }
   /* v2.29: each span carries its FOC cable type (the third value of the link): AE Figure 8 72C, Light cable 12C or UG 144C air-blown */
   const CAB = C.CABLES;
   const cableSel = () => { const k = pmeta().cable; return k === '' || CAB[k] ? k : 'L12'; }; // the cable new links get: the project's last choice
@@ -2107,23 +2132,81 @@
   }
   /** Points the cable route runs through: poles, handholes, the site, ODC and ODF (NAP and closure pins sit on a pole). */
   const routePts = () => projPoints().filter((p) => ROUTE_ELS.includes(elemOf(p)));
-  const routeModel = () => C.analyzeRoute(routePts(), links(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 });
+  const routeModel = () => { const rp = routePts(); return fibAnnotate(C.analyzeRoute(rp, effLinks(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 }), rp); };
+  /** v2.42.20: the fibers on the route R: R.fib = { list (all, by number; each with len, spans, gaps), planned (new, 2+ points),
+      hops: Map spanKey -> { a, b, s, fs: fibers in lane order }, by }; each span: lanes (its fibers in lane order) and fibers (the
+      new ones). Lanes: on a shared span, the fibers in the order of the side each goes off to (left of a → b first), so they do not
+      cross where they part. */
+  function fibAnnotate(R, pts) {
+    R.fib = null; R.spans.forEach((s) => { s.lanes = []; s.fibers = []; });
+    const F = fibers(); if (!F.length) return R;
+    const by = new Map(pts.map((p) => [p.id, p])), sk = new Map(R.spans.map((s) => [spanKey(s.ia, s.ib), s])), hops = new Map();
+    const list = F.map((f) => ({ ...f, path: f.path.filter((id) => by.has(id)) })).filter((f) => f.path.length).sort((a, b) => a.n - b.n);
+    list.forEach((f) => {
+      f.gaps = []; f.len = 0; f.spans = 0;
+      for (let i = 1; i < f.path.length; i++) {
+        const a = f.path[i - 1], b = f.path[i], k = spanKey(a, b), s = sk.get(k);
+        (hops.get(k) || hops.set(k, { a: s ? s.ia : a, b: s ? s.ib : b, s: s || null, fs: [] }).get(k)).fs.push(f);
+        f.len += s ? s.len : haversine(by.get(a), by.get(b)); f.spans++; if (!s && !f.ex) f.gaps.push([a, b]);
+      }
+    });
+    const cs = Math.cos(((pts[0] && pts[0].lat) || 0) * Math.PI / 180), xy = (id) => { const p = by.get(id); return [p.lon * cs, p.lat]; };
+    const setOf = (k) => { const h = hops.get(k); return h ? h.fs.map((f) => f.n).join(',') : ''; };
+    for (const [k, h] of hops) {
+      if (h.fs.length < 2) continue;
+      const A = xy(h.a), B = xy(h.b), d = [B[0] - A[0], B[1] - A[1]], here = setOf(k);
+      const side = (f) => { // where it leaves the fibers of this span: ahead, else behind
+        const P = f.path, i = Math.min(P.indexOf(h.a), P.indexOf(h.b)); let e = null;
+        for (let j = i + 1; j < P.length - 1 && e == null; j++) if (setOf(spanKey(P[j], P[j + 1])) !== here) e = P[j + 1];
+        for (let j = i - 1; j >= 0 && e == null; j--) if (setOf(spanKey(P[j], P[j + 1])) !== here) e = P[j];
+        if (e == null) return 0; const E = xy(e); return d[0] * (E[1] - A[1]) - d[1] * (E[0] - A[0]);
+      };
+      h.fs = h.fs.map((f) => [f, side(f)]).sort((x, y) => x[1] - y[1] || x[0].n - y[0].n).map((x) => x[0]);
+    }
+    R.spans.forEach((s) => { const h = hops.get(spanKey(s.ia, s.ib)); s.lanes = h ? h.fs : []; s.fibers = s.lanes.filter((f) => !f.ex); });
+    R.fib = { list, planned: list.filter((f) => !f.ex && f.path.length > 1), hops, by };
+    return R;
+  }
+  /** v2.42.20: a fiber's start or end: { id, kind (Closure, NAP, LCP, Dummy NAP, ODF, ODC, Site, Handhole…, Pole), ref, at, state }. */
+  function fibEnd(f, which, by) {
+    const id = which === 'to' ? f.path[f.path.length - 1] : f.path[0], p = by && by.get(id), st = (which === 'to' ? f.toSt : f.fromSt) || '';
+    if (!p) return { id, kind: 'Pole', ref: '', at: '', state: st };
+    const el = elemOf(p), b = p.boq || {}, stOf = (x) => st || (/exist/i.test(x || '') ? 'Existing' : 'New');
+    if (el !== 'Pole') return { id, kind: boxClo(p) ? 'Closure' : el, ref: (boxClo(p) && p.closureId) || p.poleId || el, at: p.poleId || '', state: stOf(boxClo(p) ? b.cloSt : p.status) };
+    if (p.closure || p.closureId) return { id, kind: 'Closure', ref: p.closureId || p.poleId || '', at: p.poleId || '', state: stOf(b.cloSt) };
+    const pin = projPoints().find((q) => elemOf(q) === 'Closure' && haversine(p, q) < 30);
+    if (pin) return { id, kind: 'Closure', ref: pin.poleId || p.poleId || '', at: p.poleId || '', state: stOf(pin.status) };
+    if (p.nap || p.napId) { const t = b.napType || ''; return { id, kind: /lcp/i.test(t) ? 'LCP' : /dummy/i.test(t) ? 'Dummy NAP' : 'NAP', ref: p.napId || p.poleId || '', at: p.poleId || '', state: stOf(b.napSt) }; }
+    return { id, kind: 'Pole', ref: p.poleId || '', at: p.poleId || '', state: st };
+  }
+  /** v2.42.20: right or left, as on the plan (north up): set by the user, else for fibers that start at the same point (the legs out of
+      a closure) the one ending furthest east is right, furthest west left. */
+  function fibSide(f, list, by) {
+    if (f.side === 'right' || f.side === 'left') return f.side; if (f.side === 'none' || f.path.length < 2) return '';
+    const sib = list.filter((g) => g.path.length > 1 && g.path[0] === f.path[0]); if (sib.length < 2) return '';
+    const E = (g) => { const p = by.get(g.path[g.path.length - 1]); return p ? p.lon : 0; }, xs = sib.map(E), e = E(f);
+    return e === Math.max(...xs) ? 'right' : e === Math.min(...xs) ? 'left' : '';
+  }
   const fmtLen = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
   function drawRoute() {
-    routeLayer.clearLayers();
+    routeLayer.clearLayers(); fibLayer.clearLayers(); lastR = null;
     if (isAcc()) return null;
     const R = routeModel();
     if (viewHide().route && !routeMode) { if (typeof declutterSoon === 'function') declutterSoon(); return R; } // v2.30: route hidden from the map button
-    const selK = spanSel ? [...spanSel].sort().join('|') : '';
+    lastR = R; const selK = spanSel ? [...spanSel].sort().join('|') : '', hasF = !!(R.fib && R.fib.planned.length);
     for (const s of R.spans) { // v2.29: coloured by cable type (grey: cable not set); long spans red
-      const cab = CAB[s.cable], ll = [[s.a.lat, s.a.lon], [s.b.lat, s.b.lon]], nr = (s.runs || []).length;
-      if (routeMode && selK === [s.ia, s.ib].sort().join('|')) L.polyline(ll, { pane: 'routePane', color: '#fab005', weight: 16 + 5 * Math.max(0, nr - 1), opacity: 0.55, lineCap: 'round', interactive: false }).addTo(routeLayer); // v2.42.18: the span tapped
-      for (let i = nr - 1; i >= 1; i--) { const c2 = CAB[s.runs[i]]; L.polyline(ll, { pane: 'routePane', color: c2 ? c2.css : '#868e96', weight: 4 + 5 * i, opacity: 0.55, lineCap: 'butt', interactive: false }).addTo(routeLayer); } // v2.42.18: run 2, run 3… as bands round run 1
-      L.polyline(ll, { pane: 'routePane', color: s.long ? '#c92a2a' : cab ? cab.css : '#868e96', weight: 4, opacity: 0.9, dashArray: s.long ? '8 6' : cab && cab.method === 'UG' ? '2 7' : null, lineCap: 'round', interactive: false }).addTo(routeLayer);
+      const cab = CAB[s.cable], ll = [[s.a.lat, s.a.lon], [s.b.lat, s.b.lon]], nr = (s.runs || []).length, nf = s.lanes ? s.lanes.length : 0;
+      if (routeMode && selK === [s.ia, s.ib].sort().join('|')) L.polyline(ll, { pane: 'routePane', color: '#fab005', weight: 16 + 5 * Math.max(0, (nf || nr) - 1), opacity: 0.55, lineCap: 'round', interactive: false }).addTo(routeLayer); // v2.42.18: the span tapped
+      if (!nf) { // v2.42.20: a span on a fiber is drawn as its fibers' lanes (drawFibLanes); with fibers in the project, one on none grey and dashed
+        for (let i = nr - 1; i >= 1; i--) { const c2 = CAB[s.runs[i]]; L.polyline(ll, { pane: 'routePane', color: c2 ? c2.css : '#868e96', weight: 4 + 5 * i, opacity: 0.55, lineCap: 'butt', interactive: false }).addTo(routeLayer); } // v2.42.18: run 2, run 3… as bands round run 1
+        L.polyline(ll, { pane: 'routePane', color: s.long ? '#c92a2a' : hasF ? '#868e96' : cab ? cab.css : '#868e96', weight: 4, opacity: 0.9, dashArray: s.long ? '8 6' : hasF ? '6 6' : cab && cab.method === 'UG' ? '2 7' : null, lineCap: 'round', interactive: false }).addTo(routeLayer);
+      }
       if (routeMode) L.polyline(ll, { pane: 'routePane', color: '#000', weight: 22, opacity: 0.01, interactive: true, bubblingMouseEvents: false }).on('click', (e) => { L.DomEvent.stop(e); spanSel = [s.ia, s.ib]; routeSel = null; routeRefresh(); spanInView(s); }).addTo(routeLayer); // v2.42.18: tap a span: its runs
+      const tags = nf ? ` ${s.lanes.slice().sort((x, y) => x.n - y.n).map((f) => `<b style="color:${fibColor(f)}">${fibTag(f)}</b>`).join(' ')}` : nr > 1 ? ` ×${nr}` : ''; // v2.42.20: its fibers
       L.marker([(s.a.lat + s.b.lat) / 2, (s.a.lon + s.b.lon) / 2], { interactive: false, keyboard: false,
-        icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label${s.long ? ' long' : ''}">${s.len.toFixed(0)} m${nr > 1 ? ` ×${nr}` : ''}</span>`, iconSize: null }) }).addTo(routeLayer);
+        icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label${s.long ? ' long' : ''}">${s.len.toFixed(0)} m${tags}</span>`, iconSize: null }) }).addTo(routeLayer);
     }
+    drawFibLanes(R);
     for (const p of projPoints()) {
       const info = R.poles[p.id];
       if (info && (info.role === 'Angle' || info.role === 'Junction')) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 14, color: info.role === 'Angle' ? '#e8590c' : '#9c36b5', weight: 2, fill: false, interactive: false }).addTo(routeLayer);
@@ -2132,6 +2215,26 @@
     if (typeof declutterSoon === 'function') declutterSoon(); // v2.28
     return R;
   }
+  /** v2.42.20: each fiber as one line in its colour, side by side with the others on a shared span (6 px apart, in the lane order
+      of fibAnnotate, so they do not cross where they part); an existing cable dashed; the fiber selected thicker with arrows (its
+      way from its start), the others faded. Drawn again at each zoom (the lanes are a few pixels apart). */
+  function drawFibLanes(R) {
+    fibLayer.clearLayers(); if (!R || !R.fib || !R.fib.list.length) return;
+    const z = map.getZoom(), by = R.fib.by, GAP = 6, pj = (id) => { const p = by.get(id); return map.project([p.lat, p.lon], z); };
+    const off = (f, a, b) => { const h = R.fib.hops.get(spanKey(a, b)); if (!h || h.fs.length < 2) return [0, 0];
+      const A = pj(h.a), B = pj(h.b), dx = B.x - A.x, dy = B.y - A.y, Ln = Math.hypot(dx, dy) || 1, o = (h.fs.indexOf(f) - (h.fs.length - 1) / 2) * GAP; return [dy / Ln * o, -dx / Ln * o]; }; // (y down: the plan's left normal)
+    const order = R.fib.list.slice().sort((a, b) => (a.n === fibSel) - (b.n === fibSel));
+    for (const f of order) {
+      if (f.path.length < 2) continue;
+      const px = f.path.map((id, i) => { const p = pj(id), v = []; if (i > 0) v.push(off(f, f.path[i - 1], id)); if (i < f.path.length - 1) v.push(off(f, id, f.path[i + 1]));
+        const s = v.reduce((t, q) => [t[0] + q[0] / v.length, t[1] + q[1] / v.length], [0, 0]); return L.point(p.x + s[0], p.y + s[1]); });
+      const sel = fibSel === f.n, on = fibSel == null || sel, col = fibColor(f);
+      L.polyline(px.map((q) => map.unproject(q, z)), { pane: 'routePane', color: col, weight: sel ? 6 : 4, opacity: on ? 0.95 : 0.22, dashArray: f.ex ? '7 6' : null, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(fibLayer);
+      if (sel) for (let i = 1; i < px.length; i++) { const a = px[i - 1], b = px[i], ang = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+        L.marker(map.unproject(L.point((a.x + b.x) / 2, (a.y + b.y) / 2), z), { pane: 'routePane', interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html: `<span class="fib-arrow" style="color:${col};transform:translate(-50%,-50%) rotate(${ang.toFixed(1)}deg)">➤</span>`, iconSize: null }) }).addTo(fibLayer); }
+    }
+  }
+  map.on('zoomend', () => { if (lastR && lastR.fib && !isAcc()) drawFibLanes(lastR); });
   /** v2.37: the route check. A 72C run needs a closure before every 4 km and a 12C run a dummy NAP (or a closure) before every 2 km,
       counted from the homing (a site or ODF; else the run's first end): the last pole before the limit is recommended. A dummy NAP
       cannot be on a 72C cable or at a point of insertion (a pole with a closure). NAP and closure pins count on their nearest pole
@@ -2149,9 +2252,28 @@
       arm (the pole owner's): 2 J-hooks and 2 span clamps for the 12C, 1 suspension clamp for the 72C, also at an end or a corner, and no
       pole clamps at all (the guys' clamps are the pole owner's, installed beforehand). A span's first run counts (its other runs share
       the attachments). Returns { items: [[item, qty, size]], noClamp }. */
+  /** v2.42.20: a pole's hardware with fibers: the retractors (a telco arm's J-hooks) hold the cables, 2 on the pole (1 at an end),
+      shared by the 12C fibers; each 12C fiber has its own span clamps, 2 where it passes and 1 where it ends (a telco arm: 2 each);
+      each 72C fiber on a telco arm its suspension clamp. A span on no fiber counts as before (its cable). */
+  function hwFib(p, R, at, aer) {
+    const fs = R.fib ? R.fib.planned.filter((f) => f.path.includes(p.id)) : [], items = [], onF = (s) => !!(s.fibers && s.fibers.length);
+    const cabsOf = (s) => (onF(s) ? s.fibers.map((f) => f.cab) : [s.cable]);
+    const n12 = at.filter((s) => cabsOf(s).includes('L12')).length, nOther = at.filter((s) => aer(s) && cabsOf(s).some((k) => k !== 'L12')).length;
+    const ends = (f) => { const i = f.path.indexOf(p.id); return (i > 0 ? 1 : 0) + (i < f.path.length - 1 ? 1 : 0); };
+    const f12 = fs.filter((f) => f.cab === 'L12'), f72 = fs.filter((f) => f.cab === 'F72');
+    const old12 = at.filter((s) => !onF(s) && s.cable === 'L12').length, old72 = at.some((s) => !onF(s) && s.cable === 'F72') ? 1 : 0;
+    if (hasTelcoArm(p)) {
+      if (n12) items.push(['J-hook', 2, '12C · telco arm'], ['Span clamp', 2 * f12.length + (old12 ? 2 : 0), '12C · telco arm']);
+      if (f72.length + old72) items.push(['Suspension clamp', f72.length + old72, '72C · telco arm']);
+      return { items, noClamp: true };
+    }
+    if (n12) items.push(['Retractor', n12 >= 2 ? 2 : 1, '12C'], ['Span clamp', f12.reduce((t, f) => t + ends(f), 0) + Math.min(old12, 2), '12C']);
+    return { items, noClamp: n12 > 0 && !nOther };
+  }
   function hwOf(p, R) {
     if (!R || elemOf(p) !== 'Pole') return { items: [], noClamp: false };
     const at = R.spans.filter((s) => s.ia === p.id || s.ib === p.id), aer = (s) => !(CAB[s.cable] && CAB[s.cable].method === 'UG');
+    if (at.some((s) => s.fibers && s.fibers.length)) return hwFib(p, R, at, aer); // v2.42.20: per fiber
     const n12 = at.filter((s) => s.cable === 'L12').length, n72 = at.filter((s) => s.cable === 'F72').length, nOther = at.filter((s) => s.cable !== 'L12' && aer(s)).length, items = [];
     if (hasTelcoArm(p)) {
       if (n12) items.push(['J-hook', 2, '12C · telco arm'], ['Span clamp', 2, '12C · telco arm']);
@@ -2167,7 +2289,7 @@
     if (hwOf(p, R).noClamp) return []; // v2.42.18: a 12C-only pole or a telco arm: no pole clamps
     // the aerial spans to other poles hold the cable on this pole; a span under the ground or to a site, ODF, ODC or handhole ends the
     // aerial run here (v2.42.18: a 12C span holds no pole clamp: its retractors and span clamps)
-    const at = R.spans.filter((s) => (s.ia === p.id || s.ib === p.id) && s.cable !== 'L12'), other = (s) => (s.ia === p.id ? s.b : s.a);
+    const at = R.spans.filter((s) => (s.ia === p.id || s.ib === p.id) && (s.fibers && s.fibers.length ? s.fibers.some((f) => f.cab !== 'L12') : s.cable !== 'L12')), other = (s) => (s.ia === p.id ? s.b : s.a); // (v2.42.20: a 72C fiber on it)
     const aer = at.filter((s) => !(CAB[s.cable] && CAB[s.cable].method === 'UG') && elemOf(other(s)) === 'Pole').map(other);
     let cab = [];
     if (at.length && aer.length <= 1) cab = ['2A'];
@@ -2200,6 +2322,8 @@
     pts.forEach((p) => { if (elemOf(p) !== 'Pole') return; const nm = ownerNameOf(p), f = m.get(p.id) || p.boq || {}; if (nm && f.ownerName !== nm) m.set(p.id, { ...f, ownerName: nm }); }); // v2.42.18: the owner's name
     // v2.42.18: each loop's length, and the cable's hardware other than pole clamps (12C, telco arm)
     pts.forEach((p) => { const f = m.get(p.id) || p.boq || {}; if (loopYes(f) || f.mloopBox) m.set(p.id, { ...f, mloopM: String(loopLenAt(p, R, LA, OWN.get(p.id))) }); });
+    if (LA.fib) pts.forEach((p) => { const E = LA.fib.list.get(p.id); if (!E) return; const f = m.get(p.id) || p.boq || {}, L2 = E.map((e) => e.len); // v2.42.20: a loop for each fiber there
+      m.set(p.id, { ...f, mloop: 'Yes', ...(E.some((e) => e.why === 'auto') ? { mloopAuto: true } : {}), mloopN: E.length, mloopL: L2, mloopM: L2.length > 1 ? L2.join('+') : String(L2[0]) }); });
     pts.forEach((p) => { if (elemOf(p) !== 'Pole') return; const h = hwOf(p, R); if (!h.items.length && !h.noClamp) return; const f = m.get(p.id) || p.boq || {};
       m.set(p.id, { ...f, hw: hwText(h.items), hwItems: h.items, noClamp: h.noClamp && !(p.boq && p.boq.clampType) }); });
     return (p) => m.get(p.id) || p.boq;
@@ -2224,7 +2348,8 @@
     q0.forEach((id) => hd.set(id, 0));
     for (let it = 0, ch = true; ch && it < pts.length + 2; it++) { ch = false; for (const [a, L] of adj) { const da = hd.get(a); if (da == null) continue; for (const [b, l] of L) if (!(hd.get(b) <= da + l)) { hd.set(b, da + l); ch = true; } } }
     const by = new Map(pts.map((p) => [p.id, p])), name = (id) => (by.get(id) || {}).poleId || '(no ID)';
-    for (const chn of C.routeChains(R.spans)) {
+    const chains = R.fib && R.fib.planned.length ? R.fib.planned.map((f) => ({ pts: f.path.map((id) => by.get(id)).filter(Boolean), cable: f.cab })) : C.routeChains(R.spans); // v2.42.20: along each fiber
+    for (const chn of chains) {
       const lim = chn.cable === 'F72' ? 4000 : chn.cable === 'L12' ? 2000 : 0; if (!lim) continue;
       let ids = chn.pts.map((p) => p.id); if ((hd.get(ids[0]) ?? 1e12) > (hd.get(ids[ids.length - 1]) ?? 1e12)) ids = ids.reverse();
       const joint = (id) => clo.has(id) || (chn.cable === 'L12' && dn.has(id));
@@ -2247,6 +2372,16 @@
         let best = null, bd = LOOP_TOL; for (const [id] of at) { const q = by.get(id); if (!q || id === p.id) continue; const d = haversine(p, q); if (d <= bd) { bd = d; best = id; } }
         if (best) out.push({ id: p.id, poleId: name(p.id), kind: 'flag', text: `loop at ${name(p.id)} is ${Math.round(bd)} m from the ${at.get(best) === 'entrance' ? `${elemOf(by.get(best))} entrance` : at.get(best)} loop at ${tag(best)}: kept as set` });
       } }
+    if (R.fib && R.fib.planned.length) { // v2.42.20: spans on no fiber, a fiber's missing span, a fiber ending at a plain pole, runs set before the fibers
+      const nf = R.spans.filter((s) => !(s.fibers && s.fibers.length));
+      if (nf.length) out.push({ id: nf[0].ia, poleId: name(nf[0].ia), kind: 'flag', text: `${nf.length} span${nf.length === 1 ? '' : 's'} on no fiber (grey, dashed: ${nf.slice(0, 3).map((s) => `${s.from} → ${s.to}`).join(', ')}${nf.length > 3 ? '…' : ''}): put a fiber on ${nf.length === 1 ? 'it' : 'them'}, or unlink` });
+      for (const f of R.fib.planned) {
+        f.gaps.forEach(([a, b]) => out.push({ id: a, poleId: name(a), kind: 'flag', text: `Fiber ${f.n}: no span ${name(a)} → ${name(b)} (link them)` }));
+        ['from', 'to'].forEach((w) => { const e = fibEnd(f, w, by); if (e.kind === 'Pole') out.push({ id: e.id, poleId: name(e.id), kind: 'flag', text: `Fiber ${f.n} ${w === 'to' ? 'ends' : 'starts'} at ${name(e.id)}: no closure, NAP, ODF, ODC or site there` }); });
+      }
+      links().forEach((l) => { const more = Array.isArray(l[3]) ? l[3].length : 0; if (!more) return; const s = R.spans.find((x) => spanKey(x.ia, x.ib) === spanKey(l[0], l[1]));
+        if (s && s.fibers.length && s.fibers.length < 1 + more) out.push({ id: s.ia, poleId: s.from, kind: 'flag', text: `span ${s.from} → ${s.to} had ${1 + more} runs before the fibers and has ${s.fibers.length} fiber${s.fibers.length === 1 ? '' : 's'}: put each fiber on it` }); });
+    }
     return out;
   }
   /** v2.42.16: the maintenance loops the app adds to an As-Plan where the survey has none. Along each aerial run, from the homing (or
@@ -2295,7 +2430,62 @@
   }
   /** v2.42.18: a loop's length: the record's choice, else a box's 20 m, else the cable's. */
   const loopLenAt = (p, R, LA, kind) => { const b = p.boq || {}; if (+b.mloopM > 0) return +b.mloopM; if (UG_BOXES.has(elemOf(p))) return BOX_LOOP_M; return cabLoopLen(loopCab(p, R, LA, kind)); };
+  /** v2.42.20: the loops of each fiber (As-Plan and As-Built): at a closure on its way, one for every fiber there (one closure, a
+      loop each); at a handhole, manhole or service box, one each; at a site, ODF or ODC where it starts or ends; the surveyor's loop on
+      a pole, one for every fiber there; a NAP's, LCP's, dummy NAP's or riser's one loop on one fiber (the 12C first for a NAP or LCP,
+      the 72C for a riser); and in an As-Plan the loops the app adds along each fiber from its start (72C every 250–300 m, 12C every
+      450–500 m, as before). An existing fiber has none. Returns null with no new fiber, else { list: Map id -> [{ n, cab, len, why }],
+      autoCab: Map id -> cable, n, nAuto }. */
+  function fiberLoops(pts, R) {
+    if (isAcc() || !R || !R.fib || !R.fib.planned.length) return null;
+    const by = new Map(pts.map((p) => [p.id, p])), OWN = loopOwnMap(pts, R), list = new Map(), autoCab = new Map(); let n = 0, nAuto = 0;
+    const put = (id, e) => { (list.get(id) || list.set(id, []).get(id)).push(e); n++; if (e.why === 'auto') { nAuto++; if (!autoCab.has(id)) autoCab.set(id, e.cab); } };
+    const lenAt = (p, cab) => { const b = p.boq || {}; if (+b.mloopM > 0) return +b.mloopM; if (UG_BOXES.has(elemOf(p))) return BOX_LOOP_M; return cabLoopLen(cab); };
+    const F = R.fib.planned, one = new Map(); // the fiber with the one loop of a NAP, LCP, dummy NAP or riser
+    F.forEach((f) => f.path.forEach((id) => { const k = OWN.get(id); if (!k || k === 'closure' || k === 'entrance') return; const pref = k === 'riser' ? 'F72' : 'L12', cur = one.get(id); if (!cur || (f.cab === pref && cur.cab !== pref)) one.set(id, f); }));
+    const isPole = (id) => { const p = by.get(id); return !!p && elemOf(p) === 'Pole'; }, isGT = (id) => markKey(by.get(id)) === 'GT';
+    for (const f of F) {
+      const P = f.path.filter((id) => by.has(id)); if (P.length < 2) continue;
+      const d = [0]; for (let i = 1; i < P.length; i++) d.push(d[i - 1] + haversine(by.get(P[i - 1]), by.get(P[i])));
+      const has = new Set();
+      P.forEach((id, i) => {
+        const p = by.get(id), el = elemOf(p), k = OWN.get(id); let why = '';
+        if (UG_BOXES.has(el)) why = 'box';
+        else if (k === 'closure') why = 'closure';
+        else if (ENTRANCE_ELS.includes(el)) why = i === 0 || i === P.length - 1 ? 'entrance' : '';
+        else if (el === 'Pole' && (p.mloop || loopYes(p.boq))) why = 'surveyor';
+        else if (k && one.get(id) === f) why = k;
+        if (why) { has.add(i); put(id, { n: f.n, cab: f.cab, len: lenAt(p, f.cab), why }); }
+      });
+      const span = LOOP_EVERY[f.cab]; if (!span || svPurpose() !== 'As-plan') continue;
+      const [lo, hi] = span; let li = 0;
+      for (let last = 1; last < P.length; last++) {
+        for (let guard = 0; guard < 1000; guard++) {
+          const over = d[last] - d[li]; if (over <= hi) break;
+          if (over <= hi + LOOP_TOL + 0.5 && (has.has(last) || last < P.length - 1)) break; // a loop at most LOOP_TOL past the limit counts
+          const upto = has.has(last) ? last - 1 : last; let pick = -1, best = null;
+          for (let j = li + 1; j <= upto; j++) { const x = d[j] - d[li]; if (x < lo || x > hi || !isPole(P[j])) continue; const kk = [isGT(P[j]) ? 1 : 0, x]; if (!best || kk[0] > best[0] || (kk[0] === best[0] && kk[1] > best[1])) { best = kk; pick = j; } }
+          if (pick < 0) for (let j = upto; j > li; j--) if (isPole(P[j]) && d[j] - d[li] <= hi) { pick = j; break; }
+          if (pick < 0) for (let j = li + 1; j <= upto; j++) if (isPole(P[j])) { pick = j; break; }
+          if (pick < 0) break;
+          has.add(pick); put(P[pick], { n: f.n, cab: f.cab, len: lenAt(by.get(P[pick]), f.cab), why: 'auto' }); li = pick;
+        }
+        if (has.has(last)) li = last;
+      }
+    }
+    return { list, autoCab, n, nAuto };
+  }
+  /** The loops the app adds (Map id -> cable). v2.42.20: with fibers, each fiber's (a span on no fiber as before); out.fib: every
+      loop of each fiber (fiberLoops). */
   function autoLoops(pts, R) {
+    const FL = fiberLoops(pts, R); if (!FL) return autoLoopsLegacy(pts, R);
+    const rest = R.spans.filter((s) => !(s.fibers && s.fibers.length)), out = rest.length ? autoLoopsLegacy(pts, { ...R, spans: rest }) : new Map();
+    for (const id of FL.list.keys()) out.delete(id);
+    for (const [id, c] of FL.autoCab) out.set(id, c);
+    out.fib = FL; return out;
+  }
+  const nAutoOf = (LA) => (LA.fib ? LA.fib.nAuto + [...LA.keys()].filter((id) => !LA.fib.list.has(id)).length : LA.size);
+  function autoLoopsLegacy(pts, R) {
     const out = new Map();
     if (isAcc() || svPurpose() !== 'As-plan' || !R || !R.spans.length) return out;
     const by = new Map(pts.map((p) => [p.id, p])), man = loopManSet(pts, R), has = (id) => man.has(id) || out.has(id); // v2.42.18: + every NAP, LCP, pin and entrance
@@ -2336,6 +2526,7 @@
     const auto = autoLoops(pts, R), OWN = loopOwnMap(pts, R), man = loopManSet(pts, R, OWN);
     const on = new Set((R ? R.spans : []).flatMap((sp) => [sp.ia, sp.ib])), open = svPurpose() === 'As-built' && !isAcc() ? pts.filter((p) => on.has(p.id) && elemOf(p) === 'Pole' && !(p.boq && p.boq.mloop) && !OWN.has(p.id)).length : 0; // (v2.42.17: a pole with its own loop is not asked)
     const nBox = pts.filter((p) => on.has(p.id) && UG_BOXES.has(elemOf(p))).length; // (each has its own loop)
+    if (auto.fib) { const F = auto.fib, oM = [...man].filter((id) => !F.list.has(id)).length, oA = [...auto.keys()].filter((id) => !F.list.has(id)).length; return { auto, has: (id) => man.has(id) || auto.has(id) || F.list.has(id), n: F.n + oM + oA, nAuto: F.nAuto + oA, nMan: F.n - F.nAuto + oM, open, nBox }; } // v2.42.20: each fiber's loops
     return { auto, has: (id) => man.has(id) || auto.has(id), n: man.size + auto.size, nAuto: auto.size, nMan: man.size, open, nBox }; // open: As-Built poles not answered
   }
   const loopRule = '72C aerial every 250–300 m (a Globe pole first), 12C aerial every 450–500 m, none where the next loop is at most 100 m past the limit';
@@ -2346,20 +2537,126 @@
     $('rbStats').textContent = `${R.long} longer than ${pol().maxSpan || 200} m · ${R.angle} angle · ${R.junction} junction · ${R.off} not linked · ${Object.entries(byCab).map(([k, m]) => `${CAB[k] ? CAB[k].short : 'not set'} ${fmtLen(m)}`).join(' · ')}${LP.n ? ` · MLoop ${LP.nMan}${LP.nAuto ? ` + ${LP.nAuto} added by the app` : ''}` : ''}${LP.open ? ` · MLoop not answered: ${LP.open}` : ''}${LP.nBox ? ` · HH/MH/SB loops ${LP.nBox} × ${BOX_LOOP_M} m` : ''}`;
     const A = routeAdvice(R); $('rbAdvice').hidden = !A.length; $('rbAdvice').textContent = A.length ? `⚠ ${A.map((a) => a.text).join(' · ')}` : ''; // v2.37
     const sel = routeSel && points.find((p) => p.id === routeSel);
-    $('rbHint').textContent = sel ? `${sel.poleId} selected. Tap the next pole to link it (tap a linked pole to unlink), or tap ${sel.poleId} again to stop.`
-      : 'Tap a pole, then the next pole to link them. Tap a linked pair again to unlink. Tap a pole to see its spans and their runs.';
-    { // v2.42.19: the selected pole's spans: tap one for its runs (Run 2, Run 3…), at any zoom
-      const box = $('rbSpans'), at = sel && !spanSel ? R.spans.filter((s) => s.ia === sel.id || s.ib === sel.id) : [];
+    $('rbHint').textContent = fibAdd != null ? fibHint() : sel ? `${sel.poleId} selected. Tap the next pole to link it (tap a linked pole to unlink), or tap ${sel.poleId} again to stop.`
+      : 'Tap a pole, then the next pole to link them. Tap a linked pair again to unlink. Tap a pole to see its spans and their fibers.';
+    { // v2.42.19: the selected pole's spans: tap one for its runs (Run 2, Run 3…), at any zoom (v2.42.20: its fibers)
+      const box = $('rbSpans'), at = sel && !spanSel && fibAdd == null ? R.spans.filter((s) => s.ia === sel.id || s.ib === sel.id) : [];
       box.hidden = !at.length; box.innerHTML = '';
       if (at.length) {
-        const h = document.createElement('span'); h.className = 'lbl'; h.textContent = `SPANS AT ${String(sel.poleId || '').toUpperCase()} · TAP ONE FOR ITS RUNS`; box.appendChild(h);
+        const h = document.createElement('span'); h.className = 'lbl'; h.textContent = `SPANS AT ${String(sel.poleId || '').toUpperCase()} · TAP ONE FOR ITS ${R.fib && R.fib.list.length ? 'FIBERS' : 'RUNS'}`; box.appendChild(h);
         at.forEach((s) => { const o = s.ia === sel.id ? s.b : s.a, n = (s.runs || []).length, b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm'; b.dataset.a = s.ia; b.dataset.b = s.ib;
-          b.textContent = `→ ${o.poleId || '(no ID)'} · ${fmtLen(s.len)} · ${CAB[s.cable] ? CAB[s.cable].short : 'cable not set'}${n > 1 ? ` · ${n} runs` : ''}`; box.appendChild(b); });
+          b.textContent = `→ ${o.poleId || '(no ID)'} · ${fmtLen(s.len)} · ${s.lanes && s.lanes.length ? s.lanes.slice().sort((x, y) => x.n - y.n).map(fibTag).join(' ') : `${CAB[s.cable] ? CAB[s.cable].short : 'cable not set'}${n > 1 ? ` · ${n} runs` : ''}`}`; box.appendChild(b); });
       }
     }
     $('rbUndo').disabled = !routeUndo.length;
+    renderFibers(R); // v2.42.20
     renderSpanPanel(R); // v2.42.18
   }
+  /* v2.42.20: the fibers in Route. A row of chips (All, F1, F2…, + Fiber), the selected fiber's card (its ends, cable, side, new or
+     existing, + Add points, Reverse, Delete), and over a selected closure pole the fibers there. + Add points: each tap adds the next
+     point; a point further along the spans brings in the points between (the shortest way), so a fiber can follow another one's poles
+     while that one keeps its own way; a point with no span to it gets a new span (an existing cable: none, it is drawn only). */
+  const fibName = (id) => (points.find((p) => p.id === id) || {}).poleId || '(no ID)';
+  function fibHint() {
+    const f = fibers().find((x) => x.n === fibAdd);
+    return !f || !f.path.length ? `Fiber ${fibAdd}: tap its first point (the ODF, site, or the pole of the closure it starts from).`
+      : `Adding to Fiber ${f.n} (now ending at ${fibName(f.path[f.path.length - 1])}): tap the next point along its way. A point further along the spans brings in the points between. Tap Done adding when it ends.`;
+  }
+  function renderFibers(R) {
+    const box = $('rbFibers'), card = $('rbFib'), all = fibers().sort((a, b) => a.n - b.n), info = new Map((R.fib ? R.fib.list : []).map((f) => [f.n, f])), by = R.fib ? R.fib.by : new Map(routePts().map((p) => [p.id, p]));
+    if (fibSel != null && !all.some((f) => f.n === fibSel)) fibSel = null;
+    if (fibAdd != null && !all.some((f) => f.n === fibAdd)) fibAdd = null;
+    const sel = routeSel && fibAdd == null ? by.get(routeSel) : null, cabS = (k) => (CAB[k] ? CAB[k].short.replace(/^(AE |Fig-8 |Light )/, '') : 'not set');
+    let head = '';
+    if (sel) { const e = fibEnd({ path: [sel.id] }, 'from', by), here = all.filter((f) => f.path.includes(sel.id));
+      if (e.kind === 'Closure') head = `<div class="clo">Closure ${hEsc(e.ref)} at ${hEsc(sel.poleId || '')}${here.length ? `: ${here.map((f) => { const i = f.path.indexOf(sel.id), sd = fibSide(f, all, by); return `F${f.n} ${i === 0 ? `starts${sd ? ` (${sd})` : ''}` : i === f.path.length - 1 ? 'ends' : 'passes'}`; }).join(' · ')}` : ': no fiber yet'}</div>`; }
+    box.innerHTML = head + '<span class="lbl">FIBERS</span>' + `<button class="fchip" type="button" data-fb="all" aria-pressed="${fibSel == null}">All</button>`
+      + all.map((f) => { const sd = fibSide(f, all, by); return `<button class="fchip" type="button" data-fb="${f.n}" aria-pressed="${fibSel === f.n}"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i>F${f.n} · ${f.ex ? 'existing' : cabS(f.cab)}${sd ? ` · ${sd}` : ''}</button>`; }).join('')
+      + `<button class="fchip add" type="button" data-fb="new">+ Fiber${sel ? ` from ${hEsc(sel.poleId || '')}` : ''}</button>`;
+    box.hidden = false;
+    const f = fibSel != null ? all.find((x) => x.n === fibSel) : null;
+    if (!f) { card.hidden = true; card.innerHTML = ''; return; }
+    const fi = info.get(f.n) || { ...f, len: 0, spans: 0 }, sd = fibSide(f, all, by), adding = fibAdd === f.n;
+    const endTxt = (w) => { if (!f.path.length) return '—'; const e = fibEnd(f, w, by); return e.kind === 'Pole' ? `${hEsc(e.ref)} (a plain pole)` : `${hEsc(e.kind)} ${hEsc(e.ref)}${e.at && e.at !== e.ref ? ` at ${hEsc(e.at)}` : ''}`; };
+    const stSel = (w) => { const v = (w === 'to' ? f.toSt : f.fromSt) || '', e = f.path.length ? fibEnd({ ...f, fromSt: '', toSt: '' }, w, by) : { state: 'New' };
+      return `<select data-fa="${w}St" aria-label="${w === 'to' ? 'End' : 'Start'}: new or existing"><option value=""${v ? '' : ' selected'}>${hEsc(e.state || 'New')} (record)</option><option value="New"${v === 'New' ? ' selected' : ''}>New</option><option value="Existing"${v === 'Existing' ? ' selected' : ''}>Existing</option></select>`; };
+    const shares = [...info.values()].filter((g) => g.n !== f.n && !g.ex).map((g) => { let m = 0, k = 0; for (let i = 1; i < f.path.length; i++) { const h = R.fib && R.fib.hops.get(spanKey(f.path[i - 1], f.path[i])); if (h && h.fs.some((x) => x.n === g.n)) { k++; m += h.s ? h.s.len : 0; } } return k ? `${k} span${k === 1 ? '' : 's'} (${fmtLen(m)}) with F${g.n}` : ''; }).filter(Boolean);
+    const cabOpts = Object.entries(CAB).map(([k, c]) => `<option value="${k}"${k === f.cab ? ' selected' : ''}>${hEsc(c.short)}</option>`).join(''); // (short: three selects fit a phone)
+    card.innerHTML = `<div class="rf-head"><b><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i>Fiber ${f.n}${sd ? ` · ${sd}` : ''}${f.ex ? ' · existing cable' : ''}</b><span>${fi.spans || 0} span${fi.spans === 1 ? '' : 's'} · ${fmtLen(fi.len || 0)}</span><button class="btn sm" type="button" data-fa="close" aria-label="Close the fiber">✕</button></div>`
+      + `<div class="rf-ends"><span>From <b>${endTxt('from')}</b></span>${stSel('from')}<span>To <b>${endTxt('to')}</b></span>${stSel('to')}</div>`
+      + (shares.length ? `<p class="rb-hint">Shares ${shares.join('; ')}</p>` : '') + (f.ex ? '<p class="rb-hint">An existing cable: drawn on the plan (dashed), not in the BOQ, the cable lengths, the loops or the hardware.</p>' : '')
+      + `<div class="rf-row"><select data-fa="cab" aria-label="Cable of Fiber ${f.n}">${cabOpts}</select><select data-fa="side" aria-label="Side of Fiber ${f.n} (auto: as on the plan)" title="Auto: as on the plan (the leg ending furthest east is right)"><option value="auto"${!f.side || f.side === 'auto' ? ' selected' : ''}>Side: auto</option><option value="right"${f.side === 'right' ? ' selected' : ''}>Right</option><option value="left"${f.side === 'left' ? ' selected' : ''}>Left</option><option value="none"${f.side === 'none' ? ' selected' : ''}>No side</option></select>`
+      + `<select data-fa="ex" aria-label="New or existing cable"><option value="0"${f.ex ? '' : ' selected'}>New</option><option value="1"${f.ex ? ' selected' : ''}>Existing (drawn only)</option></select></div>`
+      + `<div class="rf-btns"><button class="btn sm${adding ? '' : ' primary'}" type="button" data-fa="add">${adding ? 'Done adding' : '+ Add points'}</button><button class="btn sm" type="button" data-fa="rev"${f.path.length > 1 ? '' : ' disabled'}>Reverse</button><button class="btn sm danger" type="button" data-fa="del">Delete</button></div>`;
+    card.hidden = false;
+  }
+  /** v2.42.20: the shortest way along the spans (an existing cable: also along the existing cables) from a to b, not through the
+      fiber's own points; null when there is none or it goes a long way round (then the tap makes a new span). */
+  function fibWay(a, b, avoid, ex) {
+    const by = new Map(routePts().map((p) => [p.id, p])), adj = new Map(), addE = (x, y) => { if (!by.has(x) || !by.has(y)) return; (adj.get(x) || adj.set(x, []).get(x)).push(y); (adj.get(y) || adj.set(y, []).get(y)).push(x); };
+    links().forEach(([x, y]) => addE(x, y));
+    if (ex) fibers().filter((g) => g.ex).forEach((g) => g.path.forEach((id, i) => { if (i) addE(g.path[i - 1], id); }));
+    if (!by.has(a) || !by.has(b)) return null;
+    const D = new Map([[a, 0]]), prev = new Map(), done = new Set();
+    for (;;) {
+      let u = null; for (const [k, v] of D) if (!done.has(k) && (u === null || v < D.get(u))) u = k;
+      if (u === null) return null; if (u === b) break; done.add(u);
+      for (const v of adj.get(u) || []) { if (v !== b && avoid.has(v)) continue; const d = D.get(u) + haversine(by.get(u), by.get(v)); if (!D.has(v) || d < D.get(v)) { D.set(v, d); prev.set(v, u); } }
+    }
+    const w = [b]; while (w[0] !== a) w.unshift(prev.get(w[0]));
+    return D.get(b) <= haversine(by.get(a), by.get(b)) * 1.6 + 40 ? w : null;
+  }
+  function fiberTap(id) {
+    const F = fibers(), f = F.find((x) => x.n === fibAdd); if (!f) { fibAdd = null; routeRefresh(); return; }
+    if (!f.path.length) { routeUndo.push(routeSnap()); f.path = [id]; setRoute(null, F); const was = routeSel; routeSel = id; routeRefresh([was, id]); toast(`Fiber ${f.n} starts at ${fibName(id)}: tap the next point along its way`, 3000); return; }
+    const last = f.path[f.path.length - 1];
+    if (id === last) { toast(`Fiber ${f.n} ends at ${fibName(id)} now: tap the next point, or Done adding`, 3000); return; }
+    if (f.path.includes(id)) { toast(`${fibName(id)} is already on Fiber ${f.n}: a fiber passes a point once`, 3000); return; }
+    const w = fibWay(last, id, new Set(f.path), f.ex), add = w ? w.slice(1) : [id]; let L2 = null;
+    routeUndo.push(routeSnap());
+    if (!w && !f.ex && linkIdx(last, id) < 0) L2 = links().concat([linkWith(last, id, f.cab)]);
+    const hop = new Set(add.map((x, i) => spanKey(i ? add[i - 1] : last, x)));
+    const sh = [...new Set(F.filter((g) => g !== f && g.path.some((x, i) => i && hop.has(spanKey(g.path[i - 1], x)))).map((g) => `F${g.n}`))].join(', ');
+    f.path = f.path.concat(add); setRoute(L2, F);
+    const was = routeSel; routeSel = id; routeRefresh([was, last, ...add]);
+    toast(add.length > 1 ? `Fiber ${f.n} follows the spans: + ${add.map(fibName).join(', ')}${sh ? ` (shared with ${sh})` : ''}` : w ? `+ ${fibName(id)}${sh ? ` (shared with ${sh})` : ''}` : f.ex ? `+ ${fibName(id)} (existing cable)` : `+ ${fibName(id)}: a new span`, 3200);
+  }
+  function newFiber() {
+    const F = fibers(), n = F.reduce((m, f) => Math.max(m, f.n), 0) + 1, start = routeSel ? [routeSel] : [];
+    routeUndo.push(routeSnap()); F.push({ n, cab: cableSel() || 'L12', side: 'auto', ex: false, path: start, fromSt: '', toSt: '' }); setRoute(null, F);
+    fibSel = n; fibAdd = n; spanSel = null; routeRefresh(start);
+    toast(start.length ? `Fiber ${n} starts at ${fibName(start[0])}: tap the next point along its way` : `Fiber ${n}: tap its first point`, 3500);
+  }
+  function setFiber(n, fn) { const F = fibers(), f = F.find((x) => x.n === n); if (!f) return; routeUndo.push(routeSnap()); const L2 = fn(f, F); setRoute(L2 || null, F); routeRefresh(); }
+  $('rbFibers').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-fb]'); if (!b) return; const v = b.dataset.fb;
+    if (v === 'new') { newFiber(); return; }
+    fibAdd = null; fibSel = v === 'all' ? null : fibSel === +v ? null : +v; spanSel = null; routeRefresh();
+  });
+  $('rbFib').addEventListener('change', (e) => {
+    const t = e.target, k = t.dataset.fa; if (!k || fibSel == null) return;
+    setFiber(fibSel, (f, F) => {
+      if (k === 'cab') f.cab = t.value; else if (k === 'side') f.side = t.value; else if (k === 'fromSt') f.fromSt = t.value; else if (k === 'toSt') f.toSt = t.value;
+      else if (k === 'ex') { // an existing cable has no spans of its own; a new fiber needs one on each step
+        f.ex = t.value === '1'; const hop = (g) => new Set(g.path.slice(1).map((x, i) => spanKey(g.path[i], x)));
+        if (f.ex) { const mine = hop(f), others = new Set(F.filter((g) => g !== f && !g.ex).flatMap((g) => [...hop(g)])); return links().filter((l) => !(mine.has(spanKey(l[0], l[1])) && !others.has(spanKey(l[0], l[1])) && !(Array.isArray(l[3]) && l[3].length))); }
+        const have = new Set(links().map((l) => spanKey(l[0], l[1]))), add = f.path.slice(1).map((x, i) => [f.path[i], x]).filter(([a, b]) => !have.has(spanKey(a, b)));
+        return add.length ? links().concat(add.map(([a, b]) => linkWith(a, b, f.cab))) : null;
+      }
+      return null;
+    });
+  });
+  $('rbFib').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-fa]'); if (!b || fibSel == null) return; const k = b.dataset.fa, n = fibSel;
+    if (k === 'close') { fibSel = null; fibAdd = null; routeRefresh(); return; }
+    if (k === 'add') { fibAdd = fibAdd === n ? null : n; const f = fibers().find((x) => x.n === n), was = routeSel; routeSel = fibAdd != null && f && f.path.length ? f.path[f.path.length - 1] : null; spanSel = null; routeRefresh([was]); return; }
+    if (k === 'rev') { setFiber(n, (f) => { f.path.reverse(); [f.fromSt, f.toSt] = [f.toSt || '', f.fromSt || '']; }); toast(`Fiber ${n} reversed: it now starts at its other end`, 2500); return; }
+    if (k === 'del') {
+      if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again to delete'; setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = 'Delete'; } }, 3500); return; }
+      routeUndo.push(routeSnap()); const F = fibers().filter((f) => f.n !== n).map((f) => (f.n > n ? { ...f, n: f.n - 1 } : f)); // the later fibers move down a number
+      setRoute(null, F); fibSel = null; fibAdd = null; routeRefresh(); toast(`Fiber ${n} deleted${F.some((f) => f.n >= n) ? ': the fibers after it moved down a number' : ''}. Its spans stay (Undo to bring it back)`, 3500);
+    }
+  });
   /* v2.42.18: several FOC runs on a span. Tap a linked span in Route: its runs, each with its own cable (run 1 is the link's
      cable; the others the link's fourth value). Hardware and loops follow run 1; each run's length counts in the spans Excel,
      the BOQ and the PMI, and each is drawn on the Drawing and the DXF. */
@@ -2369,6 +2666,15 @@
     const box = $('rbSpan'), k = spanSel ? linkIdx(spanSel[0], spanSel[1]) : -1;
     if (!routeMode || k < 0) { spanSel = null; box.hidden = true; box.innerHTML = ''; $('rbHint').hidden = false; return; }
     const l = links()[k], sp = (R || routeModel()).spans.find((s) => (s.ia === l[0] && s.ib === l[1]) || (s.ia === l[1] && s.ib === l[0])), runs = runsOf(l);
+    if (sp && sp.lanes && sp.lanes.length) { // v2.42.20: a span on fibers: the fibers on it, where each comes from and goes
+      const all = fibers(), by = (R || routeModel()).fib.by;
+      box.innerHTML = `<div class="rs-head"><b>Span ${hEsc(sp.from)} → ${hEsc(sp.to)} · ${fmtLen(sp.len)}</b><button class="btn sm" type="button" data-rs="close">Close</button></div>`
+        + `<p class="rb-hint">${sp.lanes.length} fiber${sp.lanes.length === 1 ? '' : 's'} on this span, each a cable of its own. Tap one to light its whole way.</p>`
+        + sp.lanes.map((f) => { const i = f.path.indexOf(sp.ia), j = f.path.indexOf(sp.ib), fw = j === i + 1, nx = f.path[fw ? j + 1 : i + 1], sd = fibSide(f, all, by), a = fibEnd(f, 'from', by), z = fibEnd(f, 'to', by);
+          return `<button class="btn sm rs-fib" type="button" data-rs="fib" data-n="${f.n}"><i style="background:${fibColor(f)}"></i><span><b>Fiber ${f.n}</b>${sd ? ` · ${sd}` : ''} · ${f.ex ? 'existing' : hEsc(CAB[f.cab] ? CAB[f.cab].short : 'cable not set')} · ${hEsc(a.ref || a.kind)} → ${hEsc(z.ref || z.kind)}${nx ? ` · then ${hEsc(fibName(nx))}` : ''}</span></button>`; }).join('')
+        + '<p class="rb-hint">Another fiber on this span: select it, + Add points, and tap the poles along its way.</p>';
+      box.hidden = false; $('rbHint').hidden = true; return;
+    }
     const opts = (v) => [...Object.entries(CAB).map(([kk, c]) => `<option value="${kk}"${kk === v ? ' selected' : ''}>${hEsc(c.label)}</option>`), `<option value=""${v ? '' : ' selected'}>Cable not set</option>`].join('');
     box.innerHTML = `<div class="rs-head"><b>Span ${hEsc(sp ? sp.from : '')} → ${hEsc(sp ? sp.to : '')}${sp ? ` · ${fmtLen(sp.len)}` : ''}</b><button class="btn sm" type="button" data-rs="close">Close</button></div>`
       + '<p class="rb-hint">Its runs: each run is a cable of its own on the Drawing, the DXF, the BOQ and the PMI.</p>'
@@ -2400,13 +2706,14 @@
   });
   $('rbSpan').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-rs]'); if (!b || !spanSel) return;
+    if (b.dataset.rs === 'fib') { fibSel = +b.dataset.n; fibAdd = null; spanSel = null; routeRefresh(); return; } // v2.42.20
     const k = linkIdx(spanSel[0], spanSel[1]); if (b.dataset.rs === 'close' || k < 0) { spanSel = null; routeRefresh(); return; }
     const runs = runsOf(links()[k]);
     if (b.dataset.rs === 'add') { runs.push(runs[runs.length - 1] || runs[0]); setRuns(runs); toast(`Run ${runs.length} added: pick its cable`, 2200); }
     else if (b.dataset.rs === 'del') { runs.splice(+b.dataset.i, 1); setRuns(runs); }
   });
   function setRouteMode(on) {
-    routeMode = on; routeSel = null; spanSel = null; routeUndo = []; routeProj = on ? S.project : null;
+    routeMode = on; routeSel = null; spanSel = null; routeUndo = []; routeProj = on ? S.project : null; fibSel = null; fibAdd = null; // (v2.42.20)
     $('routeBar').hidden = !on; $('routeBtn').setAttribute('aria-pressed', String(on)); if (on) renderCableSel();
     document.body.classList.toggle('routing', on);
     renderPoles();
@@ -2419,8 +2726,11 @@
     const tapped = points.find((p) => p.id === id);
     if (tapped && !ROUTE_ELS.includes(elemOf(tapped))) { toast(`${tapped.poleId}: ${elemOf(tapped)} pins sit on a pole and are not linked. Tap the pole.`, 3500); return; }
     spanSel = null; // v2.42.18: a pole tapped: the span's runs close
+    if (fibAdd != null) { fiberTap(id); return; } // v2.42.20: adding points to a fiber
     if (!routeSel || routeSel === id) { routeSel = routeSel === id ? null : id; routeRefresh(); return; } // v2.42.19: only what changed
     const l = links().map((x) => x.slice()), k = l.findIndex(([x, y]) => (x === routeSel && y === id) || (x === id && y === routeSel)), cab = cableSel();
+    const onF = k >= 0 ? fibers().filter((f) => !f.ex && f.path.some((x, i) => i && spanKey(f.path[i - 1], x) === spanKey(routeSel, id))) : [];
+    if (onF.length) { const was = routeSel; routeSel = id; routeRefresh([was, id]); toast(`This span carries ${onF.map((f) => `Fiber ${f.n}`).join(', ')}: its cable is the fiber's. To take it off, edit the fiber (Undo, Reverse or Delete)`, 4000); return; } // v2.42.20
     routeUndo.push(links());
     if (k >= 0 && (l[k][2] || '') !== cab) { l[k] = linkWith(l[k][0], l[k][1], cab, l[k][3]); toast(`Span changed to ${cableName(cab)}`, 2200); } // v2.29: a linked pair with another cable chosen: the span takes it
     else if (k >= 0) l.splice(k, 1); else l.push(linkWith(routeSel, id, cab));
@@ -2437,7 +2747,7 @@
     routeUndo.push(l); setLinks(l.map(([a, b, , more]) => linkWith(a, b, cab, more))); routeRefresh(); // (run 1; the other runs stay)
     toast(`Every span: ${cableName(cab)} (Undo to go back)`, 3000);
   });
-  $('rbUndo').addEventListener('click', () => { if (routeUndo.length) { setLinks(routeUndo.pop()); renderPoles(); } });
+  $('rbUndo').addEventListener('click', () => { if (routeUndo.length) { const u = routeUndo.pop(); if (Array.isArray(u)) setLinks(u); else setRoute(u.l, u.f); renderPoles(); } }); // (v2.42.20: + the fibers)
   $('rbAuto').addEventListener('click', () => {
     const have = new Set(links().map(([x, y]) => [x, y].sort().join('|')));
     const add = C.autoLinks(projPoints().filter((p) => ['Pole', 'Handhole', 'Manhole', 'Service box'].includes(elemOf(p))), pol().autoGap || 120).filter(([x, y]) => !have.has([x, y].sort().join('|'))); // the site, ODC and ODF are linked by hand
@@ -2449,7 +2759,7 @@
     const b = $('rbClear');
     if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again to clear'; setTimeout(() => { delete b.dataset.armed; b.textContent = 'Clear'; }, 3500); return; }
     delete b.dataset.armed; b.textContent = 'Clear';
-    routeUndo.push(links()); setLinks([]); routeSel = null; renderPoles();
+    routeUndo.push(routeSnap()); setRoute([], []); routeSel = null; fibSel = null; fibAdd = null; renderPoles(); // (v2.42.20: the fibers too)
   });
 
   function fitProject() {
@@ -4732,12 +5042,12 @@
     const pts = projPoints().filter((p) => p.id !== ed.id), by = new Map(pts.map((p) => [p.id, p]));
     for (const [a, b] of links()) { const A = by.get(a), B = by.get(b); if (A && B) L.polyline([[A.lat, A.lon], [B.lat, B.lon]], { pane: 'othPane', color: '#1c3f94', weight: 2.5, opacity: 0.5, dashArray: '6 5', interactive: false }).addTo(pinOthers); }
     // v2.42.19: the open pole's own spans, from its pin to the poles it is linked to (they follow the pin); stronger, ×N for more runs
-    pinOwnLines = []; const c = pinMap.getCenter();
+    pinOwnLines = []; const c = pinMap.getCenter(), FS = fibers().filter((f) => f.path.includes(ed.id)).sort((a, b) => a.n - b.n);
     for (const l of links()) {
       const o = l[0] === ed.id ? by.get(l[1]) : l[1] === ed.id ? by.get(l[0]) : null; if (!o) continue;
-      const n = 1 + (Array.isArray(l[3]) ? l[3].length : 0), cab = CAB[l[2]];
-      const pl = L.polyline([[c.lat, c.lng], [o.lat, o.lon]], { pane: 'othPane', color: cab ? cab.css : '#1c3f94', weight: 3.5 + (n > 1 ? 2 : 0), opacity: 0.85, interactive: false }).addTo(pinOthers);
-      const tag = n > 1 ? L.marker([(c.lat + o.lat) / 2, (c.lng + o.lon) / 2], { pane: 'othPane', interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label">×${n}</span>`, iconSize: null }) }).addTo(pinOthers) : null;
+      const fs = FS.filter((f) => f.path.some((x, i) => i && spanKey(f.path[i - 1], x) === spanKey(l[0], l[1]))), n = fs.length || 1 + (Array.isArray(l[3]) ? l[3].length : 0), cab = CAB[l[2]]; // v2.42.20: its fibers
+      const pl = L.polyline([[c.lat, c.lng], [o.lat, o.lon]], { pane: 'othPane', color: fs.length ? fibColor(fs[0]) : cab ? cab.css : '#1c3f94', weight: 3.5 + (n > 1 ? 2 : 0), opacity: 0.85, interactive: false }).addTo(pinOthers);
+      const tag = fs.length || n > 1 ? L.marker([(c.lat + o.lat) / 2, (c.lng + o.lon) / 2], { pane: 'othPane', interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label">${fs.length ? fs.map((f) => `<b style="color:${fibColor(f)}">${fibTag(f)}</b>`).join(' ') : `×${n}`}</span>`, iconSize: null }) }).addTo(pinOthers) : null;
       pinOwnLines.push({ pl, tag, o });
     }
     for (const p of pts) {
@@ -5584,6 +5894,7 @@
     if (rec) await deletePhotosIfUnused(allPids(rec).concat(Object.keys(ed.pending || {})), new Set([id]));
     points = points.filter((p) => p.id !== id);
     if (links().some(([x, y]) => x === id || y === id)) setLinks(links().filter(([x, y]) => x !== id && y !== id));
+    if (fibers().some((f) => f.path.includes(id))) setRoute(null, fibers().map((f) => ({ ...f, path: f.path.filter((x) => x !== id) }))); // v2.42.20: off its fibers (the neighbours are flagged until linked)
     if (rec && !isAcc(rec.project)) { S.meta = S.meta || {}; const m = { ...(S.meta[rec.project] || {}) }; m.gone = { ...(m.gone || {}), [id]: new Date().toISOString() }; S.meta[rec.project] = m; persist(); } // v2.42.18: the deletion goes with the next share
     if (rec) changedAfterApproval(rec.project, 'delete'); // v2.42.5
     if (rec && !points.some((p) => p.project === rec.project) && S.meta && S.meta[rec.project] && (S.meta[rec.project].cid || S.meta[rec.project].creditM)) { const m = { ...S.meta[rec.project] }; delete m.cid; delete m.creditM; S.meta[rec.project] = m; persist(); } // v2.42.6: its last record deleted: a new survey for the credits
@@ -6450,7 +6761,7 @@
   }
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
-  function shareMeta(name, U) { const { shares, recv, updates, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; } return m; }
+  function shareMeta(name, U) { const { shares, recv, updates, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; } return m; } // (v2.42.20: + the fibers)
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
@@ -7282,7 +7593,7 @@
       rows.push(r);
     }
     busy('Building KMZ…', 1);
-    const kml = C.buildKml(rows, { project: `${S.project}${pmeta().purpose ? ` · ${pmeta().purpose}` : ''}`, photoIcons: icons, spans: E.kmzRoute ? routeModel().spans : [], stamped: !!E.kmzStamp, stampFields: E.stampFields, exportedBy: exporterLine() });
+    const kml = C.buildKml(rows, { project: `${S.project}${pmeta().purpose ? ` · ${pmeta().purpose}` : ''}`, photoIcons: icons, spans: E.kmzRoute ? routeModel().spans : [], fibers: E.kmzRoute ? kmzFibers() : [], stamped: !!E.kmzStamp, stampFields: E.stampFields, exportedBy: exporterLine() });
     const parts = C.makeZipParts([{ name: 'doc.kml', data: kml }, ...files]);
     return new Blob(parts, { type: 'application/vnd.google-earth.kmz' });
   }
@@ -7973,13 +8284,19 @@
       return { id: p.id, poleId: p.poleId || '', el, status: p.status || '', mat: el === 'Pole' ? (TELCO_TYPES.has(pre) ? '' : pre) : '', tag: el === 'Pole' ? (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId) : '',
         telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: b.clamp || '',
         armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon, telcoArm: el === 'Pole' && hasTelcoArm(p), // v2.42.1: the plan draws it
-        mloop: el === 'Pole' && !!(p.mloop || loopYes(b) || LA.has(p.id) || OWN.has(p.id)), mloopM: el === 'Pole' ? loopLenAt(p, R, LA, OWN.get(p.id)) : 0, /* v2.42.17: + a closure's, a dummy NAP's, a riser's; v2.42.18: every NAP, LCP, pin; its own length */ nap: !!p.nap, napId: p.napId || '', nap2: el === 'Pole' && !!p.nap2, nap2Id: el === 'Pole' && p.nap2 ? p.nap2Id || '' : '', nap2Type: el === 'Pole' && p.nap2 ? b.nap2Type || '' : '', nap2Old: el === 'Pole' && !!p.nap2 && b.nap2St === 'Existing', closure: el === 'Pole' && !!p.closure, /* v2.42.17: (a box's closure is not drawn) */ closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
+        mloop: el === 'Pole' && !!(p.mloop || loopYes(b) || LA.has(p.id) || OWN.has(p.id) || (LA.fib && LA.fib.list.has(p.id))), mloopM: el === 'Pole' ? (LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id)[0].len : loopLenAt(p, R, LA, OWN.get(p.id))) : 0,
+        mloopL: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.len) : null, /* v2.42.20: a loop for each fiber there */ /* v2.42.17: + a closure's, a dummy NAP's, a riser's; v2.42.18: every NAP, LCP, pin; its own length */ nap: !!p.nap, napId: p.napId || '', nap2: el === 'Pole' && !!p.nap2, nap2Id: el === 'Pole' && p.nap2 ? p.nap2Id || '' : '', nap2Type: el === 'Pole' && p.nap2 ? b.nap2Type || '' : '', nap2Old: el === 'Pole' && !!p.nap2 && b.nap2St === 'Existing', closure: el === 'Pole' && !!p.closure, /* v2.42.17: (a box's closure is not drawn) */ closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
         adjusted: !!p.adjusted, color: p.color || '', // v2.36: a pin set by hand stays where it is on the drawing; a map pin's colour
         // v2.37: the NAP's kind, a double LCP, the site's kind, grounding, a riser, the pole a pole-to-pole guy goes to
         napType: el === 'NAP' || (el === 'Pole' && (p.nap || p.napId)) ? b.napType || '' : '', napOld: el === 'Pole' && b.napSt === 'Existing', closureOld: el === 'Pole' && b.cloSt === 'Existing', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', ground: !!b.ground, riser: !!b.riser, p2pTo: b.p2p || null,
         clampType: el === 'Pole' && showCT ? clampOf(p, R, pts).join('+') : '', clampAuto: el === 'Pole' && !b.clampType,
         ownerName: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && !/^globe$/i.test(ownerNameOf(p)) ? ownerNameOf(p).toUpperCase() : '' }; }); // v2.42.18: the owner's name beside an existing pole // v2.39: the pole's clamps (picked by the plan when left blank); v2.40: or the size only
-    const spans = R.spans.map((s) => ({ ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long, more: (s.runs || []).slice(1) })); // v2.42.18: + the other runs
+    const spans = R.spans.map((s) => { const o = { ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long, more: (s.runs || []).slice(1) }; // v2.42.18: + the other runs
+      if (s.lanes && s.lanes.length) { // v2.42.20: the other fibers each in its lane (beside the first fiber's line), an existing one dashed blue; the fibers' tags with the length
+        const main = s.fibers.slice().sort((x, y) => x.n - y.n)[0] || null, mi = main ? s.lanes.indexOf(main) : (s.lanes.length - 1) / 2, rest = s.lanes.filter((f) => f !== main);
+        Object.assign(o, { more: rest.map((f) => f.cab || ''), moreOff: rest.map((f) => s.lanes.indexOf(f) - mi), moreEx: rest.map((f) => !!f.ex), tags: R.fib.list.length > 1 ? s.lanes.slice().sort((x, y) => x.n - y.n).map(fibTag).join('+') : '' }); }
+      return o; });
+    const exSpans = R.fib ? [...R.fib.hops.values()].filter((h) => !h.s).flatMap((h) => h.fs.filter((f) => f.ex).map((f) => ({ ia: h.a, ib: h.b, cab: f.cab || '', off: h.fs.indexOf(f) - (h.fs.length - 1) / 2 }))) : []; // v2.42.20: existing cables off the new route
     const seqOf = Object.fromEntries([...poleNums(projPoints(), R).entries()].map(([id, n]) => [String(id), n])); // v2.42.18: the pole numbers (as in Table · CSV)
     const runs = C.routeChains(R.spans).map((ch) => ({ cable: ch.cable, label: CAB_TITLE[ch.cable] || '', pts: ch.pts.map(U) }));
     // v2.38: the project's places (points more than 1 km apart), each with its own vicinity map (its points with a 500 m margin, at
@@ -8090,7 +8407,7 @@
       busy(many ? `Drawing the plan on the template (${k + 1} of ${SETS.length})…` : 'Drawing the plan on the template…', k / SETS.length);
       await sleep(30);
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
-      const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
+      const out = window.GeDxfTpl.build(seed, { pts: rows, spans, exSpans, runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
         numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
@@ -8241,15 +8558,19 @@
         if (!b.clamp && !b.height && !b.cls && !fbp.noClamp) missing.pole++;
         if (b.arm) add('New arm', b.arm, b.height || b.cls || stn === 'New' ? 'New Globe pole' : 'Pole', id); // v2.29
         if (b.guy) String(b.guy).split(' + ').filter(Boolean).forEach((x) => add('Guying', x, 'Pole', id));
-        if (loopYes(fbp) || loopOwnOf(p)) add('Maintenance loop', `${+fbp.mloopM || +b.mloopM || mloopLen()} m`, 'Pole', id); // v2.42.16: and the app's (As-Plan); v2.42.17: a pole's own (closure, dummy NAP, riser)
+        if (Array.isArray(fbp.mloopL)) fbp.mloopL.forEach((v) => add('Maintenance loop', `${v} m`, 'Pole', id)); // v2.42.20: one for each fiber there
+        else if (loopYes(fbp) || loopOwnOf(p)) add('Maintenance loop', `${+fbp.mloopM || +b.mloopM || mloopLen()} m`, 'Pole', id); // v2.42.16: and the app's (As-Plan); v2.42.17: a pole's own (closure, dummy NAP, riser)
         // v2.41: the NAP and the hybrid closure on the pole (New unless set Existing)
         if (p.nap || p.napId) { if (b.napType === 'Dummy NAP') add('Dummy NAP', b.napSz || 'size not set', b.napSt || 'New', p.napId || id); else add('NAP', b.napType || 'NAP', b.napSt || 'New', p.napId || id); }
         if (p.nap2 || p.nap2Id) { if (b.nap2Type === 'Dummy NAP') add('Dummy NAP', b.nap2Sz || 'size not set', b.nap2St || 'New', p.nap2Id || id); else add('NAP', b.nap2Type || 'NAP', b.nap2St || 'New', p.nap2Id || id); } // v2.42: its second box
         if (p.closure || p.closureId) { if (b.clo) add('Closure', b.clo, b.cloSt || 'New', p.closureId || id); else missing.closure++; }
       } else if (el === 'ODF') { if (b.odf || b.conn) add('ODF', [b.odf, b.conn].filter(Boolean).join(' '), stn, id); else missing.ODF++; }
       else if (el === 'Closure' || boxClo(p)) { if (b.clo) add('Closure', b.clo, el === 'Closure' ? stn : boqStNorm(b.cloSt) || stn, el === 'Closure' ? id : p.closureId || id); else missing.closure++; } // v2.42.17: a box's closure is new or existing of its own
-      if (ENTRANCE_ELS.includes(el) && loopYes(fb(p) || {})) add('Maintenance loop', `${(fb(p) || {}).mloopM || mloopLen()} m`, `${el} entrance`, id); // v2.42.18
-      if (UG_BOXES.has(el) && (fill ? (fb(p) || {}).mloopBox : true)) add('Maintenance loop', `${BOX_LOOP_M} m`, el, id); // v2.42.16: the loop each handhole, manhole and service box (on the route) has
+      const fL = (fb(p) || {}).mloopL; // v2.42.20: a loop for each fiber there
+      if (ENTRANCE_ELS.includes(el) && Array.isArray(fL)) fL.forEach((v) => add('Maintenance loop', `${v} m`, `${el} entrance`, id));
+      else if (ENTRANCE_ELS.includes(el) && loopYes(fb(p) || {})) add('Maintenance loop', `${(fb(p) || {}).mloopM || mloopLen()} m`, `${el} entrance`, id); // v2.42.18
+      if (UG_BOXES.has(el) && Array.isArray(fL)) fL.forEach((v) => add('Maintenance loop', `${v} m`, el, id));
+      else if (UG_BOXES.has(el) && (fill ? (fb(p) || {}).mloopBox : true)) add('Maintenance loop', `${BOX_LOOP_M} m`, el, id); // v2.42.16: the loop each handhole, manhole and service box (on the route) has
     });
     return { groups, missing };
   }
@@ -8301,7 +8622,7 @@
       span lengths by cable type and method, maintenance loops, FOC length with loops, detailed engineering (spans without
       loops), new poles by size and class, arms, guying, ODF, closures, NAPs, poles on each cable, the region. */
   function surveyQty(pts) {
-    const R = C.analyzeRoute(pts.filter((p) => ROUTE_ELS.includes(elemOf(p))), links(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 });
+    const rp = pts.filter((p) => ROUTE_ELS.includes(elemOf(p))), R = fibAnnotate(C.analyzeRoute(rp, effLinks(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 }), rp); // v2.42.20: + the fibers
     const rows = [], add = (code, qty, unit, desc) => rows.push([code, qty, unit, desc]), r1 = (v) => Math.round(v * 10) / 10, isNew = (p) => ['Proposed', 'New'].includes(p.status);
     const keys = [...Object.keys(CAB), ''], lenBy = {}, polesBy = {}, loopsBy = {}, ml = mloopLen();
     keys.forEach((k) => { lenBy[k] = 0; polesBy[k] = new Set(); loopsBy[k] = 0; });
@@ -8312,6 +8633,8 @@
     // handhole, manhole and service box on the route has (BOX_LOOP_M), each on its cable
     const LA = autoLoops(pts, R), OWN = loopOwnMap(pts, R), LM = loopManSet(pts, R, OWN), onR = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])); // v2.42.18: + NAPs, LCPs, pins, entrances
     pts.forEach((p) => {
+      const E = LA.fib && LA.fib.list.get(p.id); // v2.42.20: a point on a fiber: a loop for each fiber there
+      if (E) { E.forEach((e) => { loops++; if (e.why === 'box') nBox++; loopsBy[e.cab] = (loopsBy[e.cab] || 0) + 1; loopMBy[e.cab] = (loopMBy[e.cab] || 0) + e.len; loopM += e.len; }); return; }
       const box = UG_BOXES.has(elemOf(p)) && onR.has(p.id); if (!box && !LM.has(p.id) && !LA.has(p.id)) return;
       loops++; if (box) nBox++; const c = LA.has(p.id) ? LA.get(p.id) : cabAt(p.id), m = box ? BOX_LOOP_M : loopLenAt(p, R, LA, OWN.get(p.id)); // v2.42.18: its own length
       if (c == null) loopsOff++; else { loopsBy[c]++; loopMBy[c] += m; loopM += m; }
@@ -8327,15 +8650,20 @@
     add('MLOOP_LEN_L12', 10, 'm', 'Maintenance loop length on a 12C pole, unless set on the record'); // v2.42.18
     add('MLOOP_M', r1(loopM), 'm', 'All maintenance loops: their lengths added (each loop its own)'); // v2.42.18
     add('MLOOP_BOX_LEN', BOX_LOOP_M, 'm', 'Maintenance loop length at a handhole, manhole or service box (each has one)'); // v2.42.16
-    add('MLOOP_COUNT', loops, 'each', `Maintenance loops${loopsOff ? ` (${loopsOff} not on the route)` : ''}${LA.size ? `, ${LA.size} added by the app` : ''}${nBox ? `, ${nBox} at handholes, manholes and service boxes` : ''}`);
+    add('MLOOP_COUNT', loops, 'each', `Maintenance loops${loopsOff ? ` (${loopsOff} not on the route)` : ''}${nAutoOf(LA) ? `, ${nAutoOf(LA)} added by the app` : ''}${LA.fib ? ', one for each fiber at a point' : ''}${nBox ? `, ${nBox} at handholes, manholes and service boxes` : ''}`);
     add('MLOOP_BOX', nBox, 'each', `Handholes, manholes and service boxes on the route: a ${BOX_LOOP_M} m loop each`); // v2.42.16
     add('MLOOP_OWN', pts.filter((p) => onR.has(p.id) && OWN.has(p.id)).length, 'each', 'Points on the route with their own loop (a NAP, an LCP, a hybrid closure, a dummy NAP or a riser on the pole; a site, ODF or ODC entrance): in MLOOP_COUNT'); // v2.42.17
-    if (svPurpose() === 'As-plan') add('MLOOP_AUTO', LA.size, 'each', `Maintenance loops added by the app where the survey had none: ${loopRule}`); // v2.42.16
+    if (svPurpose() === 'As-plan') add('MLOOP_AUTO', nAutoOf(LA), 'each', `Maintenance loops added by the app where the survey had none: ${loopRule}`); // v2.42.16
     if (svPurpose() === 'As-built') { const need = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])), open = pts.filter((p) => need.has(p.id) && elemOf(p) === 'Pole' && !(p.boq && p.boq.mloop) && !OWN.has(p.id)).length; add('MLOOP_UNANSWERED', open, 'each', 'Poles on the route whose maintenance loop was not answered (MLoop or No loop): check them'); }
     keys.forEach((k) => { if (k || loopsBy[k]) add(`MLOOP_${tag(k)}`, loopsBy[k], 'each', `Maintenance loops on ${nm(k)}`); });
     keys.forEach((k) => { if (k || lenBy[k]) add(`FOC_${tag(k)}`, r1(lenBy[k] + loopMBy[k]), 'm', `${k ? CAB[k].label : 'Cable not set'}: spans + loops (each its own length; by default ${k === 'L12' ? 10 : ml} m on a pole, ${BOX_LOOP_M} m at a handhole, manhole or service box)`); });
     add('FOC_TOTAL', r1(R.cableTotal + loopM), 'm', 'All FOC: spans (each run) + loops');
     add('DE', r1(R.cableTotal), 'cable-m', 'Detailed engineering: FOC length without the maintenance loops (each run)');
+    if (R.fib && R.fib.planned.length) { // v2.42.20: each fiber, its spans and its loops
+      add('FIBERS', R.fib.planned.length, 'each', 'Fibers (new cable), each from its start to its end; existing cables drawn on the plan are not counted');
+      R.fib.planned.forEach((f) => { const lm = LA.fib ? [...LA.fib.list.values()].flat().filter((e) => e.n === f.n).reduce((t, e) => t + e.len, 0) : 0, a = fibEnd(f, 'from', R.fib.by), b = fibEnd(f, 'to', R.fib.by);
+        add(`FIBER_${f.n}`, r1(f.len + lm), 'm', `Fiber ${f.n} · ${CAB[f.cab] ? CAB[f.cab].label : 'cable not set'} · ${a.ref || a.kind} → ${b.ref || b.kind}: spans ${r1(f.len)} m + loops ${r1(lm)} m`); });
+    }
     keys.forEach((k) => { if (k || polesBy[k].size) add(`POLES_${tag(k)}`, polesBy[k].size, 'each', `Route points (poles, handholes, ODF…) on ${nm(k)} spans`); });
     add('SPANS_LONG', R.long, 'each', `Spans longer than ${pol().maxSpan || 200} m`);
     const poles = pts.filter((p) => elemOf(p) === 'Pole'), cnt = (list, f) => { const m = new Map(); list.forEach((p) => { const v = f(p); if (v) String(v).split(' + ').forEach((x) => m.set(x, (m.get(x) || 0) + 1)); }); return [...m.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0]), undefined, { numeric: true })); };
@@ -8401,6 +8729,7 @@
       [],
       [lbl('Total route length (m)'), Math.round(Rt.total * 10) / 10],
       ...(Rt.cableTotal > Rt.total + 0.05 ? [[lbl('Cable on the spans, each run (m)'), Math.round(Rt.cableTotal * 10) / 10]] : []), // v2.42.18
+      ...(Rt.fib && Rt.fib.list.length ? [[lbl('Fibers (sheet Fibers)'), `${Rt.fib.planned.length} new${Rt.fib.list.some((f) => f.ex) ? `, ${Rt.fib.list.filter((f) => f.ex).length} existing (drawn only)` : ''}`]] : []), // v2.42.20
       [lbl('Spans'), Rt.spans.length],
       [lbl('Spans longer than maximum'), { v: Rt.long, s: Rt.long ? st.bad : st.good }],
       [lbl('Average span (m)'), Math.round((Rt.total / Rt.spans.length) * 10) / 10],
@@ -8418,7 +8747,7 @@
       [{ v: 'Span lengths are straight lines between pole pins, not cable lengths: add sag, slack and MLoop allowance per your design standard.', s: st.info }],
     ];
     const spanRows = [['No.', 'From', 'To', 'Run', 'Length (m)', 'Longer than maximum', 'Cable', 'Method', 'From lat', 'From lon', 'To lat', 'To lon'].map((v) => ({ v, s: st.header }))];
-    Rt.spans.forEach((s, i) => (s.runs || [s.cable]).forEach((k, r) => spanRows.push([{ v: i + 1, s: st.center }, s.from, s.to, { v: r + 1, s: st.center }, { v: Math.round(s.len * 10) / 10, s: s.long ? st.bad : st.cell },
+    Rt.spans.forEach((s, i) => (s.fibers && s.fibers.length ? s.fibers.slice().sort((x, y) => x.n - y.n).map((f) => [f.cab, `F${f.n}`]) : (s.runs || [s.cable]).map((k, r) => [k, r + 1])).forEach(([k, run]) => spanRows.push([{ v: i + 1, s: st.center }, s.from, s.to, { v: run, s: st.center }, /* v2.42.20: the fiber (F1, F2…) */ { v: Math.round(s.len * 10) / 10, s: s.long ? st.bad : st.cell },
       { v: s.long ? 'Yes' : 'No', s: s.long ? st.bad : st.cell }, CAB[k] ? CAB[k].label : { v: 'not set', s: st.bad }, CAB[k] ? CAB[k].method : '', { v: s.a.lat, s: st.coord }, { v: s.a.lon, s: st.coord }, { v: s.b.lat, s: st.coord }, { v: s.b.lon, s: st.coord }]))); // v2.29: cable, method; v2.42.18: a row per run
     const poleRows = [['No.', 'ID', 'Element', 'Type / status', 'Role on route', 'Spans at point', 'Deflection (°)', 'Latitude', 'Longitude', `UTM ${S.zone}N E`, `UTM ${S.zone}N N`, 'Pole details', 'Remarks', 'Size (BOQ)'].map((v) => ({ v, s: st.header }))];
     pts.forEach((p, i) => {
@@ -8427,9 +8756,18 @@
         { v: info.role, s: info.role === 'Not on route' ? st.bad : st.cell }, info.degree,
         info.deflection == null ? '' : Math.round(info.deflection * 10) / 10, { v: p.lat, s: st.coord }, { v: p.lon, s: st.coord }, Math.round(u.E * 1000) / 1000, Math.round(u.N * 1000) / 1000, detailsText(p.details), p.remarks || '', boqText(p)]);
     });
+    const fibSheet = (() => { // v2.42.20: each fiber: its ends, its spans, its loops, its cable length and its way
+      if (!Rt.fib || !Rt.fib.list.length) return null; const LA = autoLoops(projPoints(), Rt), all = fibers(), by = Rt.fib.by, r1 = (v) => Math.round(v * 10) / 10;
+      const rows = [['Fiber', 'Side', 'Cable', 'New / existing', 'From', 'Start', 'To', 'End', 'Points', 'Spans', 'Route (m)', 'Loops', 'Loops (m)', 'Cable (m)', 'Way'].map((v) => ({ v, s: st.header }))];
+      Rt.fib.list.forEach((f) => { const E = LA.fib ? [...LA.fib.list.values()].flat().filter((e) => e.n === f.n) : [], lm = E.reduce((t, e) => t + e.len, 0), a = fibEnd(f, 'from', by), b = fibEnd(f, 'to', by);
+        rows.push([`Fiber ${f.n}`, fibSide(f, all, by), CAB[f.cab] ? CAB[f.cab].label : 'not set', f.ex ? 'Existing (drawn only)' : 'New', `${a.kind === 'Pole' ? '' : `${a.kind} `}${a.ref}`, a.state, `${b.kind === 'Pole' ? '' : `${b.kind} `}${b.ref}`, b.state,
+          f.path.length, f.spans, r1(f.len), f.ex ? '' : E.length, f.ex ? '' : r1(lm), f.ex ? '' : r1(f.len + lm), f.path.map(fibName).join(' → ')]); });
+      return { name: 'Fibers', cols: [9, 7, 22, 18, 22, 9, 22, 9, 7, 7, 10, 7, 10, 10, 70], rows, freezeRow: 1 };
+    })();
     const parts = R.buildXlsxParts([
       { name: 'Summary', cols: [30, 44], rows: summary, merges: ['A1:B1', `A${summary.length}:B${summary.length}`] },
       { name: 'Spans', cols: [6, 15, 15, 6, 11, 12, 24, 8, 12, 13, 12, 13], rows: spanRows, freezeRow: 1, autoFilter: `A1:L${spanRows.length}` },
+      ...(fibSheet ? [fibSheet] : []),
       { name: 'Points', cols: [6, 15, 10, 18, 16, 9, 11, 12, 13, 13, 13, 30, 30, 30], rows: poleRows, freezeRow: 1, autoFilter: `A1:N${poleRows.length}` },
       ...(boqOn() ? [boqSheet(pts, st, await planFor()), qtySheet(pts, st)] : []), // v2.26 (v2.26.1: As-Plan / As-Built, planned against built; v2.29: quantities)
       exporterSheet(st),
@@ -8437,6 +8775,12 @@
     offerResult(new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '_route.xlsx');
   }));
 
+  /** v2.42.20: the fibers for the KMZ: each one line from its start to its end. */
+  function kmzFibers() {
+    const R = routeModel(); if (!R.fib) return []; const all = fibers(), by = R.fib.by;
+    return R.fib.list.filter((f) => f.path.length > 1).map((f) => { const a = fibEnd(f, 'from', by), b = fibEnd(f, 'to', by);
+      return { n: f.n, side: fibSide(f, all, by), cable: f.cab || '', ex: !!f.ex, len: f.len, color: fibColor(f), from: `${a.kind === 'Pole' ? '' : `${a.kind} `}${a.ref}`, to: `${b.kind === 'Pole' ? '' : `${b.kind} `}${b.ref}`, pts: f.path.map((id) => by.get(id)).map((p) => ({ lat: p.lat, lon: p.lon, poleId: p.poleId || '' })) }; });
+  }
   /* ---- labeled photos for training a recognition model ---- */
   let dsScope = 'project';
   $('dsScope').addEventListener('click', (e) => {
@@ -8662,7 +9006,8 @@
         if (meta.meta.people) S.meta[proj].people = { ...(S.meta[proj].people || {}), ...meta.meta.people };
         if (meta.meta.links) {
           const mineAt = S.meta[proj].linksAt || '', theirs = meta.meta.linksAt || '';
-          if (theirs && theirs > mineAt) { S.meta[proj].links = meta.meta.links.map((l) => l.slice()); S.meta[proj].linksAt = theirs; routeNew = true; } // v2.42.18: the newer route wins (spans removed, cables and runs changed)
+          if (theirs && theirs > mineAt) { S.meta[proj].links = meta.meta.links.map((l) => l.slice()); S.meta[proj].linksAt = theirs; routeNew = true; // v2.42.18: the newer route wins (spans removed, cables and runs changed)
+            if (Array.isArray(meta.meta.fibers)) S.meta[proj].fibers = meta.meta.fibers.map((f) => ({ ...f, path: (f.path || []).slice() })); } // v2.42.20: and its fibers (a sender on an older version has none: these stay)
           else {
             const have = new Set((S.meta[proj].links || []).map(([x, y]) => [x, y].sort().join('|')));
             S.meta[proj].links = (S.meta[proj].links || []).concat(meta.meta.links.filter(([x, y]) => !have.has([x, y].sort().join('|'))));
@@ -8681,6 +9026,7 @@
         }
         S.meta[proj].gone = mg;
         if (delIds.size) S.meta[proj].links = (S.meta[proj].links || []).filter(([x, y]) => !delIds.has(x) && !delIds.has(y));
+        if (delIds.size && Array.isArray(S.meta[proj].fibers)) S.meta[proj].fibers = S.meta[proj].fibers.map((f) => ({ ...f, path: (f.path || []).filter((x) => !delIds.has(x)) })); // v2.42.20
       }
       if (o.update && S.meta[proj]) { // v2.42.18: who sent which update (Projects → Project details)
         const U = o.update, r = { ...(S.meta[proj].recv || {}) }; r[U.sender] = { n: Math.max((r[U.sender] || {}).n || 0, U.n), at: U.at, name: U.from };
@@ -12502,5 +12848,11 @@
     /* v2.42.18 */ hw: () => { const R = routeModel(); return Object.fromEntries(projPoints().filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, hwOf(p, R)])); }, filled: () => { const all = projPoints(), f = boqFilled(all); return Object.fromEntries(all.map((p) => [p.id, f(p) || {}])); },
     poleNums: () => Object.fromEntries([...poleNums(projPoints(), routeModel()).entries()]), setNumCfg: (c) => setNumCfg(c), route: () => { const R = routeModel(); return { total: R.total, cableTotal: R.cableTotal, spans: R.spans.map((s) => ({ ia: s.ia, ib: s.ib, runs: s.runs, len: s.len })) }; },
     mapPt: (lat, lon) => { const p = map.latLngToContainerPoint([lat, lon]), r = $('map').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; }, mapView: (lat, lon, z) => map.setView([lat, lon], z, { animate: false }), siteReq: () => siteReq(), adminOk: (e) => adminUserOk(e), jobsOf: (e) => jobsOf(e), shareProject: (n) => shareProject(n || S.project), apprText: () => apprText(), readApproval: (t, n) => readApproval(t, n || S.project),
-    /* v2.42.19 */ boxMarks: () => (boxer ? boxer.marks.map((m) => ({ k: m.k, pts: m.pts ? m.pts.map(([x, y]) => [Math.round(x), Math.round(y)]) : null, raw: !!m.raw })) : null), boxSel: () => (boxer ? boxer.sel : null), pinOwn: () => pinOwnLines.map(({ pl, o }) => ({ to: o.id, ll: pl.getLatLngs().map((q) => [q.lat, q.lng]) })), pinCenter: () => { const c = pinMap.getCenter(); return [c.lat, c.lng]; } };
+    /* v2.42.19 */ boxMarks: () => (boxer ? boxer.marks.map((m) => ({ k: m.k, pts: m.pts ? m.pts.map(([x, y]) => [Math.round(x), Math.round(y)]) : null, raw: !!m.raw })) : null), boxSel: () => (boxer ? boxer.sel : null), pinOwn: () => pinOwnLines.map(({ pl, o }) => ({ to: o.id, ll: pl.getLatLngs().map((q) => [q.lat, q.lng]) })), pinCenter: () => { const c = pinMap.getCenter(); return [c.lat, c.lng]; },
+    /* v2.42.20 */ routeTap: (id) => routeTap(id), fibers: () => fibers(), setFibers: (F) => { setRoute(null, F); renderPoles(); }, fibState: () => ({ fibSel, fibAdd }),
+    fibModel: () => { const R = routeModel(); return { list: R.fib ? R.fib.list.map((f) => ({ n: f.n, len: f.len, spans: f.spans, gaps: f.gaps, ex: !!f.ex, path: f.path, side: fibSide(f, fibers(), R.fib.by), from: fibEnd(f, 'from', R.fib.by), to: fibEnd(f, 'to', R.fib.by) })) : [], cableTotal: R.cableTotal, total: R.total, spans: R.spans.map((s) => ({ ia: s.ia, ib: s.ib, from: s.from, to: s.to, lanes: s.lanes.map((f) => f.n), fibers: s.fibers.map((f) => f.n), runs: s.runs, cable: s.cable })) }; },
+    fibLoops: () => { const LA = autoLoops(projPoints(), routeModel()); return LA.fib ? { n: LA.fib.n, nAuto: LA.fib.nAuto, list: [...LA.fib.list.entries()].map(([id, E]) => [(points.find((p) => p.id === id) || {}).poleId, E.map((e) => [e.n, e.cab, e.len, e.why])]) } : null; },
+    fibHw: (pid) => { const p = points.find((x) => x.poleId === pid); return p ? hwOf(p, routeModel()) : null; },
+    fibQty: () => surveyQty(projPoints()).rows, boqRows: () => { const P = projPoints(), fb = boqFilled(P); return [...boqGroups(P, fb).groups.values()].map((g) => [g.item, g.size, g.forWhat, g.qty]); },
+    fibLanes: () => fibLayer.getLayers().map((l) => (l.getLatLngs ? { ll: l.getLatLngs().map((q) => [q.lat, q.lng]), color: l.options.color, w: l.options.weight, op: l.options.opacity, dash: l.options.dashArray || '' } : { arrow: true })), kmzFibers: () => kmzFibers() };
 })();
