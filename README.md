@@ -536,6 +536,18 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.19
+
+Fixes from the field: no update of the online sheet needed.
+
+- **The record no longer stutters when scrolled**: the map goes small only while the form can still scroll, and comes back big only when you scroll up at the top (or tap the map). Before, a form a little taller than the screen made the map flip size 30 times in one scroll.
+- **The record's map shows the pole's own spans** from its pin (they follow the pin while you place it), in the cable's colour, ×2 when the span has more runs.
+- **Runs at any zoom**: in Route, tap a pole: the bar lists its spans (→ CC-0002 · 46 m · Light 12C · 2 runs); tap one for its runs. At normal zoom the pole markers covered the short span lines, so the span could hardly be tapped.
+- **Straighten** on the photo's FOC route (on at first, remembered): a hand-drawn route becomes straight segments, its corners kept. Tap Straighten to switch it off; the route selected goes back as drawn.
+- **Site details in any project**: with no site of the online sheet, type them in (Project Name, Serial Number, PLA ID, site name) in New project or Project details. When the sheet's Site required is Yes, the filled fields are locked and only the empty ones can be typed in.
+- **New project: Cancel** beside Create project.
+- **Faster Route**: a tap in Route redraws only the pins that changed, not every pin and label (on a 260-point project each tap took 70–450 ms on a laptop, several times more on a phone: the app seemed to hang).
+
 ## What changed in v2.42.18
 
 Admin users without the admin phone, the site rule in the sheet, cable hardware for 12C and telco arms, several FOC runs on a span, pole owner names, pole numbers shared by the DXF and the CSV, loop lengths, and Share with only the changes. **Update the online sheet's script to v2.42.18** (it emails the codes) and **export the plan, the BOQ and the PMI again.**

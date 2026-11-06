@@ -415,7 +415,7 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .pair input{min-height:44px;padding:8px 10px}
 .btn.small{min-height:36px;padding:0 12px;font-size:calc(13px * var(--fs))}
 .sitefields{border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin:6px 0;background:var(--surface)}.sitefields>b{display:block;font-size:calc(12px * var(--fs));color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:2px 0 4px}
-.sitefields .sf{display:grid;grid-template-columns:minmax(90px,38%) 1fr;gap:8px;align-items:center;margin:4px 0}.sitefields .sf span{font-size:calc(12.5px * var(--fs));color:var(--muted);overflow-wrap:anywhere}.sitefields .sf input{min-height:38px}.sitefields .hint{margin:4px 0 0}
+.sitefields .sf{display:grid;grid-template-columns:minmax(90px,38%) 1fr;gap:8px;align-items:center;margin:4px 0}.sitefields .sf span{font-size:calc(12.5px * var(--fs));color:var(--muted);overflow-wrap:anywhere}.sitefields .sf input{min-height:38px}.sitefields .sf input.locked{background:var(--bg);color:var(--muted);cursor:not-allowed}.sitefields .hint{margin:4px 0 0}
 .dxfsets{display:flex;flex-direction:column}.dxfsets label{display:flex;align-items:center;gap:10px;min-height:40px;border-bottom:1px solid var(--line)}.dxfsets input{width:20px;height:20px;margin:0;flex:none}
 .dxftpl .dxfplan{display:flex;flex-direction:column;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line2)}.dxftpl .hint.ok{color:var(--ok);font-weight:600}.dxftpl .dxflogo{align-items:center;gap:8px;flex-wrap:wrap}.dxftpl .dxflogo img{height:32px;max-width:120px;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:4px;padding:2px}.dxftpl .dxflogo .hint{flex:1 1 140px;margin:0}.dxftpl .btn.small.link{background:none;border-color:transparent;box-shadow:none;color:var(--muted);text-decoration:underline;padding:0 6px}
 .grow{flex:1}
@@ -620,6 +620,8 @@ body.visiting #toast{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 64px);b
 .rb-span .rs-head{display:flex;gap:8px;align-items:center;justify-content:space-between}.rb-span .rs-head b{font-size:calc(13px * var(--fs))}
 .rb-span .rs-run{display:flex;gap:6px;align-items:center}.rb-span .rs-run b{min-width:44px;font-size:calc(12px * var(--fs))}.rb-span .rs-run select{flex:1;min-width:0;min-height:38px}
 .rb-span .btn.sm{min-height:36px}
+.rb-spans{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.rb-spans .lbl{flex:1 1 100%;font-size:calc(11px * var(--fs));font-weight:700;color:var(--muted)}.rb-spans .btn.sm{min-height:36px;white-space:nowrap}
+#boxModes #boxStraight{width:auto;padding:0 12px;font-size:calc(13px * var(--fs));font-weight:700;white-space:nowrap}#boxModes #boxStraight[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:var(--accent)}
 .rb-cable{display:flex;gap:6px;align-items:center}.rb-cable label{font-size:calc(11px * var(--fs));font-weight:700;color:var(--muted)}.rb-cable select{flex:1;min-width:0;min-height:38px}.rb-cable .btn{min-height:38px;white-space:nowrap}
 .rb-btns .btn{min-height:40px;padding:0 10px;font-size:calc(13px * var(--fs));flex:1 1 auto}
 .span-label{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:0 4px;font:600 calc(10px * var(--fs))/1.5 var(--mono);white-space:nowrap;box-shadow:none}
@@ -752,6 +754,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="rb-head"><b id="rbTitle">Route</b><span id="rbStats"></span></div>
     <p class="rb-advice" id="rbAdvice" hidden></p>
     <p class="rb-hint" id="rbHint">Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.</p>
+    <div class="rb-spans" id="rbSpans" hidden></div>
     <div class="rb-span" id="rbSpan" hidden></div>
     <div class="rb-cable"><label for="rbCable">CABLE</label><select id="rbCable" aria-label="Cable type of the spans you link"></select><button class="btn sm" id="rbCableAll" type="button">Set on all spans</button></div>
     <div class="rb-btns">
@@ -935,7 +938,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <button class="iconbtn" data-close aria-label="Cancel"><svg><use href="#i-close"/></svg></button>
     <h2 id="boxTitle">Box</h2>
   </header>
-  <div id="boxModes" role="group" aria-label="Tool"><button type="button" class="tool" id="boxModeBox" aria-pressed="true" aria-label="Box" title="Box"><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></button><button type="button" class="tool" id="boxModePole" aria-pressed="false" aria-label="Model" title="Model"><svg viewBox="0 0 24 24"><path d="M12 3v15M7 21h10M9 18h6"/></svg></button><button type="button" class="tool" id="boxModeFoc" aria-pressed="false" aria-label="FOC route" title="FOC route"><svg viewBox="0 0 24 24"><path d="M3 15c3-6 5-6 7 0s4 6 7 0 3-5 4-5"/><circle cx="3" cy="15" r="1.6"/><circle cx="21" cy="10" r="1.6"/></svg></button><button type="button" class="tool" id="boxModeText" aria-pressed="false" aria-label="Text" title="Text"><svg viewBox="0 0 24 24"><path d="M5 6h14M12 6v13M9 19h6"/></svg></button><span class="tsep" aria-hidden="true"></span><span id="boxColors" role="group" aria-label="Colour"><button type="button" class="sw" data-c="red" aria-label="Red (proposed)" title="Red: proposed" aria-pressed="true" style="--c:#e03131"></button><button type="button" class="sw" data-c="navy" aria-label="Navy blue (existing)" title="Navy blue: existing" aria-pressed="false" style="--c:#1c3f94"></button><button type="button" class="sw" data-c="green" aria-label="Green" title="Green" aria-pressed="false" style="--c:#2f9e44"></button><button type="button" class="sw" data-c="orange" aria-label="Orange" title="Orange" aria-pressed="false" style="--c:#e8590c"></button></span><select id="boxModel" aria-label="Which model" hidden><option value="pole">Proposed pole</option><option value="odc">Proposed ODC (outdoor cabinet)</option><option value="odfp">Proposed ODF (rack panel)</option><option value="rack">Proposed data rack</option><option value="hh">Proposed handhole</option><option value="tower">New tower location</option></select></div>
+  <div id="boxModes" role="group" aria-label="Tool"><button type="button" class="tool" id="boxModeBox" aria-pressed="true" aria-label="Box" title="Box"><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></button><button type="button" class="tool" id="boxModePole" aria-pressed="false" aria-label="Model" title="Model"><svg viewBox="0 0 24 24"><path d="M12 3v15M7 21h10M9 18h6"/></svg></button><button type="button" class="tool" id="boxModeFoc" aria-pressed="false" aria-label="FOC route" title="FOC route"><svg viewBox="0 0 24 24"><path d="M3 15c3-6 5-6 7 0s4 6 7 0 3-5 4-5"/><circle cx="3" cy="15" r="1.6"/><circle cx="21" cy="10" r="1.6"/></svg></button><button type="button" class="tool" id="boxModeText" aria-pressed="false" aria-label="Text" title="Text"><svg viewBox="0 0 24 24"><path d="M5 6h14M12 6v13M9 19h6"/></svg></button><button type="button" class="tool" id="boxStraight" aria-pressed="true" title="Straighten the FOC route (straight segments, corners kept)" hidden>Straighten: on</button><span class="tsep" aria-hidden="true"></span><span id="boxColors" role="group" aria-label="Colour"><button type="button" class="sw" data-c="red" aria-label="Red (proposed)" title="Red: proposed" aria-pressed="true" style="--c:#e03131"></button><button type="button" class="sw" data-c="navy" aria-label="Navy blue (existing)" title="Navy blue: existing" aria-pressed="false" style="--c:#1c3f94"></button><button type="button" class="sw" data-c="green" aria-label="Green" title="Green" aria-pressed="false" style="--c:#2f9e44"></button><button type="button" class="sw" data-c="orange" aria-label="Orange" title="Orange" aria-pressed="false" style="--c:#e8590c"></button></span><select id="boxModel" aria-label="Which model" hidden><option value="pole">Proposed pole</option><option value="odc">Proposed ODC (outdoor cabinet)</option><option value="odfp">Proposed ODF (rack panel)</option><option value="rack">Proposed data rack</option><option value="hh">Proposed handhole</option><option value="tower">New tower location</option></select></div>
   <div id="boxWrap"><canvas id="boxCanvas" aria-label="Photo: drag to draw a red box"></canvas></div>
   <p class="hint" id="boxHint" style="margin:0;padding:8px 16px">Drag on the photo to draw a red box around the spot. Tap a mark to move, resize or delete it.</p>
   <div class="foot">
@@ -1499,8 +1502,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
           <div id="npSiteList" style="display:flex;flex-direction:column"></div>
         </div>
         <div class="row" id="npSiteRow" hidden><span class="hint grow" id="npSiteInfo"></span><button class="btn sm" id="npSiteFolder" type="button" hidden>Folder</button><button class="btn sm primary" id="npSiteOpen" type="button" hidden>Open</button><button class="btn sm" id="npSiteClear" type="button" aria-label="No site">✕</button></div>
-        <div class="sitefields" id="npSiteFields" hidden></div>
       </div>
+      <div class="sitefields" id="npSiteFields" hidden></div>
       <label class="field" id="npCatBox"><span>TASK CATEGORY <span class="req" aria-hidden="true">*</span></span><select id="npCat" required aria-required="true"><option value="" disabled selected>Choose…</option><option value="survey">Survey</option><option value="PAT">PAT</option><option value="Cleanup">Defect Cleanup</option><option value="FAT">FAT</option></select></label>
       <label class="field" id="npPurposeBox"><span>PURPOSE <span class="req" aria-hidden="true">*</span></span><select id="npPurpose" required aria-required="true"></select></label>
       <p class="hint" id="npScope" hidden></p>
@@ -1524,7 +1527,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <p class="warnline bad" id="npErr" hidden role="alert"></p>
     </div>
   </div>
-  <div class="foot"><button class="btn primary grow" id="npCreate" type="button">Create project</button></div>
+  <div class="foot"><button class="btn" id="npCancel" type="button">Cancel</button><button class="btn primary grow" id="npCreate" type="button">Create project</button></div>
 </section>
 
 <!-- offline maps -->

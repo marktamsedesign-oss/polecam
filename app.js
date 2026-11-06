@@ -732,7 +732,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.18';
+  const APP_VER = '2.42.19';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1335,8 +1335,30 @@
   const TYPE_COLORS = ['#e8590c', '#1971c2', '#2b8a3e', '#9c36b5', '#c2255c', '#0c8599', '#5c940d', '#495057'];
   const typeColor = (t) => { const names = typeNames(), i = names.indexOf(t); return TYPE_COLORS[(i < 0 ? names.length : i) % TYPE_COLORS.length]; };
 
+  /* v2.42.19: the map's pins by record id, their look and their label, so a tap in Route restyles only the pins that changed */
+  const pinMarkers = new Map(); let pinShownSel = null;
+  const pinLook = (p, sel) => { const acc = p.kind === 'acceptance', el = elemOf(p); return { radius: sel ? 12 : acc && el !== 'Pole' ? 10 : 8, weight: sel ? 4 : !acc && p.status === 'New' ? 3 : 2,
+    color: sel ? '#17202a' : acc && el !== 'Pole' ? '#17202a' : !acc && pinCol(p) ? pinCol(p) : !acc && p.status === 'Proposed' ? '#e03131' : !acc && p.status === 'New' ? '#17202a' : '#fff',
+    dashArray: !acc && p.status === 'Proposed' && !sel ? '3 3' : null,
+    fillColor: acc ? STATUS_COLORS[recStatus(p)] : pinCol(p) || typeColor(p.poleType), fillOpacity: !acc && p.status === 'Proposed' ? 0.5 : 1 }; };
+  const pinTip = (p, R) => { const acc = p.kind === 'acceptance', n = acc ? openCount(p) : 0, role = R && R.poles[p.id] && (R.poles[p.id].role === 'Angle' ? ` · ${Math.round(R.poles[p.id].deflection)}°` : R.poles[p.id].role === 'Junction' ? ' · junction' : '');
+    return `${C.xmlEsc(recName(p) || '(no ID)')}${acc && n ? ` · ${n} open` : ''}${role || ''}`; };
+  /** v2.42.19: a tap in Route: the route and its bar again, and only the pins whose look changed (the one selected before, the one
+      now, the ends of a span linked or unlinked): not every pin and label of the project (on 260 points that took 70–450 ms a tap). */
+  function routeRefresh(ids) {
+    const R = drawRoute(), by = new Map(projPoints().map((p) => [p.id, p]));
+    new Set([pinShownSel, routeSel, ...(ids || [])].filter(Boolean)).forEach((id) => {
+      const m = pinMarkers.get(id), p = by.get(id); if (!m || !p) return;
+      const sel = routeMode && id === routeSel;
+      if (m.setStyle) { const o = pinLook(p, sel); m.setStyle(o); m.setRadius(o.radius); if (sel && m.bringToFront) m.bringToFront(); }
+      else { const e = m.getElement && m.getElement(), s = e && e.querySelector('.svsym, .svpin'); if (s) s.classList.toggle('sel', sel); }
+      if (m.getTooltip && m.getTooltip() && R) m.setTooltipContent(pinTip(p, R));
+    });
+    pinShownSel = routeMode ? routeSel : null;
+    renderSummary(projPoints());
+  }
   function renderPoles() {
-    poleLayer.clearLayers();
+    poleLayer.clearLayers(); pinMarkers.clear();
     if (routeMode && (isAcc() || routeProj !== S.project)) setRouteMode(false); // v2.42.4: + another project
     $('routeBtn').hidden = isAcc(); $('pinAddBtn').hidden = !S.project || isAcc(); // v2.36
     const R = drawRoute();
@@ -1348,15 +1370,12 @@
       const m = sy ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svsym${sel ? ' sel' : ''}" style="--c:${pinCol(p) || SV_COLORS[el]}">${symSvg(sy.kind, sy.isNew, 26)}</span>`, iconSize: [32, 32], iconAnchor: [16, 16] }) })
         : !acc && el !== 'Pole' && SV_SHORT[el] // survey element: a labelled square (dashed when proposed / new)
         ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svpin${sel ? ' sel' : ''}${p.status === 'Proposed' || p.status === 'New' ? ' new' : ''}" style="--c:${pinCol(p) || SV_COLORS[el]}">${SV_SHORT[el]}</span>`, iconSize: [30, 24], iconAnchor: [15, 12] }) })
-        : L.circleMarker([p.lat, p.lon], { radius: sel ? 12 : acc && el !== 'Pole' ? 10 : 8, weight: sel ? 4 : !acc && p.status === 'New' ? 3 : 2,
-          color: sel ? '#17202a' : acc && el !== 'Pole' ? '#17202a' : !acc && pinCol(p) ? pinCol(p) : !acc && p.status === 'Proposed' ? '#e03131' : !acc && p.status === 'New' ? '#17202a' : '#fff',
-          dashArray: !acc && p.status === 'Proposed' && !sel ? '3 3' : null,
-          fillColor: acc ? STATUS_COLORS[recStatus(p)] : pinCol(p) || typeColor(p.poleType), fillOpacity: !acc && p.status === 'Proposed' ? 0.5 : 1 });
-      const role = R && R.poles[p.id] && (R.poles[p.id].role === 'Angle' ? ` · ${Math.round(R.poles[p.id].deflection)}°` : R.poles[p.id].role === 'Junction' ? ' · junction' : '');
-      m.bindTooltip(`${C.xmlEsc(recName(p) || '(no ID)')}${acc && n ? ` · ${n} open` : ''}${role || ''}`, { permanent: true, direction: 'right', offset: [sy ? 16 : !acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' });
+        : L.circleMarker([p.lat, p.lon], pinLook(p, sel)); // (v2.42.19: its look in pinLook)
+      m.bindTooltip(pinTip(p, R), { permanent: true, direction: 'right', offset: [sy ? 16 : !acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' });
       m.on('click', () => (routeMode ? routeTap(p.id) : visitMode() ? openVisit(p.id) : openEditorFor(p.id)));
-      m.addTo(poleLayer);
+      m.addTo(poleLayer); pinMarkers.set(p.id, m);
     }
+    pinShownSel = routeMode ? routeSel : null;
     $('projectName').textContent = S.project || 'No project · tap to add';
     if (refFor !== S.project || !refLayer.getLayers().length) drawRef(false);
     if (drw && drw.project !== S.project) { if ($('drawing').hidden || !projPoints().length || !drawOn()) drw = null; else openDrawing(true); } // v2.42.12: the Drawing is of the project chosen (not the one before)
@@ -2073,6 +2092,7 @@
   /* ================= route and spans (survey projects) ================= */
   let routeMode = false, routeSel = null, routeUndo = [], routeProj = null, spanSel = null; // v2.42.18: spanSel: the span whose runs are shown // v2.42.4: routeProj: the project being linked
   const routeLayer = L.layerGroup().addTo(map);
+  map.createPane('routePane'); map.getPane('routePane').style.zIndex = 395; // v2.42.19: the route under the pins (overlay 400), whatever is drawn last: a pin is tapped, not the span under it
   const links = () => (pmeta().links || []);
   function setLinks(l) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), links: l, linksAt: new Date().toISOString() }; persist(); changedAfterApproval(S.project, 'route'); } // v2.42.5: + the approval; v2.42.18: + its time (Share)
   /* v2.29: each span carries its FOC cable type (the third value of the link): AE Figure 8 72C, Light cable 12C or UG 144C air-blown */
@@ -2097,18 +2117,18 @@
     const selK = spanSel ? [...spanSel].sort().join('|') : '';
     for (const s of R.spans) { // v2.29: coloured by cable type (grey: cable not set); long spans red
       const cab = CAB[s.cable], ll = [[s.a.lat, s.a.lon], [s.b.lat, s.b.lon]], nr = (s.runs || []).length;
-      if (routeMode && selK === [s.ia, s.ib].sort().join('|')) L.polyline(ll, { color: '#fab005', weight: 16 + 5 * Math.max(0, nr - 1), opacity: 0.55, lineCap: 'round', interactive: false }).addTo(routeLayer); // v2.42.18: the span tapped
-      for (let i = nr - 1; i >= 1; i--) { const c2 = CAB[s.runs[i]]; L.polyline(ll, { color: c2 ? c2.css : '#868e96', weight: 4 + 5 * i, opacity: 0.55, lineCap: 'butt', interactive: false }).addTo(routeLayer); } // v2.42.18: run 2, run 3… as bands round run 1
-      L.polyline(ll, { color: s.long ? '#c92a2a' : cab ? cab.css : '#868e96', weight: 4, opacity: 0.9, dashArray: s.long ? '8 6' : cab && cab.method === 'UG' ? '2 7' : null, lineCap: 'round', interactive: false }).addTo(routeLayer);
-      if (routeMode) L.polyline(ll, { color: '#000', weight: 22, opacity: 0.01, interactive: true, bubblingMouseEvents: false }).on('click', (e) => { L.DomEvent.stop(e); spanSel = [s.ia, s.ib]; routeSel = null; renderPoles(); spanInView(s); }).addTo(routeLayer); // v2.42.18: tap a span: its runs
+      if (routeMode && selK === [s.ia, s.ib].sort().join('|')) L.polyline(ll, { pane: 'routePane', color: '#fab005', weight: 16 + 5 * Math.max(0, nr - 1), opacity: 0.55, lineCap: 'round', interactive: false }).addTo(routeLayer); // v2.42.18: the span tapped
+      for (let i = nr - 1; i >= 1; i--) { const c2 = CAB[s.runs[i]]; L.polyline(ll, { pane: 'routePane', color: c2 ? c2.css : '#868e96', weight: 4 + 5 * i, opacity: 0.55, lineCap: 'butt', interactive: false }).addTo(routeLayer); } // v2.42.18: run 2, run 3… as bands round run 1
+      L.polyline(ll, { pane: 'routePane', color: s.long ? '#c92a2a' : cab ? cab.css : '#868e96', weight: 4, opacity: 0.9, dashArray: s.long ? '8 6' : cab && cab.method === 'UG' ? '2 7' : null, lineCap: 'round', interactive: false }).addTo(routeLayer);
+      if (routeMode) L.polyline(ll, { pane: 'routePane', color: '#000', weight: 22, opacity: 0.01, interactive: true, bubblingMouseEvents: false }).on('click', (e) => { L.DomEvent.stop(e); spanSel = [s.ia, s.ib]; routeSel = null; routeRefresh(); spanInView(s); }).addTo(routeLayer); // v2.42.18: tap a span: its runs
       L.marker([(s.a.lat + s.b.lat) / 2, (s.a.lon + s.b.lon) / 2], { interactive: false, keyboard: false,
         icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label${s.long ? ' long' : ''}">${s.len.toFixed(0)} m${nr > 1 ? ` ×${nr}` : ''}</span>`, iconSize: null }) }).addTo(routeLayer);
     }
     for (const p of projPoints()) {
       const info = R.poles[p.id];
-      if (info && (info.role === 'Angle' || info.role === 'Junction')) L.circleMarker([p.lat, p.lon], { radius: 14, color: info.role === 'Angle' ? '#e8590c' : '#9c36b5', weight: 2, fill: false, interactive: false }).addTo(routeLayer);
+      if (info && (info.role === 'Angle' || info.role === 'Junction')) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 14, color: info.role === 'Angle' ? '#e8590c' : '#9c36b5', weight: 2, fill: false, interactive: false }).addTo(routeLayer);
     }
-    if (routeMode) { updateRouteBar(R); const by = new Map(projPoints().map((p) => [p.id, p])); routeAdvice(R).forEach((a) => { const p = by.get(a.id); if (p) L.circleMarker([p.lat, p.lon], { radius: 17, color: a.kind === 'flag' ? '#c92a2a' : '#e8590c', weight: 2.5, dashArray: '5 4', fill: false, interactive: false }).addTo(routeLayer); }); }
+    if (routeMode) { updateRouteBar(R); const by = new Map(projPoints().map((p) => [p.id, p])); routeAdvice(R).forEach((a) => { const p = by.get(a.id); if (p) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 17, color: a.kind === 'flag' ? '#c92a2a' : '#e8590c', weight: 2.5, dashArray: '5 4', fill: false, interactive: false }).addTo(routeLayer); }); }
     if (typeof declutterSoon === 'function') declutterSoon(); // v2.28
     return R;
   }
@@ -2327,7 +2347,16 @@
     const A = routeAdvice(R); $('rbAdvice').hidden = !A.length; $('rbAdvice').textContent = A.length ? `⚠ ${A.map((a) => a.text).join(' · ')}` : ''; // v2.37
     const sel = routeSel && points.find((p) => p.id === routeSel);
     $('rbHint').textContent = sel ? `${sel.poleId} selected. Tap the next pole to link it (tap a linked pole to unlink), or tap ${sel.poleId} again to stop.`
-      : 'Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.';
+      : 'Tap a pole, then the next pole to link them. Tap a linked pair again to unlink. Tap a pole to see its spans and their runs.';
+    { // v2.42.19: the selected pole's spans: tap one for its runs (Run 2, Run 3…), at any zoom
+      const box = $('rbSpans'), at = sel && !spanSel ? R.spans.filter((s) => s.ia === sel.id || s.ib === sel.id) : [];
+      box.hidden = !at.length; box.innerHTML = '';
+      if (at.length) {
+        const h = document.createElement('span'); h.className = 'lbl'; h.textContent = `SPANS AT ${String(sel.poleId || '').toUpperCase()} · TAP ONE FOR ITS RUNS`; box.appendChild(h);
+        at.forEach((s) => { const o = s.ia === sel.id ? s.b : s.a, n = (s.runs || []).length, b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm'; b.dataset.a = s.ia; b.dataset.b = s.ib;
+          b.textContent = `→ ${o.poleId || '(no ID)'} · ${fmtLen(s.len)} · ${CAB[s.cable] ? CAB[s.cable].short : 'cable not set'}${n > 1 ? ` · ${n} runs` : ''}`; box.appendChild(b); });
+      }
+    }
     $('rbUndo').disabled = !routeUndo.length;
     renderSpanPanel(R); // v2.42.18
   }
@@ -2357,8 +2386,13 @@
   function setRuns(runs) {
     const k = spanSel ? linkIdx(spanSel[0], spanSel[1]) : -1; if (k < 0) return;
     const l = links().map((x) => x.slice()); routeUndo.push(links());
-    l[k] = linkWith(l[k][0], l[k][1], runs[0], runs.slice(1)); setLinks(l); renderPoles();
+    l[k] = linkWith(l[k][0], l[k][1], runs[0], runs.slice(1)); setLinks(l); routeRefresh();
   }
+  $('rbSpans').addEventListener('click', (e) => { // v2.42.19: a span of the selected pole: its runs
+    const b = e.target.closest('button[data-a]'); if (!b) return;
+    const s = routeModel().spans.find((x) => x.ia === b.dataset.a && x.ib === b.dataset.b); if (!s) return;
+    spanSel = [s.ia, s.ib]; routeSel = null; routeRefresh(); spanInView(s);
+  });
   $('rbSpan').addEventListener('change', (e) => {
     const t = e.target; if (t.dataset.rs !== 'cab' || !spanSel) return;
     const k = linkIdx(spanSel[0], spanSel[1]); if (k < 0) return;
@@ -2366,7 +2400,7 @@
   });
   $('rbSpan').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-rs]'); if (!b || !spanSel) return;
-    const k = linkIdx(spanSel[0], spanSel[1]); if (b.dataset.rs === 'close' || k < 0) { spanSel = null; renderPoles(); return; }
+    const k = linkIdx(spanSel[0], spanSel[1]); if (b.dataset.rs === 'close' || k < 0) { spanSel = null; routeRefresh(); return; }
     const runs = runsOf(links()[k]);
     if (b.dataset.rs === 'add') { runs.push(runs[runs.length - 1] || runs[0]); setRuns(runs); toast(`Run ${runs.length} added: pick its cable`, 2200); }
     else if (b.dataset.rs === 'del') { runs.splice(+b.dataset.i, 1); setRuns(runs); }
@@ -2385,12 +2419,12 @@
     const tapped = points.find((p) => p.id === id);
     if (tapped && !ROUTE_ELS.includes(elemOf(tapped))) { toast(`${tapped.poleId}: ${elemOf(tapped)} pins sit on a pole and are not linked. Tap the pole.`, 3500); return; }
     spanSel = null; // v2.42.18: a pole tapped: the span's runs close
-    if (!routeSel || routeSel === id) { routeSel = routeSel === id ? null : id; renderPoles(); return; }
+    if (!routeSel || routeSel === id) { routeSel = routeSel === id ? null : id; routeRefresh(); return; } // v2.42.19: only what changed
     const l = links().map((x) => x.slice()), k = l.findIndex(([x, y]) => (x === routeSel && y === id) || (x === id && y === routeSel)), cab = cableSel();
     routeUndo.push(links());
     if (k >= 0 && (l[k][2] || '') !== cab) { l[k] = linkWith(l[k][0], l[k][1], cab, l[k][3]); toast(`Span changed to ${cableName(cab)}`, 2200); } // v2.29: a linked pair with another cable chosen: the span takes it
     else if (k >= 0) l.splice(k, 1); else l.push(linkWith(routeSel, id, cab));
-    setLinks(l); routeSel = id; renderPoles();
+    const was = routeSel; setLinks(l); routeSel = id; routeRefresh([was, id]); // (the two ends: their angle / junction labels)
   }
   $('routeBtn').addEventListener('click', () => {
     if (!routeMode && routePts().length < 2) { toast('Capture at least two poles first'); return; }
@@ -2400,7 +2434,7 @@
   $('rbCable').addEventListener('change', () => { S.meta[S.project] = { ...pmeta(), cable: $('rbCable').value }; persist(); updateRouteBar(routeModel()); toast(`New links: ${cableName($('rbCable').value)}. Tap a linked pair to give it this cable.`, 3500); });
   $('rbCableAll').addEventListener('click', () => {
     const cab = cableSel(), l = links(); if (!l.length) { toast('No span yet'); return; }
-    routeUndo.push(l); setLinks(l.map(([a, b, , more]) => linkWith(a, b, cab, more))); renderPoles(); // (run 1; the other runs stay)
+    routeUndo.push(l); setLinks(l.map(([a, b, , more]) => linkWith(a, b, cab, more))); routeRefresh(); // (run 1; the other runs stay)
     toast(`Every span: ${cableName(cab)} (Undo to go back)`, 3000);
   });
   $('rbUndo').addEventListener('click', () => { if (routeUndo.length) { setLinks(routeUndo.pop()); renderPoles(); } });
@@ -3683,7 +3717,7 @@
     $('pinLayerName').textContent = { street: 'Street', satellite: 'Satellite', offline: 'Offline map' }[S.base] || 'Street';
     pinGpsLayer = L.layerGroup().addTo(pinMap);
     pinMap.setView([12.3, 122.6], 6);
-    pinMap.on('move', updateCoordBox);
+    pinMap.on('move', updateCoordBox); pinMap.on('move', () => movePinOwnLines()); // v2.42.19
     pinMap.on('moveend', clampPin);
     pinMap.on('moveend', () => { if (ed && ed.dragged) scheduleDraft(); }); // v2.21
     pinMap.on('moveend', () => { if (ed && ed.plan) applyPlan(); }); // v2.26.1: the planned element nearest the pin
@@ -4166,9 +4200,10 @@
     Object.entries(BOX_TOOLS).forEach(([k, id]) => $(id).setAttribute('aria-pressed', String(m === k)));
     $('boxModePole').setAttribute('aria-pressed', String(model)); $('boxModel').hidden = !model;
     if (model) $('boxModel').value = m;
+    renderStraight(); // v2.42.19
     $('boxTitle').textContent = m === 'box' ? 'Box' : m === 'foc' ? 'FOC route' : m === 'text' ? 'Text on the photo' : `Model: ${MODELS[m].name}`;
     $('boxHint').textContent = m === 'box' ? 'Drag on the photo to draw a box around the spot (the dots set its colour). Tap a mark to move, resize, recolour or delete it.'
-      : m === 'foc' ? 'Draw the FOC route with your finger, e.g. from pole to pole, and lift to finish. Tap a route to move or delete it.'
+      : m === 'foc' ? `Draw the FOC route with your finger, e.g. from pole to pole, and lift to finish. Tap a route to move or delete it.${straightOn() ? ' Straighten is on: the route becomes straight segments (its corners kept); tap Straighten to switch it off, also for the route selected.' : ''}`
         : m === 'text' ? 'Tap where the comment goes, then type it. Tap a comment to move it; tap it again to change the text.'
           : m === 'hh' ? 'Put your finger on the front edge of the handhole on the ground and drag up to its back edge. Tap a mark to move, resize or delete it.'
             : m === 'odfp' ? 'Drag over the place of the ODF panel. Inside a data rack model it fits between the rails, in whole rack units. Tap a mark to move, resize or delete it.'
@@ -4440,7 +4475,7 @@
     const o = boxer.op, m0 = o.orig, dx = p[0] - o.start[0], dy = p[1] - o.start[1], W = boxer.w, H = boxer.h, cl = (v, a, b) => Math.max(a, Math.min(b, v));
     let m;
     o.moved = Math.max(o.moved || 0, Math.hypot(dx, dy) * boxer.sc);
-    if (m0.k === 'foc') { const [bx, by, bw, bh] = bboxOf(m0), sx = cl(dx, -bx, W - bx - bw), sy = cl(dy, -by, H - by - bh); m = { ...m0, pts: m0.pts.map(([x, y]) => [x + sx, y + sy]) }; }
+    if (m0.k === 'foc') { const [bx, by, bw, bh] = bboxOf(m0), sx = cl(dx, -bx, W - bx - bw), sy = cl(dy, -by, H - by - bh); m = { ...m0, pts: m0.pts.map(([x, y]) => [x + sx, y + sy]), ...(m0.raw ? { raw: m0.raw.map(([x, y]) => [x + sx, y + sy]) } : {}) }; }
     else if (m0.k === 'text') { const [bx, by, bw, bh] = bboxOf(m0); m = { ...m0, x: cl(bx + dx, 0, Math.max(0, W - bw)), y: cl(by + dy, 0, Math.max(0, H - bh)) }; }
     else if (isStand(m0)) {
       if (o.op === 'move') { const sx = cl(dx, -m0.x, W - m0.x), sy = cl(dy, -m0.yt, H - m0.yb); m = { ...m0, x: m0.x + sx, yt: m0.yt + sy, yb: m0.yb + sy }; (o.kids || []).forEach((c) => { boxer.marks[c.i] = { ...c.orig, x: c.orig.x + sx, y: c.orig.y + sy }; }); }
@@ -4484,10 +4519,33 @@
     if (boxer.mode === 'text') { drawBoxer(); addBoxText(at); return; }
     if (d && d.k === 'foc') {
       const len = d.pts.reduce((t, p, i) => (i ? t + Math.hypot(p[0] - d.pts[i - 1][0], p[1] - d.pts[i - 1][1]) : 0), 0);
-      if (len * sc > 30) { boxer.marks.push(withC(d, { k: 'foc', pts: simplifyPts(d.pts, 1.5 / sc).slice(0, 400) })); boxer.sel = boxer.marks.length - 1; }
+      if (len * sc > 30) { const raw = simplifyPts(d.pts, 1.5 / sc).slice(0, 400), st = straightOn(); boxer.marks.push(withC(d, { k: 'foc', pts: st ? straightenPts(raw, sc) : raw, ...(st ? { raw } : {}) })); boxer.sel = boxer.marks.length - 1; } // v2.42.19: straightened
     } else if (d && (isStand(d) ? (d.yb - d.yt) * sc > (d.k === 'hh' ? 12 : 30) : d.w * sc > 12 && d.h * sc > 12)) { boxer.marks.push(snapToRack(d)); boxer.sel = boxer.marks.length - 1; } // a tap is not a mark
     drawBoxer();
   };
+  /** v2.42.19: Straighten (the FOC route on the photo), on unless the user switched it off. */
+  const straightOn = () => S.focStraight !== false;
+  /** v2.42.19: a hand-drawn route as straight segments: the corners where it turns are kept, the wobble between them goes (a point stays
+      when the line strays more than 6 % of its length from the straight line, at least 12 and at most 60 screen pixels); then joints of
+      less than 12° are taken out. */
+  function straightenPts(pts, sc) {
+    if (pts.length < 3) return pts.slice();
+    const len = pts.reduce((t, p, i) => (i ? t + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0), 0), tol = Math.min(60 / sc, Math.max(12 / sc, len * 0.06));
+    const s = simplifyPts(pts, tol);
+    for (let i = 1; i < s.length - 1;) {
+      const a = s[i - 1], b = s[i], c = s[i + 1], u = Math.atan2(b[1] - a[1], b[0] - a[0]), v = Math.atan2(c[1] - b[1], c[0] - b[0]);
+      let d = Math.abs(u - v) * 180 / Math.PI; if (d > 180) d = 360 - d;
+      if (d < 12) s.splice(i, 1); else i++;
+    }
+    return s;
+  }
+  function renderStraight() { const b = $('boxStraight'); if (!b || !boxer) return; b.hidden = boxer.mode !== 'foc'; b.setAttribute('aria-pressed', String(straightOn())); b.textContent = `Straighten: ${straightOn() ? 'on' : 'off'}`; }
+  $('boxStraight').addEventListener('click', () => {
+    if (!boxer) return; S.focStraight = !straightOn(); persist(); renderStraight();
+    const m = boxer.marks[boxer.sel]; // the route selected: straightened now, or back as it was drawn
+    if (m && m.k === 'foc') { if (straightOn()) { const raw = m.raw || m.pts; boxer.marks[boxer.sel] = { ...m, raw, pts: straightenPts(raw, boxer.sc) }; } else if (m.raw) { const { raw, ...rest } = m; boxer.marks[boxer.sel] = { ...rest, pts: raw }; } drawBoxer(); }
+    toast(straightOn() ? 'Straighten on: a route you draw becomes straight segments (its corners kept)' : 'Straighten off: routes stay as drawn', 2800);
+  });
   /** Fewer points on a hand-drawn line (Ramer–Douglas–Peucker), the shape kept within tol photo pixels. */
   function simplifyPts(pts, tol) {
     if (pts.length < 3) return pts;
@@ -4663,14 +4721,25 @@
   }
   $('siteKindSel').addEventListener('change', (e) => { if (!ed) return; ed.siteKind = e.target.value === 'OLT' ? 'OLT' : 'Tower'; applyElement(); scheduleDraft(); });
   /* v2.37: the project's other points (and its route) faint on the record's map, as a guide for placing the pin: not tappable */
-  let pinOthers = null;
+  let pinOthers = null, pinOwnLines = [];
+  /** v2.42.19: the open pole's spans follow its pin while the map is dragged. */
+  function movePinOwnLines() { if (!pinMap || !pinOwnLines.length) return; const c = pinMap.getCenter(); pinOwnLines.forEach(({ pl, tag, o }) => { pl.setLatLngs([[c.lat, c.lng], [o.lat, o.lon]]); if (tag) tag.setLatLng([(c.lat + o.lat) / 2, (c.lng + o.lon) / 2]); }); }
   function drawPinOthers() {
     if (!pinMap) return;
     if (!pinOthers) { pinMap.createPane('othPane'); pinMap.getPane('othPane').style.zIndex = 380; pinMap.getPane('othPane').style.pointerEvents = 'none'; pinOthers = L.layerGroup().addTo(pinMap); }
-    pinOthers.clearLayers();
+    pinOthers.clearLayers(); pinOwnLines = [];
     if (!ed || ed.acc || isAcc()) return;
     const pts = projPoints().filter((p) => p.id !== ed.id), by = new Map(pts.map((p) => [p.id, p]));
     for (const [a, b] of links()) { const A = by.get(a), B = by.get(b); if (A && B) L.polyline([[A.lat, A.lon], [B.lat, B.lon]], { pane: 'othPane', color: '#1c3f94', weight: 2.5, opacity: 0.5, dashArray: '6 5', interactive: false }).addTo(pinOthers); }
+    // v2.42.19: the open pole's own spans, from its pin to the poles it is linked to (they follow the pin); stronger, ×N for more runs
+    pinOwnLines = []; const c = pinMap.getCenter();
+    for (const l of links()) {
+      const o = l[0] === ed.id ? by.get(l[1]) : l[1] === ed.id ? by.get(l[0]) : null; if (!o) continue;
+      const n = 1 + (Array.isArray(l[3]) ? l[3].length : 0), cab = CAB[l[2]];
+      const pl = L.polyline([[c.lat, c.lng], [o.lat, o.lon]], { pane: 'othPane', color: cab ? cab.css : '#1c3f94', weight: 3.5 + (n > 1 ? 2 : 0), opacity: 0.85, interactive: false }).addTo(pinOthers);
+      const tag = n > 1 ? L.marker([(c.lat + o.lat) / 2, (c.lng + o.lon) / 2], { pane: 'othPane', interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label">×${n}</span>`, iconSize: null }) }).addTo(pinOthers) : null;
+      pinOwnLines.push({ pl, tag, o });
+    }
     for (const p of pts) {
       const el = elemOf(p), nw = p.status === 'Proposed' || p.status === 'New', col = pinCol(p) || (el === 'Pole' ? (nw ? '#e03131' : '#495057') : SV_COLORS[el] || '#495057');
       L.circleMarker([p.lat, p.lon], { pane: 'othPane', radius: 5.5, color: '#fff', weight: 2, fillColor: col, fillOpacity: 0.85, interactive: false })
@@ -5781,13 +5850,21 @@
       const l = edTabList(), i = l.indexOf(edTab), j = dx < 0 ? i + 1 : i - 1; if (j >= 0 && j < l.length) goEdTab(l[j]);
     });
     // the map gets small once the form is scrolled; back to its size when scrolled to the top again (not when the form only got shorter)
-    const wrap = $('pinMapWrap'); let userAt = 0;
-    ['wheel', 'touchmove', 'keydown'].forEach((k) => body.addEventListener(k, () => { userAt = Date.now(); }, { passive: true }));
+    // v2.42.19: a form only a little taller than the screen made the map go small, the form fit, scrolled back to the top, the map came
+    // back big, and so on (30 size changes in one scroll, the stutter): now small only while the form still scrolls with the map small;
+    // big again only on a scroll up at the top (or a tap on the map); and a pause after each change (its .2 s animation)
+    const wrap = $('pinMapWrap'), MINI_H = 96; let upAt = 0, flipAt = 0, ty = null;
+    const off = () => !edTabsOn() || $('editor').classList.contains('kbfield') || Date.now() - flipAt < 450;
+    const flip = (on) => { wrap.classList.toggle('mini', on); flipAt = Date.now(); };
+    const grow = () => { if (!off() && wrap.classList.contains('mini') && body.scrollTop < 4) flip(false); };
+    body.addEventListener('wheel', (e) => { if (e.deltaY < 0) { upAt = Date.now(); if (body.scrollTop <= 0) grow(); } }, { passive: true });
+    body.addEventListener('touchstart', (e) => { ty = e.touches.length === 1 ? e.touches[0].clientY : null; }, { passive: true });
+    body.addEventListener('touchmove', (e) => { const y = e.touches.length === 1 ? e.touches[0].clientY : null; if (ty != null && y != null && y - ty > 6) { upAt = Date.now(); if (body.scrollTop <= 0) grow(); } if (y != null) ty = y; }, { passive: true });
     body.addEventListener('scroll', () => {
-      if (!edTabsOn() || $('editor').classList.contains('kbfield')) return;
-      const on = wrap.classList.contains('mini');
-      if (!on && body.scrollTop > 24) wrap.classList.add('mini');
-      else if (on && body.scrollTop < 4 && Date.now() - userAt < 600) wrap.classList.remove('mini');
+      if (off()) return;
+      const on = wrap.classList.contains('mini'), room = body.scrollHeight - body.clientHeight; // how far the form scrolls now
+      if (!on && body.scrollTop > 24 && room - (wrap.offsetHeight - MINI_H) > 48) flip(true);
+      else if (on && body.scrollTop < 4 && Date.now() - upAt < 450) flip(false);
     }, { passive: true });
   }
   function pinUnmini() { const w = $('pinMapWrap'); if (!w.classList.contains('mini')) return false; w.classList.remove('mini'); $('editor').querySelector('.edbody').scrollTop = 0; return true; }
@@ -6188,10 +6265,11 @@
       up.forEach((x) => L.push(`Received: update ${x.n}${x.full ? ' (the whole project)' : ''} from ${x.from || 'a colleague'} · ${fmtTime(x.at)} · ${x.recs || 0} record${x.recs === 1 ? '' : 's'}${x.gone ? `, ${x.gone} deleted` : ''}${x.route ? ', the route' : ''}`));
       $('curUpdates').hidden = !L.length; $('curUpdates').textContent = L.join('\n'); }
     $('curSite').hidden = !m.taskId; $('curSite').textContent = m.taskId ? [`Site: ${m.site || ''}`, m.contractor && `Vendor: ${m.contractor}`, ...(m.siteExtra || []).filter(([k]) => /^(region|territory)$/i.test(String(k).trim())).map(([k, v]) => `${k}: ${v}`), `ID: ${m.taskId}`].filter(Boolean).join(' · ') : '';
-    renderFieldBox($('curSiteFields'), siteFieldsOf(S.project).map((x) => x.slice()), (i, v) => { // v2.41: the site's details, editable
-      const name = S.project, F = siteFieldsOf(name).map((x) => x.slice()); F[i] = [F[i][0], v];
+    const sfOf = (name) => { const F = siteFieldsOf(name); return (F.length ? F : sfBlank()).map((x) => x.slice()); }; // v2.42.19: a project with none: typed in
+    renderFieldBox($('curSiteFields'), sfOf(S.project), (i, v) => { // v2.41: the site's details, editable
+      const name = S.project, F = sfOf(name); F[i] = [F[i][0], v];
       S.meta[name] = { ...pmeta(name), siteFields: F, ...Object.fromEntries(Object.entries(sfMeta(F)).filter(([, x]) => x)) }; persist();
-    }, 'Changes stay with this project on this phone: they go on the plan drawing (title blocks) and the reports.');
+    }, 'Changes stay with this project on this phone: they go on the plan drawing (title blocks) and the reports.', m.taskId ? '' : 'Site details');
     $('curFolder').hidden = !m.siteLink;
     $('accMeta').hidden = !acc;
     const pb = $('projBadge'); pb.textContent = cat.toUpperCase(); pb.className = `badge cat ${cat.toLowerCase()}`;
@@ -10795,16 +10873,23 @@
   function sfGet(F, re) { return ((F || []).find(([k]) => re.test(k)) || [])[1] || ''; }
   /** The title-block fields from the site details: site name, PLA ID, serial number (and the project name / type). */
   function sfMeta(F) { return { siteName: sfGet(F, /site\s*name|searchring|segment/i), plaId: sfGet(F, /pla\s*id/i), serial: sfGet(F, /serial/i) }; }
-  function renderFieldBox(box, F, onEdit, note) {
+  /** v2.42.19: the site details of a project with no site of the sheet: the sheet's columns (as its sites have them), else these. */
+  const SF_DEFAULT = ['Project Name', 'Serial Number', 'PLA ID', 'Site name'];
+  function sfBlank() { const t = ((S.cloud && S.cloud.tasks) || []).find((x) => Array.isArray(x.cols) && x.cols.length); return (t ? t.cols.map(([k]) => String(k).slice(0, 40)) : SF_DEFAULT).slice(0, 12).map((k) => [k, '']); }
+  /** v2.42.19: with the sheet's Site required on, a field that is filled cannot be changed (an empty one can be filled in); off, all can. */
+  function renderFieldBox(box, F, onEdit, note, head) {
     box.innerHTML = ''; box.hidden = !F || !F.length; if (box.hidden) return;
-    const h = document.createElement('b'); h.textContent = 'Site details · Project Data sheet'; box.appendChild(h);
+    const h = document.createElement('b'); h.textContent = head || 'Site details · Project Data sheet'; box.appendChild(h);
+    const lock = siteReq(); let nLocked = 0;
     F.forEach(([k, v], i) => {
       const row = document.createElement('label'), t = document.createElement('span'), inp = document.createElement('input');
       row.className = 'sf'; t.textContent = k; inp.type = 'text'; inp.value = v || ''; inp.maxLength = 100; inp.setAttribute('aria-label', k); inp.dataset.i = String(i);
-      inp.addEventListener('input', () => onEdit(i, inp.value.replace(/\s+/g, ' ').trimStart().slice(0, 100)));
+      if (lock && String(v || '').trim()) { inp.readOnly = true; inp.classList.add('locked'); inp.title = 'Set by the online sheet (your admin requires its sites): it cannot be changed here'; nLocked++; }
+      else inp.addEventListener('input', () => onEdit(i, inp.value.replace(/\s+/g, ' ').trimStart().slice(0, 100)));
       row.append(t, inp); box.appendChild(row);
     });
-    if (note) { const p = document.createElement('p'); p.className = 'hint'; p.textContent = note; box.appendChild(p); }
+    const txt = lock && nLocked ? 'Your admin requires the sites of the online sheet: the filled fields are locked; fill in the empty ones. They go on the plan drawing (title blocks) and the reports of this project.' : note;
+    if (txt) { const p = document.createElement('p'); p.className = 'hint'; p.textContent = txt; box.appendChild(p); }
   }
   let npFields = null;
   let npFile = null, npFileKind = '', npSite = null, npAuto = '', npTried = false;
@@ -10885,8 +10970,9 @@
     const t = npSite, have = t && taskProject(t.id);
     $('npSiteRow').hidden = !t; $('npSiteInfo').textContent = t ? siteDetail(t) : '';
     $('npSiteFolder').hidden = !(t && t.link); $('npSiteOpen').hidden = !have;
-    if (!t) npFields = null; else if (!npFields || npFields.tid !== t.id) { npFields = taskFields(t); npFields.tid = t.id; }
-    renderFieldBox($('npSiteFields'), npFields, (i, v) => { npFields[i] = [npFields[i][0], v]; }, 'Correct them here if needed: they go on the plan drawing and the reports of this project.');
+    if (!t) { if (!npFields || npFields.tid) { npFields = sfBlank(); npFields.tid = ''; } } // v2.42.19: no site of the sheet: typed in
+    else if (!npFields || npFields.tid !== t.id) { npFields = taskFields(t); npFields.tid = t.id; }
+    renderFieldBox($('npSiteFields'), npFields, (i, v) => { npFields[i] = [npFields[i][0], v]; }, t ? 'Correct them here if needed: they go on the plan drawing and the reports of this project.' : 'Optional: they go on the plan drawing (title blocks) and the reports of this project.', t ? '' : 'Site details');
   }
   function renderNpTypes(chosen) {
     const box = $('npTypes'); box.innerHTML = '';
@@ -10899,13 +10985,14 @@
   const npTypesChosen = () => [...$('npTypes').querySelectorAll('.chip')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
   function npReset() {
     ['npName', 'npNotes', 'npLoc', 'npGlobe', 'npSiteQ'].forEach((id) => { $(id).value = ''; });
-    $('npKmzInput').value = ''; npFile = null; npSite = null; npAuto = ''; npTried = false;
+    $('npKmzInput').value = ''; npFile = null; npSite = null; npAuto = ''; npTried = false; npFields = null; // (v2.42.19: the typed site details too)
     $('npCat').value = ''; // the user chooses the task category
     $('npRep').value = (S.user && S.user.name) || ''; $('npDate').value = todayIso(); $('npStart').value = todayIso(); renderNpTypes(allInspTypes());
     $('npSites').hidden = true; npSync(); renderSites();
   }
   function openNewProject() { npReset(); openSheet('newProj'); cloudSync(false).then(() => { if (!$('newProj').hidden) renderSites(); }); }
   $('newProjBtn').addEventListener('click', openNewProject);
+  $('npCancel').addEventListener('click', () => { npReset(); closeSheet(); }); // v2.42.19: no new project after all
   /** No project yet: the Projects screen opens on the New project form (photos are taken inside a project). */
   function askNewProject() {
     if (!$('newProj').hidden) return;
@@ -10951,7 +11038,7 @@
     const t = npSite, details = { site: $('npLoc').value.trim().slice(0, 120), contractor: $('npVendor').value.trim(),
       ...(acc ? { vendorRep: (S.user && S.user.name) || '', globeRep: $('npGlobe').value.trim().slice(0, 100), inspTypes: npTypesChosen(), date: $('npDate').value || todayIso() } : { startDate: $('npStart').value || todayIso() }), ...(notes ? { notes } : {}) };
     const sm = { ...siteMeta(t), ...details };
-    if (t && npFields && npFields.length) { const F = npFields.map(([a, b]) => [a, String(b || '').trim()]); Object.assign(sm, { siteFields: F }, Object.fromEntries(Object.entries(sfMeta(F)).filter(([, v]) => v))); } // v2.41
+    if (npFields && npFields.length && (t || npFields.some(([, b]) => String(b || '').trim()))) { const F = npFields.map(([a, b]) => [a, String(b || '').trim()]); Object.assign(sm, { siteFields: F }, Object.fromEntries(Object.entries(sfMeta(F)).filter(([, v]) => v))); } // v2.41 (v2.42.19: also typed in)
     S.meta = S.meta || {};
     LOG.info('project.new', { cat: k, sheet: !!t, role: siteRole(t), kmz: f ? (fromFile ? 'stage' : 'ref') : '' });
     if (fromFile) {
@@ -12414,5 +12501,6 @@
     clamps: () => { const R = routeModel(), all = projPoints(); return Object.fromEntries(all.filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, clampOf(p, R, all).join('+')])); }, // for testing (v2.39: the poles' clamps)
     /* v2.42.18 */ hw: () => { const R = routeModel(); return Object.fromEntries(projPoints().filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, hwOf(p, R)])); }, filled: () => { const all = projPoints(), f = boqFilled(all); return Object.fromEntries(all.map((p) => [p.id, f(p) || {}])); },
     poleNums: () => Object.fromEntries([...poleNums(projPoints(), routeModel()).entries()]), setNumCfg: (c) => setNumCfg(c), route: () => { const R = routeModel(); return { total: R.total, cableTotal: R.cableTotal, spans: R.spans.map((s) => ({ ia: s.ia, ib: s.ib, runs: s.runs, len: s.len })) }; },
-    mapPt: (lat, lon) => { const p = map.latLngToContainerPoint([lat, lon]), r = $('map').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; }, mapView: (lat, lon, z) => map.setView([lat, lon], z, { animate: false }), siteReq: () => siteReq(), adminOk: (e) => adminUserOk(e), jobsOf: (e) => jobsOf(e), shareProject: (n) => shareProject(n || S.project), apprText: () => apprText(), readApproval: (t, n) => readApproval(t, n || S.project) };
+    mapPt: (lat, lon) => { const p = map.latLngToContainerPoint([lat, lon]), r = $('map').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; }, mapView: (lat, lon, z) => map.setView([lat, lon], z, { animate: false }), siteReq: () => siteReq(), adminOk: (e) => adminUserOk(e), jobsOf: (e) => jobsOf(e), shareProject: (n) => shareProject(n || S.project), apprText: () => apprText(), readApproval: (t, n) => readApproval(t, n || S.project),
+    /* v2.42.19 */ boxMarks: () => (boxer ? boxer.marks.map((m) => ({ k: m.k, pts: m.pts ? m.pts.map(([x, y]) => [Math.round(x), Math.round(y)]) : null, raw: !!m.raw })) : null), boxSel: () => (boxer ? boxer.sel : null), pinOwn: () => pinOwnLines.map(({ pl, o }) => ({ to: o.id, ll: pl.getLatLngs().map((q) => [q.lat, q.lng]) })), pinCenter: () => { const c = pinMap.getCenter(); return [c.lat, c.lng]; } };
 })();
