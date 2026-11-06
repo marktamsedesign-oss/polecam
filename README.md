@@ -536,6 +536,59 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.18
+
+Admin users without the admin phone, the site rule in the sheet, cable hardware for 12C and telco arms, several FOC runs on a span, pole owner names, pole numbers shared by the DXF and the CSV, loop lengths, and Share with only the changes. **Update the online sheet's script to v2.42.18** (it emails the codes) and **export the plan, the BOQ and the PMI again.**
+
+- **Adding a GLOBE (admin company) user**: add their row to the sheet's **Admin users** tab. On their phone they choose GLOBE and tap Save; the sheet emails a **6-digit code** (10 minutes, 5 tries) to that address only. With it the phone gets **that row only** (never the list) and its jobs, which follow the row at each refresh; deleting the row removes GLOBE from that phone. The sheet owner allows "Send email as you" once (Run *setup* after pasting the script).
+- **Site required** is now the sheet's Settings → **Site required** (Yes / No): every phone follows it at its next refresh; the admin phone shows it read-only (blank: the company list's setting, as before).
+- **12C aerial hardware**: Retractor ×2 + Span clamp ×2 per pole (1 + 1 at an end pole), no pole clamps for the 12C; a 72C keeps its pole clamps (72C + 12C: both). A pole with no pole clamps is not asked for a clamp size.
+- **Telco arm**: 12C: J-hook ×2 + Span clamp ×2; 72C: Suspension clamp ×1; also at ends and corners; no pole clamps. Guys' clamps are the pole owner's (not in our BOQ).
+- **Several runs on a span**: in Route, tap the span: Run 1, + Add a run, each with its cable. Drawn as parallel lines (Drawing, DXF), counted per run (spans Excel with a Run column, BOQ, survey quantities RUNS_EXTRA, PMI, KMZ "Other runs"). Hardware and loops follow run 1.
+- **Owner name**: every existing pole's owner has a name (Electric: the coop, with DLPC, CLPC, DASURECO, COTELCO and names already used; PLDT, GT, Bayantel… filled in). In the DXF, the PDF and the CSV; one drawing per owner name at DXF export.
+- **Pole numbers**: the DXF's pole numbers are the CSV's first column (**no**): whole project or per pole owner, keep or renumber.
+- **Loops**: each loop's length (10 / 12 / 15 / 20 m). By default: 12C 10 m every 500 m, 72C 15 m every 250–300 m, underground 20 m. NAPs, LCPs, dummy NAPs, closures and risers have their own loop; ODC, site and ODF an entrance loop. No app loop when the next one is at most 100 m past the limit; a surveyor's loop near another one is kept and flagged.
+- **Share**: one button, two choices: **Only the changes · for your team leader** or **The whole project**. Deletions and route changes carry over; each share is numbered and the receiving phone says when one is missing. Project details lists the updates received (who and when).
+
+## What changed in v2.42.17
+
+The survey record in tabs, a closure in any underground box, the loops of closures, dummy NAPs and risers, and the PMI loop setting. **Export the plan, the BOQ and the PMI again.** No change to the online sheet's script.
+
+- **The survey record in tabs** (As-Plan, As-Built, Audit). On top, always: **Status**, **Element**, **Type** and the **ID**, then a line of what is set (tap one to go to it). Below them the tabs **Photo/Model** (photo, model, pin colour), **Details** (owner or new pole size, pole details, remarks; ODF, site type; a box's closure), **Accessories** (clamp, clamp type, arm, guying, maintenance loop, grounding), **On the pole** (NAP / LCP, second box, hybrid closure) and **AE to UG** (riser). A record other than a pole has Photo/Model and Details. **Next ›**, **‹ Back** and a swipe go from tab to tab; a **✓** marks a tab with nothing left to set, a count what is set, a red dot what must be answered. PAT, defect cleanup and FAT records keep their one-page form.
+- **Pole ID:** the prefix is a button (CC-, WP-, SP-, GT-, BT-, the phone's own, **PP-** for a proposed pole) and the box takes the number on the number pad (**abc** for letters). A whole ID typed or pasted (GT-1234, HH-0001, FDU_100, NPT) is taken as it is.
+- **Delete:** a red bin at the upper right of the record (it asks first). The button at the bottom is gone.
+- **The map:** the coordinates box is gone (it shows only when the pin is too far from the GPS, or with no GPS). The form is a sheet over the map with a border and a handle. The map gets small while the form is scrolled; a tap on it brings it back, and the pin stays on its spot whatever the size. **The pin shows the record's own ID** (as it is typed; *no ID yet* until there is one); the other points' names are grey.
+- **Save** (As-Plan, As-Built): first lists what is not set yet (pole owner, new Globe pole size, clamp size, hybrid closure size, a box's closure size, ODF size) with **Set the …** for each and **Save anyway**. Settings → Camera → *Saving a record* turns it off. The As-Built maintenance loop still stops Save until it is answered.
+- **Existing GT poles:** an existing pole of type Globe (GT) is Globe's: its owner is set to **Globe** by itself (another type takes it away again), it is not asked, and the BOQ counts its clamp for a Globe pole (older records with no owner too). It is a Globe pole in the drawings' groups and for the app's loops, as before.
+- **A closure in a handhole, manhole or service box:** in Details, tick **Closure**, then its size (12C to 288C), **New** or **Existing** and its ID or name. Before, only a handhole had a closure (an ID, then its size). The BOQ counts it as new or existing by its own choice (an older handhole closure: by the handhole's status), the survey quantities count the new ones (*CLOSURE_NEW_…*), and the KMZ / CSV carry its size and status. It is not drawn on the plan (the box is).
+- **Loops of closures, dummy NAPs and risers:** a pole with a **hybrid closure**, a **dummy NAP** or a **riser** has its own maintenance loop, **15 m** (aerial, the pole loop length). Nothing to tap: the record shows *MAINTENANCE LOOP · WITH THE CLOSURE* (dummy NAP, riser), an As-Built does not ask it, the app's loops (As-Plan) are measured from it, and it is counted and drawn like any pole loop (BOQ, survey quantities with the new *MLOOP_OWN*, PMI, KMZ / CSV *mloop Yes*, plan DXF *15m LOOP*, the Drawing's LOOP tag). A closure in a handhole, manhole or service box is in that box's own loop, **20 m** (underground): one loop, not two.
+- **PMI setting:** Settings → AutoCAD DXF (and the DXF card): *Count the maintenance loops in the PMI cable lengths*. Ticked (default): total, aerial and underground = spans + loops; unticked: the spans only. The README of the plan says which.
+
+## What changed in v2.42.16
+
+Maintenance loops (MLoop). **Export the plan and the BOQ again.** No change to the online sheet's script.
+
+- **As-Plan: the app adds the loops the survey left out**, on the poles. Where the surveyor set no loop:
+  - **72C aerial (AE Figure 8 72C):** a loop every **250 to 300 m** along the cable, on a pole in that stretch. A **Globe pole** (type Globe, owner Globe, or a proposed / new pole) goes before the others; then the farthest pole in the stretch. With no pole in the stretch, the last pole before 300 m; a single span longer than that, the next pole.
+  - **12C aerial (Light cable 12C):** every **450 to 500 m**, the same way.
+  - The distance counts from the homing (a site or an ODF on the route), or from the last loop. **A loop the surveyor sets counts**: the next ones are measured from it, and where two of them are too far apart, one is added between them.
+  - Where it shows: the record says *MAINTENANCE LOOP · ADDED BY THE APP*; the route bar *MLoop 3 + 8 added by the app*; the Drawing tags it **LOOP*** (legend: *Maintenance loop added by the app*). The plan DXF draws it like any loop on a pole (*15m LOOP*, with its grounding, as every loop since v2.37), and its README lists the poles it was added to. The BOQ (with a note), the survey quantities (*MLOOP_COUNT*, new *MLOOP_AUTO*, by cable, FOC length), the PMI table and the KMZ / CSV (*mloop Yes*) count it too.
+- **As-Built: MLoop is required on every pole.** Nothing is added. Each pole shows **MLoop 15 m** and **No loop** (*MAINTENANCE LOOP · REQUIRED*), and Save asks for one. The route bar, the BOQ and the survey quantities (*MLOOP_UNANSWERED*) list the poles on the route not answered yet (records saved before v2.42.16, for instance). *No loop* counts no loop.
+- **Handholes, manholes and service boxes have their own loop, 20 m** (As-Plan and As-Built). Nothing to tap and nothing drawn on the plan (a box has its loop); each one on the route is counted: BOQ (*Maintenance loop 20 m*, by handhole, manhole or service box), survey quantities (*MLOOP_BOX*, *MLOOP_BOX_LEN*, the FOC length of its cable), PMI cable length, the route bar (*HH/MH/SB loops 2 × 20 m*) and the DXF README.
+- The pole loop length stays one for all (Administration → Field standards, 15 m unless changed). The PMI's total, aerial and underground cable lengths are now the survey quantities' FOC lengths (spans + loops on the route).
+
+## What changed in v2.42.15
+
+Which poles count as electric poles in a plan drawing's photos and numbers. **Export the plan again.**
+
+- **Before:** the groups went by the pole's material only. A **proposed pole** (concrete) and an existing **concrete pole owned by PLDT or Converge** were all "electric poles". A drawing for the electric poles only gave them a photo and a number too.
+- **Now:** each pole goes by its **owner**, as the project management table counts them (RTA local coop, Converge, PLDT / other):
+  - A **proposed or new pole** is Globe's: it is in **Globe poles** (with the GT poles).
+  - An **existing pole** goes by its owner in the BOQ when one is set. The power company's poles are electric poles. PLDT, Converge, Globe… are that owner's poles: a concrete pole owned by PLDT is in **PLDT poles**. An owner with no pole type of its own gets its own group, e.g. **Converge poles**.
+  - A pole with **no owner** set goes by its type, as before: concrete, wood or steel is electric.
+
+  On the 10 km sample: electric poles 163 (was 204), PLDT poles 34 (12 PLDT poles and 22 concrete poles owned by PLDT), Converge poles 6, and Globe poles 29 (16 GT and 13 proposed).
+
 ## What changed in v2.42.14
 
 The drawings of a plan export, redesigned. **Export the plan again.** No change to the online sheet's script. (v2.42.13, below, was not released separately: its fixes are in this version.)
@@ -760,7 +813,7 @@ From the two design reviews of 1 Nov 2026 (the plan review, 23 comments; the app
 **Drawing screen: the plan's options are set here** (they were on the DXF card)
 
 - **Fit**, **Labels**, **Map** and **i** (the information line on or off) sit on the drawing at its lower right, as on the map; the **legend** at its upper left (folded on a phone until opened). **Map**: *No map*, *Offline map* (your map pack, the default), *Satellite* or *Street map* (online).
-- At the bottom: **Photos / Numbers / Photos + no.**, the **CA** button (clamp types on the plan or not) and the **points** dropdown: *Electric poles* (concrete, wood, steel), *Globe*, *Bayantel*, *PLDT* and any pole type added for your area that the project has, then the other points one by one (ODC, ODF, sites, handholes…), each with its count. NAPs and closures are not in it: they are on their poles.
+- At the bottom: **Photos / Numbers / Photos + no.**, the **CA** button (clamp types on the plan or not) and the **points** dropdown: *Electric poles* (the power company's; v2.42.15: by owner), *Globe* (with the proposed poles), *Bayantel*, *PLDT* and any pole type added for your area that the project has, then the other points one by one (ODC, ODF, sites, handholes…), each with its count. NAPs and closures are not in it: they are on their poles.
 - The preview now shows what the plan will: zoomed in, each point's **number** (the same order as the DXF) or a photo frame (its number at its upper left with *Photos + no.*), the pole's clamp text, and small tags for what is on each pole (**ARM**, **NAP** / **DN** dummy NAP / **LCP**, **LOOP**, **CL** closure, **G** guys, **GR** grounding, **R** riser), a double check. A NAP or closure pin from an older version has a dotted line to the pole it stands on.
 - **Drawing style** (palette button on the Drawing, and *Drawing style…* on the DXF card), kept on this phone, with a live preview: the numbers' colour, circle colour, height, circle diameter (0 = none), distance from the point, leader line and place (beside the pole, toward the homing, or straight out from the road); defaults as chosen in the review: **yellow, 3 m (2.7 mm), circle Ø 7 m, 2 m from the point, leader line, first free spot**. The IDs of NAPs, LCPs, the ODC and handholes: bold or not, colour, height (default as before: 2.5 m, by layer). The vicinity map: the circle's colour and width (yellow by default, as before v2.40) and the route's colour and width. The README of each DXF states the style used.
 

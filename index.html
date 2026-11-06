@@ -189,7 +189,7 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .keystate{margin:2px 0 4px;font-weight:700;font-size:calc(14px * var(--fs))}
 /* v2.25 tutorial */
 .boq .chips.often{margin-bottom:6px}.boq .chips.often .chip{border-style:dashed}
-.boq .boqrow{margin:6px 0 2px}.boq .boqrow .lbl{display:block;margin-bottom:4px}.boq .chips{gap:6px}.boq .chip{min-height:36px;padding:0 12px}
+.boq .boqrow{margin:6px 0 2px}.boq .boqrow .lbl{display:block;margin-bottom:4px}.boq .boqrow.need .lbl{color:#c92a2a}.boq .boqrow.need .chips{outline:2px dashed #e03131;outline-offset:3px;border-radius:12px}.boq .chips{gap:6px}.boq .chip{min-height:36px;padding:0 12px}
 .boq .chip[aria-pressed="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
 .msel{position:relative}.msel>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:46px;padding:0 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font:inherit;cursor:pointer}
 .msel>summary::-webkit-details-marker{display:none}.msel>summary::after{content:'▾';color:var(--muted)}.msel[open]>summary::after{content:'▴'}
@@ -300,8 +300,8 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 #edDone{display:none}
 #editor.locked #edDone{display:block}
 #editor.locked #edSave,#editor.locked #edSaveTop,#editor.locked #edRetake,#editor.locked #scanIdBtn,#editor.locked #nptBtn,#editor.locked #idCands,
-#editor.locked #addDefBtn,#editor.locked #defPanel,#editor.locked #snapGps,#editor.locked #edDelete,#editor.locked #delConfirm,
-#editor.carried #scanIdBtn,#editor.carried #nptBtn,#editor.carried #idCands,#editor.carried #snapGps,#editor.carried #edDelete,#editor.carried #delConfirm{display:none!important}
+#editor.locked #addDefBtn,#editor.locked #defPanel,#editor.locked #snapGps,#editor.locked #edTrash,#editor.locked #idPfxMenu,
+#editor.carried #scanIdBtn,#editor.carried #nptBtn,#editor.carried #idCands,#editor.carried #snapGps,#editor.carried #edTrash{display:none!important}
 #editor.locked #crosshair,#editor.carried #crosshair{opacity:.75}
 /* v2.19: in PAT, defect cleanup and FAT the deficiencies come first; the element details are optional */
 #editor.acc #edLock{order:-2}#editor.acc #defBox{order:-1}
@@ -616,6 +616,10 @@ body.visiting #toast{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 64px);b
 .rb-head span{font-size:calc(12px * var(--fs));color:var(--muted)}
 .rb-hint{margin:0;font-size:calc(13px * var(--fs));color:var(--muted)}
 .rb-btns{display:flex;gap:6px;flex-wrap:wrap}
+.rb-span{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--surface)}
+.rb-span .rs-head{display:flex;gap:8px;align-items:center;justify-content:space-between}.rb-span .rs-head b{font-size:calc(13px * var(--fs))}
+.rb-span .rs-run{display:flex;gap:6px;align-items:center}.rb-span .rs-run b{min-width:44px;font-size:calc(12px * var(--fs))}.rb-span .rs-run select{flex:1;min-width:0;min-height:38px}
+.rb-span .btn.sm{min-height:36px}
 .rb-cable{display:flex;gap:6px;align-items:center}.rb-cable label{font-size:calc(11px * var(--fs));font-weight:700;color:var(--muted)}.rb-cable select{flex:1;min-width:0;min-height:38px}.rb-cable .btn{min-height:38px;white-space:nowrap}
 .rb-btns .btn{min-height:40px;padding:0 10px;font-size:calc(13px * var(--fs));flex:1 1 auto}
 .span-label{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:0 4px;font:600 calc(10px * var(--fs))/1.5 var(--mono);white-space:nowrap;box-shadow:none}
@@ -651,6 +655,47 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
 #qrScan .qtop span{background:rgba(0,0,0,.6);border-radius:999px;padding:6px 12px;font-size:calc(13px * var(--fs))}
 #qrFrame{position:absolute;left:15%;right:15%;top:28%;aspect-ratio:1;border:3px solid #fff;border-radius:14px;box-shadow:0 0 0 2000px rgba(0,0,0,.35);pointer-events:none}
 @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+/* v2.42.17: the record form of a survey in tabs; the form a sheet over the map (a border between them); the pin shows the record's ID */
+#edTrash{width:44px;height:44px;border-radius:12px;background:rgba(224,49,49,.22);color:#ff8787;flex:none}#edTrash[hidden]{display:none}#edTrash:active{background:rgba(224,49,49,.42)}
+#pinMapWrap{isolation:isolate;overflow:hidden}
+#pinLabel{position:absolute;left:18px;top:-56px;background:#fff;border:2px solid #e6007e;color:#17202a;border-radius:8px;padding:1px 7px;font:800 calc(13.5px * var(--fs))/1.35 var(--mono);white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.25);pointer-events:none}
+#pinLabel.none{color:#6b7383;font-style:italic;font-family:system-ui,sans-serif;font-weight:600}#pinLabel:empty{display:none}
+.pole-label.oth{opacity:.75;color:#5b6577;background:#f4f5f7;border-color:#d5dbe5}
+#pinMapWrap.mini{height:96px;min-height:0}
+#pinMapWrap.mini #edHint,#pinMapWrap.mini #pinLayer,#pinMapWrap.mini #pinSizeBtn,#pinMapWrap.mini #pinInfo{opacity:0;pointer-events:none}
+#pinMapWrap.mini #pinLabel{top:-36px}
+#pinMiniTag{position:absolute;left:8px;top:8px;z-index:400;display:none;background:rgba(15,37,71,.85);color:#fff;border-radius:999px;padding:4px 10px;font-size:calc(12px * var(--fs));font-weight:600;pointer-events:none}
+#pinMapWrap.mini #pinMiniTag{display:block}
+#editor .edbody{position:relative;z-index:1;margin-top:-16px;background:var(--bg);border-top:2px solid #9aa7bd;border-radius:18px 18px 0 0;box-shadow:0 -6px 14px rgba(11,23,48,.22);padding-top:20px}
+#edGrab{position:absolute;left:50%;top:7px;width:42px;height:5px;margin-left:-21px;border-radius:3px;background:#9aa7bd}
+#pinInfo{bottom:24px}#kbDone{bottom:24px}
+#coordBox{display:none}#coordBox.over,#coordBox.nogps{display:block}#pinLL,#pinUTM{display:none}#snapGps{margin-left:auto}
+#edTop[hidden],#edTabs[hidden],#paneNav[hidden],#accGroup[hidden],#ugGroup[hidden]{display:none}
+#edTop{gap:8px}
+#edTop #elemTypeRow{gap:6px}#edTop #elemTypeRow.three{grid-auto-flow:row;grid-template-columns:minmax(0,1.2fr) minmax(0,.75fr) minmax(0,1.05fr)}
+#edTop #svStatusBox{display:flex;flex-direction:column;gap:2px;font-size:calc(13px * var(--fs));color:var(--muted);font-weight:600}#edTop #svStatusBox[hidden]{display:none}
+#edTop #elemTypeRow select{padding-left:8px;padding-right:2px;font-size:min(calc(14.5px * var(--fs)), 18px)}
+#edTop #idRow{display:flex;flex-direction:column;align-items:stretch;gap:4px}
+#idPfx{flex:none;min-height:44px;padding:0 8px;border:1px solid var(--line);border-right:0;border-radius:var(--r) 0 0 var(--r);background:var(--chip);color:var(--ink);font:700 calc(16px * var(--fs)) var(--mono);white-space:nowrap}#idPfx[hidden]{display:none}
+.idrow.pad{gap:0}.idrow.pad #poleId{border-top-left-radius:0;border-bottom-left-radius:0}.idrow.pad .btn{margin-left:8px}
+#poleId{font-family:var(--mono);font-weight:600}
+#idPfxMenu{gap:6px}#idPfxMenu[hidden]{display:none}#idPfxMenu .chip{font-family:var(--mono);font-weight:700}
+#edSum{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -12px;padding:0 12px 2px}#edSum:empty{display:none}#edSum::-webkit-scrollbar{display:none}
+#edSum button{flex:none;border:1px solid var(--line);background:var(--soft);border-radius:8px;padding:4px 8px;min-height:30px;font-size:calc(12.5px * var(--fs));font-weight:600;color:var(--ink);white-space:nowrap}
+#edTabs{position:sticky;top:-20px;z-index:5;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);background:var(--bg);margin:0 -10px;padding:4px 4px 0;border-bottom:1px solid var(--line)}
+#edTabs button{border:0;background:none;padding:6px 1px;font-weight:600;font-size:calc(11px * var(--fs));line-height:1.15;color:var(--muted);border-bottom:3px solid transparent;border-radius:10px 10px 0 0;position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;min-height:54px;overflow-wrap:anywhere}
+#edTabs button svg{width:21px;height:21px;flex:none}
+#edTabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--accent);background:var(--surface)}
+#edTabs .n{position:absolute;top:2px;left:calc(50% + 8px);min-width:16px;padding:0 4px;border-radius:9px;background:var(--accent);color:var(--accent-ink);font-size:10px;line-height:15px}
+#edTabs .ok{position:absolute;top:1px;left:calc(50% + 8px);width:16px;height:16px;border-radius:50%;background:var(--ok);color:#fff;font-size:11px;line-height:16px}
+#edTabs .need{position:absolute;top:3px;right:6px;width:9px;height:9px;border-radius:50%;background:var(--bad);box-shadow:0 0 0 2px var(--bg)}
+#editor.tabs .edbody>[data-pane].off{display:none!important}
+#editor.tabs #photoGroup>h3,#editor.tabs #idGroup>h3,#editor.tabs #poleAttach>h3{display:none}
+#editor.tabs #idGroup>#odfBox,#editor.tabs #idGroup>#siteKindBox{order:-3}#editor.tabs #idGroup>#boqBox{order:-2}
+.panenav{display:flex;gap:8px}.panenav .btn{min-height:46px}.panenav .back{flex:0 0 96px}.panenav .next{flex:1;border-color:var(--accent);color:var(--accent)}
+.flash{animation:flash 1.3s ease-out}@keyframes flash{0%,55%{background:rgba(255,212,59,.38)}100%{background:transparent}}
+.infoline{margin:0;font-size:calc(12.5px * var(--fs));color:#0c6b58;background:#e6f5f1;border-radius:10px;padding:8px 10px}.infoline[hidden]{display:none}
+@media (prefers-color-scheme: dark){.infoline{color:#9be3cf;background:#123a31}}
 </style>
 </head>
 <body>
@@ -707,6 +752,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="rb-head"><b id="rbTitle">Route</b><span id="rbStats"></span></div>
     <p class="rb-advice" id="rbAdvice" hidden></p>
     <p class="rb-hint" id="rbHint">Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.</p>
+    <div class="rb-span" id="rbSpan" hidden></div>
     <div class="rb-cable"><label for="rbCable">CABLE</label><select id="rbCable" aria-label="Cable type of the spans you link"></select><button class="btn sm" id="rbCableAll" type="button">Set on all spans</button></div>
     <div class="rb-btns">
       <button class="btn" id="rbAuto" type="button">Link in capture order</button>
@@ -770,11 +816,13 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <button class="iconbtn" id="edClose" aria-label="Close"><svg><use href="#i-close"/></svg></button>
     <h2 id="editorTitle">New pole</h2>
     <span id="queueNote"></span>
+    <button class="iconbtn" id="edTrash" type="button" hidden aria-label="Delete this record" title="Delete this record"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
   </header>
   <div id="pinMapWrap">
     <div id="pinMap"></div>
-    <div id="crosshair"><span id="crossSym" hidden></span><i></i><svg viewBox="0 0 30 42" aria-hidden="true"><path d="M15 40.5C15 40.5 3 26.4 3 15.2A12 12 0 0 1 27 15.2C27 26.4 15 40.5 15 40.5Z" fill="#e6007e" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><circle cx="15" cy="15" r="5" fill="#fff"/></svg></div>
+    <div id="crosshair"><span id="pinLabel" class="none" aria-live="polite"></span><span id="crossSym" hidden></span><i></i><svg viewBox="0 0 30 42" aria-hidden="true"><path d="M15 40.5C15 40.5 3 26.4 3 15.2A12 12 0 0 1 27 15.2C27 26.4 15 40.5 15 40.5Z" fill="#e6007e" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><circle cx="15" cy="15" r="5" fill="#fff"/></svg></div>
     <p id="edHint" class="maphint">Drag the map to put the pin on the pole</p>
+    <span id="pinMiniTag">Tap the map to enlarge it</span>
     <button class="btn" id="kbDone" type="button">Done ✓</button>
     <button class="round" id="pinSizeBtn" type="button" aria-label="Bigger map" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <div id="pinLayer"><span id="pinLayerName">Street</span><button class="round" id="pinLayerBtn" type="button" aria-label="Switch map: street, satellite or offline map pack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button></div>
@@ -784,15 +832,18 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     </div>
   </div>
   <div class="body edbody">
+    <span id="edGrab" aria-hidden="true"></span>
     <p class="notice warn" id="edLock" hidden></p>
-    <div class="group">
+    <div class="group" id="edTop" hidden><div id="edSum" aria-label="What is set: tap one to go to it"></div></div>
+    <nav id="edTabs" role="tablist" aria-label="Record sections" hidden></nav>
+    <div class="group" id="photoGroup" data-pane="photo">
       <h3>Photo</h3>
       <div id="photoStrip"><span class="thumbwrap"><img id="edPhoto" alt="Captured pole photo" title="Tap to see the full photo, mark it or edit its marks"><span class="zoomico" id="edZoom" aria-hidden="true">⤢</span></span><figure id="edSym" class="edsym" hidden><span id="edSymImg"></span><figcaption id="edSymCap"></figcaption></figure><div class="meta"><span id="edTime">–</span><span id="edAcc">–</span><span id="edSrc"></span></div></div>
       <p class="hint" id="boxInfo" hidden style="margin:0"></p>
       <div id="accPhotos" class="photo-grid" hidden></div>
       <p class="warnline" id="qualWarn" hidden></p>
     </div>
-    <div class="group" id="idGroup">
+    <div class="group" id="idGroup" data-pane="details">
       <h3 id="idGroupTitle">Identification</h3>
       <p class="foldsum" id="idGroupSum"></p>
       <label class="frow" id="svStatusBox" hidden><span class="lbl">STATUS</span><select id="svStatus" aria-label="Status"></select></label>
@@ -801,22 +852,31 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <label class="field" id="accElementBox" hidden><span class="lbl">ELEMENT</span><select id="elemSel" aria-label="Element"></select></label>
         <label class="field" id="surveyTypeBox"><span class="lbl">TYPE</span><select id="typeSel" aria-label="Pole type"></select></label>
       </div>
-      <div class="frow"><label class="lbl" for="poleId" id="idLabel">POLE ID</label>
-        <div class="idrow"><input type="text" id="poleId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CC-0001"><button class="btn" id="scanIdBtn" type="button" aria-label="Read the ID from the camera">Scan ID</button></div>
+      <div class="frow" id="idRow"><label class="lbl" for="poleId" id="idLabel">POLE ID</label>
+        <div class="idrow" id="idInRow"><button type="button" id="idPfx" hidden aria-label="ID prefix: tap to change it" aria-expanded="false">CC-</button><input type="text" id="poleId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CC-0001"><button class="btn" id="scanIdBtn" type="button" aria-label="Read the ID from the camera">Scan ID</button></div>
       </div>
-      <div class="idline"><button type="button" class="chip small" id="nptBtn">No tag → NPT</button><div id="idCands" class="idcands" hidden></div></div>
+      <div id="idPfxMenu" class="chips" hidden role="group" aria-label="ID prefix"></div>
+      <div class="idline" id="idLine"><button type="button" class="chip small" id="nptBtn">No tag → NPT</button><button type="button" class="chip small" id="idAbc" hidden aria-pressed="false" title="Letters on the keyboard">abc</button><div id="idCands" class="idcands" hidden></div></div>
       <p class="idnote" id="idNote" hidden></p>
       <p class="warnline" id="dupWarn" hidden></p>
       <p class="warnline" id="fmtWarn" hidden></p>
       <label class="frow" id="odfBox" hidden><span class="lbl">ODF</span><select id="odfSel" aria-label="ODF"><option value="New">New ODF</option><option value="Existing">Existing ODF</option></select></label>
       <label class="frow" id="siteKindBox" hidden><span class="lbl">SITE TYPE</span><select id="siteKindSel" aria-label="Site type"><option value="Tower">Tower</option><option value="OLT">OLT</option></select></label>
-      <label class="frow" id="svClosureBox" hidden><span class="lbl">CLOSURE ID</span><input type="text" id="svClosureId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="If a closure is inside (POI)" aria-label="Closure ID in the handhole"></label>
-      <div class="field" id="svDetailsBox" hidden><span class="lbl">POLE DETAILS</span><div id="svDetails" class="pdlist"></div>
+      <div class="field" id="svClosureBox" data-k="clo" hidden><span class="lbl" id="svCloLbl">CLOSURE IN THIS HANDHOLE</span>
+        <div class="toggles"><label class="tchip"><input type="checkbox" id="svCloOn"><span>Closure</span></label></div>
+        <div class="attrow" id="svCloRow" hidden>
+          <div class="attsel"><select id="svCloSz" aria-label="Closure size"></select><select id="svCloSt" aria-label="Closure new or existing"><option value="New">New</option><option value="Existing">Existing</option></select></div>
+          <div class="attid"><input type="text" id="svClosureId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Closure ID or name, e.g. CL-0001" aria-label="Closure ID or name"></div>
+        </div>
+      </div>
+      <p class="infoline" id="boxLoopNote" hidden></p>
+      <div class="field" id="svDetailsBox" data-k="details" hidden><span class="lbl">POLE DETAILS</span><div id="svDetails" class="pdlist"></div>
         <select id="svDetailAdd" aria-label="Add a pole detail"><option value="">+ Add detail</option></select></div>
       <div class="field boq" id="boqBox" hidden><span class="lbl">SIZE · FOR THE BOQ / BOM</span><p class="boqplan" id="boqPlan" hidden></p><div id="boqRows"></div><button class="btn small" id="boqUsePlan" type="button" hidden>Use the planned sizes</button><p class="hint" style="margin:0">Optional. Tap the size; tap it again to clear.</p></div>
-      <label class="field" id="svRemarksBox" hidden>REMARKS<textarea id="svRemarks" placeholder="Optional: condition, what to use, access, findings of the audit"></textarea></label>
+      <label class="field" id="svRemarksBox" data-k="remarks" hidden>REMARKS<textarea id="svRemarks" placeholder="Optional: condition, what to use, access, findings of the audit"></textarea></label>
     </div>
-    <div class="group" id="poleAttach" hidden>
+    <div class="group" id="accGroup" data-pane="acc" hidden><div class="boq" id="boqRowsAcc"></div></div>
+    <div class="group" id="poleAttach" data-pane="onpole" hidden>
       <h3 id="attachTitle">On this pole</h3>
       <p class="foldsum" id="attachSum"></p>
       <div class="toggles">
@@ -841,6 +901,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="attid"><input type="text" id="closureId" placeholder="Closure ID" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Closure ID"></div>
       </div>
     </div>
+    <div class="group" id="ugGroup" data-pane="ug" hidden><p class="hint" style="margin:0">Where the cable goes from aerial to underground on this pole.</p><div class="boq" id="boqRowsUg"></div></div>
+    <div class="panenav" id="paneNav" hidden></div>
     <div class="group" id="defBox" hidden>
       <div class="row between"><h3>Deficiencies</h3><span class="grow"></span><span class="pill" id="defStatus"></span><button class="btn small" id="addDefBtn" type="button">+ Add</button></div>
       <p class="okline" id="noDefNote" hidden>No defects found: this photo of the site is the evidence of the inspection (its GPS position, time and your name are kept). Choose the element if you like, then Save: the PAT is then completed.</p>
@@ -857,8 +919,6 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="row"><button class="btn grow" id="defCancel" type="button">Cancel</button><button class="btn primary grow" id="defAdd" type="button">Add to punchlist</button></div>
       </div>
     </div>
-    <button class="btn danger" id="edDelete" hidden>Delete this record</button>
-    <div id="delConfirm" class="group" hidden><p style="margin:0">Delete <b id="delName"></b> and its photo? This can't be undone.</p><div class="row"><button class="btn grow" id="delNo">Keep</button><button class="btn grow primary" id="delYes" style="background:var(--bad);border-color:var(--bad);color:#fff">Delete</button></div></div>
   </div>
   <p id="saveIssue" class="warnline" role="alert" hidden style="margin:0;padding:10px 16px;color:var(--bad)"></p>
   <div class="foot">
@@ -1065,8 +1125,15 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
         <div class="dxfplan" id="dxfPlanOpts">
           <div class="field"><span class="lbl">ON THE PLAN</span><p class="hint" id="dxfPlanSum" style="margin:0"></p>
             <div class="row"><button class="btn small" id="dxfOpenDrawing" type="button">Set it in the Drawing</button><button class="btn small" id="dxfStyleBtn" type="button">Drawing style…</button></div></div>
+          <div class="field" id="numBox"><span class="lbl">POLE NUMBERS · THE SAME IN TABLE · CSV</span>
+            <label class="check"><input type="radio" name="numMode" id="numProject"><span><b>Whole project</b>: 1, 2, 3… along the cable from the site or ODF</span></label>
+            <label class="check"><input type="radio" name="numMode" id="numOwner"><span><b>Per pole owner</b>: each owner's poles from 1 (one RTA list each)</span></label>
+            <label class="check"><input type="radio" name="numKeep" id="numKeep"><span>Keep the numbers already given: new poles get the next numbers</span></label>
+            <label class="check"><input type="radio" name="numKeep" id="numRenum"><span>Renumber along the route at each export</span></label>
+            <p class="hint" id="numInfo" style="margin:0"></p></div>
           <div class="field"><span class="lbl">DRAWINGS IN THIS EXPORT</span><div id="dxfSets" class="dxfrows" role="group" aria-label="Drawings in this export"></div><button class="btn small" id="dxfRowAdd" type="button">+ Add a drawing</button><p class="hint" id="dxfSetsInfo" style="margin:0"></p></div>
           <label class="check"><input type="checkbox" id="dxfPdf"><span>Also the sheets as a PDF (A3) in the ZIP, drawn by the app from the DXF: for printing, or when AutoCAD is not at hand</span></label>
+          <label class="check"><input type="checkbox" id="pmiLoops"><span>Count the maintenance loops in the PMI cable lengths (total, aerial, underground). Unticked: the spans only</span></label>
           <div class="field" id="sigBox"><span class="lbl">NAMES IN THE TITLE BLOCK</span>
             <div class="opt2"><label class="field">Design Engineer<input type="text" id="sigDesign" maxlength="80" autocomplete="off" placeholder="Name"></label><label class="field">Project Engineer<input type="text" id="sigProject" maxlength="80" autocomplete="off" placeholder="Name"></label></div>
             <div class="opt2"><label class="field">Head-Cable Engineering<input type="text" id="sigHead" maxlength="80" autocomplete="off" placeholder="Name"></label><label class="field">CSE Lead<input type="text" id="sigCse" maxlength="120" autocomplete="off" placeholder="From the online sheet"></label></div>
@@ -1082,7 +1149,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <button class="btn primary" id="doDxf">Export DXF</button>
     </div>
     <div class="xcard">
-      <div class="head"><span class="ic">CSV</span><div><b>Table · CSV</b><p>Pole ID, type, lat/long, UTM easting/northing, accuracy, time, surveyed by. Opens in Excel or QGIS.</p></div></div>
+      <div class="head"><span class="ic">CSV</span><div><b>Table · CSV</b><p>No. (the pole numbers of the DXF, for the RTA), pole ID, type, owner and its name, lat/long, UTM easting/northing, accuracy, time, surveyed by, sizes. Opens in Excel or QGIS.</p></div></div>
       <button class="btn" id="doCsv">Export CSV</button>
     </div>
     <div class="xcard">
@@ -1196,6 +1263,10 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <label class="field">Painted IDs are usually<select id="setOrient"><option value="h">Horizontal</option><option value="v">Vertical (stacked or sideways)</option></select></label>
     </div>
     <div class="group">
+      <h3>Saving a record</h3>
+      <label class="check"><input type="checkbox" id="setSaveCheck"><span>As-Plan and As-Built: before Save, list what is not set yet (pole owner, new pole size, clamp size, closure and ODF sizes), with Go to set it or Save anyway</span></label>
+    </div>
+    <div class="group">
       <h3>Camera button</h3>
       <label class="field">Position, for one-hand use<select id="setHand"><option value="right">Right (right hand)</option><option value="center">Center</option><option value="left">Left (left hand)</option></select></label>
     </div>
@@ -1244,6 +1315,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div class="group">
       <h3>AutoCAD DXF</h3>
       <div class="opt2"><label class="field">Pole circle radius (m)<input type="number" id="setSym2" step="0.1" min="0.1"></label><label class="field">Label height (m)<input type="number" id="setTxt2" step="0.1" min="0.1"></label></div>
+      <label class="check"><input type="checkbox" id="pmiLoops2"><span>Count the maintenance loops in the PMI cable lengths (total, aerial, underground). Unticked: the spans only</span></label>
       <label class="field">UTM zone (WGS84, north)<select id="setZone2"><option value="50">Zone 50N (CM 117°E)</option><option value="51">Zone 51N (CM 123°E)</option><option value="52">Zone 52N (CM 129°E)</option></select></label>
     </div>
     <div class="group" id="saveGroup">
@@ -1351,6 +1423,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
             <input type="file" id="refInput" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/xml,text/xml,application/octet-stream" hidden>
           </div>
           <label class="field">REMARKS / NOTES<textarea id="curNotes" style="min-height:60px"></textarea></label>
+          <p class="hint" id="curUpdates" hidden style="margin:0;white-space:pre-line"></p>
           <div id="accMeta" hidden style="display:flex;flex-direction:column;gap:12px">
             <p class="hint" id="accStageInfo" style="font-weight:700;color:var(--ink)"></p>
             <label class="field">LOCATION / SITE<input type="text" id="mSite" autocomplete="off" placeholder="e.g. KABAN_MIN660"></label>
@@ -1638,7 +1711,8 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
           <div class="pair"><label class="field">Closure sizes<textarea id="admBoqClo" rows="6"></textarea></label><label class="field">Pole details (what else is on the pole)<textarea id="admDetailItems" rows="6"></textarea></label></div>
           <div class="pair"><label class="field">New arms<textarea id="admBoqArm" rows="5"></textarea></label><label class="field">Guying<textarea id="admBoqGuy" rows="5"></textarea></label></div>
         </details>
-        <label class="check"><input type="checkbox" id="admSiteReq"><span>A new Survey or PAT project must use a site of the online sheet (Project Data): users cannot type a name of their own. Only the admin can switch this.</span></label>
+        <label class="check"><input type="checkbox" id="admSiteReq"><span>A new Survey or PAT project must use a site of the online sheet (Project Data): users cannot type a name of their own.</span></label>
+        <p class="hint" id="admSiteReqNote" style="margin:0"></p>
         <label class="check"><input type="checkbox" id="admVendorRec"><span>Vendors record PAT defects and accept fixes at FAT (the Globe representative signs the printed form). Off: only the admin company does.</span></label>
         <label class="field">Photo sharpness required<select id="admQuality"><option value="strict">Strict (recommended)</option><option value="normal">Normal: refuse only clearly blurry</option></select></label>
       </div>

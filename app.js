@@ -156,7 +156,15 @@
     return [...k];
   }
   const JOB_NAME = { acc: 'PAT/FAT inspector', 'As-plan': 'As-Plan approver', Audit: 'Audit approver', 'As-built': 'As-Built approver' };
-  const adminUserOk = (email) => { const L = pol().adminUsers || []; const e = String(email != null ? email : (S.user && S.user.email) || '').trim().toLowerCase(); return !L.length || L.includes(e); };
+  /** v2.42.18: this phone's admin user verified by the online sheet (a code emailed from its Admin users tab), while it is on that
+      sheet's row: its jobs come from there. null otherwise. */
+  const sheetMeRaw = (e) => (S.adminMe && S.adminMe.e === e && S.team && S.team.src && S.adminMe.src === S.team.src.url ? S.adminMe : null);
+  const sheetMe = (e) => { const m = sheetMeRaw(String(e || '').trim().toLowerCase()); return m && !m.gone ? m : null; };
+  const adminUserOk = (email) => {
+    const L = pol().adminUsers || [], e = String(email != null ? email : (S.user && S.user.email) || '').trim().toLowerCase(), me = sheetMeRaw(e);
+    if (me && me.gone) return false; // v2.42.18: its row was deleted from the sheet's Admin users tab
+    return !L.length || L.includes(e) || !!me;
+  };
   const isInspector = () => { const o = pol().owner; return !o || !S.user || (normCo(S.user.company) === normCo(o) && adminUserOk()); };
   /** Who records PAT defects and accepts fixes at FAT (v2.10): the vendor's users too, by default (the Globe representative
       signs the printed form). The admin can keep it to the admin company (Manage → Field standards). */
@@ -170,7 +178,7 @@
     quality: 'strict', readId: true, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
     exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'utm', 'time', 'by', 'project'], naming: 'id',
       kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true,
-      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfRows: null, dxfRowSel: 0 }, // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
+      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, pmiLoops: true, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfRows: null, dxfRowSel: 0 }, // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
     saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
     sig: { design: '', project: '', head: '', cse: '', cseAuto: '' }, // v2.42.12: the names in the plan's title blocks (cseAuto: the last CSE Lead the online sheet gave)
   };
@@ -336,8 +344,8 @@
     [u.name, u.mobile, u.idno, u.email].filter((x) => x && String(x).trim().length >= 3).forEach((x) => { s = s.split(String(x).trim()).join('[you]'); });
     return s.replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, '[email]').replace(/(?<![\w-])\+?\d[\d\s().,-]{5,}\d/g, '[number]').replace(/\b(by|By|BY) ((?:[A-Z][\w.'-]*|[A-Z]\.)(?: (?:[A-Z][\w.'-]*|de|del|dela|ng)){0,4})/g, '$1 [name]').replace(/\bID (?:no\.? )?[A-Za-z0-9-]{3,}/g, 'ID [no]');
   }
-  function toast(msg, ms) {
-    LOG.info('toast', logSafe(msg).slice(0, 200));
+  function toast(msg, ms, logAs) { // v2.42.18: logAs: the App log's text instead (no other person's name)
+    LOG.info('toast', logSafe(logAs != null ? logAs : msg).slice(0, 200));
     const t = $('toast'); t.textContent = msg; t.hidden = false;
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms || 2600);
   }
@@ -415,9 +423,10 @@
     return l.includes(last) && !(el === 'Pole' && last === 'Proposed') ? last : (SV_DEF[p] && SV_DEF[p][el]) || l[0] || ''; // a proposed pole is chosen each time
   };
   const svStatusLabel = (st, purpose) => ((purpose || svPurpose()) === 'As-built' ? { New: 'New (built)', Existing: 'Existing (used)' }[st] : '') || st || '';
-  const isPoi = (r) => elemOf(r) === 'Closure' || (elemOf(r) === 'Handhole' && !!r.closureId);
+  const boxClo = (r) => ['Handhole', 'Manhole', 'Service box'].includes(elemOf(r)) && (!!r.closure || !!r.closureId); // v2.42.17: a closure in a handhole, manhole or service box (before: a handhole with a closure ID)
+  const isPoi = (r) => elemOf(r) === 'Closure' || boxClo(r);
   /** "ODF · Proposed", "Handhole · Existing · closure CL-0101", "Pole · Proposed" (survey points). */
-  const svDesc = (r, purpose) => [elemOf(r), svStatusLabel(r.status, purpose), elemOf(r) === 'Handhole' && r.closureId ? `closure ${r.closureId}` : ''].filter(Boolean).join(' · ');
+  const svDesc = (r, purpose) => [elemOf(r), svStatusLabel(r.status, purpose), boxClo(r) ? (r.closureId ? `closure ${r.closureId}` : 'closure') : ''].filter(Boolean).join(' · ');
   /* Pole details (v2.14): what else is on the pole, with a count — "Transformer: 1 pc". */
   const POLE_DETAIL_ITEMS = ['Transformer', 'Streetlight', 'Riser pipe', 'Guy wire', 'Down guy / anchor', 'Crossarm', 'Electric meter', 'Service drop', 'Other telco cable'];
   const detailsText = (list, sep) => (list || []).filter((x) => x && x.item).map((x) => `${x.item}: ${x.qty || 1} pc${(x.qty || 1) === 1 ? '' : 's'}`).join(sep || '; ');
@@ -434,8 +443,20 @@
     // v2.39: the pole clamps (figure 8, messenger and guys); left blank, the plan picks them from the route, the guys and the arm
     clampType: ['CA', 'GCA', '2A', 'DEG', 'RL'] };
   const BOQ_MULTI = new Set(['guy', 'clampType']); // several at once: "Head guy + Side guy", "DEG + GCA" (v2.39)
+  const loopYes = (b) => !!b && !!b.mloop && b.mloop !== 'No'; // v2.42.16: an As-Built record answers Yes or No
+  const BOX_LOOP_M = 20; // v2.42.16: a handhole, manhole or service box has its own maintenance loop, 20 m (counted, not drawn)
   const mloopLen = () => (Number.isFinite(+pol().mloopLen) && +pol().mloopLen > 0 ? +pol().mloopLen : 15); // v2.29: MLoop = 15 m unless the admin sets another
-  const BOQ_LABEL = { owner: 'POLE OWNER', clamp: 'CLAMP SIZE', height: 'NEW GLOBE POLE · SIZE', cls: 'NEW GLOBE POLE · CLASS', odf: 'ODF SIZE', conn: 'ODF CONNECTOR', clo: 'CLOSURE SIZE', cloSt: 'CLOSURE', arm: 'NEW ARM', guy: 'NEW GUYING (one or more)', mloop: 'MAINTENANCE LOOP',
+  /* v2.42.18: each loop has its own length, chosen on the record (10, 12, 15 or 20 m); by default it follows the cable at the pole:
+     Light cable 12C 10 m, Figure 8 72C the pole loop length (15 m, the admin's), underground 20 m. The app adds no loop where the next
+     one is at most LOOP_TOL past the limit. */
+  const LOOP_LENS = [10, 12, 15, 20], LOOP_TOL = 100;
+  const cabLoopLen = (cab) => (cab === 'L12' ? 10 : C.CABLES[cab] && C.CABLES[cab].method === 'UG' ? BOX_LOOP_M : mloopLen());
+  const COOPS = ['DLPC', 'CLPC', 'DASURECO', 'COTELCO']; // v2.42.18: owner names offered for an electric pole (with the names used in the project)
+  const isElecOwner = (o) => /electric|coop|power/i.test(String(o || ''));
+  /** v2.42.18: the name of a pole's owner: the record's (the coop of an electric pole), else the owner itself (PLDT, Globe…); a proposed
+      or new pole, or an existing GT pole, is Globe's. */
+  const ownerNameOf = (p) => { const b = (p && p.boq) || {}, o = String(b.owner || '').trim(); if (b.ownerName) return String(b.ownerName); if (o && !isElecOwner(o)) return o; if (p && elemOf(p) === 'Pole' && (p.status === 'Proposed' || p.status === 'New' || typePrefix(p.poleType) === 'GT')) return 'Globe'; return ''; };
+  const BOQ_LABEL = { ownerName: 'OWNER NAME', mloopM: 'LOOP LENGTH', owner: 'POLE OWNER', clamp: 'CLAMP SIZE', height: 'NEW GLOBE POLE · SIZE', cls: 'NEW GLOBE POLE · CLASS', odf: 'ODF SIZE', conn: 'ODF CONNECTOR', clo: 'CLOSURE SIZE', cloSt: 'CLOSURE', arm: 'NEW ARM', guy: 'NEW GUYING (one or more)', mloop: 'MAINTENANCE LOOP',
     napType: 'NAP TYPE', lcp: 'LCP', ground: 'GROUNDING', riser: 'RISER (AERIAL TO UNDERGROUND)', p2p: 'POLE-TO-POLE GUY TO', clampType: 'CLAMP TYPE (optional: left blank, the plan picks it)' };
   const BOQ_PURPOSES = ['As-plan', 'As-built'];
   /** The BOQ is part of the As-Plan and As-Built surveys only (not Audit, PAT, defect cleanup or FAT). */
@@ -450,23 +471,23 @@
   const boqOwners = () => [...new Set([...boqList('owner'), ...(S.myOwners || [])].map((x) => String(x || '').trim()).filter(Boolean))];
   /** The BOQ fields of a survey element: by element and status (existing, or proposed / new); a closure in the handhole adds its size. */
   function boqKeys(el, status, closureHere, b) {
-    if (el === 'Pole') return (status === 'Proposed' || status === 'New' ? ['height', 'cls', 'clamp', 'clampType'] : ['owner', 'clamp', 'clampType']).concat(['arm', 'guy'], b && /pole.?to.?pole/i.test(b.guy || '') ? ['p2p'] : [], ['mloop', 'ground', 'riser']); // v2.29; v2.37 + pole-to-pole target, grounding, riser
+    if (el === 'Pole') return (status === 'Proposed' || status === 'New' ? ['height', 'cls', 'clamp', 'clampType'] : ['owner', 'ownerName', 'clamp', 'clampType']).concat(['arm', 'guy'], b && /pole.?to.?pole/i.test(b.guy || '') ? ['p2p'] : [], ['mloop', 'mloopM', 'ground', 'riser']); // v2.42.18: + the owner's name, the loop's length // v2.29; v2.37 + pole-to-pole target, grounding, riser
     if (el === 'NAP') return ['napType']; // v2.37
     if (el === 'ODC') return (b || {}).lcp ? ['lcp'] : []; // v2.37 (v2.41: the ODC is a cabinet, not an LCP: an LCP is recorded as a NAP of type LCP; a record that has the field keeps it)
     if (el === 'ODF') return ['odf', 'conn'];
     if (el === 'Closure') return ['clo'];
-    if (el === 'Handhole') return closureHere ? ['clo'] : [];
+    if (el === 'Handhole' || el === 'Manhole' || el === 'Service box') return closureHere ? ['clo', 'cloSt'] : []; // v2.42.17: its closure, new or existing (manholes and service boxes too)
     return [];
   }
   /** "Owner PLDT · Clamp 8-9", "New pole 9.14m 7A · Clamp 8-9", "ODF 48F UPC", "Closure 24C New". */
   function boqText(r) {
     const b = (r && r.boq) || {}, parts = [];
-    if (b.owner) parts.push(`Owner ${b.owner}`);
+    if (b.owner) parts.push(`Owner ${b.owner}${b.ownerName && b.ownerName !== b.owner ? ` (${b.ownerName})` : ''}`); // v2.42.18: + its name
     if (b.height || b.cls) parts.push(`New pole ${[b.height, b.cls].filter(Boolean).join(' ')}`);
     if (b.clamp || b.clampType) parts.push(`Clamp ${[b.clampType, b.clamp].filter(Boolean).join(' ')}`); // v2.39: its type too
     if (b.odf || b.conn) parts.push(`ODF ${[b.odf, b.conn].filter(Boolean).join(' ')}`);
     if (b.clo || b.cloSt) parts.push(`Closure ${[b.clo, b.cloSt].filter(Boolean).join(' ')}`);
-    if (b.arm) parts.push(`Arm ${b.arm}`); if (b.guy) parts.push(`Guying ${b.guy}`); if (b.mloop) parts.push(`MLoop ${mloopLen()} m`); // v2.29
+    if (b.arm) parts.push(`Arm ${b.arm}`); if (b.guy) parts.push(`Guying ${b.guy}`); if (loopYes(b)) parts.push(`MLoop${+b.mloopM > 0 ? ` ${b.mloopM} m` : ''}`); else if (b.mloop === 'No') parts.push('No loop'); // v2.29 (v2.42.16: an As-Built answers No loop)
     if (b.p2p) { const t = points.find((x) => x.id === b.p2p); parts.push(`Pole-to-pole guy to ${t ? t.poleId || '(no ID)' : '(deleted pole)'}`); } if (b.ground) parts.push('Grounding'); if (b.riser) parts.push('Riser'); if (b.napType) parts.push([b.napType, b.napSz, b.napSt].filter(Boolean).join(' ')); if (b.nap2Type) parts.push([b.nap2Type, b.nap2Sz, b.nap2St].filter(Boolean).join(' ')); if (b.lcp) parts.push(b.lcp); // v2.37 (v2.41: a dummy NAP's size, New / Existing)
     return parts.join(' · ');
   }
@@ -711,7 +732,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.14';
+  const APP_VER = '2.42.18';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1428,7 +1449,7 @@
     // a NAP or closure pin stands on its pole: the nearest pole of the route within 30 m (as the plan draws it)
     const onRoute = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])), poles = items.filter((it) => it.el === 'Pole' && onRoute.has(it.p.id));
     items.forEach((it) => { if (it.el !== 'NAP' && it.el !== 'Closure') return; let best = null, bd = 30; poles.forEach((q) => { const dd = Math.hypot(q.xy[0] - it.xy[0], q.xy[1] - it.xy[1]); if (dd < bd) { bd = dd; best = q; } }); it.on = best; });
-    drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), R, ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
+    drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), R, LA: autoLoops(pts, R), ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
     $('drawTitle').textContent = `Drawing · ${S.project}`;
     $('drawHint').textContent = `Preview of the DXF (UTM ${z}N metres): ${pts.filter((p) => elemOf(p) === 'Pole').length} poles, ${R.spans.length} spans, ${fmtLen(R.total)}. Drag to pan, pinch or scroll to zoom, tap a point. Zoom in for the numbers or photos and, under each pole, what the plan draws on it: ARM, NAP, LOOP, CL (closure), G (guys), GR (grounding), R (riser).`;
     $('drawHint').hidden = !!S.drawHintOff; $('drawInfoBtn').setAttribute('aria-pressed', String(!S.drawHintOff));
@@ -1443,8 +1464,8 @@
   function drawSeqSoon() {
     if (!drw) return;
     const go = () => { if (!drw) return; const pts = drw.items.map((it) => it.p), MS = dxfMarkSel(pts);
-      const order = window.GeDxfTpl.markOrder(pts.map((p) => ({ id: p.id, el: elemOf(p) })), drw.R.spans.map((sp) => ({ ia: sp.ia, ib: sp.ib, cable: sp.cable })), MS.ids);
-      drw.seq = new Map(order.map((id, i) => [String(id), i + 1])); drawDrawing(); };
+      const NUM = poleNums(projPoints(), routeModel()), on = new Set(MS.ids.map(String)); // v2.42.18: the pole numbers (the same in the DXF and the CSV)
+      drw.seq = new Map([...NUM.entries()].filter(([id]) => on.has(String(id))).map(([id, n]) => [String(id), n])); drawDrawing(); };
     if (window.GeDxfTpl && window.GeDxfTpl.markOrder) go(); else loadScript('dxftpl.js').then(go).catch((e) => LOG.warn('draw.seq', errInfo(e)));
   }
   function sizeDrawing() { const cv = $('drawCanvas'), r = $('drawWrap').getBoundingClientRect(), d = window.devicePixelRatio || 1; cv.width = Math.max(1, Math.round(r.width * d)); cv.height = Math.max(1, Math.round(r.height * d)); }
@@ -1463,7 +1484,7 @@
     if (b.arm) out.push(['ARM', '#7048e8']);
     if (p.nap || p.napId || napPin) { const nt = (p.nap || p.napId ? b.napType : ((napPin && napPin.p.boq) || {}).napType) || ''; out.push([/lcp/i.test(nt) ? 'LCP' : /dummy/i.test(nt) ? 'DN' : 'NAP', '#f08c00']); }
     if (p.nap2 || p.nap2Id) { const nt = b.nap2Type || ''; out.push([/lcp/i.test(nt) ? 'LCP' : /dummy/i.test(nt) ? 'DN' : 'NAP', '#f08c00']); } // v2.42: its second box
-    if (p.mloop || b.mloop) out.push(['LOOP', '#e03131']);
+    if (p.mloop || loopYes(b) || loopOwnOf(p) || napPin || clPin) out.push(['LOOP', '#e03131']); else if (drw && drw.LA && drw.LA.has(p.id)) out.push(['LOOP*', '#e03131']); // v2.42.16: * added by the app
     if (p.closure || p.closureId || clPin) out.push(['CL', '#c2255c']);
     if (nGuy) out.push([nGuy > 1 ? `G${nGuy}` : 'G', '#1971c2']);
     if (b.ground) out.push(['GR', '#2b8a3e']);
@@ -1489,9 +1510,13 @@
     drw.spans.forEach(({ sp, a, b }) => { // the CABLE_ROUTE layer and the span length (FOC_LENGTH) at its middle; aerial broken, underground solid
       const [ax, ay] = drwPx(a), [bx, by] = drwPx(b), ug = /^U/.test(sp.cable || '');
       g.strokeStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.lineWidth = 2.2 * d; g.setLineDash(sp.cable && !ug ? [7 * d, 4 * d] : []); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]);
+      (sp.runs || []).slice(1).forEach((k, i) => { // v2.42.18: the span's other runs, parallel to run 1
+        const Ln = Math.hypot(bx - ax, by - ay) || 1, nx = (by - ay) / Ln, ny = -(bx - ax) / Ln, f = 5 * d * (i + 1);
+        g.strokeStyle = '#1c3f94'; g.lineWidth = 1.8 * d; g.setLineDash(k && !/^U/.test(k) ? [7 * d, 4 * d] : []); g.beginPath(); g.moveTo(ax + nx * f, ay + ny * f); g.lineTo(bx + nx * f, by + ny * f); g.stroke(); g.setLineDash([]);
+      });
       if (drw.labels && Math.hypot(bx - ax, by - ay) > 46 * d) {
         let ang = Math.atan2(by - ay, bx - ax); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
-        g.save(); g.translate((ax + bx) / 2, (ay + by) / 2); g.rotate(ang); g.textAlign = 'center'; g.textBaseline = 'bottom'; g.fillStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.fillText(`${sp.len.toFixed(1)} m`, 0, -3 * d); g.restore();
+        g.save(); g.translate((ax + bx) / 2, (ay + by) / 2); g.rotate(ang); g.textAlign = 'center'; g.textBaseline = 'bottom'; g.fillStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.fillText(`${sp.len.toFixed(1)} m${(sp.runs || []).length > 1 ? ` ×${sp.runs.length}` : ''}`, 0, -3 * d); g.restore();
       }
     });
     // a NAP or closure pin: a dotted line to the pole it stands on
@@ -1709,7 +1734,7 @@
     const mode = curRow().mode;
     rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[plStyle().num.bcolor] || ACI_INK[plStyle().num.color] || '#d9a400'}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[plStyle().num.color] || '#d9a400'}" font-family="system-ui,sans-serif">1</text>`), 'Number on the plan']);
     if (mode !== 'num') rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), mode === 'both' ? 'Photo with its number' : 'Photo on the plan']);
-    const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)']];
+    const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop'], ['LOOP*', '#e03131', 'Maintenance loop added by the app (As-Plan)'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)']];
     const present = new Set(); if (drw) drw.items.forEach((it) => { if (it.el === 'Pole') poleTags(it).forEach(([t]) => present.add(/^G\d*$/.test(t) ? 'G' : t === 'LCP' || t === 'DN' ? 'NAP' : t)); });
     T.forEach(([t, c, n]) => { if (present.has(t)) rows.push([tag(t, c), n]); });
     $('drawLegendBody').innerHTML = rows.map(([i, t]) => `${i}<span>${C.xmlEsc(t)}</span>`).join('');
@@ -1913,7 +1938,7 @@
     return out;
   }
   /** v2.26.1: the data names of a G-eSAA survey KMZ (core.js) read back from a reference; BOQ_KML maps them to the record's sizes. */
-  const BOQ_KML = { pole_owner: 'owner', clamp_size: 'clamp', new_pole_size: 'height', pole_class: 'cls', odf_size: 'odf', odf_connector: 'conn', closure_size: 'clo', closure_status: 'cloSt', new_arm: 'arm', guying: 'guy', mloop: 'mloop', nap_type: 'napType', nap_size: 'napSz', nap_status: 'napSt', nap2_type: 'nap2Type', nap2_size: 'nap2Sz', nap2_status: 'nap2St', lcp: 'lcp', grounding: 'ground', riser: 'riser', clamp_type: 'clampType' }; // v2.29: + arm, guying, loop; v2.37: NAP type, LCP, grounding, riser; v2.39: clamp type
+  const BOQ_KML = { pole_owner: 'owner', clamp_size: 'clamp', new_pole_size: 'height', pole_class: 'cls', odf_size: 'odf', odf_connector: 'conn', closure_size: 'clo', closure_status: 'cloSt', new_arm: 'arm', guying: 'guy', mloop: 'mloop', nap_type: 'napType', nap_size: 'napSz', nap_status: 'napSt', nap2_type: 'nap2Type', nap2_size: 'nap2Sz', nap2_status: 'nap2St', lcp: 'lcp', grounding: 'ground', riser: 'riser', clamp_type: 'clampType', pole_owner_name: 'ownerName', mloop_length_m: 'mloopM' }; // v2.42.18: + owner name, loop length; v2.29: + arm, guying, loop; v2.37: NAP type, LCP, grounding, riser; v2.39: clamp type
   const KML_DATA = new Set(['pole_id', 'element', 'status', 'closure_id', 'nap_id', 'nap2_id', ...Object.keys(BOQ_KML)]);
   /** The elements of the As-Plan (this As-Built project's reference KMZ) as records: ID, element, status, position, sizes. */
   function planRecsOf(geo) {
@@ -2046,15 +2071,16 @@
     drawRef(false); renderRefInfo(); toast('Reference removed');
   }, 'Reference not removed'));
   /* ================= route and spans (survey projects) ================= */
-  let routeMode = false, routeSel = null, routeUndo = [], routeProj = null; // v2.42.4: routeProj: the project being linked
+  let routeMode = false, routeSel = null, routeUndo = [], routeProj = null, spanSel = null; // v2.42.18: spanSel: the span whose runs are shown // v2.42.4: routeProj: the project being linked
   const routeLayer = L.layerGroup().addTo(map);
   const links = () => (pmeta().links || []);
-  function setLinks(l) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), links: l }; persist(); changedAfterApproval(S.project, 'route'); } // v2.42.5: + the approval
+  function setLinks(l) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), links: l, linksAt: new Date().toISOString() }; persist(); changedAfterApproval(S.project, 'route'); } // v2.42.5: + the approval; v2.42.18: + its time (Share)
   /* v2.29: each span carries its FOC cable type (the third value of the link): AE Figure 8 72C, Light cable 12C or UG 144C air-blown */
   const CAB = C.CABLES;
   const cableSel = () => { const k = pmeta().cable; return k === '' || CAB[k] ? k : 'L12'; }; // the cable new links get: the project's last choice
   const cableName = (k) => (CAB[k] ? CAB[k].label : 'Cable not set');
-  const linkWith = (a, b, k) => (k ? [a, b, k] : [a, b]);
+  const linkWith = (a, b, k, more) => (more && more.length ? [a, b, k || '', more.slice()] : k ? [a, b, k] : [a, b]); // v2.42.18: + the span's other runs
+  const hEsc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   function renderCableSel() {
     const sel = $('rbCable'); if (!sel.options.length) { Object.entries(CAB).forEach(([k, c]) => sel.add(new Option(`${c.label} · ${c.method}`, k))); sel.add(new Option('Cable not set', '')); }
     sel.value = cableSel();
@@ -2068,11 +2094,15 @@
     if (isAcc()) return null;
     const R = routeModel();
     if (viewHide().route && !routeMode) { if (typeof declutterSoon === 'function') declutterSoon(); return R; } // v2.30: route hidden from the map button
+    const selK = spanSel ? [...spanSel].sort().join('|') : '';
     for (const s of R.spans) { // v2.29: coloured by cable type (grey: cable not set); long spans red
-      const cab = CAB[s.cable];
-      L.polyline([[s.a.lat, s.a.lon], [s.b.lat, s.b.lon]], { color: s.long ? '#c92a2a' : cab ? cab.css : '#868e96', weight: 4, opacity: 0.9, dashArray: s.long ? '8 6' : cab && cab.method === 'UG' ? '2 7' : null, lineCap: 'round', interactive: false }).addTo(routeLayer);
+      const cab = CAB[s.cable], ll = [[s.a.lat, s.a.lon], [s.b.lat, s.b.lon]], nr = (s.runs || []).length;
+      if (routeMode && selK === [s.ia, s.ib].sort().join('|')) L.polyline(ll, { color: '#fab005', weight: 16 + 5 * Math.max(0, nr - 1), opacity: 0.55, lineCap: 'round', interactive: false }).addTo(routeLayer); // v2.42.18: the span tapped
+      for (let i = nr - 1; i >= 1; i--) { const c2 = CAB[s.runs[i]]; L.polyline(ll, { color: c2 ? c2.css : '#868e96', weight: 4 + 5 * i, opacity: 0.55, lineCap: 'butt', interactive: false }).addTo(routeLayer); } // v2.42.18: run 2, run 3… as bands round run 1
+      L.polyline(ll, { color: s.long ? '#c92a2a' : cab ? cab.css : '#868e96', weight: 4, opacity: 0.9, dashArray: s.long ? '8 6' : cab && cab.method === 'UG' ? '2 7' : null, lineCap: 'round', interactive: false }).addTo(routeLayer);
+      if (routeMode) L.polyline(ll, { color: '#000', weight: 22, opacity: 0.01, interactive: true, bubblingMouseEvents: false }).on('click', (e) => { L.DomEvent.stop(e); spanSel = [s.ia, s.ib]; routeSel = null; renderPoles(); spanInView(s); }).addTo(routeLayer); // v2.42.18: tap a span: its runs
       L.marker([(s.a.lat + s.b.lat) / 2, (s.a.lon + s.b.lon) / 2], { interactive: false, keyboard: false,
-        icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label${s.long ? ' long' : ''}">${s.len.toFixed(0)} m</span>`, iconSize: null }) }).addTo(routeLayer);
+        icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label${s.long ? ' long' : ''}">${s.len.toFixed(0)} m${nr > 1 ? ` ×${nr}` : ''}</span>`, iconSize: null }) }).addTo(routeLayer);
     }
     for (const p of projPoints()) {
       const info = R.poles[p.id];
@@ -2094,11 +2124,30 @@
       GCA + CA + RL (its fixture is a 44 1/2" arm); a head, down or pole-to-pole guy 2A (a pole-to-pole guy's other pole too); a
       sidewalk head guy 2A + CA + RL. Returns the clamp types once each, in that order, e.g. ['DEG', 'GCA']. */
   const GUY_CLAMP = [[/sidewalk head/i, ['2A', 'CA', 'RL']], [/sidewalk guy/i, ['GCA', 'CA', 'RL']], [/head guy/i, ['2A']], [/down guy/i, ['2A']], [/pole.?to.?pole/i, ['2A']], [/side guy/i, ['GCA']]];
+  /** v2.42.18: the cable's hardware on a pole other than pole clamps. A Light cable 12C (aerial) on the pole: 2 retractors and 2 span
+      clamps (1 + 1 at its end: one 12C span), and no pole clamps for the 12C, its guys or its arm (a 72C there keeps its clamps). A telco
+      arm (the pole owner's): 2 J-hooks and 2 span clamps for the 12C, 1 suspension clamp for the 72C, also at an end or a corner, and no
+      pole clamps at all (the guys' clamps are the pole owner's, installed beforehand). A span's first run counts (its other runs share
+      the attachments). Returns { items: [[item, qty, size]], noClamp }. */
+  function hwOf(p, R) {
+    if (!R || elemOf(p) !== 'Pole') return { items: [], noClamp: false };
+    const at = R.spans.filter((s) => s.ia === p.id || s.ib === p.id), aer = (s) => !(CAB[s.cable] && CAB[s.cable].method === 'UG');
+    const n12 = at.filter((s) => s.cable === 'L12').length, n72 = at.filter((s) => s.cable === 'F72').length, nOther = at.filter((s) => s.cable !== 'L12' && aer(s)).length, items = [];
+    if (hasTelcoArm(p)) {
+      if (n12) items.push(['J-hook', 2, '12C · telco arm'], ['Span clamp', 2, '12C · telco arm']);
+      if (n72) items.push(['Suspension clamp', 1, '72C · telco arm']);
+      return { items, noClamp: true };
+    }
+    if (n12) { const k = n12 >= 2 ? 2 : 1; items.push(['Retractor', k, '12C'], ['Span clamp', k, '12C']); }
+    return { items, noClamp: n12 > 0 && !nOther };
+  }
+  const hwText = (items) => (items || []).map(([i, n, sz]) => `${i} ${sz.split(' · ')[0]} ×${n}`).join(' + ');
   function clampAuto(p, R, all) {
     const b = p.boq || {}, guys = String(b.guy || '').split(' + ').filter(Boolean), arm = String(b.arm || '');
+    if (hwOf(p, R).noClamp) return []; // v2.42.18: a 12C-only pole or a telco arm: no pole clamps
     // the aerial spans to other poles hold the cable on this pole; a span under the ground or to a site, ODF, ODC or handhole ends the
-    // aerial run here
-    const at = R.spans.filter((s) => s.ia === p.id || s.ib === p.id), other = (s) => (s.ia === p.id ? s.b : s.a);
+    // aerial run here (v2.42.18: a 12C span holds no pole clamp: its retractors and span clamps)
+    const at = R.spans.filter((s) => (s.ia === p.id || s.ib === p.id) && s.cable !== 'L12'), other = (s) => (s.ia === p.id ? s.b : s.a);
     const aer = at.filter((s) => !(CAB[s.cable] && CAB[s.cable].method === 'UG') && elemOf(other(s)) === 'Pole').map(other);
     let cab = [];
     if (at.length && aer.length <= 1) cab = ['2A'];
@@ -2122,6 +2171,17 @@
     if (isAcc()) return (p) => p.boq;
     const R = routeModel(), all = projPoints(), m = new Map();
     pts.forEach((p) => { if (elemOf(p) === 'Pole' && !(p.boq && p.boq.clampType)) { const t = clampAuto(p, R, all); if (t.length) m.set(p.id, { ...(p.boq || {}), clampType: t.join(' + ') }); } });
+    const LA = autoLoops(all, R); // v2.42.16: and the maintenance loops the app adds (As-Plan)
+    pts.forEach((p) => { if (LA.has(p.id)) m.set(p.id, { ...(m.get(p.id) || p.boq || {}), mloop: 'Yes', mloopAuto: true }); });
+    const OWN = loopOwnMap(all, R); // v2.42.18: + every NAP and LCP, a pin on the pole, a site's, ODF's or ODC's at the entrance
+    pts.forEach((p) => { if (OWN.has(p.id) && !loopYes(p.boq)) m.set(p.id, { ...(m.get(p.id) || p.boq || {}), mloop: 'Yes', mloopOwn: OWN.get(p.id) }); }); // v2.42.17: a pole's own loop
+    const onR = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])); // and the loop each handhole, manhole and service box on the route has (BOQ)
+    pts.forEach((p) => { if (UG_BOXES.has(elemOf(p)) && onR.has(p.id)) m.set(p.id, { ...(m.get(p.id) || p.boq || {}), mloopBox: true }); });
+    pts.forEach((p) => { if (elemOf(p) !== 'Pole') return; const nm = ownerNameOf(p), f = m.get(p.id) || p.boq || {}; if (nm && f.ownerName !== nm) m.set(p.id, { ...f, ownerName: nm }); }); // v2.42.18: the owner's name
+    // v2.42.18: each loop's length, and the cable's hardware other than pole clamps (12C, telco arm)
+    pts.forEach((p) => { const f = m.get(p.id) || p.boq || {}; if (loopYes(f) || f.mloopBox) m.set(p.id, { ...f, mloopM: String(loopLenAt(p, R, LA, OWN.get(p.id))) }); });
+    pts.forEach((p) => { if (elemOf(p) !== 'Pole') return; const h = hwOf(p, R); if (!h.items.length && !h.noClamp) return; const f = m.get(p.id) || p.boq || {};
+      m.set(p.id, { ...f, hw: hwText(h.items), hwItems: h.items, noClamp: h.noClamp && !(p.boq && p.boq.clampType) }); });
     return (p) => m.get(p.id) || p.boq;
   }
   function routeAdvice(R) {
@@ -2131,7 +2191,7 @@
     for (const q of pts) {
       const el = elemOf(q);
       if (el === 'Closure') { const p = onPole(q); if (p) clo.add(p.id); }
-      if (el === 'Handhole' && q.closureId) clo.add(q.id);
+      if (boxClo(q)) clo.add(q.id); // v2.42.17: a handhole, manhole or service box with its closure
       if (el === 'NAP' && (q.boq || {}).napType === 'Dummy NAP') { const p = onPole(q); if (p) dn.set(p.id, q); }
       if (el === 'Pole' && (q.closure || q.closureId)) clo.add(q.id); // v2.41: on the pole
       if (el === 'Pole' && (q.nap || q.napId) && (q.boq || {}).napType === 'Dummy NAP') dn.set(q.id, q);
@@ -2158,20 +2218,161 @@
       if (chn.cable === 'F72') for (const id of ids) if (dn.has(id)) out.push({ id, poleId: name(id), kind: 'flag', text: `dummy NAP ${dn.get(id).poleId || ''} at ${name(id)} is on a 72C cable: use a closure` });
     }
     for (const [id, q] of dn) if (clo.has(id)) out.push({ id, poleId: name(id), kind: 'flag', text: `dummy NAP ${q.poleId || ''} at ${name(id)} is at a point of insertion: use a closure` });
+    // v2.42.18: a loop the surveyor set close (100 m) to a loop that is there anyway (a NAP's, LCP's, closure's, dummy NAP's, riser's, a
+    // box's, an entrance's): kept as set, and said, e.g. "loop at CC-0282311 is 46 m from the NAP loop at NAP-0013"
+    { const OWN = loopOwnMap(pts, R), at = new Map(OWN); pts.forEach((p) => { if (UG_BOXES.has(elemOf(p)) && adj.has(p.id)) at.set(p.id, elemOf(p).toLowerCase()); });
+      const tag = (id) => { const p = by.get(id) || {}, k = at.get(id) || ''; return /NAP|LCP/.test(k) ? p.napId || p.nap2Id || name(id) : k === 'closure' ? p.closureId || name(id) : name(id); };
+      for (const p of pts) {
+        if (elemOf(p) !== 'Pole' || !adj.has(p.id) || !loopYes(p.boq) || OWN.has(p.id)) continue;
+        let best = null, bd = LOOP_TOL; for (const [id] of at) { const q = by.get(id); if (!q || id === p.id) continue; const d = haversine(p, q); if (d <= bd) { bd = d; best = id; } }
+        if (best) out.push({ id: p.id, poleId: name(p.id), kind: 'flag', text: `loop at ${name(p.id)} is ${Math.round(bd)} m from the ${at.get(best) === 'entrance' ? `${elemOf(by.get(best))} entrance` : at.get(best)} loop at ${tag(best)}: kept as set` });
+      } }
     return out;
   }
+  /** v2.42.16: the maintenance loops the app adds to an As-Plan where the survey has none. Along each aerial run, from the homing (or
+      from the last loop, the surveyor's or the app's): a 72C cable gets a loop 250 to 300 m on, a 12C cable 450 to 500 m on, on a pole
+      in that stretch (a Globe pole, GT or proposed, before the others; then the farthest); with no pole in the stretch, the last pole
+      before its end (a span longer than that: the next pole). A loop the surveyor set counts and is kept. Only in an As-Plan survey
+      (an As-Built records what was built). A handhole, manhole or service box has its own loop (BOX_LOOP_M): not here.
+      Returns Map id -> cable of the loops added (not the surveyor's). */
+  const LOOP_EVERY = { F72: [250, 300], L12: [450, 500] };
+  const UG_BOXES = new Set(['Handhole', 'Manhole', 'Service box']);
+  /** v2.42.17: a pole's own loop: a hybrid closure, a dummy NAP or a riser on it has a loop (aerial: the pole loop length, 15 m), counted
+      like the surveyor's (the app's loops are measured from it; an As-Built does not ask). A closure in a handhole, manhole or service
+      box is in that box's own loop (BOX_LOOP_M, underground). Returns what the loop is for ('closure', 'dummy NAP', 'riser') or ''. */
+  /* v2.42.18: and every NAP (any kind) and LCP on the pole ('NAP', 'LCP'); one loop a pole, whatever is on it */
+  const loopOwnOf = (p) => {
+    if (!p || elemOf(p) !== 'Pole') return ''; const b = p.boq || {};
+    if (p.closure || p.closureId) return 'closure';
+    const nt = [p.nap || p.napId ? b.napType || 'NAP' : '', p.nap2 || p.nap2Id ? b.nap2Type || 'NAP' : ''].filter(Boolean);
+    if (nt.some((t) => /dummy/i.test(t))) return 'dummy NAP';
+    if (nt.some((t) => /lcp/i.test(t))) return 'LCP';
+    return nt.length ? 'NAP' : b.riser ? 'riser' : '';
+  };
+  const loopMan = (p) => elemOf(p) === 'Pole' && (!!(p.mloop || loopYes(p.boq)) || !!loopOwnOf(p)); // the surveyor's (on a pole), and a pole's own (v2.42.17)
+  const ENTRANCE_ELS = ['Site', 'ODF', 'ODC'];
+  /** v2.42.18: the own loop of each point: a pole's (its NAP, LCP, closure, dummy NAP or riser, or a NAP or closure pin whose pole it
+      is, 30 m), and the loop at the entrance of a site, ODF or ODC on the route R. Returns Map id -> what the loop is for. */
+  function loopOwnMap(pts, R) {
+    const out = new Map(), poles = pts.filter((p) => elemOf(p) === 'Pole');
+    pts.forEach((p) => { const k = loopOwnOf(p); if (k) out.set(p.id, k); });
+    pts.forEach((q) => {
+      const el = elemOf(q); if (el !== 'NAP' && el !== 'Closure') return;
+      let best = null, bd = 30; for (const p of poles) { const d = haversine(p, q); if (d < bd) { bd = d; best = p; } }
+      if (best && !out.has(best.id)) { const nt = (q.boq || {}).napType || ''; out.set(best.id, el === 'Closure' ? 'closure' : /dummy/i.test(nt) ? 'dummy NAP' : /lcp/i.test(nt) ? 'LCP' : 'NAP'); }
+    });
+    if (R) { const on = new Set(R.spans.flatMap((s) => [s.ia, s.ib])); pts.forEach((p) => { if (ENTRANCE_ELS.includes(elemOf(p)) && on.has(p.id)) out.set(p.id, 'entrance'); }); }
+    return out;
+  }
+  /** v2.42.18: the loops that are there without the app: the surveyor's (on a pole) and the own loops. Returns Set of ids. */
+  const loopManSet = (pts, R, own) => { const O = own || loopOwnMap(pts, R), s = new Set(O.keys()); pts.forEach((p) => { if (elemOf(p) === 'Pole' && (p.mloop || loopYes(p.boq))) s.add(p.id); }); return s; };
+  /** v2.42.18: the cable a loop is on (the app's: its run's; a NAP's or LCP's: the 12C first; else the 72C first). */
+  function loopCab(p, R, LA, kind) {
+    if (LA && LA.has(p.id)) return LA.get(p.id);
+    const cabs = new Set((R ? R.spans : []).filter((s) => s.ia === p.id || s.ib === p.id).map((s) => s.cable).filter(Boolean));
+    const pref = /NAP|LCP/.test(kind || loopOwnOf(p)) ? ['L12', 'F72', 'U144'] : ['F72', 'L12', 'U144'];
+    return pref.find((k) => cabs.has(k)) || [...cabs][0] || '';
+  }
+  /** v2.42.18: a loop's length: the record's choice, else a box's 20 m, else the cable's. */
+  const loopLenAt = (p, R, LA, kind) => { const b = p.boq || {}; if (+b.mloopM > 0) return +b.mloopM; if (UG_BOXES.has(elemOf(p))) return BOX_LOOP_M; return cabLoopLen(loopCab(p, R, LA, kind)); };
+  function autoLoops(pts, R) {
+    const out = new Map();
+    if (isAcc() || svPurpose() !== 'As-plan' || !R || !R.spans.length) return out;
+    const by = new Map(pts.map((p) => [p.id, p])), man = loopManSet(pts, R), has = (id) => man.has(id) || out.has(id); // v2.42.18: + every NAP, LCP, pin and entrance
+    const isPole = (id) => { const p = by.get(id); return !!p && elemOf(p) === 'Pole'; }, isGT = (id) => markKey(by.get(id)) === 'GT';
+    // how far each point is from the homing along the route (a site or an ODF; else the first span's first end), as the route check
+    const all = new Map(); R.spans.forEach((s) => { [[s.ia, s.ib], [s.ib, s.ia]].forEach(([a, b]) => (all.get(a) || all.set(a, []).get(a)).push([b, s.len])); });
+    const hd = new Map(), q0 = pts.filter((p) => ['Site', 'ODF'].includes(elemOf(p)) && all.has(p.id)).map((p) => p.id);
+    if (!q0.length) q0.push(R.spans[0].ia);
+    q0.forEach((id) => hd.set(id, 0));
+    for (let it = 0, ch = true; ch && it < pts.length + 2; it++) { ch = false; for (const [a, L] of all) { const da = hd.get(a); if (da == null) continue; for (const [b, l] of L) if (!(hd.get(b) <= da + l)) { hd.set(b, da + l); ch = true; } } }
+    for (const [cab, [lo, hi]] of Object.entries(LOOP_EVERY)) {
+      const adj = new Map(); R.spans.forEach((s) => { if (s.cable !== cab) return; [[s.ia, s.ib], [s.ib, s.ia]].forEach(([a, b]) => (adj.get(a) || adj.set(a, []).get(a)).push([b, s.len])); });
+      const seen = new Set(), path = [];
+      const visit = (id, d) => { // down the cable from its start; a branch keeps the loops of the way it shares
+        seen.add(id); path.push({ id, d });
+        for (let guard = 0; guard < 1000; guard++) {
+          const last = path.length - 1; let li = 0; for (let i = last - 1; i > 0; i--) if (has(path[i].id)) { li = i; break; } // the loop before this point
+          const base = path[li].d, over = path[last].d - base; if (over <= hi) break;
+          // v2.42.18: a loop at most LOOP_TOL past the limit counts (none added before it); short of one, wait for it unless the cable ends here
+          if (over <= hi + LOOP_TOL + 0.5 && (has(path[last].id) || (adj.get(id) || []).some(([nb]) => !seen.has(nb)))) break;
+          const upto = has(path[last].id) ? last - 1 : last; // this point is a loop (the surveyor's): one is needed before it
+          let pick = -1, best = null;
+          for (let j = li + 1; j <= upto; j++) { const x = path[j].d - base; if (x < lo || x > hi || !isPole(path[j].id)) continue; const k = [isGT(path[j].id) ? 1 : 0, x]; if (!best || k[0] > best[0] || (k[0] === best[0] && k[1] > best[1])) { best = k; pick = j; } }
+          if (pick < 0) for (let j = upto; j > li; j--) if (isPole(path[j].id) && path[j].d - base <= hi) { pick = j; break; } // the last pole before the limit
+          if (pick < 0) for (let j = li + 1; j <= upto; j++) if (isPole(path[j].id)) { pick = j; break; } // a span longer than the limit: the next pole
+          if (pick < 0) break;
+          out.set(path[pick].id, cab);
+        }
+        for (const [nb, l] of adj.get(id) || []) if (!seen.has(nb)) visit(nb, d + l);
+        path.pop();
+      };
+      for (;;) { const rest = [...adj.keys()].filter((id) => !seen.has(id)); if (!rest.length) break; rest.sort((a, b) => (hd.get(a) ?? 1e12) - (hd.get(b) ?? 1e12)); visit(rest[0], 0); }
+    }
+    return out;
+  }
+  /** v2.42.16: every loop of the plan: the surveyor's and the app's. Returns { auto: Map id -> cable, has: id -> bool, n, nAuto }. */
+  function loopPlan(pts, R) {
+    const auto = autoLoops(pts, R), OWN = loopOwnMap(pts, R), man = loopManSet(pts, R, OWN);
+    const on = new Set((R ? R.spans : []).flatMap((sp) => [sp.ia, sp.ib])), open = svPurpose() === 'As-built' && !isAcc() ? pts.filter((p) => on.has(p.id) && elemOf(p) === 'Pole' && !(p.boq && p.boq.mloop) && !OWN.has(p.id)).length : 0; // (v2.42.17: a pole with its own loop is not asked)
+    const nBox = pts.filter((p) => on.has(p.id) && UG_BOXES.has(elemOf(p))).length; // (each has its own loop)
+    return { auto, has: (id) => man.has(id) || auto.has(id), n: man.size + auto.size, nAuto: auto.size, nMan: man.size, open, nBox }; // open: As-Built poles not answered
+  }
+  const loopRule = '72C aerial every 250–300 m (a Globe pole first), 12C aerial every 450–500 m, none where the next loop is at most 100 m past the limit';
   function updateRouteBar(R) {
-    $('rbTitle').textContent = `Route · ${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}`;
-    const byCab = {}; R.spans.forEach((s) => { byCab[s.cable] = (byCab[s.cable] || 0) + s.len; });
-    $('rbStats').textContent = `${R.long} longer than ${pol().maxSpan || 200} m · ${R.angle} angle · ${R.junction} junction · ${R.off} not linked · ${Object.entries(byCab).map(([k, m]) => `${CAB[k] ? CAB[k].short : 'not set'} ${fmtLen(m)}`).join(' · ')}`;
+    $('rbTitle').textContent = `Route · ${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}${R.cableTotal > R.total + 0.05 ? ` · cable ${fmtLen(R.cableTotal)}` : ''}`;
+    const byCab = {}; R.spans.forEach((s) => (s.runs || [s.cable]).forEach((k) => { byCab[k] = (byCab[k] || 0) + s.len; })); // v2.42.18: each run
+    const LP = loopPlan(projPoints(), R); // v2.42.16: the loops, the surveyor's and the app's
+    $('rbStats').textContent = `${R.long} longer than ${pol().maxSpan || 200} m · ${R.angle} angle · ${R.junction} junction · ${R.off} not linked · ${Object.entries(byCab).map(([k, m]) => `${CAB[k] ? CAB[k].short : 'not set'} ${fmtLen(m)}`).join(' · ')}${LP.n ? ` · MLoop ${LP.nMan}${LP.nAuto ? ` + ${LP.nAuto} added by the app` : ''}` : ''}${LP.open ? ` · MLoop not answered: ${LP.open}` : ''}${LP.nBox ? ` · HH/MH/SB loops ${LP.nBox} × ${BOX_LOOP_M} m` : ''}`;
     const A = routeAdvice(R); $('rbAdvice').hidden = !A.length; $('rbAdvice').textContent = A.length ? `⚠ ${A.map((a) => a.text).join(' · ')}` : ''; // v2.37
     const sel = routeSel && points.find((p) => p.id === routeSel);
     $('rbHint').textContent = sel ? `${sel.poleId} selected. Tap the next pole to link it (tap a linked pole to unlink), or tap ${sel.poleId} again to stop.`
       : 'Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.';
     $('rbUndo').disabled = !routeUndo.length;
+    renderSpanPanel(R); // v2.42.18
   }
+  /* v2.42.18: several FOC runs on a span. Tap a linked span in Route: its runs, each with its own cable (run 1 is the link's
+     cable; the others the link's fourth value). Hardware and loops follow run 1; each run's length counts in the spans Excel,
+     the BOQ and the PMI, and each is drawn on the Drawing and the DXF. */
+  function linkIdx(a, b) { return links().findIndex(([x, y]) => (x === a && y === b) || (x === b && y === a)); }
+  function runsOf(l) { return [l[2] || '', ...(Array.isArray(l[3]) ? l[3] : [])]; }
+  function renderSpanPanel(R) {
+    const box = $('rbSpan'), k = spanSel ? linkIdx(spanSel[0], spanSel[1]) : -1;
+    if (!routeMode || k < 0) { spanSel = null; box.hidden = true; box.innerHTML = ''; $('rbHint').hidden = false; return; }
+    const l = links()[k], sp = (R || routeModel()).spans.find((s) => (s.ia === l[0] && s.ib === l[1]) || (s.ia === l[1] && s.ib === l[0])), runs = runsOf(l);
+    const opts = (v) => [...Object.entries(CAB).map(([kk, c]) => `<option value="${kk}"${kk === v ? ' selected' : ''}>${hEsc(c.label)}</option>`), `<option value=""${v ? '' : ' selected'}>Cable not set</option>`].join('');
+    box.innerHTML = `<div class="rs-head"><b>Span ${hEsc(sp ? sp.from : '')} → ${hEsc(sp ? sp.to : '')}${sp ? ` · ${fmtLen(sp.len)}` : ''}</b><button class="btn sm" type="button" data-rs="close">Close</button></div>`
+      + '<p class="rb-hint">Its runs: each run is a cable of its own on the Drawing, the DXF, the BOQ and the PMI.</p>'
+      + runs.map((c, i) => `<div class="rs-run"><b>Run ${i + 1}</b><select data-rs="cab" data-i="${i}" aria-label="Run ${i + 1}: cable">${opts(c)}</select>${i ? `<button class="btn sm" type="button" data-rs="del" data-i="${i}" aria-label="Remove run ${i + 1}">✕</button>` : ''}</div>`).join('')
+      + '<button class="btn sm" type="button" data-rs="add">+ Add a run</button><p class="rb-hint">Hardware and loops follow run 1: the other runs use the same attachments.</p>';
+    box.hidden = false; $('rbHint').hidden = true;
+  }
+  /** The span tapped stays in sight above the route bar (which grows with its runs). */
+  function spanInView(s) {
+    requestAnimationFrame(() => { try {
+      const r = $('map').getBoundingClientRect(), bar = $('routeBar').getBoundingClientRect(), mp = map.latLngToContainerPoint([(s.a.lat + s.b.lat) / 2, (s.a.lon + s.b.lon) / 2]), room = bar.top - r.top;
+      if (room > 80 && mp.y > room - 40) map.panBy([0, mp.y - room / 2]);
+    } catch (x) { /* the map is not ready */ } });
+  }
+  function setRuns(runs) {
+    const k = spanSel ? linkIdx(spanSel[0], spanSel[1]) : -1; if (k < 0) return;
+    const l = links().map((x) => x.slice()); routeUndo.push(links());
+    l[k] = linkWith(l[k][0], l[k][1], runs[0], runs.slice(1)); setLinks(l); renderPoles();
+  }
+  $('rbSpan').addEventListener('change', (e) => {
+    const t = e.target; if (t.dataset.rs !== 'cab' || !spanSel) return;
+    const k = linkIdx(spanSel[0], spanSel[1]); if (k < 0) return;
+    const runs = runsOf(links()[k]); runs[+t.dataset.i] = t.value; setRuns(runs);
+  });
+  $('rbSpan').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-rs]'); if (!b || !spanSel) return;
+    const k = linkIdx(spanSel[0], spanSel[1]); if (b.dataset.rs === 'close' || k < 0) { spanSel = null; renderPoles(); return; }
+    const runs = runsOf(links()[k]);
+    if (b.dataset.rs === 'add') { runs.push(runs[runs.length - 1] || runs[0]); setRuns(runs); toast(`Run ${runs.length} added: pick its cable`, 2200); }
+    else if (b.dataset.rs === 'del') { runs.splice(+b.dataset.i, 1); setRuns(runs); }
+  });
   function setRouteMode(on) {
-    routeMode = on; routeSel = null; routeUndo = []; routeProj = on ? S.project : null;
+    routeMode = on; routeSel = null; spanSel = null; routeUndo = []; routeProj = on ? S.project : null;
     $('routeBar').hidden = !on; $('routeBtn').setAttribute('aria-pressed', String(on)); if (on) renderCableSel();
     document.body.classList.toggle('routing', on);
     renderPoles();
@@ -2183,10 +2384,11 @@
   function routeTap(id) {
     const tapped = points.find((p) => p.id === id);
     if (tapped && !ROUTE_ELS.includes(elemOf(tapped))) { toast(`${tapped.poleId}: ${elemOf(tapped)} pins sit on a pole and are not linked. Tap the pole.`, 3500); return; }
+    spanSel = null; // v2.42.18: a pole tapped: the span's runs close
     if (!routeSel || routeSel === id) { routeSel = routeSel === id ? null : id; renderPoles(); return; }
     const l = links().map((x) => x.slice()), k = l.findIndex(([x, y]) => (x === routeSel && y === id) || (x === id && y === routeSel)), cab = cableSel();
     routeUndo.push(links());
-    if (k >= 0 && (l[k][2] || '') !== cab) { l[k] = linkWith(l[k][0], l[k][1], cab); toast(`Span changed to ${cableName(cab)}`, 2200); } // v2.29: a linked pair with another cable chosen: the span takes it
+    if (k >= 0 && (l[k][2] || '') !== cab) { l[k] = linkWith(l[k][0], l[k][1], cab, l[k][3]); toast(`Span changed to ${cableName(cab)}`, 2200); } // v2.29: a linked pair with another cable chosen: the span takes it
     else if (k >= 0) l.splice(k, 1); else l.push(linkWith(routeSel, id, cab));
     setLinks(l); routeSel = id; renderPoles();
   }
@@ -2198,7 +2400,7 @@
   $('rbCable').addEventListener('change', () => { S.meta[S.project] = { ...pmeta(), cable: $('rbCable').value }; persist(); updateRouteBar(routeModel()); toast(`New links: ${cableName($('rbCable').value)}. Tap a linked pair to give it this cable.`, 3500); });
   $('rbCableAll').addEventListener('click', () => {
     const cab = cableSel(), l = links(); if (!l.length) { toast('No span yet'); return; }
-    routeUndo.push(l); setLinks(l.map(([a, b]) => linkWith(a, b, cab))); renderPoles();
+    routeUndo.push(l); setLinks(l.map(([a, b, , more]) => linkWith(a, b, cab, more))); renderPoles(); // (run 1; the other runs stay)
     toast(`Every span: ${cableName(cab)} (Undo to go back)`, 3000);
   });
   $('rbUndo').addEventListener('click', () => { if (routeUndo.length) { setLinks(routeUndo.pop()); renderPoles(); } });
@@ -3487,6 +3689,7 @@
     pinMap.on('moveend', () => { if (ed && ed.plan) applyPlan(); }); // v2.26.1: the planned element nearest the pin
     pinMap.on('dragstart zoomstart', () => { if (ed) ed.userMoved = true; });
     pinMap.on('dragstart', () => { if (ed) ed.dragged = true; $('edHint').classList.add('gone'); });
+    pinMap.on('click', () => { pinUnmini(); }); // v2.42.17: the map made small while the form was scrolled: a tap brings it back
     /* v2.30: the pin is the centre of the small map. When the map changes size (the keyboard opens or closes, Bigger map,
        the record shown again), the same spot is put back under the pin, so the pin never drifts from where it was set. */
     pinMap.on('moveend', () => { if (!pinResizing && pinMap._loaded) { const c = pinMap.getCenter(); pinSpot = { lat: c.lat, lng: c.lng, z: pinMap.getZoom() }; } });
@@ -3519,7 +3722,8 @@
     const box = $('typeSel'); box.innerHTML = '';
     const names = typeNames(), types = names.includes(sel) || !sel ? names : names.concat(sel); // an older record keeps its type
     if (!sel) box.add(new Option('Choose the type…', '', true, true));
-    for (const t of types) box.add(new Option(typePrefix(t) ? `${t} (${typePrefix(t)})` : t, t, false, t === sel));
+    const short = !!ed && !ed.acc; // v2.42.17: a survey record shows the prefix beside the ID: the type alone fits its narrow box
+    for (const t of types) box.add(new Option(typePrefix(t) && !short ? `${t} (${typePrefix(t)})` : t, t, false, t === sel));
     box.add(new Option('+ Other prefix…', OTHER_PREFIX));
   }
   $('typeSel').addEventListener('change', (e) => {
@@ -3544,7 +3748,7 @@
   /** Choosing a pole type sets the ID prefix: a suggested ID is re-suggested, a typed/scanned one keeps its number. */
   function setPoleType(t) {
     if (!ed) return;
-    ed.type = t; renderTypeChips(t); renderEdSym(); renderDetails(); // v2.37: a telco pole has its own symbol (v2.42.1: an electric pole its two details)
+    ed.type = t; renderTypeChips(t); renderEdSym(); renderDetails(); if (!ed.acc) renderBoq(); // v2.37 (v2.42.17: an existing GT pole's owner): a telco pole has its own symbol (v2.42.1: an electric pole its two details)
     const id = $('poleId').value.trim().toUpperCase(), pre = typePrefix(t);
     if (!pre || (ed.element && ed.element !== 'Pole') || ed.status === 'Proposed') { checkFormat(); return; } // a proposed pole keeps its PP- number
     const m = polePartRe().exec(id);
@@ -3567,7 +3771,7 @@
       if (want === 'Pole' && /^PP-/.test(id) && ed.status !== 'Proposed' && svStatuses('Pole').includes('Proposed')) { ed.status = 'Proposed'; applyElement(); }
       else if (want === 'Pole' && m && ed.status === 'Proposed') { ed.status = svDefaultStatus('Pole'); applyElement(); } // a painted ID: the pole exists
     }
-    if (m && prefixType(m[1]) !== ed.type && (ed.element || 'Pole') === 'Pole') { ed.type = prefixType(m[1]); renderTypeChips(ed.type); }
+    if (m && prefixType(m[1]) !== ed.type && (ed.element || 'Pole') === 'Pole') { ed.type = prefixType(m[1]); renderTypeChips(ed.type); if (!ed.acc) renderBoq(); }
     checkFormat();
   }
   function checkFormat() {
@@ -3616,7 +3820,7 @@
     const d = ed.gps ? haversine(ed.gps, { lat: c.lat, lon: c.lng }) : 0;
     $('pinDelta').textContent = ed.gps ? `${d < 1000 ? d.toFixed(1) + ' m' : fmtDist(d)} from GPS${d > PIN_LIMIT_M ? ` — over ${fmtDist(PIN_LIMIT_M)} limit` : ''}`
       : (ed.acc ? 'Waiting for GPS…' : 'No GPS fix — place pin by hand');
-    $('coordBox').classList.toggle('over', d > PIN_LIMIT_M);
+    $('coordBox').classList.toggle('over', d > PIN_LIMIT_M); $('coordBox').classList.toggle('nogps', !ed.gps);
   }
   function checkDup() {
     const id = $('poleId').value.trim().toUpperCase();
@@ -3666,13 +3870,16 @@
       const mk = Array.isArray(o.marks) ? o.marks : [];
       Object.assign(ed, { element: o.element || 'Pole', status: o.status || (o.mode === 'new' ? svDefaultStatus(o.element || 'Pole') : ''), srcBlob: o.blob || o.storedBlob || null, details: JSON.parse(JSON.stringify(o.details || [])),
         marks: JSON.parse(JSON.stringify(mk)).map(normMark), origPid: o.origPid || '', legacyBoxes: Math.max(0, (o.boxes || 0) - mk.length), legacyPole: !!o.poleModel && !mk.some((m) => m.k === 'pole'), base: null, baseNew: false, dropOrig: false,
-        nap: !!o.nap, nap2: !!o.nap2, closure: !!o.closure }); // v2.41: the NAP and the hybrid closure on the pole (v2.42: a second box)
+        nap: !!o.nap, nap2: !!o.nap2, closure: !!o.closure || (UG_BOXES.has(o.element || 'Pole') && !!o.closureId) }); // v2.41: the NAP and the hybrid closure on the pole (v2.42: a second box; v2.42.17: the closure in a handhole, manhole or service box)
       const onPoleRec = (o.element || 'Pole') === 'Pole';
       $('svRemarks').value = o.remarks || ''; $('svClosureId').value = onPoleRec ? '' : o.closureId || '';
       $('napId').value = onPoleRec ? o.napId || '' : ''; $('closureId').value = onPoleRec ? o.closureId || '' : ''; $('nap2Id').value = onPoleRec ? o.nap2Id || '' : '';
       ed.color = MCOL[o.color] ? o.color : ''; ed.mapPin = o.source === 'map' && !o.blob && !o.storedBlob && o.mode === 'new'; // v2.36: a pin placed on the map (photo optional)
       ed.siteKind = o.siteKind === 'OLT' ? 'OLT' : 'Tower'; // v2.37: a site is a tower or an OLT
     }
+    // v2.42.17: a survey record in tabs (status, element, type and ID on top); PAT, cleanup and FAT records on one page as before
+    edLayout(!acc); edTab = 'details'; $('pinMapWrap').classList.remove('mini'); $('idAbc').setAttribute('aria-pressed', 'false'); $('idPfxMenu').hidden = true;
+    $('editor').querySelector('.edbody').scrollTop = 0;
     $('svColorBox').hidden = acc; if (!acc) renderPinColors();
     $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : ed.mapPin ? `New ${({ Pole: 'proposed pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole' })[ed.element] || 'pin'} on the map` : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
     $('siteKindBox').hidden = true; // shown for a site (survey)
@@ -3692,7 +3899,7 @@
     $('defPanel').hidden = true; $('addDefBtn').hidden = false;
     $('queueNote').textContent = '';
     $('saveIssue').hidden = true;
-    $('edDelete').hidden = o.mode !== 'edit'; $('delConfirm').hidden = true;
+    $('edTrash').hidden = o.mode !== 'edit'; // v2.42.17: the red bin at the upper right
     $('edSkip').hidden = true; $('edRetake').hidden = acc;
     $('edRetake').textContent = o.mode === 'edit' ? (o.storedBlob ? 'New photo' : 'Add photo') : ed.mapPin ? 'Add photo' : 'Retake';
     $('edSave').textContent = 'Save';
@@ -3725,6 +3932,7 @@
     ed.restored = !!o.restore; // v2.42.4: and its photo's GPS fix
     if (!acc && boqOn() && svPurpose() === 'As-built') { const eid = ed.id; planFor().then((pl) => requestAnimationFrame(() => { if (ed && ed.id === eid) { ed.plan = pl || { none: true, name: '', recs: [] }; applyPlan(); } })).catch((e) => LOG.warn('plan.fail', errInfo(e))); }
     foldSum(); // v2.22: after the ID and element are set
+    idPadSync(); edRefreshSoon(); // v2.42.17
     draftStart(!!o.restore); // v2.21: kept safe until saved
     if (photoReadNext && o.mode === 'new' && !acc && o.blob) { photoReadNext = false; setTimeout(openPhotoRead, 400); } // v2.17: the picture button
     else if (o.live) applyLiveRead(o.live);
@@ -3896,7 +4104,8 @@
   }
   function cleanupEditor() {
     if (ed) { if (!ed.closeOK && edDirty()) saveDraft(); else draftClear(); }
-    ed = null; showEdPhoto(null); revokeEdUrls(); defDraft = null; applyEdLock();
+    if (idPad) { const w = $('poleId').value; idPad = false; rawSet(w); idPadShow(); } // v2.42.17: the ID box whole again
+    ed = null; pinLabelUpd(); showEdPhoto(null); revokeEdUrls(); defDraft = null; applyEdLock();
   }
   /** v2.16: what the lock allows in the editor. Closed (completed PAT): every field is read only and nothing can be saved.
       Carried (from the PAT, in the cleanup or FAT): the ID, element, type and pin stay; fixes, photos and remarks are made. */
@@ -3912,7 +4121,7 @@
     note.hidden = !lock;
     note.textContent = lock === 'closed' ? `🔒 PAT completed${m.completedAt ? ` ${longDate(m.completedAt)}` : ''}: this record can't be changed or removed. Its items are tagged as fixed in the defect cleanup and the FAT.`
       : lock === 'carried' ? '🔒 From the PAT: the ID, place and PAT items stay as recorded. Tag each item as fixed, add photos and remarks.' : '';
-    if (lock) { $('edDelete').hidden = true; $('delConfirm').hidden = true; }
+    if (lock) $('edTrash').hidden = true;
   }
 
   /* ---------- red box / pole model on a survey photo (v2.13; pole model v2.14; editable marks v2.15) ---------- */
@@ -4347,7 +4556,8 @@
   }
   $('elemSel').addEventListener('change', (e) => {
     if (!ed) return;
-    const el = e.target.value; ed.element = el;
+    const el = e.target.value, prev = ed.element || 'Pole'; ed.element = el;
+    if (!ed.acc && UG_BOXES.has(prev) !== UG_BOXES.has(el)) ed.closure = false; // v2.42.17: a pole's closure is not a handhole's
     if (!ed.acc) ed.status = svDefaultStatus(el); // each element starts from its own usual status
     const id = $('poleId').value.trim().toUpperCase();
     const kindOf = (v) => (/^FDU_/.test(v) ? 'ODF' : poleIdRe().test(v) || poleIdXRe().test(v) || polePartRe().test(v) || /^PP-/.test(v) ? 'Pole' : Object.keys(SV_PREFIX).find((k) => v.startsWith(`${SV_PREFIX[k]}-`)) || null);
@@ -4372,12 +4582,13 @@
       if (ed.status && sts.length && !sts.includes(ed.status)) { const alt = { Proposed: 'New', New: 'Proposed' }[ed.status]; if (alt && sts.includes(alt)) ed.status = alt; } // v2.42.4: the project's purpose was changed
       const sb = $('svStatus'); sb.innerHTML = ''; sts.forEach((x) => sb.add(new Option(svStatusLabel(x), x, false, x === ed.status)));
       $('svStatusBox').hidden = !sts.length; sb.disabled = sts.length < 2;
-      $('svClosureBox').hidden = el !== 'Handhole';
+      renderSvClosure(); // v2.42.17: a closure in a handhole, manhole or service box
       // v2.41: what is on the pole: the NAP and the hybrid closure (the maintenance loop is in the sizes)
       $('poleAttach').hidden = el !== 'Pole'; $('atMloop').closest('.tchip').hidden = true; $('atNap').checked = !!ed.nap; $('atClosure').checked = !!ed.closure; markToggles(); renderAttach();
       renderBoq();
       $('edHint').textContent = el === 'Pole' && ed.status === 'Proposed' ? 'Drag the map to place the pin where the new pole goes' : `Drag the map to place the pin on the ${nm}`;
       renderBoxInfo(); renderEdSym(); // v2.37: the legend symbol beside the photo, and on the pin
+      idPadSync(); edRefreshSoon(); // v2.42.17
       return;
     }
     $('idLabel').textContent = `${el.toUpperCase()} ID`; renderEdSym();
@@ -4468,7 +4679,7 @@
   }
   function markToggles() { ['atMloop', 'atNap', 'atClosure'].forEach((id) => $(id).closest('.tchip').classList.toggle('on', $(id).checked)); }
   $('atMloop').addEventListener('change', (e) => { ed.mloop = e.target.checked; markToggles(); });
-  $('atNap').addEventListener('change', (e) => { ed.nap = e.target.checked; markToggles(); renderAttach(); if (ed.nap && !$('napId').value.trim() && !isDummy()) $('napId').focus(); });
+  $('atNap').addEventListener('change', (e) => { ed.nap = e.target.checked; markToggles(); renderAttach(); if (!ed.acc) renderBoq(); /* v2.42.17: a dummy NAP has its loop */ if (ed.nap && !$('napId').value.trim() && !isDummy()) $('napId').focus(); });
   $('atClosure').addEventListener('change', (e) => { ed.closure = e.target.checked; markToggles(); renderAttach(); renderBoq(); if (ed.closure) $('closureId').focus(); });
   /* v2.41: the NAP and the hybrid closure are on the pole, like an arm (no NAP or closure element of their own any more): the NAP's
      kind (NAP, dummy NAP for the 12C light cable, LCP…), a dummy NAP's size, New or Existing; the closure's size (12C to 288C) and New or
@@ -4476,9 +4687,28 @@
      (MIN123_C01_D01). Kept in the record's sizes (napType, napSz, napSt, clo, cloSt): the BOQ, the KMZ and the plan use them. */
   const POLE_NAP_TYPES = ['NAP 1x8', 'NAP 1x16', 'Dummy NAP', 'NAP changed to 1:16', 'Double NAP', 'LCP 1x4', 'Double LCP 2x1:8'];
   const isDummy = () => !!ed && (ed.boq || {}).napType === 'Dummy NAP';
+  /** v2.42.17: the open pole's own loop, as it would be saved ('closure', 'dummy NAP', 'riser' or ''). */
+  const edLoopRec = () => ({ id: ed.id, element: 'Pole', closure: !!ed.closure, nap: !!ed.nap, nap2: !!ed.nap && !!ed.nap2, details: ed.details || [], boq: boqPick(ed.boq, edBoqKeys().concat(attKeys())) });
+  const edLoopOwn = () => {
+    if (!ed || ed.acc || (ed.element || 'Pole') !== 'Pole') return '';
+    const k = loopOwnOf(edLoopRec()); if (k || !points.some((x) => x.id === ed.id)) return k;
+    // v2.42.18: a NAP or closure pin whose pole this is (its nearest, 30 m)
+    const me = points.find((x) => x.id === ed.id), all = projPoints(), poles = all.filter((p) => elemOf(p) === 'Pole');
+    for (const q of all) {
+      const el = elemOf(q); if ((el !== 'NAP' && el !== 'Closure') || haversine(me, q) >= 30) continue;
+      let best = null, bd = 30; for (const p of poles) { const d = haversine(p, q); if (d < bd) { bd = d; best = p; } }
+      if (best && best.id === ed.id) { const nt = (q.boq || {}).napType || ''; return el === 'Closure' ? 'closure' : /dummy/i.test(nt) ? 'dummy NAP' : /lcp/i.test(nt) ? 'LCP' : 'NAP'; }
+    }
+    return '';
+  };
+  /** v2.42.18: the open record's loop: its cable and default length. */
+  const edLoopCab = () => (ed ? loopCab(edLoopRec(), routeModel(), null, edLoopOwn()) : '');
+  const edLoopDef = () => cabLoopLen(edLoopCab());
+  /** v2.42.18: the open record's cable hardware (12C, telco arm) from the route; null for a point that is not a pole. */
+  const edHw = () => (ed && !ed.acc && (ed.element || 'Pole') === 'Pole' ? hwOf(edLoopRec(), routeModel()) : null);
   const attKeys = () => (ed && !ed.acc && (ed.element || 'Pole') === 'Pole' ? [...(ed.nap ? ['napType', 'napSz', 'napSt'] : []), ...(ed.nap && ed.nap2 ? ['nap2Type', 'nap2Sz', 'nap2St'] : []), ...(ed.closure ? ['clo', 'cloSt'] : [])] : []);
   function renderAttach() {
-    if (!ed) return; ed.boq = ed.boq || {};
+    if (!ed) return; ed.boq = ed.boq || {}; edRefreshSoon(); // v2.42.17
     const pole = (ed.element || 'Pole') === 'Pole', on = !ed.acc && pole, b = ed.boq, ro = ed.lock === 'closed';
     $('napBox').hidden = !(pole && ed.nap); $('cloBox').hidden = !(pole && ed.closure); // (PAT, cleanup, FAT: the IDs only)
     $('napBox').querySelector('.attsel').hidden = !on; $('cloBox').querySelector('.attsel').hidden = !on; if (!on) { $('napIdSug').hidden = true; $('napHint').hidden = true; }
@@ -4522,32 +4752,42 @@
     const used = ids.map((x) => parseInt(x.slice(tag.length), 10) || 0);
     return `${tag}${String((used.length ? Math.max(...used) : 0) + 1).padStart(2, '0')}`;
   }
-  $('napTypeSel').addEventListener('change', () => { if (!ed) return; ed.boq.napType = $('napTypeSel').value; ed.boqTouched = true; const dn = isDummy(); renderAttach(); if (dn && !$('napId').value.trim()) $('napId').value = dummyNapId(); renderAttach(); renderEdSym(); });
+  $('napTypeSel').addEventListener('change', () => { if (!ed) return; ed.boq.napType = $('napTypeSel').value; ed.boqTouched = true; const dn = isDummy(); renderAttach(); if (dn && !$('napId').value.trim()) $('napId').value = dummyNapId(); renderAttach(); renderEdSym(); renderBoq(); });
   $('napSzSel').addEventListener('change', () => { if (!ed) return; if ($('napSzSel').value) ed.boq.napSz = $('napSzSel').value; else delete ed.boq.napSz; ed.boqTouched = true; });
   $('napStSel').addEventListener('change', () => { if (!ed) return; ed.boq.napSt = $('napStSel').value; ed.boqTouched = true; });
   $('cloSzSel').addEventListener('change', () => { if (!ed) return; if ($('cloSzSel').value) ed.boq.clo = $('cloSzSel').value; else delete ed.boq.clo; ed.boqTouched = true; });
   $('cloStSel').addEventListener('change', () => { if (!ed) return; ed.boq.cloSt = $('cloStSel').value; ed.boqTouched = true; });
   $('napIdSug').addEventListener('click', () => { if (!ed) return; $('napId').value = dummyNapId(); renderAttach(); });
   // v2.42: the second box
-  $('nap2Add').addEventListener('click', () => { if (!ed) return; ed.nap2 = true; ed.boqTouched = true; renderAttach(); if (ed.boq.nap2Type === 'Dummy NAP' && !$('nap2Id').value.trim()) $('nap2Id').value = dummyNapId(true); else $('nap2Id').focus(); renderAttach(); });
-  $('nap2Del').addEventListener('click', () => { if (!ed) return; ed.nap2 = false; ['nap2Type', 'nap2Sz', 'nap2St'].forEach((k) => delete ed.boq[k]); $('nap2Id').value = ''; ed.boqTouched = true; renderAttach(); });
-  $('nap2TypeSel').addEventListener('change', () => { if (!ed) return; ed.boq.nap2Type = $('nap2TypeSel').value; ed.boqTouched = true; renderAttach(); if (ed.boq.nap2Type === 'Dummy NAP' && !$('nap2Id').value.trim()) $('nap2Id').value = dummyNapId(true); renderAttach(); });
+  $('nap2Add').addEventListener('click', () => { if (!ed) return; ed.nap2 = true; ed.boqTouched = true; renderAttach(); renderBoq(); if (ed.boq.nap2Type === 'Dummy NAP' && !$('nap2Id').value.trim()) $('nap2Id').value = dummyNapId(true); else $('nap2Id').focus(); renderAttach(); });
+  $('nap2Del').addEventListener('click', () => { if (!ed) return; ed.nap2 = false; ['nap2Type', 'nap2Sz', 'nap2St'].forEach((k) => delete ed.boq[k]); $('nap2Id').value = ''; ed.boqTouched = true; renderAttach(); renderBoq(); });
+  $('nap2TypeSel').addEventListener('change', () => { if (!ed) return; ed.boq.nap2Type = $('nap2TypeSel').value; ed.boqTouched = true; renderAttach(); if (ed.boq.nap2Type === 'Dummy NAP' && !$('nap2Id').value.trim()) $('nap2Id').value = dummyNapId(true); renderAttach(); renderBoq(); });
   $('nap2SzSel').addEventListener('change', () => { if (!ed) return; if ($('nap2SzSel').value) ed.boq.nap2Sz = $('nap2SzSel').value; else delete ed.boq.nap2Sz; ed.boqTouched = true; });
   $('nap2StSel').addEventListener('change', () => { if (!ed) return; ed.boq.nap2St = $('nap2StSel').value; ed.boqTouched = true; });
   $('nap2IdSug').addEventListener('click', () => { if (!ed) return; $('nap2Id').value = dummyNapId(true); renderAttach(); });
   $('nap2Id').addEventListener('input', () => { if (ed && ed.boq.nap2Type === 'Dummy NAP') $('nap2IdSug').hidden = $('nap2Id').value.trim().toUpperCase() === dummyNapId(true); });
   $('napId').addEventListener('input', () => { if (ed && isDummy()) $('napIdSug').hidden = $('napId').value.trim().toUpperCase() === dummyNapId(); });
-  $('svClosureId').addEventListener('input', () => { if (ed && !ed.acc && ed.element === 'Handhole') { const was = !$('boqBox').hidden; if (was !== !!$('svClosureId').value.trim()) renderBoq(); } });
   /** v2.26: the BOQ sizes of the element in the record: one row of chips per field (tap again to clear). */
-  const edBoqKeys = () => (ed && !ed.acc && boqOn() ? boqKeys(ed.element || 'Pole', ed.status, !!$('svClosureId').value.trim(), ed.boq) : []);
+  const edBoqKeys = () => (ed && !ed.acc && boqOn() ? boqKeys(ed.element || 'Pole', ed.status, !!ed.closure, ed.boq) : []); // v2.42.17: a box's closure has its switch
   function renderBoq() {
     const box = $('boqBox'), rows = $('boqRows'); if (!ed) return;
     setTimeout(renderEdSym, 0); // v2.37: an owner, a NAP kind or a double LCP changes the symbol
-    const keys = edBoqKeys(); box.hidden = !keys.length; rows.innerHTML = '';
+    // v2.42.17: in a survey record's tabs, the accessories go to Accessories and the riser to AE to UG; a box's closure is in its own block
+    const keys = edBoqKeys(), tabs = edTabsOn(), boxC = UG_BOXES.has(ed.element || 'Pole');
+    // v2.42.17: an existing GT pole is Globe's: its owner is Globe (set by itself; another type takes it away again)
+    if (keys.includes('owner') && typePrefix(ed.type) === 'GT' && !ed.boq.owner) { ed.boq.owner = 'Globe'; ed.ownerAuto = true; }
+    else if (ed.ownerAuto && ed.boq.owner === 'Globe' && (typePrefix(ed.type) !== 'GT' || !keys.includes('owner'))) { delete ed.boq.owner; ed.ownerAuto = false; }
+    const own = edLoopOwn(), hwNow = edHw(); // v2.42.18: the cable hardware from the route (12C, telco arm)
+    const hwRow = (h) => { const r = document.createElement('div'); r.className = 'boqrow'; r.dataset.k = 'hw'; const t = document.createElement('span'); t.className = 'lbl'; t.textContent = hasTelcoArm(edLoopRec()) ? 'HARDWARE FOR THE CABLE · TELCO ARM' : 'HARDWARE FOR THE CABLE · FROM THE ROUTE'; r.appendChild(t);
+      const ch = document.createElement('div'); ch.className = 'chips'; h.items.forEach(([i, q, sz]) => { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = `${sz.split(' · ')[0]}: ${i} ×${q}`; c.setAttribute('aria-pressed', 'true'); c.disabled = true; ch.appendChild(c); }); r.appendChild(ch);
+      const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '4px 0 0'; n.textContent = hasTelcoArm(edLoopRec()) ? 'A telco arm: no pole clamps for the cable, also at an end or a corner; the guys\u2019 clamps are the pole owner\u2019s. Counted in the BOQ and the quantities.' : 'Light cable 12C on this pole: 2 retractors and 2 span clamps (1 + 1 at its end); no pole clamps for the 12C, its guys or its arm. Counted in the BOQ and the quantities.'; r.appendChild(n); return r; };
+    const shown = keys.filter((k) => !(boxC && (k === 'clo' || k === 'cloSt'))), host = (k) => (!tabs ? rows : ACC_KEYS.has(k) ? $('boqRowsAcc') : UG_KEYS.has(k) ? $('boqRowsUg') : rows);
+    box.hidden = !shown.filter((k) => host(k) === rows).length; rows.innerHTML = ''; $('boqRowsAcc').innerHTML = ''; $('boqRowsUg').innerHTML = '';
     ed.boq = ed.boq || {};
     const ro = ed.lock === 'closed';
-    keys.forEach((k) => {
-      const row = document.createElement('div'); row.className = 'boqrow';
+    shown.forEach((k) => {
+      const rows = host(k);
+      const row = document.createElement('div'); row.className = 'boqrow'; row.dataset.k = k;
       const l = document.createElement('span'); l.className = 'lbl'; l.textContent = BOQ_LABEL[k]; row.appendChild(l);
       const chips = document.createElement('div'); chips.className = 'chips'; chips.setAttribute('role', 'group'); chips.setAttribute('aria-label', BOQ_LABEL[k]); chips.dataset.k = k;
       const opts = ((k === 'owner' ? boqOwners() : boqList(k)) || []).slice(); // (v2.37: the pole-to-pole guy's pole has no list)
@@ -4577,9 +4817,79 @@
         sel.addEventListener('change', () => { if (sel.value) ed.boq.p2p = sel.value; else delete ed.boq.p2p; ed.boqTouched = true; renderBoq(); foldSum(); });
         row.appendChild(sel); rows.appendChild(row); return;
       }
+      if (k === 'mloopM') return; // v2.42.18: the loop's length is in the loop's row
+      if (k === 'ownerName') { // v2.42.18: the owner's name: the coop of an electric pole; another owner's own name, filled in
+        const o = String(ed.boq.owner || '').trim(), elec = isElecOwner(o); if (!o) return;
+        l.textContent = elec ? 'OWNER NAME · THE COOP OR POWER COMPANY' : 'OWNER NAME';
+        const inp = document.createElement('input'); inp.type = 'text'; inp.className = 'boqsel'; inp.dataset.k = k; inp.maxLength = 40; inp.autocomplete = 'off'; inp.setAttribute('autocapitalize', 'characters'); inp.setAttribute('aria-label', 'Owner name');
+        inp.placeholder = elec ? 'e.g. DLPC' : o; inp.value = ed.boq.ownerName || (elec ? '' : o); inp.disabled = ro;
+        inp.addEventListener('input', () => { const v = inp.value.trim().replace(/\s+/g, ' ').toUpperCase().slice(0, 40); if (v && v !== o) ed.boq.ownerName = v; else delete ed.boq.ownerName; ed.boqTouched = true; foldSum(); edRefreshSoon(); });
+        inp.addEventListener('change', () => renderBoq());
+        row.appendChild(inp);
+        if (elec) {
+          const used = [...new Set(projPoints().map((q) => String(((q.boq || {}).ownerName) || '').trim()).filter((v) => v && !COOPS.includes(v)))];
+          [...COOPS, ...used].slice(0, 12).forEach((v) => { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = v; c.setAttribute('aria-pressed', String(ed.boq.ownerName === v)); c.disabled = ro;
+            c.addEventListener('click', () => { if (ed.boq.ownerName === v) delete ed.boq.ownerName; else ed.boq.ownerName = v; ed.boqTouched = true; renderBoq(); foldSum(); }); chips.appendChild(c); });
+          row.appendChild(chips);
+        }
+        const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '4px 0 0'; n.textContent = 'Shown on the DXF, the PDF and Table · CSV; each owner name can be its own drawing (RTA).'; row.appendChild(n);
+        rows.appendChild(row); return;
+      }
+      if (k === 'clamp' && !ed.boq.clampType && hwNow && hwNow.noClamp) { // v2.42.18: no pole clamp on this pole: no size
+        const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '2px 0 0'; n.textContent = hasTelcoArm(edLoopRec()) ? 'Not needed: no pole clamp for the cable on a telco arm.' : 'Not needed: no pole clamp on this pole (Light cable 12C only).';
+        row.appendChild(n); rows.appendChild(row); return;
+      }
+      if (k === 'mloop') { // v2.42.18: the loop and its length: 10, 12, 15 or 20 m (by default the cable's)
+        const def = edLoopDef(), cab = edLoopCab(), cur = +ed.boq.mloopM || 0, asb = svPurpose() === 'As-built', cabNm = CAB[cab] ? CAB[cab].short : 'pole loop';
+        let autoHere = false;
+        if (!own && !ed.boq.mloop && svPurpose() === 'As-plan') autoHere = autoLoops(projPoints().map((q) => (q.id === ed.id ? { ...q, boq: {} } : q)), routeModel()).has(ed.id);
+        ed.autoLoop = autoHere;
+        const has = !!own || loopYes(ed.boq) || autoHere, len = cur || def;
+        l.textContent = own ? `${BOQ_LABEL[k]} · WITH THE ${own === 'entrance' ? 'ENTRANCE' : own.toUpperCase()}` : asb ? `${BOQ_LABEL[k]} · REQUIRED` : autoHere ? `${BOQ_LABEL[k]} · ADDED BY THE APP` : BOQ_LABEL[k];
+        if (asb && !own) row.classList.toggle('need', !ed.boq.mloop);
+        LOOP_LENS.forEach((v) => {
+          const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = `${v} m`; c.setAttribute('aria-pressed', String(has && len === v && ed.boq.mloop !== 'No')); c.disabled = ro;
+          c.addEventListener('click', () => {
+            if (c.getAttribute('aria-pressed') === 'true' && !own && !autoHere) { delete ed.boq.mloop; delete ed.boq.mloopM; } // tapped again: no loop here
+            else { if (!own) ed.boq.mloop = 'Yes'; if (v === def) delete ed.boq.mloopM; else ed.boq.mloopM = String(v); }
+            ed.boqTouched = true; renderBoq(); foldSum();
+          });
+          chips.appendChild(c);
+        });
+        if (asb && !own) { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = 'No loop'; c.setAttribute('aria-pressed', String(ed.boq.mloop === 'No')); c.disabled = ro;
+          c.addEventListener('click', () => { if (ed.boq.mloop === 'No') delete ed.boq.mloop; else { ed.boq.mloop = 'No'; delete ed.boq.mloopM; } ed.boqTouched = true; renderBoq(); foldSum(); }); chips.appendChild(c); }
+        row.appendChild(chips);
+        const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '4px 0 0';
+        n.textContent = own ? `A pole with a${/^[aeiou]/i.test(own) ? 'n' : ''} ${own} has its own loop: counted in the BOQ, the quantities and the PMI, and drawn on the plan. ${def} m here by default (${cabNm}); tap another length if it is longer.`
+          : autoHere ? `No loop set here: the plan puts one on this pole (${loopRule}), ${def} m (${cabNm}). Tap a length to set the loop yourself.`
+          : asb ? `Required in an As-Built: the loop's length, or No loop. ${def} m by default here (${cabNm}).` : `${def} m by default here (${cabNm}). Tap a length to put a loop on this pole; tap it again to take it away.`;
+        row.appendChild(n); rows.appendChild(row);
+        if (hwNow && hwNow.items.length) rows.appendChild(hwRow(hwNow));
+        return;
+      }
+      if (k === 'mloop' && own) { // v2.42.17: a hybrid closure, a dummy NAP or a riser on the pole: it has its loop (nothing to tap)
+        l.textContent = `${BOQ_LABEL[k]} · WITH THE ${own.toUpperCase()}`;
+        const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = `MLoop ${mloopLen()} m`; c.setAttribute('aria-pressed', 'true'); c.disabled = true; chips.appendChild(c); row.appendChild(chips);
+        const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '4px 0 0'; n.textContent = `A pole with a hybrid closure, a dummy NAP or a riser has its own loop (${mloopLen()} m, aerial): counted in the BOQ, the quantities and the PMI, and drawn on the plan. Nothing to tap.`; row.appendChild(n);
+        rows.appendChild(row); return;
+      }
+      if (k === 'mloop' && svPurpose() === 'As-built') { // v2.42.16: required in an As-Built: MLoop or No loop (tap the chosen one again to clear)
+        l.textContent = `${BOQ_LABEL[k]} · REQUIRED`; row.classList.toggle('need', !ed.boq.mloop);
+        [['Yes', `MLoop ${mloopLen()} m`], ['No', 'No loop']].forEach(([v, t]) => {
+          const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = t; c.setAttribute('aria-pressed', String(v === 'Yes' ? loopYes(ed.boq) : ed.boq.mloop === 'No')); c.disabled = ro;
+          c.addEventListener('click', () => { if (c.getAttribute('aria-pressed') === 'true') delete ed.boq.mloop; else ed.boq.mloop = v; ed.boqTouched = true; renderBoq(); foldSum(); });
+          chips.appendChild(c);
+        });
+        row.appendChild(chips); rows.appendChild(row); return;
+      }
+      if (k === 'mloop' && !ed.boq.mloop && svPurpose() === 'As-plan') { // v2.42.16: where the plan gets a loop from the app, say so
+        const LA = autoLoops(projPoints().map((q) => (q.id === ed.id ? { ...q, boq: {} } : q)), routeModel());
+        ed.autoLoop = LA.has(ed.id);
+        if (LA.has(ed.id)) { l.textContent = `${BOQ_LABEL[k]} · ADDED BY THE APP`; const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '4px 0 0'; n.textContent = 'No loop set here: the plan puts one on this pole (72C every 250–300 m, 12C every 450–500 m). Tap MLoop to set it yourself.'; setTimeout(() => row.appendChild(n), 0); }
+      } else if (k === 'mloop') ed.autoLoop = false;
       if (k === 'mloop' || k === 'ground' || k === 'riser') { // v2.29: one chip, on or off (v2.37: grounding and riser too)
-        const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = k === 'mloop' ? `MLoop ${mloopLen()} m` : k === 'ground' ? 'Grounding' : 'Riser'; c.setAttribute('aria-pressed', String(!!ed.boq[k])); c.disabled = ro;
-        c.addEventListener('click', () => { if (ed.boq[k]) delete ed.boq[k]; else ed.boq[k] = 'Yes'; ed.boqTouched = true; renderBoq(); foldSum(); });
+        const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = k === 'mloop' ? `MLoop ${mloopLen()} m` : k === 'ground' ? 'Grounding' : 'Riser'; c.setAttribute('aria-pressed', String(k === 'mloop' ? loopYes(ed.boq) : !!ed.boq[k])); c.disabled = ro;
+        c.addEventListener('click', () => { if (k === 'mloop' ? loopYes(ed.boq) : ed.boq[k]) delete ed.boq[k]; else ed.boq[k] = 'Yes'; ed.boqTouched = true; renderBoq(); foldSum(); });
         chips.appendChild(c); row.appendChild(chips); rows.appendChild(row); return;
       }
       if (opts.length > 4) { // v2.28: a long list is a dropdown
@@ -4597,7 +4907,7 @@
       }
       opts.forEach((v) => {
         const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = v; c.setAttribute('aria-pressed', String(ed.boq[k] === v)); c.disabled = ro;
-        c.addEventListener('click', () => { ed.boq[k] = ed.boq[k] === v ? '' : v; ed.boqTouched = true; renderBoq(); foldSum(); });
+        c.addEventListener('click', () => { ed.boq[k] = ed.boq[k] === v ? '' : v; if (k === 'owner' && !isElecOwner(ed.boq.owner)) delete ed.boq.ownerName; ed.boqTouched = true; renderBoq(); foldSum(); }); // (v2.42.18: an owner other than electric names itself)
         chips.appendChild(c);
       });
       if (k === 'owner' && !ro) {
@@ -4608,6 +4918,7 @@
       row.appendChild(chips); rows.appendChild(row);
     });
     renderPlanLine(keys, ro);
+    edRefreshSoon(); // v2.42.17: the tabs' ✓ and counts, the line of what is set
   }
   /* v2.26.1: the As-Built follows the As-Plan. With the As-Plan KMZ as the project's reference, the record shows the planned
      element (same ID, else the nearest of its kind within 15 m) and a new record starts with its planned sizes and status. */
@@ -5191,15 +5502,20 @@
     if (ed.mode === 'edit' || ed.mapPin) { openCamera('replace'); return; } // v2.36: a map pin keeps its place and name
     const nd = ed.noDef; ed.closeOK = true; await closeSheet(); openCamera(nd ? 'nodef' : 'new');
   });
-  $('edDelete').addEventListener('click', () => { $('delName').textContent = $('poleId').value || 'this pole'; $('delConfirm').hidden = false; $('delConfirm').scrollIntoView({ block: 'nearest' }); });
-  $('delNo').addEventListener('click', () => { $('delConfirm').hidden = true; });
-  $('delYes').addEventListener('click', () => guard(async () => { // v2.42.4: a failure is said (it was silent)
-    if (ed && ed.lock) { $('delConfirm').hidden = true; toast('This record is from a completed PAT and cannot be deleted', 4500); return; }
+  /* v2.42.17: Delete is the red bin at the upper right of the record; it asks first */
+  $('edTrash').addEventListener('click', () => guard(async () => { // v2.42.4: a failure is said (it was silent)
+    if (!ed) return;
+    if (ed.lock) { toast('This record is from a completed PAT and cannot be deleted', 4500); return; }
+    const idv = $('poleId').value.trim(), what = ed.acc ? 'element' : (ed.element || 'Pole') === 'Pole' ? 'pole' : (ed.element || '').toLowerCase();
+    const name = idv && !/[-_]$/.test(idv) ? idv : `this ${what}`;
+    const go = await ask(`Delete ${name}?`, `The record and its photo are removed from this phone. This can't be undone.`, [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, primary: true }]);
+    if (!go || !ed) return;
     const id = ed.id, rec = points.find((p) => p.id === id);
     await dbDel('points', id);
     if (rec) await deletePhotosIfUnused(allPids(rec).concat(Object.keys(ed.pending || {})), new Set([id]));
     points = points.filter((p) => p.id !== id);
     if (links().some(([x, y]) => x === id || y === id)) setLinks(links().filter(([x, y]) => x !== id && y !== id));
+    if (rec && !isAcc(rec.project)) { S.meta = S.meta || {}; const m = { ...(S.meta[rec.project] || {}) }; m.gone = { ...(m.gone || {}), [id]: new Date().toISOString() }; S.meta[rec.project] = m; persist(); } // v2.42.18: the deletion goes with the next share
     if (rec) changedAfterApproval(rec.project, 'delete'); // v2.42.5
     if (rec && !points.some((p) => p.project === rec.project) && S.meta && S.meta[rec.project] && (S.meta[rec.project].cid || S.meta[rec.project].creditM)) { const m = { ...S.meta[rec.project] }; delete m.cid; delete m.creditM; S.meta[rec.project] = m; persist(); } // v2.42.6: its last record deleted: a new survey for the credits
     renderPoles(); if (!$('list').hidden) renderList();
@@ -5219,6 +5535,25 @@
 
   async function saveEditorDraft() {
     const dirty0 = edDirty(); // v2.42.5: whether anything changed (for the on-site approval)
+    // v2.42.16: an As-Built record answers its maintenance loop (MLoop or No loop) before it is saved
+    if (ed.lock !== 'closed' && svPurpose() === 'As-built' && edBoqKeys().includes('mloop') && !(ed.boq && ed.boq.mloop) && !edLoopOwn()) {
+      renderBoq();
+      if (edTabsOn()) goEdTab('acc', 'mloop'); // v2.42.17: on its tab
+      else { const row = document.querySelector('#editor .chips[data-k="mloop"]'); if (row) { const f = FOLDS.find((id) => $(id).contains(row)); if (f) foldOpen(f, true); row.scrollIntoView({ block: 'center', behavior: 'smooth' }); } }
+      toast('Maintenance loop is required in an As-Built: tap its length or No loop', 4000); return;
+    }
+    // v2.42.17: what is not set yet (pole owner, new pole size, clamp, closure and ODF sizes) is listed once before Save: Set it, or Save anyway
+    if (edTabsOn() && ed.lock !== 'closed' && S.saveCheck !== false && !ed.checkOk) {
+      const m = edMissing().filter((x) => !x.req);
+      if (m.length) {
+        const v = await ask(m.length === 1 ? 'Not set yet' : `${m.length} things not set yet`, `${m.map((x) => x.t).join(' · ')}. Set ${m.length === 1 ? 'it' : 'them'} now for the BOQ, or save and set ${m.length === 1 ? 'it' : 'them'} later.`,
+          m.map((x, i) => ({ label: `Set the ${x.t.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase())}`, value: i })).concat([{ label: 'Save anyway', value: 'save', primary: true }, { label: 'Back to the form', value: false }]));
+        if (!ed) return;
+        if (typeof v === 'number') { goEdTab(m[v].tab, m[v].k); return; }
+        if (v !== 'save') return;
+        ed.checkOk = true;
+      }
+    }
     let poleId = $('poleId').value.trim().toUpperCase(), genId = false;
     // v2.27: a survey record saved without its ID (or with only the prefix) gets a generic number of its own: P-0001, ODF-0001…
     if (!ed.acc && (!poleId || new RegExp(`^(${prefixAlt()})-?$|^FDU_?$`).test(poleId) || /[-_]$/.test(poleId))) { poleId = genSvId(ed.element || 'Pole', ed.status); $('poleId').value = poleId; genId = true; }
@@ -5249,10 +5584,10 @@
         element: ed.element || 'Pole', status: svStatuses(ed.element || 'Pole').length ? ed.status || svDefaultStatus(ed.element || 'Pole') : '',
         details: (ed.element || 'Pole') === 'Pole' ? (ed.details || []).filter((d) => d && d.item) : [],
         boq: boqPick(ed.boq, edBoqKeys().concat(attKeys())), // v2.41: + the NAP's and the closure's kind, size and status
-        remarks: $('svRemarks').value.trim().slice(0, 500), closureId: ed.element === 'Handhole' ? $('svClosureId').value.trim().toUpperCase().slice(0, 40) : (ed.element || 'Pole') === 'Pole' && ed.closure ? $('closureId').value.trim().toUpperCase().slice(0, 40) : '',
+        remarks: $('svRemarks').value.trim().slice(0, 500), closureId: UG_BOXES.has(ed.element) ? (ed.closure ? $('svClosureId').value.trim().toUpperCase().slice(0, 40) : '') : (ed.element || 'Pole') === 'Pole' && ed.closure ? $('closureId').value.trim().toUpperCase().slice(0, 40) : '', // v2.42.17: + manholes, service boxes
         // v2.41: the NAP and the hybrid closure on the pole (their kind, size and status are in the sizes above)
         nap: (ed.element || 'Pole') === 'Pole' && !!ed.nap, napId: (ed.element || 'Pole') === 'Pole' && ed.nap ? $('napId').value.trim().toUpperCase().slice(0, 40) : '',
-        nap2: (ed.element || 'Pole') === 'Pole' && !!ed.nap && !!ed.nap2, nap2Id: (ed.element || 'Pole') === 'Pole' && ed.nap && ed.nap2 ? $('nap2Id').value.trim().toUpperCase().slice(0, 40) : '', closure: (ed.element || 'Pole') === 'Pole' && !!ed.closure,
+        nap2: (ed.element || 'Pole') === 'Pole' && !!ed.nap && !!ed.nap2, nap2Id: (ed.element || 'Pole') === 'Pole' && ed.nap && ed.nap2 ? $('nap2Id').value.trim().toUpperCase().slice(0, 40) : '', closure: ((ed.element || 'Pole') === 'Pole' || UG_BOXES.has(ed.element)) && !!ed.closure, // v2.42.17: a box's closure too
         boxes: (ed.legacyBoxes || 0) + (ed.marks || []).length, marks: (ed.marks || []).map((m) => ({ ...m })),
         poleModel: (ed.marks || []).some((m) => m.k === 'pole') || !!ed.legacyPole,
         models: [...new Set((ed.marks || []).map(normMark).filter((m) => (isModel(m) && m.k !== 'pole') || DRAWN.has(m.k)).map((m) => m.k))], // odc, odfp, rack, hh, tower; v2.27 foc, text
@@ -5340,6 +5675,191 @@
     h.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && $(id).classList.contains('fold')) { e.preventDefault(); tog(); } });
   });
   $('editor').addEventListener('input', foldSum); $('editor').addEventListener('change', foldSum);
+
+  /* ================= v2.42.17: the record form of a survey in tabs =================
+     Status, element, type and the ID stay on top, with a line of what is set (a tap goes to it). Below them the tabs: Photo/Model,
+     Details, Accessories, On the pole and AE to UG for a pole; Photo/Model and Details for the other records. Next › / ‹ Back
+     and a swipe go from tab to tab; a ✓ shows a tab with nothing left to set. PAT, defect cleanup and FAT records keep their
+     one-page form. The map gets small while the form is scrolled (a tap on it brings it back); the pin shows the record's ID. */
+  const ED_TABS = [['photo', 'Photo/Model', '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'], ['details', 'Details', '<path d="M5 6h14M5 12h14M5 18h9"/>'],
+    ['acc', 'Accessories', '<path d="M14.5 5.5a4 4 0 0 0-5 5L4 16l4 4 5.5-5.5a4 4 0 0 0 5-5l-2.5 2.5-2.5-.5-.5-2.5z"/>'], ['onpole', 'On the pole', '<path d="M12 3v18M7 21h10"/><rect x="13.5" y="7" width="6" height="6" rx="1"/>'],
+    ['ug', 'AE to UG', '<path d="M4 6h8v12h8"/><path d="m16 10 4 4-4 4"/>']];
+  const ACC_KEYS = new Set(['clamp', 'clampType', 'arm', 'guy', 'p2p', 'mloop', 'mloopM', 'ground']), UG_KEYS = new Set(['riser']);
+  let edTab = 'details', edRaf = 0;
+  const edTabsOn = () => !!ed && !ed.acc;
+  // the fields that go on top in a survey record (and back to their places in a PAT, cleanup or FAT record)
+  const TOP_MOVES = ['elemTypeRow', 'idRow', 'idPfxMenu', 'idLine', 'idNote', 'dupWarn', 'fmtWarn'], HOME = new Map();
+  ['svStatusBox', 'svColorBox', ...TOP_MOVES].forEach((id) => { const n = $(id), a = document.createComment(id); n.parentNode.insertBefore(a, n); HOME.set(id, a); });
+  $('napBox').dataset.k = 'nap'; $('cloBox').dataset.k = 'clo';
+  function edLayout(on) {
+    $('editor').classList.toggle('tabs', on); $('edTop').hidden = !on; $('edTabs').hidden = !on; $('paneNav').hidden = !on;
+    if (on) { const top = $('edTop'), sum = $('edSum'); TOP_MOVES.forEach((id) => top.insertBefore($(id), sum)); $('elemTypeRow').prepend($('svStatusBox')); $('photoGroup').appendChild($('svColorBox')); }
+    else { HOME.forEach((a, id) => a.after($(id))); $('elemTypeRow').classList.remove('three'); $('accGroup').hidden = true; $('ugGroup').hidden = true; $('edSum').innerHTML = ''; document.querySelectorAll('#editor .edbody>[data-pane]').forEach((g) => g.classList.remove('off')); }
+  }
+  /** The tabs of the open record: a pole has all five (Accessories and AE to UG with the BOQ of an As-Plan or As-Built). */
+  function edTabList() {
+    if (!edTabsOn()) return [];
+    const pole = (ed.element || 'Pole') === 'Pole', keys = edBoqKeys();
+    return ['photo', 'details', pole && keys.some((k) => ACC_KEYS.has(k)) && 'acc', pole && 'onpole', keys.some((k) => UG_KEYS.has(k)) && 'ug'].filter(Boolean);
+  }
+  /** What the record has not set yet: the As-Built loop is required (Save stops); the rest is asked once at Save (As-Plan, As-Built). */
+  function edMissing() {
+    const out = []; if (!edTabsOn() || ed.lock === 'closed') return out;
+    const el = ed.element || 'Pole', keys = edBoqKeys(), b = ed.boq || {};
+    if (svPurpose() === 'As-built' && keys.includes('mloop') && !b.mloop && !edLoopOwn()) out.push({ req: true, tab: 'acc', k: 'mloop', t: 'Maintenance loop', s: 'Required in an As-Built: its length or No loop' });
+    if (!boqOn()) return out;
+    if (keys.includes('owner') && !b.owner) out.push({ tab: 'details', k: 'owner', t: 'Pole owner' });
+    else if (keys.includes('ownerName') && isElecOwner(b.owner) && !b.ownerName) out.push({ tab: 'details', k: 'ownerName', t: 'Owner name (the coop)' }); // v2.42.18
+    if (keys.includes('height') && !b.height) out.push({ tab: 'details', k: 'height', t: 'New Globe pole size' });
+    if (keys.includes('clamp') && !b.clamp && !(!b.clampType && (edHw() || {}).noClamp)) out.push({ tab: 'acc', k: 'clamp', t: 'Clamp size' }); // v2.42.18: not where no pole clamp goes
+    if (el === 'Pole' && ed.closure && !b.clo) out.push({ tab: 'onpole', k: 'clo', t: 'Hybrid closure size' });
+    if (UG_BOXES.has(el) && ed.closure && !b.clo) out.push({ tab: 'details', k: 'clo', t: 'Closure size' });
+    if (keys.includes('odf') && !b.odf) out.push({ tab: 'details', k: 'odf', t: 'ODF size' });
+    return out;
+  }
+  const edRefreshSoon = () => { if (edRaf) return; edRaf = requestAnimationFrame(() => { edRaf = 0; if (edTabsOn()) renderEdTabs(); else pinLabelUpd(); }); };
+  function renderEdTabs() {
+    if (!edTabsOn()) return;
+    const list = edTabList(), nav = $('edTabs'); if (!list.includes(edTab)) edTab = 'details';
+    const miss = edMissing(), keys = edBoqKeys(), b = ed.boq || {};
+    const cnt = { acc: keys.filter((k) => ACC_KEYS.has(k) && k !== 'p2p' && b[k] && b[k] !== 'No').length, onpole: (ed.nap ? 1 : 0) + (ed.nap && ed.nap2 ? 1 : 0) + (ed.closure ? 1 : 0), ug: keys.filter((k) => UG_KEYS.has(k) && b[k]).length };
+    nav.innerHTML = '';
+    ED_TABS.filter((t) => list.includes(t[0])).forEach(([k, t, ico]) => {
+      const ok = boqOn() && !miss.some((m) => m.tab === k) && (k === 'details' || (k === 'acc' && !!b.clamp));
+      const btn = document.createElement('button'); btn.type = 'button'; btn.dataset.tab = k; btn.setAttribute('role', 'tab'); btn.setAttribute('aria-selected', String(k === edTab));
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ico}</svg><span>${t}</span>${ok ? '<span class="ok" title="Nothing left to set">✓</span>' : cnt[k] ? `<span class="n">${cnt[k]}</span>` : ''}${miss.some((m) => m.req && m.tab === k) ? '<i class="need" title="Needs an answer"></i>' : ''}`;
+      btn.addEventListener('click', () => setTimeout(() => goEdTab(k), 0)); nav.appendChild(btn); // (after the tap: the bar is drawn again)
+    });
+    document.querySelectorAll('#editor .edbody>[data-pane]').forEach((g) => g.classList.toggle('off', g.dataset.pane !== edTab));
+    $('elemTypeRow').classList.toggle('three', [...$('elemTypeRow').children].filter((c) => !c.hidden).length === 3); // status, element, type
+    $('accGroup').hidden = !list.includes('acc'); $('ugGroup').hidden = !list.includes('ug');
+    const pn = $('paneNav'), i = list.indexOf(edTab); pn.innerHTML = '';
+    if (i > 0) { const bk = document.createElement('button'); bk.type = 'button'; bk.className = 'btn back'; bk.textContent = '‹ Back'; bk.addEventListener('click', () => setTimeout(() => goEdTab(list[i - 1]), 0)); pn.appendChild(bk); }
+    if (i < list.length - 1) { const nx = document.createElement('button'); nx.type = 'button'; nx.className = 'btn next'; nx.textContent = `Next: ${ED_TABS.find((x) => x[0] === list[i + 1])[1]} ›`; nx.addEventListener('click', () => setTimeout(() => goEdTab(list[i + 1]), 0)); pn.appendChild(nx); }
+    renderEdSum(); pinLabelUpd();
+  }
+  /** Go to a tab; with a field's key, to that field (it flashes). */
+  function goEdTab(k, rowKey) {
+    if (!edTabsOn()) return;
+    edTab = k; renderEdTabs();
+    const body = $('editor').querySelector('.edbody'), top = $('edTabs').offsetTop - 8;
+    const pane = rowKey ? document.querySelector(`#editor .edbody>[data-pane="${k}"]`) : null, hit = pane && pane.querySelector(`[data-k="${rowKey}"]`);
+    const box = hit && (hit.closest('.boqrow, .field, .frow, .attrow') || hit);
+    if (box) { box.scrollIntoView({ block: 'center', behavior: 'smooth' }); box.classList.remove('flash'); void box.offsetWidth; box.classList.add('flash'); setTimeout(() => box.classList.remove('flash'), 1400); }
+    else if (body.scrollTop > top) body.scrollTop = top;
+  }
+  /** The line of what is set, under the ID: a tap goes to it. */
+  function renderEdSum() {
+    const box = $('edSum'); box.innerHTML = ''; if (!edTabsOn()) return;
+    const el = ed.element || 'Pole', keys = edBoqKeys(), b = boqPick(ed.boq, keys.concat(attKeys())), items = [];
+    if (el === 'Pole') {
+      if (b.height || b.cls) items.push(['details', 'height', `New pole ${[b.height, b.cls].filter(Boolean).join(' ')}`]); else if (b.owner) items.push(['details', 'owner', b.owner]);
+      if ((ed.details || []).length) items.push(['details', 'details', ed.details.map((d) => d.item + (d.qty > 1 ? ` ×${d.qty}` : '')).join(', ')]);
+      if (b.clamp || b.clampType) items.push(['acc', 'clamp', `Clamp ${[b.clampType, b.clamp].filter(Boolean).join(' ')}`]);
+      if (b.arm) items.push(['acc', 'arm', b.arm]); if (b.guy) items.push(['acc', 'guy', b.guy]);
+      if (keys.includes('mloop') && edLoopOwn()) items.push(['acc', 'mloop', `MLoop ${+b.mloopM || edLoopDef()} m (${edLoopOwn()})`]);
+      else if (keys.includes('mloop')) { if (loopYes(b)) items.push(['acc', 'mloop', `MLoop ${+b.mloopM || edLoopDef()} m`]); else if (b.mloop === 'No') items.push(['acc', 'mloop', 'No loop']); else if (ed.autoLoop) items.push(['acc', 'mloop', 'MLoop (by the app)']); }
+      if (b.ground) items.push(['acc', 'ground', 'Grounding']);
+      if (ed.nap) items.push(['onpole', 'nap', [b.napType || 'NAP', ed.nap2 ? b.nap2Type || '2nd box' : ''].filter(Boolean).join(' + ')]);
+      if (ed.closure) items.push(['onpole', 'clo', `Closure ${b.clo || ''}`.trim()]);
+      if (b.riser) items.push(['ug', 'riser', 'Riser']);
+    } else {
+      if (el === 'ODF' && (b.odf || b.conn)) items.push(['details', 'odf', `${ed.odf || 'New'} ODF ${[b.odf, b.conn].filter(Boolean).join(' ')}`]);
+      if (el === 'Site') items.push(['details', '', ed.siteKind === 'OLT' ? 'OLT' : 'Tower']);
+      if (UG_BOXES.has(el)) { if (ed.closure) items.push(['details', 'clo', ['Closure', b.clo, b.cloSt, $('svClosureId').value.trim().toUpperCase()].filter(Boolean).join(' ')]); if (boqOn()) items.push(['details', '', `Loop ${BOX_LOOP_M} m`]); }
+    }
+    items.forEach(([t, k, txt]) => { const x = document.createElement('button'); x.type = 'button'; x.textContent = txt; x.title = 'Go to it'; x.addEventListener('click', () => setTimeout(() => goEdTab(t, k), 0)); box.appendChild(x); });
+  }
+  $('editor').addEventListener('input', edRefreshSoon); $('editor').addEventListener('change', edRefreshSoon);
+  { // a swipe left or right goes to the next or the previous tab
+    const body = $('editor').querySelector('.edbody'); let sx = null, sy = 0;
+    body.addEventListener('touchstart', (e) => { if (!edTabsOn() || e.touches.length > 1 || e.target.closest('select, input, textarea, #edSum, #edTabs, .idcands')) { sx = null; return; } sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+    body.addEventListener('touchend', (e) => {
+      if (sx == null || !edTabsOn() || $('editor').classList.contains('kbfield')) { sx = null; return; }
+      const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy; sx = null;
+      if (Math.abs(dx) < 70 || Math.abs(dy) > 45) return;
+      const l = edTabList(), i = l.indexOf(edTab), j = dx < 0 ? i + 1 : i - 1; if (j >= 0 && j < l.length) goEdTab(l[j]);
+    });
+    // the map gets small once the form is scrolled; back to its size when scrolled to the top again (not when the form only got shorter)
+    const wrap = $('pinMapWrap'); let userAt = 0;
+    ['wheel', 'touchmove', 'keydown'].forEach((k) => body.addEventListener(k, () => { userAt = Date.now(); }, { passive: true }));
+    body.addEventListener('scroll', () => {
+      if (!edTabsOn() || $('editor').classList.contains('kbfield')) return;
+      const on = wrap.classList.contains('mini');
+      if (!on && body.scrollTop > 24) wrap.classList.add('mini');
+      else if (on && body.scrollTop < 4 && Date.now() - userAt < 600) wrap.classList.remove('mini');
+    }, { passive: true });
+  }
+  function pinUnmini() { const w = $('pinMapWrap'); if (!w.classList.contains('mini')) return false; w.classList.remove('mini'); $('editor').querySelector('.edbody').scrollTop = 0; return true; }
+  /* The closure in a handhole, manhole or service box: switched on, then its size, New or Existing, and its ID or name */
+  function renderSvClosure() {
+    if (!ed || ed.acc) return;
+    const el = ed.element || 'Pole', box = UG_BOXES.has(el), b = ed.boq = ed.boq || {};
+    $('svClosureBox').hidden = !box; $('boxLoopNote').hidden = !box || !boqOn();
+    if (!box) return;
+    $('svCloLbl').textContent = `CLOSURE IN THIS ${el.toUpperCase()}`;
+    $('svCloOn').checked = !!ed.closure; $('svCloOn').closest('.tchip').classList.toggle('on', !!ed.closure); $('svCloRow').hidden = !ed.closure;
+    if (ed.closure) {
+      if (!b.cloSt) b.cloSt = 'New';
+      const sel = $('svCloSz'), list = boqList('clo') || BOQ_OPT.clo; sel.innerHTML = ''; sel.add(new Option('— size —', ''));
+      list.concat(b.clo && !list.includes(b.clo) ? [b.clo] : []).forEach((x) => sel.add(new Option(x, x))); sel.value = b.clo || ''; $('svCloSt').value = b.cloSt === 'Existing' ? 'Existing' : 'New';
+    }
+    $('boxLoopNote').textContent = `A ${el.toLowerCase()} has its own maintenance loop, ${BOX_LOOP_M} m: counted in the cable length (BOQ, survey quantities, PMI), not drawn on the plan. Nothing to tap.`;
+  }
+  $('svCloOn').addEventListener('change', (e) => { if (!ed) return; ed.closure = e.target.checked; ed.boqTouched = true; if (!ed.closure) { delete ed.boq.clo; delete ed.boq.cloSt; $('svClosureId').value = ''; } renderSvClosure(); renderBoq(); });
+  $('svCloSz').addEventListener('change', () => { if (!ed) return; if ($('svCloSz').value) ed.boq.clo = $('svCloSz').value; else delete ed.boq.clo; ed.boqTouched = true; });
+  $('svCloSt').addEventListener('change', () => { if (!ed) return; ed.boq.cloSt = $('svCloSt').value === 'Existing' ? 'Existing' : 'New'; ed.boqTouched = true; });
+  /* The pole ID: its prefix in a button (tap: CC-, WP-, GT-, PP-…) and the number in the box, with the number pad ("abc" for letters).
+     The field's value stays the whole ID (CC-0430621) for everything that reads or sets it. */
+  const ID_PFX_RE = /^([A-Z]{2,6})-(.*)$/, idEl = $('poleId'), idDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  let idPad = false, idPfx = 'CC';
+  const rawGet = () => idDesc.get.call(idEl), rawSet = (v) => idDesc.set.call(idEl, v);
+  const padWanted = (id) => edTabsOn() && (ed.element || 'Pole') === 'Pole' && !isNpt(id) && (!id || ID_PFX_RE.test(id));
+  function idSetWhole(v) {
+    const up = String(v == null ? '' : v).toUpperCase(), m = ID_PFX_RE.exec(up.trim());
+    if (padWanted(up.trim())) { idPad = true; idPfx = m ? m[1] : typePrefix(ed.type) || typePrefix(S.lastType) || 'CC'; rawSet(m ? m[2] : up.trim()); }
+    else { if (idPad && idEl.placeholder === 'number') idEl.placeholder = 'e.g. CC-0001'; idPad = false; rawSet(v == null ? '' : String(v)); }
+    idPadShow(); pinLabelUpd();
+  }
+  Object.defineProperty(idEl, 'value', { configurable: true, get() { return idPad ? `${idPfx}-${rawGet()}` : rawGet(); }, set(v) { idSetWhole(v); } });
+  function idPadShow() {
+    $('idPfx').hidden = !idPad; $('idPfx').textContent = `${idPfx}-`; $('idInRow').classList.toggle('pad', idPad); $('idAbc').hidden = !idPad;
+    idEl.setAttribute('inputmode', idPad && $('idAbc').getAttribute('aria-pressed') !== 'true' ? 'numeric' : 'text');
+    if (idPad) idEl.placeholder = 'number'; else $('idPfxMenu').hidden = true;
+  }
+  function idPadSync() { const v = idEl.value; idSetWhole(v); }
+  // a whole ID typed or pasted in the number box (GT-1234, HH-0001, FDU_100, NPT) is taken as the whole ID
+  $('editor').addEventListener('input', (e) => {
+    if (e.target !== idEl || !ed) return;
+    const raw = rawGet().trim().toUpperCase();
+    if (idPad ? /^[A-Z]{2,6}[-_]/.test(raw) || isNpt(raw) : ID_PFX_RE.test(raw) && padWanted(raw)) idSetWhole(raw);
+    else pinLabelUpd();
+  }, true);
+  idEl.addEventListener('change', () => { // a short number for a prefix written with 4 digits (e.g. 12 → 0012)
+    if (!ed || !idPad) return; const r = rawGet().trim();
+    if (PAD4.includes(idPfx) && /^[0-9]{1,3}$/.test(r)) { rawSet(r.padStart(4, '0')); checkDup(); syncFromId(); checkFormat(); pinLabelUpd(); }
+  });
+  $('idPfx').addEventListener('click', () => {
+    const m = $('idPfxMenu'), open = m.hidden; m.hidden = !open; $('idPfx').setAttribute('aria-expanded', String(open)); if (!open || !ed) return;
+    m.innerHTML = '';
+    const list = [...new Set(poleTypes().map((t) => t.p).filter(Boolean).concat(svStatuses('Pole').includes('Proposed') || idPfx === 'PP' ? ['PP'] : []))];
+    list.forEach((p) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small'; b.textContent = `${p}-`; b.setAttribute('aria-pressed', String(p === idPfx));
+      b.addEventListener('click', () => {
+        m.hidden = true; $('idPfx').setAttribute('aria-expanded', 'false'); if (!ed) return;
+        idEl.value = `${p}-${rawGet().trim()}`; ed.idTouched = true;
+        idEl.dispatchEvent(new Event('input', { bubbles: true })); idEl.dispatchEvent(new Event('change', { bubbles: true })); idEl.focus();
+      });
+      m.appendChild(b);
+    });
+  });
+  $('idAbc').addEventListener('click', () => { const on = $('idAbc').getAttribute('aria-pressed') !== 'true'; $('idAbc').setAttribute('aria-pressed', String(on)); idPadShow(); idEl.blur(); setTimeout(() => idEl.focus(), 60); toast(on ? 'Letters on the keyboard' : 'Number pad', 1600); });
+  /** The record's own ID beside the pin (updated as it is typed). */
+  function pinLabelUpd() {
+    const el = $('pinLabel'); if (!ed) { el.textContent = ''; return; }
+    const id = idEl.value.trim().toUpperCase(), real = !!id && !/[-_]$/.test(id);
+    el.textContent = real ? id : 'no ID yet'; el.classList.toggle('none', !real);
+  }
   /** v2.22: a record saved without its element ID (internal reference D-0001) is shown by the numbers of its items. */
   const isRef = (r) => DREF_RE.test((r && r.poleId) || '');
   /** Item numbers per record of a project, as the Deficiency List numbers them (records in capture order, each defect one item). */
@@ -5663,6 +6183,10 @@
     $('renameProject').value = S.project;
     $('purposeRow').hidden = acc; $('curPurpose').value = m.purpose || 'As-plan'; renderRefInfo();
     $('curNotes').value = m.notes || '';
+    { const sh = m.shares, up = (m.updates || []).slice(-4).reverse(), L = []; // v2.42.18: Share: the last one from this phone, the updates received
+      if (sh && sh.n && !acc) L.push(`Shared by you: update ${sh.n}${sh.full ? ' (the whole project)' : ''} · ${fmtTime(sh.at)}`);
+      up.forEach((x) => L.push(`Received: update ${x.n}${x.full ? ' (the whole project)' : ''} from ${x.from || 'a colleague'} · ${fmtTime(x.at)} · ${x.recs || 0} record${x.recs === 1 ? '' : 's'}${x.gone ? `, ${x.gone} deleted` : ''}${x.route ? ', the route' : ''}`));
+      $('curUpdates').hidden = !L.length; $('curUpdates').textContent = L.join('\n'); }
     $('curSite').hidden = !m.taskId; $('curSite').textContent = m.taskId ? [`Site: ${m.site || ''}`, m.contractor && `Vendor: ${m.contractor}`, ...(m.siteExtra || []).filter(([k]) => /^(region|territory)$/i.test(String(k).trim())).map(([k, v]) => `${k}: ${v}`), `ID: ${m.taskId}`].filter(Boolean).join(' · ') : '';
     renderFieldBox($('curSiteFields'), siteFieldsOf(S.project).map((x) => x.slice()), (i, v) => { // v2.41: the site's details, editable
       const name = S.project, F = siteFieldsOf(name).map((x) => x.slice()); F[i] = [F[i][0], v];
@@ -5785,7 +6309,7 @@
       b.addEventListener('click', (e) => { e.stopPropagation(); guard(() => fn(name), `${label} failed`); });
       row.appendChild(b);
     };
-    mk('share', 'Share', shareProject, 'Send this project to a colleague (a file with its records and photos)');
+    mk('share', 'Share', shareProject, 'Send this project: only the changes (for your team leader) or the whole project');
     if (m.siteLink) mk('folder', 'Folder', (n) => openExternal(pmeta(n).siteLink), 'Open its Google Drive folder');
     if (!small && name === S.project) mk('ref', refInfo(name) ? 'KMZ ✓' : 'KMZ', refTool, 'The KMZ reference of this project (e.g. the As-Plan for an As-Built): load, show or hide, replace'); // v2.28
     mk('del', 'Delete', deleteProject, 'Delete this project from this phone');
@@ -5814,10 +6338,41 @@
     }
     if (how === 'kmz') { if (name !== S.project) openTask(name); await tutWait(150); $('sendPat').click(); return; }
     if (!profileOk()) { toast('Enter your details first (Settings → You)'); return; }
-    const blob = await bundleZip([name]); busy(false);
-    LOG.info('project.share', { kind: projKind(name), mb: +(blob.size / 1048576).toFixed(1) });
-    await shareFile(blob, `G-eSAA_${String(name).replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 60)}_${todayIso()}.zip`, 'application/zip'); // v2.42.4: the phone's date (was UTC)
+    const U = m.mode !== 'acceptance' ? await shareChoice(name) : null; // v2.42.18: a survey: only the changes, or the whole project
+    if (m.mode !== 'acceptance' && !U) return;
+    const blob = await bundleZip([name], U ? { update: U } : undefined); busy(false);
+    LOG.info('project.share', { kind: projKind(name), mb: +(blob.size / 1048576).toFixed(1), ...(U ? { update: U.n, full: U.full, records: U.pts ? U.pts.length : null, gone: U.nGone, route: U.route } : {}) });
+    const sent = U ? () => { S.meta[name] = { ...pmeta(name), shares: { n: U.n, at: U.at, full: U.full } }; persist(); LOG.info('project.share.sent', { update: U.n, full: U.full }); if (!$('projects').hidden) renderProjects(); } : null;
+    await shareFile(blob, `G-eSAA_${String(name).replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 60)}_${U && !U.full ? `update${U.n}_` : ''}${todayIso()}.zip`, 'application/zip', sent); // v2.42.4: the phone's date (was UTC)
   }
+  /** v2.42.18: Share → Only the changes (for the team leader: what was saved, deleted or re-routed on this phone since the last
+      share) or The whole project. Each share is numbered, so the other phone can say when one is missing. Returns
+      { n, full, since, at, pts (the changes; null: all), route, sender, nGone } or null (cancelled). */
+  async function shareChoice(name) {
+    const m = pmeta(name), sh = m.shares || {}, since = sh.at || '', at = new Date().toISOString(), all = points.filter((p) => p.project === name);
+    const ch = since ? all.filter((p) => String(p.updated || p.created || '') > since) : all;
+    const gone = since ? Object.values(m.gone || {}).filter((t) => t > since).length : 0;
+    const route = !!(since && m.linksAt && m.linksAt > since), nNew = since ? ch.filter((p) => String(p.created || '') > since).length : 0;
+    const pl = (k, w) => `${k} ${w}${k === 1 ? '' : 's'}`, nph = new Set(ch.flatMap(allPids)).size;
+    const n = (sh.n || 0) + 1, u = S.user || {}, sender = String(u.email || u.mobile || u.name || '').trim().toLowerCase();
+    const whole = `The whole project: ${pl(all.length, 'record')} · ${pl(projPhotos(name), 'photo')}. For a new phone, your admin, a backup, or a team leader who missed an update.`;
+    const next = 'Next: pick Viber, Messenger, Quick Share or Gmail. The other phone opens the file in G-eSAA: the newer record wins and deletions carry over.';
+    const Wh = { label: 'The whole project', value: 'full' }, X = { label: 'Cancel', value: '' };
+    let text, btns;
+    if (!since) { text = `The first share of this project is the whole project: after that, Share offers only the changes.\n\n${whole}`; btns = [X, { ...Wh, primary: true }]; }
+    else if (!ch.length && !gone && !route) { text = `Nothing changed since your last share (update ${sh.n}, ${fmtTime(since)}).\n\n${whole}`; btns = [X, { ...Wh, primary: true }]; }
+    else {
+      const what = [ch.length - nNew && `${pl(ch.length - nNew, 'record')} changed`, nNew && `${nNew} new`, gone && `${gone} deleted`, route && 'the route', nph && pl(nph, 'photo')].filter(Boolean).join(' · ');
+      text = `Only the changes · for your team leader: ${what}, since your last share (update ${sh.n}, ${fmtTime(since)}). This is update ${n}.\n\n${whole}`;
+      btns = [{ label: 'Only the changes · for your team leader', value: 'delta', primary: true }, Wh, X];
+    }
+    const pick = await ask(`Share “${name}”`, `${text}\n\n${next}`, btns); if (!pick) return null;
+    const full = pick === 'full';
+    return { n, full, since: full ? '' : since, at, pts: full ? null : ch, route: full || route, sender, nGone: full ? Object.keys(m.gone || {}).length : gone };
+  }
+  /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
+      route only when it changed (an older route never undoes the other phone's). */
+  function shareMeta(name, U) { const { shares, recv, updates, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; } return m; }
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
@@ -5952,14 +6507,15 @@
     await shareFile(blob, `G-eSAA_${who}_${names.length}_projects_${todayIso()}.zip`, 'application/zip'); // v2.42.4: the phone's date
   }, 'Projects not shared'));
   /** The chosen projects as one ZIP: bundle.json (what is inside, who sent it), each project as a backup (p1/points.json…), the photos once. */
-  async function bundleZip(names) {
+  async function bundleZip(names, opt) {
+    const U = opt && opt.update; // v2.42.18: one project with its update number (U.pts: only the changes)
     const now = new Date().toISOString(), files = [], list = [], seen = new Set(); let bytes = 0, k = 0;
-    const allP = names.reduce((t, n) => t + projPhotos(n), 0); let done = 0;
+    const allP = U && U.pts ? new Set(U.pts.flatMap(allPids)).size : names.reduce((t, n) => t + projPhotos(n), 0); let done = 0;
     for (const name of names) {
       k++;
-      const pts = points.filter((p) => p.project === name).sort((a, b) => (a.created < b.created ? -1 : 1));
+      const pts = (U && U.pts ? U.pts.slice() : points.filter((p) => p.project === name)).sort((a, b) => (a.created < b.created ? -1 : 1));
       if (!isAcc(name)) projKey(name); // v2.42.6: the credits' project key travels with it
-      files.push({ name: `p${k}/points.json`, data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: pmeta(name), exported: now, by: byLine(), exportedBy: exporterInfo(), points: pts }, null, 1) });
+      files.push({ name: `p${k}/points.json`, data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: shareMeta(name, U), exported: now, by: byLine(), exportedBy: exporterInfo(), points: pts, ...(U ? { update: { n: U.n, full: !!U.full, since: U.since || '' } } : {}) }, null, 1) });
       for (const pid of new Set(pts.flatMap(allPids))) {
         busy(`Packing photos ${++done} / ${allP}`, done / Math.max(1, allP));
         if (seen.has(pid)) continue; seen.add(pid);
@@ -5970,7 +6526,7 @@
       }
       list.push({ name, file: `p${k}/points.json`, kind: projKind(name), records: pts.length });
     }
-    files.unshift({ name: 'bundle.json', data: JSON.stringify({ app: 'G-eSAA', kind: 'bundle', v: 1, exported: now, by: byLine(), exportedBy: exporterInfo(), team: S.team ? S.team.id : '', projects: list }, null, 1) });
+    files.unshift({ name: 'bundle.json', data: JSON.stringify({ app: 'G-eSAA', kind: 'bundle', v: 1, exported: now, by: byLine(), exportedBy: exporterInfo(), team: S.team ? S.team.id : '', projects: list, ...(U ? { update: { n: U.n, full: !!U.full, sender: U.sender || '' } } : {}) }, null, 1) });
     files.push({ name: 'exported_by.txt', data: exporterText().replace(/^Project: .*$/m, `Projects: ${names.join(', ')}`) });
     busy('Making the file…');
     return new Blob(C.makeZipParts(files), { type: 'application/zip' });
@@ -5981,6 +6537,7 @@
     if (!b || b.kind !== 'bundle' || !Array.isArray(b.projects) || !b.projects.length) throw new Error('This is not a G-eSAA projects file');
     const from = b.exportedBy || {}, mine = (S.user && S.user.company) || '';
     const other = !!(from.company && mine && normCo(from.company) !== normCo(mine)); // “ABC Builders Inc.” = “ABC Builders, Inc”
+    if (b.update && b.projects.length === 1) { await openUpdate(z, f, b, from, other, mine); return; } // v2.42.18: a project shared with its update number
     const clash = b.projects.filter((p) => allProjects().includes(p.name));
     const lines = b.projects.slice(0, 8).map((p) => `• ${p.name} · ${STAGE_LABEL[p.kind] || p.kind} · ${p.records} record${p.records === 1 ? '' : 's'}`).join('\n') + (b.projects.length > 8 ? `\n• and ${b.projects.length - 8} more` : '');
     const text = `${b.projects.length} project${b.projects.length === 1 ? '' : 's'} from ${from.name || 'another phone'}${from.company ? ` (${from.company})` : ''}, ${dateOnly(b.exported)}:\n${lines}`
@@ -6004,6 +6561,41 @@
     LOG.info('bundle.open', { projects: n, records: recs, other, apart: pick === 'apart' });
     await closeAll(); renderPoles(); fitProject();
     toast(`${n} project${n === 1 ? '' : 's'} added · ${recs} records`, 5000);
+  }
+  /** v2.42.18: a project shared with its update number (Share → Only the changes, or The whole project): who sent it, what it
+      changes on this phone, an earlier update that is missing. The newer record wins; deletions and a newer route carry over. */
+  async function openUpdate(z, f, b, from, other, mine) {
+    const P = b.projects[0], U = b.update, raw = await z.get(P.file); if (!raw) throw new Error('This file has no project in it');
+    const meta = JSON.parse(new TextDecoder().decode(raw)); if (!meta || !Array.isArray(meta.points)) throw new Error('This is not a G-eSAA projects file');
+    const proj = P.name, here = allProjects().includes(proj), m = here ? pmeta(proj) : {}, sk = String(U.sender || ''), last = ((m.recv || {})[sk] || {}).n || 0;
+    const who = from.name || 'a colleague', first = from.name ? from.name.split(/\s+/)[0] : 'the sender', pl = (k, w) => `${k} ${w}${k === 1 ? '' : 's'}`;
+    const loc = new Map(points.filter((x) => x.project === proj).map((x) => [x.id, x]));
+    const mg = m.gone || {}, delHere = meta.points.filter((p) => !loc.has(p.id) && mg[p.id] && String(p.updated || '') <= String(mg[p.id])).length; // deleted on this phone since: they stay deleted
+    const newer = meta.points.filter((p) => loc.has(p.id) && String(loc.get(p.id).updated || '') > String(p.updated || '')).length, nNew = meta.points.filter((p) => !loc.has(p.id)).length - delHere;
+    const G = (meta.meta && meta.meta.gone) || {}, del = Object.entries(G).filter(([id, t]) => loc.has(id) && String(loc.get(id).updated || '') <= String(t)).length;
+    const route = !!(meta.meta && meta.meta.links && meta.meta.linksAt && meta.meta.linksAt > (m.linksAt || '')), nph = new Set(meta.points.flatMap(allPids)).size, chg = meta.points.length - nNew - newer - delHere;
+    const what = [chg && `${pl(chg, 'record')} changed`, nNew && `${nNew} new`, del && `${del} deleted`, route && 'the route', nph && pl(nph, 'photo')].filter(Boolean).join(' · ') || 'Nothing new for this phone';
+    const miss = !U.full && here && U.n > last + 1 ? U.n - last - 1 : 0;
+    const warn = [
+      !U.full && !here && `“${proj}” is not on this phone and this file has only its changes: ask ${first} to share The whole project.`,
+      miss && `${miss === 1 ? `Update ${last + 1}` : `Updates ${last + 1} to ${U.n - 1}`} from ${first} ${miss === 1 ? 'has' : 'have'} not been opened on this phone. Ask ${first} to share The whole project once: it fills any gap. These changes can still be added now.`,
+      !U.full && here && U.n <= last && `Update ${U.n} or a later one from ${first} was opened here before: records newer here stay as they are.`,
+      other && `This file is from ${from.company}, not from your company (${mine}).`,
+    ].filter(Boolean);
+    const text = `${proj} · update ${U.n}${U.full ? ' · the whole project' : ''} · shared ${fmtTime(b.exported)}${from.company ? ` · ${from.company}` : ''}\n\n${what}`
+      + (newer ? `\n${pl(newer, 'record')} ${newer === 1 ? 'is' : 'are'} newer on this phone: ${newer === 1 ? 'it stays' : 'they stay'} as ${newer === 1 ? 'it is' : 'they are'}.` : '')
+      + (delHere ? `\n${pl(delHere, 'record')} deleted on this phone since: ${delHere === 1 ? 'it stays' : 'they stay'} deleted.` : '') + (warn.length ? `\n\n⚠ ${warn.join('\n\n⚠ ')}` : '');
+    const go = await ask(`${U.full ? 'Project' : 'Changes'} from ${who}`, text, [{ label: 'Not now', value: false }, { label: !U.full && !here ? 'Open anyway' : here ? 'Apply changes' : 'Open the project', value: true, primary: true }]);
+    if (!go) return;
+    if (other && !(await ask('Another company’s project', `Open a project of ${from.company} on your phone? Only do this if you are allowed to keep it.`, [{ label: 'Cancel', value: false }, { label: 'Open anyway', value: true, primary: true }]))) return;
+    if (f && sharedDefer(f)) return;
+    const o = { quiet: true, update: { n: U.n, full: !!U.full, sender: sk, from: who, at: b.exported || '' } };
+    try { busy(`Opening ${proj}…`); await restoreMeta(z, meta, '', o); } finally { busy(false); }
+    const R2 = o.result || {};
+    LOG.info('share.update.open', { n: U.n, full: !!U.full, records: R2.recs, kept: R2.kept, gone: R2.gone, route: R2.route, missing: miss, other, isNew: !here });
+    await closeAll(); renderPoles(); fitProject();
+    const said = `${[pl(R2.recs || 0, 'record'), R2.gone && `${R2.gone} deleted`, R2.route && 'the route'].filter(Boolean).join(' · ')}${R2.kept ? ` · ${R2.kept} newer here kept` : ''}`;
+    toast(`${U.full ? `The whole project (update ${U.n})` : `Update ${U.n}`} from ${first}: ${said}`, 6000, `${U.full ? 'The whole project' : 'Update'} ${U.n} opened: ${said}`);
   }
   [['mSite', 'site'], ['mContractor', 'contractor'], ['mGlobe', 'globeRep'], ['mDate', 'date'], ['curNotes', 'notes']].forEach(([id, key]) => {
     $(id).addEventListener('change', () => { const m = { ...pmeta() }; m[key] = $(id).value.trim(); S.meta = S.meta || {}; S.meta[S.project] = m; persist(); });
@@ -6739,9 +7331,25 @@
   const ELEC_TYPES = new Set(['CC', 'WP', 'SP']);
   const MARK_ELS = ['ODC', 'ODF', 'Site', 'Handhole', 'Manhole', 'Service box'];
   const MARK_EL_NAME = { ODC: 'ODC', ODF: 'ODF', Site: 'Sites (tower, OLT)', Handhole: 'Handholes', Manhole: 'Manholes', 'Service box': 'Service boxes' };
-  function markKey(p) { const el = elemOf(p); if (el === 'Pole') { const t = typePrefix(p.poleType); return ELEC_TYPES.has(t) ? 'ELEC' : t || '_none'; } return el === 'NAP' || el === 'Closure' ? null : `el:${el}`; }
-  function markName(k) { return k === 'ELEC' ? 'Electric poles (concrete, wood, steel)' : k === '_none' ? 'Poles with no type' : k.startsWith('el:') ? MARK_EL_NAME[k.slice(3)] || k.slice(3) : `${prefixType(k) || k} poles (${k})`; }
-  function markShort(k) { return k === 'ELEC' ? 'electric' : k === '_none' ? 'no type' : k.startsWith('el:') ? (MARK_EL_NAME[k.slice(3)] || k.slice(3)).replace(/ \(.*\)$/, '') : k; }
+  /** A point's group for its photo or number. v2.42.15: a pole by its owner, as the project management table counts them (RTA
+      local coop, Converge, PLDT / other): a proposed or new pole is Globe's (GT); an existing pole goes by its owner (BOQ) when one is
+      set (the power company: electric; PLDT, Converge, Globe…: that owner), else by its type (concrete, wood, steel: electric). Before,
+      a concrete pole owned by PLDT or Converge, and a proposed pole, were counted as electric poles. */
+  const ownKey = (own) => { const o = String(own || '').trim(); if (!o) return ''; if (/electric|coop|power/i.test(o)) return 'ELEC'; if (/globe/i.test(o)) return 'GT';
+    const u = o.toUpperCase().replace(/[^A-Z0-9]+/g, ''), t = poleTypes().find((x) => x.n.toUpperCase().replace(/[^A-Z0-9]+/g, '') === u || x.p === u); return t ? (ELEC_TYPES.has(t.p) ? 'ELEC' : t.p) : u.slice(0, 20); };
+  function markKey(p) {
+    const el = elemOf(p);
+    if (el === 'Pole') {
+      if (p.status === 'Proposed' || p.status === 'New') return 'GT';
+      const t = typePrefix(p.poleType); if (t === 'GT') return 'GT';
+      const o = ownKey(p.boq && p.boq.owner); if (o === 'ELEC' && p.boq.ownerName) return `ELEC:${String(p.boq.ownerName).toUpperCase().slice(0, 30)}`; if (o) return o; // v2.42.18: by the coop's name
+      return ELEC_TYPES.has(t) ? 'ELEC' : t || '_none';
+    }
+    return el === 'NAP' || el === 'Closure' ? null : `el:${el}`;
+  }
+  const ownName = (k) => prefixType(k) || (k.length <= 5 ? k : k.charAt(0) + k.slice(1).toLowerCase()); // PLDT; Converge
+  function markName(k) { if (k.startsWith('ELEC:')) return `${k.slice(5)} poles (electric)`; return k === 'ELEC' ? 'Electric poles (the power company\'s)' : k === 'GT' ? 'Globe poles (GT and proposed)' : k === '_none' ? 'Poles with no type' : k.startsWith('el:') ? MARK_EL_NAME[k.slice(3)] || k.slice(3) : `${ownName(k)} poles (${k})`; }
+  function markShort(k) { if (k.startsWith('ELEC:')) return k.slice(5); return k === 'ELEC' ? 'electric' : k === 'GT' ? 'Globe' : k === '_none' ? 'no type' : k.startsWith('el:') ? (MARK_EL_NAME[k.slice(3)] || k.slice(3)).replace(/ \(.*\)$/, '') : k; }
   function noMarkOf() { // v2.41: the v2.40 choices still count (CC, WP, SP → electric; Other points → every element)
     const by = S.exp.dxfNoMarkBy || {}, raw = Array.isArray(by[S.project]) ? by[S.project] : [], out = new Set();
     raw.forEach((k) => { if (ELEC_TYPES.has(k)) out.add('ELEC'); else if (k === '_other') MARK_ELS.forEach((e) => out.add(`el:${e}`)); else out.add(k); });
@@ -6779,15 +7387,16 @@
   const setRows = (R) => { S.exp.dxfRows = cleanRows(R); if (!S.exp.dxfRows.length) S.exp.dxfRows = [{ pts: ['*'], mode: 'photo' }]; S.exp.dxfRowSel = Math.min(Math.max(0, S.exp.dxfRowSel | 0), S.exp.dxfRows.length - 1); persist(); };
   const rowIdx = () => Math.min(Math.max(0, S.exp.dxfRowSel | 0), dxfRows().length - 1);
   const curRow = () => dxfRows()[rowIdx()];
-  const rowHas = (r, k) => r.pts.includes('*') || r.pts.includes(k);
+  const rowHas = (r, k) => r.pts.includes('*') || r.pts.includes(k) || (k.startsWith('ELEC:') && r.pts.includes('ELEC')); // (v2.42.18: "Electric poles" chosen before: every coop's)
   /** The points of a row (a photo or number beside them) and the groups left out. */
   function rowSel(r, pts) { const ids = pts.filter((p) => { const k = markKey(p); return k && rowHas(r, k); }).map((p) => p.id); return { ids, no: new Set(markGroups(pts).keys.filter((k) => !rowHas(r, k))) }; }
   /** The points that get a photo or number (the drawing shown in the Drawing, or the groups left out given), and the groups left out. */
   function dxfMarkSel(pts, no) { if (!no) return rowSel(curRow(), pts); const ids = pts.filter((p) => { const k = markKey(p); return k && !no.has(k); }).map((p) => p.id); return { ids, no }; }
   function markGroups(pts) { const cnt = new Map(); (pts || projPoints()).forEach((p) => { const k = markKey(p); if (k) cnt.set(k, (cnt.get(k) || 0) + 1); });
-    const poleKeys = ['ELEC', ...poleTypes().map((t) => t.p).filter((k) => !ELEC_TYPES.has(k))];
-    return { cnt, keys: [...poleKeys.filter((k) => cnt.has(k)), ...['_none'].filter((k) => cnt.has(k)), ...MARK_ELS.map((e) => `el:${e}`).filter((k) => cnt.has(k))] }; }
-  const chipName = (k) => (k === 'ELEC' ? 'Electric poles' : k === '_none' ? 'Poles with no type' : k.startsWith('el:') ? (MARK_EL_NAME[k.slice(3)] || k.slice(3)).replace(/ \(.*\)$/, '') : `${prefixType(k) || k} poles`);
+    const poleKeys = ['ELEC', ...poleTypes().map((t) => t.p).filter((k) => !ELEC_TYPES.has(k))], owners = [...cnt.keys()].filter((k) => k !== '_none' && !k.startsWith('el:') && !poleKeys.includes(k)).sort(); // (v2.42.15: owners with no pole type, e.g. Converge)
+    const named = owners.filter((k) => k.startsWith('ELEC:')); // v2.42.18: the electric poles by coop, after the electric poles with no name
+    return { cnt, keys: [...poleKeys.filter((k) => cnt.has(k)), ...named, ...owners.filter((k) => !named.includes(k)), ...['_none'].filter((k) => cnt.has(k)), ...MARK_ELS.map((e) => `el:${e}`).filter((k) => cnt.has(k))] }; }
+  const chipName = (k) => (k.startsWith('ELEC:') ? `${k.slice(5)} poles` : k === 'ELEC' ? 'Electric poles' : k === 'GT' ? 'Globe poles' : k === '_none' ? 'Poles with no type' : k.startsWith('el:') ? (MARK_EL_NAME[k.slice(3)] || k.slice(3)).replace(/ \(.*\)$/, '') : `${ownName(k)} poles`);
   /** A row in words: "Photos with their numbers beside the electric poles (120)". */
   function rowText(r, short) {
     const { cnt, keys } = markGroups(), all = r.pts.includes('*'), on = all ? keys : keys.filter((k) => r.pts.includes(k)), n = on.reduce((t, k) => t + cnt.get(k), 0);
@@ -6801,11 +7410,60 @@
     const md = { photo: 'PHOTOS', num: 'NUMBERS', both: 'PHOTOS_NUMBERS' }[r.mode];
     if (r.pts.includes('*')) return `ALL_${md}`; if (!r.pts.length) return 'NO_MARKS';
     const cl = (x) => String(x).toUpperCase().replace(/[^A-Z0-9]+/g, '');
-    const poles = r.pts.filter((k) => !k.startsWith('el:')).map((k) => (k === 'ELEC' ? 'ELECTRIC' : k === '_none' ? 'UNTYPED' : cl(k))), els = r.pts.filter((k) => k.startsWith('el:')).map((k) => cl(k.slice(3)));
+    const poles = r.pts.filter((k) => !k.startsWith('el:')).map((k) => (k === 'ELEC' ? 'ELECTRIC' : k.startsWith('ELEC:') ? cl(k.slice(5)) : k === '_none' ? 'UNTYPED' : cl(k))), els = r.pts.filter((k) => k.startsWith('el:')).map((k) => cl(k.slice(3)));
     return [poles.length ? `${poles.join('_')}_POLES` : '', els.join('_'), md].filter(Boolean).join('_').slice(0, 60);
   }
+  /* ---- v2.42.18: the pole numbers of the RTA, the same in the DXF (beside the points) and in Table · CSV (column no): along the cable
+     from the homing, for the whole project or per pole owner (each owner's from 1); kept once given (a point added later takes the next
+     number of its group) or given again at each export. Kept in the project: S.meta[project].nums = { mode, keep, project, owner },
+     each { id: { n, g } } (g: the group, '*' or the pole owner's). */
+  const numCfg = () => { const n = pmeta().nums || {}; return { mode: n.mode === 'owner' ? 'owner' : 'project', keep: n.keep !== false }; };
+  function setNumCfg(c) { S.meta = S.meta || {}; const n = pmeta().nums || {}; S.meta[S.project] = { ...pmeta(), nums: { ...n, ...c } }; persist(); }
+  /** How far each point is from the homing along the route (a site or an ODF; else the first span's first end). */
+  function homeDist(pts, R) {
+    const adj = new Map(); R.spans.forEach((s) => { [[s.ia, s.ib], [s.ib, s.ia]].forEach(([a, b]) => (adj.get(a) || adj.set(a, []).get(a)).push([b, s.len])); });
+    const hd = new Map(), q0 = pts.filter((p) => ['Site', 'ODF'].includes(elemOf(p)) && adj.has(p.id)).map((p) => p.id);
+    if (!q0.length && R.spans.length) q0.push(R.spans[0].ia);
+    q0.forEach((id) => hd.set(id, 0));
+    for (let it = 0, ch = true; ch && it < pts.length + 2; it++) { ch = false; for (const [a, L] of adj) { const da = hd.get(a); if (da == null) continue; for (const [b, l] of L) if (!(hd.get(b) <= da + l)) { hd.set(b, da + l); ch = true; } } }
+    return hd;
+  }
+  /** The points that get a number, in order: each run of the cable from its end nearer the homing, the runs nearer the homing first (the
+      main run, then its branches), then the points off the route in capture order. Not a NAP or closure pin (its pole has the number). */
+  function numOrder(pts, R) {
+    const want = pts.filter((p) => markKey(p)), ids = new Set(want.map((p) => p.id)), out = [], seen = new Set(), take = (id) => { if (ids.has(id) && !seen.has(id)) { seen.add(id); out.push(id); } };
+    if (R && R.spans.length) {
+      const hd = homeDist(pts, R), far = (id) => hd.get(id) ?? 1e12;
+      C.routeChains(R.spans).map((ch) => { let L = ch.pts.map((p) => p.id); if (far(L[0]) > far(L[L.length - 1])) L = L.slice().reverse(); return { L, d: Math.min(...L.map(far)) }; })
+        .sort((a, b) => a.d - b.d).forEach((ch) => ch.L.forEach(take));
+    }
+    want.forEach((p) => take(p.id));
+    return out;
+  }
+  /** The numbers: Map id -> number (all the project's points that get one). */
+  function poleNums(pts, R) {
+    const cfg = numCfg(), n0 = pmeta().nums || {}, key = cfg.mode, store = cfg.keep ? { ...(n0[key] || {}) } : {};
+    const by = new Map(pts.map((p) => [p.id, p])), grp = (p) => (key === 'owner' ? markKey(p) || '_' : '*'), top = new Map(), out = new Map();
+    Object.values(store).forEach((e) => { if (e && e.g != null) top.set(e.g, Math.max(top.get(e.g) || 0, +e.n || 0)); });
+    numOrder(pts, R).forEach((id) => {
+      const g = grp(by.get(id)), e = store[id];
+      if (e && e.g === g) { out.set(id, +e.n); return; } // given before (a point now another owner's takes the next number of its new group)
+      const n = (top.get(g) || 0) + 1; top.set(g, n); store[id] = { n, g }; out.set(id, n);
+    });
+    if (S.project && JSON.stringify(store) !== JSON.stringify(n0[key] || {})) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), nums: { ...n0, mode: cfg.mode, keep: cfg.keep, [key]: store } }; persist(); }
+    return out;
+  }
+  function renderNums() {
+    if (!$('numBox')) return;
+    const c = numCfg(); $('numProject').checked = c.mode === 'project'; $('numOwner').checked = c.mode === 'owner'; $('numKeep').checked = c.keep; $('numRenum').checked = !c.keep;
+    const st = (pmeta().nums || {})[c.mode] || {}, n = Object.keys(st).length;
+    $('numInfo').textContent = `${c.mode === 'owner' ? 'Each pole owner’s poles (and each kind of other point) from 1; one drawing per owner is clearest.' : 'One number per point, 1, 2, 3… along the cable.'} ${c.keep ? (n ? `${n} numbers given so far: a point added later takes the next one.` : 'Given at the first export, then kept.') : 'Given again at each export.'} Table · CSV has them in its first column (no).`;
+  }
+  ['numProject', 'numOwner'].forEach((id) => { const el = $(id); if (el) el.addEventListener('change', () => { setNumCfg({ mode: $('numOwner').checked ? 'owner' : 'project' }); renderNums(); if (drw) drawSeqSoon(); }); });
+  ['numKeep', 'numRenum'].forEach((id) => { const el = $(id); if (el) el.addEventListener('change', () => { setNumCfg({ keep: $('numKeep').checked }); renderNums(); if (drw) drawSeqSoon(); }); });
   function renderDxfMarks() {
     renderSig(); // v2.42.12
+    renderNums(); // v2.42.18
     const box = $('dxfSets'); if (!box) return;
     $('dxfPlanSum').textContent = planOptsText();
     const R = dxfRows(), { cnt, keys } = markGroups(), total = keys.reduce((t, k) => t + cnt.get(k), 0); box.innerHTML = '';
@@ -7219,6 +7877,7 @@
     busy('Preparing the plan drawing…');
     const m = pmeta(), zone = S.zone, U = (q) => { const u = C.utmForward(q.lat, q.lon, zone, q.lat < 0); return [u.E, u.N]; };
     const R = routeModel(), Q = surveyQty(pts), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
+    const LA = autoLoops(pts, R), OWN = loopOwnMap(pts, R); // v2.42.16: the maintenance loops the app adds (As-Plan); v2.42.18: the own ones
     const showCT = S.exp.dxfClampType !== false; // v2.40: the plan's options (v2.41: set on the Drawing screen)
     // v2.41: the drawings of this export: the Drawing's choice, and / or every point with photos, numbers or both, and one pole group
     //        with numbers (an RTA application for each owner); one DXF each, in one ZIP
@@ -7236,12 +7895,14 @@
       return { id: p.id, poleId: p.poleId || '', el, status: p.status || '', mat: el === 'Pole' ? (TELCO_TYPES.has(pre) ? '' : pre) : '', tag: el === 'Pole' ? (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId) : '',
         telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: b.clamp || '',
         armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon, telcoArm: el === 'Pole' && hasTelcoArm(p), // v2.42.1: the plan draws it
-        mloop: !!(p.mloop || b.mloop), nap: !!p.nap, napId: p.napId || '', nap2: el === 'Pole' && !!p.nap2, nap2Id: el === 'Pole' && p.nap2 ? p.nap2Id || '' : '', nap2Type: el === 'Pole' && p.nap2 ? b.nap2Type || '' : '', nap2Old: el === 'Pole' && !!p.nap2 && b.nap2St === 'Existing', closure: !!p.closure, closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
+        mloop: el === 'Pole' && !!(p.mloop || loopYes(b) || LA.has(p.id) || OWN.has(p.id)), mloopM: el === 'Pole' ? loopLenAt(p, R, LA, OWN.get(p.id)) : 0, /* v2.42.17: + a closure's, a dummy NAP's, a riser's; v2.42.18: every NAP, LCP, pin; its own length */ nap: !!p.nap, napId: p.napId || '', nap2: el === 'Pole' && !!p.nap2, nap2Id: el === 'Pole' && p.nap2 ? p.nap2Id || '' : '', nap2Type: el === 'Pole' && p.nap2 ? b.nap2Type || '' : '', nap2Old: el === 'Pole' && !!p.nap2 && b.nap2St === 'Existing', closure: el === 'Pole' && !!p.closure, /* v2.42.17: (a box's closure is not drawn) */ closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
         adjusted: !!p.adjusted, color: p.color || '', // v2.36: a pin set by hand stays where it is on the drawing; a map pin's colour
         // v2.37: the NAP's kind, a double LCP, the site's kind, grounding, a riser, the pole a pole-to-pole guy goes to
         napType: el === 'NAP' || (el === 'Pole' && (p.nap || p.napId)) ? b.napType || '' : '', napOld: el === 'Pole' && b.napSt === 'Existing', closureOld: el === 'Pole' && b.cloSt === 'Existing', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', ground: !!b.ground, riser: !!b.riser, p2pTo: b.p2p || null,
-        clampType: el === 'Pole' && showCT ? clampOf(p, R, pts).join('+') : '', clampAuto: el === 'Pole' && !b.clampType }; }); // v2.39: the pole's clamps (picked by the plan when left blank); v2.40: or the size only
-    const spans = R.spans.map((s) => ({ ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long }));
+        clampType: el === 'Pole' && showCT ? clampOf(p, R, pts).join('+') : '', clampAuto: el === 'Pole' && !b.clampType,
+        ownerName: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && !/^globe$/i.test(ownerNameOf(p)) ? ownerNameOf(p).toUpperCase() : '' }; }); // v2.42.18: the owner's name beside an existing pole // v2.39: the pole's clamps (picked by the plan when left blank); v2.40: or the size only
+    const spans = R.spans.map((s) => ({ ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long, more: (s.runs || []).slice(1) })); // v2.42.18: + the other runs
+    const seqOf = Object.fromEntries([...poleNums(projPoints(), R).entries()].map(([id, n]) => [String(id), n])); // v2.42.18: the pole numbers (as in Table · CSV)
     const runs = C.routeChains(R.spans).map((ch) => ({ cable: ch.cable, label: CAB_TITLE[ch.cable] || '', pts: ch.pts.map(U) }));
     // v2.38: the project's places (points more than 1 km apart), each with its own vicinity map (its points with a 500 m margin, at
     // least 1.5 km across); the roads and places only round the route (500 m round each place's points, for its plan sheets), not
@@ -7265,8 +7926,9 @@
     const poles = pts.filter((p) => elemOf(p) === 'Pole'), isNew = (p) => ['Proposed', 'New'].includes(p.status), exist = poles.filter((p) => !isNew(p));
     const own = (p) => String((p.boq && p.boq.owner) || '').toUpperCase(), gt = (p) => /^(GT|GLOBE)/i.test(matCode(p)) || /globe/i.test(p.poleType || '');
     const m1 = (v) => `${(Math.round(v * 10) / 10).toFixed(1)}m`;
-    const aeLoops = (q.MLOOP_F72 || 0) + (q.MLOOP_L12 || 0), ugLoops = q.MLOOP_U144 || 0, ml = q.MLOOP_LEN || mloopLen();
-    const cabs = [...new Set(R.spans.map((s) => s.cable).filter(Boolean))];
+    const pmiL = S.exp.pmiLoops !== false; // v2.42.17: the user's choice (Settings → AutoCAD DXF, or the DXF card): loops in the PMI cable lengths or not
+    const ml = q.MLOOP_LEN || mloopLen(), focBy = (meth) => Object.keys(CAB).filter((k) => CAB[k].method === meth).reduce((t, k) => t + (q[`FOC_${k}`] || 0), 0); // v2.42.16: spans + loops (a pole's, a box's)
+    const cabs = [...new Set(R.spans.flatMap((s) => s.runs || [s.cable]).filter(Boolean))]; // (v2.42.18: every run's)
     const e = exporterInfo();
     // v2.34: the site from the online sheet's project details (name, PLA ID, serial number), for the title sheet and every title block
     const task = m.taskId && S.cloud && (S.cloud.tasks || []).find((t) => t.id === m.taskId);
@@ -7281,7 +7943,7 @@
       LOCATION: { PAGING: known ? [sName, sPla].filter(Boolean).join('_') : (m.site || '') }, SITE_ID: { PAGING: known ? sSerial : '' }, // every title block: SITENAME_PLAID, then the serial number
       PROJECT_CODE: sfGet(SF, /project\s*code|network\s*code/i) || ((m.siteExtra || []).find(([k]) => /project\s*code|network\s*code/i.test(k)) || [])[1] || '',
       ...(sfGet(SF, /project\s*(name|type)/i) ? { PROJECT_TYPE: sfGet(SF, /project\s*(name|type)/i) } : {}), // v2.41: the sheet's Project Name (e.g. KV, FOC RELOC) as the project type
-      PMI_TOTAL_CABLE_LENGTH: R.spans.length ? m1((q.SPAN_TOTAL || 0) + (q.MLOOP_COUNT || 0) * ml) : '', PMI_AERIAL_CABLE_LENGTH: R.spans.length ? m1((q.SPAN_AE || 0) + aeLoops * ml) : '', PMI_UG_CABLE_LENGTH: R.spans.length ? m1((q.SPAN_UG || 0) + ugLoops * ml) : '',
+      PMI_TOTAL_CABLE_LENGTH: R.spans.length ? m1(pmiL ? q.FOC_TOTAL || 0 : q.SPAN_TOTAL || 0) : '', PMI_AERIAL_CABLE_LENGTH: R.spans.length ? m1(pmiL ? focBy('AE') : q.SPAN_AE || 0) : '', PMI_UG_CABLE_LENGTH: R.spans.length ? m1(pmiL ? focBy('UG') : q.SPAN_UG || 0) : '',
       PMI_PROPOSED_POLE: String(poles.filter(isNew).length), PMI_EXISTING_GT_POLE: String(exist.filter(gt).length),
       PMI_RTA_CONVERGE: String(exist.filter((p) => !gt(p) && /CONVERGE/.test(own(p))).length), PMI_RTA_LOCAL_COOP: String(exist.filter((p) => !gt(p) && /ELECTRIC/.test(own(p))).length),
       PMI_RTA_OTHER_PLDT: String(exist.filter((p) => !gt(p) && own(p) && !/CONVERGE|ELECTRIC/.test(own(p))).length),
@@ -7350,7 +8012,7 @@
       busy(many ? `Drawing the plan on the template (${k + 1} of ${SETS.length})…` : 'Drawing the plan on the template…', k / SETS.length);
       await sleep(30);
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
-      const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, markMode: st.mode, markNum: st.mode === 'num',
+      const out = window.GeDxfTpl.build(seed, { pts: rows, spans, runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
         numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
@@ -7396,7 +8058,14 @@
       `Right of way (ROW AREA COVERAGE): ${rowNote}.`, '',
       `Left blank (not known to the app; fill them in CAD): ${rp.blanks.join(', ') || 'none'}.`,
       ...(() => { const N = [...new Set(outs.flatMap((o) => o.out.report.notes || []))]; return N.length ? [`Drawing checks (${N.length}): ${N.join(' · ')}.`] : []; })(), // v2.42.8: e.g. an object far from the plan
-      'PMI table from the survey: total cable = spans + maintenance loops; aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures. Trenches and maxcell are not in the survey.',
+      ...(() => { const by = new Map(pts.map((p) => [p.id, p])), ids = [...LA.keys()].map((id) => (by.get(id) || {}).poleId || '?'); // v2.42.16
+        const nEnt = [...OWN.values()].filter((v) => v === 'entrance').length, nOwn = (q.MLOOP_OWN || 0) - nEnt; // v2.42.18: an entrance loop is counted, not drawn
+        const nb = q.MLOOP_BOX || 0, onPoles = (q.MLOOP_COUNT || 0) - nb - nEnt, own = nOwn > 0 ? ` (${nOwn} of them with a NAP, an LCP, a hybrid closure, a dummy NAP or a riser: each has its loop)` : '';
+        const box = [...(nb ? [`Handholes, manholes and service boxes: a ${BOX_LOOP_M} m loop each (${nb}), counted in the cable length (PMI, survey quantities, BOQ) and not drawn: a box has its loop.`] : []),
+          ...(nEnt ? [`Sites, ODFs and ODCs on the route: a loop at each entrance (${nEnt}, the cable's length), counted in the cable length (PMI, survey quantities, BOQ) and not drawn.`] : [])];
+        if (svPurpose() === 'As-built') return [`Maintenance loops on poles: as recorded in the As-Built (${onPoles}${own}${q.MLOOP_UNANSWERED ? `; ${q.MLOOP_UNANSWERED} pole${q.MLOOP_UNANSWERED === 1 ? '' : 's'} on the route not answered` : ''}).`, ...box];
+        return [`Maintenance loops on poles (each its own length: by default 10 m on 12C, ${mloopLen()} m on 72C): ${onPoles} on the plan${own}; ${ids.length ? `${ids.length} added by the app where the survey had none (${loopRule}): ${ids.join(', ')}` : 'none added by the app'}.`, ...box]; })(),
+      `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Settings → AutoCAD DXF)'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures. Trenches and maxcell are not in the survey.',
       'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE (PROP.POLE / height / clamp), existing electric pole on ELECTRIC POLE (material / pole tag or NPT), telco pole on GT-POLE (material / ID); new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
       `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; a pin placed by hand more than 6 m from the road edge stays where it is: ${rp.counts.polesKept || 0}; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it; a side guy never into the road; a pole-to-pole guy to its chosen pole, with a head guy there: ${rp.counts.poleToPole || 0}).`,
       `On the cable (the cable meets their two sides, the ID below): NAPs of every kind (1x8, 1x16, dummy, changed to 1:16, double; a NAP pin is drawn on its pole), LCPs (1:4 and double, a kind of NAP on its pole), the ODC (G-eSAA's cabinet symbol, layers G-ESAA PROPOSED / EXISTING ODC: the template has no ODC model), handholes, manholes and service boxes: ${rp.counts.inlineBlocks || 0}. Loops on the cable beside their pole; closures on the cable. Grounding at every pole with a loop or marked for it: ${rp.counts.grounding || 0}. Risers where the cable goes from aerial to underground (or marked): ${rp.counts.risers || 0}. Directional boring (HDD) where an underground cable crosses a road: ${rp.counts.hdd || 0}. A new tower is red; an OLT site is drawn with the OLT model (${rp.counts.olt || 0}).`,
@@ -7431,7 +8100,8 @@
   $('doCsv').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
     const names = photoNames(pts, new Set(await dbKeys('photos'))); // v2.42.4: as the Photos export names them (and none for a record without a photo)
-    const fb = boqFilled(pts), rows = pts.map((p) => ({ ...p, photoName: names[p.id] ? names[p.id] + '.jpg' : '', detailsText: detailsText(p.details), boq: fb(p) || {} })); // v2.40: with the clamp types
+    const NUM = poleNums(projPoints(), routeModel()); // v2.42.18: the pole numbers of the DXF (RTA)
+    const fb = boqFilled(pts), rows = pts.map((p) => ({ ...p, no: NUM.get(p.id) || '', photoName: names[p.id] ? names[p.id] + '.jpg' : '', detailsText: detailsText(p.details), boq: fb(p) || {} })); // v2.40: with the clamp types
     offerResult(new Blob([C.buildCsv(rows, S.zone, exporterLine())], { type: 'text/csv' }), fileBase() + '.csv');
   }));
 
@@ -7479,28 +8149,33 @@
   const boqStNorm = (st) => (st === 'Proposed' || st === 'New' ? 'New' : st || '');
   function boqGroups(pts, fill) {
     const groups = new Map(), missing = { pole: 0, ODF: 0, closure: 0 }, fb = fill || ((p) => p.boq);
-    const add = (item, size, forWhat, id) => { const k = [item, size, forWhat].join('|'), g = groups.get(k) || { item, size, forWhat, qty: 0, ids: [] }; g.qty++; if (id) g.ids.push(id); groups.set(k, g); };
+    const add = (item, size, forWhat, id, n) => { const k = [item, size, forWhat].join('|'), g = groups.get(k) || { item, size, forWhat, qty: 0, ids: [] }; g.qty += n || 1; if (id) g.ids.push(id); groups.set(k, g); }; // (v2.42.18: n each)
     pts.forEach((p) => {
       const el = elemOf(p), b = p.boq || {}, id = p.poleId && !DREF_RE.test(p.poleId) ? p.poleId : '', stn = boqStNorm(p.status);
       if (el === 'Pole') {
         if (b.height || b.cls) add('New Globe pole', [b.height, b.cls].filter(Boolean).join(' '), 'New', id);
-        if (b.clamp) add('Pole clamp', b.clamp, b.owner ? `${b.owner} pole` : stn === 'New' || b.height ? 'New Globe pole' : 'Pole', id);
+        const ownr = b.owner || (stn !== 'New' && typePrefix(p.poleType) === 'GT' ? 'Globe' : ''); // v2.42.17: an existing GT pole is Globe's
+        const fbp = fb(p) || {}, clampOn = b.clamp && !fbp.noClamp; // v2.42.18: no pole clamp on a 12C-only pole or a telco arm
+        if (clampOn) add('Pole clamp', b.clamp, ownr ? `${ownr} pole` : stn === 'New' || b.height ? 'New Globe pole' : 'Pole', id);
         // v2.40: each clamp type the pole needs, with its size (the record's types, else the ones the plan picks)
-        if (b.clamp) String((fb(p) || {}).clampType || '').split(/\s*\+\s*/).filter(Boolean).forEach((t) => add('Pole clamp type', `${t} ${b.clamp}`, 'Pole', id));
-        if (!b.clamp && !b.height && !b.cls) missing.pole++;
+        if (clampOn) String(fbp.clampType || '').split(/\s*\+\s*/).filter(Boolean).forEach((t) => add('Pole clamp type', `${t} ${b.clamp}`, 'Pole', id));
+        (fbp.hwItems || []).forEach(([it, n, sz]) => add(it, sz, 'Pole', id, n)); // v2.42.18: retractors, span clamps, J-hooks, suspension clamps
+        if (!b.clamp && !b.height && !b.cls && !fbp.noClamp) missing.pole++;
         if (b.arm) add('New arm', b.arm, b.height || b.cls || stn === 'New' ? 'New Globe pole' : 'Pole', id); // v2.29
         if (b.guy) String(b.guy).split(' + ').filter(Boolean).forEach((x) => add('Guying', x, 'Pole', id));
-        if (b.mloop) add('Maintenance loop', `${mloopLen()} m`, 'Pole', id);
+        if (loopYes(fbp) || loopOwnOf(p)) add('Maintenance loop', `${+fbp.mloopM || +b.mloopM || mloopLen()} m`, 'Pole', id); // v2.42.16: and the app's (As-Plan); v2.42.17: a pole's own (closure, dummy NAP, riser)
         // v2.41: the NAP and the hybrid closure on the pole (New unless set Existing)
         if (p.nap || p.napId) { if (b.napType === 'Dummy NAP') add('Dummy NAP', b.napSz || 'size not set', b.napSt || 'New', p.napId || id); else add('NAP', b.napType || 'NAP', b.napSt || 'New', p.napId || id); }
         if (p.nap2 || p.nap2Id) { if (b.nap2Type === 'Dummy NAP') add('Dummy NAP', b.nap2Sz || 'size not set', b.nap2St || 'New', p.nap2Id || id); else add('NAP', b.nap2Type || 'NAP', b.nap2St || 'New', p.nap2Id || id); } // v2.42: its second box
         if (p.closure || p.closureId) { if (b.clo) add('Closure', b.clo, b.cloSt || 'New', p.closureId || id); else missing.closure++; }
       } else if (el === 'ODF') { if (b.odf || b.conn) add('ODF', [b.odf, b.conn].filter(Boolean).join(' '), stn, id); else missing.ODF++; }
-      else if (el === 'Closure' || (el === 'Handhole' && p.closureId)) { if (b.clo) add('Closure', b.clo, stn, el === 'Handhole' ? p.closureId : id); else missing.closure++; }
+      else if (el === 'Closure' || boxClo(p)) { if (b.clo) add('Closure', b.clo, el === 'Closure' ? stn : boqStNorm(b.cloSt) || stn, el === 'Closure' ? id : p.closureId || id); else missing.closure++; } // v2.42.17: a box's closure is new or existing of its own
+      if (ENTRANCE_ELS.includes(el) && loopYes(fb(p) || {})) add('Maintenance loop', `${(fb(p) || {}).mloopM || mloopLen()} m`, `${el} entrance`, id); // v2.42.18
+      if (UG_BOXES.has(el) && (fill ? (fb(p) || {}).mloopBox : true)) add('Maintenance loop', `${BOX_LOOP_M} m`, el, id); // v2.42.16: the loop each handhole, manhole and service box (on the route) has
     });
     return { groups, missing };
   }
-  const BOQ_ELEMS = (p) => ['Pole', 'ODF', 'Closure'].includes(elemOf(p)) || (elemOf(p) === 'Handhole' && !!p.closureId);
+  const BOQ_ELEMS = (p) => ['Pole', 'ODF', 'Closure'].includes(elemOf(p)) || boxClo(p);
   /** Elements of one list with no element of the other list (same kind) by ID or within PLAN_NEAR_M. */
   function boqUnmatched(from, to) {
     return from.filter(BOQ_ELEMS).filter((a) => {
@@ -7513,7 +8188,7 @@
     // v2.40: an As-Plan KMZ made before v2.40 has no clamp types: they are not compared (the clamp sizes are)
     const noPlanTypes = compare && ![...P.groups.values()].some((x) => x.item === 'Pole clamp type');
     if (noPlanTypes) [...B.groups.keys()].forEach((k) => { if (B.groups.get(k).item === 'Pole clamp type') B.groups.delete(k); });
-    const order = ['New Globe pole', 'Pole clamp', 'Pole clamp type', 'New arm', 'Guying', 'Maintenance loop', 'ODF', 'Closure', 'Dummy NAP', 'NAP'];
+    const order = ['New Globe pole', 'Pole clamp', 'Pole clamp type', 'Retractor', 'Span clamp', 'J-hook', 'Suspension clamp', 'New arm', 'Guying', 'Maintenance loop', 'ODF', 'Closure', 'Dummy NAP', 'NAP'];
     const keys = [...new Set([...B.groups.keys(), ...(P ? P.groups.keys() : [])])];
     const g = (k) => B.groups.get(k) || P.groups.get(k);
     keys.sort((a, c) => { const x = g(a), y = g(c); return order.indexOf(x.item) - order.indexOf(y.item) || String(x.size).localeCompare(String(y.size), undefined, { numeric: true }) || String(x.forWhat).localeCompare(String(y.forWhat)); });
@@ -7536,6 +8211,11 @@
     } else if (plan) notes.push({ t: `The reference \u201c${plan.name}\u201d has no G-eSAA sizes: load the As-Plan KMZ exported by G-eSAA as the reference to compare planned and built.`, tone: 'info', pdf: false });
     else if (svPurpose() === 'As-built' && !isAcc()) notes.push({ t: 'No As-Plan to compare with: load the As-Plan KMZ as this project\u2019s reference (Projects, Project details, KMZ reference).', tone: 'info', pdf: false });
     if (noPlanTypes) notes.push({ t: 'Clamp types are not compared: the As-Plan KMZ has none (made before v2.40). The clamp sizes are.', tone: 'info', pdf: false });
+    if (!isAcc() && svPurpose() === 'As-plan') { const LA = autoLoops(projPoints(), routeModel()), nA = pts.filter((p) => LA.has(p.id)).length; // v2.42.16
+      if (nA) notes.push({ t: `Maintenance loops: ${nA} added by the app where the survey had none (${loopRule}). To set one yourself, open the pole and tap MLoop: the spacing then counts from it.`, tone: 'info', pdf: `Maintenance loops: ${nA} added by the app.` }); }
+    if (!isAcc() && [...B.groups.values()].some((g) => g.item === 'Maintenance loop' && g.forWhat !== 'Pole')) notes.push({ t: `Maintenance loop at each handhole, manhole and service box on the route: ${BOX_LOOP_M} m (each has one; it is not drawn on the plan).`, tone: 'info', pdf: false }); // v2.42.16
+    if (!isAcc() && svPurpose() === 'As-built') { const R0 = routeModel(), O0 = loopOwnMap(pts, R0), on = new Set(R0.spans.flatMap((sp) => [sp.ia, sp.ib])), open = pts.filter((p) => on.has(p.id) && elemOf(p) === 'Pole' && !(p.boq && p.boq.mloop) && !O0.has(p.id)); // v2.42.16
+      if (open.length) notes.push({ t: `Maintenance loop not answered (MLoop or No loop): ${open.length} \u2014 ${open.slice(0, 60).map((r) => r.poleId || elemOf(r)).join(', ')}${open.length > 60 ? ' \u2026' : ''}`, tone: 'bad', pdf: `Maintenance loop not answered: ${open.length}.` }); }
     notes.push({ t: 'Quantities are what was recorded in the field: one per element (a clamp size counts the poles that need it; a pole clamp type counts each type a pole needs, the record\'s or, left blank, the ones the plan picks). Add spares and allowances per your design standard.', tone: 'info', pdf: false });
     return { compare, head, rows, notes, title: svPurpose() === 'As-built' ? (compare ? 'BOQ / BOM \u2014 As-Built against the As-Plan' : 'BOQ / BOM \u2014 As-Built') : 'BOQ / BOM \u2014 As-Plan' };
   }
@@ -7547,21 +8227,37 @@
     const rows = [], add = (code, qty, unit, desc) => rows.push([code, qty, unit, desc]), r1 = (v) => Math.round(v * 10) / 10, isNew = (p) => ['Proposed', 'New'].includes(p.status);
     const keys = [...Object.keys(CAB), ''], lenBy = {}, polesBy = {}, loopsBy = {}, ml = mloopLen();
     keys.forEach((k) => { lenBy[k] = 0; polesBy[k] = new Set(); loopsBy[k] = 0; });
-    R.spans.forEach((sp) => { lenBy[sp.cable] += sp.len; polesBy[sp.cable].add(sp.ia); polesBy[sp.cable].add(sp.ib); });
+    R.spans.forEach((sp) => (sp.runs || [sp.cable]).forEach((k) => { lenBy[k] += sp.len; polesBy[k].add(sp.ia); polesBy[k].add(sp.ib); })); // v2.42.18: each run
     const cabAt = (id) => { const sp = R.spans.find((x) => x.ia === id || x.ib === id); return sp ? sp.cable : null; };
-    let loops = 0, loopsOff = 0;
-    pts.forEach((p) => { if (elemOf(p) === 'Pole' && p.boq && p.boq.mloop) { loops++; const c = cabAt(p.id); if (c == null) loopsOff++; else loopsBy[c]++; } });
+    let loops = 0, loopsOff = 0, loopM = 0, nBox = 0; const loopMBy = {}; keys.forEach((k) => { loopMBy[k] = 0; });
+    // v2.42.16: the loops on poles (the surveyor's, as the plan draws them, and the ones the app adds in an As-Plan) and the one each
+    // handhole, manhole and service box on the route has (BOX_LOOP_M), each on its cable
+    const LA = autoLoops(pts, R), OWN = loopOwnMap(pts, R), LM = loopManSet(pts, R, OWN), onR = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])); // v2.42.18: + NAPs, LCPs, pins, entrances
+    pts.forEach((p) => {
+      const box = UG_BOXES.has(elemOf(p)) && onR.has(p.id); if (!box && !LM.has(p.id) && !LA.has(p.id)) return;
+      loops++; if (box) nBox++; const c = LA.has(p.id) ? LA.get(p.id) : cabAt(p.id), m = box ? BOX_LOOP_M : loopLenAt(p, R, LA, OWN.get(p.id)); // v2.42.18: its own length
+      if (c == null) loopsOff++; else { loopsBy[c]++; loopMBy[c] += m; loopM += m; }
+    });
     const tag = (k) => (k ? k : 'NOTSET'), nm = (k) => (k ? CAB[k].label : 'cable not set');
     add('SPAN_TOTAL', r1(R.total), 'm', `All spans (${R.spans.length}), straight pole-to-pole lengths`);
+    const xr = R.spans.filter((sp) => (sp.runs || []).length > 1); // v2.42.18: spans with more than one run
+    if (xr.length) { add('RUNS_EXTRA', xr.reduce((t, sp) => t + sp.runs.length - 1, 0), 'each', `Other runs (run 2, run 3…) on ${xr.length} span${xr.length === 1 ? '' : 's'}`); add('RUNS_EXTRA_M', r1(R.cableTotal - R.total), 'm', 'Length of the other runs (in SPAN_<cable>, FOC_<cable>, FOC_TOTAL and DE)'); }
     keys.forEach((k) => { if (lenBy[k] || k) add(`SPAN_${tag(k)}`, r1(lenBy[k]), 'm', `Spans with ${nm(k)}`); });
     add('SPAN_AE', r1(keys.filter((k) => k && CAB[k].method === 'AE').reduce((t, k) => t + lenBy[k], 0)), 'm', 'Aerial (AE) spans');
     add('SPAN_UG', r1(keys.filter((k) => k && CAB[k].method === 'UG').reduce((t, k) => t + lenBy[k], 0)), 'm', 'Underground (UG) spans');
-    add('MLOOP_LEN', ml, 'm', 'Maintenance loop length (Administration → Field standards)');
-    add('MLOOP_COUNT', loops, 'each', `Poles with a maintenance loop${loopsOff ? ` (${loopsOff} not on the route)` : ''}`);
+    add('MLOOP_LEN', ml, 'm', 'Maintenance loop length on a 72C pole, unless set on the record (Administration → Field standards)');
+    add('MLOOP_LEN_L12', 10, 'm', 'Maintenance loop length on a 12C pole, unless set on the record'); // v2.42.18
+    add('MLOOP_M', r1(loopM), 'm', 'All maintenance loops: their lengths added (each loop its own)'); // v2.42.18
+    add('MLOOP_BOX_LEN', BOX_LOOP_M, 'm', 'Maintenance loop length at a handhole, manhole or service box (each has one)'); // v2.42.16
+    add('MLOOP_COUNT', loops, 'each', `Maintenance loops${loopsOff ? ` (${loopsOff} not on the route)` : ''}${LA.size ? `, ${LA.size} added by the app` : ''}${nBox ? `, ${nBox} at handholes, manholes and service boxes` : ''}`);
+    add('MLOOP_BOX', nBox, 'each', `Handholes, manholes and service boxes on the route: a ${BOX_LOOP_M} m loop each`); // v2.42.16
+    add('MLOOP_OWN', pts.filter((p) => onR.has(p.id) && OWN.has(p.id)).length, 'each', 'Points on the route with their own loop (a NAP, an LCP, a hybrid closure, a dummy NAP or a riser on the pole; a site, ODF or ODC entrance): in MLOOP_COUNT'); // v2.42.17
+    if (svPurpose() === 'As-plan') add('MLOOP_AUTO', LA.size, 'each', `Maintenance loops added by the app where the survey had none: ${loopRule}`); // v2.42.16
+    if (svPurpose() === 'As-built') { const need = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])), open = pts.filter((p) => need.has(p.id) && elemOf(p) === 'Pole' && !(p.boq && p.boq.mloop) && !OWN.has(p.id)).length; add('MLOOP_UNANSWERED', open, 'each', 'Poles on the route whose maintenance loop was not answered (MLoop or No loop): check them'); }
     keys.forEach((k) => { if (k || loopsBy[k]) add(`MLOOP_${tag(k)}`, loopsBy[k], 'each', `Maintenance loops on ${nm(k)}`); });
-    keys.forEach((k) => { if (k || lenBy[k]) add(`FOC_${tag(k)}`, r1(lenBy[k] + loopsBy[k] * ml), 'm', `${k ? CAB[k].label : 'Cable not set'}: spans + ${ml} m per loop`); });
-    add('FOC_TOTAL', r1(R.total + (loops - loopsOff) * ml), 'm', 'All FOC: spans + loops');
-    add('DE', r1(R.total), 'cable-m', 'Detailed engineering: FOC length without the maintenance loops');
+    keys.forEach((k) => { if (k || lenBy[k]) add(`FOC_${tag(k)}`, r1(lenBy[k] + loopMBy[k]), 'm', `${k ? CAB[k].label : 'Cable not set'}: spans + loops (each its own length; by default ${k === 'L12' ? 10 : ml} m on a pole, ${BOX_LOOP_M} m at a handhole, manhole or service box)`); });
+    add('FOC_TOTAL', r1(R.cableTotal + loopM), 'm', 'All FOC: spans (each run) + loops');
+    add('DE', r1(R.cableTotal), 'cable-m', 'Detailed engineering: FOC length without the maintenance loops (each run)');
     keys.forEach((k) => { if (k || polesBy[k].size) add(`POLES_${tag(k)}`, polesBy[k].size, 'each', `Route points (poles, handholes, ODF…) on ${nm(k)} spans`); });
     add('SPANS_LONG', R.long, 'each', `Spans longer than ${pol().maxSpan || 200} m`);
     const poles = pts.filter((p) => elemOf(p) === 'Pole'), cnt = (list, f) => { const m = new Map(); list.forEach((p) => { const v = f(p); if (v) String(v).split(' + ').forEach((x) => m.set(x, (m.get(x) || 0) + 1)); }); return [...m.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0]), undefined, { numeric: true })); };
@@ -7570,9 +8266,12 @@
     cnt(poles.filter(isNew), (p) => [p.boq && p.boq.height, p.boq && p.boq.cls].filter(Boolean).join(' ') || 'size not set').forEach(([v, n]) => add(`NEWPOLE_${slug(v)}`, n, 'each', `New ${globeType()} pole ${v}`));
     cnt(poles, (p) => p.boq && p.boq.arm).forEach(([v, n]) => add(`ARM_${slug(v)}`, n, 'each', `New arm: ${v}`));
     cnt(poles, (p) => p.boq && p.boq.guy).forEach(([v, n]) => add(`GUY_${slug(v)}`, n, 'each', `Guying: ${v}`));
-    cnt(poles, (p) => p.boq && p.boq.clamp && `${p.boq.clamp}`).forEach(([v, n]) => add(`CLAMP_${slug(v)}`, n, 'each', `Pole clamp ${v}`));
-    { const fb = boqFilled(pts); cnt(poles, (p) => p.boq && p.boq.clamp && String((fb(p) || {}).clampType || '').split(/\s*\+\s*/).filter(Boolean).map((t) => `${t} ${p.boq.clamp}`).join(' + ')).forEach(([v, n]) => add(`CLAMP_${slug(v)}`, n, 'each', `Pole clamp ${v} (type and size)`)); } // v2.40
-    const odfs = pts.filter((p) => elemOf(p) === 'ODF'), clos = pts.filter((p) => elemOf(p) === 'Closure' || (elemOf(p) === 'Handhole' && p.closureId)), naps = pts.filter((p) => elemOf(p) === 'NAP');
+    const fbq = boqFilled(pts), clampOk = (p) => p.boq && p.boq.clamp && !(fbq(p) || {}).noClamp; // v2.42.18: none on a 12C-only pole or a telco arm
+    cnt(poles.filter(clampOk), (p) => `${p.boq.clamp}`).forEach(([v, n]) => add(`CLAMP_${slug(v)}`, n, 'each', `Pole clamp ${v}`));
+    { const hw = new Map(); poles.forEach((p) => ((fbq(p) || {}).hwItems || []).forEach(([it, q, sz]) => { const k2 = `${it} ${sz}`; hw.set(k2, (hw.get(k2) || 0) + q); })); // v2.42.18
+      [...hw.entries()].forEach(([v, n]) => add(`HW_${slug(v)}`, n, 'each', v)); }
+    { const fb = fbq; cnt(poles.filter(clampOk), (p) => p.boq && p.boq.clamp && String((fb(p) || {}).clampType || '').split(/\s*\+\s*/).filter(Boolean).map((t) => `${t} ${p.boq.clamp}`).join(' + ')).forEach(([v, n]) => add(`CLAMP_${slug(v)}`, n, 'each', `Pole clamp ${v} (type and size)`)); } // v2.40
+    const odfs = pts.filter((p) => elemOf(p) === 'ODF'), clos = pts.filter((p) => elemOf(p) === 'Closure' || boxClo(p)), naps = pts.filter((p) => elemOf(p) === 'NAP');
     // v2.41: the NAPs and hybrid closures on the poles (New unless set Existing)
     const poleClo = poles.filter((p) => p.closure || p.closureId), poleNap = poles.filter((p) => p.nap || p.napId), stOf = (p, k) => ((p.boq || {})[k] === 'Existing' ? 'Existing' : 'New');
     // v2.42: each box on a pole (a pole may carry two, e.g. an LCP 1:4 and a NAP 1:16)
@@ -7580,7 +8279,7 @@
     const dnaps = boxes.filter((x) => x.type === 'Dummy NAP');
     cnt(odfs.filter(isNew), (p) => [p.boq && p.boq.odf, p.boq && p.boq.conn].filter(Boolean).join(' ') || 'size not set').forEach(([v, n]) => add(`ODF_NEW_${slug(v)}`, n, 'each', `New ODF ${v}`));
     add('ODF_NEW_FIBERS', odfs.filter(isNew).reduce((t, p) => t + (parseInt(String((p.boq && p.boq.odf) || ''), 10) || 0), 0), 'fiber(s)', 'Fibers of the new ODFs (e.g. 12 for a 12F)');
-    cnt(clos.filter((p) => isNew(p) || (p.boq && p.boq.cloSt === 'New')).concat(poleClo.filter((p) => stOf(p, 'cloSt') === 'New')), (p) => (p.boq && p.boq.clo) || 'size not set').forEach(([v, n]) => add(`CLOSURE_NEW_${slug(v)}`, n, 'each', `New closure ${v}`));
+    cnt(clos.filter((p) => (boxClo(p) && p.boq && p.boq.cloSt ? p.boq.cloSt === 'New' : isNew(p) || (p.boq && p.boq.cloSt === 'New'))).concat(poleClo.filter((p) => stOf(p, 'cloSt') === 'New')), (p) => (p.boq && p.boq.clo) || 'size not set').forEach(([v, n]) => add(`CLOSURE_NEW_${slug(v)}`, n, 'each', `New closure ${v}`));
     cnt(dnaps.filter((x) => x.st === 'New'), (x) => x.sz || 'size not set').forEach(([v, n]) => add(`DUMMY_NAP_NEW_${slug(v)}`, n, 'each', `New dummy NAP ${v}`));
     add('NAP_NEW', naps.filter(isNew).length + boxes.filter((x) => x.st === 'New').length, 'each', 'Proposed / new NAPs (dummy NAPs and LCPs included)'); add('NAP_EXISTING', naps.filter((p) => !isNew(p)).length + boxes.filter((x) => x.st === 'Existing').length, 'each', 'Existing NAPs');
     const reg = pmeta().region, sug = regionSuggest();
@@ -7623,11 +8322,12 @@
       [lbl('Angle pole from (°)'), pol().angleDeg || 15],
       [],
       [lbl('Total route length (m)'), Math.round(Rt.total * 10) / 10],
+      ...(Rt.cableTotal > Rt.total + 0.05 ? [[lbl('Cable on the spans, each run (m)'), Math.round(Rt.cableTotal * 10) / 10]] : []), // v2.42.18
       [lbl('Spans'), Rt.spans.length],
       [lbl('Spans longer than maximum'), { v: Rt.long, s: Rt.long ? st.bad : st.good }],
       [lbl('Average span (m)'), Math.round((Rt.total / Rt.spans.length) * 10) / 10],
       [lbl('Longest span'), `${longest.from} → ${longest.to}: ${longest.len.toFixed(1)} m`],
-      ...(() => { const by = {}; Rt.spans.forEach((sp) => { by[sp.cable] = (by[sp.cable] || 0) + sp.len; }); return Object.entries(by).map(([k, m]) => [lbl(`${CAB[k] ? `${CAB[k].label} (${CAB[k].method})` : 'Cable not set'} (m)`), { v: Math.round(m * 10) / 10, s: CAB[k] ? st.cell : st.bad }]); })(), // v2.29
+      ...(() => { const by = {}; Rt.spans.forEach((sp) => (sp.runs || [sp.cable]).forEach((k) => { by[k] = (by[k] || 0) + sp.len; })); return Object.entries(by).map(([k, m]) => [lbl(`${CAB[k] ? `${CAB[k].label} (${CAB[k].method})` : 'Cable not set'} (m)`), { v: Math.round(m * 10) / 10, s: CAB[k] ? st.cell : st.bad }]); })(), // v2.29
       [],
       [lbl('Poles in project'), pts.filter((p) => elemOf(p) === 'Pole').length],
       [lbl('Other points (site, ODC, ODF, NAP, closures, handholes)'), pts.filter((p) => elemOf(p) !== 'Pole').length],
@@ -7639,19 +8339,19 @@
       [],
       [{ v: 'Span lengths are straight lines between pole pins, not cable lengths: add sag, slack and MLoop allowance per your design standard.', s: st.info }],
     ];
-    const spanRows = [['No.', 'From', 'To', 'Length (m)', 'Longer than maximum', 'Cable', 'Method', 'From lat', 'From lon', 'To lat', 'To lon'].map((v) => ({ v, s: st.header }))];
-    Rt.spans.forEach((s, i) => spanRows.push([{ v: i + 1, s: st.center }, s.from, s.to, { v: Math.round(s.len * 10) / 10, s: s.long ? st.bad : st.cell },
-      { v: s.long ? 'Yes' : 'No', s: s.long ? st.bad : st.cell }, CAB[s.cable] ? CAB[s.cable].label : { v: 'not set', s: st.bad }, CAB[s.cable] ? CAB[s.cable].method : '', { v: s.a.lat, s: st.coord }, { v: s.a.lon, s: st.coord }, { v: s.b.lat, s: st.coord }, { v: s.b.lon, s: st.coord }])); // v2.29: cable, method
+    const spanRows = [['No.', 'From', 'To', 'Run', 'Length (m)', 'Longer than maximum', 'Cable', 'Method', 'From lat', 'From lon', 'To lat', 'To lon'].map((v) => ({ v, s: st.header }))];
+    Rt.spans.forEach((s, i) => (s.runs || [s.cable]).forEach((k, r) => spanRows.push([{ v: i + 1, s: st.center }, s.from, s.to, { v: r + 1, s: st.center }, { v: Math.round(s.len * 10) / 10, s: s.long ? st.bad : st.cell },
+      { v: s.long ? 'Yes' : 'No', s: s.long ? st.bad : st.cell }, CAB[k] ? CAB[k].label : { v: 'not set', s: st.bad }, CAB[k] ? CAB[k].method : '', { v: s.a.lat, s: st.coord }, { v: s.a.lon, s: st.coord }, { v: s.b.lat, s: st.coord }, { v: s.b.lon, s: st.coord }]))); // v2.29: cable, method; v2.42.18: a row per run
     const poleRows = [['No.', 'ID', 'Element', 'Type / status', 'Role on route', 'Spans at point', 'Deflection (°)', 'Latitude', 'Longitude', `UTM ${S.zone}N E`, `UTM ${S.zone}N N`, 'Pole details', 'Remarks', 'Size (BOQ)'].map((v) => ({ v, s: st.header }))];
     pts.forEach((p, i) => {
       const info = Rt.poles[p.id] || { role: 'On a pole (not a route point)', degree: '', deflection: null }, u = C.utmForward(p.lat, p.lon, S.zone, p.lat < 0), el = elemOf(p);
-      poleRows.push([{ v: i + 1, s: st.center }, p.poleId, el, [el === 'Pole' ? p.poleType || '' : '', svStatusLabel(p.status), p.closureId ? `closure ${p.closureId}` : ''].filter(Boolean).join(' · '),
+      poleRows.push([{ v: i + 1, s: st.center }, p.poleId, el, [el === 'Pole' ? p.poleType || '' : '', svStatusLabel(p.status), p.closureId ? `closure ${p.closureId}` : boxClo(p) ? 'closure' : ''].filter(Boolean).join(' · '),
         { v: info.role, s: info.role === 'Not on route' ? st.bad : st.cell }, info.degree,
         info.deflection == null ? '' : Math.round(info.deflection * 10) / 10, { v: p.lat, s: st.coord }, { v: p.lon, s: st.coord }, Math.round(u.E * 1000) / 1000, Math.round(u.N * 1000) / 1000, detailsText(p.details), p.remarks || '', boqText(p)]);
     });
     const parts = R.buildXlsxParts([
       { name: 'Summary', cols: [30, 44], rows: summary, merges: ['A1:B1', `A${summary.length}:B${summary.length}`] },
-      { name: 'Spans', cols: [6, 15, 15, 11, 12, 24, 8, 12, 13, 12, 13], rows: spanRows, freezeRow: 1, autoFilter: `A1:K${spanRows.length}` },
+      { name: 'Spans', cols: [6, 15, 15, 6, 11, 12, 24, 8, 12, 13, 12, 13], rows: spanRows, freezeRow: 1, autoFilter: `A1:L${spanRows.length}` },
       { name: 'Points', cols: [6, 15, 10, 18, 16, 9, 11, 12, 13, 13, 13, 30, 30, 30], rows: poleRows, freezeRow: 1, autoFilter: `A1:N${poleRows.length}` },
       ...(boqOn() ? [boqSheet(pts, st, await planFor()), qtySheet(pts, st)] : []), // v2.26 (v2.26.1: As-Plan / As-Built, planned against built; v2.29: quantities)
       exporterSheet(st),
@@ -7844,11 +8544,11 @@
     const fm = meta.meta || {}, kind = (m) => (m.mode === 'acceptance' ? m.stage || 'PAT' : 'survey');
     let proj = meta.project || (meta.points[0] && meta.points[0].project);
     const sameOne = proj && meta.points.some((p) => points.some((x) => x.id === p.id && x.project === proj)); // this project came from the same file before
-    if (proj && o.apart && meta.points.length && allProjects().includes(proj) && !sameOne) { // v2.21: a colleague's project kept apart from one of the same name
+    if (proj && !o.update && o.apart && meta.points.length && allProjects().includes(proj) && !sameOne) { // v2.21: a colleague's project kept apart from one of the same name
       const nm = `${proj} (${o.apart})`; // opened again: the same copy is updated, not a third one made
       meta.points = meta.points.map((p) => ({ ...p, project: nm })); proj = nm;
     }
-    if (proj && !o.apart && meta.points.length && !sameOne && points.some((x) => x.project === proj) && !meta.points.some((p) => points.some((x) => x.id === p.id))) { // v2.42.4: another copy of the same name (a second crew's cleanup, a colleague's backup): its own project (they were merged, every element twice)
+    if (proj && !o.update && !o.apart && meta.points.length && !sameOne && points.some((x) => x.project === proj) && !meta.points.some((p) => points.some((x) => x.id === p.id))) { // v2.42.4: another copy of the same name (a second crew's cleanup, a colleague's backup): its own project (they were merged, every element twice)
       let nm = `${proj} (2)`, k = 3; while (allProjects().includes(nm)) nm = `${proj} (${k++})`;
       meta.points = meta.points.map((p) => ({ ...p, project: nm })); proj = nm;
     }
@@ -7860,16 +8560,18 @@
     if (proj) { // v2.42.4: the project's details first (a restore cut short left records with none: a PAT showed as an open survey)
       if (!S.projects.includes(proj)) S.projects.push(proj);
       S.meta = S.meta || {};
-      if (meta.meta && !S.meta[proj]) S.meta[proj] = meta.meta;
+      if (meta.meta && !S.meta[proj]) { const { shares, recv, updates, ...mm } = meta.meta; S.meta[proj] = mm; } // v2.42.18: the sender's own share counts stay on the sender's phone
       persist();
     }
-    let n = 0, kept = 0;
+    let n = 0, kept = 0, routeNew = false, goneHere = 0;
     for (const p of meta.points) {
       busy(`Restoring ${++n} / ${meta.points.length}`, n / meta.points.length);
       // v2.42.4: this phone's copy stays when it is newer, or now in another project (renamed): an older backup or a shared file sent
       // back no longer undoes the work done since (accepted items went back to Rectified)
       const cur = points.find((x) => x.id === p.id);
       if (cur && (cur.project !== p.project || String(cur.updated || '') > String(p.updated || ''))) { kept++; continue; }
+      const tomb = o.update && !cur && S.meta && S.meta[proj] && S.meta[proj].gone ? S.meta[proj].gone[p.id] : ''; // v2.42.18: deleted on this phone after the sender's last change: it stays deleted
+      if (tomb && String(p.updated || '') <= String(tomb)) { kept++; goneHere++; continue; }
       for (const pid of allPids(p)) {
         const clean = await z.get(`${pre}photos/${pid}.jpg`), thumb = await z.get(`${pre}thumbs/${pid}.jpg`);
         if (clean || thumb) await dbPut('photos', { id: pid, clean: clean && new Blob([clean], { type: 'image/jpeg' }), thumb: thumb && new Blob([thumb], { type: 'image/jpeg' }) });
@@ -7881,9 +8583,31 @@
       if (meta.meta && S.meta[proj] !== meta.meta) {
         if (meta.meta.people) S.meta[proj].people = { ...(S.meta[proj].people || {}), ...meta.meta.people };
         if (meta.meta.links) {
-          const have = new Set((S.meta[proj].links || []).map(([x, y]) => [x, y].sort().join('|')));
-          S.meta[proj].links = (S.meta[proj].links || []).concat(meta.meta.links.filter(([x, y]) => !have.has([x, y].sort().join('|'))));
+          const mineAt = S.meta[proj].linksAt || '', theirs = meta.meta.linksAt || '';
+          if (theirs && theirs > mineAt) { S.meta[proj].links = meta.meta.links.map((l) => l.slice()); S.meta[proj].linksAt = theirs; routeNew = true; } // v2.42.18: the newer route wins (spans removed, cables and runs changed)
+          else {
+            const have = new Set((S.meta[proj].links || []).map(([x, y]) => [x, y].sort().join('|')));
+            S.meta[proj].links = (S.meta[proj].links || []).concat(meta.meta.links.filter(([x, y]) => !have.has([x, y].sort().join('|'))));
+          }
         }
+      }
+      // v2.42.18: records deleted on the other phone are deleted here too (unless edited here after that)
+      const G = (meta.meta && meta.meta.gone) || {}, delIds = new Set();
+      if (Object.keys(G).length && S.meta[proj]) {
+        const mg = { ...(S.meta[proj].gone || {}) };
+        for (const [id, t] of Object.entries(G)) {
+          if (!mg[id] || mg[id] < t) mg[id] = t;
+          const cur = points.find((x) => x.id === id && x.project === proj);
+          if (!cur || String(cur.updated || '') > String(t)) continue;
+          await dbDel('points', id); await deletePhotosIfUnused(allPids(cur), new Set([id])); points = points.filter((x) => x.id !== id); delIds.add(id);
+        }
+        S.meta[proj].gone = mg;
+        if (delIds.size) S.meta[proj].links = (S.meta[proj].links || []).filter(([x, y]) => !delIds.has(x) && !delIds.has(y));
+      }
+      if (o.update && S.meta[proj]) { // v2.42.18: who sent which update (Projects → Project details)
+        const U = o.update, r = { ...(S.meta[proj].recv || {}) }; r[U.sender] = { n: Math.max((r[U.sender] || {}).n || 0, U.n), at: U.at, name: U.from };
+        S.meta[proj].recv = r; o.result = { recs: meta.points.length - kept, kept: kept - goneHere, goneHere, gone: delIds.size, route: routeNew };
+        S.meta[proj].updates = [...(S.meta[proj].updates || []), { n: U.n, full: U.full, from: U.from, at: U.at, got: new Date().toISOString(), ...o.result }].slice(-30);
       }
       S.project = proj; persist();
     }
@@ -8500,13 +9224,14 @@
   function renderTypeInfo() { $('typeInfo').textContent = poleTypes().map((t) => `${t.n} ${t.p}-`).join(' · '); }
   $('goCamera').addEventListener('click', () => {
     $('setMyTypes').value = typeLines(S.myTypes); renderTypeInfo();
-    $('setReadId').checked = S.readId !== false; $('setReadIdAcc').checked = S.readIdAcc === true; $('setIdAuto').checked = S.idAuto !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h'; $('setHand').value = handOf();
+    $('setReadId').checked = S.readId !== false; $('setReadIdAcc').checked = S.readIdAcc === true; $('setSaveCheck').checked = S.saveCheck !== false; $('setIdAuto').checked = S.idAuto !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h'; $('setHand').value = handOf();
     $('setQuality').value = effectiveQuality(); $('setQuality').disabled = !!S.team;
     $('qualityNote').textContent = S.team ? `Set by the admin in the company list “${S.team.name}” — the same on every phone.` : 'Until this phone takes a company list, you can choose this yourself.';
     openSheet('setCamera');
   });
   $('setReadId').addEventListener('change', () => { S.readId = $('setReadId').checked; persist(); });
   $('setReadIdAcc').addEventListener('change', () => { S.readIdAcc = $('setReadIdAcc').checked; persist(); });
+  $('setSaveCheck').addEventListener('change', () => { S.saveCheck = $('setSaveCheck').checked; persist(); }); // v2.42.17
   $('setIdAuto').addEventListener('change', () => { S.idAuto = $('setIdAuto').checked; persist(); });
   $('setHand').addEventListener('change', () => { S.hand = $('setHand').value; persist(); applyHand(); toast(`Camera button on the ${handOf()}`, 2000); });
   $('setOrient').addEventListener('change', () => { S.idOrient = $('setOrient').value === 'v' ? 'v' : 'h'; persist(); });
@@ -8517,7 +9242,7 @@
     ['kmzRoute', 'kmzRoute2', 'kmzRoute', 'bool'], ['kmzStamp', 'kmzStamp3', 'kmzStamp', 'bool'], ['kmzStamp2', 'kmzStamp3', 'kmzStamp', 'bool'],
     ['pdfPhotoSize', 'pdfPhotoSize2', 'pdfPhotoSize', 'str'], ['pdfAnnexA', 'pdfAnnexA2', 'pdfAnnexA', 'bool'], ['pdfAnnexB', 'pdfAnnexB2', 'pdfAnnexB', 'bool'],
     ['pdfDates', 'xlsDates', 'pdfDates', 'str'], ['xlsTable', null, 'xlsTable', 'bool'], ['xlsPhotos', null, 'xlsPhotos', 'bool'], ['kmzData', null, 'kmzData', 'bool'],
-    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['dxfPdf', null, 'dxfPdf', 'bool']]; // v2.41: the plan's options are on the Drawing screen
+    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['dxfPdf', null, 'dxfPdf', 'bool'], ['pmiLoops', 'pmiLoops2', 'pmiLoops', 'bool']]; // v2.41: the plan's options are on the Drawing screen (v2.42.17: + loops in the PMI, also under Settings)
   const expIds = {};
   EXP_PAIRS.forEach(([a, b, key, kind]) => { [a, b].filter(Boolean).forEach((id) => { const l = (expIds[key] = expIds[key] || []); if (!l.some((x) => x[0] === id)) l.push([id, kind]); }); });
   function syncExpUi() {
@@ -8825,6 +9550,36 @@
     if (stack[stack.length - 1] !== 'profile') openSheet('profile');
   }
   const mobileOk = (m) => /^\+?\d{7,15}$/.test(m.replace(/[\s\-().]/g, ''));
+  /** v2.42.18: an admin company (GLOBE) user proves their email: the online sheet looks for it in its Admin users tab and emails a
+      6-digit code (10 minutes, 5 tries). The code typed here gets that row only (name, ID no., mobile, job) and a token the phone
+      sends at each refresh: the jobs follow the row, and the row deleted removes the admin company from this phone. No admin phone
+      and no new company list are needed. Returns true when verified (the reason is in pfErr otherwise). */
+  const adminRow = (u) => ({ n: String(u.n || '').slice(0, 80), i: String(u.i || '').slice(0, 40), m: String(u.m || '').slice(0, 30), j: String(u.j || '').slice(0, 120), jobs: jobKeys(u.j), gone: false });
+  async function verifyAdminEmail(email) {
+    const src = S.team && S.team.src, e = String(email || '').trim().toLowerCase(), own = pol().owner, err = (t) => { $('pfErr').textContent = t; $('pfErr').hidden = false; return false; };
+    if (!src || !src.url || !navigator.onLine) return false;
+    const post = (body) => cloudRequest(src, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body, key: src.key || '', ckey: S.companyKey || '', v: APP_VER }) });
+    err('Asking the online sheet for a code…'); $('pfSave').disabled = true;
+    let j; try { j = await post({ action: 'adminCode', email: e }); } catch (x) { return err(`The online sheet did not answer (${x.message || x}). Try again with internet.`); } finally { $('pfSave').disabled = false; }
+    if (j && (j.error === 'action' || j.error === 'key')) return err(`The online sheet cannot send codes (its script is older than v2.42.18, or its read key changed): ask your admin to update it, or to add ${e} to the company list.`);
+    if (j && j.error === 'wait') return err(`Several codes were asked for ${e} in the last minutes: wait 10 minutes, then tap Save again.`);
+    if (j && j.error === 'mail') return err('The online sheet could not send the email (its daily email limit, or its owner has not allowed email yet). Ask your admin.');
+    if (!j || !j.ok) return err(`The online sheet refused: ${(j && j.error) || 'unknown reason'}.`);
+    if (!j.sent) return err(`${e} is not on the Admin users tab of the online sheet. Ask your admin to add a row for you (email, name, job), then tap Save again. Contractors choose their own company.`);
+    $('pfErr').hidden = true; LOG.info('admin.email.code');
+    for (;;) {
+      const code = await askPin(`Code sent to ${e}`, `The online sheet emailed you a 6-digit code (look in Spam too). Type it here: it works for 10 minutes.`, { placeholder: '6 digits', plain: true });
+      if (code == null) return err(`Not verified: ${own} needs the code from the email. Tap Save to get a new one.`);
+      let r; try { r = await post({ action: 'adminVerify', email: e, code: String(code).replace(/\D/g, '') }); } catch (x) { toast(`The online sheet did not answer: ${x.message || x}`, 5000); continue; }
+      if (r && r.ok && r.token && r.user) {
+        S.adminMe = { e, tok: String(r.token).slice(0, 120), src: src.url, at: new Date().toISOString(), ...adminRow(r.user) }; persist();
+        LOG.info('admin.email.ok', { jobs: S.adminMe.jobs.length }); toast(`Email verified: you are a ${own} user${S.adminMe.jobs.length ? ` (${S.adminMe.jobs.map((k) => JOB_NAME[k]).join(', ')})` : ''}`, 4000);
+        return true;
+      }
+      if (r && (r.error === 'expired' || r.left === 0)) return err(r.error === 'expired' ? 'The code expired or was used: tap Save again for a new one.' : 'Too many wrong codes: tap Save again for a new one.');
+      toast(`Wrong code${r && Number.isFinite(r.left) ? `: ${r.left} ${r.left === 1 ? 'try' : 'tries'} left` : ''}`, 3500);
+    }
+  }
   $('pfSave').addEventListener('click', async () => {
     const name = $('pfName').value.trim().replace(/\s+/g, ' '), mobile = $('pfMobile').value.trim().replace(/\s+/g, ' ');
     const email = $('pfEmail').value.trim(), keyed = keyOffered() && !keyMode(), idno = $('pfIdNo').value.trim().replace(/\s+/g, ' ').slice(0, 40); // v2.28: company ID no.
@@ -8841,6 +9596,7 @@
     }
     const own = pol().owner;
     if (own && normCo(company) === normCo(own) && !adminUserOk(email) && S.team && S.team.src && navigator.onLine) { $('pfErr').textContent = 'Checking with the online sheet…'; $('pfErr').hidden = false; await cloudSync(true); $('pfErr').hidden = true; } // just added by the admin?
+    if (own && normCo(company) === normCo(own) && !adminUserOk(email) && S.team && S.team.src && navigator.onLine && !(await verifyAdminEmail(email))) return; // v2.42.18: the code from the sheet
     if (own && normCo(company) === normCo(own) && !adminUserOk(email)) { $('pfErr').textContent = `Only the ${own} users added by your admin can choose ${own}. Ask your admin to add ${email.toLowerCase()}, or choose your own company.`; $('pfErr').hidden = false; return; }
     if (own && normCo(company) === normCo(own) && hasListKey(S.team) && !holdsListKey() && !keyMode()) { // the admin company is for its own staff (a company key already proves it)
       // v2.42.3: an invite with the sheet's code brings the admin company's own key, which proves the company as a key invite does: no PIN
@@ -8947,7 +9703,7 @@
     if (!ok) return;
     LOG.info('user.reset', { keyed: keyMode() });
     S.sig = { ...DEF.sig }; // v2.42.12: the title block's names go with the user
-    S.user = null; S.companyKey = ''; S.keyCompany = ''; S.adminKey = null; S.onlineAdminKey = ''; S.listKe = null; S.cloud = null; S.inviteCo = ''; S.inviteCos = []; S.inviteCode = ''; inviteNoKey = ''; moveFill = null; S.credit = null; persist(); // v2.42.4: + the sheet's Admin key, a move (v2.42.6: the credits shown; exports owed stay)
+    S.user = null; S.adminMe = null; S.companyKey = ''; S.keyCompany = ''; S.adminKey = null; S.onlineAdminKey = ''; S.listKe = null; S.cloud = null; S.inviteCo = ''; S.inviteCos = []; S.inviteCode = ''; inviteNoKey = ''; moveFill = null; S.credit = null; persist(); // v2.42.4: + the sheet's Admin key, a move (v2.42.6: the credits shown; exports owed stay)
     ['pfName', 'pfMobile', 'pfEmail', 'pfIdNo'].forEach((id) => { $(id).value = ''; }); keyIn = ''; renderAreaChips([], []);
     renderWho(); renderTeamInfo(); openProfile(true);
   });
@@ -9626,12 +10382,12 @@
   const APPR_TAG = 'G-eSAA approval:', APPR_MS = 10 * 60 * 1000;
   function taskJob(name) { return taskCat(name) === 'Survey' ? pmeta(name).purpose || 'As-plan' : 'acc'; }
   /** The jobs of an admin user on this list; null when the list sets no jobs (then every admin user approves). */
-  function jobsOf(email) { const J = pol().adminJobs; return J ? J[String(email || '').trim().toLowerCase()] || [] : null; }
+  function jobsOf(email) { const me = sheetMe(email); if (me) return me.jobs || []; const J = pol().adminJobs; return J ? J[String(email || '').trim().toLowerCase()] || [] : null; } // v2.42.18: a verified user's jobs from the sheet's row
   function mayApprove(email, job) { const L = jobsOf(email); return L == null || L.includes(job); }
   function canShowAppr() { return !!(S.team && S.adminKey && S.user && isAdmin()); }
   async function apprText() {
     const u = S.user, J = jobsOf(u.email);
-    const o = { v: 1, l: S.team.id, n: u.name, i: u.idno || '', m: u.mobile, e: u.email, c: u.company, ...(J ? { j: J } : {}), t: Date.now() };
+    const o = { v: 1, l: S.team.id, n: u.name, i: u.idno || '', m: u.mobile, e: u.email, c: u.company, ...(J ? { j: J } : {}), ...(sheetMe(u.email) ? { sv: 1 } : {}), t: Date.now() }; // v2.42.18: sv: an admin user of the sheet's tab (not in the list the vendor has)
     const body = JSON.stringify(o);
     return `${APPR_TAG}${b64u.enc(enc8(body))}.${await signText(body)}`;
   }
@@ -9677,9 +10433,9 @@
     if (age > APPR_MS) throw new Error(`This approval QR code expired ${Math.round(age / 60000)} minutes ago. Ask the inspector to show it again.`);
     if (age < -2 * 60000) throw new Error('The two phones’ clocks differ by more than 2 minutes. Set both to automatic time, then scan again.');
     const email = o.e.trim().toLowerCase();
-    if (!adminUserOk(email)) throw new Error(`${o.n} (${email}) is not an admin user of this company list.`);
+    if (!adminUserOk(email) && !o.sv) throw new Error(`${o.n} (${email}) is not an admin user of this company list.`);
     const job = taskJob(name);
-    if (!mayApprove(email, job)) throw new Error(`${o.n} is not an approver for this task (${job === 'acc' ? 'PAT, defect cleanup and FAT need a PAT/FAT inspector' : `${PURPOSE_LABEL[job] || job} needs the ${JOB_NAME[job] || job}`}).`);
+    if (!(o.sv && Array.isArray(o.j) ? o.j.includes(job) : mayApprove(email, job))) throw new Error(`${o.n} is not an approver for this task (${job === 'acc' ? 'PAT, defect cleanup and FAT need a PAT/FAT inspector' : `${PURPOSE_LABEL[job] || job} needs the ${JOB_NAME[job] || job}`}).`);
     if (!String(o.i || '').trim()) throw new Error(`${o.n} has no company ID no. in their details: they enter it, then show the QR code again.`);
     return { n: o.n.slice(0, 80), i: String(o.i).slice(0, 40), m: String(o.m || '').slice(0, 30), e: email.slice(0, 120), c: String(o.c || '').slice(0, 100), job, qrAt: new Date(o.t).toISOString(), code: await apprCode(m[2]) };
   }
@@ -9868,9 +10624,14 @@
       .map((u) => ({ e: s100(u.e, 120).toLowerCase(), n: s100(u.n, 80), i: s100(u.i, 40), m: s100(u.m, 30), j: s100(u.j, 120) })) : null; // v2.28: admin phones only
     const cseLeads = Array.isArray(j.cseLeads) ? j.cseLeads.filter((x) => x && typeof x === 'object').map((x) => ({ t: s100(x.t, 60), n: s100(x.n, 80) })).filter((x) => x.t && x.n).slice(0, 200) : null; // v2.42.12: the CSE LEAD tab
     return { name: s100(j.name), companies, admins, tasks: tasks.slice(0, 500), packs, ...(cseLeads ? { cseLeads } : {}), scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you),
-      ...(j.kmzPass ? { kmzPass: s100(j.kmzPass, 100) } : {}), ...(adminUsers ? { adminUsers } : {}), ...(/^[A-Za-z0-9_-]{20,80}$/.test(String(j.dxfSeed || '')) ? { dxfSeed: String(j.dxfSeed) } : {}) }; // v2.32: the plan template's id
+      ...(j.kmzPass ? { kmzPass: s100(j.kmzPass, 100) } : {}), ...(adminUsers ? { adminUsers } : {}), ...(/^[A-Za-z0-9_-]{20,80}$/.test(String(j.dxfSeed || '')) ? { dxfSeed: String(j.dxfSeed) } : {}), // v2.32: the plan template's id
+      ...(typeof j.siteRequired === 'boolean' ? { siteRequired: j.siteRequired } : {}) }; // v2.42.18: the sheet's Settings → Site required
   }
   let cloudBusy = null, cloudErr = '';
+  /** v2.42.18: "a new Survey or PAT must use a site of the online sheet": the sheet's Settings → Site required (Yes / No), which every
+      phone follows at its next refresh; with a sheet script older than v2.42.18, the company list's setting. */
+  const sheetSiteReq = () => (S.cloud && S.team && S.team.src && S.cloud.src === S.team.src.url && typeof S.cloud.siteRequired === 'boolean' ? S.cloud.siteRequired : null);
+  const siteReq = () => { const v = sheetSiteReq(); return v != null ? v : !!pol().siteRequired; };
   /** When the phone talks to the online sheet (v2.15): on every change (default), every hour, or only when Sync is tapped. */
   const syncMode = () => (['change', 'hour', 'manual'].includes(S.syncMode) ? S.syncMode : 'change');
   async function cloudRequest(src, init, q) {
@@ -9887,6 +10648,7 @@
       if (S.companyKey) u.searchParams.set('ckey', S.companyKey);
       if (isAdmin() && S.onlineAdminKey) u.searchParams.set('akey', S.onlineAdminKey);
       if (S.user && S.user.email) u.searchParams.set('email', S.user.email); // v2.42.6: the user's credits (the sheet's Credits tab)
+      if (S.adminMe && S.adminMe.tok && S.adminMe.src === src.url) { u.searchParams.set('aem', S.adminMe.e); u.searchParams.set('atok', S.adminMe.tok); } // v2.42.18: the verified admin user: its row only
       u.searchParams.set('area', '1'); // v2.27: with no region or territory ticked, the sheet (v2.27 script) sends no site
       u.searchParams.set('logoat', (S.logoInfo && S.logoInfo.at) || ''); // v2.34: the company logo comes only when it changed
       if (myRegions().length) u.searchParams.set('region', myRegions().join(',')); // v2.25: the sheet (v2.25 script) sends only these regions
@@ -9917,6 +10679,11 @@
         if (j && j.error === 'company key') strictAt = sheetUrl(); // v2.42.4: the sheet uses company keys (the message below no longer says “company key”)
         if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : j && j.error === 'company key' ? (keyMode() ? 'your company key no longer works: ask your admin for a new invite (Settings → Reset user, then open the invite)' : 'join with your company invite (QR code or link from your admin or a coworker)') : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
         S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j, { area: true }) }; cloudErr = ''; persist();
+        if (S.adminMe && S.adminMe.src === src.url && j.adminMe && typeof j.adminMe === 'object') { // v2.42.18: the verified admin user's row (its jobs), or its row deleted
+          if (j.adminMe.gone || j.adminMe.bad) { if (!S.adminMe.gone) LOG.info('admin.email.gone', { bad: !!j.adminMe.bad }); S.adminMe = { ...S.adminMe, gone: true }; }
+          else if (String(j.adminMe.e || '').trim().toLowerCase() === S.adminMe.e) S.adminMe = { ...S.adminMe, ...adminRow(j.adminMe), at: new Date().toISOString() };
+          persist();
+        }
         try { renderSig(); } catch (e) { /* v2.42.12: the CSE Lead of the project's territory */ }
         try { // v2.34: the company's logo from the sheet (newer than the one on this phone)
           const lg = j.logo, co = (S.user && S.user.company) || '';
@@ -10074,7 +10841,7 @@
     const src = S.team && S.team.src, rows = src ? visibleTasks() : [];
     $('npSiteBox').hidden = !src;
     if (npSite && !rows.some((t) => t.id === npSite.id)) npSite = null;
-    const req = !!pol().siteRequired; // v2.41: the admin requires a site of the sheet (Survey and PAT)
+    const req = siteReq(); // v2.41: the admin requires a site of the sheet (Survey and PAT); v2.42.18: set in the sheet
     $('npSiteLbl').textContent = npSite ? siteLabel(npSite) : rows.length ? (req ? 'Choose a site… (required by your admin)' : 'Choose a site…') : src && !areaSet() ? `No site for you: tick your Region and Territory (Settings \u2192 your name)${req ? '' : ', or type a name below'}` : req ? 'No site listed for you: ask your admin (a site from the online sheet is required)' : 'No site listed for you: type a name below'; // v2.27
     $('npSitesBtn').disabled = !!src && !rows.length && !!(S.cloud && S.cloud.src === src.url);
     if (!$('npSites').hidden) showSites(true);
@@ -10179,7 +10946,7 @@
     if (miss.length) { $(miss[0][1]).focus(); return; }
     if (!purpose || !ROLE_PURPOSES[siteRole(npSite)].includes(purpose)) { toast('That is not your part of this site'); return; }
     if (k === 'Cleanup' && !f) { toast('Choose the PAT KMZ'); return; }
-    if (pol().siteRequired && (k === 'survey' || k === 'PAT') && S.team && S.team.src && !npSite) { toast('Your admin requires a site from the online sheet for a new Survey or PAT: choose it under Site (online sheet)', 6000); $('npSitesBtn').focus(); return; } // v2.41
+    if (siteReq() && (k === 'survey' || k === 'PAT') && S.team && S.team.src && !npSite) { toast('Your admin requires a site from the online sheet for a new Survey or PAT: choose it under Site (online sheet)', 6000); $('npSitesBtn').focus(); return; } // v2.41
     if (name && !fromFile && allProjects().includes(name)) { toast('A project with that name already exists'); return; }
     const t = npSite, details = { site: $('npLoc').value.trim().slice(0, 120), contractor: $('npVendor').value.trim(),
       ...(acc ? { vendorRep: (S.user && S.user.name) || '', globeRep: $('npGlobe').value.trim().slice(0, 100), inspTypes: npTypesChosen(), date: $('npDate').value || todayIso() } : { startDate: $('npStart').value || todayIso() }), ...(notes ? { notes } : {}) };
@@ -10371,22 +11138,23 @@
   /** Save or send a file: the APK's share sheet, the browser's share sheet, or a download. v2.30: the browser's share sheet
       opens from a fresh tap (iPhone and Chrome refuse it after a long wait), and a browser that cannot share the kind of file
       says so instead of failing quietly. */
-  async function shareFile(blob, name, type) {
+  async function shareFile(blob, name, type, onSent) { // v2.42.18: onSent: called once the file went (shared or saved), not when cancelled
+    const sent = () => { if (onSent) try { onSent(); } catch (e) { /* the share itself went */ } };
     if (NATIVE) {
       const t0 = Date.now(); LOG.step('file.share', { mb: +(blob.size / 1048576).toFixed(2), kind: (name.split('.').pop() || '').toLowerCase() });
-      try { const r = await nativePrivate({ blob, name }); await nativeCall('Share', 'share', { title: name, dialogTitle: `Send ${name}`, files: [r.cacheUri] }); LOG.done('file.share'); return; }
+      try { const r = await nativePrivate({ blob, name }); await nativeCall('Share', 'share', { title: name, dialogTitle: `Send ${name}`, files: [r.cacheUri] }); LOG.done('file.share'); sent(); return; }
       catch (e) { LOG.done('file.share'); if (/cancel/i.test(String(e && e.message))) return; LOG.error('file.share.fail', { ms: Date.now() - t0, ...errInfo(e) }); }
-      try { const r = await nativeSave({ blob, name }); toast(`Sharing did not open on this phone; the file is saved to ${r.where} instead. Send it from the Files app.`, 7000); }
+      try { const r = await nativeSave({ blob, name }); toast(`Sharing did not open on this phone; the file is saved to ${r.where} instead. Send it from the Files app.`, 7000); sent(); }
       catch (e) { toast(`Could not share or save the file: ${e.message || e}`, 6000); }
       return;
     }
     const file = new File([blob], name, { type: type || blob.type || 'application/octet-stream' });
     const can = !!(navigator.share && navigator.canShare && (() => { try { return navigator.canShare({ files: [file] }); } catch (e) { return false; } })());
-    sendSheet(file, can);
+    sendSheet(file, can, sent);
   }
   /** The send panel of the website version: Share (the phone's share sheet: WhatsApp, AirDrop, Quick Share, Save to Files…),
       Save to phone, Close. Share is called straight from the tap. */
-  function sendSheet(file, can) {
+  function sendSheet(file, can, sent) {
     $('sendName').textContent = `${file.name} · ${fmtMB(file.size)}`;
     const ext = (file.name.split('.').pop() || '').toLowerCase();
     // v2.41: when the browser cannot pass the file to another app, three plain steps (save, open the chat app, attach the file)
@@ -10399,14 +11167,14 @@
     else steps(`This browser cannot pass a .${ext} file straight to another app (Chrome on Android shares only pictures, PDF and text from a website).`);
     const close = () => { $('sendBox').hidden = true; $('sendGo').onclick = $('sendSave').onclick = $('sendSave2').onclick = $('sendNo').onclick = null; };
     $('sendGo').onclick = () => {
-      navigator.share({ files: [file], title: file.name }).then(close).catch((e) => {
+      navigator.share({ files: [file], title: file.name }).then(() => { if (sent) sent(); close(); }).catch((e) => {
         if (e && e.name === 'AbortError') return; // the user closed the share sheet: the panel stays for another try
         LOG.warn('web.share.fail', { name: e && e.name, msg: String(e && e.message).slice(0, 120) });
         steps(`The share sheet refused this file (${(e && (e.name || e.message)) || 'unknown reason'}).`);
       });
     };
-    $('sendSave').onclick = () => { saveBlob(file, file.name); close(); };
-    $('sendSave2').onclick = () => { saveBlob(file, file.name); $('sendStep1').classList.add('done'); $('sendSave2').textContent = 'Saved ✓ (Downloads) · save again'; $('sendNo').textContent = 'Done'; };
+    $('sendSave').onclick = () => { saveBlob(file, file.name); if (sent) sent(); close(); };
+    $('sendSave2').onclick = () => { saveBlob(file, file.name); if (sent) sent(); $('sendStep1').classList.add('done'); $('sendSave2').textContent = 'Saved ✓ (Downloads) · save again'; $('sendNo').textContent = 'Done'; };
     $('sendNo').onclick = close;
     $('sendBox').hidden = false;
   }
@@ -10572,6 +11340,8 @@
     $('admPacks').value = packLines(P.packs || []); $('admPacksInfo').textContent = ''; $('admAreaSrc').value = P.areaSrc || ''; $('admDxfSeed').value = P.dxfSeed || ''; $('admDriveKey').value = P.driveKey || ''; // v2.29, v2.30, v2.35
     $('admUsers').value = (P.adminUsers || []).map((e) => `${e}${(P.adminJobs || {})[e] ? ` ${P.adminJobs[e].map((k) => JOB_NAME[k]).join(', ')}` : ''}`).join('\n'); $('admVendorRec').checked = P.vendorRecords !== false; // v2.28: with the job
     $('admSiteReq').checked = P.siteRequired === true; $('admUserTpl').checked = P.userTpl === true; // v2.41
+    { const sv = sheetSiteReq(); if (sv != null) $('admSiteReq').checked = sv; $('admSiteReq').disabled = sv != null; // v2.42.18: set in the sheet, shown here
+      $('admSiteReqNote').textContent = sv != null ? `Set in the online sheet: Settings tab → Site required = ${sv ? 'Yes' : 'No'}. Every phone follows it at its next refresh.` : 'The online sheet has no “Site required” setting yet (its script is older than v2.42.18): this box decides, with the company list.'; }
     renderOrgBox(create);
     admSheetPrefill = { users: S.cloud && S.cloud.adminUsers, kmz: S.cloud && S.cloud.kmzPass };
     if (create) {
@@ -10629,7 +11399,7 @@
       if (was && was !== kp) P.kmzOld = [was, ...(P.kmzOld || []).filter((x) => x !== was && x !== kp)].slice(0, 5); // files locked before still open
       if (P.kmzOld && !P.kmzOld.length) delete P.kmzOld; }
     if ($('admVendorRec').checked) delete P.vendorRecords; else P.vendorRecords = false;
-    if ($('admSiteReq').checked) P.siteRequired = true; else delete P.siteRequired; // v2.41: a new Survey / PAT must use a site of the online sheet
+    if (!$('admSiteReq').disabled) { if ($('admSiteReq').checked) P.siteRequired = true; else delete P.siteRequired; } // v2.41: a new Survey / PAT must use a site of the online sheet (v2.42.18: unless the sheet sets it)
     if ($('admUserTpl').checked) P.userTpl = true; else delete P.userTpl; // v2.41: users may load their own plan template file (off: only the admin's)
     P.poleTypes = parseTypeLines($('admPoleTypes').value).filter((t) => !BUILTIN_TYPES.some((b) => b.p === t.p));
     { // v2.28: the BOQ lists and pole details, each kept only when it differs from the built-in one
@@ -10876,6 +11646,7 @@
     const x = o || {};
     $('pinTitle').textContent = title; $('pinText').textContent = text || ''; $('pinInput').value = '';
     $('pinCode').hidden = !x.code; $('pinCode').textContent = x.code || ''; $('pinInput').placeholder = x.placeholder || '4 to 8 digits'; // v2.22: a request code shown large
+    $('pinInput').type = x.plain ? 'text' : 'password'; $('pinInput').autocomplete = x.plain ? 'one-time-code' : 'off'; // v2.42.18: an emailed code, shown as typed
     return new Promise((res) => {
       const done = (v) => { $('pinBox').hidden = true; $('pinYes').onclick = $('pinNo').onclick = null; res(v); };
       $('pinYes').onclick = () => done($('pinInput').value.trim()); $('pinNo').onclick = () => done(null);
@@ -11635,9 +12406,13 @@
   if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__polecam = { get points() { return points; }, get S() { return S; }, drwSeq: () => (drw ? { n: drw.seq.size, max: Math.max(0, ...drw.seq.values()) } : null), get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, get lastQrLink() { return qrLink; }, get lastQrFull() { return qrAlt ? qrAlt.full : qrLink; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
+  window.__polecam = { autoLoops: () => [...autoLoops(projPoints(), routeModel())], openEditorFor,
+    /* v2.42.17 */ edTab: (k, f) => goEdTab(k, f), edTabs: () => edTabList(), edCur: () => (edTabsOn() ? edTab : ''), edMissing: () => edMissing().map((x) => `${x.req ? '!' : ''}${x.tab}:${x.k}`), edShow: (sel) => { const el = document.querySelector(sel), g = el && el.closest('#editor .edbody>[data-pane]'); if (g && edTabsOn()) goEdTab(g.dataset.pane); return !!g; }, /* v2.42.16 */ boqTable: () => boqTable(projPoints(), null), routeStats: () => { const R = routeModel(); updateRouteBar(R); return $('rbStats').textContent; }, get points() { return points; }, get S() { return S; }, drwSeq: () => (drw ? { n: drw.seq.size, max: Math.max(0, ...drw.seq.values()) } : null), get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, get lastQrLink() { return qrLink; }, get lastQrFull() { return qrAlt ? qrAlt.full : qrLink; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
     surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads, routeAdvice: () => routeAdvice(routeModel()), renderPoles, persist, cloudSync: (f) => cloudSync(f), renderSig, // v2.42.12
     setDxfRows: (R, sel) => { setRows(R); if (sel != null) { S.exp.dxfRowSel = sel; persist(); } renderDxfMarks(); }, dxfRows: () => dxfRows(), // v2.42.14
-    clamps: () => { const R = routeModel(), all = projPoints(); return Object.fromEntries(all.filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, clampOf(p, R, all).join('+')])); } }; // for testing (v2.39: the poles' clamps)
+    clamps: () => { const R = routeModel(), all = projPoints(); return Object.fromEntries(all.filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, clampOf(p, R, all).join('+')])); }, // for testing (v2.39: the poles' clamps)
+    /* v2.42.18 */ hw: () => { const R = routeModel(); return Object.fromEntries(projPoints().filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, hwOf(p, R)])); }, filled: () => { const all = projPoints(), f = boqFilled(all); return Object.fromEntries(all.map((p) => [p.id, f(p) || {}])); },
+    poleNums: () => Object.fromEntries([...poleNums(projPoints(), routeModel()).entries()]), setNumCfg: (c) => setNumCfg(c), route: () => { const R = routeModel(); return { total: R.total, cableTotal: R.cableTotal, spans: R.spans.map((s) => ({ ia: s.ia, ib: s.ib, runs: s.runs, len: s.len })) }; },
+    mapPt: (lat, lon) => { const p = map.latLngToContainerPoint([lat, lon]), r = $('map').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; }, mapView: (lat, lon, z) => map.setView([lat, lon], z, { animate: false }), siteReq: () => siteReq(), adminOk: (e) => adminUserOk(e), jobsOf: (e) => jobsOf(e), shareProject: (n) => shareProject(n || S.project), apprText: () => apprText(), readApproval: (t, n) => readApproval(t, n || S.project) };
 })();

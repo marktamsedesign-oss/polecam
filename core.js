@@ -355,7 +355,11 @@
         `<LineString><tessellate>1</tessellate><coordinates>${c.pts.map(ll).join(' ')}</coordinates></LineString></Placemark>`);
       const longs = o.spans.filter((s) => s.long).map((s) => `<Placemark><name>${xmlEsc(`${s.from} → ${s.to}: ${s.len.toFixed(1)} m (long span)`)}</name><styleUrl>#span_long</styleUrl>` +
         `<LineString><tessellate>1</tessellate><coordinates>${ll(s.a)} ${ll(s.b)}</coordinates></LineString></Placemark>`);
-      route = `<Folder><name>Route (${o.spans.length} spans, ${o.spans.reduce((t, s) => t + s.len, 0).toFixed(0)} m)</name>\n${lines.join('\n')}\n${longs.length ? `<Folder><name>Long spans (${longs.length})</name>\n${longs.join('\n')}\n</Folder>\n` : ''}</Folder>\n`;
+      // v2.42.18: a span's other runs (run 2, run 3…), each its own line with its cable
+      const more = o.spans.flatMap((s) => (s.runs || []).slice(1).map((k, i) => `<Placemark><name>${xmlEsc(`${s.from} → ${s.to}: run ${i + 2} · ${CABLES[k] ? CABLES[k].short : 'cable not set'} · ${s.len.toFixed(1)} m`)}</name><styleUrl>#${CABLES[k] ? `cable_${k}` : 'span_ok'}</styleUrl>` +
+        `<ExtendedData><Data name="length_m"><value>${s.len.toFixed(1)}</value></Data><Data name="run"><value>${i + 2}</value></Data>${CABLES[k] ? `<Data name="cable"><value>${xmlEsc(CABLES[k].label)}</value></Data><Data name="method"><value>${CABLES[k].method}</value></Data>` : ''}</ExtendedData>` +
+        `<LineString><tessellate>1</tessellate><coordinates>${ll(s.a)} ${ll(s.b)}</coordinates></LineString></Placemark>`));
+      route = `<Folder><name>Route (${o.spans.length} spans, ${o.spans.reduce((t, s) => t + s.len, 0).toFixed(0)} m)</name>\n${lines.join('\n')}\n${more.length ? `<Folder><name>Other runs on a span (${more.length})</name>\n${more.join('\n')}\n</Folder>\n` : ''}${longs.length ? `<Folder><name>Long spans (${longs.length})</name>\n${longs.join('\n')}\n</Folder>\n` : ''}</Folder>\n`;
     }
     const by = o.exportedBy ? `<description>${xmlEsc(o.exportedBy)}</description><ExtendedData><Data name="exported_by"><value>${xmlEsc(o.exportedBy)}</value></Data></ExtendedData>\n` : '';
     const folders = Object.keys(KML_EL).filter((k) => marks[k]).map((k) => `<Folder><name>${KML_EL[k][0]}</name>\n${marks[k].join('\n')}\n</Folder>`).join('\n') || '<Folder><name>Poles</name>\n</Folder>';
@@ -415,8 +419,12 @@
       const A = U(s.a.lat, s.a.lon), B = U(s.b.lat, s.b.lon);
       const cab = CABLES[s.cable]; // v2.29: a layer per cable type
       ents.push({ t: 'line', l: lay(s.long ? 'SPAN_LONG' : cab ? cab.layer : 'CABLE_ROUTE', s.long ? 1 : cab ? cab.aci : 4), x1: A.E, y1: A.N, x2: B.E, y2: B.N });
+      (s.runs || []).slice(1).forEach((k, i) => { // v2.42.18: the span's other runs, parallel 1 m apart, each on its cable's layer
+        const c2 = CABLES[k], Ln = Math.hypot(B.E - A.E, B.N - A.N) || 1, nx = -(B.N - A.N) / Ln, ny = (B.E - A.E) / Ln, f = i + 1;
+        ents.push({ t: 'line', l: lay(c2 ? c2.layer : 'CABLE_ROUTE', c2 ? c2.aci : 4), x1: A.E + nx * f, y1: A.N + ny * f, x2: B.E + nx * f, y2: B.N + ny * f });
+      });
       let ang = Math.atan2(B.N - A.N, B.E - A.E) * 180 / Math.PI; if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
-      const t = `${(s.len * (1 + pct / 100)).toFixed(1)}m`, h = th * 0.75, rad = ang * Math.PI / 180, half = t.length * h * 0.3;
+      const t = `${(s.len * (1 + pct / 100)).toFixed(1)}m${(s.runs || []).length > 1 ? ` x${s.runs.length}` : ''}`, h = th * 0.75, rad = ang * Math.PI / 180, half = t.length * h * 0.3;
       const mx = (A.E + B.E) / 2, my = (A.N + B.N) / 2;
       ents.push({ t: 'text', l: lay('FOC_LENGTH', 7), x: mx - Math.cos(rad) * half - Math.sin(rad) * h * 0.6, y: my - Math.sin(rad) * half + Math.cos(rad) * h * 0.6, h, s: t, a: ang });
     }
@@ -592,15 +600,15 @@
   }
 
   /* v2.26: the BOQ / BOM sizes of a point (p.boq) in the CSV and the KMZ data */
-  const BOQ_COLS = [['owner', 'pole_owner'], ['clamp', 'clamp_size'], ['height', 'new_pole_size'], ['cls', 'pole_class'], ['odf', 'odf_size'], ['conn', 'odf_connector'], ['clo', 'closure_size'], ['cloSt', 'closure_status'], ['arm', 'new_arm'], ['guy', 'guying'], ['mloop', 'mloop'], ['napType', 'nap_type'], ['napSz', 'nap_size'], ['napSt', 'nap_status'], ['nap2Type', 'nap2_type'], ['nap2Sz', 'nap2_size'], ['nap2St', 'nap2_status'], ['lcp', 'lcp'], ['ground', 'grounding'], ['riser', 'riser'], ['clampType', 'clamp_type']]; // v2.39: + clamp type; v2.29: arm, guying, maintenance loop; v2.37: NAP type, LCP, grounding, riser; v2.42: a second box on the pole
+  const BOQ_COLS = [['owner', 'pole_owner'], ['clamp', 'clamp_size'], ['height', 'new_pole_size'], ['cls', 'pole_class'], ['odf', 'odf_size'], ['conn', 'odf_connector'], ['clo', 'closure_size'], ['cloSt', 'closure_status'], ['arm', 'new_arm'], ['guy', 'guying'], ['mloop', 'mloop'], ['napType', 'nap_type'], ['napSz', 'nap_size'], ['napSt', 'nap_status'], ['nap2Type', 'nap2_type'], ['nap2Sz', 'nap2_size'], ['nap2St', 'nap2_status'], ['lcp', 'lcp'], ['ground', 'grounding'], ['riser', 'riser'], ['clampType', 'clamp_type'], ['ownerName', 'pole_owner_name'], ['mloopM', 'mloop_length_m'], ['hw', 'cable_hardware']]; // v2.42.18: + the owner's name, each loop's length, the 12C / telco arm hardware // v2.39: + clamp type; v2.29: arm, guying, maintenance loop; v2.37: NAP type, LCP, grounding, riser; v2.42: a second box on the pole
   /* ---------------- CSV ---------------- */
   function buildCsv(points, zone, exportedBy) {
     const q = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-    const rows = [['pole_id', 'pole_type', 'latitude', 'longitude', `utm${zone}n_easting`, `utm${zone}n_northing`, 'gps_accuracy_m', 'pin_adjusted', 'captured', 'photo', 'surveyed_by',
+    const rows = [['no', 'pole_id', 'pole_type', 'latitude', 'longitude', `utm${zone}n_easting`, `utm${zone}n_northing`, 'gps_accuracy_m', 'pin_adjusted', 'captured', 'photo', 'surveyed_by',
       'element', 'status', 'closure_id', 'nap_id', 'nap2_id', 'remarks', 'red_box', 'pole_details', ...BOQ_COLS.map((c) => c[1]), ...(exportedBy ? ['exported_by'] : [])]]; // v2.42: + the IDs of the boxes on a pole
     for (const p of points) {
       const u = utmForward(p.lat, p.lon, zone, p.lat < 0);
-      rows.push([p.poleId, p.poleType, p.lat.toFixed(8), p.lon.toFixed(8), u.E.toFixed(3), u.N.toFixed(3),
+      rows.push([p.no ?? '', p.poleId, p.poleType, p.lat.toFixed(8), p.lon.toFixed(8), u.E.toFixed(3), u.N.toFixed(3),
         Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : '', p.adjusted ? 'yes' : 'no', p.takenAt, p.photoName || '', p.by || '',
         p.element || 'Pole', p.status || '', p.closureId || '', p.nap ? p.napId || '' : '', p.nap && p.nap2 ? p.nap2Id || '' : '', p.remarks || '', p.boxes ? 'yes' : 'no', p.detailsText || '', ...BOQ_COLS.map((c) => (p.boq && p.boq[c[0]]) || ''), ...(exportedBy ? [exportedBy] : [])]);
     }
@@ -756,11 +764,12 @@
     const by = {}; points.forEach((p) => { by[p.id] = p; });
     const nb = {}; points.forEach((p) => { nb[p.id] = []; });
     const spans = [];
-    for (const [ia, ib, cab] of links || []) { // v2.29: a link may carry its cable type (CABLES key)
+    for (const [ia, ib, cab, more] of links || []) { // v2.29: a link may carry its cable type (CABLES key); v2.42.18: and more runs
       const a = by[ia], b = by[ib];
       if (!a || !b || ia === ib) continue;
-      const len = distM(a, b);
-      spans.push({ ia, ib, a, b, from: a.poleId, to: b.poleId, len, long: len > o.maxSpan, cable: CABLES[cab] ? cab : '' });
+      const len = distM(a, b), cable = CABLES[cab] ? cab : '';
+      const runs = [cable, ...(Array.isArray(more) ? more : []).map((k) => (CABLES[k] ? k : ''))]; // run 1 first (its hardware and loops)
+      spans.push({ ia, ib, a, b, from: a.poleId, to: b.poleId, len, long: len > o.maxSpan, cable, runs });
       nb[ia].push(b); nb[ib].push(a);
     }
     const poles = {}; const cnt = { long: 0, angle: 0, terminal: 0, junction: 0, inline: 0, off: 0 };
@@ -774,7 +783,8 @@
       cnt[{ 'Not on route': 'off', Terminal: 'terminal', Inline: 'inline', Angle: 'angle', Junction: 'junction' }[role]]++;
     }
     cnt.long = spans.filter((s) => s.long).length;
-    return { spans, poles, total: spans.reduce((t, s) => t + s.len, 0), ...cnt };
+    // total: the route's length; cableTotal: the cable on it (a span with 2 runs counts twice)
+    return { spans, poles, total: spans.reduce((t, s) => t + s.len, 0), cableTotal: spans.reduce((t, s) => t + s.len * s.runs.length, 0), ...cnt };
   }
   /** v2.28: the route's spans joined into continuous runs: from an end or a junction to the next end or junction (a loop as one
       run). Each run: its points in order, its spans and its length. */
