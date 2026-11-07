@@ -536,6 +536,20 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.24
+
+Cable sizes, the closure on the cable, labels that cover nothing, and a simpler way to draw cables. No update of the online sheet needed.
+
+- **More cable types**: *Light cable 12C*; *AE Figure 8 12C, 24C, 48C, 72C, 144C*; *UG 144C and 288C air-blown*. A figure 8 cable takes pole clamps, the light cable retractors and span clamps; the loops are 15 m (the project's loop length), 10 m on a light cable, 20 m at a handhole on a UG cable; a closure before every 4 km on a figure 8 or UG run, a dummy NAP (light cable only) or a closure before every 2 km on a light cable.
+- **The line shows the size**: on the plan the cable's line weight goes with its size (Balanced: 12C 0.30, 24C 0.35, 48C 0.40, 72C 0.50, 144C 0.60, 288C 0.70 mm); an existing cable by its size too. The Drawing screen draws them the same way, thinner to thicker.
+- **Labels with size and type**: *PROPOSED 24C FIG-8 (RUN 5)*, *PROPOSED 12C LIGHT (RUN 2)*, *PROPOSED 288C UG (RUN 6)*.
+- **Nothing covers anything**: each cable label goes beside its own cable as large as fits, smaller down to a readable size; where none fits, it goes into free space with an arrow to its cable (as in the template's legend); then smaller still beside it. The most crowded spans first; the span lengths the same way. On the plan and on the Drawing screen.
+- **The closure on the cable**: drawn as the template's P-Joint pentagon at its pole (proposed: red, *PROPOSED* and its ID; existing: a blue outline and its ID), each cable meeting its side; its texts where they cover nothing. The **dummy NAP** on the Drawing screen is drawn as in the DXF legend (the green *DN* box), the cables meeting its sides.
+- **The closure's size** follows the largest proposed cable that starts, ends or passes there (12C to 288C) until you choose one in the record; it shows in the record, the BOQ and the Drawing. A size chosen before v2.42.24 stays; an existing closure keeps its size.
+- **Drawing cables**: one list of cables (**Cables · n**: RUN 1, RUN 2…, each with its type, length and ends; **Continue**, its type, **Details**, **Delete**). **＋ New cable** asks the type first, then *Draw it on the map* or *Follow the capture order* (a RUN for each stretch). **✓ Finish** ends the cable: the next line or tap never extends it; with no cable in the bar, a tap on a pole or a line opens the New cable sheet. **✕ Cancel** takes back everything since the cable was started or continued. **Delete** removes the spans no other cable uses. **More** holds the route check, *Link two poles without a cable* and *Clear all cables*. *Link in capture order* is now *Follow the capture order* in the New cable sheet, and makes cables.
+- **Older projects**: the first time a project linked before v2.42.24 is opened, its spans on no cable become cables, a RUN for each stretch of one cable type (split at junctions and where the type changes).
+- *RUN n* in the route screen, its messages, the route check and the KMZ (it was *Fiber n* / *Fn*); the map's span tags read *R1*, *R2*.
+
 ## What changed in v2.42.23
 
 The plan (DXF, its PDF sheets and the Drawing): the fibers drawn in their own lanes, and their labels. No update of the online sheet needed.

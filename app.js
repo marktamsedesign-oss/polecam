@@ -450,7 +450,7 @@
      Light cable 12C 10 m, Figure 8 72C the pole loop length (15 m, the admin's), underground 20 m. The app adds no loop where the next
      one is at most LOOP_TOL past the limit. */
   const LOOP_LENS = [10, 12, 15, 20], LOOP_TOL = 100;
-  const cabLoopLen = (cab) => (cab === 'L12' ? 10 : C.CABLES[cab] && C.CABLES[cab].method === 'UG' ? BOX_LOOP_M : mloopLen());
+  const cabLoopLen = (cab) => (C.CABLES[cab] && C.CABLES[cab].fam === 'light' ? 10 : C.CABLES[cab] && C.CABLES[cab].method === 'UG' ? BOX_LOOP_M : mloopLen()); // (v2.42.24: by family)
   const COOPS = ['DLPC', 'CLPC', 'DASURECO', 'COTELCO']; // v2.42.18: owner names offered for an electric pole (with the names used in the project)
   const isElecOwner = (o) => /electric|coop|power/i.test(String(o || ''));
   /** v2.42.18: the name of a pole's owner: the record's (the coop of an electric pole), else the owner itself (PLDT, Globe…); a proposed
@@ -732,7 +732,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.23';
+  const APP_VER = '2.42.24';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1358,6 +1358,7 @@
     renderSummary(projPoints());
   }
   function renderPoles() {
+    projOpened(); // v2.42.24
     poleLayer.clearLayers(); pinMarkers.clear();
     if (routeMode && (isAcc() || routeProj !== S.project)) setRouteMode(false); // v2.42.4: + another project
     $('routeBtn').hidden = isAcc(); $('pinAddBtn').hidden = !S.project || isAcc(); // v2.36
@@ -1445,6 +1446,53 @@
     LOG.info('pin.add', { el, k });
     await openEditor({ mode: 'new', element: el, siteKind: el === 'Site' ? k : '', lat: c.lat, lon: c.lng, source: 'map', takenAt: new Date().toISOString(), note: 'Placed on the map · photo optional' });
   });
+  /* v2.42.24: the blocks the Drawing screen draws on the cable, as the plan does: a dummy NAP (DN: the template's green rounded box)
+     and a hybrid closure (the template's P-Joint pentagon: proposed red filled, existing a blue outline) at their pole; each cable meets
+     their sides. Keyed by the pole's ID: { kind: 'dn' | 'clo', xy, ax (the cable's direction through the pole, for the DN), old, cid, size }. */
+  function drwBlocks(items, R, U) {
+    const out = new Map(), nb = new Map(), byId = new Map(items.map((it) => [String(it.p.id), it]));
+    (R.spans || []).forEach((sp) => { [[sp.ia, sp.ib], [sp.ib, sp.ia]].forEach(([a, b]) => { const q = byId.get(String(b)); if (!q) return; const k = String(a); if (!nb.has(k)) nb.set(k, []); nb.get(k).push(q.xy); }); });
+    const dummy = (t) => /dummy/i.test(t || '');
+    items.forEach((it) => {
+      if (it.el !== 'Pole') return; const p = it.p, b = p.boq || {}, id = String(p.id), pins = items.filter((x) => x.on === it);
+      const clPin = pins.find((x) => x.el === 'Closure'), dnPin = pins.find((x) => x.el === 'NAP' && dummy((x.p.boq || {}).napType));
+      if (p.closure || p.closureId || clPin) { const cb = clPin && !(p.closure || p.closureId) ? clPin.p.boq || {} : b, old = clPin && !(p.closure || p.closureId) ? clPin.p.status === 'Existing' : b.cloSt === 'Existing';
+        out.set(id, { kind: 'clo', xy: it.xy, old, cid: (p.closure || p.closureId ? p.closureId : clPin && (clPin.p.closureId || clPin.p.poleId)) || 'CLOSURE', size: cb.clo || '' }); return; }
+      if (((p.nap || p.napId) && dummy(b.napType)) || ((p.nap2 || p.nap2Id) && dummy(b.nap2Type)) || dnPin) {
+        const L = nb.get(id) || []; let ax = [1, 0];
+        if (L.length === 1) { const v = [L[0][0] - it.xy[0], L[0][1] - it.xy[1]], l = Math.hypot(v[0], v[1]) || 1; ax = [v[0] / l, v[1] / l]; }
+        else if (L.length > 1) { let best = null; for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) { const u = [L[i][0] - it.xy[0], L[i][1] - it.xy[1]], w = [L[j][0] - it.xy[0], L[j][1] - it.xy[1]], c = (u[0] * w[0] + u[1] * w[1]) / ((Math.hypot(u[0], u[1]) * Math.hypot(w[0], w[1])) || 1); if (!best || c < best.c) best = { c, i, j }; }
+          const v = [L[best.j][0] - L[best.i][0], L[best.j][1] - L[best.i][1]], l = Math.hypot(v[0], v[1]) || 1; ax = [v[0] / l, v[1] / l]; } // (the two most opposite spans: the cable through the pole)
+        out.set(id, { kind: 'dn', xy: it.xy, ax, old: false, cid: p.napId || '' });
+      }
+    });
+    return out;
+  }
+  /* v2.42.24: the Drawing screen's line widths follow the cable's size, as the plan (Balanced: 12C 0.30 … 288C 0.70 mm): 1.2 to 3 px */
+  const LW_CORES = [[12, 0.30], [24, 0.35], [48, 0.40], [72, 0.50], [144, 0.60], [288, 0.70]];
+  const lwOfCores = (n) => (LW_CORES.find(([c]) => c >= (+n || 12)) || LW_CORES[LW_CORES.length - 1])[1];
+  const lwOfCab = (k) => (CAB[k] && CAB[k].lw) || lwOfCores((CAB[k] || {}).cores || 12);
+  const drwLw = (w, d) => Math.max(1.2, Math.min(3.0, 2.0 * w / 0.5)) * d;
+  /* v2.42.24: collision boxes on the Drawing screen (oriented rectangles in canvas pixels), kept in a grid so the near ones are found fast */
+  const obb = (cx, cy, w, h, a) => { const ux = Math.cos(a || 0), uy = Math.sin(a || 0), hw = w / 2, hh = h / 2; return { cx, cy, hw, hh, ux, uy, ex: Math.abs(ux) * hw + Math.abs(uy) * hh, ey: Math.abs(uy) * hw + Math.abs(ux) * hh }; };
+  const segObb = (p, q, th) => obb((p[0] + q[0]) / 2, (p[1] + q[1]) / 2, Math.hypot(q[0] - p[0], q[1] - p[1]), th, Math.atan2(q[1] - p[1], q[0] - p[0]));
+  function obbHit(A, B) {
+    const dx = B.cx - A.cx, dy = B.cy - A.cy; if (Math.abs(dx) > A.ex + B.ex || Math.abs(dy) > A.ey + B.ey) return false;
+    for (const [x, y] of [[A.ux, A.uy], [-A.uy, A.ux], [B.ux, B.uy], [-B.uy, B.ux]]) {
+      const ra = A.hw * Math.abs(A.ux * x + A.uy * y) + A.hh * Math.abs(-A.uy * x + A.ux * y), rb = B.hw * Math.abs(B.ux * x + B.uy * y) + B.hh * Math.abs(-B.uy * x + B.ux * y);
+      if (Math.abs(dx * x + dy * y) > ra + rb) return false; }
+    return true;
+  }
+  function occGrid(W, H, cell) { // the boxes on the screen (and a margin round it); a query looks only in the cells it covers
+    const m = new Map(), M = 2; let stamp = 0; const cx0 = -M, cy0 = -M, cx1 = Math.ceil(W / cell) + M, cy1 = Math.ceil(H / cell) + M;
+    const cells = (b, f) => { const x0 = Math.max(cx0, Math.floor((b.cx - b.ex) / cell)), x1 = Math.min(cx1, Math.floor((b.cx + b.ex) / cell)), y0 = Math.max(cy0, Math.floor((b.cy - b.ey) / cell)), y1 = Math.min(cy1, Math.floor((b.cy + b.ey) / cell));
+      for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) f(x * 4096 + y); };
+    return {
+      add(b, tag, run) { b.tag = tag; b.run = run; b.st = 0; cells(b, (k) => { let L = m.get(k); if (!L) m.set(k, (L = [])); L.push(b); }); return b; },
+      cost(b, o) { stamp++; let n = 0; const skip = o && o.skipRun != null ? o.skipRun : null, cw = o && o.cableW != null ? o.cableW : 10;
+        cells(b, (k) => { const L = m.get(k); if (!L) return; for (const x of L) { if (x.st === stamp) continue; x.st = stamp; if (skip != null && x.run === skip && (x.tag === 'cable' || x.tag === 'leader')) continue; if (obbHit(b, x)) n += x.tag === 'cable' ? cw : 10; } }); return n; },
+    };
+  }
   /* Drawing: a preview of the DXF of the project (UTM metres): the route with its span lengths, poles and other points with
      their IDs, the KMZ reference faint behind; pan with a finger, pinch or the wheel to zoom, tap a point for its details.
      v2.41: the plan's options are set here (they were on the DXF card): photos, numbers or both beside the points, clamp types on
@@ -1468,7 +1516,8 @@
     // a NAP or closure pin stands on its pole: the nearest pole of the route within 30 m (as the plan draws it)
     const onRoute = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])), poles = items.filter((it) => it.el === 'Pole' && onRoute.has(it.p.id));
     items.forEach((it) => { if (it.el !== 'NAP' && it.el !== 'Closure') return; let best = null, bd = 30; poles.forEach((q) => { const dd = Math.hypot(q.xy[0] - it.xy[0], q.xy[1] - it.xy[1]); if (dd < bd) { bd = dd; best = q; } }); it.on = best; });
-    drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), /* v2.42.23 */ fibs: drwFibs(R, U), exHops: R.fib ? [...R.fib.hops.values()].filter((h) => !h.s && h.fs.some((f) => f.ex)).map((h) => ({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), lbl: h.fs.filter((f) => f.ex).map((f) => runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', R.fib.list.filter((x) => x.path.length > 1).length > 1 ? f.n : 0)).join(' / ') })) : [], /* (v2.42.23: with its run) */ R, LA: autoLoops(pts, R), /* v2.42.20: + exHops, existing cables off the new route */ ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
+    drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), /* v2.42.23 */ fibs: drwFibs(R, U), exHops: R.fib ? [...R.fib.hops.values()].filter((h) => !h.s && h.fs.some((f) => f.ex)).map((h) => ({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), ia: String(h.a), ib: String(h.b), lbl: h.fs.filter((f) => f.ex).map((f) => runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', R.fib.list.filter((x) => x.path.length > 1).length > 1 ? f.n : 0)).join(' / ') })) : [], /* (v2.42.23: with its run) */ R, LA: autoLoops(pts, R), /* v2.42.20: + exHops, existing cables off the new route */ ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
+    drw.blocks = drwBlocks(items, R, U); // v2.42.24: the dummy NAPs and closures on the cable
     $('drawTitle').textContent = `Drawing · ${S.project}`;
     $('drawHint').textContent = `Preview of the DXF (UTM ${z}N metres): ${pts.filter((p) => elemOf(p) === 'Pole').length} poles, ${R.spans.length} spans, ${fmtLen(R.total)}. Drag to pan, pinch or scroll to zoom, tap a point. Zoom in for the numbers or photos and, under each pole, what the plan draws on it: ARM, NAP, LOOP, CL (closure), G (guys), GR (grounding), R (riser).`;
     $('drawHint').hidden = !!S.drawHintOff; $('drawInfoBtn').setAttribute('aria-pressed', String(!S.drawHintOff));
@@ -1528,46 +1577,71 @@
     drw.ref.forEach((l) => { g.strokeStyle = 'rgba(112,72,232,0.45)'; g.lineWidth = 2 * d; g.setLineDash([6 * d, 5 * d]); g.beginPath(); l.forEach((xy, i) => { const [px, py] = drwPx(xy); if (i) g.lineTo(px, py); else g.moveTo(px, py); }); g.stroke(); });
     g.setLineDash([]);
     const fs = 11 * d; g.font = `600 ${fs}px ui-monospace, monospace`;
-    (drw.fibs || []).forEach((f) => { // v2.42.23: each fiber one line in its lane (5 px apart), mitred at the corners, as on the plan
-      const Q = f.pts.map(drwPx), m = Q.length - 1, GAP = 5 * d;
-      const N = f.st.map((s) => { if (!s || s.n < 2) return [0, 0]; const [ax, ay] = drwPx(s.a), [bx, by] = drwPx(s.b), Ln = Math.hypot(bx - ax, by - ay) || 1, o = s.z ? s.k * GAP : (s.k - (s.n - 1) / 2) * GAP; return [(by - ay) / Ln * o, -(bx - ax) / Ln * o]; });
-      const pts = Q.map((q, i) => {
-        if (i === 0) return [q[0] + N[0][0], q[1] + N[0][1]]; if (i === m) return [q[0] + N[m - 1][0], q[1] + N[m - 1][1]];
-        const a = Q[i - 1], c = Q[i + 1], d1 = [q[0] - a[0], q[1] - a[1]], d2 = [c[0] - q[0], c[1] - q[1]], cr = d1[0] * d2[1] - d1[1] * d2[0], l1 = Math.hypot(d1[0], d1[1]) || 1, l2 = Math.hypot(d2[0], d2[1]) || 1;
-        if (Math.abs(cr) / (l1 * l2) > 0.14) { const p1 = [a[0] + N[i - 1][0], a[1] + N[i - 1][1]], q2 = [q[0] + N[i][0], q[1] + N[i][1]], t = ((q2[0] - p1[0]) * d2[1] - (q2[1] - p1[1]) * d2[0]) / cr, X = [p1[0] + d1[0] * t, p1[1] + d1[1] * t]; if (Math.hypot(X[0] - q[0], X[1] - q[1]) < 6 * GAP) return X; }
-        return [q[0] + (N[i - 1][0] + N[i][0]) / 2, q[1] + (N[i - 1][1] + N[i][1]) / 2]; });
-      g.strokeStyle = f.ex ? '#4dabf7' : '#1c3f94'; g.lineWidth = 2 * d; g.lineJoin = 'round'; g.setLineDash(f.cab && !/^U/.test(f.cab) ? [7 * d, 4 * d] : []);
-      g.beginPath(); pts.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.stroke(); g.setLineDash([]);
+    // v2.42.24: the blocks on the cable (a dummy NAP, a closure) in pixels: at least their plan size, never smaller than a finger's tap
+    const BK = new Map(), occ = occGrid(cv.width, cv.height, 64 * d), u2 = (p, q) => { const x = q[0] - p[0], y = q[1] - p[1], l = Math.hypot(x, y) || 1; return [x / l, y / l]; };
+    (drw.blocks || new Map()).forEach((bk, id) => { const c = drwPx(bk.xy);
+      if (bk.kind === 'dn') { const hl = Math.max(5.2 * v.sc, 15 * d), hw = Math.max(2.3 * v.sc, 7 * d), ax = [bk.ax[0], -bk.ax[1]]; BK.set(id, { ...bk, c, hl, hw, ax, r: hw, e1: [c[0] - ax[0] * hl, c[1] - ax[1] * hl], e2: [c[0] + ax[0] * hl, c[1] + ax[1] * hl] }); }
+      else { const R = Math.max(4.35 * v.sc, 10 * d); BK.set(id, { ...bk, c, R, r: R }); } });
+    const endAt = (id, P, toward) => { const bk = BK.get(String(id)); if (!bk) return P; // where a cable meets a block at its pole (the DN: its nearer end; the closure: its side, from the cable's own direction)
+      if (bk.kind === 'dn') return Math.hypot(bk.e1[0] - toward[0], bk.e1[1] - toward[1]) <= Math.hypot(bk.e2[0] - toward[0], bk.e2[1] - toward[1]) ? bk.e1 : bk.e2;
+      const u = u2(bk.c, toward); return [bk.c[0] + u[0] * bk.R * 0.45, bk.c[1] + u[1] * bk.R * 0.45]; };
+    const fitIn = (id, N) => { const bk = BK.get(String(id)), lim = bk.kind === 'dn' ? 0.75 * bk.hw : 0.5 * bk.R, l = Math.hypot(N[0], N[1]); return l > lim ? [N[0] * lim / l, N[1] * lim / l] : N; }; // (the lanes side by side within it)
+    const GAP = 5 * d, laneAt = new Map(); // (each span's lanes: the offset of each fiber's line from the span's line, for the labels)
+    (drw.fibs || []).forEach((f) => { // v2.42.23: each fiber one line in its lane, mitred at the corners (v2.42.24: as wide as its size; meeting the blocks' sides)
+      const ids = f.ids || [], Q = f.pts.map(drwPx), m = Q.length - 1;
+      const N = f.st.map((st) => { if (!st || st.n < 2) return [0, 0]; const [ax, ay] = drwPx(st.a), [bx, by] = drwPx(st.b), Ln = Math.hypot(bx - ax, by - ay) || 1, o = st.z ? st.k * GAP : (st.k - (st.n - 1) / 2) * GAP; return [(by - ay) / Ln * o, -(bx - ax) / Ln * o]; });
+      const S0 = [], S1 = []; for (let j = 0; j < m; j++) { S0.push(endAt(ids[j], Q[j], Q[j + 1])); S1.push(endAt(ids[j + 1], Q[j + 1], Q[j])); }
+      const D = S0.map((p, j) => u2(p, S1[j])), Ls = S0.map((p, j) => Math.hypot(S1[j][0] - p[0], S1[j][1] - p[1])), Lt = Ls.map((L) => Math.min(3.2 * GAP, L / 3));
+      const at = (j, t) => [S0[j][0] + D[j][0] * t + N[j][0], S0[j][1] + D[j][1] * t + N[j][1]];
+      const lines = []; let cur = [];
+      for (let i = 0; i <= m; i++) {
+        if (BK.has(String(ids[i]))) { // a block on the cable: the lane meets its side, drawn in to fit it, and moves out to its lane
+          if (i > 0) { const w = fitIn(ids[i], N[i - 1]); if (Math.hypot(w[0] - N[i - 1][0], w[1] - N[i - 1][1]) > 0.5) cur.push(at(i - 1, Math.max(0, Ls[i - 1] - Lt[i - 1]))); cur.push([S1[i - 1][0] + w[0], S1[i - 1][1] + w[1]]); lines.push(cur); cur = []; }
+          if (i < m) { const w = fitIn(ids[i], N[i]); cur = [[S0[i][0] + w[0], S0[i][1] + w[1]]]; if (Math.hypot(w[0] - N[i][0], w[1] - N[i][1]) > 0.5) cur.push(at(i, Lt[i])); }
+          continue; }
+        if (i === 0) { cur.push(at(0, 0)); continue; }
+        if (i === m) { cur.push(at(m - 1, Ls[m - 1])); continue; }
+        const A = D[i - 1], B = D[i], c = A[0] * B[1] - A[1] * B[0];
+        if (Math.abs(c) > 0.14) { const p1 = at(i - 1, 0), q1 = at(i, 0), t = ((q1[0] - p1[0]) * B[1] - (q1[1] - p1[1]) * B[0]) / c, X = [p1[0] + A[0] * t, p1[1] + A[1] * t]; if (Math.hypot(X[0] - Q[i][0], X[1] - Q[i][1]) < 6 * GAP) { cur.push(X); continue; } }
+        if (Math.hypot(N[i - 1][0] - N[i][0], N[i - 1][1] - N[i][1]) < 0.5) cur.push(at(i, 0)); else cur.push(at(i - 1, Math.max(0, Ls[i - 1] - Lt[i - 1])), at(i, Lt[i]));
+      }
+      if (cur.length > 1) lines.push(cur);
+      const lw = drwLw(f.ex ? lwOfCores(f.cores) : lwOfCab(f.cab), d);
+      g.strokeStyle = f.ex ? '#4dabf7' : '#1c3f94'; g.lineWidth = lw; g.lineJoin = 'miter'; g.miterLimit = 6; g.setLineDash(f.cab && !/^U/.test(f.cab) ? [7 * d, 4 * d] : []);
+      lines.forEach((L) => { if (L.length < 2) return; g.beginPath(); L.forEach((p, k) => (k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.stroke(); for (let k = 1; k < L.length; k++) occ.add(segObb(L[k - 1], L[k], lw + 2 * d), 'cable', f.n); });
+      g.setLineDash([]); g.lineJoin = 'round';
+      for (let j = 0; j < m; j++) { const key = spanKey(ids[j], ids[j + 1]); if (!laneAt.has(key)) laneAt.set(key, []); laneAt.get(key).push({ N: N[j], f }); }
     });
-    drw.spans.forEach(({ sp, a, b }) => { // the CABLE_ROUTE layer and the span length (FOC_LENGTH) at its middle; aerial broken, underground solid
-      const [ax, ay] = drwPx(a), [bx, by] = drwPx(b), ug = /^U/.test(sp.cable || '');
-      const ln = sp.lanes && sp.lanes.length ? sp.lanes : null, fD = !!ln && (drw.fibs || []).length > 0, onF = fD && ln.some((f) => !f.ex), exOnly = !!ln && !ln.some((f) => !f.ex); // (v2.42.23: its fibers drawn above; with only existing ones, its own cable too)
-      if (!onF) { g.strokeStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.lineWidth = 2.2 * d; g.setLineDash(sp.cable && !ug ? [7 * d, 4 * d] : []); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); }
+    drw.spans.forEach(({ sp, a, b }) => { // the CABLE_ROUTE layer; aerial broken, underground solid (v2.42.24: as wide as its size; its labels and length below)
+      const P0 = drwPx(a), P1 = drwPx(b), ug = /^U/.test(sp.cable || ''), [ax, ay] = endAt(sp.ia, P0, P1), [bx, by] = endAt(sp.ib, P1, P0);
+      const ln = sp.lanes && sp.lanes.length ? sp.lanes : null, fD = !!ln && (drw.fibs || []).length > 0, onF = fD && ln.some((f) => !f.ex); // (v2.42.23: its fibers drawn above; with only existing ones, its own cable too)
+      if (!onF) { const lw = sp.long ? 2.2 * d : drwLw(lwOfCab(sp.cable), d); g.strokeStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.lineWidth = lw; g.setLineDash(sp.cable && !ug ? [7 * d, 4 * d] : []); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); occ.add(segObb([ax, ay], [bx, by], lw + 2 * d), 'cable', `s${sp.ia}|${sp.ib}`); }
       else if (sp.long) { g.strokeStyle = 'rgba(201,42,42,.35)'; g.lineWidth = (6 + 5 * (ln.length - 1)) * d; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); } // a span over the maximum: red under its fibers
-      const main = ln ? sp.fibers.slice().sort((x, y) => x.n - y.n)[0] || null : null, mi = ln ? (main ? ln.indexOf(main) : (ln.length - 1) / 2) : 0; // v2.42.20: each fiber in its lane
-      (fD ? [] : ln ? ln.filter((f) => f !== main).map((f) => [f.cab, ln.indexOf(f) - mi, !!f.ex]) : (sp.runs || []).slice(1).map((k, i) => [k, i + 1, false])).forEach(([k, lane, ex]) => { // v2.42.18: the span's other runs, parallel to run 1
-        const Ln = Math.hypot(bx - ax, by - ay) || 1, nx = (by - ay) / Ln, ny = -(bx - ax) / Ln, f = 5 * d * lane;
-        g.strokeStyle = ex ? '#4dabf7' : '#1c3f94'; g.lineWidth = 1.8 * d; g.setLineDash(k && !/^U/.test(k) ? [7 * d, 4 * d] : []); g.beginPath(); g.moveTo(ax + nx * f, ay + ny * f); g.lineTo(bx + nx * f, by + ny * f); g.stroke(); g.setLineDash([]);
+      if (!fD && !ln) (sp.runs || []).slice(1).forEach((k, i) => { // v2.42.18: the span's other runs, parallel to run 1
+        const Ln = Math.hypot(bx - ax, by - ay) || 1, nx = (by - ay) / Ln, ny = -(bx - ax) / Ln, o = GAP * (i + 1), lw = drwLw(lwOfCab(k), d);
+        g.strokeStyle = '#1c3f94'; g.lineWidth = lw; g.setLineDash(k && !/^U/.test(k) ? [7 * d, 4 * d] : []); g.beginPath(); g.moveTo(ax + nx * o, ay + ny * o); g.lineTo(bx + nx * o, by + ny * o); g.stroke(); g.setLineDash([]); occ.add(segObb([ax + nx * o, ay + ny * o], [bx + nx * o, by + ny * o], lw + 2 * d), 'cable', `s${sp.ia}|${sp.ib}`);
       });
-      if (drw.labels && Math.hypot(bx - ax, by - ay) > 46 * d) {
-        let ang = Math.atan2(by - ay, bx - ax); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
-        // v2.42.23: each cable's own label beside its own line (the half on top above, the others below), the length above them
-        const CBL = plStyle().cab, flip = Math.abs(ang - Math.atan2(by - ay, bx - ax)) > 1e-6;
-        const nFb = (drw.fibs || []).length, nRn = (sp.runs || []).length; // (v2.42.23: with its run, as on the plan)
-        const Ls = ln ? [...(exOnly ? [{ o: 0, t: runLbl((cabLabelOf({ runs: [(sp.runs || [sp.cable])[0]] }, 'a')[0] || {}).t || '', nRn > 1 ? 1 : 0), ex: false }] : []), ...ln.map((f, k) => ({ o: (exOnly ? k + 1 : k - (ln.length - 1) / 2) * 5 * d, t: runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', nFb > 1 ? f.n : 0), ex: !!f.ex }))] : (sp.runs || [sp.cable]).map((k, i) => ({ o: i * 5 * d, t: runLbl((cabLabelOf({ runs: [k] }, 'a')[0] || {}).t || '', nRn > 1 ? i + 1 : 0), ex: false }));
-        const Y = Ls.map((x) => ({ ...x, y: flip ? x.o : -x.o })).sort((p, q) => p.y - q.y), yTop = Y.length ? Y[0].y : 0, yBot = Y.length ? Y[Y.length - 1].y : 0, nTop = Y.length > 1 ? Math.floor(Y.length / 2) : 0;
-        g.save(); g.translate((ax + bx) / 2, (ay + by) / 2); g.rotate(ang); g.textAlign = 'center'; let topUsed = 0;
-        if (CBL.on && Math.hypot(bx - ax, by - ay) > 96 * d) {
-          g.font = `700 ${8.5 * d}px ui-monospace, monospace`;
-          const Lpx = Math.hypot(bx - ax, by - ay) - 130 * d, fits = (x) => x.t && g.measureText(x.t).width <= Lpx; // (clear of the poles' own labels at the ends; zoom in for the rest)
-          Y.slice(0, nTop).forEach((x, j) => { if (!fits(x)) return; g.textBaseline = 'bottom'; g.fillStyle = x.ex ? '#1c7ed6' : '#c92a2a'; g.fillText(x.t, 0, yTop - 3 * d - j * 10 * d); }); topUsed = nTop * 10 * d;
-          Y.slice(nTop).reverse().forEach((x, j) => { if (!fits(x)) return; g.textBaseline = 'top'; g.fillStyle = x.ex ? '#1c7ed6' : '#c92a2a'; g.fillText(x.t, 0, yBot + 3 * d + j * 10 * d); });
-        }
-        g.font = `600 ${fs}px ui-monospace, monospace`; g.textBaseline = 'bottom'; g.fillStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.fillText(`${sp.len.toFixed(1)} m`, 0, yTop - 3 * d - topUsed); g.restore();
+    });
+    (drw.exHops || []).forEach(({ a, b }) => { if ((drw.fibs || []).length) return; const [ax, ay] = drwPx(a), [bx, by] = drwPx(b); g.strokeStyle = '#4dabf7'; g.lineWidth = 1.8 * d; g.setLineDash([7 * d, 4 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); }); // v2.42.20: an existing cable (v2.42.23: its fiber's line above)
+    // v2.42.24: the dummy NAP (the template's green rounded box, DN) and the closure (the P-Joint pentagon) on the cable at their pole
+    const rrect = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.lineTo(x + w - r, y); g.arcTo(x + w, y, x + w, y + r, r); g.lineTo(x + w, y + h - r); g.arcTo(x + w, y + h, x + w - r, y + h, r); g.lineTo(x + r, y + h); g.arcTo(x, y + h, x, y + h - r, r); g.lineTo(x, y + r); g.arcTo(x, y, x + r, y, r); g.closePath(); };
+    const pent = (c, R) => { g.beginPath(); for (let i = 0; i < 5; i++) { const t = (-90 + i * 72) * Math.PI / 180; g[i ? 'lineTo' : 'moveTo'](c[0] + R * Math.cos(t), c[1] + R * Math.sin(t)); } g.closePath(); };
+    BK.forEach((bk, id) => {
+      const sel = String(drw.sel) === id;
+      if (bk.kind === 'dn') { const ang = Math.atan2(bk.ax[1], bk.ax[0]); g.save(); g.translate(bk.c[0], bk.c[1]); g.rotate(ang);
+        if (sel) { g.strokeStyle = 'rgba(255,212,59,.95)'; g.lineWidth = 5 * d; rrect(-bk.hl, -bk.hw, bk.hl * 2, bk.hw * 2, bk.hw * 0.5); g.stroke(); }
+        g.fillStyle = '#ffffff'; g.strokeStyle = '#14b81e'; g.lineWidth = 1.6 * d; rrect(-bk.hl, -bk.hw, bk.hl * 2, bk.hw * 2, bk.hw * 0.5); g.fill(); g.stroke();
+        g.lineWidth = 1.1 * d; rrect(-bk.hl + bk.hw * 0.2, -bk.hw * 0.8, bk.hl * 2 - bk.hw * 0.4, bk.hw * 1.6, bk.hw * 0.4); g.stroke();
+        let ra = ang; if (ra > Math.PI / 2) ra -= Math.PI; if (ra < -Math.PI / 2) ra += Math.PI; g.rotate(ra - ang); // (its text upright)
+        g.fillStyle = '#14b81e'; g.font = `700 ${bk.hw * 1.3}px Arial, Helvetica, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('DN', 0, 0.5 * d); g.restore();
+        occ.add(obb(bk.c[0], bk.c[1], bk.hl * 2, bk.hw * 2, ang), 'sym');
+      } else {
+        if (sel) { g.strokeStyle = 'rgba(255,212,59,.95)'; g.lineWidth = 5 * d; pent(bk.c, bk.R); g.stroke(); }
+        pent(bk.c, bk.R); if (bk.old) { g.fillStyle = '#ffffff'; g.fill(); g.strokeStyle = '#1c7ed6'; g.lineWidth = 1.6 * d; g.stroke(); } else { g.fillStyle = '#ff0000'; g.fill(); g.strokeStyle = '#ff0000'; g.lineWidth = 1 * d; g.stroke(); }
+        occ.add(obb(bk.c[0], bk.c[1], bk.R * 2, bk.R * 2, 0), 'sym');
       }
     });
-    (drw.exHops || []).forEach(({ a, b, lbl }) => { const [ax, ay] = drwPx(a), [bx, by] = drwPx(b); if (!(drw.fibs || []).length) { g.strokeStyle = '#4dabf7'; g.lineWidth = 1.8 * d; g.setLineDash([7 * d, 4 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); } // v2.42.20: an existing cable (v2.42.23: its fiber's line above)
-      if (lbl && drw.labels && plStyle().cab.on && Math.hypot(bx - ax, by - ay) > 96 * d) { let ang = Math.atan2(by - ay, bx - ax); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI; g.save(); g.translate((ax + bx) / 2, (ay + by) / 2); g.rotate(ang); g.textAlign = 'center'; g.textBaseline = 'top'; g.font = `700 ${9.5 * d}px ui-monospace, monospace`; g.fillStyle = '#1c7ed6'; g.fillText(lbl, 0, 3 * d); g.restore(); g.font = `600 ${fs}px ui-monospace, monospace`; } }); // v2.42.21: its size
+    g.font = `600 ${fs}px ui-monospace, monospace`;
     // a NAP or closure pin: a dotted line to the pole it stands on
     drw.items.forEach((it) => { if (!it.on) return; const [ax, ay] = drwPx(it.xy), [bx, by] = drwPx(it.on.xy); g.strokeStyle = 'rgba(240,140,0,0.9)'; g.lineWidth = 1.6 * d; g.setLineDash([2 * d, 3 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); });
     const placed = [], near = v.sc >= 1.4 * d, ct = S.exp.dxfClampType !== false, mode = curRow().mode, NS = plStyle().num; // (v2.42.14: the drawing shown)
@@ -1575,18 +1649,19 @@
     const nCol = ACI_INK[NS.color] || '#d9a400', bCol = ACI_INK[NS.bcolor] || nCol;
     const free = (bx) => !placed.some((q) => bx[0] < q[0] + q[2] && bx[0] + bx[2] > q[0] && bx[1] < q[1] + q[3] && bx[1] + bx[3] > q[1]);
     drw.items.forEach((it) => {
-      const { p, xy, el } = it, [px, py] = drwPx(xy), r = (el === 'Pole' ? 5 : 6) * d, prop = p.status === 'Proposed' || p.status === 'New';
-      g.lineWidth = 1.8 * d; g.strokeStyle = pinCol(p) || (prop ? '#e03131' : '#1b1b1b'); g.fillStyle = drw.sel === p.id ? '#ffd43b' : '#ffffff';
+      const { p, xy, el } = it, [px, py] = drwPx(xy), bk = el === 'Pole' ? BK.get(String(p.id)) : null, r = bk ? bk.r + 2 * d : (el === 'Pole' ? 5 : 6) * d, prop = p.status === 'Proposed' || p.status === 'New'; // (v2.42.24: a DN or closure stands for its pole)
+      if (!bk) { g.lineWidth = 1.8 * d; g.strokeStyle = pinCol(p) || (prop ? '#e03131' : '#1b1b1b'); g.fillStyle = drw.sel === p.id ? '#ffd43b' : '#ffffff';
       g.beginPath();
       if (el === 'Pole') g.arc(px, py, r, 0, Math.PI * 2); else if (el === 'Handhole' || el === 'Manhole' || el === 'Service box' || el === 'ODC' || el === 'ODF') g.rect(px - r, py - r, r * 2, r * 2); else { g.moveTo(px, py - r * 1.2); g.lineTo(px + r, py + r * 0.8); g.lineTo(px - r, py + r * 0.8); g.closePath(); }
       g.fill(); g.stroke();
-      if (el !== 'Pole') { g.fillStyle = pinCol(p) || SV_COLORS[el] || '#495057'; g.beginPath(); g.arc(px, py, r * 0.35, 0, Math.PI * 2); g.fill(); }
-      placed.push([px - r, py - r, r * 2, r * 2]);
+      if (el !== 'Pole') { g.fillStyle = pinCol(p) || SV_COLORS[el] || '#495057'; g.beginPath(); g.arc(px, py, r * 0.35, 0, Math.PI * 2); g.fill(); } }
+      placed.push(bk && bk.kind === 'dn' ? [px - Math.abs(bk.ax[0]) * bk.hl - Math.abs(bk.ax[1]) * bk.hw, py - Math.abs(bk.ax[1]) * bk.hl - Math.abs(bk.ax[0]) * bk.hw, 2 * (Math.abs(bk.ax[0]) * bk.hl + Math.abs(bk.ax[1]) * bk.hw), 2 * (Math.abs(bk.ax[1]) * bk.hl + Math.abs(bk.ax[0]) * bk.hw)] : [px - r, py - r, r * 2, r * 2]);
       // its photo or number on the plan (as the DXF will have it)
       const n = roomy ? drw.seq.get(String(p.id)) : 0;
       if (n) {
-        const hasPh = mode !== 'num' && photosOf(p).length > 0, dx = 13 * d, dy = -15 * d, cx = px + dx, cy = py + dy;
-        g.strokeStyle = bCol; g.lineWidth = 1.2 * d; g.beginPath(); g.moveTo(px + r * 0.7, py - r * 0.7); g.lineTo(cx - 6 * d, cy + 6 * d); g.stroke();
+        const pp = bk && bk.kind === 'dn' ? (-bk.ax[1] >= 0 ? [-bk.ax[1], bk.ax[0]] : [bk.ax[1], -bk.ax[0]]) : null; // (v2.42.24: outside a block; beside a DN's long side)
+        const hasPh = mode !== 'num' && photosOf(p).length > 0, dx = pp ? pp[0] * (bk.hw + 18 * d) : r + 8 * d, dy = pp ? pp[1] * (bk.hw + 18 * d) - 8 * d : -(r + 10 * d), cx = px + dx, cy = py + dy;
+        g.strokeStyle = bCol; g.lineWidth = 1.2 * d; g.beginPath(); if (pp) g.moveTo(px + pp[0] * bk.hw, py + pp[1] * bk.hw); else g.moveTo(px + r * 0.7, py - r * 0.7); g.lineTo(cx - 6 * d, cy + 6 * d); g.stroke();
         if (hasPh) { // a photo frame, its number at the upper left when both
           g.fillStyle = 'rgba(255,255,255,0.9)'; g.strokeStyle = '#495057'; g.lineWidth = 1.2 * d; g.fillRect(cx - 9 * d, cy - 7 * d, 18 * d, 14 * d); g.strokeRect(cx - 9 * d, cy - 7 * d, 18 * d, 14 * d);
           g.fillStyle = '#868e96'; g.beginPath(); g.moveTo(cx - 6 * d, cy + 5 * d); g.lineTo(cx - 1 * d, cy - 1 * d); g.lineTo(cx + 2 * d, cy + 2 * d); g.lineTo(cx + 4 * d, cy); g.lineTo(cx + 7 * d, cy + 5 * d); g.closePath(); g.fill();
@@ -1608,7 +1683,7 @@
     const clTags = []; // v2.42.21: clamp types as tags or callouts, placed after the labels
     drw.items.forEach((it) => { // the IDs (and the clamps and tags of a pole, close up), moved where they would cover another
       const { p, xy, el } = it; if (!drw.labels) return;
-      const [px, py] = drwPx(xy), r = (el === 'Pole' ? 5 : 6) * d, prop = p.status === 'Proposed' || p.status === 'New';
+      const [px, py] = drwPx(xy), bk = el === 'Pole' ? BK.get(String(p.id)) : null, r = bk ? bk.r + 2 * d : (el === 'Pole' ? 5 : 6) * d, prop = p.status === 'Proposed' || p.status === 'New';
       g.font = `600 ${fs}px ui-monospace, monospace`;
       const t = p.poleId || el, w = g.measureText(t).width;
       const CLs = plStyle().clamp, inL = !ct || CLs.place === 'label', sub0 = near && el === 'Pole' ? [ct ? clampOf(p, drw.R, projPoints()).join('+') : '', (p.boq || {}).clamp || ''].filter(Boolean).join(' ') || (ct && CLs.hw ? hwShort(p, drw.R) : '') : ''; // v2.42.21: or its 12C hardware
@@ -1637,6 +1712,8 @@
         if (CLs.place === 'callout') { g.strokeStyle = col; g.lineWidth = 1.1 * d; g.beginPath(); g.moveTo(px + ux * r, py + uy * r); g.lineTo(cx - ux * w / 2, cy - uy * h / 2); g.stroke(); }
         g.fillStyle = 'rgba(251,251,248,0.92)'; g.fillRect(bx[0], bx[1], w, h); if (CLs.box) { g.strokeStyle = col; g.lineWidth = 1 * d; g.strokeRect(bx[0], bx[1], w, h); }
         g.fillStyle = col; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, cx, cy + 0.5 * d); }); }
+    placed.forEach(([x, y, w, h]) => occ.add(obb(x + w / 2, y + h / 2, w, h, 0), 'text'));
+    if (drw.labels) drwLabels(g, d, cv, occ, BK, endAt, laneAt, GAP);
     // north arrow and scale bar
     g.fillStyle = '#1b1b1b'; g.strokeStyle = '#1b1b1b'; g.lineWidth = 1.5 * d;
     const nx = cv.width - 26 * d, ny = 30 * d; g.beginPath(); g.moveTo(nx, ny - 14 * d); g.lineTo(nx + 7 * d, ny + 8 * d); g.lineTo(nx, ny + 3 * d); g.lineTo(nx - 7 * d, ny + 8 * d); g.closePath(); g.fill();
@@ -1644,6 +1721,87 @@
     const sb = [10, 20, 50, 100, 200, 500, 1000, 2000].find((m) => m * v.sc > 70 * d) || 2000, sx = cv.width - 26 * d - sb * v.sc, sy = 62 * d;
     g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx + sb * v.sc, sy); g.moveTo(sx, sy - 5 * d); g.lineTo(sx, sy + 5 * d); g.moveTo(sx + sb * v.sc, sy - 5 * d); g.lineTo(sx + sb * v.sc, sy + 5 * d); g.stroke();
     g.textBaseline = 'bottom'; g.fillText(sb >= 1000 ? `${sb / 1000} km` : `${sb} m`, sx + sb * v.sc / 2, sy - 4 * d);
+  }
+  /* v2.42.24: the closure's texts and the cable labels and span lengths on the Drawing screen, where they cover nothing (the other
+     labels, the IDs, numbers and tags, the blocks, the cables): as on the plan. Each cable its own label beside its own line, as large
+     as fits (8.5 px), smaller down to 6 px; where none fits, the label level in free space with a short shoulder and an arrow to its own
+     line (a leader, as the template's legend); then smaller still beside it (5.5 px); else left for a closer zoom. The most crowded spans
+     first; the span length beyond its labels, smaller as needed. Only what is on the screen. */
+  const drwTW = new Map();
+  function drwLabels(g, d, cv, occ, BK, endAt, laneAt, GAP) {
+    const KB = [], kb = (b, t) => KB.push([Math.round(b.cx), Math.round(b.cy), +b.hw.toFixed(1), +b.hh.toFixed(1), +b.ux.toFixed(4), +b.uy.toFixed(4), t]); // (what was placed: drw.lastLbl, for a check)
+    const FL = { H: 8.5 * d, HMIN: 6 * d, HLAST: 5.5 * d, LEN: 11 * d, LENMIN: 7.5 * d, CLR: 4.5 * d, D: [28 * d, 42 * d, 58 * d, 78 * d], SH: 10 * d };
+    const tw = (t, h, w8) => { const k = `${w8}|${t}`; let w = drwTW.get(k); if (w == null) { g.font = `${w8} 10px ui-monospace, monospace`; w = g.measureText(t).width; if (drwTW.size > 4000) drwTW.clear(); drwTW.set(k, w); } return w * h / 10; };
+    const PAD = (h) => h * 0.2, Wv = cv.width, Hv = cv.height, inView = (b) => b.cx - b.ex >= 0 && b.cx + b.ex <= Wv && b.cy - b.ey >= 0 && b.cy + b.ey <= Hv;
+    const sizes = (h0, hmin) => { const out = []; for (let h = h0; h > hmin + 1e-9; h *= 0.9) out.push(h); out.push(hmin); return out; };
+    const txt = (t, q, h, ang, col, w8) => { g.save(); g.translate(q[0], q[1]); g.rotate(ang); g.font = `${w8} ${h}px ui-monospace, monospace`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = 'rgba(251,251,248,0.7)'; const w = tw(t, h, w8); g.fillRect(-w / 2 - 1, -h * 0.55, w + 2, h * 1.1); g.fillStyle = col; g.fillText(t, 0, 0.5 * d); g.restore(); };
+    // the closure: PROPOSED / its ID and size (existing: its ID and size, blue), beside the pentagon where they cover nothing, smaller as needed
+    BK.forEach((bk) => { if (bk.kind !== 'clo') return;
+      const l1 = bk.old ? '' : 'PROPOSED', l2 = [bk.cid, bk.size].filter(Boolean).join(' · '), col = bk.old ? '#1c7ed6' : '#e03131', c = bk.c, R = bk.R; let best = null;
+      for (const t of [10.5 * d, 9 * d, 7.5 * d]) { const w = Math.max(tw(l1, t, 700), tw(l2, t, 700)), hh = l1 ? t * 2.5 : t * 1.3;
+        for (const off of [0.6, 1.6]) for (const [dx, dy] of [[1, -1], [-1, -1], [1, 1], [-1, 1], [1, 0], [-1, 0]]) {
+          const x0 = dx > 0 ? c[0] + R + t * off : dx < 0 ? c[0] - R - t * off - w : c[0] - w / 2, y0 = dy ? c[1] + dy * (R + hh / 2) : c[1], b = obb(x0 + w / 2, y0, w + t * 0.4, hh, 0), n = occ.cost(b) + (inView(b) ? 0 : 40);
+          if (!best || n < best.n) best = { x0, y0, b, n, t }; if (!n) break; }
+        if (best.n === 0) break; }
+      if (!best || best.n >= 10) return; // (left for a closer zoom)
+      const { x0, y0, t } = best; g.font = `700 ${t}px ui-monospace, monospace`; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillStyle = col;
+      if (l1) { g.fillText(l1, x0, y0 - t * 0.62); g.fillText(l2, x0, y0 + t * 0.62); } else g.fillText(l2, x0, y0); occ.add(best.b, 'text'); kb(best.b, l2); });
+    // the spans with something to label: the route spans (their fibers' lanes, else their own cable and runs) and the existing cables off the route
+    const CBL = plStyle().cab, nFb = (drw.fibs || []).length, items = [];
+    const lblOfF = (f) => runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', nFb > 1 ? f.n : 0);
+    const add = (ia, ib, a, b, lines, len, long) => { const P0 = drwPx(a), P1 = drwPx(b), A = endAt(ia, P0, P1), B = endAt(ib, P1, P0);
+      if (Math.max(A[0], B[0]) < 0 || Math.min(A[0], B[0]) > Wv || Math.max(A[1], B[1]) < 0 || Math.min(A[1], B[1]) > Hv) return; // (off the screen)
+      const Ls = Math.hypot(B[0] - A[0], B[1] - A[1]); if (Ls < 24 * d) return;
+      const ds = [(B[0] - A[0]) / Ls, (B[1] - A[1]) / Ls]; let ang = Math.atan2(ds[1], ds[0]); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
+      const up = [Math.sin(ang), -Math.cos(ang)], dl = [Math.cos(ang), Math.sin(ang)];
+      items.push({ A, Ls, mid: [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2], dl, up, ang, lines: lines.map((x) => ({ ...x, u: x.N[0] * up[0] + x.N[1] * up[1] })), len, long }); };
+    drw.spans.forEach(({ sp, a, b }) => {
+      const key = spanKey(sp.ia, sp.ib), L = laneAt.get(key), ln = sp.lanes && sp.lanes.length ? sp.lanes : null, exOnly = !!ln && !ln.some((f) => !f.ex), nRn = (sp.runs || []).length;
+      let lines;
+      if (L && L.length) { lines = L.map((x) => ({ N: x.N, t: lblOfF(x.f), ex: !!x.f.ex, run: x.f.n })); if (exOnly) lines.push({ N: [0, 0], t: runLbl((cabLabelOf({ runs: [(sp.runs || [sp.cable])[0]] }, 'a')[0] || {}).t || '', nRn > 1 ? 1 : 0), ex: false, run: `s${sp.ia}|${sp.ib}` }); }
+      else { const P0 = drwPx(a), P1 = drwPx(b), Ln = Math.hypot(P1[0] - P0[0], P1[1] - P0[1]) || 1, nx = (P1[1] - P0[1]) / Ln, ny = -(P1[0] - P0[0]) / Ln;
+        lines = (sp.runs && sp.runs.length ? sp.runs : [sp.cable]).map((k, i) => ({ N: [nx * GAP * i, ny * GAP * i], t: runLbl((cabLabelOf({ runs: [k] }, 'a')[0] || {}).t || '', nRn > 1 ? i + 1 : 0), ex: false, run: `s${sp.ia}|${sp.ib}` })); }
+      add(sp.ia, sp.ib, a, b, lines, `${sp.len.toFixed(1)} m`, !!sp.long); });
+    (drw.exHops || []).forEach(({ a, b, ia, ib, lbl }) => { const L = laneAt.get(spanKey(ia, ib)); add(ia, ib, a, b, L && L.length ? L.map((x) => ({ N: x.N, t: lblOfF(x.f), ex: true, run: x.f.n })) : [{ N: [0, 0], t: lbl || '', ex: true, run: `x${ia}|${ib}` }], '', false); });
+    const tight = (it) => (CBL.on ? it.lines.reduce((t, x) => t + (x.t ? tw(x.t, FL.H, 700) : 0), 0) : 0) / Math.max(1, it.Ls);
+    const leaders = [];
+    items.sort((x, y) => tight(y) - tight(x)).forEach((it) => { // the most crowded spans first
+      const { Ls, mid, dl, up, ang } = it, us = it.lines.map((x) => x.u), ext = { dn: Math.min(0, ...us), up: Math.max(0, ...us) };
+      const ls = CBL.on ? it.lines.filter((x) => x.t).sort((x, y) => x.u - y.u) : [], nD = ls.length === 1 ? 1 : Math.floor(ls.length / 2);
+      for (const [side, arr] of [[-1, ls.slice(0, nD)], [1, ls.slice(nD).reverse()]]) arr.forEach((x, j) => {
+        const col = x.ex ? '#1c7ed6' : '#c92a2a';
+        const beside = (hs) => { for (const h of hs) { const w = tw(x.t, h, 700); if (w > Ls * 0.96) continue; const fm = (Ls - w) / 2 / Ls;
+          for (const e of [0, 0.6]) for (const f0 of [0, 0.12, -0.12, 0.25, -0.25, 0.38, -0.38]) { const f = Math.max(-fm, Math.min(fm, f0)), rc = (side < 0 ? ext.dn : ext.up) + side * ((j ? 0.35 * h : FL.CLR) + h / 2 + e * h);
+            const q = [mid[0] + dl[0] * f * Ls + up[0] * rc, mid[1] + dl[1] * f * Ls + up[1] * rc], b = obb(q[0], q[1], w + 2 * PAD(h), h * 1.3, ang); if (!occ.cost(b) && inView(b)) return { q, h, b, rc }; } }
+          return null; };
+        const keep = (c) => { txt(x.t, c.q, c.h, ang, col, 700); occ.add(c.b, 'label', x.run); kb(c.b, x.t); if (side < 0) ext.dn = Math.min(ext.dn, c.rc - c.h / 2); else ext.up = Math.max(ext.up, c.rc + c.h / 2); };
+        let c = beside(sizes(FL.H, FL.HMIN)); if (c) { keep(c); return; }
+        let best = null;
+        if (Ls >= 60 * d) for (const h of [FL.H, (FL.H + FL.HMIN) / 2, FL.HMIN]) { const w = tw(x.t, h, 700); // a leader: the label level in free space, a shoulder and an arrow to a point on its own line
+          for (const f of [0, -0.2, 0.2, -0.33, 0.33]) { const tip = [mid[0] + dl[0] * f * Ls + x.N[0], mid[1] + dl[1] * f * Ls + x.N[1]];
+            for (const dist of FL.D) for (const tilt of [0, 30, -30, 60, -60]) for (const sd of [side, -side]) {
+              const t = tilt * Math.PI / 180, u0 = [up[0] * sd, up[1] * sd], u = [u0[0] * Math.cos(t) - u0[1] * Math.sin(t), u0[0] * Math.sin(t) + u0[1] * Math.cos(t)], kn = [tip[0] + u[0] * dist, tip[1] + u[1] * dist];
+              const dir = kn[0] >= tip[0] ? 1 : -1, L0 = [kn[0] + dir * FL.SH, kn[1]], tx = L0[0] + dir * (w / 2 + PAD(h) + 2 * d), b = obb(tx, L0[1], w + 2 * PAD(h), h * 1.35, 0), segs = [segObb(tip, kn, 2.5 * d), segObb(kn, L0, 2.5 * d)];
+              const n = occ.cost(b) + segs.reduce((t2, sb) => t2 + occ.cost(sb, { skipRun: x.run, cableW: 1 }), 0) + (inView(b) ? 0 : 40) + (sd === side ? 0 : 0.5) + (h < FL.H - 1e-9 ? 0.2 : 0);
+              if (!best || n < best.n) best = { n, tip, kn, L0, q: [tx, L0[1]], b, segs, h }; if (n < 0.01) break; } }
+          if (best && best.n < 1) break; }
+        if (!best || best.n >= 1) { c = beside(sizes(FL.HMIN * 0.9, FL.HLAST)); if (c) { keep(c); return; } } // smaller still beside it, before covering anything
+        if (!best || best.n >= 10) return; // (nowhere free: left for a closer zoom)
+        txt(x.t, best.q, best.h, 0, col, 700); occ.add(best.b, 'label', x.run); kb(best.b, x.t); best.segs.forEach((sb) => occ.add(sb, 'leader', x.run)); leaders.push({ c: best, col });
+      });
+      if (!it.len || Ls < 30 * d) return; // the span length: beyond the labels (above first), smaller as needed
+      let lp = null;
+      for (const h of sizes(FL.LEN, FL.LENMIN)) { const w = tw(it.len, h, 600);
+        for (const e of [0, 0.7 * h, 1.4 * h]) for (const [f, side] of [[0, 1], [0, -1], [0.2, 1], [-0.2, 1], [0.2, -1], [-0.2, -1], [0.35, 1], [-0.35, 1], [0.35, -1], [-0.35, -1]]) {
+          const rc = side > 0 ? ext.up + FL.CLR + h / 2 + e : ext.dn - FL.CLR - h / 2 - e, q = [mid[0] + dl[0] * f * Ls + up[0] * rc, mid[1] + dl[1] * f * Ls + up[1] * rc], b = obb(q[0], q[1], w + 2 * PAD(h), h * 1.25, ang);
+          if (!occ.cost(b) && inView(b)) { lp = { q, b, h }; break; } }
+        if (lp) break; }
+      if (!lp) return; txt(it.len, lp.q, lp.h, ang, it.long ? '#c92a2a' : '#1c3f94', 600); occ.add(lp.b, 'text'); kb(lp.b, it.len);
+    });
+    leaders.forEach(({ c, col }) => { g.strokeStyle = col; g.lineWidth = 1.1 * d; g.beginPath(); g.moveTo(c.tip[0], c.tip[1]); g.lineTo(c.kn[0], c.kn[1]); g.lineTo(c.L0[0], c.L0[1]); g.stroke();
+      const l = Math.hypot(c.kn[0] - c.tip[0], c.kn[1] - c.tip[1]) || 1, u = [(c.kn[0] - c.tip[0]) / l, (c.kn[1] - c.tip[1]) / l], aL = 7 * d, aW = 3 * d, base = [c.tip[0] + u[0] * aL, c.tip[1] + u[1] * aL];
+      g.fillStyle = col; g.beginPath(); g.moveTo(c.tip[0], c.tip[1]); g.lineTo(base[0] - u[1] * aW, base[1] + u[0] * aW); g.lineTo(base[0] + u[1] * aW, base[1] - u[0] * aW); g.closePath(); g.fill(); });
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic'; drw.lastLbl = { boxes: KB, leaders: leaders.length };
   }
   (() => { // pan, pinch, wheel and tap on the drawing
     const cv = $('drawCanvas'), d = () => window.devicePixelRatio || 1;
@@ -1794,7 +1952,10 @@
     rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[plStyle().num.bcolor] || ACI_INK[plStyle().num.color] || '#d9a400'}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[plStyle().num.color] || '#d9a400'}" font-family="system-ui,sans-serif">1</text>`), 'Number on the plan']);
     if (mode !== 'num') rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), mode === 'both' ? 'Photo with its number' : 'Photo on the plan']);
     const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop (LOOP×2: one for each of 2 fibers there)'], ['LOOP*', '#e03131', 'Maintenance loop added by the app (As-Plan)'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)']];
-    if (drw && drw.R && drw.R.fib && drw.R.fib.list.length > 1) rows.push([sv('<path d="M1 6h20M1 10h20" stroke="#1c3f94" stroke-width="1.6" stroke-dasharray="4 2.5"/>'), 'Fibers: each its own line in its lane; its label says its run (RUN 1 is F1)']); // v2.42.20 (v2.42.23)
+    if (drw && drw.R && drw.R.fib && drw.R.fib.list.length > 1) rows.push([sv('<path d="M1 5h20" stroke="#1c3f94" stroke-width="1.2" stroke-dasharray="4 2.5"/><path d="M1 11h20" stroke="#1c3f94" stroke-width="2.6" stroke-dasharray="4 2.5"/>'), 'Cables: each its own line in its lane, thicker for a larger size (12C thinnest, 288C thickest); its label says its size, type and run (PROPOSED 24C FIG-8 (RUN 5))']); // v2.42.20 (v2.42.23; v2.42.24: the width by size)
+    if (drw && drw.blocks && [...drw.blocks.values()].some((b) => b.kind === 'dn')) rows.push([sv('<rect x="1.5" y="4" width="19" height="8" rx="3" fill="#fff" stroke="#14b81e" stroke-width="1.2"/><text x="11" y="10.4" text-anchor="middle" font-size="5.5" font-weight="800" fill="#14b81e" font-family="Arial,sans-serif">DN</text>'), 'Dummy NAP (DN) on the cable: its cables meet its sides']); // v2.42.24
+    if (drw && drw.blocks && [...drw.blocks.values()].some((b) => b.kind === 'clo')) rows.push([sv('<polygon points="11,2 17.2,6.5 14.8,13.8 7.2,13.8 4.8,6.5" fill="#ff0000"/>'), 'Hybrid closure on the cable (red: proposed; blue outline: existing), with its ID and size; its cables meet its sides']); // v2.42.24
+    rows.push([sv('<path d="M3 13 9 6h10" fill="none" stroke="#c92a2a" stroke-width="1.1"/><path d="M3 13l1-4 2.4 2.2Z" fill="#c92a2a"/>'), 'A cable label with an arrow: no room beside its cable (zoom in for the rest)']); // v2.42.24
     if (drw && drw.R && drw.R.fib && drw.R.fib.list.some((f) => f.ex)) rows.push([sv('<path d="M1 8h20" stroke="#4dabf7" stroke-width="1.8" stroke-dasharray="4 2.5"/>'), 'Existing cable (drawn only, not counted)']);
     const present = new Set(); if (drw) drw.items.forEach((it) => { if (it.el === 'Pole') poleTags(it).forEach(([t0]) => { const t = t0.replace(/×\d+$/, ''); present.add(/^G\d*$/.test(t) ? 'G' : t === 'LCP' || t === 'DN' ? 'NAP' : t); }); }); // (v2.42.20: LOOP×2 is a LOOP)
     T.forEach(([t, c, n]) => { if (present.has(t)) rows.push([tag(t, c), n]); });
@@ -2156,12 +2317,13 @@
   let fibAt = 'end', fibTouched = false, fibStartAt = null, fibNew = false, rtTools = false, rtPairs = false, rtPend = [], rtPop = null, rtDraft = null, rtPress = null, rtGestAt = 0, rtAsked = new Set(), rtHintT = 0, rtPq = 0, rtEdge = null, rtEdgeRaf = 0;
   /* v2.42.22: a closure or dummy NAP waiting for the second tap; the fingers down; the mouse moving the map; Space held. ✎ Draw or ✋ Move: S.routePen (kept on this phone) */
   let rtConf = null, rtPtrs = new Set(), rtMulti = false, rtMpan = null, rtSpace = false;
+  let rtSnap0 = null, rtSheet = null, rtDelArm = null, rtDelT = 0; // v2.42.24: the route before the cable in the bar was started or continued (✕ Cancel); the New cable sheet ({ from, seq }); a Delete tapped once
   const rtPenOn = () => S.routePen !== false;
   const rtDraftLayer = L.layerGroup().addTo(map), rtMarkLayer = L.layerGroup().addTo(map);
   const routeLayer = L.layerGroup().addTo(map), fibLayer = L.layerGroup().addTo(map);
   map.createPane('routePane'); map.getPane('routePane').style.zIndex = 395; // v2.42.19: the route under the pins (overlay 400), whatever is drawn last: a pin is tapped, not the span under it
   const links = () => (pmeta().links || []);
-  function setLinks(l) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), links: l, linksAt: new Date().toISOString() }; persist(); changedAfterApproval(S.project, 'route'); } // v2.42.5: + the approval; v2.42.18: + its time (Share)
+  function setLinks(l) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), links: l, linksAt: new Date().toISOString() }; persist(); changedAfterApproval(S.project, 'route'); cloSyncSoon(); } // (v2.42.24: the closures' sizes follow) // v2.42.5: + the approval; v2.42.18: + its time (Share)
   /* ================= v2.42.20: fibers (named runs) =================
      A fiber is one FOC cable from its start to its end, point by point: { n, cab, side ('auto', 'right', 'left', 'none'), ex (an
      existing cable: drawn on the plan only, not counted), path: [ids], fromSt, toSt (Existing / New; '' = as its record) }.
@@ -2169,10 +2331,10 @@
      clamps); a span on no fiber works as before. Kept in the project (fibers) with the route's time (linksAt) for Share. */
   const FIB_COLORS = ['#7048e8', '#0c8599', '#d6336c', '#1971c2', '#2f9e44', '#ae3ec9', '#5c940d', '#495057', '#0b7285', '#a61e4d'];
   const fibColor = (f) => FIB_COLORS[(Math.max(1, f.n) - 1) % FIB_COLORS.length];
-  const fibTag = (f) => `F${f.n}${f.ex ? '·EX' : ''}`;
+  const fibTag = (f) => `R${f.n}${f.ex ? '·EX' : ''}`; // (v2.42.24: RUN n)
   const spanKey = (a, b) => (String(a) < String(b) ? `${a}|${b}` : `${b}|${a}`);
   function fibers(name) { const F = pmeta(name).fibers; return Array.isArray(F) ? F.filter((f) => f && Array.isArray(f.path) && f.n > 0).map((f) => ({ ...f, path: f.path.slice() })) : []; }
-  function setRoute(l, F) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), ...(l ? { links: l } : {}), ...(F ? { fibers: F } : {}), linksAt: new Date().toISOString() }; persist(); changedAfterApproval(S.project, 'route'); }
+  function setRoute(l, F) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), ...(l ? { links: l } : {}), ...(F ? { fibers: F } : {}), linksAt: new Date().toISOString() }; persist(); changedAfterApproval(S.project, 'route'); cloSyncSoon(); } // (v2.42.24: the closures' sizes follow)
   const routeSnap = () => ({ l: links(), f: fibers() });
   /** The links as the route analysis reads them: a span on new fibers carries their cables (the lowest-numbered fiber's first). */
   function effLinks() {
@@ -2182,12 +2344,15 @@
   }
   /* v2.29: each span carries its FOC cable type (the third value of the link): AE Figure 8 72C, Light cable 12C or UG 144C air-blown */
   const CAB = C.CABLES;
+  /* v2.42.24: the cable's family: the light cable (retractors and span clamps, a dummy NAP), figure 8 (pole clamps), UG */
+  const isLight = (k) => !!CAB[k] && CAB[k].fam === 'light', isFig8 = (k) => !!CAB[k] && CAB[k].fam === 'fig8';
+  const CAB_GROUPS = [['light', 'Light cable'], ['fig8', 'Figure 8'], ['ug', 'UG air-blown']];
   const cableSel = () => { const k = pmeta().cable; return k === '' || CAB[k] ? k : 'L12'; }; // the cable new links get: the project's last choice
   const cableName = (k) => (CAB[k] ? CAB[k].label : 'Cable not set');
   const linkWith = (a, b, k, more) => (more && more.length ? [a, b, k || '', more.slice()] : k ? [a, b, k] : [a, b]); // v2.42.18: + the span's other runs
   const hEsc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   function renderCableSel() {
-    const sel = $('rbCable'); if (!sel.options.length) { Object.entries(CAB).forEach(([k, c]) => sel.add(new Option(`${c.label} · ${c.method}`, k))); sel.add(new Option('Cable not set', '')); }
+    const sel = $('rbCable'); if (!sel.options.length) { CAB_GROUPS.forEach(([fam, name]) => { const g = document.createElement('optgroup'); g.label = name; Object.entries(CAB).filter(([, c]) => c.fam === fam).forEach(([k, c]) => g.appendChild(new Option(`${c.label} · ${c.method}`, k))); sel.appendChild(g); }); sel.add(new Option('Cable not set', '')); } // (v2.42.24: grouped)
     sel.value = cableSel();
   }
   /** Points the cable route runs through: poles, handholes, the site, ODC and ODF (NAP and closure pins sit on a pole). */
@@ -2301,13 +2466,13 @@
   function drwFibs(R, U) {
     if (!R || !R.fib) return []; const out = [];
     R.fib.list.filter((f) => f.path.length > 1 && f.path.every((id) => R.fib.by.get(id))).forEach((f) => {
-      let pts = [U(R.fib.by.get(f.path[0]))], st = [];
-      const flush = () => { if (pts.length > 1) out.push({ ex: !!f.ex, cab: f.cab || '', pts, st }); };
+      let pts = [U(R.fib.by.get(f.path[0]))], ids = [String(f.path[0])], st = [];
+      const flush = () => { if (pts.length > 1) out.push({ ex: !!f.ex, cab: f.cab || '', n: f.n, cores: f.ex ? exCores(f) : (CAB[f.cab] || {}).cores || 0, pts, ids, st }); }; // (v2.42.24: its poles, run and size)
       f.path.slice(1).forEach((b, i) => {
         const h = R.fib.hops.get(spanKey(f.path[i], b));
-        if (!h || (!h.s && !f.ex)) { flush(); pts = [U(R.fib.by.get(b))]; st = []; return; }
+        if (!h || (!h.s && !f.ex)) { flush(); pts = [U(R.fib.by.get(b))]; ids = [String(b)]; st = []; return; }
         const z = !!h.s && !h.fs.some((x) => !x.ex), k = Math.max(0, h.fs.indexOf(f));
-        pts.push(U(R.fib.by.get(b))); st.push({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), k: z ? k + 1 : k, n: z ? h.fs.length + 1 : h.fs.length, z });
+        pts.push(U(R.fib.by.get(b))); ids.push(String(b)); st.push({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), k: z ? k + 1 : k, n: z ? h.fs.length + 1 : h.fs.length, z });
       });
       flush();
     });
@@ -2318,7 +2483,7 @@
   function planFibs(R) {
     if (!R || !R.fib || !R.fib.list.length) return [];
     const many = R.fib.list.filter((f) => f.path.length > 1).length > 1;
-    return R.fib.list.filter((f) => f.path.length > 1).map((f) => ({ n: f.n, cab: f.cab || '', ex: !!f.ex, path: f.path.map(String), lbl: runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', many ? f.n : 0),
+    return R.fib.list.filter((f) => f.path.length > 1).map((f) => ({ n: f.n, cab: f.cab || '', ex: !!f.ex, ...(f.ex ? { cores: exCores(f) } : {}), path: f.path.map(String), lbl: runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', many ? f.n : 0),
       steps: f.path.slice(1).map((b, i) => { const a = f.path[i], h = R.fib.hops.get(spanKey(a, b)); if (!h || (!h.s && !f.ex)) return { a: String(h ? h.a : a), b: String(h ? h.b : b), k: 0, n: 1, gap: true }; // (a new fiber's gap: not drawn)
         const k = Math.max(0, h.fs.indexOf(f)), z = !!h.s && !h.fs.some((x) => !x.ex); return { a: String(h.a), b: String(h.b), k: z ? k + 1 : k, n: z ? h.fs.length + 1 : h.fs.length }; }) })); // (a route span with only existing fibers: its own cable on lane 0)
   }
@@ -2360,13 +2525,14 @@
   function hwFib(p, R, at, aer) {
     const fs = R.fib ? R.fib.planned.filter((f) => f.path.includes(p.id)) : [], items = [], onF = (s) => !!(s.fibers && s.fibers.length);
     const cabsOf = (s) => (onF(s) ? s.fibers.map((f) => f.cab) : [s.cable]);
-    const n12 = at.filter((s) => cabsOf(s).includes('L12')).length, nOther = at.filter((s) => aer(s) && cabsOf(s).some((k) => k !== 'L12')).length;
+    const n12 = at.filter((s) => cabsOf(s).some(isLight)).length, nOther = at.filter((s) => aer(s) && cabsOf(s).some((k) => !isLight(k))).length; // (v2.42.24: by family)
     const ends = (f) => { const i = f.path.indexOf(p.id); return (i > 0 ? 1 : 0) + (i < f.path.length - 1 ? 1 : 0); };
-    const f12 = fs.filter((f) => f.cab === 'L12'), f72 = fs.filter((f) => f.cab === 'F72');
-    const old12 = at.filter((s) => !onF(s) && s.cable === 'L12').length, old72 = at.some((s) => !onF(s) && s.cable === 'F72') ? 1 : 0;
+    const f12 = fs.filter((f) => isLight(f.cab)), f72 = fs.filter((f) => isFig8(f.cab));
+    const old12 = at.filter((s) => !onF(s) && isLight(s.cable)).length, o72 = at.find((s) => !onF(s) && isFig8(s.cable)), old72 = o72 ? 1 : 0;
+    const sz8 = [...new Set(f72.map((f) => f.cab).concat(o72 ? [o72.cable] : []))].map((k) => `${CAB[k].cores}C`).join('/') || '72C';
     if (hasTelcoArm(p)) {
       if (n12) items.push(['J-hook', 2, '12C · telco arm'], ['Span clamp', 2 * f12.length + (old12 ? 2 : 0), '12C · telco arm']);
-      if (f72.length + old72) items.push(['Suspension clamp', f72.length + old72, '72C · telco arm']);
+      if (f72.length + old72) items.push(['Suspension clamp', f72.length + old72, `${sz8} · telco arm`]);
       return { items, noClamp: true };
     }
     if (n12) items.push(['Retractor', n12 >= 2 ? 2 : 1, '12C'], ['Span clamp', f12.reduce((t, f) => t + ends(f), 0) + Math.min(old12, 2), '12C']);
@@ -2376,10 +2542,10 @@
     if (!R || elemOf(p) !== 'Pole') return { items: [], noClamp: false };
     const at = R.spans.filter((s) => s.ia === p.id || s.ib === p.id), aer = (s) => !(CAB[s.cable] && CAB[s.cable].method === 'UG');
     if (at.some((s) => s.fibers && s.fibers.length)) return hwFib(p, R, at, aer); // v2.42.20: per fiber
-    const n12 = at.filter((s) => s.cable === 'L12').length, n72 = at.filter((s) => s.cable === 'F72').length, nOther = at.filter((s) => s.cable !== 'L12' && aer(s)).length, items = [];
+    const n12 = at.filter((s) => isLight(s.cable)).length, s72 = at.filter((s) => isFig8(s.cable)), n72 = s72.length, nOther = at.filter((s) => !isLight(s.cable) && aer(s)).length, items = [];
     if (hasTelcoArm(p)) {
       if (n12) items.push(['J-hook', 2, '12C · telco arm'], ['Span clamp', 2, '12C · telco arm']);
-      if (n72) items.push(['Suspension clamp', 1, '72C · telco arm']);
+      if (n72) items.push(['Suspension clamp', 1, `${[...new Set(s72.map((s) => `${CAB[s.cable].cores}C`))].join('/')} · telco arm`]);
       return { items, noClamp: true };
     }
     if (n12) { const k = n12 >= 2 ? 2 : 1; items.push(['Retractor', k, '12C'], ['Span clamp', k, '12C']); }
@@ -2392,7 +2558,7 @@
   /** v2.42.21: a span's cable label: the new cables on it (PROPOSED 12C, PROPOSED 2×12C, PROPOSED 72C + 12C) and the existing ones by
       size (EXISTING 48C), each a line: [{ t, ex }]. word 'b': PROPOSED 12C ×2. */
   function cabLabelOf(s, word) {
-    const sh = (k) => (k === 'F72' ? '72C' : k === 'L12' ? '12C' : k === 'U144' ? '144C UG' : ''), grp = (arr) => { const m = new Map(); arr.filter(Boolean).forEach((t) => m.set(t, (m.get(t) || 0) + 1)); return [...m].map(([t, n]) => (n > 1 ? (word === 'b' ? `${t} ×${n}` : `${n}×${t}`) : t)).join(' + '); };
+    const sh = (k) => (CAB[k] ? `${CAB[k].cores}C ${CAB[k].tt}` : ''), /* v2.42.24: size + type (12C LIGHT, 24C FIG-8, 288C UG) */ grp = (arr) => { const m = new Map(); arr.filter(Boolean).forEach((t) => m.set(t, (m.get(t) || 0) + 1)); return [...m].map(([t, n]) => (n > 1 ? (word === 'b' ? `${t} ×${n}` : `${n}×${t}`) : t)).join(' + '); };
     const lanes = s.lanes && s.lanes.length ? s.lanes : null, nw = lanes ? lanes.filter((f) => !f.ex).map((f) => sh(f.cab)) : (s.runs || [s.cable]).map(sh), ex = lanes ? lanes.filter((f) => f.ex).map((f) => `${exCores(f)}C`) : [];
     return [nw.filter(Boolean).length ? { t: `PROPOSED ${grp(nw)}`, ex: false } : null, ex.length ? { t: `EXISTING ${grp(ex)}`, ex: true } : null].filter(Boolean);
   }
@@ -2401,7 +2567,7 @@
     if (hwOf(p, R).noClamp) return []; // v2.42.18: a 12C-only pole or a telco arm: no pole clamps
     // the aerial spans to other poles hold the cable on this pole; a span under the ground or to a site, ODF, ODC or handhole ends the
     // aerial run here (v2.42.18: a 12C span holds no pole clamp: its retractors and span clamps)
-    const at = R.spans.filter((s) => (s.ia === p.id || s.ib === p.id) && (s.fibers && s.fibers.length ? s.fibers.some((f) => f.cab !== 'L12') : s.cable !== 'L12')), other = (s) => (s.ia === p.id ? s.b : s.a); // (v2.42.20: a 72C fiber on it)
+    const at = R.spans.filter((s) => (s.ia === p.id || s.ib === p.id) && (s.fibers && s.fibers.length ? s.fibers.some((f) => !isLight(f.cab)) : !isLight(s.cable))), other = (s) => (s.ia === p.id ? s.b : s.a); // (v2.42.20: a 72C fiber on it; v2.42.24: any but the light cable)
     const aer = at.filter((s) => !(CAB[s.cable] && CAB[s.cable].method === 'UG') && elemOf(other(s)) === 'Pole').map(other);
     let cab = [];
     if (at.length && aer.length <= 1) cab = ['2A'];
@@ -2462,17 +2628,17 @@
     const by = new Map(pts.map((p) => [p.id, p])), name = (id) => (by.get(id) || {}).poleId || '(no ID)';
     const chains = R.fib && R.fib.planned.length ? R.fib.planned.map((f) => ({ pts: f.path.map((id) => by.get(id)).filter(Boolean), cable: f.cab })) : C.routeChains(R.spans); // v2.42.20: along each fiber
     for (const chn of chains) {
-      const lim = chn.cable === 'F72' ? 4000 : chn.cable === 'L12' ? 2000 : 0; if (!lim) continue;
+      const cb = CAB[chn.cable], lim = cb ? cb.drum || 0 : 0, lite = isLight(chn.cable); if (!lim) continue; // v2.42.24: by type (UG too)
       let ids = chn.pts.map((p) => p.id); if ((hd.get(ids[0]) ?? 1e12) > (hd.get(ids[ids.length - 1]) ?? 1e12)) ids = ids.reverse();
-      const joint = (id) => clo.has(id) || (chn.cable === 'L12' && dn.has(id));
+      const joint = (id) => clo.has(id) || (lite && dn.has(id));
       let acc = 0;
       for (let k = 1; k < ids.length; k++) {
         const a = by.get(ids[k - 1]), b = by.get(ids[k]); if (!a || !b) continue;
         const l = haversine(a, b);
-        if (acc + l > lim && k > 1 && elemOf(a) === 'Pole' && !joint(a.id)) { out.push({ id: a.id, poleId: a.poleId, kind: chn.cable === 'F72' ? 'closure' : 'dnap', text: chn.cable === 'F72' ? `closure recommended at ${name(a.id)} (the 72C run passes 4 km after it)` : `dummy NAP recommended at ${name(a.id)} (the 12C run passes 2 km after it)` }); acc = 0; }
+        if (acc + l > lim && k > 1 && (elemOf(a) === 'Pole' || (cb.method === 'UG' && UG_BOXES.has(elemOf(a)))) && !joint(a.id)) { out.push({ id: a.id, poleId: a.poleId, kind: lite ? 'dnap' : 'closure', text: lite ? `dummy NAP recommended at ${name(a.id)} (the 12C run passes ${lim / 1000} km after it)` : `closure recommended at ${name(a.id)} (the ${cb.cores}C run passes ${lim / 1000} km after it)` }); acc = 0; }
         acc += l; if (joint(b.id)) acc = 0;
       }
-      if (chn.cable === 'F72') for (const id of ids) if (dn.has(id)) out.push({ id, poleId: name(id), kind: 'flag', text: `dummy NAP ${dn.get(id).poleId || ''} at ${name(id)} is on a 72C cable: use a closure` });
+      if (!lite) for (const id of ids) if (dn.has(id)) out.push({ id, poleId: name(id), kind: 'flag', text: `dummy NAP ${dn.get(id).poleId || ''} at ${name(id)} is on a ${cb.cores}C cable: use a closure` });
     }
     for (const [id, q] of dn) if (clo.has(id)) out.push({ id, poleId: name(id), kind: 'flag', text: `dummy NAP ${q.poleId || ''} at ${name(id)} is at a point of insertion: use a closure` });
     // v2.42.18: a loop the surveyor set close (100 m) to a loop that is there anyway (a NAP's, LCP's, closure's, dummy NAP's, riser's, a
@@ -2486,13 +2652,13 @@
       } }
     if (R.fib && R.fib.planned.length) { // v2.42.20: spans on no fiber, a fiber's missing span, a fiber ending at a plain pole, runs set before the fibers
       const nf = R.spans.filter((s) => !(s.fibers && s.fibers.length));
-      if (nf.length) out.push({ id: nf[0].ia, poleId: name(nf[0].ia), kind: 'flag', text: `${nf.length} span${nf.length === 1 ? '' : 's'} on no fiber (grey, dashed: ${nf.slice(0, 3).map((s) => `${s.from} → ${s.to}`).join(', ')}${nf.length > 3 ? '…' : ''}): put a fiber on ${nf.length === 1 ? 'it' : 'them'}, or unlink` });
+      if (nf.length) out.push({ id: nf[0].ia, poleId: name(nf[0].ia), kind: 'flag', text: `${nf.length} span${nf.length === 1 ? '' : 's'} on no cable (grey, dashed: ${nf.slice(0, 3).map((s) => `${s.from} → ${s.to}`).join(', ')}${nf.length > 3 ? '…' : ''}): put a cable on ${nf.length === 1 ? 'it' : 'them'}, or unlink` });
       for (const f of R.fib.planned) {
-        f.gaps.forEach(([a, b]) => out.push({ id: a, poleId: name(a), kind: 'flag', text: `Fiber ${f.n}: no span ${name(a)} → ${name(b)} (link them)` }));
-        ['from', 'to'].forEach((w) => { const e = fibEnd(f, w, by); if (e.kind === 'Pole') out.push({ id: e.id, poleId: name(e.id), kind: 'flag', text: `Fiber ${f.n} ${w === 'to' ? 'ends' : 'starts'} at ${name(e.id)}: no closure, NAP, ODF, ODC or site there` }); });
+        f.gaps.forEach(([a, b]) => out.push({ id: a, poleId: name(a), kind: 'flag', text: `RUN ${f.n}: no span ${name(a)} → ${name(b)} (link them)` }));
+        ['from', 'to'].forEach((w) => { const e = fibEnd(f, w, by); if (e.kind === 'Pole') out.push({ id: e.id, poleId: name(e.id), kind: 'flag', text: `RUN ${f.n} ${w === 'to' ? 'ends' : 'starts'} at ${name(e.id)}: no closure, NAP, ODF, ODC or site there` }); });
       }
       links().forEach((l) => { const more = Array.isArray(l[3]) ? l[3].length : 0; if (!more) return; const s = R.spans.find((x) => spanKey(x.ia, x.ib) === spanKey(l[0], l[1]));
-        if (s && s.fibers.length && s.fibers.length < 1 + more) out.push({ id: s.ia, poleId: s.from, kind: 'flag', text: `span ${s.from} → ${s.to} had ${1 + more} runs before the fibers and has ${s.fibers.length} fiber${s.fibers.length === 1 ? '' : 's'}: put each fiber on it` }); });
+        if (s && s.fibers.length && s.fibers.length < 1 + more) out.push({ id: s.ia, poleId: s.from, kind: 'flag', text: `span ${s.from} → ${s.to} had ${1 + more} runs before the cables and has ${s.fibers.length} cable${s.fibers.length === 1 ? '' : 's'}: put each cable on it` }); });
     }
     return out;
   }
@@ -2502,7 +2668,7 @@
       before its end (a span longer than that: the next pole). A loop the surveyor set counts and is kept. Only in an As-Plan survey
       (an As-Built records what was built). A handhole, manhole or service box has its own loop (BOX_LOOP_M): not here.
       Returns Map id -> cable of the loops added (not the surveyor's). */
-  const LOOP_EVERY = { F72: [250, 300], L12: [450, 500] };
+  const loopEvery = (k) => (isFig8(k) ? [250, 300] : isLight(k) ? [450, 500] : null); // (v2.42.24: by family: every figure 8 size as the 72C, the light cable as the 12C; none along a UG cable)
   const UG_BOXES = new Set(['Handhole', 'Manhole', 'Service box']);
   /** v2.42.17: a pole's own loop: a hybrid closure, a dummy NAP or a riser on it has a loop (aerial: the pole loop length, 15 m), counted
       like the surveyor's (the app's loops are measured from it; an As-Built does not ask). A closure in a handhole, manhole or service
@@ -2537,7 +2703,8 @@
   function loopCab(p, R, LA, kind) {
     if (LA && LA.has(p.id)) return LA.get(p.id);
     const cabs = new Set((R ? R.spans : []).filter((s) => s.ia === p.id || s.ib === p.id).map((s) => s.cable).filter(Boolean));
-    const pref = /NAP|LCP/.test(kind || loopOwnOf(p)) ? ['L12', 'F72', 'U144'] : ['F72', 'L12', 'U144'];
+    const keys = Object.keys(CAB), f8 = keys.filter(isFig8), ug = keys.filter((k) => CAB[k].fam === 'ug'), li = keys.filter(isLight);
+    const pref = /NAP|LCP/.test(kind || loopOwnOf(p)) ? [...li, ...f8, ...ug] : [...f8.slice().reverse(), ...li, ...ug.slice().reverse()]; // (v2.42.24: by family)
     return pref.find((k) => cabs.has(k)) || [...cabs][0] || '';
   }
   /** v2.42.18: a loop's length: the record's choice, else a box's 20 m, else the cable's. */
@@ -2554,7 +2721,7 @@
     const put = (id, e) => { (list.get(id) || list.set(id, []).get(id)).push(e); n++; if (e.why === 'auto') { nAuto++; if (!autoCab.has(id)) autoCab.set(id, e.cab); } };
     const lenAt = (p, cab) => { const b = p.boq || {}; if (+b.mloopM > 0) return +b.mloopM; if (UG_BOXES.has(elemOf(p))) return BOX_LOOP_M; return cabLoopLen(cab); };
     const F = R.fib.planned, one = new Map(); // the fiber with the one loop of a NAP, LCP, dummy NAP or riser
-    F.forEach((f) => f.path.forEach((id) => { const k = OWN.get(id); if (!k || k === 'closure' || k === 'entrance') return; const pref = k === 'riser' ? 'F72' : 'L12', cur = one.get(id); if (!cur || (f.cab === pref && cur.cab !== pref)) one.set(id, f); }));
+    F.forEach((f) => f.path.forEach((id) => { const k = OWN.get(id); if (!k || k === 'closure' || k === 'entrance') return; const ok = k === 'riser' ? isFig8 : isLight, cur = one.get(id); if (!cur || (ok(f.cab) && !ok(cur.cab))) one.set(id, f); })); // (v2.42.24: a riser's on a figure 8, the others' on the light cable)
     const isPole = (id) => { const p = by.get(id); return !!p && elemOf(p) === 'Pole'; }, isGT = (id) => markKey(by.get(id)) === 'GT';
     for (const f of F) {
       const P = f.path.filter((id) => by.has(id)); if (P.length < 2) continue;
@@ -2569,7 +2736,7 @@
         else if (k && one.get(id) === f) why = k;
         if (why) { has.add(i); put(id, { n: f.n, cab: f.cab, len: lenAt(p, f.cab), why }); }
       });
-      const span = LOOP_EVERY[f.cab]; if (!span || svPurpose() !== 'As-plan') continue;
+      const span = loopEvery(f.cab); if (!span || svPurpose() !== 'As-plan') continue;
       const [lo, hi] = span; let li = 0;
       for (let last = 1; last < P.length; last++) {
         for (let guard = 0; guard < 1000; guard++) {
@@ -2608,7 +2775,7 @@
     if (!q0.length) q0.push(R.spans[0].ia);
     q0.forEach((id) => hd.set(id, 0));
     for (let it = 0, ch = true; ch && it < pts.length + 2; it++) { ch = false; for (const [a, L] of all) { const da = hd.get(a); if (da == null) continue; for (const [b, l] of L) if (!(hd.get(b) <= da + l)) { hd.set(b, da + l); ch = true; } } }
-    for (const [cab, [lo, hi]] of Object.entries(LOOP_EVERY)) {
+    for (const cab of [...new Set(R.spans.map((s) => s.cable))].filter((k) => loopEvery(k))) { const [lo, hi] = loopEvery(cab);
       const adj = new Map(); R.spans.forEach((s) => { if (s.cable !== cab) return; [[s.ia, s.ib], [s.ib, s.ia]].forEach(([a, b]) => (adj.get(a) || adj.set(a, []).get(a)).push([b, s.len])); });
       const seen = new Set(), path = [];
       const visit = (id, d) => { // down the cable from its start; a branch keeps the loops of the way it shares
@@ -2649,13 +2816,13 @@
     $('rbStats').textContent = `${R.long} longer than ${pol().maxSpan || 200} m · ${R.angle} angle · ${R.junction} junction · ${R.off} not linked · ${Object.entries(byCab).map(([k, m]) => `${CAB[k] ? CAB[k].short : 'not set'} ${fmtLen(m)}`).join(' · ')}${LP.n ? ` · MLoop ${LP.nMan}${LP.nAuto ? ` + ${LP.nAuto} added by the app` : ''}` : ''}${LP.open ? ` · MLoop not answered: ${LP.open}` : ''}${LP.nBox ? ` · HH/MH/SB loops ${LP.nBox} × ${BOX_LOOP_M} m` : ''}`;
     const A = routeAdvice(R); $('rbAdviceBox').hidden = !A.length; $('rbAdviceSum').textContent = `Route check (${A.length})`; $('rbAdvice').innerHTML = A.map((a) => `<div>⚠ ${hEsc(a.text)}</div>`).join(''); // v2.37 (v2.42.22: closed until tapped)
     const sel = routeSel && points.find((p) => p.id === routeSel);
-    $('rbHint').textContent = fibAdd != null ? fibHint() : !rtPairs ? `Here: ${sel ? `${sel.poleId}'s spans, ` : ''}each span's runs, each fiber's details, Link in capture order, Clear. Close: back to drawing.` : sel ? `${sel.poleId} selected. Tap the next pole to link it (tap a linked pole to unlink), or tap ${sel.poleId} again to stop.`
-      : 'Tap a pole, then the next pole to link them. Tap a linked pair again to unlink. Tap a pole to see its spans and their fibers.'; // (v2.42.21: linking by pairs is a choice in Route tools)
+    $('rbHint').textContent = fibAdd != null ? fibHint() : !rtPairs ? `Each cable: Continue goes on with it, its type, Details (its ends, side, Reverse), Delete (with its spans no other cable uses). ${sel ? `Here: ${sel.poleId}'s spans. ` : ''}More: the route check, linking two poles without a cable, clearing all.` : sel ? `${sel.poleId} selected. Tap the next pole to link it (tap a linked pole to unlink), or tap ${sel.poleId} again to stop.`
+      : 'Tap a pole, then the next pole to link them (no cable). Tap a linked pair again to unlink. Tap a pole to see its spans and their cables.'; // (v2.42.21: linking by pairs is a choice in Route tools)
     { // v2.42.19: the selected pole's spans: tap one for its runs (Run 2, Run 3…), at any zoom (v2.42.20: its fibers)
       const box = $('rbSpans'), at = sel && !spanSel && fibAdd == null ? R.spans.filter((s) => s.ia === sel.id || s.ib === sel.id) : [];
       box.hidden = !at.length; box.innerHTML = '';
       if (at.length) {
-        const h = document.createElement('span'); h.className = 'lbl'; h.textContent = `SPANS AT ${String(sel.poleId || '').toUpperCase()} · TAP ONE FOR ITS ${R.fib && R.fib.list.length ? 'FIBERS' : 'RUNS'}`; box.appendChild(h);
+        const h = document.createElement('span'); h.className = 'lbl'; h.textContent = `SPANS AT ${String(sel.poleId || '').toUpperCase()} · TAP ONE FOR ITS ${R.fib && R.fib.list.length ? 'CABLES' : 'RUNS'}`; box.appendChild(h);
         at.forEach((s) => { const o = s.ia === sel.id ? s.b : s.a, n = (s.runs || []).length, b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm'; b.dataset.a = s.ia; b.dataset.b = s.ib;
           b.textContent = `→ ${o.poleId || '(no ID)'} · ${fmtLen(s.len)} · ${s.lanes && s.lanes.length ? s.lanes.slice().sort((x, y) => x.n - y.n).map(fibTag).join(' ') : `${CAB[s.cable] ? CAB[s.cable].short : 'cable not set'}${n > 1 ? ` · ${n} runs` : ''}`}`; box.appendChild(b); });
       }
@@ -2672,8 +2839,8 @@
   const fibName = (id) => (points.find((p) => p.id === id) || {}).poleId || '(no ID)';
   function fibHint() {
     const f = fibers().find((x) => x.n === fibAdd);
-    return !f || !f.path.length ? `Fiber ${fibAdd}: tap its first point (the ODF, site, or the pole of the closure it starts from).`
-      : `Adding to Fiber ${f.n} (now ending at ${fibName(f.path[f.path.length - 1])}): tap the next point along its way. A point further along the spans brings in the points between. Tap Done adding when it ends.`;
+    return !f || !f.path.length ? `RUN ${fibAdd}: tap its first point (the ODF, site, or the pole of the closure it starts from), or drag along the poles.`
+      : `RUN ${f.n} (now ending at ${fibName(f.path[f.path.length - 1])}): tap the next point along its way, or drag along the poles. A point further along the spans brings in the points between. ✓ Finish when it ends; ✕ Cancel takes back what you changed.`;
   }
   function renderFibers(R) {
     const box = $('rbFibers'), card = $('rbFib'), all = fibers().sort((a, b) => a.n - b.n), info = new Map((R.fib ? R.fib.list : []).map((f) => [f.n, f])), by = R.fib ? R.fib.by : new Map(routePts().map((p) => [p.id, p]));
@@ -2682,10 +2849,14 @@
     const sel = routeSel && fibAdd == null ? by.get(routeSel) : null, cabS = (k) => (CAB[k] ? CAB[k].short.replace(/^(AE |Fig-8 |Light )/, '') : 'not set');
     let head = '';
     if (sel) { const e = fibEnd({ path: [sel.id] }, 'from', by), here = all.filter((f) => f.path.includes(sel.id));
-      if (e.kind === 'Closure') head = `<div class="clo">Closure ${hEsc(e.ref)} at ${hEsc(sel.poleId || '')}${here.length ? `: ${here.map((f) => { const i = f.path.indexOf(sel.id), sd = fibSide(f, all, by); return `F${f.n} ${i === 0 ? `starts${sd ? ` (${sd})` : ''}` : i === f.path.length - 1 ? 'ends' : 'passes'}`; }).join(' · ')}` : ': no fiber yet'}</div>`; }
-    box.innerHTML = head + '<span class="lbl">FIBERS</span>' + `<button class="fchip" type="button" data-fb="all" aria-pressed="${fibSel == null}">All</button>`
-      + all.map((f) => { const sd = fibSide(f, all, by); return `<button class="fchip" type="button" data-fb="${f.n}" aria-pressed="${fibSel === f.n}"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i>F${f.n} · ${f.ex ? `existing ${exCores(f)}C` : cabS(f.cab)}${sd ? ` · ${sd}` : ''}</button>`; }).join('')
-      + `<button class="fchip add" type="button" data-fb="new">+ Fiber${sel ? ` from ${hEsc(sel.poleId || '')}` : ''}</button>`;
+      if (e.kind === 'Closure') head = `<div class="clo">Closure ${hEsc(e.ref)} at ${hEsc(sel.poleId || '')}${here.length ? `: ${here.map((f) => { const i = f.path.indexOf(sel.id), sd = fibSide(f, all, by); return `RUN ${f.n} ${i === 0 ? `starts${sd ? ` (${sd})` : ''}` : i === f.path.length - 1 ? 'ends' : 'passes'}`; }).join(' · ')}` : ': no cable yet'}</div>`; }
+    const busy = fibAdd != null, cabSel = (f) => `<select data-cc="type" data-n="${f.n}" aria-label="Cable type of RUN ${f.n}">${!f.ex && !CAB[f.cab] ? '<option value="" selected disabled>Cable not set</option>' : ''}${CAB_GROUPS.map(([g, t]) => `<optgroup label="${hEsc(t)}">${Object.entries(CAB).filter(([, c]) => c.fam === g).map(([k, c]) => `<option value="${k}"${!f.ex && k === f.cab ? ' selected' : ''}>${hEsc(c.label)}</option>`).join('')}</optgroup>`).join('')}<optgroup label="Existing cable (drawn only)">${[...new Set([...EX_SIZES, ...(f.ex ? [exCores(f)] : [])])].sort((x, y) => x - y).map((c) => `<option value="ex:${c}"${f.ex && exCores(f) === c ? ' selected' : ''}>Existing ${c}C</option>`).join('')}</optgroup></select>`;
+    box.innerHTML = head + `<div class="cl-head"><span class="lbl">CABLES · ${all.length}</span>${busy ? '' : `<button class="btn sm primary" type="button" data-cc="new">＋ New cable${sel ? ` from ${hEsc(sel.poleId || '')}` : ''}</button>`}</div>` // v2.42.24: one list of cables
+      + (all.length ? '' : '<p class="rb-hint">No cable yet. ＋ New cable: pick its type, then draw it on the map or follow the capture order.</p>')
+      + all.map((f) => { const fi = info.get(f.n) || { len: 0 }, a0 = f.path.length ? fibName(f.path[0]) : '', z0 = f.path.length > 1 ? fibName(f.path[f.path.length - 1]) : '';
+        return `<div class="ccard${fibAdd === f.n ? ' on' : ''}${fibSel === f.n ? ' sel' : ''}" data-n="${f.n}"><div class="cc-t"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i><b>RUN ${f.n}</b><span>${hEsc(fibCabName(f))}</span></div>`
+          + `<div class="cc-m">${fmtLen(fi.len || 0)} · ${a0 ? `${hEsc(a0)} → ${hEsc(z0 || '…')}` : 'no points yet'}${fibAdd === f.n ? ' · <b>in the bar</b>' : ''}</div>`
+          + `<div class="cc-a">${busy ? '' : `<button class="btn sm primary" type="button" data-cc="cont" data-n="${f.n}">Continue</button>${cabSel(f)}`}<button class="btn sm" type="button" data-cc="det" data-n="${f.n}" aria-pressed="${fibSel === f.n}">Details</button>${busy ? '' : `<button class="btn sm danger" type="button" data-cc="del" data-n="${f.n}">${rtDelArm === f.n ? 'Tap again to delete' : 'Delete'}</button>`}</div></div>`; }).join('');
     box.hidden = false;
     const f = fibSel != null ? all.find((x) => x.n === fibSel) : null;
     if (!f) { card.hidden = true; card.innerHTML = ''; return; }
@@ -2693,14 +2864,14 @@
     const endTxt = (w) => { if (!f.path.length) return '—'; const e = fibEnd(f, w, by); return e.kind === 'Pole' ? `${hEsc(e.ref)} (a plain pole)` : `${hEsc(e.kind)} ${hEsc(e.ref)}${e.at && e.at !== e.ref ? ` at ${hEsc(e.at)}` : ''}`; };
     const stSel = (w) => { const v = (w === 'to' ? f.toSt : f.fromSt) || '', e = f.path.length ? fibEnd({ ...f, fromSt: '', toSt: '' }, w, by) : { state: 'New' };
       return `<select data-fa="${w}St" aria-label="${w === 'to' ? 'End' : 'Start'}: new or existing"><option value=""${v ? '' : ' selected'}>${hEsc(e.state || 'New')} (record)</option><option value="New"${v === 'New' ? ' selected' : ''}>New</option><option value="Existing"${v === 'Existing' ? ' selected' : ''}>Existing</option></select>`; };
-    const shares = [...info.values()].filter((g) => g.n !== f.n && !g.ex).map((g) => { let m = 0, k = 0; for (let i = 1; i < f.path.length; i++) { const h = R.fib && R.fib.hops.get(spanKey(f.path[i - 1], f.path[i])); if (h && h.fs.some((x) => x.n === g.n)) { k++; m += h.s ? h.s.len : 0; } } return k ? `${k} span${k === 1 ? '' : 's'} (${fmtLen(m)}) with F${g.n}` : ''; }).filter(Boolean);
+    const shares = [...info.values()].filter((g) => g.n !== f.n && !g.ex).map((g) => { let m = 0, k = 0; for (let i = 1; i < f.path.length; i++) { const h = R.fib && R.fib.hops.get(spanKey(f.path[i - 1], f.path[i])); if (h && h.fs.some((x) => x.n === g.n)) { k++; m += h.s ? h.s.len : 0; } } return k ? `${k} span${k === 1 ? '' : 's'} (${fmtLen(m)}) with RUN ${g.n}` : ''; }).filter(Boolean);
     const cabOpts = Object.entries(CAB).map(([k, c]) => `<option value="${k}"${k === f.cab ? ' selected' : ''}>${hEsc(c.short)}</option>`).join(''); // (short: three selects fit a phone)
-    card.innerHTML = `<div class="rf-head"><b><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i>Fiber ${f.n}${sd ? ` · ${sd}` : ''}${f.ex ? ` · existing ${exCores(f)}C` : ''}</b><span>${fi.spans || 0} span${fi.spans === 1 ? '' : 's'} · ${fmtLen(fi.len || 0)}</span><button class="btn sm" type="button" data-fa="close" aria-label="Close the fiber">✕</button></div>`
+    card.innerHTML = `<div class="rf-head"><b><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i>RUN ${f.n}${sd ? ` · ${sd}` : ''}${f.ex ? ` · existing ${exCores(f)}C` : ''}</b><span>${fi.spans || 0} span${fi.spans === 1 ? '' : 's'} · ${fmtLen(fi.len || 0)}</span><button class="btn sm" type="button" data-fa="close" aria-label="Close the details">✕</button></div>`
       + `<div class="rf-ends"><span>From <b>${endTxt('from')}</b></span>${stSel('from')}<span>To <b>${endTxt('to')}</b></span>${stSel('to')}</div>`
       + (shares.length ? `<p class="rb-hint">Shares ${shares.join('; ')}</p>` : '') + (f.ex ? '<p class="rb-hint">An existing cable: drawn on the plan (dashed), not in the BOQ, the cable lengths, the loops or the hardware.</p>' : '')
-      + `<div class="rf-row"><select data-fa="cab" aria-label="Cable of Fiber ${f.n}">${cabOpts}</select><select data-fa="side" aria-label="Side of Fiber ${f.n} (auto: as on the plan)" title="Auto: as on the plan (the leg ending furthest east is right)"><option value="auto"${!f.side || f.side === 'auto' ? ' selected' : ''}>Side: auto</option><option value="right"${f.side === 'right' ? ' selected' : ''}>Right</option><option value="left"${f.side === 'left' ? ' selected' : ''}>Left</option><option value="none"${f.side === 'none' ? ' selected' : ''}>No side</option></select>`
+      + `<div class="rf-row"><select data-fa="cab" aria-label="Cable of RUN ${f.n}">${cabOpts}</select><select data-fa="side" aria-label="Side of RUN ${f.n} (auto: as on the plan)" title="Auto: as on the plan (the leg ending furthest east is right)"><option value="auto"${!f.side || f.side === 'auto' ? ' selected' : ''}>Side: auto</option><option value="right"${f.side === 'right' ? ' selected' : ''}>Right</option><option value="left"${f.side === 'left' ? ' selected' : ''}>Left</option><option value="none"${f.side === 'none' ? ' selected' : ''}>No side</option></select>`
       + `<select data-fa="ex" aria-label="New or existing cable"><option value="0"${f.ex ? '' : ' selected'}>New</option><option value="1"${f.ex ? ' selected' : ''}>Existing (drawn only)</option></select>${f.ex ? `<select data-fa="cores" aria-label="Size of the existing cable">${[...new Set([...EX_SIZES, exCores(f)])].sort((a, b) => a - b).map((c) => `<option value="${c}"${c === exCores(f) ? ' selected' : ''}>${c}C</option>`).join('')}</select>` : ''}</div>`
-      + `<div class="rf-btns"><button class="btn sm${adding ? '' : ' primary'}" type="button" data-fa="add">${adding ? 'Done adding' : '+ Add points'}</button><button class="btn sm" type="button" data-fa="rev"${f.path.length > 1 ? '' : ' disabled'}>Reverse</button><button class="btn sm danger" type="button" data-fa="del">Delete</button></div>`;
+      + `<div class="rf-btns"><button class="btn sm${adding ? '' : ' primary'}" type="button" data-fa="add">${adding ? '✓ Finish' : 'Continue'}</button><button class="btn sm" type="button" data-fa="rev"${f.path.length > 1 ? '' : ' disabled'}>Reverse</button></div>`; // (v2.42.24: Delete in the list, with its spans)
     card.hidden = false;
   }
   /** v2.42.20: the shortest way along the spans (an existing cable: also along the existing cables) from a to b, not through the
@@ -2721,19 +2892,19 @@
   }
   function fiberTap(id) {
     const F = fibers(), f = F.find((x) => x.n === fibAdd); if (!f) { fibAdd = null; routeRefresh(); return; }
-    if (!f.path.length) { routeUndo.push(routeSnap()); f.path = [id]; setRoute(null, F); const was = routeSel; routeSel = id; routeRefresh([was, id]); toast(`Fiber ${f.n} starts at ${fibName(id)}: tap the next point along its way`, 3000); return; }
+    if (!f.path.length) { routeUndo.push(routeSnap()); f.path = [id]; setRoute(null, F); const was = routeSel; routeSel = id; routeRefresh([was, id]); toast(`RUN ${f.n} starts at ${fibName(id)}: tap the next point along its way`, 3000); return; }
     const atS = fibAt === 'start' && f.path.length > 1, last = atS ? f.path[0] : f.path[f.path.length - 1]; // v2.42.21: going on from its start too
-    if (id === last) { toast(`Fiber ${f.n} ${atS ? 'starts' : 'ends'} at ${fibName(id)} now: tap the next point, or Done adding`, 3000); return; }
-    if (f.path.includes(id)) { toast(`${fibName(id)} is already on Fiber ${f.n}: a fiber passes a point once`, 3000); return; }
+    if (id === last) { toast(`RUN ${f.n} ${atS ? 'starts' : 'ends'} at ${fibName(id)} now: tap the next point, or ✓ Finish`, 3000); return; }
+    if (f.path.includes(id)) { toast(`${fibName(id)} is already on RUN ${f.n}: a cable passes a point once`, 3000); return; }
     const w = fibWay(last, id, new Set(f.path), f.ex), q = points.find((x) => x.id === id), line = !w && q ? snapSeq(last, [{ lat: q.lat, lon: q.lon }], 4).slice(1).filter((x) => !f.path.includes(x)) : null; // v2.42.21: no way along the spans: the points on the straight line between come in
     const add = w ? w.slice(1) : line && line[line.length - 1] === id ? line : [id]; let L2 = null;
     routeUndo.push(routeSnap());
     if (!w && !f.ex) L2 = linksFor([last, ...add], f.cab); // (v2.42.21: a span for each step)
     const hop = new Set(add.map((x, i) => spanKey(i ? add[i - 1] : last, x)));
-    const sh = [...new Set(F.filter((g) => g !== f && g.path.some((x, i) => i && hop.has(spanKey(g.path[i - 1], x)))).map((g) => `F${g.n}`))].join(', ');
+    const sh = [...new Set(F.filter((g) => g !== f && g.path.some((x, i) => i && hop.has(spanKey(g.path[i - 1], x)))).map((g) => `RUN ${g.n}`))].join(', ');
     f.path = atS ? add.slice().reverse().concat(f.path) : f.path.concat(add); setRoute(L2, F); fibTouched = true;
     const was = routeSel; routeSel = id; routeRefresh([was, last, ...add]);
-    toast(add.length > 1 ? `Fiber ${f.n} ${w ? 'follows the spans' : 'takes the points on the way'}: + ${add.map(fibName).join(', ')}${sh ? ` (shared with ${sh})` : ''}` : w ? `+ ${fibName(id)}${sh ? ` (shared with ${sh})` : ''}` : f.ex ? `+ ${fibName(id)} (existing cable)` : `+ ${fibName(id)}: a new span`, 3200);
+    toast(add.length > 1 ? `RUN ${f.n} ${w ? 'follows the spans' : 'takes the points on the way'}: + ${add.map(fibName).join(', ')}${sh ? ` (shared with ${sh})` : ''}` : w ? `+ ${fibName(id)}${sh ? ` (shared with ${sh})` : ''}` : f.ex ? `+ ${fibName(id)} (existing cable)` : `+ ${fibName(id)}: a new span`, 3200);
   }
   function newFiber() {
     const F = fibers(), n = F.reduce((m, f) => Math.max(m, f.n), 0) + 1, start = routeSel ? [routeSel] : [];
@@ -2742,11 +2913,17 @@
     toast(start.length ? `Fiber ${n} starts at ${fibName(start[0])}: tap the next point along its way` : `Fiber ${n}: tap its first point`, 3500);
   }
   function setFiber(n, fn) { const F = fibers(), f = F.find((x) => x.n === n); if (!f) return; routeUndo.push(routeSnap()); const L2 = fn(f, F); setRoute(L2 || null, F); routeRefresh(); }
-  $('rbFibers').addEventListener('click', (e) => {
-    const b = e.target.closest('button[data-fb]'); if (!b) return; const v = b.dataset.fb;
-    if (v === 'new') { newFiber(); return; }
-    fibAdd = null; fibSel = v === 'all' ? null : fibSel === +v ? null : +v; spanSel = null; routeRefresh();
+  $('rbFibers').addEventListener('click', (e) => { // v2.42.24: the list of cables
+    const b = e.target.closest('button[data-cc]'); if (!b) return; const v = b.dataset.cc, n = +b.dataset.n;
+    if (v === 'new') { const from = routeSel && fibAdd == null ? routeSel : null; rtPenSet(); rtOpenSheet({ from }); return; }
+    if (v === 'cont') { const f = fibers().find((x) => x.n === n); if (!f || fibAdd != null) return; rtTools = false; rtStart(n, 'end'); rtPenSet(); routeSel = null; routeRefresh(f.path.slice(-1));
+      toast(`RUN ${n}: go on from ${f.path.length ? fibName(f.path[f.path.length - 1]) : 'its first point'} (drag from its end, or tap the next pole). ✓ Finish when done`, 3200); return; }
+    if (v === 'det') { fibSel = fibSel === n ? null : n; spanSel = null; routeRefresh(); requestAnimationFrame(() => { const c = $('rbFib'); if (c && !c.hidden) c.scrollIntoView({ block: 'nearest' }); }); return; }
+    if (v === 'del') { if (fibAdd != null) return;
+      if (rtDelArm !== n) { rtDelArm = n; clearTimeout(rtDelT); rtDelT = setTimeout(() => { if (rtDelArm === n) { rtDelArm = null; if (routeMode) renderFibers(lastR || routeModel()); } }, 3500); renderFibers(lastR || routeModel()); return; }
+      rtDelArm = null; deleteCable(n); }
   });
+  $('rbFibers').addEventListener('change', (e) => { const t = e.target; if (t.dataset.cc !== 'type' || fibAdd != null) return; const n = +t.dataset.n, v = t.value; if (!v) return; if (/^ex:/.test(v)) rtSetCable({ ex: true, cores: +v.slice(3) || 12 }, n); else rtSetCable({ ex: false, cab: v }, n); });
   $('rbFib').addEventListener('change', (e) => {
     const t = e.target, k = t.dataset.fa; if (!k || fibSel == null) return;
     setFiber(fibSel, (f, F) => {
@@ -2762,9 +2939,9 @@
   });
   $('rbFib').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-fa]'); if (!b || fibSel == null) return; const k = b.dataset.fa, n = fibSel;
-    if (k === 'close') { fibSel = null; fibAdd = null; routeRefresh(); return; }
-    if (k === 'add') { if (fibAdd === n) { rtFinish(); fibSel = n; routeRefresh(); return; } /* (its card stays open) */ const f = fibers().find((x) => x.n === n), was = routeSel; rtActivate(n, 'end'); routeSel = f && f.path.length ? f.path[f.path.length - 1] : null; routeRefresh([was]); return; } // (v2.42.21: Done adding finishes it, with its closure question)
-    if (k === 'rev') { setFiber(n, (f) => { f.path.reverse(); [f.fromSt, f.toSt] = [f.toSt || '', f.fromSt || '']; }); toast(`Fiber ${n} reversed: it now starts at its other end`, 2500); return; }
+    if (k === 'close') { if (fibAdd != null) rtFinish(true); fibSel = null; routeRefresh(); return; } // (v2.42.24: finished, as ✓)
+    if (k === 'add') { if (fibAdd === n) { rtFinish(); fibSel = n; routeRefresh(); return; } /* (its card stays open) */ if (fibAdd != null) return; const f = fibers().find((x) => x.n === n), was = routeSel; rtTools = false; rtStart(n, 'end'); rtPenSet(); routeSel = null; routeRefresh([was, ...(f ? f.path.slice(-1) : [])]); return; } // (v2.42.24: Continue, back on the map) // (v2.42.21: Done adding finishes it, with its closure question)
+    if (k === 'rev') { setFiber(n, (f) => { f.path.reverse(); [f.fromSt, f.toSt] = [f.toSt || '', f.fromSt || '']; }); toast(`RUN ${n} reversed: it now starts at its other end`, 2500); return; }
     if (k === 'del') {
       if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again to delete'; setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = 'Delete'; } }, 3500); return; }
       routeUndo.push(routeSnap()); const F = fibers().filter((f) => f.n !== n).map((f) => (f.n > n ? { ...f, n: f.n - 1 } : f)); // the later fibers move down a number
@@ -2783,10 +2960,10 @@
     if (sp && sp.lanes && sp.lanes.length) { // v2.42.20: a span on fibers: the fibers on it, where each comes from and goes
       const all = fibers(), by = (R || routeModel()).fib.by;
       box.innerHTML = `<div class="rs-head"><b>Span ${hEsc(sp.from)} → ${hEsc(sp.to)} · ${fmtLen(sp.len)}</b><button class="btn sm" type="button" data-rs="close">Close</button></div>`
-        + `<p class="rb-hint">${sp.lanes.length} fiber${sp.lanes.length === 1 ? '' : 's'} on this span, each a cable of its own. Tap one to light its whole way.</p>`
+        + `<p class="rb-hint">${sp.lanes.length} cable${sp.lanes.length === 1 ? '' : 's'} on this span. Tap one to light its whole way.</p>`
         + sp.lanes.map((f) => { const i = f.path.indexOf(sp.ia), j = f.path.indexOf(sp.ib), fw = j === i + 1, nx = f.path[fw ? j + 1 : i + 1], sd = fibSide(f, all, by), a = fibEnd(f, 'from', by), z = fibEnd(f, 'to', by);
-          return `<button class="btn sm rs-fib" type="button" data-rs="fib" data-n="${f.n}"><i style="background:${fibColor(f)}"></i><span><b>Fiber ${f.n}</b>${sd ? ` · ${sd}` : ''} · ${f.ex ? 'existing' : hEsc(CAB[f.cab] ? CAB[f.cab].short : 'cable not set')} · ${hEsc(a.ref || a.kind)} → ${hEsc(z.ref || z.kind)}${nx ? ` · then ${hEsc(fibName(nx))}` : ''}</span></button>`; }).join('')
-        + '<p class="rb-hint">Another fiber on this span: select it, + Add points, and tap the poles along its way.</p>';
+          return `<button class="btn sm rs-fib" type="button" data-rs="fib" data-n="${f.n}"><i style="background:${fibColor(f)}"></i><span><b>RUN ${f.n}</b>${sd ? ` · ${sd}` : ''} · ${f.ex ? 'existing' : hEsc(CAB[f.cab] ? CAB[f.cab].short : 'cable not set')} · ${hEsc(a.ref || a.kind)} → ${hEsc(z.ref || z.kind)}${nx ? ` · then ${hEsc(fibName(nx))}` : ''}</span></button>`; }).join('')
+        + '<p class="rb-hint">Another cable on this span: Continue it in the list, and draw it along these poles.</p>';
       box.hidden = false; $('rbHint').hidden = true; return;
     }
     const opts = (v) => [...Object.entries(CAB).map(([kk, c]) => `<option value="${kk}"${kk === v ? ' selected' : ''}>${hEsc(c.label)}</option>`), `<option value=""${v ? '' : ' selected'}>Cable not set</option>`].join('');
@@ -2820,16 +2997,20 @@
   });
   $('rbSpan').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-rs]'); if (!b || !spanSel) return;
-    if (b.dataset.rs === 'fib') { fibSel = +b.dataset.n; fibAdd = null; spanSel = null; routeRefresh(); return; } // v2.42.20
+    if (b.dataset.rs === 'fib') { if (fibAdd != null) rtFinish(true); fibSel = +b.dataset.n; spanSel = null; routeRefresh(); return; } // v2.42.20 (v2.42.24: the cable in the bar finished, as ✓)
     const k = linkIdx(spanSel[0], spanSel[1]); if (b.dataset.rs === 'close' || k < 0) { spanSel = null; routeRefresh(); return; }
     const runs = runsOf(links()[k]);
     if (b.dataset.rs === 'add') { runs.push(runs[runs.length - 1] || runs[0]); setRuns(runs); toast(`Run ${runs.length} added: pick its cable`, 2200); }
     else if (b.dataset.rs === 'del') { runs.splice(+b.dataset.i, 1); setRuns(runs); }
   });
   function setRouteMode(on) {
+    if (!on && fibAdd != null) { // v2.42.24: the cable in the bar finished (one with fewer than 2 points is not kept)
+      if (routeProj === S.project) rtFinish(true);
+      else { const m = (S.meta || {})[routeProj]; if (m && Array.isArray(m.fibers) && m.fibers.some((f) => f && f.n === fibAdd && !(Array.isArray(f.path) && f.path.length > 1))) { S.meta[routeProj] = { ...m, fibers: m.fibers.filter((f) => !(f && f.n === fibAdd && !(Array.isArray(f.path) && f.path.length > 1))) }; persist(); } }
+    }
     routeMode = on; routeSel = null; spanSel = null; routeUndo = []; routeProj = on ? S.project : null; fibSel = null; fibAdd = null; // (v2.42.20)
     fibAt = 'end'; fibTouched = false; fibStartAt = null; fibNew = false; rtTools = false; rtPairs = false; rtPend = []; rtPop = null; rtAsked = new Set(); rtDraft = null; rtDraftLayer.clearLayers(); rtMarkLayer.clearLayers(); $('rbPairs').checked = false; // v2.42.21
-    rtConf = null; rtPress = null; rtMpan = null; rtPtrs.clear(); rtMulti = false; map.getContainer().classList.remove('rt-panning'); // v2.42.22
+    rtConf = null; rtPress = null; rtMpan = null; rtPtrs.clear(); rtMulti = false; rtSnap0 = null; rtSheet = null; rtDelArm = null; map.getContainer().classList.remove('rt-panning'); // v2.42.22
     $('routeBar').hidden = true; $('rtBar').hidden = !on; $('rtPop').hidden = true; rtHint(''); $('routeBtn').setAttribute('aria-pressed', String(on)); $('routeFitBtn').hidden = !on; if (on) renderCableSel();
     document.body.classList.toggle('routing', on);
     renderPoles(); rtApplyMode(); if (on) rtTip(); // (v2.42.22: the map stays where it is; ⛶ shows the whole route)
@@ -2843,7 +3024,7 @@
     if (!routeSel || routeSel === id) { routeSel = routeSel === id ? null : id; routeRefresh(); return; } // v2.42.19: only what changed
     const l = links().map((x) => x.slice()), k = l.findIndex(([x, y]) => (x === routeSel && y === id) || (x === id && y === routeSel)), cab = cableSel();
     const onF = k >= 0 ? fibers().filter((f) => !f.ex && f.path.some((x, i) => i && spanKey(f.path[i - 1], x) === spanKey(routeSel, id))) : [];
-    if (onF.length) { const was = routeSel; routeSel = id; routeRefresh([was, id]); toast(`This span carries ${onF.map((f) => `Fiber ${f.n}`).join(', ')}: its cable is the fiber's. To take it off, edit the fiber (Undo, Reverse or Delete)`, 4000); return; } // v2.42.20
+    if (onF.length) { const was = routeSel; routeSel = id; routeRefresh([was, id]); toast(`This span carries ${onF.map((f) => `RUN ${f.n}`).join(', ')}: its cable is the cable's. To take it off, edit the cable (Undo, Reverse or Delete)`, 4000); return; } // v2.42.20
     routeUndo.push(links());
     if (k >= 0 && (l[k][2] || '') !== cab) { l[k] = linkWith(l[k][0], l[k][1], cab, l[k][3]); toast(`Span changed to ${cableName(cab)}`, 2200); } // v2.29: a linked pair with another cable chosen: the span takes it
     else if (k >= 0) l.splice(k, 1); else l.push(linkWith(routeSel, id, cab));
@@ -2859,18 +3040,11 @@
     routeUndo.push(l); setLinks(l.map(([a, b, , more]) => linkWith(a, b, cab, more))); routeRefresh(); // (run 1; the other runs stay)
     toast(`Every span: ${cableName(cab)} (Undo to go back)`, 3000);
   });
-  $('rbAuto').addEventListener('click', () => {
-    const have = new Set(links().map(([x, y]) => [x, y].sort().join('|')));
-    const add = C.autoLinks(projPoints().filter((p) => ['Pole', 'Handhole', 'Manhole', 'Service box'].includes(elemOf(p))), pol().autoGap || 120).filter(([x, y]) => !have.has([x, y].sort().join('|'))); // the site, ODC and ODF are linked by hand
-    if (!add.length) { toast('No new links: poles are already linked, or consecutive poles are farther apart than the gap setting'); return; }
-    routeUndo.push(links()); setLinks(links().concat(add.map(([x, y]) => linkWith(x, y, cableSel())))); renderPoles();
-    toast(`${add.length} span${add.length === 1 ? '' : 's'} added in capture order. Check branches and street corners.`, 4000);
-  });
   $('rbClear').addEventListener('click', () => {
     const b = $('rbClear');
-    if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again to clear'; setTimeout(() => { delete b.dataset.armed; b.textContent = 'Clear'; }, 3500); return; }
-    delete b.dataset.armed; b.textContent = 'Clear';
-    routeUndo.push(routeSnap()); setRoute([], []); routeSel = null; fibSel = null; fibAdd = null; renderPoles(); // (v2.42.20: the fibers too)
+    if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again to clear all'; setTimeout(() => { delete b.dataset.armed; b.textContent = 'Clear all cables'; }, 3500); return; }
+    delete b.dataset.armed; b.textContent = 'Clear all cables';
+    routeUndo.push(routeSnap()); setRoute([], []); routeSel = null; fibSel = null; fibAdd = null; rtSnap0 = null; renderPoles(); toast('All cables and spans cleared (Undo brings them back)', 3000); // (v2.42.20: the fibers too)
   });
   /* ================= v2.42.21: draw the cable route on the map =================
      A drag that starts on a pole draws: the poles near the line snap to it (Snap: Auto by the zoom, or 5–25 m; the side the line
@@ -2938,33 +3112,167 @@
     const xy = xyOf(P[0].lat), line = P.map(xy), su = snapM(), on = new Set(f.path);
     return routePts().filter((p) => !on.has(p.id) && projOn(xy(p), line).d <= su).map((p) => p.id);
   }
+  /* ================= v2.42.24: one list of cables (RUN 1, RUN 2…), one way to start a cable =================
+     ＋ New cable (or, with no cable in the bar, a tap on a pole or a line drawn) opens the New cable sheet: its type first (proposed: the
+     light cable, figure 8, UG; or an existing cable and its size), then Draw it on the map, or Follow the capture order (a RUN for each
+     stretch the capture order links). ✓ Finish ends the cable: the next tap or line never goes on with it; only Continue does (in the
+     list of cables, or a pole's options). ✕ Cancel takes back everything since the cable was started or continued. */
+  function rtStart(n, at, snap) { rtSnap0 = snap || routeSnap(); rtActivate(n, at); }
+  function rtPenSet() { if (!rtPenOn()) { S.routePen = true; persist(); } rtApplyMode(); }
+  function rtOpenSheet(o) {
+    rtSheet = { from: null, seq: null, ...(o || {}) }; rtPop = 'newcab'; routeSel = null; spanSel = null; rtTools = false; rtDraftLayer.clearLayers();
+    if (rtSheet.seq && rtSheet.seq.length > 1) { const by = new Map(routePts().map((p) => [p.id, p])); L.polyline(rtSheet.seq.map((x) => by.get(x)).filter(Boolean).map((p) => [p.lat, p.lon]), { pane: 'routePane', color: fibColor({ n: nextFibN() }), weight: 6, opacity: 0.85, dashArray: '10 7', interactive: false }).addTo(rtDraftLayer); }
+    routeRefresh(rtSheet.from ? [rtSheet.from] : []);
+  }
+  function rtSheetClose() { rtSheet = null; if (rtPop === 'newcab') rtPop = null; rtDraftLayer.clearLayers(); }
+  function rtCancel() {
+    const q = rtSnap0, n = fibAdd; if (n == null) return; rtSnap0 = null; fibAdd = null; fibSel = null; fibAt = 'end'; fibTouched = false; rtPop = null; routeSel = null;
+    const same = !q || JSON.stringify(routeSnap()) === JSON.stringify(q); // (nothing changed: nothing saved, the approval and the Share time untouched)
+    if (!same) { routeUndo.push(routeSnap()); setRoute(q.l, q.f); }
+    routeRefresh(); toast(q && !q.f.some((f) => f.n === n) ? `RUN ${n} cancelled: nothing saved` : same ? `RUN ${n}: nothing changed` : `RUN ${n}: what you changed since you started it is taken back`, 2800);
+  }
+  /** The New cable sheet's Start: drawn (from the pole tapped, along the line drawn, or from its first tap), or along the capture order. */
+  function rtSheetStart(how) {
+    const q = rtSheet || {}, F = fibers(), sp = nextSpec(), snap = routeSnap(); rtSheetClose();
+    if (how === 'cap' && !q.from && !q.seq) { captureCables(sp); return; }
+    const n = nextFibN(F), path = q.seq && q.seq.length > 1 ? q.seq.slice() : q.from ? [q.from] : [];
+    routeUndo.push(snap); F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), path, fromSt: '', toSt: '' });
+    setRoute(!sp.ex && path.length > 1 ? linksFor(path, sp.cab) : null, F); rtStart(n, 'end', snap); fibTouched = path.length > 1; rtPenSet(); routeRefresh(path);
+    toast(path.length > 1 ? `RUN ${n} · ${fibCabShort(sp)}: ${path.length} points. Go on drawing, or ✓ Finish` : path.length ? `RUN ${n} · ${fibCabShort(sp)} from ${fibName(path[0])}: tap the next pole, or drag along them` : `RUN ${n} · ${fibCabShort(sp)}: tap the pole or site it starts at, or drag along the poles`, 3500);
+  }
+  /** Follow the capture order: the poles (and boxes) in the order they were surveyed, linked where the next is within the gap, as cables:
+      a RUN for each stretch (it ends at a gap, or where the order comes back to a pole it took), on the spans not yet on a proposed cable. */
+  function captureCables(sp) {
+    const F = fibers(), used = onAnyFiber(F), pairs = C.autoLinks(projPoints().filter((p) => ['Pole', 'Handhole', 'Manhole', 'Service box'].includes(elemOf(p))), pol().autoGap || 120).filter(([x, y]) => !used.has(spanKey(x, y)));
+    const chains = []; let cur = null;
+    pairs.forEach(([a, b]) => { if (cur && cur[cur.length - 1] === a && !cur.includes(b)) cur.push(b); else { cur = [a, b]; chains.push(cur); } });
+    if (!chains.length) { toast('Nothing to add: the poles are already on cables, or consecutive poles are farther apart than the gap setting', 4000); routeRefresh(); return; }
+    routeUndo.push(routeSnap()); let L2 = links(), n = nextFibN(F); const have = new Set(L2.map((l) => spanKey(l[0], l[1]))), made = [];
+    chains.forEach((path) => {
+      if (!sp.ex) path.slice(1).forEach((b, i) => { const k = spanKey(path[i], b); if (!have.has(k)) { have.add(k); L2 = L2.concat([linkWith(path[i], b, sp.cab)]); } });
+      F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), path, fromSt: '', toSt: '' }); made.push(n); n++; });
+    setRoute(L2, F); routeRefresh();
+    toast(`${made.length === 1 ? `RUN ${made[0]}` : `RUN ${made[0]}–${made[made.length - 1]}`} made along the capture order (${chains.reduce((t, c) => t + c.length - 1, 0)} spans): each stops where the next pole is farther than ${pol().autoGap || 120} m. Check branches and street corners.`, 5000);
+  }
+  /** Link in capture order as before v2.42.24 (spans only, no cables): no button now (Follow the capture order makes cables); kept for
+      the tests' set-ups (__polecam.capLinks). */
+  function capLinks() {
+    const have = new Set(links().map(([x, y]) => spanKey(x, y))), add = C.autoLinks(projPoints().filter((p) => ['Pole', 'Handhole', 'Manhole', 'Service box'].includes(elemOf(p))), pol().autoGap || 120).filter(([x, y]) => !have.has(spanKey(x, y)));
+    if (add.length) { routeUndo.push(links()); setLinks(links().concat(add.map(([x, y]) => linkWith(x, y, cableSel())))); renderPoles(); }
+    return add.length;
+  }
+  /** A cable deleted with its spans that no other cable uses (Undo brings both back); the cables after it move down a number. */
+  function deleteCable(n) {
+    const F0 = fibers(), f = F0.find((x) => x.n === n); if (!f) return;
+    routeUndo.push(routeSnap());
+    const others = onAnyFiber(F0.filter((g) => g.n !== n)), mine = f.ex ? new Set() : new Set(f.path.slice(1).map((x, i) => spanKey(f.path[i], x)));
+    const L0 = links(), L2 = L0.filter((l) => !(mine.has(spanKey(l[0], l[1])) && !others.has(spanKey(l[0], l[1])) && !(Array.isArray(l[3]) && l[3].length))), gone = L0.length - L2.length;
+    const F = F0.filter((g) => g.n !== n).map((g) => (g.n > n ? { ...g, n: g.n - 1 } : g));
+    fibSel = null; setRoute(L2, F); routeRefresh();
+    toast(`RUN ${n} deleted${gone ? ` with ${gone} span${gone === 1 ? '' : 's'} no other cable uses` : ''}${F.some((g) => g.n >= n) ? '; the cables after it moved down a number' : ''} (Undo brings it back)`, 4000);
+  }
+  /** v2.42.24: once for each project made before v2.42.24, when it is opened: the spans on no cable (Link in capture order, linked by
+      pairs) become cables: a RUN for each stretch of one cable type (a stretch ends at a junction, a dead end or where the type changes;
+      a span's other runs each a RUN of their own the same way), each RUN from its end at a site, ODC or ODF, else the end surveyed first.
+      True when it made any. */
+  function routeMigrate() {
+    const proj = S.project, m = (S.meta || {})[proj]; if (!proj || !m || m.cables24 || m.approval) return false; // (an approved project is not changed on opening: later, once its approval is gone)
+    const done = (o) => { S.meta[proj] = { ...S.meta[proj], ...(o || {}), cables24: true }; persist(); };
+    const L0 = Array.isArray(m.links) ? m.links : [], F = fibers(), used = onAnyFiber(F), free = L0.filter((l) => Array.isArray(l) && l[0] && l[1] && !used.has(spanKey(l[0], l[1])));
+    if (!free.length) { done(); return false; }
+    const ord = new Map(projPoints().map((p, i) => [p.id, i])), o = (id) => (ord.has(id) ? ord.get(id) : 1e9), out = [], layers = [];
+    free.forEach((l) => runsOf(l).forEach((k, i) => { (layers[i] || (layers[i] = [])).push([l[0], l[1], k || '']); }));
+    layers.forEach((E) => { if (!E) return;
+      const adj = new Map(); E.forEach((e, i) => [e[0], e[1]].forEach((v) => { if (!adj.has(v)) adj.set(v, []); adj.get(v).push(i); }));
+      const brk = (v) => { const a = adj.get(v) || []; return a.length !== 2 || E[a[0]][2] !== E[a[1]][2]; }, seen = new Set();
+      const walk = (v, i) => { const path = [v]; let cur = v, ei = i; for (;;) { seen.add(ei); const e = E[ei], nx = e[0] === cur ? e[1] : e[0]; path.push(nx); cur = nx; if (brk(cur)) break; const nxt = adj.get(cur).find((j) => !seen.has(j)); if (nxt == null) break; ei = nxt; } return path; };
+      const put = (p, cab) => { if (p.length > 2 && p[0] === p[p.length - 1]) { p.pop(); out.push({ path: p, cab }, { path: [p[p.length - 1], p[0]], cab }); } else out.push({ path: p, cab }); }; // (a stretch back to its first pole: a cable passes a pole once, so the closing span is a RUN of its own)
+      [...adj.keys()].filter(brk).forEach((v) => adj.get(v).forEach((i) => { if (!seen.has(i)) put(walk(v, i), E[i][2]); }));
+      E.forEach((e, i) => { if (!seen.has(i)) put(walk(e[0], i), e[2]); }); // (a ring: from any of its points)
+    });
+    const head = (id) => { const p = points.find((x) => x.id === id), el = p ? elemOf(p) : ''; return el === 'Site' || el === 'ODC' || el === 'ODF'; };
+    out.forEach((r) => { const a = r.path[0], z = r.path[r.path.length - 1]; if ((head(z) && !head(a)) || (head(a) === head(z) && o(z) < o(a))) r.path.reverse(); });
+    out.sort((x, y) => o(x.path[0]) - o(y.path[0]) || o(x.path[1]) - o(y.path[1]));
+    let n = nextFibN(F); out.forEach((r) => F.push({ n: n++, cab: r.cab, side: 'auto', ex: false, path: r.path, fromSt: '', toSt: '' }));
+    done({ fibers: F }); LOG.info('route.migrate', { runs: out.length, spans: free.length });
+    return out.length ? { n: out.length, a: n - out.length, z: n - 1 } : 0;
+  }
+  /* v2.42.24: a new closure's size follows the largest proposed cable that starts, ends or passes at it (the smallest closure that
+     takes it: 12C, 24C, 48C, 72C, 144C, 288C), as the route changes, until its size is chosen by hand (then it stays). A size set before
+     v2.42.24 was chosen by hand: it stays. An existing closure keeps its size. boq.cloAuto: the size is the app's. */
+  const CLO_CORES = [12, 24, 48, 72, 144, 288];
+  function cloAutoSize(id, F, L) {
+    if (!id) return ''; F = F || fibers(); L = L || links(); const used = onAnyFiber(F); let mx = 0;
+    F.forEach((f) => { if (!f.ex && f.path.length > 1 && f.path.includes(id)) mx = Math.max(mx, (CAB[f.cab] || {}).cores || 0); });
+    L.forEach((l) => { if ((l[0] !== id && l[1] !== id) || used.has(spanKey(l[0], l[1]))) return; runsOf(l).forEach((k) => { mx = Math.max(mx, (CAB[k] || {}).cores || 0); }); }); // (a span on no cable: its own)
+    return mx ? `${CLO_CORES.find((c) => c >= mx) || 288}C` : '';
+  }
+  const hasClo = (p) => { const el = elemOf(p); return (el === 'Pole' && !!(p.closure || p.closureId)) || boxClo(p) || el === 'Closure'; };
+  function cloAnchor(p, rp) { // the route point a closure stands at (a closure pin: the pole within 30 m)
+    if (elemOf(p) !== 'Closure') return p.id; let best = null, bd = 30;
+    (rp || routePts()).forEach((q) => { if (elemOf(q) !== 'Pole') return; const dd = Math.hypot((q.lon - p.lon) * Math.cos(p.lat * Math.PI / 180) * 111320, (q.lat - p.lat) * 110574); if (dd < bd) { bd = dd; best = q; } });
+    return best ? best.id : null;
+  }
+  const cloOld = (p) => (elemOf(p) === 'Closure' ? p.status === 'Existing' : (p.boq || {}).cloSt === 'Existing');
+  /** The closures of the open project whose size is the app's (or not set): set to their largest cable's. Returns how many changed. */
+  async function cloSync(why) {
+    const proj = S.project; if (!proj || pointsLost) return 0; const m = (S.meta || {})[proj] || {}; if (why === 'open' && m.approval) return 0; // (an approved project is not changed on opening)
+    const P = points.filter((p) => p.project === proj && hasClo(p)); if (!P.length) return 0;
+    const F = fibers(), L = links(), rp = routePts(); let n = 0;
+    for (const p of P) {
+      const b = p.boq || {}; if (cloOld(p) || (b.clo && !b.cloAuto)) continue;
+      const want = cloAutoSize(cloAnchor(p, rp), F, L); if (!want || (b.clo === want && b.cloAuto)) continue;
+      const rec = { ...p, boq: { ...b, clo: want, cloAuto: true }, updated: new Date().toISOString() };
+      try { await dbPut('points', rec); } catch (e) { LOG.warn('clo.sync', errInfo(e)); continue; }
+      const i = points.indexOf(p); if (i >= 0) points[i] = rec; n++;
+    }
+    if (n) { LOG.info('clo.sync', { n, why }); if (why !== 'open') changedAfterApproval(proj, 'record'); }
+    return n;
+  }
+  let cloTimer = 0;
+  const cloSyncSoon = () => { clearTimeout(cloTimer); const proj = S.project; cloTimer = setTimeout(() => { if (S.project !== proj) return; cloSync('route').then((n) => { if (n && S.project === proj) renderPoles(); }).catch((e) => LOG.warn('clo.sync', errInfo(e))); }, 400); };
+  /** The record form: a new closure with no size (or the app's) takes its largest cable's; the size shown says when it is the app's. */
+  const cloPre = (b) => { if (!ed || !b || b.cloSt === 'Existing' || (b.clo && !b.cloAuto)) return; const a = cloAutoSize(ed.id); if (a) { b.clo = a; b.cloAuto = true; } };
+  const cloMark = (id, b) => { const sel = $(id); if (!sel || !b || !b.cloAuto || !b.clo) return; const o = [...sel.options].find((x) => x.value === b.clo); if (o) o.textContent = `${b.clo} · auto (its largest cable)`; };
+  let projSeen = null;
+  /** v2.42.24: once each time a project is opened (at the start, switched to, made or imported): an older project's spans on no cable
+      become cables (once), and its new closures with no size take the size of their largest cable. */
+  function projOpened() {
+    if (!S.project || S.project === projSeen || pointsLost) return; projSeen = S.project; const proj = S.project;
+    setTimeout(() => { if (S.project !== proj) return; let k = 0;
+      try { k = routeMigrate(); } catch (e) { LOG.warn('route.migrate', errInfo(e)); }
+      if (k) { renderPoles(); toast(`This project's spans are now cables: ${k.n === 1 ? `RUN ${k.a}` : `${k.n} cables, RUN ${k.a}–${k.z}`}, one for each stretch. See them in Route → Cables.`, 6000); }
+      if (typeof cloSync === 'function') cloSync('open').then((x) => { if (x && S.project === proj) renderPoles(); }).catch((e) => LOG.warn('clo.sync', errInfo(e)));
+    }, 0);
+  }
   function rtHint(t, ms) { const e = $('rtHint'); clearTimeout(rtHintT); e.classList.remove('tip'); if (!t) { e.hidden = true; return; } e.textContent = t; e.hidden = false; if (ms) rtHintT = setTimeout(() => { e.hidden = true; }, ms); }
   function rtActivate(n, at) { fibAdd = n; fibSel = n; fibAt = at || 'end'; fibTouched = false; fibStartAt = null; fibNew = false; rtPop = null; spanSel = null; routeSel = null; }
   /** Finish the fiber you are on: for each of its ends on another cable (another fiber passing or ending there, or a span on no
       fiber) at a pole with no closure, a question in the bar (once per pole while Route is open). */
   function rtFinish(quiet) {
     const n = fibAdd; if (n == null) return; const F = fibers(), f = F.find((x) => x.n === n);
-    fibAdd = null; fibSel = null; fibAt = 'end'; rtPop = null; routeSel = null;
+    fibAdd = null; fibSel = null; fibAt = 'end'; rtPop = null; routeSel = null; rtSnap0 = null;
+    if (f && f.path.length < 2) { setRoute(null, F.filter((x) => x !== f)); fibTouched = false; routeRefresh(); if (!quiet) toast(`RUN ${n}: a cable needs at least two points. Nothing saved`, 3000); return; } // v2.42.24
     if (f && fibTouched && !quiet && f.path.length > 1) {
       const by = new Map(routePts().map((p) => [p.id, p])), used = onAnyFiber(F);
       [f.path[0], f.path[f.path.length - 1]].forEach((id, i) => {
         const p = by.get(id), k0 = p ? fibEnd({ path: [id] }, 'from', by).kind : ''; if (!p || elemOf(p) !== 'Pole' || rtAsked.has(id) || rtPend.some((q) => q.id === id) || k0 === 'Closure' || k0 === 'Dummy NAP') return;
         const others = F.filter((g) => g !== f && g.path.includes(id)), loose = links().filter((l) => (l[0] === id || l[1] === id) && !used.has(spanKey(l[0], l[1])));
         if (!others.length && !loose.length) return;
-        const how = others.map((g) => `F${g.n}${g.ex ? ` (existing ${exCores(g)}C)` : ''}`).concat(loose.length ? [`${loose.length} span${loose.length === 1 ? '' : 's'} on no fiber`] : []);
-        rtPend.push({ id, dn: [f, ...others].every((g) => g.ex || g.cab !== 'F72'), text: `Fiber ${f.n} ${i ? 'ends' : 'starts'} on ${how.join(', ')}. Add here?` }); // v2.42.22: short; a dummy NAP too where no 72C runs
+        const how = others.map((g) => `RUN ${g.n}${g.ex ? ` (existing ${exCores(g)}C)` : ''}`).concat(loose.length ? [`${loose.length} span${loose.length === 1 ? '' : 's'} on no cable`] : []);
+        rtPend.push({ id, dn: [f, ...others].every((g) => g.ex || !isFig8(g.cab)), text: `RUN ${f.n} ${i ? 'ends' : 'starts'} on ${how.join(', ')}. Add here?` }); // v2.42.22: short; a dummy NAP too where no 72C runs
       });
     }
     fibTouched = false; routeRefresh(f ? [f.path[0], f.path[f.path.length - 1]] : []);
-    if (!quiet && f && !rtPend.length) toast(`Fiber ${f.n}: ${f.path.length} point${f.path.length === 1 ? '' : 's'}${f.path.length > 1 ? ` · ${fibCabShort(f)}` : ''}`, 1800);
+    if (!quiet && f && !rtPend.length) { const fi = (lastR && lastR.fib ? lastR.fib.list.find((x) => x.n === f.n) : null) || {}; toast(`RUN ${f.n} saved: ${fibCabShort(f)}, ${f.path.length} points${fi.len ? `, ${fmtLen(fi.len)}` : ''}. The next line starts a new cable`, 2800); }
   }
   /** A closure on the pole's record (new; its ID and size are set in the record), with Undo. */
   async function rtAddClosure(id) { // (v2.42.22: true when saved)
     const i = points.findIndex((x) => x.id === id); if (i < 0) return false; const p = points[i];
-    const prev = JSON.parse(JSON.stringify(p)), rec = { ...p, closure: true, boq: { ...(p.boq || {}), cloSt: (p.boq || {}).cloSt || 'New' }, updated: new Date().toISOString() };
+    const prev = JSON.parse(JSON.stringify(p)), b0 = p.boq || {}, sz = !b0.clo && b0.cloSt !== 'Existing' ? cloAutoSize(id) : '', rec = { ...p, closure: true, boq: { ...b0, cloSt: b0.cloSt || 'New', ...(sz ? { clo: sz, cloAuto: true } : {}) }, updated: new Date().toISOString() }; // (v2.42.24: the size of its largest cable)
     try { await dbPut('points', rec); } catch (e) { toast('The closure could not be saved: try again', 3500); return false; }
     points[points.indexOf(p)] = rec; changedAfterApproval(rec.project, 'record'); routeUndo.push({ rec: prev }); rtAsked.add(id);
-    renderPoles(); toast(`Closure added at ${rec.poleId || '(no ID)'} (new): set its ID and size in the pole's record`, 4500); return true;
+    renderPoles(); toast(`Closure added at ${rec.poleId || '(no ID)'} (new${rec.boq.clo ? `, ${rec.boq.clo}: its largest cable's` : ''}): set its ID in the pole's record${rec.boq.cloAuto ? '; its size follows the cables until you choose one' : ''}`, 5000); return true;
   }
   /** Take the point off the fiber (the cable passes it): its neighbours on the fiber linked directly; the spans to it that no
       fiber uses any more go (an existing cable has no spans of its own). Returns the new links, or null. */
@@ -2998,7 +3306,7 @@
       if (id === end) return;
       if (f.path.length > 1 && (id === f.path[0] || id === f.path[f.path.length - 1])) { fibAt = id === f.path[0] ? 'start' : 'end'; routeRefresh([id]); return; }
       if (f.path.includes(id)) { // the cable only passes it
-        if (f.path.length <= 2) { toast('A fiber needs two points', 2500); return; }
+        if (f.path.length <= 2) { toast('A cable needs two points', 2500); return; }
         routeUndo.push(routeSnap()); const L2 = rtPassOff(f, id, F); setRoute(L2, F); fibTouched = true; routeRefresh([id]); return;
       }
       if (fibPasses(f, new Map(routePts().map((p) => [p.id, p]))).includes(id)) {
@@ -3006,16 +3314,7 @@
       }
       fiberTap(id); fibTouched = true; return; // the next point: along the spans, else a new span
     }
-    if (fibStartAt != null) {
-      if (fibStartAt === id) { fibStartAt = null; routeRefresh([id]); return; }
-      const sp = nextSpec(), n = nextFibN(F); routeUndo.push(routeSnap());
-      F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), path: [fibStartAt], fromSt: '', toSt: '' }); setRoute(null, F);
-      rtActivate(n, 'end'); fiberTap(id); routeUndo.splice(routeUndo.length - 1, 1); fibTouched = true; // (one Undo takes the new fiber away)
-      toast(`Fiber ${n} · ${fibCabShort(sp)}`, 1800); return;
-    }
-    const ends = F.filter((g) => g.path.length && (g.path[0] === id || g.path[g.path.length - 1] === id)), thru = F.filter((g) => g.path.includes(id));
-    if (ends.length === 1 && thru.length === 1) { const g = ends[0], at = g.path.length > 1 && g.path[0] === id ? 'start' : 'end'; rtActivate(g.n, at); routeRefresh([id]); return; }
-    const was = fibStartAt; fibStartAt = id; routeRefresh([was, id]); // a new fiber from here: the next tap or line
+    rtOpenSheet({ from: id }); // v2.42.24: no cable in the bar: a tap asks which new cable starts there (it never goes on with another)
   }
   /* ================= v2.42.22: ✎ Draw or ✋ Move =================
      ✎ Draw (Route opens in it; kept on this phone): one finger (the left button) draws, from anywhere. The line goes to the fiber in the
@@ -3048,7 +3347,7 @@
       if (kS !== end) { if (A.path.length > 1 && (kS === e0 || kS === e1)) at = kS === e0 ? 'start' : 'end'; else { fin = A.n; A = null; } } } // its other end: from there; its middle: a branch (the fiber is finished)
     if (A) { f = A; id = A.path.length ? (at === 'start' ? A.path[0] : A.path[A.path.length - 1]) : kS; }
     else if (fin == null && fibStartAt != null) id = fibStartAt;
-    else if (kS) { id = kS; at = 'end'; const e = F.filter((g) => g.path.length && (g.path[0] === kS || g.path[g.path.length - 1] === kS)); if (fin == null && e.length === 1 && F.filter((g) => g.path.includes(kS)).length === 1) { f = e[0]; at = f.path.length > 1 && f.path[0] === kS ? 'start' : 'end'; } }
+    else if (kS) { id = kS; at = 'end'; } // v2.42.24: never goes on with a cable (Continue does)
     routeSel = null; spanSel = null; rtPop = null; renderRtPop(); rtTipSeen();
     const col = f ? fibColor(f) : fibColor({ n: nextFibN(F) });
     rtDraft = { id, f: f ? f.n : null, at, fin, ll: [{ lat: s.lat, lon: s.lng }], su, col };
@@ -3062,7 +3361,7 @@
     if (!rtPq) rtPq = requestAnimationFrame(() => { rtPq = 0; if (!rtDraft) return; const seq = snapSeq(rtDraft.id, rtDraft.ll, rtDraft.su), by = new Map(routePts().map((p) => [p.id, p]));
       rtDraft.prev.setLatLngs(seq.map((x) => by.get(x)).filter(Boolean).map((p) => [p.lat, p.lon])); rtDraft.rings.clearLayers();
       seq.forEach((x) => { const p = by.get(x); if (p) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 13, color: rtDraft.col, weight: 3, fill: false, interactive: false }).addTo(rtDraft.rings); });
-      rtLive(`✎ ${rtDraft.f != null ? `Fiber ${rtDraft.f}` : 'New fiber'} · ${seq.length} point${seq.length === 1 ? '' : 's'}`); });
+      rtLive(`✎ ${rtDraft.f != null ? `RUN ${rtDraft.f}` : 'New cable'} · ${seq.length} point${seq.length === 1 ? '' : 's'}`); });
   }
   function rtDrop() { rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers(); if (routeMode) renderRtBar(lastR || routeModel()); }
   function rtStrokeEnd() {
@@ -3077,10 +3376,7 @@
       return;
     }
     if (seq.length < 2) { toast(`No pole within ${d.su} m of the line`, 2200); routeRefresh(); return; }
-    routeUndo.push(routeSnap()); const sp = nextSpec(), n = nextFibN(F);
-    F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), path: seq, fromSt: '', toSt: '' }); setRoute(sp.ex ? null : linksFor(seq, sp.cab), F);
-    rtActivate(n, 'end'); fibTouched = true; routeRefresh(seq);
-    toast(`Fiber ${n} · ${fibCabShort(sp)}`, 1800);
+    rtOpenSheet({ seq, from: seq[0] }); // v2.42.24: which new cable this line is (its type first)
   }
   (() => { // the gestures on the map in Route
     const mc = map.getContainer(), cpt = (e) => { const r = mc.getBoundingClientRect(); return L.point(e.clientX - r.left, e.clientY - r.top); };
@@ -3129,13 +3425,13 @@
     document.addEventListener('keydown', (e) => {
       if (!routeMode || /^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
       if (e.key === ' ' && spaceOk(e.target)) { if (!rtSpace) { rtSpace = true; mc.classList.add('rt-spacepan'); } e.preventDefault(); return; } // Space + drag moves the map (a focused map button is not pressed)
-      if (e.key === 'Escape') { if (rtDraft) return; if (rtConf) rtConfCancel(); else if (rtPop) { rtPop = null; renderRtPop(); } else if (fibStartAt != null || fibNew) { fibStartAt = null; fibNew = false; routeRefresh(); } else if (fibAdd != null) rtFinish(); else if (routeSel) { const w = routeSel; routeSel = null; routeRefresh([w]); } }
+      if (e.key === 'Escape') { if (rtDraft) return; if (rtConf) rtConfCancel(); else if (rtPop) { rtPop = null; rtSheetClose(); renderRtPop(); } else if (fibStartAt != null || fibNew) { fibStartAt = null; fibNew = false; routeRefresh(); } else if (fibAdd != null) rtFinish(); else if (routeSel) { const w = routeSel; routeSel = null; routeRefresh([w]); } }
       if (e.key === 'Enter' && rtConf && !(e.target && e.target.closest && e.target.closest('button'))) { e.preventDefault(); rtConfirm(); }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); rtUndo(); }
     });
     document.addEventListener('keyup', (e) => { if (e.key === ' ' && rtSpace) { rtSpace = false; mc.classList.remove('rt-spacepan'); e.preventDefault(); } });
     window.addEventListener('blur', () => { rtSpace = false; mc.classList.remove('rt-spacepan'); });
-    map.on('movestart', () => { if (rtPop) { rtPop = null; renderRtPop(); } });
+    map.on('movestart', () => { if (rtPop && rtPop !== 'newcab') { rtPop = null; renderRtPop(); } }); // (v2.42.24: the New cable sheet stays)
   })();
   async function rtUndo() {
     if (!routeUndo.length || rtDraft || rtConf) return; const u = routeUndo.pop(); rtPend = [];
@@ -3197,23 +3493,21 @@
       if (sel) {
         const id = sel.id, here = all.filter((g) => g.path.includes(id)), ends = here.filter((g) => g.path[0] === id || g.path[g.path.length - 1] === id), mids = here.filter((g) => !ends.includes(g));
         const near = all.filter((g) => !g.path.includes(id) && fibPasses(g, by).includes(id)), e = fibEnd({ path: [id] }, 'from', by), pole = elemOf(sel) === 'Pole';
-        h += `<div class="rt-row">${seg}<div class="rt-meta grow"><b>${hEsc(sel.poleId || '(no ID)')}</b>${e.kind !== 'Pole' && e.kind ? ` · ${hEsc(e.kind === 'Closure' ? `closure ${e.ref}` : e.kind)}` : ''} · ${here.length ? here.map((g) => `F${g.n}`).join(', ') : 'no fiber'}</div>${undoB}<button class="ib" type="button" data-rt="unsel" aria-label="Close">✕</button></div><div class="rt-acts">`
-          + ends.map((g) => `<button class="ib" type="button" data-rt="cont" data-n="${g.n}" data-w="${g.path.length > 1 && g.path[0] === id ? 'start' : 'end'}">✎ Go on with F${g.n}</button>`).join('')
-          + mids.map((g) => `<button class="ib" type="button" data-rt="pass" data-n="${g.n}">F${g.n} only passes</button>`).join('')
-          + near.map((g) => `<button class="ib" type="button" data-rt="attach" data-n="${g.n}">Put on F${g.n}</button>`).join('')
+        h += `<div class="rt-row">${seg}<div class="rt-meta grow"><b>${hEsc(sel.poleId || '(no ID)')}</b>${e.kind !== 'Pole' && e.kind ? ` · ${hEsc(e.kind === 'Closure' ? `closure ${e.ref}` : e.kind)}` : ''} · ${here.length ? here.map((g) => `RUN ${g.n}`).join(', ') : 'no cable'}</div>${undoB}<button class="ib" type="button" data-rt="unsel" aria-label="Close">✕</button></div><div class="rt-acts">`
+          + ends.map((g) => `<button class="ib" type="button" data-rt="cont" data-n="${g.n}" data-w="${g.path.length > 1 && g.path[0] === id ? 'start' : 'end'}">✎ Continue RUN ${g.n}</button>`).join('')
+          + mids.map((g) => `<button class="ib" type="button" data-rt="pass" data-n="${g.n}">RUN ${g.n} only passes</button>`).join('')
+          + near.map((g) => `<button class="ib" type="button" data-rt="attach" data-n="${g.n}">Put on RUN ${g.n}</button>`).join('')
           + (pole && e.kind !== 'Closure' ? '<button class="ib" type="button" data-rt="clo">＋ Closure</button>' : '')
           + (pole && !['Closure', 'NAP', 'LCP', 'Dummy NAP'].includes(e.kind) ? '<button class="ib" type="button" data-rt="dn">＋ Dummy NAP</button>' : '')
-          + `<button class="ib" type="button" data-rt="newhere">＋ New fiber here</button><button class="ib" type="button" data-rt="spans">Spans ›</button></div>`;
+          + `<button class="ib" type="button" data-rt="newhere">＋ New cable here</button><button class="ib" type="button" data-rt="spans">Spans ›</button></div>`;
       } else if (f) {
         const info = R && R.fib ? R.fib.list.find((x) => x.n === f.n) : null;
-        h += `<div class="rt-row">${seg}<button class="rt-fname" type="button" data-rt="pop" data-p="cab" aria-label="Cable of Fiber ${f.n}: ${hEsc(fibCabName(f))}. Change it for the whole fiber"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i>F${f.n} <u>${hEsc(fibCabShort(f))} ▾</u></button>${undoB}<button class="ib primary" type="button" data-rt="finish" id="rtFinish" aria-label="Finish Fiber ${f.n}" title="Finish (Esc)">✓</button></div>`
-          + `<div class="rt-row"><div class="rt-meta grow" id="rtLive">${f.path.length} point${f.path.length === 1 ? '' : 's'}${info ? ` · ${fmtLen(info.len || 0)}` : ''}</div>${snapB}<button class="ib" type="button" data-rt="tools" aria-label="Fiber ${f.n}: details (ends, side, Reverse, Delete) and Route tools">⋯</button></div>`;
+        h += `<div class="rt-row">${seg}<button class="rt-fname" type="button" data-rt="pop" data-p="cab" aria-label="Cable of RUN ${f.n}: ${hEsc(fibCabName(f))}. Change it for the whole cable"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i>RUN ${f.n} <u>${hEsc(fibCabShort(f))} ▾</u></button>${undoB}<button class="ib" type="button" data-rt="cancel" id="rtCancel" aria-label="Cancel RUN ${f.n}: take back what you changed since you started it" title="Cancel">✕</button><button class="ib primary" type="button" data-rt="finish" id="rtFinish" aria-label="Finish RUN ${f.n}" title="Finish (Esc)">✓</button></div>`
+          + `<div class="rt-row"><div class="rt-meta grow" id="rtLive">${f.path.length} point${f.path.length === 1 ? '' : 's'}${info ? ` · ${fmtLen(info.len || 0)}` : ''}</div>${snapB}<button class="ib" type="button" data-rt="tools" aria-label="RUN ${f.n}: details (ends, side, Reverse) and the list of cables">⋯</button></div>`;
       } else {
         const stats = R ? `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}${R.cableTotal > R.total + 0.05 ? ` · cable ${fmtLen(R.cableTotal)}` : ''}` : '';
-        h += `<div class="rt-row">${seg}<button class="ib${fibStartAt != null ? ' primary' : ''}" type="button" data-rt="pop" data-p="new" aria-label="The next fiber's cable: ${hEsc(fibCabName(nextSpec()))}" title="The next fiber's cable">＋ ${hEsc(fibCabShort(nextSpec()))} ▾</button>`
-          + `<div class="rt-chips" role="group" aria-label="Fibers: tap one to go on with it">${all.map((g) => `<button class="fchip" type="button" data-rt="fib" data-n="${g.n}" title="${hEsc(fibCabName(g))}" aria-label="Fiber ${g.n}, ${hEsc(fibCabName(g))}"><i class="${g.ex ? 'ex' : ''}" style="background:${fibColor(g)};color:${fibColor(g)}"></i>F${g.n}</button>`).join('')}</div>`
-          + `${undoB}<button class="ib primary" type="button" id="rtDone">Done</button></div>`
-          + `<div class="rt-row"><div class="rt-meta grow" id="rtLive">${rtPairs ? '<b>Linking spans:</b> tap a pole, then the next pole (⋯ to stop)' : fibStartAt != null ? `New fiber from <b>${hEsc(fibName(fibStartAt))}</b>` : stats}</div>${pen && !rtPairs ? snapB : ''}<button class="ib" type="button" data-rt="tools" aria-label="Route tools: spans, runs, fiber details, route check, link in capture order, clear">⋯</button></div>`;
+        h += `<div class="rt-row"><button class="ib primary rt-new" type="button" data-rt="newcab" id="rtNewCab" aria-label="New cable: pick its type, then draw it or follow the capture order">＋ New cable</button><button class="ib" type="button" data-rt="tools" id="rtCables" aria-label="The list of cables (${all.length}): Continue, type, Details, Delete; and more">Cables · ${all.length}</button><span class="rt-sp"></span><button class="ib primary" type="button" id="rtDone">Done</button></div>`
+          + `<div class="rt-row">${seg}<div class="rt-meta grow" id="rtLive">${rtPairs ? '<b>Linking two poles without a cable:</b> tap a pole, then the next' : all.length ? stats : 'Tap ＋ New cable, or a pole, to start'}</div>${pen && !rtPairs ? snapB : ''}${undoB}</div>`; // v2.42.24: one way to start a cable; the list of cables
       }
     }
     if (rtTools) { bar.innerHTML = ''; bar.hidden = true; $('routeBar').hidden = false; document.body.style.setProperty('--rtbh', `${Math.max(0, Math.round($('routeBar').getBoundingClientRect().height) - 4)}px`); rtPop = null; renderRtPop(); return; } // Route tools in its place (Close: back to the bar)
@@ -3227,23 +3521,27 @@
     const opt = (k, v, t, on, lbl) => `<button class="ib" type="button" data-${k}="${v}" aria-pressed="${!!on}"${lbl ? ` aria-label="${hEsc(lbl)}"` : ''}>${hEsc(t)}</button>`;
     const snaps = `<div class="lbl">SNAP TO POLES WITHIN</div><div class="rt-opts">${SNAP_CH.map((v) => opt('snap', v, v === 'auto' ? `Auto (${Math.max(5, Math.min(25, Math.round(24 * mPerPx())))} m now)` : `${v} m`, snapPref() === v)).join('')}</div>`;
     const picker = (sp, pre) => `<div class="rt-seg" role="group" aria-label="Proposed or existing cable">${opt(`${pre}kind`, 'p', 'Proposed', !sp.ex)}${opt(`${pre}kind`, 'e', 'Existing', sp.ex)}</div>`
-      + (!sp.ex ? `<div class="rt-opts">${Object.entries(CAB).map(([k, c]) => opt(`${pre}cab`, k, c.short, sp.cab === k, c.label)).join('')}</div>`
+      + (!sp.ex ? CAB_GROUPS.map(([g, t]) => `<div class="lbl2">${hEsc(t)}</div><div class="rt-opts">${Object.entries(CAB).filter(([, c]) => c.fam === g).map(([k, c]) => opt(`${pre}cab`, k, c.short, sp.cab === k, c.label)).join('')}</div>`).join('') // v2.42.24: by family
         : `<div class="lbl">EXISTING CABLE SIZE</div><div class="rt-opts">${EX_SIZES.map((c) => opt(`${pre}cores`, c, `${c}C`, sp.cores === c)).join('')}<span class="rt-other"><input id="${pre}CoreIn" type="number" inputmode="numeric" min="2" max="1728" placeholder="Other" aria-label="Other size, in cores" value="${EX_SIZES.includes(sp.cores) ? '' : sp.cores}"><button class="ib" type="button" data-coreset="${pre}">C ✓</button></span></div><p class="rt-note">Existing: drawn dashed on the map, the Drawing and the DXF with its size; left out of the BOQ, the cable lengths, the loops and the hardware.</p>`);
     let h = '';
-    if (rtPop === 'cab') h = `<div class="lbl">CABLE OF FIBER ${f.n} · THE WHOLE FIBER</div>${picker({ cab: f.cab, ex: !!f.ex, cores: exCores(f) }, 'f')}`;
+    if (rtPop === 'cab') h = `<div class="lbl">CABLE OF RUN ${f.n} · THE WHOLE CABLE</div>${picker({ cab: f.cab, ex: !!f.ex, cores: exCores(f) }, 'f')}`;
+    else if (rtPop === 'newcab') { const q = rtSheet || {}, sp = nextSpec(), cap = !q.from && !q.seq; // v2.42.24: the New cable sheet
+      h = `<div class="lbl">NEW CABLE · RUN ${nextFibN()}${q.seq ? ` · ALONG THE ${q.seq.length} POLES DRAWN` : q.from ? ` · FROM ${hEsc(fibName(q.from).toUpperCase())}` : ''}</div>${picker(sp, 'n')}`
+        + (cap ? `<div class="rt-how" role="radiogroup" aria-label="How"><label><input type="radio" name="rtHow" value="draw"${q.how !== 'cap' ? ' checked' : ''}> Draw it on the map: tap the poles, or drag along them</label><label><input type="radio" name="rtHow" value="cap"${q.how === 'cap' ? ' checked' : ''}> Follow the capture order: the poles in the order you surveyed them (a RUN for each stretch)</label></div>` : '')
+        + `<div class="rt-acts rt-end"><button class="ib" type="button" data-ns="cancel">Cancel</button><button class="ib primary" type="button" data-ns="start" id="rtSheetStart">${q.seq ? 'Save this cable' : 'Start'}</button></div>`; }
     else if (rtPop === 'snap') h = snaps;
     else if (rtPop === 'new') h = `<div class="lbl">NEXT FIBER · CABLE</div>${picker(nextSpec(), 'n')}`;
-    el.innerHTML = h; el.hidden = false;
+    el.innerHTML = h; el.hidden = false; el.classList.toggle('rtsheet', rtPop === 'newcab'); // (v2.42.24: the New cable sheet: taller, its buttons always in sight)
   }
   /** The whole fiber's cable: proposed (its cable; spans on each step) or existing (any size; drawn only, no spans of its own). */
-  function rtSetCable(ch) {
-    const n = fibAdd; if (n == null) return; const F = fibers(), f = F.find((x) => x.n === n); if (!f) return;
+  function rtSetCable(ch, n0) {
+    const n = n0 != null ? n0 : fibAdd; if (n == null) return; /* (v2.42.24: or a cable in the list) */ const F = fibers(), f = F.find((x) => x.n === n); if (!f) return;
     const was = fibCabName(f), wasEx = !!f.ex; let L2 = null;
     const nf = { ...f, ...ch }; if (fibCabName(nf) === was && !!nf.ex === wasEx) { rtPop = null; renderRtPop(); return; }
     routeUndo.push(routeSnap()); Object.assign(f, ch); if (f.ex) f.cores = exCores(f); else delete f.cores;
     if (f.ex && !wasEx) { const hop = (g) => new Set(g.path.slice(1).map((x, i) => spanKey(g.path[i], x))), mine = hop(f), others = new Set(F.filter((g) => g !== f && !g.ex).flatMap((g) => [...hop(g)])); L2 = links().filter((l) => !(mine.has(spanKey(l[0], l[1])) && !others.has(spanKey(l[0], l[1])) && !(Array.isArray(l[3]) && l[3].length))); }
     else if (!f.ex) L2 = linksFor(f.path, f.cab);
-    setRoute(L2, F); fibTouched = true; toast(`Fiber ${f.n}: ${was} → ${fibCabName(f)}, the whole fiber`, 3000);
+    setRoute(L2, F); if (n0 == null) fibTouched = true; toast(`RUN ${f.n}: ${was} → ${fibCabName(f)}, the whole cable`, 3000);
     if (ch.ex === undefined || 'cab' in ch || 'cores' in ch) rtPop = null; routeRefresh();
   }
   $('rtBar').addEventListener('click', (e) => {
@@ -3255,37 +3553,41 @@
     if (a === 'confcancel') { rtConfCancel(); return; }
     if (a === 'pop') { rtPop = rtPop === b.dataset.p ? null : b.dataset.p; renderRtPop(); return; }
     if (a === 'finish') { rtFinish(); return; }
+    if (a === 'cancel') { rtCancel(); return; } // v2.42.24
+    if (a === 'newcab') { rtOpenSheet({}); return; }
     if (a === 'tools') { rtTools = !rtTools; if (rtTools && fibAdd != null) fibSel = fibAdd; const w = routeSel; if (!rtTools && rtPenOn()) routeSel = null; routeRefresh([w]); return; } // (v2.42.22: the route check's rings with it)
     if (a === 'fib' && g) { rtActivate(g.n, 'end'); routeRefresh(); return; }
     if (a === 'askno') { const q = rtPend.shift(); if (q) rtAsked.add(q.id); routeRefresh(); return; }
     if (a === 'askclo' || a === 'askdn') { const q = rtPend[0]; if (q) rtAskConf(q.id, a === 'askdn' ? 'dn' : 'clo', 'ask'); return; } // v2.42.22: zoom in, a second tap adds it
     if (a === 'unsel') { routeSel = null; routeRefresh([id]); return; }
-    if (a === 'cont' && g) { rtActivate(g.n, b.dataset.w); rtSetPen(true, [id]); return; }
-    if (a === 'newhere') { if (fibAdd != null) rtFinish(); fibStartAt = id; rtSetPen(true, [id]); return; }
+    if (a === 'cont' && g) { if (fibAdd != null && fibAdd !== g.n) rtFinish(true); rtStart(g.n, b.dataset.w); rtSetPen(true, [id]); return; }
+    if (a === 'newhere') { if (fibAdd != null) rtFinish(); rtPenSet(); rtOpenSheet({ from: id }); return; } // v2.42.24: the New cable sheet from this pole
     if (a === 'spans') { rtTools = true; routeRefresh([id]); return; }
     if ((a === 'clo' || a === 'dn') && id) { rtAskConf(id, a, 'pole'); return; }
     if ((a === 'pass' || a === 'attach') && g && id) {
-      if (a === 'pass' && g.path.length <= 2) { toast('A fiber needs two points', 2500); return; }
+      if (a === 'pass' && g.path.length <= 2) { toast('A cable needs two points', 2500); return; }
       routeUndo.push(routeSnap()); const L2 = a === 'pass' ? rtPassOff(g, id, F) : rtAttach(g, id, F); setRoute(L2, F); routeRefresh([id]);
     }
   });
+  $('rtPop').addEventListener('change', (e) => { if (e.target.name === 'rtHow' && rtSheet) rtSheet.how = e.target.value; }); // v2.42.24
   $('rtPop').addEventListener('click', (e) => {
-    const b = e.target.closest('button'); if (!b) return; if (e.detail) b.blur(); const d = b.dataset;
+    const b = e.target.closest('button'); if (!b) return; if (e.detail) b.blur(); const d = b.dataset, el0 = $('rtPop');
     if (d.snap != null) { S.routeSnap = d.snap === 'auto' ? 'auto' : +d.snap; persist(); toast(`Snap: ${snapLbl()}`, 1800); if (rtPop === 'snap') rtPop = null; renderRtBar(lastR || routeModel()); return; }
     if (d.fkind) { rtSetCable({ ex: d.fkind === 'e' }); rtPop = 'cab'; renderRtPop(); return; }
     if (d.fcab) { rtSetCable({ ex: false, cab: d.fcab }); return; }
     if (d.fcores) { rtSetCable({ ex: true, cores: +d.fcores }); return; }
     const ready = () => { fibNew = false; rtPop = null; routeRefresh(); }; // (v2.42.22: the next line or tap with no fiber in the bar starts it)
     if (d.nkind) { setNext({ fibEx: d.nkind === 'e' }); renderRtPop(); return; }
-    if (d.ncab) { setNext({ cable: d.ncab, fibEx: false }); renderCableSel(); ready(); return; }
-    if (d.ncores) { setNext({ fibEx: true, fibCores: +d.ncores }); ready(); return; }
+    if (d.ns) { if (d.ns === 'start') { const r = el0.querySelector('input[name="rtHow"]:checked'); rtSheetStart(r ? r.value : 'draw'); } else { rtSheetClose(); routeRefresh(); } return; } // v2.42.24: the New cable sheet
+    if (d.ncab) { setNext({ cable: d.ncab, fibEx: false }); renderCableSel(); if (rtPop === 'newcab') renderRtPop(); else ready(); return; }
+    if (d.ncores) { setNext({ fibEx: true, fibCores: +d.ncores }); if (rtPop === 'newcab') renderRtPop(); else ready(); return; }
     if (d.coreset) { const inp = $(`${d.coreset}CoreIn`), v = Math.round(+inp.value); if (!(v >= 2 && v <= 1728)) { toast('Type the number of cores, 2 to 1728', 2500); inp.focus(); return; }
-      if (d.coreset === 'f') rtSetCable({ ex: true, cores: v }); else { setNext({ fibEx: true, fibCores: v }); ready(); } }
+      if (d.coreset === 'f') rtSetCable({ ex: true, cores: v }); else { setNext({ fibEx: true, fibCores: v }); if (rtPop === 'newcab') renderRtPop(); else ready(); } }
   });
   $('rtPop').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('input[type=number]')) { e.preventDefault(); const b = e.target.parentElement.querySelector('[data-coreset]'); if (b) b.click(); } });
   $('rbToolsClose').addEventListener('click', () => { rtTools = false; const w = routeSel; if (rtPenOn()) routeSel = null; routeRefresh([w]); }); // (✎: back to drawing, no pole's options)
   $('rbUndo').addEventListener('click', () => rtUndo()); $('rbDone').addEventListener('click', () => setRouteMode(false)); // (Route tools: as before)
-  $('rbPairs').addEventListener('change', () => { rtPairs = $('rbPairs').checked; if (rtPairs) rtFinish(true); fibStartAt = null; fibNew = false; routeSel = null; routeRefresh(); toast(rtPairs ? 'Tap a pole, then the next pole, to link a span (no fiber). Untick to draw again.' : 'Drawing again (✎)', 2500); });
+  $('rbPairs').addEventListener('change', () => { rtPairs = $('rbPairs').checked; if (rtPairs) rtFinish(true); fibStartAt = null; fibNew = false; routeSel = null; routeRefresh(); toast(rtPairs ? 'Tap a pole, then the next pole, to link a span without a cable. Untick to draw again.' : 'Drawing again (✎)', 2500); });
 
   function fitProject() {
     const pts = projPoints();
@@ -5626,9 +5928,9 @@
       $('napId').placeholder = dn ? 'Dummy NAP ID, e.g. MIN123_C01_D01' : 'NAP ID, e.g. DVO_003_L913_N01';
       const sug = dn ? dummyNapId() : ''; $('napIdSug').hidden = !sug || ro || $('napId').value.trim().toUpperCase() === sug; $('napIdSug').textContent = sug ? `Use ${sug}` : '';
       const cab = dn ? cableAt(ed.id) : '';
-      $('napHint').hidden = !(dn && cab && cab !== 'L12'); $('napHint').textContent = dn && cab && cab !== 'L12' ? `A dummy NAP is for the 12C light cable: this pole is on ${(CAB[cab] || {}).short || cab}.` : '';
+      $('napHint').hidden = !(dn && cab && !isLight(cab)); $('napHint').textContent = dn && cab && !isLight(cab) ? `A dummy NAP is for the 12C light cable: this pole is on ${(CAB[cab] || {}).short || cab}.` : '';
     }
-    if (on && ed.closure) { if (!b.cloSt) b.cloSt = 'New'; fill('cloSzSel', boqList('clo') || BOQ_OPT.clo, b.clo || '', '— size —'); $('cloStSel').value = b.cloSt; $('cloStSel').disabled = ro; }
+    if (on && ed.closure) { if (!b.cloSt) b.cloSt = 'New'; if (!ro) cloPre(b); fill('cloSzSel', boqList('clo') || BOQ_OPT.clo, b.clo || '', '— size —'); cloMark('cloSzSel', b); $('cloStSel').value = b.cloSt; $('cloStSel').disabled = ro; } // (v2.42.24: a new closure's size is its largest cable's until chosen)
     // v2.42: a second box on the pole (e.g. an LCP 1:4 with a NAP 1:16): the other kind is offered first
     $('nap2Add').hidden = !(on && ed.nap && !ed.nap2) || ro; $('nap2Row').hidden = !(pole && ed.nap && ed.nap2); $('nap2Row').querySelector('.attsel').hidden = !on;
     if (!on) $('nap2IdSug').hidden = true;
@@ -5649,7 +5951,7 @@
   function dummyNapId(second) {
     if (!ed) return '';
     const pla = String(sfMeta(siteFieldsOf()).plaId || pmeta().plaId || '').replace(/\s+/g, '').toUpperCase() || 'PLA';
-    const R = routeModel(), legs = C.routeChains(R.spans).filter((ch) => ch.cable === 'L12');
+    const R = routeModel(), legs = C.routeChains(R.spans).filter((ch) => isLight(ch.cable));
     let leg = legs.findIndex((ch) => ch.spans.some((sp) => sp.ia === ed.id || sp.ib === ed.id)) + 1; if (leg < 1) leg = 1;
     const tag = `${pla}_C${String(leg).padStart(2, '0')}_D`, ids = projPoints().filter((p) => p.id !== ed.id).flatMap((p) => [p.napId, p.nap2Id]).filter((x) => x && x.startsWith(tag));
     if (second) { const v = $('napId').value.trim().toUpperCase(); if (v.startsWith(tag)) ids.push(v); } // (v2.42: the second box after the first)
@@ -5659,7 +5961,7 @@
   $('napTypeSel').addEventListener('change', () => { if (!ed) return; ed.boq.napType = $('napTypeSel').value; ed.boqTouched = true; const dn = isDummy(); renderAttach(); if (dn && !$('napId').value.trim()) $('napId').value = dummyNapId(); renderAttach(); renderEdSym(); renderBoq(); });
   $('napSzSel').addEventListener('change', () => { if (!ed) return; if ($('napSzSel').value) ed.boq.napSz = $('napSzSel').value; else delete ed.boq.napSz; ed.boqTouched = true; });
   $('napStSel').addEventListener('change', () => { if (!ed) return; ed.boq.napSt = $('napStSel').value; ed.boqTouched = true; });
-  $('cloSzSel').addEventListener('change', () => { if (!ed) return; if ($('cloSzSel').value) ed.boq.clo = $('cloSzSel').value; else delete ed.boq.clo; ed.boqTouched = true; });
+  $('cloSzSel').addEventListener('change', () => { if (!ed) return; if ($('cloSzSel').value) ed.boq.clo = $('cloSzSel').value; else delete ed.boq.clo; delete ed.boq.cloAuto; ed.boqTouched = true; }); // (v2.42.24: chosen by hand: it stays)
   $('cloStSel').addEventListener('change', () => { if (!ed) return; ed.boq.cloSt = $('cloStSel').value; ed.boqTouched = true; });
   $('napIdSug').addEventListener('click', () => { if (!ed) return; $('napId').value = dummyNapId(); renderAttach(); });
   // v2.42: the second box
@@ -5804,14 +6106,14 @@
         if (often.length) { const g1 = document.createElement('optgroup'), g2 = document.createElement('optgroup'); g1.label = 'Your most used'; g2.label = 'All sizes'; often.forEach((v) => g1.appendChild(new Option(v, v))); opts.forEach((v) => g2.appendChild(new Option(v, v))); sel.append(g1, g2); sel.value = ed.boq[k] || ''; }
         else opts.forEach((v) => sel.add(new Option(v, v, false, ed.boq[k] === v)));
         if (k === 'owner' && !ro) sel.add(new Option('+ Other…', '__other'));
-        const pick = (v) => { ed.boq[k] = v; ed.boqTouched = true; if (k === 'clamp' && v) { S.clampUse = { ...(S.clampUse || {}) }; S.clampUse[v] = (S.clampUse[v] || 0) + 1; persist(); } renderBoq(); foldSum(); };
+        const pick = (v) => { ed.boq[k] = v; ed.boqTouched = true; if (k === 'clo') delete ed.boq.cloAuto; /* (v2.42.24: chosen by hand) */ if (k === 'clamp' && v) { S.clampUse = { ...(S.clampUse || {}) }; S.clampUse[v] = (S.clampUse[v] || 0) + 1; persist(); } renderBoq(); foldSum(); };
         sel.addEventListener('change', () => { if (sel.value === '__other') { other(); return; } pick(sel.value); });
         if (often.length && !ro) { const qc = document.createElement('div'); qc.className = 'chips often'; often.forEach((v) => { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = v; c.setAttribute('aria-pressed', String(ed.boq[k] === v)); c.title = 'One of your most used sizes'; c.addEventListener('click', () => pick(ed.boq[k] === v ? '' : v)); qc.appendChild(c); }); row.appendChild(qc); }
         row.appendChild(sel); rows.appendChild(row); return;
       }
       opts.forEach((v) => {
         const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = v; c.setAttribute('aria-pressed', String(ed.boq[k] === v)); c.disabled = ro;
-        c.addEventListener('click', () => { ed.boq[k] = ed.boq[k] === v ? '' : v; if (k === 'owner' && !isElecOwner(ed.boq.owner)) delete ed.boq.ownerName; ed.boqTouched = true; renderBoq(); foldSum(); }); // (v2.42.18: an owner other than electric names itself)
+        c.addEventListener('click', () => { ed.boq[k] = ed.boq[k] === v ? '' : v; if (k === 'owner' && !isElecOwner(ed.boq.owner)) delete ed.boq.ownerName; if (k === 'clo') delete ed.boq.cloAuto; ed.boqTouched = true; renderBoq(); foldSum(); }); // (v2.42.18: an owner other than electric names itself)
         chips.appendChild(c);
       });
       if (k === 'owner' && !ro) {
@@ -6713,14 +7015,14 @@
     $('svCloLbl').textContent = `CLOSURE IN THIS ${el.toUpperCase()}`;
     $('svCloOn').checked = !!ed.closure; $('svCloOn').closest('.tchip').classList.toggle('on', !!ed.closure); $('svCloRow').hidden = !ed.closure;
     if (ed.closure) {
-      if (!b.cloSt) b.cloSt = 'New';
+      if (!b.cloSt) b.cloSt = 'New'; if (!ed.acc) cloPre(b); // (v2.42.24)
       const sel = $('svCloSz'), list = boqList('clo') || BOQ_OPT.clo; sel.innerHTML = ''; sel.add(new Option('— size —', ''));
-      list.concat(b.clo && !list.includes(b.clo) ? [b.clo] : []).forEach((x) => sel.add(new Option(x, x))); sel.value = b.clo || ''; $('svCloSt').value = b.cloSt === 'Existing' ? 'Existing' : 'New';
+      list.concat(b.clo && !list.includes(b.clo) ? [b.clo] : []).forEach((x) => sel.add(new Option(x, x))); sel.value = b.clo || ''; cloMark('svCloSz', b); $('svCloSt').value = b.cloSt === 'Existing' ? 'Existing' : 'New';
     }
     $('boxLoopNote').textContent = `A ${el.toLowerCase()} has its own maintenance loop, ${BOX_LOOP_M} m: counted in the cable length (BOQ, survey quantities, PMI), not drawn on the plan. Nothing to tap.`;
   }
   $('svCloOn').addEventListener('change', (e) => { if (!ed) return; ed.closure = e.target.checked; ed.boqTouched = true; if (!ed.closure) { delete ed.boq.clo; delete ed.boq.cloSt; $('svClosureId').value = ''; } renderSvClosure(); renderBoq(); });
-  $('svCloSz').addEventListener('change', () => { if (!ed) return; if ($('svCloSz').value) ed.boq.clo = $('svCloSz').value; else delete ed.boq.clo; ed.boqTouched = true; });
+  $('svCloSz').addEventListener('change', () => { if (!ed) return; if ($('svCloSz').value) ed.boq.clo = $('svCloSz').value; else delete ed.boq.clo; delete ed.boq.cloAuto; ed.boqTouched = true; }); // (v2.42.24: chosen by hand)
   $('svCloSt').addEventListener('change', () => { if (!ed) return; ed.boq.cloSt = $('svCloSt').value === 'Existing' ? 'Existing' : 'New'; ed.boqTouched = true; });
   /* The pole ID: its prefix in a button (tap: CC-, WP-, GT-, PP-…) and the number in the box, with the number pad ("abc" for letters).
      The field's value stays the whole ID (CC-0430621) for everything that reads or sets it. */
@@ -8614,7 +8916,7 @@
     const conv = (list) => list.map((r) => ({ cls: r.cls === 'OSM_ROAD_MAJOR' ? 'major' : r.cls === 'OSM_ROAD_PATH' ? 'path' : 'minor', hw: r.hw, bridge: r.bridge, name: r.name || '', pts: r.coords.map(([la, lo]) => { const u = C.utmForward(la, lo, S.zone, la < 0); return [u.E, u.N]; }) }));
     return { roads: conv(out), pois, note: `${out.length} road pieces and ${pois.length} named places from the offline map ${pk.name} (OpenStreetMap)` };
   }
-  const CAB_TITLE = { F72: 'PROPOSED 72C FIGURE 8 FOC', L12: 'PROPOSED 12C LIGHT CABLE', U144: 'PROPOSED 144C AIR-BLOWN UG FOC' };
+  const CAB_TITLE = Object.fromEntries(Object.entries(CAB).map(([k, c]) => [k, c.fam === 'light' ? `PROPOSED ${c.cores}C LIGHT CABLE` : c.fam === 'fig8' ? `PROPOSED ${c.cores}C FIGURE 8 FOC` : `PROPOSED ${c.cores}C AIR-BLOWN UG FOC`])); // (v2.42.24: every type)
   /** The material code of a pole for the drawing (CC / WP / SP …, or NPT when it has no pole tag). */
   function matCode(p) { if (/^NPT/i.test(p.poleId || '')) return 'NPT'; const t = poleTypes().find((x) => x.n === p.poleType); return t ? t.p : ''; }
   /** v2.32: the picture of the VICINITY MAP sheet: the street map in use (tiles already seen on this phone first) over the vicinity
@@ -8980,10 +9282,11 @@
       `Left blank (not known to the app; fill them in CAD): ${rp.blanks.join(', ') || 'none'}.`,
       ...(() => { const N = [...new Set(outs.flatMap((o) => o.out.report.notes || []))]; return N.length ? [`Drawing checks (${N.length}): ${N.join(' · ')}.`] : []; })(), // v2.42.8: e.g. an object far from the plan
       ...(() => { const by = new Map(pts.map((p) => [p.id, p])), ids = [...LA.keys()].map((id) => (by.get(id) || {}).poleId || '?'); // v2.42.16
-        const nEnt = [...OWN.values()].filter((v) => v === 'entrance').length, nOwn = (q.MLOOP_OWN || 0) - nEnt; // v2.42.18: an entrance loop is counted, not drawn
+        const entIds = [...OWN.entries()].filter(([, v]) => v === 'entrance').map(([id]) => id), nEntP = entIds.length, nOwn = (q.MLOOP_OWN || 0) - nEntP; // v2.42.18: an entrance loop is counted, not drawn
+        const nEnt = entIds.reduce((t, id) => t + (LA.fib && LA.fib.list.has(id) ? LA.fib.list.get(id).length : 1), 0); // (v2.42.24: one for each cable at an entrance, as the quantities count them)
         const nb = q.MLOOP_BOX || 0, onPoles = (q.MLOOP_COUNT || 0) - nb - nEnt, own = nOwn > 0 ? ` (${nOwn} of them with a NAP, an LCP, a hybrid closure, a dummy NAP or a riser: each has its loop)` : '';
         const box = [...(nb ? [`Handholes, manholes and service boxes: a ${BOX_LOOP_M} m loop each (${nb}), counted in the cable length (PMI, survey quantities, BOQ) and not drawn: a box has its loop.`] : []),
-          ...(nEnt ? [`Sites, ODFs and ODCs on the route: a loop at each entrance (${nEnt}, the cable's length), counted in the cable length (PMI, survey quantities, BOQ) and not drawn.`] : [])];
+          ...(nEnt ? [`Sites, ODFs and ODCs on the route: a loop at each entrance (${nEnt}${nEnt !== nEntP ? ` at ${nEntP} entrances: one for each cable there` : ''}, the cable's length), counted in the cable length (PMI, survey quantities, BOQ) and not drawn.`] : [])];
         if (svPurpose() === 'As-built') return [`Maintenance loops on poles: as recorded in the As-Built (${onPoles}${own}${q.MLOOP_UNANSWERED ? `; ${q.MLOOP_UNANSWERED} pole${q.MLOOP_UNANSWERED === 1 ? '' : 's'} on the route not answered` : ''}).`, ...box];
         return [`Maintenance loops on poles (each its own length: by default 10 m on 12C, ${mloopLen()} m on 72C): ${onPoles} on the plan${own}; ${ids.length ? `${ids.length} added by the app where the survey had none (${loopRule}): ${ids.join(', ')}` : 'none added by the app'}.`, ...box]; })(),
       `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Settings → AutoCAD DXF)'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures. Trenches and maxcell are not in the survey.',
@@ -9182,7 +9485,7 @@
     if (svPurpose() === 'As-plan') add('MLOOP_AUTO', nAutoOf(LA), 'each', `Maintenance loops added by the app where the survey had none: ${loopRule}`); // v2.42.16
     if (svPurpose() === 'As-built') { const need = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])), open = pts.filter((p) => need.has(p.id) && elemOf(p) === 'Pole' && !(p.boq && p.boq.mloop) && !OWN.has(p.id)).length; add('MLOOP_UNANSWERED', open, 'each', 'Poles on the route whose maintenance loop was not answered (MLoop or No loop): check them'); }
     keys.forEach((k) => { if (k || loopsBy[k]) add(`MLOOP_${tag(k)}`, loopsBy[k], 'each', `Maintenance loops on ${nm(k)}`); });
-    keys.forEach((k) => { if (k || lenBy[k]) add(`FOC_${tag(k)}`, r1(lenBy[k] + loopMBy[k]), 'm', `${k ? CAB[k].label : 'Cable not set'}: spans + loops (each its own length; by default ${k === 'L12' ? 10 : ml} m on a pole, ${BOX_LOOP_M} m at a handhole, manhole or service box)`); });
+    keys.forEach((k) => { if (k || lenBy[k]) add(`FOC_${tag(k)}`, r1(lenBy[k] + loopMBy[k]), 'm', `${k ? CAB[k].label : 'Cable not set'}: spans + loops (each its own length; by default ${isLight(k) ? 10 : ml} m on a pole, ${BOX_LOOP_M} m at a handhole, manhole or service box)`); });
     add('FOC_TOTAL', r1(R.cableTotal + loopM), 'm', 'All FOC: spans (each run) + loops');
     add('DE', r1(R.cableTotal), 'cable-m', 'Detailed engineering: FOC length without the maintenance loops (each run)');
     if (R.fib && R.fib.planned.length) { // v2.42.20: each fiber, its spans and its loops
@@ -13376,7 +13679,7 @@
     mapPt: (lat, lon) => { const p = map.latLngToContainerPoint([lat, lon]), r = $('map').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; }, mapView: (lat, lon, z) => map.setView([lat, lon], z, { animate: false }), siteReq: () => siteReq(), adminOk: (e) => adminUserOk(e), jobsOf: (e) => jobsOf(e), shareProject: (n) => shareProject(n || S.project), apprText: () => apprText(), readApproval: (t, n) => readApproval(t, n || S.project),
     /* v2.42.19 */ boxMarks: () => (boxer ? boxer.marks.map((m) => ({ k: m.k, pts: m.pts ? m.pts.map(([x, y]) => [Math.round(x), Math.round(y)]) : null, raw: !!m.raw })) : null), boxSel: () => (boxer ? boxer.sel : null), pinOwn: () => pinOwnLines.map(({ pl, o }) => ({ to: o.id, ll: pl.getLatLngs().map((q) => [q.lat, q.lng]) })), pinCenter: () => { const c = pinMap.getCenter(); return [c.lat, c.lng]; },
     /* v2.42.21 */ routeTools: (on, pairs) => { rtTools = !!on; rtPairs = !!pairs; $('rbPairs').checked = rtPairs; if (rtPairs) rtFinish(true); routeRefresh(); const pts = projPoints(); if (on && pts.length > 1) map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 110], paddingBottomRight: [40, Math.round(($('routeBar').getBoundingClientRect().height || 240) + 30)], maxZoom: 19, animate: false }); }, /* (Route tools open, linking by pairs: the route bar as before v2.42.21, for the earlier versions' tests) */ rtState: () => ({ fibAdd, fibAt, fibTouched, fibStartAt, fibNew, rtTools, rtPairs, pend: rtPend.map((q) => (points.find((p) => p.id === q.id) || {}).poleId), pop: rtPop, snap: snapPref(), snapM: snapM(), routeSel, pen: rtPenOn(), conf: rtConf && { id: rtConf.id, kind: rtConf.kind }, dragging: map.dragging.enabled(), draft: !!rtDraft, zoom: map.getZoom() }), /* v2.42.22 */ routePen: (on) => rtSetPen(!!on), routeTipDone: () => { S.routeTip = true; persist(); rtHint(''); }, snapSeq: (id, ll, su) => snapSeq(id, ll, su),
-    /* v2.42.20 */ routeTap: (id) => routeTap(id), fibers: () => fibers(), setFibers: (F) => { setRoute(null, F); renderPoles(); }, fibState: () => ({ fibSel, fibAdd }),
+    /* v2.42.20 */ routeTap: (id) => routeTap(id), capLinks: () => capLinks(), /* v2.42.24 */ fibers: () => fibers(), setFibers: (F) => { setRoute(null, F); renderPoles(); }, fibState: () => ({ fibSel, fibAdd }),
     fibModel: () => { const R = routeModel(); return { list: R.fib ? R.fib.list.map((f) => ({ n: f.n, len: f.len, spans: f.spans, gaps: f.gaps, ex: !!f.ex, path: f.path, side: fibSide(f, fibers(), R.fib.by), from: fibEnd(f, 'from', R.fib.by), to: fibEnd(f, 'to', R.fib.by) })) : [], cableTotal: R.cableTotal, total: R.total, spans: R.spans.map((s) => ({ ia: s.ia, ib: s.ib, from: s.from, to: s.to, lanes: s.lanes.map((f) => f.n), fibers: s.fibers.map((f) => f.n), runs: s.runs, cable: s.cable })) }; },
     fibLoops: () => { const LA = autoLoops(projPoints(), routeModel()); return LA.fib ? { n: LA.fib.n, nAuto: LA.fib.nAuto, list: [...LA.fib.list.entries()].map(([id, E]) => [(points.find((p) => p.id === id) || {}).poleId, E.map((e) => [e.n, e.cab, e.len, e.why])]) } : null; },
     fibHw: (pid) => { const p = points.find((x) => x.poleId === pid); return p ? hwOf(p, routeModel()) : null; },

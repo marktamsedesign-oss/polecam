@@ -489,6 +489,7 @@
       if (o.mask) r.push([90, I(1)], [63, I(o.mask)], [45, '1.35']); // v2.36: a background box (readable over a satellite picture)
       return this.add(r);
     }
+    solid(layer, p, o) { const r = this.base('SOLID', layer, o), q = p.length > 3 ? p[3] : p[2]; r.push([100, 'AcDbTrace'], [10, F(p[0][0])], [20, F(p[0][1])], [30, '0.0'], [11, F(p[1][0])], [21, F(p[1][1])], [31, '0.0'], [12, F(p[2][0])], [22, F(p[2][1])], [32, '0.0'], [13, F(q[0])], [23, F(q[1])], [33, '0.0']); return this.add(r); } // v2.42.24: a filled triangle (a leader's arrow)
     circle(layer, x, y, rad, o) { const r = this.base('CIRCLE', layer, o); r.push([100, 'AcDbCircle'], [10, F(x)], [20, F(y)], [30, '0.0'], [40, F(rad)]); return this.add(r); }
     style(s) { return s && this.S.styles.has(s) ? s : 'Standard'; }
     /** An INSERT of a seed block, placed so the drawn symbol's centre is at (x, y), with attributes by tag. */
@@ -1357,7 +1358,8 @@
   const clampText = (p) => [p.clampType, p.clamp].filter(Boolean).join(' ');
   /* ---------------- the build ---------------- */
   // v2.32: new fiber red, existing fiber blue (the drafting rule); aerial dashed, underground solid
-  const CABLE_STYLE = { F72: { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true }, L12: { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true }, U144: { layer: 'Proposed foc duct', color: 3, w: 0.7776, aerial: false }, '': { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true } };
+  const AE_ = (lw) => ({ layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true, lw }), UG_ = (lw) => ({ layer: 'Proposed foc duct', color: 3, w: 0.7776, aerial: false, lw }); // v2.42.24: lw, the line weight by size (Balanced, 1/100 mm)
+  const CABLE_STYLE = { L12: AE_(30), F12: AE_(30), F24: AE_(35), F48: AE_(40), F72: AE_(50), F144: AE_(60), U144: UG_(60), U288: UG_(70), '': { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true } };
   const PIN_ACI = { red: 1, navy: 5, green: 3, orange: 30 }; // v2.36: the colours of the app's marks and pins (AutoCAD colour numbers)
   /* v2.41: the user's drawing style (the app's Drawing style screen; these are the defaults). Colours are AutoCAD colour numbers
      (1 red, 2 yellow, 3 green, 4 cyan, 5 blue, 6 magenta, 7 white); 0 = by layer. Sizes in metres of the drawing (1:1100 on the
@@ -1368,7 +1370,9 @@
   const TA_BLOCK = 'G-ESAA TELCO ARM'; // v2.42.1: the telco arm on the plan (from above); v2.42.2: and its twin 'G-ESAA TELCO ARM R' (TELCO turned round)
   const ODC_H = 9, ODC_BLOCK = 'G-ESAA ODC'; // v2.41: the ODC cabinet on the plan: its block (an isometric view), 9 m high
   const pinColor = (p) => (p && p.color && PIN_ACI[p.color] != null ? PIN_ACI[p.color] : null);
-  const CABLE_LWT = 70; // v2.36: 0.70 mm, about the template's 0.78 m wide cable at 1 : 1200
+  const CABLE_LWT = 70; // v2.36: 0.70 mm, about the template's 0.78 m wide cable at 1 : 1200 (v2.42.24: the most; each cable its size's, cabLw)
+  const exLw = (c) => (c <= 12 ? 30 : c <= 24 ? 35 : c <= 48 ? 40 : c <= 72 ? 50 : c <= 144 ? 60 : 70); // an existing cable: by its size
+  const cabLw = (cable, existing, cores) => (existing ? exLw(+cores || 12) : (CABLE_STYLE[cable] || CABLE_STYLE['']).lw || CABLE_LWT);
   const months = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
   const dateText = (d) => `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
   const mtextEsc = (s) => String(s).replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}');
@@ -1637,6 +1641,8 @@
       Manhole: ['PROPOSED MAN HOLE', 'PROPOSED MH', 0.7803353843555049, 'MH', 'EXISTING MH', 1.749630906627053],
       'Service box': ['proposed service box', 'PROPOSED SERVICE BOX', 0.7803353843555049, 'SB', 'EXISTING SERVICE BOX', 1.749630906627053] };
     const inl = new Map();
+    const blkEnd = (it, A, toward) => { if (!it) return A; if (it.radial) return add2(it.at, unit(it.at, toward), it.hl); const e1 = add2(it.at, it.ax, -(it.hlo || it.hl)), e2 = add2(it.at, it.ax, it.hhi || it.hl); return dist2(e1, toward) <= dist2(e2, toward) ? e1 : e2; }; // v2.42.24: where a cable meets a block on it (a closure: from its own direction)
+    const W_LBL0 = (t) => (t === 'road' ? 0.2 : 1);
     const odcBlk = odcIso(); // v2.41: the ODC block (made when the plan has an ODC)
     if (pts.some((p) => p.el === 'ODC')) { addLayer(d, S, 'G-ESAA PROPOSED ODC', 1); addLayer(d, S, 'G-ESAA EXISTING ODC', 5); defineBlock(d, S, ODC_BLOCK, odcBlk.polys, odcBlk.texts); }
     const inlineOf = (p, b, layer, sc, faced, flip) => {
@@ -1662,7 +1668,7 @@
           it.hl = Math.max(it.hlo, it.hhi);
         }
         it.kind = 'nap'; inl.set(p, it);
-        // the pole symbol beside the NAP, not under it
+        // the pole symbol beside the NAP, not under it (v2.42.24: the closure's too, below)
         // v2.39.1: an arm keeps its usual length and ends at the NAP's side (it crossed the NAP); the pole stands that much further out
         const need = it.hh + p.rp + (p.arm ? Math.max(0.8, p.armLen) : 0.8), cur = dist2(p.dp, p.A);
         if (cur < need) p.dp = add2(p.A, p.td, -need);
@@ -1672,6 +1678,13 @@
         const t = downAt(p), rot = readable(deg(t)), ax = rotv([1, 0], rot), sc = ODC_H, w = odcBlk.w * sc, h = odcBlk.h * sc;
         const it = { p, at: p.A, b: ODC_BLOCK, odc: { w, h, isNew, sc }, layer: lay(isNew ? 'G-ESAA PROPOSED ODC' : 'G-ESAA EXISTING ODC'), sc, rot: 0, ax, hl: w / 2, hlo: w / 2, hhi: w / 2, hh: h / 2, lrot: rot };
         it.label = p.poleId || ''; it.kind = 'ODC'; it.col = pinColor(p); inl.set(p, it);
+      } else if (p.el === 'Pole' && (p.closure || p.closureId) && S.blocks.has('P-Joint')) {
+        // v2.42.24: the closure ON the cable at its pole: the template's P-Joint pentagon (proposed: red filled; existing: a blue outline);
+        // each cable meets its side from its own direction (radial), side by side within it; its texts where they cover nothing
+        const R = 4.35, rin = R * Math.cos(Math.PI / 5), old = !!p.closureOld, t = downAt(p);
+        const it = { p, at: p.A, b: 'P-Joint', layer: lay('P-JOINT'), sc: R, rot: 0, ax: rotv([1, 0], readable(deg(t))), hl: old ? rin : rin * 0.4, hh: R, rin, radial: true, kind: 'clo', cid: p.closureId || 'CLOSURE', old };
+        it.hlo = it.hl; it.hhi = it.hl; inl.set(p, it);
+        const need = R + p.rp + (p.arm ? Math.max(0.8, p.armLen) : 0.8), cur = dist2(p.dp, p.A); if (cur < need) p.dp = add2(p.A, p.td, -need); if (p.arm) p.armLen = Math.max(0.8, dist2(p.dp, p.A) - p.rp - R); // the pole beside it, as beside a NAP
       } else if (INLINE_EL.has(p.el)) {
         const key = p.el, k = BLK[key];
         const old = !isNew && S.blocks.has(k[3]), b = old ? k[3] : k[0]; if (!S.blocks.has(b)) continue;
@@ -1691,7 +1704,7 @@
       const pieces = []; let cur = [];
       P.forEach((p, k) => {
         const it = inl.get(p); if (!it) { cur.push(p.A); return; }
-        const e1 = add2(it.at, it.ax, -(it.hlo || it.hl)), e2 = add2(it.at, it.ax, it.hhi || it.hl), near = (q) => (dist2(e1, q) <= dist2(e2, q) ? e1 : e2);
+        const e1 = add2(it.at, it.ax, -(it.hlo || it.hl)), e2 = add2(it.at, it.ax, it.hhi || it.hl), near = (q) => (it.radial ? blkEnd(it, it.at, q) : dist2(e1, q) <= dist2(e2, q) ? e1 : e2);
         const prev = k > 0 ? P[k - 1].A : null, next = k < P.length - 1 ? P[k + 1].A : null;
         const ein = prev ? near(prev) : null; let eout = next ? near(next) : null;
         if (ein && eout && ein === eout) eout = ein === e1 ? e2 : e1;
@@ -1702,8 +1715,8 @@
       if (cur.length) pieces.push(cur);
       return { P, pieces: pieces.filter((l) => l.length > 1) };
     };
-    const cabStyle = (cable, existing) => { const st = CABLE_STYLE[cable] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous'; return { st, lt, color: existing ? 5 : st.color, lts: lt === 'DASHED' ? (existing ? 9 : 7) : 0 }; };
-    const drawCable = (line, cs) => { o.lwpoly(lay(cs.st.layer, 'Proposed foc aerial'), line, { lwt: CABLE_LWT, color: cs.color, lt: cs.lt, lts: cs.lts, gen: true }); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); };
+    const cabStyle = (cable, existing, cores) => { const st = CABLE_STYLE[cable] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous'; return { st, lt, color: existing ? 5 : st.color, lts: lt === 'DASHED' ? (existing ? 9 : 7) : 0, lwt: cabLw(cable, existing, cores) }; };
+    const drawCable = (line, cs) => { o.lwpoly(lay(cs.st.layer, 'Proposed foc aerial'), line, { lwt: cs.lwt || CABLE_LWT, color: cs.color, lt: cs.lt, lts: cs.lts, gen: true }); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); };
     for (const ch of chains) {
       const r = piecesOf(ch); if (!r) continue;
       // v2.32: aerial cable as a broken line (DASHED at linetype scale 7, 9 when existing, as the template's own sample drawing),
@@ -1730,13 +1743,15 @@
       };
       const laneOff = (st) => { const P0 = byId.get(String(st.a)), Q0 = byId.get(String(st.b)); if (!P0 || !Q0 || !P0.A || !Q0.A) return 0; const t = unit(P0.A, Q0.A), nl = [-t[1], t[0]], n = Math.max(1, st.n || 1); return ((st.k || 0) - (n - 1) / 2) * G + roadSg(P0, Q0, nl) * (n - 1) / 2 * G; };
       const sideOf = (it, e, st) => { // the lane's point on a block's side: as on its span (the first lane on the cable's line), drawn in to fit within the block
-        const P0 = byId.get(String(st.a)), Q0 = byId.get(String(st.b)), n = Math.max(1, st.n || 1), pr = [-it.ax[1], it.ax[0]];
+        const P0 = byId.get(String(st.a)), Q0 = byId.get(String(st.b)), n = Math.max(1, st.n || 1);
         if (n < 2 || !P0 || !Q0) return e;
-        const t = unit(P0.A, Q0.A), nl = [-t[1], t[0]], sg = dot(pr, nl) < 0 ? -1 : 1, all = Array.from({ length: n }, (x, k) => laneOff({ ...st, k })), mx = Math.max(...all.map(Math.abs)), lim = 0.8 * (it.hh || G);
-        return add2(e, pr, laneOff(st) * (mx > lim ? lim / mx : 1) * sg);
+        const t = unit(P0.A, Q0.A), nl = [-t[1], t[0]], pr = it.radial ? nl : [-it.ax[1], it.ax[0]], sg = dot(pr, nl) < 0 ? -1 : 1, all = Array.from({ length: n }, (x, k) => laneOff({ ...st, k })), mx = Math.max(...all.map(Math.abs)), lim = 0.8 * (it.hh || G);
+        const off = laneOff(st) * (mx > lim ? lim / mx : 1) * sg;
+        if (it.radial) { const dr = unit(it.at, e), rr = it.old ? it.rin : it.hl; return add2(add2(it.at, dr, Math.sqrt(Math.max(0, rr * rr - off * off))), pr, off); } // (an outline: on its edge)
+        return add2(e, pr, off);
       };
       for (const f of FIB) {
-        const cs = cabStyle(f.cab, f.ex);
+        const cs = cabStyle(f.cab, f.ex, f.cores);
         // the fiber's points with a cable point; a point missing breaks it
         let runs2 = [], rp = [], rs = [];
         f.path.forEach((id, i) => { const p = byId.get(String(id)); if (i > 0 && f.steps[i - 1].gap) { if (rp.length > 1) runs2.push([rp, rs]); rp = []; rs = []; } // (a gap breaks it)
@@ -1745,7 +1760,7 @@
         for (const [P, ST] of runs2) {
           // each span's line runs from its pole's cable point, or from the side of the block on the cable there, to the next one (as the cable)
           const m = P.length - 1, E = P.map((p, i) => { const it = inl.get(p); if (!it) return null;
-            const e1 = add2(it.at, it.ax, -(it.hlo || it.hl)), e2 = add2(it.at, it.ax, it.hhi || it.hl), near = (q) => (dist2(e1, q) <= dist2(e2, q) ? e1 : e2);
+            const e1 = add2(it.at, it.ax, -(it.hlo || it.hl)), e2 = add2(it.at, it.ax, it.hhi || it.hl), near = (q) => (it.radial ? blkEnd(it, it.at, q) : dist2(e1, q) <= dist2(e2, q) ? e1 : e2);
             const ein = i > 0 ? near(P[i - 1].A) : null; let eout = i < m ? near(P[i + 1].A) : null; if (ein && eout && ein === eout) eout = ein === e1 ? e2 : e1; return { it, ein, eout }; });
           const S0 = P.slice(0, m).map((p, j) => (E[j] ? E[j].eout : p.A)), S1 = P.slice(1).map((p, j) => (E[j + 1] ? E[j + 1].ein : p.A));
           const N = ST.map(laneVec), D = S0.map((a, j) => unit(a, S1[j])), Ls = S0.map((a, j) => dist2(a, S1[j])), Lt = Ls.map((L) => Math.min(3.2 * G, L / 3)); // (the length over which a lane moves over)
@@ -1784,7 +1799,7 @@
       more.forEach((cab, i) => { // v2.42.20: a fiber in its lane (moreOff, beside the first fiber's line), an existing cable blue
         const st = CABLE_STYLE[cab] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', off = gap * (s.moreOff ? s.moreOff[i] : i + 1), ex = !!(s.moreEx && s.moreEx[i]);
         const line = [add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)];
-        o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: CABLE_LWT, color: ex ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ex ? 9 : 7) : 0, gen: true }); spots.line(line, 1.0);
+        o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: cabLw(cab, ex), color: ex ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ex ? 9 : 7) : 0, gen: true }); spots.line(line, 1.0);
       });
     }
     // v2.42.20: an existing cable put on the plan (a fiber marked existing) where no new cable runs: blue, dashed, in its lane
@@ -1795,7 +1810,7 @@
       if (dist2(a, b) <= r0 + r1 + 1) continue;
       const st = CABLE_STYLE[s.cab] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', off = gap * (s.off || 0);
       const line = [add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)];
-      if (!FIB.length) { o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: CABLE_LWT, color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true }); spots.line(line, 1.0); } // (v2.42.23: with fibers, drawn as a fiber above)
+      if (!FIB.length) { o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: cabLw(s.cab, true, s.cores), color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true }); spots.line(line, 1.0); } // (v2.42.23: with fibers, drawn as a fiber above)
       if (job.cabLabels && s.cabLbl && s.cabLbl.length) exLbl.push({ P0, Q0, lines: s.cabLbl, bw: ((nLane.get(K2(s.ia, s.ib)) || 1) - 1) * LANE_G });
     }
     // 4. poles and the other points: symbols first (they are fixed), then the labels round them
@@ -1856,10 +1871,26 @@
         const { w, h, isNew, sc } = it.odc, col = it.col != null ? it.col : isNew ? 1 : 5;
         o.insert(it.layer, ODC_BLOCK, it.at[0], it.at[1], { scale: sc, color: col }); spots.add(Spots.box(it.at[0], it.at[1], w, h, 0)); nInline++; nOdc++; continue;
       }
+      if (it.kind === 'clo') { spots.add(Spots.box(it.at[0], it.at[1], it.hh * 2, it.hh * 2, 0)); continue; } // v2.42.24: drawn with its texts, below
       for (const x of it.parts || [it]) { o.insert(x.layer, x.b, x.at[0], x.at[1], { scale: x.sc, rot: x.rot, center: true }); spots.add(Spots.box(x.at[0], x.at[1], x.hl * 2, x.hh * 2, x.rot)); nInline++; }
     }
+    let nCloInl = 0;
+    for (const it of inl.values()) { // v2.42.24: each closure on the cable: its pentagon at its pole; PROPOSED and its ID (an existing one: its ID) where they cover nothing, smaller as needed
+      if (it.kind !== 'clo') continue;
+      const at = it.at, R = it.hh, lines = it.old ? [it.cid] : ['PROPOSED', it.cid]; let best = null;
+      for (const th of [3.0, 2.55, 2.1, 1.8]) { const w = Math.max(...lines.map((s) => arialW(s, th, false)));
+        for (const off of [0.5, 1.6, 3.2]) for (const [dx, dy] of [[1, 1], [-1, 1], [1, -1], [-1, -1], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const lx = dx > 0 ? at[0] + R + th * off : dx < 0 ? at[0] - R - th * off - w : at[0] - w / 2, yc = at[1] + dy * (R + th * (lines.length === 2 ? 1.5 : 0.9) + (dx ? 0 : th * off * 0.5));
+          const ys = lines.length === 2 ? [yc + th * 0.65, yc - th * 0.65] : [yc], boxes = lines.map((s, i) => textBox(lx, ys[i], th, s, 0, 0, 2)), n = boxes.reduce((t2, b) => t2 + spots.hitsW(b, W_LBL0), 0) + (cellHolds(boxes[0], at[0], at[1]) ? 0 : 5);
+          if (!best || n < best.n) best = { lx, ys, th, boxes, n }; if (n < 0.45) break; }
+        if (best.n < 0.45) break; }
+      if (it.old) { const pts = [...Array(5)].map((_, i) => { const a = (90 + i * 72) * Math.PI / 180; return [at[0] + R * Math.cos(a), at[1] + R * Math.sin(a)]; });
+        o.lwpoly(it.layer, pts, { closed: true, color: 5, lwt: 35 }); o.text(it.layer, best.lx, best.ys[0], best.th, it.cid, { ha: 0, va: 2, style: 'arial', color: 5 }); }
+      else o.insert(it.layer, 'P-Joint', at[0], at[1], { scale: it.sc, attrs: { JT_ID: { v: 'PROPOSED', x: best.lx, y: best.ys[0], h: best.th, ha: 0, va: 2 }, JOINT: { v: it.cid, x: best.lx, y: best.ys[1], h: best.th, ha: 0, va: 2 } } });
+      spots.add(best.boxes, 'label'); nInline++; nCloInl++;
+    }
     for (const it of [...inl.values()].flatMap((x) => (x.parts ? x.parts.map((y) => ({ ...y, kind: x.kind })) : [x]))) { // (v2.42: each box's own ID)
-      if (!it.label) continue;
+      if (!it.label || it.kind === 'clo') continue;
       const rr = it.odc ? 0 : readable(it.rot), ux = [Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], dn = [ux[1], -ux[0]], th0 = IDS.h; // (the ODC's picture is upright: its ID level under it)
       // v2.39.1: on the side away from its pole first (the pole's own label goes on the pole's side), then a little further out or
       // along the cable; crossing a road edge line rather than covering a label or a symbol. v2.41: where every place is taken at the
@@ -1937,7 +1968,7 @@
         const rb = 'proposed riser';
         // on the cable: past the block on the cable when the pole has one, on the side of the underground span
         const ugq = (nb.get(p) || []).find((q) => { const s0 = spans.find((s) => (byId.get(String(s.ia)) === p && byId.get(String(s.ib)) === q) || (byId.get(String(s.ib)) === p && byId.get(String(s.ia)) === q)); return s0 && (CABLE_STYLE[s0.cable] || CABLE_STYLE['']).aerial === false; });
-        let q = p.A; if (inl.has(p)) { const it = inl.get(p), w = ugq ? unit(p.A, ugq.A) : it.ax, sg = (w[0] * it.ax[0] + w[1] * it.ax[1]) >= 0 ? 1 : -1; q = add2(it.at, it.ax, sg * (it.hl + 3.5)); }
+        let q = p.A; if (inl.has(p)) { const it = inl.get(p), w = ugq ? unit(p.A, ugq.A) : it.ax, sg = (w[0] * it.ax[0] + w[1] * it.ax[1]) >= 0 ? 1 : -1; q = it.radial ? add2(it.at, w, it.hh + 3.0) : add2(it.at, it.ax, sg * (it.hl + 3.5)); } // (v2.42.24: a closure on the cable: on the underground cable, past the pentagon)
         if (S.blocks.has(rb)) { o.insert(lay('PROPOSED RISER', 'MISC'), rb, q[0], q[1], { scale: 0.7803353843555049, center: true }); spots.add(Spots.box(q[0], q[1], 6, 6, 0)); nRiser++; }
       }
     }
@@ -1974,10 +2005,11 @@
       let dir = Qn.length ? unit(p.A, Qn[0].A) : Q.length ? unit(p.A, Q[0].A) : t, side = p.td, Q0 = add2(p.A, dir, napHl ? napHl + 0.6 + lw / 2 : 0);
       const q1 = Qn.length ? Qn[0] : Q.length ? Q[0] : null; // v2.42.23: on the cable as drawn: along its span from the block's side (or the pole); with fibers, on the road-most new lane; the circle on the road side
       if (q1 && q1.A) {
-        const endAt = (x, toward) => { const b = inl.get(x); if (!b) return x.A; const e1 = add2(b.at, b.ax, -(b.hlo || b.hl)), e2 = add2(b.at, b.ax, b.hhi || b.hl); return dist2(e1, toward) <= dist2(e2, toward) ? e1 : e2; };
+        const endAt = (x, toward) => blkEnd(inl.get(x), x.A, toward);
         let s0 = endAt(p, q1.A), d = unit(s0, endAt(q1, p.A)); const n0 = [-d[1], d[0]], td = p.td || n0, sd = n0[0] * td[0] + n0[1] * td[1] < 0 ? [-n0[0], -n0[1]] : n0;
         const ln = laneStart.get(`${p.id}>${q1.id}`); if (ln && ln.length) { const L = ln.reduce((x, y) => ((y.at0[0] - s0[0]) * sd[0] + (y.at0[1] - s0[1]) * sd[1] > (x.at0[0] - s0[0]) * sd[0] + (x.at0[1] - s0[1]) * sd[1] ? y : x)); s0 = L.s; d = inl.has(p) ? unit(L.s, add2(L.at0, L.d, 0.6 + lw)) : L.d; } // (at a block: from the lane's start on its side to the lane past the loop)
-        const n1 = [-d[1], d[0]]; dir = d; side = n1[0] * sd[0] + n1[1] * sd[1] < 0 ? [-n1[0], -n1[1]] : n1; Q0 = add2(s0, d, inl.has(p) ? 0.6 + lw / 2 : 0);
+        const it0 = inl.get(p), rx = it0 && it0.radial ? Math.max(0, it0.hh - dist2(s0, it0.at)) : 0; // (v2.42.24: a closure on the cable: the loop past its pentagon, not over it)
+        const n1 = [-d[1], d[0]]; dir = d; side = n1[0] * sd[0] + n1[1] * sd[1] < 0 ? [-n1[0], -n1[1]] : n1; Q0 = add2(s0, d, inl.has(p) ? rx + 0.6 + lw / 2 : 0);
       }
       const c0 = add2(Q0, side, lh / 2), rot = deg(side) + 90;
       // the loop's straight line (the cable) laid on the cable, its circle hanging on the road side
@@ -1995,7 +2027,7 @@
       if (p.onPole) continue;
       const t = downAt(p), rd = readable(deg(t)), napHl = inl.has(p) ? inl.get(p).hl : 0;
       if (p.mloop) loopAt(p, t, rd, napHl);
-      if (p.closure || p.closureId) {
+      if ((p.closure || p.closureId) && !(inl.get(p) || {}).radial) { // (v2.42.24: one on the cable is drawn with the blocks)
         const Q = nb.get(p) || [], up = Q.length ? Q.slice().sort((x, y) => hd(x) - hd(y))[0] : null, back = up ? unit(p.A, up.A) : [-t[0], -t[1]], base = napHl ? add2(p.A, back, napHl + 5.5) : p.A; // up its span, toward the homing
         const ow = [-p.td[0], -p.td[1]], cid = p.closureId || 'CLOSURE', tw = Math.max(8, cid.length) * 3 * CHW;
         const cands = []; for (const off of [9.5, 14, 19]) for (const k of [0, -6, 6, -12, 12, -18, 18, -24]) for (const side of [1, -1]) { const q = add2(base, back, Math.max(-6, Math.min(6, k))), tq = add2(add2(q, ow, side * off), back, k - Math.max(-6, Math.min(6, k))), lx = tq[0] - tw / 2; // the symbol near its pole, the texts beside it where they cover nothing
@@ -2082,12 +2114,17 @@
     }
     // 5. span lengths: mid-span, on the road side of the cable (a span over the maximum in red). v2.42.23: the length only (no fibers'
     // tags, no runs); before it, each cable's own label beside its own line, and the length beyond them
-    /** v2.42.23: each cable's own label (PROPOSED 12C, EXISTING 48C) beside its own line on the span (each fiber's lane, each run): small,
-        parallel to it, on its own layer (new in its cable's colour, existing blue). One cable: on the pole side (the length on the road
-        side). Several: the half nearer the poles on the pole side, the others on the road side, each stacked out from the outermost
-        line; where that is taken, along the span or a little further out (not on the span length, a symbol or another label). */
+    /** v2.42.24: each cable's own label (PROPOSED 24C FIG-8 (RUN 5), EXISTING 48C) beside its own line on the span, parallel to it, on
+        its own layer (new in its cable's colour, existing blue): as large as fits without covering anything (another label, an ID, a
+        symbol, a cable), smaller as needed down to a readable size; where none fits beside it, level in free space with a leader arrow
+        to its own line (as the template's legend: a shoulder, then the arrow); only on a very short, crowded span smaller still beside
+        it. One cable: on the pole side (the length on the road side); several: the half nearer the poles on the pole side, the others
+        on the road side. The most crowded spans first. The span length the same way, beyond the labels. */
     let cbLay = null;
-    const CL_TH = Math.max(1.0, 1.3 * kG), CL_LH = CL_TH * 1.35, CL_CLR = 0.85; // its height; label to label; from its line's middle (a cable's own room is 0.75)
+    const CL_TH = Math.max(1.0, 1.3 * kG), CL_LH = CL_TH * 1.35, CL_CLR = 0.85, CL_MIN = Math.min(CL_TH, 0.8), CL_LAST = 0.5; // its height; label to label; from its line's middle; the readable size; the last resort
+    const W_LBL = (t) => (t === 'road' ? 0.2 : 1), W_LEAD = (t) => (t === 'road' ? 0.02 : t === 'cable' ? 0.3 : 1); // a label over a road edge line rather than anything else; a leader may cross a cable
+    const sizesDn = (h0, hmin) => { const out = []; for (let h = h0; h > hmin + 1e-9; h *= 0.9) out.push(h); out.push(hmin); return out; };
+    const segB = (p, q, w) => Spots.box((p[0] + q[0]) / 2, (p[1] + q[1]) / 2, dist2(p, q), w, deg([q[0] - p[0], q[1] - p[1]]));
     const laneInfo = new Map(), spanKeys = new Set(spans.map((s) => K2(s.ia, s.ib))), cabDone = new Set(), cabAt = []; // (the cable types given their own labels; where)
     FIB.forEach((f) => f.steps.forEach((st) => { if (st.gap) return; const k = K2(st.a, st.b); let li = laneInfo.get(k); if (!li) { li = { a: String(st.a), b: String(st.b), n: Math.max(1, st.n || 1), lanes: [] }; laneInfo.set(k, li); } li.lanes[st.k || 0] = { t: f.lbl || '', ex: !!f.ex, cab: f.cab || '' }; }));
     const roadSgn = (P, Q, nl) => { const tw = [(P.td ? P.td[0] : 0) + (Q.td ? Q.td[0] : 0), (P.td ? P.td[1] : 0) + (Q.td ? Q.td[1] : 0)]; return (nl[0] * tw[0] + nl[1] * tw[1]) < -1e-6 ? -1 : 1; };
@@ -2098,36 +2135,59 @@
       const P = byId.get(String(s.ia)), Q = byId.get(String(s.ib)), t = unit(P.A, Q.A), sg = roadSgn(P, Q, [-t[1], t[0]]), gap = 1.2 * kG, lb = s.runLbls || [];
       return [{ r: 0, t: lb[0] || '', ex: false, cab: s.cable || '' }, ...(s.more || []).map((cab, i) => ({ r: gap * (s.moreOff ? s.moreOff[i] : i + 1) * sg, t: lb[i + 1] || '', ex: !!(s.moreEx && s.moreEx[i]), cab }))];
     };
-    const endPt = (p, toward) => { const it = inl.get(p); if (!it) return p.A; const e1 = add2(it.at, it.ax, -(it.hlo || it.hl)), e2 = add2(it.at, it.ax, it.hhi || it.hl); return dist2(e1, toward) <= dist2(e2, toward) ? e1 : e2; }; // where the cable is drawn from: the pole's cable point, or the side of the block on the cable there
-    const cableLabels = (lines, P, Q) => { // how far the labels reach on each side, from the cable's line (toward the road +)
-      const a = endPt(P, Q.A), b = endPt(Q, P.A), t = unit(a, b), nl = [-t[1], t[0]], sg = roadSgn(P, Q, nl), rd = readable(deg(t)), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], L = dist2(a, b);
+    const endPt = (p, toward) => blkEnd(inl.get(p), p.A, toward); // where the cable is drawn from: the pole's cable point, or the side of the block on the cable there
+    const geoOf = (P, Q) => { const a = endPt(P, Q.A), b = endPt(Q, P.A), t = unit(a, b), nl = [-t[1], t[0]]; return { a, b, t, nl, sg: roadSgn(P, Q, nl), rd: readable(deg(t)), m: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], L: dist2(a, b) }; };
+    const leaders = []; let nLeaders = 0, nSmall = 0;
+    const cableLabels = (lines, P, Q) => { // how far the labels beside the cable reach on each side, from the cable's line (toward the road +)
+      const { t, nl, sg, rd, m, L } = geoOf(P, Q);
       const rr = lines.map((x) => x.r), rMin = rr.length ? Math.min(...rr) : 0, rMax = rr.length ? Math.max(...rr) : 0, ext = { pole: rMin - 0.75, road: rMax + 0.75 };
       const ls = lines.filter((x) => x.t).sort((x, y) => x.r - y.r); if (!job.cabLabels || !ls.length || L < 4) return ext;
       if (!cbLay) { addLayer(d, S, 'G-ESAA CABLE LABEL', 7); cbLay = 'G-ESAA CABLE LABEL'; }
       const nP = ls.length === 1 ? 1 : Math.floor(ls.length / 2);
-      for (const [side, arr, edge] of [[-1, ls.slice(0, nP), rMin], [1, ls.slice(nP).reverse(), rMax]]) arr.forEach((x, j) => {
-        const w = arialW(x.t, CL_TH, false), th0 = w > 0.95 * L ? Math.max(0.7, CL_TH * 0.95 * L / w) : CL_TH; // (a short span: smaller, to fit along it, still readable)
-        const cands = (th) => { const cs = [], wl = arialW(x.t, th, false), fm = Math.max(0, (L - wl) / 2 / L); // along its line, never past the span's ends where it fits
-          for (const e of [0, 0.7, 1.5]) for (const f0 of [0, 0.1, -0.1, 0.2, -0.2, 0.3, -0.3, 0.4, -0.4, 0.5, -0.5]) { const f = Math.max(-fm, Math.min(fm, f0)), rc = edge + side * (CL_CLR + th / 2 + j * CL_LH + e), q = add2(add2(m, t, f * L), nl, rc * sg); cs.push({ q, rc, th, boxes: [textBox(q[0], q[1], th, x.t, rd, 1, 2)] }); }
-          return cs; };
-        let c = pick(spots, cands(th0)); for (const h of [...new Set([th0 * 0.85, 0.7, 0.6, 0.5].map((v) => Math.round(Math.min(th0, Math.max(0.5, v)) * 1000) / 1000))].filter((v) => v < th0 - 1e-9)) { if (!c.n) break; const c2 = pick(spots, cands(h)); if (!c2.n || c2.n < c.n) c = c2; } // (a loop's circle, a pole or its label in the way: smaller before covering it: 0.7 m, then 0.6 and 0.5 on a very short, crowded span)
-        const th = c.th;
-        o.text(cbLay, c.q[0], c.q[1], th, x.t, { rot: rd, ha: 1, va: 2, style: 'arial', color: x.ex ? 5 : (CABLE_STYLE[x.cab] || CABLE_STYLE['']).color }); spots.add(c.boxes); if (!x.ex) { cabDone.add(x.cab || ''); cabAt.push([x.cab || '', c.q]); }
-        if (side < 0) ext.pole = Math.min(ext.pole, c.rc - th / 2); else ext.road = Math.max(ext.road, c.rc + th / 2);
+      for (const [side, arr] of [[-1, ls.slice(0, nP)], [1, ls.slice(nP).reverse()]]) arr.forEach((x, j) => {
+        const col = x.ex ? 5 : (CABLE_STYLE[x.cab] || CABLE_STYLE['']).color;
+        const beside = (hs) => { for (const h of hs) { const w = arialW(x.t, h, false); if (w > 0.96 * L) continue; const fm = (L - w) / 2 / L; // along its line, never past the span's ends
+          for (const e of [0, 0.6]) for (const f0 of [0, 0.12, -0.12, 0.25, -0.25, 0.38, -0.38]) { const f = Math.max(-fm, Math.min(fm, f0)), rc = (side < 0 ? ext.pole : ext.road) + side * ((j ? 0.35 * h : CL_CLR - 0.75) + h / 2 + e * h), q = add2(add2(m, t, f * L), nl, rc * sg), bx = textBox(q[0], q[1], h, x.t, rd, 1, 2);
+            if (spots.hitsW(bx, W_LBL) < 0.45) return { q, h, rc, bx }; } } return null; };
+        const keep = (c) => { o.text(cbLay, c.q[0], c.q[1], c.h, x.t, { rot: rd, ha: 1, va: 2, style: 'arial', color: col }); spots.add([c.bx], 'label'); if (side < 0) ext.pole = Math.min(ext.pole, c.rc - c.h / 2); else ext.road = Math.max(ext.road, c.rc + c.h / 2); };
+        let c = beside(sizesDn(CL_TH, CL_MIN));
+        if (!c) { // a leader: the label level, in free space, a shoulder and an arrow to a point on its own line
+          let best = null; const sh = 2.2 * Math.max(0.6, kG);
+          for (const h of [CL_TH, (CL_TH + CL_MIN) / 2, CL_MIN]) { const w = arialW(x.t, h, false);
+            for (const f of [0, -0.2, 0.2, -0.33, 0.33]) { const tip = add2(add2(m, t, f * L), nl, x.r * sg);
+              for (const dist of [6, 9, 12.5, 16]) for (const tilt of [0, 30, -30, 60, -60]) for (const sd of [side, -side]) {
+                const u = rotv([nl[0] * sg * sd, nl[1] * sg * sd], tilt), kn = add2(tip, u, dist * Math.max(0.6, kG)), dir = kn[0] >= tip[0] ? 1 : -1, L0 = [kn[0] + dir * sh, kn[1]], tx = L0[0] + dir * (w / 2 + 0.4);
+                const bx = textBox(tx, L0[1], h, x.t, 0, 1, 2), s1 = segB(tip, kn, 0.35), s2 = segB(kn, L0, 0.35);
+                const cost = spots.hitsW(bx, W_LBL) * 10 + spots.hitsW(s1, W_LEAD) + spots.hitsW(s2, W_LEAD) + (cellHolds(bx, tip[0], tip[1]) ? 0 : 20) + (sd === side ? 0 : 0.3) + (h < CL_TH - 1e-9 ? 0.2 : 0);
+                if (!best || cost < best.cost) best = { cost, tip, kn, L0, q: [tx, L0[1]], h, bx, segs: [s1, s2] }; if (best.cost < 1) break; } }
+            if (best && best.cost < 1) break; }
+          if (best && best.cost >= 1) c = beside(sizesDn(CL_MIN * 0.9, CL_LAST)); // smaller still beside it, before covering anything
+          if (c) nSmall++;
+          else if (best) { // the label, its leader (on the label's layer, thin) and the arrow (a solid)
+            o.text(cbLay, best.q[0], best.q[1], best.h, x.t, { ha: 1, va: 2, style: 'arial', color: col }); spots.add([best.bx], 'label'); spots.add(best.segs, 'leader');
+            o.lwpoly(cbLay, [best.tip, best.kn, best.L0], { color: col, lwt: 18 }); const u = unit(best.kn, best.tip), aL = 1.4 * Math.max(0.6, kG), aW = 0.5 * Math.max(0.6, kG), base = add2(best.tip, u, -aL);
+            o.solid(cbLay, [best.tip, add2(base, [-u[1], u[0]], aW), add2(base, [u[1], -u[0]], aW)], { color: col }); leaders.push(best); nLeaders++;
+            if (!x.ex) { cabDone.add(x.cab || ''); cabAt.push([x.cab || '', best.q]); } return;
+          }
+        }
+        if (c) { keep(c); if (!x.ex) { cabDone.add(x.cab || ''); cabAt.push([x.cab || '', c.q]); } }
       });
       return ext;
     };
-    for (const s of spans) {
+    const tight = (s) => { const P = byId.get(String(s.ia)), Q = byId.get(String(s.ib)); if (!P || !Q || !P.A || !Q.A) return 0; const ls = linesOf(s, laneInfo.get(K2(s.ia, s.ib))).filter((x) => x.t); return ls.reduce((t, x) => t + arialW(x.t, CL_TH, false), 0) / Math.max(4, geoOf(P, Q).L); };
+    for (const s of spans.slice().sort((x, y) => tight(y) - tight(x))) { // the most crowded spans first
       const P = byId.get(String(s.ia)), Q = byId.get(String(s.ib)); if (!P || !Q || !P.A || !Q.A) continue;
-      const a = endPt(P, Q.A), b = endPt(Q, P.A), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], t = unit(a, b), rd = readable(deg(t)), nl = [-t[1], t[0]], sgn = roadSgn(P, Q, nl);
+      const { t, nl, sg: sgn, rd, m, L } = geoOf(P, Q);
       const ext = cableLabels(linesOf(s, laneInfo.get(K2(s.ia, s.ib))), P, Q);
       const txt = `${Math.round(s.len)}m${s.long ? ` (OVER ${job.maxSpan || 200}m)` : ''}`; // v2.39: whole metres, as the company's plans (v2.42.23: the length only)
-      // v2.34: one size and style for every span length of the drawing, along the cable, where it covers neither the cable nor a road line
-      const L = dist2(a, b), cs = [], th = Math.max(1.4, 2.0 * kG);
-      for (const e of [0, 1.0, 2.0]) for (const [f, side] of [[0, 1], [0, -1], [0.2, 1], [-0.2, 1], [0.2, -1], [-0.2, -1], [0.35, 1], [-0.35, 1], [0.35, -1], [-0.35, -1]]) {
-        const rc = side > 0 ? ext.road + 0.6 + th / 2 + e : ext.pole - 0.6 - th / 2 - e, q = add2(add2(m, t, f * L), nl, rc * sgn); cs.push({ q, boxes: [textBox(q[0], q[1], th, txt, rd, 1, 2)] }); }
-      const c = pick(spots, cs);
-      o.text(lay('Distance Data'), c.q[0], c.q[1], th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : null }); spots.add(c.boxes);
+      // v2.34: one size and style for every span length of the drawing, along the cable, where it covers nothing (v2.42.24: smaller as needed)
+      const th0 = Math.max(1.4, 2.0 * kG); let c = null, best = null;
+      for (const th of sizesDn(th0, Math.min(th0, 1.0))) { for (const e of [0, 1.0, 2.0]) for (const [f, side] of [[0, 1], [0, -1], [0.2, 1], [-0.2, 1], [0.2, -1], [-0.2, -1], [0.35, 1], [-0.35, 1], [0.35, -1], [-0.35, -1]]) {
+          const rc = side > 0 ? ext.road + 0.6 + th / 2 + e : ext.pole - 0.6 - th / 2 - e, q = add2(add2(m, t, f * L), nl, rc * sgn), bx = textBox(q[0], q[1], th, txt, rd, 1, 2), n = spots.hitsW(bx, W_LBL);
+          if (!best || n < best.n) best = { q, th, bx, n }; if (n < 0.45) { c = best; break; } }
+        if (c) break; }
+      c = c || best;
+      o.text(lay('Distance Data'), c.q[0], c.q[1], c.th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : null }); spots.add([c.bx]);
     }
     for (const [k, li] of laneInfo) { if (spanKeys.has(k)) continue; const P = byId.get(li.a), Q = byId.get(li.b); if (P && Q && P.A && Q.A) cableLabels(linesOf(null, li), P, Q); } // v2.42.20: existing cables off the new route (no span length)
     // v2.42.11: each tower, its name beside the tower where it covers nothing (the cable, the road lines, the poles, their labels,
@@ -2673,7 +2733,7 @@
     rep.partly = [...blanks].filter((k) => filled.has(k)).sort();
     if (job.debug) rep.pts = pts.map((p) => ({ id: p.id, poleId: p.poleId, el: p.el, dp: p.dp, A: p.A, kept: !!p.kept, moved: p.moved || 0, onPole: p.onPole ? p.onPole.id : null }));
     if (job.debug) rep.inline = [...inl.values()].map((it) => ({ b: it.b, at: it.at, hl: it.hl, hlo: it.hlo, hhi: it.hhi, hh: it.hh, sc: it.sc, rot: it.rot, box: blockBox(S, it.b, 0), boxT: blockBoxT(S, it.b), c: blockCenter(S, it.b) }));
-    rep.counts = { ...o.n, namesInCell: nInCell, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesOffRoadLine: nCleared, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, loops: nLoop, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length, telcoArms: nTelco };
+    rep.counts = { ...o.n, cableLeaders: nLeaders, cableLabelsSmall: nSmall, closuresOnCable: nCloInl, namesInCell: nInCell, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesOffRoadLine: nCleared, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, loops: nLoop, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length, telcoArms: nTelco };
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0] };
     // v2.42.8: the cleanup again on the whole drawing, then its extents and opening view
     rep.cleanup = { template: clean0, final: clean(d), oldBlocks };

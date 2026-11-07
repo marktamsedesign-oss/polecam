@@ -650,6 +650,18 @@ body.routing #routeBar{z-index:525}
 #rbStats{order:3;flex-basis:100%} /* v2.42.21: the title and Close on one line, the totals under them */
 .rb-pairs{display:flex;gap:8px;align-items:center;font-size:calc(12.5px * var(--fs));color:var(--muted)}.rb-pairs input{width:18px;height:18px}
 #rtBar{position:absolute;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:520;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:7px;display:grid;gap:5px}
+.rb-fibers .cl-head{flex:1 1 100%;display:flex;justify-content:space-between;align-items:center;gap:8px}.rb-fibers .cl-head .btn.sm{min-height:36px}
+.ccard{flex:1 1 100%;min-width:0;border:1px solid var(--line);border-radius:10px;padding:7px 9px;display:grid;gap:5px;background:var(--surface)}
+.ccard.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}.ccard.sel{background:var(--soft)}
+.ccard .cc-t{display:flex;gap:7px;align-items:center;min-width:0;font-size:calc(13.5px * var(--fs))}.ccard .cc-t b{flex:none}.ccard .cc-t span{color:var(--muted);font-size:calc(12.5px * var(--fs));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ccard .cc-t i{width:18px;height:5px;border-radius:3px;flex:none;display:inline-block}.ccard .cc-t i.ex{background:repeating-linear-gradient(90deg,currentColor 0 4px,transparent 4px 7px)!important}
+.ccard .cc-m{font-size:calc(12px * var(--fs));color:var(--muted)}.ccard .cc-m b{color:var(--accent)}
+.ccard .cc-a{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.ccard .cc-a .btn.sm{min-height:36px}.ccard .cc-a select{flex:1 1 150px;min-width:0;min-height:36px;font-size:calc(13px * var(--fs))}
+.rb-more>summary{cursor:pointer;font-size:calc(12.5px * var(--fs));font-weight:700;color:var(--muted);padding:2px 0}.rb-more[open]>summary{margin-bottom:8px}.rb-more>*+*{margin-top:8px}
+#rtPop .lbl2{font-size:calc(11px * var(--fs));font-weight:600;color:var(--muted);margin-top:1px}
+.rt-how{display:grid;gap:7px;font-size:calc(13px * var(--fs));line-height:1.3}.rt-how label{display:flex;gap:8px;align-items:flex-start;cursor:pointer}.rt-how input{width:18px;height:18px;flex:none;margin:1px 0 0}
+.rt-end{justify-content:flex-end}.rt-sp{flex:1 1 auto}.rt-new{flex:0 1 auto}
+#rtPop.rtsheet{max-height:min(72vh,600px);gap:6px}#rtPop.rtsheet .rt-opts .ib{height:36px}#rtPop.rtsheet .rt-end{position:sticky;bottom:-10px;margin:0 -10px -10px;padding:8px 10px 10px;background:var(--surface);border-top:1px solid var(--line)}
 #rtBar[hidden],#rtPop[hidden],#rtHint[hidden]{display:none}
 .rt-row{display:flex;align-items:center;gap:5px;min-width:0}
 .rt-chips{display:flex;gap:5px;overflow-x:auto;min-width:0;flex:1 1 auto;scrollbar-width:none;padding:1px}.rt-chips::-webkit-scrollbar{display:none}.rt-chips .fchip{flex:none;min-height:38px}
@@ -807,20 +819,21 @@ body.routing #routeBar{z-index:525}
     <div id="vcBody"><div id="vcElem" class="vph"></div><div id="vcItems"></div></div>
     <div class="vc-foot"><button class="btn small" id="vcOpen" type="button">Open full record</button><button class="btn small primary" id="vcNext" type="button">Next pin ›</button></div>
   </section>
-  <div id="routeBar" hidden aria-label="Route tools">
-    <div class="rb-head"><b id="rbTitle">Route</b><span id="rbStats"></span><button class="btn sm" id="rbToolsClose" type="button" aria-label="Close Route tools (back to the small bar)">Close</button></div>
-    <details class="rb-advbox" id="rbAdviceBox" hidden><summary id="rbAdviceSum">Route check</summary><div class="rb-advice" id="rbAdvice"></div></details>
-    <p class="rb-hint" id="rbHint">Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.</p>
-    <div class="rb-fibers" id="rbFibers" hidden></div>
-    <div class="rb-fib" id="rbFib" hidden></div>
+  <div id="routeBar" hidden aria-label="Cables">
+    <div class="rb-head"><b id="rbTitle">Route</b><span id="rbStats"></span><button class="btn sm" id="rbToolsClose" type="button" aria-label="Close the list of cables (back to the small bar)">Close</button></div>
+    <p class="rb-hint" id="rbHint"></p>
     <div class="rb-spans" id="rbSpans" hidden></div>
     <div class="rb-span" id="rbSpan" hidden></div>
-    <div class="rb-cable"><label for="rbCable">CABLE</label><select id="rbCable" aria-label="Cable type of new fibers and of the spans you link"></select><button class="btn sm" id="rbCableAll" type="button">Set on all spans</button></div>
-    <label class="rb-pairs"><input type="checkbox" id="rbPairs"> Link spans by tapping two poles (no fiber), as before</label>
+    <div class="rb-fibers" id="rbFibers" hidden></div>
+    <div class="rb-fib" id="rbFib" hidden></div>
+    <details class="rb-more" id="rbMore"><summary>More: route check, link two poles without a cable, clear all</summary>
+      <details class="rb-advbox" id="rbAdviceBox" hidden><summary id="rbAdviceSum">Route check</summary><div class="rb-advice" id="rbAdvice"></div></details>
+      <label class="rb-pairs"><input type="checkbox" id="rbPairs"> Link two poles without a cable (a span on no RUN): tap a pole, then the next pole</label>
+      <div class="rb-cable"><label for="rbCable">ITS CABLE</label><select id="rbCable" aria-label="Cable type of the spans you link without a cable"></select><button class="btn sm" id="rbCableAll" type="button">Set on all spans</button></div>
+      <div class="rb-btns"><button class="btn danger" id="rbClear" type="button">Clear all cables</button></div>
+    </details>
     <div class="rb-btns">
-      <button class="btn" id="rbAuto" type="button">Link in capture order</button>
       <button class="btn" id="rbUndo" type="button">Undo</button>
-      <button class="btn danger" id="rbClear" type="button">Clear</button>
       <button class="btn primary" id="rbDone" type="button">Done</button>
     </div>
   </div>

@@ -361,7 +361,7 @@
         `<LineString><tessellate>1</tessellate><coordinates>${ll(s.a)} ${ll(s.b)}</coordinates></LineString></Placemark>`));
       // v2.42.20: the fibers, each one line from its start to its end in its colour (an existing cable dashed in the name), in place of the runs
       const kc = (h) => { const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(h || ''); return m ? `ff${m[3]}${m[2]}${m[1]}` : 'ffe6a01c'; };
-      const fib = (o.fibers || []).map((f) => `<Placemark><name>${xmlEsc(`Fiber ${f.n}${f.side ? ` (${f.side})` : ''}${f.ex ? ` · existing cable${f.cores ? ` ${f.cores}C` : ''}` : ''}: ${f.from} → ${f.to} · ${f.len.toFixed(0)} m${!f.ex && CABLES[f.cable] ? ` · ${CABLES[f.cable].short}` : ''}`)}</name>` /* v2.42.21: its size */ +
+      const fib = (o.fibers || []).map((f) => `<Placemark><name>${xmlEsc(`RUN ${f.n}${f.side ? ` (${f.side})` : ''}${f.ex ? ` · existing cable${f.cores ? ` ${f.cores}C` : ''}` : ''}: ${f.from} → ${f.to} · ${f.len.toFixed(0)} m${!f.ex && CABLES[f.cable] ? ` · ${CABLES[f.cable].short}` : ''}`)}</name>` /* v2.42.21: its size */ +
         `<Style><LineStyle><color>${kc(f.color)}</color><width>${f.ex ? 2 : 4}</width></LineStyle></Style>` +
         `<description>${xmlEsc(`${f.pts.length - 1} span${f.pts.length === 2 ? '' : 's'}, ${f.len.toFixed(1)} m${f.ex ? ' (existing cable, drawn only: not counted)' : ''}\n${f.pts.map((p) => p.poleId).join(' → ')}`)}</description>` +
         `<ExtendedData><Data name="fiber"><value>${f.n}</value></Data><Data name="length_m"><value>${f.len.toFixed(1)}</value></Data><Data name="from"><value>${xmlEsc(f.from)}</value></Data><Data name="to"><value>${xmlEsc(f.to)}</value></Data><Data name="status"><value>${f.ex ? 'Existing' : 'New'}</value></Data>${CABLES[f.cable] ? `<Data name="cable"><value>${xmlEsc(CABLES[f.cable].label)}</value></Data>` : ''}${f.side ? `<Data name="side"><value>${f.side}</value></Data>` : ''}</ExtendedData>` +
@@ -763,9 +763,17 @@
   /** v2.29: the FOC cable types a span can carry: label, short label, method (AE aerial / UG underground), KML colour (aabbggrr),
       DXF layer and colour. A span without a type is "cable not set". */
   const CABLES = {
-    F72: { label: 'AE Figure 8 72C FOC', short: 'Fig-8 72C', method: 'AE', kml: 'ffe8487f', css: '#7f48e8', layer: 'FOC_AE_FIG8_72C', aci: 6 },
-    L12: { label: 'Light cable 12C', short: 'Light 12C', method: 'AE', kml: 'ffe6a01c', css: '#1c7ed6', layer: 'FOC_AE_LIGHT_12C', aci: 4 },
-    U144: { label: 'UG 144C air-blown fiber', short: 'UG 144C', method: 'UG', kml: 'ff449e2f', css: '#2f9e44', layer: 'FOC_UG_144C', aci: 3 },
+    // v2.42.24: in the order the lists show them (light cable, figure 8 by size, UG air-blown by size); cores, family (light: retractors
+    // and span clamps, a dummy NAP; fig8: pole clamps; ug), the plan label's type word, the line weight (mm, Balanced) and the route
+    // check's closure spacing (m)
+    L12: { label: 'Light cable 12C', short: 'Light 12C', method: 'AE', cores: 12, fam: 'light', tt: 'LIGHT', lw: 0.30, drum: 2000, kml: 'ffe6a01c', css: '#1c7ed6', layer: 'FOC_AE_LIGHT_12C', aci: 4 },
+    F12: { label: 'AE Figure 8 12C FOC', short: 'Fig-8 12C', method: 'AE', cores: 12, fam: 'fig8', tt: 'FIG-8', lw: 0.30, drum: 4000, kml: 'ff8049e6', css: '#e64980', layer: 'FOC_AE_FIG8_12C', aci: 221 },
+    F24: { label: 'AE Figure 8 24C FOC', short: 'Fig-8 24C', method: 'AE', cores: 24, fam: 'fig8', tt: 'FIG-8', lw: 0.35, drum: 4000, kml: 'ff008cf0', css: '#f08c00', layer: 'FOC_AE_FIG8_24C', aci: 30 },
+    F48: { label: 'AE Figure 8 48C FOC', short: 'Fig-8 48C', method: 'AE', cores: 48, fam: 'fig8', tt: 'FIG-8', lw: 0.40, drum: 4000, kml: 'ff99850c', css: '#0c8599', layer: 'FOC_AE_FIG8_48C', aci: 140 },
+    F72: { label: 'AE Figure 8 72C FOC', short: 'Fig-8 72C', method: 'AE', cores: 72, fam: 'fig8', tt: 'FIG-8', lw: 0.50, drum: 4000, kml: 'ffe8487f', css: '#7f48e8', layer: 'FOC_AE_FIG8_72C', aci: 6 },
+    F144: { label: 'AE Figure 8 144C FOC', short: 'Fig-8 144C', method: 'AE', cores: 144, fam: 'fig8', tt: 'FIG-8', lw: 0.60, drum: 4000, kml: 'ff0f48d9', css: '#d9480f', layer: 'FOC_AE_FIG8_144C', aci: 20 },
+    U144: { label: 'UG 144C air-blown fiber', short: 'UG 144C', method: 'UG', cores: 144, fam: 'ug', tt: 'UG', lw: 0.60, drum: 4000, kml: 'ff449e2f', css: '#2f9e44', layer: 'FOC_UG_144C', aci: 3 },
+    U288: { label: 'UG 288C air-blown fiber', short: 'UG 288C', method: 'UG', cores: 288, fam: 'ug', tt: 'UG', lw: 0.70, drum: 4000, kml: 'ff0d945c', css: '#5c940d', layer: 'FOC_UG_288C', aci: 82 },
   };
   function analyzeRoute(points, links, o) {
     const by = {}; points.forEach((p) => { by[p.id] = p; });
