@@ -732,7 +732,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.22';
+  const APP_VER = '2.42.23';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1468,7 +1468,7 @@
     // a NAP or closure pin stands on its pole: the nearest pole of the route within 30 m (as the plan draws it)
     const onRoute = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])), poles = items.filter((it) => it.el === 'Pole' && onRoute.has(it.p.id));
     items.forEach((it) => { if (it.el !== 'NAP' && it.el !== 'Closure') return; let best = null, bd = 30; poles.forEach((q) => { const dd = Math.hypot(q.xy[0] - it.xy[0], q.xy[1] - it.xy[1]); if (dd < bd) { bd = dd; best = q; } }); it.on = best; });
-    drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), exHops: R.fib ? [...R.fib.hops.values()].filter((h) => !h.s && h.fs.some((f) => f.ex)).map((h) => ({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), lbl: (cabLabelOf({ lanes: h.fs.filter((f) => f.ex) }, plStyle().cab.word)[0] || {}).t || '' })) : [], R, LA: autoLoops(pts, R), /* v2.42.20: + exHops, existing cables off the new route */ ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
+    drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), /* v2.42.23 */ fibs: drwFibs(R, U), exHops: R.fib ? [...R.fib.hops.values()].filter((h) => !h.s && h.fs.some((f) => f.ex)).map((h) => ({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), lbl: h.fs.filter((f) => f.ex).map((f) => runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', R.fib.list.filter((x) => x.path.length > 1).length > 1 ? f.n : 0)).join(' / ') })) : [], /* (v2.42.23: with its run) */ R, LA: autoLoops(pts, R), /* v2.42.20: + exHops, existing cables off the new route */ ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
     $('drawTitle').textContent = `Drawing · ${S.project}`;
     $('drawHint').textContent = `Preview of the DXF (UTM ${z}N metres): ${pts.filter((p) => elemOf(p) === 'Pole').length} poles, ${R.spans.length} spans, ${fmtLen(R.total)}. Drag to pan, pinch or scroll to zoom, tap a point. Zoom in for the numbers or photos and, under each pole, what the plan draws on it: ARM, NAP, LOOP, CL (closure), G (guys), GR (grounding), R (riser).`;
     $('drawHint').hidden = !!S.drawHintOff; $('drawInfoBtn').setAttribute('aria-pressed', String(!S.drawHintOff));
@@ -1528,21 +1528,45 @@
     drw.ref.forEach((l) => { g.strokeStyle = 'rgba(112,72,232,0.45)'; g.lineWidth = 2 * d; g.setLineDash([6 * d, 5 * d]); g.beginPath(); l.forEach((xy, i) => { const [px, py] = drwPx(xy); if (i) g.lineTo(px, py); else g.moveTo(px, py); }); g.stroke(); });
     g.setLineDash([]);
     const fs = 11 * d; g.font = `600 ${fs}px ui-monospace, monospace`;
+    (drw.fibs || []).forEach((f) => { // v2.42.23: each fiber one line in its lane (5 px apart), mitred at the corners, as on the plan
+      const Q = f.pts.map(drwPx), m = Q.length - 1, GAP = 5 * d;
+      const N = f.st.map((s) => { if (!s || s.n < 2) return [0, 0]; const [ax, ay] = drwPx(s.a), [bx, by] = drwPx(s.b), Ln = Math.hypot(bx - ax, by - ay) || 1, o = s.z ? s.k * GAP : (s.k - (s.n - 1) / 2) * GAP; return [(by - ay) / Ln * o, -(bx - ax) / Ln * o]; });
+      const pts = Q.map((q, i) => {
+        if (i === 0) return [q[0] + N[0][0], q[1] + N[0][1]]; if (i === m) return [q[0] + N[m - 1][0], q[1] + N[m - 1][1]];
+        const a = Q[i - 1], c = Q[i + 1], d1 = [q[0] - a[0], q[1] - a[1]], d2 = [c[0] - q[0], c[1] - q[1]], cr = d1[0] * d2[1] - d1[1] * d2[0], l1 = Math.hypot(d1[0], d1[1]) || 1, l2 = Math.hypot(d2[0], d2[1]) || 1;
+        if (Math.abs(cr) / (l1 * l2) > 0.14) { const p1 = [a[0] + N[i - 1][0], a[1] + N[i - 1][1]], q2 = [q[0] + N[i][0], q[1] + N[i][1]], t = ((q2[0] - p1[0]) * d2[1] - (q2[1] - p1[1]) * d2[0]) / cr, X = [p1[0] + d1[0] * t, p1[1] + d1[1] * t]; if (Math.hypot(X[0] - q[0], X[1] - q[1]) < 6 * GAP) return X; }
+        return [q[0] + (N[i - 1][0] + N[i][0]) / 2, q[1] + (N[i - 1][1] + N[i][1]) / 2]; });
+      g.strokeStyle = f.ex ? '#4dabf7' : '#1c3f94'; g.lineWidth = 2 * d; g.lineJoin = 'round'; g.setLineDash(f.cab && !/^U/.test(f.cab) ? [7 * d, 4 * d] : []);
+      g.beginPath(); pts.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.stroke(); g.setLineDash([]);
+    });
     drw.spans.forEach(({ sp, a, b }) => { // the CABLE_ROUTE layer and the span length (FOC_LENGTH) at its middle; aerial broken, underground solid
       const [ax, ay] = drwPx(a), [bx, by] = drwPx(b), ug = /^U/.test(sp.cable || '');
-      g.strokeStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.lineWidth = 2.2 * d; g.setLineDash(sp.cable && !ug ? [7 * d, 4 * d] : []); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]);
-      const ln = sp.lanes && sp.lanes.length ? sp.lanes : null, main = ln ? sp.fibers.slice().sort((x, y) => x.n - y.n)[0] || null : null, mi = ln ? (main ? ln.indexOf(main) : (ln.length - 1) / 2) : 0; // v2.42.20: each fiber in its lane
-      (ln ? ln.filter((f) => f !== main).map((f) => [f.cab, ln.indexOf(f) - mi, !!f.ex]) : (sp.runs || []).slice(1).map((k, i) => [k, i + 1, false])).forEach(([k, lane, ex]) => { // v2.42.18: the span's other runs, parallel to run 1
+      const ln = sp.lanes && sp.lanes.length ? sp.lanes : null, fD = !!ln && (drw.fibs || []).length > 0, onF = fD && ln.some((f) => !f.ex), exOnly = !!ln && !ln.some((f) => !f.ex); // (v2.42.23: its fibers drawn above; with only existing ones, its own cable too)
+      if (!onF) { g.strokeStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.lineWidth = 2.2 * d; g.setLineDash(sp.cable && !ug ? [7 * d, 4 * d] : []); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); }
+      else if (sp.long) { g.strokeStyle = 'rgba(201,42,42,.35)'; g.lineWidth = (6 + 5 * (ln.length - 1)) * d; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); } // a span over the maximum: red under its fibers
+      const main = ln ? sp.fibers.slice().sort((x, y) => x.n - y.n)[0] || null : null, mi = ln ? (main ? ln.indexOf(main) : (ln.length - 1) / 2) : 0; // v2.42.20: each fiber in its lane
+      (fD ? [] : ln ? ln.filter((f) => f !== main).map((f) => [f.cab, ln.indexOf(f) - mi, !!f.ex]) : (sp.runs || []).slice(1).map((k, i) => [k, i + 1, false])).forEach(([k, lane, ex]) => { // v2.42.18: the span's other runs, parallel to run 1
         const Ln = Math.hypot(bx - ax, by - ay) || 1, nx = (by - ay) / Ln, ny = -(bx - ax) / Ln, f = 5 * d * lane;
         g.strokeStyle = ex ? '#4dabf7' : '#1c3f94'; g.lineWidth = 1.8 * d; g.setLineDash(k && !/^U/.test(k) ? [7 * d, 4 * d] : []); g.beginPath(); g.moveTo(ax + nx * f, ay + ny * f); g.lineTo(bx + nx * f, by + ny * f); g.stroke(); g.setLineDash([]);
       });
       if (drw.labels && Math.hypot(bx - ax, by - ay) > 46 * d) {
         let ang = Math.atan2(by - ay, bx - ax); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
-        const CBL = plStyle().cab; if (CBL.on && Math.hypot(bx - ax, by - ay) > 96 * d) { const lw = (ln ? ln.length - 1 : (sp.runs || []).length - 1) * 2.5 * d; g.save(); g.translate((ax + bx) / 2, (ay + by) / 2); g.rotate(ang); g.textAlign = 'center'; g.textBaseline = 'top'; g.font = `700 ${9.5 * d}px ui-monospace, monospace`; cabLabelOf(sp, CBL.word).forEach((x, i) => { g.fillStyle = x.ex ? '#1c7ed6' : '#c92a2a'; g.fillText(x.t, 0, 3 * d + lw + i * 11 * d); }); g.restore(); g.font = `600 ${fs}px ui-monospace, monospace`; } // v2.42.21: the cable label, under the cable
-        g.save(); g.translate((ax + bx) / 2, (ay + by) / 2); g.rotate(ang); g.textAlign = 'center'; g.textBaseline = 'bottom'; g.fillStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.fillText(`${sp.len.toFixed(1)} m${ln ? (drw.R.fib && drw.R.fib.list.length > 1 ? ` ${ln.slice().sort((x, y) => x.n - y.n).map(fibTag).join('+')}` : '') : (sp.runs || []).length > 1 ? ` ×${sp.runs.length}` : ''}`, 0, -3 * d); g.restore();
+        // v2.42.23: each cable's own label beside its own line (the half on top above, the others below), the length above them
+        const CBL = plStyle().cab, flip = Math.abs(ang - Math.atan2(by - ay, bx - ax)) > 1e-6;
+        const nFb = (drw.fibs || []).length, nRn = (sp.runs || []).length; // (v2.42.23: with its run, as on the plan)
+        const Ls = ln ? [...(exOnly ? [{ o: 0, t: runLbl((cabLabelOf({ runs: [(sp.runs || [sp.cable])[0]] }, 'a')[0] || {}).t || '', nRn > 1 ? 1 : 0), ex: false }] : []), ...ln.map((f, k) => ({ o: (exOnly ? k + 1 : k - (ln.length - 1) / 2) * 5 * d, t: runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', nFb > 1 ? f.n : 0), ex: !!f.ex }))] : (sp.runs || [sp.cable]).map((k, i) => ({ o: i * 5 * d, t: runLbl((cabLabelOf({ runs: [k] }, 'a')[0] || {}).t || '', nRn > 1 ? i + 1 : 0), ex: false }));
+        const Y = Ls.map((x) => ({ ...x, y: flip ? x.o : -x.o })).sort((p, q) => p.y - q.y), yTop = Y.length ? Y[0].y : 0, yBot = Y.length ? Y[Y.length - 1].y : 0, nTop = Y.length > 1 ? Math.floor(Y.length / 2) : 0;
+        g.save(); g.translate((ax + bx) / 2, (ay + by) / 2); g.rotate(ang); g.textAlign = 'center'; let topUsed = 0;
+        if (CBL.on && Math.hypot(bx - ax, by - ay) > 96 * d) {
+          g.font = `700 ${8.5 * d}px ui-monospace, monospace`;
+          const Lpx = Math.hypot(bx - ax, by - ay) - 130 * d, fits = (x) => x.t && g.measureText(x.t).width <= Lpx; // (clear of the poles' own labels at the ends; zoom in for the rest)
+          Y.slice(0, nTop).forEach((x, j) => { if (!fits(x)) return; g.textBaseline = 'bottom'; g.fillStyle = x.ex ? '#1c7ed6' : '#c92a2a'; g.fillText(x.t, 0, yTop - 3 * d - j * 10 * d); }); topUsed = nTop * 10 * d;
+          Y.slice(nTop).reverse().forEach((x, j) => { if (!fits(x)) return; g.textBaseline = 'top'; g.fillStyle = x.ex ? '#1c7ed6' : '#c92a2a'; g.fillText(x.t, 0, yBot + 3 * d + j * 10 * d); });
+        }
+        g.font = `600 ${fs}px ui-monospace, monospace`; g.textBaseline = 'bottom'; g.fillStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.fillText(`${sp.len.toFixed(1)} m`, 0, yTop - 3 * d - topUsed); g.restore();
       }
     });
-    (drw.exHops || []).forEach(({ a, b, lbl }) => { const [ax, ay] = drwPx(a), [bx, by] = drwPx(b); g.strokeStyle = '#4dabf7'; g.lineWidth = 1.8 * d; g.setLineDash([7 * d, 4 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); // v2.42.20: an existing cable
+    (drw.exHops || []).forEach(({ a, b, lbl }) => { const [ax, ay] = drwPx(a), [bx, by] = drwPx(b); if (!(drw.fibs || []).length) { g.strokeStyle = '#4dabf7'; g.lineWidth = 1.8 * d; g.setLineDash([7 * d, 4 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); } // v2.42.20: an existing cable (v2.42.23: its fiber's line above)
       if (lbl && drw.labels && plStyle().cab.on && Math.hypot(bx - ax, by - ay) > 96 * d) { let ang = Math.atan2(by - ay, bx - ax); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI; g.save(); g.translate((ax + bx) / 2, (ay + by) / 2); g.rotate(ang); g.textAlign = 'center'; g.textBaseline = 'top'; g.font = `700 ${9.5 * d}px ui-monospace, monospace`; g.fillStyle = '#1c7ed6'; g.fillText(lbl, 0, 3 * d); g.restore(); g.font = `600 ${fs}px ui-monospace, monospace`; } }); // v2.42.21: its size
     // a NAP or closure pin: a dotted line to the pole it stands on
     drw.items.forEach((it) => { if (!it.on) return; const [ax, ay] = drwPx(it.xy), [bx, by] = drwPx(it.on.xy); g.strokeStyle = 'rgba(240,140,0,0.9)'; g.lineWidth = 1.6 * d; g.setLineDash([2 * d, 3 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); });
@@ -1770,7 +1794,7 @@
     rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[plStyle().num.bcolor] || ACI_INK[plStyle().num.color] || '#d9a400'}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[plStyle().num.color] || '#d9a400'}" font-family="system-ui,sans-serif">1</text>`), 'Number on the plan']);
     if (mode !== 'num') rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), mode === 'both' ? 'Photo with its number' : 'Photo on the plan']);
     const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop (LOOP×2: one for each of 2 fibers there)'], ['LOOP*', '#e03131', 'Maintenance loop added by the app (As-Plan)'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)']];
-    if (drw && drw.R && drw.R.fib && drw.R.fib.list.length > 1) rows.push([sv('<path d="M1 6h20M1 10h20" stroke="#1c3f94" stroke-width="1.6" stroke-dasharray="4 2.5"/>'), 'Fibers: each its own line on a shared span; F1, F2… after the span length']); // v2.42.20
+    if (drw && drw.R && drw.R.fib && drw.R.fib.list.length > 1) rows.push([sv('<path d="M1 6h20M1 10h20" stroke="#1c3f94" stroke-width="1.6" stroke-dasharray="4 2.5"/>'), 'Fibers: each its own line in its lane; its label says its run (RUN 1 is F1)']); // v2.42.20 (v2.42.23)
     if (drw && drw.R && drw.R.fib && drw.R.fib.list.some((f) => f.ex)) rows.push([sv('<path d="M1 8h20" stroke="#4dabf7" stroke-width="1.8" stroke-dasharray="4 2.5"/>'), 'Existing cable (drawn only, not counted)']);
     const present = new Set(); if (drw) drw.items.forEach((it) => { if (it.el === 'Pole') poleTags(it).forEach(([t0]) => { const t = t0.replace(/×\d+$/, ''); present.add(/^G\d*$/.test(t) ? 'G' : t === 'LCP' || t === 'DN' ? 'NAP' : t); }); }); // (v2.42.20: LOOP×2 is a LOOP)
     T.forEach(([t, c, n]) => { if (present.has(t)) rows.push([tag(t, c), n]); });
@@ -1796,7 +1820,7 @@
   const mmOf = (m) => (m / 1.1).toFixed(1);
   function plSummary() {
     const P = plStyle(), N = P.num, I = P.id, V = P.vic, Cl = P.clamp, Cb = P.cab, ct = S.exp.dxfClampType !== false;
-    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? ACI_NAME[Cl.color] : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? (Cb.word === 'b' ? 'PROPOSED 12C ×2' : 'PROPOSED 2×12C') : 'off'} · Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${ACI_NAME[V.circle]} circle ${V.circleW} m wide, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide`;
+    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? ACI_NAME[Cl.color] : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? 'each cable its own, with its run (PROPOSED 12C (RUN 1))' : 'off'} · Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${ACI_NAME[V.circle]} circle ${V.circleW} m wide, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide`;
   }
   function openStyle() { renderStyle(); openSheet('drwStyle'); }
   function renderStyle() {
@@ -1814,8 +1838,8 @@
     o('stNumHO', `${N.h} m · ${mmOf(N.h)} mm`); o('stNumDO', N.d > 0 ? `${N.d} m · ${mmOf(N.d)} mm` : 'no circle'); o('stNumGO', `${N.g} m · ${mmOf(N.g)} mm`); o('stIdHO', `${I.h} m · ${mmOf(I.h)} mm`); o('stVicWO', `${V.circleW} m`); o('stVicRWO', `${V.routeW} m`);
     const seg = (id, v) => $(id).querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
     seg('stNumLeader', N.leader ? '1' : '0'); seg('stNumPlace', N.place); seg('stIdBold', I.bold ? '1' : '0');
-    seg('stClOn', S.exp.dxfClampType !== false ? '1' : '0'); seg('stClPlace', P.clamp.place); seg('stClPos', P.clamp.pos); seg('stClBox', P.clamp.box ? '1' : '0'); seg('stClHw', P.clamp.hw ? '1' : '0'); seg('stCabOn', P.cab.on ? '1' : '0'); seg('stCabWord', P.cab.word);
-    o('stClHO', `${P.clamp.h} m · ${mmOf(P.clamp.h)} mm`); ['stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'].forEach((id) => { const r = $(id) && $(id).closest('.strow'); if (r) r.classList.toggle('dim', S.exp.dxfClampType === false || (P.clamp.place === 'label' && ['stClPos', 'stClH', 'stClBox'].includes(id))); }); $('stCabWord').closest('.strow').classList.toggle('dim', !P.cab.on);
+    seg('stClOn', S.exp.dxfClampType !== false ? '1' : '0'); seg('stClPlace', P.clamp.place); seg('stClPos', P.clamp.pos); seg('stClBox', P.clamp.box ? '1' : '0'); seg('stClHw', P.clamp.hw ? '1' : '0'); seg('stCabOn', P.cab.on ? '1' : '0');
+    o('stClHO', `${P.clamp.h} m · ${mmOf(P.clamp.h)} mm`); ['stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'].forEach((id) => { const r = $(id) && $(id).closest('.strow'); if (r) r.classList.toggle('dim', S.exp.dxfClampType === false || (P.clamp.place === 'label' && ['stClPos', 'stClH', 'stClBox'].includes(id))); });
     o('stSum', plSummary());
     drawStylePreview(P); drawVicPreview(P);
     if (drw && !$('drawing').hidden) { drawDrawing(); renderDrawLegend(); }
@@ -1824,7 +1848,7 @@
   $('stNumLeader').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('num', 'leader', b.dataset.v === '1'); });
   $('stNumPlace').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('num', 'place', b.dataset.v); });
   $('stIdBold').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('id', 'bold', b.dataset.v === '1'); });
-  [['stClPlace', 'clamp', 'place', (v) => v], ['stClPos', 'clamp', 'pos', (v) => v], ['stClBox', 'clamp', 'box', (v) => v === '1'], ['stClHw', 'clamp', 'hw', (v) => v === '1'], ['stCabOn', 'cab', 'on', (v) => v === '1'], ['stCabWord', 'cab', 'word', (v) => v]]
+  [['stClPlace', 'clamp', 'place', (v) => v], ['stClPos', 'clamp', 'pos', (v) => v], ['stClBox', 'clamp', 'box', (v) => v === '1'], ['stClHw', 'clamp', 'hw', (v) => v === '1'], ['stCabOn', 'cab', 'on', (v) => v === '1']]
     .forEach(([id, part, key, val]) => $(id).addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl(part, key, val(b.dataset.v)); })); // v2.42.21
   $('stClOn').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; S.exp.dxfClampType = b.dataset.v === '1'; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); }); // (the Drawing's CA button too)
   $('stReset').addEventListener('click', () => { delete S.plStyle; S.exp.dxfClampType = true; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Drawing style: the defaults', 2000); }); // (v2.42.21: clamp types on again)
@@ -1843,7 +1867,7 @@
     el('rect', { x: 55.2, y: yTop + 1.4 - 1.8, width: 9.6, height: 3.6, rx: 1.8, fill: '#000', stroke: '#00ff00', 'stroke-width': 0.2 }); el('text', { x: 60, y: yTop + 1.4 + 1.2, fill: '#fff', 'font-size': 3, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, 'N');
     el('text', { x: 60, y: yTop + 1.4 + 1.8 + I.h * 1.05, fill: ACI_HEX[I.color] || '#ffffff', 'font-size': I.h, 'font-weight': I.bold ? 800 : 400, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, 'NAP-0001');
     const Cl = P.clamp, ct = S.exp.dxfClampType !== false, clCol = ACI_HEX[Cl.color] || '#00ffff', inL = !ct || Cl.place === 'label'; // v2.42.21
-    if (P.cab.on) [[40, 'PROPOSED 12C'], [80, P.cab.word === 'b' ? 'PROPOSED 12C ×2' : 'PROPOSED 2×12C']].forEach(([x, t]) => el('text', { x, y: yTop + 1.4 + 2.6, fill: '#ff0000', 'font-size': 1.8, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, t));
+    if (P.cab.on) [[40, 'PROPOSED 12C (RUN 1)'], [80, 'PROPOSED 12C (RUN 1)']].forEach(([x, t]) => el('text', { x, y: yTop + 1.4 + 2.6, fill: '#ff0000', 'font-size': 1.8, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, t));
     [[20, '4303175', ct ? 'CA 8-9' : '8-9'], [60, '4303168', ct && Cl.hw ? 'RET×2 SC×4' : ''], [100, '4303161', ct ? '2A 10-12' : '10-12']].forEach(([x, id, cl0], i) => {
       const cl = inL ? cl0 : ''; // a tag or a callout: the clamp types beside the pole, not in its label
       if (!inL && cl0) { const w = cl0.length * Cl.h * 0.56 + 1, h = Cl.h * 1.35, far = Cl.place === 'callout' ? 9 : 3.2, py0 = yTop - 2.5 - (i === 1 ? 1.2 : 0), dir = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[Cl.pos] || [-0.6, -0.8];
@@ -2269,6 +2293,34 @@
       if (sel) for (let i = 1; i < px.length; i++) { const a = px[i - 1], b = px[i], ang = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
         L.marker(map.unproject(L.point((a.x + b.x) / 2, (a.y + b.y) / 2), z), { pane: 'routePane', interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html: `<span class="fib-arrow" style="color:${col};transform:translate(-50%,-50%) rotate(${ang.toFixed(1)}deg)">➤</span>`, iconSize: null }) }).addTo(fibLayer); }
     }
+  }
+  /** v2.42.23: the fibers for the plan: each fiber's way and, on each step, its lane (k of n, in the order of the span's lanes, by the
+      span's own direction a → b), so the plan draws each fiber as one line in its lane. */
+  /** v2.42.23: the Drawing's fibers: each a line through its points, broken where a new fiber is on no span (a gap); on a route span
+      with only existing fibers, lane 0 is the span's own cable (z: the lanes counted from the cable's line). */
+  function drwFibs(R, U) {
+    if (!R || !R.fib) return []; const out = [];
+    R.fib.list.filter((f) => f.path.length > 1 && f.path.every((id) => R.fib.by.get(id))).forEach((f) => {
+      let pts = [U(R.fib.by.get(f.path[0]))], st = [];
+      const flush = () => { if (pts.length > 1) out.push({ ex: !!f.ex, cab: f.cab || '', pts, st }); };
+      f.path.slice(1).forEach((b, i) => {
+        const h = R.fib.hops.get(spanKey(f.path[i], b));
+        if (!h || (!h.s && !f.ex)) { flush(); pts = [U(R.fib.by.get(b))]; st = []; return; }
+        const z = !!h.s && !h.fs.some((x) => !x.ex), k = Math.max(0, h.fs.indexOf(f));
+        pts.push(U(R.fib.by.get(b))); st.push({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), k: z ? k + 1 : k, n: z ? h.fs.length + 1 : h.fs.length, z });
+      });
+      flush();
+    });
+    return out;
+  }
+  /** v2.42.23: a cable's label with its run (PROPOSED 12C (RUN 1)): the same number all along the cable, to follow it on the DXF/DWG and PDF. */
+  const runLbl = (t, n) => (t && n ? `${t} (RUN ${n})` : t || '');
+  function planFibs(R) {
+    if (!R || !R.fib || !R.fib.list.length) return [];
+    const many = R.fib.list.filter((f) => f.path.length > 1).length > 1;
+    return R.fib.list.filter((f) => f.path.length > 1).map((f) => ({ n: f.n, cab: f.cab || '', ex: !!f.ex, path: f.path.map(String), lbl: runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', many ? f.n : 0),
+      steps: f.path.slice(1).map((b, i) => { const a = f.path[i], h = R.fib.hops.get(spanKey(a, b)); if (!h || (!h.s && !f.ex)) return { a: String(h ? h.a : a), b: String(h ? h.b : b), k: 0, n: 1, gap: true }; // (a new fiber's gap: not drawn)
+        const k = Math.max(0, h.fs.indexOf(f)), z = !!h.s && !h.fs.some((x) => !x.ex); return { a: String(h.a), b: String(h.b), k: z ? k + 1 : k, n: z ? h.fs.length + 1 : h.fs.length }; }) })); // (a route span with only existing fibers: its own cable on lane 0)
   }
   /** v2.42.21: in Route, the end of the fiber you are on (a ring that pulses: drag from it), the ends of the fibers (rings), and the
       points the fiber passes without being on them (dashed, 'passes': tap one to put it on). */
@@ -8765,7 +8817,7 @@
         napType: el === 'NAP' || (el === 'Pole' && (p.nap || p.napId)) ? b.napType || '' : '', napOld: el === 'Pole' && b.napSt === 'Existing', closureOld: el === 'Pole' && b.cloSt === 'Existing', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', ground: !!b.ground, riser: !!b.riser, p2pTo: b.p2p || null,
         clampType: el === 'Pole' && showCT ? clampOf(p, R, pts).join('+') : '', clampAuto: el === 'Pole' && !b.clampType, hw: el === 'Pole' && showCT && PLS.clamp.hw ? hwShort(p, R) : '', /* v2.42.21: a 12C-only pole's hardware */
         ownerName: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && !/^globe$/i.test(ownerNameOf(p)) ? ownerNameOf(p).toUpperCase() : '' }; }); // v2.42.18: the owner's name beside an existing pole // v2.39: the pole's clamps (picked by the plan when left blank); v2.40: or the size only
-    const spans = R.spans.map((s) => { const o = { ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long, more: (s.runs || []).slice(1), cabLbl: PLS.cab.on ? cabLabelOf(s, PLS.cab.word) : null }; // v2.42.18: + the other runs; v2.42.21: its cable label
+    const spans = R.spans.map((s) => { const o = { ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long, more: (s.runs || []).slice(1), cabLbl: PLS.cab.on ? cabLabelOf(s, PLS.cab.word) : null, runLbls: s.lanes && s.lanes.some((f) => !f.ex) ? null : (s.runs || [s.cable]).map((k, i, all) => runLbl((cabLabelOf({ runs: [k] }, 'a')[0] || {}).t || '', all.length > 1 ? i + 1 : 0)) }; // (v2.42.23: each run's own label) // v2.42.18: + the other runs; v2.42.21: its cable label
       if (s.lanes && s.lanes.length) { // v2.42.20: the other fibers each in its lane (beside the first fiber's line), an existing one dashed blue; the fibers' tags with the length
         const main = s.fibers.slice().sort((x, y) => x.n - y.n)[0] || null, mi = main ? s.lanes.indexOf(main) : (s.lanes.length - 1) / 2, rest = s.lanes.filter((f) => f !== main);
         Object.assign(o, { more: rest.map((f) => f.cab || ''), moreOff: rest.map((f) => s.lanes.indexOf(f) - mi), moreEx: rest.map((f) => !!f.ex), tags: R.fib.list.length > 1 ? s.lanes.slice().sort((x, y) => x.n - y.n).map(fibTag).join('+') : '' }); }
@@ -8881,7 +8933,7 @@
       busy(many ? `Drawing the plan on the template (${k + 1} of ${SETS.length})…` : 'Drawing the plan on the template…', k / SETS.length);
       await sleep(30);
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
-      const out = window.GeDxfTpl.build(seed, { pts: rows, spans, exSpans, clampStyle: showCT ? PLS.clamp : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
+      const out = window.GeDxfTpl.build(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? PLS.clamp : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
         numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });

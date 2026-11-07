@@ -536,6 +536,20 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.23
+
+The plan (DXF, its PDF sheets and the Drawing): the fibers drawn in their own lanes, and their labels. No update of the online sheet needed.
+
+- **Each fiber one line in its own lane**: on a span two or more fibers share, the lanes are 2.6 m apart (clearly apart on the printed sheet); the first fiber stays on the cable's line and the others go toward the road, so no lane runs over a pole. At a corner the lanes turn together (mitred) and never cross; where fibers split, each takes its own side.
+- **At a closure, NAP or dummy NAP** (a block on the cable): the fibers enter and leave its side side by side, within it, and move out to their lanes gently. A fiber that ends at a pole stops beside it.
+- **The span length only**: *59m* (no *(F1+F2)*, no *(2 RUNS)*); a span over the maximum still says so.
+- **Each cable its own label, with its run**: *PROPOSED 12C (RUN 1)*, *PROPOSED 12C (RUN 2)*, *PROPOSED 72C (RUN 3)*, *EXISTING 48C (RUN 4)*: RUN n is fiber Fn, the same number on every span along it, so each cable's connectivity can be followed on the exported DWG/DXF and PDF (the run only with 2 or more fibers; a span on no fiber with 2 or more runs: its runs). Small and parallel to its own line (layer G-ESAA CABLE LABEL), no more *PROPOSED 2×12C*. One cable: on the pole side, the length on the road side; two or more: on both sides, the length beyond them. None is put on the span length, a symbol or another label where there is room. Drawing style: cable labels on or off (the two-of-one-cable wording is gone).
+- **No second tag for the same cable**: the cable's long name along the route (*PROPOSED 12C LIGHT CABLE*, *PROPOSED 72C FIGURE 8 FOC*) is left out where the cable has its own labels; a GEO sheet showing part of a cable but none of its labels still gets the long name once (every sheet names its cables); with the cable labels off it is there as before. The title block keeps the cable name.
+- **An existing cable** drawn as one continuous blue line along its way. A route span with only an existing fiber on it keeps its own proposed cable (red, its label), the existing one beside it.
+- **Loops on the cable**: the loop symbol lies on the cable as drawn, along its span from the block's side (or the pole), on the road-most new lane, its circle on the road side.
+- **Kept from before**: the cable between a pole's two boxes (NAP + LCP) is drawn for each fiber in its lane; a fiber over a gap (no span) is not drawn or labelled there.
+- The Drawing screen shows the fibers the same way (one line each, side by side, turning together).
+
 ## What changed in v2.42.22
 
 Drawing the cable route: ✎ Draw and ✋ Move. No update of the online sheet needed.

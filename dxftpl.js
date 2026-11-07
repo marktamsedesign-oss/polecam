@@ -1681,8 +1681,13 @@
     }
     // 3. the cable runs, broken where a block sits on the cable (it meets the block's sides)
     const chains = chainsOf(spans), label = new Map((runs || []).map((r) => [r.cable, r.label]));
-    for (const ch of chains) {
-      const P = ch.ids.map((id) => byId.get(id)).filter(Boolean); if (P.length < 2) continue;
+    // v2.42.23: with fibers, each fiber is drawn as one line in its lane (below); the runs on them are not drawn as runs, but their
+    // chains still give the runs' labels, the underground (HDD) and the vicinity map
+    const K2 = (a, b) => (String(a) < String(b) ? `${a}|${b}` : `${b}|${a}`), FIB = (job.fibs || []).filter((f) => f.path && f.path.length > 1 && f.steps && f.steps.length === f.path.length - 1);
+    const nLane = new Map(), fibKeys = new Set(), laneStart = new Map(); // (the spans the new fibers draw; every fiber's spans; each new lane's start at a pole toward the next: the loops)
+    FIB.forEach((f) => f.steps.forEach((s) => { if (s.gap) return; fibKeys.add(K2(s.a, s.b)); if (!f.ex) nLane.set(K2(s.a, s.b), Math.max(nLane.get(K2(s.a, s.b)) || 1, s.n || 1)); })); // (a gap is not drawn; a span with only existing fibers keeps its own cable, drawn as before)
+    const piecesOf = (ch) => {
+      const P = ch.ids.map((id) => byId.get(id)).filter(Boolean); if (P.length < 2) return null;
       const pieces = []; let cur = [];
       P.forEach((p, k) => {
         const it = inl.get(p); if (!it) { cur.push(p.A); return; }
@@ -1695,17 +1700,84 @@
         cur = eout ? [eout] : [];
       });
       if (cur.length) pieces.push(cur);
+      return { P, pieces: pieces.filter((l) => l.length > 1) };
+    };
+    const cabStyle = (cable, existing) => { const st = CABLE_STYLE[cable] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous'; return { st, lt, color: existing ? 5 : st.color, lts: lt === 'DASHED' ? (existing ? 9 : 7) : 0 }; };
+    const drawCable = (line, cs) => { o.lwpoly(lay(cs.st.layer, 'Proposed foc aerial'), line, { lwt: CABLE_LWT, color: cs.color, lt: cs.lt, lts: cs.lts, gen: true }); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); };
+    for (const ch of chains) {
+      const r = piecesOf(ch); if (!r) continue;
       // v2.32: aerial cable as a broken line (DASHED at linetype scale 7, 9 when existing, as the template's own sample drawing),
-      // underground solid; red new, blue existing (v2.37: underground green, as the legend)
-      const st = CABLE_STYLE[ch.cable] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous';
-      ch.line = P.map((p) => p.A); ch.pieces = pieces.filter((l) => l.length > 1); ch.ug = !st.aerial;
-      // v2.36: its thickness as a line weight (0.70 mm), not a polyline width: PDF converters other than AutoCAD (the one used to
-      // check the plan) drew a wide polyline solid, without its dashes
-      for (const line of ch.pieces) { o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: CABLE_LWT, color: ch.existing ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ch.existing ? 9 : 7) : 0, gen: true }); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); }
+      // underground solid; red new, blue existing (v2.37: underground green, as the legend). v2.36: its thickness as a line weight (0.70 mm),
+      // not a polyline width: PDF converters other than AutoCAD (the one used to check the plan) drew a wide polyline solid, without its dashes
+      const st = CABLE_STYLE[ch.cable] || CABLE_STYLE[''];
+      ch.line = r.P.map((p) => p.A); ch.pieces = r.pieces; ch.ug = !st.aerial;
+      if (!FIB.length) for (const line of ch.pieces) drawCable(line, cabStyle(ch.cable, ch.existing));
+    }
+    if (FIB.length) for (const ch of chainsOf(spans.filter((s) => !nLane.has(K2(s.ia, s.ib))))) { const r = piecesOf(ch); if (r) for (const line of r.pieces) drawCable(line, cabStyle(ch.cable, ch.existing)); } // the spans on no fiber
+    /* v2.42.23: each fiber one line in its lane. On a span with n fibers the lanes are G apart (2.6 m: on paper at 1 : 1100 the two
+       0.70 mm lines are clearly apart), on the road side of the cable (the first on the cable's own line, so none runs over a pole), in
+       the order that keeps them from crossing (the app's lanes); at a corner the lanes meet (mitred); where a pole's two spans have
+       other lanes the line moves over gently; a fiber starting or ending at a pole comes in to the cable there; at a closure, NAP or other
+       block on the cable each lane meets the block's side, side by side within it. */
+    const LANE_G = Math.max(1.8, 2.6 * kG);
+    if (FIB.length) {
+      const G = LANE_G, cross = (u, v) => u[0] * v[1] - u[1] * v[0], dot = (u, v) => u[0] * v[0] + u[1] * v[1], sub = (u, v) => [u[0] - v[0], u[1] - v[1]];
+      const roadSg = (P0, Q0, nl) => { const tw = [(P0.td ? P0.td[0] : 0) + (Q0.td ? Q0.td[0] : 0), (P0.td ? P0.td[1] : 0) + (Q0.td ? Q0.td[1] : 0)]; return dot(nl, tw) < -1e-6 ? -1 : 1; };
+      const laneVec = (st) => { // the lane's offset on its span (from the cable's line)
+        const P0 = byId.get(String(st.a)), Q0 = byId.get(String(st.b)); if (!P0 || !Q0 || !P0.A || !Q0.A) return [0, 0];
+        const t = unit(P0.A, Q0.A), nl = [-t[1], t[0]], n = Math.max(1, st.n || 1), sg = roadSg(P0, Q0, nl), off = ((st.k || 0) - (n - 1) / 2) * G + sg * (n - 1) / 2 * G;
+        return [nl[0] * off, nl[1] * off];
+      };
+      const laneOff = (st) => { const P0 = byId.get(String(st.a)), Q0 = byId.get(String(st.b)); if (!P0 || !Q0 || !P0.A || !Q0.A) return 0; const t = unit(P0.A, Q0.A), nl = [-t[1], t[0]], n = Math.max(1, st.n || 1); return ((st.k || 0) - (n - 1) / 2) * G + roadSg(P0, Q0, nl) * (n - 1) / 2 * G; };
+      const sideOf = (it, e, st) => { // the lane's point on a block's side: as on its span (the first lane on the cable's line), drawn in to fit within the block
+        const P0 = byId.get(String(st.a)), Q0 = byId.get(String(st.b)), n = Math.max(1, st.n || 1), pr = [-it.ax[1], it.ax[0]];
+        if (n < 2 || !P0 || !Q0) return e;
+        const t = unit(P0.A, Q0.A), nl = [-t[1], t[0]], sg = dot(pr, nl) < 0 ? -1 : 1, all = Array.from({ length: n }, (x, k) => laneOff({ ...st, k })), mx = Math.max(...all.map(Math.abs)), lim = 0.8 * (it.hh || G);
+        return add2(e, pr, laneOff(st) * (mx > lim ? lim / mx : 1) * sg);
+      };
+      for (const f of FIB) {
+        const cs = cabStyle(f.cab, f.ex);
+        // the fiber's points with a cable point; a point missing breaks it
+        let runs2 = [], rp = [], rs = [];
+        f.path.forEach((id, i) => { const p = byId.get(String(id)); if (i > 0 && f.steps[i - 1].gap) { if (rp.length > 1) runs2.push([rp, rs]); rp = []; rs = []; } // (a gap breaks it)
+          if (p && p.A) { if (rp.length) rs.push(f.steps[i - 1]); rp.push(p); } else { if (rp.length > 1) runs2.push([rp, rs]); rp = []; rs = []; } });
+        if (rp.length > 1) runs2.push([rp, rs]);
+        for (const [P, ST] of runs2) {
+          // each span's line runs from its pole's cable point, or from the side of the block on the cable there, to the next one (as the cable)
+          const m = P.length - 1, E = P.map((p, i) => { const it = inl.get(p); if (!it) return null;
+            const e1 = add2(it.at, it.ax, -(it.hlo || it.hl)), e2 = add2(it.at, it.ax, it.hhi || it.hl), near = (q) => (dist2(e1, q) <= dist2(e2, q) ? e1 : e2);
+            const ein = i > 0 ? near(P[i - 1].A) : null; let eout = i < m ? near(P[i + 1].A) : null; if (ein && eout && ein === eout) eout = ein === e1 ? e2 : e1; return { it, ein, eout }; });
+          const S0 = P.slice(0, m).map((p, j) => (E[j] ? E[j].eout : p.A)), S1 = P.slice(1).map((p, j) => (E[j + 1] ? E[j + 1].ein : p.A));
+          const N = ST.map(laneVec), D = S0.map((a, j) => unit(a, S1[j])), Ls = S0.map((a, j) => dist2(a, S1[j])), Lt = Ls.map((L) => Math.min(3.2 * G, L / 3)); // (the length over which a lane moves over)
+          const at = (j, s) => add2(add2(S0[j], D[j], s), N[j], 1); // on span j's lane, s metres from its start
+          const offL = (j, q) => Math.abs(cross(D[j], sub(q, at(j, 0)))), off = (j) => Math.hypot(N[j][0], N[j][1]); // how far a point is from span j's lane; the lane from the cable
+          if (!f.ex) for (let j = 0; j < m; j++) { const k1 = `${P[j].id}>${P[j + 1].id}`, k2 = `${P[j + 1].id}>${P[j].id}`; (laneStart.get(k1) || laneStart.set(k1, []).get(k1)).push({ s: E[j] && E[j].eout ? sideOf(E[j].it, E[j].eout, ST[j]) : at(j, 0), at0: at(j, 0), d: D[j] }); (laneStart.get(k2) || laneStart.set(k2, []).get(k2)).push({ s: E[j + 1] && E[j + 1].ein ? sideOf(E[j + 1].it, E[j + 1].ein, ST[j]) : at(j, Ls[j]), at0: at(j, Ls[j]), d: [-D[j][0], -D[j][1]] }); } // (where it starts as drawn: on a block's side)
+          const pieces = []; let cur = [];
+          for (let i = 0; i <= m; i++) {
+            const p = P[i], B = E[i];
+            if (B) { // a block on the cable: the lane ends at its side and the next one starts at its other side, side by side within it
+              if (B.ein) { const Q = sideOf(B.it, B.ein, ST[i - 1]); if (offL(i - 1, Q) > 0.05) cur.push(at(i - 1, Math.max(0, Ls[i - 1] - Lt[i - 1]))); cur.push(Q); pieces.push(cur); cur = []; }
+              if (B.it.inner && B.it.inner.length) { const v = sideOf(B.it, [0, 0], ST[i] || ST[i - 1]); B.it.inner.forEach((seg) => pieces.push(seg.map((q) => add2(q, v, 1)))); } // (two boxes on the pole: the cable between them, in the fiber's lane)
+              if (B.eout) { const Q = sideOf(B.it, B.eout, ST[i]); cur = [Q]; if (offL(i, Q) > 0.05) cur.push(at(i, Math.min(Ls[i], Lt[i]))); }
+              continue;
+            }
+            if (i === 0) { cur.push(at(0, 0)); continue; } // a start at a pole: its lane starts abreast of the pole
+            if (i === m) { cur.push(at(m - 1, Ls[m - 1])); continue; } // an end: abreast of the pole
+            const a = D[i - 1], b = D[i], c = cross(a, b);
+            if (Math.abs(c) > 0.14) { // a corner: the two lanes meet (mitred; a sharp one bevelled)
+              const p1 = at(i - 1, 0), q1 = at(i, 0), tt = cross(sub(q1, p1), b) / c, X = add2(p1, a, tt);
+              if (dist2(X, p.A) <= 4 * G + off(i - 1) + off(i)) cur.push(X); else cur.push(at(i - 1, Ls[i - 1]), at(i, 0));
+            } else if (dist2(N[i - 1], N[i]) < 0.05) cur.push(at(i, 0)); // straight on, the same lane
+            else cur.push(at(i - 1, Ls[i - 1] - Lt[i - 1]), at(i, Lt[i])); // straight on, another lane: moves over gently
+          }
+          if (cur.length) pieces.push(cur);
+          for (const line of pieces) if (line.length > 1) drawCable(line, cs);
+        }
+      }
     }
     // v2.42.18: a span's other runs (run 2, run 3…): parallel to run 1, about a metre apart, each in its cable's style
     for (const s of spans) {
-      const more = s.more || []; if (!more.length) continue;
+      const more = s.more || []; if (!more.length || fibKeys.has(K2(s.ia, s.ib))) continue; // (v2.42.23: a fiber span: its fibers are drawn above)
       const P0 = byId.get(String(s.ia)), Q0 = byId.get(String(s.ib)); if (!P0 || !Q0 || !P0.A || !Q0.A) continue;
       const a = P0.A, b = Q0.A, t = unit(a, b), nl = [-t[1], t[0]], r0 = Math.max(P0.rp || 0, 1.5), r1 = Math.max(Q0.rp || 0, 1.5), gap = 1.2 * kG;
       if (dist2(a, b) <= r0 + r1 + 1) continue;
@@ -1723,8 +1795,8 @@
       if (dist2(a, b) <= r0 + r1 + 1) continue;
       const st = CABLE_STYLE[s.cab] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', off = gap * (s.off || 0);
       const line = [add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)];
-      o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: CABLE_LWT, color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true }); spots.line(line, 1.0);
-      if (job.cabLabels && s.cabLbl && s.cabLbl.length) exLbl.push({ P0, Q0, lines: s.cabLbl });
+      if (!FIB.length) { o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: CABLE_LWT, color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true }); spots.line(line, 1.0); } // (v2.42.23: with fibers, drawn as a fiber above)
+      if (job.cabLabels && s.cabLbl && s.cabLbl.length) exLbl.push({ P0, Q0, lines: s.cabLbl, bw: ((nLane.get(K2(s.ia, s.ib)) || 1) - 1) * LANE_G });
     }
     // 4. poles and the other points: symbols first (they are fixed), then the labels round them
     let nOlt = 0, nInline = 0, nTelco = 0, taDef = false; const taBlk = telcoArmTop(false), siteLate = []; // (v2.42.11: towers drawn after the labels, see below)
@@ -1899,8 +1971,15 @@
       const Q = nb.get(p) || [], Qn = Q.filter((q) => hd(q) > hd(p)).sort((x, y) => hd(x) - hd(y));
       // along the span down the route (at the end, back along its span); v2.41: right in front of its pole (where its arm meets the
       // cable), or just past its NAP: a loop is on the pole, not along the span. The circle hangs on the pole's road side.
-      const dir = Qn.length ? unit(p.A, Qn[0].A) : Q.length ? unit(p.A, Q[0].A) : t, side = p.td, s = napHl ? napHl + 0.6 + lw / 2 : 0;
-      const Q0 = add2(p.A, dir, s), c0 = add2(Q0, side, lh / 2), rot = deg(side) + 90;
+      let dir = Qn.length ? unit(p.A, Qn[0].A) : Q.length ? unit(p.A, Q[0].A) : t, side = p.td, Q0 = add2(p.A, dir, napHl ? napHl + 0.6 + lw / 2 : 0);
+      const q1 = Qn.length ? Qn[0] : Q.length ? Q[0] : null; // v2.42.23: on the cable as drawn: along its span from the block's side (or the pole); with fibers, on the road-most new lane; the circle on the road side
+      if (q1 && q1.A) {
+        const endAt = (x, toward) => { const b = inl.get(x); if (!b) return x.A; const e1 = add2(b.at, b.ax, -(b.hlo || b.hl)), e2 = add2(b.at, b.ax, b.hhi || b.hl); return dist2(e1, toward) <= dist2(e2, toward) ? e1 : e2; };
+        let s0 = endAt(p, q1.A), d = unit(s0, endAt(q1, p.A)); const n0 = [-d[1], d[0]], td = p.td || n0, sd = n0[0] * td[0] + n0[1] * td[1] < 0 ? [-n0[0], -n0[1]] : n0;
+        const ln = laneStart.get(`${p.id}>${q1.id}`); if (ln && ln.length) { const L = ln.reduce((x, y) => ((y.at0[0] - s0[0]) * sd[0] + (y.at0[1] - s0[1]) * sd[1] > (x.at0[0] - s0[0]) * sd[0] + (x.at0[1] - s0[1]) * sd[1] ? y : x)); s0 = L.s; d = inl.has(p) ? unit(L.s, add2(L.at0, L.d, 0.6 + lw)) : L.d; } // (at a block: from the lane's start on its side to the lane past the loop)
+        const n1 = [-d[1], d[0]]; dir = d; side = n1[0] * sd[0] + n1[1] * sd[1] < 0 ? [-n1[0], -n1[1]] : n1; Q0 = add2(s0, d, inl.has(p) ? 0.6 + lw / 2 : 0);
+      }
+      const c0 = add2(Q0, side, lh / 2), rot = deg(side) + 90;
       // the loop's straight line (the cable) laid on the cable, its circle hanging on the road side
       const le = lineEnds(S, 'loopp'), mid = le ? [(le[0][0] + le[1][0]) / 2, (le[0][1] + le[1][1]) / 2] : [0, 0], mo = rotv([mid[0] * sc, mid[1] * sc], rot);
       o.insert(lay('PROPOSED LOOP'), 'loopp', Q0[0] - mo[0], Q0[1] - mo[1], { scale: sc, rot }); spots.add(Spots.box(c0[0], c0[1], lw, lh, deg(dir)));
@@ -2001,34 +2080,56 @@
       p.ov = c.ov; p._rr = c.rr;
       if (!clIn && (clT || p.hw)) clTag(p, [clT, p.hw].filter(Boolean)); // v2.42.21
     }
-    // 5. span lengths: mid-span, on the road side of the cable (a span over the maximum in red)
-    /** v2.42.21: a span's cable label, one line each (PROPOSED 2×12C, EXISTING 48C), along the cable, the other side from its length
-        where free, on its own layer: new cables in their colour, existing ones blue. */
+    // 5. span lengths: mid-span, on the road side of the cable (a span over the maximum in red). v2.42.23: the length only (no fibers'
+    // tags, no runs); before it, each cable's own label beside its own line, and the length beyond them
+    /** v2.42.23: each cable's own label (PROPOSED 12C, EXISTING 48C) beside its own line on the span (each fiber's lane, each run): small,
+        parallel to it, on its own layer (new in its cable's colour, existing blue). One cable: on the pole side (the length on the road
+        side). Several: the half nearer the poles on the pole side, the others on the road side, each stacked out from the outermost
+        line; where that is taken, along the span or a little further out (not on the span length, a symbol or another label). */
     let cbLay = null;
-    const cabLbl = (lines, a, b, sgn, cable) => {
+    const CL_TH = Math.max(1.0, 1.3 * kG), CL_LH = CL_TH * 1.35, CL_CLR = 0.85; // its height; label to label; from its line's middle (a cable's own room is 0.75)
+    const laneInfo = new Map(), spanKeys = new Set(spans.map((s) => K2(s.ia, s.ib))), cabDone = new Set(), cabAt = []; // (the cable types given their own labels; where)
+    FIB.forEach((f) => f.steps.forEach((st) => { if (st.gap) return; const k = K2(st.a, st.b); let li = laneInfo.get(k); if (!li) { li = { a: String(st.a), b: String(st.b), n: Math.max(1, st.n || 1), lanes: [] }; laneInfo.set(k, li); } li.lanes[st.k || 0] = { t: f.lbl || '', ex: !!f.ex, cab: f.cab || '' }; }));
+    const roadSgn = (P, Q, nl) => { const tw = [(P.td ? P.td[0] : 0) + (Q.td ? Q.td[0] : 0), (P.td ? P.td[1] : 0) + (Q.td ? Q.td[1] : 0)]; return (nl[0] * tw[0] + nl[1] * tw[1]) < -1e-6 ? -1 : 1; };
+    const linesOf = (s, li) => { // the span's cable lines: [{ r: from the cable's line toward the road, t, ex, cab }]
+      if (li && s && !li.lanes[0] && li.lanes.every((x) => !x || x.ex)) { const L2 = li.lanes.slice(); L2[0] = { t: (s.runLbls || [])[0] || '', ex: false, cab: s.cable || '' }; li = { ...li, lanes: L2 }; } // (only existing fibers: the span's own cable on lane 0)
+      if (li) { const P0 = byId.get(li.a), Q0 = byId.get(li.b); if (!P0 || !Q0 || !P0.A || !Q0.A) return []; const t0 = unit(P0.A, Q0.A), sg = roadSgn(P0, Q0, [-t0[1], t0[0]]), n = li.n;
+        return li.lanes.map((x, k) => (x ? { r: (sg * (k - (n - 1) / 2) + (n - 1) / 2) * LANE_G, ...x } : null)).filter(Boolean); }
+      const P = byId.get(String(s.ia)), Q = byId.get(String(s.ib)), t = unit(P.A, Q.A), sg = roadSgn(P, Q, [-t[1], t[0]]), gap = 1.2 * kG, lb = s.runLbls || [];
+      return [{ r: 0, t: lb[0] || '', ex: false, cab: s.cable || '' }, ...(s.more || []).map((cab, i) => ({ r: gap * (s.moreOff ? s.moreOff[i] : i + 1) * sg, t: lb[i + 1] || '', ex: !!(s.moreEx && s.moreEx[i]), cab }))];
+    };
+    const endPt = (p, toward) => { const it = inl.get(p); if (!it) return p.A; const e1 = add2(it.at, it.ax, -(it.hlo || it.hl)), e2 = add2(it.at, it.ax, it.hhi || it.hl); return dist2(e1, toward) <= dist2(e2, toward) ? e1 : e2; }; // where the cable is drawn from: the pole's cable point, or the side of the block on the cable there
+    const cableLabels = (lines, P, Q) => { // how far the labels reach on each side, from the cable's line (toward the road +)
+      const a = endPt(P, Q.A), b = endPt(Q, P.A), t = unit(a, b), nl = [-t[1], t[0]], sg = roadSgn(P, Q, nl), rd = readable(deg(t)), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], L = dist2(a, b);
+      const rr = lines.map((x) => x.r), rMin = rr.length ? Math.min(...rr) : 0, rMax = rr.length ? Math.max(...rr) : 0, ext = { pole: rMin - 0.75, road: rMax + 0.75 };
+      const ls = lines.filter((x) => x.t).sort((x, y) => x.r - y.r); if (!job.cabLabels || !ls.length || L < 4) return ext;
       if (!cbLay) { addLayer(d, S, 'G-ESAA CABLE LABEL', 7); cbLay = 'G-ESAA CABLE LABEL'; }
-      const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], t = unit(a, b), rd = readable(deg(t)), nl = [-t[1], t[0]], L = dist2(a, b), th = Math.max(1.4, 2.0 * kG), off = th * 0.75 + 0.6, lh = th * 1.3, cs = [];
-      for (const [f, k] of [[0, -1], [0.2, -1], [-0.2, -1], [0, -1.8], [0, 1.9], [0.2, 1.9], [-0.2, 1.9], [0.3, -1], [-0.3, -1], [0, -2.7], [0, 2.9]]) {
-        const dir = Math.sign(k) * sgn, base = add2(add2(m, t, f * L), nl, k * off * sgn), q = lines.map((x, i) => add2(base, nl, dir * i * lh));
-        cs.push({ q, boxes: lines.map((x, i) => textBox(q[i][0], q[i][1], th, x.t, rd, 1, 2)) });
-      }
-      const c = pick(spots, cs);
-      lines.forEach((x, i) => o.text(cbLay, c.q[i][0], c.q[i][1], th, x.t, { rot: rd, ha: 1, va: 2, style: 'arial', color: x.ex ? 5 : (CABLE_STYLE[cable] || CABLE_STYLE['']).color }));
-      spots.add(c.boxes);
+      const nP = ls.length === 1 ? 1 : Math.floor(ls.length / 2);
+      for (const [side, arr, edge] of [[-1, ls.slice(0, nP), rMin], [1, ls.slice(nP).reverse(), rMax]]) arr.forEach((x, j) => {
+        const w = arialW(x.t, CL_TH, false), th0 = w > 0.95 * L ? Math.max(0.7, CL_TH * 0.95 * L / w) : CL_TH; // (a short span: smaller, to fit along it, still readable)
+        const cands = (th) => { const cs = [], wl = arialW(x.t, th, false), fm = Math.max(0, (L - wl) / 2 / L); // along its line, never past the span's ends where it fits
+          for (const e of [0, 0.7, 1.5]) for (const f0 of [0, 0.1, -0.1, 0.2, -0.2, 0.3, -0.3, 0.4, -0.4, 0.5, -0.5]) { const f = Math.max(-fm, Math.min(fm, f0)), rc = edge + side * (CL_CLR + th / 2 + j * CL_LH + e), q = add2(add2(m, t, f * L), nl, rc * sg); cs.push({ q, rc, th, boxes: [textBox(q[0], q[1], th, x.t, rd, 1, 2)] }); }
+          return cs; };
+        let c = pick(spots, cands(th0)); for (const h of [...new Set([th0 * 0.85, 0.7, 0.6, 0.5].map((v) => Math.round(Math.min(th0, Math.max(0.5, v)) * 1000) / 1000))].filter((v) => v < th0 - 1e-9)) { if (!c.n) break; const c2 = pick(spots, cands(h)); if (!c2.n || c2.n < c.n) c = c2; } // (a loop's circle, a pole or its label in the way: smaller before covering it: 0.7 m, then 0.6 and 0.5 on a very short, crowded span)
+        const th = c.th;
+        o.text(cbLay, c.q[0], c.q[1], th, x.t, { rot: rd, ha: 1, va: 2, style: 'arial', color: x.ex ? 5 : (CABLE_STYLE[x.cab] || CABLE_STYLE['']).color }); spots.add(c.boxes); if (!x.ex) { cabDone.add(x.cab || ''); cabAt.push([x.cab || '', c.q]); }
+        if (side < 0) ext.pole = Math.min(ext.pole, c.rc - th / 2); else ext.road = Math.max(ext.road, c.rc + th / 2);
+      });
+      return ext;
     };
     for (const s of spans) {
-      const P = byId.get(String(s.ia)), Q = byId.get(String(s.ib)); if (!P || !Q) continue;
-      const a = P.A, b = Q.A, m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], t = unit(a, b), rd = readable(deg(t)), nl = [-t[1], t[0]];
-      const toward = [(P.td ? P.td[0] : 0) + (Q.td ? Q.td[0] : 0), (P.td ? P.td[1] : 0) + (Q.td ? Q.td[1] : 0)], sgn = (nl[0] * toward[0] + nl[1] * toward[1]) < 0 ? -1 : 1;
-      const txt = `${Math.round(s.len)}m${s.tags ? ` (${s.tags})` : (s.more || []).length ? ` (${s.more.length + 1} RUNS)` : ''}${s.long ? ` (OVER ${job.maxSpan || 200}m)` : ''}`; // v2.39: whole metres, as the company's plans (v2.42.18: + the runs)
+      const P = byId.get(String(s.ia)), Q = byId.get(String(s.ib)); if (!P || !Q || !P.A || !Q.A) continue;
+      const a = endPt(P, Q.A), b = endPt(Q, P.A), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], t = unit(a, b), rd = readable(deg(t)), nl = [-t[1], t[0]], sgn = roadSgn(P, Q, nl);
+      const ext = cableLabels(linesOf(s, laneInfo.get(K2(s.ia, s.ib))), P, Q);
+      const txt = `${Math.round(s.len)}m${s.long ? ` (OVER ${job.maxSpan || 200}m)` : ''}`; // v2.39: whole metres, as the company's plans (v2.42.23: the length only)
       // v2.34: one size and style for every span length of the drawing, along the cable, where it covers neither the cable nor a road line
-      const L = dist2(a, b), cs = [], th = Math.max(1.4, 2.0 * kG), off = th * 0.75 + 0.6;
-      for (const [f, k] of [[0, 1], [0, -1], [0.2, 1], [-0.2, 1], [0.2, -1], [-0.2, -1], [0, 1.7], [0, -1.7], [0.35, 1], [-0.35, 1], [0.35, -1], [-0.35, -1], [0.2, 1.7], [-0.2, 1.7], [0.2, -1.7], [-0.2, -1.7], [0, 2.5], [0, -2.5], [0, 3.4], [0, -3.4]]) { const q = add2(add2(m, t, f * L), nl, k * off * sgn); cs.push({ q, boxes: [textBox(q[0], q[1], th, txt, rd, 1, 2)] }); }
+      const L = dist2(a, b), cs = [], th = Math.max(1.4, 2.0 * kG);
+      for (const e of [0, 1.0, 2.0]) for (const [f, side] of [[0, 1], [0, -1], [0.2, 1], [-0.2, 1], [0.2, -1], [-0.2, -1], [0.35, 1], [-0.35, 1], [0.35, -1], [-0.35, -1]]) {
+        const rc = side > 0 ? ext.road + 0.6 + th / 2 + e : ext.pole - 0.6 - th / 2 - e, q = add2(add2(m, t, f * L), nl, rc * sgn); cs.push({ q, boxes: [textBox(q[0], q[1], th, txt, rd, 1, 2)] }); }
       const c = pick(spots, cs);
       o.text(lay('Distance Data'), c.q[0], c.q[1], th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : null }); spots.add(c.boxes);
-      if (job.cabLabels && s.cabLbl && s.cabLbl.length) cabLbl(s.cabLbl, a, b, sgn, s.cable); // v2.42.21
     }
-    for (const { P0, Q0, lines } of exLbl) { const toward = [(P0.td ? P0.td[0] : 0) + (Q0.td ? Q0.td[0] : 0), (P0.td ? P0.td[1] : 0) + (Q0.td ? Q0.td[1] : 0)], t = unit(P0.A, Q0.A), sgn = (-t[1] * toward[0] + t[0] * toward[1]) < 0 ? -1 : 1; cabLbl(lines, P0.A, Q0.A, sgn, ''); } // v2.42.21: existing cables off the new route
+    for (const [k, li] of laneInfo) { if (spanKeys.has(k)) continue; const P = byId.get(li.a), Q = byId.get(li.b); if (P && Q && P.A && Q.A) cableLabels(linesOf(null, li), P, Q); } // v2.42.20: existing cables off the new route (no span length)
     // v2.42.11: each tower, its name beside the tower where it covers nothing (the cable, the road lines, the poles, their labels,
     // the span lengths), inside the tower's GEO sheet. v2.42.13: its box as wide as AutoCAD draws it (Arial bold at the attribute's
     // width factor; it was narrower, so a name was put over the cable and the road), more places round the tower (beside it at every
@@ -2239,6 +2340,7 @@
     let nCableNames = 0;
     for (const ch of chains) {
       const txt = label.get(ch.cable); if (!txt || !ch.pieces || !ch.pieces.length) continue;
+      const own = (W) => job.cabLabels && cabAt.some(([k, q]) => k === (ch.cable || '') && q[0] >= W[0] && q[0] <= W[2] && q[1] >= W[1] && q[1] <= W[3]); // v2.42.23: the cable's own labels on that sheet: no second tag
       const th = Math.max(1.4, 2.0 * kG), off = th * 0.75 + 0.6;
       const place = (W, relaxed) => { // v2.42.10 relaxed: a sheet with no free room still gets the name, where it covers least, smaller first
         const segs = [], cands = []; let total = 0;
@@ -2264,8 +2366,8 @@
         o.text(lay('MISC'), c.q[0], c.q[1], c.h || th, txt, { rot: c.rd, ha: 1, va: 2, style: 'arial', color: (CABLE_STYLE[ch.cable] || {}).color || null }); spots.add(c.boxes); nCableNames++;
         return true;
       };
-      let n = 0; for (const W of sheetWins) if (place(W) || place(W, true)) n++; // v2.42.10: on every GEO sheet the run crosses
-      if (!n) place(null);
+      let n = 0; for (const W of sheetWins) if (own(W) || place(W) || place(W, true)) n++; // v2.42.10: on every GEO sheet the run crosses (v2.42.23: where it has no label of its own)
+      if (!n && !(job.cabLabels && cabDone.has(ch.cable || ''))) place(null);
     }
     let nPois = 0, nIcons = 0; const placed = [], poiSkip = { outside: 0, dup: 0, noRoom: 0 }; // v2.39.1: why a place was not written
     // v2.35.6: the landmark's icon (OpenStreetMap Carto / Maki, CC0) as a block of solid fills, on its own layer
