@@ -80,7 +80,7 @@ body.visiting #legendBtn,body.visiting #legend{top:calc(env(safe-area-inset-top,
 #refBtn[data-state=none] svg{opacity:.55}#refBtn[data-state=none]::after{content:'+';position:absolute;right:5px;bottom:2px;font:800 15px/1 system-ui;color:var(--accent)}
 #refMenu{position:absolute;right:calc(max(12px,env(safe-area-inset-right,0px)) + var(--tap) + 10px);bottom:calc(env(safe-area-inset-bottom,0px) + 164px);z-index:460;background:var(--surface);color:var(--ink);border-radius:var(--r);box-shadow:var(--shadow);padding:12px;display:flex;flex-direction:column;gap:8px;width:min(300px,calc(100vw - 100px))}
 #refMenu[hidden]{display:none}#refMenu .rmname{font-size:calc(12.5px * var(--fs));color:var(--muted);overflow-wrap:anywhere}#refMenu .rmrow{display:flex;flex-wrap:wrap;gap:6px}#refMenu .rmsub{font-size:calc(11px * var(--fs));font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
-body.routing #refMenu{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
+body.routing #refMenu{bottom:calc(env(safe-area-inset-bottom,0px) + 96px + var(--rtbh,72px))}
 .round[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
 #mapSummary{position:absolute;left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 92px);z-index:450;background:var(--surface);color:var(--ink);border-radius:var(--r);box-shadow:var(--shadow);padding:10px 12px;display:flex;align-items:center;gap:12px;border:0;text-align:left;width:auto}
 #mapSummary .stats{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
@@ -220,6 +220,7 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 @media (max-width:420px){.drwbar{gap:6px;padding-left:10px;padding-right:10px}.drwbar #drawDxf{padding:0 10px}.drwicon{width:44px}.drwbar select{flex-basis:104px;min-width:78px}}
 /* v2.41: the drawing style */
 .stprev,.stvic{background:#000;border-radius:12px;overflow:hidden;border:1px solid var(--line)}.stprev svg{display:block;width:100%;height:auto}.stvic{max-width:300px}.stvic svg{display:block;width:100%;height:auto}
+.strow.dim{opacity:.5}
 .stgrp{border-top:1px solid var(--line);margin-top:14px;padding-top:6px}.stgrp h3{margin:6px 0 8px;font-size:calc(14px * var(--fs))}
 .strow{display:flex;flex-direction:column;gap:6px;margin:10px 0}.strow .lbl{display:flex;justify-content:space-between;gap:8px;font-size:calc(12.5px * var(--fs));font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}.strow output{text-transform:none;letter-spacing:0;color:var(--ink);font-weight:600}
 .strow input[type=range]{width:100%}.seg{display:flex;gap:6px;flex-wrap:wrap}
@@ -607,6 +608,7 @@ body.kb .sheet{bottom:var(--kb,0px)}
 /* toast + progress */
 #toast{pointer-events:none;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 160px);z-index:3000;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;max-width:calc(100% - 32px);text-align:center;box-shadow:var(--shadow)}
 body.visiting #toast{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 64px);border-radius:14px} /* keep the card's buttons free */
+body.routing #toast{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 100px);border-radius:14px} /* v2.42.21: the route bar's buttons and the map near it free */
 #busy{position:fixed;inset:0;z-index:2500;background:rgba(0,0,0,.45);display:grid;place-items:center;padding:24px}
 #busy div{background:var(--surface);border-radius:var(--r);padding:20px;min-width:240px;max-width:100%;text-align:center;font-weight:600}
 #busy progress{width:100%;margin-top:12px;accent-color:var(--accent)}
@@ -641,7 +643,35 @@ body.visiting #toast{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 64px);b
 .span-icon{width:0!important;height:0!important;background:none;border:0}
 .span-icon .span-label{position:absolute;transform:translate(-50%,-50%)}
 .hide-labels .span-label{display:none}
-body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
+body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 96px + var(--rtbh,72px))}
+/* v2.42.21: drawing the route: one small bar, a picker above it, a hint at the top; Route tools above the bar */
+body.routing #routeBar{z-index:525}
+#rbToolsClose{min-height:30px;margin-left:auto;order:2}
+#rbStats{order:3;flex-basis:100%} /* v2.42.21: the title and Close on one line, the totals under them */
+.rb-pairs{display:flex;gap:8px;align-items:center;font-size:calc(12.5px * var(--fs));color:var(--muted)}.rb-pairs input{width:18px;height:18px}
+#rtBar{position:absolute;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:520;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:7px;display:grid;gap:5px}
+#rtBar[hidden],#rtPop[hidden],#rtHint[hidden]{display:none}
+.rt-row{display:flex;align-items:center;gap:5px;min-width:0}
+.rt-chips{display:flex;gap:5px;overflow-x:auto;min-width:0;flex:1 1 auto;scrollbar-width:none;padding:1px}.rt-chips::-webkit-scrollbar{display:none}.rt-chips .fchip{flex:none;min-height:38px}
+.rt-meta{font-size:calc(12px * var(--fs));color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px;min-width:0}
+.rt-meta.grow{flex:1 1 auto;font-size:calc(13.5px * var(--fs));color:var(--ink)}.rt-meta b{color:var(--ink);font-weight:700}.rt-warn{color:var(--warn,#b35c00);font-weight:700}
+.ib{flex:none;min-width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:700 calc(13px * var(--fs)) system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:0 9px;cursor:pointer;white-space:nowrap}
+.ib.primary,.ib[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}.ib:disabled{opacity:.4;cursor:default}
+.rt-fname{flex:1 1 auto;min-width:0;display:inline-flex;align-items:center;gap:7px;height:40px;border:0;background:none;color:var(--ink);font:800 calc(14.5px * var(--fs)) system-ui,sans-serif;padding:0 2px;white-space:nowrap;overflow:hidden;cursor:pointer}
+.rt-fname i{width:16px;height:5px;border-radius:3px;flex:none}.rt-fname i.ex{background:repeating-linear-gradient(90deg,currentColor 0 4px,transparent 4px 7px)!important}
+.rt-fname u{text-decoration:none;font-weight:700;font-size:calc(12.5px * var(--fs));border:1px solid var(--line);border-radius:7px;padding:2px 6px;overflow:hidden;text-overflow:ellipsis}
+.rt-acts{display:flex;gap:5px;flex-wrap:wrap}.rt-acts .ib{height:38px}
+.rt-ask{border:1px solid color-mix(in srgb,#ae3ec9 40%,var(--line));background:color-mix(in srgb,#ae3ec9 8%,var(--surface));border-radius:10px;padding:8px 9px;display:grid;gap:7px;font-size:calc(13px * var(--fs));line-height:1.35}.rt-ask b{font-size:calc(14px * var(--fs))}.rt-ask .rt-acts{justify-content:flex-end}
+#rtPop{position:absolute;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 92px + var(--rtbh,72px));z-index:530;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 6px 24px rgba(0,0,0,.22);padding:10px;display:grid;gap:7px;max-height:50vh;overflow-y:auto}
+#rtPop .lbl{font-size:calc(11px * var(--fs));font-weight:700;color:var(--muted);letter-spacing:.04em}
+.rt-opts{display:flex;flex-wrap:wrap;gap:6px}.rt-seg{display:flex;gap:6px}.rt-note{margin:0;font-size:calc(12px * var(--fs));color:var(--muted);line-height:1.35}
+.rt-other{display:inline-flex;gap:4px;align-items:center}.rt-other input{width:78px;height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:600 calc(13px * var(--fs)) system-ui,sans-serif;padding:0 8px}
+#rtHint{position:absolute;top:calc(env(safe-area-inset-top,0px) + 146px);left:50%;transform:translateX(-50%);z-index:470;width:max-content;max-width:calc(100% - 132px);background:rgba(15,37,71,.92);color:#fff;border-radius:16px;padding:7px 13px;font:600 calc(13px * var(--fs))/1.3 system-ui,sans-serif;text-align:center;pointer-events:none;box-shadow:var(--shadow)}
+.span-icon .rt-handle{position:absolute;display:block;width:34px;height:34px;border-radius:50%;border:3.5px solid currentColor;background:color-mix(in srgb,currentColor 14%,transparent);transform:translate(-50%,-50%);animation:rtpulse 1.6s ease-out infinite}
+@keyframes rtpulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,currentColor 55%,transparent)}100%{box-shadow:0 0 0 16px transparent}}
+@media (prefers-reduced-motion:reduce){.span-icon .rt-handle{animation:none}}
+.span-icon .rt-pass{position:absolute;transform:translate(-50%,13px);font:700 calc(10.5px * var(--fs)) ui-monospace,monospace;color:#e8590c;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 2px #fff;white-space:nowrap}
+#map.leaflet-container{touch-action:none}
 .est-bad{color:var(--bad);font-weight:600}
 
 /* profile, company list, QR */
@@ -761,15 +791,16 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
     <div id="vcBody"><div id="vcElem" class="vph"></div><div id="vcItems"></div></div>
     <div class="vc-foot"><button class="btn small" id="vcOpen" type="button">Open full record</button><button class="btn small primary" id="vcNext" type="button">Next pin ›</button></div>
   </section>
-  <div id="routeBar" hidden>
-    <div class="rb-head"><b id="rbTitle">Route</b><span id="rbStats"></span></div>
+  <div id="routeBar" hidden aria-label="Route tools">
+    <div class="rb-head"><b id="rbTitle">Route</b><span id="rbStats"></span><button class="btn sm" id="rbToolsClose" type="button" aria-label="Close Route tools (back to the small bar)">Close</button></div>
     <p class="rb-advice" id="rbAdvice" hidden></p>
     <p class="rb-hint" id="rbHint">Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.</p>
     <div class="rb-fibers" id="rbFibers" hidden></div>
     <div class="rb-fib" id="rbFib" hidden></div>
     <div class="rb-spans" id="rbSpans" hidden></div>
     <div class="rb-span" id="rbSpan" hidden></div>
-    <div class="rb-cable"><label for="rbCable">CABLE</label><select id="rbCable" aria-label="Cable type of the spans you link"></select><button class="btn sm" id="rbCableAll" type="button">Set on all spans</button></div>
+    <div class="rb-cable"><label for="rbCable">CABLE</label><select id="rbCable" aria-label="Cable type of new fibers and of the spans you link"></select><button class="btn sm" id="rbCableAll" type="button">Set on all spans</button></div>
+    <label class="rb-pairs"><input type="checkbox" id="rbPairs"> Link spans by tapping two poles (no fiber), as before</label>
     <div class="rb-btns">
       <button class="btn" id="rbAuto" type="button">Link in capture order</button>
       <button class="btn" id="rbUndo" type="button">Undo</button>
@@ -777,6 +808,9 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <button class="btn primary" id="rbDone" type="button">Done</button>
     </div>
   </div>
+  <div id="rtPop" hidden></div>
+  <div id="rtBar" hidden aria-label="Cable route"></div>
+  <div id="rtHint" hidden aria-live="polite"></div>
   <nav id="bottombar">
     <button class="navbtn" id="listBtn" hidden><svg><use href="#i-list"/></svg><span id="listLbl">Records</span></button>
     <button class="navbtn" id="drawBtn"><svg><use id="drawIco" href="#i-draw"/></svg><span id="drawLbl">Drawing</span></button>
@@ -1006,7 +1040,7 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
   </header>
   <div class="body">
     <p class="hint" style="margin-top:0">Your style for the plan DXF (on this phone). The preview changes as you set it: three poles on a street, drawn at 1:1100 like the GEO sheets.</p>
-    <div class="stprev"><svg id="stPrev" viewBox="0 0 120 70" role="img" aria-label="Preview: a street with three poles, their numbers and a NAP ID"></svg></div>
+    <div class="stprev"><svg id="stPrev" viewBox="0 0 120 70" role="img" aria-label="Preview: a street with three poles, their numbers, clamp types, the cable label and a NAP ID"></svg></div>
     <div class="stgrp" id="stNum">
       <h3>Numbers beside the points</h3>
       <div class="strow"><span class="lbl">Number colour <output id="stNumColO"></output></span><div class="sws" id="stNumCol" role="radiogroup" aria-label="Number colour"></div></div>
@@ -1022,6 +1056,18 @@ body.routing .mapbtns{bottom:calc(env(safe-area-inset-bottom,0px) + 250px)}
       <div class="strow"><span class="lbl">Bold</span><div class="seg" id="stIdBold" role="radiogroup" aria-label="Bold IDs"><button type="button" class="chip small" data-v="0">Normal</button><button type="button" class="chip small" data-v="1">Bold</button></div></div>
       <div class="strow"><span class="lbl">ID colour <output id="stIdColO"></output></span><div class="sws" id="stIdCol" role="radiogroup" aria-label="ID colour"></div></div>
       <div class="strow"><label class="lbl" for="stIdH">ID height <output id="stIdHO"></output></label><input type="range" id="stIdH" min="1.5" max="5" step="0.25"></div>
+    </div>
+    <div class="stgrp" id="stCl">
+      <h3>Clamp types and cable labels</h3>
+      <div class="strow"><span class="lbl">Clamp types on the plan</span><div class="seg" id="stClOn" role="radiogroup" aria-label="Clamp types on the plan"><button type="button" class="chip small" data-v="1">On (CA 8-10)</button><button type="button" class="chip small" data-v="0">Off (sizes only)</button></div></div>
+      <div class="strow"><span class="lbl">Where they go</span><div class="seg" id="stClPlace" role="radiogroup" aria-label="Where the clamp types go"><button type="button" class="chip small" data-v="label">In the pole label</button><button type="button" class="chip small" data-v="tag">Tag</button><button type="button" class="chip small" data-v="callout">Callout</button></div></div>
+      <div class="strow"><span class="lbl">Place of a tag or callout</span><div class="seg" id="stClPos" role="radiogroup" aria-label="Place of a tag or callout"><button type="button" class="chip small" data-v="auto">Auto</button><button type="button" class="chip small" data-v="up">Above</button><button type="button" class="chip small" data-v="down">Below</button><button type="button" class="chip small" data-v="left">Left</button><button type="button" class="chip small" data-v="right">Right</button></div></div>
+      <div class="strow"><span class="lbl">Clamp type colour <output id="stClColO"></output></span><div class="sws" id="stClCol" role="radiogroup" aria-label="Clamp type colour"></div></div>
+      <div class="strow"><label class="lbl" for="stClH">Tag or callout text height <output id="stClHO"></output></label><input type="range" id="stClH" min="1" max="5" step="0.25"></div>
+      <div class="strow"><span class="lbl">Frame round a tag or callout</span><div class="seg" id="stClBox" role="radiogroup" aria-label="Frame"><button type="button" class="chip small" data-v="1">Box</button><button type="button" class="chip small" data-v="0">None</button></div></div>
+      <div class="strow"><span class="lbl">12C hardware on a pole with only 12C</span><div class="seg" id="stClHw" role="radiogroup" aria-label="12C hardware"><button type="button" class="chip small" data-v="1">Show (RET×2 SC×4)</button><button type="button" class="chip small" data-v="0">Hide</button></div></div>
+      <div class="strow"><span class="lbl">Cable label along the spans</span><div class="seg" id="stCabOn" role="radiogroup" aria-label="Cable label on the spans"><button type="button" class="chip small" data-v="1">On (PROPOSED 12C)</button><button type="button" class="chip small" data-v="0">Off</button></div></div>
+      <div class="strow"><span class="lbl">A span with two of one cable</span><div class="seg" id="stCabWord" role="radiogroup" aria-label="A span with two of one cable"><button type="button" class="chip small" data-v="a">PROPOSED 2×12C</button><button type="button" class="chip small" data-v="b">PROPOSED 12C ×2</button></div></div>
     </div>
     <div class="stgrp" id="stVic">
       <h3>Vicinity map</h3>

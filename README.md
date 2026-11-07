@@ -536,6 +536,23 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.21
+
+Drawing the cable route on the map. No update of the online sheet needed.
+
+- **Draw with your finger**: in Route, put your finger on a pole and drag along the street; the poles you pass snap to the line (a pole across the street stays off) and light up while you drag. A drag anywhere else moves the map with one finger, as usual; pinch to zoom. Drawing near the edge moves the map.
+- **One small bar** at the bottom (two lines) instead of the route card: the fibers' chips, **＋** (the next fiber's cable), **↶**, **⋯** (Route tools), **Done**; while on a fiber: its cable, the snap, **✓**.
+- **Go on**: drag from the ring at the fiber's end, or tap the next pole (along the spans; else the poles on the straight line between come in). Tap a fiber's end to go on with it, from either end.
+- **Snap**: Auto (by the zoom) or 5, 10, 15, 20, 25 m, kept on the phone.
+- **A pole the cable only passes**: tap it on the fiber: off the fiber (no span to it, no clamp, no hardware; the poles each side are linked); tap again to put it back.
+- **Branch**: a drag from a pole in the middle of a fiber starts a new fiber there.
+- **Closures**: when you finish a fiber (✓ or Esc) and one of its ends meets another cable at a pole with no closure, the bar asks whether to add one; *Add closure* puts a new closure on the pole's record (its ID and size are set there). Never added without asking. A pole's options also have **＋ Closure**.
+- **The whole fiber's cable**: Proposed (Light 12C, Fig-8 72C, UG 144C) or Existing with its size (12C to 288C, or another): drawn dashed with its size, and left out of the BOQ, the lengths, the loops and the hardware.
+- **Undo**: ↶, or a right-click on a laptop (Ctrl+Z too).
+- **Route tools** (⋯): the route card as before (totals, the route check, spans and their runs, fibers' cards, CABLE, Link in capture order, Undo, Clear, Done), and *Link spans by tapping two poles* as before.
+- **The plan (DXF and the Drawing)**: the cable label along each span, the other side from its length: *PROPOSED 12C*, *PROPOSED 2×12C* on a shared span, *PROPOSED 72C*, *EXISTING 48C* (layer G-ESAA CABLE LABEL). A pole with only 12C (or a telco arm) shows its hardware where the clamp types go (*RET×2 SC×4*, *JH×2 SC×4*).
+- **Drawing style** (the palette): **Clamp types and cable labels**: clamp types on or off (the Drawing's CA button), in the pole label (as before), a **tag** or a **callout** (layer G-ESAA POLE CLAMP, auto place or above, below, left, right), their colour, height, frame, the 12C hardware, the cable labels on or off and *PROPOSED 2×12C* or *PROPOSED 12C ×2*. Kept on the phone with the rest of the style.
+
 ## What changed in v2.42.20
 
 Fibers (named runs). No update of the online sheet needed.

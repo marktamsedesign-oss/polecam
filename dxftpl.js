@@ -1716,6 +1716,7 @@
       });
     }
     // v2.42.20: an existing cable put on the plan (a fiber marked existing) where no new cable runs: blue, dashed, in its lane
+    const exLbl = []; // v2.42.21: their size, labelled with the span lengths
     for (const s of job.exSpans || []) {
       const P0 = byId.get(String(s.ia)), Q0 = byId.get(String(s.ib)); if (!P0 || !Q0 || !P0.A || !Q0.A) continue;
       const a = P0.A, b = Q0.A, t = unit(a, b), nl = [-t[1], t[0]], r0 = Math.max(P0.rp || 0, 1.5), r1 = Math.max(Q0.rp || 0, 1.5), gap = 1.2 * kG;
@@ -1723,6 +1724,7 @@
       const st = CABLE_STYLE[s.cab] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', off = gap * (s.off || 0);
       const line = [add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)];
       o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: CABLE_LWT, color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true }); spots.line(line, 1.0);
+      if (job.cabLabels && s.cabLbl && s.cabLbl.length) exLbl.push({ P0, Q0, lines: s.cabLbl });
     }
     // 4. poles and the other points: symbols first (they are fixed), then the labels round them
     let nOlt = 0, nInline = 0, nTelco = 0, taDef = false; const taBlk = telcoArmTop(false), siteLate = []; // (v2.42.11: towers drawn after the labels, see below)
@@ -1941,13 +1943,31 @@
         let n = [-t[1], t[0]]; if (p.td && n[0] * p.td[0] + n[1] * p.td[1] > 0) n = [-n[0], -n[1]];
         p.fw = t; p.on = n;
       }); }
+    /** v2.42.21: a pole's clamp types (and its 12C hardware) as a tag, or a callout with a leader line, beside it where it covers
+        nothing (auto: across the cable from its label first, then along the cable), on its own layer, in the style's colour and height. */
+    let clLay = null;
+    const clTag = (p, L) => {
+      const CS = job.clampStyle || {}; if (!clLay) { addLayer(d, S, 'G-ESAA POLE CLAMP', 4); clLay = 'G-ESAA POLE CLAMP'; }
+      const h = Math.max(1, (+CS.h || 2) * (p.k || 1)), lh = h * 1.4, w = Math.max(...L.map((t) => arialW(t, h, false))) + h * 0.8, ht = L.length * lh + h * 0.3, far = CS.place === 'callout' ? 6 : 1.2;
+      const ov = p.ov || p.on || [0, 1], fw = p.fw || [1, 0], POS = { up: [0, 1], down: [0, -1], left: [-1, 0], right: [1, 0] };
+      const dirs = POS[CS.pos] ? [POS[CS.pos]] : [[-ov[0], -ov[1]], fw, [-fw[0], -fw[1]], rotv([-ov[0], -ov[1]], 40), rotv([-ov[0], -ov[1]], -40), rotv(ov, 50), rotv(ov, -50)];
+      const cs = [];
+      dirs.forEach((u0, i) => { const n = Math.hypot(u0[0], u0[1]) || 1, u = [u0[0] / n, u0[1] / n], ext = Math.abs(u[0]) * w / 2 + Math.abs(u[1]) * ht / 2;
+        [0, 1.6, 3.2].forEach((more, j) => { const dd = p.rp + far + ext + more * h, A = add2(p.dp, u, dd); cs.push({ A, u, ext, boxes: [Spots.box(A[0], A[1], w, ht, 0)], cost: i * 3 + j }); }); });
+      const c = pickC(spots, cs, POLELBL_W); spots.add(c.boxes, 'clamp:' + (p.poleId || ''));
+      const col = +CS.color ? +CS.color : null, [x, y] = c.A;
+      L.forEach((t, i) => o.text(clLay, x, y + ((L.length - 1) / 2 - i) * lh, h, t, { ha: 1, va: 2, style: 'arial', color: col }));
+      if (CS.box !== false) o.lwpoly(clLay, [[x - w / 2, y - ht / 2], [x + w / 2, y - ht / 2], [x + w / 2, y + ht / 2], [x - w / 2, y + ht / 2]], { closed: true, color: col });
+      if (CS.place === 'callout') o.lwpoly(clLay, [add2(p.dp, c.u, p.rp + 0.3), add2(c.A, c.u, -c.ext)], { color: col });
+    };
     for (const p of poleOrder) {
       const H = Math.max(1.5, 2.2 * p.k), HL = Math.max(0.9, 1.2 * p.k), size = p.size || clampText(p); // size: the clamps and their size (the app records no other size of an existing pole)
+      const CS = job.clampStyle || {}, clIn = !CS.place || CS.place === 'label', clT = clampText(p), stackCl = clIn ? (clT || p.hw || '') : '', stackSz = clIn ? (size || p.hw || '') : ''; // v2.42.21: in the label (as before), or a tag / callout; a 12C-only pole: its hardware
       // v2.33: the pole tag without its material prefix (material CC + tag CC-0430621 → CC / 0430621), as the template's sample
       const bare = (v) => { const m = String(p.mat || '').trim(), t = String(v || ''); return m && t.toUpperCase().startsWith(m.toUpperCase()) && /^([-_ .][A-Z0-9]|\d)/i.test(t.slice(m.length)) && t.length > m.length ? t.slice(m.length).replace(/^[-_ .]/, '') : t; };
       const tag = bare(p.tag != null && p.tag !== '' ? p.tag : (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId));
-      const lines = p.sym.r === POLE_SYM.prop.r ? [['GT-POLE', p.label1 || 'PROP.POLE'], ['PHEIGHT', p.height || ''], ['POLE_CLAMP', clampText(p)]]
-        : p.sym.b === 'existing telecom pole' ? [['OC', p.mat || ''], ['GT-001', bare(p.poleId || '')], ['', size]] : [['CC', p.mat || ''], ['NPT', tag], ['B', size]];
+      const lines = p.sym.r === POLE_SYM.prop.r ? [['GT-POLE', p.label1 || 'PROP.POLE'], ['PHEIGHT', p.height || ''], ['POLE_CLAMP', stackCl]]
+        : p.sym.b === 'existing telecom pole' ? [['OC', p.mat || ''], ['GT-001', bare(p.poleId || '')], ['', stackSz]] : [['CC', p.mat || ''], ['NPT', tag], ['B', stackSz]];
       if (p.ownerName && p.sym.r !== POLE_SYM.prop.r && !lines.some(([, v]) => String(v).toUpperCase() === p.ownerName)) lines.push(['', p.ownerName]); // v2.42.18: the pole owner's name (the coop)
       const shown = lines.filter(([, v]) => v);
       const lat = `${p.lat.toFixed(6)}°`, lon = `${p.lon.toFixed(6)}°`;
@@ -1973,13 +1993,29 @@
       // the block keeps the values in its attributes (hidden); the labels are plain texts in one direction (the pole blocks
       // of the template are dynamic blocks, and AutoCAD would put some of their attributes back where the block wants them)
       const attrs = {}; lines.forEach(([t, v]) => { if (t) attrs[t] = { v, x: p.dp[0], y: p.dp[1], rot: c.rr, h: H, ha: 0, va: 0, hidden: true }; });
+      if (attrs.POLE_CLAMP) attrs.POLE_CLAMP.v = clT; if (attrs.B) attrs.B.v = size; // (v2.42.21: the block keeps the values wherever they are shown)
       if (p.sym.b) o.insert(lay(p.sym.layer), p.sym.b, p.dp[0], p.dp[1], { scale: p.sym.sc * p.k, center: true, attrs }); else o.circle(lay(p.sym.layer), p.dp[0], p.dp[1], p.rp);
       const look = p.sym.b ? attrLook(S, p.sym.b) : new Map();
-      c.place.forEach(([t, v, q]) => { const lk = look.get(t) || {}; o.text(lk.layer && lk.layer !== '0' ? lay(lk.layer) : lay(p.sym.layer), q[0], q[1], H, v, { rot: c.rr, ha: c.ha, va: 2, style: 'arial', color: lk.color != null ? +lk.color : null }); });
+      c.place.forEach(([t, v, q]) => { const lk = look.get(t) || {}, isCl = clIn && CS.color && v && (t === 'POLE_CLAMP' || t === 'B' || (t === '' && v === stackSz && v !== p.ownerName)); o.text(lk.layer && lk.layer !== '0' ? lay(lk.layer) : lay(p.sym.layer), q[0], q[1], H, v, { rot: c.rr, ha: c.ha, va: 2, style: 'arial', color: isCl ? +CS.color : lk.color != null ? +lk.color : null }); }); // (v2.42.21: the clamp types in the style's colour)
       o.mtext(lay('LATLONG'), c.llAt[0], c.llAt[1], HL, ll, { style: '样式 1', att: c.flip ? 6 : 4, dir: [Math.cos(c.rr * Math.PI / 180), Math.sin(c.rr * Math.PI / 180)] });
       p.ov = c.ov; p._rr = c.rr;
+      if (!clIn && (clT || p.hw)) clTag(p, [clT, p.hw].filter(Boolean)); // v2.42.21
     }
     // 5. span lengths: mid-span, on the road side of the cable (a span over the maximum in red)
+    /** v2.42.21: a span's cable label, one line each (PROPOSED 2×12C, EXISTING 48C), along the cable, the other side from its length
+        where free, on its own layer: new cables in their colour, existing ones blue. */
+    let cbLay = null;
+    const cabLbl = (lines, a, b, sgn, cable) => {
+      if (!cbLay) { addLayer(d, S, 'G-ESAA CABLE LABEL', 7); cbLay = 'G-ESAA CABLE LABEL'; }
+      const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], t = unit(a, b), rd = readable(deg(t)), nl = [-t[1], t[0]], L = dist2(a, b), th = Math.max(1.4, 2.0 * kG), off = th * 0.75 + 0.6, lh = th * 1.3, cs = [];
+      for (const [f, k] of [[0, -1], [0.2, -1], [-0.2, -1], [0, -1.8], [0, 1.9], [0.2, 1.9], [-0.2, 1.9], [0.3, -1], [-0.3, -1], [0, -2.7], [0, 2.9]]) {
+        const dir = Math.sign(k) * sgn, base = add2(add2(m, t, f * L), nl, k * off * sgn), q = lines.map((x, i) => add2(base, nl, dir * i * lh));
+        cs.push({ q, boxes: lines.map((x, i) => textBox(q[i][0], q[i][1], th, x.t, rd, 1, 2)) });
+      }
+      const c = pick(spots, cs);
+      lines.forEach((x, i) => o.text(cbLay, c.q[i][0], c.q[i][1], th, x.t, { rot: rd, ha: 1, va: 2, style: 'arial', color: x.ex ? 5 : (CABLE_STYLE[cable] || CABLE_STYLE['']).color }));
+      spots.add(c.boxes);
+    };
     for (const s of spans) {
       const P = byId.get(String(s.ia)), Q = byId.get(String(s.ib)); if (!P || !Q) continue;
       const a = P.A, b = Q.A, m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], t = unit(a, b), rd = readable(deg(t)), nl = [-t[1], t[0]];
@@ -1990,7 +2026,9 @@
       for (const [f, k] of [[0, 1], [0, -1], [0.2, 1], [-0.2, 1], [0.2, -1], [-0.2, -1], [0, 1.7], [0, -1.7], [0.35, 1], [-0.35, 1], [0.35, -1], [-0.35, -1], [0.2, 1.7], [-0.2, 1.7], [0.2, -1.7], [-0.2, -1.7], [0, 2.5], [0, -2.5], [0, 3.4], [0, -3.4]]) { const q = add2(add2(m, t, f * L), nl, k * off * sgn); cs.push({ q, boxes: [textBox(q[0], q[1], th, txt, rd, 1, 2)] }); }
       const c = pick(spots, cs);
       o.text(lay('Distance Data'), c.q[0], c.q[1], th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : null }); spots.add(c.boxes);
+      if (job.cabLabels && s.cabLbl && s.cabLbl.length) cabLbl(s.cabLbl, a, b, sgn, s.cable); // v2.42.21
     }
+    for (const { P0, Q0, lines } of exLbl) { const toward = [(P0.td ? P0.td[0] : 0) + (Q0.td ? Q0.td[0] : 0), (P0.td ? P0.td[1] : 0) + (Q0.td ? Q0.td[1] : 0)], t = unit(P0.A, Q0.A), sgn = (-t[1] * toward[0] + t[0] * toward[1]) < 0 ? -1 : 1; cabLbl(lines, P0.A, Q0.A, sgn, ''); } // v2.42.21: existing cables off the new route
     // v2.42.11: each tower, its name beside the tower where it covers nothing (the cable, the road lines, the poles, their labels,
     // the span lengths), inside the tower's GEO sheet. v2.42.13: its box as wide as AutoCAD draws it (Arial bold at the attribute's
     // width factor; it was narrower, so a name was put over the cable and the road), more places round the tower (beside it at every

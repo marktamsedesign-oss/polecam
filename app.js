@@ -732,7 +732,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.20';
+  const APP_VER = '2.42.21';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1372,7 +1372,7 @@
         ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svpin${sel ? ' sel' : ''}${p.status === 'Proposed' || p.status === 'New' ? ' new' : ''}" style="--c:${pinCol(p) || SV_COLORS[el]}">${SV_SHORT[el]}</span>`, iconSize: [30, 24], iconAnchor: [15, 12] }) })
         : L.circleMarker([p.lat, p.lon], pinLook(p, sel)); // (v2.42.19: its look in pinLook)
       m.bindTooltip(pinTip(p, R), { permanent: true, direction: 'right', offset: [sy ? 16 : !acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' });
-      m.on('click', () => (routeMode ? routeTap(p.id) : visitMode() ? openVisit(p.id) : openEditorFor(p.id)));
+      m.on('click', () => (routeMode ? (Date.now() - rtGestAt < 700 ? null : routeTap(p.id)) : visitMode() ? openVisit(p.id) : openEditorFor(p.id))); // (v2.42.21: a tap the drawing gesture took)
       m.addTo(poleLayer); pinMarkers.set(p.id, m);
     }
     pinShownSel = routeMode ? routeSel : null;
@@ -1468,7 +1468,7 @@
     // a NAP or closure pin stands on its pole: the nearest pole of the route within 30 m (as the plan draws it)
     const onRoute = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])), poles = items.filter((it) => it.el === 'Pole' && onRoute.has(it.p.id));
     items.forEach((it) => { if (it.el !== 'NAP' && it.el !== 'Closure') return; let best = null, bd = 30; poles.forEach((q) => { const dd = Math.hypot(q.xy[0] - it.xy[0], q.xy[1] - it.xy[1]); if (dd < bd) { bd = dd; best = q; } }); it.on = best; });
-    drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), exHops: R.fib ? [...R.fib.hops.values()].filter((h) => !h.s && h.fs.some((f) => f.ex)).map((h) => ({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)) })) : [], R, LA: autoLoops(pts, R), /* v2.42.20: + exHops, existing cables off the new route */ ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
+    drw = { project: S.project, items, spans: R.spans.map((sp) => ({ sp, a: U(sp.a), b: U(sp.b) })), exHops: R.fib ? [...R.fib.hops.values()].filter((h) => !h.s && h.fs.some((f) => f.ex)).map((h) => ({ a: U(R.fib.by.get(h.a)), b: U(R.fib.by.get(h.b)), lbl: (cabLabelOf({ lanes: h.fs.filter((f) => f.ex) }, plStyle().cab.word)[0] || {}).t || '' })) : [], R, LA: autoLoops(pts, R), /* v2.42.20: + exHops, existing cables off the new route */ ref, labels: true, view: null, ptrs: new Map(), sel: null, mapKind: drwMapKind(), under: null, zone: z, south: pts[0].lat < 0, seq: new Map() };
     $('drawTitle').textContent = `Drawing · ${S.project}`;
     $('drawHint').textContent = `Preview of the DXF (UTM ${z}N metres): ${pts.filter((p) => elemOf(p) === 'Pole').length} poles, ${R.spans.length} spans, ${fmtLen(R.total)}. Drag to pan, pinch or scroll to zoom, tap a point. Zoom in for the numbers or photos and, under each pole, what the plan draws on it: ARM, NAP, LOOP, CL (closure), G (guys), GR (grounding), R (riser).`;
     $('drawHint').hidden = !!S.drawHintOff; $('drawInfoBtn').setAttribute('aria-pressed', String(!S.drawHintOff));
@@ -1538,10 +1538,12 @@
       });
       if (drw.labels && Math.hypot(bx - ax, by - ay) > 46 * d) {
         let ang = Math.atan2(by - ay, bx - ax); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
+        const CBL = plStyle().cab; if (CBL.on && Math.hypot(bx - ax, by - ay) > 96 * d) { const lw = (ln ? ln.length - 1 : (sp.runs || []).length - 1) * 2.5 * d; g.save(); g.translate((ax + bx) / 2, (ay + by) / 2); g.rotate(ang); g.textAlign = 'center'; g.textBaseline = 'top'; g.font = `700 ${9.5 * d}px ui-monospace, monospace`; cabLabelOf(sp, CBL.word).forEach((x, i) => { g.fillStyle = x.ex ? '#1c7ed6' : '#c92a2a'; g.fillText(x.t, 0, 3 * d + lw + i * 11 * d); }); g.restore(); g.font = `600 ${fs}px ui-monospace, monospace`; } // v2.42.21: the cable label, under the cable
         g.save(); g.translate((ax + bx) / 2, (ay + by) / 2); g.rotate(ang); g.textAlign = 'center'; g.textBaseline = 'bottom'; g.fillStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.fillText(`${sp.len.toFixed(1)} m${ln ? (drw.R.fib && drw.R.fib.list.length > 1 ? ` ${ln.slice().sort((x, y) => x.n - y.n).map(fibTag).join('+')}` : '') : (sp.runs || []).length > 1 ? ` ×${sp.runs.length}` : ''}`, 0, -3 * d); g.restore();
       }
     });
-    (drw.exHops || []).forEach(({ a, b }) => { const [ax, ay] = drwPx(a), [bx, by] = drwPx(b); g.strokeStyle = '#4dabf7'; g.lineWidth = 1.8 * d; g.setLineDash([7 * d, 4 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); }); // v2.42.20: an existing cable
+    (drw.exHops || []).forEach(({ a, b, lbl }) => { const [ax, ay] = drwPx(a), [bx, by] = drwPx(b); g.strokeStyle = '#4dabf7'; g.lineWidth = 1.8 * d; g.setLineDash([7 * d, 4 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); // v2.42.20: an existing cable
+      if (lbl && drw.labels && plStyle().cab.on && Math.hypot(bx - ax, by - ay) > 96 * d) { let ang = Math.atan2(by - ay, bx - ax); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI; g.save(); g.translate((ax + bx) / 2, (ay + by) / 2); g.rotate(ang); g.textAlign = 'center'; g.textBaseline = 'top'; g.font = `700 ${9.5 * d}px ui-monospace, monospace`; g.fillStyle = '#1c7ed6'; g.fillText(lbl, 0, 3 * d); g.restore(); g.font = `600 ${fs}px ui-monospace, monospace`; } }); // v2.42.21: its size
     // a NAP or closure pin: a dotted line to the pole it stands on
     drw.items.forEach((it) => { if (!it.on) return; const [ax, ay] = drwPx(it.xy), [bx, by] = drwPx(it.on.xy); g.strokeStyle = 'rgba(240,140,0,0.9)'; g.lineWidth = 1.6 * d; g.setLineDash([2 * d, 3 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); });
     const placed = [], near = v.sc >= 1.4 * d, ct = S.exp.dxfClampType !== false, mode = curRow().mode, NS = plStyle().num; // (v2.42.14: the drawing shown)
@@ -1579,12 +1581,14 @@
         g.font = `600 ${fs}px ui-monospace, monospace`;
       }
     });
+    const clTags = []; // v2.42.21: clamp types as tags or callouts, placed after the labels
     drw.items.forEach((it) => { // the IDs (and the clamps and tags of a pole, close up), moved where they would cover another
       const { p, xy, el } = it; if (!drw.labels) return;
       const [px, py] = drwPx(xy), r = (el === 'Pole' ? 5 : 6) * d, prop = p.status === 'Proposed' || p.status === 'New';
       g.font = `600 ${fs}px ui-monospace, monospace`;
       const t = p.poleId || el, w = g.measureText(t).width;
-      const sub = near && el === 'Pole' ? [ct ? clampOf(p, drw.R, projPoints()).join('+') : '', (p.boq || {}).clamp || ''].filter(Boolean).join(' ') : '';
+      const CLs = plStyle().clamp, inL = !ct || CLs.place === 'label', sub0 = near && el === 'Pole' ? [ct ? clampOf(p, drw.R, projPoints()).join('+') : '', (p.boq || {}).clamp || ''].filter(Boolean).join(' ') || (ct && CLs.hw ? hwShort(p, drw.R) : '') : ''; // v2.42.21: or its 12C hardware
+      const sub = inL ? sub0 : ''; if (!inL && sub0) clTags.push([px, py, r, sub0]);
       const tags = near && el === 'Pole' ? poleTags(it) : [];
       const fs2 = 9.5 * d; g.font = `600 ${fs2}px ui-monospace, monospace`; const w2 = sub ? g.measureText(sub).width : 0; g.font = `600 ${fs}px ui-monospace, monospace`;
       const tw = tags.reduce((t2, [x]) => t2 + x.length * 6.2 * d + 6 * d, 0);
@@ -1597,10 +1601,18 @@
       g.fillStyle = 'rgba(251,251,248,0.85)'; g.fillRect(px + pos[0] - 2, py + pos[1] - 1, W + 4, H + 2);
       g.fillStyle = pinCol(p) || (prop ? '#c92a2a' : '#1b1b1b'); g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText(t, px + pos[0], py + pos[1]);
       let yy = py + pos[1] + fs;
-      if (sub) { g.font = `600 ${fs2}px ui-monospace, monospace`; g.fillStyle = '#0c8599'; g.fillText(sub, px + pos[0], yy + 1 * d); yy += fs2 + 2 * d; }
+      if (sub) { g.font = `600 ${fs2}px ui-monospace, monospace`; g.fillStyle = ACI_INK[plStyle().clamp.color] || '#0c8599'; g.fillText(sub, px + pos[0], yy + 1 * d); yy += fs2 + 2 * d; }
       if (tags.length) { let xx = px + pos[0]; g.font = `700 ${8.5 * d}px system-ui, sans-serif`; g.textBaseline = 'middle';
         tags.forEach(([tg, col]) => { const tw1 = tg.length * 6.2 * d + 4 * d; g.fillStyle = col; g.fillRect(xx, yy + 1 * d, tw1, 11 * d); g.fillStyle = '#ffffff'; g.fillText(tg, xx + 2 * d, yy + 7 * d); xx += tw1 + 2 * d; }); }
     });
+    { const CLs = plStyle().clamp, col = ACI_INK[CLs.color] || '#0c8599', fs3 = Math.max(8, 4.6 * CLs.h) * d, far = (CLs.place === 'callout' ? 26 : 7) * d; // v2.42.21: a tag or a callout beside the pole
+      const DIRS = { up: [[0, -1]], down: [[0, 1]], left: [[-1, 0]], right: [[1, 0]] }[CLs.pos] || [[-0.7, -0.7], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [0, -1], [0, 1]];
+      clTags.forEach(([px, py, r, t]) => { g.font = `700 ${fs3}px ui-monospace, monospace`; const w = g.measureText(t).width + 6 * d, h = fs3 + 5 * d;
+        let best = null; for (const [ux, uy] of DIRS) { const cx = px + ux * (r + far + w / 2 * Math.abs(ux)), cy = py + uy * (r + far + h / 2 * Math.abs(uy)), bx = [cx - w / 2, cy - h / 2, w, h]; if (free(bx)) { best = [ux, uy, cx, cy, bx]; break; } if (!best) best = [ux, uy, cx, cy, bx]; }
+        const [ux, uy, cx, cy, bx] = best; placed.push(bx);
+        if (CLs.place === 'callout') { g.strokeStyle = col; g.lineWidth = 1.1 * d; g.beginPath(); g.moveTo(px + ux * r, py + uy * r); g.lineTo(cx - ux * w / 2, cy - uy * h / 2); g.stroke(); }
+        g.fillStyle = 'rgba(251,251,248,0.92)'; g.fillRect(bx[0], bx[1], w, h); if (CLs.box) { g.strokeStyle = col; g.lineWidth = 1 * d; g.strokeRect(bx[0], bx[1], w, h); }
+        g.fillStyle = col; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, cx, cy + 0.5 * d); }); }
     // north arrow and scale bar
     g.fillStyle = '#1b1b1b'; g.strokeStyle = '#1b1b1b'; g.lineWidth = 1.5 * d;
     const nx = cv.width - 26 * d, ny = 30 * d; g.beginPath(); g.moveTo(nx, ny - 14 * d); g.lineTo(nx + 7 * d, ny + 8 * d); g.lineTo(nx, ny + 3 * d); g.lineTo(nx - 7 * d, ny + 8 * d); g.closePath(); g.fill();
@@ -1770,18 +1782,21 @@
      circle, distance, leader line, where), the IDs of the points on the cable (bold, colour, height) and the vicinity map (circle and
      route colour and width). Defaults: the numbers yellow, 3 m high in a 7 m circle, 2 m from the point with a leader line, at the
      first free spot; the IDs as before (2.5 m, by layer); the circle yellow. Sizes are metres of the drawing (1:1100: 1 m = 0.9 mm). */
-  const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto' }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5 } };
+  const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto' }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5 },
+    clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a' } }; // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
   function plStyle() {
     const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d);
-    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) };
+    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) };
     return { num: { color: c(N.color, 2), bcolor: c(N.bcolor, 0, true), h: n(N.h, 1, 12, 3), d: n(N.d, 0, 25, 7), g: n(N.g, 0, 25, 2), leader: N.leader !== false, place: N.place === 'out' ? 'out' : 'auto' },
-      id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5) } };
+      id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5) },
+      clamp: { place: ['label', 'tag', 'callout'].includes(Cl.place) ? Cl.place : 'label', pos: ['auto', 'up', 'down', 'left', 'right'].includes(Cl.pos) ? Cl.pos : 'auto', color: c(Cl.color, 0, true), h: n(Cl.h, 1, 5, 2), box: Cl.box !== false, hw: Cl.hw !== false },
+      cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a' } };
   }
   const setPl = (part, k, v) => { const cur = plStyle(); S.plStyle = { ...cur, [part]: { ...cur[part], [k]: v } }; persist(); renderStyle(); };
   const mmOf = (m) => (m / 1.1).toFixed(1);
   function plSummary() {
-    const P = plStyle(), N = P.num, I = P.id, V = P.vic;
-    return `Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${ACI_NAME[V.circle]} circle ${V.circleW} m wide, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide`;
+    const P = plStyle(), N = P.num, I = P.id, V = P.vic, Cl = P.clamp, Cb = P.cab, ct = S.exp.dxfClampType !== false;
+    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? ACI_NAME[Cl.color] : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? (Cb.word === 'b' ? 'PROPOSED 12C ×2' : 'PROPOSED 2×12C') : 'off'} · Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${ACI_NAME[V.circle]} circle ${V.circleW} m wide, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide`;
   }
   function openStyle() { renderStyle(); openSheet('drwStyle'); }
   function renderStyle() {
@@ -1790,22 +1805,29 @@
       const opts = (zero ? [[0, zero]] : []).concat([1, 2, 3, 4, 5, 6, 7].map((k) => [k, ACI_NAME[k]]));
       opts.forEach(([k, nm]) => { const b = document.createElement('button'); b.type = 'button'; b.className = `sw2${k ? '' : ' txt'}`; b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(val === k)); b.setAttribute('aria-label', k ? `${nm} (AutoCAD colour ${k})` : nm); b.title = b.getAttribute('aria-label');
         if (k) b.style.setProperty('--c', ACI_HEX[k]); else b.textContent = nm; b.addEventListener('click', () => setPl(part, key, k)); box.appendChild(b); }); };
+    sw('stClCol', P.clamp.color, 'By layer', 'clamp', 'color'); // v2.42.21
     sw('stNumCol', N.color, null, 'num', 'color'); sw('stNumBCol', N.bcolor, 'Same as the number', 'num', 'bcolor'); sw('stIdCol', I.color, 'By layer (as before)', 'id', 'color'); sw('stVicCol', V.circle, null, 'vic', 'circle'); sw('stVicRCol', V.route, 'By cable', 'vic', 'route');
     const o = (id, t) => { $(id).textContent = t; };
+    o('stClColO', P.clamp.color ? ACI_NAME[P.clamp.color] : 'by layer'); // v2.42.21
     o('stNumColO', ACI_NAME[N.color]); o('stNumBColO', N.bcolor ? ACI_NAME[N.bcolor] : 'as the number'); o('stIdColO', I.color ? ACI_NAME[I.color] : 'by layer'); o('stVicColO', ACI_NAME[V.circle]); o('stVicRColO', V.route ? ACI_NAME[V.route] : 'by cable');
-    [['stNumH', N.h], ['stNumD', N.d], ['stNumG', N.g], ['stIdH', I.h], ['stVicW', V.circleW], ['stVicRW', V.routeW]].forEach(([id, v]) => { if (document.activeElement !== $(id)) $(id).value = String(v); });
+    [['stNumH', N.h], ['stNumD', N.d], ['stNumG', N.g], ['stIdH', I.h], ['stVicW', V.circleW], ['stVicRW', V.routeW], ['stClH', P.clamp.h]].forEach(([id, v]) => { if (document.activeElement !== $(id)) $(id).value = String(v); });
     o('stNumHO', `${N.h} m · ${mmOf(N.h)} mm`); o('stNumDO', N.d > 0 ? `${N.d} m · ${mmOf(N.d)} mm` : 'no circle'); o('stNumGO', `${N.g} m · ${mmOf(N.g)} mm`); o('stIdHO', `${I.h} m · ${mmOf(I.h)} mm`); o('stVicWO', `${V.circleW} m`); o('stVicRWO', `${V.routeW} m`);
     const seg = (id, v) => $(id).querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
     seg('stNumLeader', N.leader ? '1' : '0'); seg('stNumPlace', N.place); seg('stIdBold', I.bold ? '1' : '0');
+    seg('stClOn', S.exp.dxfClampType !== false ? '1' : '0'); seg('stClPlace', P.clamp.place); seg('stClPos', P.clamp.pos); seg('stClBox', P.clamp.box ? '1' : '0'); seg('stClHw', P.clamp.hw ? '1' : '0'); seg('stCabOn', P.cab.on ? '1' : '0'); seg('stCabWord', P.cab.word);
+    o('stClHO', `${P.clamp.h} m · ${mmOf(P.clamp.h)} mm`); ['stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'].forEach((id) => { const r = $(id) && $(id).closest('.strow'); if (r) r.classList.toggle('dim', S.exp.dxfClampType === false || (P.clamp.place === 'label' && ['stClPos', 'stClH', 'stClBox'].includes(id))); }); $('stCabWord').closest('.strow').classList.toggle('dim', !P.cab.on);
     o('stSum', plSummary());
     drawStylePreview(P); drawVicPreview(P);
     if (drw && !$('drawing').hidden) { drawDrawing(); renderDrawLegend(); }
   }
-  [['stNumH', 'num', 'h'], ['stNumD', 'num', 'd'], ['stNumG', 'num', 'g'], ['stIdH', 'id', 'h'], ['stVicW', 'vic', 'circleW'], ['stVicRW', 'vic', 'routeW']].forEach(([id, part, key]) => $(id).addEventListener('input', () => setPl(part, key, +$(id).value)));
+  [['stNumH', 'num', 'h'], ['stNumD', 'num', 'd'], ['stNumG', 'num', 'g'], ['stIdH', 'id', 'h'], ['stVicW', 'vic', 'circleW'], ['stVicRW', 'vic', 'routeW'], ['stClH', 'clamp', 'h']].forEach(([id, part, key]) => $(id).addEventListener('input', () => setPl(part, key, +$(id).value)));
   $('stNumLeader').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('num', 'leader', b.dataset.v === '1'); });
   $('stNumPlace').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('num', 'place', b.dataset.v); });
   $('stIdBold').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('id', 'bold', b.dataset.v === '1'); });
-  $('stReset').addEventListener('click', () => { delete S.plStyle; persist(); renderStyle(); toast('Drawing style: the defaults', 2000); });
+  [['stClPlace', 'clamp', 'place', (v) => v], ['stClPos', 'clamp', 'pos', (v) => v], ['stClBox', 'clamp', 'box', (v) => v === '1'], ['stClHw', 'clamp', 'hw', (v) => v === '1'], ['stCabOn', 'cab', 'on', (v) => v === '1'], ['stCabWord', 'cab', 'word', (v) => v]]
+    .forEach(([id, part, key, val]) => $(id).addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl(part, key, val(b.dataset.v)); })); // v2.42.21
+  $('stClOn').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; S.exp.dxfClampType = b.dataset.v === '1'; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); }); // (the Drawing's CA button too)
+  $('stReset').addEventListener('click', () => { delete S.plStyle; S.exp.dxfClampType = true; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Drawing style: the defaults', 2000); }); // (v2.42.21: clamp types on again)
   $('stDone').addEventListener('click', () => closeSheet());
   /** The style preview: a street with three poles 40 m apart (1:1 metres), their labels and numbers, a NAP with its ID. */
   function drawStylePreview(P) {
@@ -1820,12 +1842,20 @@
     // a NAP on the cable in front of the middle pole, its ID in the IDs' style
     el('rect', { x: 55.2, y: yTop + 1.4 - 1.8, width: 9.6, height: 3.6, rx: 1.8, fill: '#000', stroke: '#00ff00', 'stroke-width': 0.2 }); el('text', { x: 60, y: yTop + 1.4 + 1.2, fill: '#fff', 'font-size': 3, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, 'N');
     el('text', { x: 60, y: yTop + 1.4 + 1.8 + I.h * 1.05, fill: ACI_HEX[I.color] || '#ffffff', 'font-size': I.h, 'font-weight': I.bold ? 800 : 400, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, 'NAP-0001');
-    [[20, '4303175', 'CA 8-9'], [60, '4303168', 'CA 5-7'], [100, '4303161', '2A 10-12']].forEach(([x, id, cl], i) => {
+    const Cl = P.clamp, ct = S.exp.dxfClampType !== false, clCol = ACI_HEX[Cl.color] || '#00ffff', inL = !ct || Cl.place === 'label'; // v2.42.21
+    if (P.cab.on) [[40, 'PROPOSED 12C'], [80, P.cab.word === 'b' ? 'PROPOSED 12C ×2' : 'PROPOSED 2×12C']].forEach(([x, t]) => el('text', { x, y: yTop + 1.4 + 2.6, fill: '#ff0000', 'font-size': 1.8, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, t));
+    [[20, '4303175', ct ? 'CA 8-9' : '8-9'], [60, '4303168', ct && Cl.hw ? 'RET×2 SC×4' : ''], [100, '4303161', ct ? '2A 10-12' : '10-12']].forEach(([x, id, cl0], i) => {
+      const cl = inL ? cl0 : ''; // a tag or a callout: the clamp types beside the pole, not in its label
+      if (!inL && cl0) { const w = cl0.length * Cl.h * 0.56 + 1, h = Cl.h * 1.35, far = Cl.place === 'callout' ? 9 : 3.2, py0 = yTop - 2.5 - (i === 1 ? 1.2 : 0), dir = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[Cl.pos] || [-0.6, -0.8];
+        const cx = x + dir[0] * (far + w / 2), cy = py0 + dir[1] * (far + h / 2);
+        if (Cl.place === 'callout') el('line', { x1: x + dir[0] * 1.3, y1: py0 + dir[1] * 1.3, x2: cx - dir[0] * w / 2, y2: cy - dir[1] * h / 2, stroke: clCol, 'stroke-width': 0.2 });
+        if (Cl.box) el('rect', { x: cx - w / 2, y: cy - h / 2, width: w, height: h, fill: '#000', stroke: clCol, 'stroke-width': 0.18 });
+        el('text', { x: cx, y: cy + Cl.h * 0.36, fill: clCol, 'font-size': Cl.h, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, cl0); }
       const py = yTop - 2.5 - (i === 1 ? 1.2 : 0), rp = 1.1;
       el('circle', { cx: x, cy: py, r: rp, fill: 'none', stroke: '#fff', 'stroke-width': 0.15 });
       el('line', { x1: x - rp * 0.7, y1: py - rp * 0.7, x2: x + rp * 0.7, y2: py + rp * 0.7, stroke: '#fff', 'stroke-width': 0.15 }); el('line', { x1: x - rp * 0.7, y1: py + rp * 0.7, x2: x + rp * 0.7, y2: py - rp * 0.7, stroke: '#fff', 'stroke-width': 0.15 });
       const R0 = N.d / 2, h0 = Math.max(R0, N.h * 0.46, N.h / 2), lx = x + (N.place === 'out' ? Math.max(2.2, h0 + 0.8) : 2.2);
-      [['CC', '#ffffff'], [id, '#00ff00'], [cl, '#00ffff']].forEach(([t, c], k) => el('text', { x: lx, y: py - 1.2 - (2.4 - k) * 2.6, fill: c, 'font-size': 2.2, 'font-family': 'Arial, sans-serif' }, t));
+      [['CC', '#ffffff'], [id, '#00ff00'], [cl, ct ? clCol : '#00ffff']].forEach(([t, c], k) => el('text', { x: lx, y: py - 1.2 - (2.4 - k) * 2.6, fill: c, 'font-size': 2.2, 'font-family': 'Arial, sans-serif' }, t));
       el('text', { x: lx, y: py - 0.2, fill: '#fff', 'font-size': 1.1, 'font-style': 'italic', 'font-family': 'Times New Roman, serif' }, `7.16${3 + i}334°  125.57${3 + i}313°`);
       const half = Math.max(R0, N.h * 0.46, N.h / 2), dir = N.place === 'out' ? [0, -1] : [-0.985, -0.17], dist = rp + N.g + half, cx = x + dir[0] * dist, cy = py + dir[1] * dist;
       if (N.leader) el('line', { x1: x + dir[0] * rp, y1: py + dir[1] * rp, x2: cx - dir[0] * half, y2: cy - dir[1] * half, stroke: bcol, 'stroke-width': 0.2 });
@@ -2098,6 +2128,9 @@
   /* ================= route and spans (survey projects) ================= */
   let routeMode = false, routeSel = null, routeUndo = [], routeProj = null, spanSel = null; // v2.42.18: spanSel: the span whose runs are shown // v2.42.4: routeProj: the project being linked
   let fibSel = null, fibAdd = null, lastR = null; // v2.42.20: the fiber selected (its whole way lit), the fiber points are being added to, the route last drawn
+  /* v2.42.21: drawing the route (see 'draw the cable route on the map' below) */
+  let fibAt = 'end', fibTouched = false, fibStartAt = null, fibNew = false, rtTools = false, rtPairs = false, rtPend = [], rtPop = null, rtDraft = null, rtPress = null, rtGestAt = 0, rtAsked = new Set(), rtHintT = 0, rtPq = 0, rtEdge = null, rtEdgeRaf = 0;
+  const rtDraftLayer = L.layerGroup().addTo(map), rtMarkLayer = L.layerGroup().addTo(map);
   const routeLayer = L.layerGroup().addTo(map), fibLayer = L.layerGroup().addTo(map);
   map.createPane('routePane'); map.getPane('routePane').style.zIndex = 395; // v2.42.19: the route under the pins (overlay 400), whatever is drawn last: a pin is tapped, not the span under it
   const links = () => (pmeta().links || []);
@@ -2201,12 +2234,12 @@
         for (let i = nr - 1; i >= 1; i--) { const c2 = CAB[s.runs[i]]; L.polyline(ll, { pane: 'routePane', color: c2 ? c2.css : '#868e96', weight: 4 + 5 * i, opacity: 0.55, lineCap: 'butt', interactive: false }).addTo(routeLayer); } // v2.42.18: run 2, run 3… as bands round run 1
         L.polyline(ll, { pane: 'routePane', color: s.long ? '#c92a2a' : hasF ? '#868e96' : cab ? cab.css : '#868e96', weight: 4, opacity: 0.9, dashArray: s.long ? '8 6' : hasF ? '6 6' : cab && cab.method === 'UG' ? '2 7' : null, lineCap: 'round', interactive: false }).addTo(routeLayer);
       }
-      if (routeMode) L.polyline(ll, { pane: 'routePane', color: '#000', weight: 22, opacity: 0.01, interactive: true, bubblingMouseEvents: false }).on('click', (e) => { L.DomEvent.stop(e); spanSel = [s.ia, s.ib]; routeSel = null; routeRefresh(); spanInView(s); }).addTo(routeLayer); // v2.42.18: tap a span: its runs
+      if (routeMode) L.polyline(ll, { pane: 'routePane', color: '#000', weight: 22, opacity: 0.01, interactive: true, bubblingMouseEvents: false }).on('click', (e) => { L.DomEvent.stop(e); if (Date.now() - rtGestAt < 700) return; spanSel = [s.ia, s.ib]; routeSel = null; rtTools = true; routeRefresh(); spanInView(s); }).addTo(routeLayer); // v2.42.18: tap a span: its runs (v2.42.21: in Route tools)
       const tags = nf ? ` ${s.lanes.slice().sort((x, y) => x.n - y.n).map((f) => `<b style="color:${fibColor(f)}">${fibTag(f)}</b>`).join(' ')}` : nr > 1 ? ` ×${nr}` : ''; // v2.42.20: its fibers
       L.marker([(s.a.lat + s.b.lat) / 2, (s.a.lon + s.b.lon) / 2], { interactive: false, keyboard: false,
         icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label${s.long ? ' long' : ''}">${s.len.toFixed(0)} m${tags}</span>`, iconSize: null }) }).addTo(routeLayer);
     }
-    drawFibLanes(R);
+    drawFibLanes(R); drawRtMarks(R);
     for (const p of projPoints()) {
       const info = R.poles[p.id];
       if (info && (info.role === 'Angle' || info.role === 'Junction')) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 14, color: info.role === 'Angle' ? '#e8590c' : '#9c36b5', weight: 2, fill: false, interactive: false }).addTo(routeLayer);
@@ -2234,7 +2267,19 @@
         L.marker(map.unproject(L.point((a.x + b.x) / 2, (a.y + b.y) / 2), z), { pane: 'routePane', interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html: `<span class="fib-arrow" style="color:${col};transform:translate(-50%,-50%) rotate(${ang.toFixed(1)}deg)">➤</span>`, iconSize: null }) }).addTo(fibLayer); }
     }
   }
-  map.on('zoomend', () => { if (lastR && lastR.fib && !isAcc()) drawFibLanes(lastR); });
+  /** v2.42.21: in Route, the end of the fiber you are on (a ring that pulses: drag from it), the ends of the fibers (rings), and the
+      points the fiber passes without being on them (dashed, 'passes': tap one to put it on). */
+  function drawRtMarks(R) {
+    rtMarkLayer.clearLayers(); if (!routeMode || isAcc() || !R || !R.fib) return;
+    const by = R.fib.by, A = fibAdd != null ? R.fib.list.find((f) => f.n === fibAdd) : null, mk = (p, html) => L.marker([p.lat, p.lon], { pane: 'routePane', interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html, iconSize: null }) }).addTo(rtMarkLayer);
+    R.fib.list.forEach((f) => { if (A && f !== A) return; (f.path.length > 1 ? [f.path[0], f.path[f.path.length - 1]] : f.path).forEach((id) => {
+      const p = by.get(id); if (!p) return; const open = f === A && id === (fibAt === 'start' ? f.path[0] : f.path[f.path.length - 1]);
+      if (open) mk(p, `<span class="rt-handle" style="color:${fibColor(f)}"></span>`);
+      else if (A || !['ODF', 'ODC', 'Site'].includes(elemOf(p))) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 12, color: fibColor(f), weight: 2.5, fill: false, interactive: false }).addTo(rtMarkLayer); }); });
+    if (A) fibPasses(A, by).forEach((id) => { const p = by.get(id); if (!p) return; L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 13, color: '#e8590c', weight: 2, dashArray: '3 3', fill: false, interactive: false }).addTo(rtMarkLayer); mk(p, '<span class="rt-pass">passes</span>'); });
+    if (fibStartAt != null) { const p = by.get(fibStartAt) || routePts().find((x) => x.id === fibStartAt); if (p) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 16, color: '#1b3a6b', weight: 3, dashArray: '5 4', fill: false, interactive: false }).addTo(rtMarkLayer); }
+  }
+  map.on('zoomend', () => { if (lastR && lastR.fib && !isAcc()) drawFibLanes(lastR); if (routeMode && lastR) { drawRtMarks(lastR); if (fibAdd != null) renderRtBar(lastR); } });
   /** v2.37: the route check. A 72C run needs a closure before every 4 km and a 12C run a dummy NAP (or a closure) before every 2 km,
       counted from the homing (a site or ODF; else the run's first end): the last pole before the limit is recommended. A dummy NAP
       cannot be on a 72C cable or at a point of insertion (a pole with a closure). NAP and closure pins count on their nearest pole
@@ -2284,6 +2329,16 @@
     return { items, noClamp: n12 > 0 && !nOther };
   }
   const hwText = (items) => (items || []).map(([i, n, sz]) => `${i} ${sz.split(' · ')[0]} ×${n}`).join(' + ');
+  /** v2.42.21: on the plan, a pole with no pole clamps (only 12C, or a telco arm): its hardware, short (RET×2 SC×4; a telco arm JH×2 SC×4). */
+  const HW_AB = { Retractor: 'RET', 'Span clamp': 'SC', 'J-hook': 'JH', 'Suspension clamp': 'SUSP' };
+  function hwShort(p, R) { if (!p || elemOf(p) !== 'Pole' || !R) return ''; const h = hwOf(p, R); return h.noClamp && h.items.length ? h.items.map(([i, n]) => `${HW_AB[i] || i}×${n}`).join(' ') : ''; }
+  /** v2.42.21: a span's cable label: the new cables on it (PROPOSED 12C, PROPOSED 2×12C, PROPOSED 72C + 12C) and the existing ones by
+      size (EXISTING 48C), each a line: [{ t, ex }]. word 'b': PROPOSED 12C ×2. */
+  function cabLabelOf(s, word) {
+    const sh = (k) => (k === 'F72' ? '72C' : k === 'L12' ? '12C' : k === 'U144' ? '144C UG' : ''), grp = (arr) => { const m = new Map(); arr.filter(Boolean).forEach((t) => m.set(t, (m.get(t) || 0) + 1)); return [...m].map(([t, n]) => (n > 1 ? (word === 'b' ? `${t} ×${n}` : `${n}×${t}`) : t)).join(' + '); };
+    const lanes = s.lanes && s.lanes.length ? s.lanes : null, nw = lanes ? lanes.filter((f) => !f.ex).map((f) => sh(f.cab)) : (s.runs || [s.cable]).map(sh), ex = lanes ? lanes.filter((f) => f.ex).map((f) => `${exCores(f)}C`) : [];
+    return [nw.filter(Boolean).length ? { t: `PROPOSED ${grp(nw)}`, ex: false } : null, ex.length ? { t: `EXISTING ${grp(ex)}`, ex: true } : null].filter(Boolean);
+  }
   function clampAuto(p, R, all) {
     const b = p.boq || {}, guys = String(b.guy || '').split(' + ').filter(Boolean), arm = String(b.arm || '');
     if (hwOf(p, R).noClamp) return []; // v2.42.18: a 12C-only pole or a telco arm: no pole clamps
@@ -2537,8 +2592,8 @@
     $('rbStats').textContent = `${R.long} longer than ${pol().maxSpan || 200} m · ${R.angle} angle · ${R.junction} junction · ${R.off} not linked · ${Object.entries(byCab).map(([k, m]) => `${CAB[k] ? CAB[k].short : 'not set'} ${fmtLen(m)}`).join(' · ')}${LP.n ? ` · MLoop ${LP.nMan}${LP.nAuto ? ` + ${LP.nAuto} added by the app` : ''}` : ''}${LP.open ? ` · MLoop not answered: ${LP.open}` : ''}${LP.nBox ? ` · HH/MH/SB loops ${LP.nBox} × ${BOX_LOOP_M} m` : ''}`;
     const A = routeAdvice(R); $('rbAdvice').hidden = !A.length; $('rbAdvice').textContent = A.length ? `⚠ ${A.map((a) => a.text).join(' · ')}` : ''; // v2.37
     const sel = routeSel && points.find((p) => p.id === routeSel);
-    $('rbHint').textContent = fibAdd != null ? fibHint() : sel ? `${sel.poleId} selected. Tap the next pole to link it (tap a linked pole to unlink), or tap ${sel.poleId} again to stop.`
-      : 'Tap a pole, then the next pole to link them. Tap a linked pair again to unlink. Tap a pole to see its spans and their fibers.';
+    $('rbHint').textContent = fibAdd != null ? fibHint() : !rtPairs ? `Draw on the map: drag from a pole (a drag elsewhere moves the map). Here: ${sel ? `${sel.poleId}'s spans, ` : ''}each span's runs, each fiber's details, Link in capture order, Clear.` : sel ? `${sel.poleId} selected. Tap the next pole to link it (tap a linked pole to unlink), or tap ${sel.poleId} again to stop.`
+      : 'Tap a pole, then the next pole to link them. Tap a linked pair again to unlink. Tap a pole to see its spans and their fibers.'; // (v2.42.21: linking by pairs is a choice in Route tools)
     { // v2.42.19: the selected pole's spans: tap one for its runs (Run 2, Run 3…), at any zoom (v2.42.20: its fibers)
       const box = $('rbSpans'), at = sel && !spanSel && fibAdd == null ? R.spans.filter((s) => s.ia === sel.id || s.ib === sel.id) : [];
       box.hidden = !at.length; box.innerHTML = '';
@@ -2551,6 +2606,7 @@
     $('rbUndo').disabled = !routeUndo.length;
     renderFibers(R); // v2.42.20
     renderSpanPanel(R); // v2.42.18
+    renderRtBar(R); // v2.42.21
   }
   /* v2.42.20: the fibers in Route. A row of chips (All, F1, F2…, + Fiber), the selected fiber's card (its ends, cable, side, new or
      existing, + Add points, Reverse, Delete), and over a selected closure pole the fibers there. + Add points: each tap adds the next
@@ -2571,7 +2627,7 @@
     if (sel) { const e = fibEnd({ path: [sel.id] }, 'from', by), here = all.filter((f) => f.path.includes(sel.id));
       if (e.kind === 'Closure') head = `<div class="clo">Closure ${hEsc(e.ref)} at ${hEsc(sel.poleId || '')}${here.length ? `: ${here.map((f) => { const i = f.path.indexOf(sel.id), sd = fibSide(f, all, by); return `F${f.n} ${i === 0 ? `starts${sd ? ` (${sd})` : ''}` : i === f.path.length - 1 ? 'ends' : 'passes'}`; }).join(' · ')}` : ': no fiber yet'}</div>`; }
     box.innerHTML = head + '<span class="lbl">FIBERS</span>' + `<button class="fchip" type="button" data-fb="all" aria-pressed="${fibSel == null}">All</button>`
-      + all.map((f) => { const sd = fibSide(f, all, by); return `<button class="fchip" type="button" data-fb="${f.n}" aria-pressed="${fibSel === f.n}"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i>F${f.n} · ${f.ex ? 'existing' : cabS(f.cab)}${sd ? ` · ${sd}` : ''}</button>`; }).join('')
+      + all.map((f) => { const sd = fibSide(f, all, by); return `<button class="fchip" type="button" data-fb="${f.n}" aria-pressed="${fibSel === f.n}"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i>F${f.n} · ${f.ex ? `existing ${exCores(f)}C` : cabS(f.cab)}${sd ? ` · ${sd}` : ''}</button>`; }).join('')
       + `<button class="fchip add" type="button" data-fb="new">+ Fiber${sel ? ` from ${hEsc(sel.poleId || '')}` : ''}</button>`;
     box.hidden = false;
     const f = fibSel != null ? all.find((x) => x.n === fibSel) : null;
@@ -2582,11 +2638,11 @@
       return `<select data-fa="${w}St" aria-label="${w === 'to' ? 'End' : 'Start'}: new or existing"><option value=""${v ? '' : ' selected'}>${hEsc(e.state || 'New')} (record)</option><option value="New"${v === 'New' ? ' selected' : ''}>New</option><option value="Existing"${v === 'Existing' ? ' selected' : ''}>Existing</option></select>`; };
     const shares = [...info.values()].filter((g) => g.n !== f.n && !g.ex).map((g) => { let m = 0, k = 0; for (let i = 1; i < f.path.length; i++) { const h = R.fib && R.fib.hops.get(spanKey(f.path[i - 1], f.path[i])); if (h && h.fs.some((x) => x.n === g.n)) { k++; m += h.s ? h.s.len : 0; } } return k ? `${k} span${k === 1 ? '' : 's'} (${fmtLen(m)}) with F${g.n}` : ''; }).filter(Boolean);
     const cabOpts = Object.entries(CAB).map(([k, c]) => `<option value="${k}"${k === f.cab ? ' selected' : ''}>${hEsc(c.short)}</option>`).join(''); // (short: three selects fit a phone)
-    card.innerHTML = `<div class="rf-head"><b><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i>Fiber ${f.n}${sd ? ` · ${sd}` : ''}${f.ex ? ' · existing cable' : ''}</b><span>${fi.spans || 0} span${fi.spans === 1 ? '' : 's'} · ${fmtLen(fi.len || 0)}</span><button class="btn sm" type="button" data-fa="close" aria-label="Close the fiber">✕</button></div>`
+    card.innerHTML = `<div class="rf-head"><b><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i>Fiber ${f.n}${sd ? ` · ${sd}` : ''}${f.ex ? ` · existing ${exCores(f)}C` : ''}</b><span>${fi.spans || 0} span${fi.spans === 1 ? '' : 's'} · ${fmtLen(fi.len || 0)}</span><button class="btn sm" type="button" data-fa="close" aria-label="Close the fiber">✕</button></div>`
       + `<div class="rf-ends"><span>From <b>${endTxt('from')}</b></span>${stSel('from')}<span>To <b>${endTxt('to')}</b></span>${stSel('to')}</div>`
       + (shares.length ? `<p class="rb-hint">Shares ${shares.join('; ')}</p>` : '') + (f.ex ? '<p class="rb-hint">An existing cable: drawn on the plan (dashed), not in the BOQ, the cable lengths, the loops or the hardware.</p>' : '')
       + `<div class="rf-row"><select data-fa="cab" aria-label="Cable of Fiber ${f.n}">${cabOpts}</select><select data-fa="side" aria-label="Side of Fiber ${f.n} (auto: as on the plan)" title="Auto: as on the plan (the leg ending furthest east is right)"><option value="auto"${!f.side || f.side === 'auto' ? ' selected' : ''}>Side: auto</option><option value="right"${f.side === 'right' ? ' selected' : ''}>Right</option><option value="left"${f.side === 'left' ? ' selected' : ''}>Left</option><option value="none"${f.side === 'none' ? ' selected' : ''}>No side</option></select>`
-      + `<select data-fa="ex" aria-label="New or existing cable"><option value="0"${f.ex ? '' : ' selected'}>New</option><option value="1"${f.ex ? ' selected' : ''}>Existing (drawn only)</option></select></div>`
+      + `<select data-fa="ex" aria-label="New or existing cable"><option value="0"${f.ex ? '' : ' selected'}>New</option><option value="1"${f.ex ? ' selected' : ''}>Existing (drawn only)</option></select>${f.ex ? `<select data-fa="cores" aria-label="Size of the existing cable">${[...new Set([...EX_SIZES, exCores(f)])].sort((a, b) => a - b).map((c) => `<option value="${c}"${c === exCores(f) ? ' selected' : ''}>${c}C</option>`).join('')}</select>` : ''}</div>`
       + `<div class="rf-btns"><button class="btn sm${adding ? '' : ' primary'}" type="button" data-fa="add">${adding ? 'Done adding' : '+ Add points'}</button><button class="btn sm" type="button" data-fa="rev"${f.path.length > 1 ? '' : ' disabled'}>Reverse</button><button class="btn sm danger" type="button" data-fa="del">Delete</button></div>`;
     card.hidden = false;
   }
@@ -2609,22 +2665,23 @@
   function fiberTap(id) {
     const F = fibers(), f = F.find((x) => x.n === fibAdd); if (!f) { fibAdd = null; routeRefresh(); return; }
     if (!f.path.length) { routeUndo.push(routeSnap()); f.path = [id]; setRoute(null, F); const was = routeSel; routeSel = id; routeRefresh([was, id]); toast(`Fiber ${f.n} starts at ${fibName(id)}: tap the next point along its way`, 3000); return; }
-    const last = f.path[f.path.length - 1];
-    if (id === last) { toast(`Fiber ${f.n} ends at ${fibName(id)} now: tap the next point, or Done adding`, 3000); return; }
+    const atS = fibAt === 'start' && f.path.length > 1, last = atS ? f.path[0] : f.path[f.path.length - 1]; // v2.42.21: going on from its start too
+    if (id === last) { toast(`Fiber ${f.n} ${atS ? 'starts' : 'ends'} at ${fibName(id)} now: tap the next point, or Done adding`, 3000); return; }
     if (f.path.includes(id)) { toast(`${fibName(id)} is already on Fiber ${f.n}: a fiber passes a point once`, 3000); return; }
-    const w = fibWay(last, id, new Set(f.path), f.ex), add = w ? w.slice(1) : [id]; let L2 = null;
+    const w = fibWay(last, id, new Set(f.path), f.ex), q = points.find((x) => x.id === id), line = !w && q ? snapSeq(last, [{ lat: q.lat, lon: q.lon }], 4).slice(1).filter((x) => !f.path.includes(x)) : null; // v2.42.21: no way along the spans: the points on the straight line between come in
+    const add = w ? w.slice(1) : line && line[line.length - 1] === id ? line : [id]; let L2 = null;
     routeUndo.push(routeSnap());
-    if (!w && !f.ex && linkIdx(last, id) < 0) L2 = links().concat([linkWith(last, id, f.cab)]);
+    if (!w && !f.ex) L2 = linksFor([last, ...add], f.cab); // (v2.42.21: a span for each step)
     const hop = new Set(add.map((x, i) => spanKey(i ? add[i - 1] : last, x)));
     const sh = [...new Set(F.filter((g) => g !== f && g.path.some((x, i) => i && hop.has(spanKey(g.path[i - 1], x)))).map((g) => `F${g.n}`))].join(', ');
-    f.path = f.path.concat(add); setRoute(L2, F);
+    f.path = atS ? add.slice().reverse().concat(f.path) : f.path.concat(add); setRoute(L2, F); fibTouched = true;
     const was = routeSel; routeSel = id; routeRefresh([was, last, ...add]);
-    toast(add.length > 1 ? `Fiber ${f.n} follows the spans: + ${add.map(fibName).join(', ')}${sh ? ` (shared with ${sh})` : ''}` : w ? `+ ${fibName(id)}${sh ? ` (shared with ${sh})` : ''}` : f.ex ? `+ ${fibName(id)} (existing cable)` : `+ ${fibName(id)}: a new span`, 3200);
+    toast(add.length > 1 ? `Fiber ${f.n} ${w ? 'follows the spans' : 'takes the points on the way'}: + ${add.map(fibName).join(', ')}${sh ? ` (shared with ${sh})` : ''}` : w ? `+ ${fibName(id)}${sh ? ` (shared with ${sh})` : ''}` : f.ex ? `+ ${fibName(id)} (existing cable)` : `+ ${fibName(id)}: a new span`, 3200);
   }
   function newFiber() {
     const F = fibers(), n = F.reduce((m, f) => Math.max(m, f.n), 0) + 1, start = routeSel ? [routeSel] : [];
-    routeUndo.push(routeSnap()); F.push({ n, cab: cableSel() || 'L12', side: 'auto', ex: false, path: start, fromSt: '', toSt: '' }); setRoute(null, F);
-    fibSel = n; fibAdd = n; spanSel = null; routeRefresh(start);
+    const sp = nextSpec(); routeUndo.push(routeSnap()); F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), path: start, fromSt: '', toSt: '' }); setRoute(null, F); // (v2.42.21: the next fiber's cable)
+    rtActivate(n, 'end'); fibTouched = true; spanSel = null; routeRefresh(start);
     toast(start.length ? `Fiber ${n} starts at ${fibName(start[0])}: tap the next point along its way` : `Fiber ${n}: tap its first point`, 3500);
   }
   function setFiber(n, fn) { const F = fibers(), f = F.find((x) => x.n === n); if (!f) return; routeUndo.push(routeSnap()); const L2 = fn(f, F); setRoute(L2 || null, F); routeRefresh(); }
@@ -2636,9 +2693,9 @@
   $('rbFib').addEventListener('change', (e) => {
     const t = e.target, k = t.dataset.fa; if (!k || fibSel == null) return;
     setFiber(fibSel, (f, F) => {
-      if (k === 'cab') f.cab = t.value; else if (k === 'side') f.side = t.value; else if (k === 'fromSt') f.fromSt = t.value; else if (k === 'toSt') f.toSt = t.value;
+      if (k === 'cab') f.cab = t.value; else if (k === 'cores') f.cores = +t.value || 12; else if (k === 'side') f.side = t.value; /* (v2.42.21: an existing cable's size) */ else if (k === 'fromSt') f.fromSt = t.value; else if (k === 'toSt') f.toSt = t.value;
       else if (k === 'ex') { // an existing cable has no spans of its own; a new fiber needs one on each step
-        f.ex = t.value === '1'; const hop = (g) => new Set(g.path.slice(1).map((x, i) => spanKey(g.path[i], x)));
+        f.ex = t.value === '1'; if (f.ex) f.cores = exCores(f); else delete f.cores; const hop = (g) => new Set(g.path.slice(1).map((x, i) => spanKey(g.path[i], x)));
         if (f.ex) { const mine = hop(f), others = new Set(F.filter((g) => g !== f && !g.ex).flatMap((g) => [...hop(g)])); return links().filter((l) => !(mine.has(spanKey(l[0], l[1])) && !others.has(spanKey(l[0], l[1])) && !(Array.isArray(l[3]) && l[3].length))); }
         const have = new Set(links().map((l) => spanKey(l[0], l[1]))), add = f.path.slice(1).map((x, i) => [f.path[i], x]).filter(([a, b]) => !have.has(spanKey(a, b)));
         return add.length ? links().concat(add.map(([a, b]) => linkWith(a, b, f.cab))) : null;
@@ -2649,7 +2706,7 @@
   $('rbFib').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-fa]'); if (!b || fibSel == null) return; const k = b.dataset.fa, n = fibSel;
     if (k === 'close') { fibSel = null; fibAdd = null; routeRefresh(); return; }
-    if (k === 'add') { fibAdd = fibAdd === n ? null : n; const f = fibers().find((x) => x.n === n), was = routeSel; routeSel = fibAdd != null && f && f.path.length ? f.path[f.path.length - 1] : null; spanSel = null; routeRefresh([was]); return; }
+    if (k === 'add') { if (fibAdd === n) { rtFinish(); fibSel = n; routeRefresh(); return; } /* (its card stays open) */ const f = fibers().find((x) => x.n === n), was = routeSel; rtActivate(n, 'end'); routeSel = f && f.path.length ? f.path[f.path.length - 1] : null; routeRefresh([was]); return; } // (v2.42.21: Done adding finishes it, with its closure question)
     if (k === 'rev') { setFiber(n, (f) => { f.path.reverse(); [f.fromSt, f.toSt] = [f.toSt || '', f.fromSt || '']; }); toast(`Fiber ${n} reversed: it now starts at its other end`, 2500); return; }
     if (k === 'del') {
       if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again to delete'; setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = 'Delete'; } }, 3500); return; }
@@ -2714,18 +2771,20 @@
   });
   function setRouteMode(on) {
     routeMode = on; routeSel = null; spanSel = null; routeUndo = []; routeProj = on ? S.project : null; fibSel = null; fibAdd = null; // (v2.42.20)
-    $('routeBar').hidden = !on; $('routeBtn').setAttribute('aria-pressed', String(on)); if (on) renderCableSel();
+    fibAt = 'end'; fibTouched = false; fibStartAt = null; fibNew = false; rtTools = false; rtPairs = false; rtPend = []; rtPop = null; rtAsked = new Set(); rtDraft = null; rtDraftLayer.clearLayers(); rtMarkLayer.clearLayers(); $('rbPairs').checked = false; // v2.42.21
+    $('routeBar').hidden = true; $('rtBar').hidden = !on; $('rtPop').hidden = true; rtHint(on ? 'Drag from a pole to draw · drag the map to move it' : '', 4500); $('routeBtn').setAttribute('aria-pressed', String(on)); if (on) renderCableSel();
     document.body.classList.toggle('routing', on);
     renderPoles();
     if (on) { // frame all poles above the route bar so they are easy to tap
       const pts = projPoints();
-      if (pts.length > 1) map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 80], paddingBottomRight: [40, 230], maxZoom: 19 });
+      if (pts.length > 1) map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 80], paddingBottomRight: [70, 190], maxZoom: 19 }); // (v2.42.21: the bar is small)
     }
   }
   function routeTap(id) {
     const tapped = points.find((p) => p.id === id);
     if (tapped && !ROUTE_ELS.includes(elemOf(tapped))) { toast(`${tapped.poleId}: ${elemOf(tapped)} pins sit on a pole and are not linked. Tap the pole.`, 3500); return; }
     spanSel = null; // v2.42.18: a pole tapped: the span's runs close
+    if (!rtPairs) { rtTap(id); return; } // v2.42.21: the fiber you are on, a fiber's end, else the pole's options in the bar
     if (fibAdd != null) { fiberTap(id); return; } // v2.42.20: adding points to a fiber
     if (!routeSel || routeSel === id) { routeSel = routeSel === id ? null : id; routeRefresh(); return; } // v2.42.19: only what changed
     const l = links().map((x) => x.slice()), k = l.findIndex(([x, y]) => (x === routeSel && y === id) || (x === id && y === routeSel)), cab = cableSel();
@@ -2740,14 +2799,12 @@
     if (!routeMode && routePts().length < 2) { toast('Capture at least two poles first'); return; }
     setRouteMode(!routeMode);
   });
-  $('rbDone').addEventListener('click', () => setRouteMode(false));
   $('rbCable').addEventListener('change', () => { S.meta[S.project] = { ...pmeta(), cable: $('rbCable').value }; persist(); updateRouteBar(routeModel()); toast(`New links: ${cableName($('rbCable').value)}. Tap a linked pair to give it this cable.`, 3500); });
   $('rbCableAll').addEventListener('click', () => {
     const cab = cableSel(), l = links(); if (!l.length) { toast('No span yet'); return; }
     routeUndo.push(l); setLinks(l.map(([a, b, , more]) => linkWith(a, b, cab, more))); routeRefresh(); // (run 1; the other runs stay)
     toast(`Every span: ${cableName(cab)} (Undo to go back)`, 3000);
   });
-  $('rbUndo').addEventListener('click', () => { if (routeUndo.length) { const u = routeUndo.pop(); if (Array.isArray(u)) setLinks(u); else setRoute(u.l, u.f); renderPoles(); } }); // (v2.42.20: + the fibers)
   $('rbAuto').addEventListener('click', () => {
     const have = new Set(links().map(([x, y]) => [x, y].sort().join('|')));
     const add = C.autoLinks(projPoints().filter((p) => ['Pole', 'Handhole', 'Manhole', 'Service box'].includes(elemOf(p))), pol().autoGap || 120).filter(([x, y]) => !have.has([x, y].sort().join('|'))); // the site, ODC and ODF are linked by hand
@@ -2761,6 +2818,321 @@
     delete b.dataset.armed; b.textContent = 'Clear';
     routeUndo.push(routeSnap()); setRoute([], []); routeSel = null; fibSel = null; fibAdd = null; renderPoles(); // (v2.42.20: the fibers too)
   });
+  /* ================= v2.42.21: draw the cable route on the map =================
+     A drag that starts on a pole draws: the poles near the line snap to it (Snap: Auto by the zoom, or 5–25 m; the side the line
+     runs along, not across the street), shown as you drag; a drag anywhere else moves the map. The fiber you are on (fibAdd) shows a
+     ring at its end: drag from it, or tap the next pole (the way along the spans, else a new span), to go on; tap a pole on it: the
+     cable only passes it (off the fiber, its neighbours linked); tap a pole it passes: attached again. From a pole in the middle of a
+     fiber a drag starts a new fiber (a branch). ✓ (or Esc) finishes it: where an end meets another cable and the pole has no closure,
+     the bar asks whether to add one (never added without asking). One small bar holds the rest; Route tools (⋯) the spans, runs,
+     fiber details, Link in capture order and Clear. Proposed cables are the app's three; an existing cable any size (cores). */
+  const SNAP_CH = ['auto', 5, 10, 15, 20, 25], EX_SIZES = [12, 24, 48, 72, 96, 144, 288];
+  const snapPref = () => (SNAP_CH.includes(S.routeSnap) ? S.routeSnap : 'auto');
+  function mPerPx() { try { const c = map.getSize().divideBy(2), a = map.containerPointToLatLng(c), b = map.containerPointToLatLng(c.add([100, 0])); return map.distance(a, b) / 100 || 1; } catch (e) { return 1; } }
+  const snapM = () => { const v = snapPref(); return v === 'auto' ? Math.max(5, Math.min(25, Math.round(24 * mPerPx()))) : v; };
+  const snapLbl = () => (snapPref() === 'auto' ? `Auto ${snapM()} m` : `${snapPref()} m`);
+  const exCores = (f) => (+f.cores >= 2 ? Math.round(+f.cores) : 12);
+  const fibCabShort = (f) => (f.ex ? `Existing ${exCores(f)}C` : CAB[f.cab] ? CAB[f.cab].short : 'cable not set');
+  const fibCabName = (f) => (f.ex ? `Existing ${exCores(f)}C (drawn only)` : CAB[f.cab] ? CAB[f.cab].label : 'Cable not set');
+  /** The next new fiber's cable: the project's cable (proposed), or an existing cable of its size. */
+  const nextSpec = () => { const m = pmeta(); return { cab: cableSel() || 'L12', ex: !!m.fibEx, cores: +m.fibCores >= 2 ? Math.round(+m.fibCores) : 12 }; };
+  const setNext = (o) => { S.meta[S.project] = { ...pmeta(), ...o }; persist(); };
+  const nextFibN = (F) => (F || fibers()).reduce((m, f) => Math.max(m, f.n), 0) + 1;
+  const xyOf = (lat0) => { const k = Math.cos(lat0 * Math.PI / 180) * 111320; return (p) => ({ x: p.lon * k, y: p.lat * 110574 }); };
+  function projOn(q, poly) { // the nearest point of a polyline: distance, length along it, side (+ left, - right)
+    let best = { d: 1e12, t: 0, side: 0 }, acc = 0;
+    for (let i = 1; i < poly.length; i++) {
+      const a = poly[i - 1], b = poly[i], dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy, Ln = Math.sqrt(L2);
+      const u = L2 ? Math.max(0, Math.min(1, ((q.x - a.x) * dx + (q.y - a.y) * dy) / L2)) : 0, cx = a.x + u * dx, cy = a.y + u * dy, d = Math.hypot(q.x - cx, q.y - cy);
+      if (d < best.d) best = { d, t: acc + u * Ln, side: Math.sign(dx * (q.y - a.y) - dy * (q.x - a.x)) };
+      acc += Ln;
+    }
+    return { ...best, len: acc };
+  }
+  /** The points a line drawn from the point id snaps to, in order: id first, the points within su metres of the line (a point well
+      off to one side where most points near it are on the other: across the street, left out), and the point nearest its end
+      (within twice su). */
+  function snapSeq(id, ll, su) {
+    const pts = routePts(), by = new Map(pts.map((p) => [p.id, p])), s0 = by.get(id); if (!s0) return [];
+    const f = xyOf(s0.lat), line = [f(s0), ...ll.map(f)]; if (line.length < 2) return [id];
+    const C = [];
+    pts.forEach((p) => { if (p.id === id) return; const r = projOn(f(p), line); if (r.d <= su) C.push({ id: p.id, ...r, on: true }); });
+    C.forEach((c) => { const w = C.filter((o) => Math.abs(o.t - c.t) <= 60), plus = w.filter((o) => o.side > 0).length, minus = w.filter((o) => o.side < 0).length;
+      if (c.d > 6 && ((c.side > 0 && plus < minus) || (c.side < 0 && minus < plus))) c.on = false; });
+    const end = line[line.length - 1], T = projOn(end, line).len; let e = null;
+    pts.forEach((p) => { if (p.id === id) return; const q = f(p), d = Math.hypot(q.x - end.x, q.y - end.y); if (d <= 2 * su && (!e || d < e.d)) e = { id: p.id, d }; });
+    if (e) { const c = C.find((x) => x.id === e.id); if (c) { c.on = true; c.t = Math.max(c.t, T); } else C.push({ id: e.id, d: e.d, t: T + 1, side: 0, on: true }); }
+    return [id, ...C.filter((c) => c.on).sort((a, b) => a.t - b.t).map((c) => c.id)].filter((x, i, a) => a.indexOf(x) === i);
+  }
+  /** The links with a span added for each step of the way that has none (a new fiber's cable). */
+  function linksFor(way, cab) {
+    const L = links(), have = new Set(L.map((l) => spanKey(l[0], l[1]))), add = [];
+    for (let i = 1; i < way.length; i++) { const k = spanKey(way[i - 1], way[i]); if (!have.has(k)) { have.add(k); add.push(linkWith(way[i - 1], way[i], cab)); } }
+    return add.length ? L.concat(add) : null;
+  }
+  const onAnyFiber = (F) => new Set(F.filter((g) => !g.ex).flatMap((g) => g.path.slice(1).map((x, j) => spanKey(g.path[j], x))));
+  /** The points the fiber passes without being on them: route points within the snap distance of its line. */
+  function fibPasses(f, by) {
+    if (!f || f.path.length < 2) return [];
+    const P = f.path.map((id) => by.get(id)).filter(Boolean); if (P.length < 2) return [];
+    const xy = xyOf(P[0].lat), line = P.map(xy), su = snapM(), on = new Set(f.path);
+    return routePts().filter((p) => !on.has(p.id) && projOn(xy(p), line).d <= su).map((p) => p.id);
+  }
+  function rtHint(t, ms) { const e = $('rtHint'); clearTimeout(rtHintT); if (!t) { e.hidden = true; return; } e.textContent = t; e.hidden = false; if (ms) rtHintT = setTimeout(() => { e.hidden = true; }, ms); }
+  function rtActivate(n, at) { fibAdd = n; fibSel = n; fibAt = at || 'end'; fibTouched = false; fibStartAt = null; fibNew = false; rtPop = null; spanSel = null; routeSel = null; }
+  /** Finish the fiber you are on: for each of its ends on another cable (another fiber passing or ending there, or a span on no
+      fiber) at a pole with no closure, a question in the bar (once per pole while Route is open). */
+  function rtFinish(quiet) {
+    const n = fibAdd; if (n == null) return; const F = fibers(), f = F.find((x) => x.n === n);
+    fibAdd = null; fibSel = null; fibAt = 'end'; rtPop = null; routeSel = null;
+    if (f && fibTouched && !quiet && f.path.length > 1) {
+      const by = new Map(routePts().map((p) => [p.id, p])), used = onAnyFiber(F);
+      [f.path[0], f.path[f.path.length - 1]].forEach((id, i) => {
+        const p = by.get(id); if (!p || elemOf(p) !== 'Pole' || rtAsked.has(id) || rtPend.some((q) => q.id === id) || fibEnd({ path: [id] }, 'from', by).kind === 'Closure') return;
+        const others = F.filter((g) => g !== f && g.path.includes(id)), loose = links().filter((l) => (l[0] === id || l[1] === id) && !used.has(spanKey(l[0], l[1])));
+        if (!others.length && !loose.length) return;
+        const how = others.map((g) => `Fiber ${g.n}${g.ex ? ` (existing ${exCores(g)}C)` : ''} ${g.path[0] === id || g.path[g.path.length - 1] === id ? 'ends there' : 'passes there'}`).concat(loose.length ? [`${loose.length} span${loose.length === 1 ? '' : 's'} on no fiber`] : []);
+        rtPend.push({ id, text: `Fiber ${f.n} ${i ? 'ends' : 'starts'} at ${p.poleId || '(no ID)'}, on another cable: ${how.join('; ')}. A closure there joins them (each fiber gets its loop).` });
+      });
+    }
+    fibTouched = false; routeRefresh(f ? [f.path[0], f.path[f.path.length - 1]] : []);
+    if (!quiet && f && !rtPend.length) toast(`Fiber ${f.n}: ${f.path.length} point${f.path.length === 1 ? '' : 's'}${f.path.length > 1 ? ` · ${fibCabShort(f)}` : ''}`, 2200);
+  }
+  /** A closure on the pole's record (new; its ID and size are set in the record), with Undo. */
+  async function rtAddClosure(id) {
+    const i = points.findIndex((x) => x.id === id); if (i < 0) return; const p = points[i];
+    const prev = JSON.parse(JSON.stringify(p)), rec = { ...p, closure: true, boq: { ...(p.boq || {}), cloSt: (p.boq || {}).cloSt || 'New' }, updated: new Date().toISOString() };
+    try { await dbPut('points', rec); } catch (e) { toast('The closure could not be saved: try again', 3500); return; }
+    points[points.indexOf(p)] = rec; changedAfterApproval(rec.project, 'record'); routeUndo.push({ rec: prev }); rtAsked.add(id);
+    renderPoles(); toast(`Closure added at ${rec.poleId || '(no ID)'} (new): set its ID and size in the pole's record`, 4500);
+  }
+  /** Take the point off the fiber (the cable passes it): its neighbours on the fiber linked directly; the spans to it that no
+      fiber uses any more go (an existing cable has no spans of its own). Returns the new links, or null. */
+  function rtPassOff(f, id, F) {
+    const i = f.path.indexOf(id); if (i <= 0 || i >= f.path.length - 1) return null;
+    const a = f.path[i - 1], b = f.path[i + 1]; f.path.splice(i, 1); if (f.ex) return null;
+    const used = onAnyFiber(F), gone = new Set([spanKey(a, id), spanKey(id, b)]);
+    const L2 = links().filter((l) => { const k = spanKey(l[0], l[1]); return !(gone.has(k) && !used.has(k) && !(Array.isArray(l[3]) && l[3].length)); });
+    if (!L2.some((l) => spanKey(l[0], l[1]) === spanKey(a, b))) L2.push(linkWith(a, b, f.cab));
+    return L2;
+  }
+  /** Put a point the fiber passes on it, between the two points of the fiber nearest to it. Returns the new links, or null. */
+  function rtAttach(f, id, F) {
+    const by = new Map(routePts().map((p) => [p.id, p])), q = by.get(id); if (!q || f.path.length < 2) return null;
+    const xy = xyOf(q.lat), Q = xy(q); let j = 0, bd = 1e12;
+    for (let k = 1; k < f.path.length; k++) { const A = by.get(f.path[k - 1]), B = by.get(f.path[k]); if (!A || !B) continue; const d = projOn(Q, [xy(A), xy(B)]).d; if (d < bd) { bd = d; j = k; } }
+    if (!j) return null; const a = f.path[j - 1], b = f.path[j]; f.path.splice(j, 0, id); if (f.ex) return null;
+    const used = onAnyFiber(F), have = new Set(links().map((l) => spanKey(l[0], l[1])));
+    let L2 = links().filter((l) => { const k = spanKey(l[0], l[1]); return !(k === spanKey(a, b) && !used.has(k) && !(Array.isArray(l[3]) && l[3].length)); });
+    [[a, id], [id, b]].forEach(([x, y]) => { if (!have.has(spanKey(x, y))) L2 = L2.concat([linkWith(x, y, f.cab)]); });
+    return L2;
+  }
+  /** A tap on a point in Route (v2.42.21). */
+  function rtTap(id) {
+    const F = fibers(), f = fibAdd != null ? F.find((x) => x.n === fibAdd) : null; rtPop = null;
+    if (f) {
+      if (!f.path.length) { fiberTap(id); fibTouched = true; return; }
+      const end = fibAt === 'start' ? f.path[0] : f.path[f.path.length - 1];
+      if (id === end) { rtHint(`Fiber ${f.n} is at ${fibName(id)}: drag from it, or tap the next pole`, 3000); return; }
+      if (f.path.length > 1 && (id === f.path[0] || id === f.path[f.path.length - 1])) { fibAt = id === f.path[0] ? 'start' : 'end'; rtHint(`Fiber ${f.n} now goes on from ${fibName(id)}`, 3000); routeRefresh([id]); return; }
+      if (f.path.includes(id)) { // the cable only passes it
+        if (f.path.length <= 2) { toast('A fiber needs two points', 2500); return; }
+        routeUndo.push(routeSnap()); const L2 = rtPassOff(f, id, F); setRoute(L2, F); fibTouched = true; routeRefresh([id]);
+        toast(`${fibName(id)}: Fiber ${f.n} only passes it (no clamp, no hardware). Tap it again to put it back`, 3200); return;
+      }
+      if (fibPasses(f, new Map(routePts().map((p) => [p.id, p]))).includes(id)) {
+        routeUndo.push(routeSnap()); const L2 = rtAttach(f, id, F); setRoute(L2, F); fibTouched = true; routeRefresh([id]);
+        toast(`${fibName(id)} put on Fiber ${f.n}`, 2500); return;
+      }
+      fiberTap(id); fibTouched = true; return; // the next point: along the spans, else a new span
+    }
+    if (fibStartAt != null || fibNew) {
+      if (fibStartAt == null || fibStartAt === id) { fibStartAt = fibStartAt === id ? null : id; fibNew = false; if (fibStartAt) rtHint(`New fiber from ${fibName(id)}: tap the next pole, or drag from it`, 3500); routeRefresh([id]); return; }
+      const sp = nextSpec(), n = nextFibN(F); routeUndo.push(routeSnap());
+      F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), path: [fibStartAt], fromSt: '', toSt: '' }); setRoute(null, F);
+      rtActivate(n, 'end'); fiberTap(id); routeUndo.splice(routeUndo.length - 1, 1); fibTouched = true; // (one Undo takes the new fiber away)
+      toast(`Fiber ${n} · ${fibCabName(sp)}: tap the next pole, ✓ when it ends`, 3000); return;
+    }
+    const ends = F.filter((g) => g.path.length && (g.path[0] === id || g.path[g.path.length - 1] === id)), thru = F.filter((g) => g.path.includes(id));
+    if (ends.length === 1 && thru.length === 1) { const g = ends[0], at = g.path.length > 1 && g.path[0] === id ? 'start' : 'end'; rtActivate(g.n, at); routeRefresh([id]); rtHint(`Fiber ${g.n} goes on from ${fibName(id)}: drag from the ring, or tap the next pole`, 3500); return; }
+    const was = routeSel; routeSel = routeSel === id ? null : id; routeRefresh([was, id]);
+  }
+  /* the drag: on a pole it draws (the map stays), elsewhere Leaflet moves the map */
+  function rtBegin(id) {
+    const F = fibers(), A = fibAdd != null ? F.find((x) => x.n === fibAdd) : null, force = fibNew || fibStartAt != null; let f = null, at = 'end';
+    if (A && !force) { if (!A.path.length) f = A; else if (id === A.path[A.path.length - 1]) f = A; else if (id === A.path[0]) { f = A; at = 'start'; } }
+    if (!f && !A && !force) { const e = F.filter((g) => g.path.length && (g.path[0] === id || g.path[g.path.length - 1] === id)); if (e.length === 1 && F.filter((g) => g.path.includes(id)).length === 1) { f = e[0]; at = f.path.length > 1 && f.path[0] === id ? 'start' : 'end'; } }
+    if (A && !f) rtFinish(); // a drag from another pole: a new fiber; the one you were on is finished
+    routeSel = null; spanSel = null; rtPop = null; renderRtPop();
+    const col = f ? fibColor(f) : fibColor({ n: nextFibN(F) });
+    rtDraft = { id, f: f ? f.n : null, at, ll: [], su: snapM(), col };
+    rtDraftLayer.clearLayers(); rtDraft.trail = L.polyline([], { pane: 'routePane', color: col, weight: 3, opacity: 0.45, interactive: false }).addTo(rtDraftLayer);
+    rtDraft.prev = L.polyline([], { pane: 'routePane', color: col, weight: 6, opacity: 0.9, dashArray: '10 7', interactive: false }).addTo(rtDraftLayer); rtDraft.rings = L.layerGroup().addTo(rtDraftLayer);
+    rtHint(`✎ ${f ? `Fiber ${f.n}` : `New fiber · ${fibCabShort(nextSpec())}`} · snap ${rtDraft.su} m`);
+  }
+  function rtAddPt(latlng) {
+    const d = rtDraft; if (!d) return; const q = { lat: latlng.lat, lon: latlng.lng }, last = d.ll[d.ll.length - 1];
+    if (last && map.latLngToContainerPoint([last.lat, last.lon]).distanceTo(map.latLngToContainerPoint(latlng)) < 3) return;
+    d.ll.push(q); d.trail.setLatLngs(d.ll.map((x) => [x.lat, x.lon]));
+    if (!rtPq) rtPq = requestAnimationFrame(() => { rtPq = 0; if (!rtDraft) return; const seq = snapSeq(rtDraft.id, rtDraft.ll, rtDraft.su), by = new Map(routePts().map((p) => [p.id, p]));
+      rtDraft.prev.setLatLngs(seq.map((x) => by.get(x)).filter(Boolean).map((p) => [p.lat, p.lon])); rtDraft.rings.clearLayers();
+      seq.forEach((x) => { const p = by.get(x); if (p) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 13, color: rtDraft.col, weight: 3, fill: false, interactive: false }).addTo(rtDraft.rings); });
+      rtHint(`✎ ${rtDraft.f != null ? `Fiber ${rtDraft.f}` : 'New fiber'} · ${seq.length} point${seq.length === 1 ? '' : 's'} · snap ${rtDraft.su} m`); });
+  }
+  function rtStrokeEnd() {
+    const d = rtDraft; rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers(); rtHint('');
+    if (!d) return; const seq = snapSeq(d.id, d.ll, d.su), F = fibers(), f = d.f != null ? F.find((x) => x.n === d.f) : null;
+    if (f) {
+      const have = new Set(f.path), add = seq.slice(f.path.length ? 1 : 0).filter((x) => !have.has(x));
+      if (!add.length) { rtActivate(f.n, d.at); rtHint(`No new point within ${d.su} m of your line: drag on to the next pole, or widen the snap (◎)`, 3500); routeRefresh(); return; }
+      routeUndo.push(routeSnap()); const way = !f.path.length ? add : d.at === 'start' ? add.slice().reverse().concat(f.path) : f.path.concat(add);
+      f.path = way; setRoute(f.ex ? null : linksFor(way, f.cab), F); rtActivate(f.n, d.at); fibTouched = true; routeRefresh(add);
+      return;
+    }
+    if (seq.length < 2) { rtHint(`No point within ${d.su} m of your line's end: drag on to the next pole, or widen the snap (◎)`, 3500); routeRefresh(); return; }
+    routeUndo.push(routeSnap()); const sp = nextSpec(), n = nextFibN(F);
+    F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), path: seq, fromSt: '', toSt: '' }); setRoute(sp.ex ? null : linksFor(seq, sp.cab), F);
+    rtActivate(n, 'end'); fibTouched = true; routeRefresh(seq);
+    toast(`Fiber ${n} · ${fibCabName(sp)}`, 2200);
+  }
+  (() => { // the gestures on the map in Route
+    const mc = map.getContainer(), cpt = (e) => { const r = mc.getBoundingClientRect(); return L.point(e.clientX - r.left, e.clientY - r.top); };
+    const hit = (c, r) => { let best = null; routePts().forEach((p) => { const d = map.latLngToContainerPoint([p.lat, p.lon]).distanceTo(c); if (d <= r && (!best || d < best.d)) best = { id: p.id, d }; }); return best && best.id; };
+    mc.addEventListener('pointerdown', (e) => {
+      if (!routeMode || rtPress || !e.isPrimary || e.button > 0 || isAcc()) return;
+      const id = hit(cpt(e), e.pointerType === 'mouse' ? 14 : 22); if (!id) return; // not on a point: the map moves
+      map.dragging.disable(); e.preventDefault(); e.stopPropagation(); try { mc.setPointerCapture(e.pointerId); } catch (x) { /* fine */ }
+      const c = cpt(e); rtPress = { pid: e.pointerId, id, s: c, c, moved: false };
+    }, true);
+    mc.addEventListener('pointermove', (e) => {
+      if (!rtPress || e.pointerId !== rtPress.pid) return; e.stopPropagation(); const c = cpt(e); rtPress.c = c;
+      if (!rtPress.moved) { if (c.distanceTo(rtPress.s) < 9) return; rtPress.moved = true; rtBegin(rtPress.id); }
+      rtAddPt(map.containerPointToLatLng(c));
+      const W = mc.clientWidth, H = mc.clientHeight, M = 34, bar = $('rtBar'), bh = bar && !bar.hidden ? bar.getBoundingClientRect().height + 8 : 0;
+      const dx = c.x < M ? -1 : c.x > W - M ? 1 : 0, dy = c.y < M ? -1 : c.y > H - bh - M ? 1 : 0; // near an edge the map moves that way
+      rtEdge = dx || dy ? [dx, dy] : null; if (rtEdge && !rtEdgeRaf) rtEdgeRaf = requestAnimationFrame(edgeTick);
+    }, true);
+    function edgeTick() { rtEdgeRaf = 0; if (!rtPress || !rtEdge || !rtDraft) return; map.panBy([rtEdge[0] * 7, rtEdge[1] * 7], { animate: false }); rtAddPt(map.containerPointToLatLng(rtPress.c)); rtEdgeRaf = requestAnimationFrame(edgeTick); }
+    const up = (e, cancel) => {
+      if (!rtPress || e.pointerId !== rtPress.pid) return; e.stopPropagation();
+      const p0 = rtPress; rtPress = null; rtEdge = null; map.dragging.enable(); rtGestAt = Date.now();
+      if (cancel) { rtDraft = null; rtDraftLayer.clearLayers(); rtHint(''); return; }
+      if (!p0.moved) routeTap(p0.id); else rtStrokeEnd();
+    };
+    mc.addEventListener('pointerup', (e) => up(e), true); mc.addEventListener('pointercancel', (e) => up(e, true), true);
+    mc.addEventListener('contextmenu', (e) => { if (!routeMode) return; e.preventDefault(); rtUndo(); }); // a right-click undoes
+    document.addEventListener('keydown', (e) => {
+      if (!routeMode || /^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
+      if (e.key === 'Escape') { if (rtPop) { rtPop = null; renderRtPop(); } else if (fibStartAt != null || fibNew) { fibStartAt = null; fibNew = false; routeRefresh(); } else if (fibAdd != null) rtFinish(); else if (routeSel) { const w = routeSel; routeSel = null; routeRefresh([w]); } }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); rtUndo(); }
+    });
+    map.on('movestart', () => { if (rtPop) { rtPop = null; renderRtPop(); } });
+  })();
+  async function rtUndo() {
+    if (!routeUndo.length || rtDraft) return; const u = routeUndo.pop(); rtPend = [];
+    if (u && u.rec) { try { await dbPut('points', u.rec); const i = points.findIndex((x) => x.id === u.rec.id); if (i >= 0) points[i] = u.rec; rtAsked.delete(u.rec.id); } catch (e) { toast('Could not undo the closure', 3000); } }
+    else if (Array.isArray(u)) setLinks(u); else setRoute(u.l, u.f);
+    if (fibAdd != null && !fibers().some((f) => f.n === fibAdd)) { fibAdd = null; fibSel = null; }
+    renderPoles();
+  }
+  /** The bar at the bottom in Route: one card that changes with what you do (a closure question on top when there is one). */
+  function renderRtBar(R) {
+    const bar = $('rtBar'); if (!routeMode) { bar.hidden = true; return; }
+    const all = fibers().sort((a, b) => a.n - b.n), f = fibAdd != null ? all.find((x) => x.n === fibAdd) : null, by = R && R.fib ? R.fib.by : new Map(routePts().map((p) => [p.id, p]));
+    const undoB = `<button class="ib" type="button" id="rtUndo" aria-label="Undo" title="Undo (right-click)"${routeUndo.length ? '' : ' disabled'}>↶</button>`, adv = R ? routeAdvice(R).length : 0;
+    let h = '';
+    if (rtPend.length) { const q = rtPend[0], p = by.get(q.id) || points.find((x) => x.id === q.id);
+      h += `<div class="rt-ask" role="group" aria-label="Closure question"><div><b>Add a closure at ${hEsc(p ? p.poleId || '(no ID)' : '')}?</b> ${hEsc(q.text)}</div><div class="rt-acts"><button class="ib" type="button" data-rt="askno">Not now</button><button class="ib primary" type="button" data-rt="askadd">Add closure</button></div></div>`; }
+    const sel = !f && routeSel && !rtPairs ? by.get(routeSel) : null;
+    if (sel) {
+      const id = sel.id, here = all.filter((g) => g.path.includes(id)), ends = here.filter((g) => g.path[0] === id || g.path[g.path.length - 1] === id), mids = here.filter((g) => !ends.includes(g));
+      const near = all.filter((g) => !g.path.includes(id) && fibPasses(g, by).includes(id)), e = fibEnd({ path: [id] }, 'from', by);
+      h += `<div class="rt-row"><div class="rt-meta grow"><b>${hEsc(sel.poleId || '(no ID)')}</b>${e.kind === 'Closure' ? ` · closure ${hEsc(e.ref)}` : ''} · ${here.length ? `on ${here.map((g) => `F${g.n}`).join(', ')}` : 'on no fiber'}</div>${undoB}<button class="ib" type="button" data-rt="unsel" aria-label="Close">✕</button></div><div class="rt-acts">`
+        + ends.map((g) => `<button class="ib" type="button" data-rt="cont" data-n="${g.n}" data-w="${g.path.length > 1 && g.path[0] === id ? 'start' : 'end'}">✎ Go on with F${g.n}</button>`).join('')
+        + mids.map((g) => `<button class="ib" type="button" data-rt="pass" data-n="${g.n}">F${g.n} only passes</button>`).join('')
+        + near.map((g) => `<button class="ib" type="button" data-rt="attach" data-n="${g.n}">Put on F${g.n}</button>`).join('')
+        + (elemOf(sel) === 'Pole' && e.kind !== 'Closure' ? '<button class="ib" type="button" data-rt="clo">＋ Closure</button>' : '')
+        + `<button class="ib" type="button" data-rt="newhere">＋ New fiber here</button><button class="ib" type="button" data-rt="spans">Spans ›</button></div>`;
+    } else if (f) {
+      const end = f.path.length ? (fibAt === 'start' ? f.path[0] : f.path[f.path.length - 1]) : null, info = R && R.fib ? R.fib.list.find((x) => x.n === f.n) : null;
+      h += `<div class="rt-row"><button class="rt-fname" type="button" data-rt="pop" data-p="cab" aria-label="Cable of Fiber ${f.n}: ${hEsc(fibCabName(f))}. Change it for the whole fiber"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i>F${f.n} <u>${hEsc(fibCabShort(f))} ▾</u></button>`
+        + `<button class="ib" type="button" data-rt="pop" data-p="snap" aria-label="Snap distance: ${snapLbl()}">◎ ${snapLbl()}</button><button class="ib" type="button" data-rt="tools" aria-label="Fiber ${f.n}: details (ends, side, Reverse, Delete) and Route tools">⋯</button>${undoB}<button class="ib primary" type="button" data-rt="finish" id="rtFinish" aria-label="Finish Fiber ${f.n}" title="Finish (Esc)">✓</button></div>`
+        + `<div class="rt-meta">${f.path.length} point${f.path.length === 1 ? '' : 's'}${info ? ` · ${fmtLen(info.len || 0)}` : ''}${end ? ` · from <b>${hEsc(fibName(end))}</b>` : ''} · ${f.path.length ? 'drag from the ring, or tap the next pole' : 'drag from a pole, or tap its first point'}</div>`;
+    } else {
+      const stats = R ? `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}${R.cableTotal > R.total + 0.05 ? ` · cable ${fmtLen(R.cableTotal)}` : ''}` : '';
+      h += `<div class="rt-row"><button class="ib${fibNew || fibStartAt != null ? ' primary' : ''}" type="button" data-rt="pop" data-p="new" aria-label="New fiber: its cable" title="New fiber">＋</button>`
+        + `<div class="rt-chips" role="group" aria-label="Fibers: tap one to go on with it">${all.map((g) => `<button class="fchip" type="button" data-rt="fib" data-n="${g.n}" title="${hEsc(fibCabName(g))}" aria-label="Fiber ${g.n}, ${hEsc(fibCabName(g))}"><i class="${g.ex ? 'ex' : ''}" style="background:${fibColor(g)};color:${fibColor(g)}"></i>F${g.n}</button>`).join('')}</div>`
+        + `${undoB}<button class="ib" type="button" data-rt="tools" aria-label="Route tools: spans, runs, fiber details, link in capture order, clear">⋯</button><button class="ib primary" type="button" id="rtDone">Done</button></div>`
+        + `<div class="rt-meta">${rtPairs ? '<b>Linking spans:</b> tap a pole, then the next pole (⋯ to stop)' : fibNew || fibStartAt != null ? `<b>New fiber · ${hEsc(fibCabShort(nextSpec()))}:</b> ${fibStartAt != null ? `tap the next pole after ${hEsc(fibName(fibStartAt))}, or drag` : 'drag from a pole, or tap two poles'}` : `<b>Drag from a pole to draw</b>${stats ? ` · ${stats}` : ''}`}${adv ? ` · <span class="rt-warn">⚠ ${adv}</span>` : ''}</div>`;
+    }
+    if (rtTools) { bar.innerHTML = ''; bar.hidden = true; $('routeBar').hidden = false; document.body.style.setProperty('--rtbh', `${Math.max(0, Math.round($('routeBar').getBoundingClientRect().height) - 4)}px`); rtPop = null; renderRtPop(); return; } // Route tools in its place (Close: back to the bar)
+    bar.innerHTML = h; bar.hidden = false; $('routeBar').hidden = true;
+    document.body.style.setProperty('--rtbh', `${Math.round(bar.getBoundingClientRect().height)}px`);
+    renderRtPop();
+  }
+  function renderRtPop() {
+    const el = $('rtPop'), f = fibAdd != null ? fibers().find((x) => x.n === fibAdd) : null;
+    if (!routeMode || !rtPop || (rtPop === 'cab' && !f)) { el.hidden = true; el.innerHTML = ''; return; }
+    const opt = (k, v, t, on, lbl) => `<button class="ib" type="button" data-${k}="${v}" aria-pressed="${!!on}"${lbl ? ` aria-label="${hEsc(lbl)}"` : ''}>${hEsc(t)}</button>`;
+    const snaps = `<div class="lbl">SNAP TO POLES WITHIN</div><div class="rt-opts">${SNAP_CH.map((v) => opt('snap', v, v === 'auto' ? `Auto (${Math.max(5, Math.min(25, Math.round(24 * mPerPx())))} m now)` : `${v} m`, snapPref() === v)).join('')}</div>`;
+    const picker = (sp, pre) => `<div class="rt-seg" role="group" aria-label="Proposed or existing cable">${opt(`${pre}kind`, 'p', 'Proposed', !sp.ex)}${opt(`${pre}kind`, 'e', 'Existing', sp.ex)}</div>`
+      + (!sp.ex ? `<div class="rt-opts">${Object.entries(CAB).map(([k, c]) => opt(`${pre}cab`, k, c.short, sp.cab === k, c.label)).join('')}</div>`
+        : `<div class="lbl">EXISTING CABLE SIZE</div><div class="rt-opts">${EX_SIZES.map((c) => opt(`${pre}cores`, c, `${c}C`, sp.cores === c)).join('')}<span class="rt-other"><input id="${pre}CoreIn" type="number" inputmode="numeric" min="2" max="1728" placeholder="Other" aria-label="Other size, in cores" value="${EX_SIZES.includes(sp.cores) ? '' : sp.cores}"><button class="ib" type="button" data-coreset="${pre}">C ✓</button></span></div><p class="rt-note">Existing: drawn dashed on the map, the Drawing and the DXF with its size; left out of the BOQ, the cable lengths, the loops and the hardware.</p>`);
+    let h = '';
+    if (rtPop === 'cab') h = `<div class="lbl">CABLE OF FIBER ${f.n} · THE WHOLE FIBER</div>${picker({ cab: f.cab, ex: !!f.ex, cores: exCores(f) }, 'f')}`;
+    else if (rtPop === 'snap') h = snaps;
+    else if (rtPop === 'new') h = `<div class="lbl">NEW FIBER · CABLE</div>${picker(nextSpec(), 'n')}${snaps}<p class="rt-note">Then drag from a pole, or tap two poles.</p>`;
+    el.innerHTML = h; el.hidden = false;
+  }
+  /** The whole fiber's cable: proposed (its cable; spans on each step) or existing (any size; drawn only, no spans of its own). */
+  function rtSetCable(ch) {
+    const n = fibAdd; if (n == null) return; const F = fibers(), f = F.find((x) => x.n === n); if (!f) return;
+    const was = fibCabName(f), wasEx = !!f.ex; let L2 = null;
+    const nf = { ...f, ...ch }; if (fibCabName(nf) === was && !!nf.ex === wasEx) { rtPop = null; renderRtPop(); return; }
+    routeUndo.push(routeSnap()); Object.assign(f, ch); if (f.ex) f.cores = exCores(f); else delete f.cores;
+    if (f.ex && !wasEx) { const hop = (g) => new Set(g.path.slice(1).map((x, i) => spanKey(g.path[i], x))), mine = hop(f), others = new Set(F.filter((g) => g !== f && !g.ex).flatMap((g) => [...hop(g)])); L2 = links().filter((l) => !(mine.has(spanKey(l[0], l[1])) && !others.has(spanKey(l[0], l[1])) && !(Array.isArray(l[3]) && l[3].length))); }
+    else if (!f.ex) L2 = linksFor(f.path, f.cab);
+    setRoute(L2, F); fibTouched = true; toast(`Fiber ${f.n}: ${was} → ${fibCabName(f)}, the whole fiber`, 3000);
+    if (ch.ex === undefined || 'cab' in ch || 'cores' in ch) rtPop = null; routeRefresh();
+  }
+  $('rtBar').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.id === 'rtUndo') { rtUndo(); return; }
+    if (b.id === 'rtDone') { setRouteMode(false); return; }
+    const a = b.dataset.rt, n = +b.dataset.n, F = fibers(), g = F.find((x) => x.n === n), id = routeSel; if (!a) return;
+    if (a === 'pop') { rtPop = rtPop === b.dataset.p ? null : b.dataset.p; renderRtPop(); return; }
+    if (a === 'finish') { rtFinish(); return; }
+    if (a === 'tools') { rtTools = !rtTools; if (rtTools && fibAdd != null) fibSel = fibAdd; renderRtBar(lastR || routeModel()); if (rtTools) updateRouteBar(lastR || routeModel()); return; }
+    if (a === 'fib' && g) { rtActivate(g.n, 'end'); routeRefresh(); rtHint(`Fiber ${g.n}: drag from the ring to go on; tap a pole on it if the cable only passes it`, 3500); return; }
+    if (a === 'askno' || a === 'askadd') { const q = rtPend.shift(); if (!q) return; rtAsked.add(q.id); if (a === 'askadd') rtAddClosure(q.id); else routeRefresh(); return; }
+    if (a === 'unsel') { routeSel = null; routeRefresh([id]); return; }
+    if (a === 'cont' && g) { rtActivate(g.n, b.dataset.w); routeRefresh([id]); rtHint(`Fiber ${g.n} goes on from ${fibName(id)}: drag from the ring, or tap the next pole`, 3500); return; }
+    if (a === 'newhere') { fibStartAt = id; fibNew = false; routeSel = null; routeRefresh([id]); rtHint(`New fiber (${fibCabShort(nextSpec())}) from ${fibName(id)}: tap the next pole, or drag from it`, 3500); return; }
+    if (a === 'spans') { rtTools = true; routeRefresh([id]); return; }
+    if (a === 'clo') { rtAddClosure(id); return; }
+    if ((a === 'pass' || a === 'attach') && g && id) {
+      if (a === 'pass' && g.path.length <= 2) { toast('A fiber needs two points', 2500); return; }
+      routeUndo.push(routeSnap()); const L2 = a === 'pass' ? rtPassOff(g, id, F) : rtAttach(g, id, F); setRoute(L2, F); routeRefresh([id]);
+      toast(a === 'pass' ? `${fibName(id)}: Fiber ${g.n} only passes it (no clamp, no hardware)` : `${fibName(id)} put on Fiber ${g.n}`, 3000);
+    }
+  });
+  $('rtPop').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
+    if (d.snap != null) { S.routeSnap = d.snap === 'auto' ? 'auto' : +d.snap; persist(); toast(`Snap: ${snapLbl()} for the lines you draw next (kept on this phone)`, 2500); if (rtPop === 'snap') rtPop = null; renderRtBar(lastR || routeModel()); return; }
+    if (d.fkind) { rtSetCable({ ex: d.fkind === 'e' }); rtPop = 'cab'; renderRtPop(); return; }
+    if (d.fcab) { rtSetCable({ ex: false, cab: d.fcab }); return; }
+    if (d.fcores) { rtSetCable({ ex: true, cores: +d.fcores }); return; }
+    const ready = () => { fibNew = true; fibStartAt = null; routeSel = null; rtPop = null; rtHint(`New fiber · ${fibCabName(nextSpec())}: drag from a pole, or tap two poles`, 3500); routeRefresh(); };
+    if (d.nkind) { setNext({ fibEx: d.nkind === 'e' }); renderRtPop(); return; }
+    if (d.ncab) { setNext({ cable: d.ncab, fibEx: false }); renderCableSel(); ready(); return; }
+    if (d.ncores) { setNext({ fibEx: true, fibCores: +d.ncores }); ready(); return; }
+    if (d.coreset) { const inp = $(`${d.coreset}CoreIn`), v = Math.round(+inp.value); if (!(v >= 2 && v <= 1728)) { toast('Type the number of cores, 2 to 1728', 2500); inp.focus(); return; }
+      if (d.coreset === 'f') rtSetCable({ ex: true, cores: v }); else { setNext({ fibEx: true, fibCores: v }); ready(); } }
+  });
+  $('rtPop').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('input[type=number]')) { e.preventDefault(); const b = e.target.parentElement.querySelector('[data-coreset]'); if (b) b.click(); } });
+  $('rbToolsClose').addEventListener('click', () => { rtTools = false; renderRtBar(lastR || routeModel()); });
+  $('rbUndo').addEventListener('click', () => rtUndo()); $('rbDone').addEventListener('click', () => setRouteMode(false)); // (Route tools: as before)
+  $('rbPairs').addEventListener('change', () => { rtPairs = $('rbPairs').checked; if (rtPairs) rtFinish(true); fibStartAt = null; fibNew = false; routeSel = null; routeRefresh(); toast(rtPairs ? 'Tap a pole, then the next pole, to link a span (no fiber). Untick to draw again.' : 'Drag from a pole to draw', 3000); });
 
   function fitProject() {
     const pts = projPoints();
@@ -8268,6 +8640,7 @@
     const R = routeModel(), Q = surveyQty(pts), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
     const LA = autoLoops(pts, R), OWN = loopOwnMap(pts, R); // v2.42.16: the maintenance loops the app adds (As-Plan); v2.42.18: the own ones
     const showCT = S.exp.dxfClampType !== false; // v2.40: the plan's options (v2.41: set on the Drawing screen)
+    const PLS = plStyle(); // v2.42.21: where the clamp types go, the 12C hardware, the cable labels
     // v2.41: the drawings of this export: the Drawing's choice, and / or every point with photos, numbers or both, and one pole group
     //        with numbers (an RTA application for each owner); one DXF each, in one ZIP
     const MG0 = markGroups(pts), allNo = new Set();
@@ -8289,14 +8662,14 @@
         adjusted: !!p.adjusted, color: p.color || '', // v2.36: a pin set by hand stays where it is on the drawing; a map pin's colour
         // v2.37: the NAP's kind, a double LCP, the site's kind, grounding, a riser, the pole a pole-to-pole guy goes to
         napType: el === 'NAP' || (el === 'Pole' && (p.nap || p.napId)) ? b.napType || '' : '', napOld: el === 'Pole' && b.napSt === 'Existing', closureOld: el === 'Pole' && b.cloSt === 'Existing', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', ground: !!b.ground, riser: !!b.riser, p2pTo: b.p2p || null,
-        clampType: el === 'Pole' && showCT ? clampOf(p, R, pts).join('+') : '', clampAuto: el === 'Pole' && !b.clampType,
+        clampType: el === 'Pole' && showCT ? clampOf(p, R, pts).join('+') : '', clampAuto: el === 'Pole' && !b.clampType, hw: el === 'Pole' && showCT && PLS.clamp.hw ? hwShort(p, R) : '', /* v2.42.21: a 12C-only pole's hardware */
         ownerName: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && !/^globe$/i.test(ownerNameOf(p)) ? ownerNameOf(p).toUpperCase() : '' }; }); // v2.42.18: the owner's name beside an existing pole // v2.39: the pole's clamps (picked by the plan when left blank); v2.40: or the size only
-    const spans = R.spans.map((s) => { const o = { ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long, more: (s.runs || []).slice(1) }; // v2.42.18: + the other runs
+    const spans = R.spans.map((s) => { const o = { ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long, more: (s.runs || []).slice(1), cabLbl: PLS.cab.on ? cabLabelOf(s, PLS.cab.word) : null }; // v2.42.18: + the other runs; v2.42.21: its cable label
       if (s.lanes && s.lanes.length) { // v2.42.20: the other fibers each in its lane (beside the first fiber's line), an existing one dashed blue; the fibers' tags with the length
         const main = s.fibers.slice().sort((x, y) => x.n - y.n)[0] || null, mi = main ? s.lanes.indexOf(main) : (s.lanes.length - 1) / 2, rest = s.lanes.filter((f) => f !== main);
         Object.assign(o, { more: rest.map((f) => f.cab || ''), moreOff: rest.map((f) => s.lanes.indexOf(f) - mi), moreEx: rest.map((f) => !!f.ex), tags: R.fib.list.length > 1 ? s.lanes.slice().sort((x, y) => x.n - y.n).map(fibTag).join('+') : '' }); }
       return o; });
-    const exSpans = R.fib ? [...R.fib.hops.values()].filter((h) => !h.s).flatMap((h) => h.fs.filter((f) => f.ex).map((f) => ({ ia: h.a, ib: h.b, cab: f.cab || '', off: h.fs.indexOf(f) - (h.fs.length - 1) / 2 }))) : []; // v2.42.20: existing cables off the new route
+    const exSpans = R.fib ? [...R.fib.hops.values()].filter((h) => !h.s).flatMap((h) => { const xs = h.fs.filter((f) => f.ex); return xs.map((f, i) => ({ ia: h.a, ib: h.b, cab: f.cab || '', off: h.fs.indexOf(f) - (h.fs.length - 1) / 2, ...(i === 0 && PLS.cab.on ? { cabLbl: cabLabelOf({ lanes: xs }, PLS.cab.word) } : {}) })); }) : []; // v2.42.20: existing cables off the new route (v2.42.21: their size)
     const seqOf = Object.fromEntries([...poleNums(projPoints(), R).entries()].map(([id, n]) => [String(id), n])); // v2.42.18: the pole numbers (as in Table · CSV)
     const runs = C.routeChains(R.spans).map((ch) => ({ cable: ch.cable, label: CAB_TITLE[ch.cable] || '', pts: ch.pts.map(U) }));
     // v2.38: the project's places (points more than 1 km apart), each with its own vicinity map (its points with a 500 m margin, at
@@ -8407,7 +8780,7 @@
       busy(many ? `Drawing the plan on the template (${k + 1} of ${SETS.length})…` : 'Drawing the plan on the template…', k / SETS.length);
       await sleep(30);
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
-      const out = window.GeDxfTpl.build(seed, { pts: rows, spans, exSpans, runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
+      const out = window.GeDxfTpl.build(seed, { pts: rows, spans, exSpans, clampStyle: showCT ? PLS.clamp : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
         numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
@@ -8760,7 +9133,7 @@
       if (!Rt.fib || !Rt.fib.list.length) return null; const LA = autoLoops(projPoints(), Rt), all = fibers(), by = Rt.fib.by, r1 = (v) => Math.round(v * 10) / 10;
       const rows = [['Fiber', 'Side', 'Cable', 'New / existing', 'From', 'Start', 'To', 'End', 'Points', 'Spans', 'Route (m)', 'Loops', 'Loops (m)', 'Cable (m)', 'Way'].map((v) => ({ v, s: st.header }))];
       Rt.fib.list.forEach((f) => { const E = LA.fib ? [...LA.fib.list.values()].flat().filter((e) => e.n === f.n) : [], lm = E.reduce((t, e) => t + e.len, 0), a = fibEnd(f, 'from', by), b = fibEnd(f, 'to', by);
-        rows.push([`Fiber ${f.n}`, fibSide(f, all, by), CAB[f.cab] ? CAB[f.cab].label : 'not set', f.ex ? 'Existing (drawn only)' : 'New', `${a.kind === 'Pole' ? '' : `${a.kind} `}${a.ref}`, a.state, `${b.kind === 'Pole' ? '' : `${b.kind} `}${b.ref}`, b.state,
+        rows.push([`Fiber ${f.n}`, fibSide(f, all, by), f.ex ? `Existing ${exCores(f)}C` : CAB[f.cab] ? CAB[f.cab].label : 'not set', f.ex ? 'Existing (drawn only)' : 'New', /* v2.42.21: an existing cable's size */ `${a.kind === 'Pole' ? '' : `${a.kind} `}${a.ref}`, a.state, `${b.kind === 'Pole' ? '' : `${b.kind} `}${b.ref}`, b.state,
           f.path.length, f.spans, r1(f.len), f.ex ? '' : E.length, f.ex ? '' : r1(lm), f.ex ? '' : r1(f.len + lm), f.path.map(fibName).join(' → ')]); });
       return { name: 'Fibers', cols: [9, 7, 22, 18, 22, 9, 22, 9, 7, 7, 10, 7, 10, 10, 70], rows, freezeRow: 1 };
     })();
@@ -8779,7 +9152,7 @@
   function kmzFibers() {
     const R = routeModel(); if (!R.fib) return []; const all = fibers(), by = R.fib.by;
     return R.fib.list.filter((f) => f.path.length > 1).map((f) => { const a = fibEnd(f, 'from', by), b = fibEnd(f, 'to', by);
-      return { n: f.n, side: fibSide(f, all, by), cable: f.cab || '', ex: !!f.ex, len: f.len, color: fibColor(f), from: `${a.kind === 'Pole' ? '' : `${a.kind} `}${a.ref}`, to: `${b.kind === 'Pole' ? '' : `${b.kind} `}${b.ref}`, pts: f.path.map((id) => by.get(id)).map((p) => ({ lat: p.lat, lon: p.lon, poleId: p.poleId || '' })) }; });
+      return { n: f.n, side: fibSide(f, all, by), cable: f.cab || '', ex: !!f.ex, cores: f.ex ? exCores(f) : null, len: f.len, /* v2.42.21 */ color: fibColor(f), from: `${a.kind === 'Pole' ? '' : `${a.kind} `}${a.ref}`, to: `${b.kind === 'Pole' ? '' : `${b.kind} `}${b.ref}`, pts: f.path.map((id) => by.get(id)).map((p) => ({ lat: p.lat, lon: p.lon, poleId: p.poleId || '' })) }; });
   }
   /* ---- labeled photos for training a recognition model ---- */
   let dsScope = 'project';
@@ -12849,6 +13222,7 @@
     poleNums: () => Object.fromEntries([...poleNums(projPoints(), routeModel()).entries()]), setNumCfg: (c) => setNumCfg(c), route: () => { const R = routeModel(); return { total: R.total, cableTotal: R.cableTotal, spans: R.spans.map((s) => ({ ia: s.ia, ib: s.ib, runs: s.runs, len: s.len })) }; },
     mapPt: (lat, lon) => { const p = map.latLngToContainerPoint([lat, lon]), r = $('map').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; }, mapView: (lat, lon, z) => map.setView([lat, lon], z, { animate: false }), siteReq: () => siteReq(), adminOk: (e) => adminUserOk(e), jobsOf: (e) => jobsOf(e), shareProject: (n) => shareProject(n || S.project), apprText: () => apprText(), readApproval: (t, n) => readApproval(t, n || S.project),
     /* v2.42.19 */ boxMarks: () => (boxer ? boxer.marks.map((m) => ({ k: m.k, pts: m.pts ? m.pts.map(([x, y]) => [Math.round(x), Math.round(y)]) : null, raw: !!m.raw })) : null), boxSel: () => (boxer ? boxer.sel : null), pinOwn: () => pinOwnLines.map(({ pl, o }) => ({ to: o.id, ll: pl.getLatLngs().map((q) => [q.lat, q.lng]) })), pinCenter: () => { const c = pinMap.getCenter(); return [c.lat, c.lng]; },
+    /* v2.42.21 */ routeTools: (on, pairs) => { rtTools = !!on; rtPairs = !!pairs; $('rbPairs').checked = rtPairs; if (rtPairs) rtFinish(true); routeRefresh(); const pts = projPoints(); if (on && pts.length > 1) map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 110], paddingBottomRight: [40, Math.round(($('routeBar').getBoundingClientRect().height || 240) + 30)], maxZoom: 19, animate: false }); }, /* (Route tools open, linking by pairs: the route bar as before v2.42.21, for the earlier versions' tests) */ rtState: () => ({ fibAdd, fibAt, fibTouched, fibStartAt, fibNew, rtTools, rtPairs, pend: rtPend.map((q) => (points.find((p) => p.id === q.id) || {}).poleId), pop: rtPop, snap: snapPref(), snapM: snapM(), routeSel }), snapSeq: (id, ll, su) => snapSeq(id, ll, su),
     /* v2.42.20 */ routeTap: (id) => routeTap(id), fibers: () => fibers(), setFibers: (F) => { setRoute(null, F); renderPoles(); }, fibState: () => ({ fibSel, fibAdd }),
     fibModel: () => { const R = routeModel(); return { list: R.fib ? R.fib.list.map((f) => ({ n: f.n, len: f.len, spans: f.spans, gaps: f.gaps, ex: !!f.ex, path: f.path, side: fibSide(f, fibers(), R.fib.by), from: fibEnd(f, 'from', R.fib.by), to: fibEnd(f, 'to', R.fib.by) })) : [], cableTotal: R.cableTotal, total: R.total, spans: R.spans.map((s) => ({ ia: s.ia, ib: s.ib, from: s.from, to: s.to, lanes: s.lanes.map((f) => f.n), fibers: s.fibers.map((f) => f.n), runs: s.runs, cable: s.cable })) }; },
     fibLoops: () => { const LA = autoLoops(projPoints(), routeModel()); return LA.fib ? { n: LA.fib.n, nAuto: LA.fib.nAuto, list: [...LA.fib.list.entries()].map(([id, E]) => [(points.find((p) => p.id === id) || {}).poleId, E.map((e) => [e.n, e.cab, e.len, e.why])]) } : null; },
