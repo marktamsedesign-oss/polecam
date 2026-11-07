@@ -536,6 +536,19 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.22
+
+Drawing the cable route: ✎ Draw and ✋ Move. No update of the online sheet needed.
+
+- **✎ Draw** (on when Route opens, kept on the phone): one finger draws, starting anywhere; two fingers move and zoom the map. A pinch never draws: a second finger drops the line just begun.
+- **✋ Move**: one finger moves the map; a tap on a pole shows its options.
+- **Lines and taps do the same**: both add poles to the fiber in the bar. ✓ finishes it; the next line or tap starts a new fiber (on a fiber's end: that fiber goes on; on a pole in the middle of a fiber: a branch). A line from the fiber's other end goes on from there; from its middle, it branches.
+- **Mouse**: left-drag draws, from anywhere; right-drag, middle-drag or Space + drag moves the map; the wheel zooms; a right-click (in ✎ Draw) undoes.
+- **The route button keeps your view**: nothing zooms until you tap ⛶ (the whole route).
+- **＋ Closure and ＋ Dummy NAP** (a pole's options, or the question at ✓): the map zooms in on the pole; a second tap on it adds it. Adding it, or Cancel, takes the map back. The question at ✓ offers a dummy NAP where no 72C runs.
+- **The route check** is off the route screen: in Route tools it is one closed line, *Route check (n)*, opened by a tap; its rings show on the map only then. The plan DXF's README still lists it.
+- Fewer tips: the one-time tip (how to draw and move the map) is the only one.
+
 ## What changed in v2.42.21
 
 Drawing the cable route on the map. No update of the online sheet needed.

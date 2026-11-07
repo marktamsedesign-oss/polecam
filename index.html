@@ -670,6 +670,21 @@ body.routing #routeBar{z-index:525}
 .span-icon .rt-handle{position:absolute;display:block;width:34px;height:34px;border-radius:50%;border:3.5px solid currentColor;background:color-mix(in srgb,currentColor 14%,transparent);transform:translate(-50%,-50%);animation:rtpulse 1.6s ease-out infinite}
 @keyframes rtpulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,currentColor 55%,transparent)}100%{box-shadow:0 0 0 16px transparent}}
 @media (prefers-reduced-motion:reduce){.span-icon .rt-handle{animation:none}}
+/* v2.42.22: ✋ Move / ✎ Draw, the pole waiting for the second tap, the first-time tip */
+.rt-penseg{display:inline-flex;flex:none;border:1px solid var(--line);border-radius:11px;padding:2px;gap:2px;background:var(--surface)}
+.rt-penseg button{width:40px;height:34px;border:0;border-radius:9px;background:none;color:var(--ink);display:grid;place-items:center;cursor:pointer;padding:0}
+.rt-penseg button svg{width:20px;height:20px}
+.rt-penseg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+#map.rt-pen,#map.rt-pen .leaflet-interactive{cursor:crosshair}
+#map.rt-spacepan,#map.rt-spacepan .leaflet-interactive{cursor:grab}
+#map.rt-panning,#map.rt-panning .leaflet-interactive{cursor:grabbing}
+.rt-ask.rt-conf{border-color:color-mix(in srgb,var(--accent) 55%,var(--line));background:color-mix(in srgb,var(--accent) 9%,var(--surface))}
+.span-icon .rt-tgt{position:absolute;display:block;width:48px;height:48px;border-radius:50%;border:3px solid var(--accent);color:var(--accent);transform:translate(-50%,-50%);animation:rtpulse 1.4s ease-out infinite}
+.span-icon .rt-tgtlab{position:absolute;transform:translate(-50%,30px);background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:2px 10px;font:700 calc(12px * var(--fs)) system-ui,sans-serif;white-space:nowrap;box-shadow:var(--shadow)}
+@media (prefers-reduced-motion:reduce){.span-icon .rt-tgt{animation:none}}
+#rtHint.tip{pointer-events:auto;display:flex;gap:10px;align-items:center}
+#rtHint.tip button{border:0;border-radius:10px;background:#fff;color:#0f2547;font:800 calc(12.5px * var(--fs)) system-ui,sans-serif;padding:4px 12px;min-height:30px;cursor:pointer}
+.rb-advbox{margin:4px 0 0}.rb-advbox summary{cursor:pointer;color:#b35c00;font-size:calc(12.5px * var(--fs));font-weight:700}
 .span-icon .rt-pass{position:absolute;transform:translate(-50%,13px);font:700 calc(10.5px * var(--fs)) ui-monospace,monospace;color:#e8590c;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 2px #fff;white-space:nowrap}
 #map.leaflet-container{touch-action:none}
 .est-bad{color:var(--bad);font-weight:600}
@@ -773,6 +788,7 @@ body.routing #routeBar{z-index:525}
   <div class="mapbtns">
     <button class="round" id="pinAddBtn" type="button" hidden aria-label="Add a pin on the map: proposed pole, site or tower, ODC, ODF or handhole" title="Add a pin on the map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.8-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 15.2 12 21 12 21Z"/><path d="M12 6.8v6M9 9.8h6"/></svg></button>
     <button class="round" id="routeBtn" aria-label="Edit cable route and spans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="18" r="2.2"/><circle cx="12" cy="7" r="2.2"/><circle cx="19" cy="15" r="2.2"/><path d="m6.4 16.2 4.3-7.4M13.6 8.6l4.2 4.9"/></svg></button>
+    <button class="round" id="routeFitBtn" type="button" hidden aria-label="Show the whole route" title="Show the whole route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <button class="round" id="offlineBtn" hidden aria-label="Maps: online server and offline packs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18"/><path d="M12 11v9M8.5 16.5 12 20l3.5-3.5"/></svg></button>
     <button class="round" id="refBtn" type="button" aria-label="Reference KMZ: load it, or show and hide it"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg><i class="refdot" aria-hidden="true"></i></button>
     <div id="refMenu" hidden role="dialog" aria-label="Show on the map">
@@ -793,7 +809,7 @@ body.routing #routeBar{z-index:525}
   </section>
   <div id="routeBar" hidden aria-label="Route tools">
     <div class="rb-head"><b id="rbTitle">Route</b><span id="rbStats"></span><button class="btn sm" id="rbToolsClose" type="button" aria-label="Close Route tools (back to the small bar)">Close</button></div>
-    <p class="rb-advice" id="rbAdvice" hidden></p>
+    <details class="rb-advbox" id="rbAdviceBox" hidden><summary id="rbAdviceSum">Route check</summary><div class="rb-advice" id="rbAdvice"></div></details>
     <p class="rb-hint" id="rbHint">Tap a pole, then the next pole to link them. Tap a linked pair again to unlink.</p>
     <div class="rb-fibers" id="rbFibers" hidden></div>
     <div class="rb-fib" id="rbFib" hidden></div>

@@ -732,7 +732,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.21';
+  const APP_VER = '2.42.22';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1372,7 +1372,7 @@
         ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svpin${sel ? ' sel' : ''}${p.status === 'Proposed' || p.status === 'New' ? ' new' : ''}" style="--c:${pinCol(p) || SV_COLORS[el]}">${SV_SHORT[el]}</span>`, iconSize: [30, 24], iconAnchor: [15, 12] }) })
         : L.circleMarker([p.lat, p.lon], pinLook(p, sel)); // (v2.42.19: its look in pinLook)
       m.bindTooltip(pinTip(p, R), { permanent: true, direction: 'right', offset: [sy ? 16 : !acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' });
-      m.on('click', () => (routeMode ? (Date.now() - rtGestAt < 700 ? null : routeTap(p.id)) : visitMode() ? openVisit(p.id) : openEditorFor(p.id))); // (v2.42.21: a tap the drawing gesture took)
+      m.on('click', () => (routeMode ? (Date.now() - rtGestAt < 700 ? null : rtTapAny(p.id)) : visitMode() ? openVisit(p.id) : openEditorFor(p.id))); // (v2.42.21: a tap the drawing gesture took)
       m.addTo(poleLayer); pinMarkers.set(p.id, m);
     }
     pinShownSel = routeMode ? routeSel : null;
@@ -2130,6 +2130,9 @@
   let fibSel = null, fibAdd = null, lastR = null; // v2.42.20: the fiber selected (its whole way lit), the fiber points are being added to, the route last drawn
   /* v2.42.21: drawing the route (see 'draw the cable route on the map' below) */
   let fibAt = 'end', fibTouched = false, fibStartAt = null, fibNew = false, rtTools = false, rtPairs = false, rtPend = [], rtPop = null, rtDraft = null, rtPress = null, rtGestAt = 0, rtAsked = new Set(), rtHintT = 0, rtPq = 0, rtEdge = null, rtEdgeRaf = 0;
+  /* v2.42.22: a closure or dummy NAP waiting for the second tap; the fingers down; the mouse moving the map; Space held. ✎ Draw or ✋ Move: S.routePen (kept on this phone) */
+  let rtConf = null, rtPtrs = new Set(), rtMulti = false, rtMpan = null, rtSpace = false;
+  const rtPenOn = () => S.routePen !== false;
   const rtDraftLayer = L.layerGroup().addTo(map), rtMarkLayer = L.layerGroup().addTo(map);
   const routeLayer = L.layerGroup().addTo(map), fibLayer = L.layerGroup().addTo(map);
   map.createPane('routePane'); map.getPane('routePane').style.zIndex = 395; // v2.42.19: the route under the pins (overlay 400), whatever is drawn last: a pin is tapped, not the span under it
@@ -2244,7 +2247,7 @@
       const info = R.poles[p.id];
       if (info && (info.role === 'Angle' || info.role === 'Junction')) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 14, color: info.role === 'Angle' ? '#e8590c' : '#9c36b5', weight: 2, fill: false, interactive: false }).addTo(routeLayer);
     }
-    if (routeMode) { updateRouteBar(R); const by = new Map(projPoints().map((p) => [p.id, p])); routeAdvice(R).forEach((a) => { const p = by.get(a.id); if (p) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 17, color: a.kind === 'flag' ? '#c92a2a' : '#e8590c', weight: 2.5, dashArray: '5 4', fill: false, interactive: false }).addTo(routeLayer); }); }
+    if (routeMode) { updateRouteBar(R); const by = new Map(projPoints().map((p) => [p.id, p])); if (rtTools) routeAdvice(R).forEach((a) => { const p = by.get(a.id); if (p) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 17, color: a.kind === 'flag' ? '#c92a2a' : '#e8590c', weight: 2.5, dashArray: '5 4', fill: false, interactive: false }).addTo(routeLayer); }); }
     if (typeof declutterSoon === 'function') declutterSoon(); // v2.28
     return R;
   }
@@ -2270,7 +2273,9 @@
   /** v2.42.21: in Route, the end of the fiber you are on (a ring that pulses: drag from it), the ends of the fibers (rings), and the
       points the fiber passes without being on them (dashed, 'passes': tap one to put it on). */
   function drawRtMarks(R) {
-    rtMarkLayer.clearLayers(); if (!routeMode || isAcc() || !R || !R.fib) return;
+    rtMarkLayer.clearLayers(); if (!routeMode || isAcc()) return;
+    if (rtConf) { const p = routePts().find((x) => x.id === rtConf.id) || points.find((x) => x.id === rtConf.id); if (p) ['<span class="rt-tgt"></span>', '<span class="rt-tgtlab">Tap again</span>'].forEach((html) => L.marker([p.lat, p.lon], { pane: 'routePane', interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html, iconSize: null }) }).addTo(rtMarkLayer)); } // v2.42.22
+    if (!R || !R.fib) return;
     const by = R.fib.by, A = fibAdd != null ? R.fib.list.find((f) => f.n === fibAdd) : null, mk = (p, html) => L.marker([p.lat, p.lon], { pane: 'routePane', interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html, iconSize: null }) }).addTo(rtMarkLayer);
     R.fib.list.forEach((f) => { if (A && f !== A) return; (f.path.length > 1 ? [f.path[0], f.path[f.path.length - 1]] : f.path).forEach((id) => {
       const p = by.get(id); if (!p) return; const open = f === A && id === (fibAt === 'start' ? f.path[0] : f.path[f.path.length - 1]);
@@ -2590,9 +2595,9 @@
     const byCab = {}; R.spans.forEach((s) => (s.runs || [s.cable]).forEach((k) => { byCab[k] = (byCab[k] || 0) + s.len; })); // v2.42.18: each run
     const LP = loopPlan(projPoints(), R); // v2.42.16: the loops, the surveyor's and the app's
     $('rbStats').textContent = `${R.long} longer than ${pol().maxSpan || 200} m · ${R.angle} angle · ${R.junction} junction · ${R.off} not linked · ${Object.entries(byCab).map(([k, m]) => `${CAB[k] ? CAB[k].short : 'not set'} ${fmtLen(m)}`).join(' · ')}${LP.n ? ` · MLoop ${LP.nMan}${LP.nAuto ? ` + ${LP.nAuto} added by the app` : ''}` : ''}${LP.open ? ` · MLoop not answered: ${LP.open}` : ''}${LP.nBox ? ` · HH/MH/SB loops ${LP.nBox} × ${BOX_LOOP_M} m` : ''}`;
-    const A = routeAdvice(R); $('rbAdvice').hidden = !A.length; $('rbAdvice').textContent = A.length ? `⚠ ${A.map((a) => a.text).join(' · ')}` : ''; // v2.37
+    const A = routeAdvice(R); $('rbAdviceBox').hidden = !A.length; $('rbAdviceSum').textContent = `Route check (${A.length})`; $('rbAdvice').innerHTML = A.map((a) => `<div>⚠ ${hEsc(a.text)}</div>`).join(''); // v2.37 (v2.42.22: closed until tapped)
     const sel = routeSel && points.find((p) => p.id === routeSel);
-    $('rbHint').textContent = fibAdd != null ? fibHint() : !rtPairs ? `Draw on the map: drag from a pole (a drag elsewhere moves the map). Here: ${sel ? `${sel.poleId}'s spans, ` : ''}each span's runs, each fiber's details, Link in capture order, Clear.` : sel ? `${sel.poleId} selected. Tap the next pole to link it (tap a linked pole to unlink), or tap ${sel.poleId} again to stop.`
+    $('rbHint').textContent = fibAdd != null ? fibHint() : !rtPairs ? `Here: ${sel ? `${sel.poleId}'s spans, ` : ''}each span's runs, each fiber's details, Link in capture order, Clear. Close: back to drawing.` : sel ? `${sel.poleId} selected. Tap the next pole to link it (tap a linked pole to unlink), or tap ${sel.poleId} again to stop.`
       : 'Tap a pole, then the next pole to link them. Tap a linked pair again to unlink. Tap a pole to see its spans and their fibers.'; // (v2.42.21: linking by pairs is a choice in Route tools)
     { // v2.42.19: the selected pole's spans: tap one for its runs (Run 2, Run 3…), at any zoom (v2.42.20: its fibers)
       const box = $('rbSpans'), at = sel && !spanSel && fibAdd == null ? R.spans.filter((s) => s.ia === sel.id || s.ib === sel.id) : [];
@@ -2772,13 +2777,10 @@
   function setRouteMode(on) {
     routeMode = on; routeSel = null; spanSel = null; routeUndo = []; routeProj = on ? S.project : null; fibSel = null; fibAdd = null; // (v2.42.20)
     fibAt = 'end'; fibTouched = false; fibStartAt = null; fibNew = false; rtTools = false; rtPairs = false; rtPend = []; rtPop = null; rtAsked = new Set(); rtDraft = null; rtDraftLayer.clearLayers(); rtMarkLayer.clearLayers(); $('rbPairs').checked = false; // v2.42.21
-    $('routeBar').hidden = true; $('rtBar').hidden = !on; $('rtPop').hidden = true; rtHint(on ? 'Drag from a pole to draw · drag the map to move it' : '', 4500); $('routeBtn').setAttribute('aria-pressed', String(on)); if (on) renderCableSel();
+    rtConf = null; rtPress = null; rtMpan = null; rtPtrs.clear(); rtMulti = false; map.getContainer().classList.remove('rt-panning'); // v2.42.22
+    $('routeBar').hidden = true; $('rtBar').hidden = !on; $('rtPop').hidden = true; rtHint(''); $('routeBtn').setAttribute('aria-pressed', String(on)); $('routeFitBtn').hidden = !on; if (on) renderCableSel();
     document.body.classList.toggle('routing', on);
-    renderPoles();
-    if (on) { // frame all poles above the route bar so they are easy to tap
-      const pts = projPoints();
-      if (pts.length > 1) map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 80], paddingBottomRight: [70, 190], maxZoom: 19 }); // (v2.42.21: the bar is small)
-    }
+    renderPoles(); rtApplyMode(); if (on) rtTip(); // (v2.42.22: the map stays where it is; ⛶ shows the whole route)
   }
   function routeTap(id) {
     const tapped = points.find((p) => p.id === id);
@@ -2853,8 +2855,9 @@
       off to one side where most points near it are on the other: across the street, left out), and the point nearest its end
       (within twice su). */
   function snapSeq(id, ll, su) {
-    const pts = routePts(), by = new Map(pts.map((p) => [p.id, p])), s0 = by.get(id); if (!s0) return [];
-    const f = xyOf(s0.lat), line = [f(s0), ...ll.map(f)]; if (line.length < 2) return [id];
+    const pts = routePts(), by = new Map(pts.map((p) => [p.id, p])), s0 = id != null ? by.get(id) : null; if (id != null && !s0) return [];
+    if (!ll.length) return s0 ? [id] : [];
+    const f = xyOf(s0 ? s0.lat : ll[0].lat), line = s0 ? [f(s0), ...ll.map(f)] : ll.map(f); if (line.length < 2) return s0 ? [id] : [];
     const C = [];
     pts.forEach((p) => { if (p.id === id) return; const r = projOn(f(p), line); if (r.d <= su) C.push({ id: p.id, ...r, on: true }); });
     C.forEach((c) => { const w = C.filter((o) => Math.abs(o.t - c.t) <= 60), plus = w.filter((o) => o.side > 0).length, minus = w.filter((o) => o.side < 0).length;
@@ -2862,7 +2865,12 @@
     const end = line[line.length - 1], T = projOn(end, line).len; let e = null;
     pts.forEach((p) => { if (p.id === id) return; const q = f(p), d = Math.hypot(q.x - end.x, q.y - end.y); if (d <= 2 * su && (!e || d < e.d)) e = { id: p.id, d }; });
     if (e) { const c = C.find((x) => x.id === e.id); if (c) { c.on = true; c.t = Math.max(c.t, T); } else C.push({ id: e.id, d: e.d, t: T + 1, side: 0, on: true }); }
-    return [id, ...C.filter((c) => c.on).sort((a, b) => a.t - b.t).map((c) => c.id)].filter((x, i, a) => a.indexOf(x) === i);
+    if (!s0) { // v2.42.22: a line drawn from anywhere starts at the point nearest its start (within twice su)
+      const a = line[0]; let b = null; pts.forEach((p) => { const q = f(p), d = Math.hypot(q.x - a.x, q.y - a.y); if (d <= 2 * su && (!b || d < b.d)) b = { id: p.id, d }; });
+      if (b && (!e || b.id !== e.id)) { const c = C.find((x) => x.id === b.id); if (c) { c.on = true; c.t = -1; } else C.push({ id: b.id, d: b.d, t: -1, side: 0, on: true }); }
+    }
+    const seq = C.filter((c) => c.on).sort((x, y) => x.t - y.t).map((c) => c.id);
+    return (s0 ? [id, ...seq] : seq).filter((x, i, a) => a.indexOf(x) === i);
   }
   /** The links with a span added for each step of the way that has none (a new fiber's cable). */
   function linksFor(way, cab) {
@@ -2878,7 +2886,7 @@
     const xy = xyOf(P[0].lat), line = P.map(xy), su = snapM(), on = new Set(f.path);
     return routePts().filter((p) => !on.has(p.id) && projOn(xy(p), line).d <= su).map((p) => p.id);
   }
-  function rtHint(t, ms) { const e = $('rtHint'); clearTimeout(rtHintT); if (!t) { e.hidden = true; return; } e.textContent = t; e.hidden = false; if (ms) rtHintT = setTimeout(() => { e.hidden = true; }, ms); }
+  function rtHint(t, ms) { const e = $('rtHint'); clearTimeout(rtHintT); e.classList.remove('tip'); if (!t) { e.hidden = true; return; } e.textContent = t; e.hidden = false; if (ms) rtHintT = setTimeout(() => { e.hidden = true; }, ms); }
   function rtActivate(n, at) { fibAdd = n; fibSel = n; fibAt = at || 'end'; fibTouched = false; fibStartAt = null; fibNew = false; rtPop = null; spanSel = null; routeSel = null; }
   /** Finish the fiber you are on: for each of its ends on another cable (another fiber passing or ending there, or a span on no
       fiber) at a pole with no closure, a question in the bar (once per pole while Route is open). */
@@ -2888,23 +2896,23 @@
     if (f && fibTouched && !quiet && f.path.length > 1) {
       const by = new Map(routePts().map((p) => [p.id, p])), used = onAnyFiber(F);
       [f.path[0], f.path[f.path.length - 1]].forEach((id, i) => {
-        const p = by.get(id); if (!p || elemOf(p) !== 'Pole' || rtAsked.has(id) || rtPend.some((q) => q.id === id) || fibEnd({ path: [id] }, 'from', by).kind === 'Closure') return;
+        const p = by.get(id), k0 = p ? fibEnd({ path: [id] }, 'from', by).kind : ''; if (!p || elemOf(p) !== 'Pole' || rtAsked.has(id) || rtPend.some((q) => q.id === id) || k0 === 'Closure' || k0 === 'Dummy NAP') return;
         const others = F.filter((g) => g !== f && g.path.includes(id)), loose = links().filter((l) => (l[0] === id || l[1] === id) && !used.has(spanKey(l[0], l[1])));
         if (!others.length && !loose.length) return;
-        const how = others.map((g) => `Fiber ${g.n}${g.ex ? ` (existing ${exCores(g)}C)` : ''} ${g.path[0] === id || g.path[g.path.length - 1] === id ? 'ends there' : 'passes there'}`).concat(loose.length ? [`${loose.length} span${loose.length === 1 ? '' : 's'} on no fiber`] : []);
-        rtPend.push({ id, text: `Fiber ${f.n} ${i ? 'ends' : 'starts'} at ${p.poleId || '(no ID)'}, on another cable: ${how.join('; ')}. A closure there joins them (each fiber gets its loop).` });
+        const how = others.map((g) => `F${g.n}${g.ex ? ` (existing ${exCores(g)}C)` : ''}`).concat(loose.length ? [`${loose.length} span${loose.length === 1 ? '' : 's'} on no fiber`] : []);
+        rtPend.push({ id, dn: [f, ...others].every((g) => g.ex || g.cab !== 'F72'), text: `Fiber ${f.n} ${i ? 'ends' : 'starts'} on ${how.join(', ')}. Add here?` }); // v2.42.22: short; a dummy NAP too where no 72C runs
       });
     }
     fibTouched = false; routeRefresh(f ? [f.path[0], f.path[f.path.length - 1]] : []);
-    if (!quiet && f && !rtPend.length) toast(`Fiber ${f.n}: ${f.path.length} point${f.path.length === 1 ? '' : 's'}${f.path.length > 1 ? ` · ${fibCabShort(f)}` : ''}`, 2200);
+    if (!quiet && f && !rtPend.length) toast(`Fiber ${f.n}: ${f.path.length} point${f.path.length === 1 ? '' : 's'}${f.path.length > 1 ? ` · ${fibCabShort(f)}` : ''}`, 1800);
   }
   /** A closure on the pole's record (new; its ID and size are set in the record), with Undo. */
-  async function rtAddClosure(id) {
-    const i = points.findIndex((x) => x.id === id); if (i < 0) return; const p = points[i];
+  async function rtAddClosure(id) { // (v2.42.22: true when saved)
+    const i = points.findIndex((x) => x.id === id); if (i < 0) return false; const p = points[i];
     const prev = JSON.parse(JSON.stringify(p)), rec = { ...p, closure: true, boq: { ...(p.boq || {}), cloSt: (p.boq || {}).cloSt || 'New' }, updated: new Date().toISOString() };
-    try { await dbPut('points', rec); } catch (e) { toast('The closure could not be saved: try again', 3500); return; }
+    try { await dbPut('points', rec); } catch (e) { toast('The closure could not be saved: try again', 3500); return false; }
     points[points.indexOf(p)] = rec; changedAfterApproval(rec.project, 'record'); routeUndo.push({ rec: prev }); rtAsked.add(id);
-    renderPoles(); toast(`Closure added at ${rec.poleId || '(no ID)'} (new): set its ID and size in the pole's record`, 4500);
+    renderPoles(); toast(`Closure added at ${rec.poleId || '(no ID)'} (new): set its ID and size in the pole's record`, 4500); return true;
   }
   /** Take the point off the fiber (the cable passes it): its neighbours on the fiber linked directly; the spans to it that no
       fiber uses any more go (an existing cable has no spans of its own). Returns the new links, or null. */
@@ -2927,48 +2935,73 @@
     [[a, id], [id, b]].forEach(([x, y]) => { if (!have.has(spanKey(x, y))) L2 = L2.concat([linkWith(x, y, f.cab)]); });
     return L2;
   }
-  /** A tap on a point in Route (v2.42.21). */
+  /** ✎ Draw: a tap on a point (v2.42.21; v2.42.22: no tips). The fiber in the bar: its end, its other end (go on from there), a point
+      on it (the cable only passes), a point it passes (put on), else the next point (along the spans, else the points on the line).
+      No fiber in the bar: a fiber's end goes on with it; any other point starts a new fiber there (on a fiber: a branch). */
   function rtTap(id) {
-    const F = fibers(), f = fibAdd != null ? F.find((x) => x.n === fibAdd) : null; rtPop = null;
+    const F = fibers(), f = fibAdd != null ? F.find((x) => x.n === fibAdd) : null; rtPop = null; routeSel = null;
     if (f) {
       if (!f.path.length) { fiberTap(id); fibTouched = true; return; }
       const end = fibAt === 'start' ? f.path[0] : f.path[f.path.length - 1];
-      if (id === end) { rtHint(`Fiber ${f.n} is at ${fibName(id)}: drag from it, or tap the next pole`, 3000); return; }
-      if (f.path.length > 1 && (id === f.path[0] || id === f.path[f.path.length - 1])) { fibAt = id === f.path[0] ? 'start' : 'end'; rtHint(`Fiber ${f.n} now goes on from ${fibName(id)}`, 3000); routeRefresh([id]); return; }
+      if (id === end) return;
+      if (f.path.length > 1 && (id === f.path[0] || id === f.path[f.path.length - 1])) { fibAt = id === f.path[0] ? 'start' : 'end'; routeRefresh([id]); return; }
       if (f.path.includes(id)) { // the cable only passes it
         if (f.path.length <= 2) { toast('A fiber needs two points', 2500); return; }
-        routeUndo.push(routeSnap()); const L2 = rtPassOff(f, id, F); setRoute(L2, F); fibTouched = true; routeRefresh([id]);
-        toast(`${fibName(id)}: Fiber ${f.n} only passes it (no clamp, no hardware). Tap it again to put it back`, 3200); return;
+        routeUndo.push(routeSnap()); const L2 = rtPassOff(f, id, F); setRoute(L2, F); fibTouched = true; routeRefresh([id]); return;
       }
       if (fibPasses(f, new Map(routePts().map((p) => [p.id, p]))).includes(id)) {
-        routeUndo.push(routeSnap()); const L2 = rtAttach(f, id, F); setRoute(L2, F); fibTouched = true; routeRefresh([id]);
-        toast(`${fibName(id)} put on Fiber ${f.n}`, 2500); return;
+        routeUndo.push(routeSnap()); const L2 = rtAttach(f, id, F); setRoute(L2, F); fibTouched = true; routeRefresh([id]); return;
       }
       fiberTap(id); fibTouched = true; return; // the next point: along the spans, else a new span
     }
-    if (fibStartAt != null || fibNew) {
-      if (fibStartAt == null || fibStartAt === id) { fibStartAt = fibStartAt === id ? null : id; fibNew = false; if (fibStartAt) rtHint(`New fiber from ${fibName(id)}: tap the next pole, or drag from it`, 3500); routeRefresh([id]); return; }
+    if (fibStartAt != null) {
+      if (fibStartAt === id) { fibStartAt = null; routeRefresh([id]); return; }
       const sp = nextSpec(), n = nextFibN(F); routeUndo.push(routeSnap());
       F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), path: [fibStartAt], fromSt: '', toSt: '' }); setRoute(null, F);
       rtActivate(n, 'end'); fiberTap(id); routeUndo.splice(routeUndo.length - 1, 1); fibTouched = true; // (one Undo takes the new fiber away)
-      toast(`Fiber ${n} · ${fibCabName(sp)}: tap the next pole, ✓ when it ends`, 3000); return;
+      toast(`Fiber ${n} · ${fibCabShort(sp)}`, 1800); return;
     }
     const ends = F.filter((g) => g.path.length && (g.path[0] === id || g.path[g.path.length - 1] === id)), thru = F.filter((g) => g.path.includes(id));
-    if (ends.length === 1 && thru.length === 1) { const g = ends[0], at = g.path.length > 1 && g.path[0] === id ? 'start' : 'end'; rtActivate(g.n, at); routeRefresh([id]); rtHint(`Fiber ${g.n} goes on from ${fibName(id)}: drag from the ring, or tap the next pole`, 3500); return; }
-    const was = routeSel; routeSel = routeSel === id ? null : id; routeRefresh([was, id]);
+    if (ends.length === 1 && thru.length === 1) { const g = ends[0], at = g.path.length > 1 && g.path[0] === id ? 'start' : 'end'; rtActivate(g.n, at); routeRefresh([id]); return; }
+    const was = fibStartAt; fibStartAt = id; routeRefresh([was, id]); // a new fiber from here: the next tap or line
   }
-  /* the drag: on a pole it draws (the map stays), elsewhere Leaflet moves the map */
-  function rtBegin(id) {
-    const F = fibers(), A = fibAdd != null ? F.find((x) => x.n === fibAdd) : null, force = fibNew || fibStartAt != null; let f = null, at = 'end';
-    if (A && !force) { if (!A.path.length) f = A; else if (id === A.path[A.path.length - 1]) f = A; else if (id === A.path[0]) { f = A; at = 'start'; } }
-    if (!f && !A && !force) { const e = F.filter((g) => g.path.length && (g.path[0] === id || g.path[g.path.length - 1] === id)); if (e.length === 1 && F.filter((g) => g.path.includes(id)).length === 1) { f = e[0]; at = f.path.length > 1 && f.path[0] === id ? 'start' : 'end'; } }
-    if (A && !f) rtFinish(); // a drag from another pole: a new fiber; the one you were on is finished
-    routeSel = null; spanSel = null; rtPop = null; renderRtPop();
+  /* ================= v2.42.22: ✎ Draw or ✋ Move =================
+     ✎ Draw (Route opens in it; kept on this phone): one finger (the left button) draws, from anywhere. The line goes to the fiber in the
+     bar, from its end (from the end to where the line starts: straight); from the fiber's other end it goes on from there; from a point
+     in its middle the fiber is finished and a new one branches there. With no fiber in the bar: a new fiber (from a fiber's end: that
+     fiber goes on). A tap adds a point the same way (rtTap). A second finger drops the line just begun: two fingers move and zoom the map
+     (a pinch never draws). Mouse: the right or middle button, or Space + drag, moves the map; a right-click (no drag) undoes; the wheel
+     zooms. ✋ Move: the map as usual; a tap on a pole shows its options in the bar. Route tools (⋯) and linking by pairs: as before (the
+     map moves; the pins' own taps). ＋ Closure / ＋ Dummy NAP: the map zooms in on the pole; a second tap on it adds it. */
+  const rtDrawing = () => routeMode && rtPenOn() && !rtTools && !rtPairs && !rtConf && !isAcc();
+  function rtApplyMode() { const d = rtDrawing(); if (d) map.dragging.disable(); else map.dragging.enable(); map.getContainer().classList.toggle('rt-pen', d); }
+  function rtSetPen(on, ids) { if (rtPenOn() !== on) { S.routePen = on; persist(); } routeSel = null; if (!on) fibStartAt = null; rtPop = null; rtApplyMode(); routeRefresh(ids); if (on) rtTip(); }
+  function rtTip() { // once on a phone: how to draw and move the map
+    if (!routeMode || !rtPenOn() || S.routeTip) return; const e = $('rtHint'), fine = !!(window.matchMedia && matchMedia('(pointer: fine)').matches); clearTimeout(rtHintT);
+    e.innerHTML = `<span>${fine ? 'Drag to draw · right-click undoes · right-drag or Space + drag moves the map' : 'One finger draws · two fingers move the map'}</span><button type="button" id="rtTipOk">OK</button>`; e.classList.add('tip'); e.hidden = false;
+    $('rtTipOk').addEventListener('click', rtTipSeen);
+  }
+  function rtTipSeen() { const e = $('rtHint'); if (!e.classList.contains('tip')) return; S.routeTip = true; persist(); rtHint(''); }
+  const rtHit = (c, r) => { let best = null; routePts().forEach((p) => { const d = map.latLngToContainerPoint([p.lat, p.lon]).distanceTo(c), rr = elemOf(p) === 'Pole' ? r : r + 8; if (d <= rr && (!best || d < best.d)) best = { id: p.id, d }; }); return best && best.id; }; // (a site, ODC, ODF or box: its icon is bigger)
+  const rtNear = (ll, m) => { let best = null; routePts().forEach((p) => { const d = map.distance(ll, [p.lat, p.lon]); if (d <= m && (!best || d < best.d)) best = { id: p.id, d }; }); return best && best.id; }; // the point nearest a line's start, within the snap's reach
+  /** ✋ Move: a tap on a pole: its options in the bar (again: closed). */
+  function rtHandTap(id) { const t = points.find((p) => p.id === id); if (t && !ROUTE_ELS.includes(elemOf(t))) return; rtPop = null; spanSel = null; const was = routeSel; routeSel = routeSel === id ? null : id; routeRefresh([was, id]); }
+  /** A tap on a point in Route, however it came (the gestures, a pin's own tap). */
+  function rtTapAny(id) { if (rtConf) { rtConfTap(id); return; } if (rtTools && !rtPairs && fibAdd == null) { rtHandTap(id); return; } if (rtTools || rtPairs || rtPenOn()) routeTap(id); else rtHandTap(id); } // (Route tools: the pole's spans, as before)
+  function rtLive(t) { const e = $('rtLive'); if (e) e.textContent = t; }
+  function rtBegin(s) { // s: where the line starts. What it does to the fiber in the bar (another end, a branch) is done when it ends: a pinch changes nothing
+    const F = fibers(), su = snapM(), kH = rtHit(map.latLngToContainerPoint(s), 26); let A = fibAdd != null ? F.find((x) => x.n === fibAdd) : null, f = null, at = fibAt, id = null, fin = null;
+    const kS = A ? kH : kH || rtNear(s, 2 * su); // (with a fiber in the bar, only a start on a pole counts: its other end, its middle)
+    if (A && A.path.length && kS && A.path.includes(kS)) { const e0 = A.path[0], e1 = A.path[A.path.length - 1], end = fibAt === 'start' ? e0 : e1;
+      if (kS !== end) { if (A.path.length > 1 && (kS === e0 || kS === e1)) at = kS === e0 ? 'start' : 'end'; else { fin = A.n; A = null; } } } // its other end: from there; its middle: a branch (the fiber is finished)
+    if (A) { f = A; id = A.path.length ? (at === 'start' ? A.path[0] : A.path[A.path.length - 1]) : kS; }
+    else if (fin == null && fibStartAt != null) id = fibStartAt;
+    else if (kS) { id = kS; at = 'end'; const e = F.filter((g) => g.path.length && (g.path[0] === kS || g.path[g.path.length - 1] === kS)); if (fin == null && e.length === 1 && F.filter((g) => g.path.includes(kS)).length === 1) { f = e[0]; at = f.path.length > 1 && f.path[0] === kS ? 'start' : 'end'; } }
+    routeSel = null; spanSel = null; rtPop = null; renderRtPop(); rtTipSeen();
     const col = f ? fibColor(f) : fibColor({ n: nextFibN(F) });
-    rtDraft = { id, f: f ? f.n : null, at, ll: [], su: snapM(), col };
-    rtDraftLayer.clearLayers(); rtDraft.trail = L.polyline([], { pane: 'routePane', color: col, weight: 3, opacity: 0.45, interactive: false }).addTo(rtDraftLayer);
+    rtDraft = { id, f: f ? f.n : null, at, fin, ll: [{ lat: s.lat, lon: s.lng }], su, col };
+    rtDraftLayer.clearLayers(); rtDraft.trail = L.polyline([[s.lat, s.lng]], { pane: 'routePane', color: col, weight: 3, opacity: 0.45, interactive: false }).addTo(rtDraftLayer);
     rtDraft.prev = L.polyline([], { pane: 'routePane', color: col, weight: 6, opacity: 0.9, dashArray: '10 7', interactive: false }).addTo(rtDraftLayer); rtDraft.rings = L.layerGroup().addTo(rtDraftLayer);
-    rtHint(`✎ ${f ? `Fiber ${f.n}` : `New fiber · ${fibCabShort(nextSpec())}`} · snap ${rtDraft.su} m`);
   }
   function rtAddPt(latlng) {
     const d = rtDraft; if (!d) return; const q = { lat: latlng.lat, lon: latlng.lng }, last = d.ll[d.ll.length - 1];
@@ -2977,93 +3010,159 @@
     if (!rtPq) rtPq = requestAnimationFrame(() => { rtPq = 0; if (!rtDraft) return; const seq = snapSeq(rtDraft.id, rtDraft.ll, rtDraft.su), by = new Map(routePts().map((p) => [p.id, p]));
       rtDraft.prev.setLatLngs(seq.map((x) => by.get(x)).filter(Boolean).map((p) => [p.lat, p.lon])); rtDraft.rings.clearLayers();
       seq.forEach((x) => { const p = by.get(x); if (p) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 13, color: rtDraft.col, weight: 3, fill: false, interactive: false }).addTo(rtDraft.rings); });
-      rtHint(`✎ ${rtDraft.f != null ? `Fiber ${rtDraft.f}` : 'New fiber'} · ${seq.length} point${seq.length === 1 ? '' : 's'} · snap ${rtDraft.su} m`); });
+      rtLive(`✎ ${rtDraft.f != null ? `Fiber ${rtDraft.f}` : 'New fiber'} · ${seq.length} point${seq.length === 1 ? '' : 's'}`); });
   }
+  function rtDrop() { rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers(); if (routeMode) renderRtBar(lastR || routeModel()); }
   function rtStrokeEnd() {
-    const d = rtDraft; rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers(); rtHint('');
-    if (!d) return; const seq = snapSeq(d.id, d.ll, d.su), F = fibers(), f = d.f != null ? F.find((x) => x.n === d.f) : null;
+    const d = rtDraft; rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers();
+    if (!d) return; if (d.fin != null && fibAdd === d.fin) rtFinish(); // a line from the middle of the fiber in the bar: it is finished, a branch starts
+    const seq = snapSeq(d.id, d.ll, d.su), F = fibers(), f = d.f != null ? F.find((x) => x.n === d.f) : null;
     if (f) {
-      const have = new Set(f.path), add = seq.slice(f.path.length ? 1 : 0).filter((x) => !have.has(x));
-      if (!add.length) { rtActivate(f.n, d.at); rtHint(`No new point within ${d.su} m of your line: drag on to the next pole, or widen the snap (◎)`, 3500); routeRefresh(); return; }
+      const have = new Set(f.path), add = seq.slice(f.path.length && d.id != null ? 1 : 0).filter((x) => !have.has(x));
+      if (!add.length) { rtActivate(f.n, d.at); toast(`No pole within ${d.su} m of the line`, 2200); routeRefresh(); return; }
       routeUndo.push(routeSnap()); const way = !f.path.length ? add : d.at === 'start' ? add.slice().reverse().concat(f.path) : f.path.concat(add);
       f.path = way; setRoute(f.ex ? null : linksFor(way, f.cab), F); rtActivate(f.n, d.at); fibTouched = true; routeRefresh(add);
       return;
     }
-    if (seq.length < 2) { rtHint(`No point within ${d.su} m of your line's end: drag on to the next pole, or widen the snap (◎)`, 3500); routeRefresh(); return; }
+    if (seq.length < 2) { toast(`No pole within ${d.su} m of the line`, 2200); routeRefresh(); return; }
     routeUndo.push(routeSnap()); const sp = nextSpec(), n = nextFibN(F);
     F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), path: seq, fromSt: '', toSt: '' }); setRoute(sp.ex ? null : linksFor(seq, sp.cab), F);
     rtActivate(n, 'end'); fibTouched = true; routeRefresh(seq);
-    toast(`Fiber ${n} · ${fibCabName(sp)}`, 2200);
+    toast(`Fiber ${n} · ${fibCabShort(sp)}`, 1800);
   }
   (() => { // the gestures on the map in Route
     const mc = map.getContainer(), cpt = (e) => { const r = mc.getBoundingClientRect(); return L.point(e.clientX - r.left, e.clientY - r.top); };
-    const hit = (c, r) => { let best = null; routePts().forEach((p) => { const d = map.latLngToContainerPoint([p.lat, p.lon]).distanceTo(c); if (d <= r && (!best || d < best.d)) best = { id: p.id, d }; }); return best && best.id; };
     mc.addEventListener('pointerdown', (e) => {
-      if (!routeMode || rtPress || !e.isPrimary || e.button > 0 || isAcc()) return;
-      const id = hit(cpt(e), e.pointerType === 'mouse' ? 14 : 22); if (!id) return; // not on a point: the map moves
-      map.dragging.disable(); e.preventDefault(); e.stopPropagation(); try { mc.setPointerCapture(e.pointerId); } catch (x) { /* fine */ }
-      const c = cpt(e); rtPress = { pid: e.pointerId, id, s: c, c, moved: false };
+      if (!routeMode || isAcc()) return;
+      if (e.pointerType !== 'mouse' && e.isPrimary) { rtPtrs.clear(); rtMulti = false; } // a new touch: a finger whose lift was lost is forgotten
+      rtPtrs.add(e.pointerId);
+      if (e.pointerType !== 'mouse' && rtPtrs.size > 1) { rtMulti = true; if (rtPress) { rtPress = null; rtEdge = null; if (rtDraft) rtDrop(); } return; } // two fingers: the map's (Leaflet's pinch); the line just begun is dropped
+      if (rtMulti) return;
+      if (e.pointerType === 'mouse' && (e.button === 1 || e.button === 2 || (e.button === 0 && rtSpace && rtDrawing()))) { rtMpan = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, btn: e.button, moved: false }; mc.classList.add('rt-panning'); e.preventDefault(); return; }
+      if (e.button > 0) return;
+      const c = cpt(e); rtPress = { pid: e.pointerId, s: c, c, moved: false, draw: rtDrawing(), type: e.pointerType };
+      if (rtPress.draw) e.preventDefault();
     }, true);
-    mc.addEventListener('pointermove', (e) => {
-      if (!rtPress || e.pointerId !== rtPress.pid) return; e.stopPropagation(); const c = cpt(e); rtPress.c = c;
-      if (!rtPress.moved) { if (c.distanceTo(rtPress.s) < 9) return; rtPress.moved = true; rtBegin(rtPress.id); }
+    window.addEventListener('pointermove', (e) => {
+      if (rtMpan && e.pointerType === 'mouse') { if (!e.buttons) { up(e, true); return; } // (let go outside the window)
+        map.panBy([rtMpan.x - e.clientX, rtMpan.y - e.clientY], { animate: false }); rtMpan.x = e.clientX; rtMpan.y = e.clientY; if (Math.hypot(e.clientX - rtMpan.x0, e.clientY - rtMpan.y0) > 4) rtMpan.moved = true; return; }
+      if (!rtPress || e.pointerId !== rtPress.pid) return;
+      if (rtPress.type === 'mouse' && !e.buttons) { up(e); return; }
+      const c = cpt(e); rtPress.c = c;
+      if (!rtPress.moved) { if (c.distanceTo(rtPress.s) < (rtPress.type === 'mouse' ? 5 : 10)) return; rtPress.moved = true; if (rtPress.draw) rtBegin(map.containerPointToLatLng(rtPress.s)); }
+      if (!rtPress.draw || !rtDraft) return;
       rtAddPt(map.containerPointToLatLng(c));
-      const W = mc.clientWidth, H = mc.clientHeight, M = 34, bar = $('rtBar'), bh = bar && !bar.hidden ? bar.getBoundingClientRect().height + 8 : 0;
+      const W = mc.clientWidth, H = mc.clientHeight, M = 34, bar = $('rtBar'), bh = bar && !bar.hidden ? bar.getBoundingClientRect().height + 92 : 0;
       const dx = c.x < M ? -1 : c.x > W - M ? 1 : 0, dy = c.y < M ? -1 : c.y > H - bh - M ? 1 : 0; // near an edge the map moves that way
       rtEdge = dx || dy ? [dx, dy] : null; if (rtEdge && !rtEdgeRaf) rtEdgeRaf = requestAnimationFrame(edgeTick);
     }, true);
     function edgeTick() { rtEdgeRaf = 0; if (!rtPress || !rtEdge || !rtDraft) return; map.panBy([rtEdge[0] * 7, rtEdge[1] * 7], { animate: false }); rtAddPt(map.containerPointToLatLng(rtPress.c)); rtEdgeRaf = requestAnimationFrame(edgeTick); }
     const up = (e, cancel) => {
-      if (!rtPress || e.pointerId !== rtPress.pid) return; e.stopPropagation();
-      const p0 = rtPress; rtPress = null; rtEdge = null; map.dragging.enable(); rtGestAt = Date.now();
-      if (cancel) { rtDraft = null; rtDraftLayer.clearLayers(); rtHint(''); return; }
-      if (!p0.moved) routeTap(p0.id); else rtStrokeEnd();
+      rtPtrs.delete(e.pointerId);
+      if (rtMpan && e.pointerType === 'mouse') { const m = rtMpan; rtMpan = null; mc.classList.remove('rt-panning'); rtGestAt = Date.now(); if (m.btn === 2 && !m.moved && !cancel && rtDrawing()) rtUndo(); return; } // ✎ a right-click: undo
+      if (!rtPtrs.size) rtMulti = false;
+      if (!rtPress || e.pointerId !== rtPress.pid) return;
+      const p0 = rtPress; rtPress = null; rtEdge = null;
+      if (cancel) { if (rtDraft) rtDrop(); return; }
+      if (p0.moved) { if (p0.draw) { rtGestAt = Date.now(); rtStrokeEnd(); } return; }
+      if (rtTools || rtPairs) return; // Route tools, linking by pairs: the pins' own taps, as before
+      const id = rtHit(p0.s, p0.type === 'mouse' ? 14 : 24);
+      if (id || p0.draw || rtConf) rtGestAt = Date.now(); // (✋ a tap off the poles: a span's own tap)
+      if (id) rtTapAny(id);
     };
-    mc.addEventListener('pointerup', (e) => up(e), true); mc.addEventListener('pointercancel', (e) => up(e, true), true);
-    mc.addEventListener('contextmenu', (e) => { if (!routeMode) return; e.preventDefault(); rtUndo(); }); // a right-click undoes
+    window.addEventListener('pointerup', (e) => up(e), true); window.addEventListener('pointercancel', (e) => up(e, true), true);
+    mc.addEventListener('contextmenu', (e) => { if (routeMode) e.preventDefault(); }); // (✎: a right-click undoes, on its release above)
+    mc.addEventListener('touchmove', (e) => { if (rtDrawing() && e.cancelable) e.preventDefault(); }, { passive: false }); // ✎: a finger's moves are the line's from the start (no scroll begins), so a second finger's pinch is still the map's
+    const spaceOk = (t) => !(t && t.closest && t.closest('#rtBar, #rtPop, #routeBar, section.sheet, [role=dialog], dialog')) && !document.querySelector('section.sheet:not([hidden])');
     document.addEventListener('keydown', (e) => {
       if (!routeMode || /^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
-      if (e.key === 'Escape') { if (rtPop) { rtPop = null; renderRtPop(); } else if (fibStartAt != null || fibNew) { fibStartAt = null; fibNew = false; routeRefresh(); } else if (fibAdd != null) rtFinish(); else if (routeSel) { const w = routeSel; routeSel = null; routeRefresh([w]); } }
+      if (e.key === ' ' && spaceOk(e.target)) { if (!rtSpace) { rtSpace = true; mc.classList.add('rt-spacepan'); } e.preventDefault(); return; } // Space + drag moves the map (a focused map button is not pressed)
+      if (e.key === 'Escape') { if (rtDraft) return; if (rtConf) rtConfCancel(); else if (rtPop) { rtPop = null; renderRtPop(); } else if (fibStartAt != null || fibNew) { fibStartAt = null; fibNew = false; routeRefresh(); } else if (fibAdd != null) rtFinish(); else if (routeSel) { const w = routeSel; routeSel = null; routeRefresh([w]); } }
+      if (e.key === 'Enter' && rtConf && !(e.target && e.target.closest && e.target.closest('button'))) { e.preventDefault(); rtConfirm(); }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); rtUndo(); }
     });
+    document.addEventListener('keyup', (e) => { if (e.key === ' ' && rtSpace) { rtSpace = false; mc.classList.remove('rt-spacepan'); e.preventDefault(); } });
+    window.addEventListener('blur', () => { rtSpace = false; mc.classList.remove('rt-spacepan'); });
     map.on('movestart', () => { if (rtPop) { rtPop = null; renderRtPop(); } });
   })();
   async function rtUndo() {
-    if (!routeUndo.length || rtDraft) return; const u = routeUndo.pop(); rtPend = [];
+    if (!routeUndo.length || rtDraft || rtConf) return; const u = routeUndo.pop(); rtPend = [];
     if (u && u.rec) { try { await dbPut('points', u.rec); const i = points.findIndex((x) => x.id === u.rec.id); if (i >= 0) points[i] = u.rec; rtAsked.delete(u.rec.id); } catch (e) { toast('Could not undo the closure', 3000); } }
     else if (Array.isArray(u)) setLinks(u); else setRoute(u.l, u.f);
     if (fibAdd != null && !fibers().some((f) => f.n === fibAdd)) { fibAdd = null; fibSel = null; }
     renderPoles();
   }
-  /** The bar at the bottom in Route: one card that changes with what you do (a closure question on top when there is one). */
+  /** v2.42.22: ＋ Closure / ＋ Dummy NAP (a pole's options, or the question at ✓): the map zooms in on the pole and the bar asks for a
+      second tap on it (another pole: that one instead); adding it, or Cancel, takes the map back to where it was. */
+  function rtGoTo(id, z) { const p = routePts().find((x) => x.id === id) || points.find((x) => x.id === id); if (!p) return; const bar = $('rtBar'), off = ((bar && !bar.hidden ? bar.getBoundingClientRect().height : 0) + 40) / 2;
+    map.setView(map.unproject(map.project([p.lat, p.lon], z).add([0, off]), z), z, { animate: true }); }
+  function rtAskConf(id, kind, src) { rtPop = null; routeSel = null; spanSel = null; rtConf = { id, id0: id, kind, src, back: { c: map.getCenter(), z: map.getZoom() } }; rtApplyMode(); routeRefresh([id]); rtGoTo(id, Math.max(map.getZoom(), 19)); }
+  function rtConfEnd() { const q = rtConf; rtConf = null; rtApplyMode(); if (q) map.setView(q.back.c, q.back.z, { animate: true }); return q; }
+  function rtConfCancel() { if (!rtConf) return; const id = rtConf.id; rtConfEnd(); routeRefresh([id]); }
+  async function rtConfirm() {
+    if (!rtConf) return; const q = rtConfEnd(), pend0 = rtPend; rtPend = rtPend.filter((x) => x.id !== q.id0 && x.id !== q.id);
+    const ok = q.kind === 'dn' ? await rtAddDummyNap(q.id) : await rtAddClosure(q.id);
+    if (ok) { rtAsked.add(q.id0); rtAsked.add(q.id); } else rtPend = pend0; // (not saved: the question stays)
+    routeRefresh([q.id]);
+  }
+  function rtConfTap(id) {
+    if (id === rtConf.id) { rtConfirm(); return; }
+    const p = routePts().find((x) => x.id === id); if (!p || elemOf(p) !== 'Pole' || p.closure || p.closureId || p.nap || p.napId) return;
+    const was = rtConf.id; rtConf.id = id; routeRefresh([was, id]); rtGoTo(id, map.getZoom()); // another pole: that one now
+  }
+  /** A dummy NAP on the pole's record (new; its ID and size are set in the record), with Undo. */
+  async function rtAddDummyNap(id) {
+    const i = points.findIndex((x) => x.id === id); if (i < 0) return false; const p = points[i];
+    const prev = JSON.parse(JSON.stringify(p)), rec = { ...p, nap: true, boq: { ...(p.boq || {}), napType: 'Dummy NAP', napSt: (p.boq || {}).napSt || 'New' }, updated: new Date().toISOString() };
+    try { await dbPut('points', rec); } catch (e) { toast('The dummy NAP could not be saved: try again', 3500); return false; }
+    points[points.indexOf(p)] = rec; changedAfterApproval(rec.project, 'record'); routeUndo.push({ rec: prev }); rtAsked.add(id);
+    renderPoles(); toast(`Dummy NAP added at ${rec.poleId || '(no ID)'} (new): set its ID and size in the pole's record`, 4500); return true;
+  }
+  function rtFit() { // ⛶ the whole route above the bar
+    const pts = projPoints(); if (!pts.length) return; const bar = !$('rtBar').hidden ? $('rtBar') : !$('routeBar').hidden ? $('routeBar') : null, bh = bar ? bar.getBoundingClientRect().height : 0;
+    if (pts.length === 1) { map.setView([pts[0].lat, pts[0].lon], 18); return; }
+    map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 80], paddingBottomRight: [70, 100 + bh], maxZoom: 19 });
+  }
+  $('routeFitBtn').addEventListener('click', rtFit);
+  /** The bar at the bottom in Route: one card that changes with what you do (a closure question on top when there is one). v2.42.22: ✋ / ✎
+      first; the second tap's Cancel; no tips. */
+  const RT_PEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z"/><path d="m13.5 7 3 3"/></svg>', RT_HAND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 11.5V4a1.5 1.5 0 0 1 3 0v7.5M14 11.5V5.5a1.5 1.5 0 0 1 3 0V14M17 9.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1.5a6 6 0 0 1-4.6-2.2L4.6 15.6a1.6 1.6 0 0 1 2.4-2.1L8 14.6"/></svg>';
   function renderRtBar(R) {
+    rtApplyMode();
     const bar = $('rtBar'); if (!routeMode) { bar.hidden = true; return; }
     const all = fibers().sort((a, b) => a.n - b.n), f = fibAdd != null ? all.find((x) => x.n === fibAdd) : null, by = R && R.fib ? R.fib.by : new Map(routePts().map((p) => [p.id, p]));
-    const undoB = `<button class="ib" type="button" id="rtUndo" aria-label="Undo" title="Undo (right-click)"${routeUndo.length ? '' : ' disabled'}>↶</button>`, adv = R ? routeAdvice(R).length : 0;
+    const pen = rtPenOn(), undoB = `<button class="ib" type="button" id="rtUndo" aria-label="Undo" title="Undo${pen ? ' (right-click)' : ''}"${routeUndo.length && !rtConf ? '' : ' disabled'}>↶</button>`;
+    const seg = rtPairs ? '' : `<div class="rt-penseg" role="group" aria-label="Move the map or draw"><button type="button" data-rt="mode" data-v="move" aria-pressed="${!pen}" aria-label="Move: one finger moves the map; a tap on a pole shows its options" title="Move">${RT_HAND}</button><button type="button" data-rt="mode" data-v="draw" aria-pressed="${pen}" aria-label="Draw: one finger draws, two fingers move the map" title="Draw">${RT_PEN}</button></div>`;
+    const snapB = `<button class="ib" type="button" data-rt="pop" data-p="snap" aria-label="Snap distance: ${snapLbl()}">◎ ${snapLbl()}</button>`;
     let h = '';
-    if (rtPend.length) { const q = rtPend[0], p = by.get(q.id) || points.find((x) => x.id === q.id);
-      h += `<div class="rt-ask" role="group" aria-label="Closure question"><div><b>Add a closure at ${hEsc(p ? p.poleId || '(no ID)' : '')}?</b> ${hEsc(q.text)}</div><div class="rt-acts"><button class="ib" type="button" data-rt="askno">Not now</button><button class="ib primary" type="button" data-rt="askadd">Add closure</button></div></div>`; }
-    const sel = !f && routeSel && !rtPairs ? by.get(routeSel) : null;
-    if (sel) {
-      const id = sel.id, here = all.filter((g) => g.path.includes(id)), ends = here.filter((g) => g.path[0] === id || g.path[g.path.length - 1] === id), mids = here.filter((g) => !ends.includes(g));
-      const near = all.filter((g) => !g.path.includes(id) && fibPasses(g, by).includes(id)), e = fibEnd({ path: [id] }, 'from', by);
-      h += `<div class="rt-row"><div class="rt-meta grow"><b>${hEsc(sel.poleId || '(no ID)')}</b>${e.kind === 'Closure' ? ` · closure ${hEsc(e.ref)}` : ''} · ${here.length ? `on ${here.map((g) => `F${g.n}`).join(', ')}` : 'on no fiber'}</div>${undoB}<button class="ib" type="button" data-rt="unsel" aria-label="Close">✕</button></div><div class="rt-acts">`
-        + ends.map((g) => `<button class="ib" type="button" data-rt="cont" data-n="${g.n}" data-w="${g.path.length > 1 && g.path[0] === id ? 'start' : 'end'}">✎ Go on with F${g.n}</button>`).join('')
-        + mids.map((g) => `<button class="ib" type="button" data-rt="pass" data-n="${g.n}">F${g.n} only passes</button>`).join('')
-        + near.map((g) => `<button class="ib" type="button" data-rt="attach" data-n="${g.n}">Put on F${g.n}</button>`).join('')
-        + (elemOf(sel) === 'Pole' && e.kind !== 'Closure' ? '<button class="ib" type="button" data-rt="clo">＋ Closure</button>' : '')
-        + `<button class="ib" type="button" data-rt="newhere">＋ New fiber here</button><button class="ib" type="button" data-rt="spans">Spans ›</button></div>`;
-    } else if (f) {
-      const end = f.path.length ? (fibAt === 'start' ? f.path[0] : f.path[f.path.length - 1]) : null, info = R && R.fib ? R.fib.list.find((x) => x.n === f.n) : null;
-      h += `<div class="rt-row"><button class="rt-fname" type="button" data-rt="pop" data-p="cab" aria-label="Cable of Fiber ${f.n}: ${hEsc(fibCabName(f))}. Change it for the whole fiber"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i>F${f.n} <u>${hEsc(fibCabShort(f))} ▾</u></button>`
-        + `<button class="ib" type="button" data-rt="pop" data-p="snap" aria-label="Snap distance: ${snapLbl()}">◎ ${snapLbl()}</button><button class="ib" type="button" data-rt="tools" aria-label="Fiber ${f.n}: details (ends, side, Reverse, Delete) and Route tools">⋯</button>${undoB}<button class="ib primary" type="button" data-rt="finish" id="rtFinish" aria-label="Finish Fiber ${f.n}" title="Finish (Esc)">✓</button></div>`
-        + `<div class="rt-meta">${f.path.length} point${f.path.length === 1 ? '' : 's'}${info ? ` · ${fmtLen(info.len || 0)}` : ''}${end ? ` · from <b>${hEsc(fibName(end))}</b>` : ''} · ${f.path.length ? 'drag from the ring, or tap the next pole' : 'drag from a pole, or tap its first point'}</div>`;
+    if (rtConf) {
+      const p = by.get(rtConf.id) || points.find((x) => x.id === rtConf.id);
+      h = `<div class="rt-ask rt-conf" role="group" aria-label="Confirm on the map"><div><b>Tap ${hEsc(p ? p.poleId || '(no ID)' : '')} again</b> to add a ${rtConf.kind === 'dn' ? 'dummy NAP' : 'closure'} there.</div><div class="rt-acts"><button class="ib" type="button" data-rt="confcancel">Cancel</button></div></div>`;
     } else {
-      const stats = R ? `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}${R.cableTotal > R.total + 0.05 ? ` · cable ${fmtLen(R.cableTotal)}` : ''}` : '';
-      h += `<div class="rt-row"><button class="ib${fibNew || fibStartAt != null ? ' primary' : ''}" type="button" data-rt="pop" data-p="new" aria-label="New fiber: its cable" title="New fiber">＋</button>`
-        + `<div class="rt-chips" role="group" aria-label="Fibers: tap one to go on with it">${all.map((g) => `<button class="fchip" type="button" data-rt="fib" data-n="${g.n}" title="${hEsc(fibCabName(g))}" aria-label="Fiber ${g.n}, ${hEsc(fibCabName(g))}"><i class="${g.ex ? 'ex' : ''}" style="background:${fibColor(g)};color:${fibColor(g)}"></i>F${g.n}</button>`).join('')}</div>`
-        + `${undoB}<button class="ib" type="button" data-rt="tools" aria-label="Route tools: spans, runs, fiber details, link in capture order, clear">⋯</button><button class="ib primary" type="button" id="rtDone">Done</button></div>`
-        + `<div class="rt-meta">${rtPairs ? '<b>Linking spans:</b> tap a pole, then the next pole (⋯ to stop)' : fibNew || fibStartAt != null ? `<b>New fiber · ${hEsc(fibCabShort(nextSpec()))}:</b> ${fibStartAt != null ? `tap the next pole after ${hEsc(fibName(fibStartAt))}, or drag` : 'drag from a pole, or tap two poles'}` : `<b>Drag from a pole to draw</b>${stats ? ` · ${stats}` : ''}`}${adv ? ` · <span class="rt-warn">⚠ ${adv}</span>` : ''}</div>`;
+      if (rtPend.length) { const q = rtPend[0], p = by.get(q.id) || points.find((x) => x.id === q.id);
+        h += `<div class="rt-ask" role="group" aria-label="Closure question"><div><b>${hEsc(p ? p.poleId || '(no ID)' : '')}</b> · ${hEsc(q.text)}</div><div class="rt-acts"><button class="ib" type="button" data-rt="askno">Not now</button>${q.dn ? '<button class="ib" type="button" data-rt="askdn">Dummy NAP</button>' : ''}<button class="ib primary" type="button" data-rt="askclo">Closure</button></div></div>`; }
+      const sel = routeSel && !rtPairs && (!f || !pen) ? by.get(routeSel) : null;
+      if (sel) {
+        const id = sel.id, here = all.filter((g) => g.path.includes(id)), ends = here.filter((g) => g.path[0] === id || g.path[g.path.length - 1] === id), mids = here.filter((g) => !ends.includes(g));
+        const near = all.filter((g) => !g.path.includes(id) && fibPasses(g, by).includes(id)), e = fibEnd({ path: [id] }, 'from', by), pole = elemOf(sel) === 'Pole';
+        h += `<div class="rt-row">${seg}<div class="rt-meta grow"><b>${hEsc(sel.poleId || '(no ID)')}</b>${e.kind !== 'Pole' && e.kind ? ` · ${hEsc(e.kind === 'Closure' ? `closure ${e.ref}` : e.kind)}` : ''} · ${here.length ? here.map((g) => `F${g.n}`).join(', ') : 'no fiber'}</div>${undoB}<button class="ib" type="button" data-rt="unsel" aria-label="Close">✕</button></div><div class="rt-acts">`
+          + ends.map((g) => `<button class="ib" type="button" data-rt="cont" data-n="${g.n}" data-w="${g.path.length > 1 && g.path[0] === id ? 'start' : 'end'}">✎ Go on with F${g.n}</button>`).join('')
+          + mids.map((g) => `<button class="ib" type="button" data-rt="pass" data-n="${g.n}">F${g.n} only passes</button>`).join('')
+          + near.map((g) => `<button class="ib" type="button" data-rt="attach" data-n="${g.n}">Put on F${g.n}</button>`).join('')
+          + (pole && e.kind !== 'Closure' ? '<button class="ib" type="button" data-rt="clo">＋ Closure</button>' : '')
+          + (pole && !['Closure', 'NAP', 'LCP', 'Dummy NAP'].includes(e.kind) ? '<button class="ib" type="button" data-rt="dn">＋ Dummy NAP</button>' : '')
+          + `<button class="ib" type="button" data-rt="newhere">＋ New fiber here</button><button class="ib" type="button" data-rt="spans">Spans ›</button></div>`;
+      } else if (f) {
+        const info = R && R.fib ? R.fib.list.find((x) => x.n === f.n) : null;
+        h += `<div class="rt-row">${seg}<button class="rt-fname" type="button" data-rt="pop" data-p="cab" aria-label="Cable of Fiber ${f.n}: ${hEsc(fibCabName(f))}. Change it for the whole fiber"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i>F${f.n} <u>${hEsc(fibCabShort(f))} ▾</u></button>${undoB}<button class="ib primary" type="button" data-rt="finish" id="rtFinish" aria-label="Finish Fiber ${f.n}" title="Finish (Esc)">✓</button></div>`
+          + `<div class="rt-row"><div class="rt-meta grow" id="rtLive">${f.path.length} point${f.path.length === 1 ? '' : 's'}${info ? ` · ${fmtLen(info.len || 0)}` : ''}</div>${snapB}<button class="ib" type="button" data-rt="tools" aria-label="Fiber ${f.n}: details (ends, side, Reverse, Delete) and Route tools">⋯</button></div>`;
+      } else {
+        const stats = R ? `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}${R.cableTotal > R.total + 0.05 ? ` · cable ${fmtLen(R.cableTotal)}` : ''}` : '';
+        h += `<div class="rt-row">${seg}<button class="ib${fibStartAt != null ? ' primary' : ''}" type="button" data-rt="pop" data-p="new" aria-label="The next fiber's cable: ${hEsc(fibCabName(nextSpec()))}" title="The next fiber's cable">＋ ${hEsc(fibCabShort(nextSpec()))} ▾</button>`
+          + `<div class="rt-chips" role="group" aria-label="Fibers: tap one to go on with it">${all.map((g) => `<button class="fchip" type="button" data-rt="fib" data-n="${g.n}" title="${hEsc(fibCabName(g))}" aria-label="Fiber ${g.n}, ${hEsc(fibCabName(g))}"><i class="${g.ex ? 'ex' : ''}" style="background:${fibColor(g)};color:${fibColor(g)}"></i>F${g.n}</button>`).join('')}</div>`
+          + `${undoB}<button class="ib primary" type="button" id="rtDone">Done</button></div>`
+          + `<div class="rt-row"><div class="rt-meta grow" id="rtLive">${rtPairs ? '<b>Linking spans:</b> tap a pole, then the next pole (⋯ to stop)' : fibStartAt != null ? `New fiber from <b>${hEsc(fibName(fibStartAt))}</b>` : stats}</div>${pen && !rtPairs ? snapB : ''}<button class="ib" type="button" data-rt="tools" aria-label="Route tools: spans, runs, fiber details, route check, link in capture order, clear">⋯</button></div>`;
+      }
     }
     if (rtTools) { bar.innerHTML = ''; bar.hidden = true; $('routeBar').hidden = false; document.body.style.setProperty('--rtbh', `${Math.max(0, Math.round($('routeBar').getBoundingClientRect().height) - 4)}px`); rtPop = null; renderRtPop(); return; } // Route tools in its place (Close: back to the bar)
     bar.innerHTML = h; bar.hidden = false; $('routeBar').hidden = true;
@@ -3081,7 +3180,7 @@
     let h = '';
     if (rtPop === 'cab') h = `<div class="lbl">CABLE OF FIBER ${f.n} · THE WHOLE FIBER</div>${picker({ cab: f.cab, ex: !!f.ex, cores: exCores(f) }, 'f')}`;
     else if (rtPop === 'snap') h = snaps;
-    else if (rtPop === 'new') h = `<div class="lbl">NEW FIBER · CABLE</div>${picker(nextSpec(), 'n')}${snaps}<p class="rt-note">Then drag from a pole, or tap two poles.</p>`;
+    else if (rtPop === 'new') h = `<div class="lbl">NEXT FIBER · CABLE</div>${picker(nextSpec(), 'n')}`;
     el.innerHTML = h; el.hidden = false;
   }
   /** The whole fiber's cable: proposed (its cable; spans on each step) or existing (any size; drawn only, no spans of its own). */
@@ -3096,33 +3195,35 @@
     if (ch.ex === undefined || 'cab' in ch || 'cores' in ch) rtPop = null; routeRefresh();
   }
   $('rtBar').addEventListener('click', (e) => {
-    const b = e.target.closest('button'); if (!b) return;
+    const b = e.target.closest('button'); if (!b) return; if (e.detail) b.blur(); // (a pointer's click: Space stays the map's; the keyboard keeps its focus)
     if (b.id === 'rtUndo') { rtUndo(); return; }
     if (b.id === 'rtDone') { setRouteMode(false); return; }
     const a = b.dataset.rt, n = +b.dataset.n, F = fibers(), g = F.find((x) => x.n === n), id = routeSel; if (!a) return;
+    if (a === 'mode') { rtSetPen(b.dataset.v === 'draw', [id]); return; } // v2.42.22
+    if (a === 'confcancel') { rtConfCancel(); return; }
     if (a === 'pop') { rtPop = rtPop === b.dataset.p ? null : b.dataset.p; renderRtPop(); return; }
     if (a === 'finish') { rtFinish(); return; }
-    if (a === 'tools') { rtTools = !rtTools; if (rtTools && fibAdd != null) fibSel = fibAdd; renderRtBar(lastR || routeModel()); if (rtTools) updateRouteBar(lastR || routeModel()); return; }
-    if (a === 'fib' && g) { rtActivate(g.n, 'end'); routeRefresh(); rtHint(`Fiber ${g.n}: drag from the ring to go on; tap a pole on it if the cable only passes it`, 3500); return; }
-    if (a === 'askno' || a === 'askadd') { const q = rtPend.shift(); if (!q) return; rtAsked.add(q.id); if (a === 'askadd') rtAddClosure(q.id); else routeRefresh(); return; }
+    if (a === 'tools') { rtTools = !rtTools; if (rtTools && fibAdd != null) fibSel = fibAdd; const w = routeSel; if (!rtTools && rtPenOn()) routeSel = null; routeRefresh([w]); return; } // (v2.42.22: the route check's rings with it)
+    if (a === 'fib' && g) { rtActivate(g.n, 'end'); routeRefresh(); return; }
+    if (a === 'askno') { const q = rtPend.shift(); if (q) rtAsked.add(q.id); routeRefresh(); return; }
+    if (a === 'askclo' || a === 'askdn') { const q = rtPend[0]; if (q) rtAskConf(q.id, a === 'askdn' ? 'dn' : 'clo', 'ask'); return; } // v2.42.22: zoom in, a second tap adds it
     if (a === 'unsel') { routeSel = null; routeRefresh([id]); return; }
-    if (a === 'cont' && g) { rtActivate(g.n, b.dataset.w); routeRefresh([id]); rtHint(`Fiber ${g.n} goes on from ${fibName(id)}: drag from the ring, or tap the next pole`, 3500); return; }
-    if (a === 'newhere') { fibStartAt = id; fibNew = false; routeSel = null; routeRefresh([id]); rtHint(`New fiber (${fibCabShort(nextSpec())}) from ${fibName(id)}: tap the next pole, or drag from it`, 3500); return; }
+    if (a === 'cont' && g) { rtActivate(g.n, b.dataset.w); rtSetPen(true, [id]); return; }
+    if (a === 'newhere') { if (fibAdd != null) rtFinish(); fibStartAt = id; rtSetPen(true, [id]); return; }
     if (a === 'spans') { rtTools = true; routeRefresh([id]); return; }
-    if (a === 'clo') { rtAddClosure(id); return; }
+    if ((a === 'clo' || a === 'dn') && id) { rtAskConf(id, a, 'pole'); return; }
     if ((a === 'pass' || a === 'attach') && g && id) {
       if (a === 'pass' && g.path.length <= 2) { toast('A fiber needs two points', 2500); return; }
       routeUndo.push(routeSnap()); const L2 = a === 'pass' ? rtPassOff(g, id, F) : rtAttach(g, id, F); setRoute(L2, F); routeRefresh([id]);
-      toast(a === 'pass' ? `${fibName(id)}: Fiber ${g.n} only passes it (no clamp, no hardware)` : `${fibName(id)} put on Fiber ${g.n}`, 3000);
     }
   });
   $('rtPop').addEventListener('click', (e) => {
-    const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
-    if (d.snap != null) { S.routeSnap = d.snap === 'auto' ? 'auto' : +d.snap; persist(); toast(`Snap: ${snapLbl()} for the lines you draw next (kept on this phone)`, 2500); if (rtPop === 'snap') rtPop = null; renderRtBar(lastR || routeModel()); return; }
+    const b = e.target.closest('button'); if (!b) return; if (e.detail) b.blur(); const d = b.dataset;
+    if (d.snap != null) { S.routeSnap = d.snap === 'auto' ? 'auto' : +d.snap; persist(); toast(`Snap: ${snapLbl()}`, 1800); if (rtPop === 'snap') rtPop = null; renderRtBar(lastR || routeModel()); return; }
     if (d.fkind) { rtSetCable({ ex: d.fkind === 'e' }); rtPop = 'cab'; renderRtPop(); return; }
     if (d.fcab) { rtSetCable({ ex: false, cab: d.fcab }); return; }
     if (d.fcores) { rtSetCable({ ex: true, cores: +d.fcores }); return; }
-    const ready = () => { fibNew = true; fibStartAt = null; routeSel = null; rtPop = null; rtHint(`New fiber · ${fibCabName(nextSpec())}: drag from a pole, or tap two poles`, 3500); routeRefresh(); };
+    const ready = () => { fibNew = false; rtPop = null; routeRefresh(); }; // (v2.42.22: the next line or tap with no fiber in the bar starts it)
     if (d.nkind) { setNext({ fibEx: d.nkind === 'e' }); renderRtPop(); return; }
     if (d.ncab) { setNext({ cable: d.ncab, fibEx: false }); renderCableSel(); ready(); return; }
     if (d.ncores) { setNext({ fibEx: true, fibCores: +d.ncores }); ready(); return; }
@@ -3130,9 +3231,9 @@
       if (d.coreset === 'f') rtSetCable({ ex: true, cores: v }); else { setNext({ fibEx: true, fibCores: v }); ready(); } }
   });
   $('rtPop').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('input[type=number]')) { e.preventDefault(); const b = e.target.parentElement.querySelector('[data-coreset]'); if (b) b.click(); } });
-  $('rbToolsClose').addEventListener('click', () => { rtTools = false; renderRtBar(lastR || routeModel()); });
+  $('rbToolsClose').addEventListener('click', () => { rtTools = false; const w = routeSel; if (rtPenOn()) routeSel = null; routeRefresh([w]); }); // (✎: back to drawing, no pole's options)
   $('rbUndo').addEventListener('click', () => rtUndo()); $('rbDone').addEventListener('click', () => setRouteMode(false)); // (Route tools: as before)
-  $('rbPairs').addEventListener('change', () => { rtPairs = $('rbPairs').checked; if (rtPairs) rtFinish(true); fibStartAt = null; fibNew = false; routeSel = null; routeRefresh(); toast(rtPairs ? 'Tap a pole, then the next pole, to link a span (no fiber). Untick to draw again.' : 'Drag from a pole to draw', 3000); });
+  $('rbPairs').addEventListener('change', () => { rtPairs = $('rbPairs').checked; if (rtPairs) rtFinish(true); fibStartAt = null; fibNew = false; routeSel = null; routeRefresh(); toast(rtPairs ? 'Tap a pole, then the next pole, to link a span (no fiber). Untick to draw again.' : 'Drawing again (✎)', 2500); });
 
   function fitProject() {
     const pts = projPoints();
@@ -13222,7 +13323,7 @@
     poleNums: () => Object.fromEntries([...poleNums(projPoints(), routeModel()).entries()]), setNumCfg: (c) => setNumCfg(c), route: () => { const R = routeModel(); return { total: R.total, cableTotal: R.cableTotal, spans: R.spans.map((s) => ({ ia: s.ia, ib: s.ib, runs: s.runs, len: s.len })) }; },
     mapPt: (lat, lon) => { const p = map.latLngToContainerPoint([lat, lon]), r = $('map').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; }, mapView: (lat, lon, z) => map.setView([lat, lon], z, { animate: false }), siteReq: () => siteReq(), adminOk: (e) => adminUserOk(e), jobsOf: (e) => jobsOf(e), shareProject: (n) => shareProject(n || S.project), apprText: () => apprText(), readApproval: (t, n) => readApproval(t, n || S.project),
     /* v2.42.19 */ boxMarks: () => (boxer ? boxer.marks.map((m) => ({ k: m.k, pts: m.pts ? m.pts.map(([x, y]) => [Math.round(x), Math.round(y)]) : null, raw: !!m.raw })) : null), boxSel: () => (boxer ? boxer.sel : null), pinOwn: () => pinOwnLines.map(({ pl, o }) => ({ to: o.id, ll: pl.getLatLngs().map((q) => [q.lat, q.lng]) })), pinCenter: () => { const c = pinMap.getCenter(); return [c.lat, c.lng]; },
-    /* v2.42.21 */ routeTools: (on, pairs) => { rtTools = !!on; rtPairs = !!pairs; $('rbPairs').checked = rtPairs; if (rtPairs) rtFinish(true); routeRefresh(); const pts = projPoints(); if (on && pts.length > 1) map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 110], paddingBottomRight: [40, Math.round(($('routeBar').getBoundingClientRect().height || 240) + 30)], maxZoom: 19, animate: false }); }, /* (Route tools open, linking by pairs: the route bar as before v2.42.21, for the earlier versions' tests) */ rtState: () => ({ fibAdd, fibAt, fibTouched, fibStartAt, fibNew, rtTools, rtPairs, pend: rtPend.map((q) => (points.find((p) => p.id === q.id) || {}).poleId), pop: rtPop, snap: snapPref(), snapM: snapM(), routeSel }), snapSeq: (id, ll, su) => snapSeq(id, ll, su),
+    /* v2.42.21 */ routeTools: (on, pairs) => { rtTools = !!on; rtPairs = !!pairs; $('rbPairs').checked = rtPairs; if (rtPairs) rtFinish(true); routeRefresh(); const pts = projPoints(); if (on && pts.length > 1) map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 110], paddingBottomRight: [40, Math.round(($('routeBar').getBoundingClientRect().height || 240) + 30)], maxZoom: 19, animate: false }); }, /* (Route tools open, linking by pairs: the route bar as before v2.42.21, for the earlier versions' tests) */ rtState: () => ({ fibAdd, fibAt, fibTouched, fibStartAt, fibNew, rtTools, rtPairs, pend: rtPend.map((q) => (points.find((p) => p.id === q.id) || {}).poleId), pop: rtPop, snap: snapPref(), snapM: snapM(), routeSel, pen: rtPenOn(), conf: rtConf && { id: rtConf.id, kind: rtConf.kind }, dragging: map.dragging.enabled(), draft: !!rtDraft, zoom: map.getZoom() }), /* v2.42.22 */ routePen: (on) => rtSetPen(!!on), routeTipDone: () => { S.routeTip = true; persist(); rtHint(''); }, snapSeq: (id, ll, su) => snapSeq(id, ll, su),
     /* v2.42.20 */ routeTap: (id) => routeTap(id), fibers: () => fibers(), setFibers: (F) => { setRoute(null, F); renderPoles(); }, fibState: () => ({ fibSel, fibAdd }),
     fibModel: () => { const R = routeModel(); return { list: R.fib ? R.fib.list.map((f) => ({ n: f.n, len: f.len, spans: f.spans, gaps: f.gaps, ex: !!f.ex, path: f.path, side: fibSide(f, fibers(), R.fib.by), from: fibEnd(f, 'from', R.fib.by), to: fibEnd(f, 'to', R.fib.by) })) : [], cableTotal: R.cableTotal, total: R.total, spans: R.spans.map((s) => ({ ia: s.ia, ib: s.ib, from: s.from, to: s.to, lanes: s.lanes.map((f) => f.n), fibers: s.fibers.map((f) => f.n), runs: s.runs, cable: s.cable })) }; },
     fibLoops: () => { const LA = autoLoops(projPoints(), routeModel()); return LA.fib ? { n: LA.fib.n, nAuto: LA.fib.nAuto, list: [...LA.fib.list.entries()].map(([id, E]) => [(points.find((p) => p.id === id) || {}).poleId, E.map((e) => [e.n, e.cab, e.len, e.why])]) } : null; },
