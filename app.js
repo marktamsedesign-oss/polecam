@@ -732,7 +732,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.24';
+  const APP_VER = '2.42.25';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1751,10 +1751,10 @@
     const lblOfF = (f) => runLbl((cabLabelOf({ lanes: [f] }, 'a')[0] || {}).t || '', nFb > 1 ? f.n : 0);
     const add = (ia, ib, a, b, lines, len, long) => { const P0 = drwPx(a), P1 = drwPx(b), A = endAt(ia, P0, P1), B = endAt(ib, P1, P0);
       if (Math.max(A[0], B[0]) < 0 || Math.min(A[0], B[0]) > Wv || Math.max(A[1], B[1]) < 0 || Math.min(A[1], B[1]) > Hv) return; // (off the screen)
-      const Ls = Math.hypot(B[0] - A[0], B[1] - A[1]); if (Ls < 24 * d) return;
+      const Ls = Math.hypot(B[0] - A[0], B[1] - A[1]); if (Ls < 1) return; /* (shorter than 24 px: no label of its own, but part of a straight run's) */
       const ds = [(B[0] - A[0]) / Ls, (B[1] - A[1]) / Ls]; let ang = Math.atan2(ds[1], ds[0]); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
       const up = [Math.sin(ang), -Math.cos(ang)], dl = [Math.cos(ang), Math.sin(ang)];
-      items.push({ A, Ls, mid: [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2], dl, up, ang, lines: lines.map((x) => ({ ...x, u: x.N[0] * up[0] + x.N[1] * up[1] })), len, long }); };
+      items.push({ sh: Ls < 24 * d, A, B, Ls, mid: [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2], dl, up, ang, lines: lines.map((x) => ({ ...x, u: x.N[0] * up[0] + x.N[1] * up[1] })), len, long, ia: String(ia), ib: String(ib), mU: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] }); };
     drw.spans.forEach(({ sp, a, b }) => {
       const key = spanKey(sp.ia, sp.ib), L = laneAt.get(key), ln = sp.lanes && sp.lanes.length ? sp.lanes : null, exOnly = !!ln && !ln.some((f) => !f.ex), nRn = (sp.runs || []).length;
       let lines;
@@ -1765,17 +1765,42 @@
     (drw.exHops || []).forEach(({ a, b, ia, ib, lbl }) => { const L = laneAt.get(spanKey(ia, ib)); add(ia, ib, a, b, L && L.length ? L.map((x) => ({ N: x.N, t: lblOfF(x.f), ex: true, run: x.f.n })) : [{ N: [0, 0], t: lbl || '', ex: true, run: `x${ia}|${ib}` }], '', false); });
     const tight = (it) => (CBL.on ? it.lines.reduce((t, x) => t + (x.t ? tw(x.t, FL.H, 700) : 0), 0) : 0) / Math.max(1, it.Ls);
     const leaders = [];
-    items.sort((x, y) => tight(y) - tight(x)).forEach((it) => { // the most crowded spans first
-      const { Ls, mid, dl, up, ang } = it, us = it.lines.map((x) => x.u), ext = { dn: Math.min(0, ...us), up: Math.max(0, ...us) };
-      const ls = CBL.on ? it.lines.filter((x) => x.t).sort((x, y) => x.u - y.u) : [], nD = ls.length === 1 ? 1 : Math.floor(ls.length / 2);
-      for (const [side, arr] of [[-1, ls.slice(0, nD)], [1, ls.slice(nD).reverse()]]) arr.forEach((x, j) => {
+    items.forEach((it) => { const us = it.lines.map((x) => x.u); it.ext = { dn: Math.min(0, ...us), up: Math.max(0, ...us) }; it.ls = CBL.on ? it.lines.filter((x) => x.t).sort((x, y) => x.u - y.u) : []; it.nD = it.ls.length === 1 ? 1 : Math.floor(it.ls.length / 2); it.cnt = { '-1': 0, '1': 0 }; });
+    { const pa = new Map(), fd = (k) => { let r = k; while (pa.has(r)) r = pa.get(r); return r; }, un = (a, b) => { const x = fd(a), y = fd(b); if (x !== y) pa.set(x, y); }; // (v2.42.25: a cable's group: its RUN; a line on no cable, each stretch of spans with that label)
+      items.forEach((it) => it.ls.forEach((x) => { if (typeof x.run !== 'number') un(`${x.t}@${it.ia}`, `${x.t}@${it.ib}`); }));
+      items.forEach((it) => it.ls.forEach((x) => { x.grp = typeof x.run === 'number' ? `R${x.run}` : `${x.t}#${fd(`${x.t}@${it.ia}`)}`; })); }
+    /* v2.42.25: a straight run of spans with the same cables in the same lanes is one place for a label: zoomed out, one span is too short for it */
+    const chains = []; {
+      const byP = new Map(); items.forEach((it) => { if (!it.ls.length) return; [it.ia, it.ib].forEach((p) => { const a = byP.get(p) || []; a.push(it); byP.set(p, a); }); });
+      const sig = (it, rev) => { const r = it.ls.map((x) => String(x.grp)); return (rev ? r.reverse() : r).join(','); };
+      const same = (u, v) => Math.abs(Math.sin(u.ang - v.ang)) < 0.1 && sig(u) === sig(v, Math.cos(u.ang - v.ang) < 0);
+      const ends = (it, p) => (p === it.ia ? [it.A, it.ib, it.B] : [it.B, it.ia, it.A]); /* [the point at p, the far pole, the far point] */
+      const straight = (pts) => { const a = pts[0], b = pts[pts.length - 1], L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return pts.every((q) => Math.abs((q[0] - a[0]) * (b[1] - a[1]) - (q[1] - a[1]) * (b[0] - a[0])) / L <= 4 * d); };
+      const seen = new Set();
+      items.forEach((it0) => { if (!it0.ls.length || seen.has(it0)) return;
+        let mem = [it0], pts = [it0.A, it0.B], pA = it0.ia, pB = it0.ib;
+        for (const fwd of [true, false]) for (;;) { const p = fwd ? pB : pA, tail = fwd ? mem[mem.length - 1] : mem[0], nb = byP.get(p) || [];
+          if (nb.length !== 2) break; const o = nb[0] === tail ? nb[1] : nb[0]; if (seen.has(o) || mem.includes(o) || !same(tail, o)) break;
+          const [, far, fp] = ends(o, p), P2 = fwd ? [...pts, fp] : [fp, ...pts]; if (!straight(P2)) break;
+          pts = P2; if (fwd) { mem.push(o); pB = far; } else { mem.unshift(o); pA = far; } }
+        mem.forEach((m) => seen.add(m)); if (mem.length < 2) return;
+        const P0 = pts[0], P1 = pts[pts.length - 1], Ls = Math.hypot(P1[0] - P0[0], P1[1] - P0[1]); if (Ls < 24 * d) return;
+        let ang = Math.atan2(P1[1] - P0[1], P1[0] - P0[0]); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
+        const up = [Math.sin(ang), -Math.cos(ang)], dl = [Math.cos(ang), Math.sin(ang)], mm = mem[Math.floor(mem.length / 2)], uOf = (x) => x.N[0] * up[0] + x.N[1] * up[1];
+        const lines = mm.lines.map((x) => ({ ...x, u: uOf(x) })), us = [0]; mem.forEach((m) => m.lines.forEach((x) => us.push(uOf(x))));
+        const ch = { A: P0, B: P1, Ls, mid: [(P0[0] + P1[0]) / 2, (P0[1] + P1[1]) / 2], dl, up, ang, lines, ia: pA, ib: pB, ext: { dn: Math.min(...us), up: Math.max(...us) }, cnt: { '-1': 0, '1': 0 },
+          mU: [mem.reduce((t, m) => t + m.mU[0], 0) / mem.length, mem.reduce((t, m) => t + m.mU[1], 0) / mem.length], mem: mem.map((m) => ({ m, s: Math.cos(m.ang - ang) < 0 ? -1 : 1 })) };
+        ch.ls = lines.filter((x) => x.t).sort((x, y) => x.u - y.u); ch.nD = ch.ls.length === 1 ? 1 : Math.floor(ch.ls.length / 2); chains.push(ch); }); }
+    const lblOne = (it, x) => { // one cable's label on this span: beside its line, smaller, a leader, smaller still beside it; true when placed
+      const { Ls, mid, dl, up, ang, ext } = it, side = it.ls.indexOf(x) < it.nD ? -1 : 1, j = it.cnt[side];
         const col = x.ex ? '#1c7ed6' : '#c92a2a';
         const beside = (hs) => { for (const h of hs) { const w = tw(x.t, h, 700); if (w > Ls * 0.96) continue; const fm = (Ls - w) / 2 / Ls;
           for (const e of [0, 0.6]) for (const f0 of [0, 0.12, -0.12, 0.25, -0.25, 0.38, -0.38]) { const f = Math.max(-fm, Math.min(fm, f0)), rc = (side < 0 ? ext.dn : ext.up) + side * ((j ? 0.35 * h : FL.CLR) + h / 2 + e * h);
             const q = [mid[0] + dl[0] * f * Ls + up[0] * rc, mid[1] + dl[1] * f * Ls + up[1] * rc], b = obb(q[0], q[1], w + 2 * PAD(h), h * 1.3, ang); if (!occ.cost(b) && inView(b)) return { q, h, b, rc }; } }
           return null; };
-        const keep = (c) => { txt(x.t, c.q, c.h, ang, col, 700); occ.add(c.b, 'label', x.run); kb(c.b, x.t); if (side < 0) ext.dn = Math.min(ext.dn, c.rc - c.h / 2); else ext.up = Math.max(ext.up, c.rc + c.h / 2); };
-        let c = beside(sizes(FL.H, FL.HMIN)); if (c) { keep(c); return; }
+        const keep = (c) => { it.cnt[side]++; txt(x.t, c.q, c.h, ang, col, 700); occ.add(c.b, 'label', x.run); kb(c.b, x.t); if (side < 0) ext.dn = Math.min(ext.dn, c.rc - c.h / 2); else ext.up = Math.max(ext.up, c.rc + c.h / 2);
+          (it.mem || []).forEach(({ m, s: sg }) => { const lo = Math.min(sg * (c.rc - c.h / 2), sg * (c.rc + c.h / 2)), hi = Math.max(sg * (c.rc - c.h / 2), sg * (c.rc + c.h / 2)); if (hi > 0) m.ext.up = Math.max(m.ext.up, hi); else m.ext.dn = Math.min(m.ext.dn, lo); }); }; /* (a run's label: its spans' lengths go past it) */
+        let c = beside(sizes(FL.H, FL.HMIN)); if (c) { keep(c); return true; }
         let best = null;
         if (Ls >= 60 * d) for (const h of [FL.H, (FL.H + FL.HMIN) / 2, FL.HMIN]) { const w = tw(x.t, h, 700); // a leader: the label level in free space, a shoulder and an arrow to a point on its own line
           for (const f of [0, -0.2, 0.2, -0.33, 0.33]) { const tip = [mid[0] + dl[0] * f * Ls + x.N[0], mid[1] + dl[1] * f * Ls + x.N[1]];
@@ -1785,10 +1810,26 @@
               const n = occ.cost(b) + segs.reduce((t2, sb) => t2 + occ.cost(sb, { skipRun: x.run, cableW: 1 }), 0) + (inView(b) ? 0 : 40) + (sd === side ? 0 : 0.5) + (h < FL.H - 1e-9 ? 0.2 : 0);
               if (!best || n < best.n) best = { n, tip, kn, L0, q: [tx, L0[1]], b, segs, h }; if (n < 0.01) break; } }
           if (best && best.n < 1) break; }
-        if (!best || best.n >= 1) { c = beside(sizes(FL.HMIN * 0.9, FL.HLAST)); if (c) { keep(c); return; } } // smaller still beside it, before covering anything
-        if (!best || best.n >= 10) return; // (nowhere free: left for a closer zoom)
-        txt(x.t, best.q, best.h, 0, col, 700); occ.add(best.b, 'label', x.run); kb(best.b, x.t); best.segs.forEach((sb) => occ.add(sb, 'leader', x.run)); leaders.push({ c: best, col });
-      });
+        if (!best || best.n >= 1) { c = beside(sizes(FL.HMIN * 0.9, FL.HLAST)); if (c) { keep(c); return true; } } // smaller still beside it, before covering anything
+        if (!best || best.n >= 10) return false; // (nowhere free: left for a closer zoom)
+        it.cnt[side]++; txt(x.t, best.q, best.h, 0, col, 700); occ.add(best.b, 'label', x.run); kb(best.b, x.t); best.segs.forEach((sb) => occ.add(sb, 'leader', x.run)); leaders.push({ c: best, col }); return true;
+    };
+    /* v2.42.25: each cable labelled once on the screen (on its longest span there where the label fits beside its line), a second time
+       only 500 m or more along it from the first: as the plan labels each grid */
+    if (!drw.alg) { const xyBy = new Map(drw.items.map((q) => [String(q.p.id), q.xy])); drw.alg = new Map();
+      ((drw.R && drw.R.fib && drw.R.fib.list) || []).forEach((f) => { const M = new Map(); let dd = 0; f.path.forEach((id, i) => { if (!i) return; const p = xyBy.get(String(id)), q = xyBy.get(String(f.path[i - 1])), l = p && q ? Math.hypot(p[0] - q[0], p[1] - q[1]) : 0; M.set(spanKey(f.path[i - 1], id), dd + l / 2); dd += l; }); drw.alg.set(f.n, M); }); } // (each span's middle, along its cable)
+    const alOf = (it, x) => { const A = typeof x.run === 'number' ? drw.alg.get(x.run) : null; if (!A) return null; const v = (it.mem ? it.mem.map(({ m }) => m) : [it]).map((m) => A.get(spanKey(m.ia, m.ib))).filter((a) => a != null); return v.length ? v.reduce((t, a) => t + a, 0) / v.length : null; };
+    const ordOf = (it, x) => { const i = it.ls.indexOf(x); return i < it.nD ? i : it.ls.length - 1 - i; }; // (on one span, the order of before: the outermost line's label nearest the lines)
+    const cands = []; [...chains, ...items.filter((it) => !it.sh)].forEach((it) => it.ls.forEach((x) => cands.push({ it, x, ord: ordOf(it, x), fit: tw(x.t, FL.H, 700) <= it.Ls * 0.96 ? 1 : 0 })));
+    cands.sort((u, v) => (v.fit - u.fit) || (v.it.Ls - u.it.Ls) || (u.ord - v.ord));
+    const got = new Map();
+    for (const c of cands) {
+      const gk = c.x.grp || c.x.t, G = got.get(gk) || [], al = alOf(c.it, c.x); if (G.length >= 2) continue;
+      if (G.length === 1) { const f0 = G[0], dd = f0.al != null && al != null ? Math.abs(al - f0.al) : Math.hypot(f0.m[0] - c.it.mU[0], f0.m[1] - c.it.mU[1]); if (dd < 500) continue; }
+      if (lblOne(c.it, c.x)) { G.push({ al, m: c.it.mU }); got.set(gk, G); }
+    }
+    items.sort((x, y) => tight(y) - tight(x)).forEach((it) => { // the span lengths, the most crowded spans first, beyond the labels
+      const { Ls, mid, dl, up, ang, ext } = it;
       if (!it.len || Ls < 30 * d) return; // the span length: beyond the labels (above first), smaller as needed
       let lp = null;
       for (const h of sizes(FL.LEN, FL.LENMIN)) { const w = tw(it.len, h, 600);
@@ -2601,7 +2642,7 @@
     // v2.42.18: each loop's length, and the cable's hardware other than pole clamps (12C, telco arm)
     pts.forEach((p) => { const f = m.get(p.id) || p.boq || {}; if (loopYes(f) || f.mloopBox) m.set(p.id, { ...f, mloopM: String(loopLenAt(p, R, LA, OWN.get(p.id))) }); });
     if (LA.fib) pts.forEach((p) => { const E = LA.fib.list.get(p.id); if (!E) return; const f = m.get(p.id) || p.boq || {}, L2 = E.map((e) => e.len); // v2.42.20: a loop for each fiber there
-      m.set(p.id, { ...f, mloop: 'Yes', ...(E.some((e) => e.why === 'auto') ? { mloopAuto: true } : {}), mloopN: E.length, mloopL: L2, mloopM: L2.length > 1 ? L2.join('+') : String(L2[0]) }); });
+      m.set(p.id, { ...f, mloop: 'Yes', ...(E.some((e) => e.why === 'auto') && !(p.mloop || loopYes(p.boq)) ? { mloopAuto: true } : {}), mloopN: E.length, mloopL: L2, mloopM: L2.length > 1 ? L2.join('+') : String(L2[0]) }); });
     pts.forEach((p) => { if (elemOf(p) !== 'Pole') return; const h = hwOf(p, R); if (!h.items.length && !h.noClamp) return; const f = m.get(p.id) || p.boq || {};
       m.set(p.id, { ...f, hw: hwText(h.items), hwItems: h.items, noClamp: h.noClamp && !(p.boq && p.boq.clampType) }); });
     return (p) => m.get(p.id) || p.boq;
@@ -2711,16 +2752,18 @@
   const loopLenAt = (p, R, LA, kind) => { const b = p.boq || {}; if (+b.mloopM > 0) return +b.mloopM; if (UG_BOXES.has(elemOf(p))) return BOX_LOOP_M; return cabLoopLen(loopCab(p, R, LA, kind)); };
   /** v2.42.20: the loops of each fiber (As-Plan and As-Built): at a closure on its way, one for every fiber there (one closure, a
       loop each); at a handhole, manhole or service box, one each; at a site, ODF or ODC where it starts or ends; the surveyor's loop on
-      a pole, one for every fiber there; a NAP's, LCP's, dummy NAP's or riser's one loop on one fiber (the 12C first for a NAP or LCP,
-      the 72C for a riser); and in an As-Plan the loops the app adds along each fiber from its start (72C every 250–300 m, 12C every
-      450–500 m, as before). An existing fiber has none. Returns null with no new fiber, else { list: Map id -> [{ n, cab, len, why }],
+      a pole, one loop on one cable (v2.42.25: its largest figure 8, else its light cable; before, one for every fiber there); a NAP's, LCP's, dummy NAP's or riser's one loop on one fiber (the 12C first for a NAP or LCP,
+      the 72C for a riser); and in an As-Plan the loops the app adds along each fiber from its start (by family: a figure 8 every 250–300 m, the light
+      cable every 450–500 m, from its last loop). An existing fiber has none. Returns null with no new fiber, else { list: Map id -> [{ n, cab, len, why }],
       autoCab: Map id -> cable, n, nAuto }. */
   function fiberLoops(pts, R) {
     if (isAcc() || !R || !R.fib || !R.fib.planned.length) return null;
     const by = new Map(pts.map((p) => [p.id, p])), OWN = loopOwnMap(pts, R), list = new Map(), autoCab = new Map(); let n = 0, nAuto = 0;
-    const put = (id, e) => { (list.get(id) || list.set(id, []).get(id)).push(e); n++; if (e.why === 'auto') { nAuto++; if (!autoCab.has(id)) autoCab.set(id, e.cab); } };
+    const put = (id, e) => { (list.get(id) || list.set(id, []).get(id)).push(e); n++; if (e.why === 'auto') { nAuto++; const p0 = by.get(id); if (!autoCab.has(id) && !(p0 && (p0.mloop || loopYes(p0.boq)))) autoCab.set(id, e.cab); } }; // (v2.42.25: a pole the surveyor marked is not one the app added, even where another cable's spacing adds its loop there)
     const lenAt = (p, cab) => { const b = p.boq || {}; if (+b.mloopM > 0) return +b.mloopM; if (UG_BOXES.has(elemOf(p))) return BOX_LOOP_M; return cabLoopLen(cab); };
     const F = R.fib.planned, one = new Map(); // the fiber with the one loop of a NAP, LCP, dummy NAP or riser
+    const PREF = ((K) => [...K.filter(isFig8).reverse(), ...K.filter(isLight), ...K.filter((k) => CAB[k].fam === 'ug').reverse()])(Object.keys(CAB)), rk = (k) => { const i = PREF.indexOf(k); return i < 0 ? 99 : i; };
+    const surv = new Map(); F.forEach((f) => f.path.forEach((id) => { const cur = surv.get(id); if (!cur || rk(f.cab) < rk(cur.cab) || (rk(f.cab) === rk(cur.cab) && f.n < cur.n)) surv.set(id, f); })); // v2.42.25: the surveyor's loop on a pole is one loop: on its largest figure 8, else its light cable (the lowest RUN); the others keep their own spacing
     F.forEach((f) => f.path.forEach((id) => { const k = OWN.get(id); if (!k || k === 'closure' || k === 'entrance') return; const ok = k === 'riser' ? isFig8 : isLight, cur = one.get(id); if (!cur || (ok(f.cab) && !ok(cur.cab))) one.set(id, f); })); // (v2.42.24: a riser's on a figure 8, the others' on the light cable)
     const isPole = (id) => { const p = by.get(id); return !!p && elemOf(p) === 'Pole'; }, isGT = (id) => markKey(by.get(id)) === 'GT';
     for (const f of F) {
@@ -2732,7 +2775,7 @@
         if (UG_BOXES.has(el)) why = 'box';
         else if (k === 'closure') why = 'closure';
         else if (ENTRANCE_ELS.includes(el)) why = i === 0 || i === P.length - 1 ? 'entrance' : '';
-        else if (el === 'Pole' && (p.mloop || loopYes(p.boq))) why = 'surveyor';
+        else if (el === 'Pole' && (p.mloop || loopYes(p.boq)) && surv.get(id) === f) why = 'surveyor'; // (v2.42.25: on one cable)
         else if (k && one.get(id) === f) why = k;
         if (why) { has.add(i); put(id, { n: f.n, cab: f.cab, len: lenAt(p, f.cab), why }); }
       });
@@ -9113,7 +9156,7 @@
         telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: b.clamp || '',
         armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon, telcoArm: el === 'Pole' && hasTelcoArm(p), // v2.42.1: the plan draws it
         mloop: el === 'Pole' && !!(p.mloop || loopYes(b) || LA.has(p.id) || OWN.has(p.id) || (LA.fib && LA.fib.list.has(p.id))), mloopM: el === 'Pole' ? (LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id)[0].len : loopLenAt(p, R, LA, OWN.get(p.id))) : 0,
-        mloopL: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.len) : null, /* v2.42.20: a loop for each fiber there */ /* v2.42.17: + a closure's, a dummy NAP's, a riser's; v2.42.18: every NAP, LCP, pin; its own length */ nap: !!p.nap, napId: p.napId || '', nap2: el === 'Pole' && !!p.nap2, nap2Id: el === 'Pole' && p.nap2 ? p.nap2Id || '' : '', nap2Type: el === 'Pole' && p.nap2 ? b.nap2Type || '' : '', nap2Old: el === 'Pole' && !!p.nap2 && b.nap2St === 'Existing', closure: el === 'Pole' && !!p.closure, /* v2.42.17: (a box's closure is not drawn) */ closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
+        mloopL: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.len) : null, mloopR: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.n) : null, /* v2.42.25: each loop's cable (RUN) */ /* v2.42.20: a loop for each fiber there */ /* v2.42.17: + a closure's, a dummy NAP's, a riser's; v2.42.18: every NAP, LCP, pin; its own length */ nap: !!p.nap, napId: p.napId || '', nap2: el === 'Pole' && !!p.nap2, nap2Id: el === 'Pole' && p.nap2 ? p.nap2Id || '' : '', nap2Type: el === 'Pole' && p.nap2 ? b.nap2Type || '' : '', nap2Old: el === 'Pole' && !!p.nap2 && b.nap2St === 'Existing', closure: el === 'Pole' && !!p.closure, /* v2.42.17: (a box's closure is not drawn) */ closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
         adjusted: !!p.adjusted, color: p.color || '', // v2.36: a pin set by hand stays where it is on the drawing; a map pin's colour
         // v2.37: the NAP's kind, a double LCP, the site's kind, grounding, a riser, the pole a pole-to-pole guy goes to
         napType: el === 'NAP' || (el === 'Pole' && (p.nap || p.napId)) ? b.napType || '' : '', napOld: el === 'Pole' && b.napSt === 'Existing', closureOld: el === 'Pole' && b.cloSt === 'Existing', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', ground: !!b.ground, riser: !!b.riser, p2pTo: b.p2p || null,

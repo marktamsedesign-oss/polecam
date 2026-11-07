@@ -536,6 +536,15 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.25
+
+Fewer cable labels, loops each on their own cable. No update of the online sheet needed.
+
+- **One label for each cable in each grid** (GEO sheet), beside its line where it fits: well inside the grid first, then on its longest span there. A second only where the cable goes on 500 m or more (along it) inside that grid. Every span keeps its length. The Drawing screen the same way: each cable once on the screen, a second time 500 m or more along it; zoomed out, beside a straight run of spans when one span is too short for it.
+- **A pole you marked MLoop with two or more cables on it**: the surveyed loop goes on one cable, its figure 8 (the largest), else its light cable. The other cables keep their own spacing (figure 8 every 250–300 m, light cable every 450–500 m), so a NAP, LCP or dummy NAP there still has its own loop on the light cable, and a cable's own spacing can still put its loop there. Before, every cable there got the surveyed loop.
+- **A loop for each cable at one point** (a closure, or two cables' loops at one pole): each loop on its own small line with its cable, *15m LOOP (RUN 1)* and *10m LOOP (RUN 2)*, together where they cover nothing (it was one large *15m+10m LOOP*).
+- **Fixed**: a closure's *PROPOSED* and ID on the plan could be drawn over its loop mark. They now go where they cover none of the loop, the guys or the other texts.
+
 ## What changed in v2.42.24
 
 Cable sizes, the closure on the cable, labels that cover nothing, and a simpler way to draw cables. No update of the online sheet needed.
