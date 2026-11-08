@@ -536,6 +536,16 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.27
+
+A steadier pole form on the iPhone, a found pole that stays marked on the map, the arm square to the cable at street corners, and on a computer: keys, Esc and a Projects pane. No update of the online sheet needed.
+
+- **The pole form on a phone**: its map goes small once the form has stopped, scrolled down at least the height the map gives up (so the form stays still on the screen), and comes back big only when you tap it. Before, a scroll back to the top made it big again; on an iPhone the form's glide and bounce read as that, so the map went small and big again and the form jumped (the stutter). The map's height is no longer animated.
+- **Records and Find**: a tap on a record closes the list, the map goes to it (close in) and rings it in orange, then its form opens. Closed, you are on the map at that pole, still ringed. The chip at the top right: its **ID** shows it again, **Edit** opens it, **List** opens the list with your search still typed, **✕** stops the ring; a tap on another pole stops it too.
+- **The arm on the plan** turns to the street its cable runs along, square to the cable. At a corner the cross street could be nearer: the arm then pointed at it, along the cable.
+- **On a computer**: the arrow keys or **W A S D** move the map a quarter of the screen (**Shift**: half); **E** or **+** zooms in, **Q** or **−** out. Also while you draw a cable, and on the Drawing screen; not while you type in a field. **Esc** closes the pole form (with changes not saved it asks first; Esc again keeps you editing).
+- **The Projects pane** (a computer: a mouse and a window 1180 px wide or more; phones and tablets keep Projects as before): at the left of the map, **«** closes it to a strip. Two icons beside its search: **sort** by the last edit (newest or oldest first) or the name, and **group** by category or territory (the online sheet's Project Data → Territory), each group's heading folding and unfolding it; a dot on an icon when it is not at its default. A **tick** shows a project on the map, faded and without labels (its spans from zoom 12, its poles from 15), to line up projects that meet; a click on one of its poles shows its ID and lights its project in the pane. A project's **name**: the map goes there (you switch project at the top, in Projects). **⋯**: Zoom to it, Share, Export DXF, Mark complete, Delete, with the same questions as in Projects (Export and Mark complete open that project first). **+ New** makes a project.
+
 ## What changed in v2.42.26
 
 Drawing style for cable labels and the tower site, photos that never overlap, the pole form's open answers, a tapped cable lit end to end, and a smoother map. No update of the online sheet needed.

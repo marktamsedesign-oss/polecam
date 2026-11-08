@@ -900,17 +900,24 @@
     }
   }
   /** The nearest road centre line to p within maxD (searching a few grid cells around). */
-  function nearestRoad(rs, p, maxD) {
-    let best = null;
+  /** v2.42.27: with along (a unit vector, the pole's route), the nearest road running within 35° of it is taken first (at a street
+      corner the cross street can be nearer than the street the cable runs along: the pole then faced the cross street, its arm along
+      the cable); the nearest of any way only where no road runs along the route there. */
+  function nearestRoad(rs, p, maxD, along) {
+    let best = null, bestA = null;
     rs.forEach((r, ri) => { if (!(r.hw > 0)) return; for (let k = 1; k < r.pts.length; k++) {
       const a = r.pts[k - 1], b = r.pts[k];
       if (Math.min(a[0], b[0]) - maxD - r.hw > p[0] || Math.max(a[0], b[0]) + maxD + r.hw < p[0] || Math.min(a[1], b[1]) - maxD - r.hw > p[1] || Math.max(a[1], b[1]) + maxD + r.hw < p[1]) continue;
       const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1e-9, t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2));
       const c = [a[0] + t * dx, a[1] + t * dy], d = dist2(p, c), edge = d - r.hw;
-      if (edge <= maxD && (!best || edge < best.edge)) { const L = Math.sqrt(L2); best = { ri, r, c, d, edge, dir: [dx / L, dy / L], side: (dx * (p[1] - a[1]) - dy * (p[0] - a[0])) >= 0 ? 1 : -1 }; }
+      if (edge > maxD) continue;
+      const L = Math.sqrt(L2), dir = [dx / L, dy / L], hit = () => ({ ri, r, c, d, edge, dir, side: (dx * (p[1] - a[1]) - dy * (p[0] - a[0])) >= 0 ? 1 : -1 });
+      if (!best || edge < best.edge) best = hit();
+      if (along && Math.abs(dir[0] * along[0] + dir[1] * along[1]) >= ALONG_COS && (!bestA || edge < bestA.edge)) bestA = hit();
     } });
-    return best;
+    return bestA && bestA.edge <= best.edge + ALONG_MORE ? bestA : best; // (more than 6 m farther: another street; a cable crossing its road at a pole keeps that road)
   }
+  const ALONG_COS = Math.cos(35 * Math.PI / 180), ALONG_MORE = 6;
   /** The parts of a line that are not inside another road (cut points found to about 1 cm). */
   function keepOutside(line, idx, self) {
     const out = []; let cur = null;
@@ -1564,7 +1571,9 @@
     for (const p of pts) {
       p.dp = [p.E, p.N]; p.td = null; p.near = null; p.keep = !!(p.adjusted || p.status === 'Proposed' || p.status === 'New');
       if (p.el === 'Pole') { p.sym = S.blocks.has(symOf(p).b) ? symOf(p) : { ...symOf(p), b: null }; p.rp = p.sym.r * p.k; } else if (INLINE_EL.has(p.el)) p.rp = 0; else continue;
-      const near = nearestRoad(R.roads, p.dp, 25); if (!near) continue;
+      // v2.42.27: a pole on the route beside the road its cable runs along (its arm square to the cable), not a nearer cross street
+      const Q = p.el === 'Pole' ? (nb.get(p) || []) : [], tq = Q.length >= 2 ? unit([Q[0].E, Q[0].N], [Q[1].E, Q[1].N]) : Q.length === 1 ? unit([p.E, p.N], [Q[0].E, Q[0].N]) : null;
+      const near = nearestRoad(R.roads, p.dp, 25, tq && Number.isFinite(tq[0]) && (tq[0] || tq[1]) ? tq : null); if (!near) continue;
       p.near = near; p.side = near.d < 0.4 ? 0 : near.side;
     }
     for (const p of pts) if (p.near && !p.side) { const q = (nb.get(p) || []).find((x) => x.near && x.side && x.near.ri === p.near.ri); p.side = q ? q.side : 1; }

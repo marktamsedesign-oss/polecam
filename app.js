@@ -752,7 +752,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.26';
+  const APP_VER = '2.42.27';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1340,7 +1340,7 @@
   }
 
   /* ================= main map ================= */
-  const map = L.map('map', { zoomControl: false, attributionControl: true, maxZoom: 21 });
+  const map = L.map('map', { zoomControl: false, attributionControl: true, maxZoom: 21, keyboard: false }); // v2.42.27: keyboard: the keys below (deskKeys)
   map.attributionControl.setPrefix(false);
   let mainBase = baseLayer(S.base).addTo(map);
   map.createPane('refPane'); map.getPane('refPane').style.zIndex = 350; map.getPane('refPane').style.pointerEvents = 'none'; // under the pins, never catches taps
@@ -1414,7 +1414,7 @@
         ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svpin${sel ? ' sel' : ''}${p.status === 'Proposed' || p.status === 'New' ? ' new' : ''}" style="--c:${pinCol(p) || SV_COLORS[el]}">${SV_SHORT[el]}</span>`, iconSize: [30, 24], iconAnchor: [15, 12] }) })
         : L.circleMarker([p.lat, p.lon], pinLook(p, sel)); // (v2.42.19: its look in pinLook)
       m._tipO = { permanent: true, direction: 'right', offset: [sy ? 16 : !acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' }; m._tipP = p; // v2.42.26: its label bound near the screen only (labelCull)
-      m.on('click', () => (routeMode ? (Date.now() - rtGestAt < 700 ? null : rtTapAny(p.id)) : visitMode() ? openVisit(p.id) : openEditorFor(p.id))); // (v2.42.21: a tap the drawing gesture took)
+      m.on('click', () => { if (hlId && hlId !== p.id && !routeMode) hlClear(); /* v2.42.27: the ring goes when another pole is tapped */ return routeMode ? (Date.now() - rtGestAt < 700 ? null : rtTapAny(p.id)) : visitMode() ? openVisit(p.id) : openEditorFor(p.id); }); // (v2.42.21: a tap the drawing gesture took)
       m.addTo(poleLayer); pinMarkers.set(p.id, m);
     }
     pinShownSel = routeMode ? routeSel : null;
@@ -1428,6 +1428,7 @@
     renderSummary(pts); labelCull(); declutterSoon();
     if (typeof drawAreas === 'function') drawAreas();
     renderRefBtn(); // v2.30
+    hlDraw(); deskRender(); // v2.42.27: the ring on a found pole; on a computer the Projects pane and the other projects shown
   }
   /** Project status at a glance: the strip above the navigation bar and the figures on the Records screen. */
   function projStats(pts) {
@@ -2174,7 +2175,7 @@
       const n = document.createElement('b'); n.textContent = recName(p) || '(no ID)';
       const sub = document.createElement('span'); sub.textContent = [isAcc() ? `${elemOf(p)} · ${STATUS_TEXT[recStatus(p)] || ''}${openCount(p) ? ` · ${openCount(p)} open` : ''}` : svDesc(p), p._d != null ? `${fmtDist(p._d)} away` : ''].filter(Boolean).join(' · ');
       b.append(n, sub);
-      b.addEventListener('click', async () => { await closeSheet(); map.setView([p.lat, p.lon], Math.max(map.getZoom(), 19)); setTimeout(() => (visitMode() ? openVisit(p.id) : openEditorFor(p.id)), 350); });
+      b.addEventListener('click', () => findPick(p, 'find')); // v2.42.27: the map to it, ringed, then its form
       box.appendChild(b);
     });
     if (!pts.length) { const e = document.createElement('p'); e.className = 'hint'; e.textContent = q ? `Nothing matches “${$('findQ').value.trim()}”.` : 'Nothing recorded in this project yet.'; box.appendChild(e); }
@@ -7150,23 +7151,22 @@
       if (Math.abs(dx) < 70 || Math.abs(dy) > 45) return;
       const l = edTabList(), i = l.indexOf(edTab), j = dx < 0 ? i + 1 : i - 1; if (j >= 0 && j < l.length) goEdTab(l[j]);
     });
-    // the map gets small once the form is scrolled; back to its size when scrolled to the top again (not when the form only got shorter)
-    // v2.42.19: a form only a little taller than the screen made the map go small, the form fit, scrolled back to the top, the map came
-    // back big, and so on (30 size changes in one scroll, the stutter): now small only while the form still scrolls with the map small;
-    // big again only on a scroll up at the top (or a tap on the map); and a pause after each change (its .2 s animation)
-    const wrap = $('pinMapWrap'), MINI_H = 96; let upAt = 0, flipAt = 0, ty = null;
-    const off = () => !edTabsOn() || $('editor').classList.contains('kbfield') || Date.now() - flipAt < 450;
-    const flip = (on) => { wrap.classList.toggle('mini', on); flipAt = Date.now(); };
-    const grow = () => { if (!off() && wrap.classList.contains('mini') && body.scrollTop < 4) flip(false); };
-    body.addEventListener('wheel', (e) => { if (e.deltaY < 0) { upAt = Date.now(); if (body.scrollTop <= 0) grow(); } }, { passive: true });
-    body.addEventListener('touchstart', (e) => { ty = e.touches.length === 1 ? e.touches[0].clientY : null; }, { passive: true });
-    body.addEventListener('touchmove', (e) => { const y = e.touches.length === 1 ? e.touches[0].clientY : null; if (ty != null && y != null && y - ty > 6) { upAt = Date.now(); if (body.scrollTop <= 0) grow(); } if (y != null) ty = y; }, { passive: true });
-    body.addEventListener('scroll', () => {
-      if (off()) return;
-      const on = wrap.classList.contains('mini'), room = body.scrollHeight - body.clientHeight; // how far the form scrolls now
-      if (!on && body.scrollTop > 24 && room - (wrap.offsetHeight - MINI_H) > 48) flip(true);
-      else if (on && body.scrollTop < 4 && Date.now() - upAt < 450) flip(false);
-    }, { passive: true });
+    // v2.42.27: the map goes small once the form has come to rest scrolled down (not under a finger, not while it still glides), and
+    // the form stays still on the screen as it does; it comes back big only on a tap on the map (pinUnmini). v2.42.19 to v2.42.26 also
+    // made it big on a scroll back to the top: on an iPhone the form's glide and bounce read as that, so the map went small and big
+    // again and the form jumped each time (the stutter). No animation of its height either (the map was resized at each frame).
+    const wrap = $('pinMapWrap'), MINI_H = 96, edEl = $('editor'); let touching = 0, restT = 0;
+    const off = () => !edTabsOn() || $('editor').classList.contains('kbfield');
+    const atRest = () => {
+      if (off() || touching || wrap.classList.contains('mini')) return;
+      const st = body.scrollTop, d = wrap.offsetHeight - MINI_H, room = body.scrollHeight - body.clientHeight; // how far the form scrolls now
+      if (d > 0 && st >= d && room - d > 80) { wrap.classList.add('mini'); body.scrollTop = st - d; } // the form where it was (scrolled at least d: it never moves)
+    };
+    const soon = () => { clearTimeout(restT); restT = setTimeout(atRest, 160); };
+    edEl.addEventListener('touchstart', (e) => { touching = e.touches.length; clearTimeout(restT); }, { passive: true }); // anywhere on the form (its map too)
+    edEl.addEventListener('touchend', (e) => { touching = e.touches.length; soon(); }, { passive: true });
+    edEl.addEventListener('touchcancel', () => { touching = 0; soon(); }, { passive: true });
+    body.addEventListener('scroll', soon, { passive: true });
   }
   function pinUnmini() { const w = $('pinMapWrap'); if (!w.classList.contains('mini')) return false; w.classList.remove('mini'); $('editor').querySelector('.edbody').scrollTop = 0; return true; }
   /* The closure in a handhole, manhole or service box: switched on, then its size, New or Existing, and its ID or name */
@@ -7414,7 +7414,7 @@
       const s2 = document.createElement('span'); s2.className = 's mono';
       s2.textContent = `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}${Number.isFinite(p.accuracy) ? ` · ±${p.accuracy.toFixed(0)} m` : ''}`;
       info.prepend(t, s, s2); b.append(img, info);
-      b.addEventListener('click', () => openEditorFor(p.id));
+      b.addEventListener('click', () => findPick(p, 'list')); // v2.42.27: the list closes, the map to it, ringed, then its form (was: the form over the list)
       host.appendChild(b);
       const cp = coverPid(p), load = () => { if (cp) dbGet('photos', cp).then((ph) => { if (ph && ph.thumb) { const u = URL.createObjectURL(ph.thumb); listUrls.push(u); img.src = u; } }).catch(() => {}); };
       if (thumbs) thumbs.push(load); else load(); // the photos of a closed group load when it opens
@@ -11382,6 +11382,7 @@
   }
 
   /* ---- small dialog ---- */
+  var askEsc = null; // v2.42.27
   function ask(title, text, buttons) {
     const btns = buttons || [{ label: 'Cancel', value: false }, { label: 'OK', value: true, primary: true }];
     $('askTitle').textContent = title; $('askText').textContent = text || '';
@@ -11389,11 +11390,16 @@
     const stack = btns.length > 2; row.classList.toggle('stack', stack); // v2.19: three or more choices are listed one under another, Cancel last
     const list = stack ? btns.filter((b) => b.label !== 'Cancel').concat(btns.filter((b) => b.label === 'Cancel')) : btns;
     return new Promise((res) => {
+      let mine = null; const done = (v) => { $('askBox').hidden = true; if (askEsc === mine) askEsc = null; res(v); };
       list.forEach((b) => {
         const el = document.createElement('button'); el.type = 'button'; el.className = `btn grow${b.primary ? ' primary' : ''}`; el.textContent = b.label;
-        el.addEventListener('click', () => { $('askBox').hidden = true; res(b.value); });
+        el.addEventListener('click', () => done(b.value));
         row.appendChild(el);
       });
+      // v2.42.27: Esc on a computer answers Cancel (Keep, Keep editing, Back to the form…), or the only button; a question with
+      // neither stays until a button is pressed (never a guess: the Unsaved record question's Discard is not taken)
+      const c = btns.length === 1 ? btns[0] : btns.find((b) => /^(Cancel|Keep|Keep editing|Not now|No|Close|Back|Back to the form)$/.test(b.label));
+      askEsc = mine = c ? () => done(c.value) : null;
       $('askBox').hidden = false;
     });
   }
@@ -13831,6 +13837,258 @@
   if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
+
+  /* ================= v2.42.27: a pole found in Records or Find stays ringed on the map ================= */
+  // A tap on a record in Records (or Find) closes the list; the map goes to it (zoom 19 or closer) and rings it; then its form opens.
+  // Closed, the map is still there with the ring. The chip at the top: its ID shows it again, Edit opens it, List opens the list with
+  // the search still typed, ✕ stops the ring. The ring goes too when another pole is tapped, or with the next pick.
+  var hlLayer = null, hlId = null, hlFrom = '', hlQ = '';
+  function hlDraw() {
+    if (!hlLayer) hlLayer = L.layerGroup().addTo(map);
+    hlLayer.clearLayers();
+    const p = hlId ? projPoints().find((x) => x.id === hlId) : null;
+    if (!p) { if (hlId) hlClear(); return; }
+    L.circleMarker([p.lat, p.lon], { radius: 18, color: '#f08c00', weight: 3, fill: false, interactive: false, className: 'target-ring' }).addTo(hlLayer);
+    L.circleMarker([p.lat, p.lon], { radius: 11, color: '#f08c00', weight: 3, fill: false, interactive: false }).addTo(hlLayer);
+    $('hlChipId').textContent = recName(p) || '(no ID)'; $('hlChip').hidden = false;
+  }
+  function hlClear() { hlId = null; if (hlLayer) hlLayer.clearLayers(); $('hlChip').hidden = true; }
+  const hlOpen = (p) => (hlFrom === 'find' && visitMode() ? openVisit(p.id) : openEditorFor(p.id));
+  async function findPick(p, from) {
+    hlFrom = from; hlQ = from === 'find' ? $('findQ').value : $('listSearch').value;
+    await closeSheet(); hlId = p.id; hlDraw();
+    map.setView([p.lat, p.lon], Math.max(map.getZoom(), 19));
+    LOG.info('find.pick', { from });
+    setTimeout(() => hlOpen(p), 350);
+  }
+  const hlRec = () => (hlId ? projPoints().find((x) => x.id === hlId) : null);
+  $('hlGo').addEventListener('click', () => { const p = hlRec(); if (p) map.setView([p.lat, p.lon], Math.max(map.getZoom(), 18)); });
+  $('hlEdit').addEventListener('click', () => { const p = hlRec(); if (p) hlOpen(p); });
+  $('hlList').addEventListener('click', () => {
+    if (hlFrom === 'find') { $('findQ').value = hlQ; renderFind(); openSheet('find'); }
+    else { $('listSearch').value = hlQ; renderList(); openSheet('list'); }
+  });
+  $('hlX').addEventListener('click', hlClear);
+
+  /* ================= v2.42.27: on a computer: keys move the map, Esc closes the pole form ================= */
+  // Arrow keys or W A S D move the map a quarter of the screen (with Shift, half); E or + zooms in, Q or − out. The main map when no
+  // screen is open over it (also while a cable is drawn in Route: the drawing goes on), the Drawing screen when it is open. Not while
+  // typing in a field, nor while a question is asked.
+  // a field you type in (a tick or a button is not one; a slider takes the arrows)
+  const typingIn = (t) => !!(t && (t.isContentEditable || (t.tagName && /^(SELECT|TEXTAREA)$/.test(t.tagName)) || (t.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|reset|file|color|image)$/i.test(t.type || ''))));
+  // another box over the screen (a text to type, a list to pick from, the full-size photo, a busy box…): Esc and the keys leave it alone
+  const boxOpen = () => !!document.querySelector('.overlay:not([hidden]):not(#askBox)') || !$('photoView').hidden || pvOpen;
+  function escKey(e) {
+    if (!$('askBox').hidden) { if (askEsc) { e.preventDefault(); askEsc(); } return; }
+    if (boxOpen()) return;
+    if (ppMenuClose()) { e.preventDefault(); return; }
+    const top = stack[stack.length - 1];
+    if (top === 'editor' && !$('editor').hidden) {
+      e.preventDefault();
+      if (!$('edQuick').hidden) { $('edQuick').hidden = true; return; } // the small sheet of a chip first
+      if (!$('idPfxMenu').hidden) { $('idPfxMenu').hidden = true; return; } // the ID prefix menu
+      $('edClose').click(); return; // with changes not saved it asks first (Esc again: keep editing)
+    }
+    if (!stack.length && map._popup) map.closePopup();
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+    if (e.key === 'Escape') { escKey(e); return; }
+    if (typingIn(e.target) || !$('askBox').hidden || boxOpen()) return;
+    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    const pan = { ArrowUp: [0, -1], w: [0, -1], ArrowDown: [0, 1], s: [0, 1], ArrowLeft: [-1, 0], a: [-1, 0], ArrowRight: [1, 0], d: [1, 0] }[k];
+    const zin = k === 'e' || k === '+' || k === '=', zout = k === 'q' || k === '-' || k === '_';
+    if (!pan && !zin && !zout) return;
+    const top = stack[stack.length - 1], f = e.shiftKey ? 0.5 : 0.25;
+    if (top === 'drawing' && drw && drw.view) {
+      e.preventDefault(); const cv = $('drawCanvas'), v = drw.view;
+      if (pan) { v.cx += pan[0] * cv.width * f / v.sc; v.cy -= pan[1] * cv.height * f / v.sc; } else v.sc *= zin ? 1.25 : 0.8;
+      drawDrawing(); return;
+    }
+    if (stack.length) return;
+    e.preventDefault();
+    if (pan) { const z = map.getSize(); map.panBy([pan[0] * z.x * f, pan[1] * z.y * f], { animate: true, duration: 0.2 }); }
+    else if (zin) map.zoomIn(); else map.zoomOut();
+  });
+
+  /* ================= v2.42.27: the Projects pane, on a computer only ================= */
+  // On a computer (a mouse and a screen 1180 px wide or more) a pane at the left of the map lists the projects on this computer. «
+  // closes it to a thin strip. A tick shows a project on the map (faded, no labels, one canvas layer, only what is near the screen) to
+  // line up projects that meet; the project you work on is always shown. A name: the map goes there (you switch project at the top,
+  // in Projects, as before). ⋯: Zoom to it, Share, Export DXF, Mark complete, Delete: the same steps as in Projects (Export and Mark
+  // complete work on the project open, so they switch to it first). + New: the New project form. A click on another project's pole:
+  // its ID, and its project lit in the pane. Sort by the last edit or name; group by category or territory. Phones and tablets keep
+  // Projects as before.
+  // (var and function: renderPoles reaches these; they work whenever it runs, also before this part of the script has run)
+  var otherLayer = null, otherRenderer = null, ppLit = null, ppMenuFor = null, otherT = 0;
+  var deskMQ = window.matchMedia ? window.matchMedia('(min-width: 1180px) and (hover: hover) and (pointer: fine)') : null;
+  var PP_COL = ['#d6336c', '#1c7ed6', '#2f9e44', '#ae3ec9', '#e8590c', '#0c8599', '#5c7cfa', '#f59f00'];
+  function ppState() { S.pane = S.pane || {}; if (S.pane.open == null) S.pane.open = true; S.pane.show = S.pane.show || {}; return S.pane; }
+  function ppColor(name) { return PP_COL[Math.max(0, allProjects().indexOf(name)) % PP_COL.length]; }
+  function deskOn() { return !!(deskMQ && deskMQ.matches); }
+  function deskLayout() {
+    const on = deskOn(), st = ppState(), b = document.body;
+    const was = b.classList.contains('deskpane') + ':' + b.classList.contains('pp-closed');
+    b.classList.toggle('deskpane', on); b.classList.toggle('pp-closed', on && !st.open);
+    if (on) { b.style.setProperty('--tbh', `${$('topbar').offsetHeight}px`); b.style.setProperty('--bbh', `${$('bottombar').offsetHeight}px`); }
+    if (was !== b.classList.contains('deskpane') + ':' + b.classList.contains('pp-closed')) map.invalidateSize({ animate: false });
+  }
+  function deskRender() {
+    if (!deskOn()) { if (otherLayer) otherLayer.clearLayers(); return; }
+    deskLayout(); // (the bars' heights: the text size may have changed)
+    const st = ppState(), names = new Set(allProjects()); let gone = false;
+    for (const k of Object.keys(st.show)) if (!names.has(k)) { delete st.show[k]; gone = true; } // a deleted project is not ticked if made again
+    if (gone) persist();
+    if (st.open) ppRows(); else $('ppTog').textContent = '»';
+    otherDraw();
+  }
+  // Sort by the last edit (newest or oldest first) or the name; group by category (Survey, PAT, Cleanup, FAT) or territory (the
+  // online sheet's Project Data → Territory, as T1…T8). The last edit: the newest save of its records, its route or its completion.
+  const PP_KIND = ['survey', 'PAT', 'Cleanup', 'FAT'];
+  function ppFigures() { // each project's records, poles and newest save, in one pass over the records
+    const F = new Map(), get = (n) => F.get(n) || F.set(n, { n: 0, poles: 0, t: '' }).get(n);
+    for (const x of points) { const f = get(x.project); f.n++; if (elemOf(x) === 'Pole') f.poles++; const u = String(x.updated || x.created || x.takenAt || ''); if (u > f.t) f.t = u; }
+    return (name) => { const f = F.get(name) || { n: 0, poles: 0, t: '' }, m = pmeta(name); let t = f.t; for (const v of [m.linksAt, m.completedAt]) if (String(v || '') > t) t = String(v); return { ...f, t }; };
+  }
+  function ppTerr(name) {
+    const m = pmeta(name), task = m.taskId && S.cloud && (S.cloud.tasks || []).find((t) => t.id === m.taskId);
+    const v = (task && (task.territory || extraOf(task, 'Territory'))) || m.territory || ((m.siteExtra || []).find(([k]) => /^territory$/i.test(String(k).trim())) || [])[1] || sfGet(siteFieldsOf(name), /^territory$/i);
+    return terrCode(v);
+  }
+  const ppDate = (t) => { const d = new Date(t); if (!t || isNaN(d)) return ''; const o = { day: 'numeric', month: 'short' }; if (d.getFullYear() !== new Date().getFullYear()) o.year = 'numeric'; return d.toLocaleDateString(undefined, o); };
+  function ppRows() {
+    const st = ppState(), q = $('ppQ').value.trim().toUpperCase(), box = $('ppRows'), names = allProjects();
+    const sort = ['new', 'old', 'name'].includes(st.sort) ? st.sort : 'new', group = ['cat', 'terr'].includes(st.group) ? st.group : '';
+    const SL = { new: 'Last edit, newest first', old: 'Last edit, oldest first', name: 'Name, A to Z' }, GL = { '': 'None', cat: 'Category', terr: 'Territory' };
+    $('ppSortBtn').title = `Sort: ${SL[sort]}`; $('ppSortBtn').setAttribute('aria-label', `Sort: ${SL[sort]}`); $('ppSortBtn').classList.toggle('set', sort !== 'new');
+    $('ppGroupBtn').title = `Group: ${GL[group]}`; $('ppGroupBtn').setAttribute('aria-label', `Group: ${GL[group]}`); $('ppGroupBtn').classList.toggle('set', !!group);
+    $('ppN').textContent = String(names.length);
+    $('ppTog').textContent = st.open ? '«' : '»'; $('ppTog').title = st.open ? 'Close the pane' : 'Open the pane'; $('ppTog').setAttribute('aria-expanded', String(!!st.open));
+    box.innerHTML = '';
+    const fig = ppFigures();
+    const list = names.filter((n) => !q || String(n).toUpperCase().includes(q)).map((name) => ({ name, t: fig(name).t, kind: projKind(name), terr: group === 'terr' ? ppTerr(name) : '' }));
+    list.sort((x, y) => (sort === 'name' ? 0 : sort === 'new' ? (y.t > x.t) - (y.t < x.t) : (x.t > y.t) - (x.t < y.t)) || String(x.name).localeCompare(String(y.name), undefined, { numeric: true }));
+    const gKey = (x) => (group === 'cat' ? x.kind : group === 'terr' ? x.terr || '' : '');
+    const gLbl = (k) => (group === 'cat' ? (k === 'survey' ? 'SURVEY' : k.toUpperCase()) : k || 'No territory');
+    const keys = [...new Set(list.map(gKey))].sort((a, c) => (group === 'cat' ? PP_KIND.indexOf(a) - PP_KIND.indexOf(c) : (a === '') - (c === '') || a.localeCompare(c, undefined, { numeric: true })));
+    for (const k of keys) {
+      const rowsOf = list.filter((x) => gKey(x) === k), fk = `${group}:${k}`, folded = !!(group && st.fold && st.fold[fk]);
+      if (group) { // a group's heading folds and unfolds it (kept)
+        const h = document.createElement('button'); h.type = 'button'; h.className = 'pp-grp'; h.textContent = `${gLbl(k)} · ${rowsOf.length}`;
+        h.setAttribute('aria-expanded', String(!folded)); h.title = folded ? 'Unfold' : 'Fold';
+        h.addEventListener('click', () => { st.fold = st.fold || {}; if (folded) delete st.fold[fk]; else st.fold[fk] = true; persist(); ppRows(); });
+        box.appendChild(h);
+      }
+      if (folded) continue;
+      for (const { name, t } of rowsOf) {
+      const m = pmeta(name), work = name === S.project, kind = projKind(name), acc = m.mode === 'acceptance', fg = fig(name);
+      const n = acc ? fg.n : fg.poles;
+      const r = document.createElement('div'); r.className = `pp-row${work ? ' on' : ''}${ppLit === name ? ' lit' : ''}`; r.style.setProperty('--c', ppColor(name)); r.dataset.name = name;
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = work || !!st.show[name]; cb.disabled = work;
+      cb.title = work ? 'The project you work on is always shown' : 'Show it on the map'; cb.setAttribute('aria-label', `Show ${name} on the map`);
+      cb.addEventListener('change', () => { st.show[name] = cb.checked; persist(); otherDraw(); });
+      const sw = document.createElement('span'); sw.className = 'pp-sw'; sw.setAttribute('aria-hidden', 'true');
+      const nb = document.createElement('button'); nb.type = 'button'; nb.className = 'pp-name'; nb.textContent = name; nb.title = 'Go there';
+      nb.addEventListener('click', () => ppGo(name));
+      const mb = document.createElement('button'); mb.type = 'button'; mb.className = 'pp-more'; mb.textContent = '⋯'; mb.setAttribute('aria-haspopup', 'menu');
+      mb.setAttribute('aria-expanded', String(ppMenuFor === name)); mb.setAttribute('aria-label', `More for ${name}`);
+      mb.addEventListener('click', (e) => { e.stopPropagation(); ppMenu(name, mb); });
+      const meta = document.createElement('span'); meta.className = 'pp-meta';
+      [group !== 'cat' && [kind === 'survey' ? 'SURVEY' : kind.toUpperCase(), ''], [`${n} ${acc ? 'element' : 'pole'}${n === 1 ? '' : 's'}`, ''], t && [`Edited ${ppDate(t)}`, ''], m.completedAt && ['✓ Complete', 'done'], work && ['Working on', 'work']]
+        .filter(Boolean).forEach(([tx, c]) => { const x = document.createElement('span'); x.textContent = tx; if (c) x.className = c; meta.appendChild(x); });
+      r.append(cb, sw, nb, mb, meta); box.appendChild(r);
+      }
+    }
+    if (!names.length) box.innerHTML = '<p class="hint">No project yet: + New.</p>';
+    else if (!list.length) box.innerHTML = `<p class="hint">No project matches “${C.xmlEsc($('ppQ').value.trim())}”.</p>`;
+  }
+  function ppGo(name) {
+    ppMenuClose();
+    const pts = points.filter((x) => x.project === name && Number.isFinite(x.lat) && Number.isFinite(x.lon));
+    if (!pts.length) { toast(`“${name}” has no records yet`); return; }
+    const st = ppState(); if (name !== S.project && !st.show[name]) { st.show[name] = true; persist(); ppRows(); }
+    if (pts.length === 1) map.setView([pts[0].lat, pts[0].lon], 18); else map.fitBounds(L.latLngBounds(pts.map((x) => [x.lat, x.lon])).pad(0.15), { maxZoom: 19 });
+    otherDraw();
+  }
+  function ppMenuClose() {
+    if (!ppMenuFor) return false;
+    ppMenuFor = null; $('ppMenu').hidden = true;
+    $('projPane').querySelectorAll('.pp-more[aria-expanded="true"], .pp-ico[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+    return true;
+  }
+  const ppAct = (name, fn) => { if (name !== S.project) openTask(name); fn(); }; // Export and Mark complete: on the project open
+  function ppMenu(name, btn) {
+    const was = ppMenuFor === name; ppMenuClose(); if (was) return;
+    ppMenuFor = name; btn.setAttribute('aria-expanded', 'true');
+    const m = pmeta(name), acc = m.mode === 'acceptance', menu = $('ppMenu'); menu.innerHTML = '';
+    const items = [['Zoom to the project', () => ppGo(name)], ['Share…', () => guard(() => shareProject(name))],
+      [acc ? 'Export…' : 'Export DXF…', () => ppAct(name, () => { exportPick = acc ? null : 'doDxf'; $('exportBtn').click(); })],
+      [m.completedAt ? 'Undo complete…' : 'Mark complete…', () => ppAct(name, () => $('doneBtn').click())], null,
+      ['Delete…', () => guard(() => deleteProject(name)), 'del']];
+    for (const it of items) {
+      if (!it) { menu.appendChild(document.createElement('hr')); continue; }
+      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.textContent = it[0]; if (it[2]) b.className = it[2];
+      b.addEventListener('click', () => { ppMenuClose(); LOG.info('pane.menu', { what: it[0].replace('…', '') }); it[1](); }); menu.appendChild(b);
+    }
+    const pr = $('projPane').getBoundingClientRect(), br = btn.getBoundingClientRect();
+    menu.style.top = `${Math.min(br.bottom - pr.top + 4, pr.height - 230)}px`; menu.hidden = false;
+    menu.querySelector('button').focus({ preventScroll: true });
+  }
+  document.addEventListener('click', (e) => { if (ppMenuFor && !(e.target.closest && e.target.closest('#ppMenu, .pp-more, .pp-ico'))) ppMenuClose(); });
+  // Sort and Group: two icons beside the search, each a small menu (✓ on the one chosen; a dot on the icon when not the default)
+  function ppPick(kind, btn) {
+    const key = `:${kind}`, was = ppMenuFor === key; ppMenuClose(); if (was) return;
+    ppMenuFor = key; btn.setAttribute('aria-expanded', 'true');
+    const st = ppState(), menu = $('ppMenu'), cur = kind === 'sort' ? (['new', 'old', 'name'].includes(st.sort) ? st.sort : 'new') : (['cat', 'terr'].includes(st.group) ? st.group : '');
+    const opts = kind === 'sort' ? [['new', 'Last edit, newest first'], ['old', 'Last edit, oldest first'], ['name', 'Name, A to Z']] : [['', 'None'], ['cat', 'Category'], ['terr', 'Territory']];
+    menu.innerHTML = `<span class="mh">${kind === 'sort' ? 'Sort by' : 'Group by'}</span>`;
+    for (const [v, t] of opts) {
+      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitemradio'); b.setAttribute('aria-checked', String(v === cur)); b.dataset.v = v; b.textContent = t;
+      b.addEventListener('click', () => { ppMenuClose(); st[kind] = v; persist(); ppRows(); }); menu.appendChild(b);
+    }
+    const pr = $('projPane').getBoundingClientRect(), br = btn.getBoundingClientRect();
+    menu.style.top = `${br.bottom - pr.top + 4}px`; menu.hidden = false;
+    (menu.querySelector('[aria-checked="true"]') || menu.querySelector('button')).focus({ preventScroll: true });
+  }
+  $('ppSortBtn').addEventListener('click', (e) => { e.stopPropagation(); ppPick('sort', e.currentTarget); });
+  $('ppGroupBtn').addEventListener('click', (e) => { e.stopPropagation(); ppPick('group', e.currentTarget); });
+  function otherDraw() {
+    if (!otherLayer) { map.createPane('otherPane'); map.getPane('otherPane').style.zIndex = 390; otherRenderer = L.canvas({ pane: 'otherPane', padding: 0.3 }); otherLayer = L.layerGroup().addTo(map); }
+    otherLayer.clearLayers();
+    if (!deskOn()) return;
+    const st = ppState(), names = allProjects().filter((n) => n !== S.project && st.show[n]), z = map.getZoom();
+    if (!names.length || z < 12) return; // far out: nothing (thousands of points); from zoom 12 the spans, from 15 the poles too
+    const bb = map.getBounds().pad(0.5), poles = z >= 15;
+    for (const name of names) {
+      const col = ppColor(name), pts = points.filter((x) => x.project === name && Number.isFinite(x.lat) && Number.isFinite(x.lon)), by = new Map(pts.map((x) => [String(x.id), x]));
+      for (const l of pmeta(name).links || []) { // its route: the spans between its records
+        const A = by.get(String(l[0])), B = by.get(String(l[1])); if (!A || !B || (!bb.contains([A.lat, A.lon]) && !bb.contains([B.lat, B.lon]))) continue;
+        L.polyline([[A.lat, A.lon], [B.lat, B.lon]], { renderer: otherRenderer, color: col, weight: 2.5, opacity: 0.5, interactive: false }).addTo(otherLayer);
+      }
+      for (const x of poles ? pts : []) {
+        if (!bb.contains([x.lat, x.lon])) continue;
+        const mk = L.circleMarker([x.lat, x.lon], { renderer: otherRenderer, radius: 4.5, color: col, weight: 1, opacity: 0.75, fillColor: col, fillOpacity: 0.5, bubblingMouseEvents: false });
+        mk.on('click', () => otherTap(x, name)); mk.addTo(otherLayer);
+      }
+    }
+  }
+  function otherTap(x, name) {
+    ppLit = name; const st = ppState(); if (!st.open) { st.open = true; persist(); deskLayout(); }
+    ppRows(); const row = [...$('ppRows').children].find((r) => r.dataset && r.dataset.name === name); if (row) row.scrollIntoView({ block: 'nearest' });
+    L.popup({ closeButton: false, autoPan: true, className: 'pp-pop', offset: [0, -4] }).setLatLng([x.lat, x.lon])
+      .setContent(`<b class="mono">${C.xmlEsc(recName(x) || '(no ID)')}</b><br><span>${C.xmlEsc(name)}</span>`).openOn(map);
+  }
+  map.on('popupclose', () => { if (ppLit) { ppLit = null; if (deskOn()) ppRows(); } });
+  map.on('moveend', () => { clearTimeout(otherT); if (deskOn() && Object.values(ppState().show).some(Boolean)) otherT = setTimeout(otherDraw, 120); }); // (once the map has stopped: not at each step of a held key)
+  $('ppTog').addEventListener('click', () => { const st = ppState(); st.open = !st.open; persist(); deskLayout(); ppRows(); });
+  $('ppQ').addEventListener('input', ppRows);
+  $('ppAll').addEventListener('click', () => { const st = ppState(); allProjects().forEach((n) => { if (n !== S.project) st.show[n] = true; }); persist(); ppRows(); otherDraw(); });
+  $('ppNone').addEventListener('click', () => { const st = ppState(); st.show = {}; persist(); ppRows(); otherDraw(); });
+  $('ppNew').addEventListener('click', () => { ppMenuClose(); openNewProject(); });
+  if (deskMQ) { const ch = () => { deskLayout(); deskRender(); }; if (deskMQ.addEventListener) deskMQ.addEventListener('change', ch); else if (deskMQ.addListener) deskMQ.addListener(ch); }
+  { let rz = 0; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (deskOn()) deskLayout(); }, 150); }); }
+  deskLayout();
+
   window.__polecam = { autoLoops: () => [...autoLoops(projPoints(), routeModel())], openEditorFor,
     /* v2.42.17 */ edTab: (k, f) => goEdTab(k, f), edTabs: () => edTabList(), edCur: () => (edTabsOn() ? edTab : ''), edMissing: () => edMissing().map((x) => `${x.req ? '!' : ''}${x.tab}:${x.k}`), edShow: (sel) => { const el = document.querySelector(sel), g = el && el.closest('#editor .edbody>[data-pane]'); if (g && edTabsOn()) goEdTab(g.dataset.pane); return !!g; }, /* v2.42.16 */ boqTable: () => boqTable(projPoints(), null), routeStats: () => { const R = routeModel(); updateRouteBar(R); return $('rbStats').textContent; }, get points() { return points; }, get S() { return S; }, drwSeq: () => (drw ? { n: drw.seq.size, max: Math.max(0, ...drw.seq.values()) } : null), get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, get lastQrLink() { return qrLink; }, get lastQrFull() { return qrAlt ? qrAlt.full : qrLink; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
@@ -13847,5 +14105,6 @@
     fibLoops: () => { const LA = autoLoops(projPoints(), routeModel()); return LA.fib ? { n: LA.fib.n, nAuto: LA.fib.nAuto, list: [...LA.fib.list.entries()].map(([id, E]) => [(points.find((p) => p.id === id) || {}).poleId, E.map((e) => [e.n, e.cab, e.len, e.why])]) } : null; },
     fibHw: (pid) => { const p = points.find((x) => x.poleId === pid); return p ? hwOf(p, routeModel()) : null; },
     fibQty: () => surveyQty(projPoints()).rows, boqRows: () => { const P = projPoints(), fb = boqFilled(P); return [...boqGroups(P, fb).groups.values()].map((g) => [g.item, g.size, g.forWhat, g.qty]); },
+    /* v2.42.27 */ ask: (t, x, b) => ask(t, x, b), hl: () => hlId, paneOn: () => document.body.classList.contains('deskpane'), otherN: () => (otherLayer ? otherLayer.getLayers().length : 0), drwView: () => (drw && drw.view ? { ...drw.view, w: $('drawCanvas').width, h: $('drawCanvas').height } : null),
     fibLanes: () => fibLayer.getLayers().map((l) => (l.getLatLngs ? { ll: l.getLatLngs().map((q) => [q.lat, q.lng]), color: l.options.color, w: l.options.weight, op: l.options.opacity, dash: l.options.dashArray || '' } : { arrow: true })), kmzFibers: () => kmzFibers() };
 })();
