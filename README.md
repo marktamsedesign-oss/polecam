@@ -536,6 +536,17 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.26
+
+Drawing style for cable labels and the tower site, photos that never overlap, the pole form's open answers, a tapped cable lit end to end, and a smoother map. No update of the online sheet needed.
+
+- **Cable labels in Drawing style**: 1, up to 2 or **up to 3** (the default) for each cable in a grid, each 500 m or more along the cable from the others; their text height (Auto as before, or 0.8 to 3 m); what they say: PROPOSED, size, type, **AE / UG** (an existing cable only when its type is known), FOC, RUN, e.g. *PROPOSED 72C FIG-8 AE (RUN 1)* and *PROPOSED 144C UG (RUN 3)* (UG once). The Drawing screen's labels say the same.
+- **The tower site**: its name where you choose (Auto, Top, Side or Bottom). **Its ODF** (a pin within 45 m of the tower) is drawn **beside the tower, never over it** (Auto: the side its cable comes from; Left, Right or Below), the cable ending at it, labelled with its **ID and size** (*ODF-0001*, *48F ODF*), the connector too if you choose. The span lengths stay as surveyed.
+- **Photos on the plan never overlap** another photo or a text: where no place beside its pole is free, a photo goes further out with a thin line to its pole (smaller if need be); with no room anywhere near, its number instead.
+- **The pole form**: the line under the ID starts with what still needs an answer, each with a star: *Owner \**, *Clamp size \**, *Loop \**, *Closure \**, *Grounding \** (a new Globe pole: *Pole size \**). Tap one to answer it right there. Grounding and Closure now have **No**, and so does the loop in an As-Plan (the plan may still put a loop there for the cable's spacing).
+- **Tap a cable** in Route: its whole way is lit (the cable nearest your finger on a shared span), and the span's cables are listed to switch. On the Drawing screen, tap a cable away from the points.
+- **The map no longer hangs while you move round it** (RESULT_CODE_HUNG): only the labels near the screen are on the map, so a pan or zoom no longer moves hundreds of them. The plan DXF is built off the screen's thread (dxf-worker.js), so the app keeps answering while it is made. Any block of 2 s or more, and an app that stopped while on the screen, are written to the app log (Settings › App log) with what was being done.
+
 ## What changed in v2.42.25
 
 Fewer cable labels, loops each on their own cable. No update of the online sheet needed.

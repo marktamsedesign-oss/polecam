@@ -751,6 +751,8 @@ body.routing #routeBar{z-index:525}
 #poleId{font-family:var(--mono);font-weight:600}
 #idPfxMenu{gap:6px}#idPfxMenu[hidden]{display:none}#idPfxMenu .chip{font-family:var(--mono);font-weight:700}
 #edSum{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -12px;padding:0 12px 2px}#edSum:empty{display:none}#edSum::-webkit-scrollbar{display:none}
+#edSum button.need{border:1.5px dashed var(--warn);color:var(--warn);background:var(--surface)}
+.edquick{position:fixed;inset:0;z-index:2600;background:rgba(10,16,26,.45);display:flex;align-items:flex-end}.edquick .in{width:100%;background:var(--surface);border-radius:18px 18px 0 0;padding:14px 14px calc(16px + env(safe-area-inset-bottom,0px));display:grid;gap:10px;max-height:70vh;overflow-y:auto}.edquick .in b{font-size:calc(16px * var(--fs))}.edquick .opts{display:flex;flex-wrap:wrap;gap:8px}.edquick .opts .chip{min-height:44px;padding:0 14px}.edquick .row{display:flex;gap:8px;justify-content:flex-end}
 #edSum button{flex:none;border:1px solid var(--line);background:var(--soft);border-radius:8px;padding:4px 8px;min-height:30px;font-size:calc(12.5px * var(--fs));font-weight:600;color:var(--ink);white-space:nowrap}
 #edTabs{position:sticky;top:-20px;z-index:5;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);background:var(--bg);margin:0 -10px;padding:4px 4px 0;border-bottom:1px solid var(--line)}
 #edTabs button{border:0;background:none;padding:6px 1px;font-weight:600;font-size:calc(11px * var(--fs));line-height:1.15;color:var(--muted);border-bottom:3px solid transparent;border-radius:10px 10px 0 0;position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;min-height:54px;overflow-wrap:anywhere}
@@ -913,7 +915,8 @@ body.routing #routeBar{z-index:525}
   <div class="body edbody">
     <span id="edGrab" aria-hidden="true"></span>
     <p class="notice warn" id="edLock" hidden></p>
-    <div class="group" id="edTop" hidden><div id="edSum" aria-label="What is set: tap one to go to it"></div></div>
+    <div class="group" id="edTop" hidden><div id="edSum" aria-label="What still needs an answer (*) and what is set: tap one"></div></div>
+    <div class="edquick" id="edQuick" hidden></div>
     <nav id="edTabs" role="tablist" aria-label="Record sections" hidden></nav>
     <div class="group" id="photoGroup" data-pane="photo">
       <h3>Photo</h3>
@@ -962,6 +965,7 @@ body.routing #routeBar{z-index:525}
         <label class="tchip"><input type="checkbox" id="atMloop"><span>MLoop</span></label>
         <label class="tchip"><input type="checkbox" id="atNap"><span>NAP</span></label>
         <label class="tchip"><input type="checkbox" id="atClosure"><span>Hybrid closure</span></label>
+        <label class="tchip"><input type="checkbox" id="atNoClo"><span>No closure</span></label>
       </div>
       <!-- v2.41: the NAP and the closure are on the pole (like an arm): their kind, size and New / Existing in small dropdowns, then the ID -->
       <div class="attrow" id="napBox" hidden>
@@ -1096,6 +1100,15 @@ body.routing #routeBar{z-index:525}
       <div class="strow"><span class="lbl">Frame round a tag or callout</span><div class="seg" id="stClBox" role="radiogroup" aria-label="Frame"><button type="button" class="chip small" data-v="1">Box</button><button type="button" class="chip small" data-v="0">None</button></div></div>
       <div class="strow"><span class="lbl">12C hardware on a pole with only 12C</span><div class="seg" id="stClHw" role="radiogroup" aria-label="12C hardware"><button type="button" class="chip small" data-v="1">Show (RET×2 SC×4)</button><button type="button" class="chip small" data-v="0">Hide</button></div></div>
       <div class="strow"><span class="lbl">Cable label along the spans</span><div class="seg" id="stCabOn" role="radiogroup" aria-label="Cable label on the spans"><button type="button" class="chip small" data-v="1">On (PROPOSED 12C)</button><button type="button" class="chip small" data-v="0">Off</button></div></div>
+      <div class="strow"><span class="lbl">Labels for each cable in a grid</span><div class="seg" id="stCabPer" role="radiogroup" aria-label="Labels for each cable in a grid"><button type="button" class="chip small" data-v="1">1</button><button type="button" class="chip small" data-v="2">Up to 2</button><button type="button" class="chip small" data-v="3">Up to 3</button></div><p class="hint" style="margin:0">Each one after the first only 500 m or more along the cable from the others.</p></div>
+      <div class="strow"><label class="lbl" for="stCabH">Cable label text height <output id="stCabHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stCabHAuto">Auto</button><input type="range" id="stCabH" min="0.8" max="3" step="0.1" style="flex:1"></div></div>
+      <div class="strow"><span class="lbl">What the cable label says</span><div class="seg" id="stCabW" role="group" aria-label="What the cable label says"><button type="button" class="chip small" data-k="prop">PROPOSED</button><button type="button" class="chip small" data-k="size">Size 72C</button><button type="button" class="chip small" data-k="type">Type FIG-8</button><button type="button" class="chip small" data-k="place">AE / UG</button><button type="button" class="chip small" data-k="foc">FOC</button><button type="button" class="chip small" data-k="run">RUN no.</button></div><p class="hint" id="stCabReads" style="margin:0"></p></div>
+    </div>
+    <div class="stgrp" id="stSite">
+      <h3>Tower site and its ODF</h3>
+      <div class="strow"><span class="lbl">Site name</span><div class="seg" id="stSiteName" role="radiogroup" aria-label="Where the site name goes"><button type="button" class="chip small" data-v="auto">Auto</button><button type="button" class="chip small" data-v="top">Top</button><button type="button" class="chip small" data-v="side">Side</button><button type="button" class="chip small" data-v="bottom">Bottom</button></div></div>
+      <div class="strow"><span class="lbl">ODF beside the tower</span><div class="seg" id="stOdfPlace" role="radiogroup" aria-label="Where the ODF goes beside the tower"><button type="button" class="chip small" data-v="auto">Auto</button><button type="button" class="chip small" data-v="left">Left</button><button type="button" class="chip small" data-v="right">Right</button><button type="button" class="chip small" data-v="below">Below</button></div><p class="hint" style="margin:0">Auto: the side the cable comes from. The ODF is drawn beside the tower, never over it, and the cable ends at it.</p></div>
+      <div class="strow"><span class="lbl">ODF label</span><div class="seg" id="stOdfLbl" role="radiogroup" aria-label="What the ODF label says"><button type="button" class="chip small" data-v="id">ID</button><button type="button" class="chip small" data-v="size">ID + size</button><button type="button" class="chip small" data-v="conn">ID + size + connector</button></div></div>
     </div>
     <div class="stgrp" id="stVic">
       <h3>Vicinity map</h3>

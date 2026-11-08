@@ -353,7 +353,26 @@
   $('busyCancel').addEventListener('click', () => { cancelFlag = true; $('busyText').textContent = 'Stopping…'; }); // map pack jobs also listen (see runPackJob)
   let tileHold = false; // map tiles wait while the app saves or exports, so the phone's network and storage go to the save first
   let busySince = 0, busyFirst = '';
+  /** v2.42.26: the plan DXF built off the screen's thread (dxf-worker.js runs the same dxftpl.js), so the app keeps answering taps while
+      it is made; on the page when the phone cannot (no worker, a job it cannot pass) or when a tool or test has wrapped the builder. */
+  let dxfWorker = null;
+  function buildPlan(seed, job) {
+    const T = window.GeDxfTpl, onPage = () => T.build(seed, job);
+    if (T.__w || typeof Worker === 'undefined') return Promise.resolve().then(onPage);
+    return new Promise((res, rej) => {
+      let w = null; try { w = dxfWorker || (dxfWorker = new Worker('dxf-worker.js')); } catch (e) { w = null; }
+      if (!w) { try { res(onPage()); } catch (e) { rej(e); } return; }
+      const id = `${Date.now()}-${Math.random()}`, t0 = Date.now();
+      const off = () => { w.removeEventListener('message', on); w.removeEventListener('error', bad); };
+      const on = (ev) => { const r = ev.data || {}; if (r.id !== id) return; off(); if (r.ok) { LOG.info('plan.worker', { ms: Date.now() - t0 }); res(r.out); } else { const e = new Error(r.err || 'The plan could not be made'); e.stack = r.stack || e.stack; rej(e); } };
+      const bad = (ev) => { off(); try { w.terminate(); } catch (x) { /* gone */ } dxfWorker = null; LOG.warn('plan.worker.fail', { msg: String((ev && ev.message) || ev) }); try { res(onPage()); } catch (e) { rej(e); } };
+      w.addEventListener('message', on); w.addEventListener('error', bad);
+      try { w.postMessage({ id, seed, job }); } catch (e) { off(); LOG.warn('plan.worker.post', errInfo(e)); try { res(onPage()); } catch (x) { rej(x); } } // (a job the worker cannot take: on the page)
+    });
+  }
+  let lastAct = 'starting'; // v2.42.26: what the app was doing, for the slow-step recorder (below, after the map)
   function busy(text, frac, cancellable) {
+    if (typeof text === 'string' && text) lastAct = text;
     if (text === false) {
       if (busySince) { LOG.info('busy.end', { text: busyFirst, ms: Date.now() - busySince }); busySince = 0; }
       $('busy').hidden = true; $('busyCancel').hidden = true; if (tileHold) { tileHold = false; if (typeof pumpTiles === 'function') pumpTiles(); } return;
@@ -439,11 +458,12 @@
     // v2.29: from the legend of the drawing template: a new arm on the pole, its guying (several), a maintenance loop
     arm: ['Single arm', 'Double arm', 'Extension arm 26"', 'Extension arm 44.5"', '10-pin alley arm'], guy: ['Head guy', 'Side guy', 'Sidewalk guy', 'Sidewalk head guy', 'Pole-to-pole guy', 'Down guy'], mloop: ['Yes'],
     // v2.37: the NAP's kind, a double LCP, grounding and a riser on the pole (drawn with their models on the plan)
-    napType: ['NAP 1x8', 'NAP 1x16', 'Dummy NAP', 'NAP changed to 1:16', 'Double NAP', 'LCP 1x4', 'Double LCP 2x1:8'], lcp: ['Single LCP', 'Double LCP'], ground: ['Yes'], riser: ['Yes'], // v2.41: the LCP (local convergence point, 1:4 splitter) is a box on the pole like a NAP
+    napType: ['NAP 1x8', 'NAP 1x16', 'Dummy NAP', 'NAP changed to 1:16', 'Double NAP', 'LCP 1x4', 'Double LCP 2x1:8'], lcp: ['Single LCP', 'Double LCP'], ground: ['Yes', 'No'], riser: ['Yes'], // v2.41: the LCP (local convergence point, 1:4 splitter) is a box on the pole like a NAP
     // v2.39: the pole clamps (figure 8, messenger and guys); left blank, the plan picks them from the route, the guys and the arm
     clampType: ['CA', 'GCA', '2A', 'DEG', 'RL'] };
   const BOQ_MULTI = new Set(['guy', 'clampType']); // several at once: "Head guy + Side guy", "DEG + GCA" (v2.39)
   const loopYes = (b) => !!b && !!b.mloop && b.mloop !== 'No'; // v2.42.16: an As-Built record answers Yes or No
+  const groundYes = (b) => !!b && !!b.ground && b.ground !== 'No'; // v2.42.26: grounding answered Yes or No (No: none on the pole)
   const BOX_LOOP_M = 20; // v2.42.16: a handhole, manhole or service box has its own maintenance loop, 20 m (counted, not drawn)
   const mloopLen = () => (Number.isFinite(+pol().mloopLen) && +pol().mloopLen > 0 ? +pol().mloopLen : 15); // v2.29: MLoop = 15 m unless the admin sets another
   /* v2.42.18: each loop has its own length, chosen on the record (10, 12, 15 or 20 m); by default it follows the cable at the pole:
@@ -488,7 +508,7 @@
     if (b.odf || b.conn) parts.push(`ODF ${[b.odf, b.conn].filter(Boolean).join(' ')}`);
     if (b.clo || b.cloSt) parts.push(`Closure ${[b.clo, b.cloSt].filter(Boolean).join(' ')}`);
     if (b.arm) parts.push(`Arm ${b.arm}`); if (b.guy) parts.push(`Guying ${b.guy}`); if (loopYes(b)) parts.push(`MLoop${+b.mloopM > 0 ? ` ${b.mloopM} m` : ''}`); else if (b.mloop === 'No') parts.push('No loop'); // v2.29 (v2.42.16: an As-Built answers No loop)
-    if (b.p2p) { const t = points.find((x) => x.id === b.p2p); parts.push(`Pole-to-pole guy to ${t ? t.poleId || '(no ID)' : '(deleted pole)'}`); } if (b.ground) parts.push('Grounding'); if (b.riser) parts.push('Riser'); if (b.napType) parts.push([b.napType, b.napSz, b.napSt].filter(Boolean).join(' ')); if (b.nap2Type) parts.push([b.nap2Type, b.nap2Sz, b.nap2St].filter(Boolean).join(' ')); if (b.lcp) parts.push(b.lcp); // v2.37 (v2.41: a dummy NAP's size, New / Existing)
+    if (b.p2p) { const t = points.find((x) => x.id === b.p2p); parts.push(`Pole-to-pole guy to ${t ? t.poleId || '(no ID)' : '(deleted pole)'}`); } if (groundYes(b)) parts.push('Grounding'); else if (b.ground === 'No') parts.push('No grounding'); if (b.riser) parts.push('Riser'); if (b.napType) parts.push([b.napType, b.napSz, b.napSt].filter(Boolean).join(' ')); if (b.nap2Type) parts.push([b.nap2Type, b.nap2Sz, b.nap2St].filter(Boolean).join(' ')); if (b.lcp) parts.push(b.lcp); // v2.37 (v2.41: a dummy NAP's size, New / Existing)
     return parts.join(' · ');
   }
   /** Only the fields that apply to the element as saved. */
@@ -732,7 +752,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.25';
+  const APP_VER = '2.42.26';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1331,12 +1351,33 @@
   map.on('moveend', () => { const c = map.getCenter(); S.view = { lat: c.lat, lon: c.lng, z: map.getZoom() }; persist(); });
   const labelsFor = () => map.getContainer().classList.toggle('hide-labels', map.getZoom() < 16);
   map.on('zoomend', labelsFor); labelsFor();
+  /* v2.42.26: the slow-step recorder: any block of work of 2 s or more goes into the app log with what was being done and the map's
+     state; and when the app stopped while on the screen (closed by the browser as not answering, or ended by the phone), the next start
+     says so in the log with the last step. Settings › App log › send it to support. */
+  map.on('movestart', () => { lastAct = 'moving the map'; }); map.on('zoomstart', () => { lastAct = 'zooming the map'; });
+  try { new PerformanceObserver((l) => l.getEntries().forEach((e) => { if (e.duration >= 2000) LOG.warn('slow.step', { ms: Math.round(e.duration), during: lastAct, zoom: map.getZoom(), pins: pinMarkers.size, labels: document.querySelectorAll('#map .leaflet-tooltip').length }); })).observe({ type: 'longtask' }); } catch (e) { /* not on this browser */ }
+  { const AK = 'polecam.alive';
+    try { const prev = JSON.parse(localStorage.getItem(AK) || 'null'); if (prev && prev.vis && !prev.clean && Date.now() - prev.t < 7 * 864e5) LOG.warn('app.stopped', { at: new Date(prev.t).toISOString(), during: prev.act, note: 'the app stopped while on the screen (closed as not answering, or ended by the phone)' }); } catch (e) { /* none */ }
+    const beat = (clean) => { try { localStorage.setItem(AK, JSON.stringify({ t: Date.now(), act: lastAct, vis: document.visibilityState === 'visible', clean: !!clean })); } catch (e) { /* storage blocked */ } };
+    beat(false); setInterval(() => beat(false), 5000); document.addEventListener('visibilitychange', () => beat(false)); window.addEventListener('pagehide', () => beat(true)); }
 
   const TYPE_COLORS = ['#e8590c', '#1971c2', '#2b8a3e', '#9c36b5', '#c2255c', '#0c8599', '#5c940d', '#495057'];
   const typeColor = (t) => { const names = typeNames(), i = names.indexOf(t); return TYPE_COLORS[(i < 0 ? names.length : i) % TYPE_COLORS.length]; };
 
   /* v2.42.19: the map's pins by record id, their look and their label, so a tap in Route restyles only the pins that changed */
   const pinMarkers = new Map(); let pinShownSel = null;
+  /* v2.42.26: only the labels near the screen are on the map (the poles' IDs, the span lengths), within half a screen round it, and none
+     below zoom 16 (they are hidden there): moving round a big project no longer moves hundreds of labels at every step, which kept a
+     phone so busy that the browser closed the page as not answering (RESULT_CODE_HUNG). Done again each time the map stops. */
+  let spanLbls = [];
+  function labelCull() {
+    try {
+      const show = map.getZoom() >= 16, b = map.getBounds().pad(0.5); let RR = null; const getR = () => RR || (RR = lastR || routeModel());
+      pinMarkers.forEach((m) => { if (!m._tipO || !poleLayer.hasLayer(m)) return; const on = show && b.contains(m.getLatLng()), has = !!m.getTooltip();
+        if (on && !has) m.bindTooltip(pinTip(m._tipP, getR()), m._tipO); else if (!on && has) m.unbindTooltip(); });
+      spanLbls.forEach(({ ll, mk }) => { const on = show && b.contains(ll), has = routeLayer.hasLayer(mk); if (on && !has) routeLayer.addLayer(mk); else if (!on && has) routeLayer.removeLayer(mk); });
+    } catch (e) { /* (early in the start: the route's layer not made yet) */ }
+  }
   const pinLook = (p, sel) => { const acc = p.kind === 'acceptance', el = elemOf(p); return { radius: sel ? 12 : acc && el !== 'Pole' ? 10 : 8, weight: sel ? 4 : !acc && p.status === 'New' ? 3 : 2,
     color: sel ? '#17202a' : acc && el !== 'Pole' ? '#17202a' : !acc && pinCol(p) ? pinCol(p) : !acc && p.status === 'Proposed' ? '#e03131' : !acc && p.status === 'New' ? '#17202a' : '#fff',
     dashArray: !acc && p.status === 'Proposed' && !sel ? '3 3' : null,
@@ -1372,7 +1413,7 @@
         : !acc && el !== 'Pole' && SV_SHORT[el] // survey element: a labelled square (dashed when proposed / new)
         ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svpin${sel ? ' sel' : ''}${p.status === 'Proposed' || p.status === 'New' ? ' new' : ''}" style="--c:${pinCol(p) || SV_COLORS[el]}">${SV_SHORT[el]}</span>`, iconSize: [30, 24], iconAnchor: [15, 12] }) })
         : L.circleMarker([p.lat, p.lon], pinLook(p, sel)); // (v2.42.19: its look in pinLook)
-      m.bindTooltip(pinTip(p, R), { permanent: true, direction: 'right', offset: [sy ? 16 : !acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' });
+      m._tipO = { permanent: true, direction: 'right', offset: [sy ? 16 : !acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' }; m._tipP = p; // v2.42.26: its label bound near the screen only (labelCull)
       m.on('click', () => (routeMode ? (Date.now() - rtGestAt < 700 ? null : rtTapAny(p.id)) : visitMode() ? openVisit(p.id) : openEditorFor(p.id))); // (v2.42.21: a tap the drawing gesture took)
       m.addTo(poleLayer); pinMarkers.set(p.id, m);
     }
@@ -1384,7 +1425,7 @@
     mb.textContent = cat.toUpperCase(); mb.className = `badge cat ${cat.toLowerCase()}`;
     $('listLbl').textContent = 'Records';
     const dr = drawOn(); $('drawLbl').textContent = dr ? 'Drawing' : 'Find'; $('drawIco').setAttribute('href', dr ? '#i-draw' : '#i-find'); // v2.28
-    renderSummary(pts); declutterSoon();
+    renderSummary(pts); labelCull(); declutterSoon();
     if (typeof drawAreas === 'function') drawAreas();
     renderRefBtn(); // v2.30
   }
@@ -1557,7 +1598,7 @@
     else if (p.mloop || loopYes(b) || loopOwnOf(p) || napPin || clPin) out.push(['LOOP', '#e03131']); else if (drw && drw.LA && drw.LA.has(p.id)) out.push(['LOOP*', '#e03131']); // v2.42.16: * added by the app
     if (p.closure || p.closureId || clPin) out.push(['CL', '#c2255c']);
     if (nGuy) out.push([nGuy > 1 ? `G${nGuy}` : 'G', '#1971c2']);
-    if (b.ground) out.push(['GR', '#2b8a3e']);
+    if (groundYes(b)) out.push(['GR', '#2b8a3e']);
     if (b.riser) out.push(['R', '#495057']);
     if (hasTelcoArm(p)) out.push(['TA', '#0c8599']); // v2.42.1
     return out;
@@ -1586,7 +1627,7 @@
       if (bk.kind === 'dn') return Math.hypot(bk.e1[0] - toward[0], bk.e1[1] - toward[1]) <= Math.hypot(bk.e2[0] - toward[0], bk.e2[1] - toward[1]) ? bk.e1 : bk.e2;
       const u = u2(bk.c, toward); return [bk.c[0] + u[0] * bk.R * 0.45, bk.c[1] + u[1] * bk.R * 0.45]; };
     const fitIn = (id, N) => { const bk = BK.get(String(id)), lim = bk.kind === 'dn' ? 0.75 * bk.hw : 0.5 * bk.R, l = Math.hypot(N[0], N[1]); return l > lim ? [N[0] * lim / l, N[1] * lim / l] : N; }; // (the lanes side by side within it)
-    const GAP = 5 * d, laneAt = new Map(); // (each span's lanes: the offset of each fiber's line from the span's line, for the labels)
+    const GAP = 5 * d, laneAt = new Map(); drw.hitL = []; // (each span's lanes: the offset of each fiber's line from the span's line, for the labels)
     (drw.fibs || []).forEach((f) => { // v2.42.23: each fiber one line in its lane, mitred at the corners (v2.42.24: as wide as its size; meeting the blocks' sides)
       const ids = f.ids || [], Q = f.pts.map(drwPx), m = Q.length - 1;
       const N = f.st.map((st) => { if (!st || st.n < 2) return [0, 0]; const [ax, ay] = drwPx(st.a), [bx, by] = drwPx(st.b), Ln = Math.hypot(bx - ax, by - ay) || 1, o = st.z ? st.k * GAP : (st.k - (st.n - 1) / 2) * GAP; return [(by - ay) / Ln * o, -(bx - ax) / Ln * o]; });
@@ -1606,7 +1647,8 @@
         if (Math.hypot(N[i - 1][0] - N[i][0], N[i - 1][1] - N[i][1]) < 0.5) cur.push(at(i, 0)); else cur.push(at(i - 1, Math.max(0, Ls[i - 1] - Lt[i - 1])), at(i, Lt[i]));
       }
       if (cur.length > 1) lines.push(cur);
-      const lw = drwLw(f.ex ? lwOfCores(f.cores) : lwOfCab(f.cab), d);
+      const lw = drwLw(f.ex ? lwOfCores(f.cores) : lwOfCab(f.cab), d); drw.hitL.push({ n: f.n, lines });
+      if (drw.selRun === f.n) { g.strokeStyle = 'rgba(250,176,5,.55)'; g.lineWidth = lw + 12 * d; g.lineJoin = 'round'; g.lineCap = 'round'; g.setLineDash([]); lines.forEach((L) => { if (L.length < 2) return; g.beginPath(); L.forEach((p, k) => (k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.stroke(); }); g.lineCap = 'butt'; } // v2.42.26: the run tapped, lit all along
       g.strokeStyle = f.ex ? '#4dabf7' : '#1c3f94'; g.lineWidth = lw; g.lineJoin = 'miter'; g.miterLimit = 6; g.setLineDash(f.cab && !/^U/.test(f.cab) ? [7 * d, 4 * d] : []);
       lines.forEach((L) => { if (L.length < 2) return; g.beginPath(); L.forEach((p, k) => (k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.stroke(); for (let k = 1; k < L.length; k++) occ.add(segObb(L[k - 1], L[k], lw + 2 * d), 'cable', f.n); });
       g.setLineDash([]); g.lineJoin = 'round';
@@ -1861,9 +1903,13 @@
         const r = cv.getBoundingClientRect(), tx = (e.clientX - r.left) * d(), ty = (e.clientY - r.top) * d();
         let best = null; drw.items.forEach((it) => { const [px, py] = drwPx(it.xy), dd = Math.hypot(px - tx, py - ty); if (dd < 24 * d() && (!best || dd < best.dd)) best = { it, dd }; });
         drw.sel = best ? best.it.p.id : null; const info = $('drawInfo');
+        drw.selRun = null; if (!best) { let bc = null; (drw.hitL || []).forEach(({ n, lines }) => lines.forEach((L) => { for (let k = 1; k < L.length; k++) { const a = L[k - 1], b = L[k], vx = b[0] - a[0], vy = b[1] - a[1], t = Math.max(0, Math.min(1, ((tx - a[0]) * vx + (ty - a[1]) * vy) / (vx * vx + vy * vy || 1))), dd = Math.hypot(a[0] + vx * t - tx, a[1] + vy * t - ty); if (dd < 16 * d() && (!bc || dd < bc.dd)) bc = { n, dd }; } }));
+          if (bc) { drw.selRun = bc.n; const f = drw.R && drw.R.fib ? drw.R.fib.list.find((x) => x.n === bc.n) : null; // v2.42.26: a cable tapped: its whole run lit
+            if (f) { const by = drw.R.fib.by, a = fibEnd(f, 'from', by), z = fibEnd(f, 'to', by); let len = 0; for (let k = 1; k < f.path.length; k++) { const p = by.get(f.path[k - 1]), q = by.get(f.path[k]); if (p && q) len += haversine(p, q); }
+              info.textContent = `RUN ${f.n} · ${fibCabName(f)} · ${a.ref || a.kind} → ${z.ref || z.kind} · ${fmtLen(len)} · ${f.path.length - 1} spans`; info.hidden = false; $('drawHint').hidden = true; } } }
         if (best) { const p = best.it.p, u = best.it.xy, n = drw.seq.get(String(p.id)), tg = best.it.el === 'Pole' ? poleTags(best.it).map((x) => x[0]) : [];
           info.textContent = `${n ? `No. ${n} · ` : ''}${p.poleId || elemOf(p)} · ${svDesc(p)}${boqText(p) ? ` · ${boqText(p)}` : ''}${tg.length ? ` · on the plan: ${tg.join(', ')}` : ''}${best.it.on ? ` · on pole ${best.it.on.p.poleId || '(no ID)'}` : ''} · E ${u[0].toFixed(1)} N ${u[1].toFixed(1)}`; info.hidden = false; $('drawHint').hidden = true; }
-        else { info.hidden = true; $('drawHint').hidden = !!S.drawHintOff; }
+        else if (drw.selRun == null) { info.hidden = true; $('drawHint').hidden = !!S.drawHintOff; } // (v2.42.26: a cable tapped keeps its line)
         drawDrawing();
       }
     };
@@ -2009,20 +2055,22 @@
      route colour and width). Defaults: the numbers yellow, 3 m high in a 7 m circle, 2 m from the point with a leader line, at the
      first free spot; the IDs as before (2.5 m, by layer); the circle yellow. Sizes are metres of the drawing (1:1100: 1 m = 0.9 mm). */
   const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto' }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5 },
-    clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a' } }; // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
+    clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a', per: 3, h: 0, w: { prop: true, size: true, type: true, place: true, foc: false, run: true } }, /* v2.42.26: labels for each cable in a grid, their height (0: by the poles' spacing), their words */
+    site: { name: 'auto' }, odf: { place: 'auto', lbl: 'size' } }; /* v2.42.26: the tower's name; the ODF beside the tower, its label */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
   function plStyle() {
     const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d);
-    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) };
+    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) };
     return { num: { color: c(N.color, 2), bcolor: c(N.bcolor, 0, true), h: n(N.h, 1, 12, 3), d: n(N.d, 0, 25, 7), g: n(N.g, 0, 25, 2), leader: N.leader !== false, place: N.place === 'out' ? 'out' : 'auto' },
       id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5) },
       clamp: { place: ['label', 'tag', 'callout'].includes(Cl.place) ? Cl.place : 'label', pos: ['auto', 'up', 'down', 'left', 'right'].includes(Cl.pos) ? Cl.pos : 'auto', color: c(Cl.color, 0, true), h: n(Cl.h, 1, 5, 2), box: Cl.box !== false, hw: Cl.hw !== false },
-      cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a' } };
+      cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a', per: [1, 2, 3].includes(+Cb.per) ? +Cb.per : 3, h: +Cb.h ? n(Cb.h, 0.8, 3, 0) : 0, w: Object.fromEntries(Object.keys(PL_DEF.cab.w).map((k) => [k, !!Cw[k]])) },
+      site: { name: ['auto', 'top', 'side', 'bottom'].includes(St.name) ? St.name : 'auto' }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' } };
   }
   const setPl = (part, k, v) => { const cur = plStyle(); S.plStyle = { ...cur, [part]: { ...cur[part], [k]: v } }; persist(); renderStyle(); };
   const mmOf = (m) => (m / 1.1).toFixed(1);
   function plSummary() {
     const P = plStyle(), N = P.num, I = P.id, V = P.vic, Cl = P.clamp, Cb = P.cab, ct = S.exp.dxfClampType !== false;
-    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? ACI_NAME[Cl.color] : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? 'each cable its own, with its run (PROPOSED 12C (RUN 1))' : 'off'} · Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${ACI_NAME[V.circle]} circle ${V.circleW} m wide, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide`;
+    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? ACI_NAME[Cl.color] : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Site name: ${P.site.name === 'auto' ? 'auto place' : P.site.name} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${ACI_NAME[V.circle]} circle ${V.circleW} m wide, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide`;
   }
   function openStyle() { renderStyle(); openSheet('drwStyle'); }
   function renderStyle() {
@@ -2040,6 +2088,11 @@
     o('stNumHO', `${N.h} m · ${mmOf(N.h)} mm`); o('stNumDO', N.d > 0 ? `${N.d} m · ${mmOf(N.d)} mm` : 'no circle'); o('stNumGO', `${N.g} m · ${mmOf(N.g)} mm`); o('stIdHO', `${I.h} m · ${mmOf(I.h)} mm`); o('stVicWO', `${V.circleW} m`); o('stVicRWO', `${V.routeW} m`);
     const seg = (id, v) => $(id).querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
     seg('stNumLeader', N.leader ? '1' : '0'); seg('stNumPlace', N.place); seg('stIdBold', I.bold ? '1' : '0');
+    seg('stCabPer', String(P.cab.per)); seg('stSiteName', P.site.name); seg('stOdfPlace', P.odf.place); seg('stOdfLbl', P.odf.lbl); // v2.42.26
+    $('stCabW').querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(!!P.cab.w[b.dataset.k])));
+    if (document.activeElement !== $('stCabH')) $('stCabH').value = String(P.cab.h || 1.3); $('stCabHAuto').setAttribute('aria-pressed', String(!P.cab.h)); o('stCabHO', P.cab.h ? `${P.cab.h} m · ${mmOf(P.cab.h)} mm` : 'auto (1.0–1.3 m by the poles\u2019 spacing)');
+    o('stCabReads', `Reads: ${['F72', 'L12', 'U144'].map((k, i) => runLbl(cabWords(k), i + 1) || '(nothing)').join(' · ')}`);
+    ['stCabPer', 'stCabH', 'stCabW'].forEach((id) => { const r = $(id).closest('.strow'); if (r) r.classList.toggle('dim', !P.cab.on); });
     seg('stClOn', S.exp.dxfClampType !== false ? '1' : '0'); seg('stClPlace', P.clamp.place); seg('stClPos', P.clamp.pos); seg('stClBox', P.clamp.box ? '1' : '0'); seg('stClHw', P.clamp.hw ? '1' : '0'); seg('stCabOn', P.cab.on ? '1' : '0');
     o('stClHO', `${P.clamp.h} m · ${mmOf(P.clamp.h)} mm`); ['stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'].forEach((id) => { const r = $(id) && $(id).closest('.strow'); if (r) r.classList.toggle('dim', S.exp.dxfClampType === false || (P.clamp.place === 'label' && ['stClPos', 'stClH', 'stClBox'].includes(id))); });
     o('stSum', plSummary());
@@ -2052,6 +2105,10 @@
   $('stIdBold').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('id', 'bold', b.dataset.v === '1'); });
   [['stClPlace', 'clamp', 'place', (v) => v], ['stClPos', 'clamp', 'pos', (v) => v], ['stClBox', 'clamp', 'box', (v) => v === '1'], ['stClHw', 'clamp', 'hw', (v) => v === '1'], ['stCabOn', 'cab', 'on', (v) => v === '1']]
     .forEach(([id, part, key, val]) => $(id).addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl(part, key, val(b.dataset.v)); })); // v2.42.21
+  [['stCabPer', 'cab', 'per', (v) => +v], ['stSiteName', 'site', 'name', (v) => v], ['stOdfPlace', 'odf', 'place', (v) => v], ['stOdfLbl', 'odf', 'lbl', (v) => v]] // v2.42.26
+    .forEach(([id, part, key, val]) => $(id).addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl(part, key, val(b.dataset.v)); }));
+  $('stCabH').addEventListener('input', () => setPl('cab', 'h', +$('stCabH').value)); $('stCabHAuto').addEventListener('click', () => setPl('cab', 'h', 0));
+  $('stCabW').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; const w = { ...plStyle().cab.w, [b.dataset.k]: !plStyle().cab.w[b.dataset.k] }; setPl('cab', 'w', w); });
   $('stClOn').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; S.exp.dxfClampType = b.dataset.v === '1'; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); }); // (the Drawing's CA button too)
   $('stReset').addEventListener('click', () => { delete S.plStyle; S.exp.dxfClampType = true; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Drawing style: the defaults', 2000); }); // (v2.42.21: clamp types on again)
   $('stDone').addEventListener('click', () => closeSheet());
@@ -2069,7 +2126,7 @@
     el('rect', { x: 55.2, y: yTop + 1.4 - 1.8, width: 9.6, height: 3.6, rx: 1.8, fill: '#000', stroke: '#00ff00', 'stroke-width': 0.2 }); el('text', { x: 60, y: yTop + 1.4 + 1.2, fill: '#fff', 'font-size': 3, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, 'N');
     el('text', { x: 60, y: yTop + 1.4 + 1.8 + I.h * 1.05, fill: ACI_HEX[I.color] || '#ffffff', 'font-size': I.h, 'font-weight': I.bold ? 800 : 400, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, 'NAP-0001');
     const Cl = P.clamp, ct = S.exp.dxfClampType !== false, clCol = ACI_HEX[Cl.color] || '#00ffff', inL = !ct || Cl.place === 'label'; // v2.42.21
-    if (P.cab.on) [[40, 'PROPOSED 12C (RUN 1)'], [80, 'PROPOSED 12C (RUN 1)']].forEach(([x, t]) => el('text', { x, y: yTop + 1.4 + 2.6, fill: '#ff0000', 'font-size': 1.8, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, t));
+    if (P.cab.on) [[40, runLbl(cabWords('L12'), 1)], [80, runLbl(cabWords('L12'), 1)]].forEach(([x, t]) => el('text', { x, y: yTop + 1.4 + 2.6, fill: '#ff0000', 'font-size': 1.8, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, t));
     [[20, '4303175', ct ? 'CA 8-9' : '8-9'], [60, '4303168', ct && Cl.hw ? 'RET×2 SC×4' : ''], [100, '4303161', ct ? '2A 10-12' : '10-12']].forEach(([x, id, cl0], i) => {
       const cl = inL ? cl0 : ''; // a tag or a callout: the clamp types beside the pole, not in its label
       if (!inL && cl0) { const w = cl0.length * Cl.h * 0.56 + 1, h = Cl.h * 1.35, far = Cl.place === 'callout' ? 9 : 3.2, py0 = yTop - 2.5 - (i === 1 ? 1.2 : 0), dir = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[Cl.pos] || [-0.6, -0.8];
@@ -2147,7 +2204,7 @@
     poles.forEach((el) => place(el, [[0, 0], [0, -14], [0, 14], [0, -26], [0, 26]], false));
     spans.forEach((el) => place(el, [[0, 0], [0, -16], [0, 16], [16, 0], [-16, 0], [0, -30], [0, 30]], true));
   }
-  map.on('zoomend moveend', declutterSoon);
+  map.on('zoomend moveend', labelCull); map.on('zoomend moveend', declutterSoon); // (v2.42.26: the labels near the screen first)
   /* ---- map legend (v2.15) ---- */
   function renderLegend() {
     const L2 = $('legend'), dot = (c, t) => `<span class="lg"><span class="sw" style="background:${c}"></span>${C.xmlEsc(t)}</span>`, sq = (c, k, t) => `<span class="lg"><span class="sq" style="background:${c}">${k}</span>${C.xmlEsc(t)}</span>`;
@@ -2455,24 +2512,24 @@
   }
   const fmtLen = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
   function drawRoute() {
-    routeLayer.clearLayers(); fibLayer.clearLayers(); lastR = null;
+    routeLayer.clearLayers(); fibLayer.clearLayers(); lastR = null; spanLbls = [];
     if (isAcc()) return null;
     const R = routeModel();
     if (viewHide().route && !routeMode) { if (typeof declutterSoon === 'function') declutterSoon(); return R; } // v2.30: route hidden from the map button
     lastR = R; const selK = spanSel ? [...spanSel].sort().join('|') : '', hasF = !!(R.fib && R.fib.planned.length);
     for (const s of R.spans) { // v2.29: coloured by cable type (grey: cable not set); long spans red
       const cab = CAB[s.cable], ll = [[s.a.lat, s.a.lon], [s.b.lat, s.b.lon]], nr = (s.runs || []).length, nf = s.lanes ? s.lanes.length : 0;
-      if (routeMode && selK === [s.ia, s.ib].sort().join('|')) L.polyline(ll, { pane: 'routePane', color: '#fab005', weight: 16 + 5 * Math.max(0, (nf || nr) - 1), opacity: 0.55, lineCap: 'round', interactive: false }).addTo(routeLayer); // v2.42.18: the span tapped
+      if (routeMode && fibSel == null && selK === [s.ia, s.ib].sort().join('|')) L.polyline(ll, { pane: 'routePane', color: '#fab005', weight: 16 + 5 * Math.max(0, (nf || nr) - 1), opacity: 0.55, lineCap: 'round', interactive: false }).addTo(routeLayer); // v2.42.18: the span tapped
       if (!nf) { // v2.42.20: a span on a fiber is drawn as its fibers' lanes (drawFibLanes); with fibers in the project, one on none grey and dashed
         for (let i = nr - 1; i >= 1; i--) { const c2 = CAB[s.runs[i]]; L.polyline(ll, { pane: 'routePane', color: c2 ? c2.css : '#868e96', weight: 4 + 5 * i, opacity: 0.55, lineCap: 'butt', interactive: false }).addTo(routeLayer); } // v2.42.18: run 2, run 3… as bands round run 1
         L.polyline(ll, { pane: 'routePane', color: s.long ? '#c92a2a' : hasF ? '#868e96' : cab ? cab.css : '#868e96', weight: 4, opacity: 0.9, dashArray: s.long ? '8 6' : hasF ? '6 6' : cab && cab.method === 'UG' ? '2 7' : null, lineCap: 'round', interactive: false }).addTo(routeLayer);
       }
-      if (routeMode) L.polyline(ll, { pane: 'routePane', color: '#000', weight: 22, opacity: 0.01, interactive: true, bubblingMouseEvents: false }).on('click', (e) => { L.DomEvent.stop(e); if (Date.now() - rtGestAt < 700) return; spanSel = [s.ia, s.ib]; routeSel = null; rtTools = true; routeRefresh(); spanInView(s); }).addTo(routeLayer); // v2.42.18: tap a span: its runs (v2.42.21: in Route tools)
+      if (routeMode) L.polyline(ll, { pane: 'routePane', color: '#000', weight: 22, opacity: 0.01, interactive: true, bubblingMouseEvents: false }).on('click', (e) => { L.DomEvent.stop(e); if (Date.now() - rtGestAt < 700) return; spanSel = [s.ia, s.ib]; routeSel = null; rtTools = true; if (fibAdd == null) fibSel = laneAtTap(R, s, e.containerPoint); routeRefresh(); spanInView(s); }).addTo(routeLayer); // v2.42.18: tap a span: its runs (v2.42.21: in Route tools; v2.42.26: the cable nearest the tap lit all along its way)
       const tags = nf ? ` ${s.lanes.slice().sort((x, y) => x.n - y.n).map((f) => `<b style="color:${fibColor(f)}">${fibTag(f)}</b>`).join(' ')}` : nr > 1 ? ` ×${nr}` : ''; // v2.42.20: its fibers
-      L.marker([(s.a.lat + s.b.lat) / 2, (s.a.lon + s.b.lon) / 2], { interactive: false, keyboard: false,
-        icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label${s.long ? ' long' : ''}">${s.len.toFixed(0)} m${tags}</span>`, iconSize: null }) }).addTo(routeLayer);
+      const sll = L.latLng((s.a.lat + s.b.lat) / 2, (s.a.lon + s.b.lon) / 2); // v2.42.26: on the map only near the screen (labelCull)
+      spanLbls.push({ ll: sll, mk: L.marker(sll, { interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label${s.long ? ' long' : ''}">${s.len.toFixed(0)} m${tags}</span>`, iconSize: null }) }) });
     }
-    drawFibLanes(R); drawRtMarks(R);
+    drawFibLanes(R); drawRtMarks(R); labelCull();
     for (const p of projPoints()) {
       const info = R.poles[p.id];
       if (info && (info.role === 'Angle' || info.role === 'Junction')) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 14, color: info.role === 'Angle' ? '#e8590c' : '#9c36b5', weight: 2, fill: false, interactive: false }).addTo(routeLayer);
@@ -2480,6 +2537,15 @@
     if (routeMode) { updateRouteBar(R); const by = new Map(projPoints().map((p) => [p.id, p])); if (rtTools) routeAdvice(R).forEach((a) => { const p = by.get(a.id); if (p) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 17, color: a.kind === 'flag' ? '#c92a2a' : '#e8590c', weight: 2.5, dashArray: '5 4', fill: false, interactive: false }).addTo(routeLayer); }); }
     if (typeof declutterSoon === 'function') declutterSoon(); // v2.28
     return R;
+  }
+  /** v2.42.26: the cable on a span nearest a tap (its lane, 6 px apart as drawn); null on a span with no cable. */
+  function laneAtTap(R, s, cp) {
+    const h = R && R.fib && s.lanes && s.lanes.length ? R.fib.hops.get(spanKey(s.ia, s.ib)) : null; if (!h || !h.fs.length) return null;
+    const by = R.fib.by, pa = by.get(h.a), pb = by.get(h.b); if (!pa || !pb || !cp) return h.fs[0].n;
+    const A = map.latLngToContainerPoint([pa.lat, pa.lon]), B = map.latLngToContainerPoint([pb.lat, pb.lon]), dx = B.x - A.x, dy = B.y - A.y, Ln = Math.hypot(dx, dy) || 1;
+    const c = (cp.x - A.x) * dy / Ln - (cp.y - A.y) * dx / Ln; let best = null; // (the tap's offset from the span's line, as the lanes are drawn)
+    h.fs.forEach((f, i) => { const o = (i - (h.fs.length - 1) / 2) * 6, d = Math.abs(c - o); if (!best || d < best.d) best = { d, n: f.n }; });
+    return best.n;
   }
   /** v2.42.20: each fiber as one line in its colour, side by side with the others on a shared span (6 px apart, in the lane order
       of fibAnnotate, so they do not cross where they part); an existing cable dashed; the fiber selected thicker with arrows (its
@@ -2520,7 +2586,18 @@
     return out;
   }
   /** v2.42.23: a cable's label with its run (PROPOSED 12C (RUN 1)): the same number all along the cable, to follow it on the DXF/DWG and PDF. */
-  const runLbl = (t, n) => (t && n ? `${t} (RUN ${n})` : t || '');
+  const runLbl = (t, n) => [t, n && plStyle().cab.w.run ? `(RUN ${n})` : ''].filter(Boolean).join(' '); // (v2.42.26: the run as chosen in Drawing style)
+  /** v2.42.26: a cable's label words, as chosen in Drawing style: PROPOSED (EXISTING), its size, its type, FOC, AE or UG (once for a UG
+      cable: PROPOSED 144C UG). noPre: without PROPOSED / EXISTING (several cables in one label). */
+  function cabWords(cab, ex, cores, noPre) {
+    const W = plStyle().cab.w, c = CAB[cab], p = [], n = ex ? cores : c && c.cores;
+    if (W.prop && !noPre) p.push(ex ? 'EXISTING' : 'PROPOSED');
+    if (W.size && n) p.push(`${n}C`);
+    if (W.type && !ex && c) p.push(c.tt);
+    if (W.foc) p.push('FOC');
+    if (W.place && (c || !ex)) { const pl = c && c.method === 'UG' ? 'UG' : 'AE'; if (!(W.type && !ex && c && c.tt === pl)) p.push(pl); } // (an existing cable of no known type: no AE / UG)
+    return p.join(' ');
+  }
   function planFibs(R) {
     if (!R || !R.fib || !R.fib.list.length) return [];
     const many = R.fib.list.filter((f) => f.path.length > 1).length > 1;
@@ -2599,9 +2676,10 @@
   /** v2.42.21: a span's cable label: the new cables on it (PROPOSED 12C, PROPOSED 2×12C, PROPOSED 72C + 12C) and the existing ones by
       size (EXISTING 48C), each a line: [{ t, ex }]. word 'b': PROPOSED 12C ×2. */
   function cabLabelOf(s, word) {
-    const sh = (k) => (CAB[k] ? `${CAB[k].cores}C ${CAB[k].tt}` : ''), /* v2.42.24: size + type (12C LIGHT, 24C FIG-8, 288C UG) */ grp = (arr) => { const m = new Map(); arr.filter(Boolean).forEach((t) => m.set(t, (m.get(t) || 0) + 1)); return [...m].map(([t, n]) => (n > 1 ? (word === 'b' ? `${t} ×${n}` : `${n}×${t}`) : t)).join(' + '); };
-    const lanes = s.lanes && s.lanes.length ? s.lanes : null, nw = lanes ? lanes.filter((f) => !f.ex).map((f) => sh(f.cab)) : (s.runs || [s.cable]).map(sh), ex = lanes ? lanes.filter((f) => f.ex).map((f) => `${exCores(f)}C`) : [];
-    return [nw.filter(Boolean).length ? { t: `PROPOSED ${grp(nw)}`, ex: false } : null, ex.length ? { t: `EXISTING ${grp(ex)}`, ex: true } : null].filter(Boolean);
+    const W = plStyle().cab.w, grp = (arr) => { const m = new Map(); arr.forEach((t) => m.set(t, (m.get(t) || 0) + 1)); return [...m].map(([t, n]) => (t && n > 1 ? (word === 'b' ? `${t} ×${n}` : `${n}×${t}`) : t)).filter(Boolean).join(' + '); }; /* v2.42.24: size + type (12C LIGHT, 24C FIG-8, 288C UG); v2.42.26: the words chosen in Drawing style */
+    const lanes = s.lanes && s.lanes.length ? s.lanes : null, nwK = lanes ? lanes.filter((f) => !f.ex).map((f) => f.cab) : (s.runs || [s.cable]), nw = nwK.filter((k) => CAB[k]).map((k) => cabWords(k, false, 0, true)), ex = lanes ? lanes.filter((f) => f.ex).map((f) => cabWords(f.cab, true, exCores(f), true)) : [];
+    const one = (pre, arr) => [W.prop ? pre : '', grp(arr)].filter(Boolean).join(' ');
+    return [nw.length ? { t: one('PROPOSED', nw), ex: false } : null, ex.length ? { t: one('EXISTING', ex), ex: true } : null].filter((x) => x && x.t);
   }
   function clampAuto(p, R, all) {
     const b = p.boq || {}, guys = String(b.guy || '').split(' + ').filter(Boolean), arm = String(b.arm || '');
@@ -3003,9 +3081,9 @@
     if (sp && sp.lanes && sp.lanes.length) { // v2.42.20: a span on fibers: the fibers on it, where each comes from and goes
       const all = fibers(), by = (R || routeModel()).fib.by;
       box.innerHTML = `<div class="rs-head"><b>Span ${hEsc(sp.from)} → ${hEsc(sp.to)} · ${fmtLen(sp.len)}</b><button class="btn sm" type="button" data-rs="close">Close</button></div>`
-        + `<p class="rb-hint">${sp.lanes.length} cable${sp.lanes.length === 1 ? '' : 's'} on this span. Tap one to light its whole way.</p>`
+        + `<p class="rb-hint">${sp.lanes.length} cable${sp.lanes.length === 1 ? '' : 's'} on this span.${fibSel != null && sp.lanes.some((f) => f.n === fibSel) ? ` RUN ${fibSel} is lit all along its way${sp.lanes.length > 1 ? '; tap another to light it' : ''}.` : ' Tap one to light its whole way.'}</p>`
         + sp.lanes.map((f) => { const i = f.path.indexOf(sp.ia), j = f.path.indexOf(sp.ib), fw = j === i + 1, nx = f.path[fw ? j + 1 : i + 1], sd = fibSide(f, all, by), a = fibEnd(f, 'from', by), z = fibEnd(f, 'to', by);
-          return `<button class="btn sm rs-fib" type="button" data-rs="fib" data-n="${f.n}"><i style="background:${fibColor(f)}"></i><span><b>RUN ${f.n}</b>${sd ? ` · ${sd}` : ''} · ${f.ex ? 'existing' : hEsc(CAB[f.cab] ? CAB[f.cab].short : 'cable not set')} · ${hEsc(a.ref || a.kind)} → ${hEsc(z.ref || z.kind)}${nx ? ` · then ${hEsc(fibName(nx))}` : ''}</span></button>`; }).join('')
+          return `<button class="btn sm rs-fib" type="button" data-rs="fib" data-n="${f.n}" aria-pressed="${fibSel === f.n}"><i style="background:${fibColor(f)}"></i><span><b>RUN ${f.n}</b>${sd ? ` · ${sd}` : ''} · ${f.ex ? 'existing' : hEsc(CAB[f.cab] ? CAB[f.cab].short : 'cable not set')} · ${hEsc(a.ref || a.kind)} → ${hEsc(z.ref || z.kind)}${nx ? ` · then ${hEsc(fibName(nx))}` : ''}</span></button>`; }).join('')
         + '<p class="rb-hint">Another cable on this span: Continue it in the list, and draw it along these poles.</p>';
       box.hidden = false; $('rbHint').hidden = true; return;
     }
@@ -5092,7 +5170,7 @@
       ed.siteKind = o.siteKind === 'OLT' ? 'OLT' : 'Tower'; // v2.37: a site is a tower or an OLT
     }
     // v2.42.17: a survey record in tabs (status, element, type and ID on top); PAT, cleanup and FAT records on one page as before
-    edLayout(!acc); edTab = 'details'; $('pinMapWrap').classList.remove('mini'); $('idAbc').setAttribute('aria-pressed', 'false'); $('idPfxMenu').hidden = true;
+    edLayout(!acc); edTab = 'details'; $('edQuick').hidden = true; /* v2.42.26 */ $('pinMapWrap').classList.remove('mini'); $('idAbc').setAttribute('aria-pressed', 'false'); $('idPfxMenu').hidden = true;
     $('editor').querySelector('.edbody').scrollTop = 0;
     $('svColorBox').hidden = acc; if (!acc) renderPinColors();
     $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : ed.mapPin ? `New ${({ Pole: 'proposed pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole' })[ed.element] || 'pin'} on the map` : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
@@ -5329,7 +5407,7 @@
     root.querySelectorAll('[data-lk]').forEach((el) => { el.disabled = false; delete el.dataset.lk; });
     const off = (el) => { if (el && !el.disabled) { el.disabled = true; el.dataset.lk = '1'; } };
     if (lock === 'closed') root.querySelectorAll('.edbody input, .edbody select, .edbody textarea, #snapGps').forEach(off);
-    if (lock === 'carried') ['poleId', 'elemSel', 'typeSel', 'odfSel', 'atMloop', 'atNap', 'atClosure', 'napId', 'closureId', 'snapGps', 'napTypeSel', 'napSzSel', 'napStSel', 'cloSzSel', 'cloStSel', 'napIdSug', 'nap2Add', 'nap2Del', 'nap2TypeSel', 'nap2SzSel', 'nap2StSel', 'nap2Id', 'nap2IdSug'].forEach((id) => off($(id)));
+    if (lock === 'carried') ['poleId', 'elemSel', 'typeSel', 'odfSel', 'atMloop', 'atNap', 'atClosure', 'atNoClo', 'napId', 'closureId', 'snapGps', 'napTypeSel', 'napSzSel', 'napStSel', 'cloSzSel', 'cloStSel', 'napIdSug', 'nap2Add', 'nap2Del', 'nap2TypeSel', 'nap2SzSel', 'nap2StSel', 'nap2Id', 'nap2IdSug'].forEach((id) => off($(id)));
     if (pinMap) { if (lock) pinMap.dragging.disable(); else pinMap.dragging.enable(); }
     const m = pmeta(), note = $('edLock');
     note.hidden = !lock;
@@ -5822,7 +5900,7 @@
       $('svStatusBox').hidden = !sts.length; sb.disabled = sts.length < 2;
       renderSvClosure(); // v2.42.17: a closure in a handhole, manhole or service box
       // v2.41: what is on the pole: the NAP and the hybrid closure (the maintenance loop is in the sizes)
-      $('poleAttach').hidden = el !== 'Pole'; $('atMloop').closest('.tchip').hidden = true; $('atNap').checked = !!ed.nap; $('atClosure').checked = !!ed.closure; markToggles(); renderAttach();
+      $('poleAttach').hidden = el !== 'Pole'; $('atMloop').closest('.tchip').hidden = true; $('atNap').checked = !!ed.nap; $('atClosure').checked = !!ed.closure; noCloSync(); markToggles(); renderAttach();
       renderBoq();
       $('edHint').textContent = el === 'Pole' && ed.status === 'Proposed' ? 'Drag the map to place the pin where the new pole goes' : `Drag the map to place the pin on the ${nm}`;
       renderBoxInfo(); renderEdSym(); // v2.37: the legend symbol beside the photo, and on the pin
@@ -5835,7 +5913,7 @@
     $('svDetailsBox').hidden = el !== 'Pole'; renderDetails(); // pole details: optional here too (v2.19)
     $('surveyTypeBox').hidden = el !== 'Pole'; $('nptBtn').hidden = el !== 'Pole';
     $('poleAttach').hidden = el !== 'Pole'; $('odfBox').hidden = el !== 'ODF'; $('atMloop').closest('.tchip').hidden = false;
-    $('atMloop').checked = ed.mloop; $('atNap').checked = ed.nap; $('atClosure').checked = ed.closure; markToggles();
+    $('atMloop').checked = ed.mloop; $('atNap').checked = ed.nap; $('atClosure').checked = ed.closure; noCloSync(); markToggles();
     renderAttach();
     $('odfSel').value = ed.odf || 'New';
     renderBoq();
@@ -5926,10 +6004,12 @@
         .bindTooltip(C.xmlEsc(recName(p) || p.poleId || ''), { permanent: true, direction: 'right', offset: [6, 0], className: 'pole-label oth', interactive: false }).addTo(pinOthers);
     }
   }
-  function markToggles() { ['atMloop', 'atNap', 'atClosure'].forEach((id) => $(id).closest('.tchip').classList.toggle('on', $(id).checked)); }
+  function markToggles() { ['atMloop', 'atNap', 'atClosure', 'atNoClo'].forEach((id) => $(id).closest('.tchip').classList.toggle('on', $(id).checked)); }
+  const noCloSync = () => { const b = (ed && ed.boq) || {}; $('atNoClo').checked = !!ed && !ed.closure && b.cloNo === 'Yes'; $('atNoClo').closest('.tchip').hidden = !ed || !!ed.acc || !boqOn(); }; // v2.42.26
+  $('atNoClo').addEventListener('change', (e) => { if (!ed.boq) ed.boq = {}; if (e.target.checked) { ed.boq.cloNo = 'Yes'; ed.closure = false; $('atClosure').checked = false; } else delete ed.boq.cloNo; ed.boqTouched = true; markToggles(); renderAttach(); renderBoq(); edRefreshSoon(); });
   $('atMloop').addEventListener('change', (e) => { ed.mloop = e.target.checked; markToggles(); });
   $('atNap').addEventListener('change', (e) => { ed.nap = e.target.checked; markToggles(); renderAttach(); if (!ed.acc) renderBoq(); /* v2.42.17: a dummy NAP has its loop */ if (ed.nap && !$('napId').value.trim() && !isDummy()) $('napId').focus(); });
-  $('atClosure').addEventListener('change', (e) => { ed.closure = e.target.checked; markToggles(); renderAttach(); renderBoq(); if (ed.closure) $('closureId').focus(); });
+  $('atClosure').addEventListener('change', (e) => { ed.closure = e.target.checked; if (ed.closure && ed.boq) { delete ed.boq.cloNo; $('atNoClo').checked = false; } markToggles(); renderAttach(); renderBoq(); if (ed.closure) $('closureId').focus(); });
   /* v2.41: the NAP and the hybrid closure are on the pole, like an arm (no NAP or closure element of their own any more): the NAP's
      kind (NAP, dummy NAP for the 12C light cable, LCP…), a dummy NAP's size, New or Existing; the closure's size (12C to 288C) and New or
      Existing; then their IDs. A NAP ID is typed (e.g. DVO_003_L913_N01); a dummy NAP's is offered: PLA ID_cable leg_number
@@ -5955,7 +6035,7 @@
   const edLoopDef = () => cabLoopLen(edLoopCab());
   /** v2.42.18: the open record's cable hardware (12C, telco arm) from the route; null for a point that is not a pole. */
   const edHw = () => (ed && !ed.acc && (ed.element || 'Pole') === 'Pole' ? hwOf(edLoopRec(), routeModel()) : null);
-  const attKeys = () => (ed && !ed.acc && (ed.element || 'Pole') === 'Pole' ? [...(ed.nap ? ['napType', 'napSz', 'napSt'] : []), ...(ed.nap && ed.nap2 ? ['nap2Type', 'nap2Sz', 'nap2St'] : []), ...(ed.closure ? ['clo', 'cloSt'] : [])] : []);
+  const attKeys = () => (ed && !ed.acc && (ed.element || 'Pole') === 'Pole' ? [...(ed.nap ? ['napType', 'napSz', 'napSt'] : []), ...(ed.nap && ed.nap2 ? ['nap2Type', 'nap2Sz', 'nap2St'] : []), ...(ed.closure ? ['clo', 'cloSt'] : ['cloNo'])] : []); // (v2.42.26: cloNo, the answer No closure)
   function renderAttach() {
     if (!ed) return; ed.boq = ed.boq || {}; edRefreshSoon(); // v2.42.17
     const pole = (ed.element || 'Pole') === 'Pole', on = !ed.acc && pole, b = ed.boq, ro = ed.lock === 'closed';
@@ -6091,27 +6171,28 @@
       if (k === 'mloop') { // v2.42.18: the loop and its length: 10, 12, 15 or 20 m (by default the cable's)
         const def = edLoopDef(), cab = edLoopCab(), cur = +ed.boq.mloopM || 0, asb = svPurpose() === 'As-built', cabNm = CAB[cab] ? CAB[cab].short : 'pole loop';
         let autoHere = false;
-        if (!own && !ed.boq.mloop && svPurpose() === 'As-plan') autoHere = autoLoops(projPoints().map((q) => (q.id === ed.id ? { ...q, boq: {} } : q)), routeModel()).has(ed.id);
+        if (!own && (!ed.boq.mloop || ed.boq.mloop === 'No') && svPurpose() === 'As-plan') autoHere = autoLoops(projPoints().map((q) => (q.id === ed.id ? { ...q, boq: {} } : q)), routeModel()).has(ed.id);
         ed.autoLoop = autoHere;
-        const has = !!own || loopYes(ed.boq) || autoHere, len = cur || def;
+        const has = !!own || loopYes(ed.boq) || (autoHere && ed.boq.mloop !== 'No'), len = cur || def;
         l.textContent = own ? `${BOQ_LABEL[k]} · WITH THE ${own === 'entrance' ? 'ENTRANCE' : own.toUpperCase()}` : asb ? `${BOQ_LABEL[k]} · REQUIRED` : autoHere ? `${BOQ_LABEL[k]} · ADDED BY THE APP` : BOQ_LABEL[k];
         if (asb && !own) row.classList.toggle('need', !ed.boq.mloop);
         LOOP_LENS.forEach((v) => {
           const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = `${v} m`; c.setAttribute('aria-pressed', String(has && len === v && ed.boq.mloop !== 'No')); c.disabled = ro;
           c.addEventListener('click', () => {
-            if (c.getAttribute('aria-pressed') === 'true' && !own && !autoHere) { delete ed.boq.mloop; delete ed.boq.mloopM; } // tapped again: no loop here
+            if (c.getAttribute('aria-pressed') === 'true' && !own && !(autoHere && !ed.boq.mloop)) { delete ed.boq.mloop; delete ed.boq.mloopM; } // tapped again: no loop here
             else { if (!own) ed.boq.mloop = 'Yes'; if (v === def) delete ed.boq.mloopM; else ed.boq.mloopM = String(v); }
             ed.boqTouched = true; renderBoq(); foldSum();
           });
           chips.appendChild(c);
         });
-        if (asb && !own) { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = 'No loop'; c.setAttribute('aria-pressed', String(ed.boq.mloop === 'No')); c.disabled = ro;
+        if (!own) { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = 'No loop'; /* (v2.42.26: in an As-Plan too) */ c.setAttribute('aria-pressed', String(ed.boq.mloop === 'No')); c.disabled = ro;
           c.addEventListener('click', () => { if (ed.boq.mloop === 'No') delete ed.boq.mloop; else { ed.boq.mloop = 'No'; delete ed.boq.mloopM; } ed.boqTouched = true; renderBoq(); foldSum(); }); chips.appendChild(c); }
         row.appendChild(chips);
         const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '4px 0 0';
         n.textContent = own ? `A pole with a${/^[aeiou]/i.test(own) ? 'n' : ''} ${own} has its own loop: counted in the BOQ, the quantities and the PMI, and drawn on the plan. ${def} m here by default (${cabNm}); tap another length if it is longer.`
+          : autoHere && ed.boq.mloop === 'No' ? `No loop marked here. The plan still puts one on this pole for the cable's spacing (${loopRule}), ${def} m (${cabNm}).`
           : autoHere ? `No loop set here: the plan puts one on this pole (${loopRule}), ${def} m (${cabNm}). Tap a length to set the loop yourself.`
-          : asb ? `Required in an As-Built: the loop's length, or No loop. ${def} m by default here (${cabNm}).` : `${def} m by default here (${cabNm}). Tap a length to put a loop on this pole; tap it again to take it away.`;
+          : asb ? `Required in an As-Built: the loop's length, or No loop. ${def} m by default here (${cabNm}).` : `${def} m by default here (${cabNm}). Tap a length to put a loop on this pole, or No loop.`;
         row.appendChild(n); rows.appendChild(row);
         if (hwNow && hwNow.items.length) rows.appendChild(hwRow(hwNow));
         return;
@@ -6136,6 +6217,11 @@
         ed.autoLoop = LA.has(ed.id);
         if (LA.has(ed.id)) { l.textContent = `${BOQ_LABEL[k]} · ADDED BY THE APP`; const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '4px 0 0'; n.textContent = 'No loop set here: the plan puts one on this pole (72C every 250–300 m, 12C every 450–500 m). Tap MLoop to set it yourself.'; setTimeout(() => row.appendChild(n), 0); }
       } else if (k === 'mloop') ed.autoLoop = false;
+      if (k === 'ground') { // v2.42.26: grounding answered Yes or No (tap the chosen one again to clear)
+        [['Yes', 'Grounding'], ['No', 'No grounding']].forEach(([v, t]) => { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = t; c.setAttribute('aria-pressed', String(ed.boq.ground === v)); c.disabled = ro;
+          c.addEventListener('click', () => { if (ed.boq.ground === v) delete ed.boq.ground; else ed.boq.ground = v; ed.boqTouched = true; renderBoq(); foldSum(); }); chips.appendChild(c); });
+        row.appendChild(chips); rows.appendChild(row); return;
+      }
       if (k === 'mloop' || k === 'ground' || k === 'riser') { // v2.29: one chip, on or off (v2.37: grounding and riser too)
         const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = k === 'mloop' ? `MLoop ${mloopLen()} m` : k === 'ground' ? 'Grounding' : 'Riser'; c.setAttribute('aria-pressed', String(k === 'mloop' ? loopYes(ed.boq) : !!ed.boq[k])); c.disabled = ro;
         c.addEventListener('click', () => { if (k === 'mloop' ? loopYes(ed.boq) : ed.boq[k]) delete ed.boq[k]; else ed.boq[k] = 'Yes'; ed.boqTouched = true; renderBoq(); foldSum(); });
@@ -6998,9 +7084,43 @@
     if (box) { box.scrollIntoView({ block: 'center', behavior: 'smooth' }); box.classList.remove('flash'); void box.offsetWidth; box.classList.add('flash'); setTimeout(() => box.classList.remove('flash'), 1400); }
     else if (body.scrollTop > top) body.scrollTop = top;
   }
-  /** The line of what is set, under the ID: a tap goes to it. */
+  /** v2.42.26: what a pole of an As-Plan or As-Built still needs an answer for (owner or new pole size, clamp size, loop, closure,
+      grounding): each a chip with * at the start of the line under the ID; a tap answers it there. */
+  function edNeeds() {
+    if (!ed || ed.acc || ed.lock === 'closed' || !edTabsOn() || !boqOn() || (ed.element || 'Pole') !== 'Pole') return [];
+    const keys = edBoqKeys(), b = ed.boq || {}, out = [], hw = keys.includes('clamp') && !b.clamp && !b.clampType ? edHw() || {} : {}; // (the route model only when it matters)
+    if (keys.includes('owner')) { if (!b.owner) out.push({ k: 'owner', t: 'Owner', tab: 'details' }); else if (keys.includes('ownerName') && isElecOwner(b.owner) && !b.ownerName) out.push({ k: 'ownerName', t: 'Owner name', tab: 'details' }); }
+    if (keys.includes('height') && !b.height) out.push({ k: 'height', t: 'Pole size', tab: 'details' });
+    if (keys.includes('clamp') && !b.clamp && !(!b.clampType && hw.noClamp)) out.push({ k: 'clamp', t: 'Clamp size', tab: 'acc' });
+    if (keys.includes('mloop') && !b.mloop && !edLoopOwn()) out.push({ k: 'mloop', t: 'Loop', tab: 'acc' });
+    if (!ed.closure && b.cloNo !== 'Yes') out.push({ k: 'clo', t: 'Closure', tab: 'onpole' }); else if (ed.closure && !b.clo) out.push({ k: 'cloSz', t: 'Closure size', tab: 'onpole' });
+    if (keys.includes('ground') && !b.ground) out.push({ k: 'ground', t: 'Grounding', tab: 'acc' });
+    return out;
+  }
+  /** v2.42.26: answer one of them right there: its choices in a small sheet over the form (Go to the field for more). */
+  function edQuick(k) {
+    const TABS = { owner: 'details', ownerName: 'details', height: 'details', clamp: 'acc', mloop: 'acc', clo: 'onpole', cloSz: 'onpole', ground: 'acc' };
+    const N = edNeeds().find((x) => x.k === k) || { k, t: k, tab: TABS[k] || 'details' }, b = ed.boq || (ed.boq = {}), box = $('edQuick');
+    const done = (msg) => { ed.boqTouched = true; box.hidden = true; markToggles(); renderAttach(); renderBoq(); foldSum(); renderEdTabs(); toast(msg, 1500); };
+    let title = N.t, opts = [];
+    if (k === 'owner') { title = 'Pole owner'; opts = boqOwners().map((v) => [v, () => { b.owner = v; if (!isElecOwner(v)) delete b.ownerName; done(`Owner: ${v}`); }]); }
+    else if (k === 'ownerName') { const used = [...new Set(projPoints().map((q) => String(((q.boq || {}).ownerName) || '').trim()).filter((v) => v && !COOPS.includes(v)))]; title = 'Owner name (the coop)'; opts = [...COOPS, ...used].slice(0, 12).map((v) => [v, () => { b.ownerName = v; done(`Owner name: ${v}`); }]); }
+    else if (k === 'height') { title = 'New Globe pole size'; opts = (boqList('height') || []).map((v) => [v, () => { b.height = v; done(`Pole size: ${v}`); }]); }
+    else if (k === 'clamp') { const all = boqList('clamp') || [], often = Object.entries(S.clampUse || {}).filter(([v, n]) => n > 0 && all.includes(v)).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([v]) => v);
+      opts = [...often, ...all.filter((v) => !often.includes(v))].map((v) => [v, () => { b.clamp = v; S.clampUse = { ...(S.clampUse || {}) }; S.clampUse[v] = (S.clampUse[v] || 0) + 1; persist(); done(`Clamp size: ${v}`); }]); }
+    else if (k === 'mloop') { title = 'Maintenance loop'; opts = [[`Yes · ${edLoopDef()} m`, () => { b.mloop = 'Yes'; delete b.mloopM; done('Loop: yes'); }], ['No loop', () => { b.mloop = 'No'; delete b.mloopM; done('Loop: no'); }]]; }
+    else if (k === 'clo') { title = 'Hybrid closure on this pole'; opts = [['Yes', () => { ed.closure = true; delete b.cloNo; ed.boqTouched = true; $('atClosure').checked = true; $('atNoClo').checked = false; markToggles(); renderAttach(); renderBoq(); foldSum(); renderEdTabs(); edQuick('cloSz'); }], ['No closure', () => { ed.closure = false; b.cloNo = 'Yes'; $('atClosure').checked = false; $('atNoClo').checked = true; done('Closure: none'); }]]; }
+    else if (k === 'cloSz') { title = 'Closure size'; opts = (boqList('clo') || BOQ_OPT.clo).map((v) => [v, () => { b.clo = v; delete b.cloAuto; done(`Closure: ${v}`); }]); }
+    else if (k === 'ground') { title = 'Grounding'; opts = [['Grounding', () => { b.ground = 'Yes'; done('Grounding: yes'); }], ['No grounding', () => { b.ground = 'No'; done('Grounding: none'); }]]; }
+    box.innerHTML = `<div class="in" role="dialog" aria-label="${hEsc(title)}"><b>${hEsc(title)}</b><div class="opts"></div><div class="row"><button type="button" class="btn sm" data-q="go">Go to the field</button><button type="button" class="btn sm" data-q="x">Cancel</button></div></div>`;
+    const op = box.querySelector('.opts'); opts.forEach(([t, fn]) => { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip'; c.textContent = t; c.addEventListener('click', fn); op.appendChild(c); });
+    box.onclick = (e) => { if (e.target === box || (e.target.dataset && e.target.dataset.q === 'x')) { box.hidden = true; return; } if (e.target.dataset && e.target.dataset.q === 'go') { box.hidden = true; if (k === 'clo') goEdTab(N.tab); else goEdTab(N.tab, k === 'cloSz' ? 'clo' : k); } };
+    box.hidden = false;
+  }
+  /** The line of what is set, under the ID: a tap goes to it. v2.42.26: first what still needs an answer (with *), a tap answers it. */
   function renderEdSum() {
     const box = $('edSum'); box.innerHTML = ''; if (!edTabsOn()) return;
+    edNeeds().forEach((x) => { const c = document.createElement('button'); c.type = 'button'; c.className = 'need'; c.textContent = `${x.t} *`; c.title = `${x.t}: no answer yet. Tap to answer it`; c.setAttribute('aria-label', `${x.t}: no answer yet`); c.addEventListener('click', () => setTimeout(() => edQuick(x.k), 0)); box.appendChild(c); });
     const el = ed.element || 'Pole', keys = edBoqKeys(), b = boqPick(ed.boq, keys.concat(attKeys())), items = [];
     if (el === 'Pole') {
       if (b.height || b.cls) items.push(['details', 'height', `New pole ${[b.height, b.cls].filter(Boolean).join(' ')}`]); else if (b.owner) items.push(['details', 'owner', b.owner]);
@@ -7009,9 +7129,9 @@
       if (b.arm) items.push(['acc', 'arm', b.arm]); if (b.guy) items.push(['acc', 'guy', b.guy]);
       if (keys.includes('mloop') && edLoopOwn()) items.push(['acc', 'mloop', `MLoop ${+b.mloopM || edLoopDef()} m (${edLoopOwn()})`]);
       else if (keys.includes('mloop')) { if (loopYes(b)) items.push(['acc', 'mloop', `MLoop ${+b.mloopM || edLoopDef()} m`]); else if (b.mloop === 'No') items.push(['acc', 'mloop', 'No loop']); else if (ed.autoLoop) items.push(['acc', 'mloop', 'MLoop (by the app)']); }
-      if (b.ground) items.push(['acc', 'ground', 'Grounding']);
+      if (groundYes(b)) items.push(['acc', 'ground', 'Grounding']); else if (b.ground === 'No') items.push(['acc', 'ground', 'No grounding']); // (v2.42.26)
       if (ed.nap) items.push(['onpole', 'nap', [b.napType || 'NAP', ed.nap2 ? b.nap2Type || '2nd box' : ''].filter(Boolean).join(' + ')]);
-      if (ed.closure) items.push(['onpole', 'clo', `Closure ${b.clo || ''}`.trim()]);
+      if (ed.closure) items.push(['onpole', 'clo', `Closure ${b.clo || ''}`.trim()]); else if ((ed.boq || {}).cloNo === 'Yes') items.push(['onpole', 'clo', 'No closure']); // (v2.42.26)
       if (b.riser) items.push(['ug', 'riser', 'Riser']);
     } else {
       if (el === 'ODF' && (b.odf || b.conn)) items.push(['details', 'odf', `${ed.odf || 'New'} ODF ${[b.odf, b.conn].filter(Boolean).join(' ')}`]);
@@ -9159,7 +9279,7 @@
         mloopL: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.len) : null, mloopR: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.n) : null, /* v2.42.25: each loop's cable (RUN) */ /* v2.42.20: a loop for each fiber there */ /* v2.42.17: + a closure's, a dummy NAP's, a riser's; v2.42.18: every NAP, LCP, pin; its own length */ nap: !!p.nap, napId: p.napId || '', nap2: el === 'Pole' && !!p.nap2, nap2Id: el === 'Pole' && p.nap2 ? p.nap2Id || '' : '', nap2Type: el === 'Pole' && p.nap2 ? b.nap2Type || '' : '', nap2Old: el === 'Pole' && !!p.nap2 && b.nap2St === 'Existing', closure: el === 'Pole' && !!p.closure, /* v2.42.17: (a box's closure is not drawn) */ closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
         adjusted: !!p.adjusted, color: p.color || '', // v2.36: a pin set by hand stays where it is on the drawing; a map pin's colour
         // v2.37: the NAP's kind, a double LCP, the site's kind, grounding, a riser, the pole a pole-to-pole guy goes to
-        napType: el === 'NAP' || (el === 'Pole' && (p.nap || p.napId)) ? b.napType || '' : '', napOld: el === 'Pole' && b.napSt === 'Existing', closureOld: el === 'Pole' && b.cloSt === 'Existing', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', ground: !!b.ground, riser: !!b.riser, p2pTo: b.p2p || null,
+        napType: el === 'NAP' || (el === 'Pole' && (p.nap || p.napId)) ? b.napType || '' : '', napOld: el === 'Pole' && b.napSt === 'Existing', closureOld: el === 'Pole' && b.cloSt === 'Existing', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', odfSz: el === 'ODF' ? b.odf || '' : '', odfConn: el === 'ODF' ? b.conn || '' : '', /* v2.42.26 */ ground: groundYes(b), riser: !!b.riser, p2pTo: b.p2p || null,
         clampType: el === 'Pole' && showCT ? clampOf(p, R, pts).join('+') : '', clampAuto: el === 'Pole' && !b.clampType, hw: el === 'Pole' && showCT && PLS.clamp.hw ? hwShort(p, R) : '', /* v2.42.21: a 12C-only pole's hardware */
         ownerName: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && !/^globe$/i.test(ownerNameOf(p)) ? ownerNameOf(p).toUpperCase() : '' }; }); // v2.42.18: the owner's name beside an existing pole // v2.39: the pole's clamps (picked by the plan when left blank); v2.40: or the size only
     const spans = R.spans.map((s) => { const o = { ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long, more: (s.runs || []).slice(1), cabLbl: PLS.cab.on ? cabLabelOf(s, PLS.cab.word) : null, runLbls: s.lanes && s.lanes.some((f) => !f.ex) ? null : (s.runs || [s.cable]).map((k, i, all) => runLbl((cabLabelOf({ runs: [k] }, 'a')[0] || {}).t || '', all.length > 1 ? i + 1 : 0)) }; // (v2.42.23: each run's own label) // v2.42.18: + the other runs; v2.42.21: its cable label
@@ -9278,7 +9398,7 @@
       busy(many ? `Drawing the plan on the template (${k + 1} of ${SETS.length})…` : 'Drawing the plan on the template…', k / SETS.length);
       await sleep(30);
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
-      const out = window.GeDxfTpl.build(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? PLS.clamp : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
+      const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? PLS.clamp : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
         numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
@@ -13722,7 +13842,7 @@
     mapPt: (lat, lon) => { const p = map.latLngToContainerPoint([lat, lon]), r = $('map').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; }, mapView: (lat, lon, z) => map.setView([lat, lon], z, { animate: false }), siteReq: () => siteReq(), adminOk: (e) => adminUserOk(e), jobsOf: (e) => jobsOf(e), shareProject: (n) => shareProject(n || S.project), apprText: () => apprText(), readApproval: (t, n) => readApproval(t, n || S.project),
     /* v2.42.19 */ boxMarks: () => (boxer ? boxer.marks.map((m) => ({ k: m.k, pts: m.pts ? m.pts.map(([x, y]) => [Math.round(x), Math.round(y)]) : null, raw: !!m.raw })) : null), boxSel: () => (boxer ? boxer.sel : null), pinOwn: () => pinOwnLines.map(({ pl, o }) => ({ to: o.id, ll: pl.getLatLngs().map((q) => [q.lat, q.lng]) })), pinCenter: () => { const c = pinMap.getCenter(); return [c.lat, c.lng]; },
     /* v2.42.21 */ routeTools: (on, pairs) => { rtTools = !!on; rtPairs = !!pairs; $('rbPairs').checked = rtPairs; if (rtPairs) rtFinish(true); routeRefresh(); const pts = projPoints(); if (on && pts.length > 1) map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 110], paddingBottomRight: [40, Math.round(($('routeBar').getBoundingClientRect().height || 240) + 30)], maxZoom: 19, animate: false }); }, /* (Route tools open, linking by pairs: the route bar as before v2.42.21, for the earlier versions' tests) */ rtState: () => ({ fibAdd, fibAt, fibTouched, fibStartAt, fibNew, rtTools, rtPairs, pend: rtPend.map((q) => (points.find((p) => p.id === q.id) || {}).poleId), pop: rtPop, snap: snapPref(), snapM: snapM(), routeSel, pen: rtPenOn(), conf: rtConf && { id: rtConf.id, kind: rtConf.kind }, dragging: map.dragging.enabled(), draft: !!rtDraft, zoom: map.getZoom() }), /* v2.42.22 */ routePen: (on) => rtSetPen(!!on), routeTipDone: () => { S.routeTip = true; persist(); rtHint(''); }, snapSeq: (id, ll, su) => snapSeq(id, ll, su),
-    /* v2.42.20 */ routeTap: (id) => routeTap(id), capLinks: () => capLinks(), /* v2.42.24 */ fibers: () => fibers(), setFibers: (F) => { setRoute(null, F); renderPoles(); }, fibState: () => ({ fibSel, fibAdd }),
+    /* v2.42.20 */ routeTap: (id) => routeTap(id), capLinks: () => capLinks(), /* v2.42.24 */ fibers: () => fibers(), setFibers: (F) => { setRoute(null, F); renderPoles(); }, fibState: () => ({ fibSel, fibAdd }), /* v2.42.26 */ edNeeds: () => edNeeds().map((x) => x.k), drwRuns: () => { if (!drw || !drw.hitL) return []; const cv = $('drawCanvas'), r = cv.getBoundingClientRect(), k = r.width / (cv.width || 1); return drw.hitL.map(({ n, lines }) => ({ n, lines: lines.map((L) => L.map(([x, y]) => [r.left + x * k, r.top + y * k])) })); }, drwSelRun: () => (drw ? drw.selRun : null),
     fibModel: () => { const R = routeModel(); return { list: R.fib ? R.fib.list.map((f) => ({ n: f.n, len: f.len, spans: f.spans, gaps: f.gaps, ex: !!f.ex, path: f.path, side: fibSide(f, fibers(), R.fib.by), from: fibEnd(f, 'from', R.fib.by), to: fibEnd(f, 'to', R.fib.by) })) : [], cableTotal: R.cableTotal, total: R.total, spans: R.spans.map((s) => ({ ia: s.ia, ib: s.ib, from: s.from, to: s.to, lanes: s.lanes.map((f) => f.n), fibers: s.fibers.map((f) => f.n), runs: s.runs, cable: s.cable })) }; },
     fibLoops: () => { const LA = autoLoops(projPoints(), routeModel()); return LA.fib ? { n: LA.fib.n, nAuto: LA.fib.nAuto, list: [...LA.fib.list.entries()].map(([id, E]) => [(points.find((p) => p.id === id) || {}).poleId, E.map((e) => [e.n, e.cab, e.len, e.why])]) } : null; },
     fibHw: (pid) => { const p = points.find((x) => x.poleId === pid); return p ? hwOf(p, routeModel()) : null; },
