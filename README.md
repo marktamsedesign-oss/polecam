@@ -536,6 +536,15 @@ Merges the photo-save fixes reviewed from the v2.2.1 “Astra” build into v2.3
 - Export settings: **Reset to defaults** button. Camera button centred by default.
 - Needs the v2.10 `PoleCam-online-sheet.gs` (company keys, and the sheet answers whether keys are used), `makeCompanyKeys` run once, and org.json downloaded again from Manage.
 
+## What changed in v2.42.28
+
+Open a project from the Projects pane, and a cleaner plan export: set what goes on each drawing on the Drawing, the settings in one place, and a short Export. No update of the online sheet is needed; the plan DXF itself is made as before.
+
+- **What to export** (the Drawing: the bar under the plan; on a computer it sits open beside the plan): a table with a row for every point, each pole owner (the electric coop's poles by name, Globe, PLDT, Converge…), each kind of other point (ODC, ODF, sites, handholes…), and a column for Photo, Number and Both. **Each tick is one drawing**: one DXF in the ZIP, and one PDF with *Also a PDF to print*. PLDT · Photo and PLDT · Number make two drawings of PLDT's poles; the poles not in a drawing's row get nothing on it. **+ Several on one drawing** puts owners together on one drawing. The plan shows the drawing ticked last; ‹ › at the top of the plan go through them. **Numbers** under the table: one count for the whole project or each owner from 1 (one RTA list per owner, the same as the *no* column of Table · CSV); the first Number ticked for an owner in a project asks once.
+- **Plan settings** (the sliders at the top of the Drawing; Plan settings on the DXF card): Drawing style, Clamp types on the plan (the CA button of the Drawing's bar before), Pole numbers, Loops in the cable lengths (PMI), Template and logo, Kind of DXF (company template or simple) and its options. Before, they were on the DXF card, the Drawing's bar and the Drawing style screen.
+- **Export** on the Drawing opens **Export the plan**: the project and its template, the drawings it makes, the names on the sheet in one line (Change opens the four fields), Also a PDF to print, and one button. After the export it lists the ZIP's files in plain words. On a computer it opens beside the plan; Esc closes it. The Export screen (bottom bar) keeps every format; its DXF card is the same short card.
+- **The Projects pane** (a computer): **Open** beside a project works on it at once, as Projects at the top does; the project you leave stays on the map, faded. ⋯ starts with Open this project. A click on another project's pole shows its ID and project with **Open this project**: the map stays there and the pole is ringed. While a cable is drawn, Open waits until Done.
+
 ## What changed in v2.42.27
 
 A steadier pole form on the iPhone, a found pole that stays marked on the map, the arm square to the cable at street corners, and on a computer: keys, Esc and a Projects pane. No update of the online sheet needed.

@@ -696,6 +696,12 @@
     closeSheet();
   }));
   function onSheetClosed(id) {
+    if (id === 'drwStyle' && stack.includes('planSet')) renderPlanSet(); // v2.42.28: the clamp types may have changed there
+    if (id === 'export' || id === 'planSet') { // v2.42.28
+      $(id).classList.remove('side'); if (id === 'export') $('export').classList.remove('plan');
+      if (!['export', 'planSet'].some((k) => stack.includes(k) && $(k).classList.contains('side'))) document.body.classList.remove('drwside');
+      if (stack.includes('drawing') && drw) { renderDrawBar(); drawSeqSoon(); drawDrawing(); renderDrawLegend(); }
+    }
     if (id !== 'editor' && ed) scheduleDraft(); // back on the record from the camera, the marks or a photo: kept safe (v2.21)
     if (id === 'camera') stopCamera();
     if (id === 'editor') { cleanupEditor(); }
@@ -752,7 +758,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.27';
+  const APP_VER = '2.42.28';
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
   const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
@@ -1563,9 +1569,9 @@
     $('drawTitle').textContent = `Drawing · ${S.project}`;
     $('drawHint').textContent = `Preview of the DXF (UTM ${z}N metres): ${pts.filter((p) => elemOf(p) === 'Pole').length} poles, ${R.spans.length} spans, ${fmtLen(R.total)}. Drag to pan, pinch or scroll to zoom, tap a point. Zoom in for the numbers or photos and, under each pole, what the plan draws on it: ARM, NAP, LOOP, CL (closure), G (guys), GR (grounding), R (riser).`;
     $('drawHint').hidden = !!S.drawHintOff; $('drawInfoBtn').setAttribute('aria-pressed', String(!S.drawHintOff));
-    $('drawInfo').hidden = true; $('drawLabels').setAttribute('aria-pressed', 'true'); $('drawMapMenu').hidden = true; $('drawTypesBox').open = false;
+    $('drawInfo').hidden = true; $('drawLabels').setAttribute('aria-pressed', 'true'); $('drawMapMenu').hidden = true;
     $('drawLegend').open = S.drawLegendOpen != null ? S.drawLegendOpen !== false : window.innerWidth > 700; // folded on a phone until opened
-    renderDrawMap(); renderDrawBar(); renderDrawLegend();
+    renderDrawMap(); setWhat(deskOn() && S.drwWhatDesk !== false, false); renderDrawBar(); renderDrawLegend(); // v2.42.28: What to export
     try { renderCredit(); } catch (e) { /* not ready */ } // v2.42.7: the balance at the upper right
     if (!again) openSheet('drawing');
     requestAnimationFrame(() => { sizeDrawing(); fitDrawing(); drawDrawing(); drawSeqSoon(); });
@@ -1579,6 +1585,7 @@
     if (window.GeDxfTpl && window.GeDxfTpl.markOrder) go(); else loadScript('dxftpl.js').then(go).catch((e) => LOG.warn('draw.seq', errInfo(e)));
   }
   function sizeDrawing() { const cv = $('drawCanvas'), r = $('drawWrap').getBoundingClientRect(), d = window.devicePixelRatio || 1; cv.width = Math.max(1, Math.round(r.width * d)); cv.height = Math.max(1, Math.round(r.height * d)); }
+  if ('ResizeObserver' in window) { let rq = 0; new ResizeObserver(() => { cancelAnimationFrame(rq); rq = requestAnimationFrame(() => { if (drw && drw.view && !$('drawing').hidden) { sizeDrawing(); drawDrawing(); } }); }).observe($('drawWrap')); } // v2.42.28
   function fitDrawing() {
     if (!drw) return;
     const xs = drw.items.map((i) => i.xy[0]), ys = drw.items.map((i) => i.xy[1]), cv = $('drawCanvas');
@@ -1890,7 +1897,7 @@
   (() => { // pan, pinch, wheel and tap on the drawing
     const cv = $('drawCanvas'), d = () => window.devicePixelRatio || 1;
     let last = null, moved = 0, pinch = null;
-    cv.addEventListener('pointerdown', (e) => { if (!drw) return; $('drawMapMenu').hidden = true; $('drawMap').setAttribute('aria-expanded', 'false'); $('drawTypesBox').open = false; cv.setPointerCapture(e.pointerId); drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; moved = 0;
+    cv.addEventListener('pointerdown', (e) => { if (!drw) return; $('drawMapMenu').hidden = true; $('drawMap').setAttribute('aria-expanded', 'false'); cv.setPointerCapture(e.pointerId); drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; moved = 0;
       if (drw.ptrs.size === 2) { const [a, b] = [...drw.ptrs.values()]; pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), sc: drw.view.sc }; } });
     cv.addEventListener('pointermove', (e) => {
       if (!drw || !drw.ptrs.has(e.pointerId)) return; drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]);
@@ -1997,34 +2004,31 @@
     await Promise.all(Array.from({ length: Math.min(6, jobs.length) }, worker));
     return ok ? { canvas: cv, z, x0: tx0 * 256, y0: ty0 * 256 } : null;
   }
-  /** v2.41: the plan's options at the bottom of the Drawing: photos, numbers or both; clamp types; which points (a dropdown). */
+  /* v2.42.28: under the plan, What to export (the drawings of the plan export, in one line) and Export; on the plan, the drawing
+     shown (‹ › go through them). The table: mxRender. Clamp types, pole numbers, the template… are in Plan settings (the sliders at the
+     top). Before: Photos ▾, CA, All points ▾ and the drawing picker on the bar, the drawings on the DXF card. */
   function renderDrawBar() {
-    const R0 = dxfRows(), r0 = curRow(), rs = $('drawRow'); // v2.42.14: which drawing of the export is shown (and edited here)
-    rs.hidden = R0.length < 2; rs.innerHTML = R0.map((r, i) => `<option value="${i}" title="${C.xmlEsc(rowText(r))}">Drawing ${i + 1} of ${R0.length}</option>`).join(''); rs.value = String(rowIdx()); rs.title = rowText(r0);
-    $('drawMarks').value = r0.mode;
-    $('drawCT').setAttribute('aria-pressed', String(S.exp.dxfClampType !== false));
-    const { cnt, keys } = markGroups(), no = rowSel(r0, projPoints()).no, box = $('drawTypes'); box.innerHTML = '';
-    const on = keys.filter((k) => !no.has(k)), all = document.createElement('label'); all.className = 'all';
-    all.innerHTML = `<input type="checkbox" value="__all"><span>All points</span><span class="cnt">${keys.reduce((t, k) => t + cnt.get(k), 0)}</span>`; all.querySelector('input').checked = on.length === keys.length; box.appendChild(all);
-    let grp = '';
-    keys.forEach((k) => {
-      const g0 = k.startsWith('el:') ? 'Other points' : 'Poles'; if (g0 !== grp) { grp = g0; const h = document.createElement('span'); h.className = 'grp'; h.textContent = g0; box.appendChild(h); }
-      const l = document.createElement('label'), cb = document.createElement('input'), t = document.createElement('span'), c = document.createElement('span');
-      cb.type = 'checkbox'; cb.value = k; cb.checked = !no.has(k); t.textContent = markName(k); c.className = 'cnt'; c.textContent = String(cnt.get(k)); l.append(cb, t, c); box.appendChild(l);
-    });
-    $('drawTypesSum').textContent = !keys.length ? 'No points' : on.length === keys.length ? 'All points' : !on.length ? 'No numbers or photos' : `Only ${on.map(markShort).join(' + ')}`;
-    $('drawTypesSum').title = $('drawTypesSum').textContent;
+    const R0 = dxfRows(), i = rowIdx(), many = R0.length > 1;
+    $('drawWhatV').textContent = `${R0.length} drawing${many ? 's' : ''}: ${R0.slice(0, 2).map(rowShort).join(', ')}${R0.length > 2 ? ` +${R0.length - 2}` : ''}`;
+    $('drawPv').hidden = false; $('drawPv').title = rowText(R0[i]);
+    $('drawPvT').innerHTML = `${many ? `<b>${i + 1}/${R0.length}</b>` : ''}${C.xmlEsc(rowShort(R0[i]))}`;
+    $('drawPvPrev').hidden = !many; $('drawPvNext').hidden = !many;
+    if (!$('drawWhatBox').hidden) mxRender();
   }
-  $('drawTypes').addEventListener('change', (e) => {
-    const cb = e.target; if (!cb || cb.type !== 'checkbox') return;
-    const { keys } = markGroups(), R = dxfRows(), r = R[rowIdx()], extra = r.pts.filter((k) => k !== '*' && !keys.includes(k)); // (groups not in this project stay chosen)
-    const on = new Set(r.pts.includes('*') ? keys : r.pts.filter((k) => keys.includes(k)));
-    if (cb.value === '__all') { if (cb.checked) keys.forEach((k) => on.add(k)); else on.clear(); } else if (cb.checked) on.add(cb.value); else on.delete(cb.value);
-    r.pts = keys.length && on.size === keys.length && !extra.length ? ['*'] : [...on, ...extra]; setRows(R); renderDrawBar(); drawSeqSoon();
-  });
-  $('drawMarks').addEventListener('change', () => { const R = dxfRows(); R[rowIdx()].mode = $('drawMarks').value; setRows(R); renderDrawBar(); drawDrawing(); renderDrawLegend(); });
-  $('drawRow').addEventListener('change', () => { S.exp.dxfRowSel = +$('drawRow').value || 0; persist(); renderDrawBar(); drawSeqSoon(); drawDrawing(); renderDrawLegend(); }); // v2.42.14
-  $('drawCT').addEventListener('click', () => { S.exp.dxfClampType = S.exp.dxfClampType === false; persist(); renderDrawBar(); syncExpUi(); drawDrawing(); toast(S.exp.dxfClampType ? 'Clamp types on the plan (e.g. CA 8-10)' : 'Clamp sizes only on the plan: the types stay in the BOQ, KMZ and CSV', 3000); });
+  function drawRowGo(i) { S.exp.dxfRowSel = i; persist(); renderDrawBar(); if (drw) { drawSeqSoon(); drawDrawing(); renderDrawLegend(); } }
+  $('drawPvPrev').addEventListener('click', () => { const n = dxfRows().length; drawRowGo((rowIdx() - 1 + n) % n); });
+  $('drawPvNext').addEventListener('click', () => { const n = dxfRows().length; drawRowGo((rowIdx() + 1) % n); });
+  /** What to export: from the bar on a phone (over the lower part of the plan); beside the plan on a computer (open unless closed
+      there: kept). keep: remember it (a computer). */
+  function setWhat(on, keep) {
+    $('drawWhatBox').hidden = !on; $('drawWhat').setAttribute('aria-expanded', String(!!on));
+    $('drawing').classList.toggle('whaton', !!on && deskOn());
+    if (keep && deskOn()) { S.drwWhatDesk = !!on; persist(); }
+    if (on) { mxHome(false); mxRender(); }
+  }
+  $('drawWhat').addEventListener('click', () => setWhat($('drawWhatBox').hidden, true));
+  $('mxClose').addEventListener('click', () => setWhat(false, true));
+  $('mxGo').addEventListener('click', () => openPlanExport());
   /** v2.41: the legend of the preview (only what this project has). */
   function renderDrawLegend() {
     const pts = drw ? drw.items : [], has = (f) => pts.some(f), rows = [];
@@ -2049,8 +2053,8 @@
     T.forEach(([t, c, n]) => { if (present.has(t)) rows.push([tag(t, c), n]); });
     $('drawLegendBody').innerHTML = rows.map(([i, t]) => `${i}<span>${C.xmlEsc(t)}</span>`).join('');
   }
-  $('drawDxf').addEventListener('click', () => { exportPick = 'doDxf'; closeSheet().then(() => $('exportBtn').click()); });
-  $('drawStyleBtn').addEventListener('click', () => openStyle());
+  $('drawDxf').addEventListener('click', () => openPlanExport()); // v2.42.28: Export the plan, over the Drawing (beside it on a computer)
+  $('drawSetBtn').addEventListener('click', () => openPlanSet()); // v2.42.28: Plan settings (Drawing style is in it)
   /* v2.41: the drawing style, the user's preference (on this phone): the numbers beside the points (colour, circle colour, height,
      circle, distance, leader line, where), the IDs of the points on the cable (bold, colour, height) and the vicinity map (circle and
      route colour and width). Defaults: the numbers yellow, 3 m high in a 7 m circle, 2 m from the point with a leader line, at the
@@ -3131,6 +3135,7 @@
       else { const m = (S.meta || {})[routeProj]; if (m && Array.isArray(m.fibers) && m.fibers.some((f) => f && f.n === fibAdd && !(Array.isArray(f.path) && f.path.length > 1))) { S.meta[routeProj] = { ...m, fibers: m.fibers.filter((f) => !(f && f.n === fibAdd && !(Array.isArray(f.path) && f.path.length > 1))) }; persist(); } }
     }
     routeMode = on; routeSel = null; spanSel = null; routeUndo = []; routeProj = on ? S.project : null; fibSel = null; fibAdd = null; // (v2.42.20)
+    if (deskOn() && ppState().open) ppRows(); // v2.42.28: Open waits while a cable is drawn
     fibAt = 'end'; fibTouched = false; fibStartAt = null; fibNew = false; rtTools = false; rtPairs = false; rtPend = []; rtPop = null; rtAsked = new Set(); rtDraft = null; rtDraftLayer.clearLayers(); rtMarkLayer.clearLayers(); $('rbPairs').checked = false; // v2.42.21
     rtConf = null; rtPress = null; rtMpan = null; rtPtrs.clear(); rtMulti = false; rtSnap0 = null; rtSheet = null; rtDelArm = null; map.getContainer().classList.remove('rt-panning'); // v2.42.22
     $('routeBar').hidden = true; $('rtBar').hidden = !on; $('rtPop').hidden = true; rtHint(''); $('routeBtn').setAttribute('aria-pressed', String(on)); $('routeFitBtn').hidden = !on; if (on) renderCableSel();
@@ -7778,9 +7783,9 @@
     renderPoles(); drawAreas(); renderProjects();
     toast(`Deleted "${name}"`);
   }
-  function openTask(name) {
+  function openTask(name, o) {
     if (!name || name === S.project) return;
-    S.project = name; persist(); renderPoles(); fitProject(); $('curMore').open = false; renderProjects();
+    S.project = name; persist(); renderPoles(); if (!(o && o.keepView)) fitProject(); $('curMore').open = false; renderProjects(); // v2.42.28: keepView (Open from another project's pole)
     const body = $('projects').querySelector('.body'); if (body) body.scrollTop = 0;
     toast(`Now working on: ${name}`);
   }
@@ -8309,8 +8314,9 @@
     S.meta = S.meta || {}; const m = { ...pmeta(project || S.project) }; m.exports = { ...(m.exports || {}), [kind]: new Date().toISOString() }; S.meta[project || S.project] = m; persist();
   }
   let xCollect = null; // v2.28: while exporting several formats at once, the files are gathered here
+  let resultInside = null; // v2.42.28: the plan's files in plain words, shown with the result
   function offerResult(blob, name) {
-    if (xCollect) { xCollect.push({ blob, name }); const kind0 = /_completion_report\.pdf$/i.test(name) ? 'completion' : /_BACKUP\.zip$/i.test(name) ? 'backup' : /_DXF_photos\.zip$/i.test(name) ? 'dxf' : (name.split('.').pop() || '').toLowerCase(); noteExport(kind0); return; }
+    if (xCollect) { resultInside = null; xCollect.push({ blob, name }); const kind0 = /_completion_report\.pdf$/i.test(name) ? 'completion' : /_BACKUP\.zip$/i.test(name) ? 'backup' : /_DXF_photos\.zip$/i.test(name) ? 'dxf' : (name.split('.').pop() || '').toLowerCase(); noteExport(kind0); return; }
     lastResult = { blob, name };
     LOG.info('export.ready', { kind: (name.split('.').pop() || '').toLowerCase(), mb: +(blob.size / 1048576).toFixed(2) });
     const kind = /_BACKUP\.zip$/i.test(name) ? 'backup' : /_PAT_for_FAT_/i.test(name) ? 'sent' : /_completion_report\.pdf$/i.test(name) ? 'completion' : /_DXF_photos\.zip$/i.test(name) ? 'dxf' : (name.split('.').pop() || '').toLowerCase();
@@ -8318,6 +8324,7 @@
     $('resultName').textContent = `${name} · ${(blob.size / 1048576).toFixed(2)} MB`;
     $('resultCredit').textContent = creditNote; $('resultCredit').hidden = !creditNote; creditNote = ''; // v2.42.7: what this export used
     $('resultBox').hidden = false;
+    { const ins = resultInside; resultInside = null; $('resultInside').hidden = !ins; $('resultInside').innerHTML = ins ? ins.map(([ic, n, t]) => `<div><span class="ic">${ic}</span><span><b>${C.xmlEsc(n)}</b><small>${C.xmlEsc(t)}</small></span></div>`).join('') : ''; }
     $('resSave').textContent = NATIVE ? 'Save to Documents' : 'Save to phone';
     $('resShare').hidden = false; // v2.30: always offered; a browser that cannot share this kind of file says what to do instead
     $('resultBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -8386,6 +8393,7 @@
     } else toast(`No file was made${failed.length ? `: ${failed.join(', ')}` : ''}`, 6000); }
   });
   $('exportBtn').addEventListener('click', () => {
+    const pl0 = planExport; planExport = false; // v2.42.28: Export the plan (from the Drawing)
     const n = projPoints().length, acc = isAcc();
     $('exportScope').textContent = acc ? `Acceptance ${pmeta().stage || 'PAT'} “${S.project}” · ${n} element${n === 1 ? '' : 's'}` : `Project “${S.project}” · ${n} pole${n === 1 ? '' : 's'}`;
     $('accExports').hidden = !acc; $('surveyExports').hidden = acc; $('namingRow').hidden = acc; // acceptance photos are named after the form items
@@ -8394,7 +8402,11 @@
     if (acc && stg !== 'FAT') { $('xShareLbl').textContent = stg === 'Cleanup' ? 'Share cleanup KMZ' : 'Share PAT KMZ'; $('xShareFor').textContent = stg === 'Cleanup' ? 'for the FAT' : 'for defect cleanup / FAT'; renderShareWarn('xShareWarn'); }
     $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`; syncExpUi();
     showExport(exportPick); exportPick = null; renderCredit(); creditNote = ''; // v2.42.6 (v2.42.7: a new export, no old note)
-    $('resultBox').hidden = true; openSheet('export');
+    const pl = pl0 && !acc; // v2.42.28: Export the plan (from the Drawing): the DXF card only
+    $('export').classList.toggle('plan', pl); $('export').classList.toggle('side', pl && deskOn() && stack.includes('drawing')); if ($('export').classList.contains('side')) document.body.classList.add('drwside');
+    $('exportTitle').textContent = pl ? 'Export the plan' : 'Export';
+    $('sigEdit').hidden = true; $('sigChange').textContent = 'Change'; $('sigChange').setAttribute('aria-expanded', 'false');
+    $('resultBox').hidden = true; $('resultInside').hidden = true; openSheet('export');
   });
   function needPoints() { const pts = projPoints(); if (!pts.length) { toast('Nothing captured in this project yet'); return null; } return pts; }
   /** v2.42.4: each record's photo file name as the Photos export names it (by the naming setting, numbered when the same), '' without a photo. */
@@ -8700,7 +8712,8 @@
     $('dxfTplLoad').classList.toggle('link', !!id); // with an admin link, loading a file by hand is the exception
     $('dxfTplLoad').hidden = !!id && pol().userTpl !== true; // v2.41: the admin's template only, unless the admin lets users load their own
     $('dxfTplBox').querySelector('.dxflogo').hidden = !tpl; if (tpl) renderLogo(); // v2.34
-    if (tpl) renderDxfMarks(); // v2.40
+    renderDxfMarks(); // v2.40 (v2.42.28: the card in both kinds of DXF)
+    if (!$('planSet').hidden) renderPlanSet();
   }
   $('dxfMode').addEventListener('change', () => { S.exp.dxfMode = $('dxfMode').value; persist(); renderDxfTpl(); });
   /* v2.40: which points of the plan get their photo or number. v2.41: by group: the electric poles together (concrete, wood, steel),
@@ -8838,51 +8851,133 @@
     const st = (pmeta().nums || {})[c.mode] || {}, n = Object.keys(st).length;
     $('numInfo').textContent = `${c.mode === 'owner' ? 'Each pole owner’s poles (and each kind of other point) from 1; one drawing per owner is clearest.' : 'One number per point, 1, 2, 3… along the cable.'} ${c.keep ? (n ? `${n} numbers given so far: a point added later takes the next one.` : 'Given at the first export, then kept.') : 'Given again at each export.'} Table · CSV has them in its first column (no).`;
   }
-  ['numProject', 'numOwner'].forEach((id) => { const el = $(id); if (el) el.addEventListener('change', () => { setNumCfg({ mode: $('numOwner').checked ? 'owner' : 'project' }); renderNums(); if (drw) drawSeqSoon(); }); });
-  ['numKeep', 'numRenum'].forEach((id) => { const el = $(id); if (el) el.addEventListener('change', () => { setNumCfg({ keep: $('numKeep').checked }); renderNums(); if (drw) drawSeqSoon(); }); });
-  function renderDxfMarks() {
-    renderSig(); // v2.42.12
-    renderNums(); // v2.42.18
-    const box = $('dxfSets'); if (!box) return;
-    $('dxfPlanSum').textContent = planOptsText();
-    const R = dxfRows(), { cnt, keys } = markGroups(), total = keys.reduce((t, k) => t + cnt.get(k), 0); box.innerHTML = '';
-    R.forEach((r, i) => {
-      const d = document.createElement('div'); d.className = 'dxfrow'; d.dataset.i = String(i);
-      const hd = document.createElement('div'); hd.className = 'dxfrowhd';
-      const t = document.createElement('b'); t.textContent = `Drawing ${i + 1}`; const sm = document.createElement('span'); sm.className = 'hint'; sm.textContent = rowText(r);
-      const pv = document.createElement('button'); pv.type = 'button'; pv.className = 'btn small'; pv.dataset.act = 'prev'; pv.textContent = 'Preview'; pv.setAttribute('aria-label', `Preview drawing ${i + 1} in the Drawing`);
-      hd.append(t, pv);
-      if (R.length > 1) { const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'btn small'; rm.dataset.act = 'del'; rm.textContent = 'Remove'; rm.setAttribute('aria-label', `Remove drawing ${i + 1}`); hd.appendChild(rm); }
-      const ch = document.createElement('div'); ch.className = 'chips dxfchips'; ch.setAttribute('role', 'group'); ch.setAttribute('aria-label', `Points of drawing ${i + 1}`);
-      const chip = (k, label, n) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small'; b.dataset.k = k; b.setAttribute('aria-pressed', String(k === '*' ? r.pts.includes('*') : !r.pts.includes('*') && r.pts.includes(k))); b.textContent = n == null ? label : `${label} · ${n}`; ch.appendChild(b); };
-      chip('*', 'Every point', total);
-      keys.forEach((k) => chip(k, chipName(k), cnt.get(k)));
-      r.pts.filter((k) => k !== '*' && !keys.includes(k)).forEach((k) => chip(k, `${chipName(k)} (none here)`, null));
-      const ml = document.createElement('label'); ml.className = 'field'; ml.textContent = 'Beside them';
-      const sel = document.createElement('select'); sel.dataset.act = 'mode'; sel.setAttribute('aria-label', `What goes beside the points of drawing ${i + 1}`);
-      ROW_MODES.forEach((m) => { const o = document.createElement('option'); o.value = m; o.textContent = MODE_NAME[m]; sel.appendChild(o); }); sel.value = r.mode; ml.appendChild(sel);
-      d.append(hd, sm, ch, ml); box.appendChild(d);
-    });
-    $('dxfRowAdd').hidden = R.length >= ROW_MAX;
-    $('dxfSetsInfo').textContent = R.length > 1 ? `${R.length} drawings in one ZIP (one DXF each), with their photos and one README. A point not chosen in a drawing gets no photo or number there.` : 'One drawing. Add a drawing for another set of points (e.g. one for each pole owner, numbers only).';
+  /* ---- v2.42.28: What to export. A row for every point, each pole owner (and each kind of other point: ODF, sites, handholes…),
+     and any put together on one drawing; a column for photos, numbers, both. Each tick is one drawing of the export: S.exp.dxfRows,
+     as before, so the plan is built as before (one DXF each, and one PDF each with "Also a PDF to print"). The Drawing shows the one
+     ticked last (S.exp.dxfRowSel); ‹ › on the plan go through them. Before: a box for each drawing on the DXF card (its points as chips,
+     "Beside them" as a list) and, on the Drawing's bar, the drawing shown, Photos ▾ and All points ▾. */
+  const MX_SHORT = { photo: 'Photo', num: 'Number', both: 'Both' }, MX_LONG = { photo: 'photos', num: 'numbers', both: 'photos and numbers' };
+  const MX_ICON = {
+    photo: '<circle cx="43" cy="36" r="5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="29" y="6" width="28" height="20" rx="2" fill="#c9d3de" stroke="#7a8796"/><path d="M33 22 l6 -7 l5 5 l3 -3 l6 5 z" fill="#7a8796"/>',
+    num: '<circle cx="43" cy="36" r="5" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="43" cy="15" r="10" fill="#fff" stroke="#e03131" stroke-width="1.8"/><text x="43" y="19.5" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" font-weight="800" fill="#e03131">7</text>',
+    both: '<circle cx="36" cy="36" r="5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="20" y="6" width="28" height="20" rx="2" fill="#c9d3de" stroke="#7a8796"/><path d="M24 22 l6 -7 l5 5 l3 -3 l6 5 z" fill="#7a8796"/><circle cx="61" cy="14" r="10" fill="#fff" stroke="#e03131" stroke-width="1.8"/><text x="61" y="18.5" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" font-weight="800" fill="#e03131">7</text>',
+  };
+  const mxIcon = (m) => `<svg viewBox="4 0 78 44" aria-hidden="true">${MX_ICON[m]}</svg>`;
+  /** A row's key in the table: '*' (every point), '_nil' (no point: the plan only) or its groups in the table's order. */
+  function mxKeyOf(pts, keys) { if (pts.includes('*')) return '*'; if (!pts.length) return '_nil'; const o = (k) => { const i = keys.indexOf(k); return i < 0 ? 999 : i; }; return [...new Set(pts)].sort((a, b) => o(a) - o(b) || a.localeCompare(b)).join('\u0001'); }
+  const mxPtsOf = (k) => (k === '*' ? ['*'] : k === '_nil' ? [] : k.split('\u0001'));
+  function mxRowName(r) { return r.pts.includes('*') ? 'Every point' : !r.pts.length ? 'No point (the plan only)' : r.pts.map(chipName).join(' + '); }
+  const rowShort = (r) => `${mxRowName(r)} · ${MX_SHORT[r.mode]}`;
+  /** The table's rows: every point, this project's groups (poles first, then the other points), then the rows of drawings set
+      before or put together (groups of other projects among them: "none here"). */
+  function mxGroups() {
+    const pts = projPoints(), { cnt, keys } = markGroups(pts), total = keys.reduce((t, k) => t + cnt.get(k), 0), out = [], seen = new Set();
+    const add = (k, kind) => { if (seen.has(k)) return; seen.add(k); const p = mxPtsOf(k), n = k === '*' ? total : k === '_nil' ? 0 : rowSel({ pts: p, mode: 'photo' }, pts).ids.length; out.push({ k, pts: p, n, kind, name: mxRowName({ pts: p }) }); };
+    add('*', 'all'); keys.filter((k) => !k.startsWith('el:')).forEach((k) => add(k, 'pole')); keys.filter((k) => k.startsWith('el:')).forEach((k) => add(k, 'el'));
+    dxfRows().forEach((r) => add(mxKeyOf(r.pts, keys), 'set'));
+    (Array.isArray(S.exp.dxfCombos) ? S.exp.dxfCombos : []).forEach((p) => { if (Array.isArray(p) && p.length > 1) add(mxKeyOf(p.map(String), keys), 'set'); });
+    return out;
   }
-  $('dxfSets').addEventListener('click', (e) => {
-    const b = e.target.closest('button'), row = e.target.closest('.dxfrow'); if (!b || !row) return;
-    const i = +row.dataset.i, R = dxfRows(), r = R[i]; if (!r) return;
-    if (b.dataset.act === 'del') { R.splice(i, 1); if (S.exp.dxfRowSel >= i && S.exp.dxfRowSel > 0) S.exp.dxfRowSel--; setRows(R); renderDxfMarks(); return; }
-    if (b.dataset.act === 'prev') { S.exp.dxfRowSel = i; persist(); closeSheet().then(() => { if (drawOn()) openDrawing(); else toast('The Drawing is for As-Plan and As-Built surveys'); }); return; }
-    const k = b.dataset.k; if (!k) return;
-    const { keys } = markGroups();
-    if (k === '*') r.pts = r.pts.includes('*') ? [] : ['*']; // Every point, or none (the plan without photos or numbers)
-    else if (r.pts.includes('*')) r.pts = [k]; // from every point: that group only
-    else { const on = new Set(r.pts); if (on.has(k)) on.delete(k); else on.add(k); const list = [...on]; r.pts = keys.length && keys.every((x) => on.has(x)) && list.every((x) => keys.includes(x)) ? ['*'] : list; } // more groups, or fewer
-    setRows(R); renderDxfMarks();
+  let mxMix = null; // the groups being put together on one drawing (+ Several on one drawing)
+  function mxRender() {
+    const box = $('mxGrid'); if (!box) return;
+    const G = mxGroups(), R = dxfRows(), { keys } = markGroups(), sel = rowIdx(), at = new Map(R.map((r, i) => [`${mxKeyOf(r.pts, keys)}\u0002${r.mode}`, i]));
+    let h = '<span class="mxh" aria-hidden="true"></span>' + ROW_MODES.map((m) => `<span class="mxh">${mxIcon(m)}${MX_SHORT[m]}</span>`).join(''), shown = '';
+    G.forEach((g, gi) => {
+      const sec = g.kind === 'el' ? 'Other points' : g.kind === 'set' ? 'Put together, or not in this project' : '';
+      if (sec && sec !== shown) { h += `<span class="mxh grp">${sec}</span>`; shown = sec; }
+      h += `<span class="mxr"><span class="nm" title="${C.xmlEsc(g.name)}">${C.xmlEsc(g.name)}</span><small>${g.kind === 'all' || g.n ? g.n : 'none here'}</small>${g.kind === 'set' ? `<button type="button" class="del" data-del="${gi}" aria-label="Remove the row ${C.xmlEsc(g.name)}" title="Remove this row">✕</button>` : ''}</span>`;
+      h += ROW_MODES.map((m) => { const i = at.get(`${g.k}\u0002${m}`), on = i != null; return `<button type="button" class="mxc${on && i === sel ? ' pv' : ''}" data-g="${gi}" data-m="${m}" aria-pressed="${on}" aria-label="${C.xmlEsc(g.name)}: ${MX_LONG[m]}">${on ? '✓' : ''}</button>`; }).join('');
+    });
+    box.innerHTML = h; box._g = G;
+    $('mxN').textContent = `${R.length} drawing${R.length === 1 ? '' : 's'}`;
+    $('mxGo').textContent = R.length === 1 ? 'Export' : `Export ${R.length} drawings`;
+    const mk = keys;
+    $('mxMix').innerHTML = mxMix
+      ? `<div class="mxmix"><span class="lbl">ON ONE DRAWING</span><div class="chips">${mk.map((k) => `<button type="button" class="chip small" data-k="${C.xmlEsc(k)}" aria-pressed="${mxMix.has(k)}">${C.xmlEsc(chipName(k))}</button>`).join('')}</div><div class="row"><button type="button" class="btn small primary" id="mxMixAdd"${mxMix.size >= 2 ? '' : ' disabled'}>Add the row</button><button type="button" class="lnkbtn" id="mxMixNo">Cancel</button></div></div>`
+      : (mk.length > 1 ? '<button type="button" class="lnkbtn" id="mxMixGo">+ Several on one drawing</button>' : '');
+    const c = numCfg(), np = projPoints().filter((p) => markKey(p)).length;
+    $('mxNumP').setAttribute('aria-pressed', String(c.mode === 'project')); $('mxNumO').setAttribute('aria-pressed', String(c.mode === 'owner'));
+    $('mxNumP').textContent = `Whole project${np ? `, 1–${np}` : ''}`;
+    $('mxNumInfo').textContent = c.mode === 'owner' ? 'Each pole owner’s poles (and each kind of other point) from 1, on its drawing and in Table · CSV (column no).' : 'One count along the cable, the same in Table · CSV (column no).';
+  }
+  /** The table's place: What to export on the Drawing, or the DXF card for a survey without the Drawing (Audit). */
+  function mxHome(inCard) {
+    const host = inCard ? $('dxfMxHost') : $('drawWhatBox').querySelector('.mxbody'), g = $('mxGrid'), mx = $('mxMix');
+    if (g.parentNode !== host) { if (inCard) host.append(g, mx); else { const num = host.querySelector('.mxnum'); host.insertBefore(g, num); host.insertBefore(mx, num); } }
+    $('dxfMxHost').hidden = !inCard;
+  }
+  /** After the table changed: the bar, the plan shown, the DXF card. */
+  function mxChanged() { renderDrawBar(); if (!$('drawWhatBox').hidden) mxRender(); if (drw && !$('drawing').hidden) { drawSeqSoon(); drawDrawing(); renderDrawLegend(); } if (!$('export').hidden) renderDxfMarks(); }
+  /** A tick: that drawing is added (and shown), or taken out (at least one stays). */
+  function mxToggle(g, m) {
+    const { keys } = markGroups(), kk = (r) => `${mxKeyOf(r.pts, keys)}\u0002${r.mode}`, seen = new Set(), R = dxfRows().filter((r) => { const k = kk(r); if (seen.has(k)) return false; seen.add(k); return true; });
+    const shown = kk(dxfRows()[rowIdx()]), i = R.findIndex((r) => mxKeyOf(r.pts, keys) === g.k && r.mode === m);
+    if (i >= 0) {
+      if (R.length === 1) { toast('At least one drawing: tick another first', 3000); return; }
+      R.splice(i, 1); S.exp.dxfRowSel = Math.max(0, R.findIndex((r) => kk(r) === shown)); setRows(R); // the one shown stays shown (else the first)
+    } else {
+      if (R.length >= ROW_MAX) { toast(`Up to ${ROW_MAX} drawings in one export`, 3000); return; }
+      const add = { pts: g.pts.slice(), mode: m }; R.push(add);
+      const G = mxGroups(), gi = (r) => { const k = mxKeyOf(r.pts, keys), x = G.findIndex((q) => q.k === k); return x < 0 ? 999 : x; };
+      R.sort((a, b) => gi(a) - gi(b) || ROW_MODES.indexOf(a.mode) - ROW_MODES.indexOf(b.mode)); // the table's order
+      S.exp.dxfRowSel = R.indexOf(add); setRows(R);
+      const owners = g.pts.length && !g.pts.includes('*') && g.pts.every((k) => !k.startsWith('el:')); // pole owners only (not handholes, ODF, sites)
+      if (m !== 'photo' && owners && numCfg().mode === 'project' && !(pmeta().nums || {}).asked) askOwnerNums();
+    }
+    LOG.info('plan.what', { n: dxfRows().length });
+    mxChanged();
+  }
+  /** Once in a project, the first numbers for a pole owner: each owner's from 1 (one RTA list each), or one count for the project. */
+  async function askOwnerNums() {
+    setNumCfg({ asked: true });
+    const v = await ask('Number each owner’s poles from 1?', 'For one RTA list per pole owner: each owner’s poles 1, 2, 3… on its drawing and in Table · CSV (column no). Or one count along the cable for the whole project, as now. You can change it later, under this table or in Plan settings.',
+      [{ label: 'Whole project', value: 'project' }, { label: 'Each owner from 1', value: 'owner', primary: true }]);
+    if (v === 'owner') { setNumCfg({ mode: 'owner' }); renderNums(); mxChanged(); toast('Numbers: each pole owner’s from 1', 3000); }
+  }
+  $('mxGrid').addEventListener('click', (e) => {
+    const G = $('mxGrid')._g || [], d = e.target.closest('[data-del]');
+    if (d) { // a row put together (or of another project): it goes, with its drawings
+      const g = G[+d.dataset.del]; if (!g) return; const { keys } = markGroups();
+      S.exp.dxfCombos = (Array.isArray(S.exp.dxfCombos) ? S.exp.dxfCombos : []).filter((p) => !Array.isArray(p) || mxKeyOf(p.map(String), keys) !== g.k);
+      const R0 = dxfRows(), shown = R0[rowIdx()], R = R0.filter((r) => mxKeyOf(r.pts, keys) !== g.k); S.exp.dxfRowSel = Math.max(0, R.indexOf(shown)); setRows(R.length ? R : [{ pts: ['*'], mode: 'photo' }]); mxChanged(); return;
+    }
+    const c = e.target.closest('.mxc'); if (!c) return; const g = G[+c.dataset.g]; if (g) mxToggle(g, c.dataset.m);
   });
-  $('dxfSets').addEventListener('change', (e) => {
-    const s0 = e.target; if (!s0 || s0.dataset.act !== 'mode') return; const row = s0.closest('.dxfrow'), R = dxfRows(), r = R[+row.dataset.i]; if (!r) return;
-    r.mode = ROW_MODES.includes(s0.value) ? s0.value : 'photo'; setRows(R); renderDxfMarks();
+  $('mxMix').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.id === 'mxMixGo') { mxMix = new Set(); mxRender(); return; }
+    if (b.id === 'mxMixNo') { mxMix = null; mxRender(); return; }
+    if (b.id === 'mxMixAdd') { const { keys } = markGroups(), p = keys.filter((k) => mxMix.has(k)); mxMix = null; if (p.length > 1) { S.exp.dxfCombos = [...(Array.isArray(S.exp.dxfCombos) ? S.exp.dxfCombos : []), p].slice(-12); persist(); toast(`${p.map(chipName).join(' + ')}: a row of its own; tick what goes beside them`, 4000); } mxRender(); return; }
+    const k = b.dataset.k; if (k == null || !mxMix) return; if (mxMix.has(k)) mxMix.delete(k); else mxMix.add(k); mxRender();
   });
-  $('dxfRowAdd').addEventListener('click', () => { const R = dxfRows(); if (R.length >= ROW_MAX) return; R.push({ pts: ['*'], mode: 'num' }); setRows(R); renderDxfMarks(); });
+  ['mxNumP', 'mxNumO'].forEach((id) => $(id).addEventListener('click', () => { setNumCfg({ mode: id === 'mxNumO' ? 'owner' : 'project', asked: true }); renderNums(); mxChanged(); }));
+
+  /* ---- v2.42.28: the DXF card: what it makes (the project, the template, the drawings), the names on the sheet, the PDF, Export.
+     Before: the drawing type, the template and logo, ON THE PLAN, pole numbers, the drawings and their points, PDF, loops, four names
+     and the options, all on the card. They are in What to export (the Drawing) and Plan settings now. */
+  function renderDxfMarks() {
+    renderSig(); renderNums();
+    if (!$('dxfFiles')) return;
+    const tpl = dxfMode() === 'tpl', R = dxfRows(), pts = projPoints(), np = pts.filter((p) => elemOf(p) === 'Pole').length, RM = routeModel(), info = S.dxfSeed, stale = seedStale();
+    const pu = svPurpose(), st = !tpl ? ['ok', `Simple DXF: points and photos at UTM ${S.zone}N`] : seedBusy ? ['mt', 'Getting the plan template from your admin…'] : info ? ['ok', `✓ On your company’s plan template${stale ? ' (your admin shares a newer one: Plan settings › Template and logo)' : ''}`] : seedId() ? ['mt', 'Your admin shares the plan template: Export gets it first (once).'] : ['warn', 'No plan template on this phone yet: ask your admin, or Plan settings › Template and logo.'];
+    $('dxfSum').innerHTML = `<span class="nm">${C.xmlEsc(S.project || '')}</span><span class="mt">${C.xmlEsc([pu === 'As-built' ? 'As-Built' : pu === 'As-plan' ? 'As-Plan' : pu, `${np} pole${np === 1 ? '' : 's'}`, `${RM.spans.length} span${RM.spans.length === 1 ? '' : 's'}`, fmtLen(RM.total)].filter(Boolean).join(' · '))}</span><span class="${st[0]}">${C.xmlEsc(st[1])}</span>`;
+    $('dxfFiles').hidden = !tpl; $('dxfFilesLbl').hidden = !tpl; $('dxfWhat').hidden = !tpl || !drawOn(); $('sigBox').hidden = !tpl; $('dxfPdfRow').hidden = !tpl;
+    const inCard = tpl && !drawOn() && !isAcc(); mxHome(inCard); if (inCard) mxRender(); // no Drawing (an Audit survey): the table here
+    $('dxfFilesLbl').textContent = R.length === 1 ? '1 DRAWING' : `${R.length} DRAWINGS · ONE DXF EACH${S.exp.dxfPdf ? ' AND ONE PDF' : ''}`;
+    $('dxfFiles').innerHTML = R.map((r, i) => { const n = r.pts.includes('*') ? null : rowSel(r, pts).ids.length; return `<div class="dxffile"><span class="n">${i + 1}</span><span>${C.xmlEsc(mxRowName(r))}${n != null ? ` <small>${n}</small>` : ''}</span><span class="m">${mxIcon(r.mode)}${MX_SHORT[r.mode]}</span></div>`; }).join('');
+    $('doDxf').textContent = tpl && R.length > 1 ? `Export ${R.length} drawings` : 'Export DXF';
+    sigLine();
+  }
+  ['numProject', 'numOwner'].forEach((id) => { const el = $(id); if (el) el.addEventListener('change', () => { setNumCfg({ mode: $('numOwner').checked ? 'owner' : 'project', asked: true }); renderNums(); if (drw) drawSeqSoon(); renderPlanSet(); if (!$('drawWhatBox').hidden) mxRender(); }); });
+  ['numKeep', 'numRenum'].forEach((id) => { const el = $(id); if (el) el.addEventListener('change', () => { setNumCfg({ keep: $('numKeep').checked }); renderNums(); if (drw) drawSeqSoon(); renderPlanSet(); }); });
+  /** The names on the sheet in one line (Change opens the four fields). */
+  function sigLine() {
+    const L = [['design', 'Design Engineer'], ['project', 'Project Engineer'], ['head', 'Head-Cable Engineering'], ['cse', 'CSE Lead']], set = L.filter(([k]) => String(S.sig[k] || '').trim()), blank = L.length - set.length;
+    $('sigLine').innerHTML = (set.length ? set.map(([k, l]) => `<span><small>${l}</small><b>${C.xmlEsc(String(S.sig[k]).trim())}</b></span>`).join('') : '<span>None yet</span>')
+      + `<small>${blank ? `${blank === L.length ? 'All' : blank} left blank, to sign by hand` : 'All four set'}${String(S.sig.cse || '').trim() ? '' : '. The CSE Lead comes from the online sheet when it has one'}.</small>`;
+  }
+  $('sigChange').addEventListener('click', () => { const on = $('sigEdit').hidden; $('sigEdit').hidden = !on; $('sigChange').setAttribute('aria-expanded', String(on)); $('sigChange').textContent = on ? 'Done' : 'Change'; sigLine(); if (on) $('sigDesign').focus({ preventScroll: true }); });
   /* v2.42.12: the names in the title block of every sheet (above the signature lines): Design Engineer, Project Engineer and
      Head-Cable Engineering typed once and kept on this phone; the CSE Lead from the online sheet's CSE LEAD tab (Territory, Full
      Name), by the project's territory (Project Data → Territory), at each sync; Junior Engineer left blank. A CSE Lead typed by
@@ -8918,8 +9013,37 @@
   }
   SIG_IDS.forEach(([id, k]) => { const el = $(id); if (el) el.addEventListener('input', () => { S.sig[k] = s100(el.value, k === 'cse' ? 120 : 80); persist(); }); });
   SIG_IDS.forEach(([id]) => { const el = $(id); if (el) el.addEventListener('change', () => renderSig()); });
-  $('dxfOpenDrawing').addEventListener('click', () => { closeSheet().then(() => { if (drawOn()) openDrawing(); else toast('The Drawing is for As-Plan and As-Built surveys'); }); });
-  $('dxfStyleBtn').addEventListener('click', () => openStyle());
+  /* v2.42.28: the DXF card's links: What to export (on the Drawing) and Plan settings */
+  $('dxfWhat').addEventListener('click', () => { const under = stack.includes('drawing'); closeSheet().then(() => { if (!under) { if (!drawOn()) { toast('The Drawing is for As-Plan and As-Built surveys'); return; } openDrawing(); } if (!$('drawing').hidden) setWhat(true, deskOn()); }); });
+  $('dxfSetBtn').addEventListener('click', () => openPlanSet());
+  $('dxfPdf').addEventListener('change', () => setTimeout(renderDxfMarks, 0));
+  SIG_IDS.forEach(([id]) => { const el = $(id); if (el) el.addEventListener('input', () => sigLine()); });
+  /* ---- v2.42.28: Plan settings: how every drawing of the plan export looks and is numbered, in one place: Drawing style, clamp types
+     on the plan (the CA button of the Drawing before), pole numbers, the loops in the PMI cable lengths, the template and logo, the
+     kind of DXF and its options. On a computer, over the Drawing, it opens beside the plan. */
+  function renderPlanSet() {
+    if (!$('psCA')) return;
+    const ca = S.exp.dxfClampType !== false, c = numCfg(), tpl = dxfMode() === 'tpl';
+    $('psCA').checked = ca; $('psCASum').textContent = ca ? 'On: the type before the size (CA 8-10, GCA, 2A, DEG, RL)' : 'Off: the sizes only (the types stay in the BOQ, KMZ and CSV)';
+    $('psNumSum').textContent = `${c.mode === 'owner' ? 'Each owner from 1 (one RTA list each)' : 'Whole project, along the cable'} · ${c.keep ? 'kept once given' : 'renumbered at each export'}`;
+    $('psLoopSum').textContent = S.exp.pmiLoops !== false ? 'Counted in total, aerial and underground' : 'The spans only';
+    $('psTplSum').textContent = !tpl ? 'Not used by the simple DXF' : seedBusy ? 'Getting it from your admin…' : S.dxfSeed ? `✓ ${S.dxfSeed.name}${seedStale() ? ' · a newer one is shared' : ''}` : seedId() ? 'Shared by your admin: got at the first export' : 'No template on this phone yet';
+    $('psKindSum').textContent = `${tpl ? 'On the company plan template' : 'Simple: points and photos at UTM'} · UTM ${S.zone}N`;
+  }
+  function openPlanSet() {
+    if (toSheet('planSet')) return;
+    renderDxfTpl(); syncExpUi(); renderNums(); renderPlanSet();
+    const side = stack.includes('drawing') && deskOn(); $('planSet').classList.toggle('side', side); if (side) document.body.classList.add('drwside');
+    openSheet('planSet');
+  }
+  $('psStyle').addEventListener('click', () => openStyle());
+  $('psCA').addEventListener('change', () => { S.exp.dxfClampType = $('psCA').checked; persist(); renderPlanSet(); if (drw) drawDrawing(); toast(S.exp.dxfClampType ? 'Clamp types on the plan (e.g. CA 8-10)' : 'Clamp sizes only on the plan: the types stay in the BOQ, KMZ and CSV', 3000); });
+  ['pmiLoops', 'dxfMode', 'setZone'].forEach((id) => $(id).addEventListener('change', () => setTimeout(renderPlanSet, 0)));
+  /** Export the plan: the Export screen with the DXF card only, over the Drawing (beside it on a computer). */
+  let planExport = false;
+  /** An open screen brought back to the top (the ones above it closed): true when it was open. */
+  function toSheet(id) { if (!stack.includes(id)) return false; if (stack[stack.length - 1] !== id) closeSheet().then(() => toSheet(id)); return true; }
+  function openPlanExport() { if (toSheet('export')) return; exportPick = 'doDxf'; planExport = true; $('exportBtn').click(); }
   $('dxfTplLoad').addEventListener('click', () => { $('dxfTplFile').value = ''; $('dxfTplFile').click(); });
   $('dxfTplFile').addEventListener('change', (e) => guard(async () => { const f = e.target.files[0]; if (!f) return; busy('Reading the plan template…'); try { await storeSeed(await f.text(), f.name, 'file'); } finally { busy(false); } }, 'Template not loaded'));
   /** v2.31: the admin's template, fetched and kept: the Android app through Android (Google Drive allows it); the website tries the
@@ -9461,6 +9585,9 @@
       'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD. Each pole\'s label points straight out from the cable, and its photo or number sits beside the pole on the side toward the homing, the same at every pole where there is room (elsewhere a little further, turned, or on the other side).', '',
       ...outs.flatMap((o) => { const MK = o.out.report.marks || []; return MK.length ? [`Numbers on the plan${many ? ` in ${o.file}` : ''} (${MK.length}${o.st.no.size ? `: ${o.st.what}` : ''}): number, ID, type, latitude, longitude`, ...markLinesOf(MK), ''] : []; }), exporterText()].join('\r\n');
     busy(false);
+    { const RR = dxfRows(), rowOf = (o) => RR[(+String(o.st.id).replace(/\D/g, '') || 1) - 1]; // v2.42.28: the ZIP in plain words
+      resultInside = [...outs.map((o) => { const r = rowOf(o); return ['DXF', o.file, `${many && r ? `${mxRowName(r)}, ${MX_LONG[r.mode]}. ` : ''}Open it in AutoCAD`]; }), ...pdfFiles.map((f) => ['PDF', f.name, 'The sheets on A3, to print']),
+        ...(files.length ? [['JPG', `${files.length} picture${files.length === 1 ? '' : 's'}`, 'The photos, the vicinity map and the logo: keep them in the same folder as the drawings, or AutoCAD shows empty boxes']] : []), ['TXT', 'README.txt', 'What the plan holds, with the pole numbers of each drawing']]; }
     offerResult(new Blob(C.makeZipParts([...outs.map((o) => ({ name: o.file, data: o.out.text })), ...files, ...pdfFiles, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`);
     { const A = routeAdvice(R), o0 = outs[0], MK0 = o0.out.report.marks || [];
       toast(`Plan: ${many ? `${outs.length} drawings · ` : ''}${rp.sheets.length} GEO sheet${rp.sheets.length === 1 ? '' : 's'}${!many && o0.st.no.size ? ` · numbered: ${o0.st.what} (${MK0.length})` : ''} · ${roadsNote}${A.length ? ` · ${A.length} route check${A.length === 1 ? '' : 's'} in the README` : ''}${noPack.length ? ` · no road pack for ${noPack.map(({ region }) => region || 'a place').join(', ')}: its ROW table is blank (see the README)` : ''}`, noPack.length ? 9000 : 5000); }
@@ -10488,7 +10615,7 @@
      (whatever screen it opens: camera, record, dialog…); Next › moves on without it; ✕ ends the tour. While a dialog is open
      the tip waits; it never leaves an open record or the camera by itself. */
   const TUT_SCREEN = { map: '', projects: 'projects', newProject: 'newProj', projectDetails: 'projects', records: 'list', export: 'export', settings: 'settings',
-    profile: 'profile', camera: 'setCamera', exports: 'setExports', maps: 'offline', storage: 'setStorage', log: 'logSheet', admin: 'admin' };
+    profile: 'profile', camera: 'setCamera', exports: 'setExports', maps: 'offline', storage: 'setStorage', log: 'logSheet', admin: 'admin', planset: 'planSet' };
   const tutTop = () => stack[stack.length - 1] || '';
   const tutOnScreen = (go) => (go === 'map' ? !stack.length : go === 'projectDetails' ? tutTop() === 'projects' && $('curMore').open : tutTop() === TUT_SCREEN[go]);
   const tutModal = () => ['askBox', 'pinBox', 'promptBox', 'qrShow', 'busy', 'qrScan'].some((id) => { const e = $(id); return e && !e.hidden; });
@@ -10501,6 +10628,7 @@
       case 'projectDetails': if (tutTop() !== 'projects') openProjects(); await tutWait(150); $('curMore').open = true; break;
       case 'records': if (tutTop() !== 'list') $('listBtn').click(); break;
       case 'export': if (tutTop() !== 'export') $('exportBtn').click(); break;
+      case 'planset': if (tutTop() !== 'planSet') openPlanSet(); break; // v2.42.28
       case 'settings': if (tutTop() !== 'settings') $('settingsBtn').click(); break;
       case 'profile': if (tutTop() !== 'settings') $('settingsBtn').click(); await tutWait(150); openProfile(false); break;
       case 'admin': if (tutTop() !== 'settings') $('settingsBtn').click(); await tutWait(150); $('goAdmin').click(); break;
@@ -10518,7 +10646,7 @@
     // back to the step's base screen when it is open underneath (Settings or Projects), else to the map; then on to the screen
     const base = ['settings', 'profile', 'admin', 'camera', 'exports', 'maps', 'storage', 'log'].includes(st.go) ? 'settings' : ['projects', 'newProject', 'projectDetails'].includes(st.go) ? 'projects' : '';
     if (base && stack.includes(base)) { while (tutTop() !== base) await closeSheet(); } else await closeAll();
-    try { await tutGo(st.go); if (st.go === 'export' && st.hl && !$('export').hidden) { const card = /^#do[A-Za-z]+$/.test(st.hl) ? st.hl.slice(1) : /^#dxf(Mode|TplBox|PlanOpts)$/.test(st.hl) ? 'doDxf' : ''; if (card) { showExport(card); if ((st.hl === '#dxfTplBox' || st.hl === '#dxfPlanOpts') && $('dxfTplBox').hidden) { $('dxfMode').value = 'tpl'; $('dxfMode').dispatchEvent(new Event('change')); } } } } catch (e) { LOG.warn('tut.go', errInfo(e)); }
+    try { await tutGo(st.go); if (st.go === 'export' && st.hl && !$('export').hidden) { const card = /^#do[A-Za-z]+$/.test(st.hl) ? st.hl.slice(1) : /^#(dxf[A-Za-z]+|sigBox)$/.test(st.hl) ? 'doDxf' : ''; if (card) showExport(card); } } catch (e) { LOG.warn('tut.go', errInfo(e)); }
     await tutWait(400);
   }
   /** The first control of the step that is on screen (not under another screen), or null. */
@@ -13889,6 +14017,8 @@
       if (!$('idPfxMenu').hidden) { $('idPfxMenu').hidden = true; return; } // the ID prefix menu
       $('edClose').click(); return; // with changes not saved it asks first (Esc again: keep editing)
     }
+    if ((top === 'export' || top === 'planSet') && $(top).classList.contains('side')) { e.preventDefault(); closeSheet(); return; } // v2.42.28: a panel beside the plan
+    if (top === 'drawing' && !$('drawWhatBox').hidden) { e.preventDefault(); setWhat(false, false); return; }
     if (!stack.length && map._popup) map.closePopup();
   }
   document.addEventListener('keydown', (e) => {
@@ -13990,13 +14120,16 @@
       const sw = document.createElement('span'); sw.className = 'pp-sw'; sw.setAttribute('aria-hidden', 'true');
       const nb = document.createElement('button'); nb.type = 'button'; nb.className = 'pp-name'; nb.textContent = name; nb.title = 'Go there';
       nb.addEventListener('click', () => ppGo(name));
+      let ob; // v2.42.28: Open works on it at once; the project you work on says so
+      if (work) { ob = document.createElement('span'); ob.className = 'pp-here'; ob.textContent = 'Working on'; ob.title = 'The project you work on'; }
+      else { ob = document.createElement('button'); ob.type = 'button'; ob.className = 'pp-open'; ob.textContent = 'Open'; ob.setAttribute('aria-label', `Open ${name}: work on it`); ob.disabled = !!routeMode; ob.title = routeMode ? 'Finish the cable first (Done)' : `Work on ${name}`; ob.addEventListener('click', () => ppOpen(name)); }
       const mb = document.createElement('button'); mb.type = 'button'; mb.className = 'pp-more'; mb.textContent = '⋯'; mb.setAttribute('aria-haspopup', 'menu');
       mb.setAttribute('aria-expanded', String(ppMenuFor === name)); mb.setAttribute('aria-label', `More for ${name}`);
       mb.addEventListener('click', (e) => { e.stopPropagation(); ppMenu(name, mb); });
       const meta = document.createElement('span'); meta.className = 'pp-meta';
-      [group !== 'cat' && [kind === 'survey' ? 'SURVEY' : kind.toUpperCase(), ''], [`${n} ${acc ? 'element' : 'pole'}${n === 1 ? '' : 's'}`, ''], t && [`Edited ${ppDate(t)}`, ''], m.completedAt && ['✓ Complete', 'done'], work && ['Working on', 'work']]
+      [group !== 'cat' && [kind === 'survey' ? 'SURVEY' : kind.toUpperCase(), ''], [`${n} ${acc ? 'element' : 'pole'}${n === 1 ? '' : 's'}`, ''], t && [`Edited ${ppDate(t)}`, ''], m.completedAt && ['✓ Complete', 'done']]
         .filter(Boolean).forEach(([tx, c]) => { const x = document.createElement('span'); x.textContent = tx; if (c) x.className = c; meta.appendChild(x); });
-      r.append(cb, sw, nb, mb, meta); box.appendChild(r);
+      r.append(cb, sw, nb, ob, mb, meta); box.appendChild(r);
       }
     }
     if (!names.length) box.innerHTML = '<p class="hint">No project yet: + New.</p>';
@@ -14017,11 +14150,25 @@
     return true;
   }
   const ppAct = (name, fn) => { if (name !== S.project) openTask(name); fn(); }; // Export and Mark complete: on the project open
+  /** v2.42.28: Open (the pane, its ⋯, a pole of another project): work on that project, as Projects does at the top. The project you
+      leave stays on the map, faded (its tick on). From a pole: the map stays where it is and that pole is ringed. Not while a cable is
+      drawn (finish it first). */
+  function ppOpen(name, keepView, pole) {
+    ppMenuClose();
+    if (routeMode) { toast('Finish the cable first: tap Done', 3000); return; }
+    if (!name || name === S.project) return;
+    const st = ppState(), prev = S.project; if (prev) { st.show[prev] = true; persist(); }
+    map.closePopup();
+    if (pole) { hlFrom = ''; hlQ = ''; hlId = pole.id; }
+    openTask(name, { keepView: !!keepView });
+    if (pole) hlDraw();
+    LOG.info('pane.open', { from: pole ? 'pole' : keepView ? 'here' : 'pane' });
+  }
   function ppMenu(name, btn) {
     const was = ppMenuFor === name; ppMenuClose(); if (was) return;
     ppMenuFor = name; btn.setAttribute('aria-expanded', 'true');
     const m = pmeta(name), acc = m.mode === 'acceptance', menu = $('ppMenu'); menu.innerHTML = '';
-    const items = [['Zoom to the project', () => ppGo(name)], ['Share…', () => guard(() => shareProject(name))],
+    const items = [...(name !== S.project ? [['Open this project', () => ppOpen(name), 'first']] : []), ['Zoom to the project', () => ppGo(name)], ['Share…', () => guard(() => shareProject(name))],
       [acc ? 'Export…' : 'Export DXF…', () => ppAct(name, () => { exportPick = acc ? null : 'doDxf'; $('exportBtn').click(); })],
       [m.completedAt ? 'Undo complete…' : 'Mark complete…', () => ppAct(name, () => $('doneBtn').click())], null,
       ['Delete…', () => guard(() => deleteProject(name)), 'del']];
@@ -14031,7 +14178,7 @@
       b.addEventListener('click', () => { ppMenuClose(); LOG.info('pane.menu', { what: it[0].replace('…', '') }); it[1](); }); menu.appendChild(b);
     }
     const pr = $('projPane').getBoundingClientRect(), br = btn.getBoundingClientRect();
-    menu.style.top = `${Math.min(br.bottom - pr.top + 4, pr.height - 230)}px`; menu.hidden = false;
+    menu.style.top = `${Math.min(br.bottom - pr.top + 4, pr.height - 266)}px`; menu.hidden = false;
     menu.querySelector('button').focus({ preventScroll: true });
   }
   document.addEventListener('click', (e) => { if (ppMenuFor && !(e.target.closest && e.target.closest('#ppMenu, .pp-more, .pp-ico'))) ppMenuClose(); });
@@ -14075,8 +14222,10 @@
   function otherTap(x, name) {
     ppLit = name; const st = ppState(); if (!st.open) { st.open = true; persist(); deskLayout(); }
     ppRows(); const row = [...$('ppRows').children].find((r) => r.dataset && r.dataset.name === name); if (row) row.scrollIntoView({ block: 'nearest' });
-    L.popup({ closeButton: false, autoPan: true, className: 'pp-pop', offset: [0, -4] }).setLatLng([x.lat, x.lon])
-      .setContent(`<b class="mono">${C.xmlEsc(recName(x) || '(no ID)')}</b><br><span>${C.xmlEsc(name)}</span>`).openOn(map);
+    const el = document.createElement('div'); el.innerHTML = `<b class="mono">${C.xmlEsc(recName(x) || '(no ID)')}</b><br><span>${C.xmlEsc(name)}</span>`;
+    const go = document.createElement('button'); go.type = 'button'; go.className = 'pp-go'; go.textContent = 'Open this project'; go.disabled = !!routeMode; go.title = routeMode ? 'Finish the cable first (Done)' : `Work on ${name}; the map stays here`; // v2.42.28
+    go.addEventListener('click', () => ppOpen(name, true, x)); el.appendChild(go);
+    L.popup({ closeButton: false, autoPan: true, className: 'pp-pop', offset: [0, -4] }).setLatLng([x.lat, x.lon]).setContent(el).openOn(map);
   }
   map.on('popupclose', () => { if (ppLit) { ppLit = null; if (deskOn()) ppRows(); } });
   map.on('moveend', () => { clearTimeout(otherT); if (deskOn() && Object.values(ppState().show).some(Boolean)) otherT = setTimeout(otherDraw, 120); }); // (once the map has stopped: not at each step of a held key)
@@ -14085,7 +14234,8 @@
   $('ppAll').addEventListener('click', () => { const st = ppState(); allProjects().forEach((n) => { if (n !== S.project) st.show[n] = true; }); persist(); ppRows(); otherDraw(); });
   $('ppNone').addEventListener('click', () => { const st = ppState(); st.show = {}; persist(); ppRows(); otherDraw(); });
   $('ppNew').addEventListener('click', () => { ppMenuClose(); openNewProject(); });
-  if (deskMQ) { const ch = () => { deskLayout(); deskRender(); }; if (deskMQ.addEventListener) deskMQ.addEventListener('change', ch); else if (deskMQ.addListener) deskMQ.addListener(ch); }
+  if (deskMQ) { const ch = () => { deskLayout(); deskRender(); if (!$('drawing').hidden) setWhat(deskOn() && S.drwWhatDesk !== false, false);
+      if (stack.includes('drawing')) { [['export', () => $('export').classList.contains('plan')], ['planSet', () => true]].forEach(([k, f]) => { if (stack.includes(k) && f()) $(k).classList.toggle('side', deskOn()); }); document.body.classList.toggle('drwside', deskOn() && ['export', 'planSet'].some((k) => stack.includes(k) && $(k).classList.contains('side'))); } }; /* v2.42.28 */ if (deskMQ.addEventListener) deskMQ.addEventListener('change', ch); else if (deskMQ.addListener) deskMQ.addListener(ch); }
   { let rz = 0; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (deskOn()) deskLayout(); }, 150); }); }
   deskLayout();
 
@@ -14105,6 +14255,7 @@
     fibLoops: () => { const LA = autoLoops(projPoints(), routeModel()); return LA.fib ? { n: LA.fib.n, nAuto: LA.fib.nAuto, list: [...LA.fib.list.entries()].map(([id, E]) => [(points.find((p) => p.id === id) || {}).poleId, E.map((e) => [e.n, e.cab, e.len, e.why])]) } : null; },
     fibHw: (pid) => { const p = points.find((x) => x.poleId === pid); return p ? hwOf(p, routeModel()) : null; },
     fibQty: () => surveyQty(projPoints()).rows, boqRows: () => { const P = projPoints(), fb = boqFilled(P); return [...boqGroups(P, fb).groups.values()].map((g) => [g.item, g.size, g.forWhat, g.qty]); },
+    /* v2.42.28 */ mxGroups: () => mxGroups().map((g) => ({ k: g.k, name: g.name, n: g.n, kind: g.kind })), mxTick: (k, m) => { const g = mxGroups().find((x) => x.k === k || x.name === k); if (g) mxToggle(g, m); return !!g; }, openPlanSet: () => openPlanSet(), setWhat: (on) => setWhat(!!on, false), ppOpen: (n) => ppOpen(n),
     /* v2.42.27 */ ask: (t, x, b) => ask(t, x, b), hl: () => hlId, paneOn: () => document.body.classList.contains('deskpane'), otherN: () => (otherLayer ? otherLayer.getLayers().length : 0), drwView: () => (drw && drw.view ? { ...drw.view, w: $('drawCanvas').width, h: $('drawCanvas').height } : null),
     fibLanes: () => fibLayer.getLayers().map((l) => (l.getLatLngs ? { ll: l.getLatLngs().map((q) => [q.lat, q.lng]), color: l.options.color, w: l.options.weight, op: l.options.opacity, dash: l.options.dashArray || '' } : { arrow: true })), kmzFibers: () => kmzFibers() };
 })();

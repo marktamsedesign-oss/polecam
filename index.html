@@ -829,8 +829,117 @@ body.pp-closed .pp-n,body.pp-closed .pp-head .grow,body.pp-closed #ppNew,body.pp
 .pp-menu button{border:0;background:none;text-align:left;padding:8px 10px;border-radius:7px;color:var(--ink)}
 .pp-menu button:hover,.pp-menu button:focus-visible{background:var(--soft)}
 .pp-menu button.del{color:var(--bad)}
+.pp-menu button.first{font-weight:700}
 .pp-menu hr{border:0;border-top:1px solid var(--line);margin:4px 2px}
 .leaflet-popup.pp-pop .leaflet-popup-content{margin:8px 12px;font-size:calc(13px * var(--fs));line-height:1.4}
+/* v2.42.28: the pane's Open; the Drawing with What to export; Plan settings; the short DXF card; side panels on a computer */
+.pp-row{grid-template-columns:auto auto minmax(0,1fr) auto auto}
+.pp-meta{grid-column:3/6}
+.pp-open{border:1px solid var(--accent);background:var(--surface);color:var(--ink);border-radius:7px;padding:3px 9px;font-weight:700;font-size:calc(12px * var(--fs));min-height:0;line-height:1.3}
+.pp-open:hover,.pp-open:focus-visible{background:var(--accent);color:var(--accent-ink)}
+.pp-open:disabled{opacity:.45;cursor:not-allowed;background:var(--surface);color:var(--ink)}
+.pp-here{display:inline-flex;align-items:center;gap:5px;font-weight:700;font-size:calc(11.5px * var(--fs));color:var(--ink);white-space:nowrap;padding:0 2px}
+.pp-here::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--c)}
+.pp-pop .pp-go{display:block;margin-top:6px;width:100%;border:0;border-radius:8px;background:var(--accent);color:var(--accent-ink);font-weight:700;padding:6px 10px;font-size:calc(12.5px * var(--fs))}
+.drwrow{flex:1;min-height:0;display:flex;position:relative}
+.drwcol{flex:1;min-width:0;display:flex;flex-direction:column}
+.drwpv{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:3;display:flex;align-items:center;gap:2px;background:var(--navy);color:var(--navy-ink);border-radius:999px;padding:3px;font-size:calc(12px * var(--fs));font-weight:700;max-width:calc(100% - 200px);box-shadow:var(--shadow2)}
+.drwpv span{padding:2px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.drwpv b{font-family:var(--mono);opacity:.75;margin-right:4px}
+.drwpv button{border:0;background:rgba(255,255,255,.16);color:inherit;width:26px;height:26px;border-radius:50%;font-weight:800;flex:none;padding:0}
+.drwpv button[hidden]{display:none}
+@media (max-width:560px){.drwpv{max-width:calc(100% - 120px);z-index:5}}
+.drwwhat{flex:1;min-width:0;min-height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);text-align:left;padding:4px 12px;display:flex;flex-direction:column;justify-content:center}
+.drwwhat small{font-size:calc(10.5px * var(--fs));font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.drwwhat span{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.drwwhat[aria-expanded="true"]{border-color:var(--accent)}
+.drwwhatbox{position:absolute;left:0;right:0;bottom:0;z-index:6;max-height:72%;display:flex;flex-direction:column;background:var(--bg);border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.25)}
+.mxhd{flex:none;display:flex;align-items:center;gap:8px;padding:10px 6px 4px 16px}
+.mxhd b{flex:1;font-size:calc(16px * var(--fs))}
+.mxn{font:600 calc(12px * var(--fs)) var(--mono);color:var(--muted)}
+.mxhd .iconbtn{width:40px;height:40px}
+.mxhd .iconbtn svg{width:20px;height:20px}
+.mxbody{flex:1;min-height:0;overflow-y:auto;padding:4px 16px calc(env(safe-area-inset-bottom,0px) + 14px);display:flex;flex-direction:column;gap:12px}
+.mxbody>*{flex:none}
+.mx{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,56px);gap:6px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px}
+.mxh{font-size:calc(11px * var(--fs));font-weight:700;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:1px}
+.mxh svg{width:36px;height:20px}
+.mxh.grp{grid-column:1/-1;align-items:flex-start;font:700 calc(10.5px * var(--fs)) var(--mono);letter-spacing:.06em;text-transform:uppercase;padding-top:4px;border-top:1px solid var(--line2)}
+.mxr{display:flex;align-items:baseline;gap:6px;min-width:0;font-weight:650;font-size:calc(13.5px * var(--fs))}
+.mxr .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.mxr small{color:var(--muted);font-weight:500;font-size:calc(12px * var(--fs))}
+.mxr .del{border:0;background:none;color:var(--bad);font-size:calc(12px * var(--fs));padding:0 2px;flex:none}
+.mxc{height:38px;border:1.5px solid var(--line);border-radius:9px;background:var(--bg);color:var(--accent-ink);font-weight:800;font-size:16px;padding:0}
+.mxc[aria-pressed="true"]{background:var(--accent);border-color:var(--accent)}
+.mxc.pv{box-shadow:0 0 0 3px #f08c00}
+.mxmix{display:flex;flex-direction:column;gap:8px;background:var(--soft);border-radius:10px;padding:10px}
+.mxmix .chips{display:flex;flex-wrap:wrap;gap:6px}
+.mxmix .row{display:flex;gap:10px;align-items:center}
+.lnkbtn{border:0;background:none;color:var(--accent);font-weight:700;padding:2px 0;text-align:left;align-self:flex-start;font-size:calc(13px * var(--fs))}
+.seg2{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg2 button{border:0;background:var(--surface);color:var(--ink);padding:9px 6px;font-weight:650;font-size:calc(13px * var(--fs))}
+.seg2 button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.mxnum{display:flex;flex-direction:column;gap:6px}
+#mxGo{min-height:48px}
+.psrows{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.psrow{display:flex;align-items:center;gap:10px;width:100%;border:0;border-top:1px solid var(--line2);background:none;color:var(--ink);text-align:left;padding:12px 14px;cursor:pointer}
+.psrows>.psrow:first-child{border-top:0}
+.psrow .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.psrow .t small{color:var(--muted);font-size:calc(12.5px * var(--fs));line-height:1.35}
+.psrow .chev{color:var(--muted);font-size:20px}
+details.psrow{display:block;padding:0}
+details.psrow>summary{display:flex;align-items:center;gap:10px;padding:12px 14px;list-style:none;cursor:pointer}
+details.psrow>summary::-webkit-details-marker{display:none}
+details.psrow>summary::after{content:"›";color:var(--muted);font-size:20px;transition:transform .15s}
+details.psrow[open]>summary::after{transform:rotate(90deg)}
+.psbody{padding:0 14px 14px;display:flex;flex-direction:column;gap:10px}
+.psbody .opts{display:flex;flex-direction:column;gap:10px}
+.swi{position:relative;width:44px;height:26px;flex:none}
+.swi input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.swi i{position:absolute;inset:0;border-radius:999px;background:var(--line);transition:background .15s;pointer-events:none}
+.swi i::after{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .15s}
+.swi input:checked+i{background:var(--ok)}
+.swi input:checked+i::after{transform:translateX(18px)}
+.swi input:focus-visible+i{outline:3px solid var(--hi);outline-offset:2px}
+.swrow{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;cursor:pointer}
+.swrow .t{flex:1;min-width:0;display:flex;flex-direction:column}
+.swrow small{color:var(--muted);font-size:calc(12.5px * var(--fs))}
+.dxfsum{display:flex;flex-direction:column;gap:3px;border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;background:var(--bg)}
+.dxfsum .nm{font:700 calc(15px * var(--fs)) var(--mono);word-break:break-all}
+.dxfsum .mt{color:var(--muted);font-size:calc(13px * var(--fs))}
+.dxfsum .ok{color:var(--ok);font-weight:650;font-size:calc(13px * var(--fs))}
+.dxfsum .warn{color:var(--warn);font-weight:650;font-size:calc(13px * var(--fs))}
+.dxfsum .btn{align-self:flex-start;flex:none}
+.dxffiles{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.dxffile{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 10px;border-top:1px solid var(--line2);font-size:calc(13.5px * var(--fs))}
+.dxffile:first-child{border-top:0}
+.dxffile .n{font:700 calc(11px * var(--fs)) var(--mono);width:22px;height:22px;border-radius:50%;background:var(--soft);display:grid;place-items:center}
+.dxffile small{color:var(--muted)}
+.dxffile .m{display:inline-flex;align-items:center;gap:3px;font-size:calc(12px * var(--fs));font-weight:650;color:var(--muted)}
+.dxffile .m svg{width:30px;height:17px}
+.dxflinks{gap:8px;flex-wrap:wrap}
+.dxfmx{display:flex;flex-direction:column;gap:10px}
+.dxfmx[hidden]{display:none}
+.dxflinks .btn{flex:none}
+.signames{display:flex;align-items:flex-start;gap:8px;border:1px solid var(--line);border-radius:var(--r);padding:10px 12px}
+.signames .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;font-size:calc(13.5px * var(--fs))}
+.signames .t small{display:block;color:var(--muted);font-size:calc(12px * var(--fs))}
+.signames .btn{flex:none}
+#sigEdit{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+#sigEdit[hidden]{display:none}
+.inzip{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-top:8px}
+.inzip div{display:grid;grid-template-columns:40px minmax(0,1fr);gap:8px;align-items:center;padding:8px 10px;border-top:1px solid var(--line2);font-size:calc(13px * var(--fs))}
+.inzip div:first-child{border-top:0}
+.inzip .ic{width:36px;height:30px;border-radius:8px;background:var(--soft);display:grid;place-items:center;font:700 calc(10px * var(--fs)) var(--mono)}
+.inzip b{font-family:var(--mono);font-size:calc(12px * var(--fs));word-break:break-all}
+.inzip small{display:block;color:var(--muted)}
+#export.plan #xMulti,#export.plan #exportScope,#export.plan #xShareBox,#export.plan #xGoBox{display:none}
+#export.plan:not(.side){top:8vh;border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.25);overflow:hidden}
+body.deskpane #drawing .drwwhatbox{position:static;width:400px;max-height:none;flex:none;border-radius:0;box-shadow:none;border-left:1px solid var(--line)}
+body.deskpane #export.side,body.deskpane #planSet.side{left:auto;width:400px;border-left:1px solid var(--line);box-shadow:-10px 0 28px rgba(16,24,32,.18)}
+body.deskpane.drwside #drawing:not(.whaton) .drwcol{margin-right:400px}
+body.deskpane.drwside #drawing>header{margin-right:400px}
+#dxfMxHost{max-width:560px}
 </style>
 </head>
 <body>
@@ -913,7 +1022,7 @@ body.pp-closed .pp-n,body.pp-closed .pp-head .grow,body.pp-closed #ppNew,body.pp
       <div class="pp-all"><span>On the map:</span><button type="button" id="ppAll">Show all</button><span aria-hidden="true">·</span><button type="button" id="ppNone">Hide all</button></div>
       <div class="pp-rows" id="ppRows"></div>
     </div>
-    <p class="pp-foot">Tick: show it on the map, faded. Name: the map goes there; switch project at the top, in Projects.</p>
+    <p class="pp-foot">Open: work on it. Tick: show it on the map, faded. Name: the map goes there.</p>
     <div class="pp-menu" id="ppMenu" hidden role="menu" aria-label="Project"></div>
   </aside>
   <nav id="bottombar">
@@ -1109,8 +1218,10 @@ body.pp-closed .pp-n,body.pp-closed .pp-head .grow,body.pp-closed #ppNew,body.pp
     <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
     <h2 id="drawTitle">Drawing</h2>
     <span class="crpill" id="drawCredit" hidden></span>
-    <button class="iconbtn" id="drawStyleBtn" type="button" aria-label="Drawing style: numbers, IDs, vicinity map" title="Drawing style"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.6"/><circle cx="17.5" cy="10.5" r="1.6"/><circle cx="8.5" cy="7.5" r="1.6"/><circle cx="6.5" cy="12.5" r="1.6"/><path d="M12 2a10 10 0 1 0 0 20c1 0 1.7-.8 1.7-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7h2a5.6 5.6 0 0 0 5.6-5.6C22 6 17.5 2 12 2Z"/></svg></button>
+    <button class="iconbtn" id="drawSetBtn" type="button" aria-label="Plan settings: drawing style, clamp types, pole numbers, template" title="Plan settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.2"/><circle cx="10" cy="17" r="2.2"/></svg></button>
   </header>
+  <!-- v2.42.28: the plan and, beside it on a computer (below it on a phone), What to export -->
+  <div class="drwrow"><div class="drwcol">
   <div id="drawWrap"><canvas id="drawCanvas" aria-label="Drawing of the project: poles, route and spans"></canvas>
     <!-- v2.41: the legend (top left), the tools on the drawing (lower right, as on the map), the information line -->
     <details class="drwlegend" id="drawLegend" open><summary>Legend</summary><div id="drawLegendBody"></div></details>
@@ -1129,14 +1240,26 @@ body.pp-closed .pp-n,body.pp-closed .pp-head .grow,body.pp-closed #ppNew,body.pp
     </div>
     <p class="drwhint" id="drawHint"></p>
     <div id="drawInfo" hidden></div>
+    <!-- v2.42.28: the drawing of the export shown here; ‹ › go through them -->
+    <div class="drwpv" id="drawPv" hidden><button type="button" id="drawPvPrev" aria-label="Show the drawing before">‹</button><span id="drawPvT"></span><button type="button" id="drawPvNext" aria-label="Show the next drawing">›</button></div>
   </div>
-  <!-- v2.41: the plan's options, here (they were on the DXF card): photos or numbers, clamp types, which points -->
   <div class="foot drwbar">
-    <select id="drawRow" aria-label="Which drawing of the export is shown" title="Drawing of the export" hidden></select>
-    <select id="drawMarks" aria-label="Beside each point: photo, number or both" title="Beside each point"><option value="photo">Photos</option><option value="num">Numbers</option><option value="both">Photos + no.</option></select>
-    <button class="drwicon" id="drawCT" type="button" aria-pressed="true" aria-label="Clamp types on the plan" title="Clamp types on the plan (CA, GCA, 2A, DEG, RL before the size)"><svg viewBox="0 0 32 24" aria-hidden="true"><rect x="2" y="3" width="28" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><text x="16" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="currentColor" font-family="system-ui, sans-serif">CA</text></svg></button>
-    <details class="msel drwtypes" id="drawTypesBox"><summary id="drawTypesSum">All points</summary><div class="mopts up" id="drawTypes" role="group" aria-label="Which points get a photo or number"></div></details>
-    <button class="btn primary" id="drawDxf" type="button">Export DXF</button>
+    <button class="drwwhat" id="drawWhat" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="drawWhatBox"><small>What to export</small><span id="drawWhatV"></span></button>
+    <button class="btn primary" id="drawDxf" type="button">Export</button>
+  </div>
+  </div>
+  <!-- v2.42.28: What to export: a row for every point, each pole owner, each kind of other point (and owners put together), a column
+       for photos, numbers, both; each tick is one drawing (one DXF, and one PDF with "Also a PDF to print") -->
+  <aside class="drwwhatbox" id="drawWhatBox" role="dialog" aria-labelledby="mxTitle" hidden>
+    <div class="mxhd"><b id="mxTitle">What to export</b><span class="mxn" id="mxN"></span><button class="iconbtn" id="mxClose" type="button" aria-label="Close What to export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="mxbody">
+      <p class="hint" style="margin:0">Each tick is one drawing: a DXF, and a PDF too with <b>Also a PDF to print</b> at Export. The plan shows the one you tick last.</p>
+      <div class="mx" id="mxGrid" role="group" aria-label="The points, and what goes beside them"></div>
+      <div id="mxMix"></div>
+      <div class="mxnum"><span class="lbl">NUMBERS</span><div class="seg2" role="group" aria-label="Pole numbers"><button type="button" id="mxNumP" aria-pressed="true">Whole project</button><button type="button" id="mxNumO" aria-pressed="false">Each owner from 1</button></div><p class="hint" id="mxNumInfo" style="margin:0"></p></div>
+      <button class="btn primary" id="mxGo" type="button">Export</button>
+    </div>
+  </aside>
   </div>
 </section>
 <!-- v2.41: the drawing style (the user's): numbers, the IDs of the points, the vicinity map, with a preview -->
@@ -1195,6 +1318,42 @@ body.pp-closed .pp-n,body.pp-closed .pp-head .grow,body.pp-closed #ppNew,body.pp
     <p class="hint" id="stSum"></p>
   </div>
   <div class="foot"><button class="btn" id="stReset" type="button">Defaults</button><button class="btn primary grow" id="stDone" type="button">Done</button></div>
+</section>
+<!-- v2.42.28: Plan settings: how every drawing of the plan export looks and is numbered, in one place (they were on the DXF card,
+     the Drawing's bar and Drawing style) -->
+<section class="sheet" id="planSet" hidden aria-labelledby="planSetTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="planSetTitle">Plan settings</h2>
+  </header>
+  <div class="body">
+    <p class="hint" style="margin:0">For every drawing of the plan export. Kept on this phone; the pole numbers are kept in the project.</p>
+    <div class="psrows">
+      <button class="psrow" id="psStyle" type="button"><span class="t"><b>Drawing style</b><small>Cable labels, the numbers' colour and size, IDs, tower site, vicinity map</small></span><span class="chev" aria-hidden="true">›</span></button>
+      <label class="psrow" for="psCA"><span class="t"><b>Clamp types on the plan</b><small id="psCASum"></small></span><span class="swi"><input type="checkbox" id="psCA"><i aria-hidden="true"></i></span></label>
+      <details class="psrow" id="psNum"><summary><span class="t"><b>Pole numbers</b><small id="psNumSum"></small></span></summary>
+        <div class="psbody" id="numBox">
+          <label class="check"><input type="radio" name="numMode" id="numProject"><span><b>Whole project</b>: 1, 2, 3… along the cable from the site or ODF</span></label>
+          <label class="check"><input type="radio" name="numMode" id="numOwner"><span><b>Each owner from 1</b>: each pole owner's poles from 1 (one RTA list each)</span></label>
+          <label class="check"><input type="radio" name="numKeep" id="numKeep"><span>Keep the numbers already given: new poles get the next numbers</span></label>
+          <label class="check"><input type="radio" name="numKeep" id="numRenum"><span>Renumber along the route at each export</span></label>
+          <p class="hint" id="numInfo" style="margin:0"></p></div></details>
+      <label class="psrow" for="pmiLoops"><span class="t"><b>Loops in the cable lengths (PMI)</b><small id="psLoopSum"></small></span><span class="swi"><input type="checkbox" id="pmiLoops"><i aria-hidden="true"></i></span></label>
+      <details class="psrow" id="psTpl"><summary><span class="t"><b>Template and logo</b><small id="psTplSum"></small></span></summary>
+        <div class="psbody dxftpl" id="dxfTplBox"><p class="hint" id="dxfTplInfo" style="margin:0"></p><div class="row"><button class="btn small" id="dxfTplLoad" type="button">Load template file…</button><button class="btn small" id="dxfTplGet" type="button" hidden>Get the template</button></div><input type="file" id="dxfTplFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden>
+          <div class="row dxflogo"><img id="dxfLogoImg" alt="Your company logo" hidden><span class="hint" id="dxfLogoInfo"></span><button class="btn small" id="dxfLogoSet" type="button">Add company logo…</button><input type="file" id="dxfLogoFile" accept="image/png,image/jpeg" hidden></div></div></details>
+      <details class="psrow" id="psKind"><summary><span class="t"><b>Kind of DXF</b><small id="psKindSum"></small></span></summary>
+        <div class="psbody">
+          <label class="field">DRAWING<select id="dxfMode"><option value="tpl">On the company plan template</option><option value="simple">Simple: points and photos at UTM</option></select></label>
+          <div class="opts" id="dxfSimpleOpts">
+            <label class="check"><input type="checkbox" id="dxfRoads" checked><span>Add road centerlines from OpenStreetMap around the poles (needs internet)</span></label>
+            <label class="check"><input type="checkbox" id="dxfPhotos"><span>Photo beside each point (DXF R2000, AutoCAD 2000 or newer; a ZIP with the DXF and its photos). Untick for a plain DXF R12 without photos.</span></label>
+            <div class="opt2"><label class="field">Photo width in the drawing (m)<input type="number" id="dxfPhotoW" step="0.5" min="1" max="50"></label><label class="field">FOC allowance on each span (%)<input type="number" id="focPct" step="1" min="0" max="100"></label></div>
+            <div class="opt2"><label class="field">Pole circle radius (m)<input type="number" id="setSym" step="0.1" min="0.1"></label><label class="field">Label height (m)<input type="number" id="setTxt" step="0.1" min="0.1"></label></div>
+            <label class="field">UTM zone (WGS84, north)<select id="setZone"><option value="50">Zone 50N (CM 117°E)</option><option value="51">Zone 51N (CM 123°E)</option><option value="52">Zone 52N (CM 129°E)</option></select></label>
+          </div></div></details>
+    </div>
+  </div>
 </section>
 <!-- v2.28: find a pin -->
 <section class="sheet" id="find" hidden aria-labelledby="findTitle">
@@ -1294,35 +1453,19 @@ body.pp-closed .pp-n,body.pp-closed .pp-head .grow,body.pp-closed #ppNew,body.pp
       </div></details>
       <button class="btn primary" id="doKmz">Export KMZ</button>
     </div>
-    <div class="xcard">
-      <div class="head"><span class="ic">DXF</span><div><b>AutoCAD · DXF</b><p><span id="dxfDescTpl">The plan drawing on your company’s template, ready to open in AutoCAD: every sheet, each pole beside its road with its photo, the cable (red new, blue existing; broken line aerial, solid underground), arms, guys, loops, closures, NAPs, the roads and the street map of the area, at <span id="dxfZoneLbl2">UTM 51N</span>. Fields the app does not know stay blank.</span><span id="dxfDescSimple">Each pole a circle at <span id="dxfZoneLbl">UTM 51N</span> meters with its ID, pole details and photo beside it (DXF R2000 + the photos in one ZIP: keep them in the same folder); the linked route on CABLE_ROUTE with the FOC length of each span (span + allowance) on FOC_LENGTH; site, ODC, ODF, NAP, closures and handholes on their own layers.</span></p></div></div>
-      <label class="field">DRAWING<select id="dxfMode"><option value="tpl">On the company plan template</option><option value="simple">Simple: points and photos at UTM</option></select></label>
-      <div id="dxfTplBox" class="dxftpl"><p class="hint" id="dxfTplInfo" style="margin:0"></p><div class="row"><button class="btn small" id="dxfTplLoad" type="button">Load template file…</button><button class="btn small" id="dxfTplGet" type="button" hidden>Get the template</button></div><input type="file" id="dxfTplFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden>
-        <div class="row dxflogo"><img id="dxfLogoImg" alt="Your company logo" hidden><span class="hint" id="dxfLogoInfo"></span><button class="btn small" id="dxfLogoSet" type="button">Add company logo…</button><input type="file" id="dxfLogoFile" accept="image/png,image/jpeg" hidden></div>
-        <div class="dxfplan" id="dxfPlanOpts">
-          <div class="field"><span class="lbl">ON THE PLAN</span><p class="hint" id="dxfPlanSum" style="margin:0"></p>
-            <div class="row"><button class="btn small" id="dxfOpenDrawing" type="button">Set it in the Drawing</button><button class="btn small" id="dxfStyleBtn" type="button">Drawing style…</button></div></div>
-          <div class="field" id="numBox"><span class="lbl">POLE NUMBERS · THE SAME IN TABLE · CSV</span>
-            <label class="check"><input type="radio" name="numMode" id="numProject"><span><b>Whole project</b>: 1, 2, 3… along the cable from the site or ODF</span></label>
-            <label class="check"><input type="radio" name="numMode" id="numOwner"><span><b>Per pole owner</b>: each owner's poles from 1 (one RTA list each)</span></label>
-            <label class="check"><input type="radio" name="numKeep" id="numKeep"><span>Keep the numbers already given: new poles get the next numbers</span></label>
-            <label class="check"><input type="radio" name="numKeep" id="numRenum"><span>Renumber along the route at each export</span></label>
-            <p class="hint" id="numInfo" style="margin:0"></p></div>
-          <div class="field"><span class="lbl">DRAWINGS IN THIS EXPORT</span><div id="dxfSets" class="dxfrows" role="group" aria-label="Drawings in this export"></div><button class="btn small" id="dxfRowAdd" type="button">+ Add a drawing</button><p class="hint" id="dxfSetsInfo" style="margin:0"></p></div>
-          <label class="check"><input type="checkbox" id="dxfPdf"><span>Also the sheets as a PDF (A3) in the ZIP, drawn by the app from the DXF: for printing, or when AutoCAD is not at hand</span></label>
-          <label class="check"><input type="checkbox" id="pmiLoops"><span>Count the maintenance loops in the PMI cable lengths (total, aerial, underground). Unticked: the spans only</span></label>
-          <div class="field" id="sigBox"><span class="lbl">NAMES IN THE TITLE BLOCK</span>
-            <div class="opt2"><label class="field">Design Engineer<input type="text" id="sigDesign" maxlength="80" autocomplete="off" placeholder="Name"></label><label class="field">Project Engineer<input type="text" id="sigProject" maxlength="80" autocomplete="off" placeholder="Name"></label></div>
-            <div class="opt2"><label class="field">Head-Cable Engineering<input type="text" id="sigHead" maxlength="80" autocomplete="off" placeholder="Name"></label><label class="field">CSE Lead<input type="text" id="sigCse" maxlength="120" autocomplete="off" placeholder="From the online sheet"></label></div>
-            <p class="hint" id="sigInfo" style="margin:0"></p></div>
-        </div></div>
-      <details><summary>Options</summary><div class="opts">
-        <label class="check"><input type="checkbox" id="dxfRoads" checked><span>Add road centerlines from OpenStreetMap around the poles (needs internet)</span></label>
-        <label class="check"><input type="checkbox" id="dxfPhotos"><span>Photo beside each point (DXF R2000, AutoCAD 2000 or newer; a ZIP with the DXF and its photos). Untick for a plain DXF R12 without photos.</span></label>
-        <div class="opt2"><label class="field">Photo width in the drawing (m)<input type="number" id="dxfPhotoW" step="0.5" min="1" max="50"></label><label class="field">FOC allowance on each span (%)<input type="number" id="focPct" step="1" min="0" max="100"></label></div>
-        <div class="opt2"><label class="field">Pole circle radius (m)<input type="number" id="setSym" step="0.1" min="0.1"></label><label class="field">Label height (m)<input type="number" id="setTxt" step="0.1" min="0.1"></label></div>
-        <label class="field">UTM zone (WGS84, north)<select id="setZone"><option value="50">Zone 50N (CM 117°E)</option><option value="51">Zone 51N (CM 123°E)</option><option value="52">Zone 52N (CM 129°E)</option></select></label>
-      </div></details>
+    <div class="xcard" id="dxfCard">
+      <div class="head"><span class="ic">DXF</span><div><b>AutoCAD · DXF</b><p><span id="dxfDescTpl">The plan on your company’s template, ready for AutoCAD, at <span id="dxfZoneLbl2">UTM 51N</span>: what goes on each drawing is set in What to export, on the Drawing.</span><span id="dxfDescSimple">Each point a circle at <span id="dxfZoneLbl">UTM 51N</span> meters with its ID, details and photo beside it, the route with the FOC length of each span (a ZIP: keep the photos with the DXF).</span></p></div></div>
+      <div class="dxfsum" id="dxfSum"></div>
+      <div class="field" id="dxfFilesBox"><span class="lbl" id="dxfFilesLbl">FILES</span><div class="dxffiles" id="dxfFiles"></div>
+        <div class="dxfmx" id="dxfMxHost" hidden></div>
+        <div class="row dxflinks"><button class="btn small" id="dxfWhat" type="button">Change what to export</button><button class="btn small" id="dxfSetBtn" type="button">Plan settings</button></div></div>
+      <div class="field" id="sigBox"><span class="lbl">NAMES ON THE SHEET</span>
+        <div class="signames"><span class="t" id="sigLine"></span><button class="btn small" id="sigChange" type="button" aria-expanded="false" aria-controls="sigEdit">Change</button></div>
+        <div id="sigEdit" hidden>
+          <div class="opt2"><label class="field">Design Engineer<input type="text" id="sigDesign" maxlength="80" autocomplete="off" placeholder="Name"></label><label class="field">Project Engineer<input type="text" id="sigProject" maxlength="80" autocomplete="off" placeholder="Name"></label></div>
+          <div class="opt2"><label class="field">Head-Cable Engineering<input type="text" id="sigHead" maxlength="80" autocomplete="off" placeholder="Name"></label><label class="field">CSE Lead<input type="text" id="sigCse" maxlength="120" autocomplete="off" placeholder="From the online sheet"></label></div>
+          <p class="hint" id="sigInfo" style="margin:0"></p></div></div>
+      <label class="swrow" for="dxfPdf" id="dxfPdfRow"><span class="t"><b>Also a PDF to print</b><small>The sheets on A3, drawn by the app from each DXF, in the ZIP</small></span><span class="swi"><input type="checkbox" id="dxfPdf"><i aria-hidden="true"></i></span></label>
       <button class="btn primary" id="doDxf">Export DXF</button>
     </div>
     <div class="xcard">
@@ -1369,6 +1512,7 @@ body.pp-closed .pp-n,body.pp-closed .pp-head .grow,body.pp-closed #ppNew,body.pp
       <h3>Ready</h3>
       <p id="resultName" class="mono" style="margin:0;word-break:break-all"></p>
       <p id="resultCredit" class="hint" style="margin:4px 0 0" hidden></p>
+      <div class="inzip" id="resultInside" hidden></div>
       <div class="result"><button class="btn primary grow" id="resSave">Save to phone</button><button class="btn grow" id="resShare">Share…</button></div>
     </div>
   </div>
