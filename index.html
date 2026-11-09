@@ -934,6 +934,17 @@ details.psrow[open]>summary::after{transform:rotate(90deg)}
 .mbxres>div{display:flex;gap:8px;align-items:flex-start;padding:8px 10px}.mbxres .ok{color:var(--ok);font-weight:800}.mbxres .no{color:var(--bad);font-weight:800}
 .tmrow{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid var(--line2)}.tmrow:first-child{border-top:0}.tmrow .t{min-width:0;display:flex;flex-direction:column}.tmrow .t small{color:var(--muted)}.tmrow .b{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 #tmCoList,#tmMemList{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--surface)}
+.mbxbox{gap:8px;border-left:5px solid var(--ok)}
+.mbxhead{display:flex;align-items:center;justify-content:space-between;gap:8px}.mbxhead b{font-size:calc(15px * var(--fs))}
+.mbxlist{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--surface)}
+.mbxlist .tmrow.old{background:color-mix(in srgb,var(--warn,#f59f00) 12%,transparent)}
+.mbxout>summary{cursor:pointer;color:var(--muted);font-size:calc(13px * var(--fs));font-weight:600;padding:4px 0}
+.mbxout .mbxlist{margin-top:6px}
+.curteam{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;background:var(--surface)}
+.curteam p{margin:0;font-size:calc(13px * var(--fs))}.curteam .tl{color:var(--ink)}.curteam .tl b{font-weight:700}
+.curteam .tfix{color:var(--bad)}.curteam .tnote{color:var(--muted);font-style:italic;white-space:pre-wrap}
+.curteam .row{display:flex;gap:8px;margin-top:4px}
+.tmtool.send{color:var(--accent)}
 .tmst{font-size:calc(11px * var(--fs));font-weight:700;padding:2px 8px;border-radius:999px;background:var(--soft);white-space:nowrap;align-self:center}.tmrow .b{align-items:center}
 .inzipbox{margin-top:6px}.inzipbox>summary{cursor:pointer;color:var(--muted);font-size:calc(13px * var(--fs));font-weight:600;padding:4px 0;list-style:none}.inzipbox>summary::-webkit-details-marker{display:none}.inzipbox>summary::after{content:" ▸"}.inzipbox[open]>summary::after{content:" ▾"}
 .inzip div{display:grid;grid-template-columns:40px minmax(0,1fr);gap:8px;align-items:center;padding:8px 10px;border-top:1px solid var(--line2);font-size:calc(13px * var(--fs))}
@@ -1715,12 +1726,19 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <p class="hint" style="margin:0">A project is one task: a survey, a PAT, a defect cleanup or a FAT. Photos are taken inside a project.</p>
       <button class="btn primary" id="tmNew" type="button">+ New project</button>
     </div>
+    <section class="group mbxbox" id="mbxBox" hidden aria-labelledby="mbxBoxT">
+      <div class="mbxhead"><b id="mbxBoxT">Team mailbox</b><button class="btn sm" id="mbxCheckIn" type="button">Check</button></div>
+      <div id="mbxIn" class="mbxlist"></div>
+      <details class="mbxout" id="mbxOutBox" hidden><summary id="mbxOutSum">Sent by you</summary><div id="mbxOut" class="mbxlist"></div></details>
+      <p class="hint" id="mbxBoxInfo" style="margin:0"></p>
+    </section>
     <section class="group tmcur" id="wfBox" aria-labelledby="curName">
       <div class="tmhead"><span class="badge cat" id="projBadge">SURVEY</span><span class="tmstate" id="tmState"></span><span class="grow"></span><span class="tmopen">Open now</span></div>
       <h3 class="tmname" id="curName"></h3>
       <span class="tmsub" id="curSub"></span>
       <span class="tmsub tl" id="curLast" hidden></span>
       <div class="tmtools" id="curTools" role="group" aria-label="This project"></div>
+      <div class="curteam" id="curTeam" hidden></div>
       <button class="tmprog" id="tmStepsBtn" type="button" aria-expanded="false" aria-controls="wfSteps"><span class="bar"><i id="tmBar"></i></span><span id="tmProgTxt"></span></button>
       <div id="wfSteps" hidden></div>
       <button class="btn primary" id="wfNext" type="button">Next</button>
@@ -1852,8 +1870,8 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div class="body">
     <p class="hint">Once for the whole company, best on a computer signed in to the company's Google account (for example mailbox@yourcompany; a free Gmail account works too). About 10 minutes. Your coordinators and field partners then get the mailbox by themselves.</p>
     <ol class="mbxsteps">
-      <li><b>Open the mailbox script</b> and click <b>Make a copy</b> (check the account at the top right first). <a id="mbxScript" href="#" target="_blank" rel="noopener" hidden>Open the mailbox script</a><span class="hint" id="mbxNoScript" hidden> Ask your admin for the link to the G-eSAA mailbox script.</span></li>
-      <li>In the copy, the function box says <b>setup</b>: click <b>Run</b>, then <b>Review permissions</b>, pick the company account and allow the <b>two</b> things it asks (only the Drive files it makes; connect to an external service). If Google says it hasn't verified the app: <b>Advanced → Go to … (unsafe)</b>.</li>
+      <li><b>Open the mailbox script</b> (check the account at the top right first). It opens view only: on the left click <b>Overview</b> (ⓘ), then <b>Make a copy</b> (the two-pages icon, top right). Work in the copy: it has <b>Deploy</b>. <a id="mbxScript" href="#" target="_blank" rel="noopener" hidden>Open the mailbox script</a><span class="hint" id="mbxNoScript" hidden> Ask your admin for the link to the G-eSAA mailbox script.</span></li>
+      <li>In the copy, the function box says <b>setup</b>: click <b>Run</b>, then <b>Review permissions</b>, pick the company account and allow the <b>two</b> things it asks (only the Drive files it makes; connect to an external service). If Google says it hasn't verified the app: <b>Advanced → Go to … (unsafe)</b>. The log says <b>Mailbox ready</b>; if it says the Drive API is turned off: on the left, <b>Services +</b> → <b>Drive API</b> → <b>Add</b>, then Run again.</li>
       <li><b>Deploy → New deployment → Web app</b>. Execute as: <b>Me</b>. Who has access: <b>Anyone</b>. <b>Deploy</b>, then copy the <b>Web app URL</b>.</li>
       <li>Paste it here and tap <b>Check and save</b>. A test file goes straight to Google, comes back through the mailbox and is deleted.</li>
     </ol>
@@ -1896,6 +1914,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       </div>
       <div class="sitefields" id="npSiteFields" hidden></div>
       <label class="field" id="npCatBox"><span>TASK CATEGORY <span class="req" aria-hidden="true">*</span></span><select id="npCat" required aria-required="true"><option value="" disabled selected>Choose…</option><option value="survey">Survey</option><option value="PAT">PAT</option><option value="Cleanup">Defect Cleanup</option><option value="FAT">FAT</option></select></label>
+      <p class="hint" id="npFpInfo" hidden>You are a field partner in a team: surveys come from your coordinator, in <b>Projects → Team mailbox</b>. PAT, defect cleanup and FAT start here as before.</p>
       <label class="field" id="npPurposeBox"><span>PURPOSE <span class="req" aria-hidden="true">*</span></span><select id="npPurpose" required aria-required="true"></select></label>
       <p class="hint" id="npScope" hidden></p>
       <label class="field" id="npNameBox"><span>PROJECT NAME <span class="req" aria-hidden="true">*</span></span><input type="text" id="npName" required aria-required="true" autocomplete="off" autocapitalize="characters" placeholder="Type a name"></label>
@@ -1914,11 +1933,30 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
         <label class="field">INSPECTION DATE<input type="date" id="npDate"></label>
       </div>
       <label class="field">REMARKS / NOTES<textarea id="npNotes" style="min-height:60px" placeholder="Optional"></textarea></label>
+      <div class="field" id="npAssignBox" hidden><span class="lbl">ASSIGN TO</span><div class="chips" id="npAssign"></div><p class="hint" id="npAssignInfo" style="margin:0"></p></div>
       <p class="hint"><span class="req">*</span> Required</p>
       <p class="warnline bad" id="npErr" hidden role="alert"></p>
     </div>
   </div>
   <div class="foot"><button class="btn" id="npCancel" type="button">Cancel</button><button class="btn primary grow" id="npCreate" type="button">Create project</button></div>
+</section>
+
+<!-- v2.43 beta 2: send through the team mailbox -->
+<section class="sheet" id="mbxSendSheet" hidden aria-labelledby="mbxSendT">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="mbxSendT">Send</h2>
+  </header>
+  <div class="body">
+    <div class="group">
+      <div class="field"><span class="lbl">TO</span><div id="mbxTo" class="bslist"></div></div>
+      <div class="field" id="mbxWhatBox"><span class="lbl">WHAT</span><div id="mbxWhat" class="bslist"></div></div>
+      <label class="field" id="mbxNoteBox"><span id="mbxNoteLbl">NOTE (optional)</span><textarea id="mbxNote" maxlength="600" style="min-height:60px" placeholder="Optional"></textarea></label>
+      <p class="hint" id="mbxSendInfo" style="margin:0"></p>
+      <p class="warnline bad" id="mbxSendErr" hidden role="alert"></p>
+    </div>
+  </div>
+  <div class="foot"><button class="btn" id="mbxSendCancel" type="button">Cancel</button><button class="btn primary grow" id="mbxGo" type="button">Send</button></div>
 </section>
 
 <!-- offline maps -->

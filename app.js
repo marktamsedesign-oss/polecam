@@ -412,6 +412,7 @@
       (e) => { if (!quiet) LOG.warn('native.fail', { call: `${name}.${method}`, ms: Date.now() - t0, ...errInfo(e) }); throw e; });
   }
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const tmHooks = {}; // v2.43 beta 2: the team mailbox's hooks into Projects, New project, the KMZ reference and the capture button (set further down)
   /* ---- project mode + acceptance helpers ---- */
   const pmeta = (name) => (S.meta && S.meta[name || S.project]) || { mode: 'survey' };
   const isAcc = (name) => pmeta(name).mode === 'acceptance';
@@ -765,7 +766,7 @@
   const APP_VER = '2.43.0';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '1.1'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '2'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -2333,6 +2334,7 @@
     LOG.info('ref.loaded', n);
     drawRef(true); renderRefInfo();
     const planTxt = boqOn() && svPurpose() === 'As-built' ? (n.plan ? ` · As-Plan: ${n.plan} element${n.plan === 1 ? '' : 's'}, ${n.sized} with sizes for the BOQ` : ' · no G-eSAA sizes in it (not an As-Plan KMZ from G-eSAA)') : '';
+    if (tmHooks.refAdded) tmHooks.refAdded(S.project).catch((e) => { busy(false); toast(`The KMZ is loaded, but not sent: ${e.message || e}`, 6000); }); // v2.43 beta 2
     toast(`Reference loaded: ${n.lines ? `${n.lines} line${n.lines === 1 ? '' : 's'} (${n.km} km)` : ''}${n.lines && n.pins ? ' · ' : ''}${n.pins ? `${n.pins} pin${n.pins === 1 ? '' : 's'}` : ''}${n.areas ? ` · ${n.areas} area${n.areas === 1 ? '' : 's'}` : ''}${planTxt}`, 5000);
   }
   async function refGeoFor(name) {
@@ -7635,6 +7637,7 @@
       }
     }
     $('delProjConfirm').hidden = true; $('delProject').hidden = false; // v2.22: a completed project is deleted with an admin's approval
+    if (tmHooks.projects) tmHooks.projects(); // v2.43 beta 2: the team mailbox (inbox, sent) and this project's team line
   }
   /* v2.22: the projects on this phone as a task list (filter, search, progress); tap one to open it. */
   let tmShow = 'active', tmKind = '';
@@ -7691,7 +7694,7 @@
     if (!shown.length) { const p0 = document.createElement('p'); p0.className = 'hint'; p0.style.margin = '4px 2px'; p0.textContent = q ? 'No project matches the search.' : tmShow === 'done' ? 'No completed project.' : 'No project in progress.'; box.appendChild(p0); }
   }
   /* v2.26: the tools of a project, on its card: Share, Folder (its Drive folder from the online sheet) and Delete */
-  const TOOL_ICON = { ref: 'M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2ZM9 4v14M15 6v14', share: 'M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M12 3v12M7 8l5-5 5 5', folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z', del: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6' };
+  const TOOL_ICON = { send: 'M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z', ref: 'M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2ZM9 4v14M15 6v14', share: 'M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M12 3v12M7 8l5-5 5 5', folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z', del: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6' };
   function projTools(name, small) {
     const row = document.createElement('div'); row.className = 'tmtools'; row.setAttribute('role', 'group'); row.setAttribute('aria-label', `Project ${name}`);
     if (!name) return row;
@@ -7703,6 +7706,7 @@
       b.addEventListener('click', (e) => { e.stopPropagation(); guard(() => fn(name), `${label} failed`); });
       row.appendChild(b);
     };
+    if (tmHooks.tools) tmHooks.tools(name, mk); // v2.43 beta 2: Send, through the team mailbox
     mk('share', 'Share', shareProject, 'Send this project: only the changes (for your team leader) or the whole project');
     if (m.siteLink) mk('folder', 'Folder', (n) => openExternal(pmeta(n).siteLink), 'Open its Google Drive folder');
     if (!small && name === S.project) mk('ref', refInfo(name) ? 'KMZ ✓' : 'KMZ', refTool, 'The KMZ reference of this project (e.g. the As-Plan for an As-Built): load, show or hide, replace'); // v2.28
@@ -7766,7 +7770,7 @@
   }
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
-  function shareMeta(name, U) { const { shares, recv, updates, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; } return m; } // (v2.42.20: + the fibers)
+  function shareMeta(name, U) { const { shares, recv, updates, team, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; } return m; } // (v2.42.20: + the fibers)
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
@@ -7857,7 +7861,7 @@
     if (!c.flags.length) return true;
     return ask('Check before you continue', `${c.flags.join('\n')}\n\nContinue anyway?`, [{ label: 'Cancel', value: false }, { label: 'Continue', value: true, primary: true }]);
   }
-  function openProjects() { renderProjects(); openSheet('projects'); cloudSync(false); }
+  function openProjects() { renderProjects(); openSheet('projects'); cloudSync(false); if (tmHooks.openProjects) tmHooks.openProjects(); }
   $('projectBtn').addEventListener('click', openProjects);
   /* v2.21: many projects on one phone: a search (name, category, site, vendor, task ID, notes) */
   const projWords = (name) => { const m = pmeta(name); return [name, STAGE_LABEL[projKind(name)], PURPOSE_LABEL[m.purpose] || '', m.site, m.contractor, m.taskId, m.notes, m.fromPat].filter(Boolean).join(' ').toLowerCase(); };
@@ -7919,6 +7923,10 @@
         if (bytes > 1.5e9) throw new Error('more than 1.5 GB of photos: share fewer projects at a time');
       }
       list.push({ name, file: `p${k}/points.json`, kind: projKind(name), records: pts.length });
+    }
+    if (opt && opt.ref && names.length === 1 && refInfo(names[0])) { // v2.43 beta 2: a task through the team mailbox carries its KMZ reference
+      const info = refInfo(names[0]), rec = await dbGet('packs', refKey(info.id)).catch(() => null);
+      if (rec && rec.geo) files.push({ name: 'ref.json', data: JSON.stringify({ name: info.name, at: info.at, n: info.n, geo: rec.geo }) });
     }
     files.unshift({ name: 'bundle.json', data: JSON.stringify({ app: 'G-eSAA', kind: 'bundle', v: 1, exported: now, by: byLine(), exportedBy: exporterInfo(), team: S.team ? S.team.id : '', projects: list, ...(U ? { update: { n: U.n, full: !!U.full, sender: U.sender || '' } } : {}) }, null, 1) });
     files.push({ name: 'exported_by.txt', data: exporterText().replace(/^Project: .*$/m, `Projects: ${names.join(', ')}`) });
@@ -10115,7 +10123,7 @@
     if (proj) { // v2.42.4: the project's details first (a restore cut short left records with none: a PAT showed as an open survey)
       if (!S.projects.includes(proj)) S.projects.push(proj);
       S.meta = S.meta || {};
-      if (meta.meta && !S.meta[proj]) { const { shares, recv, updates, ...mm } = meta.meta; S.meta[proj] = mm; } // v2.42.18: the sender's own share counts stay on the sender's phone
+      if (meta.meta && !S.meta[proj]) { const { shares, recv, updates, team, ...mm } = meta.meta; S.meta[proj] = mm; } // (v2.43: and its team details) // v2.42.18: the sender's own share counts stay on the sender's phone
       persist();
     }
     let n = 0, kept = 0, routeNew = false, goneHere = 0;
@@ -12200,7 +12208,7 @@
   const siteReq = () => { const v = sheetSiteReq(); return v != null ? v : !!pol().siteRequired; };
   /** When the phone talks to the online sheet (v2.15): on every change (default), every hour, or only when Sync is tapped. */
   const syncMode = () => (['change', 'hour', 'manual'].includes(S.syncMode) ? S.syncMode : 'change');
-  async function cloudRequest(src, init, q) {
+  async function cloudRequest(src, init, q, ms) { // (v2.43 beta 2: ms, a longer wait for the mailbox's 2 MB pieces)
     const u = new URL(src.url);
     if (q && q.probe) { u.searchParams.set('probe', '1'); u.searchParams.set('v', APP_VER); } // only asks whether the sheet uses company keys
     else if (q && (q.inv || q.mvc)) { u.searchParams.set(q.inv ? 'inv' : 'mvc', q.inv || q.mvc); u.searchParams.set('v', APP_VER); } // v2.42.6: a short invite or move link (its code only)
@@ -12221,12 +12229,12 @@
       if (myTerrs().length) u.searchParams.set('terr', myTerrs().join(','));
     }
     try {
-      const r = await withTimeout(fetch(u.href, { cache: 'no-store', redirect: 'follow', ...(init || {}) }), 25000, 'The online sheet did not answer');
+      const r = await withTimeout(fetch(u.href, { cache: 'no-store', redirect: 'follow', ...(init || {}) }), ms || 25000, 'The online sheet did not answer');
       return await r.json();
     } catch (e) {
       if (!NATIVE) throw e; // the APK can also ask through Android's own HTTP stack
       const r = await withTimeout(nativeCall('CapacitorHttp', 'request', { url: u.href, method: init ? 'POST' : 'GET', responseType: 'json',
-        headers: { 'User-Agent': APP_UA(), ...(init ? { 'Content-Type': 'text/plain;charset=utf-8' } : {}) }, ...(init ? { data: init.body } : {}) }), 25000, 'The online sheet did not answer');
+        headers: { 'User-Agent': APP_UA(), ...(init ? { 'Content-Type': 'text/plain;charset=utf-8' } : {}) }, ...(init ? { data: init.body } : {}) }), ms || 25000, 'The online sheet did not answer');
       return typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
     }
   }
@@ -12389,6 +12397,7 @@
   function npSync() {
     const cat = $('npCat'), pur = $('npPurpose'), allowed = ROLE_PURPOSES[siteRole(npSite)];
     [...cat.options].forEach((o) => { if (o.value) o.disabled = !CAT_PURPOSES[o.value].some((p) => allowed.includes(p)); });
+    if (tmHooks.npCats) tmHooks.npCats(cat); // v2.43 beta 2: a field partner in a team gets his surveys from his coordinator
     if (cat.value && cat.selectedOptions[0] && cat.selectedOptions[0].disabled) cat.value = '';
     const list = cat.value ? CAT_PURPOSES[cat.value].filter((p) => allowed.includes(p)) : [], keep = pur.value;
     pur.innerHTML = !list.length ? '<option value="">Choose the task category first</option>' : list.length > 1 ? '<option value="" disabled>Choose…</option>' : '';
@@ -12477,6 +12486,7 @@
     $('npCat').value = ''; // the user chooses the task category
     $('npRep').value = (S.user && S.user.name) || ''; $('npDate').value = todayIso(); $('npStart').value = todayIso(); renderNpTypes(allInspTypes());
     $('npSites').hidden = true; npSync(); renderSites();
+    if (tmHooks.npReset) tmHooks.npReset(); // v2.43 beta 2: Assign to
   }
   function openNewProject() { npReset(); openSheet('newProj'); cloudSync(false).then(() => { if (!$('newProj').hidden) renderSites(); }); }
   $('newProjBtn').addEventListener('click', openNewProject);
@@ -12517,6 +12527,7 @@
   $('npCreate').addEventListener('click', () => guard(async () => {
     const k = $('npCat').value, purpose = $('npPurpose').value, name = $('npName').value.trim().slice(0, 100), notes = $('npNotes').value.trim(), f = npFile;
     const fromFile = npStageCat() && !!f, acc = k !== 'survey';
+    if (tmHooks.npCheck && !tmHooks.npCheck(k)) return; // v2.43 beta 2
     npTried = true; const miss = npMark();
     if (miss.length) { $(miss[0][1]).focus(); return; }
     if (!purpose || !ROLE_PURPOSES[siteRole(npSite)].includes(purpose)) { toast('That is not your part of this site'); return; }
@@ -12541,6 +12552,7 @@
     const label = `${PURPOSE_LABEL[k === 'survey' ? purpose : k]} “${name}” created`;
     if (f) { try { await loadRefFile(f); } catch (e) { busy(false); LOG.warn('ref.fail', errInfo(e)); toast(`${label}. The KMZ could not be read: ${e.message || e}`, 7000); } }
     else { fitProject(); toast(label, 3000); }
+    if (k === 'survey' && tmHooks.created) await tmHooks.created(name); // v2.43 beta 2: Assign to → sent to the field partners
   }, 'Project not created'));
 
   /* ---- v2.19: opening a shared file: Projects → Open shared projects, Android "Open with G-eSAA" / Share to G-eSAA, or Share to the
@@ -13895,6 +13907,7 @@
   $('captureBtn').addEventListener('click', () => {
     if (!S.project) { toast('Create a project first: photos are taken inside a project', 4500); askNewProject(); return; }
     if (patClosed()) { toast('This PAT is complete and locked: nothing can be added. Fix its items in the defect cleanup or the FAT (Projects).', 6000); return; }
+    { const lk = tmHooks.locked ? tmHooks.locked() : ''; if (lk) { toast(lk, 6500); return; } } // v2.43 beta 2: a task the coordinator accepted
     if (visitStage() === 'Cleanup') { // the cleanup works on the PAT pins only: photos are taken from a pin's card
       const t = nextTarget();
       toast(t ? 'Open the pin, then tap “📷 Photo of the fix” on the item' : 'All items are fixed. Share the cleanup KMZ from Projects.', 4500);
@@ -13906,7 +13919,7 @@
      The online sheet (sheet script v2.43) keeps each person's role, who is in whose team, and the company's mailbox address and
      key. The mailbox itself is a small script in the contractor's own Google Drive (mailbox/README.txt): files are sent straight
      to Google with an upload address the script opens, and read back through the script. This beta sets up the teams and the
-     mailbox and checks it end to end; sending projects through it comes in the next beta. */
+     mailbox and checks it end to end; beta 2 (below) sends projects through it. */
   const TM_ST = { asked: 'Asked', in: 'In the team', declined: 'Declined', left: 'Left', removed: 'Removed' };
   const MBX_ACT = 'action'; // the field the mailbox script reads the action from
   const tmEmail = () => String((S.user && S.user.email) || '').trim().toLowerCase();
@@ -14029,7 +14042,8 @@
     if (j) tmDo('Asking to join…', () => tmPost('teamJoin', { name: (S.user && S.user.name) || '', coordinator: j.dataset.join }));
     else if (l) guard(async () => {
       const t = tmSnap(), c = ((t && t.coordinators) || []).find((x) => x.email === l.dataset.leave), st = (((t && t.myTeams) || []).find((x) => x.coordinator === l.dataset.leave) || {}).status;
-      if (st === 'in' && !(await ask(`Leave ${(c && c.name) || 'this'} team?`, 'You stop getting projects from this coordinator. Projects already on this phone stay here; tasks you have not finished go back to the coordinator when sending comes (next beta).', [{ label: 'Cancel', value: false }, { label: 'Leave the team', value: true, primary: true }]))) return;
+      if (st === 'in' && !(await ask(`Leave ${(c && c.name) || 'this'} team?`, 'You stop getting projects from this coordinator. Projects already on this phone stay here; next, you can send the tasks you have not finished back to the coordinator.', [{ label: 'Cancel', value: false }, { label: 'Leave the team', value: true, primary: true }]))) return;
+      if (st === 'in' && !(await mbxLeaveSend(l.dataset.leave))) return; // v2.43 beta 2
       await tmDo('Leaving the team…', () => tmPost('teamLeave', { coordinator: l.dataset.leave }));
     }, 'Not left');
   });
@@ -14046,8 +14060,8 @@
 
   /* ---- the mailbox (the contractor's own script) ---- */
   const MBX_WHY = { key: 'the mailbox did not accept the key (tap Refresh in Team; a coordinator may have changed it)', box: 'the mailbox did not accept this email', tid: 'bad transfer id', size: 'the file is too big for one call', parts: 'the file did not arrive complete', meta: 'the file details are too long', id: 'that file is not in the mailbox' };
-  async function mbxPost(url, action, body) {
-    const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ [MBX_ACT]: action, ...(body || {}) }) });
+  async function mbxPost(url, action, body, ms) {
+    const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ [MBX_ACT]: action, ...(body || {}) }) }, undefined, ms);
     if (!j || !j.ok) { const code = j && j.error; const e = new Error(MBX_WHY[code] || code || 'the mailbox did not answer'); e.code = code; throw e; }
     return j;
   }
@@ -14145,11 +14159,630 @@
     } catch (e) { tmFail(e); } finally { busy(false); }
   }
   // a field partner's phone takes the mailbox (or a changed key) at start, as it takes the sites from the online sheet
-  setTimeout(() => { if (tmOn() && tmVerified() && navigator.onLine !== false) tmLoad().then(renderTeamRow, (e) => LOG.info('team.start', { code: e.code || '' })); }, 6000);
+  setTimeout(() => { if (tmOn() && tmVerified() && navigator.onLine !== false) tmLoad().then(() => { renderTeamRow(); mbxStartCheck().catch(() => {}); }, (e) => LOG.info('team.start', { code: e.code || '' })); }, 6000); // (beta 2: then what waits in the mailbox)
   $('tmMbxRekey').addEventListener('click', () => guard(async () => {
     if (!(await ask('Change the mailbox key?', 'Use this after removing someone from a team. Everyone still in a team of your company gets the new key at their next sync; a phone that was removed can no longer reach the mailbox.', [{ label: 'Cancel', value: false }, { label: 'Change key', value: true, primary: true }]))) return;
     await mbxRekeyRun();
   }, 'Key not changed'));
+  /* ================= v2.43 beta 2: projects through the company mailbox =================
+     A coordinator assigns a survey to one or more field partners (New project → Assign to, or Send on a project); each partner's
+     phone downloads it from the mailbox; the partner sends back only the changes (or the whole project); the coordinator downloads
+     and merges, asks for fixes, or accepts. Each send is its own transfer in the receiver's box (the receiver's email). The
+     sender's phone keeps its copy, so Resend is one tap. Bytes go straight to Google, 4 MB at a time, at an upload address the
+     mailbox script opens (in pieces through the script when Google refuses that phone); they come back through the script in
+     2 MB ranges, 4 at once, and are checked (SHA-256) before anything is merged. A project is matched on both phones by its
+     task key (tk), so each phone keeps its own project name. */
+  const MBX_CHUNK = 4 * 1048576, MBX_PIECE = 2 * 1048576, MBX_PAR = 4, MBX_DAY = 86400000;
+  let mbxIn = null, mbxInAt = 0, mbxInErr = '', mbxNoDirect = false, mbxSend = null, npAssign = new Set();
+  const mbxOn = () => !!(S.mbx && S.mbx.url && S.mbx.key && tmVerified() && ['Coordinator', 'Field Partner'].includes(tmRole()));
+  const tmTeam = (name) => (S.meta && S.meta[name] && S.meta[name].team) || null;
+  const setTeam = (name, T) => { S.meta = S.meta || {}; S.meta[name] = { ...pmeta(name), team: T }; };
+  const mbxTid = () => `g${Date.now().toString(36)}${mbxRid(10)}`;
+  const mbxMB = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(n >= 10485760 ? 0 : 1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} bytes`);
+  const pl2 = (k, w) => `${k} ${w}${k === 1 ? '' : 's'}`;
+  const dec = (u8) => new TextDecoder().decode(u8);
+  function tmNameOf(email, fb) {
+    const e = String(email || '').toLowerCase(), t = tmSnap();
+    if (!e) return fb || '';
+    if (e === tmEmail()) return (S.user && S.user.name) || e;
+    const hit = t && [...(t.coordinators || []), ...(t.members || [])].find((x) => x.email === e);
+    return (hit && hit.name) || fb || e;
+  }
+  const tmFirst = (email, fb) => String(tmNameOf(email, fb) || 'them').split(/[\s@]+/)[0];
+  const tmPartners = () => (((tmSnap() || {}).members) || []).filter((m) => m.status === 'in');
+  const mbxStopErr = () => { const e = new Error('stopped'); e.code = 'stop'; return e; };
+  /** One call to the company mailbox, with the key; network trouble and a busy mailbox are tried again; a changed key is fetched
+      from the online sheet once. */
+  async function mbxCall(action, body, ms, tries) {
+    let rekeyed = false;
+    for (let i = 0; ; i++) {
+      if (!S.mbx) throw new Error('no team mailbox on this phone (Settings → Team)');
+      try { return await mbxPost(S.mbx.url, action, { k: S.mbx.key, ...(body || {}) }, ms); }
+      catch (e) {
+        if (cancelFlag) throw mbxStopErr();
+        if (e.code === 'key' && !rekeyed) { rekeyed = true; const k0 = S.mbx.key; await tmLoad().catch(() => null); if (S.mbx && S.mbx.key !== k0) { i--; continue; } throw e; }
+        if ((e.code && !['busy', 'drive', 'server'].includes(e.code)) || i >= (tries == null ? 2 : tries)) throw e;
+        await sleep(1200 * (i + 1));
+      }
+    }
+  }
+  async function mbxPool(jobs, fn) {
+    let next = 0, err = null;
+    const worker = async () => { while (!err && next < jobs.length) { const j = jobs[next++]; try { await fn(j); } catch (e) { err = err || e; } } };
+    await Promise.all(Array.from({ length: Math.min(MBX_PAR, jobs.length) }, worker));
+    if (err) throw err;
+  }
+  /** The bytes straight to Google, 4 MB at a time. true: Google has them all; 'unsure': the last answer was lost (done checks). */
+  async function mbxUpDirect(box, tid, data, prog) {
+    const size = data.length, s = await mbxCall('session', { box, tid, size, origin: location.origin });
+    const upTo = (r) => { const m = /(\d+)\s*$/.exec((r && r.headers.get('Range')) || ''); return m ? +m[1] + 1 : null; };
+    let start = 0, fails = 0;
+    while (start < size) {
+      if (cancelFlag) throw mbxStopErr();
+      const end = Math.min(size, start + MBX_CHUNK);
+      let r;
+      try { r = await withTimeout(fetch(s.url, { method: 'PUT', headers: { 'Content-Range': `bytes ${start}-${end - 1}/${size}` }, body: data.subarray(start, end) }), 120000, 'Google did not answer'); }
+      catch (e) { // the connection dropped: ask Google how much it has, and go on from there
+        if (cancelFlag) throw mbxStopErr();
+        if (++fails > 3) throw e;
+        let q = null;
+        try { q = await withTimeout(fetch(s.url, { method: 'PUT', headers: { 'Content-Range': `bytes */${size}` } }), 30000, 'Google did not answer'); } catch (x) { q = null; }
+        if (q && q.ok) return true;
+        const at = q && q.status === 308 ? upTo(q) : null;
+        if (at == null) { if (end >= size) return 'unsure'; throw e; }
+        LOG.info('mbx.resume', { at: Math.round(at / 1024), of: Math.round(size / 1024) });
+        start = at; prog(start / size); continue;
+      }
+      if (r.status === 308) { const at = upTo(r); start = at == null ? end : at; }
+      else if (r.ok) { if (end < size) throw new Error('Google closed the upload early'); start = size; }
+      else throw new Error(`Google answered HTTP ${r.status}`);
+      prog(start / size);
+    }
+    return true;
+  }
+  /** The fallback: 2 MB pieces through the mailbox script, 4 at once (slower, but it arrives). */
+  async function mbxUpPieces(box, tid, data, prog) {
+    const n = Math.max(1, Math.ceil(data.length / MBX_PIECE));
+    if (n > 999) throw new Error('the file is too big for the mailbox (over 2 GB)');
+    let sent = 0;
+    await mbxPool(Array.from({ length: n }, (_, i) => i), async (i) => {
+      const a = i * MBX_PIECE, b = Math.min(data.length, a + MBX_PIECE);
+      await mbxCall('put', { box, tid, n: i + 1, data: mbxB64(data.subarray(a, b)) }, 90000, 3);
+      sent += b - a; prog(sent / data.length);
+    });
+  }
+  /** One transfer into box: the bytes, then the manifest (it shows in the box only once complete). { tid, how } */
+  async function mbxSendBytes(box, data, meta, label) {
+    const size = data.length, M = { ...meta, sha256: await mbxSha(data), size };
+    const prog = (f) => busy(`${label} · ${Math.round(f * 100)}%`, f, true);
+    let tid = mbxTid(), how = 'script';
+    prog(0);
+    if (!mbxNoDirect) {
+      try {
+        const r = await mbxUpDirect(box, tid, data, prog);
+        if (r === true) how = 'direct';
+        else { // Google's last answer was lost: done() finds the file at its full size, or says it is not there
+          try { busy(`${label} · finishing…`, 1); await mbxCall('done', { box, tid, meta: M, size }, 60000); return { tid, how: 'direct' }; }
+          catch (e) { if (e.code !== 'parts') throw e; }
+        }
+      } catch (e) { if (e.code === 'stop') throw e; LOG.warn('mbx.direct', { msg: String(e.message || e).slice(0, 120) }); }
+      if (how !== 'direct') { mbxNoDirect = true; await mbxCall('cancel', { box, tid }).catch(() => {}); tid = mbxTid(); }
+    }
+    if (how !== 'direct') { prog(0); await mbxUpPieces(box, tid, data, prog); }
+    busy(`${label} · finishing…`, 1);
+    await mbxCall('done', { box, tid, meta: M, size }, 60000);
+    return { tid, how };
+  }
+  /** A transfer back from the mailbox: 2 MB ranges, 4 at once, checked against the sender's SHA-256. */
+  async function mbxDownload(it, prog) {
+    const parts = (it.parts || []).slice().sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const total = parts.reduce((t, p) => t + Number(p.size || 0), 0);
+    if (!total || (it.size && total !== it.size)) throw new Error('the file in the mailbox is not complete');
+    const jobs = []; let off = 0;
+    parts.forEach((p) => { const sz = Number(p.size); for (let a = 0; a < sz; a += MBX_PIECE) jobs.push({ id: p.id, a, b: Math.min(sz, a + MBX_PIECE) - 1, at: off + a }); off += sz; });
+    const out = new Uint8Array(total); let got = 0;
+    await mbxPool(jobs, async (j) => {
+      if (cancelFlag) throw mbxStopErr();
+      const g = await mbxCall('get', { id: j.id, start: j.a, end: j.b }, 90000, 3), u = b64ToBytes(g.data);
+      if (u.length !== j.b - j.a + 1) throw new Error('a piece came back the wrong size: try again');
+      out.set(u, j.at); got += u.length; prog(got / total);
+    });
+    if (it.meta && it.meta.sha256 && (await mbxSha(out)) !== it.meta.sha256) throw new Error('the file arrived damaged: try again');
+    return out;
+  }
+  /** What every transfer says about itself (≤ 8 KB: the mailbox lists it without opening the file). */
+  const mbxMeta = (kind, name, to, x) => ({ v: 1, kind, tk: (tmTeam(name) || {}).tk || '', project: name, from: tmEmail(), fromName: (S.user && S.user.name) || tmEmail(), fromRole: tmRole(), to, at: new Date().toISOString(), ...(x || {}) });
+  function mbxOutAdd(o) { S.mbxOut = [o, ...(S.mbxOut || []).filter((x) => x.tid !== o.tid)].slice(0, 80); persist(); }
+  /** A send that will not arrive (taken back, not picked up in 7 days, not sent): the next one to that person is the whole project. */
+  function mbxGap(o) {
+    if (!o || !['task', 'update'].includes(o.kind)) return;
+    const name = mbxLocalByTk(o.tk) || (allProjects().includes(o.project) ? o.project : ''); if (!name) return;
+    const T = tmTeam(name); if (!T || !T.sent || !T.sent[o.to]) return;
+    setTeam(name, { ...T, sent: { ...T.sent, [o.to]: { ...T.sent[o.to], gap: true } } }); persist();
+  }
+  const mbxLocalByTk = (tk) => (tk ? allProjects().find((n) => (tmTeam(n) || {}).tk === tk) || '' : '');
+  /** The changes of a project since a time (as Share → Only the changes). */
+  function mbxChanges(name, since) {
+    const m = pmeta(name), all = points.filter((p) => p.project === name);
+    const ch = since ? all.filter((p) => String(p.updated || p.created || '') > since) : all;
+    const gone = since ? Object.values(m.gone || {}).filter((t) => t > since).length : 0;
+    const route = !!(since && m.linksAt && m.linksAt > since), nNew = since ? ch.filter((p) => String(p.created || '') > since).length : 0;
+    return { all, ch, gone, route, nNew, nph: new Set(ch.flatMap(allPids)).size };
+  }
+  async function mbxBytes(name, U, ref) { const blob = await bundleZip([name], { update: U, ref }); return new Uint8Array(await blob.arrayBuffer()); }
+  /** The coordinator sends the whole project (with its KMZ reference) to each field partner as their task. */
+  async function mbxSendTask(name, emails, note) {
+    const me = tmEmail(), at = new Date().toISOString();
+    let T = tmTeam(name) || {};
+    T = { ...T, role: 'co', tk: T.tk || uid(), by: T.by || me, byName: T.byName || (S.user && S.user.name) || me, to: [...new Set([...(T.to || []), ...emails])], names: { ...(T.names || {}), ...Object.fromEntries(emails.map((e) => [e, tmNameOf(e)])) }, accepted: null };
+    setTeam(name, T); persist();
+    cancelFlag = false;
+    const all = points.filter((p) => p.project === name), nph = new Set(all.flatMap(allPids)).size;
+    const bytes = await mbxBytes(name, { n: 1, full: true, since: '', at, pts: null, route: true, sender: `mbx:${me}`, nGone: Object.keys(pmeta(name).gone || {}).length }, true);
+    const done = [], bad = [];
+    for (const to of emails) {
+      const led = (tmTeam(name).sent || {})[to] || {}, n = (led.n || 0) + 1;
+      const meta = mbxMeta('task', name, to, { n, full: true, note: note || '', recs: all.length, photos: nph, ref: !!refInfo(name) });
+      try {
+        const r = await mbxSendBytes(to, bytes, meta, `Sending to ${tmFirst(to)}`);
+        const T2 = tmTeam(name); setTeam(name, { ...T2, sent: { ...(T2.sent || {}), [to]: { n, at } } });
+        mbxOutAdd({ tid: r.tid, to, toName: tmNameOf(to), kind: 'task', project: name, tk: T.tk, n, full: true, size: bytes.length, at, st: 'waiting', stAt: at, how: r.how, note: note || '' });
+        done.push(to); LOG.info('mbx.task', { n, mb: +(bytes.length / 1048576).toFixed(2), how: r.how, recs: all.length });
+      } catch (e) {
+        if (e.code === 'stop') { busy(false); toast('Stopped: not sent.'); return { done, bad: emails.filter((x) => !done.includes(x)) }; }
+        bad.push([to, e.message || String(e)]); LOG.warn('mbx.task.fail', { code: e.code || '', msg: String(e.message || e).slice(0, 120) });
+        mbxOutAdd({ tid: `x${mbxRid(10)}`, to, toName: tmNameOf(to), kind: 'task', project: name, tk: T.tk, n, full: true, size: bytes.length, at, st: 'failed', stAt: at, why: String(e.message || e).slice(0, 120), note: note || '' });
+      }
+    }
+    persist(); busy(false);
+    return { done, bad };
+  }
+  function mbxSaidSent(r, name) {
+    const nm = (x) => tmFirst(x);
+    if (r.done.length) toast(`“${name}” sent to ${r.done.map(nm).join(' and ')}${r.bad.length ? `; not to ${r.bad.map(([e]) => nm(e)).join(', ')} (${r.bad[0][1]})` : ''}.`, 6000);
+    else if (r.bad.length) toast(`Not sent: ${r.bad[0][1]}. Try again from the project (Send).`, 7000);
+  }
+  /** A small message (fixes, accepted, a note): all of it is in the manifest; the file is a stub. */
+  async function mbxSendSmall(kind, name, to, x, label) {
+    const at = new Date().toISOString(), meta = mbxMeta(kind, name, to, x);
+    const r = await mbxSendBytes(to, new TextEncoder().encode(JSON.stringify({ kind, at })), meta, label);
+    mbxOutAdd({ tid: r.tid, to, toName: tmNameOf(to), kind, project: name, tk: meta.tk, size: 0, at, st: 'waiting', stAt: at, note: (x && x.note) || '' });
+    LOG.info('mbx.small', { kind });
+    return r;
+  }
+
+  /* ---- the Send sheet: a field partner to a coordinator (only the changes, or the whole project), a coordinator to his field
+     partners (the task), or a coordinator asking for fixes (a note) ---- */
+  function mbxModeOf(name) { const T = tmTeam(name); return T && T.role === 'fp' ? 'fp' : T && T.role === 'co' ? 'co' : tmRole() === 'Coordinator' ? 'co' : 'fp'; }
+  function mbxCoordList(name) {
+    const t = tmSnap() || {}, T = tmTeam(name) || {}, mine = new Set((t.myTeams || []).filter((x) => x.status === 'in').map((x) => x.coordinator));
+    return (t.coordinators || []).filter((c) => c.email !== tmEmail()).map((c) => ({ email: c.email, name: c.name || c.email,
+      why: c.email === T.by ? 'sent you this task' : mine.has(c.email) ? 'your team' : 'another coordinator of your company: takes it over if yours is away' }))
+      .sort((a, b) => (a.email === T.by ? -1 : b.email === T.by ? 1 : 0) || (mine.has(b.email) - mine.has(a.email)));
+  }
+  function openMbxSend(name, mode) {
+    const T = tmTeam(name) || {};
+    mbxSend = { name, mode: mode || mbxModeOf(name), to: new Set(), what: '' };
+    const s = mbxSend;
+    if (s.mode === 'fp') { const L = mbxCoordList(name), d = (T.to && T.to[0]) || T.by || (L[0] && L[0].email); if (d && L.some((c) => c.email === d)) s.to.add(d); }
+    else if (s.mode === 'co') (T.to || []).filter((e) => tmPartners().some((m) => m.email === e)).forEach((e) => s.to.add(e));
+    else (T.to || []).forEach((e) => s.to.add(e)); // fix: the field partners of this project
+    $('mbxSendT').textContent = s.mode === 'fix' ? `Ask for fixes · “${name}”` : `Send “${name}”`;
+    /** @type {HTMLTextAreaElement} */ ($('mbxNote')).value = '';
+    $('mbxNoteLbl').textContent = s.mode === 'fix' ? 'WHAT TO FIX' : 'NOTE (optional)';
+    /** @type {HTMLTextAreaElement} */ ($('mbxNote')).placeholder = s.mode === 'fix' ? 'For example: CC-1007 owner name; CC-1011 clamp size' : 'Optional';
+    $('mbxSendErr').hidden = true;
+    openSheet('mbxSendSheet'); renderMbxSend();
+  }
+  function mbxWhatFor(name, to) {
+    const T = tmTeam(name) || {}, led = (T.sent || {})[to], since = led && !led.gap ? led.at : '';
+    return { led, since, c: mbxChanges(name, since) };
+  }
+  function renderMbxSend() {
+    const s = mbxSend; if (!s) return;
+    const name = s.name, T = tmTeam(name) || {}, box = $('mbxTo'); box.innerHTML = '';
+    const row = (type, email, title, sub, on) => {
+      const l = document.createElement('label'), cb = document.createElement('input'); cb.type = type; cb.name = 'mbxTo'; cb.checked = on; cb.value = email;
+      cb.addEventListener('change', () => { if (type === 'radio') s.to = new Set([email]); else if (cb.checked) s.to.add(email); else s.to.delete(email); s.what = ''; renderMbxSend(); });
+      const d = document.createElement('div'), b = document.createElement('b'); b.textContent = title; const sp = document.createElement('span'); sp.className = 's'; sp.textContent = sub; d.append(b, sp); l.append(cb, d); box.appendChild(l);
+    };
+    if (s.mode === 'fp') {
+      const L = mbxCoordList(name);
+      L.forEach((c) => row('radio', c.email, c.name, c.why, s.to.has(c.email)));
+      if (!L.length) box.innerHTML = '<p class="hint" style="margin:0">No coordinator in your company yet.</p>';
+    } else {
+      const P = s.mode === 'fix' ? (T.to || []).map((e) => ({ email: e, name: tmNameOf(e, (T.names || {})[e]) })) : tmPartners().map((m) => ({ email: m.email, name: m.name || m.email }));
+      P.forEach((m) => { const st = mbxTaskState(name, m.email); row('checkbox', m.email, m.name, s.mode === 'fix' ? st : (T.to || []).includes(m.email) ? `has this project · ${st}` : 'Field partner in your team', s.to.has(m.email)); });
+      if (!P.length) box.innerHTML = `<p class="hint" style="margin:0">${s.mode === 'fix' ? 'Nobody has this project from you yet.' : 'No field partner in your team yet: they ask to join from their phones (Settings → Team).'}</p>`;
+    }
+    const wb = $('mbxWhat'); wb.innerHTML = ''; $('mbxWhatBox').hidden = s.mode !== 'fp';
+    let info = '';
+    if (s.mode === 'fp' && s.to.size) {
+      const to = [...s.to][0], W = mbxWhatFor(name, to), c = W.c, first = tmFirst(to);
+      const whole = `${pl2(c.all.length, 'record')} · ${pl2(projPhotos(name), 'photo')}`;
+      const canDelta = !!W.since && (c.ch.length || c.gone || c.route);
+      if (!s.what) s.what = canDelta ? 'delta' : 'full';
+      const opt = (v, title, sub, dis) => { const l = document.createElement('label'), r = document.createElement('input'); r.type = 'radio'; r.name = 'mbxWhat'; r.value = v; r.checked = s.what === v; r.disabled = !!dis; r.addEventListener('change', () => { s.what = v; renderMbxSend(); }); const d = document.createElement('div'), b = document.createElement('b'); b.textContent = title; const sp = document.createElement('span'); sp.className = 's'; sp.textContent = sub; d.append(b, sp); l.append(r, d); wb.appendChild(l); };
+      if (W.since) {
+        const what = [c.ch.length - c.nNew && `${pl2(c.ch.length - c.nNew, 'record')} changed`, c.nNew && `${c.nNew} new`, c.gone && `${c.gone} deleted`, c.route && 'the route', c.nph && pl2(c.nph, 'photo')].filter(Boolean).join(' · ');
+        opt('delta', 'Only the changes', canDelta ? `${what} · since ${W.led.n ? `update ${W.led.n}` : 'the task arrived'} (${fmtTime(W.since)})` : `Nothing changed since ${W.led.n ? `update ${W.led.n}` : 'the task arrived'} (${fmtTime(W.since)})`, !canDelta);
+      }
+      opt('full', 'The whole project', whole);
+      info = !W.since ? (W.led && W.led.gap ? `An earlier send to ${first} was not picked up, so this one is the whole project: it fills the gap.` : `${first} has not had this project from you, so it goes whole.`)
+        : s.what === 'delta' ? `${first} merges it: the newer record wins, and deletions carry over.` : `The whole project fills any gap on ${first}’s phone.`;
+    } else if (s.mode === 'co') {
+      info = `Each field partner gets the whole project${refInfo(name) ? ' with its KMZ reference' : ''}: ${pl2(points.filter((p) => p.project === name).length, 'record')} · ${pl2(projPhotos(name), 'photo')}. They all survey the route; each sends back to you.`;
+    } else if (s.mode === 'fix') info = 'A short note through the mailbox. Their phone shows it on the project until they send again.';
+    else info = '';
+    $('mbxSendInfo').textContent = info;
+    const go = $('mbxGo'), n = s.to.size;
+    go.disabled = !n || (s.mode === 'fp' && !s.what);
+    go.textContent = s.mode === 'fix' ? (n === 1 ? `Send to ${tmFirst([...s.to][0])}` : 'Send') : s.mode === 'co' ? (n > 1 ? `Send to ${n} field partners` : n ? `Send to ${tmFirst([...s.to][0])}` : 'Send') : n ? `Send to ${tmFirst([...s.to][0])}` : 'Send';
+  }
+  $('mbxSendCancel').addEventListener('click', () => { mbxSend = null; closeSheet(); });
+  $('mbxGo').addEventListener('click', () => guard(async () => {
+    const s = mbxSend; if (!s || !s.to.size) return;
+    const note = /** @type {HTMLTextAreaElement} */ ($('mbxNote')).value.trim().slice(0, 600), name = s.name;
+    if (s.mode === 'fix' && !note) { $('mbxSendErr').textContent = 'Write what to fix.'; $('mbxSendErr').hidden = false; return; }
+    if (navigator.onLine === false) { toast('No internet: try again with signal.'); return; }
+    if (!mbxOn()) { toast('The team mailbox is not on this phone (Settings → Team).'); return; }
+    if (s.mode === 'co') { const r = await mbxSendTask(name, [...s.to], note); mbxSend = null; await closeSheet(); renderProjects(); mbxSaidSent(r, name); return; }
+    if (s.mode === 'fix') {
+      cancelFlag = false; const ok = [];
+      for (const to of s.to) { try { await mbxSendSmall('fix', name, to, { note }, `Sending to ${tmFirst(to)}`); ok.push(to); } catch (e) { if (e.code === 'stop') break; throw e; } }
+      const T = tmTeam(name) || {}; setTeam(name, { ...T, accepted: null, fixAsked: { at: new Date().toISOString(), note } }); persist();
+      busy(false); mbxSend = null; await closeSheet(); renderProjects(); toast(`Sent back for fixes to ${ok.map((x) => tmFirst(x)).join(' and ')}.`, 5000); return;
+    }
+    // a field partner: to one coordinator, only the changes or the whole project
+    const to = [...s.to][0], W = mbxWhatFor(name, to), full = s.what !== 'delta' || !W.since, at = new Date().toISOString(), me = tmEmail();
+    let T = tmTeam(name) || {};
+    if (!T.tk) T = { ...T, role: 'fp', tk: uid(), by: T.by || to, byName: T.byName || tmNameOf(to) }; // his own project, sent to a coordinator for the first time
+    setTeam(name, T); persist();
+    const c = W.c, n = ((W.led && W.led.n) || 0) + 1, gone = full ? Object.keys(pmeta(name).gone || {}).length : c.gone;
+    const U = { n, full, since: full ? '' : W.since, at, pts: full ? null : c.ch, route: full || c.route, sender: `mbx:${me}`, nGone: gone };
+    cancelFlag = false;
+    const bytes = await mbxBytes(name, U, false);
+    const recs = full ? c.all.length : c.ch.length, photos = full ? projPhotos(name) : c.nph;
+    const meta = mbxMeta('update', name, to, { n, full, note, recs, photos, gone, route: !!U.route, by: T.by || to, byName: T.byName || '' });
+    let r;
+    try { r = await mbxSendBytes(to, bytes, meta, `Sending to ${tmFirst(to)}`); }
+    catch (e) {
+      busy(false);
+      if (e.code === 'stop') { toast('Stopped: not sent.'); return; }
+      mbxOutAdd({ tid: `x${mbxRid(10)}`, to, toName: tmNameOf(to), kind: 'update', project: name, tk: T.tk, n, full, size: bytes.length, at, st: 'failed', stAt: at, why: String(e.message || e).slice(0, 120) });
+      throw e;
+    }
+    const T2 = tmTeam(name) || {};
+    setTeam(name, { ...T2, to: [to], fix: null, sent: { ...(T2.sent || {}), [to]: { n, at } } });
+    mbxOutAdd({ tid: r.tid, to, toName: tmNameOf(to), kind: 'update', project: name, tk: T.tk, n, full, size: bytes.length, at, st: 'waiting', stAt: at, how: r.how, recs, note });
+    LOG.info('mbx.update', { n, full, mb: +(bytes.length / 1048576).toFixed(2), how: r.how, recs, gone });
+    busy(false); mbxSend = null; await closeSheet(); renderProjects();
+    toast(`${full ? `The whole project (update ${n})` : `Update ${n}`} sent to ${tmFirst(to)}: ${pl2(recs, 'record')}${gone ? `, ${gone} deleted` : ''} · ${mbxMB(bytes.length)}${r.how === 'script' ? ' · through the mailbox script' : ''}.`, 6000);
+  }, 'Not sent'));
+
+  /* ---- receiving: the inbox on the Projects screen ---- */
+  /** Where a received project goes on this phone: the one with its task key, the same project by name, or a new name. */
+  function mbxLocalFor(M, meta) {
+    const byTk = mbxLocalByTk(M.tk); if (byTk) return { name: byTk, here: true };
+    const nm = String(M.project || meta.project || 'Project').slice(0, 100);
+    if (!allProjects().includes(nm)) return { name: nm, here: false };
+    const T0 = tmTeam(nm), same = meta.points.some((p) => points.some((x) => x.id === p.id && x.project === nm));
+    if (same && !(T0 && T0.tk && M.tk && T0.tk !== M.tk)) return { name: nm, here: true };
+    const who = tmFirst(M.from, M.fromName); let k = 2, n2 = `${nm} (${who})`;
+    while (allProjects().includes(n2)) n2 = `${nm} (${who} ${k++})`;
+    return { name: n2, here: false };
+  }
+  /** The KMZ reference that came with a task: kept as this project's reference (as Projects → KMZ does). */
+  async function mbxRefIn(z, proj) {
+    const raw = await z.get('ref.json'); if (!raw) return false;
+    let R = null; try { R = JSON.parse(dec(raw)); } catch (e) { R = null; }
+    if (!R || !R.geo || !Array.isArray(R.geo.points)) return false;
+    const old = refInfo(proj);
+    if (old && old.name === R.name && old.at === R.at) return false; // the same KMZ as before
+    const id = uid(); await dbPut('packs', { k: refKey(id), geo: R.geo });
+    if (old) await dbDel('packs', refKey(old.id)).catch(() => {});
+    S.refs = { ...(S.refs || {}), [proj]: { id, name: String(R.name || 'reference').slice(0, 120), at: R.at || new Date().toISOString(), n: R.n || {} } };
+    S.refHidden = { ...(S.refHidden || {}), [proj]: false };
+    if (refFor === proj) { refGeo = null; refFor = null; }
+    persist(); return true;
+  }
+  async function mbxPicked(tid) {
+    try { await mbxCall('picked', { box: tmEmail(), tid }); } catch (e) { LOG.warn('mbx.picked.fail', { code: e.code || '' }); } // left there: the clean-up takes it after 7 days, and merging it again changes nothing
+    mbxIn = (mbxIn || []).filter((x) => x.tid !== tid);
+  }
+  /** Download, check and merge one transfer (a task or an update), or read a small one (fixes, accepted, a note). */
+  async function mbxOpenItem(tid) {
+    const it = (mbxIn || []).find((x) => x.tid === tid); if (!it) return;
+    const M = it.meta || {}, who = M.fromName || M.from || 'a colleague', first = tmFirst(M.from, M.fromName);
+    if (!['task', 'update'].includes(M.kind)) { await mbxOpenSmall(it); return; }
+    if (navigator.onLine === false) { toast('No internet: try again with signal.'); return; }
+    cancelFlag = false;
+    busy(`Downloading from ${first} · 0%`, 0, true);
+    let data;
+    try { data = await mbxDownload(it, (f) => busy(`Downloading from ${first} · ${Math.round(f * 100)}%`, f, true)); }
+    catch (e) { busy(false); if (e.code === 'stop') { toast('Stopped: it stays in the mailbox.'); return; } throw e; }
+    busy('Reading it…');
+    const z = await zipReader(new Blob([data]));
+    let b = null; try { b = JSON.parse(dec(await z.get('bundle.json'))); } catch (e) { b = null; }
+    if (!b || b.kind !== 'bundle' || !Array.isArray(b.projects) || b.projects.length !== 1) throw new Error('this is not a G-eSAA project file');
+    const raw = await z.get(b.projects[0].file); const meta = raw ? JSON.parse(dec(raw)) : null;
+    if (!meta || !Array.isArray(meta.points)) throw new Error('this file has no project in it');
+    const L = mbxLocalFor(M, meta);
+    if (!L.here && !M.full) {
+      busy(false);
+      if (!(await ask(`Changes from ${who}`, `“${M.project}” is not on this phone and this file has only its changes. Ask ${first} to send The whole project. Open these changes anyway?`, [{ label: 'Not now', value: false }, { label: 'Open anyway', value: true, primary: true }]))) return;
+    }
+    if (L.name !== meta.project) { meta.project = L.name; meta.points = meta.points.map((p) => ({ ...p, project: L.name })); }
+    const o = { quiet: true, update: { n: M.n || 1, full: !!M.full, sender: `mbx:${M.from}`, from: who, at: M.at || it.created } };
+    let proj;
+    try { busy(`Merging into ${L.name}…`); proj = (await restoreMeta(z, meta, '', o)) || L.name; } finally { busy(false); }
+    const R2 = o.result || {}, now = new Date().toISOString(), me = tmEmail(), T0 = tmTeam(proj) || {};
+    let refNew = false;
+    if (M.kind === 'task') {
+      setTeam(proj, { ...T0, role: 'fp', tk: M.tk || T0.tk || uid(), by: M.from, byName: who, to: [M.from], got: now, accepted: null,
+        sent: { ...(T0.sent || {}), [M.from]: (T0.sent || {})[M.from] || { n: 0, at: now } }, ...(M.note ? { taskNote: { note: M.note, at: M.at || now } } : {}) });
+      refNew = await mbxRefIn(z, proj);
+    } else {
+      const took = !T0.tk && M.by && M.by !== me ? { from: M.by, fromName: M.byName || tmNameOf(M.by), at: now } : T0.takenOver || null;
+      setTeam(proj, { ...T0, role: T0.role || 'co', tk: M.tk || T0.tk || uid(), by: T0.by || (took ? took.from : me), byName: T0.byName || (took ? took.fromName : (S.user && S.user.name) || me),
+        to: [...new Set([...(T0.to || []), M.from])], names: { ...(T0.names || {}), [M.from]: who }, ...(took ? { takenOver: took } : {}),
+        ...(M.left ? { left: { ...(T0.left || {}), [M.from]: now } } : {}), ...(M.note ? { lastNote: { from: M.from, fromName: who, note: M.note, at: M.at || now } } : {}) });
+    }
+    persist();
+    await mbxPicked(it.tid);
+    LOG.info('mbx.open', { kind: M.kind, n: M.n, full: !!M.full, records: R2.recs, kept: R2.kept, gone: R2.gone, route: R2.route, mb: +(data.length / 1048576).toFixed(2), isNew: !L.here, ref: refNew });
+    S.project = proj; persist(); renderPoles(); fitProject(); renderProjects(); // (renderPoles draws a new KMZ reference)
+    const said = `${[pl2(R2.recs || 0, 'record'), R2.gone && `${R2.gone} deleted`, R2.route && 'the route', refNew && 'the KMZ reference'].filter(Boolean).join(' · ')}${R2.kept ? ` · ${R2.kept} newer here kept` : ''}`;
+    toast(M.kind === 'task' ? `Task from ${first}: “${proj}” · ${said}` : `${M.full ? `The whole project (update ${M.n})` : `Update ${M.n}`} from ${first} merged into “${proj}”: ${said}`, 6500);
+    if (M.note) await ask(`${M.kind === 'task' ? 'Task' : 'Update'} from ${who}`, M.note, [{ label: 'OK', value: true, primary: true }]);
+  }
+  async function mbxOpenSmall(it) {
+    const M = it.meta || {}, who = M.fromName || M.from || 'a colleague', first = tmFirst(M.from, M.fromName), now = new Date().toISOString();
+    const proj = mbxLocalByTk(M.tk) || (allProjects().includes(M.project) ? M.project : '');
+    if (M.kind === 'fix' || M.kind === 'accept') {
+      if (proj) {
+        const T = tmTeam(proj) || {};
+        setTeam(proj, M.kind === 'fix' ? { ...T, accepted: null, fix: { note: String(M.note || ''), at: M.at || now, from: M.from, fromName: who } }
+          : { ...T, fix: null, accepted: { at: M.at || now, by: M.from, byName: who } });
+        persist();
+      }
+      busy(false);
+      await mbxPicked(it.tid);
+      LOG.info('mbx.open', { kind: M.kind, here: !!proj });
+      if (proj && proj !== S.project) openTask(proj); else renderProjects();
+      if (M.kind === 'fix') await ask(`Fixes for “${M.project}”`, `${who} asks:\n\n${M.note || ''}${proj ? '' : '\n\n(This project is not on this phone.)'}\n\nFix them, then Send to coordinator.`, [{ label: 'OK', value: true, primary: true }]);
+      else toast(`${first} accepted your survey of “${M.project}”: it is done on this phone.`, 6500);
+      return;
+    }
+    await mbxPicked(it.tid);
+    LOG.info('mbx.open', { kind: M.kind || 'other' });
+    renderProjects();
+    if (M.kind === 'note') await ask(`From ${who}`, String(M.note || ''), [{ label: 'OK', value: true, primary: true }]);
+    else toast('Removed from the mailbox.');
+  }
+  /** Read the inbox, and the state of what this phone sent (waiting, picked up, not picked up in 7 days). */
+  async function mbxRefresh() {
+    if (!mbxOn() || navigator.onLine === false) return false;
+    try {
+      const L = await mbxCall('list', { box: tmEmail() }, 30000, 1);
+      mbxIn = (L.items || []).filter((x) => x && x.tid && x.meta && x.meta.kind !== 'check'); mbxInAt = Date.now(); mbxInErr = '';
+      const out = S.mbxOut || [], now = Date.now();
+      out.forEach((o) => { if (o.st === 'sending' && now - Date.parse(o.at) > 15 * 60000) { o.st = 'failed'; o.stAt = new Date().toISOString(); } });
+      const wait = out.filter((o) => o.st === 'waiting' && !/^x/.test(o.tid)).slice(0, 100);
+      if (wait.length) {
+        const st = await mbxCall('status', { tids: wait.map((o) => o.tid) }, 30000, 1);
+        wait.forEach((o) => { const v = st.status && st.status[o.tid]; if (v && v !== 'waiting' && v !== 'unknown' && v !== o.st) { o.st = v; o.stAt = (st.at && st.at[o.tid]) || new Date().toISOString(); if (v === 'expired' || v === 'cancelled') mbxGap(o); } });
+      }
+      S.mbxOut = out.filter((o) => !(o.st === 'picked' && now - Date.parse(o.stAt || o.at) > 30 * MBX_DAY)); persist();
+      LOG.info('mbx.list', { in: mbxIn.length, out: wait.length });
+      return true;
+    } catch (e) { mbxInErr = e.message || String(e); LOG.warn('mbx.list.fail', { code: e.code || '', msg: String(e.message || e).slice(0, 120) }); return false; }
+    finally { if (!$('projects').hidden) renderProjects(); }
+  }
+  const MBX_ST = { waiting: 'waiting', picked: 'picked up', expired: 'not picked up in 7 days: removed from the mailbox', cancelled: 'taken back', failed: 'not sent', resent: 'sent again' };
+  function mbxStText(o) {
+    if (o.st === 'waiting') { const d = Math.floor((Date.now() - Date.parse(o.at)) / MBX_DAY); return `waiting since ${tmWhen(o.at)}${d >= 3 ? ` · not picked up for ${d} days` : ''}`; }
+    if (o.st === 'picked') return `picked up ${tmWhen(o.stAt)}`;
+    return `${MBX_ST[o.st] || o.st}${o.st === 'failed' && o.why ? ` (${o.why})` : ''}`;
+  }
+  /** One field partner's state on a coordinator's project: has it, waiting, not picked up, and the last update merged. */
+  function mbxTaskState(name, email) {
+    const T = tmTeam(name) || {}, o = (S.mbxOut || []).find((x) => x.kind === 'task' && x.to === email && ((T.tk && x.tk === T.tk) || x.project === name));
+    const u = (pmeta(name).recv || {})[`mbx:${email}`];
+    const a = !o ? '' : o.st === 'picked' ? `has it (${tmWhen(o.stAt)})` : o.st === 'waiting' ? `task waiting since ${tmWhen(o.at)}` : `task ${MBX_ST[o.st] || o.st}`;
+    return [a, u && `update ${u.n} merged ${tmWhen(u.at)}`, T.left && T.left[email] && 'left the team'].filter(Boolean).join(' · ') || 'not sent yet';
+  }
+  function renderMbx() {
+    const on = mbxOn(); $('mbxBox').hidden = !on;
+    if (on) {
+      const items = mbxIn || [], box = $('mbxIn');
+      box.innerHTML = items.map((it) => {
+        const M = it.meta || {}, who = tmEsc(M.fromName || M.from || 'a colleague'), old = Date.now() - Date.parse(it.created) >= 3 * MBX_DAY;
+        const head = M.kind === 'task' ? `Task from ${who}` : M.kind === 'update' ? `${M.full ? `Update ${M.n} (the whole project)` : `Update ${M.n}`} from ${who}${M.left ? ' · left the team' : ''}`
+          : M.kind === 'fix' ? `Fixes asked by ${who}` : M.kind === 'accept' ? `${who} accepted your survey` : M.kind === 'note' ? `Note from ${who}` : `A file from ${who}`;
+        const sub = [M.project, ['task', 'update'].includes(M.kind) && M.recs != null && pl2(M.recs, 'record'), ['task', 'update'].includes(M.kind) && mbxMB(it.size || 0), tmWhen(it.created)].filter(Boolean).map((x) => tmEsc(x)).join(' · ');
+        const btn = M.kind === 'task' ? 'Download' : M.kind === 'update' ? 'Download and merge' : ['fix', 'accept', 'note'].includes(M.kind) ? 'Open' : 'Remove';
+        return `<div class="tmrow${old ? ' old' : ''}"><span class="t"><b>${head}</b><small>${sub}${old ? ' · waiting 3 days or more' : ''}</small></span><span class="b"><button class="btn sm primary" type="button" data-mbxopen="${tmEsc(it.tid)}">${btn}</button></span></div>`;
+      }).join('') || `<p class="hint" style="padding:8px 10px;margin:0">${mbxIn ? 'Nothing waiting for you.' : 'Not checked yet.'}</p>`;
+      const out = (S.mbxOut || []).slice(0, 12);
+      $('mbxOutBox').hidden = !out.length;
+      $('mbxOutSum').textContent = `Sent by you · ${out.filter((o) => o.st === 'waiting').length} waiting`;
+      $('mbxOut').innerHTML = out.map((o) => {
+        const what = o.kind === 'task' ? 'Task' : o.kind === 'update' ? (o.full ? `Update ${o.n} (whole)` : `Update ${o.n}`) : o.kind === 'fix' ? 'Fixes' : o.kind === 'accept' ? 'Accepted' : 'Note';
+        const b = ['expired', 'cancelled', 'failed'].includes(o.st) ? `<button class="btn sm primary" type="button" data-mbxresend="${tmEsc(o.tid)}">Resend</button>` : o.st === 'waiting' && !/^x/.test(o.tid) ? `<button class="btn sm" type="button" data-mbxback="${tmEsc(o.tid)}">Take back</button>` : '';
+        return `<div class="tmrow"><span class="t"><b>${tmEsc(`${what} → ${o.toName || o.to}`)}</b><small>${tmEsc(`${o.project} · ${mbxStText(o)}`)}</small></span><span class="b">${b}</span></div>`;
+      }).join('');
+      $('mbxBoxInfo').textContent = mbxInErr ? `Not checked: ${mbxInErr}` : mbxInAt ? `Checked ${tmWhen(new Date(mbxInAt).toISOString())}` : '';
+    }
+    renderCurTeam();
+  }
+  /** The open project's team line: who has it, what came back, fixes, accepted; and its buttons. */
+  function renderCurTeam() {
+    const el = $('curTeam'), name = S.project, T = name ? tmTeam(name) : null;
+    el.hidden = !(T && T.role); if (el.hidden) { el.innerHTML = ''; return; }
+    const H = [], first = (e, n) => tmEsc(tmFirst(e, n));
+    if (T.role === 'fp') {
+      H.push(`<p class="tl"><b>Task from ${tmEsc(T.byName || tmNameOf(T.by))}</b>${T.got ? ` · got ${tmEsc(tmWhen(T.got))}` : ''}</p>`);
+      if (T.taskNote && T.taskNote.note) H.push(`<p class="tnote">${tmEsc(T.taskNote.note)}</p>`);
+      if (T.fix) H.push(`<p class="tfix"><b>Fixes asked by ${first(T.fix.from, T.fix.fromName)}</b> (${tmEsc(tmWhen(T.fix.at))}): ${tmEsc(T.fix.note)}</p>`);
+      if (T.accepted) H.push(`<p class="okline">✓ Accepted by ${tmEsc(T.accepted.byName || T.accepted.by)}, ${tmEsc(tmWhen(T.accepted.at))}: this task is done on this phone.</p>`);
+      const o = (S.mbxOut || []).find((x) => x.kind === 'update' && x.tk === T.tk);
+      if (o) H.push(`<p class="tl">Last sent: ${tmEsc(`${o.full ? `update ${o.n} (whole)` : `update ${o.n}`} to ${tmFirst(o.to, o.toName)} · ${mbxStText(o)}`)}</p>`);
+      if (!T.accepted && mbxOn()) H.push(`<div class="row"><button class="btn${T.fix ? ' primary' : ''} grow" type="button" data-ct="send">Send to coordinator</button></div>`);
+      if (!T.leftAt) { $('doneBtn').hidden = true; $('noDefBtn').hidden = true; $('doneHint').textContent = T.accepted ? '' : `${tmFirst(T.by, T.byName)} marks this task complete after accepting it.`; } // the coordinator completes it (the dates go to the online sheet once)
+    } else {
+      const to = T.to || [];
+      H.push(`<p class="tl"><b>${to.length ? 'Assigned to' : 'Not assigned yet'}</b>${T.takenOver ? ` · taken over from ${tmEsc(T.takenOver.fromName || T.takenOver.from)}` : ''}</p>`);
+      to.forEach((e) => H.push(`<p class="tl">${tmEsc(tmNameOf(e, (T.names || {})[e]))}: ${tmEsc(mbxTaskState(name, e))}</p>`));
+      if (T.lastNote && T.lastNote.note) H.push(`<p class="tnote">${first(T.lastNote.from, T.lastNote.fromName)}: ${tmEsc(T.lastNote.note)}</p>`);
+      if (T.fixAsked && !T.accepted) H.push(`<p class="tl">Fixes asked ${tmEsc(tmWhen(T.fixAsked.at))}: ${tmEsc(T.fixAsked.note)}</p>`);
+      if (T.accepted) H.push(`<p class="okline">✓ Accepted ${tmEsc(tmWhen(T.accepted.at))}${pmeta(name).completedAt ? '' : ': mark the task complete below.'}</p>`);
+      if (mbxOn() && to.length && !T.accepted) H.push('<div class="row"><button class="btn grow" type="button" data-ct="fix">Ask for fixes</button><button class="btn primary grow" type="button" data-ct="accept">Accept</button></div>');
+    }
+    el.innerHTML = H.join('');
+  }
+  $('curTeam').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-ct]'); if (!b || !S.project) return;
+    const name = S.project, k = b.dataset.ct;
+    if (k === 'send') openMbxSend(name, 'fp');
+    else if (k === 'fix') openMbxSend(name, 'fix');
+    else if (k === 'accept') guard(() => mbxAccept(name), 'Not accepted');
+  });
+  /** Accept: each field partner's phone is told, and the task there is done; a coordinator who took it over tells the one who sent it. */
+  async function mbxAccept(name) {
+    const T = tmTeam(name) || {}, to = T.to || [], me = tmEmail();
+    const names = to.map((e) => tmFirst(e, (T.names || {})[e])).join(' and ');
+    if (!(await ask(`Accept “${name}”?`, `${names}’s phone${to.length === 1 ? ' is' : 's are'} told, and the task there is done. Then mark the task complete as today.${T.by && T.by !== me ? `\n\n${tmFirst(T.by, T.byName)} sent this task: he is told that you took it over.` : ''}`, [{ label: 'Cancel', value: false }, { label: 'Accept', value: true, primary: true }]))) return;
+    if (navigator.onLine === false) { toast('No internet: try again with signal.'); return; }
+    cancelFlag = false;
+    for (const e of to) await mbxSendSmall('accept', name, e, {}, `Telling ${tmFirst(e)}`);
+    if (T.by && T.by !== me) await mbxSendSmall('note', name, T.by, { note: `${(S.user && S.user.name) || me} took over “${name}” and accepted it.` }, `Telling ${tmFirst(T.by)}`).catch((e) => LOG.warn('mbx.takeover.note', { code: e.code || '' }));
+    setTeam(name, { ...tmTeam(name), accepted: { at: new Date().toISOString(), by: me } }); persist();
+    busy(false); renderProjects(); toast(`Accepted. ${names} ${to.length === 1 ? 'is' : 'are'} told. Mark the task complete when ready.`, 6000);
+  }
+  $('mbxIn').addEventListener('click', (ev) => { const b = ev.target.closest('[data-mbxopen]'); if (b) guard(() => mbxOpenItem(b.dataset.mbxopen), 'Not opened'); });
+  $('mbxOut').addEventListener('click', (ev) => {
+    const r = ev.target.closest('[data-mbxresend]'), k = ev.target.closest('[data-mbxback]');
+    if (r) guard(() => mbxResend(r.dataset.mbxresend), 'Not sent');
+    else if (k) guard(async () => {
+      const o = (S.mbxOut || []).find((x) => x.tid === k.dataset.mbxback); if (!o) return;
+      if (!(await ask('Take it back?', `It is deleted from the mailbox before ${tmFirst(o.to, o.toName)} downloads it. Your copy stays on this phone.`, [{ label: 'Cancel', value: false }, { label: 'Take back', value: true, primary: true }]))) return;
+      busy('Taking it back…');
+      try { await mbxCall('cancel', { box: o.to, tid: o.tid }); o.st = 'cancelled'; }
+      catch (e) { if (e.code === 'picked') { o.st = 'picked'; toast(`Too late: ${tmFirst(o.to, o.toName)} already has it.`); } else throw e; }
+      finally { busy(false); }
+      o.stAt = new Date().toISOString(); if (o.st === 'cancelled') mbxGap(o); persist(); renderProjects();
+    }, 'Not taken back');
+  });
+  /** Resend: a task or an update goes again as the whole project (it fills any gap); fixes, accepted and notes as they were. */
+  async function mbxResend(tid) {
+    const o = (S.mbxOut || []).find((x) => x.tid === tid); if (!o) return;
+    const name = mbxLocalByTk(o.tk) || (allProjects().includes(o.project) ? o.project : '');
+    if (!name) { toast(`“${o.project}” is no longer on this phone.`); return; }
+    if (navigator.onLine === false) { toast('No internet: try again with signal.'); return; }
+    if (o.kind === 'task') { const r = await mbxSendTask(name, [o.to], o.note || ''); if (r.done.length) { o.st = 'resent'; persist(); } renderProjects(); mbxSaidSent(r, name); return; }
+    if (o.kind === 'update') { const T = tmTeam(name) || {}; if (T.sent && T.sent[o.to]) setTeam(name, { ...T, sent: { ...T.sent, [o.to]: { ...T.sent[o.to], gap: true } } }); openMbxSend(name, 'fp'); mbxSend.to = new Set([o.to]); mbxSend.what = 'full'; renderMbxSend(); o.st = 'resent'; persist(); return; }
+    cancelFlag = false;
+    await mbxSendSmall(o.kind, name, o.to, o.note ? { note: o.note } : {}, `Sending to ${tmFirst(o.to, o.toName)}`);
+    o.st = 'resent'; persist(); busy(false); renderProjects(); toast(`Sent again to ${tmFirst(o.to, o.toName)}.`);
+  }
+  $('mbxCheckIn').addEventListener('click', () => guard(async () => { busy('Checking the mailbox…'); try { await mbxRefresh(); } finally { busy(false); } }, 'Not checked'));
+
+  /* ---- New project → Assign to (a coordinator with field partners): Me, or one or more of them ---- */
+  function npAssignRender() {
+    const on = mbxOn() && tmRole() === 'Coordinator' && tmPartners().length > 0 && /** @type {HTMLSelectElement} */ ($('npCat')).value === 'survey';
+    $('npAssignBox').hidden = !on;
+    if (!on) { npAssign.clear(); $('npCreate').textContent = 'Create project'; return; }
+    const box = $('npAssign'); box.innerHTML = '';
+    const chip = (v, label) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small'; b.dataset.v = v; b.textContent = label; b.setAttribute('aria-pressed', String(v ? npAssign.has(v) : !npAssign.size)); box.appendChild(b); };
+    chip('', 'Me'); tmPartners().forEach((m) => chip(m.email, m.name || m.email));
+    const n = npAssign.size;
+    $('npAssignInfo').textContent = !n ? 'You survey it yourself: nothing goes through the mailbox.' : n === 1 ? `${tmFirst([...npAssign][0])} gets it through the mailbox when you tap Create and send.` : `${n} field partners get it: they all survey the route, and each sends back to you.`;
+    $('npCreate').textContent = n ? 'Create and send' : 'Create project';
+  }
+  $('npAssign').addEventListener('click', (ev) => { const b = ev.target.closest('.chip'); if (!b) return; const v = b.dataset.v; if (!v) npAssign.clear(); else if (npAssign.has(v)) npAssign.delete(v); else npAssign.add(v); npAssignRender(); });
+  $('npCat').addEventListener('change', npAssignRender);
+  async function npAssignSend(name) {
+    if (!npAssign.size) return;
+    const to = [...npAssign]; npAssign.clear();
+    if (navigator.onLine === false) { toast(`“${name}” created. No internet: send it from the project (Send) when you have signal.`, 7000); return; }
+    try { const r = await mbxSendTask(name, to, ''); mbxSaidSent(r, name); }
+    catch (e) { busy(false); toast(`“${name}” created, but not sent: ${e.message || e}. Send it from the project (Send).`, 8000); LOG.warn('mbx.assign.fail', { msg: String(e.message || e).slice(0, 120) }); }
+    if (!$('projects').hidden) renderProjects();
+  }
+
+  /* ---- hooks into the rest of the app ---- */
+  tmHooks.projects = renderMbx;
+  tmHooks.openProjects = () => { if (mbxOn() && Date.now() - mbxInAt > 60000) mbxRefresh(); };
+  tmHooks.tools = (name, mk) => {
+    if (!mbxOn() || isAcc(name) || pmeta(name).sample) return;
+    const T = tmTeam(name), mode = mbxModeOf(name);
+    if (T && T.role === 'fp' && T.accepted) return;
+    mk('send', 'Send', (n) => openMbxSend(n, mode), mode === 'fp' ? 'Send to your coordinator through the team mailbox: only the changes, or the whole project' : 'Send this project to your field partners through the team mailbox');
+  };
+  tmHooks.locked = () => { const T = S.project ? tmTeam(S.project) : null; return T && T.role === 'fp' && T.accepted ? `“${S.project}” was accepted by ${T.accepted.byName || T.accepted.by}: it is done on this phone. If more is needed, ${tmFirst(T.accepted.by, T.accepted.byName)} sends it back for fixes.` : ''; };
+  tmHooks.npReset = () => { npAssign.clear(); npAssignRender(); };
+  tmHooks.created = npAssignSend;
+  /** A field partner in a team gets his surveys from his coordinator (the approved demo: only coordinators make projects);
+      PAT, defect cleanup and FAT start as before. Out of every team, he makes surveys again. */
+  const tmFpTeam = () => tmVerified() && tmRole() === 'Field Partner' && (((tmSnap() || {}).myTeams) || []).some((x) => x.status === 'in');
+  tmHooks.npCats = (cat) => {
+    const fp = tmFpTeam(), o = cat.querySelector('option[value="survey"]');
+    if (o) { if (fp) o.disabled = true; o.textContent = fp ? 'Survey (from your coordinator)' : 'Survey'; }
+    $('npFpInfo').hidden = !fp;
+  };
+  tmHooks.npCheck = (k) => { if (k === 'survey' && tmFpTeam()) { toast('Surveys come from your coordinator: Projects → Team mailbox.', 5000); return false; } return true; };
+  tmHooks.refAdded = async (name) => { // a new KMZ on a project the coordinator already sent: offer it to his field partners
+    const T = tmTeam(name); if (!mbxOn() || !T || T.role !== 'co' || !(T.to || []).length || T.accepted) return;
+    if (!(await ask('Send the new KMZ?', `${(T.to || []).map((e) => tmFirst(e)).join(' and ')} ${T.to.length === 1 ? 'has' : 'have'} this project. Send it again with this KMZ reference? It goes as the whole project and merges into theirs.`, [{ label: 'Later', value: false }, { label: 'Send', value: true, primary: true }]))) return;
+    const r = await mbxSendTask(name, T.to.slice(), ''); mbxSaidSent(r, name);
+  };
+  /** At start (after the team is read): what waits in the mailbox, with a reminder after 3 days. */
+  async function mbxStartCheck() {
+    if (!mbxOn() || !(await mbxRefresh())) return;
+    const n = (mbxIn || []).length, old = (mbxIn || []).filter((it) => Date.now() - Date.parse(it.created) >= 3 * MBX_DAY).length;
+    if (n && $('projects').hidden) toast(`${n === 1 ? 'Something waits' : `${n} things wait`} for you in the team mailbox${old ? ` (${old === 1 ? 'one' : old} for 3 days or more)` : ''}: open Projects.`, 6000);
+  }
+  /** Leaving a team: the tasks not accepted yet go back to that coordinator first, with what was surveyed (the whole project). */
+  async function mbxLeaveSend(coord) {
+    const open = allProjects().filter((n) => { const T = tmTeam(n); return T && T.role === 'fp' && T.by === coord && !T.accepted && !(T.leftAt); });
+    if (!open.length || !mbxOn()) return true;
+    const first = tmFirst(coord);
+    const pick = await ask(`Send your tasks back to ${first}?`, `${pl2(open.length, 'task')} from ${first} ${open.length === 1 ? 'is' : 'are'} not accepted yet: ${open.slice(0, 5).map((x) => `“${x}”`).join(', ')}${open.length > 5 ? '…' : ''}. Each goes back as the whole project, with what you surveyed, so nothing is lost. Your copies stay on this phone.`,
+      [{ label: 'Cancel', value: '' }, { label: 'Leave without sending', value: 'no' }, { label: 'Send back and leave', value: 'send', primary: true }]);
+    if (!pick) return false;
+    if (pick === 'no') return true;
+    for (const name of open) {
+      const at = new Date().toISOString(), T = tmTeam(name), n = (((T.sent || {})[coord] || {}).n || 0) + 1;
+      cancelFlag = false;
+      const bytes = await mbxBytes(name, { n, full: true, since: '', at, pts: null, route: true, sender: `mbx:${tmEmail()}`, nGone: Object.keys(pmeta(name).gone || {}).length }, false);
+      const meta = mbxMeta('update', name, coord, { n, full: true, left: true, note: `${(S.user && S.user.name) || tmEmail()} left the team: the task comes back with what was surveyed.`, recs: points.filter((p) => p.project === name).length, photos: projPhotos(name), by: T.by, byName: T.byName || '' });
+      const r = await mbxSendBytes(coord, bytes, meta, `Sending “${name}” back`);
+      setTeam(name, { ...tmTeam(name), leftAt: at, sent: { ...(T.sent || {}), [coord]: { n, at } } });
+      mbxOutAdd({ tid: r.tid, to: coord, toName: tmNameOf(coord), kind: 'update', project: name, tk: T.tk, n, full: true, size: bytes.length, at, st: 'waiting', stAt: at, how: r.how });
+    }
+    busy(false); persist(); LOG.info('mbx.leave.sent', { n: open.length });
+    return true;
+  }
+  /* for the tests (synthetic records only) */
+  const mbxTestHooks = { refresh: () => mbxRefresh(), inbox: () => JSON.parse(JSON.stringify(mbxIn)), out: () => JSON.parse(JSON.stringify(S.mbxOut || [])), team: (n) => JSON.parse(JSON.stringify(tmTeam(n || S.project))), noDirect: (v) => { mbxNoDirect = !!v; }, startCheck: () => mbxStartCheck(),
+    seed: async (name, n, o) => {
+      const prj = name || S.project, made = [], px = (o && o.px) || 48;
+      for (let i = 0; i < n; i++) {
+        const cv = document.createElement('canvas'); cv.width = px; cv.height = px; const cx = cv.getContext('2d');
+        if (o && o.noise) { const im = cx.createImageData(px, px); for (let a = 0; a < im.data.length; a += 65536) crypto.getRandomValues(im.data.subarray(a, Math.min(im.data.length, a + 65536))); for (let a = 3; a < im.data.length; a += 4) im.data[a] = 255; cx.putImageData(im, 0, 0); }
+        else { cx.fillStyle = `hsl(${(i * 47) % 360},70%,50%)`; cx.fillRect(0, 0, px, px); }
+        const clean = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.95)), t = new Date().toISOString(), id = uid();
+        const rec = { id, project: prj, created: t, takenAt: t, source: 'camera', poleId: `${(o && o.prefix) || 'CC-'}${1001 + i + ((o && o.from) || 0)}`, poleType: '', lat: 7.07 + (i + ((o && o.from) || 0)) * 0.0004, lon: 125.6 + (i + ((o && o.from) || 0)) * 0.0004, updated: t, by: byLine(), element: 'Pole', status: svDefaultStatus('Pole'), details: [], remarks: '', marks: [], boxes: 0 };
+        await saveRecord(rec, [{ id, clean, thumb: clean }]); points.push(rec); made.push(rec.poleId);
+      }
+      renderPoles(); return made;
+    },
+    edit: async (name, poleId, to) => { const p = points.find((x) => x.project === name && x.poleId === poleId); if (!p) return false; const r = { ...p, poleId: to, updated: new Date().toISOString() }; await dbPut('points', r); points[points.indexOf(p)] = r; renderPoles(); return true; },
+    del: async (name, poleId) => { const p = points.find((x) => x.project === name && x.poleId === poleId); if (!p) return false; await dbDel('points', p.id); points = points.filter((x) => x !== p); S.meta[name] = { ...pmeta(name), gone: { ...(pmeta(name).gone || {}), [p.id]: new Date().toISOString() } }; persist(); renderPoles(); return true; },
+    photo: async (id) => { const ph = await dbGet('photos', id).catch(() => null); return ph && ph.clean ? ph.clean.size : 0; },
+    recs: (name) => points.filter((p) => p.project === (name || S.project)).map((p) => ({ id: p.id, poleId: p.poleId, updated: p.updated })),
+    refs: () => JSON.parse(JSON.stringify(S.refs || {})) };
   $('brandVer').textContent = `v${APP_VER}`; // the version beside the name (v2.15)
   if (BETA) { // v2.43: G-eSAA Beta says so everywhere a tester looks
     const tag = document.createElement('span'); tag.className = 'betatag'; tag.textContent = `BETA ${APP_BETA}`; $('brandVer').after(tag);
@@ -14559,5 +15192,5 @@
     /* v2.42.28 */ mxGroups: () => mxGroups().map((g) => ({ k: g.k, name: g.name, n: g.n, kind: g.kind })), mxTick: (k, m) => { const g = mxGroups().find((x) => x.k === k || x.name === k); if (g) mxToggle(g, m); return !!g; }, openPlanSet: () => openPlanSet(), setWhat: (on) => setWhat(!!on, false), ppOpen: (n) => ppOpen(n),
     /* v2.42.27 */ ask: (t, x, b) => ask(t, x, b), hl: () => hlId, paneOn: () => document.body.classList.contains('deskpane'), otherN: () => (otherLayer ? otherLayer.getLayers().length : 0), drwView: () => (drw && drw.view ? { ...drw.view, w: $('drawCanvas').width, h: $('drawCanvas').height } : null),
     fibLanes: () => fibLayer.getLayers().map((l) => (l.getLatLngs ? { ll: l.getLatLngs().map((q) => [q.lat, q.lng]), color: l.options.color, w: l.options.weight, op: l.options.opacity, dash: l.options.dashArray || '' } : { arrow: true })), kmzFibers: () => kmzFibers(),
-    team: { patchS: (o) => { Object.assign(S, o); persist(); }, load: () => tmLoad(), render: () => renderTeam(), on: () => tmOn(), ver: () => tmVerified(), state: () => JSON.parse(JSON.stringify({ mbx: S.mbx || null, teamMe: S.teamMe || null, snap: S.teamSnap || null })), beta: () => ({ BETA, APP_NAME, VER_LABEL }) } }; // v2.43
+    team: { patchS: (o) => { Object.assign(S, o); persist(); }, load: () => tmLoad(), render: () => renderTeam(), on: () => tmOn(), ver: () => tmVerified(), state: () => JSON.parse(JSON.stringify({ mbx: S.mbx || null, teamMe: S.teamMe || null, snap: S.teamSnap || null })), beta: () => ({ BETA, APP_NAME, VER_LABEL }), mbx: mbxTestHooks } }; // v2.43 (beta 2: mbx)
 })();
