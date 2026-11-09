@@ -1,0 +1,520 @@
+# Builds G-eSAA (formerly PoleCam) as an offline Android APK (all app files packed inside) and publishes it as a GitHub Release.
+# Runs on every change to the app files, or by hand: Actions > Build Android APK > Run workflow.
+# Needs two repository secrets: POLECAM_KEYSTORE_B64 and POLECAM_KEYSTORE_PASSWORD.
+name: Build Android APK (beta)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [beta]
+    paths-ignore: ['**.md', 'maps/**', '.github/workflows/deploy-site.yml', '.github/workflows/build-map-packs.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-apk-beta
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      KS_B64: ${{ secrets.POLECAM_KEYSTORE_B64 }}
+      KS_PASS: ${{ secrets.POLECAM_KEYSTORE_PASSWORD }}
+    steps:
+      - name: Check the signing key secrets
+        run: |
+          if [ -z "$KS_B64" ] || [ -z "$KS_PASS" ]; then
+            echo "::error::Add the repository secrets POLECAM_KEYSTORE_B64 and POLECAM_KEYSTORE_PASSWORD (Settings > Secrets and variables > Actions), then run this workflow again."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Create the Capacitor project
+        run: |
+          mkdir -p build/www
+          cp -r index.html app.js core.js glyphs.js reports.js forms.js tutorial.js dxftpl.js ocr-worker.js manifest.json icons vendor brand sample build/www/
+          # org.json (made by the admin: Manage → Tie the app to this list) ties the APK to the organisation's list
+          if [ -f org.json ]; then cp org.json build/www/; echo "org.json included"; fi
+          cd build
+          cat > package.json <<'EOF'
+          {
+            "name": "polecam-android",
+            "private": true,
+            "version": "1.0.0",
+            "dependencies": {
+              "@capacitor/android": "^7.0.0",
+              "@capacitor/app": "^7.0.0",
+              "@capacitor/core": "^7.0.0",
+              "@capacitor/filesystem": "^7.0.0",
+              "@capacitor/share": "^7.0.0"
+            },
+            "devDependencies": {
+              "@capacitor/cli": "^7.0.0"
+            }
+          }
+          EOF
+          cat > capacitor.config.json <<'EOF'
+          {
+            "appId": "com.marktamse.polecam.beta",
+            "appName": "G-eSAA Beta",
+            "webDir": "www",
+            "android": { "backgroundColor": "#0f2547" }
+          }
+          EOF
+          npm install --no-audit --no-fund
+          if [ -f node_modules/@capacitor/core/dist/capacitor.js ]; then
+            cp node_modules/@capacitor/core/dist/capacitor.js www/vendor/capacitor.js
+            sed -i 's#<script src="core.js"></script>#<script src="vendor/capacitor.js"></script>\n<script src="core.js"></script>#' www/index.html
+          else
+            echo "capacitor.js not found; the app will talk to the native bridge directly"
+          fi
+          # The site address identifies the app to map servers and finds packs published with older versions.
+          SITE="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/"
+          sed -i "s#<script src=\"app.js\"></script>#<script>window.POLECAM_SITE='${SITE}';window.GESAA_CHANNEL='beta';</script>\n<script src=\"app.js\"></script>#" www/index.html
+          grep -n "POLECAM_SITE" www/index.html
+          # Identify the app to map tile servers (OpenStreetMap's tile policy asks apps for a distinct User-Agent).
+          APPVER=$(grep -oP "polecam-v\K[0-9.]+" ../sw.js || echo "1.0.0")
+          node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('capacitor.config.json'));c.appendUserAgent='G-eSAA/'+process.argv[1]+' (+https://github.com/'+process.argv[2]+')';fs.writeFileSync('capacitor.config.json',JSON.stringify(c,null,2))" "$APPVER" "$GITHUB_REPOSITORY"
+          cat capacitor.config.json
+          npx cap add android
+
+      - name: Open shared files in the app (KMZ / ZIP from WhatsApp, Files, Drive…)
+        working-directory: build
+        run: |
+          # v2.19: "Open with G-eSAA" and Share → G-eSAA for the PAT / cleanup KMZ and backup ZIPs. The file is copied into the
+          # app's cache and the app is told where it is (event "sharedFile"); the app then asks what to do with it.
+          DIR=$(dirname "$(find android/app/src/main/java -name MainActivity.java | head -1)")
+          cp "$DIR/MainActivity.java" MainActivity.capacitor.java
+          cat > "$DIR/SharedFilePlugin.java" <<'JAVA'
+          package com.marktamse.polecam.beta;
+
+          import android.content.Intent;
+          import android.database.Cursor;
+          import android.net.Uri;
+          import android.provider.OpenableColumns;
+          import com.getcapacitor.JSObject;
+          import com.getcapacitor.Plugin;
+          import com.getcapacitor.annotation.CapacitorPlugin;
+          import java.io.File;
+          import java.io.FileOutputStream;
+          import java.io.InputStream;
+          import java.io.OutputStream;
+
+          /** G-eSAA: a KMZ or ZIP opened with the app or shared to it is copied to the cache and handed to the app. */
+          @CapacitorPlugin(name = "SharedFile")
+          public class SharedFilePlugin extends Plugin {
+
+              @Override
+              public void load() {
+                  final Intent intent = getActivity().getIntent();
+                  if (linkOf(intent) != null) { // v2.26: a G-eSAA link (invite, join, move) handed over by the browser
+                      getActivity().setIntent(new Intent(Intent.ACTION_MAIN));
+                      sendLink(intent);
+                      return;
+                  }
+                  if (uriOf(intent) != null) {
+                      getActivity().setIntent(new Intent(Intent.ACTION_MAIN)); // taken: a restart (screen turned) does not open it again
+                      copyAndSend(intent);
+                  }
+              }
+
+              @Override
+              protected void handleOnNewIntent(Intent intent) {
+                  super.handleOnNewIntent(intent);
+                  if (linkOf(intent) != null) { sendLink(intent); return; }
+                  if (uriOf(intent) != null) copyAndSend(intent);
+              }
+
+              /** v2.26: gesaa://open?h=… — an invite, join or move link opened in the browser and handed to the app. */
+              private static String linkOf(Intent intent) {
+                  if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return null;
+                  Uri d = intent.getData();
+                  return d != null && "gesaa-beta".equals(d.getScheme()) ? d.toString() : null;
+              }
+
+              private void sendLink(Intent intent) {
+                  JSObject ret = new JSObject();
+                  ret.put("url", linkOf(intent));
+                  notifyListeners("sharedLink", ret, true); // kept until the app listens
+              }
+
+              private static Uri uriOf(Intent intent) {
+                  if (intent == null) return null;
+                  String action = intent.getAction();
+                  if (Intent.ACTION_VIEW.equals(action)) { Uri d = intent.getData(); return d != null && "gesaa-beta".equals(d.getScheme()) ? null : d; }
+                  if (Intent.ACTION_SEND.equals(action)) {
+                      Object o = intent.getExtras() == null ? null : intent.getExtras().get(Intent.EXTRA_STREAM);
+                      return o instanceof Uri ? (Uri) o : null;
+                  }
+                  return null;
+              }
+
+              private String nameOf(Uri uri) {
+                  String name = null;
+                  try (Cursor c = getContext().getContentResolver().query(uri, new String[] { OpenableColumns.DISPLAY_NAME }, null, null, null)) {
+                      if (c != null && c.moveToFirst()) name = c.getString(0);
+                  } catch (Exception ignored) {
+                      // a file:// address or a provider without names
+                  }
+                  if (name == null || name.isEmpty()) name = uri.getLastPathSegment();
+                  if (name == null || name.isEmpty()) name = "shared.kmz";
+                  return name.replaceAll("[^A-Za-z0-9._ ()-]", "_");
+              }
+
+              /** Copies in the background (a KMZ with photos can be large), then sends "sharedFile"; kept until the app listens. */
+              private void copyAndSend(final Intent intent) {
+                  final Uri uri = uriOf(intent);
+                  final String mime = intent.getType();
+                  new Thread(() -> {
+                      JSObject ret = new JSObject();
+                      try {
+                          String name = nameOf(uri);
+                          File dir = new File(getContext().getCacheDir(), "shared_in");
+                          if (!dir.exists() && !dir.mkdirs()) throw new Exception("No room for the file");
+                          File[] old = dir.listFiles();
+                          if (old != null) for (File f : old) f.delete();
+                          File out = new File(dir, name);
+                          try (InputStream in = getContext().getContentResolver().openInputStream(uri); OutputStream os = new FileOutputStream(out)) {
+                              if (in == null) throw new Exception("The file could not be opened");
+                              byte[] buf = new byte[65536];
+                              int n;
+                              while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
+                          }
+                          ret.put("name", name);
+                          ret.put("uri", Uri.fromFile(out).toString());
+                          ret.put("size", String.valueOf(out.length()));
+                          ret.put("mime", mime == null ? "" : mime);
+                      } catch (Exception e) {
+                          ret.put("error", e.getMessage() == null ? "The file could not be read" : e.getMessage());
+                      }
+                      notifyListeners("sharedFile", ret, true);
+                  }).start();
+              }
+          }
+          JAVA
+          cat > "$DIR/MainActivity.java" <<'JAVA'
+          package com.marktamse.polecam.beta;
+
+          import android.os.Bundle;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  registerPlugin(SharedFilePlugin.class); // KMZ / ZIP opened with or shared to G-eSAA (v2.19)
+                  super.onCreate(savedInstanceState);
+              }
+          }
+          JAVA
+          python3 - <<'PY'
+          # "Open with G-eSAA" (VIEW) and Share → G-eSAA (SEND) for KMZ and ZIP files; many apps send a KMZ as application/octet-stream;
+          # v2.26: and gesaa:// links (invites opened in the browser)
+          p = 'android/app/src/main/AndroidManifest.xml'
+          s = open(p).read()
+          mimes = ['application/vnd.google-earth.kmz', 'application/zip', 'application/x-zip-compressed', 'application/octet-stream']
+          data = ''.join(f'                <data android:mimeType="{m}" />\n' for m in mimes)
+          filters = ('\n            <intent-filter>\n                <action android:name="android.intent.action.VIEW" />\n'
+                     '                <category android:name="android.intent.category.DEFAULT" />\n                <category android:name="android.intent.category.BROWSABLE" />\n'
+                     '                <data android:scheme="content" />\n                <data android:scheme="file" />\n' + data + '            </intent-filter>\n'
+                     '            <intent-filter>\n                <action android:name="android.intent.action.SEND" />\n'
+                     '                <category android:name="android.intent.category.DEFAULT" />\n' + data + '            </intent-filter>\n'
+                     # v2.26: gesaa:// links (an invite, join or move link opened in the browser and handed to the app)
+                     '            <intent-filter>\n                <action android:name="android.intent.action.VIEW" />\n'
+                     '                <category android:name="android.intent.category.DEFAULT" />\n                <category android:name="android.intent.category.BROWSABLE" />\n'
+                     '                <data android:scheme="gesaa-beta" />\n            </intent-filter>')
+          i = s.index('android.intent.category.LAUNCHER')
+          j = s.index('</intent-filter>', i) + len('</intent-filter>')
+          s = s[:j] + filters + s[j:]
+          open(p, 'w').write(s)
+          print(s)
+          PY
+
+      - name: Add the ML Kit reader (pole IDs and QR codes, on the phone)
+        working-directory: build
+        run: |
+          # v2.15: Google ML Kit text and QR recognition, models inside the APK (no internet). If the build fails with it,
+          # the next step builds without it and the app reads IDs with its own text reader (Tesseract), as before.
+          DIR=$(dirname "$(find android/app/src/main/java -name MainActivity.java | head -1)")
+          echo "MainActivity in $DIR"
+          cp "$DIR/MainActivity.java" MainActivity.orig.java
+          cat > "$DIR/TextReaderPlugin.java" <<'JAVA'
+          package com.marktamse.polecam.beta;
+
+          import android.graphics.Bitmap;
+          import android.graphics.BitmapFactory;
+          import android.graphics.Rect;
+          import android.util.Base64;
+          import com.getcapacitor.JSArray;
+          import com.getcapacitor.JSObject;
+          import com.getcapacitor.Plugin;
+          import com.getcapacitor.PluginCall;
+          import com.getcapacitor.PluginMethod;
+          import com.getcapacitor.annotation.CapacitorPlugin;
+          import com.google.mlkit.vision.barcode.BarcodeScanner;
+          import com.google.mlkit.vision.barcode.BarcodeScannerOptions;
+          import com.google.mlkit.vision.barcode.BarcodeScanning;
+          import com.google.mlkit.vision.barcode.common.Barcode;
+          import com.google.mlkit.vision.common.InputImage;
+          import com.google.mlkit.vision.text.Text;
+          import com.google.mlkit.vision.text.TextRecognition;
+          import com.google.mlkit.vision.text.TextRecognizer;
+          import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+          import java.lang.reflect.Method;
+
+          /** G-eSAA: reads painted pole IDs and QR codes on the phone with Google ML Kit (models inside the app, no internet). */
+          @CapacitorPlugin(name = "TextReader")
+          public class TextReaderPlugin extends Plugin {
+              private TextRecognizer textReader;
+              private BarcodeScanner qrScanner;
+
+              @Override
+              public void load() {
+                  textReader = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+                  qrScanner = BarcodeScanning.getClient(new BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build());
+              }
+
+              /** The picture sent from the app: base64 JPEG or PNG, optional rotation in degrees. */
+              private InputImage picture(PluginCall call) {
+                  String b64 = call.getString("image");
+                  if (b64 == null || b64.isEmpty()) return null;
+                  int comma = b64.indexOf(',');
+                  if (comma >= 0) b64 = b64.substring(comma + 1);
+                  byte[] bytes = Base64.decode(b64, Base64.DEFAULT);
+                  Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                  if (bmp == null) return null;
+                  Integer rot = call.getInt("rotation", 0);
+                  return InputImage.fromBitmap(bmp, rot == null ? 0 : rot);
+              }
+
+              /** Line confidence where this ML Kit version reports it (0..1), else -1. */
+              private static double confidence(Object o) {
+                  try {
+                      Method m = o.getClass().getMethod("getConfidence");
+                      Object v = m.invoke(o);
+                      if (v instanceof Float) return ((Float) v).doubleValue();
+                  } catch (Exception ignored) {
+                      // older ML Kit: no confidence
+                  }
+                  return -1;
+              }
+
+              @PluginMethod
+              public void read(final PluginCall call) {
+                  InputImage img;
+                  try {
+                      img = picture(call);
+                  } catch (Exception e) {
+                      call.reject("Could not open the picture");
+                      return;
+                  }
+                  if (img == null) {
+                      call.reject("No picture");
+                      return;
+                  }
+                  textReader.process(img)
+                      .addOnSuccessListener(result -> {
+                          JSArray lines = new JSArray();
+                          for (Text.TextBlock block : result.getTextBlocks()) {
+                              for (Text.Line line : block.getLines()) {
+                                  JSObject o = new JSObject();
+                                  o.put("text", line.getText());
+                                  o.put("conf", confidence(line));
+                                  Rect r = line.getBoundingBox();
+                                  if (r != null) {
+                                      o.put("left", r.left);
+                                      o.put("top", r.top);
+                                      o.put("width", r.width());
+                                      o.put("height", r.height());
+                                  }
+                                  JSArray words = new JSArray();
+                                  for (Text.Element el : line.getElements()) words.put(el.getText());
+                                  o.put("words", words);
+                                  lines.put(o);
+                              }
+                          }
+                          JSObject ret = new JSObject();
+                          ret.put("text", result.getText());
+                          ret.put("lines", lines);
+                          call.resolve(ret);
+                      })
+                      .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "Text reader failed" : e.getMessage()));
+              }
+
+              @PluginMethod
+              public void qr(final PluginCall call) {
+                  InputImage img;
+                  try {
+                      img = picture(call);
+                  } catch (Exception e) {
+                      call.reject("Could not open the picture");
+                      return;
+                  }
+                  if (img == null) {
+                      call.reject("No picture");
+                      return;
+                  }
+                  qrScanner.process(img)
+                      .addOnSuccessListener(codes -> {
+                          JSObject ret = new JSObject();
+                          for (Barcode b : codes) {
+                              String v = b.getRawValue();
+                              if (v != null) {
+                                  ret.put("value", v);
+                                  break;
+                              }
+                          }
+                          call.resolve(ret);
+                      })
+                      .addOnFailureListener(e -> call.reject(e.getMessage() == null ? "QR reader failed" : e.getMessage()));
+              }
+          }
+          JAVA
+          cat > "$DIR/MainActivity.java" <<'JAVA'
+          package com.marktamse.polecam.beta;
+
+          import android.os.Bundle;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  registerPlugin(SharedFilePlugin.class); // KMZ / ZIP opened with or shared to G-eSAA (v2.19)
+                  registerPlugin(TextReaderPlugin.class); // ML Kit text and QR reader (G-eSAA v2.15)
+                  super.onCreate(savedInstanceState);
+              }
+          }
+          JAVA
+          python3 - <<'PY'
+          p = 'android/app/build.gradle'
+          s = open(p).read()
+          deps = "    implementation 'com.google.mlkit:text-recognition:16.0.1'\n    implementation 'com.google.mlkit:barcode-scanning:17.3.0'\n"
+          i = s.index('dependencies {') + len('dependencies {') + 1
+          open(p, 'w').write(s[:i] + deps + s[i:])
+          PY
+          grep -n "mlkit" android/app/build.gradle
+
+      - name: Permissions, icon, splash screen and version
+        working-directory: build
+        run: |
+          pip install --quiet pillow
+          APPVER=$(grep -oP "polecam-v\K[0-9.]+" ../sw.js || echo "1.0.0")
+          sed -i -E "s/versionCode [0-9]+/versionCode ${{ github.run_number }}/; s/versionName \"[^\"]*\"/versionName \"${APPVER} (build ${{ github.run_number }})\"/" android/app/build.gradle
+          grep -E "versionCode|versionName" android/app/build.gradle
+          python3 - <<'PY'
+          import glob, os
+          from PIL import Image, ImageDraw
+          # Android permissions: camera and precise GPS for the in-app camera, storage for saving exports on Android 10
+          p = 'android/app/src/main/AndroidManifest.xml'
+          s = open(p).read()
+          add = ''
+          for perm in ['android.permission.CAMERA', 'android.permission.ACCESS_FINE_LOCATION', 'android.permission.ACCESS_COARSE_LOCATION']:
+              if perm not in s:
+                  add += f'    <uses-permission android:name="{perm}" />\n'
+          if 'WRITE_EXTERNAL_STORAGE' not in s:
+              add += '    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />\n'
+          add += '    <uses-feature android:name="android.hardware.camera" android:required="false" />\n'
+          add += '    <uses-feature android:name="android.hardware.location.gps" android:required="false" />\n'
+          s = s.replace('</manifest>', add + '</manifest>')
+          if 'requestLegacyExternalStorage' not in s:
+              s = s.replace('<application', '<application android:requestLegacyExternalStorage="true"', 1)
+          open(p, 'w').write(s)
+          print(s)
+          # Launcher icons and splash screen from the app icons (G-eSAA)
+          res = 'android/app/src/main/res'
+          full = Image.open('www/icons/maskable-512.png').convert('RGBA')
+          rounded = Image.open('www/icons/icon-512.png').convert('RGBA')
+          for dens, f in {'mdpi': 1, 'hdpi': 1.5, 'xhdpi': 2, 'xxhdpi': 3, 'xxxhdpi': 4}.items():
+              d = f'{res}/mipmap-{dens}'
+              os.makedirs(d, exist_ok=True)
+              n = round(48 * f)
+              rounded.resize((n, n), Image.LANCZOS).save(f'{d}/ic_launcher.png')
+              mask = Image.new('L', (n * 4, n * 4), 0)
+              ImageDraw.Draw(mask).ellipse([0, 0, n * 4 - 1, n * 4 - 1], fill=255)
+              r = full.resize((n, n), Image.LANCZOS)
+              r.putalpha(mask.resize((n, n), Image.LANCZOS))
+              r.save(f'{d}/ic_launcher_round.png')
+              fg = round(108 * f)
+              full.resize((fg, fg), Image.LANCZOS).save(f'{d}/ic_launcher_foreground.png')
+          os.makedirs(f'{res}/values', exist_ok=True)
+          open(f'{res}/values/ic_launcher_background.xml', 'w').write(
+              '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#0F2547</color>\n</resources>\n')
+          for sp in glob.glob(f'{res}/drawable*/splash.png'):
+              w, h = Image.open(sp).size
+              im = Image.new('RGB', (w, h), (15, 37, 71))
+              k = int(min(w, h) * 0.3)
+              logo = full.resize((k, k), Image.LANCZOS)
+              im.paste(logo, ((w - k) // 2, (h - k) // 2), logo)
+              im.save(sp)
+              print('splash', sp, w, h)
+          PY
+          npx cap sync android
+
+      - name: Build the APK
+        working-directory: build/android
+        run: |
+          chmod +x gradlew
+          echo "SHARED=included" >> "$GITHUB_ENV"
+          if ./gradlew assembleRelease --no-daemon --stacktrace; then
+            echo "MLKIT=included" >> "$GITHUB_ENV"
+          else
+            echo "::warning::The build with the ML Kit reader failed. Building without it: the app then reads IDs with its own text reader."
+            DIR=$(dirname "$(find app/src/main/java -name MainActivity.java | head -1)")
+            rm -f "$DIR/TextReaderPlugin.java"
+            cp ../MainActivity.orig.java "$DIR/MainActivity.java"
+            sed -i '/com.google.mlkit/d' app/build.gradle
+            echo "MLKIT=not included (the build with it failed, see the warning in this run)" >> "$GITHUB_ENV"
+            if ! ./gradlew clean assembleRelease --no-daemon --stacktrace; then
+              # v2.19: last try without the shared-file opener too (files are then opened from Projects → Open a shared file)
+              echo "::warning::The build with the shared-file opener failed too. Building without it."
+              rm -f "$DIR/SharedFilePlugin.java"
+              cp ../MainActivity.capacitor.java "$DIR/MainActivity.java"
+              echo "SHARED=not included (the build with it failed, see the warning in this run)" >> "$GITHUB_ENV"
+              ./gradlew clean assembleRelease --no-daemon --stacktrace
+            fi
+          fi
+
+      - name: Sign the APK
+        run: |
+          echo "$KS_B64" | base64 -d > polecam.keystore
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "Using build tools $BT"
+          "$BT/zipalign" -p -f 4 build/android/app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
+          "$BT/apksigner" sign --ks polecam.keystore --ks-key-alias polecam --ks-pass env:KS_PASS --key-pass env:KS_PASS --out PoleCam.apk aligned.apk
+          "$BT/apksigner" verify --print-certs PoleCam.apk
+          rm -f polecam.keystore
+          cp PoleCam.apk G-eSAA.apk   # same file under the new name; PoleCam.apk keeps old download links working
+          ls -l PoleCam.apk G-eSAA.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: G-eSAA-apk-build-${{ github.run_number }}
+          path: G-eSAA.apk
+
+      - name: Publish as a beta pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APPVER=$(grep -oP "polecam-v\K[0-9.]+" sw.js || echo "1.0.0")
+          cp G-eSAA.apk G-eSAA-Beta.apk
+          gh release create "beta-build-${{ github.run_number }}" G-eSAA-Beta.apk --target "${{ github.sha }}" --prerelease \
+            --title "G-eSAA Beta ${APPVER} (build ${{ github.run_number }})" \
+            --notes "For testers only. Installs beside G-eSAA; its projects are separate. Newest beta: https://github.com/${{ github.repository }}/releases/download/beta-latest/G-eSAA-Beta.apk"
+          gh release delete beta-latest --yes --cleanup-tag || true
+          gh release create beta-latest G-eSAA-Beta.apk --target "${{ github.sha }}" --prerelease \
+            --title "G-eSAA Beta: newest" --notes "Always the newest beta build. Installs beside G-eSAA; its projects are separate."
