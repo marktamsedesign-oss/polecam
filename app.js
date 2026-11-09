@@ -17,12 +17,16 @@
   /* Camera button position for one-hand use: centre by default, right or left in Settings → Camera. */
   const handOf = () => (['left', 'center', 'right'].includes(S && S.hand) ? S.hand : 'center');
   function applyHand() { const h = handOf(); ['left', 'center', 'right'].forEach((x) => document.body.classList.toggle(`hand-${x}`, x === h)); }
+  /* v2.43: the beta website lives at …/polecam/beta/ on the same address as G-eSAA's, so it keeps its own storage
+     (settings, projects, log, offline copy) under other names and never touches your users' projects in that browser.
+     The APKs are separate apps and keep the usual names. */
+  const STORE = /\/beta\//.test(location.pathname) ? 'polecam-beta' : 'polecam';
   /* ================= app log =================
      A small ring buffer kept in localStorage (written synchronously, so it survives a crash of the app's web view).
      Records errors, what the user saw (toasts), and the timing of every step of taking, saving and exporting photos.
      No photos, names, phone numbers or coordinates are logged. Settings → About → App log shows and shares it. */
   const LOG = (() => {
-    const KEY = 'polecam.log', FLIGHT = 'polecam.inflight', MAX = 500;
+    const KEY = `${STORE}.log`, FLIGHT = `${STORE}.inflight`, MAX = 500;
     let buf = [];
     try { buf = JSON.parse(localStorage.getItem(KEY) || '[]'); if (!Array.isArray(buf)) buf = []; } catch (e) { buf = []; }
     let dirty = false, timer = 0;
@@ -182,11 +186,11 @@
     saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
     sig: { design: '', project: '', head: '', cse: '', cseAuto: '' }, // v2.42.12: the names in the plan's title blocks (cseAuto: the last CSE Lead the online sheet gave)
   };
-  let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem('polecam.settings') || '{}')); } catch (e) { return { ...DEF }; } })();
+  let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem(`${STORE}.settings`) || '{}')); } catch (e) { return { ...DEF }; } })();
   applyHand();
   let persistWarned = 0, pointsLost = false; // v2.42.4: pointsLost: the records did not load at start
   const persist = () => {
-    try { localStorage.setItem('polecam.settings', JSON.stringify(S)); } catch (e) { // storage full or blocked (v2.42.4: said, at most once a minute; it was silent)
+    try { localStorage.setItem(`${STORE}.settings`, JSON.stringify(S)); } catch (e) { // storage full or blocked (v2.42.4: said, at most once a minute; it was silent)
       if (Date.now() - persistWarned > 60000) { persistWarned = Date.now(); setTimeout(() => { try { LOG.error('persist.fail', errInfo(e)); } catch (x) { /* early */ } toast('The phone did not keep the app\u2019s settings and project details (storage full or blocked): free some space, or the last changes may be lost when the app closes.', 8000); }, 0); }
     }
   };
@@ -215,7 +219,7 @@
       const fail = (e) => { if (settled) return; settled = true; clearTimeout(timer); dbp = null; rej(e); };
       const timer = setTimeout(() => { LOG.error('db.open.timeout'); fail(new Error('Storage did not open. Keep this screen open and tap Save again.')); }, 10000);
       let r;
-      try { r = indexedDB.open('polecam', 2); } catch (e) { fail(e); return; }
+      try { r = indexedDB.open(STORE, 2); } catch (e) { fail(e); return; }
       r.onupgradeneeded = () => {
         const d = r.result;
         for (const [name, key] of [['points', 'id'], ['photos', 'id'], ['tiles', 'k'], ['packs', 'k']]) {
@@ -761,8 +765,8 @@
   const APP_VER = '2.43.0';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = 1; // which beta of APP_VER this is (shown only in G-eSAA Beta)
-  const BETA = window.GESAA_CHANNEL === 'beta' || /\.pages\.dev$/i.test(location.hostname || '');
+  const APP_BETA = '1.1'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
@@ -1368,7 +1372,7 @@
      says so in the log with the last step. Settings › App log › send it to support. */
   map.on('movestart', () => { lastAct = 'moving the map'; }); map.on('zoomstart', () => { lastAct = 'zooming the map'; });
   try { new PerformanceObserver((l) => l.getEntries().forEach((e) => { if (e.duration >= 2000) LOG.warn('slow.step', { ms: Math.round(e.duration), during: lastAct, zoom: map.getZoom(), pins: pinMarkers.size, labels: document.querySelectorAll('#map .leaflet-tooltip').length }); })).observe({ type: 'longtask' }); } catch (e) { /* not on this browser */ }
-  { const AK = 'polecam.alive';
+  { const AK = `${STORE}.alive`;
     try { const prev = JSON.parse(localStorage.getItem(AK) || 'null'); if (prev && prev.vis && !prev.clean && Date.now() - prev.t < 7 * 864e5) LOG.warn('app.stopped', { at: new Date(prev.t).toISOString(), during: prev.act, note: 'the app stopped while on the screen (closed as not answering, or ended by the phone)' }); } catch (e) { /* none */ }
     const beat = (clean) => { try { localStorage.setItem(AK, JSON.stringify({ t: Date.now(), act: lastAct, vis: document.visibilityState === 'visible', clean: !!clean })); } catch (e) { /* storage blocked */ } };
     beat(false); setInterval(() => beat(false), 5000); document.addEventListener('visibilitychange', () => beat(false)); window.addEventListener('pagehide', () => beat(true)); }
@@ -5248,7 +5252,7 @@
      While a record is open, what it holds (the photo, the form, the pin, the deficiencies and their photos) is kept as a draft on
      the phone: in the photo store (pictures, ids draft~…) and in localStorage (the rest). A page reload, the phone closing the app in
      the background, or the app being closed some other way loses nothing: the next start offers the record again. */
-  const DRAFT_KEY = 'polecam.draft', DRAFT_MAX_MS = 7 * 86400000;
+  const DRAFT_KEY = `${STORE}.draft`, DRAFT_MAX_MS = 7 * 86400000;
   let draftTimer = 0, draftChain = Promise.resolve(), draftBlobs = {}, draftAtStart = 0, draftGen = 0; // v2.42.4: draftGen
   try { const st0 = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); draftAtStart = (st0 && st0.t) || 0; } catch (e) { draftAtStart = 0; } // the draft left from before this start
   /** A photo taken, the camera still open for the ID: kept as a draft too, so a reload during the ID scan does not lose it. */
@@ -12637,7 +12641,7 @@
     if (!/[?&]shared=1/.test(location.search) || !('caches' in window)) return;
     history.replaceState(null, '', location.pathname + location.hash);
     try {
-      const c = await caches.open('polecam-share'), r = await c.match('shared-file'); if (!r) { toast('The shared file did not arrive. Open it from Projects → Open shared projects.', 6000); return; }
+      const c = await caches.open(`${STORE}-share`), r = await c.match('shared-file'); if (!r) { toast('The shared file did not arrive. Open it from Projects → Open shared projects.', 6000); return; }
       await c.delete('shared-file');
       const b = await r.blob(), nm = decodeURIComponent(r.headers.get('x-name') || 'shared.kmz');
       openSharedFile(new File([b], nm, { type: b.type || '' }));

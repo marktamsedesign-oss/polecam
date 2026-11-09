@@ -333,7 +333,7 @@
       ] },
     { id: 'adm-beta', aud: 'admin', cat: 'Administration', title: 'Stable and beta', kw: 'beta stable tester test version pre-release apk branch sheet deployment address promote',
       steps: [
-        { t: '**G-eSAA Beta** is the next version for a few testers. It installs beside G-eSAA, keeps its own projects, and shows **BETA** under the version at the top left.', go: 'map', hl: '#brandBtn' },
+        { t: '**G-eSAA Beta** is the next version for a few testers. On a phone it installs beside G-eSAA; on a computer it is your website with **/beta/** at the end. Either way it keeps its own projects and shows **BETA** under the version at the top left.', go: 'map', hl: '#brandBtn' },
         { t: 'When a beta needs a newer sheet script, it reads the same spreadsheet through a second deployment: in G-eSAA Beta, **Settings → G-eSAA Beta → Online sheet for this beta**, paste that deployment\'s address and tap **Use this address**. **To go back** to the users\' sheet, tap **Back to the users\' address**.', go: 'settings', hl: '#betaBox', when: 'Only in G-eSAA Beta.' },
         { t: 'Invites made in G-eSAA Beta carry that address. Testers scan the invite QR code in G-eSAA Beta; a beta invite link opens G-eSAA Beta once this version is released.' },
         { t: 'Releasing it: the same version goes to G-eSAA, and your users\' sheet deployment is moved to the new script version (Manage deployments → Edit → Version), never a new deployment.' },
