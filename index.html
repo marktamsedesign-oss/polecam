@@ -55,6 +55,8 @@ body.visiting #legendBtn,body.visiting #legend{top:calc(env(safe-area-inset-top,
 .waylbl{background:#1c7ed6;color:#fff;border-radius:999px;padding:2px 8px;font:600 12px/1.3 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.35);transform:translate(-50%,-50%);display:inline-block}
 .target-ring{animation:tring 1.6s ease-in-out infinite}@keyframes tring{50%{stroke-width:7;stroke-opacity:.45}}@media (prefers-reduced-motion:reduce){.target-ring{animation:none}}
 #topbar .brand b{color:var(--hi)}
+.betatag{display:inline-block;margin-top:2px;padding:1px 6px;border-radius:999px;background:#f08c00;color:#1b1300;font-size:calc(9.5px * var(--fs));font-weight:800;letter-spacing:.06em}
+#betaBox{border:1px dashed #f08c00}
 #syncBtn{flex:none;position:relative;width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.08);color:var(--navy-ink);display:grid;place-items:center}
 #syncBtn svg{width:20px;height:20px}#syncBtn.spin svg{animation:spin 1s linear infinite}
 #syncDot{position:absolute;top:4px;right:4px;width:10px;height:10px;border-radius:50%;background:#ffa94d;border:2px solid var(--navy)}
@@ -928,6 +930,12 @@ details.psrow[open]>summary::after{transform:rotate(90deg)}
 #sigEdit{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 #sigEdit[hidden]{display:none}
 .inzip{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-top:8px}
+.mbxsteps{margin:0;padding-left:20px;display:grid;gap:8px;font-size:calc(14px * var(--fs))}
+.mbxres>div{display:flex;gap:8px;align-items:flex-start;padding:8px 10px}.mbxres .ok{color:var(--ok);font-weight:800}.mbxres .no{color:var(--bad);font-weight:800}
+.tmrow{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid var(--line2)}.tmrow:first-child{border-top:0}.tmrow .t{min-width:0;display:flex;flex-direction:column}.tmrow .t small{color:var(--muted)}.tmrow .b{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+#tmCoList,#tmMemList{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--surface)}
+.tmst{font-size:calc(11px * var(--fs));font-weight:700;padding:2px 8px;border-radius:999px;background:var(--soft);white-space:nowrap;align-self:center}.tmrow .b{align-items:center}
+.inzipbox{margin-top:6px}.inzipbox>summary{cursor:pointer;color:var(--muted);font-size:calc(13px * var(--fs));font-weight:600;padding:4px 0;list-style:none}.inzipbox>summary::-webkit-details-marker{display:none}.inzipbox>summary::after{content:" ▸"}.inzipbox[open]>summary::after{content:" ▾"}
 .inzip div{display:grid;grid-template-columns:40px minmax(0,1fr);gap:8px;align-items:center;padding:8px 10px;border-top:1px solid var(--line2);font-size:calc(13px * var(--fs))}
 .inzip div:first-child{border-top:0}
 .inzip .ic{width:36px;height:30px;border-radius:8px;background:var(--soft);display:grid;place-items:center;font:700 calc(10px * var(--fs)) var(--mono)}
@@ -1512,7 +1520,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <h3>Ready</h3>
       <p id="resultName" class="mono" style="margin:0;word-break:break-all"></p>
       <p id="resultCredit" class="hint" style="margin:4px 0 0" hidden></p>
-      <div class="inzip" id="resultInside" hidden></div>
+      <details class="inzipbox" id="resultInsideBox" hidden><summary id="resultInsideSum">What's in the ZIP</summary><div class="inzip" id="resultInside"></div></details>
       <div class="result"><button class="btn primary grow" id="resSave">Save to phone</button><button class="btn grow" id="resShare">Share…</button></div>
     </div>
   </div>
@@ -1525,9 +1533,17 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <h2 id="settingsTitle">Settings</h2>
   </header>
   <div class="body">
+    <div class="group" id="betaBox" hidden>
+      <h3>G-eSAA Beta</h3>
+      <p class="hint" id="betaInfo">A test version. Its projects are separate from G-eSAA's, so keep paid work in G-eSAA until this version is released there. Problems: App log → Send log, with a line on what you were doing.</p>
+      <label class="field">ONLINE SHEET FOR THIS BETA <input type="url" id="betaSheet" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec"></label>
+      <p class="hint" id="betaSheetNow"></p>
+      <div class="row"><button class="btn sm primary" id="betaSheetUse" type="button">Use this address</button><button class="btn sm" id="betaSheetBack" type="button" hidden>Back to the users' address</button></div>
+    </div>
     <div class="sectionh">Account</div>
     <div class="rows">
       <button class="rowbtn" id="editMe" type="button"><span class="ic"><svg><use href="#i-user"/></svg></span><span class="t"><b id="whoBox">–</b><span id="whoSub">Name, mobile, email and company</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
+      <button class="rowbtn" id="goTeam" type="button" hidden><span class="ic"><svg><use href="#i-user"/></svg></span><span class="t"><b>Team</b><span id="teamSub">Coordinator or field partner, and your company's mailbox</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
     </div>
     <p class="hint" id="creditMe" hidden></p>
     <div class="row"><button class="btn sm primary" id="inviteBtn" type="button" hidden>Invite a coworker (QR)</button><button class="btn sm primary" id="apprShowBtn" type="button" hidden>On-site approval QR</button><button class="btn sm" id="moveBtn" type="button">Move to another phone…</button><button class="btn sm" id="resetUser" type="button">Reset user…</button></div>
@@ -1790,6 +1806,63 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   </div>
   <div class="foot"><button class="btn grow" id="crAdd" type="button">Add a user</button><button class="btn primary grow" id="crRefresh" type="button">Refresh</button></div>
 </section>
+<section class="sheet" id="teamSheet" hidden aria-labelledby="tmTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="tmTitle">Team</h2>
+  </header>
+  <div class="body">
+    <p class="hint" id="tmIntro">A coordinator sends projects to his field partners and gets their surveys back through your company's mailbox. Working alone? Choose Work on my own: nothing changes.</p>
+    <div class="group" id="tmMail">
+      <h3>Your email</h3>
+      <p class="keystate" id="tmMailState">–</p>
+      <div class="row" id="tmCodeRow"><button class="btn sm primary" id="tmSend" type="button">Send me a code</button></div>
+      <div class="row" id="tmVerifyRow" hidden><input type="text" id="tmCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" aria-label="The 6-digit code from the email" style="max-width:10em"><button class="btn sm primary" id="tmVerify" type="button">Confirm</button></div>
+      <p class="hint" id="tmMailInfo">Projects are sent to this email, so it is confirmed once with a code.</p>
+    </div>
+    <div class="group" id="tmRoleBox">
+      <h3>My role</h3>
+      <div class="chips" id="tmRole" role="group" aria-label="My role"><button type="button" class="chip small" data-v="Coordinator" aria-pressed="false">Coordinator</button><button type="button" class="chip small" data-v="Field Partner" aria-pressed="false">Field Partner</button><button type="button" class="chip small" data-v="On my own" aria-pressed="false">Work on my own</button></div>
+      <p class="hint" id="tmRoleInfo"></p>
+    </div>
+    <div class="group" id="tmFp" hidden>
+      <h3>My teams</h3>
+      <p class="hint">Ask to join the team of each coordinator who sends you work (for example one for surveys, another for PAT and FAT).</p>
+      <div class="bslist" id="tmCoList"></div>
+    </div>
+    <div class="group" id="tmCo" hidden>
+      <h3>My field partners</h3>
+      <div class="bslist" id="tmMemList"></div>
+    </div>
+    <div class="group" id="tmMbx">
+      <h3>Company mailbox</h3>
+      <p class="keystate" id="tmMbxState">–</p>
+      <p class="hint" id="tmMbxInfo"></p>
+      <div class="row" id="tmMbxBtns"><button class="btn sm primary" id="tmMbxSetup" type="button" hidden>Set up the mailbox</button><button class="btn sm" id="tmMbxCheck" type="button" hidden>Check now</button><button class="btn sm" id="tmMbxRekey" type="button" hidden>Change key</button></div>
+    </div>
+    <p class="warnline" id="tmErr" hidden></p>
+  </div>
+  <div class="foot"><button class="btn primary grow" id="tmRefresh" type="button">Refresh</button></div>
+</section>
+<section class="sheet" id="mbxSheet" hidden aria-labelledby="mbTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="mbTitle">Set up the mailbox</h2>
+  </header>
+  <div class="body">
+    <p class="hint">Once for the whole company, best on a computer signed in to the company's Google account (for example mailbox@yourcompany; a free Gmail account works too). About 10 minutes. Your coordinators and field partners then get the mailbox by themselves.</p>
+    <ol class="mbxsteps">
+      <li><b>Open the mailbox script</b> and click <b>Make a copy</b> (check the account at the top right first). <a id="mbxScript" href="#" target="_blank" rel="noopener" hidden>Open the mailbox script</a><span class="hint" id="mbxNoScript" hidden> Ask your admin for the link to the G-eSAA mailbox script.</span></li>
+      <li>In the copy, the function box says <b>setup</b>: click <b>Run</b>, then <b>Review permissions</b>, pick the company account and allow the <b>two</b> things it asks (only the Drive files it makes; connect to an external service). If Google says it hasn't verified the app: <b>Advanced → Go to … (unsafe)</b>.</li>
+      <li><b>Deploy → New deployment → Web app</b>. Execute as: <b>Me</b>. Who has access: <b>Anyone</b>. <b>Deploy</b>, then copy the <b>Web app URL</b>.</li>
+      <li>Paste it here and tap <b>Check and save</b>. A test file goes straight to Google, comes back through the mailbox and is deleted.</li>
+    </ol>
+    <label class="field">WEB APP ADDRESS <input type="url" id="mbxUrl" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec"></label>
+    <div class="bslist mbxres" id="mbxRes" hidden></div>
+    <p class="warnline" id="mbxErr" hidden></p>
+  </div>
+  <div class="foot"><button class="btn primary grow" id="mbxSave" type="button">Check and save</button></div>
+</section>
 <section class="sheet" id="bulkShare" hidden aria-labelledby="bsTitle">
   <header>
     <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
@@ -2021,7 +2094,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="group">
         <h3>Field standards</h3>
         <div class="row"><label class="field" style="flex:1">Maximum span (m)<input type="number" id="setMaxSpan" step="1" min="5"></label><label class="field" style="flex:1">Angle pole from (°)<input type="number" id="setAngle" step="1" min="1" max="90"></label></div>
-        <label class="field">Link in capture order: skip gaps longer than (m)<input type="number" id="setAutoGap" step="5" min="10"></label>
+        <label class="field">Follow the capture order: skip gaps longer than (m)<input type="number" id="setAutoGap" step="5" min="10"></label>
         <label class="field">Maintenance loop (MLoop) length (m)<input type="number" id="setMloopLen" step="0.5" min="1" max="100"></label>
         <label class="field">Extra pole prefixes for everyone, one per line (prefix, then a name)<textarea id="admPoleTypes" style="min-height:60px" placeholder="PLDT PLDT pole"></textarea></label>
         <details class="admsub" id="admBoqBox"><summary>Sizes for the BOQ / BOM and pole details</summary>

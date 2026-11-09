@@ -758,10 +758,16 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.28';
+  const APP_VER = '2.43.0';
+  /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
+     different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
+  const APP_BETA = 1; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const BETA = window.GESAA_CHANNEL === 'beta' || /\.pages\.dev$/i.test(location.hostname || '');
+  const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
+  const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
-  const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
+  const APP_UA = () => `G-eSAA/${APP_VER}${BETA ? '-beta' : ''} (+${SITE})`;
   function b64ToBytes(b) { const s = atob(b); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
   function nativeBytes(d) {
     if (typeof d === 'string') return b64ToBytes(d.replace(/^data:[^,]*,/, ''));
@@ -8324,7 +8330,11 @@
     $('resultName').textContent = `${name} · ${(blob.size / 1048576).toFixed(2)} MB`;
     $('resultCredit').textContent = creditNote; $('resultCredit').hidden = !creditNote; creditNote = ''; // v2.42.7: what this export used
     $('resultBox').hidden = false;
-    { const ins = resultInside; resultInside = null; $('resultInside').hidden = !ins; $('resultInside').innerHTML = ins ? ins.map(([ic, n, t]) => `<div><span class="ic">${ic}</span><span><b>${C.xmlEsc(n)}</b><small>${C.xmlEsc(t)}</small></span></div>`).join('') : ''; }
+    { const ins = resultInside; resultInside = null; $('resultInsideBox').hidden = !ins; $('resultInsideBox').open = false; $('resultInside').innerHTML = ins ? ins.map(([ic, n, t]) => `<div><span class="ic">${ic}</span><span><b>${C.xmlEsc(n)}</b><small>${C.xmlEsc(t)}</small></span></div>`).join('') : '';
+      if (ins) { // v2.43: folded to one line (the files are listed when it is opened)
+        const n = (k) => ins.filter((x) => x[0] === k).length;
+        $('resultInsideSum').textContent = `What's in the ZIP: ${[n('DXF') ? `${n('DXF')} DXF` : '', n('PDF') ? `${n('PDF')} PDF` : '', n('JPG') ? 'photos' : '', n('TXT') ? 'README' : ''].filter(Boolean).join(' · ')}`;
+      } }
     $('resSave').textContent = NATIVE ? 'Save to Documents' : 'Save to phone';
     $('resShare').hidden = false; // v2.30: always offered; a browser that cannot share this kind of file says what to do instead
     $('resultBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -8406,7 +8416,7 @@
     $('export').classList.toggle('plan', pl); $('export').classList.toggle('side', pl && deskOn() && stack.includes('drawing')); if ($('export').classList.contains('side')) document.body.classList.add('drwside');
     $('exportTitle').textContent = pl ? 'Export the plan' : 'Export';
     $('sigEdit').hidden = true; $('sigChange').textContent = 'Change'; $('sigChange').setAttribute('aria-expanded', 'false');
-    $('resultBox').hidden = true; $('resultInside').hidden = true; openSheet('export');
+    $('resultBox').hidden = true; $('resultInsideBox').hidden = true; openSheet('export');
   });
   function needPoints() { const pts = projPoints(); if (!pts.length) { toast('Nothing captured in this project yet'); return null; } return pts; }
   /** v2.42.4: each record's photo file name as the Photos export names it (by the naming setting, numbered when the same), '' without a photo. */
@@ -10629,6 +10639,7 @@
       case 'records': if (tutTop() !== 'list') $('listBtn').click(); break;
       case 'export': if (tutTop() !== 'export') $('exportBtn').click(); break;
       case 'planset': if (tutTop() !== 'planSet') openPlanSet(); break; // v2.42.28
+      case 'team': if (tutTop() !== 'teamSheet') { if (tutTop() !== 'settings') { $('settingsBtn').click(); await tutWait(150); } $('goTeam').click(); } break; // v2.43
       case 'settings': if (tutTop() !== 'settings') $('settingsBtn').click(); break;
       case 'profile': if (tutTop() !== 'settings') $('settingsBtn').click(); await tutWait(150); openProfile(false); break;
       case 'admin': if (tutTop() !== 'settings') $('settingsBtn').click(); await tutWait(150); $('goAdmin').click(); break;
@@ -10963,10 +10974,11 @@
   /** Invite link for a company: its key, masked (and, when the app is not tied to the sheet, the list too). */
   async function inviteLinkFor(key) {
     const base = webBase(); if (!base || !S.team || normKey(key).length < 8) return '';
-    if (ORG && ORG.src && ORG.id === S.team.id) return `${base}#ci=${hideKey(key)}`;
+    const b = BETA ? '&b=1' : ''; // v2.43: made in G-eSAA Beta: the link opens G-eSAA Beta
+    if (ORG && ORG.src && ORG.id === S.team.id) return `${base}#ci=${hideKey(key)}${b}`;
     const short = await shortJoin(); // v2.26: where the online sheet holds this list version, a short link and a small QR code
-    if (short) return `${short}&ci=${hideKey(key)}`;
-    return `${base}#join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}&ci=${hideKey(key)}`;
+    if (short) return `${short}&ci=${hideKey(key)}${b}`;
+    return `${base}#join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}&ci=${hideKey(key)}${b}`;
   }
   /** Invite link for coworkers: this phone's company key. */
   const inviteLink = async () => { // v2.28: without company keys, the join link names the company
@@ -10976,7 +10988,7 @@
   /** v2.28: a join link that names the company (short where the online sheet holds the list). */
   async function joinLinkFor(co) {
     const base = webBase(); if (!base || !S.team) return '';
-    const tail = co ? `&co=${encodeURIComponent(co)}` : '', short = await shortJoin();
+    const tail = (co ? `&co=${encodeURIComponent(co)}` : '') + (BETA ? '&b=1' : ''), short = await shortJoin(); // v2.43: &b=1 opens G-eSAA Beta
     if (short) return short + tail;
     return `${base}#join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}${tail}`;
   }
@@ -12653,7 +12665,8 @@
     if (pick !== 'app') { S.linkWeb = true; persist(); return false; }
     const back = `${location.origin}${location.pathname}?web=1${h.startsWith('#') ? h : `#${h.slice(1)}`}`;
     LOG.info('link.toApp', { kind: pendingKey || /^i/.test(pendingShort || '') ? 'invite' : pendingMv || /^m/.test(pendingShort || '') ? 'move' : 'join' });
-    location.href = `intent://open?h=${encodeURIComponent(h)}#Intent;scheme=gesaa;package=com.marktamse.polecam;S.browser_fallback_url=${encodeURIComponent(back)};end`;
+    const beta = BETA || /[#&]b=1(?=[&#]|$)/.test(H0); // v2.43: a link made in G-eSAA Beta (…&b=1) opens G-eSAA Beta
+    location.href = `intent://open?h=${encodeURIComponent(h)}#Intent;scheme=${beta ? 'gesaa-beta' : 'gesaa'};package=com.marktamse.polecam${beta ? '.beta' : ''};S.browser_fallback_url=${encodeURIComponent(back)};end`;
     return true;
   }
   /** The APK opened by a G-eSAA link (gesaa://open?h=…): the invite, join or move code inside it. */
@@ -13807,7 +13820,7 @@
   const logTime = (t) => { const d = new Date(t); return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`; };
   const logLine = (x) => `${logTime(x.t)} ${{ i: 'I', w: 'W', e: 'E' }[x.l] || '?'} ${x.e}${x.d !== undefined ? ' ' + (typeof x.d === 'string' ? x.d : JSON.stringify(x.d)) : ''}`;
   async function logReport() {
-    const info = { app: `G-eSAA ${APP_VER}`, apk: NATIVE, ua: navigator.userAgent, memoryGB: navigator.deviceMemory, cores: navigator.hardwareConcurrency,
+    const info = { app: `${APP_NAME} ${VER_LABEL}`, apk: NATIVE, ua: navigator.userAgent, memoryGB: navigator.deviceMemory, cores: navigator.hardwareConcurrency,
       screen: `${screen.width}×${screen.height} @${devicePixelRatio}`, opfs: OPFS_OK, base: S.base, streetServer: streetSource().name, records: points.length, projects: allProjects().length,
       photoCheck: effectiveQuality(), heapMB: memMB(), list: S.team ? `v${S.team.rev}` : 'none' };
     try { const e = await withTimeout(navigator.storage.estimate(), 3000, 'slow'); info.storageUsedMB = Math.round((e.usage || 0) / 1048576); info.storageQuotaMB = Math.round((e.quota || 0) / 1048576); } catch (e) { /* ignore */ }
@@ -13885,7 +13898,286 @@
     }
     openCamera('new');
   });
+  /* ================= v2.43: Team (Coordinator / Field Partner) and the company mailbox =================
+     The online sheet (sheet script v2.43) keeps each person's role, who is in whose team, and the company's mailbox address and
+     key. The mailbox itself is a small script in the contractor's own Google Drive (mailbox/README.txt): files are sent straight
+     to Google with an upload address the script opens, and read back through the script. This beta sets up the teams and the
+     mailbox and checks it end to end; sending projects through it comes in the next beta. */
+  const TM_ST = { asked: 'Asked', in: 'In the team', declined: 'Declined', left: 'Left', removed: 'Removed' };
+  const MBX_ACT = 'action'; // the field the mailbox script reads the action from
+  const tmEmail = () => String((S.user && S.user.email) || '').trim().toLowerCase();
+  const tmOn = () => !!(keyMode() && sheetUrl()); // a team needs the company key (who is in which company) and the online sheet
+  const tmVerified = () => !!(S.teamMe && S.teamMe.tok && S.teamMe.e === tmEmail() && S.teamMe.src === sheetUrl());
+  const tmSnap = () => (S.teamSnap && S.teamSnap.src === sheetUrl() && S.teamSnap.e === tmEmail() ? S.teamSnap : null);
+  const tmRole = () => { const t = tmSnap(); return (t && t.me && t.me.role) || 'On my own'; };
+  const tmEsc = (x) => C.xmlEsc(String(x == null ? '' : x));
+  const tmWhen = (iso) => { const d = new Date(iso); return Number.isFinite(d.getTime()) ? d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''; };
+  let tmCodeSent = false;
+  const TM_WHY = { key: 'the online sheet did not accept this: it needs the v2.43 sheet script (in G-eSAA Beta, set the beta address in Settings)', tok: 'confirm your email again (Settings → Team)', role: 'only a coordinator can do this', action: 'the online sheet has an older script (it needs v2.43)', email: 'that email is not valid', wait: 'too many codes: wait 10 minutes, then send a new one', mail: 'the online sheet could not send email today', expired: 'the code expired: send a new one', code: 'wrong code', coordinator: 'that person is not a coordinator of your company', url: 'that is not a mailbox web app address', member: 'that person is not in your team', link: 'that request is no longer open (ask to join again)', self: 'you cannot join your own team', busy: 'the online sheet is busy: try again', server: 'the online sheet had a problem: try again', mailbox: 'set up the mailbox first', 'team key': 'the mailbox key was not accepted' };
+  async function tmPost(action, body) {
+    if (!sheetUrl()) throw new Error('no online sheet: join your company first');
+    const j = await cloudRequest({ url: sheetUrl() }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action, ckey: S.companyKey || '', email: tmEmail(), tok: tmVerified() ? S.teamMe.tok : '', ...(body || {}) }) });
+    if (!j || !j.ok) {
+      const code = j && j.error;
+      if (code === 'tok') { S.teamMe = null; persist(); }
+      const e = new Error(TM_WHY[code] || code || 'no answer from the online sheet'); e.code = code; e.left = j && j.left; throw e;
+    }
+    return j;
+  }
+  /** The team as the online sheet has it for this phone, and the company's mailbox when this phone may use it. */
+  async function tmLoad() {
+    if (!tmOn() || navigator.onLine === false) return null;
+    const j = await tmPost('team', {});
+    S.teamSnap = { me: j.me || null, coordinators: j.coordinators || [], myTeams: j.myTeams || [], members: j.members || [], mailboxSet: !!j.mailboxSet, scriptLink: j.scriptLink || '', src: sheetUrl(), e: tmEmail(), at: new Date().toISOString() };
+    if (j.verified === false && S.teamMe) S.teamMe = null; // the sheet no longer knows this phone's confirmation
+    const m = j.mailbox;
+    if (m && m.url && m.key) S.mbx = { url: m.url, key: m.key, account: m.account || '', setBy: m.setBy || '', checked: (S.mbx && S.mbx.url === m.url && S.mbx.checked) || m.checked || '', src: sheetUrl() };
+    else if (S.mbx && S.mbx.src === sheetUrl()) S.mbx = null; // out of the team, or the mailbox was removed: no address or key kept
+    persist(); LOG.info('team.load', { role: (j.me && j.me.role) || '', mbx: !!S.mbx, verified: !!j.verified });
+    return S.teamSnap;
+  }
+  function renderTeamRow() { // Settings → Team
+    $('goTeam').hidden = !tmOn();
+    if (!tmOn()) return;
+    const t = tmSnap(), role = tmRole();
+    let sub = 'Coordinator or field partner, and your company’s mailbox';
+    if (t && t.me) {
+      if (role === 'Coordinator') {
+        const n = (t.members || []).filter((m) => m.status === 'in').length, ask = (t.members || []).filter((m) => m.status === 'asked').length;
+        sub = `Coordinator · ${n} field partner${n === 1 ? '' : 's'}${ask ? ` · ${ask} asking to join` : ''} · ${S.mbx ? 'mailbox ready' : 'no mailbox yet'}`;
+      } else if (role === 'Field Partner') {
+        const ins = (t.myTeams || []).filter((x) => x.status === 'in');
+        sub = `Field Partner · ${ins.length ? ins.map((x) => `${x.name || x.coordinator}’s team`).join(', ') : 'not in a team yet'}`;
+      } else sub = 'Work on my own';
+    }
+    $('teamSub').textContent = sub;
+  }
+  function renderTeam() {
+    renderTeamRow();
+    const t = tmSnap(), em = tmEmail(), ver = tmVerified(), role = tmRole();
+    $('tmMailState').textContent = !em ? 'No email in Your details yet' : ver ? `Confirmed: ${em}` : em;
+    $('tmCodeRow').hidden = ver || !em; $('tmVerifyRow').hidden = ver || !em || !tmCodeSent;
+    $('tmSend').textContent = tmCodeSent ? 'Send a new code' : 'Send me a code';
+    $('tmMailInfo').textContent = ver ? 'Projects for you are sent to this email.' : !em ? 'Add your email in Your details first (Settings → your name).' : tmCodeSent ? `Type the 6-digit code emailed to ${em}. It works for 10 minutes.` : 'Projects are sent to this email, so it is confirmed once with a code.';
+    $('tmRole').querySelectorAll('.chip').forEach((b) => { b.setAttribute('aria-pressed', String(!!t && !!t.me && b.dataset.v === role)); b.disabled = !ver; });
+    $('tmRoleInfo').textContent = !ver ? 'Confirm your email first.' : role === 'Coordinator' ? 'You make projects and send them to your field partners, and accept their surveys.' : role === 'Field Partner' ? 'You get projects from your coordinators and send your surveys back to them.' : 'You make and share your own projects, as before.';
+    $('tmFp').hidden = !(ver && role === 'Field Partner');
+    if (!$('tmFp').hidden) {
+      const mine = {}; ((t && t.myTeams) || []).forEach((x) => { mine[x.coordinator] = x.status; });
+      const list = ((t && t.coordinators) || []).filter((c) => c.email !== em);
+      $('tmCoList').innerHTML = list.length ? list.map((c) => { const st = mine[c.email] || ''; return `<div class="tmrow"><span class="t"><b>${tmEsc(c.name || c.email)}</b><small>${tmEsc([c.regions, c.email].filter(Boolean).join(' · '))}</small></span><span class="b">${st ? `<span class="tmst">${TM_ST[st] || tmEsc(st)}</span>` : ''}${st === 'in' || st === 'asked' ? `<button class="btn sm" type="button" data-leave="${tmEsc(c.email)}">${st === 'asked' ? 'Cancel' : 'Leave'}</button>` : `<button class="btn sm primary" type="button" data-join="${tmEsc(c.email)}">Ask to join</button>`}</span></div>`; }).join('') : '<p class="hint" style="padding:8px 10px">No coordinator in your company yet.</p>';
+    }
+    $('tmCo').hidden = !(ver && role === 'Coordinator');
+    if (!$('tmCo').hidden) {
+      const ms = ((t && t.members) || []).filter((m) => m.status === 'asked' || m.status === 'in');
+      $('tmMemList').innerHTML = ms.length ? ms.map((m) => `<div class="tmrow"><span class="t"><b>${tmEsc(m.name || m.email)}</b><small>${tmEsc([m.regions, m.email].filter(Boolean).join(' · '))}</small></span><span class="b">${m.status === 'asked' ? `<button class="btn sm" type="button" data-decline="${tmEsc(m.email)}">Decline</button><button class="btn sm primary" type="button" data-accept="${tmEsc(m.email)}">Accept</button>` : `<span class="tmst">In your team</span><button class="btn sm" type="button" data-remove="${tmEsc(m.email)}">Remove</button>`}</span></div>`).join('') : '<p class="hint" style="padding:8px 10px">No field partner yet. They ask to join from their phones (Settings → Team → Field Partner).</p>';
+    }
+    const co = ver && role === 'Coordinator';
+    const setBy = S.mbx && S.mbx.setBy ? ((((t && t.coordinators) || []).find((c) => c.email === String(S.mbx.setBy).toLowerCase()) || {}).name || S.mbx.setBy) : ''; // the sheet keeps the email
+    $('tmMbxState').textContent = S.mbx ? `Ready${setBy ? ` · set up by ${setBy}` : ''}` : t && t.mailboxSet ? 'Set up for your company' : 'Not set up yet';
+    $('tmMbxInfo').textContent = S.mbx ? `${S.mbx.checked ? `Last checked ${tmWhen(S.mbx.checked)}. ` : ''}Sending goes straight to Google; downloads come through the mailbox.`
+      : co ? 'One coordinator sets it up once for the whole company, on a computer (about 10 minutes).'
+        : t && t.mailboxSet ? 'Your phone gets it once a coordinator accepts you into a team.' : 'A coordinator of your company sets it up once. Nothing to do on your phone.';
+    $('tmMbxSetup').hidden = !co; $('tmMbxSetup').textContent = S.mbx ? 'Set up again' : 'Set up the mailbox';
+    $('tmMbxCheck').hidden = !(S.mbx && ver); $('tmMbxRekey').hidden = !(S.mbx && co);
+    $('tmErr').hidden = true;
+  }
+  function tmFail(e) { $('tmErr').textContent = `Not done: ${e.message || e}.`; $('tmErr').hidden = false; LOG.warn('team.fail', { code: e.code || '', msg: String(e.message || e).slice(0, 120) }); }
+  async function tmDo(label, fn) {
+    if (navigator.onLine === false) { toast('No internet: try again with signal.'); return; }
+    busy(label);
+    try { await fn(); await tmLoad(); renderTeam(); } catch (e) { tmFail(e); } finally { busy(false); }
+  }
+  $('goTeam').addEventListener('click', () => {
+    openSheet('teamSheet'); renderTeam();
+    if (navigator.onLine !== false) tmLoad().then(renderTeam, (e) => { tmFail(e); });
+  });
+  $('settingsBtn').addEventListener('click', () => {
+    renderTeamRow();
+    const t = tmSnap();
+    if (tmOn() && navigator.onLine !== false && (!t || Date.now() - Date.parse(t.at) > 10 * 60000)) tmLoad().then(renderTeamRow, () => {});
+  });
+  $('tmRefresh').addEventListener('click', () => tmDo('Reading your team…', async () => {}));
+  $('tmSend').addEventListener('click', () => tmDo('Sending the code…', async () => {
+    const j = await tmPost('teamCode', {});
+    tmCodeSent = true; toast(j.sent === false ? 'The sheet did not send a code: check your email in Your details.' : `Code sent to ${tmEmail()}. Check your email (and spam).`, 5000);
+  }));
+  $('tmVerify').addEventListener('click', () => tmDo('Checking the code…', async () => {
+    const code = /** @type {HTMLInputElement} */ ($('tmCode')).value.replace(/\D/g, '');
+    if (code.length !== 6) throw new Error('type the 6 digits from the email');
+    try { const j = await tmPost('teamVerify', { code }); S.teamMe = { e: tmEmail(), tok: j.tok, src: sheetUrl(), at: new Date().toISOString() }; tmCodeSent = false; persist(); toast('Email confirmed.'); }
+    catch (e) { if (e.code === 'code' && e.left != null) e.message = `wrong code (${e.left} tr${e.left === 1 ? 'y' : 'ies'} left)`; throw e; }
+    finally { /** @type {HTMLInputElement} */ ($('tmCode')).value = ''; }
+  }));
+  $('tmRole').addEventListener('click', (ev) => {
+    const b = ev.target.closest('.chip'); if (!b || b.disabled) return;
+    const want = b.dataset.v, t = tmSnap();
+    if (t && t.me && t.me.role === want) return;
+    guard(async () => {
+      if (t && t.me && t.me.role === 'Coordinator' && (t.members || []).some((m) => m.status === 'in')
+        && !(await ask('Stop being a coordinator?', 'Your field partners stay listed in your team, but you no longer send or accept their work. Another coordinator of your company can take it over.', [{ label: 'Cancel', value: false }, { label: 'Change my role', value: true, primary: true }]))) return;
+      await tmDo('Saving your role…', () => tmPost('teamRole', { name: (S.user && S.user.name) || '', role: want, regions: myRegions().join(',') }));
+    }, 'Role not saved');
+  });
+  $('tmCoList').addEventListener('click', (ev) => {
+    const j = ev.target.closest('[data-join]'), l = ev.target.closest('[data-leave]');
+    if (j) tmDo('Asking to join…', () => tmPost('teamJoin', { name: (S.user && S.user.name) || '', coordinator: j.dataset.join }));
+    else if (l) guard(async () => {
+      const t = tmSnap(), c = ((t && t.coordinators) || []).find((x) => x.email === l.dataset.leave), st = (((t && t.myTeams) || []).find((x) => x.coordinator === l.dataset.leave) || {}).status;
+      if (st === 'in' && !(await ask(`Leave ${(c && c.name) || 'this'} team?`, 'You stop getting projects from this coordinator. Projects already on this phone stay here; tasks you have not finished go back to the coordinator when sending comes (next beta).', [{ label: 'Cancel', value: false }, { label: 'Leave the team', value: true, primary: true }]))) return;
+      await tmDo('Leaving the team…', () => tmPost('teamLeave', { coordinator: l.dataset.leave }));
+    }, 'Not left');
+  });
+  $('tmMemList').addEventListener('click', (ev) => {
+    const a = ev.target.closest('[data-accept]'), d = ev.target.closest('[data-decline]'), r = ev.target.closest('[data-remove]');
+    if (a) tmDo('Accepting…', () => tmPost('teamAnswer', { member: a.dataset.accept, accept: true }));
+    else if (d) tmDo('Declining…', () => tmPost('teamAnswer', { member: d.dataset.decline, accept: false }));
+    else if (r) guard(async () => {
+      if (!(await ask('Remove from your team?', 'He no longer gets projects from you. His phone stops getting the mailbox at its next sync; to shut it out at once, change the mailbox key after this.', [{ label: 'Cancel', value: false }, { label: 'Remove', value: true, primary: true }]))) return;
+      await tmDo('Removing…', () => tmPost('teamRemove', { member: r.dataset.remove }));
+      if (S.mbx && await ask('Change the mailbox key now?', 'Everyone still in a team of your company gets the new key at their next sync.', [{ label: 'Later', value: false }, { label: 'Change key', value: true, primary: true }])) await mbxRekeyRun();
+    }, 'Not removed');
+  });
+
+  /* ---- the mailbox (the contractor's own script) ---- */
+  const MBX_WHY = { key: 'the mailbox did not accept the key (tap Refresh in Team; a coordinator may have changed it)', box: 'the mailbox did not accept this email', tid: 'bad transfer id', size: 'the file is too big for one call', parts: 'the file did not arrive complete', meta: 'the file details are too long', id: 'that file is not in the mailbox' };
+  async function mbxPost(url, action, body) {
+    const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ [MBX_ACT]: action, ...(body || {}) }) });
+    if (!j || !j.ok) { const code = j && j.error; const e = new Error(MBX_WHY[code] || code || 'the mailbox did not answer'); e.code = code; throw e; }
+    return j;
+  }
+  const mbxRid = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => 'abcdefghijkmnpqrstuvwxyz23456789'[b % 32]).join('');
+  async function mbxSha(u8) { const h = new Uint8Array(await crypto.subtle.digest('SHA-256', u8)); return Array.from(h, (b) => b.toString(16).padStart(2, '0')).join(''); }
+  function mbxB64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
+  /** The bytes straight to Google through an upload address the mailbox opened (no Google key on the phone). */
+  async function mbxDirect(url, key, box, tid, data) {
+    const s = await mbxPost(url, 'session', { k: key, box, tid, size: data.length, origin: location.origin });
+    const r = await withTimeout(fetch(s.url, { method: 'PUT', headers: { 'Content-Range': `bytes 0-${data.length - 1}/${data.length}` }, body: data }), 60000, 'Google did not answer');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  }
+  /** One small test file the way real updates will travel, read back and deleted. step(ok, text) reports each part. */
+  async function mbxTest(url, key, step) {
+    const box = tmEmail() || 'check', data = crypto.getRandomValues(new Uint8Array(65536)), sha = await mbxSha(data);
+    let tid = `chk${Date.now().toString(36)}${mbxRid(6)}`, how = 'direct';
+    try { await mbxDirect(url, key, box, tid, data); }
+    catch (e) { // Google refused the direct send here (or its answer was lost): start again through the script, under a new id
+      LOG.warn('mbx.direct', { msg: String(e.message || e).slice(0, 120) }); how = 'script';
+      await mbxPost(url, 'cancel', { k: key, box, tid }).catch(() => {});
+      tid = `chk${Date.now().toString(36)}${mbxRid(6)}`;
+      await mbxPost(url, 'put', { k: key, box, tid, n: 1, data: mbxB64(data) });
+    }
+    step(true, how === 'direct' ? 'Test file sent straight to Google' : 'Test file sent through the mailbox script (Google refused the direct send on this phone; the app will use this way)');
+    await mbxPost(url, 'done', { k: key, box, tid, meta: { kind: 'check', from: box, sha256: sha, size: data.length } });
+    const L = await mbxPost(url, 'list', { k: key, box }), m = (L.items || []).find((x) => x.tid === tid);
+    if (!m) throw new Error('the test file did not show in the mailbox');
+    const parts = (m.parts || []).slice().sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const bufs = []; for (const p of parts) { const g = await mbxPost(url, 'get', { k: key, id: p.id }); bufs.push(b64ToBytes(g.data)); }
+    const got = new Uint8Array(bufs.reduce((n, b) => n + b.length, 0)); let o = 0; bufs.forEach((b) => { got.set(b, o); o += b.length; });
+    const same = (await mbxSha(got)) === sha;
+    step(same, same ? 'Read back through the mailbox, identical' : 'Read back, but it was not identical');
+    await mbxPost(url, 'picked', { k: key, box, tid });
+    step(true, 'Deleted for good');
+    if (!same) throw new Error('the test file came back different');
+    return how;
+  }
+  function mbxShow(res) { $('mbxRes').hidden = !res.length; $('mbxRes').innerHTML = res.map(([ok, t]) => `<div><span class="${ok ? 'ok' : 'no'}">${ok ? '✓' : '✗'}</span><span>${tmEsc(t)}</span></div>`).join(''); }
+  $('tmMbxSetup').addEventListener('click', () => {
+    const t = tmSnap(), link = (t && t.scriptLink) || '';
+    $('mbxScript').hidden = !/^https:\/\//.test(link); if (link) /** @type {HTMLAnchorElement} */ ($('mbxScript')).href = link;
+    $('mbxNoScript').hidden = /^https:\/\//.test(link);
+    /** @type {HTMLInputElement} */ ($('mbxUrl')).value = (S.mbx && S.mbx.url) || ''; mbxShow([]); $('mbxErr').hidden = true;
+    openSheet('mbxSheet');
+  });
+  $('mbxScript').addEventListener('click', (ev) => { if (NATIVE) { ev.preventDefault(); openExternal(/** @type {HTMLAnchorElement} */ ($('mbxScript')).href); } });
+  $('mbxSave').addEventListener('click', () => guard(async () => {
+    const url = /** @type {HTMLInputElement} */ ($('mbxUrl')).value.trim(), res = [], step = (ok, t) => { res.push([ok, t]); mbxShow(res); };
+    $('mbxErr').hidden = true; mbxShow([]);
+    if (!depOf(url)) { $('mbxErr').textContent = 'Paste the Web app URL from the deployment: it starts with https://script.google.com/macros/s/ and ends with /exec.'; $('mbxErr').hidden = false; return; }
+    if (!tmVerified() || tmRole() !== 'Coordinator') { $('mbxErr').textContent = 'Only a coordinator with a confirmed email sets up the mailbox (Settings → Team).'; $('mbxErr').hidden = false; return; }
+    busy('Checking the mailbox…');
+    try {
+      const key = (S.mbx && S.mbx.url === url && S.mbx.key) || mbxRid(32);
+      const h = await mbxPost(url, 'hello', { k: key });
+      if (h.app !== 'G-eSAA mailbox') throw new Error('that address is not a G-eSAA mailbox script');
+      if (h.claimed && !h.keyOk) throw new Error('this mailbox was already set up with another key. If it is your company’s, run resetKey in its script (pick it in the function box, then Run), and Check and save again');
+      if (!h.claimed) await mbxPost(url, 'claim', { k: key });
+      step(true, 'Reached the mailbox');
+      busy('Sending a test file…');
+      const how = await mbxTest(url, key, step);
+      busy('Saving it for your company…');
+      await tmPost('mailboxSet', { url, key, account: '' });
+      S.mbx = { url, key, account: '', setBy: (S.user && S.user.name) || '', checked: new Date().toISOString(), src: sheetUrl(), how }; persist();
+      step(true, 'Saved for your company: your coordinators and field partners get it at their next sync');
+      LOG.info('mbx.setup', { how });
+      await tmLoad().catch(() => {});
+      renderTeam(); toast('The mailbox is ready.', 4000);
+    } catch (e) { step(false, `Stopped: ${e.message || e}`); LOG.warn('mbx.setup.fail', { code: e.code || '', msg: String(e.message || e).slice(0, 120) }); }
+    finally { busy(false); }
+  }, 'Mailbox not saved'));
+  $('tmMbxCheck').addEventListener('click', () => guard(async () => {
+    if (!S.mbx) return;
+    busy('Checking the mailbox…');
+    try {
+      const h = await mbxPost(S.mbx.url, 'hello', { k: S.mbx.key });
+      if (!h.keyOk) throw new Error('the mailbox key changed: tap Refresh, then Check now again');
+      const res = [], how = await mbxTest(S.mbx.url, S.mbx.key, (ok, t) => res.push([ok, t]));
+      let space = '';
+      try { const q = await mbxPost(S.mbx.url, 'space', { k: S.mbx.key }); if (q.limit) space = ` Drive space: ${(q.usage / 1073741824).toFixed(1)} of ${(q.limit / 1073741824).toFixed(0)} GB used.`; } catch (e) { space = ''; }
+      S.mbx.checked = new Date().toISOString(); S.mbx.how = how; persist(); renderTeam();
+      toast(`The mailbox works: ${how === 'direct' ? 'sending straight to Google' : 'sending through the mailbox script'}.${space}`, 6000);
+    } catch (e) { tmFail(e); } finally { busy(false); }
+  }, 'Mailbox not checked'));
+  async function mbxRekeyRun() {
+    if (!S.mbx) return;
+    busy('Changing the mailbox key…');
+    try {
+      const nk = mbxRid(32), old = S.mbx.key;
+      await mbxPost(S.mbx.url, 'rekey', { k: old, nk });
+      try { await tmPost('mailboxKey', { key: nk }); }
+      catch (e) { await mbxPost(S.mbx.url, 'rekey', { k: nk, nk: old }).catch(() => {}); throw e; } // the sheet keeps the old key: so does the mailbox
+      S.mbx.key = nk; persist(); LOG.info('mbx.rekey', {}); toast('Key changed. Your teams get the new one at their next sync.', 5000);
+      await tmLoad().catch(() => {}); renderTeam();
+    } catch (e) { tmFail(e); } finally { busy(false); }
+  }
+  // a field partner's phone takes the mailbox (or a changed key) at start, as it takes the sites from the online sheet
+  setTimeout(() => { if (tmOn() && tmVerified() && navigator.onLine !== false) tmLoad().then(renderTeamRow, (e) => LOG.info('team.start', { code: e.code || '' })); }, 6000);
+  $('tmMbxRekey').addEventListener('click', () => guard(async () => {
+    if (!(await ask('Change the mailbox key?', 'Use this after removing someone from a team. Everyone still in a team of your company gets the new key at their next sync; a phone that was removed can no longer reach the mailbox.', [{ label: 'Cancel', value: false }, { label: 'Change key', value: true, primary: true }]))) return;
+    await mbxRekeyRun();
+  }, 'Key not changed'));
   $('brandVer').textContent = `v${APP_VER}`; // the version beside the name (v2.15)
+  if (BETA) { // v2.43: G-eSAA Beta says so everywhere a tester looks
+    const tag = document.createElement('span'); tag.className = 'betatag'; tag.textContent = `BETA ${APP_BETA}`; $('brandVer').after(tag);
+    document.title = 'G-eSAA Beta'; document.documentElement.classList.add('beta');
+    /* The beta reads the same spreadsheet through its own web-app address (a second deployment that runs the newer sheet
+       script), so testers see the real sites, keys and credits while the users' address stays on the older script. */
+    $('betaBox').hidden = false;
+    const betaShow = () => {
+      const now = sheetUrl(), d = depOf(now), src = S.team && S.team.src;
+      $('betaSheetNow').textContent = !now ? 'No online sheet yet: join your team first (invite QR or link).' : `Now reading: …/s/${d ? `${d.slice(0, 8)}…${d.slice(-6)}` : '?'}/exec${src && src.url0 ? ' (the beta address)' : ''}`;
+      $('betaSheetBack').hidden = !(src && src.url0);
+    };
+    betaShow(); $('settingsBtn').addEventListener('click', betaShow);
+    $('betaSheetUse').addEventListener('click', () => guard(async () => {
+      const url = /** @type {HTMLInputElement} */ ($('betaSheet')).value.trim();
+      if (!depOf(url)) { toast('Paste the beta web app address: it starts with https://script.google.com/macros/s/ and ends with /exec.', 5000); return; }
+      const src = S.team && S.team.src;
+      if (!src || !src.url) { toast('Join your team first (invite QR or link), then set the beta address.', 5000); return; }
+      busy('Checking the beta address…');
+      let j = null; try { j = await cloudRequest({ url }, null, { probe: true }); } finally { busy(false); }
+      if (!j || !j.ok) throw new Error('That address did not answer as an online sheet');
+      if (!src.url0) src.url0 = src.url;
+      src.url = url; S.cloud = null; persist(); betaShow(); LOG.info('beta.sheet', { set: true });
+      toast('This beta now reads the online sheet through the beta address.');
+      cloudSync(true).catch(() => {});
+    }, 'Beta address not set'));
+    $('betaSheetBack').addEventListener('click', () => {
+      const src = S.team && S.team.src; if (!src || !src.url0) return;
+      src.url = src.url0; delete src.url0; S.cloud = null; persist(); betaShow(); LOG.info('beta.sheet', { set: false });
+      toast("Back to the users' address."); cloudSync(true).catch(() => {});
+    });
+  }
   /* v2.29: tap G-eSAA (top left) to reload the app and check for a new version. Asked first, and not while a photo, a
      record or the marking screen is open, so a stray tap during capture or editing does nothing. */
   const verNum = (v) => String(v || '').split('.').map((x) => parseInt(x, 10) || 0);
@@ -13896,9 +14188,14 @@
   }
   $('brandBtn').addEventListener('click', () => guard(async () => {
     if (reloadBlocked()) return; // capture or editing in progress: the tap does nothing
-    if (!(await ask('Reload G-eSAA?', `Version ${APP_VER}. The app reloads${NATIVE ? ' and checks the website for a newer version' : ' and takes the newest version from the website'}. Your projects, photos and settings stay on this phone.`,
+    if (!(await ask(`Reload ${APP_NAME}?`, `Version ${VER_LABEL}. The app reloads${NATIVE ? ' and checks the website for a newer version' : ' and takes the newest version from the website'}. Your projects, photos and settings stay on this phone.`,
       [{ label: 'Cancel', value: false }, { label: 'Reload', value: true, primary: true }]))) return;
     persist(); LOG.info('app.reload', { native: NATIVE });
+    if (NATIVE && BETA) { // v2.43: a newer beta comes as a new G-eSAA Beta APK, from the beta pre-release
+      const gh = /^https:\/\/([^.]+)\.github\.io\/([^/]+)\//.exec(webBase() || '');
+      if (gh && await ask('Newer beta?', `This is ${APP_NAME} ${VER_LABEL}. Open the beta download page to see whether a newer beta is out (install it over this one; your beta projects stay).`, [{ label: 'Later', value: false }, { label: 'Open the beta page', value: true, primary: true }])) openExternal(`https://github.com/${gh[1]}/${gh[2]}/releases/tag/beta-latest`);
+      location.reload(); return;
+    }
     if (NATIVE) { // the APK carries its own files: a new version comes as a new APK
       const base = webBase(); let latest = '';
       if (base && navigator.onLine !== false) {
@@ -13922,11 +14219,11 @@
   const ownPinch = (t) => !!(t && t.closest && t.closest('#map, #pinMap, #boxWrap, #pvImg, #photoView, #drawWrap, #camStage, .leaflet-container'));
   document.addEventListener('touchmove', (e) => { if (e.touches && e.touches.length > 1 && !ownPinch(e.target)) e.preventDefault(); }, { passive: false });
   ['gesturestart', 'gesturechange'].forEach((k) => document.addEventListener(k, (e) => { if (!ownPinch(e.target)) e.preventDefault(); }, { passive: false })); // iPhone Safari
-  $('aboutVer').textContent = `G-eSAA v${APP_VER}`; // v2.25: Settings → About shows the real version too
+  $('aboutVer').textContent = `${APP_NAME} v${VER_LABEL}`; // v2.25: Settings → About shows the real version too (v2.43: and the beta)
   (async () => {
     const tl = Date.now();
     try { points = await dbAll('points'); } catch (e) { pointsLost = true; LOG.error('start.loadPoints', errInfo(e)); toast('Storage unavailable: ' + e.message + '. Close and reopen G-eSAA before changing anything.', 9000); } // v2.42.4: pointsLost
-    LOG.mark('app.start', { ver: APP_VER, apk: NATIVE, chrome: (/Chrome\/([\d.]+)/.exec(navigator.userAgent) || [])[1], android: (/Android ([\d.]+)/.exec(navigator.userAgent) || [])[1], memoryGB: navigator.deviceMemory, cores: navigator.hardwareConcurrency, opfs: OPFS_OK, records: points.length, loadMs: Date.now() - tl, heapMB: memMB() });
+    LOG.mark('app.start', { ver: VER_LABEL, beta: BETA, apk: NATIVE, chrome: (/Chrome\/([\d.]+)/.exec(navigator.userAgent) || [])[1], android: (/Android ([\d.]+)/.exec(navigator.userAgent) || [])[1], memoryGB: navigator.deviceMemory, cores: navigator.hardwareConcurrency, opfs: OPFS_OK, records: points.length, loadMs: Date.now() - tl, heapMB: memMB() });
     (async () => {
       const info = {};
       try { const e = await withTimeout(navigator.storage.estimate(), 3000, 'slow'); info.usedMB = Math.round((e.usage || 0) / 1048576); info.quotaMB = Math.round((e.quota || 0) / 1048576); info.persisted = navigator.storage.persisted ? await navigator.storage.persisted() : null; } catch (e) { info.estimate = e.message; }
@@ -14257,5 +14554,6 @@
     fibQty: () => surveyQty(projPoints()).rows, boqRows: () => { const P = projPoints(), fb = boqFilled(P); return [...boqGroups(P, fb).groups.values()].map((g) => [g.item, g.size, g.forWhat, g.qty]); },
     /* v2.42.28 */ mxGroups: () => mxGroups().map((g) => ({ k: g.k, name: g.name, n: g.n, kind: g.kind })), mxTick: (k, m) => { const g = mxGroups().find((x) => x.k === k || x.name === k); if (g) mxToggle(g, m); return !!g; }, openPlanSet: () => openPlanSet(), setWhat: (on) => setWhat(!!on, false), ppOpen: (n) => ppOpen(n),
     /* v2.42.27 */ ask: (t, x, b) => ask(t, x, b), hl: () => hlId, paneOn: () => document.body.classList.contains('deskpane'), otherN: () => (otherLayer ? otherLayer.getLayers().length : 0), drwView: () => (drw && drw.view ? { ...drw.view, w: $('drawCanvas').width, h: $('drawCanvas').height } : null),
-    fibLanes: () => fibLayer.getLayers().map((l) => (l.getLatLngs ? { ll: l.getLatLngs().map((q) => [q.lat, q.lng]), color: l.options.color, w: l.options.weight, op: l.options.opacity, dash: l.options.dashArray || '' } : { arrow: true })), kmzFibers: () => kmzFibers() };
+    fibLanes: () => fibLayer.getLayers().map((l) => (l.getLatLngs ? { ll: l.getLatLngs().map((q) => [q.lat, q.lng]), color: l.options.color, w: l.options.weight, op: l.options.opacity, dash: l.options.dashArray || '' } : { arrow: true })), kmzFibers: () => kmzFibers(),
+    team: { patchS: (o) => { Object.assign(S, o); persist(); }, load: () => tmLoad(), render: () => renderTeam(), on: () => tmOn(), ver: () => tmVerified(), state: () => JSON.parse(JSON.stringify({ mbx: S.mbx || null, teamMe: S.teamMe || null, snap: S.teamSnap || null })), beta: () => ({ BETA, APP_NAME, VER_LABEL }) } }; // v2.43
 })();
