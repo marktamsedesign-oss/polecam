@@ -766,7 +766,7 @@
   const APP_VER = '2.43.0';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '2.2'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '3.1'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -1431,7 +1431,7 @@
         ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svpin${sel ? ' sel' : ''}${p.status === 'Proposed' || p.status === 'New' ? ' new' : ''}" style="--c:${pinCol(p) || SV_COLORS[el]}">${SV_SHORT[el]}</span>`, iconSize: [30, 24], iconAnchor: [15, 12] }) })
         : L.circleMarker([p.lat, p.lon], pinLook(p, sel)); // (v2.42.19: its look in pinLook)
       m._tipO = { permanent: true, direction: 'right', offset: [sy ? 16 : !acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' }; m._tipP = p; // v2.42.26: its label bound near the screen only (labelCull)
-      m.on('click', () => { if (hlId && hlId !== p.id && !routeMode) hlClear(); /* v2.42.27: the ring goes when another pole is tapped */ return routeMode ? (Date.now() - rtGestAt < 700 ? null : rtTapAny(p.id)) : visitMode() ? openVisit(p.id) : openEditorFor(p.id); }); // (v2.42.21: a tap the drawing gesture took)
+      m.on('click', () => { if (!routeMode && tmHooks.pinTap && tmHooks.pinTap(p.id)) return; /* v2.43 beta 3: the fix list */ if (hlId && hlId !== p.id && !routeMode) hlClear(); /* v2.42.27: the ring goes when another pole is tapped */ return routeMode ? (Date.now() - rtGestAt < 700 ? null : rtTapAny(p.id)) : visitMode() ? openVisit(p.id) : openEditorFor(p.id); }); // (v2.42.21: a tap the drawing gesture took)
       m.addTo(poleLayer); pinMarkers.set(p.id, m);
     }
     pinShownSel = routeMode ? routeSel : null;
@@ -1445,6 +1445,7 @@
     renderSummary(pts); labelCull(); declutterSoon();
     if (typeof drawAreas === 'function') drawAreas();
     renderRefBtn(); // v2.30
+    if (tmHooks.poles) tmHooks.poles(); // v2.43 beta 3: the fix list's pins and panel
     hlDraw(); deskRender(); // v2.42.27: the ring on a found pole; on a computer the Projects pane and the other projects shown
   }
   /** Project status at a glance: the strip above the navigation bar and the figures on the Records screen. */
@@ -7771,7 +7772,7 @@
   }
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
-  function shareMeta(name, U) { const { shares, recv, updates, team, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; } return m; } // (v2.42.20: + the fibers)
+  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; } return m; } // (v2.42.20: + the fibers)
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
@@ -7915,7 +7916,7 @@
       k++;
       const pts = (U && U.pts ? U.pts.slice() : points.filter((p) => p.project === name)).sort((a, b) => (a.created < b.created ? -1 : 1));
       if (!isAcc(name)) projKey(name); // v2.42.6: the credits' project key travels with it
-      files.push({ name: `p${k}/points.json`, data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: shareMeta(name, U), exported: now, by: byLine(), exportedBy: exporterInfo(), points: pts, ...(U ? { update: { n: U.n, full: !!U.full, since: U.since || '' } } : {}) }, null, 1) });
+      files.push({ name: `p${k}/points.json`, data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: shareMeta(name, U), exported: now, by: byLine(), exportedBy: exporterInfo(), points: pts, ...(U ? { update: { n: U.n, full: !!U.full, since: U.since || '', ...(U.fixAns && U.fixAns.length ? { fixAns: U.fixAns } : {}) } } : {}) }, null, 1) });
       for (const pid of new Set(pts.flatMap(allPids))) {
         say(`Packing photos ${++done} / ${allP}`, done / Math.max(1, allP));
         if (seen.has(pid)) continue; seen.add(pid);
@@ -10180,7 +10181,7 @@
     if (proj) { // v2.42.4: the project's details first (a restore cut short left records with none: a PAT showed as an open survey)
       if (!S.projects.includes(proj)) S.projects.push(proj);
       S.meta = S.meta || {};
-      if (meta.meta && !S.meta[proj]) { const { shares, recv, updates, team, ...mm } = meta.meta; S.meta[proj] = mm; } // (v2.43: and its team details) // v2.42.18: the sender's own share counts stay on the sender's phone
+      if (meta.meta && !S.meta[proj]) { const { shares, recv, updates, team, chg, ...mm } = meta.meta; S.meta[proj] = mm; } // (v2.43: and its team details) // v2.42.18: the sender's own share counts stay on the sender's phone
       persist();
     }
     let n = 0, kept = 0, routeNew = false, goneHere = 0;
@@ -14444,9 +14445,9 @@
     else if (r.bad.length) toast(`Not sent: ${r.bad[0][1]}. Try again from the project (Send).`, 7000);
   }
   /** A small message (fixes, accepted, a note): all of it is in the manifest; the file is a stub. */
-  async function mbxSendSmall(kind, name, to, x, label, ui) {
+  async function mbxSendSmall(kind, name, to, x, label, ui, body) {
     const at = new Date().toISOString(), meta = mbxMeta(kind, name, to, x);
-    const r = await mbxSendBytes(to, new TextEncoder().encode(JSON.stringify({ kind, at })), meta, label, ui);
+    const r = await mbxSendBytes(to, new TextEncoder().encode(JSON.stringify(body || { kind, at })), meta, label, ui);
     mbxOutAdd({ tid: r.tid, to, toName: tmNameOf(to), kind, project: name, tk: meta.tk, size: 0, at, st: 'waiting', stAt: at, note: (x && x.note) || '' });
     LOG.info('mbx.small', { kind });
     return r;
@@ -14510,9 +14511,10 @@
     if (s.mode === 'fp' && s.to.size) {
       whatOn = true;
       const to = [...s.to][0], W = mbxWhatFor(name, to), c = W.c, first = tmFirst(to);
-      const canDelta = !!W.since && (c.ch.length || c.gone || c.route);
+      const nAns = fxAnswers(name).length; // beta 3: fix answers count as changes
+      const canDelta = !!W.since && (c.ch.length || c.gone || c.route || nAns);
       if (!s.what) s.what = canDelta ? 'delta' : 'full';
-      if (W.since) opt('delta', 'Only the changes', canDelta ? `${changesText(c)} · since ${W.led.n ? `update ${W.led.n}` : 'the task arrived'} (${fmtTime(W.since)})` : `Nothing changed since ${W.led.n ? `update ${W.led.n}` : 'the task arrived'} (${fmtTime(W.since)})`, !canDelta);
+      if (W.since) opt('delta', 'Only the changes', canDelta ? `${[changesText(c), nAns && `${nAns === 1 ? '1 fix answer' : `${nAns} fix answers`}`].filter(Boolean).join(' · ')} · since ${W.led.n ? `update ${W.led.n}` : 'the task arrived'} (${fmtTime(W.since)})` : `Nothing changed since ${W.led.n ? `update ${W.led.n}` : 'the task arrived'} (${fmtTime(W.since)})`, !canDelta);
       opt('full', 'The whole project', `${pl2(c.all.length, 'record')} · ${pl2(projPhotos(name), 'photo')}`);
       info = !W.since ? (W.led && W.led.gap ? `An earlier send to ${first} was not picked up, so this one is the whole project: it fills the gap.` : `${first} has not had this project from you, so it goes whole.`)
         : s.what === 'delta' ? `${first} merges it: the newer record wins, and deletions carry over.` : `The whole project fills any gap on ${first}’s phone.`;
@@ -14602,14 +14604,15 @@
     if (!T.tk) T = { ...T, role: 'fp', tk: uid(), by: T.by || to, byName: T.byName || tmNameOf(to) }; // his own project, sent to a coordinator for the first time
     setTeam(name, T); persist();
     const c = W.c, n = ((W.led && W.led.n) || 0) + 1, gone = full ? Object.keys(pmeta(name).gone || {}).length : c.gone;
-    const U = { n, full, since: full ? '' : W.since, at, pts: full ? null : c.ch, route: full || c.route, sender: `mbx:${me}`, nGone: gone };
+    const fxAns = fxAnswers(name); // beta 3: the fix answers not sent yet
+    const U = { n, full, since: full ? '' : W.since, at, pts: full ? null : c.ch, route: full || c.route, sender: `mbx:${me}`, nGone: gone, fixAns: fxAns };
     const recs = full ? c.all.length : c.ch.length, photos = full ? projPhotos(name) : c.nph;
     mbxProgStart(`Packing ${pl2(recs, 'record')} and ${pl2(photos, 'photo')}…`);
     const ui = mbxSheetUi('');
     let bytes, r;
     try {
       bytes = await mbxBytes(name, U, false, (t, f) => ui.pack(t, f));
-      const meta = mbxMeta('update', name, to, { n, full, note, recs, photos, gone, route: !!U.route, by: T.by || to, byName: T.byName || '' });
+      const meta = mbxMeta('update', name, to, { n, full, note, recs, photos, gone, route: !!U.route, by: T.by || to, byName: T.byName || '', ...(fxAns.length ? { fixAns: fxAns.length } : {}) });
       r = await mbxSendBytes(to, bytes, meta, `Sending to ${first}`, ui);
     } catch (e) {
       if (e.code !== 'stop') mbxOutAdd({ tid: `x${mbxRid(10)}`, to, toName: tmNameOf(to), kind: 'update', project: name, tk: T.tk, n, full, size: bytes ? bytes.length : 0, at, st: 'failed', stAt: at, why: String(e.message || e).slice(0, 120) });
@@ -14617,6 +14620,7 @@
     }
     const T2 = tmTeam(name) || {};
     setTeam(name, { ...T2, to: [to], fix: null, sent: { ...(T2.sent || {}), [to]: { n, at } } });
+    fxMarkSent(name, fxAns);
     mbxOutAdd({ tid: r.tid, to, toName: tmNameOf(to), kind: 'update', project: name, tk: T.tk, n, full, size: bytes.length, at, st: 'waiting', stAt: at, how: r.how, recs, note });
     LOG.info('mbx.update', { n, full, mb: +(bytes.length / 1048576).toFixed(2), how: r.how, recs, gone });
     mbxProgEnd(true, `Sent to ${first}. Waiting for the download.`, `${full ? `The whole project (update ${n})` : `Update ${n}`} · ${pl2(recs, 'record')}${gone ? `, ${gone} deleted` : ''} · ${mbxMB(bytes.length)}${r.how === 'script' ? ' · through the mailbox script' : ''}`);
@@ -14661,7 +14665,7 @@
     const steps = MBX_DSTAGES.map(([k, t], x) => `<span class="${x < i || j.stage === 'done' ? 'done' : x === i ? 'on' : ''}">${k === 'done' ? (j.kind === 'task' ? 'Loaded' : 'Merged') : t}</span>`).join('');
     return `<div class="mbxjob" data-job="${tmEsc(j.tid)}"><div class="ln"><span class="${j.stage === 'done' ? 'mbxtick' : j.stage === 'fail' ? 'mbxfail' : 'mbxspin'}">${j.stage === 'done' ? '✓' : j.stage === 'fail' ? '!' : ''}</span><span class="tx">${tmEsc(j.line || '')}</span>${j.stage === 'down' ? `<span class="pct">${Math.round((j.frac || 0) * 100)}%</span>` : ''}</div>`
       + `${end ? '' : `<div class="mbxbar"><i style="width:${Math.round((j.stage === 'down' ? j.frac || 0 : 1) * 1000) / 10}%"></i></div>`}<div class="sub">${tmEsc(j.sub || '')}</div>${j.stage === 'fail' ? '' : `<div class="mbxsteps">${steps}</div>`}`
-      + `<div class="acts">${end ? `${j.stage === 'done' ? `<button class="btn sm primary" type="button" data-jobgo="1">${j.kind === 'task' ? 'Start surveying' : 'Show on the map'}</button>` : ''}<button class="btn sm" type="button" data-jobx="1">${j.stage === 'done' ? 'OK' : 'Close'}</button>` : j.stage === 'down' ? '<button class="btn sm" type="button" data-jobstop="1">Cancel</button>' : ''}</div></div>`;
+      + `<div class="acts">${end ? `${j.stage === 'done' && j.chgN ? `<button class="btn sm primary" type="button" data-jobchg="1">What changed (${j.chgN})</button>` : ''}${j.stage === 'done' ? `<button class="btn sm${j.chgN ? '' : ' primary'}" type="button" data-jobgo="1">${j.kind === 'task' ? 'Start surveying' : 'Show on the map'}</button>` : ''}<button class="btn sm" type="button" data-jobx="1">${j.stage === 'done' ? 'OK' : 'Close'}</button>` : j.stage === 'down' ? '<button class="btn sm" type="button" data-jobstop="1">Cancel</button>' : ''}</div></div>`;
   }
   function mbxJobPaint() { // only the job's own boxes: the rest of the screen stays as it is
     if (!mbxJob) return;
@@ -14672,6 +14676,7 @@
     const t = ev.target; if (!(t instanceof Element) || !t.closest('.mbxjob')) return;
     if (t.closest('[data-jobstop]')) { cancelFlag = true; if (mbxJob) { mbxJob.line = 'Stopping…'; mbxJobPaint(); } }
     else if (t.closest('[data-jobx]')) { mbxJob = null; renderProjects(); }
+    else if (t.closest('[data-jobchg]')) { const p = mbxJob && mbxJob.proj; if (p) chgOpen(p); }
     else if (t.closest('[data-jobgo]')) { const p = mbxJob && mbxJob.proj; mbxJob = null; closeAll().then(() => { if (p && p === S.project) fitProject(); }); }
   });
   /** Download, check and merge one transfer (a task or an update), or read a small one (fixes, accepted, a note). */
@@ -14705,6 +14710,7 @@
     const nph = new Set(meta.points.flatMap(allPids)).size;
     mbxJob.stage = 'merge'; mbxJob.line = M.kind === 'task' ? `Opening ${L.name}${z.names.includes('ref.json') ? ' and its KMZ reference' : ''}` : `Merging ${pl2(meta.points.length, 'record')} and ${pl2(nph, 'photo')} into ${L.name}`; mbxJob.sub = M.kind === 'task' ? 'Saving it on this phone' : 'The newer record wins; deletions carry over'; mbxJobPaint();
     const o = { quiet: true, update: { n: M.n || 1, full: !!M.full, sender: `mbx:${M.from}`, from: who, at: M.at || it.created } };
+    const snap = L.here && M.kind === 'update' ? chgSnapAll(L.name) : null; // beta 3: the project before, for what changed
     let proj;
     try { busy(mbxJob.line); proj = (await restoreMeta(z, meta, '', o)) || L.name; } finally { busy(false); }
     const R2 = o.result || {}, now = new Date().toISOString(), me = tmEmail(), T0 = tmTeam(proj) || {};
@@ -14722,6 +14728,9 @@
         to: [...new Set([...(T0.to || []), M.from])], names: { ...(T0.names || {}), [M.from]: who }, ...(took ? { takenOver: took } : {}),
         ...(M.left ? { left: { ...(T0.left || {}), [M.from]: now } } : {}), ...(M.note ? { lastNote: { from: M.from, fromName: who, note: M.note, at: M.at || now } } : {}) });
     }
+    const chgN = snap ? chgStore(proj, snap, M, who) : 0; // beta 3: every merged update says what it changed
+    const ans = M.kind === 'update' && meta.update && Array.isArray(meta.update.fixAns) ? meta.update.fixAns : [];
+    if (ans.length && (tmTeam(proj) || {}).role !== 'fp') fxApplyAnswers(proj, ans, M, who);
     { // beta 2.1: what came from them (as merged), so only the changes to them leave it out until it changes here
       const T1 = tmTeam(proj) || {}, ec = T1.echo || {}, prev = ec[M.from] || {}, P = { ...(prev.p || {}) }, mm = meta.meta || {};
       meta.points.forEach((p) => { if (p && p.id) P[p.id] = String(p.updated || p.created || ''); });
@@ -14732,7 +14741,7 @@
     await mbxPicked(it.tid);
     LOG.info('mbx.open', { kind: M.kind, n: M.n, full: !!M.full, records: R2.recs, kept: R2.kept, gone: R2.gone, route: R2.route, mb: +(data.length / 1048576).toFixed(2), isNew: !L.here, ref: refNew });
     const said = `${[pl2(R2.recs || 0, 'record'), R2.gone && `${R2.gone} deleted`, R2.route && 'the route', refNew && 'the KMZ reference'].filter(Boolean).join(' · ')}${R2.kept ? ` · ${R2.kept} newer here kept` : ''}`;
-    mbxJob = { tid, kind: M.kind, stage: 'done', proj, line: M.kind === 'task' ? `Loaded: ${proj} is open` : `Merged: ${proj} is open`, sub: `${said} · deleted from the mailbox for good` };
+    mbxJob = { tid, kind: M.kind, stage: 'done', proj, chgN, ans: ans.length, line: M.kind === 'task' ? `Loaded: ${proj} is open` : `Merged: ${proj} is open`, sub: `${said}${ans.length ? ` · ${ans.length === 1 ? '1 fix answer' : `${ans.length} fix answers`} to check` : ''} · deleted from the mailbox for good` };
     S.project = proj; persist(); renderPoles(); fitProject(); renderProjects(); // (renderPoles draws a new KMZ reference)
     toast(M.kind === 'task' ? `Task from ${first}: “${proj}” · ${said}` : `${M.full ? `The whole project (update ${M.n})` : `Update ${M.n}`} from ${first} merged into “${proj}”: ${said}`, 6500);
     if (M.note) await ask(`${M.kind === 'task' ? 'Task' : 'Update'} from ${who}`, M.note, [{ label: 'OK', value: true, primary: true }]);
@@ -14740,6 +14749,20 @@
   async function mbxOpenSmall(it) {
     const M = it.meta || {}, who = M.fromName || M.from || 'a colleague', first = tmFirst(M.from, M.fromName), now = new Date().toISOString();
     const proj = mbxLocalByTk(M.tk) || (allProjects().includes(M.project) ? M.project : '');
+    if (M.kind === 'fix' && proj && M.fixes > 0) { // beta 3: a fix list (each pole, what to do): the panel over the map
+      const data = await mbxDownload(it, (f) => busy(`Downloading the fix list… ${Math.round(f * 100)}%`, f));
+      let B = null; try { B = JSON.parse(dec(data)); } catch (e) { B = null; }
+      busy(false);
+      if (!B || !Array.isArray(B.items)) throw new Error('the fix list could not be read: ask for it again');
+      const T = tmTeam(proj) || {};
+      setTeam(proj, { ...T, fix: { note: String(M.note || ''), at: M.at || now, from: M.from, fromName: who } });
+      fxReceive(proj, B, M, who);
+      await mbxPicked(it.tid);
+      LOG.info('mbx.open', { kind: 'fixlist', n: B.items.length });
+      renderProjects(); fxOpenFp(proj);
+      toast(`${who} asked for ${B.items.length === 1 ? '1 fix' : `${B.items.length} fixes`}: follow the numbered pins.`, 6000);
+      return;
+    }
     if (M.kind === 'fix' || M.kind === 'accept') {
       if (proj) {
         const T = tmTeam(proj) || {};
@@ -14850,7 +14873,10 @@
       H.push(`<p class="tl"><b>Task from ${tmEsc(T.byName || tmNameOf(T.by))}</b>${T.got ? ` · got ${tmEsc(tmWhen(T.got))}` : ''}</p>`);
       if (T.taskNote && T.taskNote.note) H.push(`<p class="tnote">${tmEsc(T.taskNote.note)}</p>`);
       if (T.coUpd) H.push(`<p class="tl">Update ${tmEsc(T.coUpd.n)} from ${first(T.coUpd.from, T.coUpd.fromName)} merged ${tmEsc(tmWhen(T.coUpd.at))}</p>`);
-      if (T.fix) H.push(`<p class="tfix"><b>Fixes asked by ${first(T.fix.from, T.fix.fromName)}</b> (${tmEsc(tmWhen(T.fix.at))}): ${tmEsc(T.fix.note)}</p>`);
+      const FL = T.fixList, flOpen = FL ? FL.items.filter((x) => x.status === 'open').length : 0, flUnsent = FL ? FL.items.filter((x) => x.status !== 'open' && !x.sent).length : 0;
+      if (FL && FL.items.length) H.push(`<div class="ctwait fxline"><span class="tx"><b>Fixes from ${first(FL.from, FL.fromName)} · ${FL.items.length - flOpen} of ${FL.items.length} done</b>${tmEsc(flOpen ? `${flOpen} to do${flUnsent ? ` · ${flUnsent} to send` : ''}` : flUnsent ? `${flUnsent} to send` : 'all sent')}</span><button class="btn sm primary" type="button" data-ct="fxopen">Open the fix list</button></div>`);
+      else if (T.fix) H.push(`<p class="tfix"><b>Fixes asked by ${first(T.fix.from, T.fix.fromName)}</b> (${tmEsc(tmWhen(T.fix.at))}): ${tmEsc(T.fix.note)}</p>`);
+      if (pmeta(name).chg) H.push(`<p class="tl">Last update from ${first(pmeta(name).chg.from, pmeta(name).chg.fromName)}: ${tmEsc(chgSay(pmeta(name).chg))} · <button class="linkbtn" type="button" data-ct="chg">What changed</button></p>`);
       if (T.accepted) H.push(`<p class="okline">✓ Accepted by ${tmEsc(T.accepted.byName || T.accepted.by)} on ${tmEsc(tmWhen(T.accepted.at))}: this task is done on this phone.</p>`);
       const o = (S.mbxOut || []).find((x) => x.kind === 'update' && x.tk === T.tk);
       if (o) H.push(`<p class="tl">Last sent: ${tmEsc(`${o.full ? `update ${o.n} (whole)` : `update ${o.n}`} to ${tmFirst(o.to, o.toName)} · ${mbxStText(o)}`)}</p>`);
@@ -14868,23 +14894,29 @@
       });
       if (mbxJob && mbxJob.stage === 'done' && mbxJob.proj === name && !waits.some((it) => it.tid === mbxJob.tid)) H.push(`<div class="ctwait job">${mbxJobHtml(mbxJob)}</div>`);
       if (T.lastNote && T.lastNote.note) H.push(`<p class="tnote">${first(T.lastNote.from, T.lastNote.fromName)}: ${tmEsc(T.lastNote.note)}</p>`);
-      if (T.fixAsked && !T.accepted) H.push(`<p class="tl">Fixes asked ${tmEsc(tmWhen(T.fixAsked.at))}: ${tmEsc(T.fixAsked.note)}</p>`);
+      if (pmeta(name).chg) H.push(`<p class="tl">Last update from ${first(pmeta(name).chg.from, pmeta(name).chg.fromName)}: ${tmEsc(chgSay(pmeta(name).chg))} · <button class="linkbtn" type="button" data-ct="chg">What changed</button></p>`);
+      if (T.fixOut && T.fixOut.items.length && !T.accepted) H.push(fxReviewHtml(name)); // beta 3: each fix answer, what changed, OK or Not yet
+      else if (T.fixAsked && !T.accepted) H.push(`<p class="tl">Fixes asked ${tmEsc(tmWhen(T.fixAsked.at))}: ${tmEsc(T.fixAsked.note)}</p>`);
       if (T.accepted) H.push(`<p class="okline">✓ Accepted on ${tmEsc(tmWhen(T.accepted.at))}${pmeta(name).completedAt ? '' : ': mark the task complete below.'}</p>`);
       if (mbxOn() && to.length && !T.accepted) {
         // beta 2.1: Accept only once an update is merged and nothing for this project waits in the mailbox
         const names = to.map((e) => tmFirst(e, (T.names || {})[e])).join(' and ');
-        const why = waits.length ? 'Merge the waiting update first: Accept turns on after.' : mbxIn === null ? (mbxInErr ? `The mailbox was not checked (${mbxInErr}): Accept waits for it.` : 'Checking the mailbox first…') : !merged ? `Waiting for ${names}’s first update. Accept comes after you merge it.` : '';
-        H.push(`<div class="row"><button class="btn grow" type="button" data-ct="fix">Ask for fixes</button>${merged || waits.length ? `<button class="btn primary grow" type="button" data-ct="accept"${why ? ' disabled' : ''}>Accept</button>` : ''}</div>`);
+        const fxN = fxPendingN(T), nDraft = fxDraft(name).length;
+        const why = waits.length ? 'Merge the waiting update first: Accept turns on after.' : fxN ? `Check each fix answer first: ${fxN} not OK yet.` : mbxIn === null ? (mbxInErr ? `The mailbox was not checked (${mbxInErr}): Accept waits for it.` : 'Checking the mailbox first…') : !merged ? `Waiting for ${names}’s first update. Accept comes after you merge it.` : '';
+        H.push(`<div class="row"><button class="btn grow${nDraft ? ' primary' : ''}" type="button" data-ct="fix">${nDraft ? `Continue the fix list (${nDraft})` : 'Ask for fixes'}</button>${merged || waits.length ? `<button class="btn primary grow" type="button" data-ct="accept"${why ? ' disabled' : ''}>Accept</button>` : ''}</div>`);
         if (why) H.push(`<p class="tl hint">${tmEsc(why)}</p>`);
       }
     }
     el.innerHTML = H.join('');
   }
   $('curTeam').addEventListener('click', (ev) => {
+    const r = ev.target.closest('[data-fxr]'); if (r && S.project && !r.disabled) { guard(() => fxReview(S.project, r.dataset.k, r.dataset.fxr), 'Not saved'); return; }
     const b = ev.target.closest('[data-ct]'); if (!b || !S.project || b.disabled) return;
     const name = S.project, k = b.dataset.ct;
     if (k === 'send') openMbxSend(name, 'fp');
-    else if (k === 'fix') openMbxSend(name, 'fix');
+    else if (k === 'fix') fxStart(name); // beta 3: the fix list on the map
+    else if (k === 'fxopen') fxOpenFp(name);
+    else if (k === 'chg') chgOpen(name);
     else if (k === 'accept') guard(() => mbxAccept(name), 'Not accepted');
     else if (k === 'dl') guard(() => mbxOpenItem(b.dataset.tid), 'Not opened');
   });
@@ -14911,7 +14943,7 @@
       try { await mbxCall('cancel', { box: o.to, tid: o.tid }); o.st = 'cancelled'; }
       catch (e) { if (e.code === 'picked') { o.st = 'picked'; toast(`Too late: ${tmFirst(o.to, o.toName)} already has it.`); } else throw e; }
       finally { busy(false); }
-      o.stAt = new Date().toISOString(); if (o.st === 'cancelled') mbxGap(o); persist(); renderProjects();
+      o.stAt = new Date().toISOString(); if (o.st === 'cancelled') { mbxGap(o); if (o.kind === 'fix') fxTakenBack(o); } persist(); renderProjects();
     }, 'Not taken back');
   });
   /** Resend: a task or an update goes again as the whole project (it fills any gap); fixes, accepted and notes as they were. */
@@ -15115,6 +15147,578 @@
     document.addEventListener('contextmenu', (e) => { if (e.target instanceof Element && e.target.closest('.tmtool, .ppi')) e.preventDefault(); }); }
   /* ---- beta 2.1: asking to scan the pole ID after each photo is off by default; phones that had the old default turn it off once ---- */
   if (!S.readIdOff243) { S.readIdOff243 = true; if (S.readId !== false) { S.readId = false; LOG.info('settings.readId', { off: 'once, the new default' }); } persist(); }
+  /* ================= v2.43 beta 3: fixes per pole, and what changed =================
+     A coordinator marks what needs fixing on each pole (one pole or several at once), on a spot with no pole, or from the app's own
+     checks of the records. The fix list goes to the field partners through the team mailbox. A field partner follows the numbered
+     pins and does each item on the record (the app ticks it when the record shows it), answers what he cannot fix, adds what he
+     found, and sends the answers with his update. Every merged update says what changed, before → after; the coordinator marks
+     each fix answer OK or Not yet (those go back as the next round), and Accept waits until every answer is OK. */
+  const FX_POLE = ['New photo', 'Pole ID', 'Owner', 'Clamp size', 'Pin location', 'Delete it', 'Other'];
+  const FX_SPOT = ['Missing pole', 'Check here', 'Other'];
+  const FX_FOUND = ['Leaning', 'Damaged', 'No tag', 'Other'];
+  const FX_ORDER = FX_POLE.concat(FX_SPOT);
+  const FX_ICON = {
+    'New photo': 'M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3ZM12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
+    'Pole ID': 'M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4ZM7.5 8.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z',
+    'Owner': 'M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z',
+    'Clamp size': 'M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.4 2.4 0 0 1 0-3.4l2.6-2.6a2.4 2.4 0 0 1 3.4 0ZM14.5 12.5l2-2M11.5 9.5l2-2M8.5 6.5l2-2M17.5 15.5l2-2',
+    'Pin location': 'M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0ZM12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
+    'Delete it': 'M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2',
+    'Other': 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z',
+    'Missing pole': 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM12 8v8M8 12h8',
+    'Check here': 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7ZM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
+  };
+  const fxSort = (w) => [...new Set(w)].sort((a, b) => FX_ORDER.indexOf(a) - FX_ORDER.indexOf(b));
+  const fxKey = () => `x${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const fxSvg = (w) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${FX_ICON[w] || FX_ICON.Other}"/></svg>`;
+  let fx = null, fxLayer = null, chgLayer = null; // fx: the panel { mode: 'co' | 'fp', name, view, ... }
+
+  /* ---- what changed: one record's snapshot, and before → after ---- */
+  function chgSnap(p) {
+    const b = p.boq || {};
+    return { id: p.id, name: recName(p) || '(no ID)', el: elemOf(p), poleId: p.poleId || '', type: p.poleType || '', status: p.status || '', owner: b.owner || '', clamp: b.clamp || '',
+      lat: p.lat, lon: p.lon, photo: p.takenAt || '', remarks: p.remarks || '', boq: JSON.stringify(b) };
+  }
+  const CHG_F = [['poleId', 'Pole ID'], ['type', 'Type'], ['status', 'Status'], ['owner', 'Owner'], ['clamp', 'Clamp size'], ['remarks', 'Remarks']];
+  function chgLines(a, b) {
+    const L = [];
+    CHG_F.forEach(([k, lab]) => { if ((a[k] || '') !== (b[k] || '')) L.push({ label: lab, from: a[k] || 'empty', to: b[k] || 'empty' }); });
+    if ((a.photo || '') !== (b.photo || '')) L.push({ label: 'Photo', from: 'old photo', to: `new photo${b.photo ? ` (${tmWhen(b.photo)})` : ''}`, photo: true });
+    const m = Number.isFinite(a.lat) && Number.isFinite(b.lat) ? haversine(a, b) : 0;
+    if (m > 1) L.push({ label: 'Pin', from: 'old place', to: `moved ${Math.round(m)} m`, moved: Math.round(m) });
+    const rest = (s) => { try { const o = JSON.parse(s || '{}'); delete o.owner; delete o.clamp; return JSON.stringify(o); } catch (e) { return s; } };
+    if (rest(a.boq) !== rest(b.boq)) L.push({ label: 'Details', from: '', to: 'other details changed' });
+    return L;
+  }
+  const chgSnapAll = (name) => new Map(points.filter((p) => p.project === name).map((p) => [p.id, chgSnap(p)]));
+  function chgDiff(before, name) {
+    const out = [], now = new Map(points.filter((p) => p.project === name).map((p) => [p.id, p]));
+    now.forEach((p, id) => {
+      const a = before.get(id), b = chgSnap(p);
+      if (!a) out.push({ id, kind: 'new', name: b.name, lat: b.lat, lon: b.lon, lines: [] });
+      else { const L = chgLines(a, b); if (L.length) out.push({ id, kind: 'changed', name: b.name, lat: b.lat, lon: b.lon, olat: a.lat, olon: a.lon, lines: L }); }
+    });
+    before.forEach((a, id) => { if (!now.has(id)) out.push({ id, kind: 'deleted', name: a.name, lat: a.lat, lon: a.lon, lines: [] }); });
+    return out;
+  }
+  const chgHtml = (L) => (L.length ? `<div class="fx-chgs">${L.map((x) => (x.from ? `<span><b>${tmEsc(x.label)}</b> <s>${tmEsc(x.from)}</s> → <mark>${tmEsc(x.to)}</mark></span>` : `<span><b>${tmEsc(x.label)}</b> <mark>${tmEsc(x.to)}</mark></span>`)).join('')}</div>` : '');
+  function chgCounts(items) { const c = { new: 0, changed: 0, deleted: 0 }; (items || []).forEach((x) => { c[x.kind] = (c[x.kind] || 0) + 1; }); return c; }
+  function chgSay(C) { const c = chgCounts(C.items); return [c.new && `${c.new} new`, c.changed && `${c.changed} changed`, c.deleted && `${c.deleted} deleted`].filter(Boolean).join(' · ') || 'nothing changed'; }
+  /** Every merged update keeps what it changed on the project (beta 3: the coordinator and the field partner alike). */
+  function chgStore(proj, snap, M, who) {
+    const items = chgDiff(snap, proj);
+    S.meta[proj] = { ...pmeta(proj), chg: { at: new Date().toISOString(), from: M.from, fromName: who, n: M.n || 0, full: !!M.full, items: items.slice(0, 300), more: Math.max(0, items.length - 300) } };
+    LOG.info('chg.store', { n: items.length, ...chgCounts(items) });
+    return items.length;
+  }
+  function chgOpen(name) {
+    const C = pmeta(name).chg; if (!C) { toast('No update merged yet.'); return; }
+    $('chgSub').textContent = `${C.full ? `The whole project (update ${C.n})` : `Update ${C.n}`} from ${C.fromName} · merged ${tmWhen(C.at)} · ${chgSay(C)}`;
+    const K = { new: 'New', changed: 'Changed', deleted: 'Deleted' };
+    $('chgList').innerHTML = (C.items || []).map((x, i) => `<div class="chg-row"><div class="chg-h"><span class="chg-k ${x.kind}">${K[x.kind]}</span><b>${tmEsc(x.name)}</b>`
+      + `<button class="btn sm" type="button" data-chg="${i}">${x.kind === 'deleted' ? 'Where it was' : 'Show on the map'}</button></div>${chgHtml(x.lines || [])}</div>`).join('')
+      + (C.more ? `<p class="hint">${C.more} more not listed.</p>` : '') || '<p class="hint">Nothing changed in this update.</p>';
+    openSheet('chgSheet');
+  }
+  $('chgList').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-chg]'); if (!b) return;
+    const C = pmeta(S.project).chg, x = C && C.items[+b.dataset.chg]; if (!x) return;
+    chgShow(x.lat, x.lon, x.olat, x.olon, x.kind === 'deleted' ? '' : x.id);
+  });
+  /** The map goes to a record, rings it, and draws where it was when its pin moved (a dashed ring and line). */
+  function chgShow(lat, lon, olat, olon, rid) {
+    closeAll().then(() => {
+      if (!chgLayer) chgLayer = L.layerGroup().addTo(map);
+      chgLayer.clearLayers();
+      const moved = Number.isFinite(olat) && Number.isFinite(olon) && haversine({ lat, lon }, { lat: olat, lon: olon }) > 1;
+      if (moved || !rid) {
+        const o = moved ? [olat, olon] : [lat, lon];
+        if (moved) L.polyline([o, [lat, lon]], { color: '#1c7ed6', weight: 3, dashArray: '6 6', interactive: false }).addTo(chgLayer);
+        L.circleMarker(o, { radius: 11, color: '#1c7ed6', weight: 3, dashArray: '4 4', fillColor: '#ffffff', fillOpacity: 0.6, interactive: false }).addTo(chgLayer);
+        L.marker(o, { interactive: false, keyboard: false, icon: L.divIcon({ className: 'chg-was', html: `<span>${moved ? 'was here' : 'deleted'}</span>`, iconSize: [70, 18], iconAnchor: [35, 32] }) }).addTo(chgLayer);
+      }
+      if (rid && projPoints().some((p) => p.id === rid)) { hlId = rid; hlFrom = ''; hlDraw(); }
+      map.setView([lat, lon], Math.max(map.getZoom(), 19));
+    });
+  }
+  tmHooks.hlClear = () => { if (chgLayer) chgLayer.clearLayers(); };
+
+  /* ---- the coordinator: the fix list (a draft kept on the phone until it is sent) ---- */
+  const fxDraft = (name) => ((tmTeam(name) || {}).fixDraft || {}).items || [];
+  function fxSetDraft(name, items) { setTeam(name, { ...(tmTeam(name) || {}), fixDraft: items.length ? { items, at: new Date().toISOString() } : null }); persist(); }
+  const fxRec = (rid) => (rid ? points.find((p) => p.id === rid) : null);
+  const fxNameOf = (it) => (it.kind === 'pole' ? `Pole ${(fxRec(it.rid) && recName(fxRec(it.rid))) || it.name || '(no ID)'}` : it.kind === 'spot' ? 'A spot on the map' : `Found: near ${it.name || 'a pole'}`);
+  /** The partners a fix list goes to: those who have the project (downloaded it or sent an update); the others are listed, unticked. */
+  function fxPartners(name) {
+    const T = tmTeam(name) || {};
+    return (T.to || []).filter((e) => !(T.left || {})[e]).map((e) => ({ email: e, name: tmNameOf(e, (T.names || {})[e]), has: mbxHasIt(name, e) }));
+  }
+  function fxStart(name) {
+    const P = fxPartners(name);
+    fx = { mode: 'co', name, view: 'list', edit: null, sel: [], spot: false, min: false, note: '', chkOff: [], to: P.filter((p) => p.has).map((p) => p.email) };
+    closeAll().then(() => { fxShow(); fxFit(); });
+    LOG.info('fix.compose', { draft: fxDraft(name).length });
+  }
+  /** What the app sees in the records itself, grouped: no owner, no clamp size, a photo kept with a camera warning, a pin far from
+      where its photo was taken, two pins on the same spot. */
+  function fxChecks(name) {
+    const all = points.filter((p) => p.project === name), poles = all.filter((p) => elemOf(p) === 'Pole' && p.status !== 'Proposed' && p.status !== 'New');
+    const D = fxDraft(name), has = (id, w) => D.some((x) => x.rid === id && x.why.includes(w));
+    const G = [
+      { why: 'Owner', label: 'No owner', note: '', ids: poles.filter((p) => !(p.boq && p.boq.owner)).map((p) => p.id) },
+      { why: 'Clamp size', label: 'No clamp size', note: '', ids: poles.filter((p) => !(p.boq && p.boq.clamp)).map((p) => p.id) },
+      { why: 'New photo', label: 'Photo kept with a camera warning (blurry or dark)', note: 'The photo looks blurry or dark.', ids: all.filter((p) => p.q && Array.isArray(p.q.flags) && p.q.flags.length).map((p) => p.id) },
+      { why: 'Pin location', label: 'Pin over 25 m from where its photo was taken', note: 'The pin is far from where the photo was taken.', ids: all.filter((p) => Number.isFinite(p.gpsLat) && Number.isFinite(p.gpsLon) && haversine({ lat: p.gpsLat, lon: p.gpsLon }, p) > 25).map((p) => p.id) },
+    ];
+    const dup = new Set();
+    for (let i = 0; i < poles.length; i++) for (let j = i + 1; j < poles.length; j++) if (haversine(poles[i], poles[j]) < 2) { dup.add(poles[i].id); dup.add(poles[j].id); }
+    G.push({ why: 'Other', label: 'Two pins on the same spot (under 2 m)', note: 'Two pins on the same spot: keep one.', ids: [...dup] });
+    return G.map((g) => ({ ...g, ids: g.ids.filter((id) => !has(id, g.why)) })).filter((g) => g.ids.length);
+  }
+  /** Adds the same reasons to each of these poles (a pole already on the list gets them too, and the note). */
+  function fxAddPoles(name, rids, why, note) {
+    const items = fxDraft(name).map((x) => ({ ...x }));
+    rids.forEach((rid) => {
+      const p = fxRec(rid); if (!p) return;
+      const it = items.find((x) => x.kind === 'pole' && x.rid === rid);
+      if (it) { it.why = fxSort(it.why.concat(why)); if (note && !String(it.note || '').includes(note)) it.note = it.note ? `${it.note} · ${note}` : note; }
+      else items.push({ k: fxKey(), kind: 'pole', rid, name: recName(p) || '', lat: p.lat, lon: p.lon, why: fxSort(why), note: note || '' });
+    });
+    fxSetDraft(name, items);
+  }
+  function fxEditPoles(rids) {
+    const D = fxDraft(fx.name), one = rids.length === 1 ? D.find((x) => x.kind === 'pole' && x.rid === rids[0]) : null;
+    fx.edit = one ? { k: one.k, kind: 'pole', rids, why: one.why.slice(), note: one.note || '' } : { k: '', kind: 'pole', rids, why: [], note: '' };
+    fx.view = 'edit'; fx.min = false; fx.spot = false; fxRender(); fxDraw();
+  }
+  function fxEditItem(k) {
+    const it = fxDraft(fx.name).find((x) => x.k === k); if (!it) return;
+    fx.edit = { k, kind: it.kind, rids: it.rid ? [it.rid] : [], lat: it.lat, lon: it.lon, why: it.why.slice(), note: it.note || '' };
+    fx.view = 'edit'; fx.min = false; fx.spot = false; fxRender(); fxDraw();
+  }
+  function fxSaveEdit() {
+    const e = fx.edit, name = fx.name; if (!e || (!e.why.length && !e.note.trim())) return;
+    const note = e.note.trim().slice(0, 200);
+    if (e.k) fxSetDraft(name, fxDraft(name).map((x) => (x.k === e.k ? { ...x, why: fxSort(e.why), note } : x)));
+    else if (e.kind === 'spot') fxSetDraft(name, fxDraft(name).concat([{ k: fxKey(), kind: 'spot', rid: '', name: '', lat: e.lat, lon: e.lon, why: fxSort(e.why), note }]));
+    else fxAddPoles(name, e.rids, e.why, note);
+    LOG.info('fix.item', { n: e.rids.length || 1, why: e.why.join('+') });
+    fx.edit = null; fx.sel = []; fx.view = 'list'; fxRender(); fxDraw();
+  }
+  const fxSummary = (items, note) => [note, ...items.map((x, i) => `${x.n || i + 1}. ${fxNameOf(x).replace(/^Pole /, '')}: ${x.why.join(', ') || 'see the note'}${x.note ? ` (“${x.note}”)` : ''}`)].filter(Boolean).join('\n').slice(0, 1500);
+  /** Sends the draft (or the not-yet answers again) to the field partners: each item with its number, the pole and what to do. */
+  async function fxSendList(name, items, opt) {
+    const o = opt || {}, T = tmTeam(name) || {}, to = o.to || fx && fx.to || fxPartners(name).filter((p) => p.has).map((p) => p.email);
+    if (!items.length) return false;
+    if (!to.length) { toast('Nobody has this project from you yet: send it to a field partner first.', 5000); return false; }
+    if (navigator.onLine === false) { toast('No internet: the fix list stays on this phone. Send it with signal.', 5000); return false; }
+    if (!mbxOn()) { toast('The team mailbox is not on this phone (Settings → Team).'); return false; }
+    const O = T.fixOut || { items: [], round: 0 }, round = (O.round || 0) + 1;
+    let nMax = O.items.reduce((m, x) => Math.max(m, x.n || 0), 0);
+    const now = new Date().toISOString();
+    const out = items.map((x) => {
+      if (o.again) return { ...x, prev: { status: x.status, round: x.round, review: x.review, againMsg: x.againMsg || '' }, round, status: 'out', review: '', againMsg: `Round ${round}: ${(S.user && S.user.name) || 'the coordinator'} says it is not right yet${o.note ? `: “${o.note}”` : '.'}` };
+      const p = fxRec(x.rid);
+      return { k: x.k, n: ++nMax, kind: x.kind, rid: x.rid || '', name: p ? recName(p) || '' : x.name || '', lat: p ? p.lat : x.lat, lon: p ? p.lon : x.lon, why: x.why, note: x.note || '', round, status: 'out', review: '', reply: '', before: p ? chgSnap(p) : null, againMsg: '' };
+    });
+    const body = { kind: 'fixlist', v: 1, round, at: now, items: out.map((x) => ({ k: x.k, n: x.n, kind: x.kind, rid: x.rid, name: x.name, lat: x.lat, lon: x.lon, why: x.why, note: x.note, round: x.round, againMsg: x.againMsg || '' })) };
+    const note = fxSummary(out, o.again ? '' : (o.note || '').trim());
+    cancelFlag = false; const ok = [];
+    try {
+      for (const e of to) { await mbxSendSmall('fix', name, e, { note, fixes: out.length, round }, `Sending to ${tmFirst(e)}`, undefined, body); ok.push(e); }
+    } finally { busy(false); }
+    const T2 = tmTeam(name) || {}, O2 = T2.fixOut || { items: [], round: 0 };
+    const merged = O2.items.filter((x) => !out.some((y) => y.k === x.k)).concat(out);
+    setTeam(name, { ...T2, accepted: null, fixAsked: { at: now, note }, fixOut: { round, at: now, to: ok, items: merged, prevAt: O2.at || '' }, ...(o.again ? {} : { fixDraft: null }) });
+    persist();
+    LOG.info('fix.send', { n: out.length, round, to: ok.length, again: !!o.again });
+    toast(`${out.length === 1 ? '1 fix' : `${out.length} fixes`} sent to ${ok.map((e) => tmFirst(e)).join(' and ')}.`, 5000);
+    return true;
+  }
+
+  /** A fix list taken back before anyone downloaded it: its new fixes go back to the draft, the Not yet ones back to Not yet. */
+  function fxTakenBack(o) {
+    const name = o && o.project, T = tmTeam(name) || {}, O = T.fixOut; if (!O || !O.items.length) return;
+    if (o.at && O.at && o.at < O.at) return; // an older round's send
+    const to = (O.to || []).filter((e) => e !== o.to);
+    if (to.length) { setTeam(name, { ...T, fixOut: { ...O, to } }); persist(); return; }
+    const mine = (x) => x.status === 'out' && x.round === O.round;
+    const back = O.items.filter((x) => mine(x) && !x.prev).map((x) => ({ k: x.k, kind: x.kind, rid: x.rid, name: x.name, lat: x.lat, lon: x.lon, why: x.why, note: x.note }));
+    const items = O.items.filter((x) => !(mine(x) && !x.prev)).map((x) => { if (!(mine(x) && x.prev)) return x; const { prev, ...y } = x; return { ...y, ...prev }; });
+    setTeam(name, { ...T, fixOut: items.length ? { ...O, round: Math.max(1, (O.round || 1) - 1), at: O.prevAt || O.at, items } : null, ...(items.length ? {} : { fixAsked: null }) });
+    if (back.length) fxSetDraft(name, fxDraft(name).filter((d) => !back.some((b) => b.k === d.k)).concat(back));
+    persist();
+    LOG.info('fix.takenback', { draft: back.length, again: items.filter((x) => x.review === 'again').length });
+  }
+
+  /* ---- the field partner: the fix list on his phone ---- */
+  const fxList = (name) => (tmTeam(name) || {}).fixList || null;
+  function fxSetList(name, L) { setTeam(name, { ...(tmTeam(name) || {}), fixList: L }); persist(); }
+  /** A fix list from the coordinator: new items are added; one sent again opens again, with its round and why. */
+  function fxReceive(proj, B, M, who) {
+    const T = tmTeam(proj) || {}, L0 = T.fixList && T.fixList.from === M.from ? T.fixList : null, now = new Date().toISOString();
+    const items = L0 ? L0.items.slice() : [];
+    (B.items || []).forEach((x) => {
+      const p = x.rid ? points.find((q) => q.id === x.rid && q.project === proj) : null;
+      const it = { k: x.k, n: x.n, kind: x.kind, rid: x.rid || '', name: x.name || '', lat: x.lat, lon: x.lon, why: x.why || [], note: x.note || '', round: x.round || 1, againMsg: x.againMsg || '',
+        status: 'open', reply: '', sent: false, base: p ? chgSnap(p) : null, at: now, newRid: '' };
+      const i = items.findIndex((q) => q.k === x.k); if (i >= 0) items[i] = it; else items.push(it);
+    });
+    setTeam(proj, { ...T, accepted: null, fixList: { from: M.from, fromName: who, at: now, round: B.round || 1, items } });
+    persist();
+    LOG.info('fix.receive', { n: (B.items || []).length, round: B.round || 1 });
+  }
+  const fxPos = (it) => { const p = fxRec(it.rid); return p ? { lat: p.lat, lon: p.lon } : it.base && Number.isFinite(it.base.lat) ? { lat: it.base.lat, lon: it.base.lon } : Number.isFinite(it.lat) ? { lat: it.lat, lon: it.lon } : null; };
+  /** The pole captured for a "missing pole": the nearest record made after the list came, within 30 m of the spot. */
+  function fxNear(it, name) {
+    const c = points.filter((q) => q.project === name && String(q.created || '') > String(it.at || '') && haversine(q, it) <= 30).sort((a, b) => haversine(a, it) - haversine(b, it));
+    return c[0] || null;
+  }
+  /** Whether one asked item shows on the record: true / false, or null when only the field partner's word can say it. */
+  function fxProof(w, it, name) {
+    const p = fxRec(it.rid), b = it.base;
+    if (w === 'New photo') return !!p && !!b && (p.takenAt || '') !== b.photo;
+    if (w === 'Pole ID') return !!p && !!b && !!p.poleId && p.poleId !== b.poleId;
+    if (w === 'Owner' || w === 'Clamp size') { const f = w === 'Owner' ? 'owner' : 'clamp', v = (p && p.boq && p.boq[f]) || ''; return !!p && !!v && (!b || !b[f] || v !== b[f]); }
+    if (w === 'Pin location') return !!p && !!b && haversine(p, b) > 1;
+    if (w === 'Delete it') return !p && !!b;
+    if (w === 'Missing pole') return !!fxNear(it, name);
+    return null;
+  }
+  const fxWhys = (it) => (it.why && it.why.length ? it.why : ['Other']);
+  const fxDone = (it, name) => fxWhys(it).every((w) => fxProof(w, it, name) !== false);
+  function fxOpenFp(name) {
+    const Ls = fxList(name); if (!Ls) return;
+    const i = Ls.items.findIndex((x) => x.status === 'open');
+    fx = { mode: 'fp', name, view: 'card', cur: i >= 0 ? i : 0, min: false, reply: null, found: null };
+    closeAll().then(() => { if (S.project !== name) openTask(name, { keepView: true }); fxShow(); fxGoCur(); });
+  }
+  /** The map goes to a place and keeps it above the panel (not behind it). */
+  function fxPan(lat, lon, z) {
+    map.setView([lat, lon], z || Math.max(map.getZoom(), 18), { animate: false });
+    const h = $('fixPanel').hidden || $('fixPanel').classList.contains('min') ? 0 : $('fixPanel').offsetHeight;
+    if (h) map.panBy([0, Math.round(h / 2)], { animate: false });
+  }
+  function fxGoCur() { const Ls = fx && fxList(fx.name), it = Ls && Ls.items[fx.cur], pos = it && fxPos(it); if (pos) fxPan(pos.lat, pos.lon); }
+  function fxMark(status, reply) {
+    const Ls = fxList(fx.name); if (!Ls) return;
+    const items = Ls.items.map((x, i) => {
+      if (i !== fx.cur) return x;
+      const q = x.kind === 'spot' && status === 'fixed' ? fxNear(x, fx.name) : null;
+      return { ...x, status, reply: reply || '', newRid: q ? q.id : '', newName: q ? recName(q) || '' : '', doneAt: new Date().toISOString() };
+    });
+    fxSetList(fx.name, { ...Ls, items });
+    const nx = items.findIndex((x, i) => i > fx.cur && x.status === 'open'), nx0 = items.findIndex((x) => x.status === 'open');
+    fx.cur = nx >= 0 ? nx : nx0 >= 0 ? nx0 : fx.cur; fx.reply = null; fx.view = 'card';
+    LOG.info('fix.answer', { status });
+    fxRender(); fxDraw(); if (nx >= 0 || nx0 >= 0) fxGoCur();
+  }
+  /** The answers not sent yet: they go with the next update to the coordinator. */
+  function fxAnswers(name) {
+    const Ls = fxList(name); if (!Ls) return [];
+    return Ls.items.filter((x) => x.status !== 'open' && !x.sent).map((x) => ({ k: x.k, n: x.n, kind: x.kind, status: x.status, reply: x.reply || '', why: x.why, note: x.note || '', lat: x.lat, lon: x.lon, rid: x.rid || '', name: x.name || '', newRid: x.newRid || '', newName: x.newName || '', round: x.round || 1 }));
+  }
+  function fxMarkSent(name, ans) {
+    const Ls = fxList(name); if (!Ls || !ans.length) return;
+    const ks = new Set(ans.map((a) => a.k)), at = new Date().toISOString();
+    fxSetList(name, { ...Ls, items: Ls.items.map((x) => (ks.has(x.k) ? { ...x, sent: true, sentAt: at } : x)) });
+    if (fx && fx.name === name) { fxRender(); fxDraw(); }
+  }
+
+  /* ---- the coordinator receives the answers with the update ---- */
+  function fxApplyAnswers(proj, ans, M, who) {
+    const T = tmTeam(proj) || {}, O = T.fixOut || { items: [], round: 1 }, at = new Date().toISOString();
+    const items = O.items.map((x) => ({ ...x }));
+    ans.forEach((a) => {
+      const it = items.find((x) => x.k === a.k);
+      if (it) Object.assign(it, { status: a.status === 'reply' ? 'reply' : 'fixed', reply: a.reply || '', newRid: a.newRid || '', newName: a.newName || '', review: '', dropped: false, answeredAt: at, by: M.from, byName: who });
+      else if (a.kind === 'found') items.push({ k: a.k, n: 0, kind: 'found', rid: a.rid || '', name: a.name || '', lat: a.lat, lon: a.lon, why: a.why || [], note: '', reply: a.reply || '', status: 'found', review: '', round: O.round || 1, answeredAt: at, by: M.from, byName: who });
+    });
+    setTeam(proj, { ...T, fixOut: { ...O, items } });
+    LOG.info('fix.answers', { n: ans.length });
+  }
+  const fxPendingN = (T) => (T && T.fixOut ? T.fixOut.items.filter((x) => x.review !== 'ok').length : 0);
+  /** One answer as the coordinator sees it: what was asked, what came back, and what changed on the record. */
+  function fxReviewLines(it) {
+    if (it.kind === 'found' || it.status === 'out') return [];
+    if (it.kind === 'spot') { const q = fxRec(it.newRid); return q ? [{ label: 'New pole', from: 'none', to: recName(q) || '(no ID)' }] : []; }
+    const p = fxRec(it.rid);
+    if (!p) return it.before ? [{ label: 'Record', from: 'on the map', to: 'deleted' }] : [];
+    return it.before ? chgLines(it.before, chgSnap(p)) : [];
+  }
+  function fxReviewHtml(name) {
+    const T = tmTeam(name) || {}, O = T.fixOut; if (!O || !O.items.length) return '';
+    const I = O.items, out = I.filter((x) => x.status === 'out' && !x.dropped).length, toCheck = I.filter((x) => x.status !== 'out' && !x.review).length, again = I.filter((x) => x.review === 'again').length, ok = I.filter((x) => x.review === 'ok').length;
+    const H = [`<div class="fxrev"><p class="tl"><b>Fixes · round ${O.round || 1}</b> · ${tmEsc([toCheck && `${toCheck} to check`, out && `${out} with ${fxWithWho(T)}`, again && `${again} not yet`, ok && `${ok} OK`].filter(Boolean).join(' · '))}</p>`];
+    I.forEach((it) => {
+      const L = fxReviewLines(it), st = it.status;
+      const res = st === 'out' ? `${it.why.join(' · ') || 'See the note'}${it.round > 1 ? ` · round ${it.round}` : ''}`
+        : st === 'found' ? `${tmFirst(it.by, it.byName)} found: ${it.why.join(', ') || 'something'}${it.reply ? ` (“${it.reply}”)` : ''}`
+          : st === 'reply' ? `${tmFirst(it.by, it.byName)} could not: “${it.reply || 'no reason given'}”`
+            : `${tmFirst(it.by, it.byName)} fixed it (${(it.why.join(', ') || 'see the note').toLowerCase()})${L.length ? '' : ': nothing on the record changed, he checked it'}`;
+      const chip = it.dropped ? ['Not needed', 'ok'] : st === 'out' ? ['With the field partner', 'wait'] : it.review === 'ok' ? ['✓ OK', 'ok'] : it.review === 'again' ? ['Not yet', 'again'] : ['To check', 'check'];
+      const pos = fxPos(it) || {}, cls = st === 'out' ? '' : st === 'found' ? 'found' : st === 'reply' ? 'reply' : 'fixed';
+      H.push(`<div class="fx-rv ${chip[1]}"><div class="fx-rvh"><span class="fx-num ${cls}${it.kind !== 'pole' ? ' spot' : ''}">${st === 'found' ? '+' : st === 'fixed' ? '✓' : st === 'reply' ? '?' : it.n}</span>`
+        + `<span class="fx-txt"><b>${tmEsc(`${it.n ? `${it.n}. ` : ''}${fxNameOf(it)}`)}</b><small>${tmEsc(res)}</small></span><span class="fx-chip ${chip[1]}">${chip[0]}</span></div>${chgHtml(L)}`
+        + `<div class="row fx-rvb">${st !== 'out' && Number.isFinite(pos.lat) ? `<button class="btn sm" type="button" data-fxr="show" data-k="${tmEsc(it.k)}">Show on the map</button>` : ''}`
+        + `${st !== 'out' && !it.review ? `<button class="btn sm primary" type="button" data-fxr="ok" data-k="${tmEsc(it.k)}">✓ OK</button><button class="btn sm" type="button" data-fxr="again" data-k="${tmEsc(it.k)}">Not yet</button>` : ''}`
+        + `${st === 'out' && !it.review ? `<button class="btn sm" type="button" data-fxr="drop" data-k="${tmEsc(it.k)}">Not needed</button>` : ''}`
+        + `${it.review ? `<button class="btn sm" type="button" data-fxr="clear" data-k="${tmEsc(it.k)}">Change</button>` : ''}</div></div>`);
+    });
+    if (again) H.push(`<label class="field">What is still wrong? (optional, goes with the Not yet ones)<input type="text" id="fxAgainNote" maxlength="200" placeholder="For example: the new photo is still dark"></label><button class="btn primary" type="button" data-fxr="sendagain">Send the ${again} not yet back</button>`);
+    H.push('</div>');
+    return H.join('');
+  }
+  const fxWithWho = (T) => ((T.fixOut && T.fixOut.to) || []).map((e) => tmFirst(e, (T.names || {})[e])).join(' and ') || 'the field partner';
+  async function fxReview(name, k, v) {
+    const T = tmTeam(name) || {}, O = T.fixOut; if (!O) return;
+    if (v === 'show') { const it = O.items.find((x) => x.k === k); if (!it) return; const pos = fxPos(it); if (!pos) return; const b = it.before; chgShow(pos.lat, pos.lon, b ? b.lat : NaN, b ? b.lon : NaN, fxRec(it.rid) ? it.rid : fxRec(it.newRid) ? it.newRid : ''); return; }
+    if (v === 'sendagain') {
+      const note = ((document.getElementById('fxAgainNote') || {}).value || '').trim().slice(0, 200), again = O.items.filter((x) => x.review === 'again');
+      if (await fxSendList(name, again, { again: true, note, to: O.to && O.to.length ? O.to : undefined })) renderProjects();
+      return;
+    }
+    if (v === 'drop') {
+      const it = O.items.find((x) => x.k === k); if (!it) return;
+      if (!(await ask(`Fix ${it.n || ''} not needed?`, `It no longer holds up Accept. ${fxWithWho(T)} may still see it on the fix list.`, [{ label: 'Cancel', value: false }, { label: 'Not needed', value: true, primary: true }]))) return;
+      const T2 = tmTeam(name) || {}, O2 = T2.fixOut; if (!O2) return;
+      setTeam(name, { ...T2, fixOut: { ...O2, items: O2.items.map((x) => (x.k === k ? { ...x, review: 'ok', dropped: true } : x)) } }); persist();
+      LOG.info('fix.review', { v }); renderProjects(); return;
+    }
+    setTeam(name, { ...T, fixOut: { ...O, items: O.items.map((x) => (x.k === k ? { ...x, review: v === 'clear' ? '' : v, dropped: false } : x)) } }); persist();
+    LOG.info('fix.review', { v }); renderProjects();
+  }
+
+  /* ---- the panel over the map (both roles) ---- */
+  function fxShow() { $('fixPanel').hidden = false; document.body.classList.add('fixing'); fxRender(); fxDraw(); }
+  function fxClose() { fx = null; $('fixPanel').hidden = true; document.body.classList.remove('fixing'); if (fxLayer) fxLayer.clearLayers(); }
+  function fxFit() {
+    const P = fxDraft(fx.name).map(fxPos).filter(Boolean);
+    const h = $('fixPanel').hidden ? 0 : $('fixPanel').offsetHeight;
+    if (P.length > 1) map.fitBounds(L.latLngBounds(P.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 90], paddingBottomRight: [40, h + 30], maxZoom: 19 });
+    else if (P.length === 1) fxPan(P[0].lat, P[0].lon);
+  }
+  function fxDraw() {
+    if (!fxLayer) fxLayer = L.layerGroup().addTo(map);
+    fxLayer.clearLayers();
+    if (!fx || S.project !== fx.name || $('fixPanel').hidden) return;
+    const M = [];
+    if (fx.mode === 'co') {
+      fxDraft(fx.name).forEach((it, i) => { const pos = fxPos(it); if (pos) M.push({ ...pos, label: String(i + 1), cls: it.kind === 'spot' ? 'spot' : '', tap: () => fxEditItem(it.k) }); });
+      fx.sel.forEach((id) => { const p = fxRec(id); if (p) M.push({ lat: p.lat, lon: p.lon, label: '✓', cls: 'sel', tap: () => tmHooks.pinTap(id) }); });
+      if (fx.edit && fx.edit.kind === 'spot' && !fx.edit.k) M.push({ lat: fx.edit.lat, lon: fx.edit.lon, label: '', cls: 'spot pend', tap: null });
+      if (fx.edit && fx.edit.kind === 'pole' && !fx.edit.k) fx.edit.rids.forEach((id) => { const p = fxRec(id); if (p) M.push({ lat: p.lat, lon: p.lon, label: '', cls: 'sel pend', tap: null }); });
+    } else {
+      const Ls = fxList(fx.name); if (!Ls) return;
+      Ls.items.forEach((it, i) => {
+        const pos = fxPos(it); if (!pos) return;
+        const cur = i === fx.cur && it.status === 'open';
+        M.push({ ...pos, label: it.kind === 'found' ? '+' : it.status === 'fixed' ? '✓' : it.status === 'reply' ? '?' : String(it.n || i + 1), cls: [it.kind !== 'pole' ? 'spot' : '', it.status, cur ? 'cur' : ''].join(' '),
+          tap: () => { fx.cur = i; fx.view = 'card'; fx.min = false; fx.reply = null; fxRender(); fxDraw(); } });
+      });
+    }
+    M.forEach((m) => {
+      const mk = L.marker([m.lat, m.lon], { keyboard: false, zIndexOffset: 1000, interactive: !!m.tap, icon: L.divIcon({ className: 'fxpin-wrap', html: `<span class="fxpin ${m.cls}">${m.label}</span>`, iconSize: [30, 30], iconAnchor: [15, 15] }) });
+      if (m.tap) mk.on('click', m.tap);
+      mk.addTo(fxLayer);
+    });
+  }
+  /** A tap on a pole while the panel is open: the coordinator picks it (or ticks it); the field partner goes to its fix. */
+  tmHooks.pinTap = (id) => {
+    if (!fx || S.project !== fx.name || $('fixPanel').hidden) return false;
+    if (fx.mode === 'co') {
+      if (fx.view === 'select') { fx.sel = fx.sel.includes(id) ? fx.sel.filter((x) => x !== id) : fx.sel.concat([id]); fxRender(); fxDraw(); return true; }
+      if (fx.view === 'checks') return true;
+      fxEditPoles([id]); return true;
+    }
+    const Ls = fxList(fx.name), i = Ls ? Ls.items.findIndex((x) => x.rid === id) : -1;
+    if (i < 0 || (i === fx.cur && fx.view === 'card' && !fx.min)) return false; // another pole, or the one shown: it opens as usual
+    fx.cur = i; fx.view = 'card'; fx.min = false; fx.reply = null; fxRender(); fxDraw(); return true;
+  };
+  map.on('click', (e) => {
+    if (!fx || fx.mode !== 'co' || !fx.spot || S.project !== fx.name) return;
+    fx.spot = false; fx.edit = { k: '', kind: 'spot', rids: [], lat: e.latlng.lat, lon: e.latlng.lng, why: [], note: '' }; fx.view = 'edit'; fxRender(); fxDraw();
+  });
+  tmHooks.poles = () => { if (fx && S.project !== fx.name) fxClose(); else if (fx) { fxRender(); fxDraw(); } };
+  const fxBtn = (k, label, cls, extra) => `<button class="btn${cls ? ` ${cls}` : ''}" type="button" data-fx="${k}"${extra || ''}>${label}</button>`;
+  function fxRender() {
+    if (!fx) return;
+    const P = $('fixPanel'); P.classList.toggle('min', !!fx.min);
+    $('fxMin').textContent = fx.min ? 'Show' : 'Hide'; $('fxMin').setAttribute('aria-expanded', String(!fx.min));
+    const H = [];
+    if (fx.mode === 'co') {
+      const D = fxDraft(fx.name), Pt = fxPartners(fx.name), first = Pt.filter((p) => fx.to.includes(p.email)).map((p) => tmFirst(p.email, p.name)).join(' and ') || 'nobody';
+      $('fxTitle').textContent = `Ask for fixes · ${fx.name}`;
+      $('fxSub').textContent = D.length ? `${D.length === 1 ? '1 fix' : `${D.length} fixes`} · kept on this phone until you send` : 'Tap a pole on the map, or select several';
+      if (fx.view === 'edit' && fx.edit) {
+        const e = fx.edit, multi = e.kind === 'pole' && e.rids.length > 1, W = e.kind === 'spot' ? FX_SPOT : FX_POLE;
+        const title = e.kind === 'spot' ? 'A spot on the map' : multi ? `${e.rids.length} poles: ${e.rids.map((id) => recName(fxRec(id)) || '?').join(', ')}` : `Pole ${recName(fxRec(e.rids[0])) || '(no ID)'}`;
+        H.push(`<b class="fx-title">${tmEsc(title)}</b><span class="hint" style="margin:0">${e.kind === 'spot' ? 'What should they do here?' : multi ? 'Tap what’s wrong. It goes on each pole, each with its own number.' : 'Tap what’s wrong (one or more).'}</span>`);
+        H.push(`<div class="fx-tiles" role="group" aria-label="What needs fixing">${W.map((w) => `<button class="fx-tile" type="button" data-fx="why" data-w="${tmEsc(w)}" aria-pressed="${e.why.includes(w)}">${fxSvg(w)}<span>${tmEsc(w)}</span><span class="fx-ok" aria-hidden="true">${e.why.includes(w) ? '✓' : ''}</span></button>`).join('')}</div>`);
+        H.push(`<label class="field">Note (optional)<input type="text" id="fxItemNote" maxlength="200" value="${tmEsc(e.note)}" placeholder="For example: the photo is too dark"></label>`);
+        H.push(`<div class="row">${e.k ? fxBtn('remove', 'Remove', 'danger') : ''}${fxBtn('cancel', 'Cancel')}${fxBtn('save', e.k ? 'Save' : multi ? `Add to all ${e.rids.length}` : 'Add to the list', 'primary grow', e.why.length || e.note.trim() ? '' : ' disabled')}</div>`);
+      } else if (fx.view === 'select') {
+        H.push(`<b class="fx-title">${fx.sel.length ? `${fx.sel.length === 1 ? '1 pole' : `${fx.sel.length} poles`} ticked` : 'Tap the poles to tick them'}</b><span class="hint" style="margin:0">Then pick what needs fixing: it goes on every ticked pole.</span>`);
+        H.push(`<div class="row">${fxBtn('selall', 'Select all', 'grow')}${fxBtn('selclear', 'Clear', 'grow')}${fxBtn('selcancel', 'Cancel', 'grow')}</div>`);
+        H.push(fxBtn('selgo', fx.sel.length ? `What needs fixing? (${fx.sel.length})` : 'What needs fixing?', 'primary', fx.sel.length ? '' : ' disabled'));
+      } else if (fx.view === 'checks') {
+        const G = fxChecks(fx.name);
+        H.push(`<b class="fx-title">The app found ${G.length === 1 ? '1 thing' : `${G.length} things`} to check</b><span class="hint" style="margin:0">From the records themselves. Tick what to add to the fix list.</span>`);
+        G.forEach((g, i) => { const on = !fx.chkOff.includes(g.why + g.label); H.push(`<label class="fx-chk"><input type="checkbox" data-fx="chk" data-i="${i}"${on ? ' checked' : ''}><span class="fx-txt"><b>${tmEsc(g.label)} · ${g.ids.length === 1 ? '1 pole' : `${g.ids.length} poles`}</b><small>${tmEsc(g.ids.slice(0, 12).map((id) => recName(fxRec(id)) || '?').join(', '))}${g.ids.length > 12 ? '…' : ''} → ${tmEsc(g.why)}</small></span></label>`); });
+        if (!G.length) H.push('<p class="hint" style="margin:0">Nothing found: the records look complete.</p>');
+        const n = G.filter((g) => !fx.chkOff.includes(g.why + g.label)).length;
+        H.push(`<div class="row">${fxBtn('back', 'Back')}${fxBtn('chkadd', n ? `Add the ${n} ticked` : 'Nothing ticked', 'primary grow', n ? '' : ' disabled')}</div>`);
+      } else {
+        if (fx.spot) H.push('<p class="fx-tip">Tap the map where they should look.</p>');
+        const G = fxChecks(fx.name);
+        if (G.length) H.push(`<button class="fx-row fx-sug" type="button" data-fx="checks">${fxSvg('Other')}<span class="fx-txt"><b>The app found ${G.length === 1 ? '1 thing' : `${G.length} things`} to check</b><small>${tmEsc(G.map((g) => g.label.split(' (')[0]).join(' · '))}</small></span><span aria-hidden="true">›</span></button>`);
+        if (!D.length) H.push('<p class="hint" style="margin:0">Tap a pole on the map, or select several, and pick what is wrong. Each one gets its own number on their map.</p>');
+        H.push(`<div class="row">${fxBtn('select', 'Select several poles', 'grow')}${fxBtn('spot', fx.spot ? 'Cancel the spot' : '+ Mark a spot', 'grow')}</div>`);
+        if (D.length) {
+          H.push(`<b>Fix list · ${D.length}</b>`);
+          D.forEach((it, i) => H.push(`<button class="fx-row" type="button" data-fx="item" data-k="${tmEsc(it.k)}"><span class="fx-num${it.kind === 'spot' ? ' spot' : ''}">${i + 1}</span><span class="fx-txt"><b>${tmEsc(fxNameOf(it))}</b><small>${tmEsc(it.why.join(' · ') || 'See the note')}${it.note ? ` · “${tmEsc(it.note)}”` : ''}</small></span></button>`));
+          H.push(`<label class="field">Note for everyone (optional)<input type="text" id="fxNote" maxlength="300" value="${tmEsc(fx.note)}" placeholder="For example: please do these by Friday"></label>`);
+          if (Pt.length > 1 || Pt.some((p) => !p.has)) H.push(`<div class="fx-to"><span class="lbl">TO</span>${Pt.map((p) => `<button class="chip" type="button" data-fx="to" data-e="${tmEsc(p.email)}" aria-pressed="${fx.to.includes(p.email)}">${tmEsc(p.name)}${p.has ? '' : ' (no project yet)'}</button>`).join('')}</div>`);
+          H.push(fxBtn('send', `Send ${D.length === 1 ? '1 fix' : `${D.length} fixes`} to ${tmEsc(first)}`, 'primary', fx.to.length ? '' : ' disabled'));
+        }
+      }
+    } else {
+      const Ls = fxList(fx.name);
+      if (!Ls) { fxClose(); return; }
+      const I = Ls.items, open = I.filter((x) => x.status === 'open').length, unsent = I.filter((x) => x.status !== 'open' && !x.sent).length, sent = I.filter((x) => x.sent).length;
+      const asked = I.filter((x) => x.kind !== 'found').length, who = tmFirst(Ls.from, Ls.fromName);
+      $('fxTitle').textContent = `Fixes from ${Ls.fromName || who}`;
+      $('fxSub').textContent = `${I.length - open} of ${I.length} done${sent ? ` · ${sent} sent` : ''}`;
+      H.push(`<div class="fx-bar" aria-hidden="true"><i style="width:${I.length ? Math.round(((I.length - open) / I.length) * 100) : 0}%"></i></div>`);
+      const it = I[fx.cur];
+      if (fx.view === 'found') {
+        const F = fx.found || { why: [], note: '' };
+        H.push(`<b class="fx-title">Found something else?</b><span class="hint" style="margin:0">Tell ${tmEsc(who)} about a problem not on the list. It is marked ${it && it.kind === 'pole' ? `near ${tmEsc(fxNameOf(it).replace(/^Pole /, ''))}` : 'where you are'}.</span>`);
+        H.push(`<div class="fx-tiles">${FX_FOUND.map((w) => `<button class="fx-tile" type="button" data-fx="foundwhy" data-w="${tmEsc(w)}" aria-pressed="${F.why.includes(w)}"><span>${tmEsc(w)}</span><span class="fx-ok" aria-hidden="true">${F.why.includes(w) ? '✓' : ''}</span></button>`).join('')}</div>`);
+        H.push(`<label class="field">A short note (optional)<input type="text" id="fxFoundNote" maxlength="200" value="${tmEsc(F.note)}" placeholder="For example: leaning toward the road"></label>`);
+        H.push(`<div class="row">${fxBtn('foundcancel', 'Cancel')}${fxBtn('foundsave', `Add it for ${tmEsc(who)}`, 'primary grow', F.why.length || F.note.trim() ? '' : ' disabled')}</div>`);
+      } else if (fx.view === 'list') {
+        H.push(`<b>All fixes from ${tmEsc(who)}</b>`);
+        I.forEach((x, i) => { const st = x.sent ? 'Sent' : x.status === 'fixed' ? (x.kind === 'found' ? 'Found' : 'Fixed') : x.status === 'reply' ? 'Answered' : x.status === 'found' ? 'Found' : x.round > 1 ? 'Again' : 'To do';
+          H.push(`<button class="fx-row" type="button" data-fx="card" data-i="${i}"><span class="fx-num ${x.status}${x.kind !== 'pole' ? ' spot' : ''}">${x.kind === 'found' ? '+' : x.status === 'fixed' ? '✓' : x.status === 'reply' ? '?' : x.n || i + 1}</span><span class="fx-txt"><b>${tmEsc(fxNameOf(x))}</b><small>${tmEsc(x.why.join(' · ') || 'See the note')}</small></span><span class="fx-st">${st}</span></button>`); });
+        H.push(fxBtn('back', 'Back to the fix'));
+      } else if (!open) {
+        if (unsent) H.push(`<div class="fx-okcard"><b>✓ All checked</b><span>${unsent === 1 ? '1 answer' : `${unsent} answers`} to send to ${tmEsc(who)}, with your changes.</span></div>${fxBtn('send', `Send to ${tmEsc(who)}`, 'primary')}`);
+        else H.push(`<div class="fx-sentcard"><b>Sent to ${tmEsc(who)}</b><span>${tmEsc(who)} sees each change and checks it. If one is not right yet, it comes back here as a new round.</span></div>`);
+        H.push(`<div class="row">${fxBtn('list', 'See all fixes', 'grow')}${fxBtn('found', '+ Found something else', 'grow')}</div>`);
+      } else if (it) {
+        const pos = fxPos(it), dist = pos && fix ? Math.round(haversine(fix, pos)) : null;
+        H.push(`<div class="fx-cardh"><span class="fx-pill">Fix ${it.n || fx.cur + 1} of ${asked}</span>${dist != null ? `<span class="hint" style="margin:0">About ${dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.max(5, Math.round(dist / 5) * 5)} m`} from you</span>` : ''}</div>`);
+        if (it.againMsg && it.status === 'open') H.push(`<p class="fx-again">${tmEsc(it.againMsg)}</p>`);
+        H.push(`<b class="fx-title">${tmEsc(fxNameOf(it))}</b>`);
+        if (it.note) H.push(`<p class="fx-note">${tmEsc(who)}: “${tmEsc(it.note)}”</p>`);
+        if (it.status === 'open' && fx.reply == null) {
+          const p = fxRec(it.rid), gone = it.kind === 'pole' && !p && !it.base;
+          if (gone) H.push(`<p class="fx-again">This pole is not on your phone. Tell ${tmEsc(who)} with “Can’t fix it”.</p>`);
+          H.push(`<span class="lbl">WHAT ${tmEsc(who.toUpperCase())} ASKED · DO EACH ONE</span>`);
+          fxWhys(it).forEach((w) => {
+            const ok = fxProof(w, it, fx.name), cls = ok ? 'ok' : ok === null ? 'word' : 'todo';
+            const act = gone ? '' : w === 'New photo' ? fxBtn('photo', ok ? 'Take it again' : 'Take the new photo', ok ? 'sm' : 'sm primary')
+              : w === 'Missing pole' ? fxBtn('capture', ok ? 'Capture another' : 'Capture the pole here', ok ? 'sm' : 'sm primary')
+                : w === 'Check here' ? fxBtn('goto', 'Show on the map', 'sm')
+                  : w === 'Delete it' ? (ok ? '' : fxBtn('open', 'Open the pole (delete it there)', 'sm'))
+                    : w === 'Pin location' ? fxBtn('open', 'Open the pole (move its pin)', 'sm')
+                      : fxBtn('open', 'Open the pole', 'sm');
+            H.push(`<div class="fx-item ${cls}"><div class="fx-ih"><span class="fx-box" aria-hidden="true">${ok ? '✓' : ''}</span><b>${tmEsc(w)}</b><span class="fx-st">${ok ? 'Done' : ok === null ? 'Look, then tap Fixed' : 'To do'}</span></div>${act}</div>`);
+          });
+          const can = !gone && fxDone(it, fx.name);
+          H.push(fxBtn('fixed', can ? '✓ Fixed it' : '✓ Fixed it (do the items above first)', can ? 'primary fx-big' : 'fx-big', can ? '' : ' disabled'));
+          H.push(`<button class="fx-link" type="button" data-fx="cant">Can’t fix it? Tell ${tmEsc(who)} why</button>`);
+        } else if (it.status === 'open') {
+          H.push(`<label class="field">Tell ${tmEsc(who)} why<input type="text" id="fxReply" maxlength="200" value="${tmEsc(fx.reply)}" placeholder="For example: no tag on this pole"></label>`);
+          H.push(`<div class="row">${fxBtn('replycancel', 'Cancel')}${fxBtn('replysave', 'Save my answer', 'primary grow', fx.reply.trim() ? '' : ' disabled')}</div>`);
+        } else {
+          const t = it.sent ? '✓ Sent' : it.kind === 'found' ? `You told ${who} about this` : it.status === 'fixed' ? '✓ You marked this fixed' : `You told ${who}: “${it.reply}”`;
+          H.push(`<div class="fx-donecard ${it.status}"><span>${tmEsc(t)}</span>${it.sent || it.kind === 'found' ? '' : fxBtn('undo', 'Change', 'sm')}</div>`);
+        }
+        H.push(`<div class="row">${fxBtn('prev', '‹', '', ' aria-label="Previous fix"')}${fxBtn('list', 'See all fixes', 'grow')}${fxBtn('next', '›', '', ' aria-label="Next fix"')}</div>`);
+        if (unsent) H.push(fxBtn('send', `Send the ${unsent} done so far to ${tmEsc(who)}`));
+        H.push(`<button class="fx-link" type="button" data-fx="found">+ Found something else here</button>`);
+      }
+    }
+    $('fxBody').innerHTML = H.join('');
+  }
+  $('fixPanel').addEventListener('input', (ev) => {
+    const t = ev.target; if (!fx) return;
+    if (t.id === 'fxNote') fx.note = t.value;
+    else if (t.id === 'fxItemNote' && fx.edit) { fx.edit.note = t.value; const b = $('fxBody').querySelector('[data-fx="save"]'); if (b) b.disabled = !(fx.edit.why.length || t.value.trim()); }
+    else if (t.id === 'fxReply') { fx.reply = t.value; const b = $('fxBody').querySelector('[data-fx="replysave"]'); if (b) b.disabled = !t.value.trim(); }
+    else if (t.id === 'fxFoundNote' && fx.found) { fx.found.note = t.value; const b = $('fxBody').querySelector('[data-fx="foundsave"]'); if (b) b.disabled = !(fx.found.why.length || t.value.trim()); }
+  });
+  $('fixPanel').addEventListener('change', (ev) => {
+    const t = ev.target; if (!fx || t.dataset.fx !== 'chk') return;
+    const g = fxChecks(fx.name)[+t.dataset.i]; if (!g) return;
+    const id = g.why + g.label; fx.chkOff = t.checked ? fx.chkOff.filter((x) => x !== id) : fx.chkOff.concat([id]); fxRender();
+  });
+  $('fxMin').addEventListener('click', () => { if (!fx) return; fx.min = !fx.min; fxRender(); });
+  $('fxClose').addEventListener('click', () => { const was = fx; fxClose(); if (was && was.mode === 'co' && fxDraft(was.name).length) toast('The fix list is kept on this phone: Projects → Continue the fix list.', 4500); });
+  $('fixPanel').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-fx]'); if (!b || !fx || b.disabled || b.dataset.fx === 'chk') return;
+    const k = b.dataset.fx, name = fx.name;
+    if (fx.mode === 'co') {
+      if (k === 'why' && fx.edit) { const w = b.dataset.w; fx.edit.why = fx.edit.why.includes(w) ? fx.edit.why.filter((x) => x !== w) : fx.edit.why.concat([w]); fxRender(); }
+      else if (k === 'save') fxSaveEdit();
+      else if (k === 'cancel') { fx.edit = null; fx.view = fx.sel.length ? 'select' : 'list'; fxRender(); fxDraw(); }
+      else if (k === 'remove' && fx.edit) { fxSetDraft(name, fxDraft(name).filter((x) => x.k !== fx.edit.k)); fx.edit = null; fx.view = 'list'; fxRender(); fxDraw(); }
+      else if (k === 'select') { fx.view = 'select'; fx.sel = []; fx.spot = false; fxRender(); fxDraw(); }
+      else if (k === 'selall') { fx.sel = projPoints().filter((p) => elemOf(p) === 'Pole').map((p) => p.id); fxRender(); fxDraw(); }
+      else if (k === 'selclear') { fx.sel = []; fxRender(); fxDraw(); }
+      else if (k === 'selcancel') { fx.sel = []; fx.view = 'list'; fxRender(); fxDraw(); }
+      else if (k === 'selgo' && fx.sel.length) fxEditPoles(fx.sel.slice());
+      else if (k === 'spot') { fx.spot = !fx.spot; fx.edit = null; fx.view = 'list'; fxRender(); fxDraw(); }
+      else if (k === 'checks') { fx.view = 'checks'; fx.chkOff = []; fx.spot = false; fxRender(); }
+      else if (k === 'back') { fx.view = 'list'; fxRender(); }
+      else if (k === 'chkadd') { fxChecks(name).filter((g) => !fx.chkOff.includes(g.why + g.label)).forEach((g) => fxAddPoles(name, g.ids, [g.why], g.note)); fx.view = 'list'; LOG.info('fix.checks', { n: fxDraft(name).length }); fxRender(); fxDraw(); }
+      else if (k === 'item') fxEditItem(b.dataset.k);
+      else if (k === 'to') { const e = b.dataset.e; fx.to = fx.to.includes(e) ? fx.to.filter((x) => x !== e) : fx.to.concat([e]); fxRender(); }
+      else if (k === 'send') guard(async () => { if (await fxSendList(name, fxDraft(name), { note: fx.note, to: fx.to })) { fxClose(); renderProjects(); } }, 'Fixes not sent');
+      return;
+    }
+    const Ls = fxList(name); if (!Ls) return;
+    const it = Ls.items[fx.cur];
+    if (k === 'prev' || k === 'next') { const n = Ls.items.length; fx.cur = (fx.cur + (k === 'next' ? 1 : -1) + n) % n; fx.reply = null; fx.view = 'card'; fxRender(); fxDraw(); fxGoCur(); }
+    else if (k === 'list') { fx.view = 'list'; fxRender(); }
+    else if (k === 'back') { fx.view = 'card'; fxRender(); }
+    else if (k === 'card') { fx.cur = +b.dataset.i; fx.view = 'card'; fx.reply = null; fxRender(); fxDraw(); fxGoCur(); }
+    else if (k === 'goto') fxGoCur();
+    else if (k === 'open' && it && fxRec(it.rid)) { fx.min = true; fxRender(); guard(() => openEditorFor(it.rid), 'Not opened'); }
+    else if (k === 'photo' && it && fxRec(it.rid)) { fx.min = true; fxRender(); guard(async () => { await openEditorFor(it.rid); if (ed && ed.id === it.rid) openCamera('replace'); }, 'Not opened'); }
+    else if (k === 'capture') { fx.min = true; fxRender(); fxGoCur(); guard(() => openCamera('new'), 'Camera not opened'); }
+    else if (k === 'fixed' && it && fxDone(it, name)) fxMark('fixed');
+    else if (k === 'cant') { fx.reply = ''; fxRender(); const i = $('fxReply'); if (i) i.focus(); }
+    else if (k === 'replycancel') { fx.reply = null; fxRender(); }
+    else if (k === 'replysave' && fx.reply && fx.reply.trim()) fxMark('reply', fx.reply.trim().slice(0, 200));
+    else if (k === 'undo' && it && !it.sent) { fxSetList(name, { ...Ls, items: Ls.items.map((x, i) => (i === fx.cur ? { ...x, status: 'open', reply: '' } : x)) }); fxRender(); fxDraw(); }
+    else if (k === 'found') { fx.found = { why: [], note: '' }; fx.view = 'found'; fxRender(); }
+    else if (k === 'foundwhy' && fx.found) { const w = b.dataset.w; fx.found.why = fx.found.why.includes(w) ? fx.found.why.filter((x) => x !== w) : fx.found.why.concat([w]); fxRender(); }
+    else if (k === 'foundcancel') { fx.found = null; fx.view = 'card'; fxRender(); }
+    else if (k === 'foundsave' && fx.found) {
+      const near = it && it.kind === 'pole' ? fxPos(it) : fix ? { lat: fix.lat, lon: fix.lon } : it ? fxPos(it) : null;
+      const F = { k: fxKey(), n: 0, kind: 'found', rid: it && it.kind === 'pole' ? it.rid : '', name: it ? (fxRec(it.rid) && recName(fxRec(it.rid))) || it.name || '' : '', lat: near ? near.lat + 0.00004 : NaN, lon: near ? near.lon + 0.00004 : NaN,
+        why: FX_FOUND.filter((w) => fx.found.why.includes(w)), note: '', reply: fx.found.note.trim().slice(0, 200), status: 'found', sent: false, round: Ls.round || 1, at: new Date().toISOString() };
+      fxSetList(name, { ...Ls, items: Ls.items.concat([F]) }); fx.found = null; fx.view = 'card'; LOG.info('fix.found', { why: F.why.join('+') }); fxRender(); fxDraw();
+    }
+    else if (k === 'send') { fx.min = true; fxRender(); openMbxSend(name, 'fp'); }
+  });
+  /* for the tests (synthetic records only) */
+  const fxTestHooks = {
+    state: () => (fx ? { mode: fx.mode, name: fx.name, view: fx.view, sel: fx.sel ? fx.sel.slice() : [], cur: fx.cur, min: !!fx.min, shown: !$('fixPanel').hidden } : null),
+    tap: (poleId) => { const p = projPoints().find((x) => x.poleId === poleId); return p ? tmHooks.pinTap(p.id) : false; },
+    spot: (lat, lon) => { if (!fx) return; fx.spot = false; fx.edit = { k: '', kind: 'spot', rids: [], lat, lon, why: [], note: '' }; fx.view = 'edit'; fxRender(); fxDraw(); },
+    draft: (n) => JSON.parse(JSON.stringify(fxDraft(n || S.project))), list: (n) => JSON.parse(JSON.stringify(fxList(n || S.project))),
+    out: (n) => JSON.parse(JSON.stringify((tmTeam(n || S.project) || {}).fixOut || null)), chg: (n) => JSON.parse(JSON.stringify(pmeta(n || S.project).chg || null)),
+    checks: (n) => fxChecks(n || S.project).map((g) => ({ why: g.why, label: g.label, n: g.ids.length })), pins: () => (fxLayer ? fxLayer.getLayers().length : 0),
+    setRec: async (name, poleId, patch) => {
+      const p = points.find((x) => x.project === name && x.poleId === poleId); if (!p) return false;
+      const r = { ...p, ...patch, boq: { ...(p.boq || {}), ...((patch && patch.boq) || {}) }, updated: new Date().toISOString() };
+      await dbPut('points', r); points[points.indexOf(p)] = r; renderPoles(); return true;
+    },
+  };
   /* for the tests (synthetic records only) */
   const mbxTestHooks = { refresh: () => mbxRefresh(), inbox: () => JSON.parse(JSON.stringify(mbxIn)), out: () => JSON.parse(JSON.stringify(S.mbxOut || [])), team: (n) => JSON.parse(JSON.stringify(tmTeam(n || S.project))), noDirect: (v) => { mbxNoDirect = !!v; }, startCheck: () => mbxStartCheck(),
     seed: async (name, n, o) => {
@@ -15133,7 +15737,7 @@
     del: async (name, poleId) => { const p = points.find((x) => x.project === name && x.poleId === poleId); if (!p) return false; await dbDel('points', p.id); points = points.filter((x) => x !== p); S.meta[name] = { ...pmeta(name), gone: { ...(pmeta(name).gone || {}), [p.id]: new Date().toISOString() } }; persist(); renderPoles(); return true; },
     photo: async (id) => { const ph = await dbGet('photos', id).catch(() => null); return ph && ph.clean ? ph.clean.size : 0; },
     recs: (name) => points.filter((p) => p.project === (name || S.project)).map((p) => ({ id: p.id, poleId: p.poleId, updated: p.updated })),
-    refs: () => JSON.parse(JSON.stringify(S.refs || {})), job: () => (mbxJob ? { ...mbxJob } : null), siteRows: (n) => siteInfoRows(n || S.project) };
+    refs: () => JSON.parse(JSON.stringify(S.refs || {})), job: () => (mbxJob ? { ...mbxJob } : null), siteRows: (n) => siteInfoRows(n || S.project), fx: fxTestHooks };
   $('brandVer').textContent = `v${APP_VER}`; // the version beside the name (v2.15)
   if (BETA) { // v2.43: G-eSAA Beta says so everywhere a tester looks
     const tag = document.createElement('span'); tag.className = 'betatag'; tag.textContent = `BETA ${APP_BETA}`; $('brandVer').after(tag);
@@ -15265,7 +15869,7 @@
     L.circleMarker([p.lat, p.lon], { radius: 11, color: '#f08c00', weight: 3, fill: false, interactive: false }).addTo(hlLayer);
     $('hlChipId').textContent = recName(p) || '(no ID)'; $('hlChip').hidden = false;
   }
-  function hlClear() { hlId = null; if (hlLayer) hlLayer.clearLayers(); $('hlChip').hidden = true; }
+  function hlClear() { hlId = null; if (hlLayer) hlLayer.clearLayers(); $('hlChip').hidden = true; if (tmHooks.hlClear) tmHooks.hlClear(); }
   const hlOpen = (p) => (hlFrom === 'find' && visitMode() ? openVisit(p.id) : openEditorFor(p.id));
   async function findPick(p, from) {
     hlFrom = from; hlQ = from === 'find' ? $('findQ').value : $('listSearch').value;
