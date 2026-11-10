@@ -470,6 +470,18 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .tmtool{flex:1 1 0;min-width:84px;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-weight:700;font-size:calc(13px * var(--fs));cursor:pointer}
 .tmtool svg{width:18px;height:18px;flex:none}.tmtool:active{background:var(--soft)}
 .tmtool.del{color:var(--bad)}.tmtool.share{color:var(--accent)}
+/* v2.43 beta 2.1: the tools are icons (their name on hover, a long press and for screen readers); Delete apart at the right */
+.tmtools .tmtool{flex:none;width:42px;min-width:0;height:42px;min-height:0;padding:0;position:relative}
+.tmtools .tmtool svg{width:20px;height:20px}
+.tmtools .tmtool.del{margin-left:auto}
+.tmtool .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.tmtool.on::after{content:"✓";position:absolute;top:-6px;right:-6px;width:17px;height:17px;border-radius:50%;background:var(--ok);color:#fff;font:800 10px/17px var(--sans,system-ui);text-align:center;border:2px solid var(--surface)}
+.tmtool.mbx{color:var(--ok)}.tmtool.mbx.wait{color:#e8590c;border-color:#e8590c}.tmtool.info{color:var(--ink)}
+.tmtool .bdg,.ppi .bdg{position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;border-radius:9px;background:#e8590c;color:#fff;font:700 11px/18px var(--sans,system-ui);text-align:center;padding:0 4px;border:2px solid var(--surface)}
+.tmtool .okd,.ppi .okd{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;background:var(--ok);color:#fff;font:800 10px/16px var(--sans,system-ui);text-align:center;border:2px solid var(--surface)}
+.tmtool .ring,.ppi .ring{position:absolute;inset:-3px;border-radius:12px;border:3px solid transparent;border-top-color:var(--accent);animation:mbxspin .8s linear infinite}
+.taskcard .tmtools .tmtool{width:36px;height:36px;min-width:0;min-height:0}.taskcard .tmtools .tmtool svg{width:17px;height:17px}
+.tiplong{position:fixed;z-index:3000;background:#1f2a3a;color:#fff;font-size:calc(12.5px * var(--fs));font-weight:700;padding:5px 9px;border-radius:7px;pointer-events:none;transform:translate(-50%,-100%)}
 .taskcard{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
 .taskcard{border-left:5px solid #adb5bd}.taskcard .task{border:0;border-radius:0}
 .taskcard.k-pat{border-left-color:#f2b705}.taskcard.k-cleanup{border-left-color:#fd7e14}.taskcard.k-fat{border-left-color:#2f9e44}.taskcard.k-survey{border-left-color:var(--accent)}
@@ -794,7 +806,7 @@ body.deskpane #visitCard,body.deskpane #routeBar,body.deskpane #rtBar,body.deskp
 .pp-tog{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-weight:700;flex:none;padding:0}
 body.pp-closed .pp-head{flex-direction:column;padding:8px;border:0}
 body.pp-closed .pp-head b{writing-mode:vertical-rl;transform:rotate(180deg)}
-body.pp-closed .pp-n,body.pp-closed .pp-head .grow,body.pp-closed #ppNew,body.pp-closed .pp-body,body.pp-closed .pp-foot{display:none}
+body.pp-closed .pp-n,body.pp-closed .pp-head .grow,body.pp-closed #ppNew,body.pp-closed .pp-hico,body.pp-closed .pp-body,body.pp-closed .pp-foot{display:none}
 .pp-body{flex:1;min-height:0;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px}
 #ppQ{width:100%;min-height:0;height:34px;border:1px solid var(--line);border-radius:8px;padding:0 10px;background:var(--bg)}
 .pp-all{display:flex;gap:6px;align-items:center;font-size:calc(12px * var(--fs));color:var(--muted)}
@@ -804,6 +816,7 @@ body.pp-closed .pp-n,body.pp-closed .pp-head .grow,body.pp-closed #ppNew,body.pp
 .pp-tools #ppQ{flex:1;min-width:0}
 .pp-ico{position:relative;width:34px;height:34px;flex:none;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;padding:0}
 .pp-ico svg{width:18px;height:18px}
+.pp-head{gap:6px}.pp-hico{width:32px;height:32px}.pp-head #ppNew{margin-left:2px}
 .pp-ico:hover,.pp-ico[aria-expanded="true"]{background:var(--chip)}
 .pp-ico.set::after{content:"";position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:50%;background:var(--accent)}
 .pp-menu .mh{font-size:calc(11px * var(--fs));font-weight:700;letter-spacing:.06em;color:var(--muted);padding:6px 10px 2px;text-transform:uppercase}
@@ -842,6 +855,36 @@ body.pp-closed .pp-n,body.pp-closed .pp-head .grow,body.pp-closed #ppNew,body.pp
 .pp-open:disabled{opacity:.45;cursor:not-allowed;background:var(--surface);color:var(--ink)}
 .pp-here{display:inline-flex;align-items:center;gap:5px;font-weight:700;font-size:calc(11.5px * var(--fs));color:var(--ink);white-space:nowrap;padding:0 2px}
 .pp-here::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--c)}
+/* v2.43 beta 2.1: everything fits in the pane: the name on its own line (two at most), the details and buttons below it (wrapping) */
+.pp-row{grid-template-columns:auto auto minmax(0,1fr)}
+.pp-name{white-space:normal;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;line-height:1.3}
+.pp-sub{grid-column:3/-1;display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;min-width:0}
+.pp-sub .pp-meta{grid-column:auto;flex:1 1 auto;min-width:0}
+.pp-acts{display:flex;align-items:center;gap:4px;margin-left:auto;flex:none}
+.ppi{position:relative;width:28px;height:28px;flex:none;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--ink);display:inline-grid;place-items:center;padding:0}
+.ppi svg{width:16px;height:16px}.ppi:hover{background:var(--chip)}
+.ppi.send{color:var(--accent)}.ppi.mbx{color:var(--ok)}.ppi.mbx.wait{color:#e8590c;border-color:#e8590c}
+.ppi .bdg{top:-6px;right:-7px;min-width:16px;height:16px;line-height:16px;font-size:10px;border-width:1.5px}
+.pp-grip{position:absolute;top:0;bottom:0;right:-5px;width:10px;cursor:col-resize;z-index:3;touch-action:none}
+.pp-grip:hover,.pp-grip:focus-visible,.pp-grip.drag{background:linear-gradient(to right,transparent 4px,var(--accent) 4px,var(--accent) 6px,transparent 6px)}
+body.pp-closed .pp-grip{display:none}
+body.ppdrag,body.ppdrag *{cursor:col-resize!important;user-select:none}
+#projectBtn{position:relative}
+.mbxdot{position:absolute;top:-4px;right:-4px;width:12px;height:12px;border-radius:50%;background:#e8590c;border:2px solid var(--navy)}
+#qrImg.drawin svg{animation:qrdraw .75s ease-out}
+@keyframes qrdraw{from{clip-path:inset(0 0 100% 0)}to{clip-path:inset(0 0 0 0)}}
+.qrmaking{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:200px;color:#334;font-weight:600}
+.qrstate{margin:0;font-size:calc(13px * var(--fs));color:var(--muted);text-align:center}.qrstate.ok{color:var(--ok);font-weight:700}.qrstate.ok::before{content:"✓ "}
+.qrbusy{opacity:.85}
+.mbxspin{display:inline-block;width:18px;height:18px;border-radius:50%;border:2.5px solid var(--line);border-top-color:var(--accent);animation:mbxspin .8s linear infinite;flex:none;vertical-align:-4px}
+.btn .mbxspin{width:15px;height:15px;margin-right:6px}
+@keyframes mbxspin{to{transform:rotate(360deg)}}
+.siteinfo{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden;max-height:55vh;overflow-y:auto}
+.siteinfo .r{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;align-items:center;padding:8px 10px;border-top:1px solid var(--line2)}
+.siteinfo .r:first-child{border-top:0}
+.siteinfo .k{font-size:calc(11.5px * var(--fs));color:var(--muted);font-weight:700;letter-spacing:.03em;grid-column:1}
+.siteinfo .v{font-family:var(--mono);font-size:calc(13.5px * var(--fs));overflow-wrap:anywhere;user-select:all;grid-column:1}
+.siteinfo .btn{grid-column:2;grid-row:1/3}
 .pp-pop .pp-go{display:block;margin-top:6px;width:100%;border:0;border-radius:8px;background:var(--accent);color:var(--accent-ink);font-weight:700;padding:6px 10px;font-size:calc(12.5px * var(--fs))}
 .drwrow{flex:1;min-height:0;display:flex;position:relative}
 .drwcol{flex:1;min-width:0;display:flex;flex-direction:column}
@@ -912,6 +955,16 @@ details.psrow[open]>summary::after{transform:rotate(90deg)}
 .dxfsum .ok{color:var(--ok);font-weight:650;font-size:calc(13px * var(--fs))}
 .dxfsum .warn{color:var(--warn);font-weight:650;font-size:calc(13px * var(--fs))}
 .dxfsum .btn{align-self:flex-start;flex:none}
+/* v2.43 beta 2.1: what the drawing needs that is not downloaded yet; Maps opened at that download */
+.dxfneed{display:flex;flex-direction:column;gap:8px;border:1px solid color-mix(in srgb,var(--warn) 55%,var(--line));border-radius:var(--r);padding:10px 12px;background:color-mix(in srgb,var(--warn) 9%,var(--surface))}
+.dxfneed[hidden]{display:none}
+.dxfneed .hd{margin:0;font-size:calc(12px * var(--fs));font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.dxfneed .r{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 10px;align-items:start}.dxfneed .ic{font-size:20px;line-height:1.2}
+.dxfneed .tx{font-size:calc(13px * var(--fs));line-height:1.4}.dxfneed .btn{grid-column:2;justify-self:start}
+.guideline{margin:0 0 4px;padding:10px 12px;border-radius:var(--r);background:color-mix(in srgb,var(--accent) 12%,var(--surface));border:1px solid var(--accent);font-weight:650;font-size:calc(13.5px * var(--fs))}
+.guideline[hidden]{display:none}
+.guide{outline:3px solid var(--accent);outline-offset:2px;animation:guidep 1.3s ease-in-out 4}
+@keyframes guidep{50%{outline-color:color-mix(in srgb,var(--accent) 25%,transparent)}}
 .dxffiles{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
 .dxffile{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 10px;border-top:1px solid var(--line2);font-size:calc(13.5px * var(--fs))}
 .dxffile:first-child{border-top:0}
@@ -937,6 +990,27 @@ details.psrow[open]>summary::after{transform:rotate(90deg)}
 .mbxbox{gap:8px;border-left:5px solid var(--ok)}
 .mbxhead{display:flex;align-items:center;justify-content:space-between;gap:8px}.mbxhead b{font-size:calc(15px * var(--fs))}
 .mbxlist{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--surface)}
+/* v2.43 beta 2.1: a send shows its progress in the Send screen; a download in its row and on the project's card */
+.mbxprog{display:flex;flex-direction:column;gap:7px;padding:12px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 12px) max(16px,env(safe-area-inset-left,0px));background:var(--surface);border-top:1px solid var(--line)}
+.mbxprog[hidden],.mbxjob [hidden]{display:none}
+.mbxprog .top{display:flex;align-items:center;gap:10px;min-width:0}
+.mbxprog .pct{font:800 calc(24px * var(--fs))/1 var(--mono);color:var(--ink);flex:none}
+.mbxprog .ln{flex:1;min-width:0;font-weight:700;overflow-wrap:anywhere}
+.mbxprog .sub,.mbxjob .sub{font-size:calc(12px * var(--fs));color:var(--muted);overflow-wrap:anywhere}
+.mbxprog .sub:empty,.mbxjob .sub:empty{display:none}
+.mbxprog .acts,.mbxjob .acts{display:flex;gap:8px;justify-content:flex-end}.mbxprog .acts:empty,.mbxjob .acts:empty{display:none}
+.mbxbar{height:8px;border-radius:4px;background:var(--line2);overflow:hidden}.mbxbar i{display:block;height:100%;width:0;background:var(--accent);border-radius:4px;transition:width .25s}
+.mbxsteps{display:flex;flex-wrap:wrap;gap:4px}.mbxsteps:empty{display:none}
+.mbxsteps span{font-size:calc(11px * var(--fs));font-weight:700;padding:2px 8px;border-radius:999px;background:var(--soft);color:var(--muted)}
+.mbxsteps span.on{background:var(--accent);color:#fff}.mbxsteps span.done{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}.mbxsteps span.done::before{content:"✓ "}
+.mbxtick,.mbxfail{width:22px;height:22px;border-radius:50%;color:#fff;display:inline-grid;place-items:center;font-weight:800;font-size:13px;flex:none}
+.mbxtick{background:var(--ok)}.mbxfail{background:var(--bad)}
+.mbxjob{display:flex;flex-direction:column;gap:6px;margin-top:6px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)}
+.mbxjob .ln{display:flex;align-items:center;gap:8px;font-weight:700}.mbxjob .tx{flex:1;min-width:0;overflow-wrap:anywhere}.mbxjob .pct{font-family:var(--mono);font-weight:800}
+.tmrow.jobrow .t{flex:1}
+.ctwait{display:flex;align-items:center;gap:8px;padding:8px 10px;margin:6px 0;border:1px solid #e8590c;border-radius:10px;background:color-mix(in srgb,#e8590c 9%,var(--surface))}
+.ctwait .tx{flex:1;min-width:0;display:flex;flex-direction:column;font-size:calc(12px * var(--fs));color:var(--muted)}.ctwait .tx b{color:var(--ink);font-size:calc(13px * var(--fs))}
+.ctwait.job{display:block;border:0;background:none;padding:0}
 .mbxlist .tmrow.old{background:color-mix(in srgb,var(--warn,#f59f00) 12%,transparent)}
 .mbxout>summary{cursor:pointer;color:var(--muted);font-size:calc(13px * var(--fs));font-weight:600;padding:4px 0}
 .mbxout .mbxlist{margin-top:6px}
@@ -983,7 +1057,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
 <div id="app">
   <div id="topbar">
     <button class="brand" id="brandBtn" type="button" title="G-eSAA · tap to reload and check for a new version" aria-label="G-eSAA: reload the app and check for a new version"><span>G-e<b>SAA</b></span><small id="brandVer">v2.15.0</small></button>
-    <button id="projectBtn" aria-label="Projects: change project or task category"><span class="badge cat" id="modeBadge">SURVEY</span><span id="projectName">Project</span><svg class="i"><use href="#i-chev"/></svg></button>
+    <button id="projectBtn" aria-label="Projects: change project or task category"><span class="badge cat" id="modeBadge">SURVEY</span><span id="projectName">Project</span><svg class="i"><use href="#i-chev"/></svg><span class="mbxdot" id="mbxDot" hidden title="Something waits in the Team mailbox"></span></button>
     <button id="syncBtn" type="button" aria-label="Sync with the online sheet" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></svg><span id="syncDot" hidden></span></button>
   </div>
   <div id="map" role="application" aria-label="Survey map"></div>
@@ -1035,7 +1109,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div id="rtBar" hidden aria-label="Cable route"></div>
   <div id="rtHint" hidden aria-live="polite"></div>
   <aside id="projPane" aria-label="Projects on this computer">
-    <div class="pp-head"><button type="button" class="pp-tog" id="ppTog" aria-expanded="true" aria-controls="ppBody" title="Close the pane">«</button><b>Projects</b><span class="pp-n" id="ppN"></span><span class="grow"></span><button type="button" class="btn small" id="ppNew">+ New</button></div>
+    <div class="pp-head"><button type="button" class="pp-tog" id="ppTog" aria-expanded="true" aria-controls="ppBody" title="Close the pane">«</button><b>Projects</b><span class="pp-n" id="ppN"></span><span class="grow"></span><button type="button" class="pp-ico pp-hico" id="ppOpenShared" title="Open shared projects: from a colleague (.zip), a PAT or cleanup KMZ (.kmz), or a backup (.zip)" aria-label="Open shared projects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 10.5v6M9.2 13.8 12 16.6l2.8-2.8"/></svg></button><button type="button" class="pp-ico pp-hico" id="ppShareMany" title="Share several projects: one file for a colleague of your company" aria-label="Share several projects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4h9a2 2 0 0 1 2 2v9M6 8h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2zM10.5 17.5v-6.5M8 13.5l2.5-2.5 2.5 2.5"/></svg></button><button type="button" class="btn small" id="ppNew">+ New</button></div>
     <div class="pp-body" id="ppBody">
       <div class="pp-tools"><input type="search" id="ppQ" placeholder="Search projects" autocomplete="off" aria-label="Search the projects"><button type="button" class="pp-ico" id="ppSortBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Sort"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M3.5 16.5 7 20l3.5-3.5M14 6h7M14 11h5M14 16h3"/></svg></button><button type="button" class="pp-ico" id="ppGroupBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Group"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h6M7 17h6"/></svg></button></div>
       <div class="pp-all"><span>On the map:</span><button type="button" id="ppAll">Show all</button><span aria-hidden="true">·</span><button type="button" id="ppNone">Hide all</button></div>
@@ -1043,6 +1117,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     </div>
     <p class="pp-foot">Open: work on it. Tick: show it on the map, faded. Name: the map goes there.</p>
     <div class="pp-menu" id="ppMenu" hidden role="menu" aria-label="Project"></div>
+    <div class="pp-grip" id="ppGrip" role="separator" aria-orientation="vertical" aria-label="Width of the Projects pane: drag, or use the arrow keys; double-click resets it" tabindex="0"></div>
   </aside>
   <nav id="bottombar">
     <button class="navbtn" id="listBtn" hidden><svg><use href="#i-list"/></svg><span id="listLbl">Records</span></button>
@@ -1070,11 +1145,11 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <button class="spb" id="scanShot" type="button" aria-label="Take a sharp photo of the ID and read it" title="ID photo: a sharp photo focused on the box"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.4"/></svg></button>
     <button class="spb" id="scanHelp" type="button" aria-expanded="false" aria-label="How to scan" title="How to scan">i</button>
     <button class="spb skip" id="scanSkip" type="button" aria-label="Skip the ID scan">Skip</button>
-    <span id="scanSub" hidden>Point the camera at the painted ID: the box finds it and reads it. <b>Draw a box round the ID</b> to mark it yourself (taller than wide for a vertical ID). <b>Tap the ID</b> to focus there. Hold the phone still for a moment; pinch or tap 2× / 4× to zoom. The camera button takes a sharp photo focused on the box and reads the ID from it; if it cannot, the photo opens: tap the ID on it, or draw a box round it. The picture button reads the ID from the photo you just took the same way. An X in the ID is a character that could not be read.</span>
+    <span id="scanSub" hidden>Point the camera at the pole ID: the box finds it and reads it. <b>Draw a box round the ID</b> to mark it yourself (taller than wide for a vertical ID). <b>Tap the ID</b> to focus there. Hold the phone still for a moment; pinch or tap 2× / 4× to zoom. The camera button takes a sharp photo focused on the box and reads the ID from it; if it cannot, the photo opens: tap the ID on it, or draw a box round it. The picture button reads the ID from the photo you just took the same way. An X in the ID is a character that could not be read.</span>
   </div>
   <div id="camStage">
     <video id="video" playsinline muted autoplay></video>
-    <div id="idGuide" hidden><span id="idGuideText">Fit the painted ID inside the box</span></div>
+    <div id="idGuide" hidden><span id="idGuideText">Fit the pole ID inside the box</span></div>
     <i id="tapRing" hidden></i>
     <i id="swipeLine" hidden></i>
     <div id="zoomBar" hidden><button type="button" data-z="0.5" aria-pressed="false" hidden>0.5×</button><button type="button" data-z="1" aria-pressed="true">1×</button><button type="button" data-z="2" aria-pressed="false">2×</button><button type="button" data-z="4" aria-pressed="false">4×</button><span id="zoomVal" hidden></span></div>
@@ -1475,6 +1550,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div class="xcard" id="dxfCard">
       <div class="head"><span class="ic">DXF</span><div><b>AutoCAD · DXF</b><p><span id="dxfDescTpl">The plan on your company’s template, ready for AutoCAD, at <span id="dxfZoneLbl2">UTM 51N</span>: what goes on each drawing is set in What to export, on the Drawing.</span><span id="dxfDescSimple">Each point a circle at <span id="dxfZoneLbl">UTM 51N</span> meters with its ID, details and photo beside it, the route with the FOC length of each span (a ZIP: keep the photos with the DXF).</span></p></div></div>
       <div class="dxfsum" id="dxfSum"></div>
+      <div class="dxfneed" id="dxfNeed" hidden role="note"></div>
       <div class="field" id="dxfFilesBox"><span class="lbl" id="dxfFilesLbl">FILES</span><div class="dxffiles" id="dxfFiles"></div>
         <div class="dxfmx" id="dxfMxHost" hidden></div>
         <div class="row dxflinks"><button class="btn small" id="dxfWhat" type="button">Change what to export</button><button class="btn small" id="dxfSetBtn" type="button">Plan settings</button></div></div>
@@ -1605,10 +1681,10 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div class="body">
     <div class="group">
       <h3>After each photo</h3>
-      <label class="check"><input type="checkbox" id="setReadId"><span>Surveys: ask to scan the painted ID after each new photo</span></label>
+      <label class="check"><input type="checkbox" id="setReadId"><span>Surveys: ask to scan the pole ID after each new photo (off by default; the ID button in the camera turns it on or off; Read ID on the record’s photo reads it)</span></label>
       <label class="check"><input type="checkbox" id="setReadIdAcc"><span>PAT, defect cleanup and FAT: also ask to scan the ID after each defect photo (off by default: the ID is optional there; Scan ID in the record reads it when you want)</span></label>
       <label class="check"><input type="checkbox" id="setIdAuto"><span>Live ID reader: use the ID by itself when it is read clearly (otherwise tap the shutter)</span></label>
-      <label class="field">Painted IDs are usually<select id="setOrient"><option value="h">Horizontal</option><option value="v">Vertical (stacked or sideways)</option></select></label>
+      <label class="field">Pole IDs are usually<select id="setOrient"><option value="h">Horizontal</option><option value="v">Vertical (stacked or sideways)</option></select></label>
     </div>
     <div class="group">
       <h3>Saving a record</h3>
@@ -1956,7 +2032,14 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <p class="warnline bad" id="mbxSendErr" hidden role="alert"></p>
     </div>
   </div>
-  <div class="foot"><button class="btn" id="mbxSendCancel" type="button">Cancel</button><button class="btn primary grow" id="mbxGo" type="button">Send</button></div>
+  <div class="mbxprog" id="mbxProg" hidden role="status" aria-live="polite">
+    <div class="top"><span id="mbxProgIco" class="mbxspin"></span><span class="pct" id="mbxPct">0%</span><span class="ln" id="mbxLine"></span></div>
+    <div class="mbxbar"><i id="mbxBar"></i></div>
+    <div class="sub" id="mbxSub"></div>
+    <div class="mbxsteps" id="mbxSteps"></div>
+    <div class="acts" id="mbxProgActs"></div>
+  </div>
+  <div class="foot" id="mbxSendFoot"><button class="btn" id="mbxSendCancel" type="button">Cancel</button><button class="btn primary grow" id="mbxGo" type="button">Send</button></div>
 </section>
 
 <!-- offline maps -->
@@ -1966,6 +2049,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <h2 id="offTitle">Maps</h2>
   </header>
   <div class="body">
+    <p class="guideline" id="offGuide" hidden role="status"></p>
     <div class="group">
       <h3>Online street map</h3>
       <p class="hint">Street tiles come from a free map server. On “Automatic” the app moves to the next server when one stops answering. If the map stays blank, run the test below and send the result to your admin.</p>
@@ -2191,10 +2275,18 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   </div>
 </section>
 
+<!-- v2.43 beta 2.1: a project's site details from the online sheet, to copy -->
+<div class="overlay" id="siteInfo" hidden><div class="panel">
+  <h3 id="siteInfoT">Site details</h3>
+  <p class="hint" id="siteInfoSub"></p>
+  <div class="siteinfo" id="siteInfoList"></div>
+  <div class="row"><button class="btn grow" id="siteInfoAll" type="button">Copy all</button><button class="btn primary grow" id="siteInfoClose" type="button">Done</button></div>
+</div></div>
 <div class="overlay" id="qrShow" hidden><div class="panel">
   <h3 id="qrTitle">Company list</h3>
   <p class="hint" id="qrText"></p>
   <div id="qrImg"></div>
+  <p class="qrstate" id="qrState" hidden></p>
   <button class="btn sm" id="qrFull" type="button" hidden>Show the full code (joins without internet)</button>
   <button class="btn primary" id="qrLinkBtn" type="button" hidden>Send the join link</button>
   <div class="row"><button class="btn grow" id="qrClose" type="button">Done</button></div>
