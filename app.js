@@ -766,7 +766,7 @@
   const APP_VER = '2.43.0';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '2.1'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '2.2'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -8113,17 +8113,21 @@
   function renderSyncBtn() {
     const n = (S.syncQ || []).length;
     $('syncBtn').hidden = !(S.team && S.team.src); $('syncDot').hidden = !n;
-    $('syncBtn').setAttribute('aria-label', n ? `Sync: ${n} update${n === 1 ? '' : 's'} waiting` : 'Sync with the online sheet');
+    const mb = !!(tmHooks.mbxOn && tmHooks.mbxOn()); // v2.43 beta 2.2: and the team mailbox
+    $('syncBtn').setAttribute('aria-label', n ? `Sync: ${n} update${n === 1 ? '' : 's'} waiting${mb ? ', and check the team mailbox' : ''}` : `Sync with the online sheet${mb ? ' and check the team mailbox' : ''}`);
+    $('syncBtn').title = $('syncBtn').getAttribute('aria-label');
   }
   $('syncBtn').addEventListener('click', async () => {
     const b = $('syncBtn'); if (b.classList.contains('spin')) return;
     b.classList.add('spin');
     try {
-      const n = (S.syncQ || []).length, sent = n ? await flushProgress(true) : false, ok = await cloudSync(true);
+      const mbP = navigator.onLine !== false && tmHooks.syncMbx ? tmHooks.syncMbx() : Promise.resolve(null); // v2.43 beta 2.2: the team mailbox, at the same time
+      const n = (S.syncQ || []).length, sent = n ? await flushProgress(true) : false, ok = await cloudSync(true), mb = await mbP.catch(() => null);
       if (!$('newProj').hidden) renderSites(); if (!$('projects').hidden) renderProjects();
+      const mbSay = !mb ? '' : mb.ok ? ` · team mailbox: ${mb.n ? `${mb.n} waiting (Projects)` : 'nothing waiting'}` : ` · team mailbox not checked (${mb.why})`;
       toast(!navigator.onLine ? `No internet${n ? `: ${n} update${n === 1 ? '' : 's'} wait on this phone` : ''}`
-        : ok ? `Synced with the online sheet${n ? ` · ${sent ? `${n} update${n === 1 ? '' : 's'} sent` : `updates not sent: ${syncErr}`}` : ''}${sent && syncErr ? ` (${syncErr})` : ''}`
-          : `Not synced: ${cloudErr || syncErr || 'no answer'}`, 5000);
+        : ok ? `Synced with the online sheet${n ? ` · ${sent ? `${n} update${n === 1 ? '' : 's'} sent` : `updates not sent: ${syncErr}`}` : ''}${sent && syncErr ? ` (${syncErr})` : ''}${mbSay}`
+          : `Not synced: ${cloudErr || syncErr || 'no answer'}${mbSay}`, 5000);
     } finally { b.classList.remove('spin'); renderSyncBtn(); }
   });
   /* ---- completion report (v2.11) ---- */
@@ -14795,8 +14799,17 @@
     const T = tmTeam(name);
     return (mbxIn || []).filter((it) => it.meta && ((T && T.tk && it.meta.tk) ? it.meta.tk === T.tk : it.meta.project === name));
   }
+  /** beta 2.2: the Projects pane's Check the team mailbox (a computer): shown on a team mailbox phone, with what waits. */
+  function ppMbxMark() {
+    const b = $('ppMbx'); if (!b) return;
+    const on = mbxOn(), n = (mbxIn || []).length; b.hidden = !on;
+    $('ppMbxN').hidden = !n; $('ppMbxN').textContent = String(n); b.classList.toggle('wait', !!n);
+    const t = !on ? '' : n ? `Team mailbox: ${n} waiting · click to check again and open it` : mbxInAt ? `Team mailbox: nothing waiting (checked ${tmWhen(new Date(mbxInAt).toISOString())}) · click to check` : 'Check the team mailbox';
+    b.title = t; b.setAttribute('aria-label', t || 'Check the team mailbox');
+  }
   /** The dot on Projects (something waits) and the pane's icons. */
   function mbxMarks() {
+    try { ppMbxMark(); renderSyncBtn(); } catch (e) { /* not shown */ } // (Sync's label: and the team mailbox)
     $('mbxDot').hidden = !(mbxOn() && (mbxIn || []).length);
     if (typeof deskOn === 'function' && deskOn() && ppState().open) ppRows();
   }
@@ -14975,6 +14988,27 @@
     if (!(T && T.role === 'fp' && T.accepted)) { const b = ppIcon('send', 'Send', mode === 'fp' ? `Send ${name} to your coordinator` : `Send ${name} to your field partners`); b.addEventListener('click', (e) => { e.stopPropagation(); openMbxSend(name, mode); }); out.push(b); }
     return out;
   };
+  /** Projects opened at the Team mailbox (what waits there), from the pane's icon. */
+  async function mbxShowBox() {
+    if ($('projects').hidden) { await closeAll(); await openProjects(); }
+    await sleep(300); const el = $('mbxBox'); if (!el || el.hidden) return;
+    el.scrollIntoView({ block: 'start' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  }
+  $('ppMbx').addEventListener('click', () => guard(async () => {
+    const b = $('ppMbx'); if (b.classList.contains('spin')) return;
+    if (navigator.onLine === false) { toast('No internet: the team mailbox is checked when there is signal.', 4000); return; }
+    b.classList.add('spin'); let ok = false;
+    try { ok = await mbxRefresh(); } finally { b.classList.remove('spin'); mbxMarks(); }
+    LOG.info('mbx.check.pane', { ok, n: (mbxIn || []).length });
+    if (!ok) { toast(`Team mailbox not checked: ${mbxInErr || 'no answer'}`, 5000); return; }
+    const n = (mbxIn || []).length;
+    if (!n) { toast('Team mailbox: nothing waiting for you.', 3500); return; }
+    toast(`Team mailbox: ${n === 1 ? 'one thing waits' : `${n} things wait`} for you.`, 3500);
+    await mbxShowBox();
+  }, 'Not checked'));
+  tmHooks.mbxOn = () => mbxOn();
+  tmHooks.syncMbx = async () => { if (!mbxOn()) return null; const ok = await mbxRefresh(); return { ok, n: (mbxIn || []).length, why: mbxInErr || 'no answer' }; };
+  try { ppMbxMark(); renderSyncBtn(); } catch (e) { /* not shown */ }
   tmHooks.locked = () => { const T = S.project ? tmTeam(S.project) : null; return T && T.role === 'fp' && T.accepted ? `“${S.project}” was accepted by ${T.accepted.byName || T.accepted.by}: it is done on this phone. If more is needed, ${tmFirst(T.accepted.by, T.accepted.byName)} sends it back for fixes.` : ''; };
   tmHooks.npReset = () => { npAssign.clear(); npAssignRender(); };
   tmHooks.created = npAssignSend;
