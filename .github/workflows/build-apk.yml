@@ -45,12 +45,32 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Create the Capacitor project
+      - name: Copy the app files into the APK
         run: |
           mkdir -p build/www
-          cp -r index.html app.js core.js glyphs.js reports.js forms.js tutorial.js dxftpl.js ocr-worker.js manifest.json icons vendor brand sample build/www/
+          cp -r index.html app.js core.js glyphs.js reports.js forms.js tutorial.js dxftpl.js dxf-worker.js dxfpdf.js ocr-worker.js manifest.json icons vendor brand sample build/www/
           # org.json (made by the admin: Manage → Tie the app to this list) ties the APK to the organisation's list
           if [ -f org.json ]; then cp org.json build/www/; echo "org.json included"; fi
+
+      - name: Check every app file is in the APK
+        run: |
+          # QA-16: every file in sw.js's SHELL list (the files the website keeps for offline use) must be in build/www,
+          # so a new app file can't be left out of the APK again. If this step fails, add the file to the cp line above.
+          node - <<'JS'
+          const fs = require('fs');
+          const m = fs.readFileSync('sw.js', 'utf8').match(/const SHELL = (\[[\s\S]*?\]);/);
+          if (!m) { console.log('::error::The SHELL list was not found in sw.js, so the APK files could not be checked.'); process.exit(1); }
+          const list = [...new Set(Function(`"use strict"; return (${m[1]});`)().map((u) => (u === './' ? 'index.html' : u.replace(/^\.\//, ''))))];
+          const missing = list.filter((f) => !fs.existsSync(`build/www/${f}`));
+          if (missing.length) {
+            console.log(`::error::Not in the APK: ${missing.join(', ')} (${missing.length} of the ${list.length} files in sw.js's SHELL list). Add ${missing.length === 1 ? 'it' : 'them'} to the cp line in "Copy the app files into the APK".`);
+            process.exit(1);
+          }
+          console.log(`All ${list.length} files in sw.js's SHELL list are in build/www.`);
+          JS
+
+      - name: Create the Capacitor project
+        run: |
           cd build
           cat > package.json <<'EOF'
           {
