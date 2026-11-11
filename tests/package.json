@@ -1,0 +1,8 @@
+{
+  "name": "g-esaa-tests",
+  "private": true,
+  "description": "G-eSAA tests (Node part): photo-save.spec.cjs drives the browser with Playwright. npm install --prefix tests",
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}

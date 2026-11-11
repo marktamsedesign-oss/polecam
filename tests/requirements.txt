@@ -1,0 +1,6 @@
+# G-eSAA tests (Python part): pip install -r tests/requirements.txt, then: python -m playwright install chromium
+playwright==1.63.0
+openpyxl>=3.1
+ezdxf>=1.4
+pillow>=10.1
+numpy>=1.26

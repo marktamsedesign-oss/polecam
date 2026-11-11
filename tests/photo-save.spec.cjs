@@ -1,4 +1,4 @@
-/* Run: NODE_PATH=/path/to/node_modules node --test polecam/tests/photo-save.spec.cjs
+/* Run: python3 tests/run_all.py --only photo-save (or NODE_PATH=/path/to/node_modules node --test tests/photo-save.spec.cjs)
    Uses an isolated browser profile and a local HTTP server; no production data. */
 const { test, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -33,7 +33,7 @@ beforeEach(async () => {
   await context.addInitScript(() => {
     if (!localStorage.getItem('polecam.settings')) localStorage.setItem('polecam.settings', JSON.stringify({
       user: { name: 'Test Surveyor', company: 'Test Company', mobile: '09171234567', email: 'test@example.com' },
-      readId: false, view: { lat: 14.5, lon: 121, z: 17 }, v17: 1, v20: 1,
+      readId: false, saveCheck: false, view: { lat: 14.5, lon: 121, z: 17 }, v17: 1, v20: 1, // (saveCheck: v2.42.17's question before Save, not what these tests are about)
       project: 'Test project', projects: ['Test project'], // v2.15: no default project, photos are taken inside one
     }));
   });
@@ -182,10 +182,15 @@ test('a timed-out preparation is evicted so Save retries the same photo successf
     window.createImageBitmap = () => new Promise(() => {});
     window.__originalTimeout = window.setTimeout;
     window.setTimeout = (fn, ms, ...args) => window.__originalTimeout(fn, ms === 30000 ? 200 : ms, ...args);
+    // The stalled decoder and the short timeout end the moment the failure shows: the app starts a new preparation in the
+    // background right after it (about 20 ms later), and one started under the test's stall would fail the retry as well.
+    const toast = document.getElementById('toast');
+    const mo = new MutationObserver(() => { if (/not saved/i.test(toast.textContent)) { window.createImageBitmap = window.__originalDecode; window.setTimeout = window.__originalTimeout; mo.disconnect(); } });
+    mo.observe(toast, { childList: true, characterData: true, subtree: true });
   });
   await openEditor(); await page.locator('#edSave').click(); await waitForFailure();
   assert.deepEqual(await stored(), { points: [], photos: [] });
-  await page.evaluate(() => { window.createImageBitmap = window.__originalDecode; window.setTimeout = window.__originalTimeout; });
+  assert.equal(await page.evaluate(() => window.createImageBitmap === window.__originalDecode && window.setTimeout === window.__originalTimeout), true);
   await save(); assert.equal((await stored()).photos.length, 1);
 });
 
