@@ -1048,6 +1048,8 @@ body.fixing #mapSummary{display:none}
 @keyframes fxpulse{0%{box-shadow:0 0 0 0 rgba(194,65,12,.6)}100%{box-shadow:0 0 0 16px rgba(194,65,12,0)}}
 .chg-was span{display:inline-block;padding:1px 6px;border-radius:4px;background:#fff;color:#1864ab;font:800 11px/1.4 system-ui,sans-serif;border:1px solid #74c0fc;white-space:nowrap}
 .chglist{display:flex;flex-direction:column;gap:8px}
+.duplist{display:flex;flex-direction:column;gap:8px;margin-top:8px}.dupg{padding:10px;border-radius:12px;border:1px solid var(--line);background:var(--surface)}.dupg>b{display:block;margin-bottom:4px}
+.dupo{display:flex;gap:8px;align-items:flex-start;padding:5px 0;line-height:1.35}.dupo input{margin-top:3px;flex:none} /* beta 3.3 (QA-06) */
 .chg-row{display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:12px;border:1px solid var(--line);background:var(--surface)}
 .chg-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.chg-h b{flex:1;min-width:0}
 .chg-k{font-size:calc(11px * var(--fs));font-weight:800;padding:2px 8px;border-radius:999px;letter-spacing:.03em}
@@ -1095,6 +1097,7 @@ body.deskpane #export.side,body.deskpane #planSet.side{left:auto;width:400px;bor
 body.deskpane.drwside #drawing:not(.whaton) .drwcol{margin-right:400px}
 body.deskpane.drwside #drawing>header{margin-right:400px}
 #dxfMxHost{max-width:560px}
+#tmRole .chip.wait{border-style:dashed;opacity:.85} /* beta 3.3: Coordinator asked for */
 </style>
 </head>
 <body>
@@ -1755,6 +1758,8 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     </div>
     <div class="group">
       <h3>Saving a record</h3>
+      <label class="field">The same pole twice at a merge: records within (m)<input type="number" id="setDupM" min="0" max="50" step="1" inputmode="numeric"></label>
+      <p class="hint">When an update from a colleague is merged, its records with the same pole ID as one here, or of the same kind within this distance, are listed: keep one, keep both, or combine the photos. 0: the same pole ID only. 10 m by default.</p>
       <label class="check"><input type="checkbox" id="setSaveCheck"><span>As-Plan and As-Built: before Save, list what is not set yet (pole owner, new pole size, clamp size, closure and ODF sizes), with Go to set it or Save anyway</span></label>
     </div>
     <div class="group">
@@ -1994,6 +1999,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div class="group" id="tmCo" hidden>
       <h3>My field partners</h3>
       <div class="bslist" id="tmMemList"></div>
+      <div id="tmAskBox" hidden><h3 style="margin-top:12px">Asking to be coordinators</h3><p class="hint">People of your company who picked Coordinator. Approve only those who should hand out projects and get the mailbox's key.</p><div class="bslist" id="tmAskList"></div></div>
     </div>
     <div class="group" id="tmMbx">
       <h3>Company mailbox</h3>
@@ -2119,6 +2125,21 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <p class="hint" id="chgSub"></p>
     <div id="chgList" class="chglist"></div>
   </div>
+</section>
+
+<!-- beta 3.3 (QA-06): the same pole twice at a merge -->
+<section class="sheet" id="dupSheet" hidden aria-labelledby="dupT">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="dupT">The same pole twice?</h2>
+  </header>
+  <div class="body">
+    <p class="hint" id="dupSub"></p>
+    <div class="chips" id="dupAll" role="group" aria-label="For all of them"><button type="button" class="chip small" data-all="pick">All: keep the first</button><button type="button" class="chip small" data-all="comb">All: combine the photos</button><button type="button" class="chip small" data-all="both">All: keep both</button></div>
+    <div id="dupList" class="duplist"></div>
+    <p class="hint">Back: keep them as they are for now.</p>
+  </div>
+  <div class="foot"><button class="btn primary grow" id="dupApply" type="button">Apply</button></div>
 </section>
 
 <!-- offline maps -->
@@ -2341,6 +2362,12 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
         <label class="field">ADMIN KEY (stays on this phone: each saved list version goes to the sheet, so phones update by themselves; CSV import adds companies)<input type="password" id="admWriteKey" autocomplete="off"></label>
         <button class="btn" id="admTest" type="button">Test connection</button>
         <p class="hint" id="admTestOut"></p>
+      </div>
+      <div class="group" id="admTeamBox">
+        <h3>Team coordinators (beta)</h3>
+        <p class="hint">Who picked Coordinator, in every company (the online sheet's Team tab, script v2.43.2). Approve the first coordinator of a company here, or type Yes in their row of the Team tab. Remove or Decline: they work on their own from their next sync.</p>
+        <button class="btn" id="admTeamLoad" type="button">Show the coordinators</button>
+        <div class="bslist" id="admTeamList"></div>
       </div>
       <div class="group" id="admOrgBox" hidden>
         <h3>Tie the app to this list</h3>

@@ -701,6 +701,7 @@
     closeSheet();
   }));
   function onSheetClosed(id) {
+    if (id === 'dupSheet' && dupRes) { const r = dupRes; dupRes = null; r(null); } // beta 3.3: Back: decided later
     if (id === 'drwStyle' && stack.includes('planSet')) renderPlanSet(); // v2.42.28: the clamp types may have changed there
     if (id === 'export' || id === 'planSet') { // v2.42.28
       $(id).classList.remove('side'); if (id === 'export') $('export').classList.remove('plan');
@@ -766,7 +767,7 @@
   const APP_VER = '2.43.0';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '3.1'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '3.3'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -1498,6 +1499,7 @@
   $('pinAddBtn').addEventListener('click', async () => {
     if (!S.project) { openProjects(); return; }
     if (isAcc()) return;
+    { const lk = tmHooks.locked ? tmHooks.locked() : ''; if (lk) { toast(lk, 6500); return; } } // beta 3.3 (QA-09): an accepted task
     // v2.37: only the models: a tower or an OLT site, or an ODC (poles, ODFs and handholes are recorded from the camera)
     const k = await ask('Add a pin on the map', 'Tower, OLT or ODC? Then drag the map to place it, type its name and pick its colour. A photo is optional. For the homing site or ODC (where the route starts or ends), set Existing.', [
       { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
@@ -2439,7 +2441,7 @@
   const routeLayer = L.layerGroup().addTo(map), fibLayer = L.layerGroup().addTo(map);
   map.createPane('routePane'); map.getPane('routePane').style.zIndex = 395; // v2.42.19: the route under the pins (overlay 400), whatever is drawn last: a pin is tapped, not the span under it
   const links = () => (pmeta().links || []);
-  function setLinks(l) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), links: l, linksAt: new Date().toISOString() }; persist(); changedAfterApproval(S.project, 'route'); cloSyncSoon(); } // (v2.42.24: the closures' sizes follow) // v2.42.5: + the approval; v2.42.18: + its time (Share)
+  function setLinks(l) { routeWrite(S.project, l, null); } // (beta 3.3: who made each span) (v2.42.24: the closures' sizes follow) // v2.42.5: + the approval; v2.42.18: + its time (Share)
   /* ================= v2.42.20: fibers (named runs) =================
      A fiber is one FOC cable from its start to its end, point by point: { n, cab, side ('auto', 'right', 'left', 'none'), ex (an
      existing cable: drawn on the plan only, not counted), path: [ids], fromSt, toSt (Existing / New; '' = as its record) }.
@@ -2449,8 +2451,131 @@
   const fibColor = (f) => FIB_COLORS[(Math.max(1, f.n) - 1) % FIB_COLORS.length];
   const fibTag = (f) => `R${f.n}${f.ex ? '·EX' : ''}`; // (v2.42.24: RUN n)
   const spanKey = (a, b) => (String(a) < String(b) ? `${a}|${b}` : `${b}|${a}`);
-  function fibers(name) { const F = pmeta(name).fibers; return Array.isArray(F) ? F.filter((f) => f && Array.isArray(f.path) && f.n > 0).map((f) => ({ ...f, path: f.path.slice() })) : []; }
-  function setRoute(l, F) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), ...(l ? { links: l } : {}), ...(F ? { fibers: F } : {}), linksAt: new Date().toISOString() }; persist(); changedAfterApproval(S.project, 'route'); cloSyncSoon(); } // (v2.42.24: the closures' sizes follow)
+  function fibers(name) { const F = pmeta(name).fibers; return Array.isArray(F) ? F.filter((f) => f && Array.isArray(f.path) && f.n > 0).map((f) => { if (!f.fid) f.fid = legacyFid(f); return { ...f, path: f.path.slice() }; }) : []; } // (beta 3.3: each its permanent id)
+  function setRoute(l, F) { routeWrite(S.project, l, F); } // (beta 3.3: who made each span and cable) (v2.42.24: the closures' sizes follow)
+  /* beta 3.3 (QA-06): who made each span and cable, and when, so an update changes only what came from its sender.
+     lsrc { span: { o: who made it, t: its time } }, lgone { span: { o, by: who removed it, t } }; each cable (fiber) its own
+     permanent id (fid) with o and t, fgone { fid: { o, by, t } }. A span or cable from before beta 3.3 has no maker (o ''): it is
+     never removed by someone else's update (only by its maker's removal passed on, as before: the newest wins). */
+  function routeWho() { const u = S.user || {}; return String(u.email || u.mobile || u.name || '').trim().toLowerCase() || 'this phone'; }
+  function legacyFid(f) { return `L${f.n}-${(Array.isArray(f.path) && f.path[0]) || ''}`; }
+  function fidOf(f) { return f.fid || legacyFid(f); }
+  function linkSig(q) { return JSON.stringify([q[2] || '', Array.isArray(q[3]) ? q[3] : []]); }
+  function fibSig(f) { const { n, fid, o, t, _x, ...r } = f || {}; return JSON.stringify(r, Object.keys(r).sort()); }
+  function routeTrack(m0, l, F, now) {
+    const me = routeWho(), x = {};
+    if (l) {
+      const src = { ...(m0.lsrc || {}) }, lg = { ...(m0.lgone || {}) };
+      const was = new Map((m0.links || []).map((q) => [spanKey(q[0], q[1]), q])), is = new Map(l.map((q) => [spanKey(q[0], q[1]), q]));
+      is.forEach((q, k) => { const w = was.get(k), sk = src[k] || {};
+        if (!w) { src[k] = { o: sk.o || me, t: now }; delete lg[k]; } else if (linkSig(w) !== linkSig(q)) src[k] = { o: sk.o || '', t: now }; });
+      was.forEach((q, k) => { if (!is.has(k)) lg[k] = { o: (src[k] || {}).o || '', by: me, t: now }; });
+      x.lsrc = src; x.lgone = lg;
+    }
+    if (F) {
+      const fg = { ...(m0.fgone || {}) }, was = new Map((Array.isArray(m0.fibers) ? m0.fibers : []).filter((f) => f && Array.isArray(f.path)).map((f) => [fidOf(f), f])), is = new Set();
+      F.forEach((f) => {
+        if (!f.fid) { const w = was.get(legacyFid(f)); f.fid = w && !w.fid ? legacyFid(f) : `f${uid()}`; }
+        const w = was.get(f.fid); is.add(f.fid);
+        if (!w) { f.o = f.o || me; f.t = now; delete fg[f.fid]; } // new (or back by Undo: its maker kept)
+        else { if (!f.o && w.o) f.o = w.o; if (fibSig(w) !== fibSig(f)) f.t = now; else if (!f.t && w.t) f.t = w.t; } // (a new RUN number is not a change)
+      });
+      was.forEach((w, id) => { if (!is.has(id)) fg[id] = { o: w.o || '', by: me, t: now }; });
+      x.fgone = fg;
+    }
+    return x;
+  }
+  function routeWrite(proj, l, F) { S.meta = S.meta || {}; const m0 = pmeta(proj), now = new Date().toISOString(); S.meta[proj] = { ...m0, ...(l ? { links: l } : {}), ...(F ? { fibers: F } : {}), ...routeTrack(m0, l, F, now), linksAt: now }; persist(); changedAfterApproval(proj, 'route'); cloSyncSoon(); }
+  /** beta 3.3 (QA-06): an update's route merged span by span and cable by cable. What came from its sender replaces what came from him
+      before (a span or cable he removed goes, if it was his); everyone else's and this phone's own stay; what others made, passed on by
+      him, is added. A cable keeps its RUN number where it is free here, else it takes the next free one; a field partner takes his
+      coordinator's numbers (his own cables move up where they meet one). Returns what changed (the merge line). */
+  function routeMerge(proj, mm, sender, from, fresh) {
+    const m = S.meta[proj], me = routeWho(), X = String(sender || '').replace(/^mbx:/, '').trim().toLowerCase(), now = new Date().toISOString(), theirAt = String(mm.linksAt || '');
+    const R = { added: 0, removed: 0, changed: 0, cAdded: 0, cRemoved: 0, cChanged: 0, ren: [], same: false, any: false };
+    const auth = (T) => !!T && (!T.o || T.o === T.by), tS = (v) => String(v || '');
+    const goneHere = (id) => !!(m.gone && m.gone[id]) && !points.some((p) => p.id === id && p.project === proj);
+    const inSrc = mm.lsrc || {}, inG = mm.lgone || {}, inFG = mm.fgone || {};
+    const kset = (A) => (A || []).map((q) => `${spanKey(q[0], q[1])}#${linkSig(q)}`).sort().join(',');
+    const fset = (A) => (Array.isArray(A) ? A : []).filter((f) => f && Array.isArray(f.path) && f.n > 0).map((f) => `${fidOf(f)}#${f.n}#${fibSig(f)}`).sort().join(',');
+    const before = `${kset(m.links)}|${fset(m.fibers)}`;
+    const src = { ...(m.lsrc || {}) }, lg = { ...(m.lgone || {}) };
+    let L = (m.links || []).map((q) => q.slice());
+    const here = new Map(L.map((q, i) => [spanKey(q[0], q[1]), i])), IN = new Map((mm.links || []).map((q) => [spanKey(q[0], q[1]), q])), del = new Set();
+    // 1. the sender's spans no longer in his route; 2. spans their maker removed, passed on by the sender
+    if (X) here.forEach((i, k) => { if ((src[k] || {}).o === X && !IN.has(k)) { del.add(k); lg[k] = { o: X, by: X, t: tS((inG[k] || {}).t) || theirAt || now }; } });
+    Object.entries(inG).forEach(([k, T]) => { if (!auth(T) || IN.has(k)) return; const lo = (src[k] || {}).o || '';
+      if (here.has(k) && lo !== me && lo === (T.o || '') && tS((src[k] || {}).t) <= tS(T.t)) del.add(k);
+      if (!lg[k] || tS(lg[k].t) < tS(T.t)) lg[k] = { o: T.o || '', by: T.by || '', t: tS(T.t) }; });
+    // 3. the spans in the update: a new one added (not one this phone made, removed here, or to a record deleted here); a cable
+    //    changed where the update's is newer
+    IN.forEach((q, k) => {
+      const ex = inSrc[k] && inSrc[k].o ? String(inSrc[k].o) : '', o2 = ex || X, t2 = tS((inSrc[k] || {}).t) || theirAt, i = here.get(k);
+      if (i != null) {
+        if (t2 > tS((src[k] || {}).t) && linkSig(L[i]) !== linkSig(q)) { L[i] = q.slice(); src[k] = { o: (src[k] || {}).o || ex, t: t2 }; R.changed++; }
+        else if (!(src[k] || {}).o && (ex || (fresh && X))) src[k] = { o: ex || X, t: tS((src[k] || {}).t) || t2 }; // (a project new here: a span from before beta 3.3 is the sender's)
+        return;
+      }
+      if (o2 === me || (lg[k] && tS(lg[k].t) >= t2) || goneHere(q[0]) || goneHere(q[1])) return;
+      L.push(q.slice()); here.set(k, L.length - 1); src[k] = { o: o2, t: t2 }; delete lg[k]; R.added++;
+    });
+    if (del.size) { L = L.filter((q) => !del.has(spanKey(q[0], q[1]))); del.forEach((k) => delete src[k]); R.removed = del.size; }
+    // the cables (fibers), the same way by their ids
+    let F = null, fg = { ...(m.fgone || {}) };
+    if (Array.isArray(mm.fibers)) {
+      const FL = (Array.isArray(m.fibers) ? m.fibers : []).filter((f) => f && Array.isArray(f.path)).map((f) => ({ ...f, fid: fidOf(f), path: f.path.slice() }));
+      const FI = mm.fibers.filter((f) => f && Array.isArray(f.path) && f.n > 0).map((f) => ({ ...f, fid: fidOf(f), path: f.path.slice(), _x: f.o ? String(f.o) : '', t: tS(f.t) || theirAt })).sort((a, b) => a.n - b.n);
+      const inFid = new Set(FI.map((f) => f.fid)), byFid = new Map(FL.map((f) => [f.fid, f])), bySig = new Map(FL.map((f) => [fibSig(f), f])), gone = new Set();
+      if (X) FL.forEach((f) => { if ((f.o || '') === X && !inFid.has(f.fid)) { gone.add(f.fid); fg[f.fid] = { o: X, by: X, t: tS((inFG[f.fid] || {}).t) || theirAt || now }; } });
+      Object.entries(inFG).forEach(([id, T]) => { if (!auth(T) || inFid.has(id)) return; const f = byFid.get(id), lo = f ? f.o || '' : '';
+        if (f && lo !== me && lo === (T.o || '') && tS(f.t) <= tS(T.t)) gone.add(id);
+        if (!fg[id] || tS(fg[id].t) < tS(T.t)) fg[id] = { o: T.o || '', by: T.by || '', t: tS(T.t) }; });
+      const hit = new Map(), add = [];
+      FI.forEach((fi) => {
+        let lf = byFid.get(fi.fid);
+        if (!lf) { const sg = bySig.get(fibSig(fi)); if (sg && (/^L/.test(sg.fid) || /^L/.test(fi.fid)) && !inFid.has(sg.fid) && !gone.has(sg.fid) && ![...hit.values()].includes(sg)) { lf = sg; if (/^L/.test(sg.fid)) { byFid.delete(sg.fid); sg.fid = fi.fid; byFid.set(fi.fid, sg); } } } // (the same cable from before beta 3.3)
+        if (lf && gone.has(lf.fid)) return;
+        if (lf) { hit.set(fi.fid, lf);
+          if (fi.t > tS(lf.t) && fibSig(fi) !== fibSig(lf)) { const keep = { n: lf.n, fid: lf.fid, o: lf.o || fi._x }; Object.keys(lf).forEach((k) => delete lf[k]); Object.assign(lf, fi, keep); R.cChanged++; }
+          else if (!lf.o && (fi._x || (fresh && X))) lf.o = fi._x || X;
+          return; }
+        const o2 = fi._x || X; if (o2 && o2 === me) return;
+        if (fg[fi.fid] && tS(fg[fi.fid].t) >= fi.t) return;
+        const path = fi.path.filter((id) => !goneHere(id)); if (path.length < 2) return;
+        const nf = { ...fi, path, o: o2 }; add.push(nf); hit.set(fi.fid, nf); delete fg[fi.fid]; R.cAdded++;
+      });
+      F = FL.filter((f) => !gone.has(f.fid)); R.cRemoved = FL.length - F.length;
+      // RUN numbers (see above)
+      const T = (typeof tmTeam === 'function' && tmTeam(proj)) || {}, adopt = T.role === 'fp' && !!X && X === String(T.by || '').trim().toLowerCase();
+      const nameOf = (o) => (!o ? 'a colleague' : o === X ? from || o : typeof tmNameOf === 'function' ? tmNameOf(o, o) : o), mine = (f) => (f.o || '') === me;
+      const hits = new Set(hit.values()), top = (U) => Math.max(0, ...U);
+      if (adopt) {
+        const used = new Set();
+        FI.forEach((fi) => { const f = hit.get(fi.fid); if (!f || !(F.includes(f) || add.includes(f))) return; if (F.includes(f) && f.n !== fi.n && mine(f)) R.ren.push(`your RUN ${f.n} is RUN ${fi.n} now`); f.n = fi.n; used.add(fi.n); });
+        const own = F.filter((f) => !hits.has(f)).sort((a, b) => a.n - b.n), clash = [];
+        own.forEach((f) => { if (f.n > 0 && !used.has(f.n)) used.add(f.n); else clash.push(f); });
+        clash.forEach((f) => { const was = f.n; f.n = top(used) + 1; used.add(f.n); R.ren.push(mine(f) ? `your RUN ${was} is RUN ${f.n} now` : `${nameOf(f.o)}’s RUN ${was} is RUN ${f.n} now`); });
+      } else {
+        const used = new Set(F.map((f) => f.n));
+        add.forEach((f) => { if (f.n > 0 && !used.has(f.n)) { used.add(f.n); return; } const was = f.n; f.n = top(used) + 1; used.add(f.n); R.ren.push(`${nameOf(f.o)}’s RUN ${was} is RUN ${f.n} here`); });
+      }
+      F = F.concat(add).sort((a, b) => a.n - b.n);
+      { const seen = new Set(); F.forEach((f) => { if (seen.has(f.n)) { const was = f.n; f.n = top([...seen, ...F.map((g) => g.n)]) + 1; R.ren.push(`RUN ${was} (twice) is RUN ${f.n}`); } seen.add(f.n); }); }
+      F = F.map(({ _x, ...f }) => f);
+    }
+    if (fresh) { R.added = L.length; R.cAdded = F ? F.length : 0; } // (a project new on this phone: what came with it)
+    const after = `${kset(L)}|${F ? fset(F) : fset(m.fibers)}`;
+    R.same = kset(L) === kset(mm.links) && (!F || fset(F) === fset(mm.fibers)); R.any = before !== after;
+    S.meta[proj] = { ...m, links: L, lsrc: src, lgone: lg, ...(F ? { fibers: F, fgone: fg } : {}), ...(R.any ? { linksAt: now } : {}) };
+    return R;
+  }
+  /** beta 3.3 (QA-06): what an update did to the route, for the merge line ("the route: 2 spans added, 0 removed"). */
+  function routeSaid(R) {
+    if (!R) return ''; if (typeof R !== 'object') return 'the route';
+    const pl = (k, w) => `${k} ${w}${k === 1 ? '' : 's'}`, c = R.cAdded || R.cRemoved || R.cChanged ? `; ${pl(R.cAdded, 'cable')} added, ${R.cRemoved} removed${R.cChanged ? `, ${R.cChanged} changed` : ''}` : '';
+    return `the route: ${pl(R.added, 'span')} added, ${R.removed} removed${R.changed ? `, ${R.changed} changed` : ''}${c}${R.ren && R.ren.length ? `; ${R.ren.join('; ')}` : ''}`;
+  }
+
   const routeSnap = () => ({ l: links(), f: fibers() });
   /** The links as the route analysis reads them: a span on new fibers carries their cables (the lowest-numbered fiber's first). */
   function effLinks() {
@@ -3171,6 +3296,7 @@
     const was = routeSel; setLinks(l); routeSel = id; routeRefresh([was, id]); // (the two ends: their angle / junction labels)
   }
   $('routeBtn').addEventListener('click', () => {
+    if (!routeMode) { const lk = tmHooks.locked ? tmHooks.locked() : ''; if (lk) { toast(lk, 6500); return; } } // beta 3.3 (QA-09): an accepted task
     if (!routeMode && routePts().length < 2) { toast('Capture at least two poles first'); return; }
     setRouteMode(!routeMode);
   });
@@ -5169,6 +5295,7 @@
       takenAt: o.takenAt, type: o.type || S.lastType, userMoved: false, acc, boq: JSON.parse(JSON.stringify(o.boq || {})), hadPhoto: !!(o.blob || o.storedBlob) };
     // v2.16: 'closed' = a completed PAT (view only); 'carried' = an element from the PAT in the cleanup or FAT (fixes only)
     ed.lock = !acc ? '' : patClosed() ? 'closed' : o.mode === 'edit' && ['Cleanup', 'FAT'].includes(taskCat()) && (o.patId || (o.defs || []).some((d) => (d.stage || 'PAT') === 'PAT')) ? 'carried' : '';
+    { const tl = tmHooks.locked ? tmHooks.locked() : ''; if (tl) { ed.lock = 'closed'; ed.lockMsg = tl; } } // beta 3.3 (QA-09): a task the coordinator accepted: view only
     if (acc) {
       Object.assign(ed, { element: o.element || 'Pole', photos: (o.photos || []).map((p) => ({ ...p })), pending: {}, removed: [], details: JSON.parse(JSON.stringify(o.details || [])),
         defs: JSON.parse(JSON.stringify(o.defs || [])).map((d) => (d && !d.id ? { ...d, id: uid() } : d)), /* v2.42.4: an id for items of old versions (a photo went to the wrong one) */ mloop: !!o.mloop, nap: !!o.nap, closure: !!o.closure, odf: o.odf || 'New', newBlob: null });
@@ -5430,9 +5557,11 @@
     if (pinMap) { if (lock) pinMap.dragging.disable(); else pinMap.dragging.enable(); }
     const m = pmeta(), note = $('edLock');
     note.hidden = !lock;
-    note.textContent = lock === 'closed' ? `🔒 PAT completed${m.completedAt ? ` ${longDate(m.completedAt)}` : ''}: this record can't be changed or removed. Its items are tagged as fixed in the defect cleanup and the FAT.`
+    note.textContent = lock === 'closed' && ed.lockMsg ? `🔒 ${ed.lockMsg} This record can be seen, exported and shared, not changed.` // beta 3.3 (QA-09)
+      : lock === 'closed' ? `🔒 PAT completed${m.completedAt ? ` ${longDate(m.completedAt)}` : ''}: this record can't be changed or removed. Its items are tagged as fixed in the defect cleanup and the FAT.`
       : lock === 'carried' ? '🔒 From the PAT: the ID, place and PAT items stay as recorded. Tag each item as fixed, add photos and remarks.' : '';
     if (lock) $('edTrash').hidden = true;
+    if (lock === 'closed' && ed) $('edHint').textContent = 'The pin stays where it was saved'; // beta 3.3: no "Drag the map…" when nothing can move
   }
 
   /* ---------- red box / pole model on a survey photo (v2.13; pole model v2.14; editable marks v2.15) ---------- */
@@ -6859,7 +6988,7 @@
   /* v2.42.17: Delete is the red bin at the upper right of the record; it asks first */
   $('edTrash').addEventListener('click', () => guard(async () => { // v2.42.4: a failure is said (it was silent)
     if (!ed) return;
-    if (ed.lock) { toast('This record is from a completed PAT and cannot be deleted', 4500); return; }
+    if (ed.lock) { toast(ed.lockMsg || 'This record is from a completed PAT and cannot be deleted', ed.lockMsg ? 6500 : 4500); return; }
     const idv = $('poleId').value.trim(), what = ed.acc ? 'element' : (ed.element || 'Pole') === 'Pole' ? 'pole' : (ed.element || '').toLowerCase();
     const name = idv && !/[-_]$/.test(idv) ? idv : `this ${what}`;
     const go = await ask(`Delete ${name}?`, `The record and its photo are removed from this phone. This can't be undone.`, [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, primary: true }]);
@@ -6889,6 +7018,7 @@
   }
 
   async function saveEditorDraft() {
+    if (ed && ed.lockMsg) { toast(ed.lockMsg, 6500); return; } // beta 3.3 (QA-09): an accepted task (Save is not shown; this is the guard)
     const dirty0 = edDirty(); // v2.42.5: whether anything changed (for the on-site approval)
     // v2.42.16: an As-Built record answers its maintenance loop (MLoop or No loop) before it is saved
     if (ed.lock !== 'closed' && svPurpose() === 'As-built' && edBoqKeys().includes('mloop') && !(ed.boq && ed.boq.mloop) && !edLoopOwn()) {
@@ -7581,7 +7711,7 @@
     $('curNotes').value = m.notes || '';
     { const sh = m.shares, up = (m.updates || []).slice(-4).reverse(), L = []; // v2.42.18: Share: the last one from this phone, the updates received
       if (sh && sh.n && !acc) L.push(`Shared by you: update ${sh.n}${sh.full ? ' (the whole project)' : ''} · ${fmtTime(sh.at)}`);
-      up.forEach((x) => L.push(`Received: update ${x.n}${x.full ? ' (the whole project)' : ''} from ${x.from || 'a colleague'} · ${fmtTime(x.at)} · ${x.recs || 0} record${x.recs === 1 ? '' : 's'}${x.gone ? `, ${x.gone} deleted` : ''}${x.route ? ', the route' : ''}`));
+      up.forEach((x) => L.push(`Received: update ${x.n}${x.full ? ' (the whole project)' : ''} from ${x.from || 'a colleague'} · ${fmtTime(x.at)} · ${x.recs || 0} record${x.recs === 1 ? '' : 's'}${x.gone ? `, ${x.gone} deleted` : ''}${x.route ? `, ${routeSaid(x.route)}` : ''}`));
       $('curUpdates').hidden = !L.length; $('curUpdates').textContent = L.join('\n'); }
     $('curSite').hidden = !m.taskId; $('curSite').textContent = m.taskId ? [`Site: ${m.site || ''}`, m.contractor && `Vendor: ${m.contractor}`, ...(m.siteExtra || []).filter(([k]) => /^(region|territory)$/i.test(String(k).trim())).map(([k, v]) => `${k}: ${v}`), `ID: ${m.taskId}`].filter(Boolean).join(' · ') : '';
     const sfOf = (name) => { const F = siteFieldsOf(name); return (F.length ? F : sfBlank()).map((x) => x.slice()); }; // v2.42.19: a project with none: typed in
@@ -7772,7 +7902,7 @@
   }
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
-  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; } return m; } // (v2.42.20: + the fibers)
+  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
@@ -7978,7 +8108,7 @@
     const mg = m.gone || {}, delHere = meta.points.filter((p) => !loc.has(p.id) && mg[p.id] && String(p.updated || '') <= String(mg[p.id])).length; // deleted on this phone since: they stay deleted
     const newer = meta.points.filter((p) => loc.has(p.id) && String(loc.get(p.id).updated || '') > String(p.updated || '')).length, nNew = meta.points.filter((p) => !loc.has(p.id)).length - delHere;
     const G = (meta.meta && meta.meta.gone) || {}, del = Object.entries(G).filter(([id, t]) => loc.has(id) && String(loc.get(id).updated || '') <= String(t)).length;
-    const route = !!(meta.meta && meta.meta.links && meta.meta.linksAt && meta.meta.linksAt > (m.linksAt || '')), nph = new Set(meta.points.flatMap(allPids)).size, chg = meta.points.length - nNew - newer - delHere;
+    const route = !!(meta.meta && meta.meta.links && meta.meta.linksAt), nph = new Set(meta.points.flatMap(allPids)).size, chg = meta.points.length - nNew - newer - delHere; // (beta 3.3: the route in the file: merged per sender)
     const what = [chg && `${pl(chg, 'record')} changed`, nNew && `${nNew} new`, del && `${del} deleted`, route && 'the route', nph && pl(nph, 'photo')].filter(Boolean).join(' · ') || 'Nothing new for this phone';
     const miss = !U.full && here && U.n > last + 1 ? U.n - last - 1 : 0;
     const warn = [
@@ -7995,12 +8125,13 @@
     if (other && !(await ask('Another company’s project', `Open a project of ${from.company} on your phone? Only do this if you are allowed to keep it.`, [{ label: 'Cancel', value: false }, { label: 'Open anyway', value: true, primary: true }]))) return;
     if (f && sharedDefer(f)) return;
     const o = { quiet: true, update: { n: U.n, full: !!U.full, sender: sk, from: who, at: b.exported || '' } };
-    try { busy(`Opening ${proj}…`); await restoreMeta(z, meta, '', o); } finally { busy(false); }
+    let pj = proj; try { busy(`Opening ${proj}…`); pj = (await restoreMeta(z, meta, '', o)) || proj; } finally { busy(false); }
     const R2 = o.result || {};
-    LOG.info('share.update.open', { n: U.n, full: !!U.full, records: R2.recs, kept: R2.kept, gone: R2.gone, route: R2.route, missing: miss, other, isNew: !here });
+    LOG.info('share.update.open', { n: U.n, full: !!U.full, records: R2.recs, kept: R2.kept, gone: R2.gone, route: R2.route ? routeSaid(R2.route) : false, missing: miss, other, isNew: !here });
     await closeAll(); renderPoles(); fitProject();
-    const said = `${[pl(R2.recs || 0, 'record'), R2.gone && `${R2.gone} deleted`, R2.route && 'the route'].filter(Boolean).join(' · ')}${R2.kept ? ` · ${R2.kept} newer here kept` : ''}`;
+    const said = `${[pl(R2.recs || 0, 'record'), R2.gone && `${R2.gone} deleted`, R2.route && routeSaid(R2.route)].filter(Boolean).join(' · ')}${R2.kept ? ` · ${R2.kept} newer here kept` : ''}`;
     toast(`${U.full ? `The whole project (update ${U.n})` : `Update ${U.n}`} from ${first}: ${said}`, 6000, `${U.full ? 'The whole project' : 'Update'} ${U.n} opened: ${said}`);
+    if (here) await dupAtMerge(pj, o.written); // beta 3.3 (QA-06)
   }
   [['mSite', 'site'], ['mContractor', 'contractor'], ['mGlobe', 'globeRep'], ['mDate', 'date'], ['curNotes', 'notes']].forEach(([id, key]) => {
     $(id).addEventListener('change', () => { const m = { ...pmeta() }; m[key] = $(id).value.trim(); S.meta = S.meta || {}; S.meta[S.project] = m; persist(); });
@@ -10181,7 +10312,7 @@
     if (proj) { // v2.42.4: the project's details first (a restore cut short left records with none: a PAT showed as an open survey)
       if (!S.projects.includes(proj)) S.projects.push(proj);
       S.meta = S.meta || {};
-      if (meta.meta && !S.meta[proj]) { const { shares, recv, updates, team, chg, ...mm } = meta.meta; S.meta[proj] = mm; } // (v2.43: and its team details) // v2.42.18: the sender's own share counts stay on the sender's phone
+      if (meta.meta && !S.meta[proj]) { const { shares, recv, updates, team, chg, ...mm } = meta.meta; S.meta[proj] = mm; o.fresh = true; } // (beta 3.3: fresh: its spans and cables from before beta 3.3 are the sender's) // (v2.43: and its team details) // v2.42.18: the sender's own share counts stay on the sender's phone
       persist();
     }
     let n = 0, kept = 0, routeNew = false, goneHere = 0;
@@ -10199,11 +10330,13 @@
       }
       await dbPut('points', p);
       const i = points.findIndex((x) => x.id === p.id); if (i >= 0) points[i] = p; else points.push(p);
+      (o.written || (o.written = [])).push(p.id); // (beta 3.3: for the same pole twice)
     }
     if (proj) {
       if (meta.meta && S.meta[proj] !== meta.meta) {
         if (meta.meta.people) S.meta[proj].people = { ...(S.meta[proj].people || {}), ...meta.meta.people };
-        if (meta.meta.links) {
+        if (meta.meta.links && o.update) routeNew = routeMerge(proj, meta.meta, o.update.sender, o.update.from, !!o.fresh); // beta 3.3 (QA-06): per sender (Share and the team mailbox)
+        else if (meta.meta.links) {
           const mineAt = S.meta[proj].linksAt || '', theirs = meta.meta.linksAt || '';
           if (theirs && theirs > mineAt) { S.meta[proj].links = meta.meta.links.map((l) => l.slice()); S.meta[proj].linksAt = theirs; routeNew = true; // v2.42.18: the newer route wins (spans removed, cables and runs changed)
             if (Array.isArray(meta.meta.fibers)) S.meta[proj].fibers = meta.meta.fibers.map((f) => ({ ...f, path: (f.path || []).slice() })); } // v2.42.20: and its fibers (a sender on an older version has none: these stay)
@@ -10238,6 +10371,94 @@
     renderPoles(); fitProject(); busy(false);
     toast(`Restored ${meta.points.length - kept} records into “${S.project}”${kept ? `; ${kept} kept as they are on this phone (newer here)` : ''}`, kept ? 6000 : 4000);
     return proj;
+  }
+
+  /* ================= beta 3.3 (QA-06): the same pole twice at a merge =================
+     After an update is merged (Share or the team mailbox), each record it brought is compared with the records already here: the
+     same pole ID, or the same kind of element within S.dupM metres (Settings → Camera, 10 by default; 0: the ID only). The pairs are
+     grouped and listed: keep one (the others deleted here, and on the partners' phones at the next send), keep both (not asked
+     again for that pair), or combine the photos into one record. Spans and cables of a deleted record move to the one kept. Not on
+     a field partner's phone (his coordinator decides) and not in a PAT / defect cleanup / FAT. */
+  const dupM = () => { const v = S.dupM == null || S.dupM === '' ? 10 : +S.dupM; return Number.isFinite(v) && v >= 0 ? Math.min(50, v) : 10; };
+  function dupFind(proj, written) {
+    if (!proj || isAcc(proj) || !written || !written.length) return [];
+    const T = tmTeam(proj); if (T && T.role === 'fp') return [];
+    const W = new Set(written), all = points.filter((p) => p.project === proj && Number.isFinite(+p.lat) && Number.isFinite(+p.lon)), ok = pmeta(proj).dupOk || {}, lim = dupM();
+    const idOf = (p) => { const v = String(p.poleId || '').trim().toUpperCase(); return v && !isNpt(v) && !/[-_]$/.test(v) ? v : ''; };
+    const par = new Map(), find = (x) => { while (par.get(x) !== x) { par.set(x, par.get(par.get(x))); x = par.get(x); } return x; }, info = new Map();
+    for (const a of all) if (W.has(a.id)) for (const b of all) {
+      if (b.id === a.id || W.has(b.id) || elemOf(a) !== elemOf(b)) continue;
+      const k = [a.id, b.id].sort().join('|'); if (ok[k]) continue;
+      const same = !!idOf(a) && idOf(a) === idOf(b), d = haversine(a, b);
+      if (!same && !(lim > 0 && d <= lim)) continue;
+      [a.id, b.id].forEach((x) => { if (!par.has(x)) par.set(x, x); }); par.set(find(a.id), find(b.id));
+      info.set(k, { same, d });
+    }
+    const G = new Map(); par.forEach((v, x) => { const r = find(x); (G.get(r) || G.set(r, []).get(r)).push(x); });
+    return [...G.values()].map((ids) => { const recs = ids.map((id) => all.find((p) => p.id === id)).sort((a, b) => String(a.created || a.updated || '').localeCompare(String(b.created || b.updated || '')));
+      const pi = [...info.entries()].filter(([k]) => k.split('|').every((x) => ids.includes(x))).map(([, v]) => v);
+      return { recs, same: pi.some((v) => v.same), d: Math.max(0, ...pi.map((v) => v.d)) }; })
+      .sort((a, b) => String(a.recs[0].poleId || '').localeCompare(String(b.recs[0].poleId || ''), undefined, { numeric: true }));
+  }
+  let dupRes = null, dupG = [];
+  function dupAsk(proj, G) {
+    const nm = (r) => String(r.by || '').split(' · ')[0] || 'this phone', nph = (r) => photosOf(r).length, ph = (k) => `${k} photo${k === 1 ? '' : 's'}`;
+    dupG = G;
+    $('dupSub').textContent = `${G.length === 1 ? 'One pole was' : `${G.length} poles were`} recorded twice in “${proj}”: the same pole ID, or within ${dupM()} m of each other (Settings → Camera). For each, keep one, keep both, or combine the photos into one record. A record you do not keep is deleted here, and on your partners' phones at your next send.`;
+    $('dupList').innerHTML = G.map((g, i) => {
+      const ids = [...new Set(g.recs.map((r) => r.poleId || '(no ID)'))], head = `${ids.join(' and ')}${g.same ? ' · the same ID' : ''} · ${g.d >= 1 ? `${Math.round(g.d)} m apart` : 'the same spot'}`;
+      const opt = (v, t, on) => `<label class="dupo"><input type="radio" name="dup${i}" value="${hEsc(v)}"${on ? ' checked' : ''}><span>${t}</span></label>`;
+      return `<div class="dupg" data-g="${i}"><b>${hEsc(head)}</b>${g.recs.map((r) => opt(`pick:${r.id}`, `Keep only ${hEsc(nm(r))}’s ${hEsc(r.poleId || elemOf(r))} (${ph(nph(r))}, ${hEsc(fmtTime(r.created || r.updated || ''))})`)).join('')}`
+        + `${opt('comb', `Combine: ${hEsc(nm(g.recs[0]))}’s record with all ${ph(g.recs.reduce((t, r) => t + nph(r), 0))}`)}${opt('both', g.recs.length > 2 ? `Keep all ${g.recs.length} (different poles)` : 'Keep both (two poles)', true)}</div>`;
+    }).join('');
+    openSheet('dupSheet'); LOG.info('dup.ask', { groups: G.length });
+    return new Promise((res) => { dupRes = res; });
+  }
+  $('dupAll').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-all]'); if (!b) return;
+    dupG.forEach((g, i) => { const v = b.dataset.all === 'pick' ? `pick:${g.recs[0].id}` : b.dataset.all; const el = [...document.querySelectorAll(`#dupList input[name="dup${i}"]`)].find((x) => x.value === v); if (el) el.checked = true; });
+  });
+  $('dupApply').addEventListener('click', () => {
+    const ch = dupG.map((g, i) => { const el = document.querySelector(`#dupList input[name="dup${i}"]:checked`); return el ? el.value : 'both'; });
+    const r = dupRes; dupRes = null; closeSheet(); if (r) r(ch);
+  });
+  async function dupApply(proj, G, ch) {
+    const now = new Date().toISOString(), remap = new Map(), del = [], ok = { ...(pmeta(proj).dupOk || {}) }; let picked = 0, comb = 0, both = 0;
+    for (let i = 0; i < G.length; i++) {
+      const g = G[i], c = ch[i] || 'both';
+      if (c === 'both') { g.recs.forEach((a) => g.recs.forEach((b) => { if (a.id < b.id) ok[`${a.id}|${b.id}`] = now; })); both++; continue; }
+      const keep = c.startsWith('pick:') ? g.recs.find((r) => r.id === c.slice(5)) || g.recs[0] : g.recs[0], others = g.recs.filter((r) => r !== keep);
+      if (c === 'comb') {
+        const cur = points.find((x) => x.id === keep.id) || keep, P = photosOf(cur).slice();
+        others.forEach((r) => photosOf(r).forEach((x) => { if (!P.some((y) => y.pid === x.pid)) P.push({ ...x, label: x.label || 'Photo' }); }));
+        const nk = { ...cur, photos: P, updated: now, updatedBy: byLine() }; await dbPut('points', nk); points[points.findIndex((x) => x.id === keep.id)] = nk; comb++;
+      } else picked++;
+      others.forEach((r) => { remap.set(r.id, keep.id); del.push(r); });
+    }
+    const gone = { ...(pmeta(proj).gone || {}) };
+    for (const r of del) { await dbDel('points', r.id); points = points.filter((x) => x.id !== r.id); gone[r.id] = now; }
+    if (del.length) await deletePhotosIfUnused(del.flatMap(allPids), new Set(del.map((r) => r.id)));
+    S.meta[proj] = { ...pmeta(proj), gone, dupOk: ok }; persist();
+    if (remap.size) { // the spans and cables of a deleted record move to the one kept
+      const mv = (id) => remap.get(id) || id, seen = new Set(), L1 = [], L0 = pmeta(proj).links || [];
+      L0.forEach((q) => { const a = mv(q[0]), b = mv(q[1]); if (a === b) return; const k = spanKey(a, b); if (seen.has(k)) return; seen.add(k); L1.push(a === q[0] && b === q[1] ? q : linkWith(a, b, q[2], q[3])); });
+      const F0 = fibers(proj), F1 = F0.map((f) => { const p = []; f.path.forEach((id) => { const x = mv(id); if (!p.includes(x)) p.push(x); }); return { ...f, path: p }; });
+      const chF = F0.some((f, i) => f.path.join() !== F1[i].path.join()), chL = L1.length !== L0.length || L1.some((q, i) => q !== L0[i]);
+      if (chL || chF) routeWrite(proj, chL ? L1 : null, chF ? F1 : null);
+    }
+    if (del.length) changedAfterApproval(proj, 'delete');
+    LOG.info('dup.apply', { groups: G.length, picked, comb, both, deleted: del.length });
+    renderPoles(); if (!$('list').hidden) renderList();
+    const said = [picked && `${picked} kept one`, comb && `${comb} combined`, both && `${both} kept both`].filter(Boolean).join(', ');
+    toast(`The same pole twice: ${said}${del.length ? ` · ${del.length} record${del.length === 1 ? '' : 's'} deleted` : ''}`, 5000);
+    return { picked, comb, both, deleted: del.length };
+  }
+  /** After a merge: the same pole twice, if any, listed (Back: kept as they are; listed again when one of them is merged again). */
+  async function dupAtMerge(proj, written) {
+    const G = dupFind(proj, (written || []).filter((id) => points.some((p) => p.id === id && p.project === proj))); if (!G.length) return null;
+    const ch = await dupAsk(proj, G);
+    if (!ch) { toast('Kept as they are: they are listed again when one of them is merged again.', 5000); LOG.info('dup.later', { groups: G.length }); return null; }
+    return dupApply(proj, G, ch);
   }
 
   /* ================= acceptance exports ================= */
@@ -10849,7 +11070,7 @@
   function renderTypeInfo() { $('typeInfo').textContent = poleTypes().map((t) => `${t.n} ${t.p}-`).join(' · '); }
   $('goCamera').addEventListener('click', () => {
     $('setMyTypes').value = typeLines(S.myTypes); renderTypeInfo();
-    $('setReadId').checked = S.readId !== false; $('setReadIdAcc').checked = S.readIdAcc === true; $('setSaveCheck').checked = S.saveCheck !== false; $('setIdAuto').checked = S.idAuto !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h'; $('setHand').value = handOf();
+    $('setReadId').checked = S.readId !== false; $('setReadIdAcc').checked = S.readIdAcc === true; $('setSaveCheck').checked = S.saveCheck !== false; $('setDupM').value = String(dupM()); $('setIdAuto').checked = S.idAuto !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h'; $('setHand').value = handOf();
     $('setQuality').value = effectiveQuality(); $('setQuality').disabled = !!S.team;
     $('qualityNote').textContent = S.team ? `Set by the admin in the company list “${S.team.name}” — the same on every phone.` : 'Until this phone takes a company list, you can choose this yourself.';
     openSheet('setCamera');
@@ -10857,6 +11078,7 @@
   $('setReadId').addEventListener('change', () => { S.readId = $('setReadId').checked; persist(); });
   $('setReadIdAcc').addEventListener('change', () => { S.readIdAcc = $('setReadIdAcc').checked; persist(); });
   $('setSaveCheck').addEventListener('change', () => { S.saveCheck = $('setSaveCheck').checked; persist(); }); // v2.42.17
+  $('setDupM').addEventListener('change', () => { const v = $('setDupM').value.trim(); S.dupM = v === '' ? 10 : Math.max(0, Math.min(50, Math.round(+v) || 0)); $('setDupM').value = String(dupM()); persist(); }); // beta 3.3 (QA-06)
   $('setIdAuto').addEventListener('change', () => { S.idAuto = $('setIdAuto').checked; persist(); });
   $('setHand').addEventListener('change', () => { S.hand = $('setHand').value; persist(); applyHand(); toast(`Camera button on the ${handOf()}`, 2000); });
   $('setOrient').addEventListener('change', () => { S.idOrient = $('setOrient').value === 'v' ? 'v' : 'h'; persist(); });
@@ -12273,7 +12495,8 @@
     const cseLeads = Array.isArray(j.cseLeads) ? j.cseLeads.filter((x) => x && typeof x === 'object').map((x) => ({ t: s100(x.t, 60), n: s100(x.n, 80) })).filter((x) => x.t && x.n).slice(0, 200) : null; // v2.42.12: the CSE LEAD tab
     return { name: s100(j.name), companies, admins, tasks: tasks.slice(0, 500), packs, ...(cseLeads ? { cseLeads } : {}), scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you),
       ...(j.kmzPass ? { kmzPass: s100(j.kmzPass, 100) } : {}), ...(adminUsers ? { adminUsers } : {}), ...(/^[A-Za-z0-9_-]{20,80}$/.test(String(j.dxfSeed || '')) ? { dxfSeed: String(j.dxfSeed) } : {}), // v2.32: the plan template's id
-      ...(typeof j.siteRequired === 'boolean' ? { siteRequired: j.siteRequired } : {}) }; // v2.42.18: the sheet's Settings → Site required
+      ...(typeof j.siteRequired === 'boolean' ? { siteRequired: j.siteRequired } : {}), // v2.42.18: the sheet's Settings → Site required
+      ...(typeof j.teamOn === 'boolean' ? { teamOn: j.teamOn } : {}) }; // v2.43 beta 3.2 (QA-17): Team for this company (sheet → CompanyKeys → Team)
   }
   let cloudBusy = null, cloudErr = '';
   /** v2.42.18: "a new Survey or PAT must use a site of the online sheet": the sheet's Settings → Site required (Yes / No), which every
@@ -12326,7 +12549,9 @@
         const j = await cloudRequest(src);
         if (j && j.error === 'company key') strictAt = sheetUrl(); // v2.42.4: the sheet uses company keys (the message below no longer says “company key”)
         if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : j && j.error === 'company key' ? (keyMode() ? 'your company key no longer works: ask your admin for a new invite (Settings → Reset user, then open the invite)' : 'join with your company invite (QR code or link from your admin or a coworker)') : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
+        const teamWas = tmHooks.on ? tmHooks.on() : false;
         S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j, { area: true }) }; cloudErr = ''; persist();
+        if (tmHooks.switched && (tmHooks.on ? tmHooks.on() : false) !== teamWas) { try { tmHooks.switched(); } catch (e) { LOG.warn('team.switch', errInfo(e)); } } // v2.43 beta 3.2 (QA-17)
         if (S.adminMe && S.adminMe.src === src.url && j.adminMe && typeof j.adminMe === 'object') { // v2.42.18: the verified admin user's row (its jobs), or its row deleted
           if (j.adminMe.gone || j.adminMe.bad) { if (!S.adminMe.gone) LOG.info('admin.email.gone', { bad: !!j.adminMe.bad }); S.adminMe = { ...S.adminMe, gone: true }; }
           else if (String(j.adminMe.e || '').trim().toLowerCase() === S.adminMe.e) S.adminMe = { ...S.adminMe, ...adminRow(j.adminMe), at: new Date().toISOString() };
@@ -13998,21 +14223,27 @@
   const TM_ST = { asked: 'Asked', in: 'In the team', declined: 'Declined', left: 'Left', removed: 'Removed' };
   const MBX_ACT = 'action'; // the field the mailbox script reads the action from
   const tmEmail = () => String((S.user && S.user.email) || '').trim().toLowerCase();
-  const tmOn = () => !!(keyMode() && sheetUrl()); // a team needs the company key (who is in which company) and the online sheet
+  /** v2.43 beta 3.2 (QA-17): Team is on only when the online sheet says so for this company (CompanyKeys → Team: Yes; sheet script
+      v2.43.1), as of the last sync with this sheet. Off: Team's parts hide; nothing on the phone is deleted. G-eSAA and G-eSAA Beta alike. */
+  const tmSwitch = () => !!(S.cloud && S.cloud.src === sheetUrl() && S.cloud.teamOn === true);
+  const tmOn = () => !!(keyMode() && sheetUrl() && tmSwitch()); // a team needs the company key (who is in which company), the online sheet, and Team on
   const tmVerified = () => !!(S.teamMe && S.teamMe.tok && S.teamMe.e === tmEmail() && S.teamMe.src === sheetUrl());
   const tmSnap = () => (S.teamSnap && S.teamSnap.src === sheetUrl() && S.teamSnap.e === tmEmail() ? S.teamSnap : null);
   const tmRole = () => { const t = tmSnap(); return (t && t.me && t.me.role) || 'On my own'; };
   const tmEsc = (x) => C.xmlEsc(String(x == null ? '' : x));
   const tmWhen = (iso) => { const d = new Date(iso); return Number.isFinite(d.getTime()) ? d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''; };
   let tmCodeSent = false;
-  const TM_WHY = { key: 'the online sheet did not accept this: it needs the v2.43 sheet script (in G-eSAA Beta, set the beta address in Settings)', tok: 'confirm your email again (Settings → Team)', role: 'only a coordinator can do this', action: 'the online sheet has an older script (it needs v2.43)', email: 'that email is not valid', wait: 'too many codes: wait 10 minutes, then send a new one', mail: 'the online sheet could not send email today', expired: 'the code expired: send a new one', code: 'wrong code', coordinator: 'that person is not a coordinator of your company', url: 'that is not a mailbox web app address', member: 'that person is not in your team', link: 'that request is no longer open (ask to join again)', self: 'you cannot join your own team', busy: 'the online sheet is busy: try again', server: 'the online sheet had a problem: try again', mailbox: 'set up the mailbox first', 'team key': 'the mailbox key was not accepted' };
+  const TM_WHY = { off: 'Team is not switched on for your company in the online sheet (ask your admin)',
+    codes: 'your company has used today’s email codes for teams: try again tomorrow, or ask your admin', mailday: 'today’s emails of the online sheet are kept for the admin codes: try again tomorrow',
+    self: 'that is you', link: 'that person is not asking (or is not in your company)', key: 'the online sheet did not accept this: it needs the v2.43 sheet script (in G-eSAA Beta, set the beta address in Settings)', tok: 'confirm your email again (Settings → Team)', role: 'only a coordinator can do this', action: 'the online sheet has an older script (it needs v2.43)', email: 'that email is not valid', wait: 'too many codes: wait 10 minutes, then send a new one', mail: 'the online sheet could not send email today', expired: 'the code expired: send a new one', code: 'wrong code', coordinator: 'that person is not a coordinator of your company', url: 'that is not a mailbox web app address', member: 'that person is not in your team', link: 'that request is no longer open (ask to join again)', self: 'you cannot join your own team', busy: 'the online sheet is busy: try again', server: 'the online sheet had a problem: try again', mailbox: 'set up the mailbox first', 'team key': 'the mailbox key was not accepted' };
   async function tmPost(action, body) {
     if (!sheetUrl()) throw new Error('no online sheet: join your company first');
     const j = await cloudRequest({ url: sheetUrl() }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action, ckey: S.companyKey || '', email: tmEmail(), tok: tmVerified() ? S.teamMe.tok : '', ...(body || {}) }) });
+      body: JSON.stringify({ action, ckey: S.companyKey || '', email: tmEmail(), tok: tmVerified() ? S.teamMe.tok : '', tv: 2, ...(body || {}) }) }); // (beta 3.3: tv 2: coordinator approval)
     if (!j || !j.ok) {
       const code = j && j.error;
       if (code === 'tok') { S.teamMe = null; persist(); }
+      if (code === 'off' && S.cloud && S.cloud.src === sheetUrl() && S.cloud.teamOn !== false) { S.cloud = { ...S.cloud, teamOn: false }; persist(); setTimeout(() => { try { tmSwitched(); } catch (x) { /* shown at the next render */ } }, 0); } // v2.43 beta 3.2 (QA-17)
       const e = new Error(TM_WHY[code] || code || 'no answer from the online sheet'); e.code = code; e.left = j && j.left; throw e;
     }
     return j;
@@ -14021,7 +14252,7 @@
   async function tmLoad() {
     if (!tmOn() || navigator.onLine === false) return null;
     const j = await tmPost('team', {});
-    S.teamSnap = { me: j.me || null, coordinators: j.coordinators || [], myTeams: j.myTeams || [], members: j.members || [], mailboxSet: !!j.mailboxSet, scriptLink: j.scriptLink || '', src: sheetUrl(), e: tmEmail(), at: new Date().toISOString() };
+    S.teamSnap = { me: j.me || null, coordinators: j.coordinators || [], myTeams: j.myTeams || [], members: j.members || [], asking: j.asking || [], mailboxSet: !!j.mailboxSet, scriptLink: j.scriptLink || '', src: sheetUrl(), e: tmEmail(), at: new Date().toISOString() };
     if (j.verified === false && S.teamMe) S.teamMe = null; // the sheet no longer knows this phone's confirmation
     const m = j.mailbox;
     if (m && m.url && m.key) S.mbx = { url: m.url, key: m.key, account: m.account || '', setBy: m.setBy || '', checked: (S.mbx && S.mbx.url === m.url && S.mbx.checked) || m.checked || '', src: sheetUrl() };
@@ -14052,8 +14283,10 @@
     $('tmCodeRow').hidden = ver || !em; $('tmVerifyRow').hidden = ver || !em || !tmCodeSent;
     $('tmSend').textContent = tmCodeSent ? 'Send a new code' : 'Send me a code';
     $('tmMailInfo').textContent = ver ? 'Projects for you are sent to this email.' : !em ? 'Add your email in Your details first (Settings → your name).' : tmCodeSent ? `Type the 6-digit code emailed to ${em}. It works for 10 minutes.` : 'Projects are sent to this email, so it is confirmed once with a code.';
-    $('tmRole').querySelectorAll('.chip').forEach((b) => { b.setAttribute('aria-pressed', String(!!t && !!t.me && b.dataset.v === role)); b.disabled = !ver; });
-    $('tmRoleInfo').textContent = !ver ? 'Confirm your email first.' : role === 'Coordinator' ? 'You make projects and send them to your field partners, and accept their surveys.' : role === 'Field Partner' ? 'You get projects from your coordinators and send your surveys back to them.' : 'You make and share your own projects, as before.';
+    const ask = (t && t.me && t.me.ask) || ''; // beta 3.3 (QA-08): Coordinator asked for (waiting for approval) or declined
+    $('tmRole').querySelectorAll('.chip').forEach((b) => { b.setAttribute('aria-pressed', String(!!t && !!t.me && b.dataset.v === (ask ? 'Coordinator' : role))); b.classList.toggle('wait', !!ask && b.dataset.v === 'Coordinator'); b.disabled = !ver; });
+    $('tmRoleInfo').textContent = !ver ? 'Confirm your email first.' : ask === 'asked' ? 'Coordinator: asked for. Your admin, or an approved coordinator of your company, approves it. Until then you work on your own: no team and no mailbox.'
+      : ask === 'declined' ? 'Your request to be a coordinator was declined. Ask your admin, or pick another role.' : role === 'Coordinator' ? 'You make projects and send them to your field partners, and accept their surveys.' : role === 'Field Partner' ? 'You get projects from your coordinators and send your surveys back to them.' : 'You make and share your own projects, as before.';
     $('tmFp').hidden = !(ver && role === 'Field Partner');
     if (!$('tmFp').hidden) {
       const mine = {}; ((t && t.myTeams) || []).forEach((x) => { mine[x.coordinator] = x.status; });
@@ -14061,6 +14294,8 @@
       $('tmCoList').innerHTML = list.length ? list.map((c) => { const st = mine[c.email] || ''; return `<div class="tmrow"><span class="t"><b>${tmEsc(c.name || c.email)}</b><small>${tmEsc([c.regions, c.email].filter(Boolean).join(' · '))}</small></span><span class="b">${st ? `<span class="tmst">${TM_ST[st] || tmEsc(st)}</span>` : ''}${st === 'in' || st === 'asked' ? `<button class="btn sm" type="button" data-leave="${tmEsc(c.email)}">${st === 'asked' ? 'Cancel' : 'Leave'}</button>` : `<button class="btn sm primary" type="button" data-join="${tmEsc(c.email)}">Ask to join</button>`}</span></div>`; }).join('') : '<p class="hint" style="padding:8px 10px">No coordinator in your company yet.</p>';
     }
     $('tmCo').hidden = !(ver && role === 'Coordinator');
+    { const A = (ver && role === 'Coordinator' && t && t.asking) || []; $('tmAskBox').hidden = !A.length; // beta 3.3 (QA-08): who asks to be a coordinator
+      $('tmAskList').innerHTML = A.map((m) => `<div class="tmrow"><span class="t"><b>${tmEsc(m.name || m.email)}</b><small>${tmEsc([m.regions, m.email].filter(Boolean).join(' · '))}</small></span><span class="b"><button class="btn sm primary" type="button" data-appr="${tmEsc(m.email)}">Approve</button><button class="btn sm" type="button" data-decl="${tmEsc(m.email)}">Decline</button></span></div>`).join(''); }
     if (!$('tmCo').hidden) {
       const ms = ((t && t.members) || []).filter((m) => m.status === 'asked' || m.status === 'in');
       $('tmMemList').innerHTML = ms.length ? ms.map((m) => `<div class="tmrow"><span class="t"><b>${tmEsc(m.name || m.email)}</b><small>${tmEsc([m.regions, m.email].filter(Boolean).join(' · '))}</small></span><span class="b">${m.status === 'asked' ? `<button class="btn sm" type="button" data-decline="${tmEsc(m.email)}">Decline</button><button class="btn sm primary" type="button" data-accept="${tmEsc(m.email)}">Accept</button>` : `<span class="tmst">In your team</span><button class="btn sm" type="button" data-remove="${tmEsc(m.email)}">Remove</button>`}</span></div>`).join('') : '<p class="hint" style="padding:8px 10px">No field partner yet. They ask to join from their phones (Settings → Team → Field Partner).</p>';
@@ -14105,12 +14340,42 @@
   $('tmRole').addEventListener('click', (ev) => {
     const b = ev.target.closest('.chip'); if (!b || b.disabled) return;
     const want = b.dataset.v, t = tmSnap();
-    if (t && t.me && t.me.role === want) return;
+    if (t && t.me && (t.me.ask ? 'Coordinator' : t.me.role) === want) return; // (beta 3.3: a coordinator asked for may go back to another role)
     guard(async () => {
       if (t && t.me && t.me.role === 'Coordinator' && (t.members || []).some((m) => m.status === 'in')
         && !(await ask('Stop being a coordinator?', 'Your field partners stay listed in your team, but you no longer send or accept their work. Another coordinator of your company can take it over.', [{ label: 'Cancel', value: false }, { label: 'Change my role', value: true, primary: true }]))) return;
       await tmDo('Saving your role…', () => tmPost('teamRole', { name: (S.user && S.user.name) || '', role: want, regions: myRegions().join(',') }));
     }, 'Role not saved');
+  });
+  $('tmAskList').addEventListener('click', (ev) => { // beta 3.3 (QA-08): an approved coordinator approves or declines
+    const a = ev.target.closest('[data-appr]'), d = ev.target.closest('[data-decl]');
+    if (a) tmDo('Approving…', async () => { await tmPost('teamApprove', { who: a.dataset.appr, approve: true }); toast(`${tmNameOf(a.dataset.appr)} is a coordinator now.`, 4000); });
+    else if (d) guard(async () => { if (await ask('Decline?', `${tmNameOf(d.dataset.decl)} will not be a coordinator; your admin can still approve it in the online sheet.`, [{ label: 'Cancel', value: false }, { label: 'Decline', value: true, primary: true }])) await tmDo('Declining…', () => tmPost('teamApprove', { who: d.dataset.decl, approve: false })); }, 'Not declined');
+  });
+  /* beta 3.3 (QA-08): the admin phone: every company's coordinators (the online sheet's Team tab), Approve or Decline */
+  let admCoords = null;
+  async function admTeamCall(body) {
+    if (!sheetUrl() || !S.onlineAdminKey) throw new Error('set the online sheet and its Admin key first (above)');
+    let j; try { j = await cloudRequest({ url: sheetUrl() }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: S.onlineAdminKey, ...body }) }); } catch (e) { throw new Error(`the online sheet did not answer (${e.message || e})`); }
+    if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the online sheet did not accept the Admin key' : j && j.error === 'action' ? 'the online sheet’s script is older than v2.43.2: update it' : (j && j.error) || 'no answer');
+    return j;
+  }
+  function renderAdmCoords() {
+    const L = admCoords || [], st = (c) => (c.approved === 'yes' ? 'Approved' : c.approved === 'no' ? 'Declined' : 'Asking');
+    $('admTeamList').innerHTML = !L.length ? '<p class="hint" style="margin:0">No coordinators in the Team tab yet.</p>' : L.slice().sort((a, b) => (a.approved === '' ? 0 : 1) - (b.approved === '' ? 0 : 1) || String(a.company).localeCompare(String(b.company))).map((c) => `<div class="tmrow"><span class="t"><b>${tmEsc(c.name || c.email)}</b><small>${tmEsc([c.company, c.email, c.teamOn ? '' : 'Team off for this company'].filter(Boolean).join(' · '))}</small></span><span class="b"><span class="tmst ${c.approved === 'yes' ? 'in' : c.approved === 'no' ? 'declined' : 'asked'}">${st(c)}</span>${c.approved !== 'yes' ? `<button class="btn sm primary" type="button" data-cset="1" data-co="${tmEsc(c.company)}" data-e="${tmEsc(c.email)}">Approve</button>` : ''}${c.approved !== 'no' ? `<button class="btn sm" type="button" data-cset="0" data-co="${tmEsc(c.company)}" data-e="${tmEsc(c.email)}">${c.approved === 'yes' ? 'Remove' : 'Decline'}</button>` : ''}</span></div>`).join('');
+  }
+  $('admTeamLoad').addEventListener('click', () => guard(async () => {
+    busy('Reading the coordinators…'); try { admCoords = (await admTeamCall({ action: 'teamCoords' })).coords || []; } finally { busy(false); }
+    renderAdmCoords(); LOG.info('team.admin.list', { n: admCoords.length, asking: admCoords.filter((c) => c.approved === '').length });
+  }, 'Not read'));
+  $('admTeamList').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-cset]'); if (!b) return;
+    guard(async () => {
+      const yes = b.dataset.cset === '1', who = b.dataset.e;
+      if (!yes && !(await ask(b.textContent === 'Remove' ? 'Remove this coordinator?' : 'Decline?', `${who} (${b.dataset.co}) ${b.textContent === 'Remove' ? 'stops being a coordinator at the next sync of their phone: no team and no mailbox' : 'will not be a coordinator'}. You can approve again later.`, [{ label: 'Cancel', value: false }, { label: b.textContent, value: true, primary: true }]))) return;
+      busy('Saving in the online sheet…'); try { await admTeamCall({ action: 'teamCoordSet', company: b.dataset.co, email: who, approve: yes }); admCoords = (await admTeamCall({ action: 'teamCoords' })).coords || []; } finally { busy(false); }
+      renderAdmCoords(); toast(yes ? `${who} is approved as coordinator.` : `${who} is not a coordinator.`, 4000); LOG.info('team.admin.set', { yes });
+    }, 'Not saved');
   });
   $('tmCoList').addEventListener('click', (ev) => {
     const j = ev.target.closest('[data-join]'), l = ev.target.closest('[data-leave]');
@@ -14134,10 +14399,34 @@
   });
 
   /* ---- the mailbox (the contractor's own script) ---- */
-  const MBX_WHY = { key: 'the mailbox did not accept the key (tap Refresh in Team; a coordinator may have changed it)', box: 'the mailbox did not accept this email', tid: 'bad transfer id', size: 'the file is too big for one call', parts: 'the file did not arrive complete', meta: 'the file details are too long', id: 'that file is not in the mailbox' };
+  const MBX_WHY = { key: 'the mailbox did not accept the key (tap Refresh in Team; a coordinator may have changed it)', box: 'the mailbox did not accept this email', tid: 'bad transfer id', size: 'the file is too big for one call', parts: 'the file did not arrive complete', meta: 'the file details are too long', id: 'that file is not in the mailbox',
+    // beta 3.3 (QA-10): Google's limits and the mailbox's own answers, in plain words (full: see mbxWhy)
+    rate: 'Google is limiting how fast the mailbox can work right now. It was tried again several times; try again in a few minutes',
+    nojson: 'Google is busy: try again in a minute',
+    busy: 'the mailbox is busy with another phone: try again in a minute',
+    drive: 'Google Drive did not answer the mailbox: try again in a minute',
+    server: 'the mailbox script ran into an error: try again; if it happens again, send the App log (Settings → App log)',
+    gone: 'that file is no longer in the mailbox (it was taken back, picked up, or cleared after 7 days)',
+    closed: 'that send is closed: it was taken back or already picked up',
+    unclaimed: 'the mailbox is not set up to the end: the coordinator who set it up taps Check and save in Settings → Team',
+    picked: 'that send was already picked up' };
+  /** beta 3.3 (QA-10): the words for a mailbox answer. full: who frees the space, by name. */
+  function mbxWhy(code) {
+    if (code === 'full') {
+      const by = S.mbx && S.mbx.setBy ? (tmNameOf(S.mbx.setBy) || S.mbx.setBy) : '';
+      return `the mailbox's Google Drive is full: ${by ? `${by}, who set up the mailbox, frees` : 'the coordinator who set up the mailbox frees'} space in that Google account${S.mbx && S.mbx.account ? ` (${S.mbx.account})` : ''}: Drive, Gmail or Photos, then try again`;
+    }
+    return MBX_WHY[code] || code || 'the mailbox did not answer';
+  }
   async function mbxPost(url, action, body, ms) {
-    const j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ [MBX_ACT]: action, ...(body || {}) }) }, undefined, ms);
-    if (!j || !j.ok) { const code = j && j.error; const e = new Error(MBX_WHY[code] || code || 'the mailbox did not answer'); e.code = code; throw e; }
+    let j;
+    try { j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ [MBX_ACT]: action, ...(body || {}) }) }, undefined, ms); }
+    catch (x) { // beta 3.3 (QA-10): Google's own error pages (too many scripts at once…) are not JSON: never their raw text
+      if (x instanceof SyntaxError || /JSON|Unexpected token|Unexpected end/i.test(String((x && x.message) || x))) { const e = new Error(MBX_WHY.nojson); e.code = 'nojson'; throw e; }
+      throw x;
+    }
+    if (!j || typeof j !== 'object') { const e = new Error(MBX_WHY.nojson); e.code = 'nojson'; throw e; }
+    if (!j.ok) { const code = j.error; const e = new Error(mbxWhy(code)); e.code = code; throw e; }
     return j;
   }
   const mbxRid = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => 'abcdefghijkmnpqrstuvwxyz23456789'[b % 32]).join('');
@@ -14249,7 +14538,7 @@
      task key (tk), so each phone keeps its own project name. */
   const MBX_CHUNK = 4 * 1048576, MBX_PIECE = 2 * 1048576, MBX_PAR = 4, MBX_DAY = 86400000;
   let mbxIn = null, mbxInAt = 0, mbxInErr = '', mbxNoDirect = false, mbxSend = null, npAssign = new Set();
-  const mbxOn = () => !!(S.mbx && S.mbx.url && S.mbx.key && tmVerified() && ['Coordinator', 'Field Partner'].includes(tmRole()));
+  const mbxOn = () => !!(tmOn() && S.mbx && S.mbx.url && S.mbx.key && tmVerified() && ['Coordinator', 'Field Partner'].includes(tmRole())); // (beta 3.2: and Team on)
   const tmTeam = (name) => (S.meta && S.meta[name] && S.meta[name].team) || null;
   const setTeam = (name, T) => { S.meta = S.meta || {}; S.meta[name] = { ...pmeta(name), team: T }; };
   const mbxTid = () => `g${Date.now().toString(36)}${mbxRid(10)}`;
@@ -14267,29 +14556,41 @@
   const tmPartners = () => (((tmSnap() || {}).members) || []).filter((m) => m.status === 'in');
   const mbxStopErr = () => { const e = new Error('stopped'); e.code = 'stop'; return e; };
   /** One call to the company mailbox, with the key; network trouble and a busy mailbox are tried again; a changed key is fetched
-      from the online sheet once. */
-  async function mbxCall(action, body, ms, tries) {
-    let rekeyed = false;
+      from the online sheet once. beta 3.3 (QA-10): Google's limits (rate, busy, an answer that is not JSON) are tried again after
+      2, 5, 10 and 20 s, whatever tries says; x (a transfer's { par }) then goes from 4 calls at once to 2, then 1. */
+  const MBX_SLOW = ['rate', 'busy', 'nojson'], MBX_WAITS = [2000, 5000, 10000, 20000];
+  async function mbxCall(action, body, ms, tries, x) {
+    let rekeyed = false, slow = 0;
     for (let i = 0; ; i++) {
       if (!S.mbx) throw new Error('no team mailbox on this phone (Settings → Team)');
       try { return await mbxPost(S.mbx.url, action, { k: S.mbx.key, ...(body || {}) }, ms); }
       catch (e) {
         if (cancelFlag) throw mbxStopErr();
         if (e.code === 'key' && !rekeyed) { rekeyed = true; const k0 = S.mbx.key; await tmLoad().catch(() => null); if (S.mbx && S.mbx.key !== k0) { i--; continue; } throw e; }
-        if ((e.code && !['busy', 'drive', 'server'].includes(e.code)) || i >= (tries == null ? 2 : tries)) throw e;
-        await sleep(1200 * (i + 1));
+        if (MBX_SLOW.includes(e.code)) {
+          if (x && x.par > 1) { x.par = x.par > 2 ? 2 : 1; LOG.info('mbx.slower', { par: x.par, code: e.code }); }
+          if (slow >= MBX_WAITS.length) throw e;
+          LOG.info('mbx.retry', { action, code: e.code, wait: MBX_WAITS[slow] / 1000 });
+          if (x && x.note) x.note(`${e.code === 'rate' ? 'Google is slowing the mailbox down' : 'Google is busy'}: trying again in ${MBX_WAITS[slow] / 1000} s`);
+          await mbxSleep(MBX_WAITS[slow++]); i--; continue;
+        }
+        if ((e.code && !['drive', 'server'].includes(e.code)) || i >= (tries == null ? 2 : tries)) throw e;
+        await mbxSleep(1200 * (i + 1));
       }
     }
   }
-  async function mbxPool(jobs, fn) {
-    let next = 0, err = null;
-    const worker = async () => { while (!err && next < jobs.length) { const j = jobs[next++]; try { await fn(j); } catch (e) { err = err || e; } } };
-    await Promise.all(Array.from({ length: Math.min(MBX_PAR, jobs.length) }, worker));
+  /** A wait that Stop ends at once. */
+  async function mbxSleep(ms) { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (cancelFlag) throw mbxStopErr(); await sleep(Math.min(250, ms - (Date.now() - t0))); } }
+  /** jobs, at most x.par at once (4; fewer after Google said it is busy: see mbxCall). */
+  async function mbxPool(jobs, fn, x) {
+    const X = x || { par: MBX_PAR }; let next = 0, err = null;
+    const worker = async (w) => { while (!err && next < jobs.length) { if (w >= X.par) return; const j = jobs[next++]; try { await fn(j); } catch (e) { err = err || e; } } };
+    await Promise.all(Array.from({ length: Math.min(MBX_PAR, jobs.length) }, (_, w) => worker(w)));
     if (err) throw err;
   }
   /** The bytes straight to Google, 4 MB at a time. true: Google has them all; 'unsure': the last answer was lost (done checks). */
-  async function mbxUpDirect(box, tid, data, prog, note) {
-    const size = data.length, s = await mbxCall('session', { box, tid, size, origin: location.origin });
+  async function mbxUpDirect(box, tid, data, prog, note, x) {
+    const size = data.length, s = await mbxCall('session', { box, tid, size, origin: location.origin }, undefined, undefined, x);
     const upTo = (r) => { const m = /(\d+)\s*$/.exec((r && r.headers.get('Range')) || ''); return m ? +m[1] + 1 : null; };
     let start = 0, fails = 0;
     while (start < size) {
@@ -14317,15 +14618,15 @@
     return true;
   }
   /** The fallback: 2 MB pieces through the mailbox script, 4 at once (slower, but it arrives). */
-  async function mbxUpPieces(box, tid, data, prog) {
-    const n = Math.max(1, Math.ceil(data.length / MBX_PIECE));
+  async function mbxUpPieces(box, tid, data, prog, x) {
+    const n = Math.max(1, Math.ceil(data.length / MBX_PIECE)), X = x || { par: MBX_PAR };
     if (n > 999) throw new Error('the file is too big for the mailbox (over 2 GB)');
     let sent = 0;
     await mbxPool(Array.from({ length: n }, (_, i) => i), async (i) => {
       const a = i * MBX_PIECE, b = Math.min(data.length, a + MBX_PIECE);
-      await mbxCall('put', { box, tid, n: i + 1, data: mbxB64(data.subarray(a, b)) }, 90000, 3);
+      await mbxCall('put', { box, tid, n: i + 1, data: mbxB64(data.subarray(a, b)) }, 90000, 3, X);
       sent += b - a; prog(sent / data.length);
-    });
+    }, X);
   }
   /** The screen-wide wait as a progress reporter, for sends started outside the Send screen. */
   function mbxBusyUi(label) {
@@ -14336,22 +14637,31 @@
   async function mbxSendBytes(box, data, meta, label, ui0) {
     const ui = ui0 || mbxBusyUi(label), size = data.length, M = { ...meta, sha256: await mbxSha(data), size }, first = tmFirst(box);
     const prog = (f) => ui.prog(f, Math.round(f * size), size);
+    const X = { par: MBX_PAR, note: ui.note }; // beta 3.3 (QA-10): this transfer's calls at once, and its "trying again" line
     let tid = mbxTid(), how = 'script';
+    // beta 3.3 (QA-10): room in the mailbox's Drive first: stop with the reason when the file won't fit
+    ui.stage('send', 'Checking the mailbox’s space');
+    let sp = null; try { sp = await mbxCall('space', {}, 30000, 1, X); } catch (e) { if (e.code === 'stop') throw e; LOG.info('mbx.space.skip', { code: e.code || '' }); }
+    if (sp && sp.limit) {
+      const free = sp.limit - (sp.usage || 0), need = Math.round(size * 1.05) + 1048576;
+      LOG.info('mbx.space', { freeMB: Math.round(free / 1048576), needMB: Math.round(need / 1048576) });
+      if (free < need) { const e = new Error(`${mbxWhy('full')}. It has ${mbxMB(Math.max(0, free))} free and this send needs ${mbxMB(need)}`); e.code = 'full'; throw e; }
+    }
     ui.stage('send', 'Sending straight to Google'); prog(0);
     if (!mbxNoDirect) {
       try {
-        const r = await mbxUpDirect(box, tid, data, prog, ui.note);
+        const r = await mbxUpDirect(box, tid, data, prog, ui.note, X);
         if (r === true) how = 'direct';
         else { // Google's last answer was lost: done() finds the file at its full size, or says it is not there
-          try { ui.stage('save', `Saving in ${first}’s mailbox`); await mbxCall('done', { box, tid, meta: M, size }, 60000); return { tid, how: 'direct' }; }
+          try { ui.stage('save', `Saving in ${first}’s mailbox`); await mbxCall('done', { box, tid, meta: M, size }, 60000, undefined, X); return { tid, how: 'direct' }; }
           catch (e) { if (e.code !== 'parts') throw e; }
         }
-      } catch (e) { if (e.code === 'stop') throw e; LOG.warn('mbx.direct', { msg: String(e.message || e).slice(0, 120) }); }
+      } catch (e) { if (e.code === 'stop' || MBX_SLOW.includes(e.code) || e.code === 'full') throw e; LOG.warn('mbx.direct', { msg: String(e.message || e).slice(0, 120) }); } // (beta 3.3: Google's limits are not a reason to switch to pieces)
       if (how !== 'direct') { mbxNoDirect = true; await mbxCall('cancel', { box, tid }).catch(() => {}); tid = mbxTid(); }
     }
-    if (how !== 'direct') { ui.stage('send', 'Sending through the mailbox script (slower)'); prog(0); await mbxUpPieces(box, tid, data, prog); }
+    if (how !== 'direct') { ui.stage('send', 'Sending through the mailbox script (slower)'); prog(0); await mbxUpPieces(box, tid, data, prog, X); }
     ui.stage('save', `Saving in ${first}’s mailbox`);
-    await mbxCall('done', { box, tid, meta: M, size }, 60000);
+    await mbxCall('done', { box, tid, meta: M, size }, 60000, undefined, X);
     return { tid, how };
   }
   /** A transfer back from the mailbox: 2 MB ranges, 4 at once, checked against the sender's SHA-256. */
@@ -14362,13 +14672,14 @@
     const jobs = []; let off = 0;
     parts.forEach((p) => { const sz = Number(p.size); for (let a = 0; a < sz; a += MBX_PIECE) jobs.push({ id: p.id, a, b: Math.min(sz, a + MBX_PIECE) - 1, at: off + a }); off += sz; });
     const out = new Uint8Array(total); let got = 0;
-    prog(0, 0, total);
+    const X = { par: MBX_PAR }; // beta 3.3 (QA-10): 4 at once, fewer once Google says it is busy
+    prog(0, 0, total, X);
     await mbxPool(jobs, async (j) => {
       if (cancelFlag) throw mbxStopErr();
-      const g = await mbxCall('get', { id: j.id, start: j.a, end: j.b }, 90000, 3), u = b64ToBytes(g.data);
+      const g = await mbxCall('get', { id: j.id, start: j.a, end: j.b }, 90000, 3, X), u = b64ToBytes(g.data);
       if (u.length !== j.b - j.a + 1) throw new Error('a piece came back the wrong size: try again');
-      out.set(u, j.at); got += u.length; prog(got / total, got, total);
-    });
+      out.set(u, j.at); got += u.length; prog(got / total, got, total, X);
+    }, X);
     if (onCheck) onCheck();
     if (it.meta && it.meta.sha256 && (await mbxSha(out)) !== it.meta.sha256) throw new Error('the file arrived damaged: try again');
     return out;
@@ -14686,12 +14997,21 @@
     if (!['task', 'update'].includes(M.kind)) { await mbxOpenSmall(it); return; }
     if (navigator.onLine === false) { toast('No internet: try again with signal.'); return; }
     if (mbxJob && !['done', 'fail'].includes(mbxJob.stage)) { toast('One download at a time: this one starts when the other is done.', 4000); return; }
+    if (M.kind === 'update') { // beta 3.3 (QA-09): an update into a project this phone has accepted: ask first
+      const pre = mbxLocalByTk(M.tk) || (allProjects().includes(M.project) ? M.project : ''), TA = pre ? tmTeam(pre) : null;
+      if (TA && TA.role === 'co' && TA.accepted) {
+        const go = await ask(`“${pre}” is accepted`, `You accepted it ${tmWhen(TA.accepted.at)}. ${first} sent update ${M.n || ''} too (it may have been sent before ${first} saw your acceptance). Merge it into the accepted project anyway?\n\nCancel leaves the project as it is, and the update stays in the team mailbox.`,
+          [{ label: 'Cancel', value: false }, { label: 'Merge anyway', value: true, primary: true }]);
+        LOG.info('mbx.late', { merge: !!go, n: M.n || 0 });
+        if (!go) return;
+      }
+    }
     cancelFlag = false;
     mbxJob = { tid, kind: M.kind, stage: 'down', frac: 0, line: `Downloading from ${first}`, sub: `0 of ${mbxMB(it.size || 0)}` };
     renderProjects();
     let data;
     try {
-      data = await mbxDownload(it, (f, got, total) => { if (!mbxJob || mbxJob.tid !== tid) return; mbxJob.frac = f; mbxJob.sub = `${mbxMB(got)} of ${mbxMB(total)} · through the mailbox, 4 pieces at once`; mbxJobPaint(); },
+      data = await mbxDownload(it, (f, got, total, X) => { if (!mbxJob || mbxJob.tid !== tid) return; mbxJob.frac = f; const k = X ? X.par : MBX_PAR; mbxJob.sub = `${mbxMB(got)} of ${mbxMB(total)} · through the mailbox, ${k === 1 ? 'one piece at a time (Google is busy)' : `${k} pieces at once`}`; mbxJobPaint(); },
         () => { if (mbxJob) { mbxJob.stage = 'check'; mbxJob.line = 'Checking the file'; mbxJob.sub = 'Comparing it with what was sent'; mbxJobPaint(); } });
     } catch (e) {
       if (e.code === 'stop') { mbxJob = null; renderProjects(); toast('Stopped: it stays in the mailbox.'); return; }
@@ -14735,16 +15055,17 @@
       const T1 = tmTeam(proj) || {}, ec = T1.echo || {}, prev = ec[M.from] || {}, P = { ...(prev.p || {}) }, mm = meta.meta || {};
       meta.points.forEach((p) => { if (p && p.id) P[p.id] = String(p.updated || p.created || ''); });
       const la = pmeta(proj).linksAt || '';
-      setTeam(proj, { ...T1, echo: { ...ec, [M.from]: { p: P, g: { ...(prev.g || {}), ...(mm.gone || {}) }, l: la && mm.linksAt === la ? la : prev.l || '' } } });
+      setTeam(proj, { ...T1, echo: { ...ec, [M.from]: { p: P, g: { ...(prev.g || {}), ...(mm.gone || {}) }, l: la && (mm.linksAt === la || (R2.route && R2.route.same)) ? la : prev.l || '' } } }); // (beta 3.3: the route merged is the same as theirs)
     }
     persist();
     await mbxPicked(it.tid);
-    LOG.info('mbx.open', { kind: M.kind, n: M.n, full: !!M.full, records: R2.recs, kept: R2.kept, gone: R2.gone, route: R2.route, mb: +(data.length / 1048576).toFixed(2), isNew: !L.here, ref: refNew });
-    const said = `${[pl2(R2.recs || 0, 'record'), R2.gone && `${R2.gone} deleted`, R2.route && 'the route', refNew && 'the KMZ reference'].filter(Boolean).join(' · ')}${R2.kept ? ` · ${R2.kept} newer here kept` : ''}`;
+    LOG.info('mbx.open', { kind: M.kind, n: M.n, full: !!M.full, records: R2.recs, kept: R2.kept, gone: R2.gone, route: R2.route ? routeSaid(R2.route) : false, mb: +(data.length / 1048576).toFixed(2), isNew: !L.here, ref: refNew });
+    const said = `${[pl2(R2.recs || 0, 'record'), R2.gone && `${R2.gone} deleted`, R2.route && routeSaid(R2.route), refNew && 'the KMZ reference'].filter(Boolean).join(' · ')}${R2.kept ? ` · ${R2.kept} newer here kept` : ''}`;
     mbxJob = { tid, kind: M.kind, stage: 'done', proj, chgN, ans: ans.length, line: M.kind === 'task' ? `Loaded: ${proj} is open` : `Merged: ${proj} is open`, sub: `${said}${ans.length ? ` · ${ans.length === 1 ? '1 fix answer' : `${ans.length} fix answers`} to check` : ''} · deleted from the mailbox for good` };
     S.project = proj; persist(); renderPoles(); fitProject(); renderProjects(); // (renderPoles draws a new KMZ reference)
     toast(M.kind === 'task' ? `Task from ${first}: “${proj}” · ${said}` : `${M.full ? `The whole project (update ${M.n})` : `Update ${M.n}`} from ${first} merged into “${proj}”: ${said}`, 6500);
     if (M.note) await ask(`${M.kind === 'task' ? 'Task' : 'Update'} from ${who}`, M.note, [{ label: 'OK', value: true, primary: true }]);
+    if (M.kind === 'update' && L.here) await dupAtMerge(proj, o.written); // beta 3.3 (QA-06): the same pole twice
   }
   async function mbxOpenSmall(it) {
     const M = it.meta || {}, who = M.fromName || M.from || 'a colleague', first = tmFirst(M.from, M.fromName), now = new Date().toISOString();
@@ -14867,7 +15188,7 @@
   /** The open project's team line: who has it, what came back, fixes, accepted; and its buttons. */
   function renderCurTeam() {
     const el = $('curTeam'), name = S.project, T = name ? tmTeam(name) : null;
-    el.hidden = !(T && T.role); if (el.hidden) { el.innerHTML = ''; return; }
+    el.hidden = !(T && T.role && tmOn()); if (el.hidden) { el.innerHTML = ''; return; } // (beta 3.2: Team off hides the card; its state is kept)
     const H = [], first = (e, n) => tmEsc(tmFirst(e, n));
     if (T.role === 'fp') {
       H.push(`<p class="tl"><b>Task from ${tmEsc(T.byName || tmNameOf(T.by))}</b>${T.got ? ` · got ${tmEsc(tmWhen(T.got))}` : ''}</p>`);
@@ -15039,6 +15360,19 @@
     await mbxShowBox();
   }, 'Not checked'));
   tmHooks.mbxOn = () => mbxOn();
+  /** v2.43 beta 3.2 (QA-17): the sheet switched Team on or off for this company: every Team part follows at once. Off: Settings → Team,
+      Assign to, the mailbox (box, icons, Sync, the pane), the team card and the fix list hide; the role rule in New project stops.
+      On again: they come back as they were (the role, the teams, the mailbox and each project's team state were kept), then the team
+      is read again and the mailbox checked. */
+  function tmSwitched() {
+    const on = tmOn(); LOG.info('team.switch', { on });
+    try { if (!on && fx) fxClose(); } catch (e) { /* the fix list is not set up yet */ }
+    renderTeamRow(); mbxMarks(); renderMbx(); renderCurTeam(); npAssignRender();
+    try { renderProjects(); } catch (e) { /* not open */ }
+    if (on && tmVerified() && navigator.onLine !== false) tmLoad().then(() => { renderTeamRow(); mbxStartCheck().catch(() => {}); }, () => {});
+  }
+  tmHooks.switched = tmSwitched;
+  tmHooks.on = () => tmOn();
   tmHooks.syncMbx = async () => { if (!mbxOn()) return null; const ok = await mbxRefresh(); return { ok, n: (mbxIn || []).length, why: mbxInErr || 'no answer' }; };
   try { ppMbxMark(); renderSyncBtn(); } catch (e) { /* not shown */ }
   tmHooks.locked = () => { const T = S.project ? tmTeam(S.project) : null; return T && T.role === 'fp' && T.accepted ? `“${S.project}” was accepted by ${T.accepted.byName || T.accepted.by}: it is done on this phone. If more is needed, ${tmFirst(T.accepted.by, T.accepted.byName)} sends it back for fixes.` : ''; };
@@ -15046,7 +15380,7 @@
   tmHooks.created = npAssignSend;
   /** A field partner in a team gets his surveys from his coordinator (the approved demo: only coordinators make projects);
       PAT, defect cleanup and FAT start as before. Out of every team, he makes surveys again. */
-  const tmFpTeam = () => tmVerified() && tmRole() === 'Field Partner' && (((tmSnap() || {}).myTeams) || []).some((x) => x.status === 'in');
+  const tmFpTeam = () => tmOn() && tmVerified() && tmRole() === 'Field Partner' && (((tmSnap() || {}).myTeams) || []).some((x) => x.status === 'in'); // (beta 3.2: and Team on)
   tmHooks.npCats = (cat) => {
     const fp = tmFpTeam(), o = cat.querySelector('option[value="survey"]');
     if (o) { if (fp) o.disabled = true; o.textContent = fp ? 'Survey (from your coordinator)' : 'Survey'; }
@@ -15539,7 +15873,7 @@
     if (!fx || fx.mode !== 'co' || !fx.spot || S.project !== fx.name) return;
     fx.spot = false; fx.edit = { k: '', kind: 'spot', rids: [], lat: e.latlng.lat, lon: e.latlng.lng, why: [], note: '' }; fx.view = 'edit'; fxRender(); fxDraw();
   });
-  tmHooks.poles = () => { if (fx && S.project !== fx.name) fxClose(); else if (fx) { fxRender(); fxDraw(); } };
+  tmHooks.poles = () => { if (fx && (S.project !== fx.name || !tmOn())) fxClose(); else if (fx) { fxRender(); fxDraw(); } }; // (beta 3.2: Team off closes it)
   const fxBtn = (k, label, cls, extra) => `<button class="btn${cls ? ` ${cls}` : ''}" type="button" data-fx="${k}"${extra || ''}>${label}</button>`;
   function fxRender() {
     if (!fx) return;
@@ -15720,7 +16054,18 @@
     },
   };
   /* for the tests (synthetic records only) */
-  const mbxTestHooks = { refresh: () => mbxRefresh(), inbox: () => JSON.parse(JSON.stringify(mbxIn)), out: () => JSON.parse(JSON.stringify(S.mbxOut || [])), team: (n) => JSON.parse(JSON.stringify(tmTeam(n || S.project))), noDirect: (v) => { mbxNoDirect = !!v; }, startCheck: () => mbxStartCheck(),
+  const mbxTestHooks = { why: (code) => mbxWhy(code), /* beta 3.3 (QA-10) */ download: async (tid) => { await mbxRefresh(); const it = (mbxIn || []).find((x) => x.tid === tid); if (!it) return { ok: false, why: 'not listed' }; const t0 = Date.now(); let par = 4; try { const d = await mbxDownload(it, (f, g, t, X) => { if (X) par = Math.min(par, X.par); }); return { ok: true, size: d.length, ms: Date.now() - t0, par }; } catch (e) { return { ok: false, why: e.message || String(e), code: e.code || '' }; } },
+    refresh: () => mbxRefresh(), inbox: () => JSON.parse(JSON.stringify(mbxIn)), out: () => JSON.parse(JSON.stringify(S.mbxOut || [])), team: (n) => JSON.parse(JSON.stringify(tmTeam(n || S.project))), noDirect: (v) => { mbxNoDirect = !!v; }, startCheck: () => mbxStartCheck(),
+    /* beta 3.3 (QA-06): spans and cables by pole ID; the route with who made what; the same pole twice */
+    link: (name, pairs, cab) => { if (S.project !== name) S.project = name; const by = (pid) => (points.find((p) => p.project === name && p.poleId === pid) || {}).id, L = links(), have = new Set(L.map((q) => spanKey(q[0], q[1])));
+      const add = pairs.map(([a, b]) => [by(a), by(b)]).filter(([a, b]) => a && b && !have.has(spanKey(a, b))); setLinks(L.concat(add.map(([a, b]) => linkWith(a, b, cab || 'L12')))); return add.length; },
+    unlink: (name, a, b) => { if (S.project !== name) S.project = name; const by = (pid) => (points.find((p) => p.project === name && p.poleId === pid) || {}).id, k = spanKey(by(a), by(b)), L = links(); setLinks(L.filter((q) => spanKey(q[0], q[1]) !== k)); return L.length - links().length; },
+    cable: (name, ids, cab) => { if (S.project !== name) S.project = name; const by = (pid) => (points.find((p) => p.project === name && p.poleId === pid) || {}).id, F = fibers(), n = Math.max(0, ...F.map((f) => f.n)) + 1;
+      setRoute(null, F.concat([{ n, cab: cab || 'L12', side: 'auto', ex: false, path: ids.map(by), fromSt: '', toSt: '' }])); return n; },
+    route: (name) => { const m = pmeta(name), pid = (id) => (points.find((p) => p.id === id) || {}).poleId || id;
+      return { links: (m.links || []).map((q) => [pid(q[0]), pid(q[1]), q[2] || '', ((m.lsrc || {})[spanKey(q[0], q[1])] || {}).o || '']).sort((a, b) => (a[0] + a[1]).localeCompare(b[0] + b[1])),
+        fibers: fibers(name).map((f) => ({ n: f.n, cab: f.cab, o: f.o || '', fid: f.fid, path: f.path.map(pid) })).sort((a, b) => a.n - b.n), linksAt: m.linksAt || '' }; },
+    dupM: () => dupM(),
     seed: async (name, n, o) => {
       const prj = name || S.project, made = [], px = (o && o.px) || 48;
       for (let i = 0; i < n; i++) {
@@ -15736,7 +16081,7 @@
     edit: async (name, poleId, to) => { const p = points.find((x) => x.project === name && x.poleId === poleId); if (!p) return false; const r = { ...p, poleId: to, updated: new Date().toISOString() }; await dbPut('points', r); points[points.indexOf(p)] = r; renderPoles(); return true; },
     del: async (name, poleId) => { const p = points.find((x) => x.project === name && x.poleId === poleId); if (!p) return false; await dbDel('points', p.id); points = points.filter((x) => x !== p); S.meta[name] = { ...pmeta(name), gone: { ...(pmeta(name).gone || {}), [p.id]: new Date().toISOString() } }; persist(); renderPoles(); return true; },
     photo: async (id) => { const ph = await dbGet('photos', id).catch(() => null); return ph && ph.clean ? ph.clean.size : 0; },
-    recs: (name) => points.filter((p) => p.project === (name || S.project)).map((p) => ({ id: p.id, poleId: p.poleId, updated: p.updated })),
+    recs: (name) => points.filter((p) => p.project === (name || S.project)).map((p) => ({ id: p.id, poleId: p.poleId, updated: p.updated, by: p.by || '', photos: photosOf(p).map((x) => ({ pid: x.pid })) })), // (beta 3.3: + by, photos)
     refs: () => JSON.parse(JSON.stringify(S.refs || {})), job: () => (mbxJob ? { ...mbxJob } : null), siteRows: (n) => siteInfoRows(n || S.project), fx: fxTestHooks };
   $('brandVer').textContent = `v${APP_VER}`; // the version beside the name (v2.15)
   if (BETA) { // v2.43: G-eSAA Beta says so everywhere a tester looks
@@ -16163,5 +16508,5 @@
     /* v2.42.28 */ mxGroups: () => mxGroups().map((g) => ({ k: g.k, name: g.name, n: g.n, kind: g.kind })), mxTick: (k, m) => { const g = mxGroups().find((x) => x.k === k || x.name === k); if (g) mxToggle(g, m); return !!g; }, openPlanSet: () => openPlanSet(), setWhat: (on) => setWhat(!!on, false), ppOpen: (n) => ppOpen(n),
     /* v2.42.27 */ ask: (t, x, b) => ask(t, x, b), hl: () => hlId, paneOn: () => document.body.classList.contains('deskpane'), otherN: () => (otherLayer ? otherLayer.getLayers().length : 0), drwView: () => (drw && drw.view ? { ...drw.view, w: $('drawCanvas').width, h: $('drawCanvas').height } : null),
     fibLanes: () => fibLayer.getLayers().map((l) => (l.getLatLngs ? { ll: l.getLatLngs().map((q) => [q.lat, q.lng]), color: l.options.color, w: l.options.weight, op: l.options.opacity, dash: l.options.dashArray || '' } : { arrow: true })), kmzFibers: () => kmzFibers(),
-    team: { patchS: (o) => { Object.assign(S, o); persist(); }, load: () => tmLoad(), render: () => renderTeam(), on: () => tmOn(), ver: () => tmVerified(), state: () => JSON.parse(JSON.stringify({ mbx: S.mbx || null, teamMe: S.teamMe || null, snap: S.teamSnap || null })), beta: () => ({ BETA, APP_NAME, VER_LABEL }), mbx: mbxTestHooks } }; // v2.43 (beta 2: mbx)
+    team: { patchS: (o) => { Object.assign(S, o); persist(); }, sync: () => cloudSync(true), load: () => tmLoad(), render: () => renderTeam(), on: () => tmOn(), ver: () => tmVerified(), state: () => JSON.parse(JSON.stringify({ mbx: S.mbx || null, teamMe: S.teamMe || null, snap: S.teamSnap || null })), beta: () => ({ BETA, APP_NAME, VER_LABEL }), mbx: mbxTestHooks } }; // v2.43 (beta 2: mbx)
 })();
