@@ -317,7 +317,8 @@
       const fk = el === 'Pole' && (p.status === 'Proposed' || p.status === 'New') ? `Pole${p.status}` : el; // proposed and new poles get their own folder
       const href = o.photoIcons && p.iconName ? `files/${p.iconName}` : `http://maps.google.com/mapfiles/kml/paddle/${KML_EL[fk][1]}.png`;
       styles.push(`<Style id="${sid}"><IconStyle><scale>${o.photoIcons ? 1.4 : 1.0}</scale><Icon><href>${xmlEsc(href)}</href></Icon></IconStyle><LabelStyle><scale>0.9</scale></LabelStyle></Style>`);
-      const img = p.photoName ? `<img src="files/${xmlEsc(p.photoName)}" width="480"/>` : '';
+      const imgs = Array.isArray(p.photoNames) && p.photoNames.length ? p.photoNames : p.photoName ? [p.photoName] : []; // beta 3.5: every photo of the pin
+      const img = imgs.map((n) => `<img src="files/${xmlEsc(n)}" width="${imgs.length > 1 ? 320 : 480}"/>`).join('<br/>');
       // The balloon title is already the Pole ID; lines the stamped photo already shows are not repeated under it.
       const onPhoto = new Set(p.photoName && o.stamped ? (o.stampFields || ['id', 'coords', 'utm', 'time', 'by', 'project']) : []);
       const lines = [];

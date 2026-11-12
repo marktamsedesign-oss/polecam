@@ -1,6 +1,10 @@
 /* G-eSAA (PoleCam) offline cache: keeps the app itself available with no signal.
    Map tiles are cached separately by the app (IndexedDB). Bump VERSION after editing any file. */
-const VERSION = 'polecam-v2.42.28';
+const VERSION = 'polecam-v2.43.0';
+/* v2.43: the beta website (…/polecam/beta/) shares the address of G-eSAA's: its offline copy has its own names, and each
+   cleans up only its own copies. */
+const BETA_WEB = /\/beta\/sw\.js$/.test(self.location.pathname);
+const CACHE = BETA_WEB ? VERSION.replace('polecam-', 'polecam-beta-') : VERSION;
 const SHELL = [
   './', 'index.html', 'app.js', 'core.js', 'glyphs.js', 'reports.js', 'forms.js', 'tutorial.js', 'dxftpl.js', 'dxf-worker.js', 'dxfpdf.js', 'manifest.json', 'brand/logo-left.jpg', 'brand/logo-right.jpg',
   'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css', 'vendor/protomaps/protomaps-leaflet.js', 'vendor/icons/landmarks.js', 'vendor/icons/landmarks.png', 'vendor/icons/landmark-blocks.js', 'vendor/qr/qrcode.min.js', 'vendor/qr/jsQR.min.js',
@@ -12,13 +16,13 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting())); // v2.42.4: from the server, not the browser's copy (a new release cached an old file)
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting())); // v2.42.4: from the server, not the browser's copy (a new release cached an old file)
 });
 
-const SHARE = 'polecam-share'; // v2.19: a file shared to the installed app waits here until the app opens it
+const SHARE = BETA_WEB ? 'polecam-beta-share' : 'polecam-share'; // v2.19: a file shared to the installed app waits here until the app opens it
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys()
-    .then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k !== SHARE).map((k) => caches.delete(k))))
+    .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== SHARE && (BETA_WEB ? k.startsWith('polecam-beta-') : !k.startsWith('polecam-beta-'))).map((k) => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 
@@ -42,8 +46,8 @@ self.addEventListener('fetch', (e) => {
   // Network first (so updates arrive), fall back to the cached copy when offline.
   e.respondWith(
     fetch(req).then((res) => {
-      if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); }
+      if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
       return res;
-    }).catch(() => caches.match(req, { ignoreSearch: true }).then((hit) => hit || caches.match('index.html')))
+    }).catch(() => caches.open(CACHE).then((c) => c.match(req, { ignoreSearch: true }).then((hit) => hit || c.match('index.html')))) // v2.43: only its own copy
   );
 });

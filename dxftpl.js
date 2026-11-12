@@ -1344,8 +1344,15 @@
     const groups = new Map(); pts.forEach((p, i) => { const r = find(i); (groups.get(r) || groups.set(r, []).get(r)).push(i); });
     return [...groups.values()].sort((a, b) => a[0] - b[0]).map((idx) => { const xs = idx.map((i) => pts[i].E), ys = idx.map((i) => pts[i].N); return { idx, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] }; });
   }
-  /** v2.38: the vicinity map of a place: its points with a 500 m margin round them, at least 1.5 km across: [E, N, size]. */
-  function vicArea(box) { return [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2, Math.max(1500, Math.max(box[2] - box[0], box[3] - box[1]) + 2 * VIC_MARGIN)]; }
+  /** v2.38: the vicinity map of a place: its points with a 500 m margin round them, at least 1.5 km across: [E, N, size].
+      beta 3.4: and big enough for the PROJECT AREA circle and its label to fit inside the map's box. The circle's radius is half the
+      points' diagonal + 45 m (per 1.5 km of map), the label sits about 40 m above it: with 25 m to spare, the half-size must be at least
+      half the diagonal + 110 m per 1.5 km, i.e. the size at least 1.172 × the diagonal (1.18 here). A long route is zoomed out to fit;
+      a short one keeps its 1.5 km. */
+  function vicArea(box) {
+    const w = box[2] - box[0], h = box[3] - box[1];
+    return [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2, Math.max(1500, Math.max(w, h) + 2 * VIC_MARGIN, 1.18 * Math.hypot(w, h))];
+  }
   /** v2.38: the parts of a line inside keep(x, y) (the plan's sheets and a margin), tested every `step` metres; a vertex is added
       only where the line goes in or out. */
   function keepPieces(line, keep, step) {
@@ -1499,6 +1506,11 @@
     const cellHolds = (bx, E, N) => { // (its capitals a little wider than the estimate)
       const ci = Math.floor((E - gox) / cell), cj = Math.floor((N - goy) / cell), W = [gox + ci * cell + 2, goy + cj * cell + 2, gox + (ci + 1) * cell - 2, goy + (cj + 1) * cell - 2];
       return [[1, 1], [1, -1], [-1, 1], [-1, -1]].every(([a, c]) => { const x = bx.cx + bx.ux * bx.hw * 1.3 * a + bx.vx * bx.hh * c, y = bx.cy + bx.uy * bx.hw * 1.3 * a + bx.vy * bx.hh * c; return x >= W[0] && x <= W[2] && y >= W[1] && y <= W[3]; });
+    };
+    /** beta 3.4: an upright box (centre q, half sizes hw, hh) inside the GEO sheet of the point (E, N), 2 m in from its grid line. */
+    const cellHoldsQ = (q, hw, hh, E, N) => {
+      const ci = Math.floor((E - gox) / cell), cj = Math.floor((N - goy) / cell);
+      return q[0] - hw >= gox + ci * cell + 2 && q[0] + hw <= gox + (ci + 1) * cell - 2 && q[1] - hh >= goy + cj * cell + 2 && q[1] + hh <= goy + (cj + 1) * cell - 2;
     };
     let nInCell = 0; // v2.42.10: site names kept inside their GEO sheet
     // grid
@@ -2135,7 +2147,15 @@
         [[lat, HL * 5 / 6], [lon, -HL * 5 / 6]].forEach(([v, dy]) => { const q = add2(llAt, up, dy); boxes.push(textBox(q[0], q[1], HL, v, rr, ha, 2)); });
         cands.push({ boxes, place, rr, ha, llAt, ov, flip, cost: v.cost, v });
       }
-      const c = pickC(spots, cands, POLELBL_W); spots.add(c.boxes, 'label:' + p.poleId); p.lblVar = c.v;
+      // beta 3.4: inside the pole's own GEO sheet first (the sheet's viewport cuts off anything past the grid line)
+      const inC = cands.filter((x) => x.boxes.every((b) => cellHolds(b, p.E, p.N))), cIn = inC.length ? pickC(spots, inC, POLELBL_W) : null;
+      const cAny = cIn && !cIn.n ? cIn : pickC(spots, cands, POLELBL_W), c = cIn && (cIn.n || 0) <= (cAny.n || 0) ? cIn : cAny;
+      spots.add(c.boxes, 'label:' + p.poleId); p.lblVar = c.v;
+      // beta 3.4: how far out from the pole the label (ID, details and coordinates) reaches, and its middle along the cable: the photo
+      //           goes past it (pole, then its ID and details, then the photo), never beside the pole itself
+      { const ov = c.ov, fw = p.fw || [1, 0], pr = (b, d) => (b.cx - p.dp[0]) * d[0] + (b.cy - p.dp[1]) * d[1], ext = (b, d) => b.hw * Math.abs(b.ux * d[0] + b.uy * d[1]) + b.hh * Math.abs(b.vx * d[0] + b.vy * d[1]);
+        p.lblFar = Math.max(...c.boxes.map((b) => pr(b, ov) + ext(b, ov)));
+        const f0 = Math.min(...c.boxes.map((b) => pr(b, fw) - ext(b, fw))), f1 = Math.max(...c.boxes.map((b) => pr(b, fw) + ext(b, fw))); p.lblMid = (f0 + f1) / 2; p.lblDir = ov; }
       p.lblS = c.v.a === 0 ? [c.v.sh - T / 2 - 0.8, c.v.sh + T / 2 + 0.8] : null; // v2.41.1: where the label is along the cable (its photo goes beside it)
       // the block keeps the values in its attributes (hidden); the labels are plain texts in one direction (the pole blocks
       // of the template are dynamic blocks, and AutoCAD would put some of their attributes back where the block wants them)
@@ -2358,7 +2378,13 @@
             const dv = (x) => Math.abs(((f - x + 540) % 360) - 180), ang = phi0 ? Math.min(dv(phi0) / 15 * 1.5, 4 + dv(-phi0) / 15 * 1.5) : dv(0) / 15 * 1.5 + (f > 0 ? 0.4 : 0); // (straight out: turned toward the homing rather than away)
             const r = f * Math.PI / 180; tries.push({ u: [p.on[0] * Math.cos(r) + p.fw[0] * Math.sin(r), p.on[1] * Math.cos(r) + p.fw[1] * Math.sin(r)], gap, cost: ang + (gap - g0) * 0.3 + (Math.abs(f) > 100 ? 5 : 0) });
           }
-          if (ph) { // a photo: in a slot beside its label (toward the homing), as near the road as allowed; then a little further; then the other side
+          if (ph && p.lblDir) { // beta 3.4: a photo past its label: the pole, then its ID and details, then the photo (never beside the pole)
+            tries.length = 0;
+            const ov = p.lblDir, eo = (w * Math.abs(ov[0]) + h * Math.abs(ov[1])) / 2;
+            for (const gap of [0.8, 2, 3.5, 5.5, 8, 11]) for (const ds of [0, 2, -2, 4, -4, 7, -7]) {
+              const q = add2(add2(p.dp, ov, p.lblFar + gap + eo), p.fw, p.lblMid + ds); tries.push({ q, u: unit(p.dp, q), gap, cost: gap * 0.3 + Math.abs(ds) * 0.3 });
+            }
+          } else if (ph) { // (a pole with no label: as before, beside where its label would be)
             tries.forEach((x) => { x.cost += 6; });
             const ext = (d) => (w * Math.abs(d[0]) + h * Math.abs(d[1])) / 2, es = ext(p.fw), eo = ext(p.on), L0 = p.lblS ? p.lblS[0] : -6, L1 = p.lblS ? p.lblS[1] : 6, o0 = eo - 0.2;
             for (const [side, sb] of [[-1, L0 - 1 - es], [1, L1 + 1 + es]]) for (const ds of [0, 2, 4, 7, 10]) for (const dO of [0, 1, 2.5, 4, 6, 9]) {
@@ -2377,6 +2403,7 @@
           const q = tr.q || add2(p.dp, u, rOf(p) + gap + t);
           if (ph ? [[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].some(([sx, sy]) => R.idx.inside([q[0] + sx * w / 2, q[1] + sy * h / 2], -1, -2))
             : RING.some(([cx, cy]) => R.idx.inside([q[0] + cx * nd / 2, q[1] + cy * nd / 2], -1, -0.6))) continue; // off the roads (v2.41.1: a number by its circle, 0.6 m from the edge)
+          if (!(ph ? cellHoldsQ(q, w / 2, h / 2, p.E, p.N) : cellHoldsQ(q, nd / 2, nd / 2, p.E, p.N))) continue; // beta 3.4: inside its own sheet, never cut by the grid line
           const mine = !anchors.some((x) => x !== p && dist2(x.dp, q) < dist2(p.dp, q) - 1); // nearer its own point than any other
           const c = { q, u, gap, boxes: [Spots.box(q[0], q[1], w + (ph ? 1.0 : 0.6), h + (ph ? 1.0 : 0.6), 0)] };
           // v2.41.1: a number's leader line must not cross a label, a symbol or a road edge line either
@@ -2397,12 +2424,17 @@
       // v2.42.26: a photo never goes over another photo or a text: where no place beside its pole is free, further out (all round, away
       //           from the road first) with a thin line to its pole that crosses no photo or text, smaller if need be (to 65 %)
       const PH_FAR = (t) => (t === 'road' || t === 'cable' ? 0.05 : 1), LD_FAR = (t) => (t === 'photo' ? 1 : 0), LD_TXT = (t) => (t === 'road' || t === 'cable' || t === 'photo' ? 0 : 1); // (its line never across a photo; across a label only where nothing else is free)
-      const farPlace = (S0) => {
+      // beta 3.4: (relax) where no place past its label is free in its own sheet: anywhere in its own sheet, a little further and smaller
+      //           (to 50 %) — still never over a photo or a text, and never cut by the grid line; (relax 2) a pole close to its sheet's
+      //           edge with no room left in its sheet: wholly inside the next sheet, with its line to its pole
+      const farPlace = (S0, relax) => {
         const { p } = S0, base = p.on || p.ov || [0, 1]; let best = null;
-        for (const k of [1, 0.8, 0.65]) { const w = S0.w * k, h = S0.h * k;
-          for (const dd of [3, 6, 10, 15, 21, 28, 36]) for (let a = 0; a <= 180; a += 20) for (const sg of a && a < 180 ? [1, -1] : [1]) {
+        for (const k of relax ? [1, 0.8, 0.65, 0.5] : [1, 0.8, 0.65]) { const w = S0.w * k, h = S0.h * k;
+          for (const dd of relax ? [3, 6, 10, 15, 21, 28, 36, 45, 55] : [3, 6, 10, 15, 21, 28, 36]) for (let a = 0; a <= 180; a += 20) for (const sg of a && a < 180 ? [1, -1] : [1]) {
             const u = rotv(base, sg * a), t = Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9), q = add2(p.dp, u, rOf(p) + dd + t);
             if ([[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].some(([sx, sy]) => R.idx.inside([q[0] + sx * w / 2, q[1] + sy * h / 2], -1, -2))) continue; // off the roads
+            if (!(relax === 2 ? cellHoldsQ(q, w / 2, h / 2, q[0], q[1]) : cellHoldsQ(q, w / 2, h / 2, p.E, p.N))) continue; // beta 3.4: inside its own sheet (relax 2: inside one sheet)
+            if (!relax && p.lblDir && Math.hypot(q[0] - p.dp[0], q[1] - p.dp[1]) - Math.hypot(w, h) / 2 < p.lblFar - 1) continue; // beta 3.4: past its label, not beside the pole
             const box = Spots.box(q[0], q[1], w + 1.0, h + 1.0, 0), hb = spots.hitsW(box, PH_FAR); if (hb >= 0.5) continue; // (a photo, a text or a symbol: never)
             const la = add2(p.dp, u, rOf(p) + 0.3), lb = add2(q, u, -t), L = dist2(la, lb), lead = L > 1.2 ? Spots.box((la[0] + lb[0]) / 2, (la[1] + lb[1]) / 2, L, 0.3, deg(u)) : null;
             if (lead && spots.hitsW(lead, LD_FAR) > 0) continue;
@@ -2422,7 +2454,7 @@
       }
       for (const S0 of later) {
         const { p, w, h } = S0; let r = search(S0, Infinity), how = 'other'; if (!r.free && !S0.ph && NS.leader) { r = search(S0, Infinity, LEAD_W2); how = 'leader over a road line'; } let cn = r.free; // (last: its leader across a road line)
-        if (!cn && S0.ph) { const f = farPlace(S0); if (f) { cn = f; how = 'further, with a line'; } } // v2.42.26
+        if (!cn && S0.ph) { const f = farPlace(S0) || farPlace(S0, 1) || farPlace(S0, 2); if (f) { cn = f; how = 'further, with a line'; } } // v2.42.26 (beta 3.4: then relaxed)
         if (!cn && S0.ph) { const S1 = setup(p, true), r1 = search(S1, Infinity); if (r1.free) { commit(S1, r1.free, 'number: no room for its photo'); nNoRoom++; continue; } } // (v2.42.26: no room for its photo anywhere: its number)
         // nothing free: the place covering least (v2.41.1: a number's circle over something counts more than its leader line across it)
         const bad = (x) => (S0.ph ? spots.hits(x.boxes[0]) : spots.hitsW(x.boxes[0], NUM_W)) * 10 + (x.lead ? Math.min(1, spots.hitsW(x.lead, LEAD_W2)) * 3 + spots.hitsW(x.lead, LEAD_W2) * 0.2 : 0) + (p.on ? x.cost * 0.5 : x.gap);
@@ -2459,7 +2491,7 @@
         if (lead) o.lwpoly(nLay, [la, lb], { color: bCol });
       }
     }
-    if (job.debug) rep.layout = { poles: poleOrder.map((p) => ({ id: String(p.id), dp: p.dp, td: p.td, ov: p.ov, rr: p._rr })), marks: photoPl.out.map(({ p, ph, w, h, q, u, how, lead }) => ({ lead: lead || null, id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
+    if (job.debug) rep.layout = { grid: { gox, goy, cell }, poles: poleOrder.map((p) => ({ id: String(p.id), E: p.E, N: p.N, dp: p.dp, td: p.td, ov: p.ov, rr: p._rr, lblFar: p.lblFar, lblDir: p.lblDir })), marks: photoPl.out.map(({ p, ph, w, h, q, u, how, lead }) => ({ lead: lead || null, id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
     rep.photoSize = +Lp.toFixed(1); rep.photosNotFree = photoPl.miss; rep.photosAsNumber = nNoRoom; rep.markMode = markMode;
     const asNum = new Set(photoPl.out.filter((x) => !x.ph).map((x) => String(x.p.id))); /* (v2.42.26: no room for its photo: its number) */ rep.marks = markOrder.map((p) => [p.seq, String(p.id), (photos[p.id] || photos[String(p.id)]) && !asNum.has(String(p.id)) ? (markMode === 'both' ? 'photo+number' : 'photo') : 'number']); // v2.40: the numbers on the plan
     // 11. coordinates of the points that are not poles

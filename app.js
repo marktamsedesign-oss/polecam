@@ -17,12 +17,16 @@
   /* Camera button position for one-hand use: centre by default, right or left in Settings → Camera. */
   const handOf = () => (['left', 'center', 'right'].includes(S && S.hand) ? S.hand : 'center');
   function applyHand() { const h = handOf(); ['left', 'center', 'right'].forEach((x) => document.body.classList.toggle(`hand-${x}`, x === h)); }
+  /* v2.43: the beta website lives at …/polecam/beta/ on the same address as G-eSAA's, so it keeps its own storage
+     (settings, projects, log, offline copy) under other names and never touches your users' projects in that browser.
+     The APKs are separate apps and keep the usual names. */
+  const STORE = /\/beta\//.test(location.pathname) ? 'polecam-beta' : 'polecam';
   /* ================= app log =================
      A small ring buffer kept in localStorage (written synchronously, so it survives a crash of the app's web view).
      Records errors, what the user saw (toasts), and the timing of every step of taking, saving and exporting photos.
      No photos, names, phone numbers or coordinates are logged. Settings → About → App log shows and shares it. */
   const LOG = (() => {
-    const KEY = 'polecam.log', FLIGHT = 'polecam.inflight', MAX = 500;
+    const KEY = `${STORE}.log`, FLIGHT = `${STORE}.inflight`, MAX = 500;
     let buf = [];
     try { buf = JSON.parse(localStorage.getItem(KEY) || '[]'); if (!Array.isArray(buf)) buf = []; } catch (e) { buf = []; }
     let dirty = false, timer = 0;
@@ -175,18 +179,18 @@
     zone: 51, sym: 1, txt: 1.5, base: 'street', lastPoleId: '', lastType: 'Concrete', view: null, areas: [],
     meta: {}, defects: JSON.parse(JSON.stringify(DEF_CHECK)), userName: '',
     listSort: 'new', listGroup: true,
-    quality: 'strict', readId: true, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
+    quality: 'strict', readId: false, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
     exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'utm', 'time', 'by', 'project'], naming: 'id',
       kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true,
       dxfPhotos: true, dxfPhotoW: 6, focPct: 10, pmiLoops: true, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfRows: null, dxfRowSel: 0 }, // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
     saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
     sig: { design: '', project: '', head: '', cse: '', cseAuto: '' }, // v2.42.12: the names in the plan's title blocks (cseAuto: the last CSE Lead the online sheet gave)
   };
-  let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem('polecam.settings') || '{}')); } catch (e) { return { ...DEF }; } })();
+  let S = (() => { try { return Object.assign({}, DEF, JSON.parse(localStorage.getItem(`${STORE}.settings`) || '{}')); } catch (e) { return { ...DEF }; } })();
   applyHand();
   let persistWarned = 0, pointsLost = false; // v2.42.4: pointsLost: the records did not load at start
   const persist = () => {
-    try { localStorage.setItem('polecam.settings', JSON.stringify(S)); } catch (e) { // storage full or blocked (v2.42.4: said, at most once a minute; it was silent)
+    try { localStorage.setItem(`${STORE}.settings`, JSON.stringify(S)); } catch (e) { // storage full or blocked (v2.42.4: said, at most once a minute; it was silent)
       if (Date.now() - persistWarned > 60000) { persistWarned = Date.now(); setTimeout(() => { try { LOG.error('persist.fail', errInfo(e)); } catch (x) { /* early */ } toast('The phone did not keep the app\u2019s settings and project details (storage full or blocked): free some space, or the last changes may be lost when the app closes.', 8000); }, 0); }
     }
   };
@@ -215,7 +219,7 @@
       const fail = (e) => { if (settled) return; settled = true; clearTimeout(timer); dbp = null; rej(e); };
       const timer = setTimeout(() => { LOG.error('db.open.timeout'); fail(new Error('Storage did not open. Keep this screen open and tap Save again.')); }, 10000);
       let r;
-      try { r = indexedDB.open('polecam', 2); } catch (e) { fail(e); return; }
+      try { r = indexedDB.open(STORE, 2); } catch (e) { fail(e); return; }
       r.onupgradeneeded = () => {
         const d = r.result;
         for (const [name, key] of [['points', 'id'], ['photos', 'id'], ['tiles', 'k'], ['packs', 'k']]) {
@@ -408,6 +412,7 @@
       (e) => { if (!quiet) LOG.warn('native.fail', { call: `${name}.${method}`, ms: Date.now() - t0, ...errInfo(e) }); throw e; });
   }
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const tmHooks = {}; // v2.43 beta 2: the team mailbox's hooks into Projects, New project, the KMZ reference and the capture button (set further down)
   /* ---- project mode + acceptance helpers ---- */
   const pmeta = (name) => (S.meta && S.meta[name || S.project]) || { mode: 'survey' };
   const isAcc = (name) => pmeta(name).mode === 'acceptance';
@@ -489,6 +494,29 @@
   const ELEC_DETAIL_ITEMS = ['Transformer', 'Telco arm'];
   const hasTelcoArm = (p) => (p.details || []).some((d) => d && /^telco\s*arm$/i.test(String(d.item || '').trim()));
   const boqOwners = () => [...new Set([...boqList('owner'), ...(S.myOwners || [])].map((x) => String(x || '').trim()).filter(Boolean))];
+  /* v2.43.0: the owner lists in each user's own order. The pole owners and the coops he sets most on his poles come first, counted at
+     each save on this phone (and once from the poles he made or changed before this version); the others keep their order. A coop he
+     types that is not in the list is kept on this phone for his next poles (long-press it to take it off). */
+  const ownUseOf = (k) => ((S.ownUse || {})[k]) || {};
+  const byOwnUse = (list, k) => { seedOwnUse(); const u = ownUseOf(k); return list.map((v, i) => [v, i]).sort((a, b) => ((u[b[0]] || 0) - (u[a[0]] || 0)) || a[1] - b[1]).map(([v]) => v); };
+  const ownerChoices = () => byOwnUse(boqOwners(), 'owner');
+  const coopChoices = () => byOwnUse([...new Set([...COOPS, ...(S.myCoops || []), ...projPoints().filter((q) => isElecOwner((q.boq || {}).owner)).map((q) => String(((q.boq || {}).ownerName) || '').trim())].filter(Boolean))], 'ownerName');
+  const keepCoop = (c) => { if (c && !COOPS.includes(c) && !(S.myCoops || []).includes(c)) { S.myCoops = (S.myCoops || []).concat(c).slice(-30); return true; } return false; };
+  function noteOwnUse(was, now, id) { // after a save on this phone: what this user set on the pole counts once; a new coop name is kept
+    seedOwnUse(id); // (first, without this pole: it is counted here)
+    const W = was || {}, N = now || {}, U = { owner: { ...ownUseOf('owner') }, ownerName: { ...ownUseOf('ownerName') } }; let ch = false;
+    for (const k of ['owner', 'ownerName']) { const v = String(N[k] || '').trim(); if (v && v !== String(W[k] || '').trim()) { U[k][v] = (U[k][v] || 0) + 1; ch = true; } }
+    if (isElecOwner(N.owner) && keepCoop(String(N.ownerName || '').trim())) ch = true;
+    if (ch) { S.ownUse = U; persist(); }
+  }
+  function seedOwnUse(skip) { // once: from the poles on this phone that this user made or last changed (called once the records are loaded)
+    if (S.ownUseSeeded) return; const me = byLine(); if (!me) return;
+    const U = { owner: { ...ownUseOf('owner') }, ownerName: { ...ownUseOf('ownerName') } };
+    points.forEach((r) => { if (r.id === skip || elemOf(r) !== 'Pole' || !(r.updatedBy ? r.updatedBy === me : r.by === me)) return; const b = r.boq || {};
+      for (const k of ['owner', 'ownerName']) { const v = String(b[k] || '').trim(); if (v) U[k][v] = (U[k][v] || 0) + 1; }
+      if (isElecOwner(b.owner)) keepCoop(String(b.ownerName || '').trim()); });
+    S.ownUse = U; S.ownUseSeeded = true; persist();
+  }
   /** The BOQ fields of a survey element: by element and status (existing, or proposed / new); a closure in the handhole adds its size. */
   function boqKeys(el, status, closureHere, b) {
     if (el === 'Pole') return (status === 'Proposed' || status === 'New' ? ['height', 'cls', 'clamp', 'clampType'] : ['owner', 'ownerName', 'clamp', 'clampType']).concat(['arm', 'guy'], b && /pole.?to.?pole/i.test(b.guy || '') ? ['p2p'] : [], ['mloop', 'mloopM', 'ground', 'riser']); // v2.42.18: + the owner's name, the loop's length // v2.29; v2.37 + pole-to-pole target, grounding, riser
@@ -519,9 +547,13 @@
   function allPids(r) {
     const s = photosOf(r).map((p) => p.pid);
     if (r.origPid) s.push(r.origPid); // the unmarked photo of a marked survey photo (v2.15)
-    (r.defs || []).forEach((d) => { if (d.pid) s.push(d.pid); if (d.afterPid) s.push(d.afterPid); if (d.verifyPid) s.push(d.verifyPid); (d.reopened || []).forEach((q) => { if (q.pid) s.push(q.pid); }); });
+    (r.defs || []).forEach((d) => { if (d.pid) s.push(d.pid); if (d.afterPid) s.push(d.afterPid); if (d.verifyPid) s.push(d.verifyPid); (d.reopened || []).forEach((q) => { if (q.pid) s.push(q.pid); (q.x || []).forEach((y) => { if (y.pid) s.push(y.pid); }); });
+      ['xpids', 'xafter', 'xverify'].forEach((k) => (d[k] || []).forEach((y) => { if (y && y.pid) s.push(y.pid); })); }); // beta 3.5: the other photos of each stage
     return s;
   }
+  /** beta 3.5: a defect's photos at one stage (found, after, verify): the main one, then the others. */
+  const defPh = (d, st) => { const m = st === 'after' ? d.afterPid : st === 'verify' ? d.verifyPid : d.pid, x = d[st === 'after' ? 'xafter' : st === 'verify' ? 'xverify' : 'xpids'] || [];
+    return (m ? [{ pid: m, label: '' }] : []).concat(x.filter((y) => y && y.pid)); };
   /** Delete stored photos that no record (other than the excluded ones) still uses — PAT and FAT share photos. */
   async function deletePhotosIfUnused(pids, excludeIds) {
     const used = new Set();
@@ -696,6 +728,7 @@
     closeSheet();
   }));
   function onSheetClosed(id) {
+    if (id === 'dupSheet' && dupRes) { const r = dupRes; dupRes = null; r(null); } // beta 3.3: Back: decided later
     if (id === 'drwStyle' && stack.includes('planSet')) renderPlanSet(); // v2.42.28: the clamp types may have changed there
     if (id === 'export' || id === 'planSet') { // v2.42.28
       $(id).classList.remove('side'); if (id === 'export') $('export').classList.remove('plan');
@@ -758,10 +791,16 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.42.28';
+  const APP_VER = '2.43.0';
+  /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
+     different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
+  const APP_BETA = '3.5'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
+  const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
+  const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
   /* The APK shows its screens from https://localhost, and OpenStreetMap's tile servers refuse map requests from such pages.
      In the APK the tiles are therefore fetched by Android itself, identified as PoleCam (OSM asks apps to identify themselves). */
-  const APP_UA = () => `G-eSAA/${APP_VER} (+${SITE})`;
+  const APP_UA = () => `G-eSAA/${APP_VER}${BETA ? '-beta' : ''} (+${SITE})`;
   function b64ToBytes(b) { const s = atob(b); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
   function nativeBytes(d) {
     if (typeof d === 'string') return b64ToBytes(d.replace(/^data:[^,]*,/, ''));
@@ -1362,7 +1401,7 @@
      says so in the log with the last step. Settings › App log › send it to support. */
   map.on('movestart', () => { lastAct = 'moving the map'; }); map.on('zoomstart', () => { lastAct = 'zooming the map'; });
   try { new PerformanceObserver((l) => l.getEntries().forEach((e) => { if (e.duration >= 2000) LOG.warn('slow.step', { ms: Math.round(e.duration), during: lastAct, zoom: map.getZoom(), pins: pinMarkers.size, labels: document.querySelectorAll('#map .leaflet-tooltip').length }); })).observe({ type: 'longtask' }); } catch (e) { /* not on this browser */ }
-  { const AK = 'polecam.alive';
+  { const AK = `${STORE}.alive`;
     try { const prev = JSON.parse(localStorage.getItem(AK) || 'null'); if (prev && prev.vis && !prev.clean && Date.now() - prev.t < 7 * 864e5) LOG.warn('app.stopped', { at: new Date(prev.t).toISOString(), during: prev.act, note: 'the app stopped while on the screen (closed as not answering, or ended by the phone)' }); } catch (e) { /* none */ }
     const beat = (clean) => { try { localStorage.setItem(AK, JSON.stringify({ t: Date.now(), act: lastAct, vis: document.visibilityState === 'visible', clean: !!clean })); } catch (e) { /* storage blocked */ } };
     beat(false); setInterval(() => beat(false), 5000); document.addEventListener('visibilitychange', () => beat(false)); window.addEventListener('pagehide', () => beat(true)); }
@@ -1420,7 +1459,7 @@
         ? L.marker([p.lat, p.lon], { keyboard: false, icon: L.divIcon({ className: 'svpin-wrap', html: `<span class="svpin${sel ? ' sel' : ''}${p.status === 'Proposed' || p.status === 'New' ? ' new' : ''}" style="--c:${pinCol(p) || SV_COLORS[el]}">${SV_SHORT[el]}</span>`, iconSize: [30, 24], iconAnchor: [15, 12] }) })
         : L.circleMarker([p.lat, p.lon], pinLook(p, sel)); // (v2.42.19: its look in pinLook)
       m._tipO = { permanent: true, direction: 'right', offset: [sy ? 16 : !acc && el !== 'Pole' ? 14 : 8, 0], className: 'pole-label' }; m._tipP = p; // v2.42.26: its label bound near the screen only (labelCull)
-      m.on('click', () => { if (hlId && hlId !== p.id && !routeMode) hlClear(); /* v2.42.27: the ring goes when another pole is tapped */ return routeMode ? (Date.now() - rtGestAt < 700 ? null : rtTapAny(p.id)) : visitMode() ? openVisit(p.id) : openEditorFor(p.id); }); // (v2.42.21: a tap the drawing gesture took)
+      m.on('click', () => { if (!routeMode && tmHooks.pinTap && tmHooks.pinTap(p.id)) return; /* v2.43 beta 3: the fix list */ if (hlId && hlId !== p.id && !routeMode) hlClear(); /* v2.42.27: the ring goes when another pole is tapped */ return routeMode ? (Date.now() - rtGestAt < 700 ? null : rtTapAny(p.id)) : visitMode() ? openVisit(p.id) : openEditorFor(p.id); }); // (v2.42.21: a tap the drawing gesture took)
       m.addTo(poleLayer); pinMarkers.set(p.id, m);
     }
     pinShownSel = routeMode ? routeSel : null;
@@ -1434,6 +1473,7 @@
     renderSummary(pts); labelCull(); declutterSoon();
     if (typeof drawAreas === 'function') drawAreas();
     renderRefBtn(); // v2.30
+    if (tmHooks.poles) tmHooks.poles(); // v2.43 beta 3: the fix list's pins and panel
     hlDraw(); deskRender(); // v2.42.27: the ring on a found pole; on a computer the Projects pane and the other projects shown
   }
   /** Project status at a glance: the strip above the navigation bar and the figures on the Records screen. */
@@ -1486,6 +1526,7 @@
   $('pinAddBtn').addEventListener('click', async () => {
     if (!S.project) { openProjects(); return; }
     if (isAcc()) return;
+    { const lk = tmHooks.locked ? tmHooks.locked() : ''; if (lk) { toast(lk, 6500); return; } } // beta 3.3 (QA-09): an accepted task
     // v2.37: only the models: a tower or an OLT site, or an ODC (poles, ODFs and handholes are recorded from the camera)
     const k = await ask('Add a pin on the map', 'Tower, OLT or ODC? Then drag the map to place it, type its name and pick its colour. A photo is optional. For the homing site or ODC (where the route starts or ends), set Existing.', [
       { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
@@ -2323,6 +2364,7 @@
     LOG.info('ref.loaded', n);
     drawRef(true); renderRefInfo();
     const planTxt = boqOn() && svPurpose() === 'As-built' ? (n.plan ? ` · As-Plan: ${n.plan} element${n.plan === 1 ? '' : 's'}, ${n.sized} with sizes for the BOQ` : ' · no G-eSAA sizes in it (not an As-Plan KMZ from G-eSAA)') : '';
+    if (tmHooks.refAdded) tmHooks.refAdded(S.project).catch((e) => { busy(false); toast(`The KMZ is loaded, but not sent: ${e.message || e}`, 6000); }); // v2.43 beta 2
     toast(`Reference loaded: ${n.lines ? `${n.lines} line${n.lines === 1 ? '' : 's'} (${n.km} km)` : ''}${n.lines && n.pins ? ' · ' : ''}${n.pins ? `${n.pins} pin${n.pins === 1 ? '' : 's'}` : ''}${n.areas ? ` · ${n.areas} area${n.areas === 1 ? '' : 's'}` : ''}${planTxt}`, 5000);
   }
   async function refGeoFor(name) {
@@ -2426,7 +2468,7 @@
   const routeLayer = L.layerGroup().addTo(map), fibLayer = L.layerGroup().addTo(map);
   map.createPane('routePane'); map.getPane('routePane').style.zIndex = 395; // v2.42.19: the route under the pins (overlay 400), whatever is drawn last: a pin is tapped, not the span under it
   const links = () => (pmeta().links || []);
-  function setLinks(l) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), links: l, linksAt: new Date().toISOString() }; persist(); changedAfterApproval(S.project, 'route'); cloSyncSoon(); } // (v2.42.24: the closures' sizes follow) // v2.42.5: + the approval; v2.42.18: + its time (Share)
+  function setLinks(l) { routeWrite(S.project, l, null); } // (beta 3.3: who made each span) (v2.42.24: the closures' sizes follow) // v2.42.5: + the approval; v2.42.18: + its time (Share)
   /* ================= v2.42.20: fibers (named runs) =================
      A fiber is one FOC cable from its start to its end, point by point: { n, cab, side ('auto', 'right', 'left', 'none'), ex (an
      existing cable: drawn on the plan only, not counted), path: [ids], fromSt, toSt (Existing / New; '' = as its record) }.
@@ -2436,8 +2478,131 @@
   const fibColor = (f) => FIB_COLORS[(Math.max(1, f.n) - 1) % FIB_COLORS.length];
   const fibTag = (f) => `R${f.n}${f.ex ? '·EX' : ''}`; // (v2.42.24: RUN n)
   const spanKey = (a, b) => (String(a) < String(b) ? `${a}|${b}` : `${b}|${a}`);
-  function fibers(name) { const F = pmeta(name).fibers; return Array.isArray(F) ? F.filter((f) => f && Array.isArray(f.path) && f.n > 0).map((f) => ({ ...f, path: f.path.slice() })) : []; }
-  function setRoute(l, F) { S.meta = S.meta || {}; S.meta[S.project] = { ...pmeta(), ...(l ? { links: l } : {}), ...(F ? { fibers: F } : {}), linksAt: new Date().toISOString() }; persist(); changedAfterApproval(S.project, 'route'); cloSyncSoon(); } // (v2.42.24: the closures' sizes follow)
+  function fibers(name) { const F = pmeta(name).fibers; return Array.isArray(F) ? F.filter((f) => f && Array.isArray(f.path) && f.n > 0).map((f) => { if (!f.fid) f.fid = legacyFid(f); return { ...f, path: f.path.slice() }; }) : []; } // (beta 3.3: each its permanent id)
+  function setRoute(l, F) { routeWrite(S.project, l, F); } // (beta 3.3: who made each span and cable) (v2.42.24: the closures' sizes follow)
+  /* beta 3.3 (QA-06): who made each span and cable, and when, so an update changes only what came from its sender.
+     lsrc { span: { o: who made it, t: its time } }, lgone { span: { o, by: who removed it, t } }; each cable (fiber) its own
+     permanent id (fid) with o and t, fgone { fid: { o, by, t } }. A span or cable from before beta 3.3 has no maker (o ''): it is
+     never removed by someone else's update (only by its maker's removal passed on, as before: the newest wins). */
+  function routeWho() { const u = S.user || {}; return String(u.email || u.mobile || u.name || '').trim().toLowerCase() || 'this phone'; }
+  function legacyFid(f) { return `L${f.n}-${(Array.isArray(f.path) && f.path[0]) || ''}`; }
+  function fidOf(f) { return f.fid || legacyFid(f); }
+  function linkSig(q) { return JSON.stringify([q[2] || '', Array.isArray(q[3]) ? q[3] : []]); }
+  function fibSig(f) { const { n, fid, o, t, _x, ...r } = f || {}; return JSON.stringify(r, Object.keys(r).sort()); }
+  function routeTrack(m0, l, F, now) {
+    const me = routeWho(), x = {};
+    if (l) {
+      const src = { ...(m0.lsrc || {}) }, lg = { ...(m0.lgone || {}) };
+      const was = new Map((m0.links || []).map((q) => [spanKey(q[0], q[1]), q])), is = new Map(l.map((q) => [spanKey(q[0], q[1]), q]));
+      is.forEach((q, k) => { const w = was.get(k), sk = src[k] || {};
+        if (!w) { src[k] = { o: sk.o || me, t: now }; delete lg[k]; } else if (linkSig(w) !== linkSig(q)) src[k] = { o: sk.o || '', t: now }; });
+      was.forEach((q, k) => { if (!is.has(k)) lg[k] = { o: (src[k] || {}).o || '', by: me, t: now }; });
+      x.lsrc = src; x.lgone = lg;
+    }
+    if (F) {
+      const fg = { ...(m0.fgone || {}) }, was = new Map((Array.isArray(m0.fibers) ? m0.fibers : []).filter((f) => f && Array.isArray(f.path)).map((f) => [fidOf(f), f])), is = new Set();
+      F.forEach((f) => {
+        if (!f.fid) { const w = was.get(legacyFid(f)); f.fid = w && !w.fid ? legacyFid(f) : `f${uid()}`; }
+        const w = was.get(f.fid); is.add(f.fid);
+        if (!w) { f.o = f.o || me; f.t = now; delete fg[f.fid]; } // new (or back by Undo: its maker kept)
+        else { if (!f.o && w.o) f.o = w.o; if (fibSig(w) !== fibSig(f)) f.t = now; else if (!f.t && w.t) f.t = w.t; } // (a new RUN number is not a change)
+      });
+      was.forEach((w, id) => { if (!is.has(id)) fg[id] = { o: w.o || '', by: me, t: now }; });
+      x.fgone = fg;
+    }
+    return x;
+  }
+  function routeWrite(proj, l, F) { S.meta = S.meta || {}; const m0 = pmeta(proj), now = new Date().toISOString(); S.meta[proj] = { ...m0, ...(l ? { links: l } : {}), ...(F ? { fibers: F } : {}), ...routeTrack(m0, l, F, now), linksAt: now }; persist(); changedAfterApproval(proj, 'route'); cloSyncSoon(); }
+  /** beta 3.3 (QA-06): an update's route merged span by span and cable by cable. What came from its sender replaces what came from him
+      before (a span or cable he removed goes, if it was his); everyone else's and this phone's own stay; what others made, passed on by
+      him, is added. A cable keeps its RUN number where it is free here, else it takes the next free one; a field partner takes his
+      coordinator's numbers (his own cables move up where they meet one). Returns what changed (the merge line). */
+  function routeMerge(proj, mm, sender, from, fresh) {
+    const m = S.meta[proj], me = routeWho(), X = String(sender || '').replace(/^mbx:/, '').trim().toLowerCase(), now = new Date().toISOString(), theirAt = String(mm.linksAt || '');
+    const R = { added: 0, removed: 0, changed: 0, cAdded: 0, cRemoved: 0, cChanged: 0, ren: [], same: false, any: false };
+    const auth = (T) => !!T && (!T.o || T.o === T.by), tS = (v) => String(v || '');
+    const goneHere = (id) => !!(m.gone && m.gone[id]) && !points.some((p) => p.id === id && p.project === proj);
+    const inSrc = mm.lsrc || {}, inG = mm.lgone || {}, inFG = mm.fgone || {};
+    const kset = (A) => (A || []).map((q) => `${spanKey(q[0], q[1])}#${linkSig(q)}`).sort().join(',');
+    const fset = (A) => (Array.isArray(A) ? A : []).filter((f) => f && Array.isArray(f.path) && f.n > 0).map((f) => `${fidOf(f)}#${f.n}#${fibSig(f)}`).sort().join(',');
+    const before = `${kset(m.links)}|${fset(m.fibers)}`;
+    const src = { ...(m.lsrc || {}) }, lg = { ...(m.lgone || {}) };
+    let L = (m.links || []).map((q) => q.slice());
+    const here = new Map(L.map((q, i) => [spanKey(q[0], q[1]), i])), IN = new Map((mm.links || []).map((q) => [spanKey(q[0], q[1]), q])), del = new Set();
+    // 1. the sender's spans no longer in his route; 2. spans their maker removed, passed on by the sender
+    if (X) here.forEach((i, k) => { if ((src[k] || {}).o === X && !IN.has(k)) { del.add(k); lg[k] = { o: X, by: X, t: tS((inG[k] || {}).t) || theirAt || now }; } });
+    Object.entries(inG).forEach(([k, T]) => { if (!auth(T) || IN.has(k)) return; const lo = (src[k] || {}).o || '';
+      if (here.has(k) && lo !== me && lo === (T.o || '') && tS((src[k] || {}).t) <= tS(T.t)) del.add(k);
+      if (!lg[k] || tS(lg[k].t) < tS(T.t)) lg[k] = { o: T.o || '', by: T.by || '', t: tS(T.t) }; });
+    // 3. the spans in the update: a new one added (not one this phone made, removed here, or to a record deleted here); a cable
+    //    changed where the update's is newer
+    IN.forEach((q, k) => {
+      const ex = inSrc[k] && inSrc[k].o ? String(inSrc[k].o) : '', o2 = ex || X, t2 = tS((inSrc[k] || {}).t) || theirAt, i = here.get(k);
+      if (i != null) {
+        if (t2 > tS((src[k] || {}).t) && linkSig(L[i]) !== linkSig(q)) { L[i] = q.slice(); src[k] = { o: (src[k] || {}).o || ex, t: t2 }; R.changed++; }
+        else if (!(src[k] || {}).o && (ex || (fresh && X))) src[k] = { o: ex || X, t: tS((src[k] || {}).t) || t2 }; // (a project new here: a span from before beta 3.3 is the sender's)
+        return;
+      }
+      if (o2 === me || (lg[k] && tS(lg[k].t) >= t2) || goneHere(q[0]) || goneHere(q[1])) return;
+      L.push(q.slice()); here.set(k, L.length - 1); src[k] = { o: o2, t: t2 }; delete lg[k]; R.added++;
+    });
+    if (del.size) { L = L.filter((q) => !del.has(spanKey(q[0], q[1]))); del.forEach((k) => delete src[k]); R.removed = del.size; }
+    // the cables (fibers), the same way by their ids
+    let F = null, fg = { ...(m.fgone || {}) };
+    if (Array.isArray(mm.fibers)) {
+      const FL = (Array.isArray(m.fibers) ? m.fibers : []).filter((f) => f && Array.isArray(f.path)).map((f) => ({ ...f, fid: fidOf(f), path: f.path.slice() }));
+      const FI = mm.fibers.filter((f) => f && Array.isArray(f.path) && f.n > 0).map((f) => ({ ...f, fid: fidOf(f), path: f.path.slice(), _x: f.o ? String(f.o) : '', t: tS(f.t) || theirAt })).sort((a, b) => a.n - b.n);
+      const inFid = new Set(FI.map((f) => f.fid)), byFid = new Map(FL.map((f) => [f.fid, f])), bySig = new Map(FL.map((f) => [fibSig(f), f])), gone = new Set();
+      if (X) FL.forEach((f) => { if ((f.o || '') === X && !inFid.has(f.fid)) { gone.add(f.fid); fg[f.fid] = { o: X, by: X, t: tS((inFG[f.fid] || {}).t) || theirAt || now }; } });
+      Object.entries(inFG).forEach(([id, T]) => { if (!auth(T) || inFid.has(id)) return; const f = byFid.get(id), lo = f ? f.o || '' : '';
+        if (f && lo !== me && lo === (T.o || '') && tS(f.t) <= tS(T.t)) gone.add(id);
+        if (!fg[id] || tS(fg[id].t) < tS(T.t)) fg[id] = { o: T.o || '', by: T.by || '', t: tS(T.t) }; });
+      const hit = new Map(), add = [];
+      FI.forEach((fi) => {
+        let lf = byFid.get(fi.fid);
+        if (!lf) { const sg = bySig.get(fibSig(fi)); if (sg && (/^L/.test(sg.fid) || /^L/.test(fi.fid)) && !inFid.has(sg.fid) && !gone.has(sg.fid) && ![...hit.values()].includes(sg)) { lf = sg; if (/^L/.test(sg.fid)) { byFid.delete(sg.fid); sg.fid = fi.fid; byFid.set(fi.fid, sg); } } } // (the same cable from before beta 3.3)
+        if (lf && gone.has(lf.fid)) return;
+        if (lf) { hit.set(fi.fid, lf);
+          if (fi.t > tS(lf.t) && fibSig(fi) !== fibSig(lf)) { const keep = { n: lf.n, fid: lf.fid, o: lf.o || fi._x }; Object.keys(lf).forEach((k) => delete lf[k]); Object.assign(lf, fi, keep); R.cChanged++; }
+          else if (!lf.o && (fi._x || (fresh && X))) lf.o = fi._x || X;
+          return; }
+        const o2 = fi._x || X; if (o2 && o2 === me) return;
+        if (fg[fi.fid] && tS(fg[fi.fid].t) >= fi.t) return;
+        const path = fi.path.filter((id) => !goneHere(id)); if (path.length < 2) return;
+        const nf = { ...fi, path, o: o2 }; add.push(nf); hit.set(fi.fid, nf); delete fg[fi.fid]; R.cAdded++;
+      });
+      F = FL.filter((f) => !gone.has(f.fid)); R.cRemoved = FL.length - F.length;
+      // RUN numbers (see above)
+      const T = (typeof tmTeam === 'function' && tmTeam(proj)) || {}, adopt = T.role === 'fp' && !!X && X === String(T.by || '').trim().toLowerCase();
+      const nameOf = (o) => (!o ? 'a colleague' : o === X ? from || o : typeof tmNameOf === 'function' ? tmNameOf(o, o) : o), mine = (f) => (f.o || '') === me;
+      const hits = new Set(hit.values()), top = (U) => Math.max(0, ...U);
+      if (adopt) {
+        const used = new Set();
+        FI.forEach((fi) => { const f = hit.get(fi.fid); if (!f || !(F.includes(f) || add.includes(f))) return; if (F.includes(f) && f.n !== fi.n && mine(f)) R.ren.push(`your RUN ${f.n} is RUN ${fi.n} now`); f.n = fi.n; used.add(fi.n); });
+        const own = F.filter((f) => !hits.has(f)).sort((a, b) => a.n - b.n), clash = [];
+        own.forEach((f) => { if (f.n > 0 && !used.has(f.n)) used.add(f.n); else clash.push(f); });
+        clash.forEach((f) => { const was = f.n; f.n = top(used) + 1; used.add(f.n); R.ren.push(mine(f) ? `your RUN ${was} is RUN ${f.n} now` : `${nameOf(f.o)}’s RUN ${was} is RUN ${f.n} now`); });
+      } else {
+        const used = new Set(F.map((f) => f.n));
+        add.forEach((f) => { if (f.n > 0 && !used.has(f.n)) { used.add(f.n); return; } const was = f.n; f.n = top(used) + 1; used.add(f.n); R.ren.push(`${nameOf(f.o)}’s RUN ${was} is RUN ${f.n} here`); });
+      }
+      F = F.concat(add).sort((a, b) => a.n - b.n);
+      { const seen = new Set(); F.forEach((f) => { if (seen.has(f.n)) { const was = f.n; f.n = top([...seen, ...F.map((g) => g.n)]) + 1; R.ren.push(`RUN ${was} (twice) is RUN ${f.n}`); } seen.add(f.n); }); }
+      F = F.map(({ _x, ...f }) => f);
+    }
+    if (fresh) { R.added = L.length; R.cAdded = F ? F.length : 0; } // (a project new on this phone: what came with it)
+    const after = `${kset(L)}|${F ? fset(F) : fset(m.fibers)}`;
+    R.same = kset(L) === kset(mm.links) && (!F || fset(F) === fset(mm.fibers)); R.any = before !== after;
+    S.meta[proj] = { ...m, links: L, lsrc: src, lgone: lg, ...(F ? { fibers: F, fgone: fg } : {}), ...(R.any ? { linksAt: now } : {}) };
+    return R;
+  }
+  /** beta 3.3 (QA-06): what an update did to the route, for the merge line ("the route: 2 spans added, 0 removed"). */
+  function routeSaid(R) {
+    if (!R) return ''; if (typeof R !== 'object') return 'the route';
+    const pl = (k, w) => `${k} ${w}${k === 1 ? '' : 's'}`, c = R.cAdded || R.cRemoved || R.cChanged ? `; ${pl(R.cAdded, 'cable')} added, ${R.cRemoved} removed${R.cChanged ? `, ${R.cChanged} changed` : ''}` : '';
+    return `the route: ${pl(R.added, 'span')} added, ${R.removed} removed${R.changed ? `, ${R.changed} changed` : ''}${c}${R.ren && R.ren.length ? `; ${R.ren.join('; ')}` : ''}`;
+  }
+
   const routeSnap = () => ({ l: links(), f: fibers() });
   /** The links as the route analysis reads them: a span on new fibers carries their cables (the lowest-numbered fiber's first). */
   function effLinks() {
@@ -3158,6 +3323,7 @@
     const was = routeSel; setLinks(l); routeSel = id; routeRefresh([was, id]); // (the two ends: their angle / junction labels)
   }
   $('routeBtn').addEventListener('click', () => {
+    if (!routeMode) { const lk = tmHooks.locked ? tmHooks.locked() : ''; if (lk) { toast(lk, 6500); return; } } // beta 3.3 (QA-09): an accepted task
     if (!routeMode && routePts().length < 2) { toast('Capture at least two poles first'); return; }
     setRouteMode(!routeMode);
   });
@@ -3788,6 +3954,23 @@
   /* Capture rules: a photo is kept only if a GPS update arrived within GPS_WINDOW_MS of the shutter (always in acceptance,
      optional in survey), then it is checked for blur and exposure, and the painted Pole ID inside the guide box is read. */
   const GPS_WINDOW_MS = 5000;
+  /* ================= beta 3.5: several photos per pin =================
+     Photos per pin (1–4, 2 by default): after photo 1 the camera offers the next ones, up to that many; Done stops at any time.
+     Photo 2 is the pole ID close-up by default (the old ID step): the green shutter keeps it as Pole tag and the ID is read from it.
+     The record's first photo is the main one (stored under the record's id, as before); the others are listed in its photos, each
+     with its label. A field partner's phone takes his coordinator's setting for the projects the coordinator sends (Set by). */
+  const PH_DOC_DEF = { report: 'all', compl: 'all', defpdf: 'all', kmz: 'all', zip: 'main', ai: 'all' };
+  const PH_DOCS = [['report', 'Photo report · PDF'], ['compl', 'Completion report · PDF'], ['defpdf', 'Deficiency list and rectification · PDF'], ['kmz', 'Google Earth · KMZ balloon'], ['zip', 'Geotagged photos · ZIP'], ['ai', 'Photos for AI training · ZIP'], ['dxf', 'AutoCAD · DXF and plan PDF']];
+  function phSetOf(name) {
+    const P = name ? pmeta(name).phSet : null, T = name && typeof tmTeam === 'function' ? tmTeam(name) : null;
+    if (P && !P.free && T && T.role === 'fp') return { n: P.n, idp: P.idp !== false, docs: P.docs || {}, by: P.byName || 'your coordinator', locked: true };
+    return { n: S.phN || 2, idp: S.phIdp !== false, docs: S.phDocs || {}, by: '', locked: false };
+  }
+  const phN = (name) => Math.max(1, Math.min(4, Math.round(+phSetOf(name || S.project).n) || 2));
+  const phIdp = (name) => phN(name) >= 2 && phSetOf(name || S.project).idp;
+  const phDoc = (k, name) => (k === 'dxf' ? 'main' : phSetOf(name || S.project).docs[k] || PH_DOC_DEF[k] || 'all');
+  const phMine = () => ({ n: S.phN || 2, idp: S.phIdp !== false, docs: { ...PH_DOC_DEF, ...(S.phDocs || {}) }, byName: (S.user && S.user.name) || '', free: S.phBy === 'phone', at: new Date().toISOString() }); // (free: the coordinator lets each phone choose)
+  const phOf = (r, k) => { const L = photosOf(r); return phDoc(k, r.project) === 'main' ? L.slice(0, 1) : L; }; // a record's photos for a document
   let stream = null, imageCapture = null, torchOn = false, wakeLock = null, camTarget = 'new', camBusy = false, camTick = 0, camPending = null, camSeq = 0;
   let photoOpts = null; // still-photo size: phones with 48–200 MP sensors are asked for about 12 MP (photos are kept at 2048 px anyway)
   const STILL_MAX_W = 4032, TAKE_MS = 6000;
@@ -3803,9 +3986,10 @@
   /** Shutter colour: green = GPS updated within 5 s (ready), red = GPS old, off or blocked; white while scanning an ID. */
   function shutterState() {
     const b = $('shutter'); if (!b) return;
-    const st = scanStep() ? 'scan' : gpsFresh() ? 'ok' : 'bad';
+    const ph2 = camTarget === 'newid' && camPending && camPending.ph, more = camTarget === 'newmore'; // beta 3.5
+    const st = ph2 || more ? 'ok' : scanStep() ? 'scan' : gpsFresh() ? 'ok' : 'bad';
     b.className = st;
-    b.setAttribute('aria-label', st === 'scan' ? 'Read the ID' : st === 'ok' ? 'Take photo (GPS ready)' : 'Take photo (waiting for a fresh GPS fix)');
+    b.setAttribute('aria-label', ph2 ? 'Take photo 2 (Pole tag) and read the ID' : more ? `Take photo ${camPending ? camPending.k : ''}` : st === 'scan' ? 'Read the ID' : st === 'ok' ? 'Take photo (GPS ready)' : 'Take photo (waiting for a fresh GPS fix)');
   }
   /** The guide box's shape and the H / V buttons follow the ID's orientation. */
   function setOrientUi() {
@@ -3817,11 +4001,16 @@
     const on = scanStep();
     $('idGuide').hidden = !on;
     setOrientUi();
-    $('idGuideText').textContent = S.idOrient === 'v' ? 'Vertical ID inside the box' : 'Fit the painted ID inside the box';
-    $('scanPrompt').hidden = !on;
-    $('scanTitle').textContent = camTarget === 'newid' ? 'Photo kept · scan the ID' : 'Scan the ID';
-    $('scanSkip').hidden = camTarget !== 'newid';
-    $('scanPhoto').hidden = !((camTarget === 'newid' && camPending && !isAcc()) || (camTarget === 'scan' && ed && !ed.acc && (ed.newBlob || ed.srcBlob))); // v2.17
+    $('idGuideText').textContent = S.idOrient === 'v' ? 'Vertical ID inside the box' : `Fit the ${idWord()} inside the box`;
+    const ph2 = camTarget === 'newid' && camPending && camPending.ph, more = camTarget === 'newmore', N = phN(); // beta 3.5: photo 2 (the ID close-up), photos 3–4
+    $('scanPrompt').hidden = !(on || more);
+    $('scanTitle').textContent = more ? `Photo ${camPending ? camPending.k : 2} of ${N} · detail` : ph2 ? `Photo 2 of ${N} · pole ID` : camTarget === 'newid' ? 'Photo kept · scan the ID' : 'Scan the ID';
+    $('scanSkip').hidden = !(camTarget === 'newid' || more); $('scanSkip').textContent = ph2 || more ? 'Done' : 'Skip';
+    $('scanSkip').setAttribute('aria-label', ph2 || more ? 'Done: save with the photos taken' : 'Skip the ID scan');
+    ['orientH', 'orientV', 'scanHelp'].forEach((id) => { $(id).hidden = more; });
+    $('scanShot').hidden = ph2 || more;
+    $('camCount').hidden = !(camTarget === 'new' && N >= 2); if (!$('camCount').hidden) { $('camCountT').textContent = `Photo 1 of ${N} · Overview`; $('camCountD').textContent = Array.from({ length: N }, (_, i) => (i ? '○' : '●')).join(''); }
+    $('scanPhoto').hidden = ph2 || more || !((camTarget === 'newid' && camPending && !isAcc()) || (camTarget === 'scan' && ed && !ed.acc && (ed.newBlob || ed.srcBlob))); // v2.17
     $('camReadId').hidden = camTarget !== 'new';
     $('camReadId').setAttribute('aria-pressed', String(readIdOn()));
     $('camNative').hidden = true; // v2.28: the phone's own camera app is no longer offered (photos are taken live, with the GPS check)
@@ -3846,7 +4035,7 @@
   $('orientH').addEventListener('click', () => { S.idOrient = 'h'; persist(); finderStop(); showGuide(); finder.manual = true; });
   $('scanHelp').addEventListener('click', () => { const on = $('scanSub').hidden; $('scanSub').hidden = !on; $('scanHelp').setAttribute('aria-expanded', String(on)); });
   $('orientV').addEventListener('click', () => { S.idOrient = 'v'; persist(); finderStop(); showGuide(); finder.manual = true; });
-  $('scanSkip').addEventListener('click', () => closeSheet()); // the photo is kept; the editor opens without an ID reading
+  $('scanSkip').addEventListener('click', () => { if (camTarget === 'newmore') guard(morePhotosDone, 'Not done'); else closeSheet(); }); // the photo is kept; the editor opens without an ID reading (beta 3.5: Done keeps the photos taken)
   // v2.17: read the ID on the photo instead (tap or swipe it there): the editor opens with the photo ready for that
   let photoReadNext = false;
   $('scanPhoto').addEventListener('click', async () => {
@@ -3897,7 +4086,10 @@
       if (im.close) im.close();
       LOG.info('idshot', { ms: Date.now() - t0, still: !!imageCapture, px: `${IW}×${IH}`, box: [Math.round(box.w), Math.round(box.h)], near: !!near, orient });
       camCheck(false);
-      if (camTarget === 'newid' && camPending) { camPending.crop = crop; camPending.live = null; camPending.idShot = blob; await closeSheet(); }
+      if (camTarget === 'newid' && camPending && camPending.ph) { // beta 3.5: photo 2, kept as Pole tag
+        camPending.crop = crop; camPending.idShot = blob; camPending.idAt = new Date().toISOString(); prepImages(blob);
+        if (phN() > 2) enterMore(camPending, 3); else await closeSheet();
+      } else if (camTarget === 'newid' && camPending) { camPending.crop = crop; camPending.live = null; camPending.idShot = blob; await closeSheet(); }
       else if (camTarget === 'scan') { await closeSheet(); readIdShot(crop, blob); }
     } finally { camBusy = false; $('shutter').disabled = false; $('scanShot').disabled = false; camCheck(false); if (seq === camSeq && scanStep() && !$('camera').hidden) finderStart(); }
   }
@@ -3967,6 +4159,17 @@
     camPending = pending; camTarget = 'newid'; shotDraft(pending); // v2.21: the photo is kept while the ID is scanned
     $('qualBox').hidden = true; showGuide();
   }
+  /** beta 3.5: the photos after photo 2 (or after photo 1 when photo 2 is not the ID close-up): the camera stays for photo k. */
+  function enterMore(pending, k) {
+    camPending = pending; pending.more = pending.more || []; pending.k = k; camTarget = 'newmore'; if (k === 2) shotDraft(pending);
+    finderStop(); $('qualBox').hidden = true; showGuide();
+  }
+  /** The last photo taken, or Done: the record opens (a survey with the ID scan on and no ID photo: the ID step first, as before). */
+  async function morePhotosDone() {
+    const p = camPending;
+    if (p && !isAcc() && !p.ph && !p.idAsked && readIdOn()) { p.idAsked = true; enterIdStep(p); return; }
+    await closeSheet();
+  }
   function stopCamera() {
     camSeq++; // anything still waiting for this camera (GPS, photo check) is dropped
     if (stream) stream.getTracks().forEach((t) => t.stop());
@@ -3981,7 +4184,7 @@
       setTimeout(async () => {
         const q = p.q || (p.qp ? await p.qp : null);
         if (q && q.flags && q.flags.length) { draftClear(); toast(`${QUAL_TITLE[q.flags[0]] || 'Photo not accepted'}. ${QUAL_TEXT[q.flags[0]] || 'Take it again.'}`, 7000); return; }
-        gotPhoto(p.blob, p.gps, p.source || 'camera', { q, takenAt: p.takenAt, crop: p.crop || null, live: p.live || null, idShot: p.idShot || null });
+        gotPhoto(p.blob, p.gps, p.source || 'camera', { q, takenAt: p.takenAt, crop: p.crop || null, live: p.live || null, idShot: p.idShot || null, ph2: !!p.ph, idAt: p.idAt || '', more: p.more || [] }); // (beta 3.5: photo 2 and the photos after it)
       }, 0);
     }
   }
@@ -4304,7 +4507,7 @@
     if (orient === 'v' && way) { finder.way = way; S.vWay = way; }
     finderLabel(`${best.id} · ${best.conf}%`, true);
     // one clear reading of a known ID is enough; otherwise the same ID read twice
-    if (S.idAuto !== false && ((best.exact && best.conf >= 85 && !numOnly) || (finder.agree >= 2 && Math.min(best.conf, prev ? prev.conf : 0) >= 65))) acceptLive();
+    if ((camTarget === 'newid' && camPending && camPending.ph ? S.phAuto !== false : S.idAuto !== false) && ((best.exact && best.conf >= 85 && !numOnly) || (finder.agree >= 2 && Math.min(best.conf, prev ? prev.conf : 0) >= 65))) acceptLive(); // (beta 3.5: photo 2 by itself)
   }
   /** The reading on the box is used: the ID step ends (new photo) or the scan result goes to the editor. */
   function liveResult() { return finder.read ? { best: finder.read, list: finder.list || [finder.read] } : null; }
@@ -4314,6 +4517,7 @@
     try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) { /* optional */ }
     LOG.info('finder.accept', { id: live.best.id, conf: live.best.conf, auto: true, reads: finder.reads, ms: Math.round(performance.now() - finder.t0) });
     finderStop();
+    if (camTarget === 'newid' && camPending && camPending.ph) { camPending.live = live; guard(takeIdShot, 'Photo 2 not taken'); return; } // beta 3.5: the ID read clearly: photo 2 is taken
     if (camTarget === 'newid' && camPending) { camPending.crop = crop; camPending.live = live; await closeSheet(); }
     else if (camTarget === 'scan') { await closeSheet(); applyLiveRead(live); }
   }
@@ -4384,6 +4588,7 @@
 
   $('shutter').addEventListener('click', async () => {
     if (camBusy || !$('qualBox').hidden) return;
+    if (camTarget === 'newid' && camPending && camPending.ph) { guard(takeIdShot, 'Photo 2 not taken'); return; } // beta 3.5: photo 2, the pole ID close-up
     if (!stream) { if (camTarget !== 'newid') useNativeCamera(); return; } // in-app camera blocked: the phone camera app takes the photo or the ID close-up
     camBusy = true; $('shutter').disabled = true;
     const seq = camSeq, alive = () => seq === camSeq && !$('camera').hidden; // false once the camera was closed meanwhile
@@ -4408,6 +4613,19 @@
       }
       LOG.done('photo.take');
       if (!alive()) return;
+      if (camTarget === 'newmore' && camPending) { // beta 3.5: photo 3 or 4 (or 2): checked, kept with photo 1; no GPS needed (the pin's is photo 1's)
+        camCheck('Checking photo…');
+        const q = await withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] }));
+        camCheck(false);
+        if (!alive() || camTarget !== 'newmore' || !camPending) return;
+        if (q.flags.length) { await refusePhoto(blob, q); return; }
+        camPending.more.push({ blob, q, at: new Date(shotAt).toISOString(), label: 'Detail' }); prepImages(blob);
+        LOG.info('photo.more', { k: camPending.k, of: phN() });
+        camPending.k++;
+        if (camPending.k > phN()) { await morePhotosDone(); return; }
+        showGuide(); toast(`Photo ${camPending.k - 1} kept`, 1500);
+        return;
+      }
       perf.capture = Date.now() - shotAt;
       const tg = Date.now(), gps = await gpsNear(shotAt);
       LOG.info('photo.gps', { ms: Date.now() - tg, ok: !!gps, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0 });
@@ -4419,9 +4637,10 @@
         LOG.info('photo.check', { ms: perf.check, px: perf.px, kb: Math.round(blob.size / 1024), flags: q.flags, sharp: q.sharp, level: q.level, during: camTarget === 'newid' ? 'id' : '' });
         return q;
       });
-      if (camTarget === 'new' && readIdOn()) { // aim at the ID straight away; the photo is checked meanwhile
+      const multi = camTarget === 'new' && phN() >= 2; // beta 3.5: photo 2 next (the ID close-up in a survey), then up to photos per pin
+      if (camTarget === 'new' && (multi || readIdOn())) { // aim at the ID straight away; the photo is checked meanwhile
         const pend = { blob, gps, takenAt, source: 'camera', qp };
-        enterIdStep(pend);
+        if (multi && !isAcc() && phIdp()) { pend.ph = true; enterIdStep(pend); } else if (multi) enterMore(pend, 2); else enterIdStep(pend);
         qp.then((q) => {
           pend.q = q;
           if (!q.flags.length || camPending !== pend || !alive()) return; // fine, or the ID step already ended (checked when the photo is used)
@@ -4509,7 +4728,7 @@
       toast(ed.mapPin || ed.mode === 'edit' && !ed.hadPhoto ? 'Photo added — tap Save to keep it' : 'Photo replaced — tap Save to keep it');
       return;
     }
-    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), q: qSummary(x.q), crop: x.crop, live: x.live, idShot: x.idShot, noDef: camTarget === 'nodef' });
+    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), q: qSummary(x.q), crop: x.crop, live: x.live, idShot: x.idShot, ph2: !!x.ph2, idAt: x.idAt || '', more: x.more || [], noDef: camTarget === 'nodef' });
   }
 
   /* ================= reading the painted Pole ID (offline OCR) ================= */
@@ -5013,7 +5232,59 @@
     edPhotoUrl = blob ? URL.createObjectURL(blob) : '';
     $('edPhoto').src = edPhotoUrl;
     $('edPhoto').closest('.thumbwrap').hidden = !blob; // v2.36: a pin placed on the map may have no photo
+    renderSvPhotos(); // beta 3.5
   }
+  /** beta 3.5: a survey record's photos: “Photos · 2 of 2”, the main one first (MAIN, it opens the full view with the marks), each with
+      its label, ×, Make main, and + Add photo up to the photos per pin. The grid PAT element photos had before v2.13. */
+  function renderSvPhotos() {
+    if (!ed || ed.acc) { $('phHead').hidden = true; $('photoStrip').classList.remove('phgrid'); $('idPh2Btn').hidden = true; return; }
+    const box = $('accPhotos'), X = ed.photos || [], N = phN(), main = !!$('edPhoto').getAttribute('src'), on = main && (N >= 2 || X.length > 0), lock = ed.lock === 'closed';
+    $('photoStrip').classList.toggle('phgrid', on); box.hidden = !on; $('phHead').hidden = !on;
+    const tag = X.find((x) => x.label === 'Pole tag'); $('idPh2Btn').hidden = !tag || lock; if (tag) $('idPh2Btn').textContent = `Read from photo ${X.indexOf(tag) + 2} (Pole tag)`;
+    box.innerHTML = ''; if (!on) return;
+    const total = 1 + X.length; $('phHeadT').textContent = `Photos · ${total} of ${Math.max(N, total)}`; $('phHeadS').textContent = total < N && !lock ? '' : '';
+    const sel = (cur, onCh) => { const s0 = document.createElement('select'); s0.setAttribute('aria-label', 'Photo label'); const L = PHOTO_LABELS.includes(cur) ? PHOTO_LABELS : PHOTO_LABELS.concat(cur);
+      s0.innerHTML = L.map((l) => `<option${l === cur ? ' selected' : ''}>${C.xmlEsc(l)}</option>`).join(''); s0.disabled = lock; s0.addEventListener('change', () => { onCh(s0.value); scheduleDraft(); }); return s0; };
+    const cell = (src, n, isMain, label, onCh, onX, onOpen) => {
+      const c = document.createElement('div'); c.className = 'ph'; const w = document.createElement('div'); w.className = 'phwrap';
+      const img = document.createElement('img'); img.alt = label || 'Photo'; if (typeof src === 'string') img.src = src; else src.then((u) => { img.src = u; });
+      img.addEventListener('click', onOpen); w.appendChild(img);
+      if (isMain) w.insertAdjacentHTML('beforeend', '<span class="phmain">MAIN</span>');
+      w.insertAdjacentHTML('beforeend', `<span class="phno">${n}</span>`);
+      if (onX && !lock) { const x = document.createElement('button'); x.type = 'button'; x.className = 'x'; x.textContent = '×'; x.setAttribute('aria-label', `Remove photo ${n}`); x.addEventListener('click', onX); w.appendChild(x); }
+      c.append(w, sel(label, onCh)); return c;
+    };
+    box.appendChild(cell($('edPhoto').src, 1, true, ed.mainLabel || 'Overview', (v) => { ed.mainLabel = v; }, X.length ? () => guard(() => svMakeMain(0, true), 'Not removed') : null, () => $('edPhoto').click()));
+    X.forEach((p, i) => {
+      const c = cell(thumbUrl(p.pid), i + 2, false, p.label, (v) => { p.label = v; }, () => { X.splice(i, 1); if (ed.pending[p.pid]) delete ed.pending[p.pid]; else ed.removed.push(p.pid); renderSvPhotos(); scheduleDraft(); },
+        () => showPhoto(p.pid, `${$('poleId').value || ''} · ${p.label || ''}`));
+      if (!lock) { const mk = document.createElement('button'); mk.type = 'button'; mk.className = 'btn sm phmk'; mk.textContent = 'Make main'; mk.addEventListener('click', () => guard(() => svMakeMain(i), 'Not changed')); c.appendChild(mk); }
+      box.appendChild(c);
+    });
+    if (!lock && total < N) { const add = document.createElement('button'); add.type = 'button'; add.className = 'ph add'; add.innerHTML = `+ Add photo<small>limit ${N}</small>`; add.addEventListener('click', () => openCamera('add')); box.appendChild(add); }
+  }
+  /** Photo i (of the others) becomes the main one; the main one goes in its place (drop: and is removed). Not while the main photo has marks. */
+  async function svMakeMain(i, drop) {
+    const X = ed.photos || [], x = X[i]; if (!x) return;
+    if ((ed.marks || []).length || ed.legacyBoxes || (ed.origPid && !ed.dropOrig)) { toast('The main photo has marks or red boxes: remove them first (tap the photo), then make another one main.', 5500); return; }
+    const getB = async (pid) => { if (ed.pending[pid]) return ed.pending[pid]; const ph = await dbGet('photos', pid).catch(() => null); return ph && (ph.clean || ph.thumb); };
+    const xb = await getB(x.pid), mb = ed.newBlob || ed.srcBlob || await getB(ed.id);
+    if (!xb || !mb) { toast('Photo not found on this phone'); return; }
+    if (ed.pending[x.pid]) delete ed.pending[x.pid]; else ed.removed.push(x.pid);
+    if (drop) X.splice(i, 1);
+    else { const npid = uid(); X[i] = { pid: npid, label: ed.mainLabel || 'Overview', at: ed.photoAt || ed.takenAt || new Date().toISOString(), ...(ed.q ? { q: ed.q } : {}), by: byLine() }; ed.pending[npid] = mb; prepImages(mb); }
+    ed.mainLabel = x.label || 'Overview'; ed.newBlob = xb; ed.srcBlob = xb; ed.photoAt = x.at || ed.photoAt; ed.q = x.q || null; ed.keepQ = false; prepImages(xb);
+    LOG.info('photo.main', { drop: !!drop });
+    showEdPhoto(xb); showQualWarn(ed.q); scheduleDraft();
+    toast(drop ? 'Photo 1 removed: the next one is the main photo now — tap Save to keep it' : 'Main photo changed — tap Save to keep it', 3500);
+  }
+  $('idPh2Btn').addEventListener('click', () => guard(async () => { // beta 3.5: read the ID from photo 2 (tap the ID on it)
+    if (!ed) return; const x = (ed.photos || []).find((p) => p.label === 'Pole tag'); if (!x) return;
+    let b = ed.pending[x.pid]; if (!b) { const ph = await dbGet('photos', x.pid).catch(() => null); b = ph && ph.clean; }
+    if (!b) { toast('Photo not found on this phone'); return; }
+    pvReadBlob = null; showBlob(b, 'Pole tag'); pvReadBlob = b; setPhotoRead(true);
+    toast('Tap the ID on the photo, or draw a box round it', 3500);
+  }, 'Not opened'));
   const OTHER_PREFIX = '__other';
   /** Pole type dropdown: the built-in and admin types, this phone's own prefixes, then “+ Other prefix…”. */
   function renderTypeChips(sel) {
@@ -5156,6 +5427,7 @@
       takenAt: o.takenAt, type: o.type || S.lastType, userMoved: false, acc, boq: JSON.parse(JSON.stringify(o.boq || {})), hadPhoto: !!(o.blob || o.storedBlob) };
     // v2.16: 'closed' = a completed PAT (view only); 'carried' = an element from the PAT in the cleanup or FAT (fixes only)
     ed.lock = !acc ? '' : patClosed() ? 'closed' : o.mode === 'edit' && ['Cleanup', 'FAT'].includes(taskCat()) && (o.patId || (o.defs || []).some((d) => (d.stage || 'PAT') === 'PAT')) ? 'carried' : '';
+    { const tl = tmHooks.locked ? tmHooks.locked(o.mode === 'edit' ? o.id : null, o.mode === 'edit' ? 'edit' : 'capture') : ''; if (tl) { ed.lock = 'closed'; ed.lockMsg = tl; } } // beta 3.3 (QA-09): a task the coordinator accepted: view only (beta 3.4: but the poles of later fixes)
     if (acc) {
       Object.assign(ed, { element: o.element || 'Pole', photos: (o.photos || []).map((p) => ({ ...p })), pending: {}, removed: [], details: JSON.parse(JSON.stringify(o.details || [])),
         defs: JSON.parse(JSON.stringify(o.defs || [])).map((d) => (d && !d.id ? { ...d, id: uid() } : d)), /* v2.42.4: an id for items of old versions (a photo went to the wrong one) */ mloop: !!o.mloop, nap: !!o.nap, closure: !!o.closure, odf: o.odf || 'New', newBlob: null });
@@ -5173,6 +5445,11 @@
       $('svRemarks').value = o.remarks || ''; $('svClosureId').value = onPoleRec ? '' : o.closureId || '';
       $('napId').value = onPoleRec ? o.napId || '' : ''; $('closureId').value = onPoleRec ? o.closureId || '' : ''; $('nap2Id').value = onPoleRec ? o.nap2Id || '' : '';
       ed.color = MCOL[o.color] ? o.color : ''; ed.mapPin = o.source === 'map' && !o.blob && !o.storedBlob && o.mode === 'new'; // v2.36: a pin placed on the map (photo optional)
+      // beta 3.5: the other photos of the pin (the main one is the record's own); photo 2 and the photos after it from the camera
+      ed.photos = (o.photos || []).filter((x) => x && x.pid && x.pid !== ed.id).map((x) => ({ ...x })); ed.pending = {}; ed.removed = [];
+      ed.mainLabel = ((o.photos || []).find((x) => x && x.pid === ed.id) || {}).label || o.mainLabel || 'Overview';
+      if (o.idShot && o.ph2) { const pid = uid(); ed.photos.push({ pid, label: 'Pole tag', at: o.idAt || o.takenAt || new Date().toISOString(), by: byLine() }); ed.pending[pid] = o.idShot; prepImages(o.idShot); }
+      (o.more || []).forEach((m) => { if (!m || !m.blob) return; const pid = uid(); ed.photos.push({ pid, label: m.label || 'Detail', at: m.at || new Date().toISOString(), q: qSummary(m.q), by: byLine() }); ed.pending[pid] = m.blob; });
       ed.siteKind = o.siteKind === 'OLT' ? 'OLT' : 'Tower'; // v2.37: a site is a tower or an OLT
     }
     // v2.42.17: a survey record in tabs (status, element, type and ID on top); PAT, cleanup and FAT records on one page as before
@@ -5211,7 +5488,8 @@
     if (acc && o.mode === 'new' && canRecord() && !ed.noDef) { // the defect form is ready, with the photo just taken as its as-found photo
       startDefDraft(false);
       if (o.blob) setDefPhoto(o.blob, { ...photoMeta(o.gps, o.takenAt), q: o.q || null });
-    }
+      if (defDraft && o.more && o.more.length) { defDraft.more = o.more.filter((m) => m && m.blob).map((m) => ({ blob: m.blob, label: 'Detail', meta: { ...photoMeta(o.gps, m.at), q: qSummary(m.q) } })); renderDefPhotos(); } // beta 3.5
+    } else if (acc && o.more && o.more.length) (o.more || []).forEach((m) => { if (!m || !m.blob) return; const pid = uid(); ed.photos.push({ pid, label: 'Detail', ...photoMeta(o.gps, m.at), q: qSummary(m.q) }); ed.pending[pid] = m.blob; }); // (an element photo of a phone that does not record defects)
     $('edTime').textContent = fmtTime(o.takenAt);
     $('edAcc').textContent = ed.gps && Number.isFinite(ed.gps.acc) ? `GPS ±${ed.gps.acc.toFixed(1)} m` : (ed.gps ? 'Location from photo' : 'No location yet');
     $('edSrc').textContent = o.note || '';
@@ -5242,7 +5520,7 @@
      While a record is open, what it holds (the photo, the form, the pin, the deficiencies and their photos) is kept as a draft on
      the phone: in the photo store (pictures, ids draft~…) and in localStorage (the rest). A page reload, the phone closing the app in
      the background, or the app being closed some other way loses nothing: the next start offers the record again. */
-  const DRAFT_KEY = 'polecam.draft', DRAFT_MAX_MS = 7 * 86400000;
+  const DRAFT_KEY = `${STORE}.draft`, DRAFT_MAX_MS = 7 * 86400000;
   let draftTimer = 0, draftChain = Promise.resolve(), draftBlobs = {}, draftAtStart = 0, draftGen = 0; // v2.42.4: draftGen
   try { const st0 = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); draftAtStart = (st0 && st0.t) || 0; } catch (e) { draftAtStart = 0; } // the draft left from before this start
   /** A photo taken, the camera still open for the ID: kept as a draft too, so a reload during the ID scan does not lose it. */
@@ -5257,11 +5535,11 @@
   function draftState() {
     if (!ed) return null;
     const c = pinMap && pinMap.getCenter();
-    const dd = defDraft && !$('defPanel').hidden ? { cat: defDraft.cat, items: [...defDraft.items], sev: defDraft.sev, notes: $('defNotes').value, meta: defDraft.meta || null, photo: !!defDraft.blob } : null;
+    const dd = defDraft && !$('defPanel').hidden ? { cat: defDraft.cat, items: [...defDraft.items], sev: defDraft.sev, notes: $('defNotes').value, meta: defDraft.meta || null, photo: !!defDraft.blob, more: (defDraft.more || []).map((m) => ({ label: m.label, meta: m.meta || null })) } : null;
     return {
       v: 1, project: S.project, mode: ed.mode, id: ed.id, acc: !!ed.acc, element: ed.element || 'Pole', type: ed.type || '', status: ed.status || '',
       poleId: $('poleId').value, napId: $('napId').value, nap2Id: $('nap2Id').value, closureId: $('closureId').value, svRemarks: $('svRemarks').value, svClosureId: $('svClosureId').value,
-      details: ed.details || [], marks: ed.marks || [], defs: ed.defs || [], photos: ed.photos || [], removed: ed.removed || [],
+      details: ed.details || [], marks: ed.marks || [], defs: ed.defs || [], photos: ed.photos || [], removed: ed.removed || [], mainLabel: ed.mainLabel || '',
       mloop: !!ed.mloop, nap: !!ed.nap, nap2: !!ed.nap2, closure: !!ed.closure, odf: ed.odf || '', boq: ed.boq || {}, gps: ed.gps || null, takenAt: ed.takenAt || '', source: ed.source || '', q: ed.q || null,
       idRead: ed.idRead || null, idTouched: !!ed.idTouched, dragged: !!ed.dragged, pin: (ed.dragged || ed.mapPin) && c ? { lat: c.lat, lon: c.lng } : null, color: ed.color || '', siteKind: ed.siteKind || '',
       origPid: ed.origPid || '', legacyBoxes: ed.legacyBoxes || 0, legacyPole: !!ed.legacyPole, dropOrig: !!ed.dropOrig, baseNew: !!ed.baseNew, keepQ: !!ed.keepQ,
@@ -5283,6 +5561,7 @@
     const st = draftState(); st.t = Date.now(); const gen = draftGen;
     const blobs = { new: ed.newBlob, src: st.hasSrc ? ed.srcBlob : null, base: ed.base, def: st.def && st.def.photo ? defDraft.blob : null };
     Object.entries(ed.pending || {}).forEach(([pid, b]) => { blobs[`p:${pid}`] = b; });
+    if (st.def && defDraft) (defDraft.more || []).forEach((m, i) => { blobs[`dm:${i}`] = m.blob; }); // beta 3.5
     draftChain = draftChain.then(async () => {
       try {
         for (const [k, b] of Object.entries(blobs)) {
@@ -5361,7 +5640,7 @@
     }
     if (!ed) return;
     Object.assign(ed, { pending: { ...ed.pending, ...pend }, removed: st.removed || [], idRead: st.idRead, idTouched: st.idTouched, dragged: st.dragged, element: st.element, type: st.type || ed.type,
-      status: st.status || ed.status, details: st.details || [], defs: st.defs || ed.defs, photos: st.acc ? st.photos || ed.photos : ed.photos, marks: st.acc ? ed.marks : (st.marks || []).map(normMark),
+      status: st.status || ed.status, details: st.details || [], defs: st.defs || ed.defs, photos: st.acc ? st.photos || ed.photos : (st.photos || ed.photos || []).filter((x) => x && x.pid !== ed.id), mainLabel: st.mainLabel || ed.mainLabel, /* (beta 3.5: a survey record's other photos too) */ marks: st.acc ? ed.marks : (st.marks || []).map(normMark),
       mloop: st.mloop, nap: st.nap, nap2: !!st.nap2, color: st.color != null ? st.color : ed.color, closure: st.closure, odf: st.odf || ed.odf, /* v2.42.4: + nap2, color (an edit's draft lost them) */ boq: st.boq || ed.boq || {}, legacyBoxes: st.legacyBoxes, legacyPole: st.legacyPole, dropOrig: st.dropOrig, keepQ: st.keepQ, origPid: st.origPid || ed.origPid,
       ...(st.siteKind ? { siteKind: st.siteKind } : {}) });
     if (!st.acc) {
@@ -5376,9 +5655,10 @@
       defDraft.cat = st.def.cat; defDraft.items = new Set(st.def.items || []); defDraft.sev = st.def.sev || 'Minor';
       renderDefPanel(); $('defNotes').value = st.def.notes || '';
       if (db) setDefPhoto(db, st.def.meta || {});
+      if (db && (st.def.more || []).length) { const mm = []; for (let i = 0; i < st.def.more.length; i++) { const b = await get(`dm:${i}`); if (b) mm.push({ blob: b, label: st.def.more[i].label || 'Detail', meta: st.def.more[i].meta || {} }); } defDraft.more = mm; renderDefPhotos(); } // beta 3.5
     } else if (defDraft) { defDraft = null; $('defPanel').hidden = true; $('addDefBtn').hidden = false; }
     renderTypeChips(ed.type); renderElemChips(); applyElement(); renderDetails(); renderBoxInfo();
-    if (st.acc) { renderAccPhotos(); renderDefs(); }
+    if (st.acc) { renderAccPhotos(); renderDefs(); } else renderSvPhotos(); // (beta 3.5)
     if (ed.mode === 'edit' && st.pin) pinMap.setView([st.pin.lat, st.pin.lon], pinMap.getZoom(), { animate: false });
     checkDup(); checkFormat(); applyEdLock();
     LOG.info('draft.restored', { mode: st.mode, acc: st.acc, photos: Object.keys(pend).length + (nb ? 1 : 0) });
@@ -5397,7 +5677,7 @@
     openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType, lat: p.lat, lon: p.lon, takenAt: p.takenAt,
       gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy, alt: p.alt } : null, /* v2.42.4: + alt (Save wiped it) */ storedBlob: ph ? (ph.clean || ph.thumb) : null, source: p.source,
       element: elemOf(p), status: p.status || '', remarks: p.remarks || '', closureId: p.closureId || '', boxes: p.boxes || 0, details: p.details || [], marks: p.marks || [], origPid: p.origPid || '', poleModel: !!p.poleModel, color: p.color || '',
-      boq: p.boq || {}, siteKind: p.siteKind || '', // v2.37: the record's sizes and its site kind come back with it
+      boq: p.boq || {}, siteKind: p.siteKind || '', photos: p.photos || [], // v2.37: the record's sizes and its site kind come back with it (beta 3.5: and its other photos)
       nap: !!p.nap, napId: p.napId || '', nap2: !!p.nap2, nap2Id: p.nap2Id || '', closure: !!p.closure }); // v2.42: and what is on the pole (v2.41 left it out: a reopened pole lost its NAP when saved)
   }
   function cleanupEditor() {
@@ -5417,9 +5697,11 @@
     if (pinMap) { if (lock) pinMap.dragging.disable(); else pinMap.dragging.enable(); }
     const m = pmeta(), note = $('edLock');
     note.hidden = !lock;
-    note.textContent = lock === 'closed' ? `🔒 PAT completed${m.completedAt ? ` ${longDate(m.completedAt)}` : ''}: this record can't be changed or removed. Its items are tagged as fixed in the defect cleanup and the FAT.`
+    note.textContent = lock === 'closed' && ed.lockMsg ? `🔒 ${ed.lockMsg} This record can be seen, exported and shared, not changed.` // beta 3.3 (QA-09)
+      : lock === 'closed' ? `🔒 PAT completed${m.completedAt ? ` ${longDate(m.completedAt)}` : ''}: this record can't be changed or removed. Its items are tagged as fixed in the defect cleanup and the FAT.`
       : lock === 'carried' ? '🔒 From the PAT: the ID, place and PAT items stay as recorded. Tag each item as fixed, add photos and remarks.' : '';
     if (lock) $('edTrash').hidden = true;
+    if (lock === 'closed' && ed) $('edHint').textContent = 'The pin stays where it was saved'; // beta 3.3: no "Drag the map…" when nothing can move
   }
 
   /* ---------- red box / pole model on a survey photo (v2.13; pole model v2.14; editable marks v2.15) ---------- */
@@ -6125,7 +6407,7 @@
       const row = document.createElement('div'); row.className = 'boqrow'; row.dataset.k = k;
       const l = document.createElement('span'); l.className = 'lbl'; l.textContent = BOQ_LABEL[k]; row.appendChild(l);
       const chips = document.createElement('div'); chips.className = 'chips'; chips.setAttribute('role', 'group'); chips.setAttribute('aria-label', BOQ_LABEL[k]); chips.dataset.k = k;
-      const opts = ((k === 'owner' ? boqOwners() : boqList(k)) || []).slice(); // (v2.37: the pole-to-pole guy's pole has no list)
+      const opts = ((k === 'owner' ? ownerChoices() : boqList(k)) || []).slice(); // (v2.37: the pole-to-pole guy's pole has no list; v2.43.0: owners in the user's order)
       if (ed.boq[k] && !opts.includes(ed.boq[k]) && !BOQ_MULTI.has(k)) opts.push(ed.boq[k]); // a value from another phone's list (v2.41: not the joined value of a multiple choice, e.g. "GCA + DEG")
       const other = async () => {
         let v = await promptText('Pole owner', 'Whose pole is it? It is kept on this phone for the next poles (your admin can add owners for everyone).', 'e.g. SKYCABLE');
@@ -6162,12 +6444,15 @@
         inp.addEventListener('change', () => renderBoq());
         row.appendChild(inp);
         if (elec) {
-          const used = [...new Set(projPoints().map((q) => String(((q.boq || {}).ownerName) || '').trim()).filter((v) => v && !COOPS.includes(v)))];
-          [...COOPS, ...used].slice(0, 12).forEach((v) => { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = v; c.setAttribute('aria-pressed', String(ed.boq.ownerName === v)); c.disabled = ro;
-            c.addEventListener('click', () => { if (ed.boq.ownerName === v) delete ed.boq.ownerName; else ed.boq.ownerName = v; ed.boqTouched = true; renderBoq(); foldSum(); }); chips.appendChild(c); });
+          coopChoices().slice(0, 12).forEach((v) => { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = v; c.setAttribute('aria-pressed', String(ed.boq.ownerName === v)); c.disabled = ro;
+            c.addEventListener('click', () => { if (ed.boq.ownerName === v) delete ed.boq.ownerName; else ed.boq.ownerName = v; ed.boqTouched = true; renderBoq(); foldSum(); });
+            if ((S.myCoops || []).includes(v) && !ro) { c.dataset.kept = '1'; c.title = 'Added on this phone: long-press to take it off the list'; // v2.43.0
+              c.addEventListener('contextmenu', async (e) => { e.preventDefault(); if (!await ask('Take it off the list?', `“${v}” goes off this phone's list of coops. Poles that have it keep it.`, [{ label: 'Cancel', value: false }, { label: 'Take it off', value: true, primary: true }])) return;
+                S.myCoops = (S.myCoops || []).filter((x) => x !== v); const U = { ...ownUseOf('ownerName') }; delete U[v]; S.ownUse = { ...(S.ownUse || {}), ownerName: U }; persist(); renderBoq(); toast(`${v}: off the list`, 1500); }); }
+            chips.appendChild(c); });
           row.appendChild(chips);
         }
-        const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '4px 0 0'; n.textContent = 'Shown on the DXF, the PDF and Table · CSV; each owner name can be its own drawing (RTA).'; row.appendChild(n);
+        const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '4px 0 0'; n.textContent = 'Shown on the DXF, the PDF and Table · CSV; each owner name can be its own drawing (RTA).' + (elec ? ' A coop you type is kept on this phone for your next poles; the ones you use most come first.' : ''); row.appendChild(n);
         rows.appendChild(row); return;
       }
       if (k === 'clamp' && !ed.boq.clampType && hwNow && hwNow.noClamp) { // v2.42.18: no pole clamp on this pole: no size
@@ -6383,6 +6668,11 @@
     if (ed.lock !== 'closed') box.appendChild(add);
   }
   function addEdPhoto(blob, meta) {
+    if (!ed.acc) { // beta 3.5: one more photo of the pin
+      const pid = uid(), has = new Set((ed.photos || []).map((x) => x.label));
+      ed.photos.push({ pid, label: (ed.element || 'Pole') === 'Pole' && !has.has('Pole tag') ? 'Pole tag' : 'Detail', ...meta }); ed.pending[pid] = blob; prepImages(blob);
+      renderSvPhotos(); toast('Photo added — tap Save to keep it'); return;
+    }
     const pid = uid(); ed.photos.push({ pid, label: nextPhotoLabel(), ...meta }); ed.pending[pid] = blob; prepImages(blob);
     renderAccPhotos(); toast('Photo added — set its label under the picture');
   }
@@ -6415,38 +6705,42 @@
       else tl.innerHTML = `<span class="bad">1 FOUND</span><span class="${defDone(d) ? 'rect' : ''}">2 RECTIFIED</span><span class="${d.status === 'Verified' ? 'ver' : ''}">3 VERIFIED</span>`;
       card.append(t, s, tl);
       const th = document.createElement('div'); th.className = 'thumbs';
-      [[d.pid, 'Defect'], ...(d.reopened || []).filter((q) => q.pid).map((q) => [q.pid, 'Rejected']), [d.afterPid, 'Rectified'], [d.verifyPid, 'Verified']].forEach(([pid, label]) => {
+      const nth = (L, lab) => L.map((y, k) => [y.pid, L.length > 1 ? `${lab} ${k + 1}` : lab]); // beta 3.5: each stage's photos
+      [...nth(defPh(d, 'found'), 'Defect'), ...(d.reopened || []).filter((q) => q.pid).map((q) => [q.pid, 'Rejected']), ...nth(defPh(d, 'after'), 'Rectified'), ...nth(defPh(d, 'verify'), 'Verified')].forEach(([pid, label]) => {
         if (!pid) return;
         const f = document.createElement('figure'); const im = document.createElement('img'); im.alt = label; thumbUrl(pid).then((u) => { im.src = u; });
         const c = document.createElement('figcaption'); c.textContent = label; f.append(im, c); th.appendChild(f);
         f.addEventListener('click', () => showPhoto(pid, `${$('poleId').value || ''} · ${d.item} · ${label}`));
       });
       if (th.childElementCount) card.appendChild(th);
+      { const nf = defPh(d, 'found').length; if (nf > 1) { const n2 = document.createElement('span'); n2.className = 's'; n2.textContent = `As found · ${nf} photos`; card.appendChild(n2); } } // beta 3.5
       const rm = document.createElement('input'); rm.type = 'text'; rm.placeholder = 'Remarks (optional)'; rm.value = d.remarks || ''; rm.disabled = ed.lock === 'closed';
       rm.setAttribute('aria-label', 'Remarks'); rm.addEventListener('input', () => { d.remarks = rm.value; });
       card.appendChild(rm);
       const acts = document.createElement('div'); acts.className = 'acts';
       const mk = (label, fn, cls) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (cls || ''); b.textContent = label; b.addEventListener('click', fn); acts.appendChild(b); };
       if (stt === 'Open') {
-        mk('After photo', () => { ed.afterFor = d.id; openCamera('after'); }, 'primary');
+        mk('After photo', () => { ed.afterFor = d.id; ed.afterMore = false; openCamera('after'); }, 'primary');
         mk('Mark rectified', () => { d.status = 'Rectified'; d.fixedAt = new Date().toISOString(); d.fixedStage = stage; d.fixedBy = byLine(); renderDefs(); });
       } else if (stt === 'Rectified') {
-        mk('Retake after photo', () => { ed.afterFor = d.id; openCamera('after'); });
+        mk('Retake after photo', () => { ed.afterFor = d.id; ed.afterMore = false; openCamera('after'); });
+        if (d.afterPid && defPh(d, 'after').length < phN()) mk('+ After photo', () => { ed.afterFor = d.id; ed.afterMore = true; openCamera('after'); }); // beta 3.5: one more
         if (insp && stage === 'FAT') { // v2.42.4: fixes are accepted at the FAT only (in the cleanup a contractor could verify its own fix)
           mk('Verify', () => { d.status = 'Verified'; d.verifiedAt = new Date().toISOString(); d.verifiedBy = byLine(); d.verifyStage = stage; renderDefs(); }, 'primary');
-          mk('Verify with photo', () => { ed.verifyFor = d.id; openCamera('verify'); });
+          mk('Verify with photo', () => { ed.verifyFor = d.id; ed.verifyMore = false; openCamera('verify'); });
           mk('Reject', async () => {
             const reason = await promptText('Reject this rectification', `${d.cat}: ${d.item}. The item goes back to Open; say what is still wrong.`, 'e.g. cover still loose');
             if (reason == null) return;
             reopenDef(d, reason, stage); renderDefs();
           }, 'danger');
-        } else if (d.fixedBy === byLine() || !d.afterPid) mk('Reopen', () => { if (d.afterPid) { if (ed.pending[d.afterPid]) delete ed.pending[d.afterPid]; else ed.removed.push(d.afterPid); } undoFix(d); renderDefs(); }); // v2.42.4: not a rejection
+        } else if (d.fixedBy === byLine() || !d.afterPid) mk('Reopen', () => { defPh(d, 'after').forEach((y) => { if (ed.pending[y.pid]) delete ed.pending[y.pid]; else ed.removed.push(y.pid); }); undoFix(d); renderDefs(); }); // v2.42.4: not a rejection (beta 3.5: its photos)
       } else if (stt === 'Verified' && insp && stage === 'FAT') {
-        mk('Undo verification', () => { if (d.verifyPid) { if (ed.pending[d.verifyPid]) delete ed.pending[d.verifyPid]; else ed.removed.push(d.verifyPid); } undoAccept(d); renderDefs(); }); // v2.42.4: its photo goes too
+        if (d.verifyPid && defPh(d, 'verify').length < phN()) mk('+ Verification photo', () => { ed.verifyFor = d.id; ed.verifyMore = true; openCamera('verify'); }); // beta 3.5: one more
+        mk('Undo verification', () => { defPh(d, 'verify').forEach((y) => { if (ed.pending[y.pid]) delete ed.pending[y.pid]; else ed.removed.push(y.pid); }); undoAccept(d); renderDefs(); }); // v2.42.4: its photo goes too (beta 3.5: all of them)
       }
       if (insp && (d.stage || 'PAT') === stage) mk('Remove', () => {
         ed.defs.splice(i, 1);
-        [d.pid, d.afterPid, d.verifyPid, ...(d.reopened || []).map((q) => q.pid)].filter(Boolean).forEach((pid) => {
+        [d.pid, d.afterPid, d.verifyPid, ...(d.reopened || []).map((q) => q.pid), ...['xpids', 'xafter', 'xverify'].flatMap((k) => (d[k] || []).map((y) => y.pid))].filter(Boolean).forEach((pid) => {
           if (ed.defs.some((o) => o.pid === pid || o.afterPid === pid || o.verifyPid === pid || (o.reopened || []).some((q) => q.pid === pid))) return;
           if (ed.pending[pid]) delete ed.pending[pid]; else ed.removed.push(pid);
         });
@@ -6459,15 +6753,16 @@
   }
   /** Back to Open: the rectified photo and dates move into the log, so the item shows no rectification until a new one is made. */
   /** v2.42.4: the contractor takes back its own fix: back to Open, not counted as a rejection (its photo is dropped). */
-  function undoFix(d) { d.status = 'Open'; d.fixedAt = null; d.fixedStage = null; d.fixedBy = ''; d.afterPid = null; d.afterMeta = null; }
+  function undoFix(d) { d.status = 'Open'; d.fixedAt = null; d.fixedStage = null; d.fixedBy = ''; d.afterPid = null; d.afterMeta = null; delete d.xafter; }
   /** v2.42.4: an acceptance taken back: back to Rectified, without the verification photo (it was shown as VERIFIED in the reports). */
-  function undoAccept(d) { d.status = 'Rectified'; d.verifiedAt = null; d.verifiedBy = ''; d.verifyPid = null; d.verifyMeta = null; d.verifyStage = null; }
+  function undoAccept(d) { d.status = 'Rectified'; d.verifiedAt = null; d.verifiedBy = ''; d.verifyPid = null; d.verifyMeta = null; d.verifyStage = null; delete d.xverify; }
   function reopenDef(d, reason, stage) {
-    (d.reopened = d.reopened || []).push({ at: new Date().toISOString(), by: byLine(), reason, stage, pid: d.afterPid || null, meta: d.afterMeta || null, fixedAt: d.fixedAt || null, fixedBy: d.fixedBy || '' });
-    d.status = 'Open'; d.fixedAt = null; d.fixedStage = null; d.fixedBy = ''; d.afterPid = null; d.afterMeta = null;
+    (d.reopened = d.reopened || []).push({ at: new Date().toISOString(), by: byLine(), reason, stage, pid: d.afterPid || null, meta: d.afterMeta || null, fixedAt: d.fixedAt || null, fixedBy: d.fixedBy || '', ...((d.xafter || []).length ? { x: d.xafter } : {}) });
+    d.status = 'Open'; d.fixedAt = null; d.fixedStage = null; d.fixedBy = ''; d.afterPid = null; d.afterMeta = null; delete d.xafter;
   }
   function setAfterPhoto(blob, meta) {
     const d = ed.defs.find((x) => x.id === ed.afterFor); if (!d) return;
+    if (ed.afterMore && d.afterPid) { ed.afterMore = false; const pid = uid(); ed.pending[pid] = blob; prepImages(blob); d.xafter = (d.xafter || []).concat([{ pid, label: 'Detail', ...meta }]); renderDefs(); toast('After photo added'); return; } // beta 3.5: one more
     if (d.afterPid) { if (ed.pending[d.afterPid]) delete ed.pending[d.afterPid]; else ed.removed.push(d.afterPid); }
     const pid = uid(); ed.pending[pid] = blob; prepImages(blob); d.afterPid = pid; d.afterMeta = meta;
     // The after photo is the evidence, so its capture time is the rectification time.
@@ -6476,6 +6771,7 @@
   }
   function setVerifyPhoto(blob, meta) {
     const d = ed.defs.find((x) => x.id === ed.verifyFor); if (!d) return;
+    if (ed.verifyMore && d.verifyPid) { ed.verifyMore = false; const pid = uid(); ed.pending[pid] = blob; prepImages(blob); d.xverify = (d.xverify || []).concat([{ pid, label: 'Detail', ...meta }]); renderDefs(); toast('Verification photo added'); return; } // beta 3.5: one more
     if (d.verifyPid) { if (ed.pending[d.verifyPid]) delete ed.pending[d.verifyPid]; else ed.removed.push(d.verifyPid); }
     const pid = uid(); ed.pending[pid] = blob; prepImages(blob); d.verifyPid = pid; d.verifyMeta = meta;
     d.status = 'Verified'; d.verifiedAt = meta.at; d.verifiedBy = meta.by || byLine(); d.verifyStage = pmeta().stage || 'PAT';
@@ -6722,13 +7018,36 @@
   $('defItemsBtn').addEventListener('click', () => showDefList($('defItems').hidden));
   function setDefPhoto(blob, meta) {
     if (!defDraft) return;
+    if (defDraft.blob && defDraft.adding) { defDraft.adding = false; defDraft.more = (defDraft.more || []).concat([{ blob, meta, label: 'Detail' }]); renderDefPhotos(); return; } // beta 3.5: one more as-found photo
     defDraft.blob = blob; defDraft.meta = meta;
     const u = URL.createObjectURL(blob); edUrls.push(u);
     $('defPhotoPrev').src = u; $('defPhotoPrev').hidden = false; $('defPhotoBtn').textContent = 'Retake defect photo';
+    renderDefPhotos();
+  }
+  /** beta 3.5: the defect form's “As found photos · 2 of 2”: MAIN first, × on each, a label under the others, + Add photo up to the limit. */
+  function renderDefPhotos() {
+    const box = $('defPhotos'), N = phN(), on = !!(defDraft && defDraft.blob) && (N >= 2 || (defDraft.more || []).length > 0);
+    box.hidden = !on; $('defPhHead').hidden = !on; $('defPhotoPrev').closest('.row').hidden = on; box.innerHTML = '';
+    if (!on) return;
+    const all = [{ blob: defDraft.blob, label: 'Defect', main: true }].concat((defDraft.more || []).map((m, i) => ({ ...m, i })));
+    $('defPhHeadT').textContent = `As found photos · ${all.length} of ${Math.max(N, all.length)}`;
+    all.forEach((p, k) => {
+      const c = document.createElement('div'); c.className = 'ph'; const w = document.createElement('div'); w.className = 'phwrap';
+      const img = document.createElement('img'); img.alt = p.label; const u = URL.createObjectURL(p.blob); edUrls.push(u); img.src = u; img.addEventListener('click', () => showBlob(p.blob, `As found · photo ${k + 1}`)); w.appendChild(img);
+      if (p.main) w.insertAdjacentHTML('beforeend', '<span class="phmain">MAIN</span>');
+      w.insertAdjacentHTML('beforeend', `<span class="phno">${k + 1}</span>`);
+      const x = document.createElement('button'); x.type = 'button'; x.className = 'x'; x.textContent = '×'; x.setAttribute('aria-label', `Remove photo ${k + 1}`);
+      x.addEventListener('click', () => { if (p.main) { const n1 = (defDraft.more || []).shift(); defDraft.blob = n1 ? n1.blob : null; defDraft.meta = n1 ? n1.meta : null; if (!defDraft.blob) { $('defPhotoPrev').hidden = true; $('defPhotoBtn').textContent = 'Take defect photo'; } } else defDraft.more.splice(p.i, 1); renderDefPhotos(); });
+      w.appendChild(x); c.appendChild(w);
+      if (!p.main) { const sl = document.createElement('select'); sl.setAttribute('aria-label', 'Photo label'); const L = PHOTO_LABELS.includes(p.label) ? PHOTO_LABELS : PHOTO_LABELS.concat(p.label);
+        sl.innerHTML = L.map((l) => `<option${l === p.label ? ' selected' : ''}>${C.xmlEsc(l)}</option>`).join(''); sl.addEventListener('change', () => { defDraft.more[p.i].label = sl.value; }); c.appendChild(sl); }
+      box.appendChild(c);
+    });
+    if (all.length < N) { const add = document.createElement('button'); add.type = 'button'; add.className = 'ph add'; add.innerHTML = `+ Add photo<small>limit ${N}</small>`; add.addEventListener('click', () => { defDraft.adding = true; openCamera('defect'); }); box.appendChild(add); }
   }
   function startDefDraft(scroll) {
-    defDraft = { cat: catsFor(ed.element)[0], items: new Set(), sev: 'Minor', blob: null };
-    $('defNotes').value = ''; $('defPhotoPrev').hidden = true; $('defPhotoBtn').textContent = 'Take defect photo';
+    defDraft = { cat: catsFor(ed.element)[0], items: new Set(), sev: 'Minor', blob: null, more: [] };
+    $('defNotes').value = ''; $('defPhotoPrev').hidden = true; $('defPhotoBtn').textContent = 'Take defect photo'; renderDefPhotos();
     renderDefPanel(); showDefList(false); $('defPanel').hidden = false; $('addDefBtn').hidden = true;
     if (scroll) $('defPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -6737,7 +7056,7 @@
     startDefDraft(true);
   });
   $('defSevSel').addEventListener('change', (e) => { if (defDraft) defDraft.sev = e.target.value; });
-  $('defPhotoBtn').addEventListener('click', () => openCamera('defect'));
+  $('defPhotoBtn').addEventListener('click', () => { if (defDraft) defDraft.adding = false; openCamera('defect'); });
   $('defCancel').addEventListener('click', () => { defDraft = null; $('defPanel').hidden = true; $('addDefBtn').hidden = false; });
   $('defAdd').addEventListener('click', () => {
     const notes = $('defNotes').value.trim();
@@ -6745,8 +7064,9 @@
     if (!items.length) { if (!notes) { toast('Tap a defect or describe it in notes'); return; } items = [notes]; useNotes = ''; }
     let pid = null;
     if (defDraft.blob) { pid = uid(); ed.pending[pid] = defDraft.blob; prepImages(defDraft.blob); }
+    const xp = pid ? (defDraft.more || []).map((m) => { const q = uid(); ed.pending[q] = m.blob; prepImages(m.blob); return { pid: q, label: m.label || 'Detail', ...(m.meta || {}) }; }) : []; // beta 3.5: the other as-found photos
     const now = new Date().toISOString(), stage = pmeta().stage || 'PAT';
-    items.forEach((it) => ed.defs.push({ id: uid(), cat: defDraft.cat, item: it, sev: defDraft.sev, notes: useNotes, pid, pidMeta: pid ? defDraft.meta : null,
+    items.forEach((it) => ed.defs.push({ id: uid(), cat: defDraft.cat, item: it, sev: defDraft.sev, notes: useNotes, pid, pidMeta: pid ? defDraft.meta : null, ...(xp.length ? { xpids: xp.map((y) => ({ ...y })) } : {}),
       status: 'Open', stage, foundAt: now, foundBy: byLine(), remarks: '' }));
     defDraft = null; $('defPanel').hidden = true; $('addDefBtn').hidden = false;
     renderDefs(); toast(`${items.length} deficienc${items.length === 1 ? 'y' : 'ies'} added`);
@@ -6764,10 +7084,10 @@
   $('defPhotoPrev').addEventListener('click', () => { if (defDraft && defDraft.blob) showBlob(defDraft.blob, 'Defect photo (not added yet)'); });
 
   /* ---------- reading the ID from the photo (v2.17): Read ID, then tap the painted ID or swipe along it ---------- */
-  const PV_HINT_READ = 'Tap the painted ID, or draw a box round it';
+  const idWord = () => { const e = (typeof ed !== 'undefined' && ed && ed.element) || 'Pole'; return e === 'Pole' ? 'pole ID' : `${e} ID`; }; // v2.43 beta 2.1: the element's own word (pole ID), not "painted ID"
   function setPhotoRead(on) {
     $('photoView').classList.toggle('reading', on); $('pvMark').hidden = true;
-    $('pvHint').textContent = on ? PV_HINT_READ : 'Tap the photo to zoom in or out · × or Back to close';
+    $('pvHint').textContent = on ? `Tap the ${idWord()}, or draw a box round it` : 'Tap the photo to zoom in or out · × or Back to close';
   }
   /** Opens the editor's photo ready to read the ID on it (the scan bar's picture button). */
   function openPhotoRead() {
@@ -6846,10 +7166,10 @@
   /* v2.42.17: Delete is the red bin at the upper right of the record; it asks first */
   $('edTrash').addEventListener('click', () => guard(async () => { // v2.42.4: a failure is said (it was silent)
     if (!ed) return;
-    if (ed.lock) { toast('This record is from a completed PAT and cannot be deleted', 4500); return; }
+    if (ed.lock) { toast(ed.lockMsg || 'This record is from a completed PAT and cannot be deleted', ed.lockMsg ? 6500 : 4500); return; }
     const idv = $('poleId').value.trim(), what = ed.acc ? 'element' : (ed.element || 'Pole') === 'Pole' ? 'pole' : (ed.element || '').toLowerCase();
     const name = idv && !/[-_]$/.test(idv) ? idv : `this ${what}`;
-    const go = await ask(`Delete ${name}?`, `The record and its photo are removed from this phone. This can't be undone.`, [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, primary: true }]);
+    const go = await ask(`Delete ${name}?`, `The record and its ${ed.acc || (ed.photos || []).length ? 'photos' : 'photo'} are removed from this phone. This can't be undone.`, [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, primary: true }]);
     if (!go || !ed) return;
     const id = ed.id, rec = points.find((p) => p.id === id);
     await dbDel('points', id);
@@ -6876,6 +7196,7 @@
   }
 
   async function saveEditorDraft() {
+    if (ed && ed.lockMsg) { toast(ed.lockMsg, 6500); return; } // beta 3.3 (QA-09): an accepted task (Save is not shown; this is the guard)
     const dirty0 = edDirty(); // v2.42.5: whether anything changed (for the on-site approval)
     // v2.42.16: an As-Built record answers its maintenance loop (MLoop or No loop) before it is saved
     if (ed.lock !== 'closed' && svPurpose() === 'As-built' && edBoqKeys().includes('mloop') && !(ed.boq && ed.boq.mloop) && !edLoopOwn()) {
@@ -6948,6 +7269,12 @@
         const tp = Date.now(); photos.push({ id: ed.id, ...await storedImages(ed.newBlob) });
         LOG.info('save.imagesReady', { waited: Date.now() - tp });
       }
+      { // beta 3.5: the other photos of the pin, each under its own id; the record lists them after its main photo
+        const X = (ed.photos || []).filter((x) => x && x.pid);
+        for (const x of X) if (ed.pending[x.pid]) { busy('Preparing photos…'); photos.push({ id: x.pid, ...await storedImages(ed.pending[x.pid]) }); }
+        if (X.length) rec.photos = [{ pid: ed.id, label: ed.mainLabel || 'Overview', at: rec.takenAt || now }].concat(X.map((x) => ({ pid: x.pid, label: x.label || 'Detail', at: x.at || now, ...(x.q ? { q: x.q } : {}), ...(x.by ? { by: x.by } : {}) })));
+        else delete rec.photos;
+      }
       // v2.15: the unmarked photo is kept with marked photos, so their marks can be edited later
       if (rec.marks.length && ed.base && ed.baseNew) { photos.push({ id: origPidOf(ed.id), ...await storedImages(ed.base) }); rec.origPid = origPidOf(ed.id); }
       else if (rec.marks.length && ed.origPid && !ed.dropOrig) rec.origPid = ed.origPid;
@@ -6959,7 +7286,9 @@
       await saveRecord(rec, photos); // photo and record together, or neither
       if (dirty0) changedAfterApproval(rec.project, 'record'); // v2.42.5: a change after the approval cancels it (a Save with no change does not)
       if (!p) points.push(rec); else points[points.indexOf(p)] = rec;
+      if ((rec.element || 'Pole') === 'Pole') noteOwnUse(p && p.boq, rec.boq, rec.id); // v2.43.0: the owner lists in this user's order
       if (p && p.origPid && !rec.origPid) deletePhotosIfUnused([p.origPid], new Set()).catch(() => {}); // marks removed or a new photo
+      if ((ed.removed || []).length) deletePhotosIfUnused(ed.removed.slice(), new Set()).catch(() => {}); // beta 3.5: the photos removed from the pin
       if (ed.mode === 'new' && !isNpt(poleId) && !genId && (ed.element || 'Pole') === 'Pole') S.lastPoleId = poleId;
       if ((ed.element || 'Pole') === 'Pole' && typeNames().includes(ed.type) && !['Proposed', 'New'].includes(ed.status)) S.lastType = ed.type; // v2.27: not the Globe type of a proposed / new pole
       if (rec.status) S.lastSt = { ...(S.lastSt || {}), [`${svPurpose()}|${rec.element}`]: rec.status };
@@ -7109,8 +7438,8 @@
     const N = edNeeds().find((x) => x.k === k) || { k, t: k, tab: TABS[k] || 'details' }, b = ed.boq || (ed.boq = {}), box = $('edQuick');
     const done = (msg) => { ed.boqTouched = true; box.hidden = true; markToggles(); renderAttach(); renderBoq(); foldSum(); renderEdTabs(); toast(msg, 1500); };
     let title = N.t, opts = [];
-    if (k === 'owner') { title = 'Pole owner'; opts = boqOwners().map((v) => [v, () => { b.owner = v; if (!isElecOwner(v)) delete b.ownerName; done(`Owner: ${v}`); }]); }
-    else if (k === 'ownerName') { const used = [...new Set(projPoints().map((q) => String(((q.boq || {}).ownerName) || '').trim()).filter((v) => v && !COOPS.includes(v)))]; title = 'Owner name (the coop)'; opts = [...COOPS, ...used].slice(0, 12).map((v) => [v, () => { b.ownerName = v; done(`Owner name: ${v}`); }]); }
+    if (k === 'owner') { title = 'Pole owner'; opts = ownerChoices().map((v) => [v, () => { b.owner = v; if (!isElecOwner(v)) delete b.ownerName; done(`Owner: ${v}`); }]); }
+    else if (k === 'ownerName') { title = 'Owner name (the coop)'; opts = coopChoices().slice(0, 12).map((v) => [v, () => { b.ownerName = v; done(`Owner name: ${v}`); }]); }
     else if (k === 'height') { title = 'New Globe pole size'; opts = (boqList('height') || []).map((v) => [v, () => { b.height = v; done(`Pole size: ${v}`); }]); }
     else if (k === 'clamp') { const all = boqList('clamp') || [], often = Object.entries(S.clampUse || {}).filter(([v, n]) => n > 0 && all.includes(v)).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([v]) => v);
       opts = [...often, ...all.filter((v) => !often.includes(v))].map((v) => [v, () => { b.clamp = v; S.clampUse = { ...(S.clampUse || {}) }; S.clampUse[v] = (S.clampUse[v] || 0) + 1; persist(); done(`Clamp size: ${v}`); }]); }
@@ -7568,7 +7897,7 @@
     $('curNotes').value = m.notes || '';
     { const sh = m.shares, up = (m.updates || []).slice(-4).reverse(), L = []; // v2.42.18: Share: the last one from this phone, the updates received
       if (sh && sh.n && !acc) L.push(`Shared by you: update ${sh.n}${sh.full ? ' (the whole project)' : ''} · ${fmtTime(sh.at)}`);
-      up.forEach((x) => L.push(`Received: update ${x.n}${x.full ? ' (the whole project)' : ''} from ${x.from || 'a colleague'} · ${fmtTime(x.at)} · ${x.recs || 0} record${x.recs === 1 ? '' : 's'}${x.gone ? `, ${x.gone} deleted` : ''}${x.route ? ', the route' : ''}`));
+      up.forEach((x) => L.push(`Received: update ${x.n}${x.full ? ' (the whole project)' : ''} from ${x.from || 'a colleague'} · ${fmtTime(x.at)} · ${x.recs || 0} record${x.recs === 1 ? '' : 's'}${x.gone ? `, ${x.gone} deleted` : ''}${x.route ? `, ${routeSaid(x.route)}` : ''}`));
       $('curUpdates').hidden = !L.length; $('curUpdates').textContent = L.join('\n'); }
     $('curSite').hidden = !m.taskId; $('curSite').textContent = m.taskId ? [`Site: ${m.site || ''}`, m.contractor && `Vendor: ${m.contractor}`, ...(m.siteExtra || []).filter(([k]) => /^(region|territory)$/i.test(String(k).trim())).map(([k, v]) => `${k}: ${v}`), `ID: ${m.taskId}`].filter(Boolean).join(' · ') : '';
     const sfOf = (name) => { const F = siteFieldsOf(name); return (F.length ? F : sfBlank()).map((x) => x.slice()); }; // v2.42.19: a project with none: typed in
@@ -7625,6 +7954,7 @@
       }
     }
     $('delProjConfirm').hidden = true; $('delProject').hidden = false; // v2.22: a completed project is deleted with an admin's approval
+    if (tmHooks.projects) tmHooks.projects(); // v2.43 beta 2: the team mailbox (inbox, sent) and this project's team line
   }
   /* v2.22: the projects on this phone as a task list (filter, search, progress); tap one to open it. */
   let tmShow = 'active', tmKind = '';
@@ -7681,21 +8011,23 @@
     if (!shown.length) { const p0 = document.createElement('p'); p0.className = 'hint'; p0.style.margin = '4px 2px'; p0.textContent = q ? 'No project matches the search.' : tmShow === 'done' ? 'No completed project.' : 'No project in progress.'; box.appendChild(p0); }
   }
   /* v2.26: the tools of a project, on its card: Share, Folder (its Drive folder from the online sheet) and Delete */
-  const TOOL_ICON = { ref: 'M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2ZM9 4v14M15 6v14', share: 'M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M12 3v12M7 8l5-5 5 5', folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z', del: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6' };
+  const TOOL_ICON = { fix: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z', accfix: 'M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3', mbx: 'M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z', info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM12 16v-4M12 8h.01', send: 'M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z', ref: 'M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2ZM9 4v14M15 6v14', share: 'M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M12 3v12M7 8l5-5 5 5', folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z', del: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6' };
   function projTools(name, small) {
     const row = document.createElement('div'); row.className = 'tmtools'; row.setAttribute('role', 'group'); row.setAttribute('aria-label', `Project ${name}`);
     if (!name) return row;
     const m = pmeta(name);
     const mk = (kind, label, fn, title) => {
-      const b = document.createElement('button'); b.type = 'button'; b.className = `tmtool ${kind}`; b.dataset.tool = kind; b.title = title;
+      const b = document.createElement('button'); b.type = 'button'; b.className = `tmtool ${kind}${/✓/.test(label) ? ' on' : ''}`; b.dataset.tool = kind; b.title = `${label.replace(/ ✓$/, '')}: ${title}`; b.dataset.tip = label.replace(/ ✓$/, '');
       b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${TOOL_ICON[kind]}"/></svg>`;
-      b.appendChild(document.createTextNode(label)); b.setAttribute('aria-label', `${label} ${name}`);
+      const sr = document.createElement('span'); sr.className = 'sr'; sr.textContent = label; b.appendChild(sr); b.setAttribute('aria-label', `${label} ${name}`); // v2.43 beta 2.1: icons; the name stays for screen readers
       b.addEventListener('click', (e) => { e.stopPropagation(); guard(() => fn(name), `${label} failed`); });
-      row.appendChild(b);
+      row.appendChild(b); return b;
     };
+    if (tmHooks.tools) tmHooks.tools(name, mk); // v2.43 beta 2: Send, through the team mailbox
     mk('share', 'Share', shareProject, 'Send this project: only the changes (for your team leader) or the whole project');
     if (m.siteLink) mk('folder', 'Folder', (n) => openExternal(pmeta(n).siteLink), 'Open its Google Drive folder');
     if (!small && name === S.project) mk('ref', refInfo(name) ? 'KMZ ✓' : 'KMZ', refTool, 'The KMZ reference of this project (e.g. the As-Plan for an As-Built): load, show or hide, replace'); // v2.28
+    if (siteInfoRows(name).length > 1) mk('info', 'Site details', siteInfoOpen, 'The site details from the online sheet (OSP build ID, serial, PLA ID, site name…), to copy'); // v2.43 beta 2.1
     mk('del', 'Delete', deleteProject, 'Delete this project from this phone');
     return row;
   }
@@ -7756,7 +8088,7 @@
   }
   /** v2.42.18: a project's details as they go in a shared file: without this phone's share counts; with only the changes, the
       route only when it changed (an older route never undoes the other phone's). */
-  function shareMeta(name, U) { const { shares, recv, updates, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; } return m; } // (v2.42.20: + the fibers)
+  function shareMeta(name, U) { const { shares, recv, updates, team, chg, ...m } = pmeta(name); if (U && !U.full && !U.route) { delete m.links; delete m.linksAt; delete m.fibers; delete m.lsrc; delete m.lgone; delete m.fgone; } delete m.dupOk; return m; } // (v2.42.20: + the fibers; beta 3.3: + who made them)
   /** Delete a project (any, not only the open one): a completed one needs an admin's approval; always asked first. */
   async function deleteProject(name) {
     if (pointsLost) throw new Error('The records did not load from the phone\u2019s storage at start: close and reopen G-eSAA first'); // v2.42.4
@@ -7847,7 +8179,7 @@
     if (!c.flags.length) return true;
     return ask('Check before you continue', `${c.flags.join('\n')}\n\nContinue anyway?`, [{ label: 'Cancel', value: false }, { label: 'Continue', value: true, primary: true }]);
   }
-  function openProjects() { renderProjects(); openSheet('projects'); cloudSync(false); }
+  function openProjects() { renderProjects(); openSheet('projects'); cloudSync(false); if (tmHooks.openProjects) tmHooks.openProjects(); }
   $('projectBtn').addEventListener('click', openProjects);
   /* v2.21: many projects on one phone: a search (name, category, site, vendor, task ID, notes) */
   const projWords = (name) => { const m = pmeta(name); return [name, STAGE_LABEL[projKind(name)], PURPOSE_LABEL[m.purpose] || '', m.site, m.contractor, m.taskId, m.notes, m.fromPat].filter(Boolean).join(' ').toLowerCase(); };
@@ -7893,15 +8225,16 @@
   /** The chosen projects as one ZIP: bundle.json (what is inside, who sent it), each project as a backup (p1/points.json…), the photos once. */
   async function bundleZip(names, opt) {
     const U = opt && opt.update; // v2.42.18: one project with its update number (U.pts: only the changes)
+    const say = (opt && opt.say) || busy; // v2.43 beta 2.1: the Send screen shows the packing itself
     const now = new Date().toISOString(), files = [], list = [], seen = new Set(); let bytes = 0, k = 0;
     const allP = U && U.pts ? new Set(U.pts.flatMap(allPids)).size : names.reduce((t, n) => t + projPhotos(n), 0); let done = 0;
     for (const name of names) {
       k++;
       const pts = (U && U.pts ? U.pts.slice() : points.filter((p) => p.project === name)).sort((a, b) => (a.created < b.created ? -1 : 1));
       if (!isAcc(name)) projKey(name); // v2.42.6: the credits' project key travels with it
-      files.push({ name: `p${k}/points.json`, data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: shareMeta(name, U), exported: now, by: byLine(), exportedBy: exporterInfo(), points: pts, ...(U ? { update: { n: U.n, full: !!U.full, since: U.since || '' } } : {}) }, null, 1) });
+      files.push({ name: `p${k}/points.json`, data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: shareMeta(name, U), exported: now, by: byLine(), exportedBy: exporterInfo(), points: pts, ...(U ? { update: { n: U.n, full: !!U.full, since: U.since || '', ...(U.fixAns && U.fixAns.length ? { fixAns: U.fixAns } : {}) } } : {}) }, null, 1) });
       for (const pid of new Set(pts.flatMap(allPids))) {
-        busy(`Packing photos ${++done} / ${allP}`, done / Math.max(1, allP));
+        say(`Packing photos ${++done} / ${allP}`, done / Math.max(1, allP));
         if (seen.has(pid)) continue; seen.add(pid);
         const ph = await dbGet('photos', pid).catch(() => null);
         if (ph && ph.clean) { const d = new Uint8Array(await ph.clean.arrayBuffer()); bytes += d.length; files.push({ name: `photos/${pid}.jpg`, data: d }); }
@@ -7910,9 +8243,13 @@
       }
       list.push({ name, file: `p${k}/points.json`, kind: projKind(name), records: pts.length });
     }
+    if (opt && opt.ref && names.length === 1 && refInfo(names[0])) { // v2.43 beta 2: a task through the team mailbox carries its KMZ reference
+      const info = refInfo(names[0]), rec = await dbGet('packs', refKey(info.id)).catch(() => null);
+      if (rec && rec.geo) files.push({ name: 'ref.json', data: JSON.stringify({ name: info.name, at: info.at, n: info.n, geo: rec.geo }) });
+    }
     files.unshift({ name: 'bundle.json', data: JSON.stringify({ app: 'G-eSAA', kind: 'bundle', v: 1, exported: now, by: byLine(), exportedBy: exporterInfo(), team: S.team ? S.team.id : '', projects: list, ...(U ? { update: { n: U.n, full: !!U.full, sender: U.sender || '' } } : {}) }, null, 1) });
     files.push({ name: 'exported_by.txt', data: exporterText().replace(/^Project: .*$/m, `Projects: ${names.join(', ')}`) });
-    busy('Making the file…');
+    say('Making the file…');
     return new Blob(C.makeZipParts(files), { type: 'application/zip' });
   }
   /** Opens a file of several projects (from bundleZip). */
@@ -7957,7 +8294,7 @@
     const mg = m.gone || {}, delHere = meta.points.filter((p) => !loc.has(p.id) && mg[p.id] && String(p.updated || '') <= String(mg[p.id])).length; // deleted on this phone since: they stay deleted
     const newer = meta.points.filter((p) => loc.has(p.id) && String(loc.get(p.id).updated || '') > String(p.updated || '')).length, nNew = meta.points.filter((p) => !loc.has(p.id)).length - delHere;
     const G = (meta.meta && meta.meta.gone) || {}, del = Object.entries(G).filter(([id, t]) => loc.has(id) && String(loc.get(id).updated || '') <= String(t)).length;
-    const route = !!(meta.meta && meta.meta.links && meta.meta.linksAt && meta.meta.linksAt > (m.linksAt || '')), nph = new Set(meta.points.flatMap(allPids)).size, chg = meta.points.length - nNew - newer - delHere;
+    const route = !!(meta.meta && meta.meta.links && meta.meta.linksAt), nph = new Set(meta.points.flatMap(allPids)).size, chg = meta.points.length - nNew - newer - delHere; // (beta 3.3: the route in the file: merged per sender)
     const what = [chg && `${pl(chg, 'record')} changed`, nNew && `${nNew} new`, del && `${del} deleted`, route && 'the route', nph && pl(nph, 'photo')].filter(Boolean).join(' · ') || 'Nothing new for this phone';
     const miss = !U.full && here && U.n > last + 1 ? U.n - last - 1 : 0;
     const warn = [
@@ -7974,12 +8311,13 @@
     if (other && !(await ask('Another company’s project', `Open a project of ${from.company} on your phone? Only do this if you are allowed to keep it.`, [{ label: 'Cancel', value: false }, { label: 'Open anyway', value: true, primary: true }]))) return;
     if (f && sharedDefer(f)) return;
     const o = { quiet: true, update: { n: U.n, full: !!U.full, sender: sk, from: who, at: b.exported || '' } };
-    try { busy(`Opening ${proj}…`); await restoreMeta(z, meta, '', o); } finally { busy(false); }
+    let pj = proj; try { busy(`Opening ${proj}…`); pj = (await restoreMeta(z, meta, '', o)) || proj; } finally { busy(false); }
     const R2 = o.result || {};
-    LOG.info('share.update.open', { n: U.n, full: !!U.full, records: R2.recs, kept: R2.kept, gone: R2.gone, route: R2.route, missing: miss, other, isNew: !here });
+    LOG.info('share.update.open', { n: U.n, full: !!U.full, records: R2.recs, kept: R2.kept, gone: R2.gone, route: R2.route ? routeSaid(R2.route) : false, missing: miss, other, isNew: !here });
     await closeAll(); renderPoles(); fitProject();
-    const said = `${[pl(R2.recs || 0, 'record'), R2.gone && `${R2.gone} deleted`, R2.route && 'the route'].filter(Boolean).join(' · ')}${R2.kept ? ` · ${R2.kept} newer here kept` : ''}`;
+    const said = `${[pl(R2.recs || 0, 'record'), R2.gone && `${R2.gone} deleted`, R2.route && routeSaid(R2.route)].filter(Boolean).join(' · ')}${R2.kept ? ` · ${R2.kept} newer here kept` : ''}`;
     toast(`${U.full ? `The whole project (update ${U.n})` : `Update ${U.n}`} from ${first}: ${said}`, 6000, `${U.full ? 'The whole project' : 'Update'} ${U.n} opened: ${said}`);
+    if (here) await dupAtMerge(pj, o.written); // beta 3.3 (QA-06)
   }
   [['mSite', 'site'], ['mContractor', 'contractor'], ['mGlobe', 'globeRep'], ['mDate', 'date'], ['curNotes', 'notes']].forEach(([id, key]) => {
     $(id).addEventListener('change', () => { const m = { ...pmeta() }; m[key] = $(id).value.trim(); S.meta = S.meta || {}; S.meta[S.project] = m; persist(); });
@@ -8093,24 +8431,28 @@
   function renderSyncBtn() {
     const n = (S.syncQ || []).length;
     $('syncBtn').hidden = !(S.team && S.team.src); $('syncDot').hidden = !n;
-    $('syncBtn').setAttribute('aria-label', n ? `Sync: ${n} update${n === 1 ? '' : 's'} waiting` : 'Sync with the online sheet');
+    const mb = !!(tmHooks.mbxOn && tmHooks.mbxOn()); // v2.43 beta 2.2: and the team mailbox
+    $('syncBtn').setAttribute('aria-label', n ? `Sync: ${n} update${n === 1 ? '' : 's'} waiting${mb ? ', and check the team mailbox' : ''}` : `Sync with the online sheet${mb ? ' and check the team mailbox' : ''}`);
+    $('syncBtn').title = $('syncBtn').getAttribute('aria-label');
   }
   $('syncBtn').addEventListener('click', async () => {
     const b = $('syncBtn'); if (b.classList.contains('spin')) return;
     b.classList.add('spin');
     try {
-      const n = (S.syncQ || []).length, sent = n ? await flushProgress(true) : false, ok = await cloudSync(true);
+      const mbP = navigator.onLine !== false && tmHooks.syncMbx ? tmHooks.syncMbx() : Promise.resolve(null); // v2.43 beta 2.2: the team mailbox, at the same time
+      const n = (S.syncQ || []).length, sent = n ? await flushProgress(true) : false, ok = await cloudSync(true), mb = await mbP.catch(() => null);
       if (!$('newProj').hidden) renderSites(); if (!$('projects').hidden) renderProjects();
+      const mbSay = !mb ? '' : mb.ok ? ` · team mailbox: ${[mb.say, mb.n ? `${mb.n} waiting (Projects)` : mb.say ? '' : 'nothing waiting'].filter(Boolean).join(' · ')}` : ` · team mailbox not checked (${mb.why})`; // (beta 3.4: what Sync brought in and sent)
       toast(!navigator.onLine ? `No internet${n ? `: ${n} update${n === 1 ? '' : 's'} wait on this phone` : ''}`
-        : ok ? `Synced with the online sheet${n ? ` · ${sent ? `${n} update${n === 1 ? '' : 's'} sent` : `updates not sent: ${syncErr}`}` : ''}${sent && syncErr ? ` (${syncErr})` : ''}`
-          : `Not synced: ${cloudErr || syncErr || 'no answer'}`, 5000);
+        : ok ? `Synced with the online sheet${n ? ` · ${sent ? `${n} update${n === 1 ? '' : 's'} sent` : `updates not sent: ${syncErr}`}` : ''}${sent && syncErr ? ` (${syncErr})` : ''}${mbSay}`
+          : `Not synced: ${cloudErr || syncErr || 'no answer'}${mbSay}`, mb && mb.say ? 8000 : 5000);
     } finally { b.classList.remove('spin'); renderSyncBtn(); }
   });
   /* ---- completion report (v2.11) ---- */
   /** Photo pages of the completion report. Survey (v2.12): every photo as a collage, the poles first, then the site, ODC, ODF,
       NAP, closures and handholes (v2.13), each captioned with its element and status. */
   async function polePhotos(pts) {
-    const list = pts.flatMap((r) => photosOf(r).map((p) => ({ r, p }))), poles = [], other = [];
+    const list = pts.flatMap((r) => phOf(r, 'compl').map((p) => ({ r, p }))), poles = [], other = []; // (beta 3.5: All / Main)
     let done = 0, missing = 0;
     for (const { r, p } of list) {
       busy(`Preparing photos ${++done} / ${list.length}…`, done / list.length);
@@ -8134,8 +8476,8 @@
     for (let i = 0; i < M.items.length; i++) {
       busy(`Preparing photos · item ${i + 1} / ${M.items.length}…`, (i + 1) / M.items.length);
       const b = await evidenceBlock(M.items[i], 1200, 0.82);
-      const photos = b.stages.filter((st) => st.jpeg).map((st) => {
-        const k = /^AS FOUND/.test(st.label) ? 'found' : /REJECTED/.test(st.label) ? 'rejected' : /^RECTIFIED/.test(st.label) ? 'fixed' : 'verified'; n[k]++;
+      const photos = b.stages.concat(b.more || []).filter((st) => st.jpeg).map((st) => { // (beta 3.5: and the other photos of each stage)
+        const k = /^AS FOUND/.test(st.label) ? 'found' : /REJECTED/.test(st.label) ? 'rejected' : /^RECTIFIED/.test(st.label) ? 'fixed' : 'verified'; if (!/PHOTO \d/.test(st.label)) n[k]++;
         const lines = st.lines || [];
         return { label: st.label, tone: st.tone, jpeg: st.jpeg, lines: lines.filter((l, j) => !(j && /^By /.test(l) && / by /.test(lines[0]))) };
       });
@@ -8324,7 +8666,11 @@
     $('resultName').textContent = `${name} · ${(blob.size / 1048576).toFixed(2)} MB`;
     $('resultCredit').textContent = creditNote; $('resultCredit').hidden = !creditNote; creditNote = ''; // v2.42.7: what this export used
     $('resultBox').hidden = false;
-    { const ins = resultInside; resultInside = null; $('resultInside').hidden = !ins; $('resultInside').innerHTML = ins ? ins.map(([ic, n, t]) => `<div><span class="ic">${ic}</span><span><b>${C.xmlEsc(n)}</b><small>${C.xmlEsc(t)}</small></span></div>`).join('') : ''; }
+    { const ins = resultInside; resultInside = null; $('resultInsideBox').hidden = !ins; $('resultInsideBox').open = false; $('resultInside').innerHTML = ins ? ins.map(([ic, n, t]) => `<div><span class="ic">${ic}</span><span><b>${C.xmlEsc(n)}</b><small>${C.xmlEsc(t)}</small></span></div>`).join('') : '';
+      if (ins) { // v2.43: folded to one line (the files are listed when it is opened)
+        const n = (k) => ins.filter((x) => x[0] === k).length;
+        $('resultInsideSum').textContent = `What's in the ZIP: ${[n('DXF') ? `${n('DXF')} DXF` : '', n('PDF') ? `${n('PDF')} PDF` : '', n('JPG') ? 'photos' : '', n('TXT') ? 'README' : ''].filter(Boolean).join(' · ')}`;
+      } }
     $('resSave').textContent = NATIVE ? 'Save to Documents' : 'Save to phone';
     $('resShare').hidden = false; // v2.30: always offered; a browser that cannot share this kind of file says what to do instead
     $('resultBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -8349,13 +8695,64 @@
   /* Export screen: one format at a time, picked from the Format dropdown (the last choice is kept per Survey / acceptance). */
   let exportPick = null;
   const xKey = (card) => card.querySelector('button[id^="do"]').id;
-  function exportCards() { return [...document.querySelectorAll('#export .xcard')].filter((c) => { const g = c.closest('#accExports, #surveyExports'); return (!g || !g.hidden) && (c.id !== 'boqCard' || boqOn()); }); } // v2.26.1: the BOQ in As-Plan and As-Built only
+  function exportCards() { return [...document.querySelectorAll('#export .xcard')].filter((c) => { const g = c.closest('#accExports, #surveyExports'); return (!g || !g.hidden) && (c.id !== 'boqCard' || boqOn()) && (c.id !== 'prCard' || !isAcc()); }); } // (beta 3.5: the Photo report: surveys) // v2.26.1: the BOQ in As-Plan and As-Built only
   const xName = (c) => c.querySelector('.head b').textContent;
   const xTicked = () => [...$('xMultiList').querySelectorAll('input:checked')].map((c) => c.value);
   /** v2.41: the formats are ticked in one list (the Format dropdown is gone): one ticked shows its card with its own Export button,
       several show their cards (their options) and one button for a ZIP with them all. The last choice is kept (survey / acceptance). */
+  /* ---- v2.43 beta 2.1: what the plan drawing reads from this phone that is not downloaded yet: the road pack of the project's
+     region (its roads, and the barangays and cities of the RoW table) and an offline map of its area (the vicinity map). Each says
+     what is missing and opens Maps at that download. ---- */
+  function planNeeds(name) {
+    const pts = points.filter((p) => p.project === (name || S.project) && Number.isFinite(p.lat) && Number.isFinite(p.lon));
+    if (!pts.length) return null;
+    const inB = (b, p) => Array.isArray(b) && b[0] <= p.lon && p.lon <= b[2] && b[1] <= p.lat && p.lat <= b[3];
+    const done = Object.values(S.packs || {}).filter((k) => k && k.done && !k.short && !k.damaged && k.bbox);
+    const roads = done.filter((k) => isRoadPack(k)), maps = done.filter((k) => !isRoadPack(k));
+    const noRoad = pts.filter((p) => !roads.some((k) => inB(k.bbox, p))), noMap = pts.filter((p) => !maps.some((k) => inB(k.bbox, p)));
+    return { roads: noRoad.length ? { n: noRoad.length, regions: [...new Set(noRoad.map((p) => regionAt(p.lat, p.lon)))].slice(0, 3) } : null, map: noMap.length ? { n: noMap.length } : null, all: pts.length };
+  }
+  function renderDxfNeed() {
+    const box = $('dxfNeed'); if (!box) return;
+    let N = null; try { N = planNeeds(S.project); } catch (e) { N = null; }
+    const tpl = dxfMode() === 'tpl', H = [], e = (x) => C.xmlEsc(String(x == null ? '' : x));
+    if (N && N.roads && (tpl || $('dxfRoads').checked)) {
+      N.roads.regions.forEach((rg) => {
+        const R = REGION_BY[rg], nm = R ? `Roads · ${R[2]}` : 'A road pack for this area';
+        H.push(`<div class="r"><span class="ic" aria-hidden="true">🛣</span><span class="tx"><b>${e(nm)}</b> is not on this phone. Without it ${tpl ? 'the barangay and city / municipality table stays blank, and ' : ''}the roads come from the internet (none without signal).</span><button class="btn sm primary" type="button" data-need="roads" data-region="${e(rg)}">Get the roads</button></div>`);
+      });
+    }
+    if (N && N.map && tpl) H.push(`<div class="r"><span class="ic" aria-hidden="true">🗺</span><span class="tx"><b>The offline map of this area</b> is not on this phone. The vicinity map then needs the internet${navigator.onLine === false ? ' (offline now: it is drawn from the roads only)' : '; without signal it is drawn from the roads only'}.</span><button class="btn sm" type="button" data-need="map">Download the map</button></div>`);
+    box.innerHTML = H.length ? `<p class="hd">Not downloaded yet for this drawing</p>${H.join('')}` : '';
+    box.hidden = !H.length;
+  }
+  /** Maps, opened over Export at the download the drawing needs: the region's road pack (else how to get one), or the project's area. */
+  async function mapsGuide(what, region) {
+    openSheet('offline'); $('offGuide').hidden = true; await renderOffline();
+    await Promise.all([loadPackIndex(), cloudSync(false)]).catch(() => {}); await renderOffline();
+    const g = $('offGuide'), R = REGION_BY[region], rn = R ? R[2] : '', proj = S.project;
+    let target = null, found = false;
+    if (what === 'roads') {
+      const keys = R ? [R[2], R[1]] : [], rx = (k) => new RegExp(`(^|[^A-Za-z0-9])${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^A-Za-z0-9])`, 'i');
+      target = [...$('packList').querySelectorAll('.area-card')].find((r) => { const t = ((r.querySelector('.t') || {}).textContent || '').trim(); return /^roads\b/i.test(t) && keys.some((k) => rx(k).test(t)); }) || null;
+      found = !!target;
+      g.textContent = target ? `For the plan drawing of “${proj}”: tap Download on ${target.querySelector('.t').textContent} below (Wi-Fi is best), then go back to Export.`
+        : `For the plan drawing of “${proj}”: no road pack for ${rn || 'its area'} is listed yet. Ask your admin to add “Roads · ${rn || 'your region'}” (Settings → Administration → Offline map packs) and tap Refresh list, or Import a pack file they sent you.`;
+      if (!target) target = $('packImport');
+    } else {
+      target = $('areaDl');
+      g.textContent = `For the plan drawing of “${proj}”: tap Download an area for offline use, then The project’s area (Wi-Fi is best), then go back to Export.`;
+    }
+    g.hidden = false;
+    document.querySelectorAll('#offline .guide').forEach((x) => x.classList.remove('guide'));
+    target.classList.add('guide'); target.scrollIntoView({ block: 'center' });
+    LOG.info('plan.need.guide', { what, region, found });
+  }
+  $('dxfNeed').addEventListener('click', (ev) => { const b = ev.target.closest('[data-need]'); if (b) guard(() => mapsGuide(b.dataset.need, b.dataset.region || ''), 'Maps not opened'); });
+  $('dxfRoads').addEventListener('change', () => { try { renderDxfNeed(); } catch (e) { /* not shown */ } });
   function showExport(pick) {
     renderDxfTpl(); // v2.30
+    try { renderDxfNeed(); } catch (e) { LOG.warn('plan.need', errInfo(e)); } // v2.43 beta 2.1
     const cards = exportCards(), acc = isAcc(), keys = cards.map(xKey), kept = (S.xPick || {})[acc ? 'acc' : 'survey'];
     const keep = (Array.isArray(kept) ? kept : kept ? [kept] : []).filter((k) => keys.includes(k));
     const want = pick && keys.includes(pick) ? [pick] : keep.length ? keep : keys.slice(0, 1);
@@ -8400,13 +8797,14 @@
     const stg = pmeta().stage || 'PAT';
     $('xShareBox').hidden = !acc || stg === 'FAT';
     if (acc && stg !== 'FAT') { $('xShareLbl').textContent = stg === 'Cleanup' ? 'Share cleanup KMZ' : 'Share PAT KMZ'; $('xShareFor').textContent = stg === 'Cleanup' ? 'for the FAT' : 'for defect cleanup / FAT'; renderShareWarn('xShareWarn'); }
-    $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`; syncExpUi();
+    $('dxfZoneLbl').textContent = $('dxfZoneLbl2').textContent = `UTM ${S.zone}N`; syncExpUi(); syncPhDocUi(); // (beta 3.5: All / Main)
+    { const o = S.prOpt || {}; if (o.per) $('prPer').value = o.per; if (o.num) $('prNum').value = o.num; if (o.by) $('prBy').value = o.by; if (o.loc) $('prLoc').value = o.loc; } // beta 3.5
     showExport(exportPick); exportPick = null; renderCredit(); creditNote = ''; // v2.42.6 (v2.42.7: a new export, no old note)
     const pl = pl0 && !acc; // v2.42.28: Export the plan (from the Drawing): the DXF card only
     $('export').classList.toggle('plan', pl); $('export').classList.toggle('side', pl && deskOn() && stack.includes('drawing')); if ($('export').classList.contains('side')) document.body.classList.add('drwside');
     $('exportTitle').textContent = pl ? 'Export the plan' : 'Export';
     $('sigEdit').hidden = true; $('sigChange').textContent = 'Change'; $('sigChange').setAttribute('aria-expanded', 'false');
-    $('resultBox').hidden = true; $('resultInside').hidden = true; openSheet('export');
+    $('resultBox').hidden = true; $('resultInsideBox').hidden = true; openSheet('export');
   });
   function needPoints() { const pts = projPoints(); if (!pts.length) { toast('Nothing captured in this project yet'); return null; } return pts; }
   /** v2.42.4: each record's photo file name as the Photos export names it (by the naming setting, numbered when the same), '' without a photo. */
@@ -8591,6 +8989,10 @@
       const ph = await dbGet('photos', p.id);
       const r = { ...p, element: elemOf(p), statusLabel: svStatusLabel(p.status), detailsText: detailsText(p.details), boqText: boqText(p) };
       if (ph && ph.clean && E.kmzBalloonPx > 0) { r.photoName = `photos/${names[p.id]}.jpg`; files.push({ name: 'files/' + r.photoName, data: await exportPhoto(p, ph.clean, null, null, { maxPx: E.kmzBalloonPx, stamp: E.kmzStamp, quality: 0.85 }) }); }
+      if (r.photoName && phDoc('kmz') === 'all' && p.photos && p.photos.length > 1) { // beta 3.5: the other photos of the pin too
+        r.photoNames = [r.photoName];
+        for (let k = 1; k < p.photos.length; k++) { const x = await dbGet('photos', p.photos[k].pid).catch(() => null); if (!x || !x.clean) continue; const nm = `photos/${names[p.id]}_${k + 1}.jpg`; r.photoNames.push(nm); files.push({ name: 'files/' + nm, data: await exportPhoto(p, x.clean, null, null, { maxPx: E.kmzBalloonPx, stamp: E.kmzStamp, quality: 0.85 }) }); }
+      }
       if (icons && ph && (ph.clean || ph.thumb)) { r.iconName = `icons/${p.id}.jpg`; files.push({ name: 'files/' + r.iconName, data: await iconJpeg(ph.clean || ph.thumb, E.kmzIconPx, elemOf(p) === 'Pole' ? null : SV_COLORS[elemOf(p)]) }); }
       rows.push(r);
     }
@@ -9611,6 +10013,58 @@
     } catch (e) { LOG.warn('plan.vicFocus', errInfo(e)); return v; }
   }
 
+  /* ---- beta 3.5: the Photo report (RTA-like) ---- */
+  /** Where each pole is, in words: the nearest named road (within 60 m) of the road pack, its barangay and city / municipality. */
+  async function poleLocations(list) {
+    const out = new Map(); if (!list.length) return out;
+    const la = list.map((p) => p.lat), lo = list.map((p) => p.lon), pad = 0.002, bb = [Math.min(...la) - pad, Math.min(...lo) - pad, Math.max(...la) + pad, Math.max(...lo) + pad];
+    let A = null, R = null;
+    try { A = await adminFromRoadPacks(list.map((p) => ({ lat: p.lat, lon: p.lon }))); } catch (e) { LOG.warn('report.admin', errInfo(e)); }
+    try { R = await roadsFromRoadPacks(bb); } catch (e) { LOG.warn('report.roads', errInfo(e)); }
+    busy(false);
+    const roads = ((R && R.roads) || []).filter((r) => r.name);
+    const dSeg = (p, a, b) => { const k = Math.cos(p.lat * Math.PI / 180) * 111320, ax = (a[1] - p.lon) * k, ay = (a[0] - p.lat) * 110540, bx = (b[1] - p.lon) * k, by = (b[0] - p.lat) * 110540, dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+      const t = L2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L2)) : 0; return Math.hypot(ax + t * dx, ay + t * dy); };
+    list.forEach((p, i) => {
+      const h = A && A.hits ? A.hits[i] : null; let best = '', bd = 60;
+      for (const r of roads) for (let j = 1; j < r.coords.length; j++) { const d = dSeg(p, r.coords[j - 1], r.coords[j]); if (d < bd) { bd = d; best = r.name; } }
+      const parts = [best, h && h.brgy ? `Brgy. ${h.brgy}` : '', h && h.muni].filter(Boolean);
+      if (parts.length) out.set(p.id, parts.join(', '));
+    });
+    return out;
+  }
+  $('doPhotoReport').addEventListener('click', () => guard(async () => {
+    const pts = needPoints(); if (!pts) return;
+    const poles = pts.filter((p) => elemOf(p) === 'Pole');
+    if (!poles.length) { toast('No poles in this project yet'); return; }
+    S.prOpt = { per: $('prPer').value, num: $('prNum').value, by: $('prBy').value, loc: $('prLoc').value }; persist();
+    const o = S.prOpt, NUM = o.num === 'plan' ? poleNums(projPoints(), routeModel()) : new Map();
+    const ord = poles.slice().sort((a, b) => { const na = +NUM.get(a.id) || 1e9, nb = +NUM.get(b.id) || 1e9; return na - nb || String(a.created).localeCompare(String(b.created)); });
+    const locs = o.loc === 'pack' ? await poleLocations(ord) : new Map();
+    const ownerOf = (r) => { const b = r.boq || {}; return b.owner ? `${b.owner}${b.ownerName ? ` (${b.ownerName})` : ''}` : ''; };
+    const items = [];
+    for (let i = 0; i < ord.length; i++) {
+      const r = ord[i]; busy(`Preparing photos ${i + 1} / ${ord.length}`, i / ord.length);
+      const photos = [];
+      for (const p of phOf(r, 'report').slice(0, 4)) { const jpeg = await pdfJpeg(p.pid, 1100, null, null, 0.82).catch(() => null); if (jpeg) photos.push({ jpeg, label: p.label === 'Photo' ? 'Overview' : p.label || '' }); }
+      const ll = `${r.lat.toFixed(6)}, ${r.lon.toFixed(6)}`;
+      items.push({ owner: ownerOf(r), no: o.num === 'plan' ? String(NUM.get(r.id) || '') : String(i + 1), id: r.poleId || '(no ID)', location: locs.get(r.id) || ll, type: [r.poleType, ownerOf(r)].filter(Boolean).join(' · '), coords: ll, date: shortTime(r.takenAt || r.created),
+        note: [svStatusLabel(r.status), boqText(r), r.remarks].filter(Boolean).join(' · ').slice(0, 200), photos });
+    }
+    busy('Building PDF…');
+    const groups = o.by === 'owner' ? [...new Set(items.map((x) => x.owner || 'No owner set'))].map((g) => ({ g, items: items.filter((x) => (x.owner || 'No owner set') === g) })) : [{ g: '', items }];
+    const R = window.PoleReports, logos = await formLogos(), files = [], site = pmeta().site || '';
+    for (const G of groups) {
+      const pdf = R.photoReportPdf({ title: 'PHOTO REPORT', sub: `${S.project}${site ? ` · ${site}` : ''}${G.g ? ` · Owner: ${G.g}` : ''} · ${G.items.length} pole${G.items.length === 1 ? '' : 's'}`, perPage: +o.per === 1 ? 1 : 2,
+        items: G.items, footer: `${S.project} · photo report${G.g ? ` · ${G.g}` : ''}`, footer2: exporterLine(), logos });
+      files.push({ name: `${fileBase()}_photo_report${G.g ? `_${C.safeName(G.g)}` : ''}.pdf`, blob: new Blob(pdf.output({ title: `${S.project} photo report${G.g ? ` ${G.g}` : ''}` }), { type: 'application/pdf' }) });
+    }
+    busy(false);
+    LOG.info('photoreport.pdf', { poles: items.length, files: files.length, photos: items.reduce((n, x) => n + x.photos.length, 0), loc: o.loc, by: o.by });
+    if (files.length === 1) { offerResult(files[0].blob, files[0].name); return; }
+    const parts = []; for (const f of files) parts.push({ name: f.name, data: new Uint8Array(await f.blob.arrayBuffer()) });
+    offerResult(new Blob(C.makeZipParts(parts), { type: 'application/zip' }), `${fileBase()}_photo_reports.zip`);
+  }, 'Photo report not made'));
   $('doCsv').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
     const names = photoNames(pts, new Set(await dbKeys('photos'))); // v2.42.4: as the Photos export names them (and none for a record without a photo)
@@ -9911,7 +10365,12 @@
     const out = [], seen = new Set();
     const add = (pid, label, r, kind) => { if (!pid || !label || seen.has(pid)) return; seen.add(pid); out.push({ pid, label, r, kind }); };
     for (const r of recs) {
-      if (r.kind !== 'acceptance') { if (!r.boxes) add(r.id, elemOf(r), r, 'survey photo'); continue; } // a photo with a red box is not a clean training photo
+      if (r.kind !== 'acceptance') { // a photo with a red box is not a clean training photo
+        const L = (x) => (!x || x === 'Overview' || x === 'Photo' ? elemOf(r) : x === 'Detail' ? null : x);
+        if (!r.boxes) add(r.id, L(r.photos && r.photos[0] ? r.photos[0].label : ''), r, 'survey photo');
+        if (r.photos && phDoc('ai', r.project) === 'all') r.photos.slice(1).forEach((p) => add(p.pid, L(p.label), r, `${p.label || 'other'} photo`)); // beta 3.5
+        continue;
+      }
       photosOf(r).forEach((p) => add(p.pid, p.label === 'Overview' ? elemOf(r) : p.label === 'Detail' ? null : p.label, r, `${p.label} photo`));
       (r.defs || []).forEach((d) => { add(d.pid, CAT_LABEL[d.cat], r, 'defect photo'); add(d.afterPid, CAT_LABEL[d.cat], r, 'after photo'); });
     }
@@ -9943,7 +10402,7 @@
   $('doPhotos').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
     if (isAcc()) {
-      const M = accModel(), files = [], list = accPhotoList(M);
+      const M = accModel(), files = [], list = accPhotoList(M, 'zip');
       for (let i = 0; i < list.length; i++) {
         busy(`Stamping photos ${i + 1} / ${list.length}`, i / list.length);
         const ph = await dbGet('photos', list[i].pid);
@@ -9962,6 +10421,13 @@
       while (used[name.toLowerCase()]) name = `${base}_${k++}`;
       used[name.toLowerCase()] = 1;
       files.push({ name: name + '.jpg', data: await exportPhoto(pts[i], ph.clean) });
+      if (phDoc('zip') === 'all' && pts[i].photos && pts[i].photos.length > 1) { // beta 3.5: the other photos of the pin: ID_2.jpg, ID_3.jpg…
+        for (let j = 1; j < pts[i].photos.length; j++) {
+          const x = await dbGet('photos', pts[i].photos[j].pid).catch(() => null); if (!x || !x.clean) continue;
+          let nm = `${name}_${j + 1}`, kk = 2; while (used[nm.toLowerCase()]) nm = `${name}_${j + 1}_${kk++}`;
+          used[nm.toLowerCase()] = 1; files.push({ name: nm + '.jpg', data: await exportPhoto(pts[i], x.clean) });
+        }
+      }
     }
     files.push({ name: 'exported_by.txt', data: exporterText() });
     offerResult(new Blob(C.makeZipParts(files), { type: 'application/zip' }), fileBase() + '_photos.zip');
@@ -10101,7 +10567,7 @@
     if (proj) { // v2.42.4: the project's details first (a restore cut short left records with none: a PAT showed as an open survey)
       if (!S.projects.includes(proj)) S.projects.push(proj);
       S.meta = S.meta || {};
-      if (meta.meta && !S.meta[proj]) { const { shares, recv, updates, ...mm } = meta.meta; S.meta[proj] = mm; } // v2.42.18: the sender's own share counts stay on the sender's phone
+      if (meta.meta && !S.meta[proj]) { const { shares, recv, updates, team, chg, ...mm } = meta.meta; S.meta[proj] = mm; o.fresh = true; } // (beta 3.3: fresh: its spans and cables from before beta 3.3 are the sender's) // (v2.43: and its team details) // v2.42.18: the sender's own share counts stay on the sender's phone
       persist();
     }
     let n = 0, kept = 0, routeNew = false, goneHere = 0;
@@ -10119,11 +10585,14 @@
       }
       await dbPut('points', p);
       const i = points.findIndex((x) => x.id === p.id); if (i >= 0) points[i] = p; else points.push(p);
+      (o.written || (o.written = [])).push(p.id); // (beta 3.3: for the same pole twice)
     }
     if (proj) {
       if (meta.meta && S.meta[proj] !== meta.meta) {
         if (meta.meta.people) S.meta[proj].people = { ...(S.meta[proj].people || {}), ...meta.meta.people };
-        if (meta.meta.links) {
+        { const a = meta.meta.phSet, b = S.meta[proj].phSet; if (a && a.n && (!b || String(a.at || '') > String(b.at || ''))) S.meta[proj].phSet = { ...a }; } // beta 3.5: the coordinator's photos setting (the newer)
+        if (meta.meta.links && o.update) routeNew = routeMerge(proj, meta.meta, o.update.sender, o.update.from, !!o.fresh); // beta 3.3 (QA-06): per sender (Share and the team mailbox)
+        else if (meta.meta.links) {
           const mineAt = S.meta[proj].linksAt || '', theirs = meta.meta.linksAt || '';
           if (theirs && theirs > mineAt) { S.meta[proj].links = meta.meta.links.map((l) => l.slice()); S.meta[proj].linksAt = theirs; routeNew = true; // v2.42.18: the newer route wins (spans removed, cables and runs changed)
             if (Array.isArray(meta.meta.fibers)) S.meta[proj].fibers = meta.meta.fibers.map((f) => ({ ...f, path: (f.path || []).slice() })); } // v2.42.20: and its fibers (a sender on an older version has none: these stay)
@@ -10160,6 +10629,94 @@
     return proj;
   }
 
+  /* ================= beta 3.3 (QA-06): the same pole twice at a merge =================
+     After an update is merged (Share or the team mailbox), each record it brought is compared with the records already here: the
+     same pole ID, or the same kind of element within S.dupM metres (Settings → Camera, 10 by default; 0: the ID only). The pairs are
+     grouped and listed: keep one (the others deleted here, and on the partners' phones at the next send), keep both (not asked
+     again for that pair), or combine the photos into one record. Spans and cables of a deleted record move to the one kept. Not on
+     a field partner's phone (his coordinator decides) and not in a PAT / defect cleanup / FAT. */
+  const dupM = () => { const v = S.dupM == null || S.dupM === '' ? 10 : +S.dupM; return Number.isFinite(v) && v >= 0 ? Math.min(50, v) : 10; };
+  function dupFind(proj, written) {
+    if (!proj || isAcc(proj) || !written || !written.length) return [];
+    const T = tmTeam(proj); if (T && T.role === 'fp') return [];
+    const W = new Set(written), all = points.filter((p) => p.project === proj && Number.isFinite(+p.lat) && Number.isFinite(+p.lon)), ok = pmeta(proj).dupOk || {}, lim = dupM();
+    const idOf = (p) => { const v = String(p.poleId || '').trim().toUpperCase(); return v && !isNpt(v) && !/[-_]$/.test(v) ? v : ''; };
+    const par = new Map(), find = (x) => { while (par.get(x) !== x) { par.set(x, par.get(par.get(x))); x = par.get(x); } return x; }, info = new Map();
+    for (const a of all) if (W.has(a.id)) for (const b of all) {
+      if (b.id === a.id || W.has(b.id) || elemOf(a) !== elemOf(b)) continue;
+      const k = [a.id, b.id].sort().join('|'); if (ok[k]) continue;
+      const same = !!idOf(a) && idOf(a) === idOf(b), d = haversine(a, b);
+      if (!same && !(lim > 0 && d <= lim)) continue;
+      [a.id, b.id].forEach((x) => { if (!par.has(x)) par.set(x, x); }); par.set(find(a.id), find(b.id));
+      info.set(k, { same, d });
+    }
+    const G = new Map(); par.forEach((v, x) => { const r = find(x); (G.get(r) || G.set(r, []).get(r)).push(x); });
+    return [...G.values()].map((ids) => { const recs = ids.map((id) => all.find((p) => p.id === id)).sort((a, b) => String(a.created || a.updated || '').localeCompare(String(b.created || b.updated || '')));
+      const pi = [...info.entries()].filter(([k]) => k.split('|').every((x) => ids.includes(x))).map(([, v]) => v);
+      return { recs, same: pi.some((v) => v.same), d: Math.max(0, ...pi.map((v) => v.d)) }; })
+      .sort((a, b) => String(a.recs[0].poleId || '').localeCompare(String(b.recs[0].poleId || ''), undefined, { numeric: true }));
+  }
+  let dupRes = null, dupG = [];
+  function dupAsk(proj, G) {
+    const nm = (r) => String(r.by || '').split(' · ')[0] || 'this phone', nph = (r) => photosOf(r).length, ph = (k) => `${k} photo${k === 1 ? '' : 's'}`;
+    dupG = G;
+    $('dupSub').textContent = `${G.length === 1 ? 'One pole was' : `${G.length} poles were`} recorded twice in “${proj}”: the same pole ID, or within ${dupM()} m of each other (Settings → Camera). For each, keep one, keep both, or combine the photos into one record. A record you do not keep is deleted here, and on your partners' phones at your next send.`;
+    $('dupList').innerHTML = G.map((g, i) => {
+      const ids = [...new Set(g.recs.map((r) => r.poleId || '(no ID)'))], head = `${ids.join(' and ')}${g.same ? ' · the same ID' : ''} · ${g.d >= 1 ? `${Math.round(g.d)} m apart` : 'the same spot'}`;
+      const opt = (v, t, on) => `<label class="dupo"><input type="radio" name="dup${i}" value="${hEsc(v)}"${on ? ' checked' : ''}><span>${t}</span></label>`;
+      return `<div class="dupg" data-g="${i}"><b>${hEsc(head)}</b>${g.recs.map((r) => opt(`pick:${r.id}`, `Keep only ${hEsc(nm(r))}’s ${hEsc(r.poleId || elemOf(r))} (${ph(nph(r))}, ${hEsc(fmtTime(r.created || r.updated || ''))})`)).join('')}`
+        + `${opt('comb', `Combine: ${hEsc(nm(g.recs[0]))}’s record with all ${ph(g.recs.reduce((t, r) => t + nph(r), 0))}`)}${opt('both', g.recs.length > 2 ? `Keep all ${g.recs.length} (different poles)` : 'Keep both (two poles)', true)}</div>`;
+    }).join('');
+    openSheet('dupSheet'); LOG.info('dup.ask', { groups: G.length });
+    return new Promise((res) => { dupRes = res; });
+  }
+  $('dupAll').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-all]'); if (!b) return;
+    dupG.forEach((g, i) => { const v = b.dataset.all === 'pick' ? `pick:${g.recs[0].id}` : b.dataset.all; const el = [...document.querySelectorAll(`#dupList input[name="dup${i}"]`)].find((x) => x.value === v); if (el) el.checked = true; });
+  });
+  $('dupApply').addEventListener('click', () => {
+    const ch = dupG.map((g, i) => { const el = document.querySelector(`#dupList input[name="dup${i}"]:checked`); return el ? el.value : 'both'; });
+    const r = dupRes; dupRes = null; closeSheet(); if (r) r(ch);
+  });
+  async function dupApply(proj, G, ch) {
+    const now = new Date().toISOString(), remap = new Map(), del = [], ok = { ...(pmeta(proj).dupOk || {}) }; let picked = 0, comb = 0, both = 0;
+    for (let i = 0; i < G.length; i++) {
+      const g = G[i], c = ch[i] || 'both';
+      if (c === 'both') { g.recs.forEach((a) => g.recs.forEach((b) => { if (a.id < b.id) ok[`${a.id}|${b.id}`] = now; })); both++; continue; }
+      const keep = c.startsWith('pick:') ? g.recs.find((r) => r.id === c.slice(5)) || g.recs[0] : g.recs[0], others = g.recs.filter((r) => r !== keep);
+      if (c === 'comb') {
+        const cur = points.find((x) => x.id === keep.id) || keep, P = photosOf(cur).slice();
+        others.forEach((r) => photosOf(r).forEach((x) => { if (!P.some((y) => y.pid === x.pid)) P.push({ ...x, label: x.label || 'Photo' }); }));
+        const nk = { ...cur, photos: P, updated: now, updatedBy: byLine() }; await dbPut('points', nk); points[points.findIndex((x) => x.id === keep.id)] = nk; comb++;
+      } else picked++;
+      others.forEach((r) => { remap.set(r.id, keep.id); del.push(r); });
+    }
+    const gone = { ...(pmeta(proj).gone || {}) };
+    for (const r of del) { await dbDel('points', r.id); points = points.filter((x) => x.id !== r.id); gone[r.id] = now; }
+    if (del.length) await deletePhotosIfUnused(del.flatMap(allPids), new Set(del.map((r) => r.id)));
+    S.meta[proj] = { ...pmeta(proj), gone, dupOk: ok }; persist();
+    if (remap.size) { // the spans and cables of a deleted record move to the one kept
+      const mv = (id) => remap.get(id) || id, seen = new Set(), L1 = [], L0 = pmeta(proj).links || [];
+      L0.forEach((q) => { const a = mv(q[0]), b = mv(q[1]); if (a === b) return; const k = spanKey(a, b); if (seen.has(k)) return; seen.add(k); L1.push(a === q[0] && b === q[1] ? q : linkWith(a, b, q[2], q[3])); });
+      const F0 = fibers(proj), F1 = F0.map((f) => { const p = []; f.path.forEach((id) => { const x = mv(id); if (!p.includes(x)) p.push(x); }); return { ...f, path: p }; });
+      const chF = F0.some((f, i) => f.path.join() !== F1[i].path.join()), chL = L1.length !== L0.length || L1.some((q, i) => q !== L0[i]);
+      if (chL || chF) routeWrite(proj, chL ? L1 : null, chF ? F1 : null);
+    }
+    if (del.length) changedAfterApproval(proj, 'delete');
+    LOG.info('dup.apply', { groups: G.length, picked, comb, both, deleted: del.length });
+    renderPoles(); if (!$('list').hidden) renderList();
+    const said = [picked && `${picked} kept one`, comb && `${comb} combined`, both && `${both} kept both`].filter(Boolean).join(', ');
+    toast(`The same pole twice: ${said}${del.length ? ` · ${del.length} record${del.length === 1 ? '' : 's'} deleted` : ''}`, 5000);
+    return { picked, comb, both, deleted: del.length };
+  }
+  /** After a merge: the same pole twice, if any, listed (Back: kept as they are; listed again when one of them is merged again). */
+  async function dupAtMerge(proj, written) {
+    const G = dupFind(proj, (written || []).filter((id) => points.some((p) => p.id === id && p.project === proj))); if (!G.length) return null;
+    const ch = await dupAsk(proj, G);
+    if (!ch) { toast('Kept as they are: they are listed again when one of them is merged again.', 5000); LOG.info('dup.later', { groups: G.length }); return null; }
+    return dupApply(proj, G, ch);
+  }
+
   /* ================= acceptance exports ================= */
   const STAGE_LONG = { PAT: 'Provisional Acceptance Test (PAT)', Cleanup: 'Defect cleanup (contractor rectification of the PAT punchlist)', FAT: 'Final Acceptance Test (FAT)' };
   const dateOnly = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }); };
@@ -10190,14 +10747,16 @@
       verified: counted.filter((x) => defStatusOf(x.d) === 'Verified').length, notes: items.length - counted.length, // v2.42.4: defStatusOf (items of old versions have no status)
       major: open.filter((x) => x.d.sev === 'Major').length, minor: open.filter((x) => x.d.sev !== 'Major').length };
   }
-  function accPhotoList(M) {
-    const list = [];
-    M.recs.forEach((r) => photosOf(r).forEach((p, i) => list.push({ rec: r, pid: p.pid, name: M.photoName(r, i, p), title: `${M.lab(r)}  ·  ${elemOf(r)}  ·  ${p.label}`, desc: p.label, meta: p.at ? p : null })));
+  function accPhotoList(M, key) {
+    const list = [], all = !key || phDoc(key) === 'all'; // beta 3.5: key: the document (zip, kmz) for All / Main
+    M.recs.forEach((r) => (all ? photosOf(r) : photosOf(r).slice(0, 1)).forEach((p, i) => list.push({ rec: r, pid: p.pid, name: M.photoName(r, i, p), title: `${M.lab(r)}  ·  ${elemOf(r)}  ·  ${p.label}`, desc: p.label, meta: p.at ? p : null })));
     const who = (r, no) => (isRef(r) ? `Item ${no}` : `${r.poleId}  ·  Item ${no}`); // v2.22: no D-0001
     M.items.forEach((x) => {
       if (x.d.pid) list.push({ rec: x.r, pid: x.d.pid, name: x.defectName, title: `${who(x.r, x.no)}  ·  AS FOUND  ·  ${x.d.cat}: ${x.d.item}`, desc: `AS FOUND · ${x.d.cat}: ${x.d.item}`, no: x.no, meta: x.d.pidMeta || null });
       if (x.d.afterPid) list.push({ rec: x.r, pid: x.d.afterPid, name: x.afterName, title: `${who(x.r, x.no)}  ·  RECTIFIED  ·  ${x.d.cat}: ${x.d.item}`, desc: `RECTIFIED · ${x.d.cat}: ${x.d.item}`, no: x.no, meta: x.d.afterMeta || null });
       if (x.d.verifyPid) list.push({ rec: x.r, pid: x.d.verifyPid, name: x.verifyName, title: `${who(x.r, x.no)}  ·  VERIFIED  ·  ${x.d.cat}: ${x.d.item}`, desc: `VERIFIED · ${x.d.cat}: ${x.d.item}`, no: x.no, meta: x.d.verifyMeta || null });
+      if (all) [['xpids', x.defectName, 'AS FOUND'], ['xafter', x.afterName, 'RECTIFIED'], ['xverify', x.verifyName, 'VERIFIED']].forEach(([k, nm, lab]) => (x.d[k] || []).forEach((y, j) => { // beta 3.5: the other photos of each stage: …_asfound_2.jpg
+        if (y && y.pid && nm) list.push({ rec: x.r, pid: y.pid, name: nm.replace(/\.jpg$/, `_${j + 2}.jpg`), title: `${who(x.r, x.no)}  ·  ${lab} ${j + 2}  ·  ${x.d.cat}: ${x.d.item}`, desc: `${lab} ${j + 2} · ${x.d.cat}: ${x.d.item}`, no: x.no, meta: y.at ? y : null }); }));
     });
     return list;
   }
@@ -10371,9 +10930,14 @@
         : { label: verL, tone: 'good', jpeg: null, plain: true, note: 'Verified on site without a photo', lines: [`Verified ${shortTime(d.verifiedAt)}${d.verifiedBy ? ` by ${d.verifiedBy}` : ''}`] });
       else stages.push({ label: verL, tone: 'good', pending: true, note: stt === 'Rectified' ? 'Awaiting verification' : 'Pending', lines: [] });
     }
+    const more = []; // beta 3.5: the other photos of each stage, for a second row of the item
+    if (phDoc('defpdf') === 'all') for (const [k, lab, tone, col] of [['xpids', 'AS FOUND', 'bad', '#c92a2a'], ['xafter', 'RECTIFIED', 'blue', '#1971c2'], ['xverify', 'VERIFIED', 'good', '#2b8a3e']]) {
+      if ((k === 'xafter' && !defDone(d)) || (k === 'xverify' && stt !== 'Verified')) continue;
+      for (let j = 0; j < (d[k] || []).length; j++) { const y = d[k][j]; if (!y || !y.pid) continue; const jpeg = await pdfJpeg(y.pid, px, [`${lab} ${j + 2} · ${isRef(r) ? '' : `${r.poleId} · `}item ${x.no}`, y.at ? shortTime(y.at) : ''].filter(Boolean), col, quality); if (jpeg) more.push({ label: `${lab} · PHOTO ${j + 2}`, tone, jpeg, lines: y.at ? [`Photo ${shortTime(y.at)}${y.by ? ` by ${y.by}` : ''}`] : [] }); }
+    }
     const statusText = { Open: rej.length ? 'OPEN — REJECTED' : 'OPEN', Rectified: 'RECTIFIED — TO VERIFY', Verified: 'VERIFIED', Note: 'NOTE' }[stt] || stt;
     const tone = { Open: 'bad', Rectified: 'blue', Verified: 'good', Note: 'muted' }[stt];
-    return { no: x.no, loc: isRef(r) ? '' : r.poleId, element: elemOf(r), code: SEV_CODE[sevOf(d)], text: `${d.cat}: ${d.item}${d.notes ? ' — ' + d.notes : ''}`, status: statusText, statusTone: tone, remarks: d.remarks, stages };
+    return { no: x.no, loc: isRef(r) ? '' : r.poleId, element: elemOf(r), code: SEV_CODE[sevOf(d)], text: `${d.cat}: ${d.item}${d.notes ? ' — ' + d.notes : ''}`, status: statusText, statusTone: tone, remarks: d.remarks, stages, more };
   }
   $('doPdf').addEventListener('click', () => guard(async () => {
     if (!needPoints()) return;
@@ -10382,13 +10946,17 @@
     model.photoH = size.h;
     if (E.pdfAnnexA) {
       model.annexA = [];
-      for (let i = 0; i < M.items.length; i++) { busy(`Annex A · item ${i + 1} / ${M.items.length}`, i / Math.max(1, M.items.length + M.recs.length)); model.annexA.push(await evidenceBlock(M.items[i], size.px)); }
+      for (let i = 0; i < M.items.length; i++) {
+        busy(`Annex A · item ${i + 1} / ${M.items.length}`, i / Math.max(1, M.items.length + M.recs.length));
+        const b = await evidenceBlock(M.items[i], size.px); model.annexA.push(b);
+        for (let k = 0; k < (b.more || []).length; k += 3) model.annexA.push({ ...b, text: `${b.text} (more photos)`, remarks: '', stages: b.more.slice(k, k + 3) }); // beta 3.5: the other photos, three a row
+      }
     }
     if (E.pdfAnnexB) {
       model.annexB = [];
       for (let i = 0; i < M.recs.length; i++) {
         const r = M.recs[i]; busy(`Annex B · element ${i + 1} / ${M.recs.length}`, (M.items.length + i) / Math.max(1, M.items.length + M.recs.length));
-        for (const p of photosOf(r)) {
+        for (const p of phOf(r, 'defpdf')) {
           const jpeg = await pdfJpeg(p.pid, size.px); if (!jpeg) continue;
           model.annexB.push({ jpeg, caption: `${M.lab(r)} · ${elemOf(r)} · ${p.label}`, sub: `${p.at ? shortTime(p.at) : shortTime(r.takenAt)}${p.by ? ' · ' + p.by : ''} · ${STATUS_TEXT[recStatus(r)]}` });
         }
@@ -10419,6 +10987,10 @@
       if (last && last.date === dt) { last.count++; last.cum = cum; last.pct = cum / total; } else byDate.push({ date: dt, count: 1, cum, pct: cum / total });
     });
     const head = (x) => `#${x.no}  ${isRef(x.r) ? '' : `${x.r.poleId} · `}${elemOf(x.r)}`;
+    // beta 3.5: the other photos of an item, before and after (Photos of each item: All)
+    const rectMore = async (d) => { const out = []; if (phDoc('defpdf') !== 'all') return out;
+      for (const [k, lab, tone] of [['xpids', 'BEFORE', 'bad'], ['xafter', 'AFTER', 'blue']]) { const L = d[k] || []; for (let j = 0; j < L.length; j++) { const jp = await pdfJpeg(L[j].pid, 640).catch(() => null); if (jp) out.push({ jpeg: jp, label: `${lab} · PHOTO ${j + 2}`, tone }); } }
+      return out; };
     const defect = (x) => `${x.d.cat}: ${x.d.item}${x.d.notes ? ' — ' + x.d.notes : ''}  ·  ${sevOf(x.d)}  ·  found at ${x.d.stage || 'PAT'}`;
     const items = [];
     const n = rect.length + (withOpen ? open.length : 0); let k = 0;
@@ -10430,7 +11002,7 @@
           lines: [`Found ${shortTime(d.foundAt)} (${d.stage || 'PAT'})${d.foundBy ? ` by ${d.foundBy}` : ''}`, ...(d.pid ? metaLines(d.pidMeta, x.r, 'Photo taken').slice(1, 2) : ['No defect photo'])] },
         after: d.afterPid ? { jpeg: await pdfJpeg(d.afterPid, 800, [`AFTER · ${isRef(x.r) ? '' : `${x.r.poleId} · `}item ${x.no}`, d.afterMeta ? shortTime(d.afterMeta.at) : ''].filter(Boolean), '#1971c2'),
           lines: metaLines(d.afterMeta, x.r, 'Rectified · photo taken') } : null,
-        missingAfter: d.afterPid ? null : ['No after photo', `Marked rectified ${shortTime(d.fixedAt)}`, d.fixedBy ? `by ${d.fixedBy}` : '', 'without photo evidence'].filter(Boolean) });
+        missingAfter: d.afterPid ? null : ['No after photo', `Marked rectified ${shortTime(d.fixedAt)}`, d.fixedBy ? `by ${d.fixedBy}` : '', 'without photo evidence'].filter(Boolean), more: await rectMore(d) });
     }
     const openItems = [];
     if (withOpen) for (const x of open) {
@@ -10471,7 +11043,7 @@
   }));
   /** Acceptance KMZ: doc.kml for Google Earth first, then (withData) the PoleCam records and original photos for the next stage. */
   async function buildAccKmz(M, withData) {
-    const E = S.exp, list = E.kmzBalloonPx > 0 ? accPhotoList(M) : [], files = [], byRec = {};
+    const E = S.exp, list = E.kmzBalloonPx > 0 ? accPhotoList(M, 'kmz') : [], files = [], byRec = {};
     for (let i = 0; i < list.length; i++) {
       busy(`Preparing photos ${i + 1} / ${list.length}`, i / list.length);
       const ph = await dbGet('photos', list[i].pid);
@@ -10521,7 +11093,7 @@
   const effectiveQuality = () => ((S.team ? pol().quality : S.quality) === 'normal' ? 'normal' : 'strict');
   function renderSettingsHome() {
     renderWho(); renderTeamInfo(); cloudSync(false).then(renderCloudInfo);
-    $('camSub').textContent = `${S.readId !== false ? 'ID scan after each photo' : 'No ID scan'}${(S.readIdAcc === true) !== (S.readId !== false) ? ` (${S.readIdAcc === true ? 'on' : 'off'} in PAT / FAT)` : ''} · ${S.idOrient === 'v' ? 'vertical' : 'horizontal'} IDs · sharpness ${QUAL_NAME[effectiveQuality()] || 'Strict'}${S.team ? ' (set by admin)' : ''}`;
+    $('camSub').textContent = `${S.phN || 2} photo${(S.phN || 2) === 1 ? '' : 's'} per pin · ${S.readId !== false ? 'ID scan after each photo' : 'No ID scan'}${(S.readIdAcc === true) !== (S.readId !== false) ? ` (${S.readIdAcc === true ? 'on' : 'off'} in PAT / FAT)` : ''} · ${S.idOrient === 'v' ? 'vertical' : 'horizontal'} IDs · sharpness ${QUAL_NAME[effectiveQuality()] || 'Strict'}${S.team ? ' (set by admin)' : ''}`;
     const packs = Object.values(S.packs || {}).filter((p) => p.done);
     $('mapsSub').textContent = `${streetSource().name}${packs.length ? ` · ${packs.length} offline pack${packs.length === 1 ? '' : 's'}${S.base === 'offline' ? ' (in use)' : ''}` : ' · no offline pack yet'}`;
     const P = pol();
@@ -10615,7 +11187,7 @@
      (whatever screen it opens: camera, record, dialog…); Next › moves on without it; ✕ ends the tour. While a dialog is open
      the tip waits; it never leaves an open record or the camera by itself. */
   const TUT_SCREEN = { map: '', projects: 'projects', newProject: 'newProj', projectDetails: 'projects', records: 'list', export: 'export', settings: 'settings',
-    profile: 'profile', camera: 'setCamera', exports: 'setExports', maps: 'offline', storage: 'setStorage', log: 'logSheet', admin: 'admin', planset: 'planSet' };
+    profile: 'profile', camera: 'setCamera', exports: 'setExports', maps: 'offline', storage: 'setStorage', log: 'logSheet', admin: 'admin', planset: 'planSet', team: 'teamSheet', mbxset: 'mbxSetSheet' };
   const tutTop = () => stack[stack.length - 1] || '';
   const tutOnScreen = (go) => (go === 'map' ? !stack.length : go === 'projectDetails' ? tutTop() === 'projects' && $('curMore').open : tutTop() === TUT_SCREEN[go]);
   const tutModal = () => ['askBox', 'pinBox', 'promptBox', 'qrShow', 'busy', 'qrScan'].some((id) => { const e = $(id); return e && !e.hidden; });
@@ -10629,6 +11201,8 @@
       case 'records': if (tutTop() !== 'list') $('listBtn').click(); break;
       case 'export': if (tutTop() !== 'export') $('exportBtn').click(); break;
       case 'planset': if (tutTop() !== 'planSet') openPlanSet(); break; // v2.42.28
+      case 'team': if (tutTop() !== 'teamSheet') { if (tutTop() !== 'settings') { $('settingsBtn').click(); await tutWait(150); } $('goTeam').click(); } break; // v2.43
+      case 'mbxset': if (tutTop() !== 'mbxSetSheet') { if (tutTop() !== 'settings') { $('settingsBtn').click(); await tutWait(150); } $('goMbx').click(); } break; // beta 3.4
       case 'settings': if (tutTop() !== 'settings') $('settingsBtn').click(); break;
       case 'profile': if (tutTop() !== 'settings') $('settingsBtn').click(); await tutWait(150); openProfile(false); break;
       case 'admin': if (tutTop() !== 'settings') $('settingsBtn').click(); await tutWait(150); $('goAdmin').click(); break;
@@ -10766,9 +11340,35 @@
     $('setMyTypes').value = typeLines(S.myTypes); renderTypeInfo();
   });
   function renderTypeInfo() { $('typeInfo').textContent = poleTypes().map((t) => `${t.n} ${t.p}-`).join(' · '); }
+  /* beta 3.5: Settings → Camera: photos per pin and photos in documents */
+  function renderPhSet() {
+    const n = S.phN || 2;
+    $('setPhN').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === n)));
+    $('setPhIdp').checked = S.phIdp !== false; $('setPhIdp').disabled = n < 2; $('setPhAuto').checked = S.phAuto !== false; $('setPhAuto').disabled = n < 2 || S.phIdp === false;
+    $('setPhBy').value = S.phBy === 'phone' ? 'phone' : 'co';
+    const role = typeof tmRole === 'function' ? tmRole() : '', co = allProjects().filter((x) => { const T = typeof tmTeam === 'function' ? tmTeam(x) : null; return T && T.role === 'fp' && pmeta(x).phSet && !pmeta(x).phSet.free; });
+    $('setPhBy').closest('label').hidden = role !== 'Coordinator'; // (only the coordinator chooses: on his partners' phones his setting is locked for his projects)
+    $('phByInfo').textContent = role === 'Coordinator' ? (S.phBy === 'phone' ? 'Each field partner’s phone uses its own setting, also on the projects you send.' : 'Your setting goes with the projects you send: your field partners’ phones use it for them, locked there.')
+      : co.length ? `${co.length === 1 ? `“${co[0]}” uses` : `${co.length} projects use`} the setting of the coordinator who sent ${co.length === 1 ? 'it' : 'them'} (${phSetOf(co[0]).n} photos per pin). This phone’s setting is for your other projects.` : 'This phone’s setting is used for every project.';
+    $('setPhDocs').innerHTML = PH_DOCS.map(([k, t]) => `<div class="phd"><b>${C.xmlEsc(t)}</b>${k === 'dxf' ? '<span class="lockd">🔒 Main only</span>' : `<span class="seg2" role="group" aria-label="${C.xmlEsc(t)}">${['all', 'main'].map((v) => `<button type="button" data-k="${k}" data-v="${v}" aria-pressed="${(((S.phDocs || {})[k]) || PH_DOC_DEF[k]) === v}">${v === 'all' ? 'All' : 'Main'}</button>`).join('')}</span>`}</div>`).join('');
+  }
+  $('setPhN').addEventListener('click', (e) => { const b = e.target.closest('button[data-v]'); if (!b) return; S.phN = +b.dataset.v; persist(); renderPhSet(); LOG.info('settings.phN', { n: S.phN }); });
+  $('setPhIdp').addEventListener('change', () => { S.phIdp = $('setPhIdp').checked; persist(); renderPhSet(); });
+  $('setPhAuto').addEventListener('change', () => { S.phAuto = $('setPhAuto').checked; persist(); });
+  $('setPhBy').addEventListener('change', () => { S.phBy = $('setPhBy').value; persist(); renderPhSet(); });
+  $('setPhDocs').addEventListener('click', (e) => { const b = e.target.closest('button[data-k]'); if (!b) return; S.phDocs = { ...(S.phDocs || {}), [b.dataset.k]: b.dataset.v }; persist(); renderPhSet(); syncPhDocUi(); });
+  /** Each export card's own All / Main (the same setting as Settings → Camera; a coordinator's, for his projects, shows and is locked). */
+  function syncPhDocUi() {
+    const L = phSetOf(S.project);
+    document.querySelectorAll('select.phdoc').forEach((sl) => { sl.value = phDoc(sl.dataset.k); sl.disabled = L.locked; sl.title = L.locked ? `Set by ${L.by} for this project` : ''; });
+    document.querySelectorAll('select.phdoc option[value="all"]').forEach((x) => { const sl = x.closest('select'), k = sl.dataset.k, stage = k === 'defpdf' || !!sl.closest('#accExports'); if (k === 'ai') return;
+      x.textContent = k === 'zip' ? `All (the main one ID.jpg, the others ID_2.jpg… up to ${phN()} a pin)` : stage ? `All photos of each stage (up to ${phN()})` : `All photos of the pin (up to ${phN()})`; });
+  }
+  document.addEventListener('change', (e) => { const sl = e.target; if (!(sl instanceof HTMLSelectElement) || !sl.classList.contains('phdoc')) return; S.phDocs = { ...(S.phDocs || {}), [sl.dataset.k]: sl.value }; persist(); syncPhDocUi(); });
   $('goCamera').addEventListener('click', () => {
+    renderPhSet(); // beta 3.5
     $('setMyTypes').value = typeLines(S.myTypes); renderTypeInfo();
-    $('setReadId').checked = S.readId !== false; $('setReadIdAcc').checked = S.readIdAcc === true; $('setSaveCheck').checked = S.saveCheck !== false; $('setIdAuto').checked = S.idAuto !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h'; $('setHand').value = handOf();
+    $('setReadId').checked = S.readId !== false; $('setReadIdAcc').checked = S.readIdAcc === true; $('setSaveCheck').checked = S.saveCheck !== false; $('setDupM').value = String(dupM()); $('setIdAuto').checked = S.idAuto !== false; $('setOrient').value = S.idOrient === 'v' ? 'v' : 'h'; $('setHand').value = handOf();
     $('setQuality').value = effectiveQuality(); $('setQuality').disabled = !!S.team;
     $('qualityNote').textContent = S.team ? `Set by the admin in the company list “${S.team.name}” — the same on every phone.` : 'Until this phone takes a company list, you can choose this yourself.';
     openSheet('setCamera');
@@ -10776,6 +11376,7 @@
   $('setReadId').addEventListener('change', () => { S.readId = $('setReadId').checked; persist(); });
   $('setReadIdAcc').addEventListener('change', () => { S.readIdAcc = $('setReadIdAcc').checked; persist(); });
   $('setSaveCheck').addEventListener('change', () => { S.saveCheck = $('setSaveCheck').checked; persist(); }); // v2.42.17
+  $('setDupM').addEventListener('change', () => { const v = $('setDupM').value.trim(); S.dupM = v === '' ? 10 : Math.max(0, Math.min(50, Math.round(+v) || 0)); $('setDupM').value = String(dupM()); persist(); }); // beta 3.3 (QA-06)
   $('setIdAuto').addEventListener('change', () => { S.idAuto = $('setIdAuto').checked; persist(); });
   $('setHand').addEventListener('change', () => { S.hand = $('setHand').value; persist(); applyHand(); toast(`Camera button on the ${handOf()}`, 2000); });
   $('setOrient').addEventListener('change', () => { S.idOrient = $('setOrient').value === 'v' ? 'v' : 'h'; persist(); });
@@ -10963,10 +11564,11 @@
   /** Invite link for a company: its key, masked (and, when the app is not tied to the sheet, the list too). */
   async function inviteLinkFor(key) {
     const base = webBase(); if (!base || !S.team || normKey(key).length < 8) return '';
-    if (ORG && ORG.src && ORG.id === S.team.id) return `${base}#ci=${hideKey(key)}`;
+    const b = BETA ? '&b=1' : ''; // v2.43: made in G-eSAA Beta: the link opens G-eSAA Beta
+    if (ORG && ORG.src && ORG.id === S.team.id) return `${base}#ci=${hideKey(key)}${b}`;
     const short = await shortJoin(); // v2.26: where the online sheet holds this list version, a short link and a small QR code
-    if (short) return `${short}&ci=${hideKey(key)}`;
-    return `${base}#join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}&ci=${hideKey(key)}`;
+    if (short) return `${short}&ci=${hideKey(key)}${b}`;
+    return `${base}#join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}&ci=${hideKey(key)}${b}`;
   }
   /** Invite link for coworkers: this phone's company key. */
   const inviteLink = async () => { // v2.28: without company keys, the join link names the company
@@ -10976,7 +11578,7 @@
   /** v2.28: a join link that names the company (short where the online sheet holds the list). */
   async function joinLinkFor(co) {
     const base = webBase(); if (!base || !S.team) return '';
-    const tail = co ? `&co=${encodeURIComponent(co)}` : '', short = await shortJoin();
+    const tail = (co ? `&co=${encodeURIComponent(co)}` : '') + (BETA ? '&b=1' : ''), short = await shortJoin(); // v2.43: &b=1 opens G-eSAA Beta
     if (short) return short + tail;
     return `${base}#join=${await packShare('PCT', { b: S.team.b, s: S.team.s, k: S.team.k })}${tail}`;
   }
@@ -11512,6 +12114,7 @@
   /* ---- small dialog ---- */
   var askEsc = null; // v2.42.27
   function ask(title, text, buttons) {
+    try { if (qrMaking) qrEnd(); } catch (e) { /* (before that part of the app has run) */ } // v2.43 beta 2.1: a QR screen opened at the tap gives way to the question (no code was made)
     const btns = buttons || [{ label: 'Cancel', value: false }, { label: 'OK', value: true, primary: true }];
     $('askTitle').textContent = title; $('askText').textContent = text || '';
     const row = $('askBox').querySelector('.row'); row.innerHTML = '';
@@ -11870,13 +12473,28 @@
   }
   let lastQrText = ''; // the text of the QR code on screen (read by the tests)
   async function showQr(title, note, text) {
+    const making = qrMaking && !$('qrShow').hidden; qrMaking = false; // v2.43 beta 2.1: the screen opened at the tap, while the code was made
     lastQrText = text;
     $('qrTitle').textContent = title; $('qrText').textContent = note || '';
     $('qrLinkBtn').hidden = !(qrLink && (text === qrLink || (qrAlt && text === qrAlt.short))); $('qrLinkBtn').textContent = /[#&](c[ki]|co|cos|iv|i)=/.test(text) ? 'Send the invite link' : 'Send the join link';
     $('qrFull').hidden = true; $('qrFull').textContent = 'Show the full code (joins without internet)'; // v2.41: not shown (the short code and the link are enough)
     drawQr(text);
+    $('qrImg').classList.remove('drawin'); void $('qrImg').offsetWidth; $('qrImg').classList.add('drawin'); // the code draws in
+    $('qrState').hidden = false; $('qrState').className = 'qrstate ok'; $('qrState').textContent = `Ready: scan it with the other phone${$('qrLinkBtn').hidden ? '' : ', or send the link'}.`;
+    if (!making) openSheet('qrShow');
+  }
+  let qrMaking = false;
+  /** v2.43 beta 2.1: the QR screen opens at the tap with what it waits for (the online sheet), before the code is ready. */
+  function qrBegin(title) {
+    if (!$('qrShow').hidden) return;
+    qrMaking = true; $('qrTitle').textContent = title; $('qrText').textContent = '';
+    $('qrImg').classList.remove('drawin'); $('qrImg').innerHTML = '<div class="qrmaking"><span class="mbxspin"></span><span>Making the QR code…</span></div>';
+    $('qrLinkBtn').hidden = true; $('qrFull').hidden = true;
+    $('qrState').hidden = false; $('qrState').className = 'qrstate'; $('qrState').textContent = navigator.onLine === false ? 'Making the code on this phone…' : 'Asking the online sheet for a code…';
     openSheet('qrShow');
   }
+  /** After the button's work: a QR screen opened for nothing (an error, a question instead) closes again. */
+  function qrEnd() { if (qrMaking) { qrMaking = false; if (stack[stack.length - 1] === 'qrShow') closeSheet(); } }
   $('qrFull').addEventListener('click', () => {
     if (!qrAlt) return;
     const full = $('qrFull').textContent.startsWith('Show the full');
@@ -12175,7 +12793,8 @@
     const cseLeads = Array.isArray(j.cseLeads) ? j.cseLeads.filter((x) => x && typeof x === 'object').map((x) => ({ t: s100(x.t, 60), n: s100(x.n, 80) })).filter((x) => x.t && x.n).slice(0, 200) : null; // v2.42.12: the CSE LEAD tab
     return { name: s100(j.name), companies, admins, tasks: tasks.slice(0, 500), packs, ...(cseLeads ? { cseLeads } : {}), scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you),
       ...(j.kmzPass ? { kmzPass: s100(j.kmzPass, 100) } : {}), ...(adminUsers ? { adminUsers } : {}), ...(/^[A-Za-z0-9_-]{20,80}$/.test(String(j.dxfSeed || '')) ? { dxfSeed: String(j.dxfSeed) } : {}), // v2.32: the plan template's id
-      ...(typeof j.siteRequired === 'boolean' ? { siteRequired: j.siteRequired } : {}) }; // v2.42.18: the sheet's Settings → Site required
+      ...(typeof j.siteRequired === 'boolean' ? { siteRequired: j.siteRequired } : {}), // v2.42.18: the sheet's Settings → Site required
+      ...(typeof j.teamOn === 'boolean' ? { teamOn: j.teamOn } : {}) }; // v2.43 beta 3.2 (QA-17): Team for this company (sheet → CompanyKeys → Team)
   }
   let cloudBusy = null, cloudErr = '';
   /** v2.42.18: "a new Survey or PAT must use a site of the online sheet": the sheet's Settings → Site required (Yes / No), which every
@@ -12184,7 +12803,7 @@
   const siteReq = () => { const v = sheetSiteReq(); return v != null ? v : !!pol().siteRequired; };
   /** When the phone talks to the online sheet (v2.15): on every change (default), every hour, or only when Sync is tapped. */
   const syncMode = () => (['change', 'hour', 'manual'].includes(S.syncMode) ? S.syncMode : 'change');
-  async function cloudRequest(src, init, q) {
+  async function cloudRequest(src, init, q, ms) { // (v2.43 beta 2: ms, a longer wait for the mailbox's 2 MB pieces)
     const u = new URL(src.url);
     if (q && q.probe) { u.searchParams.set('probe', '1'); u.searchParams.set('v', APP_VER); } // only asks whether the sheet uses company keys
     else if (q && (q.inv || q.mvc)) { u.searchParams.set(q.inv ? 'inv' : 'mvc', q.inv || q.mvc); u.searchParams.set('v', APP_VER); } // v2.42.6: a short invite or move link (its code only)
@@ -12205,12 +12824,12 @@
       if (myTerrs().length) u.searchParams.set('terr', myTerrs().join(','));
     }
     try {
-      const r = await withTimeout(fetch(u.href, { cache: 'no-store', redirect: 'follow', ...(init || {}) }), 25000, 'The online sheet did not answer');
+      const r = await withTimeout(fetch(u.href, { cache: 'no-store', redirect: 'follow', ...(init || {}) }), ms || 25000, 'The online sheet did not answer');
       return await r.json();
     } catch (e) {
       if (!NATIVE) throw e; // the APK can also ask through Android's own HTTP stack
       const r = await withTimeout(nativeCall('CapacitorHttp', 'request', { url: u.href, method: init ? 'POST' : 'GET', responseType: 'json',
-        headers: { 'User-Agent': APP_UA(), ...(init ? { 'Content-Type': 'text/plain;charset=utf-8' } : {}) }, ...(init ? { data: init.body } : {}) }), 25000, 'The online sheet did not answer');
+        headers: { 'User-Agent': APP_UA(), ...(init ? { 'Content-Type': 'text/plain;charset=utf-8' } : {}) }, ...(init ? { data: init.body } : {}) }), ms || 25000, 'The online sheet did not answer');
       return typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
     }
   }
@@ -12228,7 +12847,9 @@
         const j = await cloudRequest(src);
         if (j && j.error === 'company key') strictAt = sheetUrl(); // v2.42.4: the sheet uses company keys (the message below no longer says “company key”)
         if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : j && j.error === 'company key' ? (keyMode() ? 'your company key no longer works: ask your admin for a new invite (Settings → Reset user, then open the invite)' : 'join with your company invite (QR code or link from your admin or a coworker)') : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
+        const teamWas = tmHooks.on ? tmHooks.on() : false;
         S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j, { area: true }) }; cloudErr = ''; persist();
+        if (tmHooks.switched && (tmHooks.on ? tmHooks.on() : false) !== teamWas) { try { tmHooks.switched(); } catch (e) { LOG.warn('team.switch', errInfo(e)); } } // v2.43 beta 3.2 (QA-17)
         if (S.adminMe && S.adminMe.src === src.url && j.adminMe && typeof j.adminMe === 'object') { // v2.42.18: the verified admin user's row (its jobs), or its row deleted
           if (j.adminMe.gone || j.adminMe.bad) { if (!S.adminMe.gone) LOG.info('admin.email.gone', { bad: !!j.adminMe.bad }); S.adminMe = { ...S.adminMe, gone: true }; }
           else if (String(j.adminMe.e || '').trim().toLowerCase() === S.adminMe.e) S.adminMe = { ...S.adminMe, ...adminRow(j.adminMe), at: new Date().toISOString() };
@@ -12373,6 +12994,7 @@
   function npSync() {
     const cat = $('npCat'), pur = $('npPurpose'), allowed = ROLE_PURPOSES[siteRole(npSite)];
     [...cat.options].forEach((o) => { if (o.value) o.disabled = !CAT_PURPOSES[o.value].some((p) => allowed.includes(p)); });
+    if (tmHooks.npCats) tmHooks.npCats(cat); // v2.43 beta 2: a field partner in a team gets his surveys from his coordinator
     if (cat.value && cat.selectedOptions[0] && cat.selectedOptions[0].disabled) cat.value = '';
     const list = cat.value ? CAT_PURPOSES[cat.value].filter((p) => allowed.includes(p)) : [], keep = pur.value;
     pur.innerHTML = !list.length ? '<option value="">Choose the task category first</option>' : list.length > 1 ? '<option value="" disabled>Choose…</option>' : '';
@@ -12461,6 +13083,7 @@
     $('npCat').value = ''; // the user chooses the task category
     $('npRep').value = (S.user && S.user.name) || ''; $('npDate').value = todayIso(); $('npStart').value = todayIso(); renderNpTypes(allInspTypes());
     $('npSites').hidden = true; npSync(); renderSites();
+    if (tmHooks.npReset) tmHooks.npReset(); // v2.43 beta 2: Assign to
   }
   function openNewProject() { npReset(); openSheet('newProj'); cloudSync(false).then(() => { if (!$('newProj').hidden) renderSites(); }); }
   $('newProjBtn').addEventListener('click', openNewProject);
@@ -12501,6 +13124,7 @@
   $('npCreate').addEventListener('click', () => guard(async () => {
     const k = $('npCat').value, purpose = $('npPurpose').value, name = $('npName').value.trim().slice(0, 100), notes = $('npNotes').value.trim(), f = npFile;
     const fromFile = npStageCat() && !!f, acc = k !== 'survey';
+    if (tmHooks.npCheck && !tmHooks.npCheck(k)) return; // v2.43 beta 2
     npTried = true; const miss = npMark();
     if (miss.length) { $(miss[0][1]).focus(); return; }
     if (!purpose || !ROLE_PURPOSES[siteRole(npSite)].includes(purpose)) { toast('That is not your part of this site'); return; }
@@ -12525,6 +13149,7 @@
     const label = `${PURPOSE_LABEL[k === 'survey' ? purpose : k]} “${name}” created`;
     if (f) { try { await loadRefFile(f); } catch (e) { busy(false); LOG.warn('ref.fail', errInfo(e)); toast(`${label}. The KMZ could not be read: ${e.message || e}`, 7000); } }
     else { fitProject(); toast(label, 3000); }
+    if (k === 'survey' && tmHooks.created) await tmHooks.created(name); // v2.43 beta 2: Assign to → sent to the field partners
   }, 'Project not created'));
 
   /* ---- v2.19: opening a shared file: Projects → Open shared projects, Android "Open with G-eSAA" / Share to G-eSAA, or Share to the
@@ -12625,7 +13250,7 @@
     if (!/[?&]shared=1/.test(location.search) || !('caches' in window)) return;
     history.replaceState(null, '', location.pathname + location.hash);
     try {
-      const c = await caches.open('polecam-share'), r = await c.match('shared-file'); if (!r) { toast('The shared file did not arrive. Open it from Projects → Open shared projects.', 6000); return; }
+      const c = await caches.open(`${STORE}-share`), r = await c.match('shared-file'); if (!r) { toast('The shared file did not arrive. Open it from Projects → Open shared projects.', 6000); return; }
       await c.delete('shared-file');
       const b = await r.blob(), nm = decodeURIComponent(r.headers.get('x-name') || 'shared.kmz');
       openSharedFile(new File([b], nm, { type: b.type || '' }));
@@ -12653,7 +13278,8 @@
     if (pick !== 'app') { S.linkWeb = true; persist(); return false; }
     const back = `${location.origin}${location.pathname}?web=1${h.startsWith('#') ? h : `#${h.slice(1)}`}`;
     LOG.info('link.toApp', { kind: pendingKey || /^i/.test(pendingShort || '') ? 'invite' : pendingMv || /^m/.test(pendingShort || '') ? 'move' : 'join' });
-    location.href = `intent://open?h=${encodeURIComponent(h)}#Intent;scheme=gesaa;package=com.marktamse.polecam;S.browser_fallback_url=${encodeURIComponent(back)};end`;
+    const beta = BETA || /[#&]b=1(?=[&#]|$)/.test(H0); // v2.43: a link made in G-eSAA Beta (…&b=1) opens G-eSAA Beta
+    location.href = `intent://open?h=${encodeURIComponent(h)}#Intent;scheme=${beta ? 'gesaa-beta' : 'gesaa'};package=com.marktamse.polecam${beta ? '.beta' : ''};S.browser_fallback_url=${encodeURIComponent(back)};end`;
     return true;
   }
   /** The APK opened by a G-eSAA link (gesaa://open?h=…): the invite, join or move code inside it. */
@@ -13348,6 +13974,7 @@
       row.append(d, ...btns); list.appendChild(row);
     }
     try { const n = await dbCount('tiles'); $('offTotal').textContent = `${n.toLocaleString()} viewed street-map tiles kept on this phone.`; } catch (e) { /* ignore */ }
+    try { renderDxfNeed(); } catch (e) { /* not shown */ } // v2.43 beta 2.1: a pack just downloaded
   }
   /** v2.35.4: the packs on this phone that were saved before this check are checked once; an incomplete one says so. */
   async function checkPacks() {
@@ -13794,7 +14421,7 @@
     persist(); $('packLink').value = ''; $('packLinkName').value = ''; renderOffline();
     toast(NATIVE || webDriveKey() ? 'Link added. Tap Download.' : 'Link added. Tap Open in Drive, download the file, then Import a pack file.', 4000);
   });
-  $('offlineBtn').addEventListener('click', async () => { openSheet('offline'); renderOffline(); await Promise.all([loadPackIndex(), cloudSync(false)]); renderOffline(); });
+  $('offlineBtn').addEventListener('click', async () => { openSheet('offline'); $('offGuide').hidden = true; renderOffline(); await Promise.all([loadPackIndex(), cloudSync(false)]); renderOffline(); });
   $('packRefresh').addEventListener('click', async () => { $('packSource').textContent = 'Checking for map packs…'; await Promise.all([loadPackIndex(), cloudSync(true)]); renderOffline(); });
   $('clearTiles').addEventListener('click', () => {
     const b = $('clearTiles');
@@ -13807,7 +14434,7 @@
   const logTime = (t) => { const d = new Date(t); return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`; };
   const logLine = (x) => `${logTime(x.t)} ${{ i: 'I', w: 'W', e: 'E' }[x.l] || '?'} ${x.e}${x.d !== undefined ? ' ' + (typeof x.d === 'string' ? x.d : JSON.stringify(x.d)) : ''}`;
   async function logReport() {
-    const info = { app: `G-eSAA ${APP_VER}`, apk: NATIVE, ua: navigator.userAgent, memoryGB: navigator.deviceMemory, cores: navigator.hardwareConcurrency,
+    const info = { app: `${APP_NAME} ${VER_LABEL}`, apk: NATIVE, ua: navigator.userAgent, memoryGB: navigator.deviceMemory, cores: navigator.hardwareConcurrency,
       screen: `${screen.width}×${screen.height} @${devicePixelRatio}`, opfs: OPFS_OK, base: S.base, streetServer: streetSource().name, records: points.length, projects: allProjects().length,
       photoCheck: effectiveQuality(), heapMB: memMB(), list: S.team ? `v${S.team.rev}` : 'none' };
     try { const e = await withTimeout(navigator.storage.estimate(), 3000, 'slow'); info.storageUsedMB = Math.round((e.usage || 0) / 1048576); info.storageQuotaMB = Math.round((e.quota || 0) / 1048576); } catch (e) { /* ignore */ }
@@ -13878,6 +14505,7 @@
   $('captureBtn').addEventListener('click', () => {
     if (!S.project) { toast('Create a project first: photos are taken inside a project', 4500); askNewProject(); return; }
     if (patClosed()) { toast('This PAT is complete and locked: nothing can be added. Fix its items in the defect cleanup or the FAT (Projects).', 6000); return; }
+    { const lk = tmHooks.locked ? tmHooks.locked(null, 'capture') : ''; if (lk) { toast(lk, 6500); return; } } // v2.43 beta 2: a task the coordinator accepted (beta 3.4: fixes after Accept at a spot)
     if (visitStage() === 'Cleanup') { // the cleanup works on the PAT pins only: photos are taken from a pin's card
       const t = nextTarget();
       toast(t ? 'Open the pin, then tap “📷 Photo of the fix” on the item' : 'All items are fixed. Share the cleanup KMZ from Projects.', 4500);
@@ -13885,7 +14513,2122 @@
     }
     openCamera('new');
   });
+  /* ================= v2.43: Team (Coordinator / Field Partner) and the company mailbox =================
+     The online sheet (sheet script v2.43) keeps each person's role, who is in whose team, and the company's mailbox address and
+     key. The mailbox itself is a small script in the contractor's own Google Drive (mailbox/README.txt): files are sent straight
+     to Google with an upload address the script opens, and read back through the script. This beta sets up the teams and the
+     mailbox and checks it end to end; beta 2 (below) sends projects through it. */
+  const TM_ST = { asked: 'Asked', in: 'In the team', declined: 'Declined', left: 'Left', removed: 'Removed' };
+  const MBX_ACT = 'action'; // the field the mailbox script reads the action from
+  const tmEmail = () => String((S.user && S.user.email) || '').trim().toLowerCase();
+  /** v2.43 beta 3.2 (QA-17): Team is on only when the online sheet says so for this company (CompanyKeys → Team: Yes; sheet script
+      v2.43.1), as of the last sync with this sheet. Off: Team's parts hide; nothing on the phone is deleted. G-eSAA and G-eSAA Beta alike. */
+  const tmSwitch = () => !!(S.cloud && S.cloud.src === sheetUrl() && S.cloud.teamOn === true);
+  const tmOn = () => !!(keyMode() && sheetUrl() && tmSwitch()); // a team needs the company key (who is in which company), the online sheet, and Team on
+  const tmVerified = () => !!(S.teamMe && S.teamMe.tok && S.teamMe.e === tmEmail() && S.teamMe.src === sheetUrl());
+  const tmSnap = () => (S.teamSnap && S.teamSnap.src === sheetUrl() && S.teamSnap.e === tmEmail() ? S.teamSnap : null);
+  const tmRole = () => { const t = tmSnap(); return (t && t.me && t.me.role) || 'On my own'; };
+  const tmEsc = (x) => C.xmlEsc(String(x == null ? '' : x));
+  const tmWhen = (iso) => { const d = new Date(iso); return Number.isFinite(d.getTime()) ? d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''; };
+  let tmCodeSent = false;
+  const TM_WHY = { off: 'Team is not switched on for your company in the online sheet (ask your admin)',
+    codes: 'your company has used today’s email codes for teams: try again tomorrow, or ask your admin', mailday: 'today’s emails of the online sheet are kept for the admin codes: try again tomorrow',
+    self: 'that is you', link: 'that person is not asking (or is not in your company)', key: 'the online sheet did not accept this: it needs the v2.43 sheet script (in G-eSAA Beta, set the beta address in Settings)', tok: 'confirm your email again (Settings → Team)', role: 'only a coordinator can do this', action: 'the online sheet has an older script (it needs v2.43)', email: 'that email is not valid', wait: 'too many codes: wait 10 minutes, then send a new one', mail: 'the online sheet could not send email today', expired: 'the code expired: send a new one', code: 'wrong code', coordinator: 'that person is not a coordinator of your company', url: 'that is not a mailbox web app address', member: 'that person is not in your team', link: 'that request is no longer open (ask to join again)', self: 'you cannot join your own team', busy: 'the online sheet is busy: try again', server: 'the online sheet had a problem: try again', mailbox: 'set up the mailbox first', 'team key': 'the mailbox key was not accepted' };
+  async function tmPost(action, body) {
+    if (!sheetUrl()) throw new Error('no online sheet: join your company first');
+    const j = await cloudRequest({ url: sheetUrl() }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action, ckey: S.companyKey || '', email: tmEmail(), tok: tmVerified() ? S.teamMe.tok : '', tv: 2, ...(body || {}) }) }); // (beta 3.3: tv 2: coordinator approval)
+    if (!j || !j.ok) {
+      const code = j && j.error;
+      if (code === 'tok') { S.teamMe = null; persist(); }
+      if (code === 'off' && S.cloud && S.cloud.src === sheetUrl() && S.cloud.teamOn !== false) { S.cloud = { ...S.cloud, teamOn: false }; persist(); setTimeout(() => { try { tmSwitched(); } catch (x) { /* shown at the next render */ } }, 0); } // v2.43 beta 3.2 (QA-17)
+      const e = new Error(TM_WHY[code] || code || 'no answer from the online sheet'); e.code = code; e.left = j && j.left; throw e;
+    }
+    return j;
+  }
+  /** The team as the online sheet has it for this phone, and the company's mailbox when this phone may use it. */
+  async function tmLoad() {
+    if (!tmOn() || navigator.onLine === false) return null;
+    const j = await tmPost('team', {});
+    S.teamSnap = { me: j.me || null, coordinators: j.coordinators || [], myTeams: j.myTeams || [], members: j.members || [], asking: j.asking || [], mailboxSet: !!j.mailboxSet, scriptLink: j.scriptLink || '', src: sheetUrl(), e: tmEmail(), at: new Date().toISOString() };
+    if (j.verified === false && S.teamMe) S.teamMe = null; // the sheet no longer knows this phone's confirmation
+    const m = j.mailbox;
+    if (m && m.url && m.key) S.mbx = { url: m.url, key: m.key, account: m.account || '', setBy: m.setBy || '', checked: (S.mbx && S.mbx.url === m.url && S.mbx.checked) || m.checked || '', src: sheetUrl() };
+    else if (S.mbx && S.mbx.src === sheetUrl()) S.mbx = null; // out of the team, or the mailbox was removed: no address or key kept
+    persist(); LOG.info('team.load', { role: (j.me && j.me.role) || '', mbx: !!S.mbx, verified: !!j.verified });
+    return S.teamSnap;
+  }
+  function renderTeamRow() { // Settings → Team (and beta 3.4: Settings → Field work → Team Mailbox)
+    $('goTeam').hidden = !tmOn(); $('goMbx').hidden = !tmOn();
+    if (!tmOn()) return;
+    $('mbxRowSub').textContent = mbxStateLine();
+    const t = tmSnap(), role = tmRole();
+    let sub = 'Coordinator or field partner, and your teams';
+    if (t && t.me) {
+      if (role === 'Coordinator') {
+        const n = (t.members || []).filter((m) => m.status === 'in').length, ask = (t.members || []).filter((m) => m.status === 'asked').length;
+        sub = `Coordinator · ${n} field partner${n === 1 ? '' : 's'}${ask ? ` · ${ask} asking to join` : ''} · ${S.mbx ? 'mailbox ready' : 'no mailbox yet'}`;
+      } else if (role === 'Field Partner') {
+        const ins = (t.myTeams || []).filter((x) => x.status === 'in');
+        sub = `Field Partner · ${ins.length ? ins.map((x) => `${x.name || x.coordinator}’s team`).join(', ') : 'not in a team yet'}`;
+      } else sub = 'Work on my own';
+    }
+    $('teamSub').textContent = sub;
+  }
+  function renderTeam() {
+    renderTeamRow();
+    const t = tmSnap(), em = tmEmail(), ver = tmVerified(), role = tmRole();
+    $('tmMailState').textContent = !em ? 'No email in Your details yet' : ver ? `Confirmed: ${em}` : em;
+    $('tmCodeRow').hidden = ver || !em; $('tmVerifyRow').hidden = ver || !em || !tmCodeSent;
+    $('tmSend').textContent = tmCodeSent ? 'Send a new code' : 'Send me a code';
+    $('tmMailInfo').textContent = ver ? 'Projects for you are sent to this email.' : !em ? 'Add your email in Your details first (Settings → your name).' : tmCodeSent ? `Type the 6-digit code emailed to ${em}. It works for 10 minutes.` : 'Projects are sent to this email, so it is confirmed once with a code.';
+    const ask = (t && t.me && t.me.ask) || ''; // beta 3.3 (QA-08): Coordinator asked for (waiting for approval) or declined
+    $('tmRole').querySelectorAll('.chip').forEach((b) => { b.setAttribute('aria-pressed', String(!!t && !!t.me && b.dataset.v === (ask ? 'Coordinator' : role))); b.classList.toggle('wait', !!ask && b.dataset.v === 'Coordinator'); b.disabled = !ver; });
+    $('tmRoleInfo').textContent = !ver ? 'Confirm your email first.' : ask === 'asked' ? 'Coordinator: asked for. Your admin, or an approved coordinator of your company, approves it. Until then you work on your own: no team and no mailbox.'
+      : ask === 'declined' ? 'Your request to be a coordinator was declined. Ask your admin, or pick another role.' : role === 'Coordinator' ? 'You make projects and send them to your field partners, and accept their surveys.' : role === 'Field Partner' ? 'You get projects from your coordinators and send your surveys back to them.' : 'You make and share your own projects, as before.';
+    $('tmFp').hidden = !(ver && role === 'Field Partner');
+    if (!$('tmFp').hidden) {
+      const mine = {}; ((t && t.myTeams) || []).forEach((x) => { mine[x.coordinator] = x.status; });
+      const list = ((t && t.coordinators) || []).filter((c) => c.email !== em);
+      $('tmCoList').innerHTML = list.length ? list.map((c) => { const st = mine[c.email] || ''; return `<div class="tmrow"><span class="t"><b>${tmEsc(c.name || c.email)}</b><small>${tmEsc([c.regions, c.email].filter(Boolean).join(' · '))}</small></span><span class="b">${st ? `<span class="tmst">${TM_ST[st] || tmEsc(st)}</span>` : ''}${st === 'in' || st === 'asked' ? `<button class="btn sm" type="button" data-leave="${tmEsc(c.email)}">${st === 'asked' ? 'Cancel' : 'Leave'}</button>` : `<button class="btn sm primary" type="button" data-join="${tmEsc(c.email)}">Ask to join</button>`}</span></div>`; }).join('') : '<p class="hint" style="padding:8px 10px">No coordinator in your company yet.</p>';
+    }
+    $('tmCo').hidden = !(ver && role === 'Coordinator');
+    { const A = (ver && role === 'Coordinator' && t && t.asking) || []; $('tmAskBox').hidden = !A.length; // beta 3.3 (QA-08): who asks to be a coordinator
+      $('tmAskList').innerHTML = A.map((m) => `<div class="tmrow"><span class="t"><b>${tmEsc(m.name || m.email)}</b><small>${tmEsc([m.regions, m.email].filter(Boolean).join(' · '))}</small></span><span class="b"><button class="btn sm primary" type="button" data-appr="${tmEsc(m.email)}">Approve</button><button class="btn sm" type="button" data-decl="${tmEsc(m.email)}">Decline</button></span></div>`).join(''); }
+    if (!$('tmCo').hidden) {
+      const ms = ((t && t.members) || []).filter((m) => m.status === 'asked' || m.status === 'in');
+      $('tmMemList').innerHTML = ms.length ? ms.map((m) => `<div class="tmrow"><span class="t"><b>${tmEsc(m.name || m.email)}</b><small>${tmEsc([m.regions, m.email].filter(Boolean).join(' · '))}</small></span><span class="b">${m.status === 'asked' ? `<button class="btn sm" type="button" data-decline="${tmEsc(m.email)}">Decline</button><button class="btn sm primary" type="button" data-accept="${tmEsc(m.email)}">Accept</button>` : `<span class="tmst">In your team</span><button class="btn sm" type="button" data-remove="${tmEsc(m.email)}">Remove</button>`}</span></div>`).join('') : '<p class="hint" style="padding:8px 10px">No field partner yet. They ask to join from their phones (Settings → Team → Field Partner).</p>';
+    }
+    renderMbxSet();
+    $('tmErr').hidden = true;
+  }
+  /** beta 3.4: the company mailbox has its own page (Settings → Field work → Team Mailbox); Team keeps a line pointing there. */
+  function mbxStateLine() {
+    const t = tmSnap(), setBy = S.mbx && S.mbx.setBy ? ((((t && t.coordinators) || []).find((c) => c.email === String(S.mbx.setBy).toLowerCase()) || {}).name || S.mbx.setBy) : ''; // the sheet keeps the email
+    return S.mbx ? `Ready${setBy ? ` · set up by ${setBy}` : ''}` : t && t.mailboxSet ? 'Set up for your company' : 'Not set up yet';
+  }
+  function renderMbxSet() {
+    const t = tmSnap(), ver = tmVerified(), co = ver && tmRole() === 'Coordinator';
+    $('tmMbxPtrState').textContent = `${mbxStateLine()}.`;
+    $('tmMbxState').textContent = mbxStateLine();
+    $('tmMbxInfo').textContent = S.mbx ? `${S.mbx.checked ? `Last checked ${tmWhen(S.mbx.checked)}. ` : ''}Sending goes straight to Google; downloads come through the mailbox.`
+      : co ? 'One coordinator sets it up once for the whole company, on a computer (about 10 minutes).'
+        : t && t.mailboxSet ? 'Your phone gets it once a coordinator accepts you into a team.' : 'A coordinator of your company sets it up once. Nothing to do on your phone.';
+    $('tmMbxSetup').hidden = !co; $('tmMbxSetup').textContent = S.mbx ? 'Set up again' : 'Set up the mailbox';
+    $('tmMbxCheck').hidden = !(S.mbx && ver); $('tmMbxRekey').hidden = !(S.mbx && co);
+    $('mbxSetErr').hidden = true;
+    if (tmOn()) $('mbxRowSub').textContent = mbxStateLine();
+  }
+  function tmFail(e) { const el = $('mbxSetSheet').hidden ? $('tmErr') : $('mbxSetErr'); el.textContent = `Not done: ${e.message || e}.`; el.hidden = false; LOG.warn('team.fail', { code: e.code || '', msg: String(e.message || e).slice(0, 120) }); }
+  async function tmDo(label, fn) {
+    if (navigator.onLine === false) { toast('No internet: try again with signal.'); return; }
+    busy(label);
+    try { await fn(); await tmLoad(); renderTeam(); } catch (e) { tmFail(e); } finally { busy(false); }
+  }
+  $('goTeam').addEventListener('click', () => {
+    openSheet('teamSheet'); renderTeam();
+    if (navigator.onLine !== false) tmLoad().then(renderTeam, (e) => { tmFail(e); });
+  });
+  const openMbxSet = () => { // beta 3.4: Settings → Field work → Team Mailbox
+    openSheet('mbxSetSheet'); renderTeam();
+    if (navigator.onLine !== false && tmOn()) tmLoad().then(renderTeam, (e) => { tmFail(e); });
+  };
+  $('goMbx').addEventListener('click', openMbxSet);
+  $('tmGoMbx').addEventListener('click', openMbxSet);
+  $('mbxSetRefresh').addEventListener('click', () => tmDo('Reading the mailbox…', async () => {}));
+  $('settingsBtn').addEventListener('click', () => {
+    renderTeamRow();
+    const t = tmSnap();
+    if (tmOn() && navigator.onLine !== false && (!t || Date.now() - Date.parse(t.at) > 10 * 60000)) tmLoad().then(renderTeamRow, () => {});
+  });
+  $('tmRefresh').addEventListener('click', () => tmDo('Reading your team…', async () => {}));
+  $('tmSend').addEventListener('click', () => tmDo('Sending the code…', async () => {
+    const j = await tmPost('teamCode', {});
+    tmCodeSent = true; toast(j.sent === false ? 'The sheet did not send a code: check your email in Your details.' : `Code sent to ${tmEmail()}. Check your email (and spam).`, 5000);
+  }));
+  $('tmVerify').addEventListener('click', () => tmDo('Checking the code…', async () => {
+    const code = /** @type {HTMLInputElement} */ ($('tmCode')).value.replace(/\D/g, '');
+    if (code.length !== 6) throw new Error('type the 6 digits from the email');
+    try { const j = await tmPost('teamVerify', { code }); S.teamMe = { e: tmEmail(), tok: j.tok, src: sheetUrl(), at: new Date().toISOString() }; tmCodeSent = false; persist(); toast('Email confirmed.'); }
+    catch (e) { if (e.code === 'code' && e.left != null) e.message = `wrong code (${e.left} tr${e.left === 1 ? 'y' : 'ies'} left)`; throw e; }
+    finally { /** @type {HTMLInputElement} */ ($('tmCode')).value = ''; }
+  }));
+  $('tmRole').addEventListener('click', (ev) => {
+    const b = ev.target.closest('.chip'); if (!b || b.disabled) return;
+    const want = b.dataset.v, t = tmSnap();
+    if (t && t.me && (t.me.ask ? 'Coordinator' : t.me.role) === want) return; // (beta 3.3: a coordinator asked for may go back to another role)
+    guard(async () => {
+      if (t && t.me && t.me.role === 'Coordinator' && (t.members || []).some((m) => m.status === 'in')
+        && !(await ask('Stop being a coordinator?', 'Your field partners stay listed in your team, but you no longer send or accept their work. Another coordinator of your company can take it over.', [{ label: 'Cancel', value: false }, { label: 'Change my role', value: true, primary: true }]))) return;
+      await tmDo('Saving your role…', () => tmPost('teamRole', { name: (S.user && S.user.name) || '', role: want, regions: myRegions().join(',') }));
+    }, 'Role not saved');
+  });
+  $('tmAskList').addEventListener('click', (ev) => { // beta 3.3 (QA-08): an approved coordinator approves or declines
+    const a = ev.target.closest('[data-appr]'), d = ev.target.closest('[data-decl]');
+    if (a) tmDo('Approving…', async () => { await tmPost('teamApprove', { who: a.dataset.appr, approve: true }); toast(`${tmNameOf(a.dataset.appr)} is a coordinator now.`, 4000); });
+    else if (d) guard(async () => { if (await ask('Decline?', `${tmNameOf(d.dataset.decl)} will not be a coordinator; your admin can still approve it in the online sheet.`, [{ label: 'Cancel', value: false }, { label: 'Decline', value: true, primary: true }])) await tmDo('Declining…', () => tmPost('teamApprove', { who: d.dataset.decl, approve: false })); }, 'Not declined');
+  });
+  /* beta 3.3 (QA-08): the admin phone: every company's coordinators (the online sheet's Team tab), Approve or Decline */
+  let admCoords = null;
+  async function admTeamCall(body) {
+    if (!sheetUrl() || !S.onlineAdminKey) throw new Error('set the online sheet and its Admin key first (above)');
+    let j; try { j = await cloudRequest({ url: sheetUrl() }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: S.onlineAdminKey, ...body }) }); } catch (e) { throw new Error(`the online sheet did not answer (${e.message || e})`); }
+    if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the online sheet did not accept the Admin key' : j && j.error === 'action' ? 'the online sheet’s script is older than v2.43.2: update it' : (j && j.error) || 'no answer');
+    return j;
+  }
+  function renderAdmCoords() {
+    const L = admCoords || [], st = (c) => (c.approved === 'yes' ? 'Approved' : c.approved === 'no' ? 'Declined' : 'Asking');
+    $('admTeamList').innerHTML = !L.length ? '<p class="hint" style="margin:0">No coordinators in the Team tab yet.</p>' : L.slice().sort((a, b) => (a.approved === '' ? 0 : 1) - (b.approved === '' ? 0 : 1) || String(a.company).localeCompare(String(b.company))).map((c) => `<div class="tmrow"><span class="t"><b>${tmEsc(c.name || c.email)}</b><small>${tmEsc([c.company, c.email, c.teamOn ? '' : 'Team off for this company'].filter(Boolean).join(' · '))}</small></span><span class="b"><span class="tmst ${c.approved === 'yes' ? 'in' : c.approved === 'no' ? 'declined' : 'asked'}">${st(c)}</span>${c.approved !== 'yes' ? `<button class="btn sm primary" type="button" data-cset="1" data-co="${tmEsc(c.company)}" data-e="${tmEsc(c.email)}">Approve</button>` : ''}${c.approved !== 'no' ? `<button class="btn sm" type="button" data-cset="0" data-co="${tmEsc(c.company)}" data-e="${tmEsc(c.email)}">${c.approved === 'yes' ? 'Remove' : 'Decline'}</button>` : ''}</span></div>`).join('');
+  }
+  $('admTeamLoad').addEventListener('click', () => guard(async () => {
+    busy('Reading the coordinators…'); try { admCoords = (await admTeamCall({ action: 'teamCoords' })).coords || []; } finally { busy(false); }
+    renderAdmCoords(); LOG.info('team.admin.list', { n: admCoords.length, asking: admCoords.filter((c) => c.approved === '').length });
+  }, 'Not read'));
+  $('admTeamList').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-cset]'); if (!b) return;
+    guard(async () => {
+      const yes = b.dataset.cset === '1', who = b.dataset.e;
+      if (!yes && !(await ask(b.textContent === 'Remove' ? 'Remove this coordinator?' : 'Decline?', `${who} (${b.dataset.co}) ${b.textContent === 'Remove' ? 'stops being a coordinator at the next sync of their phone: no team and no mailbox' : 'will not be a coordinator'}. You can approve again later.`, [{ label: 'Cancel', value: false }, { label: b.textContent, value: true, primary: true }]))) return;
+      busy('Saving in the online sheet…'); try { await admTeamCall({ action: 'teamCoordSet', company: b.dataset.co, email: who, approve: yes }); admCoords = (await admTeamCall({ action: 'teamCoords' })).coords || []; } finally { busy(false); }
+      renderAdmCoords(); toast(yes ? `${who} is approved as coordinator.` : `${who} is not a coordinator.`, 4000); LOG.info('team.admin.set', { yes });
+    }, 'Not saved');
+  });
+  $('tmCoList').addEventListener('click', (ev) => {
+    const j = ev.target.closest('[data-join]'), l = ev.target.closest('[data-leave]');
+    if (j) tmDo('Asking to join…', () => tmPost('teamJoin', { name: (S.user && S.user.name) || '', coordinator: j.dataset.join }));
+    else if (l) guard(async () => {
+      const t = tmSnap(), c = ((t && t.coordinators) || []).find((x) => x.email === l.dataset.leave), st = (((t && t.myTeams) || []).find((x) => x.coordinator === l.dataset.leave) || {}).status;
+      if (st === 'in' && !(await ask(`Leave ${(c && c.name) || 'this'} team?`, 'You stop getting projects from this coordinator. Projects already on this phone stay here; next, you can send the tasks you have not finished back to the coordinator.', [{ label: 'Cancel', value: false }, { label: 'Leave the team', value: true, primary: true }]))) return;
+      if (st === 'in' && !(await mbxLeaveSend(l.dataset.leave))) return; // v2.43 beta 2
+      await tmDo('Leaving the team…', () => tmPost('teamLeave', { coordinator: l.dataset.leave }));
+    }, 'Not left');
+  });
+  $('tmMemList').addEventListener('click', (ev) => {
+    const a = ev.target.closest('[data-accept]'), d = ev.target.closest('[data-decline]'), r = ev.target.closest('[data-remove]');
+    if (a) tmDo('Accepting…', () => tmPost('teamAnswer', { member: a.dataset.accept, accept: true }));
+    else if (d) tmDo('Declining…', () => tmPost('teamAnswer', { member: d.dataset.decline, accept: false }));
+    else if (r) guard(async () => {
+      if (!(await ask('Remove from your team?', 'He no longer gets projects from you. His phone stops getting the mailbox at its next sync; to shut it out at once, change the mailbox key after this.', [{ label: 'Cancel', value: false }, { label: 'Remove', value: true, primary: true }]))) return;
+      await tmDo('Removing…', () => tmPost('teamRemove', { member: r.dataset.remove }));
+      if (S.mbx && await ask('Change the mailbox key now?', 'Everyone still in a team of your company gets the new key at their next sync.', [{ label: 'Later', value: false }, { label: 'Change key', value: true, primary: true }])) await mbxRekeyRun();
+    }, 'Not removed');
+  });
+
+  /* ---- the mailbox (the contractor's own script) ---- */
+  const MBX_WHY = { key: 'the mailbox did not accept the key (tap Refresh in Team; a coordinator may have changed it)', box: 'the mailbox did not accept this email', tid: 'bad transfer id', size: 'the file is too big for one call', parts: 'the file did not arrive complete', meta: 'the file details are too long', id: 'that file is not in the mailbox',
+    // beta 3.3 (QA-10): Google's limits and the mailbox's own answers, in plain words (full: see mbxWhy)
+    rate: 'Google is limiting how fast the mailbox can work right now. It was tried again several times; try again in a few minutes',
+    nojson: 'Google is busy: try again in a minute',
+    busy: 'the mailbox is busy with another phone: try again in a minute',
+    drive: 'Google Drive did not answer the mailbox: try again in a minute',
+    server: 'the mailbox script ran into an error: try again; if it happens again, send the App log (Settings → App log)',
+    gone: 'that file is no longer in the mailbox (it was taken back, picked up, or cleared after 7 days)',
+    closed: 'that send is closed: it was taken back or already picked up',
+    unclaimed: 'the mailbox is not set up to the end: the coordinator who set it up taps Check and save in Settings → Team',
+    picked: 'that send was already picked up' };
+  /** beta 3.3 (QA-10): the words for a mailbox answer. full: who frees the space, by name. */
+  function mbxWhy(code) {
+    if (code === 'full') {
+      const by = S.mbx && S.mbx.setBy ? (tmNameOf(S.mbx.setBy) || S.mbx.setBy) : '';
+      return `the mailbox's Google Drive is full: ${by ? `${by}, who set up the mailbox, frees` : 'the coordinator who set up the mailbox frees'} space in that Google account${S.mbx && S.mbx.account ? ` (${S.mbx.account})` : ''}: Drive, Gmail or Photos, then try again`;
+    }
+    return MBX_WHY[code] || code || 'the mailbox did not answer';
+  }
+  async function mbxPost(url, action, body, ms) {
+    let j;
+    try { j = await cloudRequest({ url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ [MBX_ACT]: action, ...(body || {}) }) }, undefined, ms); }
+    catch (x) { // beta 3.3 (QA-10): Google's own error pages (too many scripts at once…) are not JSON: never their raw text
+      if (x instanceof SyntaxError || /JSON|Unexpected token|Unexpected end/i.test(String((x && x.message) || x))) { const e = new Error(MBX_WHY.nojson); e.code = 'nojson'; throw e; }
+      throw x;
+    }
+    if (!j || typeof j !== 'object') { const e = new Error(MBX_WHY.nojson); e.code = 'nojson'; throw e; }
+    if (!j.ok) { const code = j.error; const e = new Error(mbxWhy(code)); e.code = code; throw e; }
+    return j;
+  }
+  const mbxRid = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => 'abcdefghijkmnpqrstuvwxyz23456789'[b % 32]).join('');
+  async function mbxSha(u8) { const h = new Uint8Array(await crypto.subtle.digest('SHA-256', u8)); return Array.from(h, (b) => b.toString(16).padStart(2, '0')).join(''); }
+  function mbxB64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
+  /** The bytes straight to Google through an upload address the mailbox opened (no Google key on the phone). */
+  async function mbxDirect(url, key, box, tid, data) {
+    const s = await mbxPost(url, 'session', { k: key, box, tid, size: data.length, origin: location.origin });
+    const r = await withTimeout(fetch(s.url, { method: 'PUT', headers: { 'Content-Range': `bytes 0-${data.length - 1}/${data.length}` }, body: data }), 60000, 'Google did not answer');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  }
+  /** One small test file the way real updates will travel, read back and deleted. step(ok, text) reports each part. */
+  async function mbxTest(url, key, step) {
+    const box = tmEmail() || 'check', data = crypto.getRandomValues(new Uint8Array(65536)), sha = await mbxSha(data);
+    let tid = `chk${Date.now().toString(36)}${mbxRid(6)}`, how = 'direct';
+    try { await mbxDirect(url, key, box, tid, data); }
+    catch (e) { // Google refused the direct send here (or its answer was lost): start again through the script, under a new id
+      LOG.warn('mbx.direct', { msg: String(e.message || e).slice(0, 120) }); how = 'script';
+      await mbxPost(url, 'cancel', { k: key, box, tid }).catch(() => {});
+      tid = `chk${Date.now().toString(36)}${mbxRid(6)}`;
+      await mbxPost(url, 'put', { k: key, box, tid, n: 1, data: mbxB64(data) });
+    }
+    step(true, how === 'direct' ? 'Test file sent straight to Google' : 'Test file sent through the mailbox script (Google refused the direct send on this phone; the app will use this way)');
+    await mbxPost(url, 'done', { k: key, box, tid, meta: { kind: 'check', from: box, sha256: sha, size: data.length } });
+    const L = await mbxPost(url, 'list', { k: key, box }), m = (L.items || []).find((x) => x.tid === tid);
+    if (!m) throw new Error('the test file did not show in the mailbox');
+    const parts = (m.parts || []).slice().sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const bufs = []; for (const p of parts) { const g = await mbxPost(url, 'get', { k: key, id: p.id }); bufs.push(b64ToBytes(g.data)); }
+    const got = new Uint8Array(bufs.reduce((n, b) => n + b.length, 0)); let o = 0; bufs.forEach((b) => { got.set(b, o); o += b.length; });
+    const same = (await mbxSha(got)) === sha;
+    step(same, same ? 'Read back through the mailbox, identical' : 'Read back, but it was not identical');
+    await mbxPost(url, 'picked', { k: key, box, tid });
+    step(true, 'Deleted for good');
+    if (!same) throw new Error('the test file came back different');
+    return how;
+  }
+  function mbxShow(res) { $('mbxRes').hidden = !res.length; $('mbxRes').innerHTML = res.map(([ok, t]) => `<div><span class="${ok ? 'ok' : 'no'}">${ok ? '✓' : '✗'}</span><span>${tmEsc(t)}</span></div>`).join(''); }
+  $('tmMbxSetup').addEventListener('click', () => {
+    const t = tmSnap(), link = (t && t.scriptLink) || '';
+    $('mbxScript').hidden = !/^https:\/\//.test(link); if (link) /** @type {HTMLAnchorElement} */ ($('mbxScript')).href = link;
+    $('mbxNoScript').hidden = /^https:\/\//.test(link);
+    /** @type {HTMLInputElement} */ ($('mbxUrl')).value = (S.mbx && S.mbx.url) || ''; mbxShow([]); $('mbxErr').hidden = true;
+    openSheet('mbxSheet');
+  });
+  $('mbxScript').addEventListener('click', (ev) => { if (NATIVE) { ev.preventDefault(); openExternal(/** @type {HTMLAnchorElement} */ ($('mbxScript')).href); } });
+  $('mbxSave').addEventListener('click', () => guard(async () => {
+    const url = /** @type {HTMLInputElement} */ ($('mbxUrl')).value.trim(), res = [], step = (ok, t) => { res.push([ok, t]); mbxShow(res); };
+    $('mbxErr').hidden = true; mbxShow([]);
+    if (!depOf(url)) { $('mbxErr').textContent = 'Paste the Web app URL from the deployment: it starts with https://script.google.com/macros/s/ and ends with /exec.'; $('mbxErr').hidden = false; return; }
+    if (!tmVerified() || tmRole() !== 'Coordinator') { $('mbxErr').textContent = 'Only a coordinator with a confirmed email sets up the mailbox (Settings → Team).'; $('mbxErr').hidden = false; return; }
+    busy('Checking the mailbox…');
+    try {
+      const key = (S.mbx && S.mbx.url === url && S.mbx.key) || mbxRid(32);
+      const h = await mbxPost(url, 'hello', { k: key });
+      if (h.app !== 'G-eSAA mailbox') throw new Error('that address is not a G-eSAA mailbox script');
+      if (h.claimed && !h.keyOk) throw new Error('this mailbox was already set up with another key. If it is your company’s, run resetKey in its script (pick it in the function box, then Run), and Check and save again');
+      if (!h.claimed) await mbxPost(url, 'claim', { k: key });
+      step(true, 'Reached the mailbox');
+      busy('Sending a test file…');
+      const how = await mbxTest(url, key, step);
+      busy('Saving it for your company…');
+      await tmPost('mailboxSet', { url, key, account: '' });
+      S.mbx = { url, key, account: '', setBy: (S.user && S.user.name) || '', checked: new Date().toISOString(), src: sheetUrl(), how }; persist();
+      step(true, 'Saved for your company: your coordinators and field partners get it at their next sync');
+      LOG.info('mbx.setup', { how });
+      await tmLoad().catch(() => {});
+      renderTeam(); toast('The mailbox is ready.', 4000);
+    } catch (e) { step(false, `Stopped: ${e.message || e}`); LOG.warn('mbx.setup.fail', { code: e.code || '', msg: String(e.message || e).slice(0, 120) }); }
+    finally { busy(false); }
+  }, 'Mailbox not saved'));
+  $('tmMbxCheck').addEventListener('click', () => guard(async () => {
+    if (!S.mbx) return;
+    busy('Checking the mailbox…');
+    try {
+      const h = await mbxPost(S.mbx.url, 'hello', { k: S.mbx.key });
+      if (!h.keyOk) throw new Error('the mailbox key changed: tap Refresh, then Check now again');
+      const res = [], how = await mbxTest(S.mbx.url, S.mbx.key, (ok, t) => res.push([ok, t]));
+      let space = '';
+      try { const q = await mbxPost(S.mbx.url, 'space', { k: S.mbx.key }); if (q.limit) space = ` Drive space: ${(q.usage / 1073741824).toFixed(1)} of ${(q.limit / 1073741824).toFixed(0)} GB used.`; } catch (e) { space = ''; }
+      S.mbx.checked = new Date().toISOString(); S.mbx.how = how; persist(); renderTeam();
+      toast(`The mailbox works: ${how === 'direct' ? 'sending straight to Google' : 'sending through the mailbox script'}.${space}`, 6000);
+    } catch (e) { tmFail(e); } finally { busy(false); }
+  }, 'Mailbox not checked'));
+  async function mbxRekeyRun() {
+    if (!S.mbx) return;
+    busy('Changing the mailbox key…');
+    try {
+      const nk = mbxRid(32), old = S.mbx.key;
+      await mbxPost(S.mbx.url, 'rekey', { k: old, nk });
+      try { await tmPost('mailboxKey', { key: nk }); }
+      catch (e) { await mbxPost(S.mbx.url, 'rekey', { k: nk, nk: old }).catch(() => {}); throw e; } // the sheet keeps the old key: so does the mailbox
+      S.mbx.key = nk; persist(); LOG.info('mbx.rekey', {}); toast('Key changed. Your teams get the new one at their next sync.', 5000);
+      await tmLoad().catch(() => {}); renderTeam();
+    } catch (e) { tmFail(e); } finally { busy(false); }
+  }
+  // a field partner's phone takes the mailbox (or a changed key) at start, as it takes the sites from the online sheet
+  setTimeout(() => { if (tmOn() && tmVerified() && navigator.onLine !== false) tmLoad().then(() => { renderTeamRow(); mbxStartCheck().catch(() => {}); }, (e) => LOG.info('team.start', { code: e.code || '' })); }, 6000); // (beta 2: then what waits in the mailbox)
+  $('tmMbxRekey').addEventListener('click', () => guard(async () => {
+    if (!(await ask('Change the mailbox key?', 'Use this after removing someone from a team. Everyone still in a team of your company gets the new key at their next sync; a phone that was removed can no longer reach the mailbox.', [{ label: 'Cancel', value: false }, { label: 'Change key', value: true, primary: true }]))) return;
+    await mbxRekeyRun();
+  }, 'Key not changed'));
+  /* ================= v2.43 beta 2: projects through the company mailbox =================
+     A coordinator assigns a survey to one or more field partners (New project → Assign to, or Send on a project); each partner's
+     phone downloads it from the mailbox; the partner sends back only the changes (or the whole project); the coordinator downloads
+     and merges, asks for fixes, or accepts. Each send is its own transfer in the receiver's box (the receiver's email). The
+     sender's phone keeps its copy, so Resend is one tap. Bytes go straight to Google, 4 MB at a time, at an upload address the
+     mailbox script opens (in pieces through the script when Google refuses that phone); they come back through the script in
+     2 MB ranges, 4 at once, and are checked (SHA-256) before anything is merged. A project is matched on both phones by its
+     task key (tk), so each phone keeps its own project name. */
+  const MBX_CHUNK = 4 * 1048576, MBX_PIECE = 2 * 1048576, MBX_PAR = 4, MBX_DAY = 86400000;
+  let mbxIn = null, mbxInAt = 0, mbxInErr = '', mbxNoDirect = false, mbxSend = null, npAssign = new Set();
+  const mbxOn = () => !!(tmOn() && S.mbx && S.mbx.url && S.mbx.key && tmVerified() && ['Coordinator', 'Field Partner'].includes(tmRole())); // (beta 3.2: and Team on)
+  const tmTeam = (name) => (S.meta && S.meta[name] && S.meta[name].team) || null;
+  const setTeam = (name, T) => { S.meta = S.meta || {}; S.meta[name] = { ...pmeta(name), team: T }; };
+  const mbxTid = () => `g${Date.now().toString(36)}${mbxRid(10)}`;
+  const mbxMB = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(n >= 10485760 ? 0 : 1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} bytes`);
+  const pl2 = (k, w) => `${k} ${w}${k === 1 ? '' : 's'}`;
+  const dec = (u8) => new TextDecoder().decode(u8);
+  function tmNameOf(email, fb) {
+    const e = String(email || '').toLowerCase(), t = tmSnap();
+    if (!e) return fb || '';
+    if (e === tmEmail()) return (S.user && S.user.name) || e;
+    const hit = t && [...(t.coordinators || []), ...(t.members || [])].find((x) => x.email === e);
+    return (hit && hit.name) || fb || e;
+  }
+  const tmFirst = (email, fb) => String(tmNameOf(email, fb) || 'them').split(/[\s@]+/)[0];
+  const tmPartners = () => (((tmSnap() || {}).members) || []).filter((m) => m.status === 'in');
+  const mbxStopErr = () => { const e = new Error('stopped'); e.code = 'stop'; return e; };
+  /** One call to the company mailbox, with the key; network trouble and a busy mailbox are tried again; a changed key is fetched
+      from the online sheet once. beta 3.3 (QA-10): Google's limits (rate, busy, an answer that is not JSON) are tried again after
+      2, 5, 10 and 20 s, whatever tries says; x (a transfer's { par }) then goes from 4 calls at once to 2, then 1. */
+  const MBX_SLOW = ['rate', 'busy', 'nojson'], MBX_WAITS = [2000, 5000, 10000, 20000];
+  async function mbxCall(action, body, ms, tries, x) {
+    let rekeyed = false, slow = 0;
+    for (let i = 0; ; i++) {
+      if (!S.mbx) throw new Error('no team mailbox on this phone (Settings → Team)');
+      try { return await mbxPost(S.mbx.url, action, { k: S.mbx.key, ...(body || {}) }, ms); }
+      catch (e) {
+        if (cancelFlag) throw mbxStopErr();
+        if (e.code === 'key' && !rekeyed) { rekeyed = true; const k0 = S.mbx.key; await tmLoad().catch(() => null); if (S.mbx && S.mbx.key !== k0) { i--; continue; } throw e; }
+        if (MBX_SLOW.includes(e.code)) {
+          if (x && x.par > 1) { x.par = x.par > 2 ? 2 : 1; LOG.info('mbx.slower', { par: x.par, code: e.code }); }
+          if (slow >= MBX_WAITS.length) throw e;
+          LOG.info('mbx.retry', { action, code: e.code, wait: MBX_WAITS[slow] / 1000 });
+          if (x && x.note) x.note(`${e.code === 'rate' ? 'Google is slowing the mailbox down' : 'Google is busy'}: trying again in ${MBX_WAITS[slow] / 1000} s`);
+          await mbxSleep(MBX_WAITS[slow++]); i--; continue;
+        }
+        if ((e.code && !['drive', 'server'].includes(e.code)) || i >= (tries == null ? 2 : tries)) throw e;
+        await mbxSleep(1200 * (i + 1));
+      }
+    }
+  }
+  /** A wait that Stop ends at once. */
+  async function mbxSleep(ms) { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (cancelFlag) throw mbxStopErr(); await sleep(Math.min(250, ms - (Date.now() - t0))); } }
+  /** jobs, at most x.par at once (4; fewer after Google said it is busy: see mbxCall). */
+  async function mbxPool(jobs, fn, x) {
+    const X = x || { par: MBX_PAR }; let next = 0, err = null;
+    const worker = async (w) => { while (!err && next < jobs.length) { if (w >= X.par) return; const j = jobs[next++]; try { await fn(j); } catch (e) { err = err || e; } } };
+    await Promise.all(Array.from({ length: Math.min(MBX_PAR, jobs.length) }, (_, w) => worker(w)));
+    if (err) throw err;
+  }
+  /** The bytes straight to Google, 4 MB at a time. true: Google has them all; 'unsure': the last answer was lost (done checks). */
+  async function mbxUpDirect(box, tid, data, prog, note, x) {
+    const size = data.length, s = await mbxCall('session', { box, tid, size, origin: location.origin }, undefined, undefined, x);
+    const upTo = (r) => { const m = /(\d+)\s*$/.exec((r && r.headers.get('Range')) || ''); return m ? +m[1] + 1 : null; };
+    let start = 0, fails = 0;
+    while (start < size) {
+      if (cancelFlag) throw mbxStopErr();
+      const end = Math.min(size, start + MBX_CHUNK);
+      let r;
+      try { r = await withTimeout(fetch(s.url, { method: 'PUT', headers: { 'Content-Range': `bytes ${start}-${end - 1}/${size}` }, body: data.subarray(start, end) }), 120000, 'Google did not answer'); }
+      catch (e) { // the connection dropped: ask Google how much it has, and go on from there
+        if (cancelFlag) throw mbxStopErr();
+        if (++fails > 3) throw e;
+        let q = null;
+        try { q = await withTimeout(fetch(s.url, { method: 'PUT', headers: { 'Content-Range': `bytes */${size}` } }), 30000, 'Google did not answer'); } catch (x) { q = null; }
+        if (q && q.ok) return true;
+        const at = q && q.status === 308 ? upTo(q) : null;
+        if (at == null) { if (end >= size) return 'unsure'; throw e; }
+        LOG.info('mbx.resume', { at: Math.round(at / 1024), of: Math.round(size / 1024) });
+        if (note) note(`Signal dropped: carrying on from ${mbxMB(at)}`);
+        start = at; prog(start / size); continue;
+      }
+      if (r.status === 308) { const at = upTo(r); start = at == null ? end : at; }
+      else if (r.ok) { if (end < size) throw new Error('Google closed the upload early'); start = size; }
+      else throw new Error(`Google answered HTTP ${r.status}`);
+      prog(start / size);
+    }
+    return true;
+  }
+  /** The fallback: 2 MB pieces through the mailbox script, 4 at once (slower, but it arrives). */
+  async function mbxUpPieces(box, tid, data, prog, x) {
+    const n = Math.max(1, Math.ceil(data.length / MBX_PIECE)), X = x || { par: MBX_PAR };
+    if (n > 999) throw new Error('the file is too big for the mailbox (over 2 GB)');
+    let sent = 0;
+    await mbxPool(Array.from({ length: n }, (_, i) => i), async (i) => {
+      const a = i * MBX_PIECE, b = Math.min(data.length, a + MBX_PIECE);
+      await mbxCall('put', { box, tid, n: i + 1, data: mbxB64(data.subarray(a, b)) }, 90000, 3, X);
+      sent += b - a; prog(sent / data.length);
+    }, X);
+  }
+  /** The screen-wide wait as a progress reporter, for sends started outside the Send screen. */
+  function mbxBusyUi(label) {
+    return { pack: (t, f) => busy(t, f, true), stage: (k, t) => busy(`${label} · ${t}`, null, true), prog: (f, a, b) => busy(`${label} · ${Math.round(f * 100)}% · ${mbxMB(a)} of ${mbxMB(b)}`, f, true), note: (t) => busy(`${label} · ${t}`, null, true) };
+  }
+  /** One transfer into box: the bytes, then the manifest (it shows in the box only once complete). { tid, how }
+      ui (beta 2.1): stage(key, text), prog(frac, bytes, size), note(text); the Send screen's own, or the screen-wide wait. */
+  async function mbxSendBytes(box, data, meta, label, ui0) {
+    const ui = ui0 || mbxBusyUi(label), size = data.length, M = { ...meta, sha256: await mbxSha(data), size }, first = tmFirst(box);
+    const prog = (f) => ui.prog(f, Math.round(f * size), size);
+    const X = { par: MBX_PAR, note: ui.note }; // beta 3.3 (QA-10): this transfer's calls at once, and its "trying again" line
+    let tid = mbxTid(), how = 'script';
+    // beta 3.3 (QA-10): room in the mailbox's Drive first: stop with the reason when the file won't fit
+    ui.stage('send', 'Checking the mailbox’s space');
+    let sp = null; try { sp = await mbxCall('space', {}, 30000, 1, X); } catch (e) { if (e.code === 'stop') throw e; LOG.info('mbx.space.skip', { code: e.code || '' }); }
+    if (sp && sp.limit) {
+      const free = sp.limit - (sp.usage || 0), need = Math.round(size * 1.05) + 1048576;
+      LOG.info('mbx.space', { freeMB: Math.round(free / 1048576), needMB: Math.round(need / 1048576) });
+      if (free < need) { const e = new Error(`${mbxWhy('full')}. It has ${mbxMB(Math.max(0, free))} free and this send needs ${mbxMB(need)}`); e.code = 'full'; throw e; }
+    }
+    ui.stage('send', 'Sending straight to Google'); prog(0);
+    if (!mbxNoDirect) {
+      try {
+        const r = await mbxUpDirect(box, tid, data, prog, ui.note, X);
+        if (r === true) how = 'direct';
+        else { // Google's last answer was lost: done() finds the file at its full size, or says it is not there
+          try { ui.stage('save', `Saving in ${first}’s mailbox`); await mbxCall('done', { box, tid, meta: M, size }, 60000, undefined, X); return { tid, how: 'direct' }; }
+          catch (e) { if (e.code !== 'parts') throw e; }
+        }
+      } catch (e) { if (e.code === 'stop' || MBX_SLOW.includes(e.code) || e.code === 'full') throw e; LOG.warn('mbx.direct', { msg: String(e.message || e).slice(0, 120) }); } // (beta 3.3: Google's limits are not a reason to switch to pieces)
+      if (how !== 'direct') { mbxNoDirect = true; await mbxCall('cancel', { box, tid }).catch(() => {}); tid = mbxTid(); }
+    }
+    if (how !== 'direct') { ui.stage('send', 'Sending through the mailbox script (slower)'); prog(0); await mbxUpPieces(box, tid, data, prog, X); }
+    ui.stage('save', `Saving in ${first}’s mailbox`);
+    await mbxCall('done', { box, tid, meta: M, size }, 60000, undefined, X);
+    return { tid, how };
+  }
+  /** A transfer back from the mailbox: 2 MB ranges, 4 at once, checked against the sender's SHA-256. */
+  async function mbxDownload(it, prog, onCheck) {
+    const parts = (it.parts || []).slice().sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const total = parts.reduce((t, p) => t + Number(p.size || 0), 0);
+    if (!total || (it.size && total !== it.size)) throw new Error('the file in the mailbox is not complete');
+    const jobs = []; let off = 0;
+    parts.forEach((p) => { const sz = Number(p.size); for (let a = 0; a < sz; a += MBX_PIECE) jobs.push({ id: p.id, a, b: Math.min(sz, a + MBX_PIECE) - 1, at: off + a }); off += sz; });
+    const out = new Uint8Array(total); let got = 0;
+    const X = { par: MBX_PAR }; // beta 3.3 (QA-10): 4 at once, fewer once Google says it is busy
+    prog(0, 0, total, X);
+    await mbxPool(jobs, async (j) => {
+      if (cancelFlag) throw mbxStopErr();
+      const g = await mbxCall('get', { id: j.id, start: j.a, end: j.b }, 90000, 3, X), u = b64ToBytes(g.data);
+      if (u.length !== j.b - j.a + 1) throw new Error('a piece came back the wrong size: try again');
+      out.set(u, j.at); got += u.length; prog(got / total, got, total, X);
+    }, X);
+    if (onCheck) onCheck();
+    if (it.meta && it.meta.sha256 && (await mbxSha(out)) !== it.meta.sha256) throw new Error('the file arrived damaged: try again');
+    return out;
+  }
+  /** What every transfer says about itself (≤ 8 KB: the mailbox lists it without opening the file). */
+  const mbxMeta = (kind, name, to, x) => ({ v: 1, kind, tk: (tmTeam(name) || {}).tk || '', project: name, from: tmEmail(), fromName: (S.user && S.user.name) || tmEmail(), fromRole: tmRole(), to, at: new Date().toISOString(), ...(x || {}) });
+  function mbxOutAdd(o) { S.mbxOut = [o, ...(S.mbxOut || []).filter((x) => x.tid !== o.tid)].slice(0, 80); persist(); }
+  /** A send that will not arrive (taken back, not picked up in 7 days, not sent): the next one to that person is the whole project. */
+  function mbxGap(o) {
+    if (!o || !['task', 'update'].includes(o.kind)) return;
+    const name = mbxLocalByTk(o.tk) || (allProjects().includes(o.project) ? o.project : ''); if (!name) return;
+    const T = tmTeam(name); if (!T || !T.sent || !T.sent[o.to]) return;
+    setTeam(name, { ...T, sent: { ...T.sent, [o.to]: { ...T.sent[o.to], gap: true } } }); persist();
+  }
+  const mbxLocalByTk = (tk) => (tk ? allProjects().find((n) => (tmTeam(n) || {}).tk === tk) || '' : '');
+  /** The changes of a project since a time (as Share → Only the changes). */
+  function mbxChanges(name, since, who) {
+    const m = pmeta(name), all = points.filter((p) => p.project === name);
+    const E = (who && ((tmTeam(name) || {}).echo || {})[who]) || null; // beta 2.1: what came from that person, unchanged since, does not go back
+    const echo = (p) => !!(E && E.p && E.p[p.id] && E.p[p.id] === String(p.updated || p.created || ''));
+    const ch = since ? all.filter((p) => String(p.updated || p.created || '') > since && !echo(p)) : all;
+    const gone = since ? Object.entries(m.gone || {}).filter(([id, t]) => t > since && !(E && E.g && E.g[id] === t)).length : 0;
+    const route = !!(since && m.linksAt && m.linksAt > since && !(E && E.l && E.l === m.linksAt)), nNew = since ? ch.filter((p) => String(p.created || '') > since).length : 0;
+    return { all, ch, gone, route, nNew, nph: new Set(ch.flatMap(allPids)).size };
+  }
+  async function mbxBytes(name, U, ref, say) { const blob = await bundleZip([name], { update: U, ref, say }); return new Uint8Array(await blob.arrayBuffer()); }
+  /** The coordinator sends the project to each field partner. To one who has not got it (or missed a send): the whole project
+      with its KMZ reference (a task). To one who has, with what = 'delta' (beta 2.1, the default): only the changes since the
+      last send to that partner, with the KMZ reference when it changed since. opt: { what, ui, of } */
+  async function mbxSendTask(name, emails, note, opt) {
+    const o = opt || {}, me = tmEmail(), at = new Date().toISOString();
+    let T = tmTeam(name) || {};
+    T = { ...T, role: 'co', tk: T.tk || uid(), by: T.by || me, byName: T.byName || (S.user && S.user.name) || me, to: [...new Set([...(T.to || []), ...emails])], names: { ...(T.names || {}), ...Object.fromEntries(emails.map((e) => [e, tmNameOf(e)])) }, accepted: null };
+    setTeam(name, T); S.meta[name] = { ...pmeta(name), phSet: phMine() }; persist(); // beta 3.5: photos per pin and in documents, for his field partners' phones
+    cancelFlag = false;
+    const all = points.filter((p) => p.project === name), nph = new Set(all.flatMap(allPids)).size, ref = refInfo(name);
+    let whole = null; // the whole project's bytes: made once, for every partner who gets it whole
+    const done = [], bad = [];
+    for (let i = 0; i < emails.length; i++) {
+      const to = emails[i], led = (tmTeam(name).sent || {})[to] || {}, n = (led.n || 0) + 1, first = tmFirst(to);
+      const of = emails.length > 1 ? ` · ${first} (${i + 1} of ${emails.length})` : '';
+      const ui = o.ui ? o.ui(of) : mbxBusyUi(`Sending to ${first}`);
+      const delta = o.what === 'delta' && led.at && !led.gap && mbxHasIt(name, to);
+      let bytes, meta, kind;
+      try {
+        if (delta) {
+          const c = mbxChanges(name, led.at, to), refNew = !!(ref && ref.at && ref.at > led.at);
+          bytes = await mbxBytes(name, { n, full: false, since: led.at, at, pts: c.ch, route: c.route, sender: `mbx:${me}`, nGone: c.gone }, refNew, (t, f) => ui.pack(t, f));
+          kind = 'update'; meta = mbxMeta('update', name, to, { n, full: false, note: note || '', recs: c.ch.length, photos: c.nph, gone: c.gone, route: c.route, ref: refNew, by: T.by, byName: T.byName });
+        } else {
+          if (!whole) whole = await mbxBytes(name, { n: 1, full: true, since: '', at, pts: null, route: true, sender: `mbx:${me}`, nGone: Object.keys(pmeta(name).gone || {}).length }, true, (t, f) => ui.pack(t, f));
+          bytes = whole; kind = 'task'; meta = mbxMeta('task', name, to, { n, full: true, note: note || '', recs: all.length, photos: nph, ref: !!ref });
+        }
+        const r = await mbxSendBytes(to, bytes, meta, `Sending to ${first}`, ui);
+        const T2 = tmTeam(name); setTeam(name, { ...T2, sent: { ...(T2.sent || {}), [to]: { n, at } } });
+        if (!delta) (S.mbxOut || []).filter((x) => x.to === to && x.tk === T.tk && x.st === 'waiting' && ['task', 'update'].includes(x.kind) && !/^x/.test(x.tid)).forEach((x) => { // the whole project replaces what still waits for them
+          x.st = 'replaced'; x.stAt = at; mbxCall('cancel', { box: to, tid: x.tid }).catch(() => {});
+        });
+        mbxOutAdd({ tid: r.tid, to, toName: tmNameOf(to), kind, project: name, tk: T.tk, n, full: !delta, size: bytes.length, at, st: 'waiting', stAt: at, how: r.how, note: note || '', recs: meta.recs });
+        done.push(to); LOG.info(delta ? 'mbx.co.update' : 'mbx.task', { n, mb: +(bytes.length / 1048576).toFixed(2), how: r.how, recs: meta.recs });
+      } catch (e) {
+        if (e.code === 'stop') { busy(false); return { done, bad: emails.filter((x) => !done.includes(x)), stopped: true }; }
+        bad.push([to, e.message || String(e)]); LOG.warn('mbx.task.fail', { code: e.code || '', msg: String(e.message || e).slice(0, 120) });
+        mbxOutAdd({ tid: `x${mbxRid(10)}`, to, toName: tmNameOf(to), kind: delta ? 'update' : 'task', project: name, tk: T.tk, n, full: !delta, size: bytes ? bytes.length : 0, at, st: 'failed', stAt: at, why: String(e.message || e).slice(0, 120), note: note || '' });
+      }
+    }
+    persist(); busy(false);
+    return { done, bad };
+  }
+  function mbxSaidSent(r, name) {
+    const nm = (x) => tmFirst(x);
+    if (r.stopped) toast('Stopped: not sent.');
+    else if (r.done.length) toast(`“${name}” sent to ${r.done.map(nm).join(' and ')}${r.bad.length ? `; not to ${r.bad.map(([e]) => nm(e)).join(', ')} (${r.bad[0][1]})` : ''}.`, 6000);
+    else if (r.bad.length) toast(`Not sent: ${r.bad[0][1]}. Try again from the project (Send).`, 7000);
+  }
+  /** A small message (fixes, accepted, a note): all of it is in the manifest; the file is a stub. */
+  async function mbxSendSmall(kind, name, to, x, label, ui, body) {
+    const at = new Date().toISOString(), meta = mbxMeta(kind, name, to, x);
+    const r = await mbxSendBytes(to, new TextEncoder().encode(JSON.stringify(body || { kind, at })), meta, label, ui);
+    mbxOutAdd({ tid: r.tid, to, toName: tmNameOf(to), kind, project: name, tk: meta.tk, size: 0, at, st: 'waiting', stAt: at, note: (x && x.note) || '' });
+    LOG.info('mbx.small', { kind });
+    return r;
+  }
+
+  /* ---- the Send sheet: a field partner to a coordinator (only the changes, or the whole project), a coordinator to his field
+     partners (the task), or a coordinator asking for fixes (a note) ---- */
+  function mbxModeOf(name) { const T = tmTeam(name); return T && T.role === 'fp' ? 'fp' : T && T.role === 'co' ? 'co' : tmRole() === 'Coordinator' ? 'co' : 'fp'; }
+  function mbxCoordList(name) {
+    const t = tmSnap() || {}, T = tmTeam(name) || {}, mine = new Set((t.myTeams || []).filter((x) => x.status === 'in').map((x) => x.coordinator));
+    return (t.coordinators || []).filter((c) => c.email !== tmEmail()).map((c) => ({ email: c.email, name: c.name || c.email,
+      why: c.email === T.by ? 'sent you this task' : mine.has(c.email) ? 'your team' : 'another coordinator of your company: takes it over if yours is away' }))
+      .sort((a, b) => (a.email === T.by ? -1 : b.email === T.by ? 1 : 0) || (mine.has(b.email) - mine.has(a.email)));
+  }
+  function openMbxSend(name, mode) {
+    const T = tmTeam(name) || {};
+    mbxSend = { name, mode: mode || mbxModeOf(name), to: new Set(), what: '' };
+    const s = mbxSend;
+    if (s.mode === 'fp') { const L = mbxCoordList(name), d = (T.to && T.to[0]) || T.by || (L[0] && L[0].email); if (d && L.some((c) => c.email === d)) s.to.add(d); }
+    else if (s.mode === 'co') (T.to || []).filter((e) => tmPartners().some((m) => m.email === e)).forEach((e) => s.to.add(e));
+    else (T.to || []).forEach((e) => s.to.add(e)); // fix: the field partners of this project
+    $('mbxSendT').textContent = s.mode === 'fix' ? `Ask for fixes · “${name}”` : `Send “${name}”`;
+    /** @type {HTMLTextAreaElement} */ ($('mbxNote')).value = '';
+    $('mbxNoteLbl').textContent = s.mode === 'fix' ? 'WHAT TO FIX' : 'NOTE (optional)';
+    /** @type {HTMLTextAreaElement} */ ($('mbxNote')).placeholder = s.mode === 'fix' ? 'For example: CC-1007 owner name; CC-1011 clamp size' : 'Optional';
+    $('mbxSendErr').hidden = true;
+    mbxProgShow(false);
+    openSheet('mbxSendSheet'); renderMbxSend();
+  }
+  /** beta 2.1: this field partner has the project: downloaded the task, or sent an update of it (only the changes can go to them). */
+  function mbxHasIt(name, email) {
+    if ((pmeta(name).recv || {})[`mbx:${email}`]) return true;
+    const T = tmTeam(name) || {}, o = (S.mbxOut || []).find((x) => x.kind === 'task' && x.to === email && ((T.tk && x.tk === T.tk) || x.project === name) && x.st !== 'failed');
+    return !!o && o.st === 'picked';
+  }
+  function mbxWhatFor(name, to) {
+    const T = tmTeam(name) || {}, led = (T.sent || {})[to], since = led && !led.gap ? led.at : '';
+    return { led, since, c: mbxChanges(name, since, to) };
+  }
+  function renderMbxSend() {
+    const s = mbxSend; if (!s) return;
+    const name = s.name, T = tmTeam(name) || {}, box = $('mbxTo'); box.innerHTML = '';
+    const row = (type, email, title, sub, on) => {
+      const l = document.createElement('label'), cb = document.createElement('input'); cb.type = type; cb.name = 'mbxTo'; cb.checked = on; cb.value = email;
+      cb.addEventListener('change', () => { if (type === 'radio') s.to = new Set([email]); else if (cb.checked) s.to.add(email); else s.to.delete(email); s.what = ''; renderMbxSend(); });
+      const d = document.createElement('div'), b = document.createElement('b'); b.textContent = title; const sp = document.createElement('span'); sp.className = 's'; sp.textContent = sub; d.append(b, sp); l.append(cb, d); box.appendChild(l);
+    };
+    if (s.mode === 'fp') {
+      const L = mbxCoordList(name);
+      L.forEach((c) => row('radio', c.email, c.name, c.why, s.to.has(c.email)));
+      if (!L.length) box.innerHTML = '<p class="hint" style="margin:0">No coordinator in your company yet.</p>';
+    } else {
+      const P = s.mode === 'fix' ? (T.to || []).map((e) => ({ email: e, name: tmNameOf(e, (T.names || {})[e]) })) : tmPartners().map((m) => ({ email: m.email, name: m.name || m.email }));
+      P.forEach((m) => { const st = mbxTaskState(name, m.email); row('checkbox', m.email, m.name, s.mode === 'fix' ? st : (T.to || []).includes(m.email) ? `has this project · ${st}` : 'Field partner in your team', s.to.has(m.email)); });
+      if (!P.length) box.innerHTML = `<p class="hint" style="margin:0">${s.mode === 'fix' ? 'Nobody has this project from you yet.' : 'No field partner in your team yet: they ask to join from their phones (Settings → Team).'}</p>`;
+    }
+    const wb = $('mbxWhat'); wb.innerHTML = '';
+    const opt = (v, title, sub, dis) => { const l = document.createElement('label'), r = document.createElement('input'); r.type = 'radio'; r.name = 'mbxWhat'; r.value = v; r.checked = s.what === v; r.disabled = !!dis; r.addEventListener('change', () => { s.what = v; renderMbxSend(); }); const d = document.createElement('div'), b = document.createElement('b'); b.textContent = title; const sp = document.createElement('span'); sp.className = 's'; sp.textContent = sub; d.append(b, sp); l.append(r, d); wb.appendChild(l); };
+    const changesText = (c, led, since) => [c.ch.length - c.nNew && `${pl2(c.ch.length - c.nNew, 'record')} changed`, c.nNew && `${c.nNew} new`, c.gone && `${c.gone} deleted`, c.route && 'the route', c.nph && pl2(c.nph, 'photo')].filter(Boolean).join(' · ');
+    let info = '', whatOn = false;
+    if (s.mode === 'fp' && s.to.size) {
+      whatOn = true;
+      const to = [...s.to][0], W = mbxWhatFor(name, to), c = W.c, first = tmFirst(to);
+      const nAns = fxAnswers(name).length; // beta 3: fix answers count as changes
+      const canDelta = !!W.since && (c.ch.length || c.gone || c.route || nAns);
+      if (!s.what) s.what = canDelta ? 'delta' : 'full';
+      if (W.since) opt('delta', 'Only the changes', canDelta ? `${[changesText(c), nAns && `${nAns === 1 ? '1 fix answer' : `${nAns} fix answers`}`].filter(Boolean).join(' · ')} · since ${W.led.n ? `update ${W.led.n}` : 'the task arrived'} (${fmtTime(W.since)})` : `Nothing changed since ${W.led.n ? `update ${W.led.n}` : 'the task arrived'} (${fmtTime(W.since)})`, !canDelta);
+      opt('full', 'The whole project', `${pl2(c.all.length, 'record')} · ${pl2(projPhotos(name), 'photo')}`);
+      info = !W.since ? (W.led && W.led.gap ? `An earlier send to ${first} was not picked up, so this one is the whole project: it fills the gap.` : `${first} has not had this project from you, so it goes whole.`)
+        : s.what === 'delta' ? `${first} merges it: the newer record wins, and deletions carry over.` : `The whole project fills any gap on ${first}’s phone.`;
+    } else if (s.mode === 'co' && s.to.size) {
+      const sel = [...s.to], has = sel.filter((e) => !!mbxWhatFor(name, e).since && mbxHasIt(name, e)), fresh = sel.filter((e) => !has.includes(e));
+      if (has.length) { // beta 2.1: to partners who have it, only the changes by default
+        whatOn = true;
+        const since = has.map((e) => mbxWhatFor(name, e).since).sort()[0], c = mbxChanges(name, since, has.length === 1 ? has[0] : ''), ref = refInfo(name), refNew = !!(ref && ref.at && ref.at > since);
+        const canDelta = !!(c.ch.length || c.gone || c.route || refNew);
+        if (!s.what) s.what = canDelta ? 'delta' : 'full';
+        opt('delta', 'Only the changes', canDelta ? `${[changesText(c), refNew && 'the new KMZ reference'].filter(Boolean).join(' · ')} · since your last send (${fmtTime(since)})` : `Nothing changed since your last send (${fmtTime(since)})`, !canDelta);
+        opt('full', 'The whole project', `${pl2(points.filter((p) => p.project === name).length, 'record')} · ${pl2(projPhotos(name), 'photo')}${ref ? ' · the KMZ reference' : ''}`);
+      }
+      const waitT = fresh.filter((e) => (S.mbxOut || []).some((x) => x.to === e && x.tk === T.tk && x.st === 'waiting'));
+      info = [fresh.length && `${fresh.map((e) => tmFirst(e)).join(' and ')} ${fresh.length === 1 ? 'has' : 'have'} not ${waitT.length ? 'downloaded' : 'got'} it yet: the whole project${refInfo(name) ? ' with its KMZ reference' : ''}${waitT.length ? ', in place of the one still waiting' : ''}.`,
+        has.length && (s.what === 'delta' ? `${has.map((e) => tmFirst(e)).join(' and ')}: only the changes, merged into ${has.length === 1 ? 'the' : 'their'} copy.` : `${has.map((e) => tmFirst(e)).join(' and ')}: the whole project again.`)].filter(Boolean).join(' ');
+    } else if (s.mode === 'fix') info = 'A short note through the mailbox. Their phone shows it on the project until they send again.';
+    $('mbxWhatBox').hidden = !whatOn;
+    $('mbxSendInfo').textContent = info;
+    const go = $('mbxGo'), n = s.to.size;
+    go.disabled = !n || ((s.mode === 'fp' || whatOn) && !s.what);
+    go.textContent = s.mode === 'fix' ? (n === 1 ? `Send to ${tmFirst([...s.to][0])}` : 'Send') : s.mode === 'co' ? (n > 1 ? `Send to ${n} field partners` : n ? `Send to ${tmFirst([...s.to][0])}` : 'Send') : n ? `Send to ${tmFirst([...s.to][0])}` : 'Send';
+  }
+  /* beta 2.1: the Send screen shows the send itself: a percentage, the MB, one line of what it is doing, the stages, Cancel */
+  const MBX_STAGES = [['pack', 'Packing'], ['send', 'Sending'], ['save', 'Saving in the mailbox'], ['sent', 'Sent']];
+  function mbxProgShow(on) {
+    $('mbxProg').hidden = !on; $('mbxSendFoot').hidden = on;
+    $('mbxSendSheet').querySelectorAll('.body input, .body textarea').forEach((x) => { x.disabled = on; });
+    if (!on) renderMbxSend();
+  }
+  function mbxSheetUi(prefix) {
+    let cur = 'pack', nt = '', ntAt = 0; // a note (the signal dropped) stays readable for a few seconds
+    const steps = () => { const i = MBX_STAGES.findIndex(([k]) => k === cur); $('mbxSteps').innerHTML = MBX_STAGES.map(([k, t], j) => `<span class="${j < i ? 'done' : j === i ? 'on' : ''}">${t}</span>`).join(''); };
+    const pct = (f) => { $('mbxPct').textContent = `${Math.round(f * 100)}%`; $('mbxBar').style.width = `${Math.round(f * 1000) / 10}%`; };
+    return {
+      pack: (t, f) => { cur = 'pack'; $('mbxLine').textContent = `${String(t).replace(/^Packing photos (\d+) \/ (\d+)$/, 'Packing the photos: $1 of $2')}${prefix || ''}`; $('mbxSub').textContent = ''; if (f != null) pct(f * 0.1); steps(); },
+      stage: (k, t) => { cur = k; $('mbxLine').textContent = `${t}${prefix || ''}`; if (k === 'save') { pct(1); $('mbxSub').textContent = 'It shows for them once it is complete'; } steps(); },
+      prog: (f, a, b) => { pct(f); $('mbxSub').textContent = `${mbxMB(a)} of ${mbxMB(b)}${mbxNoDirect ? ' · 2 MB pieces' : ' · 4 MB pieces'}${Date.now() - ntAt < 5000 ? ` · ${nt}` : ''}`; },
+      note: (t) => { nt = t; ntAt = Date.now(); $('mbxSub').textContent = t; },
+    };
+  }
+  function mbxProgStart(text) {
+    $('mbxPct').textContent = '0%'; $('mbxBar').style.width = '0'; $('mbxLine').textContent = text; $('mbxSub').textContent = ''; $('mbxSteps').innerHTML = '';
+    $('mbxProgIco').className = 'mbxspin'; $('mbxProgIco').textContent = ''; $('mbxProgActs').innerHTML = '<button class="btn sm" type="button" id="mbxStop">Cancel</button>';
+    mbxProgShow(true);
+  }
+  function mbxProgEnd(ok, line, sub) {
+    $('mbxProgIco').className = ok ? 'mbxtick' : 'mbxfail'; $('mbxProgIco').textContent = ok ? '✓' : '!';
+    $('mbxLine').textContent = line; $('mbxSub').textContent = sub || '';
+    if (ok) { $('mbxPct').textContent = '100%'; $('mbxBar').style.width = '100%'; $('mbxSteps').innerHTML = MBX_STAGES.map(([, t]) => `<span class="done">${t}</span>`).join(''); }
+    $('mbxProgActs').innerHTML = ok ? '<button class="btn sm primary" type="button" id="mbxDone">Done</button>' : '<button class="btn sm" type="button" id="mbxBack">Back</button>';
+  }
+  $('mbxProgActs').addEventListener('click', (ev) => {
+    if (ev.target.closest('#mbxStop')) { cancelFlag = true; $('mbxLine').textContent = 'Stopping…'; }
+    else if (ev.target.closest('#mbxDone')) { mbxSend = null; closeSheet().then(() => renderProjects()); }
+    else if (ev.target.closest('#mbxBack')) mbxProgShow(false);
+  });
+  $('mbxSendCancel').addEventListener('click', () => { mbxSend = null; closeSheet(); });
+  $('mbxGo').addEventListener('click', () => guard(async () => {
+    const s = mbxSend; if (!s || !s.to.size) return;
+    const note = /** @type {HTMLTextAreaElement} */ ($('mbxNote')).value.trim().slice(0, 600), name = s.name;
+    if (s.mode === 'fix' && !note) { $('mbxSendErr').textContent = 'Write what to fix.'; $('mbxSendErr').hidden = false; return; }
+    if (navigator.onLine === false) { toast('No internet: try again with signal.'); return; }
+    if (!mbxOn()) { toast('The team mailbox is not on this phone (Settings → Team).'); return; }
+    $('mbxSendErr').hidden = true; cancelFlag = false;
+    const fail = (e) => { LOG.warn('mbx.send.fail', { code: e.code || '', msg: String(e.message || e).slice(0, 120) }); if (e.code === 'stop') { mbxProgShow(false); toast('Stopped: not sent.'); } else mbxProgEnd(false, `Not sent: ${e.message || e}`, 'Your copy is on this phone: try again with Back, then Send.'); };
+    if (s.mode === 'co') {
+      mbxProgStart('Packing…');
+      const r = await mbxSendTask(name, [...s.to], note, { what: s.what === 'delta' ? 'delta' : 'full', ui: (of) => mbxSheetUi(of) });
+      if (r.stopped) { mbxProgShow(false); toast('Stopped: not sent.'); return; }
+      if (!r.done.length) { mbxProgEnd(false, `Not sent: ${r.bad.length ? r.bad[0][1] : 'no answer'}`, 'Your copy is on this phone: try again with Back, then Send.'); return; }
+      const who = r.done.map((x) => tmFirst(x)).join(' and ');
+      mbxProgEnd(true, `Sent to ${who}. Waiting for ${r.done.length === 1 ? 'the download' : 'their downloads'}.`, `${tmWhen(new Date().toISOString())}${r.bad.length ? ` · not to ${r.bad.map(([e]) => tmFirst(e)).join(', ')} (${r.bad[0][1]})` : ''} · under Sent by you`);
+      mbxSaidSent(r, name); return;
+    }
+    if (s.mode === 'fix') {
+      mbxProgStart('Sending the note…'); const ok = [];
+      try { for (const to of s.to) { await mbxSendSmall('fix', name, to, { note }, `Sending to ${tmFirst(to)}`, mbxSheetUi(s.to.size > 1 ? ` · ${tmFirst(to)}` : '')); ok.push(to); } }
+      catch (e) { if (!ok.length) { fail(e); return; } }
+      const T = tmTeam(name) || {}; setTeam(name, { ...T, accepted: null, fixAsked: { at: new Date().toISOString(), note } }); persist();
+      mbxProgEnd(true, `Sent back for fixes to ${ok.map((x) => tmFirst(x)).join(' and ')}.`, tmWhen(new Date().toISOString()));
+      toast(`Sent back for fixes to ${ok.map((x) => tmFirst(x)).join(' and ')}.`, 5000); return;
+    }
+    // a field partner: to one coordinator, only the changes or the whole project
+    const to = [...s.to][0], ui = { ...mbxSheetUi(''), start: (t) => mbxProgStart(t) };
+    let r;
+    try { r = await mbxSendFpUpdate(name, to, s.what !== 'delta', note, ui); } catch (e) { fail(e); return; }
+    mbxProgEnd(true, `Sent to ${r.first}. Waiting for the download.`, `${r.full ? `The whole project (update ${r.n})` : `Update ${r.n}`} · ${pl2(r.recs, 'record')}${r.gone ? `, ${r.gone} deleted` : ''} · ${mbxMB(r.size)}${r.how === 'script' ? ' · through the mailbox script' : ''}`);
+    toast(`${r.full ? `The whole project (update ${r.n})` : `Update ${r.n}`} sent to ${r.first}: ${pl2(r.recs, 'record')}${r.gone ? `, ${r.gone} deleted` : ''} · ${mbxMB(r.size)}${r.how === 'script' ? ' · through the mailbox script' : ''}.`, 6000);
+  }, 'Not sent'));
+
+  /** A field partner's update to his coordinator: only the changes since his last send (or the whole project), with the fix answers
+      not sent yet. ui: the Send screen's (with start(text)) or the screen-wide wait. Throws when not sent (a failed send is listed
+      under Sent by you). beta 3.4: the Send screen and Sync both send this way. */
+  async function mbxSendFpUpdate(name, to, full0, note, ui) {
+    const W = mbxWhatFor(name, to), full = !!full0 || !W.since, at = new Date().toISOString(), me = tmEmail(), first = tmFirst(to);
+    let T = tmTeam(name) || {};
+    if (!T.tk) T = { ...T, role: 'fp', tk: uid(), by: T.by || to, byName: T.byName || tmNameOf(to) }; // his own project, sent to a coordinator for the first time
+    setTeam(name, T); persist();
+    const c = W.c, n = ((W.led && W.led.n) || 0) + 1, gone = full ? Object.keys(pmeta(name).gone || {}).length : c.gone;
+    const fxAns = fxAnswers(name); // beta 3: the fix answers not sent yet
+    const U = { n, full, since: full ? '' : W.since, at, pts: full ? null : c.ch, route: full || c.route, sender: `mbx:${me}`, nGone: gone, fixAns: fxAns };
+    const recs = full ? c.all.length : c.ch.length, photos = full ? projPhotos(name) : c.nph;
+    if (ui.start) ui.start(`Packing ${pl2(recs, 'record')} and ${pl2(photos, 'photo')}…`);
+    let bytes, r;
+    try {
+      bytes = await mbxBytes(name, U, false, (t, f) => ui.pack(t, f));
+      const meta = mbxMeta('update', name, to, { n, full, note: note || '', recs, photos, gone, route: !!U.route, by: T.by || to, byName: T.byName || '', ...(fxAns.length ? { fixAns: fxAns.length } : {}) });
+      r = await mbxSendBytes(to, bytes, meta, `Sending to ${first}`, ui);
+    } catch (e) {
+      if (e.code !== 'stop') mbxOutAdd({ tid: `x${mbxRid(10)}`, to, toName: tmNameOf(to), kind: 'update', project: name, tk: T.tk, n, full, size: bytes ? bytes.length : 0, at, st: 'failed', stAt: at, why: String(e.message || e).slice(0, 120) });
+      throw e;
+    }
+    const T2 = tmTeam(name) || {};
+    setTeam(name, { ...T2, to: [to], fix: null, sent: { ...(T2.sent || {}), [to]: { n, at } } });
+    fxMarkSent(name, fxAns);
+    mbxOutAdd({ tid: r.tid, to, toName: tmNameOf(to), kind: 'update', project: name, tk: T.tk, n, full, size: bytes.length, at, st: 'waiting', stAt: at, how: r.how, recs, note: note || '' });
+    LOG.info('mbx.update', { n, full, mb: +(bytes.length / 1048576).toFixed(2), how: r.how, recs, gone });
+    return { n, full, recs, gone, size: bytes.length, how: r.how, first, ans: fxAns.length };
+  }
+
+  /* ---- beta 3.4: Sync brings in and sends ---- */
+  let MBX_AUTO_BIG = 20 * 1048576; // above this, on mobile data, an update waits for Wi-Fi (or Get it now) (let: the tests set a small one)
+  const mbxCellular = () => { const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection; return !!(c && c.type === 'cellular'); };
+  /** The project on this phone that a mailbox item is for ('' when none). */
+  function mbxHereFor(M) {
+    const byTk = mbxLocalByTk(M.tk); if (byTk) return byTk;
+    if (!allProjects().includes(M.project)) return '';
+    const T = tmTeam(M.project); return T && (!T.tk || !M.tk || T.tk === M.tk) ? M.project : '';
+  }
+  /** What Sync brings in by itself: updates, fix lists, answers (with the updates), Accept and notes for a project already on this
+      phone. A new task (the first notice of a survey) stays in the mailbox for Download, and so does an update that came after you
+      accepted (it asks first), or a big one on mobile data (it waits for Wi-Fi, or Get it now). */
+  function mbxAutoOk(it) {
+    const M = (it && it.meta) || {}, here = mbxHereFor(M); if (!here) return false;
+    if (M.kind === 'task') return !!mbxLocalByTk(M.tk); // the whole project again, for a task already here
+    if (M.kind === 'update') { const T = tmTeam(here); if (T && T.role === 'co' && T.accepted) return false; }
+    return ['update', 'fix', 'accept', 'note'].includes(M.kind);
+  }
+  const mbxWaitsWifi = (it) => ['update', 'task'].includes((it.meta || {}).kind) && (it.size || 0) > MBX_AUTO_BIG && mbxCellular();
+  let mbxAutoRun = null, mbxNoAuto = false; // (mbxNoAuto: the tests of the manual path, beta 3.3's, turn Sync's bringing in off)
+  /** Brings in what is listed (mbxRefresh first), one at a time, oldest first. Returns { n, said: [...], notes: [...], wifi, err }. */
+  async function mbxAutoIn() {
+    if (!mbxOn() || navigator.onLine === false || !mbxIn || mbxNoAuto) return null;
+    if (mbxAutoRun) return mbxAutoRun;
+    mbxAutoRun = (async () => {
+      const res = { n: 0, said: [], notes: [], wifi: 0, held: 0, err: '' }, hold = reloadBlocked(); // (a record or the camera open: no merge under it)
+      const items = mbxIn.filter(mbxAutoOk).sort((a, b) => String(a.created || '').localeCompare(String(b.created || '')));
+      for (const it of items) {
+        if (mbxJob && !['done', 'fail'].includes(mbxJob.stage)) break; // a download you started: the rest come at the next Sync
+        if (mbxWaitsWifi(it)) { res.wifi++; continue; }
+        if (hold && ['task', 'update'].includes((it.meta || {}).kind)) { res.held++; continue; }
+        try {
+          const r = await mbxOpenItem(it.tid, true);
+          if (r) { res.n++; if (r.said) res.said.push(r.said); if (r.note) res.notes.push(`${tmFirst(it.meta.from, it.meta.fromName)}: “${String(r.note).slice(0, 160)}”`); }
+        } catch (e) { res.err = e.message || String(e); mbxJob = null; LOG.warn('mbx.auto.fail', { kind: (it.meta || {}).kind, msg: String(e.message || e).slice(0, 120) }); }
+      }
+      LOG.info('mbx.auto', { n: res.n, wifi: res.wifi, err: !!res.err });
+      return res;
+    })();
+    try { return await mbxAutoRun; } finally { mbxAutoRun = null; if (!$('projects').hidden) renderProjects(); else mbxMarks(); }
+  }
+  /** What a field partner's project has to send: changes since his last send (or since the task came), or fix answers. */
+  function mbxFpHas(name) {
+    const T = tmTeam(name) || {}, to = (T.to && T.to[0]) || T.by; if (!to) return null;
+    const W = mbxWhatFor(name, to), c = W.since ? W.c : mbxChanges(name, T.got || '', to), ans = fxAnswers(name).length;
+    return c.ch.length || c.gone || c.route || ans ? { to, recs: c.ch.length, ans } : null;
+  }
+  /** beta 3.4: Sync sends a field partner's work: for each of his team projects (not accepted, or opened again for fixes), only the
+      changes since his last send, with his fix answers. Returns { n, said: [...], err }. */
+  async function mbxAutoSend() {
+    if (!mbxOn() || navigator.onLine === false || tmRole() !== 'Field Partner' || mbxNoAuto) return null;
+    const res = { n: 0, said: [], err: '' };
+    for (const name of allProjects()) {
+      const T = tmTeam(name);
+      if (!T || T.role !== 'fp' || !T.by || T.leftAt || (T.accepted && !T.reopen) || pmeta(name).sample) continue;
+      const h = mbxFpHas(name); if (!h) continue;
+      cancelFlag = false;
+      try {
+        const r = await mbxSendFpUpdate(name, h.to, false, '', mbxBusyUi(`Sync: “${name}” to ${tmFirst(h.to)}`));
+        res.n++; res.said.push(`${r.full ? `the whole “${name}”` : `update ${r.n} of “${name}”`} to ${r.first}${r.ans ? ` with ${pl2(r.ans, 'fix answer')}` : ''}`);
+      } catch (e) { if (e.code === 'stop') break; res.err = e.message || String(e); LOG.warn('mbx.autosend.fail', { msg: String(e.message || e).slice(0, 120) }); }
+      finally { busy(false); }
+    }
+    if (res.n || res.err) LOG.info('mbx.autosend', { n: res.n, err: !!res.err });
+    return res;
+  }
+  /** The team mailbox checked, and what is for projects here brought in (the mailbox's Check, Projects, the start). */
+  async function mbxCheck() { const ok = await mbxRefresh(); const a = ok ? await mbxAutoIn() : null; if (a && a.n) await mbxRefresh(); return { ok, a }; }
+  const mbxAutoSay = (a, s) => [a && a.n ? `brought in: ${a.said.join('; ')}` : '', s && s.n ? `sent: ${s.said.join('; ')}` : '', a && a.wifi ? `${pl2(a.wifi, 'big update')} waiting for Wi-Fi (Projects → Get it now)` : '',
+    a && a.held ? `${pl2(a.held, 'update')} at the next Sync (a record was open)` : '', a && a.err ? `not brought in: ${a.err}` : '', s && s.err ? `not sent: ${s.err}` : ''].filter(Boolean).join(' · ');
+
+  /* ---- receiving: the inbox on the Projects screen ---- */
+  /** Where a received project goes on this phone: the one with its task key, the same project by name, or a new name. */
+  function mbxLocalFor(M, meta) {
+    const byTk = mbxLocalByTk(M.tk); if (byTk) return { name: byTk, here: true };
+    const nm = String(M.project || meta.project || 'Project').slice(0, 100);
+    if (!allProjects().includes(nm)) return { name: nm, here: false };
+    const T0 = tmTeam(nm), same = meta.points.some((p) => points.some((x) => x.id === p.id && x.project === nm));
+    if (same && !(T0 && T0.tk && M.tk && T0.tk !== M.tk)) return { name: nm, here: true };
+    const who = tmFirst(M.from, M.fromName); let k = 2, n2 = `${nm} (${who})`;
+    while (allProjects().includes(n2)) n2 = `${nm} (${who} ${k++})`;
+    return { name: n2, here: false };
+  }
+  /** The KMZ reference that came with a task: kept as this project's reference (as Projects → KMZ does). */
+  async function mbxRefIn(z, proj) {
+    const raw = await z.get('ref.json'); if (!raw) return false;
+    let R = null; try { R = JSON.parse(dec(raw)); } catch (e) { R = null; }
+    if (!R || !R.geo || !Array.isArray(R.geo.points)) return false;
+    const old = refInfo(proj);
+    if (old && old.name === R.name && old.at === R.at) return false; // the same KMZ as before
+    const id = uid(); await dbPut('packs', { k: refKey(id), geo: R.geo });
+    if (old) await dbDel('packs', refKey(old.id)).catch(() => {});
+    S.refs = { ...(S.refs || {}), [proj]: { id, name: String(R.name || 'reference').slice(0, 120), at: R.at || new Date().toISOString(), n: R.n || {} } };
+    S.refHidden = { ...(S.refHidden || {}), [proj]: false };
+    if (refFor === proj) { refGeo = null; refFor = null; }
+    persist(); return true;
+  }
+  async function mbxPicked(tid) {
+    try { await mbxCall('picked', { box: tmEmail(), tid }); } catch (e) { LOG.warn('mbx.picked.fail', { code: e.code || '' }); } // left there: the clean-up takes it after 7 days, and merging it again changes nothing
+    mbxIn = (mbxIn || []).filter((x) => x.tid !== tid);
+  }
+  /** beta 2.1: the download in progress (or its result), shown in its inbox row and on the project's card. */
+  let mbxJob = null; // { tid, stage: down | check | merge | done | fail, frac, got, total, line, sub, proj, kind }
+  const MBX_DSTAGES = [['down', 'Downloading'], ['check', 'Checking'], ['merge', 'Merging'], ['done', 'Done']];
+  function mbxJobHtml(j) {
+    const i = MBX_DSTAGES.findIndex(([k]) => k === j.stage), end = j.stage === 'done' || j.stage === 'fail';
+    const steps = MBX_DSTAGES.map(([k, t], x) => `<span class="${x < i || j.stage === 'done' ? 'done' : x === i ? 'on' : ''}">${k === 'done' ? (j.kind === 'task' ? 'Loaded' : 'Merged') : t}</span>`).join('');
+    return `<div class="mbxjob" data-job="${tmEsc(j.tid)}"><div class="ln"><span class="${j.stage === 'done' ? 'mbxtick' : j.stage === 'fail' ? 'mbxfail' : 'mbxspin'}">${j.stage === 'done' ? '✓' : j.stage === 'fail' ? '!' : ''}</span><span class="tx">${tmEsc(j.line || '')}</span>${j.stage === 'down' ? `<span class="pct">${Math.round((j.frac || 0) * 100)}%</span>` : ''}</div>`
+      + `${end ? '' : `<div class="mbxbar"><i style="width:${Math.round((j.stage === 'down' ? j.frac || 0 : 1) * 1000) / 10}%"></i></div>`}<div class="sub">${tmEsc(j.sub || '')}</div>${j.stage === 'fail' ? '' : `<div class="mbxsteps">${steps}</div>`}`
+      + `<div class="acts">${end ? `${j.stage === 'done' && j.chgN ? `<button class="btn sm primary" type="button" data-jobchg="1">What changed (${j.chgN})</button>` : ''}${j.stage === 'done' ? `<button class="btn sm${j.chgN ? '' : ' primary'}" type="button" data-jobgo="1">${j.kind === 'task' ? 'Start surveying' : 'Show on the map'}</button>` : ''}<button class="btn sm" type="button" data-jobx="1">${j.stage === 'done' ? 'OK' : 'Close'}</button>` : j.stage === 'down' ? '<button class="btn sm" type="button" data-jobstop="1">Cancel</button>' : ''}</div></div>`;
+  }
+  function mbxJobPaint() { // only the job's own boxes: the rest of the screen stays as it is
+    if (!mbxJob) return;
+    const els = document.querySelectorAll('.mbxjob'); if (!els.length) { if (!$('projects').hidden) renderMbx(); return; }
+    els.forEach((el) => { el.outerHTML = mbxJobHtml(mbxJob); });
+  }
+  document.addEventListener('click', (ev) => {
+    const t = ev.target; if (!(t instanceof Element) || !t.closest('.mbxjob')) return;
+    if (t.closest('[data-jobstop]')) { cancelFlag = true; if (mbxJob) { mbxJob.line = 'Stopping…'; mbxJobPaint(); } }
+    else if (t.closest('[data-jobx]')) { mbxJob = null; renderProjects(); }
+    else if (t.closest('[data-jobchg]')) { const p = mbxJob && mbxJob.proj; if (p) chgOpen(p); }
+    else if (t.closest('[data-jobgo]')) { const p = mbxJob && mbxJob.proj; mbxJob = null; closeAll().then(() => { if (p && p === S.project) fitProject(); }); }
+  });
+  /** Download, check and merge one transfer (a task or an update), or read a small one (fixes, accepted, a note).
+      beta 3.4: auto (Sync brings it in): nothing is asked, the open project and the map stay as they are, and what came is returned
+      ({ kind, proj, said }) for one line at the end; the project's card says what came (Merged by Sync). */
+  async function mbxOpenItem(tid, auto) {
+    const it = (mbxIn || []).find((x) => x.tid === tid); if (!it) return null;
+    const M = it.meta || {}, who = M.fromName || M.from || 'a colleague', first = tmFirst(M.from, M.fromName);
+    if (!['task', 'update'].includes(M.kind)) return mbxOpenSmall(it, auto);
+    if (navigator.onLine === false) { if (!auto) toast('No internet: try again with signal.'); return null; }
+    if (mbxJob && !['done', 'fail'].includes(mbxJob.stage)) { if (!auto) toast('One download at a time: this one starts when the other is done.', 4000); return null; }
+    if (M.kind === 'update') { // beta 3.3 (QA-09): an update into a project this phone has accepted: ask first
+      const pre = mbxLocalByTk(M.tk) || (allProjects().includes(M.project) ? M.project : ''), TA = pre ? tmTeam(pre) : null;
+      if (TA && TA.role === 'co' && TA.accepted) {
+        if (auto) return null; // (beta 3.4: Sync leaves it in the mailbox, where it asks first)
+        const go = await ask(`“${pre}” is accepted`, `You accepted it ${tmWhen(TA.accepted.at)}. ${first} sent update ${M.n || ''} too (it may have been sent before ${first} saw your acceptance). Merge it into the accepted project anyway?\n\nCancel leaves the project as it is, and the update stays in the team mailbox.`,
+          [{ label: 'Cancel', value: false }, { label: 'Merge anyway', value: true, primary: true }]);
+        LOG.info('mbx.late', { merge: !!go, n: M.n || 0 });
+        if (!go) return;
+      }
+    }
+    cancelFlag = false;
+    mbxJob = { tid, kind: M.kind, stage: 'down', frac: 0, line: `Downloading from ${first}`, sub: `0 of ${mbxMB(it.size || 0)}` };
+    renderProjects();
+    let data;
+    try {
+      data = await mbxDownload(it, (f, got, total, X) => { if (!mbxJob || mbxJob.tid !== tid) return; mbxJob.frac = f; const k = X ? X.par : MBX_PAR; mbxJob.sub = `${mbxMB(got)} of ${mbxMB(total)} · through the mailbox, ${k === 1 ? 'one piece at a time (Google is busy)' : `${k} pieces at once`}`; mbxJobPaint(); },
+        () => { if (mbxJob) { mbxJob.stage = 'check'; mbxJob.line = 'Checking the file'; mbxJob.sub = 'Comparing it with what was sent'; mbxJobPaint(); } });
+    } catch (e) {
+      if (e.code === 'stop') { mbxJob = null; renderProjects(); toast('Stopped: it stays in the mailbox.'); return; }
+      mbxJob = { tid, kind: M.kind, stage: 'fail', line: `Not downloaded: ${e.message || e}`, sub: 'It stays in the mailbox: try again.' }; renderProjects(); throw e;
+    }
+    const z = await zipReader(new Blob([data]));
+    let b = null; try { b = JSON.parse(dec(await z.get('bundle.json'))); } catch (e) { b = null; }
+    const raw = b && b.kind === 'bundle' && Array.isArray(b.projects) && b.projects.length === 1 ? await z.get(b.projects[0].file) : null;
+    const meta = raw ? JSON.parse(dec(raw)) : null;
+    if (!meta || !Array.isArray(meta.points)) { mbxJob = { tid, kind: M.kind, stage: 'fail', line: 'Not a G-eSAA project file', sub: '' }; renderProjects(); throw new Error('this is not a G-eSAA project file'); }
+    const L = mbxLocalFor(M, meta);
+    if (!L.here && auto) { mbxJob = null; renderProjects(); return null; } // (beta 3.4: Sync brings in only what is for a project on this phone, never a new one)
+    if (!L.here && !M.full) {
+      if (!(await ask(`Changes from ${who}`, `“${M.project}” is not on this phone and this file has only its changes. Ask ${first} to send The whole project. Open these changes anyway?`, [{ label: 'Not now', value: false }, { label: 'Open anyway', value: true, primary: true }]))) { mbxJob = null; renderProjects(); return; }
+    }
+    if (L.name !== meta.project) { meta.project = L.name; meta.points = meta.points.map((p) => ({ ...p, project: L.name })); }
+    const nph = new Set(meta.points.flatMap(allPids)).size;
+    mbxJob.stage = 'merge'; mbxJob.line = M.kind === 'task' ? `Opening ${L.name}${z.names.includes('ref.json') ? ' and its KMZ reference' : ''}` : `Merging ${pl2(meta.points.length, 'record')} and ${pl2(nph, 'photo')} into ${L.name}`; mbxJob.sub = M.kind === 'task' ? 'Saving it on this phone' : 'The newer record wins; deletions carry over'; mbxJobPaint();
+    const o = { quiet: true, update: { n: M.n || 1, full: !!M.full, sender: `mbx:${M.from}`, from: who, at: M.at || it.created } };
+    const snap = L.here && M.kind === 'update' ? chgSnapAll(L.name) : null; // beta 3: the project before, for what changed
+    let proj;
+    try { busy(mbxJob.line); proj = (await restoreMeta(z, meta, '', o)) || L.name; } finally { busy(false); }
+    const R2 = o.result || {}, now = new Date().toISOString(), me = tmEmail(), T0 = tmTeam(proj) || {};
+    let refNew = false;
+    if (M.kind === 'task') {
+      setTeam(proj, { ...T0, role: 'fp', tk: M.tk || T0.tk || uid(), by: M.from, byName: who, to: [M.from], got: now, accepted: null,
+        sent: { ...(T0.sent || {}), [M.from]: (T0.sent || {})[M.from] || { n: 0, at: now } }, ...(M.note ? { taskNote: { note: M.note, at: M.at || now } } : {}) });
+      refNew = await mbxRefIn(z, proj);
+    } else if (T0.role === 'fp') { // beta 2.1: the coordinator's changes on a field partner's phone
+      setTeam(proj, { ...T0, coUpd: { n: M.n, at: now, from: M.from, fromName: who }, ...(M.note ? { taskNote: { note: M.note, at: M.at || now } } : {}) });
+      refNew = await mbxRefIn(z, proj);
+    } else {
+      const took = !T0.tk && M.by && M.by !== me ? { from: M.by, fromName: M.byName || tmNameOf(M.by), at: now } : T0.takenOver || null;
+      setTeam(proj, { ...T0, role: T0.role || 'co', tk: M.tk || T0.tk || uid(), by: T0.by || (took ? took.from : me), byName: T0.byName || (took ? took.fromName : (S.user && S.user.name) || me),
+        to: [...new Set([...(T0.to || []), M.from])], names: { ...(T0.names || {}), [M.from]: who }, ...(took ? { takenOver: took } : {}),
+        ...(M.left ? { left: { ...(T0.left || {}), [M.from]: now } } : {}), ...(M.note ? { lastNote: { from: M.from, fromName: who, note: M.note, at: M.at || now } } : {}) });
+    }
+    const chgN = snap ? chgStore(proj, snap, M, who) : 0; // beta 3: every merged update says what it changed
+    const ans = M.kind === 'update' && meta.update && Array.isArray(meta.update.fixAns) ? meta.update.fixAns : [];
+    if (ans.length && (tmTeam(proj) || {}).role !== 'fp') fxApplyAnswers(proj, ans, M, who);
+    { // beta 2.1: what came from them (as merged), so only the changes to them leave it out until it changes here
+      const T1 = tmTeam(proj) || {}, ec = T1.echo || {}, prev = ec[M.from] || {}, P = { ...(prev.p || {}) }, mm = meta.meta || {};
+      meta.points.forEach((p) => { if (p && p.id) P[p.id] = String(p.updated || p.created || ''); });
+      const la = pmeta(proj).linksAt || '';
+      setTeam(proj, { ...T1, echo: { ...ec, [M.from]: { p: P, g: { ...(prev.g || {}), ...(mm.gone || {}) }, l: la && (mm.linksAt === la || (R2.route && R2.route.same)) ? la : prev.l || '' } } }); // (beta 3.3: the route merged is the same as theirs)
+    }
+    persist();
+    await mbxPicked(it.tid);
+    LOG.info('mbx.open', { kind: M.kind, n: M.n, full: !!M.full, records: R2.recs, kept: R2.kept, gone: R2.gone, route: R2.route ? routeSaid(R2.route) : false, mb: +(data.length / 1048576).toFixed(2), isNew: !L.here, ref: refNew });
+    const said = `${[pl2(R2.recs || 0, 'record'), R2.gone && `${R2.gone} deleted`, R2.route && routeSaid(R2.route), refNew && 'the KMZ reference'].filter(Boolean).join(' · ')}${R2.kept ? ` · ${R2.kept} newer here kept` : ''}`;
+    const ansSaid = ans.length ? ` · ${ans.length === 1 ? '1 fix answer' : `${ans.length} fix answers`} to check` : '';
+    if (auto) { // beta 3.4: Sync brought it in: the card says so; the open project and the map stay as they are
+      mbxJob = null;
+      S.meta[proj] = { ...pmeta(proj), syncIn: { at: now, kind: M.kind, n: M.n || 0, full: !!M.full, from: M.from, fromName: who, said, chgN, ans: ans.length, note: M.note ? String(M.note).slice(0, 600) : '' } };
+      persist(); if (proj === S.project) renderPoles(); renderProjects();
+      if (M.kind === 'update' && L.here) dupMark(proj, o.written); // beta 3.3 (QA-06): the same pole twice: a line on the project, not a question in the middle of Sync
+      return { kind: M.kind, proj, said: `${M.kind === 'task' || M.full ? `the whole “${proj}”` : `update ${M.n} of “${proj}”`} from ${first}${ans.length ? ` (${pl2(ans.length, 'fix answer')})` : ''}`, note: M.note || '' };
+    }
+    mbxJob = { tid, kind: M.kind, stage: 'done', proj, chgN, ans: ans.length, line: M.kind === 'task' ? `Loaded: ${proj} is open` : `Merged: ${proj} is open`, sub: `${said}${ansSaid} · deleted from the mailbox for good` };
+    S.project = proj; persist(); renderPoles(); fitProject(); renderProjects(); // (renderPoles draws a new KMZ reference)
+    toast(M.kind === 'task' ? `Task from ${first}: “${proj}” · ${said}` : `${M.full ? `The whole project (update ${M.n})` : `Update ${M.n}`} from ${first} merged into “${proj}”: ${said}`, 6500);
+    if (M.note) await ask(`${M.kind === 'task' ? 'Task' : 'Update'} from ${who}`, M.note, [{ label: 'OK', value: true, primary: true }]);
+    if (M.kind === 'update' && L.here) await dupAtMerge(proj, o.written); // beta 3.3 (QA-06): the same pole twice
+    return { kind: M.kind, proj, said };
+  }
+  /** beta 3.4: poles recorded twice, found when Sync merged an update: kept for a line on the project ("2 doubled poles: choose"). */
+  function dupMark(proj, written) {
+    const ids = (written || []).filter((id) => points.some((p) => p.id === id && p.project === proj)); if (!ids.length) return 0;
+    const all = [...new Set([...(pmeta(proj).dupWait || []), ...ids])], G = dupFind(proj, all);
+    S.meta[proj] = { ...pmeta(proj), dupWait: G.length ? all : null }; persist();
+    LOG.info('dup.wait', { groups: G.length });
+    return G.length;
+  }
+  async function mbxOpenSmall(it, auto) {
+    const M = it.meta || {}, who = M.fromName || M.from || 'a colleague', first = tmFirst(M.from, M.fromName), now = new Date().toISOString();
+    const proj = mbxLocalByTk(M.tk) || (allProjects().includes(M.project) ? M.project : '');
+    if (auto && !proj) return null; // (beta 3.4: Sync brings in only what is for a project on this phone)
+    if (M.kind === 'fix' && proj && M.fixes > 0) { // beta 3: a fix list (each pole, what to do): the panel over the map
+      const data = await mbxDownload(it, (f) => busy(`Downloading the fix list… ${Math.round(f * 100)}%`, f));
+      let B = null; try { B = JSON.parse(dec(data)); } catch (e) { B = null; }
+      busy(false);
+      if (!B || !Array.isArray(B.items)) throw new Error('the fix list could not be read: ask for it again');
+      const T = tmTeam(proj) || {};
+      setTeam(proj, { ...T, fix: { note: String(M.note || ''), at: M.at || now, from: M.from, fromName: who } });
+      const late = fxReceive(proj, B, M, who);
+      await mbxPicked(it.tid);
+      LOG.info('mbx.open', { kind: 'fixlist', n: B.items.length, auto: !!auto, late: !!late });
+      if (auto) { if (fx && fx.mode === 'fp' && fx.name === proj) { fxRender(); fxDraw(); } renderProjects(); return { kind: 'fix', proj, said: `${nFix(B.items.length)} from ${first} for “${proj}”${late ? ' (after Accept)' : ''}` }; }
+      renderProjects(); fxOpenFp(proj);
+      toast(`${who} asked for ${B.items.length === 1 ? '1 fix' : `${B.items.length} fixes`}: follow the numbered pins.`, 6000);
+      return { kind: 'fix', proj, said: '' };
+    }
+    if (M.kind === 'fix' || M.kind === 'accept') {
+      if (proj) {
+        const T = tmTeam(proj) || {};
+        setTeam(proj, M.kind === 'fix' ? { ...T, accepted: null, reopen: null, fix: { note: String(M.note || ''), at: M.at || now, from: M.from, fromName: who } }
+          : { ...T, fix: null, reopen: null, accepted: { at: M.at || now, by: M.from, byName: who } }); // (beta 3.4: Accept again closes the fixes sent after Accept)
+        persist();
+      }
+      busy(false);
+      await mbxPicked(it.tid);
+      LOG.info('mbx.open', { kind: M.kind, here: !!proj, auto: !!auto });
+      if (auto) { if (M.kind === 'accept' && fx && fx.mode === 'fp' && fx.name === proj) fxClose(); renderProjects(); return { kind: M.kind, proj, said: M.kind === 'fix' ? `fixes asked by ${first} for “${proj}”` : `${first} accepted “${proj}”`, note: M.kind === 'fix' ? M.note || '' : '' }; }
+      if (proj && proj !== S.project) openTask(proj); else renderProjects();
+      if (M.kind === 'fix') await ask(`Fixes for “${M.project}”`, `${who} asks:\n\n${M.note || ''}${proj ? '' : '\n\n(This project is not on this phone.)'}\n\nFix them, then Send to coordinator.`, [{ label: 'OK', value: true, primary: true }]);
+      else toast(`${first} accepted your survey of “${M.project}”: it is done on this phone.`, 6500);
+      return { kind: M.kind, proj, said: '' };
+    }
+    if (auto && M.kind !== 'note') return null; // (anything else stays in the mailbox)
+    await mbxPicked(it.tid);
+    LOG.info('mbx.open', { kind: M.kind || 'other', auto: !!auto });
+    if (auto) { const T = tmTeam(proj) || {}; setTeam(proj, { ...T, lastNote: { from: M.from, fromName: who, note: String(M.note || '').slice(0, 600), at: M.at || now } }); persist(); renderProjects(); return { kind: 'note', proj, said: `a note from ${first} for “${proj}”`, note: M.note || '' }; }
+    renderProjects();
+    if (M.kind === 'note') await ask(`From ${who}`, String(M.note || ''), [{ label: 'OK', value: true, primary: true }]);
+    else toast('Removed from the mailbox.');
+  }
+  /** Read the inbox, and the state of what this phone sent (waiting, picked up, not picked up in 7 days). */
+  async function mbxRefresh() {
+    if (!mbxOn() || navigator.onLine === false) return false;
+    try {
+      const L = await mbxCall('list', { box: tmEmail() }, 30000, 1);
+      mbxIn = (L.items || []).filter((x) => x && x.tid && x.meta && x.meta.kind !== 'check'); mbxInAt = Date.now(); mbxInErr = '';
+      const out = S.mbxOut || [], now = Date.now();
+      out.forEach((o) => { if (o.st === 'sending' && now - Date.parse(o.at) > 15 * 60000) { o.st = 'failed'; o.stAt = new Date().toISOString(); } });
+      const wait = out.filter((o) => o.st === 'waiting' && !/^x/.test(o.tid)).slice(0, 100);
+      if (wait.length) {
+        const st = await mbxCall('status', { tids: wait.map((o) => o.tid) }, 30000, 1);
+        wait.forEach((o) => { const v = st.status && st.status[o.tid]; if (v && v !== 'waiting' && v !== 'unknown' && v !== o.st) { o.st = v; o.stAt = (st.at && st.at[o.tid]) || new Date().toISOString(); if (v === 'expired' || v === 'cancelled') mbxGap(o); } });
+      }
+      S.mbxOut = out.filter((o) => !(o.st === 'picked' && now - Date.parse(o.stAt || o.at) > 30 * MBX_DAY)); persist();
+      if (mbxJob && ['done', 'fail'].includes(mbxJob.stage)) mbxJob = null; // a new check: the last result is read
+      LOG.info('mbx.list', { in: mbxIn.length, out: wait.length });
+      return true;
+    } catch (e) { mbxInErr = e.message || String(e); LOG.warn('mbx.list.fail', { code: e.code || '', msg: String(e.message || e).slice(0, 120) }); return false; }
+    finally { if (!$('projects').hidden) renderProjects(); else mbxMarks(); }
+  }
+  const MBX_ST = { waiting: 'waiting', picked: 'picked up', expired: 'not picked up in 7 days: removed from the mailbox', cancelled: 'taken back', failed: 'not sent', resent: 'sent again', replaced: 'replaced by a newer send' };
+  function mbxStText(o) {
+    if (o.st === 'waiting') { const d = Math.floor((Date.now() - Date.parse(o.at)) / MBX_DAY); return `waiting since ${tmWhen(o.at)}${d >= 3 ? ` · not picked up for ${d} days` : ''}`; }
+    if (o.st === 'picked') return `picked up ${tmWhen(o.stAt)}`;
+    return `${MBX_ST[o.st] || o.st}${o.st === 'failed' && o.why ? ` (${o.why})` : ''}`;
+  }
+  /** One field partner's state on a coordinator's project: has it, waiting, not picked up, and the last update merged. */
+  function mbxTaskState(name, email) {
+    const T = tmTeam(name) || {}, o = (S.mbxOut || []).find((x) => x.kind === 'task' && x.to === email && ((T.tk && x.tk === T.tk) || x.project === name));
+    const u = (pmeta(name).recv || {})[`mbx:${email}`];
+    const a = !o ? '' : o.st === 'picked' ? `has it (${tmWhen(o.stAt)})` : o.st === 'waiting' ? `task waiting since ${tmWhen(o.at)}` : `task ${MBX_ST[o.st] || o.st}`;
+    return [a, u && `update ${u.n} merged ${tmWhen(u.at)}`, T.left && T.left[email] && 'left the team'].filter(Boolean).join(' · ') || 'not sent yet';
+  }
+  /** What waits in this phone's mailbox for one project (beta 2.1: its icon, and the Accept rule). */
+  function mbxWaitsFor(name) {
+    const T = tmTeam(name);
+    return (mbxIn || []).filter((it) => it.meta && ((T && T.tk && it.meta.tk) ? it.meta.tk === T.tk : it.meta.project === name));
+  }
+  /** beta 2.2: the Projects pane's Check the team mailbox (a computer): shown on a team mailbox phone, with what waits. */
+  function ppMbxMark() {
+    const b = $('ppMbx'); if (!b) return;
+    const on = mbxOn(), n = (mbxIn || []).length; b.hidden = !on;
+    $('ppMbxN').hidden = !n; $('ppMbxN').textContent = String(n); b.classList.toggle('wait', !!n);
+    const t = !on ? '' : n ? `Team mailbox: ${n} waiting · click to check again and open it` : mbxInAt ? `Team mailbox: nothing waiting (checked ${tmWhen(new Date(mbxInAt).toISOString())}) · click to check` : 'Check the team mailbox';
+    b.title = t; b.setAttribute('aria-label', t || 'Check the team mailbox');
+  }
+  /** The dot on Projects (something waits) and the pane's icons. */
+  function mbxMarks() {
+    try { ppMbxMark(); renderSyncBtn(); } catch (e) { /* not shown */ } // (Sync's label: and the team mailbox)
+    $('mbxDot').hidden = !(mbxOn() && (mbxIn || []).length);
+    if (typeof deskOn === 'function' && deskOn() && ppState().open) ppRows();
+  }
+  function renderMbx() {
+    const on = mbxOn(); $('mbxBox').hidden = !on;
+    if (on) {
+      const items = mbxIn || [], box = $('mbxIn');
+      const rows = items.map((it) => {
+        const M = it.meta || {}, who = tmEsc(M.fromName || M.from || 'a colleague'), old = Date.now() - Date.parse(it.created) >= 3 * MBX_DAY;
+        const head = M.kind === 'task' ? `Task from ${who}` : M.kind === 'update' ? `${M.full ? `Update ${M.n} (the whole project)` : `Update ${M.n}`} from ${who}${M.left ? ' · left the team' : ''}`
+          : M.kind === 'fix' ? `Fixes asked by ${who}` : M.kind === 'accept' ? `${who} accepted your survey` : M.kind === 'note' ? `Note from ${who}` : `A file from ${who}`;
+        const sub = [M.project, ['task', 'update'].includes(M.kind) && M.recs != null && pl2(M.recs, 'record'), ['task', 'update'].includes(M.kind) && mbxMB(it.size || 0), tmWhen(it.created), mbxWaitsWifi(it) && mbxAutoOk(it) && 'waits for Wi-Fi'].filter(Boolean).map((x) => tmEsc(x)).join(' · ');
+        const wifi = mbxWaitsWifi(it) && mbxAutoOk(it); // beta 3.4: Sync left it for Wi-Fi
+        const btn = wifi ? 'Get it now' : M.kind === 'task' ? 'Download' : M.kind === 'update' ? 'Download and merge' : ['fix', 'accept', 'note'].includes(M.kind) ? 'Open' : 'Remove';
+        const job = mbxJob && mbxJob.tid === it.tid ? mbxJobHtml(mbxJob) : '';
+        const busyOther = mbxJob && mbxJob.tid !== it.tid && !['done', 'fail'].includes(mbxJob.stage) && ['task', 'update'].includes(M.kind);
+        return `<div class="tmrow${old ? ' old' : ''}${job ? ' jobrow' : ''}"><span class="t"><b>${head}</b><small>${sub}${old ? ' · waiting 3 days or more' : ''}</small>${job}</span>${job && mbxJob.stage !== 'fail' ? '' : `<span class="b"><button class="btn sm primary" type="button" data-mbxopen="${tmEsc(it.tid)}"${busyOther ? ' disabled title="One download at a time"' : ''}>${mbxJob && mbxJob.tid === it.tid && mbxJob.stage === 'fail' ? 'Try again' : btn}</button></span>`}</div>`;
+      });
+      if (mbxJob && mbxJob.stage === 'done' && !items.some((it) => it.tid === mbxJob.tid)) rows.unshift(`<div class="tmrow jobrow"><span class="t">${mbxJobHtml(mbxJob)}</span></div>`); // the result stays until read
+      box.innerHTML = rows.join('') || `<p class="hint" style="padding:8px 10px;margin:0">${mbxIn ? 'Nothing new waiting. New tasks show here; Sync brings in what is for your projects.' : 'Not checked yet.'}</p>`;
+      const out = (S.mbxOut || []).slice(0, 12);
+      $('mbxOutBox').hidden = !out.length;
+      $('mbxOutSum').textContent = `Sent by you · ${out.filter((o) => o.st === 'waiting').length} waiting`;
+      $('mbxOut').innerHTML = out.map((o) => {
+        const what = o.kind === 'task' ? 'Task' : o.kind === 'update' ? (o.full ? `Update ${o.n} (whole)` : `Update ${o.n}`) : o.kind === 'fix' ? 'Fixes' : o.kind === 'accept' ? 'Accepted' : 'Note';
+        const b = ['expired', 'cancelled', 'failed'].includes(o.st) ? `<button class="btn sm primary" type="button" data-mbxresend="${tmEsc(o.tid)}">Resend</button>` : o.st === 'waiting' && !/^x/.test(o.tid) ? `<button class="btn sm" type="button" data-mbxback="${tmEsc(o.tid)}">Take back</button>` : '';
+        return `<div class="tmrow"><span class="t"><b>${tmEsc(`${what} → ${o.toName || o.to}`)}</b><small>${tmEsc(`${o.project} · ${mbxStText(o)}`)}</small></span><span class="b">${b}</span></div>`;
+      }).join('');
+      $('mbxBoxInfo').textContent = mbxInErr ? `Not checked: ${mbxInErr}` : mbxInAt ? `Checked ${tmWhen(new Date(mbxInAt).toISOString())}` : '';
+    }
+    renderCurTeam(); mbxMarks();
+  }
+  /** The open project's team line: who has it, what came back, fixes, accepted; and its buttons. */
+  function renderCurTeam() {
+    const el = $('curTeam'), name = S.project, T = name ? tmTeam(name) : null;
+    el.hidden = !(T && T.role && tmOn()); if (el.hidden) { el.innerHTML = ''; return; } // (beta 3.2: Team off hides the card; its state is kept)
+    const H = [], first = (e, n) => tmEsc(tmFirst(e, n));
+    if (T.role === 'fp') {
+      H.push(`<p class="tl"><b>Task from ${tmEsc(T.byName || tmNameOf(T.by))}</b>${T.got ? ` · got ${tmEsc(tmWhen(T.got))}` : ''}</p>`);
+      if (T.taskNote && T.taskNote.note) H.push(`<p class="tnote">${tmEsc(T.taskNote.note)}</p>`);
+      if (T.coUpd) H.push(`<p class="tl">Update ${tmEsc(T.coUpd.n)} from ${first(T.coUpd.from, T.coUpd.fromName)} merged ${tmEsc(tmWhen(T.coUpd.at))}${pmeta(name).syncIn && pmeta(name).syncIn.n === T.coUpd.n ? ' by Sync' : ''}</p>`);
+      const FL = T.fixList, flOpen = FL ? FL.items.filter((x) => x.status === 'open').length : 0, flUnsent = FL ? FL.items.filter((x) => x.status !== 'open' && !x.sent).length : 0;
+      if (FL && FL.items.length) H.push(`<div class="ctwait fxline"><span class="tx"><b>Fixes from ${first(FL.from, FL.fromName)} · ${FL.items.length - flOpen} of ${FL.items.length} done</b>${tmEsc(flOpen ? `${flOpen} to do${flUnsent ? ` · ${flUnsent} to send` : ''}` : flUnsent ? `${flUnsent} to send` : 'all sent')}</span><button class="btn sm primary" type="button" data-ct="fxopen">Open the fix list</button></div>`);
+      else if (T.fix) H.push(`<p class="tfix"><b>Fixes asked by ${first(T.fix.from, T.fix.fromName)}</b> (${tmEsc(tmWhen(T.fix.at))}): ${tmEsc(T.fix.note)}</p>`);
+      if (pmeta(name).chg) H.push(`<p class="tl">Last update from ${first(pmeta(name).chg.from, pmeta(name).chg.fromName)}: ${tmEsc(chgSay(pmeta(name).chg))} · <button class="linkbtn" type="button" data-ct="chg">What changed</button></p>`);
+      if (T.lastNote && T.lastNote.note) H.push(`<p class="tnote">${first(T.lastNote.from, T.lastNote.fromName)}: ${tmEsc(T.lastNote.note)}</p>`);
+      H.push(dupLine(name));
+      if (T.accepted) H.push(`<p class="okline">✓ Accepted by ${tmEsc(T.accepted.byName || T.accepted.by)} on ${tmEsc(tmWhen(T.accepted.at))}${T.reopen ? '' : ': this task is done on this phone.'}</p>`);
+      if (T.accepted && T.reopen) H.push(`<p class="tfix"><b>${first(T.accepted.by, T.accepted.byName)} sent more fixes after accepting.</b> Only those poles can change until they are done.</p>`); // beta 3.4
+      const o = (S.mbxOut || []).find((x) => x.kind === 'update' && x.tk === T.tk);
+      if (o) H.push(`<p class="tl">Last sent: ${tmEsc(`${o.full ? `update ${o.n} (whole)` : `update ${o.n}`} to ${tmFirst(o.to, o.toName)} · ${mbxStText(o)}`)}</p>`);
+      if ((!T.accepted || T.reopen) && mbxOn()) H.push(`<div class="row"><button class="btn${T.fix ? ' primary' : ''} grow" type="button" data-ct="send">Send to coordinator</button></div><p class="tl hint">Sync sends your changes and fix answers too.</p>`);
+      if (!T.leftAt) { $('doneBtn').hidden = true; $('noDefBtn').hidden = true; $('doneHint').textContent = T.accepted ? '' : `${tmFirst(T.by, T.byName)} marks this task complete after accepting it.`; } // the coordinator completes it (the dates go to the online sheet once)
+    } else {
+      const to = T.to || [], waits = mbxWaitsFor(name).filter((it) => it.meta.kind === 'update');
+      const merged = Object.keys(pmeta(name).recv || {}).some((k) => k.startsWith('mbx:'));
+      H.push(`<p class="tl"><b>${to.length ? 'Assigned to' : 'Not assigned yet'}</b>${T.takenOver ? ` · taken over from ${tmEsc(T.takenOver.fromName || T.takenOver.from)}` : ''}</p>`);
+      to.forEach((e) => H.push(`<p class="tl">${tmEsc(tmNameOf(e, (T.names || {})[e]))}: ${tmEsc(mbxTaskState(name, e))}</p>`));
+      // beta 2.1: what waits for this project shows here, with its own Download and merge (and its progress)
+      waits.forEach((it) => {
+        const M = it.meta, job = mbxJob && mbxJob.tid === it.tid ? mbxJobHtml(mbxJob) : '';
+        H.push(job ? `<div class="ctwait job">${job}</div>` : `<div class="ctwait"><span class="tx"><b>${tmEsc(`${M.full ? `Update ${M.n} (the whole project)` : `Update ${M.n}`} from ${tmFirst(M.from, M.fromName)} ${mbxWaitsWifi(it) ? '(waits for Wi-Fi)' : 'is waiting'}`)}</b>${tmEsc([M.recs != null && pl2(M.recs, 'record'), mbxMB(it.size || 0), tmWhen(it.created)].filter(Boolean).join(' · '))}</span><button class="btn sm primary" type="button" data-ct="dl" data-tid="${tmEsc(it.tid)}">${mbxWaitsWifi(it) ? 'Get it now' : 'Download and merge'}</button></div>`);
+      });
+      if (mbxJob && mbxJob.stage === 'done' && mbxJob.proj === name && !waits.some((it) => it.tid === mbxJob.tid)) H.push(`<div class="ctwait job">${mbxJobHtml(mbxJob)}</div>`);
+      if (T.lastNote && T.lastNote.note) H.push(`<p class="tnote">${first(T.lastNote.from, T.lastNote.fromName)}: ${tmEsc(T.lastNote.note)}</p>`);
+      const si = pmeta(name).syncIn; // beta 3.4: what Sync brought in last
+      if (si) H.push(`<div class="ctwait ctsync"><span class="tx"><b>${tmEsc(`${si.full ? `The whole project (update ${si.n})` : `Update ${si.n}`} from ${tmFirst(si.from, si.fromName)}: ${si.said || 'merged'}${si.ans ? ` · ${pl2(si.ans, 'fix answer')}` : ''}`)}</b>${tmEsc(`Merged by Sync · ${tmWhen(si.at)}`)}</span>${si.chgN && pmeta(name).chg ? '<button class="btn sm" type="button" data-ct="chg">What changed</button>' : ''}</div>`);
+      else if (pmeta(name).chg) H.push(`<p class="tl">Last update from ${first(pmeta(name).chg.from, pmeta(name).chg.fromName)}: ${tmEsc(chgSay(pmeta(name).chg))} · <button class="linkbtn" type="button" data-ct="chg">What changed</button></p>`);
+      H.push(dupLine(name));
+      if (T.fixOut && T.fixOut.items.length && !T.accepted) H.push(fxReviewHtml(name)); // beta 3: each fix answer, what changed, OK or Not yet
+      else if (T.fixAsked && !T.accepted) H.push(`<p class="tl">Fixes asked ${tmEsc(tmWhen(T.fixAsked.at))}: ${tmEsc(T.fixAsked.note)}</p>`);
+      if (T.accepted) H.push(`<p class="okline">✓ Accepted on ${tmEsc(tmWhen(T.accepted.at))}${pmeta(name).completedAt ? '' : ': mark the task complete below.'}</p>`);
+      if (T.accepted && !pmeta(name).completedAt && mbxOn() && to.length) { // beta 3.4: a late check found something: more fixes, until the task is complete
+        const nD = fxDraft(name).length, names = to.map((e) => tmFirst(e, (T.names || {})[e])).join(' and ');
+        H.push(`<div class="row"><button class="btn grow fxlate" type="button" data-ct="fix">${nD ? `Continue the fix list (${nD})` : '+ More fixes, found later'}</button></div><p class="tl hint">${tmEsc(`${names}’s phone opens the project again for these fixes only. Accept again when they are OK.`)}</p>`);
+      }
+      if (mbxOn() && to.length && !T.accepted) {
+        // beta 2.1: Accept only once an update is merged and nothing for this project waits in the mailbox
+        const names = to.map((e) => tmFirst(e, (T.names || {})[e])).join(' and ');
+        const nDraft = fxDraft(name).length, why = coAcceptWhy(name);
+        H.push(`<div class="row"><button class="btn grow${nDraft ? ' primary' : ''}" type="button" data-ct="fix">${nDraft ? `Continue the fix list (${nDraft})` : 'Ask for fixes'}</button>${merged || waits.length ? `<button class="btn primary grow" type="button" data-ct="accept"${why ? ' disabled' : ''}>Accept</button>` : ''}</div>`);
+        if (why) H.push(`<p class="tl hint">${tmEsc(why)}</p>`);
+      }
+    }
+    el.innerHTML = H.join('');
+  }
+  /** beta 3.4: poles recorded twice that Sync merged: one line with Choose (the list of beta 3.3, opened when you are ready). */
+  function dupLine(name) {
+    const dw = pmeta(name).dupWait; if (!dw || !dw.length) return '';
+    const G = dupFind(name, dw.filter((id) => points.some((p) => p.id === id && p.project === name))); if (!G.length) return '';
+    return `<div class="ctwait"><span class="tx"><b>${tmEsc(`${G.length === 1 ? '1 doubled pole' : `${G.length} doubled poles`}: choose`)}</b>${tmEsc('The same pole recorded twice, found when Sync merged an update')}</span><button class="btn sm primary" type="button" data-ct="dup">Choose</button></div>`;
+  }
+  $('curTeam').addEventListener('click', (ev) => {
+    const r = ev.target.closest('[data-fxr]'); if (r && S.project && !r.disabled) { guard(() => fxReview(S.project, r.dataset.k, r.dataset.fxr), 'Not saved'); return; }
+    const b = ev.target.closest('[data-ct]'); if (!b || !S.project || b.disabled) return;
+    const name = S.project, k = b.dataset.ct;
+    if (k === 'send') openMbxSend(name, 'fp');
+    else if (k === 'fix') fxStart(name); // beta 3: the fix list on the map
+    else if (k === 'fxopen') fxOpenFp(name);
+    else if (k === 'chg') chgOpen(name);
+    else if (k === 'accept') guard(() => mbxAccept(name), 'Not accepted');
+    else if (k === 'dl') guard(() => mbxOpenItem(b.dataset.tid), 'Not opened');
+    else if (k === 'dup') guard(async () => { const ids = pmeta(name).dupWait || []; S.meta[name] = { ...pmeta(name), dupWait: null }; persist(); await dupAtMerge(name, ids); renderProjects(); }, 'Not done'); // beta 3.4
+  });
+  /** Accept: each field partner's phone is told, and the task there is done; a coordinator who took it over tells the one who sent it. */
+  async function mbxAccept(name) {
+    const T = tmTeam(name) || {}, to = T.to || [], me = tmEmail();
+    const names = to.map((e) => tmFirst(e, (T.names || {})[e])).join(' and ');
+    if (!(await ask(`Accept “${name}”?`, `${names}’s phone${to.length === 1 ? ' is' : 's are'} told, and the task there is done. Then mark the task complete as today.${T.by && T.by !== me ? `\n\n${tmFirst(T.by, T.byName)} sent this task: he is told that you took it over.` : ''}`, [{ label: 'Cancel', value: false }, { label: 'Accept', value: true, primary: true }]))) return;
+    if (navigator.onLine === false) { toast('No internet: try again with signal.'); return; }
+    cancelFlag = false;
+    for (const e of to) await mbxSendSmall('accept', name, e, {}, `Telling ${tmFirst(e)}`);
+    if (T.by && T.by !== me) await mbxSendSmall('note', name, T.by, { note: `${(S.user && S.user.name) || me} took over “${name}” and accepted it.` }, `Telling ${tmFirst(T.by)}`).catch((e) => LOG.warn('mbx.takeover.note', { code: e.code || '' }));
+    const at = new Date().toISOString(); setTeam(name, { ...tmTeam(name), accepted: { at, by: me } }); persist();
+    busy(false); renderProjects(); toast(`Accepted on ${tmWhen(at)}. ${names} ${to.length === 1 ? 'is' : 'are'} told. Mark the task complete when ready.`, 6000);
+  }
+  $('mbxIn').addEventListener('click', (ev) => { const b = ev.target.closest('[data-mbxopen]'); if (b) guard(() => mbxOpenItem(b.dataset.mbxopen), 'Not opened'); });
+  $('mbxOut').addEventListener('click', (ev) => {
+    const r = ev.target.closest('[data-mbxresend]'), k = ev.target.closest('[data-mbxback]');
+    if (r) guard(() => mbxResend(r.dataset.mbxresend), 'Not sent');
+    else if (k) guard(async () => {
+      const o = (S.mbxOut || []).find((x) => x.tid === k.dataset.mbxback); if (!o) return;
+      if (!(await ask('Take it back?', `It is deleted from the mailbox before ${tmFirst(o.to, o.toName)} downloads it. Your copy stays on this phone.`, [{ label: 'Cancel', value: false }, { label: 'Take back', value: true, primary: true }]))) return;
+      busy('Taking it back…');
+      try { await mbxCall('cancel', { box: o.to, tid: o.tid }); o.st = 'cancelled'; }
+      catch (e) { if (e.code === 'picked') { o.st = 'picked'; toast(`Too late: ${tmFirst(o.to, o.toName)} already has it.`); } else throw e; }
+      finally { busy(false); }
+      o.stAt = new Date().toISOString(); if (o.st === 'cancelled') { mbxGap(o); if (o.kind === 'fix') fxTakenBack(o); } persist(); renderProjects();
+    }, 'Not taken back');
+  });
+  /** Resend: a task or an update goes again as the whole project (it fills any gap); fixes, accepted and notes as they were. */
+  async function mbxResend(tid) {
+    const o = (S.mbxOut || []).find((x) => x.tid === tid); if (!o) return;
+    const name = mbxLocalByTk(o.tk) || (allProjects().includes(o.project) ? o.project : '');
+    if (!name) { toast(`“${o.project}” is no longer on this phone.`); return; }
+    if (navigator.onLine === false) { toast('No internet: try again with signal.'); return; }
+    if (o.kind === 'task') { const r = await mbxSendTask(name, [o.to], o.note || ''); if (r.done.length) { o.st = 'resent'; persist(); } renderProjects(); mbxSaidSent(r, name); return; }
+    if (o.kind === 'update') { const T = tmTeam(name) || {}; if (T.sent && T.sent[o.to]) setTeam(name, { ...T, sent: { ...T.sent, [o.to]: { ...T.sent[o.to], gap: true } } }); openMbxSend(name, 'fp'); mbxSend.to = new Set([o.to]); mbxSend.what = 'full'; renderMbxSend(); o.st = 'resent'; persist(); return; }
+    cancelFlag = false;
+    await mbxSendSmall(o.kind, name, o.to, o.note ? { note: o.note } : {}, `Sending to ${tmFirst(o.to, o.toName)}`);
+    o.st = 'resent'; persist(); busy(false); renderProjects(); toast(`Sent again to ${tmFirst(o.to, o.toName)}.`);
+  }
+  $('mbxCheckIn').addEventListener('click', () => guard(async () => { // beta 3.4: Check brings in what is for projects here, as Sync does
+    let a = null; busy('Checking the mailbox…'); try { ({ a } = await mbxCheck()); } finally { busy(false); }
+    const t = mbxAutoSay(a, null); if (t) toast(`Team mailbox: ${t}`, 6000);
+  }, 'Not checked'));
+
+  /* ---- New project → Assign to (a coordinator with field partners): Me, or one or more of them ---- */
+  function npAssignRender() {
+    const on = mbxOn() && tmRole() === 'Coordinator' && tmPartners().length > 0 && /** @type {HTMLSelectElement} */ ($('npCat')).value === 'survey';
+    $('npAssignBox').hidden = !on;
+    if (!on) { npAssign.clear(); $('npCreate').textContent = 'Create project'; return; }
+    const box = $('npAssign'); box.innerHTML = '';
+    const chip = (v, label) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'chip small'; b.dataset.v = v; b.textContent = label; b.setAttribute('aria-pressed', String(v ? npAssign.has(v) : !npAssign.size)); box.appendChild(b); };
+    chip('', 'Me'); tmPartners().forEach((m) => chip(m.email, m.name || m.email));
+    const n = npAssign.size;
+    $('npAssignInfo').textContent = !n ? 'You survey it yourself: nothing goes through the mailbox.' : n === 1 ? `${tmFirst([...npAssign][0])} gets it through the mailbox when you tap Create and send.` : `${n} field partners get it: they all survey the route, and each sends back to you.`;
+    $('npCreate').textContent = n ? 'Create and send' : 'Create project';
+  }
+  $('npAssign').addEventListener('click', (ev) => { const b = ev.target.closest('.chip'); if (!b) return; const v = b.dataset.v; if (!v) npAssign.clear(); else if (npAssign.has(v)) npAssign.delete(v); else npAssign.add(v); npAssignRender(); });
+  $('npCat').addEventListener('change', npAssignRender);
+  async function npAssignSend(name) {
+    if (!npAssign.size) return;
+    const to = [...npAssign]; npAssign.clear();
+    if (navigator.onLine === false) { toast(`“${name}” created. No internet: send it from the project (Send) when you have signal.`, 7000); return; }
+    try { const r = await mbxSendTask(name, to, ''); mbxSaidSent(r, name); }
+    catch (e) { busy(false); toast(`“${name}” created, but not sent: ${e.message || e}. Send it from the project (Send).`, 8000); LOG.warn('mbx.assign.fail', { msg: String(e.message || e).slice(0, 120) }); }
+    if (!$('projects').hidden) renderProjects();
+  }
+
+  /* ---- hooks into the rest of the app ---- */
+  tmHooks.projects = renderMbx;
+  tmHooks.openProjects = () => { if (mbxOn() && Date.now() - mbxInAt > 60000) mbxCheck().then(({ a }) => { const t = mbxAutoSay(a, null); if (t) toast(`Team mailbox: ${t}`, 6000); }, () => {}); }; // (beta 3.4: and brings in)
+  /** beta 3.4: the Fixes (wrench) and Accept fixes (check) icons of a project, each with its count; the project's mailbox icon
+      is gone (Sync brings in what is for projects on this phone; the mailbox keeps only new tasks). */
+  function coAcceptWhy(name) {
+    const T = tmTeam(name) || {}, to = T.to || [], waits = mbxWaitsFor(name).filter((it) => it.meta.kind === 'update');
+    const merged = Object.keys(pmeta(name).recv || {}).some((k) => k.startsWith('mbx:')), names = to.map((e) => tmFirst(e, (T.names || {})[e])).join(' and '), fxN = fxPendingN(T);
+    return waits.length ? 'Merge the waiting update first: Accept turns on after.' : fxN ? `Check each fix answer first: ${fxN} not OK yet.` : mbxIn === null ? (mbxInErr ? `The mailbox was not checked (${mbxInErr}): Accept waits for it.` : 'Checking the mailbox first…') : !merged ? `Waiting for ${names}’s first update. Accept comes after you merge it.` : '';
+  }
+  function fxIconsOf(name) {
+    const T = tmTeam(name); if (!T || !T.role) return [];
+    if (T.role === 'fp') {
+      const FL = T.fixList; if (!FL || !FL.items.length || (T.accepted && !T.reopen)) return [];
+      const n = FL.items.filter((x) => x.status === 'open').length, who = tmFirst(FL.from, FL.fromName);
+      return [{ kind: 'fix', label: 'Fixes', n, ok: !n, title: n ? `${nFix(n)} to do, from ${who}` : `Fixes from ${who}: all done`, go: () => fxOpenFp(name) }];
+    }
+    if (!(T.to || []).length || pmeta(name).completedAt) return [];
+    const O = T.fixOut, I = O ? O.items : [], D = fxDraft(name).length, outN = I.filter((x) => x.status === 'out' && !x.dropped && x.review !== 'ok').length, n = D + outN;
+    const R = [{ kind: 'fix', label: 'Fixes', n, ok: !n && I.length > 0, title: n ? [D && `${D} not sent yet`, outN && `${outN} with ${fxWithWho(T)}`].filter(Boolean).join(' · ') : T.accepted ? 'More fixes, found later' : 'Ask for fixes', go: () => fxGoCo(name) }];
+    if (I.length && !T.accepted) {
+      const chk = I.filter((x) => x.status !== 'out' && !x.review).length, ready = !fxPendingN(T) && !coAcceptWhy(name);
+      R.push({ kind: 'accfix', label: 'Accept fixes', n: ready ? 0 : chk, ok: ready, ready, title: ready ? 'All fixes OK: tap to Accept' : chk ? `${pl2(chk, 'fix answer')} to check` : `Waiting for ${fxWithWho(T)}’s answers`, go: () => (ready ? mbxAccept(name) : fxShowReview(name)) });
+    }
+    return R;
+  }
+  function fxIconDeco(b, x) {
+    b.classList.toggle('ready', !!x.ready); b.classList.toggle('zero', !x.n && !x.ready);
+    if (x.n) b.insertAdjacentHTML('beforeend', `<span class="bdg">${x.n}</span>`); else if (x.ok) b.insertAdjacentHTML('beforeend', '<span class="okd">✓</span>');
+    b.title = `${x.label}: ${x.title}`; b.dataset.tip = x.n ? `${x.label} · ${x.n}` : x.label; b.dataset.n = String(x.n || 0);
+  }
+  /** The coordinator's Fixes: the fix screen on the map (the project opens first). */
+  function fxGoCo(name) { if (S.project !== name) openTask(name, { keepView: true }); fxStart(name); }
+  /** Accept fixes, not ready yet: the answers to check, on the project's card. */
+  async function fxShowReview(name) {
+    if (S.project !== name) openTask(name, { keepView: true });
+    if ($('projects').hidden) { await closeAll(); openProjects(); }
+    await sleep(250); const el = document.querySelector('#curTeam .fxrev') || $('curTeam'); if (!el || el.hidden) return;
+    el.scrollIntoView({ block: 'start' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  }
+  tmHooks.tools = (name, mk) => {
+    if (!mbxOn() || isAcc(name) || pmeta(name).sample) return;
+    const T = tmTeam(name), mode = mbxModeOf(name);
+    fxIconsOf(name).forEach((x) => { const b = mk(x.kind, x.label, () => x.go(), x.title); if (b) fxIconDeco(b, x); });
+    if (T && T.role === 'fp' && T.accepted && !T.reopen) return;
+    mk('send', 'Send', (n) => openMbxSend(n, mode), mode === 'fp' ? 'Send to your coordinator through the team mailbox: only the changes, or the whole project' : 'Send this project to your field partners through the team mailbox');
+  };
+  tmHooks.ppIcons = (name) => { // the Projects pane on a computer: Fixes, Accept fixes and Send, per project
+    if (!mbxOn() || isAcc(name) || pmeta(name).sample) return [];
+    const out = [], T = tmTeam(name), mode = mbxModeOf(name);
+    fxIconsOf(name).forEach((x) => { const b = ppIcon(x.kind, x.label, `${x.label} · ${name}`); fxIconDeco(b, x); b.addEventListener('click', (e) => { e.stopPropagation(); guard(() => x.go(), `${x.label} failed`); }); out.push(b); });
+    if (!(T && T.role === 'fp' && T.accepted && !T.reopen)) { const b = ppIcon('send', 'Send', mode === 'fp' ? `Send ${name} to your coordinator` : `Send ${name} to your field partners`); b.addEventListener('click', (e) => { e.stopPropagation(); openMbxSend(name, mode); }); out.push(b); }
+    return out;
+  };
+  /** Projects opened at the Team mailbox (what waits there), from the pane's icon. */
+  async function mbxShowBox() {
+    if ($('projects').hidden) { await closeAll(); await openProjects(); }
+    await sleep(300); const el = $('mbxBox'); if (!el || el.hidden) return;
+    el.scrollIntoView({ block: 'start' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  }
+  $('ppMbx').addEventListener('click', () => guard(async () => {
+    const b = $('ppMbx'); if (b.classList.contains('spin')) return;
+    if (navigator.onLine === false) { toast('No internet: the team mailbox is checked when there is signal.', 4000); return; }
+    b.classList.add('spin'); let ok = false, a = null;
+    try { ({ ok, a } = await mbxCheck()); } finally { b.classList.remove('spin'); mbxMarks(); } // (beta 3.4: and brings in what is for projects here)
+    LOG.info('mbx.check.pane', { ok, n: (mbxIn || []).length });
+    if (!ok) { toast(`Team mailbox not checked: ${mbxInErr || 'no answer'}`, 5000); return; }
+    const n = (mbxIn || []).length, said = mbxAutoSay(a, null);
+    if (!n) { toast(said ? `Team mailbox: ${said}` : 'Team mailbox: nothing waiting for you.', said ? 6000 : 3500); return; }
+    toast(`Team mailbox: ${said ? `${said} · ` : ''}${n === 1 ? 'one thing waits' : `${n} things wait`} for you.`, said ? 6000 : 3500);
+    await mbxShowBox();
+  }, 'Not checked'));
+  tmHooks.mbxOn = () => mbxOn();
+  /** v2.43 beta 3.2 (QA-17): the sheet switched Team on or off for this company: every Team part follows at once. Off: Settings → Team,
+      Assign to, the mailbox (box, icons, Sync, the pane), the team card and the fix list hide; the role rule in New project stops.
+      On again: they come back as they were (the role, the teams, the mailbox and each project's team state were kept), then the team
+      is read again and the mailbox checked. */
+  function tmSwitched() {
+    const on = tmOn(); LOG.info('team.switch', { on });
+    try { if (!on && fx) fxClose(); } catch (e) { /* the fix list is not set up yet */ }
+    renderTeamRow(); mbxMarks(); renderMbx(); renderCurTeam(); npAssignRender();
+    try { renderProjects(); } catch (e) { /* not open */ }
+    if (on && tmVerified() && navigator.onLine !== false) tmLoad().then(() => { renderTeamRow(); mbxStartCheck().catch(() => {}); }, () => {});
+  }
+  tmHooks.switched = tmSwitched;
+  tmHooks.on = () => tmOn();
+  tmHooks.syncMbx = async () => { // beta 3.4: Sync brings in what is for projects here, and a field partner's work goes to his coordinator
+    if (!mbxOn()) return null;
+    let ok = await mbxRefresh(), a = null, sd = null;
+    if (ok) { a = await mbxAutoIn(); sd = await mbxAutoSend(); if ((a && a.n) || (sd && sd.n)) ok = await mbxRefresh(); }
+    if (a && a.notes.length) await ask('Notes that came with Sync', a.notes.join('\n\n'), [{ label: 'OK', value: true, primary: true }]);
+    return { ok, n: (mbxIn || []).length, why: mbxInErr || 'no answer', say: mbxAutoSay(a, sd) };
+  };
+  try { ppMbxMark(); renderSyncBtn(); } catch (e) { /* not shown */ }
+  tmHooks.locked = (rid, what) => { // what: 'capture' (a new record), 'edit' (the record rid), or nothing (the route, a pin by hand)
+    const T = S.project ? tmTeam(S.project) : null; if (!(T && T.role === 'fp' && T.accepted)) return '';
+    const co = tmFirst(T.accepted.by, T.accepted.byName), R = T.reopen;
+    if (!R) return `“${S.project}” was accepted by ${T.accepted.byName || T.accepted.by}: it is done on this phone. If more is needed, ${co} sends it back for fixes.`;
+    if (what === 'capture' && R.spot) return ''; // beta 3.4: a fix at a spot (a missing pole) after Accept
+    if (what === 'edit' && rid) { const p = points.find((x) => x.id === rid); if ((R.rids || []).includes(rid) || (p && R.spot && String(p.created || '') > String(R.at || ''))) return ''; }
+    return `“${S.project}” was accepted by ${T.accepted.byName || T.accepted.by}. Only the poles of ${co}’s later fixes can change now (Fixes, on the project).`;
+  };
+  tmHooks.npReset = () => { npAssign.clear(); npAssignRender(); };
+  tmHooks.created = npAssignSend;
+  /** A field partner in a team gets his surveys from his coordinator (the approved demo: only coordinators make projects);
+      PAT, defect cleanup and FAT start as before. Out of every team, he makes surveys again. */
+  const tmFpTeam = () => tmOn() && tmVerified() && tmRole() === 'Field Partner' && (((tmSnap() || {}).myTeams) || []).some((x) => x.status === 'in'); // (beta 3.2: and Team on)
+  tmHooks.npCats = (cat) => {
+    const fp = tmFpTeam(), o = cat.querySelector('option[value="survey"]');
+    if (o) { if (fp) o.disabled = true; o.textContent = fp ? 'Survey (from your coordinator)' : 'Survey'; }
+    $('npFpInfo').hidden = !fp;
+  };
+  tmHooks.npCheck = (k) => { if (k === 'survey' && tmFpTeam()) { toast('Surveys come from your coordinator: Projects → Team mailbox.', 5000); return false; } return true; };
+  tmHooks.refAdded = async (name) => { // a new KMZ on a project the coordinator already sent: offer it to his field partners
+    const T = tmTeam(name); if (!mbxOn() || !T || T.role !== 'co' || !(T.to || []).length || T.accepted) return;
+    if (!(await ask('Send the new KMZ?', `${(T.to || []).map((e) => tmFirst(e)).join(' and ')} ${T.to.length === 1 ? 'has' : 'have'} this project. Send them the new KMZ reference now? It goes with the changes since your last send (the whole project to anyone who has not downloaded it yet) and merges into theirs.`, [{ label: 'Later', value: false }, { label: 'Send', value: true, primary: true }]))) return;
+    const r = await mbxSendTask(name, T.to.slice(), '', { what: 'delta' }); mbxSaidSent(r, name);
+  };
+  /** At start (after the team is read): what waits in the mailbox, with a reminder after 3 days. */
+  async function mbxStartCheck() {
+    if (!mbxOn()) return;
+    const { ok, a } = await mbxCheck(); if (!ok) return; // beta 3.4: what is for projects here comes in by itself
+    const n = (mbxIn || []).length, old = (mbxIn || []).filter((it) => Date.now() - Date.parse(it.created) >= 3 * MBX_DAY).length, said = mbxAutoSay(a, null);
+    if (said) toast(`Team mailbox: ${said}`, 7000);
+    else if (n && $('projects').hidden) toast(`${n === 1 ? 'Something waits' : `${n} things wait`} for you in the team mailbox${old ? ` (${old === 1 ? 'one' : old} for 3 days or more)` : ''}: open Projects.`, 6000);
+  }
+  /** Leaving a team: the tasks not accepted yet go back to that coordinator first, with what was surveyed (the whole project). */
+  async function mbxLeaveSend(coord) {
+    const open = allProjects().filter((n) => { const T = tmTeam(n); return T && T.role === 'fp' && T.by === coord && !T.accepted && !(T.leftAt); });
+    if (!open.length || !mbxOn()) return true;
+    const first = tmFirst(coord);
+    const pick = await ask(`Send your tasks back to ${first}?`, `${pl2(open.length, 'task')} from ${first} ${open.length === 1 ? 'is' : 'are'} not accepted yet: ${open.slice(0, 5).map((x) => `“${x}”`).join(', ')}${open.length > 5 ? '…' : ''}. Each goes back as the whole project, with what you surveyed, so nothing is lost. Your copies stay on this phone.`,
+      [{ label: 'Cancel', value: '' }, { label: 'Leave without sending', value: 'no' }, { label: 'Send back and leave', value: 'send', primary: true }]);
+    if (!pick) return false;
+    if (pick === 'no') return true;
+    for (const name of open) {
+      const at = new Date().toISOString(), T = tmTeam(name), n = (((T.sent || {})[coord] || {}).n || 0) + 1;
+      cancelFlag = false;
+      const bytes = await mbxBytes(name, { n, full: true, since: '', at, pts: null, route: true, sender: `mbx:${tmEmail()}`, nGone: Object.keys(pmeta(name).gone || {}).length }, false);
+      const meta = mbxMeta('update', name, coord, { n, full: true, left: true, note: `${(S.user && S.user.name) || tmEmail()} left the team: the task comes back with what was surveyed.`, recs: points.filter((p) => p.project === name).length, photos: projPhotos(name), by: T.by, byName: T.byName || '' });
+      const r = await mbxSendBytes(coord, bytes, meta, `Sending “${name}” back`);
+      setTeam(name, { ...tmTeam(name), leftAt: at, sent: { ...(T.sent || {}), [coord]: { n, at } } });
+      mbxOutAdd({ tid: r.tid, to: coord, toName: tmNameOf(coord), kind: 'update', project: name, tk: T.tk, n, full: true, size: bytes.length, at, st: 'waiting', stAt: at, how: r.how });
+    }
+    busy(false); persist(); LOG.info('mbx.leave.sent', { n: open.length });
+    return true;
+  }
+  /* ---- beta 2.1: a project's site details from the online sheet (OSP build ID, serial, PLA ID, site name…), to copy ---- */
+  let siteInfoFor = '';
+  /** [label, value] rows: the project, its OSP build ID (the sheet's Task ID), the site's columns (Project Name, Serial Number, PLA ID,
+      Site name…) and its territory; empty values left out, each label once. A function declaration: the main code's tools call it. */
+  function siteInfoRows(name) {
+    if (!name) return [];
+    const m = pmeta(name), seen = new Set(), out = [];
+    const add = (k, v) => { const key = String(k).trim().toLowerCase().replace(/\s+/g, ' '), val = String(v == null ? '' : v).trim(); if (!val || seen.has(key)) return; seen.add(key); out.push([String(k).trim(), val]); };
+    add('Project', name);
+    add('OSP Build ID', m.taskId || '');
+    siteFieldsOf(name).forEach(([k, v]) => add(k, v));
+    add('Serial Number', m.serial); add('PLA ID', m.plaId); add('Site name', m.siteName); add('Territory', m.territory);
+    return out;
+  }
+  function siteInfoOpen(name) {
+    const R = siteInfoRows(name); siteInfoFor = name;
+    $('siteInfoT').textContent = 'Site details'; $('siteInfoSub').textContent = `${name}${pmeta(name).taskId ? ' · from the online sheet' : ''}. Tap Copy beside a line, or Copy all.`;
+    $('siteInfoList').innerHTML = R.map(([k, v], i) => `<div class="r"><span class="k">${tmEsc(k)}</span><span class="v">${tmEsc(v)}</span><button class="btn sm" type="button" data-copy="${i}">Copy</button></div>`).join('');
+    openSheet('siteInfo'); LOG.info('site.info', { rows: R.length });
+  }
+  async function siteCopy(text, what, el) {
+    try { await navigator.clipboard.writeText(text); toast(`${what} copied`, 2500); }
+    catch (e) { if (el) { const r = document.createRange(); r.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); } toast('Copy is blocked here: the text is selected, copy it with the phone’s menu', 4500); }
+  }
+  $('siteInfoList').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-copy]'); if (!b) return;
+    const R = siteInfoRows(siteInfoFor), row = R[+b.dataset.copy]; if (!row) return;
+    siteCopy(String(row[1]), row[0], b.parentElement.querySelector('.v'));
+  });
+  $('siteInfoAll').addEventListener('click', () => siteCopy(siteInfoRows(siteInfoFor).map(([k, v]) => `${k}: ${v}`).join('\n'), 'Site details', $('siteInfoList')));
+  $('siteInfoClose').addEventListener('click', () => closeSheet());
+  /* ---- beta 2.1: a QR button answers the tap at once (Making the QR…), and a second tap does nothing until it is done ---- */
+  const QR_BTNS = { inviteBtn: 'Invite a coworker', moveBtn: 'Move to another phone', admInvMake: '', teamShare: '', inviteVendor: '', inviteAdminStaff: '', apprShowBtn: '' };
+  document.addEventListener('click', (ev) => {
+    const b = ev.target instanceof Element ? ev.target.closest('button') : null; if (!b || !(b.id in QR_BTNS)) return;
+    if (b.getAttribute('aria-busy') === 'true') { ev.stopImmediatePropagation(); ev.preventDefault(); return; }
+    const html = b.innerHTML; b.setAttribute('aria-busy', 'true'); b.classList.add('qrbusy'); b.innerHTML = '<span class="mbxspin"></span>Making the QR…';
+    if (QR_BTNS[b.id] && navigator.onLine !== false) qrBegin(QR_BTNS[b.id]); // the QR screen opens at once, saying what it waits for
+    setTimeout(() => { Promise.resolve(lastGuard).catch(() => {}).finally(() => { b.innerHTML = html; b.removeAttribute('aria-busy'); b.classList.remove('qrbusy'); qrEnd(); }); }, 0);
+  }, true);
+  /* ---- beta 2.1: the Projects pane's width: drag its edge (or the arrow keys); double-click goes back to 292 px ---- */
+  { const g = $('ppGrip'); let drag = null;
+    const apply = (w) => { const st = ppState(); st.w = ppWidth(w); document.body.style.setProperty('--pw', `${st.w}px`); };
+    g.addEventListener('pointerdown', (e) => { if (!deskOn()) return; drag = { x: e.clientX, w: $('projPane').offsetWidth }; g.setPointerCapture(e.pointerId); g.classList.add('drag'); document.body.classList.add('ppdrag'); e.preventDefault(); });
+    g.addEventListener('pointermove', (e) => { if (drag) apply(drag.w + e.clientX - drag.x); });
+    const end = () => { if (!drag) return; drag = null; g.classList.remove('drag'); document.body.classList.remove('ppdrag'); persist(); map.invalidateSize({ animate: false }); LOG.info('pane.width', { w: ppState().w }); };
+    g.addEventListener('pointerup', end); g.addEventListener('pointercancel', end);
+    g.addEventListener('dblclick', () => { const st = ppState(); delete st.w; persist(); deskLayout(); map.invalidateSize({ animate: false }); });
+    g.addEventListener('keydown', (e) => { if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return; e.preventDefault(); apply($('projPane').offsetWidth + (e.key === 'ArrowRight' ? 16 : -16)); persist(); map.invalidateSize({ animate: false }); });
+    window.addEventListener('resize', () => { const st = ppState(); if (st.w && deskOn()) deskLayout(); }); }
+  /* ---- beta 2.1: on a phone, a long press on an icon shows its name (and does not press it) ---- */
+  { let t = 0, shown = null;
+    const hide = () => { if (shown) { shown.remove(); shown = null; } };
+    document.addEventListener('pointerdown', (e) => {
+      const b = e.target instanceof Element ? e.target.closest('.tmtool[data-tip], .ppi[data-tip]') : null; if (!b || e.pointerType === 'mouse') return;
+      clearTimeout(t); t = setTimeout(() => { hide(); const r = b.getBoundingClientRect(); shown = document.createElement('div'); shown.className = 'tiplong'; shown.textContent = b.dataset.tip; shown.style.left = `${r.left + r.width / 2}px`; shown.style.top = `${r.top - 6}px`; document.body.appendChild(shown); b.dataset.long = '1'; setTimeout(hide, 1600); }, 450);
+    });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((k) => document.addEventListener(k, () => clearTimeout(t)));
+    document.addEventListener('click', (e) => { const b = e.target instanceof Element ? e.target.closest('[data-long="1"]') : null; if (b) { delete b.dataset.long; e.stopPropagation(); e.preventDefault(); } }, true);
+    document.addEventListener('contextmenu', (e) => { if (e.target instanceof Element && e.target.closest('.tmtool, .ppi')) e.preventDefault(); }); }
+  /* ---- beta 2.1: asking to scan the pole ID after each photo is off by default; phones that had the old default turn it off once ---- */
+  if (!S.readIdOff243) { S.readIdOff243 = true; if (S.readId !== false) { S.readId = false; LOG.info('settings.readId', { off: 'once, the new default' }); } persist(); }
+  /* ================= v2.43 beta 3: fixes per pole, and what changed =================
+     A coordinator marks what needs fixing on each pole (one pole or several at once), on a spot with no pole, or from the app's own
+     checks of the records. The fix list goes to the field partners through the team mailbox. A field partner follows the numbered
+     pins and does each item on the record (the app ticks it when the record shows it), answers what he cannot fix, adds what he
+     found, and sends the answers with his update. Every merged update says what changed, before → after; the coordinator marks
+     each fix answer OK or Not yet (those go back as the next round), and Accept waits until every answer is OK. */
+  const FX_POLE = ['New photo', 'Pole ID', 'Owner', 'Clamp size', 'Pin location', 'Delete it', 'Other'];
+  const FX_SPOT = ['Missing pole', 'Check here', 'Other'];
+  const FX_FOUND = ['Leaning', 'Damaged', 'No tag', 'Other'];
+  const FX_ORDER = FX_POLE.concat(FX_SPOT);
+  /* beta 3.4: plain words. The coordinator's tiles; what each asked item says on the field partner's phone (what to do, its button,
+     and what the app says when it does not see it yet); the reasons for Can't do. The stored words stay as in beta 3 (older phones). */
+  const FX_TILE = { 'Pin location': 'Move pin', Other: 'Other…' };
+  const FX_SAY = { 'Pin location': 'Move the pin' };
+  const fxWhySay = (W) => (W || []).map((w) => FX_SAY[w] || w).join(' · ');
+  const FX_DO = {
+    'New photo': ['Take a new photo', 'Take the photo', 'photo', 'The app sees no new photo yet.'],
+    'Pole ID': ['Check the pole ID', 'Open the pole', 'open', 'The pole ID has not changed yet.'],
+    Owner: ['Set the owner', 'Open the pole', 'open', 'The owner is not set yet.'],
+    'Clamp size': ['Set the clamp size', 'Open the pole', 'open', 'The clamp size is not set yet.'],
+    'Pin location': ['Move the pin onto the pole', 'Move the pin', 'open', 'The pin has not moved yet.'],
+    'Delete it': ['Delete this record', 'Open it', 'open', 'The record is still there.'],
+    'Missing pole': ['Capture the missing pole here', 'Capture', 'capture', 'No new pole near the spot yet.'],
+    'Check here': ['Look here', 'Show on the map', 'goto', ''],
+    Other: ['See the note', 'Open the pole', 'open', ''],
+  };
+  const FX_CANT = ['No tag on the pole', 'Can’t reach it', 'Pole not there', 'Other'];
+  const FX_ICON = {
+    'New photo': 'M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3ZM12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
+    'Pole ID': 'M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4ZM7.5 8.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z',
+    'Owner': 'M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z',
+    'Clamp size': 'M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.4 2.4 0 0 1 0-3.4l2.6-2.6a2.4 2.4 0 0 1 3.4 0ZM14.5 12.5l2-2M11.5 9.5l2-2M8.5 6.5l2-2M17.5 15.5l2-2',
+    'Pin location': 'M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0ZM12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
+    'Delete it': 'M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2',
+    'Other': 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z',
+    'Missing pole': 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM12 8v8M8 12h8',
+    'Check here': 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7ZM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
+  };
+  const fxSort = (w) => [...new Set(w)].sort((a, b) => FX_ORDER.indexOf(a) - FX_ORDER.indexOf(b));
+  const nFix = (n) => (n === 1 ? '1 fix' : `${n} fixes`);
+  const fxKey = () => `x${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const fxSvg = (w) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${FX_ICON[w] || FX_ICON.Other}"/></svg>`;
+  let fx = null, fxLayer = null, chgLayer = null; // fx: the panel { mode: 'co' | 'fp', name, view, ... }
+
+  /* ---- what changed: one record's snapshot, and before → after ---- */
+  function chgSnap(p) {
+    const b = p.boq || {};
+    return { id: p.id, name: recName(p) || '(no ID)', el: elemOf(p), poleId: p.poleId || '', type: p.poleType || '', status: p.status || '', owner: b.owner || '', clamp: b.clamp || '',
+      lat: p.lat, lon: p.lon, photo: p.takenAt || '', remarks: p.remarks || '', boq: JSON.stringify(b) };
+  }
+  const CHG_F = [['poleId', 'Pole ID'], ['type', 'Type'], ['status', 'Status'], ['owner', 'Owner'], ['clamp', 'Clamp size'], ['remarks', 'Remarks']];
+  function chgLines(a, b) {
+    const L = [];
+    CHG_F.forEach(([k, lab]) => { if ((a[k] || '') !== (b[k] || '')) L.push({ label: lab, from: a[k] || 'empty', to: b[k] || 'empty' }); });
+    if ((a.photo || '') !== (b.photo || '')) L.push({ label: 'Photo', from: 'old photo', to: `new photo${b.photo ? ` (${tmWhen(b.photo)})` : ''}`, photo: true });
+    const m = Number.isFinite(a.lat) && Number.isFinite(b.lat) ? haversine(a, b) : 0;
+    if (m > 1) L.push({ label: 'Pin', from: 'old place', to: `moved ${Math.round(m)} m`, moved: Math.round(m) });
+    const rest = (s) => { try { const o = JSON.parse(s || '{}'); delete o.owner; delete o.clamp; return JSON.stringify(o); } catch (e) { return s; } };
+    if (rest(a.boq) !== rest(b.boq)) L.push({ label: 'Details', from: '', to: 'other details changed' });
+    return L;
+  }
+  const chgSnapAll = (name) => new Map(points.filter((p) => p.project === name).map((p) => [p.id, chgSnap(p)]));
+  function chgDiff(before, name) {
+    const out = [], now = new Map(points.filter((p) => p.project === name).map((p) => [p.id, p]));
+    now.forEach((p, id) => {
+      const a = before.get(id), b = chgSnap(p);
+      if (!a) out.push({ id, kind: 'new', name: b.name, lat: b.lat, lon: b.lon, lines: [] });
+      else { const L = chgLines(a, b); if (L.length) out.push({ id, kind: 'changed', name: b.name, lat: b.lat, lon: b.lon, olat: a.lat, olon: a.lon, lines: L }); }
+    });
+    before.forEach((a, id) => { if (!now.has(id)) out.push({ id, kind: 'deleted', name: a.name, lat: a.lat, lon: a.lon, lines: [] }); });
+    return out;
+  }
+  const chgHtml = (L) => (L.length ? `<div class="fx-chgs">${L.map((x) => (x.from ? `<span><b>${tmEsc(x.label)}</b> <s>${tmEsc(x.from)}</s> → <mark>${tmEsc(x.to)}</mark></span>` : `<span><b>${tmEsc(x.label)}</b> <mark>${tmEsc(x.to)}</mark></span>`)).join('')}</div>` : '');
+  function chgCounts(items) { const c = { new: 0, changed: 0, deleted: 0 }; (items || []).forEach((x) => { c[x.kind] = (c[x.kind] || 0) + 1; }); return c; }
+  function chgSay(C) { const c = chgCounts(C.items); return [c.new && `${c.new} new`, c.changed && `${c.changed} changed`, c.deleted && `${c.deleted} deleted`].filter(Boolean).join(' · ') || 'nothing changed'; }
+  /** Every merged update keeps what it changed on the project (beta 3: the coordinator and the field partner alike). */
+  function chgStore(proj, snap, M, who) {
+    const items = chgDiff(snap, proj);
+    S.meta[proj] = { ...pmeta(proj), chg: { at: new Date().toISOString(), from: M.from, fromName: who, n: M.n || 0, full: !!M.full, items: items.slice(0, 300), more: Math.max(0, items.length - 300) } };
+    LOG.info('chg.store', { n: items.length, ...chgCounts(items) });
+    return items.length;
+  }
+  function chgOpen(name) {
+    const C = pmeta(name).chg; if (!C) { toast('No update merged yet.'); return; }
+    $('chgSub').textContent = `${C.full ? `The whole project (update ${C.n})` : `Update ${C.n}`} from ${C.fromName} · merged ${tmWhen(C.at)} · ${chgSay(C)}`;
+    const K = { new: 'New', changed: 'Changed', deleted: 'Deleted' };
+    $('chgList').innerHTML = (C.items || []).map((x, i) => `<div class="chg-row"><div class="chg-h"><span class="chg-k ${x.kind}">${K[x.kind]}</span><b>${tmEsc(x.name)}</b>`
+      + `<button class="btn sm" type="button" data-chg="${i}">${x.kind === 'deleted' ? 'Where it was' : 'Show on the map'}</button></div>${chgHtml(x.lines || [])}</div>`).join('')
+      + (C.more ? `<p class="hint">${C.more} more not listed.</p>` : '') || '<p class="hint">Nothing changed in this update.</p>';
+    openSheet('chgSheet');
+  }
+  $('chgList').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-chg]'); if (!b) return;
+    const C = pmeta(S.project).chg, x = C && C.items[+b.dataset.chg]; if (!x) return;
+    chgShow(x.lat, x.lon, x.olat, x.olon, x.kind === 'deleted' ? '' : x.id);
+  });
+  /** The map goes to a record, rings it, and draws where it was when its pin moved (a dashed ring and line). */
+  function chgShow(lat, lon, olat, olon, rid) {
+    closeAll().then(() => {
+      if (!chgLayer) chgLayer = L.layerGroup().addTo(map);
+      chgLayer.clearLayers();
+      const moved = Number.isFinite(olat) && Number.isFinite(olon) && haversine({ lat, lon }, { lat: olat, lon: olon }) > 1;
+      if (moved || !rid) {
+        const o = moved ? [olat, olon] : [lat, lon];
+        if (moved) L.polyline([o, [lat, lon]], { color: '#1c7ed6', weight: 3, dashArray: '6 6', interactive: false }).addTo(chgLayer);
+        L.circleMarker(o, { radius: 11, color: '#1c7ed6', weight: 3, dashArray: '4 4', fillColor: '#ffffff', fillOpacity: 0.6, interactive: false }).addTo(chgLayer);
+        L.marker(o, { interactive: false, keyboard: false, icon: L.divIcon({ className: 'chg-was', html: `<span>${moved ? 'was here' : 'deleted'}</span>`, iconSize: [70, 18], iconAnchor: [35, 32] }) }).addTo(chgLayer);
+      }
+      if (rid && projPoints().some((p) => p.id === rid)) { hlId = rid; hlFrom = ''; hlDraw(); }
+      map.setView([lat, lon], Math.max(map.getZoom(), 19));
+    });
+  }
+  tmHooks.hlClear = () => { if (chgLayer) chgLayer.clearLayers(); };
+
+  /* ---- the coordinator: the fix list (a draft kept on the phone until it is sent) ---- */
+  const fxDraft = (name) => ((tmTeam(name) || {}).fixDraft || {}).items || [];
+  function fxSetDraft(name, items) { setTeam(name, { ...(tmTeam(name) || {}), fixDraft: items.length ? { items, at: new Date().toISOString() } : null }); persist(); }
+  const fxRec = (rid) => (rid ? points.find((p) => p.id === rid) : null);
+  const fxNameOf = (it) => (it.kind === 'pole' ? `Pole ${(fxRec(it.rid) && recName(fxRec(it.rid))) || it.name || '(no ID)'}` : it.kind === 'spot' ? 'A spot on the map' : `Found: near ${it.name || 'a pole'}`);
+  /** The partners a fix list goes to: those who have the project (downloaded it or sent an update); the others are listed, unticked. */
+  function fxPartners(name) {
+    const T = tmTeam(name) || {};
+    return (T.to || []).filter((e) => !(T.left || {})[e]).map((e) => ({ email: e, name: tmNameOf(e, (T.names || {})[e]), has: mbxHasIt(name, e) }));
+  }
+  function fxStart(name) {
+    const P = fxPartners(name);
+    fx = { mode: 'co', name, view: 'list', edit: null, sel: [], spot: false, min: false, note: '', other: null, undo: null, to: P.filter((p) => p.has).map((p) => p.email) };
+    closeAll().then(() => { fxShow(); fxFit(); });
+    LOG.info('fix.compose', { draft: fxDraft(name).length });
+  }
+  /** What the app sees in the records itself, grouped: no owner, no clamp size, a photo kept with a camera warning, a pin far from
+      where its photo was taken, two pins on the same spot. */
+  function fxChecks(name) {
+    const all = points.filter((p) => p.project === name), poles = all.filter((p) => elemOf(p) === 'Pole' && p.status !== 'Proposed' && p.status !== 'New');
+    const D = fxDraft(name), has = (id, w) => D.some((x) => x.rid === id && x.why.includes(w));
+    const G = [
+      { why: 'Owner', label: 'No owner', short: 'with no owner', note: '', ids: poles.filter((p) => !(p.boq && p.boq.owner)).map((p) => p.id) },
+      { why: 'Clamp size', label: 'No clamp size', short: 'with no clamp size', note: '', ids: poles.filter((p) => !(p.boq && p.boq.clamp)).map((p) => p.id) },
+      { why: 'New photo', label: 'Photo kept with a camera warning (blurry or dark)', short: 'with a blurry or dark photo', note: 'The photo looks blurry or dark.', ids: all.filter((p) => p.q && Array.isArray(p.q.flags) && p.q.flags.length).map((p) => p.id) },
+      { why: 'Pin location', label: 'Pin over 25 m from where its photo was taken', short: 'pinned far from the photo', note: 'The pin is far from where the photo was taken.', ids: all.filter((p) => Number.isFinite(p.gpsLat) && Number.isFinite(p.gpsLon) && haversine({ lat: p.gpsLat, lon: p.gpsLon }, p) > 25).map((p) => p.id) },
+    ];
+    const dup = new Set();
+    for (let i = 0; i < poles.length; i++) for (let j = i + 1; j < poles.length; j++) if (haversine(poles[i], poles[j]) < 2) { dup.add(poles[i].id); dup.add(poles[j].id); }
+    G.push({ why: 'Other', label: 'Two pins on the same spot (under 2 m)', short: 'on the same spot', note: 'Two pins on the same spot: keep one.', ids: [...dup] });
+    return G.map((g) => ({ ...g, ids: g.ids.filter((id) => !has(id, g.why)) })).filter((g) => g.ids.length);
+  }
+  /** Adds the same reasons to each of these poles (a pole already on the list gets them too, and the note). */
+  function fxAddPoles(name, rids, why, note) {
+    const items = fxDraft(name).map((x) => ({ ...x }));
+    rids.forEach((rid) => {
+      const p = fxRec(rid); if (!p) return;
+      const it = items.find((x) => x.kind === 'pole' && x.rid === rid);
+      if (it) { it.why = fxSort(it.why.concat(why)); if (note && !String(it.note || '').includes(note)) it.note = it.note ? `${it.note} · ${note}` : note; }
+      else items.push({ k: fxKey(), kind: 'pole', rid, name: recName(p) || '', lat: p.lat, lon: p.lon, why: fxSort(why), note: note || '' });
+    });
+    fxSetDraft(name, items);
+  }
+  function fxEditItem(k) {
+    const it = fxDraft(fx.name).find((x) => x.k === k); if (!it) return;
+    fx.edit = { k, kind: it.kind, rids: it.rid ? [it.rid] : [], lat: it.lat, lon: it.lon, why: it.why.slice(), note: it.note || '' };
+    fx.view = 'edit'; fx.min = false; fx.spot = false; fxRender(); fxDraw();
+  }
+  function fxSaveEdit() {
+    const e = fx.edit, name = fx.name; if (!e || (!e.why.length && !e.note.trim())) return;
+    const note = e.note.trim().slice(0, 200);
+    if (e.k) fxSetDraft(name, fxDraft(name).map((x) => (x.k === e.k ? { ...x, why: fxSort(e.why), note } : x)));
+    else if (e.kind === 'spot') fxSetDraft(name, fxDraft(name).concat([{ k: fxKey(), kind: 'spot', rid: '', name: '', lat: e.lat, lon: e.lon, why: fxSort(e.why), note }]));
+    else fxAddPoles(name, e.rids, e.why, note);
+    LOG.info('fix.item', { n: e.rids.length || 1, why: e.why.join('+') });
+    fx.edit = null; fx.sel = []; fx.view = 'list'; fx.undo = null; fxRender(); fxDraw();
+  }
+  /** beta 3.4: one add on the coordinator's screen, with Undo (the draft as it was). */
+  function fxAddUndo(said, fn) { const was = fxDraft(fx.name).map((x) => ({ ...x })); fn(); fx.undo = { items: was, said }; fx.sel = []; fx.other = null; LOG.info('fix.add', { n: fxDraft(fx.name).length }); fxRender(); fxDraw(); }
+  const fxNames = (ids) => ids.slice(0, 6).map((id) => recName(fxRec(id)) || '?').join(', ') + (ids.length > 6 ? '…' : '');
+  const fxSummary = (items, note) => [note, ...items.map((x, i) => `${x.n || i + 1}. ${fxNameOf(x).replace(/^Pole /, '')}: ${x.why.join(', ') || 'see the note'}${x.note ? ` (“${x.note}”)` : ''}`)].filter(Boolean).join('\n').slice(0, 1500);
+  /** Sends the draft (or the not-yet answers again) to the field partners: each item with its number, the pole and what to do. */
+  async function fxSendList(name, items, opt) {
+    const o = opt || {}, T = tmTeam(name) || {}, to = o.to || fx && fx.to || fxPartners(name).filter((p) => p.has).map((p) => p.email);
+    if (!items.length) return false;
+    if (!to.length) { toast('Nobody has this project from you yet: send it to a field partner first.', 5000); return false; }
+    if (navigator.onLine === false) { toast('No internet: the fix list stays on this phone. Send it with signal.', 5000); return false; }
+    if (!mbxOn()) { toast('The team mailbox is not on this phone (Settings → Team).'); return false; }
+    const O = T.fixOut || { items: [], round: 0 }, round = (O.round || 0) + 1;
+    let nMax = O.items.reduce((m, x) => Math.max(m, x.n || 0), 0);
+    const now = new Date().toISOString();
+    const out = items.map((x) => {
+      if (o.again) return { ...x, prev: { status: x.status, round: x.round, review: x.review, againMsg: x.againMsg || '' }, round, status: 'out', review: '', againMsg: `Round ${round}: ${(S.user && S.user.name) || 'the coordinator'} says it is not right yet${o.note ? `: “${o.note}”` : '.'}` };
+      const p = fxRec(x.rid);
+      return { k: x.k, n: ++nMax, kind: x.kind, rid: x.rid || '', name: p ? recName(p) || '' : x.name || '', lat: p ? p.lat : x.lat, lon: p ? p.lon : x.lon, why: x.why, note: x.note || '', round, status: 'out', review: '', reply: '', before: p ? chgSnap(p) : null, againMsg: '' };
+    });
+    const body = { kind: 'fixlist', v: 1, round, at: now, items: out.map((x) => ({ k: x.k, n: x.n, kind: x.kind, rid: x.rid, name: x.name, lat: x.lat, lon: x.lon, why: x.why, note: x.note, round: x.round, againMsg: x.againMsg || '' })) };
+    const note = fxSummary(out, o.again ? '' : (o.note || '').trim());
+    cancelFlag = false; const ok = [];
+    try {
+      for (const e of to) { await mbxSendSmall('fix', name, e, { note, fixes: out.length, round }, `Sending to ${tmFirst(e)}`, undefined, body); ok.push(e); }
+    } finally { busy(false); }
+    const T2 = tmTeam(name) || {}, O2 = T2.fixOut || { items: [], round: 0 };
+    const merged = O2.items.filter((x) => !out.some((y) => y.k === x.k)).concat(out);
+    setTeam(name, { ...T2, accepted: null, fixAsked: { at: now, note }, fixOut: { round, at: now, to: ok, items: merged, prevAt: O2.at || '' }, ...(o.again ? {} : { fixDraft: null }) });
+    persist();
+    LOG.info('fix.send', { n: out.length, round, to: ok.length, again: !!o.again });
+    toast(`${out.length === 1 ? '1 fix' : `${out.length} fixes`} sent to ${ok.map((e) => tmFirst(e)).join(' and ')}.`, 5000);
+    return true;
+  }
+
+  /** A fix list taken back before anyone downloaded it: its new fixes go back to the draft, the Not yet ones back to Not yet. */
+  function fxTakenBack(o) {
+    const name = o && o.project, T = tmTeam(name) || {}, O = T.fixOut; if (!O || !O.items.length) return;
+    if (o.at && O.at && o.at < O.at) return; // an older round's send
+    const to = (O.to || []).filter((e) => e !== o.to);
+    if (to.length) { setTeam(name, { ...T, fixOut: { ...O, to } }); persist(); return; }
+    const mine = (x) => x.status === 'out' && x.round === O.round;
+    const back = O.items.filter((x) => mine(x) && !x.prev).map((x) => ({ k: x.k, kind: x.kind, rid: x.rid, name: x.name, lat: x.lat, lon: x.lon, why: x.why, note: x.note }));
+    const items = O.items.filter((x) => !(mine(x) && !x.prev)).map((x) => { if (!(mine(x) && x.prev)) return x; const { prev, ...y } = x; return { ...y, ...prev }; });
+    setTeam(name, { ...T, fixOut: items.length ? { ...O, round: Math.max(1, (O.round || 1) - 1), at: O.prevAt || O.at, items } : null, ...(items.length ? {} : { fixAsked: null }) });
+    if (back.length) fxSetDraft(name, fxDraft(name).filter((d) => !back.some((b) => b.k === d.k)).concat(back));
+    persist();
+    LOG.info('fix.takenback', { draft: back.length, again: items.filter((x) => x.review === 'again').length });
+  }
+
+  /* ---- the field partner: the fix list on his phone ---- */
+  const fxList = (name) => (tmTeam(name) || {}).fixList || null;
+  function fxSetList(name, L) { setTeam(name, { ...(tmTeam(name) || {}), fixList: L }); persist(); }
+  /** A fix list from the coordinator: new items are added; one sent again opens again, with its round and why. */
+  function fxReceive(proj, B, M, who) {
+    const T = tmTeam(proj) || {}, L0 = T.fixList && T.fixList.from === M.from ? T.fixList : null, now = new Date().toISOString();
+    const items = L0 ? L0.items.slice() : [];
+    (B.items || []).forEach((x) => {
+      const p = x.rid ? points.find((q) => q.id === x.rid && q.project === proj) : null;
+      const it = { k: x.k, n: x.n, kind: x.kind, rid: x.rid || '', name: x.name || '', lat: x.lat, lon: x.lon, why: x.why || [], note: x.note || '', round: x.round || 1, againMsg: x.againMsg || '',
+        status: 'open', reply: '', sent: false, base: p ? chgSnap(p) : null, at: now, newRid: '' };
+      const i = items.findIndex((q) => q.k === x.k); if (i >= 0) items[i] = it; else items.push(it);
+    });
+    /* beta 3.4: fixes sent after Accept (a late check): the task stays accepted, and only those poles (and a spot's new pole) open again */
+    const late = !!T.accepted, R = (B.items || []), reopen = late ? { at: now, rids: [...new Set([...((T.reopen || {}).rids || []), ...R.filter((x) => x.rid).map((x) => x.rid)])], spot: !!((T.reopen || {}).spot || R.some((x) => x.kind !== 'pole')) } : null;
+    setTeam(proj, { ...T, ...(late ? { reopen } : { accepted: null, reopen: null }), fixList: { from: M.from, fromName: who, at: now, round: B.round || 1, items } });
+    persist();
+    LOG.info('fix.receive', { n: R.length, round: B.round || 1, late });
+    return late;
+  }
+  const fxPos = (it) => { const p = fxRec(it.rid); return p ? { lat: p.lat, lon: p.lon } : it.base && Number.isFinite(it.base.lat) ? { lat: it.base.lat, lon: it.base.lon } : Number.isFinite(it.lat) ? { lat: it.lat, lon: it.lon } : null; };
+  /** The pole captured for a "missing pole": the nearest record made after the list came, within 30 m of the spot. */
+  function fxNear(it, name) {
+    const c = points.filter((q) => q.project === name && String(q.created || '') > String(it.at || '') && haversine(q, it) <= 30).sort((a, b) => haversine(a, it) - haversine(b, it));
+    return c[0] || null;
+  }
+  /** Whether one asked item shows on the record: true / false, or null when only the field partner's word can say it. */
+  function fxProof(w, it, name) {
+    const p = fxRec(it.rid), b = it.base;
+    if (w === 'New photo') return !!p && !!b && (p.takenAt || '') !== b.photo;
+    if (w === 'Pole ID') return !!p && !!b && !!p.poleId && p.poleId !== b.poleId;
+    if (w === 'Owner' || w === 'Clamp size') { const f = w === 'Owner' ? 'owner' : 'clamp', v = (p && p.boq && p.boq[f]) || ''; return !!p && !!v && (!b || !b[f] || v !== b[f]); }
+    if (w === 'Pin location') return !!p && !!b && haversine(p, b) > 1;
+    if (w === 'Delete it') return !p && !!b;
+    if (w === 'Missing pole') return !!fxNear(it, name);
+    return null;
+  }
+  const fxWhys = (it) => (it.why && it.why.length ? it.why : ['Other']);
+  /** beta 3.4: what the record shows for a done item, in a few words. */
+  function fxDoneSay(w, it, name) {
+    const p = fxRec(it.rid), b = it.base || {};
+    if (w === 'Pole ID') return p && p.poleId ? p.poleId : 'Done';
+    if (w === 'Owner' || w === 'Clamp size') return (p && p.boq && p.boq[w === 'Owner' ? 'owner' : 'clamp']) || 'Done';
+    if (w === 'Pin location') return p && Number.isFinite(b.lat) ? `Moved ${Math.round(haversine(p, b))} m` : 'Moved';
+    if (w === 'Delete it') return 'Deleted';
+    if (w === 'Missing pole') { const q = fxNear(it, name); return q ? recName(q) || 'Captured' : 'Captured'; }
+    return w === 'New photo' ? 'New photo' : 'Done';
+  }
+  const fxDone = (it, name) => fxWhys(it).every((w) => fxProof(w, it, name) !== false);
+  function fxOpenFp(name) {
+    const Ls = fxList(name); if (!Ls) return;
+    const i = Ls.items.findIndex((x) => x.status === 'open');
+    fx = { mode: 'fp', name, view: 'card', cur: i >= 0 ? i : 0, min: false, reply: null, found: null };
+    closeAll().then(() => { if (S.project !== name) openTask(name, { keepView: true }); fxShow(); fxGoCur(); });
+  }
+  /** The map goes to a place and keeps it above the panel (not behind it). */
+  function fxPan(lat, lon, z) {
+    map.setView([lat, lon], z || Math.max(map.getZoom(), 18), { animate: false });
+    const h = $('fixPanel').hidden || $('fixPanel').classList.contains('min') ? 0 : $('fixPanel').offsetHeight;
+    if (h) map.panBy([0, Math.round(h / 2)], { animate: false });
+  }
+  function fxGoCur() { const Ls = fx && fxList(fx.name), it = Ls && Ls.items[fx.cur], pos = it && fxPos(it); if (pos) fxPan(pos.lat, pos.lon); }
+  function fxMark(status, reply, more) {
+    const Ls = fxList(fx.name); if (!Ls) return;
+    const o = more || {}, items = Ls.items.map((x, i) => {
+      if (i !== fx.cur) return x;
+      const q = x.kind === 'spot' && status === 'fixed' ? fxNear(x, fx.name) : null;
+      return { ...x, status, reply: reply || '', unseen: o.unseen || [], cant: o.cant || '', newRid: q ? q.id : '', newName: q ? recName(q) || '' : '', doneAt: new Date().toISOString() };
+    });
+    fxSetList(fx.name, { ...Ls, items });
+    const nx = items.findIndex((x, i) => i > fx.cur && x.status === 'open'), nx0 = items.findIndex((x) => x.status === 'open');
+    fx.cur = nx >= 0 ? nx : nx0 >= 0 ? nx0 : fx.cur; fx.reply = null; fx.cant = null; fx.ask = null; fx.view = 'card';
+    LOG.info('fix.answer', { status, unseen: (o.unseen || []).length, cant: o.cant || '' });
+    fxRender(); fxDraw(); if (nx >= 0 || nx0 >= 0) fxGoCur();
+  }
+  /** The answers not sent yet: they go with the next update to the coordinator. */
+  function fxAnswers(name) {
+    const Ls = fxList(name); if (!Ls) return [];
+    return Ls.items.filter((x) => x.status !== 'open' && !x.sent).map((x) => ({ k: x.k, n: x.n, kind: x.kind, status: x.status, reply: x.reply || '', why: x.why, note: x.note || '', lat: x.lat, lon: x.lon, rid: x.rid || '', name: x.name || '', newRid: x.newRid || '', newName: x.newName || '', round: x.round || 1, unseen: x.unseen || [], cant: x.cant || '' })); // (beta 3.4: + unseen, cant)
+  }
+  function fxMarkSent(name, ans) {
+    const Ls = fxList(name); if (!Ls || !ans.length) return;
+    const ks = new Set(ans.map((a) => a.k)), at = new Date().toISOString();
+    fxSetList(name, { ...Ls, items: Ls.items.map((x) => (ks.has(x.k) ? { ...x, sent: true, sentAt: at } : x)) });
+    if (fx && fx.name === name) { fxRender(); fxDraw(); }
+  }
+
+  /* ---- the coordinator receives the answers with the update ---- */
+  function fxApplyAnswers(proj, ans, M, who) {
+    const T = tmTeam(proj) || {}, O = T.fixOut || { items: [], round: 1 }, at = new Date().toISOString();
+    const items = O.items.map((x) => ({ ...x }));
+    ans.forEach((a) => {
+      const it = items.find((x) => x.k === a.k);
+      if (it) Object.assign(it, { status: a.status === 'reply' ? 'reply' : 'fixed', reply: a.reply || '', unseen: Array.isArray(a.unseen) ? a.unseen : [], cant: a.cant || '', newRid: a.newRid || '', newName: a.newName || '', review: '', dropped: false, answeredAt: at, by: M.from, byName: who });
+      else if (a.kind === 'found') items.push({ k: a.k, n: 0, kind: 'found', rid: a.rid || '', name: a.name || '', lat: a.lat, lon: a.lon, why: a.why || [], note: '', reply: a.reply || '', status: 'found', review: '', round: O.round || 1, answeredAt: at, by: M.from, byName: who });
+    });
+    setTeam(proj, { ...T, fixOut: { ...O, items } });
+    LOG.info('fix.answers', { n: ans.length });
+  }
+  const fxPendingN = (T) => (T && T.fixOut ? T.fixOut.items.filter((x) => x.review !== 'ok').length : 0);
+  /** One answer as the coordinator sees it: what was asked, what came back, and what changed on the record. */
+  function fxReviewLines(it) {
+    if (it.kind === 'found' || it.status === 'out') return [];
+    if (it.kind === 'spot') { const q = fxRec(it.newRid); return q ? [{ label: 'New pole', from: 'none', to: recName(q) || '(no ID)' }] : []; }
+    const p = fxRec(it.rid);
+    if (!p) return it.before ? [{ label: 'Record', from: 'on the map', to: 'deleted' }] : [];
+    return it.before ? chgLines(it.before, chgSnap(p)) : [];
+  }
+  function fxReviewHtml(name) {
+    const T = tmTeam(name) || {}, O = T.fixOut; if (!O || !O.items.length) return '';
+    const I = O.items, out = I.filter((x) => x.status === 'out' && !x.dropped).length, toCheck = I.filter((x) => x.status !== 'out' && !x.review).length, again = I.filter((x) => x.review === 'again').length, ok = I.filter((x) => x.review === 'ok').length;
+    const H = [`<div class="fxrev"><p class="tl"><b>Fixes · round ${O.round || 1}</b> · ${tmEsc([toCheck && `${toCheck} to check`, out && `${out} with ${fxWithWho(T)}`, again && `${again} not yet`, ok && `${ok} OK`].filter(Boolean).join(' · '))}</p>`];
+    I.forEach((it) => {
+      const L = fxReviewLines(it), st = it.status;
+      const res = st === 'out' ? `${it.why.join(' · ') || 'See the note'}${it.round > 1 ? ` · round ${it.round}` : ''}`
+        : st === 'found' ? `${tmFirst(it.by, it.byName)} found: ${it.why.join(', ') || 'something'}${it.reply ? ` (“${it.reply}”)` : ''}`
+          : st === 'reply' ? `${tmFirst(it.by, it.byName)} could not: “${it.reply || 'no reason given'}”`
+            : (it.unseen || []).length ? `${tmFirst(it.by, it.byName)}: Done (the app saw no change: ${fxWhySay(it.unseen).toLowerCase()})`
+              : `${tmFirst(it.by, it.byName)} fixed it (${(fxWhySay(it.why) || 'see the note').toLowerCase()})${L.length ? '' : ': nothing on the record changed, he checked it'}`;
+      const chip = it.dropped ? ['Not needed', 'ok'] : st === 'out' ? ['With the field partner', 'wait'] : it.review === 'ok' ? ['✓ OK', 'ok'] : it.review === 'again' ? ['Not yet', 'again'] : ['To check', 'check'];
+      const pos = fxPos(it) || {}, cls = st === 'out' ? '' : st === 'found' ? 'found' : st === 'reply' ? 'reply' : 'fixed';
+      H.push(`<div class="fx-rv ${chip[1]}"><div class="fx-rvh"><span class="fx-num ${cls}${it.kind !== 'pole' ? ' spot' : ''}">${st === 'found' ? '+' : st === 'fixed' ? '✓' : st === 'reply' ? '?' : it.n}</span>`
+        + `<span class="fx-txt"><b>${tmEsc(`${it.n ? `${it.n}. ` : ''}${fxNameOf(it)}`)}</b><small>${tmEsc(res)}</small></span><span class="fx-chip ${chip[1]}">${chip[0]}</span></div>${chgHtml(L)}`
+        + `<div class="row fx-rvb">${st !== 'out' && Number.isFinite(pos.lat) ? `<button class="btn sm" type="button" data-fxr="show" data-k="${tmEsc(it.k)}">Show on the map</button>` : ''}`
+        + `${st !== 'out' && !it.review ? `<button class="btn sm primary" type="button" data-fxr="ok" data-k="${tmEsc(it.k)}">✓ OK</button><button class="btn sm" type="button" data-fxr="again" data-k="${tmEsc(it.k)}">Not yet</button>` : ''}`
+        + `${st === 'out' && !it.review ? `<button class="btn sm" type="button" data-fxr="drop" data-k="${tmEsc(it.k)}">Not needed</button>` : ''}`
+        + `${it.review ? `<button class="btn sm" type="button" data-fxr="clear" data-k="${tmEsc(it.k)}">Change</button>` : ''}</div></div>`);
+    });
+    if (again) H.push(`<label class="field">What is still wrong? (optional, goes with the Not yet ones)<input type="text" id="fxAgainNote" maxlength="200" placeholder="For example: the new photo is still dark"></label><button class="btn primary" type="button" data-fxr="sendagain">Send the ${again} not yet back</button>`);
+    H.push('</div>');
+    return H.join('');
+  }
+  const fxWithWho = (T) => ((T.fixOut && T.fixOut.to) || []).map((e) => tmFirst(e, (T.names || {})[e])).join(' and ') || 'the field partner';
+  async function fxReview(name, k, v) {
+    const T = tmTeam(name) || {}, O = T.fixOut; if (!O) return;
+    if (v === 'show') { const it = O.items.find((x) => x.k === k); if (!it) return; const pos = fxPos(it); if (!pos) return; const b = it.before; chgShow(pos.lat, pos.lon, b ? b.lat : NaN, b ? b.lon : NaN, fxRec(it.rid) ? it.rid : fxRec(it.newRid) ? it.newRid : ''); return; }
+    if (v === 'sendagain') {
+      const note = ((document.getElementById('fxAgainNote') || {}).value || '').trim().slice(0, 200), again = O.items.filter((x) => x.review === 'again');
+      if (await fxSendList(name, again, { again: true, note, to: O.to && O.to.length ? O.to : undefined })) renderProjects();
+      return;
+    }
+    if (v === 'drop') {
+      const it = O.items.find((x) => x.k === k); if (!it) return;
+      if (!(await ask(`Fix ${it.n || ''} not needed?`, `It no longer holds up Accept. ${fxWithWho(T)} may still see it on the fix list.`, [{ label: 'Cancel', value: false }, { label: 'Not needed', value: true, primary: true }]))) return;
+      const T2 = tmTeam(name) || {}, O2 = T2.fixOut; if (!O2) return;
+      setTeam(name, { ...T2, fixOut: { ...O2, items: O2.items.map((x) => (x.k === k ? { ...x, review: 'ok', dropped: true } : x)) } }); persist();
+      LOG.info('fix.review', { v }); renderProjects(); return;
+    }
+    setTeam(name, { ...T, fixOut: { ...O, items: O.items.map((x) => (x.k === k ? { ...x, review: v === 'clear' ? '' : v, dropped: false } : x)) } }); persist();
+    LOG.info('fix.review', { v }); renderProjects();
+  }
+
+  /* ---- the panel over the map (both roles) ---- */
+  function fxShow() { $('fixPanel').hidden = false; document.body.classList.add('fixing'); fxRender(); fxDraw(); }
+  function fxClose() { fx = null; $('fixPanel').hidden = true; document.body.classList.remove('fixing'); if (fxLayer) fxLayer.clearLayers(); }
+  function fxFit() {
+    const P = fxDraft(fx.name).map(fxPos).filter(Boolean);
+    const h = $('fixPanel').hidden ? 0 : $('fixPanel').offsetHeight;
+    if (P.length > 1) map.fitBounds(L.latLngBounds(P.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 90], paddingBottomRight: [40, h + 30], maxZoom: 19 });
+    else if (P.length === 1) fxPan(P[0].lat, P[0].lon);
+  }
+  function fxDraw() {
+    if (!fxLayer) fxLayer = L.layerGroup().addTo(map);
+    fxLayer.clearLayers();
+    if (!fx || S.project !== fx.name || $('fixPanel').hidden) return;
+    const M = [];
+    if (fx.mode === 'co') {
+      fxDraft(fx.name).forEach((it, i) => { const pos = fxPos(it); if (pos) M.push({ ...pos, label: String(i + 1), cls: it.kind === 'spot' ? 'spot' : '', tap: () => (it.kind === 'pole' && fxRec(it.rid) ? tmHooks.pinTap(it.rid) : fxEditItem(it.k)) }); });
+      fx.sel.forEach((id) => { const p = fxRec(id); if (p) M.push({ lat: p.lat, lon: p.lon, label: '✓', cls: 'sel', tap: () => tmHooks.pinTap(id) }); });
+      if (fx.edit && fx.edit.kind === 'spot' && !fx.edit.k) M.push({ lat: fx.edit.lat, lon: fx.edit.lon, label: '', cls: 'spot pend', tap: null });
+      if (fx.edit && fx.edit.kind === 'pole' && !fx.edit.k) fx.edit.rids.forEach((id) => { const p = fxRec(id); if (p) M.push({ lat: p.lat, lon: p.lon, label: '', cls: 'sel pend', tap: null }); });
+    } else {
+      const Ls = fxList(fx.name); if (!Ls) return;
+      Ls.items.forEach((it, i) => {
+        const pos = fxPos(it); if (!pos) return;
+        const cur = i === fx.cur && it.status === 'open';
+        M.push({ ...pos, label: it.kind === 'found' ? '+' : it.status === 'fixed' ? '✓' : it.status === 'reply' ? '?' : String(it.n || i + 1), cls: [it.kind !== 'pole' ? 'spot' : '', it.status, cur ? 'cur' : ''].join(' '),
+          tap: () => { fx.cur = i; fx.view = 'card'; fx.min = false; fx.reply = null; fxRender(); fxDraw(); } });
+      });
+    }
+    M.forEach((m) => {
+      const mk = L.marker([m.lat, m.lon], { keyboard: false, zIndexOffset: 1000, interactive: !!m.tap, icon: L.divIcon({ className: 'fxpin-wrap', html: `<span class="fxpin ${m.cls}">${m.label}</span>`, iconSize: [30, 30], iconAnchor: [15, 15] }) });
+      if (m.tap) mk.on('click', m.tap);
+      mk.addTo(fxLayer);
+    });
+  }
+  /** A tap on a pole while the panel is open: the coordinator picks it (or ticks it); the field partner goes to its fix. */
+  tmHooks.pinTap = (id) => {
+    if (!fx || S.project !== fx.name || $('fixPanel').hidden) return false;
+    if (fx.mode === 'co') {
+      if (fx.view === 'edit' || fx.spot) return true;
+      fx.sel = fx.sel.includes(id) ? fx.sel.filter((x) => x !== id) : fx.sel.concat([id]); fx.other = null; fxRender(); fxDraw(); return true;
+    }
+    const Ls = fxList(fx.name), i = Ls ? Ls.items.findIndex((x) => x.rid === id) : -1;
+    if (i < 0 || (i === fx.cur && fx.view === 'card' && !fx.min)) return false; // another pole, or the one shown: it opens as usual
+    fx.cur = i; fx.view = 'card'; fx.min = false; fx.reply = null; fxRender(); fxDraw(); return true;
+  };
+  map.on('click', (e) => {
+    if (!fx || fx.mode !== 'co' || !fx.spot || S.project !== fx.name) return;
+    fx.spot = false; fxAddSpot(e.latlng.lat, e.latlng.lng);
+  });
+  function fxAddSpot(lat, lon) {
+    const name = fx.name; fxAddUndo(`Missing pole added at the spot (${fxDraft(name).length + 1})`, () => fxSetDraft(name, fxDraft(name).concat([{ k: fxKey(), kind: 'spot', rid: '', name: '', lat, lon, why: ['Missing pole'], note: '' }])));
+  }
+  tmHooks.poles = () => { if (fx && (S.project !== fx.name || !tmOn())) fxClose(); else if (fx) { fxRender(); fxDraw(); } }; // (beta 3.2: Team off closes it)
+  const fxBtn = (k, label, cls, extra) => `<button class="btn${cls ? ` ${cls}` : ''}" type="button" data-fx="${k}"${extra || ''}>${label}</button>`;
+  function fxRender() {
+    if (!fx) return;
+    const P = $('fixPanel'); P.classList.toggle('min', !!fx.min);
+    $('fxMin').textContent = fx.min ? 'Show' : 'Hide'; $('fxMin').setAttribute('aria-expanded', String(!fx.min));
+    const H = [];
+    if (fx.mode === 'co') {
+      const D = fxDraft(fx.name), Pt = fxPartners(fx.name), first = Pt.filter((p) => fx.to.includes(p.email)).map((p) => tmFirst(p.email, p.name)).join(' and ') || 'nobody';
+      const sel = fx.sel.filter((id) => fxRec(id));
+      $('fxTitle').textContent = `Fixes for ${first} · ${fx.name}`;
+      $('fxSub').textContent = D.length ? `${nFix(D.length)} · kept on this phone until you send` : 'Tap the poles on the map, then tap what is wrong';
+      if (fx.view === 'edit' && fx.edit) { // one fix of the list: change what is asked, or its note
+        const e = fx.edit, W = e.kind === 'spot' ? FX_SPOT : FX_POLE;
+        H.push(`<b class="fx-title">${tmEsc(e.kind === 'spot' ? 'A spot on the map' : `Pole ${recName(fxRec(e.rids[0])) || '(no ID)'}`)}</b><span class="hint" style="margin:0">${e.kind === 'spot' ? 'What should they do here?' : 'Tap what’s wrong (one or more).'}</span>`);
+        H.push(`<div class="fx-tiles four" role="group" aria-label="What needs fixing">${W.map((w) => `<button class="fx-tile" type="button" data-fx="why" data-w="${tmEsc(w)}" aria-pressed="${e.why.includes(w)}">${fxSvg(w)}<span>${tmEsc(FX_TILE[w] || w)}</span></button>`).join('')}</div>`);
+        H.push(`<label class="field">Note (optional)<input type="text" id="fxItemNote" maxlength="200" value="${tmEsc(e.note)}" placeholder="For example: the photo is too dark"></label>`);
+        H.push(`<div class="row">${fxBtn('remove', 'Remove', 'danger')}${fxBtn('cancel', 'Cancel')}${fxBtn('save', 'Save', 'primary grow', e.why.length || e.note.trim() ? '' : ' disabled')}</div>`);
+      } else {
+        if (fx.spot) H.push(`<div class="fx-tip">Tap the map where the pole is missing</div>`);
+        const G = fx.spot ? [] : fxChecks(fx.name);
+        if (G.length) H.push(`<div class="fx-found"><span class="lbl">THE APP FOUND · TAP TO ADD</span><div class="fx-chips">${G.map((g, i) => `<button class="chip small fx-sugchip" type="button" data-fx="chk" data-i="${i}" title="${tmEsc(`${g.label}: ${fxNames(g.ids)} → ${FX_SAY[g.why] || g.why}`)}">+ ${g.ids.length} ${tmEsc(g.short)}</button>`).join('')}</div></div>`);
+        if (fx.other && sel.length) {
+          H.push(`<b class="fx-title">${tmEsc(`Other · ${fxNames(sel)}`)}</b><label class="field">What is wrong? (a few words)<input type="text" id="fxOtherNote" maxlength="200" value="${tmEsc(fx.other.note)}" placeholder="For example: not a pole, a lamp post"></label>`);
+          H.push(`<div class="row">${fxBtn('othercancel', 'Cancel')}${fxBtn('otheradd', sel.length > 1 ? `Add to all ${sel.length}` : 'Add', 'primary grow', fx.other.note.trim() ? '' : ' disabled')}</div>`);
+        } else {
+          H.push(`<div class="fx-selh"><b class="fx-title">${tmEsc(sel.length ? `${sel.length === 1 ? '1 pole' : `${sel.length} poles`} ticked: ${fxNames(sel)}` : 'Tap poles on the map to tick them')}</b>${sel.length ? fxBtn('selclear', 'Clear', 'sm') : ''}</div>`);
+          H.push(`<div class="fx-tiles four" role="group" aria-label="What is wrong">${FX_POLE.map((w) => `<button class="fx-tile" type="button" data-fx="add" data-w="${tmEsc(w)}"${sel.length ? '' : ' aria-disabled="true"'}>${fxSvg(w)}<span>${tmEsc(FX_TILE[w] || w)}</span></button>`).join('')}`
+            + `<button class="fx-tile spot" type="button" data-fx="spot" aria-pressed="${!!fx.spot}">${fxSvg('Missing pole')}<span>${fx.spot ? 'Cancel' : 'Spot, no pole'}</span></button></div>`);
+        }
+        if (fx.undo) H.push(`<div class="fx-donecard"><span>${tmEsc(`✓ ${fx.undo.said}`)}</span>${fxBtn('undo', 'Undo', 'sm')}</div>`);
+        if (D.length) {
+          if (Pt.length > 1 || Pt.some((p) => !p.has)) H.push(`<div class="fx-to"><span class="lbl">TO</span>${Pt.map((p) => `<button class="chip" type="button" data-fx="to" data-e="${tmEsc(p.email)}" aria-pressed="${fx.to.includes(p.email)}">${tmEsc(p.name)}${p.has ? '' : ' (no project yet)'}</button>`).join('')}</div>`);
+          H.push(fxBtn('send', `Send ${nFix(D.length)} to ${tmEsc(first)}`, 'primary fx-big', fx.to.length ? '' : ' disabled'));
+          H.push(`<div class="fx-list">${D.map((it, i) => `<div class="fx-lrow"><button class="fx-lbtn" type="button" data-fx="item" data-k="${tmEsc(it.k)}" title="Change it"><span class="fx-num${it.kind === 'spot' ? ' spot' : ''}">${i + 1}</span><span class="fx-txt"><b>${tmEsc(fxNameOf(it))}</b><small>${tmEsc(fxWhySay(it.why) || 'See the note')}${it.note ? ` · “${tmEsc(it.note)}”` : ''}</small></span></button><button class="iconbtn fx-x" type="button" data-fx="del" data-k="${tmEsc(it.k)}" aria-label="Remove fix ${i + 1}">×</button></div>`).join('')}</div>`);
+          H.push(`<label class="field">Note for everyone (optional)<input type="text" id="fxNote" maxlength="300" value="${tmEsc(fx.note)}" placeholder="For example: please do these by Friday"></label>`);
+        } else if (!fx.spot) H.push('<p class="hint" style="margin:0">Each fix gets its own number on their map. They get the list when they Sync.</p>');
+      }
+    } else {
+      const Ls = fxList(fx.name);
+      if (!Ls) { fxClose(); return; }
+      const I = Ls.items, open = I.filter((x) => x.status === 'open').length, unsent = I.filter((x) => x.status !== 'open' && !x.sent).length, sent = I.filter((x) => x.sent).length;
+      const asked = I.filter((x) => x.kind !== 'found').length, who = tmFirst(Ls.from, Ls.fromName);
+      $('fxTitle').textContent = `Fixes from ${Ls.fromName || who}`;
+      $('fxSub').textContent = `${I.length - open} of ${I.length} done${sent ? ` · ${sent} sent` : ''}`;
+      H.push(`<div class="fx-bar" aria-hidden="true"><i style="width:${I.length ? Math.round(((I.length - open) / I.length) * 100) : 0}%"></i></div>`);
+      const it = I[fx.cur];
+      if (fx.view === 'found') {
+        const F = fx.found || { why: [], note: '' };
+        H.push(`<b class="fx-title">Found something else?</b><span class="hint" style="margin:0">Tell ${tmEsc(who)} about a problem not on the list. It is marked ${it && it.kind === 'pole' ? `near ${tmEsc(fxNameOf(it).replace(/^Pole /, ''))}` : 'where you are'}.</span>`);
+        H.push(`<div class="fx-tiles">${FX_FOUND.map((w) => `<button class="fx-tile" type="button" data-fx="foundwhy" data-w="${tmEsc(w)}" aria-pressed="${F.why.includes(w)}"><span>${tmEsc(w)}</span><span class="fx-ok" aria-hidden="true">${F.why.includes(w) ? '✓' : ''}</span></button>`).join('')}</div>`);
+        H.push(`<label class="field">A short note (optional)<input type="text" id="fxFoundNote" maxlength="200" value="${tmEsc(F.note)}" placeholder="For example: leaning toward the road"></label>`);
+        H.push(`<div class="row">${fxBtn('foundcancel', 'Cancel')}${fxBtn('foundsave', `Add it for ${tmEsc(who)}`, 'primary grow', F.why.length || F.note.trim() ? '' : ' disabled')}</div>`);
+      } else if (fx.view === 'list') {
+        H.push(`<b>All fixes from ${tmEsc(who)}</b>`);
+        I.forEach((x, i) => { const st = x.sent ? 'Sent' : x.status === 'fixed' ? (x.kind === 'found' ? 'Found' : 'Done') : x.status === 'reply' ? 'Can’t do' : x.status === 'found' ? 'Found' : x.round > 1 ? 'Again' : 'To do';
+          H.push(`<button class="fx-row" type="button" data-fx="card" data-i="${i}"><span class="fx-num ${x.status}${x.kind !== 'pole' ? ' spot' : ''}">${x.kind === 'found' ? '+' : x.status === 'fixed' ? '✓' : x.status === 'reply' ? '?' : x.n || i + 1}</span><span class="fx-txt"><b>${tmEsc(fxNameOf(x))}</b><small>${tmEsc(fxWhySay(x.why) || 'See the note')}</small></span><span class="fx-st">${st}</span></button>`); });
+        H.push(fxBtn('back', 'Back to the fix'));
+      } else if (!open) {
+        if (unsent) H.push(`<div class="fx-okcard"><b>✓ All ${I.length} done</b><span>${tmEsc(`They go to ${who} at your next Sync, with the poles you changed.`)}</span></div>${fxBtn('sync', `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2M3 12a9 9 0 0 1 15.5-6.2M21 4v5h-5M3 20v-5h5"/></svg>Sync now`, 'primary fx-big fx-sync')}`);
+        else H.push(`<div class="fx-sentcard"><b>Sent to ${tmEsc(who)}</b><span>${tmEsc(who)} sees each change and checks it. If one is not right yet, it comes back here as a new round.</span></div>`);
+        H.push(`<div class="row">${fxBtn('list', 'See all fixes', 'grow')}${fxBtn('found', '+ Found something else', 'grow')}</div>`);
+      } else if (it) {
+        const pos = fxPos(it), dist = pos && fix ? Math.round(haversine(fix, pos)) : null;
+        H.push(`<div class="fx-cardh"><span class="fx-pill">${it.kind === 'found' ? 'Found' : `${it.n || fx.cur + 1} of ${asked}`}</span><b class="fx-title fx-grow">${tmEsc(fxNameOf(it))}</b>${dist != null ? `<span class="hint" style="margin:0">${dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.max(5, Math.round(dist / 5) * 5)} m`} away</span>` : ''}</div>`);
+        if (it.againMsg && it.status === 'open') H.push(`<p class="fx-again">${tmEsc(it.againMsg)}</p>`);
+        if (it.note) H.push(`<p class="fx-note">${tmEsc(who)}: “${tmEsc(it.note)}”</p>`);
+        if (it.status === 'open' && fx.cant) { // Can't do: a reason to tap, words optional (needed for Other)
+          const C = fx.cant;
+          H.push(`<b>Why? Tap one</b><div class="fx-chips">${FX_CANT.map((r) => `<button class="chip" type="button" data-fx="cantwhy" data-r="${tmEsc(r)}" aria-pressed="${C.r === r}">${tmEsc(r)}</button>`).join('')}</div>`);
+          H.push(`<input type="text" id="fxCantWords" maxlength="200" value="${tmEsc(C.words)}" placeholder="${tmEsc(C.r === 'Other' ? `What is wrong? (for ${who})` : `A few words for ${who} (optional)`)}" aria-label="A few words">`);
+          H.push(`<div class="row">${fxBtn('cantback', 'Back', 'grow')}${fxBtn('cantsave', 'Save, next fix', 'primary grow', fxCantOk(C) ? '' : ' disabled')}</div>`);
+        } else if (it.status === 'open') {
+          const p = fxRec(it.rid), gone = it.kind === 'pole' && !p && !it.base;
+          if (gone) H.push(`<p class="fx-again">${tmEsc(`This pole is not on your phone. Tell ${who} with Can’t do (Pole not there).`)}</p>`);
+          fxWhys(it).forEach((w) => {
+            const ok = fxProof(w, it, fx.name), d = FX_DO[w] || FX_DO.Other, act = it.kind !== 'pole' && d[2] === 'open' ? 'goto' : d[2];
+            const btn = gone || (w === 'Delete it' && ok) ? '' : fxBtn(act, act === 'goto' && it.kind !== 'pole' && w === 'Other' ? 'Show on the map' : ok && act === 'photo' ? 'Take it again' : d[1], ok ? 'sm' : 'sm primary', ` data-w="${tmEsc(w)}"`);
+            H.push(`<div class="fx-item${ok ? ' ok' : ok === null ? ' word' : ''}"><div class="fx-ih"><span class="fx-ic" aria-hidden="true">${ok ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3"/></svg>' : fxSvg(w)}</span><b>${tmEsc(d[0])}</b>${ok ? `<span class="fx-st">✓ ${tmEsc(fxDoneSay(w, it, fx.name))}</span>` : ''}${ok ? '' : btn}</div>${ok && btn && act === 'photo' ? `<div class="row">${btn}</div>` : ''}</div>`);
+          });
+          if (fx.ask && fx.ask.k === it.k) { const still = fx.ask.w.filter((w) => fxProof(w, it, fx.name) === false); fx.ask = still.length ? { ...fx.ask, w: still } : null; } // (done since: the question goes)
+          if (fx.ask && fx.ask.k === it.k) { // Done, and the app does not see it: asked once
+            const w = fx.ask.w[0], d = FX_DO[w] || FX_DO.Other;
+            H.push(`<div class="fx-ask"><b>${tmEsc(d[3] || 'The app does not see it yet.')}</b><span>${tmEsc(`${d[0]}, or tell ${who} it is right.`)}</span><div class="row">${fxBtn('asknow', 'Do it now', 'grow', ` data-w="${tmEsc(w)}"`)}${fxBtn('askok', 'Done anyway', 'primary grow')}</div></div>`);
+          } else H.push(`<div class="row">${fxBtn('done', '✓ Done', 'primary grow fx-big fx-done')}${fxBtn('cant', 'Can’t do', 'grow fx-big')}</div>`);
+        } else {
+          const t = it.sent ? '✓ Sent' : it.kind === 'found' ? `You told ${who} about this` : it.status === 'fixed' ? ((it.unseen || []).length ? '✓ Done (the app saw no change)' : '✓ Done') : `Can’t do: “${it.reply}”`;
+          H.push(`<div class="fx-donecard ${it.status}"><span>${tmEsc(t)}</span>${it.sent || it.kind === 'found' ? '' : fxBtn('undo', 'Change', 'sm')}</div>`);
+        }
+        H.push(`<div class="row fx-nav">${fxBtn('prev', '‹', 'sm', ' aria-label="Previous fix"')}${fxBtn('list', `All ${nFix(I.length)}`, 'sm grow')}${fxBtn('next', '›', 'sm', ' aria-label="Next fix"')}</div>`);
+        H.push(`<p class="hint fx-synchint">${tmEsc(`Your answers go to ${who} when you Sync.`)}</p>`);
+        H.push(`<button class="fx-link" type="button" data-fx="found">+ Found something else here</button>`);
+      }
+    }
+    $('fxBody').innerHTML = H.join('');
+  }
+  const fxCantOk = (C) => !!C && !!C.r && (C.r !== 'Other' || !!C.words.trim());
+  /** The field partner's button for one asked item: open the pole, take its photo, capture the missing pole, or show the place. */
+  function fxDoIt(act, it, name) {
+    if (act === 'goto') { fxGoCur(); return; }
+    if (act === 'capture') { fx.min = true; fxRender(); fxGoCur(); guard(() => openCamera('new'), 'Camera not opened'); return; }
+    if (!it || !fxRec(it.rid)) { toast('This pole is not on your phone.'); return; }
+    fx.min = true; fxRender();
+    if (act === 'photo') guard(async () => { await openEditorFor(it.rid); if (ed && ed.id === it.rid) openCamera('replace'); }, 'Not opened');
+    else guard(() => openEditorFor(it.rid), 'Not opened');
+  }
+  $('fixPanel').addEventListener('input', (ev) => {
+    const t = ev.target; if (!fx) return;
+    if (t.id === 'fxNote') fx.note = t.value;
+    else if (t.id === 'fxItemNote' && fx.edit) { fx.edit.note = t.value; const b = $('fxBody').querySelector('[data-fx="save"]'); if (b) b.disabled = !(fx.edit.why.length || t.value.trim()); }
+    else if (t.id === 'fxOtherNote' && fx.other) { fx.other.note = t.value; const b = $('fxBody').querySelector('[data-fx="otheradd"]'); if (b) b.disabled = !t.value.trim(); }
+    else if (t.id === 'fxCantWords' && fx.cant) { fx.cant.words = t.value; const b = $('fxBody').querySelector('[data-fx="cantsave"]'); if (b) b.disabled = !fxCantOk(fx.cant); }
+    else if (t.id === 'fxFoundNote' && fx.found) { fx.found.note = t.value; const b = $('fxBody').querySelector('[data-fx="foundsave"]'); if (b) b.disabled = !(fx.found.why.length || t.value.trim()); }
+  });
+  $('fxMin').addEventListener('click', () => { if (!fx) return; fx.min = !fx.min; fxRender(); });
+  $('fxClose').addEventListener('click', () => { const was = fx; fxClose(); if (was && was.mode === 'co' && fxDraft(was.name).length) toast('The fix list is kept on this phone: Fixes (the wrench) on the project.', 4500); });
+  $('fixPanel').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-fx]'); if (!b || !fx || b.disabled) return;
+    const k = b.dataset.fx, name = fx.name;
+    if (fx.mode === 'co') {
+      const sel = fx.sel.filter((id) => fxRec(id));
+      if (k === 'add') {
+        const w = b.dataset.w;
+        if (!sel.length) { toast('Tap the poles on the map first, then what is wrong.', 3500); return; }
+        if (w === 'Other') { fx.other = { note: '' }; fxRender(); const i = $('fxOtherNote'); if (i) i.focus(); return; }
+        fxAddUndo(`${FX_SAY[w] || w}: ${fxNames(sel)}`, () => fxAddPoles(name, sel, [w], ''));
+      }
+      else if (k === 'otheradd' && fx.other && fx.other.note.trim() && sel.length) { const note = fx.other.note.trim().slice(0, 200); fxAddUndo(`Other: ${fxNames(sel)}`, () => fxAddPoles(name, sel, ['Other'], note)); }
+      else if (k === 'othercancel') { fx.other = null; fxRender(); }
+      else if (k === 'spot') { fx.spot = !fx.spot; fx.other = null; fx.sel = []; fxRender(); fxDraw(); }
+      else if (k === 'selclear') { fx.sel = []; fx.other = null; fxRender(); fxDraw(); }
+      else if (k === 'chk') { const g = fxChecks(name)[+b.dataset.i]; if (g) fxAddUndo(`${FX_SAY[g.why] || g.why}: ${pl2(g.ids.length, 'pole')} ${g.short}`, () => fxAddPoles(name, g.ids, [g.why], g.note)); }
+      else if (k === 'undo' && fx.undo) { fxSetDraft(name, fx.undo.items); fx.undo = null; LOG.info('fix.undo', {}); fxRender(); fxDraw(); }
+      else if (k === 'del') { const D = fxDraft(name), i = D.findIndex((x) => x.k === b.dataset.k); if (i >= 0) fxAddUndo(`Fix ${i + 1} removed (${fxNameOf(D[i])})`, () => fxSetDraft(name, D.filter((x) => x.k !== b.dataset.k))); }
+      else if (k === 'why' && fx.edit) { const w = b.dataset.w; fx.edit.why = fx.edit.why.includes(w) ? fx.edit.why.filter((x) => x !== w) : fx.edit.why.concat([w]); fxRender(); }
+      else if (k === 'save') fxSaveEdit();
+      else if (k === 'cancel') { fx.edit = null; fx.view = 'list'; fxRender(); fxDraw(); }
+      else if (k === 'remove' && fx.edit) { const D = fxDraft(name), i = D.findIndex((x) => x.k === fx.edit.k); fx.edit = null; fx.view = 'list'; if (i >= 0) fxAddUndo(`Fix ${i + 1} removed (${fxNameOf(D[i])})`, () => fxSetDraft(name, D.filter((x, j) => j !== i))); else { fxRender(); fxDraw(); } }
+      else if (k === 'item') fxEditItem(b.dataset.k);
+      else if (k === 'to') { const e = b.dataset.e; fx.to = fx.to.includes(e) ? fx.to.filter((x) => x !== e) : fx.to.concat([e]); fxRender(); }
+      else if (k === 'send') guard(async () => { if (await fxSendList(name, fxDraft(name), { note: fx.note, to: fx.to })) { fxClose(); renderProjects(); } }, 'Fixes not sent');
+      return;
+    }
+    const Ls = fxList(name); if (!Ls) return;
+    const it = Ls.items[fx.cur];
+    if (k === 'prev' || k === 'next') { const n = Ls.items.length; fx.cur = (fx.cur + (k === 'next' ? 1 : -1) + n) % n; fx.reply = null; fx.cant = null; fx.ask = null; fx.view = 'card'; fxRender(); fxDraw(); fxGoCur(); }
+    else if (k === 'list') { fx.view = 'list'; fxRender(); }
+    else if (k === 'back') { fx.view = 'card'; fxRender(); }
+    else if (k === 'card') { fx.cur = +b.dataset.i; fx.view = 'card'; fx.reply = null; fx.cant = null; fx.ask = null; fxRender(); fxDraw(); fxGoCur(); }
+    else if (['goto', 'open', 'photo', 'capture'].includes(k)) fxDoIt(k, it, name);
+    else if (k === 'done' && it && it.status === 'open') { // Done is always on: when the app does not see an item yet, it asks once
+      const W = fxWhys(it).filter((w) => fxProof(w, it, name) === false);
+      if (W.length) { fx.ask = { k: it.k, w: W }; LOG.info('fix.ask', { w: W.join('+') }); fxRender(); } else fxMark('fixed');
+    }
+    else if (k === 'asknow' && it) { const w = b.dataset.w, d = FX_DO[w] || FX_DO.Other; fx.ask = null; fxRender(); fxDoIt(it.kind !== 'pole' && d[2] === 'open' ? 'goto' : d[2], it, name); }
+    else if (k === 'askok' && it && fx.ask) fxMark('fixed', '', { unseen: fx.ask.w.slice() });
+    else if (k === 'cant') { fx.cant = { r: '', words: '' }; fx.ask = null; fxRender(); }
+    else if (k === 'cantwhy' && fx.cant) { fx.cant.r = b.dataset.r; fxRender(); if (fx.cant.r === 'Other') { const i = $('fxCantWords'); if (i) i.focus(); } }
+    else if (k === 'cantback') { fx.cant = null; fxRender(); }
+    else if (k === 'cantsave' && fx.cant && fxCantOk(fx.cant)) { const C = fx.cant, w = C.words.trim().slice(0, 180); fxMark('reply', C.r === 'Other' ? w : w ? `${C.r}: ${w}` : C.r, { cant: C.r }); }
+    else if (k === 'undo' && it && !it.sent) { fxSetList(name, { ...Ls, items: Ls.items.map((x, i) => (i === fx.cur ? { ...x, status: 'open', reply: '', unseen: [], cant: '' } : x)) }); fxRender(); fxDraw(); }
+    else if (k === 'found') { fx.found = { why: [], note: '' }; fx.view = 'found'; fxRender(); }
+    else if (k === 'foundwhy' && fx.found) { const w = b.dataset.w; fx.found.why = fx.found.why.includes(w) ? fx.found.why.filter((x) => x !== w) : fx.found.why.concat([w]); fxRender(); }
+    else if (k === 'foundcancel') { fx.found = null; fx.view = 'card'; fxRender(); }
+    else if (k === 'foundsave' && fx.found) {
+      const near = it && it.kind === 'pole' ? fxPos(it) : fix ? { lat: fix.lat, lon: fix.lon } : it ? fxPos(it) : null;
+      const F = { k: fxKey(), n: 0, kind: 'found', rid: it && it.kind === 'pole' ? it.rid : '', name: it ? (fxRec(it.rid) && recName(fxRec(it.rid))) || it.name || '' : '', lat: near ? near.lat + 0.00004 : NaN, lon: near ? near.lon + 0.00004 : NaN,
+        why: FX_FOUND.filter((w) => fx.found.why.includes(w)), note: '', reply: fx.found.note.trim().slice(0, 200), status: 'found', sent: false, round: Ls.round || 1, at: new Date().toISOString() };
+      fxSetList(name, { ...Ls, items: Ls.items.concat([F]) }); fx.found = null; fx.view = 'card'; LOG.info('fix.found', { why: F.why.join('+') }); fxRender(); fxDraw();
+    }
+    else if (k === 'sync') { fx.min = true; fxRender(); if (!$('syncBtn').hidden) $('syncBtn').click(); else openMbxSend(name, 'fp'); } // beta 3.4: the answers go with Sync
+  });
+  /* for the tests (synthetic records only) */
+  const fxTestHooks = {
+    state: () => (fx ? { mode: fx.mode, name: fx.name, view: fx.view, sel: fx.sel ? fx.sel.slice() : [], cur: fx.cur, min: !!fx.min, shown: !$('fixPanel').hidden, spot: !!fx.spot, undo: fx.undo ? fx.undo.said : '', ask: fx.ask ? fx.ask.w.slice() : null, cant: fx.cant ? { ...fx.cant } : null } : null),
+    tap: (poleId) => { const p = projPoints().find((x) => x.poleId === poleId); return p ? tmHooks.pinTap(p.id) : false; },
+    spot: (lat, lon) => { if (!fx) return; fx.spot = false; fxAddSpot(lat, lon); }, // (beta 3.4: a missing pole at once, with Undo)
+    draft: (n) => JSON.parse(JSON.stringify(fxDraft(n || S.project))), list: (n) => JSON.parse(JSON.stringify(fxList(n || S.project))),
+    out: (n) => JSON.parse(JSON.stringify((tmTeam(n || S.project) || {}).fixOut || null)), chg: (n) => JSON.parse(JSON.stringify(pmeta(n || S.project).chg || null)),
+    checks: (n) => fxChecks(n || S.project).map((g) => ({ why: g.why, label: g.label, n: g.ids.length })), pins: () => (fxLayer ? fxLayer.getLayers().length : 0),
+    locked: (poleId, what) => { const p = poleId ? projPoints().find((x) => x.poleId === poleId) : null; return tmHooks.locked ? tmHooks.locked(p ? p.id : null, what) : ''; }, // (beta 3.4)
+    icons: (n) => fxIconsOf(n || S.project).map((x) => ({ kind: x.kind, n: x.n, ok: !!x.ok, ready: !!x.ready })),
+    setRec: async (name, poleId, patch) => {
+      const p = points.find((x) => x.project === name && x.poleId === poleId); if (!p) return false;
+      const r = { ...p, ...patch, boq: { ...(p.boq || {}), ...((patch && patch.boq) || {}) }, updated: new Date().toISOString() };
+      await dbPut('points', r); points[points.indexOf(p)] = r; renderPoles(); return true;
+    },
+  };
+  /* for the tests (synthetic records only) */
+  const mbxTestHooks = { why: (code) => mbxWhy(code), /* beta 3.3 (QA-10) */ download: async (tid) => { await mbxRefresh(); const it = (mbxIn || []).find((x) => x.tid === tid); if (!it) return { ok: false, why: 'not listed' }; const t0 = Date.now(); let par = 4; try { const d = await mbxDownload(it, (f, g, t, X) => { if (X) par = Math.min(par, X.par); }); return { ok: true, size: d.length, ms: Date.now() - t0, par }; } catch (e) { return { ok: false, why: e.message || String(e), code: e.code || '' }; } },
+    refresh: () => mbxRefresh(), inbox: () => JSON.parse(JSON.stringify(mbxIn)), out: () => JSON.parse(JSON.stringify(S.mbxOut || [])), team: (n) => JSON.parse(JSON.stringify(tmTeam(n || S.project))), noDirect: (v) => { mbxNoDirect = !!v; }, noAuto: (v) => { mbxNoAuto = !!v; }, autoBig: (n) => { MBX_AUTO_BIG = n > 0 ? n : 20 * 1048576; }, autoIn: () => mbxAutoIn(), autoSend: () => mbxAutoSend(), startCheck: () => mbxStartCheck(),
+    /* beta 3.3 (QA-06): spans and cables by pole ID; the route with who made what; the same pole twice */
+    link: (name, pairs, cab) => { if (S.project !== name) S.project = name; const by = (pid) => (points.find((p) => p.project === name && p.poleId === pid) || {}).id, L = links(), have = new Set(L.map((q) => spanKey(q[0], q[1])));
+      const add = pairs.map(([a, b]) => [by(a), by(b)]).filter(([a, b]) => a && b && !have.has(spanKey(a, b))); setLinks(L.concat(add.map(([a, b]) => linkWith(a, b, cab || 'L12')))); return add.length; },
+    unlink: (name, a, b) => { if (S.project !== name) S.project = name; const by = (pid) => (points.find((p) => p.project === name && p.poleId === pid) || {}).id, k = spanKey(by(a), by(b)), L = links(); setLinks(L.filter((q) => spanKey(q[0], q[1]) !== k)); return L.length - links().length; },
+    cable: (name, ids, cab) => { if (S.project !== name) S.project = name; const by = (pid) => (points.find((p) => p.project === name && p.poleId === pid) || {}).id, F = fibers(), n = Math.max(0, ...F.map((f) => f.n)) + 1;
+      setRoute(null, F.concat([{ n, cab: cab || 'L12', side: 'auto', ex: false, path: ids.map(by), fromSt: '', toSt: '' }])); return n; },
+    route: (name) => { const m = pmeta(name), pid = (id) => (points.find((p) => p.id === id) || {}).poleId || id;
+      return { links: (m.links || []).map((q) => [pid(q[0]), pid(q[1]), q[2] || '', ((m.lsrc || {})[spanKey(q[0], q[1])] || {}).o || '']).sort((a, b) => (a[0] + a[1]).localeCompare(b[0] + b[1])),
+        fibers: fibers(name).map((f) => ({ n: f.n, cab: f.cab, o: f.o || '', fid: f.fid, path: f.path.map(pid) })).sort((a, b) => a.n - b.n), linksAt: m.linksAt || '' }; },
+    dupM: () => dupM(),
+    seed: async (name, n, o) => {
+      const prj = name || S.project, made = [], px = (o && o.px) || 48;
+      for (let i = 0; i < n; i++) {
+        const cv = document.createElement('canvas'); cv.width = px; cv.height = px; const cx = cv.getContext('2d');
+        if (o && o.noise) { const im = cx.createImageData(px, px); for (let a = 0; a < im.data.length; a += 65536) crypto.getRandomValues(im.data.subarray(a, Math.min(im.data.length, a + 65536))); for (let a = 3; a < im.data.length; a += 4) im.data[a] = 255; cx.putImageData(im, 0, 0); }
+        else { cx.fillStyle = `hsl(${(i * 47) % 360},70%,50%)`; cx.fillRect(0, 0, px, px); }
+        const clean = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.95)), t = new Date().toISOString(), id = uid();
+        const rec = { id, project: prj, created: t, takenAt: t, source: 'camera', poleId: `${(o && o.prefix) || 'CC-'}${1001 + i + ((o && o.from) || 0)}`, poleType: '', lat: 7.07 + (i + ((o && o.from) || 0)) * 0.0004, lon: 125.6 + (i + ((o && o.from) || 0)) * 0.0004, updated: t, by: byLine(), element: 'Pole', status: svDefaultStatus('Pole'), details: [], remarks: '', marks: [], boxes: 0 };
+        await saveRecord(rec, [{ id, clean, thumb: clean }]); points.push(rec); made.push(rec.poleId);
+      }
+      renderPoles(); return made;
+    },
+    edit: async (name, poleId, to) => { const p = points.find((x) => x.project === name && x.poleId === poleId); if (!p) return false; const r = { ...p, poleId: to, updated: new Date().toISOString() }; await dbPut('points', r); points[points.indexOf(p)] = r; renderPoles(); return true; },
+    del: async (name, poleId) => { const p = points.find((x) => x.project === name && x.poleId === poleId); if (!p) return false; await dbDel('points', p.id); points = points.filter((x) => x !== p); S.meta[name] = { ...pmeta(name), gone: { ...(pmeta(name).gone || {}), [p.id]: new Date().toISOString() } }; persist(); renderPoles(); return true; },
+    photo: async (id) => { const ph = await dbGet('photos', id).catch(() => null); return ph && ph.clean ? ph.clean.size : 0; },
+    recs: (name) => points.filter((p) => p.project === (name || S.project)).map((p) => ({ id: p.id, poleId: p.poleId, updated: p.updated, by: p.by || '', photos: photosOf(p).map((x) => ({ pid: x.pid })) })), // (beta 3.3: + by, photos)
+    refs: () => JSON.parse(JSON.stringify(S.refs || {})), job: () => (mbxJob ? { ...mbxJob } : null), siteRows: (n) => siteInfoRows(n || S.project), fx: fxTestHooks };
   $('brandVer').textContent = `v${APP_VER}`; // the version beside the name (v2.15)
+  if (BETA) { // v2.43: G-eSAA Beta says so everywhere a tester looks
+    const tag = document.createElement('span'); tag.className = 'betatag'; tag.textContent = `BETA ${APP_BETA}`; $('brandVer').after(tag);
+    document.title = 'G-eSAA Beta'; document.documentElement.classList.add('beta');
+    /* The beta reads the same spreadsheet through its own web-app address (a second deployment that runs the newer sheet
+       script), so testers see the real sites, keys and credits while the users' address stays on the older script. */
+    $('betaBox').hidden = false;
+    const betaShow = () => {
+      const now = sheetUrl(), d = depOf(now), src = S.team && S.team.src;
+      $('betaSheetNow').textContent = !now ? 'No online sheet yet: join your team first (invite QR or link).' : `Now reading: …/s/${d ? `${d.slice(0, 8)}…${d.slice(-6)}` : '?'}/exec${src && src.url0 ? ' (the beta address)' : ''}`;
+      $('betaSheetBack').hidden = !(src && src.url0);
+    };
+    betaShow(); $('settingsBtn').addEventListener('click', betaShow);
+    $('betaSheetUse').addEventListener('click', () => guard(async () => {
+      const url = /** @type {HTMLInputElement} */ ($('betaSheet')).value.trim();
+      if (!depOf(url)) { toast('Paste the beta web app address: it starts with https://script.google.com/macros/s/ and ends with /exec.', 5000); return; }
+      const src = S.team && S.team.src;
+      if (!src || !src.url) { toast('Join your team first (invite QR or link), then set the beta address.', 5000); return; }
+      busy('Checking the beta address…');
+      let j = null; try { j = await cloudRequest({ url }, null, { probe: true }); } finally { busy(false); }
+      if (!j || !j.ok) throw new Error('That address did not answer as an online sheet');
+      if (!src.url0) src.url0 = src.url;
+      src.url = url; S.cloud = null; persist(); betaShow(); LOG.info('beta.sheet', { set: true });
+      toast('This beta now reads the online sheet through the beta address.');
+      cloudSync(true).catch(() => {});
+    }, 'Beta address not set'));
+    $('betaSheetBack').addEventListener('click', () => {
+      const src = S.team && S.team.src; if (!src || !src.url0) return;
+      src.url = src.url0; delete src.url0; S.cloud = null; persist(); betaShow(); LOG.info('beta.sheet', { set: false });
+      toast("Back to the users' address."); cloudSync(true).catch(() => {});
+    });
+  }
   /* v2.29: tap G-eSAA (top left) to reload the app and check for a new version. Asked first, and not while a photo, a
      record or the marking screen is open, so a stray tap during capture or editing does nothing. */
   const verNum = (v) => String(v || '').split('.').map((x) => parseInt(x, 10) || 0);
@@ -13896,9 +16639,14 @@
   }
   $('brandBtn').addEventListener('click', () => guard(async () => {
     if (reloadBlocked()) return; // capture or editing in progress: the tap does nothing
-    if (!(await ask('Reload G-eSAA?', `Version ${APP_VER}. The app reloads${NATIVE ? ' and checks the website for a newer version' : ' and takes the newest version from the website'}. Your projects, photos and settings stay on this phone.`,
+    if (!(await ask(`Reload ${APP_NAME}?`, `Version ${VER_LABEL}. The app reloads${NATIVE ? ' and checks the website for a newer version' : ' and takes the newest version from the website'}. Your projects, photos and settings stay on this phone.`,
       [{ label: 'Cancel', value: false }, { label: 'Reload', value: true, primary: true }]))) return;
     persist(); LOG.info('app.reload', { native: NATIVE });
+    if (NATIVE && BETA) { // v2.43: a newer beta comes as a new G-eSAA Beta APK, from the beta pre-release
+      const gh = /^https:\/\/([^.]+)\.github\.io\/([^/]+)\//.exec(webBase() || '');
+      if (gh && await ask('Newer beta?', `This is ${APP_NAME} ${VER_LABEL}. Open the beta download page to see whether a newer beta is out (install it over this one; your beta projects stay).`, [{ label: 'Later', value: false }, { label: 'Open the beta page', value: true, primary: true }])) openExternal(`https://github.com/${gh[1]}/${gh[2]}/releases/tag/beta-latest`);
+      location.reload(); return;
+    }
     if (NATIVE) { // the APK carries its own files: a new version comes as a new APK
       const base = webBase(); let latest = '';
       if (base && navigator.onLine !== false) {
@@ -13922,11 +16670,11 @@
   const ownPinch = (t) => !!(t && t.closest && t.closest('#map, #pinMap, #boxWrap, #pvImg, #photoView, #drawWrap, #camStage, .leaflet-container'));
   document.addEventListener('touchmove', (e) => { if (e.touches && e.touches.length > 1 && !ownPinch(e.target)) e.preventDefault(); }, { passive: false });
   ['gesturestart', 'gesturechange'].forEach((k) => document.addEventListener(k, (e) => { if (!ownPinch(e.target)) e.preventDefault(); }, { passive: false })); // iPhone Safari
-  $('aboutVer').textContent = `G-eSAA v${APP_VER}`; // v2.25: Settings → About shows the real version too
+  $('aboutVer').textContent = `${APP_NAME} v${VER_LABEL}`; // v2.25: Settings → About shows the real version too (v2.43: and the beta)
   (async () => {
     const tl = Date.now();
     try { points = await dbAll('points'); } catch (e) { pointsLost = true; LOG.error('start.loadPoints', errInfo(e)); toast('Storage unavailable: ' + e.message + '. Close and reopen G-eSAA before changing anything.', 9000); } // v2.42.4: pointsLost
-    LOG.mark('app.start', { ver: APP_VER, apk: NATIVE, chrome: (/Chrome\/([\d.]+)/.exec(navigator.userAgent) || [])[1], android: (/Android ([\d.]+)/.exec(navigator.userAgent) || [])[1], memoryGB: navigator.deviceMemory, cores: navigator.hardwareConcurrency, opfs: OPFS_OK, records: points.length, loadMs: Date.now() - tl, heapMB: memMB() });
+    LOG.mark('app.start', { ver: VER_LABEL, beta: BETA, apk: NATIVE, chrome: (/Chrome\/([\d.]+)/.exec(navigator.userAgent) || [])[1], android: (/Android ([\d.]+)/.exec(navigator.userAgent) || [])[1], memoryGB: navigator.deviceMemory, cores: navigator.hardwareConcurrency, opfs: OPFS_OK, records: points.length, loadMs: Date.now() - tl, heapMB: memMB() });
     (async () => {
       const info = {};
       try { const e = await withTimeout(navigator.storage.estimate(), 3000, 'slow'); info.usedMB = Math.round((e.usage || 0) / 1048576); info.quotaMB = Math.round((e.quota || 0) / 1048576); info.persisted = navigator.storage.persisted ? await navigator.storage.persisted() : null; } catch (e) { info.estimate = e.message; }
@@ -13980,7 +16728,7 @@
     L.circleMarker([p.lat, p.lon], { radius: 11, color: '#f08c00', weight: 3, fill: false, interactive: false }).addTo(hlLayer);
     $('hlChipId').textContent = recName(p) || '(no ID)'; $('hlChip').hidden = false;
   }
-  function hlClear() { hlId = null; if (hlLayer) hlLayer.clearLayers(); $('hlChip').hidden = true; }
+  function hlClear() { hlId = null; if (hlLayer) hlLayer.clearLayers(); $('hlChip').hidden = true; if (tmHooks.hlClear) tmHooks.hlClear(); }
   const hlOpen = (p) => (hlFrom === 'find' && visitMode() ? openVisit(p.id) : openEditorFor(p.id));
   async function findPick(p, from) {
     hlFrom = from; hlQ = from === 'find' ? $('findQ').value : $('listSearch').value;
@@ -14056,10 +16804,12 @@
   function ppState() { S.pane = S.pane || {}; if (S.pane.open == null) S.pane.open = true; S.pane.show = S.pane.show || {}; return S.pane; }
   function ppColor(name) { return PP_COL[Math.max(0, allProjects().indexOf(name)) % PP_COL.length]; }
   function deskOn() { return !!(deskMQ && deskMQ.matches); }
+  const ppWidth = (w) => Math.round(Math.max(240, Math.min(Number(w) || 292, Math.min(640, innerWidth - 380))));
   function deskLayout() {
     const on = deskOn(), st = ppState(), b = document.body;
     const was = b.classList.contains('deskpane') + ':' + b.classList.contains('pp-closed');
     b.classList.toggle('deskpane', on); b.classList.toggle('pp-closed', on && !st.open);
+    if (on && st.open && st.w) b.style.setProperty('--pw', `${ppWidth(st.w)}px`); else b.style.removeProperty('--pw'); // v2.43 beta 2.1: the width the user dragged
     if (on) { b.style.setProperty('--tbh', `${$('topbar').offsetHeight}px`); b.style.setProperty('--bbh', `${$('bottombar').offsetHeight}px`); }
     if (was !== b.classList.contains('deskpane') + ':' + b.classList.contains('pp-closed')) map.invalidateSize({ animate: false });
   }
@@ -14085,6 +16835,7 @@
     const v = (task && (task.territory || extraOf(task, 'Territory'))) || m.territory || ((m.siteExtra || []).find(([k]) => /^territory$/i.test(String(k).trim())) || [])[1] || sfGet(siteFieldsOf(name), /^territory$/i);
     return terrCode(v);
   }
+  const ppWhen = (t) => { const d = new Date(t); if (!t || isNaN(d)) return ''; return d.toDateString() === new Date().toDateString() ? `today, ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ppDate(t); }; // v2.43 beta 2.1: the time only for today
   const ppDate = (t) => { const d = new Date(t); if (!t || isNaN(d)) return ''; const o = { day: 'numeric', month: 'short' }; if (d.getFullYear() !== new Date().getFullYear()) o.year = 'numeric'; return d.toLocaleDateString(undefined, o); };
   function ppRows() {
     const st = ppState(), q = $('ppQ').value.trim().toUpperCase(), box = $('ppRows'), names = allProjects();
@@ -14118,7 +16869,7 @@
       cb.title = work ? 'The project you work on is always shown' : 'Show it on the map'; cb.setAttribute('aria-label', `Show ${name} on the map`);
       cb.addEventListener('change', () => { st.show[name] = cb.checked; persist(); otherDraw(); });
       const sw = document.createElement('span'); sw.className = 'pp-sw'; sw.setAttribute('aria-hidden', 'true');
-      const nb = document.createElement('button'); nb.type = 'button'; nb.className = 'pp-name'; nb.textContent = name; nb.title = 'Go there';
+      const nb = document.createElement('button'); nb.type = 'button'; nb.className = 'pp-name'; nb.textContent = name; nb.title = `${name}: the map goes there`;
       nb.addEventListener('click', () => ppGo(name));
       let ob; // v2.42.28: Open works on it at once; the project you work on says so
       if (work) { ob = document.createElement('span'); ob.className = 'pp-here'; ob.textContent = 'Working on'; ob.title = 'The project you work on'; }
@@ -14127,13 +16878,24 @@
       mb.setAttribute('aria-expanded', String(ppMenuFor === name)); mb.setAttribute('aria-label', `More for ${name}`);
       mb.addEventListener('click', (e) => { e.stopPropagation(); ppMenu(name, mb); });
       const meta = document.createElement('span'); meta.className = 'pp-meta';
-      [group !== 'cat' && [kind === 'survey' ? 'SURVEY' : kind.toUpperCase(), ''], [`${n} ${acc ? 'element' : 'pole'}${n === 1 ? '' : 's'}`, ''], t && [`Edited ${ppDate(t)}`, ''], m.completedAt && ['✓ Complete', 'done']]
+      [group !== 'cat' && [kind === 'survey' ? 'SURVEY' : kind.toUpperCase(), ''], [`${n} ${acc ? 'element' : 'pole'}${n === 1 ? '' : 's'}`, ''], t && [`Edited ${ppWhen(t)}`, ''], m.completedAt && ['✓ Complete', 'done']]
         .filter(Boolean).forEach(([tx, c]) => { const x = document.createElement('span'); x.textContent = tx; if (c) x.className = c; meta.appendChild(x); });
-      r.append(cb, sw, nb, ob, mb, meta); box.appendChild(r);
+      const acts = document.createElement('span'); acts.className = 'pp-acts'; // v2.43 beta 2.1: Site details, the mailbox and Send, then Open and More
+      if (siteInfoRows(name).length > 1) { const ib = ppIcon('info', 'Site details', `Site details of ${name}: to copy`); ib.addEventListener('click', (e) => { e.stopPropagation(); siteInfoOpen(name); }); acts.appendChild(ib); }
+      if (tmHooks.ppIcons) tmHooks.ppIcons(name).forEach((x) => acts.appendChild(x));
+      acts.append(ob, mb);
+      const sub2 = document.createElement('span'); sub2.className = 'pp-sub'; sub2.append(meta, acts);
+      r.append(cb, sw, nb, sub2); box.appendChild(r);
       }
     }
     if (!names.length) box.innerHTML = '<p class="hint">No project yet: + New.</p>';
     else if (!list.length) box.innerHTML = `<p class="hint">No project matches “${C.xmlEsc($('ppQ').value.trim())}”.</p>`;
+  }
+  /** v2.43 beta 2.1: a small icon button of the pane (its name shows on hover and to screen readers). */
+  function ppIcon(kind, label, title) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = `ppi ${kind}`; b.title = title || label; b.dataset.tip = label; b.setAttribute('aria-label', title || label);
+    b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${TOOL_ICON[kind]}"/></svg>`;
+    return b;
   }
   function ppGo(name) {
     ppMenuClose();
@@ -14234,6 +16996,8 @@
   $('ppAll').addEventListener('click', () => { const st = ppState(); allProjects().forEach((n) => { if (n !== S.project) st.show[n] = true; }); persist(); ppRows(); otherDraw(); });
   $('ppNone').addEventListener('click', () => { const st = ppState(); st.show = {}; persist(); ppRows(); otherDraw(); });
   $('ppNew').addEventListener('click', () => { ppMenuClose(); openNewProject(); });
+  $('ppOpenShared').addEventListener('click', () => { ppMenuClose(); $('openShared').click(); }); // v2.43 beta 2.1: beside + New
+  $('ppShareMany').addEventListener('click', () => { ppMenuClose(); $('bulkShareBtn').click(); });
   if (deskMQ) { const ch = () => { deskLayout(); deskRender(); if (!$('drawing').hidden) setWhat(deskOn() && S.drwWhatDesk !== false, false);
       if (stack.includes('drawing')) { [['export', () => $('export').classList.contains('plan')], ['planSet', () => true]].forEach(([k, f]) => { if (stack.includes(k) && f()) $(k).classList.toggle('side', deskOn()); }); document.body.classList.toggle('drwside', deskOn() && ['export', 'planSet'].some((k) => stack.includes(k) && $(k).classList.contains('side'))); } }; /* v2.42.28 */ if (deskMQ.addEventListener) deskMQ.addEventListener('change', ch); else if (deskMQ.addListener) deskMQ.addListener(ch); }
   { let rz = 0; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (deskOn()) deskLayout(); }, 150); }); }
@@ -14257,5 +17021,8 @@
     fibQty: () => surveyQty(projPoints()).rows, boqRows: () => { const P = projPoints(), fb = boqFilled(P); return [...boqGroups(P, fb).groups.values()].map((g) => [g.item, g.size, g.forWhat, g.qty]); },
     /* v2.42.28 */ mxGroups: () => mxGroups().map((g) => ({ k: g.k, name: g.name, n: g.n, kind: g.kind })), mxTick: (k, m) => { const g = mxGroups().find((x) => x.k === k || x.name === k); if (g) mxToggle(g, m); return !!g; }, openPlanSet: () => openPlanSet(), setWhat: (on) => setWhat(!!on, false), ppOpen: (n) => ppOpen(n),
     /* v2.42.27 */ ask: (t, x, b) => ask(t, x, b), hl: () => hlId, paneOn: () => document.body.classList.contains('deskpane'), otherN: () => (otherLayer ? otherLayer.getLayers().length : 0), drwView: () => (drw && drw.view ? { ...drw.view, w: $('drawCanvas').width, h: $('drawCanvas').height } : null),
-    fibLanes: () => fibLayer.getLayers().map((l) => (l.getLatLngs ? { ll: l.getLatLngs().map((q) => [q.lat, q.lng]), color: l.options.color, w: l.options.weight, op: l.options.opacity, dash: l.options.dashArray || '' } : { arrow: true })), kmzFibers: () => kmzFibers() };
+    fibLanes: () => fibLayer.getLayers().map((l) => (l.getLatLngs ? { ll: l.getLatLngs().map((q) => [q.lat, q.lng]), color: l.options.color, w: l.options.weight, op: l.options.opacity, dash: l.options.dashArray || '' } : { arrow: true })), kmzFibers: () => kmzFibers(),
+    own: { owners: () => ownerChoices(), coops: () => coopChoices(), use: () => JSON.parse(JSON.stringify(S.ownUse || {})), kept: () => (S.myCoops || []).slice() }, // v2.43.0 (tests)
+    ph: { setOf: (n) => JSON.parse(JSON.stringify(phSetOf(n || S.project))), n: (n) => phN(n), doc: (k, n) => phDoc(k, n), mine: () => phMine() }, // beta 3.5 (tests)
+    team: { patchS: (o) => { Object.assign(S, o); persist(); }, sync: () => cloudSync(true), load: () => tmLoad(), render: () => renderTeam(), on: () => tmOn(), ver: () => tmVerified(), state: () => JSON.parse(JSON.stringify({ mbx: S.mbx || null, teamMe: S.teamMe || null, snap: S.teamSnap || null })), beta: () => ({ BETA, APP_NAME, VER_LABEL }), mbx: mbxTestHooks } }; // v2.43 (beta 2: mbx)
 })();
