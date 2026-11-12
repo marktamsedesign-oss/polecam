@@ -93,6 +93,21 @@ body.routing #mapSummary{display:none}
 #mapSummary.go{background:var(--navy);color:var(--navy-ink)}#mapSummary.go .stats span{color:var(--hi)}
 #visitCard{position:absolute;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 84px);max-height:56vh;background:var(--surface);color:var(--ink);border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.35);display:flex;flex-direction:column;overflow:hidden}
 #visitCard[hidden]{display:none}
+/* beta 3.8: the packs for where the map is */
+#packPop{position:absolute;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 84px);max-width:520px;margin:0 auto;background:var(--surface);color:var(--ink);border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.35);padding:12px 12px 6px;display:flex;flex-direction:column;gap:2px;z-index:500}
+#packPop[hidden]{display:none}
+#packPop .pkp-head{display:flex;flex-direction:column;gap:2px;padding-bottom:4px}#packPop .pkp-head b{font-size:calc(15px * var(--fs))}#packPop .pkp-head span{font-size:calc(12.5px * var(--fs));color:var(--muted)}
+#packPop .pkprow{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line2)}
+#packPop .pkpic{flex:none;width:36px;height:36px;border-radius:10px;background:var(--soft);display:grid;place-items:center;color:var(--accent)}#packPop .pkpic svg{width:20px;height:20px}
+#packPop .pkptx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}#packPop .pkptx b{font-size:calc(13.5px * var(--fs));overflow-wrap:anywhere}#packPop .pkptx span{font-size:calc(12px * var(--fs));color:var(--muted)}
+#packPop .pkp-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid var(--line2);padding-top:6px}
+.btn.packget{flex:none;gap:6px;background:var(--accent);border-color:var(--accent);color:var(--accent-ink);border-radius:999px}.btn.packget svg{width:16px;height:16px}
+.packprog{flex:none;display:grid;grid-template-columns:auto auto auto;align-items:center;gap:2px 8px;min-width:150px;font-size:calc(12px * var(--fs))}.packprog .pgl{font-weight:600}.packprog .pgt{font-weight:700;text-align:right}.packprog .pbar{grid-column:1 / 3;height:6px;border-radius:999px;background:var(--line2);overflow:hidden}.packprog .pbar i{display:block;height:100%;background:var(--accent);width:0}.packprog .iconbtn{grid-row:1 / 3;grid-column:3}
+/* beta 3.8: the coops of the pole's town */
+.coopplace{display:flex;flex-direction:column;gap:6px;margin:6px 0 4px}.coopplace[hidden]{display:none}.coopplace .packget,.coopplace .packprog{align-self:flex-start}
+.coopline{display:flex;align-items:center;gap:5px;font-size:calc(12.5px * var(--fs));font-weight:600;color:var(--muted)}.coopline svg{width:14px;height:14px;flex:none}
+.boq .chips .coopmore{background:var(--surface);border-style:dashed}
+.boq .chips .coopgrp{flex-basis:100%;font-size:calc(11.5px * var(--fs));font-weight:700;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;margin-top:4px}
 .vc-head{display:flex;align-items:flex-start;gap:6px;padding:10px 4px 8px 14px;border-bottom:1px solid var(--line2)}
 .vc-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.vc-t b{font-size:calc(17px * var(--fs))}.vc-t span{font-size:calc(12.5px * var(--fs));color:var(--muted)}
 #vcBody{overflow:auto;padding:10px 12px;display:flex;flex-direction:column;gap:10px}
@@ -223,6 +238,20 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 /* v2.41: the drawing style */
 .stprev,.stvic{background:#000;border-radius:12px;overflow:hidden;border:1px solid var(--line)}.stprev svg{display:block;width:100%;height:auto}.stvic{max-width:300px}.stvic svg{display:block;width:100%;height:auto}
 .strow.dim{opacity:.5}
+/* beta 3.8: Drawing style: the preview beside the settings on a computer (it stays while they scroll); on a phone at the top, smaller as they scroll */
+#drwStyle .body.dsbody{padding:0;gap:0;display:block;container-type:inline-size}
+.dsprevcol{position:sticky;top:0;z-index:3;background:var(--bg);padding:10px max(12px,env(safe-area-inset-right,0px)) 8px max(12px,env(safe-area-inset-left,0px));border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.dsscenes{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}.dsscenes::-webkit-scrollbar{display:none}.dsscenes .chip{flex:none}.dsscenes .chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.dsprevcol .stprev svg{display:block;width:100%;height:auto}
+.dsprevcol.compact .dsscenes{display:none}.dsprevcol.compact .stprev svg{height:112px}
+.dscap{display:flex;align-items:center;justify-content:space-between;gap:6px 8px;font-size:calc(12.5px * var(--fs));color:var(--muted);flex-wrap:wrap}.dscapr{display:inline-flex;gap:10px;align-items:center}
+.dscap .ov{font-weight:700}.dscap .ov.bad{color:var(--bad)}.dscap .ov.good{color:var(--ok)}.dscap label{display:inline-flex;align-items:center;gap:5px}
+.dsbig{min-height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:calc(12.5px * var(--fs));font-weight:600}.dsbig[hidden]{display:none}
+.dsctl{padding:6px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 24px) max(16px,env(safe-area-inset-left,0px))}
+.dsctl .stgrp:first-of-type{border-top:0;margin-top:4px}
+@container (min-width:720px){.dsgrid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(320px,1fr);align-items:start}.dsprevcol{border-bottom:0;padding:16px}.dsctl{padding:6px 22px 28px;border-left:1px solid var(--line)}}
+.arw-nudge{animation:arwnudge 1.4s ease-in-out infinite}@keyframes arwnudge{0%,100%{transform:translate(0,0)}50%{transform:translate(var(--dx),var(--dy))}}
+@media (prefers-reduced-motion:reduce){.arw-nudge{animation:none}}
 .stgrp{border-top:1px solid var(--line);margin-top:14px;padding-top:6px}.stgrp h3{margin:6px 0 8px;font-size:calc(14px * var(--fs))}
 .strow{display:flex;flex-direction:column;gap:6px;margin:10px 0}.strow .lbl{display:flex;justify-content:space-between;gap:8px;font-size:calc(12.5px * var(--fs));font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}.strow output{text-transform:none;letter-spacing:0;color:var(--ink);font-weight:600}
 .strow input[type=range]{width:100%}.seg{display:flex;gap:6px;flex-wrap:wrap}
@@ -911,6 +940,7 @@ body.ppdrag,body.ppdrag *{cursor:col-resize!important;user-select:none}
 .siteinfo .k{font-size:calc(11.5px * var(--fs));color:var(--muted);font-weight:700;letter-spacing:.03em;grid-column:1}
 .siteinfo .v{font-family:var(--mono);font-size:calc(13.5px * var(--fs));overflow-wrap:anywhere;user-select:all;grid-column:1}
 .siteinfo .btn{grid-column:2;grid-row:1/3}
+.siteinfo .r.lnk{grid-template-columns:minmax(0,1fr) auto auto}.siteinfo .r.lnk [data-copy]{grid-column:3}.siteinfo .r.lnk .v{font-family:inherit;font-size:calc(12px * var(--fs))}
 .pp-pop .pp-go{display:block;margin-top:6px;width:100%;border:0;border-radius:8px;background:var(--accent);color:var(--accent-ink);font-weight:700;padding:6px 10px;font-size:calc(12.5px * var(--fs))}
 .drwrow{flex:1;min-height:0;display:flex;position:relative}
 .drwcol{flex:1;min-width:0;display:flex;flex-direction:column}
@@ -1206,6 +1236,12 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div id="vcBody"><div id="vcElem" class="vph"></div><div id="vcItems"></div></div>
     <div class="vc-foot"><button class="btn small" id="vcOpen" type="button">Open full record</button><button class="btn small primary" id="vcNext" type="button">Next pin ›</button></div>
   </section>
+  <!-- beta 3.8: no road pack or map pack on this phone for where the map is: download them (they run while you work) -->
+  <section id="packPop" hidden aria-labelledby="pkpTitle">
+    <div class="pkp-head"><b id="pkpTitle">Offline packs for this area</b><span id="pkpSub"></span></div>
+    <div id="pkpRows"></div>
+    <div class="pkp-foot"><button class="btn sm" id="pkpNot" type="button">Not now</button><button class="btn sm link" id="pkpMaps" type="button">Settings → Maps</button></div>
+  </section>
   <!-- v2.43 beta 3: the fix list over the map (a coordinator writes it; a field partner works through it) -->
   <section id="fixPanel" hidden aria-labelledby="fxTitle">
     <div class="fx-head"><div class="t"><b id="fxTitle">Fixes</b><span id="fxSub"></span></div><button class="btn sm" id="fxMin" type="button" aria-expanded="true">Hide</button><button class="iconbtn" id="fxClose" type="button" aria-label="Close the fix list (it is kept)"><svg><use href="#i-close"/></svg></button></div>
@@ -1490,10 +1526,25 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
     <h2 id="drwStyleTitle">Drawing style</h2>
   </header>
-  <div class="body">
-    <p class="hint" style="margin-top:0">Your style for the plan DXF (on this phone). The preview changes as you set it: three poles on a street, drawn at 1:1100 like the GEO sheets.</p>
-    <div class="stprev"><svg id="stPrev" viewBox="0 0 120 70" role="img" aria-label="Preview: a street with three poles, their numbers, clamp types, the cable label and a NAP ID"></svg></div>
-    <div class="stgrp" id="stNum">
+  <div class="body dsbody"><div class="dsgrid">
+   <div class="dsprevcol" id="dsPrevCol">
+    <div class="dsscenes" role="group" aria-label="What the preview shows"><button type="button" class="chip small" data-scene="street">Street</button><button type="button" class="chip small" data-scene="crowd">Crowded corner</button><button type="button" class="chip small" data-scene="tower">Tower site</button><button type="button" class="chip small" data-scene="vic">Vicinity map</button></div>
+    <div class="stprev"><svg id="stPrev" viewBox="0 0 120 70" role="img" aria-label="Preview of the plan drawing"></svg></div>
+    <div class="dscap"><span id="dsCap"></span><span class="dscapr"><label><input type="checkbox" id="dsMark" checked> Mark overlaps</label><button type="button" class="dsbig" id="dsBig" hidden>Bigger</button></span></div>
+   </div>
+   <div class="dsctl">
+    <p class="hint" style="margin-top:0">Your style for the plan DXF (on this phone). The preview changes as you set it, drawn at 1:1100 like the GEO sheets; it shows the part you touch.</p>
+    <div class="stgrp" id="stCrowd" data-scene="crowd">
+      <h3>Crowded places</h3>
+      <div class="strow"><span class="lbl">Labels in crowded places</span><div class="seg" id="stCrowdAuto" role="radiogroup" aria-label="Labels in crowded places"><button type="button" class="chip small" data-v="1">Auto: move and fit</button><button type="button" class="chip small" data-v="0">Off (as before)</button></div></div>
+      <div class="strow" data-dim="auto"><label class="lbl" for="stCrowdMin">Smallest text <output id="stCrowdMinO"></output></label><input type="range" id="stCrowdMin" min="50" max="100" step="5"></div>
+      <div class="strow" data-dim="auto"><label class="lbl" for="stCrowdMove">Move a label up to <output id="stCrowdMoveO"></output></label><input type="range" id="stCrowdMove" min="4" max="30" step="1"></div>
+      <div class="strow" data-dim="auto"><span class="lbl">Line to a label that moved</span><div class="seg" id="stCrowdLeader" role="radiogroup" aria-label="Line to a label that moved"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div></div>
+      <div class="strow" data-dim="auto"><span class="lbl">Street names</span><div class="seg" id="stCrowdStreets" role="radiogroup" aria-label="Street names"><button type="button" class="chip small" data-v="slide">Slide to a free place</button><button type="button" class="chip small" data-v="fixed">Keep in place</button></div></div>
+      <div class="strow"><span class="lbl">Landmark names</span><div class="seg" id="stCrowdMarks" role="radiogroup" aria-label="Landmark names"><button type="button" class="chip small" data-v="room">Where there is room</button><button type="button" class="chip small" data-v="always">Always</button><button type="button" class="chip small" data-v="hide">Hide</button></div></div>
+      <p class="hint" style="margin:0">Pole numbers and pole labels keep their place first. IDs, clamp tags, cable labels, street names and landmark names make room: the nearest free place, then smaller.</p>
+    </div>
+    <div class="stgrp" id="stNum" data-scene="street">
       <h3>Numbers beside the points</h3>
       <div class="strow"><span class="lbl">Number colour <output id="stNumColO"></output></span><div class="sws" id="stNumCol" role="radiogroup" aria-label="Number colour"></div></div>
       <div class="strow"><span class="lbl">Circle colour <output id="stNumBColO"></output></span><div class="sws" id="stNumBCol" role="radiogroup" aria-label="Circle colour"></div></div>
@@ -1503,13 +1554,13 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="strow"><span class="lbl">Leader line to the point</span><div class="seg" id="stNumLeader" role="radiogroup" aria-label="Leader line"><button type="button" class="chip small" data-v="0">Off</button><button type="button" class="chip small" data-v="1">On</button></div></div>
       <div class="strow"><span class="lbl">Where the number goes</span><div class="seg" id="stNumPlace" role="radiogroup" aria-label="Where the number goes"><button type="button" class="chip small" data-v="auto">Beside the pole</button><button type="button" class="chip small" data-v="out">Straight out from the road</button></div></div>
     </div>
-    <div class="stgrp" id="stId">
+    <div class="stgrp" id="stId" data-scene="street">
       <h3>IDs of NAPs, LCPs, the ODC, handholes…</h3>
       <div class="strow"><span class="lbl">Bold</span><div class="seg" id="stIdBold" role="radiogroup" aria-label="Bold IDs"><button type="button" class="chip small" data-v="0">Normal</button><button type="button" class="chip small" data-v="1">Bold</button></div></div>
       <div class="strow"><span class="lbl">ID colour <output id="stIdColO"></output></span><div class="sws" id="stIdCol" role="radiogroup" aria-label="ID colour"></div></div>
       <div class="strow"><label class="lbl" for="stIdH">ID height <output id="stIdHO"></output></label><input type="range" id="stIdH" min="1.5" max="5" step="0.25"></div>
     </div>
-    <div class="stgrp" id="stCl">
+    <div class="stgrp" id="stCl" data-scene="street">
       <h3>Clamp types and cable labels</h3>
       <div class="strow"><span class="lbl">Clamp types on the plan</span><div class="seg" id="stClOn" role="radiogroup" aria-label="Clamp types on the plan"><button type="button" class="chip small" data-v="1">On (CA 8-10)</button><button type="button" class="chip small" data-v="0">Off (sizes only)</button></div></div>
       <div class="strow"><span class="lbl">Where they go</span><div class="seg" id="stClPlace" role="radiogroup" aria-label="Where the clamp types go"><button type="button" class="chip small" data-v="label">In the pole label</button><button type="button" class="chip small" data-v="tag">Tag</button><button type="button" class="chip small" data-v="callout">Callout</button></div></div>
@@ -1523,13 +1574,16 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="strow"><label class="lbl" for="stCabH">Cable label text height <output id="stCabHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stCabHAuto">Auto</button><input type="range" id="stCabH" min="0.8" max="3" step="0.1" style="flex:1"></div></div>
       <div class="strow"><span class="lbl">What the cable label says</span><div class="seg" id="stCabW" role="group" aria-label="What the cable label says"><button type="button" class="chip small" data-k="prop">PROPOSED</button><button type="button" class="chip small" data-k="size">Size 72C</button><button type="button" class="chip small" data-k="type">Type FIG-8</button><button type="button" class="chip small" data-k="place">AE / UG</button><button type="button" class="chip small" data-k="foc">FOC</button><button type="button" class="chip small" data-k="run">RUN no.</button></div><p class="hint" id="stCabReads" style="margin:0"></p></div>
     </div>
-    <div class="stgrp" id="stSite">
+    <div class="stgrp" id="stSite" data-scene="tower">
       <h3>Tower site and its ODF</h3>
-      <div class="strow"><span class="lbl">Site name</span><div class="seg" id="stSiteName" role="radiogroup" aria-label="Where the site name goes"><button type="button" class="chip small" data-v="auto">Auto</button><button type="button" class="chip small" data-v="top">Top</button><button type="button" class="chip small" data-v="side">Side</button><button type="button" class="chip small" data-v="bottom">Bottom</button></div></div>
+      <div class="strow"><span class="lbl">Site name and ID</span><div class="seg" id="stSiteName" role="radiogroup" aria-label="Where the site name and ID go"><button type="button" class="chip small" data-v="on">On the tower</button><button type="button" class="chip small" data-v="top">Top</button><button type="button" class="chip small" data-v="side">Side</button><button type="button" class="chip small" data-v="bottom">Bottom</button></div></div>
+      <div class="strow"><span class="lbl">When the tower covers details</span><div class="seg" id="stSiteMove" role="radiogroup" aria-label="When the tower covers details"><button type="button" class="chip small" data-v="auto">Move it aside, in its sheet</button><button type="button" class="chip small" data-v="point">Keep it at its point</button></div></div>
+      <div class="strow" data-dim="tower"><span class="lbl">Arrow to where the tower sits</span><div class="seg" id="stSiteArrow" role="radiogroup" aria-label="Arrow to where the tower sits"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div><p class="hint" style="margin:0">A curved arrow, like a planning drawing's. Here it moves; on the DXF and the PDF it is drawn still.</p></div>
+      <div class="strow" data-dim="tower"><span class="lbl">Arrow colour <output id="stSiteAColO"></output></span><div class="sws" id="stSiteACol" role="radiogroup" aria-label="Arrow colour"></div></div>
       <div class="strow"><span class="lbl">ODF beside the tower</span><div class="seg" id="stOdfPlace" role="radiogroup" aria-label="Where the ODF goes beside the tower"><button type="button" class="chip small" data-v="auto">Auto</button><button type="button" class="chip small" data-v="left">Left</button><button type="button" class="chip small" data-v="right">Right</button><button type="button" class="chip small" data-v="below">Below</button></div><p class="hint" style="margin:0">Auto: the side the cable comes from. The ODF is drawn beside the tower, never over it, and the cable ends at it.</p></div>
       <div class="strow"><span class="lbl">ODF label</span><div class="seg" id="stOdfLbl" role="radiogroup" aria-label="What the ODF label says"><button type="button" class="chip small" data-v="id">ID</button><button type="button" class="chip small" data-v="size">ID + size</button><button type="button" class="chip small" data-v="conn">ID + size + connector</button></div></div>
     </div>
-    <div class="stgrp" id="stVic">
+    <div class="stgrp" id="stVic" data-scene="vic">
       <h3>Vicinity map</h3>
       <div class="stvic"><svg id="stVicPrev" viewBox="0 0 60 40" role="img" aria-label="Preview of the vicinity map: the route and the project area circle"></svg></div>
       <div class="strow"><span class="lbl">Project area circle colour <output id="stVicColO"></output></span><div class="sws" id="stVicCol" role="radiogroup" aria-label="Circle colour"></div></div>
@@ -1538,7 +1592,8 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="strow"><label class="lbl" for="stVicRW">Route line width <output id="stVicRWO"></output></label><input type="range" id="stVicRW" min="6" max="40" step="0.5"></div>
     </div>
     <p class="hint" id="stSum"></p>
-  </div>
+   </div>
+  </div></div>
   <div class="foot"><button class="btn" id="stReset" type="button">Defaults</button><button class="btn primary grow" id="stDone" type="button">Done</button></div>
 </section>
 <!-- v2.42.28: Plan settings: how every drawing of the plan export looks and is numbered, in one place (they were on the DXF card,
@@ -1796,6 +1851,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     </div>
     <p class="hint" id="teamMini" hidden></p>
     <p class="hint" id="cloudInfo" hidden></p>
+    <p class="hint" id="coopInfo" hidden></p>
     <label class="field" id="syncModeBox" hidden>SYNC WITH THE ONLINE SHEET<select id="setSync"><option value="change">On every change (recommended)</option><option value="hour">Every hour</option><option value="manual">Only when I tap Sync</option></select></label>
     <div id="companyKeyBox" hidden><p class="hint" style="margin:0">The online sheet asks for your company: join with the invite from your admin or a coworker (QR code or link).</p><div class="row"><button class="btn sm primary" id="companyKeyScan" type="button">Scan invite QR</button><button class="btn sm" id="companyKeyPaste" type="button">Paste invite link</button></div></div>
     <div class="row">

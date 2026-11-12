@@ -250,6 +250,11 @@
       let dir = [num(r, 11, 1), num(r, 21, 0)]; const k50 = r.findIndex((p) => p[0] === 50), k101 = r.findIndex((p) => p[0] === 101);
       if (k50 > 0 && (k101 < 0 || k50 < k101) && get(r, 11) == null) dir = [Math.cos(num(r, 50, 0)), Math.sin(num(r, 50, 0))];
       const ang = Math.atan2(dir[1], dir[0]), c = Math.cos(ang), sn = Math.sin(ang), ax = num(r, 10, 0), ay = num(r, 20, 0);
+      const bg = int(r, 90, 0); if (bg & 3) { // beta 3.8: its background mask (the drawing's background: white on paper; or its colour)
+        const m = Math.max(0, num(r, 45, 1.5) - 1) * h * 0.5, x0 = left - m, x1 = left + colW + m, y0 = top - Hh - m, y1 = top + m, W2 = (x, y) => ap(M, ax + x * c - y * sn, ay + x * sn + y * c);
+        const fc = bg & 2 ? [255, 255, 255] : (ACI[int(r, 63, 7)] || [255, 255, 255]), Q = [W2(x0, y0), W2(x1, y0), W2(x1, y1), W2(x0, y1)];
+        ops.push(`q ${f4(fc[0] / 255)} ${f4(fc[1] / 255)} ${f4(fc[2] / 255)} rg ${Q.map((q, i) => `${f2(q[0])} ${f2(q[1])} ${i ? 'l' : 'm'}`).join(' ')} h f Q`);
+      }
       lines.forEach((l, i) => {
         if (!l.trim()) return;
         const dx = left + (al === 'c' ? (colW - lw[i]) / 2 : al === 'r' ? colW - lw[i] : 0), dy = top - h - i * pitch;
