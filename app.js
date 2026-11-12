@@ -839,7 +839,7 @@
   const APP_VER = '2.43.1';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '3.6'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '3.7'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -8656,14 +8656,14 @@
     return btoa(s);
   }
   /** Write a blob to a native folder in 3 MB pieces (large KMZ/PDF files would not fit through the bridge at once). */
-  async function nativeWrite(blob, path, directory) {
+  async function nativeWrite(blob, path, directory, what) {
     const CH = 3 * 1024 * 1024; let uri = '', started = false;
     try {
       for (let off = 0; off < Math.max(1, blob.size); off += CH) {
         const data = await blobChunkB64(blob, off, Math.min(blob.size, off + CH));
         if (off === 0) { uri = (await nativeCall('Filesystem', 'writeFile', { path, data, directory, recursive: true })).uri; started = true; }
         else await nativeCall('Filesystem', 'appendFile', { path, data, directory });
-        if (blob.size > CH) busy(`Saving ${Math.min(100, Math.round(((off + CH) / blob.size) * 100))}%…`, Math.min(1, (off + CH) / blob.size));
+        if (blob.size > CH) busy(`${what || 'Saving'} ${Math.min(100, Math.round(((off + CH) / blob.size) * 100))}%…`, Math.min(1, (off + CH) / blob.size));
       }
     } catch (e) { // v2.42.4: a file cut short (phone full) is removed, not left under its name (a ZIP that would not open)
       if (started) await Promise.resolve(nativeCall('Filesystem', 'deleteFile', { path, directory })).catch(() => {});
@@ -8694,7 +8694,7 @@
   /** Share: the file goes only to the app's private cache (other apps cannot browse it) and is handed to the chosen app. */
   async function nativePrivate(r) {
     if (r.cacheUri) return r;
-    try { r.cacheUri = await nativeWrite(r.blob, `share/${r.name}`, 'CACHE'); }
+    try { r.cacheUri = await nativeWrite(r.blob, `share/${r.name}`, 'CACHE', 'Preparing to send'); }
     finally { busy(false); }
     return r;
   }
@@ -8783,7 +8783,7 @@
       const keys = R ? [R[2], R[1]] : [], rx = (k) => new RegExp(`(^|[^A-Za-z0-9])${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^A-Za-z0-9])`, 'i');
       target = [...$('packList').querySelectorAll('.area-card')].find((r) => { const t = ((r.querySelector('.t') || {}).textContent || '').trim(); return /^roads\b/i.test(t) && keys.some((k) => rx(k).test(t)); }) || null;
       found = !!target;
-      g.textContent = target ? `For the plan drawing of “${proj}”: tap Download on ${target.querySelector('.t').textContent} below (Wi-Fi is best), then go back to Export.`
+      g.textContent = target ? `For the plan drawing of “${proj}”: under Road packs, tap the download button (↓) of ${target.querySelector('.t').textContent} below (Wi-Fi is best), then go back to Export.`
         : `For the plan drawing of “${proj}”: no road pack for ${rn || 'its area'} is listed yet. Ask your admin to add “Roads · ${rn || 'your region'}” (Settings → Administration → Offline map packs) and tap Refresh list, or Import a pack file they sent you.`;
       if (!target) target = $('packImport');
     } else {
@@ -13927,6 +13927,12 @@
     if (!NATIVE) a.target = '_blank';
     document.body.appendChild(a); a.click(); a.remove();
   }
+  /* beta 3.7: the icons of the map packs' buttons (the name shows on a long-press) */
+  const PK_KIND = { Download: 'dl', Resume: 'dl', 'Download again': 'again', Repair: 'fix', Use: 'use', Show: 'show', Delete: 'del', Remove: 'del', Confirm: 'del', 'Open in Drive': 'drive', 'How to fix': 'help' };
+  const PK_ICON = { dl: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3', again: 'M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15',
+    fix: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z', use: 'M12 2 2 7l10 5 10-5-10-5ZM2 17l10 5 10-5M2 12l10 5 10-5',
+    show: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8ZM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z', del: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
+    drive: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3', help: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01' };
   let packIndex = null, packIndexErr = '';
   async function loadPackIndex() { // packs published with the website (older setup); quietly absent otherwise
     try {
@@ -13976,9 +13982,19 @@
     $('packLinkBox').hidden = true; // v2.41: no Google Drive links typed on the phone (map packs come from the admin, or Import a pack file)
     if (own && S.team) $('packLinkHint').textContent = 'Links added here stay on this phone. To give a pack to everyone: Settings → Administration → Offline map packs.';
     if (!items.length) list.innerHTML = '<p class="hint" style="margin:0">No map packs yet.</p>';
-    for (const p of items) {
+    // beta 3.7: two groups, the map packs (the map with no signal) and the road packs (for the plan drawings); in each, the packs on
+    //           this phone first
+    const isRoadItem = (p) => isRoadPack(p.installed) || (!p.installed && /^roads\b/i.test(p.name || ''));
+    const onPhone = (p) => (p.installed && p.installed.done ? 0 : p.installed ? 1 : 2);
+    const groups = [['map', 'Map packs', 'The map you see with no signal'], ['road', 'Road packs', 'Roads, street names and towns for the plan drawings']]
+      .map(([k, t, sub]) => ({ k, t, sub, items: items.map((p, i) => [p, i]).filter(([p]) => (k === 'road') === isRoadItem(p)).sort((a, b) => onPhone(a[0]) - onPhone(b[0]) || a[1] - b[1]).map(([p]) => p) }))
+      .filter((g) => g.items.length);
+    for (const g of groups) {
+      const h = document.createElement('div'); h.className = 'pkhead'; h.dataset.group = g.k;
+      const ht = document.createElement('b'); ht.textContent = `${g.t} · ${g.items.length}`; const hs = document.createElement('span'); hs.textContent = g.sub; h.append(ht, hs); list.appendChild(h);
+    for (const p of g.items) {
       const inst = p.installed, done = inst && inst.done, partial = inst && !inst.done && inst.bytes > 0;
-      const row = document.createElement('div'); row.className = 'area-card';
+      const row = document.createElement('div'); row.className = 'area-card pk'; row.dataset.group = g.k;
       const d = document.createElement('div');
       const t = document.createElement('span'); t.className = 't'; t.textContent = p.name || p.id;
       const s2 = document.createElement('span'); s2.className = 's';
@@ -13992,30 +14008,37 @@
         done ? (road ? 'on this phone' : p.id === act ? 'on this phone · in use' : 'on this phone') : partial ? `${size ? Math.round((inst.bytes / size) * 100) + '% ' : fmtMB(inst.bytes) + ' '}downloaded` : 'not on this phone',
         p.drive && !done ? 'Google Drive' : '', p.notes || ''].filter(Boolean).join(' · ');
       d.append(t, s2);
-      const mk = (label, cls, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (cls || ''); b.textContent = label; b.addEventListener('click', fn); return b; };
+      const mk = (label, cls, fn) => { // beta 3.7: an icon; its name on a long-press (and for screen readers)
+        const b = document.createElement('button'); b.type = 'button'; b.className = `tmtool pkb ${cls || ''}`; b.dataset.pk = PK_KIND[label] || 'x'; b.dataset.tip = label; b.title = label; b.setAttribute('aria-label', `${label} ${p.name || p.id}`);
+        b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${PK_ICON[PK_KIND[label]] || PK_ICON.help}"/></svg>`;
+        const sr = document.createElement('span'); sr.className = 'sr'; sr.textContent = label; b.appendChild(sr);
+        b.addEventListener('click', fn); return b;
+      };
       const btns = [];
       if (!done) {
-        if (p.url) btns.push(mk(partial ? 'Resume' : 'Download', 'primary', () => downloadPack(p)));
-        else if (p.drive && (NATIVE || webDriveKey())) btns.push(mk(partial ? 'Resume' : 'Download', 'primary', () => downloadPack(p)));
-        if (p.drive && (NATIVE || !webDriveKey() || webDriveFailed.has(p.drive))) btns.push(mk('Open in Drive', '', () => { openExternal(driveViewUrl(p.drive)); if (!NATIVE) toast(webDriveKey() ? 'Download the file in Drive, then come back and tap Import a pack file' : 'Download the file in Drive, then come back and tap Import a pack file. One-tap Download: ask your admin to add a Google Drive API key.', 7000); }));
+        if (p.url) btns.push(mk(partial ? 'Resume' : 'Download', 'pri', () => downloadPack(p)));
+        else if (p.drive && (NATIVE || webDriveKey())) btns.push(mk(partial ? 'Resume' : 'Download', 'pri', () => downloadPack(p)));
+        // (beta 3.7: Open in Drive only where Download cannot work)
+        if (p.drive && !NATIVE && (!webDriveKey() || webDriveFailed.has(p.drive))) btns.push(mk('Open in Drive', '', () => { openExternal(driveViewUrl(p.drive)); if (!NATIVE) toast(webDriveKey() ? 'Download the file in Drive, then come back and tap Import a pack file' : 'Download the file in Drive, then come back and tap Import a pack file. One-tap Download: ask your admin to add a Google Drive API key.', 7000); }));
       }
       const redo = done && (inst.short || inst.damaged === 'data');
-      if (done && inst.damaged === 'parts') btns.push(mk('Repair', 'primary', () => guard(async () => { // v2.35.7
+      if (done && inst.damaged === 'parts') btns.push(mk('Repair', 'pri', () => guard(async () => { // v2.35.7
         if (dl) { toast('Wait until the download has finished'); return; }
         if (packRepairing) return;
         try { await repairPack(inst); toast(`${inst.name} is repaired: ${road ? 'the plan drawings can read its roads again' : 'the map draws close up again'}`, 5000); }
         catch (e) { LOG.warn('pack.repair.fail', errInfo(e)); throw new Error(`${e.message || e}. ${inst.fix ? 'Tap Repair again; if it keeps failing, delete' : 'Delete'} it and ${p.drive || p.url ? 'download it again' : 'import the file again'}`); }
         finally { renderOffline(); }
       }, 'Not repaired')));
-      if (redo && (p.url || (p.drive && (NATIVE || webDriveKey())))) btns.push(mk('Download again', 'primary', () => guard(async () => { // v2.35.4
+      if (redo && (p.url || (p.drive && (NATIVE || webDriveKey())))) btns.push(mk('Download again', 'pri', () => guard(async () => { // v2.35.4
         if (dl) { toast('A map pack is already downloading'); return; }
         await deletePack(p.id); renderOffline(); await downloadPack(p);
       }, 'Not downloaded')));
       else if (redo) btns.push(mk(p.drive ? 'Open in Drive' : 'How to fix', '', () => { if (p.drive) openExternal(driveViewUrl(p.drive)); toast('Download the complete file again on Wi-Fi, then Delete this pack and tap Import a pack file.', 8000); }));
       if (done && !road && p.id !== act) btns.push(mk('Use', '', () => { S.activePack = p.id; persist(); if (S.base === 'offline') setBase('offline', true); renderOffline(); }));
       if (done && !road) btns.push(mk('Show', '', async () => { S.activePack = p.id; persist(); await closeSheet(); setBase('offline'); const b = inst.bbox; if (b) map.fitBounds([[b[1], b[0]], [b[3], b[2]]]); }));
-      if (inst || p.from === 'link') btns.push(mk(inst ? 'Delete' : 'Remove', 'danger', function () {
-        if (!this.dataset.armed) { this.dataset.armed = '1'; this.textContent = 'Confirm'; setTimeout(() => { delete this.dataset.armed; this.textContent = inst ? 'Delete' : 'Remove'; }, 4000); return; }
+      if (inst || p.from === 'link') btns.push(mk(inst ? 'Delete' : 'Remove', 'del', function () {
+        const say = (t) => { this.querySelector('.sr').textContent = t; this.dataset.tip = t; this.title = t; };
+        if (!this.dataset.armed) { this.dataset.armed = '1'; say('Confirm'); toast(`Tap the bin again to ${inst ? 'delete' : 'remove'} ${p.name || 'this pack'}`, 3500); setTimeout(() => { delete this.dataset.armed; say(inst ? 'Delete' : 'Remove'); }, 4000); return; }
         guard(async () => {
           if (dl && dl.id === p.id) { toast('Wait until the download has stopped'); return; }
           if (inst) { busy('Deleting map pack…'); await deletePack(p.id); }
@@ -14023,8 +14046,9 @@
           persist(); renderOffline(); toast(inst ? 'Map pack deleted' : 'Link removed');
         });
       }));
-      row.append(d, ...btns); list.appendChild(row);
-    }
+      const tools = document.createElement('div'); tools.className = 'tmtools pkt'; tools.setAttribute('role', 'group'); tools.setAttribute('aria-label', p.name || p.id); tools.append(...btns);
+      row.append(d, tools); list.appendChild(row);
+    } }
     try { const n = await dbCount('tiles'); $('offTotal').textContent = `${n.toLocaleString()} viewed street-map tiles kept on this phone.`; } catch (e) { /* ignore */ }
     try { renderDxfNeed(); } catch (e) { /* not shown */ } // v2.43 beta 2.1: a pack just downloaded
   }
@@ -17076,5 +17100,5 @@
     fibLanes: () => fibLayer.getLayers().map((l) => (l.getLatLngs ? { ll: l.getLatLngs().map((q) => [q.lat, q.lng]), color: l.options.color, w: l.options.weight, op: l.options.opacity, dash: l.options.dashArray || '' } : { arrow: true })), kmzFibers: () => kmzFibers(),
     own: { owners: () => ownerChoices(), coops: () => coopChoices(), area: () => { const a = coopArea(); return a ? { ...a } : null; }, sheet: () => sheetCoops().map((c) => c.n), regionKey, townKey, first: () => coopFirstNote(), use: () => JSON.parse(JSON.stringify(S.ownUse || {})), kept: () => (S.myCoops || []).slice() }, // v2.43.0 (tests)
     ph: { setOf: (n) => JSON.parse(JSON.stringify(phSetOf(n || S.project))), n: (n) => phN(n), doc: (k, n) => phDoc(k, n), mine: () => phMine() }, // beta 3.5 (tests)
-    team: { patchS: (o) => { Object.assign(S, o); persist(); }, sync: () => cloudSync(true), load: () => tmLoad(), render: () => renderTeam(), on: () => tmOn(), ver: () => tmVerified(), state: () => JSON.parse(JSON.stringify({ mbx: S.mbx || null, teamMe: S.teamMe || null, snap: S.teamSnap || null })), beta: () => ({ BETA, APP_NAME, VER_LABEL }), mbx: mbxTestHooks } }; // v2.43 (beta 2: mbx)
+    team: { patchS: (o) => { Object.assign(S, o); persist(); }, sync: () => cloudSync(true), load: () => tmLoad(), render: () => renderTeam(), on: () => tmOn(), ver: () => tmVerified(), state: () => JSON.parse(JSON.stringify({ mbx: S.mbx || null, teamMe: S.teamMe || null, snap: S.teamSnap || null })), beta: () => ({ BETA, APP_NAME, VER_LABEL }), mbx: mbxTestHooks }, sendFile: (blob, name, type) => shareFile(blob, name, type) }; // v2.43 (beta 2: mbx); beta 3.7: sendFile (tests)
 })();
