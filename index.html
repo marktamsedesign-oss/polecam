@@ -15,7 +15,7 @@
 :root{--fs:1;
   --bg:#eef1f6; --surface:#ffffff; --ink:#132033; --muted:#566175; --line:#d2d9e4; --line2:#e6ebf2;
   --accent:#1b3a6b; --accent-ink:#ffffff; --navy:#0f2547; --navy-ink:#ffffff; --hi:#9cc1ff; --soft:#e8eefb;
-  --ok:#2b8a3e; --warn:#b35c00; --bad:#c92a2a; --info:#1971c2; --verified:#0b7285; --chip:#e4e9f1; --pin:#e6007e;
+  --fix:#c2410c; --ok:#2b8a3e; --warn:#b35c00; --bad:#c92a2a; --info:#1971c2; --verified:#0b7285; --chip:#e4e9f1; --pin:#e6007e;
   --shadow:0 2px 10px rgba(16,24,32,.14); --shadow2:0 1px 3px rgba(16,24,32,.10);
   --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;
   --mono:ui-monospace,"Roboto Mono","SFMono-Regular",Menlo,Consolas,monospace;
@@ -25,7 +25,7 @@
 @media (prefers-color-scheme: dark){:root{
   --bg:#0a1220; --surface:#121c2f; --ink:#e6ebf3; --muted:#9ca8bb; --line:#26344c; --line2:#1d2a40;
   --accent:#6d9cf0; --accent-ink:#06101f; --navy:#0b1830; --navy-ink:#e6ebf3; --hi:#9cc1ff; --soft:#162442;
-  --ok:#5cc26f; --warn:#f0a040; --bad:#ff6b6b; --info:#5aa3ee; --verified:#3bc9db; --chip:#1c2a42;
+  --fix:#ff8a4c; --ok:#5cc26f; --warn:#f0a040; --bad:#ff6b6b; --info:#5aa3ee; --verified:#3bc9db; --chip:#1c2a42;
   --shadow:0 2px 12px rgba(0,0,0,.5); --shadow2:0 1px 3px rgba(0,0,0,.4); color-scheme:dark;
 }}
 *{box-sizing:border-box}
@@ -561,6 +561,23 @@ body.kb .sheet{bottom:var(--kb,0px)}
 .idcands .chip{min-height:32px;padding:0 10px;font-family:var(--mono);flex:none}
 .idcands .chip.fit{border-color:var(--ok)}
 .photo-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+/* beta 3.5: several photos per pin */
+#photoStrip.phgrid .thumbwrap{display:none}
+.phhead{display:flex;align-items:baseline;gap:8px;margin:0}.phhead b{font-size:calc(13px * var(--fs));letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.ph .phmain{position:absolute;top:6px;left:6px;padding:1px 7px;border-radius:6px;background:var(--navy);color:#fff;font:800 10.5px/1.6 var(--sans,system-ui);letter-spacing:.04em}
+.ph .phno{position:absolute;left:6px;top:calc(100% - 64px);min-width:20px;height:20px;padding:0 5px;box-sizing:border-box;border-radius:6px;background:rgba(0,0,0,.65);color:#fff;font:800 11px/20px var(--sans,system-ui);text-align:center}
+.ph .phwrap{position:relative}.ph .phwrap .phno{top:auto;bottom:6px}
+.ph .phmk{min-height:32px;padding:0 8px;font-size:calc(12px * var(--fs))}
+.ph.add small{display:block;font-weight:600;color:var(--muted)}
+.phseg{display:flex;gap:8px}.phseg button{flex:1;min-height:42px;border-radius:21px;border:1px solid var(--line);background:var(--chip);color:var(--ink);font:700 15px/1 var(--sans,system-ui)}
+.phseg button[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}.phseg button:disabled{opacity:.55}
+.phdocs{display:flex;flex-direction:column}.phdocs .phd{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line2)}.phdocs .phd:first-child{border-top:0}
+.phdocs .phd b{flex:1;min-width:0;font-weight:600;font-size:calc(14px * var(--fs))}.phdocs .seg2{display:flex;gap:4px}
+.seg2 button{min-height:34px;min-width:52px;padding:0 10px;border-radius:17px;border:1px solid var(--line);background:var(--chip);color:var(--ink);font-weight:700;font-size:calc(13px * var(--fs))}
+.seg2 button[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}.seg2 button:disabled{opacity:.6}
+.phdocs .lockd{font-size:calc(12.5px * var(--fs));color:var(--muted);font-weight:700;padding:6px 10px;border:1px solid var(--line);border-radius:17px}
+#camCount{position:absolute;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 64px);z-index:3;display:flex;align-items:center;gap:8px;padding:6px 14px;border-radius:18px;background:rgba(15,37,71,.82);color:#fff;font-weight:700;font-size:calc(14px * var(--fs));white-space:nowrap}
+#camCount[hidden]{display:none}#camCount .dots{letter-spacing:2px;font-size:11px}
 .ph{position:relative;display:flex;flex-direction:column;gap:4px;min-width:0}
 .ph img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:var(--chip)}
 .ph select{min-height:36px;padding:4px 6px;font-size:calc(13px * var(--fs));border-radius:8px}
@@ -1083,6 +1100,36 @@ body.fixing #mapSummary{display:none}
 .curteam .tfix{color:var(--bad)}.curteam .tnote{color:var(--muted);font-style:italic;white-space:pre-wrap}
 .curteam .row{display:flex;gap:8px;margin-top:4px}
 .tmtool.send{color:var(--accent)}
+/* beta 3.4: Fixes (wrench) and Accept fixes (check), with their counts */
+.tmtool.fix,.ppi.fix{color:var(--fix)}.tmtool.fix .bdg,.ppi.fix .bdg{background:var(--fix)}
+.tmtool.accfix,.ppi.accfix{color:var(--accent)}.tmtool.accfix .bdg,.ppi.accfix .bdg{background:var(--accent);color:var(--accent-ink)}
+.tmtool.accfix.ready,.ppi.accfix.ready{color:var(--ok);border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--surface))}
+.ctwait.ctsync{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 9%,var(--surface))}
+.fxlate{border-color:var(--fix);color:var(--fix)}
+.fxrev.flash{animation:fxflash 1.4s ease-out}
+/* beta 3.4: the coordinator's one screen (tick poles, tap what is wrong) and the field partner's plain-word fix */
+.fx-tiles.four{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.fx-tiles.four .fx-tile{flex-direction:column;justify-content:center;gap:4px;min-height:62px;padding:6px 4px;font-size:calc(12.5px * var(--fs));text-align:center;line-height:1.15}
+.fx-tiles.four .fx-tile span:first-of-type{flex:none}
+.fx-tile[aria-disabled=true]{opacity:.45}
+.fx-tile.spot{border-style:dashed}.fx-tile.spot[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.fx-found{display:flex;flex-direction:column;gap:6px}.fx-chips{display:flex;flex-wrap:wrap;gap:6px}
+.fx-sugchip{border-color:#ffc078;background:color-mix(in srgb,#e8590c 9%,var(--surface));color:var(--ink);font-weight:700}
+.fx-chips .chip[aria-pressed=true]{background:var(--fix);border-color:var(--fix);color:#fff}
+.fx-selh{display:flex;align-items:center;gap:8px}.fx-selh .fx-title{flex:1;min-width:0}
+.fx-list{display:flex;flex-direction:column}
+.fx-lrow{display:flex;align-items:center;gap:4px;border-bottom:1px solid var(--line2)}.fx-lrow:last-child{border-bottom:0}
+.fx-lbtn{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:8px 2px;border:0;background:none;color:var(--ink);text-align:left;font:inherit}
+.fx-x{width:40px;height:40px;font-size:22px;color:var(--muted)}
+.fx-ic{flex:none;display:inline-flex;color:var(--fix)}.fx-ic svg{width:22px;height:22px}.fx-item.ok .fx-ic{color:var(--ok)}.fx-item.word .fx-ic{color:var(--muted)}
+.fx-item .fx-ih .btn{flex:none}
+.fx-ask{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:12px;background:#fff4e6;color:#7a3300}
+@media (prefers-color-scheme: dark){.fx-ask{background:#3a2410;color:#ffd8a8}}
+.btn.fx-done{background:var(--ok);border-color:var(--ok);color:#fff}
+.fx-sync{display:inline-flex;align-items:center;justify-content:center;gap:8px}.fx-sync svg{width:20px;height:20px}
+.fx-cardh .fx-grow{flex:1;min-width:0;margin-left:4px}
+.fx-synchint{margin:0;text-align:center}
+@keyframes fxflash{0%{box-shadow:0 0 0 3px var(--fix)}100%{box-shadow:0 0 0 3px transparent}}
 .tmst{font-size:calc(11px * var(--fs));font-weight:700;padding:2px 8px;border-radius:999px;background:var(--soft);white-space:nowrap;align-self:center}.tmrow .b{align-items:center}
 .inzipbox{margin-top:6px}.inzipbox>summary{cursor:pointer;color:var(--muted);font-size:calc(13px * var(--fs));font-weight:600;padding:4px 0;list-style:none}.inzipbox>summary::-webkit-details-marker{display:none}.inzipbox>summary::after{content:" ▸"}.inzipbox[open]>summary::after{content:" ▾"}
 .inzip div{display:grid;grid-template-columns:40px minmax(0,1fr);gap:8px;align-items:center;padding:8px 10px;border-top:1px solid var(--line2);font-size:calc(13px * var(--fs))}
@@ -1108,7 +1155,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 21a8 8 0 0 1 16 0" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-cam" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 17v3h16v-3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
-  <symbol id="i-map" viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Zm0 0v14m6-12v14" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol><symbol id="i-map" viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Zm0 0v14m6-12v14" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m9 12 2 2 4-4" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-draw" viewBox="0 0 24 24"><path d="M3 21h18M5 17l9.5-9.5 3 3L8 20H5v-3ZM14.5 7.5l2-2 3 3-2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
@@ -1206,6 +1253,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div class="pill"><span class="dot" id="camGpsDot"></span><span id="camGpsText">Waiting for GPS…</span></div>
     <button class="camid" id="camReadId" aria-pressed="true" aria-label="Scan the ID after each new photo">ID</button>
   </div>
+  <div id="camCount" hidden><span id="camCountT"></span><span class="dots" id="camCountD" aria-hidden="true"></span></div>
   <div id="camMsg" hidden></div>
   <div id="scanPrompt" hidden>
     <b id="scanTitle">Scan the ID</b>
@@ -1269,6 +1317,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <h3>Photo</h3>
       <div id="photoStrip"><span class="thumbwrap"><img id="edPhoto" alt="Captured pole photo" title="Tap to see the full photo, mark it or edit its marks"><span class="zoomico" id="edZoom" aria-hidden="true">⤢</span></span><figure id="edSym" class="edsym" hidden><span id="edSymImg"></span><figcaption id="edSymCap"></figcaption></figure><div class="meta"><span id="edTime">–</span><span id="edAcc">–</span><span id="edSrc"></span></div></div>
       <p class="hint" id="boxInfo" hidden style="margin:0"></p>
+      <p class="phhead" id="phHead" hidden><b id="phHeadT">Photos</b><span class="hint" id="phHeadS"></span></p>
       <div id="accPhotos" class="photo-grid" hidden></div>
       <p class="warnline" id="qualWarn" hidden></p>
     </div>
@@ -1285,7 +1334,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
         <div class="idrow" id="idInRow"><button type="button" id="idPfx" hidden aria-label="ID prefix: tap to change it" aria-expanded="false">CC-</button><input type="text" id="poleId" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. CC-0001"><button class="btn" id="scanIdBtn" type="button" aria-label="Read the ID from the camera">Scan ID</button></div>
       </div>
       <div id="idPfxMenu" class="chips" hidden role="group" aria-label="ID prefix"></div>
-      <div class="idline" id="idLine"><button type="button" class="chip small" id="nptBtn">No tag → NPT</button><button type="button" class="chip small" id="idAbc" hidden aria-pressed="false" title="Letters on the keyboard">abc</button><div id="idCands" class="idcands" hidden></div></div>
+      <div class="idline" id="idLine"><button type="button" class="chip small" id="nptBtn">No tag → NPT</button><button type="button" class="chip small" id="idPh2Btn" hidden>Read from photo 2 (Pole tag)</button><button type="button" class="chip small" id="idAbc" hidden aria-pressed="false" title="Letters on the keyboard">abc</button><div id="idCands" class="idcands" hidden></div></div>
       <p class="idnote" id="idNote" hidden></p>
       <p class="warnline" id="dupWarn" hidden></p>
       <p class="warnline" id="fmtWarn" hidden></p>
@@ -1346,6 +1395,8 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
         <label class="frow"><span class="lbl">CATEGORY</span><select id="defSevSel" aria-label="Category"><option value="Major">Major (MD)</option><option value="Minor" selected>Minor (D)</option><option value="Note">Note (N)</option></select></label>
         <label class="field">NOTES<textarea id="defNotes" placeholder="Details, exact spot, what the contractor must do. If no defect above fits, describe it here."></textarea></label>
         <div class="row"><button class="btn" id="defPhotoBtn" type="button">Take defect photo</button><img id="defPhotoPrev" alt="Defect photo" hidden style="width:64px;height:64px;object-fit:cover;border-radius:8px"></div>
+        <p class="phhead" id="defPhHead" hidden><b id="defPhHeadT">As found photos</b></p>
+        <div id="defPhotos" class="photo-grid" hidden></div>
         <div class="row"><button class="btn grow" id="defCancel" type="button">Cancel</button><button class="btn primary grow" id="defAdd" type="button">Add to punchlist</button></div>
       </div>
     </div>
@@ -1572,6 +1623,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
         <details><summary>Options</summary><div class="opts">
           <label class="check"><input type="checkbox" id="pdfAnnexA" checked><span>Annex A: photo evidence per punchlist item (as found → rectified → verified)</span></label>
           <label class="check"><input type="checkbox" id="pdfAnnexB" checked><span>Annex B: element photos, if any (records made before v2.13)</span></label>
+          <label class="field">Photos of each item<select class="phdoc" data-k="defpdf"><option value="all">All photos of each stage</option><option value="main">The main photo of each stage only</option></select></label>
           <div class="opt2"><label class="field">Photo size in annexes<select id="pdfPhotoSize"><option value="S">Small</option><option value="M" selected>Medium</option><option value="L">Large</option></select></label>
           <label class="field">Signature dates<select id="pdfDates"><option value="blank">Leave blank for signing</option><option value="insp">Prefill the inspection date</option><option value="today">Prefill today's date</option></select></label></div>
         </div></details>
@@ -1598,6 +1650,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
           <label class="field">Pin icon<select id="kmzIconPx" class="exp-kmz"><option value="0">Status dot only</option><option value="48">Photo, small</option><option value="64">Photo, medium</option><option value="96">Photo, large</option></select></label></div>
           <label class="check"><input type="checkbox" id="kmzStamp" class="exp-kmz"><span>Stamp ID, coordinates and time on balloon photos</span></label>
           <label class="check"><input type="checkbox" id="kmzData"><span>Include the G-eSAA data and original photos, so the contractor (defect cleanup) or the FAT phone can open this KMZ in G-eSAA. Untick for a smaller file just for Google Earth.</span></label>
+          <label class="field">Photos in each balloon<select class="phdoc" data-k="kmz"><option value="all">All photos of each stage</option><option value="main">The main photo of each stage only</option></select></label>
         </div></details>
         <button class="btn" id="doAccKmz">Export KMZ</button>
       </div>
@@ -1614,6 +1667,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
         <label class="field">Pin icon<select id="kmzIconPx2" class="exp-kmz"><option value="0">Standard pin</option><option value="48">Photo, small</option><option value="64">Photo, medium</option><option value="96">Photo, large</option></select></label></div>
         <label class="check"><input type="checkbox" id="kmzRoute" class="exp-kmz"><span>Include the cable route and span lengths</span></label>
         <label class="check"><input type="checkbox" id="kmzStamp2" class="exp-kmz"><span>Stamp ID, type, coordinates and time on balloon photos</span></label>
+        <label class="field">Photos in each balloon<select class="phdoc" data-k="kmz"><option value="all">All photos of the pin</option><option value="main">The main photo only</option></select></label>
       </div></details>
       <button class="btn primary" id="doKmz">Export KMZ</button>
     </div>
@@ -1653,13 +1707,14 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
         <label class="field">JPEG quality<select id="expQuality"><option value="0.8">Smaller files (80)</option><option value="0.88">Balanced (88)</option><option value="0.94">Best (94)</option></select></label></div>
         <label class="check"><input type="checkbox" id="setStamp"><span>Stamp a caption band on the photo</span></label>
         <div class="chips" id="stampFields"><button type="button" class="chip small" data-v="id" aria-pressed="true">ID & type</button><button type="button" class="chip small" data-v="coords" aria-pressed="true">Lat / long</button><button type="button" class="chip small" data-v="utm" aria-pressed="true">UTM</button><button type="button" class="chip small" data-v="time" aria-pressed="true">Date & time</button><button type="button" class="chip small" data-v="by" aria-pressed="true">Taken by</button><button type="button" class="chip small" data-v="project" aria-pressed="true">Project</button></div>
+        <label class="field">Photos of each pin<select class="phdoc" data-k="zip"><option value="all">All (the main one ID.jpg, the others ID_2.jpg, ID_3.jpg…)</option><option value="main">The main photo only</option></select></label>
         <div id="namingRow"><label class="field">File names<select id="expNaming"><option value="id">ID.jpg (CC-0001.jpg)</option><option value="project_id">Project_ID.jpg</option><option value="id_time">ID_date_time.jpg</option></select></label></div>
       </div></details>
       <button class="btn" id="doPhotos">Export photos</button>
     </div>
     <div class="xcard">
       <div class="head"><span class="ic">AI</span><div><b>Photos for AI training · ZIP</b><p>Labeled photos sorted into one folder per type with a labels.csv, for teaching the app to recognise elements later.</p></div></div>
-      <details><summary>Options</summary><div class="opts"><div class="chips" id="dsScope"><button type="button" class="chip small" data-v="project" aria-pressed="true">This project</button><button type="button" class="chip small" data-v="all" aria-pressed="false">All projects</button></div></div></details>
+      <details><summary>Options</summary><div class="opts"><label class="field">Photos of each pin<select class="phdoc" data-k="ai"><option value="all">All (Overview as the element, Pole tag as Pole tag; Detail left out)</option><option value="main">The main photo only</option></select></label><div class="chips" id="dsScope"><button type="button" class="chip small" data-v="project" aria-pressed="true">This project</button><button type="button" class="chip small" data-v="all" aria-pressed="false">All projects</button></div></div></details>
       <button class="btn" id="doDataset">Export training photos</button>
     </div>
     <div class="xcard">
@@ -1669,8 +1724,20 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     </div>
     <div class="xcard">
       <div class="head"><span class="ic">PDF</span><div><b>Completion report · PDF</b><p>Page 1 says the task is complete: site, vendor, dates, what was recorded and the sign-off. Photo pages follow as proof: survey — the poles, then the site, ODC, ODF, NAP, closures and handholes, as a collage; PAT, defect cleanup, FAT — the photos of each deficiency as found, rectified and verified. Making it marks the task complete; the online sheet gets the date.</p></div></div>
-      <details><summary>Options</summary><div class="opts"><label class="check"><input type="checkbox" id="complPhotos" checked><span>Add the photo pages (survey: photo collage · PAT, cleanup, FAT: deficiency photos)</span></label></div></details>
+      <details><summary>Options</summary><div class="opts"><label class="check"><input type="checkbox" id="complPhotos" checked><span>Add the photo pages (survey: photo collage · PAT, cleanup, FAT: deficiency photos)</span></label>
+        <label class="field">Photos of each pin<select class="phdoc" data-k="compl"><option value="all">All photos of the pin</option><option value="main">The main photo only</option></select></label></div></details>
       <button class="btn primary" id="doCompletion">Export completion report</button>
+    </div>
+    <div class="xcard" id="prCard">
+      <div class="head"><span class="ic">PDF</span><div><b>Photo report · PDF</b><p>Each pole with its item number, pole ID, location, type and owner, coordinates and date, and its photos: 1 or 2 poles a page, one report for each pole owner or for the project, as for the RTA.</p></div></div>
+      <details><summary>Options</summary><div class="opts">
+        <div class="opt2"><label class="field">Photos of each pole<select class="phdoc" data-k="report"><option value="all">All photos of the pin</option><option value="main">The main photo only</option></select></label>
+        <label class="field">Poles a page<select id="prPer"><option value="2">2</option><option value="1">1</option></select></label></div>
+        <div class="opt2"><label class="field">Item numbers<select id="prNum"><option value="plan">The plan’s pole numbers</option><option value="order">1, 2, 3… in capture order</option></select></label>
+        <label class="field">One report<select id="prBy"><option value="owner">For each pole owner</option><option value="project">For the whole project</option></select></label></div>
+        <label class="field">Location<select id="prLoc"><option value="pack">From the road pack (road, barangay, city), else the coordinates</option><option value="coords">The coordinates</option></select></label>
+      </div></details>
+      <button class="btn primary" id="doPhotoReport">Export Photo report PDF</button>
     </div>
     <div class="xgo" id="xGoBox" hidden><button class="btn primary" id="xMultiGo" type="button">Export the ticked formats (ZIP)</button><p class="hint" id="xMultiInfo" style="margin:0">One ZIP with every file. Each format uses its own options (above); questions some formats ask still come up one by one.</p></div>
     <div class="group" id="resultBox" hidden>
@@ -1700,7 +1767,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div class="sectionh">Account</div>
     <div class="rows">
       <button class="rowbtn" id="editMe" type="button"><span class="ic"><svg><use href="#i-user"/></svg></span><span class="t"><b id="whoBox">–</b><span id="whoSub">Name, mobile, email and company</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
-      <button class="rowbtn" id="goTeam" type="button" hidden><span class="ic"><svg><use href="#i-user"/></svg></span><span class="t"><b>Team</b><span id="teamSub">Coordinator or field partner, and your company's mailbox</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
+      <button class="rowbtn" id="goTeam" type="button" hidden><span class="ic"><svg><use href="#i-user"/></svg></span><span class="t"><b>Team</b><span id="teamSub">Coordinator or field partner, and your teams</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
     </div>
     <p class="hint" id="creditMe" hidden></p>
     <div class="row"><button class="btn sm primary" id="inviteBtn" type="button" hidden>Invite a coworker (QR)</button><button class="btn sm primary" id="apprShowBtn" type="button" hidden>On-site approval QR</button><button class="btn sm" id="moveBtn" type="button">Move to another phone…</button><button class="btn sm" id="resetUser" type="button">Reset user…</button></div>
@@ -1709,6 +1776,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <button class="rowbtn" id="goCamera" type="button"><span class="ic"><svg><use href="#i-cam"/></svg></span><span class="t"><b>Camera</b><span id="camSub">ID scan after each photo, orientation</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
       <button class="rowbtn" id="goExports" type="button"><span class="ic"><svg><use href="#i-export"/></svg></span><span class="t"><b>Exports and files</b><span>Photo sizes, stamps, KMZ, PDF, where files are saved</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
       <button class="rowbtn" id="goMaps" type="button"><span class="ic"><svg><use href="#i-map"/></svg></span><span class="t"><b>Maps</b><span id="mapsSub">Online map server, offline map packs</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
+      <button class="rowbtn" id="goMbx" type="button" hidden><span class="ic"><svg><use href="#i-inbox"/></svg></span><span class="t"><b>Team Mailbox</b><span id="mbxRowSub">Your company’s mailbox: set up, check, change key</span></span><span class="chev"><svg><use href="#i-chev"/></svg></span></button>
     </div>
     <div class="sectionh">Data</div>
     <div class="rows">
@@ -1749,6 +1817,20 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
 <section class="sheet" id="setCamera" hidden aria-labelledby="setCamTitle">
   <header><button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 id="setCamTitle">Camera</h2></header>
   <div class="body">
+    <div class="group" id="phPerGroup">
+      <h3>Photos per pin</h3>
+      <div class="phseg" id="setPhN" role="group" aria-label="Photos per pin"><button type="button" data-v="1">1</button><button type="button" data-v="2">2</button><button type="button" data-v="3">3</button><button type="button" data-v="4">4</button></div>
+      <p class="hint">After each photo the camera offers the next one, up to this many. Done stops at any time. PAT, defect cleanup and FAT: the same limit for each defect photo.</p>
+      <label class="check"><input type="checkbox" id="setPhIdp"><span>Photo 2 is the pole ID close-up: the camera shows the ID box, the photo is kept as Pole tag, and the ID is read from it</span></label>
+      <label class="check"><input type="checkbox" id="setPhAuto"><span>When the live reader reads the ID clearly, take photo 2 by itself</span></label>
+      <label class="field">Set by<select id="setPhBy"><option value="co">Me, for the projects I send</option><option value="phone">Each phone (its own setting)</option></select></label>
+      <p class="hint" id="phByInfo"></p>
+    </div>
+    <div class="group" id="phDocGroup">
+      <h3>Photos in documents</h3>
+      <p class="hint">All: every photo of the pin. Main: the first one. These are the defaults; each export card has the same choice under Options.</p>
+      <div class="phdocs" id="setPhDocs"></div>
+    </div>
     <div class="group">
       <h3>After each photo</h3>
       <label class="check"><input type="checkbox" id="setReadId"><span>Surveys: ask to scan the pole ID after each new photo (off by default; the ID button in the camera turns it on or off; Read ID on the record’s photo reads it)</span></label>
@@ -2001,15 +2083,31 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="bslist" id="tmMemList"></div>
       <div id="tmAskBox" hidden><h3 style="margin-top:12px">Asking to be coordinators</h3><p class="hint">People of your company who picked Coordinator. Approve only those who should hand out projects and get the mailbox's key.</p><div class="bslist" id="tmAskList"></div></div>
     </div>
+    <div class="group" id="tmMbxPtr">
+      <h3>Company mailbox</h3>
+      <p class="hint"><span id="tmMbxPtrState">–</span> It is set up and checked in <b>Settings → Field work → Team Mailbox</b>.</p>
+      <div class="row"><button class="btn sm" id="tmGoMbx" type="button">Team Mailbox ›</button></div>
+    </div>
+    <p class="warnline" id="tmErr" hidden></p>
+  </div>
+  <div class="foot"><button class="btn primary grow" id="tmRefresh" type="button">Refresh</button></div>
+</section>
+<section class="sheet" id="mbxSetSheet" hidden aria-labelledby="mbxSetTitle">
+  <header>
+    <button class="iconbtn" data-close aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h2 id="mbxSetTitle">Team Mailbox</h2>
+  </header>
+  <div class="body">
+    <p class="hint" id="mbxSetIntro">Your company’s mailbox: projects, updates and fixes travel through it between coordinators and field partners. One coordinator sets it up once for the whole company; everyone in a team gets it by themselves.</p>
     <div class="group" id="tmMbx">
       <h3>Company mailbox</h3>
       <p class="keystate" id="tmMbxState">–</p>
       <p class="hint" id="tmMbxInfo"></p>
       <div class="row" id="tmMbxBtns"><button class="btn sm primary" id="tmMbxSetup" type="button" hidden>Set up the mailbox</button><button class="btn sm" id="tmMbxCheck" type="button" hidden>Check now</button><button class="btn sm" id="tmMbxRekey" type="button" hidden>Change key</button></div>
     </div>
-    <p class="warnline" id="tmErr" hidden></p>
+    <p class="warnline" id="mbxSetErr" hidden></p>
   </div>
-  <div class="foot"><button class="btn primary grow" id="tmRefresh" type="button">Refresh</button></div>
+  <div class="foot"><button class="btn primary grow" id="mbxSetRefresh" type="button">Refresh</button></div>
 </section>
 <section class="sheet" id="mbxSheet" hidden aria-labelledby="mbTitle">
   <header>
@@ -2364,7 +2462,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
         <p class="hint" id="admTestOut"></p>
       </div>
       <div class="group" id="admTeamBox">
-        <h3>Team coordinators (beta)</h3>
+        <h3>Team coordinators</h3>
         <p class="hint">Who picked Coordinator, in every company (the online sheet's Team tab, script v2.43.2). Approve the first coordinator of a company here, or type Yes in their row of the Team tab. Remove or Decline: they work on their own from their next sync.</p>
         <button class="btn" id="admTeamLoad" type="button">Show the coordinators</button>
         <div class="bslist" id="admTeamList"></div>
