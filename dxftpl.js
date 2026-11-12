@@ -487,6 +487,7 @@
       chunks.slice(0, -1).forEach((c) => r.push([3, c])); r.push([1, chunks[chunks.length - 1]]);
       r.push([7, this.style(o.style)]); r.push([73, I(1)], [44, '1.0']);
       if (o.mask) r.push([90, I(1)], [63, I(o.mask)], [45, '1.35']); // v2.36: a background box (readable over a satellite picture)
+      else if (o.canvas) r.push([90, I(3)], [63, I(0)], [45, F(o.canvas)]); // beta 3.8: a box in the drawing's background colour (it hides what is under it)
       return this.add(r);
     }
     solid(layer, p, o) { const r = this.base('SOLID', layer, o), q = p.length > 3 ? p[3] : p[2]; r.push([100, 'AcDbTrace'], [10, F(p[0][0])], [20, F(p[0][1])], [30, '0.0'], [11, F(p[1][0])], [21, F(p[1][1])], [31, '0.0'], [12, F(p[2][0])], [22, F(p[2][1])], [32, '0.0'], [13, F(q[0])], [23, F(q[1])], [33, '0.0']); return this.add(r); } // v2.42.24: a filled triangle (a leader's arrow)
@@ -1384,6 +1385,36 @@
   const TA_BLOCK = 'G-ESAA TELCO ARM'; // v2.42.1: the telco arm on the plan (from above); v2.42.2: and its twin 'G-ESAA TELCO ARM R' (TELCO turned round)
   const ODC_H = 9, ODC_BLOCK = 'G-ESAA ODC'; // v2.41: the ODC cabinet on the plan: its block (an isometric view), 9 m high
   const pinColor = (p) => (p && p.color && PIN_ACI[p.color] != null ? PIN_ACI[p.color] : null);
+  /** beta 3.7: the line from a site's point (from its mark's edge) to its tower drawn beside it: to the tower's base or its top,
+      whichever is nearer (both on the tower's middle line, where the model is drawn). */
+  const towerLead = (p, W) => {
+    const A = [W.ax, W.ay], B = [W.ax, W.ay + 48 * W.k], q = Math.hypot(A[0] - p.E, A[1] - p.N) <= Math.hypot(B[0] - p.E, B[1] - p.N) ? A : B;
+    const d = Math.hypot(q[0] - p.E, q[1] - p.N), e = d > 1.8 ? 0.9 / d : 0; return [[p.E + (q[0] - p.E) * e, p.N + (q[1] - p.N) * e], q];
+  };
+    /** beta 3.8: the curved planning arrow from a tower drawn away from its point to the point: from the side of its leg that faces
+        the point (10 % up; its foot or top when the point is below or above it), bulging upward, a tapered shaft and a solid head whose
+        tip stops 1.1 m short of the point. quads: the shaft as filled pieces (SOLID: 1, 2, 3, 4 = left, right, next left, next right). */
+  /** beta 3.8: the site name and ID on the tower (Drawing style: On the tower): their size and the box of their mask. */
+  const towerNameBox = (p, W0) => {
+    const nm = String(p.siteName || p.poleId || ''); if (!nm) return null;
+    const pla = String(p.plaId || ''), K = W0.k, X = 12.4 * K, cy = W0.ay + 48 * K * 0.27, h = Math.max(1.5, Math.min(2.6, 2 * X * 0.95 / Math.max(1, arialW(nm, 1, true)))), hp = h * 0.8, two = !!pla;
+    const hw = (Math.max(arialW(nm, h, true), two ? arialW(pla, hp, false) : 0) + h * 0.5) / 2 + 0.4, hh = two ? (h * 1.3 + hp * 1.3 + 0.8) / 2 : h * 0.8;
+    return { nm, pla, h, hp, two, cy, yN: two ? cy + hp * 0.7 : cy, yP: cy - h * 0.7, box: [W0.ax - hw, cy - hh, W0.ax + hw, cy + hh] };
+  };
+  const towerArrow = (p, W0, nb) => {
+      const K = W0.k, X = 12.4 * K, f = 0.1, side = p.E < W0.ax ? -1 : 1, beside = Math.abs(p.E - W0.ax) > X;
+      let lx = W0.ax + side * (X * (1 - f) + 1.6 * K * f + 0.8); if (nb) lx = side < 0 ? Math.min(lx, nb.box[0] - 0.8) : Math.max(lx, nb.box[2] + 0.8); // (clear of the name on the tower)
+      const A = beside ? [lx, W0.ay + 48 * K * f] : p.N < W0.ay ? [W0.ax, W0.ay - 0.8] : [W0.ax, W0.ay + 48 * K + 0.8], B = [p.E, p.N];
+      const dx = B[0] - A[0], dy = B[1] - A[1], L = Math.hypot(dx, dy) || 1, TB = [W0.ax - X - 0.5, W0.ay - 0.5, W0.ax + X + 0.5, W0.ay + 48 * K + 0.5], inB = (q, b) => !!b && q[0] > b[0] && q[0] < b[2] && q[1] > b[1] && q[1] < b[3];
+      const curve = (sg) => { const nx = -dy / L * sg, ny = dx / L * sg, C = [(A[0] + B[0]) / 2 + nx * L * 0.5, (A[1] + B[1]) / 2 + ny * L * 0.5]; const P = []; for (let i = 0; i <= 80; i++) { const t = i / 80; P.push([(1 - t) * (1 - t) * A[0] + 2 * (1 - t) * t * C[0] + t * t * B[0], (1 - t) * (1 - t) * A[1] + 2 * (1 - t) * t * C[1] + t * t * B[1]]); } return { P, ny, n: P.filter((q) => inB(q, TB) || inB(q, nb && nb.box)).length }; };
+      const c1 = curve(1), c2 = curve(-1), pickC2 = c2.n < c1.n || (c2.n === c1.n && c2.ny > c1.ny); // (the bulge that keeps off the tower and its name; else upward)
+      const N = 80, P = (pickC2 ? c2 : c1).P, cum = [0]; for (let i = 1; i <= N; i++) cum.push(cum[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]));
+      const S0 = cum[N], at = (sv) => { let i = 1; while (i < N && cum[i] < sv) i++; const t = (sv - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1), tx = P[i][0] - P[i - 1][0], ty = P[i][1] - P[i - 1][1], tl = Math.hypot(tx, ty) || 1; return { x: P[i - 1][0] + tx * t, y: P[i - 1][1] + ty * t, ux: tx / tl, uy: ty / tl }; };
+      const hl = Math.min(4, Math.max(2.8, S0 * 0.26)) * Math.max(0.6, Math.min(1, K + 0.25)), hw = hl * 0.6, w0 = 0.3, w1 = hl * 0.42, sTip = S0 - 1.1, sBase = Math.max(0.5, sTip - hl), Lp = [], Rp = [];
+      for (let i = 0; i <= 24; i++) { const q = at(sBase * i / 24), w = (w0 + (w1 - w0) * Math.pow(i / 24, 1.4)) / 2; Lp.push([q.x - q.uy * w, q.y + q.ux * w]); Rp.push([q.x + q.uy * w, q.y - q.ux * w]); }
+      const b = at(sBase), t = at(sTip), quads = []; for (let i = 0; i < 24; i++) quads.push([Lp[i], Rp[i], Lp[i + 1], Rp[i + 1]]);
+      return { quads, head: [[t.x, t.y], [b.x - b.uy * hw, b.y + b.ux * hw], [b.x + b.uy * hw, b.y - b.ux * hw]], mid: P.filter((q, i) => i % 4 === 0 && i <= N * 0.97), from: A };
+    };
   const CABLE_LWT = 70; // v2.36: 0.70 mm, about the template's 0.78 m wide cable at 1 : 1200 (v2.42.24: the most; each cable its size's, cabLw)
   const exLw = (c) => (c <= 12 ? 30 : c <= 24 ? 35 : c <= 48 ? 40 : c <= 72 ? 50 : c <= 144 ? 60 : 70); // an existing cable: by its size
   const cabLw = (cable, existing, cores) => (existing ? exLw(+cores || 12) : (CABLE_STYLE[cable] || CABLE_STYLE['']).lw || CABLE_LWT);
@@ -1414,15 +1445,99 @@
     // v2.38: the project's places (points more than 1 km apart): each has its own vicinity map and key map
     // v2.42.26: an ODF at a tower site (its pin within 45 m of the tower) drawn beside the tower, never over it: job.odfPlace auto (the
     //           side its cable comes from), left, right or below; the cable ends at it (the span lengths stay as surveyed); its label in step 9
+    // beta 3.7: each tower where it covers nothing. The tower model is about 25 m wide and 48 m tall (at 1:1100), from its base up.
+    //           At its point when that covers no other point (pole, box, site…), no other cable and no other tower; else beside or
+    //           below its point, with a thin line to the point and a small mark there; at 3/4 or 1/2 size only when no full-size place
+    //           is free. The cable still ends at the point; the tower's name and its ODF follow the tower (job.towerPlace 'site' keeps
+    //           every tower at its point, as before).
+    const towerAt = new Map(), arrowOf = new Map(); let towerFit = null; // (beta 3.8: placed again inside its point's sheet once the grid is known; the towers' arrows)
+    { const TW = 12.4, TH = 48, list = pts.filter((p) => p.el === 'Site' && !/olt/i.test(p.siteKind || '')), done0 = [], keep = job.towerPlace === 'site';
+      const segs = spans.filter((sp) => sp.a && sp.b).map((sp) => ({ a: sp.a, b: sp.b, ia: String(sp.ia), ib: String(sp.ib) }));
+      const roadsL = (job.roads || []).filter((r) => r && r.pts && r.pts.length > 1);
+      const clip = (a, b, x0, y0, x1, y1) => { // the length of segment a-b inside the box (Liang-Barsky)
+        const dx = b[0] - a[0], dy = b[1] - a[1]; let t0 = 0, t1 = 1;
+        for (const [pp, q] of [[-dx, a[0] - x0], [dx, x1 - a[0]], [-dy, a[1] - y0], [dy, y1 - a[1]]]) {
+          if (pp === 0) { if (q < 0) return 0; continue; }
+          const r = q / pp; if (pp < 0) { if (r > t1) return 0; if (r > t0) t0 = r; } else { if (r < t0) return 0; if (r < t1) t1 = r; }
+        }
+        return Math.max(0, t1 - t0) * Math.hypot(dx, dy);
+      };
+      /** beta 3.8: Wc [x0, y0, x1, y1]: only places inside it (the GEO sheet of the point, 2 m in), a place past it moved inside;
+          odfFixed: the tower's ODFs already drawn beside its point (they are then points like the others); done: the other towers. */
+      const placeT = (T, Wc, odfFixed, done) => {
+        const id = String(T.id), others = pts.filter((q) => q !== T), odfNear = (q) => !odfFixed && q.el === 'ODF' && Math.hypot(q.E - T.E, q.N - T.N) < 45, odfIds = new Set(others.filter(odfNear).map((q) => String(q.id)));
+        const inW = (b) => !Wc || (b[0] >= Wc[0] - 1e-6 && b[1] >= Wc[1] - 1e-6 && b[2] <= Wc[2] + 1e-6 && b[3] <= Wc[3] + 1e-6);
+        const near = others.filter((q) => Math.abs(q.E - T.E) < 120 && Math.abs(q.N - T.N) < 160), sg = segs.filter((g) => Math.min(g.a[0], g.b[0]) < T.E + 120 && Math.max(g.a[0], g.b[0]) > T.E - 120 && Math.min(g.a[1], g.b[1]) < T.N + 160 && Math.max(g.a[1], g.b[1]) > T.N - 160);
+        const cost = (ax, ay, k, atSite) => {
+          const x0 = ax - TW * k - 0.6, x1 = ax + TW * k + 0.6, y0 = ay - 0.6, y1 = ay + TH * k + 0.6; let c = 0, hard = 0;
+          for (const q of near) { // a point under the tower (3 m round its symbol), or so close its labels have no room (8 m)
+            if (atSite && odfNear(q)) continue; // (its ODF is then drawn beside it)
+            const dx = Math.max(x0 - q.E, 0, q.E - x1), dy = Math.max(y0 - q.N, 0, q.N - y1), d = Math.hypot(dx, dy);
+            if (d < 3) { c += 100; hard++; } else if (d < 8) c += 10;
+          }
+          for (const g of sg) { const L = clip(g.a, g.b, x0, y0, x1, y1); if (!L) continue; if (atSite && (g.ia === id || g.ib === id || odfIds.has(g.ia) || odfIds.has(g.ib))) continue; c += L * 3; } // (its own cable ends under it at its point; its ODF's cables go with the ODF beside it)
+          for (const r of roadsL) for (let i = 1; i < r.pts.length; i++) { const L = clip(r.pts[i - 1], r.pts[i], x0, y0, x1, y1); if (L) c += L * 0.05; }
+          for (const b of done) if (!(x1 < b[0] || x0 > b[2] || y1 < b[1] || y0 > b[3])) { c += 300; hard++; }
+          return { c, hard, box: [x0, y0, x1, y1] };
+        };
+        let best = { ax: T.E, ay: T.N, k: 1, moved: false, ...cost(T.E, T.N, 1, true) }; const at0 = best.c;
+        if (!inW(best.box)) best = { ...best, c: Infinity };
+        if (keep && Wc && best.c === Infinity) for (const [k, kc] of [[0.75, 25], [0.5, 60]]) { const r = cost(T.E, T.N, k, true); if (inW(r.box) && r.c + kc < best.c) best = { ax: T.E, ay: T.N, k, moved: false, ...r, c: r.c + kc }; } // (kept at its point: smaller there)
+        if (keep && best.c === Infinity) best = { ax: T.E, ay: T.N, k: 1, moved: false, ...cost(T.E, T.N, 1, true) };
+        if (!keep && best.c > 0.5) {
+          const cands = [];
+          for (const [k, kc] of [[1, 0], [0.75, 25], [0.5, 60]]) {
+            const w = TW * k, h = TH * k;
+            if (k < 1) cands.push([T.E, T.N, k, kc]); // smaller, at its point
+            for (const g of [3, 9, 17, 27]) { // beside it (base level with the point, the point at its middle, the top level with it), then below it
+              for (const sx of [1, -1]) for (const by of [0, -h / 2, -h]) cands.push([T.E + sx * (w + g), T.N + by, k, kc + g * 0.5 + (by ? 2 : 0)]);
+              cands.push([T.E, T.N - h - g, k, kc + g * 0.5 + 3]);
+              for (const sx of [1, -1]) cands.push([T.E + sx * (w + g), T.N - h - g, k, kc + g * 0.7 + 4]);
+            }
+          }
+          if (Wc) for (const [ax, ay, k, kc] of cands.slice()) { // beta 3.8: a place past the sheet's edge, moved inside it
+            const x0 = ax - TW * k - 0.6, x1 = ax + TW * k + 0.6, y0 = ay - 0.6, y1 = ay + TH * k + 0.6, dx = Math.max(Wc[0] - x0, 0) - Math.max(x1 - Wc[2], 0), dy = Math.max(Wc[1] - y0, 0) - Math.max(y1 - Wc[3], 0);
+            if (dx || dy) cands.push([ax + dx, ay + dy, k, kc + 5 + Math.abs(dx) * 0.5 + Math.abs(dy) * 0.5]);
+          }
+          for (const [ax, ay, k, kc] of cands) {
+            const r = cost(ax, ay, k, ax === T.E && ay === T.N), tot = r.c + kc + 8;
+            if (!inW(r.box)) continue;
+            if (tot < best.c - 1e-9) best = { ax, ay, k, moved: !(ax === T.E && ay === T.N), ...r, c: tot };
+          }
+        }
+        if (best.c === Infinity) best = { ax: T.E, ay: T.N, k: 1, moved: false, ...cost(T.E, T.N, 1, true) }; // (nothing inside: at its point)
+        return { best, at0 };
+      };
+      for (const T of list) {
+        const { best, at0 } = placeT(T, null, false, done0);
+        done0.push(best.box); towerAt.set(T, best);
+        (rep.towers = rep.towers || []).push({ id: String(T.id), at: [+best.ax.toFixed(2), +best.ay.toFixed(2)], scale: best.k, moved: best.moved, covered: +at0.toFixed(1), box: best.box.map((v) => +v.toFixed(2)) });
+      }
+      /* beta 3.8: once the grid is known, each tower inside the GEO sheet of its point (2 m in): one placed past the sheet's edge (the
+         next sheet may not be made, and its name went with it) is placed again inside it; the others stay where they are */
+      towerFit = (Wof) => {
+        const ins = (T) => { const b = towerAt.get(T).box, W = Wof(T.E, T.N); return b[0] >= W[0] - 1e-6 && b[1] >= W[1] - 1e-6 && b[2] <= W[2] + 1e-6 && b[3] <= W[3] + 1e-6; };
+        const out = list.filter((T) => !ins(T)), done = list.filter((T) => !out.includes(T)).map((T) => towerAt.get(T).box);
+        for (const T of out) {
+          const b0 = towerAt.get(T), { best } = placeT(T, Wof(T.E, T.N), !b0.moved, done);
+          done.push(best.box); towerAt.set(T, best);
+          const R0 = (rep.towers || []).find((x) => x.id === String(T.id)); if (R0) Object.assign(R0, { at: [+best.ax.toFixed(2), +best.ay.toFixed(2)], scale: best.k, moved: best.moved, box: best.box.map((v) => +v.toFixed(2)), intoSheet: true });
+        }
+        return out.length;
+      };
+    }
+    const tw = (T) => towerAt.get(T) || { ax: T.E, ay: T.N, k: 1, moved: false };
     const odfMoved = new Map();
     { const byId0 = new Map(pts.map((p) => [String(p.id), p])), towers = pts.filter((p) => p.el === 'Site' && !/olt/i.test(p.siteKind || '')), nAt = new Map();
       for (const od of pts) { if (od.el !== 'ODF') continue;
         let T = null, dT = 45; towers.forEach((t) => { const dd = Math.hypot(t.E - od.E, t.N - od.N); if (dd < dT) { dT = dd; T = t; } }); if (!T) continue;
+        if (tw(T).moved) continue; // beta 3.7: the tower is drawn beside its point: the ODF stays where it was surveyed
         let side = ['left', 'right', 'below'].includes(job.odfPlace) ? job.odfPlace : 'auto';
         if (side === 'auto') { const nb = spans.map((sp) => (String(sp.ia) === String(od.id) ? sp.ib : String(sp.ib) === String(od.id) ? sp.ia : null)).filter((x) => x != null).map((x) => byId0.get(String(x))).find((q) => q && q !== T && q.el !== 'Site');
-          side = !nb ? 'left' : nb.E < T.E - 13 ? 'left' : nb.E > T.E + 13 ? 'right' : nb.N < T.N ? 'below' : nb.E <= T.E ? 'left' : 'right'; }
+          const tE = tw(T).ax, tN = tw(T).ay; side = !nb ? 'left' : nb.E < tE - 13 ? 'left' : nb.E > tE + 13 ? 'right' : nb.N < tN ? 'below' : nb.E <= tE ? 'left' : 'right'; } // (beta 3.7: from where the tower is drawn)
         const k = nAt.get(T) || 0; nAt.set(T, k + 1);
-        const E = side === 'left' ? T.E - 20 - 12 * k : side === 'right' ? T.E + 20 + 12 * k : T.E + 12 * k, N = side === 'below' ? T.N - 9 : T.N + 4;
+        const W0 = tw(T), wE = W0.ax, wN = W0.ay, gap = 12.4 * W0.k + 7.6; // beta 3.7: beside the tower where it is drawn (at its size)
+        const E = side === 'left' ? wE - gap - 12 * k : side === 'right' ? wE + gap + 12 * k : wE + 12 * k, N = side === 'below' ? wN - 9 : wN + 4;
         odfMoved.set(od, { side, T }); od.E = E; od.N = N;
         spans.forEach((sp) => { if (String(sp.ia) === String(od.id) && sp.a) sp.a = [E, N]; if (String(sp.ib) === String(od.id) && sp.b) sp.b = [E, N]; });
       }
@@ -1445,6 +1560,7 @@
       gox = best.ox; goy = best.oy;
     }
     const ci = (E) => Math.floor((E - gox) / cell), cj = (N) => Math.floor((N - goy) / cell), key = (i, j) => `${i},${j}`;
+    if (towerFit) rep.towersIntoSheet = towerFit((E, N) => { const i = ci(E), j = cj(N); return [gox + i * cell + 2, goy + j * cell + 2, gox + (i + 1) * cell - 2, goy + (j + 1) * cell - 2]; }); // beta 3.8
     const used = new Map(), order = [];
     const visit = (E, N, lk) => { const k = key(ci(E), cj(N)); if (!used.has(k)) { used.set(k, { i: ci(E), j: cj(N), loc: lk }); order.push(k); } };
     samp.forEach((q) => visit(q[0], q[1], q[2]));
@@ -1892,7 +2008,10 @@
           bn = 'G-ESAA P-BTS';
           if (!S.redBts) { S.redBts = true; for (const e of S.blocks.get(bn).ents) { if (typ(e) === 'ATTDEF') continue; const k = e.findIndex((q) => q[0] === 62); if (k >= 0) e[k][1] = I(1); else e.splice(e.findIndex((q) => q[0] === 8) + 1, 0, [62, I(1)]); } }
         }
-        spots.add(Spots.box(p.E, p.N + 24, 26, 50, 0)); siteLate.push({ p, bn }); // the tower's place now; the tower and its name after the span lengths
+        { const W0 = tw(p); spots.add(Spots.box(W0.ax, W0.ay + 24 * W0.k, 26 * W0.k, 50 * W0.k, 0)); // the tower's place now; the tower and its name after the span lengths
+          if (W0.moved && job.towerArrow) { const AG = towerArrow(p, W0, job.siteName === 'on' ? towerNameBox(p, W0) : null); arrowOf.set(p, AG); spots.line(AG.mid, 1.4); spots.add(Spots.box(p.E, p.N, 3, 3, 0)); } // beta 3.8: the curved arrow's path
+          else if (W0.moved) { const L = towerLead(p, W0); spots.line(L, 0.6); spots.add(Spots.box(p.E, p.N, 3, 3, 0)); } } // beta 3.7: its line to the point, and the point's mark
+        siteLate.push({ p, bn });
       } else if (p.el === 'ODF') {
         spots.add(Spots.box(p.E, p.N, 10, 10, 0)); odfLate.push({ p, isNew }); // v2.42.26: the block and its label after the towers' names (step 9)
       } else if (p.el === 'NAP') { // a NAP pin away from every pole of the route: where it is
@@ -1911,6 +2030,7 @@
       if (it.kind === 'clo') { spots.add(Spots.box(it.at[0], it.at[1], it.hh * 2, it.hh * 2, 0)); continue; } // v2.42.24: drawn with its texts, below
       for (const x of it.parts || [it]) { o.insert(x.layer, x.b, x.at[0], x.at[1], { scale: x.sc, rot: x.rot, center: true }); spots.add(Spots.box(x.at[0], x.at[1], x.hl * 2, x.hh * 2, x.rot)); nInline++; }
     }
+    let nAutoIds = 0; const placeIds = () => { // (beta 3.8: with Crowded places Auto, after the pole labels: they keep their place first)
     for (const it of [...inl.values()].flatMap((x) => (x.parts ? x.parts.map((y) => ({ ...y, kind: x.kind })) : [x]))) { // (v2.42: each box's own ID)
       if (!it.label || it.kind === 'clo') continue;
       const rr = it.odc ? 0 : readable(it.rot), ux = [Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], dn = [ux[1], -ux[0]], th0 = IDS.h; // (the ODC's picture is upright: its ID level under it)
@@ -1919,10 +2039,23 @@
       // ID's size, a size smaller (twice at most) before covering anything
       const pole = it.p && it.p.el === 'Pole' && it.p.dp ? it.p : null, away = pole ? -(Math.sign((pole.dp[0] - it.at[0]) * dn[0] + (pole.dp[1] - it.at[1]) * dn[1]) || -1) : 1;
       const lc = []; for (const th of [th0, th0 * 0.8, th0 * 0.64]) for (const sd of [away, -away]) for (const ex of [0, 1.5, 3]) for (const a of [0, 4, -4, 8, -8]) { const q = add2(add2(it.at, dn, sd * (it.hh + th * 0.9 + ex)), ux, a); lc.push({ q, th, boxes: [textBox(q[0], q[1], th, it.label, rr, 1, 2)] }); }
-      const c = pickW(spots, lc, ROADLINE_W);
+      let c = pickW(spots, lc, ROADLINE_W);
+      if (job.crowd && c.n > 0) { // beta 3.8: Crowded places Auto: the nearest free place up to job.crowd.move metres away, only then smaller (down to job.crowd.min)
+        const Cr = job.crowd, mv = Math.max(4, +Cr.move || 15), mn = Math.min(1, Math.max(0.5, +Cr.min || 0.75)), xs = [];
+        for (let k = 1; k >= mn - 1e-9; k -= 0.05) for (const ex of [4.5, 6, 8, 10, 12.5, 15, 18, 22, 26, 30]) { if (ex > mv + 1e-9) break;
+          for (let a = 0; a < 16; a++) { const an = a * Math.PI / 8, v = [Math.cos(an), Math.sin(an)], th = th0 * k, q = add2(it.at, v, (it.hl || it.hh) + th * 0.9 + ex); xs.push({ q, th, far: ex, v, boxes: [textBox(q[0], q[1], th, it.label, rr, 1, 2)], cost: ex + (1 - k) * 40 }); } }
+        xs.sort((x, y) => x.cost - y.cost);
+        const c2 = xs.find((x) => x.boxes.reduce((t, b) => t + spots.hitsW(b, ROADLINE_W), 0) === 0); if (c2) { c = c2; nAutoIds++; }
+      }
       const ly = it.kind === 'nap' ? lay('Proposed NAP ID', 'MISC') : it.kind === 'ODC' ? it.layer : lay('MISC');
       idText(ly, c.q[0], c.q[1], c.th, it.label, rr, it.col); spots.add(c.boxes);
+      if (c.far > 3 && job.crowd && job.crowd.leader !== false) { // (a thin line back to its block)
+        const b = c.boxes[0], d0 = [c.q[0] - it.at[0], c.q[1] - it.at[1]], dl = Math.hypot(d0[0], d0[1]) || 1, u = [d0[0] / dl, d0[1] / dl], ext = Math.abs(u[0] * b.ux + u[1] * b.uy) * b.hw + Math.abs(u[0] * b.vx + u[1] * b.vy) * b.hh;
+        const a = add2(it.at, u, (it.hl || it.hh) + 0.3), e = add2(c.q, u, -(ext + 0.3)); if (dist2(a, e) > 0.8) { o.lwpoly(lay('MISC'), [a, e], { color: 8 }); spots.line([a, e], 0.3); }
+      }
     }
+    };
+    if (!job.crowd) placeIds();
     // 7. guys: against the pull of the cable (a head guy in line with it), drawn with the template's guy symbols. v2.37: a side guy
     //    that would point into the road is turned round; a head guy on a pole with spans both ways leans away from the longer
     //    one; a pole-to-pole guy goes to the pole chosen for it, with a head guy there
@@ -2168,6 +2301,7 @@
       p.ov = c.ov; p._rr = c.rr;
       if (!clIn && (clT || p.hw)) clTag(p, [clT, p.hw].filter(Boolean)); // v2.42.21
     }
+    if (job.crowd) placeIds(); // beta 3.8: Crowded places Auto: the IDs after the pole labels
     // 5. span lengths: mid-span, on the road side of the cable (a span over the maximum in red). v2.42.23: the length only (no fibers'
     // tags, no runs); before it, each cable's own label beside its own line, and the length beyond them
     /** v2.42.24: each cable's own label (PROPOSED 24C FIG-8 (RUN 5), EXISTING 48C) beside its own line on the span, parallel to it, on
@@ -2283,23 +2417,31 @@
       const ci = Math.floor((E - gox) / cell), cj = Math.floor((N - goy) / cell), W = [gox + ci * cell + 2, goy + cj * cell + 2, gox + (ci + 1) * cell - 2, goy + (cj + 1) * cell - 2];
       return [[1, 1], [1, -1], [-1, 1], [-1, -1]].every(([a, c]) => { const x = b.cx + b.ux * b.hw * a + b.vx * b.hh * c, y = b.cy + b.uy * b.hw * a + b.vy * b.hh * c; return x >= W[0] && x <= W[2] && y >= W[1] && y <= W[3]; });
     };
-    for (const { p, bn } of siteLate) {
-      const nm = String(p.siteName || p.poleId || ''), pla = String(p.plaId || ''); let attrs = /** @type {any} */ ({ BTS_NAME: '', PLA_ID: '' });
-      if (nm) {
+    for (const { p: p0, bn } of siteLate) {
+      const W0 = tw(p0), K = W0.k, p = { ...p0, E: W0.ax, N: W0.ay }; // beta 3.7: the tower where it is drawn (its name round it)
+      const nm = String(p.siteName || p.poleId || ''), pla = String(p.plaId || ''); let attrs = /** @type {any} */ ({ BTS_NAME: '', PLA_ID: '' }), onTower = null;
+      if (nm && job.siteName === 'on') { // beta 3.8: on the tower's lower body, on a mask (the drawing's background in CAD, white on the PDF), as wide as the tower allows; the block's attributes keep them, hidden
+        const nb = towerNameBox(p0, W0), { h, hp, two, cy, yN, yP } = nb, col = pinColor(p), op = { style: 'arial', att: 5, canvas: 1.25, ...(col != null ? { color: col } : {}) };
+        onTower = () => { o.mtext(lay('X-BTS'), p.E, yN, h, `{\\fArial|b1|i0|c0|p34;${mtextEsc(nm)}}`, op); if (two) o.mtext(lay('X-BTS'), p.E, yP, hp, mtextEsc(pla), op); }; // (drawn after the tower: its mask hides the tower's lines under it)
+        spots.add(Spots.box((nb.box[0] + nb.box[2]) / 2, (nb.box[1] + nb.box[3]) / 2, nb.box[2] - nb.box[0], nb.box[3] - nb.box[1], 0), 'label:site');
+        attrs = { BTS_NAME: { v: nm, x: p.E, y: yN, h, ha: 1, va: 2, hidden: true }, PLA_ID: { v: pla, x: p.E, y: yP, h: hp, ha: 1, va: 2, hidden: true } };
+        nInCell++; (rep.siteOnTower = rep.siteOnTower || []).push({ id: String(p0.id), h: +h.toFixed(2), at: [+p.E.toFixed(2), +cy.toFixed(2)] });
+      } else if (nm) {
         const wfN = attW(bn, 'BTS_NAME'), wfP = attW(bn, 'PLA_ID'), two = !!pla, bySize = [];
         const boxAt = (x, y, w, h, ha) => Spots.box(x + (ha === 0 ? w / 2 : ha === 2 ? -w / 2 : 0), y, w, h, 0);
         for (const h of [3.0, 2.4, 2.0, 1.6]) {
           const wN = arialW(nm, h, true) * wfN + h * 0.5, hp = h * 0.8, wP = two ? arialW(pla, hp, false) * wfP + hp * 0.5 : 0, sub = h * 1.6, g = h * 0.4 + 0.6;
           const tallUp = h * 0.65 + 0.3, tallDn = two ? sub + hp * 0.65 + 0.3 : tallUp; // the name's middle to the top of its box, to the bottom of the PLA ID
           const at = []; // [x, y, ha] of the name's middle-left / -centre / -right; nearest first
-          for (const dy of [30, 22, 38, 14, 44, 6]) { at.push([-12.4 - g, dy, 2]); at.push([12.4 + g, dy, 0]); }
-          for (const [x, ha] of [[0, 1], [12.4, 2], [-12.4, 0], [3, 2], [-3, 0]]) { at.push([x, 48 + g + tallDn, ha]); at.push([x, -g - tallUp, ha]); }
-          for (const dx of [6, 12, 20]) for (const dy of [30, 14, 44, 2]) { at.push([-12.4 - g - dx, dy, 2]); at.push([12.4 + g + dx, dy, 0]); }
+          const X = 12.4 * K, Y = 48 * K; // (beta 3.7: the tower at its size)
+          for (const dy of [30, 22, 38, 14, 44, 6]) { at.push([-X - g, dy * K, 2]); at.push([X + g, dy * K, 0]); }
+          for (const [x, ha] of [[0, 1], [X, 2], [-X, 0], [3, 2], [-3, 0]]) { at.push([x, Y + g + tallDn, ha]); at.push([x, -g - tallUp, ha]); }
+          for (const dx of [6, 12, 20]) for (const dy of [30, 14, 44, 2]) { at.push([-X - g - dx, dy * K, 2]); at.push([X + g + dx, dy * K, 0]); }
           // v2.42.26: the place chosen in Drawing style (top: above the tower; bottom: below it, below its ODF too; side: beside it), the side
           //           away from the tower's ODF first; Auto as before (beside, then above or below)
-          const oSide = [...odfMoved.values()].filter((m) => m.T === p).map((m) => m.side), fam = ([, dy]) => (dy > 46 ? 'top' : dy < 0 ? 'bottom' : 'side');
-          for (const ex of [5, 10]) for (const [x, ha] of [[0, 1], [12.4, 2], [-12.4, 0]]) { at.push([x, 48 + g + tallDn + ex, ha]); at.push([x, -g - tallUp - ex - (oSide.includes('below') ? 8 : 0), ha]); }
-          if (oSide.includes('below')) for (const [x, ha] of [[0, 1], [12.4, 2], [-12.4, 0]]) at.push([x, -g - tallUp - 9, ha]);
+          const oSide = [...odfMoved.values()].filter((m) => m.T === p0).map((m) => m.side), fam = ([, dy]) => (dy > Y - 2 ? 'top' : dy < 0 ? 'bottom' : 'side');
+          for (const ex of [5, 10]) for (const [x, ha] of [[0, 1], [X, 2], [-X, 0]]) { at.push([x, Y + g + tallDn + ex, ha]); at.push([x, -g - tallUp - ex - (oSide.includes('below') ? 8 : 0), ha]); }
+          if (oSide.includes('below')) for (const [x, ha] of [[0, 1], [X, 2], [-X, 0]]) at.push([x, -g - tallUp - 9, ha]);
           const SN = ['top', 'side', 'bottom'].includes(job.siteName) ? job.siteName : 'auto', away = (a) => (oSide.includes('left') ? (a[0] < 0 ? 1 : 0) : oSide.includes('right') ? (a[0] > 0 ? 1 : 0) : 0);
           const at2 = SN === 'auto' ? at.slice() : at.filter((a) => fam(a) === SN), sIdx = at2.map((a, i) => (fam(a) === 'side' ? i : -1)).filter((i) => i >= 0), sides = sIdx.map((i) => at2[i]).map((a, i) => [a, i]).sort((x, y) => away(x[0]) - away(y[0]) || x[1] - y[1]).map((x) => x[0]);
           sIdx.forEach((i, k) => { at2[i] = sides[k]; }); // (the side slots away from the ODF first; the others keep their places)
@@ -2313,12 +2455,19 @@
         let c = null;
         for (const cs of bySize) { c = cs.find((x) => x.boxes.reduce((t, b) => t + spots.hitsW(b, SITE_W), 0) === 0); if (c) break; } // the largest size with a free place
         if (!c) { const all = bySize.flat(); if (all.length) c = pickC(spots, all.map((x) => ({ ...x, cost: x.cost + (3 - x.h) * 40 })), SITE_W); } // none free: the place covering least (bigger first)
-        if (!c) { const h = 2.0, q = [p.E - 12.4 - 1.4, p.N + 30]; c = { q, h, ha: 2, sub: h * 1.6, boxes: [boxAt(q[0], q[1], arialW(nm, h, true) * wfN, h * 1.3, 2)] }; } // (no place inside the sheet: at its left)
+        if (!c) { const h = 2.0, q = [p.E - 12.4 * K - 1.4, p.N + 30 * K]; c = { q, h, ha: 2, sub: h * 1.6, boxes: [boxAt(q[0], q[1], arialW(nm, h, true) * wfN, h * 1.3, 2)] }; } // (no place inside the sheet: at its left)
         else nInCell++;
         spots.add(c.boxes, 'label:site');
         attrs = { BTS_NAME: { v: nm, x: c.q[0], y: c.q[1], h: c.h, ha: c.ha, va: 2 }, PLA_ID: { v: pla, x: c.q[0], y: c.q[1] - c.sub, h: c.h * 0.8, ha: c.ha, va: 2 } };
       }
-      o.insert(lay('X-BTS'), bn, p.E, p.N, { scale: 2.4, attrs, attrColor: pinColor(p) });
+      o.insert(lay('X-BTS'), bn, p.E, p.N, { scale: 2.4 * K, attrs, attrColor: pinColor(p) }); if (onTower) onTower(); // (beta 3.8: the name on it, after it)
+      if (W0.moved) { // beta 3.7: a thin line from the site's point to its tower, and a small mark at the point (in the tower's colour)
+        const col = pinColor(p0) != null ? pinColor(p0) : (p0.status === 'Proposed' || p0.status === 'New') ? 1 : 5, AG = arrowOf.get(p0);
+        if (AG) { const ac = job.towerArrowColor === 0 ? col : Number.isInteger(job.towerArrowColor) && job.towerArrowColor > 0 && job.towerArrowColor < 256 ? job.towerArrowColor : 7; // beta 3.8: the curved arrow, filled (7: white in CAD, black on the PDF)
+          AG.quads.forEach((q) => o.solid(lay('X-BTS'), q, { color: ac })); o.solid(lay('X-BTS'), AG.head, { color: ac }); (rep.towerArrows = rep.towerArrows || []).push({ id: String(p0.id), color: ac, pieces: AG.quads.length + 1, from: AG.from.map((v) => +v.toFixed(2)) }); }
+        else o.lwpoly(lay('X-BTS'), towerLead(p0, W0), { color: 8 });
+        o.circle(lay('X-BTS'), p0.E, p0.N, 0.9, { color: col });
+      }
     }
     // v2.42.26: each ODF, its label beside it (outside the tower) where it covers nothing: its ID, with its size (job.odfLbl 'size', the
     //           default) and connector ('conn'); 'id': the ID only
@@ -2491,7 +2640,7 @@
         if (lead) o.lwpoly(nLay, [la, lb], { color: bCol });
       }
     }
-    if (job.debug) rep.layout = { grid: { gox, goy, cell }, poles: poleOrder.map((p) => ({ id: String(p.id), E: p.E, N: p.N, dp: p.dp, td: p.td, ov: p.ov, rr: p._rr, lblFar: p.lblFar, lblDir: p.lblDir })), marks: photoPl.out.map(({ p, ph, w, h, q, u, how, lead }) => ({ lead: lead || null, id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
+    if (job.debug) rep.layout = { grid: { gox, goy, cell }, poles: poleOrder.map((p) => ({ id: String(p.id), E: p.E, N: p.N, dp: p.dp, td: p.td, ov: p.ov, rr: p._rr, lblFar: p.lblFar, lblDir: p.lblDir })), labels: spots.list.filter((b) => /^label/.test(b.tag || '') && b.tag !== 'label:site').map((b) => [b.cx, b.cy, b.hw, b.hh, b.ux, b.uy, b.vx, b.vy]), marks: photoPl.out.map(({ p, ph, w, h, q, u, how, lead }) => ({ lead: lead || null, id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
     rep.photoSize = +Lp.toFixed(1); rep.photosNotFree = photoPl.miss; rep.photosAsNumber = nNoRoom; rep.markMode = markMode;
     const asNum = new Set(photoPl.out.filter((x) => !x.ph).map((x) => String(x.p.id))); /* (v2.42.26: no room for its photo: its number) */ rep.marks = markOrder.map((p) => [p.seq, String(p.id), (photos[p.id] || photos[String(p.id)]) && !asNum.has(String(p.id)) ? (markMode === 'both' ? 'photo+number' : 'photo') : 'number']); // v2.40: the numbers on the plan
     // 11. coordinates of the points that are not poles
@@ -2521,9 +2670,10 @@
         // v2.39.1: on the middle of the road, else across it from the cable (the cable runs inside the road), smaller on a narrow road
         // v2.41: a size smaller again (2 m, 1.6 m) before giving up, and a little more room round it so it does not run into a span
         //        length or a label beside it
-        look: for (const h of [3.2, 2.6, 2.0, 1.6]) for (const sg of segs.slice(0, 8)) {
+        const slide = job.crowd && job.crowd.streets !== 'fixed', FS = slide ? [0.5, 0.45, 0.55, 0.4, 0.6, 0.35, 0.65, 0.3, 0.7, 0.25, 0.75, 0.2, 0.8, 0.15, 0.85, 0.1, 0.9, 0.06, 0.94] : [0.5, 0.3, 0.7, 0.15, 0.85]; // (beta 3.8: Auto: slid along its road to a free place)
+        look: for (const h of [3.2, 2.6, 2.0, 1.6]) for (const sg of segs.slice(0, slide ? 16 : 8)) {
           const u = unit(sg.a, sg.b), rd = readable(deg(u)), nv = [-u[1], u[0]];
-          for (const f of [0.5, 0.3, 0.7, 0.15, 0.85]) for (const dd of [0, 0.4, -0.4, 0.6, -0.6]) {
+          for (const f of FS) for (const dd of [0, 0.4, -0.4, 0.6, -0.6]) {
             const q = add2(add2(sg.a, u, f * sg.L), nv, dd * sg.hw), b0 = textBox(q[0], q[1], h, txt, rd, 1, 2), b = { ...b0, hw: b0.hw + h * 1.2, hh: b0.hh + 0.35 }; // room at its ends and sides
             if (!inside(b0, W, 1) || spots.hits(b)) continue;
             o.text(lay('STREET NAME'), q[0], q[1], h, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: 7, obl: 15 }); spots.add(b, 'street'); nStreets++; done = true; break look; // v2.42.11: black, slanted 15° (the yellow could not be read on paper)
@@ -2575,12 +2725,14 @@
     const iconName = (i) => 'GESAA_LM_' + String(lmRefs[i] || i).replace(/^[cm]:/, '').replace(/[^A-Za-z0-9]+/g, '_').toUpperCase();
     const wantIcons = LMB ? [...new Set((job.pois || []).map((q) => q.icon).filter((i) => Number.isInteger(i) && i >= 0 && LMB[i]))] : [];
     if (wantIcons.length) { addLayer(d, S, LMLAY, 7); fillBlocks(d, S, wantIcons.map((i) => ({ name: iconName(i), icon: LMB[i] }))); }
+    const lmMode = ['always', 'hide'].includes(job.lmMode) ? job.lmMode : 'room'; poiSkip.hidden = 0; let poisAlways = 0; // beta 3.8: landmark names (Drawing style → Crowded places)
     for (const poi of job.pois || []) {
       const name = String(poi.name || '').trim().toUpperCase(); if (!name || !Number.isFinite(poi.E) || !Number.isFinite(poi.N)) continue;
       const q0 = [poi.E, poi.N], W = wins.find((w) => q0[0] >= w[0] && q0[0] <= w[2] && q0[1] >= w[1] && q0[1] <= w[3]);
       if (!W) { poiSkip.outside++; continue; } if (placed.some((x) => x.name === name && dist2(x.q, q0) < 60)) { poiSkip.dup++; continue; }
       const ic = Number.isInteger(poi.icon) && poi.icon >= 0 && S.blocks.has(iconName(poi.icon)) ? iconName(poi.icon) : null;
       const ib = ic ? Spots.box(q0[0], q0[1], ICON * 1.1, ICON * 1.1, 0) : null, useIcon = !!(ib && !spots.hits(ib) && !R.idx.inside(q0, -1, -1));
+      if (lmMode === 'hide') { if (useIcon) { o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON }); spots.add(ib); nIcons++; } poiSkip.hidden++; placed.push({ name, q: q0 }); continue; } // (beta 3.8: hidden names: their icons only)
       const lines = []; for (const w of name.split(/\s+/)) { const l = lines.length - 1; if (l >= 0 && (lines[l] + ' ' + w).length <= 22) lines[l] += ' ' + w; else lines.push(w); } // two lines at most
       if (lines.length > 2) { lines.length = 2; lines[1] = lines[1].slice(0, 20) + '...'; }
       const wide = lines.reduce((a, b) => (b.length > a.length ? b : a), ''), tall = lines.length;
@@ -2588,14 +2740,15 @@
       const cands = [];
       const bi = ICON * 0.55 + 2.0 * (1 + (5 / 3) * (tall - 1)) * 0.65 + 0.4; // with an icon: right beside it first
       // v2.39.1: the whole text off the roads; when nothing is free close by, a little further (to 20 m), then smaller (2.0)
-      let c = null;
+      let c = null; const allC = []; // (beta 3.8: every place tried, for Always)
       // v2.42.10: a size smaller (2 m, else 1.6 m: they crowded the plan), and their boxes as wide as AutoCAD draws the capitals, two
       // lines as tall as AutoCAD spaces them (the names overlapped one another in AutoCAD)
       for (const [th, B, A] of [[2.0, [0, 4, -4, 8, -8, 12, -12], [0, 5, -5, 10, -10]], [2.0, [16, -16, 20, -20], [0, 5, -5, 10, -10, 15, -15]], [1.6, [0, 3.5, -3.5, 7, -7, 10.5, -10.5, 14, -14, 17.5, -17.5], [0, 4, -4, 8, -8, 12, -12]]]) {
         const bs = useIcon && th === 2.0 && B[0] === 0 ? [bi, -bi, ...B] : B;
         for (const b of bs) for (const a of A) { const q = add2(add2(q0, ru, a), rv, b), bx = textBox(q[0], q[1], th, wide, rd, 1, 2); bx.hw *= 1.3; bx.hh = th * (1 + (5 / 3) * (tall - 1)) * 0.65; if (!R.idx.inside(q, -1, -1) && !corners(bx).some((cq) => R.idx.inside(cq, -1, -1)) && inside(bx, W, 1)) cands.push({ q, th, boxes: [bx] }); }
-        c = cands.find((x) => !x.boxes.some((bb) => spots.hits(bb) || (useIcon && Spots.hit(bb, ib)))); if (c) break; cands.length = 0;
+        c = cands.find((x) => !x.boxes.some((bb) => spots.hits(bb) || (useIcon && Spots.hit(bb, ib)))); if (c) break; allC.push(...cands); cands.length = 0;
       }
+      if (!c && lmMode === 'always' && allC.length) { c = allC.map((x) => ({ ...x, n: x.boxes.reduce((t, bb) => t + spots.hits(bb), 0) + (x.th < 2 ? 0.1 : 0) })).sort((a, b) => a.n - b.n)[0]; poisAlways++; } // (beta 3.8: Always: where it covers least)
       if (!c) { poiSkip.noRoom++; continue; }
       if (useIcon) { o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON }); spots.add(ib); nIcons++; }
       o.mtext(lay('House Number', 'MISC'), c.q[0], c.q[1], c.th, lines.map(mtextEsc).join('\\P'), { style: 'PDF Arial', att: 5, color: 7, dir: ru }); spots.add(c.boxes); placed.push({ name, q: q0 }); nPois++;
@@ -2638,11 +2791,12 @@
         const c = vsh(vc ? [vc[0], vc[1]] : [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]);
         // v2.41: the circle yellow again on every map (v2.40: red over a street map), its colour and width as the user set them
         const rad = vc ? vc[2] : Math.max(70 * vk, Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 + 45 * vk), col = VS.circle || 2;
-        o.lwpoly(VLAY, [[c[0] - rad, c[1], 1], [c[0] + rad, c[1], 1]], { closed: true, w: VS.circleW * vk, color: col });
-        const lh = 18 * vk, lw = 'PROJECT AREA'.length * lh * 0.74, ly = c[1] + rad + 8 * vk + lh * 0.9; // the label on a dark box, framed
-        o.lwpoly(VLAY, [[c[0] - lw / 2 - lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly + lh * 0.9], [c[0] - lw / 2 - lh * 0.6, ly + lh * 0.9]], { closed: true, w: 2 * vk, color: 2 });
-        o.mtext(VLAY, c[0], ly, lh, 'PROJECT AREA', { att: 5, style: 'arial', color: 2, mask: 250 });
-        if (!lk) rep.vicinityMark = { r: rad };
+        const area = VS.area !== false, lbl = String(VS.label == null ? 'PROJECT AREA' : VS.label).replace(/\s+/g, ' ').trim().slice(0, 40); // beta 3.9: the project area shown or not; its label (blank: none) and height
+        if (area) o.lwpoly(VLAY, [[c[0] - rad, c[1], 1], [c[0] + rad, c[1], 1]], { closed: true, w: VS.circleW * vk, color: col });
+        if (area && lbl) { const lh = Math.max(8, Math.min(40, +VS.lh || 18)) * vk, lw = lbl.length * lh * 0.74, ly = c[1] + rad + 8 * vk + lh * 0.9; // the label on a dark box, framed
+          o.lwpoly(VLAY, [[c[0] - lw / 2 - lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly + lh * 0.9], [c[0] - lw / 2 - lh * 0.6, ly + lh * 0.9]], { closed: true, w: 2 * vk, color: 2 });
+          o.mtext(VLAY, c[0], ly, lh, mtextEsc(lbl), { att: 5, style: 'arial', color: 2, mask: 250 }); }
+        if (!lk && area) rep.vicinityMark = { r: rad, label: lbl };
         rep.vicinities.push({ sheet: vicNames[lk], area: vic.slice(), dx: VDX, points: lpts.length, circle: [c[0] - VDX, c[1], rad], picture: img ? img.file : null }); }
       if (!img) { // no picture: the names of the roads written large
         const done = new Set();
@@ -2873,7 +3027,7 @@
     rep.partly = [...blanks].filter((k) => filled.has(k)).sort();
     if (job.debug) rep.pts = pts.map((p) => ({ id: p.id, poleId: p.poleId, el: p.el, dp: p.dp, A: p.A, kept: !!p.kept, moved: p.moved || 0, onPole: p.onPole ? p.onPole.id : null }));
     if (job.debug) rep.inline = [...inl.values()].map((it) => ({ b: it.b, at: it.at, hl: it.hl, hlo: it.hlo, hhi: it.hhi, hh: it.hh, sc: it.sc, rot: it.rot, box: blockBox(S, it.b, 0), boxT: blockBoxT(S, it.b), c: blockCenter(S, it.b) }));
-    rep.counts = { ...o.n, cableLeaders: nLeaders, cableLabelsSmall: nSmall, closuresOnCable: nCloInl, namesInCell: nInCell, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesOffRoadLine: nCleared, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, loops: nLoop, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length, telcoArms: nTelco };
+    rep.counts = { ...o.n, cableLeaders: nLeaders, cableLabelsSmall: nSmall, closuresOnCable: nCloInl, namesInCell: nInCell, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, poisHidden: poiSkip.hidden || 0, poisAlways: typeof poisAlways === 'number' ? poisAlways : 0, idsMovedAuto: nAutoIds, /* beta 3.8 */ landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesOffRoadLine: nCleared, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, loops: nLoop, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length, telcoArms: nTelco };
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0], geo: [gox, goy] }; // (v2.42.25: + the GEO cells' origin)
     // v2.42.8: the cleanup again on the whole drawing, then its extents and opening view
     rep.cleanup = { template: clean0, final: clean(d), oldBlocks };

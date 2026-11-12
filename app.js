@@ -500,7 +500,111 @@
   const ownUseOf = (k) => ((S.ownUse || {})[k]) || {};
   const byOwnUse = (list, k) => { seedOwnUse(); const u = ownUseOf(k); return list.map((v, i) => [v, i]).sort((a, b) => ((u[b[0]] || 0) - (u[a[0]] || 0)) || a[1] - b[1]).map(([v]) => v); };
   const ownerChoices = () => byOwnUse(boqOwners(), 'owner');
-  const coopChoices = () => byOwnUse([...new Set([...COOPS, ...(S.myCoops || []), ...projPoints().filter((q) => isElecOwner((q.boq || {}).owner)).map((q) => String(((q.boq || {}).ownerName) || '').trim())].filter(Boolean))], 'ownerName');
+  /* v2.43.1 (beta 3.6): the admin's coops (the online sheet's Coops tab: name, region, towns). In an electric pole's record the coops of
+     the pole's town come first (the city / municipality from the road pack on this phone), then the other coops of its region (from
+     the pole's position), then the rest; each group in this user's own order. Every coop of the tab is offered on every phone. */
+  const sheetCoops = () => (S.cloud && S.cloud.src === sheetUrl() && Array.isArray(S.cloud.coops) ? S.cloud.coops : []);
+  const ROMAN_N = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9, X: 10, XI: 11, XII: 12, XIII: 13 };
+  /** A region as the admin typed it (Region 11, Region XI, R11, XI, Davao Region, SOCCSKSARGEN…) → the app's code (R11), or ''. */
+  function regionKey(v) {
+    const c = String(v || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').replace(/\s+/g, ' ').trim(); if (!c) return '';
+    const hit = PH_REGIONS.find((r) => r.some((x) => String(x).toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim() === c)); if (hit) return hit[0];
+    const m = /^(?:REGION|REG|R)\s?(\d{1,2}|[IVX]{1,5})\s?([AB])?$/.exec(c) || /^(\d{1,2}|[IVX]{1,5})\s?([AB])?$/.exec(c);
+    if (m) { const n = /^\d+$/.test(m[1]) ? +m[1] : ROMAN_N[m[1]]; const k = n ? `R${n}${m[2] || ''}` : ''; if (REGION_BY[k]) return k; }
+    return { 'METRO MANILA': 'NCR', CORDILLERA: 'CAR', CARAGA: 'R13', SOCCSKSARGEN: 'R12', MIMAROPA: 'R4B', CALABARZON: 'R4A', BANGSAMORO: 'BARMM', ARMM: 'BARMM', 'NEGROS ISLAND': 'NIR' }[c] || '';
+  }
+  /** A town's name for matching: capitals, without "City of", "City" or "Municipality of", letters and digits only (Davao City = DAVAO). */
+  const townKey = (v) => String(v || '').toUpperCase().replace(/\b(CITY OF|MUNICIPALITY OF|CITY)\b/g, ' ').replace(/[^A-Z0-9Ñ]+/g, '');
+  const coopAreas = new Map(); // (by position, about 100 m)
+  /** Where the pole being edited is: its region (from its position) and town (from the road pack on this phone, read once). */
+  function coopArea() {
+    if (!ed || !pinMap) return null; const c = pinMap.getCenter(); if (!c || !Number.isFinite(c.lat)) return null;
+    const k = `${c.lat.toFixed(3)},${c.lng.toFixed(3)}|${Object.values(S.packs || {}).filter((p) => p.done && isRoadPack(p)).length}`, hit = coopAreas.get(k); if (hit) return hit; // (read again when a road pack comes or goes)
+    const a = { region: regionAt(c.lat, c.lng), muni: '', prov: '', done: false }; coopAreas.set(k, a);
+    adminFromRoadPacks([{ lat: c.lat, lon: c.lng }]).then((r) => { const h = r && r.hits && r.hits[0]; a.muni = (h && h.muni) || ''; a.prov = (h && h.prov) || ''; }).catch(() => {}) // (beta 3.8: + the province)
+      .finally(() => { a.done = true; if (!ed || !sheetCoops().length) return; // the coops' order and the line, once the town is known (or not)
+        const act = document.activeElement; if (act && act.closest && act.closest('#editor .boqrow')) { try { fillCoopChips(); } catch (e) { /* the editor closed */ } return; } // (typing: only the chips)
+        renderBoq(); });
+    return a;
+  }
+  /* beta 3.8: a province's name for matching (Compostela Valley is Davao de Oro, North Cotabato is Cotabato). */
+  const PROV_ALIAS = { COMPOSTELAVALLEY: 'DAVAODEORO', NORTHCOTABATO: 'COTABATO', WESTERNSAMAR: 'SAMAR', DAVAODELNORTEPROVINCE: 'DAVAODELNORTE' };
+  const provKey = (v) => { const k = String(v || '').toUpperCase().replace(/\b(PROVINCE OF|PROVINCE)\b/g, ' ').replace(/[^A-Z0-9Ñ]+/g, ''); return PROV_ALIAS[k] || k; };
+  /** beta 3.8: the coops of the pole's town: its town (and its province where both are known, so a San Isidro of another province
+      does not count; a city that is its own province, e.g. Davao City, by its name alone) and its region. */
+  function coopTown(A, here) {
+    const town = here && townKey(here.muni); if (!town) return [];
+    const pk = here.prov && townKey(here.prov) !== town ? provKey(here.prov) : '', out = [];
+    for (const c of A) (c.t || []).forEach((t, i) => {
+      if (townKey(t) !== town || out.includes(c.n)) return;
+      const g = regionKey((c.g && c.g[i]) || c.r); if (g && here.region && g !== here.region) return;
+      const p = c.p && c.p[i] ? provKey(c.p[i]) : ''; if (pk && p && p !== pk && townKey(c.p[i]) !== town) return;
+      out.push(c.n);
+    });
+    return out;
+  }
+  const coopInRegion = (c, R) => !!R && !!c && (regionKey(c.r) === R || (c.g || []).some((g) => regionKey(g) === R));
+  /** 0: the coop serves the pole's town; 1: the pole's region; 2: elsewhere or not in the sheet. */
+  function coopTier(n, A, here, T) {
+    const c = here && A.find((x) => x.n === n); if (!c) return 2;
+    if ((T || coopTown(A, here)).includes(n)) return 0;
+    return coopInRegion(c, here.region) ? 1 : 2;
+  }
+  const coopChoices = () => {
+    const A = sheetCoops(), here = A.length ? coopArea() : null; seedOwnUse(); const u = ownUseOf('ownerName'), T = here ? coopTown(A, here) : [];
+    const base = [...new Set([...COOPS, ...A.map((c) => c.n), ...(S.myCoops || []), ...projPoints().filter((q) => isElecOwner((q.boq || {}).owner)).map((q) => String(((q.boq || {}).ownerName) || '').trim())].filter(Boolean))];
+    return base.map((v, i) => [v, i, coopTier(v, A, here, T)]).sort((a, b) => a[2] - b[2] || ((u[b[0]] || 0) - (u[a[0]] || 0)) || a[1] - b[1]).map(([v]) => v);
+  };
+  /** beta 3.8: what the record offers first: the coops of the pole's town; with no town (no road pack for it), the region's; with no
+      list from the sheet, as before (12, the ones this user sets most first). The rest behind More coops: the region's, then the others. */
+  function coopGroups() {
+    const A = sheetCoops(), all = coopChoices();
+    if (!A.length) return { first: all.slice(0, 12), more: all.length > 12 ? [['Other coops', all.slice(12)]] : [], all };
+    const here = coopArea(), R = here && here.region, T = here ? coopTown(A, here) : [], byN = new Map(A.map((c) => [c.n, c]));
+    const reg = R ? all.filter((v) => coopInRegion(byN.get(v), R)) : [], rl = R && REGION_BY[R] ? REGION_BY[R][1] : 'The region';
+    if (T.length) { const f = all.filter((v) => T.includes(v)); return { first: f, more: [[rl, reg.filter((v) => !f.includes(v))], ['Other coops', all.filter((v) => !f.includes(v) && !reg.includes(v))]].filter((g) => g[1].length), all, town: true }; }
+    if (reg.length) return { first: reg, more: [['Other coops', all.filter((v) => !reg.includes(v))]].filter((g) => g[1].length), all };
+    return { first: all.slice(0, 12), more: all.length > 12 ? [['Other coops', all.slice(12)]] : [], all };
+  }
+  /** beta 3.8: the line above the coops: the town the list is for, or the region with Get the road pack. */
+  function coopPlaceText() {
+    if (!sheetCoops().length) return ''; const here = coopArea(); if (!here) return '';
+    const rl = here.region && REGION_BY[here.region] ? REGION_BY[here.region][1] : '';
+    if (here.muni) return `${here.muni}${here.prov && townKey(here.prov) !== townKey(here.muni) ? `, ${here.prov}` : ''}`;
+    if (!here.done) return rl || '';
+    return `${rl || 'This area'} · no road pack for the town`;
+  }
+  const coopFirstNote = () => coopPlaceText(); // (beta 3.6's name, for the tests)
+  /** beta 3.8: the coops of the Owner name row (and its town line), drawn again as the user types or opens More coops. */
+  let coopMore = false, coopMoreId = null;
+  function fillCoopChips() {
+    const box = document.querySelector('#editor .coopchips'); if (!box || !ed) return;
+    if (coopMoreId !== ed.id) { coopMore = false; coopMoreId = ed.id; }
+    const ro = box.dataset.ro === '1', inp = document.querySelector('#editor .boqrow[data-k="ownerName"] input'), typed = String(inp ? inp.value : '').trim().replace(/\s+/g, ' ').toUpperCase();
+    const pl = document.querySelector('#editor .coopplace'); if (pl) fillCoopPlace(pl, ro);
+    box.innerHTML = ''; const G = coopGroups();
+    const chip = (v) => { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = v; c.setAttribute('aria-pressed', String(ed.boq.ownerName === v)); c.disabled = ro;
+      c.addEventListener('click', () => { if (ed.boq.ownerName === v) delete ed.boq.ownerName; else ed.boq.ownerName = v; ed.boqTouched = true; renderBoq(); foldSum(); });
+      if ((S.myCoops || []).includes(v) && !ro) { c.dataset.kept = '1'; c.title = 'Added on this phone: long-press to take it off the list'; // v2.43.0
+        c.addEventListener('contextmenu', async (e) => { e.preventDefault(); if (!await ask('Take it off the list?', `“${v}” goes off this phone's list of coops. Poles that have it keep it.`, [{ label: 'Cancel', value: false }, { label: 'Take it off', value: true, primary: true }])) return;
+          S.myCoops = (S.myCoops || []).filter((x) => x !== v); const U = { ...ownUseOf('ownerName') }; delete U[v]; S.ownUse = { ...(S.ownUse || {}), ownerName: U }; persist(); renderBoq(); toast(`${v}: off the list`, 1500); }); }
+      return c; };
+    if (typed && !G.all.includes(typed)) { G.all.filter((v) => v.includes(typed)).slice(0, 12).forEach((v) => box.appendChild(chip(v))); return; } // typing: any coop that matches
+    const first = G.first.slice(); if (ed.boq.ownerName && !first.includes(ed.boq.ownerName) && !coopMore) first.push(ed.boq.ownerName);
+    first.forEach((v) => box.appendChild(chip(v)));
+    if (G.more.length) {
+      const m = document.createElement('button'); m.type = 'button'; m.className = 'chip small coopmore'; m.setAttribute('aria-expanded', String(coopMore)); m.textContent = coopMore ? 'Fewer' : 'More coops';
+      m.addEventListener('click', () => { coopMore = !coopMore; fillCoopChips(); }); box.appendChild(m);
+      if (coopMore) G.more.forEach(([lbl, L]) => { const h = document.createElement('span'); h.className = 'coopgrp'; h.textContent = lbl; box.appendChild(h); L.forEach((v) => box.appendChild(chip(v))); });
+    }
+  }
+  function fillCoopPlace(pl, ro) {
+    const t = coopPlaceText(); pl.innerHTML = ''; pl.hidden = !t; if (!t) return;
+    const ln = document.createElement('span'); ln.className = 'coopline'; ln.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/></svg>';
+    ln.append(t); pl.appendChild(ln);
+    const here = coopArea();
+    if (!ro && here && here.done && !here.muni && here.region) { const pk = packFor(here.region, 'road'); if (pk) pl.appendChild(packGetBtn(pk, 'Get the road pack')); }
+  }
   const keepCoop = (c) => { if (c && !COOPS.includes(c) && !(S.myCoops || []).includes(c)) { S.myCoops = (S.myCoops || []).concat(c).slice(-30); return true; } return false; };
   function noteOwnUse(was, now, id) { // after a save on this phone: what this user set on the pole counts once; a new coop name is kept
     seedOwnUse(id); // (first, without this pole: it is counted here)
@@ -791,10 +895,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.43.0';
+  const APP_VER = '2.43.1';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '3.5'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '3.9'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -2100,25 +2204,27 @@
      circle, distance, leader line, where), the IDs of the points on the cable (bold, colour, height) and the vicinity map (circle and
      route colour and width). Defaults: the numbers yellow, 3 m high in a 7 m circle, 2 m from the point with a leader line, at the
      first free spot; the IDs as before (2.5 m, by layer); the circle yellow. Sizes are metres of the drawing (1:1100: 1 m = 0.9 mm). */
-  const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto' }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5 },
+  const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto' }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5, area: true, label: 'PROJECT AREA', lh: 18 }, /* (beta 3.9: the project area shown, its label and its height) */
     clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a', per: 3, h: 0, w: { prop: true, size: true, type: true, place: true, foc: false, run: true } }, /* v2.42.26: labels for each cable in a grid, their height (0: by the poles' spacing), their words */
-    site: { name: 'auto' }, odf: { place: 'auto', lbl: 'size' } }; /* v2.42.26: the tower's name; the ODF beside the tower, its label */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
+    site: { name: 'on', move: 'auto', arrow: true, acol: 7 }, odf: { place: 'auto', lbl: 'size' }, /* v2.42.26: the tower's name; the ODF beside the tower, its label (beta 3.8: the name on the tower; moved aside in its sheet; the arrow) */
+    crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room' } }; /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
   function plStyle() {
     const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d);
-    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) };
+    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) };
     return { num: { color: c(N.color, 2), bcolor: c(N.bcolor, 0, true), h: n(N.h, 1, 12, 3), d: n(N.d, 0, 25, 7), g: n(N.g, 0, 25, 2), leader: N.leader !== false, place: N.place === 'out' ? 'out' : 'auto' },
-      id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5) },
+      id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5), area: V.area !== false, label: typeof V.label === 'string' ? V.label.replace(/\s+/g, ' ').slice(0, 40) : 'PROJECT AREA', lh: n(V.lh, 8, 40, 18) },
       clamp: { place: ['label', 'tag', 'callout'].includes(Cl.place) ? Cl.place : 'label', pos: ['auto', 'up', 'down', 'left', 'right'].includes(Cl.pos) ? Cl.pos : 'auto', color: c(Cl.color, 0, true), h: n(Cl.h, 1, 5, 2), box: Cl.box !== false, hw: Cl.hw !== false },
       cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a', per: [1, 2, 3].includes(+Cb.per) ? +Cb.per : 3, h: +Cb.h ? n(Cb.h, 0.8, 3, 0) : 0, w: Object.fromEntries(Object.keys(PL_DEF.cab.w).map((k) => [k, !!Cw[k]])) },
-      site: { name: ['auto', 'top', 'side', 'bottom'].includes(St.name) ? St.name : 'auto' }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' } };
+      site: { name: ['on', 'top', 'side', 'bottom'].includes(St.name) ? St.name : 'on', move: St.move === 'point' ? 'point' : 'auto', arrow: St.arrow !== false, acol: c(St.acol, 7, true) }, /* (beta 3.8: Auto is now On the tower) */
+      crowd: { auto: Cr.auto !== false, min: n(Cr.min, 50, 100, 75), move: n(Cr.move, 4, 30, 15), leader: Cr.leader !== false, streets: Cr.streets === 'fixed' ? 'fixed' : 'slide', marks: ['room', 'always', 'hide'].includes(Cr.marks) ? Cr.marks : 'room' }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' } };
   }
   const setPl = (part, k, v) => { const cur = plStyle(); S.plStyle = { ...cur, [part]: { ...cur[part], [k]: v } }; persist(); renderStyle(); };
   const mmOf = (m) => (m / 1.1).toFixed(1);
   function plSummary() {
     const P = plStyle(), N = P.num, I = P.id, V = P.vic, Cl = P.clamp, Cb = P.cab, ct = S.exp.dxfClampType !== false;
-    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? ACI_NAME[Cl.color] : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Site name: ${P.site.name === 'auto' ? 'auto place' : P.site.name} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${ACI_NAME[V.circle]} circle ${V.circleW} m wide, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide`;
+    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? ACI_NAME[Cl.color] : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Crowded places: ${P.crowd.auto ? `Auto (labels moved up to ${P.crowd.move} m${P.crowd.leader ? ' with a line' : ''}, then down to ${P.crowd.min} % of their size; street names ${P.crowd.streets === 'fixed' ? 'kept in place' : 'slide along their road'})` : 'off (as before)'}, landmark names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]} · Tower: its name and ID ${P.site.name === 'on' ? 'on the tower' : `at its ${P.site.name}`}, ${P.site.move === 'point' ? 'kept at its point' : `moved aside in its sheet when it covers details${P.site.arrow ? `, a curved arrow to its point (${P.site.acol ? (P.site.acol === 7 ? 'white; black on the PDF' : ACI_NAME[P.site.acol]) : 'as the tower'})` : ''}`} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${V.area ? `the project area ${ACI_NAME[V.circle]}, its circle ${V.circleW} m wide, ${V.label.trim() ? `labelled “${V.label.trim()}” ${V.lh} m high` : 'no label'}` : 'no project area'}, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide`;
   }
-  function openStyle() { renderStyle(); openSheet('drwStyle'); }
+  function openStyle() { DSP.reset(); renderStyle(); openSheet('drwStyle'); setTimeout(() => { DSP.reset(); DSP.onScroll(); }, 0); } // (the settings from the top, the preview large)
   function renderStyle() {
     const P = plStyle(), N = P.num, I = P.id, V = P.vic;
     const sw = (id, val, zero, part, key) => { const box = $(id); box.innerHTML = '';
@@ -2134,7 +2240,16 @@
     o('stNumHO', `${N.h} m · ${mmOf(N.h)} mm`); o('stNumDO', N.d > 0 ? `${N.d} m · ${mmOf(N.d)} mm` : 'no circle'); o('stNumGO', `${N.g} m · ${mmOf(N.g)} mm`); o('stIdHO', `${I.h} m · ${mmOf(I.h)} mm`); o('stVicWO', `${V.circleW} m`); o('stVicRWO', `${V.routeW} m`);
     const seg = (id, v) => $(id).querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
     seg('stNumLeader', N.leader ? '1' : '0'); seg('stNumPlace', N.place); seg('stIdBold', I.bold ? '1' : '0');
+    seg('stVicArea', V.area ? '1' : '0'); if (document.activeElement !== $('stVicLbl')) $('stVicLbl').value = V.label; if (document.activeElement !== $('stVicLh')) $('stVicLh').value = String(V.lh); o('stVicLhO', `${V.lh} m`); // beta 3.9
+    $('drwStyle').querySelectorAll('[data-dim="vicarea"]').forEach((r) => r.classList.toggle('dim', !V.area));
     seg('stCabPer', String(P.cab.per)); seg('stSiteName', P.site.name); seg('stOdfPlace', P.odf.place); seg('stOdfLbl', P.odf.lbl); // v2.42.26
+    seg('stCrowdAuto', P.crowd.auto ? '1' : '0'); seg('stCrowdLeader', P.crowd.leader ? '1' : '0'); seg('stCrowdStreets', P.crowd.streets); seg('stCrowdMarks', P.crowd.marks); // beta 3.8
+    seg('stSiteMove', P.site.move); seg('stSiteArrow', P.site.arrow ? '1' : '0'); sw('stSiteACol', P.site.acol, 'As the tower', 'site', 'acol');
+    [['stCrowdMin', P.crowd.min], ['stCrowdMove', P.crowd.move]].forEach(([id, v]) => { if (document.activeElement !== $(id)) $(id).value = String(v); });
+    o('stCrowdMinO', `${P.crowd.min} % of the size you set`); o('stCrowdMoveO', `${P.crowd.move} m · ${mmOf(P.crowd.move)} mm`);
+    o('stSiteAColO', P.site.acol ? (P.site.acol === 7 ? 'white · black on the PDF' : ACI_NAME[P.site.acol]) : 'as the tower');
+    $('drwStyle').querySelectorAll('[data-dim="auto"]').forEach((r) => r.classList.toggle('dim', !P.crowd.auto));
+    $('drwStyle').querySelectorAll('[data-dim="tower"]').forEach((r) => r.classList.toggle('dim', P.site.move === 'point'));
     $('stCabW').querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(!!P.cab.w[b.dataset.k])));
     if (document.activeElement !== $('stCabH')) $('stCabH').value = String(P.cab.h || 1.3); $('stCabHAuto').setAttribute('aria-pressed', String(!P.cab.h)); o('stCabHO', P.cab.h ? `${P.cab.h} m · ${mmOf(P.cab.h)} mm` : 'auto (1.0–1.3 m by the poles\u2019 spacing)');
     o('stCabReads', `Reads: ${['F72', 'L12', 'U144'].map((k, i) => runLbl(cabWords(k), i + 1) || '(nothing)').join(' · ')}`);
@@ -2142,71 +2257,326 @@
     seg('stClOn', S.exp.dxfClampType !== false ? '1' : '0'); seg('stClPlace', P.clamp.place); seg('stClPos', P.clamp.pos); seg('stClBox', P.clamp.box ? '1' : '0'); seg('stClHw', P.clamp.hw ? '1' : '0'); seg('stCabOn', P.cab.on ? '1' : '0');
     o('stClHO', `${P.clamp.h} m · ${mmOf(P.clamp.h)} mm`); ['stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'].forEach((id) => { const r = $(id) && $(id).closest('.strow'); if (r) r.classList.toggle('dim', S.exp.dxfClampType === false || (P.clamp.place === 'label' && ['stClPos', 'stClH', 'stClBox'].includes(id))); });
     o('stSum', plSummary());
-    drawStylePreview(P); drawVicPreview(P);
+    DSP.render(P); drawVicPreview(P); // (beta 3.8: the scene the user works on)
     if (drw && !$('drawing').hidden) { drawDrawing(); renderDrawLegend(); }
   }
-  [['stNumH', 'num', 'h'], ['stNumD', 'num', 'd'], ['stNumG', 'num', 'g'], ['stIdH', 'id', 'h'], ['stVicW', 'vic', 'circleW'], ['stVicRW', 'vic', 'routeW'], ['stClH', 'clamp', 'h']].forEach(([id, part, key]) => $(id).addEventListener('input', () => setPl(part, key, +$(id).value)));
+  [['stNumH', 'num', 'h'], ['stNumD', 'num', 'd'], ['stNumG', 'num', 'g'], ['stIdH', 'id', 'h'], ['stVicW', 'vic', 'circleW'], ['stVicRW', 'vic', 'routeW'], ['stClH', 'clamp', 'h'], ['stCrowdMin', 'crowd', 'min'], ['stCrowdMove', 'crowd', 'move']].forEach(([id, part, key]) => $(id).addEventListener('input', () => setPl(part, key, +$(id).value)));
   $('stNumLeader').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('num', 'leader', b.dataset.v === '1'); });
+  $('stVicArea').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('vic', 'area', b.dataset.v === '1'); }); // beta 3.9: the project area
+  $('stVicLbl').addEventListener('input', () => setPl('vic', 'label', $('stVicLbl').value.slice(0, 40)));
+  $('stVicLh').addEventListener('input', () => setPl('vic', 'lh', +$('stVicLh').value));
   $('stNumPlace').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('num', 'place', b.dataset.v); });
   $('stIdBold').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('id', 'bold', b.dataset.v === '1'); });
   [['stClPlace', 'clamp', 'place', (v) => v], ['stClPos', 'clamp', 'pos', (v) => v], ['stClBox', 'clamp', 'box', (v) => v === '1'], ['stClHw', 'clamp', 'hw', (v) => v === '1'], ['stCabOn', 'cab', 'on', (v) => v === '1']]
     .forEach(([id, part, key, val]) => $(id).addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl(part, key, val(b.dataset.v)); })); // v2.42.21
-  [['stCabPer', 'cab', 'per', (v) => +v], ['stSiteName', 'site', 'name', (v) => v], ['stOdfPlace', 'odf', 'place', (v) => v], ['stOdfLbl', 'odf', 'lbl', (v) => v]] // v2.42.26
+  [['stCabPer', 'cab', 'per', (v) => +v], ['stSiteName', 'site', 'name', (v) => v], ['stOdfPlace', 'odf', 'place', (v) => v], ['stOdfLbl', 'odf', 'lbl', (v) => v], // v2.42.26
+    ['stCrowdAuto', 'crowd', 'auto', (v) => v === '1'], ['stCrowdLeader', 'crowd', 'leader', (v) => v === '1'], ['stCrowdStreets', 'crowd', 'streets', (v) => v], ['stCrowdMarks', 'crowd', 'marks', (v) => v], // beta 3.8
+    ['stSiteMove', 'site', 'move', (v) => v], ['stSiteArrow', 'site', 'arrow', (v) => v === '1']]
     .forEach(([id, part, key, val]) => $(id).addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl(part, key, val(b.dataset.v)); }));
   $('stCabH').addEventListener('input', () => setPl('cab', 'h', +$('stCabH').value)); $('stCabHAuto').addEventListener('click', () => setPl('cab', 'h', 0));
   $('stCabW').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; const w = { ...plStyle().cab.w, [b.dataset.k]: !plStyle().cab.w[b.dataset.k] }; setPl('cab', 'w', w); });
   $('stClOn').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; S.exp.dxfClampType = b.dataset.v === '1'; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); }); // (the Drawing's CA button too)
   $('stReset').addEventListener('click', () => { delete S.plStyle; S.exp.dxfClampType = true; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Drawing style: the defaults', 2000); }); // (v2.42.21: clamp types on again)
   $('stDone').addEventListener('click', () => closeSheet());
-  /** The style preview: a street with three poles 40 m apart (1:1 metres), their labels and numbers, a NAP with its ID. */
-  function drawStylePreview(P) {
-    const svg = $('stPrev'); if (!svg) return; const NSV = 'http://www.w3.org/2000/svg', N = P.num, I = P.id, col = ACI_HEX[N.color], bcol = ACI_HEX[N.bcolor] || col;
-    const el = (tag, a, text) => { const e = document.createElementNS(NSV, tag); Object.entries(a).forEach(([k, v]) => e.setAttribute(k, v)); if (text != null) e.textContent = text; svg.appendChild(e); return e; };
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-    el('rect', { x: 0, y: 0, width: 120, height: 70, fill: '#000' });
-    const yTop = 44, yBot = 51;
-    el('line', { x1: 0, y1: yTop, x2: 120, y2: yTop, stroke: '#fff', 'stroke-width': 0.15 }); el('line', { x1: 0, y1: yBot, x2: 120, y2: yBot, stroke: '#fff', 'stroke-width': 0.15 });
-    el('text', { x: 30, y: yBot - 1.4, fill: '#ffff00', 'font-size': 2.4, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, 'RIZAL STREET');
-    el('line', { x1: 0, y1: yTop + 1.4, x2: 120, y2: yTop + 1.4, stroke: '#ff0000', 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' });
-    // a NAP on the cable in front of the middle pole, its ID in the IDs' style
-    el('rect', { x: 55.2, y: yTop + 1.4 - 1.8, width: 9.6, height: 3.6, rx: 1.8, fill: '#000', stroke: '#00ff00', 'stroke-width': 0.2 }); el('text', { x: 60, y: yTop + 1.4 + 1.2, fill: '#fff', 'font-size': 3, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, 'N');
-    el('text', { x: 60, y: yTop + 1.4 + 1.8 + I.h * 1.05, fill: ACI_HEX[I.color] || '#ffffff', 'font-size': I.h, 'font-weight': I.bold ? 800 : 400, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, 'NAP-0001');
-    const Cl = P.clamp, ct = S.exp.dxfClampType !== false, clCol = ACI_HEX[Cl.color] || '#00ffff', inL = !ct || Cl.place === 'label'; // v2.42.21
-    if (P.cab.on) [[40, runLbl(cabWords('L12'), 1)], [80, runLbl(cabWords('L12'), 1)]].forEach(([x, t]) => el('text', { x, y: yTop + 1.4 + 2.6, fill: '#ff0000', 'font-size': 1.8, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, t));
-    [[20, '4303175', ct ? 'CA 8-9' : '8-9'], [60, '4303168', ct && Cl.hw ? 'RET×2 SC×4' : ''], [100, '4303161', ct ? '2A 10-12' : '10-12']].forEach(([x, id, cl0], i) => {
-      const cl = inL ? cl0 : ''; // a tag or a callout: the clamp types beside the pole, not in its label
-      if (!inL && cl0) { const w = cl0.length * Cl.h * 0.56 + 1, h = Cl.h * 1.35, far = Cl.place === 'callout' ? 9 : 3.2, py0 = yTop - 2.5 - (i === 1 ? 1.2 : 0), dir = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[Cl.pos] || [-0.6, -0.8];
-        const cx = x + dir[0] * (far + w / 2), cy = py0 + dir[1] * (far + h / 2);
-        if (Cl.place === 'callout') el('line', { x1: x + dir[0] * 1.3, y1: py0 + dir[1] * 1.3, x2: cx - dir[0] * w / 2, y2: cy - dir[1] * h / 2, stroke: clCol, 'stroke-width': 0.2 });
-        if (Cl.box) el('rect', { x: cx - w / 2, y: cy - h / 2, width: w, height: h, fill: '#000', stroke: clCol, 'stroke-width': 0.18 });
-        el('text', { x: cx, y: cy + Cl.h * 0.36, fill: clCol, 'font-size': Cl.h, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, cl0); }
-      const py = yTop - 2.5 - (i === 1 ? 1.2 : 0), rp = 1.1;
-      el('circle', { cx: x, cy: py, r: rp, fill: 'none', stroke: '#fff', 'stroke-width': 0.15 });
-      el('line', { x1: x - rp * 0.7, y1: py - rp * 0.7, x2: x + rp * 0.7, y2: py + rp * 0.7, stroke: '#fff', 'stroke-width': 0.15 }); el('line', { x1: x - rp * 0.7, y1: py + rp * 0.7, x2: x + rp * 0.7, y2: py - rp * 0.7, stroke: '#fff', 'stroke-width': 0.15 });
-      const R0 = N.d / 2, h0 = Math.max(R0, N.h * 0.46, N.h / 2), lx = x + (N.place === 'out' ? Math.max(2.2, h0 + 0.8) : 2.2);
-      [['CC', '#ffffff'], [id, '#00ff00'], [cl, ct ? clCol : '#00ffff']].forEach(([t, c], k) => el('text', { x: lx, y: py - 1.2 - (2.4 - k) * 2.6, fill: c, 'font-size': 2.2, 'font-family': 'Arial, sans-serif' }, t));
-      el('text', { x: lx, y: py - 0.2, fill: '#fff', 'font-size': 1.1, 'font-style': 'italic', 'font-family': 'Times New Roman, serif' }, `7.16${3 + i}334°  125.57${3 + i}313°`);
-      const half = Math.max(R0, N.h * 0.46, N.h / 2), dir = N.place === 'out' ? [0, -1] : [-0.985, -0.17], dist = rp + N.g + half, cx = x + dir[0] * dist, cy = py + dir[1] * dist;
-      if (N.leader) el('line', { x1: x + dir[0] * rp, y1: py + dir[1] * rp, x2: cx - dir[0] * half, y2: cy - dir[1] * half, stroke: bcol, 'stroke-width': 0.2 });
-      if (N.d > 0) el('circle', { cx, cy, r: R0, fill: 'none', stroke: bcol, 'stroke-width': 0.2 });
-      el('text', { x: cx, y: cy + N.h * 0.36, fill: col, 'font-size': N.h, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, String(i + 1));
-    });
-    el('line', { x1: 4, y1: 66, x2: 14, y2: 66, stroke: '#fff', 'stroke-width': 0.3 }); [4, 14].forEach((x) => el('line', { x1: x, y1: 65, x2: x, y2: 67, stroke: '#fff', 'stroke-width': 0.3 }));
-    el('text', { x: 16, y: 66.8, fill: '#fff', 'font-size': 2, 'font-family': 'Arial, sans-serif' }, '10 m (9.1 mm at 1:1100)');
-  }
   /** The vicinity preview: a map 1.5 km across (1 unit = 25 m), the route on its white band and the PROJECT AREA circle. */
-  function drawVicPreview(P) {
-    const svg = $('stVicPrev'); if (!svg) return; const NSV = 'http://www.w3.org/2000/svg', V = P.vic, k = 1 / 25;
-    const el = (tag, a, text) => { const e = document.createElementNS(NSV, tag); Object.entries(a).forEach(([kk, v]) => e.setAttribute(kk, v)); if (text != null) e.textContent = text; svg.appendChild(e); return e; };
+  function drawVicPreview(P, into) {
+    const svg = into || $('stVicPrev'); if (!svg) return; if (into) { svg.setAttribute('viewBox', '0 0 60 40'); svg.style.aspectRatio = '60 / 40'; } /* (beta 3.8: also the main preview's Vicinity map) */ const NSV = 'http://www.w3.org/2000/svg', V = P.vic, k = 1 / 25;
+    const el = (tag, a, text) => { const e = document.createElementNS(NSV, tag); Object.entries(a).forEach(([kk, v]) => { if (v != null) e.setAttribute(kk, v); }); if (text != null) e.textContent = text; svg.appendChild(e); return e; };
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     el('rect', { x: 0, y: 0, width: 60, height: 40, fill: '#4b5a46' });
     [['M0 31 L60 22', 1.1], ['M14 0 L19 40', 0.8], ['M38 0 L44 40', 0.7], ['M0 9 L60 14', 0.6]].forEach(([d, w]) => el('path', { d, stroke: '#c9c4b5', 'stroke-width': w, fill: 'none' }));
     const route = 'M9 29 L18 26.5 L30 24.5 L41 19 L49 12';
     el('path', { d: route, stroke: '#fff', 'stroke-width': V.routeW * 2 * k, fill: 'none', 'stroke-linejoin': 'round' });
     el('path', { d: route, stroke: ACI_HEX[V.route] || '#ff0000', 'stroke-width': V.routeW * k, fill: 'none', 'stroke-dasharray': V.route ? '' : `${26 * k * V.routeW / 16.5 * 2} ${26 * k * V.routeW / 16.5}`, 'stroke-linejoin': 'round' });
+    if (!V.area) return; // (beta 3.9: no project area)
     el('circle', { cx: 29, cy: 21, r: 15, fill: 'none', stroke: ACI_HEX[V.circle], 'stroke-width': V.circleW * k });
-    el('rect', { x: 20.5, y: 2.2, width: 17, height: 3.4, fill: '#333', stroke: ACI_HEX[2], 'stroke-width': 0.15 }); el('text', { x: 29, y: 4.75, fill: '#ffff00', 'font-size': 2.2, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, 'PROJECT AREA');
+    const lt = V.label.trim(); if (!lt) return; const f = 2.2 * V.lh / 18, hb = 3.4 * V.lh / 18, wb = Math.min(58, lt.length * f * 0.62 + 1.6), yb = 6 - 0.6 - hb; // (its label above the circle, as tall as set)
+    el('rect', { x: 29 - wb / 2, y: yb, width: wb, height: hb, fill: '#333', stroke: ACI_HEX[2], 'stroke-width': 0.15 }); el('text', { x: 29, y: yb + hb * 0.74, fill: '#ffff00', 'font-size': f, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif', textLength: lt.length * f * 0.62 > 56 ? 56 : null }, lt);
   }
+  /* ================= beta 3.8: the Drawing style preview =================
+     Four scenes: a street, a crowded corner, the tower site and the vicinity map, drawn at 1:1100 as on the GEO sheets; the preview
+     shows the group the user touches. Its labels are placed as the plan places them with Crowded places: Auto (pole numbers, then
+     pole labels keep their place; IDs, clamp tags, cable labels, street names and landmark names make room: the nearest free place
+     up to Move a label up to, then smaller down to Smallest text); the caption counts the labels that still overlap. On a computer
+     the preview is beside the settings and stays while they scroll; on a phone it stays at the top and gets smaller as the settings
+     scroll (Bigger keeps it large). */
+  const DSP = (() => {
+    const NSV = 'http://www.w3.org/2000/svg', ARIAL = 'Arial, Helvetica, sans-serif';
+    const mk = (p, tag, a, text) => { const e = document.createElementNS(NSV, tag); for (const k in a) if (a[k] != null && a[k] !== false) e.setAttribute(k, a[k]); if (text != null) e.textContent = text; p.appendChild(e); return e; };
+    const PAL = { ...ACI_HEX, bg: '#000000', grey: '#8a909a', road: '#ffffff', photo: '#2c3542', sky: '#3c5a7a', mask: '#000000', clash: '#ff5a5a' };
+    const tW = (t, h, b) => String(t).length * h * (b ? 0.66 : 0.58);
+    const bx = (cx, cy, w, h) => ({ x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2 });
+    const ovA = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+    const inB = (b, B) => b.x0 >= B.x0 && b.y0 >= B.y0 && b.x1 <= B.x1 && b.y1 <= B.y1;
+    const segBoxes = (a, b, r) => { const L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(L / 1.2)), out = []; for (let i = 0; i <= n; i++) { const t = i / n; out.push(bx(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, r * 2, r * 2)); } return out; };
+    const polyBoxes = (pts, r) => { const out = []; for (let i = 1; i < pts.length; i++) out.push(...segBoxes(pts[i - 1], pts[i], r)); return out; };
+    const steps = (min) => { const o = []; for (let k = 1; k >= min - 1e-9; k -= 0.05) o.push(+k.toFixed(2)); return o.length ? o : [1]; };
+    const nearOnBox = (b, x, y) => [Math.min(Math.max(x, b.x0), b.x1), Math.min(Math.max(y, b.y0), b.y1)];
+    /* labels: size(k) → {w, h}; spots(d, k) → [{cx, cy, d, cost}] (the first: its usual place); draw(g, at, k, pal) */
+    function Txt(o) {
+      const rot = o.rot || 0, ca = Math.abs(Math.cos(rot * Math.PI / 180)), sa = Math.abs(Math.sin(rot * Math.PI / 180));
+      return { ...o, size(k) { const w = tW(o.t, o.h * k, o.bold), h = o.h * k * 1.15; return { w: w * ca + h * sa, h: w * sa + h * ca }; },
+        draw(g, at, k, pal) { mk(g, 'text', { x: at.cx, y: at.cy, 'font-size': (o.h * k).toFixed(3), fill: pal[o.c] || o.c, 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-family': o.serif ? '"Times New Roman", Times, serif' : ARIAL, 'font-weight': o.bold ? 800 : null, 'font-style': o.italic ? 'italic' : null, transform: rot ? `rotate(${rot} ${at.cx} ${at.cy})` : null }, o.t); } };
+    }
+    function Blk(o) { // lines [{t, h, c, italic, serif, bold}], left aligned
+      return { ...o, size(k) { let w = 0, h = 0; o.lines.forEach((l) => { w = Math.max(w, tW(l.t, l.h * k, l.bold)); h += l.h * k * 1.22; }); return { w, h }; },
+        draw(g, at, k, pal) { const d = this.size(k); let y = at.cy - d.h / 2; const x = at.cx - d.w / 2;
+          o.lines.forEach((l) => { const h = l.h * k; mk(g, 'text', { x, y: y + h * 0.92, 'font-size': h.toFixed(3), fill: pal[l.c] || l.c, 'font-family': l.serif ? '"Times New Roman", Times, serif' : ARIAL, 'font-style': l.italic ? 'italic' : null, 'font-weight': l.bold ? 700 : null }, l.t); y += h * 1.22; }); } };
+    }
+    const ring = (o) => (d, k) => { const def = o.def(d, k), out = [{ cx: def.cx, cy: def.cy, d: 0, cost: 0 }];
+      for (const ex of [0, 1, 2.5, 4, 6, 8.5, 11, 14, 18, 23, 29]) for (let i = 0; i < 16; i++) {
+        const a = i * Math.PI / 8, ux = Math.cos(a), uy = Math.sin(a), t = Math.min(Math.abs(ux) > 1e-6 ? d.w / 2 / Math.abs(ux) : 1e9, Math.abs(uy) > 1e-6 ? d.h / 2 / Math.abs(uy) : 1e9);
+        const r = (o.ar || 1) + 0.5 + ex + t, cx = o.ax + ux * r, cy = o.ay + uy * r, disp = Math.hypot(cx - def.cx, cy - def.cy);
+        out.push({ cx, cy, d: ex, cost: 0.4 + ex + disp * 0.12 + (o.pref ? o.pref(ux, uy) : 0) });
+      }
+      return out.sort((p, q) => p.cost - q.cost); };
+    const along = (o) => (d) => { const a = o.a, b = o.b, L = Math.hypot(b[0] - a[0], b[1] - a[1]), nx = -(b[1] - a[1]) / L, ny = (b[0] - a[0]) / L, out = [], half = Math.abs(nx) * d.w / 2 + Math.abs(ny) * d.h / 2;
+      for (const t of [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74, 0.18, 0.82]) for (const sd of [o.side, -o.side]) for (const far of [0, 1.6]) {
+        const off = o.gap + far + half, dd = Math.abs(t - 0.5) * L + far; out.push({ cx: a[0] + (b[0] - a[0]) * t + nx * sd * off, cy: a[1] + (b[1] - a[1]) * t + ny * sd * off, d: dd, cost: dd * 0.5 + (sd !== o.side ? 2.5 : 0) + far });
+      }
+      return out.sort((p, q) => p.cost - q.cost); };
+    const road = (o) => (d) => { const len = o.horiz ? d.w : d.h, out = [{ cx: o.horiz ? o.def : o.c, cy: o.horiz ? o.c : o.def, d: 0, cost: 0 }]; if (o.fixed) return out;
+      for (let v = o.lo + len / 2; v <= o.hi - len / 2 + 1e-6; v += 1.5) for (const off of o.offs) { const dd = Math.abs(v - o.def); out.push({ cx: o.horiz ? v : o.c + off, cy: o.horiz ? o.c + off : v, d: dd, cost: dd * 0.25 + Math.abs(off) * 1.2 + 0.1 }); }
+      return out.sort((p, q) => p.cost - q.cost); };
+    /** The plan's way with Auto: the labels by priority, each at its first free place within Move a label up to (street names
+        anywhere along their road), only then smaller; a landmark name with no room is left out (unless Always). Off: where they go. */
+    function solve(labels, obst, C, B) {
+      const taken = obst.slice(), res = []; let clashes = 0;
+      for (const L of labels.filter((x) => !x.off).sort((a, b) => b.pri - a.pri)) {
+        let best = null; const auto = C.auto && !L.fixed;
+        const plain = () => { const d = L.size(1), c = L.spots(d, 1)[0], b = bx(c.cx, c.cy, d.w, d.h); return { L, k: 1, c, b, ov: taken.reduce((t, x) => t + ovA(b, x), 0) }; };
+        if (!auto) best = plain();
+        else {
+          const pairs = [];
+          for (const k of (L.shrink ? steps(C.min) : [1])) { const d = L.size(k); for (const c of L.spots(d, k)) { if (!L.free && c.d > C.move + 0.01) continue; pairs.push({ k, c, d, w: c.cost + (1 - k) * 40 }); } }
+          pairs.sort((p, q) => p.w - q.w);
+          for (const p of pairs) { const b = bx(p.c.cx, p.c.cy, p.d.w, p.d.h); if (B && !inB(b, B)) continue; let ov = 0; for (const x of taken) { ov += ovA(b, x); if (ov > 1e-6 && best && ov >= best.ov) break; }
+            if (ov < 1e-6) { best = { L, k: p.k, c: p.c, b, ov: 0 }; break; } if (!best || ov < best.ov) best = { L, k: p.k, c: p.c, b, ov }; }
+          if (!best) best = plain();
+        }
+        if (auto && best.ov > 1e-6 && L.optional && C.marks === 'room') { res.push({ L, skip: true }); continue; } // (a landmark name: where there is room; Off: as before)
+        if (best.ov > 1e-6) clashes++;
+        taken.push(best.b); res.push(best);
+      }
+      return { res, clashes };
+    }
+    function paint(svg, sc, C) {
+      const pal = PAL; while (svg.firstChild) svg.removeChild(svg.firstChild);
+      svg.setAttribute('viewBox', sc.vb.join(' ')); svg.style.aspectRatio = `${sc.vb[2]} / ${sc.vb[3]}`;
+      mk(svg, 'rect', { x: sc.vb[0] - 1, y: sc.vb[1] - 1, width: sc.vb[2] + 2, height: sc.vb[3] + 2, fill: pal.bg });
+      const gU = mk(svg, 'g', {}); sc.under.forEach((f) => f(gU, pal));
+      const { res, clashes } = solve(sc.labels, sc.obst, C, sc.bounds), gL = mk(svg, 'g', {});
+      res.forEach((r) => { if (r.skip) return; const L = r.L;
+        if (L.lead && C.auto && C.leader && r.c.d > (L.leadMin || 3)) { const [qx, qy] = nearOnBox(r.b, L.ax, L.ay), dx = qx - L.ax, dy = qy - L.ay, dd = Math.hypot(dx, dy); if (dd > (L.ar || 1) + 0.6) mk(gL, 'line', { x1: L.ax + dx / dd * ((L.ar || 1) + 0.3), y1: L.ay + dy / dd * ((L.ar || 1) + 0.3), x2: qx, y2: qy, stroke: pal.grey, 'stroke-width': 0.16 }); }
+        L.draw(gL, r.c, r.k, pal);
+        if (C.mark && r.ov > 1e-6) mk(gL, 'rect', { x: r.b.x0 - 0.3, y: r.b.y0 - 0.3, width: r.b.x1 - r.b.x0 + 0.6, height: r.b.y1 - r.b.y0 + 0.6, fill: 'none', stroke: pal.clash, 'stroke-width': 0.3, 'stroke-dasharray': '1 0.6', class: 'dsclash' });
+      });
+      const gO = mk(svg, 'g', {}); (sc.over || []).forEach((f) => f(gO, pal));
+      return { clashes, skipped: res.filter((r) => r.skip).length, ids: res.filter((r) => !r.skip && r.ov > 1e-6).map((r) => r.L.id) };
+    }
+    /* symbols */
+    const line = (g, pts, a) => mk(g, 'polyline', { points: pts.map((p) => p.join(',')).join(' '), fill: 'none', ...a });
+    const poleSym = (g, pal, x, y) => { const r = 1.1, k = r * 0.7; mk(g, 'circle', { cx: x, cy: y, r, fill: 'none', stroke: pal[7], 'stroke-width': 0.16 }); mk(g, 'path', { d: `M${x - k} ${y - k}L${x + k} ${y + k}M${x - k} ${y + k}L${x + k} ${y - k}`, stroke: pal[7], 'stroke-width': 0.16 }); };
+    const napSym = (g, pal, x, y) => { mk(g, 'rect', { x: x - 4.8, y: y - 1.8, width: 9.6, height: 3.6, rx: 1.8, fill: pal.bg, stroke: pal[3], 'stroke-width': 0.22 }); mk(g, 'text', { x, y: y + 0.05, 'font-size': 2.6, fill: pal[7], 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-family': ARIAL }, 'N'); };
+    const cloSym = (g, pal, x, y, R) => { const p = []; for (let i = 0; i < 5; i++) { const t = (-90 + i * 72) * Math.PI / 180; p.push([x + R * Math.cos(t), y + R * Math.sin(t)]); } mk(g, 'polygon', { points: p.map((q) => q.join(',')).join(' '), fill: pal[1] }); };
+    const photoSym = (g, pal, x, y, w, h) => { mk(g, 'rect', { x, y, width: w, height: h, fill: pal.photo, stroke: pal.grey, 'stroke-width': 0.2 }); mk(g, 'rect', { x: x + 0.3, y: y + 0.3, width: w - 0.6, height: h * 0.55, fill: pal.sky }); mk(g, 'rect', { x: x + w * 0.46, y: y + h * 0.08, width: w * 0.06, height: h * 0.86, fill: pal.grey }); };
+    const scaleBar = (g, pal, y) => { line(g, [[4, y], [14, y]], { stroke: pal[7], 'stroke-width': 0.3 }); [4, 14].forEach((x) => line(g, [[x, y - 1], [x, y + 1]], { stroke: pal[7], 'stroke-width': 0.3 })); mk(g, 'text', { x: 16, y: y + 0.8, 'font-size': 2, fill: pal[7], 'font-family': ARIAL }, '10 m (9.1 mm at 1:1100)'); };
+    /** A pole's label block (its prefix, ID, clamp types, owner, coordinates), its number, and its clamp tag or callout. */
+    function poleLabels(P, p, opts) {
+      const ct = S.exp.dxfClampType !== false, Cl = P.clamp, inL = !ct || Cl.place === 'label', N = P.num, lines = [], out = [];
+      const clT = p.hw ? (ct && Cl.hw ? p.hw : '') : p.cl ? (ct ? p.cl : p.cl.replace(/^[A-Z0-9]+ /, '')) : '';
+      if (p.pre) lines.push({ t: p.pre, h: 2.2, c: 7 });
+      lines.push({ t: p.id, h: 2.2, c: 3 });
+      if (clT && inL) lines.push({ t: clT, h: 2.2, c: ct ? Cl.color || 4 : 4 });
+      if (p.own) lines.push({ t: p.own, h: 2.2, c: 3 });
+      if (p.ll) lines.push({ t: p.ll, h: 1.1, c: 7, italic: true, serif: true });
+      out.push(Blk({ id: `b${p.k}`, pri: 80, lines, shrink: true, lead: true, ax: p.x, ay: p.y, ar: 1.3, leadMin: 2.5,
+        spots: ring({ ax: p.x, ay: p.y, ar: 1.3, def: (d) => (opts && opts.left ? { cx: p.x - 2.2 - d.w / 2, cy: p.y + 0.3 - d.h / 2 } : { cx: p.x + 2.2 + d.w / 2, cy: p.y + 0.3 - d.h / 2 }), pref: (ux, uy) => (ux < -0.3 ? 1.2 : 0) + (uy > 0.3 ? 2.5 : 0) }) }));
+      const R0 = N.d / 2, half = Math.max(R0, N.h * 0.46, N.h / 2), dir = N.place === 'out' ? (opts && opts.outDir) || [0, -1] : (opts && opts.dir) || [-0.985, -0.17], dist = 1.1 + N.g + half;
+      out.push({ id: `n${p.k}`, pri: 90, ax: p.x, ay: p.y, size: () => ({ w: half * 2, h: half * 2 }),
+        spots: () => { const o = [{ cx: p.x + dir[0] * dist, cy: p.y + dir[1] * dist, d: 0, cost: 0 }], a0 = Math.atan2(dir[1], dir[0]);
+          for (const ex of [0, 1.5, 3, 5, 8, 12, 16, 21]) for (let i = 1; i < 24; i++) { const da = (i % 2 ? 1 : -1) * Math.ceil(i / 2) * Math.PI / 12, a = a0 + da, r = dist + ex; o.push({ cx: p.x + Math.cos(a) * r, cy: p.y + Math.sin(a) * r, d: ex + Math.abs(da) * r * 0.35, cost: ex + Math.abs(da) * 2.2 }); }
+          return o.sort((x, y) => x.cost - y.cost); },
+        draw(g, at, k, pal) { const col = pal[N.color] || pal[2], bcol = pal[N.bcolor] || col;
+          if (N.leader) { const dx = at.cx - p.x, dy = at.cy - p.y, dd = Math.hypot(dx, dy); if (dd > 1.1 + half + 0.3) mk(g, 'line', { x1: p.x + dx / dd * 1.1, y1: p.y + dy / dd * 1.1, x2: at.cx - dx / dd * half, y2: at.cy - dy / dd * half, stroke: bcol, 'stroke-width': 0.2 }); }
+          if (N.d > 0) mk(g, 'circle', { cx: at.cx, cy: at.cy, r: R0, fill: 'none', stroke: bcol, 'stroke-width': 0.22 });
+          mk(g, 'text', { x: at.cx, y: at.cy + N.h * 0.36, 'font-size': N.h, fill: col, 'text-anchor': 'middle', 'font-family': ARIAL }, String(p.k)); } });
+      if (clT && !inL) { // a tag or a callout beside the pole
+        const call = Cl.place === 'callout', col = Cl.color || 4, dirs = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }, dv = dirs[Cl.pos] || [-0.6, -0.8], far = call ? 9 : 3.2;
+        out.push({ id: `c${p.k}`, pri: 75, shrink: true, ax: p.x, ay: p.y, ar: 1.3, size: (k) => ({ w: tW(clT, Cl.h * k) + 1, h: Cl.h * k * 1.35 }),
+          spots: ring({ ax: p.x, ay: p.y, ar: 1.3 + (call ? 6 : 1), def: (d) => ({ cx: p.x + dv[0] * (far + d.w / 2), cy: p.y + dv[1] * (far + d.h / 2) }), pref: (ux, uy) => (Cl.pos === 'auto' ? 0 : Math.hypot(ux - dv[0], uy - dv[1]) * 2) }),
+          draw(g, at, k, pal) { const h = Cl.h * k, d = this.size(k), c = pal[col];
+            if (call) { const [qx, qy] = nearOnBox(bx(at.cx, at.cy, d.w, d.h), p.x, p.y), dx = qx - p.x, dy = qy - p.y, dd = Math.hypot(dx, dy) || 1; mk(g, 'line', { x1: p.x + dx / dd * 1.3, y1: p.y + dy / dd * 1.3, x2: qx, y2: qy, stroke: c, 'stroke-width': 0.2 }); }
+            if (Cl.box) mk(g, 'rect', { x: at.cx - d.w / 2, y: at.cy - d.h / 2, width: d.w, height: d.h, fill: pal.bg, stroke: c, 'stroke-width': 0.18 });
+            mk(g, 'text', { x: at.cx, y: at.cy, 'font-size': h.toFixed(3), fill: c, 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-family': ARIAL }, clT); } });
+      }
+      return out;
+    }
+    const cabT = (k, n) => runLbl(cabWords(k), n);
+    const cabH = (P) => P.cab.h || 1.3;
+    const idL = (P, id, t, ax, ay, below) => Txt({ id, pri: 70, t, h: P.id.h, c: P.id.color || 7, bold: P.id.bold, shrink: true, lead: true, ax, ay, ar: 2, spots: ring({ ax, ay, ar: 2, def: (d) => ({ cx: ax, cy: ay + below + d.h / 2 }) }) });
+    /* the scenes */
+    function scStreet(P, C) {
+      const sc = { vb: [0, 0, 120, 70], bounds: { x0: 0.5, y0: 0.5, x1: 119.5, y1: 62 }, under: [], over: [], labels: [], obst: [] }, yTop = 44, yBot = 51, yc = 45.4;
+      const poles = [{ k: 1, x: 20, y: 41.5, pre: 'CC', id: '4303175', cl: 'CA 8-9', ll: '7.163334°  125.573313°' }, { k: 2, x: 60, y: 40.3, pre: 'CC', id: '4303168', hw: 'RET×2 SC×4', ll: '7.164334°  125.574313°' }, { k: 3, x: 100, y: 41.5, pre: 'CC', id: '4303161', cl: '2A 10-12', ll: '7.165334°  125.575313°' }];
+      sc.under.push((g, pal) => { line(g, [[0, yTop], [120, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [120, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [120, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 66); });
+      sc.obst.push(...segBoxes([0, yc], [120, yc], 0.3), bx(60, yc, 9.8, 3.8), ...poles.map((p) => bx(p.x, p.y, 2.6, 2.6)));
+      poles.forEach((p) => sc.labels.push(...poleLabels(P, p)));
+      sc.labels.push(idL(P, 'nap', 'NAP-0001', 60, yc, 2.2));
+      if (P.cab.on) [[20, 60], [60, 100]].forEach(([a, b], i) => sc.labels.push(Txt({ id: `cab${i}`, pri: 50, t: cabT('L12', 1), h: cabH(P), c: 1, shrink: true, spots: along({ a: [a, yc], b: [b, yc], side: 1, gap: 0.9 }) })));
+      sc.labels.push(Txt({ id: 'st', pri: 40, t: 'RIZAL STREET', h: 2.4, c: 2, shrink: true, free: true, spots: road({ horiz: true, lo: 1, hi: 119, c: 48.8, def: 30, offs: [0, 1.2, -0.6], fixed: C.streets === 'fixed' }) }));
+      return sc;
+    }
+    function scCrowd(P, C) {
+      const sc = { vb: [0, 0, 120, 86], bounds: { x0: 0.5, y0: 0.5, x1: 119.5, y1: 85.5 }, under: [], over: [], labels: [], obst: [] }, yc = 55.4, xc = 75.4;
+      const poles = [[4, 14, 51.5, '4303201', 'CA 8-9'], [5, 36, 51.5, '4303202', 'CA 8-9'], [6, 56, 51.5, '4303203', 'CA 10-12'], [7, 67, 51.5, '4303204', '2A 10-12'], [8, 72, 34, '4303205', 'CA 8-9'], [9, 72, 14, '4303206', 'CA 8-9'], [10, 98, 51.5, '4303207', 'CA 8-9']]
+        .map(([k, x, y, id, cl], i) => ({ k, x, y, pre: 'CC', id, cl, ll: `7.061${21 + i}° 125.604${32 + i * 8}°` }));
+      sc.under.push((g, pal) => {
+        [[[0, 54], [74, 54]], [[82, 54], [120, 54]], [[0, 62], [120, 62]], [[74, 0], [74, 54]], [[82, 0], [82, 54]]].forEach((p) => line(g, p, { stroke: pal.road, 'stroke-width': 0.15 }));
+        line(g, [[0, yc], [xc, yc], [xc, 0]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' }); line(g, [[xc, yc], [120, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' });
+        napSym(g, pal, 56, yc); cloSym(g, pal, 67, yc, 1.8);
+        mk(g, 'path', { d: 'M45.4 45.6h3.2v-2.3l-1.6-1.4-1.6 1.4z', fill: 'none', stroke: pal.grey, 'stroke-width': 0.3 }); mk(g, 'path', { d: 'M86 43.6v4.2M84.5 45h3', stroke: pal.grey, 'stroke-width': 0.45 });
+        poles.forEach((p) => poleSym(g, pal, p.x, p.y)); });
+      sc.obst.push(...polyBoxes([[0, yc], [xc, yc], [xc, 0]], 0.3), ...segBoxes([xc, yc], [120, yc], 0.3), bx(56, yc, 9.8, 3.8), bx(67, yc, 4, 4), bx(47, 44, 4, 4), bx(86, 45.6, 4, 4.6), ...poles.map((p) => bx(p.x, p.y, 2.6, 2.6)));
+      poles.forEach((p) => sc.labels.push(...poleLabels(P, p, p.x === 72 ? { left: true, dir: [-0.985, 0.17], outDir: [-1, 0] } : null)));
+      sc.labels.push(idL(P, 'nap', 'NAP-0003', 56, yc, 2.2), idL(P, 'clo', 'CLO-0001', 67, yc, 2.2));
+      if (P.cab.on) sc.labels.push(Txt({ id: 'cab1', pri: 50, t: cabT('L12', 1), h: cabH(P), c: 1, shrink: true, spots: along({ a: [14, yc], b: [36, yc], side: 1, gap: 0.9 }) }),
+        Txt({ id: 'cab2', pri: 50, t: cabT('L12', 1), h: cabH(P), c: 1, rot: -90, shrink: true, spots: along({ a: [xc, 34], b: [xc, 14], side: 1, gap: 0.9 }) }),
+        Txt({ id: 'cab3', pri: 50, t: cabT('F24', 2), h: cabH(P), c: 1, shrink: true, spots: along({ a: [67, yc], b: [120, yc], side: 1, gap: 0.9 }) }));
+      sc.labels.push(Txt({ id: 'st1', pri: 40, t: 'RIZAL STREET', h: 2.4, c: 2, shrink: true, free: true, spots: road({ horiz: true, lo: 1, hi: 119, c: 59.2, def: 26, offs: [0, 1.2, -0.6], fixed: C.streets === 'fixed' }) }),
+        Txt({ id: 'st2', pri: 40, t: 'MABINI STREET', h: 2.4, c: 2, rot: -90, shrink: true, free: true, spots: road({ horiz: false, lo: 1, hi: 53, c: 78.4, def: 22, offs: [0, 1.4, -1], fixed: C.streets === 'fixed' }) }));
+      const lm = (id, t, ax, ay) => Txt({ id, pri: 20, t, h: 2.2, c: 'grey', shrink: true, lead: true, optional: true, off: C.marks === 'hide', ax, ay, ar: 2, spots: ring({ ax, ay, ar: 2, def: (d) => ({ cx: ax + 2.6 + d.w / 2, cy: ay }) }) });
+      sc.labels.push(lm('lm1', 'BARANGAY HALL', 47, 44.3), lm('lm2', 'SAN ROQUE CHAPEL', 86, 45.6));
+      return sc;
+    }
+    /* the tower site: its point at TS, the sheet's edge (R-12 / R-13) at y 104 */
+    const TS = [50.6, 96], SHEETY = 104, TP = [{ k: 1, x: 30.2, y: 9.5, pre: 'CC', id: '4303122', cl: 'CA 8-9', ll: '7.10358° 125.61750°' }, { k: 2, x: 32.2, y: 50, id: 'GT-0207', cl: 'CA 8-9', ll: '7.10339° 125.61796°' }, { k: 3, x: 34.2, y: 88, pre: 'CC', id: '4303106', cl: 'CA 10-12', own: 'DLPC', ll: '7.10304° 125.61815°' }];
+    const TPH = [[6, 20, 14, 17], [8, 56, 14, 17], [10, 82, 14, 17], [88, 74, 14, 17]], TCAB = [[0, 10.5], [30.2, 9.5], [32.2, 50], [34.2, 88], TS];
+    const roadL = (y) => 34 + 0.05 * y, roadR = (y) => 42 + 0.05 * y;
+    function placeTower(point) {
+      const [sx, sy] = TS; if (point) return { ax: sx, base: sy, k: 1, moved: false };
+      const pts = [...TP.map((p) => [p.x, p.y]), [36.5, 89.5]];
+      const cost = (ax, base, k) => { const x0 = ax - 12.4 * k - 0.6, x1 = ax + 12.4 * k + 0.6, y0 = base - 48 * k - 0.6, y1 = base + 0.6; if (y1 > SHEETY - 2 || y0 < 2 || x0 < 2 || x1 > 148) return null;
+        let c = 0; pts.forEach(([x, y]) => { const d = Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(y0 - y, 0, y - y1)); if (d < 3) c += 100; else if (d < 8) c += 10; });
+        polyBoxes(TCAB, 0.3).forEach((b) => { if (ovA(b, { x0, y0, x1, y1 }) > 0) c += 1.5; });
+        TPH.forEach(([x, y, w, h]) => { if (ovA({ x0: x, y0: y, x1: x + w, y1: y + h }, { x0, y0, x1, y1 }) > 0) c += 60; });
+        for (let y = y0; y <= y1; y += 2) c += Math.max(0, Math.min(x1, roadR(y)) - Math.max(x0, roadL(y))) * 0.02;
+        return c; };
+      let best = null;
+      for (const [k, kc] of [[1, 0], [0.75, 25], [0.5, 60]]) for (const gp of [8, 12, 18, 26]) {
+        const w = 12.4 * k, h = 48 * k;
+        for (const sd of [1, -1]) for (const by of [0, -h / 2]) { const ax = sx + sd * (w + gp), base = sy - by, c0 = cost(ax, base, k); if (c0 == null) continue; const c = c0 + kc + gp * 0.5 + (by ? 2 : 0); if (!best || c < best.c) best = { ax, base, k, moved: true, c }; }
+        const c0 = cost(sx, sy - gp, k); if (c0 != null) { const c = c0 + kc + gp * 0.5 + 3; if (!best || c < best.c) best = { ax: sx, base: sy - gp, k, moved: true, c }; }
+      }
+      return best || { ax: sx, base: sy, k: 0.5, moved: false };
+    }
+    function towerG(g, pal, ax, base, k, col) {
+      const H = 48 * k, hb = 12.4 * k, ht = 1.6 * k, xl = (f) => ax - (hb * (1 - f) + ht * f), xr = (f) => ax + (hb * (1 - f) + ht * f), y = (f) => base - H * f, c = pal[col];
+      const L = (x1, y1, x2, y2) => mk(g, 'line', { x1, y1, x2, y2, stroke: c, 'stroke-width': 0.24 });
+      L(xl(0), y(0), xl(1), y(1)); L(xr(0), y(0), xr(1), y(1)); L(ax, y(0), ax, y(1));
+      const lv = [0, 0.15, 0.31, 0.47, 0.62, 0.76, 0.89, 1]; lv.forEach((f) => L(xl(f), y(f), xr(f), y(f)));
+      for (let i = 1; i < lv.length; i++) { const a = lv[i - 1], b = lv[i]; L(xl(a), y(a), ax, y(b)); L(ax, y(a), xl(b), y(b)); L(xr(a), y(a), ax, y(b)); L(ax, y(a), xr(b), y(b)); }
+      [xl(0), ax, xr(0)].forEach((x) => mk(g, 'rect', { x: x - 0.9 * k, y: base - 0.9 * k, width: 1.8 * k, height: 1.8 * k, fill: 'none', stroke: c, 'stroke-width': 0.24 }));
+      L(ax, y(1), ax, y(1) - 2.5 * k);
+    }
+    function maskName(g, pal, cx, cy, nm, id, maxW, col) {
+      const h = Math.max(1.5, Math.min(2.6, maxW / (nm.length * 0.66))), hp = h * 0.8, w = Math.max(tW(nm, h, true), tW(id, hp, false)) + 1.2, H = h * 1.25 + hp * 1.25 + 0.8;
+      mk(g, 'rect', { x: cx - w / 2, y: cy - H / 2, width: w, height: H, fill: pal.mask });
+      mk(g, 'text', { x: cx, y: cy - H / 2 + 0.4 + h * 0.95, 'font-size': h.toFixed(2), 'font-weight': 700, fill: pal[col], 'text-anchor': 'middle', 'font-family': ARIAL }, nm);
+      mk(g, 'text', { x: cx, y: cy - H / 2 + 0.4 + h * 1.25 + hp * 0.95, 'font-size': hp.toFixed(2), fill: pal[col], 'text-anchor': 'middle', 'font-family': ARIAL }, id);
+    }
+    /** The curved planning arrow from A (the tower's side that faces its point) to B (the point): a tapered shaft, a solid head. */
+    function curveArrow(A, B, r) {
+      const dx = B[0] - A[0], dy = B[1] - A[1], L = Math.hypot(dx, dy); let nx = -dy / L, ny = dx / L; if (ny > 0) { nx = -nx; ny = -ny; }
+      const Cc = [(A[0] + B[0]) / 2 + nx * L * 0.5, (A[1] + B[1]) / 2 + ny * L * 0.5], Pq = (t) => [(1 - t) * (1 - t) * A[0] + 2 * (1 - t) * t * Cc[0] + t * t * B[0], (1 - t) * (1 - t) * A[1] + 2 * (1 - t) * t * Cc[1] + t * t * B[1]];
+      const N = 80, pts = [], cum = [0]; for (let i = 0; i <= N; i++) { pts.push(Pq(i / N)); if (i) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])); }
+      const Sl = cum[N], at = (sv) => { let i = 1; while (i < N && cum[i] < sv) i++; const f = (sv - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1), tx = pts[i][0] - pts[i - 1][0], ty = pts[i][1] - pts[i - 1][1], tl = Math.hypot(tx, ty) || 1; return { x: pts[i - 1][0] + tx * f, y: pts[i - 1][1] + ty * f, ux: tx / tl, uy: ty / tl }; };
+      const hl = Math.min(4, Math.max(2.8, Sl * 0.26)), hw = hl * 0.6, w0 = 0.3, w1 = hl * 0.42, sTip = Sl - (r || 1.1), sBase = sTip - hl, left = [], right = [];
+      for (let i = 0; i <= 24; i++) { const q = at(sBase * i / 24), w = (w0 + (w1 - w0) * Math.pow(i / 24, 1.4)) / 2; left.push([q.x - q.uy * w, q.y + q.ux * w]); right.push([q.x + q.uy * w, q.y - q.ux * w]); }
+      const b = at(sBase), t = at(sTip);
+      return { shaft: left.concat(right.reverse()), head: [[t.x, t.y], [b.x - b.uy * hw, b.y + b.ux * hw], [b.x + b.uy * hw, b.y - b.ux * hw]], mid: pts.filter((p, i) => i % 4 === 0), dir: [b.ux, b.uy] };
+    }
+    function scTower(P, C) {
+      const point = P.site.move === 'point', T = placeTower(point), [sx, sy] = TS, K = T.k, top = T.base - 48 * K, col = 5, nameMode = P.site.name;
+      const sc = { vb: [0, 30, 120, 82], bounds: { x0: 1, y0: 1, x1: 119, y1: SHEETY - 2 }, under: [], over: [], labels: [], obst: [] };
+      sc.under.push((g, pal) => {
+        line(g, [0, 160].map((y) => [roadL(y), y]), { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [0, 160].map((y) => [roadR(y), y]), { stroke: pal.road, 'stroke-width': 0.15 });
+        line(g, TCAB, { stroke: pal[1], 'stroke-width': 0.55, 'stroke-dasharray': '3 1.5' });
+        TPH.forEach(([x, y, w, h]) => photoSym(g, pal, x, y, w, h));
+        cloSym(g, pal, 36.5, 89.8, 2.1); TP.forEach((p) => poleSym(g, pal, p.x, p.y));
+        mk(g, 'line', { x1: 0, y1: SHEETY, x2: 150, y2: SHEETY, stroke: pal[6], 'stroke-width': 0.35, 'stroke-dasharray': '2.4 1.4' });
+        mk(g, 'text', { x: 118, y: SHEETY - 1.2, 'font-size': 2.4, fill: pal[6], 'text-anchor': 'end', 'font-family': ARIAL }, 'R-12'); mk(g, 'text', { x: 118, y: SHEETY + 3.2, 'font-size': 2.4, fill: pal[6], 'text-anchor': 'end', 'font-family': ARIAL }, 'R-13'); });
+      sc.obst.push(...polyBoxes(TCAB, 0.3), ...TPH.map(([x, y, w, h]) => ({ x0: x, y0: y, x1: x + w, y1: y + h })), bx(36.5, 89.8, 4.4, 4.4), ...TP.map((p) => bx(p.x, p.y, 2.6, 2.6)), bx(sx, sy, 2.4, 2.4));
+      if (!point) sc.obst.push({ x0: T.ax - 12.4 * K - 0.4, y0: top - 0.4, x1: T.ax + 12.4 * K + 0.4, y1: T.base + 0.4 });
+      let AG = null;
+      if (T.moved && P.site.arrow) { const f = 0.1, side = sx < T.ax ? -1 : 1, beside = Math.abs(sx - T.ax) > 12.4 * K;
+        const A = beside ? [T.ax + side * (12.4 * K * (1 - f) + 1.6 * K * f + 0.8), T.base - 48 * K * f] : sy > T.base ? [T.ax, T.base + 0.8] : [T.ax, top - 0.8];
+        AG = curveArrow(A, [sx, sy], 1.1); sc.obst.push(...polyBoxes(AG.mid, 1.1)); }
+      TP.forEach((p) => sc.labels.push(...poleLabels(P, p)));
+      [[[30.2, 9.5], [32.2, 50], '41m'], [[32.2, 50], [34.2, 88], '38m'], [[34.2, 88], TS, '18m']].forEach(([a, b, t], i) => { const ang = Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI, rot = ang > 90 ? ang - 180 : ang < -90 ? ang + 180 : ang; sc.labels.push(Txt({ id: `sp${i}`, pri: 30, t, h: 2.2, c: 7, rot, shrink: true, spots: along({ a, b, side: 1, gap: 0.8 }) })); });
+      sc.labels.push(Blk({ id: 'clo', pri: 60, lines: [{ t: 'PROPOSED', h: 2.2, c: 7 }, { t: 'CLOSURE', h: 2.2, c: 7 }], shrink: true, lead: true, ax: 36.5, ay: 89.8, ar: 2.2, spots: ring({ ax: 36.5, ay: 89.8, ar: 2.2, def: (d) => ({ cx: 36.5 - 2.6 - d.w / 2, cy: 89.8 + 2.4 + d.h / 2 }) }) }));
+      const NM = 'DEMO SITE MATINA', ID = 'DVO-0042';
+      if (nameMode !== 'on') { const X = 12.4 * K, cands = (d) => { const out = [], f = (cx, cy, c) => out.push({ cx, cy, d: 0, cost: c });
+          if (nameMode === 'top') { f(T.ax, top - 3.2 - d.h / 2, 0); f(T.ax + X * 0.5, top - 3.2 - d.h / 2, 1); f(T.ax - X * 0.5, top - 3.2 - d.h / 2, 1); }
+          else if (nameMode === 'bottom') { f(T.ax, T.base + 1.4 + d.h / 2, 0); f(T.ax + X * 0.4, T.base + 1.4 + d.h / 2, 1); }
+          for (const dy of [0.62, 0.45, 0.8, 0.3]) { f(T.ax + X + 1.4 + d.w / 2, T.base - 48 * K * dy, 2 + dy); f(T.ax - X - 1.4 - d.w / 2, T.base - 48 * K * dy, 2.2 + dy); }
+          return out.sort((a, b) => a.cost - b.cost); };
+        sc.labels.push(Blk({ id: 'site', pri: 85, lines: [{ t: NM, h: 2.4, c: col, bold: true }, { t: ID, h: 1.9, c: col }], shrink: true, spots: cands })); }
+      sc.over.push((g, pal) => {
+        towerG(g, pal, T.ax, T.base, K, col);
+        if (nameMode === 'on') maskName(g, pal, T.ax, T.base - 48 * K * 0.27, NM, ID, 24.8 * K * 0.95, col);
+        mk(g, 'circle', { cx: sx, cy: sy, r: 0.9, fill: pal[col] });
+        if (AG) { const c = pal[P.site.acol || col], w = mk(g, 'g', { class: 'arw-nudge', style: `--dx:${(AG.dir[0] * 0.8).toFixed(2)}px;--dy:${(AG.dir[1] * 0.8).toFixed(2)}px` }), pl = (p) => p.map((q) => `${q[0].toFixed(2)},${q[1].toFixed(2)}`).join(' ');
+          mk(w, 'polygon', { points: pl(AG.shaft), fill: c, class: 'dsarrow' }); mk(w, 'polygon', { points: pl(AG.head), fill: c }); }
+        else if (T.moved) mk(g, 'line', { x1: sx, y1: sy, x2: T.ax - 12.4 * K, y2: T.base, stroke: pal.grey, 'stroke-width': 0.2 }); });
+      sc.tower = T;
+      return sc;
+    }
+    /* state and layout */
+    let scene = 'street', compact = false, big = false, wired = false, last = null, shrink = 220; // (shrink: how much shorter the preview gets; the settings stay put)
+    const NAMES = { street: 'Street', crowd: 'Crowded corner', tower: 'Tower site', vic: 'Vicinity map' };
+    const body = () => $('drwStyle').querySelector('.dsbody'), col = () => $('dsPrevCol');
+    function render(P) {
+      wire(); P = P || plStyle(); const svg = $('stPrev'); if (!svg) return;
+      const C = { auto: P.crowd.auto, min: P.crowd.min / 100, move: P.crowd.move, leader: P.crowd.leader, streets: P.crowd.streets, marks: P.crowd.marks, mark: $('dsMark').checked };
+      $('drwStyle').querySelectorAll('.dsscenes [data-scene]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.scene === scene)));
+      $('drwStyle').querySelectorAll('.stgrp[data-scene]').forEach((g) => { g.hidden = g.dataset.scene !== scene; }); // beta 3.9: only the settings of the part picked
+      let r = null;
+      if (scene === 'vic') { while (svg.firstChild) svg.removeChild(svg.firstChild); drawVicPreview(P, svg); }
+      else r = paint(svg, scene === 'crowd' ? scCrowd(P, C) : scene === 'tower' ? scTower(P, C) : scStreet(P, C), C);
+      svg.setAttribute('preserveAspectRatio', compact ? 'xMidYMid slice' : 'xMidYMid meet');
+      const cap = $('dsCap'); cap.textContent = '';
+      const a = document.createElement('span'); a.textContent = `${NAMES[scene]} · `; const b = document.createElement('span');
+      if (!r) b.textContent = 'the route and the project area';
+      else { b.className = `ov ${r.clashes ? 'bad' : 'good'}`; b.textContent = r.clashes ? `${r.clashes} label${r.clashes > 1 ? 's' : ''} overlap` : 'nothing overlaps'; }
+      cap.append(a, b); if (r && r.skipped) cap.append(` · ${r.skipped} landmark name${r.skipped > 1 ? 's' : ''} left out (no room)`);
+      svg.setAttribute('aria-label', `Preview: ${NAMES[scene]}. ${b.textContent}.`);
+      last = { scene, clashes: r ? r.clashes : 0, skipped: r ? r.skipped : 0, ids: r ? r.ids : [] };
+    }
+    function setScene(sn) { if (sn === scene || !NAMES[sn]) return; scene = sn; render(); const bd = body(); if (bd && !$('drwStyle').hidden && (bd.clientWidth >= 720 || !compact)) bd.scrollTop = 0; } // (beta 3.9: its settings from their top)
+    const narrow = () => { const bd = body(); return !bd || bd.clientWidth < 720; };
+    function setCompact(on) {
+      if (on === compact) return; const c = col(), h0 = c.getBoundingClientRect().height; compact = on; c.classList.toggle('compact', on);
+      $('stPrev').setAttribute('preserveAspectRatio', on ? 'xMidYMid slice' : 'xMidYMid meet'); const d = c.getBoundingClientRect().height - h0; if (on && d < 0) shrink = -d; body().scrollTop += d; // (the settings stay where they were)
+    }
+    function onScroll() {
+      const bd = body(); if (!bd || $('drwStyle').hidden) return; const nb = narrow(); $('dsBig').hidden = !nb;
+      if (!nb || big) { if (compact) setCompact(false); return; }
+      if (!compact && bd.scrollTop > 150 + shrink) setCompact(true); else if (compact && bd.scrollTop < 20) setCompact(false); // (the gap: no back and forth at the threshold)
+    }
+    function reset() { compact = false; big = false; const c = col(); if (c) c.classList.remove('compact'); if ($('dsBig')) $('dsBig').textContent = 'Bigger'; const bd = body(); if (bd) bd.scrollTop = 0; }
+    function wire() {
+      if (wired) return; wired = true;
+      const root = $('drwStyle');
+      root.querySelector('.dsscenes').addEventListener('click', (e) => { const b = e.target.closest('[data-scene]'); if (b) setScene(b.dataset.scene); });
+      root.querySelectorAll('.stgrp[data-scene]').forEach((g) => { const go = () => setScene(g.dataset.scene); g.addEventListener('pointerdown', go); g.addEventListener('focusin', go); });
+      $('dsMark').addEventListener('change', () => render());
+      $('dsBig').addEventListener('click', () => { big = !big; $('dsBig').textContent = big ? 'Smaller' : 'Bigger'; if (big) setCompact(false); else onScroll(); });
+      body().addEventListener('scroll', onScroll, { passive: true });
+      window.addEventListener('resize', () => { if (!$('drwStyle').hidden) onScroll(); });
+    }
+    return { render, setScene, reset, onScroll, scene: () => scene, stats: () => last, compact: () => compact };
+  })();
   /* Find: search the project's pins by ID, element, status or defect; tap one to fly to it on the map and open it. */
   function openFind() { $('findQ').value = ''; renderFind(); openSheet('find'); setTimeout(() => $('findQ').focus(), 120); }
   function renderFind() {
@@ -6440,19 +6810,14 @@
         l.textContent = elec ? 'OWNER NAME · THE COOP OR POWER COMPANY' : 'OWNER NAME';
         const inp = document.createElement('input'); inp.type = 'text'; inp.className = 'boqsel'; inp.dataset.k = k; inp.maxLength = 40; inp.autocomplete = 'off'; inp.setAttribute('autocapitalize', 'characters'); inp.setAttribute('aria-label', 'Owner name');
         inp.placeholder = elec ? 'e.g. DLPC' : o; inp.value = ed.boq.ownerName || (elec ? '' : o); inp.disabled = ro;
-        inp.addEventListener('input', () => { const v = inp.value.trim().replace(/\s+/g, ' ').toUpperCase().slice(0, 40); if (v && v !== o) ed.boq.ownerName = v; else delete ed.boq.ownerName; ed.boqTouched = true; foldSum(); edRefreshSoon(); });
+        inp.addEventListener('input', () => { const v = inp.value.trim().replace(/\s+/g, ' ').toUpperCase().slice(0, 40); if (v && v !== o) ed.boq.ownerName = v; else delete ed.boq.ownerName; ed.boqTouched = true; foldSum(); edRefreshSoon(); if (elec) fillCoopChips(); }); // (beta 3.8: typing finds any coop)
         inp.addEventListener('change', () => renderBoq());
         row.appendChild(inp);
-        if (elec) {
-          coopChoices().slice(0, 12).forEach((v) => { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = v; c.setAttribute('aria-pressed', String(ed.boq.ownerName === v)); c.disabled = ro;
-            c.addEventListener('click', () => { if (ed.boq.ownerName === v) delete ed.boq.ownerName; else ed.boq.ownerName = v; ed.boqTouched = true; renderBoq(); foldSum(); });
-            if ((S.myCoops || []).includes(v) && !ro) { c.dataset.kept = '1'; c.title = 'Added on this phone: long-press to take it off the list'; // v2.43.0
-              c.addEventListener('contextmenu', async (e) => { e.preventDefault(); if (!await ask('Take it off the list?', `“${v}” goes off this phone's list of coops. Poles that have it keep it.`, [{ label: 'Cancel', value: false }, { label: 'Take it off', value: true, primary: true }])) return;
-                S.myCoops = (S.myCoops || []).filter((x) => x !== v); const U = { ...ownUseOf('ownerName') }; delete U[v]; S.ownUse = { ...(S.ownUse || {}), ownerName: U }; persist(); renderBoq(); toast(`${v}: off the list`, 1500); }); }
-            chips.appendChild(c); });
-          row.appendChild(chips);
+        if (elec) { // beta 3.8: the town the list is for (and Get the road pack), the town's coops, More coops; no text under them
+          const pl = document.createElement('div'); pl.className = 'coopplace'; row.appendChild(pl);
+          chips.classList.add('coopchips'); chips.dataset.ro = ro ? '1' : ''; row.appendChild(chips);
+          rows.appendChild(row); fillCoopChips(); return;
         }
-        const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '4px 0 0'; n.textContent = 'Shown on the DXF, the PDF and Table · CSV; each owner name can be its own drawing (RTA).' + (elec ? ' A coop you type is kept on this phone for your next poles; the ones you use most come first.' : ''); row.appendChild(n);
         rows.appendChild(row); return;
       }
       if (k === 'clamp' && !ed.boq.clampType && hwNow && hwNow.noClamp) { // v2.42.18: no pole clamp on this pole: no size
@@ -7490,7 +7855,7 @@
     // made it big on a scroll back to the top: on an iPhone the form's glide and bounce read as that, so the map went small and big
     // again and the form jumped each time (the stutter). No animation of its height either (the map was resized at each frame).
     const wrap = $('pinMapWrap'), MINI_H = 96, edEl = $('editor'); let touching = 0, restT = 0;
-    const off = () => !edTabsOn() || $('editor').classList.contains('kbfield');
+    const off = () => !edTabsOn() || $('editor').classList.contains('kbfield') || deskOn(); // (beta 3.9: on a computer the map stays beside the form)
     const atRest = () => {
       if (off() || touching || wrap.classList.contains('mini')) return;
       const st = body.scrollTop, d = wrap.offsetHeight - MINI_H, room = body.scrollHeight - body.clientHeight; // how far the form scrolls now
@@ -8609,14 +8974,14 @@
     return btoa(s);
   }
   /** Write a blob to a native folder in 3 MB pieces (large KMZ/PDF files would not fit through the bridge at once). */
-  async function nativeWrite(blob, path, directory) {
+  async function nativeWrite(blob, path, directory, what) {
     const CH = 3 * 1024 * 1024; let uri = '', started = false;
     try {
       for (let off = 0; off < Math.max(1, blob.size); off += CH) {
         const data = await blobChunkB64(blob, off, Math.min(blob.size, off + CH));
         if (off === 0) { uri = (await nativeCall('Filesystem', 'writeFile', { path, data, directory, recursive: true })).uri; started = true; }
         else await nativeCall('Filesystem', 'appendFile', { path, data, directory });
-        if (blob.size > CH) busy(`Saving ${Math.min(100, Math.round(((off + CH) / blob.size) * 100))}%…`, Math.min(1, (off + CH) / blob.size));
+        if (blob.size > CH) busy(`${what || 'Saving'} ${Math.min(100, Math.round(((off + CH) / blob.size) * 100))}%…`, Math.min(1, (off + CH) / blob.size));
       }
     } catch (e) { // v2.42.4: a file cut short (phone full) is removed, not left under its name (a ZIP that would not open)
       if (started) await Promise.resolve(nativeCall('Filesystem', 'deleteFile', { path, directory })).catch(() => {});
@@ -8647,7 +9012,7 @@
   /** Share: the file goes only to the app's private cache (other apps cannot browse it) and is handed to the chosen app. */
   async function nativePrivate(r) {
     if (r.cacheUri) return r;
-    try { r.cacheUri = await nativeWrite(r.blob, `share/${r.name}`, 'CACHE'); }
+    try { r.cacheUri = await nativeWrite(r.blob, `share/${r.name}`, 'CACHE', 'Preparing to send'); }
     finally { busy(false); }
     return r;
   }
@@ -8736,7 +9101,7 @@
       const keys = R ? [R[2], R[1]] : [], rx = (k) => new RegExp(`(^|[^A-Za-z0-9])${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^A-Za-z0-9])`, 'i');
       target = [...$('packList').querySelectorAll('.area-card')].find((r) => { const t = ((r.querySelector('.t') || {}).textContent || '').trim(); return /^roads\b/i.test(t) && keys.some((k) => rx(k).test(t)); }) || null;
       found = !!target;
-      g.textContent = target ? `For the plan drawing of “${proj}”: tap Download on ${target.querySelector('.t').textContent} below (Wi-Fi is best), then go back to Export.`
+      g.textContent = target ? `For the plan drawing of “${proj}”: under Road packs, tap the download button (↓) of ${target.querySelector('.t').textContent} below (Wi-Fi is best), then go back to Export.`
         : `For the plan drawing of “${proj}”: no road pack for ${rn || 'its area'} is listed yet. Ask your admin to add “Roads · ${rn || 'your region'}” (Settings → Administration → Offline map packs) and tap Refresh list, or Import a pack file they sent you.`;
       if (!target) target = $('packImport');
     } else {
@@ -9909,7 +10274,7 @@
           const vr = await planRoads(llBox([cE - size / 2, cN - size / 2, cE + size / 2, cN + size / 2], 0)).catch(() => null);
           if (vr && vr.roads.length) { v = await vicinityFromRoads(vr.roads, cE, cN, size); drawn = !!v; }
         }
-        if (v) v = await vicFocus(v, cE, cN, size, vicC); // v2.37: grey and darker outside the circle
+        if (v && PLS.vic.area !== false) v = await vicFocus(v, cE, cN, size, vicC); // v2.37: grey and darker outside the circle (beta 3.9: with the project area shown)
         if (v) { if (v.sat) kind = 'sat'; image = { file, px: v.px, py: v.py, credit: v.credit, sat: !!v.sat }; files.push({ name: file, data: v.jpg }); }
       } catch (e) { LOG.warn('plan.vicinity', errInfo(e)); }
       vics.push({ c: [cE, cN], size, circle: vicC, image });
@@ -9924,7 +10289,8 @@
       busy(many ? `Drawing the plan on the template (${k + 1} of ${SETS.length})…` : 'Drawing the plan on the template…', k / SETS.length);
       await sleep(30);
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
-      const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? PLS.clamp : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
+      const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? PLS.clamp : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks,
+        towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: PLS.site.acol, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
         numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
@@ -10033,6 +10399,9 @@
     });
     return out;
   }
+  // v2.43.1 (beta 3.6): each choice of the Photo report's card is kept as it is made, so the card shows it again when the export screen
+  // comes back (after a result) instead of the options of the last report
+  ['prPer', 'prNum', 'prBy', 'prLoc'].forEach((id) => $(id).addEventListener('change', () => { S.prOpt = { per: $('prPer').value, num: $('prNum').value, by: $('prBy').value, loc: $('prLoc').value }; persist(); }));
   $('doPhotoReport').addEventListener('click', () => guard(async () => {
     const pts = needPoints(); if (!pts) return;
     const poles = pts.filter((p) => elemOf(p) === 'Pole');
@@ -12785,13 +13154,18 @@
         dates: t.dates && typeof t.dates === 'object' ? { surveyStart: s100(t.dates.surveyStart, 20), surveyDone: s100(t.dates.surveyDone, 20), pat: s100(t.dates.pat, 20), fat: s100(t.dates.fat, 20) } : null };
     }).filter((t) => t.id && t.project);
     if (opts && opts.area) { const mine = tasks.filter((t) => areaOk(t)); tasks = mine.concat(tasks.filter((t) => !areaOk(t))); } // v2.25: the user's regions first, then the cap
-    const packs = (Array.isArray(j.packs) ? j.packs : []).filter((p) => p && typeof p === 'object').map((p) => ({ name: s100(p.name), link: s100(p.link, 300), sizeMB: +p.sizeMB || 0, notes: s100(p.notes, 200) }))
+    const packs = (Array.isArray(j.packs) ? j.packs : []).filter((p) => p && typeof p === 'object').map((p) => ({ name: s100(p.name), link: s100(p.link, 300), sizeMB: +p.sizeMB || 0, notes: s100(p.notes, 200), ...(p.region ? { region: s100(p.region, 80) } : {}) })) // (beta 3.8: + its region)
       .filter((p) => p.link).slice(0, 50);
     const admins = (Array.isArray(j.admins) ? j.admins : []).map((c) => s100(c)).filter(Boolean).slice(0, 20);
     const adminUsers = Array.isArray(j.adminUsers) ? j.adminUsers.filter((u) => u && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(u.e || ''))).slice(0, 100)
       .map((u) => ({ e: s100(u.e, 120).toLowerCase(), n: s100(u.n, 80), i: s100(u.i, 40), m: s100(u.m, 30), j: s100(u.j, 120) })) : null; // v2.28: admin phones only
     const cseLeads = Array.isArray(j.cseLeads) ? j.cseLeads.filter((x) => x && typeof x === 'object').map((x) => ({ t: s100(x.t, 60), n: s100(x.n, 80) })).filter((x) => x.t && x.n).slice(0, 200) : null; // v2.42.12: the CSE LEAD tab
-    return { name: s100(j.name), companies, admins, tasks: tasks.slice(0, 500), packs, ...(cseLeads ? { cseLeads } : {}), scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you),
+    const coops = Array.isArray(j.coops) ? j.coops.filter((x) => x && typeof x === 'object').map((x) => { // v2.43.1 (beta 3.6): the sheet's Coops tab (beta 3.8: each town's province p and region g, sheet v2.43.4)
+      const t = (Array.isArray(x.t) ? x.t : []).slice(0, 600).map((v) => s100(v, 60).trim()), keep = t.map((v, i) => (v ? i : -1)).filter((i) => i >= 0), al = (a, n) => (Array.isArray(a) ? keep.map((i) => s100(a[i], n).trim()) : null);
+      const p = al(x.p, 60), g = al(x.g, 40);
+      return { n: s100(x.n, 40).trim().replace(/\s+/g, ' ').toUpperCase(), r: s100(x.r, 40).trim(), t: keep.map((i) => t[i]), ...(p && p.some(Boolean) ? { p } : {}), ...(g && g.some(Boolean) ? { g } : {}) }; }).filter((x) => x.n).slice(0, 400) : null;
+    return { name: s100(j.name), companies, admins, tasks: tasks.slice(0, 500), packs, ...(cseLeads ? { cseLeads } : {}), ...(coops && coops.length ? { coops, ...(j.coopsH ? { coopsH: s100(j.coopsH, 40) } : {}) } : {}),
+      ...(j.coopsSame ? { coopsSame: s100(j.coopsSame, 40) } : {}), ...(j.sv ? { sv: s100(j.sv, 20) } : {}), scope: j.scope === 'company' ? 'company' : j.scope === 'all' ? 'all' : '', strict: !!j.strict, you: s100(j.you),
       ...(j.kmzPass ? { kmzPass: s100(j.kmzPass, 100) } : {}), ...(adminUsers ? { adminUsers } : {}), ...(/^[A-Za-z0-9_-]{20,80}$/.test(String(j.dxfSeed || '')) ? { dxfSeed: String(j.dxfSeed) } : {}), // v2.32: the plan template's id
       ...(typeof j.siteRequired === 'boolean' ? { siteRequired: j.siteRequired } : {}), // v2.42.18: the sheet's Settings → Site required
       ...(typeof j.teamOn === 'boolean' ? { teamOn: j.teamOn } : {}) }; // v2.43 beta 3.2 (QA-17): Team for this company (sheet → CompanyKeys → Team)
@@ -12818,6 +13192,7 @@
       if (isAdmin() && S.onlineAdminKey) u.searchParams.set('akey', S.onlineAdminKey);
       if (S.user && S.user.email) u.searchParams.set('email', S.user.email); // v2.42.6: the user's credits (the sheet's Credits tab)
       if (S.adminMe && S.adminMe.tok && S.adminMe.src === src.url) { u.searchParams.set('aem', S.adminMe.e); u.searchParams.set('atok', S.adminMe.tok); } // v2.42.18: the verified admin user: its row only
+      if (S.cloud && S.cloud.src === src.url && S.cloud.coopsH && S.cloud.coops) u.searchParams.set('ch', S.cloud.coopsH); // beta 3.8: the coops list this phone has (sent again only when it changed)
       u.searchParams.set('area', '1'); // v2.27: with no region or territory ticked, the sheet (v2.27 script) sends no site
       u.searchParams.set('logoat', (S.logoInfo && S.logoInfo.at) || ''); // v2.34: the company logo comes only when it changed
       if (myRegions().length) u.searchParams.set('region', myRegions().join(',')); // v2.25: the sheet (v2.25 script) sends only these regions
@@ -12848,7 +13223,10 @@
         if (j && j.error === 'company key') strictAt = sheetUrl(); // v2.42.4: the sheet uses company keys (the message below no longer says “company key”)
         if (!j || !j.ok) throw new Error(j && j.error === 'key' ? 'the sheet refused the read key' : j && j.error === 'company key' ? (keyMode() ? 'your company key no longer works: ask your admin for a new invite (Settings → Reset user, then open the invite)' : 'join with your company invite (QR code or link from your admin or a coworker)') : `unexpected answer${j && j.error ? ` (${j.error})` : ''}`);
         const teamWas = tmHooks.on ? tmHooks.on() : false;
-        S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j, { area: true }) }; cloudErr = ''; persist();
+        const prevC = S.cloud && S.cloud.src === src.url ? S.cloud : null; // beta 3.8: the sheet sends the coops only when they changed
+        S.cloud = { src: src.url, at: new Date().toISOString(), ...cleanCloud(j, { area: true }) }; cloudErr = '';
+        if (S.cloud.coopsSame && prevC && prevC.coops && prevC.coopsH === S.cloud.coopsSame) { S.cloud.coops = prevC.coops; S.cloud.coopsH = prevC.coopsH; }
+        delete S.cloud.coopsSame; folderLinks(); persist(); setTimeout(() => { try { packPopSoon(); } catch (e) { /* after start */ } }, 0);
         if (tmHooks.switched && (tmHooks.on ? tmHooks.on() : false) !== teamWas) { try { tmHooks.switched(); } catch (e) { LOG.warn('team.switch', errInfo(e)); } } // v2.43 beta 3.2 (QA-17)
         if (S.adminMe && S.adminMe.src === src.url && j.adminMe && typeof j.adminMe === 'object') { // v2.42.18: the verified admin user's row (its jobs), or its row deleted
           if (j.adminMe.gone || j.adminMe.bad) { if (!S.adminMe.gone) LOG.info('admin.email.gone', { bad: !!j.adminMe.bad }); S.adminMe = { ...S.adminMe, gone: true }; }
@@ -12886,6 +13264,15 @@
     let crTxt = ''; try { const cr = creditOf(); if (cr && cr.on && !creditFree()) crTxt = ` · credits: ${cr.unl ? 'unlimited' : cr.err ? 'see Export' : `${fmtM((cr.bal || 0) - creditOwed())} left`}`; } catch (e) { crTxt = ''; } // v2.42.6
     el.textContent = `Online sheet${c && c.name ? ` “${c.name}”` : ''}: ${c ? `last read ${fmtTime(c.at)} · ${isAdmin() ? `${c.companies.length} companies · ` : ''}${c.tasks.length} task${c.tasks.length === 1 ? '' : 's'}${c.scope === 'company' ? ` for ${S.user && S.user.company}` : c.scope === 'all' ? ' (all companies)' : ''} · ${c.packs.length} map packs${crTxt}` : 'not read yet'}${cloudErr ? ` · last try failed: ${cloudErr}` : ''}`;
     $('companyKeyBox').hidden = keyMode() || !(/company key/.test(cloudErr) || (strictAt && strictAt === sheetUrl())); // only where the sheet asks for it (v2.42.4: strictAt)
+    const ci = $('coopInfo'); ci.hidden = !c; if (c) ci.textContent = coopInfoText(c); // beta 3.8
+  }
+  const cmpVer = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d > 0 ? 1 : -1; } return 0; };
+  /** beta 3.8: the coops list this phone has from the online sheet, or why it has none. */
+  function coopInfoText(c) {
+    const L = Array.isArray(c.coops) ? c.coops : [], towns = L.reduce((t, x) => t + (x.t || []).length, 0), sv = String(c.sv || ''), new4 = sv && cmpVer(sv, '2.43.4') >= 0;
+    if (L.length) return `Coops list: ${L.length} coop${L.length === 1 ? '' : 's'} · ${towns} town${towns === 1 ? '' : 's'}, from the online sheet (read ${fmtTime(c.at)})${new4 ? '' : '. The sheet\'s script is older than v2.43.4: ask your admin to update its deployment (New version) so each town is matched with its province.'}`;
+    if (new4) return 'Coops list: none. The online sheet\'s Coops tab is empty: the built-in coops and the ones you type are offered.';
+    return 'Coops list: none. The online sheet\'s script is older than v2.43.4: ask your admin to update its deployment (New version).';
   }
   // v2.24: the sheet asks for a company key: the user joins with an invite (QR code or link); the profile's Save signs in with it
   $('companyKeyScan').addEventListener('click', () => scanTeamQr(false));
@@ -12945,6 +13332,15 @@
   const autoName = (t, cat) => joinParts([CAT_CODE[cat] || '', extraOf(t, 'Project Name'), extraOf(t, 'Serial Number'), t.site, t.project]).slice(0, 100);
   const siteDetail = (t) => [vendorsOf(t).length && `Vendor: ${vendorsOf(t).join(', ')}`, ...(t.extra || []).slice(0, 2).map(([k, v]) => `${k}: ${v}`), t.id && `ID: ${t.id}`].filter(Boolean).join(' · ');
   /** What a project made from a sheet row keeps (shown in Projects, printed on the forms). */
+  /** beta 3.8: each project made from a sheet site takes the site's Drive folder link as the sheet has it now (added or corrected
+      after the project was made); a blank cell takes nothing away. */
+  function folderLinks() {
+    const T = (S.cloud && S.cloud.tasks) || []; if (!T.length || !S.meta) return 0; let n = 0;
+    allProjects().forEach((name) => { const m = S.meta[name]; if (!m || !m.taskId) return; const t = T.find((x) => x.id === m.taskId);
+      if (t && t.link && t.link !== m.siteLink) { S.meta[name] = { ...m, siteLink: t.link }; n++; } });
+    if (n) { LOG.info('site.folder.links', { n }); try { if (!$('projects').hidden) renderProjects(); } catch (e) { /* at start */ } }
+    return n;
+  }
   const siteMeta = (t) => (t ? { taskId: t.id, siteLink: t.link || '', siteExtra: t.extra || [], ...(t.globeRep ? { globeRep: t.globeRep } : {}),
     siteName: t.project || '', plaId: t.site || '', serial: extraOf(t, 'Serial Number') || '', territory: t.territory || extraOf(t, 'Territory') || '' } : {}); // v2.34: for the plan drawing's title blocks (v2.42.12: its territory, for the CSE Lead)
   /* v2.41: the site's details from the Project Data sheet: the columns between Territory and OSP VENDOR (Project Name, Serial Number,
@@ -13875,6 +14271,12 @@
     if (!NATIVE) a.target = '_blank';
     document.body.appendChild(a); a.click(); a.remove();
   }
+  /* beta 3.7: the icons of the map packs' buttons (the name shows on a long-press) */
+  const PK_KIND = { Download: 'dl', Resume: 'dl', 'Download again': 'again', Repair: 'fix', Use: 'use', Show: 'show', Delete: 'del', Remove: 'del', Confirm: 'del', 'Open in Drive': 'drive', 'How to fix': 'help' };
+  const PK_ICON = { dl: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3', again: 'M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15',
+    fix: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z', use: 'M12 2 2 7l10 5 10-5-10-5ZM2 17l10 5 10-5M2 12l10 5 10-5',
+    show: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8ZM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z', del: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
+    drive: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3', help: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01' };
   let packIndex = null, packIndexErr = '';
   async function loadPackIndex() { // packs published with the website (older setup); quietly absent otherwise
     try {
@@ -13887,7 +14289,7 @@
     const byId = {};
     const add = (p) => { byId[p.id] = { ...(byId[p.id] || {}), ...p }; };
     ((packIndex && packIndex.packs) || []).forEach((p) => add({ id: p.id, name: p.name, size: p.size, date: p.date, bbox: p.bbox, maxzoom: p.maxzoom, url: new URL(`maps/${p.file || p.id + '.pmtiles'}`, SITE).href, from: 'website' }));
-    ((S.cloud && S.cloud.packs) || []).forEach((p) => { const id = driveId(p.link); if (id) add({ id: `drive-${id}`, name: p.name || 'Map pack', size: p.sizeMB ? Math.round(p.sizeMB * 1048576) : undefined, sizeApprox: true, notes: p.notes, drive: id, from: 'sheet' }); });
+    ((S.cloud && S.cloud.packs) || []).forEach((p) => { const id = driveId(p.link); if (id) add({ id: `drive-${id}`, name: p.name || 'Map pack', size: p.sizeMB ? Math.round(p.sizeMB * 1048576) : undefined, sizeApprox: true, notes: p.notes, drive: id, from: 'sheet', ...(p.region ? { region: p.region } : {}) }); }); // (beta 3.8: + its region)
     (pol().packs || []).forEach((p) => add({ id: `drive-${p.d}`, name: p.n || 'Map pack', size: p.mb ? Math.round(p.mb * 1048576) : undefined, sizeApprox: true, drive: p.d, from: 'list' }));
     (S.packLinks || []).forEach((p) => add({ id: `drive-${p.drive}`, name: p.name, drive: p.drive, from: 'link' }));
     Object.values(S.packs).forEach((p) => { byId[p.id] = { ...(byId[p.id] || { id: p.id, name: p.name, size: p.size, date: p.date, bbox: p.bbox, maxzoom: p.maxzoom, from: 'phone' }), installed: p }; });
@@ -13924,9 +14326,19 @@
     $('packLinkBox').hidden = true; // v2.41: no Google Drive links typed on the phone (map packs come from the admin, or Import a pack file)
     if (own && S.team) $('packLinkHint').textContent = 'Links added here stay on this phone. To give a pack to everyone: Settings → Administration → Offline map packs.';
     if (!items.length) list.innerHTML = '<p class="hint" style="margin:0">No map packs yet.</p>';
-    for (const p of items) {
+    // beta 3.7: two groups, the map packs (the map with no signal) and the road packs (for the plan drawings); in each, the packs on
+    //           this phone first
+    const isRoadItem = (p) => isRoadPack(p.installed) || (!p.installed && /^roads\b/i.test(p.name || ''));
+    const onPhone = (p) => (p.installed && p.installed.done ? 0 : p.installed ? 1 : 2);
+    const groups = [['map', 'Map packs', 'The map you see with no signal'], ['road', 'Road packs', 'Roads, street names and towns for the plan drawings']]
+      .map(([k, t, sub]) => ({ k, t, sub, items: items.map((p, i) => [p, i]).filter(([p]) => (k === 'road') === isRoadItem(p)).sort((a, b) => onPhone(a[0]) - onPhone(b[0]) || a[1] - b[1]).map(([p]) => p) }))
+      .filter((g) => g.items.length);
+    for (const g of groups) {
+      const h = document.createElement('div'); h.className = 'pkhead'; h.dataset.group = g.k;
+      const ht = document.createElement('b'); ht.textContent = `${g.t} · ${g.items.length}`; const hs = document.createElement('span'); hs.textContent = g.sub; h.append(ht, hs); list.appendChild(h);
+    for (const p of g.items) {
       const inst = p.installed, done = inst && inst.done, partial = inst && !inst.done && inst.bytes > 0;
-      const row = document.createElement('div'); row.className = 'area-card';
+      const row = document.createElement('div'); row.className = 'area-card pk'; row.dataset.group = g.k;
       const d = document.createElement('div');
       const t = document.createElement('span'); t.className = 't'; t.textContent = p.name || p.id;
       const s2 = document.createElement('span'); s2.className = 's';
@@ -13940,30 +14352,37 @@
         done ? (road ? 'on this phone' : p.id === act ? 'on this phone · in use' : 'on this phone') : partial ? `${size ? Math.round((inst.bytes / size) * 100) + '% ' : fmtMB(inst.bytes) + ' '}downloaded` : 'not on this phone',
         p.drive && !done ? 'Google Drive' : '', p.notes || ''].filter(Boolean).join(' · ');
       d.append(t, s2);
-      const mk = (label, cls, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (cls || ''); b.textContent = label; b.addEventListener('click', fn); return b; };
+      const mk = (label, cls, fn) => { // beta 3.7: an icon; its name on a long-press (and for screen readers)
+        const b = document.createElement('button'); b.type = 'button'; b.className = `tmtool pkb ${cls || ''}`; b.dataset.pk = PK_KIND[label] || 'x'; b.dataset.tip = label; b.title = label; b.setAttribute('aria-label', `${label} ${p.name || p.id}`);
+        b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${PK_ICON[PK_KIND[label]] || PK_ICON.help}"/></svg>`;
+        const sr = document.createElement('span'); sr.className = 'sr'; sr.textContent = label; b.appendChild(sr);
+        b.addEventListener('click', fn); return b;
+      };
       const btns = [];
       if (!done) {
-        if (p.url) btns.push(mk(partial ? 'Resume' : 'Download', 'primary', () => downloadPack(p)));
-        else if (p.drive && (NATIVE || webDriveKey())) btns.push(mk(partial ? 'Resume' : 'Download', 'primary', () => downloadPack(p)));
-        if (p.drive && (NATIVE || !webDriveKey() || webDriveFailed.has(p.drive))) btns.push(mk('Open in Drive', '', () => { openExternal(driveViewUrl(p.drive)); if (!NATIVE) toast(webDriveKey() ? 'Download the file in Drive, then come back and tap Import a pack file' : 'Download the file in Drive, then come back and tap Import a pack file. One-tap Download: ask your admin to add a Google Drive API key.', 7000); }));
+        if (p.url) btns.push(mk(partial ? 'Resume' : 'Download', 'pri', () => downloadPack(p)));
+        else if (p.drive && (NATIVE || webDriveKey())) btns.push(mk(partial ? 'Resume' : 'Download', 'pri', () => downloadPack(p)));
+        // (beta 3.7: Open in Drive only where Download cannot work)
+        if (p.drive && !NATIVE && (!webDriveKey() || webDriveFailed.has(p.drive))) btns.push(mk('Open in Drive', '', () => { openExternal(driveViewUrl(p.drive)); if (!NATIVE) toast(webDriveKey() ? 'Download the file in Drive, then come back and tap Import a pack file' : 'Download the file in Drive, then come back and tap Import a pack file. One-tap Download: ask your admin to add a Google Drive API key.', 7000); }));
       }
       const redo = done && (inst.short || inst.damaged === 'data');
-      if (done && inst.damaged === 'parts') btns.push(mk('Repair', 'primary', () => guard(async () => { // v2.35.7
+      if (done && inst.damaged === 'parts') btns.push(mk('Repair', 'pri', () => guard(async () => { // v2.35.7
         if (dl) { toast('Wait until the download has finished'); return; }
         if (packRepairing) return;
         try { await repairPack(inst); toast(`${inst.name} is repaired: ${road ? 'the plan drawings can read its roads again' : 'the map draws close up again'}`, 5000); }
         catch (e) { LOG.warn('pack.repair.fail', errInfo(e)); throw new Error(`${e.message || e}. ${inst.fix ? 'Tap Repair again; if it keeps failing, delete' : 'Delete'} it and ${p.drive || p.url ? 'download it again' : 'import the file again'}`); }
         finally { renderOffline(); }
       }, 'Not repaired')));
-      if (redo && (p.url || (p.drive && (NATIVE || webDriveKey())))) btns.push(mk('Download again', 'primary', () => guard(async () => { // v2.35.4
+      if (redo && (p.url || (p.drive && (NATIVE || webDriveKey())))) btns.push(mk('Download again', 'pri', () => guard(async () => { // v2.35.4
         if (dl) { toast('A map pack is already downloading'); return; }
         await deletePack(p.id); renderOffline(); await downloadPack(p);
       }, 'Not downloaded')));
       else if (redo) btns.push(mk(p.drive ? 'Open in Drive' : 'How to fix', '', () => { if (p.drive) openExternal(driveViewUrl(p.drive)); toast('Download the complete file again on Wi-Fi, then Delete this pack and tap Import a pack file.', 8000); }));
       if (done && !road && p.id !== act) btns.push(mk('Use', '', () => { S.activePack = p.id; persist(); if (S.base === 'offline') setBase('offline', true); renderOffline(); }));
       if (done && !road) btns.push(mk('Show', '', async () => { S.activePack = p.id; persist(); await closeSheet(); setBase('offline'); const b = inst.bbox; if (b) map.fitBounds([[b[1], b[0]], [b[3], b[2]]]); }));
-      if (inst || p.from === 'link') btns.push(mk(inst ? 'Delete' : 'Remove', 'danger', function () {
-        if (!this.dataset.armed) { this.dataset.armed = '1'; this.textContent = 'Confirm'; setTimeout(() => { delete this.dataset.armed; this.textContent = inst ? 'Delete' : 'Remove'; }, 4000); return; }
+      if (inst || p.from === 'link') btns.push(mk(inst ? 'Delete' : 'Remove', 'del', function () {
+        const say = (t) => { this.querySelector('.sr').textContent = t; this.dataset.tip = t; this.title = t; };
+        if (!this.dataset.armed) { this.dataset.armed = '1'; say('Confirm'); toast(`Tap the bin again to ${inst ? 'delete' : 'remove'} ${p.name || 'this pack'}`, 3500); setTimeout(() => { delete this.dataset.armed; say(inst ? 'Delete' : 'Remove'); }, 4000); return; }
         guard(async () => {
           if (dl && dl.id === p.id) { toast('Wait until the download has stopped'); return; }
           if (inst) { busy('Deleting map pack…'); await deletePack(p.id); }
@@ -13971,8 +14390,9 @@
           persist(); renderOffline(); toast(inst ? 'Map pack deleted' : 'Link removed');
         });
       }));
-      row.append(d, ...btns); list.appendChild(row);
-    }
+      const tools = document.createElement('div'); tools.className = 'tmtools pkt'; tools.setAttribute('role', 'group'); tools.setAttribute('aria-label', p.name || p.id); tools.append(...btns);
+      row.append(d, tools); list.appendChild(row);
+    } }
     try { const n = await dbCount('tiles'); $('offTotal').textContent = `${n.toLocaleString()} viewed street-map tiles kept on this phone.`; } catch (e) { /* ignore */ }
     try { renderDxfNeed(); } catch (e) { /* not shown */ } // v2.43 beta 2.1: a pack just downloaded
   }
@@ -14013,9 +14433,10 @@
   const CANCEL = new Error('cancelled');
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   /** Runs one download/import. pump(st, getWriter, job, progress) returns the final size; the writer is opened when first needed. */
-  async function runPackJob(meta, pump, verb) {
+  async function runPackJob(meta, pump, verb, opt) {
     if (dl) { toast(dl.cancelled ? 'Still stopping the last download; try again in a moment' : 'A map pack is already downloading'); return; }
-    const job = dl = { id: meta.id, cancelled: false, detached: false, ctl: new AbortController(), step: 'starting' }; // claimed before any wait
+    const job = dl = { id: meta.id, cancelled: false, detached: false, ctl: new AbortController(), step: 'starting', quiet: !!(opt && opt.quiet) }; // claimed before any wait
+    const say = job.say = (t, f, c) => { if (!job.quiet) { busy(t, f, c); return; } if (t === false) return; packProg.set(meta.id, { frac: f || 0, text: String(t || '') }); packProgUi(meta.id); }; // beta 3.8: quiet: no screen over the app
     let wr = null, st = null;
     try {
       st = S.packs[meta.id];
@@ -14032,7 +14453,7 @@
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
       persist();
       const total = () => st.size || meta.size || 0;
-      const progress = (pos) => { if (!job.cancelled) busy(`${verb} ${st.name}: ${fmtMB(pos)}${total() ? ` of ${fmtMB(total())}` : ''}`, total() ? Math.min(1, pos / total()) : null, true); };
+      const progress = (pos) => { if (!job.cancelled) say(`${verb} ${st.name}: ${fmtMB(pos)}${total() ? ` of ${fmtMB(total())}` : ''}`, total() ? Math.min(1, pos / total()) : null, true); };
       progress(st.bytes);
       const getWriter = async () => { if (!wr) { job.step = 'opening phone storage'; wr = await packWriter(st); } return wr; };
       const size = await pump(st, getWriter, job, progress);
@@ -14048,7 +14469,7 @@
         if (w && w.over) { // v2.35.7: should not happen any more (ownBytes)
           LOG.warn('pack.over', { id: st.id, parts: w.parts });
           try { await repairPack(st); } catch (e) { await removePackData(st); delete S.packs[st.id]; persist(); throw new Error(`${st.name} could not be saved correctly on this phone (${e.message || e}). Try again; if it happens again, send Settings → App log.`); }
-          busy(`${verb} ${st.name}…`, 1, false);
+          say(`${verb} ${st.name}…`, 1, false);
         }
         const v = await packVerify(st).catch((e) => ({ checked: 0, bad: [{ why: String(e.message || e).slice(0, 80) }] })); // v2.35.7: the data can be read
         if (v && v.bad.length) { LOG.warn('pack.unreadable', { id: st.id, checked: v.checked, bad: v.bad.slice(0, 3), ua: navigator.userAgent.slice(0, 120) }); await removePackData(st); delete S.packs[st.id]; persist();
@@ -14057,7 +14478,7 @@
         st.done = true; const h = await roadPackHead(st.id).catch(() => null); st.done = false;
         if (!h || !h.tiles) { await removePackData(st); delete S.packs[st.id]; persist(); throw new Error('This road pack is damaged: download it again'); }
         Object.assign(st, { kind: 'roads', bbox: h.bbox, date: String(h.date || '').replace(/-/g, ''), region: h.region || '', counts: h.counts || {}, barangays: h.barangays || '', done: true });
-        persist(); busy(false);
+        persist(); say(false);
         toast(`${st.name} is ready: the plan drawings take their roads, landmarks and barangays from it`, 4500);
         return;
       }
@@ -14067,17 +14488,18 @@
       }
       Object.assign(st, { bbox: st.bbox || hdr.bbox, maxzoom: hdr.maxzoom, done: true });
       S.activePack = st.id; // v2.35: the pack just downloaded is the offline map in use (Use switches back)
-      persist(); busy(false);
+      persist(); say(false);
       toast(`${st.name} is ready: the offline map now uses it`, 3500);
       if (S.base === 'offline') setBase('offline', true);
     } catch (e) {
       if (wr) await wr.stop().catch(() => {});
       if (!job.detached && st && S.packs[st.id] === st && !st.done && !st.bytes) { await removePackData(st).catch(() => {}); delete S.packs[st.id]; } // nothing saved: no half entry
       persist();
-      if (!job.cancelled) { busy(false); toast(e === CANCEL ? 'Stopped' : (e.message || String(e)), 8000); }
+      if (!job.cancelled) { say(false); toast(e === CANCEL ? 'Stopped' : (e.message || String(e)), 8000); }
     } finally {
       if (dl === job) dl = null;
       if (!$('offline').hidden) renderOffline();
+      if (job.quiet) packDone(meta.id); // beta 3.8
     }
   }
   /* ================= v2.29: download the area on the map as an offline pack =================
@@ -14349,7 +14771,7 @@
     const path = `packdl/${st.id}-${Date.now()}.pmtiles`, fs = nativePlugin('Filesystem');
     let lis = null;
     try {
-      try { if (fs.proxy) lis = await fs.proxy.addListener('progress', (e) => { if (!job.cancelled && e && e.bytes) busy(`Downloading ${st.name}: ${fmtMB(e.bytes)}${e.contentLength > 0 ? ` of ${fmtMB(e.contentLength)}` : ''}`, e.contentLength > 0 ? e.bytes / e.contentLength : null, true); }); } catch (e) { lis = null; }
+      try { if (fs.proxy) lis = await fs.proxy.addListener('progress', (e) => { if (!job.cancelled && e && e.bytes) (job.say || busy)(`Downloading ${st.name}: ${fmtMB(e.bytes)}${e.contentLength > 0 ? ` of ${fmtMB(e.contentLength)}` : ''}`, e.contentLength > 0 ? e.bytes / e.contentLength : null, true); }); } catch (e) { lis = null; }
       await nativeCall('Filesystem', 'downloadFile', { url, path, directory: 'CACHE', progress: true, recursive: true });
       if (lis && lis.remove) lis.remove(); lis = null;
       if (job.cancelled) throw CANCEL;
@@ -14388,13 +14810,91 @@
       throw e;
     }
   };
-  function downloadPack(p) {
+  function downloadPack(p, opt) { // (beta 3.8: opt.quiet: it runs while the user works: its progress on the card that started it)
     if (!navigator.onLine) { toast('Connect to the internet (Wi-Fi recommended) to download map packs'); return; }
-    if (p.url) return runPackJob(p, pumpUrl(p.url), 'Downloading');
-    if (p.drive && NATIVE) return runPackJob(p, pumpDrive(p.drive), 'Downloading');
-    if (p.drive && webDriveKey()) return runPackJob(p, pumpDriveApi(p.drive, webDriveKey()), 'Downloading');
+    if (p.url) return runPackJob(p, pumpUrl(p.url), 'Downloading', opt);
+    if (p.drive && NATIVE) return runPackJob(p, pumpDrive(p.drive), 'Downloading', opt);
+    if (p.drive && webDriveKey()) return runPackJob(p, pumpDriveApi(p.drive, webDriveKey()), 'Downloading', opt);
     return null;
   }
+  /* ================= beta 3.8: the packs for where the map is =================
+     A pack is for a region: the sheet's MapPacks Region column (v2.43.4), else its name (Roads · Davao Region, Map · SOCCSKSARGEN ·
+     2026-10-25); a pack on the phone also by its own area. Where the map shows a place whose road pack or map pack is not on the
+     phone and the admin's list has one, a card over the map offers it (Download, its size on the button); Not now: not again for
+     that region until tomorrow. The road pack is also offered in the pole record when the town cannot be read. */
+  function packRegions(p) {
+    const raw = String(p.region || (p.installed && p.installed.region) || '').trim();
+    const L = raw ? raw.split(/[,;/]+|\band\b/i).map((x) => regionKey(x)).filter(Boolean) : [];
+    if (L.length) return [...new Set(L)];
+    const nm = String(p.name || '').replace(/^\s*(roads?|maps?)\s*[·:\-–]\s*/i, '').replace(/\s*[·\-–]\s*\d{4}-\d\d-\d\d.*$/, '');
+    return [...new Set(nm.split(/\s*(?:,|&|\band\b)\s*/i).map((x) => regionKey(x)).filter(Boolean))];
+  }
+  const packIsRoad = (p) => (p.installed ? isRoadPack(p.installed) : /^\s*roads?\b/i.test(String(p.name || '')));
+  const packCanGet = (p) => !!(p.url || (p.drive && (NATIVE || (webDriveKey() && !webDriveFailed.has(p.drive)))));
+  /** For the place (lat, lon): its region, and for each kind (road, map) whether the phone has a pack for it, else the pack to get. */
+  function packsHere(lat, lon) {
+    const R = regionAt(lat, lon); if (!R) return null;
+    const cat = packCatalog(), inB = (b) => !!b && lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3], out = { reg: R };
+    for (const kind of ['road', 'map']) {
+      const L = cat.filter((p) => packIsRoad(p) === (kind === 'road')), done = (p) => !!(p.installed && p.installed.done);
+      const have = L.some((p) => done(p) && (inB(p.installed.bbox) || packRegions(p).includes(R)));
+      const get = have ? null : L.filter((p) => !done(p) && (packRegions(p).includes(R) || inB(p.bbox))).sort((a, b) => (b.from === 'sheet') - (a.from === 'sheet') || String(b.name).localeCompare(String(a.name)))[0] || null;
+      out[kind] = { have, get };
+    }
+    return out;
+  }
+  function packFor(R, kind) { const cat = packCatalog(); return cat.filter((p) => packIsRoad(p) === (kind === 'road') && !(p.installed && p.installed.done) && packRegions(p).includes(R))[0] || null; }
+  const packProg = new Map(); // a pack downloading while the user works: id → { frac, text }
+  function packProgUi(id) {
+    const v = packProg.get(id); document.querySelectorAll(`[data-packprog="${CSS.escape(id)}"]`).forEach((el) => {
+      const t = el.querySelector('.pgt'), i = el.querySelector('.pbar i'); if (t) t.textContent = v ? `${Math.round((v.frac || 0) * 100)} %` : ''; if (i) i.style.width = `${Math.round(((v && v.frac) || 0) * 100)}%`; });
+  }
+  function packStop(id) { const job = dl; if (!job || job.id !== id || job.cancelled) return; job.cancelled = true; try { job.ctl.abort(); } catch (e) { /* stopped */ } if (job.step === 'downloading with Android') { job.detached = true; dl = null; } packProg.delete(id); toast('Stopped. Download again to go on from there.', 4000); packPopSoon(); }
+  /** A Download button for a pack (its size on it), or its progress while it downloads, or Open in Drive where Download cannot work. */
+  function packGetBtn(p, label) {
+    if (packProg.has(p.id)) { const w = document.createElement('div'); w.className = 'packprog'; w.dataset.packprog = p.id; w.innerHTML = '<span class="pgl"></span><span class="pgt"></span><span class="pbar"><i></i></span>';
+      w.querySelector('.pgl').textContent = `${label === 'Get the road pack' ? 'Getting the road pack' : 'Downloading'}`; const x = document.createElement('button'); x.type = 'button'; x.className = 'iconbtn sm'; x.setAttribute('aria-label', `Stop downloading ${p.name}`); x.textContent = '×'; x.addEventListener('click', () => packStop(p.id)); w.appendChild(x);
+      setTimeout(() => packProgUi(p.id), 0); return w; }
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm packget';
+    const mb = p.size ? Math.max(1, Math.round(p.size / 1048576)) : 0;
+    if (packCanGet(p)) { b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>';
+      b.append(`${label || 'Download'}${mb ? ` · ${mb} MB` : ''}`); b.setAttribute('aria-label', `${label || 'Download'} ${p.name}${mb ? `, ${mb} MB` : ''}`); b.addEventListener('click', () => startPackDl(p)); }
+    else if (p.drive) { b.textContent = label && label !== 'Download' ? `${label} in Drive` : 'Open in Drive'; b.addEventListener('click', () => { window.open(`https://drive.google.com/file/d/${p.drive}/view`, '_blank', 'noopener'); toast('Download the file, then Settings → Maps → Import a pack file', 6000); }); }
+    else return document.createComment('no way to get it here');
+    return b;
+  }
+  function startPackDl(p) {
+    if (dl) { toast(dl.cancelled ? 'Still stopping the last download; try again in a moment' : 'A map pack is already downloading'); return; }
+    if (!navigator.onLine) { toast('Connect to the internet (Wi-Fi recommended) to download map packs'); return; }
+    packProg.set(p.id, { frac: 0, text: '' }); packPopRender(); try { fillCoopChips(); } catch (e) { /* no record open */ }
+    const r = downloadPack(p, { quiet: true }); if (!r) { packProg.delete(p.id); packPopRender(); }
+  }
+  let pkpTimer = 0, pkpNow = null;
+  function packPopSoon(ms) { clearTimeout(pkpTimer); pkpTimer = setTimeout(packPopCheck, ms == null ? 1200 : ms); }
+  const localDay = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  function packPopCheck() {
+    const box = $('packPop'); if (!box) return; pkpNow = null;
+    const off = () => { box.hidden = true; };
+    if (typeof map === 'undefined' || !map || map.getZoom() < 11) return off();
+    if (!$('visitCard').hidden || !$('routeBar').hidden || !$('fixPanel').hidden) return off();
+    const c = map.getCenter(), H = packsHere(c.lat, c.lng); if (!H) return off();
+    const going = [...packProg.keys()].map((id) => packCatalog().find((p) => p.id === id)).filter((p) => p && packRegions(p).includes(H.reg));
+    const miss = [H.road.get, H.map.get].filter(Boolean); going.forEach((p) => { if (!miss.some((x) => x.id === p.id)) miss.push(p); });
+    if (!miss.length || ((S.packHide || {})[H.reg] === localDay() && !going.length)) return off();
+    pkpNow = { reg: H.reg, list: miss }; packPopRender(); box.hidden = false;
+  }
+  function packPopRender() {
+    const box = $('packPop'); if (!box || !pkpNow) return;
+    const R = pkpNow.reg, rn = REGION_BY[R] ? `${REGION_BY[R][2]} (${REGION_BY[R][1]})` : R;
+    $('pkpSub').textContent = `${rn} is not on this phone yet.`;
+    const rows = $('pkpRows'); rows.innerHTML = '';
+    pkpNow.list.forEach((p) => { const r = document.createElement('div'); r.className = 'pkprow'; const road = packIsRoad(p);
+      const ic = document.createElement('span'); ic.className = 'pkpic'; ic.innerHTML = road ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 21M16 3l4 18M12 4v3M12 11v3M12 18v2"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14"/></svg>';
+      const tx = document.createElement('div'); tx.className = 'pkptx'; const b = document.createElement('b'); b.textContent = p.name; const sp = document.createElement('span'); sp.textContent = road ? 'Road pack: towns for the coops, roads for the plan' : 'Map pack: the map with no signal'; tx.append(b, sp);
+      r.append(ic, tx, packGetBtn(p, 'Download')); rows.appendChild(r); });
+  }
+  function packDone(id) { packProg.delete(id); packPopSoon(300); if (ed && document.querySelector('#editor .coopchips')) { coopAreas.clear(); renderBoq(); } }
   $('packImport').addEventListener('click', () => { $('packFileInput').value = ''; $('packFileInput').click(); });
   $('packFileInput').addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -14421,6 +14921,10 @@
     persist(); $('packLink').value = ''; $('packLinkName').value = ''; renderOffline();
     toast(NATIVE || webDriveKey() ? 'Link added. Tap Download.' : 'Link added. Tap Open in Drive, download the file, then Import a pack file.', 4000);
   });
+  $('pkpNot').addEventListener('click', () => { if (pkpNow) { S.packHide = { ...(S.packHide || {}), [pkpNow.reg]: localDay() }; persist(); } $('packPop').hidden = true; toast('Not again for this region today. Settings → Maps has the packs.', 4000); });
+  $('pkpMaps').addEventListener('click', () => $('offlineBtn').click());
+  map.on('moveend', () => packPopSoon());
+  setTimeout(() => { Promise.resolve(packIndex || loadPackIndex()).catch(() => {}).finally(() => packPopSoon(0)); }, 4000); // (the website's own packs too, when it lists any)
   $('offlineBtn').addEventListener('click', async () => { openSheet('offline'); $('offGuide').hidden = true; renderOffline(); await Promise.all([loadPackIndex(), cloudSync(false)]); renderOffline(); });
   $('packRefresh').addEventListener('click', async () => { $('packSource').textContent = 'Checking for map packs…'; await Promise.all([loadPackIndex(), cloudSync(true)]); renderOffline(); });
   $('clearTiles').addEventListener('click', () => {
@@ -15905,12 +16409,13 @@
     add('OSP Build ID', m.taskId || '');
     siteFieldsOf(name).forEach(([k, v]) => add(k, v));
     add('Serial Number', m.serial); add('PLA ID', m.plaId); add('Site name', m.siteName); add('Territory', m.territory);
+    add('Project folder (Drive)', m.siteLink); // beta 3.8 (with Open)
     return out;
   }
   function siteInfoOpen(name) {
     const R = siteInfoRows(name); siteInfoFor = name;
     $('siteInfoT').textContent = 'Site details'; $('siteInfoSub').textContent = `${name}${pmeta(name).taskId ? ' · from the online sheet' : ''}. Tap Copy beside a line, or Copy all.`;
-    $('siteInfoList').innerHTML = R.map(([k, v], i) => `<div class="r"><span class="k">${tmEsc(k)}</span><span class="v">${tmEsc(v)}</span><button class="btn sm" type="button" data-copy="${i}">Copy</button></div>`).join('');
+    $('siteInfoList').innerHTML = R.map(([k, v], i) => `<div class="r${/^Project folder/.test(k) ? ' lnk' : ''}"><span class="k">${tmEsc(k)}</span><span class="v">${tmEsc(v)}</span>${/^Project folder/.test(k) ? `<button class="btn sm" type="button" data-open="${i}">Open</button>` : ''}<button class="btn sm" type="button" data-copy="${i}">Copy</button></div>`).join('');
     openSheet('siteInfo'); LOG.info('site.info', { rows: R.length });
   }
   async function siteCopy(text, what, el) {
@@ -15918,6 +16423,7 @@
     catch (e) { if (el) { const r = document.createRange(); r.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); } toast('Copy is blocked here: the text is selected, copy it with the phone’s menu', 4500); }
   }
   $('siteInfoList').addEventListener('click', (ev) => {
+    const o = ev.target.closest('[data-open]'); if (o) { const r = siteInfoRows(siteInfoFor)[+o.dataset.open]; if (r && /^https:\/\//.test(r[1])) openExternal(r[1]); return; } // beta 3.8: the Drive folder
     const b = ev.target.closest('[data-copy]'); if (!b) return;
     const R = siteInfoRows(siteInfoFor), row = R[+b.dataset.copy]; if (!row) return;
     siteCopy(String(row[1]), row[0], b.parentElement.querySelector('.v'));
@@ -15943,6 +16449,20 @@
     g.addEventListener('dblclick', () => { const st = ppState(); delete st.w; persist(); deskLayout(); map.invalidateSize({ animate: false }); });
     g.addEventListener('keydown', (e) => { if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return; e.preventDefault(); apply($('projPane').offsetWidth + (e.key === 'ArrowRight' ? 16 : -16)); persist(); map.invalidateSize({ animate: false }); });
     window.addEventListener('resize', () => { const st = ppState(); if (st.w && deskOn()) deskLayout(); }); }
+  /* ---- beta 3.9: a record on a computer: the map and its pin on the left, the form on the right; the line between them moves (drag,
+     or the arrow keys), and a double-click puts back the usual width; the width is kept on this computer ---- */
+  { const g = $('edGrip'), E = $('editor'); let dragE = null;
+    const edW = (w) => Math.round(Math.max(360, Math.min(Number(w) || 560, Math.min(980, innerWidth - 360))));
+    const apply = (w) => { S.edW = edW(w); E.style.setProperty('--edw', `${S.edW}px`); };
+    if (S.edW) E.style.setProperty('--edw', `${edW(S.edW)}px`);
+    const formW = () => E.querySelector('.edbody').offsetWidth;
+    g.addEventListener('pointerdown', (e) => { if (!deskOn()) return; dragE = { x: e.clientX, w: formW() }; g.setPointerCapture(e.pointerId); g.classList.add('drag'); document.body.classList.add('ppdrag'); e.preventDefault(); });
+    g.addEventListener('pointermove', (e) => { if (dragE) apply(dragE.w - (e.clientX - dragE.x)); });
+    const end = () => { if (!dragE) return; dragE = null; g.classList.remove('drag'); document.body.classList.remove('ppdrag'); persist(); LOG.info('editor.width', { w: S.edW }); };
+    g.addEventListener('pointerup', end); g.addEventListener('pointercancel', end);
+    g.addEventListener('dblclick', () => { delete S.edW; E.style.removeProperty('--edw'); persist(); });
+    g.addEventListener('keydown', (e) => { if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return; e.preventDefault(); apply(formW() + (e.key === 'ArrowLeft' ? 16 : -16)); persist(); });
+    window.addEventListener('resize', () => { if (S.edW) E.style.setProperty('--edw', `${edW(S.edW)}px`); }); }
   /* ---- beta 2.1: on a phone, a long press on an icon shows its name (and does not press it) ---- */
   { let t = 0, shown = null;
     const hide = () => { if (shown) { shown.remove(); shown = null; } };
@@ -16881,6 +17401,7 @@
       [group !== 'cat' && [kind === 'survey' ? 'SURVEY' : kind.toUpperCase(), ''], [`${n} ${acc ? 'element' : 'pole'}${n === 1 ? '' : 's'}`, ''], t && [`Edited ${ppWhen(t)}`, ''], m.completedAt && ['✓ Complete', 'done']]
         .filter(Boolean).forEach(([tx, c]) => { const x = document.createElement('span'); x.textContent = tx; if (c) x.className = c; meta.appendChild(x); });
       const acts = document.createElement('span'); acts.className = 'pp-acts'; // v2.43 beta 2.1: Site details, the mailbox and Send, then Open and More
+      { const fl = pmeta(name).siteLink; if (fl && /^https:\/\//.test(fl)) { const fb = ppIcon('folder', 'Folder', `Open the Google Drive folder of ${name}`); fb.addEventListener('click', (e) => { e.stopPropagation(); openExternal(fl); }); acts.appendChild(fb); } } // beta 3.9: its site's Drive folder (none without one)
       if (siteInfoRows(name).length > 1) { const ib = ppIcon('info', 'Site details', `Site details of ${name}: to copy`); ib.addEventListener('click', (e) => { e.stopPropagation(); siteInfoOpen(name); }); acts.appendChild(ib); }
       if (tmHooks.ppIcons) tmHooks.ppIcons(name).forEach((x) => acts.appendChild(x));
       acts.append(ob, mb);
@@ -17022,7 +17543,10 @@
     /* v2.42.28 */ mxGroups: () => mxGroups().map((g) => ({ k: g.k, name: g.name, n: g.n, kind: g.kind })), mxTick: (k, m) => { const g = mxGroups().find((x) => x.k === k || x.name === k); if (g) mxToggle(g, m); return !!g; }, openPlanSet: () => openPlanSet(), setWhat: (on) => setWhat(!!on, false), ppOpen: (n) => ppOpen(n),
     /* v2.42.27 */ ask: (t, x, b) => ask(t, x, b), hl: () => hlId, paneOn: () => document.body.classList.contains('deskpane'), otherN: () => (otherLayer ? otherLayer.getLayers().length : 0), drwView: () => (drw && drw.view ? { ...drw.view, w: $('drawCanvas').width, h: $('drawCanvas').height } : null),
     fibLanes: () => fibLayer.getLayers().map((l) => (l.getLatLngs ? { ll: l.getLatLngs().map((q) => [q.lat, q.lng]), color: l.options.color, w: l.options.weight, op: l.options.opacity, dash: l.options.dashArray || '' } : { arrow: true })), kmzFibers: () => kmzFibers(),
-    own: { owners: () => ownerChoices(), coops: () => coopChoices(), use: () => JSON.parse(JSON.stringify(S.ownUse || {})), kept: () => (S.myCoops || []).slice() }, // v2.43.0 (tests)
+    packs: { here: (lat, lon) => { const h = packsHere(lat, lon); return h ? { reg: h.reg, road: { have: h.road.have, get: h.road.get && h.road.get.name }, map: { have: h.map.have, get: h.map.get && h.map.get.name } } : null; }, regions: (p) => packRegions(p), pop: () => (pkpNow ? { reg: pkpNow.reg, list: pkpNow.list.map((p) => p.name) } : null), check: () => packPopCheck(), index: () => loadPackIndex(), prog: () => Object.fromEntries(packProg), get: (name) => { const p = packCatalog().find((x) => x.name === name); if (p) startPackDl(p); return !!p; } }, // beta 3.8 (tests)
+    style: { scene: (sn) => { if (sn) DSP.setScene(sn); return DSP.stats(); }, compact: () => DSP.compact(), pl: () => plStyle() }, // beta 3.8 (tests)
+    folder: { links: () => folderLinks(), rows: (n) => siteInfoRows(n || S.project) }, // beta 3.8 (tests)
+    own: { groups: () => { const g = coopGroups(); return { first: g.first, more: g.more, town: !!g.town }; }, place: () => coopPlaceText(), info: () => (S.cloud ? coopInfoText(S.cloud) : ''), owners: () => ownerChoices(), coops: () => coopChoices(), area: () => { const a = coopArea(); return a ? { ...a } : null; }, sheet: () => sheetCoops().map((c) => c.n), regionKey, townKey, first: () => coopFirstNote(), use: () => JSON.parse(JSON.stringify(S.ownUse || {})), kept: () => (S.myCoops || []).slice() }, // v2.43.0 (tests)
     ph: { setOf: (n) => JSON.parse(JSON.stringify(phSetOf(n || S.project))), n: (n) => phN(n), doc: (k, n) => phDoc(k, n), mine: () => phMine() }, // beta 3.5 (tests)
-    team: { patchS: (o) => { Object.assign(S, o); persist(); }, sync: () => cloudSync(true), load: () => tmLoad(), render: () => renderTeam(), on: () => tmOn(), ver: () => tmVerified(), state: () => JSON.parse(JSON.stringify({ mbx: S.mbx || null, teamMe: S.teamMe || null, snap: S.teamSnap || null })), beta: () => ({ BETA, APP_NAME, VER_LABEL }), mbx: mbxTestHooks } }; // v2.43 (beta 2: mbx)
+    team: { patchS: (o) => { Object.assign(S, o); persist(); }, sync: () => cloudSync(true), load: () => tmLoad(), render: () => renderTeam(), on: () => tmOn(), ver: () => tmVerified(), state: () => JSON.parse(JSON.stringify({ mbx: S.mbx || null, teamMe: S.teamMe || null, snap: S.teamSnap || null })), beta: () => ({ BETA, APP_NAME, VER_LABEL }), mbx: mbxTestHooks }, sendFile: (blob, name, type) => shareFile(blob, name, type) }; // v2.43 (beta 2: mbx); beta 3.7: sendFile (tests)
 })();
