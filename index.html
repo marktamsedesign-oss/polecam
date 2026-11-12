@@ -484,6 +484,13 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 #projects .body.tm{padding-left:max(16px,calc((100% - 760px) / 2));padding-right:max(16px,calc((100% - 760px) / 2))}
 .tmempty{align-items:flex-start}.tmempty b{font-size:calc(17px * var(--fs))}
 .tmcur{border-left:5px solid var(--accent);gap:10px}
+/* v2.44 beta 4.0: CEF-Plan. The editor is its own page in a frame over the app; a CEF-Plan project's main screen; the rows in Projects and on a site pin */
+#cefSheet{background:#e8ecf0}#cefFrame{flex:1 1 auto;width:100%;height:100%;min-height:0;border:0;display:block;background:#e8ecf0}
+body.cefproj #pinAddBtn,body.cefproj #routeBtn,body.cefproj #routeFitBtn,body.cefproj #refBtn{display:none}
+body.cefproj #captureBtn svg{display:none}body.cefproj #captureBtn::after{content:"CEF";font-weight:800;font-size:15px;letter-spacing:.05em}
+.curcef{display:flex;flex-direction:column;gap:6px}.curcef .cefrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.curcef .cefrow span{flex:1 1 160px;min-width:0;font-size:calc(13px * var(--fs));color:var(--muted)}
+#cefPinBox{display:flex;flex-direction:column;gap:6px;align-items:flex-start}#cefPinBox[hidden]{display:none}
+#setLogoImg{height:40px;max-width:140px;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:4px;padding:2px}
 .tmhead{display:flex;align-items:center;gap:8px;min-width:0}
 .tmstate{font-size:calc(12px * var(--fs));font-weight:700;padding:4px 9px;border-radius:999px;background:var(--chip);color:var(--muted);white-space:nowrap}
 .tmstate.wip{background:var(--soft);color:var(--accent)}.tmstate.done{background:var(--ok);color:#fff}
@@ -1398,6 +1405,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <p class="warnline" id="fmtWarn" hidden></p>
       <label class="frow" id="odfBox" hidden><span class="lbl">ODF</span><select id="odfSel" aria-label="ODF"><option value="New">New ODF</option><option value="Existing">Existing ODF</option></select></label>
       <label class="frow" id="siteKindBox" hidden><span class="lbl">SITE TYPE</span><select id="siteKindSel" aria-label="Site type"><option value="Tower">Tower</option><option value="OLT">OLT</option></select></label>
+      <div id="cefPinBox" hidden><span class="lbl">CEF PLAN</span><button class="btn" id="cefPinBtn" type="button">Add a CEF plan</button><span class="hint" id="cefPinInfo" style="margin:0"></span></div>
       <div class="field" id="svClosureBox" data-k="clo" hidden><span class="lbl" id="svCloLbl">CLOSURE IN THIS HANDHOLE</span>
         <div class="toggles"><label class="tchip"><input type="checkbox" id="svCloOn"><span>Closure</span></label></div>
         <div class="attrow" id="svCloRow" hidden>
@@ -1469,6 +1477,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
 </section>
 
 <!-- red box on a survey photo (v2.13): burned into the saved photo -->
+<section class="sheet" id="cefSheet" hidden aria-label="CEF plan"><iframe id="cefFrame" title="CEF plan" src="about:blank"></iframe></section>
 <section class="sheet" id="boxer" hidden aria-labelledby="boxTitle">
   <header>
     <button class="iconbtn" data-close aria-label="Cancel"><svg><use href="#i-close"/></svg></button>
@@ -1950,6 +1959,13 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div class="body">
     <p class="hint">These are the defaults for the Export screen; each export card there has the same options under “Options”.</p>
     <div class="group">
+      <h3>Company logo</h3>
+      <p class="hint">On the title blocks of your plan drawings and your CEF plan sheets. Set it once: it goes to your company's users at their next Sync.</p>
+      <div class="row" style="align-items:center;gap:8px;flex-wrap:wrap"><img id="setLogoImg" alt="Your company logo" hidden><span class="hint" id="setLogoInfo" style="flex:1 1 160px;margin:0"></span></div>
+      <div class="row"><button class="btn small" id="setLogoSet" type="button">Add company logo…</button><button class="btn small" id="setLogoDel" type="button" hidden>Remove</button></div>
+      <p class="hint" id="setLogoWho" hidden style="margin:0"></p>
+    </div>
+    <div class="group">
       <h3>Photos (ZIP, KMZ balloons, stamps)</h3>
       <p class="hint">Photos are always kept on the phone at full export quality (2048 px); these settings shape the copies that leave the phone.</p>
       <div class="opt2"><label class="field">Longest side of export copies<select id="setMaxPx2"><option>1280</option><option>1600</option><option>2048</option><option>2560</option><option>3264</option></select></label>
@@ -2050,6 +2066,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <span class="tmsub tl" id="curLast" hidden></span>
       <div class="tmtools" id="curTools" role="group" aria-label="This project"></div>
       <div class="curteam" id="curTeam" hidden></div>
+      <div class="curcef" id="curCef" hidden></div>
       <button class="tmprog" id="tmStepsBtn" type="button" aria-expanded="false" aria-controls="wfSteps"><span class="bar"><i id="tmBar"></i></span><span id="tmProgTxt"></span></button>
       <div id="wfSteps" hidden></div>
       <button class="btn primary" id="wfNext" type="button">Next</button>
@@ -2466,13 +2483,15 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
         <p class="hint" id="admInvInfo" style="margin:0"></p>
       </div>
       <div class="group">
-        <h3>Deficiency List form and report logos</h3>
-        <p class="hint">The header and signature lines printed on the Deficiency List form, and the two logos printed on the form and at the top of the other PDF reports (completion report, rectification report). They go to every phone with the list.</p>
+        <h3>Logos: Deficiency List form, reports and CEF plans</h3>
+        <p class="hint">The header and signature lines printed on the Deficiency List form, and the two logos printed on the form and at the top of the other PDF reports (completion report, rectification report). They go to every phone with the list. <b>Client logo · CEF plans</b>: the client's logo on the cover and in the title block of every CEF plan sheet; until you choose one it is the left logo. Users cannot change it.</p>
         <div class="logopick">
           <div class="lp"><span class="lbl">LEFT LOGO</span><div class="lpbox"><img id="admLogoLImg" alt="Left logo"></div><span class="hint" id="admLogoLInfo"></span>
             <div class="row"><button class="btn sm" id="admLogoL" type="button">Choose image…</button><button class="btn sm" id="admLogoLReset" type="button">Built-in</button></div></div>
           <div class="lp"><span class="lbl">RIGHT LOGO</span><div class="lpbox"><img id="admLogoRImg" alt="Right logo"></div><span class="hint" id="admLogoRInfo"></span>
             <div class="row"><button class="btn sm" id="admLogoR" type="button">Choose image…</button><button class="btn sm" id="admLogoRReset" type="button">Built-in</button></div></div>
+          <div class="lp"><span class="lbl">CLIENT LOGO · CEF PLANS</span><div class="lpbox"><img id="admLogoCImg" alt="Client logo of the CEF plan sheets"></div><span class="hint" id="admLogoCInfo"></span>
+            <div class="row"><button class="btn sm" id="admLogoC" type="button">Choose image…</button><button class="btn sm" id="admLogoCReset" type="button">Same as left</button></div></div>
           <input type="file" id="admLogoInput" accept="image/png,image/jpeg,image/webp" hidden>
         </div>
         <label class="field">Company name<input type="text" id="pfmCompany" autocomplete="off"></label>

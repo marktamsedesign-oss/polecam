@@ -497,6 +497,7 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
     model.rectified.concat(model.open).forEach((it) => {
       if (it.before) it.before.img = add(it.before.jpeg);
       if (it.after) it.after.img = add(it.after.jpeg);
+      (it.more || []).forEach((m) => { m.img = add(m.jpeg); }); // beta 3.5
     });
     let y = 0;
     const newPage = () => { pdf.addPage(); y = M; };
@@ -597,6 +598,14 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
       const y1 = photoBox(M, it.before, null, 'BEFORE · DEFECT', RED);
       const y2 = it.after || it.missingAfter ? photoBox(M + pw + 12, it.after, it.missingAfter, 'AFTER · RECTIFIED', BLUE) : y1;
       y = Math.max(y1, y2) + 2;
+      if (it.more && it.more.length) { // beta 3.5: the item's other photos, 3 a row
+        const mw = (CW - 24) / 3, mh = 100;
+        for (let i = 0; i < it.more.length; i += 3) {
+          need(mh + 20);
+          it.more.slice(i, i + 3).forEach((m, j) => { const x = M + j * (mw + 12); pdf.text(x, y, m.label, { size: 7, bold: true, color: m.tone === 'bad' ? RED : BLUE }); pdf.rect(x, y + 11, mw, mh, { fill: [0.92, 0.93, 0.92] }); if (m.img != null) pdf.imageFit(m.img, x, y + 11, mw, mh); });
+          y += 11 + mh + 6;
+        }
+      }
       rem.forEach((l) => { pdf.text(M, y, l, { size: 8, color: INK }); y += 10; });
       y += 6; pdf.line(M, y, M + CW, y, { color: [0.82, 0.85, 0.87] }); y += 10;
     };
@@ -910,6 +919,53 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
     return { x, y, w, h };
   }
 
-  const api = { attachStamp, STAMP, fitLine, footerLines, buildXlsxParts, xstyle, Pdf, punchlistPdf, rectificationPdf, completionPdf, acceptanceKml, csv, textWidth, wrapText, jpegInfo, pdfEsc, STYLES, colName, RED, GREEN, BLUE, MUTED, INK, ACCENT };
+  /** beta 3.5: the Photo report (like an RTA photo log): each pole with its item number, pole ID, location, type and owner,
+      coordinates and date, then its photos (up to 4, two a row, each numbered with its label); 1 or 2 poles a page.
+      model: { title, sub, perPage, items: [{ no, id, location, type, coords, date, note, photos: [{ jpeg, label }] }], footer, footer2, logos } */
+  function photoReportPdf(model) {
+    const pdf = new Pdf(), M = 36, CW = pdf.W - 2 * M, BOTTOM = pdf.H - 46, per = model.perPage === 1 ? 1 : 2, LINE = [0.7, 0.74, 0.78];
+    const head = (first) => {
+      const y = M; if (first) headLogos(pdf, model.logos, M, y);
+      pdf.rect(M, y, 5, 34, { fill: ACCENT });
+      pdf.text(M + 14, y + 1, model.title || 'PHOTO REPORT', { size: 15, bold: true });
+      pdf.text(M + 14, y + 20, fitLine(model.sub || '', CW - (first ? 230 : 20), 9.5), { size: 9.5, color: MUTED });
+      return y + 46;
+    };
+    const cellRow = (y, h, cols, big) => {
+      let x = M;
+      cols.forEach(([f, lab, val]) => {
+        const w = CW * f; pdf.rect(x, y, w, h, { stroke: LINE, lw: 0.6 });
+        pdf.text(x + 5, y + 4, lab, { size: 6.5, bold: true, color: MUTED });
+        pdf.text(x + 5, y + 14, fitLine(val || '—', w - 10, big ? 10.5 : 9, !!big), { size: big ? 10.5 : 9, bold: !!big });
+        x += w;
+      });
+    };
+    const block = (it, y0, h) => {
+      const rowH = 28;
+      cellRow(y0, rowH, [[0.12, 'ITEM NO.', it.no], [0.22, 'POLE ID', it.id], [0.66, 'LOCATION', it.location]], true);
+      cellRow(y0 + rowH, rowH, [[0.34, 'TYPE · OWNER', it.type], [0.36, 'COORDINATES', it.coords], [0.3, 'DATE TAKEN', it.date]], false);
+      const py = y0 + rowH * 2 + 8, ph = h - rowH * 2 - 8 - (it.note ? 14 : 0), P = (it.photos || []).slice(0, 4), n = P.length;
+      if (!n) { pdf.text(M, py + 6, 'No photo of this pole on the phone that made the report.', { size: 9, color: MUTED }); return; }
+      const cols = n === 1 ? 1 : 2, rows = Math.ceil(n / cols), gw = (CW - (cols - 1) * 8) / cols, gh = (ph - (rows - 1) * 8) / rows, capH = 12;
+      P.forEach((p, j) => {
+        const cx = M + (j % cols) * (gw + 8), cy = py + Math.floor(j / cols) * (gh + 8);
+        pdf.rect(cx, cy, gw, gh, { fill: [0.96, 0.97, 0.97] });
+        try { const idx = pdf.addImage(p.jpeg); pdf.imageFit(idx, cx + 2, cy + 2, gw - 4, gh - capH - 4); } catch (e) { /* not a JPEG */ }
+        pdf.text(cx + gw / 2, cy + gh - capH + 1, fitLine(`Photo ${j + 1}${p.label ? ` · ${p.label}` : ''}`, gw - 8, 8), { size: 8, color: MUTED, align: 'center' });
+      });
+      if (it.note) pdf.text(M, y0 + h - 11, fitLine(it.note, CW, 8), { size: 8, color: MUTED });
+    };
+    const items = model.items || [];
+    if (!items.length) { pdf.addPage(); const y = head(true); pdf.text(M, y, 'No poles to report.', { size: 10 }); }
+    for (let i = 0; i < items.length;) {
+      pdf.addPage(); let y = head(pdf.pages.length === 1);
+      const bh = (BOTTOM - y - (per - 1) * 14) / per;
+      for (let k = 0; k < per && i < items.length; k++, i++) { block(items[i], y, bh); y += bh + 14; }
+    }
+    reportFooters(pdf, { footer: model.footer || '', footer2: model.footer2 || '', attach: null }, M);
+    return pdf;
+  }
+
+  const api = { photoReportPdf, attachStamp, STAMP, fitLine, footerLines, buildXlsxParts, xstyle, Pdf, punchlistPdf, rectificationPdf, completionPdf, acceptanceKml, csv, textWidth, wrapText, jpegInfo, pdfEsc, STYLES, colName, RED, GREEN, BLUE, MUTED, INK, ACCENT };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PoleReports = api;
 })(typeof self !== 'undefined' ? self : this);

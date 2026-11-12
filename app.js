@@ -412,6 +412,7 @@
       (e) => { if (!quiet) LOG.warn('native.fail', { call: `${name}.${method}`, ms: Date.now() - t0, ...errInfo(e) }); throw e; });
   }
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const cefHooks = {}; // v2.44 beta 4.0: CEF-Plan's hooks into Projects, New project, the main screen, the site pin's record, Share and the mailbox (set further down)
   const tmHooks = {}; // v2.43 beta 2: the team mailbox's hooks into Projects, New project, the KMZ reference and the capture button (set further down)
   /* ---- project mode + acceptance helpers ---- */
   const pmeta = (name) => (S.meta && S.meta[name || S.project]) || { mode: 'survey' };
@@ -841,6 +842,8 @@
     }
     if (id !== 'editor' && ed) scheduleDraft(); // back on the record from the camera, the marks or a photo: kept safe (v2.21)
     if (id === 'camera') stopCamera();
+    if (id === 'camera' && cefHooks.camClosed) cefHooks.camClosed(); // v2.44
+    if (id === 'cefSheet' && cefHooks.closed) cefHooks.closed();
     if (id === 'editor') { cleanupEditor(); }
     if (sharedWaiting && (id === 'editor' || id === 'camera')) setTimeout(sharedResume, id === 'camera' ? 3000 : 400); // v2.21
     if (id === 'profile' && !profileOk()) sharedWaiting = null; // closed without the details: the file is not opened later by surprise
@@ -895,10 +898,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.43.1';
+  const APP_VER = '2.44.0';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '3.9'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '4.0'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -1574,7 +1577,7 @@
     mb.textContent = cat.toUpperCase(); mb.className = `badge cat ${cat.toLowerCase()}`;
     $('listLbl').textContent = 'Records';
     const dr = drawOn(); $('drawLbl').textContent = dr ? 'Drawing' : 'Find'; $('drawIco').setAttribute('href', dr ? '#i-draw' : '#i-find'); // v2.28
-    renderSummary(pts); labelCull(); declutterSoon();
+    renderSummary(pts); labelCull(); declutterSoon(); if (cefHooks.main) cefHooks.main(); // v2.44: a CEF-Plan project's main screen
     if (typeof drawAreas === 'function') drawAreas();
     renderRefBtn(); // v2.30
     if (tmHooks.poles) tmHooks.poles(); // v2.43 beta 3: the fix list's pins and panel
@@ -5081,6 +5084,7 @@
   const qSummary = (q) => (q && q.flags ? { sharp: q.sharp, mean: q.mean, flags: q.flags, level: q.level } : null);
   function gotPhoto(blob, gps, source, extra) {
     const x = extra || {};
+    if (camTarget === 'cef') { if (cefHooks.photo) cefHooks.photo(blob, gps, x); return; } // v2.44: a site photo of a CEF plan
     if (camTarget === 'vfix' || camTarget === 'vverify') { visitPhoto(blob, gps); return; }
     if (ed && ['add', 'defect', 'after', 'verify'].includes(camTarget)) {
       if (!checkNearElement(gps)) return;
@@ -6541,6 +6545,7 @@
   });
   function applyElement() {
     const el = ed.element;
+    if (cefHooks.pinRow) cefHooks.pinRow(); // v2.44: a site pin of an As-Plan: its CEF plan
     if (!ed.acc) { // survey point
       const isNew = ed.mode !== 'edit', nm = el === 'Pole' ? 'pole' : el;
       $('editorTitle').textContent = ed.mapPin ? `New ${({ Pole: ed.status === 'Proposed' ? 'proposed pole' : 'pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole' })[el] || el} on the map` : `${isNew ? 'New' : 'Edit'} ${el === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT site' : 'tower site') : nm}`; // v2.36
@@ -8142,11 +8147,12 @@
     const m = pmeta(), pts = projPoints(), n = pts.length, ex = m.exports || {}, cat = taskCat();
     const last = pts.reduce((t, p) => (p.updated > t ? p.updated : t), '');
     const fresh = (kinds) => kinds.some((k) => ex[k] && ex[k] > last);
-    const go = { capture: () => closeAll().then(() => $('captureBtn').click()), records: () => closeAll().then(() => $('listBtn').click()), export: () => closeAll().then(() => { exportPick = isAcc() ? 'doPdf' : 'doKmz'; $('exportBtn').click(); }), backup: () => closeAll().then(() => { exportPick = 'doBackup'; $('exportBtn').click(); }),
+    const go = { cef: () => closeAll().then(() => cefHooks.open && cefHooks.open()), cefx: () => closeAll().then(() => cefHooks.open && cefHooks.open(null, { tab: 'export' })), capture: () => closeAll().then(() => $('captureBtn').click()), records: () => closeAll().then(() => $('listBtn').click()), export: () => closeAll().then(() => { exportPick = isAcc() ? 'doPdf' : 'doKmz'; $('exportBtn').click(); }), backup: () => closeAll().then(() => { exportPick = 'doBackup'; $('exportBtn').click(); }),
       route: () => closeAll().then(() => { if (!routeMode) setRouteMode(true); }), form: () => { $('curMore').open = true; $('mSite').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('mSite').focus(); },
       fat: () => $('startFat').click(), share: () => guard(sharePackage), next: () => closeAll().then(() => { const t = nextTarget(); if (t) openVisit(t.r.id, true); else toast('No pin left to visit'); }) };
     const steps = [];
-    if (cat === 'Survey') {
+    if (cat === 'Survey' && svPurpose() === 'CEF-plan') { (cefHooks.steps ? cefHooks.steps() : []).forEach((x) => steps.push(x)); // v2.44
+    } else if (cat === 'Survey') {
       const R = routeModel(), purpose = m.purpose || 'As-plan', np = pts.filter((p) => elemOf(p) === 'Pole').length, others = n - np;
       const npp = pts.filter((p) => elemOf(p) === 'Pole' && p.status === 'Proposed').length, nnew = pts.filter((p) => elemOf(p) === 'Pole' && p.status === 'New').length;
       steps.push({ t: 'Capture the poles', s: np ? `${np} pole${np === 1 ? '' : 's'} captured${npp ? ` · ${npp} proposed` : ''}${nnew ? ` · ${nnew} new` : ''}` : purpose === 'As-plan' ? 'Photo, ID scan, pin check for each pole; Proposed for a new pole (PP-0001)' : 'Photo, ID scan, pin check for each pole', done: np > 0, go: 'capture', label: 'Capture' });
@@ -8232,18 +8238,19 @@
     if (W.next) { btn.hidden = false; btn.textContent = `Next: ${W.next.t}`; btn.onclick = () => W.go[W.next.go](); }
     else { btn.hidden = false; btn.textContent = W.cat === 'Survey' ? 'All done — export again after changes' : 'All done'; btn.onclick = () => W.go.export(); }
   }
-  const PURPOSE_LABEL = { 'As-plan': 'As-Plan Creation', 'As-built': 'As-Built Creation', Audit: 'Audit', PAT: 'PAT', Cleanup: 'Defect Rectification', FAT: 'FAT' };
+  const PURPOSE_LABEL = { 'CEF-plan': 'CEF-Plan', 'As-plan': 'As-Plan Creation', 'As-built': 'As-Built Creation', Audit: 'Audit', PAT: 'PAT', Cleanup: 'Defect Rectification', FAT: 'FAT' };
   const STAGE_LABEL = { survey: 'Survey', PAT: 'PAT', Cleanup: 'Defect Cleanup', FAT: 'FAT' };
   const projKind = (name) => { const pm = pmeta(name); return pm.mode === 'acceptance' ? pm.stage || 'PAT' : 'survey'; };
   function projSummary(name) {
     const pm = pmeta(name), k = projKind(name), pts = points.filter((p) => p.project === name), n = pts.length;
-    if (k === 'survey') { const np = pts.filter((p) => elemOf(p) === 'Pole').length, no = n - np; return `${PURPOSE_LABEL[pm.purpose] || 'Survey'} · ${np} pole${np === 1 ? '' : 's'}${no ? ` · ${no} other` : ''}`; }
+    if (k === 'survey') { const cs = cefHooks.summary ? cefHooks.summary(name) : null; if (cs && cs.whole) return cs.whole; // v2.44: a CEF-Plan project; an As-Plan's CEF plans
+      const np = pts.filter((p) => elemOf(p) === 'Pole').length, no = n - np; return `${PURPOSE_LABEL[pm.purpose] || 'Survey'} · ${np} pole${np === 1 ? '' : 's'}${no ? ` · ${no} other` : ''}${cs && cs.tail ? cs.tail : ''}`; }
     const open = pts.reduce((t, p) => t + openCount(p), 0);
     return `${PURPOSE_LABEL[k]} · ${n} element${n === 1 ? '' : 's'} · ${open} open`;
   }
   function renderProjects() {
     renderWorkflow();
-    const m = pmeta(), acc = isAcc(), cat = taskCat(), nrec = projPoints().length;
+    const m = pmeta(), acc = isAcc(), cat = taskCat(), nrec = projPoints().length || (cefHooks.started ? cefHooks.started(S.project) : 0); // (v2.44: a CEF-Plan project: what is on its plan)
     $('noProjHint').hidden = !!S.project; $('wfBox').hidden = !S.project;
     $('bulkShareBtn').hidden = !allProjects().length;
     $('addSampleBtn').hidden = allProjects().some((n) => pmeta(n).sample); // v2.26
@@ -8257,12 +8264,13 @@
       $('tmBar').style.width = all ? `${Math.round((done / all) * 100)}%` : '0'; $('tmProgTxt').textContent = all ? `${done} of ${all} steps done · ${S.tmSteps ? 'hide' : 'show'} steps` : '';
       $('wfSteps').hidden = !S.tmSteps; $('tmStepsBtn').setAttribute('aria-expanded', String(!!S.tmSteps)); }
     renderTaskList();
+    if (cefHooks.projects) cefHooks.projects(); // v2.44: the CEF plan of the open project, or of each of its site pins
     $('renameProject').value = S.project;
-    $('purposeRow').hidden = acc; $('curPurpose').value = m.purpose || 'As-plan'; renderRefInfo();
+    $('purposeRow').hidden = acc || m.purpose === 'CEF-plan'; $('curPurpose').value = m.purpose || 'As-plan'; renderRefInfo();
     $('curNotes').value = m.notes || '';
     { const sh = m.shares, up = (m.updates || []).slice(-4).reverse(), L = []; // v2.42.18: Share: the last one from this phone, the updates received
       if (sh && sh.n && !acc) L.push(`Shared by you: update ${sh.n}${sh.full ? ' (the whole project)' : ''} · ${fmtTime(sh.at)}`);
-      up.forEach((x) => L.push(`Received: update ${x.n}${x.full ? ' (the whole project)' : ''} from ${x.from || 'a colleague'} · ${fmtTime(x.at)} · ${x.recs || 0} record${x.recs === 1 ? '' : 's'}${x.gone ? `, ${x.gone} deleted` : ''}${x.route ? `, ${routeSaid(x.route)}` : ''}`));
+      up.forEach((x) => L.push(`Received: update ${x.n}${x.full ? ' (the whole project)' : ''} from ${x.from || 'a colleague'} · ${fmtTime(x.at)} · ${x.recs || 0} record${x.recs === 1 ? '' : 's'}${x.gone ? `, ${x.gone} deleted` : ''}${x.route ? `, ${routeSaid(x.route)}` : ''}${x.cef ? `, ${x.cef}` : ''}`));
       $('curUpdates').hidden = !L.length; $('curUpdates').textContent = L.join('\n'); }
     $('curSite').hidden = !m.taskId; $('curSite').textContent = m.taskId ? [`Site: ${m.site || ''}`, m.contractor && `Vendor: ${m.contractor}`, ...(m.siteExtra || []).filter(([k]) => /^(region|territory)$/i.test(String(k).trim())).map(([k, v]) => `${k}: ${v}`), `ID: ${m.taskId}`].filter(Boolean).join(' · ') : '';
     const sfOf = (name) => { const F = siteFieldsOf(name); return (F.length ? F : sfBlank()).map((x) => x.slice()); }; // v2.42.19: a project with none: typed in
@@ -8303,7 +8311,7 @@
     if (locked) $('doneInfo').textContent += ` · 🔒 locked: items are tagged as fixed in the defect cleanup and the FAT${canReopenPat() ? '' : ' (only the admin can reopen it)'}`;
     { const W = S.project ? workflowModel() : null, left = W ? W.steps.filter((x) => !x.done && x.go !== 'complete').length : 0;
       $('doneBtn').classList.toggle('ready', !m.completedAt && !!nrec && !left);
-      $('doneHint').textContent = m.completedAt ? '' : !nrec ? `Nothing recorded yet: capture at least one ${acc ? 'element' : 'pole'} before the task can be completed.`
+      $('doneHint').textContent = m.completedAt ? '' : !nrec && cefHooks.isCef && cefHooks.isCef() ? 'Nothing on the plan yet: open the CEF plan and sketch the site before the task can be completed.' : !nrec ? `Nothing recorded yet: capture at least one ${acc ? 'element' : 'pole'} before the task can be completed.`
         : left ? `${left} step${left === 1 ? '' : 's'} still open; complete the task when it is finished.` : 'Every step is done: mark the task complete, or export the completion report.'; }
     $('doneBox').hidden = !S.project;
     $('curStartRow').hidden = acc; $('curStart').value = m.startDate || '';
@@ -8332,7 +8340,7 @@
     try { S.project = name; W = workflowModel(); } catch (e) { W = null; } finally { S.project = was; }
     const steps = W ? W.steps : [], done = steps.filter((x) => x.done).length;
     const last = pts.reduce((t, p) => (p.updated > t ? p.updated : t), [m.created, m.completedAt, m.editedAt].filter(Boolean).sort().pop() || ''); // v2.41: also completing or editing the project
-    return (tmCache[name] = { key, n: pts.length, done, all: steps.length, next: W && W.next ? W.next.t : '', last, completed: !!m.completedAt });
+    return (tmCache[name] = { key, n: pts.length || (cefHooks.started ? cefHooks.started(name) : 0), done, all: steps.length, next: W && W.next ? W.next.t : '', last, completed: !!m.completedAt });
   }
   /** v2.28: Other projects folds open or shut (kept on this phone). */
   const otherToggle = () => { S.otherShut = !S.otherShut; persist(); renderTaskList(); };
@@ -8441,9 +8449,9 @@
     const Wh = { label: 'The whole project', value: 'full' }, X = { label: 'Cancel', value: '' };
     let text, btns;
     if (!since) { text = `The first share of this project is the whole project: after that, Share offers only the changes.\n\n${whole}`; btns = [X, { ...Wh, primary: true }]; }
-    else if (!ch.length && !gone && !route) { text = `Nothing changed since your last share (update ${sh.n}, ${fmtTime(since)}).\n\n${whole}`; btns = [X, { ...Wh, primary: true }]; }
+    else if (!ch.length && !gone && !route && !(cefHooks.changed && cefHooks.changed(name, since))) { text = `Nothing changed since your last share (update ${sh.n}, ${fmtTime(since)}).\n\n${whole}`; btns = [X, { ...Wh, primary: true }]; }
     else {
-      const what = [ch.length - nNew && `${pl(ch.length - nNew, 'record')} changed`, nNew && `${nNew} new`, gone && `${gone} deleted`, route && 'the route', nph && pl(nph, 'photo')].filter(Boolean).join(' · ');
+      const what = [ch.length - nNew && `${pl(ch.length - nNew, 'record')} changed`, nNew && `${nNew} new`, gone && `${gone} deleted`, route && 'the route', cefHooks.changed && cefHooks.changed(name, since) && 'the CEF plan', nph && pl(nph, 'photo')].filter(Boolean).join(' · ');
       text = `Only the changes · for your team leader: ${what}, since your last share (update ${sh.n}, ${fmtTime(since)}). This is update ${n}.\n\n${whole}`;
       btns = [{ label: 'Only the changes · for your team leader', value: 'delta', primary: true }, Wh, X];
     }
@@ -8471,6 +8479,7 @@
     for (const p of pts) { busy(`Deleting ${++i} / ${pts.length}`, i / pts.length); await dbDel('points', p.id); pids.push(...allPids(p)); }
     await deletePhotosIfUnused(pids, ids); busy(false);
     points = points.filter((p) => p.project !== name);
+    if (cefHooks.drop) await cefHooks.drop(name); // v2.44: the photos of its CEF plans
     if (S.meta) delete S.meta[name];
     for (const ar of (S.areas || []).filter((x) => x.project === name)) await deleteArea(ar.id);
     if (refInfo(name)) { await dbDel('packs', refKey(refInfo(name).id)).catch(() => {}); const r = { ...S.refs }; delete r[name]; S.refs = r; if (refFor === name) { refGeo = null; refFor = null; } }
@@ -8485,6 +8494,7 @@
     S.project = name; persist(); renderPoles(); if (!(o && o.keepView)) fitProject(); $('curMore').open = false; renderProjects(); // v2.42.28: keepView (Open from another project's pole)
     const body = $('projects').querySelector('.body'); if (body) body.scrollTop = 0;
     toast(`Now working on: ${name}`);
+    if (cefHooks.isCef && cefHooks.isCef(name)) closeAll().then(() => cefHooks.open(name)); // v2.44: a CEF-Plan project opens its plan
   }
   $('tmNew').addEventListener('click', () => openNewProject());
   $('tmStepsBtn').addEventListener('click', () => { S.tmSteps = !S.tmSteps; persist(); renderProjects(); });
@@ -8598,7 +8608,7 @@
       const pts = (U && U.pts ? U.pts.slice() : points.filter((p) => p.project === name)).sort((a, b) => (a.created < b.created ? -1 : 1));
       if (!isAcc(name)) projKey(name); // v2.42.6: the credits' project key travels with it
       files.push({ name: `p${k}/points.json`, data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: shareMeta(name, U), exported: now, by: byLine(), exportedBy: exporterInfo(), points: pts, ...(U ? { update: { n: U.n, full: !!U.full, since: U.since || '', ...(U.fixAns && U.fixAns.length ? { fixAns: U.fixAns } : {}) } } : {}) }, null, 1) });
-      for (const pid of new Set(pts.flatMap(allPids))) {
+      for (const pid of new Set(pts.flatMap(allPids).concat(cefHooks.pids ? cefHooks.pids(name, U && !U.full ? U.since || '' : '') : []))) { // (v2.44: + the photos of its CEF plans; with only the changes, of the plans saved since)
         say(`Packing photos ${++done} / ${allP}`, done / Math.max(1, allP));
         if (seen.has(pid)) continue; seen.add(pid);
         const ph = await dbGet('photos', pid).catch(() => null);
@@ -8660,7 +8670,7 @@
     const newer = meta.points.filter((p) => loc.has(p.id) && String(loc.get(p.id).updated || '') > String(p.updated || '')).length, nNew = meta.points.filter((p) => !loc.has(p.id)).length - delHere;
     const G = (meta.meta && meta.meta.gone) || {}, del = Object.entries(G).filter(([id, t]) => loc.has(id) && String(loc.get(id).updated || '') <= String(t)).length;
     const route = !!(meta.meta && meta.meta.links && meta.meta.linksAt), nph = new Set(meta.points.flatMap(allPids)).size, chg = meta.points.length - nNew - newer - delHere; // (beta 3.3: the route in the file: merged per sender)
-    const what = [chg && `${pl(chg, 'record')} changed`, nNew && `${nNew} new`, del && `${del} deleted`, route && 'the route', nph && pl(nph, 'photo')].filter(Boolean).join(' · ') || 'Nothing new for this phone';
+    const what = [chg && `${pl(chg, 'record')} changed`, nNew && `${nNew} new`, del && `${del} deleted`, route && 'the route', nph && pl(nph, 'photo'), cefHooks.count && cefHooks.count(meta.meta, proj) && 'the CEF plan'].filter(Boolean).join(' · ') || 'Nothing new for this phone';
     const miss = !U.full && here && U.n > last + 1 ? U.n - last - 1 : 0;
     const warn = [
       !U.full && !here && `“${proj}” is not on this phone and this file has only its changes: ask ${first} to share The whole project.`,
@@ -8680,7 +8690,7 @@
     const R2 = o.result || {};
     LOG.info('share.update.open', { n: U.n, full: !!U.full, records: R2.recs, kept: R2.kept, gone: R2.gone, route: R2.route ? routeSaid(R2.route) : false, missing: miss, other, isNew: !here });
     await closeAll(); renderPoles(); fitProject();
-    const said = `${[pl(R2.recs || 0, 'record'), R2.gone && `${R2.gone} deleted`, R2.route && routeSaid(R2.route)].filter(Boolean).join(' · ')}${R2.kept ? ` · ${R2.kept} newer here kept` : ''}`;
+    const said = `${[pl(R2.recs || 0, 'record'), R2.gone && `${R2.gone} deleted`, R2.route && routeSaid(R2.route), R2.cef].filter(Boolean).join(' · ')}${R2.kept ? ` · ${R2.kept} newer here kept` : ''}`;
     toast(`${U.full ? `The whole project (update ${U.n})` : `Update ${U.n}`} from ${first}: ${said}`, 6000, `${U.full ? 'The whole project' : 'Update'} ${U.n} opened: ${said}`);
     if (here) await dupAtMerge(pj, o.written); // beta 3.3 (QA-06)
   }
@@ -9155,6 +9165,7 @@
     } else toast(`No file was made${failed.length ? `: ${failed.join(', ')}` : ''}`, 6000); }
   });
   $('exportBtn').addEventListener('click', () => {
+    if (cefHooks.isCef && cefHooks.isCef()) { planExport = false; exportPick = null; cefHooks.open(null, { tab: 'export' }); return; } // v2.44: a CEF-Plan project exports from its plan
     const pl0 = planExport; planExport = false; // v2.42.28: Export the plan (from the Drawing)
     const n = projPoints().length, acc = isAcc();
     $('exportScope').textContent = acc ? `Acceptance ${pmeta().stage || 'PAT'} “${S.project}” · ${n} element${n === 1 ? '' : 's'}` : `Project “${S.project}” · ${n} pole${n === 1 ? '' : 's'}`;
@@ -10116,13 +10127,15 @@
     if (im.close) im.close(); throw new Error('This picture stays too big even when made small. Use a simpler logo (PNG or JPEG).');
   }
   function renderLogo() {
-    const i = S.logoInfo, co = (S.user && S.user.company) || '', mine = i && normCo(i.co || '') === normCo(co);
+    const i = S.logoInfo, co = (S.user && S.user.company) || '', mine = i && !i.off && normCo(i.co || '') === normCo(co); // (v2.44: off: removed on this phone)
     if (!$('dxfLogoInfo')) return;
     $('dxfLogoInfo').textContent = mine ? `${co} logo on the drawings ✓` : co ? `No ${co} logo yet: the drawings show the company name.` : 'Choose your company in Your details first.';
-    $('dxfLogoSet').textContent = mine ? 'Change logo…' : 'Add company logo…'; $('dxfLogoSet').disabled = !co;
+    const fp = !!co && !!cefHooks.canLogo && !cefHooks.canLogo(); // (v2.44) a field partner in a team leaves the company logo to his coordinator
+    if (fp) $('dxfLogoInfo').textContent = mine ? `${co} logo on the drawings ✓ · your coordinator sets it.` : `No ${co} logo yet: your coordinator sets it.`;
+    $('dxfLogoSet').textContent = mine ? 'Change logo…' : 'Add company logo…'; $('dxfLogoSet').disabled = !co || fp;
     logoGet().then((r) => { const img = $('dxfLogoImg'); if (r) { img.src = `data:${r.type};base64,${r.data}`; img.hidden = false; } else { img.hidden = true; img.removeAttribute('src'); } }).catch(() => {});
   }
-  $('dxfLogoSet').addEventListener('click', () => { $('dxfLogoFile').value = ''; $('dxfLogoFile').click(); });
+  $('dxfLogoSet').addEventListener('click', () => { if (cefHooks.canLogo && !cefHooks.canLogo()) { toast('Company logo: your coordinator sets it', 5000); return; } $('dxfLogoFile').value = ''; $('dxfLogoFile').click(); });
   $('dxfLogoFile').addEventListener('change', (e) => guard(async () => {
     const f = e.target.files[0]; if (!f) return; const co = (S.user && S.user.company) || ''; if (!co) throw new Error('Choose your company in Your details first');
     busy('Preparing the logo…');
@@ -10807,7 +10820,7 @@
     const pre = prefix || '', pts = points.filter((p) => p.project === name).sort((a, b) => (a.created < b.created ? -1 : 1));
     if (!isAcc(name)) projKey(name); // v2.42.6: the credits' project key travels with it
     const files = [{ name: `${pre}points.json`, data: JSON.stringify({ app: 'PoleCam', version: 2, project: name, meta: pmeta(name), exported: new Date().toISOString(), by: byLine(), exportedBy: exporterInfo(), points: pts }, null, 1) }];
-    const pids = [...new Set(pts.flatMap(allPids))];
+    const pids = [...new Set(pts.flatMap(allPids).concat(cefHooks.pids ? cefHooks.pids(name) : []))]; // (v2.44: + the photos of its CEF plans)
     for (let i = 0; i < pids.length; i++) {
       busy(`Packing photos ${i + 1} / ${pids.length}`, i / pids.length);
       const ph = await dbGet('photos', pids[i]);
@@ -10985,9 +10998,10 @@
         if (delIds.size) S.meta[proj].links = (S.meta[proj].links || []).filter(([x, y]) => !delIds.has(x) && !delIds.has(y));
         if (delIds.size && Array.isArray(S.meta[proj].fibers)) S.meta[proj].fibers = S.meta[proj].fibers.map((f) => ({ ...f, path: (f.path || []).filter((x) => !delIds.has(x)) })); // v2.42.20
       }
+      if (cefHooks.merge) await cefHooks.merge(z, pre, proj, meta.meta, o); // v2.44: its CEF plans (each taken whole: the one saved later wins)
       if (o.update && S.meta[proj]) { // v2.42.18: who sent which update (Projects → Project details)
         const U = o.update, r = { ...(S.meta[proj].recv || {}) }; r[U.sender] = { n: Math.max((r[U.sender] || {}).n || 0, U.n), at: U.at, name: U.from };
-        S.meta[proj].recv = r; o.result = { recs: meta.points.length - kept, kept: kept - goneHere, goneHere, gone: delIds.size, route: routeNew };
+        S.meta[proj].recv = r; o.result = { recs: meta.points.length - kept, kept: kept - goneHere, goneHere, gone: delIds.size, route: routeNew, ...(o.cefSaid ? { cef: o.cefSaid } : {}) };
         S.meta[proj].updates = [...(S.meta[proj].updates || []), { n: U.n, full: U.full, from: U.from, at: U.at, got: new Date().toISOString(), ...o.result }].slice(-30);
       }
       S.project = proj; persist();
@@ -11784,7 +11798,7 @@
   $('goExports').addEventListener('click', () => {
     syncExpUi();
     $('setSaveBase').value = S.saveBase || 'DOCUMENTS'; $('setSaveFolder').value = S.saveFolder || 'G-eSAA'; $('setSaveByProject').checked = S.saveByProject !== false;
-    updateSavePreview(); openSheet('setExports');
+    updateSavePreview(); if (cefHooks.setLogo) cefHooks.setLogo(); openSheet('setExports');
   });
   function updateSavePreview() {
     $('savePreview').textContent = NATIVE ? `Files go to: ${savePath('…').shown.replace(/\/…$/, '/')}` : 'Website version: your browser saves to its Downloads folder.';
@@ -11855,6 +11869,7 @@
     if (p.otp != null && !(typeof p.otp === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(p.otp))) return false; // v2.22: approval codes
     if (!str(p.kmzPass, 100) || !list(p.kmzOld, 5, 100)) return false; // v2.22: the shared KMZ lock
     if (p.logos != null && !(typeof p.logos === 'object' && Object.keys(p.logos).every((k) => (k === 'left' || k === 'right') && typeof p.logos[k] === 'string' && /^[A-Za-z0-9+/]+={0,2}$/.test(p.logos[k]) && p.logos[k].length <= 24000))) return false; // v2.23: logos (JPEG)
+    if (p.cefLogo != null && !(typeof p.cefLogo === 'string' && /^[A-Za-z0-9+/]+={0,2}$/.test(p.cefLogo) && p.cefLogo.length <= 24000)) return false; // v2.44: the client's logo of the CEF plan sheets (JPEG)
     if (p.packs != null && !(Array.isArray(p.packs) && p.packs.length <= 30 && p.packs.every((x) => x && str(x.n, 60) && typeof x.d === 'string' && /^[A-Za-z0-9_-]{20,100}$/.test(x.d) && num(x.mb, 0, 100000)))) return false;
     return true;
   }
@@ -12917,7 +12932,7 @@
      completed task; the task keeps who approved, when and where (GPS), and the completion report prints it, so the PDF
      stands without a written signature (the signature lines stay). ---- */
   const APPR_TAG = 'G-eSAA approval:', APPR_MS = 10 * 60 * 1000;
-  function taskJob(name) { return taskCat(name) === 'Survey' ? pmeta(name).purpose || 'As-plan' : 'acc'; }
+  function taskJob(name) { const p = pmeta(name).purpose || 'As-plan'; return taskCat(name) === 'Survey' ? (p === 'CEF-plan' ? 'As-plan' : p) : 'acc'; } // (v2.44: a CEF-Plan is approved by the As-Plan approver)
   /** The jobs of an admin user on this list; null when the list sets no jobs (then every admin user approves). */
   function jobsOf(email) { const me = sheetMe(email); if (me) return me.jobs || []; const J = pol().adminJobs; return J ? J[String(email || '').trim().toLowerCase()] || [] : null; } // v2.42.18: a verified user's jobs from the sheet's row
   function mayApprove(email, job) { const L = jobsOf(email); return L == null || L.includes(job); }
@@ -13311,8 +13326,8 @@
     if (!t || vs.length < 2 || isAdminCo() || i < 0) return 'all';
     return i === 0 ? 'plan' : 'build';
   }
-  const CAT_PURPOSES = { survey: ['As-plan', 'As-built', 'Audit'], PAT: ['PAT'], Cleanup: ['Cleanup'], FAT: ['FAT'] }; // purposes of each task category
-  const ROLE_PURPOSES = { all: ['As-plan', 'As-built', 'Audit', 'PAT', 'Cleanup', 'FAT'], plan: ['As-plan'], build: ['As-built', 'Audit', 'PAT', 'Cleanup', 'FAT'] };
+  const CAT_PURPOSES = { survey: ['As-plan', 'As-built', 'Audit', 'CEF-plan'], PAT: ['PAT'], Cleanup: ['Cleanup'], FAT: ['FAT'] }; // purposes of each task category
+  const ROLE_PURPOSES = { all: ['As-plan', 'As-built', 'Audit', 'CEF-plan', 'PAT', 'Cleanup', 'FAT'], plan: ['As-plan', 'CEF-plan'], build: ['As-built', 'Audit', 'PAT', 'Cleanup', 'FAT'] };
   /** Vendor printed on the form: the user's company, or (admin) the vendor of that part of the site. */
   function vendorFor(t, purpose) {
     const me = (S.user && S.user.company) || '', vs = vendorsOf(t);
@@ -13546,6 +13561,7 @@
     if (f) { try { await loadRefFile(f); } catch (e) { busy(false); LOG.warn('ref.fail', errInfo(e)); toast(`${label}. The KMZ could not be read: ${e.message || e}`, 7000); } }
     else { fitProject(); toast(label, 3000); }
     if (k === 'survey' && tmHooks.created) await tmHooks.created(name); // v2.43 beta 2: Assign to → sent to the field partners
+    if (k === 'survey' && purpose === 'CEF-plan' && cefHooks.open) cefHooks.open(name); // v2.44: a new CEF-Plan project opens its plan
   }, 'Project not created'));
 
   /* ---- v2.19: opening a shared file: Projects → Open shared projects, Android "Open with G-eSAA" / Share to G-eSAA, or Share to the
@@ -13826,6 +13842,9 @@
       $(`admLogo${c}Info`).textContent = L[k] ? `Uploaded · ${Math.round((L[k].length * 3) / 4 / 1024)} KB` : 'Built-in (brand/logo-' + k + '.jpg)';
       $(`admLogo${c}Reset`).disabled = !L[k];
     });
+    { const cl = (P0 || (admDraft && admDraft.pol) || {}).cefLogo; // v2.44: the client's logo of the CEF plan sheets
+      $('admLogoCImg').src = cl ? `data:image/jpeg;base64,${cl}` : L.left ? `data:image/jpeg;base64,${L.left}` : 'brand/logo-left.jpg';
+      $('admLogoCInfo').textContent = cl ? `Uploaded · ${Math.round((cl.length * 3) / 4 / 1024)} KB` : 'The same as the left logo'; $('admLogoCReset').disabled = !cl; }
   }
   let logoSide = 'left';
   /** An image made into a small JPEG on white (PNG transparency), at most 600 × 200 px and 24,000 base64 characters. */
@@ -13851,8 +13870,8 @@
   $('admLogoInput').addEventListener('change', (e) => guard(async () => {
     const f = e.target.files[0]; if (!f || !admDraft) return;
     const b64 = await logoJpeg(f);
-    admDraft.pol.logos = { ...(admDraft.pol.logos || {}), [logoSide]: b64 }; renderLogoPick();
-    toast(`${logoSide === 'left' ? 'Left' : 'Right'} logo set: tap Save and share the list`, 3500);
+    if (logoSide === 'cef') admDraft.pol.cefLogo = b64; else admDraft.pol.logos = { ...(admDraft.pol.logos || {}), [logoSide]: b64 }; renderLogoPick(); // (v2.44: + the CEF plans' client logo)
+    toast(`${logoSide === 'cef' ? 'Client (CEF plans)' : logoSide === 'left' ? 'Left' : 'Right'} logo set: tap Save and share the list`, 3500);
   }, 'Logo not used'));
   $('admTest').addEventListener('click', async () => {
     const url = $('admUrl').value.trim(), key = $('admReadKey').value.trim();
@@ -13910,7 +13929,7 @@
     const create = admMode === 'create' || !S.team;
     const P = pol(), F = formText();
     const polDraft = { owner: P.owner || '', form: { ...P.form }, defects: JSON.parse(JSON.stringify(P.defects)), maxSpan: P.maxSpan, angleDeg: P.angleDeg, autoGap: P.autoGap, ...(P.mloopLen ? { mloopLen: P.mloopLen } : {}), quality: P.quality, inspTypes: P.inspTypes.slice(), poleTypes: (P.poleTypes || []).slice(), ...(P.poleOwners ? { poleOwners: P.poleOwners.slice() } : {}), ...(P.boqLists ? { boqLists: JSON.parse(JSON.stringify(P.boqLists)) } : {}), ...(P.detailItems ? { detailItems: P.detailItems.slice() } : {}), adminUsers: (P.adminUsers || []).slice(), ...(P.web ? { web: P.web } : {}), ...(P.vendorRecords === false ? { vendorRecords: false } : {}), ...(P.siteRequired ? { siteRequired: true } : {}), ...(P.userTpl ? { userTpl: true } : {}),
-      otp: P.otp || b64u.enc(crypto.getRandomValues(new Uint8Array(18))), ...(P.kmzPass ? { kmzPass: P.kmzPass } : {}), ...(P.kmzOld ? { kmzOld: P.kmzOld.slice() } : {}), ...(P.logos ? { logos: { ...P.logos } } : {}) }; // v2.22, v2.23 logos
+      otp: P.otp || b64u.enc(crypto.getRandomValues(new Uint8Array(18))), ...(P.kmzPass ? { kmzPass: P.kmzPass } : {}), ...(P.kmzOld ? { kmzOld: P.kmzOld.slice() } : {}), ...(P.logos ? { logos: { ...P.logos } } : {}), ...(P.cefLogo ? { cefLogo: P.cefLogo } : {}) }; // v2.22, v2.23 logos (v2.44: + the CEF plans' client logo)
     admKmzAuto = P.kmzPass ? '' : suggestKmzPass(P.owner || (S.user && S.user.company) || ''); // follows the admin company until edited
     $('admKmzPass').value = P.kmzPass || admKmzAuto;
     renderLogoPick(polDraft); $('admReq').value = ''; $('admReqOut').hidden = true;
@@ -15008,6 +15027,7 @@
   /* ================= start ================= */
   $('captureBtn').addEventListener('click', () => {
     if (!S.project) { toast('Create a project first: photos are taken inside a project', 4500); askNewProject(); return; }
+    if (cefHooks.isCef && cefHooks.isCef()) { cefHooks.open(); return; } // v2.44: a CEF-Plan project: the plan opens (an accepted one: view-only)
     if (patClosed()) { toast('This PAT is complete and locked: nothing can be added. Fix its items in the defect cleanup or the FAT (Projects).', 6000); return; }
     { const lk = tmHooks.locked ? tmHooks.locked(null, 'capture') : ''; if (lk) { toast(lk, 6500); return; } } // v2.43 beta 2: a task the coordinator accepted (beta 3.4: fixes after Accept at a spot)
     if (visitStage() === 'Cleanup') { // the cleanup works on the PAT pins only: photos are taken from a pin's card
@@ -15523,7 +15543,7 @@
     const ch = since ? all.filter((p) => String(p.updated || p.created || '') > since && !echo(p)) : all;
     const gone = since ? Object.entries(m.gone || {}).filter(([id, t]) => t > since && !(E && E.g && E.g[id] === t)).length : 0;
     const route = !!(since && m.linksAt && m.linksAt > since && !(E && E.l && E.l === m.linksAt)), nNew = since ? ch.filter((p) => String(p.created || '') > since).length : 0;
-    return { all, ch, gone, route, nNew, nph: new Set(ch.flatMap(allPids)).size };
+    return { all, ch, gone, route, nNew, nph: new Set(ch.flatMap(allPids)).size, cef: since && cefHooks.changed ? cefHooks.changed(name, since) : 0 }; // (v2.44: + the CEF plans saved since)
   }
   async function mbxBytes(name, U, ref, say) { const blob = await bundleZip([name], { update: U, ref, say }); return new Uint8Array(await blob.arrayBuffer()); }
   /** The coordinator sends the project to each field partner. To one who has not got it (or missed a send): the whole project
@@ -15637,13 +15657,13 @@
     }
     const wb = $('mbxWhat'); wb.innerHTML = '';
     const opt = (v, title, sub, dis) => { const l = document.createElement('label'), r = document.createElement('input'); r.type = 'radio'; r.name = 'mbxWhat'; r.value = v; r.checked = s.what === v; r.disabled = !!dis; r.addEventListener('change', () => { s.what = v; renderMbxSend(); }); const d = document.createElement('div'), b = document.createElement('b'); b.textContent = title; const sp = document.createElement('span'); sp.className = 's'; sp.textContent = sub; d.append(b, sp); l.append(r, d); wb.appendChild(l); };
-    const changesText = (c, led, since) => [c.ch.length - c.nNew && `${pl2(c.ch.length - c.nNew, 'record')} changed`, c.nNew && `${c.nNew} new`, c.gone && `${c.gone} deleted`, c.route && 'the route', c.nph && pl2(c.nph, 'photo')].filter(Boolean).join(' · ');
+    const changesText = (c, led, since) => [c.ch.length - c.nNew && `${pl2(c.ch.length - c.nNew, 'record')} changed`, c.nNew && `${c.nNew} new`, c.gone && `${c.gone} deleted`, c.route && 'the route', c.cef && 'the CEF plan', c.nph && pl2(c.nph, 'photo')].filter(Boolean).join(' · ');
     let info = '', whatOn = false;
     if (s.mode === 'fp' && s.to.size) {
       whatOn = true;
       const to = [...s.to][0], W = mbxWhatFor(name, to), c = W.c, first = tmFirst(to);
       const nAns = fxAnswers(name).length; // beta 3: fix answers count as changes
-      const canDelta = !!W.since && (c.ch.length || c.gone || c.route || nAns);
+      const canDelta = !!W.since && (c.ch.length || c.gone || c.route || c.cef || nAns);
       if (!s.what) s.what = canDelta ? 'delta' : 'full';
       if (W.since) opt('delta', 'Only the changes', canDelta ? `${[changesText(c), nAns && `${nAns === 1 ? '1 fix answer' : `${nAns} fix answers`}`].filter(Boolean).join(' · ')} · since ${W.led.n ? `update ${W.led.n}` : 'the task arrived'} (${fmtTime(W.since)})` : `Nothing changed since ${W.led.n ? `update ${W.led.n}` : 'the task arrived'} (${fmtTime(W.since)})`, !canDelta);
       opt('full', 'The whole project', `${pl2(c.all.length, 'record')} · ${pl2(projPhotos(name), 'photo')}`);
@@ -15654,7 +15674,7 @@
       if (has.length) { // beta 2.1: to partners who have it, only the changes by default
         whatOn = true;
         const since = has.map((e) => mbxWhatFor(name, e).since).sort()[0], c = mbxChanges(name, since, has.length === 1 ? has[0] : ''), ref = refInfo(name), refNew = !!(ref && ref.at && ref.at > since);
-        const canDelta = !!(c.ch.length || c.gone || c.route || refNew);
+        const canDelta = !!(c.ch.length || c.gone || c.route || c.cef || refNew);
         if (!s.what) s.what = canDelta ? 'delta' : 'full';
         opt('delta', 'Only the changes', canDelta ? `${[changesText(c), refNew && 'the new KMZ reference'].filter(Boolean).join(' · ')} · since your last send (${fmtTime(since)})` : `Nothing changed since your last send (${fmtTime(since)})`, !canDelta);
         opt('full', 'The whole project', `${pl2(points.filter((p) => p.project === name).length, 'record')} · ${pl2(projPhotos(name), 'photo')}${ref ? ' · the KMZ reference' : ''}`);
@@ -15812,7 +15832,7 @@
   function mbxFpHas(name) {
     const T = tmTeam(name) || {}, to = (T.to && T.to[0]) || T.by; if (!to) return null;
     const W = mbxWhatFor(name, to), c = W.since ? W.c : mbxChanges(name, T.got || '', to), ans = fxAnswers(name).length;
-    return c.ch.length || c.gone || c.route || ans ? { to, recs: c.ch.length, ans } : null;
+    return c.ch.length || c.gone || c.route || c.cef || ans ? { to, recs: c.ch.length, ans } : null;
   }
   /** beta 3.4: Sync sends a field partner's work: for each of his team projects (not accepted, or opened again for fixes), only the
       changes since his last send, with his fix answers. Returns { n, said: [...], err }. */
@@ -15964,7 +15984,7 @@
     persist();
     await mbxPicked(it.tid);
     LOG.info('mbx.open', { kind: M.kind, n: M.n, full: !!M.full, records: R2.recs, kept: R2.kept, gone: R2.gone, route: R2.route ? routeSaid(R2.route) : false, mb: +(data.length / 1048576).toFixed(2), isNew: !L.here, ref: refNew });
-    const said = `${[pl2(R2.recs || 0, 'record'), R2.gone && `${R2.gone} deleted`, R2.route && routeSaid(R2.route), refNew && 'the KMZ reference'].filter(Boolean).join(' · ')}${R2.kept ? ` · ${R2.kept} newer here kept` : ''}`;
+    const said = `${[pl2(R2.recs || 0, 'record'), R2.gone && `${R2.gone} deleted`, R2.route && routeSaid(R2.route), refNew && 'the KMZ reference', R2.cef].filter(Boolean).join(' · ')}${R2.kept ? ` · ${R2.kept} newer here kept` : ''}`;
     const ansSaid = ans.length ? ` · ${ans.length === 1 ? '1 fix answer' : `${ans.length} fix answers`} to check` : '';
     if (auto) { // beta 3.4: Sync brought it in: the card says so; the open project and the map stay as they are
       mbxJob = null;
@@ -17524,6 +17544,351 @@
   { let rz = 0; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (deskOn()) deskLayout(); }, 150); }); }
   deskLayout();
 
+  /* ================= v2.44 beta 4.0: CEF-Plan (Cable Entrance Facility plan) =================
+     A CEF plan shows the implementing team how to build the FOC and conduit at a tower site: the surveyor sketches the site from above
+     and the app makes the isometric view and the sheets (PDF, sheets DXF, map DXF, KML). It is a Survey purpose of its own (a CEF-Plan
+     project holds one plan), and an add-on of an As-Plan project (one plan for each site pin).
+     The editor is the approved CEF-Plan demo (version 17). It runs on its own page, vendor/cef/cef.html, shown in a frame over the app
+     (#cefSheet): its drawing engine is unchanged, and its names and styles never meet the app's. This part is the app's side of it
+     (window.__cefHost): the plan is kept in its project (meta.cef), its photos come from the app's camera and stay in the photo store,
+     the logos come from the app, exports go through the app's save and share with who exported them, and an accepted task is view-only.
+     A plan travels whole with its project (Share, backup, the team mailbox): the one saved later wins, and it keeps who saved it.
+     meta.cef = { plans: [{ id, pin (the site pin's record id; '' in a CEF-Plan project), sk (the sketch), at, by, o (who saved it), made }],
+                  gone: { id: when it was deleted } }
+     A phone on an older version keeps meta.cef as it came (it does not know it) and sends it back unchanged; it shows no CEF plan. */
+  const CEF_P = 'CEF-plan', CEF_MAX = 600000, CEF_PAGE = 'vendor/cef/cef.html';
+  let cefNow = null, cefShot = null, cefShotT = 0;
+  const cefMe = () => { const u = S.user || {}; return String(u.email || u.mobile || u.name || '').trim().toLowerCase(); };
+  const isCefProj = (name) => { const n = name || S.project; return !!n && !isAcc(n) && svPurpose(n) === CEF_P; };
+  const cefOk = (p) => !!p && typeof p.id === 'string' && p.id.length > 0 && p.id.length <= 40 && !!p.sk && typeof p.sk === 'object' && !!p.sk.site && typeof p.sk.site === 'object' && Array.isArray(p.sk.els);
+  /** A project's CEF plans, well formed. strict: from a file of another phone (its size is checked too). */
+  function cefClean(c, strict) {
+    if (!c || typeof c !== 'object') return null;
+    const s = (v, n) => String(v == null ? '' : v).slice(0, n);
+    const plans = (Array.isArray(c.plans) ? c.plans : []).filter(cefOk).slice(0, 40)
+      .filter((p) => { if (!strict) return true; try { return JSON.stringify(p.sk).length <= CEF_MAX; } catch (e) { return false; } })
+      .map((p) => ({ id: p.id, pin: typeof p.pin === 'string' ? p.pin.slice(0, 40) : '', sk: p.sk, at: s(p.at, 40), by: s(p.by, 100), o: s(p.o, 120), made: s(p.made || p.at, 40) }));
+    const gone = {};
+    if (c.gone && typeof c.gone === 'object') Object.entries(c.gone).slice(0, 200).forEach(([k, t]) => { if (typeof t === 'string' && k.length <= 40) gone[k] = t.slice(0, 40); });
+    return { plans, gone };
+  }
+  const cefOf = (name) => cefClean(pmeta(name).cef) || { plans: [], gone: {} };
+  const cefPlans = (name) => cefOf(name).plans;
+  function cefPut(name, G) { S.meta = S.meta || {}; S.meta[name] = { ...pmeta(name), cef: G }; persist(); }
+  /** The photos of a plan: ids of the photo store (made by this part only: cefp…). */
+  const cefPhotoIds = (p) => ((p && p.sk && Array.isArray(p.sk.photos)) ? p.sk.photos : []).map((x) => x && x.id).filter((x) => typeof x === 'string' && /^cefp[A-Za-z0-9]{4,40}$/.test(x));
+  const cefLabel = (p) => { const s = (p && p.sk && p.sk.site) || {}; return String(s.id || s.name || 'the site').slice(0, 60); };
+  /** The photos that travel with a project's CEF plans (since: only of the plans saved after that time). */
+  function cefPids(name, since) { const o = []; cefPlans(name).forEach((p) => { if (!since || String(p.at || '') > since) o.push(...cefPhotoIds(p)); }); return o; }
+  /** How many CEF plans of a project this user saved or deleted after a time (Share → Only the changes, the team mailbox). */
+  function cefChanged(name, since) {
+    const me = cefMe(), G = cefOf(name), t0 = String(since || '');
+    return G.plans.filter((p) => String(p.at || '') > t0 && (!p.o || p.o === me)).length + Object.values(G.gone).filter((t) => t > t0).length;
+  }
+  /** How many plans of a file would be taken on this phone (the question before an update is applied). */
+  function cefIncoming(fm, proj) {
+    const inc = cefClean(fm && fm.cef, true); if (!inc) return 0;
+    const G = allProjects().includes(proj) ? cefOf(proj) : { plans: [], gone: {} };
+    return inc.plans.filter((P) => { const L = G.plans.find((x) => x.id === P.id); return !(G.gone[P.id] && G.gone[P.id] >= String(P.at || '')) && (!L || String(P.at || '') > String(L.at || '')); }).length;
+  }
+  /** Why the plan of the open project can only be looked at ('': it can be changed): a task the coordinator accepted (QA-09). */
+  function cefLockText(name) { if (name !== S.project || !tmHooks.locked) return ''; const t = tmHooks.locked(); return t ? String(t) : ''; }
+  /** Photos of the photo store that no CEF plan of any project uses any more. */
+  async function cefSweep(pids, except) {
+    const used = new Set(); allProjects().forEach((n) => { if (n !== except) cefPids(n).forEach((x) => used.add(x)); });
+    for (const pid of new Set(pids)) if (/^cefp/.test(pid) && !used.has(pid)) await dbDel('photos', pid).catch(() => {});
+  }
+  const cefB64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+  /** A stored photo as the editor shows and prints it: at most 1400 px, as the demo had it. */
+  async function cefPhotoSrc(blob) {
+    const im = await loadImage(blob, 1400), { w, h } = dims(im), sc = Math.min(1, 1400 / Math.max(w, h, 1)), cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.round(w * sc)); cv.height = Math.max(1, Math.round(h * sc));
+    const g = cv.getContext('2d'); g.fillStyle = '#ffffff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(im, 0, 0, cv.width, cv.height); if (im.close) im.close();
+    const out = { src: cv.toDataURL('image/jpeg', 0.8), w: cv.width, h: cv.height }; cv.width = cv.height = 0; return out;
+  }
+  /** The two logos of the sheets. Vendor: the company's logo (the one of its plan drawings: set once, shared with the company through the
+      online sheet). Client: the admin's (Administration → logos: the CEF one, else the left logo), else the app's own file. A logo that
+      is not there leaves its box empty. No logo is ever drawn by the app. */
+  async function cefLogos() {
+    const out = {};
+    try { const r = await logoGet(); if (r && r.data) out.vendor = `data:${r.type || 'image/png'};base64,${r.data}`; } catch (e) { /* none */ }
+    try {
+      const P = pol(), b = P.cefLogo || (P.logos && P.logos.left) || '';
+      if (b) out.client = `data:image/jpeg;base64,${b}`;
+      else { const r = await fetch('brand/logo-left.jpg'); if (r.ok) out.client = `data:image/jpeg;base64,${cefB64(new Uint8Array(await r.arrayBuffer()))}`; }
+    } catch (e) { /* the box stays empty */ }
+    return out;
+  }
+  /** Who sets the company logo: a field partner in a team leaves it to his coordinator; a coordinator, or a user on his own, sets it. */
+  const cefCanLogo = () => !!(S.user && S.user.company) && !tmFpTeam();
+  const cefLogoNote = () => (!(S.user && S.user.company) ? 'choose your company in Your details first' : 'your coordinator sets it');
+  /** A new company logo from a picture file: kept on this phone and shared with the company's users (as Plan settings → Template and logo). */
+  async function cefLogoSet(f) {
+    const co = (S.user && S.user.company) || ''; if (!co) throw new Error('Choose your company in Your details first');
+    busy('Preparing the logo…');
+    try {
+      const L = await logoPrepare(f), at = new Date().toISOString();
+      await logoStore({ co, at, ...L });
+      let shared = false;
+      if (S.team && S.team.src && S.team.src.url && navigator.onLine !== false) {
+        busy('Sharing the logo with your company…');
+        try {
+          const j = await cloudRequest({ url: S.team.src.url }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'setLogo', company: co, type: L.type, data: L.data, at, ...(keyMode() ? { ckey: S.companyKey } : {}), ...(isAdmin() && S.onlineAdminKey ? { key: S.onlineAdminKey } : {}) }) });
+          shared = !!(j && j.ok); if (!shared) LOG.warn('logo.share', { error: j && j.error });
+        } catch (e2) { LOG.warn('logo.share', errInfo(e2)); }
+      }
+      toast(shared ? `Logo saved and shared with ${co} users` : 'Logo saved on this phone (not shared: the online sheet did not take it)', 4500);
+    } finally { busy(false); cefSetLogoRow(); }
+  }
+  /** Remove: off this phone's sheets and drawings. For the whole company the admin deletes its row in the sheet's Logos tab, as before. */
+  async function cefLogoRemove() {
+    await dbDel('packs', LOGO_KEY).catch(() => {});
+    S.logoInfo = { ...(S.logoInfo || {}), co: (S.user && S.user.company) || '', off: true }; persist(); renderLogo(); cefSetLogoRow();
+    toast('Company logo removed from this phone. For the whole company, the admin deletes its row in the online sheet (Logos tab).', 7000);
+  }
+  function cefPickFile() {
+    return new Promise((res) => {
+      const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/png,image/jpeg'; inp.hidden = true; inp.id = 'cefLogoFile'; document.body.appendChild(inp);
+      const end = (v) => { inp.remove(); res(v); };
+      inp.addEventListener('change', () => end(inp.files[0] || null)); inp.addEventListener('cancel', () => end(null));
+      inp.click();
+    });
+  }
+  /** The editor's Add / Change / Remove of the company logo: the logos again, or null (nothing changed). */
+  function cefLogo(how) {
+    if (!cefCanLogo()) { toast(`Company logo: ${cefLogoNote()}`, 5000); return Promise.resolve(null); }
+    if (how === 'remove') return cefLogoRemove().then(cefLogos);
+    return cefPickFile().then((f) => (f ? guard(() => cefLogoSet(f), 'Logo not saved').then(cefLogos) : null));
+  }
+  /** Settings → Exports and files → Company logo (the same logo as on the plan drawings). */
+  function cefSetLogoRow() {
+    if (!$('setLogoInfo')) return;
+    const co = (S.user && S.user.company) || '', can = cefCanLogo();
+    logoGet().then((r) => {
+      const img = $('setLogoImg'); if (r) { img.src = `data:${r.type};base64,${r.data}`; img.hidden = false; } else { img.hidden = true; img.removeAttribute('src'); }
+      $('setLogoInfo').textContent = r ? `${co} logo ✓ · on your plan drawings and CEF plan sheets` : co ? `No ${co} logo yet: the sheets show the company name only.` : 'Choose your company in Your details first.';
+      $('setLogoSet').textContent = r ? 'Change logo…' : 'Add company logo…'; $('setLogoSet').disabled = !can; $('setLogoDel').hidden = !r; $('setLogoDel').disabled = !can;
+      $('setLogoWho').hidden = can || !co; $('setLogoWho').textContent = can ? '' : 'Your coordinator sets the company logo.';
+    }).catch(() => {});
+  }
+  $('setLogoSet').addEventListener('click', () => { if (cefCanLogo()) cefPickFile().then((f) => { if (f) guard(() => cefLogoSet(f), 'Logo not saved'); }); });
+  $('setLogoDel').addEventListener('click', () => guard(async () => { if (cefCanLogo() && await ask('Remove the company logo?', 'It is taken off this phone: your CEF plan sheets and plan drawings show the company name only. For the whole company, the admin deletes its row in the online sheet (Logos tab).', [{ label: 'Keep', value: false }, { label: 'Remove', value: true, primary: true }])) await cefLogoRemove(); }, 'Logo not removed'));
+  /* Administration → logos: the client's logo of the CEF plan sheets (the admin uploads it; it goes to every phone with the list). */
+  $('admLogoC').addEventListener('click', () => { logoSide = 'cef'; $('admLogoInput').value = ''; $('admLogoInput').click(); });
+  $('admLogoCReset').addEventListener('click', () => { if (!admDraft) return; delete admDraft.pol.cefLogo; renderLogoPick(); });
+
+  /** Opens the CEF plan of a project. o.pin: the site pin of an As-Plan project; o.id: that plan; o.tab: the editor's tab to start on. */
+  async function cefOpen(name, o) {
+    const nm = name || S.project, opt = o || {};
+    if (!nm || !allProjects().includes(nm) || isAcc(nm)) return false;
+    if (!profileOk()) { toast('Enter your details first (Settings → You)'); return false; }
+    if (stack.includes('cefSheet') || cefNow) return false;
+    if (nm !== S.project) { S.project = nm; persist(); renderPoles(); }
+    const L = cefPlans(nm), pin = opt.pin || '';
+    const plan = opt.id ? L.find((p) => p.id === opt.id) : pin ? L.find((p) => p.pin === pin) : isCefProj(nm) ? L[0] : null;
+    if (!plan && !pin && !isCefProj(nm)) return false; // an As-Plan's plan belongs to a site pin
+    cefNow = { name: nm, id: plan ? plan.id : `cef${uid()}`, pin: plan ? plan.pin || '' : pin, tab: opt.tab || '', had: plan ? cefPhotoIds(plan) : [], taken: [], over: opt.app && typeof opt.app === 'object' ? { ...opt.app } : null }; // (over: a test's own details for the sheets)
+    LOG.info('cef.open', { isNew: !plan, addOn: !!cefNow.pin, view: !!cefLockText(nm) });
+    openSheet('cefSheet');
+    const f = $('cefFrame'); try { f.contentWindow.location.replace(new URL(CEF_PAGE, location.href).href); } catch (e) { f.src = CEF_PAGE; } // (replace: the phone's Back closes the plan, it does not go back inside the frame)
+    return true;
+  }
+  /** What the editor starts with. */
+  async function cefInit() {
+    const c = cefNow; if (!c) return null;
+    const plan = cefPlans(c.name).find((p) => p.id === c.id) || null, m = pmeta(c.name), u = S.user || {}, e = exporterInfo(), photos = {};
+    if (plan) for (const pid of cefPhotoIds(plan)) { try { const ph = await dbGet('photos', pid); if (ph && (ph.clean || ph.thumb)) photos[pid] = (await cefPhotoSrc(ph.clean || ph.thumb)).src; } catch (x) { /* shown as not on this phone */ } }
+    const pinRec = c.pin ? points.find((p) => p.id === c.pin && p.project === c.name) : null, F = siteFieldsOf(c.name);
+    const sName = m.siteName || sfGet(F, /site\s*name|searchring|segment/i) || '', sId = m.plaId || sfGet(F, /pla\s*id/i) || '';
+    const site0 = pinRec ? { name: sName || recName(pinRec) || '', id: sId, lat: +(+pinRec.lat).toFixed(6), lon: +(+pinRec.lon).toFixed(6) } : { name: sName, id: sId };
+    const T = tmTeam(c.name), ck = T && T.accepted ? String(T.accepted.byName || T.accepted.by || '') : '';
+    const foot = `EXPORTED BY ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' - ').toUpperCase()} - G-eSAA ${VER_LABEL}`; // the line under the frame of every sheet
+    return { sketch: plan ? JSON.stringify(plan.sk) : null, photos, logos: await cefLogos(), tab: c.tab || '',
+      app: { by: u.name || '', checkedBy: ck, org: m.contractor || u.company || '', link: sfGet(F, /project\s*name/i) || '', footer: foot, ver: `${APP_NAME} ${VER_LABEL}`, lock: !!pinRec, fix: site0, viewOnly: cefLockText(c.name),
+        gps: 'geolocation' in navigator, canLogo: cefCanLogo(), logoNote: cefLogoNote(), guide: S.cefGuide !== false, ...(c.over || {}) } };
+  }
+  /** The editor saves as the user works. Nothing is written when the sketch did not change, so that looking at a plan never makes it
+      the later one at a merge. */
+  function cefSave(str) {
+    const c = cefNow; if (!c || typeof str !== 'string' || str.length > CEF_MAX || cefLockText(c.name)) return false;
+    let sk; try { sk = JSON.parse(str); } catch (e) { return false; }
+    if (!cefOk({ id: c.id, sk })) return false;
+    const G = cefOf(c.name), i = G.plans.findIndex((p) => p.id === c.id), now = new Date().toISOString();
+    if (i >= 0 && JSON.stringify(G.plans[i].sk) === str) return true;
+    const rec = { id: c.id, pin: c.pin || '', sk, at: now, by: (S.user && S.user.name) || '', o: cefMe(), made: i >= 0 ? G.plans[i].made || now : now };
+    if (i >= 0) G.plans[i] = rec; else G.plans.push(rec);
+    delete G.gone[c.id]; cefPut(c.name, G); return true;
+  }
+  /** A site photo: the app's camera, with its checks (taken live, with a GPS fix; a dark or unclear photo is refused). */
+  function cefTakePhoto() {
+    if (cefShot || !cefNow || cefLockText(cefNow.name)) return Promise.resolve(null);
+    return new Promise((res, rej) => { cefShot = { res, rej }; guard(() => openCamera('cef'), 'Camera not opened'); });
+  }
+  function cefCamClosed() { if (!cefShot) return; clearTimeout(cefShotT); cefShotT = setTimeout(() => { if (cefShot && !cefShot.busy) { const w = cefShot; cefShot = null; w.res(null); } }, 900); } // closed with no photo
+  async function cefGotPhoto(blob, gps, x) {
+    const w = cefShot, c = cefNow; if (!w || !c) return; w.busy = true; clearTimeout(cefShotT);
+    try {
+      busy('Keeping the photo…');
+      const im = await makeStoredImages(blob), id = `cefp${uid()}`;
+      await dbPut('photos', { id, clean: im.clean, thumb: im.thumb });
+      const s = await cefPhotoSrc(im.clean); c.taken.push(id);
+      LOG.info('cef.photo', { kb: Math.round(im.clean.size / 1024) });
+      cefShot = null; w.res({ id, src: s.src, w: s.w, h: s.h, at: (x && x.takenAt) || new Date().toISOString(), lat: gps && Number.isFinite(gps.lat) ? +(+gps.lat).toFixed(6) : null, lon: gps && Number.isFinite(gps.lon) ? +(+gps.lon).toFixed(6) : null });
+    } catch (e) { cefShot = null; LOG.error('cef.photo.fail', errInfo(e)); w.rej(e); } finally { busy(false); }
+  }
+  /** The export's ZIP, made by the app: the editor's files, each photo as the photo store keeps it, and who exported it. */
+  async function cefZip(files) {
+    const out = [];
+    for (const f of Array.from(files || [])) {
+      let data = f.data;
+      if (f.pid) { const ph = await dbGet('photos', String(f.pid)).catch(() => null); if (ph && ph.clean) data = new Uint8Array(await ph.clean.arrayBuffer()); }
+      out.push({ name: String(f.name).slice(0, 200), data: typeof data === 'string' ? data : new Uint8Array(data) });
+    }
+    out.push({ name: 'exported_by.txt', data: exporterText() });
+    return new Blob(C.makeZipParts(out), { type: 'application/zip' });
+  }
+  /** Save or send an export of the editor: the app's own save and share. CEF exports use no credits. */
+  async function cefDeliver(name, data, kind) {
+    const c = cefNow, type = /\.pdf$/i.test(name) ? 'application/pdf' : 'application/zip';
+    const blob = new Blob([data instanceof Blob || (data && typeof data.arrayBuffer === 'function') ? await data.arrayBuffer() : data], { type });
+    if (c) noteExport('cef', c.name);
+    LOG.info('cef.export', { kind: kind || '', mb: +(blob.size / 1048576).toFixed(2) });
+    await shareFile(blob, String(name).replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 120), type);
+  }
+  /** The phone's position now, for a plan's coordinates (a CEF-Plan project; an As-Plan's plan takes its site pin's). */
+  function cefGps() {
+    startGps(); const t0 = Date.now();
+    return new Promise((res) => { const iv = setInterval(() => { if (fix && Date.now() - fix.t < 20000) { clearInterval(iv); res({ lat: fix.lat, lon: fix.lon, acc: fix.acc }); } else if (Date.now() - t0 > 10000) { clearInterval(iv); res(null); } }, 300); });
+  }
+  /** The editor closed (Done, or the phone's Back): its last change is saved, the frame is emptied, photos taken off the plan go. */
+  function cefClosed() {
+    const f = $('cefFrame'), c = cefNow;
+    try { if (f.contentWindow && f.contentWindow.CEF) f.contentWindow.CEF.flush(); } catch (e) { /* closed already */ }
+    cefNow = null;
+    try { f.contentWindow.location.replace('about:blank'); } catch (e) { f.removeAttribute('src'); }
+    if (cefShot) { const w = cefShot; cefShot = null; w.res(null); }
+    if (c) { const now = new Set(cefPids(c.name)); cefSweep([...c.had, ...c.taken].filter((x) => !now.has(x)), '').catch(() => {}); }
+    renderPoles(); if (!$('projects').hidden) renderProjects();
+  }
+  window.__cefHost = { init: () => cefInit(), save: (s) => cefSave(s), takePhoto: () => cefTakePhoto(), zip: (files) => cefZip(files), deliver: (n, d, k) => cefDeliver(n, d, k),
+    close: () => { if (stack[stack.length - 1] === 'cefSheet') closeSheet(); }, exporter: () => exporterInfo(), gps: () => cefGps(), logo: (how) => cefLogo(how),
+    pref: (k, v) => { if (k === 'guide') { S.cefGuide = v !== false; persist(); } } };
+
+  /** A project that came in a file or through the team mailbox: its CEF plans. A plan is taken whole: the one saved later wins, and it
+      keeps who saved it and when. One plan for a site pin (one for a CEF-Plan project). o.cefSaid: the merge line. */
+  async function cefMerge(z, pre, proj, fm, o) {
+    const inc = cefClean(fm && fm.cef, true); if (!inc || !S.meta || !S.meta[proj]) return;
+    const fresh = !!o.fresh, who = (o.update && o.update.from) || '', said = [];
+    const G = fresh ? { plans: [], gone: {} } : cefOf(proj);
+    const take = async (P) => {
+      for (const pid of cefPhotoIds(P)) {
+        try { const clean = await z.get(`${pre}photos/${pid}.jpg`), thumb = await z.get(`${pre}thumbs/${pid}.jpg`);
+          if (clean || thumb) await dbPut('photos', { id: pid, clean: clean && new Blob([clean], { type: 'image/jpeg' }), thumb: thumb && new Blob([thumb], { type: 'image/jpeg' }) });
+        } catch (e) { /* the plan comes without that picture */ }
+      }
+    };
+    const from = (P) => P.by || who || 'the sender';
+    for (const P of inc.plans) {
+      const i = G.plans.findIndex((x) => x.id === P.id), L = i >= 0 ? G.plans[i] : null, tomb = G.gone[P.id] || '';
+      if (tomb && tomb >= String(P.at || '')) continue; // deleted on this phone after it was saved there: it stays deleted
+      if (!L) { G.plans.push(P); await take(P); if (!fresh) said.push(`CEF plan of ${cefLabel(P)}: taken from ${from(P)}`); }
+      else if (String(P.at || '') > String(L.at || '')) { G.plans[i] = P; await take(P); said.push(`CEF plan of ${cefLabel(P)}: taken from ${from(P)}`); }
+      else if (String(L.at || '') > String(P.at || '')) said.push(`CEF plan of ${cefLabel(L)}: kept as on this phone (saved later here)`);
+    }
+    const dropped = [];
+    for (const [id, t] of Object.entries(inc.gone)) {
+      const i = G.plans.findIndex((x) => x.id === id);
+      if (i >= 0 && String(G.plans[i].at || '') <= t) { said.push(`CEF plan of ${cefLabel(G.plans[i])}: deleted, as on the other phone`); dropped.push(...cefPhotoIds(G.plans[i])); G.plans.splice(i, 1); }
+      if (!G.gone[id] || G.gone[id] < t) G.gone[id] = t;
+    }
+    const one = svPurpose(proj) === CEF_P, by = new Map(); // two phones that each started the plan of one site: the one saved later is kept
+    for (const P of G.plans.slice()) {
+      const k = one ? '' : P.pin || `#${P.id}`, q = by.get(k); if (!q) { by.set(k, P); continue; }
+      const keep = String(P.at || '') > String(q.at || '') ? P : q, lose = keep === P ? q : P;
+      by.set(k, keep); G.plans = G.plans.filter((x) => x !== lose); G.gone[lose.id] = new Date().toISOString(); dropped.push(...cefPhotoIds(lose));
+      said.push(`CEF plan of ${cefLabel(keep)}: two were started; the one saved later is kept (${keep.by || 'no name'})`);
+    }
+    cefPut(proj, G);
+    if (dropped.length) cefSweep(dropped, '').catch(() => {});
+    if (fresh && G.plans.length) o.cefSaid = `${G.plans.length} CEF plan${G.plans.length === 1 ? '' : 's'}`;
+    else if (said.length) o.cefSaid = [...new Set(said)].join('; ');
+    if (o.cefSaid) LOG.info('cef.merge', { plans: G.plans.length, lines: said.length, fresh });
+  }
+  /** Deletes the CEF plan of a site pin (asked first). The deletion travels with the project. */
+  async function cefDelete(name, id) {
+    const G = cefOf(name), p = G.plans.find((x) => x.id === id); if (!p) return;
+    if (cefLockText(name)) { toast(cefLockText(name), 6500); return; }
+    if (!(await ask(`Delete the CEF plan of ${cefLabel(p)}?`, 'Its sketch and its photos are removed from this phone. Export it or share the project first if you still need it. This can\'t be undone.', [{ label: 'Keep', value: false }, { label: 'Delete the plan', value: true, primary: true }]))) return;
+    const pids = cefPhotoIds(p); G.plans = G.plans.filter((x) => x.id !== id); G.gone[id] = new Date().toISOString(); cefPut(name, G);
+    await cefSweep(pids, ''); LOG.info('cef.delete'); renderProjects(); renderPoles(); toast('CEF plan deleted');
+  }
+  /* ---- the hooks: where the rest of the app meets this part ---- */
+  cefHooks.isCef = (name) => isCefProj(name);
+  cefHooks.open = (name, o) => guard(() => cefOpen(name, o), 'CEF plan not opened');
+  cefHooks.closed = cefClosed; cefHooks.camClosed = cefCamClosed; cefHooks.photo = cefGotPhoto;
+  cefHooks.pids = cefPids; cefHooks.changed = cefChanged; cefHooks.count = cefIncoming; cefHooks.merge = cefMerge; cefHooks.setLogo = cefSetLogoRow; cefHooks.canLogo = cefCanLogo;
+  /** What is on the plan of a CEF-Plan project (0: nothing yet): its task is in progress, and can be completed, once there is something. */
+  cefHooks.started = (name) => { if (!isCefProj(name)) return 0; const p = cefPlans(name)[0], sk = (p && p.sk) || {}; return (Array.isArray(sk.els) ? sk.els.length : 0) + (Array.isArray(sk.runs) ? sk.runs.length : 0); };
+  cefHooks.drop = async (name) => { const pids = cefPids(name); if (pids.length) await cefSweep(pids, name); };
+  /** The main screen of a CEF-Plan project: the middle button opens the plan (there are no pins to capture). */
+  cefHooks.main = () => {
+    const on = isCefProj(); document.body.classList.toggle('cefproj', on);
+    $('captureBtn').setAttribute('aria-label', on ? 'Open the CEF plan' : 'Capture'); $('captureBtn').title = on ? 'Open the CEF plan' : '';
+    if (!on) return;
+    const p = cefPlans(S.project)[0];
+    $('sumTitle').textContent = p ? `CEF plan · ${cefLabel(p)}` : 'CEF plan · not started'; $('sumSub').textContent = 'Tap CEF below to open the plan'; $('sumPills').innerHTML = ''; $('mapSummary').classList.remove('go');
+  };
+  /** Projects: a CEF-Plan project's line; an As-Plan with CEF plans says how many. */
+  cefHooks.summary = (name) => {
+    const L = cefPlans(name), nph = new Set(L.flatMap(cefPhotoIds)).size;
+    if (isCefProj(name)) return { whole: `${PURPOSE_LABEL[CEF_P]} · ${L[0] ? `saved ${dateOnly(L[0].at)}` : 'not started'}${nph ? ` · ${nph} photo${nph === 1 ? '' : 's'}` : ''}` };
+    return L.length ? { tail: ` · ${L.length} CEF plan${L.length === 1 ? '' : 's'}` } : null;
+  };
+  /** The steps of a CEF-Plan project (Projects). */
+  cefHooks.steps = () => {
+    const p = cefPlans(S.project)[0], sk = (p && p.sk) || {}, R = sk.route || {}, n = (a) => (a && Array.isArray(a.pts) ? a.pts.length : 0), ex = (pmeta().exports || {}).cef || '';
+    const els = Array.isArray(sk.els) ? sk.els.length : 0, ph = Array.isArray(sk.photos) ? sk.photos.length : 0, cables = n(R.ae) > 1 && n(R.ug) > 1;
+    return [{ t: 'Sketch the site', s: els ? `${els} item${els === 1 ? '' : 's'} on the plan · saved ${fmtTime(p.at)}` : 'Site size, fence and gate, then the tower and the equipment', done: els > 0, go: 'cef', label: 'Open' },
+      { t: 'Draw the two cables', s: cables ? 'AE and UG are drawn' : 'AE (aerial, to the riser pole) and UG (underground, to the ODF)', done: cables, go: 'cef', label: 'Open' },
+      { t: 'Site photos', s: ph ? `${ph} photo${ph === 1 ? '' : 's'}` : 'Taken with the camera, then marked on the plan', done: ph > 0, go: 'cef', label: 'Open' },
+      { t: 'Export the CEF plan', s: ex && p && ex > p.at ? `Exported ${fmtTime(ex)}` : 'ZIP with the sheets DXF, the PDF and the KML, or the PDF only', done: !!(ex && p && ex > p.at), go: 'cefx', label: 'Export' }];
+  };
+  /** Projects → the open project: its CEF plan (a CEF-Plan project), or the plan of each site pin (an As-Plan). */
+  cefHooks.projects = () => {
+    const box = $('curCef'); if (!box) return; box.innerHTML = ''; const name = S.project;
+    if (!name || isAcc(name)) { box.hidden = true; return; }
+    const L = cefPlans(name), rows = [], saved = (p) => `saved ${fmtTime(p.at)}${p.by ? ` by ${p.by}` : ''}`;
+    if (isCefProj(name)) rows.push({ t: L[0] ? `CEF plan of ${cefLabel(L[0])} · ${saved(L[0])}` : 'CEF plan · not started', b: L[0] ? 'Open the CEF plan' : 'Start the CEF plan', go: () => cefOpen(name), primary: true });
+    else if (svPurpose(name) === 'As-plan') {
+      const sites = points.filter((p) => p.project === name && elemOf(p) === 'Site');
+      sites.forEach((p) => { const pl = L.find((x) => x.pin === p.id); rows.push({ t: pl ? `CEF plan of ${recName(p) || cefLabel(pl)} · ${saved(pl)}` : `CEF plan of ${recName(p) || 'the site'} · none yet`, b: pl ? 'Open' : 'Add', go: () => cefOpen(name, { pin: p.id }), del: pl ? pl.id : '' }); });
+      L.filter((x) => !sites.some((p) => p.id === x.pin)).forEach((pl) => rows.push({ t: `CEF plan of ${cefLabel(pl)} · its site pin is not in the project`, b: 'Open', go: () => cefOpen(name, { id: pl.id }), del: pl.id }));
+    }
+    box.hidden = !rows.length;
+    rows.forEach((r) => {
+      const d = document.createElement('div'); d.className = 'cefrow'; const s = document.createElement('span'); s.textContent = r.t;
+      const b = document.createElement('button'); b.type = 'button'; b.className = `btn small${r.primary ? ' primary' : ''}`; b.textContent = r.b; b.dataset.cef = 'open';
+      b.addEventListener('click', () => guard(async () => { await closeAll(); await r.go(); }, 'CEF plan not opened'));
+      d.append(s, b);
+      if (r.del) { const x = document.createElement('button'); x.type = 'button'; x.className = 'btn small'; x.textContent = 'Delete'; x.dataset.cef = 'del'; x.addEventListener('click', () => guard(() => cefDelete(name, r.del), 'CEF plan not deleted')); d.appendChild(x); }
+      box.appendChild(d);
+    });
+  };
+  /** A site pin's record in an As-Plan: the CEF plan of that site. */
+  cefHooks.pinRow = () => {
+    const box = $('cefPinBox'); if (!box) return;
+    const on = !!ed && !ed.acc && ed.element === 'Site' && svPurpose() === 'As-plan'; box.hidden = !on; if (!on) return;
+    const saved = ed.mode === 'edit', plan = saved ? cefPlans(S.project).find((p) => p.pin === ed.id) : null;
+    $('cefPinBtn').textContent = plan ? 'Open the CEF plan' : 'Add a CEF plan'; $('cefPinBtn').disabled = !saved;
+    $('cefPinInfo').textContent = !saved ? 'Save this site first, then open it again to add its CEF plan.' : plan ? `Saved ${fmtTime(plan.at)}${plan.by ? ` by ${plan.by}` : ''}.` : 'The plan of the cable entrance at this site: a sketch, the isometric view and the sheets.';
+  };
+  $('cefPinBtn').addEventListener('click', () => guard(async () => {
+    if (!ed || ed.mode !== 'edit' || ed.element !== 'Site') return; const id = ed.id, name = S.project;
+    if (edDirty()) { toast('Save the changes of this site first, then open its CEF plan', 5000); return; }
+    ed.closeOK = true; await closeSheet(); await cefOpen(name, { pin: id });
+  }, 'CEF plan not opened'));
+  try { cefHooks.main(); } catch (e) { /* at start */ }
+
   window.__polecam = { autoLoops: () => [...autoLoops(projPoints(), routeModel())], openEditorFor,
     /* v2.42.17 */ edTab: (k, f) => goEdTab(k, f), edTabs: () => edTabList(), edCur: () => (edTabsOn() ? edTab : ''), edMissing: () => edMissing().map((x) => `${x.req ? '!' : ''}${x.tab}:${x.k}`), edShow: (sel) => { const el = document.querySelector(sel), g = el && el.closest('#editor .edbody>[data-pane]'); if (g && edTabsOn()) goEdTab(g.dataset.pane); return !!g; }, /* v2.42.16 */ boqTable: () => boqTable(projPoints(), null), routeStats: () => { const R = routeModel(); updateRouteBar(R); return $('rbStats').textContent; }, get points() { return points; }, get S() { return S; }, drwSeq: () => (drw ? { n: drw.seq.size, max: Math.max(0, ...drw.seq.values()) } : null), get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, get lastQrLink() { return qrLink; }, get lastQrFull() { return qrAlt ? qrAlt.full : qrLink; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
@@ -17549,4 +17914,9 @@
     own: { groups: () => { const g = coopGroups(); return { first: g.first, more: g.more, town: !!g.town }; }, place: () => coopPlaceText(), info: () => (S.cloud ? coopInfoText(S.cloud) : ''), owners: () => ownerChoices(), coops: () => coopChoices(), area: () => { const a = coopArea(); return a ? { ...a } : null; }, sheet: () => sheetCoops().map((c) => c.n), regionKey, townKey, first: () => coopFirstNote(), use: () => JSON.parse(JSON.stringify(S.ownUse || {})), kept: () => (S.myCoops || []).slice() }, // v2.43.0 (tests)
     ph: { setOf: (n) => JSON.parse(JSON.stringify(phSetOf(n || S.project))), n: (n) => phN(n), doc: (k, n) => phDoc(k, n), mine: () => phMine() }, // beta 3.5 (tests)
     team: { patchS: (o) => { Object.assign(S, o); persist(); }, sync: () => cloudSync(true), load: () => tmLoad(), render: () => renderTeam(), on: () => tmOn(), ver: () => tmVerified(), state: () => JSON.parse(JSON.stringify({ mbx: S.mbx || null, teamMe: S.teamMe || null, snap: S.teamSnap || null })), beta: () => ({ BETA, APP_NAME, VER_LABEL }), mbx: mbxTestHooks }, sendFile: (blob, name, type) => shareFile(blob, name, type) }; // v2.43 (beta 2: mbx); beta 3.7: sendFile (tests)
+  /* v2.44 beta 4.0 (tests): CEF-Plan. frame(): the editor's window; put(): a made-up plan; keep(): a made-up photo in the photo store */
+  window.__polecam.cef = { open: (n, o) => cefOpen(n, o), plans: (n) => JSON.parse(JSON.stringify(cefPlans(n || S.project))), of: (n) => JSON.parse(JSON.stringify(cefOf(n || S.project))), isCef: (n) => isCefProj(n), lock: () => cefLockText(S.project), now: () => (cefNow ? { ...cefNow } : null),
+    frame: () => $('cefFrame').contentWindow, logos: () => cefLogos(), canLogo: () => cefCanLogo(), logoSet: (f) => cefLogoSet(f), logoRemove: () => cefLogoRemove(), changed: (n, t) => cefChanged(n || S.project, t), pids: (n, t) => cefPids(n || S.project, t), summary: (n) => projSummary(n || S.project),
+    put: (n, id, sk, o) => { const G = cefOf(n), x = o || {}, i = G.plans.findIndex((p) => p.id === id), rec = { id, pin: x.pin || '', sk, at: x.at || new Date().toISOString(), by: x.by || (S.user && S.user.name) || '', o: x.o != null ? x.o : cefMe(), made: x.at || new Date().toISOString() }; if (i >= 0) G.plans[i] = rec; else G.plans.push(rec); cefPut(n, G); },
+    keep: async (id, blob) => { const im = await makeStoredImages(blob); await dbPut('photos', { id, clean: im.clean, thumb: im.thumb }); return (await cefPhotoSrc(im.clean)); }, has: async (id) => { const ph = await dbGet('photos', id).catch(() => null); return !!(ph && ph.clean); } };
 })();

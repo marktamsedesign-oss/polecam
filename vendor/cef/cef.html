@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>CEF Plan · G-eSAA</title>
+<!-- G-eSAA: the CEF plan editor, on its own page inside the app (index.html shows it in a frame), so that its names and styles never meet
+     the app's. Made from the CEF-Plan demo, version 17: 30_core.js, 40_iso.js and 50_export.js are the demo's drawing and export engine,
+     unchanged; ui.js is the demo's editor, changed for the app. Nothing here is loaded from the internet. -->
+<style>
+:root{
+  --bg:#e8ecf0; --panel:#fbfcfd; --ink:#17202b; --muted:#5a6675; --line:#cfd7e0; --line2:#e4e9ee; --paper:#ffffff; --grid:#e7ecf1; --grid2:#d3dbe4;
+  --sel:#c96a00; --btn:#1c2632; --btn-ink:#ffffff; --warn:#b3261e; --ok:#1b7f4d; --chip:#e9eef3;
+  --d-ink:#18212c; --d-tower:#465162; --d-exis:#1f62c8; --d-ladder:#1b8a57; --d-prop:#d1302a; --d-dim:#6b7686; --d-photo:#7a45d6; --d-ghost:#9aa5b5;
+  --f-ui:'Barlow',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; --f-head:'Barlow Condensed','Barlow',system-ui,sans-serif; --f-mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1319; --panel:#161c24; --ink:#e6ebf2; --muted:#96a3b4; --line:#2b3542; --line2:#212a35; --paper:#11171e; --grid:#19212a; --grid2:#243040;
+    --sel:#ffb020; --btn:#e6ebf2; --btn-ink:#11171e; --warn:#ff8a7e; --ok:#58d39a; --chip:#202a36;
+    --d-ink:#dfe6ee; --d-tower:#a9b4c2; --d-exis:#6aa9ff; --d-ladder:#4ecb8f; --d-prop:#ff6b5e; --d-dim:#8795a8; --d-photo:#b99cff; --d-ghost:#66748a;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1319; --panel:#161c24; --ink:#e6ebf2; --muted:#96a3b4; --line:#2b3542; --line2:#212a35; --paper:#11171e; --grid:#19212a; --grid2:#243040;
+  --sel:#ffb020; --btn:#e6ebf2; --btn-ink:#11171e; --warn:#ff8a7e; --ok:#58d39a; --chip:#202a36;
+  --d-ink:#dfe6ee; --d-tower:#a9b4c2; --d-exis:#6aa9ff; --d-ladder:#4ecb8f; --d-prop:#ff6b5e; --d-dim:#8795a8; --d-photo:#b99cff; --d-ghost:#66748a;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-ui);font-size:15px;line-height:1.35;overflow-x:hidden}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--sel);outline-offset:1px}
+.app{display:flex;flex-direction:column;gap:10px;height:100%;min-height:560px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:10px 12px}
+.bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:8px;font:600 21px/1 var(--f-head);letter-spacing:.06em;text-transform:uppercase}
+.brand svg{width:22px;height:22px;stroke:var(--ink);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.chip{font:500 11px/1 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;background:var(--chip);color:var(--muted);padding:4px 6px;border-radius:4px}
+.who{font:500 13px var(--f-mono);color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 60px}
+.sp{flex:1}
+.b{height:36px;padding:0 12px;border-radius:7px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font:600 14px var(--f-ui);cursor:pointer;white-space:nowrap}
+.b:hover{border-color:var(--muted)}
+.b.p{background:var(--btn);color:var(--btn-ink);border-color:var(--btn)}
+.b.s{height:30px;padding:0 9px;font-size:13px}
+.b.ic{width:30px;padding:0;font-size:17px;line-height:1}
+.b.d{color:var(--warn)}
+.b[disabled]{opacity:.45;cursor:not-allowed}
+.desk{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 384px;gap:10px}
+.stage,.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+.tools{display:flex;align-items:center;gap:6px;padding:7px 8px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.seg{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:var(--paper)}
+.seg button{height:30px;padding:0 11px;border:0;background:none;font:600 13px var(--f-ui);cursor:pointer;color:var(--muted)}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-selected="true"]{background:var(--btn);color:var(--btn-ink)}
+.views{flex:1;min-height:0;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);position:relative;background:var(--paper)}
+.view{position:relative;min-width:0;min-height:0}
+.view+.view{border-left:1px solid var(--line)}
+.view svg{position:absolute;inset:0;width:100%;height:100%;touch-action:none;user-select:none;-webkit-user-select:none;display:block;cursor:grab}
+#svgTop{cursor:crosshair}
+.cap{position:absolute;left:8px;top:8px;font:500 11px/1 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--muted);background:color-mix(in srgb,var(--paper) 82%,transparent);padding:4px 6px;border-radius:4px;pointer-events:none}
+.views[data-v="top"] #vIso,.views[data-v="top"] #vSheets,.views[data-v="iso"] #vTop,.views[data-v="iso"] #vSheets,.views[data-v="both"] #vSheets,.views[data-v="sheets"] #vTop,.views[data-v="sheets"] #vIso{display:none}
+.modebar{position:absolute;left:50%;bottom:8px;transform:translateX(-50%);display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center;width:max-content;max-width:calc(100% - 12px);background:var(--btn);color:var(--btn-ink);padding:5px 6px 5px 11px;border-radius:9px;font-size:13px;font-weight:500;box-shadow:0 4px 14px rgba(0,0,0,.22)}
+.modebar .b{background:transparent;color:var(--btn-ink);border-color:color-mix(in srgb,var(--btn-ink) 40%,transparent)}
+.status{display:flex;gap:10px;align-items:center;padding:6px 10px;border-top:1px solid var(--line);font:400 12px var(--f-mono);color:var(--muted);min-height:29px}
+.status b{color:var(--ink);font-weight:500}
+.status .w{color:var(--warn);background:none;border:0;padding:0;font:inherit;cursor:pointer;text-decoration:underline}
+.status span{white-space:nowrap;flex:none}
+.status .h{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.status .w{flex:none;white-space:nowrap}
+.tabs{display:flex;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.tabs button{flex:1 1 auto;min-width:0;height:40px;padding:0 5px;border:0;border-bottom:2px solid transparent;background:none;font:600 13.5px var(--f-head);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);cursor:pointer}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink)}
+.tabbody{flex:1;min-height:0;overflow:auto;padding:12px 14px 18px}
+h3{font:600 13px var(--f-head);letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:16px 0 7px}
+h3:first-child{margin-top:2px}
+.f{display:grid;gap:3px;min-width:0}
+.f>span{font-size:12.5px;color:var(--muted);line-height:1.25}
+.f input,.f select,.leg select,.leg input{height:36px;width:100%;min-width:0;border:1px solid var(--line);border-radius:7px;background:var(--paper);padding:0 9px}
+.row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:8px;align-items:end}
+.row3{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) minmax(0,1fr) 30px;gap:6px;margin-bottom:8px;align-items:end}
+.one{margin-bottom:8px}
+.hint{font-size:13px;color:var(--muted);margin:4px 0 10px}
+.note{font-size:13.5px;background:var(--chip);border-radius:7px;padding:8px 10px;margin-bottom:10px}
+.warn{font-size:13.5px;border-left:3px solid var(--warn);background:color-mix(in srgb,var(--warn) 9%,transparent);padding:7px 9px;border-radius:0 6px 6px 0;margin-bottom:8px}
+.good{font-size:13.5px;border-left:3px solid var(--ok);background:color-mix(in srgb,var(--ok) 9%,transparent);padding:7px 9px;border-radius:0 6px 6px 0;margin-bottom:8px}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.pal{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.pal .b{text-align:left;overflow:hidden;text-overflow:ellipsis}
+.insp{border:1px solid var(--sel);border-radius:9px;padding:10px 10px 4px;margin-bottom:6px}
+.insp-h{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:9px}
+.insp-h b{font:600 16px var(--f-head);letter-spacing:.05em;text-transform:uppercase;margin-right:auto}
+.li{display:flex;align-items:center;gap:8px;width:100%;height:34px;padding:0 8px;border:0;border-bottom:1px solid var(--line2);background:none;cursor:pointer;text-align:left;font-size:14px}
+.li[aria-current="true"]{background:var(--chip)}
+.li span{margin-left:auto;font:400 12px var(--f-mono);color:var(--muted)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--d-exis);flex:none}
+.dot.P{background:var(--d-prop)}.dot.T{background:var(--d-tower)}.dot.L{background:var(--d-ladder)}
+.leg{display:grid;grid-template-columns:26px minmax(0,1fr) 64px 30px;gap:6px;align-items:center;margin-bottom:6px}
+.leg .n{width:24px;height:24px;border-radius:50%;border:2px solid var(--d-prop);display:grid;place-items:center;font:500 12px var(--f-mono)}
+.leg .bar2{justify-self:center;width:3px;height:30px;background:var(--d-prop);border-radius:2px}
+.leg .len{font:500 13px var(--f-mono);text-align:right}
+.leg small{font-size:12.5px;color:var(--muted)}
+.t{width:100%;border-collapse:collapse;font-size:13.5px}
+.t th{font:600 12px var(--f-head);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:5px 6px;border-bottom:1px solid var(--line)}
+.t td{padding:5px 6px;border-bottom:1px solid var(--line2);vertical-align:top}
+.t .r{text-align:right;font-family:var(--f-mono);font-size:12.5px;white-space:nowrap}
+.t tr.tot td{font-weight:600;border-top:1px solid var(--line)}
+.ph{display:grid;grid-template-columns:84px minmax(0,1fr);gap:10px;padding:9px 0;border-bottom:1px solid var(--line2)}
+.ph img,.ph .noimg{width:84px;height:66px;object-fit:cover;border-radius:6px;background:var(--chip);display:grid;place-items:center;font-size:11px;color:var(--muted);text-align:center}
+.ph .n{font:600 13px var(--f-head);letter-spacing:.08em;text-transform:uppercase;color:var(--d-photo)}
+.filebtn{display:inline-flex;align-items:center}
+.dump{width:100%;height:120px;font:12px var(--f-mono);border:1px solid var(--line);border-radius:7px;background:var(--paper);color:var(--ink);padding:6px;margin-bottom:8px}
+ul.chk{list-style:none;padding:0;margin:0 0 10px}
+ul.chk li{font-size:13.5px;padding:5px 0 5px 20px;position:relative;border-bottom:1px solid var(--line2)}
+ul.chk li::before{content:"";position:absolute;left:3px;top:11px;width:8px;height:8px;border-radius:50%;background:var(--ok)}
+ul.chk li.w::before{background:var(--warn)}
+.ov-sel{fill:color-mix(in srgb,var(--sel) 13%,transparent);stroke:var(--sel);stroke-width:2px;vector-effect:non-scaling-stroke;stroke-dasharray:6 3}
+.ov-g{fill:none;stroke:var(--sel);stroke-width:1.2px;vector-effect:non-scaling-stroke}
+.ov-g.w{stroke-width:3px;opacity:.55;stroke-linejoin:round}
+.ov-z circle{fill:var(--paper);stroke:var(--sel);stroke-width:2px;vector-effect:non-scaling-stroke}
+.ov-z path{fill:none;stroke:var(--sel);stroke-width:2px;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round}
+.ov-t{fill:var(--sel);font-weight:700}
+.ov-h{fill:var(--paper);stroke:var(--d-prop);stroke-width:2px;vector-effect:non-scaling-stroke}
+.ov-h.g{stroke:var(--d-ladder)}.ov-h.b{stroke:var(--d-exis)}.ov-h.dr{stroke:var(--d-ink)}.ov-h.ac{stroke:var(--d-dim)}.ov-h.v{stroke:var(--d-photo)}.ov-h.on{fill:var(--sel);stroke:var(--sel)}
+.ov-n{fill:var(--d-prop);font-weight:700}
+.ov-s{fill:none;stroke:var(--sel);stroke-width:3px;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round;opacity:.8}
+.modebar .b[aria-pressed="true"]{background:var(--btn-ink);color:var(--btn)}
+.pal .b[aria-pressed="true"]{background:var(--btn);color:var(--btn-ink);border-color:var(--btn)}
+.ov-d{fill:none;stroke:var(--d-ladder);stroke-width:2px;vector-effect:non-scaling-stroke;stroke-dasharray:5 4}
+.g1{stroke:var(--grid);stroke-width:.02;fill:none}.g5{stroke:var(--grid2);stroke-width:.035;fill:none}
+.sheetbg{fill:var(--paper);stroke:var(--line);stroke-width:.4}
+#vSheets{background:var(--bg)}
+@media (max-width:480px){
+  .modebar span{display:none}
+  #bIn,#bOut{display:none}
+  .seg button{padding:0 9px}
+  .brand{font-size:19px;gap:6px;margin-right:auto}
+  .brand .chip{display:none}
+  .bar{gap:6px}
+}
+@media (max-width:900px){
+  .brand{margin-right:auto}
+  .desk{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(250px,50%) minmax(0,1fr)}
+  .seg .wide{display:none}
+  .who{display:none}
+  .bar .sp2{flex:1}
+  .app{min-height:640px}
+}
+
+/* ---- G-eSAA: this page runs inside the app (a full-screen frame) ---- */
+html,body{margin:0}
+img{max-width:100%}
+[hidden]{display:none!important}
+.app{padding-top:max(10px,env(safe-area-inset-top,0px));padding-bottom:max(12px,env(safe-area-inset-bottom,0px))}
+.guide{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--sel);border-radius:8px;padding:6px 8px 6px 10px;font-size:14px}
+.guide b{font:600 13px/1 var(--f-head);letter-spacing:.06em;text-transform:uppercase;color:var(--sel);white-space:nowrap}
+.guide span{flex:1 1 180px;min-width:0}
+.guide.done{border-left-color:var(--ok)}.guide.done b{color:var(--ok)}
+.guide.view{border-left-color:var(--muted)}.guide.view b{color:var(--muted)}
+.nologo{font:500 12px var(--f-mono);color:var(--muted)}
+.viewonly .chip.vo{display:inline-block}.chip.vo{display:none}
+#nohost{padding:24px 16px;font-size:16px;max-width:520px;margin:0 auto}
+input:disabled,select:disabled{opacity:.7;background:var(--chip)}
+button:disabled{opacity:.5;cursor:default}
+</style>
+</head>
+<body>
+<div id="nohost" hidden><h2>CEF Plan</h2><p>This page is part of G-eSAA. Open a CEF plan from the app: Projects, then a CEF-Plan project, or the site pin of an As-Plan project.</p></div>
+<div class="app">
+  <header class="bar">
+    <div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l4 18H5L9 3zM7.6 9.5h8.8M6.4 15h11.2M9 3l7.4 6.5L6.4 15M15 3L7.6 9.5 17.6 15"/></svg>CEF Plan<span class="chip vo">view only</span></div>
+    <div class="who" id="who"></div>
+    <button class="b s p" id="bBack" hidden>&larr; Back to the site</button>
+    <button class="b s" id="bUndo" disabled>Undo</button>
+    <button class="b s p" id="bDone" title="Close the CEF plan. It is saved as you work.">Done</button>
+  </header>
+  <div class="guide" id="guide" hidden></div>
+  <div class="desk">
+    <section class="stage" aria-label="Drawing">
+      <div class="tools">
+        <div class="seg" id="segView" role="tablist" aria-label="View">
+          <button data-v="top" role="tab">Sketch</button><button data-v="iso" role="tab">Isometric</button><button data-v="both" role="tab" class="wide">Both</button><button data-v="sheets" role="tab">Sheets</button>
+        </div>
+        <span class="sp"></span>
+        <button class="b s" id="bTurn" title="Look at the site from the next corner">Turn</button>
+        <button class="b s ic" id="bOut" aria-label="Zoom out">&minus;</button><button class="b s ic" id="bIn" aria-label="Zoom in">+</button><button class="b s" id="bFit">Fit</button>
+      </div>
+      <div class="views" id="views" data-v="top">
+        <div class="view" id="vTop"><svg id="svgTop" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Top view sketch of the site"></svg><span class="cap">Top view &middot; sketch here</span></div>
+        <div class="view" id="vIso"><svg id="svgIso" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Isometric view of the site"></svg><span class="cap" id="capIso">Isometric &middot; follows the sketch</span></div>
+        <div class="view" id="vSheets"><svg id="svgSheets" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sheets as they will be exported"></svg><span class="cap">Sheets &middot; as exported</span></div>
+        <div class="modebar" id="modebar" hidden></div>
+      </div>
+      <div class="status" id="status"></div>
+    </section>
+    <aside class="panel" aria-label="Site details">
+      <nav class="tabs" id="tabs" role="tablist">
+        <button data-tab="site" role="tab">Site</button><button data-tab="els" role="tab">Elements</button><button data-tab="route" role="tab">Route</button><button data-tab="photos" role="tab">Photos</button><button data-tab="table" role="tab">Table</button><button data-tab="export" role="tab">Export</button>
+      </nav>
+      <div class="tabbody" id="panel"></div>
+    </aside>
+  </div>
+</div>
+<script src="../pdf-lib/pdf-lib.min.js"></script>
+<script src="30_core.js"></script>
+<script src="40_iso.js"></script>
+<script src="50_export.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
