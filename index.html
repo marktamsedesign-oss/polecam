@@ -243,7 +243,21 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .dsprevcol{position:sticky;top:0;z-index:3;background:var(--bg);padding:10px max(12px,env(safe-area-inset-right,0px)) 8px max(12px,env(safe-area-inset-left,0px));border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
 .dsscenes{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}.dsscenes::-webkit-scrollbar{display:none}.dsscenes .chip{flex:none}.dsscenes .chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .dsprevcol .stprev svg{display:block;width:100%;height:auto}
-.dsprevcol.compact .dsscenes{display:none}.dsprevcol.compact .stprev svg{height:112px}
+.dsprevcol.compact .stprev svg{height:112px} /* (beta 3.9: the parts stay above it: they pick the settings) */
+#drwStyle .stgrp[hidden]{display:none}.dsctl .stgrp:not([hidden]){border-top:0;margin-top:4px}
+#stVicLbl{min-height:42px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;text-transform:none}
+/* beta 3.9: a record on a computer: the map and its pin on the left, the form on the right (its close and delete at its top); the line between them moves */
+#edGrip{display:none}
+body.deskpane #editor:not([hidden]){display:grid;grid-template-columns:minmax(0,1fr) 10px minmax(360px,var(--edw,560px));grid-template-rows:auto minmax(0,1fr) auto auto;grid-template-areas:"map grip head" "map grip body" "map grip issue" "map grip foot"}
+body.deskpane #editor>header{grid-area:head;min-width:0}
+body.deskpane #editor>#pinMapWrap{grid-area:map;height:auto!important;min-height:0;border-bottom:0}
+body.deskpane #editor>.edbody{grid-area:body;min-width:0;margin-top:0;border-radius:0;border-top:0;box-shadow:none;padding-top:12px}
+body.deskpane #editor>#saveIssue{grid-area:issue}
+body.deskpane #editor>.foot{grid-area:foot}
+body.deskpane #edGrip{display:block;grid-area:grip;cursor:col-resize;background:var(--line);position:relative;touch-action:none;outline:none}
+body.deskpane #edGrip::after{content:"";position:absolute;left:3px;top:50%;width:4px;height:44px;margin-top:-22px;border-radius:2px;background:var(--muted);opacity:.7}
+body.deskpane #edGrip:hover,body.deskpane #edGrip.drag,body.deskpane #edGrip:focus-visible{background:var(--accent)}
+body.deskpane #pinMapWrap #pinSizeBtn,body.deskpane #pinMapWrap #pinMiniTag,body.deskpane #editor #edGrab{display:none}
 .dscap{display:flex;align-items:center;justify-content:space-between;gap:6px 8px;font-size:calc(12.5px * var(--fs));color:var(--muted);flex-wrap:wrap}.dscapr{display:inline-flex;gap:10px;align-items:center}
 .dscap .ov{font-weight:700}.dscap .ov.bad{color:var(--bad)}.dscap .ov.good{color:var(--ok)}.dscap label{display:inline-flex;align-items:center;gap:5px}
 .dsbig{min-height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:calc(12.5px * var(--fs));font-weight:600}.dsbig[hidden]{display:none}
@@ -1337,6 +1351,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <span id="queueNote"></span>
     <button class="iconbtn" id="edTrash" type="button" hidden aria-label="Delete this record" title="Delete this record"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
   </header>
+  <div id="edGrip" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Width of the form: drag it, or use the arrow keys; double-click for the usual width" title="Drag to make the form wider or narrower; double-click: the usual width"></div>
   <div id="pinMapWrap">
     <div id="pinMap"></div>
     <div id="crosshair"><span id="pinLabel" class="none" aria-live="polite"></span><span id="crossSym" hidden></span><i></i><svg viewBox="0 0 30 42" aria-hidden="true"><path d="M15 40.5C15 40.5 3 26.4 3 15.2A12 12 0 0 1 27 15.2C27 26.4 15 40.5 15 40.5Z" fill="#e6007e" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><circle cx="15" cy="15" r="5" fill="#fff"/></svg></div>
@@ -1533,7 +1548,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div class="dscap"><span id="dsCap"></span><span class="dscapr"><label><input type="checkbox" id="dsMark" checked> Mark overlaps</label><button type="button" class="dsbig" id="dsBig" hidden>Bigger</button></span></div>
    </div>
    <div class="dsctl">
-    <p class="hint" style="margin-top:0">Your style for the plan DXF (on this phone). The preview changes as you set it, drawn at 1:1100 like the GEO sheets; it shows the part you touch.</p>
+    <p class="hint" style="margin-top:0">Your style for the plan DXF (on this phone). Pick a part above the preview to see its settings: the street (numbers, IDs, clamp types, cable labels), a crowded corner, the tower site or the vicinity map. The preview changes as you set it, drawn at 1:1100 like the GEO sheets.</p>
     <div class="stgrp" id="stCrowd" data-scene="crowd">
       <h3>Crowded places</h3>
       <div class="strow"><span class="lbl">Labels in crowded places</span><div class="seg" id="stCrowdAuto" role="radiogroup" aria-label="Labels in crowded places"><button type="button" class="chip small" data-v="1">Auto: move and fit</button><button type="button" class="chip small" data-v="0">Off (as before)</button></div></div>
@@ -1585,9 +1600,12 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     </div>
     <div class="stgrp" id="stVic" data-scene="vic">
       <h3>Vicinity map</h3>
-      <div class="stvic"><svg id="stVicPrev" viewBox="0 0 60 40" role="img" aria-label="Preview of the vicinity map: the route and the project area circle"></svg></div>
-      <div class="strow"><span class="lbl">Project area circle colour <output id="stVicColO"></output></span><div class="sws" id="stVicCol" role="radiogroup" aria-label="Circle colour"></div></div>
-      <div class="strow"><label class="lbl" for="stVicW">Circle line width <output id="stVicWO"></output></label><input type="range" id="stVicW" min="2" max="20" step="1"></div>
+      <div class="stvic" hidden><svg id="stVicPrev" viewBox="0 0 60 40" role="img" aria-label="Preview of the vicinity map: the route and the project area circle"></svg></div>
+      <div class="strow"><span class="lbl">Project area (its circle, its label, the map darker round it)</span><div class="seg" id="stVicArea" role="radiogroup" aria-label="Project area"><button type="button" class="chip small" data-v="1">Show</button><button type="button" class="chip small" data-v="0">Hide</button></div></div>
+      <div class="strow" data-dim="vicarea"><label class="lbl" for="stVicLbl">Label</label><input type="text" id="stVicLbl" maxlength="40" autocomplete="off" placeholder="PROJECT AREA" aria-label="The project area's label"><p class="hint" style="margin:0">Blank: the circle without a label.</p></div>
+      <div class="strow" data-dim="vicarea"><label class="lbl" for="stVicLh">Label text height <output id="stVicLhO"></output></label><input type="range" id="stVicLh" min="8" max="40" step="1"></div>
+      <div class="strow" data-dim="vicarea"><span class="lbl">Project area circle colour <output id="stVicColO"></output></span><div class="sws" id="stVicCol" role="radiogroup" aria-label="Circle colour"></div></div>
+      <div class="strow" data-dim="vicarea"><label class="lbl" for="stVicW">Circle line width <output id="stVicWO"></output></label><input type="range" id="stVicW" min="2" max="20" step="1"></div>
       <div class="strow"><span class="lbl">Route colour <output id="stVicRColO"></output></span><div class="sws" id="stVicRCol" role="radiogroup" aria-label="Route colour"></div></div>
       <div class="strow"><label class="lbl" for="stVicRW">Route line width <output id="stVicRWO"></output></label><input type="range" id="stVicRW" min="6" max="40" step="0.5"></div>
     </div>

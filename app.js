@@ -898,7 +898,7 @@
   const APP_VER = '2.43.1';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '3.8'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '3.9'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -2204,7 +2204,7 @@
      circle, distance, leader line, where), the IDs of the points on the cable (bold, colour, height) and the vicinity map (circle and
      route colour and width). Defaults: the numbers yellow, 3 m high in a 7 m circle, 2 m from the point with a leader line, at the
      first free spot; the IDs as before (2.5 m, by layer); the circle yellow. Sizes are metres of the drawing (1:1100: 1 m = 0.9 mm). */
-  const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto' }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5 },
+  const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto' }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5, area: true, label: 'PROJECT AREA', lh: 18 }, /* (beta 3.9: the project area shown, its label and its height) */
     clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a', per: 3, h: 0, w: { prop: true, size: true, type: true, place: true, foc: false, run: true } }, /* v2.42.26: labels for each cable in a grid, their height (0: by the poles' spacing), their words */
     site: { name: 'on', move: 'auto', arrow: true, acol: 7 }, odf: { place: 'auto', lbl: 'size' }, /* v2.42.26: the tower's name; the ODF beside the tower, its label (beta 3.8: the name on the tower; moved aside in its sheet; the arrow) */
     crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room' } }; /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
@@ -2212,7 +2212,7 @@
     const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d);
     const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) };
     return { num: { color: c(N.color, 2), bcolor: c(N.bcolor, 0, true), h: n(N.h, 1, 12, 3), d: n(N.d, 0, 25, 7), g: n(N.g, 0, 25, 2), leader: N.leader !== false, place: N.place === 'out' ? 'out' : 'auto' },
-      id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5) },
+      id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5), area: V.area !== false, label: typeof V.label === 'string' ? V.label.replace(/\s+/g, ' ').slice(0, 40) : 'PROJECT AREA', lh: n(V.lh, 8, 40, 18) },
       clamp: { place: ['label', 'tag', 'callout'].includes(Cl.place) ? Cl.place : 'label', pos: ['auto', 'up', 'down', 'left', 'right'].includes(Cl.pos) ? Cl.pos : 'auto', color: c(Cl.color, 0, true), h: n(Cl.h, 1, 5, 2), box: Cl.box !== false, hw: Cl.hw !== false },
       cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a', per: [1, 2, 3].includes(+Cb.per) ? +Cb.per : 3, h: +Cb.h ? n(Cb.h, 0.8, 3, 0) : 0, w: Object.fromEntries(Object.keys(PL_DEF.cab.w).map((k) => [k, !!Cw[k]])) },
       site: { name: ['on', 'top', 'side', 'bottom'].includes(St.name) ? St.name : 'on', move: St.move === 'point' ? 'point' : 'auto', arrow: St.arrow !== false, acol: c(St.acol, 7, true) }, /* (beta 3.8: Auto is now On the tower) */
@@ -2222,7 +2222,7 @@
   const mmOf = (m) => (m / 1.1).toFixed(1);
   function plSummary() {
     const P = plStyle(), N = P.num, I = P.id, V = P.vic, Cl = P.clamp, Cb = P.cab, ct = S.exp.dxfClampType !== false;
-    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? ACI_NAME[Cl.color] : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Crowded places: ${P.crowd.auto ? `Auto (labels moved up to ${P.crowd.move} m${P.crowd.leader ? ' with a line' : ''}, then down to ${P.crowd.min} % of their size; street names ${P.crowd.streets === 'fixed' ? 'kept in place' : 'slide along their road'})` : 'off (as before)'}, landmark names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]} · Tower: its name and ID ${P.site.name === 'on' ? 'on the tower' : `at its ${P.site.name}`}, ${P.site.move === 'point' ? 'kept at its point' : `moved aside in its sheet when it covers details${P.site.arrow ? `, a curved arrow to its point (${P.site.acol ? (P.site.acol === 7 ? 'white; black on the PDF' : ACI_NAME[P.site.acol]) : 'as the tower'})` : ''}`} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${ACI_NAME[V.circle]} circle ${V.circleW} m wide, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide`;
+    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? ACI_NAME[Cl.color] : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Crowded places: ${P.crowd.auto ? `Auto (labels moved up to ${P.crowd.move} m${P.crowd.leader ? ' with a line' : ''}, then down to ${P.crowd.min} % of their size; street names ${P.crowd.streets === 'fixed' ? 'kept in place' : 'slide along their road'})` : 'off (as before)'}, landmark names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]} · Tower: its name and ID ${P.site.name === 'on' ? 'on the tower' : `at its ${P.site.name}`}, ${P.site.move === 'point' ? 'kept at its point' : `moved aside in its sheet when it covers details${P.site.arrow ? `, a curved arrow to its point (${P.site.acol ? (P.site.acol === 7 ? 'white; black on the PDF' : ACI_NAME[P.site.acol]) : 'as the tower'})` : ''}`} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${V.area ? `the project area ${ACI_NAME[V.circle]}, its circle ${V.circleW} m wide, ${V.label.trim() ? `labelled “${V.label.trim()}” ${V.lh} m high` : 'no label'}` : 'no project area'}, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide`;
   }
   function openStyle() { DSP.reset(); renderStyle(); openSheet('drwStyle'); setTimeout(() => { DSP.reset(); DSP.onScroll(); }, 0); } // (the settings from the top, the preview large)
   function renderStyle() {
@@ -2240,6 +2240,8 @@
     o('stNumHO', `${N.h} m · ${mmOf(N.h)} mm`); o('stNumDO', N.d > 0 ? `${N.d} m · ${mmOf(N.d)} mm` : 'no circle'); o('stNumGO', `${N.g} m · ${mmOf(N.g)} mm`); o('stIdHO', `${I.h} m · ${mmOf(I.h)} mm`); o('stVicWO', `${V.circleW} m`); o('stVicRWO', `${V.routeW} m`);
     const seg = (id, v) => $(id).querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
     seg('stNumLeader', N.leader ? '1' : '0'); seg('stNumPlace', N.place); seg('stIdBold', I.bold ? '1' : '0');
+    seg('stVicArea', V.area ? '1' : '0'); if (document.activeElement !== $('stVicLbl')) $('stVicLbl').value = V.label; if (document.activeElement !== $('stVicLh')) $('stVicLh').value = String(V.lh); o('stVicLhO', `${V.lh} m`); // beta 3.9
+    $('drwStyle').querySelectorAll('[data-dim="vicarea"]').forEach((r) => r.classList.toggle('dim', !V.area));
     seg('stCabPer', String(P.cab.per)); seg('stSiteName', P.site.name); seg('stOdfPlace', P.odf.place); seg('stOdfLbl', P.odf.lbl); // v2.42.26
     seg('stCrowdAuto', P.crowd.auto ? '1' : '0'); seg('stCrowdLeader', P.crowd.leader ? '1' : '0'); seg('stCrowdStreets', P.crowd.streets); seg('stCrowdMarks', P.crowd.marks); // beta 3.8
     seg('stSiteMove', P.site.move); seg('stSiteArrow', P.site.arrow ? '1' : '0'); sw('stSiteACol', P.site.acol, 'As the tower', 'site', 'acol');
@@ -2260,6 +2262,9 @@
   }
   [['stNumH', 'num', 'h'], ['stNumD', 'num', 'd'], ['stNumG', 'num', 'g'], ['stIdH', 'id', 'h'], ['stVicW', 'vic', 'circleW'], ['stVicRW', 'vic', 'routeW'], ['stClH', 'clamp', 'h'], ['stCrowdMin', 'crowd', 'min'], ['stCrowdMove', 'crowd', 'move']].forEach(([id, part, key]) => $(id).addEventListener('input', () => setPl(part, key, +$(id).value)));
   $('stNumLeader').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('num', 'leader', b.dataset.v === '1'); });
+  $('stVicArea').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('vic', 'area', b.dataset.v === '1'); }); // beta 3.9: the project area
+  $('stVicLbl').addEventListener('input', () => setPl('vic', 'label', $('stVicLbl').value.slice(0, 40)));
+  $('stVicLh').addEventListener('input', () => setPl('vic', 'lh', +$('stVicLh').value));
   $('stNumPlace').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('num', 'place', b.dataset.v); });
   $('stIdBold').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('id', 'bold', b.dataset.v === '1'); });
   [['stClPlace', 'clamp', 'place', (v) => v], ['stClPos', 'clamp', 'pos', (v) => v], ['stClBox', 'clamp', 'box', (v) => v === '1'], ['stClHw', 'clamp', 'hw', (v) => v === '1'], ['stCabOn', 'cab', 'on', (v) => v === '1']]
@@ -2276,15 +2281,17 @@
   /** The vicinity preview: a map 1.5 km across (1 unit = 25 m), the route on its white band and the PROJECT AREA circle. */
   function drawVicPreview(P, into) {
     const svg = into || $('stVicPrev'); if (!svg) return; if (into) { svg.setAttribute('viewBox', '0 0 60 40'); svg.style.aspectRatio = '60 / 40'; } /* (beta 3.8: also the main preview's Vicinity map) */ const NSV = 'http://www.w3.org/2000/svg', V = P.vic, k = 1 / 25;
-    const el = (tag, a, text) => { const e = document.createElementNS(NSV, tag); Object.entries(a).forEach(([kk, v]) => e.setAttribute(kk, v)); if (text != null) e.textContent = text; svg.appendChild(e); return e; };
+    const el = (tag, a, text) => { const e = document.createElementNS(NSV, tag); Object.entries(a).forEach(([kk, v]) => { if (v != null) e.setAttribute(kk, v); }); if (text != null) e.textContent = text; svg.appendChild(e); return e; };
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     el('rect', { x: 0, y: 0, width: 60, height: 40, fill: '#4b5a46' });
     [['M0 31 L60 22', 1.1], ['M14 0 L19 40', 0.8], ['M38 0 L44 40', 0.7], ['M0 9 L60 14', 0.6]].forEach(([d, w]) => el('path', { d, stroke: '#c9c4b5', 'stroke-width': w, fill: 'none' }));
     const route = 'M9 29 L18 26.5 L30 24.5 L41 19 L49 12';
     el('path', { d: route, stroke: '#fff', 'stroke-width': V.routeW * 2 * k, fill: 'none', 'stroke-linejoin': 'round' });
     el('path', { d: route, stroke: ACI_HEX[V.route] || '#ff0000', 'stroke-width': V.routeW * k, fill: 'none', 'stroke-dasharray': V.route ? '' : `${26 * k * V.routeW / 16.5 * 2} ${26 * k * V.routeW / 16.5}`, 'stroke-linejoin': 'round' });
+    if (!V.area) return; // (beta 3.9: no project area)
     el('circle', { cx: 29, cy: 21, r: 15, fill: 'none', stroke: ACI_HEX[V.circle], 'stroke-width': V.circleW * k });
-    el('rect', { x: 20.5, y: 2.2, width: 17, height: 3.4, fill: '#333', stroke: ACI_HEX[2], 'stroke-width': 0.15 }); el('text', { x: 29, y: 4.75, fill: '#ffff00', 'font-size': 2.2, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif' }, 'PROJECT AREA');
+    const lt = V.label.trim(); if (!lt) return; const f = 2.2 * V.lh / 18, hb = 3.4 * V.lh / 18, wb = Math.min(58, lt.length * f * 0.62 + 1.6), yb = 6 - 0.6 - hb; // (its label above the circle, as tall as set)
+    el('rect', { x: 29 - wb / 2, y: yb, width: wb, height: hb, fill: '#333', stroke: ACI_HEX[2], 'stroke-width': 0.15 }); el('text', { x: 29, y: yb + hb * 0.74, fill: '#ffff00', 'font-size': f, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif', textLength: lt.length * f * 0.62 > 56 ? 56 : null }, lt);
   }
   /* ================= beta 3.8: the Drawing style preview =================
      Four scenes: a street, a crowded corner, the tower site and the vicinity map, drawn at 1:1100 as on the GEO sheets; the preview
@@ -2533,6 +2540,7 @@
       wire(); P = P || plStyle(); const svg = $('stPrev'); if (!svg) return;
       const C = { auto: P.crowd.auto, min: P.crowd.min / 100, move: P.crowd.move, leader: P.crowd.leader, streets: P.crowd.streets, marks: P.crowd.marks, mark: $('dsMark').checked };
       $('drwStyle').querySelectorAll('.dsscenes [data-scene]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.scene === scene)));
+      $('drwStyle').querySelectorAll('.stgrp[data-scene]').forEach((g) => { g.hidden = g.dataset.scene !== scene; }); // beta 3.9: only the settings of the part picked
       let r = null;
       if (scene === 'vic') { while (svg.firstChild) svg.removeChild(svg.firstChild); drawVicPreview(P, svg); }
       else r = paint(svg, scene === 'crowd' ? scCrowd(P, C) : scene === 'tower' ? scTower(P, C) : scStreet(P, C), C);
@@ -2545,7 +2553,7 @@
       svg.setAttribute('aria-label', `Preview: ${NAMES[scene]}. ${b.textContent}.`);
       last = { scene, clashes: r ? r.clashes : 0, skipped: r ? r.skipped : 0, ids: r ? r.ids : [] };
     }
-    function setScene(sn) { if (sn === scene || !NAMES[sn]) return; scene = sn; render(); }
+    function setScene(sn) { if (sn === scene || !NAMES[sn]) return; scene = sn; render(); const bd = body(); if (bd && !$('drwStyle').hidden && (bd.clientWidth >= 720 || !compact)) bd.scrollTop = 0; } // (beta 3.9: its settings from their top)
     const narrow = () => { const bd = body(); return !bd || bd.clientWidth < 720; };
     function setCompact(on) {
       if (on === compact) return; const c = col(), h0 = c.getBoundingClientRect().height; compact = on; c.classList.toggle('compact', on);
@@ -7847,7 +7855,7 @@
     // made it big on a scroll back to the top: on an iPhone the form's glide and bounce read as that, so the map went small and big
     // again and the form jumped each time (the stutter). No animation of its height either (the map was resized at each frame).
     const wrap = $('pinMapWrap'), MINI_H = 96, edEl = $('editor'); let touching = 0, restT = 0;
-    const off = () => !edTabsOn() || $('editor').classList.contains('kbfield');
+    const off = () => !edTabsOn() || $('editor').classList.contains('kbfield') || deskOn(); // (beta 3.9: on a computer the map stays beside the form)
     const atRest = () => {
       if (off() || touching || wrap.classList.contains('mini')) return;
       const st = body.scrollTop, d = wrap.offsetHeight - MINI_H, room = body.scrollHeight - body.clientHeight; // how far the form scrolls now
@@ -10266,7 +10274,7 @@
           const vr = await planRoads(llBox([cE - size / 2, cN - size / 2, cE + size / 2, cN + size / 2], 0)).catch(() => null);
           if (vr && vr.roads.length) { v = await vicinityFromRoads(vr.roads, cE, cN, size); drawn = !!v; }
         }
-        if (v) v = await vicFocus(v, cE, cN, size, vicC); // v2.37: grey and darker outside the circle
+        if (v && PLS.vic.area !== false) v = await vicFocus(v, cE, cN, size, vicC); // v2.37: grey and darker outside the circle (beta 3.9: with the project area shown)
         if (v) { if (v.sat) kind = 'sat'; image = { file, px: v.px, py: v.py, credit: v.credit, sat: !!v.sat }; files.push({ name: file, data: v.jpg }); }
       } catch (e) { LOG.warn('plan.vicinity', errInfo(e)); }
       vics.push({ c: [cE, cN], size, circle: vicC, image });
@@ -16441,6 +16449,20 @@
     g.addEventListener('dblclick', () => { const st = ppState(); delete st.w; persist(); deskLayout(); map.invalidateSize({ animate: false }); });
     g.addEventListener('keydown', (e) => { if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return; e.preventDefault(); apply($('projPane').offsetWidth + (e.key === 'ArrowRight' ? 16 : -16)); persist(); map.invalidateSize({ animate: false }); });
     window.addEventListener('resize', () => { const st = ppState(); if (st.w && deskOn()) deskLayout(); }); }
+  /* ---- beta 3.9: a record on a computer: the map and its pin on the left, the form on the right; the line between them moves (drag,
+     or the arrow keys), and a double-click puts back the usual width; the width is kept on this computer ---- */
+  { const g = $('edGrip'), E = $('editor'); let dragE = null;
+    const edW = (w) => Math.round(Math.max(360, Math.min(Number(w) || 560, Math.min(980, innerWidth - 360))));
+    const apply = (w) => { S.edW = edW(w); E.style.setProperty('--edw', `${S.edW}px`); };
+    if (S.edW) E.style.setProperty('--edw', `${edW(S.edW)}px`);
+    const formW = () => E.querySelector('.edbody').offsetWidth;
+    g.addEventListener('pointerdown', (e) => { if (!deskOn()) return; dragE = { x: e.clientX, w: formW() }; g.setPointerCapture(e.pointerId); g.classList.add('drag'); document.body.classList.add('ppdrag'); e.preventDefault(); });
+    g.addEventListener('pointermove', (e) => { if (dragE) apply(dragE.w - (e.clientX - dragE.x)); });
+    const end = () => { if (!dragE) return; dragE = null; g.classList.remove('drag'); document.body.classList.remove('ppdrag'); persist(); LOG.info('editor.width', { w: S.edW }); };
+    g.addEventListener('pointerup', end); g.addEventListener('pointercancel', end);
+    g.addEventListener('dblclick', () => { delete S.edW; E.style.removeProperty('--edw'); persist(); });
+    g.addEventListener('keydown', (e) => { if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return; e.preventDefault(); apply(formW() + (e.key === 'ArrowLeft' ? 16 : -16)); persist(); });
+    window.addEventListener('resize', () => { if (S.edW) E.style.setProperty('--edw', `${edW(S.edW)}px`); }); }
   /* ---- beta 2.1: on a phone, a long press on an icon shows its name (and does not press it) ---- */
   { let t = 0, shown = null;
     const hide = () => { if (shown) { shown.remove(); shown = null; } };
@@ -17379,6 +17401,7 @@
       [group !== 'cat' && [kind === 'survey' ? 'SURVEY' : kind.toUpperCase(), ''], [`${n} ${acc ? 'element' : 'pole'}${n === 1 ? '' : 's'}`, ''], t && [`Edited ${ppWhen(t)}`, ''], m.completedAt && ['✓ Complete', 'done']]
         .filter(Boolean).forEach(([tx, c]) => { const x = document.createElement('span'); x.textContent = tx; if (c) x.className = c; meta.appendChild(x); });
       const acts = document.createElement('span'); acts.className = 'pp-acts'; // v2.43 beta 2.1: Site details, the mailbox and Send, then Open and More
+      { const fl = pmeta(name).siteLink; if (fl && /^https:\/\//.test(fl)) { const fb = ppIcon('folder', 'Folder', `Open the Google Drive folder of ${name}`); fb.addEventListener('click', (e) => { e.stopPropagation(); openExternal(fl); }); acts.appendChild(fb); } } // beta 3.9: its site's Drive folder (none without one)
       if (siteInfoRows(name).length > 1) { const ib = ppIcon('info', 'Site details', `Site details of ${name}: to copy`); ib.addEventListener('click', (e) => { e.stopPropagation(); siteInfoOpen(name); }); acts.appendChild(ib); }
       if (tmHooks.ppIcons) tmHooks.ppIcons(name).forEach((x) => acts.appendChild(x));
       acts.append(ob, mb);

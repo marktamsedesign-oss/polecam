@@ -2791,11 +2791,12 @@
         const c = vsh(vc ? [vc[0], vc[1]] : [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]);
         // v2.41: the circle yellow again on every map (v2.40: red over a street map), its colour and width as the user set them
         const rad = vc ? vc[2] : Math.max(70 * vk, Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 + 45 * vk), col = VS.circle || 2;
-        o.lwpoly(VLAY, [[c[0] - rad, c[1], 1], [c[0] + rad, c[1], 1]], { closed: true, w: VS.circleW * vk, color: col });
-        const lh = 18 * vk, lw = 'PROJECT AREA'.length * lh * 0.74, ly = c[1] + rad + 8 * vk + lh * 0.9; // the label on a dark box, framed
-        o.lwpoly(VLAY, [[c[0] - lw / 2 - lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly + lh * 0.9], [c[0] - lw / 2 - lh * 0.6, ly + lh * 0.9]], { closed: true, w: 2 * vk, color: 2 });
-        o.mtext(VLAY, c[0], ly, lh, 'PROJECT AREA', { att: 5, style: 'arial', color: 2, mask: 250 });
-        if (!lk) rep.vicinityMark = { r: rad };
+        const area = VS.area !== false, lbl = String(VS.label == null ? 'PROJECT AREA' : VS.label).replace(/\s+/g, ' ').trim().slice(0, 40); // beta 3.9: the project area shown or not; its label (blank: none) and height
+        if (area) o.lwpoly(VLAY, [[c[0] - rad, c[1], 1], [c[0] + rad, c[1], 1]], { closed: true, w: VS.circleW * vk, color: col });
+        if (area && lbl) { const lh = Math.max(8, Math.min(40, +VS.lh || 18)) * vk, lw = lbl.length * lh * 0.74, ly = c[1] + rad + 8 * vk + lh * 0.9; // the label on a dark box, framed
+          o.lwpoly(VLAY, [[c[0] - lw / 2 - lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly - lh * 0.9], [c[0] + lw / 2 + lh * 0.6, ly + lh * 0.9], [c[0] - lw / 2 - lh * 0.6, ly + lh * 0.9]], { closed: true, w: 2 * vk, color: 2 });
+          o.mtext(VLAY, c[0], ly, lh, mtextEsc(lbl), { att: 5, style: 'arial', color: 2, mask: 250 }); }
+        if (!lk && area) rep.vicinityMark = { r: rad, label: lbl };
         rep.vicinities.push({ sheet: vicNames[lk], area: vic.slice(), dx: VDX, points: lpts.length, circle: [c[0] - VDX, c[1], rad], picture: img ? img.file : null }); }
       if (!img) { // no picture: the names of the roads written large
         const done = new Set();
