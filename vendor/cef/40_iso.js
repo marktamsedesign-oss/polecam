@@ -354,9 +354,16 @@ function roomShell(S, sc, A, O) {
 }
 /* the opening of a cabinet whose door stands open */
 function odcOpening(el, z0) { const h = Math.max(0.02, num(el.h, 0.02)), pl = Math.min(0.1, h * 0.1), rf = Math.min(0.07, h * 0.08), zb = z0 + pl + 0.06, zu = z0 + h - rf - 0.06; return { zb, zu, u0: -el.w / 2 + 0.05, u1: el.w / 2 - 0.05, m0: zb + (zu - zb) * 0.38, m1: zb + (zu - zb) * 0.72 }; }
+/* beta 4.1: in the detail of an open cabinet, the cable that comes up inside it to each ODF (the proposed ones, or all when none is proposed). It comes in at the foot,
+   runs up beside the rack on the side the user chose (el.cab: { side: 'L' or 'R', off: metres from that edge of the opening }) and turns in to the ODF. */
+function cabCable(S, sc, el, z0, O) {
+  const K = rackOf(el), zb = z0 + K.zb, odfs = rackSlots(S, el).filter(q => q.e.t === 'odf'), P = odfs.filter(q => q.e.st === 'P'), L = P.length ? P : odfs; if (!L.length) return;
+  const cb = el.cab || {}, sd = cb.side === 'R' ? 1 : -1, off = clamp(num(cb.off, 0.03), 0.01, Math.max(0.01, (O.u1 - O.u0) / 2 - 0.02)), u = sd < 0 ? O.u0 + off : O.u1 - off;
+  L.forEach((q, i) => { const z = zb + (q.u - 1 + q.ru / 2) * RU, uu = u - sd * 0.012 * i, ue = sd * (K.hw - 0.03); faceLine(sc, el, 'F', uu, z0, uu, z, 'ug'); faceLine(sc, el, 'F', uu, z, ue, z, 'ug'); });
+}
 function isoEl(S, el, sc, A, rg, X) {
-  const T = TYPES[el.t], lay = elLayer(el), c = [el.x, el.y], lp = (x, y) => loc(el, x, y), w = el.w, d = el.d, rot = el.rot || 0;
-  const zg = baseZ(S, el), z0 = zg + (el.z != null ? Math.max(0, num(el.z, 0)) : 0), h = Math.max(0.02, num(el.h, 0.02)), hid = el.st === 'P' ? 'hp' : 'hd', H = sc.hdir();
+  const T = TYPES[el.t], lay = X && X.ref ? 'dt' : elLayer(el), c = [el.x, el.y], lp = (x, y) => loc(el, x, y), w = el.w, d = el.d, rot = el.rot || 0;      /* beta 4.1: X.ref = drawn in thin grey, round the detail of a cabinet */
+  const zg = baseZ(S, el), z0 = zg + (el.z != null ? Math.max(0, num(el.z, 0)) : 0), h = Math.max(0.02, num(el.h, 0.02)), hid = X && X.ref ? 'dt' : el.st === 'P' ? 'hp' : 'hd', H = sc.hdir();
   const sid0 = sc.sid, isT = T.g === 'tower', TS = isT ? towerShape(S, el) : null, hr = isT ? TS.hr : 0, hd = isT ? TS.hd : 0, full = isT && !TS.cut, zt = z0 + hd;
   const tri = r => [90, 210, 330].map(a => lp(r * Math.cos(a * D2R), r * Math.sin(a * D2R))), rod = (p, len) => sc.line([p[0], p[1], zt], [p[0], p[1], zt + len], lay);
   const extra = [], ringX = (r, zs) => { for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; for (const z of zs) extra.push([el.x + r * Math.cos(a), el.y + r * Math.sin(a), z]); } };
@@ -434,12 +441,12 @@ function isoEl(S, el, sc, A, rg, X) {
     }
     case 'pad': prism(sc, elPoly(el), z0, z0 + h, lay); bx = { w, d, z0, z1: z0 + h, top: 1, sides: '' }; break;
     case 'odc': {
-      const pl = Math.min(0.1, h * 0.1), rf = Math.min(0.07, h * 0.08), n = w >= 1.1 ? 2 : 1, O = odcOpening(el, z0), open = h > 0.8 && (!!(X && X.only) || rackItems(S, el).length > 0);
+      const pl = Math.min(0.1, h * 0.1), rf = Math.min(0.07, h * 0.08), n = w >= 1.1 ? 2 : 1, O = odcOpening(el, z0), open = h > 0.8 && !(X && X.ref) && (!!(X && X.only) || rackItems(S, el).length > 0);
       prism(sc, rectAt(c, w + 0.06, d + 0.06, rot), z0, z0 + pl, lay); prism(sc, elPoly(el), z0 + pl, z0 + h - rf, lay); prism(sc, rectAt(c, w + 0.1, d + 0.1, rot), z0 + h - rf, z0 + h, lay);
       for (const side of ['F', 'B']) {
         if (side === 'F' && open) {                                  /* the door stands open and the rack shows, with what is mounted in it */
           const a = (X && X.only ? 150 : 105) * D2R;
-          faceRect(sc, el, 'F', O.u0, O.u1, O.zb, O.zu, lay); rackFace(S, sc, el, z0, A, X);
+          faceRect(sc, el, 'F', O.u0, O.u1, O.zb, O.zu, lay); rackFace(S, sc, el, z0, A, X); if (X && X.only) cabCable(S, sc, el, z0, O);
           const leaf = (uh, dir, len) => { const p0 = [uh, -d / 2], p1 = [uh + dir * len * Math.cos(a), -d / 2 - len * Math.sin(a)], t = 0.03, nx = -(p1[1] - p0[1]) / len * t, ny = (p1[0] - p0[0]) / len * t; prism(sc, [lp(p0[0], p0[1]), lp(p1[0], p1[1]), lp(p1[0] + nx, p1[1] + ny), lp(p0[0] + nx, p0[1] + ny)], O.zb, O.zu, lay); };
           if (n === 1) leaf(O.u0, 1, O.u1 - O.u0); else { leaf(O.u0, 1, (O.u1 - O.u0) / 2); leaf(O.u1, -1, (O.u1 - O.u0) / 2); }
           continue;
@@ -693,6 +700,13 @@ function buildIso0(S, o) {
   const rg = one ? routeGeom({ site: si, gates: [], els: [], runs: [], route: {} }) : routeGeom(S);
   const rgT = one || !FLAT ? rg : (() => { FLAT = false; try { return routeGeom(S); } finally { FLAT = true; } })();      /* the lengths written on the drawing are the real ones, depth and all */
   if (one) isoEl(S, one, sc, A3, rg, X);          /* one cabinet alone, enlarged, its door open */
+  if (one) { if (!S.room && o.around !== false) {            /* beta 4.1: what stands round it (its pad, the next cabinet, the exit conduit), in thin grey, to place the detail */
+    const bb = polyBox(elPoly(one)), hit = (b, g) => b[0] <= bb[2] + g && b[2] >= bb[0] - g && b[1] <= bb[3] + g && b[3] >= bb[1] - g;
+    for (const e of S.els) { if (e === one || inRack(e) || TYPES[e.t].g === 'tower' || e.t === 'cabin') continue; const b = polyBox(elPoly(e));
+      if (e.t === 'pad') { if (!hit(b, 0)) continue; const m = 0.45, x0 = Math.max(b[0], bb[0] - m), x1 = Math.min(b[2], bb[2] + m), y0 = Math.max(b[1], bb[1] - m), y1 = Math.min(b[3], bb[3] + m), zb = baseZ(S, e), zt = zb + Math.max(0.02, num(e.h, 0.02)); if (x1 - x0 > 0.05 && y1 - y0 > 0.05) prism(sc, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], zb, zt, 'dt'); }      /* of a pad, only the part under and round the cabinet: the whole pad would make the detail small */
+      else if (hit(b, 0.9)) isoEl(S, e, sc, [], rg, { ref: 1, cm: [] });
+    }
+  } }
   else {
   isoGround(S, sc, A3, O3);
   for (const el of S.els) if (el.t === 'pad') isoEl(S, el, sc, A3, rg, X);
@@ -718,6 +732,7 @@ function buildIso0(S, o) {
   }
   }
   const R0 = sc.render(), GT = new Gfx(), LB = new Labeler(GT), FB = [], fibP = [], legs2 = [], far = [], quads = []; let skipped = 0;
+  const pics = []; if (!one && !S.room && o.pics !== false) (S.photos || []).forEach((ph, i) => { const q = ph.ci; if (!q || !isFinite(q.tx) || !isFinite(q.ty)) return; const t2 = P3([num(q.tx, 0), num(q.ty, 0), num(q.tz, 0)]); picOn(LB, ph, i, [t2[0] + num(q.ox, 0), t2[1] + num(q.oy, 0)], t2, picW(S, q), th, pics); });      /* beta 4.1: the photos set on the isometric */
   for (const a of A3) if (a.k === 'ghost') FB.push({ k: 'pl', pts: a.pts.map(P3), lay: a.lay, close: true });      /* something on a far wall, shown through what stands in front */
   for (const a of A3) if (a.k === 'mark') {                 /* small figures written on a face: the numbers of the rack units */
     const fr = { pt: (q, t) => onFace(a.el, 'F', a.u + q, a.z + t) }; if (!sc.seen(fr.pt(0, 0))) continue;
@@ -813,6 +828,8 @@ function buildIso0(S, o) {
         const pcs = a.run ? a.run.pts.slice(0, -1).map((u, i) => [P3([u[0], u[1], a.a[2]]), P3([a.run.pts[i + 1][0], a.run.pts[i + 1][1], a.a[2]])]).sort((x, y) => len2(y[0], y[1]) - len2(x[0], x[1])).slice(0, 3) : [[P3(a.a), P3(a.b)]];
         const dpT = a.run && a.run.kind === 'trench' ? runDepthD(a.run) : 0, inn = dpT ? a.run.pts.slice(0, -1).map((u, i) => [P3([u[0], u[1], a.a[2] - dpT / 2]), P3([a.run.pts[i + 1][0], a.run.pts[i + 1][1], a.a[2] - dpT / 2])]).sort((x, y) => len2(y[0], y[1]) - len2(x[0], x[1])).slice(0, 2) : null;
         jobs.push({ o: 2, key: a.key, s: a.s, st: a.st, ap, kind: 'along', pcs, out, gap: (a.gap || 0.3) * 0.9 + gap, fit: a.run ? 1.1 : 0, inn, innH: dpT - 0.45 });
+        if (dimRun(a.run) && nameOn(S, 'dim')) a.run.pts.slice(0, -1).forEach((u, i) => { const v = a.run.pts[i + 1], len = Math.hypot(v[0] - u[0], v[1] - u[1]), t = f1(len) + 'm'; if (len < 0.3 || legOnSeg(rgT, u, v, t)) return; const pa = P3([u[0], u[1], a.a[2]]), pb = P3([v[0], v[1], a.a[2]]);      /* beta 4.1: the length of each straight piece of a proposed conduit or trench */
+          jobs.push({ o: 2.8, key: 'lenr' + a.run.id + '_' + i, s: t, st: 'L', opt: len < 1 ? 1 : 0, ap: [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2], kind: 'along', pcs: [[pa, pb]], gap, fit: 1.05, ts: [0.5, 0.35, 0.65, 0.2, 0.8] }); });
       }
       else if (a.kind === 'axis') jobs.push({ o: 3, key: a.key, s: a.s, st: a.st, ap, kind: 'along', near: polyBox([P3(a.axis[0]), P3(a.axis[1])]), pcs: [[P3(a.axis[0]), P3(a.axis[1])]], gap: a.r + gap, ts: [0.5, 0.6, 0.7, 0.78, 0.4, 0.3], fit: 1 });
       else if (a.kind === 'box') jobs.push({ o: 1, key: a.key, s: a.s, st: a.st, ap, kind: 'box', a });
@@ -827,7 +844,10 @@ function buildIso0(S, o) {
     { /* the length of each leg of a cable, in green beside it, as on the hand-made plans. Left out where there is no room: the tables have every length. */
       const grp = {}, real = {}; for (const l of rgT.legs) real[l.f + l.i] = (real[l.f + l.i] || 0) + l.len;
       for (const q of legs2) { const k = q.l.f + q.l.i, c = grp[k]; if (!c || len2(q.a, q.b) > len2(c.a, c.b)) grp[k] = q; }
-      for (const k in grp) { const q = grp[k]; if (real[k] > 0.25) jobs.push({ o: 2.7, key: 'len' + k, s: f1(real[k]) + 'm', st: 'L', opt: 1, ap: at(q, 0.5), kind: 'along', pcs: [[q.a, q.b]], gap, fit: 1.05, ts: [0.5, 0.35, 0.65, 0.2, 0.8] }); }
+      const same = rgT.legs.length === rg.legs.length && rg.legs.every((l, i) => l.f === rgT.legs[i].f && l.i === rgT.legs[i].i);
+      if (nameOn(S, 'dim') && same) { const LK = lenKeys(rg.legs); for (const q of legs2) { if (!q.l.f) continue; const len = rgT.legs[rg.legs.indexOf(q.l)].len; if (!(len >= 0.3)) continue;      /* beta 4.1: the length of each straight piece of a cable (its real length, depth and all) */
+        jobs.push({ o: 2.7, key: LK.get(q.l), s: f1(len) + 'm', st: 'L', opt: len >= 1 ? 0 : 1, ap: at(q, 0.5), kind: 'along', pcs: [[q.a, q.b]], gap, fit: 1.05, ts: [0.5, 0.35, 0.65, 0.2, 0.8] }); } }
+      else for (const k in grp) { const q = grp[k]; if (real[k] > 0.25) jobs.push({ o: 2.7, key: 'len' + k, s: f1(real[k]) + 'm', st: 'L', opt: 1, ap: at(q, 0.5), kind: 'along', pcs: [[q.a, q.b]], gap, fit: 1.05, ts: [0.5, 0.35, 0.65, 0.2, 0.8] }); }
     }
     const note = labText(S, 'note', String(S.route.note || '').trim().toUpperCase());
     if (lead && note) jobs.push({ o: 2, key: 'note', s: note, st: 'P', ap: at(lead, 0.2), kind: 'along', pcs: [[lead.a, lead.b]], gap, wrap: 30, ts: [0.25, 0.4, 0.55] });
@@ -835,7 +855,7 @@ function buildIso0(S, o) {
     for (const k of inLab) jobs.push({ o: 4, key: k.q.key, s: labText(S, k.q.key, k.q.s), st: k.q.st, ap: k.ap, kind: 'lead' });
     for (const q of loops) jobs.push({ o: 5, key: 'loop' + q.lp.i, s: labText(S, 'loop' + q.lp.i, 'LOOP HOLDER W/ ' + f2(q.lp.len) + 'm LOOP'), st: 'P', ap: q.c, kind: 'lead' });
     /* When the size is automatic, a name that finds no room is tried again smaller, down to what is still easy to read (1.8 mm on the sheet). Only then does it get a leader. */
-    const HS = txAuto(S) ? TXS.map(k => h * k) : [h], KMIN = txAuto(S) ? TXS[TXS.length - 1] : (o.screen ? 0.4 : 0.55);
+    const HS = txAuto(S) ? TXS.map(k => h * k) : [h], KMIN = txAuto(S) ? TXS[TXS.length - 1] : (o.screen ? 0.4 : 0.55), KFACE = Math.min(KMIN, 0.68);      /* beta 4.1: on its own face a name may be as small as 1.5 mm on the sheet */
     const free2 = quad => { for (const b of LB.labs) if (polysHit(quad, b)) return false; for (const b of fibP) if (polysHit(quad, b)) return false; return true; };
     /* a sticker: the name in the plane of a face, a thin frame round it, and the lines of the model under it taken away */
     /* the letters are drawn the way isometric lettering is drawn by hand and in CAD: turned to the face, slanted with it, and not stretched.
@@ -851,7 +871,7 @@ function buildIso0(S, o) {
     const boxAuto = jb => {
       for (const fr of faceFrames(sc, jb.a)) {
         const B = frameBasis(sc, fr), need1 = 2 * half(jb.s, 1, B.U, B.V), k0 = Math.min(1, (fr.len - 0.08) / (need1 * h), (fr.ht - 0.08) / (1.7 * h));      /* the standard size, made smaller only to fit the face */
-        for (const H of k0 < KMIN ? [] : [h * k0]) {
+        for (const H of k0 < KFACE ? [] : [h * k0]) {
         const hw = half(jb.s, H, B.U, B.V), hh = 0.85 * H, ms = Math.max(0, fr.len / 2 - hw - 0.04), mt = Math.max(0, fr.ht / 2 - hh - 0.04), P = (s, t) => fr.pt(B.ss * s, B.ts * t);
         let ts = fr.top ? [-mt, mt, 0] : [0.12 * fr.ht, 0, -0.25 * fr.ht, 0.3 * fr.ht].map(t => clamp(t, -mt, mt));
         if (fr.top) ts.sort((p, q) => sc.P(P(0, p))[1] - sc.P(P(0, q))[1]);          /* on a top face, the strip nearest the viewer first: it is the one most often clear */
@@ -891,6 +911,7 @@ function buildIso0(S, o) {
       if (off) LB.fixed('tid', lines, h * ks[0], 'tx', [ap[0] + off[0], ap[1] + off[1]], 0, ap, { bold: 1 });
       else if (!ks.some(k => LB.place(lines, h * k, 'tx', cands, true, 'tid', ap))) call.push({ key: 'tid', p: ap, bb: bt, lines, bold: 1, s: T2, st: 'E', w: 22 });
     }
+    for (let i = jobs.length - 1; i >= 0; i--) if ((labRec(S, jobs[i].key) || {}).off) jobs.splice(i, 1);      /* beta 4.1: a name the user hid */
     jobs.sort((p, q) => p.o - q.o);
     /* one cabinet alone: the name of each rack item is written on the side of the cabinet, level with the item */
     if (one) {
@@ -939,5 +960,5 @@ function buildIso0(S, o) {
     if (a.k === 'seg' && a.run) hits.push({ k: 'run', id: a.id, line: a.run.pts.map(q => P3([q[0], q[1], a.a[2]])), hp: a.edit ? P3(a.hp) : null, f: a.edit });
   }
   const le = legs2.filter(q => q.l.f === 'ae').pop(); if (le) hits.push({ k: 'aer', hp: le.b, f: 'aerialH' });
-  return { prims: G.p, th, G, far: far.length, hits, sc, labs: LB.out, skipped: far.length ? 0 : skipped, one };
+  return { prims: G.p, th, G, far: far.length, hits, sc, labs: LB.out, skipped: far.length ? 0 : skipped, one, pics };
 }

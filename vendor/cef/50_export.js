@@ -66,6 +66,7 @@ function fitView(make, bw, bh, scales, mm) { let r = null; for (const N of scale
 function viewAt(v, box) { const w = (v.bb[2] - v.bb[0]) * v.s, h = (v.bb[3] - v.bb[1]) * v.s; return { dx: (box[0] + box[2]) / 2 - w / 2 - v.bb[0] * v.s, dy: (box[1] + box[3]) / 2 - h / 2 - v.bb[1] * v.s }; }
 function placeView(G, v, box) { const t = viewAt(v, box), P = xfPrims(v.prims, v.s, 0, t.dx, t.dy); for (const p of P) G.p.push(p); return P; }
 function fitTx(G, p, s, h, maxW, lay, al, b) { const w = textW(s, h) * (b ? 1.08 : 1); if (w > maxW && w > 0) h *= maxW / w; G.tx(p, s, h, lay, al, 0, b); }
+const picFile = n => 'photos/photo_' + String(n).padStart(2, '0') + '.jpg';      /* beta 4.1 */
 function sheetFrame(S, G, o) {
   const si = S.site, x0 = FR.x0, x1 = FR.x1, y0 = FR.y0, y1 = FR.y1, s0 = FR.sx0, s1 = FR.sx1, up = v => String(v || '').trim().toUpperCase();
   G.pl([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], 'fr', 1); G.pl([[s0, y0], [s1, y0], [s1, y1], [s0, y1]], 'fr', 1);
@@ -77,10 +78,10 @@ function sheetFrame(S, G, o) {
   { const L = [[up(si.link), 2.6, 0], [[up(si.id), up(si.name)].filter(Boolean).join(' '), 3.2, 1], ['CABLE ENTRANCE FACILITY', 2.8, 0], [up(o.sheet), 2.8, 1], [PLAN_KIND, 2.6, 0]].filter(q => q[0]), pitch = 36 / Math.max(1, L.length); L.forEach((q, i) => fitTx(G, [(s0 + s1) / 2, b + 42 - 3 - pitch * (i + 0.5) - q[1] / 2], q[0], q[1], SH.SW - 6, 'tx', 'c', !!q[2])); }
   b = row(10); cap(s0, b, 10, 'COORDINATES (WGS84)'); val(s0, b, coordText(S), SH.SW, 2.4);
   b = row(14); ['PREPARED BY', 'CHECKED BY', 'APPROVED BY'].forEach((s, i) => { if (i) vl(s0 + 30 * i, b, b + 14); cap(s0 + 30 * i, b, 14, s); }); val(s0, b + 1.6, up(si.by), 30, 2.3);
-  b = row(20); cap(s0, b, 20, 'CLIENT'); logoAt(o.images, 'client', s0 + 14, b + 1.5, SH.SW - 28, 15.5);
+  b = row(20); logoAt(o.images, 'client', s0 + 3, b + 2, SH.SW - 6, 16);
   b = row(21); for (let i = 1; i <= 4; i++) G.pl([[s0, b + 21 - 5 - (i - 1) * 4], [s1, b + 21 - 5 - (i - 1) * 4]], 'fr'); vl(s0 + 54, b, b + 21); vl(s0 + 74, b, b + 21);
   [['REVISIONS', 27], ['DATE', 64], ['SIGN', 82]].forEach(q => G.tx([s0 + q[1], b + 21 - 3.6], q[0], 1.6, 'dm', 'c'));
-  b = row(18); cap(s0, b, 18, 'COMPANY'); { const has = logoAt(o.images, 'vendor', s0 + 2, b + 1.5, si.org ? 30 : SH.SW - 4, 13.5); if (si.org) fitTx(G, [has ? s0 + 34 + (SH.SW - 36) / 2 : (s0 + s1) / 2, b + 6.2], up(si.org), has ? 2.6 : 3.2, has ? SH.SW - 38 : SH.SW - 8, 'tx', 'c', true); }
+  b = row(18); { const has = logoAt(o.images, 'vendor', s0 + 3, b + 2, SH.SW - 6, 14); if (!has && si.org) fitTx(G, [(s0 + s1) / 2, b + 6.2], up(si.org), 3.2, SH.SW - 8, 'tx', 'c', true); }
   /* the title of the view: at the foot of the drawing, a circle and the name underlined, the scale under it */
   if (o.view) {
     const cx = AREA.x0 + 7.5, cy = AREA.y0 + 8.5, r = 6.5, tx = cx + r + 3, w = textW(o.view, 5);
@@ -264,8 +265,8 @@ function buildSheets(S) {
   { /* 1. the cover page */
     const G = new Gfx(), x0 = SH.M, x1 = SH.W - SH.M, y0 = SH.M, y1 = SH.H - SH.M, cx = SH.W / 2; n++;
     for (const k of [0, 1.6]) G.pl([[x0 + k, y0 + k], [x1 - k, y0 + k], [x1 - k, y1 - k], [x0 + k, y1 - k]], 'fr', 1);
-    const cim = [], lv = logoAt(cim, 'vendor', cx - 150, 212, 110, 52), lc = logoAt(cim, 'client', cx + 40, 212, 110, 52);      /* the two logos side by side at the top, the vendor's on the left */
-    const L = [[up(si.org), lv || lc ? 5 : 7, 0, lv || lc ? 200 : 232], ['CABLE ENTRANCE FACILITY', 16, 1, lv || lc ? 166 : 176], [up(si.link), 14, 1, lv || lc ? 140 : 150], [[up(si.id), up(si.name)].filter(Boolean).join(' - '), 13, 1, lv || lc ? 100 : 104], [PLAN_KIND, 11, 0, lv || lc ? 70 : 72]];
+    const cim = [], lc = logoAt(cim, 'client', cx - 150, 212, 110, 52), lv = logoAt(cim, 'vendor', cx + 40, 212, 110, 52);      /* beta 4.1: the two logos side by side at the top, the client's on the left, as on the plan drawings */
+    const L = [[lv ? '' : up(si.org), lv || lc ? 5 : 7, 0, lv || lc ? 200 : 232], ['CABLE ENTRANCE FACILITY', 16, 1, lv || lc ? 166 : 176], [up(si.link), 14, 1, lv || lc ? 140 : 150], [[up(si.id), up(si.name)].filter(Boolean).join(' - '), 13, 1, lv || lc ? 100 : 104], [PLAN_KIND, 11, 0, lv || lc ? 70 : 72]];
     for (const q of L) if (q[0]) fitTx(G, [cx, q[3]], q[0], q[1], x1 - x0 - 40, 'tx', 'c', !!q[2]);
     fitTx(G, [cx, 38], [coordText(S), 'DATE: ' + isoDate(), si.by ? 'PREPARED BY: ' + up(si.by) : ''].filter(Boolean).join('     '), 3, x1 - x0 - 40, 'tx', 'c');
     G.tx([cx, y0 + 6], 'G-eSAA CEF-PLAN DEMO - GENERIC FRAME, NOT THE OFFICIAL TEMPLATE', 1.8, 'dm', 'c'); if (S.sample) G.tx([cx, 52], 'SAMPLE DATA - NOT A REAL SITE', 4, 'tp', 'c', 0, true);
@@ -306,6 +307,7 @@ function buildSheets(S) {
       for (const d of D) { const gg = new Gfx(), A = toSheet(d.at); d.draw(gg); y -= d.h * k; for (const p of xfPrims(gg.p, k, 0, ax0, y)) GD.p.push(p); GD.ci(A, 2.6, 'lot'); GD.pl([[ax0 + d.w * k, y + d.h * k / 2], A], 'lot'); y -= 3 * k; }
     }
     for (const p of P) G.p.push(p); for (const p of GD.p) G.p.push(p);
+    for (const q of (iso && iso.pics) || []) images.push({ id: q.id, x: t.dx + q.x * v.s, y: t.dy + q.y * v.s, w: q.w * v.s, h: q.h * v.s, file: picFile(q.n) });      /* beta 4.1: the photos set on the isometric */
     /* the depth of the open trench is written under the table: in the narrow strip the row has no room for it */
     let deep = ''; const rowsC = cefTable(S).map((r, i) => { const m = /^(OPEN TRENCH CONDUIT) \((.+)\)$/.exec(r[0]); if (m) deep = m[2]; return [i + 1].concat(m ? [m[1]].concat(r.slice(1)) : r); });
     const y = drawTable(G, px, PAN.y1, [{ t: 'NO.', w: 7.4, al: 'c' }, { t: 'LIST OF ACTIVITY', w: 38 }, { t: 'TYPE', w: 21, al: 'c' }, { t: 'QTY', w: 8, al: 'c' }, { t: 'LENGTH', w: 13.6, al: 'c' }], rowsC, 'CEF TABLE', TS);
@@ -313,8 +315,9 @@ function buildSheets(S) {
     push('ISOMETRIC', G, v, images);
   }
   { /* 5. the top view, with the lengths of the two cables on the right */
-    const G = new Gfx(), images = [], v = fitView((th, box) => buildTop(S, { th, box, dims: true, north: true, photos: true, labels: true }).prims, ax1 - ax0, top - vy0);
+    let tv = null; const G = new Gfx(), images = [], v = fitView((th, box) => (tv = buildTop(S, { th, box, dims: true, north: true, photos: true, labels: true })).prims, ax1 - ax0, top - vy0);
     sheetFrame(S, G, { view: 'TOP VIEW', sheet: 'TOP VIEW', scale: '1:' + v.N, n: ++n, N: total, images }); placeView(G, v, [ax0, vy0, ax1, top]);
+    { const t = viewAt(v, [ax0, vy0, ax1, top]); for (const q of (tv && tv.pics) || []) images.push({ id: q.id, x: t.dx + q.x * v.s, y: t.dy + q.y * v.s, w: q.w * v.s, h: q.h * v.s, file: picFile(q.n) }); }      /* beta 4.1: the photos set on the top view */
     const rows = [], grp = {}; for (const l of rg.legs) { const k = l.f + l.i, q = grp[k] || (grp[k] = { f: l.f, i: l.i, len: 0, t: {} }); q.len += l.len; q.t[l.type] = 1; }
     for (const k in grp) { const q = grp[k]; rows.push([q.f.toUpperCase() + ' ' + (q.i + 1), Object.keys(q.t).map(t => LEG[t].n.toUpperCase().replace('UNDERGROUND', 'UG')).join(' / '), f1(q.len) + 'm']); }
     let y = PAN.y1;
@@ -403,7 +406,7 @@ function sheetsDXF(sheets) {
 }
 /* the plan alone, turned and moved onto its UTM 51N grid position */
 function mapDXF(S, g) {
-  const t = buildTop(S, { th: 0.22, labels: true, photos: true }), a = g.ll(g.ax, g.ay), b = g.ll(g.ax, g.ay + 50), U0 = utm51(a[0], a[1]), U1 = utm51(b[0], b[1]);
+  const t = buildTop(S, { th: 0.22, labels: true, photos: true, pics: false }), a = g.ll(g.ax, g.ay), b = g.ll(g.ax, g.ay + 50), U0 = utm51(a[0], a[1]), U1 = utm51(b[0], b[1]);
   const s = Math.hypot(U1[0] - U0[0], U1[1] - U0[1]) / 50, rot = Math.atan2(U1[1] - U0[1], U1[0] - U0[0]) / D2R - 90, c = Math.cos(rot * D2R), sn = Math.sin(rot * D2R);
   return toDXF(xfPrims(t.prims, s, rot, U0[0] - (g.ax * c - g.ay * sn) * s, U0[1] - (g.ax * sn + g.ay * c) * s));
 }

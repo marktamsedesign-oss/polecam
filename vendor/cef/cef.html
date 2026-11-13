@@ -89,7 +89,11 @@ h3:first-child{margin-top:2px}
 .good{font-size:13.5px;border-left:3px solid var(--ok);background:color-mix(in srgb,var(--ok) 9%,transparent);padding:7px 9px;border-radius:0 6px 6px 0;margin-bottom:8px}
 .btns{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 .pal{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
-.pal .b{text-align:left;overflow:hidden;text-overflow:ellipsis}
+.pal .b{text-align:left;overflow:hidden;display:flex;align-items:center;gap:7px;height:auto;min-height:36px;padding-top:4px;padding-bottom:4px}.pal .b span{overflow:hidden;text-overflow:ellipsis;line-height:1.15}
+.pi{width:19px;height:19px;flex:none;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}.btns .b .pi{vertical-align:-4px;margin-right:6px}
+.eyes{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 2px}.eye{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:3px 10px;border:1px solid var(--line);border-radius:16px;background:var(--paper);color:inherit;font:inherit;font-size:13px;cursor:pointer;text-align:left}
+.eye[aria-pressed="false"]{color:var(--muted);background:none;border-style:dashed}.eyeb{display:inline-flex;align-items:center;justify-content:center}.eyeb[aria-pressed="false"]{color:var(--muted)}.eyeb .pi{margin:0}
+.lbleye{display:flex;align-items:flex-end;gap:6px}.lbleye .f{flex:1;min-width:0}
 .insp{border:1px solid var(--sel);border-radius:9px;padding:10px 10px 4px;margin-bottom:6px}
 .insp-h{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:9px}
 .insp-h b{font:600 16px var(--f-head);letter-spacing:.05em;text-transform:uppercase;margin-right:auto}
@@ -122,7 +126,7 @@ ul.chk li.w::before{background:var(--warn)}
 .ov-g.w{stroke-width:3px;opacity:.55;stroke-linejoin:round}
 .ov-z circle{fill:var(--paper);stroke:var(--sel);stroke-width:2px;vector-effect:non-scaling-stroke}
 .ov-z path{fill:none;stroke:var(--sel);stroke-width:2px;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round}
-.ov-t{fill:var(--sel);font-weight:700}
+.ov-t{fill:var(--sel);font-weight:700;paint-order:stroke;stroke:var(--paper);stroke-width:3.5px;stroke-linejoin:round}
 .ov-h{fill:var(--paper);stroke:var(--d-prop);stroke-width:2px;vector-effect:non-scaling-stroke}
 .ov-h.g{stroke:var(--d-ladder)}.ov-h.b{stroke:var(--d-exis)}.ov-h.dr{stroke:var(--d-ink)}.ov-h.ac{stroke:var(--d-dim)}.ov-h.v{stroke:var(--d-photo)}.ov-h.on{fill:var(--sel);stroke:var(--sel)}
 .ov-n{fill:var(--d-prop);font-weight:700}

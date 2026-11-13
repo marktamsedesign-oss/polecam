@@ -182,7 +182,7 @@
     quality: 'strict', readId: false, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
     exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'utm', 'time', 'by', 'project'], naming: 'id',
       kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true,
-      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, pmiLoops: true, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfRows: null, dxfRowSel: 0 }, // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
+      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, pmiLoops: true, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfCef: true, dxfRows: null, dxfRowSel: 0 }, // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
     saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
     sig: { design: '', project: '', head: '', cse: '', cseAuto: '' }, // v2.42.12: the names in the plan's title blocks (cseAuto: the last CSE Lead the online sheet gave)
   };
@@ -683,11 +683,8 @@
       return `PP-${String(n + 1).padStart(4, '0')}`;
     }
     if (!element || element === 'Pole') {
-      const pre = typePrefix(type) || typePrefix(S.lastType) || 'CC', re = poleIdRe();
-      const same = recs.filter((p) => elemOf(p) === 'Pole' && (re.exec(p.poleId || '') || [])[1] === pre);
-      if (!same.length) return `${pre}-`;
-      const n = re.exec(latest(same).poleId)[2];
-      return `${pre}-${padNum(pre, +n + 1, n.length)}`;
+      const pre = typePrefix(type) || typePrefix(S.lastType) || 'CC';
+      return `${pre}-`; // beta 4.1: only the prefix; the number is typed or scanned, never guessed from the last pole
     }
     if (element === 'ODF') {
       const same = recs.filter((p) => elemOf(p) === 'ODF' && ODF_ID_RE.test(p.poleId || ''));
@@ -833,6 +830,7 @@
     closeSheet();
   }));
   function onSheetClosed(id) {
+    if (id === 'editor') { document.body.classList.remove('edopen'); if (typeof ppxRefresh === 'function') ppxRefresh(); } // beta 4.1
     if (id === 'dupSheet' && dupRes) { const r = dupRes; dupRes = null; r(null); } // beta 3.3: Back: decided later
     if (id === 'drwStyle' && stack.includes('planSet')) renderPlanSet(); // v2.42.28: the clamp types may have changed there
     if (id === 'export' || id === 'planSet') { // v2.42.28
@@ -901,7 +899,7 @@
   const APP_VER = '2.44.0';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '4.0'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '4.1'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -1860,12 +1858,13 @@
         const pp = bk && bk.kind === 'dn' ? (-bk.ax[1] >= 0 ? [-bk.ax[1], bk.ax[0]] : [bk.ax[1], -bk.ax[0]]) : null; // (v2.42.24: outside a block; beside a DN's long side)
         const hasPh = mode !== 'num' && photosOf(p).length > 0, dx = pp ? pp[0] * (bk.hw + 18 * d) : r + 8 * d, dy = pp ? pp[1] * (bk.hw + 18 * d) - 8 * d : -(r + 10 * d), cx = px + dx, cy = py + dy;
         g.strokeStyle = bCol; g.lineWidth = 1.2 * d; g.beginPath(); if (pp) g.moveTo(px + pp[0] * bk.hw, py + pp[1] * bk.hw); else g.moveTo(px + r * 0.7, py - r * 0.7); g.lineTo(cx - 6 * d, cy + 6 * d); g.stroke();
-        if (hasPh) { // a photo frame, its number at the upper left when both
-          g.fillStyle = 'rgba(255,255,255,0.9)'; g.strokeStyle = '#495057'; g.lineWidth = 1.2 * d; g.fillRect(cx - 9 * d, cy - 7 * d, 18 * d, 14 * d); g.strokeRect(cx - 9 * d, cy - 7 * d, 18 * d, 14 * d);
-          g.fillStyle = '#868e96'; g.beginPath(); g.moveTo(cx - 6 * d, cy + 5 * d); g.lineTo(cx - 1 * d, cy - 1 * d); g.lineTo(cx + 2 * d, cy + 2 * d); g.lineTo(cx + 4 * d, cy); g.lineTo(cx + 7 * d, cy + 5 * d); g.closePath(); g.fill();
-          if (mode === 'both') { g.fillStyle = '#343a40'; g.beginPath(); g.arc(cx - 9 * d, cy - 7 * d, 6.5 * d, 0, Math.PI * 2); g.fill(); g.font = `700 ${8.5 * d}px system-ui, sans-serif`; g.fillStyle = ACI_HEX[NS.color] || '#ffff00'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(n), cx - 9 * d, cy - 7 * d + 0.5 * d); }
-          placed.push([cx - 10 * d, cy - 8 * d, 20 * d, 16 * d]);
-        } else {
+        if (hasPh) { // a photo frame (beta 4.1: with photo + number it stands a little further out, and the number has its circle by the pole)
+          const fx = mode === 'both' ? cx + 21 * d : cx, fy = mode === 'both' ? cy - 9 * d : cy;
+          g.fillStyle = 'rgba(255,255,255,0.9)'; g.strokeStyle = '#495057'; g.lineWidth = 1.2 * d; g.fillRect(fx - 9 * d, fy - 7 * d, 18 * d, 14 * d); g.strokeRect(fx - 9 * d, fy - 7 * d, 18 * d, 14 * d);
+          g.fillStyle = '#868e96'; g.beginPath(); g.moveTo(fx - 6 * d, fy + 5 * d); g.lineTo(fx - 1 * d, fy - 1 * d); g.lineTo(fx + 2 * d, fy + 2 * d); g.lineTo(fx + 4 * d, fy); g.lineTo(fx + 7 * d, fy + 5 * d); g.closePath(); g.fill();
+          placed.push([fx - 10 * d, fy - 8 * d, 20 * d, 16 * d]);
+        }
+        if (!hasPh || mode === 'both') {
           const rr = Math.max(7, 3 + String(n).length * 3.2) * d;
           const sh = [2, 3, 4].includes(+NS.color), so = 1.1 * d; // v2.42.13: a light number over a dark shadow, as on the plan
           g.fillStyle = '#ffffff'; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.fill();
@@ -2190,7 +2189,7 @@
     if (drw && drw.ref.length) { const ri = refInfo(drw.project); rows.push([sv('<path d="M1 8h20" stroke="rgba(112,72,232,0.6)" stroke-width="2" stroke-dasharray="4 3"/>'), `Reference KMZ of this project${ri ? ` (${ri.name})` : ''}: not in the DXF; hide or remove it with the map's KMZ button`]); } // v2.42.12
     const mode = curRow().mode;
     rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[plStyle().num.bcolor] || ACI_INK[plStyle().num.color] || '#d9a400'}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[plStyle().num.color] || '#d9a400'}" font-family="system-ui,sans-serif">1</text>`), 'Number on the plan']);
-    if (mode !== 'num') rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), mode === 'both' ? 'Photo with its number' : 'Photo on the plan']);
+    if (mode !== 'num') rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), mode === 'both' ? 'Photo of the point (its number is by the point)' : 'Photo on the plan']);
     const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop (LOOP×2: one for each of 2 fibers there)'], ['LOOP*', '#e03131', 'Maintenance loop added by the app (As-Plan)'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)']];
     if (drw && drw.R && drw.R.fib && drw.R.fib.list.length > 1) rows.push([sv('<path d="M1 5h20" stroke="#1c3f94" stroke-width="1.2" stroke-dasharray="4 2.5"/><path d="M1 11h20" stroke="#1c3f94" stroke-width="2.6" stroke-dasharray="4 2.5"/>'), 'Cables: each its own line in its lane, thicker for a larger size (12C thinnest, 288C thickest); its label says its size, type and run (PROPOSED 24C FIG-8 (RUN 5))']); // v2.42.20 (v2.42.23; v2.42.24: the width by size)
     if (drw && drw.blocks && [...drw.blocks.values()].some((b) => b.kind === 'dn')) rows.push([sv('<rect x="1.5" y="4" width="19" height="8" rx="3" fill="#fff" stroke="#14b81e" stroke-width="1.2"/><text x="11" y="10.4" text-anchor="middle" font-size="5.5" font-weight="800" fill="#14b81e" font-family="Arial,sans-serif">DN</text>'), 'Dummy NAP (DN) on the cable: its cables meet its sides']); // v2.42.24
@@ -2207,7 +2206,7 @@
      circle, distance, leader line, where), the IDs of the points on the cable (bold, colour, height) and the vicinity map (circle and
      route colour and width). Defaults: the numbers yellow, 3 m high in a 7 m circle, 2 m from the point with a leader line, at the
      first free spot; the IDs as before (2.5 m, by layer); the circle yellow. Sizes are metres of the drawing (1:1100: 1 m = 0.9 mm). */
-  const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto' }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5, area: true, label: 'PROJECT AREA', lh: 18 }, /* (beta 3.9: the project area shown, its label and its height) */
+  const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto' }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5, area: true, zoom: true, label: 'PROJECT AREA', lh: 18 }, /* (beta 3.9: the project area shown, its label and its height) */
     clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a', per: 3, h: 0, w: { prop: true, size: true, type: true, place: true, foc: false, run: true } }, /* v2.42.26: labels for each cable in a grid, their height (0: by the poles' spacing), their words */
     site: { name: 'on', move: 'auto', arrow: true, acol: 7 }, odf: { place: 'auto', lbl: 'size' }, /* v2.42.26: the tower's name; the ODF beside the tower, its label (beta 3.8: the name on the tower; moved aside in its sheet; the arrow) */
     crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room' } }; /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
@@ -2215,7 +2214,7 @@
     const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d);
     const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) };
     return { num: { color: c(N.color, 2), bcolor: c(N.bcolor, 0, true), h: n(N.h, 1, 12, 3), d: n(N.d, 0, 25, 7), g: n(N.g, 0, 25, 2), leader: N.leader !== false, place: N.place === 'out' ? 'out' : 'auto' },
-      id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5), area: V.area !== false, label: typeof V.label === 'string' ? V.label.replace(/\s+/g, ' ').slice(0, 40) : 'PROJECT AREA', lh: n(V.lh, 8, 40, 18) },
+      id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5), area: V.area !== false, zoom: V.zoom !== false, label: typeof V.label === 'string' ? V.label.replace(/\s+/g, ' ').slice(0, 40) : 'PROJECT AREA', lh: n(V.lh, 8, 40, 18) },
       clamp: { place: ['label', 'tag', 'callout'].includes(Cl.place) ? Cl.place : 'label', pos: ['auto', 'up', 'down', 'left', 'right'].includes(Cl.pos) ? Cl.pos : 'auto', color: c(Cl.color, 0, true), h: n(Cl.h, 1, 5, 2), box: Cl.box !== false, hw: Cl.hw !== false },
       cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a', per: [1, 2, 3].includes(+Cb.per) ? +Cb.per : 3, h: +Cb.h ? n(Cb.h, 0.8, 3, 0) : 0, w: Object.fromEntries(Object.keys(PL_DEF.cab.w).map((k) => [k, !!Cw[k]])) },
       site: { name: ['on', 'top', 'side', 'bottom'].includes(St.name) ? St.name : 'on', move: St.move === 'point' ? 'point' : 'auto', arrow: St.arrow !== false, acol: c(St.acol, 7, true) }, /* (beta 3.8: Auto is now On the tower) */
@@ -2243,7 +2242,7 @@
     o('stNumHO', `${N.h} m · ${mmOf(N.h)} mm`); o('stNumDO', N.d > 0 ? `${N.d} m · ${mmOf(N.d)} mm` : 'no circle'); o('stNumGO', `${N.g} m · ${mmOf(N.g)} mm`); o('stIdHO', `${I.h} m · ${mmOf(I.h)} mm`); o('stVicWO', `${V.circleW} m`); o('stVicRWO', `${V.routeW} m`);
     const seg = (id, v) => $(id).querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
     seg('stNumLeader', N.leader ? '1' : '0'); seg('stNumPlace', N.place); seg('stIdBold', I.bold ? '1' : '0');
-    seg('stVicArea', V.area ? '1' : '0'); if (document.activeElement !== $('stVicLbl')) $('stVicLbl').value = V.label; if (document.activeElement !== $('stVicLh')) $('stVicLh').value = String(V.lh); o('stVicLhO', `${V.lh} m`); // beta 3.9
+    seg('stVicZoom', V.zoom ? '1' : '0'); seg('stVicArea', V.area ? '1' : '0'); if (document.activeElement !== $('stVicLbl')) $('stVicLbl').value = V.label; if (document.activeElement !== $('stVicLh')) $('stVicLh').value = String(V.lh); o('stVicLhO', `${V.lh} m`); // beta 3.9
     $('drwStyle').querySelectorAll('[data-dim="vicarea"]').forEach((r) => r.classList.toggle('dim', !V.area));
     seg('stCabPer', String(P.cab.per)); seg('stSiteName', P.site.name); seg('stOdfPlace', P.odf.place); seg('stOdfLbl', P.odf.lbl); // v2.42.26
     seg('stCrowdAuto', P.crowd.auto ? '1' : '0'); seg('stCrowdLeader', P.crowd.leader ? '1' : '0'); seg('stCrowdStreets', P.crowd.streets); seg('stCrowdMarks', P.crowd.marks); // beta 3.8
@@ -2266,6 +2265,7 @@
   [['stNumH', 'num', 'h'], ['stNumD', 'num', 'd'], ['stNumG', 'num', 'g'], ['stIdH', 'id', 'h'], ['stVicW', 'vic', 'circleW'], ['stVicRW', 'vic', 'routeW'], ['stClH', 'clamp', 'h'], ['stCrowdMin', 'crowd', 'min'], ['stCrowdMove', 'crowd', 'move']].forEach(([id, part, key]) => $(id).addEventListener('input', () => setPl(part, key, +$(id).value)));
   $('stNumLeader').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('num', 'leader', b.dataset.v === '1'); });
   $('stVicArea').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('vic', 'area', b.dataset.v === '1'); }); // beta 3.9: the project area
+  $('stVicZoom').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('vic', 'zoom', b.dataset.v === '1'); }); // beta 4.1: the map zoomed to the project area
   $('stVicLbl').addEventListener('input', () => setPl('vic', 'label', $('stVicLbl').value.slice(0, 40)));
   $('stVicLh').addEventListener('input', () => setPl('vic', 'lh', +$('stVicLh').value));
   $('stNumPlace').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('num', 'place', b.dataset.v); });
@@ -2288,12 +2288,13 @@
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     el('rect', { x: 0, y: 0, width: 60, height: 40, fill: '#4b5a46' });
     [['M0 31 L60 22', 1.1], ['M14 0 L19 40', 0.8], ['M38 0 L44 40', 0.7], ['M0 9 L60 14', 0.6]].forEach(([d, w]) => el('path', { d, stroke: '#c9c4b5', 'stroke-width': w, fill: 'none' }));
-    const route = 'M9 29 L18 26.5 L30 24.5 L41 19 L49 12';
-    el('path', { d: route, stroke: '#fff', 'stroke-width': V.routeW * 2 * k, fill: 'none', 'stroke-linejoin': 'round' });
-    el('path', { d: route, stroke: ACI_HEX[V.route] || '#ff0000', 'stroke-width': V.routeW * k, fill: 'none', 'stroke-dasharray': V.route ? '' : `${26 * k * V.routeW / 16.5 * 2} ${26 * k * V.routeW / 16.5}`, 'stroke-linejoin': 'round' });
+    const route = 'M9 29 L18 26.5 L30 24.5 L41 19 L49 12', zs = V.zoom === false ? 0.4 : 1, tf = zs === 1 ? null : `translate(${29 * (1 - zs)} ${21 * (1 - zs)}) scale(${zs})`; // (beta 4.1: zoom off: the project small in a wide map)
+    if (zs !== 1) [['M0 19 L60 16', 0.35], ['M27 0 L30 40', 0.35], ['M50 0 L53 40', 0.3], ['M6 0 L8 40', 0.3], ['M0 36 L60 34', 0.3]].forEach(([d, w]) => el('path', { d, stroke: '#c9c4b5', 'stroke-width': w, fill: 'none' }));
+    el('path', { d: route, transform: tf, stroke: '#fff', 'stroke-width': V.routeW * 2 * k, fill: 'none', 'stroke-linejoin': 'round' });
+    el('path', { d: route, transform: tf, stroke: ACI_HEX[V.route] || '#ff0000', 'stroke-width': V.routeW * k, fill: 'none', 'stroke-dasharray': V.route ? '' : `${26 * k * V.routeW / 16.5 * 2} ${26 * k * V.routeW / 16.5}`, 'stroke-linejoin': 'round' });
     if (!V.area) return; // (beta 3.9: no project area)
-    el('circle', { cx: 29, cy: 21, r: 15, fill: 'none', stroke: ACI_HEX[V.circle], 'stroke-width': V.circleW * k });
-    const lt = V.label.trim(); if (!lt) return; const f = 2.2 * V.lh / 18, hb = 3.4 * V.lh / 18, wb = Math.min(58, lt.length * f * 0.62 + 1.6), yb = 6 - 0.6 - hb; // (its label above the circle, as tall as set)
+    el('circle', { cx: 29, cy: 21, r: 15 * zs, fill: 'none', stroke: ACI_HEX[V.circle], 'stroke-width': V.circleW * k });
+    const lt = V.label.trim(); if (!lt) return; const f = 2.2 * V.lh / 18, hb = 3.4 * V.lh / 18, wb = Math.min(58, lt.length * f * 0.62 + 1.6), yb = Math.max(0.3, 21 - 15 * zs - 0.6 - hb); // (its label above the circle, as tall as set)
     el('rect', { x: 29 - wb / 2, y: yb, width: wb, height: hb, fill: '#333', stroke: ACI_HEX[2], 'stroke-width': 0.15 }); el('text', { x: 29, y: yb + hb * 0.74, fill: '#ffff00', 'font-size': f, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif', textLength: lt.length * f * 0.62 > 56 ? 56 : null }, lt);
   }
   /* ================= beta 3.8: the Drawing style preview =================
@@ -3641,6 +3642,7 @@
   function spanInView(s) {
     requestAnimationFrame(() => { try {
       const r = $('map').getBoundingClientRect(), bar = $('routeBar').getBoundingClientRect(), mp = map.latLngToContainerPoint([(s.a.lat + s.b.lat) / 2, (s.a.lon + s.b.lon) / 2]), room = bar.top - r.top;
+      if (deskOn()) { const rx = bar.left - r.left; if (rx > 200 && mp.x > rx - 40) map.panBy([mp.x - rx / 2, 0]); return; } // beta 4.1: the bar is a panel on the right
       if (room > 80 && mp.y > room - 40) map.panBy([0, mp.y - room / 2]);
     } catch (x) { /* the map is not ready */ } });
   }
@@ -4133,9 +4135,9 @@
     renderPoles(); toast(`Dummy NAP added at ${rec.poleId || '(no ID)'} (new): set its ID and size in the pole's record`, 4500); return true;
   }
   function rtFit() { // ⛶ the whole route above the bar
-    const pts = projPoints(); if (!pts.length) return; const bar = !$('rtBar').hidden ? $('rtBar') : !$('routeBar').hidden ? $('routeBar') : null, bh = bar ? bar.getBoundingClientRect().height : 0;
+    const pts = projPoints(); if (!pts.length) return; const bar = !$('rtBar').hidden ? $('rtBar') : !$('routeBar').hidden ? $('routeBar') : null, bh = bar && !deskOn() ? bar.getBoundingClientRect().height : 0, rpx = bar && deskOn() ? bar.getBoundingClientRect().width : 0; // (beta 4.1: on a computer the bar is a panel on the right)
     if (pts.length === 1) { map.setView([pts[0].lat, pts[0].lon], 18); return; }
-    map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 80], paddingBottomRight: [70, 100 + bh], maxZoom: 19 });
+    map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 80], paddingBottomRight: [70 + rpx, 100 + bh], maxZoom: 19 });
   }
   $('routeFitBtn').addEventListener('click', rtFit);
   /** The bar at the bottom in Route: one card that changes with what you do (a closure question on top when there is one). v2.42.22: ✋ / ✎
@@ -4176,9 +4178,9 @@
           + `<div class="rt-row">${seg}<div class="rt-meta grow" id="rtLive">${rtPairs ? '<b>Linking two poles without a cable:</b> tap a pole, then the next' : all.length ? stats : 'Tap ＋ New cable, or a pole, to start'}</div>${pen && !rtPairs ? snapB : ''}${undoB}</div>`; // v2.42.24: one way to start a cable; the list of cables
       }
     }
-    if (rtTools) { bar.innerHTML = ''; bar.hidden = true; $('routeBar').hidden = false; document.body.style.setProperty('--rtbh', `${Math.max(0, Math.round($('routeBar').getBoundingClientRect().height) - 4)}px`); rtPop = null; renderRtPop(); return; } // Route tools in its place (Close: back to the bar)
+    if (rtTools) { bar.innerHTML = ''; bar.hidden = true; $('routeBar').hidden = false; document.body.style.setProperty('--rtbh', deskOn() ? '0px' : `${Math.max(0, Math.round($('routeBar').getBoundingClientRect().height) - 4)}px`); rtPop = null; renderRtPop(); return; } // Route tools in its place (Close: back to the bar)
     bar.innerHTML = h; bar.hidden = false; $('routeBar').hidden = true;
-    document.body.style.setProperty('--rtbh', `${Math.round(bar.getBoundingClientRect().height)}px`);
+    document.body.style.setProperty('--rtbh', deskOn() ? '0px' : `${Math.round(bar.getBoundingClientRect().height)}px`);
     renderRtPop();
   }
   function renderRtPop() {
@@ -5580,6 +5582,8 @@
     pinMap.on('moveend', () => { if (ed && ed.plan) applyPlan(); }); // v2.26.1: the planned element nearest the pin
     pinMap.on('dragstart zoomstart', () => { if (ed) ed.userMoved = true; });
     pinMap.on('dragstart', () => { if (ed) ed.dragged = true; $('edHint').classList.add('gone'); });
+    pinMap.on('dragstart zoomstart', () => $('editor').classList.add('pmsolid')); // beta 4.1 (computer): once the record's map is moved it no longer shows the main map through
+    if (window.ResizeObserver) new ResizeObserver(() => { const w = $('pinMapWrap'); if (pinLaid && (Math.abs(w.clientWidth - pinLaid.w) > 2 || Math.abs(w.clientHeight - pinLaid.h) > 2)) pinDeskUnlay(); }).observe($('pinMapWrap')); // (the form made wider, the window resized: the usual lay-out, the pin in the middle)
     pinMap.on('click', () => { pinUnmini(); }); // v2.42.17: the map made small while the form was scrolled: a tap brings it back
     /* v2.30: the pin is the centre of the small map. When the map changes size (the keyboard opens or closes, Bigger map,
        the record shown again), the same spot is put back under the pin, so the pin never drifts from where it was set. */
@@ -5689,8 +5693,9 @@
     setPoleType(n); toast(`${n} (${p}-) added on this phone`, 3000);
   }
   /** Choosing a pole type sets the ID prefix: a suggested ID is re-suggested, a typed/scanned one keeps its number. */
-  function setPoleType(t) {
+  function setPoleType(t, auto) {
     if (!ed) return;
+    if (!auto) ed.typeSet = true; // beta 4.1: the type was chosen for this record (auto: set by the app from the plan, which fills in no owner)
     ed.type = t; renderTypeChips(t); renderEdSym(); renderDetails(); if (!ed.acc) renderBoq(); // v2.37 (v2.42.17: an existing GT pole's owner): a telco pole has its own symbol (v2.42.1: an electric pole its two details)
     const id = $('poleId').value.trim().toUpperCase(), pre = typePrefix(t);
     if (!pre || (ed.element && ed.element !== 'Pole') || ed.status === 'Proposed') { checkFormat(); return; } // a proposed pole keeps its PP- number
@@ -5714,6 +5719,7 @@
       if (want === 'Pole' && /^PP-/.test(id) && ed.status !== 'Proposed' && svStatuses('Pole').includes('Proposed')) { ed.status = 'Proposed'; applyElement(); }
       else if (want === 'Pole' && m && ed.status === 'Proposed') { ed.status = svDefaultStatus('Pole'); applyElement(); } // a painted ID: the pole exists
     }
+    if (m && (ed.element || 'Pole') === 'Pole' && ed.idTouched && !ed.typeSet) { ed.typeSet = true; if (prefixType(m[1]) === ed.type && !ed.acc) renderBoq(); } // beta 4.1
     if (m && prefixType(m[1]) !== ed.type && (ed.element || 'Pole') === 'Pole') { ed.type = prefixType(m[1]); renderTypeChips(ed.type); if (!ed.acc) renderBoq(); }
     checkFormat();
   }
@@ -5793,6 +5799,22 @@
     toast('Saved as NPT (no pole tag)', 2000);
   });
 
+  /** beta 4.1: on a computer the record's map opens on the very view of the main map, so nothing seems to move. The record's map keeps its rule (the pin is
+      its middle), so the map's box is laid so that its middle falls where the point is on the screen, and the pin is drawn there. A point hidden under the
+      form or just off the screen: the main map glides to bring it in first. Returns { z, wait } or null (the usual view: the pin in the middle, zoom 19). */
+  let pinLaid = null;
+  function pinDeskUnlay() { const pm = $('pinMap'), ch = $('crosshair'); if (!pinLaid && !pm.style.width) return; pinLaid = null; pm.style.cssText = ''; ch.style.left = ch.style.top = ''; $('editor').classList.add('pmsolid'); }
+  function pinDeskSame(start) {
+    const wrap = $('pinMapWrap'), pm = $('pinMap'), ch = $('crosshair'); pinLaid = null; pm.style.cssText = ''; ch.style.left = ch.style.top = '';
+    if (!deskOn() || !start || !map || map.getZoom() < 15) return null;
+    const mr = $('map').getBoundingClientRect(), wr = wrap.getBoundingClientRect(), p = map.latLngToContainerPoint([start.lat, start.lon]); if (wr.width < 240 || wr.height < 240) return null;
+    let px = mr.left + p.x - wr.left, py = mr.top + p.y - wr.top, wait = 0; const M = 64, tx = Math.min(Math.max(px, M), wr.width - M), ty = Math.min(Math.max(py, M + 24), wr.height - M);
+    if (tx !== px || ty !== py) { if (Math.abs(px - tx) > mr.width * 0.9 || Math.abs(py - ty) > mr.height * 0.9) return null; map.panBy([px - tx, py - ty], { animate: true, duration: 0.25 }); px = tx; py = ty; wait = 300; } // (not in view beside the form: the main map glides)
+    const W = 2 * Math.max(px, wr.width - px), H = 2 * Math.max(py, wr.height - py);
+    pm.style.cssText = `inset:auto;left:${Math.round(px - W / 2)}px;top:${Math.round(py - H / 2)}px;width:${Math.round(W)}px;height:${Math.round(H)}px`; ch.style.left = `${Math.round(px)}px`; ch.style.top = `${Math.round(py)}px`;
+    pinLaid = { w: wrap.clientWidth, h: wrap.clientHeight };
+    return { z: map.getZoom(), wait };
+  }
   async function openEditor(o) {
     ensurePinMap();
     const acc = isAcc();
@@ -5868,12 +5890,16 @@
     $('edAcc').textContent = ed.gps && Number.isFinite(ed.gps.acc) ? `GPS ±${ed.gps.acc.toFixed(1)} m` : (ed.gps ? 'Location from photo' : 'No location yet');
     $('edSrc').textContent = o.note || '';
     showEdPhoto(o.blob || o.storedBlob || null);
+    $('editor').classList.remove('pmready', 'pmsolid'); document.body.classList.add('edopen'); // beta 4.1 (computer): the form opens over the same map
     openSheet('editor');
     checkDup();
     const start = o.lat != null ? { lat: o.lat, lon: o.lon } : ed.gps || (fix ? { lat: fix.lat, lon: fix.lon } : null);
     requestAnimationFrame(() => {
-      pinMap.invalidateSize();
-      if (start) pinMap.setView([start.lat, start.lon], 19, { animate: false });
+      const same = pinDeskSame(start); // beta 4.1: on a computer, on the main map's own view
+      pinMap.invalidateSize(same ? { animate: false, pan: false } : undefined);
+      setTimeout(() => $('editor').classList.add('pmready'), same && same.wait ? same.wait : 50); if (!same) $('editor').classList.add('pmsolid');
+      if (same) pinMap.setView([start.lat, start.lon], same.z, { animate: false });
+      else if (start) pinMap.setView([start.lat, start.lon], 19, { animate: false });
       else { const c = map.getCenter(); pinMap.setView(c, Math.max(map.getZoom(), 16), { animate: false }); }
       ed.userMoved = false; drawEdGps(); updateCoordBox(); drawPinRef(); drawPinOthers();
     });
@@ -6767,7 +6793,7 @@
     // v2.42.17: in a survey record's tabs, the accessories go to Accessories and the riser to AE to UG; a box's closure is in its own block
     const keys = edBoqKeys(), tabs = edTabsOn(), boxC = UG_BOXES.has(ed.element || 'Pole');
     // v2.42.17: an existing GT pole is Globe's: its owner is Globe (set by itself; another type takes it away again)
-    if (keys.includes('owner') && typePrefix(ed.type) === 'GT' && !ed.boq.owner) { ed.boq.owner = 'Globe'; ed.ownerAuto = true; }
+    if (keys.includes('owner') && typePrefix(ed.type) === 'GT' && !ed.boq.owner && (ed.mode !== 'new' || ed.typeSet)) { ed.boq.owner = 'Globe'; ed.ownerAuto = true; } // (beta 4.1: a new record starts with no owner)
     else if (ed.ownerAuto && ed.boq.owner === 'Globe' && (typePrefix(ed.type) !== 'GT' || !keys.includes('owner'))) { delete ed.boq.owner; ed.ownerAuto = false; }
     const own = edLoopOwn(), hwNow = edHw(); // v2.42.18: the cable hardware from the route (12C, telco arm)
     const hwRow = (h) => { const r = document.createElement('div'); r.className = 'boqrow'; r.dataset.k = 'hw'; const t = document.createElement('span'); t.className = 'lbl'; t.textContent = hasTelcoArm(edLoopRec()) ? 'HARDWARE FOR THE CABLE · TELCO ARM' : 'HARDWARE FOR THE CABLE · FROM THE ROUTE'; r.appendChild(t);
@@ -6949,8 +6975,8 @@
     if (ed.mode === 'new' && !ed.boqTouched && moved) {
       if (m) {
         const want = m.r.status === 'Proposed' || m.r.status === 'New' ? 'New' : 'Existing'; // a proposed element of the plan is a new one in the As-Built
-        if (!ed.stTouched && ed.status !== want && svStatuses(ed.element || 'Pole').includes(want)) { ed.status = want; applyElement(); if (want === 'New' && (ed.element || 'Pole') === 'Pole' && ed.type !== globeType()) setPoleType(globeType()); }
-        ed.boq = { ...m.r.boq }; ed.boqFromPlan = true;
+        if (!ed.stTouched && ed.status !== want && svStatuses(ed.element || 'Pole').includes(want)) { ed.status = want; applyElement(); if (want === 'New' && (ed.element || 'Pole') === 'Pole' && ed.type !== globeType()) setPoleType(globeType(), true); }
+        { const b = { ...m.r.boq }; delete b.owner; delete b.ownerName; ed.boq = b; } ed.boqFromPlan = true; // (beta 4.1: the owner and its name are not filled in by themselves)
       } else if (ed.boqFromPlan) { ed.boq = {}; ed.boqFromPlan = false; }
       renderAttach(); // v2.42.4: the NAP / closure ticked on the pole get their kind and status again (the plan's sizes dropped them)
     }
@@ -7357,9 +7383,9 @@
     }
     if (!fit) return;
     const card = $('visitCard').getBoundingClientRect(), mr = map.getContainer().getBoundingClientRect();
-    const below = Math.max(40, mr.bottom - card.top + 24);
+    const below = deskOn() ? 40 : Math.max(40, mr.bottom - card.top + 24), rpv = deskOn() ? Math.round(card.width) : 0; // (beta 4.1: on a computer the card is a panel on the right)
     if (d > 5000) { map.setView([r.lat, r.lon], Math.max(map.getZoom(), 17)); return; } // far away: the pin first
-    map.fitBounds([[fix.lat, fix.lon], [r.lat, r.lon]], { paddingTopLeft: [50, 120], paddingBottomRight: [50, below], maxZoom: 19, animate: false });
+    map.fitBounds([[fix.lat, fix.lon], [r.lat, r.lon]], { paddingTopLeft: [50, 120], paddingBottomRight: [50 + rpv, below], maxZoom: 19, animate: false });
   }
 
   function renderDefPanel() {
@@ -9044,7 +9070,7 @@
     { const ins = resultInside; resultInside = null; $('resultInsideBox').hidden = !ins; $('resultInsideBox').open = false; $('resultInside').innerHTML = ins ? ins.map(([ic, n, t]) => `<div><span class="ic">${ic}</span><span><b>${C.xmlEsc(n)}</b><small>${C.xmlEsc(t)}</small></span></div>`).join('') : '';
       if (ins) { // v2.43: folded to one line (the files are listed when it is opened)
         const n = (k) => ins.filter((x) => x[0] === k).length;
-        $('resultInsideSum').textContent = `What's in the ZIP: ${[n('DXF') ? `${n('DXF')} DXF` : '', n('PDF') ? `${n('PDF')} PDF` : '', n('JPG') ? 'photos' : '', n('TXT') ? 'README' : ''].filter(Boolean).join(' · ')}`;
+        $('resultInsideSum').textContent = `What's in the ZIP: ${[n('DXF') ? `${n('DXF')} DXF` : '', n('PDF') ? `${n('PDF')} PDF` : '', n('JPG') ? 'photos' : '', n('CEF') ? 'CEF plans' : '', n('TXT') ? 'README' : ''].filter(Boolean).join(' · ')}`;
       } }
     $('resSave').textContent = NATIVE ? 'Save to Documents' : 'Save to phone';
     $('resShare').hidden = false; // v2.30: always offered; a browser that cannot share this kind of file says what to do instead
@@ -9740,7 +9766,7 @@
     const tpl = dxfMode() === 'tpl', R = dxfRows(), pts = projPoints(), np = pts.filter((p) => elemOf(p) === 'Pole').length, RM = routeModel(), info = S.dxfSeed, stale = seedStale();
     const pu = svPurpose(), st = !tpl ? ['ok', `Simple DXF: points and photos at UTM ${S.zone}N`] : seedBusy ? ['mt', 'Getting the plan template from your admin…'] : info ? ['ok', `✓ On your company’s plan template${stale ? ' (your admin shares a newer one: Plan settings › Template and logo)' : ''}`] : seedId() ? ['mt', 'Your admin shares the plan template: Export gets it first (once).'] : ['warn', 'No plan template on this phone yet: ask your admin, or Plan settings › Template and logo.'];
     $('dxfSum').innerHTML = `<span class="nm">${C.xmlEsc(S.project || '')}</span><span class="mt">${C.xmlEsc([pu === 'As-built' ? 'As-Built' : pu === 'As-plan' ? 'As-Plan' : pu, `${np} pole${np === 1 ? '' : 's'}`, `${RM.spans.length} span${RM.spans.length === 1 ? '' : 's'}`, fmtLen(RM.total)].filter(Boolean).join(' · '))}</span><span class="${st[0]}">${C.xmlEsc(st[1])}</span>`;
-    $('dxfFiles').hidden = !tpl; $('dxfFilesLbl').hidden = !tpl; $('dxfWhat').hidden = !tpl || !drawOn(); $('sigBox').hidden = !tpl; $('dxfPdfRow').hidden = !tpl;
+    $('dxfFiles').hidden = !tpl; $('dxfFilesLbl').hidden = !tpl; $('dxfWhat').hidden = !tpl || !drawOn(); $('sigBox').hidden = !tpl; $('dxfPdfRow').hidden = !tpl; $('dxfCefRow').hidden = !tpl || !(cefHooks.plansN && cefHooks.plansN(S.project)); // (beta 4.1: shown when the project holds a CEF plan)
     const inCard = tpl && !drawOn() && !isAcc(); mxHome(inCard); if (inCard) mxRender(); // no Drawing (an Audit survey): the table here
     $('dxfFilesLbl').textContent = R.length === 1 ? '1 DRAWING' : `${R.length} DRAWINGS · ONE DXF EACH${S.exp.dxfPdf ? ' AND ONE PDF' : ''}`;
     $('dxfFiles').innerHTML = R.map((r, i) => { const n = r.pts.includes('*') ? null : rowSel(r, pts).ids.length; return `<div class="dxffile"><span class="n">${i + 1}</span><span>${C.xmlEsc(mxRowName(r))}${n != null ? ` <small>${n}</small>` : ''}</span><span class="m">${mxIcon(r.mode)}${MX_SHORT[r.mode]}</span></div>`; }).join('');
@@ -9986,13 +10012,13 @@
   function matCode(p) { if (/^NPT/i.test(p.poleId || '')) return 'NPT'; const t = poleTypes().find((x) => x.n === p.poleType); return t ? t.p : ''; }
   /** v2.32: the picture of the VICINITY MAP sheet: the street map in use (tiles already seen on this phone first) over the vicinity
       square, turned to the UTM grid of the drawing, as a JPEG. Null when offline or when too much of the map does not come. */
-  async function vicinityJpeg(cE, cN, size, zone, south, progress, source) {
+  async function vicinityJpeg(cE, cN, size, zone, south, progress, source, zCap) {
     const say = progress || (() => {});
     if (navigator.onLine === false) return null;
     const PX = 1800, h = size / 2, src = source || streetSource(), sat = src.id === 'sat'; // v2.36: or the satellite imagery (never kept on the phone: Esri terms)
     const ll = [[cE - h, cN + h], [cE + h, cN + h], [cE - h, cN - h]].map(([E, N]) => C.utmInverse(E, N, zone, south)); // top left, top right, bottom left
     const merc = (la, lo, z) => { const n = 256 * 2 ** z, s = Math.sin(la * Math.PI / 180); return [(lo + 180) / 360 * n, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n]; };
-    let z = Math.min(17, src.max || 17), m, tx0, tx1, ty0, ty1;
+    let z = Math.min(zCap || (size < 1200 ? 19 : 17), src.max || 17), m, tx0, tx1, ty0, ty1; // (beta 4.1: more detail for a map zoomed to the project area)
     for (; z >= 11; z--) { // the most detailed map that needs at most 64 tiles
       m = ll.map(([la, lo]) => merc(la, lo, z)); const m4 = [...m, [m[1][0] + m[2][0] - m[0][0], m[1][1] + m[2][1] - m[0][1]]];
       tx0 = Math.floor(Math.min(...m4.map((q) => q[0])) / 256); tx1 = Math.floor(Math.max(...m4.map((q) => q[0])) / 256);
@@ -10021,6 +10047,8 @@
     const worker = async () => { while (next < jobs.length) { const j = jobs[next++]; j.blob = await one(j).catch(() => null); if (!j.blob || !j.blob.size) miss++; got++; say(`Getting the vicinity map (${got} / ${jobs.length})…`, got / jobs.length); } };
     await Promise.all(Array.from({ length: Math.min(6, jobs.length) }, worker));
     const ok = jobs.filter((j) => j.blob && j.blob.size > 0);
+    if (z > 17) { const same = {}; ok.forEach((j) => { same[j.blob.size] = (same[j.blob.size] || 0) + 1; }); // beta 4.1: no pictures this deep here: one level less
+      if (ok.length < jobs.length - maxMiss || (sat && ok.length >= 4 && Math.max(...Object.values(same)) >= ok.length * 0.6)) { LOG.info('plan.vicinity.less', { z, ok: ok.length, tiles: jobs.length }); return vicinityJpeg(cE, cN, size, zone, south, progress, source, z - 1); } }
     if (ok.length < jobs.length - maxMiss) { LOG.warn('plan.vicinity', { tiles: jobs.length, ok: ok.length, z }); return null; }
     const cv = document.createElement('canvas'); cv.width = cv.height = PX; const g = cv.getContext('2d');
     g.fillStyle = '#fff'; g.fillRect(0, 0, PX, PX); g.imageSmoothingQuality = 'high';
@@ -10274,7 +10302,8 @@
     // v2.38: a vicinity map for each place
     const vics = [], vicSay = [];
     for (let k = 0; k < nLoc; k++) {
-      const [cE, cN, size] = window.GeDxfTpl.vicArea(locs[k].box), vicC = window.GeDxfTpl.vicCircle(locs[k].idx.map((i) => [rows[i].E, rows[i].N]), size); // v2.37: the PROJECT AREA circle
+      const vz = PLS.vic.zoom !== false, [cE, cN, size] = window.GeDxfTpl.vicArea(locs[k].box, vz), vicC = window.GeDxfTpl.vicCircle(locs[k].idx.map((i) => [rows[i].E, rows[i].N]), size, vz); // (beta 4.1: zoomed to the project area unless turned off)
+      // // v2.37: the PROJECT AREA circle
       const file = k ? `VICINITY_MAP_${k + 1}.jpg` : 'VICINITY_MAP.jpg'; let image = null, kind = 'street', drawn = false;
       if (nLoc > 1) busy(`Vicinity map ${k + 1} of ${nLoc}…`);
       try {
@@ -10325,16 +10354,23 @@
         }
       } catch (e) { LOG.warn('export.planpdf', errInfo(e)); pdfFiles.length = 0; toast('The PDF of the sheets could not be made: the DXF is in the ZIP', 5000); }
     }
+    // beta 4.1 (MarkT): also the CEF plans of the project, each in its own folder of the ZIP, when ticked on the DXF card
+    const cefFiles = [];
+    if (S.exp.dxfCef !== false && cefHooks.planFiles && cefHooks.plansN && cefHooks.plansN(S.project)) {
+      try { busy('The CEF plans…'); (await cefHooks.planFiles(S.project)).forEach((f) => cefFiles.push(f)); LOG.info('export.plancef', { files: cefFiles.length }); }
+      catch (e) { LOG.warn('export.plancef', errInfo(e)); cefFiles.length = 0; toast('The CEF plans could not be added: the plan is in the ZIP', 5000); }
+    }
     const rp = outs[0].out.report;
     // v2.40: the numbers on the plan, for the README (and an RTA application): number, ID, pole type, position
     const markLinesOf = (MK) => MK.map(([n, id]) => { const p = byPt.get(id) || {}; return `  ${n}  ${p.poleId || '(no ID)'}  ${elemOf(p) === 'Pole' ? p.poleType || 'pole' : elemOf(p)}  ${(+p.lat).toFixed(6)}, ${(+p.lon).toFixed(6)}`; });
-    const besideOf = (o) => { const MK = o.out.report.marks || [], n = MK.length; return `${o.st.mode === 'num' ? 'their number only (no photos)' : o.st.mode === 'both' ? `their photo with its number at its upper left (${o.nPh} of ${n}; a point without a photo shows its number)` : `their photo (${o.nPh} of ${n}; a point without a photo shows its number)`}, for ${o.st.what}: ${n} numbered 1 to ${n} along the route`; };
+    const besideOf = (o) => { const MK = o.out.report.marks || [], n = MK.length; return `${o.st.mode === 'num' ? 'their number only (no photos)' : o.st.mode === 'both' ? `their number beside the point and their photo near it (${o.out.report.marks.filter((x) => x[2] === 'photo+number').length} of ${n} with a photo; a photo with no free place on the plan is left out)` : `their photo (${o.nPh} of ${n}; a point without a photo shows its number)`}, for ${o.st.what}: ${n} numbered 1 to ${n} along the route`; };
     const setFirst = files.length ? 'UNZIP EVERYTHING INTO ONE FOLDER, then open the DXF in AutoCAD with File > Open: the pictures (pole photos, vicinity map) are linked by file name and must stay next to the DXF. Do not drag the DXF into an open drawing (it becomes a block there and its pictures are looked for next to that other drawing).'
       : 'Open the DXF in AutoCAD with File > Open (do not drag it into an open drawing).'; // v2.42.8
     const head = many ? [`${outs.length} plan drawings on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres, the same plan with different numbers or photos beside the points:`,
       ...outs.map((o) => `  ${o.file}: ${besideOf(o)}.`), setFirst]
       : [`${outs[0].file} — the plan on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres.`, setFirst, `Beside the points: ${besideOf(outs[0])} (the list is at the end).`];
     if (pdfFiles.length) head.push(`${pdfFiles.map((f) => f.name).join(', ')}: the sheets as a PDF (A3), drawn by G-eSAA from the DXF for printing (texts in Helvetica, pattern hatches left out; AutoCAD's own plot is the reference).`); // v2.42.9
+    if (cefFiles.length) { const D = [...new Set(cefFiles.map((f) => f.name.split('/')[0]))]; head.push(`${D.join(', ')}: the CEF plan of ${D.length === 1 ? 'the tower site' : 'each tower site'} (its sheets as a PDF on A3 and as a DXF, the map DXF, the KML, its photos and its sketch), as the CEF plan's own Export makes ${D.length === 1 ? 'it' : 'them'}.`); } // beta 4.1
     head.splice(0, head.length, ...head.filter(Boolean));
     const readme = [...head,
       `Clamp types: ${showCT ? 'on the plan, before the clamp size (e.g. CA 8-10, 2A 10-12)' : 'left off the plan (the clamp size only); they are in the BOQ, the KMZ and the CSV'}.`,
@@ -10367,9 +10403,9 @@
       ...outs.flatMap((o) => { const MK = o.out.report.marks || []; return MK.length ? [`Numbers on the plan${many ? ` in ${o.file}` : ''} (${MK.length}${o.st.no.size ? `: ${o.st.what}` : ''}): number, ID, type, latitude, longitude`, ...markLinesOf(MK), ''] : []; }), exporterText()].join('\r\n');
     busy(false);
     { const RR = dxfRows(), rowOf = (o) => RR[(+String(o.st.id).replace(/\D/g, '') || 1) - 1]; // v2.42.28: the ZIP in plain words
-      resultInside = [...outs.map((o) => { const r = rowOf(o); return ['DXF', o.file, `${many && r ? `${mxRowName(r)}, ${MX_LONG[r.mode]}. ` : ''}Open it in AutoCAD`]; }), ...pdfFiles.map((f) => ['PDF', f.name, 'The sheets on A3, to print']),
+      resultInside = [...outs.map((o) => { const r = rowOf(o); return ['DXF', o.file, `${many && r ? `${mxRowName(r)}, ${MX_LONG[r.mode]}. ` : ''}Open it in AutoCAD`]; }), ...pdfFiles.map((f) => ['PDF', f.name, 'The sheets on A3, to print']), ...(cefFiles.length ? [['CEF', `${new Set(cefFiles.map((f) => f.name.split('/')[0])).size} CEF plan folder${new Set(cefFiles.map((f) => f.name.split('/')[0])).size === 1 ? '' : 's'}`, 'The CEF plan of each tower site: its PDF, DXF, KML and photos']] : []),
         ...(files.length ? [['JPG', `${files.length} picture${files.length === 1 ? '' : 's'}`, 'The photos, the vicinity map and the logo: keep them in the same folder as the drawings, or AutoCAD shows empty boxes']] : []), ['TXT', 'README.txt', 'What the plan holds, with the pole numbers of each drawing']]; }
-    offerResult(new Blob(C.makeZipParts([...outs.map((o) => ({ name: o.file, data: o.out.text })), ...files, ...pdfFiles, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`);
+    offerResult(new Blob(C.makeZipParts([...outs.map((o) => ({ name: o.file, data: o.out.text })), ...files, ...pdfFiles, ...cefFiles, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`);
     { const A = routeAdvice(R), o0 = outs[0], MK0 = o0.out.report.marks || [];
       toast(`Plan: ${many ? `${outs.length} drawings · ` : ''}${rp.sheets.length} GEO sheet${rp.sheets.length === 1 ? '' : 's'}${!many && o0.st.no.size ? ` · numbered: ${o0.st.what} (${MK0.length})` : ''} · ${roadsNote}${A.length ? ` · ${A.length} route check${A.length === 1 ? '' : 's'} in the README` : ''}${noPack.length ? ` · no road pack for ${noPack.map(({ region }) => region || 'a place').join(', ')}: its ROW table is blank (see the README)` : ''}`, noPack.length ? 9000 : 5000); }
   }
@@ -11770,7 +11806,7 @@
     ['kmzRoute', 'kmzRoute2', 'kmzRoute', 'bool'], ['kmzStamp', 'kmzStamp3', 'kmzStamp', 'bool'], ['kmzStamp2', 'kmzStamp3', 'kmzStamp', 'bool'],
     ['pdfPhotoSize', 'pdfPhotoSize2', 'pdfPhotoSize', 'str'], ['pdfAnnexA', 'pdfAnnexA2', 'pdfAnnexA', 'bool'], ['pdfAnnexB', 'pdfAnnexB2', 'pdfAnnexB', 'bool'],
     ['pdfDates', 'xlsDates', 'pdfDates', 'str'], ['xlsTable', null, 'xlsTable', 'bool'], ['xlsPhotos', null, 'xlsPhotos', 'bool'], ['kmzData', null, 'kmzData', 'bool'],
-    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['dxfPdf', null, 'dxfPdf', 'bool'], ['pmiLoops', 'pmiLoops2', 'pmiLoops', 'bool']]; // v2.41: the plan's options are on the Drawing screen (v2.42.17: + loops in the PMI, also under Settings)
+    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['dxfPdf', null, 'dxfPdf', 'bool'], ['dxfCef', null, 'dxfCef', 'bool'], ['pmiLoops', 'pmiLoops2', 'pmiLoops', 'bool']]; // v2.41: the plan's options are on the Drawing screen (v2.42.17: + loops in the PMI, also under Settings)
   const expIds = {};
   EXP_PAIRS.forEach(([a, b, key, kind]) => { [a, b].filter(Boolean).forEach((id) => { const l = (expIds[key] = expIds[key] || []); if (!l.some((x) => x[0] === id)) l.push([id, kind]); }); });
   function syncExpUi() {
@@ -16872,8 +16908,8 @@
   function fxClose() { fx = null; $('fixPanel').hidden = true; document.body.classList.remove('fixing'); if (fxLayer) fxLayer.clearLayers(); }
   function fxFit() {
     const P = fxDraft(fx.name).map(fxPos).filter(Boolean);
-    const h = $('fixPanel').hidden ? 0 : $('fixPanel').offsetHeight;
-    if (P.length > 1) map.fitBounds(L.latLngBounds(P.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 90], paddingBottomRight: [40, h + 30], maxZoom: 19 });
+    const h = $('fixPanel').hidden || deskOn() ? 0 : $('fixPanel').offsetHeight, rpf = !$('fixPanel').hidden && deskOn() ? $('fixPanel').offsetWidth : 0; // (beta 4.1: on a computer the list is a panel on the right)
+    if (P.length > 1) map.fitBounds(L.latLngBounds(P.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 90], paddingBottomRight: [40 + rpf, h + 30], maxZoom: 19 });
     else if (P.length === 1) fxPan(P[0].lat, P[0].lon);
   }
   function fxDraw() {
@@ -17694,8 +17730,8 @@
     return true;
   }
   /** What the editor starts with. */
-  async function cefInit() {
-    const c = cefNow; if (!c) return null;
+  async function cefInit(job) {
+    const c = (job && cefJobCtx[job]) || cefNow; if (!c) return null; // (beta 4.1: or the plan of a Drawing export, made out of sight)
     const plan = cefPlans(c.name).find((p) => p.id === c.id) || null, m = pmeta(c.name), u = S.user || {}, e = exporterInfo(), photos = {};
     if (plan) for (const pid of cefPhotoIds(plan)) { try { const ph = await dbGet('photos', pid); if (ph && (ph.clean || ph.thumb)) photos[pid] = (await cefPhotoSrc(ph.clean || ph.thumb)).src; } catch (x) { /* shown as not on this phone */ } }
     const pinRec = c.pin ? points.find((p) => p.id === c.pin && p.project === c.name) : null, F = siteFieldsOf(c.name);
@@ -17704,7 +17740,7 @@
     const T = tmTeam(c.name), ck = T && T.accepted ? String(T.accepted.byName || T.accepted.by || '') : '';
     const foot = `EXPORTED BY ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' - ').toUpperCase()} - G-eSAA ${VER_LABEL}`; // the line under the frame of every sheet
     return { sketch: plan ? JSON.stringify(plan.sk) : null, photos, logos: await cefLogos(), tab: c.tab || '',
-      app: { by: u.name || '', checkedBy: ck, org: m.contractor || u.company || '', link: sfGet(F, /project\s*name/i) || '', footer: foot, ver: `${APP_NAME} ${VER_LABEL}`, lock: !!pinRec, fix: site0, viewOnly: cefLockText(c.name),
+      app: { job: job && cefJobCtx[job] ? job : '', by: u.name || '', checkedBy: ck, org: m.contractor || u.company || '', link: sfGet(F, /project\s*name/i) || '', footer: foot, ver: `${APP_NAME} ${VER_LABEL}`, lock: !!pinRec, fix: site0, viewOnly: cefLockText(c.name),
         gps: 'geolocation' in navigator, canLogo: cefCanLogo(), logoNote: cefLogoNote(), guide: S.cefGuide !== false, ...(c.over || {}) } };
   }
   /** The editor saves as the user works. Nothing is written when the sketch did not change, so that looking at a plan never makes it
@@ -17735,6 +17771,37 @@
       LOG.info('cef.photo', { kb: Math.round(im.clean.size / 1024) });
       cefShot = null; w.res({ id, src: s.src, w: s.w, h: s.h, at: (x && x.takenAt) || new Date().toISOString(), lat: gps && Number.isFinite(gps.lat) ? +(+gps.lat).toFixed(6) : null, lon: gps && Number.isFinite(gps.lon) ? +(+gps.lon).toFixed(6) : null });
     } catch (e) { cefShot = null; LOG.error('cef.photo.fail', errInfo(e)); w.rej(e); } finally { busy(false); }
+  }
+  /** beta 4.1 (MarkT): a picture from the gallery for a CEF plan. Kept in the photo store as a camera photo is; the sketch marks it as from the gallery.
+      Pole and site records keep the camera only. */
+  async function cefAddPicture(file) {
+    const c = cefNow; if (!c || !file) return null; if (cefLockText(c.name)) throw new Error('view only');
+    if (!/^image\//.test(file.type || '')) throw new Error('that file is not a picture');
+    busy('Keeping the picture…');
+    try { const own = file instanceof Blob ? file : new Blob([await file.arrayBuffer()], { type: file.type }); /* (a file picked inside the editor's frame belongs to that frame: the app takes its own copy) */ const im = await makeStoredImages(own), id = `cefp${uid()}`; await dbPut('photos', { id, clean: im.clean, thumb: im.thumb }); const s = await cefPhotoSrc(im.clean); c.taken.push(id); LOG.info('cef.picture', { kb: Math.round(im.clean.size / 1024) }); return { id, src: s.src, w: s.w, h: s.h, at: new Date().toISOString(), from: 'gallery' }; }
+    finally { busy(false); }
+  }
+  /** beta 4.1 (MarkT): the export files of a project's CEF plans, for the Drawing export ("Also the CEF plans"). The editor's page makes them out of sight,
+      one plan after the other; each plan's files go in a folder of the ZIP. */
+  const cefJobCtx = {};
+  function cefPlanJob(name, plan) {
+    return new Promise((res) => {
+      const job = `j${uid()}`, fr = document.createElement('iframe'); let done = false;
+      const end = (v) => { if (done) return; done = true; clearTimeout(t); delete cefJobCtx[job]; fr.remove(); res(v); };
+      const t = setTimeout(() => end({ err: 'it took too long' }), 90000);
+      cefJobCtx[job] = { name, id: plan.id, pin: plan.pin || '', tab: '', had: [], taken: [], over: null, done: end };
+      fr.setAttribute('aria-hidden', 'true'); fr.tabIndex = -1; fr.title = 'CEF plan export'; fr.style.cssText = 'position:fixed;left:-3000px;top:0;width:1200px;height:800px;border:0;visibility:hidden';
+      fr.src = `vendor/cef/cef.html?job=${job}`; document.body.appendChild(fr);
+    });
+  }
+  async function cefPlanFiles(name) {
+    const out = [], dirs = new Set();
+    for (const plan of cefPlans(name)) {
+      const r = await cefPlanJob(name, plan); if (!r || !Array.isArray(r.files)) throw new Error((r && r.err) || 'the CEF plan was not made');
+      let dir = `CEF_PLAN_${String(r.base || 'SITE').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 40)}`; for (let k = 2; dirs.has(dir); k++) dir = `${dir.replace(/_\d+$/, '')}_${k}`; dirs.add(dir);
+      for (const f of r.files) { let data = f.data; if (f.pid) { const ph = await dbGet('photos', String(f.pid)).catch(() => null); if (ph && ph.clean) data = new Uint8Array(await ph.clean.arrayBuffer()); } out.push({ name: `${dir}/${String(f.name).slice(0, 160)}`, data: typeof data === 'string' ? data : new Uint8Array(data) }); }
+    }
+    return out;
   }
   /** The export's ZIP, made by the app: the editor's files, each photo as the photo store keeps it, and who exported it. */
   async function cefZip(files) {
@@ -17770,7 +17837,7 @@
     if (c) { const now = new Set(cefPids(c.name)); cefSweep([...c.had, ...c.taken].filter((x) => !now.has(x)), '').catch(() => {}); }
     renderPoles(); if (!$('projects').hidden) renderProjects();
   }
-  window.__cefHost = { init: () => cefInit(), save: (s) => cefSave(s), takePhoto: () => cefTakePhoto(), zip: (files) => cefZip(files), deliver: (n, d, k) => cefDeliver(n, d, k),
+  window.__cefHost = { init: (job) => cefInit(job), jobDone: (job, r) => { const c = cefJobCtx[job]; if (c) c.done(r); }, addPicture: (f) => cefAddPicture(f), save: (s) => cefSave(s), takePhoto: () => cefTakePhoto(), zip: (files) => cefZip(files), deliver: (n, d, k) => cefDeliver(n, d, k),
     close: () => { if (stack[stack.length - 1] === 'cefSheet') closeSheet(); }, exporter: () => exporterInfo(), gps: () => cefGps(), logo: (how) => cefLogo(how),
     pref: (k, v) => { if (k === 'guide') { S.cefGuide = v !== false; persist(); } } };
 
@@ -17826,7 +17893,7 @@
   cefHooks.isCef = (name) => isCefProj(name);
   cefHooks.open = (name, o) => guard(() => cefOpen(name, o), 'CEF plan not opened');
   cefHooks.closed = cefClosed; cefHooks.camClosed = cefCamClosed; cefHooks.photo = cefGotPhoto;
-  cefHooks.pids = cefPids; cefHooks.changed = cefChanged; cefHooks.count = cefIncoming; cefHooks.merge = cefMerge; cefHooks.setLogo = cefSetLogoRow; cefHooks.canLogo = cefCanLogo;
+  cefHooks.pids = cefPids; cefHooks.changed = cefChanged; cefHooks.count = cefIncoming; cefHooks.merge = cefMerge; cefHooks.setLogo = cefSetLogoRow; cefHooks.canLogo = cefCanLogo; cefHooks.planFiles = cefPlanFiles; cefHooks.plansN = (n) => cefPlans(n || S.project).length;
   /** What is on the plan of a CEF-Plan project (0: nothing yet): its task is in progress, and can be completed, once there is something. */
   cefHooks.started = (name) => { if (!isCefProj(name)) return 0; const p = cefPlans(name)[0], sk = (p && p.sk) || {}; return (Array.isArray(sk.els) ? sk.els.length : 0) + (Array.isArray(sk.runs) ? sk.runs.length : 0); };
   cefHooks.drop = async (name) => { const pids = cefPids(name); if (pids.length) await cefSweep(pids, name); };
@@ -17889,7 +17956,39 @@
   }, 'CEF plan not opened'));
   try { cefHooks.main(); } catch (e) { /* at start */ }
 
-  window.__polecam = { autoLoops: () => [...autoLoops(projPoints(), routeModel())], openEditorFor,
+  /* beta 4.1 (MarkT): on a computer the map tools are panels on the right; the map's round buttons and its summary line move clear of an open panel */
+  { const RP = ['routeBar', 'rtBar', 'visitCard', 'fixPanel', 'photoPane'].map((k) => $(k)).filter(Boolean);
+    let rpZ = 540; // the panel opened last lies on top (e.g. Photos opened while the cable route is open)
+    const rpSync = (muts) => { const dk = deskOn(); if (Array.isArray(muts)) muts.forEach((m) => { const el = m.target; if (dk && el && !el.hidden) { rpZ = rpZ >= 900 ? 541 : rpZ + 1; el.style.zIndex = String(rpZ); } }); if (!dk) RP.forEach((el) => { el.style.zIndex = ''; }); document.body.classList.toggle('rpanel', dk && RP.some((el) => !el.hidden)); };
+    if (window.MutationObserver) { const mo = new MutationObserver(rpSync); RP.forEach((el) => mo.observe(el, { attributes: true, attributeFilter: ['hidden'] })); }
+    if (deskMQ) { if (deskMQ.addEventListener) deskMQ.addEventListener('change', rpSync); else if (deskMQ.addListener) deskMQ.addListener(rpSync); } rpSync(); }
+  /* beta 4.1 (MarkT): every photo of the open project in a panel on the right (on a computer); a click opens its pin */
+  let ppxUrls = [], ppxFor = '';
+  function ppxClose() { $('photoPane').hidden = true; ppxUrls.forEach((u) => URL.revokeObjectURL(u)); ppxUrls = []; $('ppxGrid').innerHTML = ''; $('photosBtn').setAttribute('aria-pressed', 'false'); ppxFor = ''; }
+  function ppxList() {
+    const L = [];
+    projPoints().forEach((p) => {
+      photosOf(p).forEach((x, i) => { if (x && x.pid) L.push({ p, pid: x.pid, label: x.label && x.label !== 'Photo' ? x.label : i ? 'Photo' : 'Overview' }); });
+      (p.defs || []).forEach((d) => [['pid', 'As found'], ['afterPid', 'After the fix'], ['verifyPid', 'Verified']].forEach(([k, t]) => { if (d && d[k]) L.push({ p, pid: d[k], label: t }); }));
+    });
+    return L;
+  }
+  function ppxOpen() {
+    const L = ppxList(), g = $('ppxGrid'), top = $('photoPane').scrollTop; g.innerHTML = ''; ppxUrls.forEach((u) => URL.revokeObjectURL(u)); ppxUrls = []; ppxFor = S.project;
+    $('ppxN').textContent = L.length ? String(L.length) : ''; $('ppxHint').textContent = L.length ? `Every photo of ${S.project}. Click one to open its pin.` : 'No photos in this project yet.';
+    const io = 'IntersectionObserver' in window ? new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { io.unobserve(e.target); e.target._load(); } }), { root: $('photoPane'), rootMargin: '400px' }) : null;
+    L.forEach((x) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'ppxi'; b.dataset.id = String(x.p.id); b.dataset.pid = String(x.pid);
+      const img = document.createElement('img'); img.alt = ''; const c = document.createElement('span'); c.className = 'ppxc'; const nm = document.createElement('b'); nm.textContent = recName(x.p) || elemOf(x.p); const lb = document.createElement('small'); lb.textContent = x.label; c.append(nm, lb); b.append(img, c);
+      b._load = () => dbGet('photos', x.pid).then((ph) => { const bl = ph && (ph.thumb || ph.clean); if (bl) { const u = URL.createObjectURL(bl); ppxUrls.push(u); img.src = u; } else b.classList.add('none'); }).catch(() => b.classList.add('none'));
+      b.addEventListener('click', () => guard(() => openEditorFor(x.p.id), 'The record did not open'));
+      g.appendChild(b); if (io) io.observe(b); else b._load();
+    });
+    $('photoPane').hidden = false; $('photosBtn').setAttribute('aria-pressed', 'true'); $('photoPane').scrollTop = top;
+  }
+  function ppxRefresh() { if (!$('photoPane').hidden) { if (ppxFor === S.project && deskOn()) ppxOpen(); else ppxClose(); } }
+  $('photosBtn').addEventListener('click', () => ($('photoPane').hidden ? ppxOpen() : ppxClose())); $('ppxClose').addEventListener('click', ppxClose);
+  window.__polecam = { photosPane: { open: () => ppxOpen(), close: () => ppxClose(), list: () => ppxList().map((x) => ({ id: String(x.p.id), pid: String(x.pid), label: x.label })) }, autoLoops: () => [...autoLoops(projPoints(), routeModel())], openEditorFor,
     /* v2.42.17 */ edTab: (k, f) => goEdTab(k, f), edTabs: () => edTabList(), edCur: () => (edTabsOn() ? edTab : ''), edMissing: () => edMissing().map((x) => `${x.req ? '!' : ''}${x.tab}:${x.k}`), edShow: (sel) => { const el = document.querySelector(sel), g = el && el.closest('#editor .edbody>[data-pane]'); if (g && edTabsOn()) goEdTab(g.dataset.pane); return !!g; }, /* v2.42.16 */ boqTable: () => boqTable(projPoints(), null), routeStats: () => { const R = routeModel(); updateRouteBar(R); return $('rbStats').textContent; }, get points() { return points; }, get S() { return S; }, drwSeq: () => (drw ? { n: drw.seq.size, max: Math.max(0, ...drw.seq.values()) } : null), get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, get lastQrLink() { return qrLink; }, get lastQrFull() { return qrAlt ? qrAlt.full : qrLink; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
     surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads, routeAdvice: () => routeAdvice(routeModel()), renderPoles, persist, cloudSync: (f) => cloudSync(f), renderSig, // v2.42.12
@@ -17899,7 +17998,7 @@
     poleNums: () => Object.fromEntries([...poleNums(projPoints(), routeModel()).entries()]), setNumCfg: (c) => setNumCfg(c), route: () => { const R = routeModel(); return { total: R.total, cableTotal: R.cableTotal, spans: R.spans.map((s) => ({ ia: s.ia, ib: s.ib, runs: s.runs, len: s.len })) }; },
     mapPt: (lat, lon) => { const p = map.latLngToContainerPoint([lat, lon]), r = $('map').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; }, mapView: (lat, lon, z) => map.setView([lat, lon], z, { animate: false }), siteReq: () => siteReq(), adminOk: (e) => adminUserOk(e), jobsOf: (e) => jobsOf(e), shareProject: (n) => shareProject(n || S.project), apprText: () => apprText(), readApproval: (t, n) => readApproval(t, n || S.project),
     /* v2.42.19 */ boxMarks: () => (boxer ? boxer.marks.map((m) => ({ k: m.k, pts: m.pts ? m.pts.map(([x, y]) => [Math.round(x), Math.round(y)]) : null, raw: !!m.raw })) : null), boxSel: () => (boxer ? boxer.sel : null), pinOwn: () => pinOwnLines.map(({ pl, o }) => ({ to: o.id, ll: pl.getLatLngs().map((q) => [q.lat, q.lng]) })), pinCenter: () => { const c = pinMap.getCenter(); return [c.lat, c.lng]; },
-    /* v2.42.21 */ routeTools: (on, pairs) => { rtTools = !!on; rtPairs = !!pairs; $('rbPairs').checked = rtPairs; if (rtPairs) rtFinish(true); routeRefresh(); const pts = projPoints(); if (on && pts.length > 1) map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 110], paddingBottomRight: [40, Math.round(($('routeBar').getBoundingClientRect().height || 240) + 30)], maxZoom: 19, animate: false }); }, /* (Route tools open, linking by pairs: the route bar as before v2.42.21, for the earlier versions' tests) */ rtState: () => ({ fibAdd, fibAt, fibTouched, fibStartAt, fibNew, rtTools, rtPairs, pend: rtPend.map((q) => (points.find((p) => p.id === q.id) || {}).poleId), pop: rtPop, snap: snapPref(), snapM: snapM(), routeSel, pen: rtPenOn(), conf: rtConf && { id: rtConf.id, kind: rtConf.kind }, dragging: map.dragging.enabled(), draft: !!rtDraft, zoom: map.getZoom() }), /* v2.42.22 */ routePen: (on) => rtSetPen(!!on), routeTipDone: () => { S.routeTip = true; persist(); rtHint(''); }, snapSeq: (id, ll, su) => snapSeq(id, ll, su),
+    /* v2.42.21 */ routeTools: (on, pairs) => { rtTools = !!on; rtPairs = !!pairs; $('rbPairs').checked = rtPairs; if (rtPairs) rtFinish(true); routeRefresh(); const pts = projPoints(); if (on && pts.length > 1) map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 110], paddingBottomRight: deskOn() ? [40 + Math.round($('routeBar').getBoundingClientRect().width || 0), 120] : [40, Math.round(($('routeBar').getBoundingClientRect().height || 240) + 30)], maxZoom: 19, animate: false }); }, /* (Route tools open, linking by pairs: the route bar as before v2.42.21, for the earlier versions' tests) */ rtState: () => ({ fibAdd, fibAt, fibTouched, fibStartAt, fibNew, rtTools, rtPairs, pend: rtPend.map((q) => (points.find((p) => p.id === q.id) || {}).poleId), pop: rtPop, snap: snapPref(), snapM: snapM(), routeSel, pen: rtPenOn(), conf: rtConf && { id: rtConf.id, kind: rtConf.kind }, dragging: map.dragging.enabled(), draft: !!rtDraft, zoom: map.getZoom() }), /* v2.42.22 */ routePen: (on) => rtSetPen(!!on), routeTipDone: () => { S.routeTip = true; persist(); rtHint(''); }, snapSeq: (id, ll, su) => snapSeq(id, ll, su),
     /* v2.42.20 */ routeTap: (id) => routeTap(id), capLinks: () => capLinks(), /* v2.42.24 */ fibers: () => fibers(), setFibers: (F) => { setRoute(null, F); renderPoles(); }, fibState: () => ({ fibSel, fibAdd }), /* v2.42.26 */ edNeeds: () => edNeeds().map((x) => x.k), drwRuns: () => { if (!drw || !drw.hitL) return []; const cv = $('drawCanvas'), r = cv.getBoundingClientRect(), k = r.width / (cv.width || 1); return drw.hitL.map(({ n, lines }) => ({ n, lines: lines.map((L) => L.map(([x, y]) => [r.left + x * k, r.top + y * k])) })); }, drwSelRun: () => (drw ? drw.selRun : null),
     fibModel: () => { const R = routeModel(); return { list: R.fib ? R.fib.list.map((f) => ({ n: f.n, len: f.len, spans: f.spans, gaps: f.gaps, ex: !!f.ex, path: f.path, side: fibSide(f, fibers(), R.fib.by), from: fibEnd(f, 'from', R.fib.by), to: fibEnd(f, 'to', R.fib.by) })) : [], cableTotal: R.cableTotal, total: R.total, spans: R.spans.map((s) => ({ ia: s.ia, ib: s.ib, from: s.from, to: s.to, lanes: s.lanes.map((f) => f.n), fibers: s.fibers.map((f) => f.n), runs: s.runs, cable: s.cable })) }; },
     fibLoops: () => { const LA = autoLoops(projPoints(), routeModel()); return LA.fib ? { n: LA.fib.n, nAuto: LA.fib.nAuto, list: [...LA.fib.list.entries()].map(([id, E]) => [(points.find((p) => p.id === id) || {}).poleId, E.map((e) => [e.n, e.cab, e.len, e.why])]) } : null; },

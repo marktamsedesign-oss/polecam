@@ -258,6 +258,17 @@ body.deskpane #edGrip{display:block;grid-area:grip;cursor:col-resize;background:
 body.deskpane #edGrip::after{content:"";position:absolute;left:3px;top:50%;width:4px;height:44px;margin-top:-22px;border-radius:2px;background:var(--muted);opacity:.7}
 body.deskpane #edGrip:hover,body.deskpane #edGrip.drag,body.deskpane #edGrip:focus-visible{background:var(--accent)}
 body.deskpane #pinMapWrap #pinSizeBtn,body.deskpane #pinMapWrap #pinMiniTag,body.deskpane #editor #edGrab{display:none}
+/* beta 4.1: the record on a computer opens over the same view: the top bar and the Projects pane stay where they are, the form slides in */
+body.deskpane #editor{left:var(--pw);top:var(--tbh,56px);background:transparent}
+body.deskpane #editor>#pinMapWrap{background:transparent;overflow:hidden}
+body.deskpane #editor #pinMap{background:transparent;opacity:0;transition:opacity .16s linear}
+body.deskpane #editor.pmready #pinMap{opacity:1}
+body.deskpane #editor.pmsolid #pinMap{background:var(--chip)}
+body.deskpane #editor>.edbody,body.deskpane #editor>.foot,body.deskpane #editor>#saveIssue{background:var(--bg)}
+body.deskpane #editor>header,body.deskpane #editor>.edbody,body.deskpane #editor>.foot,body.deskpane #editor>#saveIssue,body.deskpane #editor>#edGrip{animation:edIn .2s ease-out}
+@keyframes edIn{from{transform:translateX(36px);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){body.deskpane #editor>*,body.deskpane #routeBar,body.deskpane #rtBar,body.deskpane #visitCard,body.deskpane #fixPanel,body.deskpane #photoPane{animation:none!important}}
+body.deskpane #projPane,body.deskpane #topbar{transition:opacity .2s}body.deskpane.edopen #projPane,body.deskpane.edopen #topbar{pointer-events:none;opacity:.6}
 .dscap{display:flex;align-items:center;justify-content:space-between;gap:6px 8px;font-size:calc(12.5px * var(--fs));color:var(--muted);flex-wrap:wrap}.dscapr{display:inline-flex;gap:10px;align-items:center}
 .dscap .ov{font-weight:700}.dscap .ov.bad{color:var(--bad)}.dscap .ov.good{color:var(--ok)}.dscap label{display:inline-flex;align-items:center;gap:5px}
 .dsbig{min-height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:calc(12.5px * var(--fs));font-weight:600}.dsbig[hidden]{display:none}
@@ -1071,6 +1082,24 @@ details.psrow[open]>summary::after{transform:rotate(90deg)}
 #fixPanel{position:absolute;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:530;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);display:flex;flex-direction:column;max-height:min(58vh,620px)}
 #fixPanel[hidden]{display:none}
 body.deskpane #fixPanel{left:calc(var(--pw) + 8px);right:auto;width:min(440px,calc(100vw - var(--pw) - 24px))}
+/* beta 4.1: on a computer the cable route, the fix list, the visit card and the project's photos open as a panel on the right (close at its top); the map stays in view on the left */
+body.deskpane{--rpw:min(440px,calc(100vw - var(--pw) - 260px))}
+body.deskpane #routeBar,body.deskpane #rtBar,body.deskpane #visitCard,body.deskpane #fixPanel,body.deskpane #photoPane{left:auto;right:0;top:var(--tbh,56px);bottom:0;width:var(--rpw);max-height:none;border-radius:0;border:0;border-left:1px solid var(--line);box-shadow:-10px 0 28px rgba(16,24,32,.18);overflow-y:auto;animation:edIn .2s ease-out}
+body.deskpane #rtBar{align-content:start}
+body.deskpane #rtPop{left:auto;right:10px;width:calc(var(--rpw) - 20px);bottom:14px;max-height:62vh;overflow-y:auto}
+body.deskpane.rpanel .mapbtns,body.deskpane.rpanel.routing .mapbtns{right:calc(var(--rpw) + 12px);bottom:calc(env(safe-area-inset-bottom,0px) + 164px)}
+body.deskpane.rpanel #mapSummary{right:calc(var(--rpw) + 12px)}body.deskpane.rpanel #map .leaflet-right{right:var(--rpw)}
+body:not(.deskpane) #photosBtn{display:none}
+#photoPane{position:absolute;z-index:520;background:var(--surface);color:var(--ink);display:flex;flex-direction:column}
+#photoPane .ppxh{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--surface);z-index:1}
+#photoPane .ppxh b{font-size:calc(16px * var(--fs,1))}#photoPane .ppxh span{color:var(--muted);margin-right:auto}
+#photoPane .hint{margin:8px 12px 0}
+#ppxGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;padding:10px 12px 16px}
+.ppxi{display:flex;flex-direction:column;gap:4px;padding:0;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:inherit;font:inherit;text-align:left;cursor:pointer;overflow:hidden}
+.ppxi:hover,.ppxi:focus-visible{border-color:var(--accent)}
+.ppxi img{width:100%;aspect-ratio:4/3;object-fit:cover;background:var(--chip);display:block}
+.ppxi.none img{visibility:hidden}.ppxi .ppxc{display:flex;flex-direction:column;padding:2px 8px 7px;min-width:0}
+.ppxi .ppxc b{font-size:calc(12.5px * var(--fs,1));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ppxi .ppxc small{color:var(--muted);font-size:calc(11.5px * var(--fs,1))}
 body.fixing #mapSummary{display:none}
 .fx-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line2)}
 .fx-head .t{flex:1;min-width:0;display:flex;flex-direction:column}.fx-head b{font-size:calc(15px * var(--fs));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fx-head span{font-size:calc(12.5px * var(--fs));color:var(--muted)}
@@ -1240,6 +1269,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <button class="round" id="routeBtn" aria-label="Edit cable route and spans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="18" r="2.2"/><circle cx="12" cy="7" r="2.2"/><circle cx="19" cy="15" r="2.2"/><path d="m6.4 16.2 4.3-7.4M13.6 8.6l4.2 4.9"/></svg></button>
     <button class="round" id="routeFitBtn" type="button" hidden aria-label="Show the whole route" title="Show the whole route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <button class="round" id="offlineBtn" hidden aria-label="Maps: online server and offline packs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18"/><path d="M12 11v9M8.5 16.5 12 20l3.5-3.5"/></svg></button>
+    <button class="round" id="photosBtn" type="button" aria-pressed="false" aria-label="Photos of this project: every photo, a click opens its pin" title="Photos of this project"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/><circle cx="15.5" cy="9.5" r="1.3"/></svg></button>
     <button class="round" id="refBtn" type="button" aria-label="Reference KMZ: load it, or show and hide it"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg><i class="refdot" aria-hidden="true"></i></button>
     <div id="refMenu" hidden role="dialog" aria-label="Show on the map">
       <b id="rmTitle">Reference KMZ</b><span id="rmName" class="rmname"></span>
@@ -1268,6 +1298,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div class="fx-head"><div class="t"><b id="fxTitle">Fixes</b><span id="fxSub"></span></div><button class="btn sm" id="fxMin" type="button" aria-expanded="true">Hide</button><button class="iconbtn" id="fxClose" type="button" aria-label="Close the fix list (it is kept)"><svg><use href="#i-close"/></svg></button></div>
     <div id="fxBody"></div>
   </section>
+  <section id="photoPane" hidden aria-labelledby="ppxTitle"><div class="ppxh"><b id="ppxTitle">Photos</b><span id="ppxN"></span><button class="iconbtn" id="ppxClose" type="button" aria-label="Close the photos" title="Close">✕</button></div><p class="hint" id="ppxHint"></p><div id="ppxGrid"></div></section>
   <div id="routeBar" hidden aria-label="Cables">
     <div class="rb-head"><b id="rbTitle">Route</b><span id="rbStats"></span><button class="btn sm" id="rbToolsClose" type="button" aria-label="Close the list of cables (back to the small bar)">Close</button></div>
     <p class="rb-hint" id="rbHint"></p>
@@ -1610,6 +1641,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div class="stgrp" id="stVic" data-scene="vic">
       <h3>Vicinity map</h3>
       <div class="stvic" hidden><svg id="stVicPrev" viewBox="0 0 60 40" role="img" aria-label="Preview of the vicinity map: the route and the project area circle"></svg></div>
+      <div class="strow"><span class="lbl">Zoom to the project area</span><div class="seg" id="stVicZoom" role="radiogroup" aria-label="Zoom to the project area"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div><p class="hint" style="margin:0">On: the project area takes about half of the map. Off: the map is at least 1.5 km across, as before.</p></div>
       <div class="strow"><span class="lbl">Project area (its circle, its label, the map darker round it)</span><div class="seg" id="stVicArea" role="radiogroup" aria-label="Project area"><button type="button" class="chip small" data-v="1">Show</button><button type="button" class="chip small" data-v="0">Hide</button></div></div>
       <div class="strow" data-dim="vicarea"><label class="lbl" for="stVicLbl">Label</label><input type="text" id="stVicLbl" maxlength="40" autocomplete="off" placeholder="PROJECT AREA" aria-label="The project area's label"><p class="hint" style="margin:0">Blank: the circle without a label.</p></div>
       <div class="strow" data-dim="vicarea"><label class="lbl" for="stVicLh">Label text height <output id="stVicLhO"></output></label><input type="range" id="stVicLh" min="8" max="40" step="1"></div>
@@ -1774,6 +1806,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
           <div class="opt2"><label class="field">Head-Cable Engineering<input type="text" id="sigHead" maxlength="80" autocomplete="off" placeholder="Name"></label><label class="field">CSE Lead<input type="text" id="sigCse" maxlength="120" autocomplete="off" placeholder="From the online sheet"></label></div>
           <p class="hint" id="sigInfo" style="margin:0"></p></div></div>
       <label class="swrow" for="dxfPdf" id="dxfPdfRow"><span class="t"><b>Also a PDF to print</b><small>The sheets on A3, drawn by the app from each DXF, in the ZIP</small></span><span class="swi"><input type="checkbox" id="dxfPdf"><i aria-hidden="true"></i></span></label>
+      <label class="swrow" for="dxfCef" id="dxfCefRow" hidden><span class="t"><b>Also the CEF plans</b><small>The CEF plan of each tower site of this project (PDF, DXF, KML, photos), each in its own folder of the ZIP</small></span><span class="swi"><input type="checkbox" id="dxfCef" checked><i aria-hidden="true"></i></span></label>
       <button class="btn primary" id="doDxf">Export DXF</button>
     </div>
     <div class="xcard">

@@ -396,7 +396,7 @@ const SAND_R = 0.012;
 const isPole = e => e.t === 'rpole' || e.t === 'epole';
 /* Names on the drawings of the site. A CEF plan is about the fiber, so the names of what belongs to the tower site are left out unless the user turns them on.
    [key, what the Site tab calls it, written by default] */
-const NAMES = [['tid', 'Site name and ID on the tower', 1], ['th', 'Tower height', 0], ['cabin', 'Cabin', 0], ['ladder', 'Cable ladder', 0], ['port', 'Porthole', 0], ['gate', 'Gate', 0], ['site', 'Genset, base pad, tank, structure', 1]];
+const NAMES = [['tid', 'Site name and ID on the tower', 1], ['th', 'Tower height', 0], ['cabin', 'Cabin', 0], ['ladder', 'Cable ladder', 0], ['port', 'Porthole', 0], ['gate', 'Gate', 0], ['site', 'Genset, base pad, tank, structure', 1], ['dim', 'Length of each leg: FOC, conduit, trench', 1]];
 function nameOn(S, k) { if (S.room) return k !== 'tid'; const n = S.site && S.site.names, d = NAMES.find(q => q[0] === k); return n && n[k] != null ? !!n[k] : !d || !!d[2]; }
 /* The site name and ID, written as a title beside the top of the tower: bold, capitals, larger than the other names. '' when it is turned off or there is no name. */
 function siteTitle(S) { if (S.room || !nameOn(S, 'tid')) return ''; const si = S.site || {}; return labText(S, 'tid', [si.name, si.id].map(v => String(v || '').trim().toUpperCase()).filter(Boolean).join('\n')); }
@@ -942,6 +942,11 @@ Labeler.prototype.callouts = function (list, h, o) {
   return fail;
 };
 /* places beside the line p-q, parallel to it: on the side `out` points to, or on either side */
+/* beta 4.1: which drawn lines carry the length of each straight piece, and whether a cable leg already says that length there */
+const dimRun = r => r && r.st === 'P' && (r.kind === 'trench' || r.kind === 'conduit' || r.kind === 'encase');
+function legOnSeg(rg, a, b, s) { const d = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]); return rg.legs.some(l => l.f && l.plan >= 0.3 && f1(l.len) + 'm' === s && ((d(l.a, a) < 0.15 && d(l.b, b) < 0.15) || (d(l.a, b) < 0.15 && d(l.b, a) < 0.15))); }      /* the cable's own number serves there */
+/* the key of the length of a cable piece: the leg's own key when the leg is one straight piece (as before), else with the number of the piece */
+function lenKeys(legs) { const n = {}, j = {}, out = new Map(); for (const l of legs) if (l.f) n[l.f + l.i] = (n[l.f + l.i] || 0) + 1; for (const l of legs) if (l.f) { const k = l.f + l.i; j[k] = (j[k] || 0) + 1; out.set(l, 'len' + k + (n[k] > 1 ? '_' + (j[k] - 1) : '')); } return out; }
 function besideSeg(p, q, out, gap, steps, ts) {
   const dx = q[0] - p[0], dy = q[1] - p[1], l = Math.hypot(dx, dy) || 1, a = readable(Math.atan2(dy, dx) / D2R), nx = -dy / l, ny = dx / l, sides = out ? [nx * out[0] + ny * out[1] >= 0 ? 1 : -1] : [1, -1];
   return (w, h) => { const o = []; for (let j = 0; j < (steps || 3); j++) for (const t of ts || [0.5, 0.3, 0.7]) for (const s of sides) { const d = gap + h / 2 + j * h * 0.9; o.push({ p: [p[0] + dx * t + nx * s * d, p[1] + dy * t + ny * s * d], a }); } return o; };
@@ -968,6 +973,15 @@ function inCands(el) {
 }
 /* The top view. o.labels: write the names. Every label has a key: an item's own id, or 'ae', 'ug', 'note', 'loop0'... for what belongs to the fibers.
    A label the user dragged (S.lab[key].p) is put first and stays; the others find their own place: on the item, along it, beside it, or on a short leader. */
+/* beta 4.1: a photo set on the drawing, with an arrow from it to what it shows. c: the middle of the picture, tip: where the arrow points,
+   w: its width, all in the units of the view. The picture itself is laid in by the screen, the PDF and the DXF from the list `pics`. */
+function picOn(LB, ph, i, c, tip, w, th, pics) {
+  const ar = ph.w > 0 && ph.h > 0 ? ph.w / ph.h : 4 / 3, h = w / ar, G = LB.G, box = [[c[0] - w / 2, c[1] - h / 2], [c[0] + w / 2, c[1] - h / 2], [c[0] + w / 2, c[1] + h / 2], [c[0] - w / 2, c[1] + h / 2]];
+  G.pl(box, 'ph', 1); G.tx([c[0] - w / 2, c[1] + h / 2 + 0.4 * th], 'PHOTO ' + (i + 1), th * 0.8, 'ph', 'l', 0, 1);
+  if (!inPoly(tip, box)) { const e = edgeOut(c, tip, box); LB.arrow(e, tip, th, 'ph'); LB.block(thick(tip, e, 0.5 * th)); }
+  LB.block(box); pics.push({ id: ph.id, n: i + 1, x: c[0] - w / 2, y: c[1] - h / 2, w, h, tip: [tip[0], tip[1]] });
+}
+const picW = (S, q) => num(q && q.w, 0) > 0 ? num(q.w, 0) : Math.max(S.site.L, S.site.W) * 0.3;
 function buildTop(S, o) {
   o = o || {}; const G = new Gfx(), si = S.site, L = si.L, W = si.W, th = (o.th || clamp(Math.max(L, W) / 62, S.room ? 0.05 : 0.22, 1.5)) * txK(S);
   if (o.ctx) {                                            /* the inside of a cabin: what is outside it, light, and an arrow on the wall where a cable ladder or the cable arrives */
@@ -1010,7 +1024,7 @@ function buildTop(S, o) {
       const hinge = (t, dir) => { const c = pt(t), au = Math.atan2(g.u[1] * dir, g.u[0] * dir) / D2R, an = Math.atan2(g.n[1], g.n[0]) / D2R, d = ((an - au) % 360 + 360) % 360; if (d <= 180) G.ar(c, r, au, au + d, 'bl'); else G.ar(c, r, an, an + 360 - d, 'bl'); G.pl([c, [c[0] + g.n[0] * r, c[1] + g.n[1] * r]], 'bl'); };
       hinge(g0, 1); if (two) hinge(g1, -1);
       LB.block([pt(g0), pt(g1), pt(g1, r), pt(g0, r)]);
-      if (nameOn(S, 'gate')) jobs.push({ o: 2, key, lines: [labText(S, key, 'GATE')], lay: 'tx', ap: pt((g0 + g1) / 2), a: angOf(pt(g0), pt(g1)), cands: besideSeg(pt(g0, r), pt(g1, r), g.n, gap, 3), st: 'E' });
+      if (nameOn(S, 'gate')) jobs.push({ o: 2, key, lines: [labText(S, key, w > 1.6 ? 'GATE' : 'DOOR')], lay: 'tx', ap: pt((g0 + g1) / 2), a: angOf(pt(g0), pt(g1)), cands: besideSeg(pt(g0, r), pt(g1, r), g.n, gap, 3), st: 'E' });
     });
   }
   for (let i = 0; i < 4; i++) LB.block(thick(R[i], R[(i + 1) % 4], si.kind === 'fenced' ? 0.5 : 0.25));
@@ -1064,6 +1078,8 @@ function buildTop(S, o) {
       const ux = (b[0] - a[0]) / len, uy = (b[1] - a[1]) / len, nx = -uy * wd / 2, ny = ux * wd / 2; LB.block(thick(a, b, wd + 0.12), 0, r.id);
       if (r.kind === 'trench' && !flatOn(S)) { const pits = S.els.filter(e => e.t === 'hh' || e.t === 'sbox').map(elPoly); sandDots([a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny], q => { if (!pits.some(k => inPoly(q, k))) G.ci(q, SAND_R, 'dt'); }); }
     }
+    if (lab && dimRun(r) && nameOn(S, 'dim')) for (let i = 0; i + 1 < P.length; i++) { const u = P[i], v = P[i + 1], len = Math.hypot(v[0] - u[0], v[1] - u[1]), t = f1(len) + 'm'; if (len < 0.3 || legOnSeg(rg, u, v, t)) continue;
+      jobs.push({ o: 5, key: 'lenr' + r.id + '_' + i, opt: len < 1 ? 1 : 0, lines: [t], lay: 'ln', ap: mid(u, v), a: angOf(u, v), cands: besideSeg(u, v, null, wd / 2 + gap * 0.6, 2), st: 'P' }); }
     const a = P[bi], b = P[bi + 1], s = runName(S, r);
     if (s && (r.kind !== 'ladder' || nameOn(S, 'ladder'))) jobs.push({ o: 3, key: r.id, lines: s.length > 26 ? wrap(s, 24) : [s], lay: tl(r.st), ap: mid(a, b), a: angOf(a, b), cands: besideSeg(a, b, null, wd / 2 + gap, 4), st: r.st });
   }
@@ -1074,7 +1090,9 @@ function buildTop(S, o) {
     const k = l.f + l.i, q = grp[k] || (grp[k] = { len: 0, best: l }); q.len += l.len; if (l.plan > q.best.plan) q.best = l;
     if (!long[l.f] || l.plan > long[l.f].plan) long[l.f] = l;
   }
-  if (lab) for (const k in grp) { const q = grp[k], s = f1(q.len) + 'm', l = q.best; if (l.plan > textW(s, h) * 0.9) jobs.push({ o: 5, key: 'len' + k, opt: 1, lines: [s], lay: 'ln', ap: mid(l.a, l.b), a: angOf(l.a, l.b), cands: besideSeg(l.a, l.b, null, gap, 2), st: 'P' }); }
+  if (lab && nameOn(S, 'dim')) { const LK = lenKeys(rg.legs); for (const l of rg.legs) { if (!l.f || l.plan < 0.3) continue;      /* beta 4.1: the length of each straight piece of a cable */
+    jobs.push({ o: 5, key: LK.get(l), opt: l.len >= 1 && l.plan >= 1 ? 0 : 1, lines: [f1(l.len) + 'm'], lay: 'ln', ap: mid(l.a, l.b), a: angOf(l.a, l.b), cands: besideSeg(l.a, l.b, null, gap, 2), st: 'P' }); } }
+  else if (lab) for (const k in grp) { const q = grp[k], s = f1(q.len) + 'm', l = q.best; if (l.plan > textW(s, h) * 0.9) jobs.push({ o: 5, key: 'len' + k, opt: 1, lines: [s], lay: 'ln', ap: mid(l.a, l.b), a: angOf(l.a, l.b), cands: besideSeg(l.a, l.b, null, gap, 2), st: 'P' }); }
   for (const f of ['ae', 'ug']) { const l = long[f]; if (l) jobs.push({ o: 6, key: f, lines: [labText(S, f, o.short ? 'FOC ' + f.toUpperCase() : focName(S, rg, f))], lay: 'tp', ap: [l.a[0] + (l.b[0] - l.a[0]) * 0.35, l.a[1] + (l.b[1] - l.a[1]) * 0.35], a: angOf(l.a, l.b), cands: besideSeg(l.a, l.b, null, gap, 3, [0.35, 0.65, 0.5]), st: 'P' }); }
   const l0 = rg.legs.find(l => l.f === 'ae' && l.i === 0);
   if (l0) {                                             /* the AE cable carries on outside: an arrow at its first point, and the note that says where to */
@@ -1107,10 +1125,12 @@ function buildTop(S, o) {
     for (const s of [-22, 22]) { const a = (num(ph.dir, 0) + s) * D2R; G.pl([[c[0] + Math.sin(a) * r, c[1] + Math.cos(a) * r], [c[0] + Math.sin(a) * 3 * r, c[1] + Math.cos(a) * 3 * r]], 'ph'); }
     const d = num(ph.dir, 0) * D2R; LB.block(sqr(c, r, 0)); LB.block(thick(c, [c[0] + Math.sin(d) * 3 * r, c[1] + Math.cos(d) * 3 * r], 2.4 * r));
   });
+  const pics = []; if (o.photos && o.pics !== false) S.photos.forEach((ph, i) => { const q = ph.ct; if (!q || !isFinite(q.x) || !isFinite(q.y)) return; picOn(LB, ph, i, [num(q.x, 0), num(q.y, 0)], [num(q.tx, 0), num(q.ty, 0)], picW(S, q), th, pics); });      /* beta 4.1 */
   let far = 0, skipped = 0;
   if (lab) {
     const F = [], late = [], ctr = [L / 2, W / 2]; LB.fit(primBox(G.p), o.box);
     for (const jb of jobs) { const off = labOff(S, jb.key, 'p'); if (off) { LB.fixed(jb.key, jb.lines, h * (jb.hk ? TITLE_K[0] : 1), jb.lay, [jb.ap[0] + off[0], jb.ap[1] + off[1]], jb.a || 0, jb.ap, jb.bold ? { bold: 1 } : null); jb.done = 1; } }
+    for (let i = jobs.length - 1; i >= 0; i--) if ((labRec(S, jobs[i].key) || {}).off) jobs.splice(i, 1);      /* beta 4.1: a name the user hid */
     jobs.sort((p, q) => p.o - q.o || (p.area || 0) - (q.area || 0));
     /* A name goes on its item or beside it. When the size is automatic and there is no room, it is tried again smaller, down to what is still easy to read. Only then does it get a leader. */
     const HS = txAuto(S) ? TXS.map(k => h * k) : [h];
@@ -1130,7 +1150,7 @@ function buildTop(S, o) {
     if (o.short) skipped = left.length; else for (const a of left) F.push({ p: a.p, s: a.s, st: a.st });
     far = F.length; if (far) addCallouts(G, F, primBox(G.p), th);
   }
-  return { prims: G.p, th, G, far, labs: LB.out, skipped };
+  return { prims: G.p, th, G, far, labs: LB.out, skipped, pics };
 }
 function northArrow(G, base, n, th) {
   const len = 3.2 * th, d = Math.hypot(n[0], n[1]) || 1, ux = n[0] / d, uy = n[1] / d, tip = [base[0] + ux * len, base[1] + uy * len], s = 0.9 * th;

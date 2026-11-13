@@ -1325,14 +1325,14 @@
   }
   /** v2.37: the PROJECT AREA circle of the vicinity map (E, N, radius) for points [[E, N], ...] and the map size (m): the app darkens
       the picture outside it, the drawing draws it. */
-  function vicCircle(xy, size) {
+  function vicCircle(xy, size, zoom) {
     const vk = size / 1500, xs = xy.map((q) => q[0]), ys = xy.map((q) => q[1]);
-    return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2, Math.max(70 * vk, Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 + 45 * vk)];
+    return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2, Math.max((zoom ? 330 : 70) * vk, Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 + 45 * vk)]; // (beta 4.1, zoom: never under 22 % of the map, so a single pole's circle still reads)
   }
   /** v2.38: the places of a project, each drawn on its own vicinity map and key map: a point more than `gap` metres (1 km) from
       every other point starts a new place; a span joins its two ends. pts: [{ id, E, N }], spans: [{ ia, ib }]. Returns
       [{ idx: [indexes into pts], box: [x0, y0, x1, y1] }], in the order of their first point. */
-  const LOC_GAP = 1000, VIC_MARGIN = 500;
+  const LOC_GAP = 1000, VIC_MARGIN = 500, VIC_ZOOM_MIN = 300;
   function locations(pts, spans, gap) {
     const G = gap || LOC_GAP, par = pts.map((_, i) => i);
     const find = (i) => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
@@ -1350,9 +1350,10 @@
       points' diagonal + 45 m (per 1.5 km of map), the label sits about 40 m above it: with 25 m to spare, the half-size must be at least
       half the diagonal + 110 m per 1.5 km, i.e. the size at least 1.172 × the diagonal (1.18 here). A long route is zoomed out to fit;
       a short one keeps its 1.5 km. */
-  function vicArea(box) {
-    const w = box[2] - box[0], h = box[3] - box[1];
-    return [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2, Math.max(1500, Math.max(w, h) + 2 * VIC_MARGIN, 1.18 * Math.hypot(w, h))];
+  function vicArea(box, zoom) {
+    const w = box[2] - box[0], h = box[3] - box[1], dg = Math.hypot(w, h), wide = Math.max(1500, Math.max(w, h) + 2 * VIC_MARGIN, 1.18 * dg);
+    // beta 4.1 (zoom): the circle's radius is half the diagonal + 3 % of the map's size, so a map 2.27 × the diagonal gives a circle half as wide as the map
+    return [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2, zoom ? Math.min(wide, Math.max(VIC_ZOOM_MIN, 2.27 * dg)) : wide];
   }
   /** v2.38: the parts of a line inside keep(x, y) (the plan's sheets and a margin), tested every `step` metres; a vertex is added
       only where the line goes in or out. */
@@ -2498,8 +2499,8 @@
     markOrder.forEach((p, i) => { const g = job.seqOf && job.seqOf[String(p.id)]; p.seq = g != null && g !== '' ? g : i + 1; }); // v2.42.18: the app's pole numbers (as in its CSV)
     const rOf = (p) => (p.el === 'Pole' ? p.rp : inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : p.el === 'Site' ? 8 : 4);
     const anchors = [...new Set([...poleOrder, ...markOrder])]; // a photo nearer its own point than any pole or other marked point
-    // v2.41: job.markMode 'photo' (a point without a photo shows its number), 'num' (numbers only) or 'both' (each photo with its number
-    // at its upper left); the number in the user's style (NS: colour, size, circle, distance, leader line, where)
+    // v2.41: job.markMode 'photo' (a point without a photo shows its number), 'num' (numbers only) or 'both' (beta 4.1: each point's number
+    // beside it as for numbers only, and its photo as for photos only); the number in the user's style (NS: colour, size, circle, distance, leader line, where)
     const markMode = job.markMode || (job.markNum ? 'num' : 'photo');
     const photos = markMode === 'num' ? {} : job.photos || {}, havePhotos = Object.keys(photos).length > 0, photoLayer = havePhotos ? (addLayer(d, S, 'G-ESAA POLE PHOTO', 7), 'G-ESAA POLE PHOTO') : null;
     const ANG = []; for (let a = -165; a <= 180; a += 15) ANG.push(a);
@@ -2511,7 +2512,7 @@
     const MARK_PHI = 70, NUM_PHI = 80; // v2.41.1: a pole's photo 70° round from straight out toward the homing (beside its label), a number 80° (its leader line under the label)
     let nNoRoom = 0; // v2.42.26: photos with no room anywhere, shown as their number
     const placePhotos = (Lp) => {
-      const mark = spots.list.length, out = []; let miss = 0; nNoRoom = 0;
+      const mark = spots.list.length, out = []; let miss = 0, drop = 0; nNoRoom = 0; // (beta 4.1: drop = photos left out in photo + number)
       const setup = (p, noPh) => {
         const ph = noPh ? null : photos[p.id] || photos[String(p.id)], nd = ph ? 0 : numD(p);
         const w = ph ? (ph.px >= ph.py ? Lp : Lp * ph.px / ph.py) : nd, h = ph ? (ph.px >= ph.py ? Lp * ph.py / ph.px : Lp) : nd;
@@ -2595,25 +2596,30 @@
       };
       // v2.41.1: first every pole in its usual place (or a little further), so a pole that has no room there does not take its neighbour's
       //          place (one pole on the other side used to send the next ones over too); then the poles left over and the other points
+      const ORDER = [...markOrder.filter((x) => x.el === 'Pole'), ...markOrder.filter((x) => x.el !== 'Pole')]; // v2.40: the poles' first
+      // beta 4.1 (MarkT): photo + number = two rounds: every number first, beside its pole as for numbers only; then every photo, as for photos only
+      for (const round of markMode === 'both' ? ['num', 'photo'] : ['one']) {
       const later = [];
-      for (const p of [...markOrder.filter((x) => x.el === 'Pole'), ...markOrder.filter((x) => x.el !== 'Pole')]) { // v2.40: the poles' first
-        const S0 = setup(p);
+      for (const p of ORDER) {
+        const S0 = setup(p, round === 'num'); if (round === 'photo' && !S0.ph) continue; // (a point without a photo has its number already)
         if (p.on) { const r = search(S0, MARK_USUAL); if (r.free) { commit(S0, r.free, 'usual'); continue; } }
         later.push(S0);
       }
       for (const S0 of later) {
         const { p, w, h } = S0; let r = search(S0, Infinity), how = 'other'; if (!r.free && !S0.ph && NS.leader) { r = search(S0, Infinity, LEAD_W2); how = 'leader over a road line'; } let cn = r.free; // (last: its leader across a road line)
         if (!cn && S0.ph) { const f = farPlace(S0) || farPlace(S0, 1) || farPlace(S0, 2); if (f) { cn = f; how = 'further, with a line'; } } // v2.42.26 (beta 3.4: then relaxed)
+        if (!cn && S0.ph && round === 'photo') { nNoRoom++; drop++; continue; } // beta 4.1: photo + number: no free place for the photo anywhere: it is left out (its number is on the plan)
         if (!cn && S0.ph) { const S1 = setup(p, true), r1 = search(S1, Infinity); if (r1.free) { commit(S1, r1.free, 'number: no room for its photo'); nNoRoom++; continue; } } // (v2.42.26: no room for its photo anywhere: its number)
         // nothing free: the place covering least (v2.41.1: a number's circle over something counts more than its leader line across it)
         const bad = (x) => (S0.ph ? spots.hits(x.boxes[0]) : spots.hitsW(x.boxes[0], NUM_W)) * 10 + (x.lead ? Math.min(1, spots.hitsW(x.lead, LEAD_W2)) * 3 + spots.hitsW(x.lead, LEAD_W2) * 0.2 : 0) + (p.on ? x.cost * 0.5 : x.gap);
         if (!cn) { how = 'not free'; miss++; cn = r.rest.reduce((b, x) => (!b || bad(x) < bad(b) ? x : b), null) || { q: add2(p.dp, p.ov || [1, 0], rOf(p) + 2 + Math.hypot(w, h) / 2), u: p.ov || [1, 0], boxes: [] }; }
         commit(S0, cn, how);
       }
-      return { out, miss, mark };
+      }
+      return { out, miss, mark, drop };
     };
     let Lp = Math.max(12, 18 * kG), photoPl = placePhotos(Lp);
-    for (let tries = 0; tries < 2 && photoPl.miss > Math.max(1, markOrder.length / 4); tries++) { spots.truncate(photoPl.mark); Lp *= 0.8; photoPl = placePhotos(Lp); }
+    for (let tries = 0; tries < 2 && photoPl.miss + (photoPl.drop || 0) > Math.max(1, markOrder.length / 4); tries++) { spots.truncate(photoPl.mark); Lp *= 0.8; photoPl = placePhotos(Lp); }
     const nCol = NS.color || null, bCol = NS.bcolor || NS.color || null, nLay = lay('p-pole');
     // v2.42.13: a number in a light colour (yellow, the default; green or cyan) over a dark shadow, its circle and leader line too: on
     // white paper the yellow could not be read
@@ -2624,12 +2630,7 @@
       if (ph && havePhotos) {
         getImgs().image(o, lay(photoLayer), ph.file, ph.px, ph.py, q[0] - w / 2, q[1] - h / 2, w, h);
         o.lwpoly(lay(photoLayer), [[q[0] - w / 2, q[1] - h / 2], [q[0] + w / 2, q[1] - h / 2], [q[0] + w / 2, q[1] + h / 2], [q[0] - w / 2, q[1] + h / 2]], { closed: true, color: 8 }); // its frame
-        if (markMode === 'both') { // v2.41: its number at the photo's upper left, on a dark box (it reads on any photo)
-          const th = Math.max(1.2, Math.min(NS.h, h * 0.3)), D = NS.d > 0 ? Math.max(th * 1.7, String(p.seq).length * th * CHW + th * 0.6) : 0, r0 = (D || th * 1.6) / 2;
-          const c = [q[0] - w / 2 + r0 + 0.4, q[1] + h / 2 - r0 - 0.4];
-          if (D) o.circle(nLay, c[0], c[1], D / 2, { color: bCol });
-          o.mtext(nLay, c[0], c[1], th, String(p.seq), { att: 5, style: 'arial', color: nCol, mask: 250 });
-        }
+        // (beta 4.1: with photo + number the number is no longer written on the photo: it has its own place beside the pole, drawn below)
       } else {
         const D = NS.d > 0 ? numD(p) : 0;
         const la = NS.leader ? add2(p.dp, u, rOf(p) + 0.2) : null, lb = NS.leader ? add2(q, u, -(D || NS.h) / 2 - 0.2) : null, lead = la && dist2(la, lb) > 0.5;
@@ -2642,7 +2643,7 @@
     }
     if (job.debug) rep.layout = { grid: { gox, goy, cell }, poles: poleOrder.map((p) => ({ id: String(p.id), E: p.E, N: p.N, dp: p.dp, td: p.td, ov: p.ov, rr: p._rr, lblFar: p.lblFar, lblDir: p.lblDir })), labels: spots.list.filter((b) => /^label/.test(b.tag || '') && b.tag !== 'label:site').map((b) => [b.cx, b.cy, b.hw, b.hh, b.ux, b.uy, b.vx, b.vy]), marks: photoPl.out.map(({ p, ph, w, h, q, u, how, lead }) => ({ lead: lead || null, id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
     rep.photoSize = +Lp.toFixed(1); rep.photosNotFree = photoPl.miss; rep.photosAsNumber = nNoRoom; rep.markMode = markMode;
-    const asNum = new Set(photoPl.out.filter((x) => !x.ph).map((x) => String(x.p.id))); /* (v2.42.26: no room for its photo: its number) */ rep.marks = markOrder.map((p) => [p.seq, String(p.id), (photos[p.id] || photos[String(p.id)]) && !asNum.has(String(p.id)) ? (markMode === 'both' ? 'photo+number' : 'photo') : 'number']); // v2.40: the numbers on the plan
+    const withPh = new Set(photoPl.out.filter((x) => x.ph).map((x) => String(x.p.id))); /* (v2.42.26: no room for its photo: its number; beta 4.1: by the photos placed) */ rep.marks = markOrder.map((p) => [p.seq, String(p.id), withPh.has(String(p.id)) ? (markMode === 'both' ? 'photo+number' : 'photo') : 'number']); // v2.40: the numbers on the plan
     // 11. coordinates of the points that are not poles
     // v2.37: smaller, where they cover nothing (none for a NAP or closure drawn on its pole)
     for (const p of pts) {

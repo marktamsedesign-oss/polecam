@@ -36,6 +36,7 @@ function appSheets(X) {
 const sheetsNow = () => appSheets(appSketch(ROOT));
 /* the README of the export, in the app's words */
 function appReadme(t) {
+  { const ng = (ROOT.photos || []).filter(p => p.from === 'gallery').length; if (ng) t = t.replace('LIMITS OF THIS DEMO', 'PHOTOS FROM THE GALLERY\r\n  ' + ng + ' of the ' + ROOT.photos.length + ' photo' + (ROOT.photos.length === 1 ? ' was' : 's were') + ' added from the gallery of the phone, not taken with the camera of the app (no GPS or live check).\r\n\r\nLIMITS OF THIS DEMO'); }
   const e = HOST && HOST.exporter ? HOST.exporter() : {}, who = ['Exported by: ' + (e.name || ''), 'Mobile: ' + (e.mobile || ''), 'Email: ' + (e.email || ''), 'Company: ' + (e.company || ''), 'App: ' + (APP.ver || 'G-eSAA')].join('\r\n');
   return t.replace('CEF PLAN - EXPORT FROM THE G-eSAA CEF-PLAN DEMO', 'CEF PLAN - EXPORT FROM G-eSAA\r\n' + who).replace('Open it again in the demo from the Export tab.', 'Open it again in G-eSAA: CEF plan, Export, Open a saved sketch.')
     .replace('LIMITS OF THIS DEMO', (Object.keys(LOGO).length ? 'logos/  ' + Object.keys(LOGO).map(k => k + '_logo.png').join(', ') + ': the pictures of the logo boxes of the sheets.\r\n' : '') + 'exported_by.txt\r\n  Who exported these files.\r\n\r\nLIMITS').replace('  The sheet frame is generic. It is not the official CEF template.\r\n', '');
@@ -152,9 +153,9 @@ function drawTop() {
   /* text on the sketch is sized for the screen it is on, so it stays readable on a phone */
   const lo = S.room ? 0.04 : 0.22;
   if (needFit.top || !VB.top || !topFix) { const m = Math.max(S.site.L, S.site.W), base = clamp(m / 62, lo, 1.5); topFix = clamp(10 * m * 1.35 / (SVG.top.clientWidth || 600), base, base * 2.5); }
-  const r = buildTop(S, { th: topFix, labels: true, dims: true, north: true, photos: !S.room, short: (SVG.top.clientWidth || 600) < 760, ctx: ctxNow(), inside: true }); topTh = r.th; topLabs = r.labs || []; { const c = document.querySelector('#vTop .cap'); if (c) c.textContent = (S.room ? 'Floor of the cabin · sketch here · grey: what is outside' : 'Top view · sketch here') + (r.skipped ? ' · zoom in for ' + r.skipped + ' more name' + (r.skipped === 1 ? '' : 's') : ''); }
+  const r = buildTop(S, { th: topFix, labels: true, dims: true, north: true, photos: !S.room, short: (SVG.top.clientWidth || 600) < 760, ctx: ctxNow(), inside: true }); topTh = r.th; topLabs = r.labs || []; topPics = r.pics || []; { const c = document.querySelector('#vTop .cap'); if (c) c.textContent = (S.room ? 'Floor of the cabin · sketch here · grey: what is outside' : 'Top view · sketch here') + (r.skipped ? ' · zoom in for ' + r.skipped + ' more name' + (r.skipped === 1 ? '' : 's') : ''); }
   const fit = needFit.top || !VB.top; if (fit) { VB.top = fitBox(primBox(noGhost(r.prims)), S.room ? 1 : 1.2); needFit.top = false; }
-  SVG.top.innerHTML = (S.room ? GRID_R : GRID) + '<g>' + svgPrims(r.prims) + '</g><g id="ov"></g>'; applyVB('top'); if (fit) topFit = { th: topFix, u: unit('top'), min: clamp(Math.max(S.site.L, S.site.W) / 62, lo, 1.5) * 0.7 }; drawOverlay();
+  SVG.top.innerHTML = (S.room ? GRID_R : GRID) + '<g id="picsT">' + picImgs(topPics) + '</g><g>' + svgPrims(r.prims) + '</g><g id="ov"></g>'; applyVB('top'); if (fit) topFit = { th: topFix, u: unit('top'), min: clamp(Math.max(S.site.L, S.site.W) / 62, lo, 1.5) * 0.7 }; drawOverlay();
 }
 let isoFix = null;
 function drawIso() {
@@ -168,8 +169,8 @@ function drawIso() {
   /* at a fit the notes may use the room the panel has; after that they stay inside what is in view, so an edit never pushes one off the screen */
   const fit = needFit.iso || !VB.iso || !isoFix.rect, r = buildIso(S, Object.assign({ th: isoFix.th, box: fit ? isoFix.box : null, rect: fit ? null : isoFix.rect, short: isoFix.short, screen: 1, ctx3: S.room ? (ctxNow() || {}).lines3 : null }, only));
   if (fit) { const v = VB.iso = fitBox(primBox(noGhost(r.prims)), isoFix.th), p = isoFix.th * 0.5; isoFix.rect = [v.x + p, -(v.y + v.h) + p, v.x + v.w - p, -v.y - p]; v.y -= isoFix.cap; v.h += isoFix.cap; needFit.iso = false; }
-  isoHits = r.hits || []; isoSc = r.sc || null; isoLabs = r.labs || []; { const c = $('#capIso'); if (c) c.textContent = (focus ? 'Cabinet with its door open · drag an item up or down' : S.room ? 'Inside the cabin · follows the sketch · grey dashes: the ladder and cable outside' : 'Isometric · follows the sketch') + (r.skipped ? ' · zoom in for ' + r.skipped + ' more name' + (r.skipped === 1 ? '' : 's') : ''); }
-  SVG.iso.innerHTML = svgPrims(r.prims) + '<g id="ovI"></g>'; applyVB('iso'); if (fit) { isoFix.th0 = isoFix.th; isoFix.u0 = unit('iso'); } drawIsoOverlay();
+  isoHits = r.hits || []; isoSc = r.sc || null; isoLabs = r.labs || []; isoPics = r.pics || []; { const c = $('#capIso'); if (c) c.textContent = (focus ? 'Cabinet with its door open · drag an item up or down' : S.room ? 'Inside the cabin · follows the sketch · grey dashes: the ladder and cable outside' : 'Isometric · follows the sketch') + (r.skipped ? ' · zoom in for ' + r.skipped + ' more name' + (r.skipped === 1 ? '' : 's') : ''); }
+  SVG.iso.innerHTML = '<g id="picsI">' + picImgs(isoPics) + '</g>' + svgPrims(r.prims) + '<g id="ovI"></g>'; applyVB('iso'); if (fit) { isoFix.th0 = isoFix.th; isoFix.u0 = unit('iso'); } drawIsoOverlay();
 }
 /* Labels are laid out again when the zoom changes. Zoomed in, the text keeps its size on the screen, so it is smaller against the model
    and more names find room on their items. Zoomed out again, it goes back to the size it had at the fit. */
@@ -206,12 +207,14 @@ function drawOverlay() {
     }
   }
   if (sel && sel.k === 'run') { const l = runById(sel.id); if (l) { o += '<polyline class="ov-g" points="' + pts(l.pts) + '"/>'; for (const p of l.pts) o += hd(p, ' g'); } }
+  if (!S.room && !focus && S.site.kind === 'fenced' && mode === 'select') S.gates.forEach((q, i) => { const hz = q.side === 'S' || q.side === 'N', c = num(q.off, 0) + num(q.w, 0) / 2; o += hd(hz ? [c, q.side === 'S' ? 0 : W] : [q.side === 'W' ? 0 : L, c], sel && sel.k === 'gate' && sel.i === i ? ' on' : ' dr'); });      /* beta 4.1: the handle of each gate */
   if (S.room && !focus && (!sel || sel.k === 'rdoor') && mode !== 'run' && mode !== 'route') S.gates.forEach(q => { const hz = q.side === 'S' || q.side === 'N', c = num(q.off, 0) + num(q.w, 0.9) / 2; o += hd(hz ? [c, q.side === 'S' ? 0 : S.site.W] : [q.side === 'W' ? 0 : S.site.L, c], ' dr'); });      /* the doors of the room, by their handles */
   if (!S.room && (mode === 'run' || mode === 'route')) for (const e of S.els) if (e.t === 'cabin') for (const q of cabinPorts(e)) o += '<circle class="ov-d" cx="' + r3(q.at[0]) + '" cy="' + r3(-q.at[1]) + '" r="' + r3(1.7 * r) + '"/>';      /* where a ladder or the cable goes into a cabin */
   if (mode === 'run' && draft.length) { o += '<polyline class="ov-d" points="' + pts(draft) + '"/>'; for (const p of draft) o += hd(p, ' g'); }
   if (tab === 'route' || mode === 'route' || (sel && sel.k === 'pt')) for (const f of ['ae', 'ug']) S.route[f].pts.forEach((p, i) => { const up = f === 'ae' ? -8 : 17; o += hd([p.x, p.y], sel && sel.k === 'pt' && sel.f === f && sel.i === i ? ' on' : '') + '<text class="ov-n" x="' + r3(p.x + 9 * u) + '" y="' + r3(-p.y + up * u) + '" font-size="' + fs + '">' + (f === 'ae' ? 'A' : 'U') + (i + 1) + '</text>'; });
   if (sel && sel.k === 'lab') { const l = topLabs.find(q => q.key === sel.key); if (l) o += '<polygon class="ov-sel" points="' + pts(l.poly) + '"/>'; }
   if (sel && sel.k === 'photo') { const p = phById(sel.id); if (p && p.placed) { const t = tip(p); o += '<circle class="ov-sel" cx="' + r3(p.x) + '" cy="' + r3(-p.y) + '" r="' + r3(1.5 * topTh) + '"/><path class="ov-g" d="M' + r3(p.x) + ' ' + r3(-p.y) + 'L' + r3(t[0]) + ' ' + r3(-t[1]) + '"/>' + hd(t, ' v'); } }
+  if (sel && sel.k === 'pic' && sel.v === 't') { const q = topPics.find(k => k.id === sel.id); if (q) o += '<polygon class="ov-sel" points="' + pts([[q.x, q.y], [q.x + q.w, q.y], [q.x + q.w, q.y + q.h], [q.x, q.y + q.h]]) + '"/>' + hd(q.tip, ' v'); }
   if (live && live.length > 1) o += '<polyline class="ov-s" points="' + pts(live) + '"/>';
   g.innerHTML = o;
 }
@@ -223,6 +226,7 @@ function drawIsoOverlay() {
   if (sel && sel.k === 'el') { const h = isoHits.find(q => q.k === 'el' && q.id === sel.id); if (h) { o += '<polygon class="ov-sel" points="' + pts(h.poly) + '"/>'; if (h.hp) o += hd(h.hp); if (h.lp) o += '<circle class="ov-h g" cx="' + r3(h.lp[0]) + '" cy="' + r3(-h.lp[1]) + '" r="' + r3(0.8 * r) + '"/>'; } }
   if (sel && sel.k === 'run') { const h = isoHits.find(q => q.k === 'run' && q.id === sel.id); if (h) o += '<polyline class="ov-g w" points="' + pts(h.line) + '"/>' + (h.hp ? hd(h.hp) : ''); }
   if (tab === 'route' || (sel && sel.k === 'pt')) { const h = isoHits.find(q => q.k === 'aer'); if (h) o += hd(h.hp); }
+  if (sel && sel.k === 'pic' && sel.v === 'i') { const q = isoPics.find(k => k.id === sel.id); if (q) o += '<polygon class="ov-sel" points="' + pts([[q.x, q.y], [q.x + q.w, q.y], [q.x + q.w, q.y + q.h], [q.x, q.y + q.h]]) + '"/><circle class="ov-h v" cx="' + r3(q.tip[0]) + '" cy="' + r3(-q.tip[1]) + '" r="' + r3(0.8 * r) + '"/>'; }
   if (sel && sel.k === 'lab') { const l = isoLabs.find(q => q.key === sel.key); if (l) o += '<polygon class="ov-sel" points="' + pts(l.poly) + '"/>'; }
   g.innerHTML = o;
 }
@@ -258,6 +262,22 @@ const fid = k => 'f_' + k.replace(/\W/g, '_');
 const F = (label, k, v, attrs) => '<label class="f"><span>' + label + '</span><input id="' + fid(k) + '" data-k="' + k + '" value="' + esc(v == null ? '' : v) + '" ' + (attrs || 'type="number" step="0.1" inputmode="decimal"') + '></label>';
 const Sel = (label, k, v, opts) => '<label class="f"><span>' + label + '</span><select id="' + fid(k) + '" data-k="' + k + '">' + opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(o[0]) === String(v) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select></label>';
 const TXT = 'type="text" autocomplete="off"';
+/* beta 4.1: a small picture beside the words of a button, so that an item is known at a glance */
+const ICON = {"t3":"M10 2L3 18M10 2l7 16M5.2 13h9.6M7 9h6M5.2 13L13 9M14.8 13L7 9","t4":"M7 2L4 18M13 2l3 16M7 2h6M5.9 8h8.2M5 13h10M5.9 8l9.1 5M14.1 8L5 13","guy":"M10 2v16M10 4L3 18M10 4l7 14M8 18h4","mono":"M9 18l.5-16h1l.5 16zM6 5h8M7 8h6","palm":"M10 18V8M10 8C8 4 4 4 3 6M10 8c2-4 6-4 7-2M10 8C7 6 4 8 4 11M10 8c3-2 6 0 6 3","ezm":"M10 18V3M7 3h6M7 6h6M6 18h8","rtp":"M3 18h14M3 14h14v4M10 14V3M8 5h4","rtt":"M3 18h14M3 14h14v4M10 3l-3 11M10 3l3 11M8.4 9h3.2","cow":"M2 14h13v-3H2zM15 13h3M5 17a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM11 17a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM8 11V2M6 4h4","pad":"M2 12l8-4 8 4-8 4zM2 12v2l8 4 8-4v-2","odc":"M5 3h10v14H5zM10 3v14M8.5 9v2M11.5 9v2","cabin":"M3 8l7-5 7 5v9H3zM8 17v-5h4v5","gen":"M3 6h14v10H3zM6 16v2M14 16v2M6 11l2-2 2 4 2-4 2 2","tank":"M6 6h8a4 4 0 010 8H6a4 4 0 010-8zM7 14v3M13 14v3","box":"M3 7l7-3 7 3v7l-7 3-7-3zM3 7l7 3 7-3M10 10v7","epole":"M10 18V2M5 5h10M7 5v2M13 5v2","hh":"M3 3h14v14H3zM7 7v6M7 10h6M13 7v6","rpole":"M8 18V2M8 4h6v9M12 11l2 2 2-2","odf":"M2 6h16v8H2zM5 10h.01M8 10h.01M11 10h.01M14 10h.01","clo":"M7 3h6v10a3 3 0 01-6 0zM7 6h6M9 16v2M11 16v2","sbox":"M3 3h14v14H3zM12.5 7.5c-3-1.5-5 .5-2.5 2.5s.5 4-2.5 2.5","exit":"M4 18V9a5 5 0 015-5h7M13 2l3 2-3 2","enc":"M2 6h16v8H2zM6 10a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0M11 10a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0","rack":"M5 2h10v16H5zM5 6h10M5 10h10M5 14h10","runit":"M2 7h16v6H2zM5 10h4M14 10h.01","port":"M3 3h14v14H3zM10 13a3 3 0 100-6 3 3 0 000 6z","ac":"M2 5h16v7H2zM5 9h10M6 15v2M10 15v2M14 15v2","ladder":"M5 2v16M15 2v16M5 5h10M5 9h10M5 13h10M5 17h10","conduit":"M2 8h16M2 12h16M2 8v4M18 8v4","encase":"M2 5h16v10H2zM2 9h16M2 11h16","trench":"M2 6h4v8h8V6h4M4 3l2 2M9 3l2 2M14 3l2 2","part":"M2 9h16v2H2z","gate":"M3 17V5M17 17V5M3 7h6v9H3zM11 7h6v9h-6z","door":"M5 17V3h10v14M12 10h.01","eye":"M1.5 10S5 4 10 4s8.5 6 8.5 6-3.5 6-8.5 6S1.5 10 1.5 10zM10 12.6a2.6 2.6 0 100-5.2 2.6 2.6 0 000 5.2z","eyeoff":"M1.5 10S5 4 10 4s8.5 6 8.5 6-3.5 6-8.5 6S1.5 10 1.5 10zM10 12.6a2.6 2.6 0 100-5.2 2.6 2.6 0 000 5.2zM3 17L17 3","cam":"M2 6h4l1.5-2h5L14 6h4v10H2zM10 14a3 3 0 100-6 3 3 0 000 6z","img":"M2 4h16v12H2zM2 13l4-4 4 4 3-3 5 5M13.5 8a1 1 0 100-2 1 1 0 000 2z"};
+const ico = k => ICON[k] ? '<svg class="pi" viewBox="0 0 20 20" aria-hidden="true"><path d="' + ICON[k] + '"/></svg>' : '';
+const labOn = key => !((S.lab || {})[key] || {}).off;
+const eyeBtn = key => '<button class="b s ic eyeb" data-a="lab-eye" data-key="' + key + '" aria-pressed="' + (labOn(key) ? 'true' : 'false') + '" aria-label="' + (labOn(key) ? 'Hide its name on the drawing' : 'Show its name on the drawing') + '" title="' + (labOn(key) ? 'Its name is shown on the drawing: tap to hide it' : 'Its name is hidden: tap to show it') + '">' + ico(labOn(key) ? 'eye' : 'eyeoff') + '</button>';
+const SIDEW = { S: 'bottom', N: 'top', W: 'left', E: 'right' };
+/* beta 4.1: where a new gate or door goes: the middle of the bottom side; when a gate is there, the nearest free stretch along that side, else the next side */
+function gateFree(w0) {
+  for (const sd of ['S', 'E', 'N', 'W']) { const len = sd === 'S' || sd === 'N' ? S.site.L : S.site.W, ww = Math.min(w0, len), mid = Math.max(0, snap(len / 2 - ww / 2));
+    const free = off => !S.gates.some(q => q.side === sd && off < num(q.off, 0) + num(q.w, 0) + 0.3 && num(q.off, 0) < off + ww + 0.3);
+    for (let k = 0; k <= Math.ceil(len / 0.5); k++) for (const sg of (k ? [1, -1] : [1])) { const off = snap(mid + sg * k * 0.5); if (off >= 0 && off + ww <= len + 1e-9 && free(off)) return { side: sd, off, w: ww }; }
+  }
+  return { side: 'S', off: Math.max(0, snap(S.site.L / 2 - Math.min(w0, S.site.L) / 2)), w: Math.min(w0, S.site.L) };
+}
+function gateBox(i, q) { const hz = q.side === 'S' || q.side === 'N', door = num(q.w, 0) <= 1.6;
+  return '<div class="insp"><div class="insp-h"><b>' + (door ? 'Door' : 'Gate') + ' ' + (i + 1) + '</b><button class="b s" data-a="gate-add" data-w="' + (door ? 0.9 : 4) + '">Add another</button><button class="b s d" data-a="del">Delete</button></div><div class="row3">' + Sel('Side', 'gate.' + i + '.side', q.side, [['S', 'Bottom'], ['N', 'Top'], ['W', 'Left'], ['E', 'Right']]) + F('From ' + (hz ? 'left' : 'bottom') + ' (m)', 'gate.' + i + '.off', q.off) + F('Width (m)', 'gate.' + i + '.w', q.w) + '<span></span></div><p class="hint">Drag it along the fence on the plan, or move it with the arrow keys. Up to 1.6 m wide it is a door with one leaf; wider, a gate with two.</p></div>'; }
 function tabSite() {
   const s = S.site, b = num(s.bearing, 0); let h = '';
   if (S.sample) h += '<div class="note">This is the made-up sample site, opened from a sketch file. The sheets say so.</div>';
@@ -293,8 +313,9 @@ function tabSite() {
   }
   h += '<h3>Names on the drawing</h3><div class="one">' + Sel('Size of the names', 'site.txt', txAuto(S) ? 'auto' : String(Math.round(txK(S) * 100)), [['auto', 'Automatic'], ['70', 'Small, 1.5 mm on the sheet'], ['85', '1.8 mm'], ['100', 'Standard, 2.2 mm'], ['120', '2.6 mm'], ['140', '3.0 mm'], ['170', 'Large, 3.7 mm']]) + '</div>';
   h += '<p class="hint">Automatic: a name is written at the standard size on its item or beside it. One that finds no room there is written smaller, never under 1.8 mm on the A3 sheet (the usual least size of text on a drawing), If there is still no room it is written right beside the item even across a line of the drawing (the line is broken under the name), and gets a leader with an arrow only when that does not work either. A long name, such as the one of a proposed conduit, goes to clear space in a few lines with a leader and an arrowhead, as on the hand-made plans. A proposed item says PROPOSED; lengths are in green. A size you pick is used for every name.</p>';
-  for (let i = 0; i < NAMES.length; i += 2) h += '<div class="row">' + NAMES.slice(i, i + 2).map(q => Sel(q[1], 'site.nm.' + q[0], nameOn(S, q[0]) ? 1 : 0, [[1, 'Shown'], [0, 'Hidden']])).join('') + (i + 1 < NAMES.length ? '' : '<span></span>') + '</div>';
-  h += '<p class="hint">The plan is about the fiber, so the names of the tower site itself are left out unless you turn them on. The items are still drawn. The site name and ID are written beside the top of the tower, in bold and larger than the other names; tap them to drag or retype.</p>';
+  h += '<div class="eyes">' + NAMES.map(q => '<button class="eye" id="f_site_nm_' + q[0] + '" data-a="nm" data-k="' + q[0] + '" aria-pressed="' + (nameOn(S, q[0]) ? 'true' : 'false') + '">' + ico(nameOn(S, q[0]) ? 'eye' : 'eyeoff') + esc(q[1]) + '</button>').join('') + '</div>';
+  { const hid = Object.keys(S.lab || {}).filter(k => S.lab[k] && S.lab[k].off); if (hid.length) h += '<p class="hint">Names you hid one by one: tap to show again.</p><div class="eyes">' + hid.map(k => '<button class="eye" data-a="lab-eye" data-key="' + esc(k) + '" aria-pressed="false">' + ico('eyeoff') + esc((labInfo(k).cur || labInfo(k).def || labInfo(k).name || k)) + '</button>').join('') + '</div>'; }
+  h += '<p class="hint">The plan is about the fiber, so the names of the tower site itself are left out unless you turn them on. The items are still drawn. The eye beside the label of an item hides that one name. The site name and ID are written beside the top of the tower, in bold and larger than the other names; tap them to drag or retype.</p>';
   return h;
 }
 /* what a rack or cabinet holds, in words */
@@ -322,7 +343,7 @@ function inspector(e) {
     const K = rackOf(host), q = rackSlots(S, host).find(k => k.e === e) || { u: 1, ru: units(e) };
     let h = '<div class="insp"><div class="insp-h"><b>' + esc(T.n) + '</b><button class="b s" data-a="dup">Copy</button><button class="b s d" data-a="del">Delete</button></div>';
     if (host.t === 'odc' && !focus && !S.room) h += '<div class="btns"><button class="b p" data-a="focus-in" data-id="' + host.id + '">Open the rack of ' + esc(elLabel(S, host)) + '</button></div>';
-    h += '<div class="row">' + F('Label on the drawing', 'el.name', e.name, TXT + ' placeholder="' + esc((T.cn || T.s).toUpperCase()) + '"') + Sel('Status', 'el.st', e.st, [['E', 'Existing'], ['P', 'Proposed']]) + '</div>';
+    h += '<div class="row">' + '<div class="lbleye">' + F('Label on the drawing', 'el.name', e.name, TXT + ' placeholder="' + esc((T.cn || T.s).toUpperCase()) + '"') + eyeBtn(e.id) + '</div>' + Sel('Status', 'el.st', e.st, [['E', 'Existing'], ['P', 'Proposed']]) + '</div>';
     h += '<div class="row">' + F('Rack unit, from the bottom', 'el.u', q.u, 'type="number" step="1" min="1" max="' + K.n + '" inputmode="numeric"') + F('Height (rack units)', 'el.ru', q.ru, 'type="number" step="1" min="1" max="30" inputmode="numeric"') + '</div>';
     if (e.t === 'odf') h += '<div class="row">' + F('Size', 'el.size', e.size, TXT) + '<span></span></div>';
     return h + '<p class="hint">In ' + esc(rackSays(host)) + '. It takes ' + uText(q) + '. In the isometric, tap it and drag it up or down: it snaps to the free units.' + (focus ? '' : ' Drag it on the plan to take it out or to put it in another rack.') + '</p></div>';
@@ -332,7 +353,7 @@ function inspector(e) {
   if (e.t === 'cabin' && !S.room) h += cabinParts(e);      /* its doors and aircon units */
   if (e.t === 'odc' && !S.room) h += '<div class="btns"><button class="b p" data-a="focus-in">Open the rack</button></div><p class="hint">' + esc(rackSays(e)) + '. Open it to see the cabinet with its door open and to set the rack units of its ODF. A cabinet that holds something goes on the Details sheet.</p>';
   if (e.t === 'rack') h += '<p class="hint">' + esc(rackSays(e)) + '. Its front is the side with the double line. Add an ODF or rack equipment: it goes into a rack by itself.</p>';
-  h += '<div class="row">' + F('Label on the drawing', 'el.name', e.name, TXT + ' placeholder="' + esc(elLabel(S, Object.assign({}, e, { name: '' }))) + '"') + Sel('Status', 'el.st', e.st, [['E', 'Existing'], ['P', 'Proposed']]) + '</div>';
+  h += '<div class="row">' + '<div class="lbleye">' + F('Label on the drawing', 'el.name', e.name, TXT + ' placeholder="' + esc(elLabel(S, Object.assign({}, e, { name: '' }))) + '"') + eyeBtn(e.id) + '</div>' + Sel('Status', 'el.st', e.st, [['E', 'Existing'], ['P', 'Proposed']]) + '</div>';
   h += '<div class="row">' + F('From left ' + sd + ' (m)', 'el.gl', f2(b[0])) + F('From right ' + sd + ' (m)', 'el.gr', f2(L - b[2])) + '</div><div class="row">' + F('From bottom ' + sd + ' (m)', 'el.gb', f2(b[1])) + F('From top ' + sd + ' (m)', 'el.gt', f2(W - b[3])) + '</div>';
   h += '<div class="row">' + (T.rd ? F('Diameter (m)', 'el.w', e.w) : sq ? F(e.t === 'guy' ? 'Mast face width (m)' : 'Base width, leg to leg (m)', 'el.w', e.w) : F('Width (m)', 'el.w', e.w) + (e.t === 'port' ? '' : F('Depth (m)', 'el.d', e.d)));
   h += T.g === 'tower' ? F('Tower height (m)', 'el.th', e.th) : F('Height (m)', 'el.h', e.h);
@@ -347,20 +368,22 @@ function inspector(e) {
   return h + '</div>' + stdHint(e) + (e.t === 'ac' ? '<p class="hint">The outdoor unit stands outside the wall nearest to where you drag it. The cabin on the site plan shows it on the same wall. Delete it to have none.</p>' : '') + (hasLad(e) ? '<p class="hint">The tower has one ladder. A cable ladder that reaches the tower joins it. To put it somewhere else, pick a side here, or drag the green handle at its foot in the isometric.</p>' : '') + (e.t === 'port' ? portHint(e) : '') + (inRack(e) ? '<p class="hint">It is not in a rack. Drag it onto a rack' + (S.room ? '' : ' or an outdoor cabinet') + ' on the plan and it goes in.</p>' : '') + '</div>';
 }
 function tabEls() {
-  const e = sel && sel.k === 'el' ? elById(sel.id) : null, ld = sel && sel.k === 'run' ? runById(sel.id) : null; let h = '';
+  const e = sel && sel.k === 'el' ? elById(sel.id) : null, ld = sel && sel.k === 'run' ? runById(sel.id) : null, gt = !S.room && sel && sel.k === 'gate' ? S.gates[sel.i] : null; let h = '';
   if (e) h += inspector(e);
+  else if (gt) h += gateBox(sel.i, gt);
   else if (ld) {
     const K = RUNS[ld.kind];
     h += '<div class="insp"><div class="insp-h"><b>' + esc(K.n) + '</b><button class="b s" data-a="run-more">Draw more</button><button class="b s d" data-a="del">Delete</button></div>';
     h += '<div class="row">' + Sel('Kind', 'run.kind', ld.kind, (S.room ? ['ladder', 'part'] : Object.keys(RUNS).filter(k => !RUNS[k].room)).map(k => [k, RUNS[k].n])) + Sel('Status', 'run.st', ld.st, [['E', 'Existing'], ['P', 'Proposed']]) + '</div>';
-    h += '<div class="row">' + F('Label on the drawing', 'run.name', ld.name, TXT + ' placeholder="' + esc(K.cap) + '"') + F(ld.kind === 'conduit' ? 'Size of one pipe (m)' : ld.kind === 'part' ? 'Thickness (m)' : 'Width (m)', 'run.w', ld.w, 'type="number" step="0.01" inputmode="decimal"') + '</div>';
+    h += '<div class="row">' + '<div class="lbleye">' + F('Label on the drawing', 'run.name', ld.name, TXT + ' placeholder="' + esc(K.cap) + '"') + eyeBtn(ld.id) + '</div>' + F(ld.kind === 'conduit' ? 'Size of one pipe (m)' : ld.kind === 'part' ? 'Thickness (m)' : 'Width (m)', 'run.w', ld.w, 'type="number" step="0.01" inputmode="decimal"') + '</div>';
     if (ld.kind !== 'part') h += '<div class="row">' + (ld.kind === 'trench' ? F('Depth of the excavation (m)', 'run.dp', ld.dp == null ? UGD : ld.dp) + '<span></span>' : ld.kind === 'ladder' ? F(S.room ? 'Height above the floor (m)' : 'Height above ground (m)', 'run.z', ld.z) + '<span></span>' : F('Height above ground (m), 0 = buried', 'run.z', ld.z) + (buried(ld) ? F('Depth below ground (m)', 'run.dp', ld.dp == null ? UGD : ld.dp) : '<span></span>')) + '</div>';
     h += '<p class="hint">Length ' + f1(runLen(ld)) + ' m. Drag its points on the plan.' + (ld.kind === 'part' ? ' A wall from floor to ceiling. An end dragged near a wall of the cabin goes onto it. The cable is not stopped by it.' : ld.kind === 'ladder' ? (S.room ? ' The cable lies on the ladder at the ladder\'s own height. Indoors the ladder hangs from the ceiling. Start it on the porthole and end it over the rack.' : ' The UG fiber lies on a ladder at the ladder\'s own height. A ladder that reaches a lattice tower joins the tower\'s own ladder. One that ends on the porthole of a cabin carries the cable to it.') : ' The UG fiber that is drawn along it runs in it, at its depth.' + (ld.kind === 'conduit' ? ' It is drawn as two pipes, green on top of black, as the standard has it (2 runs of 50 mm HDPE); the cable goes in the black one.' : '')) + '</p></div>';
   }
   else if (S.room) h += '<p class="hint">Tap a button to put that item in the room, then drag it into place. An ODF or rack equipment goes into a rack by itself; drag it up or down in the isometric to set its rack units. The porthole and an aircon unit go to the wall nearest to where you drag them; the aircon stands outside it. Doors are set in the Cabin tab.</p>';
   else h += '<p class="hint">Tap a button to put that item in the middle of the site. Then drag it into place, or type its distances from the fence. Tap anything on the plan or on the isometric to edit it. Items that belong together snap together: an ODF into its cabinet, a closure onto a pole or into a hand hole, a hand hole or service box onto a conduit, trench or underground cable. Every name on the drawing is a label you can drag and retype: tap it, or tap it a second time when it is written on its item.</p>';
-  for (const [title, list] of S.room ? [['In the cabin', ['rack', 'odf', 'runit', 'port', 'ac', 'box']]] : [['tower', 'Tower'], ['equip', 'On site now'], ['foc', 'For the fiber']].map(q => [q[1], Object.keys(TYPES).filter(t => TYPES[t].g === q[0])])) h += '<h3>' + title + '</h3><div class="pal">' + list.map(t => '<button class="b s" data-a="add" data-t="' + t + '">' + esc(TYPES[t].n) + '</button>').join('') + '</div>';
-  h += '<h3>Lines you draw</h3><div class="pal">' + (S.room ? ['ladder', 'part'] : Object.keys(RUNS).filter(k => !RUNS[k].room)).map(k => '<button class="b s" data-a="run-draw" data-kind="' + k + '"' + (mode === 'run' && runKind === k ? ' aria-pressed="true"' : '') + '>' + esc(RUNS[k].n) + '</button>').join('') + '</div>';
+  for (const [title, list] of S.room ? [['In the cabin', ['rack', 'odf', 'runit', 'port', 'ac', 'box']]] : [['tower', 'Tower'], ['equip', 'On site now'], ['foc', 'For the fiber']].map(q => [q[1], Object.keys(TYPES).filter(t => TYPES[t].g === q[0])])) h += '<h3>' + title + '</h3><div class="pal">' + list.map(t => '<button class="b s" data-a="add" data-t="' + t + '">' + ico(t) + '<span>' + esc(TYPES[t].n) + '</span></button>').join('') + '</div>';
+  if (!S.room && S.site.kind === 'fenced') h += '<h3>Fence</h3><div class="pal"><button class="b s" data-a="gate-add" data-w="4">' + ico('gate') + '<span>Gate</span></button><button class="b s" data-a="gate-add" data-w="0.9">' + ico('door') + '<span>Door</span></button></div>';
+  h += '<h3>Lines you draw</h3><div class="pal">' + (S.room ? ['ladder', 'part'] : Object.keys(RUNS).filter(k => !RUNS[k].room)).map(k => '<button class="b s" data-a="run-draw" data-kind="' + k + '"' + (mode === 'run' && runKind === k ? ' aria-pressed="true"' : '') + '>' + ico(k) + '<span>' + esc(RUNS[k].n) + '</span></button>').join('') + '</div>';
   h += S.room ? '<p class="hint">Pick one, then drag on the floor plan the way it runs. A cable ladder goes from the porthole to over the racks; the cable is drawn in the Cable tab. A partition wall divides the room, from floor to ceiling; its ends snap to the walls.</p>' : '<p class="hint">Pick one, then drag on the plan the way the line runs. The app straightens it, squares the corners and snaps it to poles, hand holes, cabinets and the porthole of a cabin. The two fibers are drawn in the Route tab.</p>';
   h += '<h3>On the plan (' + (S.els.length + S.runs.length) + ')</h3>';
   for (const q of S.els) h += '<button class="li" data-a="sel" data-kind="el" data-id="' + q.id + '"' + (e === q ? ' aria-current="true"' : '') + '><i class="dot ' + (q.st === 'P' ? 'P' : TYPES[q.t].g === 'tower' ? 'T' : '') + '"></i>' + esc(q.name || TYPES[q.t].n) + '<span>' + (rackHost(S, q) ? uText(rackSlots(S, rackHost(S, q)).find(k => k.e === q) || { u: 1, ru: 1 }) : f1(q.x) + ', ' + f1(q.y)) + '</span></button>';
@@ -397,14 +420,18 @@ function tabRoute() {
   return h;
 }
 function tabPhotos() {
-  let h = '<p class="hint">Take the site pictures with the camera of the app. Then mark on the plan where each one was taken, and drag its handle to show which way the camera faced.</p>' + (VIEW ? '' : '<div class="btns"><button class="b p" data-a="photo-take">Take a photo</button></div>');
+  let h = '<p class="hint">Take the site pictures with the camera of the app, or add pictures from the gallery. Mark on the plan where each one was taken. To show a picture on the drawing itself, put it on the top view or on the isometric, then drag it into place and drag the tip of its arrow to what it shows.</p>' + (VIEW ? '' : '<div class="btns"><button class="b p" data-a="photo-take">' + ico('cam') + 'Take a photo</button>' + (HOST && HOST.addPicture ? '<button class="b s" data-a="photo-pick">' + ico('img') + 'From the gallery</button>' : '') + '</div>');
   if (photoNote) h += '<div class="warn">' + esc(photoNote) + '</div>';
 
   S.photos.forEach((p, i) => {
     const tb = Math.round(((num(p.dir, 0) + num(S.site.bearing, 0)) % 360 + 360) % 360);
     h += '<div class="ph">' + (IMG[p.id] ? '<img src="' + IMG[p.id] + '" alt="Photo ' + (i + 1) + '">' : '<div class="noimg">picture not on this phone</div>') + '<div><div class="n">Photo ' + (i + 1) + (p.placed ? '' : ' · not on the plan yet') + '</div><div class="one">' + F('Caption', 'photo.' + p.id + '.cap', p.cap, TXT + ' placeholder="What it shows"') + '</div>';
     if (p.placed) h += '<div class="one">' + F('Camera faced (° from true north)', 'photo.' + p.id + '.dir', tb, 'type="number" step="5" min="0" max="360" inputmode="decimal"') + '</div>';
-    h += '<div class="btns"><button class="b s" data-a="photo-place" data-id="' + p.id + '">' + (p.placed ? 'Move on plan' : 'Mark on plan') + '</button><button class="b s d" data-a="photo-del" data-id="' + p.id + '">Remove</button></div></div></div>';
+    if (p.from === 'gallery') h += '<div class="n" style="font-weight:400">From the gallery</div>';
+    h += '<div class="btns"><button class="b s" data-a="photo-place" data-id="' + p.id + '">' + (p.placed ? 'Move on plan' : 'Mark on plan') + '</button><button class="b s d" data-a="photo-del" data-id="' + p.id + '">Remove</button></div>';
+    h += '<div class="btns"><button class="b s" data-a="pic-on" data-v="t" data-id="' + p.id + '" aria-pressed="' + (p.ct ? 'true' : 'false') + '">' + ico(p.ct ? 'eye' : 'eyeoff') + 'On the top view</button><button class="b s" data-a="pic-on" data-v="i" data-id="' + p.id + '" aria-pressed="' + (p.ci ? 'true' : 'false') + '">' + ico(p.ci ? 'eye' : 'eyeoff') + 'On the isometric</button></div>';
+    if (p.ct || p.ci) h += '<div class="one">' + Sel('Size of the picture on the drawing', 'photo.' + p.id + '.pw', String(picSz(p)), [['20', 'Small'], ['30', 'Medium'], ['42', 'Large']]) + '</div>';
+    h += '</div></div>';
   });
   return h;
 }
@@ -481,6 +508,7 @@ function tabFocus() {
   h += '<h3>In the rack (' + its.length + ')</h3>';
   for (const q of its) h += '<button class="li" data-a="sel" data-kind="el" data-id="' + q.e.id + '"' + (q.e === e ? ' aria-current="true"' : '') + '><i class="dot ' + (q.e.st === 'P' ? 'P' : '') + '"></i>' + esc(q.e.name || TYPES[q.e.t].n) + '<span>' + uText(q) + '</span></button>';
   if (!its.length) h += '<p class="hint">Nothing in the rack yet.</p>';
+  if (its.some(q => q.e.t === 'odf')) { const cb = c.cab || {}; h += '<h3>The cable to the ODF</h3><div class="row">' + Sel('Comes up on the', 'odc.cabside', cb.side === 'R' ? 'R' : 'L', [['L', 'Left of the rack'], ['R', 'Right of the rack']]) + F('From that edge of the opening (m)', 'odc.caboff', cb.off == null ? 0.03 : cb.off, 'type="number" step="0.01" min="0.01" inputmode="decimal"') + '</div><p class="hint">The detail shows the cable from the foot of the cabinet up to the ODF, and in thin grey what stands round the cabinet. Set the side it comes up on to match the site.</p>'; }
   return h + '<div class="one" style="margin-top:12px">' + F('Name of the cabinet on the drawing', 'odc.name', c.name, TXT + ' placeholder="' + esc(elLabel(S, Object.assign({}, c, { name: '' }))) + '"') + '</div>';
 }
 const TABS = { site: tabSite, els: tabEls, route: tabRoute, photos: tabPhotos, table: tabTable, export: tabExport };
@@ -501,7 +529,7 @@ function labInfo(key) {
 }
 function labBox() {
   if (!sel || sel.k !== 'lab') return ''; const q = labInfo(sel.key), rec = S.lab[sel.key] || {}, moved = ['p', 'i0', 'i1', 'i2', 'i3'].some(v => Array.isArray(rec[v]));
-  let h = '<div class="insp"><div class="insp-h"><b>Label · ' + esc(q.name) + '</b>' + (q.item ? '<button class="b s" data-a="lab-item">Edit the item</button>' : '') + '<button class="b s" data-a="lab-reset"' + (moved ? '' : ' disabled') + '>Put it back</button></div>';
+  let h = '<div class="insp"><div class="insp-h"><b>Label · ' + esc(q.name) + '</b>' + eyeBtn(sel.key) + (q.item ? '<button class="b s" data-a="lab-item">Edit the item</button>' : '') + '<button class="b s" data-a="lab-reset"' + (moved ? '' : ' disabled') + '>Put it back</button></div>';
   if (q.fixed) h += '<p class="hint">This is a length the app measured, so its text cannot be retyped. You can drag it.</p>';
   else h += '<div class="one">' + F('Text on the drawing (empty = the usual name)', 'lab.t', q.cur, TXT + ' placeholder="' + esc(q.def) + '"') + '</div>';
   return h + '<p class="hint">Drag the label on the drawing to move it. It keeps its place next to its item when the item moves. A label you moved far from its item gets a leader line.</p></div>';
@@ -533,7 +561,7 @@ function applyField(k, t) {
     push('f:' + k); si[f] = clamp(x, lim[0], lim[1]); if (f !== 'bearing' && f !== 'post' && f !== 'wire') needFit.iso = needFit.top = true; return true;
   }
   if (p[0] === 'gate') { const q = S.gates[+p[1]]; if (!q) return false; if (p[2] === 'side') { push('f:' + k); q.side = v; return true; } if (!isFinite(x)) return false; push('f:' + k); q[p[2]] = Math.max(p[2] === 'w' ? 0.5 : 0, x); return true; }
-  if (p[0] === 'odc') { const c = focus && elById(focus); if (!c) return false; push('f:' + k); c.name = v; return true; }
+  if (p[0] === 'odc') { const c = focus && elById(focus); if (!c) return false; push('f:' + k); if (p[1] === 'cabside') { c.cab = Object.assign({}, c.cab, { side: v === 'R' ? 'R' : 'L' }); needFit.sheets = true; return true; } if (p[1] === 'caboff') { if (isFinite(x)) c.cab = Object.assign({}, c.cab, { off: clamp(r2(x), 0.01, 2) }); needFit.sheets = true; return true; } c.name = v; return true; }
   if (p[0] === 'el') {
     const e = sel && sel.k === 'el' && elById(sel.id), f = p[1]; if (!e) return false;
     if (f === 'name' || f === 'st' || f === 'size') { push('f:' + k); e[f] = v; return true; }
@@ -573,7 +601,7 @@ function applyField(k, t) {
   }
   if (p[0] === 'leg') { const l = S.route.ug.legs[+p[1]]; if (!l || (v !== 'auto' && (!LEG[v] || v === 'aerial'))) return false; push(); l.type = v; return true; }
   if (p[0] === 'pt') { const q = S.route.ae.pts[+p[1]]; if (!q || !isFinite(x)) return false; push(); q.loop = Math.max(0, x); return true; }
-  if (p[0] === 'photo') { const q = phById(p[1]); if (!q) return false; if (p[2] === 'cap') { push('f:' + k); q.cap = v; return true; } if (!isFinite(x)) return false; push('f:' + k); q.dir = ((x - num(si.bearing, 0)) % 360 + 360) % 360; return true; }
+  if (p[0] === 'photo') { const q = phById(p[1]); if (!q) return false; if (p[2] === 'cap') { push('f:' + k); q.cap = v; return true; } if (p[2] === 'pw') { if (!isFinite(x)) return false; push('f:' + k); const w = r2(Math.max(si.L, si.W) * clamp(x, 10, 60) / 100); if (q.ct) q.ct.w = w; if (q.ci) q.ci.w = w; needFit.sheets = true; return true; } if (!isFinite(x)) return false; push('f:' + k); q.dir = ((x - num(si.bearing, 0)) % 360 + 360) % 360; return true; }
   return false;
 }
 const r2 = q => Math.round(q * 100) / 100;
@@ -735,7 +763,7 @@ function goBack() {
 }
 function delSel() { if (VIEW) return;
   if (!sel) return; push();
-  if (sel.k === 'el') S.els = S.els.filter(e => e.id !== sel.id); else if (sel.k === 'run') S.runs = S.runs.filter(e => e.id !== sel.id); else if (sel.k === 'photo') S.photos = S.photos.filter(e => e.id !== sel.id); else if (sel.k === 'pt') delPt(sel.f, sel.i); else if (sel.k === 'lab') { hist.pop(); return; }
+  if (sel.k === 'pic') { const p = phById(sel.id); if (p) delete p[sel.v === 't' ? 'ct' : 'ci']; needFit.sheets = true; } else if (sel.k === 'gate') S.gates.splice(sel.i, 1); else if (sel.k === 'el') S.els = S.els.filter(e => e.id !== sel.id); else if (sel.k === 'run') S.runs = S.runs.filter(e => e.id !== sel.id); else if (sel.k === 'photo') S.photos = S.photos.filter(e => e.id !== sel.id); else if (sel.k === 'pt') delPt(sel.f, sel.i); else if (sel.k === 'lab') { hist.pop(); return; }
   sel = null; needFit.iso = true; refresh(true);
 }
 function delPt(f, i) { const R = S.route[f]; if (!R || !R.pts[i]) return; R.pts.splice(i, 1); if (f === 'ug') { if (R.legs.length) R.legs.splice(Math.min(i, R.legs.length - 1), 1); R.legs.length = Math.max(0, R.pts.length - 1); } }
@@ -750,13 +778,15 @@ function action(a, b) {
     case 'rot': { const e = sel && elById(sel.id); if (e) { push(); e.rot = (num(e.rot, 0) + 90) % 360; refresh(true); } return; }
     case 'dup': { const e = sel && elById(sel.id); if (e) { push(); const inR = !!rackHost(S, e), c = Object.assign({}, e, { id: uid(), x: inR ? e.x : snap(e.x + (S.room ? 0.6 : 1)), y: inR ? e.y : snap(e.y - (S.room ? 0 : 1)) }); delete c.inside; if (inR) delete c.u; if (e.inside) c.inside = JSON.parse(JSON.stringify(e.inside)); S.els.push(c); settle(c); sel = { k: 'el', id: c.id }; refresh(true); } return; }
     case 'del': delSel(); return;
-    case 'gate-add': push(); S.gates.push(S.room ? { side: 'S', off: Math.max(0, snap(S.site.L / 2 - 0.45)), w: Math.min(0.9, S.site.L) } : { side: 'S', off: Math.max(0, snap(S.site.L / 2 - 2)), w: 4 }); refresh(true); return;
+    case 'gate-add': push(); S.gates.push(S.room ? { side: 'S', off: Math.max(0, snap(S.site.L / 2 - 0.45)), w: Math.min(0.9, S.site.L) } : gateFree(+d.w || 4)); if (!S.room && tab === 'els') { sel = { k: 'gate', i: S.gates.length - 1 }; needTop(); } refresh(true); return;
     case 'room-in': if (sel && sel.k === 'el') roomIn(sel.id); return;
     case 'focus-in': if (d.id) focusIn(d.id); else if (sel && sel.k === 'el') focusIn(sel.id); return;
     case 'back': goBack(); return;
     case 'port-level': { const e = sel && sel.k === 'el' && elById(sel.id); if (e && e.t === 'port' && isFinite(+d.z)) { push(); e.z = r2(clamp(+d.z, 0.3, Math.max(0.3, num(S.site.fh, 2.8) - 0.2))); refresh(true); } return; }
     case 'gate-del': push(); S.gates.splice(+d.i, 1); refresh(true); return;
     case 'photo-take': takePhoto(); return;
+    case 'photo-pick': pickPictures(); return;
+    case 'pic-on': picToggle(d.id, d.v); return;
     case 'gps': useGps(); return;
     case 'go-tab': if (TABS[d.tab]) { tab = d.tab; msg = null; refresh(true); panel.scrollTop = 0; } return;
     case 'guide-off': APP.guide = false; if (HOST && HOST.pref) HOST.pref('guide', false); drawGuide(); return;
@@ -778,6 +808,8 @@ function action(a, b) {
     case 'route-undo': if (S.route[fib].pts.length) { push(); delPt(fib, S.route[fib].pts.length - 1); refresh(true); } return;
     case 'route-clear': { const f = d.f === 'ug' ? 'ug' : 'ae'; push(); S.route[f].pts = []; if (f === 'ug') S.route.ug.legs = []; sel = null; refresh(true); return; }
     case 'pt-del': push(); delPt(d.f === 'ug' ? 'ug' : 'ae', +d.i); sel = null; refresh(true); return;
+    case 'nm': applyField('site.nm.' + d.k, { value: nameOn(S, d.k) ? '0' : '1' }); refresh(true); return;
+    case 'lab-eye': { const k = d.key; if (!k) return; push(); const r = S.lab[k] || (S.lab[k] = {}); if (r.off) delete r.off; else r.off = 1; needFit.sheets = true; refresh(true); return; }
     case 'lab-reset': if (sel && sel.k === 'lab' && S.lab[sel.key]) { push(); for (const v of ['p', 'i0', 'i1', 'i2', 'i3']) delete S.lab[sel.key][v]; refresh(true); } return;
     case 'lab-item': if (sel && sel.k === 'lab') { const q = labInfo(sel.key); if (q.item) { sel = q.item; tab = 'els'; refresh(true); panel.scrollTop = 0; } } return;
     case 'photo-place': mode = 'photo'; placing = d.id; needTop(); refresh(true); return;
@@ -791,6 +823,27 @@ function action(a, b) {
 }
 /* A site picture is taken with the camera of the app, with its checks (taken live, with a GPS fix; a dark or unclear one is refused).
    The app keeps it in its photo store and gives it back here to show and to print. No picture file can be brought in. */
+/* beta 4.1: a picture from the gallery (CEF plans only). The app keeps it in its photo store, as it keeps a camera photo. */
+function pickPictures() {
+  if (VIEW || !HOST || !HOST.addPicture) return; const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+  inp.onchange = async () => { const fs = [].slice.call(inp.files || [], 0, 12); if (!fs.length) return; photoNote = ''; let n = 0;
+    for (const f of fs) { try { const r = await HOST.addPicture(f); if (r && r.id && r.src) { if (!n) push(); n++; IMG[r.id] = r.src; ROOT.photos.push(Object.assign({ id: r.id, cap: '', x: 0, y: 0, dir: 0, placed: false, w: r.w || 4, h: r.h || 3, from: 'gallery' }, r.at ? { at: r.at } : {})); } } catch (e) { photoNote = 'A picture was not added' + (e && e.message ? ': ' + e.message : '.'); } }
+    needFit.sheets = true; tab = 'photos'; refresh(true); };
+  inp.click();
+}
+const picSz = p => { const q = p.ct || p.ci || {}, m = Math.max(ROOT.site.L, ROOT.site.W) || 1, k = Math.round(num(q.w, 0) / m * 100); return k >= 36 ? 42 : k > 0 && k <= 25 ? 20 : 30; };
+/* put a photo on the top view (v = 't') or on the isometric ('i'), or take it off again. It starts beside the drawing, its arrow on the middle of the site. */
+function picToggle(id, v) {
+  const p = phById(id); if (!p || VIEW) return; push(); const m = Math.max(S.site.L, S.site.W), w = r2(m * (p.ct || p.ci ? picSz(p) : 30) / 100), k = S.photos.filter(q => q !== p && (v === 't' ? q.ct : q.ci)).length;
+  const tx = p.placed ? p.x : p.ct ? p.ct.tx : p.ci ? p.ci.tx : r2(S.site.L / 2), ty = p.placed ? p.y : p.ct ? p.ct.ty : p.ci ? p.ci.ty : r2(S.site.W / 2), hh = w / (p.w > 0 && p.h > 0 ? p.w / p.h : 4 / 3);
+  if (v === 't') { if (p.ct) { delete p.ct; if (sel && sel.k === 'pic' && sel.id === id && sel.v === 't') sel = null; } else { p.ct = { x: r2(S.site.L + m * 0.12 + w / 2), y: r2(S.site.W - hh / 2 - (k % 3) * (hh + m * 0.06)), tx, ty, w }; sel = { k: 'pic', id, v: 't' }; needTop(); needFit.top = true; } }
+  else { if (p.ci) { delete p.ci; if (sel && sel.k === 'pic' && sel.id === id && sel.v === 'i') sel = null; } else { const sc = (buildIso(S, { labels: false, pics: false }) || {}).sc, t2 = sc ? sc.P([tx, ty, 0]) : [0, 0], vb = VB.iso, cx = vb ? vb.x + vb.w - w * 0.2 : t2[0] + m * 0.8, cy = vb ? -(vb.y + isoFix.cap + hh / 2 + (k % 3) * (hh + m * 0.05)) : t2[1] + m * 0.3; p.ci = { tx, ty, tz: 0, ox: r2(cx - t2[0]), oy: r2(cy - t2[1]), w }; sel = { k: 'pic', id, v: 'i' }; if (!shown('iso')) setView(wide() ? 'both' : 'iso'); needFit.iso = true; } }
+  needFit.sheets = true; tab = 'photos'; refresh(true);
+}
+let topPics = [], isoPics = [];
+const picImgs = P => (P || []).map(q => IMG[q.id] ? '<image href="' + IMG[q.id] + '" x="' + r3(q.x) + '" y="' + r3(-(q.y + q.h)) + '" width="' + r3(q.w) + '" height="' + r3(q.h) + '" preserveAspectRatio="none"/>' : '').join('');
+const picHit = (P, m, pr, v) => { if (sel && sel.k === 'pic' && sel.v === v) { const q = P.find(k => k.id === sel.id); if (q && Math.hypot(m[0] - q.tip[0], m[1] - q.tip[1]) < pr * 1.4) return { k: 'pict', id: q.id, v }; } for (let i = P.length - 1; i >= 0; i--) { const q = P[i]; if (m[0] >= q.x && m[0] <= q.x + q.w && m[1] >= q.y && m[1] <= q.y + q.h) return { k: 'pic', id: q.id, v }; } return null; };
+function nudgeMore(dx, dy) { if (sel.k !== 'pic') return false; const p = phById(sel.id), q = p && (sel.v === 't' ? p.ct : p.ci); if (!q) return false; push('nudge'); if (sel.v === 't') { q.x = r2(q.x + dx); q.y = r2(q.y + dy); } else { q.ox = r2(q.ox + dx); q.oy = r2(q.oy + dy); } dragNote = 'Picture moved'; return true; }
 let taking = false;
 function takePhoto() {
   if (taking || VIEW || !HOST || !HOST.takePhoto) return; taking = true; photoNote = '';
@@ -807,6 +860,15 @@ function openSketch(file) {
   if (!file || VIEW) return; const rd = new FileReader();
   rd.onload = () => { try { const o = JSON.parse(rd.result); if (!o || !o.site || !Array.isArray(o.els)) throw 0; push(); setRoot(norm(o)); applyFixed(); sel = null; setMsg('Sketch opened. Pictures are not kept in a sketch file: take them again.', 'good'); refresh(true); } catch (e) { setMsg('That file is not a CEF sketch file.', 'warn'); } };
   rd.readAsText(file);
+}
+/* beta 4.1: the same files as Save ZIP, handed to the app (its Drawing export puts them in a folder of its own ZIP) */
+async function planFiles() {
+  const X = appSketch(ROOT), base = baseName(X), sheets = appSheets(X), pdf = await appPdf(await toPDF(sheets, allImg(), X)), g = geo(X), files = [{ name: base + '_CEF_sheets.dxf', data: sheetsDXF(sheets) }, { name: base + '_CEF.pdf', data: pdf }];
+  if (g) files.push({ name: base + '_CEF_map_UTM51N.dxf', data: mapDXF(X, g) }, { name: base + '_CEF.kml', data: toKML(X, g) });
+  for (const k in LOGO) files.push({ name: 'logos/' + k + '_logo.png', data: b64bytes(LOGO[k].src) });
+  X.photos.forEach((p, i) => { const src = IMG[p.id]; if (src) files.push({ name: 'photos/photo_' + String(i + 1).padStart(2, '0') + '.jpg', data: b64bytes(src), pid: p.id }); });
+  files.push({ name: base + '_CEF_sketch.json', data: JSON.stringify(ROOT, null, 1) }, { name: 'README.txt', data: appReadme(readme(X, base, g, sheets)) });
+  return { base, files };
 }
 async function doExport(kind) {
   if (busy || !dl) return; busy = true; setMsg('Building the files…', 'note');
@@ -836,6 +898,8 @@ function hitTest(m) {
   if (!S.room && sel && sel.k === 'el') { const e = elById(sel.id); if (e && e.t === 'cabin') { let b = null; const try1 = (p, k, i) => { const d = Math.hypot(m[0] - p[0], m[1] - p[1]); if (d < pr * 1.3 && (!b || d < b.d)) b = { d, h: { k, id: e.id, i } }; };      /* the handle nearest the pointer: porthole, door or aircon unit */
     cabinPorts(e).forEach((q, i) => try1(q.at, 'porth', i)); cabinDoors(e).forEach((q, i) => try1(doorAt(e, q), 'doorh', i)); cabinAcs(e).forEach((q, i) => try1(q.at, 'ach', i)); if (b) return b.h; } }
   if (S.room && !focus && (!sel || sel.k === 'rdoor') && mode !== 'run' && mode !== 'route') for (let i = 0; i < S.gates.length; i++) { const q = S.gates[i], hz = q.side === 'S' || q.side === 'N', c = num(q.off, 0) + num(q.w, 0.9) / 2, p = hz ? [c, q.side === 'S' ? 0 : S.site.W] : [q.side === 'W' ? 0 : S.site.L, c]; if (Math.hypot(m[0] - p[0], m[1] - p[1]) < pr * 1.3) return { k: 'rdoor', i }; }
+  if (!S.room && !focus && mode === 'select') { const ph = picHit(topPics, m, pr, 't'); if (ph) return ph; }      /* beta 4.1: a photo on the plan, or the tip of its arrow */
+  if (!S.room && !focus && S.site.kind === 'fenced' && mode === 'select') for (let i = 0; i < S.gates.length; i++) { const q = S.gates[i], hz = q.side === 'S' || q.side === 'N', c = num(q.off, 0) + num(q.w, 0) / 2, p = hz ? [c, q.side === 'S' ? 0 : S.site.W] : [q.side === 'W' ? 0 : S.site.L, c]; if (Math.hypot(m[0] - p[0], m[1] - p[1]) < Math.max(pr * 1.3, Math.min(num(q.w, 0) / 2, 0.6))) return { k: 'gate', i }; }      /* beta 4.1: a gate of the site is picked at its middle and dragged along the fence */
   if (tab === 'route' || (sel && sel.k === 'pt')) { const order = sel && sel.k === 'pt' && sel.f === 'ae' ? ['ae', 'ug'] : ['ug', 'ae']; for (const f of order) for (let i = S.route[f].pts.length - 1; i >= 0; i--) { const p = S.route[f].pts[i]; if (Math.hypot(m[0] - p.x, m[1] - p.y) < pr * 1.2) return { k: 'pt', f, i }; } }
   for (const p of S.photos) if (p.placed && Math.hypot(m[0] - p.x, m[1] - p.y) < Math.max(pr, topTh)) return { k: 'photo', id: p.id };
   if (sel && sel.k === 'run') { const l = runById(sel.id); if (l) for (let i = 0; i < l.pts.length; i++) if (Math.hypot(m[0] - l.pts[i][0], m[1] - l.pts[i][1]) < pr * 1.2) return { k: 'rpt', id: l.id, i }; }
@@ -852,6 +916,7 @@ const sameHit = (a, b) => !!a && !!b && a.k === b.k && a.id === b.id && a.k !== 
 /* what is under the pointer in the isometric: the height handle of the selected item first, then the smallest element there, then a run */
 function hitIso(m) {
   const u = unit('iso'), pr = Math.max(12 * u, 0.1), near = p => p && Math.hypot(m[0] - p[0], m[1] - p[1]) < pr * 1.25;
+  if (!S.room && !focus && mode === 'select') { const ph = picHit(isoPics, m, pr, 'i'); if (ph) return ph; }      /* beta 4.1 */
   if (sel && sel.k === 'el') { const h = isoHits.find(q => q.k === 'el' && q.id === sel.id); if (h && near(h.hp)) return { k: 'elh', id: h.id, f: h.f }; if (h && near(h.lp)) return { k: 'ladh', id: h.id }; }
   if (sel && sel.k === 'run') { const h = isoHits.find(q => q.k === 'run' && q.id === sel.id); if (h && near(h.hp)) return { k: 'runh', id: h.id, f: h.f }; }
   if (tab === 'route' || (sel && sel.k === 'pt')) { const h = isoHits.find(q => q.k === 'aer'); if (h && near(h.hp)) return { k: 'aerh' }; }
@@ -870,6 +935,8 @@ function grab(h) {
   if (h.k === 'doorh') { const e = elById(h.id), q = e && cabinDoors(e)[h.i]; if (!q) return null; const c = doorAt(e, q); return { x: c[0], y: c[1] }; }
   if (h.k === 'ach') { const e = elById(h.id), q = e && cabinAcs(e)[h.i]; return q ? { x: q.at[0], y: q.at[1] } : null; }
   if (h.k === 'rdoor') { const q = S.gates[h.i]; if (!q) return null; const hz = q.side === 'S' || q.side === 'N', c = num(q.off, 0) + num(q.w, 0.9) / 2; return hz ? { x: c, y: q.side === 'S' ? 0 : S.site.W } : { x: q.side === 'W' ? 0 : S.site.L, y: c }; }
+  if (h.k === 'pic' || h.k === 'pict') { const p = phById(h.id), q = p && (h.v === 't' ? p.ct : p.ci); if (!q) return null; return h.v === 't' ? (h.k === 'pic' ? { x: q.x, y: q.y } : { x: q.tx, y: q.ty }) : { x: q.tx, y: q.ty, ox: q.ox, oy: q.oy }; }
+  if (h.k === 'gate') { const q = S.gates[h.i]; if (!q) return null; const hz = q.side === 'S' || q.side === 'N', c = num(q.off, 0) + num(q.w, 0) / 2; return hz ? { x: c, y: q.side === 'S' ? 0 : S.site.W } : { x: q.side === 'W' ? 0 : S.site.L, y: c }; }
   if (h.k === 'pt') { const p = S.route[h.f].pts[h.i]; return p ? { x: p.x, y: p.y } : null; }
   if (h.k === 'lab') { const l = (h.v === 'p' ? topLabs : isoLabs).find(q => q.key === h.key); return l ? { ox: l.c[0] - l.ap[0], oy: l.c[1] - l.ap[1] } : null; }
   if (h.k === 'run') { const l = runById(h.id); if (!l) return null; const P = l.pts.map(q => q.slice()); P.z = num(l.z, 0); return P; }
@@ -884,6 +951,12 @@ function grab(h) {
 function dragTo(g, dx, dy) {
   const h = g.hit, o = g.orig; if (!o) return;
   if (h.k === 'lab') { const q = S.lab[h.key] || (S.lab[h.key] = {}); q[h.v] = [r2(o.ox + dx), r2(o.oy + dy)]; dragNote = 'Label moved · it stays with its item'; return; }
+  if (h.k === 'pic' || h.k === 'pict') {                    /* beta 4.1: a photo on the drawing, or the tip of its arrow */
+    const p = phById(h.id), q = p && (h.v === 't' ? p.ct : p.ci); if (!q) return;
+    if (h.v === 't') { if (h.k === 'pic') { q.x = r2(o.x + dx); q.y = r2(o.y + dy); dragNote = 'Picture moved · drag the tip of its arrow to what it shows'; } else { q.tx = r2(o.x + dx); q.ty = r2(o.y + dy); dragNote = 'The arrow points here'; } return; }
+    if (h.k === 'pic') { q.ox = r2(o.ox + dx); q.oy = r2(o.oy + dy); dragNote = 'Picture moved · drag the tip of its arrow to what it shows'; return; }
+    if (!isoSc) return; const d = isoSc.ground(dx, dy); q.tx = r2(o.x + d[0]); q.ty = r2(o.y + d[1]); q.ox = r2(o.ox - dx); q.oy = r2(o.oy - dy); dragNote = 'The arrow points here'; return;
+  }
   if (g.n === 'iso') {                                   /* in the isometric: up and down is height, the rest is a move on the ground */
     const up = dy, lim = (v, a, b) => clamp(snap(v), a, b);
     /* an item in a rack moves up and down its rack, one unit at a time, to the nearest free place */
@@ -913,6 +986,7 @@ function dragTo(g, dx, dy) {
   if (h.k === 'doorh') { const e = elById(h.id); if (e) siteDoor(e, h.i, [o.x + dx, o.y + dy]); return; }
   if (h.k === 'ach') { const e = elById(h.id); if (e) siteAc(e, h.i, [o.x + dx, o.y + dy]); return; }
   if (h.k === 'rdoor') { const g = S.gates[h.i]; if (g) { const k = slideDoor(g, S.site.L, S.site.W, [o.x + dx, o.y + dy]); dragNote = 'Door on the ' + WALLN[k.side] + ' wall, ' + f2(g.off) + ' m from its ' + (k.side === 'S' || k.side === 'N' ? 'left' : 'bottom') + ' end'; } return; }
+  if (h.k === 'gate') { const q = S.gates[h.i]; if (q) { const k = slideDoor(q, S.site.L, S.site.W, [o.x + dx, o.y + dy]); q.off = snap(q.off); dragNote = (num(q.w, 0) > 1.6 ? 'Gate' : 'Door') + ' on the ' + SIDEW[k.side] + ' side, ' + f1(q.off) + ' m from the ' + (k.side === 'S' || k.side === 'N' ? 'left' : 'bottom') + ' corner'; } return; }
   if (h.k === 'el') { const e = elById(h.id); if (e) { const sn = relSnap(e, [o.x + dx, o.y + dy]); dragNote = sn ? sn.note : ''; e.x = sn ? sn.p[0] : snap(o.x + dx); e.y = sn ? sn.p[1] : snap(o.y + dy); if (e.t === 'ac' && S.room) { const k = toWall(e); dragNote = 'Aircon unit on the ' + { S: 'bottom', N: 'top', W: 'left', E: 'right' }[k.side] + ' wall, outside it'; }
       if (e.t === 'port' && S.room) { const k = toWall(e), mk = (roomCtx ? roomCtx.marks : []).filter(q => q.side === k.side).map(q => ({ q, d: Math.hypot(q.x - e.x, q.y - e.y) })).sort((a, b) => a.d - b.d)[0]; dragNote = 'Porthole on the ' + { S: 'bottom', N: 'top', W: 'left', E: 'right' }[k.side] + ' wall'; if (mk && mk.d < 0.4) { e.x = r2(mk.q.x); e.y = r2(mk.q.y); dragNote = 'Porthole in line with the ' + (mk.q.kind === 'ladder' ? 'cable ladder' : 'cable') + ' outside · it arrives ' + f1(mk.q.z) + ' m above the floor'; } } for (const r of o.r) { r.q.x = r2(r.x + e.x - o.x); r.q.y = r2(r.y + e.y - o.y); } for (const p of o.on || []) { p.x = e.x; p.y = e.y; } } }
   else if (h.k === 'pt') { const R = S.route[h.f].pts, p = R[h.i]; if (p) { const q = movePt([o.x + dx, o.y + dy], [R[h.i - 1], R[h.i + 1]].map(t => t && [t.x, t.y]), h.f); p.x = q[0]; p.y = q[1]; } }
@@ -923,8 +997,8 @@ function dragTo(g, dx, dy) {
 }
 function pick(h, switchTab) {
   if (h && h.k === 'aerh') return;
-  if (!h) sel = null; else if (focus && h.k === 'el' && h.id === focus) sel = null; else if (h.k === 'lab') sel = { k: 'lab', key: h.key }; else if (h.k === 'rpt' || h.k === 'runh') sel = { k: 'run', id: h.id }; else if (h.k === 'elh' || h.k === 'ladh' || h.k === 'porth' || h.k === 'doorh' || h.k === 'ach') sel = { k: 'el', id: h.id }; else if (h.k === 'pdir') sel = { k: 'photo', id: h.id }; else if (h.k === 'rdoor') sel = null; else sel = h;
-  if (switchTab && sel && sel.k !== 'lab') { tab = sel.k === 'pt' ? 'route' : sel.k === 'photo' ? 'photos' : 'els'; }
+  if (!h) sel = null; else if (focus && h.k === 'el' && h.id === focus) sel = null; else if (h.k === 'lab') sel = { k: 'lab', key: h.key }; else if (h.k === 'rpt' || h.k === 'runh') sel = { k: 'run', id: h.id }; else if (h.k === 'elh' || h.k === 'ladh' || h.k === 'porth' || h.k === 'doorh' || h.k === 'ach') sel = { k: 'el', id: h.id }; else if (h.k === 'pdir') sel = { k: 'photo', id: h.id }; else if (h.k === 'pict') sel = { k: 'pic', id: h.id, v: h.v }; else if (h.k === 'rdoor') sel = null; else sel = h;
+  if (switchTab && sel && sel.k !== 'lab') { tab = sel.k === 'pt' ? 'route' : sel.k === 'photo' || sel.k === 'pic' ? 'photos' : 'els'; }
 }
 function tap(g) {
   const m = g.m0;
@@ -950,6 +1024,7 @@ function bindView(n) {
       const h = hitIso(m), lb = labAt(isoLabs, m), hand = h && (h.k === 'elh' || h.k === 'runh' || h.k === 'aerh' || h.k === 'ladh'); g.tapHit = h;
       if (lb && !hand && sel && sel.k === 'lab' && sel.key === lb.key) g.hit = g.tapHit = { k: 'lab', key: lb.key, v: 'i' + (isoSc ? isoSc.k : (S.iso | 0) & 3) };
       else if (h && (hand || (sel && sel.k === h.k && sel.id === h.id))) g.hit = h;
+      else if (h && h.k === 'run' && sel && sel.k === 'el' && !focus) { const own = isoHits.find(q => q.k === 'el' && q.id === sel.id); if (own && inPoly(m, own.poly)) g.hit = { k: 'el', id: own.id }; }      /* beta 4.1 */
       if (lb && !hand && (!h || sameHit(sel, h))) g.tapHit = { k: 'lab', key: lb.key };
     }
     g.draw = n === 'top' && (mode === 'route' || mode === 'run') && e.button === 0 && !e.shiftKey; if (g.draw) g.stroke = [m];
@@ -1001,12 +1076,25 @@ $('#bTurn').addEventListener('click', () => { if (focus) { focusTurn = focusTurn
 $('#bIn').addEventListener('click', () => zoomAt(view === 'both' ? active : view, 1 / 1.3));
 $('#bOut').addEventListener('click', () => zoomAt(view === 'both' ? active : view, 1.3));
 $('#bFit').addEventListener('click', () => { needFit.top = needFit.iso = needFit.sheets = true; drawViews(); });
+/* beta 4.1: the arrow keys move the picked item on the plan: one step of the grid (0.1 m) a press, a small step (0.01 m) with Shift */
+function nudge(dx, dy) {
+  if (VIEW || !sel) return false; const mv = o => { o.x = r2(num(o.x, 0) + dx); o.y = r2(num(o.y, 0) + dy); };
+  if (sel.k === 'el') { const e = elById(sel.id); if (!e || rackHost(S, e)) return false; push('nudge'); const R = riders(e), on = []; if (SNAPS.includes(e.t)) for (const f of ['ae', 'ug']) for (const p of S.route[f].pts) if (Math.hypot(p.x - e.x, p.y - e.y) < 0.06) on.push(p); mv(e); R.forEach(mv); on.forEach(mv); if (S.room && (e.t === 'ac' || e.t === 'port')) toWall(e); dragNote = TYPES[e.t].n + ': ' + f2(e.x) + ' m from the left, ' + f2(e.y) + ' m from the bottom'; }
+  else if (sel.k === 'run') { const l = runById(sel.id); if (!l) return false; push('nudge'); l.pts = l.pts.map(q => [r2(q[0] + dx), r2(q[1] + dy)]); dragNote = RUNS[l.kind].n + ' moved'; }
+  else if (sel.k === 'pt') { const p = S.route[sel.f].pts[sel.i]; if (!p) return false; push('nudge'); mv(p); dragNote = 'Point moved'; }
+  else if (sel.k === 'photo') { const p = phById(sel.id); if (!p || !p.placed) return false; push('nudge'); mv(p); dragNote = 'Photo point moved'; }
+  else if (sel.k === 'gate') { const q = S.gates[sel.i]; if (!q) return false; push('nudge'); const hz = q.side === 'S' || q.side === 'N', len = hz ? S.site.L : S.site.W; q.off = r2(clamp(num(q.off, 0) + (hz ? dx : dy), 0, Math.max(0, len - num(q.w, 0)))); dragNote = (num(q.w, 0) > 1.6 ? 'Gate ' : 'Door ') + f2(q.off) + ' m from the ' + (hz ? 'left' : 'bottom') + ' corner'; }
+  else if (typeof nudgeMore === 'function' && nudgeMore(dx, dy)) { /* a photo on the plan (below) */ }
+  else return false;
+  refresh(false, true); return true;
+}
 window.addEventListener('keydown', e => {
   if (VIEW && e.key !== 'Escape') return;
   const typing = /^(INPUT|SELECT|TEXTAREA)$/.test((document.activeElement || {}).tagName || '');
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); undo(); }
   else if (e.key === 'Escape') { if (mode !== 'select') { mode = 'select'; draft = []; live = null; placing = null; } else sel = null; refresh(true); }
   else if ((e.key === 'Delete' || e.key === 'Backspace') && !typing && sel) { e.preventDefault(); delSel(); }
+  else if (/^Arrow(Left|Right|Up|Down)$/.test(e.key) && !typing && sel && !e.ctrlKey && !e.metaKey && !e.altKey) { const st = e.shiftKey ? 0.01 : 0.1; if (nudge(e.key === 'ArrowLeft' ? -st : e.key === 'ArrowRight' ? st : 0, e.key === 'ArrowUp' ? st : e.key === 'ArrowDown' ? -st : 0)) e.preventDefault(); }
 });
 window.addEventListener('resize', () => { if (view === 'both' && !wide()) setView('top'); else drawOverlay(); });
 window.addEventListener('load', () => { needFit.top = needFit.iso = true; drawViews(); });
@@ -1014,12 +1102,14 @@ refresh(true);
 /* Saving: the app's own save and share. A test build can put its own saver on this page (window.__cefSave). */
 dl = { save: o => (typeof window.__cefSave === 'function' ? window.__cefSave(o) : HOST.deliver(o.filename, o.data, o.kind)) }; dlReady = true;
 async function start() {
-  let A = null; try { A = HOST ? await HOST.init() : null; } catch (e) { A = null; }
+  const JOB = (() => { try { return new URLSearchParams(location.search).get('job') || ''; } catch (e) { return ''; } })();      /* beta 4.1: this page was opened out of sight, to make a plan's files for the Drawing export */
+  let A = null; try { A = HOST ? await HOST.init(JOB) : null; } catch (e) { A = null; }
   if (!A) { $('#nohost').hidden = false; document.querySelector('.app').hidden = true; return; }
   APP = Object.assign(APP, A.app || {}); VIEW = APP.viewOnly || ''; IMG = Object.assign({}, A.photos || {});
   let o = null; try { o = A.sketch ? JSON.parse(A.sketch) : null; } catch (e) { o = null; }
   setRoot(norm(o && o.site ? o : blank())); applyFixed(); await setLogos(A.logos || {});
   hist = []; sel = null; mode = 'select'; tab = A.tab && TABS[A.tab] ? A.tab : 'site'; SNAP = JSON.stringify(ROOT); LAST = o && o.site ? SNAP : ''; READY = true;
+  if (JOB && APP.job === JOB) { READY = false; try { HOST.jobDone(JOB, await planFiles()); } catch (e) { HOST.jobDone(JOB, { err: String((e && e.message) || e) }); } return; }
   document.body.classList.toggle('viewonly', !!VIEW); $('#bUndo').hidden = !!VIEW;
   needFit.top = needFit.iso = needFit.sheets = true; refresh(true);
 }
