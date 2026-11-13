@@ -77,7 +77,7 @@ function sheetFrame(S, G, o) {
   b = row(42);
   { const L = [[up(si.link), 2.6, 0], [[up(si.id), up(si.name)].filter(Boolean).join(' '), 3.2, 1], ['CABLE ENTRANCE FACILITY', 2.8, 0], [up(o.sheet), 2.8, 1], [PLAN_KIND, 2.6, 0]].filter(q => q[0]), pitch = 36 / Math.max(1, L.length); L.forEach((q, i) => fitTx(G, [(s0 + s1) / 2, b + 42 - 3 - pitch * (i + 0.5) - q[1] / 2], q[0], q[1], SH.SW - 6, 'tx', 'c', !!q[2])); }
   b = row(10); cap(s0, b, 10, 'COORDINATES (WGS84)'); val(s0, b, coordText(S), SH.SW, 2.4);
-  b = row(14); ['PREPARED BY', 'CHECKED BY', 'APPROVED BY'].forEach((s, i) => { if (i) vl(s0 + 30 * i, b, b + 14); cap(s0 + 30 * i, b, 14, s); }); val(s0, b + 1.6, up(si.by), 30, 2.3);
+  b = row(14); ['PREPARED BY', 'CHECKED BY', 'APPROVED BY'].forEach((s, i) => { if (i) vl(s0 + 30 * i, b, b + 14); cap(s0 + 30 * i, b, 14, s); }); [si.by, si.chk, si.apr].forEach((v, i) => val(s0 + 30 * i, b + 1.6, up(v), 30, 2.3));      /* (22:24) the three names: si.by, si.chk, si.apr */
   b = row(20); logoAt(o.images, 'client', s0 + 3, b + 2, SH.SW - 6, 16);
   b = row(21); for (let i = 1; i <= 4; i++) G.pl([[s0, b + 21 - 5 - (i - 1) * 4], [s1, b + 21 - 5 - (i - 1) * 4]], 'fr'); vl(s0 + 54, b, b + 21); vl(s0 + 74, b, b + 21);
   [['REVISIONS', 27], ['DATE', 64], ['SIGN', 82]].forEach(q => G.tx([s0 + q[1], b + 21 - 3.6], q[0], 1.6, 'dm', 'c'));
@@ -88,7 +88,7 @@ function sheetFrame(S, G, o) {
     G.ci([cx, cy], r, 'fr'); G.pl([[cx - r - 2.5, cy], [tx + w + 5, cy]], 'fr'); G.pl([[cx + r + 0.4, cy - 0.9], [tx + w + 5, cy - 0.9]], 'fr');
     G.tx([tx, cy + 1.7], o.view, 5, 'tx'); if (o.scale) { G.tx([tx, cy - 5.2], 'SCALE:', 2.3, 'tx'); G.tx([tx + 15, cy - 5.2], o.scale, 2.3, 'tx'); }
   }
-  G.tx([x0 + 1, y0 - 3.6], 'G-eSAA CEF-PLAN DEMO - GENERIC FRAME, NOT THE OFFICIAL TEMPLATE', 1.5, 'dm');
+  G.tx([s1, y0 - 2.6], 'G-eSAA CEF-PLAN DEMO - GENERIC FRAME, NOT THE OFFICIAL TEMPLATE', 1, 'dm', 'r');      /* (22:24) very small, under the frame at the lower right */
   if (S.sample) G.tx([AREA.x0, AREA.y1 - 3.4], 'SAMPLE DATA - NOT A REAL SITE', 2.6, 'tp', 'l', 0, true);
 }
 function drawTable(G, x, yTop, cols, rows, title, o) {
@@ -114,7 +114,7 @@ function detailPages(S) {
   const cab = [], odc = [], pages = [], at = (d, x, y, w, h) => Object.assign({ x, y, w, h }, d);
   for (const d of details(S)) {
     if (d.k === 'cabin') { const R = syncRoom(d.el.inside, d.el); cab.push([{ title: d.title + ' - FLOOR PLAN', iso: 0, make: (th, box) => buildTop(R, { th, box, dims: true, labels: true }).prims }, { title: d.title + ' - ISOMETRIC', iso: 1, make: (th, box) => buildIso(R, { th, box }).prims }]); }
-    else odc.push({ title: d.title, iso: 1, make: (th, box) => buildIso(S, { th, box, only: d.el.id }).prims });
+    else odc.push({ title: d.title, iso: 1, make: (th, box) => buildIso(S, { th, box, only: d.el.id, clip: 1 }).prims });
   }
   if (cab.length === 1 && odc.length) {                 /* one cabin and some cabinets: the cabin on the left, the cabinets down the right side, which suits their tall shape */
     const o = odc.splice(0, 2), c = cab.pop(), pg = [at(c[1], 0, 0, 0.62, 0.62), at(c[0], 0, 0.62, 0.62, 0.38)];
@@ -171,6 +171,10 @@ function dPlugs(G, c, r) {
 /* a spare pipe closed with a mechanical blank duct plug: its top, with the cross of the plug */
 function dBlank(G, c, r, lay) { G.pl(dEll(c, r, r * 0.45, 0, 360), lay, 1); G.pl(dEll(c, r * 0.55, r * 0.25, 0, 360), lay, 1); G.pl([[c[0] - r, c[1]], [c[0] + r, c[1]]], lay); G.pl([[c[0], c[1] - r * 0.45], [c[0], c[1] + r * 0.45]], lay); }
 function dTitle(G, w, s) { G.pl([[0, 0], [w, 0], [w, 8], [0, 8]], 'lot', 1); fitTx(G, [2, 2.7], s, 2.6, w - 16, 'tx', 'l', true); G.tx([w - 2, 2.9], 'N T S', 1.8, 'dm', 'r'); }
+/* beta 4.2 (22:24): which part details go on the isometric sheet. S.site.pd: { riser, exit, sbox }, each true or false. Not set: the riser pole and the riser
+   pipe detail are left out, the service box detail shows, as before. */
+const PART_DETAILS = [['riser', 'Riser pole detail', 0], ['exit', 'Riser pipe detail', 0], ['sbox', 'Service box detail', 1]];
+function pdOn(S, k) { const p = S.site && S.site.pd, d = PART_DETAILS.find(q => q[0] === k); return p && p[k] != null ? !!p[k] : !d || !!d[2]; }
 function partDetails(S, rg) {
   const out = [], mm = PVC_MM + 'mm';
   const r0 = rg.risers.find(r => r.pole);
@@ -227,7 +231,8 @@ function partDetails(S, rg) {
 }
 /* Where the part details go on the isometric sheet: in the room the view leaves at the edges of the drawing, each as near to its item as it finds room, and tied to it with dashed lines.
    P: everything already on the sheet, as primitives in millimetres. The details shrink a little before one is left out; what finds no room is returned. */
-function placeDetails(G, P, D, toSheet) {
+const detBlock = k => (k === 'riser' ? 'RISER_POLE_DETAIL' : k === 'exit' ? 'RISER_PIPE_DETAIL' : k === 'sbox' ? 'SERVICE_BOX_DETAIL' : 'PART_DETAIL') + '|d';      /* beta 4.2 (22:24): a part detail is one block: its frame, its drawing and the names of its pieces */
+function placeDetails(G, P, D, toSheet, names) {
   const cs = 2, X0 = AREA.x0, Y0 = AREA.y0, nx = Math.ceil((AREA.x1 - X0) / cs), ny = Math.ceil((AREA.y1 - Y0) / cs), occ = new Uint8Array(nx * ny);
   const mark = (x0, y0, x1, y1) => { const a = Math.max(0, Math.floor((x0 - X0) / cs)), b = Math.min(nx - 1, Math.floor((x1 - X0) / cs)), c = Math.max(0, Math.floor((y0 - Y0) / cs)), d = Math.min(ny - 1, Math.floor((y1 - Y0) / cs)); for (let j = c; j <= d; j++) for (let i = a; i <= b; i++) occ[j * nx + i] = 1; };
   for (const p of P) {
@@ -238,22 +243,35 @@ function placeDetails(G, P, D, toSheet) {
   mark(X0, AREA.y1 - 9, X0 + 78, AREA.y1);                                                /* the notice of the sample site */
   let sat = null; const W1 = nx + 1, sum = () => { sat = new Int32Array(W1 * (ny + 1)); for (let j = 0; j < ny; j++) { let r = 0; for (let i = 0; i < nx; i++) { r += occ[j * nx + i]; sat[(j + 1) * W1 + i + 1] = sat[j * W1 + i + 1] + r; } } };
   const free = (x, y, w, h) => { const a = Math.floor((x - X0) / cs), b = Math.floor((x + w - X0) / cs), c = Math.floor((y - Y0) / cs), d = Math.floor((y + h - Y0) / cs); if (a < 0 || c < 0 || b >= nx || d >= ny) return false; return sat[(d + 1) * W1 + b + 1] - sat[c * W1 + b + 1] - sat[(d + 1) * W1 + a] + sat[c * W1 + a] === 0; };
-  const left = [];
-  for (const d of D) {
-    const A = toSheet(d.at); let best = null; sum();
-    for (const k of [1, 0.9]) {                                                             /* no smaller: the names of the parts stay 1.8 mm high or more */
-      const w = d.w * k, h = d.h * k;
-      for (let y = Y0 + 2; y + h <= AREA.y1 - 2; y += 3) for (let x = X0 + 2; x + w <= AREA.x1 - 2; x += 3) {
-        const edge = Math.min(x - X0, AREA.x1 - x - w, y - Y0, AREA.y1 - y - h); if (edge > 14 || !free(x - 1.5, y - 1.5, w + 3, h + 3)) continue;
-        const cx = clamp(A[0], x, x + w), cy = clamp(A[1], y, y + h), dist = Math.hypot(A[0] - cx, A[1] - cy), cost = dist + edge * 0.6; if (dist > 4 && (!best || cost < best.cost)) best = { cost, x, y, k, w, h };
-      }
-      if (best) break;
-    }
-    if (!best) { left.push(d); continue; }
-    const g = new Gfx(); d.draw(g); for (const p of xfPrims(g.p, best.k, 0, best.x, best.y)) G.p.push(p); mark(best.x - 1, best.y - 1, best.x + best.w + 1, best.y + best.h + 1);
-    /* tied to its item: a small ring on the view, and a dashed line to it from each end of the side of the frame that faces it */
-    const C = [[best.x, best.y], [best.x + best.w, best.y], [best.x + best.w, best.y + best.h], [best.x, best.y + best.h]]; let e = 0, bd = 1e9; for (let i = 0; i < 4; i++) { const m = [(C[i][0] + C[(i + 1) % 4][0]) / 2, (C[i][1] + C[(i + 1) % 4][1]) / 2], q = Math.hypot(m[0] - A[0], m[1] - A[1]); if (q < bd) { bd = q; e = i; } }
-    G.ci(A, 2.6, 'lot'); for (const c of [C[e], C[(e + 1) % 4]]) { const dl = Math.hypot(A[0] - c[0], A[1] - c[1]) || 1; G.pl([c, [A[0] - (A[0] - c[0]) / dl * 2.6, A[1] - (A[1] - c[1]) / dl * 2.6]], 'lot'); }
+  /* beta 4.2 (19:25): the details are a little smaller, and their places are chosen together: each as near its item as the free room allows, the dashed lines that
+     tie a detail to its item short, over as little of the drawing as can be, and never across the lines or the frame of another detail when a place without that exists. */
+  const left = [], KS = [0.85, 0.75], NB = names || []; sum();
+  const sideTo = (c, A) => [[clamp(A[0], c.x, c.x + c.w), clamp(A[1], c.y, c.y + c.h)]];      /* one line ties a detail to its item, from the nearest point of its frame: two lines from the ends of a side took in a wide wedge of the drawing, and what stood in it was crossed */
+  const ink = (a, b) => { const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / cs)); let c = 0; for (let k = 1; k < n - 1; k++) { const i = Math.floor((a[0] + (b[0] - a[0]) * k / n - X0) / cs), j = Math.floor((a[1] + (b[1] - a[1]) * k / n - Y0) / cs); if (i >= 0 && j >= 0 && i < nx && j < ny && occ[j * nx + i]) c++; } return c; };
+  const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]), segX = (a, b, c, d) => { const d1 = cr(c, d, a), d2 = cr(c, d, b), d3 = cr(a, b, c), d4 = cr(a, b, d); return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0)); };
+  const segBox = (a, b, q, m) => { const x0 = q.x - m, y0 = q.y - m, x1 = q.x + q.w + m, y1 = q.y + q.h + m, R = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], ins = p => p[0] > x0 && p[0] < x1 && p[1] > y0 && p[1] < y1; if (ins(a) || ins(b)) return true; for (let i = 0; i < 4; i++) if (segX(a, b, R[i], R[(i + 1) % 4])) return true; return false; };
+  const CAND = D.map(d => { const A = toSheet(d.at); let L = [];
+    for (const lim of [14, 45]) { for (const k of KS) { const w = d.w * k, h = d.h * k;
+        for (let y = Y0 + 2; y + h <= AREA.y1 - 2; y += 3) for (let x = X0 + 2; x + w <= AREA.x1 - 2; x += 3) {
+          const edge = Math.min(x - X0, AREA.x1 - x - w, y - Y0, AREA.y1 - y - h); if (edge > lim || !free(x - 1.5, y - 1.5, w + 3, h + 3)) continue;
+          const cx = clamp(A[0], x, x + w), cy = clamp(A[1], y, y + h), dist = Math.hypot(A[0] - cx, A[1] - cy); if (dist <= 4) continue;
+          const c = { x, y, w, h, k, A, d }; c.T = sideTo(c, A); c.cost = dist + ink(c.T[0], A) * 1.2 + edge * 0.6 + (k < KS[0] ? 22 : 0); L.push(c); } }      /* the smaller size only where it buys a much nearer or clearer place */
+      if (L.length) break; }
+    L.sort((p, q) => p.cost - q.cost); const seen = {}, out = [];      /* the best place of each part of the sheet, so that the choice has places well apart */
+    for (const c of L) { const key = Math.floor(c.x / 18) + '_' + Math.floor(c.y / 18) + '_' + c.k; if (seen[key]) continue; seen[key] = 1; out.push(c); if (out.length >= 40) break; }
+    return out; });
+  const pair = (p, q) => { if (p.x < q.x + q.w + 3 && q.x < p.x + p.w + 3 && p.y < q.y + q.h + 3 && q.y < p.y + p.h + 3) return Infinity; let c = 0;
+    for (const a of p.T) for (const b of q.T) if (segX(a, p.A, b, q.A)) c += 400; for (const a of p.T) if (segBox(a, p.A, q, 1)) c += 250; for (const b of q.T) if (segBox(b, q.A, p, 1)) c += 250; return c; };
+  const idx = []; D.forEach((d, i) => { if (CAND[i].length) idx.push(i); else left.push(d); });
+  let best = null; const pk = [], go = (i, cost) => { if (best && cost >= best.cost) return; if (i === idx.length) { best = { cost, pk: pk.slice() }; return; }
+    for (const c of CAND[idx[i]]) { let add = c.cost; for (let j = 0; j < i && add < Infinity; j++) add += pair(pk[j], c); if (add === Infinity) continue; pk[i] = c; go(i + 1, cost + add); } };
+  if (idx.length) go(0, 0);
+  if (idx.length && !best) return D.slice();             /* they do not fit side by side: all of them go to the column */
+  placeDetails.last = (best ? best.pk : []).map(c => ({ key: c.d.key, x: c.x, y: c.y, w: c.w, h: c.h, k: c.k, T: c.T, A: c.A }));      /* kept for the checks */
+  for (const c of best ? best.pk : []) {
+    const g = new Gfx(), A = c.A; c.d.draw(g); for (const p of xfPrims(g.p, c.k, 0, c.x, c.y)) { p.g = detBlock(c.d.key); G.p.push(p); }
+    /* tied to its item: a small ring on the view, and one dashed line to it from the nearest point of the frame (broken where a name stands) */
+    G.ci(A, 2.6, 'lot'); for (const t of c.T) { const dl = Math.hypot(A[0] - t[0], A[1] - t[1]) || 1; for (const q of clipOut([{ k: 'pl', pts: [t, [A[0] - (A[0] - t[0]) / dl * 2.6, A[1] - (A[1] - t[1]) / dl * 2.6]], lay: 'lot', close: false }], NB)) G.p.push(q); }
   }
   return left;
 }
@@ -268,8 +286,8 @@ function buildSheets(S) {
     const cim = [], lc = logoAt(cim, 'client', cx - 150, 212, 110, 52), lv = logoAt(cim, 'vendor', cx + 40, 212, 110, 52);      /* beta 4.1: the two logos side by side at the top, the client's on the left, as on the plan drawings */
     const L = [[lv ? '' : up(si.org), lv || lc ? 5 : 7, 0, lv || lc ? 200 : 232], ['CABLE ENTRANCE FACILITY', 16, 1, lv || lc ? 166 : 176], [up(si.link), 14, 1, lv || lc ? 140 : 150], [[up(si.id), up(si.name)].filter(Boolean).join(' - '), 13, 1, lv || lc ? 100 : 104], [PLAN_KIND, 11, 0, lv || lc ? 70 : 72]];
     for (const q of L) if (q[0]) fitTx(G, [cx, q[3]], q[0], q[1], x1 - x0 - 40, 'tx', 'c', !!q[2]);
-    fitTx(G, [cx, 38], [coordText(S), 'DATE: ' + isoDate(), si.by ? 'PREPARED BY: ' + up(si.by) : ''].filter(Boolean).join('     '), 3, x1 - x0 - 40, 'tx', 'c');
-    G.tx([cx, y0 + 6], 'G-eSAA CEF-PLAN DEMO - GENERIC FRAME, NOT THE OFFICIAL TEMPLATE', 1.8, 'dm', 'c'); if (S.sample) G.tx([cx, 52], 'SAMPLE DATA - NOT A REAL SITE', 4, 'tp', 'c', 0, true);
+    { const ct = coordText(S); if (ct) fitTx(G, [cx, 38], ct, 3, x1 - x0 - 40, 'tx', 'c'); }      /* (beta 4.2, 22:24: no date and no "prepared by" on the cover; the title block of every sheet has them) */
+    G.tx([x1, y0 - 2.6], 'G-eSAA CEF-PLAN DEMO - GENERIC FRAME, NOT THE OFFICIAL TEMPLATE', 1, 'dm', 'r');      /* (22:24) very small, under the frame at the lower right; the app writes who exported here */ if (S.sample) G.tx([cx, 52], 'SAMPLE DATA - NOT A REAL SITE', 4, 'tp', 'c', 0, true);
     push('COVER', G, null, cim);
   }
   const toc = new Gfx(); n++; out.push(null);                                           /* 2. the table of contents: filled in when the other sheets are known */
@@ -297,21 +315,22 @@ function buildSheets(S) {
     const G = new Gfx(), box = [ax0, vy0, ax1, top], images = []; let iso = null;
     const mk = (th, b) => (iso = buildIso(S, { th, box: b })).prims;
     let v = fitView(mk, box[2] - box[0], box[3] - box[1]), t = viewAt(v, box), P = xfPrims(v.prims, v.s, 0, t.dx, t.dy);
-    const D = partDetails(S, rg), toSheet = p => { const q = iso.sc.P(p); return [t.dx + q[0] * v.s, t.dy + q[1] * v.s]; };
+    const D = partDetails(S, rg).filter(d => pdOn(S, d.key)), toSheet = p => { const q = iso.sc.P(p); return [t.dx + q[0] * v.s, t.dy + q[1] * v.s]; };
     sheetFrame(S, G, { view: 'ISOMETRIC DETAIL', sheet: 'ISOMETRIC DETAIL', scale: '1:' + v.N + ' ALONG AXES', n: ++n, N: total, images });
-    let GD = new Gfx(), left = placeDetails(GD, P, D, toSheet);
+    const names = () => ((iso && iso.labs) || []).map(b => b.poly.map(q => [t.dx + q[0] * v.s, t.dy + q[1] * v.s]));      /* beta 4.2: where the names of the view stand on the sheet */
+    let GD = new Gfx(), left = placeDetails(GD, P, D, toSheet, names());
     if (left.length) {                                   /* no room at the edges: the view moves to the right and the details stand in a column on its left */
-      const Ht = D.reduce((s, d) => s + d.h, 0) + 3 * (D.length - 1), k = Math.min(1, (top - vy0) / Ht), colW = Math.max.apply(null, D.map(d => d.w)) * k + 2; box[0] = ax0 + colW + 2; v = fitView(mk, box[2] - box[0], box[3] - box[1]); t = viewAt(v, box); P = xfPrims(v.prims, v.s, 0, t.dx, t.dy);
+      const Ht = D.reduce((s, d) => s + d.h, 0) + 3 * (D.length - 1), k = Math.min(0.85, (top - vy0) / Ht), colW = Math.max.apply(null, D.map(d => d.w)) * k + 2; box[0] = ax0 + colW + 2; v = fitView(mk, box[2] - box[0], box[3] - box[1]); t = viewAt(v, box); P = xfPrims(v.prims, v.s, 0, t.dx, t.dy);
       GD = new Gfx(); G.p.length = 0; images.length = 0; sheetFrame(S, G, { view: 'ISOMETRIC DETAIL', sheet: 'ISOMETRIC DETAIL', scale: '1:' + v.N + ' ALONG AXES', n, N: total, images });
-      let y = top;
-      for (const d of D) { const gg = new Gfx(), A = toSheet(d.at); d.draw(gg); y -= d.h * k; for (const p of xfPrims(gg.p, k, 0, ax0, y)) GD.p.push(p); GD.ci(A, 2.6, 'lot'); GD.pl([[ax0 + d.w * k, y + d.h * k / 2], A], 'lot'); y -= 3 * k; }
+      let y = top; const NB = names();
+      for (const d of D) { const gg = new Gfx(), A = toSheet(d.at); d.draw(gg); y -= d.h * k; for (const p of xfPrims(gg.p, k, 0, ax0, y)) { p.g = detBlock(d.key); GD.p.push(p); } GD.ci(A, 2.6, 'lot'); for (const q of clipOut([{ k: 'pl', pts: [[ax0 + d.w * k, y + d.h * k / 2], A], lay: 'lot', close: false }], NB)) GD.p.push(q); y -= 3 * k; }
     }
     for (const p of P) G.p.push(p); for (const p of GD.p) G.p.push(p);
     for (const q of (iso && iso.pics) || []) images.push({ id: q.id, x: t.dx + q.x * v.s, y: t.dy + q.y * v.s, w: q.w * v.s, h: q.h * v.s, file: picFile(q.n) });      /* beta 4.1: the photos set on the isometric */
     /* the depth of the open trench is written under the table: in the narrow strip the row has no room for it */
-    let deep = ''; const rowsC = cefTable(S).map((r, i) => { const m = /^(OPEN TRENCH CONDUIT) \((.+)\)$/.exec(r[0]); if (m) deep = m[2]; return [i + 1].concat(m ? [m[1]].concat(r.slice(1)) : r); });
+    let deep = ''; const rowsC = cefTable(S).map((r, i) => { const m = /^((?:OPEN|SHALLOW) TRENCH CONDUIT) \((.+)\)$/.exec(r[0]); if (m) deep = m[2]; return [i + 1].concat(m ? [m[1]].concat(r.slice(1)) : r); });
     const y = drawTable(G, px, PAN.y1, [{ t: 'NO.', w: 7.4, al: 'c' }, { t: 'LIST OF ACTIVITY', w: 38 }, { t: 'TYPE', w: 21, al: 'c' }, { t: 'QTY', w: 8, al: 'c' }, { t: 'LENGTH', w: 13.6, al: 'c' }], rowsC, 'CEF TABLE', TS);
-    para(G, px, y - 1.5, focFormula(S).concat(deep ? ['OPEN TRENCH CONDUIT: ' + deep.replace(/(\d)m /, '$1 m ')] : []), 1.8, pw, 'tp', true);
+    para(G, px, y - 1.5, focFormula(S).concat(deep ? ['TRENCH CONDUIT: ' + deep.replace(/(\d)m /, '$1 m ')] : []), 1.8, pw, 'tp', true);
     push('ISOMETRIC', G, v, images);
   }
   { /* 5. the top view, with the lengths of the two cables on the right */
@@ -349,7 +368,7 @@ function buildSheets(S) {
       let w = bw, h = w / ar; if (h > bh) { h = bh; w = h * ar; }
       const ix = x + (cw - w) / 2, iy = yT - 4 - bh + (bh - h) / 2, file = 'photos/photo_' + String(i + 1).padStart(2, '0') + '.jpg';
       G.pl([[ix, iy], [ix + w, iy], [ix + w, iy + h], [ix, iy + h]], 'ph', 1); images.push({ id: ph.id, x: ix, y: iy, w, h, file });
-      let y = yT - 4 - bh - 1; G.tx([x + 3, y - 3.4], 'PHOTO ' + (i + 1), 2.4, 'ph', 'l', 0, true);
+      let y = yT - 4 - bh - 1; G.tx([x + 3, y - 3.4], S.photos[i] && S.photos[i].title != null && String(S.photos[i].title).trim() ? String(S.photos[i].title).trim() : 'PHOTO ' + (i + 1), 2.4, 'ph', 'l', 0, true);
       y = para(G, x + 3, y - 3.6, [String(ph.cap || '').toUpperCase() || '(NO CAPTION)'].concat(ph.placed ? ['TAKEN ' + f1(ph.x) + ' m FROM THE LEFT SIDE, ' + f1(ph.y) + ' m FROM THE BOTTOM SIDE, FACING ' + Math.round(((num(ph.dir, 0) + num(si.bearing, 0)) % 360 + 360) % 360) + '° (TRUE)'] : ['NOT PLACED ON THE PLAN']), 1.8, cw - 8, 'tx');
     });
     push('PHOTOS ' + (k + 1), G, null, images);
@@ -375,32 +394,47 @@ function toDXF(prims) {
   w(0, 'TABLE', 2, 'LAYER', 70, names.length + 1, 0, 'LAYER', 2, '0', 70, 0, 62, 7, 6, 'CONTINUOUS');
   for (const k of names) w(0, 'LAYER', 2, LAYERS[k][0], 70, 0, 62, LAYERS[k][1], 6, LAYERS[k][2] ? 'DASHED' : 'CONTINUOUS');
   w(0, 'ENDTAB', 0, 'TABLE', 2, 'STYLE', 70, 1, 0, 'STYLE', 2, 'STANDARD', 70, 0, 40, '0.0', 41, '1.0', 50, '0.0', 71, 0, 42, '0.2', 3, 'arial.ttf', 4, '', 0, 'ENDTAB', 0, 'ENDSEC');
-  w(0, 'SECTION', 2, 'BLOCKS', 0, 'ENDSEC');
-  w(0, 'SECTION', 2, 'ENTITIES');
-  for (const p of prims) {
-    const L = LAYERS[p.lay][0];
+  /* one thing of the drawing, written ox, oy away from where it is (inside a block: from the point the block is set down on) */
+  const ent = (p, ox, oy) => {
+    const L = LAYERS[p.lay][0], X = v => n(v - ox), Y = v => n(v - oy);
     if (p.k === 'pl') {
-      if (p.pts.length === 2 && !p.close) w(0, 'LINE', 8, L, 10, n(p.pts[0][0]), 20, n(p.pts[0][1]), 30, '0.0', 11, n(p.pts[1][0]), 21, n(p.pts[1][1]), 31, '0.0');
-      else { w(0, 'POLYLINE', 8, L, 66, 1, 10, '0.0', 20, '0.0', 30, '0.0', 70, p.close ? 1 : 0); for (const q of p.pts) w(0, 'VERTEX', 8, L, 10, n(q[0]), 20, n(q[1]), 30, '0.0'); w(0, 'SEQEND', 8, L); }
+      if (p.pts.length === 2 && !p.close) w(0, 'LINE', 8, L, 10, X(p.pts[0][0]), 20, Y(p.pts[0][1]), 30, '0.0', 11, X(p.pts[1][0]), 21, Y(p.pts[1][1]), 31, '0.0');
+      else { w(0, 'POLYLINE', 8, L, 66, 1, 10, '0.0', 20, '0.0', 30, '0.0', 70, p.close ? 1 : 0); for (const q of p.pts) w(0, 'VERTEX', 8, L, 10, X(q[0]), 20, Y(q[1]), 30, '0.0'); w(0, 'SEQEND', 8, L); }
     }
-    else if (p.k === 'ci') w(0, 'CIRCLE', 8, L, 10, n(p.c[0]), 20, n(p.c[1]), 30, '0.0', 40, n(p.r));
-    else if (p.k === 'ar') w(0, 'ARC', 8, L, 10, n(p.c[0]), 20, n(p.c[1]), 30, '0.0', 40, n(p.r), 50, n((p.a0 % 360 + 360) % 360), 51, n((p.a1 % 360 + 360) % 360));
-    else if (p.k === 'fl') { for (let i = 1; i + 1 < p.pts.length; i++) { const a = p.pts[0], b = p.pts[i], c = p.pts[i + 1]; w(0, 'SOLID', 8, L, 10, n(a[0]), 20, n(a[1]), 30, '0.0', 11, n(b[0]), 21, n(b[1]), 31, '0.0', 12, n(c[0]), 22, n(c[1]), 32, '0.0', 13, n(c[0]), 23, n(c[1]), 33, '0.0'); } }
+    else if (p.k === 'ci') w(0, 'CIRCLE', 8, L, 10, X(p.c[0]), 20, Y(p.c[1]), 30, '0.0', 40, n(p.r));
+    else if (p.k === 'ar') w(0, 'ARC', 8, L, 10, X(p.c[0]), 20, Y(p.c[1]), 30, '0.0', 40, n(p.r), 50, n((p.a0 % 360 + 360) % 360), 51, n((p.a1 % 360 + 360) % 360));
+    else if (p.k === 'fl') { for (let i = 1; i + 1 < p.pts.length; i++) { const a = p.pts[0], b = p.pts[i], c = p.pts[i + 1]; w(0, 'SOLID', 8, L, 10, X(a[0]), 20, Y(a[1]), 30, '0.0', 11, X(b[0]), 21, Y(b[1]), 31, '0.0', 12, X(c[0]), 22, Y(c[1]), 32, '0.0', 13, X(c[0]), 23, Y(c[1]), 33, '0.0'); } }
     else if (p.k === 'tx') {
-      const s = dxfStr(p.s); if (!s.trim()) continue; let hh = p.h, rot = p.a, wf = 0, ob = 0;
+      const s = dxfStr(p.s); if (!s.trim()) return; let hh = p.h, rot = p.a, wf = 0, ob = 0;
       if (p.m) { const ul = Math.hypot(p.m[0], p.m[1]) || 1, ux = p.m[0] / ul, uy = p.m[1] / ul, al = p.m[2] * ux + p.m[3] * uy, up = -p.m[2] * uy + p.m[3] * ux; rot = Math.atan2(uy, ux) / D2R; hh = p.h * up; wf = ul / up; ob = Math.atan2(al, up) / D2R; }
-      w(0, 'TEXT', 8, L, 10, n(p.p[0]), 20, n(p.p[1]), 30, '0.0', 40, n(hh), 1, s); if (wf && Math.abs(wf - 1) > 1e-4) w(41, n(wf)); if (rot) w(50, n((rot % 360 + 360) % 360)); if (ob) w(51, n(ob)); w(7, 'STANDARD'); if (p.al !== 'l') w(72, p.al === 'c' ? 1 : 2, 11, n(p.p[0]), 21, n(p.p[1]), 31, '0.0'); }
+      w(0, 'TEXT', 8, L, 10, X(p.p[0]), 20, Y(p.p[1]), 30, '0.0', 40, n(hh), 1, s); if (wf && Math.abs(wf - 1) > 1e-4) w(41, n(wf)); if (rot) w(50, n((rot % 360 + 360) % 360)); if (ob) w(51, n(ob)); w(7, 'STANDARD'); if (p.al !== 'l') w(72, p.al === 'c' ? 1 : 2, 11, X(p.p[0]), 21, Y(p.p[1]), 31, '0.0'); }
+  };
+  /* beta 4.2 (19:25): every item of the plan is a block: a tower, a cabinet, a pad, a pole, a trench, a ladder, each cable, the lot with its fence. In AutoCAD a
+     click picks the whole item and MOVE takes it in one piece; EXPLODE gives its lines back. The names, the lengths, the notes and the frame of the sheet stay
+     loose, so that a text is retyped as before. A block is set down on the middle of its item; its lines keep their own layers. */
+  const grp = new Map(), loose = [], used = {}, blocks = [];
+  for (const p of prims) { if (!LAYERS[p.lay]) continue; if (p.g) { let q = grp.get(p.g); if (!q) grp.set(p.g, q = []); q.push(p); } else loose.push(p); }
+  for (const [key, L] of grp) {
+    let nm = String(key).split('|')[0].toUpperCase().replace(/[^A-Z0-9_$-]+/g, '_').slice(0, 24) || 'ITEM'; used[nm] = (used[nm] || 0) + 1; if (used[nm] > 1) nm += '_V' + used[nm];
+    const b = primBox(L); if (!isFinite(b[0]) || b[0] > b[2]) { for (const p of L) loose.push(p); continue; }
+    blocks.push({ nm, L, x: Math.round((b[0] + b[2]) / 2 * 1e4) / 1e4, y: Math.round((b[1] + b[3]) / 2 * 1e4) / 1e4 });
   }
+  w(0, 'SECTION', 2, 'BLOCKS');
+  for (const b of blocks) { w(0, 'BLOCK', 8, '0', 2, b.nm, 70, 0, 10, '0.0', 20, '0.0', 30, '0.0', 3, b.nm); for (const p of b.L) ent(p, b.x, b.y); w(0, 'ENDBLK', 8, '0'); }
+  w(0, 'ENDSEC');
+  w(0, 'SECTION', 2, 'ENTITIES');
+  for (const b of blocks) w(0, 'INSERT', 8, '0', 2, b.nm, 10, n(b.x), 20, n(b.y), 30, '0.0');
+  for (const p of loose) ent(p, 0, 0);
   w(0, 'ENDSEC', 0, 'EOF');
   return o.join('\r\n') + '\r\n';
 }
 /* all sheets side by side, each one enlarged so that its view is true size: 1 drawing unit = 1 m */
 function sheetsDXF(sheets) {
-  let all = [], ox = 0; const k0 = 1 / (sheets.find(q => q.name === 'TOP VIEW') || sheets[0]).s;
+  let all = [], ox = 0; const k0 = 1 / (sheets.find(q => q.name === 'TOP VIEW') || sheets[0]).s, seen = {};
   for (const sh of sheets) {
-    const k = sh.N ? 1 / sh.s : k0, G = new Gfx();
+    const k = sh.N ? 1 / sh.s : k0, G = new Gfx(), t3 = (String(sh.name || 'S').replace(/[^A-Za-z]/g, '').slice(0, 3) || 'S').toUpperCase(); seen[t3] = (seen[t3] || 0) + 1; const tag = t3 + (seen[t3] > 1 ? seen[t3] : '');      /* (19:25) the blocks of a sheet carry its name: ISO_ODC_2, TOP_ODC_2 */
     for (const im of sh.images) { if (im.logo) { G.pl([[im.x, im.y], [im.x + im.w, im.y], [im.x + im.w, im.y + im.h], [im.x, im.y + im.h]], 'ph', 1); fitTx(G, [im.x + im.w / 2, im.y + im.h / 2 - 0.8], 'LOGO: ' + im.file, 1.8, im.w - 2, 'ph', 'c'); continue; } G.pl([[im.x, im.y], [im.x + im.w, im.y + im.h]], 'ph'); G.pl([[im.x, im.y + im.h], [im.x + im.w, im.y]], 'ph'); G.tx([im.x + im.w / 2, im.y + im.h / 2 + 3], 'IMAGE FILE: ' + im.file, 2.4, 'ph', 'c'); }
-    all = all.concat(xfPrims(sh.prims.concat(G.p), k, 0, ox, 0)); ox += SH.W * k * 1.06;
+    all = all.concat(xfPrims(sh.prims.concat(G.p), k, 0, ox, 0).map(p => { if (p.g) p.g = tag + '_' + p.g; return p; })); ox += SH.W * k * 1.06;
   }
   return toDXF(all);
 }

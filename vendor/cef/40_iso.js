@@ -34,7 +34,7 @@ Scene.prototype.pit = function (top, depth, lay, hid, o) {
   o = o || {}; const n = top.length, T = top.map(p => this.R(p)), m = this.masks.length; let q = T.map(proj), ar = 0;
   for (let j = 0; j < n; j++) { const a = q[j], b = q[(j + 1) % n]; ar += a[0] * b[1] - b[0] * a[1]; } if (ar < 0) q = q.slice().reverse();
   this.masks.push(q);
-  const under = (a, b) => { this.segs.push({ a, b, lay, id: 0, mask: m, inv: 0 }); if (hid) this.segs.push({ a, b, lay: hid, id: 0, mask: m, inv: 1 }); };
+  const under = (a, b) => { this.segs.push({ a, b, lay, id: 0, mask: m, inv: 0, g: this.own }); if (hid) this.segs.push({ a, b, lay: hid, id: 0, mask: m, inv: 1, g: this.own }); };      /* (19:25) own: the item these lines belong to */
   const B = T.map(p => [p[0], p[1], p[2] - depth]);
   for (let i = 0; i < n; i++) { if (!(o.open && o.open[i])) under(B[i], B[(i + 1) % n]); if (!(o.noV && o.noV[i])) under(T[i], B[i]); }
 };
@@ -55,11 +55,11 @@ Scene.prototype.solid = function (faces, lay, curved) {
   });
   for (const e of E.values()) {
     const A = info[e.f[0]], B = e.f.length > 1 ? info[e.f[1]] : { front: false, curved: false };
-    if (A.front !== B.front || (A.front && B.front && !(A.curved && B.curved))) this.segs.push({ a: e.a, b: e.b, lay, id });
+    if (A.front !== B.front || (A.front && B.front && !(A.curved && B.curved))) this.segs.push({ a: e.a, b: e.b, lay, id, g: this.own });
   }
 };
 /* loose lines (fence, bracing, ladders): they can be hidden, but hide nothing */
-Scene.prototype.line = function (a, b, lay) { this.segs.push({ a: this.R(a), b: this.R(b), lay, id: 0 }); };
+Scene.prototype.line = function (a, b, lay) { this.segs.push({ a: this.R(a), b: this.R(b), lay, id: 0, g: this.own }); };
 Scene.prototype.poly = function (pts, lay, close) { for (let i = 0; i + 1 < pts.length; i++) this.line(pts[i], pts[i + 1], lay); if (close && pts.length > 2) this.line(pts[pts.length - 1], pts[0], lay); };
 /* the parts of a line (ends already turned with R) that no face hides, as pieces [t0, t1]. id: its own solid. thru: solids that do not count */
 Scene.prototype.shown = function (sa, sb, id, thru) {
@@ -97,7 +97,7 @@ Scene.prototype.render = function () {
       for (const v of vis) { if (!s.inv) { if (c) { const a = Math.max(v[0], c[0]), b = Math.min(v[1], c[1]); if (b - a > 1e-6) o2.push([a, b]); } } else if (!c) o2.push(v); else { if (c[0] - v[0] > 1e-6) o2.push([v[0], Math.min(v[1], c[0])]); if (v[1] - c[1] > 1e-6) o2.push([Math.max(v[0], c[1]), v[1]]); } }
       vis = o2;
     }
-    for (const v of vis) out.push({ k: 'pl', pts: [[A[0] + dx * v[0], A[1] + dy * v[0]], [A[0] + dx * v[1], A[1] + dy * v[1]]], lay: s.lay, close: false });
+    for (const v of vis) { const pr = { k: 'pl', pts: [[A[0] + dx * v[0], A[1] + dy * v[0]], [A[0] + dx * v[1], A[1] + dy * v[1]]], lay: s.lay, close: false }; if (s.g) pr.g = s.g; out.push(pr); }
   }
   return out;
 };
@@ -312,8 +312,10 @@ function portPlate(sc, el, side, u, z, lay) {
    X.detail: an enlarged drawing, where every unit is marked and every fifth one numbered */
 function rackFace(S, sc, host, z0, A, X) {
   const K = rackOf(host), lay = elLayer(host), zb = z0 + K.zb, zt = zb + K.n * RU, hw = K.hw, det = !!(X && X.detail), seen = facing(sc, faceN(host, 'F')) > 0.05;
-  for (const sg of [-1, 1]) for (const q of [hw, hw - 0.03]) faceLine(sc, host, 'F', sg * q, zb, sg * q, zt, lay);
-  faceLine(sc, host, 'F', -hw, zb, hw, zb, lay); faceLine(sc, host, 'F', -hw, zt, hw, zt, lay);
+  const hol = !!(X && X.hollow) && host.t === 'odc', yf = -host.d / 2, bxh = (x0, x1, y0, y1, za, zc, ly) => prism(sc, [loc(host, x0, y0), loc(host, x1, y0), loc(host, x1, y1), loc(host, x0, y1)], za, zc, ly);      /* beta 4.2 */
+  if (hol) { const dr = Math.min(host.d - 0.12, 0.6); for (const sg of [-1, 1]) for (const y0 of dr > 0.3 ? [0.004, dr] : [0.004]) bxh(Math.min(sg * hw, sg * (hw - 0.03)), Math.max(sg * hw, sg * (hw - 0.03)), yf + y0, yf + y0 + 0.03, zb, zt, lay); }      /* the four posts of the rack */
+  else { for (const sg of [-1, 1]) for (const q of [hw, hw - 0.03]) faceLine(sc, host, 'F', sg * q, zb, sg * q, zt, lay);
+    faceLine(sc, host, 'F', -hw, zb, hw, zb, lay); faceLine(sc, host, 'F', -hw, zt, hw, zt, lay); }
   if (det) {
     for (let u = 1; u < K.n; u++) for (const sg of [-1, 1]) faceLine(sc, host, 'F', sg * hw, zb + u * RU, sg * (hw - (u % 5 ? 0.015 : 0.03)), zb + u * RU, 'dt');
     if (seen) for (let u = 5; u <= K.n; u += 5) A.push({ k: 'mark', el: host, u: -(hw + 0.04), z: zb + (u - 0.5) * RU, s: String(u), h: 0.026 });
@@ -321,6 +323,7 @@ function rackFace(S, sc, host, z0, A, X) {
   for (const q of rackSlots(S, host)) {
     const e = q.e, il = e.st === 'P' ? 'pp' : 'eq', a = zb + (q.u - 1) * RU + 0.003, b = zb + (q.u - 1 + q.ru) * RU - 0.003, x = hw - 0.002, xi = hw - 0.034;
     faceRect(sc, host, 'F', -x, x, a, b, il);
+    if (hol) bxh(-(hw - 0.034), hw - 0.034, yf + 0.034, yf + Math.max(0.12, Math.min(host.d - 0.1, e.t === 'odf' ? 0.25 : 0.38)), a, b, il);      /* its body, behind the front plate */
     if (e.t === 'odf') {                                             /* a patch panel: one row of adapters for each unit */
       for (let i = 1; i < q.ru; i++) faceLine(sc, host, 'F', -xi, a + (b - a) * i / q.ru, xi, a + (b - a) * i / q.ru, il);
       if (det) { for (let i = 0; i < q.ru; i++) for (let j = 0; j < 12; j++) faceRing(sc, host, 'F', -xi + (j + 0.5) * 2 * xi / 12, a + (b - a) * (i + 0.5) / q.ru, 0.008, il); }
@@ -328,7 +331,7 @@ function rackFace(S, sc, host, z0, A, X) {
     }
     else if (det) { for (let i = 1; i <= 3; i++) faceLine(sc, host, 'F', -xi + 0.02, a + (b - a) * i / 4, -xi + 0.12, a + (b - a) * i / 4, il); faceRing(sc, host, 'F', xi - 0.04, (a + b) / 2, 0.01, il); }
     const pts = [onFace(host, 'F', -x, a), onFace(host, 'F', x, a), onFace(host, 'F', x, b), onFace(host, 'F', -x, b)], nm = elLabel(S, e);
-    A.push({ k: 'el', id: e.id, key: e.id, kind: 'lead', p: onFace(host, 'F', x, (a + b) / 2), s: det ? nm + (e.t === 'odf' && e.size && !e.name ? ' ' + e.size : '') + ', ' + uText(q) : e.t === 'odf' ? nm : '', st: e.st, fp: elPoly(host), z: z0, pts, edit: seen ? 'u' : null, hp: onFace(host, 'F', 0, b), item: 1 });
+    A.push({ k: 'el', id: e.id, key: e.id, kind: 'lead', p: onFace(host, 'F', x, (a + b) / 2), s: det ? nm + (e.t === 'odf' && e.size && !e.name && e.st !== 'P' ? ' ' + e.size : '') + ', ' + uText(q) : e.t === 'odf' ? nm : '', st: e.st, fp: elPoly(host), z: z0, pts, edit: seen ? 'u' : null, hp: onFace(host, 'F', 0, b), item: 1, host });
   }
 }
 /* the shell of a cabin seen from inside: the floor, the two walls at the back at full height, and the two walls at the front cut down to a low kerb, so that the room shows */
@@ -352,14 +355,103 @@ function roomShell(S, sc, A, O) {
     });
   }
 }
+/* beta 4.2 (19:25): what makes an outdoor cabinet look like one, on a cabinet of full size.
+   A door leaf: its frame, a louvre panel at the top (a second one at the foot of a back door; in front the cooling unit is there) and the nameplate. */
+function doorDress(sc, el, side, u0, u1, O, H, lay) {
+  const m = 0.022; if (u1 - u0 < 0.25 || H < 0.6) return;
+  faceRect(sc, el, side, u0 + m, u1 - m, O.zb + m, O.zu - m, lay);
+  const lv = (za, zb, n) => { const a = u0 + 0.07, b = u1 - 0.07; faceRect(sc, el, side, a, b, za, zb, 'dt'); for (let i = 1; i <= n; i++) faceLine(sc, el, side, a + 0.012, za + (zb - za) * i / (n + 1), b - 0.012, za + (zb - za) * i / (n + 1), 'dt'); };
+  const hl = Math.min(0.2, H * 0.14); lv(O.zu - 0.06 - hl, O.zu - 0.06, 6);
+  if (side !== 'F') lv(O.zb + 0.07, O.zb + 0.07 + hl, 6);
+  else { const c = (u0 + u1) / 2; faceRect(sc, el, side, c - 0.06, c + 0.06, O.zu - 0.06 - hl - 0.075, O.zu - 0.06 - hl - 0.03, lay); }
+}
+/* The body: the panel and the low vent of each side, the cover of the base, the four lifting eyes on the roof. Opened, in its detail (o.hol): on the inside of each side wall the cable tray and,
+   at the foot, the earth bar; the gland plates round the holes of the floor. (The back wall of a cabinet seen from a corner is hidden by its side wall.) */
+function odcDress(sc, el, z0, O, o) {
+  const w = el.w, d = el.d, h = Math.max(0.02, num(el.h, 0.02)), H = O.zu - O.zb, lay = o.lay, P = (x, y, z) => { const q = loc(el, x, y); return [q[0], q[1], z]; }, R4 = (a, b, c, e, ly) => sc.poly([a, b, c, e], ly, 1);
+  if (d >= 0.4) for (const sd of ['L', 'R']) { const hd = d / 2, v = Math.min(0.15, hd - 0.1), za = O.zb + 0.08, zb = za + Math.min(0.1, H * 0.08);
+    faceRect(sc, el, sd, -hd + 0.035, hd - 0.035, O.zb + 0.02, O.zu - 0.02, lay); faceRect(sc, el, sd, -v, v, za, zb, 'dt'); for (let i = 1; i <= 3; i++) faceLine(sc, el, sd, -v + 0.01, za + (zb - za) * i / 4, v - 0.01, za + (zb - za) * i / 4, 'dt'); }
+  { const y = -(d / 2 - o.ins) - 0.004, x = w / 2 - o.ins - 0.05; if (x > 0.1 && o.pl > 0.05) R4(P(-x, y, z0 + 0.015), P(x, y, z0 + 0.015), P(x, y, z0 + o.pl - 0.015), P(-x, y, z0 + o.pl - 0.015), lay); }
+  { const y0 = -d / 2 - 0.12, y1 = d / 2 + 0.05, zf = z0 + h - o.rf * 0.45, zk = z0 + h, r = 0.022;      /* the eyes stand on the roof, which slopes to the front */
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) { const x = sx * (w / 2 - 0.05), y = sy * (d / 2 - 0.06), zc = zf + (zk - zf) * (y - y0) / (y1 - y0) + r, Q = []; for (let i = 0; i < 8; i++) { const an = i * Math.PI / 4; Q.push(P(x + r * Math.cos(an), y, zc + r * Math.sin(an))); } sc.poly(Q, lay, 1); } }
+  if (!o.hol) return;
+  for (const sg of [-1, 1]) { const x = sg < 0 ? O.u0 + 0.004 : O.u1 - 0.004, yt = Math.min(0.14, d / 2 - 0.12), za = O.zb + 0.1, y0 = -Math.min(0.26, d / 2 - 0.1), y1 = y0 + 0.2;      /* inside, on each side wall (the one that faces the eye shows): the cable tray, and the earth bar at the foot */
+    for (const dy of [-0.035, 0.035]) sc.line(P(x, yt + dy, O.zb), P(x, yt + dy, O.zu), 'dt');
+    for (let z = O.zb + 0.15; z < O.zu - 0.05; z += 0.2) sc.line(P(x, yt - 0.035, z), P(x, yt + 0.035, z), 'dt');
+    R4(P(x, y0, za), P(x, y1, za), P(x, y1, za + 0.03), P(x, y0, za + 0.03), lay);
+    for (let i = 0; i < 4; i++) { const cy = y0 + (i + 0.5) * 0.05, Q = []; for (let k = 0; k < 6; k++) { const an = k * Math.PI / 3; Q.push(P(x, cy + 0.007 * Math.cos(an), za + 0.015 + 0.007 * Math.sin(an))); } sc.poly(Q, lay, 1); } }
+  { const Hs = cabHoles(el); for (const sg of [-1, 1]) { const L = Hs.filter(q => q.x * sg > 0); if (!L.length) continue; const x0 = Math.min(...L.map(q => q.x - q.r)) - 0.02, x1 = Math.max(...L.map(q => q.x + q.r)) + 0.02, y0 = Math.min(...L.map(q => q.y - q.r)) - 0.02, y1 = Math.max(...L.map(q => q.y + q.r)) + 0.02, z = O.zb + 0.002; R4(P(x0, y0, z), P(x1, y0, z), P(x1, y1, z), P(x0, y1, z), 'dt'); } }      /* the gland plates round the holes of the floor */
+  /* beta 4.2 (22:24): more of how it is built. The screws of the side panels; the brackets and bolts that hold the base frame on the pad; inside, on each side
+     wall, the breaker box with its row of breakers and, above it, the thermostat of the cooling unit. */
+  if (d >= 0.4) for (const sd of ['L', 'R']) { const hd = d / 2; for (const u of [-hd + 0.06, hd - 0.06]) for (const kz of [0.05, 0.5, 0.95]) faceRing(sc, el, sd, u, O.zb + 0.02 + (H - 0.04) * kz, 0.008, lay); }
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) { const x = sx * (w / 2 - o.ins + 0.03), y = sy * (d / 2 - o.ins - 0.09);
+    prism(sc, [P(x - 0.03, y - 0.035, 0), P(x + 0.03, y - 0.035, 0), P(x + 0.03, y + 0.035, 0), P(x - 0.03, y + 0.035, 0)], z0, z0 + 0.008, lay); const c2 = P(x + sx * 0.01, y, 0); tube(sc, [c2[0], c2[1], z0 + 0.008], [c2[0], c2[1], z0 + 0.032], 0.01, 0.01, lay, 6); }
+  if (H >= 0.9 && d >= 0.45) for (const sg of [-1, 1]) { const x = sg < 0 ? O.u0 + 0.004 : O.u1 - 0.004, y0 = -Math.min(0.3, d / 2 - 0.06), y1 = y0 + 0.2, zb = O.zu - 0.5, zt = zb + 0.22;
+    R4(P(x, y0, zb), P(x, y1, zb), P(x, y1, zt), P(x, y0, zt), lay); R4(P(x, y0 + 0.015, zb + 0.015), P(x, y1 - 0.015, zb + 0.015), P(x, y1 - 0.015, zt - 0.015), P(x, y0 + 0.015, zt - 0.015), 'dt');
+    for (let i = 0; i < 6; i++) { const a = y0 + 0.03 + i * 0.024; R4(P(x, a, zb + 0.08), P(x, a + 0.017, zb + 0.08), P(x, a + 0.017, zb + 0.14), P(x, a, zb + 0.14), lay); }
+    const ta = zt + 0.05, tc = y0 + 0.1, Q = []; R4(P(x, tc - 0.04, ta), P(x, tc + 0.04, ta), P(x, tc + 0.04, ta + 0.08), P(x, tc - 0.04, ta + 0.08), lay); for (let k = 0; k < 8; k++) { const an = k * Math.PI / 4; Q.push(P(x, tc + 0.02 * Math.cos(an), ta + 0.04 + 0.02 * Math.sin(an))); } sc.poly(Q, lay, 1); }
+}
 /* the opening of a cabinet whose door stands open */
 function odcOpening(el, z0) { const h = Math.max(0.02, num(el.h, 0.02)), pl = Math.min(0.1, h * 0.1), rf = Math.min(0.07, h * 0.08), zb = z0 + pl + 0.06, zu = z0 + h - rf - 0.06; return { zb, zu, u0: -el.w / 2 + 0.05, u1: el.w / 2 - 0.05, m0: zb + (zu - zb) * 0.38, m1: zb + (zu - zb) * 0.72 }; }
 /* beta 4.1: in the detail of an open cabinet, the cable that comes up inside it to each ODF (the proposed ones, or all when none is proposed). It comes in at the foot,
    runs up beside the rack on the side the user chose (el.cab: { side: 'L' or 'R', off: metres from that edge of the opening }) and turns in to the ODF. */
-function cabCable(S, sc, el, z0, O) {
+/* beta 4.2: the cable holes in the floor of a cabinet: a row along each side wall, from front to back. Places as the cabinet has them: x across and y from
+   front to back, from its middle. */
+function cabHoles(el) {
+  const w = el.w, d = el.d, n = d >= 0.65 ? 4 : d >= 0.4 ? 3 : 2, r = clamp(Math.min(w, d) * 0.03, 0.012, 0.022), xs = Math.max(0.02, w / 2 - 0.05 - Math.max(2.2 * r, 0.045)), y0 = -d / 2 + 0.1, y1 = d / 2 - 0.1, out = [];
+  for (const sg of [-1, 1]) for (let i = 0; i < n; i++) out.push({ x: sg * xs, y: y0 + (y1 - y0) * i / (n - 1), r, side: sg < 0 ? 'L' : 'R', i });
+  return out;
+}
+/* the cable inside an opened cabinet, as lines in space, one for each ODF (the proposed ones, or all when none is proposed): from where it comes in (a hole in the
+   floor, the roof, a wall) to the front of the rack, along the side of the rack to the height of the ODF, and in. el.cab.path: the corners the user drew on the front
+   of the rack, each [across from the middle, height above the foot of the cabinet]; they lead the cable to the first ODF. out.meta: where it starts and ends there. */
+function cabInside(S, el, pt) {
+  const z0 = pt.z0, O = odcOpening(el, z0), K = rackOf(el), zb = z0 + K.zb, odfs = rackSlots(S, el).filter(q => q.e.t === 'odf'), Pp = odfs.filter(q => q.e.st === 'P'), L = Pp.length ? Pp : odfs, out = []; if (!L.length) return out;
+  const cb = el.cab || {}, w = el.w, d = el.d, F = (u, z) => { const q = loc(el, u, -d / 2 - 0.004); return [q[0], q[1], z]; }, W3 = (x, y, z) => { const q = loc(el, x, y); return [q[0], q[1], z]; };
+  const half = (O.u1 - O.u0) / 2, gap = Math.max(0.012, half - K.hw), sd = cb.side === 'R' ? 1 : -1;      /* (beta 4.2: up the left of the rack unless the user moves it) */
+  const offD = (pt.f === 'B' || pt.f === 'T') && sd * pt.lx > K.hw - 0.005 && sd * pt.lx < half - 0.008 ? half - Math.abs(pt.lx) : Math.min(0.03, gap / 2);
+  const off = clamp(cb.off != null && cb.off !== '' ? num(cb.off, offD) : offD, 0.008, Math.max(0.01, half - 0.02)), col = sd < 0 ? O.u0 + off : O.u1 - off, cu = v => clamp(v, O.u0 + 0.008, O.u1 - 0.008), cz = v => clamp(v, O.zb + 0.008, O.zu - 0.008);
+  const path = Array.isArray(cb.path) ? cb.path.filter(q => q && isFinite(q[0]) && isFinite(q[1])).map(q => [cu(+q[0]), cz(z0 + +q[1])]) : [];
+  L.forEach((q, i) => {
+    const z = zb + (q.u - 1 + q.ru / 2) * RU, uu = col - sd * 0.012 * i, ue = sd * (K.hw - 0.03), P = []; let us, zs;
+    if (pt.f === 'T') { zs = O.zu - 0.02 - 0.012 * i; us = cu(pt.lx); P.push(W3(pt.lx, pt.ly, z0 + pt.h), W3(pt.lx, pt.ly, zs), F(us, zs)); }
+    else if (pt.f === 'B') { zs = O.zb + 0.006; us = cu(pt.lx); P.push(W3(pt.lx, pt.ly, zs), F(us, zs)); }
+    else if (pt.f === 'K') { zs = cz(z0 + pt.iz); us = cu(pt.lx); P.push(W3(pt.lx, d / 2, zs), F(us, zs)); }
+    else { zs = cz(z0 + pt.iz); us = pt.f === 'L' ? O.u0 + 0.008 : O.u1 - 0.008; P.push(W3(pt.f === 'L' ? -w / 2 : w / 2, pt.ly, zs), W3(us, pt.ly, zs), F(us, zs)); }
+    if (i === 0) out.meta = { us, zs, z, ue, z0, uu, auto: !path.length };
+    if (path.length && i === 0) { for (const k of path) P.push(F(k[0], k[1])); const l = path[path.length - 1]; if (Math.abs(l[1] - z) > 0.004) P.push(F(l[0], z)); }
+    else { if (Math.abs(us - uu) > 0.004) { const zj = pt.f === 'B' ? O.zb + 0.02 + 0.012 * i : zs; if (Math.abs(zj - zs) > 1e-4) P.push(F(us, zj)); P.push(F(uu, zj)); } P.push(F(uu, z)); }
+    P.push(F(ue, z)); out.push(P);
+  });
+  return out;
+}
+function cabPort(S, el, rg) { if (!el || el.t !== 'odc') return null; return (rg && rg.ports && rg.ports[el.id]) || odcPort(S, el, null); }      /* (19:25: one rule, odcPort; the plan's cable is led to it by routeGeom) */
+/* in the detail of an open cabinet: the cable inside it, from where it comes in to each ODF (the proposed ones, or all when none is proposed). It runs to the side of
+   the rack the user chose (el.cab.side, el.cab.off), along it to the height of the ODF, and turns in. */
+function cabCable(S, sc, el, z0, O, port) {
   const K = rackOf(el), zb = z0 + K.zb, odfs = rackSlots(S, el).filter(q => q.e.t === 'odf'), P = odfs.filter(q => q.e.st === 'P'), L = P.length ? P : odfs; if (!L.length) return;
-  const cb = el.cab || {}, sd = cb.side === 'R' ? 1 : -1, off = clamp(num(cb.off, 0.03), 0.01, Math.max(0.01, (O.u1 - O.u0) / 2 - 0.02)), u = sd < 0 ? O.u0 + off : O.u1 - off;
-  L.forEach((q, i) => { const z = zb + (q.u - 1 + q.ru / 2) * RU, uu = u - sd * 0.012 * i, ue = sd * (K.hw - 0.03); faceLine(sc, el, 'F', uu, z0, uu, z, 'ug'); faceLine(sc, el, 'F', uu, z, ue, z, 'ug'); });
+  const cb = el.cab || {}, pt = port || cabPort(S, el, null), sd = cb.side === 'R' ? 1 : cb.side === 'L' ? -1 : (pt.f !== 'B' && pt.lx > 0.02) || pt.f === 'R' ? 1 : -1;
+  const off = clamp(num(cb.off, 0.03), 0.01, Math.max(0.01, (O.u1 - O.u0) / 2 - 0.02)), u = sd < 0 ? O.u0 + off : O.u1 - off, cu = v => clamp(v, O.u0 + 0.01, O.u1 - 0.01);
+  L.forEach((q, i) => {
+    const z = zb + (q.u - 1 + q.ru / 2) * RU, uu = u - sd * 0.012 * i, ue = sd * (K.hw - 0.03), ln = (a, b, c, e) => { if (Math.abs(a - c) + Math.abs(b - e) > 1e-4) faceLine(sc, el, 'F', a, b, c, e, 'ug'); };
+    if (pt.f === 'T') { const us = cu(pt.lx), zs = O.zu - 0.02 - 0.012 * i; ln(us, O.zu, us, zs); ln(us, zs, uu, zs); ln(uu, zs, uu, z); }
+    else if (pt.f === 'B') { const us = pt.auto && !pt.X ? uu : cu(pt.lx), zs = O.zb + 0.02 + 0.012 * i; if (Math.abs(us - uu) < 0.005) ln(uu, z0, uu, z); else { ln(us, z0, us, zs); ln(us, zs, uu, zs); ln(uu, zs, uu, z); } }
+    else { const us = pt.f === 'L' ? O.u0 : pt.f === 'R' ? O.u1 : cu(pt.lx), zs = clamp(z0 + pt.iz, O.zb + 0.02, O.zu - 0.02); ln(us, zs, uu, zs); ln(uu, zs, uu, z); }
+    ln(uu, z, ue, z);
+  });
+}
+/* the plan's cable round a cabinet whose detail is drawn: cut where it goes in, with the piece from there to the gland */
+function cabEntry(S, el, rg) {
+  const pt = cabPort(S, el, rg); if (!pt) return null; const P = elPoly(el), ins = p => inPoly(p, P);
+  return { port: pt, inside: ins, hop: !!(rg && rg.ports && rg.ports[el.id]),
+    cut: (a, b) => { const ia = ins(a), ib = ins(b); if (ia && ib) return null; if (!ia && !ib) return [a, b]; let t0 = 0, t1 = 1; const at = t => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; for (let k = 0; k < 30; k++) { const m = (t0 + t1) / 2; if (ins(at(m)) === ia) t0 = m; else t1 = m; } const x = at(t0); return ia ? [x, b] : [a, x]; },
+    /* from where the plan's cable meets the cabinet to the gland, kept outside the cabinet: over the roof, under the base, or down the outside of a wall */
+    tail: () => { if (!pt.X) return null; const c = pt.X.p, g = pt.p, f = pt.f, zt = pt.z0 + pt.h + 0.15, zl = pt.z0 - 0.1, hi = c[2] >= pt.z0 + pt.h - 0.03, lo = c[2] <= pt.z0 + 0.25;
+      if (f === 'T') return hi ? [c, [g[0], g[1], c[2]], g] : [c, [c[0], c[1], zt], [g[0], g[1], zt], g];
+      if (f === 'B') return c[2] <= pt.z0 ? [c, [g[0], g[1], c[2]], g] : [c, [c[0], c[1], zl]];      /* from above to the base: down the outside; under the base it is not drawn */
+      if (pt.X.from === f && !hi && !lo) return [c, [c[0], c[1], g[2]], g];
+      const o = f === 'L' ? loc(el, -el.w / 2 - 0.12, pt.ly) : f === 'R' ? loc(el, el.w / 2 + 0.12, pt.ly) : loc(el, pt.lx, el.d / 2 + 0.12), zv = hi ? c[2] : lo ? Math.min(c[2], zl) : zt;
+      return [c, [c[0], c[1], zv], [o[0], o[1], zv], [o[0], o[1], g[2]], g]; } };
 }
 function isoEl(S, el, sc, A, rg, X) {
   const T = TYPES[el.t], lay = X && X.ref ? 'dt' : elLayer(el), c = [el.x, el.y], lp = (x, y) => loc(el, x, y), w = el.w, d = el.d, rot = el.rot || 0;      /* beta 4.1: X.ref = drawn in thin grey, round the detail of a cabinet */
@@ -400,6 +492,13 @@ function isoEl(S, el, sc, A, rg, X) {
       else { breakMark(sc, [el.x, el.y, zt + 0.3], H, R(hd) * 1.7, lay); top = zt + 0.5; }
       extra.push([el.x, el.y, top], [el.x - H[0] * R(hd), el.y - H[1] * R(hd), zt], [el.x + H[0] * R(hd), el.y + H[1] * R(hd), zt]); fp = sqr(c, w / 2 + 0.4, rot); break;
     }
+    case 'tad': {      /* beta 4.2 (22:24): a tadpole: a slim pole, and at its top a wider cylinder that holds the antennas */
+      const r = Math.max(w / 2, 0.08), rt = r * 0.75, hc = Math.min(Math.max(2.4, hr * 0.16), hr * 0.3), rc = Math.max(r * 1.9, r + 0.18), zc = z0 + hr - hc;
+      prism(sc, sqr(c, r + 0.3, rot), z0, z0 + 0.2, lay); frustum(sc, c, z0 + 0.2, z0 + 0.26, r + 0.12, r + 0.12, lay, 12);
+      if (full) { frustum(sc, c, z0, zc, r, rt, lay, 12); frustum(sc, c, zc, zc + 0.15, rt, rc, lay, 12); frustum(sc, c, zc + 0.15, zt, rc, rc, lay, 16); rod(c, 1); top = zt + 1; ringX(rc + 0.3, [zc, zt]); }
+      else { frustum(sc, c, z0, zt, r, r - (r - rt) * hd / hr, lay, 12); breakMark(sc, [el.x, el.y, zt + 0.3], H, r * 1.7, lay); top = zt + 0.5; }
+      extra.push([el.x, el.y, top], [el.x - H[0] * r, el.y - H[1] * r, zt], [el.x + H[0] * r, el.y + H[1] * r, zt]); fp = sqr(c, r + 0.3, rot); break;
+    }
     case 'palm': {
       const R = zr => w / 2 * (1 - 0.36 * zr / hr), cr = 3.5; frustum(sc, c, z0, zt, R(0), R(hd), lay, 12);
       for (let zd = 0.9; zd < hd - 0.4; zd += 0.9) { const r = R(zd) + 0.006, P = []; for (let i = 0; i < 12; i++) P.push([el.x + r * Math.cos(i * Math.PI / 6), el.y + r * Math.sin(i * Math.PI / 6), z0 + zd]); sc.poly(P, 'dt', 1); }   /* trunk rings */
@@ -439,23 +538,68 @@ function isoEl(S, el, sc, A, rg, X) {
       for (let q = 0; q < 3; q++) { const a = Math.max(zc + 0.18, z0 + hd * q / 3), b = z0 + hd * (q + 1) / 3; frustum(sc, m, a, b, 0.17 - 0.035 * q, 0.17 - 0.035 * q, lay, 10); }
       antennas(sc, m, zt - 0.2, 0.09, rot, lay, 3, 1.5, 1); sc.line([m[0], m[1], zt], [m[0], m[1], zt + 0.8], lay); az = zc + 2.4; top = zt + 0.8; extra.push([m[0], m[1], top]); for (const q of fp) extra.push([q[0], q[1], zc + 2.4]); break;
     }
-    case 'pad': prism(sc, elPoly(el), z0, z0 + h, lay); bx = { w, d, z0, z1: z0 + h, top: 1, sides: '' }; break;
+    case 'pad': prism(sc, elPoly(el), z0, z0 + h, lay);
+      for (const K of padSteps(el)) for (let i = 1; i <= K.n; i++) prism(sc, [faceXY(el, K.face, K.u - K.w / 2, -(i - 1) * K.tread), faceXY(el, K.face, K.u + K.w / 2, -(i - 1) * K.tread), faceXY(el, K.face, K.u + K.w / 2, -i * K.tread), faceXY(el, K.face, K.u - K.w / 2, -i * K.tread)], z0, z0 + h - i * K.rise, lay);      /* beta 4.2: its stairs, each step a block down to the ground */
+      bx = { w, d, z0, z1: z0 + h, top: 1, sides: '' }; break;
     case 'odc': {
       const pl = Math.min(0.1, h * 0.1), rf = Math.min(0.07, h * 0.08), n = w >= 1.1 ? 2 : 1, O = odcOpening(el, z0), open = h > 0.8 && !(X && X.ref) && (!!(X && X.only) || rackItems(S, el).length > 0);
-      prism(sc, rectAt(c, w + 0.06, d + 0.06, rot), z0, z0 + pl, lay); prism(sc, elPoly(el), z0 + pl, z0 + h - rf, lay); prism(sc, rectAt(c, w + 0.1, d + 0.1, rot), z0 + h - rf, z0 + h, lay);
+      const big = h > 1 && w > 0.4 && d > 0.3, ins = big ? 0.03 : -0.03, P3w = (x, y, z) => { const q = lp(x, y); return [q[0], q[1], z]; };
+      prism(sc, rectAt(c, w - 2 * ins, d - 2 * ins, rot), z0, z0 + pl, lay);                                  /* the base frame, set back under the body */
+      const hol = open && !!(X && X.only) && w > 0.3 && d > 0.25;      /* beta 4.2: the opened cabinet of a detail is hollow, so that its inside shows */
+      if (hol) { const bxl = (x0, x1, y0, y1, za, zc) => prism(sc, [lp(x0, y0), lp(x1, y0), lp(x1, y1), lp(x0, y1)], za, zc, lay), zb0 = z0 + pl, zt0 = z0 + h - rf, tb = 0.03; X.hollow = 1;
+        bxl(-w / 2, O.u0, -d / 2, d / 2, zb0, zt0); bxl(O.u1, w / 2, -d / 2, d / 2, zb0, zt0); bxl(O.u0, O.u1, d / 2 - tb, d / 2, zb0, zt0);      /* the two side walls and the back */
+        bxl(O.u0, O.u1, -d / 2, d / 2 - tb, zb0, O.zb); bxl(O.u0, O.u1, -d / 2, d / 2 - tb, O.zu, zt0);                                          /* the floor and the top */
+        for (const q of cabHoles(el)) { const P = []; for (let i = 0; i < 10; i++) { const an = i * Math.PI / 5, t = lp(q.x + q.r * Math.cos(an), q.y + q.r * Math.sin(an)); P.push([t[0], t[1], O.zb + 0.003]); } sc.poly(P, 'dt', 1); }      /* the cable holes in the floor */
+      }
+      else prism(sc, elPoly(el), z0 + pl, z0 + h - rf, lay);                                                       /* the body */
+      { const ow = 0.05, of = big ? 0.12 : 0.05, zb2 = z0 + h - rf, zf = big ? z0 + h - rf * 0.45 : z0 + h, zk = z0 + h, x0 = -w / 2 - ow, x1 = w / 2 + ow, y0 = -d / 2 - of, y1 = d / 2 + ow;
+        const b = [P3w(x0, y0, zb2), P3w(x1, y0, zb2), P3w(x1, y1, zb2), P3w(x0, y1, zb2)], t = [P3w(x0, y0, zf), P3w(x1, y0, zf), P3w(x1, y1, zk), P3w(x0, y1, zk)];
+        sc.solid([t, b, [b[0], b[1], t[1], t[0]], [b[1], b[2], t[2], t[1]], [b[2], b[3], t[3], t[2]], [b[3], b[0], t[0], t[3]]], lay); }      /* the roof: it overhangs the door and slopes to the front */
+      const H = O.zu - O.zb, unit = (pa, pb, nx, ny, za, zb2) => {            /* the cooling unit on a door: a shallow box standing out of it, with its grille */
+        const t = 0.05, q = [[pa[0], pa[1]], [pb[0], pb[1]], [pb[0] + nx * t, pb[1] + ny * t], [pa[0] + nx * t, pa[1] + ny * t]]; prism(sc, q.map(k => lp(k[0], k[1])), za, zb2, lay);
+        const e = 0.004, a2 = [pa[0] + nx * (t + e), pa[1] + ny * (t + e)], b2 = [pb[0] + nx * (t + e), pb[1] + ny * (t + e)], m = k => [a2[0] + (b2[0] - a2[0]) * k, a2[1] + (b2[1] - a2[1]) * k];
+        { const zg = za + (zb2 - za) * 0.7, c3 = (k, z) => { const q = m(k); return P3w(q[0], q[1], z); }; sc.poly([c3(0.1, za + 0.02), c3(0.9, za + 0.02), c3(0.9, zg), c3(0.1, zg)], 'dt', 1);      /* (19:25) its grille in a frame, and above it the small cover of its controller */
+          for (let i = 1; i <= 7; i++) { const z = za + 0.02 + (zg - za - 0.02) * i / 8; sc.line(c3(0.14, z), c3(0.86, z), 'dt'); }
+          sc.poly([c3(0.58, zg + (zb2 - zg) * 0.3), c3(0.88, zg + (zb2 - zg) * 0.3), c3(0.88, zg + (zb2 - zg) * 0.75), c3(0.58, zg + (zb2 - zg) * 0.75)], 'dt', 1); } };
       for (const side of ['F', 'B']) {
         if (side === 'F' && open) {                                  /* the door stands open and the rack shows, with what is mounted in it */
           const a = (X && X.only ? 150 : 105) * D2R;
-          faceRect(sc, el, 'F', O.u0, O.u1, O.zb, O.zu, lay); rackFace(S, sc, el, z0, A, X); if (X && X.only) cabCable(S, sc, el, z0, O);
-          const leaf = (uh, dir, len) => { const p0 = [uh, -d / 2], p1 = [uh + dir * len * Math.cos(a), -d / 2 - len * Math.sin(a)], t = 0.03, nx = -(p1[1] - p0[1]) / len * t, ny = (p1[0] - p0[0]) / len * t; prism(sc, [lp(p0[0], p0[1]), lp(p1[0], p1[1]), lp(p1[0] + nx, p1[1] + ny), lp(p0[0] + nx, p0[1] + ny)], O.zb, O.zu, lay); };
+          if (!hol) faceRect(sc, el, 'F', O.u0, O.u1, O.zb, O.zu, lay); rackFace(S, sc, el, z0, A, X); if (X && X.only && !hol) cabCable(S, sc, el, z0, O, X.port);      /* (beta 4.2: in a hollow cabinet the cable inside is drawn after everything else, so that what hides it is known) */
+          const leaf = (uh, dir, len) => { const p0 = [uh, -d / 2], p1 = [uh + dir * len * Math.cos(a), -d / 2 - len * Math.sin(a)], t = 0.03, nx = -(p1[1] - p0[1]) / len, ny = (p1[0] - p0[0]) / len, sg = dir > 0 ? 1 : -1;
+            prism(sc, [lp(p0[0], p0[1]), lp(p1[0], p1[1]), lp(p1[0] + sg * nx * t, p1[1] + sg * ny * t), lp(p0[0] + sg * nx * t, p0[1] + sg * ny * t)], O.zb, O.zu, lay);
+            if (big && len > 0.3) { const k = q => [p0[0] + (p1[0] - p0[0]) * q + sg * nx * t, p0[1] + (p1[1] - p0[1]) * q + sg * ny * t]; unit(k(0.16), k(0.84), sg * nx, sg * ny, O.zb + H * 0.07, O.zb + H * 0.42);
+              if (hol) { const e2 = 0.004, c3 = (q, z) => { const t2 = k(q); return P3w(t2[0] + sg * nx * e2, t2[1] + sg * ny * e2, z); }, fr = (q0, q1, za, zb, ly) => sc.poly([c3(q0, za), c3(q1, za), c3(q1, zb), c3(q0, zb)], ly, 1);      /* (19:25) inside the door: its frame, and the pocket for the documents */
+                fr(0.05, 0.95, O.zb + H * 0.03, O.zu - H * 0.03, lay); fr(0.3, 0.7, O.zb + H * 0.62, O.zb + H * 0.8, lay); sc.line(c3(0.3, O.zb + H * 0.76), c3(0.7, O.zb + H * 0.76), 'dt');
+                /* beta 4.2 (22:24), more of how it is built: the gasket; the rod of the lock with its case and two guides; the three hinges; the stay that holds the door open */
+                fr(0.085, 0.915, O.zb + H * 0.055, O.zu - H * 0.055, 'dt');
+                { const zm = O.zb + H * 0.52; sc.line(c3(0.935, O.zb + H * 0.045), c3(0.935, O.zu - H * 0.045), lay); fr(0.9, 0.97, zm - 0.06, zm + 0.06, lay); for (const kz of [0.2, 0.82]) fr(0.92, 0.95, O.zb + H * kz - 0.012, O.zb + H * kz + 0.012, lay); }
+                for (const kz of [0.12, 0.5, 0.88]) { const hq = lp(p0[0], p0[1] - 0.014); tube(sc, [hq[0], hq[1], O.zb + H * kz - 0.04], [hq[0], hq[1], O.zb + H * kz + 0.04], 0.012, 0.012, lay, 6); }
+                { const s0 = lp(uh + dir * Math.min(0.22, len * 0.4), -d / 2 - 0.004), s1 = k(0.34); sc.line([s0[0], s0[1], O.zu - 0.012], P3w(s1[0], s1[1], O.zu - 0.012), lay); } } } };      /* its cooling unit, seen from the inside */
           if (n === 1) leaf(O.u0, 1, O.u1 - O.u0); else { leaf(O.u0, 1, (O.u1 - O.u0) / 2); leaf(O.u1, -1, (O.u1 - O.u0) / 2); }
           continue;
         }
         for (let q = 0; q < n; q++) {
           const u0 = -w / 2 + 0.05 + q * (w - 0.1) / n, u1 = u0 + (w - 0.1) / n - (n > 1 ? 0.02 : 0); faceRect(sc, el, side, u0, u1, O.zb, O.zu, lay);
-          if (h > 1) { const uh = q === 0 && n > 1 ? u1 - 0.08 : (n > 1 ? u0 + 0.08 : u1 - 0.09); faceLine(sc, el, side, uh, O.zb + (O.zu - O.zb) * 0.45, uh, O.zb + (O.zu - O.zb) * 0.58, lay); for (let i = 1; i <= 3; i++) faceLine(sc, el, side, u0 + 0.08, O.zu - 0.07 * i - 0.04, u1 - 0.08, O.zu - 0.07 * i - 0.04, 'dt'); }
+          if (h > 1) {
+            const hs = n > 1 && q === 1 ? -1 : 1, uh = hs > 0 ? u1 - 0.07 : u0 + 0.07, uj = hs > 0 ? u0 + 0.014 : u1 - 0.014;
+            if (big && side === 'F') { faceRect(sc, el, side, uh - 0.016, uh + 0.016, O.zb + H * 0.46, O.zb + H * 0.6, lay); for (const k of [0.12, 0.5, 0.88]) faceLine(sc, el, side, uj, O.zb + H * k - 0.035, uj, O.zb + H * k + 0.035, lay); }      /* the lock handle; the hinges */
+            else faceLine(sc, el, side, uh, O.zb + H * 0.45, uh, O.zb + H * 0.58, lay);
+            if (big) doorDress(sc, el, side, u0, u1, O, H, lay); else for (let i = 1; i <= 3; i++) faceLine(sc, el, side, u0 + 0.08, O.zu - 0.07 * i - 0.04, u1 - 0.08, O.zu - 0.07 * i - 0.04, 'dt');      /* louvres (19:25: on a cabinet of full size, the whole door) */
+            if (big && side === 'F' && u1 - u0 > 0.3) unit([u0 + (u1 - u0) * 0.16, -d / 2], [u0 + (u1 - u0) * 0.84, -d / 2], 0, -1, O.zb + H * 0.07, O.zb + H * 0.42);
+          }
         }
       }
+      if (big && !(X && X.ref)) odcDress(sc, el, z0, O, { lay, hol, ins, pl, rf });      /* (19:25) */
+      { const pt = X && X.port && X.only ? X.port : !(X && X.ref) && ((el.cab && el.cab.in && el.cab.in !== 'A') || rackItems(S, el).some(e => e.t === 'odf')) ? cabPort(S, el, rg) : null;      /* the gland where the cable goes in */
+        if (pt && (pt.X || !pt.auto || hol)) { const g = 0.035, il = 'pp';
+          if (pt.f === 'T') prism(sc, rectAt(lp(pt.lx, pt.ly), 2 * g, 2 * g, rot), z0 + h - rf * 0.3, z0 + h + 0.05, il);
+          else if (pt.f === 'B' && hol) { const P = [], rr = 0.03, zf = O.zb + 0.004, c3 = (x, y) => { const t = lp(x, y); return [t[0], t[1], zf]; }; for (let i = 0; i < 12; i++) { const an = i * Math.PI / 6; P.push(c3(pt.lx + rr * Math.cos(an), pt.ly + rr * Math.sin(an))); } sc.poly(P, il, 1);      /* the hole the cable goes through: a ring on the floor */
+            sc.line(c3(pt.lx - rr * 0.7, pt.ly - rr * 0.7), c3(pt.lx + rr * 0.7, pt.ly + rr * 0.7), il); sc.line(c3(pt.lx - rr * 0.7, pt.ly + rr * 0.7), c3(pt.lx + rr * 0.7, pt.ly - rr * 0.7), il); }
+          else if (pt.f === 'B') faceRect(sc, el, Math.abs(pt.ly) > d / 2 - 0.12 && pt.ly > 0 ? 'B' : 'F', (pt.ly > 0 && Math.abs(pt.ly) > d / 2 - 0.12 ? -1 : 1) * pt.lx - g, (pt.ly > 0 && Math.abs(pt.ly) > d / 2 - 0.12 ? -1 : 1) * pt.lx + g, z0 + 0.012, z0 + pl - 0.012, il);
+          else { const sd = pt.f === 'K' ? 'B' : pt.f, u = pt.f === 'K' ? -pt.lx : pt.f === 'R' ? pt.ly : -pt.ly; faceRect(sc, el, sd, u - g, u + g, z0 + pt.iz - g, z0 + pt.iz + g, il); faceLine(sc, el, sd, u - g, z0 + pt.iz - g, u + g, z0 + pt.iz + g, il); faceLine(sc, el, sd, u - g, z0 + pt.iz + g, u + g, z0 + pt.iz - g, il); } 
+          if (hol && (pt.f === 'L' || pt.f === 'R')) { const xi = pt.f === 'L' ? O.u0 + 0.003 : O.u1 - 0.003, zc = z0 + pt.iz, c3 = (y, z) => { const t = lp(xi, y); return [t[0], t[1], z]; }; sc.poly([c3(pt.ly - g, zc - g), c3(pt.ly + g, zc - g), c3(pt.ly + g, zc + g), c3(pt.ly - g, zc + g)], il, 1); }      /* the same place seen from inside */
+          if (hol && rackItems(S, el).some(e => e.t === 'odf')) { const key = 'gl' + el.id; A.push({ k: 'el', key, kind: 'lead', p: [pt.p[0], pt.p[1], pt.f === 'B' ? O.zb : pt.p[2]], s: labText(S, key, 'FOC ENTRY'), st: 'P', fp: elPoly(el), z: z0, pts: null }); }
+        } }
       bx = { w, d, z0: z0 + pl, z1: z0 + h - rf, top: 1, zt: z0 + h, tw: w + 0.1, td: d + 0.1, sides: open ? 'RBL' : 'FRBL' }; break;
     }
     case 'cabin': {
@@ -563,19 +707,27 @@ function trenchIso(S, r, sc, lay, wd) {
     if (!FLAT) for (let i = 0; i + 1 < n; i++) sc.pit([T1[i], T1[i + 1], T2[i + 1], T2[i]], dp, lay, hid, { open: [0, i + 2 < n, 0, i > 0], noV: [i > 0, 0, 0, i > 0] });
   }
 }
+/* beta 4.2: how high the top of a base pad stands above the ground at a point; 0 where there is none */
+function padH(S, p) { for (const q of S.els) if (q.t === 'pad' && inPoly(p, elPoly(q))) return Math.max(0, num(q.h, 0)); return 0; }
 function isoRun(S, r, sc, A, O, rg) {
-  const P = r.pts, K = RUNS[r.kind] || RUNS.ladder, lay = runLayer(r), wd = Math.max(0.05, num(r.w, K.w)), hw = wd / 2, ug = buried(r), dpR = runDepthD(r), hid = r.st === 'P' ? 'hp' : 'hd', zo = ug ? 0 : Math.max(0, num(r.z, K.z)); if (!P || P.length < 2) return;
+  const P = r.pts, K = RUNS[r.kind] || RUNS.ladder, lay = runLayer(r), wd = Math.max(0.05, num(r.w, K.w)), hw = wd / 2, ug = buried(r), dpR = runDepthD(r), hid = r.st === 'P' ? 'hp' : 'hd', zo = ug ? 0 : Math.max(0, num(r.z, K.z)) + ladBase(S, r); if (!P || P.length < 2) return;      /* (19:25: a ladder stands on the base pad it runs over) */
   const hulls = S.els.map(e => ({ e, h: towerHull(e) })).filter(q => q.h), inTower = q => hulls.find(t => inPoly(q, t.h));
   let zl = 0, ln = [0, 1], best = 0, bi = 0;
   if (r.kind === 'trench') trenchIso(S, r, sc, lay, wd);
   if (r.kind === 'ladder') {                              /* two rails and the rungs between them, round each bend in one piece; then what holds it up */
     const ST = ladPath(r), Wk = ladWalk(ST, hw), zs = ST.map(q => groundZ(S, q.p) + zo), zAt = q => zs[q.i] + (zs[q.i + 1] - zs[q.i]) * q.t;
     for (const sg of [-1, 1]) for (const dz of [0, -0.07]) sc.poly(ST.map((q, i) => [q.p[0] + q.n[0] * q.k * hw * sg, q.p[1] + q.n[1] * q.k * hw * sg, zs[i] + dz]), lay);
+    if (!S.room && zo > 0.25 && nameOn(S, 'shade')) {     /* beta 4.2: where a raised ladder passes over a base pad, its outline on the pad. On the isometric a raised ladder shows away from what it stands over. */
+      const pads = S.els.filter(e => e.t === 'pad').map(e => { const P = elPoly(e).map(q => [q[0], q[1]]); let ar = 0; for (let j = 0; j < P.length; j++) { const a = P[j], b = P[(j + 1) % P.length]; ar += a[0] * b[1] - b[0] * a[1]; } if (ar < 0) P.reverse(); return { P, z: groundZ(S, [e.x, e.y]) + Math.max(0, num(e.h, 0)) + 0.004 }; });
+      const on = (a, b) => { for (const pd of pads) { const c = clipConvex(a, b[0] - a[0], b[1] - a[1], pd.P); if (c && (c[1] - c[0]) * Math.hypot(b[0] - a[0], b[1] - a[1]) > 0.02) sc.line([a[0] + (b[0] - a[0]) * c[0], a[1] + (b[1] - a[1]) * c[0], pd.z], [a[0] + (b[0] - a[0]) * c[1], a[1] + (b[1] - a[1]) * c[1], pd.z], 'dt'); } };
+      if (pads.length) { const E = [-1, 1].map(sg => ST.map(q => [q.p[0] + q.n[0] * q.k * hw * sg, q.p[1] + q.n[1] * q.k * hw * sg])); for (const L2 of E) for (let i = 0; i + 1 < L2.length; i++) on(L2[i], L2[i + 1]); on(E[0][0], E[1][0]); on(E[0][E[0].length - 1], E[1][E[1].length - 1]);
+        const nr = Math.max(1, Math.round(Wk.tot / 0.4)); for (let k = 1; k < nr; k++) { const q = Wk.at(k * Wk.tot / nr); on([q.p[0] + q.v[0], q.p[1] + q.v[1]], [q.p[0] - q.v[0], q.p[1] - q.v[1]]); } }
+    }
     const nr = Math.max(1, Math.round(Wk.tot / 0.4)); for (let k = 0; k <= nr; k++) { const q = Wk.at(k * Wk.tot / nr), z = zAt(q); sc.line([q.p[0] + q.v[0], q.p[1] + q.v[1], z], [q.p[0] - q.v[0], q.p[1] - q.v[1], z], lay); }
     /* supports at both ends and at the middle of each corner, and between those no further apart than 3 m (2 m for the rods of a ladder indoors) */
     const B = [0]; ST.forEach((q, i) => { if (q.c) B.push(Wk.D[i]); }); B.push(Wk.tot);
     const hold = q => {
-      const zz = zAt(q), gz = groundZ(S, q.p);
+      const zz = zAt(q), gz = groundZ(S, q.p) + (S.room ? 0 : padH(S, q.p));      /* (beta 4.2: on a base pad the support stands on the pad) */
       if (S.room) { const zc = Math.max(zz + 0.15, num(S.site.fh, 2.8)); for (const sg of [-1, 1]) sc.line([q.p[0] + q.v[0] * sg, q.p[1] + q.v[1] * sg, zz], [q.p[0] + q.v[0] * sg, q.p[1] + q.v[1] * sg, zc], 'dt'); }
       else if (!inTower(q.p) && zz - gz > 0.3) { if (O) O.push({ post: [[q.p[0], q.p[1], gz], [q.p[0], q.p[1], zz]] }); tube(sc, [q.p[0], q.p[1], gz], [q.p[0], q.p[1], zz - 0.07], 0.035, 0.035, lay, 6); sc.line([q.p[0] + q.v[0], q.p[1] + q.v[1], zz - 0.07], [q.p[0] - q.v[0], q.p[1] - q.v[1], zz - 0.07], lay); sc.poly(sqr(q.p, 0.12, 0).map(t => [t[0], t[1], gz + 0.004]), lay, 1); }
     };
@@ -591,8 +743,8 @@ function isoRun(S, r, sc, A, O, rg) {
       const cut = v ? (v.at[0] - E[0]) * d[0] + (v.at[1] - E[1]) * d[1] + v.R : xe ? (xe.x - E[0]) * d[0] + (xe.y - E[1]) * d[1] + bendR(dpR - STD.hdpe / 2) : 0; if (cut > 0 && cut < len - 0.02) Q[i0] = [E[0] + d[0] * cut, E[1] + d[1] * cut];
     }
     for (const Q2 of outsidePits(S, Q)) {                 /* it stops at the wall of a hand hole or service box */
-      for (const k of [0, 1, 2]) sc.poly(Q2.map(q => [q[0], q[1], zb + k * wd]), hid);
-      for (const q of [Q2[0], Q2[Q2.length - 1]]) sc.line([q[0], q[1], zb], [q[0], q[1], zb + 2 * wd], hid);
+      for (const k of runN(r) === 1 ? [0, 1] : [0, 1, 2]) sc.poly(Q2.map(q => [q[0], q[1], zb + k * wd]), hid);      /* (19:25: one run, one pipe) */
+      for (const q of [Q2[0], Q2[Q2.length - 1]]) sc.line([q[0], q[1], zb], [q[0], q[1], zb + (runN(r) === 1 ? 1 : 2) * wd], hid);
     }
   }
   else if (ug && r.kind !== 'trench') {                   /* a buried pipe: its two edges, joined round the corners */
@@ -605,7 +757,7 @@ function isoRun(S, r, sc, A, O, rg) {
     const ux = (b[0] - a[0]) / len, uy = (b[1] - a[1]) / len, nx = -uy * hw, ny = ux * hw, g = groundZ(S, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]), zz = g + zo;
     if (r.kind === 'ladder' || (ug && r.kind !== 'trench')) { /* drawn above, in one piece */ }
     else if (r.kind === 'conduit') {
-      const rr = Math.max(0.02, hw), zc = zz + 3 * rr; for (const k of [1, 3]) tube(sc, [a[0], a[1], zz + k * rr], [b[0], b[1], zz + k * rr], rr, rr, lay, 8);      /* two pipes, one on top of the other */
+      const rr = Math.max(0.02, hw), zc = zz + 3 * rr; for (const k of runN(r) === 1 ? [1] : [1, 3]) tube(sc, [a[0], a[1], zz + k * rr], [b[0], b[1], zz + k * rr], rr, rr, lay, 8);      /* two pipes, one on top of the other */
       if (zo > 0.3) { const m = Math.max(1, Math.ceil(len / 2.5)); for (let k = 0; k <= m; k++) { const t = k * len / m; if (O) O.push({ post: [[a[0] + ux * t, a[1] + uy * t, g], [a[0] + ux * t, a[1] + uy * t, zc]] }); sc.line([a[0] + ux * t, a[1] + uy * t, g], [a[0] + ux * t, a[1] + uy * t, zc - rr], lay); } }
     }
     else if (r.kind === 'encase') prism(sc, [[a[0] + nx, a[1] + ny], [a[0] - nx, a[1] - ny], [b[0] - nx, b[1] - ny], [b[0] + nx, b[1] + ny]], zz, zz + 0.12, lay);
@@ -679,7 +831,18 @@ function clipOut(prims, quads) {
       }
       segs = nx;
     }
-    if (!cut) out.push(p); else for (const sg of segs) out.push({ k: 'pl', pts: sg, lay: p.lay, close: false });
+    if (!cut) out.push(p); else for (const sg of segs) { const pr = { k: 'pl', pts: sg, lay: p.lay, close: false }; if (p.g) pr.g = p.g; out.push(pr); }
+  }
+  return out;
+}
+/* keep only the parts of drawn lines that lie inside a box [x0, y0, x1, y1] */
+function clipIn(prims, B) {
+  const out = [];
+  for (const p of prims) {
+    if (p.k !== 'pl' || p.pts.length !== 2) continue;
+    const A = p.pts[0], dx = p.pts[1][0] - A[0], dy = p.pts[1][1] - A[1]; let t0 = 0, t1 = 1, ok = true;
+    for (const [pp, qq] of [[-dx, A[0] - B[0]], [dx, B[2] - A[0]], [-dy, A[1] - B[1]], [dy, B[3] - A[1]]]) { if (Math.abs(pp) < 1e-12) { if (qq < 0) { ok = false; break; } } else { const r = qq / pp; if (pp < 0) { if (r > t1) { ok = false; break; } if (r > t0) t0 = r; } else { if (r < t0) { ok = false; break; } if (r < t1) t1 = r; } } }
+    if (ok && t1 - t0 > 1e-6) out.push({ k: 'pl', pts: [[A[0] + dx * t0, A[1] + dy * t0], [A[0] + dx * t1, A[1] + dy * t1]], lay: p.lay, close: false });
   }
   return out;
 }
@@ -699,19 +862,16 @@ function buildIso0(S, o) {
   const th = (o.th || (one ? 0.05 : clamp(Math.max(L, W) / 50, S.room ? 0.06 : 0.25, 1.6))) * txK(S), lab = o.labels !== false, VK = 'i' + sc.k, P3 = p => sc.P(p), tl = s => s === 'P' ? 'tp' : s === 'L' ? 'ln' : 'tx';
   const rg = one ? routeGeom({ site: si, gates: [], els: [], runs: [], route: {} }) : routeGeom(S);
   const rgT = one || !FLAT ? rg : (() => { FLAT = false; try { return routeGeom(S); } finally { FLAT = true; } })();      /* the lengths written on the drawing are the real ones, depth and all */
-  if (one) isoEl(S, one, sc, A3, rg, X);          /* one cabinet alone, enlarged, its door open */
-  if (one) { if (!S.room && o.around !== false) {            /* beta 4.1: what stands round it (its pad, the next cabinet, the exit conduit), in thin grey, to place the detail */
-    const bb = polyBox(elPoly(one)), hit = (b, g) => b[0] <= bb[2] + g && b[2] >= bb[0] - g && b[1] <= bb[3] + g && b[3] >= bb[1] - g;
-    for (const e of S.els) { if (e === one || inRack(e) || TYPES[e.t].g === 'tower' || e.t === 'cabin') continue; const b = polyBox(elPoly(e));
-      if (e.t === 'pad') { if (!hit(b, 0)) continue; const m = 0.45, x0 = Math.max(b[0], bb[0] - m), x1 = Math.min(b[2], bb[2] + m), y0 = Math.max(b[1], bb[1] - m), y1 = Math.min(b[3], bb[3] + m), zb = baseZ(S, e), zt = zb + Math.max(0.02, num(e.h, 0.02)); if (x1 - x0 > 0.05 && y1 - y0 > 0.05) prism(sc, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], zb, zt, 'dt'); }      /* of a pad, only the part under and round the cabinet: the whole pad would make the detail small */
-      else if (hit(b, 0.9)) isoEl(S, e, sc, [], rg, { ref: 1, cm: [] });
-    }
-  } }
+  const rgC = one && !S.room ? routeGeom(S) : null; if (one) X.port = cabPort(S, one, o.around === false ? null : rgC);
+  const BN = blockNames(S), gq = ++GSEQ, gk = k => (k || 'ITEM') + '|' + gq;      /* (19:25) the lines of every item carry the name of its block */
+  if (one) { sc.own = gk(BN[one.id]); isoEl(S, one, sc, A3, rg, X); sc.own = null; }          /* one cabinet alone, enlarged, its door open */
+  if (one) { /* beta 4.2: what stands round it is drawn below, from the whole plan */ }
   else {
-  isoGround(S, sc, A3, O3);
-  for (const el of S.els) if (el.t === 'pad') isoEl(S, el, sc, A3, rg, X);
-  for (const el of S.els) if (el.t !== 'pad') isoEl(S, el, sc, A3, rg, X);
-  for (const r of S.runs) isoRun(S, r, sc, A3, O3, rg);
+  sc.own = gk('SITE'); isoGround(S, sc, A3, O3);
+  for (const el of S.els) if (el.t === 'pad') { sc.own = gk(BN[el.id]); isoEl(S, el, sc, A3, rg, X); }
+  for (const el of S.els) if (el.t !== 'pad') { sc.own = gk(BN[el.id]); isoEl(S, el, sc, A3, rg, X); }
+  for (const r of S.runs) { sc.own = gk(BN[r.id]); isoRun(S, r, sc, A3, O3, rg); }
+  sc.own = null;
   /* a buried piece of the UG cable with no conduit drawn under it still lies in one: two pipes, one on top of the other, drawn as for a drawn conduit. In an open trench they lie in the open, so in full lines. */
   if (!FLAT) for (const k of ownConduit(rg)) { const zb = k.l.za - STD.hdpe / 2, lay = k.st === 'E' ? (k.open ? 'ex' : 'hd') : k.open ? 'pp' : 'hp'; for (const Q of outsidePits(S, [k.a, k.b])) for (const j of [0, 1, 2]) sc.line([Q[0][0], Q[0][1], zb + j * STD.hdpe], [Q[Q.length - 1][0], Q[Q.length - 1][1], zb + j * STD.hdpe], lay); }
   /* what the app adds for the UG fiber: exit conduits, the riser pipe on the pole with its bend, the closure where AE and UG meet */
@@ -731,7 +891,35 @@ function buildIso0(S, o) {
     A3.push({ k: 'el', key: 'clo', kind: 'lead', p: [j.c[0], j.c[1], j.z + STD.cloH * 0.6], s: labText(S, 'clo', 'PROPOSED CLOSURE'), st: 'P', fp: sqr(j.c, 0.15, 0), z: j.z, pts: cloPts(j.c, j.z) });
   }
   }
-  const R0 = sc.render(), GT = new Gfx(), LB = new Labeler(GT), FB = [], fibP = [], legs2 = [], far = [], quads = []; let skipped = 0;
+  const R0 = sc.render(), GT = new Gfx(), LB = new Labeler(GT), FB = [], fibP = [], fibH = [], legs2 = [], far = [], quads = []; let skipped = 0, strict = 0;
+  let CTX = [], fb = null;
+  if (one) { const pts = []; for (const p of R0) if (p.k === 'pl') for (const q of p.pts) pts.push(q); if (pts.length > 2) fb = polyBox(pts);
+    if (fb && !S.room && o.around !== false) {
+      const sc2 = new Scene(sc.k, L / 2, W / 2), T = [], hq = [hull(pts)], DASH = { hd: 1, hp: 1, nd: 1, np: 1, fh: 1 };
+      isoGround(S, sc2, T, T);
+      for (const el of S.els) if (el !== one && el.t === 'pad') isoEl(S, el, sc2, [], rgC, { ref: 1, cm: [] });
+      for (const el of S.els) if (el !== one && el.t !== 'pad' && !(inRack(el) && rackHost(S, el))) isoEl(S, el, sc2, [], rgC, { ref: 1, cm: [] });
+      for (const r of S.runs) isoRun(S, r, sc2, T, T, rgC);
+      CTX = clipOut(sc2.render().filter(p => p.k === 'pl' && p.pts.length === 2 && !DASH[p.lay]).map(p => ({ k: 'pl', pts: p.pts, lay: 'dt', close: false })), hq);
+      const cab = cabEntry(S, one, rgC), fl = [];            /* the cable of the plan, in its colour, up to where it goes into this cabinet; what the cabinet hides of it is dashed, as on the plan of the whole site */
+      const put3 = (a, b, lay, hid) => { const p = P3(a), q = P3(b), dx = q[0] - p[0], dy = q[1] - p[1]; if (Math.abs(dx) + Math.abs(dy) < 1e-6) return; let t = 0; const at = k => [p[0] + dx * k, p[1] + dy * k], pc = (k0, k1, ly) => { if (k1 - k0 > 1e-5 && ly) fl.push({ k: 'pl', pts: [at(k0), at(k1)], lay: ly, close: false }); };
+        for (const v of sc.shown(sc.R(a), sc.R(b), 0, sc.thru)) { pc(t, v[0], hid); pc(v[0], v[1], lay); t = v[1]; } pc(t, 1, hid); };      /* hid: the layer of the pieces that the cabinet hides; none: they are left out */
+      /* beta 4.2 (22:24): only the cable of this cabinet is drawn here: the way to its entry (the pieces the route made for it) and, before that, a short piece
+         that shows where it comes from. The rest of the plan's cable is left out: round an opened cabinet it only crossed the picture. Inside, the cabinet draws it. */
+      if (cab && cab.hop) {
+        const own = rgC.legs.filter(l => l.hop === one.id && !l.inside), i0 = own.length ? rgC.legs.indexOf(own[0]) : -1, pv = i0 > 0 ? rgC.legs[i0 - 1] : null;
+        if (pv && !pv.inside && !pv.hop && pv.len > 0.05) { const k = Math.max(0, 1 - 0.6 / pv.len), a = [pv.a[0] + (pv.b[0] - pv.a[0]) * k, pv.a[1] + (pv.b[1] - pv.a[1]) * k, pv.za + (pv.zb - pv.za) * k]; put3(a, [pv.b[0], pv.b[1], pv.zb], LEG[pv.type].lay, null); }
+        for (const l of own) put3([l.a[0], l.a[1], l.za], [l.b[0], l.b[1], l.zb], LEG[l.type].lay, null);
+        for (const v of rgC.verts) { const zr = cab.port.z0 + cab.port.h, ly = LEG[v.type] ? LEG[v.type].lay : 'ug';
+          if (v.inside || cab.inside(v.at)) { if (!v.inside && v.z1 > zr + 0.01) put3([v.at[0], v.at[1], Math.max(v.z0, zr)], [v.at[0], v.at[1], v.z1], ly, null); }      /* over the cabinet: only what is above the roof */
+          else if (v.hop === one.id) put3([v.at[0], v.at[1], v.z0], [v.at[0], v.at[1], v.z1], ly, null); }
+      }
+      CTX = CTX.concat(cab && cab.cut ? fl : clipOut(fl, hq));
+      if (o.clip) {                                        /* on a sheet. (beta 4.2: the plan round the cabinet fills the whole place of the detail, up to its edges; only a band at the top is left for the title) */
+        const cx = (fb[0] + fb[2]) / 2, cy = (fb[1] + fb[3]) / 2, m = Math.max(fb[2] - fb[0], fb[3] - fb[1]) * 0.45, bw = o.box && o.box[0] > 0 ? o.box[0] * 0.97 : 0, bh = o.box && o.box[1] > 0 ? o.box[1] * 0.97 : 0;
+        CTX = clipIn(CTX, bw && bh ? [cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2 - bh * 0.09] : [fb[0] - m, fb[1] - m * 0.5, fb[2] + m, fb[3] + m * 0.35]); }
+    }
+  }
   const pics = []; if (!one && !S.room && o.pics !== false) (S.photos || []).forEach((ph, i) => { const q = ph.ci; if (!q || !isFinite(q.tx) || !isFinite(q.ty)) return; const t2 = P3([num(q.tx, 0), num(q.ty, 0), num(q.tz, 0)]); picOn(LB, ph, i, [t2[0] + num(q.ox, 0), t2[1] + num(q.oy, 0)], t2, picW(S, q), th, pics); });      /* beta 4.1: the photos set on the isometric */
   for (const a of A3) if (a.k === 'ghost') FB.push({ k: 'pl', pts: a.pts.map(P3), lay: a.lay, close: true });      /* something on a far wall, shown through what stands in front */
   for (const a of A3) if (a.k === 'mark') {                 /* small figures written on a face: the numbers of the rack units */
@@ -755,19 +943,21 @@ function buildIso0(S, o) {
     for (const l of C.legs) FB.push({ k: 'pl', pts: [P3(l.a), P3(l.b)], lay: 'fh', close: false });
   }
   /* the fibers go on last and are never hidden: the plan must show all of them */
-  const seg3 = (a, b, lay) => {
+  let fgrp = null;      /* (19:25) the cable that is being drawn: the name of its block */
+  const seg3 = (a, b, lay, hid) => {
     const p = P3(a), q = P3(b), dx = q[0] - p[0], dy = q[1] - p[1]; if (Math.abs(dx) + Math.abs(dy) < 1e-6) return [p, q];
-    let t = 0; const at = k => [p[0] + dx * k, p[1] + dy * k], put = (k0, k1, ly, see) => { if (k1 - k0 < 1e-5) return; const u = at(k0), v = at(k1); FB.push({ k: 'pl', pts: [u, v], lay: ly, close: false }); const tk = thick(u, v, 0.6 * th); LB.block(tk, see); if (see) fibP.push(tk); };
-    for (const v of sc.shown(sc.R(a), sc.R(b), 0, sc.thru)) { put(t, v[0], 'fh', 0); put(v[0], v[1], lay, 1); t = v[1]; }
+    let t = 0; const at = k => [p[0] + dx * k, p[1] + dy * k], put = (k0, k1, ly, see) => { if (k1 - k0 < 1e-5) return; const u = at(k0), v = at(k1), pr = { k: 'pl', pts: [u, v], lay: ly, close: false }; if (fgrp) pr.g = fgrp; FB.push(pr); const tk = thick(u, v, 0.6 * th); LB.block(tk, see); if (see) fibP.push(tk); else fibH.push(tk); };
+    for (const v of hid ? [] : sc.shown(sc.R(a), sc.R(b), 0, sc.thru)) { put(t, v[0], 'fh', 0); put(v[0], v[1], lay, 1); t = v[1]; }
     put(t, 1, 'fh', 0); return [p, q];
   };
   for (const l of rg.legs) {
+    fgrp = gk(l.f === 'ae' ? 'FOC_AE' : 'FOC_UG');
     const d = l.plan || 1, ux = (l.b[0] - l.a[0]) / d, uy = (l.b[1] - l.a[1]) / d; if (l.plan - l.ta - l.tb < 0.02) continue;
-    const pq = seg3([l.a[0] + ux * l.ta, l.a[1] + uy * l.ta, l.za], [l.b[0] - ux * l.tb, l.b[1] - uy * l.tb, l.zb], LEG[l.type].lay); legs2.push({ l, a: pq[0], b: pq[1] });
+    const pq = seg3([l.a[0] + ux * l.ta, l.a[1] + uy * l.ta, l.za], [l.b[0] - ux * l.tb, l.b[1] - uy * l.tb, l.zb], LEG[l.type].lay, l.inside); legs2.push({ l, a: pq[0], b: pq[1] });
   }
   const risers = [];
   for (const v of rg.verts) {
-    const zb = v.z0 + (v.R || 0), t2 = v.at2 || v.at, gz = Math.max(zb, Math.min(v.g, v.z1)); if (v.z1 - gz > 0.01) seg3([t2[0], t2[1], v.z1], [v.at[0], v.at[1], gz], 'ug'); if (gz - zb > 0.01) seg3([v.at[0], v.at[1], gz], [v.at[0], v.at[1], zb], 'ug');      /* on a pole the cable leans with the pipe, down to the ground */
+    const zb = v.z0 + (v.R || 0), t2 = v.at2 || v.at, gz = Math.max(zb, Math.min(v.g, v.z1)); if (v.z1 - gz > 0.01) seg3([t2[0], t2[1], v.z1], [v.at[0], v.at[1], gz], 'ug', v.inside); if (gz - zb > 0.01) seg3([v.at[0], v.at[1], gz], [v.at[0], v.at[1], zb], 'ug', v.inside);      /* on a pole the cable leans with the pipe, down to the ground */
     if (v.R) { let prev = [v.at[0], v.at[1], zb]; for (let i = 1; i <= 6; i++) { const a = Math.PI + i * Math.PI / 12, q = [v.at[0] + v.u[0] * v.R * (1 + Math.cos(a)), v.at[1] + v.u[1] * v.R * (1 + Math.cos(a)), zb + v.R * Math.sin(a)]; seg3(prev, q, 'ug'); prev = q; } }
     if (v.kind === 'riser' && v.z1 - v.g > 1.5) { const K = riserParts(v.g, v.z1 - CLOZ), t2 = v.at2 || v.at, q = z => { const f = clamp((z - v.g) / Math.max(0.1, v.z1 - v.g), 0, 1); return P3([v.at[0] + (t2[0] - v.at[0]) * f, v.at[1] + (t2[1] - v.at[1]) * f, z]); }; risers.push({ v, a: q(K.e), b: q(K.giTop), c: q(K.giTop), d: q(K.ugTop), ug: K.ugTop - K.giTop > 0.6 }); }
   }
@@ -807,7 +997,7 @@ function buildIso0(S, o) {
   }
   if (lab) {
     const h = th * 0.9, gap = 0.3 * th, ctr = one ? P3([one.x, one.y, baseZ(S, one) + num(one.h, 1) / 2]) : proj([(X0 + X1) / 2, (Y0 + Y1) / 2, 0]), call = [], len2 = (p, q) => Math.hypot(q[0] - p[0], q[1] - p[1]), at = (q, f) => [q.a[0] + (q.b[0] - q.a[0]) * f, q.a[1] + (q.b[1] - q.a[1]) * f], angOf = (p, q) => readable(Math.atan2(q[1] - p[1], q[0] - p[0]) / D2R);
-    LB.fit(primBox(R0.concat(FB, GT.p)), o.box, o.rect);
+    LB.fit(primBox(R0.concat(FB, GT.p)), o.box, o.rect); if (!o.tiny && !one && !S.room) LB.ink(R0.concat(FB, GT.p), h);
     /* everything a label must keep clear of */
     for (const q of O3) { if (q.post) LB.block(thick(P3(q.post[0]), P3(q.post[1]), q.w || 0.3)); else if (q.wall) { const n = sc.R([sc.cx + q.n[0], sc.cy + q.n[1], 0]); if (n[0] - sc.cx - (n[1] - sc.cy) > 0) LB.block(hull(q.wall.map(P3))); } else LB.block(hull(q.map(P3))); }
     for (const a of A3) {
@@ -828,13 +1018,14 @@ function buildIso0(S, o) {
         const pcs = a.run ? a.run.pts.slice(0, -1).map((u, i) => [P3([u[0], u[1], a.a[2]]), P3([a.run.pts[i + 1][0], a.run.pts[i + 1][1], a.a[2]])]).sort((x, y) => len2(y[0], y[1]) - len2(x[0], x[1])).slice(0, 3) : [[P3(a.a), P3(a.b)]];
         const dpT = a.run && a.run.kind === 'trench' ? runDepthD(a.run) : 0, inn = dpT ? a.run.pts.slice(0, -1).map((u, i) => [P3([u[0], u[1], a.a[2] - dpT / 2]), P3([a.run.pts[i + 1][0], a.run.pts[i + 1][1], a.a[2] - dpT / 2])]).sort((x, y) => len2(y[0], y[1]) - len2(x[0], x[1])).slice(0, 2) : null;
         jobs.push({ o: 2, key: a.key, s: a.s, st: a.st, ap, kind: 'along', pcs, out, gap: (a.gap || 0.3) * 0.9 + gap, fit: a.run ? 1.1 : 0, inn, innH: dpT - 0.45 });
-        if (dimRun(a.run) && nameOn(S, 'dim')) a.run.pts.slice(0, -1).forEach((u, i) => { const v = a.run.pts[i + 1], len = Math.hypot(v[0] - u[0], v[1] - u[1]), t = f1(len) + 'm'; if (len < 0.3 || legOnSeg(rgT, u, v, t)) return; const pa = P3([u[0], u[1], a.a[2]]), pb = P3([v[0], v[1], a.a[2]]);      /* beta 4.1: the length of each straight piece of a proposed conduit or trench */
+        if (dimRun(a.run) && nameOn(S, 'dim')) a.run.pts.slice(0, -1).forEach((u, i) => { const v = a.run.pts[i + 1], len = Math.hypot(v[0] - u[0], v[1] - u[1]), t = f1(len) + 'm'; if (len < 0.3 || lenDup(S, rgT, a.run, u, v, t)) return; const pa = P3([u[0], u[1], a.a[2]]), pb = P3([v[0], v[1], a.a[2]]);      /* beta 4.1: the length of each straight piece of a proposed conduit or trench */
           jobs.push({ o: 2.8, key: 'lenr' + a.run.id + '_' + i, s: t, st: 'L', opt: len < 1 ? 1 : 0, ap: [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2], kind: 'along', pcs: [[pa, pb]], gap, fit: 1.05, ts: [0.5, 0.35, 0.65, 0.2, 0.8] }); });
       }
       else if (a.kind === 'axis') jobs.push({ o: 3, key: a.key, s: a.s, st: a.st, ap, kind: 'along', near: polyBox([P3(a.axis[0]), P3(a.axis[1])]), pcs: [[P3(a.axis[0]), P3(a.axis[1])]], gap: a.r + gap, ts: [0.5, 0.6, 0.7, 0.78, 0.4, 0.3], fit: 1 });
       else if (a.kind === 'box') jobs.push({ o: 1, key: a.key, s: a.s, st: a.st, ap, kind: 'box', a });
       else if (a.kind === 'ground') jobs.push({ o: 4, key: a.key, s: a.s, st: a.st, ap, kind: 'ground', a });
-      else jobs.push({ o: 5, key: a.key, s: a.s, st: a.st, ap, kind: 'lead', bb: a.pts && a.pts.length > 2 && !a.item ? polyBox(a.pts.map(P3)) : null, item: a.item && a.pts ? { zc: (a.pts[0][2] + a.pts[2][2]) / 2, zh: a.pts[2][2] - a.pts[0][2] } : null });
+      else jobs.push({ o: 5, key: a.key, s: a.s, st: a.st, ap, kind: 'lead', bb: a.pts && a.pts.length > 2 && !a.item ? polyBox(a.pts.map(P3)) : null, item: a.item && a.pts ? { zc: (a.pts[0][2] + a.pts[2][2]) / 2, zh: a.pts[2][2] - a.pts[0][2] } : null,
+        alt: a.item && a.host && a.pts && !one ? ['R', 'L', 'B'].filter(sd => facing(sc, faceN(a.host, sd)) > 0.05).map(sd => onFace(a.host, sd, 0, (a.pts[0][2] + a.pts[2][2]) / 2)).filter(q => sc.seen(q)).map(P3) : null });
     }
     for (const f of ['ae', 'ug']) {
       const own = legs2.filter(q => q.l.f === f).sort((x, y) => len2(y.a, y.b) - len2(x.a, x.b)).slice(0, 3); if (!own.length) continue;
@@ -845,18 +1036,23 @@ function buildIso0(S, o) {
       const grp = {}, real = {}; for (const l of rgT.legs) real[l.f + l.i] = (real[l.f + l.i] || 0) + l.len;
       for (const q of legs2) { const k = q.l.f + q.l.i, c = grp[k]; if (!c || len2(q.a, q.b) > len2(c.a, c.b)) grp[k] = q; }
       const same = rgT.legs.length === rg.legs.length && rg.legs.every((l, i) => l.f === rgT.legs[i].f && l.i === rgT.legs[i].i);
-      if (nameOn(S, 'dim') && same) { const LK = lenKeys(rg.legs); for (const q of legs2) { if (!q.l.f) continue; const len = rgT.legs[rg.legs.indexOf(q.l)].len; if (!(len >= 0.3)) continue;      /* beta 4.1: the length of each straight piece of a cable (its real length, depth and all) */
+      if (nameOn(S, 'dim') && same) { const LK = lenKeys(rg.legs); for (const q of legs2) { if (!q.l.f || q.l.f === 'ae' || q.l.inside) continue; const len = rgT.legs[rg.legs.indexOf(q.l)].len; if (!(len >= 0.3)) continue;      /* beta 4.1: the length of each straight piece of a cable (its real length, depth and all) */
         jobs.push({ o: 2.7, key: LK.get(q.l), s: f1(len) + 'm', st: 'L', opt: len >= 1 ? 0 : 1, ap: at(q, 0.5), kind: 'along', pcs: [[q.a, q.b]], gap, fit: 1.05, ts: [0.5, 0.35, 0.65, 0.2, 0.8] }); } }
-      else for (const k in grp) { const q = grp[k]; if (real[k] > 0.25) jobs.push({ o: 2.7, key: 'len' + k, s: f1(real[k]) + 'm', st: 'L', opt: 1, ap: at(q, 0.5), kind: 'along', pcs: [[q.a, q.b]], gap, fit: 1.05, ts: [0.5, 0.35, 0.65, 0.2, 0.8] }); }
+      else for (const k in grp) { const q = grp[k]; if (q.l.f !== 'ae' && real[k] > 0.25) jobs.push({ o: 2.7, key: 'len' + k, s: f1(real[k]) + 'm', st: 'L', opt: 1, ap: at(q, 0.5), kind: 'along', pcs: [[q.a, q.b]], gap, fit: 1.05, ts: [0.5, 0.35, 0.65, 0.2, 0.8] }); }
     }
     const note = labText(S, 'note', String(S.route.note || '').trim().toUpperCase());
     if (lead && note) jobs.push({ o: 2, key: 'note', s: note, st: 'P', ap: at(lead, 0.2), kind: 'along', pcs: [[lead.a, lead.b]], gap, wrap: 30, ts: [0.25, 0.4, 0.55] });
+    if (!one && !FLAT && !S.room) for (const r of S.runs) if (r.kind === 'trench' && r.st === 'P' && r.pts && r.pts.length > 1) {      /* beta 4.2: an open trench says how deep it is, at the middle of its longest piece */
+      let bi = 0, bl = 0; for (let i = 0; i + 1 < r.pts.length; i++) { const l = Math.hypot(r.pts[i + 1][0] - r.pts[i][0], r.pts[i + 1][1] - r.pts[i][1]); if (l > bl) { bl = l; bi = i; } }
+      const a = r.pts[bi], b = r.pts[bi + 1], m = [a[0] + (b[0] - a[0]) * 0.72, a[1] + (b[1] - a[1]) * 0.72], dp = runDepth(r), key = 'dep' + r.id;
+      jobs.push({ o: 3.2, key, s: labText(S, key, 'TRENCH ' + f1(dp) + ' m DEEP'), st: 'P', ap: P3([m[0], m[1], groundZ(S, m) - dp * 0.6]), alt: [0.5, 0.3, 0.12].map(t => { const q = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; return P3([q[0], q[1], groundZ(S, q) - dp * 0.6]); }), kind: 'lead', opt: 0 });
+    }
     risers.forEach((q, i) => { jobs.push({ o: 3, key: 'riser' + i, s: labText(S, 'riser' + i, 'PROPOSED G.I. RISER PIPE'), st: 'P', ap: at(q, 0.5), kind: 'along', near: polyBox([q.a, q.b]), pcs: [[q.a, q.b]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); if (q.ug) jobs.push({ o: 3, key: 'ugd' + i, s: labText(S, 'ugd' + i, 'PROPOSED U-GUARD'), st: 'P', ap: [q.c[0] + (q.d[0] - q.c[0]) * 0.5, q.c[1] + (q.d[1] - q.c[1]) * 0.5], kind: 'along', near: polyBox([q.c, q.d]), pcs: [[q.c, q.d]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); });
     for (const k of inLab) jobs.push({ o: 4, key: k.q.key, s: labText(S, k.q.key, k.q.s), st: k.q.st, ap: k.ap, kind: 'lead' });
     for (const q of loops) jobs.push({ o: 5, key: 'loop' + q.lp.i, s: labText(S, 'loop' + q.lp.i, 'LOOP HOLDER W/ ' + f2(q.lp.len) + 'm LOOP'), st: 'P', ap: q.c, kind: 'lead' });
     /* When the size is automatic, a name that finds no room is tried again smaller, down to what is still easy to read (1.8 mm on the sheet). Only then does it get a leader. */
     const HS = txAuto(S) ? TXS.map(k => h * k) : [h], KMIN = txAuto(S) ? TXS[TXS.length - 1] : (o.screen ? 0.4 : 0.55), KFACE = Math.min(KMIN, 0.68);      /* beta 4.1: on its own face a name may be as small as 1.5 mm on the sheet */
-    const free2 = quad => { for (const b of LB.labs) if (polysHit(quad, b)) return false; for (const b of fibP) if (polysHit(quad, b)) return false; return true; };
+    const free2 = quad => { for (const b of LB.labs) if (polysHit(quad, b)) return false; for (const b of fibP) if (polysHit(quad, b)) return false; if (strict) for (const b of fibH) if (polysHit(quad, b)) return false; return true; };
     /* a sticker: the name in the plane of a face, a thin frame round it, and the lines of the model under it taken away */
     /* the letters are drawn the way isometric lettering is drawn by hand and in CAD: turned to the face, slanted with it, and not stretched.
        In DXF that is plain TEXT with a rotation and an oblique angle. tb: how much narrower that makes a line of text than its true projection. */
@@ -913,52 +1109,73 @@ function buildIso0(S, o) {
     }
     for (let i = jobs.length - 1; i >= 0; i--) if ((labRec(S, jobs[i].key) || {}).off) jobs.splice(i, 1);      /* beta 4.1: a name the user hid */
     jobs.sort((p, q) => p.o - q.o);
-    /* one cabinet alone: the name of each rack item is written on the side of the cabinet, level with the item */
-    if (one) {
-      const side = ['R', 'L'].find(sd => facing(sc, faceN(one, sd)) > 0.05);
-      if (side) for (const jb of jobs) if (!jb.done && jb.item) {
-        const fr = { pt: (q, t) => onFace(one, side, q, jb.item.zc + t) }, B = frameBasis(sc, fr), fit = (one.d - 0.12) / (2 * half(jb.s, h, B.U, B.V)); if (fit < (o.screen ? 0.4 : 0.55)) continue;
-        const H = Math.min(h * Math.min(1, fit), jb.item.zh * 0.55), hw = half(jb.s, H, B.U, B.V), hh = 0.85 * H;
-        const c = sc.P(fr.pt((side === 'R' ? -1 : 1) * (one.d / 2 - 0.05 - hw), 0)), q = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(k2 => [c[0] + B.U[0] * k2[0] + B.V[0] * k2[1], c[1] + B.U[1] * k2[0] + B.V[1] * k2[1]]);
-        if (free2(q)) { sticker(jb, c, B.U, B.V, H); jb.done = 1; }
-      }
-    }
+    /* (beta 4.2, 22:24: in the detail of one cabinet the name of a rack item is no longer written on the side wall, slanted and in a box: it is level text with an arrow, like every other note) */
     /* 2. stickers on the bodies */
-    for (const jb of jobs) if (!jb.done && jb.kind === 'box' && boxAuto(jb)) jb.done = 1;
+    for (const jb of jobs) if (!jb.done && jb.kind === 'box') { strict = 1; let ok = boxAuto(jb); strict = 0; if (ok || boxAuto(jb)) jb.done = 1; }      /* (beta 4.2: first where no hidden part of the cable runs under the name) */
     /* level text right beside a small thing: on its four sides and at its corners */
     const beside = jb => (w, hh) => { const b = jb.bb || [jb.ap[0] - 0.12, jb.ap[1] - 0.12, jb.ap[0] + 0.12, jb.ap[1] + 0.12], cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2, g2 = gap * 0.8; return [{ p: [b[2] + g2 + w / 2, cy], a: 0 }, { p: [b[0] - g2 - w / 2, cy], a: 0 }, { p: [cx, b[3] + g2 + hh / 2], a: 0 }, { p: [cx, b[1] - g2 - hh / 2], a: 0 }, { p: [b[2] + g2 + w / 2, b[3]], a: 0 }, { p: [b[0] - g2 - w / 2, b[3]], a: 0 }, { p: [b[2] + g2 + w / 2, b[1]], a: 0 }, { p: [b[0] - g2 - w / 2, b[1]], a: 0 }]; };
     /* 3. text along lines: gates, ladders and pipes, the two fibers, poles and the riser pipe */
-    for (const jb of jobs) if (!jb.done && jb.kind === 'along') { if (HS.some(hh => alongAuto(jb, hh))) jb.done = 1; else if (jb.near && !one && txAuto(S) && HS.some(hh => LB.place([jb.s], hh, tl(jb.st), beside({ bb: jb.near, ap: jb.ap }), false, jb.key, jb.ap))) jb.done = 1; else if (jb.opt) jb.done = 1; else call.push({ key: jb.key, p: jb.ap, bb: jb.near || polyBox(jb.pcs[0]), alt: jb.pcs.slice(1).map(sg => [(sg[0][0] + sg[1][0]) / 2, (sg[0][1] + sg[1][1]) / 2]), s: jb.s, st: jb.st, w: 20 }); }
+    /* beta 4.2: the rules for the names (see the top view). keepOld: a small screen, a room and the detail of one cabinet keep the rules they had. */
+    const keepOld = !!(o.tiny || one || S.room);
+    for (const jb of jobs) if (!jb.done && jb.kind === 'along') {
+      const isLen = jb.st === 'L' || jb.key === 'note', keep = keepOld || isLen || jb.st === 'E';
+      if (keep && HS.some(hh => alongAuto(jb, hh))) { jb.done = 1; continue; }
+      if (isLen && !keepOld && !jb.opt) {                      /* no free place along its line: it is written there all the same, at the smallest size */
+        const hh = HS[HS.length - 1]; if (alongAuto(Object.assign({}, jb, { fit: 0, inn: null }), hh)) { jb.done = 1; continue; }
+        if (HS.some(h2 => jb.pcs.some(sg => LB.along(jb.wrap ? wrap(jb.s, jb.wrap) : [jb.s], h2, tl(jb.st), sg[0], sg[1], jb.key, jb.ap, { gap: jb.gap || gap })))) { jb.done = 1; continue; }      /* (beta 4.2: to the nearest clear place, still parallel, with a thin leader) */
+        if (jb.pcs.some(sg => LB.along(jb.wrap ? wrap(jb.s, jb.wrap) : [jb.s], hh, tl(jb.st), sg[0], sg[1], jb.key, jb.ap, { gap: jb.gap || gap, wide: 1 }))) { jb.done = 1; continue; }      /* (19:25: every name always shows: further away, …) */
+        const sg = jb.pcs[0], L = len2(sg[0], sg[1]) || 1, nx = -(sg[1][1] - sg[0][1]) / L, ny = (sg[1][0] - sg[0][0]) / L, d = (jb.gap || gap) + hh * 0.7;      /* … and beside its piece all the same when there is no clear place at all */
+        LB.fixed(jb.key, jb.wrap ? wrap(jb.s, jb.wrap) : [jb.s], hh, tl(jb.st), [(sg[0][0] + sg[1][0]) / 2 + nx * d, (sg[0][1] + sg[1][1]) / 2 + ny * d], angOf(sg[0], sg[1]), jb.ap); jb.done = 1; continue; }
+      if (keep && jb.near && !one && txAuto(S) && HS.some(hh => LB.place([jb.s], hh, tl(jb.st), beside({ bb: jb.near, ap: jb.ap }), false, jb.key, jb.ap))) jb.done = 1; else if (jb.opt) jb.done = 1;
+      else call.push({ key: jb.key, p: jb.ap, bb: jb.near || polyBox(jb.pcs[0]), alt: keep ? jb.pcs.slice(1).map(sg => [(sg[0][0] + sg[1][0]) / 2, (sg[0][1] + sg[1][1]) / 2]) : [].concat(...jb.pcs.map(sg => (len2(sg[0], sg[1]) > 8 * h ? [0.5, 0.25, 0.75] : [0.5]).map(t => [sg[0][0] + (sg[1][0] - sg[0][0]) * t, sg[0][1] + (sg[1][1] - sg[0][1]) * t]))).filter(q => len2(q, jb.ap) > 0.5 * h), s: jb.s, st: jb.st, w: 20, arrow: !keep });      /* (beta 4.2: the arrow of the name of a line may land on any part of it) */
+    }
     /* 4. on the ground beside the item, in the isometric angle: pits, towers, and a box whose faces had no room */
     for (const jb of jobs.filter(q => !q.done && (q.kind === 'ground' || q.kind === 'box')).sort((p, q) => polyBoxArea(p.a.fp) - polyBoxArea(q.a.fp))) {
       const a = jb.a, zt = a.pts ? a.pts[a.pts.length - 1][2] : a.z;
-      if (HS.some(hh => LB.place([jb.s], hh, tl(jb.st), isoCands(sc, a.fp, a.z, gap, a.flat ? zt : null), false, jb.key, jb.ap))) { jb.done = 1; continue; }
-      if (!one && txAuto(S) && a.pts && HS.some(hh => LB.place([jb.s], hh, tl(jb.st), beside({ bb: polyBox(a.pts.map(P3)), ap: jb.ap }), false, jb.key, jb.ap))) { jb.done = 1; continue; }      /* level text right beside it */
-      const cx = a.p[0], cy = a.p[1], cn = a.flat ? a.fp.map(q => P3([cx + (q[0] - cx) * 0.8, cy + (q[1] - cy) * 0.8, zt])) : [jb.ap]; call.push({ key: jb.key, p: cn[0], bb: a.pts ? polyBox(a.pts.map(P3)) : null, alt: cn.slice(1), s: jb.s, st: jb.st, w: 18 });
+      const direct = !keepOld && jb.st === 'E' && jb.kind === 'box';      /* (beta 4.2: an existing item whose name has no room on its body: level, with a leader) */
+      if (!direct && HS.some(hh => LB.place([jb.s], hh, tl(jb.st), isoCands(sc, a.fp, a.z, gap, a.flat ? zt : null), false, jb.key, jb.ap))) { jb.done = 1; continue; }
+      if (!direct && !one && txAuto(S) && a.pts && HS.some(hh => LB.place([jb.s], hh, tl(jb.st), beside({ bb: polyBox(a.pts.map(P3)), ap: jb.ap }), false, jb.key, jb.ap))) { jb.done = 1; continue; }      /* level text right beside it */
+      const cx = a.p[0], cy = a.p[1], cn = a.flat ? a.fp.map(q => P3([cx + (q[0] - cx) * 0.8, cy + (q[1] - cy) * 0.8, zt])) : [jb.ap]; call.push({ key: jb.key, p: cn[0], bb: a.pts ? polyBox(a.pts.map(P3)) : null, alt: cn.slice(1).concat(direct && a.box ? faceFrames(sc, a).map(fr => fr.pt(0, 0)).filter(q => sc.seen(q)).map(P3) : []), s: jb.s, st: jb.st, w: 18, arrow: direct });
     }
     /* 5. the small things: the name right beside the thing when there is room for it there, else a short leader and level text */
-    for (const jb of jobs) if (!jb.done && jb.kind === 'lead') { if (!one && !jb.item && txAuto(S) && HS.some(hh => LB.place([jb.s], hh, tl(jb.st), beside(jb), false, jb.key, jb.ap))) { jb.done = 1; continue; } call.push({ key: jb.key, p: jb.ap, bb: jb.bb, s: jb.s, st: jb.st, w: 18 }); }
+    for (const jb of jobs) if (!jb.done && jb.kind === 'lead') { if (!one && !jb.item && txAuto(S) && HS.some(hh => LB.place([jb.s], hh, tl(jb.st), beside(jb), false, jb.key, jb.ap))) { jb.done = 1; continue; } call.push({ key: jb.key, p: jb.ap, alt: jb.alt || null, bb: jb.bb, s: jb.s, st: jb.st, w: 18 }); }
     /* on a small screen a name that finds no room close to its item is left out until the user zooms in: long leaders across a small drawing hide more than they tell */
     /* Before a leader: level text right beside the item, even where it crosses a line of the drawing. The lines under it are taken away so the name reads clearly. It keeps clear of other names and of the fibers. */
     const call2 = [];
     /* a long name, as the hand-made plans write for a conduit, is not laid across the drawing: it goes to clear space in a few lines, with a leader and an arrowhead */
-    if (!one) for (const c of call) { if (!c.lines && String(c.s).length > LONGNAME) { c.w = 30; call2.push(c); continue; } const bb = c.bb || [c.p[0] - 0.12, c.p[1] - 0.12, c.p[0] + 0.12, c.p[1] + 0.12], ln = c.lines || [c.s]; let bx = null; for (const hh of HS) { bx = LB.placeLoose(ln, hh, tl(c.st), beside({ bb, ap: c.p }), !!c.bold, c.key, c.p, fibP); if (bx) break; } if (bx) quads.push(bx); else call2.push(c); }
-    const left = LB.callouts(one ? call : call2, h, { ctr, ang: ISO_ANG, max: o.short ? 4 : 0, hs: HS }); skipped = left.length;
-    for (const a of left) if (!o.short && !o.rect) far.push(a);
+    if (!one) for (const c of call) { if (c.arrow || !o.tiny) { call2.push(c); continue; }      /* (beta 4.2: a name is not laid over the lines of another item; it gets a leader to clear space) */ if (!c.lines && String(c.s).length > LONGNAME) { c.w = 30; call2.push(c); continue; } const bb = c.bb || [c.p[0] - 0.12, c.p[1] - 0.12, c.p[0] + 0.12, c.p[1] + 0.12], ln = c.lines || [c.s]; let bx = null; for (const hh of HS) { bx = LB.placeLoose(ln, hh, tl(c.st), beside({ bb, ap: c.p }), !!c.bold, c.key, c.p, fibP); if (bx) break; } if (bx) quads.push(bx); else call2.push(c); }
+    const left = LB.callouts(one ? call : call2, h, { ctr, ang: ISO_ANG, max: o.tiny ? 4 : 0, hs: HS, lastX: !!(o.tiny || one), quick: !!o.quick }); skipped += left.length;
+    for (const a of left) far.push(a);      /* (beta 4.2, 19:25: on a screen too) */
+    skipped -= left.length;
   }
   const sand = [];
   for (const r of S.runs) if (!one && !FLAT && r.kind === 'trench' && r.pts.length > 1) for (const TP of outsidePits(S, r.pts)) {
     const hw = Math.max(0.05, num(r.w, RUNS.trench.w)) / 2;
     for (let i = 0; i + 1 < TP.length; i++) { const a = TP[i], b = TP[i + 1], len = Math.hypot(b[0] - a[0], b[1] - a[1]); if (len < 0.05) continue; const nx = -(b[1] - a[1]) / len * hw, ny = (b[0] - a[0]) / len * hw, g = groundZ(S, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]) + 0.004;
-      sandDots([a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny], q => { const p = [q[0], q[1], g]; if (sc.seen(p)) sand.push({ k: 'ci', c: P3(p), r: SAND_R, lay: 'dt' }); }); }
+      sandDots([a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny], q => { const p = [q[0], q[1], g]; if (sc.seen(p)) sand.push({ k: 'ci', c: P3(p), r: SAND_R, lay: 'dt', g: gk(BN[r.id]) }); }); }      /* (19:25) the dust of a trench goes with its trench */
   }
-  const G = new Gfx(); G.p = clipOut(R0, quads).concat(sand, (o.ctx3 || []).map(l => ({ k: 'pl', pts: [P3(l.a), P3(l.b)], lay: 'gh' })), FB, GT.p);
-  if (far.length) addCallouts(G, far, primBox(G.p), th);
+  const INS = [];                                      /* beta 4.2: the cable inside a hollow cabinet; where something hides it, dashed */
+  if (one && X.hollow && X.port) for (const P of cabInside(S, one, X.port)) for (let i = 0; i + 1 < P.length; i++) {
+    const a = P[i], b = P[i + 1], p = P3(a), q = P3(b), dx = q[0] - p[0], dy = q[1] - p[1]; if (Math.abs(dx) + Math.abs(dy) < 1e-6) continue;
+    let t = 0; const at = k => [p[0] + dx * k, p[1] + dy * k], pc = (k0, k1, ly) => { if (k1 - k0 > 1e-5) INS.push({ k: 'pl', pts: [at(k0), at(k1)], lay: ly, close: false }); };
+    for (const v of sc.shown(sc.R(a), sc.R(b), 0, sc.thru)) { pc(t, v[0], 'fh'); pc(v[0], v[1], 'ug'); t = v[1]; } pc(t, 1, 'fh');
+  }
+  const C0 = clipOut(CTX, quads), G = new Gfx(); G.p = C0.concat(clipOut(R0.concat(INS), quads), sand, (o.ctx3 || []).map(l => ({ k: 'pl', pts: [P3(l.a), P3(l.b)], lay: 'gh' })), [].concat(...FB.map(q => q.lay === 'fh' && q.k === 'pl' ? clipOut([q], quads) : [q])), GT.p);
+  let lost = 0; if (far.length) lost = addCallouts(G, far, primBox(C0.length ? G.p.slice(C0.length) : G.p), th, LB);      /* (beta 4.2: the notes of an opened cabinet stay by the cabinet, not round the whole plan drawn behind it) */
   const hits = [];
   for (const a of A3) {
     if (a.k === 'el' && a.id) hits.push({ k: 'el', id: a.id, poly: a.pts ? hull(a.pts.map(P3)) : obb(P3(a.p), 0.5, 0.45, 0), hp: a.edit ? P3(a.hp) : null, f: a.edit || null, lp: a.ladP ? P3(a.ladP) : null, item: a.item || 0 });
     if (a.k === 'seg' && a.run) hits.push({ k: 'run', id: a.id, line: a.run.pts.map(q => P3([q[0], q[1], a.a[2]])), hp: a.edit ? P3(a.hp) : null, f: a.edit });
   }
   const le = legs2.filter(q => q.l.f === 'ae').pop(); if (le) hits.push({ k: 'aer', hp: le.b, f: 'aerialH' });
-  return { prims: G.p, th, G, far: far.length, hits, sc, labs: LB.out, skipped: far.length ? 0 : skipped, one, pics };
+  if (one && X.port && rackItems(S, one).some(e => e.t === 'odf')) hits.push({ k: 'gland', id: one.id, hp: P3(X.port.p), f: X.port.f });
+  if (!one && !S.room) for (const id in rg.ports) hits.push({ k: 'gland', id, hp: P3(rg.ports[id].p), f: rg.ports[id].f });      /* (19:25) on the whole site too */      /* beta 4.2: where the cable goes in: a handle to drag */
+  let CABI = null;                                     /* beta 4.2: the front of the rack on the drawing (a tap there is a place across and up), the holes to tap, the corners to drag */
+  if (one && X.hollow && X.port) { const z0c = X.port.z0, Oc = odcOpening(one, z0c), Fp = (u, z) => { const q = loc(one, u, -one.d / 2 - 0.004); return P3([q[0], q[1], z]); }, p0 = Fp(0, z0c), pu = Fp(1, z0c), pv = Fp(0, z0c + 1), odf = rackItems(S, one).some(e => e.t === 'odf'), M = odf ? cabInside(S, one, X.port).meta : null;
+    CABI = { id: one.id, p0, U: [pu[0] - p0[0], pu[1] - p0[1]], V: [pv[0] - p0[0], pv[1] - p0[1]], u0: Oc.u0, u1: Oc.u1, z0: Oc.zb - z0c, z1: Oc.zu - z0c, seen: facing(sc, faceN(one, 'F')) > 0.05, st: M ? [M.us, M.zs - z0c] : null, en: M ? [M.ue, M.z - z0c] : null, ru: M && M.auto ? M.uu : null };
+    if (M && M.auto) hits.push({ k: 'crise', id: one.id, hp: Fp(M.uu, (Math.max(Math.min(M.zs, M.z), Oc.zb) + Math.max(M.zs, M.z)) / 2) });      /* the upright part of the cable: a handle to slide it across */
+    if (odf && X.port.f === 'B') { const g = hits.find(q => q.k === 'gland'), t = loc(one, X.port.lx, X.port.ly); if (g) g.hp = P3([t[0], t[1], Oc.zb + 0.004]); }      /* through the base, the handle sits on the hole in the floor */
+    if (odf) { for (const q of cabHoles(one)) { const t = loc(one, q.x, q.y), p = [t[0], t[1], Oc.zb + 0.003]; if (sc.seen(p)) hits.push({ k: 'hole', id: one.id, hp: P3(p), x: q.x, y: q.y }); }
+      (one.cab && Array.isArray(one.cab.path) ? one.cab.path : []).forEach((q, i) => { if (q && isFinite(q[0]) && isFinite(q[1])) hits.push({ k: 'cpt', id: one.id, i, hp: Fp(clamp(+q[0], Oc.u0 + 0.008, Oc.u1 - 0.008), clamp(z0c + +q[1], Oc.zb + 0.008, Oc.zu - 0.008)) }); }); } }
+  return { prims: G.p, th, G, far: far.length - lost, hits, sc, labs: LB.out, leads: LB.leads, skipped: far.length ? lost : skipped, one, pics, fb, nctx: C0.length, cab: CABI };
 }

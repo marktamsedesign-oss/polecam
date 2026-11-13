@@ -899,7 +899,7 @@
   const APP_VER = '2.44.0';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '4.1'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '4.2'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -10012,11 +10012,11 @@
   function matCode(p) { if (/^NPT/i.test(p.poleId || '')) return 'NPT'; const t = poleTypes().find((x) => x.n === p.poleType); return t ? t.p : ''; }
   /** v2.32: the picture of the VICINITY MAP sheet: the street map in use (tiles already seen on this phone first) over the vicinity
       square, turned to the UTM grid of the drawing, as a JPEG. Null when offline or when too much of the map does not come. */
-  async function vicinityJpeg(cE, cN, size, zone, south, progress, source, zCap) {
+  async function vicinityJpeg(cE, cN, size, zone, south, progress, source, zCap, ll0) { // (beta 4.2: ll0, the corners as [lat, lon]: top left, top right, bottom left)
     const say = progress || (() => {});
     if (navigator.onLine === false) return null;
     const PX = 1800, h = size / 2, src = source || streetSource(), sat = src.id === 'sat'; // v2.36: or the satellite imagery (never kept on the phone: Esri terms)
-    const ll = [[cE - h, cN + h], [cE + h, cN + h], [cE - h, cN - h]].map(([E, N]) => C.utmInverse(E, N, zone, south)); // top left, top right, bottom left
+    const ll = ll0 || [[cE - h, cN + h], [cE + h, cN + h], [cE - h, cN - h]].map(([E, N]) => C.utmInverse(E, N, zone, south)); // top left, top right, bottom left
     const merc = (la, lo, z) => { const n = 256 * 2 ** z, s = Math.sin(la * Math.PI / 180); return [(lo + 180) / 360 * n, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n]; };
     let z = Math.min(zCap || (size < 1200 ? 19 : 17), src.max || 17), m, tx0, tx1, ty0, ty1; // (beta 4.1: more detail for a map zoomed to the project area)
     for (; z >= 11; z--) { // the most detailed map that needs at most 64 tiles
@@ -10048,7 +10048,7 @@
     await Promise.all(Array.from({ length: Math.min(6, jobs.length) }, worker));
     const ok = jobs.filter((j) => j.blob && j.blob.size > 0);
     if (z > 17) { const same = {}; ok.forEach((j) => { same[j.blob.size] = (same[j.blob.size] || 0) + 1; }); // beta 4.1: no pictures this deep here: one level less
-      if (ok.length < jobs.length - maxMiss || (sat && ok.length >= 4 && Math.max(...Object.values(same)) >= ok.length * 0.6)) { LOG.info('plan.vicinity.less', { z, ok: ok.length, tiles: jobs.length }); return vicinityJpeg(cE, cN, size, zone, south, progress, source, z - 1); } }
+      if (ok.length < jobs.length - maxMiss || (sat && ok.length >= 4 && Math.max(...Object.values(same)) >= ok.length * 0.6)) { LOG.info('plan.vicinity.less', { z, ok: ok.length, tiles: jobs.length }); return vicinityJpeg(cE, cN, size, zone, south, progress, source, z - 1, ll0); } }
     if (ok.length < jobs.length - maxMiss) { LOG.warn('plan.vicinity', { tiles: jobs.length, ok: ok.length, z }); return null; }
     const cv = document.createElement('canvas'); cv.width = cv.height = PX; const g = cv.getContext('2d');
     g.fillStyle = '#fff'; g.fillRect(0, 0, PX, PX); g.imageSmoothingQuality = 'high';
@@ -17741,7 +17741,7 @@
     const foot = `EXPORTED BY ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' - ').toUpperCase()} - G-eSAA ${VER_LABEL}`; // the line under the frame of every sheet
     return { sketch: plan ? JSON.stringify(plan.sk) : null, photos, logos: await cefLogos(), tab: c.tab || '',
       app: { job: job && cefJobCtx[job] ? job : '', by: u.name || '', checkedBy: ck, org: m.contractor || u.company || '', link: sfGet(F, /project\s*name/i) || '', footer: foot, ver: `${APP_NAME} ${VER_LABEL}`, lock: !!pinRec, fix: site0, viewOnly: cefLockText(c.name),
-        gps: 'geolocation' in navigator, canLogo: cefCanLogo(), logoNote: cefLogoNote(), guide: S.cefGuide !== false, ...(c.over || {}) } };
+        gps: 'geolocation' in navigator, canLogo: cefCanLogo(), logoNote: cefLogoNote(), guide: S.cefGuide !== false, sign: cefSign(), ...(c.over || {}) } }; // (beta 4.2: sign, the names on the sheet)
   }
   /** The editor saves as the user works. Nothing is written when the sketch did not change, so that looking at a plan never makes it
       the later one at a merge. */
@@ -17816,12 +17816,35 @@
   }
   /** Save or send an export of the editor: the app's own save and share. CEF exports use no credits. */
   async function cefDeliver(name, data, kind) {
-    const c = cefNow, type = /\.pdf$/i.test(name) ? 'application/pdf' : 'application/zip';
+    const c = cefNow, type = /\.pdf$/i.test(name) ? 'application/pdf' : /\.dxf$/i.test(name) ? 'application/dxf' : 'application/zip'; // (beta 4.2: Export → DXF gives the sheets' DXF alone)
     const blob = new Blob([data instanceof Blob || (data && typeof data.arrayBuffer === 'function') ? await data.arrayBuffer() : data], { type });
     if (c) noteExport('cef', c.name);
     LOG.info('cef.export', { kind: kind || '', mb: +(blob.size / 1048576).toFixed(2) });
     await shareFile(blob, String(name).replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 120), type);
   }
+  /** beta 4.2 (MarkT): the map round a tower site, for the editor's *Set it on the map*: the box of the site is laid on it and turned until its sides
+      lie on the fence, which gives true north without a compass. A square o.size metres across with true north up and the site in the middle: the
+      satellite picture first (shown only, never kept: Esri's terms), else the street map. Null with no signal. Nothing of it goes into the plan. */
+  async function cefMapPicture(o) {
+    const la = +(o && o.lat), lo = +(o && o.lon), size = Math.min(2000, Math.max(20, +(o && o.size) || 100));
+    if (!Number.isFinite(la) || !Number.isFinite(lo) || Math.abs(la) > 85 || navigator.onLine === false) return null;
+    const A = 6378137, e2 = 0.00669437999014, rad = Math.PI / 180, sp = Math.sin(la * rad), M = A * (1 - e2) / Math.pow(1 - e2 * sp * sp, 1.5), Np = A / Math.sqrt(1 - e2 * sp * sp) * Math.cos(la * rad);
+    const dLa = size / 2 / M / rad, dLo = size / 2 / Np / rad, ll = [[la + dLa, lo - dLo], [la + dLa, lo + dLo], [la - dLa, lo - dLo]];
+    for (const src of [SAT_SOURCE, null]) {
+      let v = null; try { v = await vicinityJpeg(0, 0, size, S.zone, la < 0, null, src, 19, ll); } catch (e) { LOG.warn('cef.map', { src: src ? 'sat' : 'street', ...errInfo(e) }); }
+      if (!v || !v.jpg) continue;
+      const url = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(fr.error); fr.readAsDataURL(new Blob([v.jpg], { type: 'image/jpeg' })); }).catch(() => '');
+      if (url) { LOG.info('cef.map', { src: src ? 'sat' : 'street', z: v.z, m: size }); return { src: url, note: src ? SAT_SOURCE.attr : (streetSource().attr || '© OpenStreetMap contributors') }; }
+    }
+    return null;
+  }
+  /** beta 4.2 (MarkT): the three names of a CEF sheet's title block (prepared, checked, approved), typed in the editor: kept on this phone with the
+      names of the As-Plan drawing's sheet (S.sig), and used for every CEF plan exported here. An empty one falls back to what the app knows. */
+  function cefSetSign(g) {
+    const t = (v) => s100(v, 80); g = g && typeof g === 'object' ? g : {};
+    S.sig = { ...S.sig, cef: { by: t(g.by), chk: t(g.chk), apr: t(g.apr) } }; persist();
+  }
+  function cefSign() { const g = S.sig && S.sig.cef && typeof S.sig.cef === 'object' ? S.sig.cef : {}; return { by: s100(g.by, 80), chk: s100(g.chk, 80), apr: s100(g.apr, 80) }; }
   /** The phone's position now, for a plan's coordinates (a CEF-Plan project; an As-Plan's plan takes its site pin's). */
   function cefGps() {
     startGps(); const t0 = Date.now();
@@ -17839,6 +17862,7 @@
   }
   window.__cefHost = { init: (job) => cefInit(job), jobDone: (job, r) => { const c = cefJobCtx[job]; if (c) c.done(r); }, addPicture: (f) => cefAddPicture(f), save: (s) => cefSave(s), takePhoto: () => cefTakePhoto(), zip: (files) => cefZip(files), deliver: (n, d, k) => cefDeliver(n, d, k),
     close: () => { if (stack[stack.length - 1] === 'cefSheet') closeSheet(); }, exporter: () => exporterInfo(), gps: () => cefGps(), logo: (how) => cefLogo(how),
+    mapPicture: (o) => cefMapPicture(o), setSign: (g) => cefSetSign(g), // beta 4.2
     pref: (k, v) => { if (k === 'guide') { S.cefGuide = v !== false; persist(); } } };
 
   /** A project that came in a file or through the team mailbox: its CEF plans. A plan is taken whole: the one saved later wins, and it

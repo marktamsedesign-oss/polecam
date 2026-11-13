@@ -30,7 +30,7 @@ const LAYERS = {
   tx: ['CEF-TEXT', 7, 0, '--d-ink', [0.10, 0.13, 0.17], 0.15],
   tp: ['CEF-TEXT-PROPOSED', 1, 0, '--d-prop', [0.82, 0.19, 0.16], 0.15],
   dm: ['CEF-DIM', 8, 0, '--d-dim', [0.42, 0.46, 0.53], 0.13],
-  ln: ['CEF-LENGTH', 3, 0, '--d-ladder', [0.13, 0.52, 0.34], 0.15],          /* the length of a leg of the cable, in green as on the hand-made plans */
+  ln: ['CEF-LENGTH', 1, 0, '--d-prop', [0.82, 0.19, 0.16], 0.15],          /* the length of a piece of a proposed cable, conduit or trench: in red, as all that is proposed (beta 4.2; green before) */
   ph: ['CEF-PHOTO', 6, 0, '--d-photo', [0.48, 0.27, 0.84], 0.25],
   fr: ['CEF-FRAME', 7, 0, '--d-ink', [0.10, 0.13, 0.17], 0.35],
   lot: ['CEF-LOT', 8, 1, '--d-dim', [0.42, 0.46, 0.53], 0.18],
@@ -67,6 +67,7 @@ const TYPES = {
   t4: { n: '4-legged tower', s: 'Tower', g: 'tower', w: 6, d: 6, th: 50 },
   guy: { n: 'Guyed mast', s: 'Guyed mast', g: 'tower', w: 0.7, d: 0.7, th: 60, ar: 8 },
   mono: { n: 'Monopole', s: 'Monopole', g: 'tower', w: 1.2, d: 1.2, th: 30, rd: 1 },
+  tad: { n: 'Tadpole', s: 'Tadpole', g: 'tower', w: 0.5, d: 0.5, th: 15, rd: 1 },      /* beta 4.2 (22:24): asked for as a kind of monopole. No drawing of one was to be found: it is drawn as its name says, a slim pole with a wider head for the antennas */
   palm: { n: 'Palm-tree tower', s: 'Palm tower', g: 'tower', w: 0.9, d: 0.9, th: 25, rd: 1 },
   ezm: { n: 'Easy macro pole', s: 'Easy macro', g: 'tower', w: 0.3, d: 0.3, th: 10, rd: 1 },
   rtp: { n: 'Rooftop pole', s: 'Rooftop pole', g: 'tower', w: 0.2, d: 0.2, th: 6, rd: 1 },
@@ -119,13 +120,15 @@ const runDepth = r => buried(r) ? Math.max(0.1, num(r.dp, UGD)) : 0;
    The model keeps the real depth, and so do the lengths and the tables: only the drawing is flat. While FLAT is set, what is buried is drawn just under the ground line: 0.3 m, which is still deep enough for the route to tell where a cable comes out of the ground. */
 const LONGNAME = 28;                             /* a name longer than this is written in a few lines in clear space, with a leader */
 let FLAT = false;
-const FLATD = 0.3, flatD = d => FLAT ? Math.min(d, FLATD) : d, runDepthD = r => flatD(runDepth(r)), flatOn = S => !S.room && (S.site || {}).below !== 'depth';
-const PVC_MM = '114.3';
+const FLATD = 0.3, flatD = d => FLAT ? Math.min(d, FLATD) : d, runDepthD = r => flatD(runDepth(r)), flatOn = S => !S.room && (S.site || {}).below === 'flat';      /* (beta 4.2: with its depth unless the plan says at ground level) */
+const PVC_MM = '114.3', SHALLOW = 1;      /* a trench less than 1 m deep is a shallow trench */
+/* beta 4.2 (19:25): r.n = 1 or 2 runs (2 unless said), r.dia = 32, 50 or 114.3 mm (114.3 unless said), r.conc === false = no concrete round the conduit */
+const runN = r => num(r.n, 2) === 1 ? 1 : 2, runMM = r => { const d = num(r.dia, 114.3); return Math.abs(d - 32) < 0.5 ? '32' : Math.abs(d - 50) < 0.5 ? '50' : PVC_MM; }, runConc = r => r.conc !== false, runShallow = r => r.kind === 'trench' && runDepth(r) < SHALLOW - 1e-6;
 /* labels say as little as possible: the name, and a depth only when it is not the usual one */
 const deepNote = d => Math.abs(d - UGD) > 0.04 ? ' ' + f1(d) + ' m DEEP' : '';
-const runCap = r => r.name ? String(r.name).toUpperCase() : (RUNS[r.kind] || RUNS.ladder).cap + (r.kind === 'trench' ? deepNote(runDepth(r)) : '');
+const runCap = r => r.name ? String(r.name).toUpperCase() : r.kind === 'trench' ? (runShallow(r) ? 'SHALLOW TRENCH' : 'OPEN TRENCH') + deepNote(runDepth(r)) : (r.kind === 'conduit' || r.kind === 'encase') && (r.n != null || r.dia != null) ? runN(r) + ' RUN ' + RUNS[r.kind].cap + ' ' + runMM(r) + 'mm' : (RUNS[r.kind] || RUNS.ladder).cap;
 /* on the drawing a proposed run says so, and a proposed trench is named as on the hand-made plans */
-const runLabel = r => r.name || r.st !== 'P' || r.kind === 'part' ? runCap(r) : r.kind === 'trench' ? 'PROPOSED 2 RUN CONCRETE ENCASED U/G PVC CONDUIT ' + PVC_MM + 'mm; OPEN TRENCH' + deepNote(runDepth(r)) : 'PROPOSED ' + runCap(r);
+const runLabel = r => r.name || r.st !== 'P' || r.kind === 'part' ? runCap(r) : r.kind === 'trench' ? 'PROPOSED ' + (runShallow(r) ? 'SHALLOW' : 'OPEN') + ' TRENCH' + (runConc(r) ? ', CONCRETE ENCASED' : '') + deepNote(runDepth(r)) : 'PROPOSED ' + runCap(r);
 /* Several proposed trenches carry the same conduit: only the longest is named, so that the long name of the hand-made plans is written once. One with a depth of its own still says so. */
 function runName(S, r) { if (r.name || r.kind !== 'trench' || r.st !== 'P') return runLabel(r); let best = null; for (const q of S.runs) if (q.kind === 'trench' && q.st === 'P' && !q.name && q.pts.length > 1 && (!best || runLen(q) > runLen(best) + 1e-6)) best = q; return best === r || !best ? runLabel(r) : deepNote(runDepth(r)) ? runCap(r) : ''; }
 function newRun(kind, pts) { const K = RUNS[kind] || RUNS.ladder, r = { id: uid(), kind, pts, z: K.z, w: K.w, st: kind === 'trench' ? 'P' : 'E', name: '' }; if (K.dp) r.dp = K.dp; return r; }
@@ -159,6 +162,7 @@ function sampleSite() {
   add('rpole', 1.4, 14.6);
   add('hh', 16.5, 2.2, { w: 0.8, d: 0.8 });
   add('exit', 8.6, 2.2, { st: 'E' });
+  add('exit', 2.6, 3.6, { st: 'P' });      /* (19:25: the app no longer makes up a riser pipe where the cable comes out of the trench; the sample has its exit conduit drawn) */
   S.runs.push(Object.assign(newRun('ladder', [[3.4, 3.6], [12, 3.6], [12, 8.5]]), { z: 2.5 }));
   S.runs.push(newRun('conduit', [[16.5, 2.2], [8.6, 2.2]]));
   S.runs.push(newRun('trench', [[1.4, 14.6], [1.4, 3.6], [2.6, 3.6]]));
@@ -201,11 +205,26 @@ function baseZ(S, el) {
   if (el.t !== 'pad') for (const q of S.els) if (q.t === 'pad' && q !== el && inPoly([el.x, el.y], elPoly(q))) { z += q.h; break; }
   return z;
 }
+/* beta 4.2 (19:25): a cable ladder stands on what it runs over. Its height (r.z) is measured from the top of the base pad it passes over (the highest, when it
+   passes over several) and from the ground when it passes over none; the whole ladder is at one level. The user changes r.z as before. */
+function padTop(S, p) { let h = 0; for (const q of S.els) if (q.t === 'pad' && inPoly(p, elPoly(q))) h = Math.max(h, Math.max(0, num(q.h, 0))); return h; }
+function ladBase(S, r) {
+  if (!r || r.kind !== 'ladder' || !S || S.room || !r.pts || r.pts.length < 2 || !S.els.some(e => e.t === 'pad')) return 0; let b = 0;
+  for (let i = 0; i + 1 < r.pts.length; i++) { const a = r.pts[i], c = r.pts[i + 1], n = Math.max(1, Math.ceil(Math.hypot(c[0] - a[0], c[1] - a[1]) / 0.2)); for (let k = 0; k <= n; k++) b = Math.max(b, padTop(S, [a[0] + (c[0] - a[0]) * k / n, a[1] + (c[1] - a[1]) * k / n])); }
+  return b;
+}
 function hostOf(S, p, skip) { for (const q of S.els) if (q !== skip && (q.t === 'odc' || q.t === 'cabin' || q.t === 'rack') && inPoly(p, elPoly(q))) return q; return null; }
 /* ---------- racks: an outdoor cabinet, or a rack in a cabin, holds rack-mounted items, each at its own rack units ---------- */
+/* beta 4.2: the usual sizes of an outdoor cabinet: key, name, width, depth, height (m). A start: the real cabinet is typed in. */
+const ODC_SIZES = [['S', 'Small', 0.6, 0.55, 1.05], ['M', 'Medium', 0.7, 0.7, 1.5], ['L', 'Large', 0.8, 0.8, 1.9]];
+const odcSize = e => { const q = ODC_SIZES.find(k => Math.abs(num(e.w, 0) - k[2]) < 0.006 && Math.abs(num(e.d, 0) - k[3]) < 0.006 && Math.abs(num(e.h, 0) - k[4]) < 0.006); return q ? q[0] : ''; };
 const RU = 0.04445;                                   /* one rack unit, in metres */
 const inRack = e => e.t === 'odf' || e.t === 'runit';
-const units = e => clamp(Math.round(num(e.ru, TYPES[e.t].ru || 2)), 1, 30);
+/* beta 4.2 (22:24): an ODF is as tall as its fibre count needs: one rack unit for every 24 fibres (24F 1U, 48F 2U, 72F 3U, 96F 4U, 144F 6U), read from its size.
+   A height that was typed (e.ruSet, or one that is not the usual 2 in an older plan) stays. */
+const odfRu = e => { const m = /(\d+)/.exec(String(e.size == null ? '' : e.size)), f = m ? +m[1] : 0; return f > 0 ? clamp(Math.ceil(f / 24), 1, 12) : 2; };
+const ruTyped = e => !!e.ruSet || (e.ru != null && e.ru !== '' && Math.round(num(e.ru, 2)) !== 2);
+const units = e => clamp(Math.round(e.t === 'odf' && !ruTyped(e) ? odfRu(e) : num(e.ru, TYPES[e.t].ru || 2)), 1, 30);
 /* the rack space of a host: zb = bottom of unit 1 above the base of the host, n = how many units it has, hw = half the width between the rails */
 function rackOf(host) {
   const h = Math.max(0.3, num(host.h, 2)), w = Math.max(0.2, num(host.w, 0.6));
@@ -317,7 +336,7 @@ function outsideOf(SITE, el, mg) {
   for (const r of SITE.runs) {
     if (!r.pts || r.pts.length < 2) continue; const hw = Math.max(0.05, num(r.w, (RUNS[r.kind] || RUNS.ladder).w)) / 2;
     if (r.kind === 'ladder') {
-      const ST = ladPath(r), zs = ST.map(q => groundZ(SITE, q.p) + num(r.z, RUNS.ladder.z));
+      const ST = ladPath(r), lb = ladBase(SITE, r), zs = ST.map(q => groundZ(SITE, q.p) + lb + num(r.z, RUNS.ladder.z));
       for (const sg of [-1, 1]) { const R = ST.map(q => T([q.p[0] + q.n[0] * q.k * hw * sg, q.p[1] + q.n[1] * q.k * hw * sg])); add(R, 'ladder'); for (let i = 0; i + 1 < R.length; i++) add3(R[i], R[i + 1], zs[i], zs[i + 1], 'ladder'); }
       if (ST.length > 1) meet(ST.map(q => T(q.p)), 'ladder', (i, t) => zs[i] + (zs[i + 1] - zs[i]) * t - z0);
     }
@@ -335,6 +354,14 @@ function outsideOf(SITE, el, mg) {
 function cabinDoors(el) {
   const I = el.inside; if (!I || !Array.isArray(I.gates)) return [{ face: 'F', u: 0, w: Math.min(0.9, el.w) }];      /* the inside sketch holds the doors; it may have none */
   return I.gates.map(q => { const hz = q.side === 'S' || q.side === 'N', len = hz ? el.w : el.d, w = clamp(num(q.w, 0.9), 0.3, len), c = clamp(num(q.off, 0), 0, len - w) + w / 2 - len / 2; return { face: { S: 'F', N: 'B', E: 'R', W: 'L' }[q.side] || 'F', u: q.side === 'S' || q.side === 'E' ? c : -c, w }; });
+}
+/* beta 4.2: the stairs of a raised base pad. el.steps: [{ side: 'S', 'N', 'E' or 'W' (of the pad before it is turned), off: metres from the left or bottom end
+   of that side, w: width }]. Each as { face, u (its middle, along the face), w, n (steps below the top of the pad), rise, tread }. A pad lower than 0.25 m has none. */
+const STEP_MIN = 0.25;
+function padSteps(el) {
+  const h = Math.max(0, num(el.h, 0)); if (el.t !== 'pad' || h < STEP_MIN || !Array.isArray(el.steps)) return [];
+  const nr = Math.max(2, Math.round(h / 0.18)), rise = h / nr, tread = 0.28;
+  return el.steps.map(q => { const hz = q.side === 'S' || q.side === 'N', len = hz ? el.w : el.d, w = clamp(num(q.w, 1), 0.4, len), c = clamp(num(q.off, 0), 0, len - w) + w / 2 - len / 2; return { face: { S: 'F', N: 'B', E: 'R', W: 'L' }[q.side] || 'F', u: q.side === 'S' || q.side === 'E' ? c : -c, w, n: nr - 1, rise, tread }; });
 }
 /* a point on the plan at a side of a box-shaped element: u along the side, inset towards the middle */
 function faceXY(el, side, u, inset) { return side === 'F' ? loc(el, u, -el.d / 2 + inset) : side === 'B' ? loc(el, -u, el.d / 2 - inset) : side === 'R' ? loc(el, el.w / 2 - inset, u) : loc(el, -el.w / 2 + inset, -u); }
@@ -396,7 +423,7 @@ const SAND_R = 0.012;
 const isPole = e => e.t === 'rpole' || e.t === 'epole';
 /* Names on the drawings of the site. A CEF plan is about the fiber, so the names of what belongs to the tower site are left out unless the user turns them on.
    [key, what the Site tab calls it, written by default] */
-const NAMES = [['tid', 'Site name and ID on the tower', 1], ['th', 'Tower height', 0], ['cabin', 'Cabin', 0], ['ladder', 'Cable ladder', 0], ['port', 'Porthole', 0], ['gate', 'Gate', 0], ['site', 'Genset, base pad, tank, structure', 1], ['dim', 'Length of each leg: FOC, conduit, trench', 1]];
+const NAMES = [['tid', 'Site name and ID on the tower', 1], ['th', 'Tower height', 0], ['cabin', 'Cabin', 0], ['ladder', 'Cable ladder', 0], ['port', 'Porthole', 0], ['gate', 'Gate', 0], ['site', 'Genset, base pad, tank, structure', 1], ['dim', 'Length of each leg: FOC, conduit, trench', 1], ['shade', 'Outline on a base pad under a raised ladder', 1]];
 function nameOn(S, k) { if (S.room) return k !== 'tid'; const n = S.site && S.site.names, d = NAMES.find(q => q[0] === k); return n && n[k] != null ? !!n[k] : !d || !!d[2]; }
 /* The site name and ID, written as a title beside the top of the tower: bold, capitals, larger than the other names. '' when it is turned off or there is no name. */
 function siteTitle(S) { if (S.room || !nameOn(S, 'tid')) return ''; const si = S.site || {}; return labText(S, 'tid', [si.name, si.id].map(v => String(v || '').trim().toUpperCase()).filter(Boolean).join('\n')); }
@@ -543,6 +570,60 @@ function carrier(S, a, b, want) {
     } } }
   return best;
 }
+/* beta 4.2: the way of the UG cable from a to b along what is drawn: trenches, conduits and cable ladders, from one to the next where they meet or come
+   close. The points to give the fiber: a, where it comes onto each run and where it leaves it, b. null when nothing drawn leads there (it then goes straight). */
+function followRuns(S, a, b) {
+  const R = (S.runs || []).filter(r => r.kind !== 'part' && r.pts && r.pts.length > 1), d2 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]); if (!R.length || d2(a, b) < 0.1) return null;
+  const JT = 1.5, AT = 1.2, N = [{ p: a, r: -1, s: 0 }, { p: b, r: -1, s: 0 }], E = [], on = R.map(() => []);      /* JT: a step from one run to another; AT: from an end of the cable onto a run */
+  const proj = (r, p) => { let best = null, s0 = 0; for (let i = 0; i + 1 < r.pts.length; i++) { const u = r.pts[i], v = r.pts[i + 1], L = d2(u, v); if (L < 1e-6) continue; const t = clamp(((p[0] - u[0]) * (v[0] - u[0]) + (p[1] - u[1]) * (v[1] - u[1])) / (L * L), 0, 1), q = [u[0] + (v[0] - u[0]) * t, u[1] + (v[1] - u[1]) * t], d = d2(p, q); if (!best || d < best.d) best = { d, q, s: s0 + t * L }; s0 += L; } return best; };
+  const node = (ri, q, s) => { const k = on[ri].find(i => Math.abs(N[i].s - s) < 0.02); if (k != null) return k; N.push({ p: [q[0], q[1]], r: ri, s }); on[ri].push(N.length - 1); return N.length - 1; };
+  const edge = (i, j, w) => { if (i !== j) E.push([i, j, w]); };
+  const len = R.map(r => { let L = 0; for (let i = 0; i + 1 < r.pts.length; i++) L += d2(r.pts[i], r.pts[i + 1]); return L; }), ends = R.map((r, ri) => [node(ri, r.pts[0], 0), node(ri, r.pts[r.pts.length - 1], len[ri])]);
+  R.forEach((r, ri) => {
+    for (const k of [0, 1]) { const q = proj(r, N[k].p); if (q && q.d < AT) edge(k, node(ri, q.q, q.s), q.d * 1.5 + 0.05); }      /* the two ends of the cable, onto this run */
+    R.forEach((r2, rj) => { if (rj === ri) return; for (const e of ends[rj]) { const q = proj(r, N[e].p); if (!q) continue; const same = pitAt(S, N[e].p) && pitAt(S, N[e].p) === pitAt(S, q.q); if (q.d < JT || same) edge(e, node(ri, q.q, q.s), q.d < 0.06 || same ? q.d + 0.01 : q.d * 3 + 0.3); } });      /* an end of another run that comes close to this one; in the same hand hole or service box they are joined */
+  });
+  on.forEach(L => { L.sort((i, j) => N[i].s - N[j].s); for (let i = 0; i + 1 < L.length; i++) edge(L[i], L[i + 1], N[L[i + 1]].s - N[L[i]].s); });      /* along each run */
+  edge(0, 1, 2.5 * d2(a, b) + 1);
+  const D = N.map(() => 1e18), prev = N.map(() => -1), done = N.map(() => false), adj = N.map(() => []); for (const [i, j, w] of E) { adj[i].push([j, w]); adj[j].push([i, w]); }
+  D[0] = 0;
+  for (;;) { let u = -1; for (let i = 0; i < N.length; i++) if (!done[i] && (u < 0 || D[i] < D[u])) u = i; if (u < 0 || D[u] > 1e17 || u === 1) break; done[u] = true; for (const [v, w] of adj[u]) if (D[u] + w < D[v]) { D[v] = D[u] + w; prev[v] = u; } }
+  if (prev[1] < 0 || prev[1] === 0) return null;
+  const path = []; for (let u = 1; u >= 0; u = prev[u]) path.unshift(u);
+  const out = [], r2 = v => Math.round(v * 100) / 100;
+  path.forEach((u, i) => { const pv = path[i - 1], nx = path[i + 1]; if (pv != null && nx != null && N[u].r >= 0 && N[pv].r === N[u].r && N[nx].r === N[u].r) return;      /* a point in the middle of a stretch along one run is left out: the run carries the cable */
+    const p = u < 2 ? N[u].p : [r2(N[u].p[0]), r2(N[u].p[1])], l = out[out.length - 1]; if (!l || d2(l, p) > 0.05) out.push(p); else if (u === 1) out[out.length - 1] = p; });
+  return out.length > 2 ? out : null;
+}
+/* a line drawn for the whole FOC route, in its order: its points on poles are at the poles. The last pole on the way is the riser pole: up to it the cable is
+   aerial (AE), from it on it is underground (UG) and follows what is drawn. With no pole on the way all of it is UG; ending on a pole all of it is AE. */
+function layFoc(S, pts, how) {
+  /* beta 4.2 (19:25). how: 'ae' all of it aerial; 'ug' all of it underground, following what is drawn; else the app decides, by the user's rule:
+     a piece that runs along a trench, a conduit or a cable ladder (or starts in a hand hole, a service box or an exit conduit) is underground, and so is
+     all that follows it to the ODF; what comes before is aerial. The cable goes underground at the riser pole: the last pole before what carries it.
+     Nothing drawn carries it: aerial all the way. A line drawn from the ODF outwards is read the other way round. Points closer than 12 cm are one point. */
+  const d2 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]), P = [];
+  for (const p of pts) { const e = poleAt(S, p), q = e ? [e.x, e.y] : [p[0], p[1]], l = P[P.length - 1]; if (!l || d2(l, q) > 0.12) P.push(q); else if (e || !poleAt(S, l)) P[P.length - 1] = q; }
+  const lay = U => { const out = []; for (let i = 0; i + 1 < U.length; i++) { const F = carrier(S, U[i], U[i + 1]) ? null : followRuns(S, U[i], U[i + 1]); (F || [U[i], U[i + 1]]).forEach((q, k) => { if (i > 0 && k === 0) return; const l = out[out.length - 1]; if (!l || d2(l, q) > 0.12) out.push(q); else if (out.length > 1 && !poleAt(S, l)) out[out.length - 1] = q; }); } return out.length > 1 ? out : []; };
+  if (how === 'ae') return { ae: P.length > 1 ? P : [], ug: [], how: 'ae' };
+  if (how === 'ug') return { ae: [], ug: lay(P), how: 'ug' };
+  const atOdf = p => { const h = hostOf(S, p); return !!(h && h.t === 'cabin') || S.els.some(e => e.t === 'odf' && (d2([e.x, e.y], p) < 0.45 || (h && inPoly([e.x, e.y], elPoly(h))))); };
+  if (P.length > 1 && atOdf(P[0]) && !atOdf(P[P.length - 1])) P.reverse();
+  const under = p => !!pitAt(S, p) || S.els.some(e => e.t === 'exit' && d2([e.x, e.y], p) < 0.5);
+  let k = -1; for (let i = 0; i + 1 < P.length; i++) if (under(P[i]) || carrier(S, P[i], P[i + 1]) || followRuns(S, P[i], P[i + 1])) { k = i; break; }
+  if (k < 0) return { ae: P.length > 1 ? P : [], ug: [], how: 'none' };
+  let r = k; for (let i = k; i >= 0; i--) if (poleAt(S, P[i])) { r = i; break; }
+  const ae = P.slice(0, r + 1);
+  return { ae: ae.length > 1 ? ae : [], ug: lay(P.slice(r)), how: 'auto' };
+}
+/* the poles, hand holes, service boxes and exit conduits that a drawn line passes close to become points of it, in the order it passes them */
+function viaItems(S, P, reach) {
+  const out = [], T = ['rpole', 'epole', 'hh', 'sbox', 'exit'], r = reach || 0.5;
+  for (let i = 0; i < P.length; i++) { out.push(P[i]); if (i + 1 >= P.length) break; const a = P[i], b = P[i + 1], L = Math.hypot(b[0] - a[0], b[1] - a[1]); if (L < 0.2) continue; const hit = [];
+    for (const e of S.els) { if (T.indexOf(e.t) < 0) continue; const t = ((e.x - a[0]) * (b[0] - a[0]) + (e.y - a[1]) * (b[1] - a[1])) / (L * L); if (t <= 0.02 || t >= 0.98) continue; const d = Math.hypot(a[0] + (b[0] - a[0]) * t - e.x, a[1] + (b[1] - a[1]) * t - e.y); if (d < r && Math.hypot(e.x - a[0], e.y - a[1]) > 0.1 && Math.hypot(e.x - b[0], e.y - b[1]) > 0.1) hit.push({ t, p: [e.x, e.y] }); }
+    hit.sort((p, q) => p.t - q.t).forEach(h => out.push(h.p)); }
+  return out;
+}
 /* a closure that lies in a hand hole or a service box, or on the ground: its two ends, where the cables go in, and the height of its middle */
 function cloLie(S, el) {
   const r = Math.max(0.06, Math.min(el.d, Math.max(0.02, num(el.h, 0.3))) / 2), pit = pitAt(S, [el.x, el.y]);
@@ -557,12 +638,31 @@ function odfInCabin(S, p, tol) {
   }
   return b;
 }
+/* beta 4.2 (19:25): where the cable goes into an outdoor cabinet, and where on that face. One rule for the plan, the isometric, the details and the lengths.
+   el.cab.in: 'T' through the roof, 'B' through the base, 'L' 'R' 'K' through the left, the right or the back wall (as seen from the door). Anything else: the app
+   chooses by how the cable arrives: at the height of the roof or above it (a ladder over the cabinet) it comes down through the roof; from lower it goes down
+   the outside and in through the base. el.cab.iu, iv, iz: where on that face (across, front to back, height above the foot); not set: nearest to where the
+   cable arrives. arr: { a: [x, y], z }, where the plan's cable comes from; null when none arrives. */
+function odcPort(S, el, arr) {
+  const cb = el.cab || {}, w = el.w, d = el.d, h = Math.max(0.02, num(el.h, 0.02)), z0 = baseZ(S, el) + (el.z != null ? Math.max(0, num(el.z, 0)) : 0), has = v => v != null && v !== '' && isFinite(+v);
+  const q = arr ? rot2(arr.a[0] - el.x, arr.a[1] - el.y, -(el.rot || 0)) : null, zr = arr ? arr.z - z0 : null, man = typeof cb.in === 'string' && cb.in.length === 1 && 'TBLRK'.indexOf(cb.in) >= 0;
+  const f = man ? cb.in : arr && zr >= h - 0.05 ? 'T' : 'B', cx = v => clamp(v, -w / 2 + 0.05, w / 2 - 0.05), cy = v => clamp(v, -d / 2 + 0.05, d / 2 - 0.05);
+  const sd = cb.side === 'R' ? 1 : -1, col = sd * (w / 2 - 0.05 - clamp(num(cb.off, 0.03), 0.01, Math.max(0.01, w / 2 - 0.07)));
+  let lx = man && has(cb.iu) ? +cb.iu : null, ly = man && has(cb.iv) ? +cb.iv : null, iz = man && has(cb.iz) ? +cb.iz : arr ? zr : 0.3;
+  if (f === 'T') { lx = cx(lx != null ? lx : q ? clamp(q[0], -w / 2 + 0.12, w / 2 - 0.12) : col); ly = cy(ly != null ? ly : q ? clamp(q[1], -d / 2 + 0.12, d / 2 - 0.12) : 0); }
+  else if (f === 'B') { const tx = lx != null ? lx : q ? q[0] : col, ty = ly != null ? ly : q ? q[1] : -d / 2; let b = null, bd = 1e9; for (const k of cabHoles(el)) { const dd = Math.hypot(k.x - tx, k.y - ty); if (dd < bd) { bd = dd; b = k; } } lx = b ? b.x : cx(tx); ly = b ? b.y : cy(ty); }      /* through the base it is one of the holes in the floor */
+  else if (f === 'K') { lx = cx(lx != null ? lx : q ? q[0] : 0); ly = cy(ly != null ? ly : 0); }
+  else { ly = cy(ly != null ? ly : q ? q[1] : 0); lx = cx(lx != null ? lx : 0); }
+  iz = clamp(iz, Math.min(0.15, h / 2), Math.max(0.15, h - 0.2));
+  const t = f === 'L' ? loc(el, -w / 2, ly) : f === 'R' ? loc(el, w / 2, ly) : f === 'K' ? loc(el, lx, d / 2) : loc(el, lx, ly);
+  return { f, lx, ly, iz, auto: !man, col, z0, h, p: [t[0], t[1], f === 'T' ? z0 + h : f === 'B' ? z0 : z0 + iz], X: arr ? { p: [arr.a[0], arr.a[1], arr.z], lay: 'ug' } : null };
+}
 /* Both fibers as pieces in space.
    legs: straight pieces { f: 'ae' | 'ug', i: leg number, a, b, type, za, zb, ta, tb (how much is cut off at each end for a bend) }
    verts: upright pieces { at, z0, z1, kind: 'riser' on a pole, 'exit' out of the ground, 'drop' anything else, R and u: the bend at its foot }
    exits, risers: what the app draws for them. join: where AE and UG meet. loops: on the AE fiber only. */
 function routeGeom(S) {
-  const R = S.route, out = { legs: [], verts: [], loops: [], exits: [], risers: [], links: [], warn: [], notes: [], join: null, sum: { aerial: 0, ug: 0, xug: 0, ladder: 0, open: 0, liquid: 0, wall: 0, vert: 0, loop: 0, nloop: 0, ae: 0, ugt: 0, total: 0 } };
+  const R = S.route, out = { legs: [], verts: [], loops: [], exits: [], bare: [], risers: [], links: [], warn: [], notes: [], ports: {}, join: null, sum: { aerial: 0, ug: 0, xug: 0, ladder: 0, open: 0, liquid: 0, wall: 0, vert: 0, loop: 0, nloop: 0, ae: 0, ugt: 0, total: 0 } };
   const un2 = (x, y) => { const l = Math.hypot(x, y) || 1; return [x / l, y / l]; }, d2 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
   const onPole = p => { const e = poleAt(S, p); return e ? [e.x, e.y] : p; };            /* a point of the aerial cable that sits on a pole is at the pole itself */
   const A = ((R.ae && R.ae.pts) || []).map(p => onPole([p.x, p.y])), U = ((R.ug && R.ug.pts) || []).map(p => [p.x, p.y]);
@@ -598,7 +698,7 @@ function routeGeom(S) {
       if (S.site.kind === 'rooftop' && !l.run) { const ts = edgeCross(S, l.a, l.b); if (ts.length) { segs = []; let prev = l.a; for (const tt of ts) { const m = [l.a[0] + (l.b[0] - l.a[0]) * tt, l.a[1] + (l.b[1] - l.a[1]) * tt]; segs.push([prev, m]); prev = m; } segs.push([prev, l.b]); } }
       for (const [p, q] of segs) {
         const g = groundZ(S, [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]), t = l.type, r = l.run; let z = null;
-        if (t === 'ladder') z = g + (r ? Math.max(0, num(r.z, RUNS.ladder.z)) : 0) + 0.03;
+        if (t === 'ladder') z = g + (r ? ladBase(S, r) + Math.max(0, num(r.z, RUNS.ladder.z)) : 0) + 0.03;
         else if (t === 'ug' || t === 'xug') z = r && !buried(r) ? g + num(r.z, 0) + STD.hdpe / 2 : g > 0.01 ? g + 0.06 : g - (r ? runDepthD(r) : flatD(UGD)) + STD.hdpe / 2;      /* in the lower of the two pipes, the black one */
         else if (t === 'liquid') z = g + 0.3; else if (t === 'wall') z = g + 1.2;
         P.push({ f: 'ug', i: l.i, a: p, b: q, type: t, run: r, za: z, zb: z, g, plan: d2(p, q), ta: 0, tb: 0, warn: [] });
@@ -615,7 +715,7 @@ function routeGeom(S) {
       const pe = S.els.find(e => e.t === 'port' && d2([e.x, e.y], p) < 0.35); if (pe) return { z: g + num(pe.z, 2.3) };              /* inside a cabin: its porthole */
       const pa = portAt(S, p); if (pa) return { z: pa.z };                                                                              /* on the site: the porthole of a cabin */
       const it = S.els.find(e => e.t === 'odf' && d2([e.x, e.y], p) < 0.6), rh = it ? rackHost(S, it) : null;
-      if (rh) { const K = rackOf(rh), z = baseZ(S, rh) + K.zb + (uOf(S, rh, it) - 1 + units(it) / 2) * RU; return rh.t === 'rack' ? { z, at: loc(rh, 0, -rh.d / 2 - 0.02), level: 1 } : { z }; }      /* the ODF at its own rack units. On a rack the cable comes down its front. */
+      if (rh) { const K = rackOf(rh), z = baseZ(S, rh) + K.zb + (uOf(S, rh, it) - 1 + units(it) / 2) * RU; return rh.t === 'rack' ? { z, at: loc(rh, 0, -rh.d / 2 - 0.02), level: 1 } : { z, odc: rh.t === 'odc' ? rh : null }; }      /* the ODF at its own rack units. On a rack the cable comes down its front. */
       const h = hostOf(S, p); if (h || it) return { z: (h ? baseZ(S, h) : g) + num(R.endRise, 1) };
       return null;
     };
@@ -626,9 +726,39 @@ function routeGeom(S) {
     for (let k = 0; k < P.length; k++) if (P[k].type === 'open') {          /* a piece in the open goes straight from where the one before ends to where the next begins */
       const q = P[k], pv = P[k - 1], nx = P[k + 1];
       q.za = pv ? (pv.zb < pv.g - 0.05 ? groundZ(S, q.a) + EXH : pv.zb) : T0 ? T0.z : q.g + 0.05;
-      q.zb = nx ? (nx.type === 'open' ? q.za : nx.za < nx.g - 0.05 ? groundZ(S, q.b) + EXH : nx.za) : T1 ? T1.z : q.g + 0.05;
-      if (!pv && T0 && T0.level) q.za = q.zb; if (!nx && T1 && T1.level) q.zb = q.za;      /* level to the rack, then straight down to the ODF */
+      q.zb = nx ? q.za : T1 ? T1.z : q.g + 0.05;      /* (19:25) in the open it runs level: where the height changes, the upright piece made below takes it straight up or down at the start of the next piece */
+      if (!pv && T0 && T0.level && nx) { q.zb = nx.type === 'open' ? q.zb : nx.za < nx.g - 0.05 ? groundZ(S, q.b) + EXH : nx.za; q.za = q.zb; } if (!nx && T1 && T1.level) q.zb = q.za;      /* level to the rack, then straight down to the ODF */
     }
+    /* beta 4.2 (19:25): into an outdoor cabinet the cable goes through the entry of that cabinet (odcPort): the one the user chose, or the one the app chooses.
+       Outside it runs level, or straight up or down, and never through the cabinet: over the roof, down the outside of a wall, along the foot (hop: the
+       cabinet). Inside (inside: 1) a piece runs from the entry to over or under the ODF; the upright piece made next takes the cable to the ODF. */
+    { const c = T1 && T1.odc; let q = P[P.length - 1];
+      if (q && c) {
+        const poly = elPoly(c), zb0 = baseZ(S, c) + (c.z != null ? Math.max(0, num(c.z, 0)) : 0), roof = zb0 + Math.max(0.02, num(c.h, 0.02)), zf = zb0 + 0.08, O = q.b, iL = q.i, hw = c.w / 2, hd = c.d / 2;
+        while (P.length > 1 && q.type === 'open' && P[P.length - 2].type === 'open' && inPoly(q.a, poly)) { P.pop(); q = P[P.length - 1]; }      /* points tapped inside the cabinet: the last one outside it counts */
+        let a, zA;
+        if (q.type === 'open') { P.pop(); a = q.a; zA = q.za; }      /* a hop in the open: led to the entry from where it starts */
+        else { a = q.b; zA = q.zb;
+          if (zA > zb0 + 0.25 && zA < roof - 0.05 && !inPoly(q.a, poly) && inPoly(q.b, poly)) {      /* a ladder or a pipe lower than the roof stops at the wall */
+            let t0 = 0, t1 = 1; const at = t => [q.a[0] + (q.b[0] - q.a[0]) * t, q.a[1] + (q.b[1] - q.a[1]) * t]; for (let k = 0; k < 30; k++) { const m = (t0 + t1) / 2; if (inPoly(at(m), poly)) t1 = m; else t0 = m; }
+            a = at(t0); q.b = a; q.plan = d2(q.a, a); } }
+        const pt = odcPort(S, c, { a, z: zA }), G = [pt.p[0], pt.p[1]], inA = inPoly(a, poly); out.ports[c.id] = pt;
+        const mk = (p1, p2, z, x) => { if (d2(p1, p2) > 0.02) P.push(Object.assign({ f: 'ug', i: iL, a: p1, b: p2, type: 'open', run: null, za: z, zb: z, g: groundZ(S, p1), plan: d2(p1, p2), ta: 0, tb: 0, warn: [], hop: c.id }, x || {})); };
+        let zin = zf;
+        if (pt.f === 'T') { mk(a, G, Math.max(zA, roof + 0.15)); zin = roof - 0.06; }
+        else if (pt.f === 'B') {
+          if (inA && zA <= zf + 0.2) zin = null;               /* it comes up under the cabinet: straight up to the ODF */
+          else if (zA <= zf + 0.2) mk(a, G, zf);                /* from the ground: along the foot and in */
+          else {                                               /* from higher: level to the nearest wall, down its outside, in at the foot */
+            const lc = rot2(a[0] - c.x, a[1] - c.y, -(c.rot || 0)); let ex = clamp(lc[0], -hw, hw), ey = clamp(lc[1], -hd, hd);
+            if (Math.abs(lc[0]) < hw && Math.abs(lc[1]) < hd) { if (hw - Math.abs(lc[0]) < hd - Math.abs(lc[1])) ex = lc[0] < 0 ? -hw : hw; else ey = lc[1] < 0 ? -hd : hd; }
+            const E = loc(c, ex + (Math.abs(ex) > hw - 1e-9 ? Math.sign(ex) * 0.06 : 0), ey + (Math.abs(ey) > hd - 1e-9 ? Math.sign(ey) * 0.06 : 0));
+            mk(a, E, zA); mk(E, G, zf, { gland: 1 }); }
+        }
+        else { const Oo = pt.f === 'L' ? loc(c, -hw - 0.1, pt.ly) : pt.f === 'R' ? loc(c, hw + 0.1, pt.ly) : loc(c, pt.lx, hd + 0.1), gz = pt.p[2];
+          mk(a, Oo, zA < roof + 0.05 && (inA || segPoly(a, Oo, poly)) ? roof + 0.15 : zA); mk(Oo, G, gz, { gland: 1 }); zin = gz; }      /* the cabinet in the way: over its roof */
+        if (zin != null) mk(G, O, zin, { inside: 1 });
+      } }
     for (let k = 0; k <= P.length; k++) {                                  /* the upright piece at every place where the height changes */
       const pv = P[k - 1] || null, nx = P[k] || null, at0 = nx ? nx.a : pv.b, T = !pv ? T0 : !nx ? T1 : null;
       const zp = pv ? pv.zb : T ? T.z : null, zn = nx ? nx.za : T ? T.z : null;
@@ -644,9 +774,11 @@ function routeGeom(S) {
         if (pole && off > 0) { const o2 = poleR(pole, z1 - baseZ(S, pole)) + GIR; v.at2 = [at0[0] + v.u[0] * o2, at0[1] + v.u[1] * o2]; }      /* the pole tapers and the pipe follows it: where it is at the top */
         if (off + Rb > 0) { if (atA) adj.ta = off + Rb; else adj.tb = off + Rb; }
       }
+      if (pv && pv.inside) v.inside = 1; if ((pv && pv.hop) || (nx && nx.hop)) v.hop = (pv && pv.hop) || nx.hop;      /* (19:25) part of the way into a cabinet */
       out.verts.push(v);
       if (v.kind === 'riser') out.risers.push({ at: v.at, at2: v.at2 || v.at, pole, g, z0, z1, u: v.u || [1, 0], R: v.R, dp: below ? g - z0 : 0 });
-      if (v.kind === 'exit') { const ex = S.els.find(e => e.t === 'exit' && d2([e.x, e.y], at0) < 0.5); out.exits.push({ at: v.at, st: ex ? ex.st : bp && bp.type === 'xug' ? 'E' : 'P', g, h: ex ? Math.max(0.1, num(ex.h, EXH)) : clamp(z1 - g, 0.1, EXH), u: v.u || [1, 0], R: v.R, dp: g - z0, el: ex ? ex.id : null }); }
+      if (v.kind === 'exit') { const ex = S.els.find(e => e.t === 'exit' && d2([e.x, e.y], at0) < 0.5); if (!ex && !hostOf(S, at0)) out.bare.push({ at: v.at });      /* (19:25: where the cable comes out of the ground with no exit conduit drawn, none is made up; the place is kept for a check line) */
+        if (ex) out.exits.push({ at: v.at, st: ex ? ex.st : bp && bp.type === 'xug' ? 'E' : 'P', g, h: ex ? Math.max(0.1, num(ex.h, EXH)) : clamp(z1 - g, 0.1, EXH), u: v.u || [1, 0], R: v.R, dp: g - z0, el: ex ? ex.id : null }); }
     }
     for (const q of P) { q.len = Math.hypot(q.plan, q.zb - q.za); out.legs.push(q); }
     /* where the two fibers meet: the closure stands on the side of the pole above the loop, and the UG cable comes up the riser to its bottom */
@@ -698,13 +830,14 @@ function cefTable(S) {
   const Lm = v => v > 0.05 ? f1(v) + 'm' : '', Q = v => v > 0 ? String(v) : '';
   const cab = c => { c = String(c || ''); const sp = c.indexOf(' '); return sp > 0 ? [c.slice(0, sp), c.slice(sp + 1)] : [c, '']; }, ca = cab(S.route.ae.cable), cu = cab(S.route.ug.cable);
   const dps = Array.from(new Set(S.runs.filter(r => r.kind === 'trench' && r.st === 'P').map(r => f1(runDepth(r))))), deep = trench > 0.05 ? (dps.length > 1 ? 'SEE PLAN' : (dps[0] || f1(UGD)) + 'm DEEP') : '';
+  const TR = S.runs.filter(r => r.kind === 'trench' && r.st === 'P'), TT = Array.from(new Set(S.runs.filter(r => (r.kind === 'conduit' || r.kind === 'encase') && r.st === 'P' && buried(r)).map(r => runN(r) + '-' + runMM(r) + 'mm')));      /* (22:24) the proposed conduits that are drawn say the runs and the size; with none drawn, the standard */
   const nclo = cnt('clo') + (rg.join && rg.join.auto ? 1 : 0), nexit = rg.exits.length + S.els.filter(e => e.t === 'exit' && !rg.exits.some(x => x.el === e.id)).length;
   return [
     ['ODF', odf.length ? Array.from(new Set(odf.map(e => e.size || ''))).join(', ') : '', Q(odf.length), ''],
     ['CLOSURE', nclo ? 'HYBRID' : '', Q(nclo), ''],
     ['RISER POLE (EXISTING)', '', Q(cnt('epole')), ''],
     ['WALL STRAP', '', '', Lm(g.wall)],
-    ['OPEN TRENCH CONDUIT' + (deep ? ' (' + deep + ')' : ''), trench > 0.05 ? '2-' + PVC_MM + 'mm PVC' : '', '', Lm(trench)],
+    [(TR.length && TR.every(runShallow) ? 'SHALLOW' : 'OPEN') + ' TRENCH CONDUIT' + (deep ? ' (' + deep + ')' : ''), trench > 0.05 ? (TT.length > 1 ? 'SEE PLAN' : (TT[0] || '2-' + PVC_MM + 'mm') + ' PVC') : '', '', Lm(trench)],
     ['PROP. RISER POLE', '', Q(cnt('rpole')), ''],
     ['CONCRETE ENCASEMENT', '', Q(cnt('enc') + cnt('rpole')), ''],
     ['AE ' + ca[0] + ' FOC (W/ LOOP)', g.ae > 0.05 ? ca[1] : '', '', Lm(g.ae)],
@@ -728,14 +861,20 @@ function focFormula(S) {
 
 /* ---------- drawing primitives (metres, y up) ---------- */
 function Gfx() { this.p = []; }
-Gfx.prototype.pl = function (pts, lay, close) { if (pts.length > 1) this.p.push({ k: 'pl', pts, lay, close: !!close }); };
-Gfx.prototype.ci = function (c, r, lay) { this.p.push({ k: 'ci', c, r, lay }); };
-Gfx.prototype.ar = function (c, r, a0, a1, lay) { this.p.push({ k: 'ar', c, r, a0, a1, lay }); };
+/* beta 4.2 (19:25): while grp is set, what is drawn belongs to that item (g): in the DXF it becomes one block, picked and moved in one piece */
+Gfx.prototype.put = function (o) { if (this.grp) o.g = this.grp; this.p.push(o); };
+Gfx.prototype.pl = function (pts, lay, close) { if (pts.length > 1) this.put({ k: 'pl', pts, lay, close: !!close }); };
+Gfx.prototype.ci = function (c, r, lay) { this.put({ k: 'ci', c, r, lay }); };
+Gfx.prototype.ar = function (c, r, a0, a1, lay) { this.put({ k: 'ar', c, r, a0, a1, lay }); };
 /* m: text lying on a face of the model. [ux, uy, vx, vy]: where one metre along the line of text, and one metre up from it, land on the drawing. */
-Gfx.prototype.tx = function (p, s, h, lay, al, a, b, m) { const t = { k: 'tx', p, s: String(s).replace(/\u00A0/g, ' '), h, lay, al: al || 'l', a: a || 0, b: !!b }; if (m) t.m = m; this.p.push(t); };
-Gfx.prototype.fl = function (pts, lay) { this.p.push({ k: 'fl', pts, lay }); };
+Gfx.prototype.tx = function (p, s, h, lay, al, a, b, m) { const t = { k: 'tx', p, s: String(s).replace(/\u00A0/g, ' '), h, lay, al: al || 'l', a: a || 0, b: !!b }; if (m) t.m = m; this.put(t); };
+Gfx.prototype.fl = function (pts, lay) { this.put({ k: 'fl', pts, lay }); };
+/* the name of the block of every item and line of a plan: its kind and its number among that kind (ODC_2, RPOLE_1, TRENCH_1). GSEQ: one number for each drawing made,
+   so that the same item on two drawings of one sheet is two blocks. */
+let GSEQ = 0;
+function blockNames(S) { const N = {}, cnt = {}, nm = k => { const p = String(k || 'ITEM').toUpperCase().replace(/[^A-Z0-9]+/g, '_'); cnt[p] = (cnt[p] || 0) + 1; return p + '_' + cnt[p]; }; for (const e of S.els || []) N[e.id] = nm(e.t); for (const r of S.runs || []) N[r.id] = nm(r.kind); return N; }
 function primBox(prims) {
-  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; const ex = (x, y) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); };
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; const ex = (x, y) => { if (!isFinite(x) || !isFinite(y)) return; x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); };      /* (beta 4.2: what is not a number is left out, so one bad piece cannot take the view of the whole drawing away) */
   for (const p of prims) {
     if (p.k === 'pl' || p.k === 'fl') for (const q of p.pts) ex(q[0], q[1]);
     else if (p.k === 'ci' || p.k === 'ar') { ex(p.c[0] - p.r, p.c[1] - p.r); ex(p.c[0] + p.r, p.c[1] + p.r); }
@@ -755,27 +894,32 @@ function xfPrims(prims, s, rot, dx, dy) {
 }
 
 /* ---------- callouts in the margins, each with a leader to what it names ---------- */
-function addCallouts(G, A, bb, th) {
-  if (!A.length) return;
-  const cx = (bb[0] + bb[2]) / 2, pitch = th * 1.55, gap = th * 0.9;
-  const items = A.map(a => { const lines = wrap(a.s, 28); return { a, lines, hh: lines.length * pitch }; });
-  let Lf = items.filter(i => i.a.p[0] < cx), Rt = items.filter(i => i.a.p[0] >= cx);
-  while (Lf.length > Rt.length + 2) { Lf.sort((p, q) => q.a.p[0] - p.a.p[0]); Rt.push(Lf.shift()); }
-  while (Rt.length > Lf.length + 2) { Rt.sort((p, q) => p.a.p[0] - q.a.p[0]); Lf.push(Rt.shift()); }
-  const place = (arr, right) => {
-    arr.sort((p, q) => q.a.p[1] - p.a.p[1]); let prev = null;
-    for (const it of arr) { it.y = it.a.p[1]; if (prev) it.y = Math.min(it.y, prev.y - (prev.hh + it.hh) / 2 - gap); prev = it; }
-    if (arr.length) { const bot = arr[arr.length - 1].y - arr[arr.length - 1].hh / 2; if (bot < bb[1]) { const sh = (bb[1] - bot) / 2; for (const it of arr) it.y += sh; } }
-    const x = right ? bb[2] + 3.4 * th : bb[0] - 3.4 * th;
-    for (const it of arr) {
-      const lay = it.a.st === 'P' ? 'tp' : 'tx', sx = right ? x - 0.5 * th : x + 0.5 * th, ex = right ? x - 2.2 * th : x + 2.2 * th, p = it.a.p;
-      G.pl([p, [ex, it.y], [sx, it.y]], lay);
-      const dx = ex - p[0], dy = it.y - p[1], d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d, s = th * 0.6;
-      G.fl([p, [p[0] + ux * s - uy * s * 0.3, p[1] + uy * s + ux * s * 0.3], [p[0] + ux * s + uy * s * 0.3, p[1] + uy * s - ux * s * 0.3]], lay);
-      it.lines.forEach((ln, k) => G.tx([x, it.y + it.hh / 2 - pitch * (k + 0.5) - th * 0.5], ln, th, lay, right ? 'l' : 'r'));
-    }
-  };
-  place(Lf, false); place(Rt, true);
+function addCallouts(G, A, bb, th, LB) {
+  /* beta 4.2: each note takes the place at the edge, as near to the height of its item as it can, from which its leader crosses no other leader and runs
+     under no name. Where there is none the note is left out; the number left out is given back. */
+  if (!A.length) return 0;
+  const cx = (bb[0] + bb[2]) / 2, pitch = th * 1.55, done = [], leads = LB ? LB.leads : [], labs = LB ? LB.labs : []; let lost = 0;
+  const items = A.map(a => { const lines = wrap(a.s, 28); return { a, lines, hh: lines.length * pitch, w: Math.max.apply(null, lines.map(s => textW(s, th))) }; }).sort((p, q) => q.a.p[1] - p.a.p[1]);
+  for (const it of items) {
+    const p = it.a.p, first = p[0] >= cx; let b = null, alt = null, ab = 1e9;
+    for (const right of [first, !first]) { for (let k = 0; k <= 90 && !b; k++) for (const sgn of k ? [1, -1] : [1]) {      /* (19:25) the whole height of the drawing, not only near its item */
+      const y = p[1] + sgn * k * pitch * 0.75, x = right ? bb[2] + 3.4 * th : bb[0] - 3.4 * th, sx = right ? x - 0.5 * th : x + 0.5 * th, ex = right ? x - 2.2 * th : x + 2.2 * th, e = [ex, y], s = [sx, y];
+      if (y - it.hh / 2 < bb[1] - 6 * th || y + it.hh / 2 > bb[3] + 6 * th) continue;
+      const xa = right ? x - 0.3 * th : x - it.w - 0.3 * th, xb = right ? x + it.w + 0.3 * th : x + 0.3 * th, box = [[xa, y - it.hh / 2], [xb, y - it.hh / 2], [xb, y + it.hh / 2], [xa, y + it.hh / 2]];
+      if (done.some(q => polysHit(q.box, box) || segSeg(p, e, q.p, q.e) || segPoly(p, e, q.box) || segPoly(q.p, q.e, box))) continue;
+      if (labs.some(q => polysHit(q, box))) continue;
+      const bad = leads.reduce((n, l) => n + (segSeg(p, e, l[0], l[1]) || segSeg(e, s, l[0], l[1]) ? 1 : 0), 0) + labs.reduce((n, q) => n + (segPoly(p, e, q) ? 3 : 0), 0), c = { right, y, x, sx, ex, box, p, e };
+      if (!bad) { b = c; break; } if (bad < ab) { ab = bad; alt = c; }
+    } if (b) break; }
+    if (!b && alt) b = alt;      /* (19:25) every name shows: where no clear way to the edge exists, the way that crosses the least */
+    if (!b) { lost++; continue; }
+    const lay = it.a.st === 'P' ? 'tp' : 'tx'; G.pl([p, b.e, [b.sx, b.y]], lay);
+    const dx = b.ex - p[0], dy = b.y - p[1], d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d, s = th * 0.6;
+    G.fl([p, [p[0] + ux * s - uy * s * 0.3, p[1] + uy * s + ux * s * 0.3], [p[0] + ux * s + uy * s * 0.3, p[1] + uy * s - ux * s * 0.3]], lay);
+    it.lines.forEach((ln, k) => G.tx([b.x, b.y + it.hh / 2 - pitch * (k + 0.5) - th * 0.5], ln, th, lay, b.right ? 'l' : 'r'));
+    done.push(b); if (LB) { LB.leads.push([p, b.e], [b.e, [b.sx, b.y]]); LB.labs.push(b.box); }
+  }
+  return lost;
 }
 
 /* ---------- top view ---------- */
@@ -795,6 +939,7 @@ function topEl(S, el, G, rg) {
     }
     case 'guy': { G.pl(tri(el.w / Math.sqrt(3)), lay, 1); for (const q of tri(num(el.ar, 8))) { G.pl([c, q], lay); G.pl(sqr(q, 0.35, el.rot), lay, 1); } break; }
     case 'mono': G.ci(c, el.w / 2, lay); G.ci(c, el.w / 4, lay); cross(c, el.w / 2 + 0.25, lay); break;
+    case 'tad': { const rc = Math.max(el.w * 0.95, el.w / 2 + 0.18); G.ci(c, el.w / 2, lay); G.ci(c, rc, lay); cross(c, rc + 0.2, lay); break; }
     case 'palm': G.ci(c, el.w / 2, lay); G.ci(c, 3.2, 'lot'); for (let i = 0; i < 9; i++) { const a = i * 40 * D2R; G.pl([[c[0] + el.w / 2 * Math.cos(a), c[1] + el.w / 2 * Math.sin(a)], [c[0] + 3.2 * Math.cos(a), c[1] + 3.2 * Math.sin(a)]], lay); } break;
     case 'ezm': G.ci(c, Math.max(el.w / 2, 0.15), lay); G.pl(rectAt(lp(0.35, 0), 0.3, 0.5, el.rot), lay, 1); cross(c, 0.4, lay); break;
     case 'rtp': G.ci(c, 0.15, lay); for (const q of tri(1.5)) G.pl([c, q], lay); break;
@@ -816,6 +961,10 @@ function topEl(S, el, G, rg) {
     case 'exit': { const x = rg ? rg.exits.find(q => q.el === el.id) : null, er = x ? null : exitRun(S, el), at = x ? x.at : c, u = x ? x.u : er ? er.u : rot2(1, 0, el.rot || 0), hc = [at[0] + u[0] * 0.025, at[1] + u[1] * 0.025]; G.pl(rectAt(hc, el.w, el.d, el.rot), lay, 1); G.ci(hc, STD.sleeve / 2, lay); for (const k of [0, 1]) G.ci([at[0] + u[0] * k * 0.05, at[1] + u[1] * k * 0.05], 0.025, lay); break; }      /* the block, its 114 mm hole and the two 50 mm pipes in it; the cable is in the first one */      /* a square block, the 114 mm pipe in it, and the two 50 mm pipes in that */
     case 'sbox': G.pl(P, lay, 1); G.pl(rectAt(c, el.w * 0.55, el.d * 0.55, el.rot), lay, 1); break;
     default: G.pl(P, lay, 1);
+      if (el.t === 'pad') for (const K of padSteps(el)) {      /* beta 4.2: its stairs, seen from above: the outline and the edge of each step */
+        const run = K.n * K.tread; G.pl([faceXY(el, K.face, K.u - K.w / 2, 0), faceXY(el, K.face, K.u - K.w / 2, -run), faceXY(el, K.face, K.u + K.w / 2, -run), faceXY(el, K.face, K.u + K.w / 2, 0)], lay);
+        for (let i = 1; i < K.n; i++) G.pl([faceXY(el, K.face, K.u - K.w / 2, -i * K.tread), faceXY(el, K.face, K.u + K.w / 2, -i * K.tread)], lay);
+      }
   }
 }
 /* ---------- labels that sit beside what they name, parallel to it, and never on top of anything ---------- */
@@ -848,7 +997,31 @@ Labeler.prototype.block = function (poly, solid, own) { if (poly && poly.length 
 Labeler.prototype.fit = function (bb, lim, rect) { this.bb = bb.slice(); this.lim = lim || null; this.rect = rect || null; };          /* rect: on a screen, the part of the drawing that is in view */
 Labeler.prototype.grow = function (box) { if (this.bb) { const b = polyBox(box); this.bb = [Math.min(this.bb[0], b[0]), Math.min(this.bb[1], b[1]), Math.max(this.bb[2], b[2]), Math.max(this.bb[3], b[3])]; } };
 /* own: a label may sit on the item it names */
-Labeler.prototype.free = function (box, own) { const b = polyBox(box), r = this.rect; if (r && (b[0] < r[0] || b[1] < r[1] || b[2] > r[2] || b[3] > r[3])) return false; if (this.lim && this.bb && (Math.max(this.bb[2], b[2]) - Math.min(this.bb[0], b[0]) > this.lim[0] || Math.max(this.bb[3], b[3]) - Math.min(this.bb[1], b[1]) > this.lim[1])) return false; for (const o of this.obst) if (!(own && o.o === own) && !(o.b[0] >= b[2] || o.b[2] <= b[0] || o.b[1] >= b[3] || o.b[3] <= b[1]) && polysHit(box, o.p)) return false; return true; };
+Labeler.prototype.free = function (box, own) { const b = polyBox(box), r = this.rect; if (r && (b[0] < r[0] || b[1] < r[1] || b[2] > r[2] || b[3] > r[3])) return false; if (this.lim && this.bb && (Math.max(this.bb[2], b[2]) - Math.min(this.bb[0], b[0]) > this.lim[0] || Math.max(this.bb[3], b[3]) - Math.min(this.bb[1], b[1]) > this.lim[1])) return false; for (const o of this.obst) if (!(own && o.o === own) && !(o.b[0] >= b[2] || o.b[2] <= b[0] || o.b[1] >= b[3] || o.b[3] <= b[1]) && polysHit(box, o.p)) return false; return !(this.rs && !own && this.inkHit(box, b)); };      /* (beta 4.2: and on blank paper, unless it is the name of the item it sits on) */
+/* beta 4.2: "blank paper". Every line of the drawing is marked on a fine raster. A name that does not sit on its own item takes a place only where the
+   raster is empty, so it never lies over a line of anything: not over a hidden bend, a lattice member or a dashed pipe that nothing else keeps it clear of. */
+Labeler.prototype.ink = function (prims, h) {
+  let x0 = 1e18, y0 = 1e18, x1 = -1e18, y1 = -1e18; const sg = [];
+  for (const p of prims) { if (p.k !== 'pl' || !p.pts || p.lay === 'gh') continue; const n = p.pts.length; for (let i = 0; i < (p.close ? n : n - 1); i++) { const a = p.pts[i], b = p.pts[(i + 1) % n]; if (!isFinite(a[0] + a[1] + b[0] + b[1])) continue; sg.push(a, b); x0 = Math.min(x0, a[0], b[0]); x1 = Math.max(x1, a[0], b[0]); y0 = Math.min(y0, a[1], b[1]); y1 = Math.max(y1, a[1], b[1]); } }
+  if (!sg.length) return;
+  const cs = Math.max(0.2 * h, Math.max(x1 - x0, y1 - y0) / 900), nx = Math.ceil((x1 - x0) / cs) + 2, ny = Math.ceil((y1 - y0) / cs) + 2, g = new Uint8Array(nx * ny), W1 = nx + 1, sat = new Int32Array(W1 * (ny + 1));
+  for (let i = 0; i < sg.length; i += 2) { const a = sg[i], b = sg[i + 1], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (cs * 0.5))); for (let k = 0; k <= n; k++) g[Math.floor((a[1] + (b[1] - a[1]) * k / n - y0) / cs) * nx + Math.floor((a[0] + (b[0] - a[0]) * k / n - x0) / cs)] = 1; }
+  for (let j = 0; j < ny; j++) { let r = 0; for (let i = 0; i < nx; i++) { r += g[j * nx + i]; sat[(j + 1) * W1 + i + 1] = sat[j * W1 + i + 1] + r; } }
+  this.rs = { x0, y0, cs, nx, ny, g, sat, W1 };
+};
+Labeler.prototype.inkHit = function (box, b) {
+  const r = this.rs, m = 0.07 * Math.min(b[2] - b[0], b[3] - b[1]);      /* a line may touch the margin round the text */
+  if (box.length === 4 && Math.abs(box[0][1] - box[1][1]) < 1e-9 && Math.abs(box[1][0] - box[2][0]) < 1e-9) {      /* level text: the sum over its cells, in one step */
+    const i0 = Math.max(0, Math.floor((b[0] + m - r.x0) / r.cs)), i1 = Math.min(r.nx - 1, Math.floor((b[2] - m - r.x0) / r.cs)), j0 = Math.max(0, Math.floor((b[1] + m - r.y0) / r.cs)), j1 = Math.min(r.ny - 1, Math.floor((b[3] - m - r.y0) / r.cs));
+    return i1 >= i0 && j1 >= j0 && r.sat[(j1 + 1) * r.W1 + i1 + 1] - r.sat[j0 * r.W1 + i1 + 1] - r.sat[(j1 + 1) * r.W1 + i0] + r.sat[j0 * r.W1 + i0] > 0;
+  }
+  if (box.length !== 4) return false;
+  const c = [(box[0][0] + box[2][0]) / 2, (box[0][1] + box[2][1]) / 2], k = 0.88, P = box.map(p => [c[0] + (p[0] - c[0]) * k, c[1] + (p[1] - c[1]) * k]);
+  const ax = [P[1][0] - P[0][0], P[1][1] - P[0][1]], ay = [P[3][0] - P[0][0], P[3][1] - P[0][1]], mx = Math.max(1, Math.ceil(Math.hypot(ax[0], ax[1]) / (r.cs * 0.7))), my = Math.max(1, Math.ceil(Math.hypot(ay[0], ay[1]) / (r.cs * 0.7)));
+  for (let j = 0; j <= my; j++) for (let i = 0; i <= mx; i++) { const x = Math.floor((P[0][0] + ax[0] * i / mx + ay[0] * j / my - r.x0) / r.cs), y = Math.floor((P[0][1] + ax[1] * i / mx + ay[1] * j / my - r.y0) / r.cs); if (x >= 0 && y >= 0 && x < r.nx && y < r.ny && r.g[y * r.nx + x]) return true; }
+  return false;
+};
+
 /* every label that is placed is kept, with its key, its outline, its middle and the point of its item it is measured from: this is what makes a label something the user can pick and drag */
 Labeler.prototype.keep = function (key, box, c, ap, x) { this.block(box); this.labs.push(box); this.grow(box); if (key) this.out.push(Object.assign({ key, poly: box, c: c.slice(), ap: (ap || c).slice() }, x || {})); };
 const txSize = (lines, h, bold) => { const pitch = h * 1.45; return { pitch, w: Math.max.apply(null, lines.map(s => textW(s, h) * (bold ? 1.06 : 1))) + h * 0.5, hg: (lines.length - 1) * pitch + h * 1.4 }; };
@@ -915,12 +1088,12 @@ Labeler.prototype.commit = function (b, h, lay, key) {
   G.pl(b.up ? [p, b.e] : [p, b.e, b.e2], lay);
   G.fl([p, [p[0] + ux * s - uy * s * 0.22, p[1] + uy * s + ux * s * 0.22], [p[0] + ux * s + uy * s * 0.22, p[1] + uy * s - ux * s * 0.22]], lay);
   b.lines.forEach((t, k) => G.tx([b.up ? b.c[0] : b.c[0] - b.sg * (b.w / 2 - 0.2 * h), b.c[1] + b.hg / 2 - 0.2 * h - k * pitch - h], t, h, lay, b.up ? 'c' : b.sg > 0 ? 'l' : 'r'));
-  this.keep(key, b.box, b.c, p, { a: 0 }); this.leads.push([p, b.e]); this.block(thick(p, b.e, 0.5 * h)); if (!b.up) this.block(thick(b.e, b.e2, 0.5 * h));
+  this.keep(key, b.box, b.c, p, { a: 0 }); this.leads.push([p, b.e]); this.block(thick(p, b.e, 0.5 * h)); if (!b.up) { this.leads.push([b.e, b.e2]); this.block(thick(b.e, b.e2, 0.5 * h)); }
 };
 Labeler.prototype.callout = function (p, lines, h, lay, o) { const b = this.seek(p, lines, h, o); if (b) this.commit(b, h, lay, o && o.key); return !!b; };
 /* a set of notes { key, p, alt, s, st, w }: p is where the arrow lands (alt: other points that would do), w the usual line width in letters.
    Each note may be set narrower or wider. What is proposed goes first. At every step the note with the worst best place is next, so that nobody takes its only room. */
-Labeler.prototype.callouts = function (list, h, o) {
+Labeler.prototype.calloutsOld = function (list, h, o) {
   const HS = o && o.hs && o.hs.length ? o.hs : [h], left = list.slice(), fail = [], find = (a, oo) => {
     let b = null; const seen = {};
     for (const wd of [a.w || 18, 14, 28]) { const lines = a.lines && wd === (a.w || 18) ? a.lines : wrap(a.s, wd), key = lines.join('|'); if (seen[key] || (lines.length > 4 && wd !== (a.w || 18))) continue; seen[key] = 1; for (const p of [a.p].concat(a.alt || [])) HS.forEach((hh, j) => { const c = this.seek(p, lines, hh, oo || o); if (c) { c.h = hh; c.cost += j * 0.9; } if (c && (!b || c.cost < b.cost - 0.01)) b = c; }); }      /* a smaller size costs a little: it is taken when it gives a shorter leader */
@@ -935,21 +1108,158 @@ Labeler.prototype.callouts = function (list, h, o) {
     }
     if (!pick) break;
     const b = pick.a.best, ld = thick(b.p, b.e, 0.5 * h), ld2 = b.up ? null : thick(b.e, b.e2, 0.5 * h); this.commit(b, b.h || h, pick.a.lay || (pick.a.st === 'P' ? 'tp' : 'tx'), pick.a.key); left.splice(left.indexOf(pick.a), 1);
-    for (const a of left) { const c = a.best; if (c && (polysHit(c.box, b.box) || polysHit(c.box, ld) || (ld2 && polysHit(c.box, ld2)) || segSeg(c.p, c.e, b.p, b.e) || segSeg(c.e, c.e2, b.p, b.e) || segPoly(c.p, c.e, b.box))) a.best = undefined; }
+    for (const a of left) { const c = a.best; if (c && (polysHit(c.box, b.box) || polysHit(c.box, ld) || (ld2 && polysHit(c.box, ld2)) || segSeg(c.p, c.e, b.p, b.e) || segSeg(c.e, c.e2, b.p, b.e) || segSeg(c.p, c.e, b.e, b.e2) || segPoly(c.p, c.e, b.box))) a.best = undefined; }
   }
-  /* still no room: rather let two leaders cross than send the note to the edge of the sheet */
-  for (let i = fail.length - 1; i >= 0; i--) { const a = fail[i], b = find(a, Object.assign({ relax: 1 }, o)); if (b) { this.commit(b, b.h || h, a.lay || (a.st === 'P' ? 'tp' : 'tx'), a.key); fail.splice(i, 1); } }
+  /* still no room: on a phone-size drawing two leaders may cross rather than lose the name. Anywhere else a leader never crosses another (beta 4.2): the name goes to the notes at the edge. */
+  if (o && o.lastX) for (let i = fail.length - 1; i >= 0; i--) { const a = fail[i], b = find(a, Object.assign({ relax: 1 }, o)); if (b) { this.commit(b, b.h || h, a.lay || (a.st === 'P' ? 'tp' : 'tx'), a.key); fail.splice(i, 1); } }
   return fail;
+};
+/* ---------- beta 4.2: the notes are set out together ----------
+   ring: every free place a note could take at one leader length round its point, each with what it costs. A short leader that points away from the middle of
+   the drawing and runs over clear ground costs least; a long one costs much more; one that runs across another item costs more still. */
+const LEAD_ANG = [45, 135, -45, -135, 60, 120, -60, -120, 30, 150, -30, -150];
+/* one place of a note: p the point of its arrow, e the end of its leader, T its text { lines, h, w, hg }. Pushed onto out with what it costs, when it is free.
+   ri: how long the leader is, on the scale of LEAD_R */
+Labeler.prototype.spot = function (p, e, T, o, add, out, ri, ang) {
+  const h = T.h, w = T.w, hg = T.hg, land = 0.7 * h, dx = e[0] - p[0], dy = e[1] - p[1], d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d, up = Math.abs(ux) < 0.2, sg = ux >= 0 ? 1 : -1;
+  const c = up ? [e[0], e[1] + (uy > 0 ? 1 : -1) * (hg / 2 + 0.15 * h)] : [e[0] + sg * (land + 0.25 * h + w / 2), e[1]], box = [[c[0] - w / 2, c[1] - hg / 2], [c[0] + w / 2, c[1] - hg / 2], [c[0] + w / 2, c[1] + hg / 2], [c[0] - w / 2, c[1] + hg / 2]];
+  if (!this.free(box)) return;
+  const e2 = up ? e : [e[0] + sg * land, e[1]];
+  for (const l of this.leads) if (segPoly(l[0], l[1], box) || segSeg(p, e, l[0], l[1]) || segSeg(e, e2, l[0], l[1])) return;
+  for (const b of this.labs) if (segPoly(p, e, b)) return;
+  let cross = 0, soft = 0; const x0 = Math.min(p[0], e[0]), x1 = Math.max(p[0], e[0]), y0 = Math.min(p[1], e[1]), y1 = Math.max(p[1], e[1]);
+  for (const q of this.obst) { if (q.b[0] > x1 || q.b[2] < x0 || q.b[1] > y1 || q.b[3] < y0 || inPoly(p, q.p)) continue; if (segPoly(p, e, q.p)) { if (q.s) cross++; else soft++; } }
+  const std = ang !== undefined, a = std ? ang : Math.atan2(uy, ux) / D2R;
+  if (!std) { const r = d / (h * 1.25); ri = 0; while (ri < LEAD_R.length - 1 && LEAD_R[ri + 1] <= r) ri++; if (ri < LEAD_R.length - 1) ri += clamp((r - LEAD_R[ri]) / (LEAD_R[ri + 1] - LEAD_R[ri]), 0, 1); }
+  const outA = o.ctr ? Math.atan2(p[1] - o.ctr[1], p[0] - o.ctr[0]) / D2R : 90, dev = Math.abs(((a - outA) % 360 + 540) % 360 - 180), m = 0.6 * h;
+  out.push({ cost: ri * 1.1 + (ri > 5 ? (ri - 5) * (ri - 5) * 0.3 : 0) + dev / 75 + cross * 8 + Math.min(soft, 12) * 0.5 + (T.lines.length - 1) * 0.5 + (add || 0) + (std ? 0 : 0.5), ri, p, e, e2, c, box, up, sg, lines: T.lines, w, hg, h, ang: std ? ang : Math.round(a / 15) * 15,
+    bb: [Math.min(c[0] - w / 2, p[0]) - m, Math.min(c[1] - hg / 2, p[1]) - m, Math.max(c[0] + w / 2, p[0]) + m, Math.max(c[1] + hg / 2, p[1]) + m] });      /* bb: the note with its leader, for a quick "these two are far apart" */
+};
+const noteText = (lines, h) => ({ lines, h, w: Math.max.apply(null, lines.map(s => textW(s, h))) + h * 0.4, hg: (lines.length - 1) * h * 1.45 + h * 1.4 });
+/* the places at one leader length, in the usual directions */
+Labeler.prototype.ring = function (p, T, o, ri, add, out) { const d = LEAD_R[ri] * T.h * 1.25; for (const a of o.angs) this.spot(p, [p[0] + Math.cos(a * D2R) * d, p[1] + Math.sin(a * D2R) * d], T, o, add, out, ri, a); };
+/* the places close by on a fine grid, with a leader at any angle: what lets several notes of one small item stand in a tidy pile beside it */
+Labeler.prototype.grid = function (p, T, o, add, out) { const h = T.h; for (const sx of [1, -1]) for (const kx of [1.4, 3, 5, 7.5]) for (let k = -10; k <= 10; k++) { const dx = sx * kx * h, dy = k * 0.725 * h; if (!k || Math.abs(dy) > Math.abs(dx) * 4.7) continue; this.spot(p, [p[0] + dx, p[1] + dy], T, o, add, out); } };
+/* the places of one note that go into the choice: its few best ones, then the best one in every direction that is clear of those, so that a note whose
+   best corner is wanted by its neighbours still has somewhere else to go. Every way of breaking its text into lines and every point its arrow may land on
+   is tried; a smaller text size close by only. dense: also the fine grid close by. What is found is kept on the note (n.raw), so asking again costs little. */
+Labeler.prototype.cands = function (n, h, o, K, dense) {
+  const a = n.a, HS = o.hs && o.hs.length ? o.hs : [h], nMax = o.max || LEAD_R.length;
+  if (!n.raw) {
+    const vars = n.vars = [], seen = {}, out = n.raw = [];
+    for (const wd of [a.w || 18, 14, 28]) { const lines = a.lines && wd === (a.w || 18) ? a.lines : wrap(a.s, wd), key = lines.join('|'); if (seen[key] || (lines.length > 4 && wd !== (a.w || 18))) continue; seen[key] = 1; for (const p of [a.p].concat((a.alt || []).slice(0, 5))) vars.push({ p, T: noteText(lines, HS[0]), main: p === a.p && !vars.length }); }
+    for (let ri = 0; ri < nMax; ri++) {
+      for (const v of vars) if (ri < 6 || v.T.lines === vars[0].T.lines) this.ring(v.p, v.T, o, ri, 0, out);
+      if (ri < 3) for (let j = 1; j < HS.length; j++) this.ring(a.p, noteText(vars[0].T.lines, HS[j]), o, ri, j * 0.9, out);      /* a smaller size is worth it only where it lets the note stand close */
+      if (ri >= 2 && out.length >= K * 3) { const dirs = {}; for (const c of out) dirs[c.ang] = 1; if (Object.keys(dirs).length >= 9) break; }      /* enough places in enough directions */
+    }
+  }
+  if (dense && !n.dense) { n.dense = 1; const done = []; for (const v of n.vars) { if (done.filter(q => q === v.p).length >= 2 || (v.p !== a.p && done.length >= 4)) continue; done.push(v.p); this.grid(v.p, v.T, o, 0, n.raw); } }
+  const out = n.raw.slice().sort((x, y) => x.cost - y.cost), keep = [], far = (c, m) => !keep.some(q => Math.abs(q.c[0] - c.c[0]) + Math.abs(q.c[1] - c.c[1]) < m * c.h);
+  for (const c of out) { if (keep.length >= 6) break; if (far(c, 0.8)) keep.push(c); }
+  const dir = {}; for (const c of out) { const k = c.ang + '|' + (c.p === a.p ? 0 : 1); if (dir[k] || !far(c, 2.4)) continue; dir[k] = 1; keep.push(c); if (keep.length >= K) break; }
+  for (const c of out) { if (keep.length >= K) break; if (far(c, dense ? 0.7 : 1.6)) keep.push(c); }
+  return keep.sort((x, y) => x.cost - y.cost);
+};
+Labeler.prototype.callouts = function (list, h, o) {
+  o = o || {}; if (o.quick) return [];      /* while an item is dragged on a slow device: the notes come back when the drag ends */
+  if (o.lastX || !list.length) return this.calloutsOld(list, h, o);
+  o = Object.assign({}, o, { angs: (o.ang || LEAD_ANG).concat([0, 180]) });
+  const K = 22, B = 26, lim = this.lim, N = list.map(a => ({ a })); for (const n of N) n.C = this.cands(n, h, o, K);
+  /* two leaders that run side by side read as one line: away from their arrowheads they keep half a text height apart */
+  const beside = (a, b) => { const m = 0.55 * Math.min(a.h, b.h); for (const t of [0.35, 0.7, 1]) if (distSeg([a.p[0] + (a.e[0] - a.p[0]) * t, a.p[1] + (a.e[1] - a.p[1]) * t], b.p, b.e) < m || distSeg([b.p[0] + (b.e[0] - b.p[0]) * t, b.p[1] + (b.e[1] - b.p[1]) * t], a.p, a.e) < m) return true; return false; };
+  const hit = (a, b) => !(a.bb[0] > b.bb[2] || a.bb[2] < b.bb[0] || a.bb[1] > b.bb[3] || a.bb[3] < b.bb[1]) && (polysHit(a.box, b.box) || segPoly(a.p, a.e, b.box) || segPoly(b.p, b.e, a.box) || segSeg(a.p, a.e, b.p, b.e) || segSeg(a.e, a.e2, b.p, b.e) || segSeg(a.p, a.e, b.e, b.e2) || segSeg(a.e, a.e2, b.e, b.e2) || beside(a, b));
+  let id = 0; const memo = new Map(), clash = (a, b) => { const k = a.id < b.id ? a.id * 16384 + b.id : b.id * 16384 + a.id; let v = memo.get(k); if (v === undefined) { v = hit(a, b); memo.set(k, v); } return v; };
+  const solve = () => {
+    for (const n of N) for (const c of n.C) if (c.id === undefined) c.id = id++;
+    const ord = N.slice().sort((x, y) => (y.pr || 0) - (x.pr || 0) || x.C.length - y.C.length || (y.C[0] ? y.C[0].cost : 0) - (x.C[0] ? x.C[0].cost : 0));      /* a note that came off badly last time first; then the note with the fewest places */
+    let beam = [{ ch: [], cost: 0, bb: this.bb || null }];
+    for (const n of ord) {
+      const next = [];
+      for (const st of beam) {
+        for (const c of n.C) {
+          if (st.ch.some(q => q && clash(q, c))) continue;
+          let bb = st.bb; if (bb && lim) { const b = c.bb; bb = [Math.min(bb[0], c.c[0] - c.w / 2), Math.min(bb[1], c.c[1] - c.hg / 2), Math.max(bb[2], c.c[0] + c.w / 2), Math.max(bb[3], c.c[1] + c.hg / 2)]; if (bb[2] - bb[0] > lim[0] || bb[3] - bb[1] > lim[1]) continue; }
+          next.push({ ch: st.ch.concat([c]), cost: st.cost + c.cost, bb });
+        }
+        next.push({ ch: st.ch.concat([null]), cost: st.cost + miss(n), bb: st.bb });
+      }
+      next.sort((x, y) => x.cost - y.cost); beam = next.slice(0, B);
+    }
+    const m = new Map(); ord.forEach((n, i) => m.set(n, beam[0].ch[i])); return better(m);
+  };
+  /* the choice is then gone over note by note: a note moves to a cheaper place of its own when that place is clear, or when the one note in its way
+     has somewhere else to go and the two together come out cheaper. This is what swaps two notes that stand in each other's way. */
+  const miss = n => n.a.st === 'P' ? 90 : 70, within = m => { if (!lim || !this.bb) return true; let b = this.bb; for (const c of m.values()) if (c) b = [Math.min(b[0], c.c[0] - c.w / 2), Math.min(b[1], c.c[1] - c.hg / 2), Math.max(b[2], c.c[0] + c.w / 2), Math.max(b[3], c.c[1] + c.hg / 2)]; return b[2] - b[0] <= lim[0] && b[3] - b[1] <= lim[1]; };
+  const better = m => {
+    for (let pass = 0, moved = true; moved && pass < 30; pass++) {
+      moved = false;
+      for (const n of N) {
+        const cur = m.get(n), cc = cur ? cur.cost : miss(n);
+        for (const c of n.C) {
+          if (c.cost >= cc - 1e-6) break; if (c === cur) continue;
+          const bl = N.filter(q => q !== n && m.get(q) && clash(m.get(q), c)); if (bl.length > 1) continue;
+          if (!bl.length) { m.set(n, c); if (within(m)) { moved = true; break; } m.set(n, cur); continue; }
+          const q = bl[0], qc = m.get(q), alt = q.C.find(k => k !== qc && !clash(k, c) && !N.some(r => r !== q && r !== n && m.get(r) && clash(m.get(r), k))) || null;
+          if (cc - c.cost - ((alt ? alt.cost : miss(q)) - qc.cost) <= 1e-6) continue;
+          m.set(n, c); m.set(q, alt); if (within(m)) { moved = true; break; } m.set(n, cur); m.set(q, qc);
+        }
+      }
+    }
+    let cost = 0; for (const n of N) { const c = m.get(n); cost += c ? c.cost : miss(n); } return { m, cost };
+  };
+  let best = solve();
+  /* a note that got a long leader, or none: it and the notes round it are given the fine grid of places close by, it goes to the front of the queue,
+     and the choice is made again; the best of the tries is kept */
+  const d2 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]); let last = best;
+  for (let round = 0; round < 2; round++) {
+    const hard = N.filter(n => { const c = last.m.get(n); return !c || c.ri >= 5.5; }); if (!hard.length) break;
+    for (const n of hard) n.pr = (n.pr || 0) + 1;
+    for (const n of N) if (!n.dense && hard.some(g => d2(g.a.p, n.a.p) < 18 * h)) n.C = this.cands(n, h, o, 44, 1);
+    last = solve(); if (last.cost < best.cost - 1e-6) best = last;
+  }
+  const fail = [];
+  for (const n of N) { const b = best.m.get(n); if (b) this.commit(b, b.h, n.a.lay || (n.a.st === 'P' ? 'tp' : 'tx'), n.a.key); else fail.push(n.a); }
+  let rest = fail.length ? this.calloutsOld(fail, h, o) : fail;
+  if (rest.length && this.rect) { const r = this.rect; this.rect = null; try { rest = this.calloutsOld(rest, h, o); } finally { this.rect = r; } }      /* no place in the part of the drawing that is in view: one outside it */
+  return rest;      /* a note that found no place among its best ones takes any free place there is, however far */
+};
+/* beta 4.2: a length beside its piece and parallel to it. Where the place right beside the piece is taken it moves to the nearest clear place, still
+   parallel to the piece, and a thin leader ties it to the piece. It is never written over a line of the drawing or over another name. */
+Labeler.prototype.along = function (lines, h, lay, a, b, key, ap, o) {
+  o = o || {}; const z = txSize(lines, h), dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, ux = dx / l, uy = dy / l, ang = readable(Math.atan2(dy, dx) / D2R), gap = o.gap || 0, m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], C = [];
+  for (let j = 0; j < (o.wide ? 26 : 11); j++) for (let i = (o.wide ? -15 : -7); i <= (o.wide ? 15 : 7); i++) for (const s of [1, -1]) { const u = i * z.w * 0.55, v = s * (gap + z.hg / 2 + j * h * 0.95), on = Math.abs(u) <= Math.max(0, l / 2 - z.w * 0.35) && j < 2; C.push({ u, v, on, d: Math.hypot(u, v) + (on ? 0 : 1.5 * h) }); }
+  C.sort((p, q) => p.d - q.d);
+  for (const k of C) {
+    const c = [m[0] + ux * k.u - uy * k.v, m[1] + uy * k.u + ux * k.v], box = obb(c, z.w, z.hg, ang); if (!this.free(box)) continue;
+    let e = null, f = null;
+    if (!k.on) { const t = clamp(k.u / l + 0.5, 0.2, 0.8); f = [a[0] + dx * t, a[1] + dy * t]; e = edgeOut(c, f, box); if (this.leads.some(q => segSeg(f, e, q[0], q[1])) || this.labs.some(q => segPoly(f, e, q))) continue; }
+    this.write(lines, h, lay, c, ang, false); this.keep(key, box, c, ap || m, { a: ang });
+    if (e) { this.arrow(e, f, h * 0.7, lay); this.leads.push([f, e]); this.block(thick(f, e, 0.4 * h)); }
+    return true;
+  }
+  return false;
 };
 /* places beside the line p-q, parallel to it: on the side `out` points to, or on either side */
 /* beta 4.1: which drawn lines carry the length of each straight piece, and whether a cable leg already says that length there */
 const dimRun = r => r && r.st === 'P' && (r.kind === 'trench' || r.kind === 'conduit' || r.kind === 'encase');
 function legOnSeg(rg, a, b, s) { const d = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]); return rg.legs.some(l => l.f && l.plan >= 0.3 && f1(l.len) + 'm' === s && ((d(l.a, a) < 0.15 && d(l.b, b) < 0.15) || (d(l.a, b) < 0.15 && d(l.b, a) < 0.15))); }      /* the cable's own number serves there */
+/* beta 4.2 (22:24): one length where a cable, a conduit and a trench lie together. The straight piece u-v of the run r is not given a length of its own when a
+   cable whose length is written lies along it (over six tenths of it, within 0.3 m), and a piece of a trench also not when a proposed conduit lies along it. */
+function lenDup(S, rg, r, u, v, t) {
+  if (legOnSeg(rg, u, v, t)) return true; const L = Math.hypot(v[0] - u[0], v[1] - u[1]); if (L < 1e-6) return true;
+  const ux = (v[0] - u[0]) / L, uy = (v[1] - u[1]) / L, al = p => (p[0] - u[0]) * ux + (p[1] - u[1]) * uy, of = p => Math.abs((p[1] - u[1]) * ux - (p[0] - u[0]) * uy);
+  const cov = (a, b) => of(a) > 0.3 || of(b) > 0.3 ? 0 : Math.max(0, Math.min(L, Math.max(al(a), al(b))) - Math.max(0, Math.min(al(a), al(b))));
+  let c = 0; for (const l of rg.legs) if (l.f && l.f !== 'ae' && !l.inside && l.plan >= 0.3) c += cov(l.a, l.b); if (c >= L * 0.6) return true;
+  if (r && r.kind === 'trench') { let k = 0; for (const q of S.runs) if (q !== r && dimRun(q) && q.kind !== 'trench' && q.pts) for (let i = 0; i + 1 < q.pts.length; i++) k += cov(q.pts[i], q.pts[i + 1]); if (k >= L * 0.6) return true; }
+  return false;
+}
 /* the key of the length of a cable piece: the leg's own key when the leg is one straight piece (as before), else with the number of the piece */
 function lenKeys(legs) { const n = {}, j = {}, out = new Map(); for (const l of legs) if (l.f) n[l.f + l.i] = (n[l.f + l.i] || 0) + 1; for (const l of legs) if (l.f) { const k = l.f + l.i; j[k] = (j[k] || 0) + 1; out.set(l, 'len' + k + (n[k] > 1 ? '_' + (j[k] - 1) : '')); } return out; }
 function besideSeg(p, q, out, gap, steps, ts) {
   const dx = q[0] - p[0], dy = q[1] - p[1], l = Math.hypot(dx, dy) || 1, a = readable(Math.atan2(dy, dx) / D2R), nx = -dy / l, ny = dx / l, sides = out ? [nx * out[0] + ny * out[1] >= 0 ? 1 : -1] : [1, -1];
-  return (w, h) => { const o = []; for (let j = 0; j < (steps || 3); j++) for (const t of ts || [0.5, 0.3, 0.7]) for (const s of sides) { const d = gap + h / 2 + j * h * 0.9; o.push({ p: [p[0] + dx * t + nx * s * d, p[1] + dy * t + ny * s * d], a }); } return o; };
+  const f = (w, h) => { const o = []; for (let j = 0; j < (steps || 3); j++) for (const t of ts || [0.5, 0.3, 0.7]) for (const s of sides) { const d = gap + h / 2 + j * h * 0.9; o.push({ p: [p[0] + dx * t + nx * s * d, p[1] + dy * t + ny * s * d], a }); } return o; };
+  f.seg = [p, q]; f.gap = gap; f.ts = ts || null; return f;      /* (beta 4.2: the piece itself, for a length that has to move further out) */
 }
 /* places around a footprint seen from above: under it, over it, then at either end, text at angle a */
 function topCands(P, a, gap) {
@@ -977,8 +1287,8 @@ function inCands(el) {
    w: its width, all in the units of the view. The picture itself is laid in by the screen, the PDF and the DXF from the list `pics`. */
 function picOn(LB, ph, i, c, tip, w, th, pics) {
   const ar = ph.w > 0 && ph.h > 0 ? ph.w / ph.h : 4 / 3, h = w / ar, G = LB.G, box = [[c[0] - w / 2, c[1] - h / 2], [c[0] + w / 2, c[1] - h / 2], [c[0] + w / 2, c[1] + h / 2], [c[0] - w / 2, c[1] + h / 2]];
-  G.pl(box, 'ph', 1); G.tx([c[0] - w / 2, c[1] + h / 2 + 0.4 * th], 'PHOTO ' + (i + 1), th * 0.8, 'ph', 'l', 0, 1);
-  if (!inPoly(tip, box)) { const e = edgeOut(c, tip, box); LB.arrow(e, tip, th, 'ph'); LB.block(thick(tip, e, 0.5 * th)); }
+  G.pl(box, 'ph', 1); { const tt = ph.title != null ? String(ph.title).trim() : 'PHOTO ' + (i + 1); if (tt) G.tx([c[0] - w / 2, c[1] + h / 2 + 0.4 * th], tt, th * 0.8, 'ph', 'l', 0, 1); }      /* beta 4.2: its title can be changed, or left blank */
+  if (!inPoly(tip, box)) { const e = edgeOut(c, tip, box); LB.arrow(e, tip, th, 'ph'); LB.leads.push([tip, e]); LB.block(thick(tip, e, 0.5 * th)); }      /* (beta 4.2: no leader crosses the arrow of a picture) */
   LB.block(box); pics.push({ id: ph.id, n: i + 1, x: c[0] - w / 2, y: c[1] - h / 2, w, h, tip: [tip[0], tip[1]] });
 }
 const picW = (S, q) => num(q && q.w, 0) > 0 ? num(q.w, 0) : Math.max(S.site.L, S.site.W) * 0.3;
@@ -997,6 +1307,7 @@ function buildTop(S, o) {
   const R = [[0, 0], [L, 0], [L, W], [0, W]], ring = (c, r, n) => { const q = []; for (let i = 0; i < n; i++) q.push([c[0] + r * Math.cos(i * 2 * Math.PI / n), c[1] + r * Math.sin(i * 2 * Math.PI / n)]); return q; };
   const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], angOf = (a, b) => readable(Math.atan2(b[1] - a[1], b[0] - a[0]) / D2R);
   let swing = { S: 0, N: 0, E: 0, W: 0 };
+  const BN = blockNames(S), gq = ++GSEQ, gk = k => (k || 'ITEM') + '|' + gq; G.grp = gk('SITE');      /* (19:25) the lot, the fence and the gates: one block */
   if (si.kind === 'unfenced') G.pl(R, 'lot', 1);
   else if (si.kind === 'rooftop') { G.pl(R, 'bl', 1); const t = 0.2; G.pl([[t, t], [L - t, t], [L - t, W - t], [t, W - t]], 'bl', 1); }
   else if (si.kind === 'room') {                         /* the walls of a cabin: the sketch is the inside of the room, the wall thickness lies outside it. The door swings in. */
@@ -1027,10 +1338,12 @@ function buildTop(S, o) {
       if (nameOn(S, 'gate')) jobs.push({ o: 2, key, lines: [labText(S, key, w > 1.6 ? 'GATE' : 'DOOR')], lay: 'tx', ap: pt((g0 + g1) / 2), a: angOf(pt(g0), pt(g1)), cands: besideSeg(pt(g0, r), pt(g1, r), g.n, gap, 3), st: 'E' });
     });
   }
+  G.grp = null;
   for (let i = 0; i < 4; i++) LB.block(thick(R[i], R[(i + 1) % 4], si.kind === 'fenced' ? 0.5 : 0.25));
   const rg = routeGeom(S);
-  for (const el of S.els) if (el.t === 'pad') topEl(S, el, G, rg);
-  for (const el of S.els) if (el.t !== 'pad') topEl(S, el, G, rg);
+  for (const el of S.els) if (el.t === 'pad') { G.grp = gk(BN[el.id]); topEl(S, el, G, rg); }
+  for (const el of S.els) if (el.t !== 'pad') { G.grp = gk(BN[el.id]); topEl(S, el, G, rg); }
+  G.grp = null;
   for (const el of S.els) {
     const T = TYPES[el.t], c = [el.x, el.y], P = elPoly(el), key = el.id, host = el.t === 'odf' ? hostOf(S, c, el) : el.t === 'runit' ? rackHost(S, el) : null, tri = r => [90, 210, 330].map(a => loc(el, r * Math.cos(a * D2R), r * Math.sin(a * D2R)));
     const cm = el.t === 'clo' ? cloMount(S, rg, el) : null, ang = T.rd || T.g === 'tower' ? 0 : readable(el.rot || 0);
@@ -1040,7 +1353,7 @@ function buildTop(S, o) {
     else if (el.t === 'guy') { LB.block(sqr(c, Math.max(el.w, 0.5), 0), 0, key); for (const q of tri(Math.max(1, num(el.ar, 8)))) { LB.block(sqr(q, 0.45, 0), 0, key); LB.block(thick(c, q, 0.2), 0, key); } fp = sqr(c, Math.max(el.w, 0.5), 0); }
     else if (el.t === 't3' || el.t === 't4') { const g2 = clamp(el.w / 9, 0.3, 0.5) + 0.1; fp = hull([].concat.apply([], P.map(q => sqr(q, g2, 0)))); LB.block(fp, 1, key); }
     else if (el.t === 'rtp') { fp = ring(c, 1.55, 10); LB.block(fp, 1, key); }
-    else if (el.t === 'mono' || el.t === 'ezm' || el.t === 'epole' || el.t === 'rpole') { fp = sqr(c, Math.max(el.w / 2 + 0.3, 0.42), 0); LB.block(fp, 1, key); }
+    else if (el.t === 'mono' || el.t === 'tad' || el.t === 'ezm' || el.t === 'epole' || el.t === 'rpole') { fp = sqr(c, Math.max(el.w / 2 + 0.3, 0.42), 0); LB.block(fp, 1, key); }
     else if (el.t === 'exit') { fp = sqr(c, 0.25, 0); LB.block(fp, 1, key); }
     else if (cm) { fp = sqr(cm.c, 0.4, 0); LB.block(fp, 1, key); }
     else if (host) { LB.block(P, 0, key); fp = elPoly(host); }
@@ -1049,7 +1362,7 @@ function buildTop(S, o) {
     if (el.t === 'cabin' && nameOn(S, 'port')) cabinPorts(el).forEach((q, i) => { const k2 = 'port' + el.id + '_' + i, hz = q.face === 'F' || q.face === 'B', pp = rectAt(q.at, hz ? 0.5 : 0.22, hz ? 0.22 : 0.5, el.rot); jobs.push({ o: 5, key: k2, opt: 1, lines: [labText(S, k2, 'PORTHOLE')], lay: tl(q.st), ap: q.at, a: 0, cands: topCands(pp, 0, gap), st: q.st }); });
     const s = elLabel(S, el), grp = nameGrp(el), tt = titleTower(S) === el;
     if (tt) { const b = polyBox(fp), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2; jobs.push({ o: 0, key: 'tid', bold: 1, hk: 1, lines: titleLines(S), lay: 'tx', ap: [cx, b[3]], a: 0, cands: (w, hh) => { const o = []; for (let j = 0; j < 4; j++) { const d = gap + j * hh * 0.6; o.push({ p: [cx, b[3] + d + hh / 2], a: 0 }, { p: [b[2] + d + w / 2, b[3] - hh / 2], a: 0 }, { p: [b[0] - d - w / 2, b[3] - hh / 2], a: 0 }, { p: [b[2] + d + w / 2, cy], a: 0 }, { p: [b[0] - d - w / 2, cy], a: 0 }, { p: [cx, b[1] - d - hh / 2], a: 0 }); } return o; }, st: 'E' }); }      /* the site name and ID: above the tower first, then beside it */
-    if ((!grp || nameOn(S, grp)) && !(tt && !el.name && !nameOn(S, 'th'))) jobs.push({ o: 1, key, own: key, call: host ? 1 : 0, opt: el.t === 'runit' && host ? 1 : 0, area: polyBoxArea(fp), lines: s.length > 18 ? wrap(s, 16) : [s], lay: tl(el.st), ap: cm ? cm.c : c, a: ang, ins, cands: topCands(fp, ang, gap), st: el.st });
+    if ((!grp || nameOn(S, grp)) && !(tt && !el.name && !nameOn(S, 'th'))) jobs.push({ o: 1, key, own: key, call: host ? 1 : 0, opt: el.t === 'runit' && host ? 1 : 0, area: polyBoxArea(fp), fp, lines: s.length > 18 ? wrap(s, 16) : [s], lay: tl(el.st), ap: cm ? cm.c : c, a: ang, ins, cands: topCands(fp, ang, gap), st: el.st });
   }
   if (!S.room) for (const el of S.els) if (el.t === 'cabin') {             /* inside a cabin: its racks and the ODF, dashed, and the cable from the porthole to the ODF */
     const C = cabinInside(S, el); if (!C) continue; const cp = elPoly(el);
@@ -1060,7 +1373,7 @@ function buildTop(S, o) {
   }
   for (const k of ownConduit(rg)) { const lay = k.st === 'E' ? (k.open ? 'ex' : 'hd') : k.open ? 'pp' : 'hp'; for (const Q of outsidePits(S, [k.l.a, k.l.b])) for (const sg of [-1, 1]) G.pl(offsetPath(Q, 0.07 * sg), lay); }      /* the conduit the app takes under a buried piece of cable: its two edges round the cable. It ends at the wall of a hand hole or service box. */
   for (const r of S.runs) {
-    const K = RUNS[r.kind] || RUNS.ladder, lay = runLayer(r), P = r.pts; if (!P || P.length < 2) continue;
+    G.grp = null; const K = RUNS[r.kind] || RUNS.ladder, lay = runLayer(r), P = r.pts; if (!P || P.length < 2) continue; G.grp = gk(BN[r.id]);
     const wd = Math.max(r.kind === 'conduit' ? 0.14 : 0.1, num(r.w, K.w)), A1 = offsetPath(P, wd / 2), A2 = offsetPath(P, -wd / 2); let best = 0, bi = 0;
     if (r.kind === 'ladder') {                           /* rails and rungs follow the bends */
       const ST = ladPath(r), Wk = ladWalk(ST, wd / 2), nr = Math.max(1, Math.round(Wk.tot / 0.5));
@@ -1078,21 +1391,22 @@ function buildTop(S, o) {
       const ux = (b[0] - a[0]) / len, uy = (b[1] - a[1]) / len, nx = -uy * wd / 2, ny = ux * wd / 2; LB.block(thick(a, b, wd + 0.12), 0, r.id);
       if (r.kind === 'trench' && !flatOn(S)) { const pits = S.els.filter(e => e.t === 'hh' || e.t === 'sbox').map(elPoly); sandDots([a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny], q => { if (!pits.some(k => inPoly(q, k))) G.ci(q, SAND_R, 'dt'); }); }
     }
-    if (lab && dimRun(r) && nameOn(S, 'dim')) for (let i = 0; i + 1 < P.length; i++) { const u = P[i], v = P[i + 1], len = Math.hypot(v[0] - u[0], v[1] - u[1]), t = f1(len) + 'm'; if (len < 0.3 || legOnSeg(rg, u, v, t)) continue;
+    if (lab && dimRun(r) && nameOn(S, 'dim')) for (let i = 0; i + 1 < P.length; i++) { const u = P[i], v = P[i + 1], len = Math.hypot(v[0] - u[0], v[1] - u[1]), t = f1(len) + 'm'; if (len < 0.3 || lenDup(S, rg, r, u, v, t)) continue;
       jobs.push({ o: 5, key: 'lenr' + r.id + '_' + i, opt: len < 1 ? 1 : 0, lines: [t], lay: 'ln', ap: mid(u, v), a: angOf(u, v), cands: besideSeg(u, v, null, wd / 2 + gap * 0.6, 2), st: 'P' }); }
     const a = P[bi], b = P[bi + 1], s = runName(S, r);
     if (s && (r.kind !== 'ladder' || nameOn(S, 'ladder'))) jobs.push({ o: 3, key: r.id, lines: s.length > 26 ? wrap(s, 24) : [s], lay: tl(r.st), ap: mid(a, b), a: angOf(a, b), cands: besideSeg(a, b, null, wd / 2 + gap, 4), st: r.st });
   }
+  G.grp = null;
   /* the two fibers */
   const grp = {}, long = {};
   for (const l of rg.legs) {
-    G.pl([l.a, l.b], LEG[l.type].lay); LB.block(thick(l.a, l.b, 0.6 * th));
+    G.grp = gk(l.f === 'ae' ? 'FOC_AE' : 'FOC_UG'); G.pl([l.a, l.b], l.inside ? 'fh' : LEG[l.type].lay); G.grp = null; LB.block(thick(l.a, l.b, 0.6 * th));
     const k = l.f + l.i, q = grp[k] || (grp[k] = { len: 0, best: l }); q.len += l.len; if (l.plan > q.best.plan) q.best = l;
     if (!long[l.f] || l.plan > long[l.f].plan) long[l.f] = l;
   }
-  if (lab && nameOn(S, 'dim')) { const LK = lenKeys(rg.legs); for (const l of rg.legs) { if (!l.f || l.plan < 0.3) continue;      /* beta 4.1: the length of each straight piece of a cable */
+  if (lab && nameOn(S, 'dim')) { const LK = lenKeys(rg.legs); for (const l of rg.legs) { if (!l.f || l.f === 'ae' || l.inside || l.plan < 0.3) continue;      /* beta 4.1: the length of each straight piece of a cable (beta 4.2: not on the aerial cable) */
     jobs.push({ o: 5, key: LK.get(l), opt: l.len >= 1 && l.plan >= 1 ? 0 : 1, lines: [f1(l.len) + 'm'], lay: 'ln', ap: mid(l.a, l.b), a: angOf(l.a, l.b), cands: besideSeg(l.a, l.b, null, gap, 2), st: 'P' }); } }
-  else if (lab) for (const k in grp) { const q = grp[k], s = f1(q.len) + 'm', l = q.best; if (l.plan > textW(s, h) * 0.9) jobs.push({ o: 5, key: 'len' + k, opt: 1, lines: [s], lay: 'ln', ap: mid(l.a, l.b), a: angOf(l.a, l.b), cands: besideSeg(l.a, l.b, null, gap, 2), st: 'P' }); }
+  else if (lab) for (const k in grp) { const q = grp[k], s = f1(q.len) + 'm', l = q.best; if (l.f !== 'ae' && l.plan > textW(s, h) * 0.9) jobs.push({ o: 5, key: 'len' + k, opt: 1, lines: [s], lay: 'ln', ap: mid(l.a, l.b), a: angOf(l.a, l.b), cands: besideSeg(l.a, l.b, null, gap, 2), st: 'P' }); }
   for (const f of ['ae', 'ug']) { const l = long[f]; if (l) jobs.push({ o: 6, key: f, lines: [labText(S, f, o.short ? 'FOC ' + f.toUpperCase() : focName(S, rg, f))], lay: 'tp', ap: [l.a[0] + (l.b[0] - l.a[0]) * 0.35, l.a[1] + (l.b[1] - l.a[1]) * 0.35], a: angOf(l.a, l.b), cands: besideSeg(l.a, l.b, null, gap, 3, [0.35, 0.65, 0.5]), st: 'P' }); }
   const l0 = rg.legs.find(l => l.f === 'ae' && l.i === 0);
   if (l0) {                                             /* the AE cable carries on outside: an arrow at its first point, and the note that says where to */
@@ -1105,7 +1419,10 @@ function buildTop(S, o) {
     jobs.push({ o: 4, key, lines: [labText(S, key, x.st === 'P' ? 'PROPOSED RISER PIPE' : 'EXIT CONDUIT')], lay: tl(x.st), ap: x.at, a: 0, cands: topCands(fp, 0, gap), st: x.st });
   });
   if (rg.join && rg.join.auto) { const j = rg.join, fp = sqr(j.c, 0.3, 0); G.ci(j.c, STD.cloR * 1.12, 'pp'); G.ci(j.c, STD.cloR * 0.5, 'pp'); LB.block(fp, 1, 'clo'); jobs.push({ o: 4, key: 'clo', lines: [labText(S, 'clo', 'PROPOSED CLOSURE')], lay: 'tp', ap: j.c, a: 0, cands: topCands(fp, 0, gap), st: 'P' }); }
-  for (const v of rg.verts) if (v.kind !== 'exit') G.ci(v.at, S.room ? 0.05 : v.kind === 'riser' ? GIR : 0.2, 'pp');      /* a riser: the pipe on the pole */
+  G.grp = gk('FOC_UG');
+  for (const v of rg.verts) if (v.kind !== 'exit' && !v.hop && !v.inside) G.ci(v.at, S.room ? 0.05 : v.kind === 'riser' ? GIR : 0.2, 'pp');
+  if (!S.room) for (const id in rg.ports) { const g = rg.ports[id].p, r = 0.055, k = r * 0.7; G.ci([g[0], g[1]], r, 'pp'); G.pl([[g[0] - k, g[1] - k], [g[0] + k, g[1] + k]], 'pp'); G.pl([[g[0] - k, g[1] + k], [g[0] + k, g[1] - k]], 'pp'); }      /* (19:25) where the cable goes into the cabinet */
+  G.grp = null;      /* a riser: the pipe on the pole */
   for (const lp of rg.loops) {
     const c = [lp.at[0] + 0.55, lp.at[1] + 0.55], key = 'loop' + lp.i; G.ci(c, 0.4, 'pp'); G.ci(c, 0.24, 'pp'); LB.block(sqr(c, 0.45, 0), 1, key);
     jobs.push({ o: 4, key, lines: [labText(S, key, 'LOOP HOLDER W/ ' + f2(lp.len) + 'm LOOP')], lay: 'tp', ap: c, a: 0, cands: (w, hh) => [{ p: [c[0] + 0.6 + w / 2, c[1]], a: 0 }, { p: [c[0], c[1] + 0.6 + hh / 2], a: 0 }, { p: [c[0] - 0.6 - w / 2, c[1]], a: 0 }, { p: [c[0], c[1] - 0.6 - hh / 2], a: 0 }, { p: [c[0] + 0.6 + w / 2, c[1] + hh], a: 0 }, { p: [c[0] + 0.6 + w / 2, c[1] - hh], a: 0 }], st: 'P' });
@@ -1121,22 +1438,28 @@ function buildTop(S, o) {
   }
   if (o.north && !S.room) { const b = [L + 3 * th + swing.E, W - 1.5 * th], n = [-Math.sin(num(si.bearing, 0) * D2R), Math.cos(num(si.bearing, 0) * D2R)]; northArrow(G, b, n, th); LB.block(obb([b[0] + n[0] * 2.2 * th, b[1] + n[1] * 2.2 * th], 5 * th, 5 * th, 0)); }
   if (o.photos) S.photos.forEach((ph, i) => {
-    if (!ph.placed) return; const c = [ph.x, ph.y], r = 0.95 * th; G.ci(c, r, 'ph'); G.tx([c[0], c[1] - 0.36 * th], String(i + 1), th * 0.75, 'ph', 'c', 0, 1);
+    if (!ph.placed || ph.pin === false) return; const c = [ph.x, ph.y], r = 0.95 * th;      /* (beta 4.2: its number on the plan can be hidden) */ G.ci(c, r, 'ph'); G.tx([c[0], c[1] - 0.36 * th], String(i + 1), th * 0.75, 'ph', 'c', 0, 1);
     for (const s of [-22, 22]) { const a = (num(ph.dir, 0) + s) * D2R; G.pl([[c[0] + Math.sin(a) * r, c[1] + Math.cos(a) * r], [c[0] + Math.sin(a) * 3 * r, c[1] + Math.cos(a) * 3 * r]], 'ph'); }
     const d = num(ph.dir, 0) * D2R; LB.block(sqr(c, r, 0)); LB.block(thick(c, [c[0] + Math.sin(d) * 3 * r, c[1] + Math.cos(d) * 3 * r], 2.4 * r));
   });
   const pics = []; if (o.photos && o.pics !== false) S.photos.forEach((ph, i) => { const q = ph.ct; if (!q || !isFinite(q.x) || !isFinite(q.y)) return; picOn(LB, ph, i, [num(q.x, 0), num(q.y, 0)], [num(q.tx, 0), num(q.ty, 0)], picW(S, q), th, pics); });      /* beta 4.1 */
   let far = 0, skipped = 0;
   if (lab) {
-    const F = [], late = [], ctr = [L / 2, W / 2]; LB.fit(primBox(G.p), o.box);
+    const F = [], late = [], ctr = [L / 2, W / 2]; let lostLen = 0; LB.fit(primBox(G.p), o.box); if (!o.tiny && !S.room) LB.ink(G.p, h);
     for (const jb of jobs) { const off = labOff(S, jb.key, 'p'); if (off) { LB.fixed(jb.key, jb.lines, h * (jb.hk ? TITLE_K[0] : 1), jb.lay, [jb.ap[0] + off[0], jb.ap[1] + off[1]], jb.a || 0, jb.ap, jb.bold ? { bold: 1 } : null); jb.done = 1; } }
     for (let i = jobs.length - 1; i >= 0; i--) if ((labRec(S, jobs[i].key) || {}).off) jobs.splice(i, 1);      /* beta 4.1: a name the user hid */
     jobs.sort((p, q) => p.o - q.o || (p.area || 0) - (q.area || 0));
     /* A name goes on its item or beside it. When the size is automatic and there is no room, it is tried again smaller, down to what is still easy to read. Only then does it get a leader. */
     const HS = txAuto(S) ? TXS.map(k => h * k) : [h];
+    /* beta 4.2: the rules for the names. A length and the note of the aerial cable always lie along their line. The name of a proposed run or of a fiber stands
+       level with a leader and an arrowhead. The name of an existing item is on its body, or level with a leader. (o.tiny, a phone-size drawing, keeps the old rules: there a name with a leader is often left out.) */
+    const isLine = k => k === 'ae' || k === 'ug' || S.runs.some(r => r.id === k), isLen = jb => jb.lay === 'ln' || jb.key === 'note';
+    const arrowOnly = jb => !o.tiny && !S.room && !isLen(jb) && jb.key !== 'tid' && !jb.hk && ((jb.st === 'P' && isLine(jb.key)) || (jb.st === 'E' && !!jb.ins));
     for (const jb of jobs) {
-      if (jb.done) continue; let put = false;
-      for (const hh of jb.hk ? (txAuto(S) ? TITLE_K : TITLE_K.slice(0, 1)).map(k => h * k) : HS) { if ((jb.ins && LB.place(jb.lines, hh, jb.lay, jb.ins, false, jb.key, jb.ap, jb.own)) || (!jb.call && jb.cands && LB.place(jb.lines, hh, jb.lay, jb.cands, !!jb.bold, jb.key, jb.ap))) { put = true; break; } }
+      if (jb.done) continue; let put = false; if (arrowOnly(jb)) jb.arrow = 1;
+      for (const hh of jb.hk ? (txAuto(S) ? TITLE_K : TITLE_K.slice(0, 1)).map(k => h * k) : HS) { if ((jb.ins && LB.place(jb.lines, hh, jb.lay, jb.ins, false, jb.key, jb.ap, jb.own)) || (!jb.call && !jb.arrow && jb.cands && LB.place(jb.lines, hh, jb.lay, jb.cands, !!jb.bold, jb.key, jb.ap))) { put = true; break; } }
+      if (!put && !jb.opt && isLen(jb) && jb.cands && jb.cands.seg && !o.tiny) { for (const hh of HS) if (LB.along(jb.lines, hh, jb.lay, jb.cands.seg[0], jb.cands.seg[1], jb.key, jb.ap, { gap: jb.cands.gap })) { put = true; break; } if (!put && LB.along(jb.lines, HS[HS.length - 1], jb.lay, jb.cands.seg[0], jb.cands.seg[1], jb.key, jb.ap, { gap: jb.cands.gap, wide: 1 })) put = true; }      /* (19:25: further away before it is written beside its piece all the same) */      /* (beta 4.2: to the nearest clear place, still parallel; where there is none it is left out until the user zooms in, never written over other lines) */
+      if (!put && !jb.opt && isLen(jb) && jb.cands) { const hh = HS[HS.length - 1], z = txSize(jb.lines, hh), c = jb.cands(z.w, z.hg)[0]; if (c) { LB.fixed(jb.key, jb.lines, hh, jb.lay, c.p, c.a, jb.ap); put = true; } }      /* no free place along its line: it is written there all the same, at the smallest size */
       if (!put && !jb.opt) late.push(jb);
     }
     /* what found no room on or beside its item gets a short leader to the nearest free place */
@@ -1144,13 +1467,14 @@ function buildTop(S, o) {
     /* Before a leader: level text right beside the item, even where it crosses a line of the drawing. The lines under it are taken away so the name reads clearly. It keeps clear of other names and of the fibers. */
     const fibT = []; for (const q of G.p) if (q.k === 'pl' && (q.lay === 'ug' || q.lay === 'ae')) for (let i = 0; i + 1 < q.pts.length; i++) fibT.push(thick(q.pts[i], q.pts[i + 1], 0.3 * h));
     const wipe = [], late2 = [];
-    for (const jb of late) { if (jb.lines.length === 1 && jb.lines[0].length > LONGNAME) { late2.push(jb); continue; } let bx = null; if (jb.cands) for (const hh of HS) { bx = LB.placeLoose(jb.lines, hh, jb.lay, jb.cands, !!jb.bold, jb.key, jb.ap, fibT); if (bx) break; } if (bx) wipe.push(bx); else late2.push(jb); }
-    if (wipe.length) { const keepL = { ug: 1, ae: 1, fh: 1, tx: 1, tp: 1 }, ex = [], rest = []; for (const q of G.p) { if (q.k === 'pl' && !keepL[q.lay] && wipe.some(w => { const b = polyBox(w), c = polyBox(q.pts); return !(c[2] < b[0] || c[0] > b[2] || c[3] < b[1] || c[1] > b[3]); })) { for (let i = 0; i + 1 < q.pts.length; i++) ex.push({ k: 'pl', pts: [q.pts[i], q.pts[i + 1]], lay: q.lay, close: false }); if (q.close && q.pts.length > 2) ex.push({ k: 'pl', pts: [q.pts[q.pts.length - 1], q.pts[0]], lay: q.lay, close: false }); } else rest.push(q); } G.p = rest.concat(clipOut(ex, wipe)); }
-    const left = LB.callouts(late2.map(jb => ({ key: jb.key, p: jb.ap, s: jb.lines.join(' '), lines: jb.lines.length === 1 && jb.lines[0].length > LONGNAME ? null : jb.lines, st: jb.st, lay: jb.lay, w: jb.lines.join(' ').length > LONGNAME ? 30 : 16 })), h, { ctr, max: o.short ? 4 : 0, hs: HS });
-    if (o.short) skipped = left.length; else for (const a of left) F.push({ p: a.p, s: a.s, st: a.st });
-    far = F.length; if (far) addCallouts(G, F, primBox(G.p), th);
+    for (const jb of late) { if (jb.arrow || (jb.lines.length === 1 && jb.lines[0].length > LONGNAME)) { late2.push(jb); continue; } let bx = null; if (jb.cands && o.tiny) for (const hh of HS) { bx = LB.placeLoose(jb.lines, hh, jb.lay, jb.cands, !!jb.bold, jb.key, jb.ap, fibT); if (bx) break; } if (bx) wipe.push(bx); else late2.push(jb); }
+    if (wipe.length) { const keepL = { ug: 1, ae: 1, fh: 1, tx: 1, tp: 1 }, ex = [], rest = []; for (const q of G.p) { if (q.k === 'pl' && !keepL[q.lay] && wipe.some(w => { const b = polyBox(w), c = polyBox(q.pts); return !(c[2] < b[0] || c[0] > b[2] || c[3] < b[1] || c[1] > b[3]); })) { for (let i = 0; i + 1 < q.pts.length; i++) ex.push({ k: 'pl', pts: [q.pts[i], q.pts[i + 1]], lay: q.lay, close: false, g: q.g }); if (q.close && q.pts.length > 2) ex.push({ k: 'pl', pts: [q.pts[q.pts.length - 1], q.pts[0]], lay: q.lay, close: false, g: q.g }); } else rest.push(q); } G.p = rest.concat(clipOut(ex, wipe)); }
+    const left = LB.callouts(late2.map(jb => ({ key: jb.key, p: jb.ap, alt: jb.arrow && jb.cands && jb.cands.seg ? [0.5, 0.25, 0.75].map(t => [jb.cands.seg[0][0] + (jb.cands.seg[1][0] - jb.cands.seg[0][0]) * t, jb.cands.seg[0][1] + (jb.cands.seg[1][1] - jb.cands.seg[0][1]) * t]) : jb.fp && jb.fp.length > 2 ? jb.fp.map((q, i) => { const n = jb.fp[(i + 1) % jb.fp.length]; return [jb.ap[0] + ((q[0] + n[0]) / 2 - jb.ap[0]) * 0.72, jb.ap[1] + ((q[1] + n[1]) / 2 - jb.ap[1]) * 0.72]; }).concat(jb.fp.slice(0, 1).map(q => [jb.ap[0] + (q[0] - jb.ap[0]) * 0.7, jb.ap[1] + (q[1] - jb.ap[1]) * 0.7])) : null, s: jb.lines.join(' '), lines: jb.lines.length === 1 && jb.lines[0].length > LONGNAME ? null : jb.lines, st: jb.st, lay: jb.lay, w: jb.lines.join(' ').length > LONGNAME ? 30 : 16 })), h, { ctr, max: o.tiny ? 4 : 0, hs: HS, lastX: !!o.tiny, quick: !!o.quick });
+    for (const a of left) F.push({ p: a.p, s: a.s, st: a.st });      /* (beta 4.2, 19:25: on a screen too every name shows: what found no place goes to the edge of the drawing) */      /* (beta 4.2: notes at the edge on a sheet only; on a screen the name waits until the user zooms in) */
+    skipped += lostLen;
+    far = F.length; if (far) { const lost = addCallouts(G, F, primBox(G.p), th, LB); far -= lost; skipped += lost; }
   }
-  return { prims: G.p, th, G, far, labs: LB.out, skipped, pics };
+  return { prims: G.p, th, G, far, labs: LB.out, leads: LB.leads, skipped, pics };
 }
 function northArrow(G, base, n, th) {
   const len = 3.2 * th, d = Math.hypot(n[0], n[1]) || 1, ux = n[0] / d, uy = n[1] / d, tip = [base[0] + ux * len, base[1] + uy * len], s = 0.9 * th;
