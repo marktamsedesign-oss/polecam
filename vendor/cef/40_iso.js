@@ -248,16 +248,16 @@ function isoGround(S, sc, A, O) {
 function hcyl(sc, el, x0, x1, zc, r, lay) { const a = loc(el, x0, 0), b = loc(el, x1, 0); tube(sc, [a[0], a[1], zc], [b[0], b[1], zc], r, r, lay, 14); }
 /* the two pipes of a conduit, one on top of the other, that go down into the ground at p and bend to run along u. dp: how deep the middle of the lower pipe lies.
    Three lines, in the below-ground line: under the lower pipe, where the two touch, over the upper one. */
-function elbow2(sc, p, zg, dp, R, u, lay, tail) {
+function elbow2(sc, p, zg, dp, R, u, lay, tail, one) {      /* (14 Nov 17:00) one: a single pipe */
   const cz = zg - dp + R, h = STD.hdpe, E = [];
-  for (const o of [h / 2, -h / 2, -1.5 * h]) {
+  for (const o of one ? [h / 2, -h / 2] : [h / 2, -h / 2, -1.5 * h]) {
     const rr = Math.max(0.01, R + o), Q = [];
     for (let i = 0; i <= 8; i++) { const a = Math.PI + i * Math.PI / 16, x = R + rr * Math.cos(a); Q.push([p[0] + u[0] * x, p[1] + u[1] * x, cz + rr * Math.sin(a)]); }
     if (zg - Q[0][2] > 0.01) sc.line([Q[0][0], Q[0][1], zg], Q[0], lay);
     sc.poly(Q, lay); E.push(Q[8]);
     if (tail) sc.line(Q[8], [Q[8][0] + u[0] * tail, Q[8][1] + u[1] * tail, Q[8][2]], lay);
   }
-  if (tail) sc.line([E[0][0] + u[0] * tail, E[0][1] + u[1] * tail, E[0][2]], [E[2][0] + u[0] * tail, E[2][1] + u[1] * tail, E[2][2]], lay);
+  if (tail) { const Z = E[E.length - 1]; sc.line([E[0][0] + u[0] * tail, E[0][1] + u[1] * tail, E[0][2]], [Z[0] + u[0] * tail, Z[1] + u[1] * tail, Z[2]], lay); }
 }
 /* where a buried conduit comes out of the ground: a concrete block (poly) with the two 114.3 mm pipes in it.
    p: the pipe the cable is in; the spare one stands next to it along u, the way the buried conduit runs, and is closed with a blank duct plug. Below ground the two bend to run along u. */
@@ -310,7 +310,13 @@ function portPlate(sc, el, side, u, z, lay) {
 }
 /* the front of a rack, as it shows in an outdoor cabinet with its door open and on a rack in a cabin: the two rails, the rack units, and each item at its own units.
    X.detail: an enlarged drawing, where every unit is marked and every fifth one numbered */
-function rackFace(S, sc, host, z0, A, X) {
+function rackFace(S, sc, host, z0, A, X) {      /* (14 Nov 17:00) a cabinet with more than one rack: each drawn as one rack in its part of the width */
+  const nb = bayN(host);
+  if (nb > 1) { const bw = host.w / nb; for (let k = 0; k < nb; k++) { const c = loc(host, (k - (nb - 1) / 2) * bw, 0), hb = Object.assign({}, host, { x: c[0], y: c[1], w: bw, bays: 1 }); rackFace1(S, sc, hb, z0, A, X, host, k);
+      if (X && X.detail && facing(sc, faceN(host, 'F')) > 0.05) A.push({ k: 'mark', el: hb, u: 0, z: odcOpening(host, z0).zb - 0.022, s: 'RACK ' + (k + 1), h: 0.026 }); } return; }
+  rackFace1(S, sc, host, z0, A, X, host, null);
+}
+function rackFace1(S, sc, host, z0, A, X, H0, bay) {
   const K = rackOf(host), lay = elLayer(host), zb = z0 + K.zb, zt = zb + K.n * RU, hw = K.hw, det = !!(X && X.detail), seen = facing(sc, faceN(host, 'F')) > 0.05;
   const hol = !!(X && X.hollow) && host.t === 'odc', yf = -host.d / 2, bxh = (x0, x1, y0, y1, za, zc, ly) => prism(sc, [loc(host, x0, y0), loc(host, x1, y0), loc(host, x1, y1), loc(host, x0, y1)], za, zc, ly);      /* beta 4.2 */
   if (hol) { const dr = Math.min(host.d - 0.12, 0.6); for (const sg of [-1, 1]) for (const y0 of dr > 0.3 ? [0.004, dr] : [0.004]) bxh(Math.min(sg * hw, sg * (hw - 0.03)), Math.max(sg * hw, sg * (hw - 0.03)), yf + y0, yf + y0 + 0.03, zb, zt, lay); }      /* the four posts of the rack */
@@ -320,7 +326,7 @@ function rackFace(S, sc, host, z0, A, X) {
     for (let u = 1; u < K.n; u++) for (const sg of [-1, 1]) faceLine(sc, host, 'F', sg * hw, zb + u * RU, sg * (hw - (u % 5 ? 0.015 : 0.03)), zb + u * RU, 'dt');
     if (seen) for (let u = 5; u <= K.n; u += 5) A.push({ k: 'mark', el: host, u: -(hw + 0.04), z: zb + (u - 0.5) * RU, s: String(u), h: 0.026 });
   }
-  for (const q of rackSlots(S, host)) {
+  for (const q of rackSlots(S, H0, bay)) {
     const e = q.e, il = e.st === 'P' ? 'pp' : 'eq', a = zb + (q.u - 1) * RU + 0.003, b = zb + (q.u - 1 + q.ru) * RU - 0.003, x = hw - 0.002, xi = hw - 0.034;
     faceRect(sc, host, 'F', -x, x, a, b, il);
     if (hol) bxh(-(hw - 0.034), hw - 0.034, yf + 0.034, yf + Math.max(0.12, Math.min(host.d - 0.1, e.t === 'odf' ? 0.25 : 0.38)), a, b, il);      /* its body, behind the front plate */
@@ -331,7 +337,7 @@ function rackFace(S, sc, host, z0, A, X) {
     }
     else if (det) { for (let i = 1; i <= 3; i++) faceLine(sc, host, 'F', -xi + 0.02, a + (b - a) * i / 4, -xi + 0.12, a + (b - a) * i / 4, il); faceRing(sc, host, 'F', xi - 0.04, (a + b) / 2, 0.01, il); }
     const pts = [onFace(host, 'F', -x, a), onFace(host, 'F', x, a), onFace(host, 'F', x, b), onFace(host, 'F', -x, b)], nm = elLabel(S, e);
-    A.push({ k: 'el', id: e.id, key: e.id, kind: 'lead', p: onFace(host, 'F', x, (a + b) / 2), s: det ? nm + (e.t === 'odf' && e.size && !e.name && e.st !== 'P' ? ' ' + e.size : '') + ', ' + uText(q) : e.t === 'odf' ? nm : '', st: e.st, fp: elPoly(host), z: z0, pts, edit: seen ? 'u' : null, hp: onFace(host, 'F', 0, b), item: 1, host });
+    A.push({ k: 'el', id: e.id, key: e.id, kind: 'lead', p: onFace(host, 'F', x, (a + b) / 2), s: det ? nm + (e.t === 'odf' && e.size && !e.name && e.st !== 'P' ? ' ' + e.size : '') + ', ' + uText(q) : e.t === 'odf' ? nm : '', st: e.st, fp: elPoly(H0), z: z0, pts, edit: seen ? 'u' : null, hp: onFace(host, 'F', 0, b), item: 1, host: H0 });
   }
 }
 /* the shell of a cabin seen from inside: the floor, the two walls at the back at full height, and the two walls at the front cut down to a low kerb, so that the room shows */
@@ -413,7 +419,7 @@ function cabInside(S, el, pt) {
   const off = clamp(cb.off != null && cb.off !== '' ? num(cb.off, offD) : offD, 0.008, Math.max(0.01, half - 0.02)), col = sd < 0 ? O.u0 + off : O.u1 - off, cu = v => clamp(v, O.u0 + 0.008, O.u1 - 0.008), cz = v => clamp(v, O.zb + 0.008, O.zu - 0.008);
   const path = Array.isArray(cb.path) ? cb.path.filter(q => q && isFinite(q[0]) && isFinite(q[1])).map(q => [cu(+q[0]), cz(z0 + +q[1])]) : [];
   L.forEach((q, i) => {
-    const z = zb + (q.u - 1 + q.ru / 2) * RU, uu = col - sd * 0.012 * i, ue = sd * (K.hw - 0.03), P = []; let us, zs;
+    const Kq = rackOf(el, q.bay), many = Kq.nb > 1, z = zb + (q.u - 1 + q.ru / 2) * RU, uu = (many ? Kq.cx + sd * (Kq.hw + 0.035) : col) - sd * 0.012 * i, ue = Kq.cx + sd * (Kq.hw - 0.03), P = []; let us, zs;      /* (14 Nov 17:00: in a cabinet of more racks, beside the rack of that ODF) */
     if (pt.f === 'T') { zs = O.zu - 0.02 - 0.012 * i; us = cu(pt.lx); P.push(W3(pt.lx, pt.ly, z0 + pt.h), W3(pt.lx, pt.ly, zs), F(us, zs)); }
     else if (pt.f === 'B') { zs = O.zb + 0.006; us = cu(pt.lx); P.push(W3(pt.lx, pt.ly, zs), F(us, zs)); }
     else if (pt.f === 'K') { zs = cz(z0 + pt.iz); us = cu(pt.lx); P.push(W3(pt.lx, d / 2, zs), F(us, zs)); }
@@ -433,7 +439,7 @@ function cabCable(S, sc, el, z0, O, port) {
   const cb = el.cab || {}, pt = port || cabPort(S, el, null), sd = cb.side === 'R' ? 1 : cb.side === 'L' ? -1 : (pt.f !== 'B' && pt.lx > 0.02) || pt.f === 'R' ? 1 : -1;
   const off = clamp(num(cb.off, 0.03), 0.01, Math.max(0.01, (O.u1 - O.u0) / 2 - 0.02)), u = sd < 0 ? O.u0 + off : O.u1 - off, cu = v => clamp(v, O.u0 + 0.01, O.u1 - 0.01);
   L.forEach((q, i) => {
-    const z = zb + (q.u - 1 + q.ru / 2) * RU, uu = u - sd * 0.012 * i, ue = sd * (K.hw - 0.03), ln = (a, b, c, e) => { if (Math.abs(a - c) + Math.abs(b - e) > 1e-4) faceLine(sc, el, 'F', a, b, c, e, 'ug'); };
+    const Kq = rackOf(el, q.bay), z = zb + (q.u - 1 + q.ru / 2) * RU, uu = (Kq.nb > 1 ? Kq.cx + sd * (Kq.hw + 0.035) : u) - sd * 0.012 * i, ue = Kq.cx + sd * (Kq.hw - 0.03), ln = (a, b, c, e) => { if (Math.abs(a - c) + Math.abs(b - e) > 1e-4) faceLine(sc, el, 'F', a, b, c, e, 'ug'); };
     if (pt.f === 'T') { const us = cu(pt.lx), zs = O.zu - 0.02 - 0.012 * i; ln(us, O.zu, us, zs); ln(us, zs, uu, zs); ln(uu, zs, uu, z); }
     else if (pt.f === 'B') { const us = pt.auto && !pt.X ? uu : cu(pt.lx), zs = O.zb + 0.02 + 0.012 * i; if (Math.abs(us - uu) < 0.005) ln(uu, z0, uu, z); else { ln(us, z0, us, zs); ln(us, zs, uu, zs); ln(uu, zs, uu, z); } }
     else { const us = pt.f === 'L' ? O.u0 : pt.f === 'R' ? O.u1 : cu(pt.lx), zs = clamp(z0 + pt.iz, O.zb + 0.02, O.zu - 0.02); ln(us, zs, uu, zs); ln(uu, zs, uu, z); }
@@ -542,7 +548,8 @@ function isoEl(S, el, sc, A, rg, X) {
       for (const K of padSteps(el)) for (let i = 1; i <= K.n; i++) prism(sc, [faceXY(el, K.face, K.u - K.w / 2, -(i - 1) * K.tread), faceXY(el, K.face, K.u + K.w / 2, -(i - 1) * K.tread), faceXY(el, K.face, K.u + K.w / 2, -i * K.tread), faceXY(el, K.face, K.u - K.w / 2, -i * K.tread)], z0, z0 + h - i * K.rise, lay);      /* beta 4.2: its stairs, each step a block down to the ground */
       bx = { w, d, z0, z1: z0 + h, top: 1, sides: '' }; break;
     case 'odc': {
-      const pl = Math.min(0.1, h * 0.1), rf = Math.min(0.07, h * 0.08), n = w >= 1.1 ? 2 : 1, O = odcOpening(el, z0), open = h > 0.8 && !(X && X.ref) && (!!(X && X.only) || rackItems(S, el).length > 0);
+      const pl = Math.min(0.1, h * 0.1), rf = Math.min(0.07, h * 0.08), n = bayN(el) > 1 ? bayN(el) : w >= 1.1 ? 2 : 1, O = odcOpening(el, z0),      /* (14 Nov 17:00: one door for each rack) */
+       open = h > 0.8 && !(X && X.ref) && (!!(X && X.only) || rackItems(S, el).length > 0);
       const big = h > 1 && w > 0.4 && d > 0.3, ins = big ? 0.03 : -0.03, P3w = (x, y, z) => { const q = lp(x, y); return [q[0], q[1], z]; };
       prism(sc, rectAt(c, w - 2 * ins, d - 2 * ins, rot), z0, z0 + pl, lay);                                  /* the base frame, set back under the body */
       const hol = open && !!(X && X.only) && w > 0.3 && d > 0.25;      /* beta 4.2: the opened cabinet of a detail is hollow, so that its inside shows */
@@ -575,13 +582,15 @@ function isoEl(S, el, sc, A, rg, X) {
                 { const zm = O.zb + H * 0.52; sc.line(c3(0.935, O.zb + H * 0.045), c3(0.935, O.zu - H * 0.045), lay); fr(0.9, 0.97, zm - 0.06, zm + 0.06, lay); for (const kz of [0.2, 0.82]) fr(0.92, 0.95, O.zb + H * kz - 0.012, O.zb + H * kz + 0.012, lay); }
                 for (const kz of [0.12, 0.5, 0.88]) { const hq = lp(p0[0], p0[1] - 0.014); tube(sc, [hq[0], hq[1], O.zb + H * kz - 0.04], [hq[0], hq[1], O.zb + H * kz + 0.04], 0.012, 0.012, lay, 6); }
                 { const s0 = lp(uh + dir * Math.min(0.22, len * 0.4), -d / 2 - 0.004), s1 = k(0.34); sc.line([s0[0], s0[1], O.zu - 0.012], P3w(s1[0], s1[1], O.zu - 0.012), lay); } } } };      /* its cooling unit, seen from the inside */
-          if (n === 1) leaf(O.u0, 1, O.u1 - O.u0); else { leaf(O.u0, 1, (O.u1 - O.u0) / 2); leaf(O.u1, -1, (O.u1 - O.u0) / 2); }
+          if (n === 1) leaf(O.u0, 1, O.u1 - O.u0); else if (n === 2) { leaf(O.u0, 1, (O.u1 - O.u0) / 2); leaf(O.u1, -1, (O.u1 - O.u0) / 2); }
+          else { const dw = (O.u1 - O.u0) / n, an = 95 * D2R, p1 = [O.u0 + 2 * dw - dw * Math.cos(an), -d / 2 - dw * Math.sin(an)];      /* (14 Nov 17:00) three doors: the outer two swing out to the sides; the middle one, drawn as its outline only, stands out square so that it hides no rack */
+            leaf(O.u0, 1, dw); leaf(O.u1, -1, dw); sc.poly([P3w(O.u0 + 2 * dw, -d / 2, O.zb), P3w(p1[0], p1[1], O.zb), P3w(p1[0], p1[1], O.zu), P3w(O.u0 + 2 * dw, -d / 2, O.zu)], lay, 1); }
           continue;
         }
         for (let q = 0; q < n; q++) {
           const u0 = -w / 2 + 0.05 + q * (w - 0.1) / n, u1 = u0 + (w - 0.1) / n - (n > 1 ? 0.02 : 0); faceRect(sc, el, side, u0, u1, O.zb, O.zu, lay);
           if (h > 1) {
-            const hs = n > 1 && q === 1 ? -1 : 1, uh = hs > 0 ? u1 - 0.07 : u0 + 0.07, uj = hs > 0 ? u0 + 0.014 : u1 - 0.014;
+            const hs = n > 1 && q >= n / 2 ? -1 : 1, uh = hs > 0 ? u1 - 0.07 : u0 + 0.07, uj = hs > 0 ? u0 + 0.014 : u1 - 0.014;
             if (big && side === 'F') { faceRect(sc, el, side, uh - 0.016, uh + 0.016, O.zb + H * 0.46, O.zb + H * 0.6, lay); for (const k of [0.12, 0.5, 0.88]) faceLine(sc, el, side, uj, O.zb + H * k - 0.035, uj, O.zb + H * k + 0.035, lay); }      /* the lock handle; the hinges */
             else faceLine(sc, el, side, uh, O.zb + H * 0.45, uh, O.zb + H * 0.58, lay);
             if (big) doorDress(sc, el, side, u0, u1, O, H, lay); else for (let i = 1; i <= 3; i++) faceLine(sc, el, side, u0 + 0.08, O.zu - 0.07 * i - 0.04, u1 - 0.08, O.zu - 0.07 * i - 0.04, 'dt');      /* louvres (19:25: on a cabinet of full size, the whole door) */
@@ -685,6 +694,11 @@ function isoEl(S, el, sc, A, rg, X) {
         A.push({ k: 'el', id: el.id, key: el.id, kind: 'lead', p: [el.x, el.y, zf], s: elLabel(S, el), st: el.st, fp: elPoly(el), z: zf - r, pts: A0.concat(A1) }); return;
       }
       hcyl(sc, el, -w / 2, w / 2, z0 + r, r, lay); hcyl(sc, el, -w / 2 - 0.05, -w / 2, z0 + r, r * 0.55, lay); hcyl(sc, el, w / 2, w / 2 + 0.05, z0 + r, r * 0.55, lay); az = z0 + 2 * r; top = az; edit = 'z'; hp = [el.x, el.y, z0 + 2 * r]; break;
+    }
+    case 'dnap': {      /* (14 Nov 17:00) a Dummy NAP: a box on the side of its pole, its door on the front, two straps round the pole */
+      prism(sc, elPoly(el), z0, z0 + h, lay); faceRect(sc, el, 'F', -w / 2 + 0.03, w / 2 - 0.03, z0 + 0.03, z0 + h - 0.03, lay);
+      const pl = napPole(S, el); if (pl) { const zp = baseZ(S, pl); for (const z of [z0 + 0.07, z0 + h - 0.07]) { const pr = poleR(pl, z - zp) + 0.008, Q = []; for (let i = 0; i <= 16; i++) { const a = i * Math.PI / 8; Q.push([pl.x + pr * Math.cos(a), pl.y + pr * Math.sin(a), z]); } sc.poly(Q, lay); } }
+      break;
     }
     case 'enc': { const P = rectAt(c, w * 0.7, d * 0.7, rot).map(q => [q[0], q[1], z0 + h + 0.004]); prism(sc, elPoly(el), z0, z0 + h, lay); sc.poly(P, lay, 1); bx = { w, d, z0, z1: z0 + h, top: 1, sides: 'FRBL' }; break; }
     default: prism(sc, elPoly(el), z0, z0 + h, lay); bx = { w, d, z0, z1: z0 + h, top: 1, sides: 'FRBL' };
@@ -873,16 +887,27 @@ function buildIso0(S, o) {
   for (const r of S.runs) if (!r.hid) { sc.own = gk(BN[r.id]); isoRun(S, r, sc, A3, O3, rg); }
   sc.own = null;
   /* a buried piece of the UG cable with no conduit drawn under it still lies in one: two pipes, one on top of the other, drawn as for a drawn conduit. In an open trench they lie in the open, so in full lines. */
-  if (!FLAT) for (const k of ownConduit(rg)) { const zb = k.l.za - STD.hdpe / 2, lay = k.st === 'E' ? (k.open ? 'ex' : 'hd') : k.open ? 'pp' : 'hp'; for (const Q of outsidePits(S, [k.a, k.b])) for (const j of [0, 1, 2]) sc.line([Q[0][0], Q[0][1], zb + j * STD.hdpe], [Q[Q.length - 1][0], Q[Q.length - 1][1], zb + j * STD.hdpe], lay); }
+  if (!FLAT) for (const k of ownConduit(rg)) { const zb = k.l.za - STD.hdpe / 2, lay = k.st === 'E' ? (k.open ? 'ex' : 'hd') : k.open ? 'pp' : 'hp'; for (const Q of outsidePits(S, [k.a, k.b])) for (const j of k.l.px && num(k.l.px.xp, 2) < 2 ? [0, 1] : [0, 1, 2]) sc.line([Q[0][0], Q[0][1], zb + j * STD.hdpe], [Q[Q.length - 1][0], Q[Q.length - 1][1], zb + j * STD.hdpe], lay); }
   /* what the app adds for the UG fiber: exit conduits, the riser pipe on the pole with its bend, the closure where AE and UG meet */
   rg.exits.forEach((x, i) => {
     if (x.el) return; const key = 'exit' + i, q = rectAt(exitMid(x.at, x.u), STD.exitW, STD.exitW, Math.atan2(x.u[1], x.u[0]) / D2R);
     exitStub(sc, x.at, x.g, x.h, q, x.st === 'P' ? 'pp' : 'ex', x.st === 'P' ? 'hp' : 'hd', x.u, x.dp, x.R);
     A3.push({ k: 'el', key, kind: 'lead', p: [x.at[0], x.at[1], x.g + x.h], s: labText(S, key, x.st === 'P' ? 'PROPOSED RISER PIPE' : 'EXIT CONDUIT'), st: x.st, fp: q, z: x.g, pts: q.map(t => [t[0], t[1], x.g]).concat(q.map(t => [t[0], t[1], x.g + x.h])) });
   });
+  X.pin = [];
+  rg.padx.forEach((x, i) => {      /* (14 Nov 17:00) the exit pipe built into a base pad: through the pad and the ground dashed, as what they hide, and the bend under the pad */
+    const key = 'padx' + i, lay = x.st === 'P' ? 'pp' : 'ex', hid = x.st === 'P' ? 'hp' : 'hd', s0 = sc.sid, r = STD.hdpe / 2, sp = [x.at[0] + x.u[0] * STD.hdpe, x.at[1] + x.u[1] * STD.hdpe];
+    frustum(sc, x.at, x.zt, x.zt + 0.04, r, r, lay, 8);
+    if (x.n > 1) { frustum(sc, sp, x.zt, x.zt + 0.02, r, r, lay, 8); for (const a of [0, 90]) { const c = Math.cos(a * D2R) * r, sn = Math.sin(a * D2R) * r; sc.line([sp[0] - c, sp[1] - sn, x.zt + 0.022], [sp[0] + c, sp[1] + sn, x.zt + 0.022], lay); } }
+    for (let k = s0 + 1; k <= sc.sid; k++) sc.thru.add(k);
+    const pin = { line: (a, b, ly) => X.pin.push([a, b, ly, gk(BN[x.pad])]), poly(Q, ly) { for (let k = 0; k + 1 < Q.length; k++) this.line(Q[k], Q[k + 1], ly); } };      /* inside the concrete and the ground: never hidden by the pad, dashed */
+    if (FLAT) { for (const o of x.n > 1 ? [-r, r, r + STD.hdpe] : [-r, r]) pin.line([x.at[0] + x.u[0] * o, x.at[1] + x.u[1] * o, x.g], [x.at[0] + x.u[0] * o, x.at[1] + x.u[1] * o, x.zt], hid); }
+    else elbow2(pin, x.at, x.zt, x.dp + (x.zt - x.g), x.R > 0.05 ? x.R : 0.05, x.u, hid, 0, x.n < 2);
+    A3.push({ k: 'el', key, kind: 'lead', p: [x.at[0], x.at[1], x.zt], s: labText(S, key, padxName(x)), st: x.st, fp: sqr(x.at, 0.15, 0), z: x.zt, pts: [[x.at[0], x.at[1], x.g], [x.at[0], x.at[1], x.zt + 0.04]] });
+  });
   for (const r of rg.risers) {
     const s0 = sc.sid, pl = r.pole, zp = baseZ(S, pl);
-    r.K = riserKit(sc, [pl.x, pl.y], r.s || r.u, r.g, r.z1 - CLOZ, z => poleR(pl, z - zp), 'pp');
+    r.K = riserKit(sc, [pl.x, pl.y], r.s || r.u, r.g, r.z1 - (r.nap ? 0 : CLOZ), z => poleR(pl, z - zp), 'pp');
     if (r.dp > 0.2 && r.R > 0.05) elbow2(sc, r.at, r.g, r.dp, r.R, r.u, 'hp', 0);
     for (let i = s0 + 1; i <= sc.sid; i++) sc.thru.add(i);
   }
@@ -892,6 +917,7 @@ function buildIso0(S, o) {
   }
   }
   const R0 = sc.render(), GT = new Gfx(), LB = new Labeler(GT), FB = [], fibP = [], fibH = [], legs2 = [], far = [], quads = []; let skipped = 0, strict = 0;
+  if (!one) for (const q of X.pin || []) FB.push({ k: 'pl', pts: [P3(q[0]), P3(q[1])], lay: q[2], close: false, g: q[3] });      /* (14 Nov 17:00) the pipe in the pad */
   let CTX = [], fb = null;
   if (one) { const pts = []; for (const p of R0) if (p.k === 'pl') for (const q of p.pts) pts.push(q); if (pts.length > 2) fb = polyBox(pts);
     if (fb && !S.room && o.around !== false) {
@@ -959,9 +985,10 @@ function buildIso0(S, o) {
   for (const v of rg.verts) {
     const zb = v.z0 + (v.R || 0), t2 = v.at2 || v.at, gz = Math.max(zb, Math.min(v.g, v.z1)); if (v.z1 - gz > 0.01) seg3([t2[0], t2[1], v.z1], [v.at[0], v.at[1], gz], 'ug', v.inside); if (gz - zb > 0.01) seg3([v.at[0], v.at[1], gz], [v.at[0], v.at[1], zb], 'ug', v.inside);      /* on a pole the cable leans with the pipe, down to the ground */
     if (v.R) { let prev = [v.at[0], v.at[1], zb]; for (let i = 1; i <= 6; i++) { const a = Math.PI + i * Math.PI / 12, q = [v.at[0] + v.u[0] * v.R * (1 + Math.cos(a)), v.at[1] + v.u[1] * v.R * (1 + Math.cos(a)), zb + v.R * Math.sin(a)]; seg3(prev, q, 'ug'); prev = q; } }
-    if (v.kind === 'riser' && v.z1 - v.g > 1.5) { const K = riserParts(v.g, v.z1 - CLOZ), t2 = v.at2 || v.at, q = z => { const f = clamp((z - v.g) / Math.max(0.1, v.z1 - v.g), 0, 1); return P3([v.at[0] + (t2[0] - v.at[0]) * f, v.at[1] + (t2[1] - v.at[1]) * f, z]); }; risers.push({ v, a: q(K.e), b: q(K.giTop), c: q(K.giTop), d: q(K.ugTop), ug: K.ugTop - K.giTop > 0.6 }); }
+    if (v.kind === 'riser' && v.z1 - v.g > 1.5) { const K = riserParts(v.g, v.z1 - (v.nap ? 0 : CLOZ)), t2 = v.at2 || v.at, q = z => { const f = clamp((z - v.g) / Math.max(0.1, v.z1 - v.g), 0, 1); return P3([v.at[0] + (t2[0] - v.at[0]) * f, v.at[1] + (t2[1] - v.at[1]) * f, z]); }; risers.push({ v, a: q(K.e), b: q(K.giTop), c: q(K.giTop), d: q(K.ugTop), ug: K.ugTop - K.giTop > 0.6 }); }
   }
   for (const k of rg.links) seg3(k.a, k.b, 'ug');
+  { const f0 = fgrp; fgrp = gk('FOC_AE'); for (const q of rg.drops) for (let i = 0; i + 1 < q.pts.length; i++) seg3(q.pts[i], q.pts[i + 1], 'ae'); fgrp = f0; }      /* (14 Nov 17:00) down the pole into a Dummy NAP */
   /* the loop in its X-shaped holder, on the side of the pole above the cable: 0.4 m across, 0.1 m above the wire. The cable goes round it and on up to the closure. */
   const loops = [], RL = STD.loopD / 2, fl = (a, b) => FB.push({ k: 'pl', pts: [P3(a), P3(b)], lay: 'pp', close: false });
   for (const lp of rg.loops) {

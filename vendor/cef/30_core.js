@@ -84,6 +84,7 @@ const TYPES = {
   rpole: { n: 'Riser pole', s: 'Riser pole', g: 'foc', w: 0.27, d: 0.27, h: STD.poleUp, rd: 1, st: 'P' },
   odf: { n: 'ODF', s: 'ODF', g: 'foc', w: 0.5, d: 0.4, h: 0.4, st: 'P', size: '48F', ru: 2 },
   clo: { n: 'Hybrid closure', s: 'Closure', g: 'foc', w: 0.5, d: 0.3, h: 0.3, st: 'P', z: 0 },
+  dnap: { n: 'Dummy NAP', s: 'Dummy NAP', g: 'foc', w: 0.3, d: 0.15, h: 0.4, st: 'P', z: 3, cn: 'DUMMY NAP' },      /* (14 Nov 17:00) the ODF of a small cell or an easy macro, on its pole. Its size and height are a start: the real ones are typed */
   sbox: { n: 'Service box', s: 'Service box', g: 'foc', w: 0.6, d: 0.6, h: 0.1, dp: UGD, st: 'P' },
   exit: { n: 'Exit conduit', s: 'Exit conduit', g: 'foc', w: STD.exitW, d: STD.exitW, h: EXH, st: 'P', cn: 'EXIT CONDUIT' },
   enc: { n: 'Concrete encasement', s: 'Encasement', g: 'foc', w: 0.6, d: 0.6, h: 0.6, st: 'P' },
@@ -213,11 +214,20 @@ function ladBase(S, r) {
   for (let i = 0; i + 1 < r.pts.length; i++) { const a = r.pts[i], c = r.pts[i + 1], n = Math.max(1, Math.ceil(Math.hypot(c[0] - a[0], c[1] - a[1]) / 0.2)); for (let k = 0; k <= n; k++) b = Math.max(b, padTop(S, [a[0] + (c[0] - a[0]) * k / n, a[1] + (c[1] - a[1]) * k / n])); }
   return b;
 }
+/* (14 Nov 17:00) a base pad with its exit pipe built in (el.xp: how many 114.3 mm pipes are in it, 1 or 2; the second is the spare). Where the UG cable comes
+   up on such a pad it comes up in that pipe: no riser pipe (exit conduit) is drawn or asked for there. */
+function padX(S, p) { for (const q of S.els) if (q.t === 'pad' && num(q.xp, 0) > 0 && inPoly(p, elPoly(q))) return q; return null; }
+const padxName = x => (x.st === 'P' ? 'PROPOSED ' : '') + 'EXIT PIPE IN BASE PAD';
+/* what the route keeps for itself on a piece or a bend (the piece a bend is on, the pad a piece goes into): not written out with the plan or the route */
+const nonEnum = (o, k, v) => { Object.defineProperty(o, k, { value: v, enumerable: false, writable: true, configurable: true }); return o; };
 function hostOf(S, p, skip) { for (const q of S.els) if (q !== skip && (q.t === 'odc' || q.t === 'cabin' || q.t === 'rack') && inPoly(p, elPoly(q))) return q; return null; }
 /* ---------- racks: an outdoor cabinet, or a rack in a cabin, holds rack-mounted items, each at its own rack units ---------- */
 /* beta 4.2: the usual sizes of an outdoor cabinet: key, name, width, depth, height (m). A start: the real cabinet is typed in. */
 const ODC_SIZES = [['S', 'Small', 0.6, 0.55, 1.05], ['M', 'Medium', 0.7, 0.7, 1.5], ['L', 'Large', 0.8, 0.8, 1.9]];
-const odcSize = e => { const q = ODC_SIZES.find(k => Math.abs(num(e.w, 0) - k[2]) < 0.006 && Math.abs(num(e.d, 0) - k[3]) < 0.006 && Math.abs(num(e.h, 0) - k[4]) < 0.006); return q ? q[0] : ''; };
+/* (14 Nov 17:00) an outdoor cabinet with 1, 2 or 3 racks side by side (el.bays), each an equal part of its width; an item in it is in rack el.bay (0, 1, 2) */
+const bayN = h => h && h.t === 'odc' ? clamp(Math.round(num(h.bays, 1)), 1, 3) : 1;
+const bayOf = (h, e) => clamp(Math.round(num(e && e.bay, 0)), 0, bayN(h) - 1);
+const odcSize = e => { const q = ODC_SIZES.find(k => Math.abs(num(e.w, 0) / bayN(e) - k[2]) < 0.006 && Math.abs(num(e.d, 0) - k[3]) < 0.006 && Math.abs(num(e.h, 0) - k[4]) < 0.006); return q ? q[0] : ''; };
 const RU = 0.04445;                                   /* one rack unit, in metres */
 const inRack = e => e.t === 'odf' || e.t === 'runit';
 /* beta 4.2 (22:24): an ODF is as tall as its fibre count needs: one rack unit for every 24 fibres (24F 1U, 48F 2U, 72F 3U, 96F 4U, 144F 6U), read from its size.
@@ -226,18 +236,19 @@ const odfRu = e => { const m = /(\d+)/.exec(String(e.size == null ? '' : e.size)
 const ruTyped = e => !!e.ruSet || (e.ru != null && e.ru !== '' && Math.round(num(e.ru, 2)) !== 2);
 const units = e => clamp(Math.round(e.t === 'odf' && !ruTyped(e) ? odfRu(e) : num(e.ru, TYPES[e.t].ru || 2)), 1, 30);
 /* the rack space of a host: zb = bottom of unit 1 above the base of the host, n = how many units it has, hw = half the width between the rails */
-function rackOf(host) {
-  const h = Math.max(0.3, num(host.h, 2)), w = Math.max(0.2, num(host.w, 0.6));
+function rackOf(host, bay) {      /* (14 Nov 17:00) bay: which rack of a cabinet with more than one; cx: the middle of that rack, across from the middle of the cabinet */
+  const nb = bayN(host), h = Math.max(0.3, num(host.h, 2)), w = Math.max(0.2, num(host.w, 0.6)) / nb, k = bay == null ? 0 : clamp(bay | 0, 0, nb - 1);
   const zb = host.t === 'odc' ? Math.min(0.1, h * 0.1) + 0.07 : 0.09, zu = host.t === 'odc' ? h - Math.min(0.07, h * 0.08) - 0.06 : h - 0.06;
-  return { zb, n: Math.max(1, Math.floor((zu - zb) / RU)), hw: Math.max(0.08, Math.min(0.2413, w / 2 - 0.07)) };
+  return { zb, n: Math.max(1, Math.floor((zu - zb) / RU)), hw: Math.max(0.08, Math.min(0.2413, w / 2 - 0.07)), cx: (k - (nb - 1) / 2) * w, nb };
 }
 function rackHost(S, e) { if (!inRack(e)) return null; for (const q of S.els) if (q !== e && (q.t === 'odc' || q.t === 'rack') && inPoly([e.x, e.y], elPoly(q))) return q; return null; }
-function rackItems(S, host) { return S.els.filter(e => inRack(e) && rackHost(S, e) === host); }
+function rackItems(S, host, bay) { return S.els.filter(e => inRack(e) && rackHost(S, e) === host && (bay == null || bayOf(host, e) === bay)); }
 /* every item of a rack with the unit it starts at, counted from the bottom: no two share a unit. One whose place was never set sits near the top, under what is already there. */
-function rackSlots(S, host) {
-  const R = rackOf(host), its = rackItems(S, host), out = [], taken = [], set = e => e.u != null && e.u !== '' && isFinite(+e.u);
+function rackSlots(S, host, bay) {
+  const nb = bayN(host); if (bay == null && nb > 1) { let o = []; for (let k = 0; k < nb; k++) o = o.concat(rackSlots(S, host, k)); return o; }      /* (14 Nov 17:00) rack by rack; each counts its own units */
+  const bk = bay == null ? 0 : bay, R = rackOf(host, bk), its = rackItems(S, host, nb > 1 ? bk : null), out = [], taken = [], set = e => e.u != null && e.u !== '' && isFinite(+e.u);
   const free = (u, ru) => u >= 1 && u + ru - 1 <= R.n && !taken.some(t => u <= t[1] && u + ru - 1 >= t[0]);
-  const seat = (e, want) => { const ru = Math.min(units(e), R.n), max = R.n - ru + 1; want = clamp(Math.round(want) || 1, 1, max); let u = want; for (let d = 0; d <= R.n; d++) { if (free(want - d, ru)) { u = want - d; break; } if (free(want + d, ru)) { u = want + d; break; } } taken.push([u, u + ru - 1]); out.push({ e, u, ru }); };
+  const seat = (e, want) => { const ru = Math.min(units(e), R.n), max = R.n - ru + 1; want = clamp(Math.round(want) || 1, 1, max); let u = want; for (let d = 0; d <= R.n; d++) { if (free(want - d, ru)) { u = want - d; break; } if (free(want + d, ru)) { u = want + d; break; } } taken.push([u, u + ru - 1]); out.push({ e, u, ru, bay: bk }); };
   for (const e of its) if (set(e)) seat(e, +e.u);
   for (const e of its) if (!set(e)) seat(e, R.n - units(e) - 1);
   return out;
@@ -245,7 +256,7 @@ function rackSlots(S, host) {
 function uOf(S, host, e) { const q = rackSlots(S, host).find(k => k.e === e); return q ? q.u : 1; }
 /* the free place for an item nearest to the unit asked for; null when every place is taken */
 function slotFor(S, host, e, want) {
-  const R = rackOf(host), ru = Math.min(units(e), R.n), max = R.n - ru + 1, taken = rackSlots(S, host).filter(q => q.e !== e).map(q => [q.u, q.u + q.ru - 1]);
+  const bk = bayOf(host, e), R = rackOf(host, bk), ru = Math.min(units(e), R.n), max = R.n - ru + 1, taken = rackSlots(S, host, bayN(host) > 1 ? bk : null).filter(q => q.e !== e).map(q => [q.u, q.u + q.ru - 1]);
   const free = u => u >= 1 && u <= max && !taken.some(t => u <= t[1] && u + ru - 1 >= t[0]);
   want = clamp(Math.round(want) || 1, 1, max);
   for (let d = 0; d <= R.n; d++) { if (free(want - d)) return want - d; if (free(want + d)) return want + d; }
@@ -477,6 +488,14 @@ function cloMount(S, rg, el) {
   const ae = aerialAt(rg, [pole.x, pole.y]), u = ae ? ae.u : rot2(1, 0, el.rot || 0), zc = ae ? ae.z : baseZ(S, pole) + (num(el.z, 0) > 0.5 ? num(el.z, 0) : Math.max(0.5, num(S.route.aerialH, STD.msg))), n = poleSide(rg, pole, u), off = poleR(pole, zc + CLOZ - baseZ(S, pole)) + STD.cloR + 0.005;
   return { pole, u, n, z: zc + CLOZ, c: [pole.x + n[0] * off, pole.y + n[1] * off] };
 }
+/* (14 Nov 17:00) a Dummy NAP stands on the side of its pole: the nearest pole or slim tower within 0.7 m. el.z: its bottom above the ground.
+   napAt: the Dummy NAP that a point of a fiber ends at (on the NAP itself, or on its pole). */
+const NAP_ON = ['rpole', 'epole', 'ezm', 'mono', 'tad', 'rtp'];
+function napPole(S, e) { let b = null; for (const q of S.els) if (q !== e && NAP_ON.indexOf(q.t) >= 0) { const d = Math.hypot(q.x - e.x, q.y - e.y); if (d < 0.7 && (!b || d < b.d)) b = { q, d }; } return b ? b.q : null; }
+function napAt(S, p) { for (const e of S.els) if (e.t === 'dnap') { const h = napPole(S, e); if (Math.hypot(e.x - p[0], e.y - p[1]) < 0.3 || (h && Math.hypot(h.x - p[0], h.y - p[1]) < 0.45)) return e; } return null; }
+const napZ = (S, e) => baseZ(S, e) + Math.max(0, num(e.z, 3));
+/* where a Dummy NAP goes on pole q, on the side towards the point 'to': its middle, and its turn so that its front faces out */
+function napSpot(q, to, e) { let v = [to[0] - q.x, to[1] - q.y]; const l = Math.hypot(v[0], v[1]); v = l > 0.02 ? [v[0] / l, v[1] / l] : rot2(1, 0, q.rot || 0); const off = Math.max(q.w / 2, 0.1) + num(e.d, 0.15) / 2 + 0.01; return { p: [Math.round((q.x + v[0] * off) * 1000) / 1000, Math.round((q.y + v[1] * off) * 1000) / 1000], rot: Math.round(((Math.atan2(v[0], -v[1]) / D2R) % 360 + 360) % 360 * 10) / 10 }; }
 function elLayer(el) { const T = TYPES[el.t]; return el.st === 'P' ? 'pp' : T.g === 'tower' ? 'tw' : (el.t === 'epole' || el.t === 'hh') ? 'ex' : 'eq'; }
 /* the hand hole or service box a point lies in */
 function pitAt(S, p, skip) { for (const e of S.els) if (e !== skip && (e.t === 'hh' || e.t === 'sbox') && Math.hypot(e.x - p[0], e.y - p[1]) < Math.max(e.w, e.d) / 2 + 0.1) return e; return null; }
@@ -487,6 +506,7 @@ function depthAt(S, p) { let d = 0; for (const r of S.runs) if (buried(r) && onR
 function focName(S, rg, f, k) { const R = cables(S)[k || 0] || S.route, P = rg.parts && rg.parts[k || 0], sm = P ? P.sum : rg.sum, c = String((R[f] || {}).cable || '').trim(), L = f === 'ae' ? sm.ae : sm.ugt; return 'PROPOSED ' + (c ? c + ' ' : '') + 'FOC ' + f.toUpperCase() + (f !== 'ae' && L > 0.05 ? ': ' + f1(L) + 'm' : ''); }      /* (14 Nov) the aerial cable says no length: how far it is drawn inside the site says nothing about the cable */
 function elLabel(S, el) {
   const s = elLabel0(S, el), T = TYPES[el.t]; if (el.name || el.st !== 'P' || !T || T.g === 'tower') return s;      /* a proposed item says so, as on the hand-made plans */
+  if (el.t === 'dnap') return 'PROPOSED ' + (String(el.size || '').trim() ? String(el.size).trim().toUpperCase() + ' ' : '') + 'DUMMY NAP';      /* (14 Nov 17:00) */
   if (el.t === 'odf') { const h = hostOf(S, [el.x, el.y], el); return 'PROPOSED ' + (el.size ? el.size + ' ' : '') + 'ODF' + (h && h.st !== 'P' && h.t !== 'cabin' ? ' @EXISTING ' + elLabel0(S, h) : ''); }
   return 'PROPOSED ' + s;
 }
@@ -681,7 +701,7 @@ function odcPort(S, el, arr) {
    verts: upright pieces { at, z0, z1, kind: 'riser' on a pole, 'exit' out of the ground, 'drop' anything else, R and u: the bend at its foot }
    exits, risers: what the app draws for them. join: where AE and UG meet. loops: on the AE fiber only. */
 function routeGeom1(S, R, cno) {
-  const out = { legs: [], verts: [], loops: [], exits: [], bare: [], risers: [], links: [], warn: [], notes: [], ports: {}, join: null, sum: { aerial: 0, ug: 0, xug: 0, ladder: 0, open: 0, liquid: 0, wall: 0, vert: 0, loop: 0, nloop: 0, ae: 0, ugt: 0, total: 0 } };
+  const out = { legs: [], verts: [], loops: [], exits: [], bare: [], padx: [], drops: [], risers: [], links: [], warn: [], notes: [], ports: {}, join: null, sum: { aerial: 0, ug: 0, xug: 0, ladder: 0, open: 0, liquid: 0, wall: 0, vert: 0, loop: 0, nloop: 0, ae: 0, ugt: 0, total: 0 } };
   const un2 = (x, y) => { const l = Math.hypot(x, y) || 1; return [x / l, y / l]; }, d2 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
   const onPole = p => { const e = poleAt(S, p); return e ? [e.x, e.y] : p; };            /* a point of the aerial cable that sits on a pole is at the pole itself */
   const A = ((R.ae && R.ae.pts) || []).map(p => onPole([p.x, p.y])), U = ((R.ug && R.ug.pts) || []).map(p => [p.x, p.y]);
@@ -704,12 +724,15 @@ function routeGeom1(S, R, cno) {
       if (man === 'ladder' && !run) out.notes.push('UG leg ' + (i + 1) + ' is set to run on a cable ladder, but no ladder is drawn under it. It is drawn on the ground.');
       raw.push({ i, a, b, type, run, path, man: !!man, parts });
     }
+    const offPad = (l, pd) => { const Q = elPoly(pd); let k = 0; for (let j = 0; j <= 20; j++) if (!inPoly([l.a[0] + (l.b[0] - l.a[0]) * j / 20, l.a[1] + (l.b[1] - l.a[1]) * j / 20], Q)) k++; return d2(l.a, l.b) * k / 21; };      /* how much of a piece lies off a pad */
     const hostEnd = hostOf(S, U[n]) || S.els.some(e => (e.t === 'odf' || e.t === 'port') && d2([e.x, e.y], U[n]) < 0.6) || portAt(S, U[n]) || odfInCabin(S, U[n]);
     /* a short piece next to a ladder, or into the cabinet, has nothing under it: the cable is in the open there. Anything else is new conduit. */
     if (S.room) for (const l of raw) if (!l.type || l.type === 'ug' || l.type === 'xug') l.type = 'open';     /* inside a cabin nothing is buried: off the ladder the cable is in the open */
     for (let pass = 0; pass < 2; pass++) for (const l of raw) if (!l.type) {
       const pv = raw[l.i - 1], nx = raw[l.i + 1], up = (pv && pv.type && above(pv.type)) || (nx && nx.type && above(nx.type)) || (l.i === n - 1 && hostEnd);
-      if (pass === 0) { if (up && d2(l.a, l.b) < 4) l.type = 'open'; } else { l.type = 'ug'; if (groundZ(S, [(l.a[0] + l.b[0]) / 2, (l.a[1] + l.b[1]) / 2]) < 0.01) out.notes.push('UG leg ' + (l.i + 1) + ' has no trench or conduit drawn under it. It counts as new conduit in an open trench, ' + f1(UGD) + ' m deep.'); }
+      const px = pass === 0 && l.i === n - 1 && !(pv && pv.type && above(pv.type)) ? padX(S, l.b) : null;      /* (14 Nov 17:00) into what stands on a pad with its exit pipe built in: the cable stays in the ground and comes up in that pipe */
+      if (px) nonEnum(l, 'px', px);
+      if (pass === 0) { if (up && d2(l.a, l.b) < 4 && !l.px) l.type = 'open'; } else { l.type = l.px && l.px.st !== 'P' ? 'xug' : 'ug'; if (!(l.px && offPad(l, l.px) < 0.3) && groundZ(S, [(l.a[0] + l.b[0]) / 2, (l.a[1] + l.b[1]) / 2]) < 0.01) out.notes.push('UG leg ' + (l.i + 1) + ' has no trench or conduit drawn under it. It counts as new conduit in an open trench, ' + f1(UGD) + ' m deep.'); }
     }
     const P = [];
     for (const l0 of raw) for (const l of l0.parts ? l0.parts.map(k => Object.assign({ i: l0.i }, k)) : [l0]) {
@@ -720,12 +743,14 @@ function routeGeom1(S, R, cno) {
         if (t === 'ladder') z = g + (r ? ladBase(S, r) + Math.max(0, num(r.z, RUNS.ladder.z)) : 0) + 0.03;
         else if (t === 'ug' || t === 'xug') z = r && !buried(r) ? g + num(r.z, 0) + STD.hdpe / 2 : g > 0.01 ? g + 0.06 : g - (r ? runDepthD(r) : flatD(UGD)) + STD.hdpe / 2;      /* in the lower of the two pipes, the black one */
         else if (t === 'liquid') z = g + 0.3; else if (t === 'wall') z = g + 1.2;
-        P.push({ f: 'ug', i: l.i, a: p, b: q, type: t, run: r, za: z, zb: z, g, plan: d2(p, q), ta: 0, tb: 0, warn: [] });
+        const pc = { f: 'ug', i: l.i, a: p, b: q, type: t, run: r, za: z, zb: z, g, plan: d2(p, q), ta: 0, tb: 0, warn: [] }; if (l0.px) nonEnum(pc, 'px', l0.px); P.push(pc);
       }
     }
+    for (let k = 1; k < P.length; k++) { const q = P[k], pv = P[k - 1]; if (q.px && !q.run && pv.zb < pv.g - 0.2) q.za = q.zb = pv.zb; }      /* (14 Nov 17:00) the pipe in the pad goes on at the depth of the conduit that comes to it */
     /* what an end of the UG fiber goes to: the closure on the pole, the AE cable, or the ODF in its cabinet */
     const endT = (p, from) => {
       const g = groundZ(S, p), pole = poleAt(S, p), atAE = !!aeEnd && d2(aeEnd, p) < 0.45;
+      { const nap = atAE ? null : napAt(S, p); if (nap) { const np = napPole(S, nap); if (pole && np === pole) return { z: napZ(S, nap), pole, nap }; if (!pole) return { z: napZ(S, nap), nap }; } }      /* (14 Nov 17:00) up into the bottom of a Dummy NAP */
       if (pole) return { z: (atAE ? aeZ(aeEnd) : baseZ(S, pole) + num(R.aerialH, STD.msg)) + CLOZ, pole, atAE };            /* up to the bottom of the closure, which stands above the loop */
       if (atAE) return { z: aeZ(aeEnd), atAE };
       const cl = S.els.find(e => e.t === 'clo' && d2([e.x, e.y], p) < 0.6);          /* a closure in a hand hole or service box, or on the ground: the cable goes to its entrance, the end it arrives at */
@@ -766,7 +791,11 @@ function routeGeom1(S, R, cno) {
         let zin = zf;
         if (pt.f === 'T') { mk(a, G, Math.max(zA, roof + 0.15)); zin = roof - 0.06; }
         else if (pt.f === 'B') {
-          if (inA && zA <= zf + 0.2) zin = null;               /* it comes up under the cabinet: straight up to the ODF */
+          const px = zA < groundZ(S, a) - 0.2 ? padX(S, G) : null;
+          if (px) {                                            /* (14 Nov 17:00) the pad has its exit pipe built in: the conduit goes on under the pad and comes up in that pipe, under the hole in the base of the cabinet */
+            if (inA) { q.b = G; q.plan = d2(q.a, G); } else if (d2(a, G) > 0.02) P.push(nonEnum({ f: 'ug', i: iL, a, b: G, type: px.st === 'P' ? 'ug' : 'xug', run: null, za: zA, zb: zA, g: groundZ(S, a), plan: d2(a, G), ta: 0, tb: 0, warn: [] }, 'px', px));
+            zin = null; }
+          else if (inA && zA <= zf + 0.2) zin = null;               /* it comes up under the cabinet: straight up to the ODF */
           else if (zA <= zf + 0.2) mk(a, G, zf);                /* from the ground: along the foot and in */
           else {                                               /* from higher: level to the nearest wall, down its outside, in at the foot */
             const lc = rot2(a[0] - c.x, a[1] - c.y, -(c.rot || 0)); let ex = clamp(lc[0], -hw, hw), ey = clamp(lc[1], -hd, hd);
@@ -782,7 +811,7 @@ function routeGeom1(S, R, cno) {
       const pv = P[k - 1] || null, nx = P[k] || null, at0 = nx ? nx.a : pv.b, T = !pv ? T0 : !nx ? T1 : null;
       const zp = pv ? pv.zb : T ? T.z : null, zn = nx ? nx.za : T ? T.z : null;
       if (zp == null || zn == null || Math.abs(zp - zn) < 0.05) continue;
-      const g = groundZ(S, at0), pole = poleAt(S, at0), z0 = Math.min(zp, zn), z1 = Math.max(zp, zn), below = z0 < g - 0.2;
+      const g = groundZ(S, at0), pole = poleAt(S, at0) || (T && T.nap ? napPole(S, T.nap) : null), z0 = Math.min(zp, zn), z1 = Math.max(zp, zn), below = z0 < g - 0.2;
       const bp = pv && zp === z0 && zp < g - 0.05 ? pv : nx && zn === z0 && zn < g - 0.05 ? nx : null, adj = bp || nx || pv;
       const v = { f: 'ug', at: at0, z0, z1, g, kind: pole ? 'riser' : below && z1 > g + 0.05 && !pitAt(S, at0) ? 'exit' : 'drop', R: 0, u: null };
       if (adj) {
@@ -799,12 +828,23 @@ function routeGeom1(S, R, cno) {
         if (pole && off > 0) { const o2 = poleR(pole, z1 - baseZ(S, pole)) + GIR; v.at2 = [at0[0] + v.u[0] * o2, at0[1] + v.u[1] * o2]; }
         }      /* the pole tapers and the pipe follows it: where it is at the top */
         if (off + Rb > 0) { if (atA) adj.ta = off + Rb; else adj.tb = off + Rb; }
+        nonEnum(v, 'leg', adj); nonEnum(v, 'end', atA ? 'a' : 'b'); nonEnum(v, 'off', Math.max(0, (atA ? adj.ta : adj.tb) - v.R));
       }
       if (pv && pv.inside) v.inside = 1; if ((pv && pv.hop) || (nx && nx.hop)) v.hop = (pv && pv.hop) || nx.hop;      /* (19:25) part of the way into a cabinet */
       out.verts.push(v);
-      if (v.kind === 'riser') out.risers.push({ at: v.at, at2: v.at2 || v.at, pole, g, z0, z1, u: v.u || [1, 0], s: v.s || v.u || [1, 0], R: v.R, dp: below ? g - z0 : 0 });      /* s: the side of the pole the pipe is on; u: the way its bend at the foot points */
-      if (v.kind === 'exit') { const ex = S.els.find(e => e.t === 'exit' && d2([e.x, e.y], at0) < 0.5); if (!ex && !hostOf(S, at0)) out.bare.push({ at: v.at });      /* (19:25: where the cable comes out of the ground with no exit conduit drawn, none is made up; the place is kept for a check line) */
-        if (ex) out.exits.push({ at: v.at, st: ex ? ex.st : bp && bp.type === 'xug' ? 'E' : 'P', g, h: ex ? Math.max(0.1, num(ex.h, EXH)) : clamp(z1 - g, 0.1, EXH), u: v.u || [1, 0], R: v.R, dp: g - z0, el: ex ? ex.id : null }); }
+      if (v.kind === 'riser') { const rec = { at: v.at, at2: v.at2 || v.at, pole, g, z0, z1, u: v.u || [1, 0], s: v.s || v.u || [1, 0], R: v.R, dp: below ? g - z0 : 0, nap: T && T.nap ? T.nap.id : null }; out.risers.push(rec); nonEnum(v, 'rec', rec); if (rec.nap) nonEnum(v, 'nap', rec.nap); }      /* s: the side of the pole the pipe is on; u: the way its bend at the foot points */
+      if (v.kind === 'exit') { const ex = S.els.find(e => e.t === 'exit' && d2([e.x, e.y], at0) < 0.5), px = ex ? null : padX(S, at0); if (!ex && !px && !hostOf(S, at0)) out.bare.push({ at: v.at });
+        if (px) { const rec = { at: v.at, g, z0, z1, zt: g + Math.max(0, num(px.h, 0)), R: v.R, u: v.u || [1, 0], dp: g - z0, pad: px.id, n: clamp(Math.round(num(px.xp, 1)), 1, 2), st: px.st === 'P' ? 'P' : 'E' }; out.padx.push(rec); nonEnum(v, 'rec', rec); }      /* (14 Nov 17:00) up through the pipe in the pad */      /* (19:25: where the cable comes out of the ground with no exit conduit drawn, none is made up; the place is kept for a check line) */
+        if (ex) { const rec = { at: v.at, st: ex ? ex.st : bp && bp.type === 'xug' ? 'E' : 'P', g, h: ex ? Math.max(0.1, num(ex.h, EXH)) : clamp(z1 - g, 0.1, EXH), u: v.u || [1, 0], R: v.R, dp: g - z0, el: ex ? ex.id : null }; out.exits.push(rec); nonEnum(v, 'rec', rec); } }
+    }
+    /* (14 Nov 17:00) a riser pole close to a base pad, or to an exit conduit: one short piece with a bend at each end. Each bend was made as if the piece were
+       its own; where the two do not both fit, they are made smaller to an equal size, so that they meet the straight part between them and never cross it. */
+    for (const q of P) {
+      const vs = out.verts.filter(v => v.leg === q), Rs = vs.reduce((s, v) => s + v.R, 0); if (vs.length < 2 || Rs < 0.05) continue;
+      const off = vs.reduce((s, v) => s + v.off, 0), av = q.plan - off, st = Math.min(0.1, Math.max(0, av) * 0.2); if (off + Rs <= q.plan - st + 1e-6) continue;
+      let left = Math.max(0, av - st); const rest = vs.slice().sort((a, b) => a.R - b.R);      /* an equal share each, as two elbows of one kind; a bend already smaller keeps its size */
+      while (rest.length) { const sh = left / rest.length; if (rest[0].R <= sh) left -= rest.shift().R; else { for (const v of rest) v.R = sh; break; } }
+      for (const v of vs) { v.R = v.R < 0.05 ? 0 : Math.floor(v.R * 1000) / 1000; nonEnum(v, 'fit', 1); if (v.rec) v.rec.R = v.R; if (v.end === 'a') q.ta = v.off + v.R; else q.tb = v.off + v.R; }
     }
     for (const q of P) { q.len = Math.hypot(q.plan, q.zb - q.za); out.legs.push(q); }
     /* where the two fibers meet: the closure stands on the side of the pole above the loop, and the UG cable comes up the riser to its bottom */
@@ -817,24 +857,38 @@ function routeGeom1(S, R, cno) {
       if (pole && !out.join.none) out.links.push({ a: [top[0], top[1], T.z], b: [out.join.c[0], out.join.c[1], T.z] });
     }
     for (const [p, T] of [[U[0], T0], [U[n], T1]]) if (T && T.link) out.links.push({ a: [p[0], p[1], T.z], b: [T.link[0], T.link[1], T.z] });      /* into the closure at its entrance */
-    for (const [p, T] of [[U[0], T0], [U[n], T1]]) if (T && T.pole && !T.atAE) {      /* a pole with a closure and no aerial cable yet: the UG cable still ends in the closure */
+    for (const [p, T] of [[U[0], T0], [U[n], T1]]) if (T && T.nap) {      /* (14 Nov 17:00) from the top of the riser into the bottom of the Dummy NAP */
+      const at = T.pole ? [T.pole.x, T.pole.y] : p, vt = out.verts.find(v => d2(v.at, at) < 0.6 && Math.abs(v.z1 - T.z) < 0.01), top = vt ? vt.at2 || vt.at : p, c = [T.nap.x, T.nap.y];
+      if (d2(top, c) > 0.02) out.links.push({ a: [top[0], top[1], T.z], b: [c[0], c[1], T.z] });
+    }
+    for (const [p, T] of [[U[0], T0], [U[n], T1]]) if (T && T.pole && !T.atAE && !T.nap) {      /* a pole with a closure and no aerial cable yet: the UG cable still ends in the closure */
       const ce = S.els.find(e => e.t === 'clo' && d2([e.x, e.y], [T.pole.x, T.pole.y]) < 0.6), vt = ce ? out.verts.find(v => d2(v.at, [T.pole.x, T.pole.y]) < 0.6 && Math.abs(v.z1 - T.z) < 0.01) : null, m = vt ? cloMount(S, out, ce) : null;
       if (m) { const top = vt.at2 || vt.at; out.links.push({ a: [top[0], top[1], T.z], b: [m.c[0], m.c[1], T.z] }); }
     }
     /* buried pieces that run through something standing on the site */
     const block = ['pad', 'odc', 'cabin', 'gen', 'tank', 'box', 'cow', 't3', 't4', 'rtt'], W = {};
     for (const l of P) {
-      if (l.type !== 'ug' && l.type !== 'xug' && l.type !== 'liquid') continue;
+      if ((l.type !== 'ug' && l.type !== 'xug' && l.type !== 'liquid') || l.px) continue;      /* (14 Nov 17:00: the pipe in a pad goes under what stands on it) */
       for (const e of S.els) { if (block.indexOf(e.t) < 0) continue; const poly = elPoly(e); if (inPoly(U[0], poly) || inPoly(U[n], poly)) continue; if (segPoly(l.a, l.b, poly)) { const nm = e.name || TYPES[e.t].s, w = W[l.i] || (W[l.i] = []); if (w.indexOf(nm) < 0) w.push(nm); } }
     }
     for (const k in W) out.warn.push({ leg: +k, names: W[k] });
   }
+  if (aeEnd && !out.join) {      /* (14 Nov 17:00) the AE fiber ends on a pole with a Dummy NAP, and no UG fiber meets it there: down (or up) the pole beside the NAP and into its bottom */
+    const nap = napAt(S, aeEnd), pl = nap ? napPole(S, nap) : null;
+    if (nap && pl && d2([pl.x, pl.y], aeEnd) < 0.45) {
+      const ae = aerialAt(out, aeEnd), zw = ae ? ae.z : aeZ(aeEnd), zb = napZ(S, nap), nn = un2(nap.x - pl.x, nap.y - pl.y), t = [-nn[1], nn[0]], r = Math.max(pl.w / 2, 0.1) + 0.02, sd = [pl.x + t[0] * r, pl.y + t[1] * r], low = zb - 0.15;
+      const pts = [[pl.x, pl.y, zw], [sd[0], sd[1], zw], [sd[0], sd[1], low], [nap.x, nap.y, low], [nap.x, nap.y, zb]]; let len = 0;
+      for (let i = 0; i + 1 < pts.length; i++) len += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1], pts[i + 1][2] - pts[i][2]);
+      out.drops.push({ pts, len, nap: nap.id });
+    }
+  }
   for (const l of out.loops) { const pl = poleAt(S, l.at); if (pl) { const n = poleSide(out, pl, l.u), off = poleR(pl, l.z - baseZ(S, pl)) + 0.02; l.c = [l.at[0] + n[0] * off, l.at[1] + n[1] * off]; } }      /* on a riser pole the loop holder is on the riser's side */
-  if (A.length > 1 && !poleAt(S, aeEnd)) out.notes.push('The AE fiber does not end on a pole. End it on the riser pole.');
+  if (A.length > 1 && !poleAt(S, aeEnd) && !napAt(S, aeEnd)) out.notes.push('The AE fiber does not end on a pole. End it on the riser pole.');
   if (A.length > 1 && U.length > 1 && !out.join) out.notes.push('The AE and UG fibers do not meet. End the AE fiber and start the UG fiber on the same riser pole.');
   if (S.room && U.length > 1 && !S.els.some(e => e.t === 'port' && (d2([e.x, e.y], U[0]) < 0.35 || d2([e.x, e.y], U[n2]) < 0.35))) out.notes.push('The cable inside the cabin does not start at a porthole.');
   const s = out.sum;
   for (const l of out.legs) s[l.type] += l.len;
+  for (const q of out.drops) s.aerial += q.len;      /* (14 Nov 17:00) down the pole into a Dummy NAP: AE cable */
   for (const v of out.verts) s.vert += v.z1 - v.z0;
   for (const k of out.links) s.vert += Math.hypot(k.b[0] - k.a[0], k.b[1] - k.a[1]);
   for (const l of out.loops) { s.loop += l.len; s.nloop++; }
@@ -863,9 +917,9 @@ function routeGeom(S) {
   if (!S.room) for (const e of S.els) if (e.t === 'cabin' && S.runs.some(r => r.kind === 'ladder' && (r.pts || []).some(p => inCabin(e, p, 0.15)))) notes.push('A cable ladder is drawn into ' + elLabel(S, e).toLowerCase() + ' on the site sketch. A ladder outside ends on the porthole; the ladder inside is drawn in the sketch of the inside.');
   const sum = {};
   for (const p of parts) { const s = p.sum; s.ae = s.aerial + s.loop; s.ugt = s.ug + s.xug + s.ladder + s.open + s.liquid + s.wall + s.vert + s.inside; s.total = s.ae + s.ugt; for (const key in s) sum[key] = (sum[key] || 0) + s[key]; }
-  const out = { legs: [], verts: [], loops: [], exits: [], bare: [], risers: [], links: [], warn: [], notes, ports: {}, join: null, joins: [], parts, sum };
+  const out = { legs: [], verts: [], loops: [], exits: [], bare: [], padx: [], drops: [], risers: [], links: [], warn: [], notes, ports: {}, join: null, joins: [], parts, sum };
   parts.forEach((p, k) => {
-    for (const key of ['legs', 'verts', 'loops', 'exits', 'bare', 'risers', 'links', 'warn']) for (const q of p[key]) { q.cn = k; q.ck = p.ck; out[key].push(q); }
+    for (const key of ['legs', 'verts', 'loops', 'exits', 'bare', 'padx', 'drops', 'risers', 'links', 'warn']) for (const q of p[key]) { q.cn = k; q.ck = p.ck; out[key].push(q); }
     for (const id in p.ports) if (!out.ports[id]) out.ports[id] = p.ports[id];
     if (p.join) { p.join.cn = k; p.join.ck = p.ck; out.joins.push(p.join); if (!out.join) out.join = p.join; }
   });
@@ -873,7 +927,7 @@ function routeGeom(S) {
 }
 function cefTable(S) {
   const rg = routeGeom(S), g = rg.sum, cnt = t => S.els.filter(e => e.t === t).length, odf = S.els.filter(e => e.t === 'odf').concat([].concat.apply([], S.els.filter(e => e.t === 'cabin' && e.inside && Array.isArray(e.inside.els)).map(e => e.inside.els.filter(q => q.t === 'odf'))));
-  const RP = rg.risers.map(r => riserParts(r.g, r.z1 - CLOZ)), trench = g.ug + extraTrench(S, rg), pipe = rg.risers.reduce((s, r, i) => s + Math.max(0, RP[i].giTop - r.g), 0), guard = RP.reduce((s, k) => s + Math.max(0, k.ugTop - k.giTop), 0);
+  const RP = rg.risers.map(r => riserParts(r.g, r.z1 - (r.nap ? 0 : CLOZ))), trench = g.ug + extraTrench(S, rg), pipe = rg.risers.reduce((s, r, i) => s + Math.max(0, RP[i].giTop - r.g), 0), guard = RP.reduce((s, k) => s + Math.max(0, k.ugTop - k.giTop), 0);
   const sbt = Array.from(new Set(S.els.filter(e => e.t === 'sbox' && SBOX[e.ty]).map(e => e.ty))).join(', ');
   const Lm = v => v > 0.05 ? f1(v) + 'm' : '', Q = v => v > 0 ? String(v) : '';
   const cab = c => { c = String(c || ''); const sp = c.indexOf(' '); return sp > 0 ? [c.slice(0, sp), c.slice(sp + 1)] : [c, '']; }, CB = cables(S), drawn = CB.map((R, k) => k).filter(k => !k || cableDrawn(CB[k])), focRows = [];
@@ -883,6 +937,7 @@ function cefTable(S) {
   const nclo = cnt('clo') + rg.joins.filter(j => j.auto).length, nexit = rg.exits.length + S.els.filter(e => e.t === 'exit' && !rg.exits.some(x => x.el === e.id)).length;
   return [
     ['ODF', odf.length ? Array.from(new Set(odf.map(e => e.size || ''))).join(', ') : '', Q(odf.length), ''],
+    ...(cnt('dnap') ? [['DUMMY NAP', Array.from(new Set(S.els.filter(e => e.t === 'dnap').map(e => String(e.size || '').trim().toUpperCase()).filter(Boolean))).join(', '), Q(cnt('dnap')), '']] : []),      /* (14 Nov 17:00) */
     ['CLOSURE', nclo ? 'HYBRID' : '', Q(nclo), ''],
     ['RISER POLE (EXISTING)', '', Q(cnt('epole')), ''],
     ['WALL STRAP', '', '', Lm(g.wall)],
@@ -893,6 +948,7 @@ function cefTable(S) {
     ['LOOP HOLDER', '', Q(g.nloop), ''],
     ['SERVICE BOX', sbt, Q(cnt('sbox')), ''],
     ['EXIT CONDUIT', nexit ? PVC_MM + 'mm' : '', Q(nexit), ''],
+    ...(rg.padx.length ? [['EXIT PIPE IN BASE PAD', PVC_MM + 'mm', Q(rg.padx.length), '']] : []),      /* (14 Nov 17:00) */
     ['LIQUID TIGHT', '', '', Lm(g.liquid)],
     ['G.I. RISER PIPE', '', '', Lm(pipe)],
     ['EXISTING CONDUIT USED', '', '', Lm(g.xug)],
@@ -1011,6 +1067,7 @@ function topEl(S, el, G, rg) {
     case 'clo': { const m = cloMount(S, rg || routeGeom(S), el); if (m) { G.ci(m.c, STD.cloR * 1.12, lay); G.ci(m.c, STD.cloR * 0.5, lay); } else { G.ci(c, 0.22, lay); cross(c, 0.22, lay); } break; }
     case 'exit': { const x = rg ? rg.exits.find(q => q.el === el.id) : null, er = x ? null : exitRun(S, el), at = x ? x.at : c, u = x ? x.u : er ? er.u : rot2(1, 0, el.rot || 0), hc = [at[0] + u[0] * 0.025, at[1] + u[1] * 0.025]; G.pl(rectAt(hc, el.w, el.d, el.rot), lay, 1); G.ci(hc, STD.sleeve / 2, lay); for (const k of [0, 1]) G.ci([at[0] + u[0] * k * 0.05, at[1] + u[1] * k * 0.05], 0.025, lay); break; }      /* the block, its 114 mm hole and the two 50 mm pipes in it; the cable is in the first one */      /* a square block, the 114 mm pipe in it, and the two 50 mm pipes in that */
     case 'sbox': G.pl(P, lay, 1); G.pl(rectAt(c, el.w * 0.55, el.d * 0.55, el.rot), lay, 1); break;
+    case 'dnap': { G.pl(P, lay, 1); G.pl([lp(-el.w / 2, -el.d / 2 + 0.04), lp(el.w / 2, -el.d / 2 + 0.04)], lay); const pl = napPole(S, el); if (pl) G.pl([lp(0, el.d / 2), [pl.x + (el.x - pl.x) * 0.55, pl.y + (el.y - pl.y) * 0.55]], lay); break; }      /* (14 Nov 17:00) a Dummy NAP: its front, and its bracket to the pole */
     default: G.pl(P, lay, 1);
       if (el.t === 'pad') for (const K of padSteps(el)) {      /* beta 4.2: its stairs, seen from above: the outline and the edge of each step */
         const run = K.n * K.tread; G.pl([faceXY(el, K.face, K.u - K.w / 2, 0), faceXY(el, K.face, K.u - K.w / 2, -run), faceXY(el, K.face, K.u + K.w / 2, -run), faceXY(el, K.face, K.u + K.w / 2, 0)], lay);
@@ -1469,6 +1526,11 @@ function buildTop(S, o) {
   rg.exits.forEach((x, i) => {
     if (x.el) return; const lay = x.st === 'P' ? 'pp' : 'ex', key = 'exit' + i, fp = sqr(x.at, 0.25, 0), hc = [x.at[0] + x.u[0] * 0.025, x.at[1] + x.u[1] * 0.025]; G.pl(rectAt(hc, STD.exitW, STD.exitW, Math.atan2(x.u[1], x.u[0]) / D2R), lay, 1); G.ci(hc, STD.sleeve / 2, lay); for (const k of [0, 1]) G.ci([x.at[0] + x.u[0] * k * 0.05, x.at[1] + x.u[1] * k * 0.05], 0.025, lay); LB.block(fp, 1, key);
     jobs.push({ o: 4, key, lines: [labText(S, key, x.st === 'P' ? 'PROPOSED RISER PIPE' : 'EXIT CONDUIT')], lay: tl(x.st), ap: x.at, a: 0, cands: topCands(fp, 0, gap), st: x.st });
+  });
+  rg.padx.forEach((x, i) => {      /* (14 Nov 17:00) the exit pipe built into a base pad: the pipe the cable comes up in, and the spare with its blank duct plug */
+    const lay = x.st === 'P' ? 'pp' : 'ex', key = 'padx' + i, r = STD.hdpe / 2 + 0.012, sp = [x.at[0] + x.u[0] * STD.hdpe, x.at[1] + x.u[1] * STD.hdpe], fp = sqr(x.at, 0.2, 0);
+    G.ci(x.at, r, lay); if (x.n > 1) { G.ci(sp, r, lay); G.pl([[sp[0] - r * 0.7, sp[1]], [sp[0] + r * 0.7, sp[1]]], lay); }
+    LB.block(fp, 1, key); jobs.push({ o: 4, key, lines: [labText(S, key, padxName(x))], lay: tl(x.st), ap: x.at, a: 0, cands: topCands(fp, 0, gap), st: x.st });
   });
   for (const j of rg.joins) if (j.auto) { const fp = sqr(j.c, 0.3, 0), ck = 'clo' + (j.ck || ''); G.ci(j.c, STD.cloR * 1.12, 'pp'); G.ci(j.c, STD.cloR * 0.5, 'pp'); LB.block(fp, 1, ck); jobs.push({ o: 4, key: ck, lines: [labText(S, ck, 'PROPOSED CLOSURE')], lay: 'tp', ap: j.c, a: 0, cands: topCands(fp, 0, gap), st: 'P' }); }
   G.grp = gk('FOC_UG');

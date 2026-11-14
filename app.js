@@ -909,10 +909,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.44.1';
+  const APP_VER = '2.44.2';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '4.3'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '4.4'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -15160,7 +15160,8 @@
   let tmCodeSent = false;
   const TM_WHY = { off: 'Team is not switched on for your company in the online sheet (ask your admin)',
     codes: 'your company has used today’s email codes for teams: try again tomorrow, or ask your admin', mailday: 'today’s emails of the online sheet are kept for the admin codes: try again tomorrow',
-    self: 'that is you', link: 'that person is not asking (or is not in your company)', key: 'the online sheet did not accept this: it needs the v2.43 sheet script (in G-eSAA Beta, set the beta address in Settings)', tok: 'confirm your email again (Settings → Team)', role: 'only a coordinator can do this', action: 'the online sheet has an older script (it needs v2.43)', email: 'that email is not valid', wait: 'too many codes: wait 10 minutes, then send a new one', mail: 'the online sheet could not send email today', expired: 'the code expired: send a new one', code: 'wrong code', coordinator: 'that person is not a coordinator of your company', url: 'that is not a mailbox web app address', member: 'that person is not in your team', link: 'that request is no longer open (ask to join again)', self: 'you cannot join your own team', busy: 'the online sheet is busy: try again', server: 'the online sheet had a problem: try again', mailbox: 'set up the mailbox first', 'team key': 'the mailbox key was not accepted' };
+    key: 'the online sheet did not accept this: it needs the v2.43 sheet script (in G-eSAA Beta, set the beta address in Settings)', tok: 'confirm your email again (Settings → Team)', role: 'only a coordinator can do this', action: 'the online sheet has an older script (it needs v2.43)', email: 'that email is not valid', wait: 'too many codes: wait 10 minutes, then send a new one', mail: 'the online sheet could not send email today', expired: 'the code expired: send a new one', code: 'wrong code', coordinator: 'that person is not a coordinator of your company', url: 'that is not a mailbox web app address', member: 'that person is not in your team', link: 'that request is no longer open (ask to join again)', self: 'you cannot join your own team', busy: 'the online sheet is busy: try again', server: 'the online sheet had a problem: try again', mailbox: 'set up the mailbox first', 'team key': 'the mailbox key was not accepted' };
+  const TM_WHY_ACT = { teamApprove: { self: 'that is you', link: 'that person is not asking to be a coordinator (or is not in your company)' } }; // (beta 4.4) the same answer means another thing for an approval
   async function tmPost(action, body) {
     if (!sheetUrl()) throw new Error('no online sheet: join your company first');
     const j = await cloudRequest({ url: sheetUrl() }, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -15169,7 +15170,7 @@
       const code = j && j.error;
       if (code === 'tok') { S.teamMe = null; persist(); }
       if (code === 'off' && S.cloud && S.cloud.src === sheetUrl() && S.cloud.teamOn !== false) { S.cloud = { ...S.cloud, teamOn: false }; persist(); setTimeout(() => { try { tmSwitched(); } catch (x) { /* shown at the next render */ } }, 0); } // v2.43 beta 3.2 (QA-17)
-      const e = new Error(TM_WHY[code] || code || 'no answer from the online sheet'); e.code = code; e.left = j && j.left; throw e;
+      const e = new Error((TM_WHY_ACT[action] || {})[code] || TM_WHY[code] || code || 'no answer from the online sheet'); e.code = code; e.left = j && j.left; throw e;
     }
     return j;
   }
@@ -18129,7 +18130,7 @@
   window.__polecam = { photosPane: { open: () => ppxOpen(), close: () => ppxClose(), list: () => ppxList().map((x) => ({ id: String(x.p.id), pid: String(x.pid), label: x.label })) }, autoLoops: () => [...autoLoops(projPoints(), routeModel())], openEditorFor,
     /* v2.42.17 */ edTab: (k, f) => goEdTab(k, f), edTabs: () => edTabList(), edCur: () => (edTabsOn() ? edTab : ''), edMissing: () => edMissing().map((x) => `${x.req ? '!' : ''}${x.tab}:${x.k}`), edShow: (sel) => { const el = document.querySelector(sel), g = el && el.closest('#editor .edbody>[data-pane]'); if (g && edTabsOn()) goEdTab(g.dataset.pane); return !!g; }, /* v2.42.16 */ boqTable: () => boqTable(projPoints(), null), routeStats: () => { const R = routeModel(); updateRouteBar(R); return $('rbStats').textContent; }, get points() { return points; }, get S() { return S; }, drwSeq: () => (drw ? { n: drw.seq.size, max: Math.max(0, ...drw.seq.values()) } : null), get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, get lastQrLink() { return qrLink; }, get lastQrFull() { return qrAlt ? qrAlt.full : qrLink; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
-    surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, planRoads, routeAdvice: () => routeAdvice(routeModel()), renderPoles, persist, cloudSync: (f) => cloudSync(f), renderSig, // v2.42.12
+    surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, routeAdvice: () => routeAdvice(routeModel()), renderPoles, persist, cloudSync: (f) => cloudSync(f), renderSig, // v2.42.12
     setDxfRows: (R, sel) => { setRows(R); if (sel != null) { S.exp.dxfRowSel = sel; persist(); } renderDxfMarks(); }, dxfRows: () => dxfRows(), // v2.42.14
     clamps: () => { const R = routeModel(), all = projPoints(); return Object.fromEntries(all.filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, clampOf(p, R, all).join('+')])); }, // for testing (v2.39: the poles' clamps)
     /* v2.42.18 */ hw: () => { const R = routeModel(); return Object.fromEntries(projPoints().filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, hwOf(p, R)])); }, filled: () => { const all = projPoints(), f = boqFilled(all); return Object.fromEntries(all.map((p) => [p.id, f(p) || {}])); },

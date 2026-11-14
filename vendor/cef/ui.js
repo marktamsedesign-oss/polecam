@@ -41,7 +41,7 @@ let placeT = null, palOpen = false, moreOpen = false, warnOpen = false;      /* 
 let cabDraw = false, isoCab = null;      /* beta 4.2: drawing the cable inside an opened cabinet; the front of its rack on the drawing */
 let S, IMG = {}, sel = null, mode = 'select', tab = 'site', view = 'top', active = 'top', draft = [], placing = null;
 let runKind = 'ladder', fib = 'ae', autoAlign = true, live = null, isoT = 0;
-const SNAPS = ['rpole', 'epole', 'odf', 'odc', 'hh', 'clo', 'sbox', 'enc', 'exit', 'port'];
+const SNAPS = ['rpole', 'epole', 'odf', 'odc', 'hh', 'clo', 'dnap', 'sbox', 'enc', 'exit', 'port'];
 let isoHits = [], isoSc = null, dragNote = '', topLabs = [], isoLabs = [];
 let dump = '', dl = null, dlReady = false, busy = false, msg = null, hist = [], lastPush = { k: '', t: 0 }, topTh = 0.3, saveNote = '', cursor = '', photoNote = '';
 
@@ -261,6 +261,18 @@ function drawSheets() {
   SVG.sheets.innerHTML = o; applyVB('sheets');
 }
 function tip(p) { const a = num(p.dir, 0) * D2R, r = 0.95 * topTh * 3.4; return [p.x + Math.sin(a) * r, p.y + Math.cos(a) * r]; }
+/* (14 Nov 16:05) where there is none yet: "+ Gate" on the bottom side of a fenced site with no gate, "+ Door" on the front wall of a picked cabin with
+   no door, and on the bottom wall of the inside of a cabin with none. A tap adds it there. */
+function addSpots() {
+  if (VIEW || focus || mode !== 'select' || !S || !S.site) return [];
+  const o = 17 * unit('top');      /* (a gate on the fence where it would be, a little inside, clear of the length under it; a door just outside the cabin, which is small) */
+  if (S.room) return S.gates.length ? [] : [{ k: 'doornew', p: [S.site.L / 2, o * 0.35], word: 'Door', ic: 'door' }];
+  const out = []; if (S.site.kind === 'fenced' && !S.gates.length) out.push({ k: 'gatenew', p: [S.site.L / 2, o * 0.35], word: 'Gate', ic: 'gate' });
+  const e = sel && sel.k === 'el' ? elById(sel.id) : null; if (e && e.t === 'cabin' && !cabinDoors(e).length) out.push({ k: 'doornew', id: e.id, p: faceXY(e, 'F', 0, -o), word: 'Door', ic: 'door' });
+  return out;
+}
+function addBubble(q, u) { const w = 70 * u, h = 26 * u, x = q.p[0], y = -q.p[1]; return '<g class="ov-add"><rect x="' + r3(x - w / 2) + '" y="' + r3(y - h / 2) + '" width="' + r3(w) + '" height="' + r3(h) + '" rx="' + r3(h / 2) + '"/><path transform="translate(' + r3(x - w / 2 + 7 * u) + ' ' + r3(y - 8 * u) + ') scale(' + r3(0.8 * u) + ')" d="' + ICON[q.ic] + '"/><text x="' + r3(x + 9 * u) + '" y="' + r3(y) + '" font-size="' + r3(12.5 * u) + '" text-anchor="middle" dominant-baseline="central">+ ' + q.word + '</text></g>'; }
+function addNew(q) { if (q.k === 'gatenew') action('gate-add', { dataset: { w: '4' } }); else if (q.k === 'doornew' && q.id) action('cdoor-add', { dataset: { id: q.id } }); else if (q.k === 'doornew') action('gate-add', { dataset: {} }); }
 function drawOverlay() {
   const g = SVG.top.querySelector('#ov'); if (!g) return;
   const u = unit('top'), r = 6.5 * u, L = S.site.L, W = S.site.W, fs = r3(13 * u); let o = '';
@@ -289,6 +301,7 @@ function drawOverlay() {
   if (!S.room && !focus && mode === 'select' && !VIEW) for (const q of topPics) if (tipOut(q) && !(livePic && livePic.v === 't' && livePic.id === q.id) && !(sel && sel.k === 'pic' && sel.v === 't' && sel.id === q.id)) o += '<circle class="ov-h v" cx="' + r3(q.tip[0]) + '" cy="' + r3(-q.tip[1]) + '" r="' + r3(0.7 * r) + '"/>';      /* (19:25) */
   o += picGhost('t', topTh);
   if (live && live.length > 1) o += '<polyline class="ov-s" points="' + pts(live) + '"/>';
+  for (const q of addSpots()) o += addBubble(q, u);
   g.innerHTML = o;
 }
 /* the isometric can be edited too: the selected item is outlined, and a round handle with an up-down arrow changes its height or depth */
@@ -343,13 +356,26 @@ function drawChrome() {
 
 /* ---------- side panel ---------- */
 const fid = k => 'f_' + k.replace(/\W/g, '_');
-const F = (label, k, v, attrs) => '<label class="f"><span>' + label + '</span><input id="' + fid(k) + '" data-k="' + k + '" value="' + esc(v == null ? '' : v) + '" ' + (attrs || 'type="number" step="0.1" inputmode="decimal"') + '></label>';
+/* (14 Nov 16:05) a number has - and + beside it: a tap is one step, press and hold for more. Coordinates (step any) and what cannot be changed have none.
+   The label is tied to the field (for=), so that a tap on its words never presses the -. */
+const STEPK = { 'site.L': 0.5, 'site.W': 0.5, 'site.post': 0.5, 'site.bh': 0.5, 'site.towerShow': 1, 'el.th': 1 };
+const F = (label, k, v, attrs) => { const at = attrs || 'type="number" step="0.1" inputmode="decimal"', inp = '<input id="' + fid(k) + '" data-k="' + k + '" value="' + esc(v == null ? '' : v) + '" ' + at + '>';
+  if (!/type="number"/.test(at) || /disabled|step="any"/.test(at)) return '<label class="f" for="' + fid(k) + '"><span>' + label + '</span>' + inp + '</label>';
+  const st = STEPK[k] || parseFloat((at.match(/step="([\d.]+)"/) || [])[1]) || 0.1;
+  return '<label class="f" for="' + fid(k) + '"><span>' + label + '</span><span class="stp"><button type="button" class="sb" data-sd="-' + st + '" tabindex="-1" aria-label="Less, by ' + st + '">−</button>' + inp + '<button type="button" class="sb" data-sd="' + st + '" tabindex="-1" aria-label="More, by ' + st + '">+</button></span></label>'; };
+/* one step of a - or + of the form: the field is changed as if typed, the drawing follows; the form is laid out again when the finger lifts */
+function stepField(t) {
+  const i = t.parentNode && t.parentNode.querySelector('input'); if (!i || i.disabled || VIEW) return; const st = parseFloat(t.dataset.sd), cur = parseFloat(i.value);
+  let v = Math.round(((isFinite(cur) ? cur : 0) + st) * 100) / 100; if (i.dataset.k === 'site.bearing') v = (v % 360 + 360) % 360;
+  if (i.min !== '' && v < +i.min) v = +i.min; if (i.max !== '' && v > +i.max) v = +i.max; i.value = String(v);
+  if (applyField(i.dataset.k, i)) { drawViews(); drawChrome(); save(); }
+}
 const Sel = (label, k, v, opts) => '<label class="f"><span>' + label + '</span><select id="' + fid(k) + '" data-k="' + k + '">' + opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(o[0]) === String(v) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select></label>';
 const TXT = 'type="text" autocomplete="off"';
 /* beta 4.1: a small picture beside the words of a button, so that an item is known at a glance */
-const ICON = {"map":"M3 5l5-2 4 2 5-2v12l-5 2-4-2-5 2zM8 3v12M12 5v12","t3":"M10 2L3 18M10 2l7 16M5.2 13h9.6M7 9h6M5.2 13L13 9M14.8 13L7 9","t4":"M7 2L4 18M13 2l3 16M7 2h6M5.9 8h8.2M5 13h10M5.9 8l9.1 5M14.1 8L5 13","guy":"M10 2v16M10 4L3 18M10 4l7 14M8 18h4","mono":"M9 18l.5-16h1l.5 16zM6 5h8M7 8h6","tad":"M10 18V8M7.5 8V4.5a2.5 2.5 0 015 0V8zM7 18h6","palm":"M10 18V8M10 8C8 4 4 4 3 6M10 8c2-4 6-4 7-2M10 8C7 6 4 8 4 11M10 8c3-2 6 0 6 3","ezm":"M10 18V3M7 3h6M7 6h6M6 18h8","rtp":"M3 18h14M3 14h14v4M10 14V3M8 5h4","rtt":"M3 18h14M3 14h14v4M10 3l-3 11M10 3l3 11M8.4 9h3.2","cow":"M2 14h13v-3H2zM15 13h3M5 17a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM11 17a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM8 11V2M6 4h4","pad":"M2 12l8-4 8 4-8 4zM2 12v2l8 4 8-4v-2","odc":"M5 3h10v14H5zM10 3v14M8.5 9v2M11.5 9v2","cabin":"M3 8l7-5 7 5v9H3zM8 17v-5h4v5","gen":"M3 6h14v10H3zM6 16v2M14 16v2M6 11l2-2 2 4 2-4 2 2","tank":"M6 6h8a4 4 0 010 8H6a4 4 0 010-8zM7 14v3M13 14v3","box":"M3 7l7-3 7 3v7l-7 3-7-3zM3 7l7 3 7-3M10 10v7","epole":"M10 18V2M5 5h10M7 5v2M13 5v2","hh":"M3 3h14v14H3zM7 7v6M7 10h6M13 7v6","rpole":"M8 18V2M8 4h6v9M12 11l2 2 2-2","odf":"M2 6h16v8H2zM5 10h.01M8 10h.01M11 10h.01M14 10h.01","clo":"M7 3h6v10a3 3 0 01-6 0zM7 6h6M9 16v2M11 16v2","sbox":"M3 3h14v14H3zM12.5 7.5c-3-1.5-5 .5-2.5 2.5s.5 4-2.5 2.5","exit":"M4 18V9a5 5 0 015-5h7M13 2l3 2-3 2","enc":"M2 6h16v8H2zM6 10a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0M11 10a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0","rack":"M5 2h10v16H5zM5 6h10M5 10h10M5 14h10","runit":"M2 7h16v6H2zM5 10h4M14 10h.01","port":"M3 3h14v14H3zM10 13a3 3 0 100-6 3 3 0 000 6z","ac":"M2 5h16v7H2zM5 9h10M6 15v2M10 15v2M14 15v2","ladder":"M5 2v16M15 2v16M5 5h10M5 9h10M5 13h10M5 17h10","conduit":"M2 8h16M2 12h16M2 8v4M18 8v4","encase":"M2 5h16v10H2zM2 9h16M2 11h16","trench":"M2 6h4v8h8V6h4M4 3l2 2M9 3l2 2M14 3l2 2","part":"M2 9h16v2H2z","gate":"M3 17V5M17 17V5M3 7h6v9H3zM11 7h6v9h-6z","door":"M5 17V3h10v14M12 10h.01","eye":"M1.5 10S5 4 10 4s8.5 6 8.5 6-3.5 6-8.5 6S1.5 10 1.5 10zM10 12.6a2.6 2.6 0 100-5.2 2.6 2.6 0 000 5.2z","eyeoff":"M1.5 10S5 4 10 4s8.5 6 8.5 6-3.5 6-8.5 6S1.5 10 1.5 10zM10 12.6a2.6 2.6 0 100-5.2 2.6 2.6 0 000 5.2zM3 17L17 3","cam":"M2 6h4l1.5-2h5L14 6h4v10H2zM10 14a3 3 0 100-6 3 3 0 000 6z","img":"M2 4h16v12H2zM2 13l4-4 4 4 3-3 5 5M13.5 8a1 1 0 100-2 1 1 0 000 2z"};
+const ICON = {"dnap":"M6 2v16M9 5h8v9H9zM11 8h4M11 11h4M6 7h3M6 12h3","map":"M3 5l5-2 4 2 5-2v12l-5 2-4-2-5 2zM8 3v12M12 5v12","t3":"M10 2L3 18M10 2l7 16M5.2 13h9.6M7 9h6M5.2 13L13 9M14.8 13L7 9","t4":"M7 2L4 18M13 2l3 16M7 2h6M5.9 8h8.2M5 13h10M5.9 8l9.1 5M14.1 8L5 13","guy":"M10 2v16M10 4L3 18M10 4l7 14M8 18h4","mono":"M9 18l.5-16h1l.5 16zM6 5h8M7 8h6","tad":"M10 18V8M7.5 8V4.5a2.5 2.5 0 015 0V8zM7 18h6","palm":"M10 18V8M10 8C8 4 4 4 3 6M10 8c2-4 6-4 7-2M10 8C7 6 4 8 4 11M10 8c3-2 6 0 6 3","ezm":"M10 18V3M7 3h6M7 6h6M6 18h8","rtp":"M3 18h14M3 14h14v4M10 14V3M8 5h4","rtt":"M3 18h14M3 14h14v4M10 3l-3 11M10 3l3 11M8.4 9h3.2","cow":"M2 14h13v-3H2zM15 13h3M5 17a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM11 17a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM8 11V2M6 4h4","pad":"M2 12l8-4 8 4-8 4zM2 12v2l8 4 8-4v-2","odc":"M5 3h10v14H5zM10 3v14M8.5 9v2M11.5 9v2","cabin":"M3 8l7-5 7 5v9H3zM8 17v-5h4v5","gen":"M3 6h14v10H3zM6 16v2M14 16v2M6 11l2-2 2 4 2-4 2 2","tank":"M6 6h8a4 4 0 010 8H6a4 4 0 010-8zM7 14v3M13 14v3","box":"M3 7l7-3 7 3v7l-7 3-7-3zM3 7l7 3 7-3M10 10v7","epole":"M10 18V2M5 5h10M7 5v2M13 5v2","hh":"M3 3h14v14H3zM7 7v6M7 10h6M13 7v6","rpole":"M8 18V2M8 4h6v9M12 11l2 2 2-2","odf":"M2 6h16v8H2zM5 10h.01M8 10h.01M11 10h.01M14 10h.01","clo":"M7 3h6v10a3 3 0 01-6 0zM7 6h6M9 16v2M11 16v2","sbox":"M3 3h14v14H3zM12.5 7.5c-3-1.5-5 .5-2.5 2.5s.5 4-2.5 2.5","exit":"M4 18V9a5 5 0 015-5h7M13 2l3 2-3 2","enc":"M2 6h16v8H2zM6 10a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0M11 10a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0","rack":"M5 2h10v16H5zM5 6h10M5 10h10M5 14h10","runit":"M2 7h16v6H2zM5 10h4M14 10h.01","port":"M3 3h14v14H3zM10 13a3 3 0 100-6 3 3 0 000 6z","ac":"M2 5h16v7H2zM5 9h10M6 15v2M10 15v2M14 15v2","ladder":"M5 2v16M15 2v16M5 5h10M5 9h10M5 13h10M5 17h10","conduit":"M2 8h16M2 12h16M2 8v4M18 8v4","encase":"M2 5h16v10H2zM2 9h16M2 11h16","trench":"M2 6h4v8h8V6h4M4 3l2 2M9 3l2 2M14 3l2 2","part":"M2 9h16v2H2z","gate":"M3 17V5M17 17V5M3 7h6v9H3zM11 7h6v9h-6z","door":"M5 17V3h10v14M12 10h.01","eye":"M1.5 10S5 4 10 4s8.5 6 8.5 6-3.5 6-8.5 6S1.5 10 1.5 10zM10 12.6a2.6 2.6 0 100-5.2 2.6 2.6 0 000 5.2z","eyeoff":"M1.5 10S5 4 10 4s8.5 6 8.5 6-3.5 6-8.5 6S1.5 10 1.5 10zM10 12.6a2.6 2.6 0 100-5.2 2.6 2.6 0 000 5.2zM3 17L17 3","cam":"M2 6h4l1.5-2h5L14 6h4v10H2zM10 14a3 3 0 100-6 3 3 0 000 6z","img":"M2 4h16v12H2zM2 13l4-4 4 4 3-3 5 5M13.5 8a1 1 0 100-2 1 1 0 000 2z"};
 const ico = k => ICON[k] ? '<svg class="pi" viewBox="0 0 20 20" aria-hidden="true"><path d="' + ICON[k] + '"/></svg>' : '';
-Object.assign(ICON, { exp: 'M10 3v9M6.5 8.5L10 12l3.5-3.5M4 14v3h12v-3', doc: 'M5 2h7l4 4v12H5zM12 2v4h4M7.5 11h5M7.5 14h5', dxfi: 'M3 17L17 3v14zM11 17v-2M14 17v-2M8 17v-2', list: 'M7 5h10M7 10h10M7 15h10M3.5 5h.01M3.5 10h.01M3.5 15h.01', tbl: 'M3 4h14v12H3zM3 8h14M3 12h14M8 4v12', back: 'M12 4l-6 6 6 6' });      /* beta 4.2 (19:25) */
+Object.assign(ICON, { turn: 'M15.6 6.4A6.4 6.4 0 1 0 16.4 12M16.6 2.8v4.1h-4.1', copy: 'M7.5 7.5h9v9h-9zM4 12.5V3.5h9', inside: 'M3 17.5h14M5 17.5V2.5h7.5v15M12.5 3.5l3.5 1.5v11l-3.5 1.5M10 10.2h.01', pen: 'M3.5 16.5l1-4 9-9 3 3-9 9zM11.5 5.5l3 3', fitb: 'M3 7V3h4M13 3h4v4M17 13v4h-4M7 17H3v-4M7 8h6v4H7z', exp: 'M10 3v9M6.5 8.5L10 12l3.5-3.5M4 14v3h12v-3', doc: 'M5 2h7l4 4v12H5zM12 2v4h4M7.5 11h5M7.5 14h5', dxfi: 'M3 17L17 3v14zM11 17v-2M14 17v-2M8 17v-2', list: 'M7 5h10M7 10h10M7 15h10M3.5 5h.01M3.5 10h.01M3.5 15h.01', tbl: 'M3 4h14v12H3zM3 8h14M3 12h14M8 4v12', back: 'M12 4l-6 6 6 6' });      /* beta 4.2 (19:25) */
 let expOpen = false;      /* the small menu of the Export button */
 let namesOff = false;      /* (22:24) the Names button of the toolbar: every name hidden on the screen. The sheets and the export keep their names. */
 const labOn = key => !((S.lab || {})[key] || {}).off;
@@ -363,8 +389,10 @@ function gateFree(w0) {
   }
   return { side: 'S', off: Math.max(0, snap(S.site.L / 2 - Math.min(w0, S.site.L) / 2)), w: Math.min(w0, S.site.L) };
 }
+/* (14 Nov 16:05) a button of an item's first line: an icon with one short word under it, as the row of tools has */
+const IB = (a, icon, word, title, cls, extra) => '<button type="button" class="ib' + (cls ? ' ' + cls : '') + '" data-a="' + a + '"' + (extra || '') + ' title="' + esc(title) + '" aria-label="' + esc(title) + '">' + ico(icon) + '<span>' + word + '</span></button>';
 function gateBox(i, q) { const hz = q.side === 'S' || q.side === 'N', door = num(q.w, 0) <= 1.6;
-  return '<div class="insp"><div class="insp-h"><b>' + (door ? 'Door' : 'Gate') + ' ' + (i + 1) + '</b><button class="b s" data-a="gate-add" data-w="' + (door ? 0.9 : 4) + '">Add another</button><button class="b s d" data-a="del">Delete</button></div><div class="row3">' + Sel('Side', 'gate.' + i + '.side', q.side, [['S', 'Bottom'], ['N', 'Top'], ['W', 'Left'], ['E', 'Right']]) + F('From ' + (hz ? 'left' : 'bottom') + ' (m)', 'gate.' + i + '.off', q.off) + F('Width (m)', 'gate.' + i + '.w', q.w) + '<span></span></div><p class="hint">Drag it along the fence on the plan, or move it with the arrow keys. Up to 1.6 m wide it is a door with one leaf; wider, a gate with two.</p></div>'; }
+  return '<div class="insp"><div class="insp-h"><b>' + (door ? 'Door' : 'Gate') + ' ' + (i + 1) + '</b><span class="ibs">' + IB('gate-add', 'plus', 'Add', door ? 'Add another door' : 'Add another gate', '', ' data-w="' + (door ? 0.9 : 4) + '"') + IB('del', 'bin', 'Delete', door ? 'Delete this door' : 'Delete this gate', 'd') + '</span></div><div class="row3">' + Sel('Side', 'gate.' + i + '.side', q.side, [['S', 'Bottom'], ['N', 'Top'], ['W', 'Left'], ['E', 'Right']]) + F('From ' + (hz ? 'left' : 'bottom') + ' (m)', 'gate.' + i + '.off', q.off) + F('Width (m)', 'gate.' + i + '.w', q.w) + '<span></span></div><p class="hint">Drag it along the fence on the plan, or move it with the arrow keys. Up to 1.6 m wide it is a door with one leaf; wider, a gate with two.</p></div>'; }
 function tabSite() {
   const s = S.site, b = num(s.bearing, 0); let h = '';
   if (S.sample) h += '<div class="note">This is the made-up sample site, opened from a sketch file. The sheets say so.</div>';
@@ -374,8 +402,8 @@ function tabSite() {
   h += '<div class="row">' + F('Latitude (decimal °)', 'site.lat', s.lat, LK('type="number" step="any" inputmode="decimal" placeholder="6.198889"', 'lat')) + F('Longitude (decimal °)', 'site.lon', s.lon, LK('type="number" step="any" inputmode="decimal" placeholder="125.182306"', 'lon')) + '</div>';
   if (APP.lock) h += '<p class="hint">The name, the ID and the coordinates come from the site pin of the project. To change them, change the pin.</p>';
   else if (APP.gps && !S.room && !VIEW) h += '<div class="btns"><button class="b s" data-a="gps">Use this phone\'s GPS position</button></div>';
-  h += '<div class="row">' + Sel('Coordinates taken at', 'site.anchor', s.anchor, [['tower', 'Tower centre'], ['sw', 'Bottom-left corner']]) + F('Top side faces (° from true north)', 'site.bearing', s.bearing, 'type="number" step="1" min="0" max="360" inputmode="decimal"') + '</div>';
-  if (HOST && HOST.mapPicture && !S.room && !VIEW) h += '<div class="btns"><button class="b s" data-a="map-place">' + ico('map') + 'Set it on the map…</button></div><p class="hint">The box of the site is laid on the map. Move it onto the site and turn it until its sides lie on the fence: that gives true north without a compass.</p>';
+  h += '<div class="row">' + Sel('Coordinates taken at', 'site.anchor', s.anchor, [['tower', 'Tower centre'], ['sw', 'Bottom-left corner']].concat(s.anchor === 'pt' ? [['pt', 'Site pin, set on the map (' + f1(num(s.ax, 0)) + ', ' + f1(num(s.ay, 0)) + ' m)']] : [])) + F('Top side faces (° from true north)', 'site.bearing', s.bearing, 'type="number" step="1" min="0" max="360" inputmode="decimal"') + '</div>';
+  if (HOST && HOST.mapPicture && !S.room && !VIEW) h += '<div class="btns"><button class="b s" data-a="map-place">' + ico('map') + 'Set it on the map…</button></div><p class="hint">The box of the site is laid on the map. Drag it onto the site, turn it by its round handle until its sides lie on the fence (that gives true north without a compass), and pull its sides by the white squares to set its width and depth. Two fingers zoom the map.' + (APP.lock ? ' The site pin stays where the project has it: the box moves round it, and the plan keeps where the pin is in the site.' : '') + '</p>';
   h += '<p class="hint">Stand inside the site and face the side that is at the top of your sketch. Type the compass reading. 0 means the top of the sketch is north' + (b ? '; now it is ' + f1(b) + '°' : '') + '.</p>';
   h += '<h3>Perimeter</h3><div class="one">' + Sel('Site type', 'site.kind', s.kind, [['fenced', 'Fenced ground site'], ['unfenced', 'Unfenced ground site'], ['rooftop', 'Rooftop']]) + '</div>';
   h += '<div class="row">' + F('Width, left to right (m)', 'site.L', s.L) + F('Depth, bottom to top (m)', 'site.W', s.W) + '</div>';
@@ -388,6 +416,7 @@ function tabSite() {
     S.gates.forEach((q, i) => { const hz = q.side === 'S' || q.side === 'N'; h += '<div class="row3">' + Sel('Side', 'gate.' + i + '.side', q.side, [['S', 'Bottom'], ['N', 'Top'], ['W', 'Left'], ['E', 'Right']]) + F('From ' + (hz ? 'left' : 'bottom') + ' (m)', 'gate.' + i + '.off', q.off) + F('Width (m)', 'gate.' + i + '.w', q.w) + '<button class="b s ic d" data-a="gate-del" data-i="' + i + '" aria-label="Remove gate">×</button></div>'; });
     h += '<div class="btns"><button class="b s" data-a="gate-add">Add a gate</button></div>';
   }
+  h += '<details class="fold sfold"' + (siteMore ? ' open' : '') + '><summary>' + ico('more') + 'More: drawing, title block, logos, names</summary>';      /* (14 Nov 16:05) Site details shorter */
   h += '<h3>Drawing</h3><div class="row">' + F('Show towers up to (m)', 'site.towerShow', s.towerShow, 'type="number" step="1" min="3" inputmode="decimal" placeholder="lower half"') + '<span></span></div>';
   h += '<p class="hint">Towers are drawn at their real size. One higher than 15 m is drawn from the ground up to half its height, or up to the height you type above, and its label says how much is shown.</p>';
   h += '<div class="row">' + F('Project (title block and cover)', 'site.link', s.link, TXT + ' placeholder="' + esc(APP.link || 'for example MW TO FOC PROJECT') + '"') + (APP.org ? '<label class="f"><span>Company (title block)</span><input value="' + esc(APP.org) + '" disabled></label>' : F('Company (title block)', 'site.org', s.org, TXT)) + '</div>';
@@ -405,10 +434,10 @@ function tabSite() {
   h += '<div class="eyes">' + NAMES.map(q => '<button class="eye" id="f_site_nm_' + q[0] + '" data-a="nm" data-k="' + q[0] + '" aria-pressed="' + (nameOn(S, q[0]) ? 'true' : 'false') + '">' + ico(nameOn(S, q[0]) ? 'eye' : 'eyeoff') + esc(q[1]) + '</button>').join('') + '</div>';
   { const hid = Object.keys(S.lab || {}).filter(k => S.lab[k] && S.lab[k].off); if (hid.length) h += '<p class="hint">Names you hid one by one: tap to show again.</p><div class="eyes">' + hid.map(k => '<button class="eye" data-a="lab-eye" data-key="' + esc(k) + '" aria-pressed="false">' + ico('eyeoff') + esc((labInfo(k).cur || labInfo(k).def || labInfo(k).name || k)) + '</button>').join('') + '</div>'; }
   h += '<p class="hint">The plan is about the fiber, so the names of the tower site itself are left out unless you turn them on. The items are still drawn. The eye beside the label of an item hides that one name. The site name and ID are written beside the top of the tower, in bold and larger than the other names; tap them to drag or retype.</p>';
-  return h;
+  return h + '</details>';
 }
 /* what a rack or cabinet holds, in words */
-const rackSays = h => { const K = rackOf(h), n = rackItems(S, h).length; return elLabel(S, h) + ', ' + K.n + ' rack units' + (n ? ', ' + n + ' item' + (n === 1 ? '' : 's') + ' in it' : ', empty'); };
+const rackSays = h => { const K = rackOf(h), n = rackItems(S, h).length; return elLabel(S, h) + ', ' + (bayN(h) > 1 ? bayN(h) + ' racks of ' + K.n + ' rack units' : K.n + ' rack units') + (n ? ', ' + n + ' item' + (n === 1 ? '' : 's') + ' in it' : ', empty'); };
 /* what the porthole of the room lines up with outside */
 function portHint(e) {
   const C = ctxNow(), M = C ? C.marks : [], mk = M.find(q => Math.hypot(q.x - e.x, q.y - e.y) < 0.12), what = q => q.kind === 'ladder' ? 'cable ladder' : 'cable';
@@ -420,7 +449,8 @@ function portHint(e) {
 }
 /* what the app draws by the OSP standard for this element */
 function stdHint(e) {
-  const t = e.t === 'rpole' ? 'By the standard: the pole stands ' + f2(STD.poleUp) + ' m above the ground and ' + f1(STD.poleIn) + ' m in it, in a concrete encasement (' + f2(STD.encUp) + ' m above ground, ' + f2(STD.encDn) + ' m below). The G.I. pipe comes up through the encasement and lies against the pole, held by stainless straps; above it the U-guard up to the cable. The closure stands above the loop holder. The pipe stands on the side where the trench, conduit or cable meets the pole; to move it, drag its handle on the plan, or tap Turn over the drawing.'
+  const t = e.t === 'dnap' ? 'The ODF on a pole, for a small cell or an easy macro. Drop it by a pole: it goes onto that side of the pole and moves with it. A UG fiber that ends on the pole goes up the riser into its bottom; an AE fiber that ends there comes down the pole into it. Its size, its box and its height are a start: type the real ones.' + (napPole(S, e) ? '' : ' <b>It is not on a pole yet.</b>')
+    : e.t === 'rpole' ? 'By the standard: the pole stands ' + f2(STD.poleUp) + ' m above the ground and ' + f1(STD.poleIn) + ' m in it, in a concrete encasement (' + f2(STD.encUp) + ' m above ground, ' + f2(STD.encDn) + ' m below). The G.I. pipe comes up through the encasement and lies against the pole, held by stainless straps; above it the U-guard up to the cable. The closure stands above the loop holder. The pipe stands on the side where the trench, conduit or cable meets the pole; to move it, drag its handle on the plan, or tap Turn over the drawing.'
     : e.t === 'clo' ? 'On a pole it stands upright, ' + f0(STD.gap * 1000) + ' mm above the loop holder. The loop is ' + f0(STD.loopD * 1000) + ' mm across and sits ' + f0(STD.gap * 1000) + ' mm above the wire. Give the pole a loop in the Cable form (the FOC icon).'
     : e.t === 'exit' ? 'A concrete block with the two ' + PVC_MM + ' mm pipes that come up in it. The cable is in one of them; the spare one is closed with a blank duct plug.'
     : e.t === 'sbox' ? (SBOX[e.ty] ? 'Type ' + e.ty + ': ' + SBOX[e.ty].inn + ' mm inside. Drawn at the size of its frame, ' + f2(SBOX[e.ty].w) + ' x ' + f2(SBOX[e.ty].d) + ' m, and ' + f2(SBOX[e.ty].dp) + ' m deep.' : 'Pick a type of the standard (A1, A2, B1, B2) and the box takes its size and depth.') : '';
@@ -430,32 +460,36 @@ function inspector(e) {
   const T = TYPES[e.t], b = polyBox(elPoly(e)), L = S.site.L, W = S.site.W, sq = ['t3', 't4', 'guy', 'rtt'].includes(e.t), sd = S.room ? 'wall' : 'side', host = rackHost(S, e);
   if (host) {                                             /* an item in a rack: where it is in the rack is what matters */
     const K = rackOf(host), q = rackSlots(S, host).find(k => k.e === e) || { u: 1, ru: units(e) };
-    let h = '<div class="insp"><div class="insp-h"><b>' + esc(T.n) + '</b><button class="b s" data-a="dup">Copy</button><button class="b s d" data-a="del">Delete</button></div>';
-    if (host.t === 'odc' && !focus && !S.room) h += '<div class="btns"><button class="b p" data-a="focus-in" data-id="' + host.id + '">Open the rack of ' + esc(elLabel(S, host)) + '</button></div>';
+    let h = '<div class="insp"><div class="insp-h"><b>' + esc(T.n) + '</b><span class="ibs">' + (host.t === 'odc' && !focus && !S.room ? IB('focus-in', 'rack', 'Rack', 'Open the rack of ' + elLabel(S, host), 'pri', ' data-id="' + host.id + '"') : '') + IB('dup', 'copy', 'Copy', 'Copy it') + IB('del', 'bin', 'Delete', 'Delete it', 'd') + '</span></div>';
     h += '<div class="row">' + '<div class="lbleye">' + F('Label on the drawing', 'el.name', e.name, TXT + ' placeholder="' + esc((T.cn || T.s).toUpperCase()) + '"') + eyeBtn(e.id) + '</div>' + Sel('Status', 'el.st', e.st, [['E', 'Existing'], ['P', 'Proposed']]) + '</div>';
     if (e.t === 'odf') h += '<div class="row">' + F('Size (fibres)', 'el.size', e.size, TXT) + '<span></span></div>';
+    if (bayN(host) > 1) h += '<div class="row">' + Sel('In rack', 'el.bay', String(bayOf(host, e)), Array.from({ length: bayN(host) }, (_, k) => [String(k), 'Rack ' + (k + 1)])) + '<span></span></div>';      /* (14 Nov 17:00) */
     /* (22:24) the rack units are folded away: an ODF takes the height of its size by itself, and it is dragged up or down in the opened cabinet */
     h += '<details class="fold rk"' + (rackOpen ? ' open' : '') + '><summary>' + ico('more') + 'Rack units · ' + uText(q) + '</summary><div class="row">' + F('Rack unit, from the bottom', 'el.u', q.u, 'type="number" step="1" min="1" max="' + K.n + '" inputmode="numeric"') + F('Height (rack units)' + (e.t === 'odf' && !ruTyped(e) ? ' · by its size' : ''), 'el.ru', q.ru, 'type="number" step="1" min="1" max="30" inputmode="numeric"') + '</div></details>';
-    return h + '<p class="hint">In ' + esc(rackSays(host)) + '. It takes ' + uText(q) + '. In the isometric, tap it and drag it up or down: it snaps to the free units.' + (focus ? '' : ' Drag it on the plan to take it out or to put it in another rack.') + '</p></div>';
+    return h + '<p class="hint">In ' + esc(rackSays(host)) + '. It takes ' + uText(q) + (bayN(host) > 1 ? ' of rack ' + (q.bay + 1) : '') + '. In the isometric, tap it and drag it up or down: it snaps to the free units.' + (focus ? '' : ' Drag it on the plan to take it out or to put it in another rack.') + '</p></div>';
   }
-  let h = '<div class="insp"><div class="insp-h"><b>' + esc(T.n) + '</b><button class="b s" data-a="rot">Turn 90°</button><button class="b s" data-a="dup">Copy</button><button class="b s d" data-a="del">Delete</button></div>';
-  if (e.t === 'cabin' && !S.room) { const I = e.inside, n = I ? I.els.filter(q => q.t !== 'port' && q.t !== 'ac').length : 0; h += '<div class="btns"><button class="b p" data-a="room-in">Open the inside</button></div><p class="hint">' + (n ? 'Inside: ' + n + ' item' + (n === 1 ? '' : 's') + (routeGeom(I).sum.ugt > 0.05 ? ', ' + f1(routeGeom(I).sum.ugt) + ' m of cable' : '') + '. ' : '') + 'Sketch the floor of the cabin: racks, the ODF at its rack units, the porthole and the indoor cable ladder. The app draws the inside view and puts it on the Details sheet. On the site plan and in the isometric the racks and the ODF show dashed, as seen through the cabin.</p><p class="hint"><b>Porthole:</b> the round blue handle on the wall of the cabin. Drag it along the walls; it snaps to the end of a cable ladder or of the UG fiber. A cable ladder drawn to the cabin stops at its wall, and what is sketched inside shows in grey.</p>'; }
+  let h = '<div class="insp"><div class="insp-h"><b>' + esc(T.n) + '</b><span class="ibs">' + (e.t === 'odc' && !S.room ? IB('focus-in', 'rack', 'Rack', 'Open the rack of the cabinet', 'pri') : '') + (e.t === 'cabin' && !S.room ? IB('room-in', 'inside', 'Inside', 'Open the inside of the cabin', 'pri') : '')
+    + IB('rot', 'turn', 'Turn', 'Turn it 90°') + IB('dup', 'copy', 'Copy', 'Copy it') + IB('del', 'bin', 'Delete', 'Delete it', 'd') + '</span></div>';
+  if (e.t === 'cabin' && !S.room) { const I = e.inside, n = I ? I.els.filter(q => q.t !== 'port' && q.t !== 'ac').length : 0; h += '<p class="hint">' + (n ? 'Inside: ' + n + ' item' + (n === 1 ? '' : 's') + (routeGeom(I).sum.ugt > 0.05 ? ', ' + f1(routeGeom(I).sum.ugt) + ' m of cable' : '') + '. ' : '') + '<b>Inside</b>, at the top, opens the floor of the cabin to sketch: racks, the ODF at its rack units, the porthole and the indoor cable ladder. The app draws the inside view and puts it on the Details sheet. On the site plan and in the isometric the racks and the ODF show dashed, as seen through the cabin.</p><p class="hint"><b>Porthole:</b> the round blue handle on the wall of the cabin. Drag it along the walls; it snaps to the end of a cable ladder or of the UG fiber. A cable ladder drawn to the cabin stops at its wall, and what is sketched inside shows in grey.</p>'; }
   if (e.t === 'cabin' && !S.room) h += cabinParts(e);      /* its doors and aircon units */
-  if (e.t === 'odc' && !S.room) { const sz = odcSize(e); h += '<div class="one">' + Sel('Size of the cabinet', 'el.osize', sz, ODC_SIZES.map(q => [q[0], q[1] + ' · ' + f2(q[2]) + ' × ' + f2(q[3]) + ' × ' + f2(q[4]) + ' m']).concat(sz ? [] : [['', 'Own size: the width, depth and height below']])) + '</div>'; }      /* beta 4.2 */
-  if (e.t === 'odc' && !S.room) h += '<div class="btns"><button class="b p" data-a="focus-in">Open the rack</button></div><p class="hint">' + esc(rackSays(e)) + '. Open it to see the cabinet with its door open and to set the rack units of its ODF. A cabinet that holds something goes on the Details sheet.</p>';
+  if (e.t === 'odc' && !S.room) h += '<div class="one">' + Sel('Racks inside', 'el.bays', String(bayN(e)), [['1', 'One rack'], ['2', 'Two racks, side by side'], ['3', 'Three racks, side by side']]) + '</div>';      /* (14 Nov 17:00) */
+  if (e.t === 'odc' && !S.room) { const sz = odcSize(e); h += '<div class="one">' + Sel(bayN(e) > 1 ? 'Size of the cabinet, ' + bayN(e) + ' racks' : 'Size of the cabinet', 'el.osize', sz, ODC_SIZES.map(q => [q[0], q[1] + ' · ' + f2(q[2] * bayN(e)) + ' × ' + f2(q[3]) + ' × ' + f2(q[4]) + ' m']).concat(sz ? [] : [['', 'Own size: the width, depth and height below']])) + '</div>'; }      /* beta 4.2 */
+  if (e.t === 'odc' && !S.room) h += '<p class="hint">' + esc(rackSays(e)) + '. <b>Rack</b>, at the top, opens it: the cabinet with its door open, to set the rack units of its ODF. A cabinet that holds something goes on the Details sheet.</p>';
   if (e.t === 'rack') h += '<p class="hint">' + esc(rackSays(e)) + '. Its front is the side with the double line. Add an ODF or rack equipment: it goes into a rack by itself.</p>';
   h += '<div class="row">' + '<div class="lbleye">' + F('Label on the drawing', 'el.name', e.name, TXT + ' placeholder="' + esc(elLabel(S, Object.assign({}, e, { name: '' }))) + '"') + eyeBtn(e.id) + '</div>' + Sel('Status', 'el.st', e.st, [['E', 'Existing'], ['P', 'Proposed']]) + '</div>';
   h += '<div class="row">' + F('From left ' + sd + ' (m)', 'el.gl', f2(b[0])) + F('From right ' + sd + ' (m)', 'el.gr', f2(L - b[2])) + '</div><div class="row">' + F('From bottom ' + sd + ' (m)', 'el.gb', f2(b[1])) + F('From top ' + sd + ' (m)', 'el.gt', f2(W - b[3])) + '</div>';
   h += '<div class="row">' + (T.rd ? F('Diameter (m)', 'el.w', e.w) : sq ? F(e.t === 'guy' ? 'Mast face width (m)' : 'Base width, leg to leg (m)', 'el.w', e.w) : F('Width (m)', 'el.w', e.w) + (e.t === 'port' ? '' : F('Depth (m)', 'el.d', e.d)));
   h += T.g === 'tower' ? F('Tower height (m)', 'el.th', e.th) : F('Height (m)', 'el.h', e.h); const stairsH = e.t === 'pad' && !S.room ? padStairs(e) : '';      /* beta 4.2 */
+  if (e.t === 'pad' && !S.room) h += '<div class="full">' + Sel('Exit pipe built in', 'el.xp', String(clamp(Math.round(num(e.xp, 0)), 0, 2)), [['0', 'None'], ['1', 'One 114.3 mm pipe'], ['2', 'Two 114.3 mm pipes, one spare']]) + '</div>';      /* (14 Nov 17:00) the whole width, so that its words show on a phone */
   if (e.t === 'guy') h += F('Guy anchors, from mast (m)', 'el.ar', e.ar);
   if (hasLad(e)) h += Sel('Ladder on the tower', 'el.lad', e.lad == null || e.lad === '' ? 'auto' : String(e.lad), [['auto', 'Where the cable ladder arrives']].concat(towerHull(e).map((q, i) => [String(i), 'Side ' + (i + 1)]), [['none', 'No ladder']]));
   if (e.t === 'odf') h += F('Size', 'el.size', e.size, TXT);
+  if (e.t === 'dnap') h += F('Size', 'el.size', e.size, TXT + ' placeholder="for example 12C"');      /* (14 Nov 17:00) */
   if (e.t === 'sbox') h += Sel('Type', 'el.ty', e.ty || '', [['', 'Own size']].concat(Object.keys(SBOX).map(k => [k, k + ': ' + (k[0] === 'A' ? 'vertical' : 'horizontal') + ', conduit ' + f0(SBOX[k].cd * 1000) + ' mm deep'])));
   if (e.dp != null) h += F('Depth below ground (m)', 'el.dp', e.dp);
-  if (e.z != null) h += F(e.t === 'port' ? 'Its middle above the floor (m)' : e.t === 'ac' ? 'Its bottom above the floor (m)' : 'Height above ground (m)', 'el.z', e.z);
+  if (e.z != null) h += F(e.t === 'port' ? 'Its middle above the floor (m)' : e.t === 'ac' ? 'Its bottom above the floor (m)' : e.t === 'dnap' ? 'Its bottom above the ground (m)' : 'Height above ground (m)', 'el.z', e.z);
   if (!T.rd && e.t !== 'port' && e.t !== 'ac') h += F('Turned (°)', 'el.rot', e.rot, 'type="number" step="5" inputmode="decimal"');
-  return h + '</div>' + stairsH + stdHint(e) + (e.t === 'ac' ? '<p class="hint">The outdoor unit stands outside the wall nearest to where you drag it. The cabin on the site plan shows it on the same wall. Delete it to have none.</p>' : '') + (hasLad(e) ? '<p class="hint">The tower has one ladder. A cable ladder that reaches the tower joins it. To put it somewhere else, pick a side here, or drag the green handle at its foot in the isometric.</p>' : '') + (e.t === 'port' ? portHint(e) : '') + (inRack(e) ? '<p class="hint">It is not in a rack. Drag it onto a rack' + (S.room ? '' : ' or an outdoor cabinet') + ' on the plan and it goes in.</p>' : '') + '</div>';
+  return h + '</div>' + stairsH + (e.t === 'pad' && !S.room ? '<p class="hint">' + (num(e.xp, 0) > 0 ? '<b>Exit pipe built in:</b> a UG cable that comes to the cabinet on this pad stays in the ground and comes up through the pipe in the pad, into the base of the cabinet. No riser pipe is needed there.' : 'Has the pad its own exit pipe? Set <b>Exit pipe built in</b> and the UG cable comes up through the pad.') + '</p>' : '') + stdHint(e) + (e.t === 'ac' ? '<p class="hint">The outdoor unit stands outside the wall nearest to where you drag it. The cabin on the site plan shows it on the same wall. Delete it to have none.</p>' : '') + (hasLad(e) ? '<p class="hint">The tower has one ladder. A cable ladder that reaches the tower joins it. To put it somewhere else, pick a side here, or drag the green handle at its foot in the isometric.</p>' : '') + (e.t === 'port' ? portHint(e) : '') + (inRack(e) ? '<p class="hint">It is not in a rack. Drag it onto a rack' + (S.room ? '' : ' or an outdoor cabinet') + ' on the plan and it goes in.</p>' : '') + '</div>';
 }
 function tabEls(only) {
   const e = sel && sel.k === 'el' ? elById(sel.id) : null, ld = sel && sel.k === 'run' ? runById(sel.id) : null, gt = !S.room && sel && sel.k === 'gate' ? S.gates[sel.i] : null; let h = '';
@@ -463,7 +497,7 @@ function tabEls(only) {
   else if (gt) h += gateBox(sel.i, gt);
   else if (ld) {
     const K = RUNS[ld.kind];
-    h += '<div class="insp"><div class="insp-h"><b>' + esc(K.n) + '</b><button class="b s" data-a="run-more">Draw more</button><button class="b s d" data-a="del">Delete</button></div>';
+    h += '<div class="insp"><div class="insp-h"><b>' + esc(K.n) + '</b><span class="ibs">' + IB('run-more', 'pen', 'Draw', 'Draw more of it') + IB('del', 'bin', 'Delete', 'Delete it', 'd') + '</span></div>';
     h += '<div class="row">' + Sel('Kind', 'run.kind', ld.kind, (S.room ? ['ladder', 'part'] : Object.keys(RUNS).filter(k => !RUNS[k].room)).map(k => [k, RUNS[k].n])) + Sel('Status', 'run.st', ld.st, [['E', 'Existing'], ['P', 'Proposed']]) + '</div>';
     h += '<div class="row">' + '<div class="lbleye">' + F('Label on the drawing', 'run.name', ld.name, TXT + ' placeholder="' + esc(K.cap) + '"') + eyeBtn(ld.id) + '</div>' + F(ld.kind === 'conduit' ? 'Size of one pipe (m)' : ld.kind === 'part' ? 'Thickness (m)' : 'Width (m)', 'run.w', ld.w, 'type="number" step="0.01" inputmode="decimal"') + '</div>';
     if (ld.kind !== 'part') h += '<div class="row">' + (ld.kind === 'trench' ? F('Depth of the excavation (m)', 'run.dp', ld.dp == null ? UGD : ld.dp) + '<span></span>' : ld.kind === 'ladder' ? F(S.room ? 'Height above the floor (m)' : ladBase(S, ld) > 0.005 ? 'Height above the base pad (m)' : 'Height above ground (m)', 'run.z', ld.z) + '<span></span>' : F('Height above ground (m), 0 = buried', 'run.z', ld.z) + (buried(ld) ? F('Depth below ground (m)', 'run.dp', ld.dp == null ? UGD : ld.dp) : '<span></span>')) + '</div>';
@@ -491,7 +525,7 @@ function tabRoute() {
     h += '<div class="btns">' + (on ? '<button class="b p" data-a="route-done">' + ico('ok') + 'Done</button><button class="b" data-a="route-undo"' + (penStart || penN || has ? '' : ' disabled') + '>' + ico('undo') + 'Undo</button>' : '<button class="b p" data-a="route-pen">' + ico('foc') + (has ? 'Draw more' : many ? 'Draw cable ' + (cabN + 1) : 'Draw the FOC') + '</button>') + (has ? '<button class="b" data-a="route-new">' + ico('bin') + 'Start again</button>' : '') + (many ? '<button class="b d" data-a="cab-del">' + ico('bin') + 'Delete cable ' + (cabN + 1) + '</button>' : '') + '</div>';
     h += '<p class="hint"><b>One line for both fibers.</b> Start where the cable comes from, pass the riser pole and end on the ODF: drag along the way, or tap the points. The app takes in the poles, hand holes and exit conduits the line passes. <b>Auto:</b> what runs along a trench, a conduit or a cable ladder is underground (UG), from the riser pole on; what comes before is aerial (AE); with nothing drawn under it, all of it is aerial. <b>AE</b> or <b>UG</b> over the drawing: what you draw next is that cable, whatever it runs along. A right-click, or Undo last, takes the last piece off.</p>'; }
   for (const n of g.notes) h += '<div class="warn">' + esc(n) + '</div>';
-  for (const b of g.bare || []) h += '<div class="warn">The UG cable comes out of the ground ' + f1(b.at[0]) + ' m from the left and ' + f1(b.at[1]) + ' m from the bottom, and no exit conduit is drawn there. If there is one on site: Add, Exit conduit, and put it there.</div>';      /* (19:25: the app no longer makes one up) */
+  for (const b of g.bare || []) h += '<div class="warn">The UG cable comes out of the ground ' + f1(b.at[0]) + ' m from the left and ' + f1(b.at[1]) + ' m from the bottom, and no exit conduit is drawn there. If there is one on site: Add, Exit conduit, and put it there.' + (S.els.some(e => e.t === 'pad' && (inPoly(b.at, elPoly(e)) || elPoly(e).some((q, i, P) => distSeg(b.at, q, P[(i + 1) % P.length]) < 0.3))) ? ' If the base pad there has its exit pipe built in: pick the pad and set <b>Exit pipe built in</b>; the cable then comes up through the pad.' : '') + '</div>';      /* (19:25: the app no longer makes one up) */
   for (const w of g.warn) h += '<div class="warn">UG leg ' + (w.leg + 1) + ' runs through ' + esc(w.names.join(', ')) + '. Move a point or change the run.</div>';
   if (P.join && P.join.pole) h += '<div class="note">AE and UG meet on the riser pole. The closure stands on the pole above the loop holder, its cable ports ' + f1(P.join.z) + ' m above the ground' + (P.join.auto ? ' (the app drew it)' : '') + '. The UG cable comes up the G.I. pipe and the U-guard to it.</div>';
   for (const f of ['ae', 'ug']) {
@@ -611,13 +645,14 @@ function tabCable() {
 }
 /* one outdoor cabinet with its door open: its rack and what is mounted in it */
 function tabFocus() {
-  const c = elById(focus); if (!c) return ''; const K = rackOf(c), its = rackSlots(S, c).slice().sort((a, b) => b.u - a.u), e = sel && sel.k === 'el' ? elById(sel.id) : null, it = e ? its.find(q => q.e === e) : null;
-  let h = '<div class="note"><b>' + esc(elLabel(S, c)) + '</b> with its door open. The rack has ' + K.n + ' units, counted from the bottom.</div><div class="btns"><button class="b p" data-a="back">Back to the site</button></div>';
+  const c = elById(focus); if (!c) return ''; const K = rackOf(c), its = rackSlots(S, c).slice().sort((a, b) => (a.bay || 0) - (b.bay || 0) || b.u - a.u), e = sel && sel.k === 'el' ? elById(sel.id) : null, it = e ? its.find(q => q.e === e) : null;
+  let h = '<div class="note"><b>' + esc(elLabel(S, c)) + '</b> with its door open. ' + (bayN(c) > 1 ? 'It has ' + bayN(c) + ' racks side by side, each of ' + K.n + ' units counted from the bottom.' : 'The rack has ' + K.n + ' units, counted from the bottom.') + '</div><div class="btns"><button class="b p" data-a="back">Back to the site</button></div>';
   if (it) h += inspector(e);
-  h += '<h3>Add to the rack</h3><div class="pal"><button class="b s" data-a="add" data-t="odf">ODF</button><button class="b s" data-a="add" data-t="runit">Rack equipment</button></div>';
+  if (bayN(c) > 1) { h += '<h3>Add to a rack</h3>'; for (let k = 0; k < bayN(c); k++) h += '<div class="pal pk"><b class="palk">Rack ' + (k + 1) + '</b><button class="b s" data-a="add" data-t="odf" data-bay="' + k + '">ODF</button><button class="b s" data-a="add" data-t="runit" data-bay="' + k + '">Rack equipment</button></div>'; }      /* (14 Nov 17:00) */
+  else h += '<h3>Add to the rack</h3><div class="pal"><button class="b s" data-a="add" data-t="odf">ODF</button><button class="b s" data-a="add" data-t="runit">Rack equipment</button></div>';
   h += '<p class="hint">A new item takes the highest free place. Tap it on the drawing, then drag it up or down: it snaps to the free rack units, and its name on the side of the cabinet follows. <b>Turn</b> shows the cabinet from its other side.</p>';
   h += '<h3>In the rack (' + its.length + ')</h3>';
-  for (const q of its) h += '<button class="li" data-a="sel" data-kind="el" data-id="' + q.e.id + '"' + (q.e === e ? ' aria-current="true"' : '') + '><i class="dot ' + (q.e.st === 'P' ? 'P' : '') + '"></i>' + esc(q.e.name || TYPES[q.e.t].n) + '<span>' + uText(q) + '</span></button>';
+  for (const q of its) h += '<button class="li" data-a="sel" data-kind="el" data-id="' + q.e.id + '"' + (q.e === e ? ' aria-current="true"' : '') + '><i class="dot ' + (q.e.st === 'P' ? 'P' : '') + '"></i>' + esc(q.e.name || TYPES[q.e.t].n) + '<span>' + (bayN(c) > 1 ? 'Rack ' + (q.bay + 1) + ' · ' : '') + uText(q) + '</span></button>';
   if (!its.length) h += '<p class="hint">Nothing in the rack yet.</p>';
   const NUM2 = 'type="number" step="0.01" min="0.3" inputmode="decimal"';
   if (its.some(q => q.e.t === 'odf')) { const cb = c.cab || {}, pt = cabPort(S, c, routeGeom(S)), man = !pt.auto, wall = pt.f === 'L' || pt.f === 'R' || pt.f === 'K', np = Array.isArray(cb.path) ? cb.path.length : 0;
@@ -646,7 +681,7 @@ function labInfo(key) {
   if (/^len/.test(key)) return { name: 'Measured length', fixed: 1 };
   if (key === 'tid') { const si = S.site || {}; return { name: 'Site name and ID', cur: (S.lab.tid || {}).t || '', def: [si.name, si.id].map(v => String(v || '').trim().toUpperCase()).filter(Boolean).join(' / ') }; }
   const lp = /^loop(\d+)(~.+)?$/.exec(key), fm = /^(ae|ug)(~.+)?$/.exec(key), ckN = sfx => Math.max(0, cables(S).findIndex((q, i) => cableKey(S, i) === (sfx || ''))), rec = S.lab[key] || {}, def = fm ? focName(S, routeGeom(S), fm[1], ckN(fm[2])) : /^clo(~.+)?$/.test(key) ? 'PROPOSED CLOSURE' : /^exit/.test(key) ? 'PROPOSED RISER PIPE' : /^riser/.test(key) ? 'PROPOSED G.I. RISER PIPE' : /^ugd/.test(key) ? 'PROPOSED U-GUARD' : /^port/.test(key) ? 'PORTHOLE' : /^gate/.test(key) ? (S.room ? 'DOOR' : 'GATE') : lp ? 'LOOP HOLDER W/ ' + f2(num((RTc(ckN(lp[2])).ae.pts[+lp[1]] || {}).loop, 0)) + 'm LOOP' : '';
-  return { name: key === 'ae' ? 'AE fiber' : key === 'ug' ? 'UG fiber' : key === 'clo' ? 'Closure' : /^exit/.test(key) ? 'Exit conduit' : /^riser/.test(key) ? 'Riser pipe' : /^ugd/.test(key) ? 'U-guard' : /^port/.test(key) ? 'Porthole' : /^gate/.test(key) ? (S.room ? 'Door' : 'Gate') : lp ? 'Loop' : 'Label', cur: rec.t || '', def };
+  return { name: key === 'ae' ? 'AE fiber' : key === 'ug' ? 'UG fiber' : key === 'clo' ? 'Closure' : /^exit/.test(key) ? 'Exit conduit' : /^padx/.test(key) ? 'Exit pipe in base pad' : /^riser/.test(key) ? 'Riser pipe' : /^ugd/.test(key) ? 'U-guard' : /^port/.test(key) ? 'Porthole' : /^gate/.test(key) ? (S.room ? 'Door' : 'Gate') : lp ? 'Loop' : 'Label', cur: rec.t || '', def };
 }
 function labBox() {
   if (!sel || sel.k !== 'lab') return ''; const q = labInfo(sel.key), rec = S.lab[sel.key] || {}, moved = ['p', 'i0', 'i1', 'i2', 'i3'].some(v => Array.isArray(rec[v]));
@@ -655,8 +690,8 @@ function labBox() {
   else h += '<div class="one">' + F('Text on the drawing (empty = the usual name)', 'lab.t', q.cur, TXT + ' placeholder="' + esc(q.def) + '"') + '</div>';
   return h + '<p class="hint">Drag the label on the drawing to move it. It keeps its place next to its item when the item moves. A label you moved far from its item gets a leader line.</p></div>';
 }
-let rackOpen = false;      /* (22:24) whether the rack units of an item show in its form */
-panel.addEventListener('toggle', e => { const d = e.target; if (d && d.classList && d.classList.contains('rk')) rackOpen = d.open; }, true);
+let rackOpen = false, siteMore = false;      /* (22:24) whether the rack units of an item show in its form; (14 Nov 16:05) whether the rest of Site details is unfolded */
+panel.addEventListener('toggle', e => { const d = e.target; if (d && d.classList && d.classList.contains('rk')) rackOpen = d.open; if (d && d.classList && d.classList.contains('sfold')) siteMore = d.open; }, true);
 /* beta 4.2: the explaining texts of the panel are folded away, each behind a small "i" button: at the heading before it when there is one */
 const hintOpen = new Set();
 function quietHints() {
@@ -677,10 +712,18 @@ Object.assign(ICON, { ptr: 'M5 3l10 6.5-4.3 1.1 2.4 4.9-1.9.9-2.4-4.9L5 15z', fo
 const RUNW = { trench: 'Trench', conduit: 'Conduit', encase: 'Encased', ladder: 'Ladder', part: 'Wall' };
 function toolSel() { palOpen = false; if (mode === 'run') { action('run-done'); return; } if (mode === 'route') { action('route-done'); return; } mode = 'select'; placeT = null; placing = null; draft = []; live = null; refresh(true); }
 /* an item of the tray set down where the plan is tapped. An ODF or rack equipment goes into the cabinet that is tapped; tapped elsewhere it goes where the app would put it. */
+/* (14 Nov 17:00) a new Dummy NAP goes onto the side of the pole it is put by (within 1 m of p); with no place given, onto the riser pole (or another
+   pole) that has none, on the side of its riser pipe */
+function napPut(e, p) {
+  let q = null;
+  if (p) { let bd = 1; for (const k of S.els) if (NAP_ON.includes(k.t)) { const d = Math.hypot(k.x - p[0], k.y - p[1]); if (d < bd) { bd = d; q = k; } } }
+  else { const free = k => !S.els.some(n => n !== e && n.t === 'dnap' && napPole(S, n) === k); q = S.els.find(k => k.t === 'rpole' && free(k)) || S.els.find(k => NAP_ON.includes(k.t) && free(k)) || null; }
+  if (!q) return false; const ps = isPole(q) ? pipeSide(S, q) : [1, 0], m = napSpot(q, p || [q.x + ps[0], q.y + ps[1]], e); e.x = m.p[0]; e.y = m.p[1]; e.rot = m.rot; return true;
+}
 function placeAt(t, p) {
   const n0 = S.els.length; mode = 'select'; placeT = null; addEl(t); const e = S.els.length > n0 ? S.els[S.els.length - 1] : null; if (!e) { refresh(true); return; }
   const wall = S.room && (e.t === 'port' || e.t === 'ac'), rackNo = inRack(e) && !hostOf(S, p, e);
-  if (!wall && !rackNo) { e.x = p[0]; e.y = p[1]; } settle(e); sel = { k: 'el', id: e.id }; needFit.sheets = true; refresh(true);
+  if (!wall && !rackNo) { e.x = p[0]; e.y = p[1]; } if (e.t === 'dnap') napPut(e, p); settle(e); sel = { k: 'el', id: e.id }; needFit.sheets = true; refresh(true);
 }
 /* beta 4.2 (19:25): the cabinet whose cable entrance can be set now: the opened one, or the picked cabinet (or the cabinet of the picked ODF), when it holds an ODF */
 function entryCab() {
@@ -810,7 +853,8 @@ let raf = 0; function schedule() { if (!raf) raf = requestAnimationFrame(() => {
 function setMsg(t, c) { msg = t ? { t, c: c || 'note' } : null; if (tab === 'export') drawPanel(); }
 
 /* ---------- editing ---------- */
-function riders(e) { if (!['pad', 'cabin', 'odc', 'cow', 'box', 'rack'].includes(e.t)) return []; const P = elPoly(e), a = e.w * e.d; return S.els.filter(q => q !== e && q.w * q.d < a && inPoly([q.x, q.y], P)); }
+function riders(e) { if (NAP_ON.includes(e.t)) return S.els.filter(q => q.t === 'dnap' && napPole(S, q) === e);      /* (14 Nov 17:00) a Dummy NAP goes with its pole */
+  if (!['pad', 'cabin', 'odc', 'cow', 'box', 'rack'].includes(e.t)) return []; const P = elPoly(e), a = e.w * e.d; return S.els.filter(q => q !== e && q.w * q.d < a && inPoly([q.x, q.y], P)); }
 function applyField(k, t) {
   const p = k.split('.'), v = t.value, si = S.site, x = parseFloat(v), r2 = q => Math.round(q * 100) / 100;
   if (p[0] === 'dxf') { if (!['det', 'ph', 'lay'].includes(p[1])) return false; const d = dxfSet(); if (p[1] === 'lay') d.old = !t.checked; else d[p[1]] = !!t.checked; APP.dxf = d; try { if (HOST && HOST.pref) HOST.pref('dxf', d); else localStorage.setItem('cef-dxf', JSON.stringify(d)); } catch (e) { } return true; }      /* (14 Nov) the pages and the kind of the DXF: kept by the app, not in the plan */
@@ -842,7 +886,10 @@ function applyField(k, t) {
     const e = sel && sel.k === 'el' && elById(sel.id), f = p[1]; if (!e) return false;
     if (f === 'name' || f === 'st' || f === 'size') { push('f:' + k); e[f] = v; if (f === 'size' && inRack(e) && rackHost(S, e)) seatItems(S); return true; }      /* (22:24: an ODF takes the height of its size) */
     if (f === 'ty') { push(); if (SBOX[v]) { const B = SBOX[v]; e.ty = v; e.w = B.w; e.d = B.d; e.dp = B.dp; } else delete e.ty; return true; }      /* a service box of the standard takes the size of its frame and its depth */
-    if (f === 'osize') { const q = ODC_SIZES.find(k => k[0] === v); if (!q || e.t !== 'odc') return false; push(); e.w = q[2]; e.d = q[3]; e.h = q[4]; needFit.iso = needFit.sheets = true; return true; }      /* beta 4.2: a cabinet takes one of the usual sizes */
+    if (f === 'bays') { if (e.t !== 'odc') return false; push(); const n0 = bayN(e), nb = clamp(parseInt(v, 10) || 1, 1, 3); e.w = Math.round(num(e.w, 0.8) / n0 * nb * 1000) / 1000; if (nb > 1) e.bays = nb; else delete e.bays; for (const q of S.els) if (inRack(q) && rackHost(S, q) === e && num(q.bay, 0) >= nb) q.bay = nb - 1; seatItems(S); needFit.iso = needFit.sheets = true; return true; }      /* (14 Nov 17:00) more racks: a wider cabinet, each rack the width it had */
+    if (f === 'bay') { const host = rackHost(S, e); if (!host || bayN(host) < 2) return false; push(); e.bay = clamp(parseInt(v, 10) || 0, 0, bayN(host) - 1); const u = slotFor(S, host, e, num(e.u, rackOf(host).n)); if (u != null) e.u = u; seatItems(S); return true; }
+    if (f === 'osize') { const q = ODC_SIZES.find(k => k[0] === v); if (!q || e.t !== 'odc') return false; push(); e.w = Math.round(q[2] * bayN(e) * 1000) / 1000; e.d = q[3]; e.h = q[4]; needFit.iso = needFit.sheets = true; return true; }      /* beta 4.2: a cabinet takes one of the usual sizes */
+    if (f === 'xp') { if (e.t !== 'pad') return false; push(); const q = clamp(parseInt(v, 10) || 0, 0, 2); if (q) e.xp = q; else delete e.xp; return true; }      /* (14 Nov 17:00) the pad's own exit pipe */
     if (f === 'lad') { push(); if (v === 'auto' || v === 'none') e.lad = v; else { e.lad = clamp(parseInt(v, 10) || 0, 0, 3); e.ladT = 0.5; } return true; }
     if (!isFinite(x)) return false; push('f:' + k);
     if (f === 'u' || f === 'ru') {                         /* where an item sits in its rack, and how many units it takes */
@@ -965,6 +1012,7 @@ const otherEnds = f => { const o = [], P = RT()[f === 'ae' ? 'ug' : 'ae'].pts; i
 function relSnap(e, raw) {
   const near = (types, tol) => { let b = null; for (const q of S.els) if (q !== e && types.indexOf(q.t) >= 0) { const d = Math.hypot(q.x - raw[0], q.y - raw[1]); if (d < tol && (!b || d < b.d)) b = { q, d }; } return b; };
   if (inRack(e)) { const h = near(['odc', 'rack'], S.room ? 0.45 : 0.9); if (h) return { p: [h.q.x, h.q.y], note: TYPES[e.t].s + (h.q.t === 'rack' ? ' in the rack' : ' in the cabinet: its door opens') + ' · drag it up or down in the isometric to set its rack units' }; }
+  if (e.t === 'dnap') { const h = near(NAP_ON, 1); if (h) { const m = napSpot(h.q, raw, e); e.rot = m.rot; return { p: m.p, note: 'Dummy NAP on the ' + TYPES[h.q.t].n.toLowerCase() + ', its bottom ' + f1(num(e.z, 3)) + ' m up' }; } }      /* (14 Nov 17:00) onto the side of the pole it is dropped by */
   if (e.t === 'clo') { const h = near(['rpole', 'epole'], 0.9); if (h) return { p: [h.q.x, h.q.y], note: 'Closure on the pole, at the AE cable' }; const pit = near(['hh', 'sbox'], 0.7); if (pit) return { p: [pit.q.x, pit.q.y], note: 'Closure in the ' + TYPES[pit.q.t].n.toLowerCase() }; }
   if (e.t === 'hh' || e.t === 'sbox') { const a = nearLine(raw, legLines(['ug', 'xug']), 0.7), b = nearLine(raw, runLines(['conduit', 'encase', 'trench']), 0.7), c = a && (!b || a.d <= b.d) ? a : b; if (c) return { p: c.q, note: TYPES[e.t].n + ' on the ' + (c === a ? 'underground cable' : 'conduit or trench') }; }
   if (e.t === 'exit') { const ends = []; for (const r of S.runs) if (r.kind !== 'ladder') ends.push(r.pts[0], r.pts[r.pts.length - 1]); for (const l of legLines(['ug', 'xug'])) ends.push(l[0], l[1]); let b = null; for (const q of ends) { const d = Math.hypot(q[0] - raw[0], q[1] - raw[1]); if (d < 0.7 && (!b || d < b.d)) b = { q, d }; } if (b) return { p: [b.q[0], b.q[1]], note: 'Exit conduit at the end of the buried conduit' }; }
@@ -1022,11 +1070,11 @@ function finishStroke(st) {
   }
   return true;
 }
-function addEl(t) {
+function addEl(t, bay) {
   if (!TYPES[t]) return;
-  if (focus) { const c = elById(focus); if (!c || !inRack({ t })) return; push(); const e = newEl(t, c.x, c.y); S.els.push(e); settle(e); sel = { k: 'el', id: e.id }; refresh(true); panel.scrollTop = 0; return; }
+  if (focus) { const c = elById(focus); if (!c || !inRack({ t })) return; push(); const e = newEl(t, c.x, c.y); if (bay != null && bay !== '' && bayN(c) > 1) e.bay = clamp(parseInt(bay, 10) || 0, 0, bayN(c) - 1); S.els.push(e); settle(e); sel = { k: 'el', id: e.id }; refresh(true); panel.scrollTop = 0; return; }
   push(); const { x, y, o } = addPlace(t);
-  const e = Object.assign(newEl(t, x, y), o); S.els.push(e); if (t === 'port' || t === 'ac') toWall(e); settle(e);
+  const e = Object.assign(newEl(t, x, y), o); S.els.push(e); if (t === 'port' || t === 'ac') toWall(e); if (t === 'dnap') napPut(e, null); settle(e);
   sel = { k: 'el', id: e.id }; tab = 'els'; mode = 'select'; needFit.iso = true; needTop(); refresh(true); panel.scrollTop = 0;
 }
 /* (14 Nov) where a new item of this kind stands when no place is given, and what it starts with (a wall item's height). The tray of items sets the
@@ -1078,7 +1126,7 @@ function action(a, b) {
   const d = b ? b.dataset : {};
   if (VIEW && VIEW_OK.indexOf(a) < 0) { say('View only: ' + VIEW); drawChrome(); return; }
   switch (a) {
-    case 'add': addEl(d.t); return;
+    case 'add': addEl(d.t, d.bay); return;
     case 'it-eye': { const q = d.kind === 'run' ? runById(d.id) : elById(d.id); if (!q) return; push(); if (q.hid) delete q.hid; else q.hid = 1;      /* (14 Nov) hide an item on the drawings and the sheets, or show it again */
       if (q.hid && sel && (sel.k === 'el' || sel.k === 'run') && sel.id === q.id) sel = null; needFit.iso = needFit.sheets = true;
       say(q.hid ? 'Hidden: it is not on the drawings or the sheets. It stays in this list and still counts in the table.' : 'Shown again.'); refresh(true); return; }
@@ -1204,65 +1252,155 @@ function takePhoto() {
     push(); IMG[r.id] = r.src; ROOT.photos.push(Object.assign({ id: r.id, cap: '', x: 0, y: 0, dir: 0, placed: false, w: r.w || 4, h: r.h || 3 }, r.at ? { at: r.at } : {}, r.lat != null && r.lon != null ? { lat: r.lat, lon: r.lon } : {})); needFit.sheets = true; tab = 'photos'; photoAsk(r.id); refresh(true);
   }, e => { taking = false; photoNote = 'The photo was not added' + (e && e.message ? ': ' + e.message : '.'); refresh(true); });
 }
-/* ---------- beta 4.2: the site on the map ---------- */
+/* ---------- the site on the map (beta 4.2; 14 Nov 16:05, MarkT: "allow user to move, rotate and change the dimension of the box ... Allow map also to be
+   adjustable zoom in and out") ----------
+   The box of the site lies on the map picture the app gives, north up. Dragged inside, it moves; its round handle turns it; the white squares on its sides
+   set its width and depth (the side across stays where it is). The map zooms with two fingers, the wheel or + and -, and moves when dragged outside the box.
+   Where the plan belongs to a site pin, the pin is the project's and stays: the box moves round it, and the plan keeps where the pin lies in the site.
+   Places on the map are metres east and north of the point the coordinates were taken at when the map opened (the site pin, when there is one). */
 let MP = null;
-const MP_SIZES = [50, 100, 200, 400, 800];
+const MP_LV = [20, 30, 50, 80, 120, 200, 300, 500, 800], MP_ZMIN = 12, MP_ZMAX = 900;      /* the sizes of map picture asked of the app (metres across); the view's limits */
 function mpGeo(lat) { const a = 6378137, e2 = 0.00669437999014, sp = Math.sin(lat * D2R); return { M: a * (1 - e2) / Math.pow(1 - e2 * sp * sp, 1.5), N: a / Math.sqrt(1 - e2 * sp * sp) * Math.cos(lat * D2R) }; }
-/* plan (x, y) of the site to metres east and north of the middle of the picture: the box's middle is at (cx, cy), its top side faces b degrees from north */
-function mpXY(x, y) { const si = ROOT.site, b = MP.b * D2R, dx = x - si.L / 2, dy = y - si.W / 2; return [MP.cx + dx * Math.cos(b) + dy * Math.sin(b), MP.cy - dx * Math.sin(b) + dy * Math.cos(b)]; }
+/* a point of the plan to metres east and north: the box's middle is at (cx, cy), its top side faces b degrees from north */
+function mpXY(x, y) { const b = MP.b * D2R, dx = x - MP.L / 2, dy = y - MP.W / 2; return [MP.cx + dx * Math.cos(b) + dy * Math.sin(b), MP.cy - dx * Math.sin(b) + dy * Math.cos(b)]; }
+/* and back: the point of the plan under a place of the map */
+function mpPlan(E, N) { const b = MP.b * D2R, e = E - MP.cx, n = N - MP.cy; return [MP.L / 2 + e * Math.cos(b) - n * Math.sin(b), MP.W / 2 + e * Math.sin(b) + n * Math.cos(b)]; }
+/* the point of the plan the coordinates are taken at: the tower's centre, the bottom-left corner, or the point the site pin was set at on the map */
+function anchorXY(si, els) { if (si.anchor === 'pt' && isFinite(parseFloat(si.ax)) && isFinite(parseFloat(si.ay))) return [+si.ax, +si.ay]; if (si.anchor === 'tower') { const t = els.find(e => TYPES[e.t].g === 'tower'); if (t) return [t.x, t.y]; } return [0, 0]; }
+/* the box turned by d degrees (clockwise, as the bearing) about a place of the map */
+function mpTurn(d, pv) { const a = d * D2R, e = MP.cx - pv[0], n = MP.cy - pv[1]; MP.cx = pv[0] + e * Math.cos(a) + n * Math.sin(a); MP.cy = pv[1] - e * Math.sin(a) + n * Math.cos(a); MP.b = ((MP.b + d) % 360 + 360) % 360; }
+const mpPivot = () => MP.lock ? [0, 0] : [MP.cx, MP.cy];      /* held to the site pin, the box turns about the pin; else about its own middle */
+/* a side of the box set to a new length of the box: the side across stays where it is (N, S: the depth; E, W: the width) */
+function mpSide(s, len) {
+  const b = MP.b * D2R, hz = s === 'N' || s === 'S', u = hz ? [Math.sin(b), Math.cos(b)] : [Math.cos(b), -Math.sin(b)], k = s === 'N' || s === 'E' ? 0.5 : -0.5, old = hz ? MP.W : MP.L, v = clamp(Math.round(len * 10) / 10, 2, 500), d = v - old;
+  if (hz) MP.W = v; else MP.L = v; MP.cx += u[0] * d * k; MP.cy += u[1] * d * k;
+}
+const mpMsg = t => { const m = document.getElementById('mpM'); if (m) { m.textContent = t; m.hidden = !t; } };
+/* press and hold a - or + button: one step at once, then more and faster while it is held. A tap is one step; Enter or Space on it too. One hold at a time. */
+const HOLD = { stop: null };
+for (const k of ['pointerup', 'pointercancel']) window.addEventListener(k, () => { if (HOLD.stop) HOLD.stop(); }, true);
+window.addEventListener('blur', () => { if (HOLD.stop) HOLD.stop(); });
+function holdRepeat(root, sel, fn, done) {
+  root.addEventListener('pointerdown', e => { const t = e.target.closest(sel); if (!t || t.disabled || e.button > 0) return; e.preventDefault(); if (HOLD.stop) HOLD.stop();
+    let n = 0, tm = null; const stop = () => { clearTimeout(tm); if (HOLD.stop === stop) HOLD.stop = null; if (done) done(t); }; HOLD.stop = stop; fn(t);
+    const go = () => { if (HOLD.stop !== stop) return; n++; fn(t); tm = setTimeout(go, n < 6 ? 140 : n < 20 ? 70 : 35); }; tm = setTimeout(go, 450); });
+  root.addEventListener('pointerout', e => { const t = e.target.closest(sel); if (t && HOLD.stop && !t.contains(e.relatedTarget)) HOLD.stop(); }, true);
+  root.addEventListener('click', e => { const t = e.target.closest(sel); if (t && e.detail === 0 && !t.disabled) { fn(t); if (done) done(t); } });
+  root.addEventListener('contextmenu', e => { if (e.target.closest(sel)) e.preventDefault(); });
+}
 function mapPlaceOpen() {
   if (VIEW || S.room || !HOST || !HOST.mapPicture || MP) return;
   const si = ROOT.site, la = parseFloat(si.lat), lo = parseFloat(si.lon);
   if (!isFinite(la) || !isFinite(lo) || Math.abs(la) > 85) { say('Give the coordinates of the site first (type them, or use the GPS). Then set it on the map.'); drawChrome(); return; }
-  const g = geo(ROOT) || { ax: 0, ay: 0 }, want = Math.max(si.L, si.W) * 2.4;
-  MP = { lat: la, lon: lo, b: ((num(si.bearing, 0) % 360) + 360) % 360, ax: g.ax, ay: g.ay, cx: 0, cy: 0, zi: Math.max(0, MP_SIZES.findIndex(v => v >= want)), lock: !!(APP.lock && APP.fix && APP.fix.lat != null && APP.fix.lat !== ''), drag: null, src: '', note: '', n: 0 };
-  if (MP_SIZES[MP.zi] < want) MP.zi = MP_SIZES.length - 1;
-  { const b = MP.b * D2R, dx = si.L / 2 - MP.ax, dy = si.W / 2 - MP.ay; MP.cx = dx * Math.cos(b) + dy * Math.sin(b); MP.cy = -dx * Math.sin(b) + dy * Math.cos(b); }      /* the point the coordinates were taken at is in the middle of the picture */
-  const d = document.createElement('div'); d.id = 'mp'; d.className = 'mp';
+  const A = anchorXY(si, ROOT.els), L = clamp(num(si.L, 20), 2, 500), W = clamp(num(si.W, 16), 2, 500);
+  MP = { lat: la, lon: lo, b: ((num(si.bearing, 0) % 360) + 360) % 360, L, W, cx: 0, cy: 0, lock: !!(APP.lock && APP.fix && APP.fix.lat != null && APP.fix.lat !== ''), z: 60, vx: 0, vy: 0, pic: null, n: 0, note: '', drag: null, P: new Map(), loading: false };
+  { const b = MP.b * D2R, dx = L / 2 - A[0], dy = W / 2 - A[1]; MP.cx = dx * Math.cos(b) + dy * Math.sin(b); MP.cy = -dx * Math.sin(b) + dy * Math.cos(b); }      /* the point the coordinates are taken at is the origin */
+  const d = document.createElement('div'); d.id = 'mp'; d.className = 'mp'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-label', 'The site on the map');
+  const stp = (k, lab, less, more) => '<span class="mp-g"><span class="mp-k">' + lab + '</span><span class="stp"><button type="button" class="sb" data-mp="' + k + '-" aria-label="' + less + '">−</button><input id="mp' + k + '" type="number" step="0.1" min="2" max="500" inputmode="decimal" aria-label="' + lab + ' of the site (m)"><button type="button" class="sb" data-mp="' + k + '+" aria-label="' + more + '">+</button></span><span class="mp-k">m</span></span>';
   d.innerHTML = '<div class="mp-h"><b>The site on the map</b><span id="mpN"></span><button class="b s" data-mp="x">Cancel</button><button class="b s p" data-mp="ok">Use this</button></div>'
-    + '<div class="mp-s"><svg id="mpSvg" xmlns="http://www.w3.org/2000/svg"><image id="mpImg" preserveAspectRatio="none"/><g id="mpG"></g></svg><div class="mp-m" id="mpM"></div></div>'
-    + '<div class="mp-f"><button class="b s" data-mp="out" aria-label="Show a wider map">−</button><button class="b s" data-mp="in" aria-label="Show a closer map">+</button><button class="b s" data-mp="l" aria-label="Turn left by one degree">⟲ 1°</button><button class="b s" data-mp="r" aria-label="Turn right by one degree">⟳ 1°</button><span id="mpH"></span></div>';
+    + '<div class="mp-s" id="mpS"><svg id="mpSvg" xmlns="http://www.w3.org/2000/svg"><image id="mpImg" preserveAspectRatio="none"/><g id="mpG"></g></svg><div class="mp-m" id="mpM" hidden></div>'
+    + '<div class="mp-z"><button type="button" data-mp="in" aria-label="Zoom in" title="Zoom in">+</button><button type="button" data-mp="out" aria-label="Zoom out" title="Zoom out">−</button><button type="button" data-mp="fit" aria-label="Show the whole box" title="Show the whole box">' + ico('fitb') + '</button></div><div class="mp-sc" id="mpSc" aria-hidden="true"></div></div>'
+    + '<div class="mp-f"><div class="mp-r"><span class="mp-g"><span class="mp-k">Turn</span><button type="button" class="b s" data-mp="l" aria-label="Turn left by one degree">⟲ 1°</button><button type="button" class="b s" data-mp="r" aria-label="Turn right by one degree">⟳ 1°</button></span>'
+    + stp('L', 'Width', 'Narrower by 0.1 m', 'Wider by 0.1 m') + stp('W', 'Depth', 'Less deep by 0.1 m', 'Deeper by 0.1 m') + '</div><p class="mp-hint" id="mpH"></p></div>';
   document.body.appendChild(d);
-  d.addEventListener('click', e => { const t = e.target.closest('[data-mp]'); if (!t) return; const a = t.dataset.mp;
-    if (a === 'x') mapPlaceClose(); else if (a === 'ok') mapPlaceUse(); else if (a === 'l' || a === 'r') { MP.b = (MP.b + (a === 'l' ? -1 : 1) + 360) % 360; mpPivot(); mpDraw(); }
-    else { const z = clamp(MP.zi + (a === 'out' ? 1 : -1), 0, MP_SIZES.length - 1); if (z !== MP.zi) { MP.zi = z; if (!MP.lock) { const G = mpGeo(MP.lat); MP.lat += MP.cy / G.M / D2R; MP.lon += MP.cx / G.N / D2R; MP.cx = MP.cy = 0; } mpLoad(); } } });
-  const sv = d.querySelector('#mpSvg'), pt = e => { const r = sv.getBoundingClientRect(), z = MP_SIZES[MP.zi], k = z / Math.min(r.width, r.height); return [(e.clientX - r.left - r.width / 2) * k, -(e.clientY - r.top - r.height / 2) * k]; };
-  sv.addEventListener('pointerdown', e => { const t = e.target.closest('[data-h]'); if (!t) return; e.preventDefault(); sv.setPointerCapture(e.pointerId); const p = pt(e), pv = MP.lock ? [0, 0] : [MP.cx, MP.cy];
-    MP.drag = t.dataset.h === 'turn' ? { k: 'turn', pv, a0: Math.atan2(p[0] - pv[0], p[1] - pv[1]) / D2R, b0: MP.b } : MP.lock ? null : { k: 'move', p, cx: MP.cx, cy: MP.cy }; });
-  sv.addEventListener('pointermove', e => { const g = MP && MP.drag; if (!g) return; const p = pt(e);
-    if (g.k === 'move') { const h = MP_SIZES[MP.zi] / 2; MP.cx = clamp(g.cx + p[0] - g.p[0], -h, h); MP.cy = clamp(g.cy + p[1] - g.p[1], -h, h); } else { const a = Math.atan2(p[0] - g.pv[0], p[1] - g.pv[1]) / D2R; MP.b = ((g.b0 + a - g.a0) % 360 + 360) % 360; if (!e.shiftKey) MP.b = Math.round(MP.b * 2) / 2; mpPivot(); }
-    mpDraw(); });
-  const up = () => { if (MP) MP.drag = null; }; sv.addEventListener('pointerup', up); sv.addEventListener('pointercancel', up);
-  mpLoad();
+  d.addEventListener('click', e => { const t = e.target.closest('[data-mp]'); if (!t || t.classList.contains('sb') || !MP) return; const a = t.dataset.mp;
+    if (a === 'x') mapPlaceClose(); else if (a === 'ok') mapPlaceUse();
+    else if (a === 'l' || a === 'r') { mpTurn(a === 'l' ? -1 : 1, mpPivot()); mpDraw(); }
+    else if (a === 'in' || a === 'out') { MP.z = clamp(MP.z * (a === 'in' ? 1 / 1.6 : 1.6), MP_ZMIN, MP_ZMAX); mpDraw(); mpNeed(); }
+    else if (a === 'fit') { mpFit(); mpDraw(); mpNeed(); } });
+  holdRepeat(d, '.sb[data-mp]', t => { if (!MP) return; const a = t.dataset.mp, s = a[1] === '+' ? 0.1 : -0.1; if (a[0] === 'L') mpSide('E', MP.L + s); else mpSide('N', MP.W + s); mpDraw(); });
+  for (const k of ['L', 'W']) d.querySelector('#mp' + k).addEventListener('change', e => { const v = parseFloat(e.target.value); if (MP && isFinite(v)) mpSide(k === 'L' ? 'E' : 'N', v); mpDraw(); });
+  const sv = d.querySelector('#mpSvg'), gp = (x, y) => { const r = sv.getBoundingClientRect(), k = MP.z / r.width; return [MP.vx + (x - r.left - r.width / 2) * k, MP.vy - (y - r.top - r.height / 2) * k]; };      /* a place on the screen, in metres east and north */
+  sv.addEventListener('pointerdown', e => {
+    if (!MP || e.button > 0) return; e.preventDefault(); try { sv.setPointerCapture(e.pointerId); } catch (x) { } MP.P.set(e.pointerId, [e.clientX, e.clientY]);
+    if (MP.P.size === 2) { const q = [...MP.P.values()], mx = (q[0][0] + q[1][0]) / 2, my = (q[0][1] + q[1][1]) / 2; MP.drag = { k: 'pinch', d: Math.hypot(q[0][0] - q[1][0], q[0][1] - q[1][1]) || 1, z: MP.z, g: gp(mx, my) }; return; }      /* two fingers: the map zooms about them */
+    if (MP.P.size > 2) return;
+    const t = e.target.closest('[data-h]'), h = t ? t.dataset.h : '', p = gp(e.clientX, e.clientY);
+    if (h === 'turn') { const pv = mpPivot(); MP.drag = { k: 'turn', pv, a0: Math.atan2(p[0] - pv[0], p[1] - pv[1]) / D2R, b: MP.b }; }
+    else if (/^s[NSEW]$/.test(h)) { const s = h[1], q = s === 'N' ? [MP.L / 2, 0] : s === 'S' ? [MP.L / 2, MP.W] : s === 'E' ? [0, MP.W / 2] : [MP.L, MP.W / 2], b = MP.b * D2R, u = s === 'N' || s === 'S' ? [Math.sin(b), Math.cos(b)] : [Math.cos(b), -Math.sin(b)], g = s === 'N' || s === 'E' ? 1 : -1;
+      MP.drag = { k: 'side', s, q: mpXY(q[0], q[1]), u: [u[0] * g, u[1] * g], o: { L: MP.L, W: MP.W, cx: MP.cx, cy: MP.cy } }; }      /* q: the middle of the side across, which stays */
+    else if (h === 'move') MP.drag = { k: 'move', p, cx: MP.cx, cy: MP.cy };
+    else MP.drag = { k: 'pan', sx: e.clientX, sy: e.clientY, vx: MP.vx, vy: MP.vy };
+    MP.drag.id = e.pointerId;
+  });
+  sv.addEventListener('pointermove', e => {
+    if (!MP || !MP.P.has(e.pointerId)) return; MP.P.set(e.pointerId, [e.clientX, e.clientY]); const g = MP.drag; if (!g) return;
+    if (g.k === 'pinch') { if (MP.P.size < 2) return; const q = [...MP.P.values()], r = sv.getBoundingClientRect(), mx = (q[0][0] + q[1][0]) / 2, my = (q[0][1] + q[1][1]) / 2, dd = Math.hypot(q[0][0] - q[1][0], q[0][1] - q[1][1]) || 1;
+      MP.z = clamp(g.z * g.d / dd, MP_ZMIN, MP_ZMAX); const k = MP.z / r.width; MP.vx = g.g[0] - (mx - r.left - r.width / 2) * k; MP.vy = g.g[1] + (my - r.top - r.height / 2) * k; mpDraw(); return; }
+    if (e.pointerId !== g.id) return; const p = gp(e.clientX, e.clientY);
+    if (g.k === 'pan') { const r = sv.getBoundingClientRect(), k = MP.z / r.width; MP.vx = g.vx - (e.clientX - g.sx) * k; MP.vy = g.vy + (e.clientY - g.sy) * k; }
+    else if (g.k === 'move') { MP.cx = g.cx + p[0] - g.p[0]; MP.cy = g.cy + p[1] - g.p[1]; }
+    else if (g.k === 'turn') { let nb = g.b + Math.atan2(p[0] - g.pv[0], p[1] - g.pv[1]) / D2R - g.a0; if (!e.shiftKey) nb = Math.round(nb * 2) / 2; mpTurn(((nb - MP.b) % 360 + 540) % 360 - 180, g.pv); }
+    else if (g.k === 'side') { Object.assign(MP, g.o); mpSide(g.s, (p[0] - g.q[0]) * g.u[0] + (p[1] - g.q[1]) * g.u[1]); }
+    mpDraw();
+  });
+  const up = e => { if (!MP || !MP.P.has(e.pointerId)) return; MP.P.delete(e.pointerId); const g = MP.drag;
+    if (g && g.k === 'pinch') { if (MP.P.size === 1) { const q = [...MP.P.entries()][0]; MP.drag = { k: 'pan', id: q[0], sx: q[1][0], sy: q[1][1], vx: MP.vx, vy: MP.vy }; } else if (!MP.P.size) MP.drag = null; mpNeed(); return; }      /* one finger left: it moves the map */
+    if (!MP.P.size) { MP.drag = null; mpNeed(); } };
+  sv.addEventListener('pointerup', up); sv.addEventListener('pointercancel', up);
+  sv.addEventListener('wheel', e => { if (!MP) return; e.preventDefault(); const p = gp(e.clientX, e.clientY), z = clamp(MP.z * Math.exp(clamp(e.deltaY, -150, 150) * 0.0016), MP_ZMIN, MP_ZMAX), k = z / MP.z; MP.vx = p[0] - (p[0] - MP.vx) * k; MP.vy = p[1] - (p[1] - MP.vy) * k; MP.z = z; mpDraw(); clearTimeout(MP.wt); MP.wt = setTimeout(() => mpNeed(), 300); }, { passive: false });
+  sv.addEventListener('touchmove', e => { if (e.cancelable) e.preventDefault(); }, { passive: false });      /* (no fling: a tap that follows is not lost) */
+  sv.addEventListener('contextmenu', e => e.preventDefault());
+  mpFit(); mpDraw(); mpNeed(true);
 }
-/* held to the site pin, the box turns about the point the coordinates were taken at; else about its own middle */
-function mpPivot() { if (!MP.lock) return; const si = ROOT.site, b = MP.b * D2R, dx = si.L / 2 - MP.ax, dy = si.W / 2 - MP.ay; MP.cx = dx * Math.cos(b) + dy * Math.sin(b); MP.cy = -dx * Math.sin(b) + dy * Math.cos(b); }
-function mpLoad() {
-  const z = MP_SIZES[MP.zi], n = ++MP.n, m = document.getElementById('mpM'); MP.src = ''; MP.note = ''; if (m) { m.textContent = 'Getting the map…'; m.hidden = false; } mpDraw();
-  Promise.resolve(HOST.mapPicture({ lat: MP.lat, lon: MP.lon, size: z, px: 1000 })).then(r => r, () => null).then(r => { if (!MP || MP.n !== n) return; MP.src = r && r.src ? r.src : ''; MP.note = r && r.note ? r.note : '';
-    if (m) { m.textContent = MP.src ? '' : 'No map picture for this place now (no signal, or no map of it on this phone). The box can still be turned: north is up.'; m.hidden = !!MP.src; } mpDraw(); });
+/* the view on the whole box, with the pin and room for the round handle */
+function mpFit() {
+  const sv = document.getElementById('mpSvg'), r = sv && sv.getBoundingClientRect(), asp = r && r.width ? r.height / r.width : 1;
+  const C = [[0, 0], [MP.L, 0], [MP.L, MP.W], [0, MP.W]].map(q => mpXY(q[0], q[1])).concat([MP.lock ? [0, 0] : mpXY(...anchorXY(ROOT.site, ROOT.els))]), xs = C.map(q => q[0]), ys = C.map(q => q[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  MP.vx = (x0 + x1) / 2; MP.vy = (y0 + y1) / 2; MP.z = clamp(Math.max((x1 - x0) / 0.6, (y1 - y0) / 0.6 / asp, 20), MP_ZMIN, MP_ZMAX);
+}
+/* a new map picture when the view leaves the one there is, or is much closer than it: centred on the view, a little larger than it */
+function mpNeed(force) {
+  const sv = document.getElementById('mpSvg'); if (!sv || !MP) return; const r = sv.getBoundingClientRect(); if (!r.width || !r.height) return;
+  const zw = MP.z, zh = MP.z * r.height / r.width, vm = Math.max(zw, zh), p = MP.pic;
+  if (!force && p && Math.abs(MP.vx - p.cx) + zw / 2 <= p.size / 2 + 0.5 && Math.abs(MP.vy - p.cy) + zh / 2 <= p.size / 2 + 0.5 && p.size <= vm * 3.4) return;
+  const size = MP_LV.find(v => v >= vm * 1.3) || MP_LV[MP_LV.length - 1], cx = MP.vx, cy = MP.vy, G = mpGeo(MP.lat), n = ++MP.n;
+  MP.loading = true; if (!p) mpMsg('Getting the map…'); mpDraw();
+  Promise.resolve(HOST.mapPicture({ lat: MP.lat + cy / G.M / D2R, lon: MP.lon + cx / G.N / D2R, size, px: 1000 })).then(q => q, () => null).then(q => {
+    if (!MP || MP.n !== n) return; MP.loading = false;
+    if (q && q.src) { MP.pic = { cx, cy, size, src: q.src }; MP.note = q.note || ''; mpMsg(''); }
+    else if (!MP.pic) mpMsg('No map picture for this place now (no signal, or no map of it on this phone). The box can still be moved, turned and sized: north is up.');
+    mpDraw(); });
 }
 function mpDraw() {
-  const sv = document.getElementById('mpSvg'); if (!sv || !MP) return; const si = ROOT.site, z = MP_SIZES[MP.zi], h = z / 2, u = z / 520, P = (x, y) => { const q = mpXY(x, y); return r3(q[0]) + ',' + r3(-q[1]); };
-  sv.setAttribute('viewBox', [-h, -h, z, z].join(' ')); const im = document.getElementById('mpImg'); im.setAttribute('x', -h); im.setAttribute('y', -h); im.setAttribute('width', z); im.setAttribute('height', z); if (MP.src) im.setAttribute('href', MP.src); else im.removeAttribute('href');
-  let o = ''; if (!MP.src) { for (let k = -h; k <= h + 1e-6; k += z / 10) o += '<path class="mp-grid" d="M' + r3(k) + ' ' + (-h) + 'V' + h + 'M' + (-h) + ' ' + r3(k) + 'H' + h + '"/>'; }
-  const tm = mpXY(si.L / 2, si.W), tq = mpXY(si.L / 2, si.W + Math.max(si.W * 0.3, 30 * u)), an = mpXY(MP.ax, MP.ay);
-  o += '<polygon class="mp-box" data-h="move" points="' + [P(0, 0), P(si.L, 0), P(si.L, si.W), P(0, si.W)].join(' ') + '"/><polyline class="mp-top" points="' + P(0, si.W) + ' ' + P(si.L, si.W) + '"/>';
-  for (const e of S.els) if (TYPES[e.t].g === 'tower') { const q = mpXY(e.x, e.y); o += '<circle class="mp-tw" cx="' + r3(q[0]) + '" cy="' + r3(-q[1]) + '" r="' + r3(Math.max(0.6, 5 * u)) + '"/>'; }
-  o += '<path class="mp-st" d="M' + r3(tm[0]) + ' ' + r3(-tm[1]) + 'L' + r3(tq[0]) + ' ' + r3(-tq[1]) + '"/><circle class="mp-hd" data-h="turn" cx="' + r3(tq[0]) + '" cy="' + r3(-tq[1]) + '" r="' + r3(13 * u) + '"/><circle class="mp-ht" data-h="turn" cx="' + r3(tq[0]) + '" cy="' + r3(-tq[1]) + '" r="' + r3(30 * u) + '"/><path class="mp-hi" transform="translate(' + r3(tq[0]) + ' ' + r3(-tq[1]) + ') scale(' + r3(u) + ')" d="M-6 1a6 6 0 1 0 2-5.5M-6.5 -7.5v4h4"/>';
-  o += '<circle class="mp-an" cx="' + r3(an[0]) + '" cy="' + r3(-an[1]) + '" r="' + r3(3.2 * u) + '"/>';
-  o += '<g class="mp-no" transform="translate(' + r3(h - 34 * u) + ' ' + r3(-h + 46 * u) + ') scale(' + r3(u) + ')"><path d="M0 22V-18M-7 -8L0 -18L7 -8"/><text y="-23" text-anchor="middle" font-size="15">N</text></g>';
-  o += '<text class="mp-tt" x="' + r3(tm[0]) + '" y="' + r3(-tm[1]) + '" font-size="' + r3(11 * u) + '" text-anchor="middle" dy="' + r3(-3 * u) + '" transform="rotate(' + r3(MP.b) + ' ' + r3(tm[0]) + ' ' + r3(-tm[1]) + ')">TOP</text>';
+  const sv = document.getElementById('mpSvg'); if (!sv || !MP) return; const r = sv.getBoundingClientRect(); if (!r.width || !r.height) return;
+  const zw = MP.z, zh = MP.z * r.height / r.width, u = zw / r.width, x0 = MP.vx - zw / 2, y0 = -(MP.vy + zh / 2), si = ROOT.site;
+  const Q = (x, y) => { const q = mpXY(x, y); return [q[0], -q[1]]; }, P = (x, y) => { const q = Q(x, y); return r3(q[0]) + ',' + r3(q[1]); }, upA = a => { a = ((a % 360) + 360) % 360; return a > 90 && a < 270 ? a - 180 : a; };
+  sv.setAttribute('viewBox', [r3(x0), r3(y0), r3(zw), r3(zh)].join(' '));
+  const im = document.getElementById('mpImg'), pc = MP.pic;
+  if (pc) { im.setAttribute('x', r3(pc.cx - pc.size / 2)); im.setAttribute('y', r3(-(pc.cy + pc.size / 2))); im.setAttribute('width', pc.size); im.setAttribute('height', pc.size); if (im.getAttribute('href') !== pc.src) im.setAttribute('href', pc.src); } else im.removeAttribute('href');
+  let o = '';
+  if (!pc) { const st = [1, 2, 5, 10, 20, 50, 100, 200].find(v => v >= zw / 10) || 200; for (let k = Math.floor(x0 / st) * st; k <= x0 + zw; k += st) o += '<path class="mp-grid" d="M' + r3(k) + ' ' + r3(y0) + 'V' + r3(y0 + zh) + '"/>'; for (let k = Math.floor(y0 / st) * st; k <= y0 + zh; k += st) o += '<path class="mp-grid" d="M' + r3(x0) + ' ' + r3(k) + 'H' + r3(x0 + zw) + '"/>'; }
+  for (const e of ROOT.els) { if (hidEl(ROOT, e)) continue; const E = elPoly(e); if (E && E.length > 2) o += '<polygon class="mp-el" points="' + E.map(q => P(q[0], q[1])).join(' ') + '"/>'; }      /* the items of the plan, thin */
+  o += '<polygon class="mp-box" data-h="move" points="' + [P(0, 0), P(MP.L, 0), P(MP.L, MP.W), P(0, MP.W)].join(' ') + '"/><polyline class="mp-top" points="' + P(0, MP.W) + ' ' + P(MP.L, MP.W) + '"/>';
+  for (const e of ROOT.els) if (TYPES[e.t].g === 'tower' && !hidEl(ROOT, e)) { const q = Q(e.x, e.y); o += '<circle class="mp-tw" cx="' + r3(q[0]) + '" cy="' + r3(q[1]) + '" r="' + r3(Math.max(0.6, 5 * u)) + '"/>'; }
+  const txt = (x, y, t, a, c) => { const q = Q(x, y); return '<text class="' + c + '" x="' + r3(q[0]) + '" y="' + r3(q[1]) + '" font-size="' + r3(12 * u) + '" text-anchor="middle" dominant-baseline="middle" transform="rotate(' + r3(upA(a)) + ' ' + r3(q[0]) + ' ' + r3(q[1]) + ')">' + t + '</text>'; };
+  o += txt(MP.L * 0.27, -12 * u, f1(MP.L) + ' m', MP.b, 'mp-dim') + txt(-12 * u, MP.W * 0.27, f1(MP.W) + ' m', MP.b - 90, 'mp-dim') + txt(MP.L * 0.27, MP.W + 11 * u, 'TOP', MP.b, 'mp-tt');
+  const big = Math.min(MP.L, MP.W) / u >= 70;      /* on a box that small on the screen its sides are not taken: zoom in for them */
+  if (big) for (const q of [['N', MP.L / 2, MP.W], ['S', MP.L / 2, 0], ['W', 0, MP.W / 2], ['E', MP.L, MP.W / 2]]) { const c = Q(q[1], q[2]), hs = 7 * u, hz = q[0] === 'N' || q[0] === 'S';
+    o += '<g class="mp-sz" transform="translate(' + r3(c[0]) + ' ' + r3(c[1]) + ') rotate(' + r3(MP.b) + ')"><rect x="' + r3(-hs) + '" y="' + r3(-hs) + '" width="' + r3(2 * hs) + '" height="' + r3(2 * hs) + '" rx="' + r3(2 * u) + '"/><path d="' + (hz ? 'M0 ' + r3(-4 * u) + 'V' + r3(4 * u) : 'M' + r3(-4 * u) + ' 0H' + r3(4 * u)) + '"/></g><circle class="mp-ht" data-h="s' + q[0] + '" cx="' + r3(c[0]) + '" cy="' + r3(c[1]) + '" r="' + r3(20 * u) + '"/>'; }
+  const tm = Q(MP.L / 2, MP.W), tq = Q(MP.L / 2, MP.W + Math.max(MP.W * 0.25, 54 * u));
+  o += '<path class="mp-st" d="M' + r3(tm[0]) + ' ' + r3(tm[1]) + 'L' + r3(tq[0]) + ' ' + r3(tq[1]) + '"/><circle class="mp-hd" data-h="turn" cx="' + r3(tq[0]) + '" cy="' + r3(tq[1]) + '" r="' + r3(13 * u) + '"/><circle class="mp-ht" data-h="turn" cx="' + r3(tq[0]) + '" cy="' + r3(tq[1]) + '" r="' + r3(26 * u) + '"/><path class="mp-hi" transform="translate(' + r3(tq[0]) + ' ' + r3(tq[1]) + ') scale(' + r3(u) + ')" d="M-6 1a6 6 0 1 0 2-5.5M-6.5 -7.5v4h4"/>';
+  if (MP.lock) o += '<circle class="mp-pin" cx="0" cy="0" r="' + r3(6.5 * u) + '"/><circle class="mp-pin2" cx="0" cy="0" r="' + r3(2 * u) + '"/><text class="mp-pt" x="' + r3(10 * u) + '" y="' + r3(-9 * u) + '" font-size="' + r3(11.5 * u) + '">SITE PIN</text>';
+  else { const an = Q(...anchorXY(si, ROOT.els)); o += '<circle class="mp-an" cx="' + r3(an[0]) + '" cy="' + r3(an[1]) + '" r="' + r3(3.6 * u) + '"/>'; }
+  o += '<g class="mp-no" transform="translate(' + r3(x0 + zw - 30 * u) + ' ' + r3(y0 + 46 * u) + ') scale(' + r3(u) + ')"><path d="M0 22V-18M-7 -8L0 -18L7 -8"/><text y="-23" text-anchor="middle" font-size="15">N</text></g>';
   document.getElementById('mpG').innerHTML = o;
-  const G = mpGeo(MP.lat), la = MP.lat + an[1] / G.M / D2R, lo = MP.lon + an[0] / G.N / D2R;
-  document.getElementById('mpN').textContent = 'Top side faces ' + f1(MP.b) + '° from true north' + (MP.lock ? '' : ' · ' + la.toFixed(6) + ', ' + lo.toFixed(6));
-  document.getElementById('mpH').textContent = (MP.lock ? 'Drag the round handle to turn the box until its sides lie on the fence. Its place is held by the site pin.' : 'Drag the box onto the site. Drag the round handle above its top side to turn it until its sides lie on the fence.') + ' North is up. The map is ' + z + ' m across.' + (MP.note ? ' ' + MP.note : '');
+  { const m = [1, 2, 5, 10, 20, 50, 100, 200, 500].filter(v => v / u <= 110).pop() || 1, sc = document.getElementById('mpSc'); if (sc) sc.innerHTML = '<i style="width:' + Math.round(m / u) + 'px"></i>' + m + ' m' + (MP.loading && MP.pic ? ' · getting the map…' : ''); }
+  const an = MP.lock ? [0, 0] : mpXY(...anchorXY(si, ROOT.els)), G = mpGeo(MP.lat), la = MP.lat + an[1] / G.M / D2R, lo = MP.lon + an[0] / G.N / D2R;
+  document.getElementById('mpN').textContent = 'Top side faces ' + f1(MP.b) + '° from true north · ' + f1(MP.L) + ' × ' + f1(MP.W) + ' m' + (MP.lock ? '' : ' · ' + la.toFixed(6) + ', ' + lo.toFixed(6));
+  for (const k of ['L', 'W']) { const el = document.getElementById('mp' + k); if (el && document.activeElement !== el) el.value = f1(MP[k]); }
+  document.getElementById('mpH').textContent = (MP.lock ? 'Drag the box onto the fence: the red pin is the site pin of the project and stays. ' : 'Drag the box onto the site: the coordinates follow it. ') + 'Round handle: turn it. White squares: pull a side to the fence.' + (big ? '' : ' (Zoom in for them.)') + ' Two fingers or + − zoom the map; drag outside the box to move the map.' + (MP.note ? ' ' + MP.note : '');
 }
 function mapPlaceClose() { const d = document.getElementById('mp'); if (d) d.remove(); MP = null; }
 function mapPlaceUse() {
-  if (!MP) return; const an = mpXY(MP.ax, MP.ay), G = mpGeo(MP.lat), b = Math.round(MP.b * 10) / 10 % 360; push();
-  ROOT.site.bearing = b; if (!MP.lock) { ROOT.site.lat = +(MP.lat + an[1] / G.M / D2R).toFixed(6); ROOT.site.lon = +(MP.lon + an[0] / G.N / D2R).toFixed(6); }
-  mapPlaceClose(); say('Set from the map: the top side faces ' + f1(b) + '° from true north.'); needFit.sheets = true; refresh(true);
+  if (!MP) return; const si = ROOT.site, b = Math.round(MP.b * 10) / 10 % 360, sized = Math.abs(MP.L - num(si.L, 20)) > 0.005 || Math.abs(MP.W - num(si.W, 16)) > 0.005; let pin = '';
+  push(); si.bearing = b;
+  if (sized) { si.L = clamp(r2(MP.L), 2, 500); si.W = clamp(r2(MP.W), 2, 500); needFit.iso = needFit.top = true; }
+  if (MP.lock) { const P = mpPlan(0, 0), A = anchorXY(si, ROOT.els);      /* the pin stays: where it lies in the site is kept */
+    if (Math.hypot(P[0] - A[0], P[1] - A[1]) > 0.05) { si.anchor = 'pt'; si.ax = r2(P[0]); si.ay = r2(P[1]); pin = ' The site pin is ' + f1(P[0]) + ' m from the left side and ' + f1(P[1]) + ' m from the bottom side of the site.'; } }
+  else { const g = mpXY(...anchorXY(si, ROOT.els)), G = mpGeo(MP.lat); si.lat = +(MP.lat + g[1] / G.M / D2R).toFixed(6); si.lon = +(MP.lon + g[0] / G.N / D2R).toFixed(6); }
+  mapPlaceClose(); say('Set from the map: the top side faces ' + f1(b) + '° from true north' + (sized ? '; the site is ' + f1(si.L) + ' × ' + f1(si.W) + ' m' : '') + '.' + pin); needFit.sheets = true; refresh(true);
 }
 function useGps() {
   if (VIEW || APP.lock || !HOST || !HOST.gps) return; say('Getting the GPS position…'); drawChrome();
@@ -1314,6 +1452,7 @@ const pipePole = () => { if (S.room || focus || VIEW || mode !== 'select' || !se
 /* ---------- pointer work on the drawings ---------- */
 function hitTest(m) {
   const u = unit('top'), pr = Math.max(10 * u, S.room ? 0.03 : 0.15);
+  for (const q of addSpots()) if (Math.abs(m[0] - q.p[0]) < 38 * u && Math.abs(m[1] - q.p[1]) < 17 * u) return Object.assign({ add: true }, q);      /* (14 Nov 16:05) + Gate, + Door */
   if (sel && sel.k === 'photo') { const p = phById(sel.id); if (p && p.placed) { const t = tip(p); if (Math.hypot(m[0] - t[0], m[1] - t[1]) < pr * 1.3) return { k: 'pdir', id: p.id }; } }
   { const c = !focus && mode === 'select' ? entryCab() : null; if (c) { const p = cabPort(S, c, routeGeom(S)).p; if (Math.hypot(m[0] - p[0], m[1] - p[1]) < Math.min(pr * 1.3, entryR(c))) return { k: 'glandT', id: c.id }; } }      /* (19:25) the entry of the cable on the picked cabinet */
   if (!S.room && sel && sel.k === 'el') { const e = elById(sel.id); if (e && e.t === 'cabin') { let b = null; const try1 = (p, k, i) => { const d = Math.hypot(m[0] - p[0], m[1] - p[1]); if (d < pr * 1.3 && (!b || d < b.d)) b = { d, h: { k, id: e.id, i } }; };      /* the handle nearest the pointer: porthole, door or aircon unit */
@@ -1538,6 +1677,7 @@ function tap(g) {
     const p = phById(placing); if (p) { push(); const first = !p.placed; p.x = snap(m[0]); p.y = snap(m[1]); p.placed = true; if (first && !S.room) { if (!p.ct) picPut(p, 't'); if (!p.ci) picPut(p, 'i'); } else { if (p.ct) { p.ct.tx = p.x; p.ct.ty = p.y; } if (p.ci) { p.ci.tx = p.x; p.ci.ty = p.y; } } sel = { k: 'photo', id: p.id }; needFit.sheets = true; }
     const nx = S.room ? null : S.photos.find(q => !q.placed && !q.ct && !q.ci); if (nx) { placing = nx.id; say('Photo ' + (S.photos.indexOf(p) + 1) + ' is on the plan. Now photo ' + (S.photos.indexOf(nx) + 1) + '.'); } else { mode = 'select'; placing = null; }
     refresh(true); return; }
+  if (g.add) { addNew(g.add); return; }
   /* a name written on its item: the first tap picks the item, a second tap on the name picks the label */
   const had = !!sel, lb = g.lab && (!g.hit || sameHit(sel, g.hit) || g.hit.k === 'lab') ? { k: 'lab', key: g.lab.key } : null; pick(lb || g.hit, true);
   if (!lb && !g.hit && g.n === 'top' && !S.room && !focus && !VIEW) { const L = S.site.L, W = S.site.W, ins = m[0] >= 0 && m[0] <= L && m[1] >= 0 && m[1] <= W, dd = ins ? Math.min(m[0], L - m[0], m[1], W - m[1]) : Math.hypot(Math.max(-m[0], 0, m[0] - L), Math.max(-m[1], 0, m[1] - W)); if (dd < Math.max(12 * g.u, 0.25)) { openTab = 'site'; say('Site details'); } }      /* (19:25) the edge of the lot is the site */
@@ -1563,6 +1703,7 @@ function bindView(n) {
       if (lb && !hand && (!h || sameHit(sel, h))) g.tapHit = { k: 'lab', key: lb.key };
     }
     g.draw = n === 'top' && (mode === 'route' || mode === 'run') && e.button === 0 && !e.shiftKey; if (g.draw) g.stroke = [m];
+    if (g.hit && g.hit.add) { g.add = g.hit; g.hit = null; }      /* (+ Gate, + Door: a tap adds it; a drag from it moves the view) */
     if (VIEW) { g.hit = null; g.draw = false; } if (g.hit) g.orig = grab(g.hit);
   });
   svg.addEventListener('pointermove', e => {
@@ -1602,6 +1743,7 @@ for (const n of ['top', 'iso', 'sheets']) bindView(n);
 panel.addEventListener('input', e => { const t = e.target, k = t.dataset && t.dataset.k; if (!k || t.type === 'file') return; if (applyField(k, t)) { drawViews(); drawChrome(); save(); } });
 panel.addEventListener('change', e => { const t = e.target, k = t.dataset && t.dataset.k; if (k === 'open') { openSketch(t.files[0]); t.value = ''; return; } setTimeout(() => refresh(true), 0); });
 panel.addEventListener('click', e => { const b = e.target.closest('[data-a]'); if (b && !b.disabled) action(b.dataset.a, b); });
+holdRepeat(panel, '.stp .sb[data-sd]', stepField, () => refresh(true));      /* (14 Nov 16:05) the - and + of the numbers */
 $('#modebar').addEventListener('click', e => { const b = e.target.closest('[data-a]'); if (b && !b.disabled) action(b.dataset.a, b); });
 $('#status').addEventListener('click', e => { const b = e.target.closest('[data-a]'); if (b) action(b.dataset.a, b); });
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (!b) return; tab = b.dataset.tab; msg = tab === 'export' ? msg : null; refresh(true); panel.scrollTop = 0; });

@@ -37,6 +37,7 @@ function geo(S) {
   if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 85 || Math.abs(lon) > 180) return null;
   let ax = 0, ay = 0, at = 'BOTTOM-LEFT CORNER OF THE PERIMETER', fallback = false;
   if (si.anchor === 'tower') { const t = S.els.find(e => TYPES[e.t].g === 'tower'); if (t) { ax = t.x; ay = t.y; at = 'TOWER CENTRE'; } else fallback = true; }
+  else if (si.anchor === 'pt' && isFinite(parseFloat(si.ax)) && isFinite(parseFloat(si.ay))) { ax = +si.ax; ay = +si.ay; at = 'THE SITE PIN, ' + f2(ax) + ' m FROM THE LEFT SIDE AND ' + f2(ay) + ' m FROM THE BOTTOM SIDE OF THE PERIMETER'; }      /* (14 Nov 16:05) the box moved round the site pin on the map */
   const b = num(si.bearing, 0) * D2R, a = 6378137, e2 = 0.00669437999014, sp = Math.sin(lat * D2R), M = a * (1 - e2) / Math.pow(1 - e2 * sp * sp, 1.5), N = a / Math.sqrt(1 - e2 * sp * sp);
   const ll = (x, y) => { const dx = x - ax, dy = y - ay, E = dx * Math.cos(b) + dy * Math.sin(b), Nn = -dx * Math.sin(b) + dy * Math.cos(b); return [lat + Nn / M / D2R, lon + E / (N * Math.cos(lat * D2R)) / D2R]; };
   return { lat, lon, ax, ay, at, fallback, ll, utm: utm51(lat, lon), zoneOk: lon >= 120 && lon <= 126 };
@@ -130,7 +131,7 @@ function detailPages(S) {
 }
 /* what is mounted where: every rack and cabinet with its items, top unit first */
 function rackRows(S) {
-  const rows = [], add = (M, pre) => { for (const h of M.els) if (h.t === 'odc' || h.t === 'rack') for (const q of rackSlots(M, h).slice().sort((a, b) => b.u - a.u)) rows.push([pre + elLabel0(M, h), elLabel0(M, q.e) + (q.e.t === 'odf' && q.e.size && !q.e.name ? ' ' + q.e.size : ''), uText(q), q.e.st === 'P' ? 'PROP.' : 'EXIS.']); };
+  const rows = [], add = (M, pre) => { for (const h of M.els) if (h.t === 'odc' || h.t === 'rack') for (const q of rackSlots(M, h).slice().sort((a, b) => (a.bay || 0) - (b.bay || 0) || b.u - a.u)) rows.push([pre + elLabel0(M, h) + (bayN(h) > 1 ? ' RACK ' + (q.bay + 1) : ''), elLabel0(M, q.e) + (q.e.t === 'odf' && q.e.size && !q.e.name ? ' ' + q.e.size : ''), uText(q), q.e.st === 'P' ? 'PROP.' : 'EXIS.']); };
   add(S, ''); for (const e of S.els) if (e.t === 'cabin' && e.inside && Array.isArray(e.inside.els)) add(e.inside, elLabel0(S, e) + ' / ');
   return rows;
 }
@@ -637,8 +638,9 @@ function baseName(S) { return String(S.site.id || S.site.name || 'CEF').trim().r
 /* the note that says what follows the OSP standard, when the plan has any of it */
 function stdNote(S) {
   const g = routeGeom(S), t = [];
-  if (S.runs.some(r => r.kind === 'conduit') || g.exits.length || g.risers.length) t.push('CONDUIT: 2 RUNS OF ' + PVC_MM + ' mm PVC, CONCRETE ENCASED, EACH WITH 4 x 32 mm HDPE SUB-DUCTS. THE CABLE IS IN ONE SUB-DUCT; THE SPARE RUN IS CLOSED WITH A BLANK DUCT PLUG.');
+  if (S.runs.some(r => r.kind === 'conduit') || g.exits.length || g.risers.length || g.padx.length) t.push('CONDUIT: 2 RUNS OF ' + PVC_MM + ' mm PVC, CONCRETE ENCASED, EACH WITH 4 x 32 mm HDPE SUB-DUCTS. THE CABLE IS IN ONE SUB-DUCT; THE SPARE RUN IS CLOSED WITH A BLANK DUCT PLUG.');
   if (g.exits.length || S.els.some(e => e.t === 'exit')) t.push('RISER PIPE AT THE TOWER END: G.I. PIPE ' + PVC_MM + ' mm IN A CONCRETE BLOCK.');
+  if (g.padx.length) t.push('EXIT PIPE: ' + PVC_MM + ' mm, BUILT INTO THE BASE PAD; THE CABLE COMES UP THROUGH IT.' + (g.padx.some(x => x.n > 1) ? ' THE SPARE PIPE IS CLOSED WITH A BLANK DUCT PLUG.' : ''));      /* (14 Nov 17:00) */
   if (g.risers.length || g.join) t.push(g.join && g.join.none ? 'RISER AND LOOP HOLDER TO THE OSP STANDARD. NO CLOSURE ON THE RISER POLE: THE DESIGN DOES NOT NEED ONE.' : 'RISER, CLOSURE AND LOOP HOLDER TO THE OSP STANDARD.');
   return t.join(' ');
 }
