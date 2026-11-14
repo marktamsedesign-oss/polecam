@@ -1,6 +1,6 @@
 /* G-eSAA (PoleCam) offline cache: keeps the app itself available with no signal.
    Map tiles are cached separately by the app (IndexedDB). Bump VERSION after editing any file. */
-const VERSION = 'polecam-v2.43.1';
+const VERSION = 'polecam-v2.44.2';
 /* v2.43: the beta website (…/polecam/beta/) shares the address of G-eSAA's: its offline copy has its own names, and each
    cleans up only its own copies. */
 const BETA_WEB = /\/beta\/sw\.js$/.test(self.location.pathname);
@@ -11,6 +11,8 @@ const SHELL = [
   'vendor/leaflet/images/layers.png', 'vendor/leaflet/images/layers-2x.png',
   'vendor/leaflet/images/marker-icon.png', 'vendor/leaflet/images/marker-icon-2x.png', 'vendor/leaflet/images/marker-shadow.png',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png',
+  // v2.44 beta 4.0: the CEF plan editor (its own page, shown in a frame) and its PDF library
+  'vendor/cef/cef.html', 'vendor/cef/30_core.js', 'vendor/cef/40_iso.js', 'vendor/cef/50_export.js', 'vendor/cef/ui.js', 'vendor/pdf-lib/pdf-lib.min.js',
   // offline Pole ID reader (about 7 MB)
   'ocr-worker.js', 'vendor/tesseract/tesseract-core-lstm.js', 'vendor/tesseract/tesseract-core-lstm.wasm', 'vendor/tesseract/eng.traineddata',
 ];

@@ -226,6 +226,9 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .drwlegend>summary{list-style:none;cursor:pointer;padding:6px 10px;font-weight:700}.drwlegend>summary::-webkit-details-marker{display:none}.drwlegend>summary::after{content:' ▾';color:#868e96}.drwlegend[open]>summary::after{content:' ▴'}
 #drawLegendBody{display:grid;grid-template-columns:22px 1fr;gap:3px 6px;padding:0 10px 8px;align-items:center}#drawLegendBody svg{width:22px;height:16px;display:block}
 .drwhint{position:absolute;left:12px;right:calc(var(--tap) + 24px);bottom:12px;margin:0;background:rgba(255,255,255,.93);color:#343a40;border-radius:10px;padding:6px 10px;font-size:calc(12px * var(--fs));box-shadow:0 2px 8px rgba(0,0,0,.1)}.drwhint[hidden]{display:none}
+.drwcef{min-width:250px;max-width:min(360px,calc(100vw - var(--tap) - 46px));max-height:60vh;overflow:auto}.drwcef .cefrow{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 0;border-top:1px solid var(--line)}.drwcef .cefrow:first-child{border-top:0}.drwcef .cefrow span{flex:1;min-width:0;font-size:calc(13px * var(--fs));overflow-wrap:anywhere}.drwcef .cefrow small{display:block;color:var(--muted)}.drwcef p{margin:4px 0;font-size:calc(13px * var(--fs));color:var(--muted)}
+#drawInfo .btn{margin:4px 0 0 8px;vertical-align:middle;white-space:nowrap}@media (max-width:700px){#drawInfo .btn{display:block;margin:6px 0 0}}
+.strow.sthl,.stgrp.sthl{outline:2px solid #f08c00;outline-offset:3px;border-radius:8px;background:rgba(240,140,0,.09)}#stPrev [data-st]{cursor:pointer}.dscap .dspk{color:#e8590c;font-weight:600}
 .drwbar{align-items:center;gap:8px;flex-wrap:nowrap;position:relative}.drwbar select{min-height:44px;flex:0 1 128px;min-width:84px;padding:0 6px}
 .drwicon{flex:none;width:52px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--muted);display:grid;place-items:center;padding:0}.drwicon svg{width:34px;height:26px}
 .drwicon[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
@@ -258,6 +261,17 @@ body.deskpane #edGrip{display:block;grid-area:grip;cursor:col-resize;background:
 body.deskpane #edGrip::after{content:"";position:absolute;left:3px;top:50%;width:4px;height:44px;margin-top:-22px;border-radius:2px;background:var(--muted);opacity:.7}
 body.deskpane #edGrip:hover,body.deskpane #edGrip.drag,body.deskpane #edGrip:focus-visible{background:var(--accent)}
 body.deskpane #pinMapWrap #pinSizeBtn,body.deskpane #pinMapWrap #pinMiniTag,body.deskpane #editor #edGrab{display:none}
+/* beta 4.1: the record on a computer opens over the same view: the top bar and the Projects pane stay where they are, the form slides in */
+body.deskpane #editor{left:var(--pw);top:var(--tbh,56px);background:transparent}
+body.deskpane #editor>#pinMapWrap{background:transparent;overflow:hidden}
+body.deskpane #editor #pinMap{background:transparent;opacity:0;transition:opacity .16s linear}
+body.deskpane #editor.pmready #pinMap{opacity:1}
+body.deskpane #editor.pmsolid #pinMap{background:var(--chip)}
+body.deskpane #editor>.edbody,body.deskpane #editor>.foot,body.deskpane #editor>#saveIssue{background:var(--bg)}
+body.deskpane #editor>header,body.deskpane #editor>.edbody,body.deskpane #editor>.foot,body.deskpane #editor>#saveIssue,body.deskpane #editor>#edGrip{animation:edIn .2s ease-out}
+@keyframes edIn{from{transform:translateX(36px);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){body.deskpane #editor>*,body.deskpane #routeBar,body.deskpane #rtBar,body.deskpane #visitCard,body.deskpane #fixPanel,body.deskpane #photoPane{animation:none!important}}
+body.deskpane #projPane,body.deskpane #topbar{transition:opacity .2s}body.deskpane.edopen #projPane,body.deskpane.edopen #topbar{pointer-events:none;opacity:.6}
 .dscap{display:flex;align-items:center;justify-content:space-between;gap:6px 8px;font-size:calc(12.5px * var(--fs));color:var(--muted);flex-wrap:wrap}.dscapr{display:inline-flex;gap:10px;align-items:center}
 .dscap .ov{font-weight:700}.dscap .ov.bad{color:var(--bad)}.dscap .ov.good{color:var(--ok)}.dscap label{display:inline-flex;align-items:center;gap:5px}
 .dsbig{min-height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:calc(12.5px * var(--fs));font-weight:600}.dsbig[hidden]{display:none}
@@ -484,6 +498,13 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 #projects .body.tm{padding-left:max(16px,calc((100% - 760px) / 2));padding-right:max(16px,calc((100% - 760px) / 2))}
 .tmempty{align-items:flex-start}.tmempty b{font-size:calc(17px * var(--fs))}
 .tmcur{border-left:5px solid var(--accent);gap:10px}
+/* v2.44 beta 4.0: CEF-Plan. The editor is its own page in a frame over the app; a CEF-Plan project's main screen; the rows in Projects and on a site pin */
+#cefSheet{background:linear-gradient(var(--navy),var(--navy)) 0 0/100% calc(env(safe-area-inset-top,0px) + 1px) no-repeat,var(--surface);padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);box-sizing:border-box}#cefFrame{flex:1 1 auto;width:100%;height:100%;min-height:0;border:0;display:block;background:#e8ecf0}
+body.cefproj #pinAddBtn,body.cefproj #routeBtn,body.cefproj #routeFitBtn,body.cefproj #refBtn{display:none}
+body.cefproj #captureBtn svg{display:none}body.cefproj #captureBtn::after{content:"CEF";font-weight:800;font-size:15px;letter-spacing:.05em}
+.curcef{display:flex;flex-direction:column;gap:6px}.curcef .cefrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.curcef .cefrow span{flex:1 1 160px;min-width:0;font-size:calc(13px * var(--fs));color:var(--muted)}
+#cefPinBox{display:flex;flex-direction:column;gap:6px;align-items:flex-start}#cefPinBox[hidden]{display:none}
+#setLogoImg{height:40px;max-width:140px;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:4px;padding:2px}
 .tmhead{display:flex;align-items:center;gap:8px;min-width:0}
 .tmstate{font-size:calc(12px * var(--fs));font-weight:700;padding:4px 9px;border-radius:999px;background:var(--chip);color:var(--muted);white-space:nowrap}
 .tmstate.wip{background:var(--soft);color:var(--accent)}.tmstate.done{background:var(--ok);color:#fff}
@@ -1064,6 +1085,24 @@ details.psrow[open]>summary::after{transform:rotate(90deg)}
 #fixPanel{position:absolute;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:530;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);display:flex;flex-direction:column;max-height:min(58vh,620px)}
 #fixPanel[hidden]{display:none}
 body.deskpane #fixPanel{left:calc(var(--pw) + 8px);right:auto;width:min(440px,calc(100vw - var(--pw) - 24px))}
+/* beta 4.1: on a computer the cable route, the fix list, the visit card and the project's photos open as a panel on the right (close at its top); the map stays in view on the left */
+body.deskpane{--rpw:min(440px,calc(100vw - var(--pw) - 260px))}
+body.deskpane #routeBar,body.deskpane #rtBar,body.deskpane #visitCard,body.deskpane #fixPanel,body.deskpane #photoPane{left:auto;right:0;top:var(--tbh,56px);bottom:0;width:var(--rpw);max-height:none;border-radius:0;border:0;border-left:1px solid var(--line);box-shadow:-10px 0 28px rgba(16,24,32,.18);overflow-y:auto;animation:edIn .2s ease-out}
+body.deskpane #rtBar{align-content:start}
+body.deskpane #rtPop{left:auto;right:10px;width:calc(var(--rpw) - 20px);bottom:14px;max-height:62vh;overflow-y:auto}
+body.deskpane.rpanel .mapbtns,body.deskpane.rpanel.routing .mapbtns{right:calc(var(--rpw) + 12px);bottom:calc(env(safe-area-inset-bottom,0px) + 164px)}
+body.deskpane.rpanel #mapSummary{right:calc(var(--rpw) + 12px)}body.deskpane.rpanel #map .leaflet-right{right:var(--rpw)}
+body:not(.deskpane) #photosBtn{display:none}
+#photoPane{position:absolute;z-index:520;background:var(--surface);color:var(--ink);display:flex;flex-direction:column}
+#photoPane .ppxh{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--surface);z-index:1}
+#photoPane .ppxh b{font-size:calc(16px * var(--fs,1))}#photoPane .ppxh span{color:var(--muted);margin-right:auto}
+#photoPane .hint{margin:8px 12px 0}
+#ppxGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;padding:10px 12px 16px}
+.ppxi{display:flex;flex-direction:column;gap:4px;padding:0;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:inherit;font:inherit;text-align:left;cursor:pointer;overflow:hidden}
+.ppxi:hover,.ppxi:focus-visible{border-color:var(--accent)}
+.ppxi img{width:100%;aspect-ratio:4/3;object-fit:cover;background:var(--chip);display:block}
+.ppxi.none img{visibility:hidden}.ppxi .ppxc{display:flex;flex-direction:column;padding:2px 8px 7px;min-width:0}
+.ppxi .ppxc b{font-size:calc(12.5px * var(--fs,1));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ppxi .ppxc small{color:var(--muted);font-size:calc(11.5px * var(--fs,1))}
 body.fixing #mapSummary{display:none}
 .fx-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line2)}
 .fx-head .t{flex:1;min-width:0;display:flex;flex-direction:column}.fx-head b{font-size:calc(15px * var(--fs));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fx-head span{font-size:calc(12.5px * var(--fs));color:var(--muted)}
@@ -1233,6 +1272,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <button class="round" id="routeBtn" aria-label="Edit cable route and spans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="18" r="2.2"/><circle cx="12" cy="7" r="2.2"/><circle cx="19" cy="15" r="2.2"/><path d="m6.4 16.2 4.3-7.4M13.6 8.6l4.2 4.9"/></svg></button>
     <button class="round" id="routeFitBtn" type="button" hidden aria-label="Show the whole route" title="Show the whole route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <button class="round" id="offlineBtn" hidden aria-label="Maps: online server and offline packs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19.5 10 4 4 0 0 1 18 18"/><path d="M12 11v9M8.5 16.5 12 20l3.5-3.5"/></svg></button>
+    <button class="round" id="photosBtn" type="button" aria-pressed="false" aria-label="Photos of this project: every photo, a click opens its pin" title="Photos of this project"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/><circle cx="15.5" cy="9.5" r="1.3"/></svg></button>
     <button class="round" id="refBtn" type="button" aria-label="Reference KMZ: load it, or show and hide it"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg><i class="refdot" aria-hidden="true"></i></button>
     <div id="refMenu" hidden role="dialog" aria-label="Show on the map">
       <b id="rmTitle">Reference KMZ</b><span id="rmName" class="rmname"></span>
@@ -1261,6 +1301,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div class="fx-head"><div class="t"><b id="fxTitle">Fixes</b><span id="fxSub"></span></div><button class="btn sm" id="fxMin" type="button" aria-expanded="true">Hide</button><button class="iconbtn" id="fxClose" type="button" aria-label="Close the fix list (it is kept)"><svg><use href="#i-close"/></svg></button></div>
     <div id="fxBody"></div>
   </section>
+  <section id="photoPane" hidden aria-labelledby="ppxTitle"><div class="ppxh"><b id="ppxTitle">Photos</b><span id="ppxN"></span><button class="iconbtn" id="ppxClose" type="button" aria-label="Close the photos" title="Close">✕</button></div><p class="hint" id="ppxHint"></p><div id="ppxGrid"></div></section>
   <div id="routeBar" hidden aria-label="Cables">
     <div class="rb-head"><b id="rbTitle">Route</b><span id="rbStats"></span><button class="btn sm" id="rbToolsClose" type="button" aria-label="Close the list of cables (back to the small bar)">Close</button></div>
     <p class="rb-hint" id="rbHint"></p>
@@ -1398,6 +1439,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <p class="warnline" id="fmtWarn" hidden></p>
       <label class="frow" id="odfBox" hidden><span class="lbl">ODF</span><select id="odfSel" aria-label="ODF"><option value="New">New ODF</option><option value="Existing">Existing ODF</option></select></label>
       <label class="frow" id="siteKindBox" hidden><span class="lbl">SITE TYPE</span><select id="siteKindSel" aria-label="Site type"><option value="Tower">Tower</option><option value="OLT">OLT</option></select></label>
+      <div id="cefPinBox" hidden><span class="lbl">CEF PLAN</span><button class="btn" id="cefPinBtn" type="button">Add a CEF plan</button><span class="hint" id="cefPinInfo" style="margin:0"></span></div>
       <div class="field" id="svClosureBox" data-k="clo" hidden><span class="lbl" id="svCloLbl">CLOSURE IN THIS HANDHOLE</span>
         <div class="toggles"><label class="tchip"><input type="checkbox" id="svCloOn"><span>Closure</span></label></div>
         <div class="attrow" id="svCloRow" hidden>
@@ -1469,6 +1511,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
 </section>
 
 <!-- red box on a survey photo (v2.13): burned into the saved photo -->
+<section class="sheet" id="cefSheet" hidden aria-label="CEF plan"><iframe id="cefFrame" title="CEF plan" src="about:blank"></iframe></section>
 <section class="sheet" id="boxer" hidden aria-labelledby="boxTitle">
   <header>
     <button class="iconbtn" data-close aria-label="Cancel"><svg><use href="#i-close"/></svg></button>
@@ -1499,6 +1542,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <!-- v2.41: the legend (top left), the tools on the drawing (lower right, as on the map), the information line -->
     <details class="drwlegend" id="drawLegend" open><summary>Legend</summary><div id="drawLegendBody"></div></details>
     <div class="drwtools">
+      <button class="round" id="drawCef" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-label="CEF plans of the tower sites" title="CEF plans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 6 21M12 3l6 18M8.3 14h7.4M9.7 9h4.6M4 21h16"/></svg></button>
       <button class="round" id="drawFit" type="button" aria-label="Fit: the whole drawing" title="Fit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <button class="round" id="drawLabels" type="button" aria-pressed="true" aria-label="Labels on or off" title="Labels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M12 6v13M9 19h6"/></svg></button>
       <button class="round" id="drawMap" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Map under the drawing: off, offline map, satellite or street map" title="Map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg><i class="drwmapdot" aria-hidden="true"></i></button>
@@ -1511,6 +1555,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <label><input type="radio" name="drawMapKind" value="sat"><span>Satellite (online)</span></label>
       <label><input type="radio" name="drawMapKind" value="street"><span>Street map (online)</span></label>
     </div>
+    <div class="drwmenu drwcef" id="drawCefMenu" role="group" aria-label="CEF plans of the tower sites" hidden><b>CEF plans of the tower sites</b><div id="drawCefList"></div></div>
     <p class="drwhint" id="drawHint"></p>
     <div id="drawInfo" hidden></div>
     <!-- v2.42.28: the drawing of the export shown here; ‹ › go through them -->
@@ -1548,7 +1593,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div class="dscap"><span id="dsCap"></span><span class="dscapr"><label><input type="checkbox" id="dsMark" checked> Mark overlaps</label><button type="button" class="dsbig" id="dsBig" hidden>Bigger</button></span></div>
    </div>
    <div class="dsctl">
-    <p class="hint" style="margin-top:0">Your style for the plan DXF (on this phone). Pick a part above the preview to see its settings: the street (numbers, IDs, clamp types, cable labels), a crowded corner, the tower site or the vicinity map. The preview changes as you set it, drawn at 1:1100 like the GEO sheets.</p>
+    <p class="hint" style="margin-top:0">Your style for the plan DXF (on this phone). Pick a part above the preview to see its settings: the street (numbers, pole details, span lengths, IDs, clamp types, cable labels), a crowded corner, the tower site or the vicinity map. Or tap a label on the preview: its settings come into view, marked. The preview changes as you set it, drawn at 1:1100 like the GEO sheets.</p>
     <div class="stgrp" id="stCrowd" data-scene="crowd">
       <h3>Crowded places</h3>
       <div class="strow"><span class="lbl">Labels in crowded places</span><div class="seg" id="stCrowdAuto" role="radiogroup" aria-label="Labels in crowded places"><button type="button" class="chip small" data-v="1">Auto: move and fit</button><button type="button" class="chip small" data-v="0">Off (as before)</button></div></div>
@@ -1568,6 +1613,18 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="strow"><label class="lbl" for="stNumG">Distance from the point <output id="stNumGO"></output></label><input type="range" id="stNumG" min="0" max="20" step="0.5"></div>
       <div class="strow"><span class="lbl">Leader line to the point</span><div class="seg" id="stNumLeader" role="radiogroup" aria-label="Leader line"><button type="button" class="chip small" data-v="0">Off</button><button type="button" class="chip small" data-v="1">On</button></div></div>
       <div class="strow"><span class="lbl">Where the number goes</span><div class="seg" id="stNumPlace" role="radiogroup" aria-label="Where the number goes"><button type="button" class="chip small" data-v="auto">Beside the pole</button><button type="button" class="chip small" data-v="out">Straight out from the road</button></div></div>
+    </div>
+    <div class="stgrp" id="stPole" data-scene="street crowd tower">
+      <h3>Pole details and span lengths</h3>
+      <p class="hint" style="margin:0">Auto: as before (the template's sizes and colours). A text is still drawn smaller where the plan is crowded; a proposed pole keeps its own colour, and a span over the limit stays red. Tap a label on the preview to come to its settings.</p>
+      <div class="strow"><label class="lbl" for="stPoleIdH">Pole ID text height <output id="stPoleIdHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stPoleIdHAuto">Auto</button><input type="range" id="stPoleIdH" min="1" max="5" step="0.1" style="flex:1"></div></div>
+      <div class="strow"><span class="lbl">Pole ID colour <output id="stPoleIdColO"></output></span><div class="sws" id="stPoleIdCol" role="radiogroup" aria-label="Pole ID colour"></div></div>
+      <div class="strow"><label class="lbl" for="stPoleOwnH">Owner name text height <output id="stPoleOwnHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stPoleOwnHAuto">Auto</button><input type="range" id="stPoleOwnH" min="1" max="5" step="0.1" style="flex:1"></div></div>
+      <div class="strow"><span class="lbl">Owner name colour <output id="stPoleOwnColO"></output></span><div class="sws" id="stPoleOwnCol" role="radiogroup" aria-label="Owner name colour"></div></div>
+      <div class="strow"><label class="lbl" for="stPoleLlH">Lat/long text height <output id="stPoleLlHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stPoleLlHAuto">Auto</button><input type="range" id="stPoleLlH" min="0.6" max="3" step="0.1" style="flex:1"></div></div>
+      <div class="strow"><span class="lbl">Lat/long colour <output id="stPoleLlColO"></output></span><div class="sws" id="stPoleLlCol" role="radiogroup" aria-label="Lat/long colour"></div></div>
+      <div class="strow"><label class="lbl" for="stSpanH">Span length text height <output id="stSpanHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stSpanHAuto">Auto</button><input type="range" id="stSpanH" min="1" max="4" step="0.1" style="flex:1"></div></div>
+      <div class="strow"><span class="lbl">Span length colour <output id="stSpanColO"></output></span><div class="sws" id="stSpanCol" role="radiogroup" aria-label="Span length colour"></div></div>
     </div>
     <div class="stgrp" id="stId" data-scene="street">
       <h3>IDs of NAPs, LCPs, the ODC, handholes…</h3>
@@ -1601,6 +1658,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div class="stgrp" id="stVic" data-scene="vic">
       <h3>Vicinity map</h3>
       <div class="stvic" hidden><svg id="stVicPrev" viewBox="0 0 60 40" role="img" aria-label="Preview of the vicinity map: the route and the project area circle"></svg></div>
+      <div class="strow"><span class="lbl">Zoom to the project area</span><div class="seg" id="stVicZoom" role="radiogroup" aria-label="Zoom to the project area"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div><p class="hint" style="margin:0">On: the project area takes about half of the map. Off: the map is at least 1.5 km across, as before.</p></div>
       <div class="strow"><span class="lbl">Project area (its circle, its label, the map darker round it)</span><div class="seg" id="stVicArea" role="radiogroup" aria-label="Project area"><button type="button" class="chip small" data-v="1">Show</button><button type="button" class="chip small" data-v="0">Hide</button></div></div>
       <div class="strow" data-dim="vicarea"><label class="lbl" for="stVicLbl">Label</label><input type="text" id="stVicLbl" maxlength="40" autocomplete="off" placeholder="PROJECT AREA" aria-label="The project area's label"><p class="hint" style="margin:0">Blank: the circle without a label.</p></div>
       <div class="strow" data-dim="vicarea"><label class="lbl" for="stVicLh">Label text height <output id="stVicLhO"></output></label><input type="range" id="stVicLh" min="8" max="40" step="1"></div>
@@ -1763,8 +1821,13 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
         <div id="sigEdit" hidden>
           <div class="opt2"><label class="field">Design Engineer<input type="text" id="sigDesign" maxlength="80" autocomplete="off" placeholder="Name"></label><label class="field">Project Engineer<input type="text" id="sigProject" maxlength="80" autocomplete="off" placeholder="Name"></label></div>
           <div class="opt2"><label class="field">Head-Cable Engineering<input type="text" id="sigHead" maxlength="80" autocomplete="off" placeholder="Name"></label><label class="field">CSE Lead<input type="text" id="sigCse" maxlength="120" autocomplete="off" placeholder="From the online sheet"></label></div>
+          <div id="sigCefBox"><span class="lbl" style="display:block;margin:8px 0 2px">CEF PLAN SHEETS</span>
+            <div class="opt2"><label class="field">Prepared by<input type="text" id="sigCefBy" maxlength="80" autocomplete="off" placeholder="The person who exports"></label><label class="field">Checked by<input type="text" id="sigCefChk" maxlength="80" autocomplete="off" placeholder="Blank, to sign by hand"></label></div>
+            <div class="opt2"><label class="field">Approved by<input type="text" id="sigCefApr" maxlength="80" autocomplete="off" placeholder="Blank, to sign by hand"></label><span></span></div>
+            <p class="hint" style="margin:0">The title block of every CEF sheet. Left empty: Prepared by is the person who exports, Checked by the coordinator who accepted the task, Approved by stays blank for a signature. The CEF editor shows the same three names (Check and export).</p></div>
           <p class="hint" id="sigInfo" style="margin:0"></p></div></div>
       <label class="swrow" for="dxfPdf" id="dxfPdfRow"><span class="t"><b>Also a PDF to print</b><small>The sheets on A3, drawn by the app from each DXF, in the ZIP</small></span><span class="swi"><input type="checkbox" id="dxfPdf"><i aria-hidden="true"></i></span></label>
+      <label class="swrow" for="dxfCef" id="dxfCefRow" hidden><span class="t"><b>Also the CEF plans</b><small>The CEF plan of each tower site of this project (PDF, DXF, KML, photos), each in its own folder of the ZIP</small></span><span class="swi"><input type="checkbox" id="dxfCef" checked><i aria-hidden="true"></i></span></label>
       <button class="btn primary" id="doDxf">Export DXF</button>
     </div>
     <div class="xcard">
@@ -1950,6 +2013,13 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div class="body">
     <p class="hint">These are the defaults for the Export screen; each export card there has the same options under “Options”.</p>
     <div class="group">
+      <h3>Company logo</h3>
+      <p class="hint">On the title blocks of your plan drawings and your CEF plan sheets. Set it once: it goes to your company's users at their next Sync.</p>
+      <div class="row" style="align-items:center;gap:8px;flex-wrap:wrap"><img id="setLogoImg" alt="Your company logo" hidden><span class="hint" id="setLogoInfo" style="flex:1 1 160px;margin:0"></span></div>
+      <div class="row"><button class="btn small" id="setLogoSet" type="button">Add company logo…</button><button class="btn small" id="setLogoDel" type="button" hidden>Remove</button></div>
+      <p class="hint" id="setLogoWho" hidden style="margin:0"></p>
+    </div>
+    <div class="group">
       <h3>Photos (ZIP, KMZ balloons, stamps)</h3>
       <p class="hint">Photos are always kept on the phone at full export quality (2048 px); these settings shape the copies that leave the phone.</p>
       <div class="opt2"><label class="field">Longest side of export copies<select id="setMaxPx2"><option>1280</option><option>1600</option><option>2048</option><option>2560</option><option>3264</option></select></label>
@@ -2050,6 +2120,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <span class="tmsub tl" id="curLast" hidden></span>
       <div class="tmtools" id="curTools" role="group" aria-label="This project"></div>
       <div class="curteam" id="curTeam" hidden></div>
+      <div class="curcef" id="curCef" hidden></div>
       <button class="tmprog" id="tmStepsBtn" type="button" aria-expanded="false" aria-controls="wfSteps"><span class="bar"><i id="tmBar"></i></span><span id="tmProgTxt"></span></button>
       <div id="wfSteps" hidden></div>
       <button class="btn primary" id="wfNext" type="button">Next</button>
@@ -2466,13 +2537,15 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
         <p class="hint" id="admInvInfo" style="margin:0"></p>
       </div>
       <div class="group">
-        <h3>Deficiency List form and report logos</h3>
-        <p class="hint">The header and signature lines printed on the Deficiency List form, and the two logos printed on the form and at the top of the other PDF reports (completion report, rectification report). They go to every phone with the list.</p>
+        <h3>Logos: Deficiency List form, reports and CEF plans</h3>
+        <p class="hint">The header and signature lines printed on the Deficiency List form, and the two logos printed on the form and at the top of the other PDF reports (completion report, rectification report). They go to every phone with the list. <b>Client logo · CEF plans</b>: the client's logo on the cover and in the title block of every CEF plan sheet; until you choose one it is the left logo. Users cannot change it.</p>
         <div class="logopick">
           <div class="lp"><span class="lbl">LEFT LOGO</span><div class="lpbox"><img id="admLogoLImg" alt="Left logo"></div><span class="hint" id="admLogoLInfo"></span>
             <div class="row"><button class="btn sm" id="admLogoL" type="button">Choose image…</button><button class="btn sm" id="admLogoLReset" type="button">Built-in</button></div></div>
           <div class="lp"><span class="lbl">RIGHT LOGO</span><div class="lpbox"><img id="admLogoRImg" alt="Right logo"></div><span class="hint" id="admLogoRInfo"></span>
             <div class="row"><button class="btn sm" id="admLogoR" type="button">Choose image…</button><button class="btn sm" id="admLogoRReset" type="button">Built-in</button></div></div>
+          <div class="lp"><span class="lbl">CLIENT LOGO · CEF PLANS</span><div class="lpbox"><img id="admLogoCImg" alt="Client logo of the CEF plan sheets"></div><span class="hint" id="admLogoCInfo"></span>
+            <div class="row"><button class="btn sm" id="admLogoC" type="button">Choose image…</button><button class="btn sm" id="admLogoCReset" type="button">Same as left</button></div></div>
           <input type="file" id="admLogoInput" accept="image/png,image/jpeg,image/webp" hidden>
         </div>
         <label class="field">Company name<input type="text" id="pfmCompany" autocomplete="off"></label>
