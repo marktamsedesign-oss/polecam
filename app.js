@@ -575,6 +575,19 @@
     if (!here.done) return rl || '';
     return `${rl || 'This area'} · no road pack for the town`;
   }
+  /** beta 4.3 (MarkT): one coop offered for this pole (the only coop of its town in the list; with no road pack for the town, of its region): it is the
+      pole's owner name to start with; a tap on it takes it off again, and it stays off. With more than one offered the user chooses, as before. Only for a
+      pole being made, or when its owner was chosen just now: a saved pole is not changed by opening it. Decided once for an owner at a place (about
+      100 m): a pole moved to another town loses the name the app set for the first one, and gets the new town's if that has one coop too. */
+  function coopOnly() {
+    if (!ed || !isElecOwner(ed.boq.owner) || (ed.own0 !== null && ed.own0 !== undefined && ed.own0 === ed.boq.owner)) return;
+    const A = sheetCoops(), here = A.length ? coopArea() : null; if (A.length && (!here || !here.done)) return; // the town is being read: decided when it is known (the form is drawn again then)
+    const c = pinMap ? pinMap.getCenter() : null, key = `${ed.boq.owner}|${c && Number.isFinite(c.lat) ? `${c.lat.toFixed(3)},${c.lng.toFixed(3)}` : ''}`; if (ed.coopKey === key) return;
+    const G = coopGroups(), one = G.first.length === 1 ? G.first[0] : '';
+    if (ed.coopSet && ed.boq.ownerName === ed.coopSet && ed.coopSet !== one) delete ed.boq.ownerName; // moved to another place: the name set for the first one goes
+    ed.coopKey = key; ed.coopSet = '';
+    if (one && !ed.boq.ownerName) { ed.boq.ownerName = one; ed.coopSet = one; setTimeout(() => { try { foldSum(); } catch (e) { /* the record closed */ } }, 0); }
+  }
   const coopFirstNote = () => coopPlaceText(); // (beta 3.6's name, for the tests)
   /** beta 3.8: the coops of the Owner name row (and its town line), drawn again as the user types or opens More coops. */
   let coopMore = false, coopMoreId = null;
@@ -602,7 +615,7 @@
   function fillCoopPlace(pl, ro) {
     const t = coopPlaceText(); pl.innerHTML = ''; pl.hidden = !t; if (!t) return;
     const ln = document.createElement('span'); ln.className = 'coopline'; ln.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/></svg>';
-    ln.append(t); pl.appendChild(ln);
+    ln.append(t); if (ed && ed.coopSet && ed.boq.ownerName === ed.coopSet) ln.append(' · the only coop listed here: set for you'); pl.appendChild(ln); // (beta 4.3)
     const here = coopArea();
     if (!ro && here && here.done && !here.muni && here.region) { const pk = packFor(here.region, 'road'); if (pk) pl.appendChild(packGetBtn(pk, 'Get the road pack')); }
   }
@@ -896,10 +909,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.44.0';
+  const APP_VER = '2.44.1';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '4.2'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '4.3'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -1718,6 +1731,7 @@
     $('drawInfo').hidden = true; $('drawLabels').setAttribute('aria-pressed', 'true'); $('drawMapMenu').hidden = true;
     $('drawLegend').open = S.drawLegendOpen != null ? S.drawLegendOpen !== false : window.innerWidth > 700; // folded on a phone until opened
     renderDrawMap(); setWhat(deskOn() && S.drwWhatDesk !== false, false); renderDrawBar(); renderDrawLegend(); // v2.42.28: What to export
+    if (cefHooks.drawSync) cefHooks.drawSync(); // beta 4.3: the CEF plans of the tower sites
     try { renderCredit(); } catch (e) { /* not ready */ } // v2.42.7: the balance at the upper right
     if (!again) openSheet('drawing');
     requestAnimationFrame(() => { sizeDrawing(); fitDrawing(); drawDrawing(); drawSeqSoon(); });
@@ -2065,6 +2079,7 @@
         if (best) { const p = best.it.p, u = best.it.xy, n = drw.seq.get(String(p.id)), tg = best.it.el === 'Pole' ? poleTags(best.it).map((x) => x[0]) : [];
           info.textContent = `${n ? `No. ${n} · ` : ''}${p.poleId || elemOf(p)} · ${svDesc(p)}${boqText(p) ? ` · ${boqText(p)}` : ''}${tg.length ? ` · on the plan: ${tg.join(', ')}` : ''}${best.it.on ? ` · on pole ${best.it.on.p.poleId || '(no ID)'}` : ''} · E ${u[0].toFixed(1)} N ${u[1].toFixed(1)}`; info.hidden = false; $('drawHint').hidden = true; }
         else if (drw.selRun == null) { info.hidden = true; $('drawHint').hidden = !!S.drawHintOff; } // (v2.42.26: a cable tapped keeps its line)
+        if (cefHooks.drawSync) cefHooks.drawSync(); // beta 4.3: a tower site tapped: its CEF plan
         drawDrawing();
       }
     };
@@ -2209,16 +2224,18 @@
   const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto' }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5, area: true, zoom: true, label: 'PROJECT AREA', lh: 18 }, /* (beta 3.9: the project area shown, its label and its height) */
     clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a', per: 3, h: 0, w: { prop: true, size: true, type: true, place: true, foc: false, run: true } }, /* v2.42.26: labels for each cable in a grid, their height (0: by the poles' spacing), their words */
     site: { name: 'on', move: 'auto', arrow: true, acol: 7 }, odf: { place: 'auto', lbl: 'size' }, /* v2.42.26: the tower's name; the ODF beside the tower, its label (beta 3.8: the name on the tower; moved aside in its sheet; the arrow) */
-    crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room' } }; /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
+    crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room' },
+    pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0 }, span: { h: 0, color: 0 } }; /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
   function plStyle() {
     const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d);
-    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) };
+    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) }, Po = { ...PL_DEF.pole, ...(u.pole || {}) }, Sp = { ...PL_DEF.span, ...(u.span || {}) }, hz = (v, lo, hi) => (+v ? n(v, lo, hi, 0) : 0);
     return { num: { color: c(N.color, 2), bcolor: c(N.bcolor, 0, true), h: n(N.h, 1, 12, 3), d: n(N.d, 0, 25, 7), g: n(N.g, 0, 25, 2), leader: N.leader !== false, place: N.place === 'out' ? 'out' : 'auto' },
       id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5), area: V.area !== false, zoom: V.zoom !== false, label: typeof V.label === 'string' ? V.label.replace(/\s+/g, ' ').slice(0, 40) : 'PROJECT AREA', lh: n(V.lh, 8, 40, 18) },
       clamp: { place: ['label', 'tag', 'callout'].includes(Cl.place) ? Cl.place : 'label', pos: ['auto', 'up', 'down', 'left', 'right'].includes(Cl.pos) ? Cl.pos : 'auto', color: c(Cl.color, 0, true), h: n(Cl.h, 1, 5, 2), box: Cl.box !== false, hw: Cl.hw !== false },
       cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a', per: [1, 2, 3].includes(+Cb.per) ? +Cb.per : 3, h: +Cb.h ? n(Cb.h, 0.8, 3, 0) : 0, w: Object.fromEntries(Object.keys(PL_DEF.cab.w).map((k) => [k, !!Cw[k]])) },
       site: { name: ['on', 'top', 'side', 'bottom'].includes(St.name) ? St.name : 'on', move: St.move === 'point' ? 'point' : 'auto', arrow: St.arrow !== false, acol: c(St.acol, 7, true) }, /* (beta 3.8: Auto is now On the tower) */
-      crowd: { auto: Cr.auto !== false, min: n(Cr.min, 50, 100, 75), move: n(Cr.move, 4, 30, 15), leader: Cr.leader !== false, streets: Cr.streets === 'fixed' ? 'fixed' : 'slide', marks: ['room', 'always', 'hide'].includes(Cr.marks) ? Cr.marks : 'room' }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' } };
+      crowd: { auto: Cr.auto !== false, min: n(Cr.min, 50, 100, 75), move: n(Cr.move, 4, 30, 15), leader: Cr.leader !== false, streets: Cr.streets === 'fixed' ? 'fixed' : 'slide', marks: ['room', 'always', 'hide'].includes(Cr.marks) ? Cr.marks : 'room' }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' },
+      pole: { idH: hz(Po.idH, 1, 5), idColor: c(Po.idColor, 0, true), ownH: hz(Po.ownH, 1, 5), ownColor: c(Po.ownColor, 0, true), llH: hz(Po.llH, 0.6, 3), llColor: c(Po.llColor, 0, true) }, span: { h: hz(Sp.h, 1, 4), color: c(Sp.color, 0, true) } };
   }
   const setPl = (part, k, v) => { const cur = plStyle(); S.plStyle = { ...cur, [part]: { ...cur[part], [k]: v } }; persist(); renderStyle(); };
   const mmOf = (m) => (m / 1.1).toFixed(1);
@@ -2234,6 +2251,10 @@
       opts.forEach(([k, nm]) => { const b = document.createElement('button'); b.type = 'button'; b.className = `sw2${k ? '' : ' txt'}`; b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(val === k)); b.setAttribute('aria-label', k ? `${nm} (AutoCAD colour ${k})` : nm); b.title = b.getAttribute('aria-label');
         if (k) b.style.setProperty('--c', ACI_HEX[k]); else b.textContent = nm; b.addEventListener('click', () => setPl(part, key, k)); box.appendChild(b); }); };
     sw('stClCol', P.clamp.color, 'By layer', 'clamp', 'color'); // v2.42.21
+    { const Q = P.pole, Z = P.span, hh = (id, v, def, auto) => { if (document.activeElement !== $(id)) $(id).value = String(v || def); $(id + 'Auto').setAttribute('aria-pressed', String(!v)); $(id + 'O').textContent = v ? `${v} m · ${mmOf(v)} mm` : auto; }; // beta 4.3
+      sw('stPoleIdCol', Q.idColor, 'Auto', 'pole', 'idColor'); sw('stPoleOwnCol', Q.ownColor, 'Auto', 'pole', 'ownColor'); sw('stPoleLlCol', Q.llColor, 'Auto', 'pole', 'llColor'); sw('stSpanCol', Z.color, 'Auto', 'span', 'color');
+      hh('stPoleIdH', Q.idH, 2.2, 'auto (2.2 m · 2.0 mm)'); hh('stPoleOwnH', Q.ownH, Q.idH || 2.2, 'auto (as the pole ID)'); hh('stPoleLlH', Q.llH, 1.2, 'auto (1.2 m · 1.1 mm)'); hh('stSpanH', Z.h, 2, 'auto (2.0 m · 1.8 mm)');
+      $('stPoleIdColO').textContent = Q.idColor ? ACI_NAME[Q.idColor] : 'auto (as the template)'; $('stPoleOwnColO').textContent = Q.ownColor ? ACI_NAME[Q.ownColor] : 'auto (as the pole ID)'; $('stPoleLlColO').textContent = Q.llColor ? ACI_NAME[Q.llColor] : 'auto (by layer)'; $('stSpanColO').textContent = Z.color ? ACI_NAME[Z.color] : 'auto (by layer)'; }
     sw('stNumCol', N.color, null, 'num', 'color'); sw('stNumBCol', N.bcolor, 'Same as the number', 'num', 'bcolor'); sw('stIdCol', I.color, 'By layer (as before)', 'id', 'color'); sw('stVicCol', V.circle, null, 'vic', 'circle'); sw('stVicRCol', V.route, 'By cable', 'vic', 'route');
     const o = (id, t) => { $(id).textContent = t; };
     o('stClColO', P.clamp.color ? ACI_NAME[P.clamp.color] : 'by layer'); // v2.42.21
@@ -2276,6 +2297,7 @@
     ['stCrowdAuto', 'crowd', 'auto', (v) => v === '1'], ['stCrowdLeader', 'crowd', 'leader', (v) => v === '1'], ['stCrowdStreets', 'crowd', 'streets', (v) => v], ['stCrowdMarks', 'crowd', 'marks', (v) => v], // beta 3.8
     ['stSiteMove', 'site', 'move', (v) => v], ['stSiteArrow', 'site', 'arrow', (v) => v === '1']]
     .forEach(([id, part, key, val]) => $(id).addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl(part, key, val(b.dataset.v)); }));
+  [['stPoleIdH', 'pole', 'idH'], ['stPoleOwnH', 'pole', 'ownH'], ['stPoleLlH', 'pole', 'llH'], ['stSpanH', 'span', 'h']].forEach(([id, part, key]) => { $(id).addEventListener('input', () => setPl(part, key, +$(id).value)); $(id + 'Auto').addEventListener('click', () => setPl(part, key, 0)); }); // beta 4.3
   $('stCabH').addEventListener('input', () => setPl('cab', 'h', +$('stCabH').value)); $('stCabHAuto').addEventListener('click', () => setPl('cab', 'h', 0));
   $('stCabW').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; const w = { ...plStyle().cab.w, [b.dataset.k]: !plStyle().cab.w[b.dataset.k] }; setPl('cab', 'w', w); });
   $('stClOn').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; S.exp.dxfClampType = b.dataset.v === '1'; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); }); // (the Drawing's CA button too)
@@ -2325,7 +2347,7 @@
     function Blk(o) { // lines [{t, h, c, italic, serif, bold}], left aligned
       return { ...o, size(k) { let w = 0, h = 0; o.lines.forEach((l) => { w = Math.max(w, tW(l.t, l.h * k, l.bold)); h += l.h * k * 1.22; }); return { w, h }; },
         draw(g, at, k, pal) { const d = this.size(k); let y = at.cy - d.h / 2; const x = at.cx - d.w / 2;
-          o.lines.forEach((l) => { const h = l.h * k; mk(g, 'text', { x, y: y + h * 0.92, 'font-size': h.toFixed(3), fill: pal[l.c] || l.c, 'font-family': l.serif ? '"Times New Roman", Times, serif' : ARIAL, 'font-style': l.italic ? 'italic' : null, 'font-weight': l.bold ? 700 : null }, l.t); y += h * 1.22; }); } };
+          o.lines.forEach((l) => { const h = l.h * k; mk(g, 'text', { 'data-st': l.st || null, x, y: y + h * 0.92, 'font-size': h.toFixed(3), fill: pal[l.c] || l.c, 'font-family': l.serif ? '"Times New Roman", Times, serif' : ARIAL, 'font-style': l.italic ? 'italic' : null, 'font-weight': l.bold ? 700 : null }, l.t); y += h * 1.22; }); } };
     }
     const ring = (o) => (d, k) => { const def = o.def(d, k), out = [{ cx: def.cx, cy: def.cy, d: 0, cost: 0 }];
       for (const ex of [0, 1, 2.5, 4, 6, 8.5, 11, 14, 18, 23, 29]) for (let i = 0; i < 16; i++) {
@@ -2372,7 +2394,7 @@
       const { res, clashes } = solve(sc.labels, sc.obst, C, sc.bounds), gL = mk(svg, 'g', {});
       res.forEach((r) => { if (r.skip) return; const L = r.L;
         if (L.lead && C.auto && C.leader && r.c.d > (L.leadMin || 3)) { const [qx, qy] = nearOnBox(r.b, L.ax, L.ay), dx = qx - L.ax, dy = qy - L.ay, dd = Math.hypot(dx, dy); if (dd > (L.ar || 1) + 0.6) mk(gL, 'line', { x1: L.ax + dx / dd * ((L.ar || 1) + 0.3), y1: L.ay + dy / dd * ((L.ar || 1) + 0.3), x2: qx, y2: qy, stroke: pal.grey, 'stroke-width': 0.16 }); }
-        L.draw(gL, r.c, r.k, pal);
+        L.draw(L.st ? mk(gL, 'g', { 'data-st': L.st }) : gL, r.c, r.k, pal); // (beta 4.3: a label says which settings are its own)
         if (C.mark && r.ov > 1e-6) mk(gL, 'rect', { x: r.b.x0 - 0.3, y: r.b.y0 - 0.3, width: r.b.x1 - r.b.x0 + 0.6, height: r.b.y1 - r.b.y0 + 0.6, fill: 'none', stroke: pal.clash, 'stroke-width': 0.3, 'stroke-dasharray': '1 0.6', class: 'dsclash' });
       });
       const gO = mk(svg, 'g', {}); (sc.over || []).forEach((f) => f(gO, pal));
@@ -2389,15 +2411,16 @@
     function poleLabels(P, p, opts) {
       const ct = S.exp.dxfClampType !== false, Cl = P.clamp, inL = !ct || Cl.place === 'label', N = P.num, lines = [], out = [];
       const clT = p.hw ? (ct && Cl.hw ? p.hw : '') : p.cl ? (ct ? p.cl : p.cl.replace(/^[A-Z0-9]+ /, '')) : '';
-      if (p.pre) lines.push({ t: p.pre, h: 2.2, c: 7 });
-      lines.push({ t: p.id, h: 2.2, c: 3 });
-      if (clT && inL) lines.push({ t: clT, h: 2.2, c: ct ? Cl.color || 4 : 4 });
-      if (p.own) lines.push({ t: p.own, h: 2.2, c: 3 });
-      if (p.ll) lines.push({ t: p.ll, h: 1.1, c: 7, italic: true, serif: true });
+      const PP = P.pole, hI = PP.idH || 2.2; // beta 4.3: the pole's ID, its owner's name and its lat/long in their own height and colour (Auto: as before)
+      if (p.pre) lines.push({ t: p.pre, h: hI, c: PP.idColor || 7, st: 'pid' });
+      lines.push({ t: p.id, h: hI, c: PP.idColor || 3, st: 'pid' });
+      if (clT && inL) lines.push({ t: clT, h: hI, c: ct ? Cl.color || 4 : 4, st: 'clamp' });
+      if (p.own) lines.push({ t: p.own, h: PP.ownH || hI, c: PP.ownColor || PP.idColor || 3, st: 'pown' });
+      if (p.ll) lines.push({ t: p.ll, h: PP.llH ? PP.llH * 1.1 / 1.2 : 1.1, c: PP.llColor || 7, italic: true, serif: true, st: 'pll' });
       out.push(Blk({ id: `b${p.k}`, pri: 80, lines, shrink: true, lead: true, ax: p.x, ay: p.y, ar: 1.3, leadMin: 2.5,
         spots: ring({ ax: p.x, ay: p.y, ar: 1.3, def: (d) => (opts && opts.left ? { cx: p.x - 2.2 - d.w / 2, cy: p.y + 0.3 - d.h / 2 } : { cx: p.x + 2.2 + d.w / 2, cy: p.y + 0.3 - d.h / 2 }), pref: (ux, uy) => (ux < -0.3 ? 1.2 : 0) + (uy > 0.3 ? 2.5 : 0) }) }));
       const R0 = N.d / 2, half = Math.max(R0, N.h * 0.46, N.h / 2), dir = N.place === 'out' ? (opts && opts.outDir) || [0, -1] : (opts && opts.dir) || [-0.985, -0.17], dist = 1.1 + N.g + half;
-      out.push({ id: `n${p.k}`, pri: 90, ax: p.x, ay: p.y, size: () => ({ w: half * 2, h: half * 2 }),
+      out.push({ id: `n${p.k}`, st: 'num', pri: 90, ax: p.x, ay: p.y, size: () => ({ w: half * 2, h: half * 2 }),
         spots: () => { const o = [{ cx: p.x + dir[0] * dist, cy: p.y + dir[1] * dist, d: 0, cost: 0 }], a0 = Math.atan2(dir[1], dir[0]);
           for (const ex of [0, 1.5, 3, 5, 8, 12, 16, 21]) for (let i = 1; i < 24; i++) { const da = (i % 2 ? 1 : -1) * Math.ceil(i / 2) * Math.PI / 12, a = a0 + da, r = dist + ex; o.push({ cx: p.x + Math.cos(a) * r, cy: p.y + Math.sin(a) * r, d: ex + Math.abs(da) * r * 0.35, cost: ex + Math.abs(da) * 2.2 }); }
           return o.sort((x, y) => x.cost - y.cost); },
@@ -2407,7 +2430,7 @@
           mk(g, 'text', { x: at.cx, y: at.cy + N.h * 0.36, 'font-size': N.h, fill: col, 'text-anchor': 'middle', 'font-family': ARIAL }, String(p.k)); } });
       if (clT && !inL) { // a tag or a callout beside the pole
         const call = Cl.place === 'callout', col = Cl.color || 4, dirs = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }, dv = dirs[Cl.pos] || [-0.6, -0.8], far = call ? 9 : 3.2;
-        out.push({ id: `c${p.k}`, pri: 75, shrink: true, ax: p.x, ay: p.y, ar: 1.3, size: (k) => ({ w: tW(clT, Cl.h * k) + 1, h: Cl.h * k * 1.35 }),
+        out.push({ id: `c${p.k}`, st: 'clamp', pri: 75, shrink: true, ax: p.x, ay: p.y, ar: 1.3, size: (k) => ({ w: tW(clT, Cl.h * k) + 1, h: Cl.h * k * 1.35 }),
           spots: ring({ ax: p.x, ay: p.y, ar: 1.3 + (call ? 6 : 1), def: (d) => ({ cx: p.x + dv[0] * (far + d.w / 2), cy: p.y + dv[1] * (far + d.h / 2) }), pref: (ux, uy) => (Cl.pos === 'auto' ? 0 : Math.hypot(ux - dv[0], uy - dv[1]) * 2) }),
           draw(g, at, k, pal) { const h = Cl.h * k, d = this.size(k), c = pal[col];
             if (call) { const [qx, qy] = nearOnBox(bx(at.cx, at.cy, d.w, d.h), p.x, p.y), dx = qx - p.x, dy = qy - p.y, dd = Math.hypot(dx, dy) || 1; mk(g, 'line', { x1: p.x + dx / dd * 1.3, y1: p.y + dy / dd * 1.3, x2: qx, y2: qy, stroke: c, 'stroke-width': 0.2 }); }
@@ -2418,17 +2441,18 @@
     }
     const cabT = (k, n) => runLbl(cabWords(k), n);
     const cabH = (P) => P.cab.h || 1.3;
-    const idL = (P, id, t, ax, ay, below) => Txt({ id, pri: 70, t, h: P.id.h, c: P.id.color || 7, bold: P.id.bold, shrink: true, lead: true, ax, ay, ar: 2, spots: ring({ ax, ay, ar: 2, def: (d) => ({ cx: ax, cy: ay + below + d.h / 2 }) }) });
+    const idL = (P, id, t, ax, ay, below) => Txt({ id, st: 'id', pri: 70, t, h: P.id.h, c: P.id.color || 7, bold: P.id.bold, shrink: true, lead: true, ax, ay, ar: 2, spots: ring({ ax, ay, ar: 2, def: (d) => ({ cx: ax, cy: ay + below + d.h / 2 }) }) });
     /* the scenes */
     function scStreet(P, C) {
       const sc = { vb: [0, 0, 120, 70], bounds: { x0: 0.5, y0: 0.5, x1: 119.5, y1: 62 }, under: [], over: [], labels: [], obst: [] }, yTop = 44, yBot = 51, yc = 45.4;
-      const poles = [{ k: 1, x: 20, y: 41.5, pre: 'CC', id: '4303175', cl: 'CA 8-9', ll: '7.163334°  125.573313°' }, { k: 2, x: 60, y: 40.3, pre: 'CC', id: '4303168', hw: 'RET×2 SC×4', ll: '7.164334°  125.574313°' }, { k: 3, x: 100, y: 41.5, pre: 'CC', id: '4303161', cl: '2A 10-12', ll: '7.165334°  125.575313°' }];
+      const poles = [{ k: 1, x: 20, y: 41.5, pre: 'CC', id: '4303175', cl: 'CA 8-9', ll: '7.163334°  125.573313°' }, { k: 2, x: 60, y: 40.3, pre: 'CC', id: '4303168', hw: 'RET×2 SC×4', ll: '7.164334°  125.574313°' }, { k: 3, x: 100, y: 41.5, pre: 'CC', id: '4303161', cl: '2A 10-12', own: 'DLPC', ll: '7.165334°  125.575313°' }]; // (beta 4.3: one pole with its owner's name)
       sc.under.push((g, pal) => { line(g, [[0, yTop], [120, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [120, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [120, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 66); });
       sc.obst.push(...segBoxes([0, yc], [120, yc], 0.3), bx(60, yc, 9.8, 3.8), ...poles.map((p) => bx(p.x, p.y, 2.6, 2.6)));
       poles.forEach((p) => sc.labels.push(...poleLabels(P, p)));
       sc.labels.push(idL(P, 'nap', 'NAP-0001', 60, yc, 2.2));
-      if (P.cab.on) [[20, 60], [60, 100]].forEach(([a, b], i) => sc.labels.push(Txt({ id: `cab${i}`, pri: 50, t: cabT('L12', 1), h: cabH(P), c: 1, shrink: true, spots: along({ a: [a, yc], b: [b, yc], side: 1, gap: 0.9 }) })));
-      sc.labels.push(Txt({ id: 'st', pri: 40, t: 'RIZAL STREET', h: 2.4, c: 2, shrink: true, free: true, spots: road({ horiz: true, lo: 1, hi: 119, c: 48.8, def: 30, offs: [0, 1.2, -0.6], fixed: C.streets === 'fixed' }) }));
+      if (P.cab.on) [[20, 60], [60, 100]].forEach(([a, b], i) => sc.labels.push(Txt({ id: `cab${i}`, st: 'cab', pri: 50, t: cabT('L12', 1), h: cabH(P), c: 1, shrink: true, spots: along({ a: [a, yc], b: [b, yc], side: 1, gap: 0.9 }) })));
+      [[20, 60], [60, 100]].forEach(([a, b], i) => sc.labels.push(Txt({ id: `len${i}`, st: 'span', pri: 60, t: '40m', h: P.span.h || 2, c: P.span.color || 7, shrink: true, spots: along({ a: [a, yc], b: [b, yc], side: -1, gap: 0.7 }) }))); // beta 4.3: the span lengths
+      sc.labels.push(Txt({ id: 'st', st: 'street', pri: 40, t: 'RIZAL STREET', h: 2.4, c: 2, shrink: true, free: true, spots: road({ horiz: true, lo: 1, hi: 119, c: 48.8, def: 30, offs: [0, 1.2, -0.6], fixed: C.streets === 'fixed' }) }));
       return sc;
     }
     function scCrowd(P, C) {
@@ -2444,12 +2468,12 @@
       sc.obst.push(...polyBoxes([[0, yc], [xc, yc], [xc, 0]], 0.3), ...segBoxes([xc, yc], [120, yc], 0.3), bx(56, yc, 9.8, 3.8), bx(67, yc, 4, 4), bx(47, 44, 4, 4), bx(86, 45.6, 4, 4.6), ...poles.map((p) => bx(p.x, p.y, 2.6, 2.6)));
       poles.forEach((p) => sc.labels.push(...poleLabels(P, p, p.x === 72 ? { left: true, dir: [-0.985, 0.17], outDir: [-1, 0] } : null)));
       sc.labels.push(idL(P, 'nap', 'NAP-0003', 56, yc, 2.2), idL(P, 'clo', 'CLO-0001', 67, yc, 2.2));
-      if (P.cab.on) sc.labels.push(Txt({ id: 'cab1', pri: 50, t: cabT('L12', 1), h: cabH(P), c: 1, shrink: true, spots: along({ a: [14, yc], b: [36, yc], side: 1, gap: 0.9 }) }),
-        Txt({ id: 'cab2', pri: 50, t: cabT('L12', 1), h: cabH(P), c: 1, rot: -90, shrink: true, spots: along({ a: [xc, 34], b: [xc, 14], side: 1, gap: 0.9 }) }),
-        Txt({ id: 'cab3', pri: 50, t: cabT('F24', 2), h: cabH(P), c: 1, shrink: true, spots: along({ a: [67, yc], b: [120, yc], side: 1, gap: 0.9 }) }));
-      sc.labels.push(Txt({ id: 'st1', pri: 40, t: 'RIZAL STREET', h: 2.4, c: 2, shrink: true, free: true, spots: road({ horiz: true, lo: 1, hi: 119, c: 59.2, def: 26, offs: [0, 1.2, -0.6], fixed: C.streets === 'fixed' }) }),
-        Txt({ id: 'st2', pri: 40, t: 'MABINI STREET', h: 2.4, c: 2, rot: -90, shrink: true, free: true, spots: road({ horiz: false, lo: 1, hi: 53, c: 78.4, def: 22, offs: [0, 1.4, -1], fixed: C.streets === 'fixed' }) }));
-      const lm = (id, t, ax, ay) => Txt({ id, pri: 20, t, h: 2.2, c: 'grey', shrink: true, lead: true, optional: true, off: C.marks === 'hide', ax, ay, ar: 2, spots: ring({ ax, ay, ar: 2, def: (d) => ({ cx: ax + 2.6 + d.w / 2, cy: ay }) }) });
+      if (P.cab.on) sc.labels.push(Txt({ id: 'cab1', st: 'cab', pri: 50, t: cabT('L12', 1), h: cabH(P), c: 1, shrink: true, spots: along({ a: [14, yc], b: [36, yc], side: 1, gap: 0.9 }) }),
+        Txt({ id: 'cab2', st: 'cab', pri: 50, t: cabT('L12', 1), h: cabH(P), c: 1, rot: -90, shrink: true, spots: along({ a: [xc, 34], b: [xc, 14], side: 1, gap: 0.9 }) }),
+        Txt({ id: 'cab3', st: 'cab', pri: 50, t: cabT('F24', 2), h: cabH(P), c: 1, shrink: true, spots: along({ a: [67, yc], b: [120, yc], side: 1, gap: 0.9 }) }));
+      sc.labels.push(Txt({ id: 'st1', st: 'street', pri: 40, t: 'RIZAL STREET', h: 2.4, c: 2, shrink: true, free: true, spots: road({ horiz: true, lo: 1, hi: 119, c: 59.2, def: 26, offs: [0, 1.2, -0.6], fixed: C.streets === 'fixed' }) }),
+        Txt({ id: 'st2', st: 'street', pri: 40, t: 'MABINI STREET', h: 2.4, c: 2, rot: -90, shrink: true, free: true, spots: road({ horiz: false, lo: 1, hi: 53, c: 78.4, def: 22, offs: [0, 1.4, -1], fixed: C.streets === 'fixed' }) }));
+      const lm = (id, t, ax, ay) => Txt({ id, st: 'mark', pri: 20, t, h: 2.2, c: 'grey', shrink: true, lead: true, optional: true, off: C.marks === 'hide', ax, ay, ar: 2, spots: ring({ ax, ay, ar: 2, def: (d) => ({ cx: ax + 2.6 + d.w / 2, cy: ay }) }) });
       sc.labels.push(lm('lm1', 'BARANGAY HALL', 47, 44.3), lm('lm2', 'SAN ROQUE CHAPEL', 86, 45.6));
       return sc;
     }
@@ -2544,7 +2568,7 @@
       wire(); P = P || plStyle(); const svg = $('stPrev'); if (!svg) return;
       const C = { auto: P.crowd.auto, min: P.crowd.min / 100, move: P.crowd.move, leader: P.crowd.leader, streets: P.crowd.streets, marks: P.crowd.marks, mark: $('dsMark').checked };
       $('drwStyle').querySelectorAll('.dsscenes [data-scene]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.scene === scene)));
-      $('drwStyle').querySelectorAll('.stgrp[data-scene]').forEach((g) => { g.hidden = g.dataset.scene !== scene; }); // beta 3.9: only the settings of the part picked
+      $('drwStyle').querySelectorAll('.stgrp[data-scene]').forEach((g) => { g.hidden = !g.dataset.scene.split(' ').includes(scene); }); // beta 3.9: only the settings of the part picked (beta 4.3: a group can belong to several parts)
       let r = null;
       if (scene === 'vic') { while (svg.firstChild) svg.removeChild(svg.firstChild); drawVicPreview(P, svg); }
       else r = paint(svg, scene === 'crowd' ? scCrowd(P, C) : scene === 'tower' ? scTower(P, C) : scStreet(P, C), C);
@@ -2556,8 +2580,30 @@
       cap.append(a, b); if (r && r.skipped) cap.append(` · ${r.skipped} landmark name${r.skipped > 1 ? 's' : ''} left out (no room)`);
       svg.setAttribute('aria-label', `Preview: ${NAMES[scene]}. ${b.textContent}.`);
       last = { scene, clashes: r ? r.clashes : 0, skipped: r ? r.skipped : 0, ids: r ? r.ids : [] };
+      markPicked();
     }
-    function setScene(sn) { if (sn === scene || !NAMES[sn]) return; scene = sn; render(); const bd = body(); if (bd && !$('drwStyle').hidden && (bd.clientWidth >= 720 || !compact)) bd.scrollTop = 0; } // (beta 3.9: its settings from their top)
+    /* beta 4.3 (MarkT): a label of the preview is tapped: the settings that are its own come into view and are marked, and the label is framed.
+       ST: the label's kind -> the rows (or the whole group) of its settings. */
+    const ST = { num: ['stNum'], pid: ['stPoleIdH', 'stPoleIdCol'], pown: ['stPoleOwnH', 'stPoleOwnCol'], pll: ['stPoleLlH', 'stPoleLlCol'], span: ['stSpanH', 'stSpanCol'], clamp: ['stClOn', 'stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'], id: ['stId'],
+      cab: ['stCabOn', 'stCabPer', 'stCabH', 'stCabW'], street: ['stCrowdStreets'], mark: ['stCrowdMarks'] };
+    const ST_NAME = { num: 'the numbers beside the points', pid: 'the pole ID', pown: 'the owner\u2019s name', pll: 'the lat/long', span: 'the span lengths', clamp: 'the clamp types', id: 'the IDs of NAPs, closures and boxes', cab: 'the cable labels', street: 'the street names', mark: 'the landmark names' };
+    let picked = null, pickT = 0;
+    const rowsOf = (key) => (ST[key] || []).map((id) => { const el = $(id); return el ? (el.classList.contains('stgrp') ? el : el.closest('.strow')) : null; }).filter(Boolean);
+    function markPicked() {
+      const svg = $('stPrev'); if (!svg) return; svg.querySelectorAll('.dspick').forEach((x) => x.remove()); if (!picked) return;
+      svg.querySelectorAll(`[data-st="${picked}"]`).forEach((el) => { let b = null; try { b = el.getBBox(); } catch (e) { b = null; } if (!b || !(b.width > 0)) return;
+        const tf = el.getAttribute('transform'), r = mk(svg, 'rect', { x: (b.x - 0.5).toFixed(2), y: (b.y - 0.4).toFixed(2), width: (b.width + 1).toFixed(2), height: (b.height + 0.8).toFixed(2), fill: 'none', stroke: '#ffd43b', 'stroke-width': 0.28, 'stroke-dasharray': '1.2 0.7', class: 'dspick', 'pointer-events': 'none' }); if (tf) r.setAttribute('transform', tf); });
+    }
+    function pick(key) {
+      const rows = rowsOf(key); if (!rows.length) return false; const grp = rows[0].closest('.stgrp') || rows[0], scs = (grp.dataset.scene || scene).split(' ');
+      picked = key; if (!scs.includes(scene)) { scene = scs[0]; } render();
+      const root = $('drwStyle'); root.querySelectorAll('.sthl').forEach((x) => x.classList.remove('sthl')); rows.forEach((x) => x.classList.add('sthl'));
+      const bd = body(), top = rows[0]; if (bd && top) { const rb = bd.getBoundingClientRect(), rt = top.getBoundingClientRect(), pc = col(), stick = narrow() && pc ? pc.getBoundingClientRect().bottom - rb.top : 0; bd.scrollTop += rt.top - rb.top - Math.max(12, stick + 10); }
+      const cap = $('dsCap'); if (cap) { const s = document.createElement('span'); s.className = 'dspk'; s.textContent = ` · ${ST_NAME[key] || key}: settings marked below`; cap.append(s); }
+      clearTimeout(pickT); pickT = setTimeout(() => { root.querySelectorAll('.sthl').forEach((x) => x.classList.remove('sthl')); }, 9000);
+      return true;
+    }
+    function setScene(sn) { if (sn === scene || !NAMES[sn]) return; scene = sn; picked = null; render(); const bd = body(); if (bd && !$('drwStyle').hidden && (bd.clientWidth >= 720 || !compact)) bd.scrollTop = 0; } // (beta 3.9: its settings from their top)
     const narrow = () => { const bd = body(); return !bd || bd.clientWidth < 720; };
     function setCompact(on) {
       if (on === compact) return; const c = col(), h0 = c.getBoundingClientRect().height; compact = on; c.classList.toggle('compact', on);
@@ -2568,18 +2614,22 @@
       if (!nb || big) { if (compact) setCompact(false); return; }
       if (!compact && bd.scrollTop > 150 + shrink) setCompact(true); else if (compact && bd.scrollTop < 20) setCompact(false); // (the gap: no back and forth at the threshold)
     }
-    function reset() { compact = false; big = false; const c = col(); if (c) c.classList.remove('compact'); if ($('dsBig')) $('dsBig').textContent = 'Bigger'; const bd = body(); if (bd) bd.scrollTop = 0; }
+    function reset() { picked = null; compact = false; big = false; const c = col(); if (c) c.classList.remove('compact'); if ($('dsBig')) $('dsBig').textContent = 'Bigger'; const bd = body(); if (bd) bd.scrollTop = 0; }
     function wire() {
       if (wired) return; wired = true;
       const root = $('drwStyle');
       root.querySelector('.dsscenes').addEventListener('click', (e) => { const b = e.target.closest('[data-scene]'); if (b) setScene(b.dataset.scene); });
-      root.querySelectorAll('.stgrp[data-scene]').forEach((g) => { const go = () => setScene(g.dataset.scene); g.addEventListener('pointerdown', go); g.addEventListener('focusin', go); });
+      root.querySelectorAll('.stgrp[data-scene]').forEach((g) => { const go = () => { const L = g.dataset.scene.split(' '); if (!L.includes(scene)) setScene(L[0]); }; g.addEventListener('pointerdown', go); g.addEventListener('focusin', go); });
+      // beta 4.3: a tap on the preview: the label under the finger, or the nearest one within reach (the labels are small on a phone); on empty ground the marks go
+      $('stPrev').addEventListener('click', (e) => { let best = null; $('stPrev').querySelectorAll('[data-st]').forEach((el) => { const r = el.getBoundingClientRect(); if (!(r.width > 0 || r.height > 0)) return;
+          const dx = Math.max(r.left - e.clientX, 0, e.clientX - r.right), dy = Math.max(r.top - e.clientY, 0, e.clientY - r.bottom), d = Math.hypot(dx, dy), ar = r.width * r.height; if (d <= 14 && (!best || d < best.d || (d === best.d && ar < best.ar))) best = { d, ar, k: el.getAttribute('data-st') }; });
+        if (best) pick(best.k); else if (picked) { picked = null; root.querySelectorAll('.sthl').forEach((x) => x.classList.remove('sthl')); render(); } });
       $('dsMark').addEventListener('change', () => render());
       $('dsBig').addEventListener('click', () => { big = !big; $('dsBig').textContent = big ? 'Smaller' : 'Bigger'; if (big) setCompact(false); else onScroll(); });
       body().addEventListener('scroll', onScroll, { passive: true });
       window.addEventListener('resize', () => { if (!$('drwStyle').hidden) onScroll(); });
     }
-    return { render, setScene, reset, onScroll, scene: () => scene, stats: () => last, compact: () => compact };
+    return { render, setScene, reset, onScroll, pick, picked: () => picked, scene: () => scene, stats: () => last, compact: () => compact };
   })();
   /* Find: search the project's pins by ID, element, status or defect; tap one to fly to it on the map and open it. */
   function openFind() { $('findQ').value = ''; renderFind(); openSheet('find'); setTimeout(() => $('findQ').focus(), 120); }
@@ -6792,9 +6842,12 @@
     setTimeout(renderEdSym, 0); // v2.37: an owner, a NAP kind or a double LCP changes the symbol
     // v2.42.17: in a survey record's tabs, the accessories go to Accessories and the riser to AE to UG; a box's closure is in its own block
     const keys = edBoqKeys(), tabs = edTabsOn(), boxC = UG_BOXES.has(ed.element || 'Pole');
+    if (ed.own0 === undefined) ed.own0 = ed.mode === 'new' ? null : String((ed.boq && ed.boq.owner) || ''); // beta 4.3: the owner the record was opened with (null: a pole being made)
     // v2.42.17: an existing GT pole is Globe's: its owner is Globe (set by itself; another type takes it away again)
     if (keys.includes('owner') && typePrefix(ed.type) === 'GT' && !ed.boq.owner && (ed.mode !== 'new' || ed.typeSet)) { ed.boq.owner = 'Globe'; ed.ownerAuto = true; } // (beta 4.1: a new record starts with no owner)
     else if (ed.ownerAuto && ed.boq.owner === 'Globe' && (typePrefix(ed.type) !== 'GT' || !keys.includes('owner'))) { delete ed.boq.owner; ed.ownerAuto = false; }
+    // beta 4.3 (MarkT): with one owner in the list a new pole starts with it (a tap takes it off again, and it stays off); with more, the user chooses
+    if (keys.includes('owner') && ed.mode === 'new' && !ed.ownerOne) { ed.ownerOne = true; if (!ed.boq.owner) { const L = ownerChoices(); if (L.length === 1) { ed.boq.owner = L[0]; ed.ownerOnly = true; } } }
     const own = edLoopOwn(), hwNow = edHw(); // v2.42.18: the cable hardware from the route (12C, telco arm)
     const hwRow = (h) => { const r = document.createElement('div'); r.className = 'boqrow'; r.dataset.k = 'hw'; const t = document.createElement('span'); t.className = 'lbl'; t.textContent = hasTelcoArm(edLoopRec()) ? 'HARDWARE FOR THE CABLE · TELCO ARM' : 'HARDWARE FOR THE CABLE · FROM THE ROUTE'; r.appendChild(t);
       const ch = document.createElement('div'); ch.className = 'chips'; h.items.forEach(([i, q, sz]) => { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = `${sz.split(' · ')[0]}: ${i} ×${q}`; c.setAttribute('aria-pressed', 'true'); c.disabled = true; ch.appendChild(c); }); r.appendChild(ch);
@@ -6838,6 +6891,7 @@
       if (k === 'mloopM') return; // v2.42.18: the loop's length is in the loop's row
       if (k === 'ownerName') { // v2.42.18: the owner's name: the coop of an electric pole; another owner's own name, filled in
         const o = String(ed.boq.owner || '').trim(), elec = isElecOwner(o); if (!o) return;
+        if (elec && !ro) coopOnly(); // beta 4.3: one coop offered for this pole: it is set to start with
         l.textContent = elec ? 'OWNER NAME · THE COOP OR POWER COMPANY' : 'OWNER NAME';
         const inp = document.createElement('input'); inp.type = 'text'; inp.className = 'boqsel'; inp.dataset.k = k; inp.maxLength = 40; inp.autocomplete = 'off'; inp.setAttribute('autocapitalize', 'characters'); inp.setAttribute('aria-label', 'Owner name');
         inp.placeholder = elec ? 'e.g. DLPC' : o; inp.value = ed.boq.ownerName || (elec ? '' : o); inp.disabled = ro;
@@ -9780,6 +9834,10 @@
     const L = [['design', 'Design Engineer'], ['project', 'Project Engineer'], ['head', 'Head-Cable Engineering'], ['cse', 'CSE Lead']], set = L.filter(([k]) => String(S.sig[k] || '').trim()), blank = L.length - set.length;
     $('sigLine').innerHTML = (set.length ? set.map(([k, l]) => `<span><small>${l}</small><b>${C.xmlEsc(String(S.sig[k]).trim())}</b></span>`).join('') : '<span>None yet</span>')
       + `<small>${blank ? `${blank === L.length ? 'All' : blank} left blank, to sign by hand` : 'All four set'}${String(S.sig.cse || '').trim() ? '' : '. The CSE Lead comes from the online sheet when it has one'}.</small>`;
+    // beta 4.3 (MarkT): the three names of the CEF sheets are here too (the CEF editor has the same ones under Check and export): shown when the project holds a CEF plan
+    const cefOn = !!(cefHooks.plansN && cefHooks.plansN(S.project)); if ($('sigCefBox')) $('sigCefBox').hidden = !cefOn;
+    if (cefOn) { const g3 = cefSign(), C3 = [['by', 'Prepared by'], ['chk', 'Checked by'], ['apr', 'Approved by']].filter(([k]) => g3[k]), sp = document.createElement('span'); sp.className = 'sigcef';
+      sp.innerHTML = `<small>CEF plan sheets</small><b>${C3.length ? C3.map(([k, l]) => `${l}: ${C.xmlEsc(g3[k])}`).join(' · ') : 'Prepared by: the person who exports'}</b>`; $('sigLine').appendChild(sp); }
   }
   $('sigChange').addEventListener('click', () => { const on = $('sigEdit').hidden; $('sigEdit').hidden = !on; $('sigChange').setAttribute('aria-expanded', String(on)); $('sigChange').textContent = on ? 'Done' : 'Change'; sigLine(); if (on) $('sigDesign').focus({ preventScroll: true }); });
   /* v2.42.12: the names in the title block of every sheet (above the signature lines): Design Engineer, Project Engineer and
@@ -9787,6 +9845,7 @@
      Name), by the project's territory (Project Data → Territory), at each sync; Junior Engineer left blank. A CSE Lead typed by
      hand stays until the sheet gives another name (a new name there, or a project of another territory). */
   const SIG_IDS = [['sigDesign', 'design'], ['sigProject', 'project'], ['sigHead', 'head'], ['sigCse', 'cse']];
+  const SIG_CEF = [['sigCefBy', 'by'], ['sigCefChk', 'chk'], ['sigCefApr', 'apr']]; // beta 4.3: the names of the CEF sheets (kept with the others, S.sig.cef: the CEF editor shows the same ones)
   function projTerritory(m) {
     m = m || pmeta(); const task = m.taskId && S.cloud && (S.cloud.tasks || []).find((t) => t.id === m.taskId);
     return s100((task && (task.territory || extraOf(task, 'Territory'))) || m.territory || ((m.siteExtra || []).find(([k]) => /^territory$/i.test(String(k).trim())) || [])[1] || sfGet(siteFieldsOf(), /^territory$/i), 60);
@@ -9808,6 +9867,7 @@
     if (!$('sigCse')) return;
     let r = null; try { r = cseLeadSync(); } catch (e) { /* the names are shown as kept */ }
     SIG_IDS.forEach(([id, k]) => { if (document.activeElement !== $(id)) $(id).value = S.sig[k] || ''; });
+    { const g = cefSign(); SIG_CEF.forEach(([id, k]) => { const el = $(id); if (el && document.activeElement !== el) el.value = g[k] || ''; }); } // beta 4.3
     const terr = r && r.terr, fromSheet = !!(r && r.names.length && S.sig.cse === S.sig.cseAuto);
     $('sigInfo').textContent = `Written above the signature lines in every sheet's title block (Junior Engineer is left blank). CSE Lead: ${
       !r ? 'type it here (the online sheet sends no CSE LEAD list: the admin adds a CSE LEAD tab with Territory and Full Name, and the sheet\'s script v2.42.12)'
@@ -9817,6 +9877,7 @@
   }
   SIG_IDS.forEach(([id, k]) => { const el = $(id); if (el) el.addEventListener('input', () => { S.sig[k] = s100(el.value, k === 'cse' ? 120 : 80); persist(); }); });
   SIG_IDS.forEach(([id]) => { const el = $(id); if (el) el.addEventListener('change', () => renderSig()); });
+  SIG_CEF.forEach(([id, k]) => { const el = $(id); if (!el) return; el.addEventListener('input', () => { cefSetSign({ ...cefSign(), [k]: el.value }); }); el.addEventListener('change', () => { renderSig(); sigLine(); }); });
   /* v2.42.28: the DXF card's links: What to export (on the Drawing) and Plan settings */
   $('dxfWhat').addEventListener('click', () => { const under = stack.includes('drawing'); closeSheet().then(() => { if (!under) { if (!drawOn()) { toast('The Drawing is for As-Plan and As-Built surveys'); return; } openDrawing(); } if (!$('drawing').hidden) setWhat(true, deskOn()); }); });
   $('dxfSetBtn').addEventListener('click', () => openPlanSet());
@@ -10055,10 +10116,16 @@
     // map pixel (zoom z) → picture pixel: the affine map that puts the three corners in place (the area is small enough to be flat)
     const ux = m[1][0] - m[0][0], uy = m[1][1] - m[0][1], vx = m[2][0] - m[0][0], vy = m[2][1] - m[0][1], det = ux * vy - vx * uy;
     const a = PX * vy / det, c = -PX * vx / det, b = -PX * uy / det, d = PX * ux / det;
-    g.setTransform(a, b, c, d, -(a * m[0][0] + c * m[0][1]), -(b * m[0][0] + d * m[0][1]));
+    // beta 4.3 (MarkT: white lines over the vicinity map): the tiles are put together first, each at its own size beside the others, and that one picture
+    // is laid into place, its place given from its own corner. Laid one by one at their place in the map of the whole world (numbers past a hundred
+    // million at zoom 19) they each landed some pixels off, the browser drawing with numbers exact to 7 digits only: a white gap showed beside some
+    // tiles, and the map sat up to some pixels away from the route drawn over it.
+    const mo = document.createElement('canvas'); mo.width = (tx1 - tx0 + 1) * 256; mo.height = (ty1 - ty0 + 1) * 256; const mg = mo.getContext('2d'); mg.imageSmoothingEnabled = false; mg.fillStyle = '#fff'; mg.fillRect(0, 0, mo.width, mo.height);
     for (const j of ok) {
-      try { const im = await loadImage(j.blob); g.drawImage(im, j.x * 256, j.y * 256, 256.6, 256.6); if (im.close) im.close(); } catch (e) { /* a broken tile stays white */ }
+      try { const im = await loadImage(j.blob); mg.drawImage(im, (j.x - tx0) * 256, (j.y - ty0) * 256, 256, 256); if (im.close) im.close(); } catch (e) { /* a broken tile stays white */ }
     }
+    const ox = tx0 * 256 - m[0][0], oy = ty0 * 256 - m[0][1];
+    g.setTransform(a, b, c, d, a * ox + c * oy, b * ox + d * oy); g.drawImage(mo, 0, 0); mo.width = mo.height = 0;
     g.setTransform(1, 0, 0, 1, 0, 0);
     const jpg = new Uint8Array(await (await toBlob(cv, 0.85)).arrayBuffer());
     LOG.info('plan.vicinity', { src: src.id, tiles: jobs.length, ok: ok.length, z, kb: Math.round(jpg.length / 1024) });
@@ -10081,8 +10148,8 @@
     g.fillStyle = '#fff'; g.fillRect(0, 0, PX, PX); g.imageSmoothingQuality = 'high';
     const ux = m[1][0] - m[0][0], uy = m[1][1] - m[0][1], vx = m[2][0] - m[0][0], vy = m[2][1] - m[0][1], det = ux * vy - vx * uy;
     const a = PX * vy / det, c = -PX * vx / det, bb = -PX * uy / det, d = PX * ux / det;
-    g.setTransform(a, bb, c, d, -(a * m[0][0] + c * m[0][1]), -(bb * m[0][0] + d * m[0][1]));
-    g.drawImage(img.canvas, img.x0, img.y0); g.setTransform(1, 0, 0, 1, 0, 0);
+    { const ox = img.x0 - m[0][0], oy = img.y0 - m[0][1]; g.setTransform(a, bb, c, d, a * ox + c * oy, bb * ox + d * oy); } // (beta 4.3: its place from its own corner, in small numbers: see vicinityJpeg)
+    g.drawImage(img.canvas, 0, 0); g.setTransform(1, 0, 0, 1, 0, 0);
     const jpg = new Uint8Array(await (await toBlob(cv, 0.85)).arrayBuffer());
     LOG.info('plan.vicinity', { src: 'pack', z: img.z, kb: Math.round(jpg.length / 1024) });
     return { jpg, px: PX, py: PX, z: img.z, credit: `Offline map ${pk.name}: © OpenStreetMap contributors · Protomaps` };
@@ -10333,7 +10400,7 @@
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
       const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? PLS.clamp : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks,
         towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: PLS.site.acol, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
-        numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
+        numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, poleStyle: PS.pole, spanStyle: PS.span, /* beta 4.3 */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
     }
@@ -17741,7 +17808,7 @@
     const foot = `EXPORTED BY ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' - ').toUpperCase()} - G-eSAA ${VER_LABEL}`; // the line under the frame of every sheet
     return { sketch: plan ? JSON.stringify(plan.sk) : null, photos, logos: await cefLogos(), tab: c.tab || '',
       app: { job: job && cefJobCtx[job] ? job : '', by: u.name || '', checkedBy: ck, org: m.contractor || u.company || '', link: sfGet(F, /project\s*name/i) || '', footer: foot, ver: `${APP_NAME} ${VER_LABEL}`, lock: !!pinRec, fix: site0, viewOnly: cefLockText(c.name),
-        gps: 'geolocation' in navigator, canLogo: cefCanLogo(), logoNote: cefLogoNote(), guide: S.cefGuide !== false, sign: cefSign(), ...(c.over || {}) } }; // (beta 4.2: sign, the names on the sheet)
+        gps: 'geolocation' in navigator, canLogo: cefCanLogo(), logoNote: cefLogoNote(), guide: S.cefGuide !== false, sign: cefSign(), dxf: cefDxfSet(), ...(c.over || {}) } }; // (beta 4.2: sign, the names on the sheet; beta 4.3: dxf, the choices of the DXF)
   }
   /** The editor saves as the user works. Nothing is written when the sketch did not change, so that looking at a plan never makes it
       the later one at a merge. */
@@ -17803,6 +17870,13 @@
     }
     return out;
   }
+  /** beta 4.3 (MarkT): the size in pixels of each photo as the photo store keeps it (that is the file that goes into the ZIP): the DXF attaches the
+      photos as linked pictures and must say their size. { id: [width, height] }; a photo that is not on this phone is left out. */
+  async function cefPhotoDims(ids) {
+    const out = {};
+    for (const id of Array.from(ids || []).slice(0, 200)) { try { const ph = await dbGet('photos', String(id)); if (!ph || !ph.clean) continue; const im = await loadImage(ph.clean), { w, h } = dims(im); if (im.close) im.close(); if (w > 0 && h > 0) out[String(id)] = [w, h]; } catch (e) { /* its frame and file name only */ } }
+    return out;
+  }
   /** The export's ZIP, made by the app: the editor's files, each photo as the photo store keeps it, and who exported it. */
   async function cefZip(files) {
     const out = [];
@@ -17844,6 +17918,9 @@
     const t = (v) => s100(v, 80); g = g && typeof g === 'object' ? g : {};
     S.sig = { ...S.sig, cef: { by: t(g.by), chk: t(g.chk), apr: t(g.apr) } }; persist();
   }
+  /** beta 4.3: the choices of a CEF plan's DXF, kept on this phone: det, ph (its details pages and its photo pages: off to start with), old (the DXF as
+      before v2.44.1, with no layout tabs). */
+  function cefDxfSet() { const g = S.cefDxf && typeof S.cefDxf === 'object' ? S.cefDxf : {}; return { det: !!g.det, ph: !!g.ph, old: !!g.old }; }
   function cefSign() { const g = S.sig && S.sig.cef && typeof S.sig.cef === 'object' ? S.sig.cef : {}; return { by: s100(g.by, 80), chk: s100(g.chk, 80), apr: s100(g.apr, 80) }; }
   /** The phone's position now, for a plan's coordinates (a CEF-Plan project; an As-Plan's plan takes its site pin's). */
   function cefGps() {
@@ -17859,11 +17936,13 @@
     if (cefShot) { const w = cefShot; cefShot = null; w.res(null); }
     if (c) { const now = new Set(cefPids(c.name)); cefSweep([...c.had, ...c.taken].filter((x) => !now.has(x)), '').catch(() => {}); }
     renderPoles(); if (!$('projects').hidden) renderProjects();
+    if (cefHooks.drawSync) cefHooks.drawSync(); // beta 4.3: back on the Drawing: the site's button says Open now
   }
   window.__cefHost = { init: (job) => cefInit(job), jobDone: (job, r) => { const c = cefJobCtx[job]; if (c) c.done(r); }, addPicture: (f) => cefAddPicture(f), save: (s) => cefSave(s), takePhoto: () => cefTakePhoto(), zip: (files) => cefZip(files), deliver: (n, d, k) => cefDeliver(n, d, k),
     close: () => { if (stack[stack.length - 1] === 'cefSheet') closeSheet(); }, exporter: () => exporterInfo(), gps: () => cefGps(), logo: (how) => cefLogo(how),
     mapPicture: (o) => cefMapPicture(o), setSign: (g) => cefSetSign(g), // beta 4.2
-    pref: (k, v) => { if (k === 'guide') { S.cefGuide = v !== false; persist(); } } };
+    photoDims: (ids) => cefPhotoDims(ids), // beta 4.3
+    pref: (k, v) => { if (k === 'guide') { S.cefGuide = v !== false; persist(); } else if (k === 'dxf') { const g = v && typeof v === 'object' ? v : {}; S.cefDxf = { det: !!g.det, ph: !!g.ph, old: !!g.old }; persist(); } } }; // (beta 4.3: the pages and the kind of the CEF DXF)
 
   /** A project that came in a file or through the team mailbox: its CEF plans. A plan is taken whole: the one saved later wins, and it
       keeps who saved it and when. One plan for a site pin (one for a CEF-Plan project). o.cefSaid: the merge line. */
@@ -17978,6 +18057,41 @@
     if (edDirty()) { toast('Save the changes of this site first, then open its CEF plan', 5000); return; }
     ed.closeOK = true; await closeSheet(); await cefOpen(name, { pin: id });
   }, 'CEF plan not opened'));
+  /* beta 4.3 (MarkT): on the Drawing, the CEF plan of a tower site. Tap the site on the drawing: its line offers Open its CEF plan, or Add its CEF plan.
+     Or the tower button among the round ones: it lists the tower sites of the project, each with Open or Add (and shows the site on the drawing).
+     Add makes the plan with the site's name, ID and coordinates, as its record's button does. An As-Plan only. */
+  const drawCefName = () => (drw && drw.project) || S.project;
+  const drawCefOn = () => { const n = drawCefName(); return !!drw && !!n && !isAcc(n) && svPurpose(n) === 'As-plan'; };
+  const drawCefSites = () => { const n = drawCefName(), L = cefPlans(n); return points.filter((p) => p.project === n && elemOf(p) === 'Site').map((p) => ({ p, plan: L.find((x) => x.pin === p.id) || null })); };
+  // (the plan opens over the Drawing: Done, or the phone's Back, comes back to the Drawing, where the site now says Open its CEF plan)
+  const drawCefGo = (pin) => guard(async () => { drawCefMenu(false); await cefOpen(drawCefName(), { pin }); }, 'CEF plan not opened');
+  function drawCefMenu(on) {
+    const m = $('drawCefMenu'), box = $('drawCefList'); m.hidden = !on; $('drawCef').setAttribute('aria-expanded', String(!!on)); if (!on) return;
+    $('drawMapMenu').hidden = true; $('drawMap').setAttribute('aria-expanded', 'false'); box.textContent = '';
+    const R = drawCefSites();
+    if (!R.length) { const p = document.createElement('p'); p.textContent = 'No tower site in this project yet. Add a point with the element Site on the map; its CEF plan is made from here, or from its record.'; box.appendChild(p); return; }
+    R.forEach(({ p, plan }) => { const row = document.createElement('div'); row.className = 'cefrow'; const s = document.createElement('span'); s.textContent = recName(p) || p.poleId || 'Tower site';
+      const sm = document.createElement('small'); sm.textContent = plan ? `CEF plan saved ${fmtTime(plan.at)}${plan.by ? ` by ${plan.by}` : ''}` : 'No CEF plan yet'; s.appendChild(sm);
+      const sh = document.createElement('button'); sh.type = 'button'; sh.className = 'btn small'; sh.textContent = 'Show'; sh.dataset.cef = 'show'; sh.addEventListener('click', () => { drawCefMenu(false); drawCefShow(p.id); });
+      const b = document.createElement('button'); b.type = 'button'; b.className = `btn small${plan ? '' : ' primary'}`; b.textContent = plan ? 'Open' : 'Add'; b.dataset.cef = 'open'; b.dataset.pin = String(p.id); b.addEventListener('click', () => drawCefGo(p.id));
+      row.append(s, sh, b); box.appendChild(row); });
+  }
+  /** The site shown on the drawing: in the middle, picked, with its line (and its CEF button). */
+  function drawCefShow(id) {
+    if (!drw) return; const it = drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return;
+    drw.sel = it.p.id; drw.selRun = null; drw.view.cx = it.xy[0]; drw.view.cy = it.xy[1]; const info = $('drawInfo');
+    info.textContent = `${it.p.poleId || elemOf(it.p)} · ${svDesc(it.p)} · E ${it.xy[0].toFixed(1)} N ${it.xy[1].toFixed(1)}`; info.hidden = false; $('drawHint').hidden = true; drawCefSync(); drawDrawing();
+  }
+  function drawCefSync() {
+    const btn = $('drawCef'); if (!btn) return; const on = drawCefOn(); btn.hidden = !on; const old = $('drawCefGo'); if (old) old.remove(); if (!on) { $('drawCefMenu').hidden = true; return; }
+    const row = drw.sel != null ? drawCefSites().find((x) => String(x.p.id) === String(drw.sel)) : null, info = $('drawInfo'); if (!row || info.hidden) return;
+    const b = document.createElement('button'); b.type = 'button'; b.id = 'drawCefGo'; b.className = 'btn small primary'; b.textContent = row.plan ? 'Open its CEF plan' : 'Add its CEF plan'; b.dataset.pin = String(row.p.id);
+    b.addEventListener('click', () => drawCefGo(row.p.id)); info.appendChild(b);
+  }
+  cefHooks.drawSync = () => { try { drawCefSync(); } catch (e) { /* the drawing works without it */ } };
+  $('drawCef').addEventListener('click', () => drawCefMenu($('drawCefMenu').hidden));
+  $('drawCanvas').addEventListener('pointerdown', () => { if (!$('drawCefMenu').hidden) drawCefMenu(false); });
+  $('drawMap').addEventListener('click', () => { if (!$('drawCefMenu').hidden) drawCefMenu(false); });
   try { cefHooks.main(); } catch (e) { /* at start */ }
 
   /* beta 4.1 (MarkT): on a computer the map tools are panels on the right; the map's round buttons and its summary line move clear of an open panel */
@@ -18032,12 +18146,16 @@
     /* v2.42.27 */ ask: (t, x, b) => ask(t, x, b), hl: () => hlId, paneOn: () => document.body.classList.contains('deskpane'), otherN: () => (otherLayer ? otherLayer.getLayers().length : 0), drwView: () => (drw && drw.view ? { ...drw.view, w: $('drawCanvas').width, h: $('drawCanvas').height } : null),
     fibLanes: () => fibLayer.getLayers().map((l) => (l.getLatLngs ? { ll: l.getLatLngs().map((q) => [q.lat, q.lng]), color: l.options.color, w: l.options.weight, op: l.options.opacity, dash: l.options.dashArray || '' } : { arrow: true })), kmzFibers: () => kmzFibers(),
     packs: { here: (lat, lon) => { const h = packsHere(lat, lon); return h ? { reg: h.reg, road: { have: h.road.have, get: h.road.get && h.road.get.name }, map: { have: h.map.have, get: h.map.get && h.map.get.name } } : null; }, regions: (p) => packRegions(p), pop: () => (pkpNow ? { reg: pkpNow.reg, list: pkpNow.list.map((p) => p.name) } : null), check: () => packPopCheck(), index: () => loadPackIndex(), prog: () => Object.fromEntries(packProg), get: (name) => { const p = packCatalog().find((x) => x.name === name); if (p) startPackDl(p); return !!p; } }, // beta 3.8 (tests)
-    style: { scene: (sn) => { if (sn) DSP.setScene(sn); return DSP.stats(); }, compact: () => DSP.compact(), pl: () => plStyle() }, // beta 3.8 (tests)
+    style: { scene: (sn) => { if (sn) DSP.setScene(sn); return DSP.stats(); }, compact: () => DSP.compact(), pl: () => plStyle(), pick: (k) => DSP.pick(k), picked: () => DSP.picked(), sceneNow: () => DSP.scene() }, // beta 3.8 (tests; beta 4.3: pick)
     folder: { links: () => folderLinks(), rows: (n) => siteInfoRows(n || S.project) }, // beta 3.8 (tests)
     own: { groups: () => { const g = coopGroups(); return { first: g.first, more: g.more, town: !!g.town }; }, place: () => coopPlaceText(), info: () => (S.cloud ? coopInfoText(S.cloud) : ''), owners: () => ownerChoices(), coops: () => coopChoices(), area: () => { const a = coopArea(); return a ? { ...a } : null; }, sheet: () => sheetCoops().map((c) => c.n), regionKey, townKey, first: () => coopFirstNote(), use: () => JSON.parse(JSON.stringify(S.ownUse || {})), kept: () => (S.myCoops || []).slice() }, // v2.43.0 (tests)
     ph: { setOf: (n) => JSON.parse(JSON.stringify(phSetOf(n || S.project))), n: (n) => phN(n), doc: (k, n) => phDoc(k, n), mine: () => phMine() }, // beta 3.5 (tests)
     team: { patchS: (o) => { Object.assign(S, o); persist(); }, sync: () => cloudSync(true), load: () => tmLoad(), render: () => renderTeam(), on: () => tmOn(), ver: () => tmVerified(), state: () => JSON.parse(JSON.stringify({ mbx: S.mbx || null, teamMe: S.teamMe || null, snap: S.teamSnap || null })), beta: () => ({ BETA, APP_NAME, VER_LABEL }), mbx: mbxTestHooks }, sendFile: (blob, name, type) => shareFile(blob, name, type) }; // v2.43 (beta 2: mbx); beta 3.7: sendFile (tests)
   /* v2.44 beta 4.0 (tests): CEF-Plan. frame(): the editor's window; put(): a made-up plan; keep(): a made-up photo in the photo store */
+  window.__polecam.vicinity = async (o) => { const v = await vicinityJpeg(+o.E, +o.N, +o.size, o.zone || S.zone, !!o.south, null, o.street ? null : SAT_SOURCE, o.zCap || 0); if (!v || !v.jpg) return null; let s = ''; for (let i = 0; i < v.jpg.length; i += 0x8000) s += String.fromCharCode.apply(null, v.jpg.subarray(i, i + 0x8000)); return { b64: btoa(s), px: v.px, z: v.z, sat: !!v.sat }; }; // beta 4.3 (tests)
+  window.__polecam.newAt = (o) => openEditor({ mode: 'new', element: (o && o.element) || 'Pole', lat: +o.lat, lon: +o.lon, source: 'map', takenAt: new Date().toISOString() }); // beta 4.3 (tests): a new record with no photo
+  window.__polecam.drawView = () => (drw && drw.view ? { cx: drw.view.cx, cy: drw.view.cy, sc: drw.view.sc } : null); // beta 4.3 (tests): where the Drawing looks
+  window.__polecam.coops = () => ({ groups: coopGroups(), set: ed ? ed.coopSet || '' : '', name: ed ? (ed.boq || {}).ownerName || '' : '', owner: ed ? (ed.boq || {}).owner || '' : '', area: ed ? coopArea() : null }); // beta 4.3 (tests)
   window.__polecam.cef = { open: (n, o) => cefOpen(n, o), plans: (n) => JSON.parse(JSON.stringify(cefPlans(n || S.project))), of: (n) => JSON.parse(JSON.stringify(cefOf(n || S.project))), isCef: (n) => isCefProj(n), lock: () => cefLockText(S.project), now: () => (cefNow ? { ...cefNow } : null),
     frame: () => $('cefFrame').contentWindow, logos: () => cefLogos(), canLogo: () => cefCanLogo(), logoSet: (f) => cefLogoSet(f), logoRemove: () => cefLogoRemove(), changed: (n, t) => cefChanged(n || S.project, t), pids: (n, t) => cefPids(n || S.project, t), summary: (n) => projSummary(n || S.project),
     put: (n, id, sk, o) => { const G = cefOf(n), x = o || {}, i = G.plans.findIndex((p) => p.id === id), rec = { id, pin: x.pin || '', sk, at: x.at || new Date().toISOString(), by: x.by || (S.user && S.user.name) || '', o: x.o != null ? x.o : cefMe(), made: x.at || new Date().toISOString() }; if (i >= 0) G.plans[i] = rec; else G.plans.push(rec); cefPut(n, G); },

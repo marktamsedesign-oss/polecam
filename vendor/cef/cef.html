@@ -115,6 +115,11 @@ h3:first-child{margin-top:2px}
 .insp-h b{font:600 16px var(--f-head);letter-spacing:.05em;text-transform:uppercase;margin-right:auto}
 .li{display:flex;align-items:center;gap:8px;width:100%;height:34px;padding:0 8px;border:0;border-bottom:1px solid var(--line2);background:none;cursor:pointer;text-align:left;font-size:14px}
 .li[aria-current="true"]{background:var(--chip)}
+.li b{font-weight:400;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.li span{flex:none;padding-left:6px}
+.swr{display:flex;align-items:flex-start;gap:9px;padding:7px 0;border-bottom:1px solid var(--line2);cursor:pointer}.swr input{flex:none;width:19px;height:19px;margin:2px 0 0;accent-color:var(--ink)}.swr span{display:flex;flex-direction:column;min-width:0}.swr b{font-weight:600;font-size:14px}.swr small{font-size:12.5px;color:var(--muted);line-height:1.35}
+.cabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}.cabs .b{display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;height:auto;min-height:40px;padding:5px 10px;line-height:1.15}.cabs .b small{font:400 11px var(--f-mono);color:var(--muted)}.cabs .b[aria-pressed=true]{background:var(--ink);color:#fff;border-color:var(--ink)}.cabs .b[aria-pressed=true] small{color:#dfe3ea}.cabs .b .pi{margin:0 0 1px}
+.lirow{display:flex;align-items:stretch;border-bottom:1px solid var(--line2)}.lirow .li{flex:1;min-width:0;border-bottom:0}.lirow.hid .li b{color:var(--muted);text-decoration:line-through}.lirow.hid .dot{opacity:.35}
+.lib{flex:none;width:38px;min-height:34px;border:0;background:none;color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-radius:6px}.lib:hover{background:var(--chip)}.lib .pi{width:17px;height:17px;margin:0}.lib[aria-pressed=false]{color:var(--muted)}.lib.d{color:var(--d-prop)}
 .li span{margin-left:auto;font:400 12px var(--f-mono);color:var(--muted)}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--d-exis);flex:none}
 .dot.P{background:var(--d-prop)}.dot.T{background:var(--d-tower)}.dot.L{background:var(--d-ladder)}
@@ -200,6 +205,46 @@ img{max-width:100%}
 #nohost{padding:24px 16px;font-size:16px;max-width:520px;margin:0 auto}
 input:disabled,select:disabled{opacity:.7;background:var(--chip)}
 button:disabled{opacity:.5;cursor:default}
+
+/* ---- (14 Nov, MarkT) a phone: the drawing takes the screen. body.phone is set by the editor when the screen is 900 px wide or less ---- */
+.shd,.fab{display:none}
+body.phone{--peek:70px}
+body.phone .app{min-height:0;gap:0;padding:0}
+body.phone .bar{flex-wrap:nowrap;gap:6px;padding:5px 8px;min-height:46px;box-sizing:border-box;background:var(--panel);border-bottom:1px solid var(--line)}
+body.phone .brand{font-size:0;gap:0;margin:0;flex:none}body.phone .brand svg{width:24px;height:24px}body.phone .brand .chip{display:none}
+body.phone .bar .seg{flex:0 1 auto;min-width:0;margin-right:auto;overflow-x:auto;scrollbar-width:none}
+body.phone .bar .seg button{height:34px;padding:0 10px;font-size:13px;flex:none}
+body.phone #bUndo{width:40px;height:34px;padding:0;display:inline-flex;align-items:center;justify-content:center;flex:none}body.phone #bUndo span{display:none}body.phone #bUndo .pi{width:20px;height:20px}
+body.phone #bDone{height:34px;flex:none}body.phone #bBack{height:34px;max-width:46vw;overflow:hidden;text-overflow:ellipsis}
+body.phone .guide{border-radius:0;border-width:0 0 1px 4px;padding:3px 6px 3px 8px;font-size:12.5px;gap:6px;flex-wrap:nowrap}
+body.phone .guide span{flex:1 1 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body.phone .guide b{font-size:11.5px}body.phone .guide .b{height:28px}
+body.phone .desk{display:block;position:relative;flex:1;min-height:0}
+body.phone .stage{position:absolute;left:0;right:0;top:0;bottom:var(--peek);border:0;border-radius:0}
+body.phone .tools,body.phone .cap{display:none}
+body.phone .panel{position:absolute;left:0;right:0;bottom:0;height:var(--peek);z-index:30;border-width:1px 0 0;border-radius:14px 14px 0 0;box-shadow:0 -6px 18px rgba(0,0,0,.16);transition:height .2s ease}
+body.phone .desk[data-sh="half"] .panel{height:55%}
+body.phone .desk[data-sh="full"] .panel{height:calc(100% - 6px)}
+body.phone .desk[data-sh="peek"] .tabbody{overflow:hidden}
+body.phone .shd{display:flex;align-items:center;gap:8px;height:24px;flex:none;padding:6px 12px 0;box-sizing:border-box;position:relative;cursor:pointer;touch-action:none;-webkit-tap-highlight-color:transparent}
+body.phone .shd .grip{position:absolute;left:50%;top:4px;width:40px;height:4px;margin-left:-20px;border-radius:2px;background:var(--line)}
+body.phone .shd .status{flex:1 1 0;min-width:0;border:0;padding:0;min-height:0;font-size:11px;line-height:16px;gap:8px;background:none;overflow:hidden}
+body.phone .shd .status .h{display:none}body.phone .shd .status .h.dn{display:block}
+body.phone .shd .shc{flex:none;width:8px;height:8px;margin:5px 4px 0 auto;border:solid var(--muted);border-width:2px 2px 0 0;transform:rotate(-45deg)}
+body.phone .desk:not([data-sh="peek"]) .shd .shc{transform:rotate(135deg);margin-top:0}
+body.phone .desk.slim .shd .shc{visibility:hidden}
+body.phone .tabbody{padding:4px 12px 14px}
+body.phone .ctxh{margin:0 0 10px;padding-bottom:6px}
+body.phone .desk.slim .tabbody{padding:2px 8px 8px}
+body.phone .desk.slim .home{gap:4px}body.phone .desk.slim .home .hb{padding:3px 9px;font-size:10.5px;gap:2px}body.phone .desk.slim .home .hb .pi{width:20px;height:20px}
+body.phone #tb{flex:none;border-top:1px solid var(--line);border-bottom:0;background:var(--panel);padding:3px 4px;gap:0;min-height:56px;box-sizing:border-box}
+body.phone #tb button{min-width:52px;min-height:48px;padding:3px 4px;font-size:10px}body.phone #tb i{margin:8px 2px}
+body.phone #tb.more{-webkit-mask-image:linear-gradient(to right,#000 80%,transparent);mask-image:linear-gradient(to right,#000 80%,transparent)}
+body.phone .tbpop{position:absolute;top:auto;bottom:8px;left:6px;right:6px;max-height:calc(100% - 16px)}
+body.phone .fab{display:flex;flex-direction:column;gap:8px;position:absolute;right:8px;bottom:8px;z-index:4}
+body.phone .fab .b{width:44px;height:44px;padding:0;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,.22);font-size:12px;background:var(--panel)}
+body.phone .modebar{left:8px;right:60px;transform:none;width:auto;max-width:none;justify-content:flex-start;bottom:8px}
+body.phone .tbopt{top:6px;max-width:calc(100% - 12px);padding:3px 4px;gap:6px}
+@media (max-width:400px){body.phone .seg button[data-v="iso"]{font-size:0}body.phone .seg button[data-v="iso"]::after{content:'Iso';font-size:13px}body.phone .bar .seg button{padding:0 9px}}
 </style>
 </head>
 <body>
@@ -231,10 +276,12 @@ button:disabled{opacity:.5;cursor:default}
         <div class="tbopt" id="tbopt" hidden></div>
         <div class="tbpop" id="tbpop" hidden></div>
         <div class="modebar" id="modebar" hidden></div>
+        <div class="fab" id="fab"></div>
       </div>
       <div class="status" id="status"></div>
     </section>
     <aside class="panel" aria-label="Site details">
+      <div class="shd" id="shd" role="button" tabindex="0" aria-expanded="false" aria-label="Show the form"><span class="grip" aria-hidden="true"></span><span class="shc" aria-hidden="true"></span></div>
       <nav class="tabs" id="tabs" role="tablist">
         <button data-tab="site" role="tab">Site</button><button data-tab="els" role="tab">Elements</button><button data-tab="route" role="tab">Route</button><button data-tab="photos" role="tab">Photos</button><button data-tab="table" role="tab">Table</button><button data-tab="export" role="tab">Export</button>
       </nav>

@@ -179,7 +179,7 @@ function partDetails(S, rg) {
   const out = [], mm = PVC_MM + 'mm';
   const r0 = rg.risers.find(r => r.pole);
   if (r0) {
-    const pole = r0.pole, pl = pole.st === 'P' ? 'pp' : 'ex', lp = rg.loops.find(q => Math.hypot(q.at[0] - pole.x, q.at[1] - pole.y) < 0.8), clo = rg.join && rg.join.pole === pole && (rg.join.auto || !rg.join.none), W = 66, H = 124;
+    const pole = r0.pole, pl = pole.st === 'P' ? 'pp' : 'ex', lp = rg.loops.find(q => Math.hypot(q.at[0] - pole.x, q.at[1] - pole.y) < 0.8), jn = rg.joins.find(q => q.pole === pole), clo = !!jn && (jn.auto || !jn.none), W = 66, H = 124;
     out.push({ key: 'riser', w: W, h: H, at: [r0.at[0], r0.at[1], r0.g + 1.2], draw: G => {
       const cx = 15, yg = 21, bh = 6, px = cx + 7.6, pr = 2.7, yb = yg + bh + 0.6, giT = yb + 26, ugT = giT + 20, lpY = H - 30, top = H - 3;
       G.pl([[0, 0], [W, 0], [W, H], [0, H]], 'lot', 1); dTitle(G, W, 'RISER POLE DETAIL');
@@ -275,10 +275,10 @@ function placeDetails(G, P, D, toSheet, names) {
   }
   return left;
 }
-function buildSheets(S) {
+function buildSheets(S, opt) {      /* (14 Nov) opt.details === false: no details pages; opt.photos === false: no photo pages. Left out: every page, as before. */
   const out = [], si = S.site, g = geo(S), rg = routeGeom(S), up = v => String(v || '').trim().toUpperCase();
   const ax0 = AREA.x0, ax1 = AREA.x1, ay0 = AREA.y0, ay1 = AREA.y1, top = ay1 - (S.sample ? 8 : 0), vy0 = ay0 + AREA.tz, pw = PAN.w, px = PAN.x;
-  const nPh = S.photos.length, DP = detailPages(S), nD = DP.length, nP = Math.ceil(nPh / 6), total = 5 + nD + nP, TS = { rh: 5.4, hh: 6.2, th: 1.8 };      /* the tables in the strip: narrow, so their text is the smallest that still reads well, 1.8 mm */
+  const OPT = opt || {}, nPh = OPT.photos === false ? 0 : S.photos.length, DP = OPT.details === false ? [] : detailPages(S), nD = DP.length, nP = Math.ceil(nPh / 6), total = 5 + nD + nP, TS = { rh: 5.4, hh: 6.2, th: 1.8 };      /* the tables in the strip: narrow, so their text is the smallest that still reads well, 1.8 mm */
   let n = 0; const push = (name, G, v, images) => out.push({ name, s: v ? v.s : 1, N: v ? v.N : 0, prims: G.p, images: images || [] });
   { /* 1. the cover page */
     const G = new Gfx(), x0 = SH.M, x1 = SH.W - SH.M, y0 = SH.M, y1 = SH.H - SH.M, cx = SH.W / 2; n++;
@@ -329,18 +329,31 @@ function buildSheets(S) {
     for (const q of (iso && iso.pics) || []) images.push({ id: q.id, x: t.dx + q.x * v.s, y: t.dy + q.y * v.s, w: q.w * v.s, h: q.h * v.s, file: picFile(q.n) });      /* beta 4.1: the photos set on the isometric */
     /* the depth of the open trench is written under the table: in the narrow strip the row has no room for it */
     let deep = ''; const rowsC = cefTable(S).map((r, i) => { const m = /^((?:OPEN|SHALLOW) TRENCH CONDUIT) \((.+)\)$/.exec(r[0]); if (m) deep = m[2]; return [i + 1].concat(m ? [m[1]].concat(r.slice(1)) : r); });
-    const y = drawTable(G, px, PAN.y1, [{ t: 'NO.', w: 7.4, al: 'c' }, { t: 'LIST OF ACTIVITY', w: 38 }, { t: 'TYPE', w: 21, al: 'c' }, { t: 'QTY', w: 8, al: 'c' }, { t: 'LENGTH', w: 13.6, al: 'c' }], rowsC, 'CEF TABLE', TS);
-    para(G, px, y - 1.5, focFormula(S).concat(deep ? ['TRENCH CONDUIT: ' + deep.replace(/(\d)m /, '$1 m ')] : []), 1.8, pw, 'tp', true);
+    const colsC = [{ t: 'NO.', w: 7.4, al: 'c' }, { t: 'LIST OF ACTIVITY', w: 38 }, { t: 'TYPE', w: 21, al: 'c' }, { t: 'QTY', w: 8, al: 'c' }, { t: 'LENGTH', w: 13.6, al: 'c' }], deepL = deep ? ['TRENCH CONDUIT: ' + deep.replace(/(\d)m /, '$1 m ')] : [];
+    if (rg.parts.filter(p => p.sum.total > 0.05).length > 1) {      /* (14 Nov) more than one cable: each line under the table on one line, the rows a little lower when there are many; lines that still have no room are left to the top view sheet */
+      let FF = focFormula(S).concat(deepL); const lh = 1.8 * 1.65, room = n => (PAN.y1 - PAN.y0 - 2 * TS.hh - 2.5 - n * lh) / rowsC.length; if (room(FF.length) < 3.9) FF = deepL;
+      let yy = drawTable(G, px, PAN.y1, colsC, rowsC, 'CEF TABLE', Object.assign({}, TS, { rh: clamp(room(FF.length), 3.9, TS.rh) })) - 1.5; for (const ln of FF) { yy -= lh; fitTx(G, [px, yy], ln, 1.8, pw, 'tp', 'l', true); }
+    } else {
+    const y = drawTable(G, px, PAN.y1, colsC, rowsC, 'CEF TABLE', TS);
+    para(G, px, y - 1.5, focFormula(S).concat(deepL), 1.8, pw, 'tp', true);
+    }
     push('ISOMETRIC', G, v, images);
   }
   { /* 5. the top view, with the lengths of the two cables on the right */
     let tv = null; const G = new Gfx(), images = [], v = fitView((th, box) => (tv = buildTop(S, { th, box, dims: true, north: true, photos: true, labels: true })).prims, ax1 - ax0, top - vy0);
     sheetFrame(S, G, { view: 'TOP VIEW', sheet: 'TOP VIEW', scale: '1:' + v.N, n: ++n, N: total, images }); placeView(G, v, [ax0, vy0, ax1, top]);
     { const t = viewAt(v, [ax0, vy0, ax1, top]); for (const q of (tv && tv.pics) || []) images.push({ id: q.id, x: t.dx + q.x * v.s, y: t.dy + q.y * v.s, w: q.w * v.s, h: q.h * v.s, file: picFile(q.n) }); }      /* beta 4.1: the photos set on the top view */
-    const rows = [], grp = {}; for (const l of rg.legs) { const k = l.f + l.i, q = grp[k] || (grp[k] = { f: l.f, i: l.i, len: 0, t: {} }); q.len += l.len; q.t[l.type] = 1; }
-    for (const k in grp) { const q = grp[k]; rows.push([q.f.toUpperCase() + ' ' + (q.i + 1), Object.keys(q.t).map(t => LEG[t].n.toUpperCase().replace('UNDERGROUND', 'UG')).join(' / '), f1(q.len) + 'm']); }
+    /* (14 Nov) the lengths of each cable: its legs, what the app adds, its two totals. With more than one cable each has its heading. */
+    let rows = []; const CB = cables(S), PD = rg.parts.map((p, k) => k).filter(k => rg.parts[k].sum.total > 0.05), many = PD.length > 1, runT = t => LEG[t].n.toUpperCase().replace('UNDERGROUND', 'UG');
+    const one = (k, brief) => { const p = rg.parts[k], sm = p.sum, grp = {}, o = [], w = many ? ' ' + (k + 1) : '';
+      if (many) o.push(['', 'CABLE ' + (k + 1) + ': ' + [sm.ae > 0.05 ? 'AE ' + CB[k].ae.cable : '', sm.ugt > 0.05 ? 'UG ' + CB[k].ug.cable : ''].filter(Boolean).join(', ').toUpperCase(), '']);
+      if (!brief) { for (const l of p.legs) { const kk = l.f + l.i, q = grp[kk] || (grp[kk] = { f: l.f, i: l.i, len: 0, t: {} }); q.len += l.len; q.t[l.type] = 1; }
+        for (const kk in grp) { const q = grp[kk]; o.push([q.f.toUpperCase() + ' ' + (q.i + 1), Object.keys(q.t).map(runT).join(' / '), f1(q.len) + 'm']); }
+        if (sm.vert > 0.05) o.push(['UG', 'UP AND DOWN (RISER, EXIT, DROPS)', f1(sm.vert) + 'm']); if (sm.inside > 0.05) o.push(['UG', 'IN THE CABIN (PORTHOLE TO ODF)', f1(sm.inside) + 'm']); if (sm.nloop) o.push(['AE', 'LOOPS (' + sm.nloop + ')', f1(sm.loop) + 'm']); }
+      if (!many || sm.ae > 0.05) o.push(['', 'TOTAL FOC AE' + w, f1(sm.ae) + 'm']); if (!many || sm.ugt > 0.05) o.push(['', 'TOTAL FOC UG' + w, f1(sm.ugt) + 'm']); return o; };
+    for (const k of PD) rows = rows.concat(one(k, false)); if (rows.length > 20 && many) { rows = []; for (const k of PD) rows = rows.concat(one(k, true)); }      /* too many lines for the sheet: the totals of each cable */
     let y = PAN.y1;
-    if (rows.length) { if (rg.sum.vert > 0.05) rows.push(['UG', 'UP AND DOWN (RISER, EXIT, DROPS)', f1(rg.sum.vert) + 'm']); if (rg.sum.inside > 0.05) rows.push(['UG', 'IN THE CABIN (PORTHOLE TO ODF)', f1(rg.sum.inside) + 'm']); if (rg.sum.nloop) rows.push(['AE', 'LOOPS (' + rg.sum.nloop + ')', f1(rg.sum.loop) + 'm']); rows.push(['', 'TOTAL FOC AE', f1(rg.sum.ae) + 'm'], ['', 'TOTAL FOC UG', f1(rg.sum.ugt) + 'm']); y = drawTable(G, px, y, [{ t: 'LEG', w: 10, al: 'c' }, { t: 'FOC RUN', w: 63 }, { t: 'LENGTH', w: 15, al: 'c' }], rows.slice(0, 20), 'FOC AE AND FOC UG', TS); }
+    if (rows.length) y = drawTable(G, px, y, [{ t: 'LEG', w: 10, al: 'c' }, { t: 'FOC RUN', w: 63 }, { t: 'LENGTH', w: 15, al: 'c' }], rows.slice(0, 20), 'FOC AE AND FOC UG', TS);
     if (rg.warn.length) para(G, px, y - 2, rg.warn.map(w => 'CHECK: UG LEG ' + (w.leg + 1) + ' CROSSES ' + w.names.join(', ').toUpperCase() + '.'), 1.8, pw, 'tp', true);
     push('TOP VIEW', G, v, images);
   }
@@ -428,8 +441,9 @@ function toDXF(prims) {
   w(0, 'ENDSEC', 0, 'EOF');
   return o.join('\r\n') + '\r\n';
 }
-/* all sheets side by side, each one enlarged so that its view is true size: 1 drawing unit = 1 m */
-function sheetsDXF(sheets) {
+/* all sheets side by side, each one enlarged so that its view is true size: 1 drawing unit = 1 m. This is the DXF of beta 4.2 (R12): no layout tabs, and a
+   frame with the file name where a picture goes. (14 Nov) kept as it was, for a program that does not take the newer DXF. */
+function sheetsDXF12(sheets) {
   let all = [], ox = 0; const k0 = 1 / (sheets.find(q => q.name === 'TOP VIEW') || sheets[0]).s, seen = {};
   for (const sh of sheets) {
     const k = sh.N ? 1 / sh.s : k0, G = new Gfx(), t3 = (String(sh.name || 'S').replace(/[^A-Za-z]/g, '').slice(0, 3) || 'S').toUpperCase(); seen[t3] = (seen[t3] || 0) + 1; const tag = t3 + (seen[t3] > 1 ? seen[t3] : '');      /* (19:25) the blocks of a sheet carry its name: ISO_ODC_2, TOP_ODC_2 */
@@ -438,11 +452,138 @@ function sheetsDXF(sheets) {
   }
   return toDXF(all);
 }
-/* the plan alone, turned and moved onto its UTM 51N grid position */
-function mapDXF(S, g) {
-  const t = buildTop(S, { th: 0.22, labels: true, photos: true, pics: false }), a = g.ll(g.ax, g.ay), b = g.ll(g.ax, g.ay + 50), U0 = utm51(a[0], a[1]), U1 = utm51(b[0], b[1]);
-  const s = Math.hypot(U1[0] - U0[0], U1[1] - U0[1]) / 50, rot = Math.atan2(U1[1] - U0[1], U1[0] - U0[0]) / D2R - 90, c = Math.cos(rot * D2R), sn = Math.sin(rot * D2R);
-  return toDXF(xfPrims(t.prims, s, rot, U0[0] - (g.ax * c - g.ay * sn) * s, U0[1] - (g.ax * sn + g.ay * c) * s));
+/* ---------- (14 Nov) the DXF with a layout tab for each sheet and the pictures attached: AutoCAD 2000 format (AC1015) ----------
+   The model holds what the DXF of beta 4.2 held: every sheet, side by side, each enlarged so that its view is true size (1 unit = 1 m), every item a block.
+   Each sheet has a layout tab of its own, an A3 page with one viewport that looks at that sheet in the model at the sheet's scale: the tab prints as the
+   PDF page does. A photo or a logo is a linked picture (IMAGE) laid over its frame; the files are in the photos and logos folders beside the DXF.
+   R2K: the fixed records of such a drawing (tables, the model and the first paper space, the dictionaries), the ones the app's plain plan DXF is written
+   with. Handles below 0x40 are theirs; everything added here is numbered from 0x100. */
+const R2K = {"classes":[["0","CLASS","1","ACDBDICTIONARYWDFLT","2","AcDbDictionaryWithDefault","3","ObjectDBX Classes","90","0","280","0","281","0"],["0","CLASS","1","SUN","2","AcDbSun","3","SCENEOE","90","1153","280","0","281","0"],["0","CLASS","1","VISUALSTYLE","2","AcDbVisualStyle","3","ObjectDBX Classes","90","4095","280","0","281","0"],["0","CLASS","1","MATERIAL","2","AcDbMaterial","3","ObjectDBX Classes","90","1153","280","0","281","0"],["0","CLASS","1","SCALE","2","AcDbScale","3","ObjectDBX Classes","90","1153","280","0","281","0"],["0","CLASS","1","TABLESTYLE","2","AcDbTableStyle","3","ObjectDBX Classes","90","4095","280","0","281","0"],["0","CLASS","1","MLEADERSTYLE","2","AcDbMLeaderStyle","3","ACDB_MLEADERSTYLE_CLASS","90","4095","280","0","281","0"],["0","CLASS","1","DICTIONARYVAR","2","AcDbDictionaryVar","3","ObjectDBX Classes","90","0","280","0","281","0"],["0","CLASS","1","CELLSTYLEMAP","2","AcDbCellStyleMap","3","ObjectDBX Classes","90","1152","280","0","281","0"],["0","CLASS","1","MENTALRAYRENDERSETTINGS","2","AcDbMentalRayRenderSettings","3","SCENEOE","90","1024","280","0","281","0"],["0","CLASS","1","ACDBDETAILVIEWSTYLE","2","AcDbDetailViewStyle","3","ObjectDBX Classes","90","1025","280","0","281","0"],["0","CLASS","1","ACDBSECTIONVIEWSTYLE","2","AcDbSectionViewStyle","3","ObjectDBX Classes","90","1025","280","0","281","0"],["0","CLASS","1","RASTERVARIABLES","2","AcDbRasterVariables","3","ISM","90","0","280","0","281","0"],["0","CLASS","1","ACDBPLACEHOLDER","2","AcDbPlaceHolder","3","ObjectDBX Classes","90","0","280","0","281","0"],["0","CLASS","1","LAYOUT","2","AcDbLayout","3","ObjectDBX Classes","90","0","280","0","281","0"],["0","CLASS","1","IMAGE","2","AcDbRasterImage","3","ISM","90","2175","280","0","281","1"],["0","CLASS","1","IMAGEDEF","2","AcDbRasterImageDef","3","ISM","90","0","280","0","281","0"],["0","CLASS","1","IMAGEDEF_REACTOR","2","AcDbRasterImageDefReactor","3","ISM","90","1","280","0","281","0"]],"vport":["0","VPORT","5","23","330","8","100","AcDbSymbolTableRecord","100","AcDbViewportTableRecord","2","*Active","70","0","10","0.0","20","0.0","11","1.0","21","1.0","12","0.0","22","0.0","13","0.0","23","0.0","14","0.5","24","0.5","15","0.5","25","0.5","16","0.0","26","0.0","36","1.0","17","0.0","27","0.0","37","0.0","40","1000.0","41","1.34","42","50.0","43","0.0","44","0.0","50","0.0","51","0.0","71","0","72","1000","73","1","74","3","75","0","76","0","77","0","78","0","281","0","65","0","146","0.0"],"ltypes":[["0","LTYPE","5","24","330","2","100","AcDbSymbolTableRecord","100","AcDbLinetypeTableRecord","2","ByBlock","70","0","3","","72","65","73","0","40","0.0"],["0","LTYPE","5","25","330","2","100","AcDbSymbolTableRecord","100","AcDbLinetypeTableRecord","2","ByLayer","70","0","3","","72","65","73","0","40","0.0"],["0","LTYPE","5","26","330","2","100","AcDbSymbolTableRecord","100","AcDbLinetypeTableRecord","2","Continuous","70","0","3","","72","65","73","0","40","0.0"]],"layer0":["0","LAYER","5","27","330","1","100","AcDbSymbolTableRecord","100","AcDbLayerTableRecord","2","0","70","0","62","7","6","Continuous","370","-3","390","13"],"layerDef":["0","LAYER","5","28","330","1","100","AcDbSymbolTableRecord","100","AcDbLayerTableRecord","2","Defpoints","70","0","62","7","6","Continuous","290","0","370","-3","390","13"],"style":["0","STYLE","5","29","330","5","100","AcDbSymbolTableRecord","100","AcDbTextStyleTableRecord","2","Standard","70","0","40","0.0","41","1.0","50","0.0","71","0","42","2.5","3","txt","4",""],"appid":["0","APPID","5","2A","330","3","100","AcDbSymbolTableRecord","100","AcDbRegAppTableRecord","2","ACAD","70","0"],"dimstyleTable":["0","TABLE","2","DIMSTYLE","5","4","330","0","100","AcDbSymbolTable","70","1","100","AcDbDimStyleTable"],"dimstyle":["0","DIMSTYLE","105","2B","330","4","100","AcDbSymbolTableRecord","100","AcDbDimStyleTableRecord","2","Standard","70","0","3","","4","","40","1.0","41","2.5","42","0.625","43","3.75","44","1.25","45","0.0","46","0.0","47","0.0","48","0.0","140","2.5","141","2.5","142","0.0","143","0.03937007874","144","1.0","145","0.0","146","1.0","147","0.625","148","0.0","71","0","72","0","73","0","74","0","75","0","76","0","77","1","78","8","79","3","170","0","171","3","172","1","173","0","174","0","175","0","176","0","177","0","178","0","179","2","271","2","272","2","273","2","274","3","275","0","276","0","277","2","278","44","279","0","280","0","281","0","282","0","283","0","284","8","285","0","286","0","288","0","289","3","371","-2","372","-2"],"blocks":[["0","BLOCK","5","18","330","17","100","AcDbEntity","8","0","100","AcDbBlockBegin","2","*Model_Space","70","0","10","0.0","20","0.0","30","0.0","3","*Model_Space","1",""],["0","ENDBLK","5","19","330","17","100","AcDbEntity","8","0","100","AcDbBlockEnd"],["0","BLOCK","5","1C","330","1B","100","AcDbEntity","8","0","100","AcDbBlockBegin","2","*Paper_Space","70","0","10","0.0","20","0.0","30","0.0","3","*Paper_Space","1",""],["0","ENDBLK","5","1D","330","1B","100","AcDbEntity","8","0","100","AcDbBlockEnd"]],"static":[["0","DICTIONARY","5","B","330","A","100","AcDbDictionary","281","1"],["0","DICTIONARY","5","C","330","A","100","AcDbDictionary","281","1"],["0","DICTIONARY","5","D","330","A","100","AcDbDictionary","281","1","3","Model","350","1A","3","Layout1","350","1E"],["0","DICTIONARY","5","E","330","A","100","AcDbDictionary","281","1","3","ByBlock","350","1F","3","ByLayer","350","20","3","Global","350","21"],["0","DICTIONARY","5","F","330","A","100","AcDbDictionary","281","1","3","Standard","350","2C"],["0","DICTIONARY","5","10","330","A","100","AcDbDictionary","281","1","3","Standard","350","22"],["0","DICTIONARY","5","11","330","A","100","AcDbDictionary","281","1"],["0","ACDBDICTIONARYWDFLT","5","12","330","A","100","AcDbDictionary","281","1","3","Normal","350","13","100","AcDbDictionaryWithDefault","340","13"],["0","ACDBPLACEHOLDER","5","13","330","12"],["0","DICTIONARY","5","14","330","A","100","AcDbDictionary","281","1"],["0","DICTIONARY","5","15","330","A","100","AcDbDictionary","281","1"],["0","DICTIONARY","5","16","330","A","100","AcDbDictionary","281","1"],["0","LAYOUT","5","1A","330","D","100","AcDbPlotSettings","1","","4","A3","6","","40","7.5","41","20.0","42","7.5","43","20.0","44","420.0","45","297.0","46","0.0","47","0.0","48","0.0","49","0.0","140","0.0","141","0.0","142","1.0","143","1.0","70","1024","72","1","73","0","74","5","7","","75","16","76","0","77","2","78","300","147","1.0","148","0.0","149","0.0","100","AcDbLayout","1","Model","70","1","71","0","10","0.0","20","0.0","11","420.0","21","297.0","12","0.0","22","0.0","32","0.0","14","1e+20","24","1e+20","34","1e+20","15","-1e+20","25","-1e+20","35","-1e+20","146","0.0","13","0.0","23","0.0","33","0.0","16","1.0","26","0.0","36","0.0","17","0.0","27","1.0","37","0.0","76","1","330","17"],["0","LAYOUT","5","1E","330","D","100","AcDbPlotSettings","1","","4","A3","6","","40","7.5","41","20.0","42","7.5","43","20.0","44","420.0","45","297.0","46","0.0","47","0.0","48","0.0","49","0.0","140","0.0","141","0.0","142","1.0","143","1.0","70","0","72","1","73","0","74","5","7","","75","16","76","0","77","2","78","300","147","1.0","148","0.0","149","0.0","100","AcDbLayout","1","Layout1","70","1","71","1","10","0.0","20","0.0","11","420.0","21","297.0","12","0.0","22","0.0","32","0.0","14","1e+20","24","1e+20","34","1e+20","15","-1e+20","25","-1e+20","35","-1e+20","146","0.0","13","0.0","23","0.0","33","0.0","16","1.0","26","0.0","36","0.0","17","0.0","27","1.0","37","0.0","76","1","330","1B"],["0","MATERIAL","5","1F","102","{ACAD_REACTORS","330","E","102","}","330","E","100","AcDbMaterial","1","ByBlock","2","","70","0","40","1.0","71","1","41","1.0","91","-1023410177","42","1.0","72","1","3","","73","1","74","1","75","1","44","0.5","73","0","45","1.0","46","1.0","77","1","4","","78","1","79","1","170","1","48","1.0","171","1","6","","172","1","173","1","174","1","140","1.0","141","1.0","175","1","7","","176","1","177","1","178","1","143","1.0","179","1","8","","270","1","271","1","272","1","145","1.0","146","1.0","273","1","9","","274","1","275","1","276","1","42","1.0","72","1","3","","73","1","74","1","75","1","94","63"],["0","MATERIAL","5","20","102","{ACAD_REACTORS","330","E","102","}","330","E","100","AcDbMaterial","1","ByLayer","2","","70","0","40","1.0","71","1","41","1.0","91","-1023410177","42","1.0","72","1","3","","73","1","74","1","75","1","44","0.5","73","0","45","1.0","46","1.0","77","1","4","","78","1","79","1","170","1","48","1.0","171","1","6","","172","1","173","1","174","1","140","1.0","141","1.0","175","1","7","","176","1","177","1","178","1","143","1.0","179","1","8","","270","1","271","1","272","1","145","1.0","146","1.0","273","1","9","","274","1","275","1","276","1","42","1.0","72","1","3","","73","1","74","1","75","1","94","63"],["0","MATERIAL","5","21","102","{ACAD_REACTORS","330","E","102","}","330","E","100","AcDbMaterial","1","Global","2","","70","0","40","1.0","71","1","41","1.0","91","-1023410177","42","1.0","72","1","3","","73","1","74","1","75","1","44","0.5","73","0","45","1.0","46","1.0","77","1","4","","78","1","79","1","170","1","48","1.0","171","1","6","","172","1","173","1","174","1","140","1.0","141","1.0","175","1","7","","176","1","177","1","178","1","143","1.0","179","1","8","","270","1","271","1","272","1","145","1.0","146","1.0","273","1","9","","274","1","275","1","276","1","42","1.0","72","1","3","","73","1","74","1","75","1","94","63"],["0","MLINESTYLE","5","22","102","{ACAD_REACTORS","330","10","102","}","330","10","100","AcDbMlineStyle","2","Standard","70","0","3","","62","256","51","90.0","52","90.0","71","2","49","0.5","62","256","6","BYLAYER","49","-0.5","62","256","6","BYLAYER"],["0","MLEADERSTYLE","5","2C","102","{ACAD_REACTORS","330","F","102","}","330","F","100","AcDbMLeaderStyle","179","2","170","2","171","1","172","0","90","2","40","0.0","41","0.0","173","1","91","-1056964608","92","-2","290","1","42","2.0","291","1","43","8.0","3","Standard","44","4.0","300","","342","29","174","1","175","1","176","0","178","1","93","-1056964608","45","4.0","292","0","297","0","46","4.0","94","-1056964608","47","1.0","49","1.0","140","1.0","294","1","141","0.0","177","0","142","1.0","295","0","296","0","143","3.75","271","0","272","9","273","9"]]};
+const DXF_TAB = { COVER: 'COVER PAGE' };      /* a sheet's name on its tab */
+function toDXF2K(prims, lay, imgs) {
+  const n = v => { const r = Math.round(v * 1e5) / 1e5; return Number.isInteger(r) ? r + '.0' : String(r); };
+  const buf = () => { const a = []; const g = (...q) => { for (let i = 0; i < q.length; i += 2) a.push(String(q[i]), String(q[i + 1])); }; g.a = a; g.put = r => { for (let i = 0; i < r.length; i += 2) a.push(String(r[i]), String(r[i + 1])); }; return g; };
+  let next = 0x100; const H = () => (next++).toString(16).toUpperCase();
+  const names = Object.keys(LAYERS), dashH = H(), boldH = H(), layH = {}; for (const k of names) layH[k] = H();
+  /* the items as blocks, as in the older DXF: a block is set down on the middle of its item; names, lengths, notes and the frame stay loose */
+  const grp = new Map(), loose = [], used = {}, blocks = [];
+  for (const p of prims) { if (!LAYERS[p.lay]) continue; if (p.g) { let q = grp.get(p.g); if (!q) grp.set(p.g, q = []); q.push(p); } else loose.push(p); }
+  for (const [key, L] of grp) {
+    let nm = String(key).split('|')[0].toUpperCase().replace(/[^A-Z0-9_$-]+/g, '_').slice(0, 24) || 'ITEM'; used[nm] = (used[nm] || 0) + 1; if (used[nm] > 1) nm += '_V' + used[nm];
+    const b = primBox(L); if (!isFinite(b[0]) || b[0] > b[2]) { for (const p of L) loose.push(p); continue; }
+    blocks.push({ nm, L, x: Math.round((b[0] + b[2]) / 2 * 1e4) / 1e4, y: Math.round((b[1] + b[3]) / 2 * 1e4) / 1e4, br: H(), bb: H(), be: H() });
+  }
+  /* the tabs: the first one is the paper space every drawing has (*Paper_Space); each of the others has a paper space block of its own */
+  const tabs = [], seenT = {};
+  (lay || []).forEach((q, i) => { let nm = String(q.name || 'SHEET ' + (i + 1)).replace(/[<>\/\\":;?*|,=`]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || 'SHEET ' + (i + 1); const k0 = nm.toUpperCase(); seenT[k0] = (seenT[k0] || 0) + 1; if (seenT[k0] > 1) nm += ' ' + seenT[k0];
+    tabs.push(i === 0 ? { nm, q, br: '1B', lh: '1E', bn: '*Paper_Space' } : { nm, q, br: H(), lh: H(), bb: H(), be: H(), bn: '*Paper_Space' + (i - 1) }); });
+  /* the pictures: one definition for each file, one reactor for each picture that shows it */
+  const defs = new Map(), pics = [];
+  for (const im of imgs || []) { if (!(im.px > 0) || !(im.py > 0) || !(im.w > 0) || !(im.h > 0) || !im.file) continue; let d = defs.get(im.file); if (!d) defs.set(im.file, d = { h: H(), px: Math.round(im.px), py: Math.round(im.py), file: String(im.file), users: [] }); const q = { im, d, hd: H(), re: H() }; d.users.push(q); pics.push(q); }
+  /* one thing of the drawing. owner: the block record it belongs to; ps: 1 in the paper space that is shown when the drawing opens */
+  const ent = (g, p, ox, oy, owner) => {
+    const L = LAYERS[p.lay][0], X = v => n(v - ox), Y = v => n(v - oy), head = t => g(0, t, 5, H(), 330, owner, 100, 'AcDbEntity', 8, L);
+    if (p.k === 'pl') {
+      if (p.pts.length === 2 && !p.close) { head('LINE'); g(100, 'AcDbLine', 10, X(p.pts[0][0]), 20, Y(p.pts[0][1]), 30, '0.0', 11, X(p.pts[1][0]), 21, Y(p.pts[1][1]), 31, '0.0'); }
+      else { head('LWPOLYLINE'); g(100, 'AcDbPolyline', 90, p.pts.length, 70, p.close ? 1 : 0); for (const q of p.pts) g(10, X(q[0]), 20, Y(q[1])); }
+    }
+    else if (p.k === 'ci') { head('CIRCLE'); g(100, 'AcDbCircle', 10, X(p.c[0]), 20, Y(p.c[1]), 30, '0.0', 40, n(p.r)); }
+    else if (p.k === 'ar') { head('ARC'); g(100, 'AcDbCircle', 10, X(p.c[0]), 20, Y(p.c[1]), 30, '0.0', 40, n(p.r), 100, 'AcDbArc', 50, n((p.a0 % 360 + 360) % 360), 51, n((p.a1 % 360 + 360) % 360)); }
+    else if (p.k === 'fl') { for (let i = 1; i + 1 < p.pts.length; i++) { const a = p.pts[0], b = p.pts[i], c = p.pts[i + 1]; head('SOLID'); g(100, 'AcDbTrace', 10, X(a[0]), 20, Y(a[1]), 30, '0.0', 11, X(b[0]), 21, Y(b[1]), 31, '0.0', 12, X(c[0]), 22, Y(c[1]), 32, '0.0', 13, X(c[0]), 23, Y(c[1]), 33, '0.0'); } }
+    else if (p.k === 'tx') {
+      const s = dxfStr(p.s); if (!s.trim()) return; let hh = p.h, rot = p.a, wf = 0, ob = 0;
+      if (p.m) { const ul = Math.hypot(p.m[0], p.m[1]) || 1, ux = p.m[0] / ul, uy = p.m[1] / ul, al = p.m[2] * ux + p.m[3] * uy, up = -p.m[2] * uy + p.m[3] * ux; rot = Math.atan2(uy, ux) / D2R; hh = p.h * up; wf = ul / up; ob = Math.atan2(al, up) / D2R; }
+      head('TEXT'); g(100, 'AcDbText', 10, X(p.p[0]), 20, Y(p.p[1]), 30, '0.0', 40, n(hh), 1, s); if (rot) g(50, n((rot % 360 + 360) % 360)); if (wf && Math.abs(wf - 1) > 1e-4) g(41, n(wf)); if (ob) g(51, n(ob)); g(7, p.b ? 'CEF-BOLD' : 'Standard');
+      if (p.al !== 'l') g(72, p.al === 'c' ? 1 : 2, 11, X(p.p[0]), 21, Y(p.p[1]), 31, '0.0'); g(100, 'AcDbText');
+    }
+  };
+  /* a viewport of a tab. The first one of a paper space is the page itself; the second looks at the sheet in the model. on: this tab is the one shown when the
+     drawing opens (its things are in the ENTITIES section and say 67 = 1), as AutoCAD writes it. */
+  const vport = (g, t, on, page) => {
+    const q = t.q, W = SH.W, Hh = SH.H, cx = W / 2, cy = Hh / 2;
+    g(0, 'VIEWPORT', 5, H(), 330, t.br, 100, 'AcDbEntity'); if (on) g(67, 1); g(8, page ? '0' : 'Defpoints', 100, 'AcDbViewport', 10, n(cx), 20, n(cy), 30, '0.0', 40, n(page ? W * 1.1 : W), 41, n(page ? Hh * 1.1 : Hh), 68, on ? (page ? 1 : 2) : 0, 69, on ? (page ? 1 : 2) : 0);
+    g(12, n(page ? cx : q.c[0]), 22, n(page ? cy : q.c[1]), 13, '0.0', 23, '0.0', 14, '10.0', 24, '10.0', 15, '10.0', 25, '10.0', 16, '0.0', 26, '0.0', 36, '1.0', 17, '0.0', 27, '0.0', 37, '0.0', 42, '50.0', 43, '0.0', 44, '0.0', 45, n(page ? Hh * 1.1 : q.vh), 50, '0.0', 51, '0.0', 72, 1000, 90, 32768, 1, '', 281, 0, 71, 1, 74, 0);
+    g(110, '0.0', 120, '0.0', 130, '0.0', 111, '1.0', 121, '0.0', 131, '0.0', 112, '0.0', 122, '1.0', 132, '0.0', 79, 0, 146, '0.0');
+  };
+  /* ----- the body first, so that the head can say the last handle ----- */
+  const B = buf(); R2K.blocks.forEach(B.put);
+  for (const t of tabs.slice(1)) { B(0, 'BLOCK', 5, t.bb, 330, t.br, 100, 'AcDbEntity', 8, '0', 100, 'AcDbBlockBegin', 2, t.bn, 70, 0, 10, '0.0', 20, '0.0', 30, '0.0', 3, t.bn, 1, ''); vport(B, t, false, true); vport(B, t, false, false); B(0, 'ENDBLK', 5, t.be, 330, t.br, 100, 'AcDbEntity', 8, '0', 100, 'AcDbBlockEnd'); }
+  for (const b of blocks) { B(0, 'BLOCK', 5, b.bb, 330, b.br, 100, 'AcDbEntity', 8, '0', 100, 'AcDbBlockBegin', 2, b.nm, 70, 0, 10, '0.0', 20, '0.0', 30, '0.0', 3, b.nm, 1, ''); for (const p of b.L) ent(B, p, b.x, b.y, b.br); B(0, 'ENDBLK', 5, b.be, 330, b.br, 100, 'AcDbEntity', 8, '0', 100, 'AcDbBlockEnd'); }
+  const E = buf();
+  for (const b of blocks) E(0, 'INSERT', 5, H(), 330, '17', 100, 'AcDbEntity', 8, '0', 100, 'AcDbBlockReference', 2, b.nm, 10, n(b.x), 20, n(b.y), 30, '0.0');
+  for (const p of loose) ent(E, p, 0, 0, '17');
+  for (const q of pics) { const im = q.im;      /* the pictures last: each lies over its frame and the file name written in it */
+    E(0, 'IMAGE', 5, q.hd, 330, '17', 100, 'AcDbEntity', 8, LAYERS.ph[0], 100, 'AcDbRasterImage', 90, 0, 10, n(im.x), 20, n(im.y), 30, '0.0', 11, (im.w / q.d.px).toPrecision(10), 21, '0.0', 31, '0.0', 12, '0.0', 22, (im.h / q.d.py).toPrecision(10), 32, '0.0');
+    E(13, q.d.px, 23, q.d.py, 340, q.d.h, 70, 3, 280, 0, 281, 50, 282, 50, 283, 0, 360, q.re, 71, 1, 91, 2, 14, '-0.5', 24, '-0.5', 14, n(q.d.px - 0.5), 24, n(q.d.py - 0.5)); }
+  if (tabs.length) { vport(E, tabs[0], true, true); vport(E, tabs[0], true, false); }
+  const O = buf(), root = [['ACAD_COLOR', 'B'], ['ACAD_GROUP', 'C'], ['ACAD_LAYOUT', 'D'], ['ACAD_MATERIAL', 'E'], ['ACAD_MLEADERSTYLE', 'F'], ['ACAD_MLINESTYLE', '10'], ['ACAD_PLOTSETTINGS', '11'], ['ACAD_PLOTSTYLENAME', '12'], ['ACAD_SCALELIST', '14'], ['ACAD_TABLESTYLE', '15'], ['ACAD_VISUALSTYLE', '16']].concat(defs.size ? [['ACAD_IMAGE_VARS', '32'], ['ACAD_IMAGE_DICT', '33']] : []);
+  O(0, 'DICTIONARY', 5, 'A', 330, '0', 100, 'AcDbDictionary', 281, 1); for (const [k, h] of root) O(3, k, 350, h);
+  const hOf = r => r[r.indexOf('5') + 1], layout1 = R2K.static.find(r => r[1] === 'LAYOUT' && hOf(r) === '1E');
+  for (const r of R2K.static) {
+    if (r[1] === 'DICTIONARY' && hOf(r) === 'D') { O(0, 'DICTIONARY', 5, 'D', 330, 'A', 100, 'AcDbDictionary', 281, 1, 3, 'Model', 350, '1A'); if (tabs.length) for (const t of tabs) O(3, t.nm, 350, t.lh); else O(3, 'Layout1', 350, '1E'); continue; }      /* the tabs by name */
+    if (r[1] === 'LAYOUT' && hOf(r) === '1E' && tabs.length) {      /* a page for each tab: A3, no margins, the whole page plotted 1:1, in millimetres */
+      tabs.forEach((t, i) => { const a = r.slice(); let lay2 = false, c70 = 0, c1 = 0;
+        for (let k = 0; k < a.length; k += 2) { const c = a[k];
+          if (c === '100' && a[k + 1] === 'AcDbLayout') lay2 = true;
+          if (c === '5') a[k + 1] = t.lh;
+          else if (!lay2 && (c === '40' || c === '41' || c === '42' || c === '43')) a[k + 1] = '0.0';
+          else if (!lay2 && c === '70') a[k + 1] = '688';
+          else if (!lay2 && (c === '48' || c === '49')) a[k + 1] = '0.0'; else if (!lay2 && c === '140') a[k + 1] = n(SH.W); else if (!lay2 && c === '141') a[k + 1] = n(SH.H);      /* the plot window: the page */
+          else if (lay2 && c === '1') a[k + 1] = t.nm;
+          else if (lay2 && c === '71') a[k + 1] = String(i + 1);
+          else if (lay2 && (c === '14' || c === '24' || c === '34')) a[k + 1] = '0.0';
+          else if (lay2 && c === '15') a[k + 1] = n(SH.W); else if (lay2 && c === '25') a[k + 1] = n(SH.H); else if (lay2 && c === '35') a[k + 1] = '0.0';
+          else if (lay2 && c === '330') a[k + 1] = t.br; }
+        O.put(a); }); continue; }
+    O.put(r);
+  }
+  if (defs.size) {
+    O(0, 'RASTERVARIABLES', 5, '32', 102, '{ACAD_REACTORS', 330, 'A', 102, '}', 330, 'A', 100, 'AcDbRasterVariables', 90, 0, 70, 0, 71, 1, 72, 3);
+    O(0, 'DICTIONARY', 5, '33', 330, 'A', 100, 'AcDbDictionary', 281, 1); let di = 0; for (const [file, d] of defs) O(3, 'CEF_' + file.replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 60) + '_' + (++di), 350, d.h);
+    for (const [file, d] of defs) { O(0, 'IMAGEDEF', 5, d.h, 102, '{ACAD_REACTORS', 330, '33'); for (const u of d.users) O(330, u.re); O(102, '}', 330, '33', 100, 'AcDbRasterImageDef', 90, 0, 1, file, 10, d.px, 20, d.py, 11, '0.01', 21, '0.01', 280, 1, 281, 0); }
+    for (const q of pics) O(0, 'IMAGEDEF_REACTOR', 5, q.re, 330, q.hd, 100, 'AcDbRasterImageDefReactor', 90, 2, 330, q.hd);
+  }
+  /* ----- the head and the tables ----- */
+  const bb = primBox(prims.filter(p => LAYERS[p.lay])), ok = isFinite(bb[0]) && bb[0] <= bb[2], x0 = ok ? bb[0] : 0, y0 = ok ? bb[1] : 0, x1 = ok ? bb[2] : 1, y1 = ok ? bb[3] : 1, seed = H();
+  const T = buf();
+  T(999, 'G-eSAA CEF DXF R2000', 0, 'SECTION', 2, 'HEADER', 9, '$ACADVER', 1, 'AC1015', 9, '$ACADMAINTVER', 70, 6, 9, '$DWGCODEPAGE', 3, 'ANSI_1252', 9, '$INSBASE', 10, '0.0', 20, '0.0', 30, '0.0', 9, '$EXTMIN', 10, n(x0), 20, n(y0), 30, '0.0', 9, '$EXTMAX', 10, n(x1), 20, n(y1), 30, '0.0');
+  T(9, '$LTSCALE', 40, '1.0', 9, '$LUNITS', 70, 2, 9, '$LUPREC', 70, 3, 9, '$INSUNITS', 70, 6, 9, '$MEASUREMENT', 70, 1, 9, '$TILEMODE', 70, 1, 9, '$HANDSEED', 5, seed, 0, 'ENDSEC');
+  T(0, 'SECTION', 2, 'CLASSES'); R2K.classes.forEach(T.put); T(0, 'ENDSEC', 0, 'SECTION', 2, 'TABLES');
+  /* the view the drawing opens with: the whole of it (zoom extents), on the Model tab */
+  { const vp = R2K.vport.slice(), setv = (c, v) => { const i = vp.findIndex((x, k) => k % 2 === 0 && x === String(c)); if (i >= 0) vp[i + 1] = String(v); }, asp = 1.6, w = (x1 - x0) * 1.06, h = (y1 - y0) * 1.06;
+    setv(12, n((x0 + x1) / 2)); setv(22, n((y0 + y1) / 2)); setv(40, n(Math.max(h, w / asp, 1))); setv(41, n(asp));
+    T(0, 'TABLE', 2, 'VPORT', 5, '8', 330, '0', 100, 'AcDbSymbolTable', 70, 1); T.put(vp); T(0, 'ENDTAB'); }
+  T(0, 'TABLE', 2, 'LTYPE', 5, '2', 330, '0', 100, 'AcDbSymbolTable', 70, 4); R2K.ltypes.forEach(T.put);
+  T(0, 'LTYPE', 5, dashH, 330, '2', 100, 'AcDbSymbolTableRecord', 100, 'AcDbLinetypeTableRecord', 2, 'DASHED', 70, 0, 3, 'Dashed __ __ __ __', 72, 65, 73, 2, 40, '0.75', 49, '0.5', 74, 0, 49, '-0.25', 74, 0, 0, 'ENDTAB');
+  T(0, 'TABLE', 2, 'LAYER', 5, '1', 330, '0', 100, 'AcDbSymbolTable', 70, names.length + 2); T.put(R2K.layer0); T.put(R2K.layerDef);
+  for (const k of names) T(0, 'LAYER', 5, layH[k], 330, '1', 100, 'AcDbSymbolTableRecord', 100, 'AcDbLayerTableRecord', 2, LAYERS[k][0], 70, 0, 62, LAYERS[k][1], 6, LAYERS[k][2] ? 'DASHED' : 'Continuous', 370, -3, 390, '13');
+  T(0, 'ENDTAB', 0, 'TABLE', 2, 'STYLE', 5, '5', 330, '0', 100, 'AcDbSymbolTable', 70, 2);
+  T(0, 'STYLE', 5, '29', 330, '5', 100, 'AcDbSymbolTableRecord', 100, 'AcDbTextStyleTableRecord', 2, 'Standard', 70, 0, 40, '0.0', 41, '1.0', 50, '0.0', 71, 0, 42, '2.5', 3, 'arial.ttf', 4, '', 1001, 'ACAD', 1000, 'Arial', 1071, 34);
+  T(0, 'STYLE', 5, boldH, 330, '5', 100, 'AcDbSymbolTableRecord', 100, 'AcDbTextStyleTableRecord', 2, 'CEF-BOLD', 70, 0, 40, '0.0', 41, '1.0', 50, '0.0', 71, 0, 42, '2.5', 3, 'arialbd.ttf', 4, '', 1001, 'ACAD', 1000, 'Arial', 1071, 33554466, 0, 'ENDTAB');
+  T(0, 'TABLE', 2, 'VIEW', 5, '7', 330, '0', 100, 'AcDbSymbolTable', 70, 0, 0, 'ENDTAB', 0, 'TABLE', 2, 'UCS', 5, '6', 330, '0', 100, 'AcDbSymbolTable', 70, 0, 0, 'ENDTAB');
+  T(0, 'TABLE', 2, 'APPID', 5, '3', 330, '0', 100, 'AcDbSymbolTable', 70, 1); T.put(R2K.appid); T(0, 'ENDTAB'); T.put(R2K.dimstyleTable); T.put(R2K.dimstyle); T(0, 'ENDTAB');
+  T(0, 'TABLE', 2, 'BLOCK_RECORD', 5, '9', 330, '0', 100, 'AcDbSymbolTable', 70, 2 + Math.max(0, tabs.length - 1) + blocks.length);
+  T(0, 'BLOCK_RECORD', 5, '17', 330, '9', 100, 'AcDbSymbolTableRecord', 100, 'AcDbBlockTableRecord', 2, '*Model_Space', 340, '1A', 0, 'BLOCK_RECORD', 5, '1B', 330, '9', 100, 'AcDbSymbolTableRecord', 100, 'AcDbBlockTableRecord', 2, '*Paper_Space', 340, '1E');
+  for (const t of tabs.slice(1)) T(0, 'BLOCK_RECORD', 5, t.br, 330, '9', 100, 'AcDbSymbolTableRecord', 100, 'AcDbBlockTableRecord', 2, t.bn, 340, t.lh);
+  for (const b of blocks) T(0, 'BLOCK_RECORD', 5, b.br, 330, '9', 100, 'AcDbSymbolTableRecord', 100, 'AcDbBlockTableRecord', 2, b.nm, 340, '0');
+  T(0, 'ENDTAB', 0, 'ENDSEC');
+  const all = T.a.concat(['0', 'SECTION', '2', 'BLOCKS'], B.a, ['0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES'], E.a, ['0', 'ENDSEC', '0', 'SECTION', '2', 'OBJECTS'], O.a, ['0', 'ENDSEC', '0', 'EOF']);
+  return all.join('\r\n') + '\r\n';
+}
+/* o.old: the DXF of beta 4.2 (R12). o.dims: the size in pixels of each picture file, by its name in the ZIP ({ 'photos/photo_01.jpg': [w, h] }); a picture whose
+   size is not known keeps its frame and file name only. */
+function sheetsDXF(sheets, o) {
+  o = o || {}; if (o.old) return sheetsDXF12(sheets);
+  let all = [], ox = 0; const k0 = 1 / (sheets.find(q => q.name === 'TOP VIEW') || sheets[0]).s, seen = {}, lay = [], imgs = [], dims = o.dims || {};
+  for (const sh of sheets) {
+    const k = sh.N ? 1 / sh.s : k0, G = new Gfx(), t3 = (String(sh.name || 'S').replace(/[^A-Za-z]/g, '').slice(0, 3) || 'S').toUpperCase(); seen[t3] = (seen[t3] || 0) + 1; const tag = t3 + (seen[t3] > 1 ? seen[t3] : '');
+    for (const im of sh.images) { const d = dims[im.file];
+      fitTx(G, [im.x + im.w / 2, im.y + im.h / 2 - 0.8], (im.logo ? 'LOGO: ' : 'PICTURE: ') + im.file, 1.8, im.w - 2, 'ph', 'c');      /* under the picture: it shows when the file is not beside the DXF */
+      if (d && d[0] > 0 && d[1] > 0) imgs.push({ file: im.file, px: d[0], py: d[1], x: ox + im.x * k, y: im.y * k, w: im.w * k, h: im.h * k }); }
+    all = all.concat(xfPrims(sh.prims.concat(G.p), k, 0, ox, 0).map(p => { if (p.g) p.g = tag + '_' + p.g; return p; }));
+    lay.push({ name: DXF_TAB[sh.name] || sh.name, c: [ox + SH.W * k / 2, SH.H * k / 2], vh: SH.H * k }); ox += SH.W * k * 1.06;
+  }
+  return toDXF2K(all, lay, imgs);
 }
 function toKML(S, g) {
   const c = p => { const q = g.ll(p[0], p[1]); return q[1].toFixed(8) + ',' + q[0].toFixed(8) + ',0'; }, si = S.site, L = si.L, W = si.W;
@@ -453,7 +594,7 @@ function toKML(S, g) {
   k += poly('Perimeter ' + f1(L) + ' x ' + f1(W) + ' m', [[0, 0], [L, 0], [L, W], [0, W]], 'per');
   for (const el of S.els) k += poly(elLabel(S, el), elPoly(el), el.st === 'P' ? 'pp' : 'ex');
   for (const r of S.runs) if (r.pts.length > 1) k += line(runCap(r), r.pts, r.st === 'P' ? 'pp' : r.kind === 'ladder' ? 'lad' : 'ex');
-  { const sm = routeGeom(S).sum, R = S.route; if (R.ae.pts.length > 1) k += line('FOC AE ' + R.ae.cable + ', ' + f1(sm.ae) + ' m with loops', R.ae.pts.map(p => [p.x, p.y]), 'foc'); if (R.ug.pts.length > 1) k += line('FOC UG ' + R.ug.cable + ', ' + f1(sm.ugt) + ' m', R.ug.pts.map(p => [p.x, p.y]), 'foc'); }
+  { const rg = routeGeom(S), CB = cables(S), many = CB.filter(cableDrawn).length > 1; CB.forEach((R, c) => { const sm = rg.parts[c].sum, w = many ? ' (cable ' + (c + 1) + ')' : ''; if (R.ae.pts.length > 1) k += line('FOC AE ' + R.ae.cable + w + ', ' + f1(sm.ae) + ' m with loops', R.ae.pts.map(p => [p.x, p.y]), 'foc'); if (R.ug.pts.length > 1) k += line('FOC UG ' + R.ug.cable + w + ', ' + f1(sm.ugt) + ' m', R.ug.pts.map(p => [p.x, p.y]), 'foc'); }); }
   S.photos.forEach((ph, i) => { if (ph.placed) k += '<Placemark><name>Photo ' + (i + 1) + '</name><description>' + esc(ph.cap || '') + '</description><Point><coordinates>' + c([ph.x, ph.y]) + '</coordinates></Point></Placemark>'; });
   return k + '</Document></kml>\n';
 }
@@ -504,11 +645,10 @@ function stdNote(S) {
 function readme(S, base, g, sheets) {
   const si = S.site, n = S.photos.length;
   return ['CEF PLAN - EXPORT FROM THE G-eSAA CEF-PLAN DEMO', 'Exported: ' + isoDate(), 'Site: ' + (si.name || '(no name)') + (si.id ? '  ID: ' + si.id : ''), S.sample ? 'NOTE: this is the made-up sample site, not a real survey.' : '', '',
-    'FILES', base + '_CEF_sheets.dxf', '  AutoCAD R12 DXF. Sheets side by side, in the order of the hand-made plans: cover page, table of contents, legend and notes, isometric with the part details and the CEF table, top view, the details sheet when a cabin or a cabinet has one, then photo sheets.', '  1 drawing unit = 1 metre. The top view measures true. In the isometric, lengths along the three axes measure true.', '  The details sheet is enlarged by the same factor as the top view sheet. Its details are drawn larger than the site, each at the scale written under its title, so they do not measure true in the DXF.', '  Sheet scales at A3: isometric 1:' + sheets[0].N + ', top view 1:' + sheets[1].N + '.', '  Photos cannot be stored inside this kind of DXF: each photo frame shows the name of its file in the photos folder.',
+    'FILES', base + '_CEF_sheets.dxf', '  AutoCAD DXF. The Model tab holds the sheets side by side, in the order of the hand-made plans: cover page, table of contents, legend and notes, isometric with the part details and the CEF table, top view, then the details and photo pages when they were asked for at the export. Each sheet also has a layout tab of its own (an A3 page that shows that sheet).', '  1 drawing unit = 1 metre. The top view measures true. In the isometric, lengths along the three axes measure true.', '  The details sheet is enlarged by the same factor as the top view sheet. Its details are drawn larger than the site, each at the scale written under its title, so they do not measure true in the DXF.', '  Sheet scales at A3: isometric 1:' + ((sheets.find(q => q.name === 'ISOMETRIC') || {}).N || '-') + ', top view 1:' + ((sheets.find(q => q.name === 'TOP VIEW') || {}).N || '-') + '.', '  The photos and the logos are linked pictures: keep the photos and logos folders beside the DXF, as they are in this ZIP. A picture whose file is missing shows its file name.',
     base + '_CEF.pdf', '  The same sheets on A3 landscape, with the photos.',
-    g ? base + '_CEF_map_UTM51N.dxf' : '(no map-position DXF: latitude and longitude are empty)', g ? '  The top view alone at its real position, UTM zone 51N (WGS84), metres. Reference point: ' + g.at.toLowerCase() + ' at E ' + g.utm[0].toFixed(2) + ', N ' + g.utm[1].toFixed(2) + '.' + (g.zoneOk ? '' : ' The site is outside zone 51 (120 to 126 E), so these are extended zone 51 coordinates.') + (g.fallback ? ' No tower is on the plan, so the bottom-left corner was used.' : '') : '',
     g ? base + '_CEF.kml' : '(no KML: latitude and longitude are empty)', g ? '  Perimeter, elements, cable ladders, the AE and UG fibers and photo points for Google Earth.' : '',
     n ? 'photos/  ' + n + ' picture' + (n === 1 ? '' : 's') + ', numbered as on the plan.' : '(no photos added)', base + '_CEF_sketch.json', '  The sketch itself. Open it again in the demo from the Export tab.', '',
     'LAYERS', ...Object.keys(LAYERS).map(k => '  ' + LAYERS[k][0] + '  (colour ' + LAYERS[k][1] + (LAYERS[k][2] ? ', dashed' : '') + ')'), '',
-    'LIMITS OF THIS DEMO', '  The sheet frame is generic. It is not the official CEF template.', '  The perimeter is a rectangle. Positions and sizes are whatever was typed or dragged in the sketch.', '  Towers and equipment are models drawn by the app, not the blocks of the template. Towers are drawn at true size. A tower higher than 15 m is drawn from the ground up to half its height, or to the height set for the site, and a break line shows where it is cut. Anything buried is ' + f1(UGD) + ' m deep unless another depth was typed in the sketch. Names written on the bodies of equipment are DXF text with an oblique angle, so that they lie in the isometric plane.', '  The position on the map is only as good as the coordinates and the compass bearing that were entered.', ''].join('\r\n');
+    'LIMITS OF THIS DEMO', '  The sheet frame is generic. It is not the official CEF template.', '  The perimeter is a rectangle. Positions and sizes are whatever was typed or dragged in the sketch.', '  Towers and equipment are models drawn by the app, not the blocks of the template. Towers are drawn at true size. A tower higher than 15 m is drawn from the ground up to half its height, or to the height set for the site, and a break line shows where it is cut. Anything buried is ' + f1(UGD) + ' m deep unless another depth was typed in the sketch. Names written on the bodies of equipment are DXF text with an oblique angle, so that they lie in the isometric plane.', '  The position in the KML is only as good as the coordinates and the compass bearing that were entered.', ''].join('\r\n');
 }

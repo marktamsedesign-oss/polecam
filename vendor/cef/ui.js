@@ -8,7 +8,32 @@ const VB = {}, needFit = { top: true, iso: true, sheets: true };
 /* ROOT is the whole plan. S is the sketch being worked on: the site itself, or the inside of one of its cabins (inId). focus: the cabinet whose rack is open. */
 let ROOT = null, inId = null, focus = null, focusTurn = 0, backView = null;
 let pen = false, penStart = null, penN = 0, joinSeen = null, cloHist = -1;
-let penHow = 'auto';      /* beta 4.2 (19:25): how the FOC tool reads the line: 'auto' by what it runs along, 'ae' all aerial, 'ug' all underground */
+let penHow = 'auto';
+/* (14 Nov) More than one cable. cabN: the cable that is drawn or edited now (0: the first, S.route; the others are in S.more). */
+let cabN = 0;
+const RT = () => { const L = cables(S); if (!(cabN >= 0 && cabN < L.length)) cabN = 0; return L[cabN]; };
+const RTc = c => cables(S)[c || 0] || S.route;
+const penReset = () => { penStart = null; penN = 0; penRaw = null; penRawH = []; };
+function cabGo(k) { const L = cables(S); cabN = k >= 0 && k < L.length ? k : 0; penReset(); if (sel && sel.k === 'pt') sel = null; }
+/* a new cable with nothing drawn yet; it takes the cable types of the one before */
+function cabNew() {
+  const L = cables(S), em = L.findIndex((R, k) => k > 0 && !cableDrawn(R)); if (em > 0) { cabGo(em); return RT(); }      /* one that is still empty is used first */
+  if (!Array.isArray(S.more)) S.more = []; let n = S.more.length + 2, id; do { id = 'c' + n++; } while (S.more.some(q => q && q.id === id));
+  const P = RT(), R = { id, ae: { pts: [], cable: P.ae.cable }, ug: { pts: [], legs: [], cable: P.ug.cable }, note: '' }; S.more.push(R); cabGo(cables(S).indexOf(R)); return R;
+}
+/* cables with nothing drawn are dropped (the first always stays) */
+function cabTidy() { if (!Array.isArray(S.more)) return; const was = RT(); S.more = S.more.filter(q => cableDrawn(q)); if (!S.more.length) delete S.more; cabN = Math.max(0, cables(S).indexOf(was)); }
+/* the cable is taken off the plan. The first one is emptied and the next one, if any, takes its place. */
+function cabDel(k) {
+  const L = cables(S), R = L[k]; if (!R) return; const ck = cableKey(S, k);
+  if (k > 0) { S.more = S.more.filter(q => q !== R); if (!S.more.length) delete S.more; for (const key of Object.keys(S.lab)) if (ck && key.endsWith(ck)) delete S.lab[key]; }
+  else if (L.length > 1) { const nx = L[1], nk = cableKey(S, 1); S.route.ae = nx.ae; S.route.ug = nx.ug; S.route.note = nx.note || ''; S.more = S.more.filter(q => q !== nx); if (!S.more.length) delete S.more;
+    for (const key of Object.keys(S.lab)) { if (/^(ae|ug|note|clo|len(ae|ug)\d+(_\d+)?|loop\d+)$/.test(key)) delete S.lab[key]; }
+    for (const key of Object.keys(S.lab)) if (nk && key.endsWith(nk)) { S.lab[key.slice(0, -nk.length)] = S.lab[key]; delete S.lab[key]; } }      /* its labels keep their places under the keys of the first cable */
+  else { S.route.ae.pts = []; S.route.ug.pts = []; S.route.ug.legs = []; }
+  cabGo(Math.min(k, cables(S).length - 1));
+}
+      /* beta 4.2 (19:25): how the FOC tool reads the line: 'auto' by what it runs along, 'ae' all aerial, 'ug' all underground */
 const runOpt = { conduit: { st: 'E', n: 2, dia: 114.3 }, encase: { st: 'E', n: 2, dia: 114.3 }, trench: { conc: true, deep: 'open' }, ladder: { st: 'E' } };      /* what the next conduit, trench or ladder is drawn as */
 const SHALLOW_DP = 0.6;
 function newRunO(kind, pts) { const r = newRun(kind, pts), o = runOpt[kind]; if (!o || S.room) return r; if (o.st && kind !== 'trench') r.st = o.st; if (kind !== 'ladder' && kind !== 'trench') { r.n = o.n; r.dia = o.dia; } if (kind === 'conduit') r.w = o.dia / 1000; if (kind === 'trench') { r.conc = o.conc !== false; r.dp = o.deep === 'shallow' ? SHALLOW_DP : UGD; } return r; }
@@ -26,7 +51,7 @@ let dump = '', dl = null, dlReady = false, busy = false, msg = null, hist = [], 
    can only be looked at. VIEW: why it is view-only ('' when it can be changed). SNAP: the plan as it was opened, for a view-only plan. */
 const HOST = (() => { try { return window.parent !== window && window.parent.__cefHost ? window.parent.__cefHost : null; } catch (e) { return null; } })();
 let APP = { by: '', checkedBy: '', org: '', link: '', footer: '', ver: 'G-eSAA', lock: false, fix: null, viewOnly: '', gps: false, canLogo: false, guide: true }, VIEW = '', SNAP = '', LAST = '', READY = false;
-const VIEW_OK = ['sel', 'room-in', 'focus-in', 'back', 'go-route', 'go-tab', 'guide-off', 'export-zip', 'export-pdf', 'export-dxf', 'open-tab', 'lab-item', 'sign-edit'];
+const VIEW_OK = ['sel', 'room-in', 'focus-in', 'back', 'go-route', 'go-tab', 'guide-off', 'export-zip', 'export-pdf', 'export-dxf', 'open-tab', 'lab-item', 'sign-edit', 'cab-go'];
 const DEMO_LINE = 'G-eSAA CEF-PLAN DEMO - GENERIC FRAME, NOT THE OFFICIAL TEMPLATE';
 /* the sketch as the sheets take it: PREPARED BY is the person who exports, the company and the project line come from the app */
 /* beta 4.2 (22:24): the three names of the title block. APP.sign: { by, chk, apr }, typed in the editor and kept by the app on this phone, for every CEF plan
@@ -36,16 +61,42 @@ function signOf() { const g = APP.sign || {}, t = v => String(v == null ? '' : v
 function signSave() { try { if (HOST && HOST.setSign) HOST.setSign(Object.assign({}, APP.sign)); else localStorage.setItem('cef-sign', JSON.stringify(APP.sign)); } catch (e) { } }
 function appSketch(S0) { const X = Object.assign({}, S0), g = signOf(); X.site = Object.assign({}, S0.site, { by: g.by, chk: g.chk, apr: g.apr, org: APP.org || S0.site.org || '', link: S0.site.link || APP.link || '' }); return X; }
 /* the sheets of the engine, with the app's own line under the frame instead of the demo's, and CHECKED BY filled in */
-function appSheets(X) {
-  const sh = buildSheets(X), foot = String(APP.footer || APP.ver || 'G-eSAA').replace(/[^\x20-\x7E]/g, '-').slice(0, 220);
+function appSheets(X, opt) {
+  const sh = buildSheets(X, opt), foot = String(APP.footer || APP.ver || 'G-eSAA').replace(/[^\x20-\x7E]/g, '-').slice(0, 220);
   for (const s of sh) {
     for (const p of s.prims) if (p.k === 'tx') { if (p.s === DEMO_LINE) p.s = foot; else if (p.s.indexOf('NOT IN THIS SET: THE VICINITY MAP') === 0) p.s = 'NOT IN THIS SET: THE VICINITY MAP.'; }
   }
   return sh;
 }
 const sheetsNow = () => appSheets(appSketch(ROOT));
+/* (14 Nov) the DXF of the export. Kept on the phone (APP.dxf), not in the plan: det, ph: the details pages and the photo pages are in the DXF (both off to
+   start with; the PDF always has every page); old: the DXF of beta 4.2, with no layout tabs. */
+const dxfSet = () => { const d = APP.dxf && typeof APP.dxf === 'object' ? APP.dxf : {}; return { det: !!d.det, ph: !!d.ph, old: !!d.old }; };
+const dxfSheets = X => { const d = dxfSet(); return appSheets(X, { details: d.det, photos: d.ph }); };
+/* the size in pixels of every picture file that goes with the DXF: a photo as the app keeps it (that file goes into the ZIP), a logo as it is here */
+async function picDims(X) {
+  const D = {}; let hd = null; try { if (HOST && HOST.photoDims) hd = await HOST.photoDims(X.photos.map(p => p.id)); } catch (e) { hd = null; }
+  X.photos.forEach((p, i) => { const q = hd && hd[p.id]; D[picFile(i + 1)] = q && q[0] > 0 && q[1] > 0 ? [q[0], q[1]] : [num(p.w, 0), num(p.h, 0)]; });
+  for (const k in LOGO) D['logos/' + k + '_logo.png'] = [LOGO[k].w, LOGO[k].h];
+  return D;
+}
+async function dxfText(X) { const d = dxfSet(); return sheetsDXF(dxfSheets(X), d.old ? { old: true } : { dims: await picDims(X) }); }
+function dxfBox() {
+  const d = dxfSet(), sw = (k, on, t, s) => '<label class="swr"><input type="checkbox" data-k="dxf.' + k + '"' + (on ? ' checked' : '') + '><span><b>' + t + '</b><small>' + s + '</small></span></label>';
+  return '<h3>Pages of the DXF</h3><p class="hint" style="margin-top:0">Always in it: cover page, contents, legend, isometric and top view. The PDF has every page.</p>' + sw('det', d.det, 'Details pages', 'The inside of a cabin and the open cabinets (ODC)') + sw('ph', d.ph, 'Photo pages', 'The site photos, six to a page')
+    + sw('lay', !d.old, 'A layout tab for each sheet', 'As in the As-Plan DXF: a tab for the cover page, the top view, the isometric and the others, with the photos and logos attached. Off: the DXF as before this version (no tabs, a frame with the file name where a picture goes).');
+}
+
 /* the README of the export, in the app's words */
+/* (14 Nov) the README says what the DXF of this export holds: its pages, and whether it has layout tabs */
+function dxfSaid(t) {
+  const d = dxfSet(), out = [d.det ? '' : 'the details pages', d.ph ? '' : 'the photo pages'].filter(Boolean);
+  t = t.replace(', then the details and photo pages when they were asked for at the export.', out.length ? '. ' + (out.length === 2 ? 'The details pages and the photo pages are' : out[0].charAt(0).toUpperCase() + out[0].slice(1) + ' are') + ' not in this DXF (the PDF has every page): turn them on under Check and export, Pages of the DXF.' : ', then the details pages and the photo pages.');
+  if (d.old) t = t.replace(' Each sheet also has a layout tab of its own (an A3 page that shows that sheet).', ' This DXF is of the older kind, with no layout tabs (A layout tab for each sheet is turned off under Check and export).').replace('  The photos and the logos are linked pictures: keep the photos and logos folders beside the DXF, as they are in this ZIP. A picture whose file is missing shows its file name.', '  Where a picture goes, the DXF has a frame with the name of its file.');
+  return t;
+}
 function appReadme(t) {
+  t = dxfSaid(t);
   { const ng = (ROOT.photos || []).filter(p => p.from === 'gallery').length; if (ng) t = t.replace('LIMITS OF THIS DEMO', 'PHOTOS FROM THE GALLERY\r\n  ' + ng + ' of the ' + ROOT.photos.length + ' photo' + (ROOT.photos.length === 1 ? ' was' : 's were') + ' added from the gallery of the phone, not taken with the camera of the app (no GPS or live check).\r\n\r\nLIMITS OF THIS DEMO'); }
   const e = HOST && HOST.exporter ? HOST.exporter() : {}, who = ['Exported by: ' + (e.name || ''), 'Mobile: ' + (e.mobile || ''), 'Email: ' + (e.email || ''), 'Company: ' + (e.company || ''), 'App: ' + (APP.ver || 'G-eSAA')].join('\r\n');
   return t.replace('CEF PLAN - EXPORT FROM THE G-eSAA CEF-PLAN DEMO', 'CEF PLAN - EXPORT FROM G-eSAA\r\n' + who).replace('Open it again in the demo from the Export tab.', 'Open it again in G-eSAA: CEF plan, Check and export, Open a saved sketch.')
@@ -86,6 +137,11 @@ function norm(o) {
   const R = o.route; R.ae = Object.assign({ pts: [], cable: b.route.ae.cable }, R.ae); R.ug = Object.assign({ pts: [], legs: [], cable: b.route.ug.cable }, R.ug);
   if (!Array.isArray(R.ae.pts)) R.ae.pts = []; if (!Array.isArray(R.ug.pts)) R.ug.pts = []; if (!Array.isArray(R.ug.legs)) R.ug.legs = [];
   while (R.ug.legs.length < Math.max(0, R.ug.pts.length - 1)) R.ug.legs.push({ type: 'auto' }); R.ug.legs.length = Math.max(0, R.ug.pts.length - 1);
+  { const seen = {}, M = (Array.isArray(o.more) ? o.more : []).filter(q => q && typeof q === 'object').map((q, i) => {      /* (14 Nov) the other cables of the plan */
+      const a = q.ae || {}, u = q.ug || {}, pt = p => p && isFinite(+p.x) && isFinite(+p.y); let id = typeof q.id === 'string' && /^[A-Za-z0-9_-]{1,12}$/.test(q.id) ? q.id : 'c' + (i + 2); while (seen[id]) id += 'x'; seen[id] = 1;
+      const r2 = { id, ae: { pts: (Array.isArray(a.pts) ? a.pts : []).filter(pt).map(p => ({ x: +p.x, y: +p.y, loop: num(p.loop, 0) })), cable: typeof a.cable === 'string' && a.cable ? a.cable : b.route.ae.cable }, ug: { pts: (Array.isArray(u.pts) ? u.pts : []).filter(pt).map(p => ({ x: +p.x, y: +p.y })), legs: (Array.isArray(u.legs) ? u.legs : []).map(l => ({ type: l && typeof l.type === 'string' ? l.type : 'auto' })), cable: typeof u.cable === 'string' && u.cable ? u.cable : b.route.ug.cable }, note: typeof q.note === 'string' ? q.note : '' };
+      while (r2.ug.legs.length < Math.max(0, r2.ug.pts.length - 1)) r2.ug.legs.push({ type: 'auto' }); r2.ug.legs.length = Math.max(0, r2.ug.pts.length - 1); return r2; });
+    if (M.length) o.more = M; else delete o.more; }
   if (Array.isArray(o.ladders) && !Array.isArray(o.runs)) o.runs = o.ladders.map(l => Object.assign({ kind: 'ladder', name: '' }, l));   /* sketches saved by the first demo */
   delete o.ladders;
   for (const k of ['gates', 'els', 'runs', 'photos']) if (!Array.isArray(o[k])) o[k] = [];
@@ -133,7 +189,7 @@ function save() { if (VIEW || !HOST || !ROOT || !READY) return; clearTimeout(sav
 function saveNow() { clearTimeout(saveT); saveT = 0; if (VIEW || !HOST || !ROOT || !READY) return; const s = JSON.stringify(ROOT); if (s === LAST) return; try { if (HOST.save(s) !== false) LAST = s; saveNote = ''; } catch (e) { saveNote = 'none'; } }
 function push(k) { const now = Date.now(); if (k && k === lastPush.k && now - lastPush.t < 1500) { lastPush.t = now; return; } hist.push(JSON.stringify(ROOT)); if (hist.length > 80) hist.shift(); lastPush = { k: k || '', t: now }; }
 /* a whole new plan: the editor goes back to the site */
-function setRoot(o) { ROOT = o; S = o; inId = null; joinSeen = null; pen = false; penStart = null; penN = 0; if (focus) { focus = null; view = backView || 'top'; } needFit.top = needFit.iso = needFit.sheets = true; }
+function setRoot(o) { ROOT = o; S = o; inId = null; sheetCk = null; joinSeen = null; pen = false; penStart = null; penN = 0; if (focus) { focus = null; view = backView || 'top'; } needFit.top = needFit.iso = needFit.sheets = true; }
 /* after the plan was put back (undo): S is found again in it */
 function relink() {
   const c = inId ? ROOT.els.find(e => e.id === inId && e.t === 'cabin') : null;
@@ -214,6 +270,7 @@ function drawOverlay() {
     if (e) {
       const P = elPoly(e), b = polyBox(P); o += '<polygon class="ov-sel" points="' + pts(P) + '"/>';
       if (e.t === 'pad' && !S.room) for (const K of padSteps(e)) o += hd(stairAt(e, K), ' dr');      /* beta 4.2 */
+      if (pipePole() === e) { const ph = pipeHandle(e), pu = pipeDir(e), po = poleR(e, 0) + GIR; o += '<path class="ov-g" d="M' + r3(e.x + pu[0] * po) + ' ' + r3(-(e.y + pu[1] * po)) + 'L' + r3(ph[0]) + ' ' + r3(-ph[1]) + '"/><circle class="ov-sel" cx="' + r3(e.x + pu[0] * po) + '" cy="' + r3(-(e.y + pu[1] * po)) + '" r="' + r3(Math.max(GIR * 1.6, 3 * u)) + '"/>' + hd(ph, ' dr'); }      /* (14 Nov) its G.I. pipe: drag the handle round the pole */
       if (e.t === 'cabin' && !S.room) { for (const q of cabinPorts(e)) o += hd(q.at, ' b'); for (const q of cabinDoors(e)) o += hd(doorAt(e, q), ' dr'); for (const q of cabinAcs(e)) o += hd(q.at, ' ac'); }          /* its porthole, doors and aircon units slide along the walls by these handles */
       if (b[0] > 0.05 && b[0] < L && e.y > 0 && e.y < W) o += '<path class="ov-g" d="M0 ' + r3(-e.y) + 'H' + r3(b[0]) + '"/><text class="ov-t" x="' + r3(b[0] / 2) + '" y="' + r3(-e.y - 4 * u) + '" font-size="' + fs + '" text-anchor="middle">' + f2(b[0]) + '</text>';
       if (b[1] > 0.05 && b[1] < W && e.x > 0 && e.x < L) o += '<path class="ov-g" d="M' + r3(e.x) + ' 0V' + r3(-b[1]) + '"/><text class="ov-t" x="' + r3(e.x + 5 * u) + '" y="' + r3(-b[1] / 2) + '" font-size="' + fs + '">' + f2(b[1]) + '</text>';
@@ -225,7 +282,7 @@ function drawOverlay() {
   if (S.room && !focus && (!sel || sel.k === 'rdoor') && mode !== 'run' && mode !== 'route') S.gates.forEach(q => { const hz = q.side === 'S' || q.side === 'N', c = num(q.off, 0) + num(q.w, 0.9) / 2; o += hd(hz ? [c, q.side === 'S' ? 0 : S.site.W] : [q.side === 'W' ? 0 : S.site.L, c], ' dr'); });      /* the doors of the room, by their handles */
   if (!S.room && (mode === 'run' || mode === 'route')) for (const e of S.els) if (e.t === 'cabin') for (const q of cabinPorts(e)) o += '<circle class="ov-d" cx="' + r3(q.at[0]) + '" cy="' + r3(-q.at[1]) + '" r="' + r3(1.7 * r) + '"/>';      /* where a ladder or the cable goes into a cabin */
   if (mode === 'run' && draft.length) { o += '<polyline class="ov-d" points="' + pts(draft) + '"/>'; for (const p of draft) o += hd(p, ' g'); }
-  if (tab === 'route' || mode === 'route' || (sel && sel.k === 'pt')) for (const f of ['ae', 'ug']) S.route[f].pts.forEach((p, i) => { const up = f === 'ae' ? -8 : 17; o += hd([p.x, p.y], sel && sel.k === 'pt' && sel.f === f && sel.i === i ? ' on' : '') + '<text class="ov-n" x="' + r3(p.x + 9 * u) + '" y="' + r3(-p.y + up * u) + '" font-size="' + fs + '">' + (f === 'ae' ? 'A' : 'U') + (i + 1) + '</text>'; });
+  if (tab === 'route' || mode === 'route' || (sel && sel.k === 'pt')) { RT(); const CB = cables(S); CB.forEach((R0, c) => { for (const f of ['ae', 'ug']) R0[f].pts.forEach((p, i) => { const up = f === 'ae' ? -8 : 17; o += hd([p.x, p.y], sel && sel.k === 'pt' && sel.f === f && sel.i === i && (sel.c || 0) === c ? ' on' : c === cabN ? '' : ' g') + '<text class="ov-n" x="' + r3(p.x + 9 * u) + '" y="' + r3(-p.y + up * u) + '" font-size="' + fs + '">' + (CB.length > 1 ? (c + 1) + '·' : '') + (f === 'ae' ? 'A' : 'U') + (i + 1) + '</text>'; }); }); }
   if (sel && sel.k === 'lab') { const l = topLabs.find(q => q.key === sel.key); if (l) o += '<polygon class="ov-sel" points="' + pts(l.poly) + '"/>'; }
   if (sel && sel.k === 'photo') { const p = phById(sel.id); if (p && p.placed) { const t = tip(p); o += '<circle class="ov-sel" cx="' + r3(p.x) + '" cy="' + r3(-p.y) + '" r="' + r3(1.5 * topTh) + '"/><path class="ov-g" d="M' + r3(p.x) + ' ' + r3(-p.y) + 'L' + r3(t[0]) + ' ' + r3(-t[1]) + '"/>' + hd(t, ' v'); } }
   if (sel && sel.k === 'pic' && sel.v === 't' && !livePic) { const q = topPics.find(k => k.id === sel.id); if (q) o += '<polygon class="ov-sel" points="' + pts([[q.x, q.y], [q.x + q.w, q.y], [q.x + q.w, q.y + q.h], [q.x, q.y + q.h]]) + '"/>' + hd(q.tip, ' v'); }
@@ -271,16 +328,17 @@ function drawChrome() {
   for (const b of document.querySelectorAll('#tabs button')) { const t = b.dataset.tab; b.setAttribute('aria-selected', t === tab); b.hidden = room && (t === 'photos' || t === 'table' || t === 'export'); if (t === 'site') b.textContent = room ? 'Cabin' : 'Site'; if (t === 'route') b.textContent = room ? 'Cable' : 'Route'; }
   const mb = $('#modebar'); let h = '';
   const al = '<button class="b s" data-a="align-toggle" aria-pressed="' + autoAlign + '">Auto-align ' + (autoAlign ? 'on' : 'off') + '</button>';
-  if (mode === 'route') h = '<span>' + (room ? 'Cable' : pen ? 'FOC route' : fib.toUpperCase() + ' fiber') + (pen && !room ? ': drag along its way, or tap its points' : ': drag to draw it, or tap points') + '</span>' + al + '<button class="b s" data-a="route-undo"' + ((pen && !room ? penStart || penN || S.route.ae.pts.length + S.route.ug.pts.length : S.route[fib].pts.length) ? '' : ' disabled') + '>Remove last</button><button class="b s" data-a="route-done">Done</button>';
+  if (mode === 'route') { const RC = RT(), nC = cables(S).length, has = cableDrawn(RC);      /* (14 Nov) which cable the line goes to; a new cable starts on its own */
+    h = '<span>' + (room ? 'Cable' : pen ? (nC > 1 || has ? 'Cable ' + (cabN + 1) : 'FOC route') : fib.toUpperCase() + ' fiber') + (pen && !room ? (has ? ': goes on from its end' : ': tap where it starts, or drag along its way') : ': drag to draw it, or tap points') + '</span>' + (pen && !room && has ? '<button class="b s p" data-a="cab-new" title="Another cable, not joined to this one">' + ico('plus') + 'New cable</button>' : '') + al + '<button class="b s" data-a="route-undo"' + ((pen && !room ? penStart || penN || RC.ae.pts.length + RC.ug.pts.length : RC[fib].pts.length) ? '' : ' disabled') + '>Remove last</button><button class="b s" data-a="route-done">Done</button>'; }
   else if (mode === 'run') h = '<span>Drag to draw the ' + RUNS[runKind].n.toLowerCase() + ', or tap points' + (draft.length ? ' (' + draft.length + ')' : '') + '</span>' + al + '<button class="b s" data-a="run-done">Done</button>';
   else if (mode === 'place' && placeT) h = '<i class="mi">' + ico(placeT) + ico('ptr') + '</i><span>Tap the plan where it stands</span><button class="b s" data-a="photo-cancel">Cancel</button>';      /* the two icons stay on a phone, where the words of this bar are left out */
   else if (mode === 'photo') h = '<span>Tap on the plan what photo ' + (S.photos.findIndex(p => p.id === placing) + 1) + ' shows</span><button class="b s" data-a="photo-cancel">Not now</button>';
   mb.hidden = !h; mb.innerHTML = h;
-  let s = '<span class="h">' + (dragNote || (mode === 'route' || mode === 'run' ? (window.matchMedia && matchMedia('(pointer: fine)').matches ? 'Drag draws · right-click undoes · right-drag or Shift+drag moves the view' : 'Drag draws · two fingers move the view') : cursor || (mode === 'select' ? (sel && sel.k === 'lab' ? 'Drag the label to move it · it stays with its item' : focus ? 'Tap an item, then drag it up or down · it snaps to the free rack units' : active === 'iso' && view !== 'top' ? 'Tap an item, then drag · round handle: height' : 'Drag to move · tap to edit · tap a name twice to pick the label') : ''))) + '</span>';
+  let s = '<span class="h' + (dragNote ? ' dn' : '') + '">' + (dragNote || (mode === 'route' || mode === 'run' ? (window.matchMedia && matchMedia('(pointer: fine)').matches ? 'Drag draws · right-click undoes · right-drag or Shift+drag moves the view' : 'Drag draws · two fingers move the view') : cursor || (mode === 'select' ? (sel && sel.k === 'lab' ? 'Drag the label to move it · it stays with its item' : focus ? 'Tap an item, then drag it up or down · it snaps to the free rack units' : active === 'iso' && view !== 'top' ? 'Tap an item, then drag · round handle: height' : 'Drag to move · tap to edit · tap a name twice to pick the label') : ''))) + '</span>';
   if (room) { if (g.sum.ugt > 0.05) s += '<span>Cable inside <b>' + f1(g.sum.ugt) + ' m</b></span>'; }
-  else if (g.sum.total > 0.05) s += '<span>FOC AE <b>' + f1(g.sum.ae) + ' m</b> · UG <b>' + f1(g.sum.ugt) + ' m</b></span>';
+  else if (g.sum.total > 0.05) { const nd = g.parts.filter(p => p.sum.total > 0.05).length; s += '<span>' + (nd > 1 ? nd + ' cables · ' : '') + 'FOC AE <b>' + f1(g.sum.ae) + ' m</b> · UG <b>' + f1(g.sum.ugt) + ' m</b></span>'; }
   { const nw = g.warn.length + g.notes.length + (g.bare || []).length; if (nw && !focus) s += '<button class="w" data-a="go-route">' + nw + ' to check</button>'; }
-  $('#status').innerHTML = s;
+  $('#status').innerHTML = s; sheetSync();
 }
 
 /* ---------- side panel ---------- */
@@ -362,7 +420,7 @@ function portHint(e) {
 }
 /* what the app draws by the OSP standard for this element */
 function stdHint(e) {
-  const t = e.t === 'rpole' ? 'By the standard: the pole stands ' + f2(STD.poleUp) + ' m above the ground and ' + f1(STD.poleIn) + ' m in it, in a concrete encasement (' + f2(STD.encUp) + ' m above ground, ' + f2(STD.encDn) + ' m below). The G.I. pipe comes up through the encasement and lies against the pole, held by stainless straps; above it the U-guard up to the cable. The closure stands above the loop holder.'
+  const t = e.t === 'rpole' ? 'By the standard: the pole stands ' + f2(STD.poleUp) + ' m above the ground and ' + f1(STD.poleIn) + ' m in it, in a concrete encasement (' + f2(STD.encUp) + ' m above ground, ' + f2(STD.encDn) + ' m below). The G.I. pipe comes up through the encasement and lies against the pole, held by stainless straps; above it the U-guard up to the cable. The closure stands above the loop holder. The pipe stands on the side where the trench, conduit or cable meets the pole; to move it, drag its handle on the plan, or tap Turn over the drawing.'
     : e.t === 'clo' ? 'On a pole it stands upright, ' + f0(STD.gap * 1000) + ' mm above the loop holder. The loop is ' + f0(STD.loopD * 1000) + ' mm across and sits ' + f0(STD.gap * 1000) + ' mm above the wire. Give the pole a loop in the Cable form (the FOC icon).'
     : e.t === 'exit' ? 'A concrete block with the two ' + PVC_MM + ' mm pipes that come up in it. The cable is in one of them; the spare one is closed with a blank duct plug.'
     : e.t === 'sbox' ? (SBOX[e.ty] ? 'Type ' + e.ty + ': ' + SBOX[e.ty].inn + ' mm inside. Drawn at the size of its frame, ' + f2(SBOX[e.ty].w) + ' x ' + f2(SBOX[e.ty].d) + ' m, and ' + f2(SBOX[e.ty].dp) + ' m deep.' : 'Pick a type of the standard (A1, A2, B1, B2) and the box takes its size and depth.') : '';
@@ -411,39 +469,42 @@ function tabEls(only) {
     if (ld.kind !== 'part') h += '<div class="row">' + (ld.kind === 'trench' ? F('Depth of the excavation (m)', 'run.dp', ld.dp == null ? UGD : ld.dp) + '<span></span>' : ld.kind === 'ladder' ? F(S.room ? 'Height above the floor (m)' : ladBase(S, ld) > 0.005 ? 'Height above the base pad (m)' : 'Height above ground (m)', 'run.z', ld.z) + '<span></span>' : F('Height above ground (m), 0 = buried', 'run.z', ld.z) + (buried(ld) ? F('Depth below ground (m)', 'run.dp', ld.dp == null ? UGD : ld.dp) : '<span></span>')) + '</div>';
     h += '<p class="hint">Length ' + f1(runLen(ld)) + ' m. Drag its points on the plan.' + (ld.kind === 'part' ? ' A wall from floor to ceiling. An end dragged near a wall of the cabin goes onto it. The cable is not stopped by it.' : ld.kind === 'ladder' ? (S.room ? ' The cable lies on the ladder at the ladder\'s own height. Indoors the ladder hangs from the ceiling. Start it on the porthole and end it over the rack.' : ' The UG fiber lies on a ladder at the ladder\'s own height. A ladder that reaches a lattice tower joins the tower\'s own ladder. One that ends on the porthole of a cabin carries the cable to it.') : ' The UG fiber that is drawn along it runs in it, at its depth.' + (ld.kind === 'conduit' ? ' It is drawn as two pipes, green on top of black, as the standard has it (2 runs of 50 mm HDPE); the cable goes in the black one.' : '')) + '</p></div>';
   }
-  else if (S.room) h += '<p class="hint">Tap a button to put that item in the room, then drag it into place. An ODF or rack equipment goes into a rack by itself; drag it up or down in the isometric to set its rack units. The porthole and an aircon unit go to the wall nearest to where you drag them; the aircon stands outside it. Doors are set in the form of the cabin (Menu, then Cabin).</p>';
-  else h += '<p class="hint">Tap a button to put that item in the middle of the site. Then drag it into place, or type its distances from the fence. Tap anything on the plan or on the isometric to edit it. Items that belong together snap together: an ODF into its cabinet, a closure onto a pole or into a hand hole, a hand hole or service box onto a conduit, trench or underground cable. Every name on the drawing is a label you can drag and retype: tap it, or tap it a second time when it is written on its item.</p>';
+  else if (S.room) h += '<p class="hint">What is in the room. To add an item, tap the + icon over the drawing, then tap the plan where it stands. An ODF or rack equipment goes into a rack by itself; drag it up or down in the isometric to set its rack units. The porthole and an aircon unit go to the wall nearest to where you drag them; the aircon stands outside it. Doors are set in the form of the cabin (Menu, then Cabin).</p>';
+  else h += '<p class="hint">What is on the plan. Tap a row to edit that item; the eye hides it on the drawings and the sheets, or shows it again; the bin deletes it. To add an item, tap the + icon over the drawing, then tap the plan where it stands. Tap anything on the plan or on the isometric to edit it. Items that belong together snap together: an ODF into its cabinet, a closure onto a pole or into a hand hole, a hand hole or service box onto a conduit, trench or underground cable. Every name on the drawing is a label you can drag and retype: tap it, or tap it a second time when it is written on its item.</p>';
   if (only && (e || gt || ld)) return h;      /* (19:25) what is picked: its form alone */
-  for (const [title, list] of S.room ? [['In the cabin', ['rack', 'odf', 'runit', 'port', 'ac', 'box']]] : [['tower', 'Tower'], ['equip', 'On site now'], ['foc', 'For the fiber']].map(q => [q[1], Object.keys(TYPES).filter(t => TYPES[t].g === q[0])])) h += '<h3>' + title + '</h3><div class="pal">' + list.map(t => '<button class="b s" data-a="add" data-t="' + t + '">' + ico(t) + '<span>' + esc(TYPES[t].n) + '</span></button>').join('') + '</div>';
-  if (!S.room && S.site.kind === 'fenced') h += '<h3>Fence</h3><div class="pal"><button class="b s" data-a="gate-add" data-w="4">' + ico('gate') + '<span>Gate</span></button><button class="b s" data-a="gate-add" data-w="0.9">' + ico('door') + '<span>Door</span></button></div>';
-  h += '<h3>Lines you draw</h3><div class="pal">' + (S.room ? ['ladder', 'part'] : Object.keys(RUNS).filter(k => !RUNS[k].room)).map(k => '<button class="b s" data-a="run-draw" data-kind="' + k + '"' + (mode === 'run' && runKind === k ? ' aria-pressed="true"' : '') + '>' + ico(k) + '<span>' + esc(RUNS[k].n) + '</span></button>').join('') + '</div>';
-  h += S.room ? '<p class="hint">Pick one, then drag on the floor plan the way it runs. A cable ladder goes from the porthole to over the racks; the cable is drawn with the Cable icon. A partition wall divides the room, from floor to ceiling; its ends snap to the walls.</p>' : '<p class="hint">Pick one, then drag on the plan the way the line runs. The app straightens it, squares the corners and snaps it to poles, hand holes, cabinets and the porthole of a cabin. The two fibers are drawn with the FOC icon.</p>';
-  h += '<h3>On the plan (' + (S.els.length + S.runs.length) + ')</h3>';
-  for (const q of S.els) h += '<button class="li" data-a="sel" data-kind="el" data-id="' + q.id + '"' + (e === q ? ' aria-current="true"' : '') + '><i class="dot ' + (q.st === 'P' ? 'P' : TYPES[q.t].g === 'tower' ? 'T' : '') + '"></i>' + esc(q.name || TYPES[q.t].n) + '<span>' + (rackHost(S, q) ? uText(rackSlots(S, rackHost(S, q)).find(k => k.e === q) || { u: 1, ru: 1 }) : f1(q.x) + ', ' + f1(q.y)) + '</span></button>';
-  for (const q of S.runs) h += '<button class="li" data-a="sel" data-kind="run" data-id="' + q.id + '"' + (ld === q ? ' aria-current="true"' : '') + '><i class="dot ' + (q.st === 'P' ? 'P' : q.kind === 'ladder' ? 'L' : '') + '"></i>' + esc(q.name || RUNS[q.kind].n) + '<span>' + f1(runLen(q)) + ' m</span></button>';
+  /* (14 Nov) the buttons that add an item are gone from here: they were the same as the + icon over the drawing */
+  { const nh = hidCount(S);
+    const acts = (kind, q, nm) => VIEW ? '' : '<button type="button" class="lib" data-a="it-eye" data-kind="' + kind + '" data-id="' + q.id + '" aria-pressed="' + (q.hid ? 'false' : 'true') + '" aria-label="' + (q.hid ? 'Show ' : 'Hide ') + esc(nm) + '" title="' + (q.hid ? 'Hidden: not on the drawings or the sheets. Tap to show it again.' : 'Shown. Tap to hide it on the drawings and the sheets.') + '">' + ico(q.hid ? 'eyeoff' : 'eye') + '</button><button type="button" class="lib d" data-a="it-del" data-kind="' + kind + '" data-id="' + q.id + '" aria-label="Delete ' + esc(nm) + '" title="Delete it. Undo brings it back.">' + ico('bin') + '</button>';
+    h += '<h3>On the plan (' + (S.els.length + S.runs.length) + ')' + (nh ? ' · ' + nh + ' hidden' : '') + '</h3>';
+    for (const q of S.els) { const nm = q.name || TYPES[q.t].n; h += '<div class="lirow' + (hidEl(S, q) ? ' hid' : '') + '"><button class="li" data-a="sel" data-kind="el" data-id="' + q.id + '"' + (e === q ? ' aria-current="true"' : '') + '><i class="dot ' + (q.st === 'P' ? 'P' : TYPES[q.t].g === 'tower' ? 'T' : '') + '"></i><b>' + esc(nm) + '</b><span>' + (rackHost(S, q) ? uText(rackSlots(S, rackHost(S, q)).find(k => k.e === q) || { u: 1, ru: 1 }) : f1(q.x) + ', ' + f1(q.y)) + '</span></button>' + acts('el', q, nm) + '</div>'; }
+    for (const q of S.runs) { const nm = q.name || RUNS[q.kind].n; h += '<div class="lirow' + (q.hid ? ' hid' : '') + '"><button class="li" data-a="sel" data-kind="run" data-id="' + q.id + '"' + (ld === q ? ' aria-current="true"' : '') + '><i class="dot ' + (q.st === 'P' ? 'P' : q.kind === 'ladder' ? 'L' : '') + '"></i><b>' + esc(nm) + '</b><span>' + f1(runLen(q)) + ' m</span></button>' + acts('run', q, nm) + '</div>'; }
+    if (!S.els.length && !S.runs.length) h += '<p class="hint">Nothing yet. Tap the + icon over the drawing, pick an item, then tap the plan where it stands.</p>'; }
   return h;
 }
 function tabRoute() {
-  const R = S.route, g = routeGeom(S), s = g.sum;
-  let h = '<p class="hint">Two fibers on one plan. <b>AE</b> comes in on poles from outside and ends on the riser pole. <b>UG</b> starts on that pole, goes down the riser pipe, runs in the trench or conduit and on the cable ladder, and ends on the ODF. They meet in the closure on the pole.</p>';
+  const R = RT(), g = routeGeom(S), CB = cables(S), P = g.parts[cabN] || g.parts[0], s = P.sum, many = CB.length > 1;
+  let h = '<p class="hint">Two fibers make one cable run. <b>AE</b> comes in on poles from outside and ends on the riser pole. <b>UG</b> starts on that pole, goes down the riser pipe, runs in the trench or conduit and on the cable ladder, and ends on the ODF. They meet in the closure on the pole. A plan can hold more than one cable: each is drawn on its own.</p>';
+  if (many || cableDrawn(R)) {      /* (14 Nov) the cables of the plan */
+    h += '<div class="cabs" role="group" aria-label="The cables of the plan">' + CB.map((q, k) => '<button type="button" class="b s" data-a="cab-go" data-k="' + k + '" aria-pressed="' + (k === cabN ? 'true' : 'false') + '">Cable ' + (k + 1) + '<small>' + esc(cableDrawn(q) ? [q.ae.pts.length > 1 ? 'AE' : '', q.ug.pts.length > 1 ? 'UG ' + f1(g.parts[k].sum.ugt) + ' m' : ''].filter(Boolean).join(' · ') : 'not drawn') + '</small></button>').join('') + (VIEW ? '' : '<button type="button" class="b s" data-a="cab-new">' + ico('plus') + 'New cable</button>') + '</div>';
+    if (many) h += '<p class="hint">Cable ' + (cabN + 1) + ' is picked: what follows is its form, and the FOC tool goes on with it. <b>New cable</b> starts one that is not joined to another.</p>'; }
   if (!VIEW) { const has = R.ae.pts.length + R.ug.pts.length > 0, on = pen && mode === 'route';      /* beta 4.2: one line for both fibers */
-    h += '<div class="btns">' + (on ? '<button class="b p" data-a="route-done">' + ico('ok') + 'Done</button><button class="b" data-a="route-undo"' + (penStart || penN || has ? '' : ' disabled') + '>' + ico('undo') + 'Undo</button>' : '<button class="b p" data-a="route-pen">' + ico('foc') + (has ? 'Draw more' : 'Draw the FOC') + '</button>') + (has ? '<button class="b" data-a="route-new">' + ico('bin') + 'Start again</button>' : '') + '</div>';
+    h += '<div class="btns">' + (on ? '<button class="b p" data-a="route-done">' + ico('ok') + 'Done</button><button class="b" data-a="route-undo"' + (penStart || penN || has ? '' : ' disabled') + '>' + ico('undo') + 'Undo</button>' : '<button class="b p" data-a="route-pen">' + ico('foc') + (has ? 'Draw more' : many ? 'Draw cable ' + (cabN + 1) : 'Draw the FOC') + '</button>') + (has ? '<button class="b" data-a="route-new">' + ico('bin') + 'Start again</button>' : '') + (many ? '<button class="b d" data-a="cab-del">' + ico('bin') + 'Delete cable ' + (cabN + 1) + '</button>' : '') + '</div>';
     h += '<p class="hint"><b>One line for both fibers.</b> Start where the cable comes from, pass the riser pole and end on the ODF: drag along the way, or tap the points. The app takes in the poles, hand holes and exit conduits the line passes. <b>Auto:</b> what runs along a trench, a conduit or a cable ladder is underground (UG), from the riser pole on; what comes before is aerial (AE); with nothing drawn under it, all of it is aerial. <b>AE</b> or <b>UG</b> over the drawing: what you draw next is that cable, whatever it runs along. A right-click, or Undo last, takes the last piece off.</p>'; }
   for (const n of g.notes) h += '<div class="warn">' + esc(n) + '</div>';
   for (const b of g.bare || []) h += '<div class="warn">The UG cable comes out of the ground ' + f1(b.at[0]) + ' m from the left and ' + f1(b.at[1]) + ' m from the bottom, and no exit conduit is drawn there. If there is one on site: Add, Exit conduit, and put it there.</div>';      /* (19:25: the app no longer makes one up) */
   for (const w of g.warn) h += '<div class="warn">UG leg ' + (w.leg + 1) + ' runs through ' + esc(w.names.join(', ')) + '. Move a point or change the run.</div>';
-  if (g.join && g.join.pole) h += '<div class="note">AE and UG meet on the riser pole. The closure stands on the pole above the loop holder, its cable ports ' + f1(g.join.z) + ' m above the ground' + (g.join.auto ? ' (the app drew it)' : '') + '. The UG cable comes up the G.I. pipe and the U-guard to it.</div>';
+  if (P.join && P.join.pole) h += '<div class="note">AE and UG meet on the riser pole. The closure stands on the pole above the loop holder, its cable ports ' + f1(P.join.z) + ' m above the ground' + (P.join.auto ? ' (the app drew it)' : '') + '. The UG cable comes up the G.I. pipe and the U-guard to it.</div>';
   for (const f of ['ae', 'ug']) {
     const Q = R[f], n = Q.pts.length, on = mode === 'route' && fib === f && !pen;
-    h += '<h3>' + (f === 'ae' ? 'AE fiber (aerial)' : 'UG fiber (underground)') + '</h3><div class="btns">';
+    h += '<h3>' + (many ? 'Cable ' + (cabN + 1) + ' · ' : '') + (f === 'ae' ? 'AE fiber (aerial)' : 'UG fiber (underground)') + '</h3><div class="btns">';
     h += on ? '<button class="b p" data-a="route-done">Done drawing</button><button class="b" data-a="route-undo"' + (n ? '' : ' disabled') + '>Remove last point</button>' : '<button class="b p" data-a="route-draw" data-f="' + f + '">' + (n ? 'Add more points' : 'Draw the ' + f.toUpperCase() + ' fiber') + '</button><button class="b" data-a="route-clear" data-f="' + f + '"' + (n ? '' : ' disabled') + '>Clear</button>';
     h += '</div><p class="hint">' + (f === 'ae' ? 'Start outside the site, where the cable comes from. Tap each pole. Finish on the riser pole. The arrow and the note go at the outside end.' : 'Start on the riser pole. Tap along the trench or conduit, then along the ladder, and finish on the ODF, or on the porthole of a cabin when the ODF is inside it. The fiber follows what it is drawn on: it lies in the trench at its depth and on the ladder at its height, corners and all. Two conduits or trenches that meet in a hand hole or service box carry it through both. A point snaps onto an ODF, also one inside a cabin, and onto a closure: the cable goes into a closure at its entrance.') + '</p>';
-    h += '<div class="row">' + Sel('Cable', 'route.' + f + '.cable', Q.cable, CABLES.map(c => [c, c])) + (f === 'ae' ? F('Aerial cable height (m)', 'route.aerialH', R.aerialH) : F('Rise into an ODF that is not in a rack (m)', 'route.endRise', R.endRise)) + '</div>';
+    h += '<div class="row">' + Sel('Cable', 'route.' + f + '.cable', Q.cable, CABLES.map(c => [c, c])) + (f === 'ae' ? F('Aerial cable height (m)', 'route.aerialH', S.route.aerialH) : F('Rise into an ODF that is not in a rack (m)', 'route.endRise', S.route.endRise)) + '</div>';
     if (f === 'ae') h += '<div class="one">' + F('Note at the outside end', 'route.note', R.note, TXT) + '</div>';
     Q.pts.forEach((p, i) => {
       h += '<div class="leg"><span class="n">' + (i + 1) + '</span>' + (f === 'ae' ? '<select data-k="pt.' + i + '.loop" aria-label="Loop at AE point ' + (i + 1) + '">' + [0, 10, 15, 20, 30, 50].map(v => '<option value="' + v + '"' + (num(p.loop, 0) === v ? ' selected' : '') + '>' + (v ? v + ' m loop here' : 'No loop here') + '</option>').join('') + '</select>' : '<small>' + f1(p.x) + ' m from left, ' + f1(p.y) + ' m from bottom</small>') + '<span></span><button class="b s ic d" data-a="pt-del" data-f="' + f + '" data-i="' + i + '" aria-label="Remove ' + f.toUpperCase() + ' point ' + (i + 1) + '">×</button></div>';
       if (i + 1 < n) {
-        const parts = g.legs.filter(l => l.f === f && l.i === i), len = parts.reduce((a, l) => a + l.len, 0);
+        const parts = P.legs.filter(l => l.f === f && l.i === i), len = parts.reduce((a, l) => a + l.len, 0);
         if (f === 'ae') h += '<div class="leg"><span class="bar2"></span><small>Aerial, pole to pole</small><span class="len">' + f1(len) + ' m</span><span></span></div>';
         else { const t = (Q.legs[i] || {}).type || 'auto', now = Array.from(new Set(parts.map(l => LEG[l.type].n.toLowerCase()))).join(', '); h += '<div class="leg"><span class="bar2"></span><select data-k="leg.' + i + '" aria-label="Run of UG leg ' + (i + 1) + '"><option value="auto"' + (t === 'auto' ? ' selected' : '') + '>App decides: ' + esc(now || 'new conduit') + '</option>' + Object.keys(LEG).filter(k => k !== 'aerial').map(k => '<option value="' + k + '"' + (k === t ? ' selected' : '') + '>' + LEG[k].n + '</option>').join('') + '</select><span class="len">' + f1(len) + ' m</span><span></span></div>'; }
       }
@@ -451,9 +512,10 @@ function tabRoute() {
   }
   if (s.total > 0.05) {
     const row = (a, v) => v > 0.05 ? '<tr><td>' + a + '</td><td class="r">' + f1(v) + ' m</td></tr>' : '', tot = (a, v) => '<tr class="tot"><td>' + a + '</td><td class="r">' + f1(v) + ' m</td></tr>';
-    h += '<h3>Cable length</h3><table class="t">' + row('AE, pole to pole', s.aerial) + row('AE loops (' + s.nloop + ')', s.loop) + (s.ae > 0.05 ? tot('Total FOC AE', s.ae) : '') + ['ug', 'xug', 'ladder', 'open', 'liquid', 'wall'].map(k => row('UG: ' + LEG[k].n.toLowerCase(), s[k])).join('') + row('UG: up and down (riser, exit conduit, drops)', s.vert) + row('UG: inside the cabin, porthole to ODF', s.inside) + (s.ugt > 0.05 ? tot('Total FOC UG', s.ugt) : '') + '</table>';
+    h += '<h3>Cable length' + (many ? ' · cable ' + (cabN + 1) : '') + '</h3><table class="t">' + row('AE, pole to pole', s.aerial) + row('AE loops (' + s.nloop + ')', s.loop) + (s.ae > 0.05 ? tot('Total FOC AE', s.ae) : '') + ['ug', 'xug', 'ladder', 'open', 'liquid', 'wall'].map(k => row('UG: ' + LEG[k].n.toLowerCase(), s[k])).join('') + row('UG: up and down (riser, exit conduit, drops)', s.vert) + row('UG: inside the cabin, porthole to ODF', s.inside) + (s.ugt > 0.05 ? tot('Total FOC UG', s.ugt) : '') + '</table>';
     h += '<p class="hint">The app adds the up-and-down parts itself: up the riser pipe to the closure, out of the ground at an exit conduit, down into the cabinet. Buried runs are measured at their depth.</p>';
   }
+  if (many && g.sum.total > 0.05) h += '<p class="hint"><b>All ' + g.parts.filter(q => q.sum.total > 0.05).length + ' cables:</b> FOC AE ' + f1(g.sum.ae) + ' m · FOC UG ' + f1(g.sum.ugt) + ' m.</p>';
   return h;
 }
 function tabPhotos() {
@@ -481,17 +543,18 @@ function tabTable() {
 function checks() {
   const c = [], s = S.site, g = geo(S), rg = routeGeom(S), np = S.photos.filter(p => !p.placed).length;
   c.push(s.name && s.id ? [1, 'Site name and ID are filled in.'] : [0, 'Site name or ID is empty. That box of the title block will be blank.']);
-  c.push(g ? [1, 'Coordinates are set, taken at the ' + g.at.toLowerCase() + '.'] : [0, 'No coordinates. The ZIP will have no map-position DXF and no KML.']);
+  c.push(g ? [1, 'Coordinates are set, taken at the ' + g.at.toLowerCase() + '.'] : [0, 'No coordinates. The ZIP will have no KML.']);
   if (g && g.fallback) c.push([0, 'No tower on the plan, so the coordinates are taken at the bottom-left corner.']);
-  if (g && !g.zoneOk) c.push([0, 'Longitude is outside UTM zone 51 (120 to 126 E). The map DXF uses extended zone 51.']);
   c.push(S.els.some(e => TYPES[e.t].g === 'tower') ? [1, 'A tower is on the plan.'] : [0, 'No tower on the plan.']);
-  c.push(rg.sum.ae > 0.05 ? [1, 'AE fiber drawn: ' + f1(rg.sum.ae) + ' m with loops.'] : [0, 'No AE fiber drawn.']);
-  c.push(rg.sum.ugt > 0.05 ? [1, 'UG fiber drawn: ' + f1(rg.sum.ugt) + ' m.'] : [0, 'No UG fiber drawn.']);
+  { const nd = rg.parts.filter(p => p.sum.total > 0.05).length, w = nd > 1 ? ' (' + nd + ' cables)' : '';      /* (14 Nov) */
+    c.push(rg.sum.ae > 0.05 ? [1, 'AE fiber drawn: ' + f1(rg.sum.ae) + ' m with loops' + w + '.'] : [0, 'No AE fiber drawn.']);
+    c.push(rg.sum.ugt > 0.05 ? [1, 'UG fiber drawn: ' + f1(rg.sum.ugt) + ' m' + w + '.'] : [0, 'No UG fiber drawn.']); }
   for (const n of rg.notes) c.push([0, n]);
   for (const w of rg.warn) c.push([0, 'UG leg ' + (w.leg + 1) + ' runs through ' + w.names.join(', ') + '.']);
-  if (S.route.ug.pts.length > 1 && !S.els.some(e => e.t === 'odf' || (e.t === 'cabin' && e.inside && e.inside.els.some(q => q.t === 'odf')))) c.push([0, 'No ODF on the plan for the UG fiber to end on.']);
+  if (cables(S).some(q => q.ug.pts.length > 1) && !S.els.some(e => e.t === 'odf' || (e.t === 'cabin' && e.inside && e.inside.els.some(q => q.t === 'odf')))) c.push([0, 'No ODF on the plan for the UG fiber to end on.']);
   { const d = details(S); c.push(d.length ? [1, 'Details sheet: ' + d.map(q => q.title.toLowerCase()).join('; ') + '.'] : [0, 'No details sheet: no cabin has anything sketched inside, and no outdoor cabinet holds an ODF.']); }
   c.push(S.photos.length ? [np ? 0 : 1, S.photos.length + ' photo' + (S.photos.length === 1 ? '' : 's') + (np ? ', ' + np + ' not marked on the plan.' : ', all marked on the plan.')] : [0, 'No photos added.']);
+  { const nh = hidCount(S); if (nh) c.push([0, nh + (nh === 1 ? ' item is' : ' items are') + ' hidden: not drawn on the sheets, still counted in the table. Menu, then Items on the plan, shows ' + (nh === 1 ? 'it' : 'them') + ' again.']); }      /* (14 Nov) */
   if (S.sample) c.push([0, 'This is still the sample site. The sheets will say so.']);
   return c;
 }
@@ -503,7 +566,8 @@ function tabExport() {
   if (msg) h += '<div class="' + msg.c + '" role="status">' + esc(msg.t) + '</div>';
   h += '<p class="hint">Exported by ' + esc([e.name, e.mobile, e.email].filter(Boolean).join(' · ') || 'you') + '. It is written on every sheet and in the files.</p>';
   h += signBox();
-  h += '<h3>In the ZIP</h3><table class="t"><tr><td>Sheets DXF</td><td>Isometric with CEF table, top view, details (inside of a cabin, open cabinets), photo frames. 1 unit = 1 m.</td></tr><tr><td>PDF</td><td>The same sheets on A3, with the photos.</td></tr><tr><td>Map DXF</td><td>The top view at its real place, UTM 51N.</td></tr><tr><td>KML</td><td>To check the place in Google Earth.</td></tr><tr><td>Photos</td><td>Numbered as on the plan.</td></tr><tr><td>Logos</td><td>The pictures of the two logo boxes.</td></tr><tr><td>Sketch file</td><td>To open the sketch here again.</td></tr></table>';
+  h += dxfBox();
+  h += '<h3>In the ZIP</h3><table class="t"><tr><td>DXF</td><td>The sheets side by side on the Model tab (1 unit = 1 m), a layout tab for each sheet, the photos and logos attached.</td></tr><tr><td>PDF</td><td>Every sheet on A3, with the photos.</td></tr><tr><td>KML</td><td>To check the place in Google Earth.</td></tr><tr><td>Photos</td><td>Numbered as on the plan.</td></tr><tr><td>Logos</td><td>The pictures of the two logo boxes.</td></tr><tr><td>Sketch file</td><td>To open the sketch here again.</td></tr></table>';
   h += '<p class="hint" style="margin-top:8px">Check the Sheets view first to see what you will get.</p>';
   if (!VIEW) h += '<h3>Open a saved sketch</h3><div class="btns"><label class="b filebtn">Choose a sketch file (.json)<input type="file" accept=".json,application/json" data-k="open" hidden></label></div><p class="hint">It replaces the sketch on the screen. Undo brings yours back.</p>';
   return h;
@@ -578,10 +642,10 @@ function labInfo(key) {
   if (r) return { name: RUNS[r.kind].n, cur: r.name || '', def: runLabel(Object.assign({}, r, { name: '' })), item: { k: 'run', id: key } };
   if (key === 'ug' && S.room) return { name: 'Cable', cur: (S.lab.ug || {}).t || '', def: 'FOC UG' };
   if (/^in/.test(key)) for (const c of S.els) if (c.t === 'cabin' && c.inside) { const q = (c.inside.els || []).find(k => 'in' + k.id === key); if (q) return { name: TYPES[q.t].n + ' inside the cabin', cur: (S.lab[key] || {}).t || '', def: elLabel(c.inside, q) }; }
-  if (key === 'note') return { name: 'Note at the outside end', cur: S.route.note || '', def: '' };
+  { const mn = /^note(~.+)?$/.exec(key); if (mn) { const k = Math.max(0, cables(S).findIndex((q, i) => cableKey(S, i) === (mn[1] || ''))); return { name: 'Note at the outside end' + (cables(S).length > 1 ? ' · cable ' + (k + 1) : ''), cur: RTc(k).note || '', def: '' }; } }
   if (/^len/.test(key)) return { name: 'Measured length', fixed: 1 };
   if (key === 'tid') { const si = S.site || {}; return { name: 'Site name and ID', cur: (S.lab.tid || {}).t || '', def: [si.name, si.id].map(v => String(v || '').trim().toUpperCase()).filter(Boolean).join(' / ') }; }
-  const lp = /^loop(\d+)$/.exec(key), rec = S.lab[key] || {}, def = key === 'ae' || key === 'ug' ? focName(S, routeGeom(S), key) : key === 'clo' ? 'PROPOSED CLOSURE' : /^exit/.test(key) ? 'PROPOSED RISER PIPE' : /^riser/.test(key) ? 'PROPOSED G.I. RISER PIPE' : /^ugd/.test(key) ? 'PROPOSED U-GUARD' : /^port/.test(key) ? 'PORTHOLE' : /^gate/.test(key) ? (S.room ? 'DOOR' : 'GATE') : lp ? 'LOOP HOLDER W/ ' + f2(num((S.route.ae.pts[+lp[1]] || {}).loop, 0)) + 'm LOOP' : '';
+  const lp = /^loop(\d+)(~.+)?$/.exec(key), fm = /^(ae|ug)(~.+)?$/.exec(key), ckN = sfx => Math.max(0, cables(S).findIndex((q, i) => cableKey(S, i) === (sfx || ''))), rec = S.lab[key] || {}, def = fm ? focName(S, routeGeom(S), fm[1], ckN(fm[2])) : /^clo(~.+)?$/.test(key) ? 'PROPOSED CLOSURE' : /^exit/.test(key) ? 'PROPOSED RISER PIPE' : /^riser/.test(key) ? 'PROPOSED G.I. RISER PIPE' : /^ugd/.test(key) ? 'PROPOSED U-GUARD' : /^port/.test(key) ? 'PORTHOLE' : /^gate/.test(key) ? (S.room ? 'DOOR' : 'GATE') : lp ? 'LOOP HOLDER W/ ' + f2(num((RTc(ckN(lp[2])).ae.pts[+lp[1]] || {}).loop, 0)) + 'm LOOP' : '';
   return { name: key === 'ae' ? 'AE fiber' : key === 'ug' ? 'UG fiber' : key === 'clo' ? 'Closure' : /^exit/.test(key) ? 'Exit conduit' : /^riser/.test(key) ? 'Riser pipe' : /^ugd/.test(key) ? 'U-guard' : /^port/.test(key) ? 'Porthole' : /^gate/.test(key) ? (S.room ? 'Door' : 'Gate') : lp ? 'Loop' : 'Label', cur: rec.t || '', def };
 }
 function labBox() {
@@ -637,8 +701,9 @@ function drawOpts() {
   else if (!VIEW && !focus && view !== 'sheets' && !S.room) {
     const run = mode === 'select' && sel && sel.k === 'run' ? runById(sel.id) : null, kind = run ? run.kind : mode === 'run' ? runKind : null;
     if (mode === 'route' && pen) {
-      const cs = f => '<label class="osel">' + f.toUpperCase() + '<select data-k="route.' + f + '.cable" aria-label="' + f.toUpperCase() + ' cable">' + CABLES.map(c => '<option' + (c === S.route[f].cable ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></label>';
-      h = optGroup('Aerial or underground', 'how', penHow, [['auto', 'Auto', 'The app decides: along a trench, conduit or ladder it is underground, before that aerial'], ['ae', 'AE', 'What you draw is aerial cable'], ['ug', 'UG', 'What you draw is underground cable']]) + (penHow !== 'ug' ? cs('ae') : '') + (penHow !== 'ae' ? cs('ug') : '');
+      const cs = f => '<label class="osel">' + f.toUpperCase() + '<select data-k="route.' + f + '.cable" aria-label="' + f.toUpperCase() + ' cable">' + CABLES.map(c => '<option' + (c === RT()[f].cable ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></label>', CB = cables(S);
+      if (CB.length > 1) h += optGroup('Which cable', 'cab', cabN, CB.map((q, k) => [k, 'Cable ' + (k + 1), cableDrawn(q) ? 'Go on with cable ' + (k + 1) : 'Cable ' + (k + 1) + ': not drawn yet']));      /* (14 Nov) */
+      h += optGroup('Aerial or underground', 'how', penHow, [['auto', 'Auto', 'The app decides: along a trench, conduit or ladder it is underground, before that aerial'], ['ae', 'AE', 'What you draw is aerial cable'], ['ug', 'UG', 'What you draw is underground cable']]) + (penHow !== 'ug' ? cs('ae') : '') + (penHow !== 'ae' ? cs('ug') : '');
     } else if (kind && RUNS[kind] && kind !== 'part') {
       const o = run ? { st: run.st, n: runN(run), dia: +runMM(run), conc: runConc(run), deep: runShallow(run) ? 'shallow' : 'open' } : runOpt[kind];
       if (kind !== 'trench') h += optGroup('Existing or new', 'st', o.st, [['E', 'Existing'], ['P', 'New']]);
@@ -646,6 +711,8 @@ function drawOpts() {
       if (kind !== 'ladder' && kind !== 'trench') h += optGroup('Runs', 'n', o.n, [[1, '1 run'], [2, '2 run']]) + optGroup('Size of the pipe', 'dia', o.dia, [[32, '32'], [50, '50'], [114.3, '114.3 mm']]);
     }
   }
+  { const pe = view !== 'sheets' ? pipePole() : null;      /* (14 Nov) the G.I. pipe of the picked riser pole */
+    if (pe) h += '<span class="olab">G.I. pipe</span>' + optGroup('Side of the pole the G.I. riser pipe stands on', 'pside', pipeSet(pe) ? 'M' : 'A', [['A', 'Auto', 'On the side where the trench, conduit or cable meets the pole'], ['T', 'Turn', 'Turn it 45° round the pole. Or drag its handle on the plan.']]); }
   { const key = !VIEW && view !== 'sheets' && mode === 'select' && sel ? (sel.k === 'el' || sel.k === 'run' ? sel.id : sel.k === 'lab' ? sel.key : null) : null;      /* (22:24) the name of what is picked: shown or hidden on the drawing */
     if (key != null && key !== '') { const on = labOn(key); h += '<button type="button" class="oeye" data-a="lab-eye" data-key="' + esc(key) + '" aria-pressed="' + (on ? 'true' : 'false') + '" title="' + (on ? 'Its name is on the drawing: tap to hide it' : 'Its name is hidden: tap to show it') + '">' + ico(on ? 'eye' : 'eyeoff') + (on ? 'Name shown' : 'Name hidden') + '</button>'; } }
   n.hidden = !h; n.innerHTML = h; const v = document.getElementById('views'); if (v) v.classList.toggle('has-opt', !!h);
@@ -654,7 +721,9 @@ function drawOpts() {
   n.addEventListener('click', e => { const ba = e.target.closest('[data-a]'); if (ba && !VIEW) { action(ba.dataset.a, ba); return; }
     const b = e.target.closest('[data-o]'); if (!b || VIEW) return; const f = b.dataset.o, v = b.dataset.v;
     if (f === 'cabin') { const c = entryCab(); if (c) { push(); setEntry(c, v); say('The cable comes in ' + (v === 'A' ? 'where the app chooses' : GLAND[v].toLowerCase()) + '. Drag the red ring to move it.'); refresh(true); } return; }
+    if (f === 'pside') { const e = pipePole(); if (e) { push(); if (v === 'A') { delete e.ps; say('The G.I. pipe is on the side where the trench, conduit or cable meets the pole.'); } else { const u0 = pipeDir(e); e.ps = ((Math.round(Math.atan2(u0[1], u0[0]) / D2R / 45) * 45 + 45) % 360 + 360) % 360; say('G.I. pipe turned round the pole. Auto puts it back on the side of the trench.'); } needFit.iso = needFit.sheets = true; refresh(true); } return; }
     if (f === 'how') { penHow = v === 'ae' || v === 'ug' ? v : 'auto'; penStart = null; penRaw = null; penRawH = []; refresh(true); return; }
+    if (f === 'cab') { cabGo(+v); say('Cable ' + (cabN + 1) + (cableDrawn(RT()) ? ': the line goes on from its end.' : ': tap where it starts.')); refresh(true); return; }
     const run = mode === 'select' && sel && sel.k === 'run' ? runById(sel.id) : null, val = f === 'n' || f === 'dia' ? +v : f === 'conc' ? v === '1' : v;
     if (run) { push(); if (f === 'deep') run.dp = v === 'shallow' ? SHALLOW_DP : UGD; else run[f] = val; if (f === 'dia' && run.kind === 'conduit') run.w = val / 1000; needFit.sheets = true; refresh(true); }
     else if (mode === 'run' && runOpt[runKind]) { runOpt[runKind][f] = val; drawOpts(); } });
@@ -679,7 +748,7 @@ function drawStrip() {
     if (!room && S.site.kind === 'fenced') p += '<b>Fence</b><div class="tiles">' + tile('gate-add', 'gate', 'Gate', ' data-w="4"') + tile('gate-add', 'door', 'Door', ' data-w="0.9"') + '</div>';
     p += '<b>Lines</b><div class="tiles">' + (room ? ['ladder', 'part'] : Object.keys(RUNS).filter(k => !RUNS[k].room)).map(k => tile('run-draw', k, RUNS[k].n, ' data-kind="' + k + '"')).join('') + '</div>'; pop.innerHTML = p; }
   if (expOpen) { const libs = typeof PDFLib !== 'undefined', can = dlReady && dl && !busy, tile = (kind, icon, label, ok) => '<button type="button" class="tile" data-a="exp-go" data-kind="' + kind + '"' + (ok ? '' : ' disabled') + '>' + ico(icon) + '<span>' + label + '</span></button>';
-    pop.innerHTML = '<b>Export</b><div class="tiles">' + tile('pdf', 'doc', 'PDF', can && libs) + tile('dxf', 'dxfi', 'DXF', can) + tile('zip', 'exp', 'Both', can && libs) + '</div><p class="hint" style="margin:8px 2px 0">PDF: the sheets, to print or to send. DXF: the same sheets for AutoCAD. Both: one ZIP with the DXF, the PDF, the map files, the photos and the sketch.' + (libs ? '' : ' The PDF part did not load: reload with the network on.') + '</p>'; }
+    pop.innerHTML = '<b>Export</b><div class="tiles">' + tile('pdf', 'doc', 'PDF', can && libs) + tile('dxf', 'dxfi', 'DXF', can) + tile('zip', 'exp', 'Both', can && libs) + '</div><p class="hint" style="margin:8px 2px 0">PDF: the sheets, to print or to send. DXF: the sheets for AutoCAD, with a layout tab for each. Both: one ZIP with the DXF, the PDF, the KML, the photos and the sketch. Which pages the DXF holds: Menu, then Check and export.' + (libs ? '' : ' The PDF part did not load: reload with the network on.') + '</p>'; }
   pop.hidden = !(palOpen || expOpen);
 }
 { const v = document.getElementById('views'); if (v) v.addEventListener('pointerdown', e => { if ((palOpen || expOpen) && !(e.target.closest && e.target.closest('#tbpop'))) { palOpen = expOpen = false; drawStrip(); } }, true); }      /* a tap on the drawing beside the tray closes the tray */
@@ -719,7 +788,7 @@ function homeMenu() {
   if (room) h += hb('site', 'cabin', 'Cabin', f1(S.site.L) + ' × ' + f1(S.site.W) + ' m, doors, aircon') + hb('route', 'foc', 'Cable', g.sum.ugt > 0.05 ? f1(g.sum.ugt) + ' m in the cabin' : 'Not drawn yet') + hb('els', 'list', 'Items in the cabin', String(S.els.length + S.runs.length));
   else h += hb('site', 'map', 'Site details', [S.site.name, S.site.id].filter(Boolean).join(' · ') || 'Name, ID, size, gate') + hb('route', 'foc', 'Cable (FOC)', g.sum.ae > 0.05 || g.sum.ugt > 0.05 ? 'AE ' + f1(g.sum.ae) + ' m · UG ' + f1(g.sum.ugt) + ' m' : 'Not drawn yet')
     + hb('photos', 'cam', 'Photos', S.photos.length ? S.photos.length + ' on this plan' : 'None yet') + hb('els', 'list', 'Items on the plan', String(S.els.length + S.runs.length)) + hb('table', 'tbl', 'CEF table', 'Lengths and quantities') + hb('export', 'exp', 'Check and export', 'PDF, DXF or both');
-  return h + '</div><p class="hint">Tap anything on the drawing to change it: its form opens here. The tools are above the drawing.</p>';
+  return h + '</div><p class="hint">Tap anything on the drawing to change it: its form opens here. The tools are in the row of icons.</p>';
 }
 function panelBody() {
   if (focus) return tabFocus(); const w = ctxWant();
@@ -729,7 +798,7 @@ function panelBody() {
 function drawPanel() {
   const a = document.activeElement, k = a && panel.contains(a) && a.dataset ? a.dataset.k : null, st = panel.scrollTop;
   panel.innerHTML = labBox() + panelBody(); quietHints(); panel.scrollTop = st;
-  if (VIEW) { for (const n of panel.querySelectorAll('input, select, textarea')) if (!/^sign\./.test((n.dataset && n.dataset.k) || '')) n.disabled = true; for (const n of panel.querySelectorAll('button[data-a]')) if (VIEW_OK.indexOf(n.dataset.a) < 0) n.disabled = true; }
+  if (VIEW) { for (const n of panel.querySelectorAll('input, select, textarea')) if (!/^(sign|dxf)\./.test((n.dataset && n.dataset.k) || '')) n.disabled = true; for (const n of panel.querySelectorAll('button[data-a]')) if (VIEW_OK.indexOf(n.dataset.a) < 0) n.disabled = true; }
   if (k) { const n = panel.querySelector('[data-k="' + k + '"]'); if (n && n.type !== 'file') { n.focus({ preventScroll: true }); if (n.tagName === 'INPUT') try { n.select(); } catch (e) { } } }
 }
 function refresh(full, fast) {
@@ -744,6 +813,7 @@ function setMsg(t, c) { msg = t ? { t, c: c || 'note' } : null; if (tab === 'exp
 function riders(e) { if (!['pad', 'cabin', 'odc', 'cow', 'box', 'rack'].includes(e.t)) return []; const P = elPoly(e), a = e.w * e.d; return S.els.filter(q => q !== e && q.w * q.d < a && inPoly([q.x, q.y], P)); }
 function applyField(k, t) {
   const p = k.split('.'), v = t.value, si = S.site, x = parseFloat(v), r2 = q => Math.round(q * 100) / 100;
+  if (p[0] === 'dxf') { if (!['det', 'ph', 'lay'].includes(p[1])) return false; const d = dxfSet(); if (p[1] === 'lay') d.old = !t.checked; else d[p[1]] = !!t.checked; APP.dxf = d; try { if (HOST && HOST.pref) HOST.pref('dxf', d); else localStorage.setItem('cef-dxf', JSON.stringify(d)); } catch (e) { } return true; }      /* (14 Nov) the pages and the kind of the DXF: kept by the app, not in the plan */
   if (p[0] === 'sign') { if (!['by', 'chk', 'apr'].includes(p[1])) return false; APP.sign = Object.assign({}, APP.sign); APP.sign[p[1]] = String(v == null ? '' : v).slice(0, 80); signSave(); needFit.sheets = true; return true; }      /* (22:24) the names on the sheet: kept by the app, not in the plan */
   if (p[0] === 'site') {
     const f = p[1];
@@ -780,7 +850,7 @@ function applyField(k, t) {
       if (host) { const u = slotFor(S, host, e, f === 'u' ? x : num(e.u, 1)); if (u != null) e.u = u; seatItems(S); } else if (f === 'u') e.u = Math.max(1, Math.round(x));
       return true;
     }
-    const on = []; if (SNAPS.includes(e.t)) for (const ff of ['ae', 'ug']) for (const q of S.route[ff].pts) if (Math.hypot(q.x - e.x, q.y - e.y) < 0.06) on.push(q);      /* fiber points that sit on the item go with it, as when it is dragged */
+    const on = []; if (SNAPS.includes(e.t)) for (const RR of cables(S)) for (const ff of ['ae', 'ug']) for (const q of RR[ff].pts) if (Math.hypot(q.x - e.x, q.y - e.y) < 0.06) on.push(q);      /* fiber points that sit on the item go with it, as when it is dragged */
     const b = polyBox(elPoly(e)), mv = (dx, dy) => { for (const q of riders(e).concat([e], on)) { q.x = r2(q.x + dx); q.y = r2(q.y + dy); } };
     if (f === 'gl') mv(x - b[0], 0); else if (f === 'gr') mv(S.site.L - b[2] - x, 0); else if (f === 'gb') mv(0, x - b[1]); else if (f === 'gt') mv(0, S.site.W - b[3] - x);
     else if (f === 'rot') e.rot = (x % 360 + 360) % 360;
@@ -791,7 +861,7 @@ function applyField(k, t) {
   }
   if (p[0] === 'lab') {
     if (!sel || sel.k !== 'lab') return false; const key = sel.key, e = elById(key), r = runById(key); push('f:' + k + key);
-    if (e) e.name = v; else if (r) r.name = v; else if (key === 'note') S.route.note = v; else { const q = S.lab[key] || (S.lab[key] = {}); q.t = v; }
+    if (e) e.name = v; else if (r) r.name = v; else if (/^note(~.+)?$/.test(key)) { const sfx = key.slice(4), kq = Math.max(0, cables(S).findIndex((q, i) => cableKey(S, i) === sfx)); RTc(kq).note = v; } else { const q = S.lab[key] || (S.lab[key] = {}); q.t = v; }
     return true;
   }
   if (p[0] === 'run') {
@@ -801,13 +871,13 @@ function applyField(k, t) {
     if (!isFinite(x)) return false; push('f:' + k); l[f] = f === 'w' ? clamp(x, 0.02, 3) : f === 'dp' ? clamp(x, 0.1, 10) : clamp(x, 0, 60); return true;
   }
   if (p[0] === 'route') {
-    if (p[1] === 'note') { push('f:' + k); S.route.note = v; return true; }
-    if ((p[1] === 'ae' || p[1] === 'ug') && p[2] === 'cable') { push('f:' + k); S.route[p[1]].cable = v; return true; }
+    if (p[1] === 'note') { push('f:' + k); RT().note = v; return true; }
+    if ((p[1] === 'ae' || p[1] === 'ug') && p[2] === 'cable') { push('f:' + k); RT()[p[1]].cable = v; return true; }
     if (p[1] !== 'aerialH' && p[1] !== 'endRise') return false;
     if (!isFinite(x)) return false; push('f:' + k); S.route[p[1]] = clamp(x, p[1] === 'aerialH' ? 0.5 : 0, 60); return true;
   }
-  if (p[0] === 'leg') { const l = S.route.ug.legs[+p[1]]; if (!l || (v !== 'auto' && (!LEG[v] || v === 'aerial'))) return false; push(); l.type = v; return true; }
-  if (p[0] === 'pt') { const q = S.route.ae.pts[+p[1]]; if (!q || !isFinite(x)) return false; push(); q.loop = Math.max(0, x); return true; }
+  if (p[0] === 'leg') { const l = RT().ug.legs[+p[1]]; if (!l || (v !== 'auto' && (!LEG[v] || v === 'aerial'))) return false; push(); l.type = v; return true; }
+  if (p[0] === 'pt') { const q = RT().ae.pts[+p[1]]; if (!q || !isFinite(x)) return false; push(); q.loop = Math.max(0, x); return true; }
   if (p[0] === 'photo') { const q = phById(p[1]); if (!q) return false; if (p[2] === 'cap') { push('f:' + k); q.cap = v; return true; } if (p[2] === 'title') { push('f:' + k); q.title = String(v); needFit.sheets = true; return true; } if (p[2] === 'pw') { if (!isFinite(x)) return false; push('f:' + k); const w = r2(Math.max(si.L, si.W) * clamp(x, 10, 60) / 100); if (q.ct) q.ct.w = w; if (q.ci) q.ci.w = w; needFit.sheets = true; return true; } if (!isFinite(x)) return false; push('f:' + k); q.dir = ((x - num(si.bearing, 0)) % 360 + 360) % 360; return true; }
   return false;
 }
@@ -848,7 +918,7 @@ function sitePort(e, i, p) {
   if (!e.inside) e.inside = newRoom(e); const pe = e.inside.els.filter(q => q.t === 'port')[i]; if (!pe) return;
   const r = toRoom(e, p); let k = wallOf(e.w, e.d, r[0], r[1]), best = null; const C = [];
   for (const run of S.runs) if (run.kind === 'ladder' && run.pts.length > 1) C.push([run.pts[0], 'cable ladder'], [run.pts[run.pts.length - 1], 'cable ladder']);
-  for (const q of S.route.ug.pts) C.push([[q.x, q.y], 'UG fiber']);
+  for (const RR of cables(S)) for (const q of RR.ug.pts) C.push([[q.x, q.y], 'UG fiber']);
   for (const [c, nm] of C) { const cr = toRoom(e, c), ck = wallOf(e.w, e.d, cr[0], cr[1]), dp = Math.hypot(ck.x - k.x, ck.y - k.y); if (ck.side === k.side && Math.hypot(ck.x - cr[0], ck.y - cr[1]) < 0.6 && dp < 0.45 && (!best || dp < best.d)) best = { d: dp, k: ck, nm }; }
   if (best) k = best.k;
   pe.x = r2(k.x); pe.y = r2(k.y); pe.rot = k.side === 'S' || k.side === 'N' ? 0 : 90;
@@ -890,7 +960,7 @@ function nearLine(p, lines, tol) {
 const runLines = kinds => S.runs.filter(r => kinds.indexOf(r.kind) >= 0).map(r => r.pts);
 const legLines = types => routeGeom(S).legs.filter(l => types.indexOf(l.type) >= 0).map(l => [l.a, l.b]);
 /* the ends of the other fiber: where AE and UG are meant to meet */
-const otherEnds = f => { const o = [], P = S.route[f === 'ae' ? 'ug' : 'ae'].pts; if (P.length) { o.push([P[0].x, P[0].y]); if (P.length > 1) o.push([P[P.length - 1].x, P[P.length - 1].y]); } return o; };
+const otherEnds = f => { const o = [], P = RT()[f === 'ae' ? 'ug' : 'ae'].pts; if (P.length) { o.push([P[0].x, P[0].y]); if (P.length > 1) o.push([P[P.length - 1].x, P[P.length - 1].y]); } return o; };
 /* things that belong together snap together while one of them is dragged */
 function relSnap(e, raw) {
   const near = (types, tol) => { let b = null; for (const q of S.els) if (q !== e && types.indexOf(q.t) >= 0) { const d = Math.hypot(q.x - raw[0], q.y - raw[1]); if (d < tol && (!b || d < b.d)) b = { q, d }; } return b; };
@@ -937,7 +1007,7 @@ function finishStroke(st) {
     penAdd(viaItems(S, pts, Math.max(0.5, tolEnd * 0.8)).slice(start ? 1 : 0)); return true;
   }
   if (mode === 'route') {
-    const R = S.route[fib], last = R.pts[R.pts.length - 1], start = last ? [last.x, last.y] : null, H = strokeHelpers(S, fib);
+    const R = RT()[fib], last = R.pts[R.pts.length - 1], start = last ? [last.x, last.y] : null, H = strokeHelpers(S, fib, RT());
     const pts = tidyStroke(start ? [start].concat(st) : st, { tol, tolEnd, align: autoAlign, start, pts: H.pts, guides: H.guides }); if (pts.length < 2) return false;
     push(); pts.forEach((q, i) => { if (i === 0 && last) return; addPt(q); });
   } else {
@@ -955,7 +1025,14 @@ function finishStroke(st) {
 function addEl(t) {
   if (!TYPES[t]) return;
   if (focus) { const c = elById(focus); if (!c || !inRack({ t })) return; push(); const e = newEl(t, c.x, c.y); S.els.push(e); settle(e); sel = { k: 'el', id: e.id }; refresh(true); panel.scrollTop = 0; return; }
-  push(); const L = S.site.L, W = S.site.W, room = !!S.room, o = {}; let x = snap(L / 2), y = snap(W / 2);
+  push(); const { x, y, o } = addPlace(t);
+  const e = Object.assign(newEl(t, x, y), o); S.els.push(e); if (t === 'port' || t === 'ac') toWall(e); settle(e);
+  sel = { k: 'el', id: e.id }; tab = 'els'; mode = 'select'; needFit.iso = true; needTop(); refresh(true); panel.scrollTop = 0;
+}
+/* (14 Nov) where a new item of this kind stands when no place is given, and what it starts with (a wall item's height). The tray of items sets the
+   item down where the plan is tapped instead; a rack item tapped off every cabinet, and an item of a cabin's wall, still come here. */
+function addPlace(t) {
+  const L = S.site.L, W = S.site.W, room = !!S.room, o = {}; let x = snap(L / 2), y = snap(W / 2);
   /* an ODF or rack equipment goes into a rack or cabinet that has none of its kind yet; on a site with no cabinet, an ODF goes onto a cabin */
   const host = inRack({ t }) ? S.els.find(q => (q.t === 'odc' || q.t === 'rack') && !rackItems(S, q).some(i => i.t === t)) || (room ? S.els.find(q => q.t === 'rack') : t === 'odf' ? S.els.find(q => q.t === 'cabin' && !S.els.some(i => i.t === 'odf' && hostOf(S, [i.x, i.y], i) === q)) : null) : null;
   if (host) { x = host.x; y = host.y; }
@@ -966,14 +1043,13 @@ function addEl(t) {
     for (let i = 0; i < 14 && !ok; i++) { const c = r2(L / 2 + (i % 2 ? -1 : 1) * Math.ceil(i / 2) * TYPES.rack.w); if (c >= TYPES.rack.w / 2 && c <= L - TYPES.rack.w / 2 && !S.els.some(q => Math.hypot(q.x - c, q.y - y) < 0.5)) { x = c; ok = true; } }
   }
   else { const step = room ? 0.7 : 1.2; let n = 0; while (n++ < 60 && S.els.some(q => Math.hypot(q.x - x, q.y - y) < (room ? 0.5 : 0.7))) { x = snap(x + step); if (x > L - 0.5) { x = room ? 0.5 : 1; y = snap(y - step); } } }
-  const e = Object.assign(newEl(t, x, y), o); S.els.push(e); if (t === 'port' || t === 'ac') toWall(e); settle(e);
-  sel = { k: 'el', id: e.id }; tab = 'els'; mode = 'select'; needFit.iso = true; needTop(); refresh(true); panel.scrollTop = 0;
+  return { x, y, o };
 }
 /* into a cabin, into the rack of a cabinet, and back to the site */
 function roomIn(id) {
   const e = ROOT.els.find(q => q.id === id && q.t === 'cabin'); if (!e) return;
   if (!e.inside) { push(); e.inside = newRoom(e); } else syncRoom(e.inside, e);
-  inId = e.id; S = e.inside; sel = null; mode = 'select'; draft = []; dragNote = ''; tab = tabSync = 'els'; openTab = null; needFit.top = needFit.iso = true;
+  inId = e.id; S = e.inside; cabN = 0; penReset(); sel = null; mode = 'select'; draft = []; dragNote = ''; tab = tabSync = 'els'; openTab = null; needFit.top = needFit.iso = true;
   if (view === 'sheets' || view === 'iso') view = wide() ? 'both' : 'top'; active = 'top'; refresh(true); panel.scrollTop = 0;
 }
 function focusIn(id) {
@@ -982,19 +1058,19 @@ function focusIn(id) {
 }
 function goBack() {
   if (focus) { sel = { k: 'el', id: focus }; focus = null; view = backView === 'both' && !wide() ? 'top' : backView || 'top'; if (view !== 'both') active = view; }
-  else if (inId) { sel = { k: 'el', id: inId }; inId = null; S = ROOT; }
+  else if (inId) { sel = { k: 'el', id: inId }; inId = null; S = ROOT; cabN = 0; penReset(); }
   else return;
   mode = 'select'; draft = []; live = null; dragNote = ''; tab = tabSync = 'els'; openTab = null; needFit.top = needFit.iso = needFit.sheets = true; refresh(true); panel.scrollTop = 0;
 }
 function delSel() { if (VIEW) return;
   if (!sel) return; push();
-  if (sel.k === 'pic') { const p = phById(sel.id); if (p) delete p[sel.v === 't' ? 'ct' : 'ci']; needFit.sheets = true; } else if (sel.k === 'gate') S.gates.splice(sel.i, 1); else if (sel.k === 'el') S.els = S.els.filter(e => e.id !== sel.id); else if (sel.k === 'run') S.runs = S.runs.filter(e => e.id !== sel.id); else if (sel.k === 'photo') S.photos = S.photos.filter(e => e.id !== sel.id); else if (sel.k === 'pt') delPt(sel.f, sel.i); else if (sel.k === 'lab') { hist.pop(); return; }
+  if (sel.k === 'pic') { const p = phById(sel.id); if (p) delete p[sel.v === 't' ? 'ct' : 'ci']; needFit.sheets = true; } else if (sel.k === 'gate') S.gates.splice(sel.i, 1); else if (sel.k === 'el') S.els = S.els.filter(e => e.id !== sel.id); else if (sel.k === 'run') S.runs = S.runs.filter(e => e.id !== sel.id); else if (sel.k === 'photo') S.photos = S.photos.filter(e => e.id !== sel.id); else if (sel.k === 'pt') delPt(sel.f, sel.i, sel.c || 0); else if (sel.k === 'lab') { hist.pop(); return; }
   sel = null; needFit.iso = true; refresh(true);
 }
-function delPt(f, i) { const R = S.route[f]; if (!R || !R.pts[i]) return; R.pts.splice(i, 1); if (f === 'ug') { if (R.legs.length) R.legs.splice(Math.min(i, R.legs.length - 1), 1); R.legs.length = Math.max(0, R.pts.length - 1); } }
+function delPt(f, i, c) { const R = (c == null ? RT() : RTc(c))[f]; if (!R || !R.pts[i]) return; R.pts.splice(i, 1); if (f === 'ug') { if (R.legs.length) R.legs.splice(Math.min(i, R.legs.length - 1), 1); R.legs.length = Math.max(0, R.pts.length - 1); } }
 /* one more point on the fiber that is being drawn */
 function addPt(q) {
-  const R = S.route[fib]; if (fib === 'ae') { R.pts.push({ x: q[0], y: q[1], loop: 0 }); return; }
+  const R = RT()[fib]; if (fib === 'ae') { R.pts.push({ x: q[0], y: q[1], loop: 0 }); return; }
   const l = R.pts[R.pts.length - 1], F = l && !S.room && !carrier(S, [l.x, l.y], q) ? followRuns(S, [l.x, l.y], q) : null;      /* beta 4.2: between two points the UG cable takes the trench, conduit and ladder that lead from one to the other */
   for (const p of F ? F.slice(1) : [q]) { R.pts.push({ x: p[0], y: p[1] }); if (R.pts.length > 1) R.legs.push({ type: 'auto' }); }
 }
@@ -1003,11 +1079,16 @@ function action(a, b) {
   if (VIEW && VIEW_OK.indexOf(a) < 0) { say('View only: ' + VIEW); drawChrome(); return; }
   switch (a) {
     case 'add': addEl(d.t); return;
+    case 'it-eye': { const q = d.kind === 'run' ? runById(d.id) : elById(d.id); if (!q) return; push(); if (q.hid) delete q.hid; else q.hid = 1;      /* (14 Nov) hide an item on the drawings and the sheets, or show it again */
+      if (q.hid && sel && (sel.k === 'el' || sel.k === 'run') && sel.id === q.id) sel = null; needFit.iso = needFit.sheets = true;
+      say(q.hid ? 'Hidden: it is not on the drawings or the sheets. It stays in this list and still counts in the table.' : 'Shown again.'); refresh(true); return; }
+    case 'it-del': { const q = d.kind === 'run' ? runById(d.id) : elById(d.id); if (!q) return; const nm = d.kind === 'run' ? q.name || RUNS[q.kind].n : q.name || TYPES[q.t].n;
+      sel = { k: d.kind === 'run' ? 'run' : 'el', id: d.id }; delSel(); say('Deleted: ' + nm + '. Undo brings it back.'); return; }
     case 'sel': sel = { k: d.kind, id: d.id }; needTop(); refresh(true); panel.scrollTop = 0; return;
     case 'rot': { const e = sel && elById(sel.id); if (e) { push(); e.rot = (num(e.rot, 0) + 90) % 360; refresh(true); } return; }
     case 'dup': { const e = sel && elById(sel.id); if (e) { push(); const inR = !!rackHost(S, e), c = Object.assign({}, e, { id: uid(), x: inR ? e.x : snap(e.x + (S.room ? 0.6 : 1)), y: inR ? e.y : snap(e.y - (S.room ? 0 : 1)) }); delete c.inside; if (inR) delete c.u; if (e.inside) c.inside = JSON.parse(JSON.stringify(e.inside)); S.els.push(c); settle(c); sel = { k: 'el', id: c.id }; refresh(true); } return; }
     case 'del': delSel(); return;
-    case 'gate-add': push(); S.gates.push(S.room ? { side: 'S', off: Math.max(0, snap(S.site.L / 2 - 0.45)), w: Math.min(0.9, S.site.L) } : gateFree(+d.w || 4)); if (!S.room && tab === 'els') { sel = { k: 'gate', i: S.gates.length - 1 }; needTop(); } refresh(true); return;
+    case 'gate-add': push(); S.gates.push(S.room ? { side: 'S', off: Math.max(0, snap(S.site.L / 2 - 0.45)), w: Math.min(0.9, S.site.L) } : gateFree(+d.w || 4)); if (!S.room) { sel = { k: 'gate', i: S.gates.length - 1 }; tab = 'els'; mode = 'select'; needTop(); } refresh(true); return;      /* (14 Nov: picked wherever it was added from) */
     case 'room-in': if (sel && sel.k === 'el') roomIn(sel.id); return;
     case 'focus-in': if (d.id) focusIn(d.id); else if (sel && sel.k === 'el') focusIn(sel.id); return;
     case 'back': cabDraw = false; goBack(); return;
@@ -1040,12 +1121,15 @@ function action(a, b) {
     case 'run-more': { const r = sel && sel.k === 'run' && runById(sel.id); if (r) { mode = 'run'; runKind = r.kind; draft = []; needTop(); refresh(true); } return; }
     case 'run-done': if (runKind === 'ladder') draft = cleanPts(stopAtCabins(draft)); if (draft.length > 1) { push(); const l = fixRun(newRunO(runKind, draft, S)); S.runs.push(l); sel = { k: 'run', id: l.id }; tab = 'els'; } mode = 'select'; draft = []; refresh(true); return;
     case 'align-toggle': autoAlign = !autoAlign; drawChrome(); return;
-    case 'route-pen': mode = 'route'; fib = 'ug'; pen = true; penStart = null; penN = 0; penRaw = null; penRawH = []; sel = null; tab = 'route'; needTop(); refresh(true); return;      /* beta 4.2: the whole FOC route as one line */
-    case 'route-new': push(); S.route.ae.pts = []; S.route.ug.pts = []; S.route.ug.legs = []; mode = 'route'; fib = 'ug'; pen = true; penStart = null; penN = 0; penRaw = null; penRawH = []; sel = null; tab = 'route'; needTop(); refresh(true); return;
+    case 'route-pen': mode = 'route'; fib = 'ug'; pen = true; penStart = null; penN = 0; penRaw = null; penRawH = []; sel = null; tab = 'route'; RT(); needTop(); refresh(true); return;
+    case 'cab-new': if (S.room) return; if (!cableDrawn(RT()) && cabN === cables(S).length - 1) { say('This cable has nothing drawn yet: tap where it starts.'); return; } push(); cabNew(); mode = 'route'; fib = 'ug'; pen = true; sel = null; tab = 'route'; needTop(); say('Cable ' + (cabN + 1) + ', not joined to another: tap where it starts, or drag along its way.'); refresh(true); return;      /* (14 Nov) */
+    case 'cab-go': cabGo(+d.k); needTop(); refresh(true); return;
+    case 'cab-del': { const k = cabN; push(); cabDel(k); needFit.iso = needFit.sheets = true; say('Cable ' + (k + 1) + ' deleted. Undo brings it back.'); refresh(true); return; }      /* beta 4.2: the whole FOC route as one line */
+    case 'route-new': push(); { const R = RT(); R.ae.pts = []; R.ug.pts = []; R.ug.legs = []; } mode = 'route'; fib = 'ug'; pen = true; penStart = null; penN = 0; penRaw = null; penRawH = []; sel = null; tab = 'route'; needTop(); refresh(true); return;
     case 'route-draw': pen = false; penStart = null; mode = 'route'; fib = d.f === 'ug' ? 'ug' : 'ae'; sel = null; tab = 'route'; needTop(); refresh(true); return;
-    case 'route-done': mode = 'select'; refresh(true); return;
-    case 'route-undo': if (pen && !S.room) { penUndo(); return; } if (S.route[fib].pts.length) { push(); delPt(fib, S.route[fib].pts.length - 1); refresh(true); } return;
-    case 'route-clear': { const f = d.f === 'ug' ? 'ug' : 'ae'; push(); S.route[f].pts = []; if (f === 'ug') S.route.ug.legs = []; sel = null; refresh(true); return; }
+    case 'route-done': mode = 'select'; cabTidy(); refresh(true); return;
+    case 'route-undo': if (pen && !S.room) { penUndo(); return; } if (RT()[fib].pts.length) { push(); delPt(fib, RT()[fib].pts.length - 1); refresh(true); } return;
+    case 'route-clear': { const f = d.f === 'ug' ? 'ug' : 'ae'; push(); RT()[f].pts = []; if (f === 'ug') RT().ug.legs = []; sel = null; refresh(true); return; }
     case 'pt-del': push(); delPt(d.f === 'ug' ? 'ug' : 'ae', +d.i); sel = null; refresh(true); return;
     case 'nm': applyField('site.nm.' + d.k, { value: nameOn(S, d.k) ? '0' : '1' }); refresh(true); return;
     case 'sign-edit': signOpen = !signOpen; drawPanel(); return;      /* (22:24) */
@@ -1060,7 +1144,7 @@ function action(a, b) {
     case 'export-zip': doExport('zip'); return;
     case 'export-pdf': doExport('pdf'); return;
     case 'export-dxf': doExport('dxf'); return;
-    case 'copy-dxf': { const t = sheetsDXF(sheetsNow()); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => { dump = ''; setMsg('DXF text copied. Paste it into a text file and name it .dxf.', 'good'); }, () => { dump = t; setMsg('Could not copy by itself. The DXF text is in the box below: select all of it, copy, paste into a text file and name it .dxf.', 'warn'); const d = $('#dump'); if (d) { d.focus(); d.select(); } }); return; }
+    case 'copy-dxf': { const t = sheetsDXF(dxfSheets(appSketch(ROOT)), { old: true }); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => { dump = ''; setMsg('DXF text copied. Paste it into a text file and name it .dxf.', 'good'); }, () => { dump = t; setMsg('Could not copy by itself. The DXF text is in the box below: select all of it, copy, paste into a text file and name it .dxf.', 'warn'); const d = $('#dump'); if (d) { d.focus(); d.select(); } }); return; }
   }
 }
 /* A site picture is taken with the camera of the app, with its checks (taken live, with a GPS fix; a dark or unclear one is refused).
@@ -1191,8 +1275,8 @@ function openSketch(file) {
 }
 /* beta 4.1: the same files as Save ZIP, handed to the app (its Drawing export puts them in a folder of its own ZIP) */
 async function planFiles() {
-  const X = appSketch(ROOT), base = baseName(X), sheets = appSheets(X), pdf = await appPdf(await toPDF(sheets, allImg(), X)), g = geo(X), files = [{ name: base + '_CEF_sheets.dxf', data: sheetsDXF(sheets) }, { name: base + '_CEF.pdf', data: pdf }];
-  if (g) files.push({ name: base + '_CEF_map_UTM51N.dxf', data: mapDXF(X, g) }, { name: base + '_CEF.kml', data: toKML(X, g) });
+  const X = appSketch(ROOT), base = baseName(X), sheets = appSheets(X), pdf = await appPdf(await toPDF(sheets, allImg(), X)), g = geo(X), files = [{ name: base + '_CEF_sheets.dxf', data: await dxfText(X) }, { name: base + '_CEF.pdf', data: pdf }];
+  if (g) files.push({ name: base + '_CEF.kml', data: toKML(X, g) });      /* (14 Nov) one DXF: the top view alone on its map position is no longer made */
   for (const k in LOGO) files.push({ name: 'logos/' + k + '_logo.png', data: b64bytes(LOGO[k].src) });
   X.photos.forEach((p, i) => { const src = IMG[p.id]; if (src) files.push({ name: 'photos/photo_' + String(i + 1).padStart(2, '0') + '.jpg', data: b64bytes(src), pid: p.id }); });
   files.push({ name: base + '_CEF_sketch.json', data: JSON.stringify(ROOT, null, 1) }, { name: 'README.txt', data: appReadme(readme(X, base, g, sheets)) });
@@ -1204,23 +1288,29 @@ async function doExport(kind) {
   try {
     saveNow();
     const X = appSketch(ROOT), base = baseName(X), sheets = appSheets(X), pdf = kind === 'dxf' ? null : await appPdf(await toPDF(sheets, allImg(), X)); let name, data;
-    if (kind === 'dxf') { name = base + '_CEF_sheets.dxf'; data = new Blob([sheetsDXF(sheets)], { type: 'application/dxf' }); }      /* (19:25) the DXF alone */
+    if (kind === 'dxf') { name = base + '_CEF_sheets.dxf'; data = new Blob([await dxfText(X)], { type: 'application/dxf' }); }      /* (19:25) the DXF alone */
     else if (kind === 'pdf') { name = base + '_CEF.pdf'; data = new Blob([pdf], { type: 'application/pdf' }); }
     else {
-      const g = geo(X), files = [{ name: base + '_CEF_sheets.dxf', data: sheetsDXF(sheets) }, { name: base + '_CEF.pdf', data: pdf }];
-      if (g) files.push({ name: base + '_CEF_map_UTM51N.dxf', data: mapDXF(X, g) }, { name: base + '_CEF.kml', data: toKML(X, g) });
+      const g = geo(X), files = [{ name: base + '_CEF_sheets.dxf', data: await dxfText(X) }, { name: base + '_CEF.pdf', data: pdf }];
+      if (g) files.push({ name: base + '_CEF.kml', data: toKML(X, g) });      /* (14 Nov) one DXF */
       for (const k in LOGO) files.push({ name: 'logos/' + k + '_logo.png', data: b64bytes(LOGO[k].src) });
       X.photos.forEach((p, i) => { const src = IMG[p.id]; if (src) files.push({ name: 'photos/photo_' + String(i + 1).padStart(2, '0') + '.jpg', data: b64bytes(src), pid: p.id }); });
       files.push({ name: base + '_CEF_sketch.json', data: JSON.stringify(ROOT, null, 1) }, { name: 'README.txt', data: appReadme(readme(X, base, g, sheets)) });
       data = await HOST.zip(files); name = base + '_CEF.zip';                                  /* the app's own ZIP: it adds exported_by.txt and the photos as they are kept */
     }
-    await dl.save({ filename: name, data, kind }); busy = false; note((kind === 'pdf' ? 'The PDF' : kind === 'dxf' ? 'The DXF' : 'The ZIP') + ' is ready: ' + name + '.', 'good');
+    await dl.save({ filename: name, data, kind }); busy = false; { const np = kind === 'dxf' && !dxfSet().old ? dxfSheets(X).reduce((s, q) => s + q.images.length, 0) : 0;      /* (14 Nov) the DXF alone has its pictures as links */
+      note((kind === 'pdf' ? 'The PDF' : kind === 'dxf' ? 'The DXF' : 'The ZIP') + ' is ready: ' + name + '.' + (np ? ' Its photos and logos are linked files: they come with Both (the ZIP), in the photos and logos folders beside the DXF.' : ''), 'good'); }
   } catch (e) {
     const c = e && e.code; busy = false;
     note(c === 'declined' ? 'Not saved. The save was cancelled.' : c ? 'Could not save here (' + c + ').' : 'Could not build the files: ' + (e && e.message ? e.message : e), 'warn');
   }
 }
 
+/* (14 Nov) the side of a riser pole its G.I. pipe is on now (a cable that goes up the pole decides it, unless the user moved it), and where its handle is on
+   the plan: out from the pole on that side, far enough to take it with a finger */
+function pipeDir(e) { const r = routeGeom(S).risers.find(q => q.pole === e); return r && !pipeSet(e) ? r.s || r.u : pipeSide(S, e); }
+function pipeHandle(e) { const u = pipeDir(e), d = Math.max(0.8, 30 * unit('top')); return [e.x + u[0] * d, e.y + u[1] * d]; }
+const pipePole = () => { if (S.room || focus || VIEW || mode !== 'select' || !sel || sel.k !== 'el') return null; const e = elById(sel.id); return e && e.t === 'rpole' ? e : null; };
 /* ---------- pointer work on the drawings ---------- */
 function hitTest(m) {
   const u = unit('top'), pr = Math.max(10 * u, S.room ? 0.03 : 0.15);
@@ -1228,18 +1318,19 @@ function hitTest(m) {
   { const c = !focus && mode === 'select' ? entryCab() : null; if (c) { const p = cabPort(S, c, routeGeom(S)).p; if (Math.hypot(m[0] - p[0], m[1] - p[1]) < Math.min(pr * 1.3, entryR(c))) return { k: 'glandT', id: c.id }; } }      /* (19:25) the entry of the cable on the picked cabinet */
   if (!S.room && sel && sel.k === 'el') { const e = elById(sel.id); if (e && e.t === 'cabin') { let b = null; const try1 = (p, k, i) => { const d = Math.hypot(m[0] - p[0], m[1] - p[1]); if (d < pr * 1.3 && (!b || d < b.d)) b = { d, h: { k, id: e.id, i } }; };      /* the handle nearest the pointer: porthole, door or aircon unit */
     cabinPorts(e).forEach((q, i) => try1(q.at, 'porth', i)); cabinDoors(e).forEach((q, i) => try1(doorAt(e, q), 'doorh', i)); cabinAcs(e).forEach((q, i) => try1(q.at, 'ach', i)); if (b) return b.h; } }
+  { const e = pipePole(); if (e) { const ph = pipeHandle(e); if (Math.hypot(m[0] - ph[0], m[1] - ph[1]) < pr * 1.3) return { k: 'pipeh', id: e.id }; } }      /* (14 Nov) the handle of the G.I. pipe of the picked riser pole */
   if (!S.room && sel && sel.k === 'el') { const e = elById(sel.id); if (e && e.t === 'pad') { let b = null; padSteps(e).forEach((K, i) => { const p = stairAt(e, K), d = Math.hypot(m[0] - p[0], m[1] - p[1]); if (d < pr * 1.3 && (!b || d < b.d)) b = { d, h: { k: 'stairh', id: e.id, i } }; }); if (b) return b.h; } }      /* beta 4.2: the stairs of the picked pad */
   if (S.room && !focus && (!sel || sel.k === 'rdoor') && mode !== 'run' && mode !== 'route') for (let i = 0; i < S.gates.length; i++) { const q = S.gates[i], hz = q.side === 'S' || q.side === 'N', c = num(q.off, 0) + num(q.w, 0.9) / 2, p = hz ? [c, q.side === 'S' ? 0 : S.site.W] : [q.side === 'W' ? 0 : S.site.L, c]; if (Math.hypot(m[0] - p[0], m[1] - p[1]) < pr * 1.3) return { k: 'rdoor', i }; }
   if (!S.room && !focus && mode === 'select') { const ph = picHit(topPics, m, pr, 't'); if (ph) return ph; }      /* beta 4.1: a photo on the plan, or the tip of its arrow */
   if (!S.room && !focus && S.site.kind === 'fenced' && mode === 'select') for (let i = 0; i < S.gates.length; i++) { const q = S.gates[i], hz = q.side === 'S' || q.side === 'N', c = num(q.off, 0) + num(q.w, 0) / 2, p = hz ? [c, q.side === 'S' ? 0 : S.site.W] : [q.side === 'W' ? 0 : S.site.L, c]; if (Math.hypot(m[0] - p[0], m[1] - p[1]) < Math.max(pr * 1.3, Math.min(num(q.w, 0) / 2, 0.6))) return { k: 'gate', i }; }      /* beta 4.1: a gate of the site is picked at its middle and dragged along the fence */
-  if (tab === 'route' || (sel && sel.k === 'pt')) { const order = sel && sel.k === 'pt' && sel.f === 'ae' ? ['ae', 'ug'] : ['ug', 'ae']; for (const f of order) for (let i = S.route[f].pts.length - 1; i >= 0; i--) { const p = S.route[f].pts[i]; if (Math.hypot(m[0] - p.x, m[1] - p.y) < pr * 1.2) return { k: 'pt', f, i }; } }
+  if (tab === 'route' || (sel && sel.k === 'pt')) { RT(); const CB = cables(S), order = sel && sel.k === 'pt' && sel.f === 'ae' ? ['ae', 'ug'] : ['ug', 'ae']; for (const c of [cabN].concat(CB.map((q, k) => k).filter(k => k !== cabN))) for (const f of order) for (let i = CB[c][f].pts.length - 1; i >= 0; i--) { const p = CB[c][f].pts[i]; if (Math.hypot(m[0] - p.x, m[1] - p.y) < pr * 1.2) return { k: 'pt', f, i, c }; } }
   for (const p of S.photos) if (p.placed && p.pin !== false && Math.hypot(m[0] - p.x, m[1] - p.y) < Math.max(pr, topTh)) return { k: 'photo', id: p.id };
   if (sel && sel.k === 'run') { const l = runById(sel.id); if (l) for (let i = 0; i < l.pts.length; i++) if (Math.hypot(m[0] - l.pts[i][0], m[1] - l.pts[i][1]) < pr * 1.2) return { k: 'rpt', id: l.id, i }; }
   let best = null, ba = 1e9;
-  for (const e of S.els) { const P = elPoly(e), b = polyBox(P), a = (b[2] - b[0]) * (b[3] - b[1]); if ((inPoly(m, P) || Math.hypot(m[0] - e.x, m[1] - e.y) < pr) && a < ba) { best = e; ba = a; } }
+  for (const e of S.els) { if (hidEl(S, e)) continue; const P = elPoly(e), b = polyBox(P), a = (b[2] - b[0]) * (b[3] - b[1]); if ((inPoly(m, P) || Math.hypot(m[0] - e.x, m[1] - e.y) < pr) && a < ba) { best = e; ba = a; } }
   if (best) return { k: 'el', id: best.id };
-  for (const l of S.runs) for (let i = 0; i + 1 < l.pts.length; i++) if (distSeg(m, l.pts[i], l.pts[i + 1]) < Math.max(pr * 0.8, num(l.w, 0.4) / 2)) return { k: 'run', id: l.id };
-  for (const f of ['ae', 'ug']) { const R = S.route[f].pts; for (let i = 0; i + 1 < R.length; i++) if (distSeg(m, [R[i].x, R[i].y], [R[i + 1].x, R[i + 1].y]) < pr * 0.8) return { k: 'pt', f, i: Math.hypot(m[0] - R[i].x, m[1] - R[i].y) < Math.hypot(m[0] - R[i + 1].x, m[1] - R[i + 1].y) ? i : i + 1 }; }
+  for (const l of S.runs) if (!l.hid) for (let i = 0; i + 1 < l.pts.length; i++) if (distSeg(m, l.pts[i], l.pts[i + 1]) < Math.max(pr * 0.8, num(l.w, 0.4) / 2)) return { k: 'run', id: l.id };
+  { const CB = cables(S); for (let c = 0; c < CB.length; c++) for (const f of ['ae', 'ug']) { const R = CB[c][f].pts; for (let i = 0; i + 1 < R.length; i++) if (distSeg(m, [R[i].x, R[i].y], [R[i + 1].x, R[i + 1].y]) < pr * 0.8) return { k: 'pt', f, c, i: Math.hypot(m[0] - R[i].x, m[1] - R[i].y) < Math.hypot(m[0] - R[i + 1].x, m[1] - R[i + 1].y) ? i : i + 1 }; } }
   return null;
 }
 /* the label under the pointer: the smallest one, when two overlap */
@@ -1263,12 +1354,12 @@ function focusTap(g) {
 /* ---------- beta 4.2: drawing the FOC route as one line; what a right-click undoes ---------- */
 /* the route as one line, in its order: the AE points, then the UG points from where they meet */
 let penRaw = null, penRawH = [];
-function penCur() { if (penRaw) return penRaw; const R = S.route; return penHow === 'ae' ? R.ae.pts.map(p => [p.x, p.y]) : penHow === 'ug' ? R.ug.pts.map(p => [p.x, p.y]) : penChain(); }      /* (19:25) the line the pen goes on from, as it was drawn */
-function penChain() { const R = S.route, A = R.ae.pts.map(p => [p.x, p.y]), U = R.ug.pts.map(p => [p.x, p.y]); if (A.length && U.length) { const e = A[A.length - 1], s = U[0]; return Math.hypot(e[0] - s[0], e[1] - s[1]) < 0.45 ? A.concat(U.slice(1)) : U; } return U.length ? U : A; }
+function penCur() { if (penRaw) return penRaw; const R = RT(); return penHow === 'ae' ? R.ae.pts.map(p => [p.x, p.y]) : penHow === 'ug' ? R.ug.pts.map(p => [p.x, p.y]) : penChain(); }      /* (19:25) the line the pen goes on from, as it was drawn */
+function penChain() { const R = RT(), A = R.ae.pts.map(p => [p.x, p.y]), U = R.ug.pts.map(p => [p.x, p.y]); if (A.length && U.length) { const e = A[A.length - 1], s = U[0]; return Math.hypot(e[0] - s[0], e[1] - s[1]) < 0.45 ? A.concat(U.slice(1)) : U; } return U.length ? U : A; }
 /* points added to the line. A fiber is written again only when the line makes that fiber: its loops and the kinds of its legs are kept where the points are the same. */
 function penAdd(Q) {
   /* (19:25) Auto: the whole line is read again each time and split by what it runs along. AE or UG: the points go to that fiber only. */
-  const R = S.route, far = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]) > 0.05, A = R.ae.pts.map(p => [p.x, p.y]), U = R.ug.pts.map(p => [p.x, p.y]), joined = A.length && U.length && !far(A[A.length - 1], U[0]) ? true : A.length && U.length ? Math.hypot(A[A.length - 1][0] - U[0][0], A[A.length - 1][1] - U[0][1]) < 0.45 : false;
+  const R = RT(), far = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]) > 0.05, A = R.ae.pts.map(p => [p.x, p.y]), U = R.ug.pts.map(p => [p.x, p.y]), joined = A.length && U.length && !far(A[A.length - 1], U[0]) ? true : A.length && U.length ? Math.hypot(A[A.length - 1][0] - U[0][0], A[A.length - 1][1] - U[0][1]) < 0.45 : false;
   const C0 = penCur(), inA = penHow === 'auto' && (joined || !U.length), inU = penHow === 'auto' && (U.length > 0 || !A.length);
   const all = C0.length ? C0.slice() : penStart ? [penStart] : [], n0 = all.length;
   for (const q of Q) { const l = all[all.length - 1]; if (!l || far(l, q)) all.push([q[0], q[1]]); }
@@ -1280,7 +1371,7 @@ function penAdd(Q) {
   const setU = P => { const op = R.ug.pts.map(p => [p.x, p.y]), ol = R.ug.legs; R.ug.pts = P.map(q => ({ x: q[0], y: q[1] })); R.ug.legs = P.slice(1).map((q, i) => { for (let k = 0; k + 1 < op.length; k++) if (!far(op[k], P[i]) && !far(op[k + 1], q)) return ol[k] ? Object.assign({}, ol[k]) : { type: 'auto' }; return { type: 'auto' }; }); };
   if (L.ae.length > 1) setA(L.ae); else if (inA) setA([]);
   if (L.ug.length > 1) setU(L.ug); else if (inU) setU([]);
-  { const g = routeGeom(S), ua = R.ug.pts.length, aa = R.ae.pts.length;
+  { const g0 = routeGeom(S), g = g0.parts[cabN] || g0, ua = R.ug.pts.length, aa = R.ae.pts.length;
     say(L.how === 'none' ? 'Aerial (AE) all the way: nothing drawn carries it. For an underground cable tap UG, or draw the trench, conduit or ladder.' : aa > 1 && ua > 1 ? 'AE ' + f1(g.sum.ae) + ' m to the riser pole · UG ' + f1(g.sum.ugt) + ' m from it' : ua > 1 ? 'UG cable, ' + f1(g.sum.ugt) + ' m · it follows what is drawn' : 'AE cable, ' + f1(g.sum.ae) + ' m'); }
   refresh(true);
 }
@@ -1288,12 +1379,12 @@ function penUndo() {
   if (penStart) { penStart = null; refresh(true); return; }
   if (penN > 0 && hist.length) { if (cloHist === hist.length) { cloHist = -1; undo(); }      /* the answer about the closure goes with the piece that brought the question */
     if (hist.length) { penN--; undo(); penRaw = penRawH.length ? penRawH.pop() : null; } return; }
-  const R = S.route, f = R.ug.pts.length ? 'ug' : R.ae.pts.length ? 'ae' : null; if (f) { push(); delPt(f, R[f].pts.length - 1); refresh(true); }
+  const R = RT(), f = R.ug.pts.length ? 'ug' : R.ae.pts.length ? 'ae' : null; if (f) { push(); delPt(f, R[f].pts.length - 1); refresh(true); }
 }
 function undoDraw() {
   if (VIEW) return;
   if (focus && cabDraw) { const c = elById(focus); if (c && c.cab && Array.isArray(c.cab.path) && c.cab.path.length) { push(); const P = c.cab.path.slice(0, -1); c.cab = Object.assign({}, c.cab); if (P.length) c.cab.path = P; else delete c.cab.path; needFit.sheets = true; refresh(true); } return; }
-  if (mode === 'route') { if (pen) penUndo(); else if (S.route[fib].pts.length) { push(); delPt(fib, S.route[fib].pts.length - 1); refresh(true); } return; }
+  if (mode === 'route') { if (pen) penUndo(); else if (RT()[fib].pts.length) { push(); delPt(fib, RT()[fib].pts.length - 1); refresh(true); } return; }
   if (mode === 'run' && draft.length) { draft.pop(); refresh(true); }
 }
 /* a question with its answers as buttons, over the editor */
@@ -1305,7 +1396,7 @@ function askBox(title, text, btns) {
 }
 /* where AE and UG first meet on a riser pole, the user says whether a closure goes there */
 function cloAsk() {
-  if (VIEW || !ROOT || S !== ROOT || focus) return; const g = routeGeom(ROOT), j = !!(g.join && g.join.pole), first = joinSeen === null, was = joinSeen; joinSeen = j;
+  if (VIEW || !ROOT || S !== ROOT || focus) return; const g = routeGeom(ROOT), j = g.joins.some(q => q.pole), first = joinSeen === null, was = joinSeen; joinSeen = j;
   if (first || !j || was || ROOT.site.clo != null || document.getElementById('askb')) return;
   askBox('AE and UG meet on the riser pole', 'Does a splice closure go on the pole there? With a closure the two cables are joined in it. Without one it is one cable, up the riser pipe and on as aerial cable. It can be changed later in Site details.',
     [{ label: 'Yes, a closure', go: () => { push(); cloHist = hist.length; ROOT.site.clo = 'yes'; needFit.iso = needFit.sheets = true; refresh(true); } }, { label: 'No closure', go: () => { push(); cloHist = hist.length; ROOT.site.clo = 'none'; needFit.iso = needFit.sheets = true; refresh(true); } }]);
@@ -1334,7 +1425,7 @@ function hitIso(m) {
   return best ? { k: 'el', id: best.id } : null;
 }
 function grab(h) {
-  if (h.k === 'el') { const e = elById(h.id), on = []; if (e && SNAPS.includes(e.t)) for (const f of ['ae', 'ug']) for (const p of S.route[f].pts) if (Math.hypot(p.x - e.x, p.y - e.y) < 0.06) on.push(p); return e ? { x: e.x, y: e.y, u: e.u, r: riders(e).map(q => ({ q, x: q.x, y: q.y })), on } : null; }   /* fiber points that sit on the item go with it */
+  if (h.k === 'el') { const e = elById(h.id), on = []; if (e && SNAPS.includes(e.t)) for (const RR of cables(S)) for (const f of ['ae', 'ug']) for (const p of RR[f].pts) if (Math.hypot(p.x - e.x, p.y - e.y) < 0.06) on.push(p); return e ? { x: e.x, y: e.y, u: e.u, r: riders(e).map(q => ({ q, x: q.x, y: q.y })), on } : null; }   /* fiber points that sit on the item go with it */
   if (h.k === 'gland') { const c = elById(h.id), pt = c && cabPort(S, c, routeGeom(S)); return pt ? { f: pt.f, lx: pt.lx, ly: pt.ly, iz: pt.iz } : null; }
   if (h.k === 'glandT') { const c = elById(h.id), pt = c && cabPort(S, c, routeGeom(S)); return pt ? { f: pt.f, iz: pt.auto ? null : pt.iz, x: pt.p[0], y: pt.p[1], arr: pt.X ? { a: [pt.X.p[0], pt.X.p[1]], z: pt.X.p[2] } : null } : null; }
   if (h.k === 'cpt') { const c = elById(h.id), q = c && c.cab && Array.isArray(c.cab.path) ? c.cab.path[h.i] : null; return q ? { u: +q[0], z: +q[1] } : null; }
@@ -1342,11 +1433,12 @@ function grab(h) {
   if (h.k === 'porth') { const e = elById(h.id), q = e && cabinPorts(e)[h.i]; return q ? { x: q.at[0], y: q.at[1] } : null; }
   if (h.k === 'doorh') { const e = elById(h.id), q = e && cabinDoors(e)[h.i]; if (!q) return null; const c = doorAt(e, q); return { x: c[0], y: c[1] }; }
   if (h.k === 'stairh') { const e = elById(h.id), K = e && padSteps(e)[h.i]; if (!K) return null; const c = stairAt(e, K); return { x: c[0], y: c[1] }; }
+  if (h.k === 'pipeh') { const e = elById(h.id); if (!e) return null; const c = pipeHandle(e); return { x: c[0], y: c[1] }; }
   if (h.k === 'ach') { const e = elById(h.id), q = e && cabinAcs(e)[h.i]; return q ? { x: q.at[0], y: q.at[1] } : null; }
   if (h.k === 'rdoor') { const q = S.gates[h.i]; if (!q) return null; const hz = q.side === 'S' || q.side === 'N', c = num(q.off, 0) + num(q.w, 0.9) / 2; return hz ? { x: c, y: q.side === 'S' ? 0 : S.site.W } : { x: q.side === 'W' ? 0 : S.site.L, y: c }; }
   if (h.k === 'pic' || h.k === 'pict') { const p = phById(h.id), q = p && (h.v === 't' ? p.ct : p.ci); if (!q) return null; return h.v === 't' ? (h.k === 'pic' ? { x: q.x, y: q.y } : { x: q.tx, y: q.ty }) : { x: q.tx, y: q.ty, ox: q.ox, oy: q.oy }; }
   if (h.k === 'gate') { const q = S.gates[h.i]; if (!q) return null; const hz = q.side === 'S' || q.side === 'N', c = num(q.off, 0) + num(q.w, 0) / 2; return hz ? { x: c, y: q.side === 'S' ? 0 : S.site.W } : { x: q.side === 'W' ? 0 : S.site.L, y: c }; }
-  if (h.k === 'pt') { const p = S.route[h.f].pts[h.i]; return p ? { x: p.x, y: p.y } : null; }
+  if (h.k === 'pt') { const p = RTc(h.c)[h.f].pts[h.i]; return p ? { x: p.x, y: p.y } : null; }
   if (h.k === 'lab') { const l = (h.v === 'p' ? topLabs : isoLabs).find(q => q.key === h.key); return l ? { ox: l.c[0] - l.ap[0], oy: l.c[1] - l.ap[1] } : null; }
   if (h.k === 'run') { const l = runById(h.id); if (!l) return null; const P = l.pts.map(q => q.slice()); P.z = num(l.z, 0); return P; }
   if (h.k === 'ladh') { const e = elById(h.id), L = e && towerLad(S, e); return L ? { x: L.foot[0], y: L.foot[1] } : null; }
@@ -1418,12 +1510,13 @@ function dragTo(g, dx, dy) {
   if (h.k === 'porth') { const e = elById(h.id); if (e) sitePort(e, h.i, [o.x + dx, o.y + dy]); return; }
   if (h.k === 'doorh') { const e = elById(h.id); if (e) siteDoor(e, h.i, [o.x + dx, o.y + dy]); return; }
   if (h.k === 'stairh') { const e = elById(h.id); if (e) padStair(e, h.i, [o.x + dx, o.y + dy]); return; }
+  if (h.k === 'pipeh') { const e = elById(h.id); if (e) { const ax = o.x + dx - e.x, ay = o.y + dy - e.y; if (Math.hypot(ax, ay) > 0.05) { e.ps = (Math.round(Math.atan2(ay, ax) / D2R / 15) * 15 % 360 + 360) % 360; needFit.iso = needFit.sheets = true; dragNote = 'G.I. riser pipe on this side of the pole'; } } return; }
   if (h.k === 'ach') { const e = elById(h.id); if (e) siteAc(e, h.i, [o.x + dx, o.y + dy]); return; }
   if (h.k === 'rdoor') { const g = S.gates[h.i]; if (g) { const k = slideDoor(g, S.site.L, S.site.W, [o.x + dx, o.y + dy]); dragNote = 'Door on the ' + WALLN[k.side] + ' wall, ' + f2(g.off) + ' m from its ' + (k.side === 'S' || k.side === 'N' ? 'left' : 'bottom') + ' end'; } return; }
   if (h.k === 'gate') { const q = S.gates[h.i]; if (q) { const k = slideDoor(q, S.site.L, S.site.W, [o.x + dx, o.y + dy]); q.off = snap(q.off); dragNote = (num(q.w, 0) > 1.6 ? 'Gate' : 'Door') + ' on the ' + SIDEW[k.side] + ' side, ' + f1(q.off) + ' m from the ' + (k.side === 'S' || k.side === 'N' ? 'left' : 'bottom') + ' corner'; } return; }
   if (h.k === 'el') { const e = elById(h.id); if (e) { const sn = relSnap(e, [o.x + dx, o.y + dy]); dragNote = sn ? sn.note : ''; e.x = sn ? sn.p[0] : snap(o.x + dx); e.y = sn ? sn.p[1] : snap(o.y + dy); if (e.t === 'ac' && S.room) { const k = toWall(e); dragNote = 'Aircon unit on the ' + { S: 'bottom', N: 'top', W: 'left', E: 'right' }[k.side] + ' wall, outside it'; }
       if (e.t === 'port' && S.room) { const k = toWall(e), mk = (roomCtx ? roomCtx.marks : []).filter(q => q.side === k.side).map(q => ({ q, d: Math.hypot(q.x - e.x, q.y - e.y) })).sort((a, b) => a.d - b.d)[0]; dragNote = 'Porthole on the ' + { S: 'bottom', N: 'top', W: 'left', E: 'right' }[k.side] + ' wall'; if (mk && mk.d < 0.4) { e.x = r2(mk.q.x); e.y = r2(mk.q.y); dragNote = 'Porthole in line with the ' + (mk.q.kind === 'ladder' ? 'cable ladder' : 'cable') + ' outside · it arrives ' + f1(mk.q.z) + ' m above the floor'; } } for (const r of o.r) { r.q.x = r2(r.x + e.x - o.x); r.q.y = r2(r.y + e.y - o.y); } for (const p of o.on || []) { p.x = e.x; p.y = e.y; } } }
-  else if (h.k === 'pt') { const R = S.route[h.f].pts, p = R[h.i]; if (p) { const q = movePt([o.x + dx, o.y + dy], [R[h.i - 1], R[h.i + 1]].map(t => t && [t.x, t.y]), h.f); p.x = q[0]; p.y = q[1]; } }
+  else if (h.k === 'pt') { const R = RTc(h.c)[h.f].pts, p = R[h.i]; if (p) { const q = movePt([o.x + dx, o.y + dy], [R[h.i - 1], R[h.i + 1]].map(t => t && [t.x, t.y]), h.f); p.x = q[0]; p.y = q[1]; } }
   else if (h.k === 'run') { const l = runById(h.id); if (l) l.pts = o.map(q => [snap(q[0] + dx), snap(q[1] + dy)]); }
   else if (h.k === 'rpt') { const l = runById(h.id); if (l && l.pts[h.i]) { const q = movePt([o[0] + dx, o[1] + dy], [l.pts[h.i - 1], l.pts[h.i + 1]], null, l.kind === 'ladder'); l.pts[h.i] = S.room && l.kind === 'part' ? onRoomWall(q) : q; } }
   else if (h.k === 'photo') { const p = phById(h.id); if (p) { p.x = snap(o.x + dx); p.y = snap(o.y + dy); if (o.ct && p.ct) { p.ct.tx = p.x; p.ct.ty = p.y; }      /* (19:25) an arrow that ends on the number goes with it; on the isometric its picture stays where it is */
@@ -1432,8 +1525,9 @@ function dragTo(g, dx, dy) {
 }
 function pick(h, switchTab) {
   if (h && (h.k === 'aerh' || h.k === 'gland' || h.k === 'glandT' || h.k === 'hole' || h.k === 'cpt' || h.k === 'crise')) return;
-  if (!h) sel = null; else if (focus && h.k === 'el' && h.id === focus) sel = null; else if (h.k === 'lab') sel = { k: 'lab', key: h.key }; else if (h.k === 'rpt' || h.k === 'runh') sel = { k: 'run', id: h.id }; else if (h.k === 'elh' || h.k === 'ladh' || h.k === 'porth' || h.k === 'doorh' || h.k === 'ach' || h.k === 'stairh') sel = { k: 'el', id: h.id }; else if (h.k === 'pdir') sel = { k: 'photo', id: h.id }; else if (h.k === 'pict') sel = { k: 'pic', id: h.id, v: h.v }; else if (h.k === 'rdoor') sel = null; else sel = h;
+  if (!h) sel = null; else if (focus && h.k === 'el' && h.id === focus) sel = null; else if (h.k === 'lab') sel = { k: 'lab', key: h.key }; else if (h.k === 'rpt' || h.k === 'runh') sel = { k: 'run', id: h.id }; else if (h.k === 'elh' || h.k === 'ladh' || h.k === 'porth' || h.k === 'doorh' || h.k === 'ach' || h.k === 'stairh' || h.k === 'pipeh') sel = { k: 'el', id: h.id }; else if (h.k === 'pdir') sel = { k: 'photo', id: h.id }; else if (h.k === 'pict') sel = { k: 'pic', id: h.id, v: h.v }; else if (h.k === 'rdoor') sel = null; else sel = h;
   if (switchTab && sel && sel.k !== 'lab') { tab = sel.k === 'pt' ? 'route' : sel.k === 'photo' || sel.k === 'pic' ? 'photos' : 'els'; }
+  if (sel && sel.k === 'pt' && (sel.c || 0) !== cabN) { cabN = sel.c || 0; penReset(); }      /* (14 Nov) a point of another cable: that cable is the one worked on */
 }
 function tap(g) {
   const m = g.m0;
@@ -1523,9 +1617,9 @@ $('#bFit').addEventListener('click', () => { needFit.top = needFit.iso = needFit
 /* beta 4.1: the arrow keys move the picked item on the plan: one step of the grid (0.1 m) a press, a small step (0.01 m) with Shift */
 function nudge(dx, dy) {
   if (VIEW || !sel) return false; const mv = o => { o.x = r2(num(o.x, 0) + dx); o.y = r2(num(o.y, 0) + dy); };
-  if (sel.k === 'el') { const e = elById(sel.id); if (!e || rackHost(S, e)) return false; push('nudge'); const R = riders(e), on = []; if (SNAPS.includes(e.t)) for (const f of ['ae', 'ug']) for (const p of S.route[f].pts) if (Math.hypot(p.x - e.x, p.y - e.y) < 0.06) on.push(p); mv(e); R.forEach(mv); on.forEach(mv); if (S.room && (e.t === 'ac' || e.t === 'port')) toWall(e); dragNote = TYPES[e.t].n + ': ' + f2(e.x) + ' m from the left, ' + f2(e.y) + ' m from the bottom'; }
+  if (sel.k === 'el') { const e = elById(sel.id); if (!e || rackHost(S, e)) return false; push('nudge'); const R = riders(e), on = []; if (SNAPS.includes(e.t)) for (const RR of cables(S)) for (const f of ['ae', 'ug']) for (const p of RR[f].pts) if (Math.hypot(p.x - e.x, p.y - e.y) < 0.06) on.push(p); mv(e); R.forEach(mv); on.forEach(mv); if (S.room && (e.t === 'ac' || e.t === 'port')) toWall(e); dragNote = TYPES[e.t].n + ': ' + f2(e.x) + ' m from the left, ' + f2(e.y) + ' m from the bottom'; }
   else if (sel.k === 'run') { const l = runById(sel.id); if (!l) return false; push('nudge'); l.pts = l.pts.map(q => [r2(q[0] + dx), r2(q[1] + dy)]); dragNote = RUNS[l.kind].n + ' moved'; }
-  else if (sel.k === 'pt') { const p = S.route[sel.f].pts[sel.i]; if (!p) return false; push('nudge'); mv(p); dragNote = 'Point moved'; }
+  else if (sel.k === 'pt') { const p = RTc(sel.c)[sel.f].pts[sel.i]; if (!p) return false; push('nudge'); mv(p); dragNote = 'Point moved'; }
   else if (sel.k === 'photo') { const p = phById(sel.id); if (!p || !p.placed) return false; push('nudge'); mv(p); dragNote = 'Photo point moved'; }
   else if (sel.k === 'gate') { const q = S.gates[sel.i]; if (!q) return false; push('nudge'); const hz = q.side === 'S' || q.side === 'N', len = hz ? S.site.L : S.site.W; q.off = r2(clamp(num(q.off, 0) + (hz ? dx : dy), 0, Math.max(0, len - num(q.w, 0)))); dragNote = (num(q.w, 0) > 1.6 ? 'Gate ' : 'Door ') + f2(q.off) + ' m from the ' + (hz ? 'left' : 'bottom') + ' corner'; }
   else if (typeof nudgeMore === 'function' && nudgeMore(dx, dy)) { /* a photo on the plan (below) */ }
@@ -1541,9 +1635,77 @@ window.addEventListener('keydown', e => {
   else if ((e.key === 'Delete' || e.key === 'Backspace') && !typing && sel) { e.preventDefault(); delSel(); }
   else if (/^Arrow(Left|Right|Up|Down)$/.test(e.key) && !typing && sel && !e.ctrlKey && !e.metaKey && !e.altKey) { const st = e.shiftKey ? 0.01 : 0.1; if (nudge(e.key === 'ArrowLeft' ? -st : e.key === 'ArrowRight' ? st : 0, e.key === 'ArrowUp' ? st : e.key === 'ArrowDown' ? -st : 0)) e.preventDefault(); }
 });
-window.addEventListener('resize', () => { if (view === 'both' && !wide()) setView('top'); else drawOverlay(); });
+/* ---------- (14 Nov, MarkT: "the user is having a hard time drawing on the phone: overcrowded, and the drawing grid is getting smaller") ----------
+   On a screen up to 900 px wide the drawing takes the screen. The form is a sheet over the drawing: 'peek' (its first line shows), 'half', 'full'. The
+   row of tools goes to the foot, the views to the top bar, Fit and Turn onto the drawing, the lengths into the handle line of the sheet. The size of the
+   drawing does not change while you work, so the grid never shrinks or jumps when a form opens. */
+var sheet = 'peek', sheetCk = null, selPref = 'peek', shHold = 0, shMoved = false, shX = 0, shY = 0, shDown = null;      /* (var: setRoot, above, starts every plan with sheetCk = null) */
+const SH_DRAW = ['route', 'run', 'place', 'photo'];
+const shHome = () => !focus && !ctxWant() && !(sel && sel.k === 'lab');      /* the short menu: its row of buttons is the sheet's first line */
+function sheetCtx() { if (focus) return 'focus:' + focus; const w = ctxWant(); return (w === 'sel' ? 'sel:' + sel.k + ':' + (sel.id != null ? sel.id : sel.i != null ? sel.i : '') : (w || (sel && sel.k === 'lab' ? 'lab:' + sel.key : 'home'))) + '|' + mode; }
+function sheetSet(s, user) {
+  const dk = document.querySelector('.desk'); if (!dk) return;
+  if (s !== 'peek' && shHome()) s = 'peek';
+  sheet = s; dk.dataset.sh = s; const h = $('#shd'); if (h) { h.setAttribute('aria-expanded', String(s !== 'peek')); h.setAttribute('aria-label', s === 'peek' ? 'Show the form' : 'Lower the form'); }
+  if (user && ctxWant() === 'sel') selPref = s === 'full' ? 'half' : s;
+  if (s === 'peek') panel.scrollTop = 0;
+}
+function tbFade() { const t = $('#tb'); if (t) t.classList.toggle('more', !t.hidden && t.scrollWidth - t.scrollLeft - t.clientWidth > 4); }
+function sheetSync() {
+  const dk = document.querySelector('.desk'); if (!dk) return; if (!dk.dataset.sh) dk.dataset.sh = sheet; tbFade();
+  if (wide() || shHold) return;      /* (a finger on the drawing: decided when it is lifted) */
+  const ck = sheetCtx(); if (ck === sheetCk) return; const was = sheetCk; sheetCk = ck;
+  if (was === null) { sheetSet('peek'); return; }      /* a plan just opened: the drawing first */
+  if (shMoved && /^sel:/.test(ck)) return;      /* an item dragged: the sheet stays as it was */
+  const w = ctxWant(), wasDraw = /\|(route|run|place|photo)$/.test(was);
+  if (SH_DRAW.includes(mode)) sheetSet('peek');      /* a tool draws: the whole drawing */
+  else if (focus) { if (!/^focus:/.test(was)) sheetSet('peek'); }
+  else if (wasDraw) sheetSet('peek');      /* a tool just finished (an item set down shows its name line) */
+  else if (w === 'sel') sheetSet(selPref);
+  else if (w) sheetSet(sheet === 'full' ? 'full' : 'half');      /* a form asked for */
+  else sheetSet('peek');
+}
+function shToggle() { if (wide() || shHome()) return; sheetSet(sheet === 'peek' ? 'half' : 'peek', true); }
+const PH = { on: null };
+function phoneDom() {
+  const ph = !wide(); if (ph === PH.on) return; const first = PH.on === null; PH.on = ph;
+  if (first) Object.assign(PH, { seg: $('#segView'), tools: document.querySelector('.tools'), turn: $('#bTurn'), fit: $('#bFit'), tb: $('#tb'), status: $('#status'), stage: document.querySelector('.stage'), views: $('#views'), bar: document.querySelector('.bar'), app: document.querySelector('.app'), shd: $('#shd'), fab: $('#fab') });
+  if (ph) { PH.bar.insertBefore(PH.seg, $('#who')); PH.fab.append(PH.turn, PH.fit); PH.app.appendChild(PH.tb); PH.shd.insertBefore(PH.status, PH.shd.querySelector('.shc')); }
+  else { PH.tools.insertBefore(PH.seg, PH.tools.firstChild); PH.tools.insertBefore(PH.turn, $('#bOut')); PH.tools.appendChild(PH.fit); PH.stage.insertBefore(PH.tb, PH.views); PH.stage.appendChild(PH.status); }
+  document.body.classList.toggle('phone', ph);
+  if (!first) { needFit.top = needFit.iso = needFit.sheets = true; sheetCk = null; }
+}
+{ const b = $('#bUndo'); if (b) b.innerHTML = ico('undo') + '<span>Undo</span>'; }
+{ const t = $('#tb'); if (t) t.addEventListener('scroll', tbFade, { passive: true }); }
+{ /* the handle of the sheet: a tap opens or lowers it; a drag sets it where the finger leaves it (lowered, half, to the top) */
+  const h = $('#shd'), aside = document.querySelector('.panel'); let d = null;
+  h.addEventListener('pointerdown', e => { if (wide() || shHome() || (e.target.closest && e.target.closest('button'))) return; const dk = document.querySelector('.desk'); d = { y: e.clientY, h0: aside.getBoundingClientRect().height, H: dk.getBoundingClientRect().height, id: e.pointerId, moved: false }; try { h.setPointerCapture(e.pointerId); } catch (x) { } });
+  h.addEventListener('pointermove', e => { if (!d || e.pointerId !== d.id) return; const dy = e.clientY - d.y; if (!d.moved && Math.abs(dy) < 6) return; d.moved = true; aside.style.transition = 'none'; aside.style.height = clamp(d.h0 - dy, 60, d.H - 6) + 'px'; });
+  const up = e => { if (!d || e.pointerId !== d.id) return; const g = d; d = null; aside.style.transition = ''; if (!g.moved) { aside.style.height = ''; shToggle(); return; } const f = (parseFloat(aside.style.height) || g.h0) / g.H; aside.style.height = ''; sheetSet(f < 0.3 ? 'peek' : f < 0.75 ? 'half' : 'full', true); };
+  h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
+  h.addEventListener('click', e => { if (e.detail === 0 && !(e.target.closest && e.target.closest('button'))) shToggle(); });      /* (the keyboard: Enter or Space on the handle) */
+  h.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); shToggle(); } });
+}
+{ /* a finger on the drawing: the sheet waits until it is lifted (an item dragged does not open its form); a tap on empty ground lowers the form */
+  const v = $('#views');
+  v.addEventListener('pointerdown', e => { if (wide() || (e.target.closest && e.target.closest('#tbpop, #tbopt, #modebar, #fab'))) return; shHold++; shX = e.clientX; shY = e.clientY; shMoved = false; shDown = { ck: sheetCtx(), svg: !!(e.target.closest && e.target.closest('svg')) }; }, true);
+  window.addEventListener('pointermove', e => { if (shHold && !shMoved && Math.hypot(e.clientX - shX, e.clientY - shY) > 8) shMoved = true; }, true);
+  const up = () => { if (!shHold) return; shHold = Math.max(0, shHold - 1); if (shHold) return; const dn = shDown; shDown = null;
+    setTimeout(() => { const same = dn && dn.ck === sheetCtx(); sheetSync(); if (same && dn.svg && !shMoved && mode === 'select' && sheet !== 'peek' && !focus) sheetSet('peek'); shMoved = false; }, 0); };
+  window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+}
+/* a quick swipe on the drawing (a pan) or on the handle: the next tap on a tool is not lost. A browser on a phone takes a fast swipe as a fling, even where
+   nothing scrolls, and eats the tap that comes while it runs (a tool tapped just after panning stayed off). The drawing and the handle never scroll, so
+   their swipes are kept from the browser; the editor works with the pointer, which still has them. */
+$('#views').addEventListener('touchmove', e => { if (e.cancelable && e.target.closest && e.target.closest('.view')) e.preventDefault(); }, { passive: false });
+$('#shd').addEventListener('touchmove', e => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+/* another view picked (Sketch, Isometric, Sheets): the form goes down, to show it */
+$('#segView').addEventListener('click', e => { if (!wide() && e.target.closest && e.target.closest('[data-v]')) sheetSet('peek', true); });
+/* typing in the form: it opens to the top, so that the keyboard does not cover the field */
+panel.addEventListener('focusin', e => { const t = e.target; if (wide() || sheet === 'full' || !t) return; if (t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && !/^(checkbox|radio|file|range|button|submit|color)$/.test(t.type))) sheetSet('full', true); });
+window.addEventListener('resize', () => { const was = PH.on; phoneDom(); if (view === 'both' && !wide()) setView('top'); else if (was !== PH.on) refresh(true); else { drawOverlay(); tbFade(); } });
 window.addEventListener('load', () => { needFit.top = needFit.iso = true; drawViews(); });
-refresh(true);
+phoneDom(); refresh(true);
 /* Saving: the app's own save and share. A test build can put its own saver on this page (window.__cefSave). */
 dl = { save: o => (typeof window.__cefSave === 'function' ? window.__cefSave(o) : HOST.deliver(o.filename, o.data, o.kind)) }; dlReady = true;
 async function start() {
@@ -1552,6 +1714,7 @@ async function start() {
   if (!A) { $('#nohost').hidden = false; document.querySelector('.app').hidden = true; return; }
   APP = Object.assign(APP, A.app || {}); VIEW = APP.viewOnly || '';
   if (!APP.sign || typeof APP.sign !== 'object') { let g = null; try { g = JSON.parse(localStorage.getItem('cef-sign') || 'null'); } catch (e) { g = null; } APP.sign = g && typeof g === 'object' ? g : {}; }      /* (22:24) the names on the sheet */
+  if (!APP.dxf || typeof APP.dxf !== 'object') { let g = null; try { g = JSON.parse(localStorage.getItem('cef-dxf') || 'null'); } catch (e) { g = null; } APP.dxf = g && typeof g === 'object' ? g : {}; }      /* (14 Nov) the choices of the DXF */
   IMG = Object.assign({}, A.photos || {});
   let o = null; try { o = A.sketch ? JSON.parse(A.sketch) : null; } catch (e) { o = null; }
   setRoot(norm(o && o.site ? o : blank())); applyFixed(); await setLogos(A.logos || {});
@@ -1562,5 +1725,5 @@ async function start() {
 }
 /* what the app and its tests reach on this page */
 window.CEF = { ready: () => READY, flush: saveNow, sketch: () => JSON.stringify(ROOT), photoIds: () => (ROOT ? ROOT.photos.map(p => p.id) : []), setLogos: Lg => setLogos(Lg).then(() => refresh(true)), view: () => VIEW,
-  test: { start: o => { setRoot(norm(o)); applyFixed(); hist = []; lastPush = { k: '', t: 0 }; sel = null; mode = 'select'; tab = 'site'; refresh(true); saveNow(); }, load: (o, imgs) => { push(); setRoot(norm(o)); applyFixed(); if (imgs) Object.assign(IMG, imgs); sel = null; mode = 'select'; refresh(true); saveNow(); }, photo: (id, src, w, h) => { IMG[id] = src; ROOT.photos.push({ id, cap: '', x: 0, y: 0, dir: 0, placed: false, w: w || 4, h: h || 3 }); needFit.sheets = true; refresh(true); } } };
+  test: { where: t => { if (!TYPES[t]) return null; const P = addPlace(t); return [P.x, P.y]; }, start: o => { setRoot(norm(o)); applyFixed(); hist = []; lastPush = { k: '', t: 0 }; sel = null; mode = 'select'; tab = 'site'; refresh(true); saveNow(); }, load: (o, imgs) => { push(); setRoot(norm(o)); applyFixed(); if (imgs) Object.assign(IMG, imgs); sel = null; mode = 'select'; refresh(true); saveNow(); }, photo: (id, src, w, h) => { IMG[id] = src; ROOT.photos.push({ id, cap: '', x: 0, y: 0, dir: 0, placed: false, w: w || 4, h: h || 3 }); needFit.sheets = true; refresh(true); } } };
 start();

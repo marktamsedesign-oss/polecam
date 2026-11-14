@@ -647,7 +647,7 @@ function isoEl(S, el, sc, A, rg, X) {
         const EP = sqr(c, Math.max(STD.encW, w + 0.16) / 2, rot);
         prism(sc, EP, z0, z0 + STD.encUp, lay);                    /* the concrete encasement: 0.406 m above the ground and 1.32 m below it */
         if (onG && !FLAT) { const zb = z0 - STD.encDn; sc.poly(EP.map(q => [q[0], q[1], zb]), hid, 1); for (const q of EP) sc.line([q[0], q[1], z0], [q[0], q[1], zb], hid); }
-        if (!rg.risers.some(q => q.pole === el)) riserKit(sc, c, rot2(1, 0, rot), z0, z0 + Math.max(1.5, num(S.route.aerialH, STD.msg)), pr, lay);
+        if (!rg.risers.some(q => q.pole === el)) riserKit(sc, c, pipeSide(S, el), z0, z0 + Math.max(1.5, num(S.route.aerialH, STD.msg)), pr, lay);
         if (onG && !FLAT) { const zb = z0 - STD.poleIn, e = k => [c[0] + H[0] * k * r, c[1] + H[1] * k * r]; for (const k of [-1, 1]) sc.line([e(k)[0], e(k)[1], z0 - STD.encDn], [e(k)[0], e(k)[1], zb], hid); sc.line([e(-1)[0], e(-1)[1], zb], [e(1)[0], e(1)[1], zb], hid); }      /* the pole stands 1.5 m in the ground: its foot shows under the encasement */
         fp = EP;
       }
@@ -868,9 +868,9 @@ function buildIso0(S, o) {
   if (one) { /* beta 4.2: what stands round it is drawn below, from the whole plan */ }
   else {
   sc.own = gk('SITE'); isoGround(S, sc, A3, O3);
-  for (const el of S.els) if (el.t === 'pad') { sc.own = gk(BN[el.id]); isoEl(S, el, sc, A3, rg, X); }
-  for (const el of S.els) if (el.t !== 'pad') { sc.own = gk(BN[el.id]); isoEl(S, el, sc, A3, rg, X); }
-  for (const r of S.runs) { sc.own = gk(BN[r.id]); isoRun(S, r, sc, A3, O3, rg); }
+  for (const el of S.els) if (el.t === 'pad' && !hidEl(S, el)) { sc.own = gk(BN[el.id]); isoEl(S, el, sc, A3, rg, X); }      /* (14 Nov) what the user has hidden is not drawn */
+  for (const el of S.els) if (el.t !== 'pad' && !hidEl(S, el)) { sc.own = gk(BN[el.id]); isoEl(S, el, sc, A3, rg, X); }
+  for (const r of S.runs) if (!r.hid) { sc.own = gk(BN[r.id]); isoRun(S, r, sc, A3, O3, rg); }
   sc.own = null;
   /* a buried piece of the UG cable with no conduit drawn under it still lies in one: two pipes, one on top of the other, drawn as for a drawn conduit. In an open trench they lie in the open, so in full lines. */
   if (!FLAT) for (const k of ownConduit(rg)) { const zb = k.l.za - STD.hdpe / 2, lay = k.st === 'E' ? (k.open ? 'ex' : 'hd') : k.open ? 'pp' : 'hp'; for (const Q of outsidePits(S, [k.a, k.b])) for (const j of [0, 1, 2]) sc.line([Q[0][0], Q[0][1], zb + j * STD.hdpe], [Q[Q.length - 1][0], Q[Q.length - 1][1], zb + j * STD.hdpe], lay); }
@@ -882,13 +882,13 @@ function buildIso0(S, o) {
   });
   for (const r of rg.risers) {
     const s0 = sc.sid, pl = r.pole, zp = baseZ(S, pl);
-    r.K = riserKit(sc, [pl.x, pl.y], r.u, r.g, r.z1 - CLOZ, z => poleR(pl, z - zp), 'pp');
+    r.K = riserKit(sc, [pl.x, pl.y], r.s || r.u, r.g, r.z1 - CLOZ, z => poleR(pl, z - zp), 'pp');
     if (r.dp > 0.2 && r.R > 0.05) elbow2(sc, r.at, r.g, r.dp, r.R, r.u, 'hp', 0);
     for (let i = s0 + 1; i <= sc.sid; i++) sc.thru.add(i);
   }
-  if (rg.join && rg.join.auto) {
-    const j = rg.join; domeClosure(sc, j.c, j.z, 'pp'); X.cm.push({ c: j.c, z: j.z, at: [j.pole.x, j.pole.y] });
-    A3.push({ k: 'el', key: 'clo', kind: 'lead', p: [j.c[0], j.c[1], j.z + STD.cloH * 0.6], s: labText(S, 'clo', 'PROPOSED CLOSURE'), st: 'P', fp: sqr(j.c, 0.15, 0), z: j.z, pts: cloPts(j.c, j.z) });
+  for (const j of rg.joins) if (j.auto) {
+    const ck = 'clo' + (j.ck || ''); domeClosure(sc, j.c, j.z, 'pp'); X.cm.push({ c: j.c, z: j.z, at: [j.pole.x, j.pole.y] });
+    A3.push({ k: 'el', key: ck, kind: 'lead', p: [j.c[0], j.c[1], j.z + STD.cloH * 0.6], s: labText(S, ck, 'PROPOSED CLOSURE'), st: 'P', fp: sqr(j.c, 0.15, 0), z: j.z, pts: cloPts(j.c, j.z) });
   }
   }
   const R0 = sc.render(), GT = new Gfx(), LB = new Labeler(GT), FB = [], fibP = [], fibH = [], legs2 = [], far = [], quads = []; let skipped = 0, strict = 0;
@@ -897,9 +897,9 @@ function buildIso0(S, o) {
     if (fb && !S.room && o.around !== false) {
       const sc2 = new Scene(sc.k, L / 2, W / 2), T = [], hq = [hull(pts)], DASH = { hd: 1, hp: 1, nd: 1, np: 1, fh: 1 };
       isoGround(S, sc2, T, T);
-      for (const el of S.els) if (el !== one && el.t === 'pad') isoEl(S, el, sc2, [], rgC, { ref: 1, cm: [] });
-      for (const el of S.els) if (el !== one && el.t !== 'pad' && !(inRack(el) && rackHost(S, el))) isoEl(S, el, sc2, [], rgC, { ref: 1, cm: [] });
-      for (const r of S.runs) isoRun(S, r, sc2, T, T, rgC);
+      for (const el of S.els) if (el !== one && el.t === 'pad' && !el.hid) isoEl(S, el, sc2, [], rgC, { ref: 1, cm: [] });
+      for (const el of S.els) if (el !== one && el.t !== 'pad' && !el.hid && !(inRack(el) && rackHost(S, el))) isoEl(S, el, sc2, [], rgC, { ref: 1, cm: [] });
+      for (const r of S.runs) if (!r.hid) isoRun(S, r, sc2, T, T, rgC);
       CTX = clipOut(sc2.render().filter(p => p.k === 'pl' && p.pts.length === 2 && !DASH[p.lay]).map(p => ({ k: 'pl', pts: p.pts, lay: 'dt', close: false })), hq);
       const cab = cabEntry(S, one, rgC), fl = [];            /* the cable of the plan, in its colour, up to where it goes into this cabinet; what the cabinet hides of it is dashed, as on the plan of the whole site */
       const put3 = (a, b, lay, hid) => { const p = P3(a), q = P3(b), dx = q[0] - p[0], dy = q[1] - p[1]; if (Math.abs(dx) + Math.abs(dy) < 1e-6) return; let t = 0; const at = k => [p[0] + dx * k, p[1] + dy * k], pc = (k0, k1, ly) => { if (k1 - k0 > 1e-5 && ly) fl.push({ k: 'pl', pts: [at(k0), at(k1)], lay: ly, close: false }); };
@@ -929,7 +929,7 @@ function buildIso0(S, o) {
   }
   /* What stands inside a cabin shows through its walls, dashed: each rack and the ODF at its rack units as a box (the edges a solid box would show), and the cable from the porthole to the ODF. */
   const inLab = [];
-  if (!S.room && !one) for (const el of S.els) if (el.t === 'cabin') {
+  if (!S.room && !one) for (const el of S.els) if (el.t === 'cabin' && !el.hid) {
     const C = cabinInside(S, el); if (!C) continue;
     const box = (poly, z0, z1, lay) => {
       const n = poly.length, B = poly.map(q => P3([q[0], q[1], z0])), T = poly.map(q => P3([q[0], q[1], z1])), c = [0, 0], up = new Set(); for (const q of poly) { c[0] += q[0] / n; c[1] += q[1] / n; }
@@ -1027,29 +1027,29 @@ function buildIso0(S, o) {
       else jobs.push({ o: 5, key: a.key, s: a.s, st: a.st, ap, kind: 'lead', bb: a.pts && a.pts.length > 2 && !a.item ? polyBox(a.pts.map(P3)) : null, item: a.item && a.pts ? { zc: (a.pts[0][2] + a.pts[2][2]) / 2, zh: a.pts[2][2] - a.pts[0][2] } : null,
         alt: a.item && a.host && a.pts && !one ? ['R', 'L', 'B'].filter(sd => facing(sc, faceN(a.host, sd)) > 0.05).map(sd => onFace(a.host, sd, 0, (a.pts[0][2] + a.pts[2][2]) / 2)).filter(q => sc.seen(q)).map(P3) : null });
     }
-    for (const f of ['ae', 'ug']) {
-      const own = legs2.filter(q => q.l.f === f).sort((x, y) => len2(y.a, y.b) - len2(x.a, x.b)).slice(0, 3); if (!own.length) continue;
+    for (const f of ['ae', 'ug']) for (let cn = 0; cn < rgT.parts.length; cn++) {      /* (14 Nov) the name of each fiber of each cable */
+      const own = legs2.filter(q => q.l.f === f && (q.l.cn || 0) === cn).sort((x, y) => len2(y.a, y.b) - len2(x.a, x.b)).slice(0, 3); if (!own.length) continue; const fk = f + (own[0].l.ck || '');
       const tr = own.filter(q => q.l.run && q.l.run.kind === 'trench' && q.l.za < q.l.g - 0.6), inn = tr.length ? tr.map(q => { const l = q.l, z = (l.g + l.za) / 2; return [P3([l.a[0], l.a[1], z]), P3([l.b[0], l.b[1], z])]; }) : null;
-      jobs.push({ o: 2.5, key: f, s: labText(S, f, o.short ? 'FOC ' + f.toUpperCase() : focName(S, rgT, f)), st: 'P', ap: at(own[0], 0.4), kind: 'along', pcs: own.map(q => [q.a, q.b]), gap, fit: 1.05, ts: [0.4, 0.6, 0.5, 0.25, 0.75], inn, innH: tr.length ? tr[0].l.g - tr[0].l.za - 0.4 : 0, its: [0.22, 0.78, 0.5] });
+      jobs.push({ o: 2.5, key: fk, s: labText(S, fk, o.short ? 'FOC ' + f.toUpperCase() + (rgT.parts.filter(p => p.sum.total > 0.05).length > 1 ? ' ' + (cn + 1) : '') : focName(S, rgT, f, cn)), st: 'P', ap: at(own[0], 0.4), kind: 'along', pcs: own.map(q => [q.a, q.b]), gap, fit: 1.05, ts: [0.4, 0.6, 0.5, 0.25, 0.75], inn, innH: tr.length ? tr[0].l.g - tr[0].l.za - 0.4 : 0, its: [0.22, 0.78, 0.5] });
     }
     { /* the length of each leg of a cable, in green beside it, as on the hand-made plans. Left out where there is no room: the tables have every length. */
-      const grp = {}, real = {}; for (const l of rgT.legs) real[l.f + l.i] = (real[l.f + l.i] || 0) + l.len;
-      for (const q of legs2) { const k = q.l.f + q.l.i, c = grp[k]; if (!c || len2(q.a, q.b) > len2(c.a, c.b)) grp[k] = q; }
-      const same = rgT.legs.length === rg.legs.length && rg.legs.every((l, i) => l.f === rgT.legs[i].f && l.i === rgT.legs[i].i);
+      const grp = {}, real = {}, kk = l => l.f + l.i + (l.ck || ''); for (const l of rgT.legs) real[kk(l)] = (real[kk(l)] || 0) + l.len;
+      for (const q of legs2) { const k = kk(q.l), c = grp[k]; if (!c || len2(q.a, q.b) > len2(c.a, c.b)) grp[k] = q; }
+      const same = rgT.legs.length === rg.legs.length && rg.legs.every((l, i) => l.f === rgT.legs[i].f && l.i === rgT.legs[i].i && (l.cn || 0) === (rgT.legs[i].cn || 0));
       if (nameOn(S, 'dim') && same) { const LK = lenKeys(rg.legs); for (const q of legs2) { if (!q.l.f || q.l.f === 'ae' || q.l.inside) continue; const len = rgT.legs[rg.legs.indexOf(q.l)].len; if (!(len >= 0.3)) continue;      /* beta 4.1: the length of each straight piece of a cable (its real length, depth and all) */
         jobs.push({ o: 2.7, key: LK.get(q.l), s: f1(len) + 'm', st: 'L', opt: len >= 1 ? 0 : 1, ap: at(q, 0.5), kind: 'along', pcs: [[q.a, q.b]], gap, fit: 1.05, ts: [0.5, 0.35, 0.65, 0.2, 0.8] }); } }
       else for (const k in grp) { const q = grp[k]; if (q.l.f !== 'ae' && real[k] > 0.25) jobs.push({ o: 2.7, key: 'len' + k, s: f1(real[k]) + 'm', st: 'L', opt: 1, ap: at(q, 0.5), kind: 'along', pcs: [[q.a, q.b]], gap, fit: 1.05, ts: [0.5, 0.35, 0.65, 0.2, 0.8] }); }
     }
-    const note = labText(S, 'note', String(S.route.note || '').trim().toUpperCase());
-    if (lead && note) jobs.push({ o: 2, key: 'note', s: note, st: 'P', ap: at(lead, 0.2), kind: 'along', pcs: [[lead.a, lead.b]], gap, wrap: 30, ts: [0.25, 0.4, 0.55] });
-    if (!one && !FLAT && !S.room) for (const r of S.runs) if (r.kind === 'trench' && r.st === 'P' && r.pts && r.pts.length > 1) {      /* beta 4.2: an open trench says how deep it is, at the middle of its longest piece */
+    for (const ld of legs2.filter(q => q.l.f === 'ae' && q.l.i === 0)) { const nk = 'note' + (ld.l.ck || ''), note = labText(S, nk, String((cables(S)[ld.l.cn || 0] || {}).note || '').trim().toUpperCase());      /* (14 Nov) the note at the outside end of each aerial cable */
+      if (note) jobs.push({ o: 2, key: nk, s: note, st: 'P', ap: at(ld, 0.2), kind: 'along', pcs: [[ld.a, ld.b]], gap, wrap: 30, ts: [0.25, 0.4, 0.55] }); }
+    if (!one && !FLAT && !S.room) for (const r of S.runs) if (r.kind === 'trench' && r.st === 'P' && !r.hid && r.pts && r.pts.length > 1) {      /* beta 4.2: an open trench says how deep it is, at the middle of its longest piece */
       let bi = 0, bl = 0; for (let i = 0; i + 1 < r.pts.length; i++) { const l = Math.hypot(r.pts[i + 1][0] - r.pts[i][0], r.pts[i + 1][1] - r.pts[i][1]); if (l > bl) { bl = l; bi = i; } }
       const a = r.pts[bi], b = r.pts[bi + 1], m = [a[0] + (b[0] - a[0]) * 0.72, a[1] + (b[1] - a[1]) * 0.72], dp = runDepth(r), key = 'dep' + r.id;
       jobs.push({ o: 3.2, key, s: labText(S, key, 'TRENCH ' + f1(dp) + ' m DEEP'), st: 'P', ap: P3([m[0], m[1], groundZ(S, m) - dp * 0.6]), alt: [0.5, 0.3, 0.12].map(t => { const q = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; return P3([q[0], q[1], groundZ(S, q) - dp * 0.6]); }), kind: 'lead', opt: 0 });
     }
     risers.forEach((q, i) => { jobs.push({ o: 3, key: 'riser' + i, s: labText(S, 'riser' + i, 'PROPOSED G.I. RISER PIPE'), st: 'P', ap: at(q, 0.5), kind: 'along', near: polyBox([q.a, q.b]), pcs: [[q.a, q.b]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); if (q.ug) jobs.push({ o: 3, key: 'ugd' + i, s: labText(S, 'ugd' + i, 'PROPOSED U-GUARD'), st: 'P', ap: [q.c[0] + (q.d[0] - q.c[0]) * 0.5, q.c[1] + (q.d[1] - q.c[1]) * 0.5], kind: 'along', near: polyBox([q.c, q.d]), pcs: [[q.c, q.d]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); });
     for (const k of inLab) jobs.push({ o: 4, key: k.q.key, s: labText(S, k.q.key, k.q.s), st: k.q.st, ap: k.ap, kind: 'lead' });
-    for (const q of loops) jobs.push({ o: 5, key: 'loop' + q.lp.i, s: labText(S, 'loop' + q.lp.i, 'LOOP HOLDER W/ ' + f2(q.lp.len) + 'm LOOP'), st: 'P', ap: q.c, kind: 'lead' });
+    for (const q of loops) jobs.push({ o: 5, key: 'loop' + q.lp.i + (q.lp.ck || ''), s: labText(S, 'loop' + q.lp.i + (q.lp.ck || ''), 'LOOP HOLDER W/ ' + f2(q.lp.len) + 'm LOOP'), st: 'P', ap: q.c, kind: 'lead' });
     /* When the size is automatic, a name that finds no room is tried again smaller, down to what is still easy to read (1.8 mm on the sheet). Only then does it get a leader. */
     const HS = txAuto(S) ? TXS.map(k => h * k) : [h], KMIN = txAuto(S) ? TXS[TXS.length - 1] : (o.screen ? 0.4 : 0.55), KFACE = Math.min(KMIN, 0.68);      /* beta 4.1: on its own face a name may be as small as 1.5 mm on the sheet */
     const free2 = quad => { for (const b of LB.labs) if (polysHit(quad, b)) return false; for (const b of fibP) if (polysHit(quad, b)) return false; if (strict) for (const b of fibH) if (polysHit(quad, b)) return false; return true; };
@@ -1149,7 +1149,7 @@ function buildIso0(S, o) {
     skipped -= left.length;
   }
   const sand = [];
-  for (const r of S.runs) if (!one && !FLAT && r.kind === 'trench' && r.pts.length > 1) for (const TP of outsidePits(S, r.pts)) {
+  for (const r of S.runs) if (!one && !FLAT && r.kind === 'trench' && !r.hid && r.pts.length > 1) for (const TP of outsidePits(S, r.pts)) {
     const hw = Math.max(0.05, num(r.w, RUNS.trench.w)) / 2;
     for (let i = 0; i + 1 < TP.length; i++) { const a = TP[i], b = TP[i + 1], len = Math.hypot(b[0] - a[0], b[1] - a[1]); if (len < 0.05) continue; const nx = -(b[1] - a[1]) / len * hw, ny = (b[0] - a[0]) / len * hw, g = groundZ(S, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]) + 0.004;
       sandDots([a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny], q => { const p = [q[0], q[1], g]; if (sc.seen(p)) sand.push({ k: 'ci', c: P3(p), r: SAND_R, lay: 'dt', g: gk(BN[r.id]) }); }); }      /* (19:25) the dust of a trench goes with its trench */

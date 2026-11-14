@@ -2254,7 +2254,8 @@
       if (CS.place === 'callout') o.lwpoly(clLay, [add2(p.dp, c.u, p.rp + 0.3), add2(c.A, c.u, -c.ext)], { color: col });
     };
     for (const p of poleOrder) {
-      const H = Math.max(1.5, 2.2 * p.k), HL = Math.max(0.9, 1.2 * p.k), size = p.size || clampText(p); // size: the clamps and their size (the app records no other size of an existing pole)
+      const PST = job.poleStyle || {}, hI0 = +PST.idH > 0 ? +PST.idH : 2.2, hO0 = +PST.ownH > 0 ? +PST.ownH : hI0, hL0 = +PST.llH > 0 ? +PST.llH : 1.2; // beta 4.3: the heights of the drawing style (none set: 2.2 m and 1.2 m, as before)
+      const H = Math.max(1.5 * hI0 / 2.2, hI0 * p.k), HO = Math.max(1.5 * hO0 / 2.2, hO0 * p.k), HL = Math.max(0.9 * hL0 / 1.2, hL0 * p.k), size = p.size || clampText(p); // size: the clamps and their size (the app records no other size of an existing pole)
       const CS = job.clampStyle || {}, clIn = !CS.place || CS.place === 'label', clT = clampText(p), stackCl = clIn ? (clT || p.hw || '') : '', stackSz = clIn ? (size || p.hw || '') : ''; // v2.42.21: in the label (as before), or a tag / callout; a 12C-only pole: its hardware
       // v2.33: the pole tag without its material prefix (material CC + tag CC-0430621 → CC / 0430621), as the template's sample
       const bare = (v) => { const m = String(p.mat || '').trim(), t = String(v || ''); return m && t.toUpperCase().startsWith(m.toUpperCase()) && /^([-_ .][A-Z0-9]|\d)/i.test(t.slice(m.length)) && t.length > m.length ? t.slice(m.length).replace(/^[-_ .]/, '') : t; };
@@ -2267,7 +2268,8 @@
       const ll = `{\\fSimSun|b0|i0|c134|p2;${p.lat.toFixed(6)}%%D\\P${p.lon.toFixed(6)}%%D}`;
       // one stack in the direction of the ID, read from the pole outward: material / tag (/ size), then latitude / longitude
       // smaller under them (v2.33: the coordinates are part of the stack, as in the template's sample)
-      const n = shown.length, gap = 0.35 * H, llH = HL * (1 + 5 / 3), T = n * 1.5 * H + gap + llH;
+      const isOwn = ([t, v]) => t === '' && !!p.ownerName && v === p.ownerName, hs = shown.map((x) => (isOwn(x) ? HO : H)), sumH = hs.reduce((s, x) => s + 1.5 * x, 0), topOf = (k) => hs.slice(0, k).reduce((s, x) => s + 1.5 * x, 0); // (beta 4.3: the owner's name may have its own height)
+      const n = shown.length, gap = 0.35 * H, llH = HL * (1 + 5 / 3), T = sumH + gap + llH;
       const cands = [];
       // v2.41: also a little further out before covering anything; a road edge line counts least, the cable more, a label most.
       // v2.41.1: every label in the same direction (straight out from the cable, at right angles to it) where there is room: moved a
@@ -2276,8 +2278,8 @@
         const ov = rotv(p.on, v.a), dg = deg(ov), rr = readable(dg), flip = Math.abs(((dg - rr) % 360 + 360) % 360 - 180) < 1, ha = flip ? 2 : 0;
         const up = rotv([Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], 90);
         const base = add2(add2(p.dp, ov, p.rp + 1.2 + v.ex), p.fw, v.sh), boxes = [], place = [];
-        shown.forEach(([t, v], k) => { const q = add2(base, up, T / 2 - (k + 0.5) * 1.5 * H); place.push([t, v, q]); boxes.push(textBox(q[0], q[1], H, v, rr, ha, 2)); });
-        const llAt = add2(base, up, T / 2 - n * 1.5 * H - gap - llH / 2);
+        shown.forEach(([t, v], k) => { const q = add2(base, up, T / 2 - topOf(k) - 0.75 * hs[k]); place.push([t, v, q, hs[k]]); boxes.push(textBox(q[0], q[1], hs[k], v, rr, ha, 2)); });
+        const llAt = add2(base, up, T / 2 - sumH - gap - llH / 2);
         [[lat, HL * 5 / 6], [lon, -HL * 5 / 6]].forEach(([v, dy]) => { const q = add2(llAt, up, dy); boxes.push(textBox(q[0], q[1], HL, v, rr, ha, 2)); });
         cands.push({ boxes, place, rr, ha, llAt, ov, flip, cost: v.cost, v });
       }
@@ -2297,8 +2299,9 @@
       if (attrs.POLE_CLAMP) attrs.POLE_CLAMP.v = clT; if (attrs.B) attrs.B.v = size; // (v2.42.21: the block keeps the values wherever they are shown)
       if (p.sym.b) o.insert(lay(p.sym.layer), p.sym.b, p.dp[0], p.dp[1], { scale: p.sym.sc * p.k, center: true, attrs }); else o.circle(lay(p.sym.layer), p.dp[0], p.dp[1], p.rp);
       const look = p.sym.b ? attrLook(S, p.sym.b) : new Map();
-      c.place.forEach(([t, v, q]) => { const lk = look.get(t) || {}, isCl = clIn && CS.color && v && (t === 'POLE_CLAMP' || t === 'B' || (t === '' && v === stackSz && v !== p.ownerName)); o.text(lk.layer && lk.layer !== '0' ? lay(lk.layer) : lay(p.sym.layer), q[0], q[1], H, v, { rot: c.rr, ha: c.ha, va: 2, style: 'arial', color: isCl ? +CS.color : lk.color != null ? +lk.color : null }); }); // (v2.42.21: the clamp types in the style's colour)
-      o.mtext(lay('LATLONG'), c.llAt[0], c.llAt[1], HL, ll, { style: '样式 1', att: c.flip ? 6 : 4, dir: [Math.cos(c.rr * Math.PI / 180), Math.sin(c.rr * Math.PI / 180)] });
+      c.place.forEach(([t, v, q, hq]) => { const lk = look.get(t) || {}, isCl = clIn && v && (t === 'POLE_CLAMP' || t === 'B' || (t === '' && v === stackSz && v !== p.ownerName)), own = isOwn([t, v]), prop = p.sym.r === POLE_SYM.prop.r, sc = prop ? 0 : own ? +PST.ownColor || +PST.idColor || 0 : isCl ? 0 : +PST.idColor || 0; // (beta 4.3: the ID lines and the owner's name in the style's colour; none set, or a proposed pole: the template's)
+        o.text(lk.layer && lk.layer !== '0' ? lay(lk.layer) : lay(p.sym.layer), q[0], q[1], hq, v, { rot: c.rr, ha: c.ha, va: 2, style: 'arial', color: isCl && CS.color ? +CS.color : sc ? sc : lk.color != null ? +lk.color : null }); }); // (v2.42.21: the clamp types in the style's colour)
+      o.mtext(lay('LATLONG'), c.llAt[0], c.llAt[1], HL, ll, { style: '样式 1', att: c.flip ? 6 : 4, dir: [Math.cos(c.rr * Math.PI / 180), Math.sin(c.rr * Math.PI / 180)], color: +PST.llColor || null });
       p.ov = c.ov; p._rr = c.rr;
       if (!clIn && (clT || p.hw)) clTag(p, [clT, p.hw].filter(Boolean)); // v2.42.21
     }
@@ -2397,7 +2400,7 @@
       const ext = stFor(K2(s.ia, s.ib), linesOf(s, laneInfo.get(K2(s.ia, s.ib)))).ext; // (v2.42.25: the labels are placed above; the length beyond them)
       const txt = `${Math.round(s.len)}m${s.long ? ` (OVER ${job.maxSpan || 200}m)` : ''}`; // v2.39: whole metres, as the company's plans (v2.42.23: the length only)
       // v2.34: one size and style for every span length of the drawing, along the cable, where it covers nothing (v2.42.24: smaller as needed)
-      const th0 = Math.max(1.4, 2.0 * kG); let c = null, best = null;
+      const SST = job.spanStyle || {}, th0 = +SST.h > 0 ? +SST.h : Math.max(1.4, 2.0 * kG); let c = null, best = null; // (beta 4.3: the height of the drawing style; none set: as before)
       for (const es of [[0, 1.0, 2.0], [3.2, 4.6, 6.5]]) { /* (v2.42.25: further out where none near the cable is free: a span with no label of its own no longer pushes it out) */
         for (const th of sizesDn(th0, Math.min(th0, 1.0))) { for (const e of es) for (const [f, side] of [[0, 1], [0, -1], [0.2, 1], [-0.2, 1], [0.2, -1], [-0.2, -1], [0.35, 1], [-0.35, 1], [0.35, -1], [-0.35, -1]]) {
             const rc = side > 0 ? ext.road + 0.6 + th / 2 + e : ext.pole - 0.6 - th / 2 - e, q = add2(add2(m, t, f * L), nl, rc * sgn), bx = textBox(q[0], q[1], th, txt, rd, 1, 2), n = spots.hitsW(bx, W_LBL) + (e > 2 ? 0.01 : 0);
@@ -2405,7 +2408,7 @@
           if (c) break; }
         if (c) break; }
       c = c || best;
-      o.text(lay('Distance Data'), c.q[0], c.q[1], c.th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : null }); spots.add([c.bx]);
+      o.text(lay('Distance Data'), c.q[0], c.q[1], c.th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : +SST.color || null }); spots.add([c.bx]);
     }
     // v2.42.11: each tower, its name beside the tower where it covers nothing (the cable, the road lines, the poles, their labels,
     // the span lengths), inside the tower's GEO sheet. v2.42.13: its box as wide as AutoCAD draws it (Arial bold at the attribute's
@@ -2648,11 +2651,11 @@
     // v2.37: smaller, where they cover nothing (none for a NAP or closure drawn on its pole)
     for (const p of pts) {
       if (p.el === 'Pole' || p.onPole) continue;
-      const q0 = inl.has(p) ? inl.get(p).at : [p.E, p.N], ext = inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : 3, hL = 1.2, w = 10 * hL * CHW, h = 2 * 1.67 * hL;
+      const q0 = inl.has(p) ? inl.get(p).at : [p.E, p.N], ext = inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : 3, hL = +(job.poleStyle || {}).llH > 0 ? +job.poleStyle.llH : 1.2, w = 10 * hL * CHW, h = 2 * 1.67 * hL; // (beta 4.3: the lat/long height of the drawing style)
       // v2.41: where every place is taken, over a road edge line or the cable rather than over an ID, a number or a photo
       const cs = []; for (const r of [ext + 1.5, ext + 5, ext + 9, ext + 13, ext + 18]) for (const a of [-45, 45, -135, 135, -90, 90, 0, 180]) { const u = rotv([1, 0], a), c = add2(q0, u, r + w / 2 * Math.abs(u[0]) + h / 2 * Math.abs(u[1])); cs.push({ q: [c[0] - w / 2, c[1] + h / 2], boxes: [Spots.box(c[0], c[1], w * 1.1, h, 0)] }); }
       const c = pickW(spots, cs, LL_W); spots.add(c.boxes);
-      o.mtext(lay('LATLONG'), c.q[0], c.q[1], hL, `{\\fSimSun|b0|i0|c134|p2;${p.lat.toFixed(6)}%%D\\P${p.lon.toFixed(6)}%%D}`, { style: '样式 1' });
+      o.mtext(lay('LATLONG'), c.q[0], c.q[1], hL, `{\\fSimSun|b0|i0|c134|p2;${p.lat.toFixed(6)}%%D\\P${p.lon.toFixed(6)}%%D}`, { style: '样式 1', color: +(job.poleStyle || {}).llColor || null });
     }
     // 12. v2.34: the name of every named road on every GEO sheet it crosses (once per sheet), on the road where it covers no label;
     //     then buildings and places nearby (named in OpenStreetMap), turned along their road, wholly inside a sheet
