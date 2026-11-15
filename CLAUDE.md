@@ -29,3 +29,8 @@ A push that changes only `.md` files skips the APK builds. A push to `main` alwa
 - Never force-push `main` or `beta`, and never delete a branch without asking.
 - After editing any app file, change `VERSION` in `sw.js` (see the note at the top of that file) so phones and browsers fetch the new files. Ask the owner which number to use.
 - Keep usage down: don't read the very large files (`app.js`, `index.html`, `dxftpl.js`, `README.md`) in full. Search them and read only the parts the task needs.
+- This repository is public. Never commit the owner's reference drawings, templates or other confidential files; keep notes about them instead.
+
+## Work in progress
+
+- Splicing details (single line diagram and detailed, Access OSP and Broadband): a demo in `vendor/splice/`, not yet in the app. `vendor/splice/README.md` holds what was learned from the owner's reference drawings and the plan for the app.
