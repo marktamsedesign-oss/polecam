@@ -47,9 +47,24 @@ These notes come from the owner's reference files (a PowerPoint of Access OSP si
 - **Sheets**: A3 landscape, frame, title block (editable names and roles), legend. The single line diagram is one sheet; the detailed drawing flows over as many sheets as it needs.
 - **DXF**: R12 (AC1009), sheets side by side in model space, 1 unit = 1 mm, layers `SPL_FOC_NEW`, `SPL_FOC_EXIST`, `SPL_CLOSURE_NEW`, `SPL_SITE_NEW`, `SPL_FIBER`, `SPL_FIBER_USED`, `SPL_SPLITTER`, `SPL_NAP`, `SPL_CABLE`… with DASHED for cables.
 
-## Next: into the app
+## The owner's answers (15 Nov)
 
-1. Build the model from the project: site/OLT/ODF pins, closures on poles and in handholes, dummy NAPs, NAP records, and each cable's RUN (type, size, new/existing, length).
-2. Ask only what the app does not record yet: the links and their fiber counts, the fibers in use on existing cables and FDUs, FDU capacity, NAP line labels.
-3. A **Splicing details** card beside *Export the plan*: Single line diagram / Detailed, PDF / DXF / both.
-4. Add the files to `sw.js`'s SHELL list and to the APK's copy line, and change `VERSION`.
+- Sample 3's new FDU: **Terminated Fibers 1-48** of the new branch cable. The reference's "13-60" was a slip copied from another drawing.
+- An existing homing's FDU block (Active / Vacant) shows **the state before the work**. The new legs are shown by the fiber labels at the closures and by the legs' tags, not added to Active.
+- Test details: in the **As-Built**, a tested leg carries its **test date and its loss / OTDR result**. (The As-Plan has no test result yet.)
+
+## Plan for the app (chosen 15 Nov, after a study of the app and three designs)
+
+**Ask & Draw.** A *Splicing details* page that opens full screen over the app, hosted like the CEF plan editor (its own page in a frame, with its own host object). The top of the screen is the single line diagram, drawn live by `splice.js`, so what the user sees is what prints. The bottom card asks one plain question at a time with big buttons. No tables and no typed fiber ranges.
+
+- **Filled in from the project:** sites, FDUs (ODF records), closures (pole or handhole, ID, new/existing, coordinates, photo), dummy NAPs, the cables drawn in Route mode (size, new/existing, length), the names on the sheet. Data keyed by record id and cable `fid`, never by `RUN n` (those numbers move).
+- **Asked:** where the new site's fibers go (one homing, a dummy NAP, or *Both*); how many fibers (6 already picked, 2 for a small cell); with two legs, **"Will both homings be tested end to end now?"** (*Yes, both / Only A / Only B*, nothing picked in advance); which ports are live at an existing FDU (tap or drag on a picture of the ports, *Same as the other homing*, *Not sure yet*); which tubes of an existing cable are in use (asked once per cable, starting on a safe answer).
+- **Worked out:** the way through the closures, every fiber number, the FDU ports. Anything can be changed by tapping it on the drawing; moving fibers uses a strip of coloured fiber dots, never typing. A "Still to answer: n" line counts down to *Ready · Export*.
+- **Leg states** (on each leg, not on a cable, because one branch cable can carry both legs): *Tested end to end*, *Spliced only, test later* (fibers and ports kept for it), *Not built yet* (prints `xx-xx`). A spliced-only leg is drawn with a dashed fiber label box and the tag "SPLICED ONLY · FOR FUTURE TESTING"; on the detailed drawing its fibers are dashed with hollow splice dots. Later, *Mark tested* stamps the date and the loss / OTDR result (As-Built).
+- **Steps:** (A) the engine: leg states, no routing through a site, one label per direction at a branch, separate ports per cable at an FDU, uncut fibers drawn passing through an existing closure, the FDU block as before the work; (B) the guided page with one way in (a Splicing button on the Drawing), Access OSP only; (C) tap-to-change, locks at the first export, Mark tested, Share merge; (D) the detailed drawing's details, photos on the PDF, homings off the map; (E) polish, tutorial, then Broadband.
+- **Open with the owner:** the rule for choosing fibers on an existing cable (never open a tube with a live fiber, or the lowest free fiber); what `xx-xx (… LX)` means; the words for a leg in the As-Plan before testing; how a new FDU is split between two legs; the default cable ID pattern.
+
+## Building it into the app
+
+1. Build the model from the project, as above.
+2. Add the files to `sw.js`'s SHELL list (the APK copies `vendor/` whole), and change `VERSION` and, on beta, `APP_BETA`.
