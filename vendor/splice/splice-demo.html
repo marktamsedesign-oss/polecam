@@ -258,9 +258,9 @@ table.out td { padding: 6px 8px; font-family: var(--font-mono); font-size: 0.78r
       'Detailed shows each closure fiber by fiber (tube and fiber colours) and each FDU\'s working ports.'
     ] : [
       'Each line is one fiber of its main and one fiber (2 to 6) of a 6F drop cable; fiber 1 stays spare.',
-      'The line\'s first NAP holds its 1:4. Outputs 3 and 4 feed that NAP\'s 1:8s; 1 and 2 go on to N02, N03.',
+      'The line\'s first NAP holds its 1:4. Outputs 3 and 4 feed that NAP\'s 1:8s; 1 and 2 go on a 6F branch to N02, N03.',
       'With a feeder, the mains take the feeder\'s fibers in order from the first feeder fiber.',
-      'Detailed draws every 6F drop through its NAPs, splitters and all.'
+      'Detailed is one drawing, like the reference: the ODF, the feeder closure, each main up to its closure, then every drop, numbered, through its NAPs.'
     ]).map(s => '<li>' + esc(s) + '</li>').join('');
   }
   function renderSamples() {

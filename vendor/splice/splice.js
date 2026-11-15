@@ -39,7 +39,7 @@
     CLOSURE_NEW: [1, '#d71920', 0.25], CLOSURE_EXIST: [5, '#6f9bd8', 0.25], DNAP_NEW: [1, '#d71920', 0.4], DNAP_EXIST: [5, '#1f5fd6', 0.4],
     LENGTH: [3, '#3ddc5f', 0.1], FIBER: [7, '#111111', 0.2], FIBER_USED: [1, '#d71920', 0.32], SPLICE: [7, '#111111', 0.2],
     SPLITTER: [7, '#111111', 0.28], NAP: [7, '#111111', 0.3], NAP_SYM: [3, '#16a34a', 0.3], CABLE: [4, '#0aa5c8', 0.45], CLOSURE_BOX: [4, '#0aa5c8', 0.25, 1],
-    HILITE: [2, '#ffe100', 0.1], TABLE: [7, '#111111', 0.2], LEGEND: [7, '#111111', 0.2]
+    HILITE: [2, '#ffe100', 0.1], TABLE: [7, '#111111', 0.2], LEGEND: [7, '#111111', 0.2], GRID: [8, '#9aa0a8', 0.25, 1]
   };
   const layerRGB = l => (LAYERS[l] || LAYERS.TEXT)[1];
 
@@ -173,6 +173,18 @@
     for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) G.rect(x - w / 2 + 2.5 + k * dx + dx * 0.15, y - h / 2 + 2.3 + r * dy + dy * 0.2, dx * 0.6, dy * 0.55, 'NOTE');
   }
   function dnapIcon(G, x, y, lay) { G.frect(x - 6, y - 4, 12, 8, 'HILITE', { col: { rgb: '#ffffff', aci: 7 } }); G.rect(x - 6, y - 4, 12, 8, lay, { lw: 0.5 }); G.tx(x, y, 'DNAP', 2, lay, { al: 'c', va: 'm', bold: true }); }
+  function ellipse(G, cx, cy, rx, ry, lay, o) { G.pl(seq(0, 40).map(i => [cx + rx * Math.cos(i * Math.PI / 20), cy + ry * Math.sin(i * Math.PI / 20)]), lay, Object.assign({}, o, { close: true })); }
+  const cap = (G, x, y) => G.ln(x, y - 0.45, x, y + 0.45, 'FIBER');
+  /* a line parallel to an orthogonal path, d to its left (mitred corners, so a bundle of fibers turns as one) */
+  function offsetPath(pts, d) {
+    const nrm = (a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1; return [-dy / L, dx / L]; };
+    return pts.map((p, i) => {
+      const n1 = i > 0 ? nrm(pts[i - 1], p) : null, n2 = i < pts.length - 1 ? nrm(p, pts[i + 1]) : null;
+      if (!n1 || !n2) { const n = n1 || n2; return [p[0] + n[0] * d, p[1] + n[1] * d]; }
+      const mx = n1[0] + n2[0], my = n1[1] + n2[1], ml = Math.hypot(mx, my) || 1, ux = mx / ml, uy = my / ml, k = d / ((ux * n1[0] + uy * n1[1]) || 1);
+      return [p[0] + ux * k, p[1] + uy * k];
+    });
+  }
   function fiberLine(G, x1, y1, x2, y2, f, fpt, lw) {
     const c = fiberColor(f, fpt).fiber; lw = lw || 0.7;
     if (c.rgb === '#ffffff') { G.ln(x1, y1, x2, y2, 'FIBER', { lw: lw + 0.45 }); G.ln(x1, y1, x2, y2, 'FIBER', { col: c, lw: Math.max(0.2, lw - 0.15) }); }
@@ -463,21 +475,8 @@
     if (fd.use && fStart - 1 > fd.size) warn.push(fd.name + ': the mains need fibers up to ' + (fStart - 1) + ' but the feeder has ' + fd.size + '.');
     const odfTop = Math.max(0, ...mains.map(mn => Math.max(0, ...mn.odfP)));
     if (odfTop > (+olt.odfSize || 0)) warn.push('ODF ' + olt.odf + ': ports up to ' + odfTop + ' are needed but it has ' + (+olt.odfSize || 0) + '.');
-    /* each drop cable, NAP by NAP: which of its 6 fibers carries what */
-    mains.forEach(mn => mn.drops.forEach(dr => {
-      const st = seq(1, 6).map(() => ({ kind: 'spare' })); dr.lines.forEach(ln => { st[ln.fDrop - 1] = { kind: 'feed', ln }; });
-      dr.start = st.map(s => Object.assign({}, s)); dr.boxes = [];
-      dr.lines.forEach(ln => ln.naps.forEach(nap => {
-        const before = st.map(s => Object.assign({}, s)), taps = [], placed = [];
-        if (nap.j === 0) {
-          taps.push(ln.fDrop); st[ln.fDrop - 1] = { kind: 'dead' };
-          ln.naps.slice(1).forEach(nn => nn.outs.forEach(o => { const k = st.findIndex(s => s.kind === 'spare' || s.kind === 'dead'); if (k < 0) { warn.push(nn.id + ': the drop cable has no free fiber left to reach it.'); return; } st[k] = { kind: 'out', ln, out: o, nap: nn }; placed.push({ o, k: k + 1, nap: nn }); }));
-        } else nap.outs.forEach(o => { const k = st.findIndex(s => s.kind === 'out' && s.ln === ln && s.out === o); if (k >= 0) { taps.push(k + 1); st[k] = { kind: 'dead' }; } });
-        nap.via = []; if (nap.j > 0) nap.via = nap.outs.map(o => { const p = (dr.boxes.find(b => b.nap === ln.naps[0]) || { placed: [] }).placed.find(x => x.o === o); return p ? p.k : null; }).filter(Boolean);
-        dr.boxes.push({ nap, ln, before, after: st.map(s => Object.assign({}, s)), taps, placed });
-      }));
-      dr.end = st.map(s => Object.assign({}, s));
-    }));
+    /* a line's next NAPs are fed on a 6F branch from its N01: the branch's fibers 1, 2, 3 carry the 1:4's outputs in order */
+    mains.forEach(mn => mn.lines.forEach(ln => { let sf = 0; ln.naps.forEach((nap, j) => { nap.via = j ? nap.outs.map(() => ++sf) : []; }); ln.subFibers = sf; }));
     const all = mains.flatMap(mn => mn.lines.flatMap(ln => ln.naps)), sum = {
       lines: mains.reduce((a, mn) => a + mn.lines.length, 0), snap: all.filter(n => n.ports === 8).length, dnap: all.filter(n => n.ports === 16).length,
       ports: all.reduce((a, n) => a + n.ports, 0), demand: +m.demand || 0
@@ -533,83 +532,142 @@
     if (!mains.length) G.tx(0, -10, 'ADD NAPS TO DRAW THE LINES.', 3, 'NOTE');
     return block(G, 'SPLICING SINGLE LINE DIAGRAM');
   }
+  /* the detailed drawing, as one picture (like the reference): the ODF at the lower left, the feeder into its closure, each main as a bundle
+     of fibers up to its own closure, and from there each 6F drop, numbered, through its NAPs. A line's next NAPs hang below its N01 on a 6F branch.
+     Too many mains for one sheet: they go on as many sheets as needed, each drawn at 55 % or more. */
   function bbDetailed(B) {
-    const out = [];
-    { /* the feeder and the assignment of its fibers */
-      const G = new Gfx(), mains = B.mains.filter(mn => mn.lines.length);
-      G.tx(0, 0, 'FEEDER AND FIBER SPLICING ASSIGNMENT', 3, 'TEXT', { bold: true });
-      G.tx(0, -4.2, B.olt.name.toUpperCase() + ' · ODF ' + String(B.olt.odf).toUpperCase() + ' (' + B.olt.odfSize + ' PORTS)' + (B.fd.use ? ' · ' + B.fd.name.toUpperCase() + ' ' + B.fd.size + 'C TO ' + String(B.fd.closure).toUpperCase() : ' · MAINS STRAIGHT FROM THE ODF'), 1.9, 'NOTE');
-      const used = mains.flatMap(mn => mn.odfP), size = Math.max(+B.olt.odfSize || 0, ...used, 1), spare = seq(1, size).filter(f => !used.includes(f));
-      const rows = mains.map(mn => ({ t: 'P' + fmtRanges(mn.odfP), mn })).concat(runs(spare).map(([a, b]) => ({ t: 'P' + (a === b ? a : a + '-' + b) + ' SPARE' })));
-      rows.sort((a, b) => parseInt(a.t.slice(1)) - parseInt(b.t.slice(1)));
-      const RH = 5, y0 = -10, odfH = rows.length * RH + 4;
-      G.rect(0, y0 - odfH, 24, odfH, 'NAP', { lw: 0.45 }); G.tx(12, y0 + 1.5, 'ODF', 2.2, 'TEXT', { al: 'c', bold: true });
-      const xF = B.fd.use ? 120 : 60, xD = B.fd.use ? 210 : 150;
-      rows.forEach((r, i) => {
-        const y = y0 - 4 - i * RH; G.tx(2, y, r.t, 1.7, r.mn ? 'FIBER_USED' : 'TEXT', { va: 'm', bold: !!r.mn });
-        G.ln(24, y, r.mn ? (B.fd.use ? xF : xD) : 40, y, r.mn ? 'FIBER_USED' : 'FIBER'); if (!r.mn) G.ln(40, y - 1, 40, y + 1, 'FIBER');
-        r.y = y;
-      });
-      if (B.fd.use) {
-        const fy = rows.filter(r => r.mn).map(r => r.y), yt = Math.max(...fy, y0 - 4) + 5, yb = Math.min(...fy, y0 - 4) - 5;
-        G.tx(72, yt + 1, B.fd.name.toUpperCase() + ' · ' + B.fd.size + 'C FOC', 2, 'CABLE', { al: 'c', bold: true });
-        G.rect(xF, yb - 3, 60, yt - yb + 6, 'CLOSURE_BOX'); G.tx(xF + 30, yt + 4.6, String(B.fd.closure).toUpperCase(), 2.2, 'TEXT', { al: 'c', bold: true });
-        G.tx(xF + 2, yt, 'FIBER SPLICING ASSIGNMENT', 1.7, 'TEXT', { bold: true });
-        rows.filter(r => r.mn).forEach(r => { G.tx(xF + 2, r.y, fmtRanges(r.mn.feedF) + ' (' + B.fd.size + 'C) > ' + fmtRanges(r.mn.distUsed) + ' (' + r.mn.size + 'C)', 1.6, 'TEXT', { va: 'm' }); G.ln(xF + 60, r.y, xD, r.y, 'FIBER_USED'); });
-      }
-      rows.filter(r => r.mn).forEach(r => {
-        const mn = r.mn; G.rect(xD, r.y - 2.6, 68, 5.2, 'CLOSURE_BOX');
-        G.tx(xD + 2, r.y, mn.name + ' ' + mn.size + 'C F' + fmtRanges(mn.distUsed) + ' > ' + mn.closure + ' · ' + mn.drops.length + ' DROP' + (mn.drops.length > 1 ? 'S' : '') + ', ' + mn.lines.length + ' LINES', 1.55, 'TEXT', { va: 'm' });
-      });
-      const ys = Math.min(y0 - odfH, ...rows.map(r => r.y)) - 8;
-      table(G, 0, ys, [{ t: 'MAIN', w: 26 }, { t: 'CLOSURE', w: 34 }, { t: 'DROP', w: 14, al: 'c' }, { t: 'LINES', w: 40 }, { t: 'MAIN FIBERS', w: 24, al: 'c' }, { t: '6F DROP FIBERS', w: 26, al: 'c' }, { t: 'NAPS', w: 70 }, { t: 'PORTS', w: 16, al: 'c' }],
-        mains.flatMap(mn => mn.drops.map(dr => [mn.name, mn.closure, String(dr.d + 1), dr.lines.map(l => l.id).join(', '), 'F' + fmtRanges(dr.lines.map(l => l.fDist)), 'F' + fmtRanges(dr.lines.map(l => l.fDrop)), dr.lines.flatMap(l => l.naps.map(n => n.id.replace(/^L/, '') + (n.ports === 8 ? '(8)' : '(16)'))).join(' '), String(dr.lines.reduce((a, l) => a + l.naps.reduce((b, n) => b + n.ports, 0), 0))])), { th: 1.7 });
-      G.txs(292, 0, bbSummary(B).map((s, i) => i ? s : { s, o: { bold: true } }), 2, 'TEXT', { gap: 1.6 });
-      out.push(block(G));
-    }
-    B.mains.forEach(mn => mn.drops.forEach(dr => out.push(dropBlock(B, mn, dr))));
-    return out;
+    const mains = B.mains.filter(mn => mn.lines.length);
+    if (!mains.length) { const G = new Gfx(); G.tx(0, 0, 'ADD NAPS TO DRAW THE SPLICING DETAILS.', 3, 'NOTE'); return [block(G)]; }
+    const aw = AREA.x1 - AREA.x0, ah = AREA.y1 - AREA.y0 - 16, groups = []; let cur = [];
+    for (const mn of mains) { const test = cur.concat([mn]), b = junaBlock(B, test, mains), s = Math.min(1, aw / b.w, ah / b.h); if (cur.length && s < 0.55) { groups.push(cur); cur = [mn]; } else cur = test; }
+    groups.push(cur);
+    return groups.map(g => junaBlock(B, g, mains, groups));
   }
-  /* one 6F drop cable from its closure through its NAPs: the fibers, the 1:4 and the 1:8 splitters */
-  function dropBlock(B, mn, dr) {
-    const G = new Gfx(), P = 56, BW = 42, X0 = 26, fy = k => -12 - (k - 1) * 3, live = s => s.kind === 'feed' || s.kind === 'out';
-    const L0 = dr.lines[0], L1 = dr.lines[dr.lines.length - 1];
-    G.tx(0, 4, mn.name + ' · ' + mn.closure + ' > DROP ' + (dr.d + 1) + ' (6F) · ' + L0.id + (L1 !== L0 ? '-' + L1.id : '') + ' · MAIN FIBERS F' + fmtRanges(dr.lines.map(l => l.fDist)), 2.4, 'TEXT', { bold: true });
-    G.rect(0, fy(6) - 4, 8, fy(1) - fy(6) + 8, 'CLOSURE_BOX'); G.tx(4, fy(1) + 6, mn.closure, 1.5, 'TEXT', { al: 'c', bold: true });
-    for (let k = 1; k <= 6; k++) { const s = dr.start[k - 1]; G.tx(10, fy(k), String(k), 1.6, 'TEXT', { va: 'm' }); if (s.kind === 'feed') G.tx(13, fy(k) + 1.2, s.ln.id + ' F' + s.ln.fDist + '-' + mn.size + 'C', 1.1, 'FIBER_USED'); }
-    G.tx(13, fy(1) + 1.2, 'DROP 6F', 1.2, 'TEXT');
-    let prevX = 8; const seg = (x1, x2, st) => { for (let k = 1; k <= 6; k++) G.ln(x1, fy(k), x2, fy(k), live(st[k - 1]) ? 'FIBER_USED' : 'FIBER'); };
-    dr.boxes.forEach((bx, i) => {
-      const x = X0 + i * P, nap = bx.nap, first = nap.j === 0;
-      seg(prevX === 8 ? 12 : prevX, x, bx.before);
-      G.rect(x, -64, BW, 58, 'NAP', { lw: 0.35 }); G.tx(x, -4.6, nap.id + ' (' + nap.ports + 'P)', 1.9, 'TEXT', { bold: true });
-      for (let k = 1; k <= 6; k++) {
-        const tapped = bx.taps.includes(k), gets = bx.placed.find(p => p.k === k);
-        if (tapped) G.frect(x + 0.6, fy(k) - 1.15, 2.6, 2.3, 'HILITE');
-        G.tx(x + 1.9, fy(k), String(k), 1.4, 'TEXT', { al: 'c', va: 'm' }); G.tx(x + BW - 1.4, fy(k), String(k), 1.4, 'TEXT', { al: 'c', va: 'm' });
-        if (tapped || gets) { G.ln(x + 3.4, fy(k), x + 4.6, fy(k), live(bx.before[k - 1]) ? 'FIBER_USED' : 'FIBER'); if (!tapped) G.ln(x + 4.6, fy(k) - 0.9, x + 4.6, fy(k) + 0.9, 'FIBER'); }
-        else G.ln(x + 3.4, fy(k), x + BW - 2.8, fy(k), live(bx.before[k - 1]) ? 'FIBER_USED' : 'FIBER');
-      }
-      const b8 = nap.ports / 8, c8 = j => x + 24 + j * 9.4, y8 = -55;
-      for (let j = 0; j < b8; j++) { G.rect(c8(j) - 4, y8, 8, 5, 'SPLITTER'); G.tx(c8(j), y8 + 2.5, '1:8', 1.7, 'SPLITTER', { al: 'c', va: 'm' }); }
-      G.tx(x + 24 + (b8 - 1) * 4.7, -61.6, nap.ports === 16 ? 'DNAP' : 'SNAP', 1.5, 'TEXT', { al: 'c', bold: true });
-      if (first) {
-        const sx = x + 11, yo = o => -33 - (o - 1) * 3.4, yin = -39.2;
-        G.rect(sx, -47.5, 5, 16.5, 'SPLITTER'); G.tx(sx + 2.5, -39.2, '1:4', 1.8, 'SPLITTER', { al: 'c', va: 'm', rot: 90 });
-        const k = bx.taps[0], lx = x + 5.6; G.pl([[x + 4.6, fy(k)], [lx, fy(k)], [lx, yin], [sx, yin]], 'FIBER_USED');
-        for (let o = 1; o <= 4; o++) G.tx(sx + 6, yo(o) + 0.6, String(o), 1.2, 'TEXT');
-        nap.outs.forEach((o, j) => G.pl([[sx + 5, yo(o)], [c8(j), yo(o)], [c8(j), y8 + 5]], 'FIBER_USED'));
-        bx.placed.forEach((p, j) => { const xr = x + 19 + j * 1.7; G.pl([[sx + 5, yo(p.o)], [xr, yo(p.o)], [xr, fy(p.k)], [x + BW - 2.8, fy(p.k)]], 'FIBER_USED'); });
-        bx.ln.spare.forEach(o => { G.ln(sx + 5, yo(o), sx + 8.4, yo(o), 'FIBER'); G.ln(sx + 8.4, yo(o) - 0.9, sx + 8.4, yo(o) + 0.9, 'FIBER'); });
-      } else {
-        bx.taps.forEach((k, j) => { const lx = x + 5.6 + j * 1.6; G.pl([[x + 4.6, fy(k)], [lx, fy(k)], [lx, -46 - j * 1.6], [c8(j), -46 - j * 1.6], [c8(j), y8 + 5]], 'FIBER_USED'); });
-      }
-      G.tx(x + BW / 2, -67.5, '(' + nap.no + ') ' + (nap.pole || 'NO POLE ID') + (nap.poleType ? ' · ' + nap.poleType : ''), 1.6, 'TEXT', { al: 'c' });
-      prevX = x + BW;
+  const WHITE = { rgb: '#ffffff', aci: 7 };
+  function junaBlock(B, sub, all, groups) {
+    const G = new Gfx(), GAP = 1.1, BW = 24, PITCH = 31, SUBDY = 34, fd = B.fd, inSub = new Set(sub);
+    const dropNo = new Map(); let no = 0; all.forEach(mn => mn.drops.forEach(dr => dropNo.set(dr, ++no)));
+    const working = (dr, pos) => !!dr && pos >= 2 && pos <= dr.lines.length + 1;
+    /* the rows: one per 6F drop, top to bottom; y is the drop's fiber 1 */
+    const rows = []; let y = 0;
+    sub.forEach(mn => mn.drops.forEach(dr => { const s2 = dr.lines.some(l => l.naps.length > 1); rows.push({ mn, dr, y, sub: s2 }); y -= 27 + (s2 ? SUBDY : 0) + 11; }));
+    const byDrop = new Map(rows.map(r => [r.dr, r])), lowY = Math.min(...rows.map(r => r.y - 25 - (r.sub ? SUBDY : 0)));
+    /* the ODF: the assigned ports one by one, the others grouped */
+    const assigned = new Map(); all.forEach(mn => (fd.use ? mn.feedF : mn.odfP).forEach((p, j) => assigned.set(p, { mn, j })));
+    const top = Math.max(+B.olt.odfSize || 0, ...assigned.keys(), 1), orows = [];
+    /* the ports of the mains on this sheet one by one; another sheet's main and the spare ports, one row each */
+    const key = p => { const a = assigned.get(p); return !a ? 'spare' : inSub.has(a.mn) ? null : a.mn.id; };
+    for (let p = 1; p <= top;) {
+      const k = key(p); if (k === null) { orows.push({ p, a: assigned.get(p), t: String(p) }); p++; continue; }
+      let q = p; while (q + 1 <= top && key(q + 1) === k) q++; const o = k === 'spare' ? null : assigned.get(p).mn;
+      orows.push({ p, other: o, t: (p === q ? String(p) : p + '-' + q) + (o ? ' > ' + o.name : '') }); p = q + 1;
+    }
+    const lineN = mn => 6 * mn.drops.length + (fd.use ? 2 : 0), widths = sub.map(mn => (lineN(mn) - 1) * GAP), stackH = widths.reduce((a, w) => a + w, 0) + 4 * (sub.length - 1);
+    const odfH = orows.length * GAP + 6, xc = 66, rx = 18, ry = Math.max(orows.length * GAP, stackH) / 2 + 7, yc = lowY - 16 - Math.max(odfH, 2 * ry) / 2;
+    orows.forEach((r, i) => { r.y = yc + odfH / 2 - 3 - i * GAP; r.live = r.a ? working(r.a.mn.drops[Math.floor(r.a.j / 6)], r.a.j % 6 + 1) : !!r.other; });
+    const yOfPort = new Map(orows.filter(r => r.a).map(r => [r.p, r.y]));
+    G.frect(0, yc - odfH / 2, 16, odfH, 'HILITE', { col: WHITE }); G.rect(0, yc - odfH / 2, 16, odfH, 'NAP', { lw: 0.45 });
+    G.tx(5, yc, 'PROP. ODF', 1.5, 'TEXT', { al: 'c', va: 'm', rot: 90, bold: true });
+    G.txs(8, yc + odfH / 2 + 4, [{ s: B.olt.name.toUpperCase(), o: { bold: true } }, String(B.olt.odf).toUpperCase() + ' · ' + top + ' PORTS'], 1.3, 'TEXT', { al: 'c' });
+    orows.forEach(r => G.tx(15.4, r.y, r.t, 0.7, r.live ? 'FIBER_USED' : 'TEXT', { al: 'r', va: 'm' }));
+    const elsewhere = groups && groups.length > 1 ? groups.filter(g => g !== sub).flat() : [];
+    if (fd.use) {
+      orows.forEach(r => { const end = r.a && inSub.has(r.a.mn) ? xc - 6 : xc - 10; G.ln(16, r.y, end, r.y, r.live ? 'FIBER_USED' : 'FIBER'); if (end !== xc - 6) cap(G, end, r.y); });
+      ellipse(G, 31, yc, 1.3, orows.length * GAP / 2 + 2, 'NAP');
+      G.txs(31, yc - orows.length * GAP / 2 - 4.5, [{ s: String(fd.name).toUpperCase() + ' · ' + fd.size + 'C', o: { bold: true } }, 'FEEDER DISTRIBUTION CABLE'], 1.1, 'TEXT', { al: 'c' });
+      ellipse(G, xc, yc, rx, ry, 'NAP', { lw: 0.35 });
+      G.txs(xc, yc - ry - 2.6, [{ s: String(fd.closure).toUpperCase(), o: { bold: true } }].concat(elsewhere.length ? ['ALSO ' + elsewhere.map(m => m.name).join(', ') + ': OTHER SHEET'] : []), 1.3, 'TEXT', { al: 'c' });
+    } else orows.forEach(r => { if (!r.a || !inSub.has(r.a.mn)) { G.ln(16, r.y, 21, r.y, r.live ? 'FIBER_USED' : 'FIBER'); cap(G, 21, r.y); } });
+    /* each main: from the closure (or its ODF ports) to its own closure */
+    let yS = yc + stackH / 2, xt = fd.use ? xc + 30 : 32; const P = [];
+    sub.forEach((mn, k) => {
+      const w = widths[k], yE = yS - w / 2; yS -= w + 4;
+      const y0 = fd.use ? yE : (yOfPort.get(mn.odfP[0]) + yOfPort.get(mn.odfP[mn.odfP.length - 1])) / 2;
+      P.push({ mn, w, N: lineN(mn), y0, xTurn: xt + w / 2 }); xt += w + 5;
     });
-    const xe = prevX + 7; seg(prevX, xe, dr.end); for (let k = 1; k <= 6; k++) G.ln(xe, fy(k) - 0.9, xe, fy(k) + 0.9, 'FIBER');
-    G.tx(xe + 1.5, fy(1) + 1.2, 'END', 1.3, 'NOTE');
-    return block(G);
+    const xD = Math.max(...P.map(p => p.xTurn + p.w / 2)) + 50, wD = 26, xs = fd.use ? xc + 6 : 16;
+    P.forEach(p => {
+      const mn = p.mn, rk = rows.filter(r => r.mn === mn), yEn = (rk[0].y + rk[rk.length - 1].y - 5 * GAP) / 2;
+      const pts = Math.abs(yEn - p.y0) < 0.01 ? [[xs, p.y0], [xD, p.y0]] : [[xs, p.y0], [p.xTurn, p.y0], [p.xTurn, yEn], [xD, yEn]];
+      for (let j = 0; j < p.N; j++) {
+        const rest = j >= 6 * mn.drops.length, di = Math.floor(j / 6), pos = j % 6 + 1, live = !rest && working(mn.drops[di], pos), lay = live ? 'FIBER_USED' : 'FIBER';
+        const pp = offsetPath(pts, ((p.N - 1) / 2 - j) * GAP);
+        if (rest) { pp[0] = [fd.use ? xc + 9 : 20, pp[0][1]]; cap(G, pp[0][0], pp[0][1]); }
+        G.pl(pp, lay);
+        if (fd.use && !rest) { const yo = yOfPort.get(mn.feedF[j]); if (yo != null) { G.pl([[xc - 6, yo], [xc - 3, yo], [xc + 3, pp[0][1]], [xs, pp[0][1]]], lay); G.ci(xc, (yo + pp[0][1]) / 2, 0.3, 'SPLICE', { fill: true }); } }
+        const ye = pp[pp.length - 1][1];
+        if (rest) { G.ln(xD, ye, xD + 3, ye, 'FIBER'); cap(G, xD + 3, ye); continue; }
+        const yx = byDrop.get(mn.drops[di]).y - (pos - 1) * GAP;
+        G.pl([[xD, ye], [xD + 6, ye], [xD + wD - 6, yx], [xD + wD, yx]], lay);
+      }
+      const xl = p.xTurn + p.w / 2 + 2, yl = yEn + p.w / 2 + 1.5;
+      G.tx(xl, yl + 2, mn.name + ' · ' + mn.size + 'C DISTRIBUTION CABLE', 1.15, 'TEXT', { bold: true });
+      G.tx(xl, yl, 'FIBER SPLICING ASSIGNMENT: ' + (fd.use ? fmtRanges(mn.feedF) + ' (' + fd.size + 'C)' : 'ODF ' + fmtRanges(mn.odfP)) + ' > ' + fmtRanges(mn.distUsed) + ' (' + mn.size + 'C)', 1.0, 'TEXT');
+      ellipse(G, xD - 7, yEn, 1.1, p.w / 2 + 1.5, 'NAP');
+      const bt = Math.max(rk[0].y + 5, yEn + p.w / 2 + 3), bb = Math.min(rk[rk.length - 1].y - 5 * GAP - 5, yEn - p.w / 2 - 3);
+      G.rect(xD, bb, wD, bt - bb, 'CLOSURE_BOX'); G.tx(xD, bt + 1.2, mn.closure, 1.2, 'TEXT', { bold: true });
+    });
+    /* each drop: its fibers through the line's N01, the line's next NAPs on a branch below */
+    rows.forEach(r => {
+      const dr = r.dr, y0 = r.y, fy = k => y0 - (k - 1) * GAP, st = seq(1, 6).map(() => 'spare'), x0 = xD + wD;
+      dr.lines.forEach(ln => { st[ln.fDrop - 1] = 'feed'; });
+      G.tx(x0 + 1.5, y0 + 1.5, String(dropNo.get(dr)), 3.2, 'TEXT'); G.tx(x0 + 5.2, y0 + 0.5, 'DROP 6F', 0.85, 'TEXT');
+      const seg = (x1, x2) => { for (let k = 1; k <= 6; k++) G.ln(x1, fy(k), x2, fy(k), st[k - 1] === 'feed' ? 'FIBER_USED' : 'FIBER'); };
+      let prev = x0, x = x0 + 13;
+      dr.lines.forEach(ln => {
+        seg(prev, x); const nap = ln.naps[0], k0 = ln.fDrop, yo = o => y0 - 10 - (o - 1) * 2;
+        napFrame(G, x, y0, nap, BW);
+        G.frect(x + 0.15, fy(k0) - 0.5, 1.1, 1, 'HILITE');
+        for (let k = 1; k <= 6; k++) { G.tx(x + 0.7, fy(k), String(k), 0.7, 'TEXT', { al: 'c', va: 'm' }); G.tx(x + BW - 0.7, fy(k), String(k), 0.7, 'TEXT', { al: 'c', va: 'm' }); if (k !== k0) G.ln(x + 1.4, fy(k), x + BW - 1.4, fy(k), st[k - 1] === 'feed' ? 'FIBER_USED' : 'FIBER'); }
+        G.pl([[x + 1.4, fy(k0)], [x + 2.6, fy(k0)], [x + 2.6, y0 - 13], [x + 5, y0 - 13]], 'FIBER_USED');
+        G.rect(x + 5, y0 - 17, 2.6, 8, 'SPLITTER'); G.tx(x + 6.3, y0 - 13, '1:4', 1, 'SPLITTER', { al: 'c', va: 'm', rot: 90 });
+        for (let o = 1; o <= 4; o++) G.tx(x + 8, yo(o) + 0.45, String(o), 0.6, 'TEXT');
+        const c8 = j => x + 14.1 + j * 6; split8(G, nap, c8, y0);
+        nap.outs.forEach((o, j) => G.pl([[x + 7.6, yo(o)], [c8(j), yo(o)], [c8(j), y0 - 17.5]], 'FIBER_USED'));
+        ln.spare.forEach(o => { G.ln(x + 7.6, yo(o), x + 9, yo(o), 'FIBER'); cap(G, x + 9, yo(o)); });
+        st[k0 - 1] = 'dead';
+        const down = ln.naps.slice(1);
+        if (down.length) {
+          const ys = y0 - SUBDY, sfy = f => ys - (f - 1) * GAP, live = seq(1, ln.subFibers).map(() => true); let i = 0;
+          down.forEach(nn => nn.outs.forEach((o, t) => { const lane = x + 9.6 + i * 0.8, f = nn.via[t]; G.pl([[x + 7.6, yo(o)], [lane, yo(o)], [lane, sfy(f)], [x + 14, sfy(f)]], 'FIBER_USED'); i++; }));
+          down.forEach((nn, j) => {
+            const xs2 = x + 14 + j * PITCH, c82 = t => xs2 + 14.1 + t * 6;
+            if (j) for (let f = 1; f <= ln.subFibers; f++) G.ln(xs2 - PITCH + BW, sfy(f), xs2, sfy(f), live[f - 1] ? 'FIBER_USED' : 'FIBER');
+            napFrame(G, xs2, ys, nn, BW);
+            nn.via.forEach(f => G.frect(xs2 + 0.15, sfy(f) - 0.5, 1.1, 1, 'HILITE'));
+            for (let f = 1; f <= ln.subFibers; f++) {
+              G.tx(xs2 + 0.7, sfy(f), String(f), 0.7, 'TEXT', { al: 'c', va: 'm' }); G.tx(xs2 + BW - 0.7, sfy(f), String(f), 0.7, 'TEXT', { al: 'c', va: 'm' });
+              if (!nn.via.includes(f)) G.ln(xs2 + 1.4, sfy(f), xs2 + BW - 1.4, sfy(f), live[f - 1] ? 'FIBER_USED' : 'FIBER');
+            }
+            split8(G, nn, c82, ys);
+            nn.via.forEach((f, t) => { const lane = xs2 + 2.6 + t * 0.8, yy = ys - 14.6 - t * 0.8; G.pl([[xs2 + 1.4, sfy(f)], [lane, sfy(f)], [lane, yy], [c82(t), yy], [c82(t), ys - 17.5]], 'FIBER_USED'); live[f - 1] = false; });
+            if (j === down.length - 1) for (let f = 1; f <= ln.subFibers; f++) { G.ln(xs2 + BW, sfy(f), xs2 + BW + 3, sfy(f), 'FIBER'); cap(G, xs2 + BW + 3, sfy(f)); }
+          });
+        }
+        prev = x + BW; x += PITCH * Math.max(1, down.length);
+      });
+      seg(prev, prev + 5); for (let k = 1; k <= 6; k++) cap(G, prev + 5, fy(k));
+    });
+    return block(G, 'SPLICING DETAILS');
+  }
+  function napFrame(G, x, y0, nap, BW) {
+    const bt = y0 + 3.5, bb = y0 - 23.5;
+    G.frect(x, bb, BW, bt - bb, 'HILITE', { col: WHITE }); G.rect(x, bb, BW, bt - bb, 'NAP', { lw: 0.3 });
+    G.tx(x, bt + 0.9, nap.id + ' (' + nap.ports + 'P)', 1.15, 'TEXT', { bold: true });
+    G.tx(x + BW / 2, bb - 1.5, '(' + nap.no + ') ' + (nap.pole || 'NO POLE ID') + (nap.poleType ? ' · ' + nap.poleType : ''), 0.95, 'TEXT', { al: 'c' });
+  }
+  function split8(G, nap, c8, y0) {
+    const b8 = nap.ports / 8;
+    for (let j = 0; j < b8; j++) { G.rect(c8(j) - 2.6, y0 - 20.5, 5.2, 3, 'SPLITTER'); G.tx(c8(j), y0 - 19, '1:8', 0.95, 'SPLITTER', { al: 'c', va: 'm' }); }
+    G.tx((c8(0) + c8(b8 - 1)) / 2, y0 - 22.4, b8 === 2 ? 'DNAP' : 'SNAP', 0.85, 'TEXT', { al: 'c', bold: true });
+  }
+  /* the reference grid over the drawing area: A-01, B-01 … */
+  function refGrid(A, cols, rows) {
+    const G = new Gfx(), cw = (A.x1 - A.x0) / cols, rh = (A.y1 - A.y0) / rows, light = { rgb: '#c4c9cf', aci: 9 };
+    for (let i = 0; i <= cols; i++) G.ln(A.x0 + i * cw, A.y0, A.x0 + i * cw, A.y1, 'GRID');
+    for (let j = 0; j <= rows; j++) G.ln(A.x0, A.y0 + j * rh, A.x1, A.y0 + j * rh, 'GRID');
+    for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) G.tx(A.x0 + (i + 0.5) * cw, A.y1 - (j + 1) * rh + 6, String.fromCharCode(65 + i) + '-' + pad(j + 1, 2), 13, 'GRID', { al: 'c', col: light });
+    return G.p;
   }
   function bbLegend() {
     const G = new Gfx(); G.tx(0, 6, 'LEGEND:', 2.2, 'LEGEND', { bold: true });
@@ -634,7 +692,7 @@
         else { const leg = accessLegend(plan); list.push(...sheetsOf(paginate([accessSLD(plan)], { area: { x0: AREA.x0, y0: AREA.y0 + 20, x1: AREA.x1, y1: AREA.y1 }, center: true, grow: 1.45 }), head, () => leg ? xf(leg.prims, 1, AREA.x0, AREA.y0 + 13) : [])); }
       } else {
         const leg = bbLegend();
-        if (v === 'detailed') list.push(...sheetsOf(paginate(bbDetailed(plan), { area: { x0: AREA.x0, y0: AREA.y0 + 16, x1: AREA.x1, y1: AREA.y1 } }), head, () => xf(leg.prims, 1, AREA.x0, AREA.y0 + 7)));
+        if (v === 'detailed') { const A = { x0: AREA.x0, y0: AREA.y0 + 16, x1: AREA.x1, y1: AREA.y1 }; bbDetailed(plan).forEach(b => list.push(...sheetsOf(paginate([b], { area: A, center: true, grow: 1.6 }), head, () => xf(leg.prims, 1, AREA.x0, AREA.y0 + 7)).map(sh => Object.assign(sh, { prims: refGrid(A, 3, 2).concat(sh.prims) })))); }
         else list.push(...sheetsOf(paginate([bbSLD(plan)], { area: { x0: AREA.x0, y0: AREA.y0 + 16, x1: AREA.x1, y1: AREA.y1 }, center: true, grow: 1.45 }), head, () => xf(leg.prims, 1, AREA.x0, AREA.y0 + 7)));
       }
     }
