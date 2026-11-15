@@ -28,6 +28,7 @@ A push that changes only `.md` files skips the APK builds. A push to `main` alwa
 - Never push to `main` or `beta` unless the owner has said so for that change.
 - Never force-push `main` or `beta`, and never delete a branch without asking.
 - After editing any app file, change `VERSION` in `sw.js` (see the note at the top of that file) so phones and browsers fetch the new files. Ask the owner which number to use.
+- On beta the number appears twice: `VERSION` in `sw.js` (`…-b4.5`) and `APP_BETA` in `app.js` (`'4.5'`, the "BETA 4.5" badge in the app). Change both together. `APP_BETA` is shown only in the beta app, so it can stay as it is on `main`.
 - Keep usage down: don't read the very large files (`app.js`, `index.html`, `dxftpl.js`, `README.md`) in full. Search them and read only the parts the task needs.
 - This repository is public. Never commit the owner's reference drawings, templates or other confidential files; keep notes about them instead.
 
