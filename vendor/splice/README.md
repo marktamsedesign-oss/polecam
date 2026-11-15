@@ -6,6 +6,7 @@ A demo of a new plan export: the **splicing details** of a project's fiber, as a
 |---|---|
 | `splice.js` | The engine: fiber assignment, the drawings (A3 sheets), and the writers (SVG preview, PDF, DXF R12, ZIP). No other library needed. |
 | `splice-demo.html` | The demo page: made-up samples, editable tables, preview, export. Open it beside `splice.js` (for example `/beta/vendor/splice/splice-demo.html` once it is on the beta website). |
+| `ask-demo.html`, `ask.js` | The **Ask & Draw** demo (the plan for the app): five made-up projects shaped like the app's data, a bridge to the engine, the live single line diagram on top and one plain question at a time below, tap-to-change, the fiber strip, As-Plan / As-Built (Mark tested), export. |
 
 Everything in the samples is made up: sites, codes, cable IDs, pole IDs and names.
 
