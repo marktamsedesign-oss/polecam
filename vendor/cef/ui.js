@@ -596,8 +596,8 @@ function checks() {
   if (cables(S).some(q => q.ug.pts.length > 1) && !S.els.some(e => e.t === 'odf' || (e.t === 'cabin' && e.inside && e.inside.els.some(q => q.t === 'odf')))) c.push([0, 'No ODF on the plan for the UG fiber to end on.']);
   { const d = details(S); c.push(d.length ? [1, 'Details sheet: ' + d.map(q => q.title.toLowerCase()).join('; ') + '.'] : [0, 'No details sheet: no cabin has anything sketched inside, and no outdoor cabinet holds an ODF.']); }
   c.push(S.photos.length ? [np ? 0 : 1, S.photos.length + ' photo' + (S.photos.length === 1 ? '' : 's') + (np ? ', ' + np + ' not marked on the plan.' : ', all marked on the plan.')] : [0, 'No photos added.']);
-  { const H = hidList(false), ni = H.rows.filter(r => r.g === 'it').length, nn = H.rows.filter(r => r.g === 'nm').length;      /* (14 Nov; 15 Nov: names too, and the way back is the "N hidden" button) */
-    if (ni || nn) c.push([0, [ni ? ni + (ni === 1 ? ' item' : ' items') : '', nn ? nn + (nn === 1 ? ' name' : ' names') : ''].filter(Boolean).join(' and ') + ' hidden: not on the sheets' + (ni ? '. Hidden items still count in the table' : '') + '. Tap “' + H.n + ' hidden” over the drawing to show ' + (ni + nn === 1 ? 'it' : 'them') + ' again.']); }
+  { const H = hidList(false), ni = H.rows.filter(r => r.g === 'it').length, nn = H.rows.filter(r => r.g === 'nm').length;      /* (14 Nov; 15 Nov: names too, and the way back is the orange eye button) */
+    if (ni || nn) c.push([0, [ni ? ni + (ni === 1 ? ' item' : ' items') : '', nn ? nn + (nn === 1 ? ' name' : ' names') : ''].filter(Boolean).join(' and ') + ' hidden: not on the sheets' + (ni ? '. Hidden items still count in the table' : '') + '. Tap the orange eye over the drawing to show ' + (ni + nn === 1 ? 'it' : 'them') + ' again.']); }
   if (S.sample) c.push([0, 'This is still the sample site. The sheets will say so.']);
   return c;
 }
@@ -694,7 +694,7 @@ function labInfo(key) {
   const lp = /^loop(\d+)(~.+)?$/.exec(key), fm = /^(ae|ug)(~.+)?$/.exec(key), ckN = sfx => Math.max(0, cables(S).findIndex((q, i) => cableKey(S, i) === (sfx || ''))), rec = S.lab[key] || {}, def = fm ? focName(S, routeGeom(S), fm[1], ckN(fm[2])) : /^clo(~.+)?$/.test(key) ? 'PROPOSED CLOSURE' : /^exit/.test(key) ? 'PROPOSED RISER PIPE' : /^riser/.test(key) ? 'PROPOSED G.I. RISER PIPE' : /^ugd/.test(key) ? 'PROPOSED U-GUARD' : /^port/.test(key) ? 'PORTHOLE' : /^gate/.test(key) ? (S.room ? 'DOOR' : 'GATE') : lp ? 'LOOP HOLDER W/ ' + f2(num((RTc(ckN(lp[2])).ae.pts[+lp[1]] || {}).loop, 0)) + 'm LOOP' : '';
   return { name: key === 'ae' ? 'AE fiber' : key === 'ug' ? 'UG fiber' : /^clo(~.+)?$/.test(key) ? 'Closure' : /^exit/.test(key) ? 'Exit conduit' : /^padx/.test(key) ? 'Exit pipe in base pad' : /^riser/.test(key) ? 'Riser pipe' : /^ugd/.test(key) ? 'U-guard' : /^port/.test(key) ? 'Porthole' : /^gate/.test(key) ? (S.room ? 'Door' : 'Gate') : lp ? 'Loop' : 'Label', cur: rec.t || '', def };
 }
-/* (15 Nov) what is hidden on a level (the site, or the inside of a cabin), for the "N hidden" button and its card.
+/* (15 Nov) what is hidden on a level (the site, or the inside of a cabin), for the orange eye button and its card.
    labLive: a name the user hid that still belongs to something; one left behind by a deleted item is not counted. A name the app makes for a thing it no longer
    draws (a length, the exit, the riser) is kept: showing it does no harm. The PROPOSED CLOSURE counts only while the app draws it (gq: the cable, worked out only then). */
 function labLive(T, k, gq) {
@@ -722,8 +722,8 @@ function hidList(text) {
   if (!T.room) for (const c of T.els) if (c.t === 'cabin' && c.inside) { const n = hidCount(c.inside) + hidKeys(c.inside, () => ({ joins: [] })).length; if (n) rows.push({ g: 'cab', a: 'room-in', id: c.id, w: n, icon: 'cabin', t: text ? elLabel(T, c) || TYPES.cabin.n : '', sub: n + ' hidden inside' }); }
   return { rows, n: rows.reduce((a, r) => a + r.w, 0) };
 }
-/* (15 Nov) the message after a hide points to the "N hidden" button; on a phone with the form raised over that button, to the eye that was just tapped */
-const hidSay = w => w + (document.body.classList.contains('phone') && sheet !== 'peek' ? ' Tap the eye again to show it.' : ' Tap “' + hidList(false).n + ' hidden” to show it again.');
+/* (15 Nov) the message after a hide points to the orange eye button; on a phone with the form raised over that button, to the eye that was just tapped */
+const hidSay = w => w + (document.body.classList.contains('phone') && sheet !== 'peek' ? ' Tap the eye again to show it.' : ' Tap the orange eye to show it again.');
 function labBox() {
   if (!sel || sel.k !== 'lab') return ''; const q = labInfo(sel.key), rec = S.lab[sel.key] || {}, moved = ['p', 'i0', 'i1', 'i2', 'i3'].some(v => Array.isArray(rec[v]));
   let h = '<div class="insp"><div class="insp-h"><b>Label · ' + esc(q.name) + '</b>' + eyeBtn(sel.key) + (q.item ? '<button class="b s" data-a="lab-item">Edit the item</button>' : '') + '<button class="b s" data-a="lab-reset"' + (moved ? '' : ' disabled') + '>Put it back</button></div>';
@@ -813,7 +813,7 @@ function drawOpts() {
     else if (mode === 'run' && runOpt[runKind]) { runOpt[runKind][f] = val; drawOpts(); } });
   n.addEventListener('change', e => { const t = e.target, k = t.dataset && t.dataset.k; if (k && !VIEW && applyField(k, t)) refresh(true); });
 } }
-/* (15 Nov) the card of the "N hidden" button: each thing that is hidden, one large button to show it again. Every Show goes through the eye of the item or
+/* (15 Nov) the card of the orange eye button: each thing that is hidden, one large button to show it again. Every Show goes through the eye of the item or
    of the name (it-eye, lab-eye), so Undo, saving and the sheets work as they do there. On a view-only plan the list is greyed: only the screen-only Names and Open work. */
 function hidTray(L) {
   const row = r => { const live = !VIEW || r.a === 'tool-names' || r.a === 'room-in';
@@ -829,9 +829,9 @@ function hidFocus() { const pop = $('#tbpop'), b = $('#bHid'), f = hidOpen && po
 function drawStrip() {
   const tb = document.getElementById('tb'), pop = document.getElementById('tbpop'); if (!tb || !pop) return;
   if (mode !== 'select') hidOpen = false;      /* (15 Nov) a drawing tool, started from a form too, closes the card */
-  const HL = hidList(hidOpen), hb = $('#bHid');      /* (15 Nov) the "N hidden" button: there whenever something is hidden on this level; it pulses when the count goes up */
+  const HL = hidList(hidOpen), hb = $('#bHid');      /* (15 Nov) the orange eye button: there whenever something is hidden on this level; it pulses when the count goes up */
   if (hb) { if (hidS !== S) { hidS = S; hidN0 = -1; } const n = HL.n; hb.hidden = !n; hb.classList.toggle('mini', mode !== 'select'); hb.setAttribute('aria-pressed', String(hidOpen && n > 0));
-    if (n) { hb.innerHTML = ico('eyeoff') + '<b>' + n + '</b><span>hidden</span>'; const tt = n === 1 ? '1 thing is hidden. Tap to see it and show it again.' : n + ' things are hidden. Tap to see them and show them again.'; hb.title = tt; hb.setAttribute('aria-label', tt);
+    if (n) { hb.innerHTML = ico('eyeoff');      /* (15 Nov, owner: the icon only) */ const tt = n === 1 ? '1 thing is hidden. Tap to see it and show it again.' : n + ' things are hidden. Tap to see them and show them again.'; hb.title = tt; hb.setAttribute('aria-label', tt);
       if (hidN0 >= 0 && n > hidN0) { hb.classList.remove('pulse'); void hb.offsetWidth; hb.classList.add('pulse'); } }
     hidN0 = n; }
   if (!HL.n) hidOpen = false; pop.classList.toggle('hid', hidOpen);
@@ -856,7 +856,7 @@ function drawStrip() {
   if (hidOpen) pop.innerHTML = hidTray(HL);
   pop.hidden = !(palOpen || expOpen || hidOpen);
 }
-{ const v = document.getElementById('views'); if (v) v.addEventListener('pointerdown', e => { if ((palOpen || expOpen || hidOpen) && !(e.target.closest && e.target.closest('#tbpop, #bHid'))) { palOpen = expOpen = hidOpen = false; drawStrip(); } }, true); }      /* a tap on the drawing beside the tray closes the tray (the "N hidden" button opens and closes its own) */
+{ const v = document.getElementById('views'); if (v) v.addEventListener('pointerdown', e => { if ((palOpen || expOpen || hidOpen) && !(e.target.closest && e.target.closest('#tbpop, #bHid'))) { palOpen = expOpen = hidOpen = false; drawStrip(); } }, true); }      /* a tap on the drawing beside the tray closes the tray (the orange eye button opens and closes its own) */
 for (const id of ['tb', 'tbpop']) { const n = document.getElementById(id); if (n) n.addEventListener('click', e => {
   const b = e.target.closest('[data-a]'); if (!b || b.disabled) return; const a = b.dataset.a;
   if (!b.closest('#tbpop')) hidOpen = false;      /* (15 Nov) a tool closes the card of what is hidden; a row of the card keeps it open */
@@ -1887,7 +1887,7 @@ const PH = { on: null };
 function phoneDom() {
   const ph = !wide(); if (ph === PH.on) return; const first = PH.on === null; PH.on = ph;
   if (first) Object.assign(PH, { seg: $('#segView'), tools: document.querySelector('.tools'), turn: $('#bTurn'), fit: $('#bFit'), tb: $('#tb'), status: $('#status'), stage: document.querySelector('.stage'), views: $('#views'), bar: document.querySelector('.bar'), app: document.querySelector('.app'), shd: $('#shd'), fab: $('#fab'), hid: $('#bHid') });
-  if (ph) { PH.bar.insertBefore(PH.seg, $('#who')); PH.fab.append(PH.hid, PH.turn, PH.fit); PH.app.appendChild(PH.tb); PH.shd.insertBefore(PH.status, PH.shd.querySelector('.shc')); }      /* (15 Nov) the "N hidden" button: over Turn and Fit on a phone, left of Turn on a computer */
+  if (ph) { PH.bar.insertBefore(PH.seg, $('#who')); PH.fab.append(PH.hid, PH.turn, PH.fit); PH.app.appendChild(PH.tb); PH.shd.insertBefore(PH.status, PH.shd.querySelector('.shc')); }      /* (15 Nov) the orange eye button: over Turn and Fit on a phone, left of Turn on a computer */
   else { PH.tools.insertBefore(PH.seg, PH.tools.firstChild); PH.tools.insertBefore(PH.turn, $('#bOut')); PH.tools.insertBefore(PH.hid, PH.turn); PH.tools.appendChild(PH.fit); PH.stage.insertBefore(PH.tb, PH.views); PH.stage.appendChild(PH.status); }
   document.body.classList.toggle('phone', ph);
   if (!first) { needFit.top = needFit.iso = needFit.sheets = true; sheetCk = null; }
