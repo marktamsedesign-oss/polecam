@@ -1119,6 +1119,7 @@ function buildIso0(S, o) {
       }
       return false;
     };
+    for (let i = jobs.length - 1; i >= 0; i--) if ((labRec(S, jobs[i].key) || {}).off) jobs.splice(i, 1);      /* beta 4.1: a name the user hid (15 Nov: first, so that one that was dragged is left out too) */
     /* 1. labels the user moved */
     for (const jb of jobs) {
       const off = labOff(S, jb.key, VK); if (!off) continue; const c = [jb.ap[0] + off[0], jb.ap[1] + off[1]]; jb.done = 1;
@@ -1127,14 +1128,13 @@ function buildIso0(S, o) {
     }
     /* the site name and ID: beside the top of the tower, bold, larger than the other names. Level with the top, on the right, then the left, then above, then lower down the sides. */
     const tw = one ? null : titleTower(S), ta = tw && A3.find(q => q.k === 'el' && q.id === tw.id && q.pts);
-    if (ta) {
+    if (ta && !(labRec(S, 'tid') || {}).off) {      /* (15 Nov: not when its eye hides it) */
       const lines = titleLines(S), T2 = lines.join(' '), Q = ta.pts.map(P3), b = polyBox(Q), zt = Math.max.apply(null, ta.pts.map(q => q[2])), tp = Q.filter((q, i) => ta.pts[i][2] > zt - 0.6), bt = polyBox(tp.length ? tp : Q), ap = [(bt[0] + bt[2]) / 2, bt[3]], ks = txAuto(S) ? TITLE_K : TITLE_K.slice(0, 1);
       const cands = (w, hh) => { const o = []; for (let j = 0; j < 5; j++) { const d = gap * 1.5 + j * hh * 0.7; o.push({ p: [bt[2] + d + w / 2, bt[3] - hh / 2], a: 0 }, { p: [bt[0] - d - w / 2, bt[3] - hh / 2], a: 0 }); } o.push({ p: [ap[0], bt[3] + gap + hh / 2], a: 0 }); for (let k = 1; k <= 8; k++) { const y = b[3] - hh / 2 - k * hh * 1.3; if (y < b[1]) break; const xr = Math.max.apply(null, Q.filter(q => Math.abs(q[1] - y) < hh * 2).map(q => q[0]).concat([bt[2]])), xl = Math.min.apply(null, Q.filter(q => Math.abs(q[1] - y) < hh * 2).map(q => q[0]).concat([bt[0]])); o.push({ p: [xr + gap * 1.5 + w / 2, y], a: 0 }, { p: [xl - gap * 1.5 - w / 2, y], a: 0 }); } return o; };
       const off = labOff(S, 'tid', VK);
       if (off) LB.fixed('tid', lines, h * ks[0], 'tx', [ap[0] + off[0], ap[1] + off[1]], 0, ap, { bold: 1 });
       else if (!ks.some(k => LB.place(lines, h * k, 'tx', cands, true, 'tid', ap))) call.push({ key: 'tid', p: ap, bb: bt, lines, bold: 1, s: T2, st: 'E', w: 22 });
     }
-    for (let i = jobs.length - 1; i >= 0; i--) if ((labRec(S, jobs[i].key) || {}).off) jobs.splice(i, 1);      /* beta 4.1: a name the user hid */
     jobs.sort((p, q) => p.o - q.o);
     /* (beta 4.2, 22:24: in the detail of one cabinet the name of a rack item is no longer written on the side wall, slanted and in a box: it is level text with an arrow, like every other note) */
     /* 2. stickers on the bodies */

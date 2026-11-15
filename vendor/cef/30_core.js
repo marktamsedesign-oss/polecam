@@ -1560,8 +1560,8 @@ function buildTop(S, o) {
   let far = 0, skipped = 0;
   if (lab) {
     const F = [], late = [], ctr = [L / 2, W / 2]; let lostLen = 0; LB.fit(primBox(G.p), o.box); if (!o.tiny && !S.room) LB.ink(G.p, h);
+    for (let i = jobs.length - 1; i >= 0; i--) if ((labRec(S, jobs[i].key) || {}).off) jobs.splice(i, 1);      /* beta 4.1: a name the user hid (15 Nov: first, so that one that was dragged is left out too) */
     for (const jb of jobs) { const off = labOff(S, jb.key, 'p'); if (off) { LB.fixed(jb.key, jb.lines, h * (jb.hk ? TITLE_K[0] : 1), jb.lay, [jb.ap[0] + off[0], jb.ap[1] + off[1]], jb.a || 0, jb.ap, jb.bold ? { bold: 1 } : null); jb.done = 1; } }
-    for (let i = jobs.length - 1; i >= 0; i--) if ((labRec(S, jobs[i].key) || {}).off) jobs.splice(i, 1);      /* beta 4.1: a name the user hid */
     jobs.sort((p, q) => p.o - q.o || (p.area || 0) - (q.area || 0));
     /* A name goes on its item or beside it. When the size is automatic and there is no room, it is tried again smaller, down to what is still easy to read. Only then does it get a leader. */
     const HS = txAuto(S) ? TXS.map(k => h * k) : [h];
