@@ -177,6 +177,8 @@
   function dnapIcon(G, x, y, lay) { G.frect(x - 6, y - 4, 12, 8, 'HILITE', { col: { rgb: '#ffffff', aci: 7 } }); G.rect(x - 6, y - 4, 12, 8, lay, { lw: 0.5 }); G.tx(x, y, 'DNAP', 2, lay, { al: 'c', va: 'm', bold: true }); }
   function ellipse(G, cx, cy, rx, ry, lay, o) { G.pl(seq(0, 40).map(i => [cx + rx * Math.cos(i * Math.PI / 20), cy + ry * Math.sin(i * Math.PI / 20)]), lay, Object.assign({}, o, { close: true })); }
   const cap = (G, x, y) => G.ln(x, y - 0.45, x, y + 0.45, 'FIBER');
+  /* a fiber's number, just above its line where the line meets an enclosure, a NAP or a dummy NAP */
+  const fnum = (G, x, y, s, al, lay) => G.tx(x, y + 0.2, String(s), 0.62, lay || 'TEXT', { al: al || 'l' });
   /* a line parallel to an orthogonal path, d to its left (mitred corners, so a bundle of fibers turns as one) */
   function offsetPath(pts, d) {
     const nrm = (a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1; return [-dy / L, dx / L]; };
@@ -436,13 +438,17 @@
         const pts = Math.abs(yt - ys) < 0.01 ? [[xs, ys], [xt, yt]] : [[xs, ys], [xT, ys], [xT, yt], [xt, yt]];
         L.forEach((ln, j) => {
           const pp = offsetPath(pts, ((N - 1) / 2 - j) * GAP);
-          if (ln.rest) { pp[0] = [pp[0][0] + 3, pp[0][1]]; pp[pp.length - 1] = [pp[pp.length - 1][0] - 3, pp[pp.length - 1][1]]; G.pl(pp, 'FIBER'); cap(G, pp[0][0], pp[0][1]); cap(G, pp[pp.length - 1][0], pp[pp.length - 1][1]); return; }
+          if (ln.rest) {
+            pp[0] = [pp[0][0] + 3, pp[0][1]]; pp[pp.length - 1] = [pp[pp.length - 1][0] - 3, pp[pp.length - 1][1]]; G.pl(pp, 'FIBER'); cap(G, pp[0][0], pp[0][1]); cap(G, pp[pp.length - 1][0], pp[pp.length - 1][1]);
+            if (ln.rest === 1) { const r = fmtRanges(seq(1, c.size).filter(f => !W.get(c).includes(f)), 'F'); fnum(G, pp[0][0] + 0.4, pp[0][1], r); fnum(G, pp[pp.length - 1][0] - 0.4, pp[pp.length - 1][1], r, 'r'); }
+            return;
+          }
           G.pl(pp, 'FIBER_USED'); endPt.set(K(id, c) + '|' + ln.f, pp[0]); endPt.set(K(d.b, c) + '|' + ln.f, pp[pp.length - 1]);
         });
         const tl = c.status === 'existing' ? 'SITE_EXIST' : 'SITE_NEW', xl = pts.length > 2 ? xT + w / 2 + 2 : xs + 4, yl = yt + w / 2 + 1.6, before = parseRanges(c.used);
         G.tx(xl, yl + 2, c.name + ' · ' + c.size + 'C ' + (c.status === 'existing' ? 'EXISTING' : 'NEW') + (lenTxt(c.length) && c.status !== 'existing' ? ' · ' + lenTxt(c.length) : '') + (c.leg ? ' · ' + String(c.leg).toUpperCase() : ''), 1.15, tl, { bold: true });
         G.tx(xl, yl, (W.get(c).length ? 'WORKING ' + fmtRanges(W.get(c), 'F') : 'NO LINK USES IT') + (before.length ? ' · IN USE BEFORE ' + fmtRanges(before, 'F') : ''), 1.0, 'FIBER_USED');
-        ellipse(G, xt - 8, yt, 1.1, w / 2 + 1.5, tl);
+        ellipse(G, xt - 18, yt, 1.1, w / 2 + 1.5, tl);
       });
     });
     /* the points */
@@ -457,7 +463,7 @@
           const la = A[0] < p.x, lb = B[0] < p.x;
           if (la !== lb) { const [L1, R1] = la ? [A, B] : [B, A]; G.pl([L1, [L1[0] + 3, L1[1]], [R1[0] - 3, R1[1]], R1], 'FIBER_USED'); G.ci(p.x, (L1[1] + R1[1]) / 2, 0.3, 'SPLICE', { fill: true }); }
           else { const xi = la ? p.x - 1.5 : p.x + 1.5; G.pl([A, [xi, A[1]], [xi, B[1]], B], 'FIBER_USED'); G.ci(xi, (A[1] + B[1]) / 2, 0.3, 'SPLICE', { fill: true }); }
-          for (const [Q, f] of [[A, fa], [B, fb]]) G.tx(Q[0] + (Q[0] < p.x ? -0.4 : 0.4), Q[1] + 0.25, String(f), 0.55, 'TEXT', { al: Q[0] < p.x ? 'r' : 'l' });
+          for (const [Q, f] of [[A, fa], [B, fb]]) fnum(G, Q[0] + (Q[0] < p.x ? -0.4 : 0.4), Q[1], 'F' + f, Q[0] < p.x ? 'r' : 'l');
         }));
         return;
       }
@@ -468,7 +474,7 @@
       (rowsAt.get(id) || []).forEach(r => {
         const fromLeft = r.c ? I.some(d => d.c === r.c) : !left, xe = fromLeft ? x0 : x0 + BW;
         if (r.t) { G.tx(fromLeft ? x0 + 0.6 : x0 + BW - 0.6, r.y, r.t, 0.7, 'TEXT', { al: fromLeft ? 'l' : 'r', va: 'm' }); const xs2 = fromLeft ? xe - 4 : xe + 4; G.ln(xe, r.y, xs2, r.y, 'FIBER'); cap(G, xs2, r.y); return; }
-        G.tx(fromLeft ? x0 + 0.6 : x0 + BW - 0.6, r.y, String(r.port), 0.7, 'FIBER_USED', { al: fromLeft ? 'l' : 'r', va: 'm' });
+        G.tx(fromLeft ? x0 + 0.6 : x0 + BW - 0.6, r.y, 'P' + r.port + ' F' + r.f, 0.7, 'FIBER_USED', { al: fromLeft ? 'l' : 'r', va: 'm' });
         const e = endPt.get(K(id, r.c) + '|' + r.f); if (!e) return;
         G.pl(fromLeft ? [e, [e[0] + 2, e[1]], [xe - 2, r.y], [xe, r.y]] : [[xe, r.y], [xe + 2, r.y], [e[0] - 2, e[1]], e], 'FIBER_USED');
       });
@@ -612,9 +618,9 @@
     /* the ports of the mains on this sheet one by one; another sheet's main and the spare ports, one row each */
     const key = p => { const a = assigned.get(p); return !a ? 'spare' : inSub.has(a.mn) ? null : a.mn.id; };
     for (let p = 1; p <= top;) {
-      const k = key(p); if (k === null) { orows.push({ p, a: assigned.get(p), t: String(p) }); p++; continue; }
+      const k = key(p); if (k === null) { const a = assigned.get(p); orows.push({ p, a, t: 'P' + p + ' F' + (fd.use ? p : a.mn.distUsed[a.j]) }); p++; continue; }
       let q = p; while (q + 1 <= top && key(q + 1) === k) q++; const o = k === 'spare' ? null : assigned.get(p).mn;
-      orows.push({ p, other: o, t: (p === q ? String(p) : p + '-' + q) + (o ? ' > ' + o.name : '') }); p = q + 1;
+      orows.push({ p, q, other: o, t: 'P' + (p === q ? p : p + '-' + q) + (o ? ' > ' + o.name : ' SPARE') }); p = q + 1;
     }
     const lineN = mn => 6 * mn.drops.length + (fd.use ? 2 : 0), widths = sub.map(mn => (lineN(mn) - 1) * GAP), stackH = widths.reduce((a, w) => a + w, 0) + 4 * (sub.length - 1);
     const odfH = orows.length * GAP + 6, xc = 66, rx = 18, ry = Math.max(orows.length * GAP, stackH) / 2 + 7, yc = lowY - 16 - Math.max(odfH, 2 * ry) / 2;
@@ -626,7 +632,7 @@
     orows.forEach(r => G.tx(15.4, r.y, r.t, 0.7, r.live ? 'FIBER_USED' : 'TEXT', { al: 'r', va: 'm' }));
     const elsewhere = groups && groups.length > 1 ? groups.filter(g => g !== sub).flat() : [];
     if (fd.use) {
-      orows.forEach(r => { const end = r.a && inSub.has(r.a.mn) ? xc - 6 : xc - 10; G.ln(16, r.y, end, r.y, r.live ? 'FIBER_USED' : 'FIBER'); if (end !== xc - 6) cap(G, end, r.y); });
+      orows.forEach(r => { const end = r.a && inSub.has(r.a.mn) ? xc - 6 : xc - 10; G.ln(16, r.y, end, r.y, r.live ? 'FIBER_USED' : 'FIBER'); if (end !== xc - 6) { cap(G, end, r.y); fnum(G, end - 0.4, r.y, 'F' + (r.p === r.q || r.q == null ? r.p : r.p + '-' + r.q), 'r'); } });
       ellipse(G, 31, yc, 1.3, orows.length * GAP / 2 + 2, 'NAP');
       G.txs(31, yc - orows.length * GAP / 2 - 4.5, [{ s: String(fd.name).toUpperCase() + ' · ' + fd.size + 'C', o: { bold: true } }, 'FEEDER DISTRIBUTION CABLE'], 1.1, 'TEXT', { al: 'c' });
       ellipse(G, xc, yc, rx, ry, 'NAP', { lw: 0.35 });
@@ -646,18 +652,20 @@
       for (let j = 0; j < p.N; j++) {
         const rest = j >= 6 * mn.drops.length, di = Math.floor(j / 6), pos = j % 6 + 1, live = !rest && working(mn.drops[di], pos), lay = live ? 'FIBER_USED' : 'FIBER';
         const pp = offsetPath(pts, ((p.N - 1) / 2 - j) * GAP);
-        if (rest) { pp[0] = [fd.use ? xc + 9 : 20, pp[0][1]]; cap(G, pp[0][0], pp[0][1]); }
+        const restF = rest && j === 6 * mn.drops.length ? fmtRanges(seq(1, mn.size).filter(f => !mn.distUsed.includes(f)), 'F') : '';
+        if (rest) { pp[0] = [fd.use ? xc + 9 : 20, pp[0][1]]; cap(G, pp[0][0], pp[0][1]); if (restF) fnum(G, pp[0][0] + 0.4, pp[0][1], restF); }
         G.pl(pp, lay);
-        if (fd.use && !rest) { const yo = yOfPort.get(mn.feedF[j]); if (yo != null) { G.pl([[xc - 6, yo], [xc - 3, yo], [xc + 3, pp[0][1]], [xs, pp[0][1]]], lay); G.ci(xc, (yo + pp[0][1]) / 2, 0.3, 'SPLICE', { fill: true }); } }
+        if (fd.use && !rest) { const yo = yOfPort.get(mn.feedF[j]); if (yo != null) { G.pl([[xc - 6, yo], [xc - 3, yo], [xc + 3, pp[0][1]], [xs, pp[0][1]]], lay); G.ci(xc, (yo + pp[0][1]) / 2, 0.3, 'SPLICE', { fill: true }); fnum(G, xc - 6.4, yo, 'F' + mn.feedF[j], 'r'); fnum(G, xs + 0.4, pp[0][1], 'F' + mn.distUsed[j]); } }
         const ye = pp[pp.length - 1][1];
-        if (rest) { G.ln(xD, ye, xD + 3, ye, 'FIBER'); cap(G, xD + 3, ye); continue; }
+        if (rest) { G.ln(xD, ye, xD + 3, ye, 'FIBER'); cap(G, xD + 3, ye); if (restF) fnum(G, xD - 0.4, ye, restF, 'r'); continue; }
         const yx = byDrop.get(mn.drops[di]).y - (pos - 1) * GAP;
         G.pl([[xD, ye], [xD + 6, ye], [xD + wD - 6, yx], [xD + wD, yx]], lay);
+        fnum(G, xD + 0.4, ye, 'F' + mn.distUsed[j], 'l', lay); fnum(G, xD + wD - 0.4, yx, 'F' + pos, 'r', lay);
       }
       const xl = p.xTurn + p.w / 2 + 2, yl = yEn + p.w / 2 + 1.5;
       G.tx(xl, yl + 2, mn.name + ' · ' + mn.size + 'C DISTRIBUTION CABLE', 1.15, 'TEXT', { bold: true });
       G.tx(xl, yl, 'FIBER SPLICING ASSIGNMENT: ' + (fd.use ? fmtRanges(mn.feedF) + ' (' + fd.size + 'C)' : 'ODF ' + fmtRanges(mn.odfP)) + ' > ' + fmtRanges(mn.distUsed) + ' (' + mn.size + 'C)', 1.0, 'TEXT');
-      ellipse(G, xD - 7, yEn, 1.1, p.w / 2 + 1.5, 'NAP');
+      ellipse(G, xD - 14, yEn, 1.1, p.w / 2 + 1.5, 'NAP');
       const bt = Math.max(rk[0].y + 5, yEn + p.w / 2 + 3), bb = Math.min(rk[rk.length - 1].y - 5 * GAP - 5, yEn - p.w / 2 - 3);
       G.rect(xD, bb, wD, bt - bb, 'CLOSURE_BOX'); G.tx(xD, bt + 1.2, mn.closure, 1.2, 'TEXT', { bold: true });
     });
@@ -674,6 +682,7 @@
         G.frect(x + 0.15, fy(k0) - 0.5, 1.1, 1, 'HILITE');
         for (let k = 1; k <= 6; k++) { G.tx(x + 0.7, fy(k), String(k), 0.7, 'TEXT', { al: 'c', va: 'm' }); G.tx(x + BW - 0.7, fy(k), String(k), 0.7, 'TEXT', { al: 'c', va: 'm' }); if (k !== k0) G.ln(x + 1.4, fy(k), x + BW - 1.4, fy(k), st[k - 1] === 'feed' ? 'FIBER_USED' : 'FIBER'); }
         G.pl([[x + 1.4, fy(k0)], [x + 2.6, fy(k0)], [x + 2.6, y0 - 13], [x + 5, y0 - 13]], 'FIBER_USED');
+        G.tx(x + 3.2, y0 - 7.6, 'F' + k0 + ' (6F) = F' + ln.fDist + ' (' + r.mn.size + 'C)', 0.65, 'FIBER_USED');
         G.rect(x + 5, y0 - 17, 2.6, 8, 'SPLITTER'); G.tx(x + 6.3, y0 - 13, '1:4', 1, 'SPLITTER', { al: 'c', va: 'm', rot: 90 });
         for (let o = 1; o <= 4; o++) G.tx(x + 8, yo(o) + 0.45, String(o), 0.6, 'TEXT');
         const c8 = j => x + 14.1 + j * 6; split8(G, nap, c8, y0);
