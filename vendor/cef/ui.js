@@ -1887,8 +1887,8 @@ const PH = { on: null };
 function phoneDom() {
   const ph = !wide(); if (ph === PH.on) return; const first = PH.on === null; PH.on = ph;
   if (first) Object.assign(PH, { seg: $('#segView'), tools: document.querySelector('.tools'), turn: $('#bTurn'), fit: $('#bFit'), tb: $('#tb'), status: $('#status'), stage: document.querySelector('.stage'), views: $('#views'), bar: document.querySelector('.bar'), app: document.querySelector('.app'), shd: $('#shd'), fab: $('#fab'), hid: $('#bHid') });
-  if (ph) { PH.bar.insertBefore(PH.seg, $('#who')); PH.fab.append(PH.hid, PH.turn, PH.fit); PH.app.appendChild(PH.tb); PH.shd.insertBefore(PH.status, PH.shd.querySelector('.shc')); }      /* (15 Nov) the orange eye button: over Turn and Fit on a phone, left of Turn on a computer */
-  else { PH.tools.insertBefore(PH.seg, PH.tools.firstChild); PH.tools.insertBefore(PH.turn, $('#bOut')); PH.tools.insertBefore(PH.hid, PH.turn); PH.tools.appendChild(PH.fit); PH.stage.insertBefore(PH.tb, PH.views); PH.stage.appendChild(PH.status); }
+  if (ph) { PH.bar.insertBefore(PH.seg, $('#who')); PH.fab.append.apply(PH.fab, [PH.hid, PH.turn, PH.fit].filter(Boolean)); PH.app.appendChild(PH.tb); PH.shd.insertBefore(PH.status, PH.shd.querySelector('.shc')); }      /* (15 Nov) the orange eye button: over Turn and Fit on a phone, left of Turn on a computer */
+  else { PH.tools.insertBefore(PH.seg, PH.tools.firstChild); PH.tools.insertBefore(PH.turn, $('#bOut')); if (PH.hid) PH.tools.insertBefore(PH.hid, PH.turn); PH.tools.appendChild(PH.fit); PH.stage.insertBefore(PH.tb, PH.views); PH.stage.appendChild(PH.status); }
   document.body.classList.toggle('phone', ph);
   if (!first) { needFit.top = needFit.iso = needFit.sheets = true; sheetCk = null; }
 }
