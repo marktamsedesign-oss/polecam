@@ -281,15 +281,16 @@ function drawOverlay() {
     const e = elById(sel.id);
     if (e) {
       const P = elPoly(e), b = polyBox(P); o += '<polygon class="ov-sel" points="' + pts(P) + '"/>';
-      if (e.t === 'pad' && !S.room) for (const K of padSteps(e)) o += hd(stairAt(e, K), ' dr');      /* beta 4.2 */
+      const sh = !selHid();      /* (15 Nov) a hidden item that is picked: its outline, without handles */
+      if (e.t === 'pad' && !S.room && sh) for (const K of padSteps(e)) o += hd(stairAt(e, K), ' dr');      /* beta 4.2 */
       if (pipePole() === e) { const ph = pipeHandle(e), pu = pipeDir(e), po = poleR(e, 0) + GIR; o += '<path class="ov-g" d="M' + r3(e.x + pu[0] * po) + ' ' + r3(-(e.y + pu[1] * po)) + 'L' + r3(ph[0]) + ' ' + r3(-ph[1]) + '"/><circle class="ov-sel" cx="' + r3(e.x + pu[0] * po) + '" cy="' + r3(-(e.y + pu[1] * po)) + '" r="' + r3(Math.max(GIR * 1.6, 3 * u)) + '"/>' + hd(ph, ' dr'); }      /* (14 Nov) its G.I. pipe: drag the handle round the pole */
-      if (e.t === 'cabin' && !S.room) { for (const q of cabinPorts(e)) o += hd(q.at, ' b'); for (const q of cabinDoors(e)) o += hd(doorAt(e, q), ' dr'); for (const q of cabinAcs(e)) o += hd(q.at, ' ac'); }          /* its porthole, doors and aircon units slide along the walls by these handles */
+      if (e.t === 'cabin' && !S.room && sh) { for (const q of cabinPorts(e)) o += hd(q.at, ' b'); for (const q of cabinDoors(e)) o += hd(doorAt(e, q), ' dr'); for (const q of cabinAcs(e)) o += hd(q.at, ' ac'); }          /* its porthole, doors and aircon units slide along the walls by these handles */
       if (b[0] > 0.05 && b[0] < L && e.y > 0 && e.y < W) o += '<path class="ov-g" d="M0 ' + r3(-e.y) + 'H' + r3(b[0]) + '"/><text class="ov-t" x="' + r3(b[0] / 2) + '" y="' + r3(-e.y - 4 * u) + '" font-size="' + fs + '" text-anchor="middle">' + f2(b[0]) + '</text>';
       if (b[1] > 0.05 && b[1] < W && e.x > 0 && e.x < L) o += '<path class="ov-g" d="M' + r3(e.x) + ' 0V' + r3(-b[1]) + '"/><text class="ov-t" x="' + r3(e.x + 5 * u) + '" y="' + r3(-b[1] / 2) + '" font-size="' + fs + '">' + f2(b[1]) + '</text>';
     }
   }
   { const c = !focus && mode === 'select' ? entryCab() : null; if (c) { const p = cabPort(S, c, routeGeom(S)).p; o += '<circle class="ov-h p" cx="' + r3(p[0]) + '" cy="' + r3(-p[1]) + '" r="' + r3(Math.min(r, entryR(c) * 0.8)) + '"/>'; } }      /* (19:25) where the cable goes into the picked cabinet */
-  if (sel && sel.k === 'run') { const l = runById(sel.id); if (l) { o += '<polyline class="ov-g" points="' + pts(l.pts) + '"/>'; for (const p of l.pts) o += hd(p, ' g'); } }
+  if (sel && sel.k === 'run') { const l = runById(sel.id); if (l) { o += '<polyline class="ov-g" points="' + pts(l.pts) + '"/>'; if (!l.hid) for (const p of l.pts) o += hd(p, ' g'); } }
   if (!S.room && !focus && S.site.kind === 'fenced' && mode === 'select') S.gates.forEach((q, i) => { const hz = q.side === 'S' || q.side === 'N', c = num(q.off, 0) + num(q.w, 0) / 2; o += hd(hz ? [c, q.side === 'S' ? 0 : W] : [q.side === 'W' ? 0 : L, c], sel && sel.k === 'gate' && sel.i === i ? ' on' : ' dr'); });      /* beta 4.1: the handle of each gate */
   if (S.room && !focus && (!sel || sel.k === 'rdoor') && mode !== 'run' && mode !== 'route') S.gates.forEach(q => { const hz = q.side === 'S' || q.side === 'N', c = num(q.off, 0) + num(q.w, 0.9) / 2; o += hd(hz ? [c, q.side === 'S' ? 0 : S.site.W] : [q.side === 'W' ? 0 : S.site.L, c], ' dr'); });      /* the doors of the room, by their handles */
   if (!S.room && (mode === 'run' || mode === 'route')) for (const e of S.els) if (e.t === 'cabin') for (const q of cabinPorts(e)) o += '<circle class="ov-d" cx="' + r3(q.at[0]) + '" cy="' + r3(-q.at[1]) + '" r="' + r3(1.7 * r) + '"/>';      /* where a ladder or the cable goes into a cabin */
@@ -347,7 +348,7 @@ function drawChrome() {
   else if (mode === 'place' && placeT) h = '<i class="mi">' + ico(placeT) + ico('ptr') + '</i><span>Tap the plan where it stands</span><button class="b s" data-a="photo-cancel">Cancel</button>';      /* the two icons stay on a phone, where the words of this bar are left out */
   else if (mode === 'photo') h = '<span>Tap on the plan what photo ' + (S.photos.findIndex(p => p.id === placing) + 1) + ' shows</span><button class="b s" data-a="photo-cancel">Not now</button>';
   mb.hidden = !h; mb.innerHTML = h;
-  let s = '<span class="h' + (dragNote ? ' dn' : '') + '">' + (dragNote || (mode === 'route' || mode === 'run' ? (window.matchMedia && matchMedia('(pointer: fine)').matches ? 'Drag draws · right-click undoes · right-drag or Shift+drag moves the view' : 'Drag draws · two fingers move the view') : cursor || (mode === 'select' ? (sel && sel.k === 'lab' ? 'Drag the label to move it · it stays with its item' : focus ? 'Tap an item, then drag it up or down · it snaps to the free rack units' : active === 'iso' && view !== 'top' ? 'Tap an item, then drag · round handle: height' : 'Drag to move · tap to edit · tap a name twice to pick the label') : ''))) + '</span>';
+  let s = '<span class="h' + (dragNote ? ' dn' : '') + (dragNote && dragNote === sayNow ? ' msg' : '') + '">' + (dragNote || (mode === 'route' || mode === 'run' ? (window.matchMedia && matchMedia('(pointer: fine)').matches ? 'Drag draws · right-click undoes · right-drag or Shift+drag moves the view' : 'Drag draws · two fingers move the view') : cursor || (mode === 'select' ? (sel && sel.k === 'lab' ? 'Drag the label to move it · it stays with its item' : focus ? 'Tap an item, then drag it up or down · it snaps to the free rack units' : active === 'iso' && view !== 'top' ? 'Tap an item, then drag · round handle: height' : 'Drag to move · tap to edit · tap a name twice to pick the label') : ''))) + '</span>';
   if (room) { if (g.sum.ugt > 0.05) s += '<span>Cable inside <b>' + f1(g.sum.ugt) + ' m</b></span>'; }
   else if (g.sum.total > 0.05) { const nd = g.parts.filter(p => p.sum.total > 0.05).length; s += '<span>' + (nd > 1 ? nd + ' cables · ' : '') + 'FOC AE <b>' + f1(g.sum.ae) + ' m</b> · UG <b>' + f1(g.sum.ugt) + ' m</b></span>'; }
   { const nw = g.warn.length + g.notes.length + (g.bare || []).length; if (nw && !focus) s += '<button class="w" data-a="go-route">' + nw + ' to check</button>'; }
@@ -378,6 +379,8 @@ const ico = k => ICON[k] ? '<svg class="pi" viewBox="0 0 20 20" aria-hidden="tru
 Object.assign(ICON, { turn: 'M15.6 6.4A6.4 6.4 0 1 0 16.4 12M16.6 2.8v4.1h-4.1', copy: 'M7.5 7.5h9v9h-9zM4 12.5V3.5h9', inside: 'M3 17.5h14M5 17.5V2.5h7.5v15M12.5 3.5l3.5 1.5v11l-3.5 1.5M10 10.2h.01', pen: 'M3.5 16.5l1-4 9-9 3 3-9 9zM11.5 5.5l3 3', fitb: 'M3 7V3h4M13 3h4v4M17 13v4h-4M7 17H3v-4M7 8h6v4H7z', exp: 'M10 3v9M6.5 8.5L10 12l3.5-3.5M4 14v3h12v-3', doc: 'M5 2h7l4 4v12H5zM12 2v4h4M7.5 11h5M7.5 14h5', dxfi: 'M3 17L17 3v14zM11 17v-2M14 17v-2M8 17v-2', list: 'M7 5h10M7 10h10M7 15h10M3.5 5h.01M3.5 10h.01M3.5 15h.01', tbl: 'M3 4h14v12H3zM3 8h14M3 12h14M8 4v12', back: 'M12 4l-6 6 6 6' });      /* beta 4.2 (19:25) */
 let expOpen = false;      /* the small menu of the Export button */
 let namesOff = false;      /* (22:24) the Names button of the toolbar: every name hidden on the screen. The sheets and the export keep their names. */
+let hidOpen = false, hidN0 = -1, hidS = null;      /* (15 Nov) the card of what is hidden; the count shown last, so that the button pulses when it goes up; the level it was counted on */
+const selHid = () => !!sel && (sel.k === 'el' ? hidEl(S, elById(sel.id)) : sel.k === 'run' ? !!(runById(sel.id) || {}).hid : false);      /* (15 Nov) the picked item is hidden: no handles, no nudging */
 const labOn = key => !((S.lab || {})[key] || {}).off;
 const eyeBtn = key => '<button class="b s ic eyeb" data-a="lab-eye" data-key="' + key + '" aria-pressed="' + (labOn(key) ? 'true' : 'false') + '" aria-label="' + (labOn(key) ? 'Hide its name on the drawing' : 'Show its name on the drawing') + '" title="' + (labOn(key) ? 'Its name is shown on the drawing: tap to hide it' : 'Its name is hidden: tap to show it') + '">' + ico(labOn(key) ? 'eye' : 'eyeoff') + '</button>';
 const SIDEW = { S: 'bottom', N: 'top', W: 'left', E: 'right' };
@@ -391,6 +394,8 @@ function gateFree(w0) {
 }
 /* (14 Nov 16:05) a button of an item's first line: an icon with one short word under it, as the row of tools has */
 const IB = (a, icon, word, title, cls, extra) => '<button type="button" class="ib' + (cls ? ' ' + cls : '') + '" data-a="' + a + '"' + (extra || '') + ' title="' + esc(title) + '" aria-label="' + esc(title) + '">' + ico(icon) + '<span>' + word + '</span></button>';
+/* (15 Nov) the bar under the first line of the form of a hidden item. ho: the cabinet or rack it is hidden with. (Not a hint, so it is not folded away.) */
+const hidBar = ho => '<div class="hidbar">' + ico('eyeoff') + '<span>' + (ho ? 'Hidden with ' + esc(elLabel(S, ho)) + '. Show brings both back.' : 'Hidden: not on the drawings or the sheets. It still counts in the table.') + '</span></div>';
 function gateBox(i, q) { const hz = q.side === 'S' || q.side === 'N', door = num(q.w, 0) <= 1.6;
   return '<div class="insp"><div class="insp-h"><b>' + (door ? 'Door' : 'Gate') + ' ' + (i + 1) + '</b><span class="ibs">' + IB('gate-add', 'plus', 'Add', door ? 'Add another door' : 'Add another gate', '', ' data-w="' + (door ? 0.9 : 4) + '"') + IB('del', 'bin', 'Delete', door ? 'Delete this door' : 'Delete this gate', 'd') + '</span></div><div class="row3">' + Sel('Side', 'gate.' + i + '.side', q.side, [['S', 'Bottom'], ['N', 'Top'], ['W', 'Left'], ['E', 'Right']]) + F('From ' + (hz ? 'left' : 'bottom') + ' (m)', 'gate.' + i + '.off', q.off) + F('Width (m)', 'gate.' + i + '.w', q.w) + '<span></span></div><p class="hint">Drag it along the fence on the plan, or move it with the arrow keys. Up to 1.6 m wide it is a door with one leaf; wider, a gate with two.</p></div>'; }
 function tabSite() {
@@ -432,7 +437,7 @@ function tabSite() {
   h += '<h3>Names on the drawing</h3><div class="one">' + Sel('Size of the names', 'site.txt', txAuto(S) ? 'auto' : String(Math.round(txK(S) * 100)), [['auto', 'Automatic'], ['70', 'Small, 1.5 mm on the sheet'], ['85', '1.8 mm'], ['100', 'Standard, 2.2 mm'], ['120', '2.6 mm'], ['140', '3.0 mm'], ['170', 'Large, 3.7 mm']]) + '</div>';
   h += '<p class="hint">Automatic: a name is written at the standard size on its item or beside it. One that finds no room there is written smaller, never under 1.8 mm on the A3 sheet (the usual least size of text on a drawing), If there is still no room it is written right beside the item even across a line of the drawing (the line is broken under the name), and gets a leader with an arrow only when that does not work either. A long name, such as the one of a proposed conduit, goes to clear space in a few lines with a leader and an arrowhead, as on the hand-made plans. A proposed item says PROPOSED; lengths are in green. A size you pick is used for every name.</p>';
   h += '<div class="eyes">' + NAMES.map(q => '<button class="eye" id="f_site_nm_' + q[0] + '" data-a="nm" data-k="' + q[0] + '" aria-pressed="' + (nameOn(S, q[0]) ? 'true' : 'false') + '">' + ico(nameOn(S, q[0]) ? 'eye' : 'eyeoff') + esc(q[1]) + '</button>').join('') + '</div>';
-  { const hid = Object.keys(S.lab || {}).filter(k => S.lab[k] && S.lab[k].off); if (hid.length) h += '<p class="hint">Names you hid one by one: tap to show again.</p><div class="eyes">' + hid.map(k => '<button class="eye" data-a="lab-eye" data-key="' + esc(k) + '" aria-pressed="false">' + ico('eyeoff') + esc((labInfo(k).cur || labInfo(k).def || labInfo(k).name || k)) + '</button>').join('') + '</div>'; }
+  { const hid = hidKeys(S, () => routeGeom(S)); if (hid.length) h += '<h3>Names you hid one by one</h3><div class="eyes">' + hid.map(k => '<button class="eye" data-a="lab-eye" data-key="' + esc(k) + '" aria-pressed="false">' + ico('eyeoff') + esc((labInfo(k).cur || labInfo(k).def || labInfo(k).name || k)) + '</button>').join('') + '</div>'; }      /* (15 Nov) a heading, not a hint, so it is not folded away; names left behind by a deleted item are not listed */
   h += '<p class="hint">The plan is about the fiber, so the names of the tower site itself are left out unless you turn them on. The items are still drawn. The eye beside the label of an item hides that one name. The site name and ID are written beside the top of the tower, in bold and larger than the other names; tap them to drag or retype.</p>';
   return h + '</details>';
 }
@@ -460,7 +465,9 @@ function inspector(e) {
   const T = TYPES[e.t], b = polyBox(elPoly(e)), L = S.site.L, W = S.site.W, sq = ['t3', 't4', 'guy', 'rtt'].includes(e.t), sd = S.room ? 'wall' : 'side', host = rackHost(S, e);
   if (host) {                                             /* an item in a rack: where it is in the rack is what matters */
     const K = rackOf(host), q = rackSlots(S, host).find(k => k.e === e) || { u: 1, ru: units(e) };
-    let h = '<div class="insp"><div class="insp-h"><b>' + esc(T.n) + '</b><span class="ibs">' + (host.t === 'odc' && !focus && !S.room ? IB('focus-in', 'rack', 'Rack', 'Open the rack of ' + elLabel(S, host), 'pri', ' data-id="' + host.id + '"') : '') + IB('dup', 'copy', 'Copy', 'Copy it') + IB('del', 'bin', 'Delete', 'Delete it', 'd') + '</span></div>';
+    const hv = hidEl(S, e), ho = hv && host.hid ? host : null;      /* (15 Nov) hidden, by itself or with its rack: Show at the top (it shows the rack too) */
+    let h = '<div class="insp"><div class="insp-h"><b>' + esc(T.n) + '</b><span class="ibs">' + (host.t === 'odc' && !focus && !S.room ? IB('focus-in', 'rack', 'Rack', 'Open the rack of ' + elLabel(S, host), 'pri', ' data-id="' + host.id + '"') : '')
+      + (hv ? IB('it-eye', 'eye', 'Show', ho ? 'Hidden with ' + elLabel(S, ho) + '. Tap to show both again.' : 'Hidden on the drawings and the sheets. Tap to show it again.', 'pri', ' data-kind="el" data-id="' + e.id + '"') : IB('dup', 'copy', 'Copy', 'Copy it')) + IB('del', 'bin', 'Delete', 'Delete it', 'd') + '</span></div>' + (hv ? hidBar(ho) : '');
     h += '<div class="row">' + '<div class="lbleye">' + F('Label on the drawing', 'el.name', e.name, TXT + ' placeholder="' + esc((T.cn || T.s).toUpperCase()) + '"') + eyeBtn(e.id) + '</div>' + Sel('Status', 'el.st', e.st, [['E', 'Existing'], ['P', 'Proposed']]) + '</div>';
     if (e.t === 'odf') h += '<div class="row">' + F('Size (fibres)', 'el.size', e.size, TXT) + '<span></span></div>';
     if (bayN(host) > 1) h += '<div class="row">' + Sel('In rack', 'el.bay', String(bayOf(host, e)), Array.from({ length: bayN(host) }, (_, k) => [String(k), 'Rack ' + (k + 1)])) + '<span></span></div>';      /* (14 Nov 17:00) */
@@ -469,7 +476,7 @@ function inspector(e) {
     return h + '<p class="hint">In ' + esc(rackSays(host)) + '. It takes ' + uText(q) + (bayN(host) > 1 ? ' of rack ' + (q.bay + 1) : '') + '. In the isometric, tap it and drag it up or down: it snaps to the free units.' + (focus ? '' : ' Drag it on the plan to take it out or to put it in another rack.') + '</p></div>';
   }
   let h = '<div class="insp"><div class="insp-h"><b>' + esc(T.n) + '</b><span class="ibs">' + (e.t === 'odc' && !S.room ? IB('focus-in', 'rack', 'Rack', 'Open the rack of the cabinet', 'pri') : '') + (e.t === 'cabin' && !S.room ? IB('room-in', 'inside', 'Inside', 'Open the inside of the cabin', 'pri') : '')
-    + IB('rot', 'turn', 'Turn', 'Turn it 90°') + IB('dup', 'copy', 'Copy', 'Copy it') + IB('del', 'bin', 'Delete', 'Delete it', 'd') + '</span></div>';
+    + (e.hid ? IB('it-eye', 'eye', 'Show', 'Hidden on the drawings and the sheets. Tap to show it again.', 'pri', ' data-kind="el" data-id="' + e.id + '"') : IB('rot', 'turn', 'Turn', 'Turn it 90°') + IB('dup', 'copy', 'Copy', 'Copy it')) + IB('del', 'bin', 'Delete', 'Delete it', 'd') + '</span></div>' + (e.hid ? hidBar(null) : '');      /* (15 Nov) a hidden item: Show in place of Turn and Copy */
   if (e.t === 'cabin' && !S.room) { const I = e.inside, n = I ? I.els.filter(q => q.t !== 'port' && q.t !== 'ac').length : 0; h += '<p class="hint">' + (n ? 'Inside: ' + n + ' item' + (n === 1 ? '' : 's') + (routeGeom(I).sum.ugt > 0.05 ? ', ' + f1(routeGeom(I).sum.ugt) + ' m of cable' : '') + '. ' : '') + '<b>Inside</b>, at the top, opens the floor of the cabin to sketch: racks, the ODF at its rack units, the porthole and the indoor cable ladder. The app draws the inside view and puts it on the Details sheet. On the site plan and in the isometric the racks and the ODF show dashed, as seen through the cabin.</p><p class="hint"><b>Porthole:</b> the round blue handle on the wall of the cabin. Drag it along the walls; it snaps to the end of a cable ladder or of the UG fiber. A cable ladder drawn to the cabin stops at its wall, and what is sketched inside shows in grey.</p>'; }
   if (e.t === 'cabin' && !S.room) h += cabinParts(e);      /* its doors and aircon units */
   if (e.t === 'odc' && !S.room) h += '<div class="one">' + Sel('Racks inside', 'el.bays', String(bayN(e)), [['1', 'One rack'], ['2', 'Two racks, side by side'], ['3', 'Three racks, side by side']]) + '</div>';      /* (14 Nov 17:00) */
@@ -497,7 +504,7 @@ function tabEls(only) {
   else if (gt) h += gateBox(sel.i, gt);
   else if (ld) {
     const K = RUNS[ld.kind];
-    h += '<div class="insp"><div class="insp-h"><b>' + esc(K.n) + '</b><span class="ibs">' + IB('run-more', 'pen', 'Draw', 'Draw more of it') + IB('del', 'bin', 'Delete', 'Delete it', 'd') + '</span></div>';
+    h += '<div class="insp"><div class="insp-h"><b>' + esc(K.n) + '</b><span class="ibs">' + (ld.hid ? IB('it-eye', 'eye', 'Show', 'Hidden on the drawings and the sheets. Tap to show it again.', 'pri', ' data-kind="run" data-id="' + ld.id + '"') : IB('run-more', 'pen', 'Draw', 'Draw more of it')) + IB('del', 'bin', 'Delete', 'Delete it', 'd') + '</span></div>' + (ld.hid ? hidBar(null) : '');      /* (15 Nov) */
     h += '<div class="row">' + Sel('Kind', 'run.kind', ld.kind, (S.room ? ['ladder', 'part'] : Object.keys(RUNS).filter(k => !RUNS[k].room)).map(k => [k, RUNS[k].n])) + Sel('Status', 'run.st', ld.st, [['E', 'Existing'], ['P', 'Proposed']]) + '</div>';
     h += '<div class="row">' + '<div class="lbleye">' + F('Label on the drawing', 'run.name', ld.name, TXT + ' placeholder="' + esc(K.cap) + '"') + eyeBtn(ld.id) + '</div>' + F(ld.kind === 'conduit' ? 'Size of one pipe (m)' : ld.kind === 'part' ? 'Thickness (m)' : 'Width (m)', 'run.w', ld.w, 'type="number" step="0.01" inputmode="decimal"') + '</div>';
     if (ld.kind !== 'part') h += '<div class="row">' + (ld.kind === 'trench' ? F('Depth of the excavation (m)', 'run.dp', ld.dp == null ? UGD : ld.dp) + '<span></span>' : ld.kind === 'ladder' ? F(S.room ? 'Height above the floor (m)' : ladBase(S, ld) > 0.005 ? 'Height above the base pad (m)' : 'Height above ground (m)', 'run.z', ld.z) + '<span></span>' : F('Height above ground (m), 0 = buried', 'run.z', ld.z) + (buried(ld) ? F('Depth below ground (m)', 'run.dp', ld.dp == null ? UGD : ld.dp) : '<span></span>')) + '</div>';
@@ -508,7 +515,8 @@ function tabEls(only) {
   if (only && (e || gt || ld)) return h;      /* (19:25) what is picked: its form alone */
   /* (14 Nov) the buttons that add an item are gone from here: they were the same as the + icon over the drawing */
   { const nh = hidCount(S);
-    const acts = (kind, q, nm) => VIEW ? '' : '<button type="button" class="lib" data-a="it-eye" data-kind="' + kind + '" data-id="' + q.id + '" aria-pressed="' + (q.hid ? 'false' : 'true') + '" aria-label="' + (q.hid ? 'Show ' : 'Hide ') + esc(nm) + '" title="' + (q.hid ? 'Hidden: not on the drawings or the sheets. Tap to show it again.' : 'Shown. Tap to hide it on the drawings and the sheets.') + '">' + ico(q.hid ? 'eyeoff' : 'eye') + '</button><button type="button" class="lib d" data-a="it-del" data-kind="' + kind + '" data-id="' + q.id + '" aria-label="Delete ' + esc(nm) + '" title="Delete it. Undo brings it back.">' + ico('bin') + '</button>';
+    const acts = (kind, q, nm) => { if (VIEW) return ''; const hv = kind === 'el' ? hidEl(S, q) : !!q.hid, hs = kind === 'el' && hv ? rackHost(S, q) : null, ho = hs && hs.hid ? hs : null;      /* (15 Nov) an item hidden with its rack: the eye shows the rack, and it with it */
+      return '<button type="button" class="lib" data-a="it-eye" data-kind="' + kind + '" data-id="' + q.id + '" aria-pressed="' + (hv ? 'false' : 'true') + '" aria-label="' + (hv ? 'Show ' : 'Hide ') + esc(nm) + '" title="' + (ho ? 'Hidden with ' + esc(elLabel(S, ho)) + '. Tap to show it again.' : hv ? 'Hidden: not on the drawings or the sheets. Tap to show it again.' : 'Shown. Tap to hide it on the drawings and the sheets.') + '">' + ico(hv ? 'eyeoff' : 'eye') + '</button><button type="button" class="lib d" data-a="it-del" data-kind="' + kind + '" data-id="' + q.id + '" aria-label="Delete ' + esc(nm) + '" title="Delete it. Undo brings it back.">' + ico('bin') + '</button>'; };
     h += '<h3>On the plan (' + (S.els.length + S.runs.length) + ')' + (nh ? ' · ' + nh + ' hidden' : '') + '</h3>';
     for (const q of S.els) { const nm = q.name || TYPES[q.t].n; h += '<div class="lirow' + (hidEl(S, q) ? ' hid' : '') + '"><button class="li" data-a="sel" data-kind="el" data-id="' + q.id + '"' + (e === q ? ' aria-current="true"' : '') + '><i class="dot ' + (q.st === 'P' ? 'P' : TYPES[q.t].g === 'tower' ? 'T' : '') + '"></i><b>' + esc(nm) + '</b><span>' + (rackHost(S, q) ? uText(rackSlots(S, rackHost(S, q)).find(k => k.e === q) || { u: 1, ru: 1 }) : f1(q.x) + ', ' + f1(q.y)) + '</span></button>' + acts('el', q, nm) + '</div>'; }
     for (const q of S.runs) { const nm = q.name || RUNS[q.kind].n; h += '<div class="lirow' + (q.hid ? ' hid' : '') + '"><button class="li" data-a="sel" data-kind="run" data-id="' + q.id + '"' + (ld === q ? ' aria-current="true"' : '') + '><i class="dot ' + (q.st === 'P' ? 'P' : q.kind === 'ladder' ? 'L' : '') + '"></i><b>' + esc(nm) + '</b><span>' + f1(runLen(q)) + ' m</span></button>' + acts('run', q, nm) + '</div>'; }
@@ -588,7 +596,8 @@ function checks() {
   if (cables(S).some(q => q.ug.pts.length > 1) && !S.els.some(e => e.t === 'odf' || (e.t === 'cabin' && e.inside && e.inside.els.some(q => q.t === 'odf')))) c.push([0, 'No ODF on the plan for the UG fiber to end on.']);
   { const d = details(S); c.push(d.length ? [1, 'Details sheet: ' + d.map(q => q.title.toLowerCase()).join('; ') + '.'] : [0, 'No details sheet: no cabin has anything sketched inside, and no outdoor cabinet holds an ODF.']); }
   c.push(S.photos.length ? [np ? 0 : 1, S.photos.length + ' photo' + (S.photos.length === 1 ? '' : 's') + (np ? ', ' + np + ' not marked on the plan.' : ', all marked on the plan.')] : [0, 'No photos added.']);
-  { const nh = hidCount(S); if (nh) c.push([0, nh + (nh === 1 ? ' item is' : ' items are') + ' hidden: not drawn on the sheets, still counted in the table. Menu, then Items on the plan, shows ' + (nh === 1 ? 'it' : 'them') + ' again.']); }      /* (14 Nov) */
+  { const H = hidList(false), ni = H.rows.filter(r => r.g === 'it').length, nn = H.rows.filter(r => r.g === 'nm').length;      /* (14 Nov; 15 Nov: names too, and the way back is the "N hidden" button) */
+    if (ni || nn) c.push([0, [ni ? ni + (ni === 1 ? ' item' : ' items') : '', nn ? nn + (nn === 1 ? ' name' : ' names') : ''].filter(Boolean).join(' and ') + ' hidden: not on the sheets' + (ni ? '. Hidden items still count in the table' : '') + '. Tap “' + H.n + ' hidden” over the drawing to show ' + (ni + nn === 1 ? 'it' : 'them') + ' again.']); }
   if (S.sample) c.push([0, 'This is still the sample site. The sheets will say so.']);
   return c;
 }
@@ -679,10 +688,42 @@ function labInfo(key) {
   if (/^in/.test(key)) for (const c of S.els) if (c.t === 'cabin' && c.inside) { const q = (c.inside.els || []).find(k => 'in' + k.id === key); if (q) return { name: TYPES[q.t].n + ' inside the cabin', cur: (S.lab[key] || {}).t || '', def: elLabel(c.inside, q) }; }
   { const mn = /^note(~.+)?$/.exec(key); if (mn) { const k = Math.max(0, cables(S).findIndex((q, i) => cableKey(S, i) === (mn[1] || ''))); return { name: 'Note at the outside end' + (cables(S).length > 1 ? ' · cable ' + (k + 1) : ''), cur: RTc(k).note || '', def: '' }; } }
   if (/^len/.test(key)) return { name: 'Measured length', fixed: 1 };
+  { const m = /^(dep|gl)(.+)$/.exec(key), it = m && (m[1] === 'dep' ? runById(m[2]) : elById(m[2]));      /* (15 Nov) the depth of an open trench and the cable entry of a cabinet, in the isometric */
+    if (it) return m[1] === 'dep' ? { name: 'Trench depth', cur: (S.lab[key] || {}).t || '', def: 'TRENCH ' + f1(runDepth(it)) + ' m DEEP', item: { k: 'run', id: it.id } } : { name: 'Cable entry', cur: (S.lab[key] || {}).t || '', def: 'FOC ENTRY', item: { k: 'el', id: it.id } }; }
   if (key === 'tid') { const si = S.site || {}; return { name: 'Site name and ID', cur: (S.lab.tid || {}).t || '', def: [si.name, si.id].map(v => String(v || '').trim().toUpperCase()).filter(Boolean).join(' / ') }; }
   const lp = /^loop(\d+)(~.+)?$/.exec(key), fm = /^(ae|ug)(~.+)?$/.exec(key), ckN = sfx => Math.max(0, cables(S).findIndex((q, i) => cableKey(S, i) === (sfx || ''))), rec = S.lab[key] || {}, def = fm ? focName(S, routeGeom(S), fm[1], ckN(fm[2])) : /^clo(~.+)?$/.test(key) ? 'PROPOSED CLOSURE' : /^exit/.test(key) ? 'PROPOSED RISER PIPE' : /^riser/.test(key) ? 'PROPOSED G.I. RISER PIPE' : /^ugd/.test(key) ? 'PROPOSED U-GUARD' : /^port/.test(key) ? 'PORTHOLE' : /^gate/.test(key) ? (S.room ? 'DOOR' : 'GATE') : lp ? 'LOOP HOLDER W/ ' + f2(num((RTc(ckN(lp[2])).ae.pts[+lp[1]] || {}).loop, 0)) + 'm LOOP' : '';
-  return { name: key === 'ae' ? 'AE fiber' : key === 'ug' ? 'UG fiber' : key === 'clo' ? 'Closure' : /^exit/.test(key) ? 'Exit conduit' : /^padx/.test(key) ? 'Exit pipe in base pad' : /^riser/.test(key) ? 'Riser pipe' : /^ugd/.test(key) ? 'U-guard' : /^port/.test(key) ? 'Porthole' : /^gate/.test(key) ? (S.room ? 'Door' : 'Gate') : lp ? 'Loop' : 'Label', cur: rec.t || '', def };
+  return { name: key === 'ae' ? 'AE fiber' : key === 'ug' ? 'UG fiber' : /^clo(~.+)?$/.test(key) ? 'Closure' : /^exit/.test(key) ? 'Exit conduit' : /^padx/.test(key) ? 'Exit pipe in base pad' : /^riser/.test(key) ? 'Riser pipe' : /^ugd/.test(key) ? 'U-guard' : /^port/.test(key) ? 'Porthole' : /^gate/.test(key) ? (S.room ? 'Door' : 'Gate') : lp ? 'Loop' : 'Label', cur: rec.t || '', def };
 }
+/* (15 Nov) what is hidden on a level (the site, or the inside of a cabin), for the "N hidden" button and its card.
+   labLive: a name the user hid that still belongs to something; one left behind by a deleted item is not counted. A name the app makes for a thing it no longer
+   draws (a length, the exit, the riser) is kept: showing it does no harm. The PROPOSED CLOSURE counts only while the app draws it (gq: the cable, worked out only then). */
+function labLive(T, k, gq) {
+  const has = id => T.els.some(q => q.id === id) || T.runs.some(q => q.id === id); if (has(k)) return true;
+  let m = /^(lenr|port)(.+)_[0-9]+$/.exec(k) || /^(dep|gl)(.+)$/.exec(k); if (m) return has(m[2]);
+  m = /^in(.+)$/.exec(k); if (m && !T.room) { const id = m[1]; return T.els.some(c => c.t === 'cabin' && c.inside && (c.inside.els || []).some(q => q.id === id)); }
+  if (/^clo(~.+)?$/.test(k)) return !T.room && gq().joins.some(j => j.auto && 'clo' + (j.ck || '') === k);
+  return !(/^e[0-9a-z]{1,6}$/.test(k) && !/^exit[0-9]+$/.test(k));      /* an item's own id whose item is gone (uid(): 'e' and 6 characters) */
+}
+/* the names hidden one by one that count. One whose item is hidden is left out: the item comes first, and its name is not drawn either way. */
+function hidKeys(T, gq) {
+  const L = T.lab || {}, ownHid = k => { const m = /^(?:lenr|port)(.+)_[0-9]+$/.exec(k) || /^(?:dep|gl)(.+)$/.exec(k), i = /^in(.+)$/.exec(k), id = m ? m[1] : k;      /* the item the name belongs to is hidden */
+    const e = T.els.find(q => q.id === id); if (e) return hidEl(T, e); const r = T.runs.find(q => q.id === id); if (r) return !!r.hid;
+    const c = i && !T.room ? T.els.find(q => q.t === 'cabin' && q.inside && (q.inside.els || []).some(n => n.id === i[1])) : null; return !!c && hidEl(T, c); };
+  return Object.keys(L).filter(k => L[k] && L[k].off && labLive(T, k, gq) && !ownHid(k));
+}
+/* everything hidden on this level, as rows of the card: items, names, every name (the Names button), and what is hidden inside each cabin.
+   text: with the words of each row (only while the card is open), so that the count, worked out on every change, stays quick. n: how many things. */
+function hidList(text) {
+  const T = S, rows = []; let G0 = null; const gq = () => G0 || (G0 = routeGeom(T));
+  for (const q of T.els) if (q.hid) rows.push(Object.assign({ g: 'it', a: 'it-eye', kind: 'el', id: q.id, w: 1, icon: q.t }, text ? { t: elLabel(T, q) || TYPES[q.t].n, sub: TYPES[q.t].n + ' · ' + f1(q.x) + ', ' + f1(q.y) } : {}));      /* (a rack item hidden with its rack only: not a row of its own, as in hidCount) */
+  for (const q of T.runs) if (q.hid) rows.push(Object.assign({ g: 'it', a: 'it-eye', kind: 'run', id: q.id, w: 1, icon: q.kind }, text ? { t: runLabel(q) || RUNS[q.kind].n, sub: RUNS[q.kind].n + ' · ' + f1(runLen(q)) + ' m' } : {}));
+  for (const k of hidKeys(T, gq)) { const q = text ? labInfo(k) : null; rows.push(Object.assign({ g: 'nm', a: 'lab-eye', key: k, w: 1, icon: 'eyeoff' }, q ? { t: q.cur || q.def || q.name, sub: /^clo(~.+)?$/.test(k) ? 'Closure on the riser pole' : q.name } : {})); }
+  if (namesOff) rows.push({ g: 'scr', a: 'tool-names', w: 1, icon: 'eyeoff', t: 'Every name', sub: 'Off by the Names button. The sheets keep them.' });
+  if (!T.room) for (const c of T.els) if (c.t === 'cabin' && c.inside) { const n = hidCount(c.inside) + hidKeys(c.inside, () => ({ joins: [] })).length; if (n) rows.push({ g: 'cab', a: 'room-in', id: c.id, w: n, icon: 'cabin', t: text ? elLabel(T, c) || TYPES.cabin.n : '', sub: n + ' hidden inside' }); }
+  return { rows, n: rows.reduce((a, r) => a + r.w, 0) };
+}
+/* (15 Nov) the message after a hide points to the "N hidden" button; on a phone with the form raised over that button, to the eye that was just tapped */
+const hidSay = w => w + (document.body.classList.contains('phone') && sheet !== 'peek' ? ' Tap the eye again to show it.' : ' Tap “' + hidList(false).n + ' hidden” to show it again.');
 function labBox() {
   if (!sel || sel.k !== 'lab') return ''; const q = labInfo(sel.key), rec = S.lab[sel.key] || {}, moved = ['p', 'i0', 'i1', 'i2', 'i3'].some(v => Array.isArray(rec[v]));
   let h = '<div class="insp"><div class="insp-h"><b>Label · ' + esc(q.name) + '</b>' + eyeBtn(sel.key) + (q.item ? '<button class="b s" data-a="lab-item">Edit the item</button>' : '') + '<button class="b s" data-a="lab-reset"' + (moved ? '' : ' disabled') + '>Put it back</button></div>';
@@ -727,7 +768,7 @@ function placeAt(t, p) {
 }
 /* beta 4.2 (19:25): the cabinet whose cable entrance can be set now: the opened one, or the picked cabinet (or the cabinet of the picked ODF), when it holds an ODF */
 function entryCab() {
-  if (S.room) return null; let c = null;
+  if (S.room || (!focus && selHid())) return null; let c = null;      /* (15 Nov: not for a hidden item) */
   if (focus) c = elById(focus); else if (mode === 'select' && sel && sel.k === 'el') { const e = elById(sel.id); c = e && e.t === 'odc' ? e : e && e.t === 'odf' ? rackHost(S, e) : null; }
   return c && c.t === 'odc' && rackItems(S, c).some(q => q.t === 'odf') ? c : null;
 }
@@ -772,12 +813,32 @@ function drawOpts() {
     else if (mode === 'run' && runOpt[runKind]) { runOpt[runKind][f] = val; drawOpts(); } });
   n.addEventListener('change', e => { const t = e.target, k = t.dataset && t.dataset.k; if (k && !VIEW && applyField(k, t)) refresh(true); });
 } }
+/* (15 Nov) the card of the "N hidden" button: each thing that is hidden, one large button to show it again. Every Show goes through the eye of the item or
+   of the name (it-eye, lab-eye), so Undo, saving and the sheets work as they do there. On a view-only plan the list is greyed: only the screen-only Names and Open work. */
+function hidTray(L) {
+  const row = r => { const live = !VIEW || r.a === 'tool-names' || r.a === 'room-in';
+    return '<button type="button" class="hrow" data-a="' + r.a + '"' + (r.kind ? ' data-kind="' + r.kind + '"' : '') + (r.id ? ' data-id="' + esc(r.id) + '"' : '') + (r.key != null ? ' data-key="' + esc(r.key) + '"' : '') + (live ? '' : ' disabled') + '>' + ico(r.icon) + '<span>' + esc(r.t) + '<small>' + esc(r.sub) + '</small></span>' + (live ? '<em>' + (r.a === 'room-in' ? 'Open' : 'Show') + '</em>' : '') + '</button>'; };
+  let h = '<div class="hhd"><span>' + L.n + ' hidden' + (S.room ? ' in this cabin' : '') + '</span><button type="button" class="b s" data-a="hid-close">Done</button></div>';      /* (15 Nov: Done closes the card, also on a phone, where it can cover the drawing) */
+  for (const [g, head, why] of [['it', 'Hidden items', 'Not on the drawings or the sheets. They still count in the table.'], ['nm', 'Hidden names', 'The item is drawn, without its name.'], ['scr', 'On the screen only', ''], ['cab', 'Inside a cabin', '']]) {
+    const R = L.rows.filter(r => r.g === g); if (R.length) h += '<b>' + head + '</b>' + (why ? '<p class="hint">' + why + '</p>' : '') + R.map(row).join(''); }
+  if (VIEW) h += '<p class="hint" style="margin-top:8px">View only: they stay hidden.</p>';
+  else if (L.rows.filter(r => r.g !== 'cab').length > 1) h += '<button type="button" class="b s hall" data-a="hid-all" title="Show everything listed here again. Undo hides it again.">' + ico('eye') + 'Show all</button>';
+  return h;
+}
+function hidFocus() { const pop = $('#tbpop'), b = $('#bHid'), f = hidOpen && pop && !pop.hidden ? pop.querySelector('.hrow:not(:disabled)') || pop.querySelector('[data-a="hid-close"]') : null; if (f) f.focus(); else if (b && !b.hidden) b.focus(); }      /* (15 Nov) the keyboard: the first row of the card, or back to the button */
 function drawStrip() {
   const tb = document.getElementById('tb'), pop = document.getElementById('tbpop'); if (!tb || !pop) return;
-  const off = !!focus || !!(S.room && (VIEW || view === 'sheets')); tb.hidden = off; if (off) { palOpen = expOpen = false; pop.hidden = true; return; }
+  if (mode !== 'select') hidOpen = false;      /* (15 Nov) a drawing tool, started from a form too, closes the card */
+  const HL = hidList(hidOpen), hb = $('#bHid');      /* (15 Nov) the "N hidden" button: there whenever something is hidden on this level; it pulses when the count goes up */
+  if (hb) { if (hidS !== S) { hidS = S; hidN0 = -1; } const n = HL.n; hb.hidden = !n; hb.classList.toggle('mini', mode !== 'select'); hb.setAttribute('aria-pressed', String(hidOpen && n > 0));
+    if (n) { hb.innerHTML = ico('eyeoff') + '<b>' + n + '</b><span>hidden</span>'; const tt = n === 1 ? '1 thing is hidden. Tap to see it and show it again.' : n + ' things are hidden. Tap to see them and show them again.'; hb.title = tt; hb.setAttribute('aria-label', tt);
+      if (hidN0 >= 0 && n > hidN0) { hb.classList.remove('pulse'); void hb.offsetWidth; hb.classList.add('pulse'); } }
+    hidN0 = n; }
+  if (!HL.n) hidOpen = false; pop.classList.toggle('hid', hidOpen);
+  const off = !!focus || !!(S.room && (VIEW || view === 'sheets')); tb.hidden = off; if (off) { palOpen = expOpen = false; pop.innerHTML = hidOpen ? hidTray(HL) : ''; pop.hidden = !hidOpen; return; }
   const only = !!VIEW || view === 'sheets';      /* (19:25) on the sheets, and on a plan that is view only, the strip holds the export alone */
   const room = !!S.room, B = (a, icon, label, on, extra, dis) => '<button type="button" data-a="' + a + '"' + (extra || '') + ' aria-pressed="' + (on ? 'true' : 'false') + '"' + (dis ? ' disabled' : '') + ' title="' + esc(label) + '">' + ico(icon) + '<span>' + esc(label) + '</span></button>';
-  let h = B('tool-sel', 'ptr', 'Select', mode === 'select' && !palOpen && !expOpen) + '<i></i>' + B('tool-foc', 'foc', room ? 'Cable' : 'FOC', mode === 'route');
+  let h = B('tool-sel', 'ptr', 'Select', mode === 'select' && !palOpen && !expOpen && !hidOpen) + '<i></i>' + B('tool-foc', 'foc', room ? 'Cable' : 'FOC', mode === 'route');
   for (const k of room ? ['ladder', 'part'] : ['trench', 'conduit', 'ladder']) h += B('run-draw', k, RUNW[k], mode === 'run' && runKind === k, ' data-kind="' + k + '"');
   h += '<i></i>' + B('tool-pal', 'plus', 'Add', palOpen || mode === 'place');
   if (!room) h += B('photo-take', 'cam', 'Photo', mode === 'photo') + (HOST && HOST.addPicture ? B('photo-pick', 'img', 'Gallery', false) : '');
@@ -792,11 +853,15 @@ function drawStrip() {
     p += '<b>Lines</b><div class="tiles">' + (room ? ['ladder', 'part'] : Object.keys(RUNS).filter(k => !RUNS[k].room)).map(k => tile('run-draw', k, RUNS[k].n, ' data-kind="' + k + '"')).join('') + '</div>'; pop.innerHTML = p; }
   if (expOpen) { const libs = typeof PDFLib !== 'undefined', can = dlReady && dl && !busy, tile = (kind, icon, label, ok) => '<button type="button" class="tile" data-a="exp-go" data-kind="' + kind + '"' + (ok ? '' : ' disabled') + '>' + ico(icon) + '<span>' + label + '</span></button>';
     pop.innerHTML = '<b>Export</b><div class="tiles">' + tile('pdf', 'doc', 'PDF', can && libs) + tile('dxf', 'dxfi', 'DXF', can) + tile('zip', 'exp', 'Both', can && libs) + '</div><p class="hint" style="margin:8px 2px 0">PDF: the sheets, to print or to send. DXF: the sheets for AutoCAD, with a layout tab for each. Both: one ZIP with the DXF, the PDF, the KML, the photos and the sketch. Which pages the DXF holds: Menu, then Check and export.' + (libs ? '' : ' The PDF part did not load: reload with the network on.') + '</p>'; }
-  pop.hidden = !(palOpen || expOpen);
+  if (hidOpen) pop.innerHTML = hidTray(HL);
+  pop.hidden = !(palOpen || expOpen || hidOpen);
 }
-{ const v = document.getElementById('views'); if (v) v.addEventListener('pointerdown', e => { if ((palOpen || expOpen) && !(e.target.closest && e.target.closest('#tbpop'))) { palOpen = expOpen = false; drawStrip(); } }, true); }      /* a tap on the drawing beside the tray closes the tray */
+{ const v = document.getElementById('views'); if (v) v.addEventListener('pointerdown', e => { if ((palOpen || expOpen || hidOpen) && !(e.target.closest && e.target.closest('#tbpop, #bHid'))) { palOpen = expOpen = hidOpen = false; drawStrip(); } }, true); }      /* a tap on the drawing beside the tray closes the tray (the "N hidden" button opens and closes its own) */
 for (const id of ['tb', 'tbpop']) { const n = document.getElementById(id); if (n) n.addEventListener('click', e => {
   const b = e.target.closest('[data-a]'); if (!b || b.disabled) return; const a = b.dataset.a;
+  if (!b.closest('#tbpop')) hidOpen = false;      /* (15 Nov) a tool closes the card of what is hidden; a row of the card keeps it open */
+  else if (e.detail === 0) setTimeout(hidFocus, 0);      /* (a row taken with the keyboard: the keys stay in the card) */
+  if (a === 'hid-close') { hidOpen = false; drawStrip(); return; }
   if (a === 'tool-pal') { const open = !palOpen; if (mode !== 'select') toolSel(); palOpen = open; expOpen = false; drawStrip(); return; }
   if (a === 'tool-exp') { const open = !expOpen; if (mode !== 'select' && !VIEW) toolSel(); palOpen = false; expOpen = open; drawStrip(); return; }
   if (a === 'exp-go') { expOpen = false; drawStrip(); doExport(b.dataset.kind); return; }
@@ -979,8 +1044,8 @@ function wallStop(c, r) {
 }
 function atCabinWall(p) { if (S.room) return null; const c = S.els.find(e => e.t === 'cabin' && inCabin(e, p, 0.02)); return c ? wallStop(c, toRoom(c, p)) : null; }
 /* a short word in the status line about what the app just did; it goes away by itself */
-let sayT = 0;
-function say(t) { dragNote = t; clearTimeout(sayT); sayT = setTimeout(() => { if (dragNote === t) { dragNote = ''; drawChrome(); } }, 6000); }
+let sayT = 0; var sayNow = '';      /* (15 Nov) sayNow: the message now in the status line (a note while dragging is not one) */
+function say(t) { dragNote = sayNow = t; clearTimeout(sayT); sayT = setTimeout(() => { if (dragNote === t) { dragNote = sayNow = ''; drawChrome(); } }, 6000); }
 /* a ladder that was drawn through the wall of a cabin is cut where it goes in */
 function stopAtCabins(P) {
   if (S.room) return P; const inC = p => S.els.find(e => e.t === 'cabin' && inCabin(e, p, 0.02));
@@ -1112,7 +1177,9 @@ function goBack() {
 }
 function delSel() { if (VIEW) return;
   if (!sel) return; push();
-  if (sel.k === 'pic') { const p = phById(sel.id); if (p) delete p[sel.v === 't' ? 'ct' : 'ci']; needFit.sheets = true; } else if (sel.k === 'gate') S.gates.splice(sel.i, 1); else if (sel.k === 'el') S.els = S.els.filter(e => e.id !== sel.id); else if (sel.k === 'run') S.runs = S.runs.filter(e => e.id !== sel.id); else if (sel.k === 'photo') S.photos = S.photos.filter(e => e.id !== sel.id); else if (sel.k === 'pt') delPt(sel.f, sel.i, sel.c || 0); else if (sel.k === 'lab') { hist.pop(); return; }
+  if (sel.k === 'pic') { const p = phById(sel.id); if (p) delete p[sel.v === 't' ? 'ct' : 'ci']; needFit.sheets = true; } else if (sel.k === 'gate') S.gates.splice(sel.i, 1); else if (sel.k === 'el' || sel.k === 'run') { const id = sel.id, e = sel.k === 'el' ? elById(id) : null;      /* (15 Nov) its names go with it (Undo brings them back) */
+    if (S.lab) { for (const k of Object.keys(S.lab)) if (k === id || k === 'dep' + id || k === 'gl' + id || k.indexOf('lenr' + id + '_') === 0 || k.indexOf('port' + id + '_') === 0) delete S.lab[k]; if (e && e.inside) for (const q of e.inside.els || []) delete S.lab['in' + q.id]; }
+    if (sel.k === 'el') S.els = S.els.filter(q => q.id !== id); else S.runs = S.runs.filter(q => q.id !== id); } else if (sel.k === 'photo') S.photos = S.photos.filter(e => e.id !== sel.id); else if (sel.k === 'pt') delPt(sel.f, sel.i, sel.c || 0); else if (sel.k === 'lab') { hist.pop(); return; }
   sel = null; needFit.iso = true; refresh(true);
 }
 function delPt(f, i, c) { const R = (c == null ? RT() : RTc(c))[f]; if (!R || !R.pts[i]) return; R.pts.splice(i, 1); if (f === 'ug') { if (R.legs.length) R.legs.splice(Math.min(i, R.legs.length - 1), 1); R.legs.length = Math.max(0, R.pts.length - 1); } }
@@ -1127,9 +1194,14 @@ function action(a, b) {
   if (VIEW && VIEW_OK.indexOf(a) < 0) { say('View only: ' + VIEW); drawChrome(); return; }
   switch (a) {
     case 'add': addEl(d.t, d.bay); return;
-    case 'it-eye': { const q = d.kind === 'run' ? runById(d.id) : elById(d.id); if (!q) return; push(); if (q.hid) delete q.hid; else q.hid = 1;      /* (14 Nov) hide an item on the drawings and the sheets, or show it again */
+    case 'it-eye': { const q = d.kind === 'run' ? runById(d.id) : elById(d.id); if (!q) return; push();      /* (14 Nov) hide an item on the drawings and the sheets, or show it again */
+      const hs = d.kind === 'run' ? null : rackHost(S, q), show = d.kind === 'run' ? !!q.hid : hidEl(S, q), wh = show && hs && hs.hid ? hs : null;      /* (15 Nov) Show on an item whose rack is hidden shows the rack too */
+      if (show) { delete q.hid; if (wh) delete wh.hid; } else q.hid = 1;
       if (q.hid && sel && (sel.k === 'el' || sel.k === 'run') && sel.id === q.id) sel = null; needFit.iso = needFit.sheets = true;
-      say(q.hid ? 'Hidden: it is not on the drawings or the sheets. It stays in this list and still counts in the table.' : 'Shown again.'); refresh(true); return; }
+      const nm = d.kind === 'run' ? q.name || RUNS[q.kind].n : q.name || TYPES[q.t].n;      /* (15 Nov) the message points to the button that brings it back */
+      say(q.hid ? hidSay('Hidden.') : 'Shown again: ' + nm + (wh ? ', with ' + elLabel(S, wh) : '') + '.'); refresh(true); return; }
+    case 'hid-all': { push(); for (const q of S.els.concat(S.runs)) delete q.hid; for (const k in (S.lab || {})) if (S.lab[k]) delete S.lab[k].off;      /* (15 Nov) Show all, on this level: one Undo hides them again */
+      const nm = namesOff; namesOff = false; hidOpen = false; needFit.iso = needFit.sheets = true; say(nm ? 'All shown again, the names too. Undo hides again what you hid one by one.' : 'All shown again. Undo hides them again.'); refresh(true); return; }      /* (the Names button is not in Undo) */
     case 'it-del': { const q = d.kind === 'run' ? runById(d.id) : elById(d.id); if (!q) return; const nm = d.kind === 'run' ? q.name || RUNS[q.kind].n : q.name || TYPES[q.t].n;
       sel = { k: d.kind === 'run' ? 'run' : 'el', id: d.id }; delSel(); say('Deleted: ' + nm + '. Undo brings it back.'); return; }
     case 'sel': sel = { k: d.kind, id: d.id }; needTop(); refresh(true); panel.scrollTop = 0; return;
@@ -1137,7 +1209,7 @@ function action(a, b) {
     case 'dup': { const e = sel && elById(sel.id); if (e) { push(); const inR = !!rackHost(S, e), c = Object.assign({}, e, { id: uid(), x: inR ? e.x : snap(e.x + (S.room ? 0.6 : 1)), y: inR ? e.y : snap(e.y - (S.room ? 0 : 1)) }); delete c.inside; if (inR) delete c.u; if (e.inside) c.inside = JSON.parse(JSON.stringify(e.inside)); S.els.push(c); settle(c); sel = { k: 'el', id: c.id }; refresh(true); } return; }
     case 'del': delSel(); return;
     case 'gate-add': push(); S.gates.push(S.room ? { side: 'S', off: Math.max(0, snap(S.site.L / 2 - 0.45)), w: Math.min(0.9, S.site.L) } : gateFree(+d.w || 4)); if (!S.room) { sel = { k: 'gate', i: S.gates.length - 1 }; tab = 'els'; mode = 'select'; needTop(); } refresh(true); return;      /* (14 Nov: picked wherever it was added from) */
-    case 'room-in': if (sel && sel.k === 'el') roomIn(sel.id); return;
+    case 'room-in': { const id = d.id || (sel && sel.k === 'el' ? sel.id : null); if (!id) return; if (focus) { cabDraw = false; goBack(); } roomIn(id); return; }      /* (15 Nov) also from a row of the card of what is hidden (from an opened rack too: it is closed first) */
     case 'focus-in': if (d.id) focusIn(d.id); else if (sel && sel.k === 'el') focusIn(sel.id); return;
     case 'back': cabDraw = false; goBack(); return;
     case 'pin-on': { const p = phById(d.id); if (!p) return; push(); if (p.pin === false) delete p.pin; else p.pin = false; if (sel && sel.k === 'photo' && sel.id === p.id) { sel = p.ct ? { k: 'pic', id: p.id, v: 't' } : p.ci ? { k: 'pic', id: p.id, v: 'i' } : null; if (!sel) openTab = 'photos'; } needFit.sheets = true; refresh(true); return; }      /* beta 4.2: the number of a photo on the plan, shown or hidden */
@@ -1182,7 +1254,8 @@ function action(a, b) {
     case 'nm': applyField('site.nm.' + d.k, { value: nameOn(S, d.k) ? '0' : '1' }); refresh(true); return;
     case 'sign-edit': signOpen = !signOpen; drawPanel(); return;      /* (22:24) */
     case 'pd': { if (S.room || !PART_DETAILS.some(q => q[0] === d.k)) return; push(); const si = S.site; si.pd = Object.assign({}, si.pd); si.pd[d.k] = !pdOn(S, d.k); needFit.sheets = true; refresh(true); return; }
-    case 'lab-eye': { const k = d.key; if (!k) return; push(); const r = S.lab[k] || (S.lab[k] = {}); if (r.off) delete r.off; else r.off = 1; needFit.sheets = true; refresh(true); return; }
+    case 'lab-eye': { const k = d.key; if (!k) return; push(); const r = S.lab[k] || (S.lab[k] = {}); if (r.off) delete r.off; else r.off = 1; needFit.sheets = true;
+      say(r.off ? hidSay('Name hidden.') : 'Name shown again.'); refresh(true); return; }      /* (15 Nov) a message, as for an item */
     case 'lab-reset': if (sel && sel.k === 'lab' && S.lab[sel.key]) { push(); for (const v of ['p', 'i0', 'i1', 'i2', 'i3']) delete S.lab[sel.key][v]; refresh(true); } return;
     case 'lab-item': if (sel && sel.k === 'lab') { const q = labInfo(sel.key); if (q.item) { sel = q.item; tab = 'els'; refresh(true); panel.scrollTop = 0; } } return;
     case 'photo-place': mode = 'photo'; placing = d.id; needTop(); refresh(true); return;
@@ -1448,23 +1521,23 @@ async function doExport(kind) {
    the plan: out from the pole on that side, far enough to take it with a finger */
 function pipeDir(e) { const r = routeGeom(S).risers.find(q => q.pole === e); return r && !pipeSet(e) ? r.s || r.u : pipeSide(S, e); }
 function pipeHandle(e) { const u = pipeDir(e), d = Math.max(0.8, 30 * unit('top')); return [e.x + u[0] * d, e.y + u[1] * d]; }
-const pipePole = () => { if (S.room || focus || VIEW || mode !== 'select' || !sel || sel.k !== 'el') return null; const e = elById(sel.id); return e && e.t === 'rpole' ? e : null; };
+const pipePole = () => { if (S.room || focus || VIEW || mode !== 'select' || !sel || sel.k !== 'el' || selHid()) return null; const e = elById(sel.id); return e && e.t === 'rpole' ? e : null; };
 /* ---------- pointer work on the drawings ---------- */
 function hitTest(m) {
   const u = unit('top'), pr = Math.max(10 * u, S.room ? 0.03 : 0.15);
   for (const q of addSpots()) if (Math.abs(m[0] - q.p[0]) < 38 * u && Math.abs(m[1] - q.p[1]) < 17 * u) return Object.assign({ add: true }, q);      /* (14 Nov 16:05) + Gate, + Door */
   if (sel && sel.k === 'photo') { const p = phById(sel.id); if (p && p.placed) { const t = tip(p); if (Math.hypot(m[0] - t[0], m[1] - t[1]) < pr * 1.3) return { k: 'pdir', id: p.id }; } }
   { const c = !focus && mode === 'select' ? entryCab() : null; if (c) { const p = cabPort(S, c, routeGeom(S)).p; if (Math.hypot(m[0] - p[0], m[1] - p[1]) < Math.min(pr * 1.3, entryR(c))) return { k: 'glandT', id: c.id }; } }      /* (19:25) the entry of the cable on the picked cabinet */
-  if (!S.room && sel && sel.k === 'el') { const e = elById(sel.id); if (e && e.t === 'cabin') { let b = null; const try1 = (p, k, i) => { const d = Math.hypot(m[0] - p[0], m[1] - p[1]); if (d < pr * 1.3 && (!b || d < b.d)) b = { d, h: { k, id: e.id, i } }; };      /* the handle nearest the pointer: porthole, door or aircon unit */
+  if (!S.room && sel && sel.k === 'el' && !selHid()) { const e = elById(sel.id); if (e && e.t === 'cabin') { let b = null; const try1 = (p, k, i) => { const d = Math.hypot(m[0] - p[0], m[1] - p[1]); if (d < pr * 1.3 && (!b || d < b.d)) b = { d, h: { k, id: e.id, i } }; };      /* the handle nearest the pointer: porthole, door or aircon unit */
     cabinPorts(e).forEach((q, i) => try1(q.at, 'porth', i)); cabinDoors(e).forEach((q, i) => try1(doorAt(e, q), 'doorh', i)); cabinAcs(e).forEach((q, i) => try1(q.at, 'ach', i)); if (b) return b.h; } }
   { const e = pipePole(); if (e) { const ph = pipeHandle(e); if (Math.hypot(m[0] - ph[0], m[1] - ph[1]) < pr * 1.3) return { k: 'pipeh', id: e.id }; } }      /* (14 Nov) the handle of the G.I. pipe of the picked riser pole */
-  if (!S.room && sel && sel.k === 'el') { const e = elById(sel.id); if (e && e.t === 'pad') { let b = null; padSteps(e).forEach((K, i) => { const p = stairAt(e, K), d = Math.hypot(m[0] - p[0], m[1] - p[1]); if (d < pr * 1.3 && (!b || d < b.d)) b = { d, h: { k: 'stairh', id: e.id, i } }; }); if (b) return b.h; } }      /* beta 4.2: the stairs of the picked pad */
+  if (!S.room && sel && sel.k === 'el' && !selHid()) { const e = elById(sel.id); if (e && e.t === 'pad') { let b = null; padSteps(e).forEach((K, i) => { const p = stairAt(e, K), d = Math.hypot(m[0] - p[0], m[1] - p[1]); if (d < pr * 1.3 && (!b || d < b.d)) b = { d, h: { k: 'stairh', id: e.id, i } }; }); if (b) return b.h; } }      /* beta 4.2: the stairs of the picked pad */
   if (S.room && !focus && (!sel || sel.k === 'rdoor') && mode !== 'run' && mode !== 'route') for (let i = 0; i < S.gates.length; i++) { const q = S.gates[i], hz = q.side === 'S' || q.side === 'N', c = num(q.off, 0) + num(q.w, 0.9) / 2, p = hz ? [c, q.side === 'S' ? 0 : S.site.W] : [q.side === 'W' ? 0 : S.site.L, c]; if (Math.hypot(m[0] - p[0], m[1] - p[1]) < pr * 1.3) return { k: 'rdoor', i }; }
   if (!S.room && !focus && mode === 'select') { const ph = picHit(topPics, m, pr, 't'); if (ph) return ph; }      /* beta 4.1: a photo on the plan, or the tip of its arrow */
   if (!S.room && !focus && S.site.kind === 'fenced' && mode === 'select') for (let i = 0; i < S.gates.length; i++) { const q = S.gates[i], hz = q.side === 'S' || q.side === 'N', c = num(q.off, 0) + num(q.w, 0) / 2, p = hz ? [c, q.side === 'S' ? 0 : S.site.W] : [q.side === 'W' ? 0 : S.site.L, c]; if (Math.hypot(m[0] - p[0], m[1] - p[1]) < Math.max(pr * 1.3, Math.min(num(q.w, 0) / 2, 0.6))) return { k: 'gate', i }; }      /* beta 4.1: a gate of the site is picked at its middle and dragged along the fence */
   if (tab === 'route' || (sel && sel.k === 'pt')) { RT(); const CB = cables(S), order = sel && sel.k === 'pt' && sel.f === 'ae' ? ['ae', 'ug'] : ['ug', 'ae']; for (const c of [cabN].concat(CB.map((q, k) => k).filter(k => k !== cabN))) for (const f of order) for (let i = CB[c][f].pts.length - 1; i >= 0; i--) { const p = CB[c][f].pts[i]; if (Math.hypot(m[0] - p.x, m[1] - p.y) < pr * 1.2) return { k: 'pt', f, i, c }; } }
   for (const p of S.photos) if (p.placed && p.pin !== false && Math.hypot(m[0] - p.x, m[1] - p.y) < Math.max(pr, topTh)) return { k: 'photo', id: p.id };
-  if (sel && sel.k === 'run') { const l = runById(sel.id); if (l) for (let i = 0; i < l.pts.length; i++) if (Math.hypot(m[0] - l.pts[i][0], m[1] - l.pts[i][1]) < pr * 1.2) return { k: 'rpt', id: l.id, i }; }
+  if (sel && sel.k === 'run' && !selHid()) { const l = runById(sel.id); if (l) for (let i = 0; i < l.pts.length; i++) if (Math.hypot(m[0] - l.pts[i][0], m[1] - l.pts[i][1]) < pr * 1.2) return { k: 'rpt', id: l.id, i }; }      /* (15 Nov: the handles of a hidden item that is picked do nothing) */
   let best = null, ba = 1e9;
   for (const e of S.els) { if (hidEl(S, e)) continue; const P = elPoly(e), b = polyBox(P), a = (b[2] - b[0]) * (b[3] - b[1]); if ((inPoly(m, P) || Math.hypot(m[0] - e.x, m[1] - e.y) < pr) && a < ba) { best = e; ba = a; } }
   if (best) return { k: 'el', id: best.id };
@@ -1756,9 +1829,11 @@ $('#bTurn').addEventListener('click', () => { if (focus) { focusTurn = focusTurn
 $('#bIn').addEventListener('click', () => zoomAt(view === 'both' ? active : view, 1 / 1.3));
 $('#bOut').addEventListener('click', () => zoomAt(view === 'both' ? active : view, 1.3));
 $('#bFit').addEventListener('click', () => { needFit.top = needFit.iso = needFit.sheets = true; drawViews(); });
+{ const b = $('#bHid'); if (b) { b.addEventListener('click', e => { const open = !hidOpen; if (open && mode !== 'select' && !VIEW) toolSel(); palOpen = expOpen = false; hidOpen = open; drawStrip(); if (open && e.detail === 0) hidFocus(); });
+  b.addEventListener('animationend', () => b.classList.remove('pulse')); } }      /* (15 Nov) the card of what is hidden; it only lists, so it opens on a view-only plan too. Opened with the keyboard, the keys go to its first row. The pulse plays once, not again each time the button comes back. */
 /* beta 4.1: the arrow keys move the picked item on the plan: one step of the grid (0.1 m) a press, a small step (0.01 m) with Shift */
 function nudge(dx, dy) {
-  if (VIEW || !sel) return false; const mv = o => { o.x = r2(num(o.x, 0) + dx); o.y = r2(num(o.y, 0) + dy); };
+  if (VIEW || !sel || selHid()) return false; const mv = o => { o.x = r2(num(o.x, 0) + dx); o.y = r2(num(o.y, 0) + dy); };
   if (sel.k === 'el') { const e = elById(sel.id); if (!e || rackHost(S, e)) return false; push('nudge'); const R = riders(e), on = []; if (SNAPS.includes(e.t)) for (const RR of cables(S)) for (const f of ['ae', 'ug']) for (const p of RR[f].pts) if (Math.hypot(p.x - e.x, p.y - e.y) < 0.06) on.push(p); mv(e); R.forEach(mv); on.forEach(mv); if (S.room && (e.t === 'ac' || e.t === 'port')) toWall(e); dragNote = TYPES[e.t].n + ': ' + f2(e.x) + ' m from the left, ' + f2(e.y) + ' m from the bottom'; }
   else if (sel.k === 'run') { const l = runById(sel.id); if (!l) return false; push('nudge'); l.pts = l.pts.map(q => [r2(q[0] + dx), r2(q[1] + dy)]); dragNote = RUNS[l.kind].n + ' moved'; }
   else if (sel.k === 'pt') { const p = RTc(sel.c)[sel.f].pts[sel.i]; if (!p) return false; push('nudge'); mv(p); dragNote = 'Point moved'; }
@@ -1773,7 +1848,7 @@ window.addEventListener('keydown', e => {
   if (VIEW && e.key !== 'Escape') return;
   const typing = /^(INPUT|SELECT|TEXTAREA)$/.test((document.activeElement || {}).tagName || '');
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); undo(); }
-  else if (e.key === 'Escape') { if (mode !== 'select') { mode = 'select'; draft = []; live = null; placing = null; } else sel = null; refresh(true); }
+  else if (e.key === 'Escape') { if (hidOpen) { const back = !!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#tbpop')); hidOpen = false; drawStrip(); if (back) $('#bHid').focus(); return; } if (mode !== 'select') { mode = 'select'; draft = []; live = null; placing = null; } else sel = null; refresh(true); }
   else if ((e.key === 'Delete' || e.key === 'Backspace') && !typing && sel) { e.preventDefault(); delSel(); }
   else if (/^Arrow(Left|Right|Up|Down)$/.test(e.key) && !typing && sel && !e.ctrlKey && !e.metaKey && !e.altKey) { const st = e.shiftKey ? 0.01 : 0.1; if (nudge(e.key === 'ArrowLeft' ? -st : e.key === 'ArrowRight' ? st : 0, e.key === 'ArrowUp' ? st : e.key === 'ArrowDown' ? -st : 0)) e.preventDefault(); }
 });
@@ -1811,9 +1886,9 @@ function shToggle() { if (wide() || shHome()) return; sheetSet(sheet === 'peek' 
 const PH = { on: null };
 function phoneDom() {
   const ph = !wide(); if (ph === PH.on) return; const first = PH.on === null; PH.on = ph;
-  if (first) Object.assign(PH, { seg: $('#segView'), tools: document.querySelector('.tools'), turn: $('#bTurn'), fit: $('#bFit'), tb: $('#tb'), status: $('#status'), stage: document.querySelector('.stage'), views: $('#views'), bar: document.querySelector('.bar'), app: document.querySelector('.app'), shd: $('#shd'), fab: $('#fab') });
-  if (ph) { PH.bar.insertBefore(PH.seg, $('#who')); PH.fab.append(PH.turn, PH.fit); PH.app.appendChild(PH.tb); PH.shd.insertBefore(PH.status, PH.shd.querySelector('.shc')); }
-  else { PH.tools.insertBefore(PH.seg, PH.tools.firstChild); PH.tools.insertBefore(PH.turn, $('#bOut')); PH.tools.appendChild(PH.fit); PH.stage.insertBefore(PH.tb, PH.views); PH.stage.appendChild(PH.status); }
+  if (first) Object.assign(PH, { seg: $('#segView'), tools: document.querySelector('.tools'), turn: $('#bTurn'), fit: $('#bFit'), tb: $('#tb'), status: $('#status'), stage: document.querySelector('.stage'), views: $('#views'), bar: document.querySelector('.bar'), app: document.querySelector('.app'), shd: $('#shd'), fab: $('#fab'), hid: $('#bHid') });
+  if (ph) { PH.bar.insertBefore(PH.seg, $('#who')); PH.fab.append(PH.hid, PH.turn, PH.fit); PH.app.appendChild(PH.tb); PH.shd.insertBefore(PH.status, PH.shd.querySelector('.shc')); }      /* (15 Nov) the "N hidden" button: over Turn and Fit on a phone, left of Turn on a computer */
+  else { PH.tools.insertBefore(PH.seg, PH.tools.firstChild); PH.tools.insertBefore(PH.turn, $('#bOut')); PH.tools.insertBefore(PH.hid, PH.turn); PH.tools.appendChild(PH.fit); PH.stage.insertBefore(PH.tb, PH.views); PH.stage.appendChild(PH.status); }
   document.body.classList.toggle('phone', ph);
   if (!first) { needFit.top = needFit.iso = needFit.sheets = true; sheetCk = null; }
 }
