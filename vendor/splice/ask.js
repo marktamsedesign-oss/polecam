@@ -1136,15 +1136,43 @@
       '<p class="note">How a new FDU\'s ports are shared and the cable IDs are asked on the way (tap the FDU or the cable to change them).</p>' +
       '<h3>This project</h3><button type="button" class="btn danger' + (armed ? ' armed' : '') + '" data-reset>' + (armed ? 'Tap again to start over' : 'Start this project again') + '</button></div>');
   }
+  /* the A3 sheets: a chip per sheet, named (Single line, Key map, A-01, B-01 …), and ‹ › to step through them. On the key map a tap on
+     a grid cell opens that cell's sheet; on a grid sheet so does a tap on the locator or on a MATCH LINE · SEE label. */
   var sheetViewer = null;
   function openSheets() {
     var r = SP.build(C().model, ['sld', 'detailed']), sheets = r.sheets;
-    openOverlay(head('The A3 sheets') + '<div class="tabs">' + sheets.map(function (sh, i) { return '<button type="button" data-sheet="' + i + '" aria-pressed="' + (i === 0) + '">' + (/SINGLE/.test(sh.head) ? 'Single line' : 'Splicing details') + (sheets.length > 2 ? ' ' + (i + 1) : '') + '</button>'; }).join('') +
-      '</div><div class="sheetview"><div class="view" id="sheetView"></div><div class="tools"><button class="tbtn" type="button" data-szoom="in" aria-label="Zoom in">+</button><button class="tbtn" type="button" data-szoom="out" aria-label="Zoom out">&minus;</button>' +
+    openOverlay(head('The A3 sheets') + '<div class="tabs" role="group" aria-label="Sheets">' + sheets.map(function (sh, i) {
+      var name = sh.label || (/SINGLE/.test(sh.head) ? 'Single line' : 'Splicing details'), cls = sh.cell ? ' class="cell"' : sh.keymap ? ' class="key"' : '';
+      return '<button type="button"' + cls + ' data-sheet="' + i + '" aria-pressed="' + (i === 0) + '" aria-label="' + esc((sh.cell ? 'Grid ' : '') + name) + ', sheet ' + (i + 1) + ' of ' + sheets.length + '">' + esc(name) + '</button>';
+    }).join('') +
+      '</div><div class="sheetview"><div class="view" id="sheetView"></div><div class="shint" id="sheetHint" hidden>Tap a grid cell to open its sheet</div>' +
+      '<div class="pager"><button class="tbtn" type="button" data-spage="-1" aria-label="Previous sheet">‹</button><span class="plbl" id="sheetPage" aria-live="polite"></span><button class="tbtn" type="button" data-spage="1" aria-label="Next sheet">›</button></div>' +
+      '<div class="tools"><button class="tbtn" type="button" data-szoom="in" aria-label="Zoom in">+</button><button class="tbtn" type="button" data-szoom="out" aria-label="Zoom out">&minus;</button>' +
       '<button class="tbtn" type="button" data-szoom="fit" aria-label="Whole sheet">⤢</button></div></div>', true);
-    sheetViewer = new Viewer($('#sheetView'), null); sheetViewer.sheets = sheets; showSheet(0);
+    sheetViewer = new Viewer($('#sheetView'), onSheetTap); sheetViewer.sheets = sheets; sheetViewer.page = 0; showSheet(0);
   }
-  function showSheet(i) { sheetViewer.set(SP.toSVG(sheetViewer.sheets[i])); sheetViewer.fit(null, 2, 0, false); [].forEach.call(ovl().querySelectorAll('[data-sheet]'), function (b) { b.setAttribute('aria-pressed', String(+b.getAttribute('data-sheet') === i)); }); }
+  /* a tap on a grid cell (key map, locator or match line label): that cell's sheet */
+  function onSheetTap(ref) {
+    if (!sheetViewer || !ref || ref.indexOf('grid:') !== 0) return;
+    var name = ref.slice(5), sh = sheetViewer.sheets; for (var i = 0; i < sh.length; i++) if (sh[i].cell === name) { showSheet(i); return; }
+  }
+  /* the whole sheet, clear of the hint above it and of the ‹ n / N › pager below it */
+  function fitSheet(animate) {
+    var V = sheetViewer, S = V.size(), W = SP.SHEET.W, H = SP.SHEET.H, k = Math.min((S.w - 12) / W, (S.h - 116) / H);
+    if (!(k > 0)) { V.fit(null, 2, 0, animate); return; }
+    var w = S.w / k, h = S.h / k; V.go({ x: W / 2 - w / 2, y: H / 2 - h / 2, w: w, h: h }, animate);
+  }
+  function showSheet(i) {
+    var V = sheetViewer, sh = V.sheets; if (!sh.length) return; i = Math.max(0, Math.min(sh.length - 1, i)); V.page = i;
+    V.set(SP.toSVG(sh[i])); fitSheet(false);
+    [].forEach.call(ovl().querySelectorAll('[data-sheet]'), function (b) {
+      var on = +b.getAttribute('data-sheet') === i; b.setAttribute('aria-pressed', String(on));
+      if (on) { var t = b.parentNode, l = b.offsetLeft, w = t.clientWidth; if (l < t.scrollLeft || l + b.offsetWidth > t.scrollLeft + w) t.scrollLeft = Math.max(0, l - (w - b.offsetWidth) / 2); }
+    });
+    var lbl = $('#sheetPage'); if (lbl) lbl.textContent = (i + 1) + ' / ' + sh.length;
+    var hint = $('#sheetHint'); if (hint) hint.hidden = !sh[i].keymap;
+    [].forEach.call(ovl().querySelectorAll('[data-spage]'), function (b) { var d = +b.getAttribute('data-spage'); b.disabled = d < 0 ? i === 0 : i === sh.length - 1; });
+  }
   function openExport() {
     var c = C(), warn = c.left ? '<div class="ck warn"><div>Still to answer: ' + c.left + '. You can export now; the drawing prints TO BE CONFIRMED where a fact is missing.</div></div>'
       : c.status === 'fix' ? '<div class="ck bad"><div>Not enough free fibers on ' + c.short.map(function (l) { return l.label; }).join(' and ') + '. The drawing marks ' + (c.short.length === 1 ? 'it' : 'them') + ' NOT ENOUGH FREE FIBERS.</div></div>'
@@ -1270,12 +1298,14 @@
         change(function () { ST.A = freshAnswers(proj()); }, { cur: 'start', toast: 'Started again. Undo brings your answers back.' }); ST.fitNext = true; render(); closeOverlay(); return;
       }
       if ((b = e.target.closest('[data-sheet]'))) { showSheet(+b.getAttribute('data-sheet')); return; }
-      if ((b = e.target.closest('[data-szoom]'))) { var z = b.getAttribute('data-szoom'); if (z === 'fit') sheetViewer.fit(null, 2, 0, true); else sheetViewer.zoom(z === 'in' ? 0.7 : 1 / 0.7); return; }
+      if ((b = e.target.closest('[data-spage]'))) { if (sheetViewer) showSheet(sheetViewer.page + +b.getAttribute('data-spage')); return; }
+      if ((b = e.target.closest('[data-szoom]'))) { var z = b.getAttribute('data-szoom'); if (z === 'fit') fitSheet(true); else sheetViewer.zoom(z === 'in' ? 0.7 : 1 / 0.7); return; }
       if ((b = e.target.closest('[data-view]'))) { b.setAttribute('aria-checked', String(b.getAttribute('aria-checked') !== 'true')); return; }
       if ((b = e.target.closest('[data-fmt]'))) { doExport(b.getAttribute('data-fmt')); return; }
     });
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') { if (!ovl().hidden) closeOverlay(); else if (ST.edit) { ST.edit = null; render(); } }
+      if (sheetViewer && !ovl().hidden && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !/INPUT|SELECT|TEXTAREA/.test((document.activeElement || {}).tagName || '')) { e.preventDefault(); showSheet(sheetViewer.page + (e.key === 'ArrowLeft' ? -1 : 1)); }
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !/INPUT/.test((document.activeElement || {}).tagName || '')) { e.preventDefault(); undo(); }
     });
     loadAll(); openProject(PROJECTS.some(function (p) { return p.id === ST.pid; }) ? ST.pid : 'p1');

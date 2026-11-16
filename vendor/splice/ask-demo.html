@@ -284,10 +284,21 @@ button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 3
 .sw .tg::after { content: ''; position: absolute; left: 3px; top: 3px; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: var(--shadow2); transition: transform .15s; }
 .sw[aria-checked="true"] .tg { background: var(--ok); }
 .sw[aria-checked="true"] .tg::after { transform: translateX(20px); }
-.tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 14px; border-bottom: 1px solid var(--line2); }
-.tabs button { min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-weight: 600; font-size: 14px; color: var(--ink); }
+/* the sheets: one row of chips that scrolls sideways (a set can have twenty sheets), ‹ n / N › at the foot */
+.tabs { position: relative; flex: none; display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; padding: 8px 14px; border-bottom: 1px solid var(--line2); }
+.tabs button { flex: none; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-weight: 600; font-size: 14px; color: var(--ink); white-space: nowrap; }
+.tabs button.cell { min-width: 58px; padding: 0 10px; font-variant-numeric: tabular-nums; }
+.tabs button.key { margin-left: 6px; }
+.tabs button.key::before { content: ''; display: inline-block; width: 12px; height: 9px; margin-right: 6px; vertical-align: -1px; border: 1.5px solid currentColor; border-radius: 2px;
+  background: linear-gradient(currentColor, currentColor) 50% 0 / 1.5px 100% no-repeat, linear-gradient(currentColor, currentColor) 0 50% / 100% 1.5px no-repeat; }
 .tabs button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .sheetview { position: relative; flex: 1 1 auto; min-height: 0; background: var(--desk); }
+.pager { position: absolute; left: 10px; bottom: 10px; display: flex; align-items: center; gap: 6px; }
+.pager .plbl { min-width: 64px; text-align: center; padding: 6px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow2);
+  font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pager .tbtn:disabled { opacity: .4; }
+.shint { position: absolute; left: 50%; transform: translateX(-50%); top: 10px; white-space: nowrap; max-width: calc(100% - 20px); overflow: hidden; text-overflow: ellipsis; padding: 6px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line);
+  box-shadow: var(--shadow2); font-size: 13px; font-weight: 600; color: var(--muted); pointer-events: none; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); top: calc(64px + env(safe-area-inset-top, 0px)); z-index: 40; pointer-events: none; max-width: min(92vw, 520px); overflow-wrap: anywhere;
   background: var(--ink); color: var(--surface); padding: 12px 18px; border-radius: 12px; box-shadow: var(--shadow); font-size: 15px; font-weight: 600; }
 .ovl:not([hidden]) + .toast { top: auto; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); max-width: min(70vw, 520px); }

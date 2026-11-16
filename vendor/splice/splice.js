@@ -9,6 +9,8 @@
    numbers (F1-6 to F1-6) and an existing cable gives its first vacant fibers (F13-18 when 1-12 are in use); `rules.tube = 'fresh'` keeps
    it out of any tube with a live fiber. A leg is tested end to end, spliced only (test later) or future (a second cable, xx-xx); the
    As-Plan draws planned connections, the As-Built the testing words. Splice.assign(model) gives the fibers without drawing.
+   Every splice of the work is a red dot (layer SPLICE_NEW). A detailed drawing too big to read on one sheet becomes a key map and one sheet
+   per grid cell (A-01, B-01 …), like a map book; see "the grid" below.
    Sheets are millimetres, y up, A3 landscape. Each sheet is a list of primitives: the writers make the SVG preview, the PDF and the DXF (R12). */
 (function (root) {
   'use strict';
@@ -43,7 +45,9 @@
     LENGTH: [3, '#3ddc5f', 0.1], FIBER: [7, '#111111', 0.2], FIBER_USED: [1, '#d71920', 0.32], SPLICE: [7, '#111111', 0.2],
     SPLITTER: [7, '#111111', 0.28], NAP: [7, '#111111', 0.3], NAP_SYM: [3, '#16a34a', 0.3], CABLE: [4, '#0aa5c8', 0.45], CLOSURE_BOX: [4, '#0aa5c8', 0.25, 1],
     HILITE: [2, '#ffe100', 0.1], TABLE: [7, '#111111', 0.2], LEGEND: [7, '#111111', 0.2], GRID: [9, '#c9cdd3', 0.18, 1],
-    FOC_FUTURE: [8, '#8a8f98', 0.3, 1], FIBER_RESERVED: [1, '#d71920', 0.32, 1]
+    FOC_FUTURE: [8, '#8a8f98', 0.3, 1], FIBER_RESERVED: [1, '#d71920', 0.32, 1],
+    /* a splice made by this work (filled; hollow for a leg spliced only), and the match line of a grid sheet */
+    SPLICE_NEW: [1, '#d71920', 0.2], MATCH: [7, '#3b4250', 0.35, 1]
   };
   const layerRGB = l => (LAYERS[l] || LAYERS.TEXT)[1];
 
@@ -65,10 +69,15 @@
   }
 
   /* ---------- the drawing: primitives ----------
-     G.ref (optional): a tap target ('pt:<id>', 'cab:<key>', 'leg:<id>') carried by the primitives drawn while it is set; toSVG groups them */
+     G.ref (optional): a tap target ('pt:<id>', 'cab:<key>', 'leg:<id>') carried by the primitives drawn while it is set; toSVG groups them.
+     For the grid sheets: G.g, the lines of one label (txs sets it: they go on a sheet together); G.u, a unit (a closure, a NAP, an ODF:
+     its shape and its texts), and a text's nm, the unit's name (shown again on a grid sheet that shows the unit but not its name) */
+  let GID = 0;
   class Gfx {
-    constructor() { this.p = []; this.ref = null; }
-    put(o) { if (this.ref) o.ref = this.ref; this.p.push(o); return this; }
+    constructor() { this.p = []; this.ref = null; this.g = null; this.u = null; }
+    put(o) { if (this.ref) o.ref = this.ref; if (this.g) o.g = this.g; if (this.u) o.u = this.u; this.p.push(o); return this; }
+    /* the texts drawn in f() are one label */
+    group(f) { const g0 = this.g; if (!g0) this.g = 'g' + ++GID; f(); this.g = g0; return this; }
     pl(pts, lay, o) { o = o || {}; if (pts.length > 1) this.put({ k: 'pl', pts: pts.map(q => [q[0], q[1]]), close: !!o.close, lay, col: o.col || null, lw: o.lw || 0 }); return this; }
     ln(x1, y1, x2, y2, lay, o) { return this.pl([[x1, y1], [x2, y2]], lay, o); }
     rect(x, y, w, h, lay, o) { return this.pl([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], lay, Object.assign({}, o, { close: true })); }
@@ -79,10 +88,11 @@
     tx(x, y, s, h, lay, o) {
       o = o || {}; s = String(s == null ? '' : s); if (!s.trim()) return this;
       const r = (o.rot || 0) * Math.PI / 180, d = o.va === 'm' ? -0.5 * h : o.va === 't' ? -h : 0;
-      return this.put({ k: 'tx', p: [x - Math.sin(r) * d, y + Math.cos(r) * d], s, h, lay, al: o.al || 'l', rot: o.rot || 0, bold: !!o.bold, col: o.col || null });
+      const t = { k: 'tx', p: [x - Math.sin(r) * d, y + Math.cos(r) * d], s, h, lay, al: o.al || 'l', rot: o.rot || 0, bold: !!o.bold, col: o.col || null }; if (o.nm) t.nm = 1;
+      return this.put(t);
     }
     /* lines of text going down from y; returns the y under the last line */
-    txs(x, y, lines, h, lay, o) { const g = (o && o.gap) || 1.55; lines.forEach((ln, i) => { const L = typeof ln === 'string' ? { s: ln } : ln; this.tx(x, y - i * h * g, L.s, L.h || h, L.lay || lay, Object.assign({}, o, L.o)); }); return y - lines.length * h * g; }
+    txs(x, y, lines, h, lay, o) { const g = (o && o.gap) || 1.55; this.group(() => lines.forEach((ln, i) => { const L = typeof ln === 'string' ? { s: ln } : ln; this.tx(x, y - i * h * g, L.s, L.h || h, L.lay || lay, Object.assign({}, o, L.o)); })); return y - lines.length * h * g; }
   }
   function primBox(prims) {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; const add = (x, y) => { if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; };
@@ -154,7 +164,15 @@
   function sheetsOf(pages, head, extra) { return pages.map(prims => ({ head, prims: prims.concat(extra ? extra() : []) })); }
   function finishSheets(list, title) {
     const N = list.length;
-    return list.map((sh, i) => { const G = new Gfx(); frame(G, title || {}, sh.head, i + 1, N); return { name: sh.head + ' ' + (i + 1), head: sh.head, prims: G.p.concat(sh.prims) }; });
+    return list.map((sh, i) => {
+      const G = new Gfx(); frame(G, title || {}, sh.head, i + 1, N); const n = G.p.length, out = { name: sh.head + ' ' + (i + 1), head: sh.head, prims: G.p.concat(sh.prims) };
+      /* label: a short name for a list of sheets; cells: tap targets ({name, box} in sheet mm) that open the sheet of that grid cell;
+         the key map and a grid sheet (cell: its name) also have area (the drawing area), view (model to sheet: x * k + dx, y * k + dy)
+         and body (where its drawing is in prims, [from, to)) */
+      if (sh.label) out.label = sh.label; if (sh.cells) out.cells = sh.cells; if (sh.keymap) out.keymap = true; if (sh.cell) out.cell = sh.cell;
+      if (sh.body) Object.assign(out, { area: sh.area, view: sh.view, body: [sh.body[0] + n, sh.body[1] + n] });
+      return out;
+    });
   }
 
   /* small table: cols [{t, w, al}], rows of strings (long text wraps inside its cell; a row's .ref makes it a tap target); returns the y under it */
@@ -786,6 +804,7 @@
       const ups = O.filter(d => pos.get(d.b) && at.get(K(d.b, d.c)).y > at.get(K(id, d.c)).y + 0.01), downs = O.filter(d => !ups.includes(d)).reverse();
       const turn = new Map(); let acc = 0; ups.forEach(d => { const w = bw(d.c); turn.set(d, xs + 9 + acc + w / 2); acc += w + 5; }); acc = 0; downs.forEach(d => { const w = bw(d.c); turn.set(d, xs + 9 + acc + w / 2); acc += w + 5; });
       O.forEach(d => {
+        G.u = 'cab:' + d.c.k;
         const c = d.c, ys = at.get(K(id, c)).y, B = pos.get(d.b), yt = at.get(K(d.b, c)).y, xt = isEnd(d.b) ? B.x - 7 : B.x - 6, xT = turn.get(d), L = lines(c), N = L.length, w = bw(c);
         const pts = Math.abs(yt - ys) < 0.01 ? [[xs, ys], [xt, yt]] : [[xs, ys], [xT, ys], [xT, yt], [xt, yt]];
         L.forEach((ln, j) => {
@@ -801,20 +820,23 @@
           }
           G.pl(pp, FL(lkOf(c, ln.f))); endPt.set(K(id, c) + '|' + ln.f, pp[0]); endPt.set(K(d.b, c) + '|' + ln.f, pp[pp.length - 1]);
         });
-        const tl = c.status === 'existing' ? 'SITE_EXIST' : 'SITE_NEW', xl = pts.length > 2 ? xT + w / 2 + 2 : xs + 4, yl = yt + w / 2 + 1.6, before = parseRanges(c.used);
+        /* the label: after the turn, or clear of the closure it leaves (its ellipse is 14 wide each side) */
+        const tl = c.status === 'existing' ? 'SITE_EXIST' : 'SITE_NEW', xl = pts.length > 2 ? xT + w / 2 + 2 : isEnd(id) ? xs + 4 : p.x + 16, yl = yt + w / 2 + 1.6, before = parseRanges(c.used);
         const wk = W.get(c).filter(f => lkOf(c, f) !== 'spliced'), rs = W.get(c).filter(f => lkOf(c, f) === 'spliced');
-        G.tx(xl, yl + 2, c.name + ' · ' + c.size + 'C ' + (c.status === 'existing' ? 'EXISTING' : 'NEW') + (lenTxt(c.length) && c.status !== 'existing' ? ' · ' + lenTxt(c.length) : '') + (c.leg ? ' · ' + String(c.leg).toUpperCase() : ''), 1.15, tl, { bold: true });
-        G.tx(xl, yl, (W.get(c).length ? [wk.length ? 'WORKING ' + fmtRanges(wk, 'F') : '', rs.length ? 'FOR FUTURE TESTING ' + fmtRanges(rs, 'F') : ''].filter(Boolean).join(' · ') : 'NO LINK USES IT') + (before.length ? ' · IN USE BEFORE ' + fmtRanges(before, 'F') : ''), 1.0, 'FIBER_USED');
-        ellipse(G, xt - 18, yt, 1.1, w / 2 + 1.5, tl);
+        G.group(() => {
+          G.tx(xl, yl + 2, c.name + ' · ' + c.size + 'C ' + (c.status === 'existing' ? 'EXISTING' : 'NEW') + (lenTxt(c.length) && c.status !== 'existing' ? ' · ' + lenTxt(c.length) : '') + (c.leg ? ' · ' + String(c.leg).toUpperCase() : ''), 1.15, tl, { bold: true, nm: true });
+          G.tx(xl, yl, (W.get(c).length ? [wk.length ? 'WORKING ' + fmtRanges(wk, 'F') : '', rs.length ? 'FOR FUTURE TESTING ' + fmtRanges(rs, 'F') : ''].filter(Boolean).join(' · ') : 'NO LINK USES IT') + (before.length ? ' · IN USE BEFORE ' + fmtRanges(before, 'F') : ''), 1.0, 'FIBER_USED');
+        });
+        ellipse(G, xt - 18, yt, 1.1, w / 2 + 1.5, tl); G.u = null;
       });
     });
     /* the points */
     nodes.forEach(id => {
       const p = pos.get(id), pt = P.byId.get(id), isNew = pt.status !== 'existing', lay = typ(id) === 'dnap' ? (isNew ? 'DNAP_NEW' : 'DNAP_EXIST') : (isNew ? 'SITE_NEW' : 'SITE_EXIST');
       if (!isEnd(id)) {
-        const rx = 14, ry = Math.max(8, boxes.get(id).ry); ellipse(G, p.x, p.y, rx, ry, lay, { lw: 0.35 });
-        const L = [{ s: (isNew ? 'PROPOSED CLOSURE ' : 'EXISTING CLOSURE ') + String(pt.name || '').toUpperCase(), o: { bold: true } }, spliceKind(P, id), 'COORDINATES: ' + (String(pt.coords || '').trim() || 'TBF')];
-        G.txs(p.x, p.y + ry + 2 + 2 * 1.25 * 1.5, L, 1.25, lay, { al: 'c', gap: 1.5 });
+        const rx = 14, ry = Math.max(8, boxes.get(id).ry); G.u = 'pt:' + id; ellipse(G, p.x, p.y, rx, ry, lay, { lw: 0.35 });
+        const L = [{ s: (isNew ? 'PROPOSED CLOSURE ' : 'EXISTING CLOSURE ') + String(pt.name || '').toUpperCase(), o: { bold: true, nm: true } }, spliceKind(P, id), 'COORDINATES: ' + (String(pt.coords || '').trim() || 'TBF')];
+        G.txs(p.x, p.y + ry + 2 + 2 * 1.25 * 1.5, L, 1.25, lay, { al: 'c', gap: 1.5 }); G.u = null;
         const spl = P.nodeSp.get(id) || [], side = { L: 0, R: 0 }, nSide = { L: 0, R: 0 };
         spl.forEach(s => s.a.f.forEach((fa, i) => { const A = endPt.get(K(id, s.a.c) + '|' + fa), B = endPt.get(K(id, s.b.c) + '|' + s.b.f[i]); if (A && B && (A[0] < p.x) === (B[0] < p.x)) nSide[A[0] < p.x ? 'L' : 'R']++; }));
         spl.forEach(s => {
@@ -822,9 +844,9 @@
           s.a.f.forEach((fa, i) => {
             const fb = s.b.f[i], A = endPt.get(K(id, s.a.c) + '|' + fa), B = endPt.get(K(id, s.b.c) + '|' + fb); if (!A || !B) return;
             const la = A[0] < p.x, lb = B[0] < p.x;
-            if (la !== lb) { const [L1, R1] = la ? [A, B] : [B, A]; G.pl([L1, [L1[0] + 3, L1[1]], [R1[0] - 3, R1[1]], R1], fl); G.ci(p.x, (L1[1] + R1[1]) / 2, 0.3, 'SPLICE', { fill }); }
+            if (la !== lb) { const [L1, R1] = la ? [A, B] : [B, A]; G.pl([L1, [L1[0] + 3, L1[1]], [R1[0] - 3, R1[1]], R1], fl); G.ci(p.x, (L1[1] + R1[1]) / 2, 0.3, 'SPLICE_NEW', { fill }); }
             else { const sd = la ? 'L' : 'R', k = side[sd]++, st = nSide[sd] > 1 ? Math.min(0.6, 3 / (nSide[sd] - 1)) : 0, xi = la ? p.x - 1.5 - k * st : p.x + 1.5 + k * st, top = Math.max(A[1], B[1]);
-              G.pl([A, [xi, A[1]], [xi, B[1]], B], fl); G.ci(xi, top - Math.min(0.8, Math.abs(A[1] - B[1]) / 2), 0.3, 'SPLICE', { fill }); }
+              G.pl([A, [xi, A[1]], [xi, B[1]], B], fl); G.ci(xi, top - Math.min(0.8, Math.abs(A[1] - B[1]) / 2), 0.3, 'SPLICE_NEW', { fill }); }
             for (const [Q, f] of [[A, fa], [B, fb]]) fnum(G, Q[0] + (Q[0] < p.x ? -0.4 : 0.4), Q[1], 'F' + f, Q[0] < p.x ? 'r' : 'l');
           });
         });
@@ -842,8 +864,8 @@
         return;
       }
       const b = boxes.get(id), x0 = p.x, left = id === root || kids.get(id).length > 0 && !inTo(id).length;
-      G.frect(x0, b.top - b.h, BW, b.h, 'HILITE', { col: WHITE }); G.rect(x0, b.top - b.h, BW, b.h, lay, { lw: 0.5 });
-      G.tx(left ? x0 + 5 : x0 + BW - 5, p.y, typ(id) === 'dnap' ? 'DUMMY NAP' : (isNew ? 'PROP. ODF' : 'EXIST. ODF'), 1.5, lay, { al: 'c', va: 'm', rot: 90, bold: true });
+      G.u = 'pt:' + id; G.frect(x0, b.top - b.h, BW, b.h, 'HILITE', { col: WHITE }); G.rect(x0, b.top - b.h, BW, b.h, lay, { lw: 0.5 });
+      G.tx(left ? x0 + 5 : x0 + BW - 5, p.y, typ(id) === 'dnap' ? 'DUMMY NAP' : (isNew ? 'PROP. ODF' : 'EXIST. ODF'), 1.5, lay, { al: 'c', va: 'm', rot: 90, bold: true }); G.u = null;
       const I = inTo(id);
       (rowsAt.get(id) || []).forEach(r => {
         const fromLeft = r.c ? I.some(d => d.c === r.c) : !left, xe = fromLeft ? x0 : x0 + BW;
@@ -852,9 +874,11 @@
         const e = endPt.get(K(id, r.c) + '|' + r.f); if (!e) return;
         G.pl(fromLeft ? [e, [e[0] + 2, e[1]], [xe - 2, r.y], [xe, r.y]] : [[xe, r.y], [xe + 2, r.y], [e[0] - 2, e[1]], e], FL(r.lk));
       });
-      const name = [{ s: String(pt.name || '').toUpperCase() + (pt.code ? ' (' + String(pt.code).toUpperCase() + ')' : ''), o: { bold: true } }].concat(typ(id) === 'dnap' ? ['POLE-MOUNTED SMALL CELL'] : []).concat(siteLines(P, pt));
+      const name = [{ s: String(pt.name || '').toUpperCase() + (pt.code ? ' (' + String(pt.code).toUpperCase() + ')' : ''), o: { bold: true, nm: true } }].concat(typ(id) === 'dnap' ? ['POLE-MOUNTED SMALL CELL'] : []).concat(siteLines(P, pt));
+      G.u = 'pt:' + id;
       if (left) G.txs(x0, b.top + 2 + (name.length - 1) * 1.25 * 1.5, name, 1.25, lay, { gap: 1.5 });
       else G.txs(x0 + BW + 3, b.top - 1.2, name, 1.25, lay, { gap: 1.5 });
+      G.u = null;
     });
     /* future legs: a short grey bundle from the new FDU, xx-xx, no splices */
     P.futures.forEach(x => {
@@ -865,21 +889,31 @@
     });
     return [block(G, 'SPLICING DETAILS')];
   }
-  function accessDetLegend(P) {
-    const G = new Gfx(), has = t => P.pts.some(p => p.type === t), look = k => P.legs.some(l => !l.bad && l.look === k && (k === 'future' || l.routed)); G.tx(0, 6, 'LEGEND:', 2.2, 'LEGEND', { bold: true });
-    const items = [['wf', 'WORKING FIBER'], ['sf', 'SPARE FIBER'], ['pc', 'PROPOSED CLOSURE'], ['ec', 'EXISTING CLOSURE'], ['no', 'NEW ODF (FDU PANEL)'], ['eo', 'EXISTING ODF']].concat(has('dnap') ? [['dn', 'DUMMY NAP (SMALL CELL)']] : [])
-      .concat(look('spliced') ? [['rf', 'SPLICED, NOT TESTED']] : []).concat(look('future') ? [['fu', P.stage === 'built' ? 'FUTURE FOC (NOT BUILT)' : 'FUTURE FOC (LATER)']] : []);
-    const per = 7;
-    items.forEach(([k, t], i) => {
-      const x = (i % per) * 54, y = -Math.floor(i / per) * 6;
-      if (k === 'wf' || k === 'sf') G.ln(x, y, x + 12, y, k === 'wf' ? 'FIBER_USED' : 'FIBER');
-      else if (k === 'rf') { G.ln(x, y, x + 12, y, 'FIBER_RESERVED'); G.ci(x + 6, y, 0.45, 'SPLICE'); }
-      else if (k === 'fu') G.ln(x, y, x + 12, y, 'FOC_FUTURE');
-      else if (k === 'pc' || k === 'ec') ellipse(G, x + 6, y, 5, 2.6, k === 'pc' ? 'SITE_NEW' : 'SITE_EXIST');
-      else G.rect(x + 3, y - 2.6, 6, 5.2, k === 'no' ? 'SITE_NEW' : k === 'eo' ? 'SITE_EXIST' : 'DNAP_NEW', { lw: 0.5 });
-      G.tx(x + 15, y, t, 2, 'LEGEND', { va: 'm' });
+  /* a legend in rows: each item a 12 mm symbol and its words; a row ends before maxW (mm). Returns a block with .rows */
+  function flowLegend(items, maxW) {
+    const G = new Gfx(); G.tx(0, 6, 'LEGEND:', 2.2, 'LEGEND', { bold: true });
+    let x = 0, row = 0;
+    items.forEach(([draw, t]) => {
+      const w = 15 + textW(t, 2); if (x > 0 && x + w > maxW) { x = 0; row++; }
+      const y = -row * 6; draw(G, x, y); G.tx(x + 15, y, t, 2, 'LEGEND', { va: 'm' }); x += w + 9;
     });
-    const b = block(G); b.rows = Math.ceil(items.length / per); return b;
+    const b = block(G); b.rows = row + 1; return b;
+  }
+  /* a splice made by this work: a red dot (hollow for a leg spliced only) */
+  const newSplice = (G, x, y) => G.ci(x + 6, y, 0.7, 'SPLICE_NEW', { fill: true });
+  function accessDetLegend(P, maxW) {
+    const has = t => P.pts.some(p => p.type === t), look = k => P.legs.some(l => !l.bad && l.look === k && (k === 'future' || l.routed));
+    const spliced = [...P.nodeSp.values()].some(a => a.length);
+    const sym = {
+      wf: (G, x, y) => G.ln(x, y, x + 12, y, 'FIBER_USED'), sf: (G, x, y) => G.ln(x, y, x + 12, y, 'FIBER'), ns: newSplice,
+      rf: (G, x, y) => { G.ln(x, y, x + 12, y, 'FIBER_RESERVED'); G.ci(x + 6, y, 0.7, 'SPLICE_NEW'); }, fu: (G, x, y) => G.ln(x, y, x + 12, y, 'FOC_FUTURE'),
+      pc: (G, x, y) => ellipse(G, x + 6, y, 5, 2.6, 'SITE_NEW'), ec: (G, x, y) => ellipse(G, x + 6, y, 5, 2.6, 'SITE_EXIST'),
+      no: (G, x, y) => G.rect(x + 3, y - 2.6, 6, 5.2, 'SITE_NEW', { lw: 0.5 }), eo: (G, x, y) => G.rect(x + 3, y - 2.6, 6, 5.2, 'SITE_EXIST', { lw: 0.5 }), dn: (G, x, y) => G.rect(x + 3, y - 2.6, 6, 5.2, 'DNAP_NEW', { lw: 0.5 })
+    };
+    const items = [['wf', 'WORKING FIBER'], ['sf', 'SPARE FIBER']].concat(spliced ? [['ns', 'NEW SPLICE']] : []).concat(look('spliced') ? [['rf', 'SPLICED ONLY, FOR FUTURE TESTING']] : [])
+      .concat([['pc', 'PROPOSED CLOSURE'], ['ec', 'EXISTING CLOSURE'], ['no', 'NEW ODF (FDU PANEL)'], ['eo', 'EXISTING ODF']]).concat(has('dnap') ? [['dn', 'DUMMY NAP (SMALL CELL)']] : [])
+      .concat(look('future') ? [['fu', P.stage === 'built' ? 'FUTURE FOC (NOT BUILT)' : 'FUTURE FOC (LATER)']] : []);
+    return flowLegend(items.map(([k, t]) => [sym[k], t]), maxW || AREA.x1 - AREA.x0);
   }
 
   /* ======================================================================================================
@@ -979,14 +1013,11 @@
   }
   /* the detailed drawing, as one picture (like the reference): the ODF at the lower left, the feeder into its closure, each main as a bundle
      of fibers up to its own closure, and from there each 6F drop, numbered, through its NAPs. A line's next NAPs hang below its N01 on a 6F branch.
-     Too many mains for one sheet: they go on as many sheets as needed, each drawn at 55 % or more. */
+     All the mains are in the one drawing; build() splits it into a key map and grid sheets when its text would print too small. */
   function bbDetailed(B) {
     const mains = B.mains.filter(mn => mn.lines.length);
     if (!mains.length) { const G = new Gfx(); G.tx(0, 0, 'ADD NAPS TO DRAW THE SPLICING DETAILS.', 3, 'NOTE'); return [block(G)]; }
-    const aw = AREA.x1 - AREA.x0, ah = AREA.y1 - AREA.y0 - 16, groups = []; let cur = [];
-    for (const mn of mains) { const test = cur.concat([mn]), b = junaBlock(B, test, mains), s = Math.min(1, aw / b.w, ah / b.h); if (cur.length && s < 0.55) { groups.push(cur); cur = [mn]; } else cur = test; }
-    groups.push(cur);
-    return groups.map(g => junaBlock(B, g, mains, groups));
+    return [junaBlock(B, mains, mains, null)];
   }
   const WHITE = { rgb: '#ffffff', aci: 7 };
   function junaBlock(B, sub, all, groups) {
@@ -1011,17 +1042,17 @@
     const odfH = orows.length * GAP + 6, xc = 66, rx = 18, ry = Math.max(orows.length * GAP, stackH) / 2 + 7, yc = lowY - 16 - Math.max(odfH, 2 * ry) / 2;
     orows.forEach((r, i) => { r.y = yc + odfH / 2 - 3 - i * GAP; r.live = r.a ? working(r.a.mn.drops[Math.floor(r.a.j / 6)], r.a.j % 6 + 1) : !!r.other; });
     const yOfPort = new Map(orows.filter(r => r.a).map(r => [r.p, r.y]));
-    G.frect(0, yc - odfH / 2, 16, odfH, 'HILITE', { col: WHITE }); G.rect(0, yc - odfH / 2, 16, odfH, 'NAP', { lw: 0.45 });
+    G.u = 'odf'; G.frect(0, yc - odfH / 2, 16, odfH, 'HILITE', { col: WHITE }); G.rect(0, yc - odfH / 2, 16, odfH, 'NAP', { lw: 0.45 });
     G.tx(5, yc, 'PROP. ODF', 1.5, 'TEXT', { al: 'c', va: 'm', rot: 90, bold: true });
-    G.txs(8, yc + odfH / 2 + 4, [{ s: B.olt.name.toUpperCase(), o: { bold: true } }, String(B.olt.odf).toUpperCase() + ' · ' + top + ' PORTS'], 1.3, 'TEXT', { al: 'c' });
+    G.txs(8, yc + odfH / 2 + 4, [{ s: B.olt.name.toUpperCase(), o: { bold: true, nm: true } }, String(B.olt.odf).toUpperCase() + ' · ' + top + ' PORTS'], 1.3, 'TEXT', { al: 'c' }); G.u = null;
     orows.forEach(r => G.tx(15.4, r.y, r.t, 0.7, r.live ? 'FIBER_USED' : 'TEXT', { al: 'r', va: 'm' }));
     const elsewhere = groups && groups.length > 1 ? groups.filter(g => g !== sub).flat() : [];
     if (fd.use) {
       orows.forEach(r => { const end = r.a && inSub.has(r.a.mn) ? xc - 6 : xc - 10; G.ln(16, r.y, end, r.y, r.live ? 'FIBER_USED' : 'FIBER'); if (end !== xc - 6) { cap(G, end, r.y); fnum(G, end - 0.4, r.y, 'F' + (r.p === r.q || r.q == null ? r.p : r.p + '-' + r.q), 'r'); } });
       ellipse(G, 31, yc, 1.3, orows.length * GAP / 2 + 2, 'NAP');
       G.txs(31, yc - orows.length * GAP / 2 - 4.5, [{ s: String(fd.name).toUpperCase() + ' · ' + fd.size + 'C', o: { bold: true } }, 'FEEDER DISTRIBUTION CABLE'], 1.1, 'TEXT', { al: 'c' });
-      ellipse(G, xc, yc, rx, ry, 'NAP', { lw: 0.35 });
-      G.txs(xc, yc - ry - 2.6, [{ s: String(fd.closure).toUpperCase(), o: { bold: true } }].concat(elsewhere.length ? ['ALSO ' + elsewhere.map(m => m.name).join(', ') + ': OTHER SHEET'] : []), 1.3, 'TEXT', { al: 'c' });
+      G.u = 'fc'; ellipse(G, xc, yc, rx, ry, 'NAP', { lw: 0.35 });
+      G.txs(xc, yc - ry - 2.6, [{ s: String(fd.closure).toUpperCase(), o: { bold: true, nm: true } }].concat(elsewhere.length ? ['ALSO ' + elsewhere.map(m => m.name).join(', ') + ': OTHER SHEET'] : []), 1.3, 'TEXT', { al: 'c' }); G.u = null;
     } else orows.forEach(r => { if (!r.a || !inSub.has(r.a.mn)) { G.ln(16, r.y, 21, r.y, r.live ? 'FIBER_USED' : 'FIBER'); cap(G, 21, r.y); } });
     /* each main: from the closure (or its ODF ports) to its own closure */
     let yS = yc + stackH / 2, xt = fd.use ? xc + 30 : 32; const P = [];
@@ -1039,26 +1070,29 @@
         const pp = offsetPath(pts, ((p.N - 1) / 2 - j) * GAP);
         const restF = rest && j === 6 * mn.drops.length ? fmtRanges(seq(1, mn.size).filter(f => !mn.distUsed.includes(f)), 'F') : '';
         if (rest) { pp[0] = [fd.use ? xc + 9 : 20, pp[0][1]]; cap(G, pp[0][0], pp[0][1]); if (restF) fnum(G, pp[0][0] + 0.4, pp[0][1], restF); }
-        G.pl(pp, lay);
-        if (fd.use && !rest) { const yo = yOfPort.get(mn.feedF[j]); if (yo != null) { G.pl([[xc - 6, yo], [xc - 3, yo], [xc + 3, pp[0][1]], [xs, pp[0][1]]], lay); G.ci(xc, (yo + pp[0][1]) / 2, 0.3, 'SPLICE', { fill: true }); fnum(G, xc - 6.4, yo, 'F' + mn.feedF[j], 'r'); fnum(G, xs + 0.4, pp[0][1], 'F' + mn.distUsed[j]); } }
+        G.u = 'cab:' + mn.id; G.pl(pp, lay); G.u = null;
+        if (fd.use && !rest) { const yo = yOfPort.get(mn.feedF[j]); if (yo != null) { G.pl([[xc - 6, yo], [xc - 3, yo], [xc + 3, pp[0][1]], [xs, pp[0][1]]], lay); G.ci(xc, (yo + pp[0][1]) / 2, 0.3, 'SPLICE_NEW', { fill: true }); fnum(G, xc - 6.4, yo, 'F' + mn.feedF[j], 'r'); fnum(G, xs + 0.4, pp[0][1], 'F' + mn.distUsed[j]); } }
         const ye = pp[pp.length - 1][1];
         if (rest) { G.ln(xD, ye, xD + 3, ye, 'FIBER'); cap(G, xD + 3, ye); if (restF) fnum(G, xD - 0.4, ye, restF, 'r'); continue; }
         const yx = byDrop.get(mn.drops[di]).y - (pos - 1) * GAP;
-        G.pl([[xD, ye], [xD + 6, ye], [xD + wD - 6, yx], [xD + wD, yx]], lay);
+        G.pl([[xD, ye], [xD + 6, ye], [xD + wD - 6, yx], [xD + wD, yx]], lay); G.ci(xD + wD / 2, (ye + yx) / 2, 0.3, 'SPLICE_NEW', { fill: true });
         fnum(G, xD + 0.4, ye, 'F' + mn.distUsed[j], 'l', lay); fnum(G, xD + wD - 0.4, yx, 'F' + pos, 'r', lay);
       }
       const xl = p.xTurn + p.w / 2 + 2, yl = yEn + p.w / 2 + 1.5;
-      G.tx(xl, yl + 2, mn.name + ' · ' + mn.size + 'C DISTRIBUTION CABLE', 1.15, 'TEXT', { bold: true });
-      G.tx(xl, yl, 'FIBER SPLICING ASSIGNMENT: ' + (fd.use ? fmtRanges(mn.feedF) + ' (' + fd.size + 'C)' : 'ODF ' + fmtRanges(mn.odfP)) + ' > ' + fmtRanges(mn.distUsed) + ' (' + mn.size + 'C)', 1.0, 'TEXT');
-      ellipse(G, xD - 14, yEn, 1.1, p.w / 2 + 1.5, 'NAP');
+      G.u = 'cab:' + mn.id;
+      G.group(() => {
+        G.tx(xl, yl + 2, mn.name + ' · ' + mn.size + 'C DISTRIBUTION CABLE', 1.15, 'TEXT', { bold: true, nm: true });
+        G.tx(xl, yl, 'FIBER SPLICING ASSIGNMENT: ' + (fd.use ? fmtRanges(mn.feedF) + ' (' + fd.size + 'C)' : 'ODF ' + fmtRanges(mn.odfP)) + ' > ' + fmtRanges(mn.distUsed) + ' (' + mn.size + 'C)', 1.0, 'TEXT');
+      });
+      ellipse(G, xD - 14, yEn, 1.1, p.w / 2 + 1.5, 'NAP'); G.u = null;
       const bt = Math.max(rk[0].y + 5, yEn + p.w / 2 + 3), bb = Math.min(rk[rk.length - 1].y - 5 * GAP - 5, yEn - p.w / 2 - 3);
-      G.rect(xD, bb, wD, bt - bb, 'CLOSURE_BOX'); G.tx(xD, bt + 1.2, mn.closure, 1.2, 'TEXT', { bold: true });
+      G.u = 'mc:' + mn.id; G.rect(xD, bb, wD, bt - bb, 'CLOSURE_BOX'); G.tx(xD, bt + 1.2, mn.closure, 1.2, 'TEXT', { bold: true, nm: true }); G.u = null;
     });
     /* each drop: its fibers through the line's N01, the line's next NAPs on a branch below */
     rows.forEach(r => {
       const dr = r.dr, y0 = r.y, fy = k => y0 - (k - 1) * GAP, st = seq(1, 6).map(() => 'spare'), x0 = xD + wD;
       dr.lines.forEach(ln => { st[ln.fDrop - 1] = 'feed'; });
-      G.tx(x0 + 1.5, y0 + 1.5, String(dropNo.get(dr)), 3.2, 'TEXT'); G.tx(x0 + 5.2, y0 + 0.5, 'DROP 6F', 0.85, 'TEXT');
+      G.group(() => { G.tx(x0 + 1.5, y0 + 1.5, String(dropNo.get(dr)), 3.2, 'TEXT'); G.tx(x0 + 5.2, y0 + 0.5, 'DROP 6F', 0.85, 'TEXT'); });
       const seg = (x1, x2) => { for (let k = 1; k <= 6; k++) G.ln(x1, fy(k), x2, fy(k), st[k - 1] === 'feed' ? 'FIBER_USED' : 'FIBER'); };
       let prev = x0, x = x0 + 13;
       dr.lines.forEach(ln => {
@@ -1066,7 +1100,7 @@
         napFrame(G, x, y0, nap, BW);
         G.frect(x + 0.15, fy(k0) - 0.5, 1.1, 1, 'HILITE');
         for (let k = 1; k <= 6; k++) { G.tx(x + 0.7, fy(k), String(k), 0.7, 'TEXT', { al: 'c', va: 'm' }); G.tx(x + BW - 0.7, fy(k), String(k), 0.7, 'TEXT', { al: 'c', va: 'm' }); if (k !== k0) G.ln(x + 1.4, fy(k), x + BW - 1.4, fy(k), st[k - 1] === 'feed' ? 'FIBER_USED' : 'FIBER'); }
-        G.pl([[x + 1.4, fy(k0)], [x + 2.6, fy(k0)], [x + 2.6, y0 - 13], [x + 5, y0 - 13]], 'FIBER_USED');
+        G.pl([[x + 1.4, fy(k0)], [x + 2.6, fy(k0)], [x + 2.6, y0 - 13], [x + 5, y0 - 13]], 'FIBER_USED'); G.ci(x + 3.8, y0 - 13, 0.3, 'SPLICE_NEW', { fill: true });
         G.tx(x + 3.2, y0 - 7.6, 'F' + k0 + ' (6F) = F' + ln.fDist + ' (' + r.mn.size + 'C)', 0.65, 'FIBER_USED');
         G.rect(x + 5, y0 - 17, 2.6, 8, 'SPLITTER'); G.tx(x + 6.3, y0 - 13, '1:4', 1, 'SPLITTER', { al: 'c', va: 'm', rot: 90 });
         for (let o = 1; o <= 4; o++) G.tx(x + 8, yo(o) + 0.45, String(o), 0.6, 'TEXT');
@@ -1077,7 +1111,7 @@
         const down = ln.naps.slice(1);
         if (down.length) {
           const ys = y0 - SUBDY, sfy = f => ys - (f - 1) * GAP, live = seq(1, ln.subFibers).map(() => true); let i = 0;
-          down.forEach(nn => nn.outs.forEach((o, t) => { const lane = x + 9.6 + i * 0.8, f = nn.via[t]; G.pl([[x + 7.6, yo(o)], [lane, yo(o)], [lane, sfy(f)], [x + 14, sfy(f)]], 'FIBER_USED'); i++; }));
+          down.forEach(nn => nn.outs.forEach((o, t) => { const lane = x + 9.6 + i * 0.8, f = nn.via[t]; G.pl([[x + 7.6, yo(o)], [lane, yo(o)], [lane, sfy(f)], [x + 14, sfy(f)]], 'FIBER_USED'); G.ci(lane, sfy(f), 0.3, 'SPLICE_NEW', { fill: true }); i++; }));
           down.forEach((nn, j) => {
             const xs2 = x + 14 + j * PITCH, c82 = t => xs2 + 14.1 + t * 6;
             if (j) for (let f = 1; f <= ln.subFibers; f++) G.ln(xs2 - PITCH + BW, sfy(f), xs2, sfy(f), live[f - 1] ? 'FIBER_USED' : 'FIBER');
@@ -1088,7 +1122,7 @@
               if (!nn.via.includes(f)) G.ln(xs2 + 1.4, sfy(f), xs2 + BW - 1.4, sfy(f), live[f - 1] ? 'FIBER_USED' : 'FIBER');
             }
             split8(G, nn, c82, ys);
-            nn.via.forEach((f, t) => { const lane = xs2 + 2.6 + t * 0.8, yy = ys - 14.6 - t * 0.8; G.pl([[xs2 + 1.4, sfy(f)], [lane, sfy(f)], [lane, yy], [c82(t), yy], [c82(t), ys - 17.5]], 'FIBER_USED'); live[f - 1] = false; });
+            nn.via.forEach((f, t) => { const lane = xs2 + 2.6 + t * 0.8, yy = ys - 14.6 - t * 0.8; G.pl([[xs2 + 1.4, sfy(f)], [lane, sfy(f)], [lane, yy], [c82(t), yy], [c82(t), ys - 17.5]], 'FIBER_USED'); G.ci(lane, (sfy(f) + yy) / 2, 0.3, 'SPLICE_NEW', { fill: true }); live[f - 1] = false; });
             if (j === down.length - 1) for (let f = 1; f <= ln.subFibers; f++) { G.ln(xs2 + BW, sfy(f), xs2 + BW + 3, sfy(f), 'FIBER'); cap(G, xs2 + BW + 3, sfy(f)); }
           });
         }
@@ -1099,10 +1133,10 @@
     return block(G, 'SPLICING DETAILS');
   }
   function napFrame(G, x, y0, nap, BW) {
-    const bt = y0 + 3.5, bb = y0 - 23.5;
+    const bt = y0 + 3.5, bb = y0 - 23.5; G.u = 'nap:' + nap.no + ':' + nap.id;
     G.frect(x, bb, BW, bt - bb, 'HILITE', { col: WHITE }); G.rect(x, bb, BW, bt - bb, 'NAP', { lw: 0.3 });
-    G.tx(x, bt + 0.9, nap.id + ' (' + nap.ports + 'P)', 1.15, 'TEXT', { bold: true });
-    G.tx(x + BW / 2, bb - 1.5, '(' + nap.no + ') ' + (nap.pole || 'NO POLE ID') + (nap.poleType ? ' · ' + nap.poleType : ''), 0.95, 'TEXT', { al: 'c' });
+    G.tx(x, bt + 0.9, nap.id + ' (' + nap.ports + 'P)', 1.15, 'TEXT', { bold: true, nm: true });
+    G.tx(x + BW / 2, bb - 1.5, '(' + nap.no + ') ' + (nap.pole || 'NO POLE ID') + (nap.poleType ? ' · ' + nap.poleType : ''), 0.95, 'TEXT', { al: 'c' }); G.u = null;
   }
   function split8(G, nap, c8, y0) {
     const b8 = nap.ports / 8;
@@ -1128,18 +1162,459 @@
     return block(G);
   }
 
+  /* ---------- the grid: a key map, then one sheet per grid cell (a map book: key map + geo grids) ----------
+     The detailed drawing is laid under a grid of cells shaped like a sheet's drawing area, small enough that its smallest text (the fiber
+     numbers) prints at about model.grid.text mm (1.8). Sheet 1, the KEY MAP, is the whole drawing with the cells that hold something, named
+     A-01, B-01 … (columns left to right, rows top to bottom, counted from the first that has a sheet); then one sheet per such cell, in
+     reading order: the cell and a small overlap, enlarged to fill the drawing area, a dashed match line where a neighbour has a sheet
+     (MATCH LINE · SEE C-01) and a locator in the legend band. The cutting is done here on the primitives, so the SVG, the PDF and the DXF
+     show the same: lines are cut at the edge of the cell and its overlap, fills are cut to it, a circle partly out becomes cut lines, and a
+     label (its lines together) is kept whole where most of it is (its middle inside the cell and its overlap, its box inside the sheet's
+     view) or left off, never cut. A long label across an edge widens that sheet's view a little, so it stays whole on its own cell's sheet.
+     Of a few placements of the grid the one with the fewest sheets wins, then the one that cuts the fewest closures and NAPs and leaves
+     the fewest sheets without a word on them. A closure, NAP or ODF that a sheet shows without its name gets its name again on that sheet;
+     a line that leaves a sheet where no neighbour has a sheet says where it goes on (CONTINUES ON D-01). A drawing that reads at that size
+     on one sheet is not split. model.grid = false draws one sheet, as before. */
+  const GRID = { text: 1.8, overlap: 0.04, absorb: 0.9 };
+  const MAXCELLS = 400;
+  const colName = i => (i >= 26 ? String.fromCharCode(64 + Math.floor(i / 26)) : '') + String.fromCharCode(65 + i % 26);
+  const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  const inBox = (q, R) => q[0] >= R[0] && q[0] <= R[2] && q[1] >= R[1] && q[1] <= R[3];
+  const boxIn = (b, R, e) => b[0] >= R[0] - e && b[2] <= R[2] + e && b[1] >= R[1] - e && b[3] <= R[3] + e;
+  const meet = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
+  const areaOf = r => Math.max(0, r[2] - r[0]) * Math.max(0, r[3] - r[1]);
+  const cut2 = (a, b) => [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.min(a[2], b[2]), Math.min(a[3], b[3])];
+  const pathLen = pts => pts.reduce((a, q, i) => i ? a + Math.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) : 0, 0);
+  /* the part of the segment a-b inside the box R = [x0, y0, x1, y1], as [t0, t1] (Liang-Barsky), or null */
+  function clipT(a, b, R) {
+    const dx = b[0] - a[0], dy = b[1] - a[1], P = [-dx, dx, -dy, dy], Q = [a[0] - R[0], R[2] - a[0], a[1] - R[1], R[3] - a[1]]; let t0 = 0, t1 = 1;
+    for (let i = 0; i < 4; i++) {
+      if (Math.abs(P[i]) < 1e-12) { if (Q[i] < 0) return null; continue; }
+      const r = Q[i] / P[i]; if (P[i] < 0) { if (r > t1) return null; if (r > t0) t0 = r; } else { if (r < t0) return null; if (r < t1) t1 = r; }
+    }
+    return t0 <= t1 ? [t0, t1] : null;
+  }
+  /* does a line (pl) cross the box r */
+  const crosses = (p, r) => { const P = p.close ? p.pts.concat([p.pts[0]]) : p.pts; for (let i = 1; i < P.length; i++) { const t = clipT(P[i - 1], P[i], r); if (t && t[1] - t[0] > 1e-9) return true; } return false; };
+  /* a polyline cut at R: the pieces inside, in order (one that leaves and comes back gives several; a closed one is cut like an open one).
+     exits (optional) collects where a piece meets the edge of R and the line goes on outside: [the point, a point just outside] */
+  function clipPath(pts, close, R, exits) {
+    const P = close ? pts.concat([pts[0]]) : pts, out = [], ex = []; let cur = null;
+    for (let i = 0; i + 1 < P.length; i++) {
+      const a = P[i], b = P[i + 1], t = clipT(a, b, R);
+      if (!t) { if (cur) { out.push(cur); cur = null; } continue; }
+      const p = t[0] > 0 ? lerp(a, b, t[0]) : a, q = t[1] < 1 ? lerp(a, b, t[1]) : b, L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      if (cur && t[0] > 0) { out.push(cur); cur = null; }
+      if (!cur) cur = [p]; cur.push(q);
+      if (exits && t[1] - t[0] > 1e-9) { if (t[0] > 0) ex.push([p, lerp(a, b, Math.max(0, t[0] - 0.4 / L))]); if (t[1] < 1) ex.push([q, lerp(a, b, Math.min(1, t[1] + 0.4 / L))]); }
+      if (t[1] < 1) { out.push(cur); cur = null; }
+    }
+    if (cur) out.push(cur);
+    /* a closed shape cut open: its last piece runs on into its first */
+    if (close && out.length > 1 && out[0][0] === P[0] && out[out.length - 1][out[out.length - 1].length - 1] === P[P.length - 1]) out[0] = out.pop().concat(out[0].slice(1));
+    if (exits) exits.push(...ex);
+    return out.filter(q => pathLen(q) > 1e-6);
+  }
+  /* a filled polygon cut to R (Sutherland-Hodgman), or null */
+  function clipPoly(pts, R) {
+    let poly = pts;
+    for (let e = 0; e < 4 && poly.length; e++) {
+      const ax = e < 2 ? 0 : 1, lim = [R[0], R[2], R[1], R[3]][e], keep = q => e % 2 ? q[ax] <= lim : q[ax] >= lim, out = [];
+      poly.forEach((a, i) => { const b = poly[(i + 1) % poly.length], ka = keep(a), kb = keep(b); if (ka) out.push(a); if (ka !== kb) out.push(lerp(a, b, (lim - a[ax]) / (b[ax] - a[ax]))); });
+      poly = out;
+    }
+    const area = poly.reduce((a, q, i) => { const r = poly[(i + 1) % poly.length]; return a + q[0] * r[1] - r[0] * q[1]; }, 0) / 2;
+    return poly.length >= 3 && Math.abs(area) > 1e-9 ? poly : null;
+  }
+  const circlePts = (c, r) => seq(0, 32).map(i => [c[0] + r * Math.cos(i * Math.PI / 16), c[1] + r * Math.sin(i * Math.PI / 16)]);
+  /* the primitives seen through the window W (cell and overlap); a label (gOf: a text's label, with its box b and middle c) is kept when
+     its middle is in W and its box in the view V, or when it is one of the cell's own (home: the texts whose sheet this is, inside V) */
+  function clipPrims(prims, W, V, home, gOf, exits) {
+    const out = [], inV = b => boxIn(b, V, 1e-6);
+    for (const p of prims) {
+      if (p.k === 'tx') {
+        if (home && home.has(p)) { out.push(p); continue; }
+        const t = gOf && gOf.get(p), b = t ? t.b : primBox([p]), c = t ? t.c : [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+        if (inBox(c, W) && inV(b)) out.push(p); continue;
+      }
+      if (p.k === 'ci') {
+        const [x, y] = p.c, r = p.r;
+        if (x - r >= W[0] && x + r <= W[2] && y - r >= W[1] && y + r <= W[3]) { out.push(p); continue; }
+        if (x + r < W[0] || x - r > W[2] || y + r < W[1] || y - r > W[3]) continue;
+        const base = { lay: p.lay, col: p.col }; if (p.ref) base.ref = p.ref;
+        if (p.fill) { const q = clipPoly(circlePts(p.c, r), W); if (q) out.push(Object.assign({ k: 'fl', pts: q }, base)); }
+        else clipPath(circlePts(p.c, r), true, W).forEach(q => out.push(Object.assign({ k: 'pl', pts: q, close: false, lw: p.lw }, base)));
+        continue;
+      }
+      if (p.pts.every(q => inBox(q, W))) { out.push(p); continue; }
+      if (p.k === 'fl') { const q = clipPoly(p.pts, W); if (q) out.push(Object.assign({}, p, { pts: q })); }
+      else clipPath(p.pts, p.close, W, exits).forEach(q => out.push(Object.assign({}, p, { pts: q, close: false })));
+    }
+    return out;
+  }
+  /* the drawing's labels (the lines of one label go together: its box b and middle c) and its units (a closure, a NAP, an ODF: the box of
+     its shape cb, its name and the name's box nb, the box of the whole wb) */
+  function gridParts(prims) {
+    const groups = [], gOf = new Map(), byG = new Map(), U = new Map();
+    prims.forEach(p => {
+      if (p.k === 'tx') { let t = p.g != null ? byG.get(p.g) : null; if (!t) { t = { ps: [] }; groups.push(t); if (p.g != null) byG.set(p.g, t); } t.ps.push(p); gOf.set(p, t); }
+      if (p.u != null) { let u = U.get(p.u); if (!u) U.set(p.u, u = { id: p.u, core: [], texts: [], name: null }); if (p.k === 'tx') { u.texts.push(p); if (p.nm && !u.name) u.name = p; } else u.core.push(p); }
+    });
+    groups.forEach(t => { t.b = primBox(t.ps); t.c = [(t.b[0] + t.b[2]) / 2, (t.b[1] + t.b[3]) / 2]; });
+    /* a cable's name is shown again with the other line of its label (its working fibers); a closure's, a NAP's or an ODF's alone */
+    const units = [...U.values()].filter(u => u.core.length && u.name).map(u => {
+      const cable = /^cab:/.test(u.id), says = cable ? gOf.get(u.name).ps : [u.name];
+      return Object.assign(u, { cable, says, cb: primBox(u.core), nb: primBox(says), wb: primBox(u.core.concat(u.texts)) });
+    });
+    return { groups, gOf, units };
+  }
+  /* what of the marks lies in the box R, as lists of points (a line's pieces, a fill cut to R, a circle's box): enough to tell whether a
+     cell holds something and whether its neighbours' windows show it */
+  function cellBits(marks, R) {
+    const out = [];
+    for (const p of marks) {
+      if (p.k === 'ci') { const [x, y] = p.c, r = p.r; if (x + r >= R[0] && x - r <= R[2] && y + r >= R[1] && y - r <= R[3]) out.push([[x - r, y - r], [x + r, y + r]]); continue; }
+      if (p.pts.every(q => inBox(q, R))) { out.push(p.pts); continue; }
+      if (p.k === 'fl') { const q = clipPoly(p.pts, R); if (q) out.push(q); } else out.push(...clipPath(p.pts, p.close, R));
+    }
+    return out;
+  }
+  /* the cells of a grid laid at (x0, y1) (its top left corner): which hold something, where each label belongs (the cell of its middle),
+     and how far a sheet's view must reach past the window for its labels to stay whole (mu, of the window) */
+  function layGrid(L, cw, ch, cols, rows, x0, y1, ov) {
+    const cells = [], idx = (i, j) => i >= 0 && j >= 0 && i < cols && j < rows ? cells[j * cols + i] : null;
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+      const box = [x0 + i * cw, y1 - (j + 1) * ch, x0 + (i + 1) * cw, y1 - j * ch], W = [box[0] - ov * cw, box[1] - ov * ch, box[2] + ov * cw, box[3] + ov * ch];
+      cells.push({ i, j, box, W, texts: [], near: [] });
+    }
+    /* each mark goes to the cells its box meets, then is cut to each */
+    const span = (v0, v1, s, n) => [Math.max(0, Math.floor(v0 / s - 1e-9)), Math.min(n - 1, Math.floor(v1 / s + 1e-9))];
+    L.marks.forEach(m => { const [i0, i1] = span(m.b[0] - x0, m.b[2] - x0, cw, cols), [j0, j1] = span(y1 - m.b[3], y1 - m.b[1], ch, rows); for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) cells[j * cols + i].near.push(m.p); });
+    cells.forEach(c => { c.bits = c.near.length ? cellBits(c.near, c.box) : []; delete c.near; });
+    const cl = (v, n) => Math.min(n - 1, Math.max(0, Math.floor(v)));
+    L.groups.forEach(t => idx(cl((t.c[0] - x0) / cw, cols), cl((y1 - t.c[1]) / ch, rows)).texts.push(t));
+    cells.forEach(c => { c.keep = c.texts.length > 0 || c.bits.length > 0; });
+    /* how far past its window a cell's view must reach to show a label whole (a fraction of the window), and how far it may (its smallest
+       text still prints at 95 % of the target or more). A label wider than 70 % of the window (a very long name) is let widen its own sheet's
+       view as far as it needs: the grid is not made finer for it */
+    const reach = (c, b) => { const W = c.W, ww = W[2] - W[0], wh = W[3] - W[1]; return Math.max(0, (W[0] - b[0]) / ww, (b[2] - W[2]) / ww, (W[1] - b[1]) / wh, (b[3] - W[3]) / wh); };
+    const big = (c, b) => b[2] - b[0] > 0.7 * (c.W[2] - c.W[0]) || b[3] - b[1] > 0.7 * (c.W[3] - c.W[1]);
+    cells.forEach(c => {
+      c.mu = 0; c.muA = 0; c.texts.forEach(t => { const r = reach(c, t.b); c.mu = Math.max(c.mu, r); if (!big(c, t.b)) c.muA = Math.max(c.muA, r); });
+      c.may = Math.max(0, (L.aw * L.minH / ((c.W[2] - c.W[0]) * 0.95 * L.target) - 1) / 2);
+    });
+    /* a cell whose lines its neighbours' overlaps already show, and whose labels a neighbour can show whole, gets no sheet: its labels go
+       to that neighbour (the smallest cells first; a neighbour relied on keeps its sheet) */
+    cells.filter(c => c.keep).sort((m, n) => m.bits.length + m.texts.length - n.bits.length - n.texts.length).forEach(c => {
+      if (c.pinned) return;
+      const nb = []; for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const n = (di || dj) && idx(c.i + di, c.j + dj); if (n && n.keep) nb.push(n); }
+      const used = new Set(), moves = [], mu = new Map(nb.map(n => [n, [n.mu, n.muA]]));
+      for (const q of c.bits) { const n = nb.find(x => q.every(r => inBox(r, x.W))); if (!n) return; used.add(n); }
+      for (const t of c.texts) {
+        let pick = null, pm = Infinity; nb.forEach(n => { const r = reach(n, t.b), m = Math.max(mu.get(n)[1], r); if (r <= n.may + 1e-9 && m < pm) { pick = n; pm = m; } });
+        if (!pick) return; const r = reach(pick, t.b), o = mu.get(pick); mu.set(pick, [Math.max(o[0], r), Math.max(o[1], r)]); used.add(pick); moves.push([pick, t]);
+      }
+      c.keep = false; c.to = [...used]; moves.forEach(([n, t]) => n.texts.push(t)); mu.forEach((m, n) => { n.mu = m[0]; n.muA = m[1]; }); used.forEach(n => { n.pinned = true; });
+    });
+    /* a cell whose drawing lies in a strip along a neighbour's edge (a sliver of a line, a closure's name above it) goes onto that
+       neighbour's sheet: the neighbour's window grows to take it in, as long as its smallest text still prints at 85 % of the target or
+       more (a sheet of its own for so little would be almost blank) */
+    const union = bs => bs.reduce((a, q) => [Math.min(a[0], q[0]), Math.min(a[1], q[1]), Math.max(a[2], q[2]), Math.max(a[3], q[3])], [Infinity, Infinity, -Infinity, -Infinity]);
+    const tbox = c => union(c.texts.map(t => t.b));
+    const fit = N => { const w = N[2] - N[0], h = N[3] - N[1], W2 = Math.max(w, h / L.ar), H2 = W2 * L.ar, cx = (N[0] + N[2]) / 2, cy = (N[1] + N[3]) / 2; return [cx - W2 / 2, cy - H2 / 2, cx + W2 / 2, cy + H2 / 2]; };
+    cells.filter(c => c.keep && !c.pinned).sort((m, n) => m.bits.length + m.texts.length - n.bits.length - n.texts.length).forEach(c => {
+      if (!c.keep || c.pinned || c.host) return;
+      const ct = tbox(c), cb = ct.slice(); let pick = null;
+      for (const q of c.bits) for (const r of q) { if (r[0] < cb[0]) cb[0] = r[0]; if (r[1] < cb[1]) cb[1] = r[1]; if (r[0] > cb[2]) cb[2] = r[0]; if (r[1] > cb[3]) cb[3] = r[1]; }
+      /* only a strip along one edge can go: a drawing that reaches across the cell cannot */
+      const bw = c.box[2] - c.box[0], bh = c.box[3] - c.box[1];
+      if (cb[2] - cb[0] > 0.45 * bw && cb[3] - cb[1] > 0.45 * bh) return;
+      [[-1, 0], [1, 0], [0, -1], [0, 1]].forEach(([di, dj]) => {
+        const n = idx(c.i + di, c.j + dj); if (!n || !n.keep || n.absorbed) return;
+        const W2 = union([n.W, cb]), V = fit(union([W2, tbox(n), ct])), pr = L.minH * L.aw / (V[2] - V[0]);
+        if (pr >= L.absorb * L.target - 1e-9 && (!pick || pr > pick.pr)) pick = { n, W2, V, pr };
+      });
+      if (!pick) return;
+      const n = pick.n; c.keep = false; c.absorbed = true; c.to = [n]; n.texts.push(...c.texts); n.W = pick.W2; n.Vfix = pick.V; n.host = true; n.pinned = true;
+    });
+    cells.forEach(c => { delete c.bits; });
+    /* the cells are counted from the first column and row that have a sheet */
+    const kept = cells.filter(c => c.keep), i0 = Math.min(...kept.map(c => c.i)), j0 = Math.min(...kept.map(c => c.j));
+    const nc = Math.max(...kept.map(c => c.i)) - i0 + 1, nr = Math.max(...kept.map(c => c.j)) - j0 + 1;
+    cells.forEach(c => { c.i -= i0; c.j -= j0; });
+    kept.forEach(c => {
+      const W = c.W, ww = W[2] - W[0], wh = W[3] - W[1], mu = c.mu; c.name = colName(c.i) + '-' + pad(c.j + 1, 2);
+      c.V = c.Vfix || [W[0] - mu * ww, W[1] - mu * wh, W[2] + mu * ww, W[3] + mu * wh];
+    });
+    const g = { cols: nc, rows: nr, cw, ch, x0: x0 + i0 * cw, y1: y1 - j0 * ch, ov, cells, kept, at: (i, j) => idx(i + i0, j + j0) };
+    /* how it reads: the smallest text printed (but for very long labels), the closures and NAPs not whole on any sheet, the sheets
+       without a word on them */
+    const plain = kept.filter(c => !c.host);
+    g.print = L.minH * Math.min(...(plain.length ? plain : kept).map(c => L.aw / (c.host ? c.V[2] - c.V[0] : (c.W[2] - c.W[0]) * (1 + 2 * c.muA))));
+    g.cuts = L.units.filter(u => !u.cable && !kept.some(c => boxIn(u.wb, c.W, 1e-9))).length;
+    g.bare = kept.filter(c => !c.texts.length).length; g.hosts = kept.length - plain.length;
+    return g;
+  }
+  /* the grid over a block (its top left corner at 0, 0) for the drawing area A, or null when the drawing reads on one sheet (its smallest
+     text at 95 % of the target or more, enlarged to fit). Cells as large as the target text allows; of placements fitted to the drawing
+     or shifted in the room left over, the one with the fewest sheets wins, then the one that cuts the fewest units and leaves the fewest
+     bare sheets, then the one whose smallest printed text is largest. Bounded: at most MAXCELLS cells (a larger target text is brought
+     down to fit) and a few passes. */
+  function gridPlan(b, A, opt, parts, probe) {
+    const aw = A.x1 - A.x0, ah = A.y1 - A.y0, ar = ah / aw, ov = opt.overlap, txt = b.prims.filter(p => p.k === 'tx');
+    const minH = txt.length ? Math.min(...txt.map(p => p.h)) : 0; let target = +opt.text;
+    const one = () => minH * Math.min(aw / b.w, ah / b.h) >= 0.95 * target - 1e-9;
+    if (!(target > 0) || !(minH > 0) || one()) return null;
+    if (probe) { const cw = aw * minH / target / (1 + 2 * ov); return { cols: Math.max(1, Math.ceil(b.w / cw - 1e-6)), rows: Math.max(1, Math.ceil(b.h / (cw * ar) - 1e-6)) }; }
+    const sizeAt = (t, q) => { const cw = aw * minH / t / (1 + 2 * ov) * q, ch = cw * ar; return { cw, ch, cols: Math.max(1, Math.ceil(b.w / cw - 1e-6)), rows: Math.max(1, Math.ceil(b.h / ch - 1e-6)) }; };
+    for (let s = sizeAt(target, 1), n = 0; s.cols * s.rows > MAXCELLS && n < 40; s = sizeAt(target, 1), n++) target *= 0.95 * Math.sqrt(MAXCELLS / (s.cols * s.rows));
+    if (one()) return null;
+    const L = { aw, ar, minH, target, absorb: opt.absorb > 0 ? Math.min(1, +opt.absorb) : 2, groups: parts.groups, units: parts.units,
+      /* what makes a cell worth a sheet: anything drawn but a white backing */
+      marks: b.prims.filter(p => p.k !== 'tx' && !(p.k === 'fl' && p.col && p.col.rgb === '#ffffff')).map(p => ({ p, b: primBox([p]) })) };
+    const better = (g, t) => g.kept.length - t.kept.length || g.cuts + g.bare - t.cuts - t.bare || g.hosts - t.hosts || t.print - g.print;
+    /* the shifts tried: finer for a few cells, coarser for many (each placement lays the whole grid) */
+    const steps = (room, n) => room > 1e-6 ? seq(0, n + 1).map(i => i / n) : [0.5];
+    let q = 1, best = null, last = null, prev = 0;
+    for (let it = 0; it < 6 && !best; it++) {
+      const { cw, ch, cols, rows } = sizeAt(target, q); if (cols * rows > MAXCELLS) break;
+      const f = Math.max(b.w / (cols * cw), b.h / (rows * ch)), fine = cols * rows <= 24 ? 8 : cols * rows <= 60 ? 4 : 2; let top = null, most = 0;
+      for (const s of f < 1 - 1e-6 ? [1, f] : [1]) {
+        const w = cw * s, h = ch * s;
+        for (const px of steps(cols * w - b.w, fine)) for (const py of steps(rows * h - b.h, fine)) {
+          const g = layGrid(L, w, h, cols, rows, (b.w - cols * w) * px, (rows * h - b.h) * (1 - py), ov); most = Math.max(most, g.print);
+          if (!last || g.print > last.print + 1e-9) last = g;
+          if (g.print >= 0.95 * target - 1e-6 && (!top || better(g, top) < 0)) top = g;
+        }
+      }
+      if (top) best = top;
+      else { if (most <= prev * 1.002) break; prev = most; q *= Math.max(0.8, Math.min(0.97, most / target)); }
+    }
+    const g = best || last; g.minH = minH; g.target = target; return g;
+  }
+  /* the locator's size: cells shaped like the drawing area, in the legend band (ex: how much the band must grow for it) */
+  function locSize(g, A) {
+    const ar = (A.x1 - A.x0) / (A.y1 - A.y0), ex = Math.max(0, Math.ceil(g.rows * 3.4 - 14)), H = 14 + ex;
+    let ch = Math.min(7, H / g.rows), cw = ch * ar; if (cw * g.cols > 90) { cw = 90 / g.cols; ch = cw / ar; }
+    return { cw, ch, w: cw * g.cols + 26, ex };
+  }
+  /* the locator: the grid's cells as boxes, this one filled; each a tap target */
+  function locator(G, g, cur, L, x1, yMid, cells) {
+    const X0 = x1 - g.cols * L.cw, Y1 = yMid + g.rows * L.ch / 2;
+    G.txs(X0 - 3, yMid + 1.6, [{ s: 'KEY MAP', o: { bold: true } }, 'THIS SHEET ' + cur.name], 1.8, 'LEGEND', { al: 'r', gap: 1.6 });
+    g.kept.forEach(c => {
+      const x = X0 + c.i * L.cw, y = Y1 - (c.j + 1) * L.ch, on = c === cur;
+      if (on) G.frect(x, y, L.cw, L.ch, 'HILITE');
+      G.rect(x, y, L.cw, L.ch, 'LEGEND', { lw: on ? 0.35 : 0.15 });
+      const h = Math.min(0.42 * L.ch, (L.cw - 0.8) / textW(c.name, 1, on)); if (h >= 0.9) G.tx(x + L.cw / 2, y + L.ch / 2, c.name, h, 'LEGEND', { al: 'c', va: 'm', bold: on });
+      if (!on) cells.push({ name: c.name, box: [x, y, x + L.cw, y + L.ch] });
+    });
+  }
+  /* what covering a box costs on a sheet (obst: its primitives and their boxes): a text most, then a splice dot, a line crossed, a fill */
+  function costIn(obst) {
+    return r => {
+      let s = 0;
+      for (const o of obst) {
+        if (!meet(o.b, r)) continue; const p = o.p;
+        if (p.k === 'tx') s += 1000 + 100 * areaOf(cut2(o.b, r)); else if (p.k === 'ci') s += 300; else if (p.k === 'fl') s += p.col && p.col.rgb === '#ffffff' ? 0 : 3; else if (crosses(p, r)) s += 2;
+      }
+      return s;
+    };
+  }
+  /* a mark beside a cell edge, in the overlap band (what is there is on the neighbour's sheet too), with an arrow out: MATCH LINE · SEE C-01,
+     or CONTINUES ON D-01 (forms: the long words first). Along the edge where it covers the least (cost), near u (from the edge's middle).
+     Its tap target fills the band (band: its width) a finger's breadth along the edge each side, so a phone can open that sheet */
+  function edgeMark(G, side, X, Y, len, forms, name, cells, cost, u, obst, band) {
+    const h = 2, v = side === 'L' || side === 'R', out = side === 'R' || side === 'T' ? 1 : -1, mid = 1.4 + 0.5 * h + 0.6; u = u || 0;
+    let best = null;
+    forms.forEach((s, fi) => {
+      const L = textW(s, h, true); if (L + 12 > len && fi < forms.length - 1) return;
+      const ua = L / 2 + 0.6, room = Math.max(0, len / 2 - L / 2 - 6), room2 = Math.max(room, len / 2 - L / 2 - 2.5);
+      const boxAt = u0 => { const P = (a, w) => v ? [X + out * w, Y + u0 + a] : [X + u0 + a, Y + out * w], c1 = P(-2 - L / 2 - 0.8, 0.9), c2 = P(ua + 2.2, mid + 2.6); return [Math.min(c1[0], c2[0]), Math.min(c1[1], c2[1]), Math.max(c1[0], c2[0]), Math.max(c1[1], c2[1])]; };
+      const us = [u].concat(seq(1, 16).flatMap(k => [u - k * room / 8, u + k * room / 8])).filter(x => Math.abs(x) <= room + 1e-9);
+      if (!us.length) us.push(Math.max(-room, Math.min(room, u)));
+      /* nearer the corners only when every place along the middle covers a text */
+      if (room2 > room + 1e-9) seq(0, 4).forEach(k => { const x = room + (room2 - room) * (k + 1) / 4; us.push(-x, x); });
+      us.forEach(u0 => { const c = cost(boxAt(u0)) + fi * 1.5 + Math.abs(u0 - u) * 0.004 + (Math.abs(u0) > room + 1e-9 ? 50 : 0); if (!best || c < best.c) best = { c, s, L, ua, u0, box: boxAt(u0) }; });
+    });
+    const { s, ua, u0, box } = best, P = (a, w) => v ? [X + out * w, Y + u0 + a] : [X + u0 + a, Y + out * w];
+    G.frect(box[0], box[1], box[2] - box[0], box[3] - box[1], 'HILITE', { col: WHITE });
+    const c = P(-2, mid); G.tx(c[0], c[1], s, h, 'MATCH', { al: 'c', va: 'm', bold: true, rot: v ? 90 : 0 });
+    G.fl([P(ua - 1.3, mid - 1.1), P(ua, mid + 2.2), P(ua + 1.3, mid - 1.1)], 'MATCH');
+    const lo = (v ? Y : X) - len / 2, hi = (v ? Y : X) + len / 2, a0 = Math.max(lo, (v ? box[1] : box[0]) - 12), a1 = Math.min(hi, (v ? box[3] : box[2]) + 12), e = v ? X : Y, f = e + out * Math.max(band || 0, mid + 2.6);
+    cells.push({ name, box: v ? [Math.min(e, f), a0, Math.max(e, f), a1] : [a0, Math.min(e, f), a1, Math.max(e, f)] });
+    if (obst) obst.push({ p: { k: 'tx' }, b: box });
+  }
+  /* a dashed match line from a to b (along x or y), broken where it would run through a text (boxes) */
+  function matchLine(G, a, b, boxes) {
+    const v = Math.abs(a[0] - b[0]) < 1e-9, k = v ? 1 : 0, o = v ? 0 : 1, at = a[o], lo = Math.min(a[k], b[k]), hi = Math.max(a[k], b[k]), gaps = [];
+    boxes.forEach(r => { if (r[o] - 0.5 < at && r[o + 2] + 0.5 > at && r[k + 2] > lo && r[k] < hi) gaps.push([r[k] - 0.8, r[k + 2] + 0.8]); });
+    gaps.sort((m, n) => m[0] - n[0]); let s = lo;
+    const seg = (p, q) => { if (q - p > 0.3) G.ln(v ? at : p, v ? p : at, v ? at : q, v ? q : at, 'MATCH'); };
+    gaps.forEach(([p, q]) => { seg(s, Math.min(p, hi)); s = Math.max(s, q); }); seg(s, hi);
+  }
+  /* a closure, NAP or ODF that this sheet shows (its middle, or a fifth of its shape or more) but whose name is not on it: its name again;
+     a cable that runs a good way across this sheet (a third of the cell or more) without its label: its label again (its name and its
+     working fibers). Where it covers the least inside the window, on a white backing (raw: what the sheet shows; shown: its texts) */
+  function namesAgain(raw, units, c, shown) {
+    const W = c.W, out = [], m = 0.3, obst = raw.map(p => ({ p, b: primBox([p]) })), cost = costIn(obst), cw = c.box[2] - c.box[0];
+    units.forEach(u => {
+      if (shown.has(u.name)) return;
+      const cb = u.cb, mid = [(cb[0] + cb[2]) / 2, (cb[1] + cb[3]) / 2], pieces = [];
+      if (u.cable) {
+        u.core.forEach(p => { if (p.k === 'pl') pieces.push(...clipPath(p.pts, p.close, W)); });
+        if (!pieces.some(q => pathLen(q.map(r => [Math.min(c.box[2], Math.max(c.box[0], r[0])), Math.min(c.box[3], Math.max(c.box[1], r[1]))])) >= cw / 3)) return;
+      } else if (!inBox(mid, c.box) && areaOf(cut2(cb, c.box)) < 0.2 * areaOf(cb)) return;
+      /* the words as drawn, and turned to read up along a run that goes up or down (each about its first line's anchor) */
+      const o = u.says[0].p, up = u.says.map(q => Object.assign({}, q, { p: [o[0] - (q.p[1] - o[1]), o[1] + (q.p[0] - o[0])], rot: 90 }));
+      const tpl = [{ ps: u.says, b: u.nb }, { ps: up, b: primBox(up) }], at = [];
+      if (u.cable) {
+        /* above or below a straight run of the cable, at its start, middle or end; along a run that goes up or down, on either side */
+        const [w, h] = [u.nb[2] - u.nb[0], u.nb[3] - u.nb[1]], [wv, hv] = [tpl[1].b[2] - tpl[1].b[0], tpl[1].b[3] - tpl[1].b[1]];
+        pieces.forEach(q => q.forEach((r, i) => {
+          const a = q[i - 1]; if (!a) return;
+          if (Math.abs(a[1] - r[1]) < 1e-6 && Math.abs(r[0] - a[0]) >= w + 2) { const x0 = Math.min(a[0], r[0]), x1 = Math.max(a[0], r[0]); [x0 + 1, (x0 + x1 - w) / 2, x1 - w - 1].forEach(x => at.push([0, x, r[1] + 0.5], [0, x, r[1] - 0.5 - h])); }
+          if (Math.abs(a[0] - r[0]) < 1e-6 && Math.abs(r[1] - a[1]) >= hv + 2) { const y0 = Math.min(a[1], r[1]), y1 = Math.max(a[1], r[1]); [y0 + 1, (y0 + y1 - hv) / 2, y1 - hv - 1].forEach(y => at.push([1, r[0] + 0.5, y], [1, r[0] - 0.5 - wv, y])); }
+          /* beside a shorter run, the words as drawn (less good: they read across it) */
+          if (Math.abs(a[0] - r[0]) < 1e-6 && Math.abs(r[1] - a[1]) >= h + 2) { const y0 = Math.min(a[1], r[1]), y1 = Math.max(a[1], r[1]); [y0 + 1, (y0 + y1 - h) / 2, y1 - h - 1].forEach(y => at.push([0, r[0] + 0.6, y, 3], [0, r[0] - 0.6 - w, y, 3], [0, c.box[0] + 0.4, y, 8], [0, c.box[2] - w - 0.4, y, 8])); }
+        }));
+      } else {
+        const nb = u.nb, w = nb[2] - nb[0], h = nb[3] - nb[1], vis = cut2(cb, W);
+        [nb[0], vis[0] + 0.4, vis[2] - w - 0.4, (vis[0] + vis[2] - w) / 2].forEach(x => [nb[1], vis[3] + 0.5, vis[3] - h - 0.6, vis[1] - h - 0.5, vis[1] + 0.6].forEach(y => at.push([0, x, y])));
+      }
+      let best = null;
+      at.forEach(([t, x, y, pen]) => {
+        const B = tpl[t].b, w = B[2] - B[0], h = B[3] - B[1]; if (w > W[2] - W[0] - 2 * m || h > W[3] - W[1] - 2 * m) return;
+        const r = [Math.min(W[2] - m - w, Math.max(W[0] + m, x)), Math.min(W[3] - m - h, Math.max(W[1] + m, y))]; r.push(r[0] + w, r[1] + h);
+        const s = cost([r[0] - 0.2, r[1] - 0.2, r[2] + 0.2, r[3] + 0.2]) + 0.05 * Math.hypot(r[0] - u.nb[0], r[1] - u.nb[1]) + (boxIn(r, c.box, 1e-9) ? 0 : 5) + t * 0.5 + (pen || 0); if (!best || s < best.s) best = { s, r, t };
+      });
+      /* a cable's label again only where it hides no text (a closure's, a NAP's or an ODF's name is placed in any case) */
+      if (!best || u.cable && best.s >= 1000) return;
+      const r = best.r, T = tpl[best.t], pd = 0.15, d = [r[0] - T.b[0], r[1] - T.b[1]];
+      out.push({ k: 'fl', pts: [[r[0] - pd, r[1] - pd], [r[2] + pd, r[1] - pd], [r[2] + pd, r[3] + pd], [r[0] - pd, r[3] + pd]], lay: 'HILITE', col: WHITE });
+      T.ps.forEach(q => { const t = Object.assign({}, q, { p: [q.p[0] + d[0], q.p[1] + d[1]], again: 1 }); delete t.g; delete t.u; delete t.nm; out.push(t); });
+      obst.push({ p: { k: 'tx' }, b: r });
+    });
+    return out;
+  }
+  /* the detailed sheets of one block: one sheet as before, or the key map and a sheet per grid cell */
+  function detailedSheets(b, head, legOf, opt) {
+    const FW = AREA.x1 - AREA.x0, areaOf2 = ex => ({ x0: AREA.x0, y0: AREA.y0 + 16 + ex, x1: AREA.x1, y1: AREA.y1 }), parts = gridParts(b.prims);
+    let leg = legOf(FW), ex = 6 * (leg.rows - 1), A = areaOf2(ex), g = gridPlan(b, A, opt, parts, true);
+    /* a grid: the legend leaves room for the locator (its size guessed first, so the grid is mostly laid once) */
+    if (g) { const L0 = locSize(g, A); leg = legOf(FW - L0.w - 8); ex = Math.max(6 * (leg.rows - 1), L0.ex); A = areaOf2(ex); g = gridPlan(b, A, opt, parts); }
+    /* one sheet: the drawing as large as the target text needs (1.6 times at least, as before), or as fits */
+    const single = () => {
+      const t = +opt.text, mh = Math.min(...b.prims.filter(p => p.k === 'tx').map(p => p.h)), grow = t > 0 && mh > 0 ? Math.max(1.6, t / mh) : 1.6;
+      leg = legOf(FW); ex = 6 * (leg.rows - 1); A = areaOf2(ex);
+      const pages = paginate([b], { area: A, center: true, grow, band: 2 });
+      return { sheets: sheetsOf(pages, head, () => xf(leg.prims, 1, AREA.x0, AREA.y0 + 7 + ex)).map((sh, i) => Object.assign(sh, { prims: refGrid(A, 3, 2).concat(sh.prims), label: 'Splicing details' + (pages.length > 1 ? ' ' + (i + 1) : '') })) };
+    };
+    if (!g || g.kept.length < 2) return single();
+    /* the legend leaves room for the locator; a taller legend or locator pushes the drawing up, and the grid is laid again */
+    let L = null;
+    for (let t = 0; t < 4; t++) {
+      L = locSize(g, A); leg = legOf(FW - L.w - 8);
+      const ex2 = Math.max(6 * (leg.rows - 1), L.ex); if (ex2 === ex) break;
+      ex = ex2; A = areaOf2(ex); g = gridPlan(b, A, opt, parts) || g;
+    }
+    if (g.kept.length < 2) return single();
+    L = locSize(g, A);
+    const aw = A.x1 - A.x0, ah = A.y1 - A.y0, legPrims = () => xf(leg.prims, 1, AREA.x0, AREA.y0 + 7 + 6 * (leg.rows - 1)), sheets = [];
+    /* the key map: the whole drawing and its grid fitted to the drawing area */
+    {
+      const GE = [Math.min(g.x0, 0), Math.min(g.y1 - g.rows * g.ch, -b.h), Math.max(g.x0 + g.cols * g.cw, b.w), Math.max(g.y1, 0)], k = Math.min(aw / (GE[2] - GE[0]), ah / (GE[3] - GE[1]));
+      const dx = A.x0 + (aw - (GE[2] - GE[0]) * k) / 2 - GE[0] * k, dy = A.y0 + (ah - (GE[3] - GE[1]) * k) / 2 - GE[1] * k, M = (x, y) => [x * k + dx, y * k + dy];
+      const G = new Gfx(), light = { rgb: '#c4c9cf', aci: 9 }, cells = [], seen = new Set(), cwP = g.cw * k, chP = g.ch * k;
+      /* drawn small, its lines thinner so a bundle of fibers stays a bundle */
+      const all = xf(b.prims, k, dx, dy).map(p => k >= 0.8 || p.k === 'tx' || p.k === 'fl' ? p : Object.assign(p, { lw: Math.max(0.1, lwOf(p) * k * 1.25) }));
+      /* each cell's name, large and light, where the drawing hides it least: a white box (a NAP, an ODF) most, then texts, then lines
+         across it; smaller where the cell is full */
+      const kb = all.map(p => ({ p, b: primBox([p]) })), cost = (r, near) => {
+        let s = 0, n = 0; for (const o of near) { if (!meet(o.b, r)) continue; const p = o.p, a = areaOf(cut2(o.b, r)); if (p.k === 'fl') s += p.col && p.col.rgb === '#ffffff' ? 10 * a : a; else if (p.k === 'tx') s += a; else if (p.k === 'pl' && crosses(p, r)) n++; }
+        return s / areaOf(r) + 0.02 * n;
+      };
+      g.kept.forEach(c => {
+        const [x0, y0] = M(c.box[0], c.box[1]), [x1, y1] = M(c.box[2], c.box[3]), H = Math.min(13, 0.32 * chP, 0.7 * cwP / textW(c.name, 1)), near = kb.filter(o => meet(o.b, [x0, y0, x1, y1]));
+        let best = null;
+        [1, 0.75, 0.55].forEach((f, z) => { const h = H * f, w = textW(c.name, h); [0.5, 0.25, 0.75, 0.1, 0.9].forEach((fy, a) => [0.5, 0.3, 0.7, 0.15, 0.85].forEach((fx, e) => {
+          const cx = x0 + (x1 - x0) * fx, cy = y0 + (y1 - y0) * fy, r = [cx - w / 2, cy - 0.55 * h, cx + w / 2, cy + 0.55 * h];
+          if (r[0] < x0 || r[2] > x1 || r[1] < y0 || r[3] > y1) return;
+          const s = cost(r, near) + 0.25 * z + 0.03 * (a + e); if (!best || s < best.s) best = { s, cx, cy, h };
+        })); });
+        if (!best) best = { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, h: H };
+        G.tx(best.cx, best.cy, c.name, best.h, 'GRID', { al: 'c', va: 'm', col: light });
+        cells.push({ name: c.name, box: [x0, y0, x1, y1] });
+      });
+      /* a cell with a little drawing but no sheet of its own (its drawing is on a neighbour's sheet): its outline and SEE B-02 */
+      const others = g.cells.filter(c => c.absorbed && c.to[0].keep);
+      others.forEach(c => {
+        const [x0, y0] = M(c.box[0], c.box[1]), [x1, y1] = M(c.box[2], c.box[3]), to = c.to.find(n => n.keep) || c.to[0], s = 'SEE ' + to.name, h = Math.min(4, 0.18 * chP, 0.6 * cwP / textW(s, 1));
+        G.tx((x0 + x1) / 2, y1 - 1.5 * h, s, h, 'GRID', { al: 'c', va: 'm', col: light });
+        cells.push({ name: to.name, box: [x0, y0, x1, y1] });
+      });
+      g.kept.concat(others).forEach(c => {
+        const [x0, y0] = M(c.box[0], c.box[1]), [x1, y1] = M(c.box[2], c.box[3]);
+        [['v', c.i, c.j, x0, y0, x0, y1], ['v', c.i + 1, c.j, x1, y0, x1, y1], ['h', c.i, c.j, x0, y1, x1, y1], ['h', c.i, c.j + 1, x0, y0, x1, y0]].forEach(([t, i, j, a, bq, cq, d]) => {
+          const key = t + i + ':' + j; if (seen.has(key)) return; seen.add(key); G.ln(a, bq, cq, d, 'GRID');
+        });
+      });
+      sheets.push({ head: head + ' · KEY MAP', label: 'Key map', prims: G.p.concat(all, legPrims()), body: [0, G.p.length + all.length], cells, keymap: true, area: [A.x0, A.y0, A.x1, A.y1], view: { k, dx, dy } });
+    }
+    /* a sheet per cell: the cell and its overlap (and the view's margin for long labels) enlarged to fill the drawing area */
+    g.kept.forEach(c => {
+      const V = c.V, k = aw / (V[2] - V[0]), dx = A.x0 - V[0] * k, dy = A.y0 - V[1] * k, M = (x, y) => [x * k + dx, y * k + dy];
+      const exits = [], raw = clipPrims(b.prims, c.W, V, new Set(c.texts.flatMap(t => t.ps)), parts.gOf, exits), shown = new Set(raw.filter(p => p.k === 'tx'));
+      const body = xf(raw.concat(namesAgain(raw, parts.units, c, shown)), k, dx, dy), G = new Gfx(), cells = [];
+      const [wx0, wy0] = M(c.W[0], c.W[1]), [wx1, wy1] = M(c.W[2], c.W[3]), [cx0, cy0] = M(c.box[0], c.box[1]), [cx1, cy1] = M(c.box[2], c.box[3]);
+      const nb = { L: g.at(c.i - 1, c.j), R: g.at(c.i + 1, c.j), T: g.at(c.i, c.j - 1), B: g.at(c.i, c.j + 1) }, obst = body.map(p => ({ p, b: primBox([p]) })), cost = costIn(obst);
+      const txb = obst.filter(o => o.p.k === 'tx').map(o => o.b), band = { L: cx0 - wx0, R: wx1 - cx1, B: cy0 - wy0, T: wy1 - cy1 };
+      Object.keys(nb).forEach(sd => {
+        const n = nb[sd]; if (!n || !n.keep) return;
+        if (sd === 'L' || sd === 'R') { const X = sd === 'L' ? cx0 : cx1; matchLine(G, [X, wy0], [X, wy1], txb); edgeMark(G, sd, X, (cy0 + cy1) / 2, cy1 - cy0, ['MATCH LINE · SEE ' + n.name, 'SEE ' + n.name], n.name, cells, cost, 0, obst, band[sd]); }
+        else { const Y = sd === 'B' ? cy0 : cy1; matchLine(G, [wx0, Y], [wx1, Y], txb); edgeMark(G, sd, (cx0 + cx1) / 2, Y, cx1 - cx0, ['MATCH LINE · SEE ' + n.name, 'SEE ' + n.name], n.name, cells, cost, 0, obst, band[sd]); }
+      });
+      /* lines that leave the window where no neighbour has a sheet (that cell's drawing is on another sheet): where they go on */
+      const e = 1e-6, sideOf = q => Math.abs(q[0] - c.W[0]) < e ? 'L' : Math.abs(q[0] - c.W[2]) < e ? 'R' : Math.abs(q[1] - c.W[1]) < e ? 'B' : Math.abs(q[1] - c.W[3]) < e ? 'T' : null, on = new Map();
+      exits.forEach(([q, nx]) => {
+        const sd = sideOf(q); if (!sd || nb[sd] && nb[sd].keep) return;
+        const to = g.kept.filter(x => x !== c && inBox(nx, x.box)).concat(g.kept.filter(x => x !== c && inBox(nx, x.W)))[0]; if (!to) return;
+        const key = sd + to.name; if (!on.has(key)) on.set(key, { sd, to, at: [] }); on.get(key).at.push(sd === 'L' || sd === 'R' ? q[1] : q[0]);
+      });
+      on.forEach(({ sd, to, at }) => {
+        const v = sd === 'L' || sd === 'R', u = at.reduce((a, x) => a + x, 0) / at.length;
+        if (v) { const X = sd === 'L' ? cx0 : cx1, Y = (cy0 + cy1) / 2; edgeMark(G, sd, X, Y, cy1 - cy0, ['CONTINUES ON ' + to.name, 'CONT. ON ' + to.name], to.name, cells, cost, u * k + dy - Y, obst, band[sd]); }
+        else { const Y = sd === 'B' ? cy0 : cy1, X = (cx0 + cx1) / 2; edgeMark(G, sd, X, Y, cx1 - cx0, ['CONTINUES ON ' + to.name, 'CONT. ON ' + to.name], to.name, cells, cost, u * k + dx - X, obst, band[sd]); }
+      });
+      locator(G, g, c, L, AREA.x1, A.y0 - 2 - (14 + L.ex) / 2, cells);
+      sheets.push({ head: head + ' · GRID ' + c.name, label: c.name, prims: body.concat(G.p, legPrims()), body: [0, body.length], cells, cell: c.name, area: [A.x0, A.y0, A.x1, A.y1], view: { k, dx, dy } });
+    });
+    return { sheets, grid: { cols: g.cols, rows: g.rows, cw: g.cw, ch: g.ch, x0: g.x0, y1: g.y1, overlap: g.ov, minText: g.minH, prims: b.prims,
+      cells: g.kept.map(c => ({ name: c.name, i: c.i, j: c.j, box: c.box, win: c.W, view: c.V, margin: c.mu })) } };
+  }
+
+  /* the broadband detailed legend: the SLD's items and the red splice dot, in rows */
+  function bbDetLegend(maxW) {
+    return flowLegend([
+      [(G, x, y) => G.ln(x, y, x + 12, y, 'CABLE'), 'DISTRIBUTION / 6F DROP CABLE'], [(G, x, y) => G.rect(x + 3, y - 3, 6, 6, 'CLOSURE_BOX'), 'CLOSURE'],
+      [(G, x, y) => { G.ci(x + 6, y, 2.3, 'NAP_SYM'); G.tx(x + 6, y, '1:4', 1.3, 'NAP_SYM', { al: 'c', va: 'm', bold: true }); }, 'LINE SPLITTER (LCP) IN N01'],
+      [(G, x, y) => G.pl([[x + 4, y - 2], [x + 7.6, y], [x + 4, y + 2]], 'NAP_SYM', { close: true }), '1:8 SPLITTER (8 PORTS)'],
+      [(G, x, y) => G.ln(x, y, x + 12, y, 'FIBER_USED'), 'WORKING FIBER'], [(G, x, y) => G.ln(x, y, x + 12, y, 'FIBER'), 'SPARE FIBER'], [newSplice, 'NEW SPLICE']
+    ], maxW || AREA.x1 - AREA.x0);
+  }
+
   /* ---------- build: the sheets of a drawing ---------- */
   const HEADS = { access: { sld: 'SINGLE LINE DIAGRAM', detailed: 'SPLICING DETAILS' }, broadband: { sld: 'SPLICING SINGLE LINE DIAGRAM', detailed: 'SPLICING DETAILS' } };
   function build(model, views) {
-    views = [].concat(views || 'sld'); const kind = model.kind === 'broadband' ? 'broadband' : 'access', list = [];
+    views = [].concat(views || 'sld'); const kind = model.kind === 'broadband' ? 'broadband' : 'access', list = [], grids = [];
+    const gopt = Object.assign({}, GRID, model.grid === false ? { text: 0 } : model.grid);
     const plan = kind === 'access' ? accessPlan(model) : bbPlan(model);
     for (const v of views) {
       const head = HEADS[kind][v === 'detailed' ? 'detailed' : 'sld'];
       if (kind === 'access') {
         if (v === 'detailed') {
-          /* a legend of more than one row pushes the drawing up */
-          const leg = accessDetLegend(plan), ex = 6 * (leg.rows - 1), A = { x0: AREA.x0, y0: AREA.y0 + 16 + ex, x1: AREA.x1, y1: AREA.y1 };
-          accessDetailed(plan).forEach(b => list.push(...sheetsOf(paginate([b], { area: A, center: true, grow: 1.6, band: 2 }), head, () => xf(leg.prims, 1, AREA.x0, AREA.y0 + 7 + ex)).map(sh => Object.assign(sh, { prims: refGrid(A, 3, 2).concat(sh.prims) }))));
+          const r = detailedSheets(accessDetailed(plan)[0], head, w => accessDetLegend(plan, w), gopt);
+          if (r.grid) grids.push(Object.assign(r.grid, { first: list.length })); list.push(...r.sheets);
         } else {
           /* the legend in columns at the left, the CONNECTIONS box (one row per leg) at the right, the diagram above them */
           const any = plan.legs.some(l => !l.bad), leg = accessLegend(plan, any ? 3 : 0), con = any ? accessConnections(plan, Math.max(150, Math.min(250, AREA.x1 - AREA.x0 - leg.w - 14))) : null;
@@ -1148,12 +1623,15 @@
         }
       } else {
         const leg = bbLegend();
-        if (v === 'detailed') { const A = { x0: AREA.x0, y0: AREA.y0 + 16, x1: AREA.x1, y1: AREA.y1 }; bbDetailed(plan).forEach(b => list.push(...sheetsOf(paginate([b], { area: A, center: true, grow: 1.6, band: 2 }), head, () => xf(leg.prims, 1, AREA.x0, AREA.y0 + 7)).map(sh => Object.assign(sh, { prims: refGrid(A, 3, 2).concat(sh.prims) })))); }
+        if (v === 'detailed') { const r = detailedSheets(bbDetailed(plan)[0], head, bbDetLegend, gopt); if (r.grid) grids.push(Object.assign(r.grid, { first: list.length })); list.push(...r.sheets); }
         else list.push(...sheetsOf(paginate([bbSLD(plan)], { area: { x0: AREA.x0, y0: AREA.y0 + 16, x1: AREA.x1, y1: AREA.y1 }, center: true, grow: 1.45 }), head, () => xf(leg.prims, 1, AREA.x0, AREA.y0 + 7)));
       }
     }
     plan.warnings = [...new Set(plan.warn)];
-    return { sheets: finishSheets(list, model.title), plan, warnings: plan.warnings };
+    /* the SLD sheets' names for a sheet list (the detailed ones are named where they are made) */
+    const nSld = list.filter(sh => !sh.label).length; let k = 0;
+    list.forEach(sh => { if (!sh.label) sh.label = 'Single line' + (nSld > 1 ? ' ' + ++k : ''); });
+    return { sheets: finishSheets(list, model.title), plan, warnings: plan.warnings, grids };
   }
   /* the assignment alone, without drawing (fast: for live answers such as "This gives F25-30"): plan.legs, plan.fdus, plan.cableInfo, plan.warnings */
   function assign(model) { model = model || {}; return model.kind === 'broadband' ? bbPlan(model) : accessPlan(model); }
@@ -1180,6 +1658,8 @@
       else if (p.k === 'tx') { const x = f(p.p[0]), y = f(H - p.p[1]); o.push(`<text x="${x}" y="${y}" font-size="${f(p.h / CAP)}"${p.bold ? ' font-weight="bold"' : ''} fill="${c === '#ffffff' ? '#111111' : c}" text-anchor="${p.al === 'c' ? 'middle' : p.al === 'r' ? 'end' : 'start'}"${p.rot ? ` transform="rotate(${f(-p.rot)} ${x} ${y})"` : ''}>${esc(p.s)}</text>`); }
     }
     if (cur) o.push('</g>');
+    /* the grid cells (key map, locator, match lines): see-through tap targets on top */
+    (sheet.cells || []).forEach(c => o.push(`<rect data-ref="grid:${esc(c.name)}" x="${f(c.box[0])}" y="${f(H - c.box[3])}" width="${f(c.box[2] - c.box[0])}" height="${f(c.box[3] - c.box[1])}" fill="transparent" style="cursor:pointer"/>`));
     o.push('</svg>'); return o.join('');
   }
   const plain = s => String(s).replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/·/g, '-').replace(/→/g, '->').replace(/›/g, '>');
@@ -1221,7 +1701,7 @@
     const o = [], w = (...a) => { for (let i = 0; i < a.length; i += 2) o.push(String(a[i]).padStart(3, ' '), String(a[i + 1])); }, n = v => { const r = Math.round(v * 1e4) / 1e4; return Number.isInteger(r) ? r + '.0' : String(r); };
     const GAP = 30, all = []; sheets.forEach((sh, i) => all.push(...xf(sh.prims, 1, i * (SH.W + GAP), 0)));
     /* the layers added for the leg states are declared only when a drawing uses them */
-    const bb = primBox(all), later = ['FOC_FUTURE', 'FIBER_RESERVED'], names = Object.keys(LAYERS).filter(k => later.indexOf(k) < 0 || all.some(p => p.lay === k));
+    const bb = primBox(all), later = ['FOC_FUTURE', 'FIBER_RESERVED', 'SPLICE_NEW', 'MATCH'], names = Object.keys(LAYERS).filter(k => later.indexOf(k) < 0 || all.some(p => p.lay === k));
     w(0, 'SECTION', 2, 'HEADER', 9, '$ACADVER', 1, 'AC1009', 9, '$INSBASE', 10, '0.0', 20, '0.0', 30, '0.0', 9, '$EXTMIN', 10, n(bb[0]), 20, n(bb[1]), 30, '0.0', 9, '$EXTMAX', 10, n(bb[2]), 20, n(bb[3]), 30, '0.0', 9, '$LTSCALE', 40, '1.0', 0, 'ENDSEC');
     w(0, 'SECTION', 2, 'TABLES');
     w(0, 'TABLE', 2, 'LTYPE', 70, 2, 0, 'LTYPE', 2, 'CONTINUOUS', 70, 0, 3, 'Solid line', 72, 65, 73, 0, 40, '0.0', 0, 'LTYPE', 2, 'DASHED', 70, 0, 3, 'Dashed __ __ __', 72, 65, 73, 2, 40, '3.9', 49, '2.6', 49, '-1.3', 0, 'ENDTAB');
@@ -1320,5 +1800,5 @@
         .map(([main, line, ports, pole, poleType]) => ({ main, line, ports, pole, poleType })) } }
   };
 
-  root.Splice = { build, assign, toSVG, toPDF, toDXF, zip, parseRanges, fmtRanges, fiberColor, FIBER, samples, SHEET: SH, RULES, LAYERS, version: 'demo-2' };
+  root.Splice = { build, assign, toSVG, toPDF, toDXF, zip, parseRanges, fmtRanges, fiberColor, FIBER, samples, SHEET: SH, RULES, LAYERS, GRID, version: 'demo-3' };
 })(typeof window !== 'undefined' ? window : globalThis);
