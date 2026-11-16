@@ -218,9 +218,9 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 /* v2.41: the Drawing screen: tools on the drawing (as on the map), legend, information line, the plan's options at the bottom */
 .drwtools{position:absolute;right:12px;bottom:12px;display:flex;flex-direction:column;gap:10px;z-index:5}
 .drwtools .round{position:relative}.drwtools .round[aria-pressed=false]{opacity:.62}
-/* beta 4.x: the two plans made from the Drawing (CEF plan, Splicing details): a name beside each round button */
-.drwtools .rlbl{position:absolute;right:calc(100% + 8px);top:50%;transform:translateY(-50%);white-space:nowrap;background:var(--surface);color:var(--ink);border-radius:999px;padding:5px 11px;font-size:calc(12.5px * var(--fs));font-weight:650;line-height:1.2;box-shadow:var(--shadow);pointer-events:auto}
-@media (max-width:339px){.drwtools .rlbl{display:none}}
+/* beta 4.6: the two plans made from the Drawing (CEF plan, Splicing details): round icon buttons, each with a dot: green made, amber still to make (its name in aria-label and title) */
+.drwtools .pdot{position:absolute;right:-2px;top:-2px;width:14px;height:14px;border-radius:50%;border:2px solid var(--surface);display:none;pointer-events:none}
+.drwtools .pdot.ok{display:block;background:var(--ok)}.drwtools .pdot.miss{display:block;background:var(--warn)}
 .drwmapdot{position:absolute;right:5px;bottom:5px;font:800 9px/1 system-ui;color:var(--accent);font-style:normal}
 .drwmenu{position:absolute;right:calc(var(--tap) + 22px);bottom:12px;z-index:6;background:var(--surface);color:var(--ink);border-radius:var(--r);box-shadow:var(--shadow);padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:210px}
 .drwmenu[hidden]{display:none}.drwmenu b{font-size:calc(12px * var(--fs));color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
@@ -1055,6 +1055,24 @@ details.psrow[open]>summary::after{transform:rotate(90deg)}
 .dxfneed .hd{margin:0;font-size:calc(12px * var(--fs));font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 .dxfneed .r{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 10px;align-items:start}.dxfneed .ic{font-size:20px;line-height:1.2}
 .dxfneed .tx{font-size:calc(13px * var(--fs));line-height:1.4}.dxfneed .btn{grid-column:2;justify-self:start}
+#dxfPlansNeed .r{grid-template-columns:auto minmax(0,1fr) auto;align-items:center}#dxfPlansNeed .ic{width:40px;height:40px;border-radius:50%;background:var(--surface);color:var(--accent);display:grid;place-items:center;box-shadow:0 0 0 1px var(--line)}#dxfPlansNeed .ic svg{width:22px;height:22px}
+#dxfPlansNeed .btn.mk{grid-column:auto;justify-self:end;width:48px;height:48px;min-height:48px;padding:0;border-radius:50%;background:var(--surface);border:1.5px solid var(--accent);color:var(--accent)}#dxfPlansNeed .btn.mk svg{width:22px;height:22px}
+/* beta 4.6: One PDF with the plan, the CEF plan and the splicing details: an icon tile (each plan's icon; a dot: green made, amber not yet) */
+.xone[hidden],.xcard.xmany>.xone{display:none}
+.xonebtn{display:flex;align-items:center;gap:12px;width:100%;min-height:64px;padding:10px 12px 10px 14px;border:1.5px solid var(--accent);border-radius:var(--r);background:var(--soft);color:var(--accent);font:inherit;cursor:pointer;text-align:left}
+.xonebtn:active{transform:translateY(1px)}.xonebtn:focus-visible{outline:3px solid var(--hi);outline-offset:2px}
+.xonebtn .xparts{display:flex;align-items:center;gap:3px;flex:none}.xonebtn [hidden]{display:none}
+.xonebtn .xp{position:relative;width:40px;height:40px;border-radius:50%;background:var(--surface);color:var(--accent);display:grid;place-items:center;box-shadow:0 0 0 1px var(--line)}
+.xonebtn .xp svg{width:22px;height:22px}.xonebtn .xplus{font-style:normal;font-weight:800;color:var(--muted);font-size:calc(14px * var(--fs))}
+.xonebtn .pdot{position:absolute;right:-3px;top:-3px;width:14px;height:14px;border-radius:50%;border:2px solid var(--surface);display:none}
+.xonebtn .pdot.ok{display:block;background:var(--ok)}.xonebtn .pdot.miss{display:block;background:var(--warn)}
+.xonebtn .cap{flex:1;min-width:0;font-weight:800;font-size:calc(15px * var(--fs));color:var(--ink)}.xonebtn .go{width:20px;height:20px;flex:none;color:var(--muted)}
+.xonebtn.pulse{animation:xonePulse 1.1s ease-out 3}@media (prefers-reduced-motion:reduce){.xonebtn.pulse{animation:none;outline:3px solid var(--hi)}}@keyframes xonePulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 60%,transparent)}100%{box-shadow:0 0 0 14px transparent}}
+#askBox .btn .aic{width:22px;height:22px;flex:none}#askBox .panel{position:relative}#askBox .panel.hasx h3{padding-right:44px}
+#askBox .row.tiles{flex-direction:row;flex-wrap:nowrap;gap:12px}#askBox .btn.tile{flex:1 1 0;min-width:0;flex-direction:column;gap:8px;min-height:108px;padding:14px 8px;border-radius:18px;font-size:calc(13px * var(--fs));font-weight:700;line-height:1.2;text-align:center;white-space:normal}
+#askBox .btn.tile .aic{width:40px;height:40px}#askBox .btn.askx{position:absolute;top:6px;right:6px;width:44px;height:44px;min-height:44px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--muted);font-size:20px;flex:none}
+.xonebtn .cap .xsub{display:block;font-size:calc(12px * var(--fs));font-weight:600;color:var(--muted)}.xonebtn .cap .xsub[hidden]{display:none}.xonebtn.off{border-style:dashed;border-color:var(--line);background:var(--surface);color:var(--muted)}.xonebtn.off .xp{opacity:.55}#askBox .row.stack .btn.ic1{justify-content:flex-start;padding-left:14px;gap:12px}
+.inzip .ic svg{width:20px;height:20px;color:var(--accent)}
 .guideline{margin:0 0 4px;padding:10px 12px;border-radius:var(--r);background:color-mix(in srgb,var(--accent) 12%,var(--surface));border:1px solid var(--accent);font-weight:650;font-size:calc(13.5px * var(--fs))}
 .guideline[hidden]{display:none}
 .guide{outline:3px solid var(--accent);outline-offset:2px;animation:guidep 1.3s ease-in-out 4}
@@ -1257,6 +1275,11 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9.3 9.2a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.4-2.7 4.1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17.6" r="1.2" fill="currentColor"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <!-- beta 4.6: the three plans (the plan's sheets, the CEF plan's tower, the splicing details' fiber join) and a PDF -->
+  <symbol id="i-sheet" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M3 16h18M14 16v4M6.5 12.5l3.5-4.5 3 3 4-5"/></g></symbol>
+  <symbol id="i-cef" viewBox="0 0 24 24"><path d="M12 3 6 21M12 3l6 18M8.3 14h7.4M9.7 9h4.6M4 21h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-splice" viewBox="0 0 24 24"><path d="M2 8h6l4 4 4-4h6M2 16h6l4-4 4 4h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></symbol>
+  <symbol id="i-pdf" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8l-5-5Z"/><path d="M14 3v5h5M8.5 13h7M8.5 16.5h5"/></g></symbol>
 </svg>
 <div id="photoView" hidden role="dialog" aria-label="Photo"><button type="button" id="pvClose" aria-label="Close photo">×</button><div id="pvScroll"><img id="pvImg" alt=""></div><p id="pvCap"></p><div id="pvTools" hidden><button type="button" class="btn" id="pvBox">✎ Box · FOC · Text</button><button type="button" class="btn" id="pvPole">⊥ Model</button><button type="button" class="btn" id="pvRead">🔍 Read ID</button></div><i id="pvMark" hidden></i><p id="pvHint" style="opacity:.7">Tap the photo to zoom in or out · × or Back to close</p></div>
 <div id="app">
@@ -1515,7 +1538,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
 
 <!-- red box on a survey photo (v2.13): burned into the saved photo -->
 <section class="sheet" id="cefSheet" hidden aria-label="CEF plan"><iframe id="cefFrame" title="CEF plan" src="about:blank"></iframe></section>
-<!-- beta 4.x: the splicing details (vendor/splice/splice.html), over the app as the CEF plan is -->
+<!-- beta 4.6: the splicing details (vendor/splice/splice.html), over the app as the CEF plan is -->
 <section class="sheet" id="spliceSheet" hidden aria-label="Splicing details"><iframe id="spliceFrame" title="Splicing details" src="about:blank"></iframe></section>
 <section class="sheet" id="boxer" hidden aria-labelledby="boxTitle">
   <header>
@@ -1547,8 +1570,8 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <!-- v2.41: the legend (top left), the tools on the drawing (lower right, as on the map), the information line -->
     <details class="drwlegend" id="drawLegend" open><summary>Legend</summary><div id="drawLegendBody"></div></details>
     <div class="drwtools">
-      <button class="round" id="drawCef" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-label="CEF plans of the tower sites" title="CEF plans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 6 21M12 3l6 18M8.3 14h7.4M9.7 9h4.6M4 21h16"/></svg><span class="rlbl" aria-hidden="true">CEF plan</span></button>
-      <button class="round" id="drawSpl" type="button" hidden aria-label="Splicing details of this project" title="Splicing details"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h6l4 4 4-4h6M2 16h6l4-4 4 4h6"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg><span class="rlbl" aria-hidden="true">Splicing details</span></button>
+      <button class="round" id="drawCef" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-label="CEF plans of the tower sites" title="CEF plans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 6 21M12 3l6 18M8.3 14h7.4M9.7 9h4.6M4 21h16"/></svg><i class="pdot" aria-hidden="true"></i></button>
+      <button class="round" id="drawSpl" type="button" hidden aria-label="Splicing details of this project" title="Splicing details"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h6l4 4 4-4h6M2 16h6l4-4 4 4h6"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg><i class="pdot" aria-hidden="true"></i></button>
       <button class="round" id="drawFit" type="button" aria-label="Fit: the whole drawing" title="Fit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <button class="round" id="drawLabels" type="button" aria-pressed="true" aria-label="Labels on or off" title="Labels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M12 6v13M9 19h6"/></svg></button>
       <button class="round" id="drawMap" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Map under the drawing: off, offline map, satellite or street map" title="Map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg><i class="drwmapdot" aria-hidden="true"></i></button>
@@ -1819,6 +1842,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="head"><span class="ic">DXF</span><div><b>AutoCAD · DXF</b><p><span id="dxfDescTpl">The plan on your company’s template, ready for AutoCAD, at <span id="dxfZoneLbl2">UTM 51N</span>: what goes on each drawing is set in What to export, on the Drawing.</span><span id="dxfDescSimple">Each point a circle at <span id="dxfZoneLbl">UTM 51N</span> meters with its ID, details and photo beside it, the route with the FOC length of each span (a ZIP: keep the photos with the DXF).</span></p></div></div>
       <div class="dxfsum" id="dxfSum"></div>
       <div class="dxfneed" id="dxfNeed" hidden role="note"></div>
+      <div class="xone" id="xOneBox" hidden><button class="xonebtn" id="xOnePdf" type="button" aria-label="One PDF: the plan, the CEF plan and the splicing details" title="One PDF: plan + CEF plan + splicing details"><span class="xparts" aria-hidden="true"><span class="xp" data-p="plan"><svg><use href="#i-sheet"/></svg></span><i class="xplus">+</i><span class="xp" data-p="cef"><svg><use href="#i-cef"/></svg><i class="pdot"></i></span><i class="xplus" data-p="cef">+</i><span class="xp" data-p="spl"><svg><use href="#i-splice"/></svg><i class="pdot"></i></span></span><span class="cap">One PDF<small class="xsub" hidden></small></span><svg class="go" aria-hidden="true"><use href="#i-chev"/></svg></button></div>
       <div class="dxfneed soft" id="dxfPlansNeed" hidden role="note"></div>
       <div class="field" id="dxfFilesBox"><span class="lbl" id="dxfFilesLbl">FILES</span><div class="dxffiles" id="dxfFiles"></div>
         <div class="dxfmx" id="dxfMxHost" hidden></div>

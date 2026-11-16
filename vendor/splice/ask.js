@@ -97,6 +97,7 @@
       if (k === 'site') {
         var nm = splitName(r.poleId), best = null, bd = 45;
         if (r._home) { best = r; bd = 0; } /* an ODF that is its own homing: its own size, no search */
+        else if (r._odf && by[r._odf]) { best = by[r._odf]; bd = hav(r, best); } /* the app: the ODF a cable leaves the site from (not a nearer one beside it) */
         else odfs.forEach(function (o) { var d = hav(r, o); if (d <= bd) { bd = d; best = o; } });
         var ports = best ? parseInt(String((best.boq || {}).odf || ''), 10) || 0 : 0;
         add({ id: r.id, type: 'site', name: nm.name, code: nm.code, status: stOf(r.status), ports: ports, odf: best ? best.id : '', odfDist: best ? Math.round(bd) : null,
@@ -150,7 +151,7 @@
       return { fid: String(R.fid), n: +R.n || 0, size: +R.size || 0, ex: !!R.ex, cab: String(R.cab || ''), fpt: +R.fpt === 6 ? 6 : 12, cid: String(R.cid || ''), len: +R.len || 0, notSet: !!R.notSet,
         sizes: Array.isArray(R.sizes) && R.sizes.length ? R.sizes.slice() : null, path: (R.path || []).map(String).filter(function (id) { return by[id]; }) };
     });
-    var onPath = {}, notes = [];
+    var onPath = {}, notes = [], folded = {}; /* folded: a pin (closure, dummy NAP, ODF) shown as the pole or site it stands for */
     runs.forEach(function (R) { R.path.forEach(function (id) { onPath[id] = 1; }); });
     /* Broadband comes later: an OLT site is a plain point (a cable that ends there leaves the map) */
     recs.forEach(function (r) { if (r.element === 'Site' && r.siteKind === 'OLT') { r.element = 'OLT'; if (notes.indexOf('olt') < 0) notes.push('olt'); } });
@@ -167,7 +168,7 @@
       var dn = r.element === 'NAP' && dummyT(r.boq.napType);
       if (r.element !== 'Closure' && !dn) return r.element !== 'NAP';
       var best = null, bd = 30; poles.forEach(function (q) { var x = hav(r, q); if (x < bd) { bd = x; best = q; } }); if (!best) return false;
-      var st = r.status === 'Existing' ? 'Existing' : 'New';
+      var st = r.status === 'Existing' ? 'Existing' : 'New'; folded[r.id] = best.id;
       if (r.element === 'Closure') { if (!(best.closure || best.closureId)) { best.closure = true; best.closureId = r.closureId || r.poleId || ''; best.boq.clo = r.boq.clo || best.boq.clo || ''; best.boq.cloSt = st; } }
       else if (!((best.nap || best.napId) && dummyT(best.boq.napType))) { best.nap = true; best.napId = r.napId || r.poleId || ''; best.boq.napType = 'Dummy NAP'; best.boq.napSt = st; }
       return false;
@@ -178,10 +179,16 @@
       if (r.element !== 'ODF' || !onPath[r.id]) return; var best = null, bd = 45;
       sites.forEach(function (s) { var x = hav(r, s); if (x <= bd) { bd = x; best = s; } });
       if (!best) { r._home = true; return; }
+      folded[r.id] = best.id;
+      if (!best._odf || bd < best._odfD) { best._odf = r.id; best._odfD = bd; } /* the site's FDU is the ODF its cable leaves from (the nearest such), not any ODF beside it */
       runs.forEach(function (R) { R.path = R.path.map(function (id) { return id === r.id ? best.id : id; }).filter(function (id, i, a) { return !i || id !== a[i - 1]; }); });
     });
+    /* a pole with a closure and a dummy NAP: the page draws the closure (the cables are joined there); the dummy NAP is said, not drawn */
+    var both = [];
+    recs.forEach(function (r) { if (kindOf(r) === 'closure' && (r.nap || r.napId) && dummyT(r.boq.napType)) both.push(String(r.poleId || r.closureId || r.id).toUpperCase()); });
+    if (both.length) notes.push('both:' + both.join(', '));
     return { id: String(d.id || d.name || 'project'), name: String(d.name || ''), site: d.site || '', title: d.title || {}, refNames: d.refNames || [],
-      records: recs, runs: runs.filter(function (R) { return R.path.length > 1; }), app: true, keys: 'ends', notes: notes };
+      records: recs, runs: runs.filter(function (R) { return R.path.length > 1; }), app: true, keys: 'ends', notes: notes, folded: folded };
   }
 
   /* the project's own records, edited from the drawing (one source of truth). D = { odf: { <ODF record id>: ports }, run: { <fid>: { size, fpt } } }:
@@ -214,8 +221,10 @@
   function freshAnswers(P) {
     var B = bridge(P), news = B.points.filter(function (p) { return isEndType(p.type) && p.status === 'new'; });
     var pick = news.filter(function (p) { return p.name === String(P.site || '').toUpperCase(); })[0] || news[0] || B.points.filter(function (p) { return isEndType(p.type); })[0];
-    return { v: 1, start: pick ? pick.id : '', started: false, off: {}, to: [], later: [], toDone: false, count: 0, counts: {}, countDone: false, size: {}, split: {}, testedDone: false,
+    var A = { v: 1, start: pick ? pick.id : '', started: false, off: {}, to: [], later: [], toDone: false, count: 0, counts: {}, countDone: false, size: {}, split: {}, testedDone: false,
       live: {}, tubes: {}, draft: { live: {}, tubes: {} }, legs: {}, ids: {}, coords: {}, locked: false };
+    if (P.app) A.tfpt = {}; /* the app: the fibers per buffer each cable's ticked buffers were counted in (the RUN's size travels on its own) */
+    return A;
   }
   /* the name of any end, an off-map one included */
   function nameOf(B, A, id) {
@@ -395,7 +404,7 @@
       out.runs.push(row);
       var over = need && need + used > c0.size;
       if (B.P.app && !c0.size) { /* the app: a RUN whose cable type is not set yet has no size to check */
-        row.issue = { key: 'run:' + R.fid, kind: 'cable', fid: R.fid, need: need + used, pick: CS[0], pastT: [], text: 'RUN ' + R.n + ' has no cable type yet (' + row.fromName + ' → ' + row.toName + '). Pick its size here, or set the cable in Route → Cables.' };
+        row.issue = { key: 'run:' + R.fid, kind: 'cable', fid: R.fid, need: need + used, pick: CS[0], pastT: [], notSet: true, text: 'RUN ' + R.n + ' has no cable type yet (' + row.fromName + ' → ' + row.toName + '). Pick its size here, or set the cable in Route → Cables.' };
         row.sub = 'Cable type not set'; out.issues.push(row.issue);
       } else if (over || pastT.length) {
         var span = row.fromName + ' → ' + row.toName, tf = function (ts) { var fs = []; ts.forEach(function (t) { for (var f = (t - 1) * c0.fpt + 1; f <= t * c0.fpt; f++) fs.push(f); }); return SP.fmtRanges(fs, 'F'); };
@@ -427,7 +436,36 @@
       else if (typeof v === typeof d) A[k] = v;
     });
     if (!A.start || !bridge(P).ptBy[A.start]) A.start = freshAnswers(P).start;
-    if (P.app) pruneAnswers(bridge(P), A);
+    cleanNested(A);
+    if (P.app) { pruneAnswers(bridge(P), A); tubeBasis(bridge(P), A); }
+    return A;
+  }
+  /* answers of another version or a damaged file: the buffers ticked are a list of buffer numbers, a live port answer is text */
+  function cleanNested(A) {
+    var tubeList = function (v) {
+      if (typeof v === 'number') v = [v]; else if (typeof v === 'string') { v = v.match(/\d+/g); if (!v) return null; }
+      if (!Array.isArray(v)) return null; var out = [];
+      v.forEach(function (t) { t = Math.round(+t); if (t >= 1 && t <= 200 && out.indexOf(t) < 0) out.push(t); });
+      return out.sort(function (x, y) { return x - y; });
+    };
+    [A.tubes, A.draft.tubes].forEach(function (o) { Object.keys(o).forEach(function (k) { var L = tubeList(o[k]); if (L) o[k] = L; else delete o[k]; }); });
+    [A.live, A.draft.live].forEach(function (o) { Object.keys(o).forEach(function (k) { var v = o[k]; if (typeof v === 'number' && isFinite(v)) o[k] = String(v); else if (typeof v !== 'string') delete o[k]; }); });
+    Object.keys(A.legs).forEach(function (k) { var L = A.legs[k]; if (!L || typeof L !== 'object' || Array.isArray(L)) { delete A.legs[k]; return; } if (L.fix != null && (typeof L.fix !== 'object' || Array.isArray(L.fix))) delete L.fix; });
+    return A;
+  }
+  /* the app: the buffers ticked in use are buffer numbers of the RUN's buffers as they were when ticked (A.tfpt). The RUN's fibers per
+     buffer travels with the route and the answers with the splicing details, each merged on its own at a Share: when they no longer
+     match, the ticked buffers are put in the RUN's buffers now (each buffer with one of those fibers is in use), so live fibers stay live. */
+  function tubeBasis(B, A) {
+    var fpt = {}, T = A.tfpt && typeof A.tfpt === 'object' && !Array.isArray(A.tfpt) ? A.tfpt : {};
+    B.runs.forEach(function (R) { fpt[R.fid] = +R.fpt === 6 ? 6 : 12; });
+    var conv = function (L, from, to) {
+      var out = []; L.forEach(function (t) { for (var f = (t - 1) * from + 1; f <= t * from; f++) { var u = Math.ceil(f / to); if (out.indexOf(u) < 0) out.push(u); } });
+      return out.sort(function (x, y) { return x - y; });
+    };
+    [A.tubes, A.draft.tubes].forEach(function (o) { Object.keys(o).forEach(function (fid) { var want = fpt[fid], had = +T[fid]; if (want && (had === 6 || had === 12) && had !== want && Array.isArray(o[fid])) o[fid] = conv(o[fid], had, want); }); });
+    var T2 = {}; Object.keys(fpt).forEach(function (fid) { if (A.tubes[fid] != null || A.draft.tubes[fid] != null) T2[fid] = fpt[fid]; });
+    A.tfpt = T2;
     return A;
   }
   /* the app: answers about records or cables that are not in the project any more (deleted on another phone, merged at an import) go */
@@ -441,13 +479,48 @@
     ['live', 'size', 'split', 'coords'].forEach(function (n) { keepIf(A[n], ok); }); keepIf(A.draft.live, ok);
     keepIf(A.off, function (pole) { return !!B.offBy['off:' + pole]; });
     keepIf(A.tubes, function (f) { return !!fids[f]; }); keepIf(A.draft.tubes, function (f) { return !!fids[f]; });
-    Object.keys(A.legs).forEach(function (k) { var L = A.legs[k]; if (L && L.fix) { keepIf(L.fix, function (key) { return !!B.pieceBy[key]; }); if (!Object.keys(L.fix).length) delete L.fix; } });
+    /* a locked piece cut by a closure added on it since: the same fibers stay locked on the new pieces of that cable between its old ends */
+    var bare = function (id) { return String(id).indexOf('off:') === 0 ? String(id).slice(4) : String(id); };
+    var carry = function (fix, key) {
+      var parts = String(key).split('~'); if (parts.length < 3) return;
+      var R = B.runs.filter(function (x) { return x.fid === parts[0]; })[0]; if (!R) return;
+      var at = function (id) { return R.path.indexOf(bare(id)); }, i0 = at(parts[1]), i1 = at(parts[2]); if (i0 < 0 || i1 < 0) return;
+      var lo = Math.min(i0, i1), hi = Math.max(i0, i1);
+      B.pieces.forEach(function (pc) { if (pc.fid !== R.fid || fix[pc.key] != null) return; var a = at(pc.from), b = at(pc.to); if (a >= lo && a <= hi && b >= lo && b <= hi) fix[pc.key] = fix[key]; });
+    };
+    Object.keys(A.legs).forEach(function (k) {
+      var L = A.legs[k]; if (!L || !L.fix) return;
+      Object.keys(L.fix).forEach(function (key) { if (!B.pieceBy[key]) carry(L.fix, key); });
+      keepIf(L.fix, function (key) { return !!B.pieceBy[key]; }); if (!Object.keys(L.fix).length) delete L.fix;
+    });
+    if (A.tfpt) keepIf(A.tfpt, function (f) { return !!fids[f]; });
     return A;
+  }
+
+  /* the fibers an export locks (it issues the drawing): each leg's fibers where they are now, as a range ('F7-12'), so a leg that grows
+     later never takes another leg's issued fibers. Fibers on an existing cable wait until its live ports and tubes are answered.
+     ctx: compute(P, A, set); the page and the app's one PDF (plan + CEF + splicing details) lock the same way. */
+  function locks(ctx, A) {
+    var factsOk = function (key) {
+      var pc = ctx.B.pieceBy[key]; if (!pc || pc.status !== 'existing') return true;
+      if (A.tubes[pc.fid] == null) return false;
+      return ctx.qs.filter(function (q) { return q.key.indexOf('live:') === 0; }).every(function (q) { return A.live[q.id] != null && A.live[q.id] !== '?'; });
+    };
+    var legs = ctx.plan.legs || [], todo = [], wait = 0;
+    legs.forEach(function (l) {
+      if (!l.routed || l.state === 'future') return; var L = A.legs[l.id] || {}, fx = L.fix || {};
+      l.fibers.forEach(function (f) {
+        if (!f.ok || !f.list.length || (fx[f.key] != null && f.fixed)) return;
+        if (!factsOk(f.key)) { wait++; return; }
+        todo.push([l.id, f.key, f.text]);
+      });
+    });
+    return { add: todo.length, wait: wait, apply: function (A2) { todo.forEach(function (t) { var L = A2.legs[t[0]] = A2.legs[t[0]] || {}; L.fix = Object.assign({}, L.fix); L.fix[t[1]] = t[2]; }); } };
   }
 
   var Ask = { PROJECTS: PROJECTS, bridge: bridge, freshAnswers: freshAnswers, modelOf: modelOf, reachOf: reachOf, questions: questions, compute: compute, kindOf: kindOf, nameOf: nameOf,
     applyData: applyData, freshData: freshData, cleanData: cleanData, baseOf: baseOf, ODF_SIZES: ODF_SIZES, CABLE_SIZES: CABLE_SIZES,
-    fromApp: fromApp, mergeAnswers: mergeAnswers, pruneAnswers: pruneAnswers, version: 'ask-3' };
+    fromApp: fromApp, mergeAnswers: mergeAnswers, pruneAnswers: pruneAnswers, tubeBasis: tubeBasis, locks: locks, version: 'ask-3' };
   root.Ask = Ask;
   if (typeof document === 'undefined' || !document.getElementById('card')) return;
 
@@ -472,12 +545,15 @@
   var HOST = APP ? (function () { try { return window.parent !== window && window.parent.__spliceHost ? window.parent.__spliceHost : null; } catch (e) { return null; } })() : null;
 
   var ST = { pid: 'p1', A: null, D: null, set: { stage: 'plan', tube: 'lowest' }, hist: [], cur: 'start', edit: null, ctx: null, saved: {}, armed: '', countDiff: false, focusKey: '', laterOpen: false, strip: null, sizeOpen: '', otherOpen: '', note: null,
-    P: null, view: '', ops: null, busy: false, stage: 'plan' };
+    P: null, view: '', ops: null, busy: false, stage: 'plan', dirty: false };
 
   /* ---------- keeping the answers (the demo: in this browser only, fine without; the app: in the project, through the app) ---------- */
   function loadAll() { if (APP) return; try { var s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && s.v === 1) { ST.saved = s.projects || {}; if (s.pid) ST.pid = s.pid; } } catch (e) { ST.saved = {}; } }
   function keep() {
-    if (APP) { if (HOST && !ST.view && ST.A) { try { HOST.save({ v: 1, A: ST.A, tube: ST.set.tube }); } catch (e) { /* the app is closing */ } } return; }
+    if (APP) { /* only after a change made here: opening and looking (or answers the page tidied itself) write nothing */
+      if (HOST && !ST.view && ST.A && ST.dirty) { try { if (ST.P) tubeBasis(bridge(ST.P), ST.A); HOST.save({ v: 1, A: ST.A, tube: ST.set.tube }); } catch (e) { /* the app is closing */ } }
+      return;
+    }
     ST.saved[ST.pid] = { A: ST.A, set: ST.set, cur: ST.cur, D: ST.D }; /* D: the sizes changed on the drawing (the project's records), kept with the answers */
     try { localStorage.setItem(KEY, JSON.stringify({ v: 1, pid: ST.pid, projects: ST.saved })); } catch (e) { /* no storage here: the answers last until the page closes */ }
   }
@@ -490,7 +566,7 @@
     ST.set = APP ? { stage: ST.stage === 'built' ? 'built' : 'plan', tube: s && s.set && s.set.tube === 'fresh' ? 'fresh' : 'lowest' }
       : { stage: s && s.set && s.set.stage === 'built' ? 'built' : 'plan', tube: s && s.set && s.set.tube === 'fresh' ? 'fresh' : 'lowest' };
     ST.cur = APP ? (ST.A.started ? '' : 'start') : (s && typeof s.cur === 'string' && s.cur) || 'start'; /* (the app: back at the next question still to answer) */
-    ST.hist = []; ST.edit = null; ST.armed = ''; ST.countDiff = false; ST.focusKey = ''; ST.fitNext = true;
+    ST.hist = []; ST.edit = null; ST.armed = ''; ST.countDiff = false; ST.focusKey = ''; ST.fitNext = true; ST.dirty = false;
     try { render(); } catch (e) {
       /* a saved state this page cannot draw: start the project afresh rather than leave a blank page (the app keeps the saved answers until a change) */
       ST.A = freshAnswers(P); if (!APP) ST.D = freshData(); ST.set = { stage: APP ? ST.set.stage : 'plan', tube: 'lowest' }; ST.cur = 'start'; ST.edit = null; render(); if (!APP) keep();
@@ -511,7 +587,7 @@
     if (APP) ST.ops = [];
     fn(ST.A, ST.set);
     var after = function () {
-      ST.armed = ''; ST.note = opt.note || null; ST.otherOpen = '';
+      ST.dirty = true; ST.armed = ''; ST.note = opt.note || null; ST.otherOpen = '';
       if (opt.advance) { ST.edit = null; ST.ctx = recompute(); ST.cur = nextQ(); }
       if (opt.cur) { ST.cur = opt.cur; ST.edit = null; }
       render(); keep();
@@ -575,7 +651,7 @@
     if (APP && ST.view) return;
     if (APP && ST.busy) { toast('Saving…'); return; }
     var was = legSnap(), top = JSON.parse(ST.hist[ST.hist.length - 1]);
-    var back = function (s) { ST.A = s.A; ST.D = APP ? null : cleanData(s.D); ST.set = s.set; ST.cur = s.cur; ST.edit = s.edit; ST.armed = ''; ST.note = null; ST.otherOpen = ''; render(); keep(); toast('Undone.' + legMoves(was)); }; /* and where the legs went back to, when they moved */
+    var back = function (s) { ST.A = s.A; ST.D = APP ? null : cleanData(s.D); ST.set = s.set; ST.cur = s.cur; ST.edit = s.edit; ST.armed = ''; ST.note = null; ST.otherOpen = ''; ST.dirty = true; render(); keep(); toast('Undone.' + legMoves(was)); }; /* and where the legs went back to, when they moved */
     if (APP && top.ops && top.ops.length) { /* the app: the record's or the cable's old size or ID is written back first */
       ST.busy = true;
       hostUndo(top.ops).then(function (r) { ST.busy = false; if (!r.ok) { toast(r.msg || 'Not undone. Try again.'); return; } if (r.project) ST.P = fromApp(r.project); ST.hist.pop(); back(top); });
@@ -785,11 +861,37 @@
     if (ST.edit && !editValid()) ST.edit = null;
     $('#projName').textContent = APP ? P.name || 'This project' : P.id.slice(1) + ' · ' + P.name;
     $('#undoBtn').disabled = !ST.hist.length;
-    if (APP) { $('#undoBtn').hidden = !!ST.view; var vo = $('#viewOnly'); if (vo) { vo.hidden = !ST.view; vo.textContent = ST.view ? ST.view + ' You can look and export; nothing can be changed.' : ''; } }
+    if (APP) { $('#undoBtn').hidden = !!ST.view; var vo = $('#viewOnly'); if (vo) { vo.hidden = !ST.view; var why = String(ST.view || '').split(/: /)[0].replace(/\.$/, ''); vo.textContent = ST.view ? 'View only: ' + why + '. You can look and export; nothing can be changed.' : ''; vo.title = ST.view; } }
     var badge = $('#stageBadge'); badge.textContent = ST.set.stage === 'built' ? 'AS-BUILT' : 'AS-PLAN'; badge.setAttribute('data-stage', ST.set.stage);
     var ids = ST.ctx.unnamed.length, ib = $('#idsBtn');
-    ib.hidden = !ids; ib.innerHTML = '<b>' + ids + '</b> cable ID' + (ids === 1 ? '' : 's') + ' to follow';
+    ib.hidden = !ids;
+    if (APP) { var iw = ids + ' cable ID' + (ids === 1 ? '' : 's') + ' to follow'; ib.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICO.tag + '</svg><b>' + ids + '</b>'; ib.setAttribute('aria-label', iw); ib.title = iw; }
+    else ib.innerHTML = '<b>' + ids + '</b> cable ID' + (ids === 1 ? '' : 's') + ' to follow';
     drawStage(); renderBar(); renderCard();
+  }
+  /* the app: the page's actions as icon buttons (the owner: icon mode). The words stay where they are the content (a homing, a size, a
+     format) or where an icon would not be clear; each icon button keeps its words as its name (aria-label) and tooltip (title). */
+  var ICO = { ok: '<path d="M5 12.5l4.5 4.5L19 7"/>', next: '<path d="M5 12h14M13 6l6 6-6 6"/>', edit: '<path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/>',
+    exp: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M5 18v2h14v-2"/>', sheets: '<rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M3 15h18M13 15v4"/>',
+    tag: '<path d="M3 12V4h8l10 10-8 8L3 12Z"/><circle cx="7.5" cy="8.5" r="1.5"/>' };
+  function icoOf(b) {
+    var a = b.getAttribute('data-act') || '', t = (b.textContent || '').trim();
+    if (b.classList.contains('armed') || /^(Yes,|Tap again)/.test(t)) return '';
+    if (a === 'start' || a === 'to') return 'next';
+    if (/^(countDone|liveDone|tubesDone|offTyped|cabId|futId|runOtherUse|saveTest)$/.test(a) || ((a === 'openLeg' || a === 'sizeOpen') && t === 'Done')) return 'ok';
+    if (a === 'sizeOpen' || a === 'openSize') return 'edit';
+    if (a === 'export') return 'exp';
+    if (a === 'sheets') return 'sheets';
+    return '';
+  }
+  function iconize(root) {
+    if (!APP || !root) return;
+    [].forEach.call(root.querySelectorAll('button.btn[data-act]'), function (b) {
+      var k = icoOf(b); if (!k) return; var t = (b.textContent || '').trim().replace(/\s*›$/, '');
+      if (!b.getAttribute('aria-label')) b.setAttribute('aria-label', t); b.title = t; b.classList.add('ico'); b.classList.remove('wide');
+      b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICO[k] + '</svg>';
+      var row = b.parentNode; if (row && row.classList && row.classList.contains('btnrow')) row.classList.add('icorow');
+    });
   }
   function editValid() {
     var e = ST.edit, c = ST.ctx;
@@ -848,7 +950,7 @@
     }
     var keepScroll = card.getAttribute('data-k') === (ST.edit ? 'e' + ST.edit.kind + ST.edit.id : ST.cur) ? card.scrollTop : 0;
     card.innerHTML = html; card.setAttribute('data-k', ST.edit ? 'e' + ST.edit.kind + ST.edit.id : ST.cur); card.scrollTop = keepScroll;
-    wireCard(card);
+    iconize(card); wireCard(card);
     if (ST.reveal) { var rv = ST.reveal; ST.reveal = ''; revealSize(rv); }
   }
   /* on a short phone card: bring the size's red message (after a pick), or its chips (opened from the Sizes list), into view, never past the size line */
@@ -864,6 +966,15 @@
     return '<div class="kick">' + (n || ('Question ' + (i + 1) + ' of ' + tot)) + '</div>';
   }
 
+  /* the app: what the page leaves out of this project, said once in the first card (and where the homings are picked), never in the way */
+  function appNotes() {
+    var N = (APP && ST.P && ST.P.notes) || [], out = [];
+    N.forEach(function (n) {
+      if (n === 'olt') out.push('OLT sites (Broadband) come later: only the tower sites are drawn.');
+      else if (n.indexOf('both:') === 0) out.push(n.slice(5) + ' has a closure and a dummy NAP: the closure is drawn; the dummy NAP is not drawn yet.');
+    });
+    return out.length ? '<p class="note appnote">' + out.map(esc).join('<br>') + '</p>' : '';
+  }
   function qStart() {
     var c = C(), B = c.B, A = ST.A;
     var homes = B.points.filter(function (p) { return p.type === 'site' && p.id !== A.start; }).length + B.offEnds.length, clo = B.points.filter(function (p) { return p.type === 'closure'; }).length;
@@ -873,6 +984,7 @@
       '<p class="lead">I found ' + (s.type === 'dnap' ? '1 new small cell' : plural(news.filter(function (p) { return p.type === 'site'; }).length, 'new site')) + ', ' + plural(homes, 'homing') + ', ' + plural(clo, 'closure') + ' and ' + plural(B.pieces.length, 'cable') + (B.pieces.length > B.runs.length ? ' (a cable cut at a closure counts twice)' : '') +
       (B.offEnds.length ? '. ' + (B.offEnds.length === 1 ? 'One cable leaves' : B.offEnds.length + ' cables leave') + ' the map' : '') + '. You answer a few questions; the drawing fills in as you go.</p>';
     html += '<div class="box"><div class="kick">Starting from</div><b style="font-size:18px">' + esc(s.name || '?') + '</b><div class="note" style="margin:2px 0 0">' + esc(endKind(A.start)) + (s.ports ? ' · ' + s.ports + '-port FDU (from its ODF record)' : '') + '</div></div>';
+    html += appNotes();
     html += '<div class="btnrow sticky"><button type="button" class="btn primary wide" data-act="start">' + (A.started ? 'Continue' + (c.left ? ' (' + c.left + ' left)' : '') : 'Start') + '</button></div>';
     if (news.length > 1) {
       html += '<div class="sep">Or start from another new site</div><div class="rows">' + news.filter(function (p) { return p.id !== A.start; }).map(function (p) {
@@ -905,7 +1017,7 @@
       html += '<button type="button" class="row" data-act="goto" data-arg="' + esc('off:' + e.pole) + '"><span class="ic exist">?</span><span class="tx"><b>Name the homing first</b><span>A cable leaves the map at pole ' + esc(e.at) + ' · ' + kmTxt(c.reach.unnamedDist ? c.reach.unnamedDist[oid] : 0) + '</span></span><span class="go">›</span></button>';
     });
     if (!R.list.length && !(R.unnamed || []).length) html += '<div class="ck warn"><div>No cable reaches another homing from here yet.<small>Draw the route in Route mode first, or add a homing below as a later leg.</small></div></div>';
-    html += '</div>';
+    html += '</div>' + appNotes();
     if (R.none.length) {
       html += '<div class="sep">No cable reaches these yet</div><div class="rows">' + R.none.map(function (id) {
         var on = (A.later || []).indexOf(id) >= 0;
@@ -1050,6 +1162,8 @@
     } else if (c.status === 'fix') {
       var nZ = c.sizeIssues.length, own = c.shortOwn, by = c.shortBySize, legsW = function (L) { return L.map(function (l) { return 'Leg ' + (l.index + 1); }).join(' and '); };
       html += kicker(built ? 'As-Built' : 'As-Plan') + (!nZ ? '<h2>Not enough free fibers on ' + (own.length === 1 ? '1 leg' : own.length + ' legs') + '</h2><p class="lead">Every question is answered, but ' + (own.length === 1 ? 'this leg does' : 'these legs do') + ' not get all ' + (own.length === 1 ? 'its' : 'their') + ' fibers. Fix it first; if you export anyway, the drawing marks it NOT ENOUGH FREE FIBERS.</p>'
+        : c.sizeIssues.every(function (x) { return x.notSet; }) ? '<h2>' + (nZ === 1 ? 'A cable has no type yet' : nZ + ' cables have no type yet') + '</h2><p class="lead">Every question is answered. Pick ' + (nZ === 1 ? 'its' : 'their') + ' size first (or set the cable in Route → Cables): until then the drawing guesses the cable.' +
+          (own.length ? ' Also, ' + legsW(own) + (own.length === 1 ? ' is' : ' are') + ' short of free fibers (below).' : '') + '</p>'
         : '<h2>' + (nZ === 1 ? 'A size is too small' : nZ + ' sizes are too small') + '</h2><p class="lead">Every question is answered, but the fibers of this work do not fit' + (by.length ? ': ' + legsW(by) + (by.length === 1 ? ' does' : ' do') + ' not get all ' + (by.length === 1 ? 'its' : 'their') + ' fibers until the size is right' : '') + '. Change the size first.' +
           (own.length ? ' Also, ' + legsW(own) + (own.length === 1 ? ' is' : ' are') + ' short of free fibers (below).' : '') + '</p>') +
         c.sizeIssues.map(sizeIssueBox).join('') +
@@ -1339,7 +1453,7 @@
     var file = card.querySelector('#tOtdr'); if (file) file.addEventListener('change', function () { var f = file.files && file.files[0]; if (f) { ST.otdr = f.name; $('#otdrBtn').firstChild.textContent = '📎 ' + f.name; } });
     var dt = card.querySelector('#tDate'); if (dt) dt.addEventListener('change', function () { var h = $('#tDateTx'); if (h) h.textContent = 'Prints as ' + dmy(dt.value || todayIso()); });
     var off = card.querySelector('#offName'); if (off) off.addEventListener('keydown', function (e) { if (e.key === 'Enter') act('offTyped', ST.cur.slice(4)); });
-    var cab = card.querySelector('#cabId'); if (cab) cab.addEventListener('keydown', function (e) { if (e.key === 'Enter') act('cabId', ST.edit.id); });
+    var cab = card.querySelector('#cabId'); if (cab) { cab.addEventListener('keydown', function (e) { if (e.key === 'Enter') act('cabId', ST.edit.id); }); if (APP) cab.addEventListener('change', function () { var k = ST.edit && ST.edit.id, v = cab.value, n = 0; var go = function () { if (ST.busy && n++ < 50) { setTimeout(go, 120); return; } cidCommit(k, v); }; setTimeout(go, 0); }); } /* (after the tap that left the field is handled: a write in the middle of a tap lost the tap) */
     var oth = card.querySelector('#runOther'); if (oth) oth.addEventListener('keydown', function (e) { if (e.key === 'Enter') act('runOtherUse', ST.otherOpen); });
   }
   /* port grid: tap, drag along, or a row's colour; the drawing follows when the finger lifts */
@@ -1382,11 +1496,21 @@
     });
   }
 
+  /* the app: a cable ID typed in the cable's card and not saved yet (no Save, no Enter) is saved when it is left; an emptied field is
+     cleared only with the button. The write on the RUN starts at once, so it is made even when the page is closing. */
+  function cidCommit(key, val) {
+    if (!APP || ST.view || ST.busy) return false;
+    if (key == null) { var inp = $('#cabId'); if (!inp || !ST.edit || ST.edit.kind !== 'cable') return false; key = ST.edit.id; val = inp.value; }
+    var pc = C() && C().B.pieceBy[key]; if (!pc) return false;
+    var iv = String(val || '').trim().toUpperCase().slice(0, 24);
+    if (!iv || iv === String(pc.cid || '').toUpperCase()) return false;
+    change(function () { setRun(pc.fid, 'cid', iv); }, { toast: 'Cable ID of RUN ' + pc.n + ': ' + iv + '. Each piece prints it with -L1, -L2…' }); return true;
+  }
   function act(a, arg) {
     var A = ST.A, c = C(), parts = String(arg == null ? '' : arg).split('|');
     switch (a) {
       case 'goto': ST.edit = null; ST.cur = arg; ST.countDiff = false; render(); keep(); return;
-      case 'close': ST.edit = null; ST.sizeOpen = ''; ST.otherOpen = ''; ST.note = null; render(); return;
+      case 'close': cidCommit(); ST.edit = null; ST.sizeOpen = ''; ST.otherOpen = ''; ST.note = null; render(); return;
       case 'start': change(function (A) { A.started = true; }, { advance: true }); return;
       case 'pickStart': change(function (A) { A.start = arg; A.to = []; A.later = []; A.toDone = false; A.legs = {}; A.counts = {}; A.countDone = false; A.testedDone = false; }); return;
       case 'off': change(function (A) { A.off[parts[0]] = parts[1]; }, { advance: true }); return;
@@ -1493,7 +1617,7 @@
           return out.sort(function (x, y) { return x - y; });
         };
         var had = tubesOf(A, rp.fid).length, wasF = legSnap();
-        change(function (A) { setRun(rp.fid, 'fpt', nf); if (A.tubes[rp.fid] != null) A.tubes[rp.fid] = conv(A.tubes[rp.fid]); if (A.draft.tubes[rp.fid]) A.draft.tubes[rp.fid] = conv(A.draft.tubes[rp.fid]); },
+        change(function (A) { setRun(rp.fid, 'fpt', nf); if (A.tubes[rp.fid] != null) A.tubes[rp.fid] = conv(A.tubes[rp.fid]); if (A.draft.tubes[rp.fid]) A.draft.tubes[rp.fid] = conv(A.draft.tubes[rp.fid]); if (APP && A.tfpt) A.tfpt[rp.fid] = nf; },
           { toast: function () { return 'RUN ' + rp.n + ': ' + nf + ' fibers per buffer.' + (had ? ' The buffers ticked in use still cover the same fibers.' : '') + legMoves(wasF) + ' Undo brings ' + rp.fpt + ' back.'; } });
         return;
       }
@@ -1569,7 +1693,7 @@
      ===================================================================================================== */
   var ovl = function () { return $('#ovl'); };
   function openOverlay(html, full) {
-    var o = ovl(); o.innerHTML = '<div class="sheet' + (full ? ' full' : '') + '" role="dialog" aria-modal="true">' + html + '</div>'; o.hidden = false;
+    var o = ovl(); o.innerHTML = '<div class="sheet' + (full ? ' full' : '') + '" role="dialog" aria-modal="true">' + html + '</div>'; o.hidden = false; iconize(o);
     var x = o.querySelector('[data-close]'); if (x) x.focus();
   }
   function closeOverlay() { var o = ovl(); o.hidden = true; o.innerHTML = ''; sheetViewer = null; }
@@ -1640,14 +1764,14 @@
       '<h3>Which drawings</h3><button type="button" class="sw" role="switch" data-view="sld" aria-checked="true"><span class="tx"><b>Single line diagram</b><span>One A3 sheet</span></span><span class="tg"></span></button>' +
       '<button type="button" class="sw" role="switch" data-view="detailed" aria-checked="true"><span class="tx"><b>Splicing details</b><span>Every fiber, splice and port</span></span><span class="tg"></span></button>' +
       '<h3>Save as</h3><div class="btnrow"><button type="button" class="btn primary" data-fmt="pdf">PDF</button><button type="button" class="btn primary" data-fmt="dxf">DXF</button><button type="button" class="btn go" data-fmt="zip">Both (ZIP)</button></div>' +
-      '<p class="note">The DXF opens in any CAD program (R12). ' + (c.unnamed.length ? c.unnamed.length + ' cable ID' + (c.unnamed.length === 1 ? '' : 's') + ' print as TBF.' : '') + (ST.A.locked ? '' : ' The first export locks the fibers so they stay as issued.') +
+      '<p class="note">The DXF opens in any CAD program (R12). ' + (c.unnamed.length ? c.unnamed.length + ' cable ID' + (c.unnamed.length === 1 ? '' : 's') + ' print as TBF.' : '') + (ST.A.locked || (APP && ST.view) ? '' : ' The first export locks the fibers so they stay as issued.') +
       (locksNow().wait ? ' Fibers on an existing cable lock once its live ports and tubes are answered.' : '') + '</p></div>');
   }
 
   /* downloads: inside the claude.ai viewer through its downloads capability, else a plain <a download> (the same as splice-demo.html) */
   var dl = null, inViewer = !APP && !!(window.claude && typeof window.claude.use === 'function');
   if (inViewer) window.claude.use('downloads').then(function (x) { dl = x; }, function () { dl = null; });
-  function baseName() { var t = C().model.title || {}; return ([t.project, t.planId, t.site].filter(Boolean).join('_') || 'SPLICING').toUpperCase().replace(/[^A-Z0-9_-]+/g, '-').replace(/-+/g, '-').slice(0, 80); }
+  function baseName() { var t = C().model.title || {}; return ([t.project, t.planId, t.site].filter(Boolean).join('_') || (APP && ST.P && ST.P.name) || 'SPLICING').toUpperCase().replace(/[^A-Z0-9_-]+/g, '-').replace(/-+/g, '-').slice(0, 80); }
   function save(name, bytes) {
     if (APP) { /* the app's own save and share (the website's Send panel, the phone's share sheet), with who exported it */
       if (!HOST) { toast('The app is not there: close this page and open it again.'); return; }
@@ -1669,23 +1793,7 @@
     var url = URL.createObjectURL(new Blob([bytes])), a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 5000); toast('Downloaded ' + name);
   }
-  function factsOk(key) {
-    var c = C(), A = ST.A, pc = c.B.pieceBy[key]; if (!pc || pc.status !== 'existing') return true;
-    if (A.tubes[pc.fid] == null) return false;
-    return c.qs.filter(function (q) { return q.key.indexOf('live:') === 0; }).every(function (q) { return A.live[q.id] != null && A.live[q.id] !== '?'; });
-  }
-  function locksNow() {
-    var legs = C().plan.legs || [], todo = [], wait = 0;
-    legs.forEach(function (l) {
-      if (!l.routed || l.state === 'future') return; var L = ST.A.legs[l.id] || {}, fx = L.fix || {};
-      l.fibers.forEach(function (f) {
-        if (!f.ok || !f.list.length || (fx[f.key] != null && f.fixed)) return;
-        if (!factsOk(f.key)) { wait++; return; }
-        todo.push([l.id, f.key, f.text]);
-      });
-    });
-    return { add: todo.length, wait: wait, apply: function (A) { todo.forEach(function (t) { var L = A.legs[t[0]] = A.legs[t[0]] || {}; L.fix = Object.assign({}, L.fix); L.fix[t[1]] = t[2]; }); } };
-  }
+  function locksNow() { return locks(C(), ST.A); }
   function doExport(fmt) {
     var views = [].filter.call(ovl().querySelectorAll('[data-view]'), function (b) { return b.getAttribute('aria-checked') === 'true'; }).map(function (b) { return b.getAttribute('data-view'); });
     if (!views.length) { toast('Pick at least one drawing.'); return; }
@@ -1748,7 +1856,7 @@
     $('#undoBtn').addEventListener('click', undo);
     $('#choicesBtn').addEventListener('click', function () { ST.armed = ''; openChoices(); });
     $('#stageBadge').addEventListener('click', function () { ST.armed = ''; openChoices(); });
-    if (APP) $('#doneBtn').addEventListener('click', function () { keep(); try { HOST.close(); } catch (e) { /* closed already */ } });
+    if (APP) $('#doneBtn').addEventListener('click', function () { cidCommit(); keep(); try { HOST.close(); } catch (e) { /* closed already */ } });
     else $('#projBtn').addEventListener('click', openProjects);
     $('#sheetsBtn').addEventListener('click', openSheets);
     $('#idsBtn').addEventListener('click', function () { var u = C().unnamed; if (u.length) { ST.edit = { kind: 'cable', id: u[0] }; render(); } });
@@ -1786,11 +1894,13 @@
       ST.saved = {}; ST.saved[ST.P.id] = d.saved && d.saved.A ? { A: d.saved.A, set: { stage: ST.stage, tube: d.saved.tube } } : null;
       openProject(ST.P.id);
       var f = String(d.focus || ''), B0 = C().B;
-      if (f && !B0.ptBy[f]) { var hp = B0.points.filter(function (p) { return p.odf === f; })[0]; f = hp ? hp.id : ''; } /* an ODF tapped: its site */
+      if (f && !B0.ptBy[f]) f = (ST.P.folded || {})[f] || ''; /* a closure or NAP pin tapped: its pole; an ODF: its site */
       if (f && B0.ptBy[f]) { ST.edit = { kind: 'pt', id: f }; render(); }
-      if (ST.P.notes.indexOf('olt') >= 0) toast('OLT sites are Broadband: they come later. The tower sites are drawn now.');
     }, function (e) { toast('The project could not be read (' + ((e && e.message) || 'try again') + '). Close this page and open it again.'); });
   }
-  root.AskPage = { state: ST, act: act, undo: undo, compute: function () { return C(); }, app: APP, flush: function () { if (APP && ST.A && !ST.busy) keep(); } };
+  root.AskPage = { state: ST, act: act, undo: undo, compute: function () { return C(); }, app: APP,
+    flush: function () { if (!APP || !ST.A) return; cidCommit(); if (!ST.busy) keep(); },
+    /* the phone's Back (the app asks first): a panel open over the page (the A3 sheets, Your choices, Export) closes, not the page */
+    back: function () { var o = ovl(); if (o && !o.hidden) { closeOverlay(); return true; } return false; } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })(typeof window !== 'undefined' ? window : globalThis);

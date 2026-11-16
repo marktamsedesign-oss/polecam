@@ -333,6 +333,20 @@ button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 3
 .hdr div.proj b::after { content: none; }
 .vonly { background: #fff4e5; color: #7a4300; padding: 8px 14px; font-size: 13px; line-height: 1.4; border-bottom: 1px solid #f3d9b1; }
 .vonly[hidden] { display: none; }
-@media (max-width: 520px) { html[data-app] #undoBtn .lbl, html[data-app] #choicesBtn .lbl { display: none; } html[data-app] #undoBtn, html[data-app] #choicesBtn { padding: 0; width: 44px; justify-content: center; } }
+@media (max-width: 520px) { html[data-app] #undoBtn .lbl, html[data-app] #choicesBtn .lbl { display: none; } html[data-app] #undoBtn, html[data-app] #choicesBtn { padding: 0; width: 48px; justify-content: center; } }
+/* the app: icon buttons (the owner: icon mode, words only where the words are the content); each keeps its name in aria-label and title */
+html[data-app] .hbtn .lbl, html[data-app] #sheetsBtn .lbl { display: none; }
+html[data-app] .hbtn { padding: 0; width: 48px; min-height: 48px; justify-content: center; }
+html[data-app] .hbtn svg { width: 24px; height: 24px; }
+html[data-app] .hbtn.done { background: rgba(255, 255, 255, .14); }
+html[data-app] #sheetsBtn, html[data-app] #idsBtn { padding: 0; width: 48px; min-height: 48px; justify-content: center; }
+html[data-app] #sheetsBtn svg, html[data-app] #idsBtn svg { width: 22px; height: 22px; }
+html[data-app] #idsBtn { color: var(--ink); }
+html[data-app] #idsBtn b { position: absolute; right: -4px; top: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--warn); color: var(--surface); font-size: 12px; line-height: 20px; text-align: center; }
+html[data-app] .btn.ico { flex: 0 0 auto; width: 56px; min-height: 56px; height: 56px; padding: 0; border-radius: 50%; }
+html[data-app] .btn.ico.small { width: 48px; min-height: 48px; height: 48px; }
+html[data-app] .btn.ico svg { width: 26px; height: 26px; }
+html[data-app] .btnrow.icorow { justify-content: flex-end; }
+html[data-app] .appnote { border-left: 3px solid var(--line); padding-left: 10px; }
 #nohost { padding: 24px; font: 15px/1.5 system-ui, sans-serif; }
 #nohost[hidden] { display: none; }
