@@ -413,6 +413,7 @@
   }
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const cefHooks = {}; // v2.44 beta 4.0: CEF-Plan's hooks into Projects, New project, the main screen, the site pin's record, Share and the mailbox (set further down)
+  const splHooks = {}; // beta 4.x: the splicing details' hooks into the Drawing, Export the plan, Share and the mailbox (set further down)
   const tmHooks = {}; // v2.43 beta 2: the team mailbox's hooks into Projects, New project, the KMZ reference and the capture button (set further down)
   /* ---- project mode + acceptance helpers ---- */
   const pmeta = (name) => (S.meta && S.meta[name || S.project]) || { mode: 'survey' };
@@ -855,6 +856,9 @@
     if (id === 'camera') stopCamera();
     if (id === 'camera' && cefHooks.camClosed) cefHooks.camClosed(); // v2.44
     if (id === 'cefSheet' && cefHooks.closed) cefHooks.closed();
+    if (id === 'spliceSheet' && splHooks.closed) splHooks.closed(); // beta 4.x: the splicing details
+    if (id === 'cefSheet' && splHooks.drawSync) splHooks.drawSync(); // (its line keeps Splicing details › after the CEF button)
+    if ((id === 'cefSheet' || id === 'spliceSheet') && stack.includes('export') && splHooks.need) splHooks.need(); // made from Export the plan: its line updates
     if (id === 'editor') { cleanupEditor(); }
     if (sharedWaiting && (id === 'editor' || id === 'camera')) setTimeout(sharedResume, id === 'camera' ? 3000 : 400); // v2.21
     if (id === 'profile' && !profileOk()) sharedWaiting = null; // closed without the details: the file is not opened later by surprise
@@ -1637,7 +1641,7 @@
   });
   /* ================= v2.28: the bar's Drawing (As-Plan / As-Built) or Find (every other project) ================= */
   const drawOn = () => !!S.project && !isAcc() && BOQ_PURPOSES.includes(svPurpose());
-  $('drawBtn').addEventListener('click', () => { if (!S.project) { openProjects(); return; } if (drawOn()) openDrawing(); else openFind(); });
+  $('drawBtn').addEventListener('click', () => { if (!S.project) { openProjects(); return; } if (drawOn()) { openDrawing(); if (splHooks.remind) splHooks.remind(); } else openFind(); }); // (beta 4.x: the plans still to make, once)
   /* v2.36: a pin placed on the map by hand (no photo needed): v2.37 a tower or OLT site, or an ODC, with
      its name and colour. It is a survey record like the others: the route links it, the exports and the plan drawing have it
      (drawn exactly where it is placed). A photo can be added later (open the pin → Add photo). */
@@ -1713,7 +1717,7 @@
   const ACI_INK = { 1: '#e03131', 2: '#d9a400', 3: '#2b8a3e', 4: '#0c8599', 5: '#1c3f94', 6: '#ae3ec9', 7: '#495057' }; // the same colours, readable on the light preview
   const drwMapKind = () => (['off', 'offline', 'sat', 'street'].includes(S.drawMapKind) ? S.drawMapKind : 'offline'); // v2.41: the offline map by default
   const drwBase = () => { const k = drw ? drw.mapKind : drwMapKind(); return k === 'offline' ? (activePackId() ? 'offline' : 'off') : k === 'sat' ? 'satellite' : k === 'street' ? 'street' : 'off'; };
-  function openDrawing(again) { // again: drawn anew in the open sheet (v2.42.12: another project was chosen)
+  function openDrawing(again, view) { // again: drawn anew in the open sheet (v2.42.12: another project was chosen); view: where it looks (beta 4.x: kept after the splicing details changed a record)
     const pts = projPoints(); if (!pts.length) { toast('Nothing recorded in this project yet'); return; }
     const z = S.zone, U = (p) => { const u = C.utmForward(p.lat, p.lon, z, p.lat < 0); return [u.E, u.N]; };
     const R = routeModel(), items = pts.map((p) => ({ p, xy: U(p), el: elemOf(p) }));
@@ -1732,9 +1736,10 @@
     $('drawLegend').open = S.drawLegendOpen != null ? S.drawLegendOpen !== false : window.innerWidth > 700; // folded on a phone until opened
     renderDrawMap(); setWhat(deskOn() && S.drwWhatDesk !== false, false); renderDrawBar(); renderDrawLegend(); // v2.42.28: What to export
     if (cefHooks.drawSync) cefHooks.drawSync(); // beta 4.3: the CEF plans of the tower sites
+    if (splHooks.drawSync) splHooks.drawSync(); // beta 4.x: the splicing details
     try { renderCredit(); } catch (e) { /* not ready */ } // v2.42.7: the balance at the upper right
     if (!again) openSheet('drawing');
-    requestAnimationFrame(() => { sizeDrawing(); fitDrawing(); drawDrawing(); drawSeqSoon(); });
+    requestAnimationFrame(() => { sizeDrawing(); if (view && drw && view.sc > 0) drw.view = { ...drw.view, cx: view.cx, cy: view.cy, sc: view.sc }; else fitDrawing(); drawDrawing(); drawSeqSoon(); });
   }
   /** v2.41: the numbers of the plan in the preview: the same order as the DXF (along the route from the homing). */
   function drawSeqSoon() {
@@ -2080,6 +2085,7 @@
           info.textContent = `${n ? `No. ${n} · ` : ''}${p.poleId || elemOf(p)} · ${svDesc(p)}${boqText(p) ? ` · ${boqText(p)}` : ''}${tg.length ? ` · on the plan: ${tg.join(', ')}` : ''}${best.it.on ? ` · on pole ${best.it.on.p.poleId || '(no ID)'}` : ''} · E ${u[0].toFixed(1)} N ${u[1].toFixed(1)}`; info.hidden = false; $('drawHint').hidden = true; }
         else if (drw.selRun == null) { info.hidden = true; $('drawHint').hidden = !!S.drawHintOff; } // (v2.42.26: a cable tapped keeps its line)
         if (cefHooks.drawSync) cefHooks.drawSync(); // beta 4.3: a tower site tapped: its CEF plan
+        if (splHooks.drawSync) splHooks.drawSync(); // beta 4.x: a site, closure or dummy NAP tapped: Splicing details ›
         drawDrawing();
       }
     };
@@ -8350,7 +8356,7 @@
     $('curNotes').value = m.notes || '';
     { const sh = m.shares, up = (m.updates || []).slice(-4).reverse(), L = []; // v2.42.18: Share: the last one from this phone, the updates received
       if (sh && sh.n && !acc) L.push(`Shared by you: update ${sh.n}${sh.full ? ' (the whole project)' : ''} · ${fmtTime(sh.at)}`);
-      up.forEach((x) => L.push(`Received: update ${x.n}${x.full ? ' (the whole project)' : ''} from ${x.from || 'a colleague'} · ${fmtTime(x.at)} · ${x.recs || 0} record${x.recs === 1 ? '' : 's'}${x.gone ? `, ${x.gone} deleted` : ''}${x.route ? `, ${routeSaid(x.route)}` : ''}${x.cef ? `, ${x.cef}` : ''}`));
+      up.forEach((x) => L.push(`Received: update ${x.n}${x.full ? ' (the whole project)' : ''} from ${x.from || 'a colleague'} · ${fmtTime(x.at)} · ${x.recs || 0} record${x.recs === 1 ? '' : 's'}${x.gone ? `, ${x.gone} deleted` : ''}${x.route ? `, ${routeSaid(x.route)}` : ''}${x.cef ? `, ${x.cef}` : ''}${x.spl ? `, ${x.spl}` : ''}`));
       $('curUpdates').hidden = !L.length; $('curUpdates').textContent = L.join('\n'); }
     $('curSite').hidden = !m.taskId; $('curSite').textContent = m.taskId ? [`Site: ${m.site || ''}`, m.contractor && `Vendor: ${m.contractor}`, ...(m.siteExtra || []).filter(([k]) => /^(region|territory)$/i.test(String(k).trim())).map(([k, v]) => `${k}: ${v}`), `ID: ${m.taskId}`].filter(Boolean).join(' · ') : '';
     const sfOf = (name) => { const F = siteFieldsOf(name); return (F.length ? F : sfBlank()).map((x) => x.slice()); }; // v2.42.19: a project with none: typed in
@@ -8529,9 +8535,9 @@
     const Wh = { label: 'The whole project', value: 'full' }, X = { label: 'Cancel', value: '' };
     let text, btns;
     if (!since) { text = `The first share of this project is the whole project: after that, Share offers only the changes.\n\n${whole}`; btns = [X, { ...Wh, primary: true }]; }
-    else if (!ch.length && !gone && !route && !(cefHooks.changed && cefHooks.changed(name, since))) { text = `Nothing changed since your last share (update ${sh.n}, ${fmtTime(since)}).\n\n${whole}`; btns = [X, { ...Wh, primary: true }]; }
+    else if (!ch.length && !gone && !route && !(cefHooks.changed && cefHooks.changed(name, since)) && !(splHooks.changed && splHooks.changed(name, since))) { text = `Nothing changed since your last share (update ${sh.n}, ${fmtTime(since)}).\n\n${whole}`; btns = [X, { ...Wh, primary: true }]; }
     else {
-      const what = [ch.length - nNew && `${pl(ch.length - nNew, 'record')} changed`, nNew && `${nNew} new`, gone && `${gone} deleted`, route && 'the route', cefHooks.changed && cefHooks.changed(name, since) && 'the CEF plan', nph && pl(nph, 'photo')].filter(Boolean).join(' · ');
+      const what = [ch.length - nNew && `${pl(ch.length - nNew, 'record')} changed`, nNew && `${nNew} new`, gone && `${gone} deleted`, route && 'the route', cefHooks.changed && cefHooks.changed(name, since) && 'the CEF plan', splHooks.changed && splHooks.changed(name, since) && 'the splicing details', nph && pl(nph, 'photo')].filter(Boolean).join(' · ');
       text = `Only the changes · for your team leader: ${what}, since your last share (update ${sh.n}, ${fmtTime(since)}). This is update ${n}.\n\n${whole}`;
       btns = [{ label: 'Only the changes · for your team leader', value: 'delta', primary: true }, Wh, X];
     }
@@ -8750,7 +8756,7 @@
     const newer = meta.points.filter((p) => loc.has(p.id) && String(loc.get(p.id).updated || '') > String(p.updated || '')).length, nNew = meta.points.filter((p) => !loc.has(p.id)).length - delHere;
     const G = (meta.meta && meta.meta.gone) || {}, del = Object.entries(G).filter(([id, t]) => loc.has(id) && String(loc.get(id).updated || '') <= String(t)).length;
     const route = !!(meta.meta && meta.meta.links && meta.meta.linksAt), nph = new Set(meta.points.flatMap(allPids)).size, chg = meta.points.length - nNew - newer - delHere; // (beta 3.3: the route in the file: merged per sender)
-    const what = [chg && `${pl(chg, 'record')} changed`, nNew && `${nNew} new`, del && `${del} deleted`, route && 'the route', nph && pl(nph, 'photo'), cefHooks.count && cefHooks.count(meta.meta, proj) && 'the CEF plan'].filter(Boolean).join(' · ') || 'Nothing new for this phone';
+    const what = [chg && `${pl(chg, 'record')} changed`, nNew && `${nNew} new`, del && `${del} deleted`, route && 'the route', nph && pl(nph, 'photo'), cefHooks.count && cefHooks.count(meta.meta, proj) && 'the CEF plan', splHooks.count && splHooks.count(meta.meta, proj) && 'the splicing details'].filter(Boolean).join(' · ') || 'Nothing new for this phone';
     const miss = !U.full && here && U.n > last + 1 ? U.n - last - 1 : 0;
     const warn = [
       !U.full && !here && `“${proj}” is not on this phone and this file has only its changes: ask ${first} to share The whole project.`,
@@ -9825,6 +9831,7 @@
     $('dxfFilesLbl').textContent = R.length === 1 ? '1 DRAWING' : `${R.length} DRAWINGS · ONE DXF EACH${S.exp.dxfPdf ? ' AND ONE PDF' : ''}`;
     $('dxfFiles').innerHTML = R.map((r, i) => { const n = r.pts.includes('*') ? null : rowSel(r, pts).ids.length; return `<div class="dxffile"><span class="n">${i + 1}</span><span>${C.xmlEsc(mxRowName(r))}${n != null ? ` <small>${n}</small>` : ''}</span><span class="m">${mxIcon(r.mode)}${MX_SHORT[r.mode]}</span></div>`; }).join('');
     $('doDxf').textContent = tpl && R.length > 1 ? `Export ${R.length} drawings` : 'Export DXF';
+    if (splHooks.need) splHooks.need(); // beta 4.x: the CEF plan and the splicing details still to make
     sigLine();
   }
   ['numProject', 'numOwner'].forEach((id) => { const el = $(id); if (el) el.addEventListener('change', () => { setNumCfg({ mode: $('numOwner').checked ? 'owner' : 'project', asked: true }); renderNums(); if (drw) drawSeqSoon(); renderPlanSet(); if (!$('drawWhatBox').hidden) mxRender(); }); });
@@ -11102,9 +11109,10 @@
         if (delIds.size && Array.isArray(S.meta[proj].fibers)) S.meta[proj].fibers = S.meta[proj].fibers.map((f) => ({ ...f, path: (f.path || []).filter((x) => !delIds.has(x)) })); // v2.42.20
       }
       if (cefHooks.merge) await cefHooks.merge(z, pre, proj, meta.meta, o); // v2.44: its CEF plans (each taken whole: the one saved later wins)
+      if (splHooks.merge) await splHooks.merge(z, pre, proj, meta.meta, o); // beta 4.x: its splicing details (taken whole: the one saved later wins)
       if (o.update && S.meta[proj]) { // v2.42.18: who sent which update (Projects → Project details)
         const U = o.update, r = { ...(S.meta[proj].recv || {}) }; r[U.sender] = { n: Math.max((r[U.sender] || {}).n || 0, U.n), at: U.at, name: U.from };
-        S.meta[proj].recv = r; o.result = { recs: meta.points.length - kept, kept: kept - goneHere, goneHere, gone: delIds.size, route: routeNew, ...(o.cefSaid ? { cef: o.cefSaid } : {}) };
+        S.meta[proj].recv = r; o.result = { recs: meta.points.length - kept, kept: kept - goneHere, goneHere, gone: delIds.size, route: routeNew, ...(o.cefSaid ? { cef: o.cefSaid } : {}), ...(o.splSaid ? { spl: o.splSaid } : {}) };
         S.meta[proj].updates = [...(S.meta[proj].updates || []), { n: U.n, full: U.full, from: U.from, at: U.at, got: new Date().toISOString(), ...o.result }].slice(-30);
       }
       S.project = proj; persist();
@@ -12616,7 +12624,7 @@
       });
       // v2.42.27: Esc on a computer answers Cancel (Keep, Keep editing, Back to the form…), or the only button; a question with
       // neither stays until a button is pressed (never a guess: the Unsaved record question's Discard is not taken)
-      const c = btns.length === 1 ? btns[0] : btns.find((b) => /^(Cancel|Keep|Keep editing|Not now|No|Close|Back|Back to the form)$/.test(b.label));
+      const c = btns.length === 1 ? btns[0] : btns.find((b) => /^(Cancel|Keep|Keep editing|Not now|No|Close|Back|Back to the form|Later)$/.test(b.label)); // (beta 4.x: + Later)
       askEsc = mine = c ? () => done(c.value) : null;
       $('askBox').hidden = false;
     });
@@ -15647,7 +15655,7 @@
     const ch = since ? all.filter((p) => String(p.updated || p.created || '') > since && !echo(p)) : all;
     const gone = since ? Object.entries(m.gone || {}).filter(([id, t]) => t > since && !(E && E.g && E.g[id] === t)).length : 0;
     const route = !!(since && m.linksAt && m.linksAt > since && !(E && E.l && E.l === m.linksAt)), nNew = since ? ch.filter((p) => String(p.created || '') > since).length : 0;
-    return { all, ch, gone, route, nNew, nph: new Set(ch.flatMap(allPids)).size, cef: since && cefHooks.changed ? cefHooks.changed(name, since) : 0 }; // (v2.44: + the CEF plans saved since)
+    return { all, ch, gone, route, nNew, nph: new Set(ch.flatMap(allPids)).size, cef: since && cefHooks.changed ? cefHooks.changed(name, since) : 0, spl: since && splHooks.changed ? splHooks.changed(name, since) : 0 }; // (v2.44: + the CEF plans saved since; beta 4.x: the splicing details)
   }
   async function mbxBytes(name, U, ref, say) { const blob = await bundleZip([name], { update: U, ref, say }); return new Uint8Array(await blob.arrayBuffer()); }
   /** The coordinator sends the project to each field partner. To one who has not got it (or missed a send): the whole project
@@ -15761,13 +15769,13 @@
     }
     const wb = $('mbxWhat'); wb.innerHTML = '';
     const opt = (v, title, sub, dis) => { const l = document.createElement('label'), r = document.createElement('input'); r.type = 'radio'; r.name = 'mbxWhat'; r.value = v; r.checked = s.what === v; r.disabled = !!dis; r.addEventListener('change', () => { s.what = v; renderMbxSend(); }); const d = document.createElement('div'), b = document.createElement('b'); b.textContent = title; const sp = document.createElement('span'); sp.className = 's'; sp.textContent = sub; d.append(b, sp); l.append(r, d); wb.appendChild(l); };
-    const changesText = (c, led, since) => [c.ch.length - c.nNew && `${pl2(c.ch.length - c.nNew, 'record')} changed`, c.nNew && `${c.nNew} new`, c.gone && `${c.gone} deleted`, c.route && 'the route', c.cef && 'the CEF plan', c.nph && pl2(c.nph, 'photo')].filter(Boolean).join(' · ');
+    const changesText = (c, led, since) => [c.ch.length - c.nNew && `${pl2(c.ch.length - c.nNew, 'record')} changed`, c.nNew && `${c.nNew} new`, c.gone && `${c.gone} deleted`, c.route && 'the route', c.cef && 'the CEF plan', c.spl && 'the splicing details', c.nph && pl2(c.nph, 'photo')].filter(Boolean).join(' · ');
     let info = '', whatOn = false;
     if (s.mode === 'fp' && s.to.size) {
       whatOn = true;
       const to = [...s.to][0], W = mbxWhatFor(name, to), c = W.c, first = tmFirst(to);
       const nAns = fxAnswers(name).length; // beta 3: fix answers count as changes
-      const canDelta = !!W.since && (c.ch.length || c.gone || c.route || c.cef || nAns);
+      const canDelta = !!W.since && (c.ch.length || c.gone || c.route || c.cef || c.spl || nAns);
       if (!s.what) s.what = canDelta ? 'delta' : 'full';
       if (W.since) opt('delta', 'Only the changes', canDelta ? `${[changesText(c), nAns && `${nAns === 1 ? '1 fix answer' : `${nAns} fix answers`}`].filter(Boolean).join(' · ')} · since ${W.led.n ? `update ${W.led.n}` : 'the task arrived'} (${fmtTime(W.since)})` : `Nothing changed since ${W.led.n ? `update ${W.led.n}` : 'the task arrived'} (${fmtTime(W.since)})`, !canDelta);
       opt('full', 'The whole project', `${pl2(c.all.length, 'record')} · ${pl2(projPhotos(name), 'photo')}`);
@@ -15778,7 +15786,7 @@
       if (has.length) { // beta 2.1: to partners who have it, only the changes by default
         whatOn = true;
         const since = has.map((e) => mbxWhatFor(name, e).since).sort()[0], c = mbxChanges(name, since, has.length === 1 ? has[0] : ''), ref = refInfo(name), refNew = !!(ref && ref.at && ref.at > since);
-        const canDelta = !!(c.ch.length || c.gone || c.route || c.cef || refNew);
+        const canDelta = !!(c.ch.length || c.gone || c.route || c.cef || c.spl || refNew);
         if (!s.what) s.what = canDelta ? 'delta' : 'full';
         opt('delta', 'Only the changes', canDelta ? `${[changesText(c), refNew && 'the new KMZ reference'].filter(Boolean).join(' · ')} · since your last send (${fmtTime(since)})` : `Nothing changed since your last send (${fmtTime(since)})`, !canDelta);
         opt('full', 'The whole project', `${pl2(points.filter((p) => p.project === name).length, 'record')} · ${pl2(projPhotos(name), 'photo')}${ref ? ' · the KMZ reference' : ''}`);
@@ -15936,7 +15944,7 @@
   function mbxFpHas(name) {
     const T = tmTeam(name) || {}, to = (T.to && T.to[0]) || T.by; if (!to) return null;
     const W = mbxWhatFor(name, to), c = W.since ? W.c : mbxChanges(name, T.got || '', to), ans = fxAnswers(name).length;
-    return c.ch.length || c.gone || c.route || c.cef || ans ? { to, recs: c.ch.length, ans } : null;
+    return c.ch.length || c.gone || c.route || c.cef || c.spl || ans ? { to, recs: c.ch.length, ans } : null;
   }
   /** beta 3.4: Sync sends a field partner's work: for each of his team projects (not accepted, or opened again for fixes), only the
       changes since his last send, with his fix answers. Returns { n, said: [...], err }. */
@@ -18081,7 +18089,7 @@
   function drawCefShow(id) {
     if (!drw) return; const it = drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return;
     drw.sel = it.p.id; drw.selRun = null; drw.view.cx = it.xy[0]; drw.view.cy = it.xy[1]; const info = $('drawInfo');
-    info.textContent = `${it.p.poleId || elemOf(it.p)} · ${svDesc(it.p)} · E ${it.xy[0].toFixed(1)} N ${it.xy[1].toFixed(1)}`; info.hidden = false; $('drawHint').hidden = true; drawCefSync(); drawDrawing();
+    info.textContent = `${it.p.poleId || elemOf(it.p)} · ${svDesc(it.p)} · E ${it.xy[0].toFixed(1)} N ${it.xy[1].toFixed(1)}`; info.hidden = false; $('drawHint').hidden = true; drawCefSync(); if (splHooks.drawSync) splHooks.drawSync(); drawDrawing();
   }
   function drawCefSync() {
     const btn = $('drawCef'); if (!btn) return; const on = drawCefOn(); btn.hidden = !on; const old = $('drawCefGo'); if (old) old.remove(); if (!on) { $('drawCefMenu').hidden = true; return; }
@@ -18094,6 +18102,232 @@
   $('drawCanvas').addEventListener('pointerdown', () => { if (!$('drawCefMenu').hidden) drawCefMenu(false); });
   $('drawMap').addEventListener('click', () => { if (!$('drawCefMenu').hidden) drawCefMenu(false); });
   try { cefHooks.main(); } catch (e) { /* at start */ }
+
+  /* ================= beta 4.x: Splicing details (the single line diagram and the splicing details, Access OSP) =================
+     The splicing details of an As-Plan or As-Built project. The approved Ask & Draw page (vendor/splice/splice.html, with the questions
+     in ask.js and the drawing engine splice.js) runs in a frame over the app (#spliceSheet), as the CEF plan does, and this part is the
+     app's side of it (window.__spliceHost). The page reads the project as it is: the survey records (sites, ODFs, closures, dummy NAPs,
+     poles) and the cable RUNs of Route. It asks a few plain questions; the answers are kept in the project (meta.splice) and travel with
+     it (Share, backup, the team mailbox: the one saved later wins). One source of truth: a size changed on the page is written on the
+     project's own ODF record (its FDU size) or cable RUN (its size, fibers per buffer, cable ID), as Route and the record form would.
+     Exports go through the app's save and share. An accepted task is view-only.
+     meta.splice = { v: 1, A: the page's answers, tube: 'lowest' | 'fresh', at, by, o (who saved it), made }
+     A phone on an older version keeps meta.splice as it came (it does not know it) and sends it back unchanged. */
+  const SPL_PAGE = 'vendor/splice/splice.html', SPL_MAX = 200000, SPL_NEW_SIZES = [...new Set(Object.values(CAB).map((c) => c.cores))].sort((a, b) => a - b);
+  let splNow = null; // { name, focus, wrote }: the project open on the page; wrote: a record or a cable was changed there
+  /** A project's splicing answers, well formed (null: none, or not readable). */
+  function spliceClean(s) {
+    if (!s || typeof s !== 'object' || s.v !== 1 || !s.A || typeof s.A !== 'object' || Array.isArray(s.A)) return null;
+    let n = 0; try { n = JSON.stringify(s.A).length; } catch (e) { return null; } if (n > SPL_MAX) return null;
+    const t = (v, k) => String(v == null ? '' : v).slice(0, k);
+    return { v: 1, A: s.A, tube: s.tube === 'fresh' ? 'fresh' : 'lowest', at: t(s.at, 40), by: t(s.by, 100), o: t(s.o, 120), made: t(s.made || s.at, 40) };
+  }
+  const spliceOf = (name) => spliceClean(pmeta(name).splice);
+  const spliceStarted = (name) => { const s = spliceOf(name); return !!(s && s.A && s.A.started); };
+  function splicePut(name, s) { S.meta = S.meta || {}; S.meta[name] = { ...pmeta(name), splice: s }; persist(); }
+  const splCables = (name) => fibers(name).some((f) => f.path.length > 1);
+  /** What the page is given: the survey records (no photos) and the cable RUNs as Route has them, and the title block as the plan's. */
+  function spliceData(name) {
+    const m = pmeta(name), F = siteFieldsOf(name), sfm = sfMeta(F), task = m.taskId && S.cloud && (S.cloud.tasks || []).find((t) => t.id === m.taskId);
+    const slim = (p) => { const b = p.boq || {};
+      return { id: String(p.id), element: elemOf(p), poleId: String(p.poleId || recName(p) || ''), status: p.status || '', siteKind: p.siteKind || '', closure: !!p.closure, closureId: p.closureId || '',
+        nap: !!p.nap, napId: p.napId || '', nap2: !!p.nap2, nap2Id: p.nap2Id || '', lat: +p.lat, lon: +p.lon,
+        boq: { odf: b.odf || '', conn: b.conn || '', clo: b.clo || '', cloSt: b.cloSt || '', cloAuto: !!b.cloAuto, napType: b.napType || '', napSt: b.napSt || '', nap2Type: b.nap2Type || '', nap2St: b.nap2St || '' } }; };
+    const R = name === S.project ? routeModel() : null, list = R && R.fib ? R.fib.list : []; // (the cables as Route has them: their paths on the records there are)
+    const runs = list.filter((f) => f.path.length > 1).map((f) => ({ fid: fidOf(f), n: f.n, ex: !!f.ex, size: f.ex ? exCores(f) : (CAB[f.cab] || {}).cores || 0, cab: f.ex ? '' : f.cab || '',
+      fam: f.ex ? '' : (CAB[f.cab] || {}).fam || '', notSet: !f.ex && !CAB[f.cab], fpt: +f.fpt === 6 ? 6 : 12, cid: String(f.cableId || ''), len: Math.round(f.len || 0), path: f.path.map(String),
+      sizes: f.ex ? EX_SIZES.slice() : SPL_NEW_SIZES.slice() }));
+    const site = sfm.siteName || m.siteName || (task && task.project) || '', planId = sfm.plaId || m.plaId || (task && task.site) || '';
+    const g = cefSign(), T = tmTeam(name), ck = T && T.accepted ? String(T.accepted.byName || T.accepted.by || '') : ''; // (the names of the CEF sheets: the same three)
+    return { id: name, name, site, refNames: [],
+      title: { company: m.contractor || (S.user && S.user.company) || '', project: sfGet(F, /project\s*name/i) || '', planId, site, exchange: sfGet(F, /exchange/i), dwgNo: sfGet(F, /dwg|drawing\s*no/i), date: todayIso(), note: '',
+        sign: [{ name: g.by || (S.user && S.user.name) || '', role: 'PREPARED BY' }, { name: g.chk || ck, role: 'CHECKED BY' }, { name: g.apr || '', role: 'APPROVED BY' }] },
+      records: points.filter((p) => p.project === name && SV_ELEMENTS.includes(elemOf(p))).sort((x, y) => (x.created < y.created ? -1 : x.created > y.created ? 1 : 0)).map(slim), runs };
+  }
+  /** Opens the splicing details of a project (an As-Plan or As-Built with cables). o.focus: the record to show first (a site or a closure). */
+  async function spliceOpen(name, o) {
+    const nm = name || S.project, opt = o || {};
+    if (!nm || !allProjects().includes(nm) || isAcc(nm) || !BOQ_PURPOSES.includes(svPurpose(nm))) return false;
+    if (!profileOk()) { toast('Enter your details first (Settings → You)'); return false; }
+    if (stack.includes('spliceSheet') || stack.includes('cefSheet') || splNow) return false;
+    if (nm !== S.project) { S.project = nm; persist(); renderPoles(); }
+    if (!splCables(nm)) { toast('Draw the cables first (Route → Cables): the splicing details follow them', 5000); return false; }
+    splNow = { name: nm, focus: String(opt.focus || ''), wrote: false };
+    LOG.info('splice.open', { view: !!cefLockText(nm), focus: !!opt.focus });
+    openSheet('spliceSheet');
+    const f = $('spliceFrame'); try { f.contentWindow.location.replace(new URL(SPL_PAGE, location.href).href); } catch (e) { f.src = SPL_PAGE; } // (replace: the phone's Back closes the page, it does not go back inside the frame)
+    return true;
+  }
+  async function spliceInit() {
+    const c = splNow; if (!c) return null; const s = spliceOf(c.name);
+    return { project: spliceData(c.name), saved: s ? { A: s.A, tube: s.tube } : null, stage: svPurpose(c.name) === 'As-built' ? 'built' : 'plan', viewOnly: cefLockText(c.name), focus: c.focus, ver: `${APP_NAME} ${VER_LABEL}` };
+  }
+  /** The page saves as the user works: the answers only. Nothing is written when nothing changed (looking never makes it the later one at
+      a merge); fibers locked by an export alone (it issues the drawing) do not cancel an on-site approval. */
+  function spliceSave(o) {
+    const c = splNow; if (!c || !o || typeof o !== 'object' || cefLockText(c.name)) return false;
+    let txt; try { txt = JSON.stringify(o.A); } catch (e) { return false; }
+    if (!txt || txt.length > SPL_MAX || !o.A || typeof o.A !== 'object' || Array.isArray(o.A) || o.A.v !== 1) return false;
+    const old = spliceOf(c.name), tube = o.tube === 'fresh' ? 'fresh' : 'lowest';
+    if (old && JSON.stringify(old.A) === txt && old.tube === tube) return true;
+    const strip = (A) => { const L = {}; Object.entries((A && A.legs) || {}).forEach(([k, v]) => { const { fix, ...r } = v || {}; if (Object.keys(r).length) L[k] = r; }); return JSON.stringify({ ...A, locked: false, legs: L }); };
+    const lockOnly = !!old && old.tube === tube && strip(old.A) === strip(o.A), now = new Date().toISOString();
+    splicePut(c.name, { v: 1, A: JSON.parse(txt), tube, at: now, by: (S.user && S.user.name) || '', o: cefMe(), made: (old && old.made) || now });
+    if (!lockOnly) changedAfterApproval(c.name, 'splice');
+    return true;
+  }
+  /** Why a size cannot be written now ('' when it can). */
+  function splWriteNo() {
+    const c = splNow; if (!c || c.name !== S.project) return 'The project is not open any more: close the splicing details and open them again';
+    if (pointsLost) return 'The records did not load from the phone’s storage at start: close and reopen G-eSAA first';
+    if (isAcc(c.name) || !drawOn()) return 'Only an As-Plan or As-Built survey has splicing details';
+    return cefLockText(c.name);
+  }
+  /** An FDU's size on the page: the ODF record's size (plan and BOQ). n 0: no size (the Undo of a first size). */
+  async function spliceSetOdf(recId, n) {
+    const no = splWriteNo(); if (no) return { ok: false, msg: no };
+    const name = splNow.name, p = points.find((x) => String(x.id) === recId && x.project === name);
+    if (!p || elemOf(p) !== 'ODF') return { ok: false, msg: 'That ODF record is not in the project any more' };
+    if (!(n === 0 || BOQ_OPT.odf.includes(`${n}F`))) return { ok: false, msg: `An FDU comes in ${BOQ_OPT.odf.join(', ')}` };
+    const lk = tmHooks.locked ? tmHooks.locked(p.id, 'edit') : ''; if (lk) return { ok: false, msg: String(lk) };
+    const want = n ? `${n}F` : '', b0 = p.boq || {};
+    if ((b0.odf || '') === want) return { ok: true, project: spliceData(name) };
+    const boq = { ...b0 }; if (want) boq.odf = want; else delete boq.odf;
+    const rec = { ...p, boq, updated: new Date().toISOString(), updatedBy: byLine() };
+    try { await dbPut('points', rec); } catch (e) { LOG.warn('splice.odf', errInfo(e)); return { ok: false, msg: 'The ODF record could not be saved: try again' }; }
+    const i = points.indexOf(p); if (i >= 0) points[i] = rec; else { const j = points.findIndex((x) => x.id === p.id); if (j >= 0) points[j] = rec; }
+    changedAfterApproval(name, 'record'); if (splNow) splNow.wrote = true; renderPoles(); LOG.info('splice.odf', { n });
+    return { ok: true, project: spliceData(name) };
+  }
+  /** A new cable of n fibers: the cable type of that size, in the RUN's own family first, then the project's, figure 8, UG, light. */
+  const splCab = (f, n) => { const pc = pmeta().cable, fams = [CAB[f.cab] && CAB[f.cab].fam, CAB[pc] && CAB[pc].fam, 'fig8', 'ug', 'light'].filter(Boolean);
+    for (const fam of fams) { const k = Object.keys(CAB).find((x) => CAB[x].fam === fam && CAB[x].cores === n); if (k) return k; } return ''; };
+  const SPL_FAM = { light: 'a light cable', fig8: 'a figure 8 cable', ug: 'a UG air-blown cable' };
+  /** A cable (RUN) changed on the page: o = { size | cab, fpt, cid }. Written on the RUN as Route writes it (the closures' sizes follow). */
+  async function spliceSetRun(fid, o) {
+    let no = splWriteNo(); if (no) return { ok: false, msg: no };
+    const c = splNow, name = c.name, F = fibers(name), f = F.find((x) => fidOf(x) === fid);
+    if (!f) return { ok: false, msg: 'This cable is not in the route any more' };
+    let L2 = null;
+    if (Object.prototype.hasOwnProperty.call(o, 'cab') && !f.ex) { // (the Undo of a size: the cable type it had, no question)
+      const k = String(o.cab || ''); if (k && !CAB[k]) return { ok: false, msg: 'Unknown cable type' };
+      f.cab = k; delete f.cores; if (k) L2 = linksFor(f.path, k);
+    }
+    if (Object.prototype.hasOwnProperty.call(o, 'size')) {
+      const n = Math.round(+o.size);
+      if (f.ex) { if (!(n >= 2 && n <= 1728)) return { ok: false, msg: 'An existing cable has 2 to 1728 fibers' }; f.cores = n; }
+      else {
+        const k = splCab(f, n); if (!k) return { ok: false, msg: `A new cable does not come in ${n}C` };
+        if (k !== f.cab) {
+          const fam0 = CAB[f.cab] ? CAB[f.cab].fam : '';
+          if (!fam0 || CAB[k].fam !== fam0) { // another kind of cable: asked first (it changes the hardware and the BOQ)
+            const yes = await ask(`Change RUN ${f.n} to ${CAB[k].label}?`, `${fam0 ? `${n}C does not come as ${SPL_FAM[fam0] || 'this cable'}.` : `RUN ${f.n} has no cable type yet.`} It changes the hardware, the BOQ and the plan's line for this cable.`,
+              [{ label: 'Cancel', value: false }, { label: `Use ${CAB[k].short}`, value: true, primary: true }]);
+            if (!yes) return { ok: false, cancelled: true };
+            no = splWriteNo(); if (no || splNow !== c) return { ok: false, msg: no || 'The splicing details were closed' };
+          }
+          f.cab = k; delete f.cores; L2 = linksFor(f.path, k) || L2;
+        }
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(o, 'fpt')) { if (+o.fpt === 6) f.fpt = 6; else if (+o.fpt === 12) delete f.fpt; else return { ok: false, msg: 'A buffer has 12 or 6 fibers' }; } // (12, the usual, is not written: older RUNs do not show as changed)
+    if (Object.prototype.hasOwnProperty.call(o, 'cid')) { const v = String(o.cid || '').trim().toUpperCase().slice(0, 24); if (v) f.cableId = v; else delete f.cableId; }
+    routeWrite(name, L2, F);
+    try { await cloSync('route'); } catch (e) { LOG.warn('clo.sync', errInfo(e)); } // (now, not in a moment: the page shows the closures' sizes)
+    c.wrote = true; renderPoles(); LOG.info('splice.run', { keys: Object.keys(o).join(',') });
+    return { ok: true, project: spliceData(name) };
+  }
+  /** Save or send an export of the page: the app's own save and share, with who exported it. No credits. */
+  async function spliceDeliver(name, data, kind) {
+    const c = splNow, type = /\.pdf$/i.test(name) ? 'application/pdf' : /\.dxf$/i.test(name) ? 'application/dxf' : 'application/zip';
+    const blob = new Blob([typeof data === 'string' ? data : new Uint8Array(data)], { type }); // (a copy made here: the page's bytes are of its own window)
+    if (c) noteExport('splice', c.name);
+    LOG.info('splice.export', { kind: kind || '', mb: +(blob.size / 1048576).toFixed(2) });
+    await shareFile(blob, String(name).replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 120), type);
+  }
+  /** The page closed (Done, or the phone's Back): its last change is saved, the frame is emptied, the Drawing drawn anew when a record changed. */
+  function spliceClosed() {
+    const f = $('spliceFrame'), c = splNow;
+    try { if (f.contentWindow && f.contentWindow.AskPage && f.contentWindow.AskPage.flush) f.contentWindow.AskPage.flush(); } catch (e) { /* closed already */ }
+    splNow = null;
+    try { f.contentWindow.location.replace('about:blank'); } catch (e) { f.removeAttribute('src'); }
+    renderPoles(); if (!$('projects').hidden) renderProjects();
+    if (c && c.wrote && stack.includes('drawing') && drw && drw.project === S.project) openDrawing(true, drw.view ? { ...drw.view } : null); // the records changed: drawn anew, where it was
+    else { if (cefHooks.drawSync) cefHooks.drawSync(); splDrawSync(); }
+  }
+  window.__spliceHost = { init: () => spliceInit(), data: async () => (splNow ? spliceData(splNow.name) : null), save: (o) => spliceSave(o),
+    setOdfSize: (id, n) => spliceSetOdf(String(id), Math.round(+n) || 0), setRun: (fid, o) => spliceSetRun(String(fid), o && typeof o === 'object' ? { ...o } : {}),
+    deliver: (n, d, k) => spliceDeliver(n, d, k), close: () => { if (stack[stack.length - 1] === 'spliceSheet') closeSheet(); }, exporter: () => exporterInfo() };
+  /** A project that came in a file or through the team mailbox: its splicing answers, taken whole (the one saved later wins). */
+  async function spliceMerge(z, pre, proj, fm, o) {
+    const inc = spliceClean(fm && fm.splice); if (!inc || !S.meta || !S.meta[proj]) return;
+    if (o.fresh) { if (inc.A.started) o.splSaid = 'the splicing details'; return; } // (a new project took the sender's whole details already)
+    const cur = spliceOf(proj), from = inc.by || (o.update && o.update.from) || 'the sender';
+    if (!cur || String(inc.at) > String(cur.at)) { splicePut(proj, inc); o.splSaid = `Splicing details: taken from ${from}`; }
+    else if (String(cur.at) > String(inc.at)) o.splSaid = 'Splicing details: kept as on this phone (saved later here)';
+    if (o.splSaid) LOG.info('splice.merge', { took: /taken/.test(o.splSaid) });
+  }
+  /** 1 when this user saved the splicing answers after a time (Share → Only the changes, the team mailbox). */
+  const spliceChanged = (name, since) => { const s = spliceOf(name), me = cefMe(); return s && String(s.at || '') > String(since || '') && (!s.o || s.o === me) ? 1 : 0; };
+  /** 1 when a file's splicing answers would be taken on this phone (the question before an update is applied). */
+  const spliceIncoming = (fm, proj) => { const inc = spliceClean(fm && fm.splice); if (!inc) return 0; const cur = allProjects().includes(proj) ? spliceOf(proj) : null; return !cur || String(inc.at) > String(cur.at) ? 1 : 0; };
+  splHooks.open = (name, o) => guard(() => spliceOpen(name, o), 'Splicing details not opened');
+  splHooks.closed = spliceClosed; splHooks.merge = spliceMerge; splHooks.changed = spliceChanged; splHooks.count = spliceIncoming;
+
+  /* On the Drawing: the two plans made from it, side by side at the top of the round buttons, each with its name: CEF plan (As-Plan) and
+     Splicing details (As-Plan and As-Built). A site, ODF, closure or dummy NAP tapped on the drawing offers Splicing details › in its line. */
+  const splDrawOn = () => !!drw && !!drw.project && !isAcc(drw.project) && BOQ_PURPOSES.includes(svPurpose(drw.project));
+  const splPin = (it) => { const p = it.p, b = p.boq || {}, el = it.el, dn = (t) => /dummy/i.test(t || '');
+    return (el === 'Site' && p.siteKind !== 'OLT') || el === 'ODF' || el === 'Closure' || (el === 'NAP' && dn(b.napType)) || (['Pole', 'Handhole', 'Manhole', 'Service box'].includes(el) && !!(p.closure || p.closureId))
+      || (el === 'Pole' && (((p.nap || p.napId) && dn(b.napType)) || ((p.nap2 || p.nap2Id) && dn(b.nap2Type)))); };
+  function splDrawSync() {
+    const btn = $('drawSpl'); if (!btn) return; const on = splDrawOn(); btn.hidden = !on; const old = $('drawSplGo'); if (old) old.remove();
+    if (!on || drw.sel == null || $('drawInfo').hidden) return;
+    const it = drw.items.find((x) => String(x.p.id) === String(drw.sel)); if (!it || !splPin(it)) return;
+    const b = document.createElement('button'); b.type = 'button'; b.id = 'drawSplGo'; b.className = 'btn small'; b.textContent = 'Splicing details ›';
+    const focus = String(it.on && it.el !== 'Site' ? it.on.p.id : it.p.id); // (a closure or NAP pin: the pole it stands on)
+    b.addEventListener('click', () => guard(() => spliceOpen(drw.project, { focus }), 'Splicing details not opened')); $('drawInfo').appendChild(b);
+  }
+  splHooks.drawSync = () => { try { splDrawSync(); } catch (e) { /* the drawing works without it */ } };
+  $('drawSpl').addEventListener('click', () => {
+    if ($('drawCefMenu') && !$('drawCefMenu').hidden) drawCefMenu(false); $('drawMapMenu').hidden = true;
+    guard(() => spliceOpen(drw ? drw.project : S.project), 'Splicing details not opened');
+  });
+
+  /* The reminder: the Drawing of a project with a route that has no CEF plan (As-Plan: a new tower site without one) or no splicing
+     details yet. Once per project each time the app is opened (Later: until the next time); Export the plan says it again, softly. */
+  const splRemindSaid = new Set();
+  function plansMissing(name) {
+    const cab = splCables(name), L = cefPlans(name), route = cab || (pmeta(name).links || []).length > 0;
+    const cef = svPurpose(name) === 'As-plan' ? points.filter((p) => p.project === name && elemOf(p) === 'Site' && p.siteKind !== 'OLT' && p.status !== 'Existing' && !L.some((x) => x.pin === p.id)) : [];
+    return { route, cab, cef, spl: cab && !spliceStarted(name) };
+  }
+  async function splRemind() {
+    const name = drw && drw.project;
+    if (!name || name !== S.project || splRemindSaid.has(name) || tutTour || !$('askBox').hidden || !$('busy').hidden || !profileOk() || (tmHooks.locked && tmHooks.locked())) return;
+    const M = plansMissing(name); if (!M.route || (!M.cef.length && !M.spl)) return;
+    splRemindSaid.add(name);
+    const both = M.cef.length && M.spl, what = both ? 'the CEF plan and the splicing details' : M.cef.length ? 'the CEF plan' : 'the splicing details';
+    const at = M.cef.length === 1 ? recName(M.cef[0]) || 'the tower site' : `each of the ${M.cef.length} new tower sites`;
+    LOG.info('splice.remind', { cef: M.cef.length, spl: !!M.spl });
+    const v = await ask(both ? 'Two plans to make' : M.cef.length ? 'CEF plan to make' : 'Splicing details to make',
+      `Please create ${what} for this project.${M.cef.length ? ` The CEF plan shows how the cable enters ${at}.` : ''}${M.spl ? ' The splicing details show every fiber, splice and port on the cables.' : ''}\n\n${both ? 'Both open' : 'It opens'} from this Drawing too: the round button${both ? 's' : ''} with ${both ? 'their names' : 'its name'}, lower right.`,
+      [...(M.cef.length ? [{ label: 'Make the CEF plan', value: 'cef', primary: true }] : []), ...(M.spl ? [{ label: 'Make the splicing details', value: 'spl', primary: !M.cef.length }] : []), { label: 'Later', value: '' }]);
+    if (v === 'cef') { if (M.cef.length === 1 || !stack.includes('drawing')) await cefOpen(name, { pin: M.cef[0].id }); else drawCefMenu(true); }
+    else if (v === 'spl') await spliceOpen(name);
+  }
+  splHooks.remind = () => setTimeout(() => { if (stack[stack.length - 1] === 'drawing') guard(splRemind, 'Reminder not shown'); }, 400);
+  /** Export the plan: the plans still to make for this project, with a button to each (softer than a download warning). */
+  function renderPlansNeed() {
+    const box = $('dxfPlansNeed'); if (!box) return; if (!drawOn() || isAcc()) { box.hidden = true; return; }
+    const M = plansMissing(S.project), H = [], e = (x) => C.xmlEsc(String(x == null ? '' : x)); if (!M.route) { box.hidden = true; return; }
+    if (M.cef.length) H.push(`<div class="r"><span class="ic" aria-hidden="true">🗼</span><span class="tx"><b>CEF plan</b> not made yet for ${e(M.cef.map((p) => recName(p) || p.poleId || 'the tower site').join(', '))}.</span><button class="btn sm" type="button" data-plan="cef">Make the CEF plan</button></div>`);
+    if (M.spl) H.push(`<div class="r"><span class="ic" aria-hidden="true">🔗</span><span class="tx"><b>Splicing details</b> not made yet: every fiber, splice and port on the cables.</span><button class="btn sm" type="button" data-plan="spl">Make the splicing details</button></div>`);
+    box.innerHTML = H.length ? `<p class="hd">Still to make for this project</p>${H.join('')}` : ''; box.hidden = !H.length;
+  }
+  $('dxfPlansNeed').addEventListener('click', (ev) => { const b = ev.target.closest('[data-plan]'); if (!b) return; const M = plansMissing(S.project);
+    guard(async () => { if (b.dataset.plan === 'cef') { if (M.cef[0]) await cefOpen(S.project, { pin: M.cef[0].id }); } else await spliceOpen(S.project); }, 'Not opened'); });
+  splHooks.need = () => { try { renderPlansNeed(); } catch (e) { LOG.warn('plans.need', errInfo(e)); } };
 
   /* beta 4.1 (MarkT): on a computer the map tools are panels on the right; the map's round buttons and its summary line move clear of an open panel */
   { const RP = ['routeBar', 'rtBar', 'visitCard', 'fixPanel', 'photoPane'].map((k) => $(k)).filter(Boolean);
@@ -18161,4 +18395,9 @@
     frame: () => $('cefFrame').contentWindow, logos: () => cefLogos(), canLogo: () => cefCanLogo(), logoSet: (f) => cefLogoSet(f), logoRemove: () => cefLogoRemove(), changed: (n, t) => cefChanged(n || S.project, t), pids: (n, t) => cefPids(n || S.project, t), summary: (n) => projSummary(n || S.project),
     put: (n, id, sk, o) => { const G = cefOf(n), x = o || {}, i = G.plans.findIndex((p) => p.id === id), rec = { id, pin: x.pin || '', sk, at: x.at || new Date().toISOString(), by: x.by || (S.user && S.user.name) || '', o: x.o != null ? x.o : cefMe(), made: x.at || new Date().toISOString() }; if (i >= 0) G.plans[i] = rec; else G.plans.push(rec); cefPut(n, G); },
     keep: async (id, blob) => { const im = await makeStoredImages(blob); await dbPut('photos', { id, clean: im.clean, thumb: im.thumb }); return (await cefPhotoSrc(im.clean)); }, has: async (id) => { const ph = await dbGet('photos', id).catch(() => null); return !!(ph && ph.clean); } };
+  /* beta 4.x (tests): the splicing details. frame(): the page's window; drwPt(id): where a record is on the Drawing (screen pixels) */
+  window.__polecam.splice = { open: (n, o) => spliceOpen(n || S.project, o), now: () => (splNow ? { ...splNow } : null), of: (n) => JSON.parse(JSON.stringify(pmeta(n || S.project).splice || null)),
+    data: (n) => spliceData(n || S.project), frame: () => $('spliceFrame').contentWindow, missing: (n) => { const M = plansMissing(n || S.project); return { route: M.route, cab: M.cab, cef: M.cef.map((p) => p.id), spl: M.spl }; },
+    merge: (fm, o) => { const x = o || {}; return spliceMerge(null, '', S.project, fm, x).then(() => x); }, changed: (t) => spliceChanged(S.project, t), count: (fm) => spliceIncoming(fm, S.project), reminded: () => [...splRemindSaid],
+    drwPt: (id) => { const it = drw && drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return null; const [x, y] = drwPx(it.xy), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; } };
 })();

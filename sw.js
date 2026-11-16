@@ -13,6 +13,8 @@ const SHELL = [
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png',
   // v2.44 beta 4.0: the CEF plan editor (its own page, shown in a frame) and its PDF library
   'vendor/cef/cef.html', 'vendor/cef/30_core.js', 'vendor/cef/40_iso.js', 'vendor/cef/50_export.js', 'vendor/cef/ui.js', 'vendor/pdf-lib/pdf-lib.min.js',
+  // beta 4.x: the splicing details (their own page, shown in a frame: the page, its style, the questions and the drawing engine)
+  'vendor/splice/splice.html', 'vendor/splice/ask.css', 'vendor/splice/ask.js', 'vendor/splice/splice.js',
   // offline Pole ID reader (about 7 MB)
   'ocr-worker.js', 'vendor/tesseract/tesseract-core-lstm.js', 'vendor/tesseract/tesseract-core-lstm.wasm', 'vendor/tesseract/eng.traineddata',
 ];

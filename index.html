@@ -218,6 +218,9 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 /* v2.41: the Drawing screen: tools on the drawing (as on the map), legend, information line, the plan's options at the bottom */
 .drwtools{position:absolute;right:12px;bottom:12px;display:flex;flex-direction:column;gap:10px;z-index:5}
 .drwtools .round{position:relative}.drwtools .round[aria-pressed=false]{opacity:.62}
+/* beta 4.x: the two plans made from the Drawing (CEF plan, Splicing details): a name beside each round button */
+.drwtools .rlbl{position:absolute;right:calc(100% + 8px);top:50%;transform:translateY(-50%);white-space:nowrap;background:var(--surface);color:var(--ink);border-radius:999px;padding:5px 11px;font-size:calc(12.5px * var(--fs));font-weight:650;line-height:1.2;box-shadow:var(--shadow);pointer-events:auto}
+@media (max-width:339px){.drwtools .rlbl{display:none}}
 .drwmapdot{position:absolute;right:5px;bottom:5px;font:800 9px/1 system-ui;color:var(--accent);font-style:normal}
 .drwmenu{position:absolute;right:calc(var(--tap) + 22px);bottom:12px;z-index:6;background:var(--surface);color:var(--ink);border-radius:var(--r);box-shadow:var(--shadow);padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:210px}
 .drwmenu[hidden]{display:none}.drwmenu b{font-size:calc(12px * var(--fs));color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
@@ -499,7 +502,7 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .tmempty{align-items:flex-start}.tmempty b{font-size:calc(17px * var(--fs))}
 .tmcur{border-left:5px solid var(--accent);gap:10px}
 /* v2.44 beta 4.0: CEF-Plan. The editor is its own page in a frame over the app; a CEF-Plan project's main screen; the rows in Projects and on a site pin */
-#cefSheet{background:linear-gradient(var(--navy),var(--navy)) 0 0/100% calc(env(safe-area-inset-top,0px) + 1px) no-repeat,var(--surface);padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);box-sizing:border-box}#cefFrame{flex:1 1 auto;width:100%;height:100%;min-height:0;border:0;display:block;background:#e8ecf0}
+#cefSheet,#spliceSheet{background:linear-gradient(var(--navy),var(--navy)) 0 0/100% calc(env(safe-area-inset-top,0px) + 1px) no-repeat,var(--surface);padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);box-sizing:border-box}#cefFrame,#spliceFrame{flex:1 1 auto;width:100%;height:100%;min-height:0;border:0;display:block;background:#e8ecf0}
 body.cefproj #pinAddBtn,body.cefproj #routeBtn,body.cefproj #routeFitBtn,body.cefproj #refBtn{display:none}
 body.cefproj #captureBtn svg{display:none}body.cefproj #captureBtn::after{content:"CEF";font-weight:800;font-size:15px;letter-spacing:.05em}
 .curcef{display:flex;flex-direction:column;gap:6px}.curcef .cefrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.curcef .cefrow span{flex:1 1 160px;min-width:0;font-size:calc(13px * var(--fs));color:var(--muted)}
@@ -1048,7 +1051,7 @@ details.psrow[open]>summary::after{transform:rotate(90deg)}
 .dxfsum .btn{align-self:flex-start;flex:none}
 /* v2.43 beta 2.1: what the drawing needs that is not downloaded yet; Maps opened at that download */
 .dxfneed{display:flex;flex-direction:column;gap:8px;border:1px solid color-mix(in srgb,var(--warn) 55%,var(--line));border-radius:var(--r);padding:10px 12px;background:color-mix(in srgb,var(--warn) 9%,var(--surface))}
-.dxfneed[hidden]{display:none}
+.dxfneed[hidden]{display:none}.dxfneed.soft{border-color:var(--line);background:var(--soft)}
 .dxfneed .hd{margin:0;font-size:calc(12px * var(--fs));font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 .dxfneed .r{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 10px;align-items:start}.dxfneed .ic{font-size:20px;line-height:1.2}
 .dxfneed .tx{font-size:calc(13px * var(--fs));line-height:1.4}.dxfneed .btn{grid-column:2;justify-self:start}
@@ -1512,6 +1515,8 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
 
 <!-- red box on a survey photo (v2.13): burned into the saved photo -->
 <section class="sheet" id="cefSheet" hidden aria-label="CEF plan"><iframe id="cefFrame" title="CEF plan" src="about:blank"></iframe></section>
+<!-- beta 4.x: the splicing details (vendor/splice/splice.html), over the app as the CEF plan is -->
+<section class="sheet" id="spliceSheet" hidden aria-label="Splicing details"><iframe id="spliceFrame" title="Splicing details" src="about:blank"></iframe></section>
 <section class="sheet" id="boxer" hidden aria-labelledby="boxTitle">
   <header>
     <button class="iconbtn" data-close aria-label="Cancel"><svg><use href="#i-close"/></svg></button>
@@ -1542,7 +1547,8 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <!-- v2.41: the legend (top left), the tools on the drawing (lower right, as on the map), the information line -->
     <details class="drwlegend" id="drawLegend" open><summary>Legend</summary><div id="drawLegendBody"></div></details>
     <div class="drwtools">
-      <button class="round" id="drawCef" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-label="CEF plans of the tower sites" title="CEF plans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 6 21M12 3l6 18M8.3 14h7.4M9.7 9h4.6M4 21h16"/></svg></button>
+      <button class="round" id="drawCef" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-label="CEF plans of the tower sites" title="CEF plans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 6 21M12 3l6 18M8.3 14h7.4M9.7 9h4.6M4 21h16"/></svg><span class="rlbl" aria-hidden="true">CEF plan</span></button>
+      <button class="round" id="drawSpl" type="button" hidden aria-label="Splicing details of this project" title="Splicing details"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h6l4 4 4-4h6M2 16h6l4-4 4 4h6"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg><span class="rlbl" aria-hidden="true">Splicing details</span></button>
       <button class="round" id="drawFit" type="button" aria-label="Fit: the whole drawing" title="Fit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <button class="round" id="drawLabels" type="button" aria-pressed="true" aria-label="Labels on or off" title="Labels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M12 6v13M9 19h6"/></svg></button>
       <button class="round" id="drawMap" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Map under the drawing: off, offline map, satellite or street map" title="Map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg><i class="drwmapdot" aria-hidden="true"></i></button>
@@ -1813,6 +1819,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="head"><span class="ic">DXF</span><div><b>AutoCAD · DXF</b><p><span id="dxfDescTpl">The plan on your company’s template, ready for AutoCAD, at <span id="dxfZoneLbl2">UTM 51N</span>: what goes on each drawing is set in What to export, on the Drawing.</span><span id="dxfDescSimple">Each point a circle at <span id="dxfZoneLbl">UTM 51N</span> meters with its ID, details and photo beside it, the route with the FOC length of each span (a ZIP: keep the photos with the DXF).</span></p></div></div>
       <div class="dxfsum" id="dxfSum"></div>
       <div class="dxfneed" id="dxfNeed" hidden role="note"></div>
+      <div class="dxfneed soft" id="dxfPlansNeed" hidden role="note"></div>
       <div class="field" id="dxfFilesBox"><span class="lbl" id="dxfFilesLbl">FILES</span><div class="dxffiles" id="dxfFiles"></div>
         <div class="dxfmx" id="dxfMxHost" hidden></div>
         <div class="row dxflinks"><button class="btn small" id="dxfWhat" type="button">Change what to export</button><button class="btn small" id="dxfSetBtn" type="button">Plan settings</button></div></div>

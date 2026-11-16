@@ -65,9 +65,9 @@
      ===================================================================================================== */
   function kindOf(r) {
     var el = r.element || 'Pole', b = r.boq || {};
-    if (el === 'Site') return 'site';
+    if (el === 'Site' || (el === 'ODF' && r._home)) return 'site'; /* (the app: an ODF with no tower site near is a homing itself, an exchange's FDU) */
     if (el === 'ODF') return 'odf';
-    if ((el === 'Pole' || el === 'Handhole' || el === 'Manhole') && (r.closure || r.closureId)) return 'closure';
+    if ((el === 'Pole' || el === 'Handhole' || el === 'Manhole' || el === 'Service box') && (r.closure || r.closureId)) return 'closure';
     if (el === 'Pole' && (r.nap || r.napId) && /dummy/i.test(b.napType || '')) return 'dnap';
     return 'pole';
   }
@@ -96,10 +96,11 @@
       var k = kindOf(r), b = r.boq || {};
       if (k === 'site') {
         var nm = splitName(r.poleId), best = null, bd = 45;
-        odfs.forEach(function (o) { var d = hav(r, o); if (d <= bd) { bd = d; best = o; } });
+        if (r._home) { best = r; bd = 0; } /* an ODF that is its own homing: its own size, no search */
+        else odfs.forEach(function (o) { var d = hav(r, o); if (d <= bd) { bd = d; best = o; } });
         var ports = best ? parseInt(String((best.boq || {}).odf || ''), 10) || 0 : 0;
         add({ id: r.id, type: 'site', name: nm.name, code: nm.code, status: stOf(r.status), ports: ports, odf: best ? best.id : '', odfDist: best ? Math.round(bd) : null,
-          fdu: (nm.code || nm.name.replace(/[^A-Z0-9]+/g, '')) + '_' + (best && best.poleId ? String(best.poleId).toUpperCase() : 'FDU_001') });
+          fdu: r._home ? String(r.poleId || 'FDU_001').trim().toUpperCase() : (nm.code || nm.name.replace(/[^A-Z0-9]+/g, '')) + '_' + (best && best.poleId ? String(best.poleId).toUpperCase() : 'FDU_001') });
       } else if (k === 'closure') add({ id: r.id, type: 'closure', name: cName[r.id], status: stOf(b.cloSt || r.status), coords: llTxt(r), size: b.clo || '', at: r.poleId || '', where: r.element || 'Pole' });
       else if (k === 'dnap') { var nid = String(r.napId || r.poleId || 'DUMMY NAP').trim().toUpperCase(); add({ id: r.id, type: 'dnap', name: nid, code: '', status: stOf(b.napSt || r.status), fdu: nid.replace(/[^A-Z0-9]+/g, '') + '_DNAP', ports: 0, at: r.poleId || '' }); }
     });
@@ -118,12 +119,69 @@
           if (!offBy[oid]) { offBy[oid] = { id: oid, pole: id, at: by[id].poleId || id, fid: R.fid, size: R.size, ex: !!R.ex }; offEnds.push(offBy[oid]); }
           return oid;
         });
-        var pc = { key: R.fid + '.' + (j + 1), fid: R.fid, n: R.n, j: j + 1, of: cut.length - 1, from: ends[0], to: ends[1], size: R.size, fpt: +R.fpt > 0 ? +R.fpt : 12, status: R.ex ? 'existing' : 'new', len: Math.round(len), path: path.slice(i0, i1 + 1) };
+        /* the app keys a piece by its cable and its two ends (it survives a RUN reversed or continued); the demo by its place on the RUN */
+        var key = P.keys === 'ends' ? R.fid + '~' + ends.slice().sort().join('~') : R.fid + '.' + (j + 1);
+        if (pieceBy[key]) key += '~' + (j + 1);
+        var pc = { key: key, fid: R.fid, n: R.n, j: j + 1, of: cut.length - 1, from: ends[0], to: ends[1], size: R.size, fpt: +R.fpt > 0 ? +R.fpt : 12, status: R.ex ? 'existing' : 'new', len: Math.round(len), path: path.slice(i0, i1 + 1) };
+        if (P.app) { pc.cid = R.cid || ''; pc.sizes = R.sizes || null; pc.notSet = !!R.notSet; }
         pieces.push(pc); pieceBy[pc.key] = pc;
       }
     });
     P._B = { P: P, by: by, points: points, ptBy: ptBy, pieces: pieces, pieceBy: pieceBy, offEnds: offEnds, offBy: offBy, runs: runs };
     return P._B;
+  }
+
+  /* =====================================================================================================
+     THE APP'S PROJECT (vendor/splice/splice.html, in a frame over G-eSAA): what app.js sends (records and RUNs) to the bridge's project.
+     It fixes where the app's data differ from the demo's: a Closure pin or a dummy-NAP pin stands on its pole; a closure or dummy NAP
+     with no state is new (as the app draws it); a pole's second box can be the dummy NAP; an ODF on a cable's path stands for its tower
+     site, or is a homing itself when no site is near (an exchange's FDU); an OLT site is Broadband (later): a plain point for now.
+     ===================================================================================================== */
+  var dummyT = function (t) { return /dummy/i.test(t || ''); };
+  function fromApp(d) {
+    d = d || {};
+    /* the sites first (a new tower site is where the splicing starts, before a small cell), then as the app lists them */
+    var rank = function (r) { return r.element === 'Site' ? 0 : r.element === 'ODF' ? 1 : 2; };
+    var recs = (d.records || []).map(function (r, i) { var o = JSON.parse(JSON.stringify(r)); o.boq = o.boq || {}; o._i = i; return o; })
+      .sort(function (a, b) { return rank(a) - rank(b) || a._i - b._i; }), by = {};
+    recs.forEach(function (r) { delete r._i; });
+    recs.forEach(function (r) { by[r.id] = r; });
+    var runs = (d.runs || []).map(function (R) {
+      return { fid: String(R.fid), n: +R.n || 0, size: +R.size || 0, ex: !!R.ex, cab: String(R.cab || ''), fpt: +R.fpt === 6 ? 6 : 12, cid: String(R.cid || ''), len: +R.len || 0, notSet: !!R.notSet,
+        sizes: Array.isArray(R.sizes) && R.sizes.length ? R.sizes.slice() : null, path: (R.path || []).map(String).filter(function (id) { return by[id]; }) };
+    });
+    var onPath = {}, notes = [];
+    runs.forEach(function (R) { R.path.forEach(function (id) { onPath[id] = 1; }); });
+    /* Broadband comes later: an OLT site is a plain point (a cable that ends there leaves the map) */
+    recs.forEach(function (r) { if (r.element === 'Site' && r.siteKind === 'OLT') { r.element = 'OLT'; if (notes.indexOf('olt') < 0) notes.push('olt'); } });
+    /* a closure or dummy NAP with no state set is new, as the app treats it; a pole's second box that is the dummy NAP */
+    recs.forEach(function (r) {
+      var b = r.boq;
+      if ((r.closure || r.closureId) && !b.cloSt) b.cloSt = 'New';
+      if ((r.nap || r.napId) && dummyT(b.napType)) { if (!b.napSt) b.napSt = 'New'; }
+      else if ((r.nap2 || r.nap2Id) && dummyT(b.nap2Type)) { r.nap = true; r.napId = r.nap2Id || ''; b.napType = 'Dummy NAP'; b.napSt = b.nap2St || 'New'; }
+    });
+    /* a Closure pin or a dummy-NAP pin stands on the nearest pole of a cable within 30 m (as the Drawing draws it) */
+    var poles = recs.filter(function (r) { return r.element === 'Pole' && onPath[r.id]; });
+    recs = recs.filter(function (r) {
+      var dn = r.element === 'NAP' && dummyT(r.boq.napType);
+      if (r.element !== 'Closure' && !dn) return r.element !== 'NAP';
+      var best = null, bd = 30; poles.forEach(function (q) { var x = hav(r, q); if (x < bd) { bd = x; best = q; } }); if (!best) return false;
+      var st = r.status === 'Existing' ? 'Existing' : 'New';
+      if (r.element === 'Closure') { if (!(best.closure || best.closureId)) { best.closure = true; best.closureId = r.closureId || r.poleId || ''; best.boq.clo = r.boq.clo || best.boq.clo || ''; best.boq.cloSt = st; } }
+      else if (!((best.nap || best.napId) && dummyT(best.boq.napType))) { best.nap = true; best.napId = r.napId || r.poleId || ''; best.boq.napType = 'Dummy NAP'; best.boq.napSt = st; }
+      return false;
+    });
+    /* an ODF on a cable's path stands for its tower site (45 m); with no site near (an exchange's FDU) it is a homing itself */
+    var sites = recs.filter(function (r) { return r.element === 'Site'; });
+    recs.forEach(function (r) {
+      if (r.element !== 'ODF' || !onPath[r.id]) return; var best = null, bd = 45;
+      sites.forEach(function (s) { var x = hav(r, s); if (x <= bd) { bd = x; best = s; } });
+      if (!best) { r._home = true; return; }
+      runs.forEach(function (R) { R.path = R.path.map(function (id) { return id === r.id ? best.id : id; }).filter(function (id, i, a) { return !i || id !== a[i - 1]; }); });
+    });
+    return { id: String(d.id || d.name || 'project'), name: String(d.name || ''), site: d.site || '', title: d.title || {}, refNames: d.refNames || [],
+      records: recs, runs: runs.filter(function (R) { return R.path.length > 1; }), app: true, keys: 'ends', notes: notes };
   }
 
   /* the project's own records, edited from the drawing (one source of truth). D = { odf: { <ODF record id>: ports }, run: { <fid>: { size, fpt } } }:
@@ -195,6 +253,8 @@
   function countOf(B, A, legId) { return +A.counts[legId] || +A.count || defaultCount(B, A); }
   function legIdsOf(A) { var seen = {}; return (A.to || []).concat(A.later || []).filter(function (t) { if (seen[t]) return false; seen[t] = true; return true; }); }
 
+  /* the app: a RUN's cable ID is typed once and kept on the RUN; each piece prints it with -L1, -L2… (as the reference drawings do) */
+  function cidOf(c) { return c && c.cid ? String(c.cid).replace(/-L\d+$/i, '') + '-L' + c.j : ''; }
   /* the engine's model from the project and the answers. Unanswered facts print as TO BE CONFIRMED.
      An existing cable's in-use fibers are kept for the whole physical cable (its RUN fid): the tubes ticked as in use, and the fibers live
      at the FDUs on its ends (the engine works these out from the live ports; a first pass reads them, a second applies them to every piece). */
@@ -215,7 +275,7 @@
     /* the tubes ticked as in use, in the cable's own buffers (12 or 6 fibers each) */
     var tubeFibers = function (fid, size, fpt) { var out = []; tubesOf(A, fid).forEach(function (t) { for (var f = (t - 1) * fpt + 1; f <= t * fpt && f <= size; f++) out.push(f); }); return out; };
     var cables = B.pieces.map(function (c) {
-      return { id: c.key, fid: c.fid, name: String(A.ids[c.key] || '').trim(), from: c.from, to: c.to, size: c.size, fpt: c.fpt, status: c.status, length: c.len,
+      return { id: c.key, fid: c.fid, name: String(A.ids[c.key] || cidOf(c) || '').trim(), from: c.from, to: c.to, size: c.size, fpt: c.fpt, status: c.status, length: c.len,
         used: c.status === 'existing' ? SP.fmtRanges(tubeFibers(c.fid, c.size, c.fpt)) : '' };
     });
     var ask3 = set.stage === 'built' && !A.testedDone && legIdsOf(A).filter(function (t) { return R.dist[t] != null && (A.legs['g-' + t] || {}).state !== 'future'; }).length >= 2;
@@ -301,7 +361,7 @@
     var pick = function (list, need) { for (var i = 0; i < list.length; i++) if (list[i] >= need) return list[i]; return 0; };
     (plan.fdus || []).forEach(function (f) {
       if (f.type !== 'site') return;
-      var p = B.ptBy[f.id], odf = p && p.ports && p.odf ? B.by[p.odf] : null, lv = f.existing ? liveOf(A, f.id) : '';
+      var p = B.ptBy[f.id], odf = p && p.odf && (p.ports || B.P.app) ? B.by[p.odf] : null, lv = f.existing ? liveOf(A, f.id) : '';
       var typed = lv && lv !== '?' ? SP.parseRanges(lv) : [], past = typed.filter(function (q) { return q > f.cap; });
       var mine = legs.filter(function (l) { return l.a === f.id || l.b === f.id; }).reduce(function (a, l) { return a + l.n; }, 0), live = f.existing ? Math.max(f.active.length, typed.length) : 0;
       var row = { id: f.id, name: nameOf(B, A, f.id), cap: f.cap, existing: f.existing, src: odf ? 'odf' : +A.size[f.id] ? 'answer' : 'cable', odf: odf ? odf.id : '',
@@ -327,14 +387,19 @@
         len += pc.len;
       });
       var c0 = pcs[0], ex = c0.status === 'existing', nT = Math.ceil(c0.size / c0.fpt), ticks = ex ? tubesOf(A, R.fid) : [];
+      var CS = R.sizes && R.sizes.length ? R.sizes : CABLE_SIZES; /* the app: the sizes this RUN can take (a new cable comes only in the app's sizes) */
       var pastT = ticks.filter(function (t) { return t > nT; }), inT = ticks.filter(function (t) { return t <= nT; });
       var row = { fid: R.fid, n: R.n, size: c0.size, fpt: c0.fpt, existing: ex, from: c0.from, to: pcs[pcs.length - 1].to, keys: pcs.map(function (pc) { return pc.key; }),
-        fromName: nameOf(B, A, c0.from), toName: nameOf(B, A, pcs[pcs.length - 1].to), len: len, need: need, used: used, rest: c0.size % c0.fpt, pastT: pastT };
+        fromName: nameOf(B, A, c0.from), toName: nameOf(B, A, pcs[pcs.length - 1].to), len: len, need: need, used: used, rest: c0.size ? c0.size % c0.fpt : 0, pastT: pastT };
+      if (B.P.app) { row.sizes = CS; row.cid = R.cid || ''; row.notSet = !!R.notSet; }
       out.runs.push(row);
       var over = need && need + used > c0.size;
-      if (over || pastT.length) {
+      if (B.P.app && !c0.size) { /* the app: a RUN whose cable type is not set yet has no size to check */
+        row.issue = { key: 'run:' + R.fid, kind: 'cable', fid: R.fid, need: need + used, pick: CS[0], pastT: [], text: 'RUN ' + R.n + ' has no cable type yet (' + row.fromName + ' → ' + row.toName + '). Pick its size here, or set the cable in Route → Cables.' };
+        row.sub = 'Cable type not set'; out.issues.push(row.issue);
+      } else if (over || pastT.length) {
         var span = row.fromName + ' → ' + row.toName, tf = function (ts) { var fs = []; ts.forEach(function (t) { for (var f = (t - 1) * c0.fpt + 1; f <= t * c0.fpt; f++) fs.push(f); }); return SP.fmtRanges(fs, 'F'); };
-        var pk = pick(CABLE_SIZES, Math.max(over ? need + used : 0, pastT.length ? pastT[pastT.length - 1] * c0.fpt : 0)) || CABLE_SIZES[CABLE_SIZES.length - 1];
+        var pk = pick(CS, Math.max(over ? need + used : 0, pastT.length ? pastT[pastT.length - 1] * c0.fpt : 0)) || CS[CS.length - 1];
         var one = pastT.length === 1, pw = pastT.length ? 'the ' + bufNames(pastT) + ' buffer' + (one ? '' : 's') + ' (' + tf(pastT) + '), ticked in use, ' + (one ? 'is' : 'are') + ' past its ' + c0.size + ' fibers, so ' + (one ? 'it is' : 'they are') + ' left out' : '';
         /* what is in use: the fibers live at its FDUs, and the buffers ticked in use (only these can be unticked) */
         var dots = (ctx.dots || {})[R.fid] || [], exEnds = [row.from, row.to].filter(function (id) { return isExistingEnd(B, id); }).map(function (id) { return nameOf(B, A, id); });
@@ -342,7 +407,7 @@
         var text;
         if (over && ex) text = 'The existing ' + c0.size + 'C cable ' + span + ' has no room: ' + (inUse.length ? inUse.join(', ') + ', and ' : used + ' fibers are in use, and ') + 'the legs need ' + need + ' more' + (pw ? '; ' + pw : '') + '. ' +
           (inT.length ? 'Untick a buffer you are not sure of, or if the size is wrong, pick ' + pk + ' or more.' : 'If the size is wrong, pick ' + pk + ' or more.');
-        else if (over) text = 'The ' + c0.size + 'C cable ' + span + ' is too small: the legs need ' + need + ' fibers: ' + (pick(CABLE_SIZES, need) ? 'pick ' + pick(CABLE_SIZES, need) + ' or more.' : 'use fewer fibers.');
+        else if (over) text = 'The ' + c0.size + 'C cable ' + span + ' is too small: the legs need ' + need + ' fibers: ' + (pick(CS, need) ? 'pick ' + pick(CS, need) + ' or more.' : 'use fewer fibers.');
         else text = 'The existing ' + c0.size + 'C cable ' + span + ': ' + pw + '. If ' + (one ? 'it is' : 'they are') + ' in use, pick ' + pk + ' or more; if not, untick ' + (one ? 'it' : 'them') + '.';
         row.issue = { key: 'run:' + R.fid, kind: 'cable', fid: R.fid, need: need + used, pick: pk, pastT: pastT, text: text };
         row.sub = over ? 'Too small: ' + (used ? used + ' in use + ' : '') + need + ' for the legs' : 'The ' + bufNames(pastT) + ' buffer' + (one ? ' is' : 's are') + ' ticked past its ' + c0.size + ' fibers';
@@ -352,8 +417,37 @@
     return out;
   }
 
+  /* saved answers on top of a fresh set, so an answer missing from an older save (or a newer demo) never breaks the page */
+  function mergeAnswers(P, saved) {
+    var A = freshAnswers(P); if (!saved || typeof saved !== 'object' || saved.v !== 1) return A;
+    Object.keys(A).forEach(function (k) {
+      var v = saved[k], d = A[k]; if (v == null) return;
+      if (Array.isArray(d)) { if (Array.isArray(v)) A[k] = v.slice(); }
+      else if (d && typeof d === 'object') { if (v && typeof v === 'object' && !Array.isArray(v)) { if (k === 'draft') { A.draft.live = Object.assign({}, v.live); A.draft.tubes = Object.assign({}, v.tubes); } else A[k] = Object.assign({}, v); } }
+      else if (typeof v === typeof d) A[k] = v;
+    });
+    if (!A.start || !bridge(P).ptBy[A.start]) A.start = freshAnswers(P).start;
+    if (P.app) pruneAnswers(bridge(P), A);
+    return A;
+  }
+  /* the app: answers about records or cables that are not in the project any more (deleted on another phone, merged at an import) go */
+  function pruneAnswers(B, A) {
+    var ok = function (id) { return !!(B.ptBy[id] || B.offBy[id]); }, fids = {};
+    var keepIf = function (o, f) { Object.keys(o || {}).forEach(function (k) { if (!f(k)) delete o[k]; }); };
+    B.runs.forEach(function (R) { fids[R.fid] = 1; });
+    A.to = (A.to || []).filter(ok); A.later = (A.later || []).filter(ok);
+    if (A.toDone && !A.to.length && !A.later.length) A.toDone = false;
+    keepIf(A.legs, function (k) { return ok(k.slice(2)); }); keepIf(A.counts, function (k) { return ok(k.slice(2)); });
+    ['live', 'size', 'split', 'coords'].forEach(function (n) { keepIf(A[n], ok); }); keepIf(A.draft.live, ok);
+    keepIf(A.off, function (pole) { return !!B.offBy['off:' + pole]; });
+    keepIf(A.tubes, function (f) { return !!fids[f]; }); keepIf(A.draft.tubes, function (f) { return !!fids[f]; });
+    Object.keys(A.legs).forEach(function (k) { var L = A.legs[k]; if (L && L.fix) { keepIf(L.fix, function (key) { return !!B.pieceBy[key]; }); if (!Object.keys(L.fix).length) delete L.fix; } });
+    return A;
+  }
+
   var Ask = { PROJECTS: PROJECTS, bridge: bridge, freshAnswers: freshAnswers, modelOf: modelOf, reachOf: reachOf, questions: questions, compute: compute, kindOf: kindOf, nameOf: nameOf,
-    applyData: applyData, freshData: freshData, cleanData: cleanData, baseOf: baseOf, ODF_SIZES: ODF_SIZES, CABLE_SIZES: CABLE_SIZES, version: 'ask-2' };
+    applyData: applyData, freshData: freshData, cleanData: cleanData, baseOf: baseOf, ODF_SIZES: ODF_SIZES, CABLE_SIZES: CABLE_SIZES,
+    fromApp: fromApp, mergeAnswers: mergeAnswers, pruneAnswers: pruneAnswers, version: 'ask-3' };
   root.Ask = Ask;
   if (typeof document === 'undefined' || !document.getElementById('card')) return;
 
@@ -372,57 +466,70 @@
   var tubeRgb = function (t) { return SP.FIBER[(t - 1) % 12].rgb; };
   var phone = function () { return window.innerWidth < 900; };
   var KEY = 'gesaa-splice-ask-demo-1';
+  /* the app's page (splice.html, data-app="splice") in a frame over G-eSAA: the project, the saved answers, the sizes and the exports go
+     through the app (window.parent.__spliceHost); nothing is kept in this browser's storage. Without the attribute it is the demo. */
+  var APP = document.documentElement.getAttribute('data-app') === 'splice';
+  var HOST = APP ? (function () { try { return window.parent !== window && window.parent.__spliceHost ? window.parent.__spliceHost : null; } catch (e) { return null; } })() : null;
 
-  var ST = { pid: 'p1', A: null, D: null, set: { stage: 'plan', tube: 'lowest' }, hist: [], cur: 'start', edit: null, ctx: null, saved: {}, armed: '', countDiff: false, focusKey: '', laterOpen: false, strip: null, sizeOpen: '', otherOpen: '', note: null };
+  var ST = { pid: 'p1', A: null, D: null, set: { stage: 'plan', tube: 'lowest' }, hist: [], cur: 'start', edit: null, ctx: null, saved: {}, armed: '', countDiff: false, focusKey: '', laterOpen: false, strip: null, sizeOpen: '', otherOpen: '', note: null,
+    P: null, view: '', ops: null, busy: false, stage: 'plan' };
 
-  /* ---------- keeping the answers (in this browser only; fine without) ---------- */
-  function loadAll() { try { var s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && s.v === 1) { ST.saved = s.projects || {}; if (s.pid) ST.pid = s.pid; } } catch (e) { ST.saved = {}; } }
+  /* ---------- keeping the answers (the demo: in this browser only, fine without; the app: in the project, through the app) ---------- */
+  function loadAll() { if (APP) return; try { var s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && s.v === 1) { ST.saved = s.projects || {}; if (s.pid) ST.pid = s.pid; } } catch (e) { ST.saved = {}; } }
   function keep() {
+    if (APP) { if (HOST && !ST.view && ST.A) { try { HOST.save({ v: 1, A: ST.A, tube: ST.set.tube }); } catch (e) { /* the app is closing */ } } return; }
     ST.saved[ST.pid] = { A: ST.A, set: ST.set, cur: ST.cur, D: ST.D }; /* D: the sizes changed on the drawing (the project's records), kept with the answers */
     try { localStorage.setItem(KEY, JSON.stringify({ v: 1, pid: ST.pid, projects: ST.saved })); } catch (e) { /* no storage here: the answers last until the page closes */ }
   }
-  var proj = function () { return PROJECTS.filter(function (p) { return p.id === ST.pid; })[0] || PROJECTS[0]; };
-  /* saved answers on top of a fresh set, so an answer missing from an older save (or a newer demo) never breaks the page */
-  function mergeAnswers(P, saved) {
-    var A = freshAnswers(P); if (!saved || typeof saved !== 'object' || saved.v !== 1) return A;
-    Object.keys(A).forEach(function (k) {
-      var v = saved[k], d = A[k]; if (v == null) return;
-      if (Array.isArray(d)) { if (Array.isArray(v)) A[k] = v.slice(); }
-      else if (d && typeof d === 'object') { if (v && typeof v === 'object' && !Array.isArray(v)) { if (k === 'draft') { A.draft.live = Object.assign({}, v.live); A.draft.tubes = Object.assign({}, v.tubes); } else A[k] = Object.assign({}, v); } }
-      else if (typeof v === typeof d) A[k] = v;
-    });
-    if (!A.start || !bridge(P).ptBy[A.start]) A.start = freshAnswers(P).start;
-    return A;
-  }
+  var proj = function () { return APP ? ST.P : PROJECTS.filter(function (p) { return p.id === ST.pid; })[0] || PROJECTS[0]; };
   function openProject(pid) {
     ST.pid = pid; var s = ST.saved[pid], P = proj();
-    ST.D = cleanData(s && s.D); applyData(P, ST.D); ST.sizeOpen = ''; ST.otherOpen = ''; ST.note = null;
+    if (APP) ST.D = null; else { ST.D = cleanData(s && s.D); applyData(P, ST.D); }
+    ST.sizeOpen = ''; ST.otherOpen = ''; ST.note = null;
     ST.A = mergeAnswers(P, s && s.A);
-    ST.set = { stage: s && s.set && s.set.stage === 'built' ? 'built' : 'plan', tube: s && s.set && s.set.tube === 'fresh' ? 'fresh' : 'lowest' };
-    ST.cur = (s && typeof s.cur === 'string' && s.cur) || 'start'; ST.hist = []; ST.edit = null; ST.armed = ''; ST.countDiff = false; ST.focusKey = ''; ST.fitNext = true;
+    ST.set = APP ? { stage: ST.stage === 'built' ? 'built' : 'plan', tube: s && s.set && s.set.tube === 'fresh' ? 'fresh' : 'lowest' }
+      : { stage: s && s.set && s.set.stage === 'built' ? 'built' : 'plan', tube: s && s.set && s.set.tube === 'fresh' ? 'fresh' : 'lowest' };
+    ST.cur = APP ? (ST.A.started ? '' : 'start') : (s && typeof s.cur === 'string' && s.cur) || 'start'; /* (the app: back at the next question still to answer) */
+    ST.hist = []; ST.edit = null; ST.armed = ''; ST.countDiff = false; ST.focusKey = ''; ST.fitNext = true;
     try { render(); } catch (e) {
-      /* a saved state this demo cannot draw: start the project afresh rather than leave a blank page */
-      ST.A = freshAnswers(P); ST.D = freshData(); ST.set = { stage: 'plan', tube: 'lowest' }; ST.cur = 'start'; ST.edit = null; render(); keep();
-      toast('Your saved answers for this project could not be read, so it starts again.');
+      /* a saved state this page cannot draw: start the project afresh rather than leave a blank page (the app keeps the saved answers until a change) */
+      ST.A = freshAnswers(P); if (!APP) ST.D = freshData(); ST.set = { stage: APP ? ST.set.stage : 'plan', tube: 'lowest' }; ST.cur = 'start'; ST.edit = null; render(); if (!APP) keep();
+      toast(APP ? 'Your saved answers could not be shown, so this starts afresh. They are kept until you change something.' : 'Your saved answers for this project could not be read, so it starts again.');
     }
   }
 
   /* ---------- changes: every change can be undone ---------- */
   var snap = function () { return JSON.stringify({ A: ST.A, D: ST.D, set: ST.set, cur: ST.cur, edit: ST.edit }); };
   /* everything the page shows for the current answers, on the project's records as they are now */
-  function recompute() { var P = proj(); applyData(P, ST.D); return compute(P, ST.A, ST.set); }
+  function recompute() { var P = proj(); if (!APP) applyData(P, ST.D); return compute(P, ST.A, ST.set); }
   function change(fn, opt) {
     opt = opt || {};
+    if (APP && ST.view) { toast(ST.view); return; } /* the app: an accepted task is view-only */
+    if (APP && ST.busy) { toast('Saving…'); return; }
     ST.hist.push(snap()); if (ST.hist.length > 80) ST.hist.shift();
     var was = ST.cur + '|' + (ST.edit ? ST.edit.kind + ST.edit.id : '');
+    if (APP) ST.ops = [];
     fn(ST.A, ST.set);
-    ST.armed = ''; ST.note = opt.note || null; ST.otherOpen = '';
-    if (opt.advance) { ST.edit = null; ST.ctx = recompute(); ST.cur = nextQ(); }
-    if (opt.cur) { ST.cur = opt.cur; ST.edit = null; }
-    render(); keep();
-    var tt = typeof opt.toast === 'function' ? opt.toast() : opt.toast;
-    if (tt) toast(tt); else hideToast();
-    if (ST.cur + '|' + (ST.edit ? ST.edit.kind + ST.edit.id : '') !== was) settle();
+    var after = function () {
+      ST.armed = ''; ST.note = opt.note || null; ST.otherOpen = '';
+      if (opt.advance) { ST.edit = null; ST.ctx = recompute(); ST.cur = nextQ(); }
+      if (opt.cur) { ST.cur = opt.cur; ST.edit = null; }
+      render(); keep();
+      var tt = typeof opt.toast === 'function' ? opt.toast() : opt.toast;
+      if (tt) toast(tt); else hideToast();
+      if (ST.cur + '|' + (ST.edit ? ST.edit.kind + ST.edit.id : '') !== was) settle();
+    };
+    var ops = APP ? ST.ops : null; ST.ops = null;
+    if (!ops || !ops.length) { after(); return; }
+    /* the app: a size or a cable ID is written on the project's own record or cable first; the page goes on with what the app answers */
+    ST.busy = true;
+    hostOps(ops).then(function (r) {
+      ST.busy = false;
+      if (!r.ok) { var s0 = JSON.parse(ST.hist.pop()); ST.A = s0.A; ST.set = s0.set; render(); if (!r.cancelled) toast(r.msg || 'Not saved. Try again.'); return; }
+      var top = JSON.parse(ST.hist[ST.hist.length - 1]); top.ops = r.undo; ST.hist[ST.hist.length - 1] = JSON.stringify(top);
+      if (r.project) ST.P = fromApp(r.project);
+      after();
+    });
   }
   /* a new card: for a moment it takes no taps, so a nervous double tap cannot also answer the next question under the same finger */
   var settleT = 0;
@@ -432,10 +539,49 @@
     ST.settleUntil = t0 + 220; ST.settleFrom = ST.tapFrom || 'card'; ST.tapFrom = ''; card.classList.add('settling'); clearTimeout(settleT);
     settleT = setTimeout(function () { card.classList.remove('settling'); }, Math.max(0, ST.settleUntil - Date.now()));
   }
+  /* the app: the queued writes, one cable (RUN) or ODF record at a time, each with what puts it back (Undo); one that fails puts back
+     those already written (rare: one change writes one thing) */
+  var hostOne = function (x) { return x.k === 'odf' ? HOST.setOdfSize(x.id, x.to) : HOST.setRun(x.fid, x.o); };
+  function hostSeq(list) {
+    var last = null, i = 0;
+    var next = function () {
+      if (i >= list.length) return Promise.resolve({ ok: true, project: last });
+      var x = list[i++];
+      return Promise.resolve(hostOne(x)).then(function (r) { if (!r || !r.ok) return { ok: false, msg: r && r.msg, cancelled: !!(r && r.cancelled), at: i - 1 }; if (r.project) last = r.project; return next(); });
+    };
+    return next();
+  }
+  function hostOps(ops) {
+    if (!HOST) return Promise.resolve({ ok: false, msg: 'The app is not there: close this page and open it again from the Drawing.' });
+    var order = [], runs = {};
+    ops.forEach(function (o) {
+      if (o.k === 'odf') { order.push({ k: 'odf', id: o.id, to: o.to, inv: { k: 'odf', id: o.id, to: o.from } }); return; }
+      var x = runs[o.fid]; if (!x) { x = runs[o.fid] = { k: 'run', fid: o.fid, o: {}, inv: { k: 'run', fid: o.fid, o: {} } }; order.push(x); }
+      x.o[o.key] = o.to; if (!(o.inv.key in x.inv.o)) x.inv.o[o.inv.key] = o.inv.to;
+    });
+    var undo = order.map(function (x) { return x.inv; }).reverse();
+    return hostSeq(order).then(function (r) {
+      if (r.ok) return { ok: true, project: r.project, undo: undo };
+      var back = order.slice(0, r.at).map(function (x) { return x.inv; }).reverse();
+      return (back.length ? hostSeq(back) : Promise.resolve()).then(function () { return r; }, function () { return r; });
+    }).then(null, function (e) { return { ok: false, msg: 'Not saved: ' + ((e && e.message) || 'try again') }; });
+  }
+  function hostUndo(list) {
+    if (!HOST) return Promise.resolve({ ok: false, msg: 'The app is not there.' });
+    return hostSeq(list).then(null, function (e) { return { ok: false, msg: 'Not undone: ' + ((e && e.message) || 'try again') }; });
+  }
   function undo() {
     if (!ST.hist.length) return;
-    var was = legSnap(), s = JSON.parse(ST.hist.pop()); ST.A = s.A; ST.D = cleanData(s.D); ST.set = s.set; ST.cur = s.cur; ST.edit = s.edit; ST.armed = ''; ST.note = null; ST.otherOpen = '';
-    render(); keep(); toast('Undone.' + legMoves(was)); /* and where the legs went back to, when they moved */
+    if (APP && ST.view) return;
+    if (APP && ST.busy) { toast('Saving…'); return; }
+    var was = legSnap(), top = JSON.parse(ST.hist[ST.hist.length - 1]);
+    var back = function (s) { ST.A = s.A; ST.D = APP ? null : cleanData(s.D); ST.set = s.set; ST.cur = s.cur; ST.edit = s.edit; ST.armed = ''; ST.note = null; ST.otherOpen = ''; render(); keep(); toast('Undone.' + legMoves(was)); }; /* and where the legs went back to, when they moved */
+    if (APP && top.ops && top.ops.length) { /* the app: the record's or the cable's old size or ID is written back first */
+      ST.busy = true;
+      hostUndo(top.ops).then(function (r) { ST.busy = false; if (!r.ok) { toast(r.msg || 'Not undone. Try again.'); return; } if (r.project) ST.P = fromApp(r.project); ST.hist.pop(); back(top); });
+      return;
+    }
+    ST.hist.pop(); back(top);
   }
   /* the legs' fibers before a size change, and in words where they went after it ("Leg 1 now F31-42 on CL-0903.") */
   function legSnap() { var o = {}; ((ST.ctx && ST.ctx.plan.legs) || []).forEach(function (l) { var f = {}; l.fibers.forEach(function (x) { f[x.key] = x.text; }); o[l.id] = { f: f, ports: 'P' + (l.portA || '-') + ' / P' + (l.portB || '-') }; }); return o; }
@@ -637,8 +783,9 @@
     var P = proj(); ST.ctx = recompute();
     if (!ST.ctx.qs.some(function (q) { return q.key === ST.cur; })) ST.cur = nextQ();
     if (ST.edit && !editValid()) ST.edit = null;
-    $('#projName').textContent = P.id.slice(1) + ' · ' + P.name;
+    $('#projName').textContent = APP ? P.name || 'This project' : P.id.slice(1) + ' · ' + P.name;
     $('#undoBtn').disabled = !ST.hist.length;
+    if (APP) { $('#undoBtn').hidden = !!ST.view; var vo = $('#viewOnly'); if (vo) { vo.hidden = !ST.view; vo.textContent = ST.view ? ST.view + ' You can look and export; nothing can be changed.' : ''; } }
     var badge = $('#stageBadge'); badge.textContent = ST.set.stage === 'built' ? 'AS-BUILT' : 'AS-PLAN'; badge.setAttribute('data-stage', ST.set.stage);
     var ids = ST.ctx.unnamed.length, ib = $('#idsBtn');
     ib.hidden = !ids; ib.innerHTML = '<b>' + ids + '</b> cable ID' + (ids === 1 ? '' : 's') + ' to follow';
@@ -787,8 +934,8 @@
     return html;
   }
   function qSize(id) {
-    var A = ST.A, cur = +A.size[id] || 0;
-    return kicker() + '<h2>How many ports has ' + esc(nm(id)) + '\'s new FDU?</h2><p class="lead">There is no ODF record near this site, so the app does not know its size.</p>' +
+    var A = ST.A, cur = +A.size[id] || 0, p = C().B.ptBy[id], rec = APP && p && p.odf ? C().B.by[p.odf] : null;
+    return kicker() + '<h2>How many ports has ' + esc(nm(id)) + '\'s new FDU?</h2><p class="lead">' + (rec ? 'Its ODF record ' + esc(String(rec.poleId || 'ODF').toUpperCase()) + ' has no size yet. The size you pick goes on that record (plan and BOQ).' : 'There is no ODF record near this site, so the app does not know its size.') + '</p>' +
       '<div class="chips">' + ODF_SIZES.map(function (n) { return '<button type="button" class="chip' + (cur === n ? ' lit' : '') + '" data-act="size" data-arg="' + esc(id + '|' + n) + '">' + n + '</button>'; }).join('') + '</div>' +
       '<p class="note">Adding an ODF record beside the site in the survey fills this in by itself. You can change it later: tap the FDU on the drawing, or Sizes on the Ready screen.</p>';
   }
@@ -991,12 +1138,12 @@
   }
   function runSizeBlock(fid) {
     var r = runRow(fid); if (!r) return '';
-    var open = ST.sizeOpen === 'run:' + fid, other = r.existing && CABLE_SIZES.indexOf(r.size) < 0;
-    var html = '<div class="sizeline"><span class="sz"><b>' + r.size + 'C</b> · ' + (r.existing ? 'existing' : 'new') + (r.existing ? '' : ' · ' + kmTxt(r.len)) + '<small>' + esc('RUN ' + r.n + ': ' + r.fromName + ' → ' + r.toName) + '</small></span>' +
+    var CS = r.sizes || CABLE_SIZES, open = ST.sizeOpen === 'run:' + fid, other = r.existing && CS.indexOf(r.size) < 0;
+    var html = '<div class="sizeline"><span class="sz"><b>' + (r.notSet ? 'Cable type not set' : r.size + 'C') + '</b> · ' + (r.existing ? 'existing' : 'new') + (r.existing ? '' : ' · ' + kmTxt(r.len)) + '<small>' + esc('RUN ' + r.n + ': ' + r.fromName + ' → ' + r.toName) + '</small></span>' +
       '<button type="button" class="btn small" data-act="sizeOpen" data-arg="' + esc('run:' + fid) + '" aria-expanded="' + open + '">' + (open ? 'Done' : 'Change') + '</button></div>';
     if (r.issue) html += cardIssue(r.issue, open);
     if (open) {
-      html += '<div class="chips szchips" role="group" aria-label="Cable size in fibers">' + CABLE_SIZES.map(function (n) {
+      html += '<div class="chips szchips" role="group" aria-label="Cable size in fibers">' + CS.map(function (n) {
         return '<button type="button" class="chip' + (r.size === n ? ' lit' : '') + '" data-act="runSize" data-arg="' + esc(fid + '|' + n) + '" aria-pressed="' + (r.size === n) + '">' + n + '</button>';
       }).join('') + (r.existing ? '<button type="button" class="chip soft' + (other ? ' lit' : '') + '" data-act="runOther" data-arg="' + esc(fid) + '" aria-pressed="' + other + '">' + (other ? 'Other: ' + r.size : 'Other…') + '</button>' : '') + '</div>';
       if (ST.otherOpen === fid) html += '<div class="field"><label for="runOther">Fibers in this existing cable (2 to 576)</label><div class="inrow"><input class="inp" id="runOther" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" value="' + r.size + '">' +
@@ -1032,10 +1179,20 @@
   }
   /* the project's records: an edit back to the made-up value leaves no edit behind */
   function setOdf(recId, n) {
+    if (APP) { /* the app: queued for the ODF record itself (written through the app when the change is made) */
+      var rr = C().B.by[recId], from = rr ? parseInt(String((rr.boq || {}).odf || ''), 10) || 0 : 0;
+      if (n !== from) ST.ops.push({ k: 'odf', id: recId, to: n, from: from }); return;
+    }
     var b = baseOf(proj()).records.filter(function (r) { return r.id === recId; })[0], bv = b ? parseInt(String((b.boq || {}).odf || ''), 10) || 0 : 0;
     if (n === bv) delete ST.D.odf[recId]; else ST.D.odf[recId] = n;
   }
   function setRun(fid, k, v) {
+    if (APP) { /* the app: queued for the cable (RUN) itself; Undo writes back what it was (a new cable's type, so no question is asked) */
+      var R = (proj().runs || []).filter(function (x) { return x.fid === fid; })[0]; if (!R) return;
+      var cur = k === 'size' ? R.size : k === 'fpt' ? R.fpt : R.cid || '';
+      var inv = k === 'size' ? (R.ex ? { key: 'size', to: R.size } : { key: 'cab', to: R.cab || '' }) : k === 'fpt' ? { key: 'fpt', to: R.fpt } : { key: 'cid', to: R.cid || '' };
+      if (v !== cur) ST.ops.push({ k: 'run', fid: fid, key: k, to: v, inv: inv }); return;
+    }
     var b = baseOf(proj()).runs.filter(function (R) { return R.fid === fid; })[0] || {}, bv = k === 'fpt' ? +b.fpt || 12 : +b.size, o = Object.assign({}, ST.D.run[fid]);
     if (v === bv) delete o[k]; else o[k] = v;
     if (Object.keys(o).length) ST.D.run[fid] = o; else delete ST.D.run[fid];
@@ -1119,8 +1276,10 @@
     var c = C(), cb = c.cab[key], pc = c.B.pieceBy[key], ci = c.infoBy[key], A = ST.A;
     var html = cardHead((cb.status === 'existing' ? 'Existing ' : 'New ') + cb.size + '-fiber cable', esc(nm(cb.from)) + ' – ' + esc(nm(cb.to)));
     html += runSizeBlock(pc.fid);
-    html += '<div class="field"><label for="cabId">Cable ID</label><input class="inp" id="cabId" maxlength="24" autocomplete="off" autocapitalize="characters" placeholder="TBF" value="' + esc(A.ids[key] || '') + '"><small>Cable IDs can come later: the drawing prints TBF until you add it.</small></div>' +
-      '<div class="btnrow"><button type="button" class="btn primary" data-act="cabId" data-arg="' + esc(key) + '">' + (A.ids[key] ? 'Rename' : 'Save the ID') + '</button></div>';
+    var idNow = APP ? pc.cid || '' : A.ids[key] || '';
+    html += '<div class="field"><label for="cabId">Cable ID' + (APP ? ' of RUN ' + pc.n : '') + '</label><input class="inp" id="cabId" maxlength="24" autocomplete="off" autocapitalize="characters" placeholder="TBF" value="' + esc(idNow) + '"><small>' +
+      (APP ? 'Kept on the cable (RUN ' + pc.n + '), so every phone sees it. Each piece prints it with -L1, -L2… It can come later: the drawing prints TBF until then.' : 'Cable IDs can come later: the drawing prints TBF until you add it.') + '</small></div>' +
+      '<div class="btnrow"><button type="button" class="btn primary" data-act="cabId" data-arg="' + esc(key) + '">' + (idNow ? 'Rename' : 'Save the ID') + '</button></div>';
     html += '<dl class="kv">' + (cb.status === 'existing' || pc.of < 2 ? '' : '<dt>This piece</dt><dd>' + kmTxt(cb.length) + '</dd>') + '<dt>Cable</dt><dd>RUN ' + pc.n + (pc.of > 1 ? ', piece ' + pc.j + ' of ' + pc.of : '') + '</dd></dl>';
     if (ci && ci.legs.length) html += '<h3>Legs on it</h3>' + ci.legs.map(function (l) { var L = c.legBy[l.leg]; return '<div class="note" style="color:var(--ink)">' + esc(L ? L.label + ' → ' + nm(L.b) : l.leg) + ': <span class="mono">' + esc(SP.fmtRanges(l.fibers, 'F')) + '</span></div>'; }).join('');
     if (cb.status === 'existing') html += '<div class="btnrow"><button type="button" class="btn" data-act="goto" data-arg="' + esc('tubes:' + pc.fid) + '">Buffers in use ›</button></div>';
@@ -1252,7 +1411,11 @@
       case 'countDiff': ST.countDiff = true; render(); return;
       case 'countLeg': change(function (A) { A.counts[parts[0]] = +parts[1]; }); return;
       case 'countDone': ST.countDiff = false; change(function (A) { A.countDone = true; }, { advance: true }); return;
-      case 'size': change(function (A) { A.size[parts[0]] = +parts[1]; }, { advance: !ST.edit }); return;
+      case 'size': {
+        var sp0 = APP ? c.B.ptBy[parts[0]] : null; /* the app: a site whose ODF record has no size yet: the size goes on the record */
+        if (sp0 && sp0.odf) { change(function () { setOdf(sp0.odf, +parts[1]); }, { advance: !ST.edit, toast: 'ODF record: ' + parts[1] + ' ports.' }); return; }
+        change(function (A) { A.size[parts[0]] = +parts[1]; }, { advance: !ST.edit }); return;
+      }
       case 'split': change(function (A) { A.split[parts[0]] = parts[1]; }, { advance: !ST.edit }); return;
       case 'tested': change(function (A) {
         c.plan.legs.forEach(function (l) { if (l.state === 'future' || !l.routed) return; var L = A.legs[l.id] = A.legs[l.id] || {}; L.state = arg === 'all' || arg === l.id ? 'tested' : 'spliced'; });
@@ -1366,6 +1529,7 @@
       }
       case 'cabId': {
         var iv = String(($('#cabId') || {}).value || '').trim().toUpperCase().slice(0, 24);
+        if (APP) { var pcI = c.B.pieceBy[arg]; if (!pcI) return; change(function () { setRun(pcI.fid, 'cid', iv); }, { toast: iv ? 'Cable ID of RUN ' + pcI.n + ': ' + iv + '. Each piece prints it with -L1, -L2…' : 'RUN ' + pcI.n + ' prints TBF.' }); return; }
         change(function (A) { if (iv) A.ids[arg] = iv; else delete A.ids[arg]; }, { toast: iv ? 'Cable ID saved: ' + iv : 'The cable prints TBF.' }); return;
       }
       case 'coords': change(function (A) { A.coords[arg] = !A.coords[arg]; }); return;
@@ -1422,13 +1586,14 @@
   function openChoices() {
     var s = ST.set, armed = ST.armed === 'reset';
     openOverlay(head('Your choices') + '<div class="sbd">' +
-      '<h3 style="margin-top:0">This drawing is for</h3><div class="seg"><button type="button" data-stage="plan" aria-pressed="' + (s.stage === 'plan') + '"><b>As-Plan</b><span>Checks there are free fibers. No testing words.</span></button>' +
-      '<button type="button" data-stage="built" aria-pressed="' + (s.stage === 'built') + '"><b>As-Built</b><span>Adds the testing: tested, spliced only, not built yet.</span></button></div>' +
+      '<h3 style="margin-top:0">This drawing is for</h3>' + (APP ? '<p class="note">This project is ' + (s.stage === 'built' ? '<b>As-Built</b>: the testing is asked (tested, spliced only, not built yet)' : '<b>As-Plan</b>: it checks there are free fibers, with no testing words') + '. It follows the project\'s Purpose (Projects).</p>'
+        : '<div class="seg"><button type="button" data-stage="plan" aria-pressed="' + (s.stage === 'plan') + '"><b>As-Plan</b><span>Checks there are free fibers. No testing words.</span></button>' +
+      '<button type="button" data-stage="built" aria-pressed="' + (s.stage === 'built') + '"><b>As-Built</b><span>Adds the testing: tested, spliced only, not built yet.</span></button></div>') +
       '<h3>Fibers on an existing cable</h3><button type="button" class="sw" role="switch" data-tube aria-checked="' + (s.tube === 'fresh') + '"><span class="tx"><b>Fresh buffer instead of the lowest free fiber</b><span>On: never open a buffer (tube) that has a live fiber. Off: the lowest free fibers in one buffer (the usual).</span></span><span class="tg"></span></button>' +
       (ST.A.locked ? '<div class="ck info"><div>Fibers are locked since the first export: this applies to new legs.<button type="button" class="btn small" data-unlock>Let the app choose again</button></div></div>' : '') +
       '<p class="note">How a new FDU\'s ports are shared and the cable IDs are asked on the way (tap the FDU or the cable to change them).</p>' +
       '<h3>This project</h3><button type="button" class="btn danger' + (armed ? ' armed' : '') + '" data-reset>' + (armed ? 'Tap again to start over' : 'Start this project again') + '</button>' +
-      '<p class="note">Your answers and the sizes you changed go back to how this made-up sample came. Undo brings them back.</p></div>');
+      '<p class="note">' + (APP ? 'Your answers go back to the start. The sizes stay as the records and cables have them. Undo brings your answers back.' : 'Your answers and the sizes you changed go back to how this made-up sample came. Undo brings them back.') + '</p></div>');
   }
   /* the A3 sheets: a chip per sheet, named (Single line, Key map, A-01, B-01 …), and ‹ › to step through them. On the key map a tap on
      a grid cell opens that cell's sheet; on a grid sheet so does a tap on the locator or on a MATCH LINE · SEE label. */
@@ -1480,10 +1645,16 @@
   }
 
   /* downloads: inside the claude.ai viewer through its downloads capability, else a plain <a download> (the same as splice-demo.html) */
-  var dl = null, inViewer = !!(window.claude && typeof window.claude.use === 'function');
+  var dl = null, inViewer = !APP && !!(window.claude && typeof window.claude.use === 'function');
   if (inViewer) window.claude.use('downloads').then(function (x) { dl = x; }, function () { dl = null; });
   function baseName() { var t = C().model.title || {}; return ([t.project, t.planId, t.site].filter(Boolean).join('_') || 'SPLICING').toUpperCase().replace(/[^A-Z0-9_-]+/g, '-').replace(/-+/g, '-').slice(0, 80); }
   function save(name, bytes) {
+    if (APP) { /* the app's own save and share (the website's Send panel, the phone's share sheet), with who exported it */
+      if (!HOST) { toast('The app is not there: close this page and open it again.'); return; }
+      var kind = /\.pdf$/i.test(name) ? 'pdf' : /\.dxf$/i.test(name) ? 'dxf' : 'zip';
+      try { Promise.resolve(HOST.deliver(name, bytes, kind)).then(function () {}, function (e) { toast('Not saved: ' + ((e && e.message) || 'try again')); }); } catch (e) { toast('Not saved: ' + ((e && e.message) || 'try again')); }
+      return;
+    }
     if (inViewer) {
       var go = function () {
         if (!dl) { toast('Saving files is not available in this view.'); return; }
@@ -1521,7 +1692,7 @@
     /* an export issues the drawing: each leg's fibers lock where they are (as a range, 'F7-12', so a leg that grows later never takes
        another leg's issued fibers). Fibers on an existing cable lock only once its live ports and tubes are answered. */
     var lk = locksNow();
-    if (lk.add || !ST.A.locked) change(function (A) { A.locked = true; lk.apply(A); });
+    if ((lk.add || !ST.A.locked) && !(APP && ST.view)) change(function (A) { A.locked = true; lk.apply(A); }); /* (the app: a view-only project is exported as it is) */
     var r = SP.build(C().model, views), tag = views.length === 2 ? 'SPLICING-SET' : views[0] === 'sld' ? 'SLD' : 'SPLICING-DETAILS', base = baseName() + '_' + tag, enc = new TextEncoder();
     var pdf = function () { return SP.toPDF(r.sheets, { title: base }); }, dxf = function () { return enc.encode(SP.toDXF(r.sheets)); };
     ST.lastExport = { fmt: fmt, views: views, base: base };
@@ -1546,6 +1717,7 @@
     ST.armed = ''; ST.sizeOpen = ''; ST.otherOpen = ''; ST.note = null; render();
   }
   function boot() {
+    if (APP && !HOST) { $('#nohost').hidden = false; var ap0 = $('.app'); if (ap0) ap0.style.display = 'none'; return; } /* opened by itself: it needs the app */
     var setVh = function () { document.documentElement.style.setProperty('--vh', window.innerHeight + 'px'); var st = $('.stage'); if (st) st.classList.toggle('short', st.clientHeight < 270); };
     /* typing on a phone: fold the drawing away and keep the field and its button in view (again when the keyboard has opened);
        unfold when the keyboard closes, or a moment after the field loses focus, so a tap on the button lands where it was */
@@ -1576,7 +1748,8 @@
     $('#undoBtn').addEventListener('click', undo);
     $('#choicesBtn').addEventListener('click', function () { ST.armed = ''; openChoices(); });
     $('#stageBadge').addEventListener('click', function () { ST.armed = ''; openChoices(); });
-    $('#projBtn').addEventListener('click', openProjects);
+    if (APP) $('#doneBtn').addEventListener('click', function () { keep(); try { HOST.close(); } catch (e) { /* closed already */ } });
+    else $('#projBtn').addEventListener('click', openProjects);
     $('#sheetsBtn').addEventListener('click', openSheets);
     $('#idsBtn').addEventListener('click', function () { var u = C().unnamed; if (u.length) { ST.edit = { kind: 'cable', id: u[0] }; render(); } });
     document.querySelector('.tools').addEventListener('click', function (e) { var b = e.target.closest('[data-zoom]'); if (!b) return; var z = b.getAttribute('data-zoom'); if (z === 'fit') fitAll(true); else viewer.zoom(z === 'in' ? 0.7 : 1 / 0.7); });
@@ -1589,7 +1762,7 @@
       if ((b = e.target.closest('[data-unlock]'))) { act('unlock'); openChoices(); return; }
       if ((b = e.target.closest('[data-reset]'))) {
         if (ST.armed !== 'reset') { ST.armed = 'reset'; openChoices(); return; }
-        change(function () { ST.A = freshAnswers(proj()); ST.D = freshData(); }, { cur: 'start', toast: 'Started again, sizes as the sample came. Undo brings your answers back.' }); ST.fitNext = true; render(); closeOverlay(); return;
+        change(function () { ST.A = freshAnswers(proj()); if (!APP) ST.D = freshData(); }, { cur: 'start', toast: APP ? 'Started again. The sizes stay as the records and cables have them. Undo brings your answers back.' : 'Started again, sizes as the sample came. Undo brings your answers back.' }); ST.fitNext = true; render(); closeOverlay(); return;
       }
       if ((b = e.target.closest('[data-sheet]'))) { showSheet(+b.getAttribute('data-sheet')); return; }
       if ((b = e.target.closest('[data-spage]'))) { if (sheetViewer) showSheet(sheetViewer.page + +b.getAttribute('data-spage')); return; }
@@ -1602,8 +1775,22 @@
       if (sheetViewer && !ovl().hidden && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !/INPUT|SELECT|TEXTAREA/.test((document.activeElement || {}).tagName || '')) { e.preventDefault(); showSheet(sheetViewer.page + (e.key === 'ArrowLeft' ? -1 : 1)); }
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !/INPUT/.test((document.activeElement || {}).tagName || '')) { e.preventDefault(); undo(); }
     });
+    if (APP) { appStart(); return; }
     loadAll(); openProject(PROJECTS.some(function (p) { return p.id === ST.pid; }) ? ST.pid : 'p1');
   }
-  root.AskPage = { state: ST, act: act, undo: undo, compute: function () { return C(); } };
+  /* the app: the project as it is now, the saved answers, As-Plan or As-Built (the project's Purpose), view-only, the point to show first */
+  function appStart() {
+    Promise.resolve(HOST.init()).then(function (d) {
+      if (!d || !d.project) { $('#nohost').hidden = false; $('.app').style.display = 'none'; return; }
+      ST.stage = d.stage === 'built' ? 'built' : 'plan'; ST.view = String(d.viewOnly || ''); ST.P = fromApp(d.project); ST.pid = ST.P.id;
+      ST.saved = {}; ST.saved[ST.P.id] = d.saved && d.saved.A ? { A: d.saved.A, set: { stage: ST.stage, tube: d.saved.tube } } : null;
+      openProject(ST.P.id);
+      var f = String(d.focus || ''), B0 = C().B;
+      if (f && !B0.ptBy[f]) { var hp = B0.points.filter(function (p) { return p.odf === f; })[0]; f = hp ? hp.id : ''; } /* an ODF tapped: its site */
+      if (f && B0.ptBy[f]) { ST.edit = { kind: 'pt', id: f }; render(); }
+      if (ST.P.notes.indexOf('olt') >= 0) toast('OLT sites are Broadband: they come later. The tower sites are drawn now.');
+    }, function (e) { toast('The project could not be read (' + ((e && e.message) || 'try again') + '). Close this page and open it again.'); });
+  }
+  root.AskPage = { state: ST, act: act, undo: undo, compute: function () { return C(); }, app: APP, flush: function () { if (APP && ST.A && !ST.busy) keep(); } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })(typeof window !== 'undefined' ? window : globalThis);
