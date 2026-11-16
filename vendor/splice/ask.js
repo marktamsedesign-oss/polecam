@@ -6,6 +6,8 @@
      plain pole "leaves the map" and its homing is named once.
    - The page: the live single line diagram on top (the engine's own drawing, so what you see is what prints), one plain question at
      a time below, tap anything on the drawing to change it, Undo, the A3 sheets and the export (PDF, DXF or both).
+   - Sizes: the FDU and cable cards (and the Ready screen's Sizes list) change the project's own records: the ODF record's size, the
+     cable RUN's size and fibers per buffer (12 or 6). The demo writes them into its made-up records, so everything reads them from there.
    Answers are kept by record id and cable fid, never by RUN number. Everything here is made up: sites, codes, closure and cable IDs,
    coordinates and names. Plain ES2015 for old Android WebViews and iOS Safari (no ?. or ??, no regex lookbehind). */
 (function (root) {
@@ -116,13 +118,39 @@
           if (!offBy[oid]) { offBy[oid] = { id: oid, pole: id, at: by[id].poleId || id, fid: R.fid, size: R.size, ex: !!R.ex }; offEnds.push(offBy[oid]); }
           return oid;
         });
-        var pc = { key: R.fid + '.' + (j + 1), fid: R.fid, n: R.n, j: j + 1, of: cut.length - 1, from: ends[0], to: ends[1], size: R.size, status: R.ex ? 'existing' : 'new', len: Math.round(len), path: path.slice(i0, i1 + 1) };
+        var pc = { key: R.fid + '.' + (j + 1), fid: R.fid, n: R.n, j: j + 1, of: cut.length - 1, from: ends[0], to: ends[1], size: R.size, fpt: +R.fpt > 0 ? +R.fpt : 12, status: R.ex ? 'existing' : 'new', len: Math.round(len), path: path.slice(i0, i1 + 1) };
         pieces.push(pc); pieceBy[pc.key] = pc;
       }
     });
     P._B = { P: P, by: by, points: points, ptBy: ptBy, pieces: pieces, pieceBy: pieceBy, offEnds: offEnds, offBy: offBy, runs: runs };
     return P._B;
   }
+
+  /* the project's own records, edited from the drawing (one source of truth). D = { odf: { <ODF record id>: ports }, run: { <fid>: { size, fpt } } }:
+     in the app these are the ODF record's size (boq.odf) and the cable RUN's size and fibers per buffer; here they are written into the made-up
+     project's records and RUNs, so the bridge, the engine, the drawing and the counts all read them from there, like any other record. */
+  var ODF_SIZES = [12, 24, 48, 72, 144, 288], CABLE_SIZES = [12, 24, 48, 72, 96, 144, 288], FPTS = [12, 6];
+  function freshData() { return { odf: {}, run: {} }; }
+  /* saved data from this browser, checked; anything odd is left out, an old save without it gives none */
+  function cleanData(d) {
+    var D = freshData(); if (!d || typeof d !== 'object') return D;
+    Object.keys(d.odf || {}).forEach(function (k) { var v = Math.round(+d.odf[k]); if (v >= 1 && v <= 2000) D.odf[k] = v; });
+    Object.keys(d.run || {}).forEach(function (k) {
+      var r = d.run[k] || {}, o = {}, sz = Math.round(+r.size), f = Math.round(+r.fpt);
+      if (sz >= 2 && sz <= 576) o.size = sz; if (FPTS.indexOf(f) >= 0) o.fpt = f; if (o.size || o.fpt) D.run[k] = o;
+    });
+    return D;
+  }
+  function applyData(P, D) {
+    D = D || freshData(); var key = JSON.stringify(D); if (P._dataKey === key && P._base) return;
+    if (!P._base) P._base = { records: JSON.parse(JSON.stringify(P.records)), runs: JSON.parse(JSON.stringify(P.runs)) };
+    var recs = JSON.parse(JSON.stringify(P._base.records)), runs = JSON.parse(JSON.stringify(P._base.runs));
+    recs.forEach(function (r) { var v = (D.odf || {})[r.id]; if (v && kindOf(r) === 'odf') r.boq = Object.assign({}, r.boq, { odf: v + 'F' }); });
+    runs.forEach(function (R) { var v = (D.run || {})[R.fid]; if (!v) return; if (v.size) R.size = v.size; if (v.fpt) R.fpt = v.fpt; });
+    P.records = recs; P.runs = runs; P._dataKey = key; delete P._B;
+  }
+  /* the made-up project as it came (before any edit): to tell an edit back to the original from a real change */
+  function baseOf(P) { if (!P._base) applyData(P, freshData()); return P._base; }
 
   /* the answers of a fresh project: the start is picked for the user (the only new site, or the project's site) */
   function freshAnswers(P) {
@@ -183,11 +211,12 @@
       } else o.coords = p.status === 'existing' || A.coords[p.id] ? p.coords : '';
       return o;
     });
-    B.offEnds.forEach(function (e) { pts.push({ id: e.id, type: 'site', name: nameOf(B, A, e.id), code: '', status: 'existing', fdu: 'FDU ID TBF', active: liveOf(A, e.id) }); });
-    var tubeFibers = function (fid, size) { var out = []; tubesOf(A, fid).forEach(function (t) { for (var f = (t - 1) * 12 + 1; f <= t * 12 && f <= size; f++) out.push(f); }); return out; };
+    B.offEnds.forEach(function (e) { var o = { id: e.id, type: 'site', name: nameOf(B, A, e.id), code: '', status: 'existing', fdu: 'FDU ID TBF', active: liveOf(A, e.id) }; if (+A.size[e.id]) o.ports = +A.size[e.id]; pts.push(o); });
+    /* the tubes ticked as in use, in the cable's own buffers (12 or 6 fibers each) */
+    var tubeFibers = function (fid, size, fpt) { var out = []; tubesOf(A, fid).forEach(function (t) { for (var f = (t - 1) * fpt + 1; f <= t * fpt && f <= size; f++) out.push(f); }); return out; };
     var cables = B.pieces.map(function (c) {
-      return { id: c.key, fid: c.fid, name: String(A.ids[c.key] || '').trim(), from: c.from, to: c.to, size: c.size, status: c.status, length: c.len,
-        used: c.status === 'existing' ? SP.fmtRanges(tubeFibers(c.fid, c.size)) : '' };
+      return { id: c.key, fid: c.fid, name: String(A.ids[c.key] || '').trim(), from: c.from, to: c.to, size: c.size, fpt: c.fpt, status: c.status, length: c.len,
+        used: c.status === 'existing' ? SP.fmtRanges(tubeFibers(c.fid, c.size, c.fpt)) : '' };
     });
     var ask3 = set.stage === 'built' && !A.testedDone && legIdsOf(A).filter(function (t) { return R.dist[t] != null && (A.legs['g-' + t] || {}).state !== 'future'; }).length >= 2;
     var links = A.started && A.start ? legIdsOf(A).map(function (t) {
@@ -250,11 +279,81 @@
     /* answered is not the same as ready: a leg without enough free fibers is still to fix, a homing whose live ports are not sure is still to confirm */
     ctx.short = (r.plan.legs || []).filter(function (l) { return l.short; });
     ctx.confirm = []; (r.plan.legs || []).forEach(function (l) { if (!l.short) (l.confirm || []).forEach(function (x) { if (ctx.confirm.indexOf(x) < 0) ctx.confirm.push(x); }); });
-    ctx.status = ctx.left ? 'ask' : ctx.short.length ? 'fix' : ctx.confirm.length ? 'confirm' : 'ready';
+    ctx.sizes = sizesOf(A, ctx); ctx.sizeIssues = ctx.sizes.issues;
+    /* a leg short of fibers only because an FDU or a cable is too small: one thing to fix (the size), said once */
+    var fduIss = {}, runIss = {};
+    ctx.sizeIssues.forEach(function (x) { if (x.kind === 'fdu') fduIss[x.id] = 1; else runIss[x.fid] = 1; });
+    ctx.shortBySize = ctx.short.filter(function (l) {
+      return l.fibers.filter(function (f) { return !f.ok; }).every(function (f) { var pc = mm.B.pieceBy[f.key]; return (f.limit && fduIss[f.limit.id]) || (pc && runIss[pc.fid]); });
+    });
+    ctx.shortOwn = ctx.short.filter(function (l) { return ctx.shortBySize.indexOf(l) < 0; });
+    ctx.status = ctx.left ? 'ask' : ctx.short.length || ctx.sizeIssues.length ? 'fix' : ctx.confirm.length ? 'confirm' : 'ready';
     return ctx;
   }
+  /* the sizes anyone can change: every FDU on the drawing and every cable (one row per RUN, not per piece), and those too small for this work.
+     What was marked past a size (live ports past an FDU's last port, buffers ticked past a cable's last fiber) is kept with the answers but left
+     out of the plan, and said here in red, so a bigger size brings it back and a wrong tap on a smaller size never loses it. */
+  var bufName = function (t) { var n = SP.FIBER[(t - 1) % 12].name.toLowerCase(); return n + (t > 12 ? ' ' + t : ''); };
+  var bufNames = function (ts) { var n = ts.map(bufName); return n.length < 2 ? n[0] : n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1]; };
+  function sizesOf(A, ctx) {
+    var B = ctx.B, plan = ctx.plan, out = { fdus: [], runs: [], issues: [] };
+    var legs = (plan.legs || []).filter(function (l) { return l.routed && !l.bad && l.state !== 'future'; });
+    var pick = function (list, need) { for (var i = 0; i < list.length; i++) if (list[i] >= need) return list[i]; return 0; };
+    (plan.fdus || []).forEach(function (f) {
+      if (f.type !== 'site') return;
+      var p = B.ptBy[f.id], odf = p && p.ports && p.odf ? B.by[p.odf] : null, lv = f.existing ? liveOf(A, f.id) : '';
+      var typed = lv && lv !== '?' ? SP.parseRanges(lv) : [], past = typed.filter(function (q) { return q > f.cap; });
+      var mine = legs.filter(function (l) { return l.a === f.id || l.b === f.id; }).reduce(function (a, l) { return a + l.n; }, 0), live = f.existing ? Math.max(f.active.length, typed.length) : 0;
+      var row = { id: f.id, name: nameOf(B, A, f.id), cap: f.cap, existing: f.existing, src: odf ? 'odf' : +A.size[f.id] ? 'answer' : 'cable', odf: odf ? odf.id : '',
+        odfName: odf ? String(odf.poleId || 'ODF').toUpperCase() : '', legs: mine, live: live, need: mine + live, past: past };
+      out.fdus.push(row);
+      var over = mine && mine + live > f.cap;
+      if (over || past.length) {
+        var pk = pick(ODF_SIZES, Math.max(over ? mine + live : 0, past.length ? past[past.length - 1] : 0)), pw = past.length ? 'live ports ' + SP.fmtRanges(past) + ' are marked past port ' + f.cap + ', so they are left out' : '';
+        row.issue = { key: 'pt:' + f.id, kind: 'fdu', id: f.id, need: mine + live, pick: pk, past: past,
+          text: row.name + ' FDU has ' + f.cap + ' ports, but ' + (over ? (mine + live) + ' fibers end there' + (live ? ' (' + live + ' live now, ' + mine + ' for this work)' : '') + (pw ? '; ' + pw : '') + ': ' +
+            (pk ? 'pick ' + pk + ' or more.' : 'that is more than the biggest FDU; use fewer fibers.')
+            : pw + '. If they are live, ' + (pk ? 'pick ' + pk + ' or more' : 'the FDU is bigger than any listed') + '; if not, remove them.') };
+        row.sub = over ? 'Too small: ' + (mine + live) + ' fibers end there' : 'Live ports ' + SP.fmtRanges(past) + ' are past its ' + f.cap + ' ports';
+        out.issues.push(row.issue);
+      }
+    });
+    (B.runs || []).forEach(function (R) {
+      var pcs = B.pieces.filter(function (pc) { return pc.fid === R.fid; }); if (!pcs.length) return;
+      var need = 0, used = 0, len = 0;
+      pcs.forEach(function (pc) {
+        var on = legs.reduce(function (a, l) { return a + (l.fibers.some(function (f) { return f.key === pc.key; }) ? l.n : 0); }, 0), ci = ctx.infoBy[pc.key], u = ci && pc.status === 'existing' ? ci.live.length : 0;
+        if (on + u > need + used) { need = on; used = u; }
+        len += pc.len;
+      });
+      var c0 = pcs[0], ex = c0.status === 'existing', nT = Math.ceil(c0.size / c0.fpt), ticks = ex ? tubesOf(A, R.fid) : [];
+      var pastT = ticks.filter(function (t) { return t > nT; }), inT = ticks.filter(function (t) { return t <= nT; });
+      var row = { fid: R.fid, n: R.n, size: c0.size, fpt: c0.fpt, existing: ex, from: c0.from, to: pcs[pcs.length - 1].to, keys: pcs.map(function (pc) { return pc.key; }),
+        fromName: nameOf(B, A, c0.from), toName: nameOf(B, A, pcs[pcs.length - 1].to), len: len, need: need, used: used, rest: c0.size % c0.fpt, pastT: pastT };
+      out.runs.push(row);
+      var over = need && need + used > c0.size;
+      if (over || pastT.length) {
+        var span = row.fromName + ' → ' + row.toName, tf = function (ts) { var fs = []; ts.forEach(function (t) { for (var f = (t - 1) * c0.fpt + 1; f <= t * c0.fpt; f++) fs.push(f); }); return SP.fmtRanges(fs, 'F'); };
+        var pk = pick(CABLE_SIZES, Math.max(over ? need + used : 0, pastT.length ? pastT[pastT.length - 1] * c0.fpt : 0)) || CABLE_SIZES[CABLE_SIZES.length - 1];
+        var one = pastT.length === 1, pw = pastT.length ? 'the ' + bufNames(pastT) + ' buffer' + (one ? '' : 's') + ' (' + tf(pastT) + '), ticked in use, ' + (one ? 'is' : 'are') + ' past its ' + c0.size + ' fibers, so ' + (one ? 'it is' : 'they are') + ' left out' : '';
+        /* what is in use: the fibers live at its FDUs, and the buffers ticked in use (only these can be unticked) */
+        var dots = (ctx.dots || {})[R.fid] || [], exEnds = [row.from, row.to].filter(function (id) { return isExistingEnd(B, id); }).map(function (id) { return nameOf(B, A, id); });
+        var inUse = [dots.length ? SP.fmtRanges(dots, 'F') + (dots.length === 1 ? ' is' : ' are') + ' live at ' + (exEnds.length ? exEnds.join(' and ') : 'its FDU') : '', inT.length ? 'the ' + bufNames(inT) + ' buffer' + (inT.length === 1 ? ' (' + tf(inT) + ') is' : 's (' + tf(inT) + ') are') + ' ticked in use' : ''].filter(Boolean);
+        var text;
+        if (over && ex) text = 'The existing ' + c0.size + 'C cable ' + span + ' has no room: ' + (inUse.length ? inUse.join(', ') + ', and ' : used + ' fibers are in use, and ') + 'the legs need ' + need + ' more' + (pw ? '; ' + pw : '') + '. ' +
+          (inT.length ? 'Untick a buffer you are not sure of, or if the size is wrong, pick ' + pk + ' or more.' : 'If the size is wrong, pick ' + pk + ' or more.');
+        else if (over) text = 'The ' + c0.size + 'C cable ' + span + ' is too small: the legs need ' + need + ' fibers: ' + (pick(CABLE_SIZES, need) ? 'pick ' + pick(CABLE_SIZES, need) + ' or more.' : 'use fewer fibers.');
+        else text = 'The existing ' + c0.size + 'C cable ' + span + ': ' + pw + '. If ' + (one ? 'it is' : 'they are') + ' in use, pick ' + pk + ' or more; if not, untick ' + (one ? 'it' : 'them') + '.';
+        row.issue = { key: 'run:' + R.fid, kind: 'cable', fid: R.fid, need: need + used, pick: pk, pastT: pastT, text: text };
+        row.sub = over ? 'Too small: ' + (used ? used + ' in use + ' : '') + need + ' for the legs' : 'The ' + bufNames(pastT) + ' buffer' + (one ? ' is' : 's are') + ' ticked past its ' + c0.size + ' fibers';
+        out.issues.push(row.issue);
+      }
+    });
+    return out;
+  }
 
-  var Ask = { PROJECTS: PROJECTS, bridge: bridge, freshAnswers: freshAnswers, modelOf: modelOf, reachOf: reachOf, questions: questions, compute: compute, kindOf: kindOf, nameOf: nameOf, version: 'ask-1' };
+  var Ask = { PROJECTS: PROJECTS, bridge: bridge, freshAnswers: freshAnswers, modelOf: modelOf, reachOf: reachOf, questions: questions, compute: compute, kindOf: kindOf, nameOf: nameOf,
+    applyData: applyData, freshData: freshData, cleanData: cleanData, baseOf: baseOf, ODF_SIZES: ODF_SIZES, CABLE_SIZES: CABLE_SIZES, version: 'ask-2' };
   root.Ask = Ask;
   if (typeof document === 'undefined' || !document.getElementById('card')) return;
 
@@ -274,12 +373,12 @@
   var phone = function () { return window.innerWidth < 900; };
   var KEY = 'gesaa-splice-ask-demo-1';
 
-  var ST = { pid: 'p1', A: null, set: { stage: 'plan', tube: 'lowest' }, hist: [], cur: 'start', edit: null, ctx: null, saved: {}, armed: '', countDiff: false, focusKey: '', laterOpen: false, strip: null };
+  var ST = { pid: 'p1', A: null, D: null, set: { stage: 'plan', tube: 'lowest' }, hist: [], cur: 'start', edit: null, ctx: null, saved: {}, armed: '', countDiff: false, focusKey: '', laterOpen: false, strip: null, sizeOpen: '', otherOpen: '', note: null };
 
   /* ---------- keeping the answers (in this browser only; fine without) ---------- */
   function loadAll() { try { var s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && s.v === 1) { ST.saved = s.projects || {}; if (s.pid) ST.pid = s.pid; } } catch (e) { ST.saved = {}; } }
   function keep() {
-    ST.saved[ST.pid] = { A: ST.A, set: ST.set, cur: ST.cur };
+    ST.saved[ST.pid] = { A: ST.A, set: ST.set, cur: ST.cur, D: ST.D }; /* D: the sizes changed on the drawing (the project's records), kept with the answers */
     try { localStorage.setItem(KEY, JSON.stringify({ v: 1, pid: ST.pid, projects: ST.saved })); } catch (e) { /* no storage here: the answers last until the page closes */ }
   }
   var proj = function () { return PROJECTS.filter(function (p) { return p.id === ST.pid; })[0] || PROJECTS[0]; };
@@ -297,28 +396,32 @@
   }
   function openProject(pid) {
     ST.pid = pid; var s = ST.saved[pid], P = proj();
+    ST.D = cleanData(s && s.D); applyData(P, ST.D); ST.sizeOpen = ''; ST.otherOpen = ''; ST.note = null;
     ST.A = mergeAnswers(P, s && s.A);
     ST.set = { stage: s && s.set && s.set.stage === 'built' ? 'built' : 'plan', tube: s && s.set && s.set.tube === 'fresh' ? 'fresh' : 'lowest' };
     ST.cur = (s && typeof s.cur === 'string' && s.cur) || 'start'; ST.hist = []; ST.edit = null; ST.armed = ''; ST.countDiff = false; ST.focusKey = ''; ST.fitNext = true;
     try { render(); } catch (e) {
       /* a saved state this demo cannot draw: start the project afresh rather than leave a blank page */
-      ST.A = freshAnswers(P); ST.set = { stage: 'plan', tube: 'lowest' }; ST.cur = 'start'; ST.edit = null; render(); keep();
+      ST.A = freshAnswers(P); ST.D = freshData(); ST.set = { stage: 'plan', tube: 'lowest' }; ST.cur = 'start'; ST.edit = null; render(); keep();
       toast('Your saved answers for this project could not be read, so it starts again.');
     }
   }
 
   /* ---------- changes: every change can be undone ---------- */
-  var snap = function () { return JSON.stringify({ A: ST.A, set: ST.set, cur: ST.cur, edit: ST.edit }); };
+  var snap = function () { return JSON.stringify({ A: ST.A, D: ST.D, set: ST.set, cur: ST.cur, edit: ST.edit }); };
+  /* everything the page shows for the current answers, on the project's records as they are now */
+  function recompute() { var P = proj(); applyData(P, ST.D); return compute(P, ST.A, ST.set); }
   function change(fn, opt) {
     opt = opt || {};
     ST.hist.push(snap()); if (ST.hist.length > 80) ST.hist.shift();
     var was = ST.cur + '|' + (ST.edit ? ST.edit.kind + ST.edit.id : '');
     fn(ST.A, ST.set);
-    ST.armed = '';
-    if (opt.advance) { ST.edit = null; ST.ctx = compute(proj(), ST.A, ST.set); ST.cur = nextQ(); }
+    ST.armed = ''; ST.note = opt.note || null; ST.otherOpen = '';
+    if (opt.advance) { ST.edit = null; ST.ctx = recompute(); ST.cur = nextQ(); }
     if (opt.cur) { ST.cur = opt.cur; ST.edit = null; }
     render(); keep();
-    if (opt.toast) toast(opt.toast); else hideToast();
+    var tt = typeof opt.toast === 'function' ? opt.toast() : opt.toast;
+    if (tt) toast(tt); else hideToast();
     if (ST.cur + '|' + (ST.edit ? ST.edit.kind + ST.edit.id : '') !== was) settle();
   }
   /* a new card: for a moment it takes no taps, so a nervous double tap cannot also answer the next question under the same finger */
@@ -331,8 +434,21 @@
   }
   function undo() {
     if (!ST.hist.length) return;
-    var s = JSON.parse(ST.hist.pop()); ST.A = s.A; ST.set = s.set; ST.cur = s.cur; ST.edit = s.edit; ST.armed = '';
-    render(); keep(); toast('Undone');
+    var was = legSnap(), s = JSON.parse(ST.hist.pop()); ST.A = s.A; ST.D = cleanData(s.D); ST.set = s.set; ST.cur = s.cur; ST.edit = s.edit; ST.armed = ''; ST.note = null; ST.otherOpen = '';
+    render(); keep(); toast('Undone.' + legMoves(was)); /* and where the legs went back to, when they moved */
+  }
+  /* the legs' fibers before a size change, and in words where they went after it ("Leg 1 now F31-42 on CL-0903.") */
+  function legSnap() { var o = {}; ((ST.ctx && ST.ctx.plan.legs) || []).forEach(function (l) { var f = {}; l.fibers.forEach(function (x) { f[x.key] = x.text; }); o[l.id] = { f: f, ports: 'P' + (l.portA || '-') + ' / P' + (l.portB || '-') }; }); return o; }
+  function legMoves(was, what) {
+    var out = [];
+    ((ST.ctx && ST.ctx.plan.legs) || []).forEach(function (l) {
+      var w = was[l.id]; if (!w || l.state === 'future') return;
+      var who = 'Leg ' + (l.index + 1), ch = l.fibers.filter(function (x) { return w.f[x.key] !== x.text; }), ports = 'P' + (l.portA || '-') + ' / P' + (l.portB || '-');
+      var on = function (k) { var cb = C().cab[k]; return (cb && cb.name ? '' : 'the ') + cdesc(k); };
+      if (ch.length) out.push(ch.map(function (x) { return x.text ? who + ' now ' + x.text + ' on ' + on(x.key) : who + ' has no free fibers on ' + on(x.key); }).join('; '));
+      else if (what === 'ports' && ports !== w.ports) out.push(who + ' now ' + ports);
+    });
+    return out.length ? ' ' + out.join('; ') + '.' : '';
   }
   function nextQ() { var q = ST.ctx.qs.filter(function (x) { return x.key !== 'ready' && !x.done; })[0]; return q ? q.key : 'ready'; }
 
@@ -358,7 +474,8 @@
   /* a fiber check in plain words: green when there are enough free fibers, red with what to do when not */
   function fiberCheck(l, f) {
     var cb = C().cab[f.key], where = (f.existing ? 'the existing ' : 'the new ') + cb.size + 'F cable' + (cb.name ? ' ' + cb.name : '');
-    var span = esc(nm(f.ends[0])) + ' → ' + esc(nm(f.ends[1])), how = f.locked ? ' · locked at export' : f.hand ? ' · moved by hand' : '';
+    var span = esc(nm(f.ends[0])) + ' → ' + esc(nm(f.ends[1])), how = (f.locked ? ' · locked at export' : f.hand ? ' · moved by hand' : '') +
+      (f.buffers && f.buffers.length > 1 && l.n <= (f.fpt || 12) ? ' · spans the ' + bufList(f.buffers) + ' buffers' : '');
     var moved = f.moved ? '<small>Moved from <span class="mono">' + esc(f.moved) + '</span>: ' + (f.hand ? 'those fibers are not free any more.' : 'the leg grew and the next fibers belong to another leg.') + '</small>' : '';
     if (f.ok && f.tbc && f.tbc.length) {
       var tid = f.tbc[0];
@@ -373,7 +490,7 @@
       btn = '<button class="btn small" type="button" data-act="openPt" data-arg="' + esc(f.limit.id) + '">The FDU ›</button><button class="btn small" type="button" data-act="openLeg" data-arg="' + esc(l.id) + '">Fewer fibers ›</button>';
     } else {
       head = 'Not enough free fibers on ' + esc(where) + ': only ' + f.free + ' free';
-      advice = span + '. ' + (f.existing ? 'Untick a tube you are not sure of, choose fewer fibers, or check the live ports.' : 'Choose fewer fibers, or move another leg.');
+      advice = span + '. ' + (f.existing ? 'Untick a buffer you are not sure of, choose fewer fibers, or check the live ports.' : 'Choose fewer fibers, or move another leg.');
       btn = '<button class="btn small" type="button" data-act="openStrip" data-arg="' + esc(l.id + '|' + f.key) + '">Change fibers ›</button>';
     }
     return '<div class="ck bad"><div>' + head + '<small>' + advice + '</small>' + moved + '<div class="ckbtns">' + btn + '</div></div></div>';
@@ -499,7 +616,7 @@
       var e = ST.edit;
       if (e.kind === 'leg' || e.kind === 'test') { var l = c.legBy[e.id]; return l ? (e.home || e.kind === 'test') && l.routed ? { mark: ['leg:' + l.id], zoom: ['pt:' + l.home], key: 'home:' + e.id, minW: 64 } : { mark: ['leg:' + l.id], zoom: l.state === 'future' ? null : legRefs(l), key: 'leg:' + e.id } : { mark: [], zoom: null, key: 'none' }; }
       if (e.kind === 'strip') return { mark: ['cab:' + (ST.strip && ST.strip.key)], zoom: ['cab:' + (ST.strip && ST.strip.key)], key: 'strip:' + (ST.strip && ST.strip.key) };
-      if (e.kind === 'cable') return { mark: ['cab:' + e.id], zoom: ['cab:' + e.id], key: 'cab:' + e.id };
+      if (e.kind === 'cable') { var rk = e.run ? B.pieces.filter(function (p) { return p.fid === e.run; }).map(function (p) { return 'cab:' + p.key; }) : ['cab:' + e.id]; return { mark: rk, zoom: rk, key: 'cab:' + e.id + (e.run ? '|run' : '') }; }
       return { mark: ['pt:' + e.id], zoom: ['pt:' + e.id], key: 'pt:' + e.id };
     }
     var k = ST.cur, i = k.indexOf(':'), t = i < 0 ? k : k.slice(0, i), id = i < 0 ? '' : k.slice(i + 1);
@@ -517,7 +634,7 @@
      ===================================================================================================== */
   var viewer = null;
   function render() {
-    var P = proj(); ST.ctx = compute(P, ST.A, ST.set);
+    var P = proj(); ST.ctx = recompute();
     if (!ST.ctx.qs.some(function (q) { return q.key === ST.cur; })) ST.cur = nextQ();
     if (ST.edit && !editValid()) ST.edit = null;
     $('#projName').textContent = P.id.slice(1) + ' · ' + P.name;
@@ -556,13 +673,13 @@
     if (t === 'split') return nm(id) + ' · port split' + (A.split[id] === 'need' ? ': as used' : A.split[id] === 'half' ? ': half' : '');
     if (t === 'tested') { var ls = (c.plan.legs || []).filter(function (l) { return l.state !== 'future' && l.routed; }), tested = ls.filter(function (l) { return l.state === 'tested'; }); return !q.done ? 'Tested now?' : 'Tested · ' + (tested.length === ls.length ? (ls.length === 2 ? 'both' : 'all') : tested.length ? tested.map(function (l) { return nm(l.b); }).join(', ') : 'none'); }
     if (t === 'live') return nm(id) + ' ports';
-    if (t === 'tubes') return 'Tubes · ' + c.B.pieces.filter(function (p) { return p.fid === id; })[0].size + 'F cable';
+    if (t === 'tubes') return 'Buffers · ' + c.B.pieces.filter(function (p) { return p.fid === id; })[0].size + 'F cable';
     return 'Ready';
   }
   function renderBar() {
     var c = C(), cnt = $('#count');
     if (c.left) { cnt.className = 'count'; cnt.innerHTML = 'Still to answer: <b>' + c.left + '</b>'; }
-    else if (c.status === 'fix') { cnt.className = 'count fix'; cnt.innerHTML = 'Fix <b>' + c.short.length + '</b> leg' + (c.short.length === 1 ? '' : 's'); }
+    else if (c.status === 'fix') { var nx = c.shortOwn.length + c.sizeIssues.length, wx = !c.sizeIssues.length ? 'leg' : !c.shortOwn.length ? 'size' : 'thing'; cnt.className = 'count fix'; cnt.innerHTML = 'Fix <b>' + nx + '</b> ' + wx + (nx === 1 ? '' : 's'); }
     else if (c.status === 'confirm') { cnt.className = 'count confirm'; cnt.innerHTML = 'Ready · <b>' + c.confirm.length + '</b> to confirm'; }
     else { cnt.className = 'count ready'; cnt.innerHTML = 'Ready · Export'; }
     var html = c.qs.map(function (q) {
@@ -585,6 +702,14 @@
     var keepScroll = card.getAttribute('data-k') === (ST.edit ? 'e' + ST.edit.kind + ST.edit.id : ST.cur) ? card.scrollTop : 0;
     card.innerHTML = html; card.setAttribute('data-k', ST.edit ? 'e' + ST.edit.kind + ST.edit.id : ST.cur); card.scrollTop = keepScroll;
     wireCard(card);
+    if (ST.reveal) { var rv = ST.reveal; ST.reveal = ''; revealSize(rv); }
+  }
+  /* on a short phone card: bring the size's red message (after a pick), or its chips (opened from the Sizes list), into view, never past the size line */
+  function revealSize(what) {
+    var card = $('#card'), sl = $('#card .sizeline'); if (!card || !sl) return;
+    var t = what === 'issue' ? $('#card .sizeissue') : $('#card .fptrow') || $('#card .szchips'); if (!t) return;
+    var cr = card.getBoundingClientRect(), tr = t.getBoundingClientRect(), up = sl.getBoundingClientRect().top - cr.top - 8;
+    if (tr.bottom > cr.bottom - 8 && up > 0) card.scrollTop += Math.min(tr.bottom - cr.bottom + 16, up);
   }
   /* "Question 4 of 6": the total agrees with the countdown (answered + still to answer) */
   function kicker(n) {
@@ -664,8 +789,8 @@
   function qSize(id) {
     var A = ST.A, cur = +A.size[id] || 0;
     return kicker() + '<h2>How many ports has ' + esc(nm(id)) + '\'s new FDU?</h2><p class="lead">There is no ODF record near this site, so the app does not know its size.</p>' +
-      '<div class="chips">' + [12, 24, 48, 72, 144].map(function (n) { return '<button type="button" class="chip' + (cur === n ? ' lit' : '') + '" data-act="size" data-arg="' + esc(id + '|' + n) + '">' + n + '</button>'; }).join('') + '</div>' +
-      '<p class="note">Adding an ODF record beside the site in the survey fills this in by itself.</p>';
+      '<div class="chips">' + ODF_SIZES.map(function (n) { return '<button type="button" class="chip' + (cur === n ? ' lit' : '') + '" data-act="size" data-arg="' + esc(id + '|' + n) + '">' + n + '</button>'; }).join('') + '</div>' +
+      '<p class="note">Adding an ODF record beside the site in the survey fills this in by itself. You can change it later: tap the FDU on the drawing, or Sizes on the Ready screen.</p>';
   }
   /* what each answer gives, worked out by the engine itself (so the words match the drawing) */
   function splitWords(f, mode) {
@@ -690,19 +815,29 @@
     });
     return html + '</div>';
   }
-  /* the live ports of an existing FDU: tap a port, drag along a row, or tap a row's colour */
+  /* the fibers per buffer of the cable that ends on an FDU (its existing cable first: there port = fiber), so its rows are its buffers */
+  function fptAt(id) {
+    var c = C(), f = c.fduBy[id], ws = f ? f.windows : [], ex = ws.filter(function (w) { return c.cab[w.key] && c.cab[w.key].status === 'existing'; }), set = [];
+    (ex.length ? ex : ws).forEach(function (w) { var cb = c.cab[w.key]; if (cb && set.indexOf(cb.fpt) < 0) set.push(cb.fpt); });
+    return set.length === 1 && set[0] > 0 ? set[0] : 12;
+  }
+  /* the live ports of an existing FDU: tap a port, drag along a row, or tap a row's colour; one row per buffer of its cable (12 or 6) */
   function portGrid(id) {
-    var f = C().fduBy[id], cap = f ? f.cap : 72, on = SP.parseRanges(liveOf(ST.A, id) === '?' ? '' : liveOf(ST.A, id)), legP = [];
+    var f = C().fduBy[id], cap = f ? f.cap : 72, on = SP.parseRanges(liveOf(ST.A, id) === '?' ? '' : liveOf(ST.A, id)), legP = [], B = fptAt(id);
     if (f) f.legs.forEach(function (l) { legP = legP.concat(l.ports); });
-    var html = '<div class="pgrid" data-site="' + esc(id) + '" data-cap="' + cap + '">';
-    for (var r = 0; r * 12 < cap; r++) {
-      html += '<div class="prow"><button type="button" class="phead" data-row="' + r + '" style="--tc:' + tubeRgb(r + 1) + '" aria-label="' + tubeName(r + 1) + ' row, ports ' + (r * 12 + 1) + ' to ' + Math.min(cap, r * 12 + 12) + '"><i></i>' + (r * 12 + 1) + '-' + Math.min(cap, r * 12 + 12) + '</button><div class="pcells">';
-      for (var p = r * 12 + 1; p <= Math.min(cap, r * 12 + 12); p++) html += '<span class="pc' + (on.indexOf(p) >= 0 ? ' on' : '') + (legP.indexOf(p) >= 0 ? ' leg' : '') + '" data-p="' + p + '" role="button" aria-pressed="' + (on.indexOf(p) >= 0) + '">' + p + '</span>';
+    var html = '<div class="pgrid' + (B !== 12 ? ' b' + B : '') + '" data-site="' + esc(id) + '" data-cap="' + cap + '" data-fpt="' + B + '">';
+    for (var r = 0; r * B < cap; r++) {
+      var p0 = r * B + 1, p1 = Math.min(cap, r * B + B);
+      html += '<div class="prow" data-buffer="' + (r + 1) + '"><button type="button" class="phead" data-row="' + r + '" style="--tc:' + tubeRgb(r + 1) + '" aria-label="' + tubeName(r + 1) + ' buffer row, ports ' + p0 + ' to ' + p1 + '"><i></i>' + p0 + '-' + p1 + '</button><div class="pcells">';
+      for (var p = p0; p <= p1; p++) html += '<span class="pc' + (on.indexOf(p) >= 0 ? ' on' : '') + (legP.indexOf(p) >= 0 ? ' leg' : '') + '" data-p="' + p + '" role="button" aria-pressed="' + (on.indexOf(p) >= 0) + '">' + p + '</span>';
       html += '</div></div>';
     }
-    return html + '</div><div class="legend"><span><i style="background:#7a8694"></i>live now</span><span><i style="box-shadow:inset 0 0 0 2px var(--new)"></i>this work\'s legs</span></div>';
+    return html + '</div><div class="legend"><span><i class="lv"></i>live now</span><span><i style="box-shadow:inset 0 0 0 2px var(--new)"></i>this work\'s legs</span><span>one row per buffer of ' + B + '</span></div>';
   }
-  function liveSummary(id) { var v = liveOf(ST.A, id); return v === '?' ? (ST.A.live[id] === '?' ? 'Not sure yet: prints TO BE CONFIRMED' : 'Nothing marked yet') : v ? 'Live: ' + v : 'None live'; }
+  function liveSummary(id) {
+    var v = liveOf(ST.A, id), f = C().fduBy[id], past = v && v !== '?' && f ? SP.parseRanges(v).filter(function (q) { return q > f.cap; }) : [];
+    return v === '?' ? (ST.A.live[id] === '?' ? 'Not sure yet: prints TO BE CONFIRMED' : 'Nothing marked yet') : v ? 'Live: ' + v + (past.length ? ' (' + SP.fmtRanges(past) + ' past port ' + f.cap + ', left out)' : '') : 'None live';
+  }
   function liveChips(id) {
     var A = ST.A, others = C().qs.filter(function (q) { return q.key.indexOf('live:') === 0 && q.id !== id && A.live[q.id] != null && A.live[q.id] !== '?'; });
     var cur = A.live[id];
@@ -712,21 +847,21 @@
   }
   function qLive(id) {
     var f = C().fduBy[id], L = (C().plan.legs || []).filter(function (l) { return l.a === id || l.b === id; }).length;
-    return kicker() + '<h2>Which ports of ' + esc(nm(id)) + '\'s FDU are live?</h2><p class="lead">' + (L ? '' : 'This work cuts the cable that ends there. ') + 'Tap the ports in use now, slide along a row, or tap a row\'s colour for all 12. ' + (f ? f.cap + ' ports' + (C().B.ptBy[id] && C().B.ptBy[id].ports ? ' (from its ODF record)' : ' (from the cable size)') + '.' : '') + '</p>' +
+    return kicker() + '<h2>Which ports of ' + esc(nm(id)) + '\'s FDU are live?</h2><p class="lead">' + (L ? '' : 'This work cuts the cable that ends there. ') + 'Tap the ports in use now, slide along a row, or tap a row\'s colour for all ' + fptAt(id) + '. ' + (f ? f.cap + ' ports' + ((fduRow(id) || {}).src === 'odf' ? ' (from its ODF record)' : (fduRow(id) || {}).src === 'answer' ? ' (the size you gave)' : ' (from the cable size)') + '. <button type="button" class="link" data-act="openSize" data-arg="' + esc('pt:' + id) + '">Wrong size? Change it ›</button>' : '') + '</p>' +
       liveChips(id) + '<div class="msg" id="liveSum">' + esc(liveSummary(id)) + '</div>' + portGrid(id) +
       '<div class="btnrow sticky"><button type="button" class="btn primary wide" data-act="liveDone" data-arg="' + esc(id) + '">Done</button></div>';
   }
   /* tubes: once for the whole physical cable (its RUN) */
   function tubeButtons(fid) {
-    var c = C(), pcs = c.B.pieces.filter(function (p) { return p.fid === fid; }), size = pcs[0].size, nT = Math.ceil(size / 12), on = tubesOf(ST.A, fid), dots = c.dots[fid] || [], fresh = ST.set.tube === 'fresh';
+    var c = C(), pcs = c.B.pieces.filter(function (p) { return p.fid === fid; }), size = pcs[0].size, fpt = pcs[0].fpt || 12, nT = Math.ceil(size / fpt), on = tubesOf(ST.A, fid), dots = c.dots[fid] || [], fresh = ST.set.tube === 'fresh';
     var legF = []; pcs.forEach(function (p) { var ci = c.infoBy[p.key]; if (ci) ci.legs.forEach(function (l) { legF = legF.concat(l.fibers); }); });
-    var html = '<div class="tubes">';
+    var html = '<div class="tubes' + (fpt !== 12 ? ' b' + fpt : '') + '" data-fpt="' + fpt + '">';
     for (var t = 1; t <= nT; t++) {
-      var f0 = (t - 1) * 12 + 1, f1 = Math.min(size, t * 12), live = dots.filter(function (f) { return f >= f0 && f <= f1; }), ticked = on.indexOf(t) >= 0, mine = legF.filter(function (f) { return f >= f0 && f <= f1; });
-      var kept = fresh && live.length && !ticked, st = ticked ? 'In use ✓' : mine.length ? 'This work: ' + SP.fmtRanges(mine, 'F') : kept ? 'Kept whole (live fibers)' : live.length ? live.length + ' live, the rest free' : 'Free';
+      var f0 = (t - 1) * fpt + 1, f1 = Math.min(size, t * fpt), live = dots.filter(function (f) { return f >= f0 && f <= f1; }), ticked = on.indexOf(t) >= 0, mine = legF.filter(function (f) { return f >= f0 && f <= f1; });
+      var kept = fresh && live.length && !ticked, st = ticked ? 'In use ✓' : mine.length ? 'This work: ' + SP.fmtRanges(mine, 'F') : kept ? 'Kept whole (live fibers)' : live.length ? (live.length === f1 - f0 + 1 ? 'All live' : live.length + ' live, the rest free') : 'Free';
       html += '<button type="button" class="tube' + (ticked ? ' on' : '') + (kept ? ' kept' : '') + (mine.length && !ticked ? ' leg' : '') + '" data-act="tube" data-arg="' + esc(fid + '|' + t) + '" aria-pressed="' + ticked + '" style="--tc:' + tubeRgb(t) + '">' +
         '<span class="tt"><i></i>' + tubeName(t) + '<em>F' + f0 + '-' + f1 + '</em></span><span class="dots">';
-      for (var f = f0; f <= f1; f++) html += '<i class="' + (live.indexOf(f) >= 0 ? 'live' : '') + '" style="--fc:' + SP.FIBER[(f - 1) % 12].rgb + '"></i>';
+      for (var f = f0; f <= f1; f++) html += '<i class="' + (live.indexOf(f) >= 0 ? 'live' : '') + '" style="--fc:' + SP.fiberColor(f, fpt).fiber.rgb + '"></i>';
       html += '</span><span class="st">' + esc(st) + '</span></button>';
     }
     return html + '</div>';
@@ -742,17 +877,20 @@
   function qTubes(fid) {
     var c = C(), pcs = c.B.pieces.filter(function (p) { return p.fid === fid; }), dots = c.dots[fid] || [];
     var where = pcs.map(function (p) { return nm(p.from) + ' – ' + nm(p.to); }).join(', ');
-    return kicker() + '<h2>Which tubes of this cable are in use?</h2><p class="lead">The existing ' + pcs[0].size + '-fiber cable ' + esc(where) + '. ' +
-      (dots.length ? 'Grey fibers are live at the FDU (' + esc(SP.fmtRanges(dots, 'F')) + '): they are never used. ' : '') + 'Tick a tube that is in use for something else.</p>' +
-      (ST.set.tube === 'fresh' ? '<div class="ck info"><div>Fresh tube is on: a tube with a live fiber is kept whole.</div></div>' : '') +
-      tubeButtons(fid) + '<div id="gives">' + gives(fid) + '</div>' +
+    var r = runRow(fid);
+    return kicker() + '<h2>Which buffers of this cable are in use?</h2><p class="lead">The existing ' + pcs[0].size + '-fiber cable ' + esc(where) + (r ? ', ' + Math.ceil(r.size / r.fpt) + ' buffers of ' + r.fpt : '') + '. ' +
+      (dots.length ? 'Fibers with a stripe are live at the FDU (' + esc(SP.fmtRanges(dots, 'F')) + '): they are never used. ' : '') + 'Tick a buffer (tube) that is in use for something else.</p>' +
+      (ST.set.tube === 'fresh' ? '<div class="ck info"><div>Fresh buffer is on: a buffer with a live fiber is kept whole.</div></div>' : '') +
+      (r ? fptChips(r) : '') + tubeButtons(fid) + '<div id="gives">' + gives(fid) + '</div>' +
       '<div class="btnrow sticky"><button type="button" class="btn primary wide" data-act="tubesDone" data-arg="' + esc(fid) + '">Done</button></div>';
   }
   function warningsOf() {
-    var c = C();
+    var c = C(), heads = (c.shortBySize || []).map(function (l) { return 'Leg ' + (l.index + 1) + ' ('; });
     return (c.plan.warnings || []).filter(function (w) {
       if (/ has no cable yet\.$/.test(w)) return false;
       if (/^NOT NAMED YET/.test(w)) return false;
+      /* a leg short only because a size is too small: the size's red message says it (once) */
+      if (/ of the \d+ fibers (are )?free\.$/.test(w) && heads.some(function (h) { return w.indexOf(h) === 0; })) return false;
       return true;
     });
   }
@@ -763,19 +901,25 @@
         return '<button type="button" class="row" data-act="goto" data-arg="' + esc(q.key) + '"><span class="ic">?</span><span class="tx"><b>' + esc(pillText(q)) + '</b></span><span class="go">›</span></button>';
       }).join('') + '</div>';
     } else if (c.status === 'fix') {
-      html += kicker(built ? 'As-Built' : 'As-Plan') + '<h2>Not enough free fibers on ' + (c.short.length === 1 ? '1 leg' : c.short.length + ' legs') + '</h2><p class="lead">Every question is answered, but ' + (c.short.length === 1 ? 'this leg does' : 'these legs do') + ' not get all ' + (c.short.length === 1 ? 'its' : 'their') + ' fibers. Fix it first; if you export anyway, the drawing marks it NOT ENOUGH FREE FIBERS.</p>' +
-        c.short.map(function (l) { return '<div class="box"><div style="margin-bottom:4px"><button type="button" class="link" style="padding:0" data-act="openLeg" data-arg="' + esc(l.id) + '">' + legTitle(l) + ' ›</button></div>' + l.fibers.filter(function (f) { return !f.ok; }).map(function (f) { return fiberCheck(l, f); }).join('') + '</div>'; }).join('');
+      var nZ = c.sizeIssues.length, own = c.shortOwn, by = c.shortBySize, legsW = function (L) { return L.map(function (l) { return 'Leg ' + (l.index + 1); }).join(' and '); };
+      html += kicker(built ? 'As-Built' : 'As-Plan') + (!nZ ? '<h2>Not enough free fibers on ' + (own.length === 1 ? '1 leg' : own.length + ' legs') + '</h2><p class="lead">Every question is answered, but ' + (own.length === 1 ? 'this leg does' : 'these legs do') + ' not get all ' + (own.length === 1 ? 'its' : 'their') + ' fibers. Fix it first; if you export anyway, the drawing marks it NOT ENOUGH FREE FIBERS.</p>'
+        : '<h2>' + (nZ === 1 ? 'A size is too small' : nZ + ' sizes are too small') + '</h2><p class="lead">Every question is answered, but the fibers of this work do not fit' + (by.length ? ': ' + legsW(by) + (by.length === 1 ? ' does' : ' do') + ' not get all ' + (by.length === 1 ? 'its' : 'their') + ' fibers until the size is right' : '') + '. Change the size first.' +
+          (own.length ? ' Also, ' + legsW(own) + (own.length === 1 ? ' is' : ' are') + ' short of free fibers (below).' : '') + '</p>') +
+        c.sizeIssues.map(sizeIssueBox).join('') +
+        own.map(function (l) { return '<div class="box"><div style="margin-bottom:4px"><button type="button" class="link" style="padding:0" data-act="openLeg" data-arg="' + esc(l.id) + '">' + legTitle(l) + ' ›</button></div>' + l.fibers.filter(function (f) { return !f.ok; }).map(function (f) { return fiberCheck(l, f); }).join('') + '</div>'; }).join('');
     } else if (c.status === 'confirm') {
       html += kicker(built ? 'As-Built' : 'As-Plan') + '<h2>Ready, ' + c.confirm.length + ' fact' + (c.confirm.length === 1 ? '' : 's') + ' to confirm</h2><p class="lead">The live ports at ' + esc(c.confirm.join(' and ')) + ' are not sure yet, so the fibers there assume nothing is live. The drawing prints LIVE PORTS TBC until you mark them.</p>' +
         c.confirm.map(function (n) { var f = (c.plan.fdus || []).filter(function (x) { return x.name === n; })[0]; return f ? '<div class="btnrow"><button type="button" class="btn" data-act="goto" data-arg="' + esc('live:' + f.id) + '">Mark the live ports at ' + esc(n) + '</button></div>' : ''; }).join('');
     } else html += kicker(built ? 'As-Built' : 'As-Plan') + '<h2>Ready</h2><p class="lead">Nothing left to answer. Tap anything on the drawing to change it.</p>';
-    html += '<div class="btnrow"><button type="button" class="btn ' + (c.status === 'ready' ? 'go ' : '') + '" data-act="export">' + (c.status === 'ready' || c.left ? 'Export' : 'Export anyway') + '</button><button type="button" class="btn" data-act="sheets">See the A3 sheets</button></div>';
+    html += '<div class="btnrow"><button type="button" class="btn ' + (c.status === 'ready' ? 'go ' : '') + '" data-act="export">' + (c.status === 'ready' || c.left ? 'Export' : 'Export anyway') + '</button><button type="button" class="btn" data-act="sheets">See the A3 sheets</button></div>' +
+      '<button type="button" class="link" data-act="sizesJump">FDU and cable sizes, fibers per buffer ›</button>';
     if (A.locked) html += '<div class="ck info"><div>Fibers are locked since the first export, so they stay as issued.<small>A new leg fits around them. Moving a leg by hand still works.</small><button type="button" class="btn small" data-act="unlock">Let the app choose again</button></div></div>';
-    html += '<h3>Fibers check</h3>' + (legs.length ? legs.map(function (l) {
+    html += '<h3>Fibers check</h3>' + (c.status === 'fix' ? '' : c.sizeIssues.map(sizeIssueBox).join('')) + (legs.length ? legs.map(function (l) {
       return '<div class="box"><div style="margin-bottom:4px"><button type="button" class="link" style="padding:0" data-act="openLeg" data-arg="' + esc(l.id) + '">' + legTitle(l) + ' ›</button></div>' +
         (l.state === 'future' ? '<div class="ck info"><div>' + esc(stateWords('future')) + ': fibers <b class="mono">xx-xx</b><small>A second cable into the new FDU' + (l.futureCable ? ' (' + esc(l.futureCable) + ')' : '') + '. Nothing is taken for it now.</small></div></div>' :
           !l.routed ? '<div class="ck bad"><div>No cable joins these two yet.</div></div>' : l.fibers.map(function (f) { return fiberCheck(l, f); }).join('')) + '</div>';
     }).join('') : '<p class="note">No legs yet.</p>');
+    html += sizesList();
     if (built) {
       var wait = legs.filter(function (l) { return l.routed && l.state !== 'future' && (l.state === 'spliced' || l.state === 'tbc' || !(l.test && (l.test.date || l.test.loss))); });
       html += '<h3>Testing</h3>' + legs.map(function (l) {
@@ -813,6 +957,88 @@
     });
     x.through.forEach(function (t) { out.push('<div class="note">Passing through, not cut: <span class="mono">' + esc(t.text) + '</span></div>'); });
     return out.join('') || '<div class="note">No splices here.</div>';
+  }
+
+  /* ---------- sizes: the FDU's ports, the cable's fibers and fibers per buffer, edited on the project's records ---------- */
+  var fduRow = function (id) { return C().sizes.fdus.filter(function (r) { return r.id === id; })[0]; };
+  var runRow = function (fid) { return C().sizes.runs.filter(function (r) { return r.fid === fid; })[0]; };
+  var bufList = function (ts) { var n = ts.map(function (t) { return tubeName(t).toLowerCase() + (t > 12 ? ' ' + t : ''); }); return n.length < 2 ? n[0] : n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1]; };
+  /* what a size change edits, in one line */
+  function fduWhere(r) {
+    if (r.src === 'odf') return 'This changes the ODF record ' + r.odfName + ' (plan and BOQ).';
+    if (r.id.indexOf('off:') === 0) return 'This homing is off the map, so its size is kept with the splicing answers.';
+    return 'There is no ODF record near this site, so this is the size you gave' + (r.existing ? '' : ' to "How many ports has its new FDU?"') + '. An ODF record beside the site in the survey replaces it.';
+  }
+  /* what was marked past a size can be removed in one tap (Undo brings it back) */
+  function pastBtn(x) {
+    if (x.past && x.past.length) return '<button type="button" class="btn small" data-act="livePastDrop" data-arg="' + esc(x.id) + '">Not live: remove ' + esc(SP.fmtRanges(x.past)) + '</button>';
+    if (x.pastT && x.pastT.length) return '<button type="button" class="btn small" data-act="tubesPastDrop" data-arg="' + esc(x.fid) + '">Not in use: untick ' + (x.pastT.length === 1 ? 'it' : 'them') + '</button>';
+    return '';
+  }
+  function sizeIssueBox(x) {
+    return '<div class="ck bad"><div>' + esc(x.text) + '<div class="ckbtns"><button type="button" class="btn small" data-act="openSize" data-arg="' + esc(x.key) + '">Change the size ›</button>' + pastBtn(x) + '</div></div></div>';
+  }
+  function fduSizeBlock(id) {
+    var r = fduRow(id); if (!r) return '';
+    var open = ST.sizeOpen === 'pt:' + id, src = r.src === 'odf' ? 'From the ODF record ' + r.odfName : r.src === 'answer' ? 'The size you gave' : 'From the cable size (no ODF record)';
+    var html = '<div class="sizeline"><span class="sz">Capacity: <b>' + r.cap + ' ports</b><small>' + esc(src) + '</small></span><button type="button" class="btn small" data-act="sizeOpen" data-arg="' + esc('pt:' + id) + '" aria-expanded="' + open + '">' + (open ? 'Done' : 'Change') + '</button></div>';
+    if (r.issue) html += cardIssue(r.issue, open);
+    if (open) html += '<div class="chips szchips" role="group" aria-label="FDU size in ports">' + ODF_SIZES.map(function (n) {
+      var on = r.cap === n && r.src !== 'cable'; return '<button type="button" class="chip' + (on ? ' lit' : '') + '" data-act="fduSize" data-arg="' + esc(id + '|' + n) + '" aria-pressed="' + on + '">' + n + '</button>';
+    }).join('') + '</div><p class="note">' + esc(fduWhere(r)) + '</p>';
+    if (ST.note && ST.note.key === 'pt:' + id) html += '<div class="ck warn"><div>' + esc(ST.note.text) + '</div></div>';
+    return html;
+  }
+  function runSizeBlock(fid) {
+    var r = runRow(fid); if (!r) return '';
+    var open = ST.sizeOpen === 'run:' + fid, other = r.existing && CABLE_SIZES.indexOf(r.size) < 0;
+    var html = '<div class="sizeline"><span class="sz"><b>' + r.size + 'C</b> · ' + (r.existing ? 'existing' : 'new') + (r.existing ? '' : ' · ' + kmTxt(r.len)) + '<small>' + esc('RUN ' + r.n + ': ' + r.fromName + ' → ' + r.toName) + '</small></span>' +
+      '<button type="button" class="btn small" data-act="sizeOpen" data-arg="' + esc('run:' + fid) + '" aria-expanded="' + open + '">' + (open ? 'Done' : 'Change') + '</button></div>';
+    if (r.issue) html += cardIssue(r.issue, open);
+    if (open) {
+      html += '<div class="chips szchips" role="group" aria-label="Cable size in fibers">' + CABLE_SIZES.map(function (n) {
+        return '<button type="button" class="chip' + (r.size === n ? ' lit' : '') + '" data-act="runSize" data-arg="' + esc(fid + '|' + n) + '" aria-pressed="' + (r.size === n) + '">' + n + '</button>';
+      }).join('') + (r.existing ? '<button type="button" class="chip soft' + (other ? ' lit' : '') + '" data-act="runOther" data-arg="' + esc(fid) + '" aria-pressed="' + other + '">' + (other ? 'Other: ' + r.size : 'Other…') + '</button>' : '') + '</div>';
+      if (ST.otherOpen === fid) html += '<div class="field"><label for="runOther">Fibers in this existing cable (2 to 576)</label><div class="inrow"><input class="inp" id="runOther" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" value="' + r.size + '">' +
+        '<button type="button" class="btn primary" data-act="runOtherUse" data-arg="' + esc(fid) + '">Use</button></div><small>An existing cable can be any size.</small></div>';
+    }
+    html += fptChips(r);
+    if (r.rest) { var nb = Math.floor(r.size / r.fpt), lt = nb + 1;
+      html += '<div class="ck warn"><div>' + r.size + ' fibers is not a whole number of ' + r.fpt + '-fiber buffers: ' + nb + ' buffer' + (nb === 1 ? '' : 's') + ' of ' + r.fpt + ', and a last buffer of ' + r.rest + ' (' + (lt > 12 ? 'the ' + lt + 'th, ' : 'the ') + esc(tubeName(lt).toLowerCase()) + (lt > 12 ? ')' : ' one)') + '.<small>Check the size and the fibers per buffer on the cable.</small></div></div>'; }
+    html += '<p class="note">This changes RUN ' + r.n + ' everywhere (plan, BOQ, KMZ)' + (r.keys.length > 1 ? ', all ' + r.keys.length + ' pieces' : '') + '.</p>';
+    return html;
+  }
+  /* on the card itself: red, with the chips one tap away */
+  function cardIssue(x, open) {
+    var pb = pastBtn(x);
+    return '<div class="ck bad sizeissue"><div>' + esc(x.text) + (open && !pb ? '' : '<div class="ckbtns">' + (open ? '' : '<button type="button" class="btn small" data-act="sizeOpen" data-arg="' + esc(x.key) + '">Change the size</button>') + pb + '</div>') + '</div></div>';
+  }
+  function fptChips(r) {
+    return '<div class="fptrow"><span class="k">Fibers per buffer</span><span class="chips" role="group" aria-label="Fibers per buffer">' + FPTS.map(function (n) {
+      return '<button type="button" class="chip sm' + (r.fpt === n ? ' lit' : '') + '" data-act="runFpt" data-arg="' + esc(r.fid + '|' + n) + '" aria-pressed="' + (r.fpt === n) + '">' + n + '</button>';
+    }).join('') + '</span></div><p class="note">Most cables have 12 fibers per buffer; some have 6.</p>';
+  }
+  /* the Ready screen's list: every FDU and every cable (one row per RUN), a tap opens its card with the sizes */
+  function sizesList() {
+    var z = C().sizes;
+    var row = function (key, t, sub, v, bad) {
+      return '<button type="button" class="lrow' + (bad ? ' bad' : '') + '" data-act="openSize" data-arg="' + esc(key) + '"><span class="t">' + esc(t) + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</span><span class="v">' + esc(v) + '</span><span class="go" aria-hidden="true">›</span></button>';
+    };
+    return '<h3 id="sizesH">Sizes</h3><div class="slist">' + z.fdus.map(function (r) {
+      return row('pt:' + r.id, r.name + ' FDU', r.issue ? r.sub : '', r.cap + ' ports', !!r.issue);
+    }).join('') + z.runs.map(function (r) {
+      return row('run:' + r.fid, 'Cable ' + r.fromName + ' → ' + r.toName, r.issue ? r.sub : r.fpt + ' fibers per buffer' + (r.rest ? ' (the last has ' + r.rest + ')' : ''), (r.existing ? 'existing ' : '') + r.size + 'C', !!r.issue);
+    }).join('') + '</div>';
+  }
+  /* the project's records: an edit back to the made-up value leaves no edit behind */
+  function setOdf(recId, n) {
+    var b = baseOf(proj()).records.filter(function (r) { return r.id === recId; })[0], bv = b ? parseInt(String((b.boq || {}).odf || ''), 10) || 0 : 0;
+    if (n === bv) delete ST.D.odf[recId]; else ST.D.odf[recId] = n;
+  }
+  function setRun(fid, k, v) {
+    var b = baseOf(proj()).runs.filter(function (R) { return R.fid === fid; })[0] || {}, bv = k === 'fpt' ? +b.fpt || 12 : +b.size, o = Object.assign({}, ST.D.run[fid]);
+    if (v === bv) delete o[k]; else o[k] = v;
+    if (Object.keys(o).length) ST.D.run[fid] = o; else delete ST.D.run[fid];
   }
 
   /* ---------- the cards opened by tapping the drawing ---------- */
@@ -877,11 +1103,10 @@
       return html + f.legs.map(function (l) { return '<div class="note">' + esc(c.legBy[l.leg] ? c.legBy[l.leg].label : l.leg) + ': fibers <span class="mono">' + esc(SP.fmtRanges(l.fibers, 'F')) + '</span></div>'; }).join('');
     }
     html = cardHead(ex ? 'Existing homing · its FDU' : 'New site · its FDU', esc(nm(id)));
-    html += '<dl class="kv"><dt>FDU</dt><dd>' + esc(id.indexOf('off:') === 0 ? 'ID to follow' : p.fdu) + '</dd><dt>Capacity</dt><dd>' + f.cap + ' ports' + (p && p.ports ? ' (ODF record)' : A.size[id] ? '' : ' (cable size)') + '</dd></dl>';
+    html += '<dl class="kv"><dt>FDU</dt><dd>' + esc(id.indexOf('off:') === 0 ? 'ID to follow' : p.fdu) + '</dd></dl>' + fduSizeBlock(id);
     if (ex) {
       html += '<h3>Live ports before the work</h3>' + portGrid(id) + '<div class="msg" id="liveSum">' + esc(liveSummary(id)) + '</div>' + liveChips(id);
     } else {
-      if (p && !p.ports) html += '<h3>Its size</h3><div class="chips">' + [12, 24, 48, 72, 144].map(function (n) { return '<button type="button" class="chip sm' + (+A.size[id] === n ? ' lit' : '') + '" data-act="size" data-arg="' + esc(id + '|' + n) + '">' + n + '</button>'; }).join('') + '</div>';
       html += '<h3>Terminated</h3>' + f.windows.map(function (w) { return '<div class="note" style="color:var(--ink)">Ports <span class="mono">' + esc(SP.fmtRanges(w.ports) || '-') + '</span> ← fibers <span class="mono">' + esc(SP.fmtRanges(w.fibers) || '-') + '</span> of the ' + esc(cdesc(w.key)) + '</div>'; }).join('') +
         f.future.map(function (n) { return '<div class="note">xx-xx (' + esc(n || 'TBF') + '): a second cable, later</div>'; }).join('');
       if (f.split) html += '<h3>Shared between the cables</h3><div class="chips"><button type="button" class="chip soft' + (f.split === 'half' && A.split[id] ? ' lit' : '') + '" data-act="split" data-arg="' + esc(id + '|half') + '">Half and half</button>' +
@@ -893,11 +1118,12 @@
   function eCable(key) {
     var c = C(), cb = c.cab[key], pc = c.B.pieceBy[key], ci = c.infoBy[key], A = ST.A;
     var html = cardHead((cb.status === 'existing' ? 'Existing ' : 'New ') + cb.size + '-fiber cable', esc(nm(cb.from)) + ' – ' + esc(nm(cb.to)));
+    html += runSizeBlock(pc.fid);
     html += '<div class="field"><label for="cabId">Cable ID</label><input class="inp" id="cabId" maxlength="24" autocomplete="off" autocapitalize="characters" placeholder="TBF" value="' + esc(A.ids[key] || '') + '"><small>Cable IDs can come later: the drawing prints TBF until you add it.</small></div>' +
       '<div class="btnrow"><button type="button" class="btn primary" data-act="cabId" data-arg="' + esc(key) + '">' + (A.ids[key] ? 'Rename' : 'Save the ID') + '</button></div>';
-    html += '<dl class="kv"><dt>Length</dt><dd>' + (cb.status === 'existing' ? 'existing' : kmTxt(cb.length)) + '</dd><dt>Cable</dt><dd>RUN ' + pc.n + (pc.of > 1 ? ', piece ' + pc.j + ' of ' + pc.of : '') + '</dd></dl>';
+    html += '<dl class="kv">' + (cb.status === 'existing' || pc.of < 2 ? '' : '<dt>This piece</dt><dd>' + kmTxt(cb.length) + '</dd>') + '<dt>Cable</dt><dd>RUN ' + pc.n + (pc.of > 1 ? ', piece ' + pc.j + ' of ' + pc.of : '') + '</dd></dl>';
     if (ci && ci.legs.length) html += '<h3>Legs on it</h3>' + ci.legs.map(function (l) { var L = c.legBy[l.leg]; return '<div class="note" style="color:var(--ink)">' + esc(L ? L.label + ' → ' + nm(L.b) : l.leg) + ': <span class="mono">' + esc(SP.fmtRanges(l.fibers, 'F')) + '</span></div>'; }).join('');
-    if (cb.status === 'existing') html += '<div class="btnrow"><button type="button" class="btn" data-act="goto" data-arg="' + esc('tubes:' + pc.fid) + '">Tubes in use ›</button></div>';
+    if (cb.status === 'existing') html += '<div class="btnrow"><button type="button" class="btn" data-act="goto" data-arg="' + esc('tubes:' + pc.fid) + '">Buffers in use ›</button></div>';
     return html;
   }
   /* the fiber strip: rows of 12 coloured dots, one row per tube; tap a free dot to move the leg's run there */
@@ -912,25 +1138,28 @@
   }
   function eStrip(legId) {
     var c = C(), l = c.legBy[legId]; if (!ST.strip || !l.fibers.some(function (f) { return f.key === ST.strip.key; })) ST.strip = { key: (l.fibers.filter(function (f) { return f.existing; })[0] || l.fibers[0]).key, msg: '' };
-    var key = ST.strip.key, D = stripData(legId, key), nT = Math.ceil(D.cb.size / 12);
+    var key = ST.strip.key, D = stripData(legId, key), fpt = D.cb.fpt || 12, nT = Math.ceil(D.cb.size / fpt);
     var html = cardHead('Change fibers', legTitle(l)) + '<div class="chips">' + l.fibers.map(function (f) {
       return '<button type="button" class="chip soft sm' + (f.key === key ? ' lit' : '') + '" data-act="stripCable" data-arg="' + esc(f.key) + '"><span>' + esc(nm(f.ends[0]) + ' – ' + nm(f.ends[1])) + '<small>' + esc((f.existing ? 'existing ' : 'new ') + c.cab[f.key].size + 'F') + ' · <span class="mono">' + esc(f.text || 'none') + '</span></small></span></button>';
     }).join('') + '</div>';
     html += '<p class="note" style="color:var(--ink)">On the ' + esc(cdesc(key, true)) + '. Now <b class="mono">' + esc(D.f && D.f.text ? D.f.text : '-') + '</b>' + (D.f && D.f.locked ? ' (locked at export)' : D.fixed ? ' (moved by hand)' : ' (chosen by the app)') + '. Tap a dot to start the run there.</p>';
-    html += '<div class="strip">';
+    html += '<div class="strip' + (fpt !== 12 ? ' b' + fpt : '') + '" data-fpt="' + fpt + '">';
     for (var t = 1; t <= nT; t++) {
-      html += '<div class="srow"><span class="shead" style="--tc:' + tubeRgb(t) + '"><i></i>' + tubeName(t) + '</span><span class="scells">';
-      for (var x = (t - 1) * 12 + 1; x <= Math.min(D.cb.size, t * 12); x++) {
-        var col = SP.FIBER[(x - 1) % 12], cls = D.live[x] ? 'live' : D.out[x] ? 'out' : D.other[x] ? 'other' : '', dark = ['BL', 'BR', 'SL', 'RD', 'BK', 'VL', 'GR'].indexOf(col.ab) >= 0;
+      html += '<div class="srow" data-buffer="' + t + '"><span class="shead" style="--tc:' + tubeRgb(t) + '"><i></i>' + tubeName(t) + '</span><span class="scells">';
+      for (var x = (t - 1) * fpt + 1; x <= Math.min(D.cb.size, t * fpt); x++) {
+        var col = SP.fiberColor(x, fpt).fiber, cls = D.live[x] ? 'live' : D.out[x] ? 'out' : D.other[x] ? 'other' : '', dark = ['BL', 'BR', 'SL', 'RD', 'BK', 'VL', 'GR'].indexOf(col.ab) >= 0;
         html += '<button type="button" class="sf ' + cls + (D.mine[x] ? ' mine' : '') + '" data-act="stripAt" data-arg="' + x + '" style="--fc:' + col.rgb + ';--fi:' + (dark ? '#fff' : '#111') + '" aria-label="Fiber ' + x + (cls ? ', ' + ({ live: 'live', out: 'not on the FDU', other: 'another leg' }[cls]) : ', free') + '">' + x + '</button>';
       }
       html += '</span></div>';
     }
     html += '</div><div class="slegend"><span><i class="l"></i>live (locked)</span><span><i class="o"></i>another leg</span><span><i class="m"></i>this leg</span></div>';
-    var liveTube = D.f && D.f.list.some(function (x) { var t0 = Math.ceil(x / 12); for (var y = (t0 - 1) * 12 + 1; y <= t0 * 12; y++) if (D.live[y]) return true; return false; });
-    html += '<div class="msg ' + (ST.strip.msg ? 'bad' : liveTube ? 'warn' : '') + '" id="stripMsg">' + esc(ST.strip.msg || (liveTube ? 'This opens a tube with live fibers.' : '')) + '</div>';
+    var liveTube = D.f && D.f.list.some(function (x) { var t0 = Math.ceil(x / fpt); for (var y = (t0 - 1) * fpt + 1; y <= t0 * fpt; y++) if (D.live[y]) return true; return false; });
+    /* a run across buffers is allowed (moved by hand, or the last result), but said */
+    var span = D.f && D.f.buffers && D.f.buffers.length > 1 && D.n <= fpt ? D.f.text + ' spans the ' + bufList(D.f.buffers) + ' buffers.' : '';
+    var sm = ST.strip.msg || [span, liveTube ? 'This opens a buffer with live fibers.' : ''].filter(Boolean).join(' ');
+    html += '<div class="msg ' + (ST.strip.msg ? 'bad' : sm ? 'warn' : '') + '" id="stripMsg">' + esc(sm) + '</div>';
     html += '<div class="btnrow"><button type="button" class="btn" data-act="stripMove" data-arg="-1" aria-label="One fiber lower">◀</button><button type="button" class="btn" data-act="stripMove" data-arg="1" aria-label="One fiber higher">▶</button>' +
-      '<button type="button" class="btn" data-act="stripFresh">Next fresh tube</button></div><div class="btnrow sticky"><button type="button" class="btn" data-act="stripAuto"' + (D.fixed ? '' : ' disabled') + '>Let the app choose</button><button type="button" class="btn primary" data-act="openLeg" data-arg="' + esc(legId) + '">Done</button></div>';
+      '<button type="button" class="btn" data-act="stripFresh">Next fresh buffer</button></div><div class="btnrow sticky"><button type="button" class="btn" data-act="stripAuto"' + (D.fixed ? '' : ' disabled') + '>Let the app choose</button><button type="button" class="btn primary" data-act="openLeg" data-arg="' + esc(legId) + '">Done</button></div>';
     return html;
   }
   function stripMoveTo(legId, s, why) {
@@ -952,13 +1181,15 @@
     var dt = card.querySelector('#tDate'); if (dt) dt.addEventListener('change', function () { var h = $('#tDateTx'); if (h) h.textContent = 'Prints as ' + dmy(dt.value || todayIso()); });
     var off = card.querySelector('#offName'); if (off) off.addEventListener('keydown', function (e) { if (e.key === 'Enter') act('offTyped', ST.cur.slice(4)); });
     var cab = card.querySelector('#cabId'); if (cab) cab.addEventListener('keydown', function (e) { if (e.key === 'Enter') act('cabId', ST.edit.id); });
+    var oth = card.querySelector('#runOther'); if (oth) oth.addEventListener('keydown', function (e) { if (e.key === 'Enter') act('runOtherUse', ST.otherOpen); });
   }
   /* port grid: tap, drag along, or a row's colour; the drawing follows when the finger lifts */
   function wireGrid(g) {
     var id = g.getAttribute('data-site'), drag = null;
     var setCell = function (el, on) { el.classList.toggle('on', on); el.setAttribute('aria-pressed', String(on)); };
     var commit = function () {
-      var on = [].slice.call(g.querySelectorAll('.pc.on')).map(function (el) { return +el.getAttribute('data-p'); }), v = SP.fmtRanges(on);
+      var cap = +g.getAttribute('data-cap'), was = liveOf(ST.A, id), past = was === '?' ? [] : SP.parseRanges(was).filter(function (q) { return q > cap; });
+      var on = [].slice.call(g.querySelectorAll('.pc.on')).map(function (el) { return +el.getAttribute('data-p'); }), v = SP.fmtRanges(on.concat(past));
       change(function (A) { if (ST.edit) A.live[id] = v; else { A.draft.live[id] = v; if (A.live[id] != null) A.live[id] = v; } });
     };
     /* nothing changes until the finger shows what it means: lifted in place = a tap, moved sideways = a slide along the row, moved up or down = a scroll */
@@ -996,7 +1227,7 @@
     var A = ST.A, c = C(), parts = String(arg == null ? '' : arg).split('|');
     switch (a) {
       case 'goto': ST.edit = null; ST.cur = arg; ST.countDiff = false; render(); keep(); return;
-      case 'close': ST.edit = null; render(); return;
+      case 'close': ST.edit = null; ST.sizeOpen = ''; ST.otherOpen = ''; ST.note = null; render(); return;
       case 'start': change(function (A) { A.started = true; }, { advance: true }); return;
       case 'pickStart': change(function (A) { A.start = arg; A.to = []; A.later = []; A.toDone = false; A.legs = {}; A.counts = {}; A.countDone = false; A.testedDone = false; }); return;
       case 'off': change(function (A) { A.off[parts[0]] = parts[1]; }, { advance: true }); return;
@@ -1041,8 +1272,68 @@
       case 'sheets': openSheets(); return;
       case 'unlock': change(function (A) { A.locked = false; Object.keys(A.legs).forEach(function (k) { delete A.legs[k].fix; }); }, { toast: 'The app chooses the fibers again.' }); return;
       case 'openLeg': ST.edit = { kind: 'leg', id: arg }; ST.armed = ''; render(); return;
-      case 'openPt': ST.edit = { kind: 'pt', id: arg }; render(); return;
-      case 'openCable': ST.edit = { kind: 'cable', id: arg }; render(); return;
+      case 'openPt': ST.edit = { kind: 'pt', id: arg }; ST.sizeOpen = ''; ST.note = null; render(); return;
+      case 'openCable': ST.edit = { kind: 'cable', id: arg }; ST.sizeOpen = ''; ST.note = null; render(); return;
+      /* sizes: open the chips on the card; from the Ready screen's list (or a red message) the card opens with them */
+      case 'sizeOpen': ST.sizeOpen = ST.sizeOpen === arg ? '' : arg; ST.otherOpen = ''; renderCard(); return;
+      case 'sizesJump': { var sh = $('#sizesH'), cd = $('#card'); if (sh && cd) cd.scrollTo({ top: Math.max(0, cd.scrollTop + sh.getBoundingClientRect().top - cd.getBoundingClientRect().top - 8), behavior: 'smooth' }); return; }
+      case 'openSize': {
+        var sk = arg.split(':')[0], sid = arg.slice(sk.length + 1);
+        if (sk === 'pt') { if (!fduRow(sid)) return; ST.edit = { kind: 'pt', id: sid }; }
+        else { var rr = runRow(sid); if (!rr) return; ST.edit = { kind: 'cable', id: rr.keys[0], run: sid }; }
+        ST.sizeOpen = arg; ST.otherOpen = ''; ST.note = null; ST.armed = ''; ST.reveal = 'chips'; render(); return;
+      }
+      case 'fduSize': {
+        var fr = fduRow(parts[0]), fn = +parts[1]; if (!fr || !(fn > 0)) return;
+        if (fr.cap === fn && fr.src !== 'cable') return;
+        /* live ports past the new size stay in the answers (a bigger size brings them back) but are left out of the plan, said in red on the card */
+        var lv = liveOf(A, fr.id), drop = lv === '?' ? [] : SP.parseRanges(lv).filter(function (q) { return q > fn; }), was = legSnap();
+        ST.reveal = 'issue';
+        change(function (A) { if (fr.src === 'odf') setOdf(fr.odf, fn); else A.size[fr.id] = fn; },
+          { toast: function () { return fr.name + ' FDU: ' + fn + ' ports' + (fr.src === 'odf' ? ' (ODF record ' + fr.odfName + ')' : '') + '.' + (drop.length ? ' Live ports ' + SP.fmtRanges(drop) + ' are past it, so they are left out.' : '') + legMoves(was, 'ports') + ' Undo brings ' + fr.cap + ' back.'; } });
+        return;
+      }
+      case 'livePastDrop': {
+        var pr = fduRow(arg); if (!pr || !pr.past.length) return;
+        var keepIn = function (v) { return v == null || v === '?' ? v : SP.fmtRanges(SP.parseRanges(v).filter(function (q) { return q <= pr.cap; })); };
+        change(function (A) { if (A.live[pr.id] != null) A.live[pr.id] = keepIn(A.live[pr.id]); if (A.draft.live[pr.id] != null) A.draft.live[pr.id] = keepIn(A.draft.live[pr.id]); },
+          { toast: 'Live ports ' + SP.fmtRanges(pr.past) + ' removed from ' + pr.name + '. Undo brings them back.' });
+        return;
+      }
+      case 'tubesPastDrop': {
+        var tr = runRow(arg); if (!tr || !tr.pastT.length) return;
+        var nT2 = Math.ceil(tr.size / tr.fpt), inSize = function (L) { return L.filter(function (t) { return t <= nT2; }); };
+        change(function (A) { if (A.tubes[tr.fid] != null) A.tubes[tr.fid] = inSize(A.tubes[tr.fid]); if (A.draft.tubes[tr.fid]) A.draft.tubes[tr.fid] = inSize(A.draft.tubes[tr.fid]); },
+          { toast: 'Unticked the ' + bufNames(tr.pastT) + ' buffer' + (tr.pastT.length === 1 ? '' : 's') + '. Undo brings ' + (tr.pastT.length === 1 ? 'it' : 'them') + ' back.' });
+        return;
+      }
+      case 'runSize': {
+        var rs = runRow(parts[0]), rn = Math.round(+parts[1]); if (!rs) return;
+        if (!(rn >= 2 && rn <= 576) || String(parts[1]).trim() === '') { toast('A cable has 2 to 576 fibers.'); return; }
+        if (rn === rs.size) { if (ST.otherOpen) { ST.otherOpen = ''; renderCard(); } return; }
+        /* buffers ticked in use past the new size stay ticked (a bigger size brings them back) but are left out of the plan, said in red on the card */
+        var nTn = Math.ceil(rn / rs.fpt), offT = rs.existing ? tubesOf(A, rs.fid).filter(function (t) { return t > nTn; }) : [], wasR = legSnap();
+        ST.reveal = 'issue';
+        change(function (A) { setRun(rs.fid, 'size', rn); },
+          { toast: function () { return 'RUN ' + rs.n + ' is now ' + rn + 'C everywhere.' + (offT.length ? ' The ' + bufNames(offT) + ' buffer' + (offT.length === 1 ? ', ticked in use, is past it, so it is' : 's, ticked in use, are past it, so they are') + ' left out.' : '') + legMoves(wasR) + ' Undo brings ' + rs.size + 'C back.'; } });
+        return;
+      }
+      case 'runOther': ST.otherOpen = ST.otherOpen === arg ? '' : arg; renderCard(); setTimeout(function () { var i = $('#runOther'); if (i) { i.focus(); i.select(); } }, 30); return;
+      case 'runOtherUse': { var ov = String(($('#runOther') || {}).value || '').trim(); if (!/^\d{1,4}$/.test(ov)) { toast('A cable has 2 to 576 fibers.'); return; } act('runSize', arg + '|' + ov); return; }
+      case 'runFpt': {
+        var rp = runRow(parts[0]), nf = +parts[1]; if (!rp || nf === rp.fpt || FPTS.indexOf(nf) < 0) return;
+        /* the buffers ticked as in use keep their fibers: each new buffer with one of those fibers is in use */
+        var conv = function (L) {
+          if (!L || !L.length) return L; var out = [];
+          /* not cut at the cable's size: a buffer ticked past it stays ticked, so a bigger size brings it back */
+          L.forEach(function (t) { for (var f = (t - 1) * rp.fpt + 1; f <= t * rp.fpt; f++) { var u = Math.ceil(f / nf); if (out.indexOf(u) < 0) out.push(u); } });
+          return out.sort(function (x, y) { return x - y; });
+        };
+        var had = tubesOf(A, rp.fid).length, wasF = legSnap();
+        change(function (A) { setRun(rp.fid, 'fpt', nf); if (A.tubes[rp.fid] != null) A.tubes[rp.fid] = conv(A.tubes[rp.fid]); if (A.draft.tubes[rp.fid]) A.draft.tubes[rp.fid] = conv(A.draft.tubes[rp.fid]); },
+          { toast: function () { return 'RUN ' + rp.n + ': ' + nf + ' fibers per buffer.' + (had ? ' The buffers ticked in use still cover the same fibers.' : '') + legMoves(wasF) + ' Undo brings ' + rp.fpt + ' back.'; } });
+        return;
+      }
       case 'openStrip': {
         /* the cable to change is known before the drawing is drawn, so it zooms to that cable at once */
         var sl = c.legBy[parts[0]]; if (!sl) return;
@@ -1095,13 +1386,15 @@
         ST.strip.msg = dir < 0 ? 'No free run lower down.' : 'No free run higher up.'; render(); return;
       }
       case 'stripFresh': {
-        var D3 = stripData(ST.edit.id, ST.strip.key), t0 = Math.ceil(D3.start / 12), nT = Math.ceil(D3.cb.size / 12);
+        var D3 = stripData(ST.edit.id, ST.strip.key), B3 = D3.cb.fpt || 12, t0 = Math.ceil(D3.start / B3), nT = Math.ceil(D3.cb.size / B3), need = Math.ceil(D3.n / B3);
+        /* an empty buffer: nothing in it, this leg's own fibers included; a leg bigger than one buffer takes as many empty buffers in a row */
+        var empty = function (t) { for (var z = (t - 1) * B3 + 1; z <= Math.min(D3.cb.size, t * B3); z++) if (D3.live[z] || D3.out[z] || D3.other[z] || D3.mine[z]) return false; return true; };
         for (var k = 1; k <= nT; k++) {
-          var tt = (t0 - 1 + k) % nT + 1, f0 = (tt - 1) * 12 + 1, f1 = Math.min(D3.cb.size, tt * 12), clean = true;
-          for (var z = f0; z <= f1; z++) if (D3.live[z] || D3.out[z] || D3.other[z] || D3.mine[z]) { clean = false; break; } /* an empty tube: nothing in it, this leg's own fibers included */
-          if (clean && f1 - f0 + 1 >= D3.n) { stripMoveTo(ST.edit.id, f0); return; }
+          var tt = (t0 - 1 + k) % nT + 1, f0 = (tt - 1) * B3 + 1, ok3 = tt + need - 1 <= nT && f0 + D3.n - 1 <= D3.cb.size;
+          for (var u = tt; ok3 && u < tt + need; u++) if (!empty(u)) ok3 = false;
+          if (ok3) { stripMoveTo(ST.edit.id, f0); return; }
         }
-        ST.strip.msg = 'No fresh tube is left on this cable.'; render(); return;
+        ST.strip.msg = need > 1 ? 'No ' + need + ' fresh buffers in a row are left on this cable.' : 'No fresh buffer is left on this cable.'; render(); return;
       }
       case 'stripAuto': { var sk = ST.strip.key; change(function (A) { var L = A.legs[ST.edit.id]; if (L && L.fix) { delete L.fix[sk]; if (!Object.keys(L.fix).length) delete L.fix; } }, { toast: 'The app chooses these fibers.' }); return; }
     }
@@ -1131,10 +1424,11 @@
     openOverlay(head('Your choices') + '<div class="sbd">' +
       '<h3 style="margin-top:0">This drawing is for</h3><div class="seg"><button type="button" data-stage="plan" aria-pressed="' + (s.stage === 'plan') + '"><b>As-Plan</b><span>Checks there are free fibers. No testing words.</span></button>' +
       '<button type="button" data-stage="built" aria-pressed="' + (s.stage === 'built') + '"><b>As-Built</b><span>Adds the testing: tested, spliced only, not built yet.</span></button></div>' +
-      '<h3>Fibers on an existing cable</h3><button type="button" class="sw" role="switch" data-tube aria-checked="' + (s.tube === 'fresh') + '"><span class="tx"><b>Fresh tube instead of the lowest free fiber</b><span>On: never open a tube that has a live fiber. Off: the lowest free fibers (the usual).</span></span><span class="tg"></span></button>' +
+      '<h3>Fibers on an existing cable</h3><button type="button" class="sw" role="switch" data-tube aria-checked="' + (s.tube === 'fresh') + '"><span class="tx"><b>Fresh buffer instead of the lowest free fiber</b><span>On: never open a buffer (tube) that has a live fiber. Off: the lowest free fibers in one buffer (the usual).</span></span><span class="tg"></span></button>' +
       (ST.A.locked ? '<div class="ck info"><div>Fibers are locked since the first export: this applies to new legs.<button type="button" class="btn small" data-unlock>Let the app choose again</button></div></div>' : '') +
       '<p class="note">How a new FDU\'s ports are shared and the cable IDs are asked on the way (tap the FDU or the cable to change them).</p>' +
-      '<h3>This project</h3><button type="button" class="btn danger' + (armed ? ' armed' : '') + '" data-reset>' + (armed ? 'Tap again to start over' : 'Start this project again') + '</button></div>');
+      '<h3>This project</h3><button type="button" class="btn danger' + (armed ? ' armed' : '') + '" data-reset>' + (armed ? 'Tap again to start over' : 'Start this project again') + '</button>' +
+      '<p class="note">Your answers and the sizes you changed go back to how this made-up sample came. Undo brings them back.</p></div>');
   }
   /* the A3 sheets: a chip per sheet, named (Single line, Key map, A-01, B-01 …), and ‹ › to step through them. On the key map a tap on
      a grid cell opens that cell's sheet; on a grid sheet so does a tap on the locator or on a MATCH LINE · SEE label. */
@@ -1175,7 +1469,7 @@
   }
   function openExport() {
     var c = C(), warn = c.left ? '<div class="ck warn"><div>Still to answer: ' + c.left + '. You can export now; the drawing prints TO BE CONFIRMED where a fact is missing.</div></div>'
-      : c.status === 'fix' ? '<div class="ck bad"><div>Not enough free fibers on ' + c.short.map(function (l) { return l.label; }).join(' and ') + '. The drawing marks ' + (c.short.length === 1 ? 'it' : 'them') + ' NOT ENOUGH FREE FIBERS.</div></div>'
+      : c.status === 'fix' ? c.sizeIssues.map(function (x) { return '<div class="ck bad"><div>' + esc(x.text) + '</div></div>'; }).join('') + (c.short.length ? '<div class="ck bad"><div>Not enough free fibers on ' + c.short.map(function (l) { return l.label; }).join(' and ') + '. The drawing marks ' + (c.short.length === 1 ? 'it' : 'them') + ' NOT ENOUGH FREE FIBERS.</div></div>' : '')
       : c.status === 'confirm' ? '<div class="ck warn"><div>The live ports at ' + esc(c.confirm.join(' and ')) + ' are not confirmed. The drawing prints LIVE PORTS TBC.</div></div>' : '<div class="ck ok"><div>Everything is answered.</div></div>';
     openOverlay(head('Export the drawings') + '<div class="sbd">' + warn +
       '<h3>Which drawings</h3><button type="button" class="sw" role="switch" data-view="sld" aria-checked="true"><span class="tx"><b>Single line diagram</b><span>One A3 sheet</span></span><span class="tg"></span></button>' +
@@ -1249,7 +1543,7 @@
     if (k === 'leg') { if (!C().legBy[id]) return; ST.edit = { kind: 'leg', id: id }; }
     else if (k === 'cab') ST.edit = { kind: 'cable', id: id };
     else if (k === 'pt') ST.edit = { kind: 'pt', id: id };
-    ST.armed = ''; render();
+    ST.armed = ''; ST.sizeOpen = ''; ST.otherOpen = ''; ST.note = null; render();
   }
   function boot() {
     var setVh = function () { document.documentElement.style.setProperty('--vh', window.innerHeight + 'px'); var st = $('.stage'); if (st) st.classList.toggle('short', st.clientHeight < 270); };
@@ -1295,7 +1589,7 @@
       if ((b = e.target.closest('[data-unlock]'))) { act('unlock'); openChoices(); return; }
       if ((b = e.target.closest('[data-reset]'))) {
         if (ST.armed !== 'reset') { ST.armed = 'reset'; openChoices(); return; }
-        change(function () { ST.A = freshAnswers(proj()); }, { cur: 'start', toast: 'Started again. Undo brings your answers back.' }); ST.fitNext = true; render(); closeOverlay(); return;
+        change(function () { ST.A = freshAnswers(proj()); ST.D = freshData(); }, { cur: 'start', toast: 'Started again, sizes as the sample came. Undo brings your answers back.' }); ST.fitNext = true; render(); closeOverlay(); return;
       }
       if ((b = e.target.closest('[data-sheet]'))) { showSheet(+b.getAttribute('data-sheet')); return; }
       if ((b = e.target.closest('[data-spage]'))) { if (sheetViewer) showSheet(sheetViewer.page + +b.getAttribute('data-spage')); return; }

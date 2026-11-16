@@ -326,9 +326,35 @@
        an existing FDU is already terminated: its existing cables keep their ports (one cable: port = fiber up to the capacity; more: equal parts),
        and a new cable gets vacant ports only (unterminated ports first, then the lowest vacant run), never a live one;
        a new FDU terminates from fiber termFrom, in the order of the legs: half and half, or only what each cable's legs use (point.split or rules.split) */
-    const U = new Map(), use = (id, c, leg) => { if (!U.has(id)) U.set(id, new Map()); const M = U.get(id), u = M.get(c) || { n: 0, first: Infinity }; u.n += leg.n; u.first = Math.min(u.first, leg.li); M.set(c, u); };
+    const U = new Map(), use = (id, c, leg) => { if (!U.has(id)) U.set(id, new Map()); const M = U.get(id), u = M.get(c) || { n: 0, first: Infinity, ns: [] }; u.n += leg.n; u.ns.push(leg.n); u.first = Math.min(u.first, leg.li); M.set(c, u); };
     routed.forEach(leg => { use(leg.a, leg.path[0].c, leg); use(leg.b, leg.path[leg.path.length - 1].c, leg); });
     const capOf = p => { const inc = adj.get(p.id); return Math.max(1, +p.ports || (inc[0] ? inc[0].c.size : 12)); };
+    /* a window lined up with the buffers: the fibers the legs of one cable take, buffer first (the same rule as below, on the cable alone, from fiber t0),
+       so a window of just what the legs use still gives each leg its own buffer (6 + 12 -> F1-6 and F13-24, a window of 24); null when they do not fit */
+    const packNeed = (c, t0, ns) => {
+      const used = new Set(), B = c.fpt, okRun = (s, n) => { if (s < t0 || s + n - 1 > c.size) return false; for (let f = s; f < s + n; f++) if (used.has(f)) return false; return true; };
+      let top = t0 - 1;
+      for (const n of ns) {
+        let s0 = 0;
+        if (n <= B) { for (let s = t0; s + n - 1 <= c.size && !s0; s++) if (Math.ceil(s / B) === Math.ceil((s + n - 1) / B) && okRun(s, n)) s0 = s; }
+        else for (let s = 1; s + n - 1 <= c.size && !s0; s += B) if (okRun(s, n)) s0 = s;
+        for (let s = t0; s + n - 1 <= c.size && !s0; s++) if (okRun(s, n)) s0 = s;
+        if (!s0) return null;
+        for (let f = s0; f < s0 + n; f++) used.add(f); top = Math.max(top, s0 + n - 1);
+      }
+      return top - t0 + 1;
+    };
+    /* half and half in whole buffers when every cable can have at least one (48 ports, three cables: 24 + 12 + 12, not 16 each); else as before */
+    const halfParts = (order, cap) => {
+      const parts = []; let R = cap;
+      for (let i = 0; i < order.length; i++) {
+        const c = order[i], k = order.length - i, rest = order.slice(i + 1).reduce((a, x) => a + x.fpt, 0);
+        if (R < c.fpt + rest) return null;
+        const a = i === order.length - 1 ? R : Math.min(Math.ceil(R / k / c.fpt) * c.fpt, R - rest);
+        parts.push(a); R -= a;
+      }
+      return parts;
+    };
     const term = new Map();
     pts.forEach(p => {
       if (!isEnd(p.id)) return;
@@ -340,8 +366,15 @@
         const nu = inc.filter(c => c.status !== 'existing').sort((x, y) => (first(x) - first(y)) || x.k - y.k);
         let port = 1;
         old.forEach((c, i) => { const part = Math.floor(cap / old.length) + (i < cap % old.length ? 1 : 0), n = Math.max(0, Math.min(c.size, part, cap - port + 1)); T.push({ c, ports: seq(port, n), fibers: seq(1, n) }); port += n; });
-        nu.forEach(c => {
-          const want = Math.min(c.size, (M.get(c) || { n: 0 }).n), got = [];
+        nu.forEach((c, ni) => {
+          const u = M.get(c) || { n: 0, ns: [] }, plain = Math.min(c.size, u.n), al = packNeed(c, 1, u.ns), got = [];
+          /* lined up with the buffers when the FDU has the room (vacant ports past the existing cables' own, for this cable and the new ones after it) */
+          let want = plain;
+          if (al && al > plain) {
+            let room = 0; for (let q = port; q <= cap; q++) if (!live.has(q)) room++;
+            const after = nu.slice(ni + 1).reduce((a, x) => a + Math.min(x.size, (M.get(x) || { n: 0 }).n), 0);
+            if (room >= al + after) want = al;
+          }
           for (let q = port; q <= cap && got.length < want; q++) if (!live.has(q)) got.push(q);
           if (got.length) port = got[got.length - 1] + 1;
           if (got.length < want) {
@@ -362,8 +395,14 @@
         const order = adj.get(p.id).map(e => e.c).sort((x, y) => (first(x) - first(y)) || x.k - y.k);
         const split = p.split === 'need' || p.split === 'half' ? p.split : rules.split, need = order.length > 1 && split === 'need';
         let port = 1;
+        const halves = need ? null : halfParts(order, cap), plainOf = x => Math.min((M.get(x) || { n: 0 }).n, x.size - t0 + 1);
         order.forEach((c, i) => {
-          const want = need ? (M.get(c) || { n: 0 }).n : Math.floor(cap / order.length) + (i < cap % order.length ? 1 : 0);
+          let want = need ? (M.get(c) || { n: 0 }).n : halves ? halves[i] : Math.floor(cap / order.length) + (i < cap % order.length ? 1 : 0);
+          if (need) {
+            /* only what each leg uses, lined up with the buffers when the FDU has the room for it and for the cables after it */
+            const al = packNeed(c, t0, (M.get(c) || { ns: [] }).ns), after = order.slice(i + 1).reduce((a, x) => a + plainOf(x), 0);
+            if (al && al > want && port - 1 + al + after <= cap) want = al;
+          }
           const n = Math.max(0, Math.min(want, cap - port + 1, c.size - t0 + 1)), fibers = seq(t0, n);
           for (let f = 1; f <= c.size; f++) if (f < t0 || f >= t0 + n) c.avoid.add(f);
           T.push({ c, ports: seq(port, n), fibers }); port += n;
@@ -372,9 +411,9 @@
       }
       if (ex) term.set(p.id, { T, split: '' });
       /* a window narrower than the cable: the FDU, not the cable, limits what can be used */
-      T.forEach(t => { if (t.fibers.length < t.c.size) t.c.win.push({ id: p.id, cap, n: t.fibers.length }); });
+      T.forEach(t => { if (t.fibers.length < t.c.size) t.c.win.push({ id: p.id, cap, n: t.fibers.length, fib: t.fibers.slice() }); });
       /* the live ports before the work: their fibers are in use on the existing cable that holds them; not sure yet: noted on its cables */
-      live.forEach(q => { const t = T.find(x => x.c.status === 'existing' && x.ports.indexOf(q) >= 0); if (t) t.c.taken.add(t.fibers[t.ports.indexOf(q)]); });
+      live.forEach(q => { const t = T.find(x => x.c.status === 'existing' && x.ports.indexOf(q) >= 0); if (t) { const f = t.fibers[t.ports.indexOf(q)]; t.c.taken.add(f); t.c.liveTubes.add(Math.ceil(f / t.c.fpt)); } });
       if (tbc) T.forEach(t => t.c.tbcAt.add(p.id)); /* its fibers (an existing cable) or its ports (a new cable) assume nothing is live there */
     });
     /* the pieces of one physical existing cable, cut at closures: a fiber live at either end is live along the whole cable */
@@ -388,9 +427,13 @@
       g.forEach(c => { tk.forEach(f => { if (f <= c.size) c.taken.add(f); }); lt.forEach(t => c.liveTubes.add(t)); tb.forEach(id => c.tbcAt.add(id)); });
     });
 
-    /* the fibers: a hand-moved run (fix) first, where it is free; then every leg takes the lowest free run on each cable,
-       or (rules.tube 'fresh') the lowest run in a tube with no live fiber */
+    /* the fibers: a hand-moved run (fix) first, where it is free; then every leg takes, on each cable, buffer first (the cable's fpt fibers per buffer):
+       1. n <= fpt: the lowest run of n free fibers in a row inside ONE buffer; 2. n > fpt: the lowest run of n free fibers in a row from a buffer's first fiber;
+       3. n <= fpt: n free fibers inside one buffer, not in a row (said in a warning); 4. last: the lowest n free fibers in a row across buffers
+       (said, naming the buffers); then anything free. rules.tube 'fresh' tries 1-2 inside buffers with no live fiber first. */
     const tubeOf = (c, f) => Math.ceil(f / c.fpt), free = (c, f) => !c.taken.has(f) && !c.avoid.has(f);
+    const bufName = t => FIBER[(t - 1) % 12].name.toLowerCase() + (t > 12 ? ' ' + t : '');
+    const bufWords = (c, r) => { const ts = [...new Set(r.map(f => tubeOf(c, f)))].sort((x, y) => x - y).map(bufName); return 'the ' + (ts.length < 2 ? ts[0] + ' buffer' : ts.slice(0, -1).join(', ') + ' and ' + ts[ts.length - 1] + ' buffers'); };
     const rowOk = (c, s, n, ok) => { if (s < 1 || s + n - 1 > c.size) return false; for (let f = s; f < s + n; f++) if (!ok(f)) return false; return true; };
     const grab = (c, r, leg) => { r.forEach(f => { c.taken.add(f); if (leg) c.owner.set(f, leg); }); return r; };
     const freeCount = c => { let k = 0; for (let f = 1; f <= c.size; f++) if (free(c, f)) k++; return k; };
@@ -401,16 +444,42 @@
       return { fdu: w, text: w ? 'the ' + w.cap + '-port FDU at ' + label(w.id) + ' ends only ' + w.n + ' fibers of ' + cdesc(c) + ', so only ' + k + ' of the ' + n + ' fibers are free.'
         : cwho(c) + ' has only ' + k + ' of the ' + n + ' fibers free.' };
     };
+    /* rules 1-2: a run of n free fibers in a row inside one buffer (n <= fpt), or starting at a buffer's first fiber (n > fpt) */
+    const inBuffer = (c, n, ok) => {
+      if (n <= c.fpt) { for (let s = 1; s + n - 1 <= c.size; s++) if (tubeOf(c, s) === tubeOf(c, s + n - 1) && rowOk(c, s, n, ok)) return seq(s, n); }
+      else for (let s = 1; s + n - 1 <= c.size; s += c.fpt) if (rowOk(c, s, n, ok)) return seq(s, n);
+      return null;
+    };
+    /* rule 3: n free fibers inside one buffer, not in a row */
+    const inOneBuffer = (c, n, ok) => {
+      if (n > c.fpt) return null;
+      for (let f0 = 1; f0 <= c.size; f0 += c.fpt) { const r = []; for (let f = f0; f < f0 + c.fpt && f <= c.size && r.length < n; f++) if (ok(f)) r.push(f); if (r.length === n) return r; }
+      return null;
+    };
+    /* the FDU's ports, not the cable, are why no buffer fits: the cable has such a run, but part of it is not terminated on the FDU */
+    const winWhy = (c, n) => {
+      if (!c.win.length) return '';
+      const r = inBuffer(c, n, f => !c.taken.has(f)); if (!r) return '';
+      const w = c.win.find(x => r.some(f => x.fib.indexOf(f) < 0)) || c.win[0];
+      return 'the ' + w.cap + '-port FDU at ' + label(w.id) + ' ends only ' + fmtRanges(w.fib, 'F') + ' of ' + cdesc(c);
+    };
     const takeBlock = (c, n, leg) => {
-      const any = f => free(c, f);
+      const any = f => free(c, f); let r;
       if (rules.tube === 'fresh' && c.liveTubes.size) {
         const fresh = f => free(c, f) && !c.liveTubes.has(tubeOf(c, f));
-        for (let s = 1; s + n - 1 <= c.size; s++) if (rowOk(c, s, n, fresh)) return grab(c, seq(s, n), leg);
-        for (let s = 1; s + n - 1 <= c.size; s++) if (rowOk(c, s, n, any)) { say(leg, cwho(c) + ' has no unused tube with ' + n + ' free fibers, so ' + fmtRanges(seq(s, n), 'F') + ' opens a tube with live fibers.'); return grab(c, seq(s, n), leg); }
-      } else for (let s = 1; s + n - 1 <= c.size; s++) if (rowOk(c, s, n, any)) return grab(c, seq(s, n), leg);
-      const r = []; for (let f = 1; f <= c.size && r.length < n; f++) if (free(c, f)) r.push(f);
+        if ((r = inBuffer(c, n, fresh))) return grab(c, r, leg);
+        if ((r = inBuffer(c, n, any))) { say(leg, cwho(c) + ' has no unused buffer with ' + n + ' free fibers, so ' + fmtRanges(r, 'F') + ' opens ' + bufWords(c, r) + ', which has live fibers.'); return grab(c, r, leg); }
+      } else if ((r = inBuffer(c, n, any))) return grab(c, r, leg);
+      const ww = winWhy(c, n);
+      if ((r = inOneBuffer(c, n, any))) { say(leg, (ww || 'no buffer of ' + cdesc(c) + ' has ' + n + ' free fibers in a row') + ', so ' + fmtRanges(r, 'F') + ' are taken from ' + bufWords(c, r) + ', not in a row.'); return grab(c, r, leg); }
+      for (let s = 1; s + n - 1 <= c.size; s++) if (rowOk(c, s, n, any)) {
+        r = seq(s, n);
+        say(leg, (ww || (n <= c.fpt ? 'no buffer of ' + cdesc(c) + ' has ' + n + ' free fibers' : 'no ' + n + ' free fibers in a row start at a buffer of ' + cdesc(c))) + ', so ' + fmtRanges(r, 'F') + ' uses ' + bufWords(c, r) + '.');
+        return grab(c, r, leg);
+      }
+      r = []; for (let f = 1; f <= c.size && r.length < n; f++) if (free(c, f)) r.push(f);
       const sh = r.length < n ? shortWhy(c, n, r.length) : null;
-      say(leg, sh ? sh.text : cwho(c) + ' has no ' + n + ' free fibers in a row; it uses ' + fmtRanges(r, 'F') + '.');
+      say(leg, sh ? sh.text : (ww ? ww + ', so it uses ' : cwho(c) + ' has no ' + n + ' free fibers in a row; it uses ') + fmtRanges(r, 'F') + ' in ' + bufWords(c, r) + ', not in a row.');
       if (sh) r.lim = sh.fdu;
       return grab(c, r, leg);
     };
@@ -422,6 +491,8 @@
       const list = parseRanges(v).filter(f => f >= 1); if (!list.length) return null;
       return /[-,]/.test(String(v)) ? { start: list[0], list, hand: false } : { start: list[0], hand: true };
     };
+    /* fibers that are free on the cable but not terminated on an FDU at its end (a smaller FDU, a narrower window): past that FDU, not taken */
+    const pastWin = (c, fs) => { if (!fs.length || fs.some(f => c.taken.has(f))) return ''; const w = c.win.find(x => fs.some(f => x.fib.indexOf(f) < 0)); return w ? 'past the ' + w.cap + '-port FDU at ' + label(w.id) + ' (it ends only ' + fmtRanges(w.fib, 'F') + ')' : ''; };
     const owner = (c, r) => { const ls = []; r.forEach(f => { const o = c.owner.get(f); if (o && ls.indexOf(o) < 0) ls.push(o); }); return ls.length ? ' (' + ls.map(o => 'Leg ' + (o.li + 1)).join(', ') + ')' : ''; };
     /* first every fixed run holds its own fibers (a locked run at the size it was issued, a hand-moved run its first fiber), so a leg that grows
        never pushes another leg off fibers already issued to it; then each grows to its size where the next fibers are free, or is moved */
@@ -429,7 +500,7 @@
       const fx = fixAt(leg, s.c); if (!fx) return;
       const want = seq(fx.start, leg.n), core = fx.list ? fx.list.slice(0, leg.n) : [fx.start];
       if (fx.start + (fx.list ? 0 : leg.n - 1) > s.c.size || core.some(f => f > s.c.size)) { say(leg, fmtRanges(want, 'F') + ' on ' + cdesc(s.c) + ' runs past the end of the cable, so the app chose other fibers.'); return; }
-      if (!core.every(f => free(s.c, f))) { say(leg, fmtRanges(fx.list ? core : want, 'F') + ' on ' + cdesc(s.c) + (fx.hand ? '' : ' (locked at export)') + ' is not free' + owner(s.c, core) + ', so the app chose other fibers.'); return; }
+      if (!core.every(f => free(s.c, f))) { const pw = pastWin(s.c, core.filter(f => !free(s.c, f))); say(leg, fmtRanges(fx.list ? core : want, 'F') + ' on ' + cdesc(s.c) + (fx.hand ? '' : ' (locked at export)') + (pw ? ' is ' + pw : ' is not free' + owner(s.c, core)) + ', so the app chose other fibers.'); return; }
       s.fx = fx; s.free = freeCount(s.c); s.f = grab(s.c, core, leg);
     }));
     routed.forEach(leg => leg.path.forEach(s => {
@@ -439,8 +510,9 @@
       else {
         const was = s.fx.hand ? seq(s.fx.start, leg.n) : s.f.slice(), by = owner(s.c, next.filter(f => f <= s.c.size));
         s.f.forEach(f => { s.c.taken.delete(f); s.c.owner.delete(f); }); s.f = null; s.moved = was;
-        s.why = s.fx.hand ? fmtRanges(was, 'F') + ' on ' + cdesc(s.c) + ' is not free' + by + ', so the app chose other fibers.'
-          : 'it now has ' + leg.n + ' fibers, but ' + fmtRanges(next, 'F') + ' next to its locked ' + fmtRanges(was, 'F') + ' on ' + cdesc(s.c) + (next.some(f => f > s.c.size) ? ' run past the end of the cable' : ' are taken' + by) + ', so the app moved this leg';
+        const pw = next.some(f => f > s.c.size) ? '' : pastWin(s.c, next.filter(f => !free(s.c, f)));
+        s.why = s.fx.hand ? fmtRanges(was, 'F') + ' on ' + cdesc(s.c) + ' is ' + (pw || 'not free' + by) + ', so the app chose other fibers.'
+          : 'it now has ' + leg.n + ' fibers, but ' + fmtRanges(next, 'F') + ' next to its locked ' + fmtRanges(was, 'F') + ' on ' + cdesc(s.c) + (next.some(f => f > s.c.size) ? ' run past the end of the cable' : pw ? ' are ' + pw : ' are taken' + by) + ', so the app moved this leg';
       }
     }));
     routed.forEach(leg => leg.path.forEach(s => {
@@ -448,7 +520,7 @@
       s.free = freeCount(s.c); s.f = takeBlock(s.c, leg.n, leg); s.lim = s.f.lim || null;
       if (s.why) say(leg, s.fx.hand ? s.why : s.why + ' to ' + (fmtRanges(s.f, 'F') || 'no fibers') + '.');
     }));
-    routed.forEach(leg => leg.path.forEach(s => { if (s.fixed && rules.tube === 'fresh' && s.f.some(f => s.c.liveTubes.has(tubeOf(s.c, f)))) say(leg, fmtRanges(s.f, 'F') + ' on ' + cdesc(s.c) + ' opens a tube with live fibers.'); }));
+    routed.forEach(leg => leg.path.forEach(s => { if (s.fixed && rules.tube === 'fresh' && s.f.some(f => s.c.liveTubes.has(tubeOf(s.c, f)))) say(leg, fmtRanges(s.f, 'F') + ' on ' + cdesc(s.c) + ' opens a buffer with live fibers.'); }));
 
     const nodeSp = new Map(), ends = new Map(), paths = [], push = (M, k, v) => { if (!M.has(k)) M.set(k, []); M.get(k).push(v); };
     routed.forEach(leg => {
@@ -510,7 +582,7 @@
       const fibers = path.map(s => {
         const ok = s.f.length >= leg.n, r = fmtRanges(s.f, 'F'), tb = [...s.c.tbcAt], lim = !ok && s.lim ? s.lim : null;
         return { cable: s.c.name, key: s.c.key, desc: cdesc(s.c), from: s.f.length ? Math.min.apply(null, s.f) : null, to: s.f.length ? Math.max.apply(null, s.f) : null, list: s.f.slice(), text: r, ends: [s.from, s.to],
-          existing: s.c.status === 'existing', fixed: !!s.fixed, locked: !!s.locked, hand: !!(s.fixed && s.fx && s.fx.hand), moved: s.moved ? fmtRanges(s.moved, 'F') : '', free: s.free, ok,
+          existing: s.c.status === 'existing', fpt: s.c.fpt, buffers: [...new Set(s.f.map(f => tubeOf(s.c, f)))].sort((x, y) => x - y), fixed: !!s.fixed, locked: !!s.locked, hand: !!(s.fixed && s.fx && s.fx.hand), moved: s.moved ? fmtRanges(s.moved, 'F') : '', free: s.free, ok,
           tbc: tb, tbcNames: tb.map(label), limit: lim ? { id: lim.id, name: label(lim.id), cap: lim.cap, n: lim.n } : null,
           say: ok ? (tb.length ? 'Not confirmed: ' + r + ' assumes nothing is live at ' + tb.map(label).join(' and ') : 'Enough free fibers: ' + r)
             : lim ? 'Not enough free fibers: the ' + lim.cap + '-port FDU at ' + label(lim.id) + ' ends only ' + lim.n + ' fibers of ' + cdesc(s.c) : 'Not enough free fibers on ' + cdesc(s.c) + ': only ' + s.free + ' free' };
@@ -630,8 +702,9 @@
       const a = angOf(ux, uy), r = a * Math.PI / 180, nx = -Math.sin(r), ny = Math.cos(r), mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2;
       const at = (d, s, h, o) => G.tx(mx - nx * d, my - ny * d, s, h, (o && o.lay) || tl, Object.assign({ al: 'c', va: 'm', rot: a }, o));
       at(3, fitTx(c.name, 1.7, Math.max(14, L - ta - tb - 4)), 1.7);
-      if (c.status === 'existing') at(6, 'EXISTING ' + c.size + ' FOC', 1.7);
-      else { const t = lenTxt(c.length); if (t) { const w = textW(t, 1.8) + 2, h = 3.2, cx = mx - nx * 6.4, cy = my - ny * 6.4, ex = Math.cos(r), ey = Math.sin(r); G.fl([[cx - ex * w / 2 - nx * h / 2, cy - ey * w / 2 - ny * h / 2], [cx + ex * w / 2 - nx * h / 2, cy + ey * w / 2 - ny * h / 2], [cx + ex * w / 2 + nx * h / 2, cy + ey * w / 2 + ny * h / 2], [cx - ex * w / 2 + nx * h / 2, cy - ey * w / 2 + ny * h / 2]], 'LENGTH'); G.tx(cx, cy, t, 1.8, 'TEXT', { al: 'c', va: 'm', rot: a }); } at(10, c.size + 'C FOC', 1.6, { lay: 'NOTE' }); }
+      const perBuf = c.fpt && c.fpt !== 12 ? ' · ' + c.fpt + 'F/BUFFER' : '';
+      if (c.status === 'existing') at(6, 'EXISTING ' + c.size + ' FOC' + perBuf, 1.7);
+      else { const t = lenTxt(c.length); if (t) { const w = textW(t, 1.8) + 2, h = 3.2, cx = mx - nx * 6.4, cy = my - ny * 6.4, ex = Math.cos(r), ey = Math.sin(r); G.fl([[cx - ex * w / 2 - nx * h / 2, cy - ey * w / 2 - ny * h / 2], [cx + ex * w / 2 - nx * h / 2, cy + ey * w / 2 - ny * h / 2], [cx + ex * w / 2 + nx * h / 2, cy + ey * w / 2 + ny * h / 2], [cx - ex * w / 2 + nx * h / 2, cy - ey * w / 2 + ny * h / 2]], 'LENGTH'); G.tx(cx, cy, t, 1.8, 'TEXT', { al: 'c', va: 'm', rot: a }); } at(10, c.size + 'C FOC' + perBuf, 1.6, { lay: 'NOTE' }); }
       if (c.leg) at(c.status === 'existing' ? 9.5 : 13.5, String(c.leg).toUpperCase(), 1.8, { lay: tl });
       /* the fibers of this cable at each closure end: one label per direction at a branch (F1-6 → BALIWAG), in a dashed box for a leg spliced only */
       for (const [id, P0, sgn] of [[c.from, A, 1], [c.to, B, -1]]) {
@@ -824,7 +897,7 @@
         const tl = c.status === 'existing' ? 'SITE_EXIST' : 'SITE_NEW', xl = pts.length > 2 ? xT + w / 2 + 2 : isEnd(id) ? xs + 4 : p.x + 16, yl = yt + w / 2 + 1.6, before = parseRanges(c.used);
         const wk = W.get(c).filter(f => lkOf(c, f) !== 'spliced'), rs = W.get(c).filter(f => lkOf(c, f) === 'spliced');
         G.group(() => {
-          G.tx(xl, yl + 2, c.name + ' · ' + c.size + 'C ' + (c.status === 'existing' ? 'EXISTING' : 'NEW') + (lenTxt(c.length) && c.status !== 'existing' ? ' · ' + lenTxt(c.length) : '') + (c.leg ? ' · ' + String(c.leg).toUpperCase() : ''), 1.15, tl, { bold: true, nm: true });
+          G.tx(xl, yl + 2, c.name + ' · ' + c.size + 'C ' + (c.status === 'existing' ? 'EXISTING' : 'NEW') + (c.fpt !== 12 ? ' · ' + c.fpt + 'F PER BUFFER' : '') + (lenTxt(c.length) && c.status !== 'existing' ? ' · ' + lenTxt(c.length) : '') + (c.leg ? ' · ' + String(c.leg).toUpperCase() : ''), 1.15, tl, { bold: true, nm: true });
           G.tx(xl, yl, (W.get(c).length ? [wk.length ? 'WORKING ' + fmtRanges(wk, 'F') : '', rs.length ? 'FOR FUTURE TESTING ' + fmtRanges(rs, 'F') : ''].filter(Boolean).join(' · ') : 'NO LINK USES IT') + (before.length ? ' · IN USE BEFORE ' + fmtRanges(before, 'F') : ''), 1.0, 'FIBER_USED');
         });
         ellipse(G, xt - 18, yt, 1.1, w / 2 + 1.5, tl); G.u = null;
