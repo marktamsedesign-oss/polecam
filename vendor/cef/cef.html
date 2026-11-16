@@ -69,6 +69,13 @@ button,input,select{font:inherit;color:inherit}
 .tbpop .hrow>span{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tbpop .hrow small{display:block;font:400 12px var(--f-ui);color:var(--muted);overflow:hidden;text-overflow:ellipsis}
 .tbpop .hrow em{flex:none;font:600 13px var(--f-ui);font-style:normal;color:var(--sel);border:1px solid var(--sel);border-radius:8px;padding:6px 12px}.tbpop .hrow:disabled{opacity:1;cursor:default}.tbpop .hint{margin:2px 2px 6px}.tbpop .hall{margin-top:10px}.tbpop .hall .pi{vertical-align:-4px;margin-right:6px}
 .tbpop .hhd{position:sticky;top:-4px;z-index:1;display:flex;align-items:center;gap:8px;margin:0 -10px;padding:6px 10px;background:var(--panel,#fff);border-bottom:1px solid var(--line);font:700 14px var(--f-ui)}.tbpop .hhd span{flex:1 1 auto}      /* (15 Nov) the first line of the card: how many, and Done to close it */
+/* (fix 47) the Text button's card: A− and A+ with the size between them, the chips Auto S M L XL; the size of one picked name over the drawing. Large targets. */
+.tsz{display:flex;align-items:stretch;gap:8px;margin:10px 0 6px}.tsz .tile{width:84px;min-height:56px;border-color:var(--line)}.tsz .tile:disabled{opacity:.35;cursor:default}
+.tsz .am{font:700 15px/1 var(--f-ui)}.tsz .ap{font:700 22px/1 var(--f-ui)}
+.tszv{flex:1 1 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;font:700 20px/1.1 var(--f-ui);color:var(--ink);text-align:center}.tszv small{font:400 11.5px/1.2 var(--f-ui);color:var(--muted);margin-top:3px}
+.tbpop .tchips{gap:6px;margin-bottom:4px}.tbpop .tchips .tile{width:auto;min-width:56px;flex:1 1 0;min-height:48px}.tbpop .tchips .tile .ch{font:700 16px var(--f-ui)}
+.tbpop .tchips .tile[aria-pressed=true]{background:var(--btn);color:var(--btn-ink);border-color:var(--btn)}
+.tbpop .tone{margin:6px 0 2px}.lsz{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 2px;font:600 13px var(--f-ui);color:var(--muted)}.og.big button{min-height:44px;min-width:44px;font-size:13.5px}.og.big button:disabled{opacity:.35;cursor:default}
 @media (min-width:901px) and (max-width:940px){      /* (15 Nov) a narrow computer: with the orange eye button the bar above the drawing stays on one line ("Iso", and the view tabs give way last) */
   .tools:has(#bHid:not([hidden])){flex-wrap:nowrap}.tools:has(#bHid:not([hidden])) .seg{flex:0 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}.tools:has(#bHid:not([hidden])) .seg button{flex:none;padding:0 9px}
   .tools:has(#bHid:not([hidden])) .seg button[data-v="iso"]{font-size:0}.tools:has(#bHid:not([hidden])) .seg button[data-v="iso"]::after{content:'Iso';font-size:13px}

@@ -292,6 +292,21 @@ function riserKit(sc, pc, u, g, zc, pr, lay) {
   for (const z of K.gi.concat(K.ug)) band(z);
   return K;
 }
+/* (fix 47) the pedestal box at the foot of a pole, where the UG cable comes up, in place of the G.I. pipe: the box on its concrete base, its door on the side
+   away from the pole, a short flexible pipe from its top to the pole, and the U-guard from there up the pole to where it ends on a riser. Gives back the heights (riserParts) and the box. */
+function pedKit(sc, pole, u, g, zc, pr, st, A, S, ly) {
+  const K = riserParts(g, zc, 1), P = pedAt(pole, u), lay = ly || (st === 'E' ? 'ex' : 'pp'), rot = P.rot, bx = { x: P.c[0], y: P.c[1], w: PED.w, d: PED.d, rot }, zt = g + PED.h;
+  const ang = Math.atan2(u[1], u[0]) / D2R, gw = 0.125, gt = 0.12, pc = [pole.x, pole.y], at = (z, o) => { const d = pr(z) + o; return [pc[0] + u[0] * d, pc[1] + u[1] * d]; };
+  prism(sc, rectAt(P.c, PED.w + 0.1, PED.d + 0.1, rot), g, g + 0.06, lay);                         /* its concrete base */
+  prism(sc, P.poly, g + 0.06, zt - 0.04, lay); prism(sc, rectAt(P.c, PED.w + 0.03, PED.d + 0.03, rot), zt - 0.04, zt, lay);      /* the box and its lid */
+  faceRect(sc, bx, 'F', -PED.w / 2 + 0.04, PED.w / 2 - 0.04, g + 0.13, zt - 0.1, lay); faceLine(sc, bx, 'F', PED.w / 2 - 0.08, g + PED.h * 0.48, PED.w / 2 - 0.08, g + PED.h * 0.6, lay);      /* its door and handle */
+  for (let i = 1; i <= 3; i++) faceLine(sc, bx, 'F', -PED.w / 2 + 0.08, zt - 0.1 - i * 0.05, PED.w / 2 - 0.08, zt - 0.1 - i * 0.05, 'dt');      /* the louvres at the top of the door */
+  const b0 = [P.c[0] - u[0] * (PED.d / 2 - 0.05), P.c[1] - u[1] * (PED.d / 2 - 0.05)], g0 = at(K.giTop + 0.12, gw / 2); tube(sc, [b0[0], b0[1], zt], [g0[0], g0[1], K.giTop + 0.12], 0.025, 0.025, lay, 6);      /* the flexible pipe from the box to the U-guard */
+  loft(sc, rectAt(at(K.giTop, gw / 2), gw, gt, ang), K.giTop, rectAt(at(K.ugTop, gw / 2), gw, gt, ang), K.ugTop, lay);
+  for (const z of K.ug) { const Q = [], r = pr(z) + 0.006; for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; Q.push([pc[0] + r * Math.cos(a), pc[1] + r * Math.sin(a)]); } for (const q of rectAt(at(z, gw / 2), gw + 0.012, gt + 0.012, ang)) Q.push(q); prism(sc, hull(Q), z - 0.015, z + 0.015, 'dt'); }      /* the stainless straps */
+  if (A) { const key = 'ped' + pole.id; A.push({ k: 'el', key, kind: 'lead', p: [P.c[0] + u[0] * PED.d / 2, P.c[1] + u[1] * PED.d / 2, g + PED.h * 0.6], s: labText(S, key, pedName(st)), st, fp: P.poly, z: g, pts: P.poly.map(q => [q[0], q[1], g]).concat(P.poly.map(q => [q[0], q[1], zt])) }); }
+  return K;
+}
 /* does a wall or a face look at the viewer? n: its outward direction on the plan. More than 0: it does. */
 const facing = (sc, n) => { const r = sc.R([sc.cx + n[0], sc.cy + n[1], 0]); return (r[0] - sc.cx) - (r[1] - sc.cy); };
 const faceN = (el, side) => rot2(side === 'R' ? 1 : side === 'L' ? -1 : 0, side === 'F' ? -1 : side === 'B' ? 1 : 0, el.rot || 0);
@@ -662,10 +677,11 @@ function isoEl(S, el, sc, A, rg, X) {
         const EP = sqr(c, Math.max(STD.encW, w + 0.16) / 2, rot);
         prism(sc, EP, z0, z0 + STD.encUp, lay);                    /* the concrete encasement: 0.406 m above the ground and 1.32 m below it */
         if (onG && !FLAT) { const zb = z0 - STD.encDn; sc.poly(EP.map(q => [q[0], q[1], zb]), hid, 1); for (const q of EP) sc.line([q[0], q[1], z0], [q[0], q[1], zb], hid); }
-        if (!rg.risers.some(q => q.pole === el)) riserKit(sc, c, pipeSide(S, el), z0, z0 + Math.max(1.5, num(S.route.aerialH, STD.msg)), pr, lay);
+        if (!rg.risers.some(q => q.pole === el)) { if (pedOf(el)) pedKit(sc, el, pipeSide(S, el), z0, z0 + Math.max(1.5, num(S.route.aerialH, STD.msg)), pr, pedOf(el), X && X.ref ? null : A, S, X && X.ref ? 'dt' : null); else riserKit(sc, c, pipeSide(S, el), z0, z0 + Math.max(1.5, num(S.route.aerialH, STD.msg)), pr, lay); }      /* (fix 47) or its pedestal box */
         if (onG && !FLAT) { const zb = z0 - STD.poleIn, e = k => [c[0] + H[0] * k * r, c[1] + H[1] * k * r]; for (const k of [-1, 1]) sc.line([e(k)[0], e(k)[1], z0 - STD.encDn], [e(k)[0], e(k)[1], zb], hid); sc.line([e(-1)[0], e(-1)[1], zb], [e(1)[0], e(1)[1], zb], hid); }      /* the pole stands 1.5 m in the ground: its foot shows under the encasement */
         fp = EP;
       }
+      else if (pedOf(el) && !rg.risers.some(q => q.pole === el)) pedKit(sc, el, pipeSide(S, el), z0, z0 + Math.max(1.5, num(S.route.aerialH, STD.msg)), pr, pedOf(el), X && X.ref ? null : A, S, X && X.ref ? 'dt' : null);      /* (fix 47) an existing pole with a pedestal box */
       frustum(sc, c, z0, z0 + h, r, r * 0.7, lay, 10); az = z0 + Math.min(h * 0.45, 4); break;
     }
     case 'ac': { if (!S.room) { prism(sc, elPoly(el), z0, z0 + h, lay); break; } const k = wallOf(S.site.L, S.site.W, el.x, el.y), hz = k.side === 'S' || k.side === 'N', q = [k.x + k.n[0] * (0.1 + d / 2), k.y + k.n[1] * (0.1 + d / 2)]; fp = rectAt(q, hz ? w : d, hz ? d : w, 0); prism(sc, fp, z0, z0 + h, lay); hp = [q[0], q[1], z0 + h];
@@ -914,7 +930,7 @@ function buildIso0(S, o) {
   });
   for (const r of rg.risers) {
     const s0 = sc.sid, pl = r.pole, zp = baseZ(S, pl);
-    r.K = riserKit(sc, [pl.x, pl.y], r.s || r.u, r.g, r.z1 - (r.nap ? 0 : CLOZ), z => poleR(pl, z - zp), 'pp');
+    r.K = pedOf(pl) ? pedKit(sc, pl, r.s || r.u, r.g, r.z1 - (r.nap ? 0 : CLOZ), z => poleR(pl, z - zp), pedOf(pl), A3, S) : riserKit(sc, [pl.x, pl.y], r.s || r.u, r.g, r.z1 - (r.nap ? 0 : CLOZ), z => poleR(pl, z - zp), 'pp');      /* (fix 47) a pedestal box in place of the G.I. pipe */
     if (r.dp > 0.2 && r.R > 0.05) elbow2(sc, r.at, r.g, r.dp, r.R, r.u, 'hp', 0);
     for (let i = s0 + 1; i <= sc.sid; i++) sc.thru.add(i);
   }
@@ -923,7 +939,8 @@ function buildIso0(S, o) {
     A3.push({ k: 'el', key: ck, kind: 'lead', p: [j.c[0], j.c[1], j.z + STD.cloH * 0.6], s: labText(S, ck, 'PROPOSED CLOSURE'), st: 'P', fp: sqr(j.c, 0.15, 0), z: j.z, pts: cloPts(j.c, j.z) });
   }
   }
-  const R0 = sc.render(), GT = new Gfx(), LB = new Labeler(GT), FB = [], fibP = [], fibH = [], legs2 = [], far = [], quads = []; let skipped = 0, strict = 0;
+  const R0 = sc.render(), GT = new Gfx(), LB = new Labeler(GT); if (labKs(S)) LB.kf = key => labK(S, key);      /* (fix 47) the size of one name */
+  const FB = [], fibP = [], fibH = [], legs2 = [], far = [], quads = []; let skipped = 0, strict = 0;
   if (!one) for (const q of X.pin || []) FB.push({ k: 'pl', pts: [P3(q[0]), P3(q[1])], lay: q[2], close: false, g: q[3] });      /* (14 Nov 17:00) the pipe in the pad */
   let CTX = [], fb = null;
   if (one) { const pts = []; for (const p of R0) if (p.k === 'pl') for (const q of p.pts) pts.push(q); if (pts.length > 2) fb = polyBox(pts);
@@ -992,7 +1009,7 @@ function buildIso0(S, o) {
   for (const v of rg.verts) {
     const zb = v.z0 + (v.R || 0), t2 = v.at2 || v.at, gz = Math.max(zb, Math.min(v.g, v.z1)); if (v.z1 - gz > 0.01) seg3([t2[0], t2[1], v.z1], [v.at[0], v.at[1], gz], 'ug', v.inside); if (gz - zb > 0.01) seg3([v.at[0], v.at[1], gz], [v.at[0], v.at[1], zb], 'ug', v.inside);      /* on a pole the cable leans with the pipe, down to the ground */
     if (v.R) { let prev = [v.at[0], v.at[1], zb]; for (let i = 1; i <= 6; i++) { const a = Math.PI + i * Math.PI / 12, q = [v.at[0] + v.u[0] * v.R * (1 + Math.cos(a)), v.at[1] + v.u[1] * v.R * (1 + Math.cos(a)), zb + v.R * Math.sin(a)]; seg3(prev, q, 'ug'); prev = q; } }
-    if (v.kind === 'riser' && v.z1 - v.g > 1.5) { const K = riserParts(v.g, v.z1 - (v.nap ? 0 : CLOZ)), t2 = v.at2 || v.at, q = z => { const f = clamp((z - v.g) / Math.max(0.1, v.z1 - v.g), 0, 1); return P3([v.at[0] + (t2[0] - v.at[0]) * f, v.at[1] + (t2[1] - v.at[1]) * f, z]); }; risers.push({ v, a: q(K.e), b: q(K.giTop), c: q(K.giTop), d: q(K.ugTop), ug: K.ugTop - K.giTop > 0.6 }); }
+    if (v.kind === 'riser' && v.z1 - v.g > 1.5) { const pd = v.rec ? pedOf(v.rec.pole) : null, K = riserParts(v.g, v.z1 - (v.nap ? 0 : CLOZ), pd), t2 = v.at2 || v.at, q = z => { const f = clamp((z - v.g) / Math.max(0.1, v.z1 - v.g), 0, 1); return P3([v.at[0] + (t2[0] - v.at[0]) * f, v.at[1] + (t2[1] - v.at[1]) * f, z]); }; risers.push({ v, ped: pd, a: q(K.e), b: q(K.giTop), c: q(K.giTop), d: q(K.ugTop), ug: K.ugTop - K.giTop > 0.6 }); }
   }
   for (const k of rg.links) seg3(k.a, k.b, 'ug');
   { const f0 = fgrp; fgrp = gk('FOC_AE'); for (const q of rg.drops) for (let i = 0; i + 1 < q.pts.length; i++) seg3(q.pts[i], q.pts[i + 1], 'ae'); fgrp = f0; }      /* (14 Nov 17:00) down the pole into a Dummy NAP */
@@ -1081,7 +1098,7 @@ function buildIso0(S, o) {
       const a = r.pts[bi], b = r.pts[bi + 1], m = [a[0] + (b[0] - a[0]) * 0.72, a[1] + (b[1] - a[1]) * 0.72], dp = runDepth(r), key = 'dep' + r.id;
       jobs.push({ o: 3.2, key, s: labText(S, key, 'TRENCH ' + f1(dp) + ' m DEEP'), st: 'P', ap: P3([m[0], m[1], groundZ(S, m) - dp * 0.6]), alt: [0.5, 0.3, 0.12].map(t => { const q = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; return P3([q[0], q[1], groundZ(S, q) - dp * 0.6]); }), kind: 'lead', opt: 0 });
     }
-    risers.forEach((q, i) => { jobs.push({ o: 3, key: 'riser' + i, s: labText(S, 'riser' + i, 'PROPOSED G.I. RISER PIPE'), st: 'P', ap: at(q, 0.5), kind: 'along', near: polyBox([q.a, q.b]), pcs: [[q.a, q.b]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); if (q.ug) jobs.push({ o: 3, key: 'ugd' + i, s: labText(S, 'ugd' + i, 'PROPOSED U-GUARD'), st: 'P', ap: [q.c[0] + (q.d[0] - q.c[0]) * 0.5, q.c[1] + (q.d[1] - q.c[1]) * 0.5], kind: 'along', near: polyBox([q.c, q.d]), pcs: [[q.c, q.d]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); });
+    risers.forEach((q, i) => { if (!q.ped) jobs.push({ o: 3, key: 'riser' + i, s: labText(S, 'riser' + i, 'PROPOSED G.I. RISER PIPE'), st: 'P', ap: at(q, 0.5), kind: 'along', near: polyBox([q.a, q.b]), pcs: [[q.a, q.b]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); if (q.ug) jobs.push({ o: 3, key: 'ugd' + i, s: labText(S, 'ugd' + i, 'PROPOSED U-GUARD'), st: 'P', ap: [q.c[0] + (q.d[0] - q.c[0]) * 0.5, q.c[1] + (q.d[1] - q.c[1]) * 0.5], kind: 'along', near: polyBox([q.c, q.d]), pcs: [[q.c, q.d]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); });
     for (const k of inLab) jobs.push({ o: 4, key: k.q.key, s: labText(S, k.q.key, k.q.s), st: k.q.st, ap: k.ap, kind: 'lead' });
     for (const q of loops) jobs.push({ o: 5, key: 'loop' + q.lp.i + (q.lp.ck || ''), s: labText(S, 'loop' + q.lp.i + (q.lp.ck || ''), 'LOOP HOLDER W/ ' + f2(q.lp.len) + 'm LOOP'), st: 'P', ap: q.c, kind: 'lead' });
     /* When the size is automatic, a name that finds no room is tried again smaller, down to what is still easy to read (1.8 mm on the sheet). Only then does it get a leader. */
@@ -1099,9 +1116,10 @@ function buildIso0(S, o) {
       LB.keep(jb.key, q, c, jb.ap, fixed ? { moved: 1 } : null);
     };
     const boxAuto = jb => {
+      const hj = h * LB.k(jb.key);      /* (fix 47) */
       for (const fr of faceFrames(sc, jb.a)) {
-        const B = frameBasis(sc, fr), need1 = 2 * half(jb.s, 1, B.U, B.V), k0 = Math.min(1, (fr.len - 0.08) / (need1 * h), (fr.ht - 0.08) / (1.7 * h));      /* the standard size, made smaller only to fit the face */
-        for (const H of k0 < KFACE ? [] : [h * k0]) {
+        const B = frameBasis(sc, fr), need1 = 2 * half(jb.s, 1, B.U, B.V), k0 = Math.min(1, (fr.len - 0.08) / (need1 * hj), (fr.ht - 0.08) / (1.7 * hj));      /* the standard size, made smaller only to fit the face */
+        for (const H of k0 < KFACE ? [] : [hj * k0]) {
         const hw = half(jb.s, H, B.U, B.V), hh = 0.85 * H, ms = Math.max(0, fr.len / 2 - hw - 0.04), mt = Math.max(0, fr.ht / 2 - hh - 0.04), P = (s, t) => fr.pt(B.ss * s, B.ts * t);
         let ts = fr.top ? [-mt, mt, 0] : [0.12 * fr.ht, 0, -0.25 * fr.ht, 0.3 * fr.ht].map(t => clamp(t, -mt, mt));
         if (fr.top) ts.sort((p, q) => sc.P(P(0, p))[1] - sc.P(P(0, q))[1]);          /* on a top face, the strip nearest the viewer first: it is the one most often clear */
@@ -1130,7 +1148,7 @@ function buildIso0(S, o) {
     /* 1. labels the user moved */
     for (const jb of jobs) {
       const off = labOff(S, jb.key, VK); if (!off) continue; const c = [jb.ap[0] + off[0], jb.ap[1] + off[1]]; jb.done = 1;
-      if (jb.kind === 'box') { const fr = faceFrames(sc, jb.a)[0]; if (fr) { const B = frameBasis(sc, fr); sticker(jb, c, B.U, B.V, h, 1); continue; } }
+      if (jb.kind === 'box') { const fr = faceFrames(sc, jb.a)[0]; if (fr) { const B = frameBasis(sc, fr); sticker(jb, c, B.U, B.V, h * LB.k(jb.key), 1); continue; } }
       LB.fixed(jb.key, jb.wrap ? wrap(jb.s, jb.wrap) : [jb.s], h, tl(jb.st), c, jb.kind === 'along' ? angOf(jb.pcs[0][0], jb.pcs[0][1]) : jb.kind === 'ground' ? -30 : 0, jb.ap);
     }
     /* the site name and ID: beside the top of the tower, bold, larger than the other names. Level with the top, on the right, then the left, then above, then lower down the sides. */

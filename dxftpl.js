@@ -118,7 +118,7 @@
      name: *Multiple", "Premature end of object", "GEODATA … DXF read error"); lenient viewers open such a file, AutoCAD discards it.
      This pass repairs them. It runs on the template before it is filled and again on every export, and it is idempotent: run on its
      own output it changes nothing. The rules (the team's fix_dxf.py, tested in AutoCAD for Mac, rules 1-11; 12-13 and the rest new):
-      1 one *Active VPORT only                      2 ATTRIB / ATTDEF: the bogus embedded AcDbXrecord tail stripped
+      1 one *Active VPORT only (4.7: whole screen)  2 ATTRIB / ATTDEF: the bogus embedded AcDbXrecord tail stripped
       3 GEODATA dropped                             4 REGION / 3DSOLID / BODY dropped when there is no ACDSDATA section
                                                     (and an INSERT of a block left empty)
       5 MULTILEADER dropped                         6, 11 pointers (347 materials, 340, 348, 331, 360…) to missing objects removed
@@ -135,6 +135,7 @@
      17 (v2.42.9, .10) MTEXT: the embedded object LibreDWG wrote with its direction and insertion swapped (AutoCAD turned and moved
         those texts): dropped (one column or none) or written as AutoCAD reads it (several columns)
      18 (v2.42.10) VIEWPORT: frozen layers under 331, not 341 (G-eSAA's own mistake before v2.42.10; AutoCAD froze nothing)
+     19 (beta 4.7) the picture classes (IMAGE, IMAGEDEF, IMAGEDEF_REACTOR, RASTERVARIABLES): their instance count (91) the drawing's
      and: header variables pointing to missing objects removed; $HANDSEED above every handle; each table's count its records. */
   // v2.42.10: fonts AutoCAD for Mac may not have, and their stand-ins (16)
   const FONT_TTF = [
@@ -159,9 +160,19 @@
     const log = {}, inc = (k, n) => { log[k] = (log[k] || 0) + (n == null ? 1 : n); };
     const T = d.sec('TABLES'), B = d.sec('BLOCKS'), E = d.sec('ENTITIES'), O = d.sec('OBJECTS'), hasAcds = !!d.sec('ACDSDATA');
     const drop = new Set(); // records dropped (by identity)
-    // 1. one *Active VPORT
-    let active = false;
-    for (const r of T.recs) if (typ(r) === 'VPORT') { const nm = String(get(r, 2, '')); if (nm.toUpperCase() === '*ACTIVE' && !active) active = true; else { drop.add(r); inc(`VPORT ${nm} dropped`); } }
+    // 1. one *Active VPORT; beta 4.7: over the whole screen. The company template's model view was saved as two tiled viewports side
+    // by side (two *Active records, the left and the right half): the one kept covered the left half only, so AutoCAD opened the
+    // plan in the left half with the right half of the screen blank. Its aspect (41) becomes the whole screen's.
+    let active = null;
+    for (const r of T.recs) if (typ(r) === 'VPORT') { const nm = String(get(r, 2, '')); if (nm.toUpperCase() === '*ACTIVE' && !active) active = r; else { drop.add(r); inc(`VPORT ${nm} dropped`); } }
+    if (active) {
+      const x0 = num(active, 10, 0), y0 = num(active, 20, 0), x1 = num(active, 11, 1), y1 = num(active, 21, 1), a = num(active, 41, 0);
+      if (Math.abs(x0) > 1e-9 || Math.abs(y0) > 1e-9 || Math.abs(x1 - 1) > 1e-9 || Math.abs(y1 - 1) > 1e-9) {
+        if (a > 0 && x1 - x0 > 0.01 && y1 - y0 > 0.01) setFirst(active, 41, F(a * (y1 - y0) / (x1 - x0)));
+        for (const [c, v] of [[10, '0.0'], [20, '0.0'], [11, '1.0'], [21, '1.0']]) setFirst(active, c, v);
+        inc('VPORT *Active set to the whole screen (it covered part of it)');
+      }
+    }
     // 3, 10. LibreDWG's objects; 4, 5. entities AutoCAD cannot read
     for (const r of O.recs) if (DROP_OBJ.has(typ(r))) { drop.add(r); inc(`${typ(r)} dropped`); }
     for (const s of [B, E]) for (const r of s.recs) { const t = typ(r); if (t === 'MULTILEADER' || (!hasAcds && (t === 'REGION' || t === '3DSOLID' || t === 'BODY'))) { drop.add(r); inc(`${t} dropped`); } }
@@ -309,6 +320,8 @@
     }
     // 15. blocks drawn far from their base point
     rebase(d, inc);
+    // 19. (beta 4.7) the picture classes' instance counts: the pictures in the drawing (the template's IMAGEDEF count was left as it was)
+    { const n = rasterCounts(d); if (n) inc('picture class instance count set to its records', n); }
     // $HANDSEED above every handle; the VPORT table's count
     let mx = 0; for (const s of sections) for (const r of s.recs) { const h = handleOf(r); if (h) mx = Math.max(mx, parseInt(h, 16) || 0); }
     if (d.next <= mx) d.next = mx + 1;
@@ -698,13 +711,28 @@
     };
     setPt('$EXTMIN', ext[0], ext[1]); setPt('$EXTMAX', ext[2], ext[3]);
     const vp = d.sec('TABLES').recs.find((r) => typ(r) === 'VPORT' && String(get(r, 2, '')).toUpperCase() === '*ACTIVE');
-    if (vp) {
-      const asp = num(vp, 41, 0) > 0.05 && num(vp, 41, 0) < 20 ? num(vp, 41, 0) : 1.6, w = ext[2] - ext[0], h = ext[3] - ext[1];
+    if (vp) { // (beta 4.7: an aspect of at most 1.8 : 1, so the whole plan fits a narrower drawing area than the template's own: AutoCAD
+      // keeps the view's height and fits the width to the window; most drawing areas are 2 : 1 or wider)
+      const asp = num(vp, 41, 0) > 0.05 && num(vp, 41, 0) < 20 ? Math.min(num(vp, 41, 0), 1.8) : 1.6, w = ext[2] - ext[0], h = ext[3] - ext[1];
       const set = (c, v) => { if (get(vp, c) != null) setFirst(vp, c, v); };
       setFirst(vp, 12, F((ext[0] + ext[2]) / 2)); setFirst(vp, 22, F((ext[1] + ext[3]) / 2)); setFirst(vp, 40, F(Math.max(h, w / asp, 1) * 1.05));
       set(16, '0.0'); set(26, '0.0'); set(36, '1.0'); set(17, '0.0'); set(27, '0.0'); set(37, '0.0'); set(51, '0.0'); // looking straight down, no twist
     }
     return { box: ext.map((v) => Math.round(v)), far };
+  }
+  /** beta 4.7: the instance count (91) of each picture class in CLASSES: how many of its records the drawing has (it was set for IMAGE
+      and IMAGEDEF_REACTOR only; the template's IMAGEDEF count stayed, e.g. 118 for 157 pictures). */
+  function rasterCounts(d) {
+    const cnt = new Map([['IMAGE', 0], ['IMAGEDEF', 0], ['IMAGEDEF_REACTOR', 0], ['RASTERVARIABLES', 0]]), C = d.sec('CLASSES');
+    if (!C || !C.raw) return 0;
+    for (const nm of ['BLOCKS', 'ENTITIES', 'OBJECTS']) { const s = d.sec(nm); if (s && s.recs) for (const r of s.recs) if (cnt.has(typ(r))) cnt.set(typ(r), cnt.get(typ(r)) + 1); }
+    const raw = C.raw; let n = 0;
+    for (let i = 0; i < raw.length; i++) {
+      if (raw[i][0] !== 1 || !cnt.has(raw[i][1])) continue;
+      let j = i + 1; while (j < raw.length && raw[j][0] !== 0 && raw[j][0] !== 91) j++;
+      if (j < raw.length && raw[j][0] === 91 && parseInt(raw[j][1], 10) !== cnt.get(raw[i][1])) { raw[j] = [91, I(cnt.get(raw[i][1]))]; n++; }
+    }
+    return n;
   }
   /** Raster images: the classes AutoCAD needs, the image dictionary, one IMAGEDEF per file and an IMAGE (with its reactor). */
   class Images {
@@ -749,7 +777,7 @@
         O.push([[0, 'RASTERVARIABLES'], [5, h], [102, '{ACAD_REACTORS'], [330, rh0], [102, '}'], [330, rh0], [100, 'AcDbRasterVariables'], [90, I(0)], [70, I(1)], [71, I(1)], [72, I(0)]]);
         root.push([3, 'ACAD_IMAGE_VARS'], [350, h]);
       }
-      const raw = this.d.sec('CLASSES').raw; for (let i = 0; i < raw.length; i++) if (raw[i][0] === 1 && (raw[i][1] === 'IMAGE' || raw[i][1] === 'IMAGEDEF_REACTOR')) { const j = raw.findIndex((p, k) => k > i && p[0] === 91); if (j > 0) raw[j] = [91, I(this.n)]; }
+      rasterCounts(this.d); // (beta 4.7: each picture class's count, IMAGEDEF and RASTERVARIABLES too)
       this.d.index();
     }
   }
