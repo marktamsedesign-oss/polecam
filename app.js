@@ -909,7 +909,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.44.6';
+  const APP_VER = '2.44.7';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
   const APP_BETA = '4.4'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
@@ -1767,7 +1767,7 @@
     if (p.closure || p.closureId || clPin) out.push(['CL', '#c2255c']);
     if (nGuy) out.push([nGuy > 1 ? `G${nGuy}` : 'G', '#1971c2']);
     if (groundYes(b)) out.push(['GR', '#2b8a3e']);
-    if (b.riser) out.push(['R', '#495057']);
+    if (b.riser || riserAuto(p)) out.push(['R', '#495057']); // (2.44.7: or UG meets aerial here)
     if (hasTelcoArm(p)) out.push(['TA', '#0c8599']); // v2.42.1
     return out;
   }
@@ -1817,19 +1817,19 @@
       if (cur.length > 1) lines.push(cur);
       const lw = drwLw(f.ex ? lwOfCores(f.cores) : lwOfCab(f.cab), d); drw.hitL.push({ n: f.n, lines });
       if (drw.selRun === f.n) { g.strokeStyle = 'rgba(250,176,5,.55)'; g.lineWidth = lw + 12 * d; g.lineJoin = 'round'; g.lineCap = 'round'; g.setLineDash([]); lines.forEach((L) => { if (L.length < 2) return; g.beginPath(); L.forEach((p, k) => (k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.stroke(); }); g.lineCap = 'butt'; } // v2.42.26: the run tapped, lit all along
-      g.strokeStyle = f.ex ? '#4dabf7' : '#1c3f94'; g.lineWidth = lw; g.lineJoin = 'miter'; g.miterLimit = 6; g.setLineDash(f.cab && !/^U/.test(f.cab) ? [7 * d, 4 * d] : []);
+      g.strokeStyle = f.ex ? '#4dabf7' : '#1c3f94'; g.lineWidth = lw; g.lineJoin = 'miter'; g.miterLimit = 6; g.setLineDash(f.cab && !((C.CABLES[f.cab] || {}).method === 'UG') ? [7 * d, 4 * d] : []); /* 2.44.7: UG by its placement (the conventional UG too) */
       lines.forEach((L) => { if (L.length < 2) return; g.beginPath(); L.forEach((p, k) => (k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.stroke(); for (let k = 1; k < L.length; k++) occ.add(segObb(L[k - 1], L[k], lw + 2 * d), 'cable', f.n); });
       g.setLineDash([]); g.lineJoin = 'round';
       for (let j = 0; j < m; j++) { const key = spanKey(ids[j], ids[j + 1]); if (!laneAt.has(key)) laneAt.set(key, []); laneAt.get(key).push({ N: N[j], f }); }
     });
     drw.spans.forEach(({ sp, a, b }) => { // the CABLE_ROUTE layer; aerial broken, underground solid (v2.42.24: as wide as its size; its labels and length below)
-      const P0 = drwPx(a), P1 = drwPx(b), ug = /^U/.test(sp.cable || ''), [ax, ay] = endAt(sp.ia, P0, P1), [bx, by] = endAt(sp.ib, P1, P0);
+      const P0 = drwPx(a), P1 = drwPx(b), ug = (C.CABLES[sp.cable] || {}).method === 'UG', [ax, ay] = endAt(sp.ia, P0, P1), [bx, by] = endAt(sp.ib, P1, P0);
       const ln = sp.lanes && sp.lanes.length ? sp.lanes : null, fD = !!ln && (drw.fibs || []).length > 0, onF = fD && ln.some((f) => !f.ex); // (v2.42.23: its fibers drawn above; with only existing ones, its own cable too)
       if (!onF) { const lw = sp.long ? 2.2 * d : drwLw(lwOfCab(sp.cable), d); g.strokeStyle = sp.long ? '#c92a2a' : '#1c3f94'; g.lineWidth = lw; g.setLineDash(sp.cable && !ug ? [7 * d, 4 * d] : []); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); occ.add(segObb([ax, ay], [bx, by], lw + 2 * d), 'cable', `s${sp.ia}|${sp.ib}`); }
       else if (sp.long) { g.strokeStyle = 'rgba(201,42,42,.35)'; g.lineWidth = (6 + 5 * (ln.length - 1)) * d; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); } // a span over the maximum: red under its fibers
       if (!fD && !ln) (sp.runs || []).slice(1).forEach((k, i) => { // v2.42.18: the span's other runs, parallel to run 1
         const Ln = Math.hypot(bx - ax, by - ay) || 1, nx = (by - ay) / Ln, ny = -(bx - ax) / Ln, o = GAP * (i + 1), lw = drwLw(lwOfCab(k), d);
-        g.strokeStyle = '#1c3f94'; g.lineWidth = lw; g.setLineDash(k && !/^U/.test(k) ? [7 * d, 4 * d] : []); g.beginPath(); g.moveTo(ax + nx * o, ay + ny * o); g.lineTo(bx + nx * o, by + ny * o); g.stroke(); g.setLineDash([]); occ.add(segObb([ax + nx * o, ay + ny * o], [bx + nx * o, by + ny * o], lw + 2 * d), 'cable', `s${sp.ia}|${sp.ib}`);
+        g.strokeStyle = '#1c3f94'; g.lineWidth = lw; g.setLineDash(k && !((C.CABLES[k] || {}).method === 'UG') ? [7 * d, 4 * d] : []); g.beginPath(); g.moveTo(ax + nx * o, ay + ny * o); g.lineTo(bx + nx * o, by + ny * o); g.stroke(); g.setLineDash([]); occ.add(segObb([ax + nx * o, ay + ny * o], [bx + nx * o, by + ny * o], lw + 2 * d), 'cable', `s${sp.ia}|${sp.ib}`);
       });
     });
     (drw.exHops || []).forEach(({ a, b }) => { if ((drw.fibs || []).length) return; const [ax, ay] = drwPx(a), [bx, by] = drwPx(b); g.strokeStyle = '#4dabf7'; g.lineWidth = 1.8 * d; g.setLineDash([7 * d, 4 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); }); // v2.42.20: an existing cable (v2.42.23: its fiber's line above)
@@ -3036,9 +3036,15 @@
   }
   /* v2.29: each span carries its FOC cable type (the third value of the link): AE Figure 8 72C, Light cable 12C or UG 144C air-blown */
   const CAB = C.CABLES;
+  var riserAutoIds = null; function riserAuto(p) { return !!(p && riserAutoIds && riserAutoIds.has(p.id)); } // 2.44.7: riser poles found from the cables (routeModel keeps them; var and function: the Drawing may ask before this line has run)
   /* v2.42.24: the cable's family: the light cable (retractors and span clamps, a dummy NAP), figure 8 (pole clamps), UG */
   const isLight = (k) => !!CAB[k] && CAB[k].fam === 'light', isFig8 = (k) => !!CAB[k] && (CAB[k].fam === 'fig8' || CAB[k].fam === 'conv'); // (2.44.6: a conventional AE cable is clamped, looped and closed as a figure 8)
   const isUG = (k) => !!CAB[k] && CAB[k].method === 'UG'; // (2.44.6: the UG air-blown and the conventional UG cables)
+  /** 2.44.7: the poles where a proposed UG cable meets a proposed aerial one: riser poles, as if Riser were ticked on them (drawn with the riser
+      model on the plan and the Drawing, with a riser's own loop). Kept from the last route model. */
+  const risersOf = (R) => { const m = new Map(); (R ? R.spans : []).forEach((s) => { const ks = s.fibers && s.fibers.length ? s.fibers.filter((f) => !f.ex).map((f) => f.cab) : (s.runs || [s.cable]);
+    ks.forEach((k) => { if (!CAB[k]) return; [s.a, s.b].forEach((q) => { if (q && elemOf(q) === 'Pole') (m.get(q.id) || m.set(q.id, new Set()).get(q.id)).add(CAB[k].method); }); }); });
+    return new Set([...m].filter(([, v]) => v.has('UG') && v.has('AE')).map(([id]) => id)); };
   const CAB_GROUPS = [['light', 'Light cable'], ['fig8', 'Figure 8'], ['conv', 'Conventional · AE'], ['ug', 'UG air-blown'], ['convug', 'Conventional · UG']]; // (2.44.6: conventional AE / UG)
   const cableSel = () => { const k = pmeta().cable; return k === '' || CAB[k] ? k : 'L12'; }; // the cable new links get: the project's last choice
   const cableName = (k) => (CAB[k] ? CAB[k].label : 'Cable not set');
@@ -3050,7 +3056,7 @@
   }
   /** Points the cable route runs through: poles, handholes, the site, ODC and ODF (NAP and closure pins sit on a pole). */
   const routePts = () => projPoints().filter((p) => ROUTE_ELS.includes(elemOf(p)));
-  const routeModel = () => { const rp = routePts(); return fibAnnotate(C.analyzeRoute(rp, effLinks(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 }), rp); };
+  const routeModel = () => { const rp = routePts(), R = fibAnnotate(C.analyzeRoute(rp, effLinks(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 }), rp); riserAutoIds = risersOf(R); return R; }; // (2.44.7: and its riser poles)
   /** v2.42.20: the fibers on the route R: R.fib = { list (all, by number; each with len, spans, gaps), planned (new, 2+ points),
       hops: Map spanKey -> { a, b, s, fs: fibers in lane order }, by }; each span: lanes (its fibers in lane order) and fibers (the
       new ones). Lanes: on a shared span, the fibers in the order of the side each goes off to (left of a → b first), so they do not
@@ -3394,7 +3400,7 @@
     const nt = [p.nap || p.napId ? b.napType || 'NAP' : '', p.nap2 || p.nap2Id ? b.nap2Type || 'NAP' : ''].filter(Boolean);
     if (nt.some((t) => /dummy/i.test(t))) return 'dummy NAP';
     if (nt.some((t) => /lcp/i.test(t))) return 'LCP';
-    return nt.length ? 'NAP' : b.riser ? 'riser' : '';
+    return nt.length ? 'NAP' : b.riser || riserAuto(p) ? 'riser' : ''; // (2.44.7: or UG meets aerial here)
   };
   const loopMan = (p) => elemOf(p) === 'Pole' && (!!(p.mloop || loopYes(p.boq)) || !!loopOwnOf(p)); // the surveyor's (on a pole), and a pole's own (v2.42.17)
   const ENTRANCE_ELS = ['Site', 'ODF', 'ODC'];
@@ -10283,7 +10289,7 @@
         mloopL: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.len) : null, mloopR: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.n) : null, /* v2.42.25: each loop's cable (RUN) */ /* v2.42.20: a loop for each fiber there */ /* v2.42.17: + a closure's, a dummy NAP's, a riser's; v2.42.18: every NAP, LCP, pin; its own length */ nap: !!p.nap, napId: p.napId || '', nap2: el === 'Pole' && !!p.nap2, nap2Id: el === 'Pole' && p.nap2 ? p.nap2Id || '' : '', nap2Type: el === 'Pole' && p.nap2 ? b.nap2Type || '' : '', nap2Old: el === 'Pole' && !!p.nap2 && b.nap2St === 'Existing', closure: el === 'Pole' && !!p.closure, /* v2.42.17: (a box's closure is not drawn) */ closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
         adjusted: !!p.adjusted, color: p.color || '', // v2.36: a pin set by hand stays where it is on the drawing; a map pin's colour
         // v2.37: the NAP's kind, a double LCP, the site's kind, grounding, a riser, the pole a pole-to-pole guy goes to
-        napType: el === 'NAP' || (el === 'Pole' && (p.nap || p.napId)) ? b.napType || '' : '', napOld: el === 'Pole' && b.napSt === 'Existing', closureOld: el === 'Pole' && b.cloSt === 'Existing', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', odfSz: el === 'ODF' ? b.odf || '' : '', odfConn: el === 'ODF' ? b.conn || '' : '', /* v2.42.26 */ ground: groundYes(b), riser: !!b.riser, p2pTo: b.p2p || null,
+        napType: el === 'NAP' || (el === 'Pole' && (p.nap || p.napId)) ? b.napType || '' : '', napOld: el === 'Pole' && b.napSt === 'Existing', closureOld: el === 'Pole' && b.cloSt === 'Existing', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', odfSz: el === 'ODF' ? b.odf || '' : '', odfConn: el === 'ODF' ? b.conn || '' : '', /* v2.42.26 */ ground: groundYes(b), riser: !!b.riser || riserAuto(p), p2pTo: b.p2p || null,
         clampType: el === 'Pole' && showCT ? clampOf(p, R, pts).join('+') : '', clampAuto: el === 'Pole' && !b.clampType, hw: el === 'Pole' && showCT && PLS.clamp.hw ? hwShort(p, R) : '', /* v2.42.21: a 12C-only pole's hardware */
         ownerName: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && !/^globe$/i.test(ownerNameOf(p)) ? ownerNameOf(p).toUpperCase() : '' }; }); // v2.42.18: the owner's name beside an existing pole // v2.39: the pole's clamps (picked by the plan when left blank); v2.40: or the size only
     const spans = R.spans.map((s) => { const o = { ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long, more: (s.runs || []).slice(1), cabLbl: PLS.cab.on ? cabLabelOf(s, PLS.cab.word) : null, runLbls: s.lanes && s.lanes.some((f) => !f.ex) ? null : (s.runs || [s.cable]).map((k, i, all) => runLbl((cabLabelOf({ runs: [k] }, 'a')[0] || {}).t || '', all.length > 1 ? i + 1 : 0)) }; // (v2.42.23: each run's own label) // v2.42.18: + the other runs; v2.42.21: its cable label
@@ -18135,7 +18141,7 @@
   window.__polecam = { photosPane: { open: () => ppxOpen(), close: () => ppxClose(), list: () => ppxList().map((x) => ({ id: String(x.p.id), pid: String(x.pid), label: x.label })) }, autoLoops: () => [...autoLoops(projPoints(), routeModel())], openEditorFor,
     /* v2.42.17 */ edTab: (k, f) => goEdTab(k, f), edTabs: () => edTabList(), edCur: () => (edTabsOn() ? edTab : ''), edMissing: () => edMissing().map((x) => `${x.req ? '!' : ''}${x.tab}:${x.k}`), edShow: (sel) => { const el = document.querySelector(sel), g = el && el.closest('#editor .edbody>[data-pane]'); if (g && edTabsOn()) goEdTab(g.dataset.pane); return !!g; }, /* v2.42.16 */ boqTable: () => boqTable(projPoints(), null), routeStats: () => { const R = routeModel(); updateRouteBar(R); return $('rbStats').textContent; }, get points() { return points; }, get S() { return S; }, drwSeq: () => (drw ? { n: drw.seq.size, max: Math.max(0, ...drw.seq.values()) } : null), get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, get lastQrLink() { return qrLink; }, get lastQrFull() { return qrAlt ? qrAlt.full : qrLink; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
-    surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, routeAdvice: () => routeAdvice(routeModel()), renderPoles, persist, cloudSync: (f) => cloudSync(f), renderSig, // v2.42.12
+    surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, routeAdvice: () => routeAdvice(routeModel()), /* 2.44.7 */ risers: () => { routeModel(); return [...(riserAutoIds || [])]; }, renderPoles, persist, cloudSync: (f) => cloudSync(f), renderSig, // v2.42.12
     setDxfRows: (R, sel) => { setRows(R); if (sel != null) { S.exp.dxfRowSel = sel; persist(); } renderDxfMarks(); }, dxfRows: () => dxfRows(), // v2.42.14
     clamps: () => { const R = routeModel(), all = projPoints(); return Object.fromEntries(all.filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, clampOf(p, R, all).join('+')])); }, // for testing (v2.39: the poles' clamps)
     /* v2.42.18 */ hw: () => { const R = routeModel(); return Object.fromEntries(projPoints().filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, hwOf(p, R)])); }, filled: () => { const all = projPoints(), f = boqFilled(all); return Object.fromEntries(all.map((p) => [p.id, f(p) || {}])); },

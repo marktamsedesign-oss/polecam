@@ -1375,7 +1375,7 @@
   /* ---------------- the build ---------------- */
   // v2.32: new fiber red, existing fiber blue (the drafting rule); aerial dashed, underground solid
   const AE_ = (lw) => ({ layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true, lw }), UG_ = (lw) => ({ layer: 'Proposed foc duct', color: 3, w: 0.7776, aerial: false, lw }); // v2.42.24: lw, the line weight by size (Balanced, 1/100 mm)
-  const CABLE_STYLE = { L12: AE_(30), F12: AE_(30), F24: AE_(35), F48: AE_(40), F72: AE_(50), F144: AE_(60), U144: UG_(60), U288: UG_(70), '': { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true } };
+  const CABLE_STYLE = { L12: AE_(30), F12: AE_(30), F24: AE_(35), F48: AE_(40), F72: AE_(50), F144: AE_(60), CA12: AE_(30), CA24: AE_(35), CA48: AE_(40), CA72: AE_(50), CA144: AE_(60), U144: UG_(60), U288: UG_(70), CU12: UG_(30), CU24: UG_(35), CU48: UG_(40), CU72: UG_(50), CU144: UG_(60), /* 2.44.7: the conventional AE / UG cables */ '': { layer: 'PROPOSED FOC AERIAL 6 CORE', color: 1, w: 0.7776, aerial: true } };
   const PIN_ACI = { red: 1, navy: 5, green: 3, orange: 30 }; // v2.36: the colours of the app's marks and pins (AutoCAD colour numbers)
   /* v2.41: the user's drawing style (the app's Drawing style screen; these are the defaults). Colours are AutoCAD colour numbers
      (1 red, 2 yellow, 3 green, 4 cyan, 5 blue, 6 magenta, 7 white); 0 = by layer. Sizes in metres of the drawing (1:1100 on the
