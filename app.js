@@ -920,10 +920,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.44.9';
+  const APP_VER = '2.44.10';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '5.4'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '5.5'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -1868,6 +1868,7 @@
     drw.items.forEach((it) => { if (!it.on) return; const [ax, ay] = drwPx(it.xy), [bx, by] = drwPx(it.on.xy); g.strokeStyle = 'rgba(240,140,0,0.9)'; g.lineWidth = 1.6 * d; g.setLineDash([2 * d, 3 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); });
     const placed = [], near = v.sc >= 1.4 * d, ct = S.exp.dxfClampType !== false, mode = curRow().mode, NS = plStyle().num; // (v2.42.14: the drawing shown)
     const roomy = v.sc * 30 >= 26 * d; // the numbers / photos once the poles are far enough apart on screen (zoom in to see them)
+    const phK = plStyle().photo.size / 18; // (Drawing style › Photos: the photos' size, 1 at Normal)
     const nCol = ACI_INK[NS.color] || '#d9a400', bCol = ACI_INK[NS.bcolor] || nCol;
     const free = (bx) => !placed.some((q) => bx[0] < q[0] + q[2] && bx[0] + bx[2] > q[0] && bx[1] < q[1] + q[3] && bx[1] + bx[3] > q[1]);
     drw.items.forEach((it) => {
@@ -1886,9 +1887,10 @@
         g.strokeStyle = bCol; g.lineWidth = 1.2 * d; g.beginPath(); if (pp) g.moveTo(px + pp[0] * bk.hw, py + pp[1] * bk.hw); else g.moveTo(px + r * 0.7, py - r * 0.7); g.lineTo(cx - 6 * d, cy + 6 * d); g.stroke();
         if (hasPh) { // a photo frame (beta 4.1: with photo + number it stands a little further out, and the number has its circle by the pole)
           const fx = mode === 'both' ? cx + 21 * d : cx, fy = mode === 'both' ? cy - 9 * d : cy;
-          g.fillStyle = 'rgba(255,255,255,0.9)'; g.strokeStyle = '#495057'; g.lineWidth = 1.2 * d; g.fillRect(fx - 9 * d, fy - 7 * d, 18 * d, 14 * d); g.strokeRect(fx - 9 * d, fy - 7 * d, 18 * d, 14 * d);
-          g.fillStyle = '#868e96'; g.beginPath(); g.moveTo(fx - 6 * d, fy + 5 * d); g.lineTo(fx - 1 * d, fy - 1 * d); g.lineTo(fx + 2 * d, fy + 2 * d); g.lineTo(fx + 4 * d, fy); g.lineTo(fx + 7 * d, fy + 5 * d); g.closePath(); g.fill();
-          placed.push([fx - 10 * d, fy - 8 * d, 20 * d, 16 * d]);
+          const k = phK, X = fx - 9 * d, Y = fy + 7 * d - 14 * d * k, s = (u) => u * d * k; // (Drawing style › Photos: the size set, Normal as before; grown from its corner by the pole)
+          g.fillStyle = 'rgba(255,255,255,0.9)'; g.strokeStyle = '#495057'; g.lineWidth = 1.2 * d; g.fillRect(X, Y, s(18), s(14)); g.strokeRect(X, Y, s(18), s(14));
+          g.fillStyle = '#868e96'; g.beginPath(); g.moveTo(X + s(3), Y + s(12)); g.lineTo(X + s(8), Y + s(6)); g.lineTo(X + s(11), Y + s(9)); g.lineTo(X + s(13), Y + s(7)); g.lineTo(X + s(16), Y + s(12)); g.closePath(); g.fill();
+          placed.push([X - 1 * d, Y - 1 * d, s(18) + 2 * d, s(14) + 2 * d]);
         }
         if (!hasPh || mode === 'both') {
           const rr = Math.max(7, 3 + String(n).length * 3.2) * d;
@@ -2217,7 +2219,7 @@
     if (drw && drw.ref.length) { const ri = refInfo(drw.project); rows.push([sv('<path d="M1 8h20" stroke="rgba(112,72,232,0.6)" stroke-width="2" stroke-dasharray="4 3"/>'), `Reference KMZ of this project${ri ? ` (${ri.name})` : ''}: not in the DXF; hide or remove it with the map's KMZ button`]); } // v2.42.12
     const mode = curRow().mode;
     rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[plStyle().num.bcolor] || ACI_INK[plStyle().num.color] || '#d9a400'}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[plStyle().num.color] || '#d9a400'}" font-family="system-ui,sans-serif">1</text>`), 'Number on the plan']);
-    if (mode !== 'num') rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), mode === 'both' ? 'Photo of the point (its number is by the point)' : 'Photo on the plan']);
+    if (mode !== 'num') { const Z = plStyle().photo.size; rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), (mode === 'both' ? 'Photo of the point (its number is by the point)' : 'Photo on the plan') + (Z === 18 ? '' : ` (${phName(Z).toLowerCase()}: ${Z} m)`)]); } // (Drawing style › Photos: a size other than Normal)
     const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop (LOOP×2: one for each of 2 fibers there)'], ['LOOP*', '#e03131', 'Maintenance loop added by the app (As-Plan)'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)']];
     if (drw && drw.R && drw.R.fib && drw.R.fib.list.length > 1) rows.push([sv('<path d="M1 5h20" stroke="#1c3f94" stroke-width="1.2" stroke-dasharray="4 2.5"/><path d="M1 11h20" stroke="#1c3f94" stroke-width="2.6" stroke-dasharray="4 2.5"/>'), 'Cables: each its own line in its lane, thicker for a larger size (12C thinnest, 288C thickest); its label says its size, type and run (PROPOSED 24C FIG-8 (RUN 5))']); // v2.42.20 (v2.42.23; v2.42.24: the width by size)
     if (drw && drw.blocks && [...drw.blocks.values()].some((b) => b.kind === 'dn')) rows.push([sv('<rect x="1.5" y="4" width="19" height="8" rx="3" fill="#fff" stroke="#14b81e" stroke-width="1.2"/><text x="11" y="10.4" text-anchor="middle" font-size="5.5" font-weight="800" fill="#14b81e" font-family="Arial,sans-serif">DN</text>'), 'Dummy NAP (DN) on the cable: its cables meet its sides']); // v2.42.24
@@ -2238,23 +2240,29 @@
     clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a', per: 3, h: 0, w: { prop: true, size: true, type: true, place: true, foc: false, run: true } }, /* v2.42.26: labels for each cable in a grid, their height (0: by the poles' spacing), their words */
     site: { name: 'on', move: 'auto', arrow: true, acol: 7 }, odf: { place: 'auto', lbl: 'size' }, /* v2.42.26: the tower's name; the ODF beside the tower, its label (beta 3.8: the name on the tower; moved aside in its sheet; the arrow) */
     crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room' },
-    pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0 }, span: { h: 0, color: 0 } }; /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
+    pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0 }, span: { h: 0, color: 0 }, photo: { size: 18 } }; /* Photos: the long side of the photos on the plan (m; 18: Normal, as before) */ /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
+  /* Drawing style › Photos: the long side of every pole and point photo on the plan, in metres of the drawing where the poles stand
+     25 m apart or more (closer, the plan draws them smaller, to two thirds, as before). Normal (18 m) is the size before; 6 to 40 m. */
+  const PH_SIZES = [[12, 'Small'], [18, 'Normal'], [24, 'Large'], [30, 'Extra large']];
+  const phSize = (v) => (Number.isFinite(+v) && +v > 0 ? Math.min(40, Math.max(6, Math.round(+v * 2) / 2)) : 18);
+  const phName = (m) => { const k = PH_SIZES.find(([v]) => v === m); return k ? k[1] : 'Your own size'; };
+  const phMm = (m) => `${Math.round(m * 0.75 / 1.1)} × ${Math.round(m / 1.1)} mm`; // (an upright 3:4 photo at 1:1100, the GEO sheets' scale)
   function plStyle() {
     const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d);
-    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) }, Po = { ...PL_DEF.pole, ...(u.pole || {}) }, Sp = { ...PL_DEF.span, ...(u.span || {}) }, hz = (v, lo, hi) => (+v ? n(v, lo, hi, 0) : 0);
+    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) }, Po = { ...PL_DEF.pole, ...(u.pole || {}) }, Sp = { ...PL_DEF.span, ...(u.span || {}) }, Ph = { ...PL_DEF.photo, ...(u.photo || {}) }, hz = (v, lo, hi) => (+v ? n(v, lo, hi, 0) : 0);
     return { num: { color: c(N.color, 2), bcolor: c(N.bcolor, 0, true), h: n(N.h, 1, 12, 3), d: n(N.d, 0, 25, 7), g: n(N.g, 0, 25, 2), leader: N.leader !== false, place: N.place === 'out' ? 'out' : 'auto' },
       id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5), area: V.area !== false, zoom: V.zoom !== false, label: typeof V.label === 'string' ? V.label.replace(/\s+/g, ' ').slice(0, 40) : 'PROJECT AREA', lh: n(V.lh, 8, 40, 18) },
       clamp: { place: ['label', 'tag', 'callout'].includes(Cl.place) ? Cl.place : 'label', pos: ['auto', 'up', 'down', 'left', 'right'].includes(Cl.pos) ? Cl.pos : 'auto', color: c(Cl.color, 0, true), h: n(Cl.h, 1, 5, 2), box: Cl.box !== false, hw: Cl.hw !== false },
       cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a', per: [1, 2, 3].includes(+Cb.per) ? +Cb.per : 3, h: +Cb.h ? n(Cb.h, 0.8, 3, 0) : 0, w: Object.fromEntries(Object.keys(PL_DEF.cab.w).map((k) => [k, !!Cw[k]])) },
       site: { name: ['on', 'top', 'side', 'bottom'].includes(St.name) ? St.name : 'on', move: St.move === 'point' ? 'point' : 'auto', arrow: St.arrow !== false, acol: c(St.acol, 7, true) }, /* (beta 3.8: Auto is now On the tower) */
       crowd: { auto: Cr.auto !== false, min: n(Cr.min, 50, 100, 75), move: n(Cr.move, 4, 30, 15), leader: Cr.leader !== false, streets: Cr.streets === 'fixed' ? 'fixed' : 'slide', marks: ['room', 'always', 'hide'].includes(Cr.marks) ? Cr.marks : 'room' }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' },
-      pole: { idH: hz(Po.idH, 1, 5), idColor: c(Po.idColor, 0, true), ownH: hz(Po.ownH, 1, 5), ownColor: c(Po.ownColor, 0, true), llH: hz(Po.llH, 0.6, 3), llColor: c(Po.llColor, 0, true) }, span: { h: hz(Sp.h, 1, 4), color: c(Sp.color, 0, true) } };
+      pole: { idH: hz(Po.idH, 1, 5), idColor: c(Po.idColor, 0, true), ownH: hz(Po.ownH, 1, 5), ownColor: c(Po.ownColor, 0, true), llH: hz(Po.llH, 0.6, 3), llColor: c(Po.llColor, 0, true) }, span: { h: hz(Sp.h, 1, 4), color: c(Sp.color, 0, true) }, photo: { size: phSize(Ph.size) } };
   }
   const setPl = (part, k, v) => { const cur = plStyle(); S.plStyle = { ...cur, [part]: { ...cur[part], [k]: v } }; persist(); renderStyle(); };
   const mmOf = (m) => (m / 1.1).toFixed(1);
   function plSummary() {
     const P = plStyle(), N = P.num, I = P.id, V = P.vic, Cl = P.clamp, Cb = P.cab, ct = S.exp.dxfClampType !== false;
-    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? ACI_NAME[Cl.color] : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Crowded places: ${P.crowd.auto ? `Auto (labels moved up to ${P.crowd.move} m${P.crowd.leader ? ' with a line' : ''}, then down to ${P.crowd.min} % of their size; street names ${P.crowd.streets === 'fixed' ? 'kept in place' : 'slide along their road'})` : 'off (as before)'}, landmark names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]} · Tower: its name and ID ${P.site.name === 'on' ? 'on the tower' : `at its ${P.site.name}`}, ${P.site.move === 'point' ? 'kept at its point' : `moved aside in its sheet when it covers details${P.site.arrow ? `, a curved arrow to its point (${P.site.acol ? (P.site.acol === 7 ? 'white; black on the PDF' : ACI_NAME[P.site.acol]) : 'as the tower'})` : ''}`} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${V.area ? `the project area ${ACI_NAME[V.circle]}, its circle ${V.circleW} m wide, ${V.label.trim() ? `labelled “${V.label.trim()}” ${V.lh} m high` : 'no label'}` : 'no project area'}, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide`;
+    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? ACI_NAME[Cl.color] : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Crowded places: ${P.crowd.auto ? `Auto (labels moved up to ${P.crowd.move} m${P.crowd.leader ? ' with a line' : ''}, then down to ${P.crowd.min} % of their size; street names ${P.crowd.streets === 'fixed' ? 'kept in place' : 'slide along their road'})` : 'off (as before)'}, landmark names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]} · Tower: its name and ID ${P.site.name === 'on' ? 'on the tower' : `at its ${P.site.name}`}, ${P.site.move === 'point' ? 'kept at its point' : `moved aside in its sheet when it covers details${P.site.arrow ? `, a curved arrow to its point (${P.site.acol ? (P.site.acol === 7 ? 'white; black on the PDF' : ACI_NAME[P.site.acol]) : 'as the tower'})` : ''}`} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${V.area ? `the project area ${ACI_NAME[V.circle]}, its circle ${V.circleW} m wide, ${V.label.trim() ? `labelled “${V.label.trim()}” ${V.lh} m high` : 'no label'}` : 'no project area'}, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide · Photos: ${phName(P.photo.size)}, ${P.photo.size} m on their long side (about ${phMm(P.photo.size)} on the A3 sheet), the same for every photo; smaller where the poles stand closer than 25 m`;
   }
   function openStyle() { DSP.reset(); renderStyle(); openSheet('drwStyle'); setTimeout(() => { DSP.reset(); DSP.onScroll(); }, 0); } // (the settings from the top, the preview large)
   function renderStyle() {
@@ -2293,6 +2301,11 @@
     ['stCabPer', 'stCabH', 'stCabW'].forEach((id) => { const r = $(id).closest('.strow'); if (r) r.classList.toggle('dim', !P.cab.on); });
     seg('stClOn', S.exp.dxfClampType !== false ? '1' : '0'); seg('stClPlace', P.clamp.place); seg('stClPos', P.clamp.pos); seg('stClBox', P.clamp.box ? '1' : '0'); seg('stClHw', P.clamp.hw ? '1' : '0'); seg('stCabOn', P.cab.on ? '1' : '0');
     o('stClHO', `${P.clamp.h} m · ${mmOf(P.clamp.h)} mm`); ['stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'].forEach((id) => { const r = $(id) && $(id).closest('.strow'); if (r) r.classList.toggle('dim', S.exp.dxfClampType === false || (P.clamp.place === 'label' && ['stClPos', 'stClH', 'stClBox'].includes(id))); });
+    { const Z = P.photo.size; // Drawing style › Photos
+      $('stPhSize').querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === Z)));
+      if (document.activeElement !== $('stPhL')) $('stPhL').value = String(Z);
+      o('stPhO', `${phName(Z)} · ${Z} m`);
+      o('stPhHint', `Each photo is ${Z} m on its long side on the drawing: about ${phMm(Z)} on the A3 sheet (1:1100). The same for every pole and point photo. Where the poles stand closer than 25 m the plan draws them smaller (down to ${+(Z * 2 / 3).toFixed(1)} m) so they fit; a photo with no room beside its point goes further out, with a thin line to it.`); }
     o('stSum', plSummary());
     DSP.render(P); drawVicPreview(P); // (beta 3.8: the scene the user works on)
     if (drw && !$('drawing').hidden) { drawDrawing(); renderDrawLegend(); }
@@ -2317,6 +2330,9 @@
   $('stClOn').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; S.exp.dxfClampType = b.dataset.v === '1'; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); }); // (the Drawing's CA button too)
   $('stReset').addEventListener('click', () => { delete S.plStyle; S.exp.dxfClampType = true; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Drawing style: the defaults', 2000); }); // (v2.42.21: clamp types on again)
   $('stDone').addEventListener('click', () => closeSheet());
+  $('stPhSize').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('photo', 'size', +b.dataset.v); }); // Drawing style › Photos: Small, Normal, Large, Extra large
+  $('stPhL').addEventListener('input', () => { const v = +$('stPhL').value; if (v >= 6 && v <= 40) setPl('photo', 'size', phSize(v)); }); // (your own size, while it is typed: only once it is one)
+  $('stPhL').addEventListener('change', () => { const v = +$('stPhL').value; if (v > 0) setPl('photo', 'size', phSize(v)); $('stPhL').value = String(plStyle().photo.size); }); // (kept to 6–40 m)
   /** The vicinity preview: a map 1.5 km across (1 unit = 25 m), the route on its white band and the PROJECT AREA circle. */
   function drawVicPreview(P, into) {
     const svg = into || $('stVicPrev'); if (!svg) return; if (into) { svg.setAttribute('viewBox', '0 0 60 40'); svg.style.aspectRatio = '60 / 40'; } /* (beta 3.8: also the main preview's Vicinity map) */ const NSV = 'http://www.w3.org/2000/svg', V = P.vic, k = 1 / 25;
@@ -2469,6 +2485,28 @@
       sc.labels.push(Txt({ id: 'st', st: 'street', pri: 40, t: 'RIZAL STREET', h: 2.4, c: 2, shrink: true, free: true, spots: road({ horiz: true, lo: 1, hi: 119, c: 48.8, def: 30, offs: [0, 1.2, -0.6], fixed: C.streets === 'fixed' }) }));
       return sc;
     }
+    /* Drawing style › Photos: the street again, each pole's photo past its label (the pole, its ID and details, then the photo) at the size
+       set, the poles 40 m apart (the plan draws the photos that size where the poles stand 25 m apart or more); no room there: further out,
+       with a thin line to its pole */
+    function scPhoto(P, C) {
+      const L = P.photo.size, W = L * 0.75, sc = { vb: [0, 0, 132, 88], bounds: { x0: 0.5, y0: 0.5, x1: 131.5, y1: 80 }, under: [], over: [], labels: [], obst: [] }, yTop = 62, yBot = 69, yc = 63.4;
+      const poles = [{ k: 1, x: 20, y: 59.5, pre: 'CC', id: '4303175', cl: 'CA 8-9', ll: '7.163334°  125.573313°' }, { k: 2, x: 60, y: 58.3, pre: 'CC', id: '4303168', hw: 'RET×2 SC×4', ll: '7.164334°  125.574313°' }, { k: 3, x: 100, y: 59.5, pre: 'CC', id: '4303161', cl: '2A 10-12', own: 'DLPC', ll: '7.165334°  125.575313°' }];
+      sc.under.push((g, pal) => { line(g, [[0, yTop], [132, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [132, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [132, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 84); });
+      sc.obst.push(...segBoxes([0, yc], [132, yc], 0.3), bx(60, yc, 9.8, 3.8), ...poles.map((p) => bx(p.x, p.y, 2.6, 2.6)));
+      poles.forEach((p) => {
+        sc.labels.push(...poleLabels(P, p).filter((l) => l.st !== 'num')); // (a pole with a photo has no number beside it)
+        sc.labels.push({ id: `ph${p.k}`, st: 'photo', pri: 79, free: true, ax: p.x, ay: p.y, size: () => ({ w: W, h: L }),
+          spots: ring({ ax: p.x, ay: p.y, ar: 1.3, def: () => ({ cx: p.x + 9, cy: p.y - 13 - L / 2 }), pref: (ux, uy) => (uy > 0.2 ? 10 : 0) }), // (never toward the road)
+          draw(g, at, k, pal) {
+            if (at.d > 2) { const [qx, qy] = nearOnBox(bx(at.cx, at.cy, W, L), p.x, p.y), dx = qx - p.x, dy = qy - p.y, dd = Math.hypot(dx, dy) || 1; mk(g, 'line', { x1: p.x + dx / dd * 1.3, y1: p.y + dy / dd * 1.3, x2: qx, y2: qy, stroke: pal.grey, 'stroke-width': 0.16 }); }
+            photoSym(g, pal, at.cx - W / 2, at.cy - L / 2, W, L); } });
+      });
+      sc.labels.push(idL(P, 'nap', 'NAP-0001', 60, yc, 2.2));
+      if (P.cab.on) [[20, 60], [60, 100]].forEach(([a, b], i) => sc.labels.push(Txt({ id: `cab${i}`, st: 'cab', pri: 50, t: cabT('L12', 1), h: cabH(P), c: 1, shrink: true, spots: along({ a: [a, yc], b: [b, yc], side: 1, gap: 0.9 }) })));
+      [[20, 60], [60, 100]].forEach(([a, b], i) => sc.labels.push(Txt({ id: `len${i}`, st: 'span', pri: 60, t: '40m', h: P.span.h || 2, c: P.span.color || 7, shrink: true, spots: along({ a: [a, yc], b: [b, yc], side: -1, gap: 0.7 }) })));
+      sc.labels.push(Txt({ id: 'st', st: 'street', pri: 40, t: 'RIZAL STREET', h: 2.4, c: 2, shrink: true, free: true, spots: road({ horiz: true, lo: 1, hi: 131, c: 66.8, def: 30, offs: [0, 1.2, -0.6], fixed: C.streets === 'fixed' }) }));
+      return sc;
+    }
     function scCrowd(P, C) {
       const sc = { vb: [0, 0, 120, 86], bounds: { x0: 0.5, y0: 0.5, x1: 119.5, y1: 85.5 }, under: [], over: [], labels: [], obst: [] }, yc = 55.4, xc = 75.4;
       const poles = [[4, 14, 51.5, '4303201', 'CA 8-9'], [5, 36, 51.5, '4303202', 'CA 8-9'], [6, 56, 51.5, '4303203', 'CA 10-12'], [7, 67, 51.5, '4303204', '2A 10-12'], [8, 72, 34, '4303205', 'CA 8-9'], [9, 72, 14, '4303206', 'CA 8-9'], [10, 98, 51.5, '4303207', 'CA 8-9']]
@@ -2494,14 +2532,16 @@
     /* the tower site: its point at TS, the sheet's edge (R-12 / R-13) at y 104 */
     const TS = [50.6, 96], SHEETY = 104, TP = [{ k: 1, x: 30.2, y: 9.5, pre: 'CC', id: '4303122', cl: 'CA 8-9', ll: '7.10358° 125.61750°' }, { k: 2, x: 32.2, y: 50, id: 'GT-0207', cl: 'CA 8-9', ll: '7.10339° 125.61796°' }, { k: 3, x: 34.2, y: 88, pre: 'CC', id: '4303106', cl: 'CA 10-12', own: 'DLPC', ll: '7.10304° 125.61815°' }];
     const TPH = [[6, 20, 14, 17], [8, 56, 14, 17], [10, 82, 14, 17], [88, 74, 14, 17]], TCAB = [[0, 10.5], [30.2, 9.5], [32.2, 50], [34.2, 88], TS];
+    const tphOf = (P) => { const f = P.photo.size / 18; if (f === 1) return TPH; let y1 = -1e9; // (Photos: at the size set, each on its side of the cable, kept apart)
+      return TPH.map(([x, y, w, h], i) => { const W = w * f, H = h * f, left = x < 50, y0 = left && i ? Math.max(y + h / 2 - H / 2, y1 + 1.5) : y + h / 2 - H / 2; if (left) y1 = y0 + H; return [left ? x + w - W : x, y0, W, H]; }); };
     const roadL = (y) => 34 + 0.05 * y, roadR = (y) => 42 + 0.05 * y;
-    function placeTower(point) {
+    function placeTower(point, PH) {
       const [sx, sy] = TS; if (point) return { ax: sx, base: sy, k: 1, moved: false };
       const pts = [...TP.map((p) => [p.x, p.y]), [36.5, 89.5]];
       const cost = (ax, base, k) => { const x0 = ax - 12.4 * k - 0.6, x1 = ax + 12.4 * k + 0.6, y0 = base - 48 * k - 0.6, y1 = base + 0.6; if (y1 > SHEETY - 2 || y0 < 2 || x0 < 2 || x1 > 148) return null;
         let c = 0; pts.forEach(([x, y]) => { const d = Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(y0 - y, 0, y - y1)); if (d < 3) c += 100; else if (d < 8) c += 10; });
         polyBoxes(TCAB, 0.3).forEach((b) => { if (ovA(b, { x0, y0, x1, y1 }) > 0) c += 1.5; });
-        TPH.forEach(([x, y, w, h]) => { if (ovA({ x0: x, y0: y, x1: x + w, y1: y + h }, { x0, y0, x1, y1 }) > 0) c += 60; });
+        PH.forEach(([x, y, w, h]) => { if (ovA({ x0: x, y0: y, x1: x + w, y1: y + h }, { x0, y0, x1, y1 }) > 0) c += 60; });
         for (let y = y0; y <= y1; y += 2) c += Math.max(0, Math.min(x1, roadR(y)) - Math.max(x0, roadL(y))) * 0.02;
         return c; };
       let best = null;
@@ -2539,16 +2579,16 @@
       return { shaft: left.concat(right.reverse()), head: [[t.x, t.y], [b.x - b.uy * hw, b.y + b.ux * hw], [b.x + b.uy * hw, b.y - b.ux * hw]], mid: pts.filter((p, i) => i % 4 === 0), dir: [b.ux, b.uy] };
     }
     function scTower(P, C) {
-      const point = P.site.move === 'point', T = placeTower(point), [sx, sy] = TS, K = T.k, top = T.base - 48 * K, col = 5, nameMode = P.site.name;
+      const point = P.site.move === 'point', PH = tphOf(P), T = placeTower(point, PH), [sx, sy] = TS, K = T.k, top = T.base - 48 * K, col = 5, nameMode = P.site.name;
       const sc = { vb: [0, 30, 120, 82], bounds: { x0: 1, y0: 1, x1: 119, y1: SHEETY - 2 }, under: [], over: [], labels: [], obst: [] };
       sc.under.push((g, pal) => {
         line(g, [0, 160].map((y) => [roadL(y), y]), { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [0, 160].map((y) => [roadR(y), y]), { stroke: pal.road, 'stroke-width': 0.15 });
         line(g, TCAB, { stroke: pal[1], 'stroke-width': 0.55, 'stroke-dasharray': '3 1.5' });
-        TPH.forEach(([x, y, w, h]) => photoSym(g, pal, x, y, w, h));
+        PH.forEach(([x, y, w, h]) => photoSym(g, pal, x, y, w, h));
         cloSym(g, pal, 36.5, 89.8, 2.1); TP.forEach((p) => poleSym(g, pal, p.x, p.y));
         mk(g, 'line', { x1: 0, y1: SHEETY, x2: 150, y2: SHEETY, stroke: pal[6], 'stroke-width': 0.35, 'stroke-dasharray': '2.4 1.4' });
         mk(g, 'text', { x: 118, y: SHEETY - 1.2, 'font-size': 2.4, fill: pal[6], 'text-anchor': 'end', 'font-family': ARIAL }, 'R-12'); mk(g, 'text', { x: 118, y: SHEETY + 3.2, 'font-size': 2.4, fill: pal[6], 'text-anchor': 'end', 'font-family': ARIAL }, 'R-13'); });
-      sc.obst.push(...polyBoxes(TCAB, 0.3), ...TPH.map(([x, y, w, h]) => ({ x0: x, y0: y, x1: x + w, y1: y + h })), bx(36.5, 89.8, 4.4, 4.4), ...TP.map((p) => bx(p.x, p.y, 2.6, 2.6)), bx(sx, sy, 2.4, 2.4));
+      sc.obst.push(...polyBoxes(TCAB, 0.3), ...PH.map(([x, y, w, h]) => ({ x0: x, y0: y, x1: x + w, y1: y + h })), bx(36.5, 89.8, 4.4, 4.4), ...TP.map((p) => bx(p.x, p.y, 2.6, 2.6)), bx(sx, sy, 2.4, 2.4));
       if (!point) sc.obst.push({ x0: T.ax - 12.4 * K - 0.4, y0: top - 0.4, x1: T.ax + 12.4 * K + 0.4, y1: T.base + 0.4 });
       let AG = null;
       if (T.moved && P.site.arrow) { const f = 0.1, side = sx < T.ax ? -1 : 1, beside = Math.abs(sx - T.ax) > 12.4 * K;
@@ -2576,7 +2616,7 @@
     }
     /* state and layout */
     let scene = 'street', compact = false, big = false, wired = false, last = null, shrink = 220; // (shrink: how much shorter the preview gets; the settings stay put)
-    const NAMES = { street: 'Street', crowd: 'Crowded corner', tower: 'Tower site', vic: 'Vicinity map' };
+    const NAMES = { street: 'Street', photo: 'Photos', crowd: 'Crowded corner', tower: 'Tower site', vic: 'Vicinity map' };
     const body = () => $('drwStyle').querySelector('.dsbody'), col = () => $('dsPrevCol');
     function render(P) {
       wire(); P = P || plStyle(); const svg = $('stPrev'); if (!svg) return;
@@ -2585,13 +2625,13 @@
       $('drwStyle').querySelectorAll('.stgrp[data-scene]').forEach((g) => { g.hidden = !g.dataset.scene.split(' ').includes(scene); }); // beta 3.9: only the settings of the part picked (beta 4.3: a group can belong to several parts)
       let r = null;
       if (scene === 'vic') { while (svg.firstChild) svg.removeChild(svg.firstChild); drawVicPreview(P, svg); }
-      else r = paint(svg, scene === 'crowd' ? scCrowd(P, C) : scene === 'tower' ? scTower(P, C) : scStreet(P, C), C);
+      else r = paint(svg, scene === 'crowd' ? scCrowd(P, C) : scene === 'tower' ? scTower(P, C) : scene === 'photo' ? scPhoto(P, C) : scStreet(P, C), C);
       svg.setAttribute('preserveAspectRatio', compact ? 'xMidYMid slice' : 'xMidYMid meet');
       const cap = $('dsCap'); cap.textContent = '';
       const a = document.createElement('span'); a.textContent = `${NAMES[scene]} · `; const b = document.createElement('span');
       if (!r) b.textContent = 'the route and the project area';
       else { b.className = `ov ${r.clashes ? 'bad' : 'good'}`; b.textContent = r.clashes ? `${r.clashes} label${r.clashes > 1 ? 's' : ''} overlap` : 'nothing overlaps'; }
-      cap.append(a, b); if (r && r.skipped) cap.append(` · ${r.skipped} landmark name${r.skipped > 1 ? 's' : ''} left out (no room)`);
+      cap.append(a, b); if (scene === 'photo') cap.append(` · ${P.photo.size} m photos`); if (r && r.skipped) cap.append(` · ${r.skipped} landmark name${r.skipped > 1 ? 's' : ''} left out (no room)`);
       svg.setAttribute('aria-label', `Preview: ${NAMES[scene]}. ${b.textContent}.`);
       last = { scene, clashes: r ? r.clashes : 0, skipped: r ? r.skipped : 0, ids: r ? r.ids : [] };
       markPicked();
@@ -2599,8 +2639,8 @@
     /* beta 4.3 (MarkT): a label of the preview is tapped: the settings that are its own come into view and are marked, and the label is framed.
        ST: the label's kind -> the rows (or the whole group) of its settings. */
     const ST = { num: ['stNum'], pid: ['stPoleIdH', 'stPoleIdCol'], pown: ['stPoleOwnH', 'stPoleOwnCol'], pll: ['stPoleLlH', 'stPoleLlCol'], span: ['stSpanH', 'stSpanCol'], clamp: ['stClOn', 'stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'], id: ['stId'],
-      cab: ['stCabOn', 'stCabPer', 'stCabH', 'stCabW'], street: ['stCrowdStreets'], mark: ['stCrowdMarks'] };
-    const ST_NAME = { num: 'the numbers beside the points', pid: 'the pole ID', pown: 'the owner\u2019s name', pll: 'the lat/long', span: 'the span lengths', clamp: 'the clamp types', id: 'the IDs of NAPs, closures and boxes', cab: 'the cable labels', street: 'the street names', mark: 'the landmark names' };
+      cab: ['stCabOn', 'stCabPer', 'stCabH', 'stCabW'], street: ['stCrowdStreets'], mark: ['stCrowdMarks'], photo: ['stPh'] };
+    const ST_NAME = { num: 'the numbers beside the points', pid: 'the pole ID', pown: 'the owner\u2019s name', pll: 'the lat/long', span: 'the span lengths', clamp: 'the clamp types', id: 'the IDs of NAPs, closures and boxes', cab: 'the cable labels', street: 'the street names', mark: 'the landmark names', photo: 'the photos' };
     let picked = null, pickT = 0;
     const rowsOf = (key) => (ST[key] || []).map((id) => { const el = $(id); return el ? (el.classList.contains('stgrp') ? el : el.closest('.strow')) : null; }).filter(Boolean);
     function markPicked() {
@@ -10465,7 +10505,7 @@
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
       const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? PLS.clamp : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks,
         towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: PLS.site.acol, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
-        numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, poleStyle: PS.pole, spanStyle: PS.span, /* beta 4.3 */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
+        numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, poleStyle: PS.pole, spanStyle: PS.span, /* beta 4.3 */ photoStyle: PS.photo, /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
     }
@@ -10496,7 +10536,7 @@
     const rp = outs[0].out.report;
     // v2.40: the numbers on the plan, for the README (and an RTA application): number, ID, pole type, position
     const markLinesOf = (MK) => MK.map(([n, id]) => { const p = byPt.get(id) || {}; return `  ${n}  ${p.poleId || '(no ID)'}  ${elemOf(p) === 'Pole' ? p.poleType || 'pole' : elemOf(p)}  ${(+p.lat).toFixed(6)}, ${(+p.lon).toFixed(6)}`; });
-    const besideOf = (o) => { const MK = o.out.report.marks || [], n = MK.length; return `${o.st.mode === 'num' ? 'their number only (no photos)' : o.st.mode === 'both' ? `their number beside the point and their photo near it (${o.out.report.marks.filter((x) => x[2] === 'photo+number').length} of ${n} with a photo; a photo with no free place on the plan is left out)` : `their photo (${o.nPh} of ${n}; a point without a photo shows its number)`}, for ${o.st.what}: ${n} numbered 1 to ${n} along the route`; };
+    const besideOf = (o) => { const MK = o.out.report.marks || [], n = MK.length; return `${o.st.mode === 'num' ? 'their number only (no photos)' : o.st.mode === 'both' ? `their number beside the point and their photo near it (${o.out.report.marks.filter((x) => x[2] === 'photo+number').length} of ${n} with a photo; a photo with no free place on the plan is left out)` : `their photo (${o.nPh} of ${n}; a point without a photo shows its number)`}${o.st.mode !== 'num' && o.nPh && o.out.report.photoSize ? `; the photos ${o.out.report.photoSize} m on their long side on this plan (${mmOf(o.out.report.photoSize)} mm)` : ''}, for ${o.st.what}: ${n} numbered 1 to ${n} along the route`; };
     const setFirst = files.length ? 'UNZIP EVERYTHING INTO ONE FOLDER, then open the plan by double-clicking the DXF in that folder: the pictures (pole photos, vicinity map) are linked by file name and must stay next to the DXF. Do not drag the DXF into an open drawing (it becomes a block there and its pictures are looked for next to that other drawing).'
         + ' If the photos still show as empty frames (AutoCAD 2021 or 2022): type -IMAGE, press Enter, type R, press Enter, then press Enter again; every picture is loaded from the DXF\'s folder. Save the plan as a DWG (File > Save As) to keep them.'
       : 'Open the DXF in AutoCAD with File > Open (do not drag it into an open drawing).'; // v2.42.8 (beta 4.7: the pictures in older AutoCAD)
