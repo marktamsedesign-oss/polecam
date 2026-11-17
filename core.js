@@ -773,8 +773,19 @@
     F48: { label: 'AE Figure 8 48C FOC', short: 'Fig-8 48C', method: 'AE', cores: 48, fam: 'fig8', tt: 'FIG-8', lw: 0.40, drum: 4000, kml: 'ff99850c', css: '#0c8599', layer: 'FOC_AE_FIG8_48C', aci: 140 },
     F72: { label: 'AE Figure 8 72C FOC', short: 'Fig-8 72C', method: 'AE', cores: 72, fam: 'fig8', tt: 'FIG-8', lw: 0.50, drum: 4000, kml: 'ffe8487f', css: '#7f48e8', layer: 'FOC_AE_FIG8_72C', aci: 6 },
     F144: { label: 'AE Figure 8 144C FOC', short: 'Fig-8 144C', method: 'AE', cores: 144, fam: 'fig8', tt: 'FIG-8', lw: 0.60, drum: 4000, kml: 'ff0f48d9', css: '#d9480f', layer: 'FOC_AE_FIG8_144C', aci: 20 },
+    // 2.44.6: conventional FOC, aerial (AE: hardware, loops and closures as a figure 8) and underground (UG: as the UG cable)
+    CA12: { label: 'AE Conventional 12C FOC', short: 'Conv AE 12C', method: 'AE', cores: 12, fam: 'conv', tt: 'CONV', lw: 0.30, drum: 4000, kml: 'ff485579', css: '#795548', layer: 'FOC_AE_CONV_12C', aci: 34 },
+    CA24: { label: 'AE Conventional 24C FOC', short: 'Conv AE 24C', method: 'AE', cores: 24, fam: 'conv', tt: 'CONV', lw: 0.35, drum: 4000, kml: 'ff006d9c', css: '#9c6d00', layer: 'FOC_AE_CONV_24C', aci: 42 },
+    CA48: { label: 'AE Conventional 48C FOC', short: 'Conv AE 48C', method: 'AE', cores: 48, fam: 'conv', tt: 'CONV', lw: 0.40, drum: 4000, kml: 'ff007a5f', css: '#5f7a00', layer: 'FOC_AE_CONV_48C', aci: 62 },
+    CA72: { label: 'AE Conventional 72C FOC', short: 'Conv AE 72C', method: 'AE', cores: 72, fam: 'conv', tt: 'CONV', lw: 0.50, drum: 4000, kml: 'ff0047a3', css: '#a34700', layer: 'FOC_AE_CONV_72C', aci: 24 },
+    CA144: { label: 'AE Conventional 144C FOC', short: 'Conv AE 144C', method: 'AE', cores: 144, fam: 'conv', tt: 'CONV', lw: 0.60, drum: 4000, kml: 'ff694e4a', css: '#4a4e69', layer: 'FOC_AE_CONV_144C', aci: 252 },
     U144: { label: 'UG 144C air-blown fiber', short: 'UG 144C', method: 'UG', cores: 144, fam: 'ug', tt: 'UG', lw: 0.60, drum: 4000, kml: 'ff449e2f', css: '#2f9e44', layer: 'FOC_UG_144C', aci: 3 },
     U288: { label: 'UG 288C air-blown fiber', short: 'UG 288C', method: 'UG', cores: 288, fam: 'ug', tt: 'UG', lw: 0.70, drum: 4000, kml: 'ff0d945c', css: '#5c940d', layer: 'FOC_UG_288C', aci: 82 },
+    CU12: { label: 'UG Conventional 12C FOC', short: 'Conv UG 12C', method: 'UG', cores: 12, fam: 'convug', tt: 'CONV', lw: 0.30, drum: 4000, kml: 'ff85720b', css: '#0b7285', layer: 'FOC_UG_CONV_12C', aci: 150 },
+    CU24: { label: 'UG Conventional 24C FOC', short: 'Conv UG 24C', method: 'UG', cores: 24, fam: 'convug', tt: 'CONV', lw: 0.35, drum: 4000, kml: 'ffad9810', css: '#1098ad', layer: 'FOC_UG_CONV_24C', aci: 142 },
+    CU48: { label: 'UG Conventional 48C FOC', short: 'Conv UG 48C', method: 'UG', cores: 48, fam: 'convug', tt: 'CONV', lw: 0.40, drum: 4000, kml: 'ff5b7f08', css: '#087f5b', layer: 'FOC_UG_CONV_48C', aci: 112 },
+    CU72: { label: 'UG Conventional 72C FOC', short: 'Conv UG 72C', method: 'UG', cores: 72, fam: 'convug', tt: 'CONV', lw: 0.50, drum: 4000, kml: 'ff3e8a2b', css: '#2b8a3e', layer: 'FOC_UG_CONV_72C', aci: 96 },
+    CU144: { label: 'UG Conventional 144C FOC', short: 'Conv UG 144C', method: 'UG', cores: 144, fam: 'convug', tt: 'CONV', lw: 0.60, drum: 4000, kml: 'ffc74f36', css: '#364fc7', layer: 'FOC_UG_CONV_144C', aci: 170 },
   };
   function analyzeRoute(points, links, o) {
     const by = {}; points.forEach((p) => { by[p.id] = p; });

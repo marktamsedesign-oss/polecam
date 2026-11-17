@@ -920,10 +920,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.44.5';
+  const APP_VER = '2.44.6';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '5.0'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '5.1'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -3063,8 +3063,9 @@
   /* v2.29: each span carries its FOC cable type (the third value of the link): AE Figure 8 72C, Light cable 12C or UG 144C air-blown */
   const CAB = C.CABLES;
   /* v2.42.24: the cable's family: the light cable (retractors and span clamps, a dummy NAP), figure 8 (pole clamps), UG */
-  const isLight = (k) => !!CAB[k] && CAB[k].fam === 'light', isFig8 = (k) => !!CAB[k] && CAB[k].fam === 'fig8';
-  const CAB_GROUPS = [['light', 'Light cable'], ['fig8', 'Figure 8'], ['ug', 'UG air-blown']];
+  const isLight = (k) => !!CAB[k] && CAB[k].fam === 'light', isFig8 = (k) => !!CAB[k] && (CAB[k].fam === 'fig8' || CAB[k].fam === 'conv'); // (2.44.6: a conventional AE cable is clamped, looped and closed as a figure 8)
+  const isUG = (k) => !!CAB[k] && CAB[k].method === 'UG'; // (2.44.6: the UG air-blown and the conventional UG cables)
+  const CAB_GROUPS = [['light', 'Light cable'], ['fig8', 'Figure 8'], ['conv', 'Conventional · AE'], ['ug', 'UG air-blown'], ['convug', 'Conventional · UG']]; // (2.44.6: conventional AE / UG)
   const cableSel = () => { const k = pmeta().cable; return k === '' || CAB[k] ? k : 'L12'; }; // the cable new links get: the project's last choice
   const cableName = (k) => (CAB[k] ? CAB[k].label : 'Cable not set');
   const linkWith = (a, b, k, more) => (more && more.length ? [a, b, k || '', more.slice()] : k ? [a, b, k] : [a, b]); // v2.42.18: + the span's other runs
@@ -3442,7 +3443,7 @@
   function loopCab(p, R, LA, kind) {
     if (LA && LA.has(p.id)) return LA.get(p.id);
     const cabs = new Set((R ? R.spans : []).filter((s) => s.ia === p.id || s.ib === p.id).map((s) => s.cable).filter(Boolean));
-    const keys = Object.keys(CAB), f8 = keys.filter(isFig8), ug = keys.filter((k) => CAB[k].fam === 'ug'), li = keys.filter(isLight);
+    const keys = Object.keys(CAB), f8 = keys.filter(isFig8), ug = keys.filter(isUG), li = keys.filter(isLight);
     const pref = /NAP|LCP/.test(kind || loopOwnOf(p)) ? [...li, ...f8, ...ug] : [...f8.slice().reverse(), ...li, ...ug.slice().reverse()]; // (v2.42.24: by family)
     return pref.find((k) => cabs.has(k)) || [...cabs][0] || '';
   }
@@ -3460,7 +3461,7 @@
     const put = (id, e) => { (list.get(id) || list.set(id, []).get(id)).push(e); n++; if (e.why === 'auto') { nAuto++; const p0 = by.get(id); if (!autoCab.has(id) && !(p0 && (p0.mloop || loopYes(p0.boq)))) autoCab.set(id, e.cab); } }; // (v2.42.25: a pole the surveyor marked is not one the app added, even where another cable's spacing adds its loop there)
     const lenAt = (p, cab) => { const b = p.boq || {}; if (+b.mloopM > 0) return +b.mloopM; if (UG_BOXES.has(elemOf(p))) return BOX_LOOP_M; return cabLoopLen(cab); };
     const F = R.fib.planned, one = new Map(); // the fiber with the one loop of a NAP, LCP, dummy NAP or riser
-    const PREF = ((K) => [...K.filter(isFig8).reverse(), ...K.filter(isLight), ...K.filter((k) => CAB[k].fam === 'ug').reverse()])(Object.keys(CAB)), rk = (k) => { const i = PREF.indexOf(k); return i < 0 ? 99 : i; };
+    const PREF = ((K) => [...K.filter(isFig8).reverse(), ...K.filter(isLight), ...K.filter(isUG).reverse()])(Object.keys(CAB)), rk = (k) => { const i = PREF.indexOf(k); return i < 0 ? 99 : i; };
     const surv = new Map(); F.forEach((f) => f.path.forEach((id) => { const cur = surv.get(id); if (!cur || rk(f.cab) < rk(cur.cab) || (rk(f.cab) === rk(cur.cab) && f.n < cur.n)) surv.set(id, f); })); // v2.42.25: the surveyor's loop on a pole is one loop: on its largest figure 8, else its light cable (the lowest RUN); the others keep their own spacing
     F.forEach((f) => f.path.forEach((id) => { const k = OWN.get(id); if (!k || k === 'closure' || k === 'entrance') return; const ok = k === 'riser' ? isFig8 : isLight, cur = one.get(id); if (!cur || (ok(f.cab) && !ok(cur.cab))) one.set(id, f); })); // (v2.42.24: a riser's on a figure 8, the others' on the light cable)
     const isPole = (id) => { const p = by.get(id); return !!p && elemOf(p) === 'Pole'; }, isGT = (id) => markKey(by.get(id)) === 'GT';
@@ -10124,7 +10125,7 @@
     const conv = (list) => list.map((r) => ({ cls: r.cls === 'OSM_ROAD_MAJOR' ? 'major' : r.cls === 'OSM_ROAD_PATH' ? 'path' : 'minor', hw: r.hw, bridge: r.bridge, name: r.name || '', pts: r.coords.map(([la, lo]) => { const u = C.utmForward(la, lo, S.zone, la < 0); return [u.E, u.N]; }) }));
     return { roads: conv(out), pois, note: `${out.length} road pieces and ${pois.length} named places from the offline map ${pk.name} (OpenStreetMap)` };
   }
-  const CAB_TITLE = Object.fromEntries(Object.entries(CAB).map(([k, c]) => [k, c.fam === 'light' ? `PROPOSED ${c.cores}C LIGHT CABLE` : c.fam === 'fig8' ? `PROPOSED ${c.cores}C FIGURE 8 FOC` : `PROPOSED ${c.cores}C AIR-BLOWN UG FOC`])); // (v2.42.24: every type)
+  const CAB_TITLE = Object.fromEntries(Object.entries(CAB).map(([k, c]) => [k, c.fam === 'light' ? `PROPOSED ${c.cores}C LIGHT CABLE` : c.fam === 'fig8' ? `PROPOSED ${c.cores}C FIGURE 8 FOC` : c.fam === 'conv' ? `PROPOSED ${c.cores}C CONVENTIONAL AE FOC` : c.fam === 'convug' ? `PROPOSED ${c.cores}C CONVENTIONAL UG FOC` : `PROPOSED ${c.cores}C AIR-BLOWN UG FOC`])); // (v2.42.24: every type)
   /** The material code of a pole for the drawing (CC / WP / SP …, or NPT when it has no pole tag). */
   function matCode(p) { if (/^NPT/i.test(p.poleId || '')) return 'NPT'; const t = poleTypes().find((x) => x.n === p.poleType); return t ? t.p : ''; }
   /** v2.32: the picture of the VICINITY MAP sheet: the street map in use (tiles already seen on this phone first) over the vicinity
@@ -18264,9 +18265,9 @@
     return { ok: true, project: spliceData(name) };
   }
   /** A new cable of n fibers: the cable type of that size, in the RUN's own family first, then the project's, figure 8, UG, light. */
-  const splCab = (f, n) => { const pc = pmeta().cable, fams = [CAB[f.cab] && CAB[f.cab].fam, CAB[pc] && CAB[pc].fam, 'fig8', 'ug', 'light'].filter(Boolean);
+  const splCab = (f, n) => { const pc = pmeta().cable, fams = [CAB[f.cab] && CAB[f.cab].fam, CAB[pc] && CAB[pc].fam, 'fig8', 'conv', 'ug', 'convug', 'light'].filter(Boolean);
     for (const fam of fams) { const k = Object.keys(CAB).find((x) => CAB[x].fam === fam && CAB[x].cores === n); if (k) return k; } return ''; };
-  const SPL_FAM = { light: 'a light cable', fig8: 'a figure 8 cable', ug: 'a UG air-blown cable' };
+  const SPL_FAM = { light: 'a light cable', fig8: 'a figure 8 cable', conv: 'a conventional AE cable', ug: 'a UG air-blown cable', convug: 'a conventional UG cable' };
   /** A cable (RUN) changed on the page: o = { size | cab, fpt, cid }. Written on the RUN as Route writes it (the closures' sizes follow). */
   async function spliceSetRun(fid, o) {
     let no = splWriteNo(); if (no) return { ok: false, msg: no };
