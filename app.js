@@ -909,7 +909,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.44.12';
+  const APP_VER = '2.44.13';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
   const APP_BETA = '4.4'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
@@ -14484,12 +14484,8 @@
     for (let z = 13; z <= zmax; z++) { const n = 2 ** z; for (let x = lon2x(b[1], n); x <= lon2x(b[3], n); x++) for (let y = lat2y(b[2], n); y <= lat2y(b[0], n); y++) out.push([z, x, y]); }
     return out;
   }
-  /** Shows where each offline pack ends while the offline map is shown (every pack at once). */
-  function drawAreas() {
-    areaLayer.clearLayers();
-    if (S.base !== 'offline') return;
-    for (const p of shownPacks()) if (p.bbox) L.rectangle([[p.bbox[1], p.bbox[0]], [p.bbox[3], p.bbox[2]]], { color: '#1c7ed6', weight: 1.5, dashArray: '6 6', fill: false, interactive: false }).addTo(areaLayer);
-  }
+  /** The packs' edges are not drawn (2.44.13): the packs shown join into one map, as the user sees it. Clears what an older version drew. */
+  function drawAreas() { areaLayer.clearLayers(); }
   async function deleteArea(id) { S.areas = (S.areas || []).filter((x) => x.id !== id); persist(); } // older versions only
   const fmtMB = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(2)} GB` : `${Math.max(0.1, b / 1048576).toFixed(b < 10485760 ? 1 : 0)} MB`);
   const fmtDate8 = (d) => (/^\d{8}$/.test(d || '') ? new Date(`${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}T00:00:00`).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : d || '');
@@ -16019,8 +16015,7 @@
   }
 
   /* ---- beta 3.4: Sync brings in and sends ---- */
-  let MBX_AUTO_BIG = 20 * 1048576; // above this, on mobile data, an update waits for Wi-Fi (or Get it now) (let: the tests set a small one)
-  const mbxCellular = () => { const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection; return !!(c && c.type === 'cellular'); };
+  let MBX_AUTO_BIG = 20 * 1048576; // (2.44.13: no longer a limit; kept for the tests' hook)
   /** The project on this phone that a mailbox item is for ('' when none). */
   function mbxHereFor(M) {
     const byTk = mbxLocalByTk(M.tk); if (byTk) return byTk;
@@ -16029,14 +16024,14 @@
   }
   /** What Sync brings in by itself: updates, fix lists, answers (with the updates), Accept and notes for a project already on this
       phone. A new task (the first notice of a survey) stays in the mailbox for Download, and so does an update that came after you
-      accepted (it asks first), or a big one on mobile data (it waits for Wi-Fi, or Get it now). */
+      accepted (it asks first). 2.44.13: an update of any size comes in on mobile data (LTE) too: it no longer waits for Wi-Fi. */
   function mbxAutoOk(it) {
     const M = (it && it.meta) || {}, here = mbxHereFor(M); if (!here) return false;
     if (M.kind === 'task') return !!mbxLocalByTk(M.tk); // the whole project again, for a task already here
     if (M.kind === 'update') { const T = tmTeam(here); if (T && T.role === 'co' && T.accepted) return false; }
     return ['update', 'fix', 'accept', 'note'].includes(M.kind);
   }
-  const mbxWaitsWifi = (it) => ['update', 'task'].includes((it.meta || {}).kind) && (it.size || 0) > MBX_AUTO_BIG && mbxCellular();
+  const mbxWaitsWifi = () => false; // 2.44.13: nothing waits for Wi-Fi (it was: an update over 20 MB on mobile data)
   let mbxAutoRun = null, mbxNoAuto = false; // (mbxNoAuto: the tests of the manual path, beta 3.3's, turn Sync's bringing in off)
   /** Brings in what is listed (mbxRefresh first), one at a time, oldest first. Returns { n, said: [...], notes: [...], wifi, err }. */
   async function mbxAutoIn() {
