@@ -289,6 +289,11 @@ body.deskpane #projPane,body.deskpane #topbar{transition:opacity .2s}body.deskpa
 .stphseg .chip{min-height:44px;min-width:44px;padding:0 14px}#stPhL{max-width:160px} /* Drawing style › Photos: 44 px to tap */
 .sws{display:flex;gap:8px;flex-wrap:wrap}.sws .sw2{width:34px;height:34px;border-radius:50%;border:2px solid var(--line);background:var(--c);padding:0;position:relative}.sws .sw2[aria-checked=true]{outline:3px solid var(--accent);outline-offset:2px}
 .sws .sw2.txt{width:auto;border-radius:999px;padding:0 10px;background:var(--chip);color:var(--ink);font-size:calc(12px * var(--fs));font-weight:600}
+/* beta 5.9: a colour of the user's own: the device's colour picker under the swatch (the whole swatch taps it); 44 px to tap on a phone */
+.sws .sw2.own{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;min-width:34px}.sws .sw2.own input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:0;padding:0}
+.sws .sw2.own:not(.txt){background:conic-gradient(var(--c) 0 100%)}.sws .sw2.own:focus-within{outline:3px solid var(--accent);outline-offset:2px}
+@media (pointer:coarse){.sws .sw2{width:44px;height:44px}.sws .sw2.txt{min-height:44px}}
+.stlock{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.stlock span{display:inline-flex;align-items:center;gap:6px;font-size:calc(13px * var(--fs))}.stlock i{width:18px;height:18px;border-radius:50%;background:var(--c);border:2px solid var(--line);display:inline-block}
 .findlist{display:flex;flex-direction:column;gap:6px;margin:10px 0}.findlist button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:9px 12px;color:var(--ink);font:inherit}
 .findlist b{font:700 calc(15px * var(--fs)) var(--mono)}.findlist span{font-size:calc(12.5px * var(--fs));color:var(--muted)}
 .tmtoggle{cursor:pointer;user-select:none}.tmtoggle b{font:600 calc(12px * var(--fs)) var(--mono, monospace);color:var(--muted)}.tmtoggle .chev{font-style:normal;color:var(--muted);transition:transform .15s}.tmlist.shut .tmtoggle .chev{transform:rotate(-90deg)}.tmlist.shut #tmListBody{display:none}
@@ -1641,7 +1646,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   </header>
   <div class="body dsbody"><div class="dsgrid">
    <div class="dsprevcol" id="dsPrevCol">
-    <div class="dsscenes" role="group" aria-label="What the preview shows"><button type="button" class="chip small" data-scene="street">Street</button><button type="button" class="chip small" data-scene="photo">Photos</button><button type="button" class="chip small" data-scene="crowd">Crowded corner</button><button type="button" class="chip small" data-scene="tower">Tower site</button><button type="button" class="chip small" data-scene="vic">Vicinity map</button></div>
+    <div class="dsscenes" role="group" aria-label="What the preview shows"><button type="button" class="chip small" data-scene="street">Street</button><button type="button" class="chip small" data-scene="photo">Photos</button><button type="button" class="chip small" data-scene="crowd">Crowded corner</button><button type="button" class="chip small" data-scene="tower">Tower site</button><button type="button" class="chip small" data-scene="vic">Vicinity map</button><button type="button" class="chip small" data-scene="grid">Grid</button></div>
     <div class="stprev"><svg id="stPrev" viewBox="0 0 120 70" role="img" aria-label="Preview of the plan drawing"></svg></div>
     <div class="dscap"><span id="dsCap"></span><span class="dscapr"><label><input type="checkbox" id="dsMark" checked> Mark overlaps</label><button type="button" class="dsbig" id="dsBig" hidden>Bigger</button></span></div>
    </div>
@@ -1727,6 +1732,19 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="strow"><span class="lbl">Route colour <output id="stVicRColO"></output></span><div class="sws" id="stVicRCol" role="radiogroup" aria-label="Route colour"></div></div>
       <div class="strow"><label class="lbl" for="stVicRW">Route line width <output id="stVicRWO"></output></label><input type="range" id="stVicRW" min="6" max="40" step="0.5"></div>
     </div>
+    <div class="stgrp" id="stGrid" data-scene="grid">
+      <h3>Grid</h3>
+      <div class="strow"><span class="lbl">Grid split <output id="stGridSplitO"></output></span><div class="seg" id="stGridSplit" role="radiogroup" aria-label="Grid split"><button type="button" class="chip small" data-v="0">Auto</button><button type="button" class="chip small" data-v="1">1/1</button><button type="button" class="chip small" data-v="2">1/2</button><button type="button" class="chip small" data-v="3">1/3</button><button type="button" class="chip small" data-v="4">1/4</button><button type="button" class="chip small" data-v="5">1/5</button><button type="button" class="chip small" data-v="6">1/6</button></div></div>
+      <div class="strow"><span class="lbl">Grid text: where on the sheet</span><div class="seg" id="stGridPos" role="radiogroup" aria-label="Where the sheet's name goes"><button type="button" class="chip small" data-v="tr">Top right</button><button type="button" class="chip small" data-v="tl">Top left</button><button type="button" class="chip small" data-v="br">Bottom right</button><button type="button" class="chip small" data-v="bl">Bottom left</button></div></div>
+      <div class="strow"><label class="lbl" for="stGridH">Grid text size <output id="stGridHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stGridHAuto">Auto</button><input type="range" id="stGridH" min="4" max="30" step="1" style="flex:1"></div></div>
+      <div class="strow"><span class="lbl">Grid text colour <output id="stGridColO"></output></span><div class="sws" id="stGridCol" role="radiogroup" aria-label="Grid text colour"></div></div>
+      <p class="hint" id="stGridHint" style="margin:0"></p>
+    </div>
+    <div class="stgrp" id="stLegend" data-scene="street photo crowd tower grid">
+      <h3>Legend colours <span aria-hidden="true">&#128274;</span></h3>
+      <div class="strow"><div class="stlock" role="list" aria-label="Legend colours, fixed"><span role="listitem"><i style="--c:#ff0000"></i>Proposed: red</span><span role="listitem"><i style="--c:#00ff00"></i>Proposed underground: green</span><span role="listitem"><i style="--c:#0000ff"></i>Existing: blue</span></div></div>
+      <p class="hint" style="margin:0">Fixed: the colours that mean proposed and existing (cables, closures, NAPs, poles) follow the template&rsquo;s legend, so the legend stays true. Your colours apply to the texts, numbers, grid and vicinity map. A proposed pole&rsquo;s label keeps its own colour; a span over the limit stays red.</p>
+    </div>
     <p class="hint" id="stSum"></p>
    </div>
   </div></div>
@@ -1742,7 +1760,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div class="body">
     <p class="hint" style="margin:0">For every drawing of the plan export. Kept on this phone; the pole numbers are kept in the project.</p>
     <div class="psrows">
-      <button class="psrow" id="psStyle" type="button"><span class="t"><b>Drawing style</b><small>Cable labels, the numbers' colour and size, IDs, photo size, tower site, vicinity map</small></span><span class="chev" aria-hidden="true">›</span></button>
+      <button class="psrow" id="psStyle" type="button"><span class="t"><b>Drawing style</b><small>Cable labels, the numbers' colour and size, IDs, photo size, tower site, vicinity map, grid</small></span><span class="chev" aria-hidden="true">›</span></button>
       <label class="psrow" for="psCA"><span class="t"><b>Clamp types on the plan</b><small id="psCASum"></small></span><span class="swi"><input type="checkbox" id="psCA"><i aria-hidden="true"></i></span></label>
       <details class="psrow" id="psNum"><summary><span class="t"><b>Pole numbers</b><small id="psNumSum"></small></span></summary>
         <div class="psbody" id="numBox">
