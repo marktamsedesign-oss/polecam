@@ -920,10 +920,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.44.9';
+  const APP_VER = '2.44.12';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '5.4'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '5.7'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -980,7 +980,7 @@
       if (pinBase && pinBase.options && pinBase.options.src === 'street') pinBase.redraw();
     } else if (navigator.onLine !== false && Date.now() - streetState.lastWarn > 300000) { // the browser believes it is online, yet no server answers
       streetState.lastWarn = Date.now();
-      toast(activePackId() ? 'Map servers not reachable — switch to the offline map (layers button)' : 'Map servers not reachable: check the internet connection, or get an offline map pack', 5000);
+      toast(shownPacks().length ? 'Map servers not reachable — switch to the offline map (layers button)' : 'Map servers not reachable: check the internet connection, or get an offline map pack', 5000);
     }
   }
   async function fetchTile(src, z, x, y, alive) {
@@ -1048,10 +1048,72 @@
   const OPFS_OK = !!(navigator.storage && navigator.storage.getDirectory && window.FileSystemFileHandle && 'createWritable' in window.FileSystemFileHandle.prototype);
   const isRoadPack = (p) => !!p && p.kind === 'roads'; // v2.35: a road pack is data for the drawings, not a map to show
   const installedPacks = () => Object.values(S.packs).filter((p) => p.done && !isRoadPack(p));
-  function activePackId() {
-    if (S.activePack && S.packs[S.activePack] && S.packs[S.activePack].done && !isRoadPack(S.packs[S.activePack])) return S.activePack;
-    const first = installedPacks()[0];
-    return first ? first.id : null;
+  /* Every pack at once (the owner: "load every downloaded map and road pack"): the map shows every map pack on this phone
+     together, each over its own area (where two overlap, either may draw), so panning from one area to the next needs no
+     switching. The eye in Maps hides a pack on the map (S.packOff); the plan files (vicinity map, roads) read them all.
+     Before, one pack was "in use" (S.activePack, the Use button): that setting is no longer read. */
+  delete S.activePack;
+  const packHidden = (p) => !!(p && S.packOff && S.packOff[p.id]);
+  const shownPacks = () => installedPacks().filter((p) => !packHidden(p));
+  const packNames = (list) => (list.length > 3 ? `${list.length} map packs` : list.map((p) => p.name || 'pack').join(' + '));
+  const bbHits = (b, s, w, n, e) => !b || !(b[2] < w || b[0] > e || b[3] < s || b[1] > n); // a pack's bbox [w, s, e, n] touches the box
+  /** The map packs of list read as one pack: a tile comes from the first pack that has it, the pack whose area holds the tile's
+      centre first, then the smaller area (a town's pack before its region's). A pack is opened (header and directories read)
+      only when a tile of its area is asked for, and the packs share one directory cache: one pack or ten, about the memory
+      of one. Packs of less detail (max zoom 14 beside 15) are drawn close up from their own closest level (coarser). */
+  class PackSet {
+    constructor(list) {
+      this.list = list.filter((p) => p && p.done && !isRoadPack(p)); this.pm = new Map(); this.dirs = undefined;
+      this.maxzoom = this.list.length ? Math.max(...this.list.map((p) => p.maxzoom || 15)) : 15;
+      this.mixed = this.list.some((p) => (p.maxzoom || 15) !== this.maxzoom);
+    }
+    open(p) {
+      let m = this.pm.get(p.id);
+      if (!m) { m = new window.protomapsL.PMTiles(new PackSource(p.id, Math.max(2, Math.ceil(8 / this.list.length))), this.dirs); this.dirs = m.cache; this.pm.set(p.id, m); }
+      return m;
+    }
+    at(z, x, y) {
+      const n = 2 ** z, lat = (t) => Math.atan(Math.sinh(Math.PI * (1 - 2 * t / n))) * 180 / Math.PI;
+      const w = x / n * 360 - 180, e = (x + 1) / n * 360 - 180, no = lat(y), so = lat(y + 1), cx = (w + e) / 2, cy = (no + so) / 2;
+      return this.list.filter((p) => bbHits(p.bbox, so, w, no, e))
+        .map((p) => { const b = p.bbox; return { p, k: b && !(b[0] <= cx && cx <= b[2] && b[1] <= cy && cy <= b[3]) ? 1 : 0, a: b ? (b[2] - b[0]) * (b[3] - b[1]) : 1e9 }; })
+        .sort((u, v) => u.k - v.k || u.a - v.a).map((u) => u.p);
+    }
+    async getZxy(z, x, y, signal) {
+      let err = null;
+      for (const p of this.at(z, x, y)) {
+        if (z > (p.maxzoom || 15)) continue; // (its closest level: coarser)
+        try { const t = await this.open(p).getZxy(z, x, y, signal); if (t && t.data && t.data.byteLength) return t; }
+        catch (e) { if (e && e.name === 'AbortError') throw e; if (!err) { err = e; try { e.packId = p.id; } catch (x2) { /* not an object */ } } }
+      }
+      if (err) throw err; // no pack had it and one could not be read: said on screen (offlineProblem)
+      return undefined;
+    }
+    /** Tile c ({z, x, y}, drawn tileSize px) from a pack whose own levels stop above c.z: its tile at its closest level, cut to c. */
+    async coarser(c, ts) {
+      for (const p of this.at(c.z, c.x, c.y)) {
+        const d = c.z - (p.maxzoom || 15); if (d <= 0) continue;
+        const k = 2 ** d, up = { z: c.z - d, x: Math.floor(c.x / k), y: Math.floor(c.y / k) };
+        let m = null; try { m = await new window.protomapsL.PmtilesSource(this.open(p), false).get(up, ts * k); } catch (e) { m = null; }
+        if (!m || !m.size) continue;
+        const dx = (c.x - up.x * k) * ts, dy = (c.y - up.y * k) * ts;
+        for (const [name, fs] of m) {
+          m.set(name, fs.filter((f) => { const b = f.bbox; return f.geomType === 1 ? b.minX >= dx && b.minX < dx + ts && b.minY >= dy && b.minY < dy + ts : !(b.maxX < dx || b.minX > dx + ts || b.maxY < dy || b.minY > dy + ts); }));
+          for (const f of m.get(name)) { for (const ring of f.geom) for (const q of ring) { q.x -= dx; q.y -= dy; } const b = f.bbox; f.bbox = { minX: b.minX - dx, minY: b.minY - dy, maxX: b.maxX - dx, maxY: b.maxY - dy }; }
+        }
+        return m;
+      }
+      return new Map();
+    }
+  }
+  /** The views of a protomaps layer or picture o reading set: packs of less detail beside packs of more are drawn from their own
+      closest level. (One pack, or packs of the same detail: nothing changes.) */
+  function packSetViews(o, set) {
+    if (!set.mixed || !(o.views instanceof Map)) return;
+    for (const v of o.views.values()) {
+      const src = v && v.tileCache && v.tileCache.source; if (!src || typeof src.get !== 'function') continue;
+      const get = src.get.bind(src); src.get = async (c, ts) => { const m = await get(c, ts); return m && m.size ? m : set.coarser(c, ts); };
+    }
   }
   function withTimeout(p, ms, msg) {
     let t = 0;
@@ -1061,7 +1123,7 @@
   async function packDir() { const root = await navigator.storage.getDirectory(); return root.getDirectoryHandle('mappacks', { create: true }); }
   const OPFS_PART = 8 * 1024 * 1024; // OPFS packs are stored as part files <id>.0, <id>.1, … of 8 MB
   class PackSource {
-    constructor(id) { this.id = id; this.cache = new Map(); this.files = new Map(); }
+    constructor(id, keep) { this.id = id; this.cache = new Map(); this.files = new Map(); this.keep = keep || 8; } // keep: pieces kept in memory (every pack at once: shared out)
     getKey() { const p = S.packs[this.id] || {}; return `pack:${this.id}:${p.date || ''}:${p.size || ''}`; }
     async chunk(i) {
       if (this.cache.has(i)) { const v = this.cache.get(i); this.cache.delete(i); this.cache.set(i, v); return v; }
@@ -1069,7 +1131,7 @@
       if (!rec) throw new Error('Map pack is incomplete — download it again');
       const u = new Uint8Array(rec.data);
       this.cache.set(i, u);
-      if (this.cache.size > 8) this.cache.delete(this.cache.keys().next().value);
+      if (this.cache.size > this.keep) this.cache.delete(this.cache.keys().next().value);
       return u;
     }
     async part(i) {
@@ -1327,7 +1389,7 @@
       return true;
     } finally {
       LOG.done('pack.repair'); packRepairing = false; persist();
-      if (S.base === 'offline' && (st.id === activePackId())) setBase('offline', true); // the map reads the repaired files
+      if (S.base === 'offline' && !isRoadPack(st) && !packHidden(st)) setBase('offline', true); // the map reads the repaired files
     }
   }
   /* v2.35: road packs (tools/osm-pack): OpenStreetMap roads, landmarks and boundaries of a region for the plan drawings */
@@ -1364,7 +1426,7 @@
     for (const p of packs) {
       const h = await roadPackHead(p.id); if (!h) continue;
       const T = C.roadPackTiles(h, bb); if (!T.length) continue;
-      for (const t of T) chunks.push(await roadPackChunk(p.id, h, t));
+      for (const t of T) { const c = await roadPackChunk(p.id, h, t); c._run = rpDate(h); chunks.push(c); } // (the data's date: a road's id is its number in that data)
       used.push(`${h.region || p.name} (OpenStreetMap ${rpDate(h)})`);
     }
     if (!used.length) return null;
@@ -1386,17 +1448,19 @@
     if (!src.length) return null;
     return { hits: C.packAdminAt(areas, points), src: src.join(' + ') };
   }
+  /** The offline map: every map pack on this phone that is not hidden, as one layer over their areas (every pack at once). */
   function offlineLayer() {
-    const id = activePackId();
-    if (!id || !window.protomapsL) return null;
-    const p = S.packs[id], b = p.bbox;
+    const list = shownPacks();
+    if (!list.length || !window.protomapsL) return null;
+    const set = new PackSet(list), b = list.every((p) => p.bbox) ? list.reduce((u, p) => [Math.min(u[0], p.bbox[0]), Math.min(u[1], p.bbox[1]), Math.max(u[2], p.bbox[2]), Math.max(u[3], p.bbox[3])], [180, 90, -180, -90]) : null;
     const lyr = window.protomapsL.leafletLayer({
-      url: new window.protomapsL.PMTiles(new PackSource(id)), flavor: 'light', lang: 'en',
-      maxDataZoom: p.maxzoom || 15, maxZoom: 21, bounds: b ? [[b[1], b[0]], [b[3], b[2]]] : undefined,
+      url: set, flavor: 'light', lang: 'en',
+      maxDataZoom: set.maxzoom, maxZoom: 21, bounds: b ? [[b[1], b[0]], [b[3], b[2]]] : undefined,
       devicePixelRatio: Math.min(2, window.devicePixelRatio || 1), // v2.35.3: 3x phones (iPhones) draw at 2x: half the memory, quicker
       attribution: 'Offline map © OpenStreetMap contributors · Protomaps',
     });
-    tuneOverzoom(lyr, p.maxzoom || 15);
+    packSetViews(lyr, set);
+    tuneOverzoom(lyr, set.maxzoom);
     addLandmarks(lyr); watchOfflineDraw(lyr); // v2.35.5
     return lyr;
   }
@@ -1480,10 +1544,10 @@
   function offlineProblem(what, z) {
     const msg = String((what && what.message) || what || 'unknown').slice(0, 160);
     if (packRepairing) return;
-    LOG.warn('offline.draw', { z, msg, ua: navigator.userAgent.slice(0, 120) });
+    LOG.warn('offline.draw', { z, msg, pack: (what && what.packId) || '', ua: navigator.userAgent.slice(0, 120) });
     if (Date.now() - offlineProblemAt < 60000 || S.base !== 'offline') return;
     offlineProblemAt = Date.now();
-    const ap = S.packs[activePackId()];
+    const ap = (what && what.packId && S.packs[what.packId]) || shownPacks().find((p) => p.damaged); // (the pack that failed, else a damaged one)
     if (ap && ap.damaged) { toast(ap.damaged === 'parts' ? `${ap.name} was saved wrongly by this phone's browser (an iPhone bug): close up it cannot be drawn. Maps → Repair (on the phone, no download).` : `${ap.name} cannot be read in places (damaged). Maps → Download again.`, 9000); return; }
     toast(`The offline map could not draw this part${z ? ` (zoom ${z})` : ''}: ${msg}. Please send Settings → App log.`, 9000);
   }
@@ -1723,7 +1787,7 @@
   const ACI_NAME = { 0: 'by layer', 1: 'red', 2: 'yellow', 3: 'green', 4: 'cyan', 5: 'blue', 6: 'magenta', 7: 'white' };
   const ACI_INK = { 1: '#e03131', 2: '#d9a400', 3: '#2b8a3e', 4: '#0c8599', 5: '#1c3f94', 6: '#ae3ec9', 7: '#495057' }; // the same colours, readable on the light preview
   const drwMapKind = () => (['off', 'offline', 'sat', 'street'].includes(S.drawMapKind) ? S.drawMapKind : 'offline'); // v2.41: the offline map by default
-  const drwBase = () => { const k = drw ? drw.mapKind : drwMapKind(); return k === 'offline' ? (activePackId() ? 'offline' : 'off') : k === 'sat' ? 'satellite' : k === 'street' ? 'street' : 'off'; };
+  const drwBase = () => { const k = drw ? drw.mapKind : drwMapKind(); return k === 'offline' ? (shownPacks().length ? 'offline' : 'off') : k === 'sat' ? 'satellite' : k === 'street' ? 'street' : 'off'; };
   function openDrawing(again, view) { // again: drawn anew in the open sheet (v2.42.12: another project was chosen); view: where it looks (beta 4.6: kept after the splicing details changed a record)
     const pts = projPoints(); if (!pts.length) { toast('Nothing recorded in this project yet'); return; }
     const z = S.zone, U = (p) => { const u = C.utmForward(p.lat, p.lon, z, p.lat < 0); return [u.E, u.N]; };
@@ -1868,6 +1932,7 @@
     drw.items.forEach((it) => { if (!it.on) return; const [ax, ay] = drwPx(it.xy), [bx, by] = drwPx(it.on.xy); g.strokeStyle = 'rgba(240,140,0,0.9)'; g.lineWidth = 1.6 * d; g.setLineDash([2 * d, 3 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); });
     const placed = [], near = v.sc >= 1.4 * d, ct = S.exp.dxfClampType !== false, mode = curRow().mode, NS = plStyle().num; // (v2.42.14: the drawing shown)
     const roomy = v.sc * 30 >= 26 * d; // the numbers / photos once the poles are far enough apart on screen (zoom in to see them)
+    const phK = plStyle().photo.size / 18; // (Drawing style › Photos: the photos' size, 1 at Normal)
     const nCol = ACI_INK[NS.color] || '#d9a400', bCol = ACI_INK[NS.bcolor] || nCol;
     const free = (bx) => !placed.some((q) => bx[0] < q[0] + q[2] && bx[0] + bx[2] > q[0] && bx[1] < q[1] + q[3] && bx[1] + bx[3] > q[1]);
     drw.items.forEach((it) => {
@@ -1886,9 +1951,10 @@
         g.strokeStyle = bCol; g.lineWidth = 1.2 * d; g.beginPath(); if (pp) g.moveTo(px + pp[0] * bk.hw, py + pp[1] * bk.hw); else g.moveTo(px + r * 0.7, py - r * 0.7); g.lineTo(cx - 6 * d, cy + 6 * d); g.stroke();
         if (hasPh) { // a photo frame (beta 4.1: with photo + number it stands a little further out, and the number has its circle by the pole)
           const fx = mode === 'both' ? cx + 21 * d : cx, fy = mode === 'both' ? cy - 9 * d : cy;
-          g.fillStyle = 'rgba(255,255,255,0.9)'; g.strokeStyle = '#495057'; g.lineWidth = 1.2 * d; g.fillRect(fx - 9 * d, fy - 7 * d, 18 * d, 14 * d); g.strokeRect(fx - 9 * d, fy - 7 * d, 18 * d, 14 * d);
-          g.fillStyle = '#868e96'; g.beginPath(); g.moveTo(fx - 6 * d, fy + 5 * d); g.lineTo(fx - 1 * d, fy - 1 * d); g.lineTo(fx + 2 * d, fy + 2 * d); g.lineTo(fx + 4 * d, fy); g.lineTo(fx + 7 * d, fy + 5 * d); g.closePath(); g.fill();
-          placed.push([fx - 10 * d, fy - 8 * d, 20 * d, 16 * d]);
+          const k = phK, X = fx - 9 * d, Y = fy + 7 * d - 14 * d * k, s = (u) => u * d * k; // (Drawing style › Photos: the size set, Normal as before; grown from its corner by the pole)
+          g.fillStyle = 'rgba(255,255,255,0.9)'; g.strokeStyle = '#495057'; g.lineWidth = 1.2 * d; g.fillRect(X, Y, s(18), s(14)); g.strokeRect(X, Y, s(18), s(14));
+          g.fillStyle = '#868e96'; g.beginPath(); g.moveTo(X + s(3), Y + s(12)); g.lineTo(X + s(8), Y + s(6)); g.lineTo(X + s(11), Y + s(9)); g.lineTo(X + s(13), Y + s(7)); g.lineTo(X + s(16), Y + s(12)); g.closePath(); g.fill();
+          placed.push([X - 1 * d, Y - 1 * d, s(18) + 2 * d, s(14) + 2 * d]);
         }
         if (!hasPh || mode === 'both') {
           const rr = Math.max(7, 3 + String(n).length * 3.2) * d;
@@ -2117,7 +2183,7 @@
     if (!drw || e.target.name !== 'drawMapKind') return;
     const k = e.target.value; drw.mapKind = k; S.drawMapKind = k; persist(); drw.under = null; drw.underKey = ''; drw.underWarned = false; renderDrawMap();
     $('drawMapMenu').hidden = true; $('drawMap').setAttribute('aria-expanded', 'false'); drawDrawing();
-    if (k === 'offline' && !activePackId()) toast('No offline map pack on this phone: add one in Maps → Offline map packs, or choose Satellite or Street map (online)', 6000);
+    if (k === 'offline' && !shownPacks().length) toast(installedPacks().length ? 'Every offline map pack is hidden: show one in Maps → Offline map packs (the eye), or choose Satellite or Street map (online)' : 'No offline map pack on this phone: add one in Maps → Offline map packs, or choose Satellite or Street map (online)', 6000);
   });
   let underTimer = 0;
   const underlaySoon = () => { clearTimeout(underTimer); underTimer = setTimeout(() => refreshUnderlay().catch((e) => LOG.warn('draw.map', errInfo(e))), 350); };
@@ -2147,7 +2213,7 @@
     // a margin round the screen, so a short pan needs no new picture
     const m = 0.35, ext = [[v.cx - hw * (1 + m), v.cy + hh * (1 + m)], [v.cx + hw * (1 + m), v.cy + hh * (1 + m)], [v.cx - hw * (1 + m), v.cy - hh * (1 + m)], [v.cx + hw * (1 + m), v.cy - hh * (1 + m)]].map(([E, N]) => C.utmInverse(E, N, drw.zone, south));
     let pic = null; const seq = drw.underSeq = (drw.underSeq || 0) + 1;
-    if (base === 'offline') pic = await packPicture(activePackId(), ext, Math.max(cv.width, cv.height) * 1.4).catch(() => null);
+    if (base === 'offline') pic = await packPicture(ext, Math.max(cv.width, cv.height) * 1.4, shownPacks()).catch(() => null); // (every pack at once)
     else pic = await tilePicture(base === 'satellite' ? SAT_SOURCE : streetSource(), ext, v.sc).catch(() => null);
     if (!drw || drw.underSeq !== seq || drw.underKey === want) return; // a newer view asked meanwhile
     if (!pic) { drw.underKey = key; if (!drw.underWarned) { drw.underWarned = true; toast(base === 'offline' ? 'The offline map pack does not cover this area: choose Satellite or Street map (online), or add a map pack (Maps)' : navigator.onLine === false ? 'No map under the drawing: no internet. Choose Offline map (a map pack on this phone)' : 'The map did not load under the drawing', 4500); } return; }
@@ -2217,7 +2283,7 @@
     if (drw && drw.ref.length) { const ri = refInfo(drw.project); rows.push([sv('<path d="M1 8h20" stroke="rgba(112,72,232,0.6)" stroke-width="2" stroke-dasharray="4 3"/>'), `Reference KMZ of this project${ri ? ` (${ri.name})` : ''}: not in the DXF; hide or remove it with the map's KMZ button`]); } // v2.42.12
     const mode = curRow().mode;
     rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[plStyle().num.bcolor] || ACI_INK[plStyle().num.color] || '#d9a400'}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[plStyle().num.color] || '#d9a400'}" font-family="system-ui,sans-serif">1</text>`), 'Number on the plan']);
-    if (mode !== 'num') rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), mode === 'both' ? 'Photo of the point (its number is by the point)' : 'Photo on the plan']);
+    if (mode !== 'num') { const Z = plStyle().photo.size; rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), (mode === 'both' ? 'Photo of the point (its number is by the point)' : 'Photo on the plan') + (Z === 18 ? '' : ` (${phName(Z).toLowerCase()}: ${Z} m)`)]); } // (Drawing style › Photos: a size other than Normal)
     const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop (LOOP×2: one for each of 2 fibers there)'], ['LOOP*', '#e03131', 'Maintenance loop added by the app (As-Plan)'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)']];
     if (drw && drw.R && drw.R.fib && drw.R.fib.list.length > 1) rows.push([sv('<path d="M1 5h20" stroke="#1c3f94" stroke-width="1.2" stroke-dasharray="4 2.5"/><path d="M1 11h20" stroke="#1c3f94" stroke-width="2.6" stroke-dasharray="4 2.5"/>'), 'Cables: each its own line in its lane, thicker for a larger size (12C thinnest, 288C thickest); its label says its size, type and run (PROPOSED 24C FIG-8 (RUN 5))']); // v2.42.20 (v2.42.23; v2.42.24: the width by size)
     if (drw && drw.blocks && [...drw.blocks.values()].some((b) => b.kind === 'dn')) rows.push([sv('<rect x="1.5" y="4" width="19" height="8" rx="3" fill="#fff" stroke="#14b81e" stroke-width="1.2"/><text x="11" y="10.4" text-anchor="middle" font-size="5.5" font-weight="800" fill="#14b81e" font-family="Arial,sans-serif">DN</text>'), 'Dummy NAP (DN) on the cable: its cables meet its sides']); // v2.42.24
@@ -2238,23 +2304,29 @@
     clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a', per: 3, h: 0, w: { prop: true, size: true, type: true, place: true, foc: false, run: true } }, /* v2.42.26: labels for each cable in a grid, their height (0: by the poles' spacing), their words */
     site: { name: 'on', move: 'auto', arrow: true, acol: 7 }, odf: { place: 'auto', lbl: 'size' }, /* v2.42.26: the tower's name; the ODF beside the tower, its label (beta 3.8: the name on the tower; moved aside in its sheet; the arrow) */
     crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room' },
-    pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0 }, span: { h: 0, color: 0 } }; /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
+    pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0 }, span: { h: 0, color: 0 }, photo: { size: 18 } }; /* Photos: the long side of the photos on the plan (m; 18: Normal, as before) */ /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
+  /* Drawing style › Photos: the long side of every pole and point photo on the plan, in metres of the drawing where the poles stand
+     25 m apart or more (closer, the plan draws them smaller, to two thirds, as before). Normal (18 m) is the size before; 6 to 40 m. */
+  const PH_SIZES = [[12, 'Small'], [18, 'Normal'], [24, 'Large'], [30, 'Extra large']];
+  const phSize = (v) => (Number.isFinite(+v) && +v > 0 ? Math.min(40, Math.max(6, Math.round(+v * 2) / 2)) : 18);
+  const phName = (m) => { const k = PH_SIZES.find(([v]) => v === m); return k ? k[1] : 'Your own size'; };
+  const phMm = (m) => `${Math.round(m * 0.75 / 1.1)} × ${Math.round(m / 1.1)} mm`; // (an upright 3:4 photo at 1:1100, the GEO sheets' scale)
   function plStyle() {
     const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d);
-    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) }, Po = { ...PL_DEF.pole, ...(u.pole || {}) }, Sp = { ...PL_DEF.span, ...(u.span || {}) }, hz = (v, lo, hi) => (+v ? n(v, lo, hi, 0) : 0);
+    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) }, Po = { ...PL_DEF.pole, ...(u.pole || {}) }, Sp = { ...PL_DEF.span, ...(u.span || {}) }, Ph = { ...PL_DEF.photo, ...(u.photo || {}) }, hz = (v, lo, hi) => (+v ? n(v, lo, hi, 0) : 0);
     return { num: { color: c(N.color, 2), bcolor: c(N.bcolor, 0, true), h: n(N.h, 1, 12, 3), d: n(N.d, 0, 25, 7), g: n(N.g, 0, 25, 2), leader: N.leader !== false, place: N.place === 'out' ? 'out' : 'auto' },
       id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5), area: V.area !== false, zoom: V.zoom !== false, label: typeof V.label === 'string' ? V.label.replace(/\s+/g, ' ').slice(0, 40) : 'PROJECT AREA', lh: n(V.lh, 8, 40, 18) },
       clamp: { place: ['label', 'tag', 'callout'].includes(Cl.place) ? Cl.place : 'label', pos: ['auto', 'up', 'down', 'left', 'right'].includes(Cl.pos) ? Cl.pos : 'auto', color: c(Cl.color, 0, true), h: n(Cl.h, 1, 5, 2), box: Cl.box !== false, hw: Cl.hw !== false },
       cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a', per: [1, 2, 3].includes(+Cb.per) ? +Cb.per : 3, h: +Cb.h ? n(Cb.h, 0.8, 3, 0) : 0, w: Object.fromEntries(Object.keys(PL_DEF.cab.w).map((k) => [k, !!Cw[k]])) },
       site: { name: ['on', 'top', 'side', 'bottom'].includes(St.name) ? St.name : 'on', move: St.move === 'point' ? 'point' : 'auto', arrow: St.arrow !== false, acol: c(St.acol, 7, true) }, /* (beta 3.8: Auto is now On the tower) */
       crowd: { auto: Cr.auto !== false, min: n(Cr.min, 50, 100, 75), move: n(Cr.move, 4, 30, 15), leader: Cr.leader !== false, streets: Cr.streets === 'fixed' ? 'fixed' : 'slide', marks: ['room', 'always', 'hide'].includes(Cr.marks) ? Cr.marks : 'room' }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' },
-      pole: { idH: hz(Po.idH, 1, 5), idColor: c(Po.idColor, 0, true), ownH: hz(Po.ownH, 1, 5), ownColor: c(Po.ownColor, 0, true), llH: hz(Po.llH, 0.6, 3), llColor: c(Po.llColor, 0, true) }, span: { h: hz(Sp.h, 1, 4), color: c(Sp.color, 0, true) } };
+      pole: { idH: hz(Po.idH, 1, 5), idColor: c(Po.idColor, 0, true), ownH: hz(Po.ownH, 1, 5), ownColor: c(Po.ownColor, 0, true), llH: hz(Po.llH, 0.6, 3), llColor: c(Po.llColor, 0, true) }, span: { h: hz(Sp.h, 1, 4), color: c(Sp.color, 0, true) }, photo: { size: phSize(Ph.size) } };
   }
   const setPl = (part, k, v) => { const cur = plStyle(); S.plStyle = { ...cur, [part]: { ...cur[part], [k]: v } }; persist(); renderStyle(); };
   const mmOf = (m) => (m / 1.1).toFixed(1);
   function plSummary() {
     const P = plStyle(), N = P.num, I = P.id, V = P.vic, Cl = P.clamp, Cb = P.cab, ct = S.exp.dxfClampType !== false;
-    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? ACI_NAME[Cl.color] : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Crowded places: ${P.crowd.auto ? `Auto (labels moved up to ${P.crowd.move} m${P.crowd.leader ? ' with a line' : ''}, then down to ${P.crowd.min} % of their size; street names ${P.crowd.streets === 'fixed' ? 'kept in place' : 'slide along their road'})` : 'off (as before)'}, landmark names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]} · Tower: its name and ID ${P.site.name === 'on' ? 'on the tower' : `at its ${P.site.name}`}, ${P.site.move === 'point' ? 'kept at its point' : `moved aside in its sheet when it covers details${P.site.arrow ? `, a curved arrow to its point (${P.site.acol ? (P.site.acol === 7 ? 'white; black on the PDF' : ACI_NAME[P.site.acol]) : 'as the tower'})` : ''}`} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${V.area ? `the project area ${ACI_NAME[V.circle]}, its circle ${V.circleW} m wide, ${V.label.trim() ? `labelled “${V.label.trim()}” ${V.lh} m high` : 'no label'}` : 'no project area'}, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide`;
+    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? ACI_NAME[Cl.color] : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Crowded places: ${P.crowd.auto ? `Auto (labels moved up to ${P.crowd.move} m${P.crowd.leader ? ' with a line' : ''}, then down to ${P.crowd.min} % of their size; street names ${P.crowd.streets === 'fixed' ? 'kept in place' : 'slide along their road'})` : 'off (as before)'}, landmark names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]} · Tower: its name and ID ${P.site.name === 'on' ? 'on the tower' : `at its ${P.site.name}`}, ${P.site.move === 'point' ? 'kept at its point' : `moved aside in its sheet when it covers details${P.site.arrow ? `, a curved arrow to its point (${P.site.acol ? (P.site.acol === 7 ? 'white; black on the PDF' : ACI_NAME[P.site.acol]) : 'as the tower'})` : ''}`} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${V.area ? `the project area ${ACI_NAME[V.circle]}, its circle ${V.circleW} m wide, ${V.label.trim() ? `labelled “${V.label.trim()}” ${V.lh} m high` : 'no label'}` : 'no project area'}, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide · Photos: ${phName(P.photo.size)}, ${P.photo.size} m on their long side (about ${phMm(P.photo.size)} on the A3 sheet), the same for every photo; smaller where the poles stand closer than 25 m`;
   }
   function openStyle() { DSP.reset(); renderStyle(); openSheet('drwStyle'); setTimeout(() => { DSP.reset(); DSP.onScroll(); }, 0); } // (the settings from the top, the preview large)
   function renderStyle() {
@@ -2293,6 +2365,11 @@
     ['stCabPer', 'stCabH', 'stCabW'].forEach((id) => { const r = $(id).closest('.strow'); if (r) r.classList.toggle('dim', !P.cab.on); });
     seg('stClOn', S.exp.dxfClampType !== false ? '1' : '0'); seg('stClPlace', P.clamp.place); seg('stClPos', P.clamp.pos); seg('stClBox', P.clamp.box ? '1' : '0'); seg('stClHw', P.clamp.hw ? '1' : '0'); seg('stCabOn', P.cab.on ? '1' : '0');
     o('stClHO', `${P.clamp.h} m · ${mmOf(P.clamp.h)} mm`); ['stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'].forEach((id) => { const r = $(id) && $(id).closest('.strow'); if (r) r.classList.toggle('dim', S.exp.dxfClampType === false || (P.clamp.place === 'label' && ['stClPos', 'stClH', 'stClBox'].includes(id))); });
+    { const Z = P.photo.size; // Drawing style › Photos
+      $('stPhSize').querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === Z)));
+      if (document.activeElement !== $('stPhL')) $('stPhL').value = String(Z);
+      o('stPhO', `${phName(Z)} · ${Z} m`);
+      o('stPhHint', `Each photo is ${Z} m on its long side on the drawing: about ${phMm(Z)} on the A3 sheet (1:1100). The same for every pole and point photo. Where the poles stand closer than 25 m the plan draws them smaller (down to ${+(Z * 2 / 3).toFixed(1)} m) so they fit; a photo with no room beside its point goes further out, with a thin line to it.`); }
     o('stSum', plSummary());
     DSP.render(P); drawVicPreview(P); // (beta 3.8: the scene the user works on)
     if (drw && !$('drawing').hidden) { drawDrawing(); renderDrawLegend(); }
@@ -2317,6 +2394,9 @@
   $('stClOn').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; S.exp.dxfClampType = b.dataset.v === '1'; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); }); // (the Drawing's CA button too)
   $('stReset').addEventListener('click', () => { delete S.plStyle; S.exp.dxfClampType = true; persist(); syncExpUi(); renderStyle(); if (drw) renderDrawBar(); toast('Drawing style: the defaults', 2000); }); // (v2.42.21: clamp types on again)
   $('stDone').addEventListener('click', () => closeSheet());
+  $('stPhSize').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('photo', 'size', +b.dataset.v); }); // Drawing style › Photos: Small, Normal, Large, Extra large
+  $('stPhL').addEventListener('input', () => { const v = +$('stPhL').value; if (v >= 6 && v <= 40) setPl('photo', 'size', phSize(v)); }); // (your own size, while it is typed: only once it is one)
+  $('stPhL').addEventListener('change', () => { const v = +$('stPhL').value; if (v > 0) setPl('photo', 'size', phSize(v)); $('stPhL').value = String(plStyle().photo.size); }); // (kept to 6–40 m)
   /** The vicinity preview: a map 1.5 km across (1 unit = 25 m), the route on its white band and the PROJECT AREA circle. */
   function drawVicPreview(P, into) {
     const svg = into || $('stVicPrev'); if (!svg) return; if (into) { svg.setAttribute('viewBox', '0 0 60 40'); svg.style.aspectRatio = '60 / 40'; } /* (beta 3.8: also the main preview's Vicinity map) */ const NSV = 'http://www.w3.org/2000/svg', V = P.vic, k = 1 / 25;
@@ -2469,6 +2549,28 @@
       sc.labels.push(Txt({ id: 'st', st: 'street', pri: 40, t: 'RIZAL STREET', h: 2.4, c: 2, shrink: true, free: true, spots: road({ horiz: true, lo: 1, hi: 119, c: 48.8, def: 30, offs: [0, 1.2, -0.6], fixed: C.streets === 'fixed' }) }));
       return sc;
     }
+    /* Drawing style › Photos: the street again, each pole's photo past its label (the pole, its ID and details, then the photo) at the size
+       set, the poles 40 m apart (the plan draws the photos that size where the poles stand 25 m apart or more); no room there: further out,
+       with a thin line to its pole */
+    function scPhoto(P, C) {
+      const L = P.photo.size, W = L * 0.75, sc = { vb: [0, 0, 132, 88], bounds: { x0: 0.5, y0: 0.5, x1: 131.5, y1: 80 }, under: [], over: [], labels: [], obst: [] }, yTop = 62, yBot = 69, yc = 63.4;
+      const poles = [{ k: 1, x: 20, y: 59.5, pre: 'CC', id: '4303175', cl: 'CA 8-9', ll: '7.163334°  125.573313°' }, { k: 2, x: 60, y: 58.3, pre: 'CC', id: '4303168', hw: 'RET×2 SC×4', ll: '7.164334°  125.574313°' }, { k: 3, x: 100, y: 59.5, pre: 'CC', id: '4303161', cl: '2A 10-12', own: 'DLPC', ll: '7.165334°  125.575313°' }];
+      sc.under.push((g, pal) => { line(g, [[0, yTop], [132, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [132, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [132, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 84); });
+      sc.obst.push(...segBoxes([0, yc], [132, yc], 0.3), bx(60, yc, 9.8, 3.8), ...poles.map((p) => bx(p.x, p.y, 2.6, 2.6)));
+      poles.forEach((p) => {
+        sc.labels.push(...poleLabels(P, p).filter((l) => l.st !== 'num')); // (a pole with a photo has no number beside it)
+        sc.labels.push({ id: `ph${p.k}`, st: 'photo', pri: 79, free: true, ax: p.x, ay: p.y, size: () => ({ w: W, h: L }),
+          spots: ring({ ax: p.x, ay: p.y, ar: 1.3, def: () => ({ cx: p.x + 9, cy: p.y - 13 - L / 2 }), pref: (ux, uy) => (uy > 0.2 ? 10 : 0) }), // (never toward the road)
+          draw(g, at, k, pal) {
+            if (at.d > 2) { const [qx, qy] = nearOnBox(bx(at.cx, at.cy, W, L), p.x, p.y), dx = qx - p.x, dy = qy - p.y, dd = Math.hypot(dx, dy) || 1; mk(g, 'line', { x1: p.x + dx / dd * 1.3, y1: p.y + dy / dd * 1.3, x2: qx, y2: qy, stroke: pal.grey, 'stroke-width': 0.16 }); }
+            photoSym(g, pal, at.cx - W / 2, at.cy - L / 2, W, L); } });
+      });
+      sc.labels.push(idL(P, 'nap', 'NAP-0001', 60, yc, 2.2));
+      if (P.cab.on) [[20, 60], [60, 100]].forEach(([a, b], i) => sc.labels.push(Txt({ id: `cab${i}`, st: 'cab', pri: 50, t: cabT('L12', 1), h: cabH(P), c: 1, shrink: true, spots: along({ a: [a, yc], b: [b, yc], side: 1, gap: 0.9 }) })));
+      [[20, 60], [60, 100]].forEach(([a, b], i) => sc.labels.push(Txt({ id: `len${i}`, st: 'span', pri: 60, t: '40m', h: P.span.h || 2, c: P.span.color || 7, shrink: true, spots: along({ a: [a, yc], b: [b, yc], side: -1, gap: 0.7 }) })));
+      sc.labels.push(Txt({ id: 'st', st: 'street', pri: 40, t: 'RIZAL STREET', h: 2.4, c: 2, shrink: true, free: true, spots: road({ horiz: true, lo: 1, hi: 131, c: 66.8, def: 30, offs: [0, 1.2, -0.6], fixed: C.streets === 'fixed' }) }));
+      return sc;
+    }
     function scCrowd(P, C) {
       const sc = { vb: [0, 0, 120, 86], bounds: { x0: 0.5, y0: 0.5, x1: 119.5, y1: 85.5 }, under: [], over: [], labels: [], obst: [] }, yc = 55.4, xc = 75.4;
       const poles = [[4, 14, 51.5, '4303201', 'CA 8-9'], [5, 36, 51.5, '4303202', 'CA 8-9'], [6, 56, 51.5, '4303203', 'CA 10-12'], [7, 67, 51.5, '4303204', '2A 10-12'], [8, 72, 34, '4303205', 'CA 8-9'], [9, 72, 14, '4303206', 'CA 8-9'], [10, 98, 51.5, '4303207', 'CA 8-9']]
@@ -2494,14 +2596,16 @@
     /* the tower site: its point at TS, the sheet's edge (R-12 / R-13) at y 104 */
     const TS = [50.6, 96], SHEETY = 104, TP = [{ k: 1, x: 30.2, y: 9.5, pre: 'CC', id: '4303122', cl: 'CA 8-9', ll: '7.10358° 125.61750°' }, { k: 2, x: 32.2, y: 50, id: 'GT-0207', cl: 'CA 8-9', ll: '7.10339° 125.61796°' }, { k: 3, x: 34.2, y: 88, pre: 'CC', id: '4303106', cl: 'CA 10-12', own: 'DLPC', ll: '7.10304° 125.61815°' }];
     const TPH = [[6, 20, 14, 17], [8, 56, 14, 17], [10, 82, 14, 17], [88, 74, 14, 17]], TCAB = [[0, 10.5], [30.2, 9.5], [32.2, 50], [34.2, 88], TS];
+    const tphOf = (P) => { const f = P.photo.size / 18; if (f === 1) return TPH; let y1 = -1e9; // (Photos: at the size set, each on its side of the cable, kept apart)
+      return TPH.map(([x, y, w, h], i) => { const W = w * f, H = h * f, left = x < 50, y0 = left && i ? Math.max(y + h / 2 - H / 2, y1 + 1.5) : y + h / 2 - H / 2; if (left) y1 = y0 + H; return [left ? x + w - W : x, y0, W, H]; }); };
     const roadL = (y) => 34 + 0.05 * y, roadR = (y) => 42 + 0.05 * y;
-    function placeTower(point) {
+    function placeTower(point, PH) {
       const [sx, sy] = TS; if (point) return { ax: sx, base: sy, k: 1, moved: false };
       const pts = [...TP.map((p) => [p.x, p.y]), [36.5, 89.5]];
       const cost = (ax, base, k) => { const x0 = ax - 12.4 * k - 0.6, x1 = ax + 12.4 * k + 0.6, y0 = base - 48 * k - 0.6, y1 = base + 0.6; if (y1 > SHEETY - 2 || y0 < 2 || x0 < 2 || x1 > 148) return null;
         let c = 0; pts.forEach(([x, y]) => { const d = Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(y0 - y, 0, y - y1)); if (d < 3) c += 100; else if (d < 8) c += 10; });
         polyBoxes(TCAB, 0.3).forEach((b) => { if (ovA(b, { x0, y0, x1, y1 }) > 0) c += 1.5; });
-        TPH.forEach(([x, y, w, h]) => { if (ovA({ x0: x, y0: y, x1: x + w, y1: y + h }, { x0, y0, x1, y1 }) > 0) c += 60; });
+        PH.forEach(([x, y, w, h]) => { if (ovA({ x0: x, y0: y, x1: x + w, y1: y + h }, { x0, y0, x1, y1 }) > 0) c += 60; });
         for (let y = y0; y <= y1; y += 2) c += Math.max(0, Math.min(x1, roadR(y)) - Math.max(x0, roadL(y))) * 0.02;
         return c; };
       let best = null;
@@ -2539,16 +2643,16 @@
       return { shaft: left.concat(right.reverse()), head: [[t.x, t.y], [b.x - b.uy * hw, b.y + b.ux * hw], [b.x + b.uy * hw, b.y - b.ux * hw]], mid: pts.filter((p, i) => i % 4 === 0), dir: [b.ux, b.uy] };
     }
     function scTower(P, C) {
-      const point = P.site.move === 'point', T = placeTower(point), [sx, sy] = TS, K = T.k, top = T.base - 48 * K, col = 5, nameMode = P.site.name;
+      const point = P.site.move === 'point', PH = tphOf(P), T = placeTower(point, PH), [sx, sy] = TS, K = T.k, top = T.base - 48 * K, col = 5, nameMode = P.site.name;
       const sc = { vb: [0, 30, 120, 82], bounds: { x0: 1, y0: 1, x1: 119, y1: SHEETY - 2 }, under: [], over: [], labels: [], obst: [] };
       sc.under.push((g, pal) => {
         line(g, [0, 160].map((y) => [roadL(y), y]), { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [0, 160].map((y) => [roadR(y), y]), { stroke: pal.road, 'stroke-width': 0.15 });
         line(g, TCAB, { stroke: pal[1], 'stroke-width': 0.55, 'stroke-dasharray': '3 1.5' });
-        TPH.forEach(([x, y, w, h]) => photoSym(g, pal, x, y, w, h));
+        PH.forEach(([x, y, w, h]) => photoSym(g, pal, x, y, w, h));
         cloSym(g, pal, 36.5, 89.8, 2.1); TP.forEach((p) => poleSym(g, pal, p.x, p.y));
         mk(g, 'line', { x1: 0, y1: SHEETY, x2: 150, y2: SHEETY, stroke: pal[6], 'stroke-width': 0.35, 'stroke-dasharray': '2.4 1.4' });
         mk(g, 'text', { x: 118, y: SHEETY - 1.2, 'font-size': 2.4, fill: pal[6], 'text-anchor': 'end', 'font-family': ARIAL }, 'R-12'); mk(g, 'text', { x: 118, y: SHEETY + 3.2, 'font-size': 2.4, fill: pal[6], 'text-anchor': 'end', 'font-family': ARIAL }, 'R-13'); });
-      sc.obst.push(...polyBoxes(TCAB, 0.3), ...TPH.map(([x, y, w, h]) => ({ x0: x, y0: y, x1: x + w, y1: y + h })), bx(36.5, 89.8, 4.4, 4.4), ...TP.map((p) => bx(p.x, p.y, 2.6, 2.6)), bx(sx, sy, 2.4, 2.4));
+      sc.obst.push(...polyBoxes(TCAB, 0.3), ...PH.map(([x, y, w, h]) => ({ x0: x, y0: y, x1: x + w, y1: y + h })), bx(36.5, 89.8, 4.4, 4.4), ...TP.map((p) => bx(p.x, p.y, 2.6, 2.6)), bx(sx, sy, 2.4, 2.4));
       if (!point) sc.obst.push({ x0: T.ax - 12.4 * K - 0.4, y0: top - 0.4, x1: T.ax + 12.4 * K + 0.4, y1: T.base + 0.4 });
       let AG = null;
       if (T.moved && P.site.arrow) { const f = 0.1, side = sx < T.ax ? -1 : 1, beside = Math.abs(sx - T.ax) > 12.4 * K;
@@ -2576,7 +2680,7 @@
     }
     /* state and layout */
     let scene = 'street', compact = false, big = false, wired = false, last = null, shrink = 220; // (shrink: how much shorter the preview gets; the settings stay put)
-    const NAMES = { street: 'Street', crowd: 'Crowded corner', tower: 'Tower site', vic: 'Vicinity map' };
+    const NAMES = { street: 'Street', photo: 'Photos', crowd: 'Crowded corner', tower: 'Tower site', vic: 'Vicinity map' };
     const body = () => $('drwStyle').querySelector('.dsbody'), col = () => $('dsPrevCol');
     function render(P) {
       wire(); P = P || plStyle(); const svg = $('stPrev'); if (!svg) return;
@@ -2585,13 +2689,13 @@
       $('drwStyle').querySelectorAll('.stgrp[data-scene]').forEach((g) => { g.hidden = !g.dataset.scene.split(' ').includes(scene); }); // beta 3.9: only the settings of the part picked (beta 4.3: a group can belong to several parts)
       let r = null;
       if (scene === 'vic') { while (svg.firstChild) svg.removeChild(svg.firstChild); drawVicPreview(P, svg); }
-      else r = paint(svg, scene === 'crowd' ? scCrowd(P, C) : scene === 'tower' ? scTower(P, C) : scStreet(P, C), C);
+      else r = paint(svg, scene === 'crowd' ? scCrowd(P, C) : scene === 'tower' ? scTower(P, C) : scene === 'photo' ? scPhoto(P, C) : scStreet(P, C), C);
       svg.setAttribute('preserveAspectRatio', compact ? 'xMidYMid slice' : 'xMidYMid meet');
       const cap = $('dsCap'); cap.textContent = '';
       const a = document.createElement('span'); a.textContent = `${NAMES[scene]} · `; const b = document.createElement('span');
       if (!r) b.textContent = 'the route and the project area';
       else { b.className = `ov ${r.clashes ? 'bad' : 'good'}`; b.textContent = r.clashes ? `${r.clashes} label${r.clashes > 1 ? 's' : ''} overlap` : 'nothing overlaps'; }
-      cap.append(a, b); if (r && r.skipped) cap.append(` · ${r.skipped} landmark name${r.skipped > 1 ? 's' : ''} left out (no room)`);
+      cap.append(a, b); if (scene === 'photo') cap.append(` · ${P.photo.size} m photos`); if (r && r.skipped) cap.append(` · ${r.skipped} landmark name${r.skipped > 1 ? 's' : ''} left out (no room)`);
       svg.setAttribute('aria-label', `Preview: ${NAMES[scene]}. ${b.textContent}.`);
       last = { scene, clashes: r ? r.clashes : 0, skipped: r ? r.skipped : 0, ids: r ? r.ids : [] };
       markPicked();
@@ -2599,8 +2703,8 @@
     /* beta 4.3 (MarkT): a label of the preview is tapped: the settings that are its own come into view and are marked, and the label is framed.
        ST: the label's kind -> the rows (or the whole group) of its settings. */
     const ST = { num: ['stNum'], pid: ['stPoleIdH', 'stPoleIdCol'], pown: ['stPoleOwnH', 'stPoleOwnCol'], pll: ['stPoleLlH', 'stPoleLlCol'], span: ['stSpanH', 'stSpanCol'], clamp: ['stClOn', 'stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'], id: ['stId'],
-      cab: ['stCabOn', 'stCabPer', 'stCabH', 'stCabW'], street: ['stCrowdStreets'], mark: ['stCrowdMarks'] };
-    const ST_NAME = { num: 'the numbers beside the points', pid: 'the pole ID', pown: 'the owner\u2019s name', pll: 'the lat/long', span: 'the span lengths', clamp: 'the clamp types', id: 'the IDs of NAPs, closures and boxes', cab: 'the cable labels', street: 'the street names', mark: 'the landmark names' };
+      cab: ['stCabOn', 'stCabPer', 'stCabH', 'stCabW'], street: ['stCrowdStreets'], mark: ['stCrowdMarks'], photo: ['stPh'] };
+    const ST_NAME = { num: 'the numbers beside the points', pid: 'the pole ID', pown: 'the owner\u2019s name', pll: 'the lat/long', span: 'the span lengths', clamp: 'the clamp types', id: 'the IDs of NAPs, closures and boxes', cab: 'the cable labels', street: 'the street names', mark: 'the landmark names', photo: 'the photos' };
     let picked = null, pickT = 0;
     const rowsOf = (key) => (ST[key] || []).map((id) => { const el = $(id); return el ? (el.classList.contains('stgrp') ? el : el.closest('.strow')) : null; }).filter(Boolean);
     function markPicked() {
@@ -4347,9 +4451,9 @@
     if (pts.length === 1) map.setView([pts[0].lat, pts[0].lon], 18);
     else if (pts.length) map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])).pad(0.15), { maxZoom: 19 });
   }
-  const baseName = (b) => (b === 'offline' ? `Offline map: ${(S.packs[activePackId()] || {}).name || 'pack'}` : b === 'satellite' ? 'Satellite imagery (online)' : 'Street map (online)');
+  const baseName = (b) => (b === 'offline' ? `Offline map: ${packNames(shownPacks()) || 'pack'}` : b === 'satellite' ? 'Satellite imagery (online)' : 'Street map (online)');
   function setBase(b, quiet) {
-    if (b === 'offline' && !activePackId()) b = 'street';
+    if (b === 'offline' && !shownPacks().length) b = 'street';
     S.base = b; persist();
     map.removeLayer(mainBase); mainBase = baseLayer(b).addTo(map); mainBase.bringToBack();
     if (pinMap) { pinMap.removeLayer(pinBase); pinBase = baseLayer(b).addTo(pinMap); pinBase.bringToBack(); }
@@ -4358,7 +4462,7 @@
     if (!quiet) toast(baseName(b), 1800);
   }
   function cycleBase() {
-    const bases = ['street', 'satellite'].concat(activePackId() ? ['offline'] : []);
+    const bases = ['street', 'satellite'].concat(shownPacks().length ? ['offline'] : []);
     autoOffline = false;
     setBase(bases[(bases.indexOf(S.base) + 1) % bases.length]);
   }
@@ -4367,9 +4471,9 @@
   // No signal: switch to the offline pack automatically (and back when the connection returns).
   let autoOffline = false;
   function goOfflineIfPossible() {
-    if (navigator.onLine || S.base === 'offline' || !activePackId()) return;
+    if (navigator.onLine || S.base === 'offline' || !shownPacks().length) return;
     S.baseBefore = S.base; autoOffline = true; setBase('offline', true);
-    toast(`No internet — showing the offline map (${(S.packs[activePackId()] || {}).name})`, 3500);
+    toast(`No internet — showing the offline map (${packNames(shownPacks())})`, 3500);
   }
   window.addEventListener('offline', goOfflineIfPossible);
   window.addEventListener('online', () => { if (autoOffline) { autoOffline = false; setBase(S.baseBefore || 'street', true); toast('Back online', 1500); } });
@@ -10076,16 +10180,16 @@
     try { const R = await roadsFromPack(bb, nb); if (R) return R; } catch (e) { LOG.warn('plan.roads.pack', errInfo(e)); }
     return { roads: [], pois: [], note: navigator.onLine === false ? 'no roads: offline, and no road pack or offline map pack covers the area' : 'no roads: OpenStreetMap did not answer and no road pack or offline map pack covers the area' };
   }
-  /** Roads and named places read from a downloaded map pack (Protomaps vector tiles, zoom 14) that covers the area. Each road is
-      cut exactly at its tile's edge, so the pieces of neighbouring tiles meet (the plan joins them again). */
+  /** Roads and named places read from the downloaded map packs (Protomaps vector tiles, zoom 14) that cover the area. Each road is
+      cut exactly at its tile's edge, so the pieces of neighbouring tiles meet (the plan joins them again). Every pack at once:
+      each tile comes from one pack (PackSet), so where two packs overlap no road is there twice. */
   async function roadsFromPack(bb, nb) {
     if (!window.protomapsL || !window.protomapsL.PmtilesSource) return null;
-    const maps = Object.values(S.packs || {}).filter((p) => p.done && !isRoadPack(p) && p.bbox);
-    const pk = maps.find((p) => p.bbox[0] <= bb[1] && p.bbox[2] >= bb[3] && p.bbox[1] <= bb[0] && p.bbox[3] >= bb[2])
-      || maps.find((p) => !(p.bbox[2] < bb[1] || p.bbox[0] > bb[3] || p.bbox[3] < bb[0] || p.bbox[1] > bb[2]));
-    if (!pk) return null;
+    const maps = installedPacks().filter((p) => p.bbox && bbHits(p.bbox, bb[0], bb[1], bb[2], bb[3]));
+    if (!maps.length) return null;
+    const zmin = Math.min(...maps.map((p) => p.maxzoom || 14)), pk = { name: packNames(maps), maxzoom: zmin };
     busy(`Reading the roads from the offline map ${pk.name}…`);
-    const src = new window.protomapsL.PmtilesSource(new window.protomapsL.PMTiles(new PackSource(pk.id)), false), z = Math.min(14, pk.maxzoom || 14), TS = 4096, n = 2 ** z;
+    const src = new window.protomapsL.PmtilesSource(new PackSet(maps), false), z = Math.min(14, pk.maxzoom || 14), TS = 4096, n = 2 ** z;
     const x0 = lon2tx(bb[1], z), x1 = lon2tx(bb[3], z), y0 = lat2ty(bb[2], z), y1 = lat2ty(bb[0], z), out = [], P = nb || bb;
     let pois = [];
     if ((x1 - x0 + 1) * (y1 - y0 + 1) > 64) return null;
@@ -10196,16 +10300,17 @@
   }
   /** v2.36: Esri's caption for its map pictures in a report for a client (doc.arcgis.com: terms of use for static maps). */
   const ESRI_CREDIT = () => `Map image is the intellectual property of Esri and is used herein under license. Copyright © ${new Date().getFullYear()} Esri and its licensors. All rights reserved.`;
-  /** v2.36: the vicinity map from the offline map pack on this phone (no internet): the pack drawn by protomaps for the area's
-      square, turned and fitted to UTM like the map tiles. null when no pack covers the area. */
+  /** v2.36: the vicinity map from the offline map packs on this phone (no internet): the packs drawn by protomaps for the area's
+      square, turned and fitted to UTM like the map tiles. null when no pack covers the area. Every pack at once: each pack over
+      its own area (a project on the border of two packs gets both). */
   async function vicinityFromPack(cE, cN, size, zone, south) {
-    const id = activePackId(); if (!id || !window.protomapsL || !window.protomapsL.Static) return null;
-    const pk = S.packs[id], PX = 1800, h = size / 2;
+    const all = installedPacks(); if (!all.length || !window.protomapsL || !window.protomapsL.Static) return null;
+    const PX = 1800, h = size / 2;
     const ll = [[cE - h, cN + h], [cE + h, cN + h], [cE - h, cN - h]].map(([E, N]) => C.utmInverse(E, N, zone, south));
-    const ctr = C.utmInverse(cE, cN, zone, south), b = pk.bbox;
-    if (b && !(ctr[1] >= b[0] && ctr[1] <= b[2] && ctr[0] >= b[1] && ctr[0] <= b[3])) return null; // the pack does not cover it
+    const ctr = C.utmInverse(cE, cN, zone, south);
+    if (!all.some((p) => !p.bbox || bbHits(p.bbox, ctr[0], ctr[1], ctr[0], ctr[1]))) return null; // no pack covers it
     const merc = (la, lo, z) => { const n = 256 * 2 ** z, s = Math.sin(la * Math.PI / 180); return [(lo + 180) / 360 * n, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n]; };
-    const img = await packPicture(id, ll, 2400); if (!img) return null;
+    const img = await packPicture(ll, 2400, all); if (!img) return null;
     const m = ll.map(([la, lo]) => merc(la, lo, img.z));
     const cv = document.createElement('canvas'); cv.width = cv.height = PX; const g = cv.getContext('2d');
     g.fillStyle = '#fff'; g.fillRect(0, 0, PX, PX); g.imageSmoothingQuality = 'high';
@@ -10215,12 +10320,13 @@
     g.drawImage(img.canvas, 0, 0); g.setTransform(1, 0, 0, 1, 0, 0);
     const jpg = new Uint8Array(await (await toBlob(cv, 0.85)).arrayBuffer());
     LOG.info('plan.vicinity', { src: 'pack', z: img.z, kb: Math.round(jpg.length / 1024) });
-    return { jpg, px: PX, py: PX, z: img.z, credit: `Offline map ${pk.name}: © OpenStreetMap contributors · Protomaps` };
+    return { jpg, px: PX, py: PX, z: img.z, credit: `Offline map ${packNames(img.packs)}: © OpenStreetMap contributors · Protomaps` };
   }
-  /** v2.36: an offline map pack drawn (protomaps) over the Web Mercator box round the corners ll [[lat, lon], …], at the most
-      detailed zoom whose picture stays within maxPx: { canvas, z, x0, y0 } (x0, y0: the picture's top left in world pixels). */
-  async function packPicture(id, ll, maxPx) {
-    const pk = S.packs[id]; if (!pk) return null;
+  /** v2.36: the offline map packs of list (every pack at once) drawn (protomaps) over the Web Mercator box round the corners
+      ll [[lat, lon], …], at the most detailed zoom whose picture stays within maxPx: { canvas, z, x0, y0, packs } (x0, y0: the
+      picture's top left in world pixels; packs: those whose area it touches). null when none of them touches it. */
+  async function packPicture(ll, maxPx, list) {
+    if (!window.protomapsL || !window.protomapsL.Static) return null;
     const merc = (la, lo, z) => { const n = 256 * 2 ** z, s = Math.sin(la * Math.PI / 180); return [(lo + 180) / 360 * n, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n]; };
     let z = 19, box = null;
     for (; z >= 8; z--) {
@@ -10230,10 +10336,13 @@
     }
     const W = Math.ceil(box[2] - box[0]), H = Math.ceil(box[3] - box[1]), n = 256 * 2 ** z, cx = (box[0] + box[2]) / 2, cy = (box[1] + box[3]) / 2;
     const lng = cx / n * 360 - 180, lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * cy / n))) * 180 / Math.PI;
+    const latOf = (y) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI;
+    const packs = (list || []).filter((p) => p && p.done && !isRoadPack(p) && bbHits(p.bbox, latOf(box[3]), box[0] / n * 360 - 180, latOf(box[1]), box[2] / n * 360 - 180));
+    if (!packs.length) return null;
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d'); if (!g) return null;
-    const st = new window.protomapsL.Static({ url: new window.protomapsL.PMTiles(new PackSource(id)), flavor: 'light', lang: 'en', maxDataZoom: pk.maxzoom || 15 });
+    const set = new PackSet(packs), st = new window.protomapsL.Static({ url: set, flavor: 'light', lang: 'en', maxDataZoom: set.maxzoom }); packSetViews(st, set);
     await withTimeout(st.drawContext(g, W, H, { x: lng, y: lat }, z), 60000, 'the offline map took too long to draw');
-    return { canvas: cv, z, x0: cx - W / 2, y0: cy - H / 2 };
+    return { canvas: cv, z, x0: cx - W / 2, y0: cy - H / 2, packs };
   }
   /** v2.34: the vicinity map drawn as a street map from the OpenStreetMap roads the export already has (online or from an offline
       map pack), when the map tiles do not come: land, roads with their casing by class, footpaths, street names. Same square and
@@ -10465,7 +10574,7 @@
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
       const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? PLS.clamp : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks,
         towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: PLS.site.acol, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
-        numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, poleStyle: PS.pole, spanStyle: PS.span, /* beta 4.3 */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
+        numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, poleStyle: PS.pole, spanStyle: PS.span, /* beta 4.3 */ photoStyle: PS.photo, /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
     }
@@ -10496,7 +10605,7 @@
     const rp = outs[0].out.report;
     // v2.40: the numbers on the plan, for the README (and an RTA application): number, ID, pole type, position
     const markLinesOf = (MK) => MK.map(([n, id]) => { const p = byPt.get(id) || {}; return `  ${n}  ${p.poleId || '(no ID)'}  ${elemOf(p) === 'Pole' ? p.poleType || 'pole' : elemOf(p)}  ${(+p.lat).toFixed(6)}, ${(+p.lon).toFixed(6)}`; });
-    const besideOf = (o) => { const MK = o.out.report.marks || [], n = MK.length; return `${o.st.mode === 'num' ? 'their number only (no photos)' : o.st.mode === 'both' ? `their number beside the point and their photo near it (${o.out.report.marks.filter((x) => x[2] === 'photo+number').length} of ${n} with a photo; a photo with no free place on the plan is left out)` : `their photo (${o.nPh} of ${n}; a point without a photo shows its number)`}, for ${o.st.what}: ${n} numbered 1 to ${n} along the route`; };
+    const besideOf = (o) => { const MK = o.out.report.marks || [], n = MK.length; return `${o.st.mode === 'num' ? 'their number only (no photos)' : o.st.mode === 'both' ? `their number beside the point and their photo near it (${o.out.report.marks.filter((x) => x[2] === 'photo+number').length} of ${n} with a photo; a photo with no free place on the plan is left out)` : `their photo (${o.nPh} of ${n}; a point without a photo shows its number)`}${o.st.mode !== 'num' && o.nPh && o.out.report.photoSize ? `; the photos ${o.out.report.photoSize} m on their long side on this plan (${mmOf(o.out.report.photoSize)} mm)` : ''}, for ${o.st.what}: ${n} numbered 1 to ${n} along the route`; };
     const setFirst = files.length ? 'UNZIP EVERYTHING INTO ONE FOLDER, then open the plan by double-clicking the DXF in that folder: the pictures (pole photos, vicinity map) are linked by file name and must stay next to the DXF. Do not drag the DXF into an open drawing (it becomes a block there and its pictures are looked for next to that other drawing).'
         + ' If the photos still show as empty frames (AutoCAD 2021 or 2022): type -IMAGE, press Enter, type R, press Enter, then press Enter again; every picture is loaded from the DXF\'s folder. Save the plan as a DWG (File > Save As) to keep them.'
       : 'Open the DXF in AutoCAD with File > Open (do not drag it into an open drawing).'; // v2.42.8 (beta 4.7: the pictures in older AutoCAD)
@@ -14441,11 +14550,11 @@
     for (let z = 13; z <= zmax; z++) { const n = 2 ** z; for (let x = lon2x(b[1], n); x <= lon2x(b[3], n); x++) for (let y = lat2y(b[2], n); y <= lat2y(b[0], n); y++) out.push([z, x, y]); }
     return out;
   }
-  /** Shows where the offline pack ends while it is the map in use. */
+  /** Shows where each offline pack ends while the offline map is shown (every pack at once). */
   function drawAreas() {
     areaLayer.clearLayers();
-    const p = S.base === 'offline' && S.packs[activePackId()];
-    if (p && p.bbox) L.rectangle([[p.bbox[1], p.bbox[0]], [p.bbox[3], p.bbox[2]]], { color: '#1c7ed6', weight: 1.5, dashArray: '6 6', fill: false, interactive: false }).addTo(areaLayer);
+    if (S.base !== 'offline') return;
+    for (const p of shownPacks()) if (p.bbox) L.rectangle([[p.bbox[1], p.bbox[0]], [p.bbox[3], p.bbox[2]]], { color: '#1c7ed6', weight: 1.5, dashArray: '6 6', fill: false, interactive: false }).addTo(areaLayer);
   }
   async function deleteArea(id) { S.areas = (S.areas || []).filter((x) => x.id !== id); persist(); } // older versions only
   const fmtMB = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(2)} GB` : `${Math.max(0.1, b / 1048576).toFixed(b < 10485760 ? 1 : 0)} MB`);
@@ -14471,10 +14580,11 @@
     document.body.appendChild(a); a.click(); a.remove();
   }
   /* beta 3.7: the icons of the map packs' buttons (the name shows on a long-press) */
-  const PK_KIND = { Download: 'dl', Resume: 'dl', 'Download again': 'again', Repair: 'fix', Use: 'use', Show: 'show', Delete: 'del', Remove: 'del', Confirm: 'del', 'Open in Drive': 'drive', 'How to fix': 'help' };
+  const PK_KIND = { Download: 'dl', Resume: 'dl', 'Download again': 'again', Repair: 'fix', Use: 'use', Show: 'show', 'Hide on the map': 'show', 'Show on the map': 'hide', Delete: 'del', Remove: 'del', Confirm: 'del', 'Open in Drive': 'drive', 'How to fix': 'help' };
   const PK_ICON = { dl: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3', again: 'M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15',
     fix: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z', use: 'M12 2 2 7l10 5 10-5-10-5ZM2 17l10 5 10-5M2 12l10 5 10-5',
-    show: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8ZM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z', del: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
+    show: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8ZM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
+    hide: 'M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24M1 1l22 22', del: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
     drive: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3', help: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01' };
   let packIndex = null, packIndexErr = '';
   async function loadPackIndex() { // packs published with the website (older setup); quietly absent otherwise
@@ -14518,7 +14628,7 @@
   async function renderOffline() {
     renderStreetInfo();
     const list = $('packList'); list.innerHTML = '';
-    const items = packCatalog(), act = activePackId();
+    const items = packCatalog();
     const listPacks = (pol().packs || []).length, sheetPacks = (S.cloud && S.cloud.packs && S.cloud.packs.length) || 0, own = !S.team || isAdmin();
     $('packSource').textContent = packIndexErr || (listPacks || sheetPacks ? `Map packs from the admin${S.team ? ` (list “${S.team.name}” v${S.team.rev}${sheetPacks ? ` · online sheet read ${fmtTime(S.cloud.at)}` : ''})` : ''}. Tap Refresh list for new ones.`
       : S.team ? 'No map packs from the admin yet. Tap Refresh list later, or ask your admin.' : 'Map packs: import a file from this phone, or add a Google Drive link.');
@@ -14529,7 +14639,7 @@
     //           this phone first
     const isRoadItem = (p) => isRoadPack(p.installed) || (!p.installed && /^roads\b/i.test(p.name || ''));
     const onPhone = (p) => (p.installed && p.installed.done ? 0 : p.installed ? 1 : 2);
-    const groups = [['map', 'Map packs', 'The map you see with no signal'], ['road', 'Road packs', 'Roads, street names and towns for the plan drawings']]
+    const groups = [['map', 'Map packs', 'The map you see with no signal: every pack on this phone, together'], ['road', 'Road packs', 'Roads, street names and towns for the plan drawings: every pack that covers the project']]
       .map(([k, t, sub]) => ({ k, t, sub, items: items.map((p, i) => [p, i]).filter(([p]) => (k === 'road') === isRoadItem(p)).sort((a, b) => onPhone(a[0]) - onPhone(b[0]) || a[1] - b[1]).map(([p]) => p) }))
       .filter((g) => g.items.length);
     for (const g of groups) {
@@ -14548,7 +14658,7 @@
         done && inst.short ? `INCOMPLETE: ${fmtMB(inst.have || 0)} of ${fmtMB(inst.need || 0)} on this phone, close up parts are missing · download it again` :
         done && inst.damaged === 'parts' ? `DAMAGED: saved wrongly by this phone's browser (an iPhone bug), close up the ${road ? 'roads could not be read' : 'map was blank'} · tap Repair (on the phone, no download)` : // v2.35.7
         done && inst.damaged ? 'DAMAGED: parts of it cannot be read · download it again' :
-        done ? (road ? 'on this phone' : p.id === act ? 'on this phone · in use' : 'on this phone') : partial ? `${size ? Math.round((inst.bytes / size) * 100) + '% ' : fmtMB(inst.bytes) + ' '}downloaded` : 'not on this phone',
+        done ? (road ? 'on this phone' : packHidden(inst) ? 'on this phone · hidden on the map' : 'on this phone · used') : partial ? `${size ? Math.round((inst.bytes / size) * 100) + '% ' : fmtMB(inst.bytes) + ' '}downloaded` : 'not on this phone',
         p.drive && !done ? 'Google Drive' : '', p.notes || ''].filter(Boolean).join(' · ');
       d.append(t, s2);
       const mk = (label, cls, fn) => { // beta 3.7: an icon; its name on a long-press (and for screen readers)
@@ -14577,8 +14687,14 @@
         await deletePack(p.id); renderOffline(); await downloadPack(p);
       }, 'Not downloaded')));
       else if (redo) btns.push(mk(p.drive ? 'Open in Drive' : 'How to fix', '', () => { if (p.drive) openExternal(driveViewUrl(p.drive)); toast('Download the complete file again on Wi-Fi, then Delete this pack and tap Import a pack file.', 8000); }));
-      if (done && !road && p.id !== act) btns.push(mk('Use', '', () => { S.activePack = p.id; persist(); if (S.base === 'offline') setBase('offline', true); renderOffline(); }));
-      if (done && !road) btns.push(mk('Show', '', async () => { S.activePack = p.id; persist(); await closeSheet(); setBase('offline'); const b = inst.bbox; if (b) map.fitBounds([[b[1], b[0]], [b[3], b[2]]]); }));
+      if (done && !road) { // every pack at once: the eye hides a pack on the map, or shows it again (no Use: every pack is used)
+        const off = packHidden(inst), eye = mk(off ? 'Show on the map' : 'Hide on the map', '', () => {
+          const o = S.packOff = { ...(S.packOff || {}) }; if (off) delete o[p.id]; else o[p.id] = 1; persist();
+          if (S.base === 'offline') setBase(shownPacks().length ? 'offline' : 'street', true); else drawAreas();
+          renderOffline(); toast(off ? `${p.name || 'The pack'} is shown on the map again` : `${p.name || 'The pack'} is hidden on the map. The plan drawings still use it.`, 3000);
+        });
+        eye.setAttribute('aria-pressed', String(!off)); btns.push(eye);
+      }
       if (inst || p.from === 'link') btns.push(mk(inst ? 'Delete' : 'Remove', 'del', function () {
         const say = (t) => { this.querySelector('.sr').textContent = t; this.dataset.tip = t; this.title = t; };
         if (!this.dataset.armed) { this.dataset.armed = '1'; say('Confirm'); toast(`Tap the bin again to ${inst ? 'delete' : 'remove'} ${p.name || 'this pack'}`, 3500); setTimeout(() => { delete this.dataset.armed; say(inst ? 'Delete' : 'Remove'); }, 4000); return; }
@@ -14608,8 +14724,8 @@
       if (!st.short && (w.over || st.fix)) why = 'parts';
       else if (!st.short) { const v = await packVerify(st).catch(() => null); if (v && v.bad.length) { why = 'data'; LOG.warn('pack.unreadable', { id: st.id, checked: v.checked, bad: v.bad.slice(0, 3) }); } }
       if (why) { st.damaged = why; LOG.warn('pack.damaged', { id: st.id, why, parts: w.parts, size: st.size }); } else delete st.damaged;
-      if (st.short && (st.id === activePackId() || isRoadPack(st))) warn = warn || st;
-      if (st.damaged && (st.id === activePackId() || isRoadPack(st))) dmg = dmg || st;
+      if (st.short && !packHidden(st)) warn = warn || st; // (every pack at once: each pack on the map is used)
+      if (st.damaged && !packHidden(st)) dmg = dmg || st;
     }
     persist();
     if (dmg) toast(dmg.damaged === 'parts' ? `${dmg.name} was saved wrongly by this phone's browser (an iPhone bug), so close up the ${isRoadPack(dmg) ? 'roads could not be read' : 'map was blank'}. Maps → Repair: it is fixed on the phone, no download.`
@@ -14622,9 +14738,9 @@
     const p = S.packs[id];
     if (p) await removePackData(p);
     delete S.packs[id];
-    if (S.activePack === id) S.activePack = null;
+    if (S.packOff && S.packOff[id]) { S.packOff = { ...S.packOff }; delete S.packOff[id]; }
     persist();
-    if (S.base === 'offline') setBase(activePackId() ? 'offline' : 'street', true);
+    if (S.base === 'offline') setBase(shownPacks().length ? 'offline' : 'street', true);
   }
 
   /* ---- downloading / importing a pack ---- */
@@ -14686,9 +14802,9 @@
         throw new Error(hdr ? 'This map file has picture tiles; G-eSAA needs a vector map pack (.pmtiles from Protomaps)' : 'This file is not a map pack (.pmtiles, PMTiles version 3)');
       }
       Object.assign(st, { bbox: st.bbox || hdr.bbox, maxzoom: hdr.maxzoom, done: true });
-      S.activePack = st.id; // v2.35: the pack just downloaded is the offline map in use (Use switches back)
+      if (S.packOff && S.packOff[st.id]) { S.packOff = { ...S.packOff }; delete S.packOff[st.id]; } // (a new copy is shown)
       persist(); say(false);
-      toast(`${st.name} is ready: the offline map now uses it`, 3500);
+      toast(`${st.name} is ready: the offline map now uses it${installedPacks().length > 1 ? ', with the other map packs on this phone' : ''}`, 3500);
       if (S.base === 'offline') setBase('offline', true);
     } catch (e) {
       if (wr) await wr.stop().catch(() => {});
@@ -17412,7 +17528,7 @@
     persist();
     renderPoles(); drawAreas();
     if (!S.view) fitProject();
-    if (S.base === 'offline' && !activePackId()) setBase('street', true);
+    if (S.base === 'offline' && !shownPacks().length) setBase('street', true);
     goOfflineIfPossible();
     startGps();
     if (S.dropSatTiles) { // v1.7: satellite imagery kept by older versions is removed (Esri allows offline imagery only in ArcGIS apps)
@@ -18612,7 +18728,7 @@
   window.__polecam = { photosPane: { open: () => ppxOpen(), close: () => ppxClose(), list: () => ppxList().map((x) => ({ id: String(x.p.id), pid: String(x.pid), label: x.label })) }, autoLoops: () => [...autoLoops(projPoints(), routeModel())], openEditorFor,
     /* v2.42.17 */ edTab: (k, f) => goEdTab(k, f), edTabs: () => edTabList(), edCur: () => (edTabsOn() ? edTab : ''), edMissing: () => edMissing().map((x) => `${x.req ? '!' : ''}${x.tab}:${x.k}`), edShow: (sel) => { const el = document.querySelector(sel), g = el && el.closest('#editor .edbody>[data-pane]'); if (g && edTabsOn()) goEdTab(g.dataset.pane); return !!g; }, /* v2.42.16 */ boqTable: () => boqTable(projPoints(), null), routeStats: () => { const R = routeModel(); updateRouteBar(R); return $('rbStats').textContent; }, get points() { return points; }, get S() { return S; }, drwSeq: () => (drw ? { n: drw.seq.size, max: Math.max(0, ...drw.seq.values()) } : null), get map() { return map; }, get pinMap() { return pinMap; }, get drw() { return drw; }, planRoads, get lastQr() { return lastQrText; }, get lastQrLink() { return qrLink; }, get lastQrFull() { return qrAlt ? qrAlt.full : qrLink; }, shortJoin, linkFromNative, openEditor, addEdPhoto, exportPhoto, showExport: (sel) => showExport(String(sel).replace(/^#/, '')), tilesFor, vicinityJpeg, vicinityFromRoads, closeDb: async () => (await idb()).close(), nativeWrite, grabGuideCrop, prepForOcr, ocrRun,
     packShare, unpackShare, importTeamText, readIdFrom, stackToLine, readStrip, checkQuality, makeStoredImages, poleTypes, LOG, selfTest, logReport,
-    surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, routeAdvice: () => routeAdvice(routeModel()), /* 2.44.7 */ risers: () => { routeModel(); return [...(riserAutoIds || [])]; }, renderPoles, persist, cloudSync: (f) => cloudSync(f), renderSig, // v2.42.12
+    surveyQty, buildPmtiles, pmTileId, areaTiles, regionAt, regionSuggest, pmBuildUrls, PackSource, /* every pack at once */ packPicture, vicinityFromPack, roadsFromRoadPacks, adminFromRoadPacks, shownPacks, routeAdvice: () => routeAdvice(routeModel()), /* 2.44.7 */ risers: () => { routeModel(); return [...(riserAutoIds || [])]; }, renderPoles, persist, cloudSync: (f) => cloudSync(f), renderSig, // v2.42.12
     setDxfRows: (R, sel) => { setRows(R); if (sel != null) { S.exp.dxfRowSel = sel; persist(); } renderDxfMarks(); }, dxfRows: () => dxfRows(), // v2.42.14
     clamps: () => { const R = routeModel(), all = projPoints(); return Object.fromEntries(all.filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, clampOf(p, R, all).join('+')])); }, // for testing (v2.39: the poles' clamps)
     /* v2.42.18 */ hw: () => { const R = routeModel(); return Object.fromEntries(projPoints().filter((p) => elemOf(p) === 'Pole').map((p) => [p.id, hwOf(p, R)])); }, filled: () => { const all = projPoints(), f = boqFilled(all); return Object.fromEntries(all.map((p) => [p.id, f(p) || {}])); },

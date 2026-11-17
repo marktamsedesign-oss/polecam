@@ -286,6 +286,7 @@ body.deskpane #projPane,body.deskpane #topbar{transition:opacity .2s}body.deskpa
 .stgrp{border-top:1px solid var(--line);margin-top:14px;padding-top:6px}.stgrp h3{margin:6px 0 8px;font-size:calc(14px * var(--fs))}
 .strow{display:flex;flex-direction:column;gap:6px;margin:10px 0}.strow .lbl{display:flex;justify-content:space-between;gap:8px;font-size:calc(12.5px * var(--fs));font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}.strow output{text-transform:none;letter-spacing:0;color:var(--ink);font-weight:600}
 .strow input[type=range]{width:100%}.seg{display:flex;gap:6px;flex-wrap:wrap}
+.stphseg .chip{min-height:44px;min-width:44px;padding:0 14px}#stPhL{max-width:160px} /* Drawing style › Photos: 44 px to tap */
 .sws{display:flex;gap:8px;flex-wrap:wrap}.sws .sw2{width:34px;height:34px;border-radius:50%;border:2px solid var(--line);background:var(--c);padding:0;position:relative}.sws .sw2[aria-checked=true]{outline:3px solid var(--accent);outline-offset:2px}
 .sws .sw2.txt{width:auto;border-radius:999px;padding:0 10px;background:var(--chip);color:var(--ink);font-size:calc(12px * var(--fs));font-weight:600}
 .findlist{display:flex;flex-direction:column;gap:6px;margin:10px 0}.findlist button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:9px 12px;color:var(--ink);font:inherit}
@@ -1623,12 +1624,18 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   </header>
   <div class="body dsbody"><div class="dsgrid">
    <div class="dsprevcol" id="dsPrevCol">
-    <div class="dsscenes" role="group" aria-label="What the preview shows"><button type="button" class="chip small" data-scene="street">Street</button><button type="button" class="chip small" data-scene="crowd">Crowded corner</button><button type="button" class="chip small" data-scene="tower">Tower site</button><button type="button" class="chip small" data-scene="vic">Vicinity map</button></div>
+    <div class="dsscenes" role="group" aria-label="What the preview shows"><button type="button" class="chip small" data-scene="street">Street</button><button type="button" class="chip small" data-scene="photo">Photos</button><button type="button" class="chip small" data-scene="crowd">Crowded corner</button><button type="button" class="chip small" data-scene="tower">Tower site</button><button type="button" class="chip small" data-scene="vic">Vicinity map</button></div>
     <div class="stprev"><svg id="stPrev" viewBox="0 0 120 70" role="img" aria-label="Preview of the plan drawing"></svg></div>
     <div class="dscap"><span id="dsCap"></span><span class="dscapr"><label><input type="checkbox" id="dsMark" checked> Mark overlaps</label><button type="button" class="dsbig" id="dsBig" hidden>Bigger</button></span></div>
    </div>
    <div class="dsctl">
-    <p class="hint" style="margin-top:0">Your style for the plan DXF (on this phone). Pick a part above the preview to see its settings: the street (numbers, pole details, span lengths, IDs, clamp types, cable labels), a crowded corner, the tower site or the vicinity map. Or tap a label on the preview: its settings come into view, marked. The preview changes as you set it, drawn at 1:1100 like the GEO sheets.</p>
+    <p class="hint" style="margin-top:0">Your style for the plan DXF (on this phone). Pick a part above the preview to see its settings: the street (numbers, pole details, span lengths, IDs, clamp types, cable labels), the photos (their size), a crowded corner, the tower site or the vicinity map. Or tap a label on the preview: its settings come into view, marked. The preview changes as you set it, drawn at 1:1100 like the GEO sheets.</p>
+    <div class="stgrp" id="stPh" data-scene="photo">
+      <h3>Photos on the plan</h3>
+      <div class="strow"><span class="lbl">Photo size <output id="stPhO"></output></span><div class="seg stphseg" id="stPhSize" role="radiogroup" aria-label="Photo size"><button type="button" class="chip" data-v="12">Small</button><button type="button" class="chip" data-v="18">Normal</button><button type="button" class="chip" data-v="24">Large</button><button type="button" class="chip" data-v="30">Extra large</button></div></div>
+      <div class="strow"><label class="lbl" for="stPhL">Your own size: long side in metres <output>6 to 40 m</output></label><input type="number" id="stPhL" min="6" max="40" step="1" inputmode="decimal" enterkeyhint="done"></div>
+      <p class="hint" id="stPhHint" style="margin:0"></p>
+    </div>
     <div class="stgrp" id="stCrowd" data-scene="crowd">
       <h3>Crowded places</h3>
       <div class="strow"><span class="lbl">Labels in crowded places</span><div class="seg" id="stCrowdAuto" role="radiogroup" aria-label="Labels in crowded places"><button type="button" class="chip small" data-v="1">Auto: move and fit</button><button type="button" class="chip small" data-v="0">Off (as before)</button></div></div>
@@ -1718,7 +1725,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div class="body">
     <p class="hint" style="margin:0">For every drawing of the plan export. Kept on this phone; the pole numbers are kept in the project.</p>
     <div class="psrows">
-      <button class="psrow" id="psStyle" type="button"><span class="t"><b>Drawing style</b><small>Cable labels, the numbers' colour and size, IDs, tower site, vicinity map</small></span><span class="chev" aria-hidden="true">›</span></button>
+      <button class="psrow" id="psStyle" type="button"><span class="t"><b>Drawing style</b><small>Cable labels, the numbers' colour and size, IDs, photo size, tower site, vicinity map</small></span><span class="chev" aria-hidden="true">›</span></button>
       <label class="psrow" for="psCA"><span class="t"><b>Clamp types on the plan</b><small id="psCASum"></small></span><span class="swi"><input type="checkbox" id="psCA"><i aria-hidden="true"></i></span></label>
       <details class="psrow" id="psNum"><summary><span class="t"><b>Pole numbers</b><small id="psNumSum"></small></span></summary>
         <div class="psbody" id="numBox">
@@ -2449,7 +2456,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     </div>
     <div class="group">
       <h3>Offline map packs</h3>
-      <p class="hint">A map pack is a street map of a whole area kept on this phone: roads, buildings, rivers and place names, sharp at every zoom. Get it once on Wi-Fi. When there is no signal the app switches to it by itself; the layers button also switches to it. A <b>road pack</b> (Roads · region) is not a map to look at: the plan drawing (Export → AutoCAD · DXF) takes its roads, landmarks, cities / municipalities and barangays from it, with no internet.</p>
+      <p class="hint">A map pack is a street map of a whole area kept on this phone: roads, buildings, rivers and place names, sharp at every zoom. Get it once on Wi-Fi. <b>Every map pack on this phone is used, all together</b>: each covers its own area, so the map goes from one area to the next as you move, with no switching. When there is no signal the app shows them by itself; the layers button (Offline map) also does. The eye hides a pack on the map (the plan drawings still use it). A <b>road pack</b> (Roads · region) is not a map to look at: the plan drawing (Export → AutoCAD · DXF) takes its roads, landmarks, cities / municipalities and barangays from every road pack on this phone that covers the project (a project on the border of two regions gets both), with no internet.</p>
       <p class="hint" id="packSource">–</p>
       <div id="packList" style="display:flex;flex-direction:column;gap:8px"></div>
       <button class="btn primary" id="areaDl" type="button">⬇ Download an area for offline use</button>

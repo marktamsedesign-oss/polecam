@@ -2954,6 +2954,9 @@
     const numD = (p) => Math.max(NS.d, String(p.seq).length * NS.h * CHW + NS.h * 0.6); // the number's circle (wider for a long number)
     const numF = (p) => (TIDY ? Math.min(TS.l1 / NS.h / kAt(p.dp[0], p.dp[1]), (p.el === 'Pole' ? streetW(p.dp) : Math.min(streetW(p.dp), 0.85 * wMed)) / numD(p) || 1) : 1); // (beta 4.8: as a pole's number in its label, at most as wide as the street) // (and on a finer grid, as much smaller) // beta 4.8: Tidy: the circle at most as wide as the street, its number as much smaller
     const RING = []; for (let a = 0; a < 360; a += 30) RING.push([Math.cos(a * Math.PI / 180), Math.sin(a * Math.PI / 180)]); RING.push([0, 0]);
+    // Drawing style › Photos (job.photoStyle.size): the long side of every photo in metres where the poles stand 25 m apart or more
+    // (none set: 18 m, as before); where they stand closer, smaller as before (to two thirds), and smaller again where too many find no room
+    const PHK = +(job.photoStyle || {}).size > 0 ? Math.min(40, Math.max(6, +job.photoStyle.size)) / 18 : 1;
     const MARK_USUAL = 3.5; // v2.41.1: how far (in cost) from its usual place a photo or number may go in the first round
     const MARK_PHI = 70, NUM_PHI = 80; // v2.41.1: a pole's photo 70° round from straight out toward the homing (beside its label), a number 80° (its leader line under the label)
     let nNoRoom = 0; // v2.42.26: photos with no room anywhere, shown as their number
@@ -3096,7 +3099,7 @@
       }
       return { out, miss, mark, drop, left };
     };
-    let Lp = TIDY && wMed ? Math.min(Math.max(12, 18 * kG), TS.ph) : Math.max(12, 18 * kG), photoPl = placePhotos(Lp); // (beta 4.8: Tidy: about 1.4 times the street's width)
+    let Lp = TIDY && wMed ? Math.min(Math.max(12, 18 * kG) * PHK, TS.ph) : Math.max(12, 18 * kG) * PHK, photoPl = placePhotos(Lp); // (beta 4.8: Tidy: about 1.4 times the street's width, at most; 2.44.10: Drawing style's photo size)
     for (let tries = 0; tries < 2 && photoPl.miss + (photoPl.drop || 0) > Math.max(1, markOrder.length / 4); tries++) { spots.truncate(photoPl.mark); Lp *= 0.8; photoPl = placePhotos(Lp); }
     const nCol = NS.color || null, bCol = NS.bcolor || NS.color || null, nLay = lay('p-pole');
     // v2.42.13: a number in a light colour (yellow, the default; green or cyan) over a dark shadow, its circle and leader line too: on
