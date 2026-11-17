@@ -3130,7 +3130,7 @@
       const q0 = inl.has(p) ? inl.get(p).at : [p.E, p.N], ext = inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : 3, hL = TIDY ? TS.sm / kAt(q0[0], q0[1]) : +(job.poleStyle || {}).llH > 0 ? +job.poleStyle.llH : 1.2, w = 10 * hL * CHW, h = 2 * 1.67 * hL; // (beta 4.3: the lat/long height of the drawing style)
       // v2.41: where every place is taken, over a road edge line or the cable rather than over an ID, a number or a photo
       const kq = TIDY ? kAt(q0[0], q0[1]) : 1, cs = []; for (const r of [ext + 1.5 / kq, ext + 5 / kq, ext + 9 / kq, ext + 13 / kq, ext + 18 / kq]) for (const a of [-45, 45, -135, 135, -90, 90, 0, 180]) { /* (beta 4.8: on a detail sheet, as much nearer) */ const u = rotv([1, 0], a), c = add2(q0, u, r + w / 2 * Math.abs(u[0]) + h / 2 * Math.abs(u[1])); cs.push({ q: [c[0] - w / 2, c[1] + h / 2], boxes: [Spots.box(c[0], c[1], w * 1.1, h, 0)] }); }
-      const csIn = TIDY ? cs.filter((x) => inCellBox(x.boxes[0], q0[0], q0[1])) : cs, c = pickW(spots, csIn.length ? csIn : cs, LL_W); spots.add(c.boxes); // (beta 4.8: Tidy: wholly on its detail sheet where it can be)
+      const csIn = TIDY ? [...cs.filter((x) => inCellBox(x.boxes[0], q0[0], q0[1])), ...cs.filter((x) => !inCellBox(x.boxes[0], q0[0], q0[1]))] : cs, c = pickW(spots, csIn, LL_W); spots.add(c.boxes); // (beta 4.8: Tidy: a free place wholly on its sheet first)
       o.mtext(lay('LATLONG'), c.q[0], c.q[1], hL, `{\\fSimSun|b0|i0|c134|p2;${p.lat.toFixed(6)}%%D\\P${p.lon.toFixed(6)}%%D}`, { style: '样式 1', color: +(job.poleStyle || {}).llColor || null });
     }
     // 12. v2.34: the name of every named road on every GEO sheet it crosses (once per sheet), on the road where it covers no label;
