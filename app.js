@@ -909,7 +909,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.44.7';
+  const APP_VER = '2.44.8';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
   const APP_BETA = '4.4'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
@@ -9842,7 +9842,7 @@
   ['numKeep', 'numRenum'].forEach((id) => { const el = $(id); if (el) el.addEventListener('change', () => { setNumCfg({ keep: $('numKeep').checked }); renderNums(); if (drw) drawSeqSoon(); renderPlanSet(); }); });
   /** The names on the sheet in one line (Change opens the four fields). */
   function sigLine() {
-    const L = [['design', 'Design Engineer'], ['project', 'Project Engineer'], ['head', 'Head-Cable Engineering'], ['cse', 'CSE Lead']], set = L.filter(([k]) => String(S.sig[k] || '').trim()), blank = L.length - set.length;
+    const L = [['design', 'Design Engineer'], ['project', 'Project Engineer'], ['head', 'Project Manager'], ['cse', 'CSE Lead']], set = L.filter(([k]) => String(S.sig[k] || '').trim()), blank = L.length - set.length;
     $('sigLine').innerHTML = (set.length ? set.map(([k, l]) => `<span><small>${l}</small><b>${C.xmlEsc(String(S.sig[k]).trim())}</b></span>`).join('') : '<span>None yet</span>')
       + `<small>${blank ? `${blank === L.length ? 'All' : blank} left blank, to sign by hand` : 'All four set'}${String(S.sig.cse || '').trim() ? '' : '. The CSE Lead comes from the online sheet when it has one'}.</small>`;
     // beta 4.3 (MarkT): the three names of the CEF sheets are here too (the CEF editor has the same ones under Check and export): shown when the project holds a CEF plan
@@ -9852,7 +9852,7 @@
   }
   $('sigChange').addEventListener('click', () => { const on = $('sigEdit').hidden; $('sigEdit').hidden = !on; $('sigChange').setAttribute('aria-expanded', String(on)); $('sigChange').textContent = on ? 'Done' : 'Change'; sigLine(); if (on) $('sigDesign').focus({ preventScroll: true }); });
   /* v2.42.12: the names in the title block of every sheet (above the signature lines): Design Engineer, Project Engineer and
-     Head-Cable Engineering typed once and kept on this phone; the CSE Lead from the online sheet's CSE LEAD tab (Territory, Full
+     Project Manager (2.44.8: was Head-Cable Engineering) typed once and kept on this phone; the CSE Lead from the online sheet's CSE LEAD tab (Territory, Full
      Name), by the project's territory (Project Data → Territory), at each sync; Junior Engineer left blank. A CSE Lead typed by
      hand stays until the sheet gives another name (a new name there, or a project of another territory). */
   const SIG_IDS = [['sigDesign', 'design'], ['sigProject', 'project'], ['sigHead', 'head'], ['sigCse', 'cse']];
