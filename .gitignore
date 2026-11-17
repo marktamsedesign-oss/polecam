@@ -1,0 +1,3 @@
+# Python caches made when the DXF tools in tools/ run
+__pycache__/
+*.pyc
