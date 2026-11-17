@@ -11083,9 +11083,11 @@
     }
     busy('Building PDF…');
     const groups = o.by === 'owner' ? [...new Set(items.map((x) => x.owner || 'No owner set'))].map((g) => ({ g, items: items.filter((x) => (x.owner || 'No owner set') === g) })) : [{ g: '', items }];
-    const R = window.PoleReports, logos = await formLogos(), files = [], site = pmeta().site || '';
+    const R = window.PoleReports, logos = await formLogos(), files = [], site = pmeta().site || '', SD = siteDetailsOf(); // beta 6.0: the project's details on top
+    const detLine = SD.known ? [['Project Name', SD.proj], ['PLA ID', SD.pla], ['Serial No.', SD.serial], ['Site name', SD.site]].filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(' · ') : '';
     for (const G of groups) {
-      const pdf = R.photoReportPdf({ title: 'PHOTO REPORT', sub: `${S.project}${site ? ` · ${site}` : ''}${G.g ? ` · Owner: ${G.g}` : ''} · ${G.items.length} pole${G.items.length === 1 ? '' : 's'}`, perPage: +o.per === 1 ? 1 : 2,
+      const cnt = `${G.g ? `Owner: ${G.g} · ` : ''}${G.items.length} pole${G.items.length === 1 ? '' : 's'}`;
+      const pdf = R.photoReportPdf({ title: 'PHOTO REPORT', sub: detLine || `${S.project}${site ? ` · ${site}` : ''}${G.g ? ` · Owner: ${G.g}` : ''} · ${G.items.length} pole${G.items.length === 1 ? '' : 's'}`, sub2: detLine ? cnt : '', perPage: +o.per === 1 ? 1 : 2,
         items: G.items, footer: `${S.project} · photo report${G.g ? ` · ${G.g}` : ''}`, footer2: exporterLine(), logos });
       files.push({ name: `${fileBase()}_photo_report${G.g ? `_${C.safeName(G.g)}` : ''}.pdf`, blob: new Blob(pdf.output({ title: `${S.project} photo report${G.g ? ` ${G.g}` : ''}` }), { type: 'application/pdf' }) });
     }
@@ -14028,6 +14030,15 @@
     return [...(m.siteExtra || []).filter(([k]) => !sfSkip(k)), ...(m.plaId ? [['PLA ID', m.plaId]] : []), ...(m.siteName ? [['Site name', m.siteName]] : [])];
   }
   function sfGet(F, re) { return ((F || []).find(([k]) => re.test(k)) || [])[1] || ''; }
+  /** beta 6.0: the project's details from the online sheet (as Project details keeps them): Project Name, PLA ID, serial number and
+      site name; the same sources as the plan's title blocks. known: at least one of them. */
+  function siteDetailsOf(name) {
+    const m = pmeta(name), task = m.taskId && S.cloud && (S.cloud.tasks || []).find((t) => t.id === m.taskId), SF = siteFieldsOf(name), sfm = sfMeta(SF);
+    const proj = sfGet(SF, /project\s*name/i) || (task && extraOf(task, 'Project Name')) || ((m.siteExtra || []).find(([k]) => /project\s*name/i.test(k)) || [])[1] || '';
+    const site = sfm.siteName || m.siteName || (task && task.project) || '', pla = sfm.plaId || m.plaId || (task && task.site) || '';
+    const serial = sfm.serial || m.serial || (task && extraOf(task, 'Serial Number')) || ((m.siteExtra || []).find(([k]) => /serial/i.test(k)) || [])[1] || '';
+    return { proj, pla, serial, site, known: !!(proj || pla || serial || site) };
+  }
   /** The title-block fields from the site details: site name, PLA ID, serial number (and the project name / type). */
   function sfMeta(F) { return { siteName: sfGet(F, /site\s*name|searchring|segment/i), plaId: sfGet(F, /pla\s*id/i), serial: sfGet(F, /serial/i) }; }
   /** v2.42.19: the site details of a project with no site of the sheet: the sheet's columns (as its sites have them), else these. */
