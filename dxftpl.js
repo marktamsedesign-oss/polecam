@@ -2733,7 +2733,7 @@
     const MARK_PHI = 70, NUM_PHI = 80; // v2.41.1: a pole's photo 70° round from straight out toward the homing (beside its label), a number 80° (its leader line under the label)
     let nNoRoom = 0; // v2.42.26: photos with no room anywhere, shown as their number
     const placePhotos = (Lp) => {
-      const mark = spots.list.length, out = []; let miss = 0, drop = 0; nNoRoom = 0; // (beta 4.1: drop = photos left out in photo + number)
+      const mark = spots.list.length, out = [], left = []; let miss = 0, drop = 0; nNoRoom = 0; // (beta 4.1: drop = photos left out in photo + number; beta 4.8: left, Tidy's photos with no free place)
       const setup = (p, noPh) => {
         const ph = noPh ? null : photos[p.id] || photos[String(p.id)], nd = ph ? 0 : numD(p) * numF(p);
         const w = ph ? (ph.px >= ph.py ? Lp : Lp * ph.px / ph.py) : nd, h = ph ? (ph.px >= ph.py ? Lp * ph.py / ph.px : Lp) : nd;
@@ -2816,11 +2816,38 @@
           if (best) break; }
         return best;
       };
+      /* beta 4.8: Tidy: a photo near its pole, on the pole's side of the street (in the block, 2 m off the roads), covering nothing; its
+         thin line to the pole short, crossing no other line, text, symbol or cable, nor a road edge line while any other place is free;
+         smaller (to 65 %) before its line crosses a road edge line. None free: left out (its number is on the plan) and listed. */
+      const tidyPh = (S0) => {
+        const { p } = S0, on = p.on || p.ov || [0, 1], fw = p.fw || [on[1], -on[0]], rp = rOf(p), LDR = (t) => (t === 'road' ? 0 : 1);
+        for (const [k, LW] of [[1, null], [0.8, null], [0.65, null], [1, LDR], [0.8, LDR], [0.65, LDR]]) {
+          const w = S0.w * k, h = S0.h * k, eo = (w * Math.abs(on[0]) + h * Math.abs(on[1])) / 2, es = (w * Math.abs(fw[0]) + h * Math.abs(fw[1])) / 2, cs = [];
+          for (const a of [0, eo + rp + 0.5, eo + rp + 2, eo + rp + 4, eo + rp + 6.5, eo + rp + 9.5, eo + rp + 13, eo + rp + 17, eo + rp + 22]) for (const b of [0, 1, -1, 2, -2, 3, -3]) {
+            const f = b ? Math.sign(b) * ((Math.abs(b) - 1) * (2 * es + 1.5) + es + rp + 0.5) : 0; if (!a && !b) continue;
+            const q = add2(add2(p.dp, on, a), fw, f), ex = Math.min(Math.max(p.dp[0], q[0] - w / 2), q[0] + w / 2), ey = Math.min(Math.max(p.dp[1], q[1] - h / 2), q[1] + h / 2);
+            cs.push({ q, e: [ex, ey], cost: Math.hypot(ex - p.dp[0], ey - p.dp[1]) + Math.abs(f) * 0.15 });
+          }
+          cs.sort((x, y) => x.cost - y.cost);
+          for (const c of cs) {
+            const { q, e } = c;
+            if ([[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].some(([sx, sy]) => R.idx.inside([q[0] + sx * w / 2, q[1] + sy * h / 2], -1, -2))) continue; // off the roads
+            if (!cellHoldsQ(q, w / 2, h / 2, p.E, p.N) || anchors.some((x) => x !== p && dist2(x.dp, q) < dist2(p.dp, q) - 1)) continue; // inside its sheet; nearer its own pole than any other
+            const box = Spots.box(q[0], q[1], w + 1.0, h + 1.0, 0); if (spots.hits(box)) continue;
+            const d0 = dist2(p.dp, e); let lead = null;
+            if (d0 > rp + 1.2) { // (its line checked from a little past the pole, where every line of the pole starts)
+              const u = unit(p.dp, e), la = add2(p.dp, u, rp + 0.3), lc = add2(p.dp, u, rp * 1.6 + 0.5), lb = Spots.box((lc[0] + e[0]) / 2, (lc[1] + e[1]) / 2, Math.max(0.1, dist2(lc, e)), 0.3, deg(u));
+              if (p.symBox) p.symBox._k--; const nh = LW ? spots.hitsW(lb, LW) : spots.hits(lb); if (p.symBox) p.symBox._k++; if (nh) continue; lead = [la, e]; }
+            return { q, u: unit(p.dp, q), gap: d0, boxes: [box], w, h, lead };
+          }
+        }
+        return null;
+      };
       // v2.41.1: first every pole in its usual place (or a little further), so a pole that has no room there does not take its neighbour's
       //          place (one pole on the other side used to send the next ones over too); then the poles left over and the other points
       const ORDER = [...markOrder.filter((x) => x.el === 'Pole'), ...markOrder.filter((x) => x.el !== 'Pole')]; // v2.40: the poles' first
       // beta 4.1 (MarkT): photo + number = two rounds: every number first, beside its pole as for numbers only; then every photo, as for photos only
-      for (const round of markMode === 'both' ? ['num', 'photo'] : ['one']) {
+      for (const round of markMode === 'both' ? (TIDY ? ['photo', 'num'] : ['num', 'photo']) : ['one']) { // (beta 4.8: Tidy: the photos first, each beside its pole; then the numbers, small, in the room left beside the pole)
       const later = [];
       for (const p of ORDER) {
         const S0 = setup(p, round === 'num'); if (round === 'photo' && !S0.ph) continue; // (a point without a photo has its number already)
@@ -2866,6 +2893,7 @@
       }
     }
     if (job.debug) rep.layout = { grid: { gox, goy, cell }, poles: poleOrder.map((p) => ({ id: String(p.id), E: p.E, N: p.N, dp: p.dp, td: p.td, ov: p.ov, rr: p._rr, lblFar: p.lblFar, lblDir: p.lblDir })), labels: spots.list.filter((b) => /^label/.test(b.tag || '') && b.tag !== 'label:site').map((b) => [b.cx, b.cy, b.hw, b.hh, b.ux, b.uy, b.vx, b.vy]), marks: photoPl.out.map(({ p, ph, w, h, q, u, how, lead }) => ({ lead: lead || null, id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
+    if (TIDY && photoPl.left.length) rep.notes.push(`Photos with no free place near their pole (left out: the point's number is on the plan; its photo is in the folder): ${photoPl.left.map((p) => p.poleId || p.id).join(', ')}`); // beta 4.8
     rep.photoSize = +Lp.toFixed(1); rep.photosNotFree = photoPl.miss; rep.photosAsNumber = nNoRoom; rep.markMode = markMode;
     const withPh = new Set(photoPl.out.filter((x) => x.ph).map((x) => String(x.p.id))); /* (v2.42.26: no room for its photo: its number; beta 4.1: by the photos placed) */ rep.marks = markOrder.map((p) => [p.seq, String(p.id), withPh.has(String(p.id)) ? (markMode === 'both' ? 'photo+number' : 'photo') : 'number']); // v2.40: the numbers on the plan
     // 11. coordinates of the points that are not poles
