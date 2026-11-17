@@ -1,6 +1,6 @@
 """v2.35.1: one-tap Download of Google Drive packs on the website / iPhone. The admin pastes a Google Drive API key once
 (Administration -> Offline map packs); the website then downloads each Drive pack through the Drive API (files/ID?alt=media&key=)
-in resumable pieces and puts it to use: a road pack for the plan drawings, a map pack as the offline map in use.
+in resumable pieces and puts it to use: a road pack for the plan drawings, a map pack for the offline map.
 Google's real answers cannot be reached from the test machine: www.googleapis.com is mocked here with CORS headers,
 once exposing Content-Range (ranged pieces), once not (the app falls back to one stream)."""
 import asyncio, sys, os, shutil, json, urllib.parse, re
@@ -118,9 +118,10 @@ async def main():
         act5 = await pg.evaluate("__polecam.S.activePack || null"); toast5 = await pg.text_content('#toast')
         api5 = list(st['api']); r5 = row(await rows(pg), 'Mindanao')
         await pg.screenshot(path=f'{OUT}/c2_after_downloads.png')
-        check('map pack: one tap downloads it (a Range answer the page cannot read -> one stream) and makes it the offline map in use',
-              mp and mp['done'] and mp['size'] == len(MAP) and not mp['kind'] and act5 == f'drive-{IDM}' and 'now uses it' in (toast5 or '')
-              and any(not a['range'] for a in api5) and r5 and 'in use' in r5['s'] and 'Show' in r5['btns'], (mp, act5, toast5, api5, r5))
+        # (every pack at once: no pack "in use" any more; each map pack on the phone is used, the eye hides one on the map)
+        check('map pack: one tap downloads it (a Range answer the page cannot read -> one stream) and the offline map uses it',
+              mp and mp['done'] and mp['size'] == len(MAP) and not mp['kind'] and act5 is None and 'now uses it' in (toast5 or '')
+              and any(not a['range'] for a in api5) and r5 and 'on this phone · used' in r5['s'] and 'Hide on the map' in r5['btns'], (mp, act5, toast5, api5, r5))
         # the offline map really draws from it
         await close_sheets(pg)
         await pg.evaluate("document.getElementById('offlineBtn').click()"); await W(pg, 800)
