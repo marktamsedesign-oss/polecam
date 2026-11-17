@@ -920,10 +920,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.44.3';
+  const APP_VER = '2.44.5';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '4.7'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '4.9'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -4417,12 +4417,14 @@
   function phSetOf(name) {
     const P = name ? pmeta(name).phSet : null, T = name && typeof tmTeam === 'function' ? tmTeam(name) : null;
     if (P && !P.free && T && T.role === 'fp') return { n: P.n, idp: P.idp !== false, docs: P.docs || {}, by: P.byName || 'your coordinator', locked: true };
-    return { n: S.phN || 2, idp: S.phIdp !== false, docs: S.phDocs || {}, by: '', locked: false };
+    return { n: S.phN || 2, idp: S.phIdp === true, docs: S.phDocs || {}, by: '', locked: false }; // (2.44.5: the pole ID close-up as photo 2 is off unless turned on)
   }
   const phN = (name) => Math.max(1, Math.min(4, Math.round(+phSetOf(name || S.project).n) || 2));
   const phIdp = (name) => phN(name) >= 2 && phSetOf(name || S.project).idp;
+  const PH_SITE_N = 10; // 2.44.5: a tower, OLT or ODC keeps up to 10 photos (poles: the photos per pin above)
+  const phNOf = (el, name) => (el === 'Site' || el === 'ODC' ? Math.max(PH_SITE_N, phN(name)) : phN(name));
   const phDoc = (k, name) => (k === 'dxf' ? 'main' : phSetOf(name || S.project).docs[k] || PH_DOC_DEF[k] || 'all');
-  const phMine = () => ({ n: S.phN || 2, idp: S.phIdp !== false, docs: { ...PH_DOC_DEF, ...(S.phDocs || {}) }, byName: (S.user && S.user.name) || '', free: S.phBy === 'phone', at: new Date().toISOString() }); // (free: the coordinator lets each phone choose)
+  const phMine = () => ({ n: S.phN || 2, idp: S.phIdp === true, docs: { ...PH_DOC_DEF, ...(S.phDocs || {}) }, byName: (S.user && S.user.name) || '', free: S.phBy === 'phone', at: new Date().toISOString() }); // (free: the coordinator lets each phone choose)
   const phOf = (r, k) => { const L = photosOf(r); return phDoc(k, r.project) === 'main' ? L.slice(0, 1) : L; }; // a record's photos for a document
   let stream = null, imageCapture = null, torchOn = false, wakeLock = null, camTarget = 'new', camBusy = false, camTick = 0, camPending = null, camSeq = 0;
   let photoOpts = null; // still-photo size: phones with 48–200 MP sensors are asked for about 12 MP (photos are kept at 2048 px anyway)
@@ -5694,7 +5696,7 @@
       its label, ×, Make main, and + Add photo up to the photos per pin. The grid PAT element photos had before v2.13. */
   function renderSvPhotos() {
     if (!ed || ed.acc) { $('phHead').hidden = true; $('photoStrip').classList.remove('phgrid'); $('idPh2Btn').hidden = true; return; }
-    const box = $('accPhotos'), X = ed.photos || [], N = phN(), main = !!$('edPhoto').getAttribute('src'), on = main && (N >= 2 || X.length > 0), lock = ed.lock === 'closed';
+    const box = $('accPhotos'), X = ed.photos || [], N = phNOf(ed.element || 'Pole'), main = !!$('edPhoto').getAttribute('src'), on = main && (N >= 2 || X.length > 0), lock = ed.lock === 'closed';
     $('photoStrip').classList.toggle('phgrid', on); box.hidden = !on; $('phHead').hidden = !on;
     const tag = X.find((x) => x.label === 'Pole tag'); $('idPh2Btn').hidden = !tag || lock; if (tag) $('idPh2Btn').textContent = `Read from photo ${X.indexOf(tag) + 2} (Pole tag)`;
     box.innerHTML = ''; if (!on) return;
@@ -9919,7 +9921,7 @@
     const row = $('dxfLblRow'); if (!row) return;
     row.hidden = !tpl; const v = S.exp.dxfLabels === 'tidy' ? 'tidy' : 'std';
     row.querySelectorAll('.chip').forEach((b) => { const on = b.dataset.v === v; b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; });
-    $('dxfLblSub').textContent = v === 'tidy' ? 'Straight, never overlapping; details smaller' : 'Turned along the cable';
+    $('dxfLblSub').textContent = v === 'tidy' ? 'Straight, never overlapping, sized to the street' : 'Turned along the cable'; // (beta 4.8)
   }
   $('dxfLbl').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b || !b.dataset.v) return; S.exp.dxfLabels = b.dataset.v === 'tidy' ? 'tidy' : 'std'; persist(); renderDxfLbl(dxfMode() === 'tpl'); });
   $('dxfLbl').addEventListener('keydown', (e) => { if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return; e.preventDefault(); S.exp.dxfLabels = S.exp.dxfLabels === 'tidy' ? 'std' : 'tidy'; persist(); renderDxfLbl(dxfMode() === 'tpl'); const b = $('dxfLbl').querySelector('[aria-checked="true"]'); if (b) b.focus(); }); // (a radio group: the arrows move the choice)
@@ -10486,7 +10488,7 @@
     head.splice(0, head.length, ...head.filter(Boolean));
     const readme = [...head,
       `Clamp types: ${showCT ? 'on the plan, before the clamp size (e.g. CA 8-10, 2A 10-12)' : 'left off the plan (the clamp size only); they are in the BOQ, the KMZ and the CSV'}.`,
-      `Drawing style: ${plSummary()}${S.exp.dxfLabels === 'tidy' ? ' · Pole labels: Tidy (they keep their size; the crowded-places rule is for the other labels)' : ''}.`, // (beta 4.7)
+      `Drawing style: ${plSummary()}${S.exp.dxfLabels === 'tidy' ? ' · Pole labels: Tidy (Tidy sets the sizes of the texts, symbols, numbers and photos on the map; the crowded-places rule is for the other labels)' : ''}.`, // (beta 4.7, 4.8)
       `${nLoc > 1 ? `The points are in ${nLoc} places more than 1 km apart: each has its own VICINITY MAP and KEYMAP sheet, and its own GEO sheets (cells named with the place's number first: 1A-1, 2A-1). ` : ''}Vicinity map${nLoc > 1 ? 's' : ''}: ${vicSay.map((t, k) => (nLoc > 1 ? `place ${k + 1}: ${t}` : t)).join('; ')}; the project area circled. Roads and building names are drawn round the route only (the cells of the GEO sheets and 60 m round them), not over the whole vicinity area.`,
       `Title blocks: ${known ? `${[sName, sPla].filter(Boolean).join('_')} / ${sSerial || '(no serial number)'} from the online sheet's project details` : 'no project details from the online sheet: the project\'s location text is used'}; company ${logo ? 'logo COMPANY_LOGO' : 'name (no logo set)'}; title ${m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN'}.`,
       ...(siteFieldsOf().length ? [`Site details (Project details): ${siteFieldsOf().map(([k2, v2]) => `${k2}: ${v2}`).join(' · ')}.`] : []),
@@ -10511,7 +10513,10 @@
       `On the cable (the cable meets their two sides, the ID below): NAPs of every kind (1x8, 1x16, dummy, changed to 1:16, double; a NAP pin is drawn on its pole), LCPs (1:4 and double, a kind of NAP on its pole), the ODC (G-eSAA's cabinet symbol, layers G-ESAA PROPOSED / EXISTING ODC: the template has no ODC model), handholes, manholes and service boxes: ${rp.counts.inlineBlocks || 0}. Loops on the cable beside their pole; closures on the cable. Grounding at every pole with a loop or marked for it: ${rp.counts.grounding || 0}. Risers where the cable goes from aerial to underground (or marked): ${rp.counts.risers || 0}. Directional boring (HDD) where an underground cable crosses a road: ${rp.counts.hdd || 0}. A new tower is red; an OLT site is drawn with the OLT model (${rp.counts.olt || 0}).`,
       ...(() => { const A = routeAdvice(R); return A.length ? [`Route check (${A.length}): ${A.map((a) => a.text).join(' · ')}.`] : []; })(),
       `Road widths by OpenStreetMap class (or its width / lanes): primary 12 m, secondary 9, tertiary 7.5, residential 6, service 4, track 3.5; paths as a grey centre line. Building and place names: ${rp.counts.pois || 0} of the ${rp.counts.poisGiven || 0} named in OpenStreetMap round the route (its area and 250 m round it; not written: ${rp.counts.poisOutside || 0} outside the GEO sheets, ${rp.counts.poisNoRoom || 0} with no free room beside them, ${rp.counts.poisDuplicate || 0} repeated names)${rp.counts.landmarkIcons ? `, ${rp.counts.landmarkIcons} with their icon (blocks GESAA_LM_…, layer G-ESAA LANDMARK; icons of the OpenStreetMap street map and Mapbox Maki, public domain)` : ''}.`,
-      S.exp.dxfLabels === 'tidy' ? 'Pole labels: Tidy. Each pole has one straight label: its tag and type (NPT when it has no tag), then, in smaller text, its clamps and 12C hardware, its owner and its latitude, longitude. The label sits beside its pole, or further out with a thin grey line to it, where it is nearer its own pole than any other and covers no other label, street name, cable, symbol, photo or photo line' + (outs.some((o) => (o.out.report.notes || []).some((n) => /^Tidy labels/.test(n))) ? '; where no such place is free, it covers as little as it can, and those poles are listed under Drawing checks above' : '') + '. Photos and numbers are in the same places as with Standard labels.' // beta 4.7
+      S.exp.dxfLabels === 'tidy' ? (() => { const sz = (outs.find((o) => o.out.report.tidy && o.out.report.tidy.sizes) || { out: { report: { tidy: {} } } }).out.report.tidy.sizes; // beta 4.7, 4.8: the whole map tidy
+        return 'Pole labels: Tidy. The map is laid out so that nothing sits on anything else. The NAP, loop and closure symbols are drawn at most 0.7 of the width of the street they are on, the numbers\' circles at most as wide as the street. Each pole has one straight label: its number in its circle (when it is numbered), its tag and type (NPT when it has no tag), then, in smaller text, its clamps and 12C hardware, its owner and its latitude and longitude, and its photo at the end. The label sits beside its pole, or further out with a thin grey line to it, nearer its own pole than any other where it can be. The IDs of the NAPs and closures and the loop lengths are straight labels beside their symbol; span lengths and cable labels run along their cable, inside the street where there is room'
+          + (sz && sz.mm ? `. Every text of the route has one of two sizes, the largest that leaves a free place for (almost) every label: ${sz.mm[0]} mm high on the A3 PDF (the first line, IDs, loop lengths, numbers) and ${sz.mm[1]} mm (the other lines, span lengths, cable labels); the street names keep the template's size` : '')
+          + (outs.some((o) => (o.out.report.notes || []).some((n) => /^(Tidy labels|Photos with no free place)/.test(n))) ? '. Where no free place was found, the label or photo is listed under Drawing checks above' : '') + '.'; })()
         : 'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD. Each pole\'s label points straight out from the cable, and its photo or number sits beside the pole on the side toward the homing, the same at every pole where there is room (elsewhere a little further, turned, or on the other side).', '',
       ...outs.flatMap((o) => { const MK = o.out.report.marks || []; return MK.length ? [`Numbers on the plan${many ? ` in ${o.file}` : ''} (${MK.length}${o.st.no.size ? `: ${o.st.what}` : ''}): number, ID, type, latitude, longitude`, ...markLinesOf(MK), ''] : []; }), exporterText()].join('\r\n');
     busy(false);
@@ -11877,7 +11882,7 @@
   function renderPhSet() {
     const n = S.phN || 2;
     $('setPhN').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === n)));
-    $('setPhIdp').checked = S.phIdp !== false; $('setPhIdp').disabled = n < 2; $('setPhAuto').checked = S.phAuto !== false; $('setPhAuto').disabled = n < 2 || S.phIdp === false;
+    $('setPhIdp').checked = S.phIdp === true; $('setPhIdp').disabled = n < 2; $('setPhAuto').checked = S.phAuto !== false; $('setPhAuto').disabled = n < 2 || S.phIdp !== true;
     $('setPhBy').value = S.phBy === 'phone' ? 'phone' : 'co';
     const role = typeof tmRole === 'function' ? tmRole() : '', co = allProjects().filter((x) => { const T = typeof tmTeam === 'function' ? tmTeam(x) : null; return T && T.role === 'fp' && pmeta(x).phSet && !pmeta(x).phSet.free; });
     $('setPhBy').closest('label').hidden = role !== 'Coordinator'; // (only the coordinator chooses: on his partners' phones his setting is locked for his projects)
