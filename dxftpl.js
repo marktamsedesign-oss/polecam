@@ -2023,8 +2023,41 @@
         it.label = p.poleId || ''; it.kind = p.el; it.col = pinColor(p); inl.set(p, it);
       }
     }
+    /* beta 6.1 (the owner: "follow road contours between HH or MH or SB … Follow road contours as default. Same with aerial"): with
+       job.cableRoute 'road' (Drawing style › Cables: follow the road), a cable's line between two points along the same road follows that
+       road's centre line between their projections, at the cable's own offset from it (drawn in from one end's offset to the other's);
+       a span across a road, round a corner onto another road, far from a road or along a straight road stays straight. The written
+       lengths stay the measured ones. 'straight' (or none given): straight from point to point, as before. */
+    const WANT_RD = job.cableRoute === 'road', FOLLOW = WANT_RD && R.roads.some((r) => r.hw > 0 && r.pts.length > 2), rpCache = new Map();
+    const projR = (r, p) => { let best = null, s0 = 0; for (let k = 1; k < r.pts.length; k++) { const a = r.pts[k - 1], b = r.pts[k], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1e-9, t0 = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (L * L), t = Math.max(0, Math.min(1, t0)), c = [a[0] + t * dx, a[1] + t * dy], d = dist2(p, c);
+      if (!best || d < best.d) best = { s: s0 + t * L, d, side: (dx * (p[1] - a[1]) - dy * (p[0] - a[0])) >= 0 ? 1 : -1, past: (k === 1 && t0 < -1e-6) || (k === r.pts.length - 1 && t0 > 1 + 1e-6) }; s0 += L; } return best; }; // (past: beyond the road's end)
+    const roadPath = (a, b) => { // the road-following line from a to b, or null (straight)
+      if (!FOLLOW) return null; const L0 = dist2(a, b); if (L0 < 8) return null;
+      const ck = `${a[0].toFixed(2)},${a[1].toFixed(2)}>${b[0].toFixed(2)},${b[1].toFixed(2)}`; if (rpCache.has(ck)) return rpCache.get(ck);
+      let best = null;
+      for (const r of R.roads) { if (!(r.hw > 0) || r.pts.length < 3) continue;
+        const lo0 = Math.min(a[0], b[0]) - r.hw - 10, hi0 = Math.max(a[0], b[0]) + r.hw + 10, lo1 = Math.min(a[1], b[1]) - r.hw - 10, hi1 = Math.max(a[1], b[1]) + r.hw + 10; if (!r.pts.some((q) => q[0] >= lo0 && q[0] <= hi0 && q[1] >= lo1 && q[1] <= hi1)) continue;
+        const pa = projR(r, a), pb = projR(r, b); if (!pa || !pb || pa.past || pb.past || pa.d > r.hw + 8 || pb.d > r.hw + 8) continue; // (a point beside the road, not past its end)
+        if (pa.side !== pb.side && Math.min(pa.d, pb.d) > r.hw * 0.3) continue; // (a span across the road: straight)
+        if (Math.abs(pb.s - pa.s) < 0.6 * L0) continue; // (not along this road)
+        const sc = pa.d + pb.d; if (!best || sc < best.sc) best = { r, pa, pb, sc }; }
+      let path = null;
+      if (best) { const { r, pa, pb } = best, cum = [0]; for (let k = 1; k < r.pts.length; k++) cum.push(cum[k - 1] + dist2(r.pts[k - 1], r.pts[k]));
+        const fw = pb.s >= pa.s, lo = Math.min(pa.s, pb.s), hi = Math.max(pa.s, pb.s), oa = pa.side * pa.d, ob = pb.side * pb.d, pts2 = [];
+        const ks = []; for (let k = 1; k < r.pts.length - 1; k++) if (cum[k] > lo + 0.5 && cum[k] < hi - 0.5) ks.push(k); if (!fw) ks.reverse();
+        for (const k of ks) { const n1 = unit(r.pts[k - 1], r.pts[k]), n2 = unit(r.pts[k], r.pts[k + 1]), nv = [-(n1[1] + n2[1]), n1[0] + n2[0]], nn = Math.hypot(nv[0], nv[1]) || 1, f = (cum[k] - pa.s) / ((pb.s - pa.s) || 1e-9), off = oa + (ob - oa) * f;
+          const mi = Math.max(0.5, (n1[0] * n2[0] + n1[1] * n2[1] + 1) / 2) ** 0.5; pts2.push(add2(r.pts[k], [nv[0] / nn, nv[1] / nn], off / mi)); } // (mitred: the offset kept at a bend)
+        if (pts2.length) { const P2 = [a, ...pts2, b], t0 = unit(a, b), dev = Math.max(...pts2.map((q) => Math.abs((q[0] - a[0]) * t0[1] - (q[1] - a[1]) * t0[0]))), Lp = P2.slice(1).reduce((t, q, i) => t + dist2(P2[i], q), 0);
+          if (dev > 0.5 && Lp <= 1.6 * L0) path = P2; } }
+      rpCache.set(ck, path); return path;
+    };
+    const bendLine = (line) => { if (!FOLLOW) return line; const out = [line[0]]; for (let i = 1; i < line.length; i++) { const pth = roadPath(line[i - 1], line[i]); if (pth) out.push(...pth.slice(1)); else out.push(line[i]); } return out; };
+    const alongP = (pth, d) => { for (let i = 1; i < pth.length; i++) { const L = dist2(pth[i - 1], pth[i]); if (d <= L || i === pth.length - 1) return add2(pth[i - 1], unit(pth[i - 1], pth[i]), Math.min(d, L)); d -= L; } return pth[pth.length - 1]; }; // (the point d metres along a line)
+    const spanPath = new Map(), routeLen = { aerial: { straight: 0, road: 0, spans: 0, bent: 0, list: [] }, ug: { straight: 0, road: 0, spans: 0, bent: 0, list: [] } }; // (each span's road-following line, for its labels; the lengths compared)
     // 3. the cable runs, broken where a block sits on the cable (it meets the block's sides)
     const chains = chainsOf(spans), label = new Map((runs || []).map((r) => [r.cable, r.label]));
+    if (WANT_RD) for (const s0 of spans) { const P = byId.get(String(s0.ia)), Q = byId.get(String(s0.ib)); if (!P || !Q || !P.A || !Q.A) continue; const pth = roadPath(P.A, Q.A), g = (CABLE_STYLE[s0.cable] || CABLE_STYLE['']).aerial === false ? routeLen.ug : routeLen.aerial, L0 = dist2(P.A, Q.A);
+      g.spans++; g.straight += L0; g.road += pth ? pth.slice(1).reduce((t, q, i) => t + dist2(pth[i], q), 0) : L0; if (pth) { g.bent++; g.list.push([String(s0.ia), String(s0.ib), +L0.toFixed(2), +pth.slice(1).reduce((t, q, i) => t + dist2(pth[i], q), 0).toFixed(2)]); spanPath.set(`${s0.ia}|${s0.ib}`, pth); spanPath.set(`${s0.ib}|${s0.ia}`, pth.slice().reverse()); } } // (beta 6.1)
     // v2.42.23: with fibers, each fiber is drawn as one line in its lane (below); the runs on them are not drawn as runs, but their
     // chains still give the runs' labels, the underground (HDD) and the vicinity map
     const spanLblAt = new Map(); // beta 6.0: where each span's length is written (for the BOQ table of each GEO sheet)
@@ -2048,15 +2081,15 @@
       return { P, pieces: pieces.filter((l) => l.length > 1) };
     };
     const cabStyle = (cable, existing, cores) => { const st = CABLE_STYLE[cable] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous'; return { st, lt, color: existing ? 5 : st.color, lts: lt === 'DASHED' ? (existing ? 9 : 7) : 0, lwt: cabLw(cable, existing, cores) }; };
-    const drawCable = (line, cs) => { o.lwpoly(lay(cs.st.layer, 'Proposed foc aerial'), line, { lwt: cs.lwt || CABLE_LWT, color: cs.color, lt: cs.lt, lts: cs.lts, gen: true }); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); };
+    const drawCable = (line0, cs) => { const line = bendLine(line0); o.lwpoly(lay(cs.st.layer, 'Proposed foc aerial'), line, { lwt: cs.lwt || CABLE_LWT, color: cs.color, lt: cs.lt, lts: cs.lts, gen: true }); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); };
     for (const ch of chains) {
       const r = piecesOf(ch); if (!r) continue;
       // v2.32: aerial cable as a broken line (DASHED at linetype scale 7, 9 when existing, as the template's own sample drawing),
       // underground solid; red new, blue existing (v2.37: underground green, as the legend). v2.36: its thickness as a line weight (0.70 mm),
       // not a polyline width: PDF converters other than AutoCAD (the one used to check the plan) drew a wide polyline solid, without its dashes
       const st = CABLE_STYLE[ch.cable] || CABLE_STYLE[''];
-      ch.line = r.P.map((p) => p.A); ch.pieces = r.pieces; ch.ug = !st.aerial;
-      if (!FIB.length) for (const line of ch.pieces) drawCable(line, cabStyle(ch.cable, ch.existing));
+      ch.line = r.P.map((p) => p.A); ch.pieces = FOLLOW ? r.pieces.map(bendLine) : r.pieces; ch.ug = !st.aerial; // (beta 6.1: as drawn, for the HDD)
+      if (!FIB.length) for (const line of r.pieces) drawCable(line, cabStyle(ch.cable, ch.existing)); // (beta 6.1: drawCable follows the road)
     }
     if (FIB.length) for (const ch of chainsOf(spans.filter((s) => !nLane.has(K2(s.ia, s.ib))))) { const r = piecesOf(ch); if (r) for (const line of r.pieces) drawCable(line, cabStyle(ch.cable, ch.existing)); } // the spans on no fiber
     /* v2.42.23: each fiber one line in its lane. On a span with n fibers the lanes are G apart (2.6 m: on paper at 1 : 1100 the two
@@ -2130,7 +2163,7 @@
       if (dist2(a, b) <= r0 + r1 + 1) continue;
       more.forEach((cab, i) => { // v2.42.20: a fiber in its lane (moreOff, beside the first fiber's line), an existing cable blue
         const st = CABLE_STYLE[cab] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', off = gap * (s.moreOff ? s.moreOff[i] : i + 1), ex = !!(s.moreEx && s.moreEx[i]);
-        const line = [add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)];
+        const line = bendLine([add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)]); // (beta 6.1: following the road too)
         o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: cabLw(cab, ex), color: ex ? 5 : st.color, lt, lts: lt === 'DASHED' ? (ex ? 9 : 7) : 0, gen: true }); spots.line(line, 1.0);
       });
     }
@@ -2141,7 +2174,7 @@
       const a = P0.A, b = Q0.A, t = unit(a, b), nl = [-t[1], t[0]], r0 = Math.max(P0.rp || 0, 1.5), r1 = Math.max(Q0.rp || 0, 1.5), gap = 1.2 * kG;
       if (dist2(a, b) <= r0 + r1 + 1) continue;
       const st = CABLE_STYLE[s.cab] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous', off = gap * (s.off || 0);
-      const line = [add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)];
+      const line = bendLine([add2(add2(a, t, r0), nl, off), add2(add2(b, t, -r1), nl, off)]); // (beta 6.1)
       if (!FIB.length) { o.lwpoly(lay(st.layer, 'Proposed foc aerial'), line, { lwt: cabLw(s.cab, true, s.cores), color: 5, lt, lts: lt === 'DASHED' ? 9 : 0, gen: true }); spots.line(line, 1.0); } // (v2.42.23: with fibers, drawn as a fiber above)
       if (job.cabLabels && s.cabLbl && s.cabLbl.length) exLbl.push({ P0, Q0, lines: s.cabLbl, bw: ((nLane.get(K2(s.ia, s.ib)) || 1) - 1) * LANE_G });
     }
@@ -2356,6 +2389,7 @@
         let s0 = endAt(p, q1.A), d = unit(s0, endAt(q1, p.A)); const n0 = [-d[1], d[0]], td = p.td || n0, sd = n0[0] * td[0] + n0[1] * td[1] < 0 ? [-n0[0], -n0[1]] : n0;
         const ln = laneStart.get(`${p.id}>${q1.id}`); if (ln && ln.length) { const L = ln.reduce((x, y) => ((y.at0[0] - s0[0]) * sd[0] + (y.at0[1] - s0[1]) * sd[1] > (x.at0[0] - s0[0]) * sd[0] + (x.at0[1] - s0[1]) * sd[1] ? y : x)); s0 = L.s; d = inl.has(p) ? unit(L.s, add2(L.at0, L.d, 0.6 + lw)) : L.d; } // (at a block: from the lane's start on its side to the lane past the loop)
         const it0 = inl.get(p), rx = it0 && it0.radial ? Math.max(0, it0.hh - dist2(s0, it0.at)) : 0; // (v2.42.24: a closure on the cable: the loop past its pentagon, not over it)
+        const pthL = FOLLOW ? spanPath.get(`${p.id}|${q1.id}`) : null; if (pthL) { const u0 = unit(p.A, q1.A), u1 = unit(p.A, alongP(pthL, dist2(p.A, s0) + lw)), ca = u0[0] * u1[0] + u0[1] * u1[1], sa = u0[0] * u1[1] - u0[1] * u1[0]; d = [d[0] * ca - d[1] * sa, d[0] * sa + d[1] * ca]; } // (beta 6.1: a span following its road: the loop on its line as drawn)
         const n1 = [-d[1], d[0]]; dir = d; side = n1[0] * sd[0] + n1[1] * sd[1] < 0 ? [-n1[0], -n1[1]] : n1; Q0 = add2(s0, d, inl.has(p) ? rx + 0.6 + lw / 2 : 0);
       }
       if (crowdAt(p) && !inl.has(p)) { // 2.44.12: a crowded pole (a closure or a riser beside a manhole): the loop on one of its spans at the pole, its circle where it covers nothing, smaller as needed
@@ -2364,7 +2398,7 @@
           for (const ff of [1, 0.8, 0.65, 0.5, 0.4]) { if (lw * ff > L) continue; for (const k of [0.5, 0.25, 0.75]) for (const sd of [nn, [-nn[0], -nn[1]]]) { const Qx = add2(a, u, lw * ff / 2 + (L - lw * ff) * k), cx = add2(Qx, sd, lh * ff * 0.58), n = spots.hitsW(Spots.box(cx[0], cx[1], lw * ff, lh * ff * 0.84, deg(u)), W_L);
             if (!bestL || n < bestL.n - 1e-9) bestL = { Qx, sd, u, ff, n }; if (!n) break; } if (bestL && !bestL.n) break; } }
         const qs = (nb.get(p) || []).filter((x) => x.A).sort((x, y) => (x === q1 ? -1 : y === q1 ? 1 : 0));
-        if (!bestL || bestL.n) for (const ff of [1, 0.8, 0.6, 0.5]) { for (const qq of qs) { const u = unit(o0, qq.A), L = dist2(o0, qq.A), nn = [-u[1], u[0]], sd0 = nn[0] * side[0] + nn[1] * side[1] < 0 ? [-nn[0], -nn[1]] : nn;
+        if (!bestL || bestL.n) for (const ff of [1, 0.8, 0.6, 0.5]) { for (const qq of qs) { const pq = FOLLOW ? spanPath.get(`${p.id}|${qq.id}`) : null, u = pq ? unit(o0, alongP(pq, lw * ff)) : unit(o0, qq.A), L = dist2(o0, qq.A), nn = [-u[1], u[0]], sd0 = nn[0] * side[0] + nn[1] * side[1] < 0 ? [-nn[0], -nn[1]] : nn;
           for (const sv of [lw * ff / 2 + (p.rp || 1.2) + 0.6, lw * ff / 2, lw * ff / 4, 0, -lw * ff / 4, -lw * ff / 2, -(lw * ff / 2 + (p.rp || 1.2) + 0.6)]) { if (sv + lw * ff / 2 > L - rOfPt(qq) - 0.3) continue; // (its line on the cable, short of the next point; or on from the pole, past it)
             for (const sd of [sd0, [-sd0[0], -sd0[1]]]) { const Qx = add2(o0, u, sv), cx = add2(Qx, sd, lh * ff * 0.58), n = spots.hitsW(Spots.box(cx[0], cx[1], lw * ff, lh * ff * 0.84, deg(u)), W_L); // (its circle: no other symbol under it)
               if (!bestL || n < bestL.n - 1e-9 || (n < bestL.n + 1e-9 && ff < bestL.ff)) bestL = { Qx, sd, u, ff, n }; if (!n) break; } if (bestL && !bestL.n) break; } if (bestL && !bestL.n) break; } if (bestL && !bestL.n) break; }
@@ -2903,7 +2937,9 @@
       return [{ r: 0, t: lb[0] || '', ex: false, cab: s.cable || '' }, ...(s.more || []).map((cab, i) => ({ r: gap * (s.moreOff ? s.moreOff[i] : i + 1) * sg, t: lb[i + 1] || '', ex: !!(s.moreEx && s.moreEx[i]), cab }))];
     };
     const endPt = (p, toward) => blkEnd(inl.get(p), p.A, toward); // where the cable is drawn from: the pole's cable point, or the side of the block on the cable there
-    const geoOf = (P, Q) => { const a = endPt(P, Q.A), b = endPt(Q, P.A), t = unit(a, b), nl = [-t[1], t[0]]; return { a, b, t, nl, sg: roadSgn(P, Q, nl), rd: readable(deg(t)), m: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], L: dist2(a, b) }; };
+    const geoOf = (P, Q) => { const a = endPt(P, Q.A), b = endPt(Q, P.A); let t = unit(a, b), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const pth = FOLLOW ? spanPath.get(`${P.id}|${Q.id}`) : null; if (pth) { const Ls = pth.slice(1).map((q, i) => dist2(pth[i], q)), half = Ls.reduce((x, y) => x + y, 0) / 2; let acc = 0; for (let i = 0; i < Ls.length; i++) { if (acc + Ls[i] >= half) { const f = (half - acc) / (Ls[i] || 1); m = [pth[i][0] + (pth[i + 1][0] - pth[i][0]) * f, pth[i][1] + (pth[i + 1][1] - pth[i][1]) * f]; t = unit(pth[i], pth[i + 1]); break; } acc += Ls[i]; } } // (beta 6.1: a span following its road: its labels at the drawn line's middle, along it there)
+      const nl = [-t[1], t[0]]; return { a, b, t, nl, sg: roadSgn(P, Q, nl), rd: readable(deg(t)), m, L: dist2(a, b) }; };
     const leaders = []; let nLeaders = 0, nSmall = 0;
     const cableLabels = (lines, P, Q, ok, S0) => { // (v2.42.25: ok: the lines to label now; S0: the span's state kept between calls) how far the labels beside the cable reach on each side, from the cable's line (toward the road +)
       const { t, nl, sg, rd, m, L } = geoOf(P, Q), kS = TIDY ? kAt(m[0], m[1]) : 1, CTH = CL_TH / kS, CMN = CL_MIN / kS, CLS = CL_LAST / kS; // (beta 4.8: Tidy: on a finer grid, as much smaller)
@@ -3341,10 +3377,18 @@
        places the landmark names after the pole blocks, so a block never makes way for one; a name takes the room left: 1.6 mm high on the
        A3 sheet, a little further, then smaller to 1.3 mm at the least; where none is free at 1.3 mm its name is left out (its icon kept
        where it fits) and counted in the README. Standard: as before (2 m, then 1.6 m). */
-    const LM_MM = TIDY ? (v) => v / ((printK || 0.62) * NU) : null, LS = TIDY ? 1 / NU : 1, lmStat = { shrunk: 0, moved: 0, minMm: null };
+    const LM_MM = TIDY ? (v) => v / ((printK || 0.62) * NU) : null, LS = TIDY ? 1 / NU : 1, lmStat = { shrunk: 0, moved: 0, minMm: null, wrapped: 0, abbreviated: 0, abbrWrapped: 0 };
     const iconName = (i) => 'GESAA_LM_' + String(lmRefs[i] || i).replace(/^[cm]:/, '').replace(/[^A-Za-z0-9]+/g, '_').toUpperCase();
     const wantIcons = LMB ? [...new Set((job.pois || []).map((q) => q.icon).filter((i) => Number.isInteger(i) && i >= 0 && LMB[i]))] : [];
     if (wantIcons.length) { addLayer(d, S, LMLAY, 7); fillBlocks(d, S, wantIcons.map((i) => ({ name: iconName(i), icon: LMB[i] }))); }
+    // beta 6.1: the name on one or two lines as before (22 letters a line); wrapped onto k lines as evenly as it goes; the standard abbreviations
+    const lmWrap0 = (nm) => { const L = []; for (const w of nm.split(/\s+/)) { const l = L.length - 1; if (l >= 0 && (L[l] + ' ' + w).length <= 22) L[l] += ' ' + w; else L.push(w); } if (L.length > 2) { L.length = 2; L[1] = L[1].slice(0, 20) + '...'; } return L; }; // two lines at most
+    const lmWrapN = (nm, k) => { const w = nm.split(/\s+/); if (w.length < k) return null; let best = null; const go = (i, acc) => { if (acc.length === k - 1) { const L = [...acc, w.slice(i).join(' ')], m = Math.max(...L.map((x) => x.length)); if (!best || m < best.m) best = { L, m }; return; } for (let e = i + 1; e <= w.length - (k - 1 - acc.length); e++) go(e, [...acc, w.slice(i, e).join(' ')]); }; go(0, []); return best && best.m <= 30 ? best.L : null; };
+    const LM_AB_W = [['ELEMENTARY', 'ELEM.'], ['SCHOOL', 'SCH.'], ['NATIONAL', "NAT'L"], ['BARANGAY', 'BRGY.'], ['STREET', 'ST.'], ['AVENUE', 'AVE.'], ['CHURCH', 'CH.'], ['HOSPITAL', 'HOSP.'], ['MARKET', 'MKT.'], ['BUILDING', 'BLDG.'], ['CENTER', 'CTR.'], ['CENTRE', 'CTR.'], ['SUBDIVISION', 'SUBD.'], ['UNIVERSITY', 'UNIV.'], ['MEMORIAL', 'MEM.'], ['STATION', 'STA.'], ['CORPORATION', 'CORP.'], ['INCORPORATED', 'INC.']];
+    const LM_AB_P = [['NATIONAL HIGH SCHOOL', 'NHS'], ['ELEMENTARY SCHOOL', 'ES'], ['HIGH SCHOOL', 'HS']];
+    const abCase = (src, ab, acro) => (acro || src === src.toUpperCase() ? ab : src === src.toLowerCase() ? ab.toLowerCase() : ab.charAt(0) + ab.slice(1).toLowerCase()); // case kept
+    const abSub = (nm, list, acro) => list.reduce((t, [w, ab]) => t.replace(new RegExp('(^|[^A-Za-z0-9])(' + w.replace(/ /g, '\\s+') + ')(?=$|[^A-Za-z0-9])', 'gi'), (m0, pre, src) => pre + abCase(src, ab, acro)), nm);
+    const lmAbbr = (nm) => { const a = abSub(nm, LM_AB_W, false), b = abSub(abSub(nm, LM_AB_P, true), LM_AB_W, false); return [...new Set([a, b])].filter((x) => x !== nm); }; // the words, then the school names as letters too
     const lmMode = ['always', 'hide'].includes(job.lmMode) ? job.lmMode : 'room'; poiSkip.hidden = 0; let poisAlways = 0; // beta 3.8: landmark names (Drawing style → Crowded places)
     for (const poi of job.pois || []) {
       const name = String(poi.name || '').trim().toUpperCase(); if (!name || !Number.isFinite(poi.E) || !Number.isFinite(poi.N)) continue;
@@ -3353,28 +3397,35 @@
       const ic = Number.isInteger(poi.icon) && poi.icon >= 0 && S.blocks.has(iconName(poi.icon)) ? iconName(poi.icon) : null;
       const ib = ic ? Spots.box(q0[0], q0[1], ICON * 1.1, ICON * 1.1, 0) : null, useIcon = !!(ib && !spots.hits(ib) && !R.idx.inside(q0, -1, -1));
       if (lmMode === 'hide') { if (useIcon) { o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON }); spots.add(ib); nIcons++; } poiSkip.hidden++; placed.push({ name, q: q0 }); continue; } // (beta 3.8: hidden names: their icons only)
-      const lines = []; for (const w of name.split(/\s+/)) { const l = lines.length - 1; if (l >= 0 && (lines[l] + ' ' + w).length <= 22) lines[l] += ' ' + w; else lines.push(w); } // two lines at most
-      if (lines.length > 2) { lines.length = 2; lines[1] = lines[1].slice(0, 20) + '...'; }
-      const wide = lines.reduce((a, b) => (b.length > a.length ? b : a), ''), tall = lines.length;
+      // beta 6.1 (the owner: "wrap the text so that we can squeeze even more space or we can shorten the name example from elementary to
+      // elem only"): Tidy: a name with no room even at 1.3 mm is tried again wrapped onto two, then three lines, then shortened with
+      // standard abbreviations (whole words), then both, each from 1.6 mm down to 1.3 mm; the least change that fits wins and a name is
+      // left out only when none fits (Standard: as before)
+      const lmVars = [{ lines: lmWrap0(name), kind: '' }];
+      if (TIDY) { const seen = new Set([lmVars[0].lines.join('\n')]), addV = (L, kind) => { if (L && !seen.has(L.join('\n'))) { seen.add(L.join('\n')); lmVars.push({ lines: L, kind }); } };
+        for (const [nm, ab] of [[name, false], ...lmAbbr(name).map((x) => [x, true])]) { if (ab) addV(lmWrap0(nm), 'abbr'); for (const k of [2, 3]) addV(lmWrapN(nm, k), ab ? 'abbr+wrap' : 'wrap'); } }
       const nr = nearestRoad(R.roads, q0, 45), u = nr ? nr.dir : [1, 0], rd = readable(deg(u)), ru = [Math.cos(rd * Math.PI / 180), Math.sin(rd * Math.PI / 180)], rv = [-ru[1], ru[0]];
       const cands = [];
-      const bi = ICON * 0.55 + 2.0 * (1 + (5 / 3) * (tall - 1)) * 0.65 + 0.4; // with an icon: right beside it first
       // v2.39.1: the whole text off the roads; when nothing is free close by, a little further (to 20 m), then smaller (2.0)
-      let c = null; const allC = []; // (beta 3.8: every place tried, for Always)
       // v2.42.10: a size smaller (2 m, else 1.6 m: they crowded the plan), and their boxes as wide as AutoCAD draws the capitals, two
       // lines as tall as AutoCAD spaces them (the names overlapped one another in AutoCAD)
+      let c = null, used = lmVars[0]; const allC = []; // (beta 3.8: every place tried, for Always)
       const B1 = [0, 4, -4, 8, -8, 12, -12], A1 = [0, 5, -5, 10, -10], B2 = [16, -16, 20, -20], A2 = [0, 5, -5, 10, -10, 15, -15], B3 = [0, 3.5, -3.5, 7, -7, 10.5, -10.5, 14, -14, 17.5, -17.5], A3 = [0, 4, -4, 8, -8, 12, -12], sv = (L) => L.map((v) => v * LS);
       const B4 = [0, 5, -5, 10, -10, 15, -15, 20, -20, 25, -25], A4 = [0, 6, -6, 12, -12, 18, -18]; // (beta 6.0: Tidy: the smallest sizes a little further too)
       const LAD = TIDY ? [[LM_MM(1.6), sv(B1), sv(A1)], [LM_MM(1.6), sv(B2), sv(A2)], [LM_MM(1.6), sv(B3), sv(A3)], [LM_MM(1.45), sv(B4), sv(A4)], [LM_MM(1.3), sv(B4), sv(A4)]] : [[2.0, B1, A1], [2.0, B2, A2], [1.6, B3, A3]];
-      for (const [li, [th, B, A]] of LAD.entries()) {
-        const bs = useIcon && li === 0 ? [ICON * 0.55 + th * (1 + (5 / 3) * (tall - 1)) * 0.65 + 0.4 * LS, -(ICON * 0.55 + th * (1 + (5 / 3) * (tall - 1)) * 0.65 + 0.4 * LS), ...B] : B;
-        for (const b of bs) for (const a of A) { const q = add2(add2(q0, ru, a), rv, b), bx = textBox(q[0], q[1], th, wide, rd, 1, 2); bx.hw *= 1.3; bx.hh = th * (1 + (5 / 3) * (tall - 1)) * 0.65; if (!R.idx.inside(q, -1, -1) && !corners(bx).some((cq) => R.idx.inside(cq, -1, -1)) && inside(bx, W, 1)) cands.push({ q, th, boxes: [bx] }); }
-        c = cands.find((x) => !x.boxes.some((bb) => spots.hits(bb) || (useIcon && Spots.hit(bb, ib)))); if (c) { if (TIDY) { if (th < LAD[0][0] - 1e-9) lmStat.shrunk++; else if (li > 0 || dist2(c.q, q0) > 13 * LS) lmStat.moved++; const mm = th * (printK || 0.62) * NU; lmStat.minMm = lmStat.minMm == null ? mm : Math.min(lmStat.minMm, mm); } break; } allC.push(...cands); cands.length = 0;
+      for (const [vi, vr] of lmVars.entries()) {
+        const wide = vr.lines.reduce((a, b) => (b.length > a.length ? b : a), ''), tall = vr.lines.length;
+        for (const [li, [th, B, A]] of LAD.entries()) {
+          const bs = useIcon && li === 0 ? [ICON * 0.55 + th * (1 + (5 / 3) * (tall - 1)) * 0.65 + 0.4 * LS, -(ICON * 0.55 + th * (1 + (5 / 3) * (tall - 1)) * 0.65 + 0.4 * LS), ...B] : B;
+          for (const b of bs) for (const a of A) { const q = add2(add2(q0, ru, a), rv, b), bx = textBox(q[0], q[1], th, wide, rd, 1, 2); bx.hw *= 1.3; bx.hh = th * (1 + (5 / 3) * (tall - 1)) * 0.65; if (!R.idx.inside(q, -1, -1) && !corners(bx).some((cq) => R.idx.inside(cq, -1, -1)) && inside(bx, W, 1)) cands.push({ q, th, boxes: [bx] }); }
+          c = cands.find((x) => !x.boxes.some((bb) => spots.hits(bb) || (useIcon && Spots.hit(bb, ib)))); if (c) { if (TIDY) { if (th < LAD[0][0] - 1e-9) lmStat.shrunk++; else if (li > 0 || dist2(c.q, q0) > 13 * LS) lmStat.moved++; const mm = th * (printK || 0.62) * NU; lmStat.minMm = lmStat.minMm == null ? mm : Math.min(lmStat.minMm, mm); } break; } if (vi === 0) allC.push(...cands); cands.length = 0;
+        }
+        if (c) { used = vr; if (vr.kind) lmStat[vr.kind === 'wrap' ? 'wrapped' : vr.kind === 'abbr' ? 'abbreviated' : 'abbrWrapped']++; break; }
       }
       if (!c && lmMode === 'always' && allC.length) { c = allC.map((x) => ({ ...x, n: x.boxes.reduce((t, bb) => t + spots.hits(bb), 0) + (x.th < 2 ? 0.1 : 0) })).sort((a, b) => a.n - b.n)[0]; poisAlways++; } // (beta 3.8: Always: where it covers least)
       if (!c) { poiSkip.noRoom++; if (TIDY && useIcon) { o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON }); spots.add(ib); nIcons++; } continue; } // (beta 6.0: Tidy: its icon kept where it fits)
       if (useIcon) { o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON }); spots.add(ib); nIcons++; }
-      o.mtext(lay('House Number', 'MISC'), c.q[0], c.q[1], c.th, lines.map(mtextEsc).join('\\P'), { style: 'PDF Arial', att: 5, color: 7, dir: ru }); spots.add(c.boxes); placed.push({ name, q: q0 }); nPois++;
+      o.mtext(lay('House Number', 'MISC'), c.q[0], c.q[1], c.th, used.lines.map(mtextEsc).join('\\P'), { style: 'PDF Arial', att: 5, color: 7, dir: ru }); spots.add(c.boxes); placed.push({ name, q: q0 }); nPois++;
     }
     /* beta 4.7: Tidy: a loop's length, an ID or a span length the steps before left over another text (their place was worked out
        narrower than AutoCAD draws capitals, e.g. a loop's length over a dummy NAP's ID): slid a little along its line or out from it
@@ -3686,7 +3737,8 @@
     rep.partly = [...blanks].filter((k) => filled.has(k)).sort();
     if (job.debug) rep.pts = pts.map((p) => ({ id: p.id, poleId: p.poleId, el: p.el, dp: p.dp, A: p.A, kept: !!p.kept, moved: p.moved || 0, onPole: p.onPole ? p.onPole.id : null }));
     if (job.debug) rep.inline = [...inl.values()].map((it) => ({ b: it.b, at: it.at, hl: it.hl, hlo: it.hlo, hhi: it.hhi, hh: it.hh, sc: it.sc, rot: it.rot, box: blockBox(S, it.b, 0), boxT: blockBoxT(S, it.b), c: blockCenter(S, it.b) }));
-    if (TIDY) rep.landmarks = { placed: nPois, shrunk: lmStat.shrunk, moved: lmStat.moved, namesLeftOut: poiSkip.noRoom, smallestMm: lmStat.minMm == null ? null : +lmStat.minMm.toFixed(2) }; // beta 6.0
+    if (TIDY) rep.landmarks = { placed: nPois, shrunk: lmStat.shrunk, moved: lmStat.moved, namesLeftOut: poiSkip.noRoom, wrapped: lmStat.wrapped, abbreviated: lmStat.abbreviated, abbreviatedAndWrapped: lmStat.abbrWrapped, smallestMm: lmStat.minMm == null ? null : +lmStat.minMm.toFixed(2) }; // beta 6.0
+    if (WANT_RD) rep.cableRoute = { roads: R.roads.filter((r) => r.hw > 0).length, ...Object.fromEntries(Object.entries(routeLen).map(([k, g]) => [k, { spans: g.spans, following: g.bent, straightM: +g.straight.toFixed(1), drawnM: +g.road.toFixed(1), longerM: +(g.road - g.straight).toFixed(1), longerPct: g.straight ? +(100 * (g.road - g.straight) / g.straight).toFixed(2) : 0, followingSpans: g.list }])) }; // beta 6.1: the drawn lines against the straight ones (the written lengths are the measured ones)
     rep.counts = { ...o.n, cableLeaders: nLeaders, cableLabelsSmall: nSmall, closuresOnCable: nCloInl, ...(nCloOff ? { closuresAway: nCloOff } : {}), namesInCell: nInCell, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, poisHidden: poiSkip.hidden || 0, poisAlways: typeof poisAlways === 'number' ? poisAlways : 0, idsMovedAuto: nAutoIds, /* beta 3.8 */ landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesOffRoadLine: nCleared, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, loops: nLoop, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length, telcoArms: nTelco };
     /* beta 6.0 (the owner: "the bill of quantities on each grid … a slice per grid of the PMI as the total … only add the span length of
        each foc wherever the span length falls per grid"): on every GEO sheet a BILL OF QUANTITIES table with the PMI table's rows, each
