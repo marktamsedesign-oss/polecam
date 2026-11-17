@@ -944,9 +944,9 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
       const rowH = 28;
       cellRow(y0, rowH, [[0.12, 'ITEM NO.', it.no], [0.22, 'POLE ID', it.id], [0.66, 'LOCATION', it.location]], true);
       cellRow(y0 + rowH, rowH, [[0.34, 'TYPE · OWNER', it.type], [0.36, 'COORDINATES', it.coords], [0.3, 'DATE TAKEN', it.date]], false);
-      const py = y0 + rowH * 2 + 8, ph = h - rowH * 2 - 8 - (it.note ? 14 : 0), P = (it.photos || []).slice(0, 4), n = P.length;
+      const py = y0 + rowH * 2 + 8, ph = h - rowH * 2 - 8 - (it.note ? 14 : 0), P = (it.photos || []).slice(0, 12), n = P.length; // (beta 5.0: up to 12 photos)
       if (!n) { pdf.text(M, py + 6, 'No photo of this pole on the phone that made the report.', { size: 9, color: MUTED }); return; }
-      const cols = n === 1 ? 1 : 2, rows = Math.ceil(n / cols), gw = (CW - (cols - 1) * 8) / cols, gh = (ph - (rows - 1) * 8) / rows, capH = 12;
+      const cols = n === 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4, rows = Math.ceil(n / cols), gw = (CW - (cols - 1) * 8) / cols, gh = (ph - (rows - 1) * 8) / rows, capH = 12;
       P.forEach((p, j) => {
         const cx = M + (j % cols) * (gw + 8), cy = py + Math.floor(j / cols) * (gh + 8);
         pdf.rect(cx, cy, gw, gh, { fill: [0.96, 0.97, 0.97] });
@@ -959,8 +959,9 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
     if (!items.length) { pdf.addPage(); const y = head(true); pdf.text(M, y, 'No poles to report.', { size: 10 }); }
     for (let i = 0; i < items.length;) {
       pdf.addPage(); let y = head(pdf.pages.length === 1);
-      const bh = (BOTTOM - y - (per - 1) * 14) / per;
-      for (let k = 0; k < per && i < items.length; k++, i++) { block(items[i], y, bh); y += bh + 14; }
+      const big = (it) => !!it && (it.photos || []).length > 4, n = big(items[i]) ? 1 : per; // (beta 5.0: a pin with more than 4 photos gets a page of its own)
+      const bh = (BOTTOM - y - (n - 1) * 14) / n;
+      for (let k = 0; k < n && i < items.length; k++, i++) { if (k && big(items[i])) break; block(items[i], y, bh); y += bh + 14; }
     }
     reportFooters(pdf, { footer: model.footer || '', footer2: model.footer2 || '', attach: null }, M);
     return pdf;
