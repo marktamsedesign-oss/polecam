@@ -909,7 +909,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.44.4';
+  const APP_VER = '2.44.5';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
   const APP_BETA = '4.4'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
@@ -4391,12 +4391,14 @@
   function phSetOf(name) {
     const P = name ? pmeta(name).phSet : null, T = name && typeof tmTeam === 'function' ? tmTeam(name) : null;
     if (P && !P.free && T && T.role === 'fp') return { n: P.n, idp: P.idp !== false, docs: P.docs || {}, by: P.byName || 'your coordinator', locked: true };
-    return { n: S.phN || 2, idp: S.phIdp !== false, docs: S.phDocs || {}, by: '', locked: false };
+    return { n: S.phN || 2, idp: S.phIdp === true, docs: S.phDocs || {}, by: '', locked: false }; // (2.44.5: the pole ID close-up as photo 2 is off unless turned on)
   }
   const phN = (name) => Math.max(1, Math.min(4, Math.round(+phSetOf(name || S.project).n) || 2));
   const phIdp = (name) => phN(name) >= 2 && phSetOf(name || S.project).idp;
+  const PH_SITE_N = 10; // 2.44.5: a tower, OLT or ODC keeps up to 10 photos (poles: the photos per pin above)
+  const phNOf = (el, name) => (el === 'Site' || el === 'ODC' ? Math.max(PH_SITE_N, phN(name)) : phN(name));
   const phDoc = (k, name) => (k === 'dxf' ? 'main' : phSetOf(name || S.project).docs[k] || PH_DOC_DEF[k] || 'all');
-  const phMine = () => ({ n: S.phN || 2, idp: S.phIdp !== false, docs: { ...PH_DOC_DEF, ...(S.phDocs || {}) }, byName: (S.user && S.user.name) || '', free: S.phBy === 'phone', at: new Date().toISOString() }); // (free: the coordinator lets each phone choose)
+  const phMine = () => ({ n: S.phN || 2, idp: S.phIdp === true, docs: { ...PH_DOC_DEF, ...(S.phDocs || {}) }, byName: (S.user && S.user.name) || '', free: S.phBy === 'phone', at: new Date().toISOString() }); // (free: the coordinator lets each phone choose)
   const phOf = (r, k) => { const L = photosOf(r); return phDoc(k, r.project) === 'main' ? L.slice(0, 1) : L; }; // a record's photos for a document
   let stream = null, imageCapture = null, torchOn = false, wakeLock = null, camTarget = 'new', camBusy = false, camTick = 0, camPending = null, camSeq = 0;
   let photoOpts = null; // still-photo size: phones with 48–200 MP sensors are asked for about 12 MP (photos are kept at 2048 px anyway)
@@ -5668,7 +5670,7 @@
       its label, ×, Make main, and + Add photo up to the photos per pin. The grid PAT element photos had before v2.13. */
   function renderSvPhotos() {
     if (!ed || ed.acc) { $('phHead').hidden = true; $('photoStrip').classList.remove('phgrid'); $('idPh2Btn').hidden = true; return; }
-    const box = $('accPhotos'), X = ed.photos || [], N = phN(), main = !!$('edPhoto').getAttribute('src'), on = main && (N >= 2 || X.length > 0), lock = ed.lock === 'closed';
+    const box = $('accPhotos'), X = ed.photos || [], N = phNOf(ed.element || 'Pole'), main = !!$('edPhoto').getAttribute('src'), on = main && (N >= 2 || X.length > 0), lock = ed.lock === 'closed';
     $('photoStrip').classList.toggle('phgrid', on); box.hidden = !on; $('phHead').hidden = !on;
     const tag = X.find((x) => x.label === 'Pole tag'); $('idPh2Btn').hidden = !tag || lock; if (tag) $('idPh2Btn').textContent = `Read from photo ${X.indexOf(tag) + 2} (Pole tag)`;
     box.innerHTML = ''; if (!on) return;
@@ -11832,7 +11834,7 @@
   function renderPhSet() {
     const n = S.phN || 2;
     $('setPhN').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === n)));
-    $('setPhIdp').checked = S.phIdp !== false; $('setPhIdp').disabled = n < 2; $('setPhAuto').checked = S.phAuto !== false; $('setPhAuto').disabled = n < 2 || S.phIdp === false;
+    $('setPhIdp').checked = S.phIdp === true; $('setPhIdp').disabled = n < 2; $('setPhAuto').checked = S.phAuto !== false; $('setPhAuto').disabled = n < 2 || S.phIdp !== true;
     $('setPhBy').value = S.phBy === 'phone' ? 'phone' : 'co';
     const role = typeof tmRole === 'function' ? tmRole() : '', co = allProjects().filter((x) => { const T = typeof tmTeam === 'function' ? tmTeam(x) : null; return T && T.role === 'fp' && pmeta(x).phSet && !pmeta(x).phSet.free; });
     $('setPhBy').closest('label').hidden = role !== 'Coordinator'; // (only the coordinator chooses: on his partners' phones his setting is locked for his projects)
