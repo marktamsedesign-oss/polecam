@@ -909,7 +909,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.44.8';
+  const APP_VER = '2.44.9';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
   const APP_BETA = '4.4'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
@@ -1897,7 +1897,7 @@
       const [px, py] = drwPx(xy), bk = el === 'Pole' ? BK.get(String(p.id)) : null, r = bk ? bk.r + 2 * d : (el === 'Pole' ? 5 : 6) * d, prop = p.status === 'Proposed' || p.status === 'New';
       g.font = `600 ${fs}px ui-monospace, monospace`;
       const t = p.poleId || el, w = g.measureText(t).width;
-      const CLs = plStyle().clamp, inL = !ct || CLs.place === 'label', sub0 = near && el === 'Pole' ? [ct ? clampOf(p, drw.R, projPoints()).join('+') : '', (p.boq || {}).clamp || ''].filter(Boolean).join(' ') || (ct && CLs.hw ? hwShort(p, drw.R) : '') : ''; // v2.42.21: or its 12C hardware
+      const CLs = plStyle().clamp, inL = !ct || CLs.place === 'label', sub0 = near && el === 'Pole' ? [ct ? clampOf(p, drw.R, projPoints()).join('+') : '', (drw.R && hwOf(p, drw.R).noClamp ? '' : (p.boq || {}).clamp || '')].filter(Boolean).join(' ') || (ct && CLs.hw ? hwShort(p, drw.R) : '') : ''; // v2.42.21: or its 12C hardware
       const sub = inL ? sub0 : ''; if (!inL && sub0) clTags.push([px, py, r, sub0]);
       const tags = near && el === 'Pole' ? poleTags(it) : [];
       const fs2 = 9.5 * d; g.font = `600 ${fs2}px ui-monospace, monospace`; const w2 = sub ? g.measureText(sub).width : 0; g.font = `600 ${fs}px ui-monospace, monospace`;
@@ -3304,7 +3304,7 @@
     if ((all || []).some((q) => q !== p && q.boq && q.boq.p2p === p.id && /pole.?to.?pole/i.test(q.boq.guy || ''))) add('2A'); // the other end of a pole-to-pole guy
     return out;
   }
-  const clampOf = (p, R, all) => (p.boq && p.boq.clampType ? String(p.boq.clampType).split(' + ').filter(Boolean) : clampAuto(p, R, all || projPoints()));
+  const clampOf = (p, R, all) => (R && elemOf(p) === 'Pole' && hwOf(p, R).noClamp ? [] : p.boq && p.boq.clampType ? String(p.boq.clampType).split(' + ').filter(Boolean) : clampAuto(p, R, all || projPoints())); // (2.44.9: on a pole of the 12C light cable only, or a telco arm, no pole clamp, whatever the record says: the cable in place decides)
   /** v2.40: the sizes of each point for the KMZ, the CSV and the BOQ, a pole's CLAMP TYPE filled with the clamps the plan picks when its
       record leaves it blank (as on the plan); in a survey project only. Returns p => its sizes. */
   function boqFilled(pts) {
@@ -3323,7 +3323,7 @@
     if (LA.fib) pts.forEach((p) => { const E = LA.fib.list.get(p.id); if (!E) return; const f = m.get(p.id) || p.boq || {}, L2 = E.map((e) => e.len); // v2.42.20: a loop for each fiber there
       m.set(p.id, { ...f, mloop: 'Yes', ...(E.some((e) => e.why === 'auto') && !(p.mloop || loopYes(p.boq)) ? { mloopAuto: true } : {}), mloopN: E.length, mloopL: L2, mloopM: L2.length > 1 ? L2.join('+') : String(L2[0]) }); });
     pts.forEach((p) => { if (elemOf(p) !== 'Pole') return; const h = hwOf(p, R); if (!h.items.length && !h.noClamp) return; const f = m.get(p.id) || p.boq || {};
-      m.set(p.id, { ...f, hw: hwText(h.items), hwItems: h.items, noClamp: h.noClamp && !(p.boq && p.boq.clampType) }); });
+      m.set(p.id, { ...f, hw: hwText(h.items), hwItems: h.items, noClamp: h.noClamp, ...(h.noClamp ? { clamp: '', clampType: '' } : {}) }); }); // (2.44.9: the cable in place decides, over a clamp in the record)
     return (p) => m.get(p.id) || p.boq;
   }
   function routeAdvice(R) {
@@ -6916,7 +6916,7 @@
         }
         rows.appendChild(row); return;
       }
-      if (k === 'clamp' && !ed.boq.clampType && hwNow && hwNow.noClamp) { // v2.42.18: no pole clamp on this pole: no size
+      if (k === 'clamp' && hwNow && hwNow.noClamp) { // (2.44.9: also when a clamp type was given) // v2.42.18: no pole clamp on this pole: no size
         const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '2px 0 0'; n.textContent = hasTelcoArm(edLoopRec()) ? 'Not needed: no pole clamp for the cable on a telco arm.' : 'Not needed: no pole clamp on this pole (Light cable 12C only).';
         row.appendChild(n); rows.appendChild(row); return;
       }
@@ -7843,7 +7843,7 @@
     if (keys.includes('owner') && !b.owner) out.push({ tab: 'details', k: 'owner', t: 'Pole owner' });
     else if (keys.includes('ownerName') && isElecOwner(b.owner) && !b.ownerName) out.push({ tab: 'details', k: 'ownerName', t: 'Owner name (the coop)' }); // v2.42.18
     if (keys.includes('height') && !b.height) out.push({ tab: 'details', k: 'height', t: 'New Globe pole size' });
-    if (keys.includes('clamp') && !b.clamp && !(!b.clampType && (edHw() || {}).noClamp)) out.push({ tab: 'acc', k: 'clamp', t: 'Clamp size' }); // v2.42.18: not where no pole clamp goes
+    if (keys.includes('clamp') && !b.clamp && !(edHw() || {}).noClamp) out.push({ tab: 'acc', k: 'clamp', t: 'Clamp size' }); // v2.42.18: not where no pole clamp goes
     if (el === 'Pole' && ed.closure && !b.clo) out.push({ tab: 'onpole', k: 'clo', t: 'Hybrid closure size' });
     if (UG_BOXES.has(el) && ed.closure && !b.clo) out.push({ tab: 'details', k: 'clo', t: 'Closure size' });
     if (keys.includes('odf') && !b.odf) out.push({ tab: 'details', k: 'odf', t: 'ODF size' });
@@ -7887,7 +7887,7 @@
     const keys = edBoqKeys(), b = ed.boq || {}, out = [], hw = keys.includes('clamp') && !b.clamp && !b.clampType ? edHw() || {} : {}; // (the route model only when it matters)
     if (keys.includes('owner')) { if (!b.owner) out.push({ k: 'owner', t: 'Owner', tab: 'details' }); else if (keys.includes('ownerName') && isElecOwner(b.owner) && !b.ownerName) out.push({ k: 'ownerName', t: 'Owner name', tab: 'details' }); }
     if (keys.includes('height') && !b.height) out.push({ k: 'height', t: 'Pole size', tab: 'details' });
-    if (keys.includes('clamp') && !b.clamp && !(!b.clampType && hw.noClamp)) out.push({ k: 'clamp', t: 'Clamp size', tab: 'acc' });
+    if (keys.includes('clamp') && !b.clamp && !hw.noClamp) out.push({ k: 'clamp', t: 'Clamp size', tab: 'acc' });
     if (keys.includes('mloop') && !b.mloop && !edLoopOwn()) out.push({ k: 'mloop', t: 'Loop', tab: 'acc' });
     if (!ed.closure && b.cloNo !== 'Yes') out.push({ k: 'clo', t: 'Closure', tab: 'onpole' }); else if (ed.closure && !b.clo) out.push({ k: 'cloSz', t: 'Closure size', tab: 'onpole' });
     if (keys.includes('ground') && !b.ground) out.push({ k: 'ground', t: 'Grounding', tab: 'acc' });
@@ -10283,7 +10283,7 @@
     const TELCO_TYPES = new Set(['GT', 'BT']);
     const rows = pts.map((p) => { const [E, N] = U(p), el = elemOf(p), b = p.boq || {}, pre = typePrefix(p.poleType), own = String(b.owner || '').trim(), generic = !p.poleId || /^P{1,2}-?\d+$/i.test(p.poleId);
       return { id: p.id, poleId: p.poleId || '', el, status: p.status || '', mat: el === 'Pole' ? (TELCO_TYPES.has(pre) ? '' : pre) : '', tag: el === 'Pole' ? (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId) : '',
-        telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: b.clamp || '',
+        telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: el === 'Pole' && hwOf(p, R).noClamp ? '' : b.clamp || '', /* 2.44.9: the light cable's pole: its retractors and span clamps, no clamp size */
         armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon, telcoArm: el === 'Pole' && hasTelcoArm(p), // v2.42.1: the plan draws it
         mloop: el === 'Pole' && !!(p.mloop || loopYes(b) || LA.has(p.id) || OWN.has(p.id) || (LA.fib && LA.fib.list.has(p.id))), mloopM: el === 'Pole' ? (LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id)[0].len : loopLenAt(p, R, LA, OWN.get(p.id))) : 0,
         mloopL: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.len) : null, mloopR: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.n) : null, /* v2.42.25: each loop's cable (RUN) */ /* v2.42.20: a loop for each fiber there */ /* v2.42.17: + a closure's, a dummy NAP's, a riser's; v2.42.18: every NAP, LCP, pin; its own length */ nap: !!p.nap, napId: p.napId || '', nap2: el === 'Pole' && !!p.nap2, nap2Id: el === 'Pole' && p.nap2 ? p.nap2Id || '' : '', nap2Type: el === 'Pole' && p.nap2 ? b.nap2Type || '' : '', nap2Old: el === 'Pole' && !!p.nap2 && b.nap2St === 'Existing', closure: el === 'Pole' && !!p.closure, /* v2.42.17: (a box's closure is not drawn) */ closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
