@@ -1728,6 +1728,7 @@
     // grid
     const cellsI = I1 - I0 + 1, cellsJ = J1 - J0 + 1, gridAll = cellsI * cellsJ <= 900;
     const KMLAY = 'G-ESAA KEYMAP GRID'; if (kmNames.length) addLayer(d, S, KMLAY, 2);
+    const gridBoxes = []; // (beta 4.8: Tidy: the sheets' names, for spots)
     const gh = cell * 0.1; // v2.39: a tenth of the cell (the template's sample: a fifth, covering the plan; the company's plans: 4 to 12 %)
     for (let i = I0; i <= I1; i++) for (let j = J0; j <= J1; j++) {
       if (!gridAll && ![-1, 0, 1].some((di) => [-1, 0, 1].some((dj) => used.has(key(i + di, j + dj))))) continue;
@@ -1737,7 +1738,7 @@
         const nm = cellName(i, j), wN = arialW(nm, gh) * 1.12, mx = cell * 0.04, my = cell * 0.03, C4 = [[x0 + cell - mx, y0 + cell - my, 3, -1, -1], [x0 + mx, y0 + cell - my, 1, 1, -1], [x0 + cell - mx, y0 + my, 9, -1, 1], [x0 + mx, y0 + my, 7, 1, 1]];
         const nIn = ([x, y, , sx, sy]) => { const xa = Math.min(x, x + sx * wN) - 4, xb = Math.max(x, x + sx * wN) + 4, ya = Math.min(y, y + sy * gh) - 4, yb = Math.max(y, y + sy * gh) + 4; return samp.filter((q) => q[0] >= xa && q[0] <= xb && q[1] >= ya && q[1] <= yb).length; };
         const cN = C4.map((c) => [c, nIn(c)]).reduce((a, b) => (b[1] < a[1] ? b : a))[0];
-        o.mtext(lay('GRIDNO.', 'GRIDNO'), cN[0], cN[1], gh, nm, { att: cN[2] });
+        o.mtext(lay('GRIDNO.', 'GRIDNO'), cN[0], cN[1], gh, nm, { att: cN[2] }); gridBoxes.push(Spots.box(cN[0] + cN[3] * wN / 2, cN[1] + cN[4] * gh / 2, wN + gh * 0.2, gh * 1.2, 0)); // (kept free of the other labels, see spots)
       } else o.mtext(lay('GRIDNO.', 'GRIDNO'), x0 + cell - cell * 0.04, y0 + cell - cell * 0.03, gh, cellName(i, j), { att: 3 });
       if (kmNames.length) { // v2.42.10: for the KEYMAP sheet only (its layer frozen on the others): the cell's name large in the cell's
         // centre, yellow over a dark shadow (the small yellow name at the corner could not be read at the keymap's scale)
@@ -1763,6 +1764,7 @@
 
     /* the route: poles beside their road, the cable on the road side of the poles, every label where it does not overlap */
     const spots = new Spots(), byId = new Map(pts.map((p) => [String(p.id), p])), nb = new Map();
+    gridBoxes.forEach((b) => spots.add(b, 'grid')); // (beta 4.8: Tidy: no label over a sheet's name)
     // v2.41: the user's style for the numbers, the IDs of the points on the cable and the vicinity map (the app's Drawing style)
     const NS = { ...NUM_STYLE, ...(job.numStyle || {}) }, IDS = { ...ID_STYLE, ...(job.idStyle || {}) }, VS = { ...VIC_STYLE, ...(job.vicStyle || {}) };
     const idStyle = IDS.bold ? addBoldStyle(d, S, 'G-ESAA BOLD') || 'arial' : 'arial';
