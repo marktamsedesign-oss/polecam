@@ -661,17 +661,26 @@
     return out;
   }
   /** Roads touching bb and named landmarks inside nb (default bb) from decoded tile chunks: each road once (by its id), and a
-      landmark mapped both as a point and as an area once. Roads come in the shape of roadsFromOverpass. */
+      landmark mapped both as a point and as an area once. Roads come in the shape of roadsFromOverpass.
+      Every pack at once: the chunks may come from several road packs (a project on the border of two regions). A road is kept
+      in every pack it passes through; its id is its number in the data the pack was made from (ch._run: that data's date),
+      so packs of the same data share ids, and a road of a pack made from other data is the same road when it has the same
+      class, name, points and ends. */
   function roadPackFeatures(chunks, bb, nb) {
-    const seen = new Set(), roads = [], pois = [], P = nb || bb;
+    const seen = new Set(), shape = new Map(), roads = [], pois = [], P = nb || bb;
     for (const ch of chunks) {
+      const run = ch._run || '';
       for (const r of ch.r || []) {
-        if (seen.has(r[0])) continue;
+        const id = `${run}:${r[0]}`;
+        if (seen.has(id)) continue;
         const coords = rpCoords(r, 4); if (coords.length < 2) continue;
         let s = 90, w = 180, n = -90, e = -180;
         for (const [la, lo] of coords) { if (la < s) s = la; if (la > n) n = la; if (lo < w) w = lo; if (lo > e) e = lo; }
         if (n < bb[0] || s > bb[2] || e < bb[1] || w > bb[3]) continue;
-        seen.add(r[0]);
+        seen.add(id);
+        const g = `${r[1]}|${r[2]}|${coords.length}|${coords[0]}|${coords[coords.length - 1]}`, gr = shape.get(g);
+        if (gr !== undefined && gr !== run) continue; // the same road from a pack of other data
+        if (gr === undefined) shape.set(g, run);
         let h = String(r[1] || 'road'); if (/^track_grade/.test(h)) h = 'track'; else if (h === 'unknown') h = 'road';
         roads.push({ cls: MAJOR.has(h) ? 'OSM_ROAD_MAJOR' : MINOR.has(h) ? 'OSM_ROAD_MINOR' : 'OSM_ROAD_PATH', name: r[2] || '', coords, hw: h, lanes: '', width: '', bridge: !!(r[3] & 1), tunnel: !!(r[3] & 2) });
       }
