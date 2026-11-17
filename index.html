@@ -389,9 +389,14 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 #camTop{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));display:flex;justify-content:space-between;align-items:center;gap:8px;z-index:2}
 #camTop .pill{background:rgba(0,0,0,.55);border-radius:999px;padding:6px 12px;font-size:calc(13px * var(--fs));display:flex;gap:6px;align-items:center;color:#fff}
 #camBar{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;justify-items:center;padding:16px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 20px) max(16px,env(safe-area-inset-left,0px));background:#000}
-#shutter{width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:#868e96;transition:background .2s}
+#shutter{position:relative;width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:#868e96;transition:background .2s}
 #shutter.ok{background:#2f9e44}
+#shutter.wait{background:#f08c00}
 #shutter.bad{background:#e03131}
+#shutter.busy::after{content:'';position:absolute;inset:-11px;border-radius:50%;border:3px solid rgba(255,255,255,.25);border-top-color:#fff;animation:spin .8s linear infinite;pointer-events:none}
+#camFlash{position:absolute;inset:0;z-index:4;background:#fff;opacity:0;pointer-events:none}
+#camFlash.on{animation:camflash .22s ease-out}
+@keyframes camflash{from{opacity:.85}to{opacity:0}}
 #shutter.scan{background:#fff;border-color:#9cc1ff}
 #shutter:active{transform:scale(.94)}
 .camside{width:56px;height:56px;border-radius:50%;border:0;background:rgba(255,255,255,.14);color:#fff;display:grid;place-items:center}
@@ -458,6 +463,8 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 #pinInfo > *{pointer-events:auto}
 #coordBox{background:var(--surface);border-radius:8px;padding:4px 8px;font-size:calc(11px * var(--fs));box-shadow:var(--shadow);line-height:1.3}
 #coordBox.over{background:var(--bad);color:#fff}
+#pinGpsNote{font:600 calc(12px * var(--fs))/1.3 system-ui,sans-serif;color:var(--warn);max-width:min(62vw,360px)}
+#coordBox.over #pinGpsNote{color:#fff}
 #snapGps{min-height:36px;padding:0 12px;font-size:calc(13px * var(--fs));box-shadow:var(--shadow)}
 .edbody{gap:10px;padding-top:10px}
 .edbody .group{padding:12px;gap:10px}
@@ -801,6 +808,15 @@ body.routing #routeBar{z-index:525}
 #rtHint.tip button{border:0;border-radius:10px;background:#fff;color:#0f2547;font:800 calc(12.5px * var(--fs)) system-ui,sans-serif;padding:4px 12px;min-height:30px;cursor:pointer}
 .rb-advbox{margin:4px 0 0}.rb-advbox summary{cursor:pointer;color:#b35c00;font-size:calc(12.5px * var(--fs));font-weight:700}
 .span-icon .rt-pass{position:absolute;transform:translate(-50%,13px);font:700 calc(10.5px * var(--fs)) ui-monospace,monospace;color:#e8590c;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 2px #fff;white-space:nowrap}
+/* Grab the cable: a handle on each span of the RUN in the bar (32 px to the finger, 26 with a mouse; app.js grabR), what is being dragged, the hint over the open map on a computer */
+.span-icon .rt-grab{position:absolute;display:block;width:32px;height:32px;transform:translate(-50%,-50%);pointer-events:auto;cursor:grab;touch-action:none;-webkit-tap-highlight-color:transparent}
+.span-icon .rt-grab::before{content:"";position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-10px 0 0 -10px;border-radius:50%;background:#fff;border:3px solid currentColor;box-shadow:0 1px 4px rgba(0,0,0,.45)}
+.span-icon .rt-grab i{position:absolute;left:50%;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;font:normal 8px/10px system-ui,sans-serif;text-align:center;color:currentColor}
+@media (pointer:fine){.span-icon .rt-grab{width:26px;height:26px}.span-icon .rt-grab:hover::before{box-shadow:0 0 0 4px color-mix(in srgb,currentColor 30%,transparent),0 1px 4px rgba(0,0,0,.45)}}
+.span-icon .rt-lift{position:absolute;display:block;width:22px;height:22px;border-radius:50%;background:#fff;border:4px solid currentColor;transform:translate(-50%,-50%);box-shadow:0 2px 8px rgba(0,0,0,.45);pointer-events:none}
+.span-icon .rt-lift.pole{width:26px;height:26px;background:color-mix(in srgb,currentColor 22%,#fff)}
+body.rt-grabbing,body.rt-grabbing #map,body.rt-grabbing #map .leaflet-interactive,body.rt-grabbing .rt-grab{cursor:grabbing!important}
+body.deskpane.routing #rtHint{left:calc(var(--pw) + (100% - var(--pw) - var(--rpw)) / 2);max-width:calc(100% - var(--pw) - var(--rpw) - 24px)}
 #map.leaflet-container{touch-action:none}
 .est-bad{color:var(--bad);font-weight:600}
 
@@ -842,7 +858,7 @@ body.routing #routeBar{z-index:525}
 #editor .edbody{position:relative;z-index:1;margin-top:-16px;background:var(--bg);border-top:2px solid #9aa7bd;border-radius:18px 18px 0 0;box-shadow:0 -6px 14px rgba(11,23,48,.22);padding-top:20px}
 #edGrab{position:absolute;left:50%;top:7px;width:42px;height:5px;margin-left:-21px;border-radius:3px;background:#9aa7bd}
 #pinInfo{bottom:24px}#kbDone{bottom:24px}
-#coordBox{display:none}#coordBox.over,#coordBox.nogps{display:block}#pinLL,#pinUTM{display:none}#snapGps{margin-left:auto}
+#coordBox{display:none}#coordBox.over,#coordBox.nogps,#coordBox.gpsnote{display:block}#pinLL,#pinUTM{display:none}#snapGps{margin-left:auto}
 #edTop[hidden],#edTabs[hidden],#paneNav[hidden],#accGroup[hidden],#ugGroup[hidden]{display:none}
 #edTop{gap:8px}
 #edTop #elemTypeRow{gap:6px}#edTop #elemTypeRow.three{grid-auto-flow:row;grid-template-columns:minmax(0,1.2fr) minmax(0,.75fr) minmax(0,1.05fr)}
@@ -1366,6 +1382,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   </div>
   <div id="camStage">
     <video id="video" playsinline muted autoplay></video>
+    <i id="camFlash" aria-hidden="true"></i>
     <div id="idGuide" hidden><span id="idGuideText">Fit the pole ID inside the box</span></div>
     <i id="tapRing" hidden></i>
     <i id="swipeLine" hidden></i>
@@ -1403,7 +1420,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <button class="round" id="pinSizeBtn" type="button" aria-label="Bigger map" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <div id="pinLayer"><span id="pinLayerName">Street</span><button class="round" id="pinLayerBtn" type="button" aria-label="Switch map: street, satellite or offline map pack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button></div>
     <div id="pinInfo">
-      <div id="coordBox" class="mono"><div id="pinLL">–</div><div id="pinUTM">–</div><div id="pinDelta"></div></div>
+      <div id="coordBox" class="mono"><div id="pinLL">–</div><div id="pinUTM">–</div><div id="pinDelta"></div><div id="pinGpsNote" role="status" hidden></div></div>
       <button class="btn" id="snapGps">Reset to GPS</button>
     </div>
   </div>
@@ -2007,7 +2024,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     </div>
     <div class="group">
       <h3>Photo checks</h3>
-      <p class="hint">A photo is taken only when the GPS updated within the last 5 seconds (green shutter). Dark, blank and blurry photos are refused and must be retaken.</p>
+      <p class="hint">The shutter is green when the GPS updated within the last 5 seconds. A survey photo is always kept: with an older or less accurate fix, or none yet (amber shutter), its location is refined by the next good fix within 20 seconds, unless you move the pin yourself. PAT, cleanup and FAT photos need a GPS update within the last 15 seconds (red shutter: wait for green). Dark, blank and blurry photos are refused and must be retaken.</p>
       <label class="field">Sharpness required<select id="setQuality"><option value="strict">Strict (recommended)</option><option value="normal">Normal: refuse only clearly blurry</option></select></label>
       <p class="hint" id="qualityNote"></p>
     </div>
