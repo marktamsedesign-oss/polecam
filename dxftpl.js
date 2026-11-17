@@ -2546,6 +2546,7 @@
       const HARD = (t) => (t === 'road' ? 0 : 1), ROADX = (t) => (t === 'road' ? 1 : 0), LEADW = (t) => (t === 'road' ? 0 : t === 'cable' ? 0.01 : 1);
       const D8 = [[1, 1], [1, 0], [1, -1], [-1, 1], [-1, 0], [-1, -1], [0, 1], [0, -1]], D16 = [...Array(16)].map((_, k) => rotv([1, 0], k * 22.5));
       const tPoles = tidyTodo.map((T) => T.p), toCheck = [];
+      const TIERS_B = [[1.0, 0], [0.5, 0], [1.0, 1], [0.5, 1], [0.15, 0], [0.15, 1], [0, 0], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1]]; // (beta 4.8: a pole's block: the clearance and across the cable only; the road comes first, see below; as many as TIERS)
       const TIERS = [[1.0, 0, 0], [0.5, 0, 0], [1.0, 0, 1], [0.5, 0, 1], [1.0, 1, 0], [0.5, 1, 0], [1.0, 1, 1], [0.5, 1, 1], [0.15, 0, 0], [0.15, 0, 1], [0.15, 1, 0], [0.15, 1, 1], [0, 0, 0], [0, 0, 1], [0, 1, 0], [0, 1, 1]]; // (clearance, across the cable, across a road edge line)
       const LBLW = (t) => (/^label|^street/.test(t || '') ? 1 : 0), COVW = (t, b) => (t === 'road' ? 0 : t === 'cable' || Math.min(b.hw, b.hh) <= 0.25 ? 0.35 : t === 'photo' ? 0.6 : 1), dBox = (q, b) => { const dx = q.dp[0] - b.cx, dy = q.dp[1] - b.cy; return Math.hypot(Math.max(Math.abs(dx * b.ux + dy * b.uy) - b.hw, 0), Math.max(Math.abs(dx * b.vx + dy * b.vy) - b.hh, 0)); }; // (COVW, where no place is free: across a line rather than over a photo, over a photo rather than a text or a symbol; dBox: how far a pole is from a box, level or turned)
       const wOf = (s, hh) => arialW(String(s).replace(/×/g, 'x'), hh) * 1.12 + hh * 0.1; // (× as wide as an x; a little wider than the estimate)
@@ -2613,7 +2614,8 @@
           const G = tidyGeo(T, c); let qx = xl, qy = yl, dl = Infinity;
           for (const [x0, yt, w, hh] of G.rects) { const px = Math.min(Math.max(xl, x0), x0 + w), py = Math.min(Math.max(yl, yt - hh), yt), d = Math.hypot(px - xl, py - yl); if (d < dl) { dl = d; qx = px; qy = py; } } // (the nearest point of its lines, not of the box round them)
           if (dl > r0 + 1.3 / kk) { const qw = G.W(qx, qy), u = [(qw[0] - x) / dl, (qw[1] - y) / dl], a = add2(p.dp, u, p.rp + 0.3 / kk), e = [qw[0] - u[0] * 0.4 / kk, qw[1] - u[1] * 0.4 / kk]; c.lead = [a, e]; c.lbox = Spots.box((a[0] + e[0]) / 2, (a[1] + e[1]) / 2, dist2(a, e), 0.3 / kk, deg(u)); c.ebox = Spots.box(e[0], e[1], 2.2 / kk, 2.2 / kk, 0); } // (ebox: round its end, where no other label may be: the line would seem to lead to it)
-          c.tb = Spots.box(c.cx, c.cy, Wt, Ht, c.ang || 0); c.inC = cellHolds({ ...c.tb, hw: c.tb.hw / 1.3 }, p.E, p.N);
+          c.tb = Spots.box(c.cx, c.cy, Wt, Ht, c.ang || 0); c.inC = cellHolds({ ...c.tb, hw: c.tb.hw / 1.3 }, p.E, p.N); c.xc = 0;
+          if (!c.inC && SPLIT && T.u && cellHolds({ ...c.tb, hw: c.tb.hw / 1.3 }, c.cx, c.cy)) { c.inC = true; c.xc = 40; } // (beta 4.8: wholly on the detail sheet next to its pole's, rather than cut by the sheet's edge or over the road)
           c.onRoad = T.u && R.idx.inside([c.cx, c.cy], -1, 0) ? 1 : 0; // (beta 4.8: a pole's block on the road itself)
           const r1 = G.rects[0], hm = G.W(r1[0] + r1[2] / 2, r1[1] - r1[3] / 2), hb = Spots.box(hm[0], hm[1], r1[2], r1[3], c.ang || 0);
           c.mine = [c.tb, hb].every((b) => { const d0 = dBox(p, b) - 0.01; return nbs.every((q) => dBox(q, b) >= d0); });
@@ -2632,7 +2634,7 @@
             const kk = clr; if (!(kk in m)) { const big = Spots.box(c.cx, c.cy, W + 2 * clr * ck, Hb + 2 * clr * ck, c.ang || 0); m[kk] = !!(spots.hitsW(big, HARD) || tx.hits(big)); } if (m[kk]) continue;
             if (m.ln === undefined) { m.ln = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0; m.lt = !!(c.lbox && (tx.hits(c.lbox) || tx.hits(c.ebox) || spots.hitsW(c.ebox, LBLW))); m.g = txG.hits(c.tb) ? 30 : 0; }
             if (m.ln >= 1 || (m.ln > 0 && !xCab) || m.lt) continue;
-            const tot = c.cost + 14 * m.rx + (m.ln > 0 ? 30 : 0) + m.g + (m.lr ? 25 : 0); // (a road edge line through the label: worse than a place one ring further out; beta 4.8: its line across a road edge line: worse than two rings further out)
+            const tot = c.cost + c.xc + 14 * m.rx + (m.ln > 0 ? 30 : 0) + m.g + (m.lr ? 25 : 0); // (a road edge line through the label: worse than a place one ring further out; beta 4.8: its line across a road edge line: worse than two rings further out)
             if (!best || tot < best.tot) best = { ...c, tot, clr, rx: m.rx };
           }
           break; /* (beta 4.8: the loops take the usual first level only (quick where it is free); the other levels in one pass below) */ } break; } break; } break; }
@@ -2643,11 +2645,12 @@
             let m = memo.get(c); if (!m) { m = { rx: spots.hitsW(c.tb, ROADX) + c.onRoad, lr: c.lbox ? spots.hitsW(c.lbox, ROADX) : 0 }; memo.set(c, m); }
             if (m.ln === undefined) { m.ln = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0; m.lt = !!(c.lbox && (tx.hits(c.lbox) || tx.hits(c.ebox) || spots.hitsW(c.ebox, LBLW))); m.g = txG.hits(c.tb) ? 30 : 0; }
             if (m.ln >= 1 || m.lt) continue;
-            const base = ((sL * 2 + (c.inC ? 0 : 1)) * 2 + (T.Y ? 0 : m.lr ? 1 : 0)) * TIERS.length; if (base >= bk) continue;
-            let ti = -1; for (let i = 0; i < TIERS.length && base + i < bk; i++) { const [clr, xCab, rd] = TIERS[i]; if ((!rd && m.rx) || (m.ln > 0 && !xCab)) continue; if (!(clr in m)) { const big = Spots.box(c.cx, c.cy, W + 2 * clr * ck, Hb + 2 * clr * ck, c.ang || 0); m[clr] = !!(spots.hitsW(big, HARD) || tx.hits(big)); } if (!m[clr]) { ti = i; break; } }
+            // (beta 4.8: a pole's block: off the road before anything else (its line across a road edge line before the block over the road), then inside one sheet, then the clearance)
+            const base = T.u ? ((sL * 4 + (m.rx ? 2 : 0) + (m.lr ? 1 : 0)) * 2 + (c.inC ? 0 : 1)) * TIERS.length : ((sL * 2 + (c.inC ? 0 : 1)) * 2 + (T.Y ? 0 : m.lr ? 1 : 0)) * TIERS.length; if (base >= bk) continue;
+            let ti = -1; for (let i = 0; i < TIERS.length && base + i < bk; i++) { const [clr, xCab, rd0] = T.u ? TIERS_B[i] : TIERS[i], rd = T.u ? 1 : rd0; if ((!rd && m.rx) || (m.ln > 0 && !xCab)) continue; if (!(clr in m)) { const big = Spots.box(c.cx, c.cy, W + 2 * clr * ck, Hb + 2 * clr * ck, c.ang || 0); m[clr] = !!(spots.hitsW(big, HARD) || tx.hits(big)); } if (!m[clr]) { ti = i; break; } }
             if (ti < 0) continue;
-            const key = base + ti, tot = c.cost + 14 * m.rx + (m.ln > 0 ? 30 : 0) + m.g + (m.lr ? 25 : 0);
-            if (key < bk || (key === bk && tot < best.tot)) { bk = key; best = { ...c, tot, clr: TIERS[ti][0], rx: m.rx }; }
+            const key = base + ti, tot = c.cost + c.xc + 14 * m.rx + (m.ln > 0 ? 30 : 0) + m.g + (m.lr ? 25 : 0);
+            if (key < bk || (key === bk && tot < best.tot)) { bk = key; best = { ...c, tot, clr: (T.u ? TIERS_B : TIERS)[ti][0], rx: m.rx }; }
           }
         }
         if (!best) { // no free place: the one nearest to its own pole that covers least, its line kept (across a line or a symbol rather than a text); listed in the README to check
