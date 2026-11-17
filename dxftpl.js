@@ -1119,7 +1119,7 @@
     /** v2.39.1: the overlaps weighted by what is covered (w(tag)): crossing a road edge line counts little, a label or symbol fully. */
     hitsW(b, w) {
       if (!this.g) return 0;
-      let n = 0; const seen = new Set(), test = (x) => { if (x._k > 0 && !seen.has(x)) { seen.add(x); if (Spots.hit(b, x)) n += x._k * w(x.tag); } };
+      let n = 0; const seen = new Set(), test = (x) => { if (x._k > 0 && !seen.has(x)) { seen.add(x); if (Spots.hit(b, x)) n += x._k * w(x.tag, x); } }; // (beta 4.7: w also sees the box, e.g. how thin it is)
       this.big.forEach(test);
       if (!this.cellsOf(b, (k) => { const a = this.g.get(k); if (a) a.forEach(test); })) this.list.forEach(test);
       return n;
@@ -1144,6 +1144,7 @@
     return Spots.box(x + ux * du + vx * dv, y + uy * du + vy * dv, w + h * 0.3, h * 1.25, deg);
   }
   const ROADLINE_W = (t) => (t === 'road' ? 0.2 : 1); // v2.39.1: a text across a road edge line is better than over a label
+  const TIDY_SMALL = 0.6; // beta 4.7: Labels Tidy: the height of a pole label's smaller lines (attachments, owner, lat/long), a share of its first line's (at the smallest size, 0.9 m, as Standard's lat/long)
   const POLELBL_W = (t) => (t === 'road' ? 1 : t === 'cable' ? 2.5 : 4); // v2.41: a pole's label: over a road edge line rather than the cable, over the cable rather than another label
   const NUM_W = (t) => (t === 'road' || t === 'cable' ? 0 : 1); // v2.41.1: a number's box (its circle is checked against the road itself)
   const LEAD_W = () => 1, LEAD_W2 = (t) => (t === 'road' || t === 'cable' ? 0 : 1); // v2.41.1: what a number's leader line may not cross
@@ -2062,7 +2063,7 @@
       if (it.kind === 'clo') { spots.add(Spots.box(it.at[0], it.at[1], it.hh * 2, it.hh * 2, 0)); continue; } // v2.42.24: drawn with its texts, below
       for (const x of it.parts || [it]) { o.insert(x.layer, x.b, x.at[0], x.at[1], { scale: x.sc, rot: x.rot, center: true }); spots.add(Spots.box(x.at[0], x.at[1], x.hl * 2, x.hh * 2, x.rot)); nInline++; }
     }
-    let nAutoIds = 0; const placeIds = () => { // (beta 3.8: with Crowded places Auto, after the pole labels: they keep their place first)
+    let nAutoIds = 0; const idLeadOf = new Map(); const placeIds = () => { // (idLeadOf: an ID's text -> its thin line back to its block, beta 4.7: the line follows the ID when Tidy slides it) // (beta 3.8: with Crowded places Auto, after the pole labels: they keep their place first)
     for (const it of [...inl.values()].flatMap((x) => (x.parts ? x.parts.map((y) => ({ ...y, kind: x.kind })) : [x]))) { // (v2.42: each box's own ID)
       if (!it.label || it.kind === 'clo') continue;
       const rr = it.odc ? 0 : readable(it.rot), ux = [Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], dn = [ux[1], -ux[0]], th0 = IDS.h; // (the ODC's picture is upright: its ID level under it)
@@ -2080,10 +2081,10 @@
         const c2 = xs.find((x) => x.boxes.reduce((t, b) => t + spots.hitsW(b, ROADLINE_W), 0) === 0); if (c2) { c = c2; nAutoIds++; }
       }
       const ly = it.kind === 'nap' ? lay('Proposed NAP ID', 'MISC') : it.kind === 'ODC' ? it.layer : lay('MISC');
-      idText(ly, c.q[0], c.q[1], c.th, it.label, rr, it.col); spots.add(c.boxes);
+      const idR = idText(ly, c.q[0], c.q[1], c.th, it.label, rr, it.col); spots.add(c.boxes);
       if (c.far > 3 && job.crowd && job.crowd.leader !== false) { // (a thin line back to its block)
         const b = c.boxes[0], d0 = [c.q[0] - it.at[0], c.q[1] - it.at[1]], dl = Math.hypot(d0[0], d0[1]) || 1, u = [d0[0] / dl, d0[1] / dl], ext = Math.abs(u[0] * b.ux + u[1] * b.uy) * b.hw + Math.abs(u[0] * b.vx + u[1] * b.vy) * b.hh;
-        const a = add2(it.at, u, (it.hl || it.hh) + 0.3), e = add2(c.q, u, -(ext + 0.3)); if (dist2(a, e) > 0.8) { o.lwpoly(lay('MISC'), [a, e], { color: 8 }); spots.line([a, e], 0.3); }
+        const a = add2(it.at, u, (it.hl || it.hh) + 0.3), e = add2(c.q, u, -(ext + 0.3)); if (dist2(a, e) > 0.8) { idLeadOf.set(idR, o.lwpoly(lay('MISC'), [a, e], { color: 8 })); spots.line([a, e], 0.3); }
       }
     }
     };
@@ -2339,14 +2340,17 @@
         o.text(lk.layer && lk.layer !== '0' ? lay(lk.layer) : lay(p.sym.layer), q[0], q[1], hq, v, { rot: c.rr, ha: c.ha, va: 2, style: 'arial', color: isCl && CS.color ? +CS.color : sc ? sc : lk.color != null ? +lk.color : null }); }); // (v2.42.21: the clamp types in the style's colour)
       if (!tidy) o.mtext(lay('LATLONG'), c.llAt[0], c.llAt[1], HL, ll, { style: '样式 1', att: c.flip ? 6 : 4, dir: [Math.cos(c.rr * Math.PI / 180), Math.sin(c.rr * Math.PI / 180)], color: +PST.llColor || null });
       p.ov = c.ov; p._rr = c.rr;
-      if (tidy) { // beta 4.7: Tidy: one level label (line 1 tag · type, line 2 the attachments), the lines' colours as the Standard label's
+      if (tidy) { // beta 4.7: Tidy: one level label: line 1 tag · type; under it, smaller (one size for all), the attachments, the owner and the lat/long, each in the Standard label's colour and on its layer
         const prop = p.sym.r === POLE_SYM.prop.r, tel = p.sym.b === 'existing telecom pole', [kId, kTy, kCl] = prop ? ['GT-POLE', 'PHEIGHT', 'POLE_CLAMP'] : tel ? ['GT-001', 'OC', ''] : ['NPT', 'CC', 'B'];
         const id = prop ? p.label1 || 'PROP.POLE' : tel ? bare(p.poleId || '') : tag, ty = prop ? p.height || '' : p.mat || '', l2 = String((clIn ? (prop ? stackCl : stackSz) : [clT, p.hw].filter(Boolean).join(' ')) || '').trim();
         const lkOf = (k) => look.get(k) || {}, colOf = (k, isCl) => { const lk = lkOf(k), sc = prop || isCl ? 0 : +PST.idColor || 0; return isCl && CS.color ? +CS.color : sc ? sc : lk.color != null ? +lk.color : null; };
-        const lk0 = lkOf(kId), layT = lk0.layer && lk0.layer !== '0' ? lay(lk0.layer) : lay(p.sym.layer), c0 = colOf(kId, false), cT = colOf(kTy, false), cC = colOf(kCl, true);
+        const layOf = (k) => { const lk = lkOf(k); return lk.layer && lk.layer !== '0' ? lay(lk.layer) : lay(p.sym.layer); }, layT = layOf(kId), c0 = colOf(kId, false), cT = colOf(kTy, false);
         const run = (s, cl) => (cl === c0 ? mtextEsc(s) : `{\\C${cl == null ? 256 : cl};${mtextEsc(s)}}`); // (a part in another colour than the label's)
-        const l1 = [id, ty].filter((v) => String(v || '').trim()).join(' · ') || 'NPT';
-        tidyTodo.push({ p, h: H, l1, l2, layer: layT, color: c0, text: (id && ty ? mtextEsc(id) + run(` · ${ty}`, cT) : mtextEsc(l1)) + (l2 ? `\\P${run(l2, cC)}` : '') });
+        const l1 = [id, ty].filter((v) => String(v || '').trim()).join(' · ') || 'NPT', hs = H * TIDY_SMALL, sm = [], ownL = shown.find(isOwn), lkO = lkOf('');
+        if (l2) sm.push({ s: l2, layer: clIn ? layOf(kCl) : null, color: clIn ? colOf(kCl, true) : +CS.color || null, wrap: true }); // (clamps as a tag or a callout: on their own layer, as Standard's tag: clLay, made by clTag below)
+        if (ownL) sm.push({ s: ownL[1], layer: layOf(''), color: +PST.ownColor || +PST.idColor || (lkO.color != null ? +lkO.color : null) });
+        sm.push({ s: `${lat}, ${lon}`, mt: `${p.lat.toFixed(6)}%%D, ${p.lon.toFixed(6)}%%D`, layer: lay('LATLONG'), color: +PST.llColor || null }); // (on one line)
+        tidyTodo.push({ p, h: H, hs, l1, sm, layer: layT, color: c0, text: id && ty ? mtextEsc(id) + run(` · ${ty}`, cT) : mtextEsc(l1) });
       }
       if (!clIn && (clT || p.hw)) clTag(p, [clT, p.hw].filter(Boolean)); // v2.42.21
     }
@@ -2803,15 +2807,17 @@
       o.mtext(lay('House Number', 'MISC'), c.q[0], c.q[1], c.th, lines.map(mtextEsc).join('\\P'), { style: 'PDF Arial', att: 5, color: 7, dir: ru }); spots.add(c.boxes); placed.push({ name, q: q0 }); nPois++;
     }
     /* beta 4.7: Labels: Tidy. Everything else is placed (where Standard puts it); the Standard labels' places are given back and each
-       pole gets one level label, all of one size: 8 places round the pole first (the side its Standard label took first), then further
-       out with a short line to the pole; about 1 m clear of every label, street name, cable, symbol, photo and photo line (0.5 m, then
-       0.15 m where a pole has no such room), inside the pole's own GEO sheet; crossing a road edge line costs a little. */
+       pole gets one level label (its first line at the pole label's size, the rest smaller, TIDY_SMALL): places round the pole first
+       (the side its Standard label took first), then further out with a thin line to the pole; never nearer another pole than its own;
+       about 1 m clear of every label, street name, cable, symbol, photo and photo line (0.5 m, then 0.15 m where a pole has no such
+       room), inside the pole's own GEO sheet, clear of road edge lines where it can be. Where no place is free: the one nearest its own
+       pole covering least, its line kept, listed in the report's notes (and the labels round it tried again with it first). */
     if (tidy) {
       for (const b of tidyStd) b._k--;
       // every text written so far (IDs, closures' attributes, span lengths, cable labels, loops, street names, landmarks, the grid's
       // numbers…), its box as wide as AutoCAD draws it in Arial and a little more (the places' estimate is narrower for capitals)
       const MOVABLE = new Set(['PROPOSED LOOP', 'Proposed NAP ID', 'MISC', 'Distance Data'].filter((n) => S.layers.has(n))); // (loops, IDs, span lengths, cable names; not a street name, a number (it has its circle) or a cable's label (its arrow); only the template's own layers: none of layer 0, where a template without them puts everything)
-      const tx = new Spots(), txG = new Spots(), tRecs = [], gv = (r, c, dv) => { const q = r.find((x, i) => i > 0 && x[0] === c); return q ? q[1] : dv; };
+      const tx = new Spots(), txG = new Spots(), txR = new Spots(), tRecs = [], gv = (r, c, dv) => { const q = r.find((x, i) => i > 0 && x[0] === c); return q ? q[1] : dv; }; // (txR: the same texts at their real size, no margin: what really overlaps)
       const mplain = (s) => String(s).replace(/\\P/g, '\n').replace(/\\[A-Za-z][^;\\{}]*;/g, '').replace(/[{}]/g, '').replace(/%%[dD]/g, '°');
       for (const r of o.model) {
         const t = r[0][1]; if ((t !== 'TEXT' && t !== 'ATTRIB' && t !== 'MTEXT') || [KMLAY, VLAY, VMAP].includes(gv(r, 8, ''))) continue;
@@ -2820,64 +2826,103 @@
           const L = mplain(r.filter((x, i) => i > 0 && (x[0] === 3 || x[0] === 1)).map((x) => x[1]).join('')).split('\n'), w = Math.max(...L.map((l) => arialW(l, h0))) * 1.12, Hm = h0 + (L.length - 1) * h0 * 5 / 3 * (+gv(r, 44, 1) || 1);
           const at = parseInt(gv(r, 71, '1'), 10) || 1, cl = (at - 1) % 3, rw = Math.floor((at - 1) / 3), a = Math.atan2(+gv(r, 21, 0), +gv(r, 11, 1)), u = [Math.cos(a), Math.sin(a)], du = w * (0.5 - cl * 0.5), dv = Hm * (rw * 0.5 - 0.5);
           (gv(r, 8, '') === lay('GRIDNO.', 'GRIDNO') ? txG : tx).add(Spots.box(+gv(r, 10, 0) + u[0] * du - u[1] * dv, +gv(r, 20, 0) + u[1] * du + u[0] * dv, w + h0 * 0.3, Hm + h0 * 0.3, a * 180 / Math.PI)); // (the sheet's big grid number: covered rather than a label far from its pole)
+          if (gv(r, 8, '') !== lay('GRIDNO.', 'GRIDNO')) txR.add(Spots.box(+gv(r, 10, 0) + u[0] * du / 1.12 - u[1] * dv, +gv(r, 20, 0) + u[1] * du / 1.12 + u[0] * dv, w / 1.12, Hm, a * 180 / Math.PI));
         } else {
           const w = arialW(gv(r, 1, ''), h0) * 1.12, ha = parseInt(gv(r, 72, '0'), 10) || 0, va = parseInt(gv(r, t === 'ATTRIB' ? 74 : 73, '0'), 10) || 0, a = +gv(r, 50, 0) * Math.PI / 180, u = [Math.cos(a), Math.sin(a)];
           const x0 = ha || va ? +gv(r, 11, 0) : +gv(r, 10, 0), y0 = ha || va ? +gv(r, 21, 0) : +gv(r, 20, 0), du = ha === 1 || ha === 4 ? 0 : ha === 2 ? -w / 2 : w / 2, dv = va === 2 ? 0 : va === 3 ? -h0 * 0.5 : h0 * 0.5;
-          const bx = tx.add(Spots.box(x0 + u[0] * du - u[1] * dv, y0 + u[1] * du + u[0] * dv, w + h0 * 0.3, h0 * 1.25, a * 180 / Math.PI));
-          if (t === 'TEXT' && MOVABLE.has(gv(r, 8, '')) && +gv(r, 62, 0) !== 250) tRecs.push({ r, bx, u, x0, y0, h0, a }); // (the texts that may slide: no number, which has its circle)
+          const bx = tx.add(Spots.box(x0 + u[0] * du - u[1] * dv, y0 + u[1] * du + u[0] * dv, w + h0 * 0.3, h0 * 1.25, a * 180 / Math.PI)), rb = txR.add(Spots.box(x0 + u[0] * du / 1.12 - u[1] * dv, y0 + u[1] * du / 1.12 + u[0] * dv, w / 1.12, h0, a * 180 / Math.PI));
+          if (t === 'TEXT' && MOVABLE.has(gv(r, 8, '')) && +gv(r, 62, 0) !== 250) tRecs.push({ r, bx, rb, u, x0, y0, h0, a }); // (the texts that may slide: no number, which has its circle)
         }
       }
       const HARD = (t) => (t === 'road' ? 0 : 1), ROADX = (t) => (t === 'road' ? 1 : 0), LEADW = (t) => (t === 'road' ? 0 : t === 'cable' ? 0.01 : 1);
       const D8 = [[1, 1], [1, 0], [1, -1], [-1, 1], [-1, 0], [-1, -1], [0, 1], [0, -1]], D16 = [...Array(16)].map((_, k) => rotv([1, 0], k * 22.5));
-      const T7 = { labels: 0, leaders: 0, closer: 0, notFree: 0 };
-      for (const T of tidyTodo) {
-        const { p, h } = T, wOf = (s) => arialW(String(s).replace(/×/g, 'x'), h) * 1.12 + h * 0.1; // (× as wide as an x; a little wider than the estimate)
-        const W = Math.max(wOf(T.l1), T.l2 ? wOf(T.l2) : 0), Hb = T.l2 ? h * 2.45 : h, x = p.dp[0], y = p.dp[1], r0 = p.rp + 0.6, ov = p.ov || p.on || [1, 0];
+      const T7 = { labels: 0, leaders: 0, closer: 0, notFree: 0 }, tPoles = tidyTodo.map((T) => T.p), toCheck = [];
+      const TIERS = [[1.0, 0, 0], [0.5, 0, 0], [1.0, 0, 1], [0.5, 0, 1], [1.0, 1, 0], [0.5, 1, 0], [1.0, 1, 1], [0.5, 1, 1], [0.15, 0, 0], [0.15, 0, 1], [0.15, 1, 0], [0.15, 1, 1], [0, 0, 0], [0, 0, 1], [0, 1, 0], [0, 1, 1]]; // (clearance, across the cable, across a road edge line)
+      const LBLW = (t) => (/^label|^street/.test(t || '') ? 1 : 0), COVW = (t, b) => (t === 'road' ? 0 : t === 'cable' || Math.min(b.hw, b.hh) <= 0.25 ? 0.1 : t === 'photo' ? 0.6 : 1), dBox = (q, b) => Math.hypot(Math.max(Math.abs(q.dp[0] - b.cx) - b.hw, 0), Math.max(Math.abs(q.dp[1] - b.cy) - b.hh, 0)); // (COVW, where no place is free: across a line rather than over a photo, over a photo rather than a text or a symbol; dBox: how far a pole is from a level box)
+      const wOf = (s, hh) => arialW(String(s).replace(/×/g, 'x'), hh) * 1.12 + hh * 0.1; // (× as wide as an x; a little wider than the estimate)
+      for (const T of tidyTodo) { // each label's size and the places it may take (the same in every round below)
+        const { p, h, hs } = T, W1 = wOf(T.l1, h), x = p.dp[0], y = p.dp[1], r0 = p.rp + 0.6, ov = p.ov || p.on || [1, 0];
+        for (const m of T.sm) { // the smaller lines: the attachments wrapped (at the spaces) where they would be much wider than the rest of the label
+          const wMax = Math.max(W1, ...T.sm.filter((k) => !k.wrap).map((k) => wOf(k.s, hs))) * 1.1; m.lines = [m.s];
+          if (m.wrap && wOf(m.s, hs) > wMax) { m.lines = []; for (const wd of m.s.split(/\s+/)) { const L = m.lines.length ? `${m.lines[m.lines.length - 1]} ${wd}` : wd; if (m.lines.length && wOf(L, hs) <= wMax) m.lines[m.lines.length - 1] = L; else m.lines.push(wd); } }
+        }
+        const W = Math.max(W1, ...T.sm.flatMap((m) => m.lines.map((l) => wOf(l, hs)))), Hb = h + 0.4 * h + T.sm.reduce((t, m) => t + m.lines.length * 1.45 * hs, 0) - 0.45 * hs; // (line 1; then each smaller line, 1.45 of its height apart)
+        const LN = [[W1, 0, h]]; { let t = 1.4 * h; for (const m of T.sm) for (const l of m.lines) { LN.push([wOf(l, hs), t, hs]); t += 1.45 * hs; } } // (each line: its width, how far down from the top, its height)
         const ang = (u) => Math.acos(Math.max(-1, Math.min(1, (u[0] * ov[0] + u[1] * ov[1]) / Math.hypot(u[0], u[1])))), byAng = (a, b) => ang(a) - ang(b), cands = [];
-        [0, 2.5, 5, 8].forEach((ex, ring) => D8.slice().sort(byAng).forEach(([dx, dy], k) => { const r = r0 + ex;
-          cands.push({ cx: dx && dy ? x + dx * (r * 0.72 + W / 2) : dx ? x + dx * (r + W / 2) : x, cy: dx && dy ? y + dy * (r * 0.72 + Hb / 2) : dy ? y + dy * (r + Hb / 2) : y, dx, cost: ring * 12 + k }); }));
+        [0, 1.25, 2.5, 3.75, 5, 6.5, 8].forEach((ex) => D8.slice().sort(byAng).forEach(([dx, dy], k) => { const r = r0 + ex, cx = dx && dy ? x + dx * (r * 0.72 + W / 2) : dx ? x + dx * (r + W / 2) : x, cy = dx && dy ? y + dy * (r * 0.72 + Hb / 2) : dy ? y + dy * (r + Hb / 2) : y;
+          cands.push({ cx, cy, dx, cost: ex * 4.8 + k }); // (12 for each 2.5 m further out)
+          if (!dx) [-1, 1].forEach((s) => cands.push({ cx: cx + s * W / 4, cy, dx, cost: ex * 4.8 + k + 0.5 })); else if (!dy) [-1, 1].forEach((s) => cands.push({ cx, cy: cy + s * Hb / 3, dx, cost: ex * 4.8 + k + 0.5 })); })); // (above or below it a little to one side; beside it a little higher or lower)
         [6, 10, 15, 20, 26].forEach((r, ring) => D16.slice().sort(byAng).forEach((u, k) => { const sx = Math.abs(u[0]) < 0.3 ? 0 : Math.sign(u[0]), sy = Math.abs(u[1]) < 0.3 ? 0 : Math.sign(u[1]);
           cands.push({ cx: x + u[0] * r + sx * W / 2, cy: y + u[1] * r + sy * Hb / 2, dx: sx, cost: 50 + ring * 12 + k * 0.5 }); }));
+        // a reader takes a label for the pole nearest to it: no place nearer another pole than its own (the label, and its first line)
+        const nR = 60 + W + Hb, nbs = tPoles.filter((q) => q !== p && Math.abs(q.dp[0] - x) < nR && Math.abs(q.dp[1] - y) < nR); // (every pole a place up to 26 m out could be nearer to)
         for (const c of cands) { // its line to the pole, when the label is not right beside it
-          const qx = Math.min(Math.max(x, c.cx - W / 2), c.cx + W / 2), qy = Math.min(Math.max(y, c.cy - Hb / 2), c.cy + Hb / 2), dl = Math.hypot(qx - x, qy - y);
-          if (dl > r0 + 1.3) { const u = [(qx - x) / dl, (qy - y) / dl], a = add2(p.dp, u, p.rp + 0.3), e = [qx - u[0] * 0.4, qy - u[1] * 0.4]; c.lead = [a, e]; c.lbox = Spots.box((a[0] + e[0]) / 2, (a[1] + e[1]) / 2, dist2(a, e), 0.3, deg(u)); }
+          const ax = c.dx > 0 ? c.cx - W / 2 : c.dx < 0 ? c.cx + W / 2 : c.cx, top = c.cy + Hb / 2; let qx = x, qy = y, dl = Infinity;
+          for (const [w, t, hh] of LN) { const x0 = c.dx > 0 ? ax : c.dx < 0 ? ax - w : ax - w / 2, px = Math.min(Math.max(x, x0), x0 + w), py = Math.min(Math.max(y, top - t - hh), top - t), d = Math.hypot(px - x, py - y); if (d < dl) { dl = d; qx = px; qy = py; } } // (the nearest point of its lines, not of the box round them)
+          if (dl > r0 + 1.3) { const u = [(qx - x) / dl, (qy - y) / dl], a = add2(p.dp, u, p.rp + 0.3), e = [qx - u[0] * 0.4, qy - u[1] * 0.4]; c.lead = [a, e]; c.lbox = Spots.box((a[0] + e[0]) / 2, (a[1] + e[1]) / 2, dist2(a, e), 0.3, deg(u)); c.ebox = Spots.box(e[0], e[1], 2.2, 2.2, 0); } // (ebox: round its end, where no other label may be: the line would seem to lead to it)
+          c.tb = Spots.box(c.cx, c.cy, W, Hb, 0); c.inC = cellHolds({ ...c.tb, hw: c.tb.hw / 1.3 }, p.E, p.N);
+          const hb = Spots.box(c.dx > 0 ? c.cx - W / 2 + W1 / 2 : c.dx < 0 ? c.cx + W / 2 - W1 / 2 : c.cx, c.cy + Hb / 2 - h / 2, W1, h, 0);
+          c.mine = [c.tb, hb].every((b) => { const d0 = dBox(p, b) - 0.01; return nbs.every((q) => dBox(q, b) >= d0); });
         }
+        Object.assign(T, { W1, W, Hb, cands });
+      }
+      const choose = (T) => { // one label's place, taken at once (its box and its line)
+        const { p, W, Hb, cands } = T; let best = null, nf = false;
         if (p.symBox) p.symBox._k--; // (its own pole is not in the way)
-        let best = null;
-        for (const inCell of [true, false]) { for (const [clr, xCab] of [[1.0, 0], [0.5, 0], [1.0, 1], [0.5, 1], [0.15, 0], [0.15, 1], [0, 0], [0, 1]]) { // (a line to the pole across the cable only where nothing nearer is free: the label would sit on the other side)
+        for (const inCell of [true, false]) { for (const [clr, xCab, rd] of TIERS) { // (a line to the pole across the cable only where nothing nearer is free: the label would sit on the other side; a road edge line through the label only where no place is clear of it)
           for (const c of cands) {
-            const tb = Spots.box(c.cx, c.cy, W, Hb, 0); if (inCell && !cellHolds({ ...tb, hw: tb.hw / 1.3 }, p.E, p.N)) continue;
+            const tb = c.tb; if (!c.mine || (inCell && !c.inC) || (!rd && spots.hitsW(tb, ROADX))) continue;
             const big = Spots.box(c.cx, c.cy, W + 2 * clr, Hb + 2 * clr, 0); if (spots.hitsW(big, HARD) || tx.hits(big)) continue;
-            const ln = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0; if (ln >= 1 || (ln > 0 && !xCab) || (c.lbox && tx.hits(c.lbox))) continue;
-            const tot = c.cost + 2 * spots.hitsW(tb, ROADX) + (ln > 0 ? 30 : 0) + (txG.hits(tb) ? 30 : 0);
+            const ln = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0; if (ln >= 1 || (ln > 0 && !xCab) || (c.lbox && (tx.hits(c.lbox) || tx.hits(c.ebox) || spots.hitsW(c.ebox, LBLW)))) continue;
+            const tot = c.cost + 14 * spots.hitsW(tb, ROADX) + (ln > 0 ? 30 : 0) + (txG.hits(tb) ? 30 : 0); // (a road edge line through the label: worse than a place one ring further out)
             if (!best || tot < best.tot) best = { ...c, tot, clr };
           }
           if (best) break; } if (best) break; }
-        if (!best) { T7.notFree++; (T7.ids || (T7.ids = [])).push(String(p.poleId || p.id)); best = cands.map((c) => ({ ...c, tot: (spots.hitsW(Spots.box(c.cx, c.cy, W, Hb, 0), HARD) + tx.hits(Spots.box(c.cx, c.cy, W, Hb, 0))) * 1000 + (c.lbox ? (spots.hitsW(c.lbox, LEADW) + tx.hits(c.lbox)) * 100 : 0) + c.cost })).sort((a, b) => a.tot - b.tot)[0]; if (best.lbox && (tx.hits(best.lbox) || spots.hitsW(best.lbox, LEADW) >= 1)) best.lead = null; } // (no line across another text: the pole is under it)
+        if (!best) { // no free place: the one nearest to its own pole that covers least, its line kept (across a line or a symbol rather than a text); listed in the README to check
+          nf = true; best = cands.map((c) => { const cov = spots.hitsW(c.tb, COVW) + tx.hits(c.tb), lt = c.lbox ? tx.hits(c.lbox) + (tx.hits(c.ebox) || spots.hitsW(c.ebox, LBLW) ? 0.5 : 0) : 0, lh = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0;
+            return { ...c, cov, lt, tot: (c.mine ? 0 : 1e6) + (cov + lt) * 1000 + lh * 50 + (c.inC ? 0 : 300) + 14 * spots.hitsW(c.tb, ROADX) + c.cost }; }).sort((a, b) => a.tot - b.tot)[0];
+        }
         if (p.symBox) p.symBox._k++;
-        if (best.clr != null && best.clr < 1) T7.closer++;
-        spots.add(Spots.box(best.cx, best.cy, W + 0.2, Hb + 0.2, 0), 'label:tidy');
-        if (best.lead) { o.lwpoly(T.layer, best.lead, { color: 8 }); spots.line(best.lead, 0.3); T7.leaders++; }
-        const att = best.dx > 0 ? 1 : best.dx < 0 ? 3 : 2; // (top left, right or centre: the text reads away from its pole)
-        o.mtext(T.layer, best.dx > 0 ? best.cx - W / 2 : best.dx < 0 ? best.cx + W / 2 : best.cx, best.cy + Hb / 2, h, T.text, { style: 'arial', att, color: T.color, ls: 0.87 }); T7.labels++;
+        const n0 = spots.list.length; spots.add(Spots.box(best.cx, best.cy, W + 0.2, Hb + 0.2, 0), 'label:tidy'); if (best.lead) spots.line(best.lead, 0.3);
+        return { T, best, nf, bad: nf && (best.cov > 0.25 || best.lt > 0 || !best.mine), bx: spots.list.slice(n0) }; // (bx: the boxes it took)
+      };
+      // the labels in the order of the poles; where some found no free place, again with those first (the others have more room to give way)
+      const now = new Map(tidyTodo.map((T) => [T, choose(T)])), nBad = (R) => R.filter((d) => d.bad).length;
+      for (const T of tidyTodo) { // where one found no free place: it and the labels round it once more, it first (the others have more room to give way); kept where fewer are left without room
+        if (!now.get(T).bad) continue;
+        const q = T.p.dp, grp = tidyTodo.filter((U) => U === T || (Math.abs(U.p.dp[0] - q[0]) < 45 && Math.abs(U.p.dp[1] - q[1]) < 45)), old = grp.map((U) => now.get(U));
+        old.forEach((d) => d.bx.forEach((b) => { b._k--; }));
+        const neu = [T, ...grp.filter((U) => U !== T)].map(choose);
+        if (nBad(neu) < nBad(old)) neu.forEach((d) => now.set(d.T, d)); else { neu.forEach((d) => d.bx.forEach((b) => { b._k--; })); old.forEach((d) => d.bx.forEach((b) => { b._k++; })); }
       }
+      for (const { T, best, nf, bad } of tidyTodo.map((U) => now.get(U))) { // written in the order of the poles
+        const { p, h, hs, W, W1, Hb } = T;
+        if (nf) { T7.notFree++; (T7.ids || (T7.ids = [])).push(String(p.poleId || p.id)); } if (bad) toCheck.push(T.l1);
+        if (best.clr != null && best.clr < 1) T7.closer++;
+        if (best.lead) { o.lwpoly(T.layer, best.lead, { color: 8 }); T7.leaders++; }
+        const att = best.dx > 0 ? 1 : best.dx < 0 ? 3 : 2, ax = best.dx > 0 ? best.cx - W / 2 : best.dx < 0 ? best.cx + W / 2 : best.cx; // (top left, right or centre: the text reads away from its pole)
+        const lineBox = (w, top, hh) => txR.add(Spots.box(att === 1 ? ax + w / 2 : att === 3 ? ax - w / 2 : ax, top - hh / 2, w, hh, 0)); // (its lines at their size: a loop's length or an ID under one slides off it below)
+        let ty = best.cy + Hb / 2; o.mtext(T.layer, ax, ty, h, T.text, { style: 'arial', att, color: T.color, ls: 0.87 }); lineBox(W1, ty, h); T7.labels++; ty -= 1.4 * h;
+        for (const m of T.sm) { o.mtext(m.layer || clLay || T.layer, ax, ty, hs, m.mt || m.lines.map(mtextEsc).join('\\P'), { style: 'arial', att, color: m.color, ls: 0.87 }); m.lines.forEach((l, i) => lineBox(wOf(l, hs), ty - i * 1.45 * hs, hs)); ty -= m.lines.length * 1.45 * hs; } // (each smaller line its own text, on its own layer: the PDF draws it at its height)
+      }
+      if (toCheck.length) rep.notes.push(`Tidy labels with no free place near their pole (they cover something: check them in CAD): ${toCheck.join(', ')}`);
       // a loop's length, an ID or a span length the steps before left over another text (their place was worked out narrower than
       // AutoCAD draws capitals, e.g. a loop's length over a dummy NAP's ID): slid a little along its line or out from it (8 m at most),
       // where it covers nothing (Standard keeps them as they are)
       const NUDGE_W = (t) => (t === 'road' ? 0 : 1), miscL = lay('MISC');
-      const idLeads = o.model.filter((r) => r[0][1] === 'LWPOLYLINE' && gv(r, 8, '') === miscL && +gv(r, 62, 0) === 8 && r.filter((x) => x[0] === 10).length === 2); // (an ID's thin line back to its block: its end follows the ID)
       for (const M of tRecs.slice().reverse()) { // (the later first: the one placed last moves)
-        M.bx._k--; if (!tx.hits(M.bx)) { M.bx._k++; continue; }
+        M.rb._k--; const over = txR.hits(M.rb); M.rb._k++; if (!over) continue; // (only a text that really overlaps another: its real size, not the margin)
+        M.bx._k--;
         const own = spots.list.filter((b) => b._k > 0 && Math.hypot(b.cx - M.bx.cx, b.cy - M.bx.cy) < M.h0 * 0.5 && Math.abs(b.ux * M.u[1] - b.uy * M.u[0]) < 0.05 && Math.abs(b.hh - M.bx.hh) < M.h0 * 0.35 && b.hw < M.bx.hw * 1.6 + M.h0); // (its own place, kept by the step that wrote it: a text's box, not the cable beside it)
         own.forEach((b) => { b._k--; });
-        const v = [-M.u[1], M.u[0]], tries = []; for (const sa of [0, 1.5, -1.5, 3, -3, 4.5, -4.5, 6, -6, 8, -8]) for (const sv of [0, 1, -1, 2, -2, 3.5, -3.5, 5, -5, 7, -7]) if (sa || sv) tries.push([sa, sv]);
+        const v = [-M.u[1], M.u[0]], tries = []; for (const sa of [0, 1.5, -1.5, 3, -3, 4.5, -4.5, 6, -6, 8, -8]) for (const sv of [0, 1, -1, 2, -2, 3.5, -3.5, 5, -5, 7, -7]) if ((sa || sv) && Math.hypot(sa, sv) <= 8) tries.push([sa, sv]); // (8 m at most)
         tries.sort((x, y) => Math.abs(x[0]) + 1.5 * Math.abs(x[1]) - Math.abs(y[0]) - 1.5 * Math.abs(y[1]));
         const ok = tries.find(([sa, sv]) => { const d0 = [M.u[0] * sa + v[0] * sv, M.u[1] * sa + v[1] * sv], nb2 = { ...M.bx, cx: M.bx.cx + d0[0], cy: M.bx.cy + d0[1] }; return !tx.hits(nb2) && !spots.hitsW(nb2, NUDGE_W) && cellHolds({ ...nb2, hw: nb2.hw / 1.3 }, M.x0, M.y0); });
         if (!ok) { own.forEach((b) => { b._k++; }); M.bx._k++; continue; }
         const d0 = [M.u[0] * ok[0] + v[0] * ok[1], M.u[1] * ok[0] + v[1] * ok[1]], mv = (c, dd) => setFirst(M.r, c, F(+gv(M.r, c, 0) + dd));
         mv(10, d0[0]); mv(20, d0[1]); if (gv(M.r, 11, null) != null) { mv(11, d0[0]); mv(21, d0[1]); }
-        for (const r of idLeads) { const k = r.map((x, i) => (x[0] === 10 ? i : 0)).filter(Boolean)[1]; if (r[k + 1][0] === 20 && Math.hypot(+r[k][1] - M.bx.cx, +r[k + 1][1] - M.bx.cy) <= M.bx.hw + 0.6) { r[k] = [10, F(+r[k][1] + d0[0])]; r[k + 1] = [20, F(+r[k + 1][1] + d0[1])]; } }
-        M.bx = tx.add(Spots.box(M.bx.cx + d0[0], M.bx.cy + d0[1], M.bx.hw * 2, M.bx.hh * 2, M.a * 180 / Math.PI)); M.x0 += d0[0]; M.y0 += d0[1];
+        { const r = idLeadOf.get(M.r); if (r) { const k = r.map((x, i) => (x[0] === 10 ? i : 0)).filter(Boolean)[1]; if (r[k + 1][0] === 20) { r[k] = [10, F(+r[k][1] + d0[0])]; r[k + 1] = [20, F(+r[k + 1][1] + d0[1])]; } } } // (an ID's own thin line back to its block: its end follows the ID)
+        M.bx = tx.add(Spots.box(M.bx.cx + d0[0], M.bx.cy + d0[1], M.bx.hw * 2, M.bx.hh * 2, M.a * 180 / Math.PI)); M.x0 += d0[0]; M.y0 += d0[1]; M.rb._k--; M.rb = txR.add(Spots.box(M.rb.cx + d0[0], M.rb.cy + d0[1], M.rb.hw * 2, M.rb.hh * 2, M.a * 180 / Math.PI));
         spots.add(Spots.box(M.bx.cx, M.bx.cy, M.bx.hw * 2, M.bx.hh * 2, M.a * 180 / Math.PI), 'label'); (T7.moved || (T7.moved = [])).push(`${gv(M.r, 1, '')} ${ok.join(',')}`);
       }
       rep.tidy = T7;

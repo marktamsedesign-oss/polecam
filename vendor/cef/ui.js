@@ -284,7 +284,7 @@ function drawOverlay() {
       const P = elPoly(e), b = polyBox(P); o += '<polygon class="ov-sel" points="' + pts(P) + '"/>';
       const sh = !selHid();      /* (15 Nov) a hidden item that is picked: its outline, without handles */
       if (e.t === 'pad' && !S.room && sh) for (const K of padSteps(e)) o += hd(stairAt(e, K), ' dr');      /* beta 4.2 */
-      if (pipePole() === e) { const ph = pipeHandle(e), pu = pipeDir(e), po = poleR(e, 0) + GIR; o += '<path class="ov-g" d="M' + r3(e.x + pu[0] * po) + ' ' + r3(-(e.y + pu[1] * po)) + 'L' + r3(ph[0]) + ' ' + r3(-ph[1]) + '"/><circle class="ov-sel" cx="' + r3(e.x + pu[0] * po) + '" cy="' + r3(-(e.y + pu[1] * po)) + '" r="' + r3(Math.max(GIR * 1.6, 3 * u)) + '"/>' + hd(ph, ' dr'); }      /* (14 Nov) its G.I. pipe: drag the handle round the pole */
+      if (pipePole() === e) { const ph = pipeHandle(e), pu = pipeDir(e), po = poleR(e, 0) + GIR, pd = pedOf(e), pc = pd ? pedAt(e, pu).c : [e.x + pu[0] * po, e.y + pu[1] * po]; o += '<path class="ov-g" d="M' + r3(pc[0]) + ' ' + r3(-pc[1]) + 'L' + r3(ph[0]) + ' ' + r3(-ph[1]) + '"/><circle class="ov-sel" cx="' + r3(pc[0]) + '" cy="' + r3(-pc[1]) + '" r="' + r3(Math.max(pd ? Math.hypot(PED.w, PED.d) / 2 + 0.03 : GIR * 1.6, 3 * u)) + '"/>' + hd(ph, ' dr'); }      /* (14 Nov) its G.I. pipe: drag the handle round the pole (fix 47: or its pedestal box, the ring on the box) */
       if (e.t === 'cabin' && !S.room && sh) { for (const q of cabinPorts(e)) o += hd(q.at, ' b'); for (const q of cabinDoors(e)) o += hd(doorAt(e, q), ' dr'); for (const q of cabinAcs(e)) o += hd(q.at, ' ac'); }          /* its porthole, doors and aircon units slide along the walls by these handles */
       if (b[0] > 0.05 && b[0] < L && e.y > 0 && e.y < W) o += '<path class="ov-g" d="M0 ' + r3(-e.y) + 'H' + r3(b[0]) + '"/><text class="ov-t" x="' + r3(b[0] / 2) + '" y="' + r3(-e.y - 4 * u) + '" font-size="' + fs + '" text-anchor="middle">' + f2(b[0]) + '</text>';
       if (b[1] > 0.05 && b[1] < W && e.x > 0 && e.x < L) o += '<path class="ov-g" d="M' + r3(e.x) + ' 0V' + r3(-b[1]) + '"/><text class="ov-t" x="' + r3(e.x + 5 * u) + '" y="' + r3(-b[1] / 2) + '" font-size="' + fs + '">' + f2(b[1]) + '</text>';
@@ -489,7 +489,7 @@ function inspector(e) {
   if (e.t === 'rack') h += '<div class="one">' + Sel('Kind of rack', 'el.open', e.open ? '1' : '0', [['0', 'Closed cabinet, with doors'], ['1', 'Open rack: frame and posts only']]) + '</div>';      /* (fix 47) */
   if (e.t === 'rack') h += '<p class="hint">' + esc(rackSays(e)) + '. Its front is the side with the double line. Add an ODF or rack equipment: it goes into a rack by itself.</p>';
   h += '<div class="row">' + '<div class="lbleye">' + F('Label on the drawing', 'el.name', e.name, TXT + ' placeholder="' + esc(elLabel(S, Object.assign({}, e, { name: '' }))) + '"') + eyeBtn(e.id) + '</div>' + Sel('Status', 'el.st', e.st, [['E', 'Existing'], ['P', 'Proposed']]) + '</div>';
-  if (isPole(e) && !S.room) h += '<div class="one">' + Sel('Where the UG cable comes up', 'el.ped', pedOf(e) || '', [['', 'G.I. riser pipe (standard)'], ['P', 'Pedestal box, proposed'], ['E', 'Pedestal box, existing']]) + '</div>';      /* (fix 47) */
+  if (pedCan(e)) h += '<div class="one">' + Sel('Where the UG cable comes up', 'el.ped', pedOf(e) || '', [['', 'G.I. riser pipe (standard)'], ['P', 'Pedestal box, proposed'], ['E', 'Pedestal box, existing']]) + '</div>';      /* (fix 47) */
   h += '<div class="row">' + F('From left ' + sd + ' (m)', 'el.gl', f2(b[0])) + F('From right ' + sd + ' (m)', 'el.gr', f2(L - b[2])) + '</div><div class="row">' + F('From bottom ' + sd + ' (m)', 'el.gb', f2(b[1])) + F('From top ' + sd + ' (m)', 'el.gt', f2(W - b[3])) + '</div>';
   h += '<div class="row">' + (T.rd ? F('Diameter (m)', 'el.w', e.w) : sq ? F(e.t === 'guy' ? 'Mast face width (m)' : 'Base width, leg to leg (m)', 'el.w', e.w) : F('Width (m)', 'el.w', e.w) + (e.t === 'port' ? '' : F('Depth (m)', 'el.d', e.d)));
   h += T.g === 'tower' ? F('Tower height (m)', 'el.th', e.th) : F('Height (m)', 'el.h', e.h); const stairsH = e.t === 'pad' && !S.room ? padStairs(e) : '';      /* beta 4.2 */
@@ -691,7 +691,7 @@ function labInfo(key) {
   if (e) return { name: tyOf(e).n, cur: e.name || '', def: elLabel(S, Object.assign({}, e, { name: '' })), item: { k: 'el', id: key } };
   if (r) return { name: RUNS[r.kind].n, cur: r.name || '', def: runLabel(Object.assign({}, r, { name: '' })), item: { k: 'run', id: key } };
   if (key === 'ug' && S.room) return { name: 'Cable', cur: (S.lab.ug || {}).t || '', def: 'FOC UG' };
-  if (/^in/.test(key)) for (const c of S.els) if (c.t === 'cabin' && c.inside) { const q = (c.inside.els || []).find(k => 'in' + k.id === key); if (q) return { name: tyOf(q).n + ' inside the cabin', cur: (S.lab[key] || {}).t || '', def: elLabel(c.inside, q) }; }
+  if (/^in/.test(key)) for (const c of S.els) if (c.t === 'cabin' && c.inside) { const q = (c.inside.els || []).find(k => 'in' + k.id === key); if (q) return { name: tyOf(q).n + ' inside the ' + roomWord(c), cur: (S.lab[key] || {}).t || '', def: elLabel(c.inside, q) }; }
   { const mn = /^note(~.+)?$/.exec(key); if (mn) { const k = Math.max(0, cables(S).findIndex((q, i) => cableKey(S, i) === (mn[1] || ''))); return { name: 'Note at the outside end' + (cables(S).length > 1 ? ' · cable ' + (k + 1) : ''), cur: RTc(k).note || '', def: '' }; } }
   if (/^len/.test(key)) return { name: 'Measured length', fixed: 1 };
   { const m = /^ped(.+)$/.exec(key), pl = m && elById(m[1]); if (pl) return { name: 'Pedestal box', cur: (S.lab[key] || {}).t || '', def: pedName(pedOf(pl)), item: { k: 'el', id: pl.id } }; }      /* (fix 47) */
@@ -805,14 +805,20 @@ function drawOpts() {
   }
   { const e = !VIEW && view !== 'sheets' && mode === 'select' && !focus && sel && sel.k === 'el' && !selHid() ? elById(sel.id) : null;      /* (fix 47) the kind of a picked rack; what stands at the foot of a picked pole */
     if (e && e.t === 'rack') h += '<span class="olab">Rack</span>' + optGroup('Closed cabinet or open rack', 'rk', e.open ? 'O' : 'C', [['C', 'Closed', 'A closed cabinet with doors'], ['O', 'Open', 'An open rack: a frame with posts only, the equipment shows']]).replace('class="og"', 'class="og big"');
-    if (e && isPole(e) && !S.room) h += '<span class="olab">Foot</span>' + optGroup('Where the UG cable comes up at the pole', 'ped', pedOf(e) ? 'P' : '', [['', 'Riser pipe', 'The G.I. riser pipe of the standard'], ['P', 'Pedestal', 'A ground pedestal box at the foot of the pole, in place of the riser pipe']]).replace('class="og"', 'class="og big"'); }
+    if (pedCan(e)) { const on = !!pedOf(e); h += '<button type="button" class="otog" data-o="ped" data-v="' + (on ? '' : 'P') + '" aria-pressed="' + on + '" title="' + (on ? 'A pedestal box at the foot of the pole, in place of the G.I. riser pipe. Tap to have the riser pipe again.' : 'Put a ground pedestal box at the foot of the pole, in place of the G.I. riser pipe') + '">' + ico('ped') + '<span>Pedestal</span></button>'; } }      /* one button: on, a pedestal box; off, the G.I. riser pipe */
   { const pe = view !== 'sheets' ? pipePole() : null;      /* (14 Nov) the G.I. pipe of the picked riser pole */
     if (pe) h += '<span class="olab">' + (pedOf(pe) ? 'Side' : 'G.I. pipe') + '</span>' + optGroup(pedOf(pe) ? 'Side of the pole the pedestal box stands on' : 'Side of the pole the G.I. riser pipe stands on', 'pside', pipeSet(pe) ? 'M' : 'A', [['A', 'Auto', 'On the side where the trench, conduit or cable meets the pole'], ['T', 'Turn', 'Turn it 45° round the pole. Or drag its handle on the plan.']]); }
   { const key = !VIEW && view !== 'sheets' && mode === 'select' && sel ? (sel.k === 'el' || sel.k === 'run' ? sel.id : sel.k === 'lab' ? sel.key : null) : null;      /* (22:24) the name of what is picked: shown or hidden on the drawing */
-    if (key != null && key !== '') { const on = labOn(key); h += '<button type="button" class="oeye" data-a="lab-eye" data-key="' + esc(key) + '" aria-pressed="' + (on ? 'true' : 'false') + '" title="' + (on ? 'Its name is on the drawing: tap to hide it' : 'Its name is hidden: tap to show it') + '">' + ico(on ? 'eye' : 'eyeoff') + (on ? 'Name shown' : 'Name hidden') + '</button>';
+    if (key != null && key !== '') { const on = labOn(key); h += '<button type="button" class="oeye" data-a="lab-eye" data-key="' + esc(key) + '" aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="' + (on ? 'Name shown' : 'Name hidden') + '" title="' + (on ? 'Its name is on the drawing: tap to hide it' : 'Its name is hidden: tap to show it') + '">' + ico(on ? 'eye' : 'eyeoff') + '<span>' + (on ? 'Name shown' : 'Name hidden') + '</span></button>';      /* (fix 47: on a narrow screen the strip shows the eye alone, see optFit) */
       if (sel.k === 'lab' && on) h += labKGroup(key); } }      /* (fix 47) the size of this one name */
-  n.hidden = !h; n.innerHTML = h; const v = document.getElementById('views'); if (v) v.classList.toggle('has-opt', !!h);
+  n.hidden = !h; n.innerHTML = h; const v = document.getElementById('views'); if (v) v.classList.toggle('has-opt', !!h); optFit();
 }
+/* (fix 47) the strip over the drawing on a narrow screen: when it does not fit, the eye shows its icon alone, then the small captions go; what still does
+   not fit scrolls, with a fade at the right edge */
+function optFit() { const n = document.getElementById('tbopt'); if (!n) return; const over = () => n.scrollWidth - n.clientWidth > 1; n.classList.remove('tight', 'tight2');
+  if (!n.hidden && over()) { n.classList.add('tight'); if (over()) n.classList.add('tight2'); } n.classList.toggle('more', !n.hidden && n.scrollWidth - n.scrollLeft - n.clientWidth > 4); }
+/* (fix 47) the pedestal box is offered where the UG cable comes up at a pole: on a riser pole, on a pole the cable rises at, or where there is one already */
+function pedCan(e) { return !!e && isPole(e) && !S.room && (e.t === 'rpole' || !!pedOf(e) || routeGeom(S).risers.some(r => r.pole === e)); }
 /* (fix 47) one name a size of its own: smaller, larger, or back to the size of the other names */
 function labKGroup(key) { const k = labK(S, key); return '<span class="og big" role="group" aria-label="Size of this name"><button type="button" data-a="labk" data-d="-1" data-key="' + esc(key) + '" aria-label="Make this name smaller" title="Make this name smaller"' + (k <= LABK[0] ? ' disabled' : '') + '>A&minus;</button>'
   + '<button type="button" data-a="labk" data-d="0" data-key="' + esc(key) + '" aria-label="This name at the size of the others" title="' + (k === 1 ? 'The size of the other names' : 'Back to the size of the other names') + '"' + (k === 1 ? ' aria-pressed="true"' : '') + '>' + Math.round(k * 100) + '%</button>'
@@ -828,16 +834,17 @@ function labKStep(key, d) {
     const b = e.target.closest('[data-o]'); if (!b || VIEW) return; const f = b.dataset.o, v = b.dataset.v;
     if (f === 'rk' || f === 'ped') { const q = sel && sel.k === 'el' ? elById(sel.id) : null; if (!q) return;      /* (fix 47) */
       if (f === 'rk' && q.t === 'rack') { push(); if (v === 'O') q.open = 1; else delete q.open; say(v === 'O' ? 'Open rack: a frame with posts only. What is mounted in it shows.' : 'Closed rack cabinet, with doors.'); }
-      else if (f === 'ped' && isPole(q)) { push(); if (v === 'P') { if (!pedOf(q)) q.ped = 'P'; } else delete q.ped; say(v === 'P' ? 'A pedestal box at the foot of the pole, in place of the riser pipe. Proposed or existing: in its form.' : 'The G.I. riser pipe of the standard.'); }
+      else if (f === 'ped' && isPole(q)) { push(); if (v === 'P') { if (!pedOf(q)) q.ped = 'P'; } else delete q.ped; say(v === 'P' ? 'Pedestal box. Existing one? Set it in the form.' : 'The G.I. riser pipe of the standard.'); }
       else return; needFit.iso = needFit.sheets = true; refresh(true); return; }
     if (f === 'cabin') { const c = entryCab(); if (c) { push(); setEntry(c, v); say('The cable comes in ' + (v === 'A' ? 'where the app chooses' : GLAND[v].toLowerCase()) + '. Drag the red ring to move it.'); refresh(true); } return; }
-    if (f === 'pside') { const e = pipePole(); if (e) { push(); if (v === 'A') { delete e.ps; say('The G.I. pipe is on the side where the trench, conduit or cable meets the pole.'); } else { const u0 = pipeDir(e); e.ps = ((Math.round(Math.atan2(u0[1], u0[0]) / D2R / 45) * 45 + 45) % 360 + 360) % 360; say('G.I. pipe turned round the pole. Auto puts it back on the side of the trench.'); } needFit.iso = needFit.sheets = true; refresh(true); } return; }
+    if (f === 'pside') { const e = pipePole(); if (e) { const w = pedOf(e) ? 'pedestal box' : 'G.I. pipe'; push(); if (v === 'A') { delete e.ps; say('The ' + w + ' is on the side where the trench, conduit or cable meets the pole.'); } else { const u0 = pipeDir(e); e.ps = ((Math.round(Math.atan2(u0[1], u0[0]) / D2R / 45) * 45 + 45) % 360 + 360) % 360; say((pedOf(e) ? 'Pedestal box' : 'G.I. pipe') + ' turned round the pole. Auto puts it back on the side of the trench.'); } needFit.iso = needFit.sheets = true; refresh(true); } return; }
     if (f === 'how') { penHow = v === 'ae' || v === 'ug' ? v : 'auto'; penStart = null; penRaw = null; penRawH = []; refresh(true); return; }
     if (f === 'cab') { cabGo(+v); say('Cable ' + (cabN + 1) + (cableDrawn(RT()) ? ': the line goes on from its end.' : ': tap where it starts.')); refresh(true); return; }
     const run = mode === 'select' && sel && sel.k === 'run' ? runById(sel.id) : null, val = f === 'n' || f === 'dia' ? +v : f === 'conc' ? v === '1' : v;
     if (run) { push(); if (f === 'deep') run.dp = v === 'shallow' ? SHALLOW_DP : UGD; else run[f] = val; if (f === 'dia' && run.kind === 'conduit') run.w = val / 1000; needFit.sheets = true; refresh(true); }
     else if (mode === 'run' && runOpt[runKind]) { runOpt[runKind][f] = val; drawOpts(); } });
   n.addEventListener('change', e => { const t = e.target, k = t.dataset && t.dataset.k; if (k && !VIEW && applyField(k, t)) refresh(true); });
+  n.addEventListener('scroll', () => n.classList.toggle('more', n.scrollWidth - n.scrollLeft - n.clientWidth > 4), { passive: true });      /* (fix 47) the fade goes at the end */
 } }
 /* (fix 47) "make the labels larger or smaller": the size of every name of the plan, from the Text button over the drawing. A− and A+ step through the sizes;
    Auto, S, M, L and XL pick one. The size is kept in the plan (site.txt, also in the inside of each cabin), so the sheets and the export follow, and Undo takes it back. */
@@ -859,9 +866,10 @@ function txtTray() {
     + '<output class="tszv" aria-live="polite">' + (c === 'auto' ? 'Auto' : c + '%') + '<small>' + (c === 'auto' ? 'standard, smaller where needed' : f1(2.2 * v / 100) + ' mm on the sheet') + '</small></output>'
     + '<button type="button" class="tile" data-a="txt-step" data-d="1" aria-label="Larger names" title="Larger names"' + (hi ? ' disabled' : '') + '><span class="ap" aria-hidden="true">A+</span><span>Larger</span></button></div>';
   h += '<div class="tiles tchips" role="group" aria-label="Sizes">' + TXT_CHIPS.map(q => '<button type="button" class="tile" data-a="txt-set" data-v="' + q[0] + '" aria-pressed="' + (c === q[0] ? 'true' : 'false') + '" title="' + esc(q[2]) + '" aria-label="' + esc(q[2]) + '"><span class="ch" aria-hidden="true">' + q[1] + '</span></button>').join('') + '</div>';
-  h += '<p class="hint">Every name of the plan, inside the cabins too: on the screen, on the sheets and in the export. Undo takes it back.</p>';
+  { const R = (ROOT || S).els.filter(e => e.t === 'cabin'), t = R.filter(isTR).length, w = t && t === R.length ? 'telco rooms' : t ? 'cabins and telco rooms' : 'cabins';      /* (fix 47) */
+    h += '<p class="hint">Every name of the plan, inside the ' + w + ' too: on the screen, on the sheets and in the export. Undo takes it back.</p>'; }
   if (sel && sel.k === 'lab') h += '<b>This name only</b><div class="tone">' + labKGroup(sel.key) + '</div>';
-  else h += '<p class="hint">To make one name larger or smaller, tap it twice to pick it, then A&minus; or A+ over the drawing.</p>';
+  else h += '<p class="hint">To make one name larger or smaller' + (view === 'iso' || view === 'sheets' ? ': in the Sketch view, tap it twice' : ', tap it twice') + ' to pick it, then A&minus; or A+ over the drawing.</p>';      /* (fix 47) names are picked on the sketch only */
   return h;
 }
 /* (15 Nov) the card of the orange eye button: each thing that is hidden, one large button to show it again. Every Show goes through the eye of the item or
@@ -871,11 +879,13 @@ function hidTray(L) {
     return '<button type="button" class="hrow" data-a="' + r.a + '"' + (r.kind ? ' data-kind="' + r.kind + '"' : '') + (r.id ? ' data-id="' + esc(r.id) + '"' : '') + (r.key != null ? ' data-key="' + esc(r.key) + '"' : '') + (live ? '' : ' disabled') + '>' + ico(r.icon) + '<span>' + esc(r.t) + '<small>' + esc(r.sub) + '</small></span>' + (live ? '<em>' + (r.a === 'room-in' ? 'Open' : 'Show') + '</em>' : '') + '</button>'; };
   let h = '<div class="hhd"><span>' + L.n + ' hidden' + (S.room ? ' in this ' + RW() : '') + '</span><button type="button" class="b s" data-a="hid-close">Done</button></div>';      /* (15 Nov: Done closes the card, also on a phone, where it can cover the drawing) */
   for (const [g, head, why] of [['it', 'Hidden items', 'Not on the drawings or the sheets. They still count in the table.'], ['nm', 'Hidden names', 'The item is drawn, without its name.'], ['scr', 'On the screen only', ''], ['cab', 'Inside a cabin', '']]) {
-    const R = L.rows.filter(r => r.g === g); if (R.length) h += '<b>' + head + '</b>' + (why ? '<p class="hint">' + why + '</p>' : '') + R.map(row).join(''); }
+    const R = L.rows.filter(r => r.g === g); if (R.length) h += '<b>' + (g === 'cab' ? cabHead(R) : head) + '</b>' + (why ? '<p class="hint">' + why + '</p>' : '') + R.map(row).join(''); }
   if (VIEW) h += '<p class="hint" style="margin-top:8px">View only: they stay hidden.</p>';
   else if (L.rows.filter(r => r.g !== 'cab').length > 1) h += '<button type="button" class="b s hall" data-a="hid-all" title="Show everything listed here again. Undo hides it again.">' + ico('eye') + 'Show all</button>';
   return h;
 }
+function cabHead(R) { const t = R.filter(r => r.icon === 'troom').length; return t === R.length ? 'Inside a telco room' : t ? 'Inside a cabin or telco room' : 'Inside a cabin'; }      /* (fix 47) the heading of the rooms' row in the card */
+function txtFab(off) { const b = $('#bTxt'); if (!b) return; if (!b.firstChild) b.innerHTML = ico('txt'); b.hidden = !!VIEW || off; b.setAttribute('aria-pressed', String(!VIEW && !off && txtOpen)); }      /* (fix 47) on a phone the Text button is a round button over Turn and Fit, where it is always seen */
 function hidFocus() { const pop = $('#tbpop'), b = $('#bHid'), f = hidOpen && pop && !pop.hidden ? pop.querySelector('.hrow:not(:disabled)') || pop.querySelector('[data-a="hid-close"]') : null; if (f) f.focus(); else if (b && !b.hidden) b.focus(); }      /* (15 Nov) the keyboard: the first row of the card, or back to the button */
 function drawStrip() {
   const tb = document.getElementById('tb'), pop = document.getElementById('tbpop'); if (!tb || !pop) return;
@@ -886,7 +896,7 @@ function drawStrip() {
       if (hidN0 >= 0 && n > hidN0) { hb.classList.remove('pulse'); void hb.offsetWidth; hb.classList.add('pulse'); } }
     hidN0 = n; }
   if (!HL.n) hidOpen = false; pop.classList.toggle('hid', hidOpen);
-  const off = !!focus || !!(S.room && (VIEW || view === 'sheets')); tb.hidden = off; if (off) { palOpen = expOpen = txtOpen = false; pop.innerHTML = hidOpen ? hidTray(HL) : ''; pop.hidden = !hidOpen; return; }
+  const off = !!focus || !!(S.room && (VIEW || view === 'sheets')); tb.hidden = off; txtFab(off); if (off) { palOpen = expOpen = txtOpen = false; pop.innerHTML = hidOpen ? hidTray(HL) : ''; pop.hidden = !hidOpen; return; }
   const only = !!VIEW || view === 'sheets';      /* (19:25) on the sheets, and on a plan that is view only, the strip holds the export alone */
   const room = !!S.room, B = (a, icon, label, on, extra, dis) => '<button type="button" data-a="' + a + '"' + (extra || '') + ' aria-pressed="' + (on ? 'true' : 'false') + '"' + (dis ? ' disabled' : '') + ' title="' + esc(label) + '">' + ico(icon) + '<span>' + esc(label) + '</span></button>';
   let h = B('tool-sel', 'ptr', 'Select', mode === 'select' && !palOpen && !expOpen && !hidOpen) + '<i></i>' + B('tool-foc', 'foc', room ? 'Cable' : 'FOC', mode === 'route');
@@ -901,7 +911,7 @@ function drawStrip() {
   if (!room) h += (h && view === 'sheets' ? '<i></i>' : '') + B('tool-exp', 'exp', 'Export', expOpen);      /* (19:25) PDF, DXF or both */
   tb.innerHTML = h;
   if (palOpen) { const tile = (a, icon, label, extra) => '<button type="button" class="tile" data-a="' + a + '"' + (extra || '') + '>' + ico(icon) + '<span>' + esc(label) + '</span></button>'; let p = '';
-    for (const [t, list] of room ? [['', ['rack', 'orack', 'odf', 'runit', 'port', 'ac', 'box']]] : [['Tower', 'tower'], ['On site now', 'equip'], ['For the fiber', 'foc']].map(q => [q[0], Object.keys(TYPES).filter(k => TYPES[k].g === q[1])])) p += (t ? '<b>' + t + '</b>' : '') + '<div class="tiles">' + list.filter(k => TYPES[k]).map(k => tile('place', k, TYPES[k].n, ' data-t="' + k + '"')).join('') + '</div>';
+    for (const [t, list] of room ? [['', ['rack', 'orack', 'odf', 'runit', 'port', 'ac', 'box']]] : [['Tower', 'tower'], ['On site now', 'equip'], ['For the fiber', 'foc']].map(q => [q[0], Object.keys(TYPES).filter(k => TYPES[k].g === q[1])])) p += (t ? '<b>' + t + '</b>' : '') + '<div class="tiles">' + list.filter(k => TYPES[k]).map(k => tile('place', k, TYPES[k].n, ' data-t="' + k + '"')).join('') + (t === 'For the fiber' ? tile('ped-add', 'ped', 'Pedestal box') : '') + '</div>';      /* (fix 47) the pedestal box goes on the pole the UG cable comes up at */
     if (!room && S.site.kind === 'fenced') p += '<b>Fence</b><div class="tiles">' + tile('gate-add', 'gate', 'Gate', ' data-w="4"') + tile('gate-add', 'door', 'Door', ' data-w="0.9"') + '</div>';
     p += '<b>Lines</b><div class="tiles">' + (room ? ['ladder', 'part'] : Object.keys(RUNS).filter(k => !RUNS[k].room)).map(k => tile('run-draw', k, RUNS[k].n, ' data-kind="' + k + '"')).join('') + '</div>'; pop.innerHTML = p; }
   if (expOpen) { const libs = typeof PDFLib !== 'undefined', can = dlReady && dl && !busy, tile = (kind, icon, label, ok) => '<button type="button" class="tile" data-a="exp-go" data-kind="' + kind + '"' + (ok ? '' : ' disabled') + '>' + ico(icon) + '<span>' + label + '</span></button>';
@@ -910,14 +920,14 @@ function drawStrip() {
   if (hidOpen) pop.innerHTML = hidTray(HL);
   pop.hidden = !(palOpen || expOpen || hidOpen || txtOpen);
 }
-{ const v = document.getElementById('views'); if (v) v.addEventListener('pointerdown', e => { if ((palOpen || expOpen || hidOpen || txtOpen) && !(e.target.closest && e.target.closest('#tbpop, #bHid'))) { palOpen = expOpen = hidOpen = txtOpen = false; drawStrip(); } }, true); }      /* a tap on the drawing beside the tray closes the tray (the orange eye button opens and closes its own) */
-for (const id of ['tb', 'tbpop']) { const n = document.getElementById(id); if (n) n.addEventListener('click', e => {
+{ const v = document.getElementById('views'); if (v) v.addEventListener('pointerdown', e => { if ((palOpen || expOpen || hidOpen || txtOpen) && !(e.target.closest && e.target.closest('#tbpop, #bHid, #bTxt'))) { palOpen = expOpen = hidOpen = txtOpen = false; drawStrip(); } }, true); }      /* a tap on the drawing beside the tray closes the tray (the orange eye button opens and closes its own) */
+for (const id of ['tb', 'tbpop', 'fab']) { const n = document.getElementById(id); if (n) n.addEventListener('click', e => {      /* (fix 47: fab, the round Text button of a phone) */
   const b = e.target.closest('[data-a]'); if (!b || b.disabled) return; const a = b.dataset.a;
   if (!b.closest('#tbpop')) hidOpen = false;      /* (15 Nov) a tool closes the card of what is hidden; a row of the card keeps it open */
   else if (e.detail === 0) setTimeout(hidFocus, 0);      /* (a row taken with the keyboard: the keys stay in the card) */
   if (a === 'hid-close') { hidOpen = false; drawStrip(); return; }
   if (a === 'tool-txt' || a === 'txt-close') { const open = a === 'tool-txt' && !txtOpen; if (open) { if (mode !== 'select') toolSel(); palOpen = expOpen = hidOpen = false; txtAt = txtNow(); txtOpen = true; drawStrip(); return; }      /* (fix 47) */
-    txtOpen = false; if (txtAt != null && txtAt !== txtNow()) { needFit.top = needFit.iso = true; refresh(true); } else drawStrip(); txtAt = null; return; }      /* closed with Done: the views are fitted again, so that every name shows at its new size */
+    txtOpen = false; if (txtAt != null && txtAt !== txtNow()) say('Fit shows the whole plan at the new size.'); drawChrome(); txtAt = null; return; }      /* closed with Done: the views keep their zoom, so the names stay at the size just seen (a fit would zoom out to the names placed far out and make them look smaller; Fit is there for the whole plan) */
   if (a === 'txt-step' || a === 'txt-set') { txtSet(a === 'txt-set' ? b.dataset.v : txtNext(+b.dataset.d)); return; }
   if (a === 'labk') { action(a, b); return; }
   txtOpen = false;
@@ -1223,7 +1233,7 @@ function addPlace(t) {
 /* into a cabin, into the rack of a cabinet, and back to the site */
 function roomIn(id) {
   const e = ROOT.els.find(q => q.id === id && q.t === 'cabin'); if (!e) return;
-  if (!e.inside) { push(); e.inside = newRoom(e); } else syncRoom(e.inside, e); txtSync(e.inside);      /* (fix 47) */
+  if (!e.inside) { push(); e.inside = newRoom(e); txtSync(e.inside); } else syncRoom(e.inside, e);      /* (fix 47) a new inside takes the size of the names of the plan; the Text button sets every inside */
   inId = e.id; S = e.inside; cabN = 0; penReset(); sel = null; mode = 'select'; draft = []; dragNote = ''; tab = tabSync = 'els'; openTab = null; needFit.top = needFit.iso = true;
   if (view === 'sheets' || view === 'iso') view = wide() ? 'both' : 'top'; active = 'top'; refresh(true); panel.scrollTop = 0;
 }
@@ -1319,6 +1329,11 @@ function action(a, b) {
     case 'lab-eye': { const k = d.key; if (!k) return; push(); const r = S.lab[k] || (S.lab[k] = {}); if (r.off) delete r.off; else r.off = 1; needFit.sheets = true;
       say(r.off ? hidSay('Name hidden.') : 'Name shown again.'); refresh(true); return; }      /* (15 Nov) a message, as for an item */
     case 'labk': labKStep(d.key || (sel && sel.k === 'lab' ? sel.key : ''), d.d); return;      /* (fix 47) */
+    case 'ped-add': { if (S.room) return;      /* (fix 47) Pedestal box from + Add: on the pole the UG cable comes up at (the first that has none), picked, so its strip and form show it */
+      const P = routeGeom(S).risers.map(r => r.pole).filter(Boolean).concat(S.els.filter(q => q.t === 'rpole')).filter(q => !q.hid), e = P.find(q => !pedOf(q)) || P[0];
+      if (!e) { say('Add a Riser pole first (For the fiber), then Pedestal box.'); return; }
+      mode = 'select'; sel = { k: 'el', id: e.id }; if (pedOf(e)) say('This pole has a pedestal box already. Existing one? Set it in the form.'); else { push(); e.ped = 'P'; needFit.iso = needFit.sheets = true; say('Pedestal box. Existing one? Set it in the form.'); }
+      refresh(true); return; }
     case 'lab-reset': if (sel && sel.k === 'lab' && S.lab[sel.key]) { push(); for (const v of ['p', 'i0', 'i1', 'i2', 'i3']) delete S.lab[sel.key][v]; refresh(true); } return;
     case 'lab-item': if (sel && sel.k === 'lab') { const q = labInfo(sel.key); if (q.item) { sel = q.item; tab = 'els'; refresh(true); panel.scrollTop = 0; } } return;
     case 'photo-place': mode = 'photo'; placing = d.id; needTop(); refresh(true); return;
@@ -1584,7 +1599,7 @@ async function doExport(kind) {
    the plan: out from the pole on that side, far enough to take it with a finger */
 function pipeDir(e) { const r = routeGeom(S).risers.find(q => q.pole === e); return r && !pipeSet(e) ? r.s || r.u : pipeSide(S, e); }
 function pipeHandle(e) { const u = pipeDir(e), d = Math.max(0.8, 30 * unit('top')); return [e.x + u[0] * d, e.y + u[1] * d]; }
-const pipePole = () => { if (S.room || focus || VIEW || mode !== 'select' || !sel || sel.k !== 'el' || selHid()) return null; const e = elById(sel.id); return e && e.t === 'rpole' ? e : null; };
+const pipePole = () => { if (S.room || focus || VIEW || mode !== 'select' || !sel || sel.k !== 'el' || selHid()) return null; const e = elById(sel.id); return e && (e.t === 'rpole' || (e.t === 'epole' && pedOf(e))) ? e : null; };      /* (fix 47: an existing pole with a pedestal box too) */
 /* ---------- pointer work on the drawings ---------- */
 function hitTest(m) {
   const u = unit('top'), pr = Math.max(10 * u, S.room ? 0.03 : 0.15);
@@ -1785,7 +1800,7 @@ function dragTo(g, dx, dy) {
   if (h.k === 'porth') { const e = elById(h.id); if (e) sitePort(e, h.i, [o.x + dx, o.y + dy]); return; }
   if (h.k === 'doorh') { const e = elById(h.id); if (e) siteDoor(e, h.i, [o.x + dx, o.y + dy]); return; }
   if (h.k === 'stairh') { const e = elById(h.id); if (e) padStair(e, h.i, [o.x + dx, o.y + dy]); return; }
-  if (h.k === 'pipeh') { const e = elById(h.id); if (e) { const ax = o.x + dx - e.x, ay = o.y + dy - e.y; if (Math.hypot(ax, ay) > 0.05) { e.ps = (Math.round(Math.atan2(ay, ax) / D2R / 15) * 15 % 360 + 360) % 360; needFit.iso = needFit.sheets = true; dragNote = 'G.I. riser pipe on this side of the pole'; } } return; }
+  if (h.k === 'pipeh') { const e = elById(h.id); if (e) { const ax = o.x + dx - e.x, ay = o.y + dy - e.y; if (Math.hypot(ax, ay) > 0.05) { e.ps = (Math.round(Math.atan2(ay, ax) / D2R / 15) * 15 % 360 + 360) % 360; needFit.iso = needFit.sheets = true; dragNote = pedOf(e) ? 'Pedestal box on this side of the pole' : 'G.I. riser pipe on this side of the pole'; } } return; }
   if (h.k === 'ach') { const e = elById(h.id); if (e) siteAc(e, h.i, [o.x + dx, o.y + dy]); return; }
   if (h.k === 'rdoor') { const g = S.gates[h.i]; if (g) { const k = slideDoor(g, S.site.L, S.site.W, [o.x + dx, o.y + dy]); dragNote = 'Door on the ' + WALLN[k.side] + ' wall, ' + f2(g.off) + ' m from its ' + (k.side === 'S' || k.side === 'N' ? 'left' : 'bottom') + ' end'; } return; }
   if (h.k === 'gate') { const q = S.gates[h.i]; if (q) { const k = slideDoor(q, S.site.L, S.site.W, [o.x + dx, o.y + dy]); q.off = snap(q.off); dragNote = (num(q.w, 0) > 1.6 ? 'Gate' : 'Door') + ' on the ' + SIDEW[k.side] + ' side, ' + f1(q.off) + ' m from the ' + (k.side === 'S' || k.side === 'N' ? 'left' : 'bottom') + ' corner'; } return; }
@@ -1930,7 +1945,7 @@ function sheetSet(s, user) {
   if (user && ctxWant() === 'sel') selPref = s === 'full' ? 'half' : s;
   if (s === 'peek') panel.scrollTop = 0;
 }
-function tbFade() { const t = $('#tb'); if (t) t.classList.toggle('more', !t.hidden && t.scrollWidth - t.scrollLeft - t.clientWidth > 4); }
+function tbFade() { const t = $('#tb'); if (t) t.classList.toggle('more', !t.hidden && t.scrollWidth - t.scrollLeft - t.clientWidth > 4); optFit(); }
 function sheetSync() {
   const dk = document.querySelector('.desk'); if (!dk) return; if (!dk.dataset.sh) dk.dataset.sh = sheet; tbFade();
   if (wide() || shHold) return;      /* (a finger on the drawing: decided when it is lifted) */
@@ -1950,7 +1965,7 @@ const PH = { on: null };
 function phoneDom() {
   const ph = !wide(); if (ph === PH.on) return; const first = PH.on === null; PH.on = ph;
   if (first) Object.assign(PH, { seg: $('#segView'), tools: document.querySelector('.tools'), turn: $('#bTurn'), fit: $('#bFit'), tb: $('#tb'), status: $('#status'), stage: document.querySelector('.stage'), views: $('#views'), bar: document.querySelector('.bar'), app: document.querySelector('.app'), shd: $('#shd'), fab: $('#fab'), hid: $('#bHid') });
-  if (ph) { PH.bar.insertBefore(PH.seg, $('#who')); PH.fab.append.apply(PH.fab, [PH.hid, PH.turn, PH.fit].filter(Boolean)); PH.app.appendChild(PH.tb); PH.shd.insertBefore(PH.status, PH.shd.querySelector('.shc')); }      /* (15 Nov) the orange eye button: over Turn and Fit on a phone, left of Turn on a computer */
+  if (ph) { PH.bar.insertBefore(PH.seg, $('#who')); PH.fab.append.apply(PH.fab, [PH.hid, $('#bTxt'), PH.turn, PH.fit].filter(Boolean)); PH.app.appendChild(PH.tb); PH.shd.insertBefore(PH.status, PH.shd.querySelector('.shc')); }      /* (15 Nov) the orange eye button: over Turn and Fit on a phone, left of Turn on a computer */
   else { PH.tools.insertBefore(PH.seg, PH.tools.firstChild); PH.tools.insertBefore(PH.turn, $('#bOut')); if (PH.hid) PH.tools.insertBefore(PH.hid, PH.turn); PH.tools.appendChild(PH.fit); PH.stage.insertBefore(PH.tb, PH.views); PH.stage.appendChild(PH.status); }
   document.body.classList.toggle('phone', ph);
   if (!first) { needFit.top = needFit.iso = needFit.sheets = true; sheetCk = null; }

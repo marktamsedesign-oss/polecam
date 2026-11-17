@@ -2264,6 +2264,7 @@
       opts.forEach(([k, nm]) => { const b = document.createElement('button'); b.type = 'button'; b.className = `sw2${k ? '' : ' txt'}`; b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(val === k)); b.setAttribute('aria-label', k ? `${nm} (AutoCAD colour ${k})` : nm); b.title = b.getAttribute('aria-label');
         if (k) b.style.setProperty('--c', ACI_HEX[k]); else b.textContent = nm; b.addEventListener('click', () => setPl(part, key, k)); box.appendChild(b); }); };
     sw('stClCol', P.clamp.color, 'By layer', 'clamp', 'color'); // v2.42.21
+    if ($('stPoleTidy')) $('stPoleTidy').hidden = S.exp.dxfLabels !== 'tidy'; // beta 4.7: Pole labels Tidy: which pole settings apply
     { const Q = P.pole, Z = P.span, hh = (id, v, def, auto) => { if (document.activeElement !== $(id)) $(id).value = String(v || def); $(id + 'Auto').setAttribute('aria-pressed', String(!v)); $(id + 'O').textContent = v ? `${v} m · ${mmOf(v)} mm` : auto; }; // beta 4.3
       sw('stPoleIdCol', Q.idColor, 'Auto', 'pole', 'idColor'); sw('stPoleOwnCol', Q.ownColor, 'Auto', 'pole', 'ownColor'); sw('stPoleLlCol', Q.llColor, 'Auto', 'pole', 'llColor'); sw('stSpanCol', Z.color, 'Auto', 'span', 'color');
       hh('stPoleIdH', Q.idH, 2.2, 'auto (2.2 m · 2.0 mm)'); hh('stPoleOwnH', Q.ownH, Q.idH || 2.2, 'auto (as the pole ID)'); hh('stPoleLlH', Q.llH, 1.2, 'auto (1.2 m · 1.1 mm)'); hh('stSpanH', Z.h, 2, 'auto (2.0 m · 1.8 mm)');
@@ -9910,13 +9911,13 @@
   $('dxfWhat').addEventListener('click', () => { const under = stack.includes('drawing'); closeSheet().then(() => { if (!under) { if (!drawOn()) { toast('The Drawing is for As-Plan and As-Built surveys'); return; } openDrawing(); } if (!$('drawing').hidden) setWhat(true, deskOn()); }); });
   $('dxfSetBtn').addEventListener('click', () => openPlanSet());
   $('dxfPdf').addEventListener('change', () => setTimeout(renderDxfMarks, 0));
-  /* beta 4.7: Labels on the plan: Standard (each pole's details and coordinates turned with the cable, as before) or Tidy (one level
-     label per pole: tag · type, its clamps below; no owner, no coordinates), on the company template only; kept with the export settings */
+  /* beta 4.7: Pole labels on the plan: Standard (each pole's details and coordinates turned with the cable, as before) or Tidy (one
+     straight label per pole: tag · type, then its clamps, owner and lat/long in smaller text), on the company template only; kept with the export settings */
   function renderDxfLbl(tpl) {
     const row = $('dxfLblRow'); if (!row) return;
     row.hidden = !tpl; const v = S.exp.dxfLabels === 'tidy' ? 'tidy' : 'std';
     row.querySelectorAll('.chip').forEach((b) => { const on = b.dataset.v === v; b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; });
-    $('dxfLblSub').textContent = v === 'tidy' ? 'One level label per pole: tag · type, clamps below' : 'Pole details and coordinates, as before';
+    $('dxfLblSub').textContent = v === 'tidy' ? 'Straight, never overlapping; details smaller' : 'Turned along the cable';
   }
   $('dxfLbl').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b || !b.dataset.v) return; S.exp.dxfLabels = b.dataset.v === 'tidy' ? 'tidy' : 'std'; persist(); renderDxfLbl(dxfMode() === 'tpl'); });
   $('dxfLbl').addEventListener('keydown', (e) => { if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return; e.preventDefault(); S.exp.dxfLabels = S.exp.dxfLabels === 'tidy' ? 'std' : 'tidy'; persist(); renderDxfLbl(dxfMode() === 'tpl'); const b = $('dxfLbl').querySelector('[aria-checked="true"]'); if (b) b.focus(); }); // (a radio group: the arrows move the choice)
@@ -10483,7 +10484,7 @@
     head.splice(0, head.length, ...head.filter(Boolean));
     const readme = [...head,
       `Clamp types: ${showCT ? 'on the plan, before the clamp size (e.g. CA 8-10, 2A 10-12)' : 'left off the plan (the clamp size only); they are in the BOQ, the KMZ and the CSV'}.`,
-      `Drawing style: ${plSummary()}.`,
+      `Drawing style: ${plSummary()}${S.exp.dxfLabels === 'tidy' ? ' · Pole labels: Tidy (they keep their size; the crowded-places rule is for the other labels)' : ''}.`, // (beta 4.7)
       `${nLoc > 1 ? `The points are in ${nLoc} places more than 1 km apart: each has its own VICINITY MAP and KEYMAP sheet, and its own GEO sheets (cells named with the place's number first: 1A-1, 2A-1). ` : ''}Vicinity map${nLoc > 1 ? 's' : ''}: ${vicSay.map((t, k) => (nLoc > 1 ? `place ${k + 1}: ${t}` : t)).join('; ')}; the project area circled. Roads and building names are drawn round the route only (the cells of the GEO sheets and 60 m round them), not over the whole vicinity area.`,
       `Title blocks: ${known ? `${[sName, sPla].filter(Boolean).join('_')} / ${sSerial || '(no serial number)'} from the online sheet's project details` : 'no project details from the online sheet: the project\'s location text is used'}; company ${logo ? 'logo COMPANY_LOGO' : 'name (no logo set)'}; title ${m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN'}.`,
       ...(siteFieldsOf().length ? [`Site details (Project details): ${siteFieldsOf().map(([k2, v2]) => `${k2}: ${v2}`).join(' · ')}.`] : []),
@@ -10503,17 +10504,17 @@
         if (svPurpose() === 'As-built') return [`Maintenance loops on poles: as recorded in the As-Built (${onPoles}${own}${q.MLOOP_UNANSWERED ? `; ${q.MLOOP_UNANSWERED} pole${q.MLOOP_UNANSWERED === 1 ? '' : 's'} on the route not answered` : ''}).`, ...box];
         return [`Maintenance loops on poles (each its own length: by default 10 m on 12C, ${mloopLen()} m on 72C): ${onPoles} on the plan${own}; ${ids.length ? `${ids.length} added by the app where the survey had none (${loopRule}): ${ids.join(', ')}` : 'none added by the app'}.`, ...box]; })(),
       `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Settings → AutoCAD DXF)'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures. Trenches and maxcell are not in the survey.',
-      'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE (PROP.POLE / height / clamp), existing electric pole on ELECTRIC POLE (material / pole tag or NPT), telco pole on GT-POLE (material / ID); new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
+      'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (PROP.POLE / height / clamp)') + ', existing electric pole on ELECTRIC POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / pole tag or NPT)') + ', telco pole on GT-POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / ID)') + '; new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
       `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; a pin placed by hand more than 6 m from the road edge stays where it is: ${rp.counts.polesKept || 0}; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it; a side guy never into the road; a pole-to-pole guy to its chosen pole, with a head guy there: ${rp.counts.poleToPole || 0}).`,
       `On the cable (the cable meets their two sides, the ID below): NAPs of every kind (1x8, 1x16, dummy, changed to 1:16, double; a NAP pin is drawn on its pole), LCPs (1:4 and double, a kind of NAP on its pole), the ODC (G-eSAA's cabinet symbol, layers G-ESAA PROPOSED / EXISTING ODC: the template has no ODC model), handholes, manholes and service boxes: ${rp.counts.inlineBlocks || 0}. Loops on the cable beside their pole; closures on the cable. Grounding at every pole with a loop or marked for it: ${rp.counts.grounding || 0}. Risers where the cable goes from aerial to underground (or marked): ${rp.counts.risers || 0}. Directional boring (HDD) where an underground cable crosses a road: ${rp.counts.hdd || 0}. A new tower is red; an OLT site is drawn with the OLT model (${rp.counts.olt || 0}).`,
       ...(() => { const A = routeAdvice(R); return A.length ? [`Route check (${A.length}): ${A.map((a) => a.text).join(' · ')}.`] : []; })(),
       `Road widths by OpenStreetMap class (or its width / lanes): primary 12 m, secondary 9, tertiary 7.5, residential 6, service 4, track 3.5; paths as a grey centre line. Building and place names: ${rp.counts.pois || 0} of the ${rp.counts.poisGiven || 0} named in OpenStreetMap round the route (its area and 250 m round it; not written: ${rp.counts.poisOutside || 0} outside the GEO sheets, ${rp.counts.poisNoRoom || 0} with no free room beside them, ${rp.counts.poisDuplicate || 0} repeated names)${rp.counts.landmarkIcons ? `, ${rp.counts.landmarkIcons} with their icon (blocks GESAA_LM_…, layer G-ESAA LANDMARK; icons of the OpenStreetMap street map and Mapbox Maki, public domain)` : ''}.`,
-      S.exp.dxfLabels === 'tidy' ? 'Labels: Tidy. Each pole has one level label, all of one size: its tag and type (e.g. 9100101 · CC; NPT when it has no tag) and, below, its clamps and 12C hardware. It sits beside the pole, or further out with a short grey line to it, where it covers no other label, street name, cable, symbol, photo or photo line. The pole owner and the coordinates are not written on the map' + (outs.some((o) => (o.out.report.marks || []).length) ? ' (the numbered points\' coordinates are in the list below)' : '') + '. Photos and numbers are where Standard labels put them.' // beta 4.7
+      S.exp.dxfLabels === 'tidy' ? 'Pole labels: Tidy. Each pole has one straight label: its tag and type (NPT when it has no tag), then, in smaller text, its clamps and 12C hardware, its owner and its latitude, longitude. The label sits beside its pole, or further out with a thin grey line to it, where it is nearer its own pole than any other and covers no other label, street name, cable, symbol, photo or photo line' + (outs.some((o) => (o.out.report.notes || []).some((n) => /^Tidy labels/.test(n))) ? '; where no such place is free, it covers as little as it can, and those poles are listed under Drawing checks above' : '') + '. Photos and numbers are in the same places as with Standard labels.' // beta 4.7
         : 'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD. Each pole\'s label points straight out from the cable, and its photo or number sits beside the pole on the side toward the homing, the same at every pole where there is room (elsewhere a little further, turned, or on the other side).', '',
       ...outs.flatMap((o) => { const MK = o.out.report.marks || []; return MK.length ? [`Numbers on the plan${many ? ` in ${o.file}` : ''} (${MK.length}${o.st.no.size ? `: ${o.st.what}` : ''}): number, ID, type, latitude, longitude`, ...markLinesOf(MK), ''] : []; }), exporterText()].join('\r\n');
     busy(false);
     { const RR = dxfRows(), rowOf = (o) => RR[(+String(o.st.id).replace(/\D/g, '') || 1) - 1]; // v2.42.28: the ZIP in plain words
-      resultInside = [...outs.map((o) => { const r = rowOf(o); return ['DXF', o.file, `${many && r ? `${mxRowName(r)}, ${MX_LONG[r.mode]}. ` : ''}Open it in AutoCAD`]; }), ...pdfFiles.map((f) => ['PDF', f.name, 'The sheets on A3, to print']), ...(cefFiles.length ? [['CEF', `${new Set(cefFiles.map((f) => f.name.split('/')[0])).size} CEF plan folder${new Set(cefFiles.map((f) => f.name.split('/')[0])).size === 1 ? '' : 's'}`, 'The CEF plan of each tower site: its PDF, DXF, KML and photos']] : []),
+      resultInside = [...outs.map((o) => { const r = rowOf(o); return ['DXF', o.file, `${many && r ? `${mxRowName(r)}, ${MX_LONG[r.mode]}. ` : ''}${S.exp.dxfLabels === 'tidy' ? 'Pole labels: Tidy. ' : ''}Open it in AutoCAD`]; }), ...pdfFiles.map((f) => ['PDF', f.name, 'The sheets on A3, to print']), ...(cefFiles.length ? [['CEF', `${new Set(cefFiles.map((f) => f.name.split('/')[0])).size} CEF plan folder${new Set(cefFiles.map((f) => f.name.split('/')[0])).size === 1 ? '' : 's'}`, 'The CEF plan of each tower site: its PDF, DXF, KML and photos']] : []),
         ...(files.length ? [['JPG', `${files.length} picture${files.length === 1 ? '' : 's'}`, 'Photos, vicinity map, logo: keep them next to the drawings, or AutoCAD shows empty boxes (AutoCAD 2021: see README)']] : []), ['TXT', 'README.txt', 'What the plan holds, with the pole numbers of each drawing']]; }
     offerResult(new Blob(C.makeZipParts([...outs.map((o) => ({ name: o.file, data: o.out.text })), ...files, ...pdfFiles, ...cefFiles, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`);
     { const A = routeAdvice(R), o0 = outs[0], MK0 = o0.out.report.marks || [];
@@ -17410,7 +17411,7 @@
   // A tap on a record in Records (or Find) closes the list; the map goes to it (zoom 19 or closer) and rings it; then its form opens.
   // Closed, the map is still there with the ring. The chip at the top: its ID shows it again, Edit opens it, List opens the list with
   // the search still typed, ✕ stops the ring. The ring goes too when another pole is tapped, or with the next pick.
-  var hlLayer = null, hlId = null, hlFrom = '', hlQ = '';
+  var hlLayer = null, hlId = null, hlFrom = '', hlQ = '', hlSpl = '';
   function hlDraw() {
     if (!hlLayer) hlLayer = L.layerGroup().addTo(map);
     hlLayer.clearLayers();
@@ -17419,6 +17420,10 @@
     L.circleMarker([p.lat, p.lon], { radius: 18, color: '#f08c00', weight: 3, fill: false, interactive: false, className: 'target-ring' }).addTo(hlLayer);
     L.circleMarker([p.lat, p.lon], { radius: 11, color: '#f08c00', weight: 3, fill: false, interactive: false }).addTo(hlLayer);
     $('hlChipId').textContent = recName(p) || '(no ID)'; $('hlChip').hidden = false;
+    // (from the splicing details' map pin: the record named by its kind, and List becomes the way back to the page, on that record)
+    const spl = hlFrom === 'splice' && !!hlSpl, kind = elemOf(p) === 'ODF' ? 'ODF' : spl && (p.closure || p.closureId) ? 'closure' : spl && (p.nap || p.napId) && /dummy/i.test((p.boq || {}).napType || '') ? 'dummy NAP' : elemOf(p).toLowerCase();
+    $('hlChip').setAttribute('aria-label', spl ? 'The ' + kind + ' from the splicing details' : 'The ' + kind + ' you found');
+    $('hlList').textContent = spl ? '‹ Splicing' : 'List'; $('hlList').title = spl ? 'Back to the splicing details' : 'The list, with your search';
   }
   function hlClear() { hlId = null; if (hlLayer) hlLayer.clearLayers(); $('hlChip').hidden = true; if (tmHooks.hlClear) tmHooks.hlClear(); }
   const hlOpen = (p) => (hlFrom === 'find' && visitMode() ? openVisit(p.id) : openEditorFor(p.id));
@@ -17433,6 +17438,7 @@
   $('hlGo').addEventListener('click', () => { const p = hlRec(); if (p) map.setView([p.lat, p.lon], Math.max(map.getZoom(), 18)); });
   $('hlEdit').addEventListener('click', () => { const p = hlRec(); if (p) hlOpen(p); });
   $('hlList').addEventListener('click', () => {
+    if (hlFrom === 'splice' && hlSpl) { const id = hlId ? String(hlId) : ''; guard(() => spliceOpen(hlSpl, { focus: id }), 'Splicing details not opened'); return; }
     if (hlFrom === 'find') { $('findQ').value = hlQ; renderFind(); openSheet('find'); }
     else { $('listSearch').value = hlQ; renderList(); openSheet('list'); }
   });
@@ -18305,7 +18311,7 @@
     const p = points.find((x) => String(x.id) === id && x.project === c.name);
     if (!p || !Number.isFinite(+p.lat) || !Number.isFinite(+p.lon)) return false;
     LOG.info('splice.map', { el: elemOf(p) });
-    await closeAll(); hlId = p.id; hlFrom = ''; hlDraw();
+    await closeAll(); hlId = p.id; hlFrom = 'splice'; hlQ = ''; hlSpl = c.name; hlDraw();
     map.setView([+p.lat, +p.lon], Math.max(map.getZoom(), 19));
     return true;
   }

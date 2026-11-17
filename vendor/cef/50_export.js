@@ -175,27 +175,40 @@ function dTitle(G, w, s) { G.pl([[0, 0], [w, 0], [w, 8], [0, 8]], 'lot', 1); fit
 /* beta 4.2 (22:24): which part details go on the isometric sheet. S.site.pd: { riser, exit, sbox }, each true or false. Not set: the riser pole and the riser
    pipe detail are left out, the service box detail shows, as before. */
 const PART_DETAILS = [['riser', 'Riser pole detail', 0], ['exit', 'Riser pipe detail', 0], ['sbox', 'Service box detail', 1], ['ped', 'Pedestal box detail', 1]];      /* (fix 47) the pedestal box: shown unless turned off, as the service box */
+/* (fix 47) the word for the rooms of the plan whose inside is drawn: CABIN, TELCO ROOM, or the words given for both */
+function roomsWord(S, both) { const c = S.els.some(e => e.t === 'cabin' && !e.tr && e.inside), t = S.els.some(e => e.t === 'cabin' && e.tr && e.inside); return c && t ? both : t ? 'TELCO ROOM' : 'CABIN'; }
 function pdOn(S, k) { const p = S.site && S.site.pd, d = PART_DETAILS.find(q => q[0] === k); return p && p[k] != null ? !!p[k] : !d || !!d[2]; }
 function partDetails(S, rg) {
   const out = [], mm = PVC_MM + 'mm';
-  const r0 = rg.risers.find(r => r.pole && !pedOf(r.pole));      /* (fix 47) a pole with a pedestal box has a detail of its own */
+  const r0 = rg.risers.find(r => r.pole && !pedOf(r.pole)) || rg.risers.find(r => r.pole);      /* (fix 47) a riser pole with a G.I. pipe first; else one with a pedestal box, drawn in place of the pipe */
   if (r0) {
-    const pole = r0.pole, pl = pole.st === 'P' ? 'pp' : 'ex', lp = rg.loops.find(q => Math.hypot(q.at[0] - pole.x, q.at[1] - pole.y) < 0.8), jn = rg.joins.find(q => q.pole === pole), clo = !!jn && (jn.auto || !jn.none), W = 66, H = 124;
+    const pole = r0.pole, pl = pole.st === 'P' ? 'pp' : 'ex', lp = rg.loops.find(q => Math.hypot(q.at[0] - pole.x, q.at[1] - pole.y) < 0.8), jn = rg.joins.find(q => q.pole === pole), clo = !!jn && (jn.auto || !jn.none), W = 66, H = 124, pd = pedOf(pole);
     out.push({ key: 'riser', w: W, h: H, at: [r0.at[0], r0.at[1], r0.g + 1.2], draw: G => {
       const cx = 15, yg = 21, bh = 6, px = cx + 7.6, pr = 2.7, yb = yg + bh + 0.6, giT = yb + 26, ugT = giT + 20, lpY = H - 30, top = H - 3;
       G.pl([[0, 0], [W, 0], [W, H], [0, H]], 'lot', 1); dTitle(G, W, 'RISER POLE DETAIL');
-      dBlock(G, [cx + 3, yg], 24, 22, bh, pl);
+      const N = [], p0 = pd ? yg : yb - 0.4, ugB = pd ? yg + 25 : giT;      /* (fix 47) with a pedestal box: the pole stands in the ground, the U-guard comes down nearer to the box */
+      if (!pd) dBlock(G, [cx + 3, yg], 24, 22, bh, pl);
       { const brk = yb + 14, zz = (x0, x1, y) => [[x0, y], [x0 + (x1 - x0) * 0.35, y + 0.9], [x0 + (x1 - x0) * 0.65, y - 0.9], [x1, y]];      /* the pole, with a break: it is not drawn at its full height */
-        G.pl([[cx - 4.6, yb - 0.4], [cx - 4.5, brk]], pl); G.pl([[cx - 4.45, brk + 2], [cx - 3.5, top]], pl); G.pl([[cx + 4.6, yb - 0.4], [cx + 4.5, brk]], pl); G.pl([[cx + 4.45, brk + 2], [cx + 3.5, top]], pl);
+        G.pl([[cx - 4.6, p0], [cx - 4.5, brk]], pl); G.pl([[cx - 4.45, brk + 2], [cx - 3.5, top]], pl); G.pl([[cx + 4.6, p0], [cx + 4.5, brk]], pl); G.pl([[cx + 4.45, brk + 2], [cx + 3.5, top]], pl);
         G.pl(zz(cx - 5.4, cx + 5.4, brk), pl); G.pl(zz(cx - 5.4, cx + 5.4, brk + 2), pl); G.pl(dEll([cx, top], 3.5, 1.5, 0, 360), pl, 1); }
-      dTube(G, [px, yb], pr, giT - yb, 'pp', 'tx');                                 /* the G.I. pipe, dark as on the hand-made plans, and the U-guard above it */
-      dTube(G, [px, giT], pr, ugT - giT, 'pp');
-      const K = dPlugs(G, [px, ugT], pr), N = [];
-      dBlank(G, [cx + 13.6, yg + bh - 1.2], pr, 'pp');
+      if (pd) {      /* (fix 47) the pedestal box in place of the G.I. pipe: on its base beside the pole, the conduit coming up into it, a flexible pipe from its top to the U-guard */
+        const bl = pd === 'P' ? 'pp' : 'ex', bc = [cx + 12.5, yg], bH = 14;
+        G.pl([[2, yg], [33, yg]], 'dt'); for (let x = 4; x < 33; x += 3) G.pl([[x, yg], [x - 1.6, yg - 1.6]], 'dt');      /* the ground */
+        G.pl([[cx - 4.6, yg - 6], [cx - 4.6, yg]], 'hp'); G.pl([[cx + 4.6, yg - 6], [cx + 4.6, yg]], 'hp'); G.pl([[cx - 4.6, yg - 6], [cx + 4.6, yg - 6]], 'hp');      /* the foot of the pole, in the ground */
+        dBlock(G, [bc[0], bc[1] - 1.2], 7, 6, 1.2, bl); const P = dBlock(G, bc, 5.5, 4.5, bH, bl);      /* the concrete base, and the box on it */
+        G.pl([P(-0.7, -1, 2), P(0.7, -1, 2), P(0.7, -1, bH - 2), P(-0.7, -1, bH - 2)], bl, 1);      /* its door */
+        for (const dx of [-1, 1]) { const x = bc[0] + dx; G.pl([[x, yg - 1.6], [x, yg - 6.5], [x + 6, yg - 10]], 'hp'); }      /* the conduit comes up into it from below the ground */
+        const a = P(-0.5, 0.4, bH), b = [px, ugB], fm = [(a[0] + b[0]) / 2 + 0.6, (a[1] + b[1]) / 2]; G.pl([a, [a[0] - 0.3, a[1] + 2.2], [b[0] + 0.6, b[1] - 2.2], b], bl);      /* the flexible pipe */
+        N.push({ s: [pd === 'E' ? 'EXISTING' : 'PROPOSED', 'PEDESTAL BOX'], to: P(1, -0.2, bH * 0.6) }, { s: ['FLEXIBLE PIPE'], to: fm }, { s: ['2 RUN PVC', 'CONDUIT ' + mm], to: [bc[0] + 1 + 4.5, yg - 9.2] });
+      } else dTube(G, [px, yb], pr, giT - yb, 'pp', 'tx');                                 /* the G.I. pipe, dark as on the hand-made plans, and the U-guard above it */
+      dTube(G, [px, ugB], pr, ugT - ugB, 'pp');
+      const K = dPlugs(G, [px, ugT], pr);
+      if (!pd) dBlank(G, [cx + 13.6, yg + bh - 1.2], pr, 'pp');
       if (lp) { for (const r of [8.6, 7.7, 6.8]) G.ci([cx, lpY], r, 'pp'); G.pl([K.out, [K.out[0] - 0.6, K.out[1] + 4], [cx + 6, lpY - 10], [cx + 5.2, lpY - 6.9]], 'ae'); N.push({ s: ['LOOP HOLDER W/', f2(lp.len) + 'm LOOP'], to: [cx + 8.3, lpY + 2.2] }); }
       else G.pl([K.out, [K.out[0] - 0.6, K.out[1] + 5], [cx + 5, top - 8]], 'ae');
       if (clo) { const c = [cx - 8.6, lpY + 10.5]; dTube(G, c, 2.3, 9, 'pp'); G.pl(dEll([c[0], c[1] + 9], 2.3, 2.6, 0, 180), 'pp'); N.push({ s: ['CLOSURE'], to: [c[0] + 2.3, c[1] + 6] }); }
-      N.push({ s: ['SIMPLEX DUCT-PLUG 32mm', 'W/ GUIDE ROPE'], to: K.plug }, { s: ['SUB-DUCT 4 x 32mm'], to: K.sub }, { s: ['QUADPLEX PLUG'], to: K.collar }, { s: ['U-GUARD'], to: [px + pr, (giT + ugT) / 2] }, { s: ['G.I. PIPE ' + mm], to: [px + pr, yb + (giT - yb) * 0.55] }, { s: ['MECHANICAL BLANK DUCT', 'PLUG 114mm (SPARE)'], to: [cx + 13.6 + pr * 0.8, yg + bh - 1.2] }, { s: ['CONCRETE ENCASEMENT'], to: [cx + 9.5, yg + 1.2] });
+      N.push({ s: ['SIMPLEX DUCT-PLUG 32mm', 'W/ GUIDE ROPE'], to: K.plug }, { s: ['SUB-DUCT 4 x 32mm'], to: K.sub }, { s: ['QUADPLEX PLUG'], to: K.collar }, { s: ['U-GUARD'], to: [px + pr, (ugB + ugT) / 2] });
+      if (!pd) N.push({ s: ['G.I. PIPE ' + mm], to: [px + pr, yb + (giT - yb) * 0.55] }, { s: ['MECHANICAL BLANK DUCT', 'PLUG 114mm (SPARE)'], to: [cx + 13.6 + pr * 0.8, yg + bh - 1.2] }, { s: ['CONCRETE ENCASEMENT'], to: [cx + 9.5, yg + 1.2] });
       dNotes(G, 35, H - 4, 10, N, 2);
     } });
   }
@@ -371,7 +384,7 @@ function buildSheets(S, opt) {      /* (14 Nov) opt.details === false: no detail
       if (many) o.push(['', 'CABLE ' + (k + 1) + ': ' + [sm.ae > 0.05 ? 'AE ' + CB[k].ae.cable : '', sm.ugt > 0.05 ? 'UG ' + CB[k].ug.cable : ''].filter(Boolean).join(', ').toUpperCase(), '']);
       if (!brief) { for (const l of p.legs) { const kk = l.f + l.i, q = grp[kk] || (grp[kk] = { f: l.f, i: l.i, len: 0, t: {} }); q.len += l.len; q.t[l.type] = 1; }
         for (const kk in grp) { const q = grp[kk]; o.push([q.f.toUpperCase() + ' ' + (q.i + 1), Object.keys(q.t).map(runT).join(' / '), f1(q.len) + 'm']); }
-        if (sm.vert > 0.05) o.push(['UG', 'UP AND DOWN (RISER, EXIT, DROPS)', f1(sm.vert) + 'm']); if (sm.inside > 0.05) o.push(['UG', 'IN THE CABIN (PORTHOLE TO ODF)', f1(sm.inside) + 'm']); if (sm.nloop) o.push(['AE', 'LOOPS (' + sm.nloop + ')', f1(sm.loop) + 'm']); }
+        if (sm.vert > 0.05) o.push(['UG', 'UP AND DOWN (RISER, EXIT, DROPS)', f1(sm.vert) + 'm']); if (sm.inside > 0.05) o.push(['UG', 'IN THE ' + roomsWord(S, 'ROOM') + ' (PORTHOLE TO ODF)', f1(sm.inside) + 'm']); if (sm.nloop) o.push(['AE', 'LOOPS (' + sm.nloop + ')', f1(sm.loop) + 'm']); }
       if (!many || sm.ae > 0.05) o.push(['', 'TOTAL FOC AE' + w, f1(sm.ae) + 'm']); if (!many || sm.ugt > 0.05) o.push(['', 'TOTAL FOC UG' + w, f1(sm.ugt) + 'm']); return o; };
     for (const k of PD) rows = rows.concat(one(k, false)); if (rows.length > 20 && many) { rows = []; for (const k of PD) rows = rows.concat(one(k, true)); }      /* too many lines for the sheet: the totals of each cable */
     let y = PAN.y1;
@@ -411,7 +424,7 @@ function buildSheets(S, opt) {      /* (14 Nov) opt.details === false: no detail
   }
   { /* the table of contents, now that every sheet is known */
     const G = toc, images = []; sheetFrame(S, G, { view: 'TABLE OF CONTENTS', sheet: 'TABLE OF CONTENTS', scale: '', n: 2, N: total, images });
-    const rows = [['COVER PAGE', 1], ['TABLE OF CONTENTS', 1], ['LEGEND AND NOTES', 1], ['ISOMETRIC DETAIL', 1], ['TOP VIEW', 1]].concat(nD ? [['DETAILS (CABIN, CABINETS)', nD]] : [], nP ? [['SITE PHOTOS', nP]] : []), W = 230, x = (ax0 + ax1 - W) / 2;
+    const rows = [['COVER PAGE', 1], ['TABLE OF CONTENTS', 1], ['LEGEND AND NOTES', 1], ['ISOMETRIC DETAIL', 1], ['TOP VIEW', 1]].concat(nD ? [['DETAILS (' + roomsWord(S, 'CABIN, TELCO ROOM') + ', CABINETS)', nD]] : [], nP ? [['SITE PHOTOS', nP]] : []), W = 230, x = (ax0 + ax1 - W) / 2;
     const y = drawTable(G, x, top - 30, [{ t: 'ITEM NO.', w: 40, al: 'c' }, { t: 'TYPE OF DRAWINGS', w: 130 }, { t: 'NO. OF SHEETS', w: 60, al: 'c' }], rows.map((r, i) => [i + 1, r[0], r[1]]).concat([['', 'TOTAL', total + ' SHEETS']]), 'TABLE OF CONTENTS', { rh: 11, hh: 13, th: 3.6 });
     para(G, x, y - 6, ['NOT IN THIS SET: THE VICINITY MAP. THE DEMO HAS NO MAP PICTURE TO PUT ON IT.'], 2.2, W, 'dm');
     out[1] = { name: 'CONTENTS', s: 1, N: 0, prims: G.p, images };

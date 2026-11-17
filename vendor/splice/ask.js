@@ -144,6 +144,20 @@
       recs.forEach(function (r) { if (kindOf(r) !== 'odf' || !isFinite(r.lat) || !isFinite(r.lon)) return; var d = hav(pr, r); if (d <= bd) { bd = d; best = r; } });
       if (best) { e.odf = best.id; e.odfName = String(best.poleId || 'ODF').trim().toUpperCase(); e.odfSt = stOf(best.status); }
     });
+    /* a site beside the pole where a cable going on beyond a dummy NAP leaves the map (45 m; added there after Show on map): that cable ends
+       at the site, which names the far end (its ODF is its FDU). It is past the job's end: never a start, a homing or a later leg here */
+    Object.keys(onward).forEach(function (k) {
+      var pc = pieceBy[k], side = pc.from === onward[k] ? 'to' : 'from', oid = pc[side], e = offBy[oid], pr = e && by[e.pole], best = null, bd = 45;
+      if (!pr || !isFinite(pr.lat) || !isFinite(pr.lon)) return;
+      points.forEach(function (p) {
+        var r = by[p.id]; if (p.type !== 'site' || !r || r._home || !isFinite(r.lat) || !isFinite(r.lon)) return;
+        if (pieces.some(function (x) { return x.from === p.id || x.to === p.id; })) return;
+        var d = hav(pr, r); if (d <= bd) { bd = d; best = p; }
+      });
+      if (!best) return;
+      pc[side] = best.id;
+      if (!pieces.some(function (x) { return x.from === oid || x.to === oid; })) { offEnds.splice(offEnds.indexOf(e), 1); delete offBy[oid]; }
+    });
     P._B = { P: P, by: by, points: points, ptBy: ptBy, pieces: pieces, pieceBy: pieceBy, offEnds: offEnds, offBy: offBy, runs: runs, onward: onward, beyond: {} };
     return P._B;
   }
@@ -234,12 +248,29 @@
   /* the made-up project as it came (before any edit): to tell an edit back to the original from a real change */
   function baseOf(P) { if (!P._base) applyData(P, freshData()); return P._base; }
 
+  /* what the cables going on beyond a dummy NAP reach (and on from there, up to the next dummy NAP): past the job's end, whatever the start */
+  function pastOf(B) {
+    if (B._past) return B._past;
+    var adj = {}, past = {};
+    B.pieces.forEach(function (c) { (adj[c.from] = adj[c.from] || []).push(c.to); (adj[c.to] = adj[c.to] || []).push(c.from); });
+    Object.keys(B.onward).forEach(function (k) {
+      var pc = B.pieceBy[k], d = B.onward[k], q = [pc.from === d ? pc.to : pc.from];
+      while (q.length) { var v = q.shift(); if (past[v] || v === d) continue; past[v] = 1; if (typeOf(B, v) === 'dnap') continue; (adj[v] || []).forEach(function (o) { if (!past[o]) q.push(o); }); }
+    });
+    B._past = past; return past;
+  }
+  /* the new sites and dummy NAPs a job can start from: not past a dummy NAP (the job ends there); those with a cable first */
+  function startsOf(B) {
+    var past = pastOf(B), cab = {};
+    B.pieces.forEach(function (c) { cab[c.from] = 1; cab[c.to] = 1; });
+    var news = B.points.filter(function (p) { return isEndType(p.type) && p.status === 'new' && !past[p.id]; });
+    return news.filter(function (p) { return cab[p.id]; }).concat(news.filter(function (p) { return !cab[p.id]; }));
+  }
+
   /* the answers of a fresh project: the start is picked for the user (the only new site, or the project's site) */
   function freshAnswers(P) {
-    /* (not a site that only a cable going on beyond a dummy NAP reaches: the job ends at the dummy NAP) */
-    var B = bridge(P), far = {};
-    Object.keys(B.onward).forEach(function (k) { var pc = B.pieceBy[k], d = B.onward[k]; far[pc.from === d ? pc.to : pc.from] = 1; });
-    var news = B.points.filter(function (p) { return isEndType(p.type) && p.status === 'new' && !far[p.id]; });
+    /* (not a site that only a cable going on beyond a dummy NAP reaches: the job ends at the dummy NAP; a site with a cable before one with none) */
+    var B = bridge(P), news = startsOf(B);
     var pick = news.filter(function (p) { return p.name === String(P.site || '').toUpperCase(); })[0] || news[0] || B.points.filter(function (p) { return isEndType(p.type); })[0];
     var A = { v: 1, start: pick ? pick.id : '', started: false, off: {}, to: [], later: [], toDone: false, count: 0, counts: {}, countDone: false, size: {}, split: {}, testedDone: false,
       live: {}, tubes: {}, draft: { live: {}, tubes: {} }, legs: {}, ids: {}, coords: {}, locked: false };
@@ -558,7 +589,7 @@
     return { add: todo.length, wait: wait, apply: function (A2) { todo.forEach(function (t) { var L = A2.legs[t[0]] = A2.legs[t[0]] || {}; L.fix = Object.assign({}, L.fix); L.fix[t[1]] = t[2]; }); } };
   }
 
-  var Ask = { PROJECTS: PROJECTS, bridge: bridge, freshAnswers: freshAnswers, modelOf: modelOf, reachOf: reachOf, questions: questions, compute: compute, kindOf: kindOf, nameOf: nameOf,
+  var Ask = { PROJECTS: PROJECTS, bridge: bridge, freshAnswers: freshAnswers, startsOf: startsOf, pastOf: pastOf, modelOf: modelOf, reachOf: reachOf, questions: questions, compute: compute, kindOf: kindOf, nameOf: nameOf,
     applyData: applyData, freshData: freshData, cleanData: cleanData, baseOf: baseOf, ODF_SIZES: ODF_SIZES, CABLE_SIZES: CABLE_SIZES,
     fromApp: fromApp, mergeAnswers: mergeAnswers, pruneAnswers: pruneAnswers, tubeBasis: tubeBasis, locks: locks, version: 'ask-3' };
   root.Ask = Ask;
@@ -719,7 +750,7 @@
   var nm = function (id) { return nameOf(C().B, ST.A, id); };
   function cdesc(key, long) {
     var c = C().cab[key]; if (!c) return 'cable';
-    var s = c.name ? c.name : (c.status === 'existing' ? 'existing ' : 'new ') + c.size + 'F cable';
+    var s = c.name ? c.name : (c.status === 'existing' ? 'existing ' : 'new ') + c.size + 'C cable';
     return long ? s + ' (' + nm(c.from) + ' – ' + nm(c.to) + ')' : s;
   }
   function legTitle(l) { return '<span class="legcap">' + esc(l.label) + '</span>' + esc(nm(l.a)) + ' → ' + esc(nm(l.b)); }
@@ -735,7 +766,7 @@
   }
   /* a fiber check in plain words: green when there are enough free fibers, red with what to do when not */
   function fiberCheck(l, f) {
-    var cb = C().cab[f.key], where = (f.existing ? 'the existing ' : 'the new ') + cb.size + 'F cable' + (cb.name ? ' ' + cb.name : '');
+    var cb = C().cab[f.key], where = (f.existing ? 'the existing ' : 'the new ') + cb.size + 'C cable' + (cb.name ? ' ' + cb.name : '');
     var span = esc(nm(f.ends[0])) + ' → ' + esc(nm(f.ends[1])), how = (f.locked ? ' · locked at export' : f.hand ? ' · moved by hand' : '') +
       (f.buffers && f.buffers.length > 1 && l.n <= (f.fpt || 12) ? ' · spans the ' + bufList(f.buffers) + ' buffers' : '');
     var moved = f.moved ? '<small>Moved from <span class="mono">' + esc(f.moved) + '</span>: ' + (f.hand ? 'those fibers are not free any more.' : 'the leg grew and the next fibers belong to another leg.') + '</small>' : '';
@@ -962,7 +993,7 @@
     if (t === 'split') return nm(id) + ' · port split' + (A.split[id] === 'need' ? ': as used' : A.split[id] === 'half' ? ': half' : '');
     if (t === 'tested') { var ls = (c.plan.legs || []).filter(function (l) { return l.state !== 'future' && l.routed; }), tested = ls.filter(function (l) { return l.state === 'tested'; }); return !q.done ? 'Tested now?' : 'Tested · ' + (tested.length === ls.length ? (ls.length === 2 ? 'both' : 'all') : tested.length ? tested.map(function (l) { return nm(l.b); }).join(', ') : 'none'); }
     if (t === 'live') return nm(id) + ' ports';
-    if (t === 'tubes') return 'Buffers · ' + c.B.pieces.filter(function (p) { return p.fid === id; })[0].size + 'F cable';
+    if (t === 'tubes') return 'Buffers · ' + c.B.pieces.filter(function (p) { return p.fid === id; })[0].size + 'C cable';
     return 'Ready';
   }
   function renderBar() {
@@ -1018,7 +1049,8 @@
   function qStart() {
     var c = C(), B = c.B, A = ST.A;
     var homes = B.points.filter(function (p) { return p.type === 'site' && p.id !== A.start && !B.beyond[p.id]; }).length + B.offEnds.filter(function (e) { return !B.beyond[e.id]; }).length, clo = B.points.filter(function (p) { return p.type === 'closure'; }).length, offs = B.offEnds.filter(function (e) { return !B.beyond[e.id]; }).length;
-    var news = B.points.filter(function (p) { return isEndType(p.type) && p.status === 'new'; }), s = B.ptBy[A.start] || {};
+    var news = startsOf(B), s = B.ptBy[A.start] || {};
+    if (news.indexOf(s) < 0 && B.ptBy[A.start]) news = [s].concat(news); /* (an earlier start stays listed as the start) */
     var plural = function (n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); };
     var html = kicker('Splicing details') + '<h2>Let\'s join the fibers</h2>' +
       '<p class="lead">I found ' + (s.type === 'dnap' ? '1 new small cell' : plural(news.filter(function (p) { return p.type === 'site'; }).length, 'new site')) + ', ' + plural(homes, 'homing') + ', ' + plural(clo, 'closure') + ' and ' + plural(B.pieces.length, 'cable') + (B.pieces.length > B.runs.length ? ' (a cable cut at a closure counts twice)' : '') +
@@ -1035,7 +1067,7 @@
   }
   function qOff(pole) {
     var B = C().B, e = B.offBy['off:' + pole], P = proj(), cur = String(ST.A.off[pole] || '');
-    var html = kicker() + '<h2>This cable leaves the map. Where does it go?</h2><p class="lead">The ' + (e.ex ? 'existing ' : 'new ') + e.size + '-fiber cable stops at pole <b>' + esc(e.at) + '</b>, at the edge of the project. Name the homing it goes to, once.</p>' + (canMap() ? '<div class="mapends">' + mapPill('off:' + pole, 'Pole ' + e.at) + '</div>' : '');
+    var html = kicker() + '<h2>This cable leaves the map. Where does it go?</h2><p class="lead">The ' + (e.ex ? 'existing ' : 'new ') + e.size + 'C cable stops at pole <b>' + esc(e.at) + '</b>, at the edge of the project. Name the homing it goes to, once.</p>' + (canMap() ? '<div class="mapends">' + mapPill('off:' + pole, 'Pole ' + e.at) + '</div>' : '');
     if ((P.refNames || []).length) html += '<div class="sep">From the reference map</div><div class="rows">' + P.refNames.map(function (n) {
       return '<button type="button" class="row' + (cur.toUpperCase() === n ? ' on' : '') + '" data-act="off" data-arg="' + esc(pole + '|' + n) + '"><span class="ic exist">⌂</span><span class="tx"><b>' + esc(n) + '</b><span>a pin on the reference map</span></span><span class="go">›</span></button>';
     }).join('') + '</div>';
@@ -1177,7 +1209,7 @@
     var c = C(), pcs = c.B.pieces.filter(function (p) { return p.fid === fid; }), dots = c.dots[fid] || [];
     var where = pcs.map(function (p) { return nm(p.from) + ' – ' + nm(p.to); }).join(', ');
     var r = runRow(fid);
-    return kicker() + '<h2>Which buffers of this cable are in use?</h2><p class="lead">The existing ' + pcs[0].size + '-fiber cable ' + esc(where) + (r ? ', ' + Math.ceil(r.size / r.fpt) + ' buffers of ' + r.fpt : '') + '. ' +
+    return kicker() + '<h2>Which buffers of this cable are in use?</h2><p class="lead">The existing ' + pcs[0].size + 'C cable ' + esc(where) + (r ? ', ' + Math.ceil(r.size / r.fpt) + ' buffers of ' + r.fpt : '') + '. ' +
       (dots.length ? 'Fibers with a stripe are live at the FDU (' + esc(SP.fmtRanges(dots, 'F')) + '): they are never used. ' : '') + 'Tick a buffer (tube) that is in use for something else.</p>' +
       (ST.set.tube === 'fresh' ? '<div class="ck info"><div>Fresh buffer is on: a buffer with a live fiber is kept whole.</div></div>' : '') +
       (r ? fptChips(r) : '') + tubeButtons(fid) + '<div id="gives">' + gives(fid) + '</div>' +
@@ -1334,7 +1366,9 @@
     return '<h3 id="sizesH">Sizes</h3><div class="slist">' + z.fdus.map(function (r) {
       return row('pt:' + r.id, r.name + ' FDU', r.issue ? r.sub : '', r.cap + ' ports', !!r.issue);
     }).join('') + z.runs.map(function (r) {
-      return row('run:' + r.fid, 'Cable ' + r.fromName + ' → ' + r.toName, r.issue ? r.sub : r.fpt + ' fibers per buffer' + (r.rest ? ' (the last has ' + r.rest + ')' : ''), (r.existing ? 'existing ' : '') + r.size + 'C', !!r.issue);
+      /* (each cable told apart by its ID, or its RUN until it has one: two cables between the same two points read the same otherwise) */
+      var who = r.cid ? String(r.cid).toUpperCase() : 'RUN ' + r.n;
+      return row('run:' + r.fid, 'Cable ' + r.fromName + ' → ' + r.toName, who + ' · ' + (r.issue ? r.sub : r.fpt + ' fibers per buffer' + (r.rest ? ' (the last has ' + r.rest + ')' : '')), (r.existing ? 'existing ' : '') + r.size + 'C', !!r.issue);
     }).join('') + '</div>';
   }
   /* the project's records: an edit back to the made-up value leaves no edit behind */
@@ -1377,7 +1411,7 @@
   }
   /* the same as a pill with its words (a cable's two ends, the pole where a cable leaves the map) */
   function mapPill(id, words) { var b = mapBtn(id, words, 'lbl'); return b ? b.replace('</svg></button>', '</svg><span>' + esc(words) + '</span></button>') : ''; }
-  function cardHead(kick, title, mapId) { return '<div class="kick">' + esc(kick) + (mapId ? mapBtn(mapId, title.replace(/<[^>]+>/g, '')) : '') + '<button type="button" class="x" data-act="close" aria-label="Back to the questions">×</button></div><h2>' + title + '</h2>'; }
+  function cardHead(kick, title, mapId) { return '<div class="kick">' + esc(kick) + (mapId ? mapBtn(mapId, title.replace(/<span class="note">[^<]*<\/span>/g, '').replace(/<[^>]+>/g, '').trim()) : '') + '<button type="button" class="x" data-act="close" aria-label="Back to the questions">×</button></div><h2>' + title + '</h2>'; }
   function editCard() {
     var e = ST.edit;
     if (e.kind === 'leg') return eLeg(e.id);
@@ -1434,6 +1468,7 @@
     if (!f) return cardHead('Site', esc(nm(id)), id) + '<p class="note">Not on the drawing yet.</p>';
     if (f.beyond || B.beyond[id]) { /* past a dummy NAP: the job ends at the dummy NAP; this end is only shown */
       var oe = B.offBy[id];
+      if (p && p.type === 'dnap') return cardHead('Not in this job', esc(nm(id)), id) + '<div class="ck info"><div>No leg of this job ends at this dummy NAP. The drawings show it plainly and its cables NOT SPLICED · FOR FUTURE.</div></div>';
       return cardHead('Not in this job', esc(nm(id)), id) + '<div class="ck info"><div>The cable after the dummy NAP goes on to here. It is not spliced now: the drawings show it NOT SPLICED · FOR FUTURE.' +
         (oe && !oe.odf ? '<small>It ends at pole ' + esc(oe.at) + '. An ODF record beside that pole names it on the drawing.</small>' : '') + '</div></div>';
     }
@@ -1456,7 +1491,7 @@
   }
   function eCable(key) {
     var c = C(), cb = c.cab[key], pc = c.B.pieceBy[key], ci = c.infoBy[key], A = ST.A;
-    var html = cardHead((cb.status === 'existing' ? 'Existing ' : 'New ') + cb.size + '-fiber cable', esc(nm(cb.from)) + ' – ' + esc(nm(cb.to)));
+    var html = cardHead((cb.status === 'existing' ? 'Existing ' : 'New ') + cb.size + 'C cable', esc(nm(cb.from)) + ' – ' + esc(nm(cb.to)));
     if (canMap()) { var me = mapPill(cb.from, nm(cb.from)) + mapPill(cb.to, nm(cb.to)); if (me) html += '<div class="mapends">' + me + '</div>'; }
     if (ci && ci.spare) html += '<div class="ck info"><div>Not spliced in this job · for future' + (ci.onward ? '<small>It goes on from the dummy NAP; its fibers are capped there.</small>' : '<small>No leg uses it; its fibers are capped at both ends.</small>') + '</div></div>';
     html += runSizeBlock(pc.fid);
@@ -1582,7 +1617,7 @@
       case 'goto': ST.edit = null; ST.cur = arg; ST.countDiff = false; render(); keep(); return;
       case 'close': cidCommit(); ST.edit = null; ST.sizeOpen = ''; ST.otherOpen = ''; ST.note = null; render(); return;
       case 'start': change(function (A) { A.started = true; }, { advance: true }); return;
-      case 'pickStart': change(function (A) { A.start = arg; A.to = []; A.later = []; A.toDone = false; A.legs = {}; A.counts = {}; A.countDone = false; A.testedDone = false; }); return;
+      case 'pickStart': if (pastOf(C().B)[arg]) return; change(function (A) { A.start = arg; A.to = []; A.later = []; A.toDone = false; A.legs = {}; A.counts = {}; A.countDone = false; A.testedDone = false; }); return;
       case 'off': change(function (A) { A.off[parts[0]] = parts[1]; }, { advance: true }); return;
       case 'offTyped': {
         var v = String(($('#offName') || {}).value || '').trim().toUpperCase().slice(0, 32);
@@ -1970,8 +2005,9 @@
       ST.saved = {}; ST.saved[ST.P.id] = d.saved && d.saved.A ? { A: d.saved.A, set: { stage: ST.stage, tube: d.saved.tube } } : null;
       openProject(ST.P.id);
       var f = String(d.focus || ''), B0 = C().B;
-      if (f && !B0.ptBy[f]) f = (ST.P.folded || {})[f] || ''; /* a closure or NAP pin tapped: its pole; an ODF: its site */
-      if (f && B0.ptBy[f]) { ST.edit = { kind: 'pt', id: f }; render(); }
+      var f0 = f; if (f && !B0.ptBy[f]) f = (ST.P.folded || {})[f] || ''; /* a closure or NAP pin tapped: its pole; an ODF: its site */
+      if (f0 && !f) { var oe = B0.offEnds.filter(function (e) { return e.odf === f0 || e.pole === f0; })[0]; if (oe) f = oe.id; } /* (the ODF or pole where a cable leaves the map: that end) */
+      if (f && (B0.ptBy[f] || B0.offBy[f])) { ST.edit = { kind: 'pt', id: f }; render(); }
     }, function (e) { toast('The project could not be read (' + ((e && e.message) || 'try again') + '). Close this page and open it again.'); });
   }
   root.AskPage = { state: ST, act: act, undo: undo, compute: function () { return C(); }, app: APP,
