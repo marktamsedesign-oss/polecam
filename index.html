@@ -1656,6 +1656,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <h3>Photos on the plan</h3>
       <div class="strow"><span class="lbl">Photo size <output id="stPhO"></output></span><div class="seg stphseg" id="stPhSize" role="radiogroup" aria-label="Photo size"><button type="button" class="chip" data-v="12">Small</button><button type="button" class="chip" data-v="18">Normal</button><button type="button" class="chip" data-v="24">Large</button><button type="button" class="chip" data-v="30">Extra large</button></div></div>
       <div class="strow"><label class="lbl" for="stPhL">Your own size: long side in metres <output>6 to 40 m</output></label><input type="number" id="stPhL" min="6" max="40" step="1" inputmode="decimal" enterkeyhint="done"></div>
+      <div class="strow"><label class="lbl" for="stPhNear">Near its pole (Tidy) <output id="stPhNearO"></output></label><input type="range" id="stPhNear" min="8" max="40" step="1"></div>
       <p class="hint" id="stPhHint" style="margin:0"></p>
     </div>
     <div class="stgrp" id="stCrowd" data-scene="crowd">
@@ -1738,6 +1739,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="strow"><span class="lbl">Grid text: where on the sheet</span><div class="seg" id="stGridPos" role="radiogroup" aria-label="Where the sheet's name goes"><button type="button" class="chip small" data-v="tr">Top right</button><button type="button" class="chip small" data-v="tl">Top left</button><button type="button" class="chip small" data-v="br">Bottom right</button><button type="button" class="chip small" data-v="bl">Bottom left</button></div></div>
       <div class="strow"><label class="lbl" for="stGridH">Grid text size <output id="stGridHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stGridHAuto">Auto</button><input type="range" id="stGridH" min="4" max="30" step="1" style="flex:1"></div></div>
       <div class="strow"><span class="lbl">Grid text colour <output id="stGridColO"></output></span><div class="sws" id="stGridCol" role="radiogroup" aria-label="Grid text colour"></div></div>
+      <div class="strow"><span class="lbl">Leader lines (Tidy)</span><div class="seg" id="stGridLead" role="radiogroup" aria-label="Leader lines"><button type="button" class="chip small" data-v="auto">Only when there's no other way</button><button type="button" class="chip small" data-v="allow">Allowed, for fewer sheets</button></div><p class="hint" id="stGridLeadHint" style="margin:0"></p></div>
       <p class="hint" id="stGridHint" style="margin:0"></p>
     </div>
     <div class="stgrp" id="stLegend" data-scene="street photo crowd tower grid">

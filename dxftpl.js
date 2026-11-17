@@ -1520,8 +1520,8 @@
        and no GEO sheet has more than 2 pole blocks over a road (they cover nothing else, and are listed under the Drawing checks);
        finer only beyond that. ok: good enough; worse: more labels without a place, or as many and more blocks over a road past the
        2 a sheet may keep. The user's own split (Drawing style › Grid): made once at that split. */
-    const fix = Math.round(+((job.gridStyle || {}).split) || 0), ok = (g) => !g.bad && !g.ov && !g.overX, sc = (g) => [g.bad + (g.ov || 0), g.overX], worse = (a, b) => { const x = sc(a), y = sc(b); return x[0] > y[0] || (x[0] === y[0] && x[1] > y[1]); };
-    const info = (g) => ({ n: g.n, cell: g.cell, sheets: g.sheets, bad: g.bad, over: g.over, overMax: g.overMax, textsOver: g.ov || 0, photosAway: g.phFar || 0, photosAwayMax: g.phFarMax || 0 });
+    const fix = Math.round(+((job.gridStyle || {}).split) || 0), ok = (g) => !g.bad && !g.ov && !g.overX && !g.lead, sc = (g) => [g.bad + (g.ov || 0) + (g.lead || 0), g.overX], /* (beta 6.0: a pole's block that needs its line counts as bad, unless lines are allowed) */ worse = (a, b) => { const x = sc(a), y = sc(b); return x[0] > y[0] || (x[0] === y[0] && x[1] > y[1]); };
+    const info = (g) => ({ n: g.n, cell: g.cell, sheets: g.sheets, bad: g.bad, over: g.over, overMax: g.overMax, textsOver: g.ov || 0, photosAway: g.phFar || 0, photosAwayMax: g.phFarMax || 0, blocksWithLine: g.leadAll || 0 });
     let r;
     if (fix >= 1) { r = at(Math.min(GRID_FIX_MAX, fix)); tried.push(G(r)); }
     else {
@@ -1767,7 +1767,7 @@
     const gh = cell * 0.1; // v2.39: a tenth of the cell (the template's sample: a fifth, covering the plan; the company's plans: 4 to 12 %)
     /* beta 5.9: Drawing style › Grid (job.gridStyle): the sheets' names in a corner (pos: tr top right, the default; tl, br, bl), their height as
        printed on the A3 PDF (h mm; 0: Auto, a tenth of the sheet as before) and colour (0: by layer). Standard draws them as before unless set. */
-    const GS = job.gridStyle || {}, GPOS = { tr: [1, 1, 3], tl: [-1, 1, 1], br: [1, -1, 9], bl: [-1, -1, 7] }, gPos = GPOS[GS.pos] ? GS.pos : 'tr', gCol = +GS.color > 0 ? +GS.color : null;
+    const GS = job.gridStyle || {}, GPOS = { tr: [1, 1, 3], tl: [-1, 1, 1], br: [1, -1, 9], bl: [-1, -1, 7] }, gPos = GPOS[GS.pos] ? GS.pos : 'tr', gCol = +GS.color > 0 ? +GS.color : job.labels === 'tidy' ? TC0 + 0xc8c8c8 : null; // (beta 6.0: Tidy's Auto: light grey, ACI 9 for older CAD; Standard: the template's layer colour)
     const ghS = +GS.h > 0 ? Math.min(cell * 0.2, +GS.h / ((printK || 0.62) * NU)) : gh, gSet = gPos !== 'tr' || +GS.h > 0 || gCol != null;
     for (let i = I0; i <= I1; i++) for (let j = J0; j <= J1; j++) {
       if (!gridAll && ![-1, 0, 1].some((di) => [-1, 0, 1].some((dj) => used.has(key(i + di, j + dj))))) continue;
@@ -2319,9 +2319,9 @@
       }
     }
     // v2.37: directional boring (HDD) wherever an underground cable crosses a road, centred on the road, along the cable
-    let nHdd = 0; const hddB = S.blocks.has('proposed HDD Directional Boring') ? 'proposed HDD Directional Boring' : null;
-    if (hddB) {
-      const hbb = blockBox(S, hddB, 0), hw0 = hbb ? hbb[2] - hbb[0] : 38.69, cross = (a, b, c, e) => { const r = [b[0] - a[0], b[1] - a[1]], s = [e[0] - c[0], e[1] - c[1]], den = r[0] * s[1] - r[1] * s[0]; if (Math.abs(den) < 1e-9) return null; const t = ((c[0] - a[0]) * s[1] - (c[1] - a[1]) * s[0]) / den, u = ((c[0] - a[0]) * r[1] - (c[1] - a[1]) * r[0]) / den; return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? [a[0] + t * r[0], a[1] + t * r[1]] : null; };
+    let nHdd = 0; const hddAt = []; const hddB = S.blocks.has('proposed HDD Directional Boring') ? 'proposed HDD Directional Boring' : null;
+    { // (beta 6.0: the crossings found even when the template has no HDD block, for the PMI; drawn only with the block)
+      const hbb = hddB ? blockBox(S, hddB, 0) : null, hw0 = hbb ? hbb[2] - hbb[0] : 38.69, cross = (a, b, c, e) => { const r = [b[0] - a[0], b[1] - a[1]], s = [e[0] - c[0], e[1] - c[1]], den = r[0] * s[1] - r[1] * s[0]; if (Math.abs(den) < 1e-9) return null; const t = ((c[0] - a[0]) * s[1] - (c[1] - a[1]) * s[0]) / den, u = ((c[0] - a[0]) * r[1] - (c[1] - a[1]) * r[0]) / den; return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? [a[0] + t * r[0], a[1] + t * r[1]] : null; };
       const done = [];
       for (const ch of chains) {
         if (!ch.ug || !ch.pieces) continue;
@@ -2332,8 +2332,9 @@
             for (let j = 1; j < r.pts.length; j++) {
               const x = cross(a, b, r.pts[j - 1], r.pts[j]); if (!x || done.some((q) => q.r === r && dist2(q.x, x) < r.hw + 4)) continue; // once per crossing of each road
               const L = 2 * r.hw + 6, rot = deg(unit(a, b)); done.push({ r, x });
+              if (!ch.existing) hddAt.push({ x, L }); if (!hddB) continue;
               o.insert(lay(ch.existing ? 'EXISTING HDD' : 'PROPOSED HDD', 'MISC'), ch.existing && S.blocks.has('existing HDD Directional Boring') ? 'existing HDD Directional Boring' : hddB, x[0], x[1], { scale: L / hw0, rot: readable(rot), center: true });
-              spots.add(Spots.box(x[0], x[1], L, 5, rot)); nHdd++;
+              spots.add(Spots.box(x[0], x[1], L, 5, rot)); nHdd++; // (beta 6.0: each new bore, for the PMI's PROPOSED HDD)
             }
           }
         }
@@ -2596,7 +2597,8 @@
        there is no such room), inside its own GEO sheet, clear of road edge lines where it can be. Where no place is free: the one
        nearest its own pole or symbol covering least, its line kept, listed in the report's notes (and the labels round it tried again
        with it first). */
-    const NEAR_PH = 16 / ((printK || 0.62) * NU); // beta 5.9: a pole's photo is near it within 16 mm on the A3 sheet (its centre): 26 m of the drawing at the template's grid, 13 m at 1/2, 8.7 m at 1/3
+    const LEAD_OK = (job.gridStyle || {}).leaders === 'allow'; // beta 6.0: Drawing style › Grid › Leader lines: Allowed (else only where there is no other way)
+    const NEAR_PH = (+(job.photoStyle || {}).nearMm > 0 ? Math.min(40, Math.max(8, +job.photoStyle.nearMm)) : 16) / ((printK || 0.62) * NU); // (beta 6.0: Drawing style › Photos › near its pole, 8 to 40 mm) // beta 5.9: a pole's photo is near it within 16 mm on the A3 sheet (its centre): 26 m of the drawing at the template's grid, 13 m at 1/2, 8.7 m at 1/3
     const TX = {}, tidyOwn = new Set(), tidyGrp = new Map(), T7 = { labels: 0, leaders: 0, closer: 0, notFree: 0 }; // (beta 5.9: tidyGrp: the records of one Tidy label, its texts, number and photo, which may touch each other)
     const MOVABLE = new Set(['PROPOSED LOOP', 'Proposed NAP ID', 'MISC', 'Distance Data'].filter((n) => S.layers.has(n))); // (loops, IDs, span lengths, cable names; not a street name, a number (it has its circle) or a cable's label (its arrow); only the template's own layers: none of layer 0, where a template without them puts everything)
     /** every text written so far (IDs, closures' attributes, span lengths, cable labels, loops, street names, landmarks, the grid's
@@ -2712,7 +2714,7 @@
           if (c.dx === undefined) c.dx = xl < -0.3 ? 1 : xl > 0.3 ? -1 : 0; // (the side the pole is on: its number there)
           const G = tidyGeo(T, c); let qx = xl, qy = yl, dl = Infinity;
           for (const [x0, yt, w, hh] of G.rects) { const px = Math.min(Math.max(xl, x0), x0 + w), py = Math.min(Math.max(yl, yt - hh), yt), d = Math.hypot(px - xl, py - yl); if (d < dl) { dl = d; qx = px; qy = py; } } // (the nearest point of its lines, not of the box round them)
-          if (dl > (T.u ? Math.max(r0, 1.56 * p.rp + 0.6 / kk) : r0) + 1.3 / kk) { const qw = G.W(qx, qy), u = [(qw[0] - x) / dl, (qw[1] - y) / dl], a = add2(p.dp, u, p.rp + 0.3 / kk), e = [qw[0] - u[0] * 0.4 / kk, qw[1] - u[1] * 0.4 / kk]; c.lead = [a, e]; c.lbox = Spots.box((a[0] + e[0]) / 2, (a[1] + e[1]) / 2, dist2(a, e), 0.3 / kk, deg(u)); c.ebox = Spots.box(e[0], e[1], 2.2 / kk, 2.2 / kk, 0); } // (ebox: round its end, where no other label may be: the line would seem to lead to it)
+          if (dl > (T.u ? Math.max(r0, 1.56 * p.rp + 0.6 / kk) : r0) + (LEAD_OK ? 1.3 : 2.5) / kk) { /* (beta 6.0: with leader lines only as the last resort, a block up to 2.5 m (as printed at the template's grid, 1.5 mm) from its pole needs no line: it is beside it) */ const qw = G.W(qx, qy), u = [(qw[0] - x) / dl, (qw[1] - y) / dl], a = add2(p.dp, u, p.rp + 0.3 / kk), e = [qw[0] - u[0] * 0.4 / kk, qw[1] - u[1] * 0.4 / kk]; c.lead = [a, e]; c.lbox = Spots.box((a[0] + e[0]) / 2, (a[1] + e[1]) / 2, dist2(a, e), 0.3 / kk, deg(u)); c.ebox = Spots.box(e[0], e[1], 2.2 / kk, 2.2 / kk, 0); } // (ebox: round its end, where no other label may be: the line would seem to lead to it)
           c.tb = Spots.box(c.cx, c.cy, Wt, Ht, c.ang || 0);
           if (T.u && T.PH) { // beta 4.8: its photo upright (square to the sheet), beside its block; beta 5.9 (the owner: "always on the side away from the road but must be near the pole"): see phVar
             const P2 = T.PH, up = [-cu[1], cu[0]], fe = xl < 0 ? 1 : -1, g = 0.4 / kk, eu = (Math.abs(cu[0]) * P2.w + Math.abs(cu[1]) * P2.h) / 2, ev = (Math.abs(up[0]) * P2.w + Math.abs(up[1]) * P2.h) / 2, sv = (T.vA[0] * up[0] + T.vA[1] * up[1]) >= 0 ? 1 : -1;
@@ -2735,14 +2737,18 @@
           return c;
         } });
       };
-      const choose = (T, loose) => { // one label's place, taken at once (its box and its line). loose: also a place nearer another pole, with its line to its own
+      /* beta 6.0 (the owner: "Leader line is only used for worst case"): a label beside its pole or symbol, no line, wherever one is free; a
+         place with its thin line only where every place beside it would cover something (Drawing style › Grid › Leader lines: Allowed:
+         as before, the line where it costs less). */
+      const choose = (T, loose) => { if (LEAD_OK) return choose0(T, loose, false); const d1 = choose0(T, loose, true); return d1 || choose0(T, loose, false); };
+      const choose0 = (T, loose, noLead) => { // one label's place, taken at once (its box and its line). loose: also a place nearer another pole, with its line to its own (noLead: only places with no line; null where none is free)
         const { p, Wt: W, Ht: Hb, cands } = T, memo = new Map(), ck = 1 / (T.k || 1); let best = null, nf = false;
         const blocked = (c, clr) => [Spots.box(c.cx, c.cy, W + 2 * clr * ck, Hb + 2 * clr * ck, c.ang || 0), ...(c.pb ? [Spots.box(c.pb.cx, c.pb.cy, 2 * c.pb.hw + 2 * clr * ck, 2 * c.pb.hh + 2 * clr * ck, 0)] : [])].some((b) => spots.hitsW(b, HARD) || tx.hits(b)); // (its box, and its photo's, with the clearance; beta 5.9: a sheet's name is see-through, a label may lie over it)
         if (p.symBox) p.symBox._k--; // (its own pole or symbol is not in the way)
         for (const strict of loose ? [true, false] : [true]) { for (const inCell of [true, false]) { for (const xr of T.Y ? [1] : [0, 1]) { for (const [clr, xCab, rd] of TIERS) { // (beta 4.8: not strict, the last try: a place nearer another pole, with its line to its own pole, rather than over another text) // (a line to the pole across the cable only where nothing nearer is free: the label would sit on the other side; a road edge line through the label only where no place is clear of it; beta 4.8: its line across a road edge line only where no other place is free (an ID's, a loop length's: its symbol is in the street))
           for (const c of cands) { // (beta 4.8: what each place covers is worked out once (memo), not again in every tier: the same in this choice; the places in order of cost: none further on can cost less than the best found)
             if (best && c.cost >= best.tot) break; T.fill(c);
-            if ((strict ? !c.mine : !c.mine && !c.lead) || (inCell && !c.inC) || c.own || c.lost) continue; /* (beta 4.8: a turned block not over its own pole) */
+            if ((strict ? !c.mine : !c.mine && !c.lead) || (inCell && !c.inC) || c.own || c.lost || (noLead && c.lead)) continue; /* (beta 4.8: a turned block not over its own pole) */
             let m = memo.get(c); if (!m) { m = { rx: spots.hitsW(c.tb, ROADX) + (c.pb ? spots.hitsW(c.pb, ROADX) : 0) + c.onRoad, lr: c.lbox ? spots.hitsW(c.lbox, ROADX) : 0 }; memo.set(c, m); }
             if ((!rd && m.rx) || (!xr && m.lr)) continue;
             const kk = clr; if (!(kk in m)) m[kk] = blocked(c, clr); if (m[kk]) continue;
@@ -2755,7 +2761,7 @@
         if (!best) { // beta 4.8: the other levels in one pass (as the loops above would take them: the first level any place reaches, then the cheapest there)
           let bk = Infinity;
           for (const c of cands) { T.fill(c);
-            const sL = c.mine ? 0 : loose && c.lead ? 1 : -1; if (sL < 0 || c.own || c.lost) continue;
+            const sL = c.mine ? 0 : loose && c.lead ? 1 : -1; if (sL < 0 || c.own || c.lost || (noLead && c.lead)) continue;
             let m = memo.get(c); if (!m) { m = { rx: spots.hitsW(c.tb, ROADX) + (c.pb ? spots.hitsW(c.pb, ROADX) : 0) + c.onRoad, lr: c.lbox ? spots.hitsW(c.lbox, ROADX) : 0 }; memo.set(c, m); }
             if (m.ln === undefined) { m.ln = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0; m.lt = !!(c.lbox && (tx.hits(c.lbox) || tx.hits(c.ebox) || spots.hitsW(c.ebox, LBLW))); m.g = 0; /* (beta 5.9: a sheet's name is see-through: a label may lie over it) */ }
             if (m.ln >= 1 || m.lt) continue;
@@ -2767,6 +2773,7 @@
             if (key < bk || (key === bk && tot < best.tot)) { bk = key; best = { ...c, tot, clr: TIERS_B[ti][0], rx: m.rx }; }
           }
         }
+        if (!best && noLead) { if (p.symBox) p.symBox._k++; return null; } // (beta 6.0: none free beside it: places with a line next)
         if (!best) { // no free place: the one nearest to its own pole that covers least, its line kept (across a line or a symbol rather than a text); listed in the README to check
           nf = true; best = cands.map(T.fill).map((c) => { const cov = spots.hitsW(c.tb, COVW) + tx.hits(c.tb) + (c.pb ? spots.hitsW(c.pb, COVW) + tx.hits(c.pb) : 0) + (c.own ? 1 : 0) + (c.lost ? 1 : 0), lt = c.lbox ? tx.hits(c.lbox) + spots.hitsW(c.lbox, LBLW) + (tx.hits(c.ebox) || spots.hitsW(c.ebox, LBLW) ? 0.5 : 0) : 0, /* (beta 4.8: its line over a label counts as a label over it) */ lh = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0;
             const rx = spots.hitsW(c.tb, ROADX) + (c.pb ? spots.hitsW(c.pb, ROADX) : 0) + c.onRoad; return { ...c, cov, lt, lh, rx, tot: (c.mine ? 0 : 1e6) + (cov + lt) * 1000 + lh * 50 + (c.inC ? 0 : 300) + 14 * rx + c.cost }; }).sort((a, b) => a.tot - b.tot)[0];
@@ -2809,10 +2816,10 @@
       }
       if (!now) { const nums = tried.map((x) => (x === 'many' ? Infinity : x)), k = nums.every((x) => x === Infinity) ? LAD.length - 1 : nums.indexOf(Math.min(...nums)); /* (all given up: the smallest) */ if (k === LAD.length - 1 && lastR) now = lastR; else { spots.truncate(mark0); now = run(LAD[k], Infinity); } TS.pick(LAD[k]); }
       { // beta 4.8: how this grid does, for build: the labels with no free place at 1.8 / 1.3 mm (where the texts had to be made smaller: those that had none at that size), the pole blocks over a road
-        let bad = 0, over = 0, phF = 0; const bySh = new Map(), phSh = new Map(); for (const [T, dd] of now) { if (dd.bad || dd.nf) bad++; else { const k = cellName(ci(T.p.E), cj(T.p.N)); if (T.u && dd.best.rx > 0) { over++; bySh.set(k, (bySh.get(k) || 0) + 1); } if (dd.best.phFar && T.photo) { phF++; phSh.set(k, (phSh.get(k) || 0) + 1); } } } // (beta 5.9: and the photos with no place near their pole, by GEO sheet) // (nf: placed only where it covers a little; beta 5.9: the blocks over a road, by GEO sheet)
+        let bad = 0, over = 0, phF = 0, lead = 0; const bySh = new Map(), phSh = new Map(); for (const [T, dd] of now) { if (dd.bad || dd.nf) bad++; else { if (!T.Y && dd.best.lead) lead++; /* (beta 6.0: a pole's block with its line) */ const k = cellName(ci(T.p.E), cj(T.p.N)); if (T.u && dd.best.rx > 0) { over++; bySh.set(k, (bySh.get(k) || 0) + 1); } if (dd.best.phFar && T.photo) { phF++; phSh.set(k, (phSh.get(k) || 0) + 1); } } } // (beta 5.9: and the photos with no place near their pole, by GEO sheet) // (nf: placed only where it covers a little; beta 5.9: the blocks over a road, by GEO sheet)
         if (TS.l1 < LAD[0].l1 - 1e-9) bad = Math.max(bad, badT.size, 1);
         const overMax = Math.max(0, ...bySh.values()), overX = [...bySh.values()].reduce((t, v) => t + Math.max(0, v - OVER_OK), 0) + [...phSh.values()].reduce((t, v) => t + Math.max(0, v - OVER_OK), 0); // (up to 2 of each on a sheet)
-        rep._grid = { n: NU, cell: +cell.toFixed(1), sheets: N, bad, over, overMax, overX, overSheets: Object.fromEntries([...bySh].sort()), phFar: phF, phFarMax: Math.max(0, ...phSh.values()) }; }
+        rep._grid = { n: NU, cell: +cell.toFixed(1), sheets: N, bad, over, overMax, overX, overSheets: Object.fromEntries([...bySh].sort()), phFar: phF, phFarMax: Math.max(0, ...phSh.values()), lead: LEAD_OK ? 0 : lead, leadAll: lead }; }
       { const k0 = LAD.findIndex((z) => z.l1 === TS.l1 && z.sm === TS.sm), SMALL = [...LAD.slice(k0 + 1), { l1: Math.max(1.1, LAD[LAD.length - 1].l1 * 0.85), sm: Math.max(0.9, LAD[LAD.length - 1].sm * 0.85) }]; // (a label still with no free place: tried again a size or two smaller, alone; listed all the same)
         const nLeft = [...now.values()].filter((dd) => dd.bad).length;
         for (const T of ALL) { let d0 = now.get(T); if (!d0.bad) continue; T.far = nLeft <= 6; // (also 50 and 60 m out; first at its size without its photo (placed on its own near the pole, see the photos), then smaller with it, then smaller without it)
@@ -2828,14 +2835,14 @@
           else { neu.forEach((dd) => dd.bx.forEach((b) => { b._k--; })); old.forEach((dd) => dd.bx.forEach((b) => { b._k++; })); T.h = h0; T.hs = hs0; T.photo = ph0; prep(T); } } }
       for (const [r, gk] of TS.guys) setFirst(r, 40, F(TS.sm / gk)); // (the guys' codes, written before: at the size taken)
       T7.sizes = { l1: +TS.l1.toFixed(2), sm: +TS.sm.toFixed(2), mm: [+(TS.l1 * TS.mm).toFixed(2), +(TS.sm * TS.mm).toFixed(2)], tried }; T7.grid = { n: NU, cell: +cell.toFixed(1) }; T7.sheets = N; // (beta 4.8: the grid (the template's cell / n), and the GEO sheets)
-      const smaller = [], overRoad = [], phAway = [];
+      const smaller = [], overRoad = [], phAway = [], withLine = [];
       let gT = null, g0 = o.model.length; const gFlush = () => { if (gT) for (let k = g0; k < o.model.length; k++) tidyGrp.set(o.model[k], gT); g0 = o.model.length; }; // (beta 5.9: each label's records, see tidyGrp)
       for (const { T, best, nf, bad, smaller: sml } of ALL.map((U) => now.get(U))) { // written in the order of the poles
         gFlush(); gT = T;
         const { p, h, hs, W, W1, Hb, Y } = T; if (sml) smaller.push(T.l1);
         if (nf) { T7.notFree++; (T7.ids || (T7.ids = [])).push(Y ? Y.lines.join(' ') : String(p.poleId || p.id)); } if (bad) toCheck.push(T.l1);
         if (best.clr != null && best.clr < 1) T7.closer++;
-        if (best.lead) { o.lwpoly(Y ? Y.layer : T.layer, best.lead, { color: 8 }); T7.leaders++; }
+        if (best.lead) { o.lwpoly(Y ? Y.layer : T.layer, best.lead, { color: 8 }); T7.leaders++; if (!LEAD_OK) withLine.push(T.l1); }
         if (!Y && best.rx > 0) overRoad.push(T.l1); // (beta 4.8: over a road: listed)
         if (!Y && T.photo && best.pb) { if (best.phFar) phAway.push(T.l1); else if (best.phPole) { T7.photosByPole = (T7.photosByPole || 0) + 1; if (best.lead) (T7.photoStays || (T7.photoStays = [])).push(String(p.poleId || p.id)); } } // (beta 5.9: photoStays: a block out with its line, its photo by the pole)
         const G = tidyGeo(T, best), att = G.att, ax = G.ax, an = best.ang || 0, dir = an ? G.u : null; // (top left, right or centre: the text reads away from its pole; beta 4.8: a pole's block turned along its cable)
@@ -2866,6 +2873,7 @@
       gFlush();
       if (toCheck.length) rep.notes.push(`Tidy labels with no free place near their pole (they cover something: check them in CAD): ${toCheck.join(', ')}`);
       if (overRoad.length) rep.notes.push(`Tidy labels over a road (no other free place near their pole): ${overRoad.join(', ')}`); // beta 4.8
+      if (withLine.length) rep.notes.push(`Tidy labels with a line to their pole or symbol (every place beside it would cover something): ${withLine.join(', ')}`); // beta 6.0
       if (phAway.length) { rep.notes.push(`Tidy photos away from their pole (no free place near it, beside their label): ${phAway.join(', ')}`); T7.photosAway = phAway.length; } // beta 5.9
       if (smaller.length) rep.notes.push(`Tidy labels drawn smaller than the others (no free place at the plan's size): ${smaller.join(', ')}`); // beta 4.8
     };
@@ -3328,7 +3336,12 @@
     }
     let nPois = 0, nIcons = 0; const placed = [], poiSkip = { outside: 0, dup: 0, noRoom: 0 }; // v2.39.1: why a place was not written
     // v2.35.6: the landmark's icon (OpenStreetMap Carto / Maki, CC0) as a block of solid fills, on its own layer
-    const LMB = Array.isArray(job.lmBlocks) ? job.lmBlocks : null, lmRefs = job.lmRefs || [], ICON = 4, LMLAY = 'G-ESAA LANDMARK';
+    const LMB = Array.isArray(job.lmBlocks) ? job.lmBlocks : null, lmRefs = job.lmRefs || [], ICON = 4 / (TIDY ? NU : 1), LMLAY = 'G-ESAA LANDMARK'; // (beta 6.0: Tidy: its icon as printed at the template's grid)
+    /* beta 6.0 (the owner: "have the landmarks text labels shrink to accommodate the pole details but landmarks must be readable"): Tidy
+       places the landmark names after the pole blocks, so a block never makes way for one; a name takes the room left: 1.6 mm high on the
+       A3 sheet, a little further, then smaller to 1.3 mm at the least; where none is free at 1.3 mm its name is left out (its icon kept
+       where it fits) and counted in the README. Standard: as before (2 m, then 1.6 m). */
+    const LM_MM = TIDY ? (v) => v / ((printK || 0.62) * NU) : null, LS = TIDY ? 1 / NU : 1, lmStat = { shrunk: 0, moved: 0, minMm: null };
     const iconName = (i) => 'GESAA_LM_' + String(lmRefs[i] || i).replace(/^[cm]:/, '').replace(/[^A-Za-z0-9]+/g, '_').toUpperCase();
     const wantIcons = LMB ? [...new Set((job.pois || []).map((q) => q.icon).filter((i) => Number.isInteger(i) && i >= 0 && LMB[i]))] : [];
     if (wantIcons.length) { addLayer(d, S, LMLAY, 7); fillBlocks(d, S, wantIcons.map((i) => ({ name: iconName(i), icon: LMB[i] }))); }
@@ -3350,13 +3363,16 @@
       let c = null; const allC = []; // (beta 3.8: every place tried, for Always)
       // v2.42.10: a size smaller (2 m, else 1.6 m: they crowded the plan), and their boxes as wide as AutoCAD draws the capitals, two
       // lines as tall as AutoCAD spaces them (the names overlapped one another in AutoCAD)
-      for (const [th, B, A] of [[2.0, [0, 4, -4, 8, -8, 12, -12], [0, 5, -5, 10, -10]], [2.0, [16, -16, 20, -20], [0, 5, -5, 10, -10, 15, -15]], [1.6, [0, 3.5, -3.5, 7, -7, 10.5, -10.5, 14, -14, 17.5, -17.5], [0, 4, -4, 8, -8, 12, -12]]]) {
-        const bs = useIcon && th === 2.0 && B[0] === 0 ? [bi, -bi, ...B] : B;
+      const B1 = [0, 4, -4, 8, -8, 12, -12], A1 = [0, 5, -5, 10, -10], B2 = [16, -16, 20, -20], A2 = [0, 5, -5, 10, -10, 15, -15], B3 = [0, 3.5, -3.5, 7, -7, 10.5, -10.5, 14, -14, 17.5, -17.5], A3 = [0, 4, -4, 8, -8, 12, -12], sv = (L) => L.map((v) => v * LS);
+      const B4 = [0, 5, -5, 10, -10, 15, -15, 20, -20, 25, -25], A4 = [0, 6, -6, 12, -12, 18, -18]; // (beta 6.0: Tidy: the smallest sizes a little further too)
+      const LAD = TIDY ? [[LM_MM(1.6), sv(B1), sv(A1)], [LM_MM(1.6), sv(B2), sv(A2)], [LM_MM(1.6), sv(B3), sv(A3)], [LM_MM(1.45), sv(B4), sv(A4)], [LM_MM(1.3), sv(B4), sv(A4)]] : [[2.0, B1, A1], [2.0, B2, A2], [1.6, B3, A3]];
+      for (const [li, [th, B, A]] of LAD.entries()) {
+        const bs = useIcon && li === 0 ? [ICON * 0.55 + th * (1 + (5 / 3) * (tall - 1)) * 0.65 + 0.4 * LS, -(ICON * 0.55 + th * (1 + (5 / 3) * (tall - 1)) * 0.65 + 0.4 * LS), ...B] : B;
         for (const b of bs) for (const a of A) { const q = add2(add2(q0, ru, a), rv, b), bx = textBox(q[0], q[1], th, wide, rd, 1, 2); bx.hw *= 1.3; bx.hh = th * (1 + (5 / 3) * (tall - 1)) * 0.65; if (!R.idx.inside(q, -1, -1) && !corners(bx).some((cq) => R.idx.inside(cq, -1, -1)) && inside(bx, W, 1)) cands.push({ q, th, boxes: [bx] }); }
-        c = cands.find((x) => !x.boxes.some((bb) => spots.hits(bb) || (useIcon && Spots.hit(bb, ib)))); if (c) break; allC.push(...cands); cands.length = 0;
+        c = cands.find((x) => !x.boxes.some((bb) => spots.hits(bb) || (useIcon && Spots.hit(bb, ib)))); if (c) { if (TIDY) { if (th < LAD[0][0] - 1e-9) lmStat.shrunk++; else if (li > 0 || dist2(c.q, q0) > 13 * LS) lmStat.moved++; const mm = th * (printK || 0.62) * NU; lmStat.minMm = lmStat.minMm == null ? mm : Math.min(lmStat.minMm, mm); } break; } allC.push(...cands); cands.length = 0;
       }
       if (!c && lmMode === 'always' && allC.length) { c = allC.map((x) => ({ ...x, n: x.boxes.reduce((t, bb) => t + spots.hits(bb), 0) + (x.th < 2 ? 0.1 : 0) })).sort((a, b) => a.n - b.n)[0]; poisAlways++; } // (beta 3.8: Always: where it covers least)
-      if (!c) { poiSkip.noRoom++; continue; }
+      if (!c) { poiSkip.noRoom++; if (TIDY && useIcon) { o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON }); spots.add(ib); nIcons++; } continue; } // (beta 6.0: Tidy: its icon kept where it fits)
       if (useIcon) { o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON }); spots.add(ib); nIcons++; }
       o.mtext(lay('House Number', 'MISC'), c.q[0], c.q[1], c.th, lines.map(mtextEsc).join('\\P'), { style: 'PDF Arial', att: 5, color: 7, dir: ru }); spots.add(c.boxes); placed.push({ name, q: q0 }); nPois++;
     }
@@ -3670,6 +3686,7 @@
     rep.partly = [...blanks].filter((k) => filled.has(k)).sort();
     if (job.debug) rep.pts = pts.map((p) => ({ id: p.id, poleId: p.poleId, el: p.el, dp: p.dp, A: p.A, kept: !!p.kept, moved: p.moved || 0, onPole: p.onPole ? p.onPole.id : null }));
     if (job.debug) rep.inline = [...inl.values()].map((it) => ({ b: it.b, at: it.at, hl: it.hl, hlo: it.hlo, hhi: it.hhi, hh: it.hh, sc: it.sc, rot: it.rot, box: blockBox(S, it.b, 0), boxT: blockBoxT(S, it.b), c: blockCenter(S, it.b) }));
+    if (TIDY) rep.landmarks = { placed: nPois, shrunk: lmStat.shrunk, moved: lmStat.moved, namesLeftOut: poiSkip.noRoom, smallestMm: lmStat.minMm == null ? null : +lmStat.minMm.toFixed(2) }; // beta 6.0
     rep.counts = { ...o.n, cableLeaders: nLeaders, cableLabelsSmall: nSmall, closuresOnCable: nCloInl, ...(nCloOff ? { closuresAway: nCloOff } : {}), namesInCell: nInCell, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, poisHidden: poiSkip.hidden || 0, poisAlways: typeof poisAlways === 'number' ? poisAlways : 0, idsMovedAuto: nAutoIds, /* beta 3.8 */ landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesOffRoadLine: nCleared, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, loops: nLoop, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length, telcoArms: nTelco };
     /* beta 5.9 (the owner: "the bill of quantities on each grid … a slice per grid of the PMI as the total … only add the span length of
        each foc wherever the span length falls per grid"): on every GEO sheet a BILL OF QUANTITIES table with the PMI table's rows, each
@@ -3677,15 +3694,37 @@
        loop, a pole, a new ODF's fibers or a new closure where its point is (job.pmiItems, from the app, by the PMI's own rules). The
        lengths rounded so the sheets add up to the PMI's figure; rows the PMI leaves blank stay blank. In the sheet's right-hand box
        above the title block's fields. */
+    /* beta 6.0 (the owner: "count them also and populate the table"): the six PMI rows the survey left blank, from the plan itself:
+       PROPOSED HDD: the new bores where a new underground cable crosses a road (as drawn: the road's width and 3 m each side), metres;
+       PROPOSED OPEN TRENCH: the conventional UG cable's route (each span once) less its bores; PROPOSED MICRO TRENCH: the air-blown UG
+       cable's (microducts), likewise; MAXCELL INNER DUCT: the conventional UG cable's route, bores included; PROPOSED MANHOLE / SERVICE BOX:
+       the new ones. Written into the template's PMI table (its empty quantity cells) and, sliced by grid, into each sheet's table. */
+    const UGV = { PMI_HDD: 0, PMI_OPEN_TRENCH: 0, PMI_MICRO_TRENCH: 0, PMI_MAXCELL_INNER_DUCT: 0, PMI_MANHOLE: 0, PMI_SERVICE_BOX: 0 }, ugPI = { spans: [], points: [] };
+    { const segD = (q, a, b) => { const vx = b[0] - a[0], vy = b[1] - a[1], L2 = vx * vx + vy * vy, t = L2 ? Math.max(0, Math.min(1, ((q[0] - a[0]) * vx + (q[1] - a[1]) * vy) / L2)) : 0; return Math.hypot(q[0] - a[0] - t * vx, q[1] - a[1] - t * vy); };
+      const ugSp = spans.map((s0) => { const P = byId.get(String(s0.ia)), Q = byId.get(String(s0.ib)), ug = [s0.cable, ...(s0.more || [])].filter((k) => k != null && (CABLE_STYLE[k] || CABLE_STYLE['']).aerial === false); return P && Q && ug.length ? { s0, P, Q, conv: ug.some((k) => /^CU/.test(k)), hdd: 0 } : null; }).filter(Boolean);
+      for (const h of hddAt) { let bS = null, bd = Infinity; for (const u of ugSp) { const d0 = segD(h.x, u.P.A || [u.P.E, u.P.N], u.Q.A || [u.Q.E, u.Q.N]); if (d0 < bd) { bd = d0; bS = u; } } if (bS && bd < 15) bS.hdd += h.L; UGV.PMI_HDD += h.L; ugPI.points.push({ at: h.x, v: { PMI_HDD: h.L } }); }
+      for (const u of ugSp) { const tr = Math.max(0, (+u.s0.len || 0) - u.hdd), v = u.conv ? { PMI_OPEN_TRENCH: tr, PMI_MAXCELL_INNER_DUCT: +u.s0.len || 0 } : { PMI_MICRO_TRENCH: tr }; for (const [k, x] of Object.entries(v)) UGV[k] += x; ugPI.spans.push({ ia: u.s0.ia, ib: u.s0.ib, v }); }
+      for (const p of pts) if ((p.status === 'Proposed' || p.status === 'New') && (p.el === 'Manhole' || p.el === 'Service box')) { const k = p.el === 'Manhole' ? 'PMI_MANHOLE' : 'PMI_SERVICE_BOX'; UGV[k]++; ugPI.points.push({ id: p.id, v: { [k]: 1 } }); } }
+    const ugVals = Object.fromEntries(Object.entries(UGV).map(([k, v]) => [k, /MANHOLE|SERVICE_BOX/.test(k) ? String(v) : `${(Math.round(v * 10) / 10).toFixed(1)}m`]));
+    { // the template's PMI table (model space): each of these rows' quantity cell, where the template has it empty
+      const ENT = d.sec('ENTITIES').recs, norm = (x) => String(x).replace(/\\[A-Za-z][^;]*;|[{}]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
+      const tx0 = ENT.filter((r) => (typ(r) === 'MTEXT' || typ(r) === 'TEXT') && get(r, 330) === S.modelH && String(get(r, 67, '0')).trim() !== '1');
+      const lab = (want) => tx0.find((r) => norm(textOf(r)) === want), xOf = (r) => num(r, 10, 0), yOf = (r) => num(r, 20, 0), hOf = (r) => num(r, 40, 1);
+      const qh = lab('QUANTITY'), ref = lab('TOTAL CABLE LENGTH'), pmiFill = []; let refV = null;
+      if (ref && qh) refV = tx0.filter((r) => r !== ref && Math.abs(yOf(r) - yOf(ref)) < 0.6 * hOf(ref) && xOf(r) > xOf(ref)).sort((a2, b2) => Math.abs(xOf(a2) - xOf(qh)) - Math.abs(xOf(b2) - xOf(qh)))[0] || null;
+      if (refV) for (const [want, k] of [['PROPOSED HDD', 'PMI_HDD'], ['PROPOSED OPEN TRENCH', 'PMI_OPEN_TRENCH'], ['PROPOSED MICRO TRENCH', 'PMI_MICRO_TRENCH'], ['MAXCELL INNER DUCT', 'PMI_MAXCELL_INNER_DUCT'], ['PROPOSED MANHOLE', 'PMI_MANHOLE'], ['PROPOSED SERVICE BOX', 'PMI_SERVICE_BOX']]) {
+        const L0 = lab(want); if (!L0) continue; const cellR = tx0.find((r) => r !== L0 && Math.abs(yOf(r) - yOf(L0)) < 0.6 * hOf(L0) && Math.abs(xOf(r) - xOf(refV)) < 0.6 * hOf(refV));
+        if (cellR && !norm(textOf(cellR))) { setText(cellR, ugVals[k]); pmiFill.push(want); } }
+      rep.pmiFilled = pmiFill; }
     if (job.pmiItems && N > 0) {
       const PMI_ROWS = [['TOTAL CABLE LENGTH', 'PMI_TOTAL_CABLE_LENGTH', 'm'], ['AERIAL CABLE LENGTH', 'PMI_AERIAL_CABLE_LENGTH', 'm'], ['EXISTING GT POLE', 'PMI_EXISTING_GT_POLE'], ['PROPOSED POLE', 'PMI_PROPOSED_POLE'],
-        ['RTA CONVERGE', 'PMI_RTA_CONVERGE'], ['RTA LOCAL COOP', 'PMI_RTA_LOCAL_COOP'], ['RTA OTHER (PLDT POLE)', 'PMI_RTA_OTHER_PLDT'], ['UNDERGROUND CABLE LENGTH', 'PMI_UG_CABLE_LENGTH', 'm'], ['PROPOSED HDD', null],
-        ['PROPOSED OPEN TRENCH', null], ['PROPOSED MICRO TRENCH', null], ['MAXCELL INNER DUCT', null], ['PROPOSED MANHOLE', null], ['PROPOSED SERVICE BOX', null], ['FIBER TERMINATION', 'PMI_FIBER_TERMINATION'], ['PROPOSED HYBRID CLOSURE', 'PMI_HYBRID_CLOSURE']];
-      const V0 = job.values || {}, PI = job.pmiItems, names = geoNames(N), per = new Map(names.map((nm) => [nm, {}])), lost = [];
+        ['RTA CONVERGE', 'PMI_RTA_CONVERGE'], ['RTA LOCAL COOP', 'PMI_RTA_LOCAL_COOP'], ['RTA OTHER (PLDT POLE)', 'PMI_RTA_OTHER_PLDT'], ['UNDERGROUND CABLE LENGTH', 'PMI_UG_CABLE_LENGTH', 'm'], ['PROPOSED HDD', 'PMI_HDD', 'm'],
+        ['PROPOSED OPEN TRENCH', 'PMI_OPEN_TRENCH', 'm'], ['PROPOSED MICRO TRENCH', 'PMI_MICRO_TRENCH', 'm'], ['MAXCELL INNER DUCT', 'PMI_MAXCELL_INNER_DUCT', 'm'], ['PROPOSED MANHOLE', 'PMI_MANHOLE'], ['PROPOSED SERVICE BOX', 'PMI_SERVICE_BOX'], ['FIBER TERMINATION', 'PMI_FIBER_TERMINATION'], ['PROPOSED HYBRID CLOSURE', 'PMI_HYBRID_CLOSURE']];
+      const V0 = { ...(job.values || {}), ...ugVals }, PI = { spans: [...(job.pmiItems.spans || []), ...ugPI.spans], points: [...(job.pmiItems.points || []), ...ugPI.points] }, names = geoNames(N), per = new Map(names.map((nm) => [nm, {}])), lost = [];
       const shAt = (x, y) => sheetOf.get(key(ci(x), cj(y))) || null, numOf = (v) => { const m = /-?\d+(?:\.\d+)?/.exec(String(v == null ? '' : v)); return m ? +m[0] : null; };
       const addTo = (nm, v, what) => { if (!nm) { lost.push(what); return; } const o2 = per.get(nm); for (const [k, x] of Object.entries(v || {})) o2[k] = (o2[k] || 0) + (+x || 0); };
       for (const it of PI.spans || []) { const P = byId.get(String(it.ia)), Q = byId.get(String(it.ib)); if (!P || !Q) { lost.push(`span ${it.ia}-${it.ib}`); continue; } const at = spanLblAt.get(K2(it.ia, it.ib)); addTo((at && shAt(at[0], at[1])) || shAt((P.E + Q.E) / 2, (P.N + Q.N) / 2), it.v, `span ${P.poleId || P.id}-${Q.poleId || Q.id}`); }
-      for (const it of PI.points || []) { const p = byId.get(String(it.id)); if (!p) { lost.push(`point ${it.id}`); continue; } addTo(shAt(p.E, p.N), it.v, String(p.poleId || p.id)); }
+      for (const it of PI.points || []) { if (it.at) { addTo(shAt(it.at[0], it.at[1]), it.v, 'a bore'); continue; } const p = byId.get(String(it.id)); if (!p) { lost.push(`point ${it.id}`); continue; } addTo(shAt(p.E, p.N), it.v, String(p.poleId || p.id)); }
       const cellsTxt = new Map(names.map((nm) => [nm, {}])), check = [];
       for (const [label, k, unit] of PMI_ROWS) {
         if (!k || V0[k] == null || String(V0[k]).trim() === '') { check.push({ row: label, pmi: '', sum: '', ok: true }); continue; }

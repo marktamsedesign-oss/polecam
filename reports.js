@@ -921,15 +921,22 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
 
   /** beta 3.5: the Photo report (like an RTA photo log): each pole with its item number, pole ID, location, type and owner,
       coordinates and date, then its photos (up to 4, two a row, each numbered with its label); 1 or 2 poles a page.
-      model: { title, sub, perPage, items: [{ no, id, location, type, coords, date, note, photos: [{ jpeg, label }] }], footer, footer2, logos } */
+      model: { title, sub, sub2, perPage, items: [{ no, id, location, type, coords, date, note, photos: [{ jpeg, label }] }], footer, footer2, logos }
+      beta 6.0: the logos on every page (not only the first); sub2, a second line under sub (sub: the project's details). */
   function photoReportPdf(model) {
     const pdf = new Pdf(), M = 36, CW = pdf.W - 2 * M, BOTTOM = pdf.H - 46, per = model.perPage === 1 ? 1 : 2, LINE = [0.7, 0.74, 0.78];
-    const head = (first) => {
-      const y = M; if (first) headLogos(pdf, model.logos, M, y);
-      pdf.rect(M, y, 5, 34, { fill: ACCENT });
+    /* the lines under the title, below the logos (they end above them), the whole width: sub's parts (split at " · ") kept whole,
+       on up to two lines, then sub2 */
+    const TW = CW - 20, parts = String(model.sub || '').split(' · ').filter(Boolean), subL = [];
+    for (const t of parts) { const L = subL.length ? `${subL[subL.length - 1]} · ${t}` : ''; if (L && textWidth(L, 9.5) <= TW) subL[subL.length - 1] = L; else subL.push(t); }
+    if (subL.length > 2) subL.splice(1, subL.length - 1, subL.slice(1).join(' · '));
+    const lines = [...subL.map((t) => fitLine(t, TW, 9.5)), ...(model.sub2 ? [fitLine(model.sub2, TW, 9.5)] : [])], barH = 22 + 12 * lines.length;
+    const head = () => {
+      const y = M; headLogos(pdf, model.logos, M, y);
+      pdf.rect(M, y, 5, barH, { fill: ACCENT });
       pdf.text(M + 14, y + 1, model.title || 'PHOTO REPORT', { size: 15, bold: true });
-      pdf.text(M + 14, y + 20, fitLine(model.sub || '', CW - (first ? 230 : 20), 9.5), { size: 9.5, color: MUTED });
-      return y + 46;
+      lines.forEach((t, k) => pdf.text(M + 14, y + 20 + 12 * k, t, { size: 9.5, color: MUTED }));
+      return y + barH + 12;
     };
     const cellRow = (y, h, cols, big) => {
       let x = M;
@@ -956,9 +963,9 @@ ${images.map((im, i) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${anchor(
       if (it.note) pdf.text(M, y0 + h - 11, fitLine(it.note, CW, 8), { size: 8, color: MUTED });
     };
     const items = model.items || [];
-    if (!items.length) { pdf.addPage(); const y = head(true); pdf.text(M, y, 'No poles to report.', { size: 10 }); }
+    if (!items.length) { pdf.addPage(); const y = head(); pdf.text(M, y, 'No poles to report.', { size: 10 }); }
     for (let i = 0; i < items.length;) {
-      pdf.addPage(); let y = head(pdf.pages.length === 1);
+      pdf.addPage(); let y = head();
       const big = (it) => !!it && (it.photos || []).length > 4, n = big(items[i]) ? 1 : per; // (beta 5.0: a pin with more than 4 photos gets a page of its own)
       const bh = (BOTTOM - y - (n - 1) * 14) / n;
       for (let k = 0; k < n && i < items.length; k++, i++) { if (k && big(items[i])) break; block(items[i], y, bh); y += bh + 14; }
