@@ -909,7 +909,7 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.44.3';
+  const APP_VER = '2.44.4';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
   const APP_BETA = '4.4'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
@@ -4118,8 +4118,9 @@
       if (!rtPress.moved) { if (c.distanceTo(rtPress.s) < (rtPress.type === 'mouse' ? 5 : 10)) return; rtPress.moved = true; if (rtPress.draw) rtBegin(map.containerPointToLatLng(rtPress.s)); }
       if (!rtPress.draw || !rtDraft) return;
       rtAddPt(map.containerPointToLatLng(c));
-      const W = mc.clientWidth, H = mc.clientHeight, M = 34, bar = $('rtBar'), bh = bar && !bar.hidden ? bar.getBoundingClientRect().height + 92 : 0;
-      const dx = c.x < M ? -1 : c.x > W - M ? 1 : 0, dy = c.y < M ? -1 : c.y > H - bh - M ? 1 : 0; // near an edge the map moves that way
+      const W = mc.clientWidth, H = mc.clientHeight, M = 34, bar = $('rtBar'), on = !!bar && !bar.hidden, side = on && deskOn(); // (2.44.4: on a computer the bar is a panel down the right side, over the map, not along its foot)
+      const bw = side ? Math.max(0, mc.getBoundingClientRect().right - bar.getBoundingClientRect().left) : 0, bh = on && !side ? bar.getBoundingClientRect().height + 92 : 0;
+      const dx = c.x < M ? -1 : c.x > W - bw - M ? 1 : 0, dy = c.y < M ? -1 : c.y > H - bh - M ? 1 : 0; // near an edge the map moves that way (the part of the map the bar leaves)
       rtEdge = dx || dy ? [dx, dy] : null; if (rtEdge && !rtEdgeRaf) rtEdgeRaf = requestAnimationFrame(edgeTick);
     }, true);
     function edgeTick() { rtEdgeRaf = 0; if (!rtPress || !rtEdge || !rtDraft) return; map.panBy([rtEdge[0] * 7, rtEdge[1] * 7], { animate: false }); rtAddPt(map.containerPointToLatLng(rtPress.c)); rtEdgeRaf = requestAnimationFrame(edgeTick); }
@@ -4160,8 +4161,9 @@
   }
   /** v2.42.22: ＋ Closure / ＋ Dummy NAP (a pole's options, or the question at ✓): the map zooms in on the pole and the bar asks for a
       second tap on it (another pole: that one instead); adding it, or Cancel, takes the map back to where it was. */
-  function rtGoTo(id, z) { const p = routePts().find((x) => x.id === id) || points.find((x) => x.id === id); if (!p) return; const bar = $('rtBar'), off = ((bar && !bar.hidden ? bar.getBoundingClientRect().height : 0) + 40) / 2;
-    map.setView(map.unproject(map.project([p.lat, p.lon], z).add([0, off]), z), z, { animate: true }); }
+  function rtGoTo(id, z) { const p = routePts().find((x) => x.id === id) || points.find((x) => x.id === id); if (!p) return; const bar = $('rtBar'), on = !!bar && !bar.hidden, side = on && deskOn(); // (2.44.4: a computer: the pole in the middle of the map left of the panel)
+    const off = side ? [Math.max(0, map.getContainer().getBoundingClientRect().right - bar.getBoundingClientRect().left) / 2, 0] : [0, ((on ? bar.getBoundingClientRect().height : 0) + 40) / 2];
+    map.setView(map.unproject(map.project([p.lat, p.lon], z).add(off), z), z, { animate: true }); }
   function rtAskConf(id, kind, src) { rtPop = null; routeSel = null; spanSel = null; rtConf = { id, id0: id, kind, src, back: { c: map.getCenter(), z: map.getZoom() } }; rtApplyMode(); routeRefresh([id]); rtGoTo(id, Math.max(map.getZoom(), 19)); }
   function rtConfEnd() { const q = rtConf; rtConf = null; rtApplyMode(); if (q) map.setView(q.back.c, q.back.z, { animate: true }); return q; }
   function rtConfCancel() { if (!rtConf) return; const id = rtConf.id; rtConfEnd(); routeRefresh([id]); }
