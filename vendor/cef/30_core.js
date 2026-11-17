@@ -306,7 +306,7 @@ function cabinInside(S, el) {
   const F = p => fromRoom(el, p), zf = baseZ(S, el), out = { racks: [], odfs: [], legs: [], walls: [], fh: Math.max(1.5, num(el.h, 2.8)) };
   for (const r of I.runs || []) if (r.kind === 'part' && r.pts && r.pts.length > 1) { const hw = Math.max(0.03, num(r.w, RUNS.part.w)) / 2; out.walls.push({ pts: r.pts.map(F), sides: [offsetPath(r.pts, hw).map(F), offsetPath(r.pts, -hw).map(F)], z0: zf, z1: zf + out.fh }); }
   for (const q of I.els) {
-    if (q.t === 'rack') out.racks.push({ key: 'in' + q.id, s: elLabel(I, q), st: q.st, poly: elPoly(q).map(F), front: [loc(q, -q.w / 2, -q.d / 2 + 0.08), loc(q, q.w / 2, -q.d / 2 + 0.08)].map(F), z0: zf, z1: zf + Math.max(0.3, num(q.h, 2)) });
+    if (q.t === 'rack') out.racks.push({ key: 'in' + q.id, s: elLabel(I, q), st: q.st, poly: elPoly(q).map(F), front: [loc(q, -q.w / 2, -q.d / 2 + 0.08), loc(q, q.w / 2, -q.d / 2 + 0.08)].map(F), z0: zf, z1: zf + Math.max(0.3, num(q.h, 2)), posts: q.open ? [-1, 1].reduce((o, sx) => o.concat([-1, 1].map(sy => { const t = Math.min(0.05, q.w / 8, q.d / 8); return rectAt(loc(q, sx * (q.w / 2 - t / 2), sy * (q.d / 2 - t / 2)), t, t, q.rot).map(F); })), []) : null });      /* (fix 47) an open rack: its corner posts too */
     if (q.t === 'odf') {
       const h = rackHost(I, q), K = h ? rackOf(h) : null, zb = h ? zf + K.zb + (uOf(I, h, q) - 1) * RU : zf, base = h ? rectAt([h.x, h.y], Math.min(h.w - 0.04, 2 * K.hw + 0.04), Math.max(0.1, h.d - 0.12), h.rot) : elPoly(q);
       out.odfs.push({ key: 'in' + q.id, s: elLabel(I, q), st: q.st, poly: base.map(F), z0: zb, z1: zb + (h ? units(q) * RU : Math.max(0.05, num(q.h, 0.4))) });
@@ -1515,7 +1515,7 @@ function buildTop(S, o) {
   if (!S.room) for (const el of S.els) if (el.t === 'cabin' && !el.hid) {             /* inside a cabin: its racks and the ODF, dashed, and the cable from the porthole to the ODF */
     const C = cabinInside(S, el); if (!C) continue; const cp = elPoly(el);
     for (const q of C.walls) for (const sd of q.sides) G.pl(sd, 'nd');      /* partition walls */
-    for (const r of C.racks) { const lay = r.st === 'P' ? 'np' : 'nd'; G.pl(r.poly, lay, 1); G.pl(r.front, lay); }
+    for (const r of C.racks) { const lay = r.st === 'P' ? 'np' : 'nd'; G.pl(r.poly, lay, 1); G.pl(r.front, lay); if (r.posts) for (const q of r.posts) G.pl(q, lay, 1); }
     for (const q of C.odfs) { const lay = q.st === 'P' ? 'np' : 'nd'; G.pl(q.poly, lay, 1); G.pl([q.poly[0], q.poly[2]], lay); G.pl([q.poly[1], q.poly[3]], lay); jobs.push({ o: 1, key: q.key, call: 1, lines: [labText(S, q.key, q.s)], lay: tl(q.st), ap: mid(q.poly[0], q.poly[2]), a: 0, cands: topCands(cp, 0, gap), st: q.st }); }
     for (const l of C.legs) if (Math.hypot(l.b[0] - l.a[0], l.b[1] - l.a[1]) > 0.02) G.pl([[l.a[0], l.a[1]], [l.b[0], l.b[1]]], 'fh');
   }

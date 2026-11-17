@@ -18286,9 +18286,21 @@
     if (c && c.wrote && stack.includes('drawing') && drw && drw.project === S.project) openDrawing(true, drw.view ? { ...drw.view } : null); // the records changed: drawn anew, where it was
     else { if (cefHooks.drawSync) cefHooks.drawSync(); splDrawSync(); }
   }
+  /** Show on the map (a map pin on the page's cards and warnings): the page closes (its answers saved) and the map shows that record,
+      centred and ringed as a pick in Records is, so the user can fix it there (add the site, move the pin). false: no such record or position. */
+  async function spliceShowOnMap(id) {
+    const c = splNow; if (!c || c.name !== S.project) return false;
+    const p = points.find((x) => String(x.id) === id && x.project === c.name);
+    if (!p || !Number.isFinite(+p.lat) || !Number.isFinite(+p.lon)) return false;
+    LOG.info('splice.map', { el: elemOf(p) });
+    await closeAll(); hlId = p.id; hlFrom = ''; hlDraw();
+    map.setView([+p.lat, +p.lon], Math.max(map.getZoom(), 19));
+    return true;
+  }
   window.__spliceHost = { init: () => spliceInit(), data: async () => (splNow ? spliceData(splNow.name) : null), save: (o) => spliceSave(o),
     setOdfSize: (id, n) => spliceSetOdf(String(id), Math.round(+n) || 0), setRun: (fid, o) => spliceSetRun(String(fid), o && typeof o === 'object' ? { ...o } : {}),
-    deliver: (n, d, k) => spliceDeliver(n, d, k), close: () => { if (stack[stack.length - 1] === 'spliceSheet') closeSheet(); }, exporter: () => exporterInfo() };
+    deliver: (n, d, k) => spliceDeliver(n, d, k), close: () => { if (stack[stack.length - 1] === 'spliceSheet') closeSheet(); }, exporter: () => exporterInfo(),
+    showOnMap: (id) => spliceShowOnMap(String(id || '')) };
   /** A project that came in a file or through the team mailbox: its splicing answers, taken whole (the one saved later wins). */
   async function spliceMerge(z, pre, proj, fm, o) {
     const inc = spliceClean(fm && fm.splice); if (!inc || !S.meta || !S.meta[proj]) return;

@@ -380,7 +380,7 @@ Object.assign(ICON, { troom: 'M2 18V7l8-5 8 5v11zM7 9h6v9H7zM7 12h6M7 15h6', ora
 const ico = k => ICON[k] ? '<svg class="pi" viewBox="0 0 20 20" aria-hidden="true"><path d="' + ICON[k] + '"/></svg>' : '';
 Object.assign(ICON, { turn: 'M15.6 6.4A6.4 6.4 0 1 0 16.4 12M16.6 2.8v4.1h-4.1', copy: 'M7.5 7.5h9v9h-9zM4 12.5V3.5h9', inside: 'M3 17.5h14M5 17.5V2.5h7.5v15M12.5 3.5l3.5 1.5v11l-3.5 1.5M10 10.2h.01', pen: 'M3.5 16.5l1-4 9-9 3 3-9 9zM11.5 5.5l3 3', fitb: 'M3 7V3h4M13 3h4v4M17 13v4h-4M7 17H3v-4M7 8h6v4H7z', exp: 'M10 3v9M6.5 8.5L10 12l3.5-3.5M4 14v3h12v-3', doc: 'M5 2h7l4 4v12H5zM12 2v4h4M7.5 11h5M7.5 14h5', dxfi: 'M3 17L17 3v14zM11 17v-2M14 17v-2M8 17v-2', list: 'M7 5h10M7 10h10M7 15h10M3.5 5h.01M3.5 10h.01M3.5 15h.01', tbl: 'M3 4h14v12H3zM3 8h14M3 12h14M8 4v12', back: 'M12 4l-6 6 6 6' });      /* beta 4.2 (19:25) */
 let expOpen = false;      /* the small menu of the Export button */
-let txtOpen = false;      /* (fix 47) the card of the Text button: the size of the names */
+let txtOpen = false, txtAt = null;      /* (fix 47) the card of the Text button: the size of the names; the size when it was opened */
 let namesOff = false;      /* (22:24) the Names button of the toolbar: every name hidden on the screen. The sheets and the export keep their names. */
 let hidOpen = false, hidN0 = -1, hidS = null;      /* (15 Nov) the card of what is hidden; the count shown last, so that the button pulses when it goes up; the level it was counted on */
 const selHid = () => !!sel && (sel.k === 'el' ? hidEl(S, elById(sel.id)) : sel.k === 'run' ? !!(runById(sel.id) || {}).hid : false);      /* (15 Nov) the picked item is hidden: no handles, no nudging */
@@ -694,6 +694,7 @@ function labInfo(key) {
   if (/^in/.test(key)) for (const c of S.els) if (c.t === 'cabin' && c.inside) { const q = (c.inside.els || []).find(k => 'in' + k.id === key); if (q) return { name: tyOf(q).n + ' inside the cabin', cur: (S.lab[key] || {}).t || '', def: elLabel(c.inside, q) }; }
   { const mn = /^note(~.+)?$/.exec(key); if (mn) { const k = Math.max(0, cables(S).findIndex((q, i) => cableKey(S, i) === (mn[1] || ''))); return { name: 'Note at the outside end' + (cables(S).length > 1 ? ' · cable ' + (k + 1) : ''), cur: RTc(k).note || '', def: '' }; } }
   if (/^len/.test(key)) return { name: 'Measured length', fixed: 1 };
+  { const m = /^ped(.+)$/.exec(key), pl = m && elById(m[1]); if (pl) return { name: 'Pedestal box', cur: (S.lab[key] || {}).t || '', def: pedName(pedOf(pl)), item: { k: 'el', id: pl.id } }; }      /* (fix 47) */
   { const m = /^(dep|gl)(.+)$/.exec(key), it = m && (m[1] === 'dep' ? runById(m[2]) : elById(m[2]));      /* (15 Nov) the depth of an open trench and the cable entry of a cabinet, in the isometric */
     if (it) return m[1] === 'dep' ? { name: 'Trench depth', cur: (S.lab[key] || {}).t || '', def: 'TRENCH ' + f1(runDepth(it)) + ' m DEEP', item: { k: 'run', id: it.id } } : { name: 'Cable entry', cur: (S.lab[key] || {}).t || '', def: 'FOC ENTRY', item: { k: 'el', id: it.id } }; }
   if (key === 'tid') { const si = S.site || {}; return { name: 'Site name and ID', cur: (S.lab.tid || {}).t || '', def: [si.name, si.id].map(v => String(v || '').trim().toUpperCase()).filter(Boolean).join(' / ') }; }
@@ -705,14 +706,14 @@ function labInfo(key) {
    draws (a length, the exit, the riser) is kept: showing it does no harm. The PROPOSED CLOSURE counts only while the app draws it (gq: the cable, worked out only then). */
 function labLive(T, k, gq) {
   const has = id => T.els.some(q => q.id === id) || T.runs.some(q => q.id === id); if (has(k)) return true;
-  let m = /^(lenr|port)(.+)_[0-9]+$/.exec(k) || /^(dep|gl)(.+)$/.exec(k); if (m) return has(m[2]);
+  let m = /^(lenr|port)(.+)_[0-9]+$/.exec(k) || /^(dep|gl|ped)(.+)$/.exec(k); if (m) return m[1] === 'ped' ? T.els.some(q => q.id === m[2] && pedOf(q)) : has(m[2]);      /* (fix 47: the name of a pedestal box counts while the pole has one) */
   m = /^in(.+)$/.exec(k); if (m && !T.room) { const id = m[1]; return T.els.some(c => c.t === 'cabin' && c.inside && (c.inside.els || []).some(q => q.id === id)); }
   if (/^clo(~.+)?$/.test(k)) return !T.room && gq().joins.some(j => j.auto && 'clo' + (j.ck || '') === k);
   return !(/^e[0-9a-z]{1,6}$/.test(k) && !/^exit[0-9]+$/.test(k));      /* an item's own id whose item is gone (uid(): 'e' and 6 characters) */
 }
 /* the names hidden one by one that count. One whose item is hidden is left out: the item comes first, and its name is not drawn either way. */
 function hidKeys(T, gq) {
-  const L = T.lab || {}, ownHid = k => { const m = /^(?:lenr|port)(.+)_[0-9]+$/.exec(k) || /^(?:dep|gl)(.+)$/.exec(k), i = /^in(.+)$/.exec(k), id = m ? m[1] : k;      /* the item the name belongs to is hidden */
+  const L = T.lab || {}, ownHid = k => { const m = /^(?:lenr|port)(.+)_[0-9]+$/.exec(k) || /^(?:dep|gl|ped)(.+)$/.exec(k), i = /^in(.+)$/.exec(k), id = m ? m[1] : k;      /* the item the name belongs to is hidden */
     const e = T.els.find(q => q.id === id); if (e) return hidEl(T, e); const r = T.runs.find(q => q.id === id); if (r) return !!r.hid;
     const c = i && !T.room ? T.els.find(q => q.t === 'cabin' && q.inside && (q.inside.els || []).some(n => n.id === i[1])) : null; return !!c && hidEl(T, c); };
   return Object.keys(L).filter(k => L[k] && L[k].off && labLive(T, k, gq) && !ownHid(k));
@@ -817,8 +818,8 @@ function labKGroup(key) { const k = labK(S, key); return '<span class="og big" r
   + '<button type="button" data-a="labk" data-d="0" data-key="' + esc(key) + '" aria-label="This name at the size of the others" title="' + (k === 1 ? 'The size of the other names' : 'Back to the size of the other names') + '"' + (k === 1 ? ' aria-pressed="true"' : '') + '>' + Math.round(k * 100) + '%</button>'
   + '<button type="button" data-a="labk" data-d="1" data-key="' + esc(key) + '" aria-label="Make this name larger" title="Make this name larger"' + (k >= LABK[LABK.length - 1] ? ' disabled' : '') + '>A+</button></span>'; }
 function labKStep(key, d) {
-  if (!key) return; const k0 = labK(S, key), i0 = LABK.indexOf(k0); let k = 1;
-  if (+d) { let i = i0 >= 0 ? i0 : LABK.findIndex(q => q >= k0); if (i < 0) i = LABK.length - 1; i = clamp(i + (+d > 0 ? 1 : -1), 0, LABK.length - 1); k = LABK[i]; }
+  if (!key) return; const k0 = labK(S, key); let k = 1;
+  if (+d) { const L = LABK.filter(q => +d > 0 ? q > k0 + 1e-9 : q < k0 - 1e-9); k = L.length ? (+d > 0 ? L[0] : L[L.length - 1]) : k0; }
   push(); const r = S.lab[key] || (S.lab[key] = {}); if (k === 1) delete r.k; else r.k = k; needFit.sheets = true;
   say(k === 1 ? 'This name is at the size of the others.' : 'This name: ' + Math.round(k * 100) + '% of the size of the others.'); refresh(true);
 }
@@ -843,13 +844,13 @@ function labKStep(key, d) {
 const TXT_STEPS = [50, 60, 70, 85, 100, 120, 140, 170, 200, 250];
 const TXT_CHIPS = [['auto', 'Auto', 'Automatic: the standard size, smaller where there is no room'], ['70', 'S', 'Small: 1.5 mm on the sheet'], ['100', 'M', 'Standard: 2.2 mm on the sheet'], ['140', 'L', 'Large: 3.0 mm on the sheet'], ['170', 'XL', 'Extra large: 3.7 mm on the sheet']];
 const txtNow = () => txAuto(ROOT) ? 'auto' : String(Math.round(txK(ROOT) * 100));
-function txtNext(d) { const c = txtNow(); if (c === 'auto') return d > 0 ? '120' : '85'; const v = +c; let i = TXT_STEPS.findIndex(q => q >= v); if (i < 0) i = TXT_STEPS.length - 1; if (TXT_STEPS[i] !== v && d < 0) i++; return String(TXT_STEPS[clamp(i + (d > 0 ? 1 : -1), 0, TXT_STEPS.length - 1)]); }
+function txtNext(d) { const c = txtNow(); if (c === 'auto') return d > 0 ? '120' : '85'; const v = +c, L = TXT_STEPS.filter(q => d > 0 ? q > v : q < v); return String(L.length ? (d > 0 ? L[0] : L[L.length - 1]) : v); }      /* the next size up or down from the one there is */
 function txtSync(I) { if (!I || !I.site) return; if (ROOT.site.txt != null) I.site.txt = ROOT.site.txt; else delete I.site.txt; }      /* the inside of a cabin takes the size of the plan */
 function txtSet(v) {
   if (VIEW || !ROOT) return; if (v === txtNow()) { drawStrip(); return; } push();
   if (v === 'auto' || v === '' || v == null) delete ROOT.site.txt; else ROOT.site.txt = clamp(num(v, 100), 50, 250);
   for (const e of ROOT.els) if (e.t === 'cabin' && e.inside) txtSync(e.inside);
-  needFit.sheets = true; const c = txtNow(), q = TXT_CHIPS.find(k => k[0] === c); say('Names: ' + (q ? q[2].split(':')[0].toLowerCase() : c + '% of the standard size') + '. On the sheets too.'); refresh(true);
+  needFit.sheets = true;      /* the view keeps its zoom, so the names are seen to grow or shrink (Fit shows the whole plan again) */ const c = txtNow(), q = TXT_CHIPS.find(k => k[0] === c); say('Names: ' + (q ? q[2].split(':')[0].toLowerCase() : c + '% of the standard size') + '. On the sheets too.'); refresh(true);
 }
 function txtTray() {
   const c = txtNow(), v = c === 'auto' ? 100 : +c, lo = c !== 'auto' && v <= TXT_STEPS[0], hi = c !== 'auto' && v >= TXT_STEPS[TXT_STEPS.length - 1];
@@ -915,8 +916,8 @@ for (const id of ['tb', 'tbpop']) { const n = document.getElementById(id); if (n
   if (!b.closest('#tbpop')) hidOpen = false;      /* (15 Nov) a tool closes the card of what is hidden; a row of the card keeps it open */
   else if (e.detail === 0) setTimeout(hidFocus, 0);      /* (a row taken with the keyboard: the keys stay in the card) */
   if (a === 'hid-close') { hidOpen = false; drawStrip(); return; }
-  if (a === 'tool-txt') { const open = !txtOpen; if (mode !== 'select') toolSel(); palOpen = expOpen = hidOpen = false; txtOpen = open; drawStrip(); return; }      /* (fix 47) */
-  if (a === 'txt-close') { txtOpen = false; drawStrip(); return; }
+  if (a === 'tool-txt' || a === 'txt-close') { const open = a === 'tool-txt' && !txtOpen; if (open) { if (mode !== 'select') toolSel(); palOpen = expOpen = hidOpen = false; txtAt = txtNow(); txtOpen = true; drawStrip(); return; }      /* (fix 47) */
+    txtOpen = false; if (txtAt != null && txtAt !== txtNow()) { needFit.top = needFit.iso = true; refresh(true); } else drawStrip(); txtAt = null; return; }      /* closed with Done: the views are fitted again, so that every name shows at its new size */
   if (a === 'txt-step' || a === 'txt-set') { txtSet(a === 'txt-set' ? b.dataset.v : txtNext(+b.dataset.d)); return; }
   if (a === 'labk') { action(a, b); return; }
   txtOpen = false;
@@ -985,7 +986,7 @@ function applyField(k, t) {
   if (p[0] === 'site') {
     const f = p[1];
     if (['name', 'id', 'by', 'org', 'link', 'lat', 'lon', 'kind', 'fence', 'anchor', 'labels', 'cut', 'below', 'clo'].includes(f)) { push('f:' + k); si[f] = v; if (f === 'below' && v !== 'flat') delete si[f]; if (f === 'clo') si.clo = v === 'none' ? 'none' : 'yes';      /* (beta 4.2: the answer is kept, so the app does not ask again) */ if (f === 'name' || f === 'id') S.sample = false; if (f === 'kind' || f === 'labels' || f === 'cut' || f === 'below' || f === 'clo') needFit.iso = needFit.top = needFit.sheets = true; return true; }
-    if (f === 'txt') { push('f:' + k); if (v === 'auto' || v === '') delete si.txt; else si.txt = clamp(num(v, 100), 50, 250); needFit.iso = needFit.top = needFit.sheets = true; return true; }
+    if (f === 'txt') { push('f:' + k); if (v === 'auto' || v === '') delete si.txt; else si.txt = clamp(num(v, 100), 50, 250); if (!S.room) for (const e of S.els) if (e.t === 'cabin' && e.inside) txtSync(e.inside); needFit.iso = needFit.top = needFit.sheets = true; return true; }      /* (fix 47: the inside of each cabin too, as the Text button does) */
     if (f === 'nm') { if (!NAMES.some(q => q[0] === p[2])) return false; push('f:' + k); si.names = Object.assign({}, si.names); si.names[p[2]] = String(v) === '1'; needFit.iso = needFit.top = needFit.sheets = true; return true; }
     if (f === 'towerShow') { push('f:' + k); si.towerShow = isFinite(x) && x > 0 ? clamp(x, 3, 300) : ''; needFit.iso = needFit.sheets = true; return true; }
     const lim = { L: [2, 500], W: [2, 500], fh: [0.5, 10], post: [1, 20], bh: [0, 200], bearing: [0, 360], wire: [0, 1] }[f]; if (!lim || !isFinite(x)) return false;
@@ -1239,7 +1240,7 @@ function goBack() {
 function delSel() { if (VIEW) return;
   if (!sel) return; push();
   if (sel.k === 'pic') { const p = phById(sel.id); if (p) delete p[sel.v === 't' ? 'ct' : 'ci']; needFit.sheets = true; } else if (sel.k === 'gate') S.gates.splice(sel.i, 1); else if (sel.k === 'el' || sel.k === 'run') { const id = sel.id, e = sel.k === 'el' ? elById(id) : null;      /* (15 Nov) its names go with it (Undo brings them back) */
-    if (S.lab) { for (const k of Object.keys(S.lab)) if (k === id || k === 'dep' + id || k === 'gl' + id || k.indexOf('lenr' + id + '_') === 0 || k.indexOf('port' + id + '_') === 0) delete S.lab[k]; if (e && e.inside) for (const q of e.inside.els || []) delete S.lab['in' + q.id]; }
+    if (S.lab) { for (const k of Object.keys(S.lab)) if (k === id || k === 'dep' + id || k === 'gl' + id || k === 'ped' + id || k.indexOf('lenr' + id + '_') === 0 || k.indexOf('port' + id + '_') === 0) delete S.lab[k]; if (e && e.inside) for (const q of e.inside.els || []) delete S.lab['in' + q.id]; }
     if (sel.k === 'el') S.els = S.els.filter(q => q.id !== id); else S.runs = S.runs.filter(q => q.id !== id); } else if (sel.k === 'photo') S.photos = S.photos.filter(e => e.id !== sel.id); else if (sel.k === 'pt') delPt(sel.f, sel.i, sel.c || 0); else if (sel.k === 'lab') { hist.pop(); return; }
   sel = null; needFit.iso = true; refresh(true);
 }
