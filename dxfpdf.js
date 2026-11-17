@@ -278,11 +278,11 @@
         const fc = bg & 2 ? [255, 255, 255] : (ACI[int(r, 63, 7)] || [255, 255, 255]), Q = [W2(x0, y0), W2(x1, y0), W2(x1, y1), W2(x0, y1)];
         ops.push(`q ${f4(fc[0] / 255)} ${f4(fc[1] / 255)} ${f4(fc[2] / 255)} rg ${Q.map((q, i) => `${f2(q[0])} ${f2(q[1])} ${i ? 'l' : 'm'}`).join(' ')} h f Q`);
       }
-      const runs = o.colourRuns && /\\[Cc]\d/.test(raw) && !(refW > 0) ? colourRuns(raw) : null; // beta 4.7: a part in another colour ({\C7;…}: Tidy's pole labels; o.colourRuns, so a Standard plan's PDF stays as it was)
+      const runs = o.colourRuns && /\\[Cc]\d/.test(raw) && !(refW > 0) ? colourRuns(raw) : null; const byLay = runs ? colorOf(r.filter((x) => x[0] !== 62 && x[0] !== 420), { color: col }) : null; // (\C256: the layer's colour) // beta 4.7: a part in another colour ({\C7;…}: Tidy's pole labels; o.colourRuns, so a Standard plan's PDF stays as it was)
       lines.forEach((l, i) => {
         if (!l.trim()) return;
         const dx = left + (al === 'c' ? (colW - lw[i]) / 2 : al === 'r' ? colW - lw[i] : 0), dy = top - h - i * pitch;
-        if (runs && runs.length === lines.length) { let x = dx; for (const R of runs[i]) { const s2 = special(R.s); if (s2.trim()) textLine(ops, M, R.c > 0 && R.c < 256 && ACI[R.c] ? ACI[R.c] : col, s2, ax + x * c - dy * sn, ay + x * sn + dy * c, ang, h, wf, bold); x += widthEm(s2, bold) * fs * wf; } return; }
+        if (runs && runs.length === lines.length) { let x = dx; for (const R of runs[i]) { const s2 = special(R.s); if (s2.trim()) textLine(ops, M, R.c > 0 && R.c < 256 && ACI[R.c] ? ACI[R.c] : R.c === 256 ? byLay : col, s2, ax + x * c - dy * sn, ay + x * sn + dy * c, ang, h, wf, bold); x += widthEm(s2, bold) * fs * wf; } return; }
         textLine(ops, M, col, l, ax + dx * c - dy * sn, ay + dx * sn + dy * c, ang, h, wf, bold);
       });
     }

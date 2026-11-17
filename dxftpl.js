@@ -2810,7 +2810,7 @@
       for (const b of tidyStd) b._k--;
       // every text written so far (IDs, closures' attributes, span lengths, cable labels, loops, street names, landmarks, the grid's
       // numbers…), its box as wide as AutoCAD draws it in Arial and a little more (the places' estimate is narrower for capitals)
-      const MOVABLE = new Set([lay('PROPOSED LOOP'), lay('Proposed NAP ID', 'MISC'), lay('MISC'), lay('Distance Data')]); // (loops, IDs, span lengths; not a street name, a number (it has its circle) or a cable's label (its arrow))
+      const MOVABLE = new Set(['PROPOSED LOOP', 'Proposed NAP ID', 'MISC', 'Distance Data'].filter((n) => S.layers.has(n))); // (loops, IDs, span lengths, cable names; not a street name, a number (it has its circle) or a cable's label (its arrow); only the template's own layers: none of layer 0, where a template without them puts everything)
       const tx = new Spots(), txG = new Spots(), tRecs = [], gv = (r, c, dv) => { const q = r.find((x, i) => i > 0 && x[0] === c); return q ? q[1] : dv; };
       const mplain = (s) => String(s).replace(/\\P/g, '\n').replace(/\\[A-Za-z][^;\\{}]*;/g, '').replace(/[{}]/g, '').replace(/%%[dD]/g, '°');
       for (const r of o.model) {
@@ -2844,11 +2844,11 @@
         }
         if (p.symBox) p.symBox._k--; // (its own pole is not in the way)
         let best = null;
-        for (const inCell of [true, false]) { for (const clr of [1.0, 0.5, 0.15, 0]) {
+        for (const inCell of [true, false]) { for (const [clr, xCab] of [[1.0, 0], [0.5, 0], [1.0, 1], [0.5, 1], [0.15, 0], [0.15, 1], [0, 0], [0, 1]]) { // (a line to the pole across the cable only where nothing nearer is free: the label would sit on the other side)
           for (const c of cands) {
             const tb = Spots.box(c.cx, c.cy, W, Hb, 0); if (inCell && !cellHolds({ ...tb, hw: tb.hw / 1.3 }, p.E, p.N)) continue;
             const big = Spots.box(c.cx, c.cy, W + 2 * clr, Hb + 2 * clr, 0); if (spots.hitsW(big, HARD) || tx.hits(big)) continue;
-            const ln = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0; if (ln >= 1 || (c.lbox && tx.hits(c.lbox))) continue;
+            const ln = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0; if (ln >= 1 || (ln > 0 && !xCab) || (c.lbox && tx.hits(c.lbox))) continue;
             const tot = c.cost + 2 * spots.hitsW(tb, ROADX) + (ln > 0 ? 30 : 0) + (txG.hits(tb) ? 30 : 0);
             if (!best || tot < best.tot) best = { ...c, tot, clr };
           }
@@ -2864,10 +2864,11 @@
       // a loop's length, an ID or a span length the steps before left over another text (their place was worked out narrower than
       // AutoCAD draws capitals, e.g. a loop's length over a dummy NAP's ID): slid a little along its line or out from it (8 m at most),
       // where it covers nothing (Standard keeps them as they are)
-      const NUDGE_W = (t) => (t === 'road' ? 0 : 1);
+      const NUDGE_W = (t) => (t === 'road' ? 0 : 1), miscL = lay('MISC');
+      const idLeads = o.model.filter((r) => r[0][1] === 'LWPOLYLINE' && gv(r, 8, '') === miscL && +gv(r, 62, 0) === 8 && r.filter((x) => x[0] === 10).length === 2); // (an ID's thin line back to its block: its end follows the ID)
       for (const M of tRecs.slice().reverse()) { // (the later first: the one placed last moves)
         M.bx._k--; if (!tx.hits(M.bx)) { M.bx._k++; continue; }
-        const own = spots.list.filter((b) => b._k > 0 && Math.hypot(b.cx - M.bx.cx, b.cy - M.bx.cy) < M.h0 * 1.5 && Math.abs(b.ux * M.u[1] - b.uy * M.u[0]) < 0.05); // (its own place, kept by the step that wrote it)
+        const own = spots.list.filter((b) => b._k > 0 && Math.hypot(b.cx - M.bx.cx, b.cy - M.bx.cy) < M.h0 * 0.5 && Math.abs(b.ux * M.u[1] - b.uy * M.u[0]) < 0.05 && Math.abs(b.hh - M.bx.hh) < M.h0 * 0.35 && b.hw < M.bx.hw * 1.6 + M.h0); // (its own place, kept by the step that wrote it: a text's box, not the cable beside it)
         own.forEach((b) => { b._k--; });
         const v = [-M.u[1], M.u[0]], tries = []; for (const sa of [0, 1.5, -1.5, 3, -3, 4.5, -4.5, 6, -6, 8, -8]) for (const sv of [0, 1, -1, 2, -2, 3.5, -3.5, 5, -5, 7, -7]) if (sa || sv) tries.push([sa, sv]);
         tries.sort((x, y) => Math.abs(x[0]) + 1.5 * Math.abs(x[1]) - Math.abs(y[0]) - 1.5 * Math.abs(y[1]));
@@ -2875,6 +2876,7 @@
         if (!ok) { own.forEach((b) => { b._k++; }); M.bx._k++; continue; }
         const d0 = [M.u[0] * ok[0] + v[0] * ok[1], M.u[1] * ok[0] + v[1] * ok[1]], mv = (c, dd) => setFirst(M.r, c, F(+gv(M.r, c, 0) + dd));
         mv(10, d0[0]); mv(20, d0[1]); if (gv(M.r, 11, null) != null) { mv(11, d0[0]); mv(21, d0[1]); }
+        for (const r of idLeads) { const k = r.map((x, i) => (x[0] === 10 ? i : 0)).filter(Boolean)[1]; if (r[k + 1][0] === 20 && Math.hypot(+r[k][1] - M.bx.cx, +r[k + 1][1] - M.bx.cy) <= M.bx.hw + 0.6) { r[k] = [10, F(+r[k][1] + d0[0])]; r[k + 1] = [20, F(+r[k + 1][1] + d0[1])]; } }
         M.bx = tx.add(Spots.box(M.bx.cx + d0[0], M.bx.cy + d0[1], M.bx.hw * 2, M.bx.hh * 2, M.a * 180 / Math.PI)); M.x0 += d0[0]; M.y0 += d0[1];
         spots.add(Spots.box(M.bx.cx, M.bx.cy, M.bx.hw * 2, M.bx.hh * 2, M.a * 180 / Math.PI), 'label'); (T7.moved || (T7.moved = [])).push(`${gv(M.r, 1, '')} ${ok.join(',')}`);
       }

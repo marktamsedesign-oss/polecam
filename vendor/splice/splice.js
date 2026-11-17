@@ -1016,11 +1016,15 @@
         const key = sig(a) + '#' + sig(b); if (!seen.has(key)) { seen.add(key); tries.set(key, (tries.get(key) || 0) + 1); } if (tries.get(key) > 16) return;
         const wa = whereOf(a.p.ow), wb = whereOf(b.p.ow); if (!wa || !wb) return;
         const ox = Math.min(a.b[2], b.b[2]) - Math.max(a.b[0], b.b[0]) + 1.2, oy = Math.min(a.b[3], b.b[3]) - Math.max(a.b[1], b.b[1]) + 1.2;
+        const kick = v => (tries.get(key) > 8 ? Math.max(v, 3) : v); /* (a slanting word over a thin line measures little: after eight tries, 3 mm at least) */
+        /* (wider gaps that did not part them, eight times: the words of what hangs below meet a line that runs across, the trunk or a cable
+           back to the route; what hangs there hangs lower too, its cable longer, its words further from that line) */
+        const lower = () => { if (tries.get(key) > 8) [wa, wb].forEach(w => { if (w.node != null && par.has(w.node)) bump(DY2, par.get(w.node), kick(oy)); }); };
         if (wa.t !== wb.t) {
           /* in different places along the trunk: the gaps between them grow (a trunk cable's words move half as much as its far end) */
           const lo = Math.min(wa.t, wb.t), hi = Math.max(wa.t, wb.t), gs = [];
           for (let k = 0; k < n - 1; k++) { const f = Math.min(hi, k + 1) - Math.max(lo, k); if (f > 1e-9) gs.push([k, f]); }
-          const tot = gs.reduce((s, x) => s + x[1], 0); gs.forEach(([k]) => bump(G2, k, ox / tot)); return;
+          const tot = gs.reduce((s, x) => s + x[1], 0); gs.forEach(([k]) => bump(G2, k, ox / tot)); lower(); return;
         }
         if (wa.c && wb.c && wa.c !== wb.c && pairOf.get(wa.c) === pairOf.get(wb.c)) {
           /* two cables of one pair: words over words, they run further apart; a line through the other's words, the pair runs longer */
@@ -1029,19 +1033,18 @@
           if (par.get(pr.b) === pr.a || par.get(pr.a) === pr.b) { bump(DY2, par.get(pr.b) === pr.a ? pr.a : pr.b, 2 * oy + 2); return; }
           const ka = col.get(pr.a), kb = col.get(pr.b); for (let k = Math.min(ka, kb); k < Math.max(ka, kb); k++) bump(G2, k, 2 * ox + 2); return;
         }
-        if (wa.node == null || wb.node == null) { const k = Math.floor(wa.t); if (k < n - 1) bump(G2, k, ox); if (k > 0) bump(G2, k - 1, ox); return; }
+        if (wa.node == null || wb.node == null) { const k = Math.floor(wa.t); if (k < n - 1) bump(G2, k, ox); if (k > 0) bump(G2, k - 1, ox); lower(); return; }
         const na = wa.node, nb = wb.node;
         if (na === nb) { if ((wa.c || wb.c) && par.has(na)) bump(DY2, par.get(na), 2 * oy); return; }
         const ca = chain(na), cb = chain(nb);
-        if (ca.indexOf(nb) >= 0) { bump(DY2, nb, oy); return; }
-        if (cb.indexOf(na) >= 0) { bump(DY2, na, oy); return; }
+        if (ca.indexOf(nb) >= 0) { bump(DY2, nb, kick(oy)); return; }
+        if (cb.indexOf(na) >= 0) { bump(DY2, na, kick(oy)); return; }
         const lca = ca.find(x => cb.indexOf(x) >= 0); if (lca == null) return;
         const kA = ca[ca.indexOf(lca) - 1], kB = cb[cb.indexOf(lca) - 1], K = kids.get(lca);
-        bump(SX2, K.indexOf(kA) > K.indexOf(kB) ? kA : kB, ox);
+        bump(SX2, K.indexOf(kA) > K.indexOf(kB) ? kA : kB, kick(ox));
       });
       if (!G2.size && !DY2.size && !SX2.size && !LS2.size) break;
       G2.forEach((v, k) => { gap[k] += v; }); DY2.forEach((v, k) => dy.set(k, (dy.get(k) || DY0) + v)); SX2.forEach((v, k) => sx.set(k, (sx.get(k) || 0) + v)); LS2.forEach((v, k) => lens.set(k, (lens.get(k) || 0) + v));
-      if (typeof process !== "undefined" && process.env && process.env.SLD_DEBUG) console.log("sld it", it, left.length, JSON.stringify([...G2]), JSON.stringify([...DY2]), JSON.stringify([...SX2].map(x => [x[0], x[1]])), [...LS2.values()]);
       if (gap.reduce((s, v) => s + v, 0) > 6000) break;
     }
     P.sldClash = left.length;
@@ -1165,12 +1168,18 @@
       });
       /* the cables, as bundles of fibers */
       const endPt = new Map();
+      /* the bundles turn after the range of their capped fibers (written just outside a closure's ellipse) */
+      const baseOf = id => { const O = outOf(id), p = pos.get(id), xs = isEnd(id) ? p.x + BW + 7 : p.x + 6, xa0 = isEnd(id) ? xs + 3.4 : Math.max(xs + 3.4, p.x + 15);
+        return Math.max(xs + 9, xa0 + Math.max(0, ...O.map(d => pass.has(K(id, d.c)) ? 0 : textW(restTxt(d.c), 0.62))) + 1.4); };
       nodes.forEach(id => {
-        const O = outOf(id); if (!O.length) return; const p = pos.get(id), xs = isEnd(id) ? p.x + BW + 7 : p.x + 6;
-        /* the bundles turn after the range of their capped fibers (written just outside a closure's ellipse) */
-        const xa0 = isEnd(id) ? xs + 3.4 : Math.max(xs + 3.4, p.x + 15), pre = Math.max(0, ...O.map(d => pass.has(K(id, d.c)) ? 0 : textW(restTxt(d.c), 0.62))), base = Math.max(xs + 9, xa0 + pre + 1.4);
+        const O = outOf(id); if (!O.length) return; const p = pos.get(id), xs = isEnd(id) ? p.x + BW + 7 : p.x + 6, base = baseOf(id);
         const ups = O.filter(d => pos.get(d.b) && at.get(K(d.b, d.c)).y > at.get(K(id, d.c)).y + 0.01), downs = O.filter(d => !ups.includes(d)).reverse();
-        const turn = new Map(); let acc = 0; ups.forEach(d => { const w = bw(d.c); turn.set(d, base + acc + w / 2); acc += w + 5; }); acc = 0; downs.forEach(d => { const w = bw(d.c); turn.set(d, base + acc + w / 2); acc += w + 5; });
+        /* (a cable that runs up or down past another point of this column, or to one, turns after that point's capped fibers' range too) */
+        const turn = new Map(), col = nodes.filter(q => q !== id && Math.abs(pos.get(q).x - p.x) < 1e-6 && outOf(q).length); let acc = 0;
+        const past = d => { const y0 = at.get(K(id, d.c)).y, y1 = at.get(K(d.b, d.c)).y, lo = Math.min(y0, y1) - 1, hi = Math.max(y0, y1) + 1;
+          return Math.max(0, ...col.filter(q => q === d.b || outOf(q).some(e => { const y = at.get(K(q, e.c)).y; return y > lo && y < hi; })).map(baseOf)); };
+        const tn = d => { const w = bw(d.c), b = Math.max(base + acc, past(d)); turn.set(d, b + w / 2); acc = b - base + w + 5; };
+        ups.forEach(tn); acc = 0; downs.forEach(tn);
         O.forEach(d => {
           G.u = 'cab:' + d.c.k;
           const c = d.c, ys = at.get(K(id, c)).y, B = pos.get(d.b), yt = at.get(K(d.b, c)).y, xt = isEnd(d.b) ? B.x - 7 : B.x - 6, xT = turn.get(d), L = lines(c), N = L.length, w = bw(c);
@@ -1206,7 +1215,8 @@
           if (pts.length > 2) { const sx0 = isEnd(id) ? xs + 4 : p.x + 16, yu = ys + w / 2 + 1.6, yd = ys - w / 2 - 1.6 - 3.2; if (xT - w / 2 - 2 - lw > sx0) { cands.push(T => lab(T, xT - w / 2 - 2, yu, 'r'), T => lab(T, xT - w / 2 - 2, yd, 'r')); } }
           /* (else a little further from its bundle, or ending where the bundle reaches the far end, rather than over a line) */
           [3.5, 7, 10.5].forEach(dd => xsAlong.slice(0, 3).forEach(x => cands.push(T => lab(T, x, up1 + dd), T => lab(T, x, dn1 - dd))));
-          [0, 3.5, 7].forEach(dd => cands.push(T => lab(T, xt - 3, up1 + dd, 'r'), T => lab(T, xt - 3, dn1 - dd, 'r')));
+          const xr = isEnd(d.b) ? xt - 3 : B.x - 15.2; /* (outside a closure's ellipse, 14 wide each side) */
+          [0, 3.5, 7].forEach(dd => cands.push(T => lab(T, xr, up1 + dd, 'r'), T => lab(T, xr, dn1 - dd, 'r')));
           labels.push({ cands, set: { u: 'cab:' + c.k, ow: 'c:' + c.k } });
         });
       });
