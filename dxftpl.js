@@ -3400,6 +3400,11 @@
     for (const L of S.layouts) { if (L.name === 'Model') continue; for (const r of layoutEnts(d, S, L)) if (typ(r) === 'MTEXT' && textOf(r).includes('@@EXPORTED_BY@@') && Math.abs(num(r, 10, 0) - 6478) < 0.5 && Math.abs(num(r, 20, 0) + 6209.5) < 0.5) setFirst(r, 10, F(6508)); }
     for (const L of S.layouts) { if (L.name === 'Model') continue; for (const r of layoutEnts(d, S, L)) fill(r, L.name, L.name === 'TITLE'); }
     if (paging) for (const r of S.blocks.get('PAGING').ents) fill(r, null, true);
+    { // 2.44.8: the role under the third signature line of the title block reads PROJECT MANAGER (the template says Head-Cable Engineering), on every sheet
+      const roleFix = (r) => { const t = typ(r); if ((t === 'TEXT' || t === 'MTEXT') && /^\s*head\s*[-\u2013]?\s*cable\s+engineering\s*$/i.test(textOf(r))) setText(r, /[a-z]/.test(textOf(r)) ? 'Project Manager' : 'PROJECT MANAGER'); };
+      if (paging) for (const r of S.blocks.get('PAGING').ents) roleFix(r);
+      for (const L of S.layouts) { if (L.name !== 'Model') for (const r of layoutEnts(d, S, L)) roleFix(r); }
+    }
     // v2.34: the plan's title on the title sheet: the template's AFI PLAN, or AS-BUILT PLAN for an As-Built
     if (job.planTitle) { const tl = S.layouts.find((L) => L.name === 'TITLE'); if (tl) for (const r of layoutEnts(d, S, tl)) { const t = typ(r); if ((t === 'MTEXT' || t === 'TEXT') && textOf(r).includes('AFI PLAN')) setText(r, textOf(r).replace(/AFI PLAN/g, t === 'MTEXT' ? mtextEsc(job.planTitle) : job.planTitle)); } }
     for (const r of d.sec('ENTITIES').recs) { const ow = owner(r); if (ow === S.modelH && String(get(r, 67, '0')).trim() !== '1') fill(r, null, false); }
