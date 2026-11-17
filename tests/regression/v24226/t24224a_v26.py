@@ -114,7 +114,8 @@ async def main():
         near_l = [x for x in ld if x < 25]
         rs = [e for e in msp if e.dxftype() == 'INSERT' and e.dxf.name == 'proposed riser']
         rd = sorted(round(math.hypot(e.dxf.insert.x - c[0], e.dxf.insert.y - c[1]), 2) for e in rs) if c7 else []
-        check('D2. the loop mark and the riser at the closure lie past its pentagon, not over it (the loop 4.35 m + half a loop out or more; the riser 4.35 m + 2.5 m)', c7 and near_l and min(near_l) >= 4.35 + 2.5 and rd and min(rd) >= 4.35 + 2.5, (ld[:4], rd))
+        sc7 = c7[0].dxf.xscale if c7 else 4.35  # (v2.44.10: the pentagon's size follows its street, 2.2 to 4.35 m)
+        check('D2. the loop mark and the riser at the closure lie past its pentagon, not over it (the loop its size + 2.5 m out or more; the riser its size + 2.5 m)', c7 and near_l and min(near_l) >= sc7 + 2.5 and rd and min(rd) >= sc7 + 2.5, (ld[:4], rd, round(sc7, 2)))
         # chosen by hand: it stays
         await pg.evaluate("(id) => __polecam.openEditorFor(id)", ids['P7']); await pg.wait_for_selector('#editor:not([hidden])'); await W(pg, 900)
         opt = await pg.evaluate("() => { const s = document.getElementById('cloSzSel'); return s ? [s.value, [...s.options].find((o) => o.value === s.value)?.textContent || ''] : null; }")
