@@ -182,7 +182,7 @@
     quality: 'strict', readId: false, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
     exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'utm', 'time', 'by', 'project'], naming: 'id',
       kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true,
-      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, pmiLoops: true, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfCef: true, dxfRows: null, dxfRowSel: 0, dxfLabels: 'std' }, // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
+      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, pmiLoops: true, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfCef: true, dxfBoqGrid: true, dxfRows: null, dxfRowSel: 0, dxfLabels: 'std' }, // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
     saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
     sig: { design: '', project: '', head: '', cse: '', cseAuto: '' }, // v2.42.12: the names in the plan's title blocks (cseAuto: the last CSE Lead the online sheet gave)
   };
@@ -861,6 +861,7 @@
     }
     if (id !== 'editor' && ed) scheduleDraft(); // back on the record from the camera, the marks or a photo: kept safe (v2.21)
     if (id === 'camera') stopCamera();
+    if (id === 'camera' && ed && ed.svStale) { ed.svStale = false; renderSvPhotos(); } // beta 5.9: the photos added with the camera open
     if (id === 'camera' && cefHooks.camClosed) cefHooks.camClosed(); // v2.44
     if (id === 'cefSheet' && cefHooks.closed) cefHooks.closed();
     if (id === 'spliceSheet' && splHooks.closed) splHooks.closed(); // beta 4.6: the splicing details
@@ -920,10 +921,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.44.12';
+  const APP_VER = '2.44.14';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '5.7'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '5.9'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -1785,7 +1786,12 @@
   let drw = null;
   const ACI_HEX = { 1: '#ff0000', 2: '#ffff00', 3: '#00ff00', 4: '#00ffff', 5: '#0000ff', 6: '#ff00ff', 7: '#ffffff' };
   const ACI_NAME = { 0: 'by layer', 1: 'red', 2: 'yellow', 3: 'green', 4: 'cyan', 5: 'blue', 6: 'magenta', 7: 'white' };
-  const ACI_INK = { 1: '#e03131', 2: '#d9a400', 3: '#2b8a3e', 4: '#0c8599', 5: '#1c3f94', 6: '#ae3ec9', 7: '#495057' }; // the same colours, readable on the light preview
+  /* beta 5.9: a colour of the user's own (Drawing style's colour picker) is kept as #rrggbb; the plan gets it as the colour itself (and its
+     nearest AutoCAD colour for older CAD), see dxftpl's colGroups. AutoCAD colour numbers stay numbers. */
+  const isHexCol = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
+  const colHex = (c) => (isHexCol(c) ? c : ACI_HEX[c]), colName = (c) => (isHexCol(c) ? `your colour ${c.toLowerCase()}` : ACI_NAME[c]);
+  const jobCols = (o) => (o == null ? o : JSON.parse(JSON.stringify(o), (k, v) => (isHexCol(v) ? 0x1000000 + parseInt(v.slice(1), 16) : v))); // (for the plan: TC0 + 0xRRGGBB)
+  const ACI_INK = new Proxy({ 1: '#e03131', 2: '#d9a400', 3: '#2b8a3e', 4: '#0c8599', 5: '#1c3f94', 6: '#ae3ec9', 7: '#495057' }, { get: (t, k) => (isHexCol(k) ? k : t[k]) }); // the same colours, readable on the light preview (beta 5.9: a colour of the user's own: itself)
   const drwMapKind = () => (['off', 'offline', 'sat', 'street'].includes(S.drawMapKind) ? S.drawMapKind : 'offline'); // v2.41: the offline map by default
   const drwBase = () => { const k = drw ? drw.mapKind : drwMapKind(); return k === 'offline' ? (shownPacks().length ? 'offline' : 'off') : k === 'sat' ? 'satellite' : k === 'street' ? 'street' : 'off'; };
   function openDrawing(again, view) { // again: drawn anew in the open sheet (v2.42.12: another project was chosen); view: where it looks (beta 4.6: kept after the splicing details changed a record)
@@ -2304,7 +2310,7 @@
     clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a', per: 3, h: 0, w: { prop: true, size: true, type: true, place: true, foc: false, run: true } }, /* v2.42.26: labels for each cable in a grid, their height (0: by the poles' spacing), their words */
     site: { name: 'on', move: 'auto', arrow: true, acol: 7 }, odf: { place: 'auto', lbl: 'size' }, /* v2.42.26: the tower's name; the ODF beside the tower, its label (beta 3.8: the name on the tower; moved aside in its sheet; the arrow) */
     crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room' },
-    pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0 }, span: { h: 0, color: 0 }, photo: { size: 18 } }; /* Photos: the long side of the photos on the plan (m; 18: Normal, as before) */ /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
+    pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0 }, span: { h: 0, color: 0 }, photo: { size: 18 }, grid: { split: 0, pos: 'tr', h: 0, color: 0 } }; /* beta 5.9: Grid: the split (0: Auto, 1/1 to 1/4; or the user's 1 to 6, Tidy), the sheets' names (corner, height in mm on the A3 PDF, 0: Auto; colour, 0: by layer) */ /* Photos: the long side of the photos on the plan (m; 18: Normal, as before) */ /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
   /* Drawing style › Photos: the long side of every pole and point photo on the plan, in metres of the drawing where the poles stand
      25 m apart or more (closer, the plan draws them smaller, to two thirds, as before). Normal (18 m) is the size before; 6 to 40 m. */
   const PH_SIZES = [[12, 'Small'], [18, 'Normal'], [24, 'Large'], [30, 'Extra large']];
@@ -2312,21 +2318,22 @@
   const phName = (m) => { const k = PH_SIZES.find(([v]) => v === m); return k ? k[1] : 'Your own size'; };
   const phMm = (m) => `${Math.round(m * 0.75 / 1.1)} × ${Math.round(m / 1.1)} mm`; // (an upright 3:4 photo at 1:1100, the GEO sheets' scale)
   function plStyle() {
-    const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d);
-    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) }, Po = { ...PL_DEF.pole, ...(u.pole || {}) }, Sp = { ...PL_DEF.span, ...(u.span || {}) }, Ph = { ...PL_DEF.photo, ...(u.photo || {}) }, hz = (v, lo, hi) => (+v ? n(v, lo, hi, 0) : 0);
+    const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (isHexCol(v) ? v.toLowerCase() : Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d); // (beta 5.9: or a colour of the user's own)
+    const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) }, Po = { ...PL_DEF.pole, ...(u.pole || {}) }, Sp = { ...PL_DEF.span, ...(u.span || {}) }, Ph = { ...PL_DEF.photo, ...(u.photo || {}) }, Gr = { ...PL_DEF.grid, ...(u.grid || {}) }, hz = (v, lo, hi) => (+v ? n(v, lo, hi, 0) : 0);
     return { num: { color: c(N.color, 2), bcolor: c(N.bcolor, 0, true), h: n(N.h, 1, 12, 3), d: n(N.d, 0, 25, 7), g: n(N.g, 0, 25, 2), leader: N.leader !== false, place: N.place === 'out' ? 'out' : 'auto' },
       id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5), area: V.area !== false, zoom: V.zoom !== false, label: typeof V.label === 'string' ? V.label.replace(/\s+/g, ' ').slice(0, 40) : 'PROJECT AREA', lh: n(V.lh, 8, 40, 18) },
       clamp: { place: ['label', 'tag', 'callout'].includes(Cl.place) ? Cl.place : 'label', pos: ['auto', 'up', 'down', 'left', 'right'].includes(Cl.pos) ? Cl.pos : 'auto', color: c(Cl.color, 0, true), h: n(Cl.h, 1, 5, 2), box: Cl.box !== false, hw: Cl.hw !== false },
       cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a', per: [1, 2, 3].includes(+Cb.per) ? +Cb.per : 3, h: +Cb.h ? n(Cb.h, 0.8, 3, 0) : 0, w: Object.fromEntries(Object.keys(PL_DEF.cab.w).map((k) => [k, !!Cw[k]])) },
       site: { name: ['on', 'top', 'side', 'bottom'].includes(St.name) ? St.name : 'on', move: St.move === 'point' ? 'point' : 'auto', arrow: St.arrow !== false, acol: c(St.acol, 7, true) }, /* (beta 3.8: Auto is now On the tower) */
       crowd: { auto: Cr.auto !== false, min: n(Cr.min, 50, 100, 75), move: n(Cr.move, 4, 30, 15), leader: Cr.leader !== false, streets: Cr.streets === 'fixed' ? 'fixed' : 'slide', marks: ['room', 'always', 'hide'].includes(Cr.marks) ? Cr.marks : 'room' }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' },
-      pole: { idH: hz(Po.idH, 1, 5), idColor: c(Po.idColor, 0, true), ownH: hz(Po.ownH, 1, 5), ownColor: c(Po.ownColor, 0, true), llH: hz(Po.llH, 0.6, 3), llColor: c(Po.llColor, 0, true) }, span: { h: hz(Sp.h, 1, 4), color: c(Sp.color, 0, true) }, photo: { size: phSize(Ph.size) } };
+      pole: { idH: hz(Po.idH, 1, 5), idColor: c(Po.idColor, 0, true), ownH: hz(Po.ownH, 1, 5), ownColor: c(Po.ownColor, 0, true), llH: hz(Po.llH, 0.6, 3), llColor: c(Po.llColor, 0, true) }, span: { h: hz(Sp.h, 1, 4), color: c(Sp.color, 0, true) }, photo: { size: phSize(Ph.size) },
+      grid: { split: Number.isInteger(+Gr.split) && +Gr.split >= 1 && +Gr.split <= 6 ? +Gr.split : 0, pos: ['tr', 'tl', 'br', 'bl'].includes(Gr.pos) ? Gr.pos : 'tr', h: hz(Gr.h, 4, 30), color: c(Gr.color, 0, true) } }; // beta 5.9
   }
   const setPl = (part, k, v) => { const cur = plStyle(); S.plStyle = { ...cur, [part]: { ...cur[part], [k]: v } }; persist(); renderStyle(); };
   const mmOf = (m) => (m / 1.1).toFixed(1);
   function plSummary() {
     const P = plStyle(), N = P.num, I = P.id, V = P.vic, Cl = P.clamp, Cb = P.cab, ct = S.exp.dxfClampType !== false;
-    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? ACI_NAME[Cl.color] : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Crowded places: ${P.crowd.auto ? `Auto (labels moved up to ${P.crowd.move} m${P.crowd.leader ? ' with a line' : ''}, then down to ${P.crowd.min} % of their size; street names ${P.crowd.streets === 'fixed' ? 'kept in place' : 'slide along their road'})` : 'off (as before)'}, landmark names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]} · Tower: its name and ID ${P.site.name === 'on' ? 'on the tower' : `at its ${P.site.name}`}, ${P.site.move === 'point' ? 'kept at its point' : `moved aside in its sheet when it covers details${P.site.arrow ? `, a curved arrow to its point (${P.site.acol ? (P.site.acol === 7 ? 'white; black on the PDF' : ACI_NAME[P.site.acol]) : 'as the tower'})` : ''}`} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${ACI_NAME[N.color]}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${ACI_NAME[N.bcolor]}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? ACI_NAME[I.color] : 'by layer'}, ${I.h} m · Vicinity map: ${V.area ? `the project area ${ACI_NAME[V.circle]}, its circle ${V.circleW} m wide, ${V.label.trim() ? `labelled “${V.label.trim()}” ${V.lh} m high` : 'no label'}` : 'no project area'}, route ${V.route ? ACI_NAME[V.route] : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide · Photos: ${phName(P.photo.size)}, ${P.photo.size} m on their long side (about ${phMm(P.photo.size)} on the A3 sheet), the same for every photo; smaller where the poles stand closer than 25 m`;
+    return `Clamp types: ${ct ? `${{ label: 'in the pole label', tag: 'a tag beside the pole', callout: 'a callout (leader line)' }[Cl.place]}${Cl.place !== 'label' ? ` (${Cl.pos === 'auto' ? 'auto place' : { up: 'above', down: 'below', left: 'left', right: 'right' }[Cl.pos]}, ${Cl.h} m${Cl.box ? ', boxed' : ''})` : ''}, ${Cl.color ? colName(Cl.color) : 'by layer'}` : 'off (sizes only)'}; 12C hardware ${Cl.hw ? 'shown' : 'hidden'} · Cable labels: ${Cb.on ? `${Cb.per === 1 ? 'one' : `up to ${Cb.per}`} for each cable in a grid, ${Cb.h ? `${Cb.h} m` : 'height by the poles\u2019 spacing'}, reading ${runLbl(cabWords('F72'), 1) || 'nothing'}` : 'off'} · Crowded places: ${P.crowd.auto ? `Auto (labels moved up to ${P.crowd.move} m${P.crowd.leader ? ' with a line' : ''}, then down to ${P.crowd.min} % of their size; street names ${P.crowd.streets === 'fixed' ? 'kept in place' : 'slide along their road'})` : 'off (as before)'}, landmark names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[P.crowd.marks]} · Tower: its name and ID ${P.site.name === 'on' ? 'on the tower' : `at its ${P.site.name}`}, ${P.site.move === 'point' ? 'kept at its point' : `moved aside in its sheet when it covers details${P.site.arrow ? `, a curved arrow to its point (${P.site.acol ? (P.site.acol === 7 ? 'white; black on the PDF' : colName(P.site.acol)) : 'as the tower'})` : ''}`} · ODF: ${P.odf.place === 'auto' ? 'beside the tower, the side its cable comes from' : P.odf.place === 'below' ? 'below the tower' : `${P.odf.place} of the tower`}, label ${{ id: 'its ID', size: 'ID + size', conn: 'ID + size + connector' }[P.odf.lbl]} · Numbers: ${colName(N.color)}, ${N.h} m high (${mmOf(N.h)} mm), ${N.d > 0 ? `circle Ø ${N.d} m (${mmOf(N.d)} mm)${N.bcolor ? ` in ${colName(N.bcolor)}` : ''}` : 'no circle'}, ${N.g} m from the point, leader line ${N.leader ? 'on' : 'off'}, ${N.place === 'out' ? 'straight out from the road' : 'beside the pole, toward the homing'} · IDs: ${I.bold ? 'bold' : 'normal'}, ${I.color ? colName(I.color) : 'by layer'}, ${I.h} m · Vicinity map: ${V.area ? `the project area ${colName(V.circle)}, its circle ${V.circleW} m wide, ${V.label.trim() ? `labelled “${V.label.trim()}” ${V.lh} m high` : 'no label'}` : 'no project area'}, route ${V.route ? colName(V.route) : 'by cable (red new, blue existing, green underground)'} ${V.routeW} m wide · Photos: ${phName(P.photo.size)}, ${P.photo.size} m on their long side (about ${phMm(P.photo.size)} on the A3 sheet), the same for every photo; smaller where the poles stand closer than 25 m · Grid: ${P.grid.split ? `your own split 1/${P.grid.split} (Tidy)` : 'Auto split (Tidy: 1/1 to 1/4)'}; the sheets\u2019 names ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}, ${P.grid.h ? `${P.grid.h} mm` : 'auto size'}, ${P.grid.color ? colName(P.grid.color) : 'by layer'}, under the details`;
   }
   function openStyle() { DSP.reset(); renderStyle(); openSheet('drwStyle'); setTimeout(() => { DSP.reset(); DSP.onScroll(); }, 0); } // (the settings from the top, the preview large)
   function renderStyle() {
@@ -2334,20 +2341,31 @@
     const sw = (id, val, zero, part, key) => { const box = $(id); box.innerHTML = '';
       const opts = (zero ? [[0, zero]] : []).concat([1, 2, 3, 4, 5, 6, 7].map((k) => [k, ACI_NAME[k]]));
       opts.forEach(([k, nm]) => { const b = document.createElement('button'); b.type = 'button'; b.className = `sw2${k ? '' : ' txt'}`; b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(val === k)); b.setAttribute('aria-label', k ? `${nm} (AutoCAD colour ${k})` : nm); b.title = b.getAttribute('aria-label');
-        if (k) b.style.setProperty('--c', ACI_HEX[k]); else b.textContent = nm; b.addEventListener('click', () => setPl(part, key, k)); box.appendChild(b); }); };
+        if (k) b.style.setProperty('--c', ACI_HEX[k]); else b.textContent = nm; b.addEventListener('click', () => setPl(part, key, k)); box.appendChild(b); });
+      /* beta 5.9: a colour of the user's own: the phone's or computer's colour picker (kept as #rrggbb; the plan gets the colour itself) */
+      const own = isHexCol(val), lb = document.createElement('label'); lb.className = `sw2 own${own ? '' : ' txt'}`; lb.setAttribute('role', 'radio'); lb.setAttribute('aria-checked', String(own));
+      lb.title = own ? `Your colour ${val} (tap to change)` : 'Your own colour: pick any colour'; if (own) lb.style.setProperty('--c', val);
+      const inp = document.createElement('input'); inp.type = 'color'; inp.value = own ? val : '#ff8800'; inp.setAttribute('aria-label', lb.title);
+      inp.addEventListener('change', () => setPl(part, key, inp.value.toLowerCase())); lb.append(inp, own ? '' : 'Own…'); box.appendChild(lb); };
     sw('stClCol', P.clamp.color, 'By layer', 'clamp', 'color'); // v2.42.21
     if ($('stPoleTidy')) $('stPoleTidy').hidden = S.exp.dxfLabels !== 'tidy'; // beta 4.7: Pole labels Tidy: which pole settings apply
     { const Q = P.pole, Z = P.span, hh = (id, v, def, auto) => { if (document.activeElement !== $(id)) $(id).value = String(v || def); $(id + 'Auto').setAttribute('aria-pressed', String(!v)); $(id + 'O').textContent = v ? `${v} m · ${mmOf(v)} mm` : auto; }; // beta 4.3
       sw('stPoleIdCol', Q.idColor, 'Auto', 'pole', 'idColor'); sw('stPoleOwnCol', Q.ownColor, 'Auto', 'pole', 'ownColor'); sw('stPoleLlCol', Q.llColor, 'Auto', 'pole', 'llColor'); sw('stSpanCol', Z.color, 'Auto', 'span', 'color');
       hh('stPoleIdH', Q.idH, 2.2, 'auto (2.2 m · 2.0 mm)'); hh('stPoleOwnH', Q.ownH, Q.idH || 2.2, 'auto (as the pole ID)'); hh('stPoleLlH', Q.llH, 1.2, 'auto (1.2 m · 1.1 mm)'); hh('stSpanH', Z.h, 2, 'auto (2.0 m · 1.8 mm)');
-      $('stPoleIdColO').textContent = Q.idColor ? ACI_NAME[Q.idColor] : 'auto (as the template)'; $('stPoleOwnColO').textContent = Q.ownColor ? ACI_NAME[Q.ownColor] : 'auto (as the pole ID)'; $('stPoleLlColO').textContent = Q.llColor ? ACI_NAME[Q.llColor] : 'auto (by layer)'; $('stSpanColO').textContent = Z.color ? ACI_NAME[Z.color] : 'auto (by layer)'; }
+      $('stPoleIdColO').textContent = Q.idColor ? colName(Q.idColor) : 'auto (as the template)'; $('stPoleOwnColO').textContent = Q.ownColor ? colName(Q.ownColor) : 'auto (as the pole ID)'; $('stPoleLlColO').textContent = Q.llColor ? colName(Q.llColor) : 'auto (by layer)'; $('stSpanColO').textContent = Z.color ? colName(Z.color) : 'auto (by layer)'; }
     sw('stNumCol', N.color, null, 'num', 'color'); sw('stNumBCol', N.bcolor, 'Same as the number', 'num', 'bcolor'); sw('stIdCol', I.color, 'By layer (as before)', 'id', 'color'); sw('stVicCol', V.circle, null, 'vic', 'circle'); sw('stVicRCol', V.route, 'By cable', 'vic', 'route');
     const o = (id, t) => { $(id).textContent = t; };
-    o('stClColO', P.clamp.color ? ACI_NAME[P.clamp.color] : 'by layer'); // v2.42.21
-    o('stNumColO', ACI_NAME[N.color]); o('stNumBColO', N.bcolor ? ACI_NAME[N.bcolor] : 'as the number'); o('stIdColO', I.color ? ACI_NAME[I.color] : 'by layer'); o('stVicColO', ACI_NAME[V.circle]); o('stVicRColO', V.route ? ACI_NAME[V.route] : 'by cable');
+    o('stClColO', P.clamp.color ? colName(P.clamp.color) : 'by layer'); // v2.42.21
+    o('stNumColO', colName(N.color)); o('stNumBColO', N.bcolor ? colName(N.bcolor) : 'as the number'); o('stIdColO', I.color ? colName(I.color) : 'by layer'); o('stVicColO', colName(V.circle)); o('stVicRColO', V.route ? colName(V.route) : 'by cable');
     [['stNumH', N.h], ['stNumD', N.d], ['stNumG', N.g], ['stIdH', I.h], ['stVicW', V.circleW], ['stVicRW', V.routeW], ['stClH', P.clamp.h]].forEach(([id, v]) => { if (document.activeElement !== $(id)) $(id).value = String(v); });
     o('stNumHO', `${N.h} m · ${mmOf(N.h)} mm`); o('stNumDO', N.d > 0 ? `${N.d} m · ${mmOf(N.d)} mm` : 'no circle'); o('stNumGO', `${N.g} m · ${mmOf(N.g)} mm`); o('stIdHO', `${I.h} m · ${mmOf(I.h)} mm`); o('stVicWO', `${V.circleW} m`); o('stVicRWO', `${V.routeW} m`);
     const seg = (id, v) => $(id).querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+    { const G = P.grid; // beta 5.9: Drawing style › Grid
+      sw('stGridCol', G.color, 'By layer', 'grid', 'color'); o('stGridColO', G.color ? colName(G.color) : 'by layer (the template\u2019s)');
+      seg('stGridSplit', String(G.split)); seg('stGridPos', G.pos);
+      if (document.activeElement !== $('stGridH')) $('stGridH').value = String(G.h || 12); $('stGridHAuto').setAttribute('aria-pressed', String(!G.h)); o('stGridHO', G.h ? `${G.h} mm on the A3 sheet` : 'auto (a tenth of the sheet)');
+      o('stGridSplitO', G.split ? `1/${G.split}: your own` : 'Auto (1/1 to 1/4)');
+      o('stGridHint', `Tidy: ${G.split ? `every GEO sheet shows 1/${G.split} of the template\u2019s cell (${Math.round(440 / G.split)} m), at ${G.split} times its scale; the plan keeps it even where labels lack room (they are listed under Drawing checks)` : 'the plan picks the largest grid, 1/1 to 1/4 of the template\u2019s cell, at which every label has a place and no sheet has more than two pole blocks over a road'}. Standard keeps the template\u2019s cell. The sheet\u2019s name is drawn under the details, which stay readable over it.`); }
     seg('stNumLeader', N.leader ? '1' : '0'); seg('stNumPlace', N.place); seg('stIdBold', I.bold ? '1' : '0');
     seg('stVicZoom', V.zoom ? '1' : '0'); seg('stVicArea', V.area ? '1' : '0'); if (document.activeElement !== $('stVicLbl')) $('stVicLbl').value = V.label; if (document.activeElement !== $('stVicLh')) $('stVicLh').value = String(V.lh); o('stVicLhO', `${V.lh} m`); // beta 3.9
     $('drwStyle').querySelectorAll('[data-dim="vicarea"]').forEach((r) => r.classList.toggle('dim', !V.area));
@@ -2356,7 +2374,7 @@
     seg('stSiteMove', P.site.move); seg('stSiteArrow', P.site.arrow ? '1' : '0'); sw('stSiteACol', P.site.acol, 'As the tower', 'site', 'acol');
     [['stCrowdMin', P.crowd.min], ['stCrowdMove', P.crowd.move]].forEach(([id, v]) => { if (document.activeElement !== $(id)) $(id).value = String(v); });
     o('stCrowdMinO', `${P.crowd.min} % of the size you set`); o('stCrowdMoveO', `${P.crowd.move} m · ${mmOf(P.crowd.move)} mm`);
-    o('stSiteAColO', P.site.acol ? (P.site.acol === 7 ? 'white · black on the PDF' : ACI_NAME[P.site.acol]) : 'as the tower');
+    o('stSiteAColO', P.site.acol ? (P.site.acol === 7 ? 'white · black on the PDF' : colName(P.site.acol)) : 'as the tower');
     $('drwStyle').querySelectorAll('[data-dim="auto"]').forEach((r) => r.classList.toggle('dim', !P.crowd.auto));
     $('drwStyle').querySelectorAll('[data-dim="tower"]').forEach((r) => r.classList.toggle('dim', P.site.move === 'point'));
     $('stCabW').querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(!!P.cab.w[b.dataset.k])));
@@ -2396,6 +2414,9 @@
   $('stDone').addEventListener('click', () => closeSheet());
   $('stPhSize').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('photo', 'size', +b.dataset.v); }); // Drawing style › Photos: Small, Normal, Large, Extra large
   $('stPhL').addEventListener('input', () => { const v = +$('stPhL').value; if (v >= 6 && v <= 40) setPl('photo', 'size', phSize(v)); }); // (your own size, while it is typed: only once it is one)
+  $('stGridSplit').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('grid', 'split', +b.dataset.v); }); // beta 5.9: Drawing style › Grid: Auto or the user's own split
+  $('stGridPos').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('grid', 'pos', b.dataset.v); }); // (the corner of the sheet's name)
+  $('stGridH').addEventListener('input', () => setPl('grid', 'h', +$('stGridH').value)); $('stGridHAuto').addEventListener('click', () => setPl('grid', 'h', 0)); // (its height, mm on the A3 sheet)
   $('stPhL').addEventListener('change', () => { const v = +$('stPhL').value; if (v > 0) setPl('photo', 'size', phSize(v)); $('stPhL').value = String(plStyle().photo.size); }); // (kept to 6–40 m)
   /** The vicinity preview: a map 1.5 km across (1 unit = 25 m), the route on its white band and the PROJECT AREA circle. */
   function drawVicPreview(P, into) {
@@ -2407,9 +2428,9 @@
     const route = 'M9 29 L18 26.5 L30 24.5 L41 19 L49 12', zs = V.zoom === false ? 0.4 : 1, tf = zs === 1 ? null : `translate(${29 * (1 - zs)} ${21 * (1 - zs)}) scale(${zs})`; // (beta 4.1: zoom off: the project small in a wide map)
     if (zs !== 1) [['M0 19 L60 16', 0.35], ['M27 0 L30 40', 0.35], ['M50 0 L53 40', 0.3], ['M6 0 L8 40', 0.3], ['M0 36 L60 34', 0.3]].forEach(([d, w]) => el('path', { d, stroke: '#c9c4b5', 'stroke-width': w, fill: 'none' }));
     el('path', { d: route, transform: tf, stroke: '#fff', 'stroke-width': V.routeW * 2 * k, fill: 'none', 'stroke-linejoin': 'round' });
-    el('path', { d: route, transform: tf, stroke: ACI_HEX[V.route] || '#ff0000', 'stroke-width': V.routeW * k, fill: 'none', 'stroke-dasharray': V.route ? '' : `${26 * k * V.routeW / 16.5 * 2} ${26 * k * V.routeW / 16.5}`, 'stroke-linejoin': 'round' });
+    el('path', { d: route, transform: tf, stroke: colHex(V.route) || '#ff0000', 'stroke-width': V.routeW * k, fill: 'none', 'stroke-dasharray': V.route ? '' : `${26 * k * V.routeW / 16.5 * 2} ${26 * k * V.routeW / 16.5}`, 'stroke-linejoin': 'round' });
     if (!V.area) return; // (beta 3.9: no project area)
-    el('circle', { cx: 29, cy: 21, r: 15 * zs, fill: 'none', stroke: ACI_HEX[V.circle], 'stroke-width': V.circleW * k });
+    el('circle', { cx: 29, cy: 21, r: 15 * zs, fill: 'none', stroke: colHex(V.circle), 'stroke-width': V.circleW * k });
     const lt = V.label.trim(); if (!lt) return; const f = 2.2 * V.lh / 18, hb = 3.4 * V.lh / 18, wb = Math.min(58, lt.length * f * 0.62 + 1.6), yb = Math.max(0.3, 21 - 15 * zs - 0.6 - hb); // (its label above the circle, as tall as set)
     el('rect', { x: 29 - wb / 2, y: yb, width: wb, height: hb, fill: '#333', stroke: ACI_HEX[2], 'stroke-width': 0.15 }); el('text', { x: 29, y: yb + hb * 0.74, fill: '#ffff00', 'font-size': f, 'text-anchor': 'middle', 'font-family': 'Arial, sans-serif', textLength: lt.length * f * 0.62 > 56 ? 56 : null }, lt);
   }
@@ -2423,7 +2444,7 @@
   const DSP = (() => {
     const NSV = 'http://www.w3.org/2000/svg', ARIAL = 'Arial, Helvetica, sans-serif';
     const mk = (p, tag, a, text) => { const e = document.createElementNS(NSV, tag); for (const k in a) if (a[k] != null && a[k] !== false) e.setAttribute(k, a[k]); if (text != null) e.textContent = text; p.appendChild(e); return e; };
-    const PAL = { ...ACI_HEX, bg: '#000000', grey: '#8a909a', road: '#ffffff', photo: '#2c3542', sky: '#3c5a7a', mask: '#000000', clash: '#ff5a5a' };
+    const PAL = new Proxy({ ...ACI_HEX, bg: '#000000', grey: '#8a909a', road: '#ffffff', photo: '#2c3542', sky: '#3c5a7a', mask: '#000000', clash: '#ff5a5a' }, { get: (t, k) => (isHexCol(k) ? k : t[k]) }); // (beta 5.9: a colour of the user's own is itself)
     const tW = (t, h, b) => String(t).length * h * (b ? 0.66 : 0.58);
     const bx = (cx, cy, w, h) => ({ x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2 });
     const ovA = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
@@ -2678,9 +2699,22 @@
       sc.tower = T;
       return sc;
     }
+    /** beta 5.9: Drawing style › Grid: a GEO sheet's cell and its neighbours, its name in the corner chosen at the height and colour chosen
+        (Auto: a tenth of the sheet, the template's layer colour), drawn first: the details (road, cable, poles, their labels) over it. */
+    function gridPrev(P, svg) {
+      while (svg.firstChild) svg.removeChild(svg.firstChild); svg.setAttribute('viewBox', '0 0 120 70'); svg.style.aspectRatio = '120 / 70';
+      const G = P.grid, g = mk(svg, 'g', {}), x0 = 28, y0 = 3, C = 64, mx = C * 0.04, my = C * 0.03, h = G.h ? C * 0.1 * G.h / 27 : C * 0.1, col = G.color ? PAL[G.color] : PAL[2];
+      mk(g, 'rect', { x: 0, y: 0, width: 120, height: 70, fill: PAL.bg });
+      const [sx, sy] = { tr: [1, 1], tl: [-1, 1], br: [1, -1], bl: [-1, -1] }[G.pos], tx = sx > 0 ? x0 + C - mx : x0 + mx, ty = sy > 0 ? y0 + my + h * 0.8 : y0 + C - my;
+      mk(g, 'text', { x: tx, y: ty, 'font-size': h.toFixed(2), fill: col, 'text-anchor': sx > 0 ? 'end' : 'start', 'font-family': ARIAL }, 'B-2');
+      mk(g, 'path', { d: 'M0 44 L120 30 M0 52 L120 38', stroke: PAL.road, 'stroke-width': 0.35, fill: 'none' }); mk(g, 'path', { d: 'M0 47 L120 33', stroke: PAL[1], 'stroke-width': 0.6, fill: 'none' });
+      [[8, 46.1], [40, 42.3], [72, 38.6], [104, 34.8]].forEach(([x, y], i) => { mk(g, 'circle', { cx: x, cy: y - 2.6, r: 1.1, fill: 'none', stroke: PAL[7], 'stroke-width': 0.3 }); mk(g, 'text', { x: x + 1.8, y: y - 6, 'font-size': 2.6, fill: PAL[7], 'font-family': ARIAL }, `CC-01${i + 4}0`); mk(g, 'text', { x: x + 1.8, y: y - 3.4, 'font-size': 1.6, fill: PAL[7], 'font-family': ARIAL }, 'CONC · 9M'); });
+      if (G.pos === 'tr' || G.pos === 'tl') mk(g, 'text', { x: sx > 0 ? x0 + C - 9 : x0 + 4, y: y0 + my + h * 0.55, 'font-size': 2.6, fill: PAL[7], 'font-family': ARIAL }, 'CC-0199'); // (a label over the name: it stays readable)
+      [x0, x0 + C].forEach((x) => mk(g, 'line', { x1: x, y1: 0, x2: x, y2: 70, stroke: PAL[6], 'stroke-width': 0.3 })); [y0, y0 + C].forEach((y) => mk(g, 'line', { x1: 0, y1: y, x2: 120, y2: y, stroke: PAL[6], 'stroke-width': 0.3 }));
+    }
     /* state and layout */
     let scene = 'street', compact = false, big = false, wired = false, last = null, shrink = 220; // (shrink: how much shorter the preview gets; the settings stay put)
-    const NAMES = { street: 'Street', photo: 'Photos', crowd: 'Crowded corner', tower: 'Tower site', vic: 'Vicinity map' };
+    const NAMES = { street: 'Street', photo: 'Photos', crowd: 'Crowded corner', tower: 'Tower site', vic: 'Vicinity map', grid: 'Grid' };
     const body = () => $('drwStyle').querySelector('.dsbody'), col = () => $('dsPrevCol');
     function render(P) {
       wire(); P = P || plStyle(); const svg = $('stPrev'); if (!svg) return;
@@ -2689,11 +2723,12 @@
       $('drwStyle').querySelectorAll('.stgrp[data-scene]').forEach((g) => { g.hidden = !g.dataset.scene.split(' ').includes(scene); }); // beta 3.9: only the settings of the part picked (beta 4.3: a group can belong to several parts)
       let r = null;
       if (scene === 'vic') { while (svg.firstChild) svg.removeChild(svg.firstChild); drawVicPreview(P, svg); }
+      else if (scene === 'grid') gridPrev(P, svg); // beta 5.9
       else r = paint(svg, scene === 'crowd' ? scCrowd(P, C) : scene === 'tower' ? scTower(P, C) : scene === 'photo' ? scPhoto(P, C) : scStreet(P, C), C);
       svg.setAttribute('preserveAspectRatio', compact ? 'xMidYMid slice' : 'xMidYMid meet');
       const cap = $('dsCap'); cap.textContent = '';
       const a = document.createElement('span'); a.textContent = `${NAMES[scene]} · `; const b = document.createElement('span');
-      if (!r) b.textContent = 'the route and the project area';
+      if (!r) b.textContent = scene === 'grid' ? `the sheet\u2019s name ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}, the details over it` : 'the route and the project area';
       else { b.className = `ov ${r.clashes ? 'bad' : 'good'}`; b.textContent = r.clashes ? `${r.clashes} label${r.clashes > 1 ? 's' : ''} overlap` : 'nothing overlaps'; }
       cap.append(a, b); if (scene === 'photo') cap.append(` · ${P.photo.size} m photos`); if (r && r.skipped) cap.append(` · ${r.skipped} landmark name${r.skipped > 1 ? 's' : ''} left out (no room)`);
       svg.setAttribute('aria-label', `Preview: ${NAMES[scene]}. ${b.textContent}.`);
@@ -3009,6 +3044,12 @@
   const rtDraftLayer = L.layerGroup().addTo(map), rtMarkLayer = L.layerGroup().addTo(map);
   const routeLayer = L.layerGroup().addTo(map), fibLayer = L.layerGroup().addTo(map);
   map.createPane('routePane'); map.getPane('routePane').style.zIndex = 395; // v2.42.19: the route under the pins (overlay 400), whatever is drawn last: a pin is tapped, not the span under it
+  /* Grab the cable: the handles on the spans of the RUN in the bar (or the one lit) sit over the span labels (600) and under the pins'
+     own labels (650); a handle is never put where it would cover a pin's tap (drawGrabs). rtGrab: the span or pole being dragged;
+     rtLp: a long press waiting (on a cable, or a pole a cable goes through). */
+  map.createPane('rtGrabPane'); map.getPane('rtGrabPane').style.zIndex = 610;
+  const rtGrabLayer = L.layerGroup().addTo(map), rtGrabFx = L.layerGroup().addTo(map);
+  let rtGrab = null, rtLp = null, rtGq = 0, rtGrabDead = null, rtGrabTipT = 0;
   const links = () => (pmeta().links || []);
   function setLinks(l) { routeWrite(S.project, l, null); } // (beta 3.3: who made each span) (v2.42.24: the closures' sizes follow) // v2.42.5: + the approval; v2.42.18: + its time (Share)
   /* ================= v2.42.20: fibers (named runs) =================
@@ -3248,6 +3289,7 @@
     const R = routeModel();
     if (viewHide().route && !routeMode) { if (typeof declutterSoon === 'function') declutterSoon(); return R; } // v2.30: route hidden from the map button
     lastR = R; const selK = spanSel ? [...spanSel].sort().join('|') : '', hasF = !!(R.fib && R.fib.planned.length);
+    const gN = rtGrabN(), gF = gN != null && R.fib ? R.fib.list.find((f) => f.n === gN) : null, gK = gF ? new Set(gF.path.slice(1).map((x, i) => spanKey(gF.path[i], x))) : null; // (grab the cable: its spans' labels beside the line, the handles on it)
     for (const s of R.spans) { // v2.29: coloured by cable type (grey: cable not set); long spans red
       const cab = CAB[s.cable], ll = [[s.a.lat, s.a.lon], [s.b.lat, s.b.lon]], nr = (s.runs || []).length, nf = s.lanes ? s.lanes.length : 0;
       if (routeMode && fibSel == null && selK === [s.ia, s.ib].sort().join('|')) L.polyline(ll, { pane: 'routePane', color: '#fab005', weight: 16 + 5 * Math.max(0, (nf || nr) - 1), opacity: 0.55, lineCap: 'round', interactive: false }).addTo(routeLayer); // v2.42.18: the span tapped
@@ -3258,7 +3300,8 @@
       if (routeMode) L.polyline(ll, { pane: 'routePane', color: '#000', weight: 22, opacity: 0.01, interactive: true, bubblingMouseEvents: false }).on('click', (e) => { L.DomEvent.stop(e); if (Date.now() - rtGestAt < 700) return; spanSel = [s.ia, s.ib]; routeSel = null; rtTools = true; if (fibAdd == null) fibSel = laneAtTap(R, s, e.containerPoint); routeRefresh(); spanInView(s); }).addTo(routeLayer); // v2.42.18: tap a span: its runs (v2.42.21: in Route tools; v2.42.26: the cable nearest the tap lit all along its way)
       const tags = nf ? ` ${s.lanes.slice().sort((x, y) => x.n - y.n).map((f) => `<b style="color:${fibColor(f)}">${fibTag(f)}</b>`).join(' ')}` : nr > 1 ? ` ×${nr}` : ''; // v2.42.20: its fibers
       const sll = L.latLng((s.a.lat + s.b.lat) / 2, (s.a.lon + s.b.lon) / 2); // v2.42.26: on the map only near the screen (labelCull)
-      spanLbls.push({ ll: sll, mk: L.marker(sll, { interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label${s.long ? ' long' : ''}">${s.len.toFixed(0)} m${tags}</span>`, iconSize: null }) }) });
+      const gSh = gK && gK.has(spanKey(s.ia, s.ib)) ? ` style="${grabLblShift(s.a, s.b, `${s.len.toFixed(0)} m${nf ? ` ${s.lanes.map(fibTag).join(' ')}` : nr > 1 ? ` x${nr}` : ''}`)}"` : '';
+      spanLbls.push({ ll: sll, mk: L.marker(sll, { interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html: `<span class="span-label${s.long ? ' long' : ''}"${gSh}>${s.len.toFixed(0)} m${tags}</span>`, iconSize: null }) }) });
     }
     drawFibLanes(R); drawRtMarks(R); labelCull();
     for (const p of projPoints()) {
@@ -3281,16 +3324,22 @@
   /** v2.42.20: each fiber as one line in its colour, side by side with the others on a shared span (6 px apart, in the lane order
       of fibAnnotate, so they do not cross where they part); an existing cable dashed; the fiber selected thicker with arrows (its
       way from its start), the others faded. Drawn again at each zoom (the lanes are a few pixels apart). */
+  /** A fiber's points in its lane (6 px from the others on a shared span), projected at zoom z. (Grab the cable: its handles and the
+      cable under a long press are found on the line as drawn.) */
+  function fibPx(R, f, z) {
+    const by = R.fib.by, GAP = 6, pj = (id) => { const p = by.get(id); return map.project([p.lat, p.lon], z); };
+    const off = (a, b) => { const h = R.fib.hops.get(spanKey(a, b)); if (!h || h.fs.length < 2) return [0, 0];
+      const A = pj(h.a), B = pj(h.b), dx = B.x - A.x, dy = B.y - A.y, Ln = Math.hypot(dx, dy) || 1, o = (h.fs.indexOf(f) - (h.fs.length - 1) / 2) * GAP; return [dy / Ln * o, -dx / Ln * o]; }; // (y down: the plan's left normal)
+    return f.path.map((id, i) => { const p = pj(id), v = []; if (i > 0) v.push(off(f.path[i - 1], id)); if (i < f.path.length - 1) v.push(off(id, f.path[i + 1]));
+      const s = v.reduce((t, q) => [t[0] + q[0] / v.length, t[1] + q[1] / v.length], [0, 0]); return L.point(p.x + s[0], p.y + s[1]); });
+  }
   function drawFibLanes(R) {
     fibLayer.clearLayers(); if (!R || !R.fib || !R.fib.list.length) return;
-    const z = map.getZoom(), by = R.fib.by, GAP = 6, pj = (id) => { const p = by.get(id); return map.project([p.lat, p.lon], z); };
-    const off = (f, a, b) => { const h = R.fib.hops.get(spanKey(a, b)); if (!h || h.fs.length < 2) return [0, 0];
-      const A = pj(h.a), B = pj(h.b), dx = B.x - A.x, dy = B.y - A.y, Ln = Math.hypot(dx, dy) || 1, o = (h.fs.indexOf(f) - (h.fs.length - 1) / 2) * GAP; return [dy / Ln * o, -dx / Ln * o]; }; // (y down: the plan's left normal)
+    const z = map.getZoom();
     const order = R.fib.list.slice().sort((a, b) => (a.n === fibSel) - (b.n === fibSel));
     for (const f of order) {
       if (f.path.length < 2) continue;
-      const px = f.path.map((id, i) => { const p = pj(id), v = []; if (i > 0) v.push(off(f, f.path[i - 1], id)); if (i < f.path.length - 1) v.push(off(f, id, f.path[i + 1]));
-        const s = v.reduce((t, q) => [t[0] + q[0] / v.length, t[1] + q[1] / v.length], [0, 0]); return L.point(p.x + s[0], p.y + s[1]); });
+      const px = fibPx(R, f, z);
       const sel = fibSel === f.n, on = fibSel == null || sel, col = fibColor(f);
       L.polyline(px.map((q) => map.unproject(q, z)), { pane: 'routePane', color: col, weight: sel ? 6 : 4, opacity: on ? 0.95 : 0.22, dashArray: f.ex ? '7 6' : null, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(fibLayer);
       if (sel) for (let i = 1; i < px.length; i++) { const a = px[i - 1], b = px[i], ang = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
@@ -3339,7 +3388,7 @@
   /** v2.42.21: in Route, the end of the fiber you are on (a ring that pulses: drag from it), the ends of the fibers (rings), and the
       points the fiber passes without being on them (dashed, 'passes': tap one to put it on). */
   function drawRtMarks(R) {
-    rtMarkLayer.clearLayers(); if (!routeMode || isAcc()) return;
+    rtMarkLayer.clearLayers(); rtGrabLayer.clearLayers(); if (!routeMode || isAcc()) return;
     if (rtConf) { const p = routePts().find((x) => x.id === rtConf.id) || points.find((x) => x.id === rtConf.id); if (p) ['<span class="rt-tgt"></span>', '<span class="rt-tgtlab">Tap again</span>'].forEach((html) => L.marker([p.lat, p.lon], { pane: 'routePane', interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html, iconSize: null }) }).addTo(rtMarkLayer)); } // v2.42.22
     if (!R || !R.fib) return;
     const by = R.fib.by, A = fibAdd != null ? R.fib.list.find((f) => f.n === fibAdd) : null, mk = (p, html) => L.marker([p.lat, p.lon], { pane: 'routePane', interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', html, iconSize: null }) }).addTo(rtMarkLayer);
@@ -3349,8 +3398,9 @@
       else if (A || !['ODF', 'ODC', 'Site'].includes(elemOf(p))) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 12, color: fibColor(f), weight: 2.5, fill: false, interactive: false }).addTo(rtMarkLayer); }); });
     if (A) fibPasses(A, by).forEach((id) => { const p = by.get(id); if (!p) return; L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 13, color: '#e8590c', weight: 2, dashArray: '3 3', fill: false, interactive: false }).addTo(rtMarkLayer); mk(p, '<span class="rt-pass">passes</span>'); });
     if (fibStartAt != null) { const p = by.get(fibStartAt) || routePts().find((x) => x.id === fibStartAt); if (p) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 16, color: '#1b3a6b', weight: 3, dashArray: '5 4', fill: false, interactive: false }).addTo(rtMarkLayer); }
+    drawGrabs(R);
   }
-  map.on('zoomend', () => { if (lastR && lastR.fib && !isAcc()) drawFibLanes(lastR); if (routeMode && lastR) { drawRtMarks(lastR); if (fibAdd != null) renderRtBar(lastR); } });
+  map.on('zoomend', () => { if (lastR && lastR.fib && !isAcc()) drawFibLanes(lastR); if (routeMode && lastR) { drawRtMarks(lastR); if (fibAdd != null) renderRtBar(lastR); } if (rtGrab) grabMove(rtGrab.c); }); // (a cable picked up: its bend follows the wheel's zoom)
   /** v2.37: the route check. A 72C run needs a closure before every 4 km and a 12C run a dummy NAP (or a closure) before every 2 km,
       counted from the homing (a site or ODF; else the run's first end): the last pole before the limit is recommended. A dummy NAP
       cannot be on a 72C cable or at a point of insertion (a pole with a closure). NAP and closure pins count on their nearest pole
@@ -3865,6 +3915,7 @@
     if (deskOn() && ppState().open) ppRows(); // v2.42.28: Open waits while a cable is drawn
     fibAt = 'end'; fibTouched = false; fibStartAt = null; fibNew = false; rtTools = false; rtPairs = false; rtPend = []; rtPop = null; rtAsked = new Set(); rtDraft = null; rtDraftLayer.clearLayers(); rtMarkLayer.clearLayers(); $('rbPairs').checked = false; // v2.42.21
     rtConf = null; rtPress = null; rtMpan = null; rtPtrs.clear(); rtMulti = false; rtSnap0 = null; rtSheet = null; rtDelArm = null; map.getContainer().classList.remove('rt-panning'); // v2.42.22
+    rtGrab = null; rtGrabDead = null; lpClear(); rtGrabFx.clearLayers(); rtGrabLayer.clearLayers(); document.body.classList.remove('rt-grabbing'); // (grab the cable)
     $('routeBar').hidden = true; $('rtBar').hidden = !on; $('rtPop').hidden = true; rtHint(''); $('routeBtn').setAttribute('aria-pressed', String(on)); $('routeFitBtn').hidden = !on; if (on) renderCableSel();
     document.body.classList.toggle('routing', on);
     renderPoles(); rtApplyMode(); if (on) rtTip(); // (v2.42.22: the map stays where it is; ⛶ shows the whole route)
@@ -4131,22 +4182,23 @@
   }
   /** Take the point off the fiber (the cable passes it): its neighbours on the fiber linked directly; the spans to it that no
       fiber uses any more go (an existing cable has no spans of its own). Returns the new links, or null. */
-  function rtPassOff(f, id, F) {
+  function rtPassOff(f, id, F, L0) { // (L0: the links to start from, else the project's: a swap takes one off, then puts one on)
     const i = f.path.indexOf(id); if (i <= 0 || i >= f.path.length - 1) return null;
     const a = f.path[i - 1], b = f.path[i + 1]; f.path.splice(i, 1); if (f.ex) return null;
     const used = onAnyFiber(F), gone = new Set([spanKey(a, id), spanKey(id, b)]);
-    const L2 = links().filter((l) => { const k = spanKey(l[0], l[1]); return !(gone.has(k) && !used.has(k) && !(Array.isArray(l[3]) && l[3].length)); });
+    const L2 = (L0 || links()).filter((l) => { const k = spanKey(l[0], l[1]); return !(gone.has(k) && !used.has(k) && !(Array.isArray(l[3]) && l[3].length)); });
     if (!L2.some((l) => spanKey(l[0], l[1]) === spanKey(a, b))) L2.push(linkWith(a, b, f.cab));
     return L2;
   }
-  /** Put a point the fiber passes on it, between the two points of the fiber nearest to it. Returns the new links, or null. */
-  function rtAttach(f, id, F) {
+  /** Put a point the fiber passes on it, between the two points of the fiber nearest to it; or, with j (grab the cable), on its span
+      j (from path[j - 1] to path[j]): the span the cable was grabbed by, not the nearest. Returns the new links, or null. */
+  function rtAttach(f, id, F, j0, L0) {
     const by = new Map(routePts().map((p) => [p.id, p])), q = by.get(id); if (!q || f.path.length < 2) return null;
-    const xy = xyOf(q.lat), Q = xy(q); let j = 0, bd = 1e12;
-    for (let k = 1; k < f.path.length; k++) { const A = by.get(f.path[k - 1]), B = by.get(f.path[k]); if (!A || !B) continue; const d = projOn(Q, [xy(A), xy(B)]).d; if (d < bd) { bd = d; j = k; } }
+    const xy = xyOf(q.lat), Q = xy(q); let j = j0 >= 1 && j0 < f.path.length ? j0 : 0, bd = 1e12;
+    if (!j) for (let k = 1; k < f.path.length; k++) { const A = by.get(f.path[k - 1]), B = by.get(f.path[k]); if (!A || !B) continue; const d = projOn(Q, [xy(A), xy(B)]).d; if (d < bd) { bd = d; j = k; } }
     if (!j) return null; const a = f.path[j - 1], b = f.path[j]; f.path.splice(j, 0, id); if (f.ex) return null;
-    const used = onAnyFiber(F), have = new Set(links().map((l) => spanKey(l[0], l[1])));
-    let L2 = links().filter((l) => { const k = spanKey(l[0], l[1]); return !(k === spanKey(a, b) && !used.has(k) && !(Array.isArray(l[3]) && l[3].length)); });
+    const base = L0 || links(), used = onAnyFiber(F), have = new Set(base.map((l) => spanKey(l[0], l[1])));
+    let L2 = base.filter((l) => { const k = spanKey(l[0], l[1]); return !(k === spanKey(a, b) && !used.has(k) && !(Array.isArray(l[3]) && l[3].length)); });
     [[a, id], [id, b]].forEach(([x, y]) => { if (!have.has(spanKey(x, y))) L2 = L2.concat([linkWith(x, y, f.cab)]); });
     return L2;
   }
@@ -4171,6 +4223,120 @@
     }
     rtOpenSheet({ from: id }); // v2.42.24: no cable in the bar: a tap asks which new cable starts there (it never goes on with another)
   }
+  /* ================= Grab the cable: a pole missed by chance put on, one put on by mistake taken off =================
+     In Route, each span of the RUN in the bar (or of the RUN lit: a cable tapped, or picked in the list) has a handle, a white dot on the
+     cable: drag it onto a pole and the pole goes on the RUN between the two ends of that span (as a route is dragged in Google Maps). A
+     long press (0.4 s) on any cable picks it up the same way, with no RUN in the bar. A long press (0.5 s) on a pole a cable goes through (not
+     its end) picks up the pole: let go on nothing and it comes off the cable (the cable goes straight from the pole before it to the one
+     after); on another pole, that pole takes its place. While dragging, the span bends to the finger, the pole it would go to is ringed
+     and the hint at the top says what letting go does; Esc, a second finger, or letting go where it started changes nothing. Undo, the
+     save and Share as any other change to the route. An existing cable the same (only its way changes: it has no spans of its own).
+     A tap, ✎ Draw's one-finger line and the two-finger map stay as they were: only a press on a handle, or a finger held still on a
+     cable, picks one up (a line is drawn at once; a line can no longer start on a handle's dot itself). */
+  const RT_LP_MS = { span: 400, pole: 500 }; // (a pole a little longer: a line drawn from a pole in a cable's middle, a branch, may start with a pause)
+  function rtGrabOk() { return routeMode && !isAcc() && !rtPairs && !rtConf && !rtSheet && !rtDraft && !rtMpan && rtPop !== 'newcab'; }
+  function rtGrabN() { return rtGrabOk() ? (fibAdd != null ? fibAdd : fibSel) : null; } // the RUN whose spans show a handle
+  function rtCoarse() { return !(window.matchMedia && matchMedia('(pointer: fine)').matches); }
+  function grabR() { return rtCoarse() ? 16 : 13; } // half a handle (32 px across on a phone, 26 with a mouse: index.html)
+  function grabSegD(c, a, b) { const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy, u = L2 ? Math.max(0, Math.min(1, ((c.x - a.x) * dx + (c.y - a.y) * dy) / L2)) : 0; return Math.hypot(c.x - a.x - u * dx, c.y - a.y - u * dy); }
+  /** A span label beside its line (above it; right of an upright span), clear of the handle in the middle of the span. */
+  function grabLblShift(a, b, txt) {
+    const z = map.getZoom(), A = map.project([a.lat, a.lon], z), B = map.project([b.lat, b.lon], z), dx = B.x - A.x, dy = B.y - A.y, Ln = Math.hypot(dx, dy) || 1;
+    let nx = dy / Ln, ny = -dx / Ln; if (ny > 0.01 || (Math.abs(ny) <= 0.01 && nx < 0)) { nx = -nx; ny = -ny; }
+    const fs = +getComputedStyle(document.documentElement).getPropertyValue('--fs') || 1, w = txt.length * 6.3 * fs + 12, h = 16 * fs, d = grabR() + 3 + Math.abs(nx) * w / 2 + Math.abs(ny) * h / 2;
+    return `transform:translate(calc(-50% + ${(nx * d).toFixed(1)}px),calc(-50% + ${(ny * d).toFixed(1)}px))`;
+  }
+  /** The handles: one on each span of the RUN in the bar (or lit), in its middle, else slid along it, never within reach of a pin's own
+      tap (a span too short on the screen for one has none: zoom in, or long-press the cable). Drawn again at each zoom. */
+  function drawGrabs(R) {
+    rtGrabLayer.clearLayers(); const n = rtGrabN(); if (n == null || !R || !R.fib) return;
+    const f = R.fib.list.find((x) => x.n === n); if (!f || f.path.length < 2) return;
+    const z = map.getZoom(), px = fibPx(R, f, z), col = fibColor(f), hr = grabR(), tapR = rtCoarse() ? 24 : 14;
+    const pins = projPoints().map((p) => ({ q: map.project([p.lat, p.lon], z), r: tapR + (elemOf(p) === 'Pole' ? 0 : 8) + hr + 2 })); let shown = 0;
+    for (let j = 1; j < px.length; j++) {
+      const a = px[j - 1], b = px[j], ang = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI, x0 = Math.min(a.x, b.x) - 60, x1 = Math.max(a.x, b.x) + 60, y0 = Math.min(a.y, b.y) - 60, y1 = Math.max(a.y, b.y) + 60;
+      const near = pins.filter((p) => p.q.x >= x0 && p.q.x <= x1 && p.q.y >= y0 && p.q.y <= y1); let at = null;
+      for (const t of [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74]) { const q = L.point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t); if (near.every((p) => p.q.distanceTo(q) >= p.r)) { at = q; break; } }
+      if (!at) continue; shown++;
+      L.marker(map.unproject(at, z), { pane: 'rtGrabPane', interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', iconSize: null,
+        html: `<span class="rt-grab" style="color:${col}" data-n="${f.n}" data-a="${hEsc(String(f.path[j - 1]))}" data-b="${hEsc(String(f.path[j]))}" title="Drag onto a pole to put it on RUN ${f.n}"><i style="transform:rotate(${ang.toFixed(1)}deg)">➤</i></span>` }) }).addTo(rtGrabLayer);
+    }
+    if (shown) grabTip();
+  }
+  /** Once on this phone, when handles first show: how to use them (after the message of the moment, and the first-time tip). */
+  function grabTip() {
+    if (S.rtGrabTip || rtGrabTipT) return;
+    const go = (k) => { rtGrabTipT = 0; if (S.rtGrabTip || !routeMode || !rtGrabLayer.getLayers().length || k > 40) return;
+      if (!$('toast').hidden || !$('rtHint').hidden || rtDraft || rtGrab) { rtGrabTipT = setTimeout(() => go(k + 1), 500); return; }
+      S.rtGrabTip = true; persist(); rtHint('Missed a pole? Drag a ○ on the cable onto it. Hold a pole on the cable to drag it off', 6000); };
+    rtGrabTipT = setTimeout(() => go(0), 400);
+  }
+  /** What a long press at c (a point on the map's screen) picks up: a pole a cable goes through (not its end), else the cable under the
+      finger (the RUN in the bar, or lit, before another 6 px off on a shared span). null: nothing (the press goes on as before). */
+  function grabAt(c, touch) {
+    const R = lastR; if (!rtGrabOk() || !R || !R.fib || !R.fib.list.length) return null;
+    const bonus = (f) => (f.n === fibAdd ? 7 : f.n === fibSel ? 5 : 0), id = rtHit(c, touch ? 24 : 14);
+    if (id != null) {
+      const g = R.fib.list.filter((f) => { const i = f.path.indexOf(id); return i > 0 && i < f.path.length - 1; }).sort((x, y) => bonus(y) - bonus(x) || x.n - y.n)[0];
+      return g ? { kind: 'pole', n: g.n, id } : null; // (an end, or a pole on no cable: its own tap and line, as before)
+    }
+    const z = map.getZoom(), o = map.getPixelOrigin(), reach = touch ? 16 : 9; let best = null;
+    R.fib.list.forEach((f) => { if (f.path.length < 2) return; const cp = fibPx(R, f, z).map((q) => map.layerPointToContainerPoint(q.subtract(o)));
+      for (let j = 1; j < cp.length; j++) { const d = grabSegD(c, cp[j - 1], cp[j]); if (d <= reach && (!best || d - bonus(f) < best.s)) best = { s: d - bonus(f), n: f.n, a: f.path[j - 1], b: f.path[j] }; } });
+    return best && { kind: 'span', n: best.n, a: best.a, b: best.b };
+  }
+  /** Pick up a span (g.a → g.b) or a pole (g.id) of RUN g.n. False when the cable is not as it was drawn (nothing picked up). */
+  function grabStart(g, pid, type, c) {
+    const f = rtGrabOk() ? fibers().find((x) => x.n === g.n) : null; if (!f) return false; let A, B;
+    if (g.kind === 'span') { const j = f.path.findIndex((x, k) => k > 0 && String(f.path[k - 1]) === String(g.a) && String(x) === String(g.b)); if (j < 1) return false; A = f.path[j - 1]; B = f.path[j]; }
+    else { const i = f.path.indexOf(g.id); if (i <= 0 || i >= f.path.length - 1) return false; A = f.path[i - 1]; B = f.path[i + 1]; }
+    rtGrab = { kind: g.kind, n: f.n, id: g.kind === 'pole' ? g.id : null, A, B, path: f.path.slice(), pid, type, c, tid: null, v: '' };
+    lpClear(); rtPress = null; rtEdge = null; map.dragging.disable(); document.body.classList.add('rt-grabbing'); rtTipSeen();
+    if (rtPop) { rtPop = null; renderRtPop(); } $('toast').hidden = true; // (the last message is old now: the hint says what letting go does)
+    try { if (type !== 'mouse' && navigator.vibrate) navigator.vibrate(15); } catch (e) { /* optional */ }
+    grabShow(); return true;
+  }
+  function grabMove(c) { if (!rtGrab) return; rtGrab.c = c; if (!rtGq) rtGq = requestAnimationFrame(grabShow); }
+  const grabTarget = (g) => rtHit(g.c, g.type === 'mouse' ? 22 : 36); // the pole under (or nearest) the finger
+  /** What letting go here does: { k: on | already | none (a span); off | stay | swap | already (a pole), t: the hint }. */
+  function grabVerdict(g, tid) {
+    const nm = fibName, on = tid != null && g.path.includes(tid);
+    if (g.kind === 'span') return tid == null ? { k: 'none', t: `RUN ${g.n}: drop it on a pole` } : on ? { k: 'already', t: `${nm(tid)} is already on RUN ${g.n}` } : { k: 'on', t: `Put ${nm(tid)} on RUN ${g.n}` };
+    if (tid === g.id) return { k: 'stay', t: `${nm(g.id)} stays on RUN ${g.n}` };
+    if (tid == null) return { k: 'off', t: `Take ${nm(g.id)} off RUN ${g.n}` };
+    return on ? { k: 'already', t: `${nm(tid)} is already on RUN ${g.n}` } : { k: 'swap', t: `Swap: ${nm(tid)} on RUN ${g.n} in place of ${nm(g.id)}` };
+  }
+  /** While dragging: the span (or the two either side of the pole) bent to the finger, or to the pole it would go to (ringed). */
+  function grabShow() {
+    rtGq = 0; const g = rtGrab; rtGrabFx.clearLayers(); if (!g) return;
+    const tid = grabTarget(g), v = grabVerdict(g, tid), by = new Map(routePts().map((p) => [p.id, p])), ll = (id) => { const p = by.get(id); return p ? [p.lat, p.lon] : null; };
+    g.tid = tid; g.v = v.k; const fin = map.containerPointToLatLng(g.c), col = fibColor({ n: g.n }), A = ll(g.A), B = ll(g.B), mid = v.k === 'on' || v.k === 'swap' ? ll(tid) : v.k === 'stay' ? ll(g.id) : [fin.lat, fin.lng];
+    if (A && B && mid) L.polyline(v.k === 'off' ? [A, B] : [A, mid, B], { pane: 'routePane', color: col, weight: 5, opacity: 0.95, dashArray: '9 7', lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(rtGrabFx);
+    if (g.kind === 'pole' && ll(g.id)) L.circleMarker(ll(g.id), { pane: 'routePane', radius: 14, color: '#868e96', weight: 2.5, dashArray: '3 3', fill: false, interactive: false }).addTo(rtGrabFx);
+    if (tid != null && ll(tid)) L.circleMarker(ll(tid), { pane: 'routePane', radius: 19, color: v.k === 'already' ? '#c92a2a' : v.k === 'stay' ? col : '#2f9e44', weight: 4, fill: false, interactive: false }).addTo(rtGrabFx);
+    L.marker(fin, { pane: 'rtGrabPane', interactive: false, keyboard: false, icon: L.divIcon({ className: 'span-icon', iconSize: null, html: `<span class="rt-lift${g.kind === 'pole' ? ' pole' : ''}" style="color:${col}"></span>` }) }).addTo(rtGrabFx);
+    rtHint(v.t);
+  }
+  /** Let go (cancel: Esc, a second finger, the touch taken away: nothing changes). */
+  function grabEnd(cancel) {
+    const g = rtGrab; rtGrab = null; cancelAnimationFrame(rtGq); rtGq = 0; rtEdge = null; rtGrabFx.clearLayers(); document.body.classList.remove('rt-grabbing'); rtHint(''); rtGestAt = Date.now(); rtApplyMode();
+    if (!g) return; if (cancel) { rtHint('Nothing changed', 1500); return; }
+    grabDrop(g, grabTarget(g));
+  }
+  function grabDrop(g, tid) {
+    const v = grabVerdict(g, tid), F = fibers(), f = F.find((x) => x.n === g.n), nm = fibName;
+    if (!f || JSON.stringify(f.path) !== JSON.stringify(g.path)) { routeRefresh(); return; } // (the cable changed meanwhile: a Share came in)
+    if (v.k === 'none' || v.k === 'stay') { rtHint('Nothing changed', 1500); return; }
+    if (v.k === 'already') { toast(`${nm(tid)} is already on RUN ${f.n}: a cable goes through a pole once. Nothing changed`, 3500); return; }
+    routeUndo.push(routeSnap()); let L2 = null, msg = '';
+    if (v.k === 'on') { L2 = rtAttach(f, tid, F, f.path.indexOf(g.B)); msg = `${nm(tid)} put on RUN ${f.n}, between ${nm(g.A)} and ${nm(g.B)}`; }
+    else if (v.k === 'off') { L2 = rtPassOff(f, g.id, F); msg = `${nm(g.id)} taken off RUN ${f.n}: straight from ${nm(g.A)} to ${nm(g.B)} now`; }
+    else { const L1 = rtPassOff(f, g.id, F); L2 = rtAttach(f, tid, F, f.path.indexOf(g.B), L1 || undefined); msg = `RUN ${f.n} goes through ${nm(tid)} in place of ${nm(g.id)}`; }
+    const still = g.kind === 'pole' ? F.filter((x) => x !== f && x.path.length > 1 && (x.path[0] === g.id || x.path[x.path.length - 1] === g.id)).map((x) => `RUN ${x.n} still ${x.path[0] === g.id ? 'starts' : 'ends'} at ${nm(g.id)}`) : []; // (a branch there)
+    setRoute(L2, F); if (f.n === fibAdd) fibTouched = true; routeRefresh([tid, g.id, g.A, g.B].filter((x) => x != null));
+    toast(`${msg}${still.length ? `; ${still.join('; ')}` : ''} (Undo takes it back)`, 4500);
+  }
+  function lpClear() { if (rtLp) { clearTimeout(rtLp.t); rtLp = null; } }
   /* ================= v2.42.22: ✎ Draw or ✋ Move =================
      ✎ Draw (Route opens in it; kept on this phone): one finger (the left button) draws, from anywhere. The line goes to the fiber in the
      bar, from its end (from the end to where the line starts: straight); from the fiber's other end it goes on from there; from a point
@@ -4239,30 +4405,44 @@
       if (!routeMode || isAcc()) return;
       if (e.pointerType !== 'mouse' && e.isPrimary) { rtPtrs.clear(); rtMulti = false; } // a new touch: a finger whose lift was lost is forgotten
       rtPtrs.add(e.pointerId);
-      if (e.pointerType !== 'mouse' && rtPtrs.size > 1) { rtMulti = true; if (rtPress) { rtPress = null; rtEdge = null; if (rtDraft) rtDrop(); } return; } // two fingers: the map's (Leaflet's pinch); the line just begun is dropped
-      if (rtMulti) return;
+      if (e.pointerType !== 'mouse' && rtPtrs.size > 1) { rtMulti = true; lpClear(); if (rtGrab) grabEnd(true); if (rtPress) { rtPress = null; rtEdge = null; if (rtDraft) rtDrop(); } return; } // two fingers: the map's (Leaflet's pinch); the line just begun is dropped (a cable picked up: put back)
+      if (rtMulti || rtGrab) return;
       if (e.pointerType === 'mouse' && (e.button === 1 || e.button === 2 || (e.button === 0 && rtSpace && rtDrawing()))) { rtMpan = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, btn: e.button, moved: false }; mc.classList.add('rt-panning'); e.preventDefault(); return; }
       if (e.button > 0) return;
+      const gh = e.target && e.target.closest ? e.target.closest('.rt-grab') : null; // grab the cable: a handle picks up its span at once
+      if (gh && grabStart({ kind: 'span', n: +gh.dataset.n, a: gh.dataset.a, b: gh.dataset.b }, e.pointerId, e.pointerType, cpt(e))) { e.preventDefault(); e.stopPropagation(); return; }
       const c = cpt(e); rtPress = { pid: e.pointerId, s: c, c, moved: false, draw: rtDrawing(), type: e.pointerType };
       if (rtPress.draw) e.preventDefault();
+      lpClear(); const g = grabAt(c, e.pointerType !== 'mouse'); // a long press on a cable, or on a pole one goes through, picks it up
+      if (g) { const pid = e.pointerId; rtLp = { pid, t: setTimeout(() => { const p = rtPress; rtLp = null; if (!p || p.pid !== pid || p.moved || rtMulti || rtDraft) return; grabStart(g, pid, p.type, p.c); }, RT_LP_MS[g.kind]) }; }
     }, true);
     window.addEventListener('pointermove', (e) => {
       if (rtMpan && e.pointerType === 'mouse') { if (!e.buttons) { up(e, true); return; } // (let go outside the window)
         map.panBy([rtMpan.x - e.clientX, rtMpan.y - e.clientY], { animate: false }); rtMpan.x = e.clientX; rtMpan.y = e.clientY; if (Math.hypot(e.clientX - rtMpan.x0, e.clientY - rtMpan.y0) > 4) rtMpan.moved = true; return; }
+      if (rtGrab && e.pointerId === rtGrab.pid) { if (rtGrab.type === 'mouse' && !e.buttons) { up(e, true); return; } const c = cpt(e); grabMove(c); edgeAt(c); return; } // grab the cable: the span bends to the finger
       if (!rtPress || e.pointerId !== rtPress.pid) return;
       if (rtPress.type === 'mouse' && !e.buttons) { up(e); return; }
       const c = cpt(e); rtPress.c = c;
-      if (!rtPress.moved) { if (c.distanceTo(rtPress.s) < (rtPress.type === 'mouse' ? 5 : 10)) return; rtPress.moved = true; if (rtPress.draw) rtBegin(map.containerPointToLatLng(rtPress.s)); }
+      if (!rtPress.moved) { if (c.distanceTo(rtPress.s) < (rtPress.type === 'mouse' ? 5 : 10)) return; rtPress.moved = true; lpClear(); if (rtPress.draw) rtBegin(map.containerPointToLatLng(rtPress.s)); }
       if (!rtPress.draw || !rtDraft) return;
-      rtAddPt(map.containerPointToLatLng(c));
+      rtAddPt(map.containerPointToLatLng(c)); edgeAt(c);
+    }, true);
+    function edgeAt(c) {
       const W = mc.clientWidth, H = mc.clientHeight, M = 34, bar = $('rtBar'), on = !!bar && !bar.hidden, side = on && deskOn(); // (2.44.4: on a computer the bar is a panel down the right side, over the map, not along its foot)
       const bw = side ? Math.max(0, mc.getBoundingClientRect().right - bar.getBoundingClientRect().left) : 0, bh = on && !side ? bar.getBoundingClientRect().height + 92 : 0;
       const dx = c.x < M ? -1 : c.x > W - bw - M ? 1 : 0, dy = c.y < M ? -1 : c.y > H - bh - M ? 1 : 0; // near an edge the map moves that way (the part of the map the bar leaves)
       rtEdge = dx || dy ? [dx, dy] : null; if (rtEdge && !rtEdgeRaf) rtEdgeRaf = requestAnimationFrame(edgeTick);
-    }, true);
-    function edgeTick() { rtEdgeRaf = 0; if (!rtPress || !rtEdge || !rtDraft) return; map.panBy([rtEdge[0] * 7, rtEdge[1] * 7], { animate: false }); rtAddPt(map.containerPointToLatLng(rtPress.c)); rtEdgeRaf = requestAnimationFrame(edgeTick); }
+    }
+    function edgeTick() { rtEdgeRaf = 0; if (!rtEdge) return; // (a line drawn, or a cable picked up)
+      if (rtGrab) { map.panBy([rtEdge[0] * 7, rtEdge[1] * 7], { animate: false }); grabMove(rtGrab.c); }
+      else if (rtPress && rtDraft) { map.panBy([rtEdge[0] * 7, rtEdge[1] * 7], { animate: false }); rtAddPt(map.containerPointToLatLng(rtPress.c)); }
+      else return;
+      rtEdgeRaf = requestAnimationFrame(edgeTick); }
     const up = (e, cancel) => {
       rtPtrs.delete(e.pointerId);
+      if (rtGrab && e.pointerId === rtGrab.pid) { if (!rtPtrs.size) rtMulti = false; rtPress = null; grabEnd(!!cancel); return; } // grab the cable: let go
+      if (e.pointerId === rtGrabDead) { rtGrabDead = null; rtGestAt = Date.now(); } // (the button let go after Esc: not a click on a pole)
+      if (rtLp && rtLp.pid === e.pointerId) lpClear();
       if (rtMpan && e.pointerType === 'mouse') { const m = rtMpan; rtMpan = null; mc.classList.remove('rt-panning'); rtGestAt = Date.now(); if (m.btn === 2 && !m.moved && !cancel && rtDrawing()) rtUndo(); return; } // ✎ a right-click: undo
       if (!rtPtrs.size) rtMulti = false;
       if (!rtPress || e.pointerId !== rtPress.pid) return;
@@ -4276,12 +4456,12 @@
     };
     window.addEventListener('pointerup', (e) => up(e), true); window.addEventListener('pointercancel', (e) => up(e, true), true);
     mc.addEventListener('contextmenu', (e) => { if (routeMode) e.preventDefault(); }); // (✎: a right-click undoes, on its release above)
-    mc.addEventListener('touchmove', (e) => { if (rtDrawing() && e.cancelable) e.preventDefault(); }, { passive: false }); // ✎: a finger's moves are the line's from the start (no scroll begins), so a second finger's pinch is still the map's
+    mc.addEventListener('touchmove', (e) => { if ((rtDrawing() || rtGrab) && e.cancelable) e.preventDefault(); }, { passive: false }); // ✎: a finger's moves are the line's from the start (no scroll begins), so a second finger's pinch is still the map's
     const spaceOk = (t) => !(t && t.closest && t.closest('#rtBar, #rtPop, #routeBar, section.sheet, [role=dialog], dialog')) && !document.querySelector('section.sheet:not([hidden])');
     document.addEventListener('keydown', (e) => {
       if (!routeMode || /^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
       if (e.key === ' ' && spaceOk(e.target)) { if (!rtSpace) { rtSpace = true; mc.classList.add('rt-spacepan'); } e.preventDefault(); return; } // Space + drag moves the map (a focused map button is not pressed)
-      if (e.key === 'Escape') { if (rtDraft) return; if (rtConf) rtConfCancel(); else if (rtPop) { rtPop = null; rtSheetClose(); renderRtPop(); } else if (fibStartAt != null || fibNew) { fibStartAt = null; fibNew = false; routeRefresh(); } else if (fibAdd != null) rtFinish(); else if (routeSel) { const w = routeSel; routeSel = null; routeRefresh([w]); } }
+      if (e.key === 'Escape') { if (rtGrab) { rtGrabDead = rtGrab.pid; grabEnd(true); return; } if (rtDraft) return; if (rtConf) rtConfCancel(); else if (rtPop) { rtPop = null; rtSheetClose(); renderRtPop(); } else if (fibStartAt != null || fibNew) { fibStartAt = null; fibNew = false; routeRefresh(); } else if (fibAdd != null) rtFinish(); else if (routeSel) { const w = routeSel; routeSel = null; routeRefresh([w]); } }
       if (e.key === 'Enter' && rtConf && !(e.target && e.target.closest && e.target.closest('button'))) { e.preventDefault(); rtConfirm(); }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); rtUndo(); }
     });
@@ -4290,7 +4470,7 @@
     map.on('movestart', () => { if (rtPop && rtPop !== 'newcab') { rtPop = null; renderRtPop(); } }); // (v2.42.24: the New cable sheet stays)
   })();
   async function rtUndo() {
-    if (!routeUndo.length || rtDraft || rtConf) return; const u = routeUndo.pop(); rtPend = [];
+    if (!routeUndo.length || rtDraft || rtConf || rtGrab) return; const u = routeUndo.pop(); rtPend = [];
     if (u && u.rec) { try { await dbPut('points', u.rec); const i = points.findIndex((x) => x.id === u.rec.id); if (i >= 0) points[i] = u.rec; rtAsked.delete(u.rec.id); } catch (e) { toast('Could not undo the closure', 3000); } }
     else if (Array.isArray(u)) setLinks(u); else setRoute(u.l, u.f);
     if (fibAdd != null && !fibers().some((f) => f.n === fibAdd)) { fibAdd = null; fibSel = null; }
@@ -4500,24 +4680,91 @@
   }
   function stopGps() { if (watchId) { navigator.geolocation.clearWatch(watchId); watchId = 0; } }
   function onFix(pos) {
-    const c = pos.coords;
-    fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy, alt: c.altitude, t: pos.timestamp }; gpsErr = 0;
+    const c = pos.coords, again = !!fix && pos.timestamp === fix.t && c.latitude === fix.lat && c.longitude === fix.lon; // (some phones hand the last position again: not a new fix)
+    // beta 5.9: rx, when the fix reached the phone: its age counts from then, not from its own time (some phones' GPS clock is a few seconds off)
+    fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy, alt: c.altitude, t: pos.timestamp, rx: again ? fix.rx : Date.now() }; gpsErr = 0;
     const q = quality(fix.acc), txt = `±${fix.acc < 10 ? fix.acc.toFixed(1) : Math.round(fix.acc)} m`;
     $('gpsDot').className = 'dot ' + q; $('gpsText').textContent = 'GPS ' + txt;
     $('camGpsDot').className = 'dot ' + q; $('camGpsText').textContent = 'GPS ' + txt;
     gpsLayer.clearLayers();
     L.circle([fix.lat, fix.lon], { radius: fix.acc, color: '#1c7ed6', weight: 1, fillOpacity: 0.12, interactive: false }).addTo(gpsLayer);
     L.circleMarker([fix.lat, fix.lon], { radius: 7, color: '#fff', weight: 2, fillColor: '#1c7ed6', fillOpacity: 1, interactive: false }).addTo(gpsLayer);
-    if (ed) editorGpsUpdate();
+    if (!again) gpsRefineTick(); // beta 5.9: a photo taken with an old, poor or no fix gets this one if it is better
     shutterState();
     if (typeof visitGpsTick === 'function') visitGpsTick();
+  }
+  /** Asks the phone for a new fix now (some phones report rarely while standing still); it arrives through onFix. */
+  function gpsPoll(ms) {
+    if (gpsPolling || !('geolocation' in navigator) || gpsErr === 1) return;
+    gpsPolling = true;
+    try { navigator.geolocation.getCurrentPosition((p) => { gpsPolling = false; onFix(p); }, () => { gpsPolling = false; }, { enableHighAccuracy: true, maximumAge: 0, timeout: ms || 8000 }); } catch (e) { gpsPolling = false; }
+  }
+  /* beta 5.9: a survey photo is never lost to the GPS. The shutter takes it at once, with the best fix there is. When that fix is
+     old (no update within GPS_WINDOW_MS of the shutter), not accurate (over GPS_GOOD_M) or missing, the app keeps listening for
+     REFINE_MS after the shutter and uses a better fix that arrives meanwhile: an old fix gives way to a fresh one within
+     GPS_GOOD_M (or as good as it), a poor one to a more accurate one, none to any. A fix within GPS_GOOD_M ends the listening (the
+     pin does not creep after that, as since v2.30). The pin moves with it only while the user has not touched the record's map:
+     a pin placed by hand always stays. PAT, cleanup and FAT photos keep a strict rule instead (gpsNear, GPS_ACC_WINDOW_MS). */
+  const GPS_GOOD_M = 15, REFINE_MS = 20000, GPS_OLD_MAX_MS = 120000;
+  let gref = null; // the photo whose fix is being refined: { at (its shutter), until, gps (the best so far), done }
+  const gpsAgeMs = () => (fix ? Date.now() - fix.rx : Infinity);
+  /** The fix at the shutter with its age then (s); null with none (or one over 2 minutes old: the pin is placed by hand). */
+  function gpsAtShot(at) {
+    if (!fix || at - fix.rx > GPS_OLD_MAX_MS) return null;
+    return { lat: fix.lat, lon: fix.lon, acc: fix.acc, alt: fix.alt, age: Math.max(0, Math.round((at - fix.rx) / 1000)) };
+  }
+  const gpsNeedsRefine = (g) => !g || g.age * 1000 > GPS_WINDOW_MS || !(g.acc <= GPS_GOOD_M);
+  function gpsRefineStart(at, g) {
+    gpsRefineEnd();
+    gref = { at, until: at + REFINE_MS, gps: g, done: !gpsNeedsRefine(g) };
+    if (gref.done) return;
+    gref.tm = setTimeout(gpsRefineEnd, REFINE_MS + 50);
+    LOG.info('gps.refine', { age: g ? g.age : null, acc: g && Number.isFinite(g.acc) ? Math.round(g.acc) : null });
+    startGps(); gpsPoll(REFINE_MS);
+  }
+  function gpsRefineEnd() {
+    const r = gref; if (!r || r.done) return;
+    r.done = true; clearTimeout(r.tm);
+    LOG.info('gps.refine.end', { refined: !!(r.gps && r.gps.ref), acc: r.gps && Number.isFinite(r.gps.acc) ? Math.round(r.gps.acc) : null });
+    gpsRefineApply(r, null);
+  }
+  function gpsRefineTick() {
+    const r = gref; if (!r || r.done || !fix) return;
+    if (Date.now() > r.until) { gpsRefineEnd(); return; }
+    if (fix.rx <= r.at) return; // only a fix that came after the shutter
+    const c = r.gps, a = fix.acc;
+    const better = !c || (c.age * 1000 > GPS_WINDOW_MS && c.ref == null ? a <= GPS_GOOD_M || a <= c.acc : a < c.acc);
+    if (!better) return;
+    r.gps = { lat: fix.lat, lon: fix.lon, acc: a, alt: fix.alt, age: c ? c.age : null, acc0: c ? (c.acc0 != null ? c.acc0 : c.acc) : null, ref: Math.max(1, Math.round((fix.rx - r.at) / 1000)) };
+    LOG.info('gps.refined', { age: r.gps.age, ref: r.gps.ref, acc: Math.round(a) });
+    gpsRefineApply(r, r.gps);
+    if (a <= GPS_GOOD_M) gpsRefineEnd();
+  }
+  /** A better fix (g), or the end of the listening (g null), goes to the photo: still in the camera, or in its record. */
+  function gpsRefineApply(r, g) {
+    if (camPending && camPending.shotAt === r.at) {
+      if (g) { camPending.gps = g; shotDraftGps(camPending); if (!$('camera').hidden) toast(`Location refined: GPS ±${fmtAcc(g.acc)}`, 1600); }
+      return;
+    }
+    if (ed && ed.shotAt === r.at && ed.mode === 'new' && !ed.restored) edGpsRefined(g);
+  }
+  const fmtAcc = (a) => `${a < 10 ? a.toFixed(1) : Math.round(a)} m`;
+  /** The line about a photo's fix (empty when it was fresh). live: its refining may still go on. */
+  function gpsNoteOf(g, live) {
+    const ago = (s) => (s >= 90 ? `${Math.round(s / 60)} min` : `${s} s`);
+    if (!g) return live ? 'No GPS at the shutter yet: waiting for a fix…' : 'No GPS at the shutter: drag the map to place the pin';
+    if (g.ref != null) return g.age == null ? `No GPS at the shutter: fix found ${g.ref} s later` : g.age * 1000 > GPS_WINDOW_MS ? `GPS ${ago(g.age)} old at the shutter, refined ${g.ref} s later` : `GPS ${g.acc0 != null ? `±${fmtAcc(g.acc0)}` : 'not accurate'} at the shutter, refined ${g.ref} s later`;
+    if (g.age != null && g.age * 1000 > GPS_WINDOW_MS) return live ? `GPS ${ago(g.age)} old at the shutter: waiting for a fresh fix…` : `GPS was ${ago(g.age)} old: check the pin`;
+    return '';
   }
   document.addEventListener('visibilitychange', () => { if (document.hidden) stopGps(); else startGps(); });
 
   /* ================= camera ================= */
-  /* Capture rules: a photo is kept only if a GPS update arrived within GPS_WINDOW_MS of the shutter (always in acceptance,
-     optional in survey), then it is checked for blur and exposure, and the painted Pole ID inside the guide box is read. */
-  const GPS_WINDOW_MS = 5000;
+  /* Capture rules: a photo is checked for blur and exposure, and the painted Pole ID inside the guide box is read. GPS (beta 5.9):
+     a fix is fresh when it reached the phone within GPS_WINDOW_MS of the shutter. A survey photo is kept whatever the GPS (its fix
+     is refined after the shutter, see gpsRefineStart); a PAT, cleanup or FAT photo (and a visit's) needs a fix that reached the
+     phone within GPS_ACC_WINDOW_MS of the shutter, else it waits up to GPS_WAIT_MS for one and is refused without it. */
+  const GPS_WINDOW_MS = 5000, GPS_ACC_WINDOW_MS = 15000, GPS_WAIT_MS = 5300;
   /* ================= beta 3.5: several photos per pin =================
      Photos per pin (1–4, 2 by default): after photo 1 the camera offers the next ones, up to that many; Done stops at any time.
      Photo 2 is the pole ID close-up by default (the old ID step): the green shutter keeps it as Pole tag and the ID is read from it.
@@ -4540,6 +4787,14 @@
   let stream = null, imageCapture = null, torchOn = false, wakeLock = null, camTarget = 'new', camBusy = false, camTick = 0, camPending = null, camSeq = 0;
   let photoOpts = null; // still-photo size: phones with 48–200 MP sensors are asked for about 12 MP (photos are kept at 2048 px anyway)
   const STILL_MAX_W = 4032, TAKE_MS = 6000;
+  /* beta 5.9: the live picture is about 1920 px wide (it was asked for 4096 × 3072, which made the preview and the shutter slow);
+     the photo itself is the camera's full-size still (takePhoto). A phone without stills (no ImageCapture, or a camera that
+     stalled) keeps a frame of the live picture as the photo: it gets 2560 px, more than the 2048 px a photo is kept at. */
+  const camPreviewSize = (still) => (still ? { width: { ideal: 1920 }, height: { ideal: 1440 } } : { width: { ideal: 2560 }, height: { ideal: 1920 } });
+  function framesForStills() {
+    const t = stream && stream.getVideoTracks()[0]; if (!t || !t.applyConstraints) return;
+    t.applyConstraints(camPreviewSize(false)).then(() => { const st = t.getSettings ? t.getSettings() : {}; LOG.info('camera.frameSize', { video: `${st.width || '?'}×${st.height || '?'}` }); }).catch((e) => LOG.warn('camera.frameSize.fail', errInfo(e)));
+  }
   async function takeStill() {
     try { return await imageCapture.takePhoto(photoOpts || undefined); }
     catch (e) { if (photoOpts) { photoOpts = null; return await imageCapture.takePhoto(); } throw e; }
@@ -4548,14 +4803,33 @@
   /** v2.19: the ID scan after each photo is set apart for surveys and for PAT / cleanup / FAT (where the ID is optional). */
   // v2.21: in PAT, cleanup and FAT the photo is of the defect: no ID scan after it unless turned on (Scan ID in the record stays)
   const readIdOn = () => (isAcc() ? S.readIdAcc === true : S.readId !== false);
-  const gpsFresh = () => !!fix && Date.now() - fix.t <= GPS_WINDOW_MS && gpsErr !== 1;
-  /** Shutter colour: green = GPS updated within 5 s (ready), red = GPS old, off or blocked; white while scanning an ID. */
+  const gpsFresh = (win) => !!fix && gpsAgeMs() <= (win || GPS_WINDOW_MS) && gpsErr !== 1;
+  /** beta 5.9: the strict GPS rule: PAT, cleanup and FAT photos, and the photos of a visit. */
+  const gpsStrict = () => isAcc() || camTarget === 'vfix' || camTarget === 'vverify';
+  /** Shutter colour: green = a fresh fix (within 5 s; in PAT, cleanup and FAT within 15 s); amber (survey) = the photo is kept and
+      its location refined after the shot (GPS old, not accurate or none yet); red (PAT, cleanup, FAT) = no fresh fix: the photo
+      waits for one and is refused without it; white while scanning an ID. Busy (a ring) from the press until the photo is kept. */
   function shutterState() {
     const b = $('shutter'); if (!b) return;
     const ph2 = camTarget === 'newid' && camPending && camPending.ph, add = camTarget === 'add' && ed && !ed.acc, more = camTarget === 'newmore' || add; // beta 3.5 (beta 5.0: + Add photo needs no GPS: the pin has its place)
-    const st = ph2 || more ? 'ok' : scanStep() ? 'scan' : gpsFresh() ? 'ok' : 'bad';
-    b.className = st;
-    b.setAttribute('aria-label', ph2 ? 'Take photo 2 (Pole tag) and read the ID' : more ? `Take photo ${add ? 2 + (ed.photos || []).length : camPending ? camPending.k : ''}` : st === 'scan' ? 'Read the ID' : st === 'ok' ? 'Take photo (GPS ready)' : 'Take photo (waiting for a fresh GPS fix)');
+    const strict = gpsStrict(), st = ph2 || more ? 'ok' : scanStep() ? 'scan' : strict ? (gpsFresh(GPS_ACC_WINDOW_MS) ? 'ok' : 'bad') : gpsFresh() && fix.acc <= GPS_GOOD_M ? 'ok' : 'wait';
+    b.className = st; b.classList.toggle('busy', b.getAttribute('aria-busy') === 'true');
+    b.setAttribute('aria-label', ph2 ? 'Take photo 2 (Pole tag) and read the ID' : more ? `Take photo ${add ? 2 + (ed.photos || []).length : camPending ? camPending.k : ''}` : st === 'scan' ? 'Read the ID' : st === 'ok' ? 'Take photo (GPS ready)'
+      : strict ? 'Take photo (waiting for a fresh GPS fix: this photo needs one)'
+      : camTarget !== 'new' ? 'Take photo (GPS not fresh)'
+      : gpsErr === 1 ? 'Take photo (location is off: the pin is placed by hand)' : !fix || gpsAgeMs() > GPS_OLD_MAX_MS ? 'Take photo (no GPS yet: the location is added if a fix comes, else the pin is placed by hand)'
+      : gpsFresh() ? 'Take photo (GPS not accurate yet: the location is refined after the photo)' : 'Take photo (GPS not fresh: the location is refined after the photo)');
+  }
+  /** beta 5.9: the press is seen at once: a white flash over the picture, a short buzz, and the shutter busy until the photo is kept. */
+  function shutterFlash() {
+    const f = $('camFlash'); if (f) { f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
+    try { if (navigator.vibrate) navigator.vibrate(30); } catch (e) { /* not on this phone */ }
+  }
+  /** beta 5.9: work that can wait (preparing a photo for storage, redrawing the map) runs when the phone is idle, not at the press. */
+  const idle = (fn, ms) => (window.requestIdleCallback ? requestIdleCallback(() => fn(), { timeout: ms || 2500 }) : setTimeout(fn, 300));
+  function shutterBusy(on) {
+    const b = $('shutter'); b.disabled = on; b.classList.toggle('busy', on);
+    if (on) b.setAttribute('aria-busy', 'true'); else b.removeAttribute('aria-busy');
   }
   /** The guide box's shape and the H / V buttons follow the ID's orientation. */
   function setOrientUi() {
@@ -4587,15 +4861,11 @@
   function camGpsTick() {
     shutterState();
     if (!fix) return;
-    const age = (Date.now() - fix.t) / 1000, stale = age * 1000 > GPS_WINDOW_MS;
+    const age = gpsAgeMs() / 1000, stale = age * 1000 > (gpsStrict() ? GPS_ACC_WINDOW_MS : GPS_WINDOW_MS);
     $('camGpsDot').className = 'dot ' + (stale ? 'poor' : quality(fix.acc));
-    $('camGpsText').textContent = `GPS ±${fix.acc < 10 ? fix.acc.toFixed(1) : Math.round(fix.acc)} m · ${age < 1.5 ? 'now' : `${Math.round(age)} s ago`}`;
-    // Some phones report rarely while standing still: ask for a new fix so the shutter can turn green.
-    if (age > 2.5 && !gpsPolling && !scanStep() && 'geolocation' in navigator) {
-      gpsPolling = true;
-      navigator.geolocation.getCurrentPosition((p) => { gpsPolling = false; onFix(p); }, () => { gpsPolling = false; },
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 });
-    }
+    $('camGpsText').textContent = `GPS ±${fmtAcc(fix.acc)} · ${age < 1.5 ? 'now' : age >= 90 ? `${Math.round(age / 60)} min ago` : `${Math.round(age)} s ago`}`;
+    // Some phones report rarely while standing still: ask for a new fix so the shutter can turn green (and a photo just taken gets it).
+    if (age > 2.5 && (!scanStep() || (gref && !gref.done))) gpsPoll(8000);
   }
   // a tap on H or V fixes the box's shape for this scan (otherwise it turns by itself to fit the ID, v2.16)
   $('orientH').addEventListener('click', () => { S.idOrient = 'h'; persist(); finderStop(); showGuide(); finder.manual = true; });
@@ -4631,13 +4901,13 @@
   async function takeIdShot() {
     if (camBusy || !stream || !scanStep()) return;
     const b = guideShare(); if (!b) return;
-    camBusy = true; $('shutter').disabled = true; $('scanShot').disabled = true;
+    camBusy = true; shutterBusy(true); $('scanShot').disabled = true;
     const seq = camSeq, orient = S.idOrient === 'v' ? 'v' : 'h', t0 = Date.now();
     try {
       finderStop(); focusAt(b.cx, b.cy); camCheck('Focusing on the ID…');
       await new Promise((r) => setTimeout(r, 900)); // the focus settles
       if (seq !== camSeq) return;
-      camCheck('Taking the ID photo…');
+      camCheck('Taking the ID photo…'); shutterFlash(); // (beta 5.9: the moment the still is taken)
       let blob = null;
       if (imageCapture) { try { blob = await withTimeout(takeStill(), TAKE_MS, 'slow'); } catch (e) { blob = null; LOG.warn('idshot.still.fail', errInfo(e)); } }
       if (!blob) { const v = $('video'), cv = document.createElement('canvas'); cv.width = v.videoWidth; cv.height = v.videoHeight; cv.getContext('2d').drawImage(v, 0, 0); blob = await toBlob(cv, 0.95); cv.width = cv.height = 0; }
@@ -4653,11 +4923,11 @@
       LOG.info('idshot', { ms: Date.now() - t0, still: !!imageCapture, px: `${IW}×${IH}`, box: [Math.round(box.w), Math.round(box.h)], near: !!near, orient });
       camCheck(false);
       if (camTarget === 'newid' && camPending && camPending.ph) { // beta 3.5: photo 2, kept as Pole tag
-        camPending.crop = crop; camPending.idShot = blob; camPending.idAt = new Date().toISOString(); prepImages(blob);
+        camPending.crop = crop; camPending.idShot = blob; camPending.idAt = new Date().toISOString(); idle(() => prepImages(blob)); // (beta 5.9: when the phone is idle)
         if (phN() > 2) enterMore(camPending, 3); else await closeSheet();
       } else if (camTarget === 'newid' && camPending) { camPending.crop = crop; camPending.live = null; camPending.idShot = blob; await closeSheet(); }
       else if (camTarget === 'scan') { await closeSheet(); readIdShot(crop, blob); }
-    } finally { camBusy = false; $('shutter').disabled = false; $('scanShot').disabled = false; camCheck(false); if (seq === camSeq && scanStep() && !$('camera').hidden) finderStart(); }
+    } finally { camBusy = false; shutterBusy(false); $('scanShot').disabled = false; camCheck(false); shutterState(); if (seq === camSeq && scanStep() && !$('camera').hidden) finderStart(); }
   }
   /** Reads the ID photo twice (the box, and the ID found around it); the ID is filled only when both readings agree. Otherwise
       the readings are offered as chips and the ID photo opens for a tap on the ID or a box round it. */
@@ -4689,7 +4959,7 @@
     clearInterval(camTick); camTick = setInterval(camGpsTick, 1000); camGpsTick();
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { useNativeCamera(); return; }
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 4096 }, height: { ideal: 3072 } } });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, ...camPreviewSize('ImageCapture' in window) } }); // beta 5.9: a lighter live picture (the still is full size)
       if ($('camera').hidden) { stopCamera(); return; } // closed while starting
       const v = $('video'); v.srcObject = stream; await v.play().catch(() => {});
       const track = stream.getVideoTracks()[0];
@@ -4750,7 +5020,9 @@
       setTimeout(async () => {
         const q = p.q || (p.qp ? await p.qp : null);
         if (q && q.flags && q.flags.length) { draftClear(); toast(`${QUAL_TITLE[q.flags[0]] || 'Photo not accepted'}. ${QUAL_TEXT[q.flags[0]] || 'Take it again.'}`, 7000); return; }
-        gotPhoto(p.blob, p.gps, p.source || 'camera', { q, takenAt: p.takenAt, crop: p.crop || null, live: p.live || null, idShot: p.idShot || null, ph2: !!p.ph, idAt: p.idAt || '', more: p.more || [] }); // (beta 3.5: photo 2 and the photos after it)
+        await Promise.all((p.more || []).map((m) => m.qp)).catch(() => {}); // beta 5.9: photos 2… checked in the background (one that failed has been taken out)
+        if (p.shotAt && gref && gref.at === p.shotAt) p.gps = gref.gps; // (the best fix so far)
+        gotPhoto(p.blob, p.gps, p.source || 'camera', { q, takenAt: p.takenAt, shotAt: p.shotAt || 0, crop: p.crop || null, live: p.live || null, idShot: p.idShot || null, ph2: !!p.ph, idAt: p.idAt || '', more: p.more || [] }); // (beta 3.5: photo 2 and the photos after it)
       }, 0);
     }
   }
@@ -4765,19 +5037,21 @@
     try { await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ torch: torchOn }] }); } catch (e) { toast('Flashlight not supported'); }
   });
 
-  /** A GPS position taken within GPS_WINDOW_MS of the shot, waiting briefly for a fresh one if needed. */
-  function gpsNear(shotAt) {
-    const ok = (f) => f && Math.abs(f.t - shotAt) <= GPS_WINDOW_MS;
-    if (ok(fix)) return Promise.resolve({ ...fix });
+  /** A fix that reached the phone within win ms before the shot, or one that comes within GPS_WAIT_MS after it (beta 5.9: by
+      when it arrived, not by its own time); null without one. Used by PAT, cleanup and FAT photos (win: GPS_ACC_WINDOW_MS). */
+  function gpsNear(shotAt, win) {
+    const W = win || GPS_WINDOW_MS, ok = (f) => !!f && f.rx >= shotAt - W && gpsErr !== 1;
+    const out = () => ({ lat: fix.lat, lon: fix.lon, acc: fix.acc, alt: fix.alt, age: Math.max(0, Math.round((shotAt - fix.rx) / 1000)) });
+    if (ok(fix)) return Promise.resolve(out());
     camCheck('Checking GPS…');
     return new Promise((res) => {
       let done = false, tm = 0, iv = 0;
       const finish = (v) => { if (done) return; done = true; clearTimeout(tm); clearInterval(iv); camCheck(false); res(v); };
-      tm = setTimeout(() => finish(ok(fix) ? { ...fix } : null), GPS_WINDOW_MS + 300);
-      iv = setInterval(() => { if (ok(fix)) finish({ ...fix }); }, 200);
+      tm = setTimeout(() => finish(ok(fix) ? out() : null), GPS_WAIT_MS);
+      iv = setInterval(() => { if (ok(fix)) finish(out()); }, 200);
       try {
-        navigator.geolocation.getCurrentPosition((p) => { onFix(p); if (ok(fix)) finish({ ...fix }); }, () => {},
-          { enableHighAccuracy: true, maximumAge: 0, timeout: GPS_WINDOW_MS });
+        navigator.geolocation.getCurrentPosition((p) => { onFix(p); if (ok(fix)) finish(out()); }, () => {},
+          { enableHighAccuracy: true, maximumAge: 0, timeout: GPS_WAIT_MS - 300 });
       } catch (e) { /* the watch may still deliver */ }
     });
   }
@@ -5156,17 +5430,20 @@
     if (camBusy || !$('qualBox').hidden) return;
     if (camTarget === 'newid' && camPending && camPending.ph) { guard(takeIdShot, 'Photo 2 not taken'); return; } // beta 3.5: photo 2, the pole ID close-up
     if (!stream) { if (camTarget !== 'newid') useNativeCamera(); return; } // in-app camera blocked: the phone camera app takes the photo or the ID close-up
-    camBusy = true; $('shutter').disabled = true;
+    camBusy = true; shutterBusy(true);
     const seq = camSeq, alive = () => seq === camSeq && !$('camera').hidden; // false once the camera was closed meanwhile
     try {
       const shotAt = Date.now();
       if (camTarget === 'scan') { const crop = grabGuideCrop(), live = liveResult(); finderStop(); await closeSheet(); if (live) applyLiveRead(live); else scanResult(crop); return; }
       if (camTarget === 'newid') { if (camPending) { camPending.crop = grabGuideCrop(); camPending.live = liveResult(); } finderStop(); await closeSheet(); return; }
+      shutterFlash(); // beta 5.9: the press is seen and felt at once
+      const strict = gpsStrict(), gps0 = gpsAtShot(shotAt); // beta 5.9: the fix at the shutter (a survey photo's is refined after it)
+      if (camTarget === 'new' && !strict) gpsRefineStart(shotAt, gps0);
       let blob = null;
       LOG.step('photo.take', { target: camTarget, still: !!imageCapture, opts: photoOpts, mem: memMB() });
       if (imageCapture) {
         try { blob = await withTimeout(takeStill(), TAKE_MS, 'slow'); LOG.info('photo.still', { ms: Date.now() - shotAt, kb: Math.round(blob.size / 1024), type: blob.type }); }
-        catch (e) { blob = null; LOG.warn('photo.still.fail', { ms: Date.now() - shotAt, ...errInfo(e) }); if (e && e.message === 'slow') imageCapture = null; } // a camera that stalls: use the live picture from now on
+        catch (e) { blob = null; LOG.warn('photo.still.fail', { ms: Date.now() - shotAt, ...errInfo(e) }); if (e && e.message === 'slow') { imageCapture = null; framesForStills(); } } // a camera that stalls: use the live picture from now on (beta 5.9: a bigger one)
       }
       if (!blob) {
         const v = $('video'), cv = document.createElement('canvas');
@@ -5179,26 +5456,20 @@
       }
       LOG.done('photo.take');
       if (!alive()) return;
-      if (camTarget === 'newmore' && camPending) { // beta 3.5: photo 3 or 4 (or 2): checked, kept with photo 1; no GPS needed (the pin's is photo 1's)
-        camCheck('Checking photo…');
-        const q = await withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] }));
-        camCheck(false);
-        if (!alive() || camTarget !== 'newmore' || !camPending) return;
-        if (q.flags.length) { await refusePhoto(blob, q); return; }
-        camPending.more.push({ blob, q, at: new Date(shotAt).toISOString(), label: 'Detail' }); prepImages(blob);
-        LOG.info('photo.more', { k: camPending.k, of: phN() });
-        camPending.k++;
-        if (camPending.k > phN()) { await morePhotosDone(); return; }
-        showGuide(); toast(`Photo ${camPending.k - 1} kept`, 1500);
+      if (camTarget === 'newmore' && camPending) { // beta 3.5: photo 3 or 4 (or 2): kept with photo 1; no GPS needed (the pin's is photo 1's)
+        // beta 5.9: kept at once; its check runs in the background, and a photo that fails it is dropped and asked for again
+        const p = camPending, m = { blob, q: null, at: new Date(shotAt).toISOString(), label: 'Detail' };
+        m.qp = withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] })).then((q) => { m.q = q; if (q.flags.length) moreRefused(p, m, q); return q; });
+        p.more.push(m); idle(() => { if (p.more.includes(m)) prepImages(blob); });
+        p.k = 2 + p.more.length;
+        LOG.info('photo.more', { k: p.k - 1, of: phN() });
+        if (p.k > phN()) { await morePhotosDone(); return; }
+        showGuide(); toast(`Photo ${p.k - 1} kept`, 1500);
         return;
       }
-      if (camTarget === 'add' && ed && !ed.acc) { // beta 5.0: + Add photo of a survey pin: checked, added, and the camera stays open for the next one (no GPS wait: the pin has its place)
-        camCheck('Checking photo…');
-        const q = await withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] }));
-        camCheck(false);
-        if (!alive() || !(camTarget === 'add' && ed && !ed.acc)) return;
-        if (q.flags.length) { await refusePhoto(blob, q); return; }
-        addEdPhoto(blob, { ...photoMeta(gpsFresh() ? fix : null, new Date(shotAt).toISOString()), q: qSummary(q) });
+      if (camTarget === 'add' && ed && !ed.acc) { // beta 5.0: + Add photo of a survey pin: added, and the camera stays open for the next one (no GPS wait: the pin has its place)
+        const e0 = ed, pid = addEdPhoto(blob, photoMeta(gpsFresh() ? fix : null, new Date(shotAt).toISOString())); // beta 5.9: checked in the background (a photo that fails is taken out again)
+        withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] })).then((q) => addChecked(e0, pid, q));
         const N = phNOf(ed.element || 'Pole'), k = 1 + (ed.photos || []).length;
         LOG.info('photo.add', { k, of: N });
         if (k >= N) { await closeSheet(); toast(`${k} photos — tap Save to keep them`, 2500); return; }
@@ -5206,10 +5477,18 @@
         return;
       }
       perf.capture = Date.now() - shotAt;
-      const tg = Date.now(), gps = await gpsNear(shotAt);
-      LOG.info('photo.gps', { ms: Date.now() - tg, ok: !!gps, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0 });
-      if (!alive()) return;
-      if (!gps) { toast(gpsErr === 1 ? 'Photo not saved: location is off. Turn on location for G-eSAA, then take it again.' : 'Photo not saved: GPS has not updated in the last 5 seconds. Wait for the green shutter, then take it again.', 6500); return; }
+      let gps = null;
+      if (strict || camTarget === 'cef') { // PAT, cleanup, FAT and visits: a fix within 15 s of the shutter, or the photo is refused; a CEF plan's site photo: a fresh fix, else none
+        const tg = Date.now(); gps = await gpsNear(shotAt, strict ? GPS_ACC_WINDOW_MS : GPS_WINDOW_MS);
+        LOG.info('photo.gps', { ms: Date.now() - tg, ok: !!gps, age: gps ? gps.age : null, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0, strict });
+        if (!alive()) return;
+        if (!gps && strict) { toast(gpsErr === 1 ? 'Photo not saved: location is off. Turn on location for G-eSAA, then take it again.' : `Photo not saved: GPS has not updated in the last ${GPS_ACC_WINDOW_MS / 1000} seconds. PAT, cleanup and FAT photos need a fresh fix: wait for the green shutter, then take it again.`, 6500); return; }
+        if (!gps) toast('No fresh GPS fix: the photo is kept without its location', 3500);
+      } else { // beta 5.9: a survey photo is kept with the best fix there is (refined after the shot when it is old, poor or missing)
+        gps = gref && gref.at === shotAt ? gref.gps : gps0;
+        LOG.info('photo.gps', { ms: 0, ok: !!gps, age: gps ? gps.age : null, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0, refine: !!(gref && gref.at === shotAt && !gref.done) });
+        if (camTarget === 'new' && gref && gref.at === shotAt && !gref.done) toast(!gps ? (gpsErr === 1 ? 'Photo kept · location is off: place the pin by hand' : 'Photo kept · no GPS yet: listening for a fix') : gps.age * 1000 > GPS_WINDOW_MS ? `Photo kept · GPS ${gps.age} s old: refining the location` : `Photo kept · GPS ±${fmtAcc(gps.acc)}: refining the location`, 2600);
+      }
       const tq = Date.now(), takenAt = new Date(shotAt).toISOString();
       const qp = withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] })).then((q) => {
         perf.check = Date.now() - tq; perf.px = q.w ? `${q.w}×${q.h}` : '';
@@ -5218,7 +5497,7 @@
       });
       const multi = camTarget === 'new' && phN() >= 2; // beta 3.5: photo 2 next (the ID close-up in a survey), then up to photos per pin
       if (camTarget === 'new' && (multi || readIdOn())) { // aim at the ID straight away; the photo is checked meanwhile
-        const pend = { blob, gps, takenAt, source: 'camera', qp };
+        const pend = { blob, gps, takenAt, shotAt, source: 'camera', qp };
         if (multi && !isAcc() && phIdp()) { pend.ph = true; enterIdStep(pend); } else if (multi) enterMore(pend, 2); else enterIdStep(pend);
         qp.then((q) => {
           pend.q = q;
@@ -5233,9 +5512,29 @@
       if (!alive()) return;
       if (q.flags.length) { await refusePhoto(blob, q); return; }
       await closeSheet();
-      gotPhoto(blob, gps, 'camera', { q, takenAt });
-    } finally { camBusy = false; $('shutter').disabled = false; camCheck(false); LOG.done('photo.take'); }
+      gotPhoto(blob, gps, 'camera', { q, takenAt, shotAt });
+    } finally { camBusy = false; shutterBusy(false); camCheck(false); LOG.done('photo.take'); shutterState(); }
   });
+  /** beta 5.9: photo 2… failed its check after the camera went on: it is dropped (and asked for again while the camera is still at it). */
+  function moreRefused(p, m, q) {
+    const i = p.more.indexOf(m); if (i < 0) return;
+    p.more.splice(i, 1); p.k = 2 + p.more.length;
+    const why = QUAL_TEXT[q.flags[0]] || 'It could not be checked.';
+    LOG.info('photo.more.refused', { flags: q.flags, left: p.more.length });
+    if (camPending === p && camTarget === 'newmore' && !$('camera').hidden) { showGuide(); toast(`Photo ${i + 2} not kept. ${why} Take it again.`, 6000); }
+    else toast(`Photo ${i + 2} not kept. ${why} Add it again with + Add photo.`, 6500);
+  }
+  /** beta 5.9: the check of a photo added with + Add photo (a survey pin), done in the background: a failed photo is taken out. */
+  function addChecked(e0, pid, q) {
+    if (ed !== e0) return;
+    const X = ed.photos || [], x = X.find((y) => y.pid === pid); if (!x) return;
+    if (!q.flags.length) { x.q = qSummary(q); return; }
+    const n = X.indexOf(x) + 2, why = QUAL_TEXT[q.flags[0]] || 'It could not be checked.';
+    X.splice(n - 2, 1); delete ed.pending[pid];
+    LOG.info('photo.add.refused', { flags: q.flags });
+    if (camTarget === 'add' && !$('camera').hidden) { showGuide(); toast(`Photo ${n} not kept. ${why} Take it again.`, 6000); }
+    else { renderSvPhotos(); toast(`Photo ${n} not kept. ${why} Add it again with + Add photo.`, 6500); }
+  }
   function useNativeCamera() { $('nativeInput').value = ''; $('nativeInput').click(); }
   $('camNative').addEventListener('click', useNativeCamera);
   /* Phone camera app (fallback when the in-app camera is blocked). Only a photo taken just now is used, with a GPS fix
@@ -5245,10 +5544,16 @@
     if (camTarget === 'scan') { if (stack[stack.length - 1] === 'camera') await closeSheet(); scanResult(await centerCrop(f)); return; }
     const back = Date.now(), inCam = () => stack[stack.length - 1] === 'camera', seq = camSeq;
     if (back - (f.lastModified || 0) > MAX_PHOTO_AGE_MS) { toast('Photo not used: it was not taken just now. Photos must be taken live, so their location can be checked.', 6000); return; }
-    const gps = await gpsNear(back); // the phone camera app pauses this app, so the fix is taken right after returning
+    // the phone camera app pauses this app: the fix comes right after returning (beta 5.9: a survey photo is kept and its fix refined, see gpsRefineStart)
+    const strict = gpsStrict(), refine = camTarget === 'new' && !strict;
+    let gps = null;
+    if (refine) { gpsRefineStart(back, gpsAtShot(back)); gps = gref.gps; }
+    else if (strict || camTarget === 'cef') gps = await gpsNear(back, strict ? GPS_ACC_WINDOW_MS : GPS_WINDOW_MS);
+    else gps = gpsAtShot(back);
     if (seq !== camSeq) return; // camera closed while waiting
-    if (!gps) { toast('Photo not used: no GPS update within 5 seconds. Stay in the open and take it again.', 5500); return; }
+    if (!gps && strict) { toast(`Photo not used: no GPS update within ${GPS_ACC_WINDOW_MS / 1000} seconds. Stay in the open and take it again.`, 5500); return; }
     const q = await checkQuality(f).catch(() => ({ flags: ['error'] }));
+    if (refine && gref && gref.at === back) gps = gref.gps; // (a fix may have come during the check)
     if (seq !== camSeq) return;
     if (q.flags.length) {
       if (inCam()) await refusePhoto(f, q);
@@ -5257,9 +5562,9 @@
     }
     prepImages(f);
     const takenAt = new Date(Math.min(back, f.lastModified || back)).toISOString();
-    if (camTarget === 'new' && readIdOn() && stream && inCam()) { enterIdStep({ blob: f, gps, q, takenAt, source: 'camera' }); return; }
+    if (camTarget === 'new' && readIdOn() && stream && inCam()) { enterIdStep({ blob: f, gps, q, takenAt, shotAt: back, source: 'camera' }); return; }
     if (inCam()) await closeSheet();
-    gotPhoto(f, gps, 'camera', { q, takenAt });
+    gotPhoto(f, gps, 'camera', { q, takenAt, shotAt: back });
   });
   /** For a scan taken with the phone camera app: the band where the guide box would be. */
   async function centerCrop(blob) {
@@ -5308,7 +5613,7 @@
       toast(ed.mapPin || ed.mode === 'edit' && !ed.hadPhoto ? 'Photo added — tap Save to keep it' : 'Photo replaced — tap Save to keep it');
       return;
     }
-    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), q: qSummary(x.q), crop: x.crop, live: x.live, idShot: x.idShot, ph2: !!x.ph2, idAt: x.idAt || '', more: x.more || [], noDef: camTarget === 'nodef' });
+    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), shotAt: x.shotAt || 0, q: qSummary(x.q), crop: x.crop, live: x.live, idShot: x.idShot, ph2: !!x.ph2, idAt: x.idAt || '', more: x.more || [], noDef: camTarget === 'nodef' });
   }
 
   /* ================= reading the painted Pole ID (offline OCR) ================= */
@@ -5784,6 +6089,7 @@
     pinMap.on('moveend', clampPin);
     pinMap.on('moveend', () => { if (ed && ed.dragged) scheduleDraft(); }); // v2.21
     pinMap.on('moveend', () => { if (ed && ed.plan) applyPlan(); }); // v2.26.1: the planned element nearest the pin
+    pinMap.on('moveend', () => { if (ed && pinOthersBox && !pinOthersBox.contains(pinMap.getBounds())) drawPinOthers(); }); // beta 5.9: the other pins of the part now in view
     pinMap.on('dragstart zoomstart', () => { if (ed) ed.userMoved = true; });
     pinMap.on('dragstart', () => { if (ed) ed.dragged = true; $('edHint').classList.add('gone'); });
     pinMap.on('dragstart zoomstart', () => $('editor').classList.add('pmsolid')); // beta 4.1 (computer): once the record's map is moved it no longer shows the main map through
@@ -5956,14 +6262,26 @@
     pinMap.panTo([ed.gps.lat + (c.lat - ed.gps.lat) * t, ed.gps.lon + (c.lng - ed.gps.lon) * t]);
     toast(`The pin can move up to ${fmtDist(PIN_LIMIT_M)} from where the photo was taken`, 3000);
   }
-  function editorGpsUpdate() {
-    // A fresh photo taken before GPS locked: adopt the first fix (and keep improving it) until the user moves the pin.
-    if (ed.mode !== 'new' || ed.source !== 'camera' || ed.userMoved || ed.restored) return; // v2.42.4: not a restored record (its photo was taken elsewhere, earlier)
-    if (ed.gps && ed.gps.acc != null && (ed.gps.acc <= fix.acc || ed.gps.acc <= 15)) return; // v2.30: a photo with a usable fix keeps its pin (it no longer creeps as the GPS improves)
-    ed.gps = { ...fix }; drawEdGps();
-    pinMap.setView([fix.lat, fix.lon], Math.max(pinMap.getZoom(), 19), { animate: false });
-    ed.userMoved = false;
-    $('edAcc').textContent = `GPS ±${fix.acc.toFixed(1)} m`;
+  /** beta 5.9: a better fix for the photo just taken (see gpsRefineStart), or g null: the listening ended. The fix is the record's GPS;
+      the pin goes with it only while the user has not touched the record's map (a pin placed by hand stays: Reset to GPS uses the
+      new fix). Replaces editorGpsUpdate, which followed the GPS with no time limit. */
+  function edGpsRefined(g) {
+    if (g) {
+      const touched = ed.userMoved || ed.dragged;
+      ed.gps = { ...g }; drawEdGps();
+      if (!touched && pinMap) { pinMap.setView([g.lat, g.lon], pinMap.getZoom(), { animate: false }); ed.userMoved = false; } // (the zoom stays: the map does not jump in or out)
+      else toast(`GPS refined to ±${fmtAcc(g.acc)}. Your pin stays where you put it; Reset to GPS moves it to the new fix.`, 4500);
+      $('edAcc').textContent = `GPS ±${g.acc.toFixed(1)} m`;
+      updateCoordBox(); scheduleDraft();
+    }
+    edGpsNote();
+  }
+  /** The record's line about its fix at the shutter (beta 5.9): shown on the record's map, under the coordinates. */
+  function edGpsNote() {
+    const el = $('pinGpsNote'); if (!el) return;
+    const g = ed && ed.gps, live = !!(ed && ed.shotAt && gref && gref.at === ed.shotAt && !gref.done);
+    const t = !ed || ed.acc || ed.mapPin ? '' : ed.shotAt ? gpsNoteOf(g, live) : g && (g.age != null || g.ref != null) ? gpsNoteOf(g, false) : '';
+    el.textContent = t; el.hidden = !t; $('coordBox').classList.toggle('gpsnote', !!t);
   }
   function updateCoordBox() {
     if (!ed || !pinMap) return;
@@ -6022,8 +6340,9 @@
   async function openEditor(o) {
     ensurePinMap();
     const acc = isAcc();
-    if (o.blob) setTimeout(() => prepImages(o.blob), 400); // made while the ID is checked; the camera is closed by now
-    ed = { mode: o.mode, id: o.id || uid(), source: o.source, gps: o.gps || null, newBlob: o.blob || null,
+    if (o.blob) idle(() => prepImages(o.blob), 3000); // made while the ID is checked; the camera is closed by now (beta 5.9: once the record is drawn)
+    const sg = o.shotAt && gref && gref.at === o.shotAt ? gref.gps : undefined; // beta 5.9: a photo just taken: the best fix so far (it may be refined still)
+    ed = { mode: o.mode, id: o.id || uid(), source: o.source, gps: (sg !== undefined ? sg : o.gps) || null, shotAt: o.shotAt || 0, newBlob: o.blob || null,
       takenAt: o.takenAt, type: o.type || S.lastType, userMoved: false, acc, boq: JSON.parse(JSON.stringify(o.boq || {})), hadPhoto: !!(o.blob || o.storedBlob) };
     // v2.16: 'closed' = a completed PAT (view only); 'carried' = an element from the PAT in the cleanup or FAT (fixes only)
     ed.lock = !acc ? '' : patClosed() ? 'closed' : o.mode === 'edit' && ['Cleanup', 'FAT'].includes(taskCat()) && (o.patId || (o.defs || []).some((d) => (d.stage || 'PAT') === 'PAT')) ? 'carried' : '';
@@ -6092,6 +6411,7 @@
     } else if (acc && o.more && o.more.length) (o.more || []).forEach((m) => { if (!m || !m.blob) return; const pid = uid(); ed.photos.push({ pid, label: 'Detail', ...photoMeta(o.gps, m.at), q: qSummary(m.q) }); ed.pending[pid] = m.blob; }); // (an element photo of a phone that does not record defects)
     $('edTime').textContent = fmtTime(o.takenAt);
     $('edAcc').textContent = ed.gps && Number.isFinite(ed.gps.acc) ? `GPS ±${ed.gps.acc.toFixed(1)} m` : (ed.gps ? 'Location from photo' : 'No location yet');
+    edGpsNote(); // beta 5.9: an old or missing fix at the shutter, and whether it was refined
     $('edSrc').textContent = o.note || '';
     showEdPhoto(o.blob || o.storedBlob || null);
     $('editor').classList.remove('pmready', 'pmsolid'); document.body.classList.add('edopen'); // beta 4.1 (computer): the form opens over the same map
@@ -6102,8 +6422,9 @@
       const same = pinDeskSame(start); // beta 4.1: on a computer, on the main map's own view
       pinMap.invalidateSize(same ? { animate: false, pan: false } : undefined);
       setTimeout(() => $('editor').classList.add('pmready'), same && same.wait ? same.wait : 50); if (!same) $('editor').classList.add('pmsolid');
-      if (same) pinMap.setView([start.lat, start.lon], same.z, { animate: false });
-      else if (start) pinMap.setView([start.lat, start.lon], 19, { animate: false });
+      const at = o.lat == null && ed.gps ? ed.gps : start; // (beta 5.9: a fix refined since the record opened)
+      if (same) pinMap.setView([at.lat, at.lon], same.z, { animate: false });
+      else if (at) pinMap.setView([at.lat, at.lon], 19, { animate: false });
       else { const c = map.getCenter(); pinMap.setView(c, Math.max(map.getZoom(), 16), { animate: false }); }
       ed.userMoved = false; drawEdGps(); updateCoordBox(); drawPinRef(); drawPinOthers();
     });
@@ -6128,13 +6449,20 @@
   let draftTimer = 0, draftChain = Promise.resolve(), draftBlobs = {}, draftAtStart = 0, draftGen = 0; // v2.42.4: draftGen
   try { const st0 = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); draftAtStart = (st0 && st0.t) || 0; } catch (e) { draftAtStart = 0; } // the draft left from before this start
   /** A photo taken, the camera still open for the ID: kept as a draft too, so a reload during the ID scan does not lose it. */
+  let shotDraftBlob = null; // beta 5.9: the photo the shot draft holds (draft~new): the record's draft keeps it there instead of writing it again
   function shotDraft(p) {
     if (!p || !p.blob || ed) return;
     const st = { v: 1, t: Date.now(), shot: true, project: S.project, mode: 'new', acc: isAcc(), element: 'Pole', gps: p.gps || null, takenAt: p.takenAt || '', source: p.source || 'camera', hasNew: true };
-    draftBlobs = {};
+    draftBlobs = {}; shotDraftBlob = p.blob;
     draftChain = draftChain.then(async () => {
-      try { await dbPut('photos', { id: 'draft~new', clean: p.blob }); localStorage.setItem(DRAFT_KEY, JSON.stringify(st)); } catch (e) { LOG.warn('draft.fail', errInfo(e)); }
+      try { await dbPut('photos', { id: 'draft~new', clean: p.blob }); localStorage.setItem(DRAFT_KEY, JSON.stringify(st)); }
+      catch (e) { LOG.warn('draft.fail', errInfo(e)); if (shotDraftBlob === p.blob) { shotDraftBlob = null; if (ed && draftBlobs.new === p.blob) { delete draftBlobs.new; scheduleDraft(); } } } // (not kept: the record's draft writes it)
     });
+  }
+  /** beta 5.9: a fix refined while the camera is still open goes into the shot draft (only its text: the photo is not written again). */
+  function shotDraftGps(p) {
+    if (ed || !p || shotDraftBlob !== p.blob) return;
+    draftChain = draftChain.then(() => { try { const st = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); if (st && st.shot) { st.gps = p.gps || null; localStorage.setItem(DRAFT_KEY, JSON.stringify(st)); } } catch (e) { /* private window */ } });
   }
   function draftState() {
     if (!ed) return null;
@@ -6179,15 +6507,17 @@
     return draftChain;
   }
   const scheduleDraft = () => { if (!ed) return; clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 700); };
-  function draftClear() {
-    clearTimeout(draftTimer); draftBlobs = {}; draftGen++;
+  function draftClear(keepNew) {
+    clearTimeout(draftTimer); draftBlobs = {}; draftGen++; if (!keepNew) shotDraftBlob = null;
     try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* private window */ }
-    draftChain = draftChain.then(() => tx('photos', 'readwrite', (st) => st.delete(IDBKeyRange.bound('draft~', 'draft~\uffff'))).catch(() => {}));
+    const k = 'draft~new', R = IDBKeyRange; // beta 5.9: keepNew: the photo of the shot draft stays (it is the new record's photo)
+    draftChain = draftChain.then(() => tx('photos', 'readwrite', (st) => { if (keepNew) { st.delete(R.bound('draft~', k, false, true)); st.delete(R.bound(k, 'draft~\uffff', true, false)); } else st.delete(R.bound('draft~', 'draft~\uffff')); }).catch(() => {}));
     return draftChain;
   }
   /** After a record opens: an older draft goes; a new record's photo is kept at once; an opened one is compared from now on. */
   function draftStart(restoring) {
-    if (!restoring) { draftClear(); }
+    const keep = !restoring && !!ed && ed.mode === 'new' && !!ed.newBlob && ed.newBlob === shotDraftBlob; // beta 5.9: the camera's photo is in the store already: not written twice
+    if (!restoring) { draftClear(keep); if (keep) draftBlobs.new = ed.newBlob; }
     if (!ed) return;
     if (ed.mode === 'new') saveDraft();
     setTimeout(() => { if (ed && !ed.sig0) { const st = draftState(); if (st) ed.sig0 = draftSig(st); } }, 900); // after the pin and the readings settle
@@ -6279,7 +6609,7 @@
     }
     const ph = await dbGet('photos', id).catch(() => null);
     openEditor({ mode: 'edit', id, poleId: p.poleId, type: p.poleType, lat: p.lat, lon: p.lon, takenAt: p.takenAt,
-      gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy, alt: p.alt } : null, /* v2.42.4: + alt (Save wiped it) */ storedBlob: ph ? (ph.clean || ph.thumb) : null, source: p.source,
+      gps: p.gpsLat != null ? { lat: p.gpsLat, lon: p.gpsLon, acc: p.accuracy, alt: p.alt, ...(p.gpsAge != null ? { age: p.gpsAge } : {}), ...(p.gpsRef != null ? { ref: p.gpsRef } : {}) } : null, /* v2.42.4: + alt (Save wiped it); beta 5.9: + the fix's age at the shutter and its refining */ storedBlob: ph ? (ph.clean || ph.thumb) : null, source: p.source,
       element: elemOf(p), status: p.status || '', remarks: p.remarks || '', closureId: p.closureId || '', boxes: p.boxes || 0, details: p.details || [], marks: p.marks || [], origPid: p.origPid || '', poleModel: !!p.poleModel, color: p.color || '',
       boq: p.boq || {}, siteKind: p.siteKind || '', photos: p.photos || [], // v2.37: the record's sizes and its site kind come back with it (beta 3.5: and its other photos)
       nap: !!p.nap, napId: p.napId || '', nap2: !!p.nap2, nap2Id: p.nap2Id || '', closure: !!p.closure }); // v2.42: and what is on the pole (v2.41 left it out: a reopened pole lost its NAP when saved)
@@ -6872,16 +7202,19 @@
   }
   $('siteKindSel').addEventListener('change', (e) => { if (!ed) return; ed.siteKind = e.target.value === 'OLT' ? 'OLT' : 'Tower'; applyElement(); scheduleDraft(); });
   /* v2.37: the project's other points (and its route) faint on the record's map, as a guide for placing the pin: not tappable */
-  let pinOthers = null, pinOwnLines = [];
+  let pinOthers = null, pinOwnLines = [], pinOthersBox = null; // beta 5.9: pinOthersBox: the part of the record's map its other pins are drawn for
   /** v2.42.19: the open pole's spans follow its pin while the map is dragged. */
   function movePinOwnLines() { if (!pinMap || !pinOwnLines.length) return; const c = pinMap.getCenter(); pinOwnLines.forEach(({ pl, tag, o }) => { pl.setLatLngs([[c.lat, c.lng], [o.lat, o.lon]]); if (tag) tag.setLatLng([(c.lat + o.lat) / 2, (c.lng + o.lon) / 2]); }); }
   function drawPinOthers() {
     if (!pinMap) return;
     if (!pinOthers) { pinMap.createPane('othPane'); pinMap.getPane('othPane').style.zIndex = 380; pinMap.getPane('othPane').style.pointerEvents = 'none'; pinOthers = L.layerGroup().addTo(pinMap); }
-    pinOthers.clearLayers(); pinOwnLines = [];
+    pinOthers.clearLayers(); pinOwnLines = []; pinOthersBox = null;
     if (!ed || ed.acc || isAcc()) return;
+    // beta 5.9: only the pins around the view (three times its size each way), drawn again when the map is moved past them: a project's
+    // hundreds of labelled pins made the record slow to open after each photo
+    const box = pinOthersBox = pinMap.getBounds().pad(1), inBox = (p) => box.contains([p.lat, p.lon]);
     const pts = projPoints().filter((p) => p.id !== ed.id), by = new Map(pts.map((p) => [p.id, p]));
-    for (const [a, b] of links()) { const A = by.get(a), B = by.get(b); if (A && B) L.polyline([[A.lat, A.lon], [B.lat, B.lon]], { pane: 'othPane', color: '#1c3f94', weight: 2.5, opacity: 0.5, dashArray: '6 5', interactive: false }).addTo(pinOthers); }
+    for (const [a, b] of links()) { const A = by.get(a), B = by.get(b); if (A && B && (inBox(A) || inBox(B))) L.polyline([[A.lat, A.lon], [B.lat, B.lon]], { pane: 'othPane', color: '#1c3f94', weight: 2.5, opacity: 0.5, dashArray: '6 5', interactive: false }).addTo(pinOthers); }
     // v2.42.19: the open pole's own spans, from its pin to the poles it is linked to (they follow the pin); stronger, ×N for more runs
     pinOwnLines = []; const c = pinMap.getCenter(), FS = fibers().filter((f) => f.path.includes(ed.id)).sort((a, b) => a.n - b.n);
     for (const l of links()) {
@@ -6892,6 +7225,7 @@
       pinOwnLines.push({ pl, tag, o });
     }
     for (const p of pts) {
+      if (!inBox(p)) continue;
       const el = elemOf(p), nw = p.status === 'Proposed' || p.status === 'New', col = pinCol(p) || (el === 'Pole' ? (nw ? '#e03131' : '#495057') : SV_COLORS[el] || '#495057');
       L.circleMarker([p.lat, p.lon], { pane: 'othPane', radius: 5.5, color: '#fff', weight: 2, fillColor: col, fillOpacity: 0.85, interactive: false })
         .bindTooltip(C.xmlEsc(recName(p) || p.poleId || ''), { permanent: true, direction: 'right', offset: [6, 0], className: 'pole-label oth', interactive: false }).addTo(pinOthers);
@@ -7274,8 +7608,10 @@
   function addEdPhoto(blob, meta) {
     if (!ed.acc) { // beta 3.5: one more photo of the pin
       const pid = uid(), has = new Set((ed.photos || []).map((x) => x.label));
-      ed.photos.push({ pid, label: (ed.element || 'Pole') === 'Pole' && !has.has('Pole tag') ? 'Pole tag' : 'Detail', ...meta }); ed.pending[pid] = blob; prepImages(blob);
-      renderSvPhotos(); toast('Photo added — tap Save to keep it'); return;
+      ed.photos.push({ pid, label: (ed.element || 'Pole') === 'Pole' && !has.has('Pole tag') ? 'Pole tag' : 'Detail', ...meta }); ed.pending[pid] = blob;
+      // beta 5.9: from the camera (still open for the next one): prepared when the phone is idle, and the record's photos drawn once it closes
+      if (stack[stack.length - 1] === 'camera') { ed.svStale = true; idle(() => { if (ed && ed.pending[pid] === blob) prepImages(blob); }); return pid; }
+      prepImages(blob); renderSvPhotos(); toast('Photo added — tap Save to keep it'); return pid;
     }
     const pid = uid(); ed.photos.push({ pid, label: nextPhotoLabel(), ...meta }); ed.pending[pid] = blob; prepImages(blob);
     renderAccPhotos(); toast('Photo added — set its label under the picture');
@@ -7861,12 +8197,13 @@
         ...(ed.newBlob && !ed.keepQ ? { q: ed.q || null } : {}), ...(ed.idRead ? { idRead: ed.idRead } : {}),
         gpsLat: g ? g.lat : null, gpsLon: g ? g.lon : null,
         accuracy: g && Number.isFinite(g.acc) ? g.acc : null,
+        gpsAge: g && Number.isFinite(g.age) ? g.age : null, gpsRef: g && Number.isFinite(g.ref) ? g.ref : null, // beta 5.9: the fix's age at the shutter (s) and, when it was refined after it, how long after (s)
         alt: g && Number.isFinite(g.alt) ? g.alt : null,
         adjusted: g ? haversine(g, pos) > 0.5 : true,
         color: ed.color || '', // v2.36: the pin's own colour ('' = by its status)
         siteKind: ed.element === 'Site' ? (ed.siteKind === 'OLT' ? 'OLT' : 'Tower') : '', // v2.37
       });
-      if (!rec.color) delete rec.color; if (!rec.siteKind) delete rec.siteKind;
+      if (!rec.color) delete rec.color; if (!rec.siteKind) delete rec.siteKind; if (rec.gpsAge == null) delete rec.gpsAge; if (rec.gpsRef == null) delete rec.gpsRef;
       const photos = [];
       if (ed.newBlob) {
         busy('Preparing photo…');
@@ -7907,13 +8244,17 @@
     // saved: refreshing the screens must not turn a successful save into an error
     busy(false);
     const wasNew = ed.mode === 'new';
-    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); renderPoles(); if (!$('list').hidden) renderList(); } catch (e) { LOG.error('save.refresh', errInfo(e)); }
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { LOG.error('save.refresh', errInfo(e)); }
     editorSaving = false;
     if (ed) ed.closeOK = true; // saved: the draft goes
-    await closeSheet();
+    await closeSheet(); savedRedraw(); // beta 5.9: the map and the list are redrawn once the record has closed (the save no longer waits on them)
     if (wasNew) map.setView([pos.lat, pos.lon], Math.max(map.getZoom(), 17));
     if (genId) toast(`No ID entered: saved as ${poleId}, a generic number. Change it when the ID is known (open the pin).`, 5000);
     else toast(wasNew ? `${poleId} saved` : 'Changes saved');
+  }
+  /** beta 5.9: after a Save, the pins and the list are drawn again in the frame after the record closed. */
+  function savedRedraw() {
+    requestAnimationFrame(() => setTimeout(() => { try { renderPoles(); if (!$('list').hidden) renderList(); } catch (e) { LOG.error('save.refresh', errInfo(e)); } }, 0));
   }
   /** v2.27: the generic number of a survey record saved without its ID: P-0001 (pole), ODF-0001, SITE-0001, ODC-, NAP-, CL-, HH-0001;
       a proposed pole keeps its PP- number. The next free number in the project. */
@@ -8263,10 +8604,10 @@
     clearTimeout(slow);
     busy(false);
     const wasNew = ed.mode === 'new', pos2 = { lat: rec.lat, lon: rec.lon }, noDefDone = !!rec.noDef && taskCat() === 'PAT' && !pmeta().completedAt;
-    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); renderPoles(); if (!$('list').hidden) renderList(); } catch (e) { LOG.error('save.refresh', errInfo(e)); }
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { LOG.error('save.refresh', errInfo(e)); }
     editorSaving = false;
     if (ed) ed.closeOK = true; // saved: the draft goes
-    await closeSheet();
+    await closeSheet(); savedRedraw(); // beta 5.9: the map and the list are redrawn once the record has closed (the save no longer waits on them)
     if (wasNew) map.setView([pos2.lat, pos2.lon], Math.max(map.getZoom(), 17));
     toast(`${DREF_RE.test(poleId) ? 'Element' : poleId} saved${n ? ` · ${n} open deficienc${n === 1 ? 'y' : 'ies'}` : ' · OK'}`);
     if (noDefDone) setTimeout(() => guard(() => completeNoDefects(), 'PAT not completed'), 350); // v2.23: the site photo is in: complete
@@ -10427,7 +10768,7 @@
     if (!seed) { if (!seedId()) toast('No plan template yet: ask your admin to share it, or load the template file they sent you', 6000); renderDxfTpl(); return; }
     busy('Preparing the plan drawing…');
     const m = pmeta(), zone = S.zone, U = (q) => { const u = C.utmForward(q.lat, q.lon, zone, q.lat < 0); return [u.E, u.N]; };
-    const R = routeModel(), Q = surveyQty(pts), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
+    const QC = { loops: [] }, R = routeModel(), Q = surveyQty(pts, QC), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
     const LA = autoLoops(pts, R), OWN = loopOwnMap(pts, R); // v2.42.16: the maintenance loops the app adds (As-Plan); v2.42.18: the own ones
     const showCT = S.exp.dxfClampType !== false; // v2.40: the plan's options (v2.41: set on the Drawing screen)
     const PLS = plStyle(); // v2.42.21: where the clamp types go, the 12C hardware, the cable labels
@@ -10510,6 +10851,23 @@
       SIG_DESIGN_ENGINEER: S.sig.design || '', SIG_PROJECT_ENGINEER: S.sig.project || '', SIG_HEAD_CABLE_ENGINEERING: S.sig.head || '', SIG_JUNIOR_ENGINEER: '', SIG_CSE_LEAD: S.sig.cse || '',
       PMI_FIBER_TERMINATION: String(q.ODF_NEW_FIBERS || 0), PMI_HYBRID_CLOSURE: String(Object.entries(q).filter(([k]) => /^CLOSURE_NEW_/.test(k)).reduce((t, [, v]) => t + (+v || 0), 0)),
     };
+    /* beta 5.9: the PMI's quantities item by item, each where it is, for the BOQ table of each GEO sheet (dxftpl adds them up by grid
+       cell): a span's length where its length is written on the plan (each run when the PMI counts the runs), a loop at its point, a
+       pole by its kind, a new ODF's fibers, a new closure; the same rules as the PMI table above, so the sheets add up to it. */
+    const pmiItems = (() => {
+      const meth = (k) => (k && CAB[k] ? CAB[k].method : null), out = { spans: [], points: [] };
+      if (R.spans.length) {
+        R.spans.forEach((sp) => { const runs = sp.runs || [sp.cable], ae = runs.filter((k) => meth(k) === 'AE').length * sp.len, ug = runs.filter((k) => meth(k) === 'UG').length * sp.len;
+          out.spans.push({ ia: sp.ia, ib: sp.ib, v: { PMI_TOTAL_CABLE_LENGTH: pmiL ? runs.length * sp.len : sp.len, PMI_AERIAL_CABLE_LENGTH: ae, PMI_UG_CABLE_LENGTH: ug } }); });
+        if (pmiL) QC.loops.forEach(([id, cab, len]) => out.points.push({ id, v: { PMI_TOTAL_CABLE_LENGTH: len, ...(meth(cab) === 'AE' ? { PMI_AERIAL_CABLE_LENGTH: len } : meth(cab) === 'UG' ? { PMI_UG_CABLE_LENGTH: len } : {}) } }));
+      }
+      poles.forEach((p) => { const v = {}, ow = own(p); if (isNew(p)) v.PMI_PROPOSED_POLE = 1; else if (gt(p)) v.PMI_EXISTING_GT_POLE = 1; else { if (/CONVERGE/.test(ow)) v.PMI_RTA_CONVERGE = 1; if (/ELECTRIC/.test(ow)) v.PMI_RTA_LOCAL_COOP = 1; if (ow && !/CONVERGE|ELECTRIC/.test(ow)) v.PMI_RTA_OTHER_PLDT = 1; } if (Object.keys(v).length) out.points.push({ id: p.id, v }); }); // (each rule of the PMI on its own, as above)
+      pts.filter((p) => elemOf(p) === 'ODF' && isNew(p)).forEach((p) => { const n = parseInt(String((p.boq && p.boq.odf) || ''), 10) || 0; if (n) out.points.push({ id: p.id, v: { PMI_FIBER_TERMINATION: n } }); });
+      const stOf = (p, k) => ((p.boq || {})[k] === 'Existing' ? 'Existing' : 'New'), nClo = (p) => String((p.boq && p.boq.clo) || 'size not set').split(' + ').length;
+      pts.filter((p) => elemOf(p) === 'Closure' || boxClo(p)).filter((p) => (boxClo(p) && p.boq && p.boq.cloSt ? p.boq.cloSt === 'New' : isNew(p) || (p.boq && p.boq.cloSt === 'New')))
+        .concat(poles.filter((p) => (p.closure || p.closureId) && stOf(p, 'cloSt') === 'New')).forEach((p) => out.points.push({ id: p.id, v: { PMI_HYBRID_CLOSURE: nClo(p) } }));
+      return out;
+    })();
     // v2.35: the ROW AREA COVERAGE sheet: the cities / municipalities and barangays the route passes (every 20 m of each span and
     // every point), from the boundaries in a road pack on this phone
     let rowNote = 'no road pack on this phone covers the route, so the table is left blank (Maps → Offline map packs → Roads · your region)';
@@ -10572,9 +10930,9 @@
       busy(many ? `Drawing the plan on the template (${k + 1} of ${SETS.length})…` : 'Drawing the plan on the template…', k / SETS.length);
       await sleep(30);
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
-      const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? PLS.clamp : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks,
-        towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: PLS.site.acol, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
-        numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, poleStyle: PS.pole, spanStyle: PS.span, /* beta 4.3 */ photoStyle: PS.photo, /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
+      const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks,
+        towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: jobCols({ c: PLS.site.acol }).c, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
+        numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 5.9: a colour of the user's own as the colour itself */ photoStyle: PS.photo, gridStyle: jobCols(PS.grid), /* beta 5.9: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 5.9: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
     }
@@ -10623,7 +10981,7 @@
       ...(siteFieldsOf().length ? [`Site details (Project details): ${siteFieldsOf().map(([k2, v2]) => `${k2}: ${v2}`).join(' · ')}.`] : []),
       'Cables: red = new fiber, blue = existing; broken line = aerial, solid line = underground.',
       `Sheets: TITLE, TOC, LEGENDS, ${(rp.vicinities || [{ sheet: 'VICINITY MAP' }]).map((v) => v.sheet).join(', ')}, ROW AREA COVERAGE, ${(rp.vicinities || [0]).map((_, k) => (k ? `KEYMAP (${k + 1})` : 'KEYMAP')).join(', ')}, ${rp.sheets.join(', ')}, PMI.`,
-      `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${rp.grid.cell} m (1:1100 on the GEO sheets).`,
+      `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${+(+rp.grid.cell).toFixed(1)} m (1:${Math.round(1100 * rp.grid.cell / 440)} on the GEO sheets${((rp.tidy || {}).grid || {}).mode === 'fixed' ? `; the split chosen in Drawing style \u203a Grid, 1/${rp.tidy.grid.n}` : (rp.tidy || {}).grid ? `; Auto split, 1/${rp.tidy.grid.n}` : ''}).`, // (beta 5.9: the scale of a finer Tidy grid; which split)
       `Roads: ${roadsNote}.`,
       `Right of way (ROW AREA COVERAGE): ${rowNote}.`, '',
       `Left blank (not known to the app; fill them in CAD): ${rp.blanks.join(', ') || 'none'}.`,
@@ -10637,16 +10995,17 @@
         if (svPurpose() === 'As-built') return [`Maintenance loops on poles: as recorded in the As-Built (${onPoles}${own}${q.MLOOP_UNANSWERED ? `; ${q.MLOOP_UNANSWERED} pole${q.MLOOP_UNANSWERED === 1 ? '' : 's'} on the route not answered` : ''}).`, ...box];
         return [`Maintenance loops on poles (each its own length: by default 10 m on 12C, ${mloopLen()} m on 72C): ${onPoles} on the plan${own}; ${ids.length ? `${ids.length} added by the app where the survey had none (${loopRule}): ${ids.join(', ')}` : 'none added by the app'}.`, ...box]; })(),
       `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Settings → AutoCAD DXF)'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures. Trenches and maxcell are not in the survey.',
+      ...(S.exp.dxfBoqGrid !== false && rp.boqGrid ? [`BOQ table on each GEO sheet (Plan settings): the PMI rows for that sheet's grid only, in its right-hand box. A span counts whole on the sheet where its length is written (a span crossing a sheet edge is not split); a loop, a pole, a new ODF's fibers and a new closure count where their point is; lengths rounded so the sheets add up to the PMI${rp.boqGrid.check.every((c) => c.ok) && !rp.boqGrid.lost.length ? ' (they do: every row checked)' : ` (check: ${rp.boqGrid.check.filter((c) => !c.ok).map((c) => c.row).join(', ')})`}. The rows the PMI leaves blank stay blank.`] : []), // beta 5.9
       'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (PROP.POLE / height / clamp)') + ', existing electric pole on ELECTRIC POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / pole tag or NPT)') + ', telco pole on GT-POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / ID)') + '; new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
       `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; a pin placed by hand more than 6 m from the road edge stays where it is: ${rp.counts.polesKept || 0}; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it; a side guy never into the road; a pole-to-pole guy to its chosen pole, with a head guy there: ${rp.counts.poleToPole || 0}).`,
       `On the cable (the cable meets their two sides, the ID below): NAPs of every kind (1x8, 1x16, dummy, changed to 1:16, double; a NAP pin is drawn on its pole), LCPs (1:4 and double, a kind of NAP on its pole), the ODC (G-eSAA's cabinet symbol, layers G-ESAA PROPOSED / EXISTING ODC: the template has no ODC model), handholes, manholes and service boxes: ${rp.counts.inlineBlocks || 0}. Loops on the cable beside their pole; closures on the cable. Grounding at every pole with a loop or marked for it: ${rp.counts.grounding || 0}. Risers where the cable goes from aerial to underground (or marked): ${rp.counts.risers || 0}. Directional boring (HDD) where an underground cable crosses a road: ${rp.counts.hdd || 0}. A new tower is red; an OLT site is drawn with the OLT model (${rp.counts.olt || 0}).`,
       ...(() => { const A = routeAdvice(R); return A.length ? [`Route check (${A.length}): ${A.map((a) => a.text).join(' · ')}.`] : []; })(),
       `Road widths by OpenStreetMap class (or its width / lanes): primary 12 m, secondary 9, tertiary 7.5, residential 6, service 4, track 3.5; paths as a grey centre line. Building and place names: ${rp.counts.pois || 0} of the ${rp.counts.poisGiven || 0} named in OpenStreetMap round the route (its area and 250 m round it; not written: ${rp.counts.poisOutside || 0} outside the GEO sheets, ${rp.counts.poisNoRoom || 0} with no free room beside them, ${rp.counts.poisDuplicate || 0} repeated names)${rp.counts.landmarkIcons ? `, ${rp.counts.landmarkIcons} with their icon (blocks GESAA_LM_…, layer G-ESAA LANDMARK; icons of the OpenStreetMap street map and Mapbox Maki, public domain)` : ''}.`,
       S.exp.dxfLabels === 'tidy' ? (() => { const sz = (outs.find((o) => o.out.report.tidy && o.out.report.tidy.sizes) || { out: { report: { tidy: {} } } }).out.report.tidy.sizes, grs = outs.map((o) => (o.out.report.tidy || {}).grid).filter((g) => g && g.n), gN = grs.length ? grs[0].n : 1; // beta 4.7, 4.8: the whole map tidy
-        return 'Pole labels: Tidy. The map is laid out so that nothing sits on anything else. The NAP, loop and closure symbols are drawn at most 0.7 of the width of the street they are on, the numbers\' circles at most as wide as the street. Each pole has one block, turned along the fiber cable that serves it (along its road when no cable passes it) and reading the right way up: its number in its circle (when it is numbered), its tag and type (NPT when it has no tag), then, in smaller text, its clamps and 12C hardware, its owner and its latitude and longitude; its photo stands upright (square to the sheet) right beside the block. The block sits beside its pole just past the edge of the road, lined up along the street, or further out with a thin grey line to it, nearer its own pole than any other where it can be; over a road only where no other place is free (listed under Drawing checks). The IDs of the NAPs and closures and the loop lengths are straight labels beside their symbol; span lengths and cable labels run along their cable, inside the street where there is room'
+        return 'Pole labels: Tidy. The map is laid out so that nothing sits on anything else. The NAP, loop and closure symbols are drawn at most 0.7 of the width of the street they are on, the numbers\' circles at most as wide as the street. Each pole has one block, turned along the fiber cable that serves it (along its road when no cable passes it) and reading the right way up: its number in its circle (when it is numbered), its tag and type (NPT when it has no tag), then, in smaller text, its clamps and 12C hardware, its owner and its latitude and longitude; its photo stands upright (square to the sheet) on the side away from the road, near its pole: beside the block where the block is by the pole; by the pole itself where the block sits further out with its line (where there is no room near the pole, beside the block, listed under Drawing checks). The block sits beside its pole just past the edge of the road, lined up along the street, or further out with a thin grey line to it, nearer its own pole than any other where it can be; over a road only where no other place is free (listed under Drawing checks). The IDs of the NAPs and closures and the loop lengths are straight labels beside their symbol; span lengths and cable labels run along their cable, inside the street where there is room'
           + (sz && sz.mm ? `. Every text of the route prints at one of two sizes on the A3 PDF: ${sz.mm[0]} mm (the first line, IDs, loop lengths, numbers) and ${sz.mm[1]} mm (the other lines, span lengths, cable labels); ${(sz.l1 / gN).toFixed(2)} m and ${(sz.sm / gN).toFixed(2)} m high in the drawing` : '')
-          + (grs.length ? `. The grid of the GEO sheets is the same for the whole plan, its cells ${grs.map((g) => `${g.cell} m`).join(', ')} across${gN > 1 ? ` (1/${gN} of the template's), every GEO sheet at ${gN} times the template's scale` : ' (the template\'s)'}: the largest at which every pole's block found a place at these sizes, off the road (where one did not, the next finer grid was tried and kept when it left fewer: ${grs[0].tried ? grs[0].tried.map((t) => `${t.cell} m, ${t.sheets} sheets: ${t.bad} without a place, ${t.over} over a road`).join('; ') : ''}); the sheets named by row letter and column number (A-1, B-2 …) as the key map shows them` : '')
-          + (outs.some((o) => (o.out.report.notes || []).some((n) => /^(Tidy labels|Photos with no free place)/.test(n))) ? '. Where no free place was found, the label or photo is listed under Drawing checks above' : '') + '.'; })()
+          + (grs.length ? `. The grid of the GEO sheets is the same for the whole plan, its cells ${grs.map((g) => `${g.cell} m`).join(', ')} across${gN > 1 ? ` (1/${gN} of the template's), every GEO sheet at ${gN} times the template's scale` : ' (the template\'s)'}${grs[0].mode === 'fixed' ? `: the split chosen in Drawing style \u203a Grid (1/${gN}), kept even where a label had no free place` : `: Auto (Drawing style \u203a Grid), the largest grid, 1/1 to 1/4 of the template's cell, at which every label found a free place at these sizes and no GEO sheet has more than two pole blocks over a road or two photos away from their pole (those cover nothing else and are listed under Drawing checks; the next finer grid was tried only beyond that: ${grs[0].tried ? grs[0].tried.map((t) => `${t.cell} m, ${t.sheets} sheets: ${t.bad} without a place, ${t.over} over a road (at most ${t.overMax || 0} on a sheet)`).join('; ') : ''})`}; the sheets named by row letter and column number (A-1, B-2 \u2026) as the key map shows them, each sheet's name in its corner under the details, which stay readable over it` : '')
+          + (outs.some((o) => (o.out.report.notes || []).some((n) => /^(Tidy labels|Tidy photos|Photos with no free place)/.test(n))) ? '. Where no free place was found, the label or photo is listed under Drawing checks above' : '') + '.'; })()
         : 'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD. Each pole\'s label points straight out from the cable, and its photo or number sits beside the pole on the side toward the homing, the same at every pole where there is room (elsewhere a little further, turned, or on the other side).', '',
       ...outs.flatMap((o) => { const MK = o.out.report.marks || []; return MK.length ? [`Numbers on the plan${many ? ` in ${o.file}` : ''} (${MK.length}${o.st.no.size ? `: ${o.st.what}` : ''}): number, ID, type, latitude, longitude`, ...markLinesOf(MK), ''] : []; }), exporterText()].join('\r\n');
     busy(false);
@@ -10860,7 +11219,7 @@
   /** v2.29: the survey quantities the BOQ rules will use, each with a code (the BOQ template's formulas will point at these):
       span lengths by cable type and method, maintenance loops, FOC length with loops, detailed engineering (spans without
       loops), new poles by size and class, arms, guying, ODF, closures, NAPs, poles on each cable, the region. */
-  function surveyQty(pts) {
+  function surveyQty(pts, col) { // (beta 5.9: col.loops: each counted loop [point id, cable, length], for the BOQ table of each GEO sheet)
     const rp = pts.filter((p) => ROUTE_ELS.includes(elemOf(p))), R = fibAnnotate(C.analyzeRoute(rp, effLinks(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 }), rp); // v2.42.20: + the fibers
     const rows = [], add = (code, qty, unit, desc) => rows.push([code, qty, unit, desc]), r1 = (v) => Math.round(v * 10) / 10, isNew = (p) => ['Proposed', 'New'].includes(p.status);
     const keys = [...Object.keys(CAB), ''], lenBy = {}, polesBy = {}, loopsBy = {}, ml = mloopLen();
@@ -10873,10 +11232,10 @@
     const LA = autoLoops(pts, R), OWN = loopOwnMap(pts, R), LM = loopManSet(pts, R, OWN), onR = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])); // v2.42.18: + NAPs, LCPs, pins, entrances
     pts.forEach((p) => {
       const E = LA.fib && LA.fib.list.get(p.id); // v2.42.20: a point on a fiber: a loop for each fiber there
-      if (E) { E.forEach((e) => { loops++; if (e.why === 'box') nBox++; loopsBy[e.cab] = (loopsBy[e.cab] || 0) + 1; loopMBy[e.cab] = (loopMBy[e.cab] || 0) + e.len; loopM += e.len; }); return; }
+      if (E) { E.forEach((e) => { loops++; if (e.why === 'box') nBox++; loopsBy[e.cab] = (loopsBy[e.cab] || 0) + 1; loopMBy[e.cab] = (loopMBy[e.cab] || 0) + e.len; loopM += e.len; if (col) col.loops.push([p.id, e.cab, e.len]); }); return; }
       const box = UG_BOXES.has(elemOf(p)) && onR.has(p.id); if (!box && !LM.has(p.id) && !LA.has(p.id)) return;
       loops++; if (box) nBox++; const c = LA.has(p.id) ? LA.get(p.id) : cabAt(p.id), m = box ? BOX_LOOP_M : loopLenAt(p, R, LA, OWN.get(p.id)); // v2.42.18: its own length
-      if (c == null) loopsOff++; else { loopsBy[c]++; loopMBy[c] += m; loopM += m; }
+      if (c == null) loopsOff++; else { loopsBy[c]++; loopMBy[c] += m; loopM += m; if (col) col.loops.push([p.id, c, m]); }
     });
     const tag = (k) => (k ? k : 'NOTSET'), nm = (k) => (k ? CAB[k].label : 'cable not set');
     add('SPAN_TOTAL', r1(R.total), 'm', `All spans (${R.spans.length}), straight pole-to-pole lengths`);
@@ -12055,7 +12414,7 @@
     ['kmzRoute', 'kmzRoute2', 'kmzRoute', 'bool'], ['kmzStamp', 'kmzStamp3', 'kmzStamp', 'bool'], ['kmzStamp2', 'kmzStamp3', 'kmzStamp', 'bool'],
     ['pdfPhotoSize', 'pdfPhotoSize2', 'pdfPhotoSize', 'str'], ['pdfAnnexA', 'pdfAnnexA2', 'pdfAnnexA', 'bool'], ['pdfAnnexB', 'pdfAnnexB2', 'pdfAnnexB', 'bool'],
     ['pdfDates', 'xlsDates', 'pdfDates', 'str'], ['xlsTable', null, 'xlsTable', 'bool'], ['xlsPhotos', null, 'xlsPhotos', 'bool'], ['kmzData', null, 'kmzData', 'bool'],
-    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['dxfPdf', null, 'dxfPdf', 'bool'], ['dxfCef', null, 'dxfCef', 'bool'], ['pmiLoops', 'pmiLoops2', 'pmiLoops', 'bool']]; // v2.41: the plan's options are on the Drawing screen (v2.42.17: + loops in the PMI, also under Settings)
+    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['dxfPdf', null, 'dxfPdf', 'bool'], ['dxfCef', null, 'dxfCef', 'bool'], ['pmiLoops', 'pmiLoops2', 'pmiLoops', 'bool'], ['dxfBoqGrid', null, 'dxfBoqGrid', 'bool']]; // v2.41: the plan's options are on the Drawing screen (v2.42.17: + loops in the PMI, also under Settings)
   const expIds = {};
   EXP_PAIRS.forEach(([a, b, key, kind]) => { [a, b].filter(Boolean).forEach((id) => { const l = (expIds[key] = expIds[key] || []); if (!l.some((x) => x[0] === id)) l.push([id, kind]); }); });
   function syncExpUi() {
@@ -13253,7 +13612,7 @@
   $('apprShowBtn').addEventListener('click', () => guard(showApprQr, 'No approval QR'));
   /** A fresh GPS fix (the last one if under a minute old, else waits up to 8 s). */
   async function freshFix() {
-    if (fix && Date.now() - fix.t < 60000) return fix;
+    if (fix && gpsAgeMs() < 60000) return fix; // (beta 5.9: by when the fix arrived)
     if (!('geolocation' in navigator)) return null;
     return new Promise((res) => navigator.geolocation.getCurrentPosition((p) => res({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, t: p.timestamp }), () => res(fix || null), { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }));
   }
@@ -14550,12 +14909,8 @@
     for (let z = 13; z <= zmax; z++) { const n = 2 ** z; for (let x = lon2x(b[1], n); x <= lon2x(b[3], n); x++) for (let y = lat2y(b[2], n); y <= lat2y(b[0], n); y++) out.push([z, x, y]); }
     return out;
   }
-  /** Shows where each offline pack ends while the offline map is shown (every pack at once). */
-  function drawAreas() {
-    areaLayer.clearLayers();
-    if (S.base !== 'offline') return;
-    for (const p of shownPacks()) if (p.bbox) L.rectangle([[p.bbox[1], p.bbox[0]], [p.bbox[3], p.bbox[2]]], { color: '#1c7ed6', weight: 1.5, dashArray: '6 6', fill: false, interactive: false }).addTo(areaLayer);
-  }
+  /** The packs' edges are not drawn (2.44.13): the packs shown join into one map, as the user sees it. Clears what an older version drew. */
+  function drawAreas() { areaLayer.clearLayers(); }
   async function deleteArea(id) { S.areas = (S.areas || []).filter((x) => x.id !== id); persist(); } // older versions only
   const fmtMB = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(2)} GB` : `${Math.max(0.1, b / 1048576).toFixed(b < 10485760 ? 1 : 0)} MB`);
   const fmtDate8 = (d) => (/^\d{8}$/.test(d || '') ? new Date(`${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}T00:00:00`).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : d || '');
@@ -16085,8 +16440,7 @@
   }
 
   /* ---- beta 3.4: Sync brings in and sends ---- */
-  let MBX_AUTO_BIG = 20 * 1048576; // above this, on mobile data, an update waits for Wi-Fi (or Get it now) (let: the tests set a small one)
-  const mbxCellular = () => { const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection; return !!(c && c.type === 'cellular'); };
+  let MBX_AUTO_BIG = 20 * 1048576; // (2.44.13: no longer a limit; kept for the tests' hook)
   /** The project on this phone that a mailbox item is for ('' when none). */
   function mbxHereFor(M) {
     const byTk = mbxLocalByTk(M.tk); if (byTk) return byTk;
@@ -16095,14 +16449,14 @@
   }
   /** What Sync brings in by itself: updates, fix lists, answers (with the updates), Accept and notes for a project already on this
       phone. A new task (the first notice of a survey) stays in the mailbox for Download, and so does an update that came after you
-      accepted (it asks first), or a big one on mobile data (it waits for Wi-Fi, or Get it now). */
+      accepted (it asks first). 2.44.13: an update of any size comes in on mobile data (LTE) too: it no longer waits for Wi-Fi. */
   function mbxAutoOk(it) {
     const M = (it && it.meta) || {}, here = mbxHereFor(M); if (!here) return false;
     if (M.kind === 'task') return !!mbxLocalByTk(M.tk); // the whole project again, for a task already here
     if (M.kind === 'update') { const T = tmTeam(here); if (T && T.role === 'co' && T.accepted) return false; }
     return ['update', 'fix', 'accept', 'note'].includes(M.kind);
   }
-  const mbxWaitsWifi = (it) => ['update', 'task'].includes((it.meta || {}).kind) && (it.size || 0) > MBX_AUTO_BIG && mbxCellular();
+  const mbxWaitsWifi = () => false; // 2.44.13: nothing waits for Wi-Fi (it was: an update over 20 MB on mobile data)
   let mbxAutoRun = null, mbxNoAuto = false; // (mbxNoAuto: the tests of the manual path, beta 3.3's, turn Sync's bringing in off)
   /** Brings in what is listed (mbxRefresh first), one at a time, oldest first. Returns { n, said: [...], notes: [...], wifi, err }. */
   async function mbxAutoIn() {
@@ -18124,7 +18478,7 @@
   /** The phone's position now, for a plan's coordinates (a CEF-Plan project; an As-Plan's plan takes its site pin's). */
   function cefGps() {
     startGps(); const t0 = Date.now();
-    return new Promise((res) => { const iv = setInterval(() => { if (fix && Date.now() - fix.t < 20000) { clearInterval(iv); res({ lat: fix.lat, lon: fix.lon, acc: fix.acc }); } else if (Date.now() - t0 > 10000) { clearInterval(iv); res(null); } }, 300); });
+    return new Promise((res) => { const iv = setInterval(() => { if (fix && gpsAgeMs() < 20000) { clearInterval(iv); res({ lat: fix.lat, lon: fix.lon, acc: fix.acc }); } else if (Date.now() - t0 > 10000) { clearInterval(iv); res(null); } }, 300); });
   }
   /** The editor closed (Done, or the phone's Back): its last change is saved, the frame is emptied, photos taken off the plan go. */
   function cefClosed() {
@@ -18735,7 +19089,7 @@
     poleNums: () => Object.fromEntries([...poleNums(projPoints(), routeModel()).entries()]), setNumCfg: (c) => setNumCfg(c), route: () => { const R = routeModel(); return { total: R.total, cableTotal: R.cableTotal, spans: R.spans.map((s) => ({ ia: s.ia, ib: s.ib, runs: s.runs, len: s.len })) }; },
     mapPt: (lat, lon) => { const p = map.latLngToContainerPoint([lat, lon]), r = $('map').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; }, mapView: (lat, lon, z) => map.setView([lat, lon], z, { animate: false }), siteReq: () => siteReq(), adminOk: (e) => adminUserOk(e), jobsOf: (e) => jobsOf(e), shareProject: (n) => shareProject(n || S.project), apprText: () => apprText(), readApproval: (t, n) => readApproval(t, n || S.project),
     /* v2.42.19 */ boxMarks: () => (boxer ? boxer.marks.map((m) => ({ k: m.k, pts: m.pts ? m.pts.map(([x, y]) => [Math.round(x), Math.round(y)]) : null, raw: !!m.raw })) : null), boxSel: () => (boxer ? boxer.sel : null), pinOwn: () => pinOwnLines.map(({ pl, o }) => ({ to: o.id, ll: pl.getLatLngs().map((q) => [q.lat, q.lng]) })), pinCenter: () => { const c = pinMap.getCenter(); return [c.lat, c.lng]; },
-    /* v2.42.21 */ routeTools: (on, pairs) => { rtTools = !!on; rtPairs = !!pairs; $('rbPairs').checked = rtPairs; if (rtPairs) rtFinish(true); routeRefresh(); const pts = projPoints(); if (on && pts.length > 1) map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 110], paddingBottomRight: deskOn() ? [40 + Math.round($('routeBar').getBoundingClientRect().width || 0), 120] : [40, Math.round(($('routeBar').getBoundingClientRect().height || 240) + 30)], maxZoom: 19, animate: false }); }, /* (Route tools open, linking by pairs: the route bar as before v2.42.21, for the earlier versions' tests) */ rtState: () => ({ fibAdd, fibAt, fibTouched, fibStartAt, fibNew, rtTools, rtPairs, pend: rtPend.map((q) => (points.find((p) => p.id === q.id) || {}).poleId), pop: rtPop, snap: snapPref(), snapM: snapM(), routeSel, pen: rtPenOn(), conf: rtConf && { id: rtConf.id, kind: rtConf.kind }, dragging: map.dragging.enabled(), draft: !!rtDraft, zoom: map.getZoom() }), /* v2.42.22 */ routePen: (on) => rtSetPen(!!on), routeTipDone: () => { S.routeTip = true; persist(); rtHint(''); }, snapSeq: (id, ll, su) => snapSeq(id, ll, su),
+    /* v2.42.21 */ routeTools: (on, pairs) => { rtTools = !!on; rtPairs = !!pairs; $('rbPairs').checked = rtPairs; if (rtPairs) rtFinish(true); routeRefresh(); const pts = projPoints(); if (on && pts.length > 1) map.fitBounds(L.latLngBounds(pts.map((p) => [p.lat, p.lon])), { paddingTopLeft: [40, 110], paddingBottomRight: deskOn() ? [40 + Math.round($('routeBar').getBoundingClientRect().width || 0), 120] : [40, Math.round(($('routeBar').getBoundingClientRect().height || 240) + 30)], maxZoom: 19, animate: false }); }, /* (Route tools open, linking by pairs: the route bar as before v2.42.21, for the earlier versions' tests) */ rtState: () => ({ fibAdd, fibAt, fibTouched, fibStartAt, fibNew, rtTools, rtPairs, pend: rtPend.map((q) => (points.find((p) => p.id === q.id) || {}).poleId), pop: rtPop, snap: snapPref(), snapM: snapM(), routeSel, pen: rtPenOn(), conf: rtConf && { id: rtConf.id, kind: rtConf.kind }, dragging: map.dragging.enabled(), draft: !!rtDraft, zoom: map.getZoom(), grab: rtGrab && { kind: rtGrab.kind, n: rtGrab.n, id: rtGrab.id, a: rtGrab.A, b: rtGrab.B, tid: rtGrab.tid, v: rtGrab.v }, grabN: rtGrabN(), handles: rtGrabLayer.getLayers().length }), /* v2.42.22 */ routePen: (on) => rtSetPen(!!on), routeTipDone: () => { S.routeTip = true; persist(); rtHint(''); }, snapSeq: (id, ll, su) => snapSeq(id, ll, su),
     /* v2.42.20 */ routeTap: (id) => routeTap(id), capLinks: () => capLinks(), /* v2.42.24 */ fibers: () => fibers(), setFibers: (F) => { setRoute(null, F); renderPoles(); }, fibState: () => ({ fibSel, fibAdd }), /* v2.42.26 */ edNeeds: () => edNeeds().map((x) => x.k), drwRuns: () => { if (!drw || !drw.hitL) return []; const cv = $('drawCanvas'), r = cv.getBoundingClientRect(), k = r.width / (cv.width || 1); return drw.hitL.map(({ n, lines }) => ({ n, lines: lines.map((L) => L.map(([x, y]) => [r.left + x * k, r.top + y * k])) })); }, drwSelRun: () => (drw ? drw.selRun : null),
     fibModel: () => { const R = routeModel(); return { list: R.fib ? R.fib.list.map((f) => ({ n: f.n, len: f.len, spans: f.spans, gaps: f.gaps, ex: !!f.ex, path: f.path, side: fibSide(f, fibers(), R.fib.by), from: fibEnd(f, 'from', R.fib.by), to: fibEnd(f, 'to', R.fib.by) })) : [], cableTotal: R.cableTotal, total: R.total, spans: R.spans.map((s) => ({ ia: s.ia, ib: s.ib, from: s.from, to: s.to, lanes: s.lanes.map((f) => f.n), fibers: s.fibers.map((f) => f.n), runs: s.runs, cable: s.cable })) }; },
     fibLoops: () => { const LA = autoLoops(projPoints(), routeModel()); return LA.fib ? { n: LA.fib.n, nAuto: LA.fib.nAuto, list: [...LA.fib.list.entries()].map(([id, E]) => [(points.find((p) => p.id === id) || {}).poleId, E.map((e) => [e.n, e.cab, e.len, e.why])]) } : null; },
