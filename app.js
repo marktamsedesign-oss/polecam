@@ -924,7 +924,7 @@
   const APP_VER = '2.44.14';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '5.9'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '6.0'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -1786,12 +1786,12 @@
   let drw = null;
   const ACI_HEX = { 1: '#ff0000', 2: '#ffff00', 3: '#00ff00', 4: '#00ffff', 5: '#0000ff', 6: '#ff00ff', 7: '#ffffff' };
   const ACI_NAME = { 0: 'by layer', 1: 'red', 2: 'yellow', 3: 'green', 4: 'cyan', 5: 'blue', 6: 'magenta', 7: 'white' };
-  /* beta 5.9: a colour of the user's own (Drawing style's colour picker) is kept as #rrggbb; the plan gets it as the colour itself (and its
+  /* beta 6.0: a colour of the user's own (Drawing style's colour picker) is kept as #rrggbb; the plan gets it as the colour itself (and its
      nearest AutoCAD colour for older CAD), see dxftpl's colGroups. AutoCAD colour numbers stay numbers. */
   const isHexCol = (v) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
   const colHex = (c) => (isHexCol(c) ? c : ACI_HEX[c]), colName = (c) => (isHexCol(c) ? `your colour ${c.toLowerCase()}` : ACI_NAME[c]);
   const jobCols = (o) => (o == null ? o : JSON.parse(JSON.stringify(o), (k, v) => (isHexCol(v) ? 0x1000000 + parseInt(v.slice(1), 16) : v))); // (for the plan: TC0 + 0xRRGGBB)
-  const ACI_INK = new Proxy({ 1: '#e03131', 2: '#d9a400', 3: '#2b8a3e', 4: '#0c8599', 5: '#1c3f94', 6: '#ae3ec9', 7: '#495057' }, { get: (t, k) => (isHexCol(k) ? k : t[k]) }); // the same colours, readable on the light preview (beta 5.9: a colour of the user's own: itself)
+  const ACI_INK = new Proxy({ 1: '#e03131', 2: '#d9a400', 3: '#2b8a3e', 4: '#0c8599', 5: '#1c3f94', 6: '#ae3ec9', 7: '#495057' }, { get: (t, k) => (isHexCol(k) ? k : t[k]) }); // the same colours, readable on the light preview (beta 6.0: a colour of the user's own: itself)
   const drwMapKind = () => (['off', 'offline', 'sat', 'street'].includes(S.drawMapKind) ? S.drawMapKind : 'offline'); // v2.41: the offline map by default
   const drwBase = () => { const k = drw ? drw.mapKind : drwMapKind(); return k === 'offline' ? (shownPacks().length ? 'offline' : 'off') : k === 'sat' ? 'satellite' : k === 'street' ? 'street' : 'off'; };
   function openDrawing(again, view) { // again: drawn anew in the open sheet (v2.42.12: another project was chosen); view: where it looks (beta 4.6: kept after the splicing details changed a record)
@@ -2310,7 +2310,7 @@
     clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a', per: 3, h: 0, w: { prop: true, size: true, type: true, place: true, foc: false, run: true } }, /* v2.42.26: labels for each cable in a grid, their height (0: by the poles' spacing), their words */
     site: { name: 'on', move: 'auto', arrow: true, acol: 7 }, odf: { place: 'auto', lbl: 'size' }, /* v2.42.26: the tower's name; the ODF beside the tower, its label (beta 3.8: the name on the tower; moved aside in its sheet; the arrow) */
     crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room' },
-    pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0 }, span: { h: 0, color: 0 }, photo: { size: 18, near: 16 }, grid: { split: 0, pos: 'tr', h: 0, color: 0, leaders: 'auto' } }; /* beta 6.0: Photos: near its pole within 8-40 mm on the A3 sheet; Grid: leader lines only when there is no other way (auto) or allowed */ /* beta 5.9: Grid: the split (0: Auto, 1/1 to 1/4; or the user's 1 to 6, Tidy), the sheets' names (corner, height in mm on the A3 PDF, 0: Auto; colour, 0: by layer) */ /* Photos: the long side of the photos on the plan (m; 18: Normal, as before) */ /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
+    pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0 }, span: { h: 0, color: 0 }, photo: { size: 18, near: 16 }, grid: { split: 0, pos: 'tr', h: 0, color: 0, leaders: 'auto' } }; /* beta 6.0: Photos: near its pole within 8-40 mm on the A3 sheet; Grid: leader lines only when there is no other way (auto) or allowed */ /* beta 6.0: Grid: the split (0: Auto, 1/1 to 1/4; or the user's 1 to 6, Tidy), the sheets' names (corner, height in mm on the A3 PDF, 0: Auto; colour, 0: by layer) */ /* Photos: the long side of the photos on the plan (m; 18: Normal, as before) */ /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
   /* Drawing style › Photos: the long side of every pole and point photo on the plan, in metres of the drawing where the poles stand
      25 m apart or more (closer, the plan draws them smaller, to two thirds, as before). Normal (18 m) is the size before; 6 to 40 m. */
   const PH_SIZES = [[12, 'Small'], [18, 'Normal'], [24, 'Large'], [30, 'Extra large']];
@@ -2318,7 +2318,7 @@
   const phName = (m) => { const k = PH_SIZES.find(([v]) => v === m); return k ? k[1] : 'Your own size'; };
   const phMm = (m) => `${Math.round(m * 0.75 / 1.1)} × ${Math.round(m / 1.1)} mm`; // (an upright 3:4 photo at 1:1100, the GEO sheets' scale)
   function plStyle() {
-    const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (isHexCol(v) ? v.toLowerCase() : Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d); // (beta 5.9: or a colour of the user's own)
+    const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (isHexCol(v) ? v.toLowerCase() : Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d); // (beta 6.0: or a colour of the user's own)
     const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) }, Po = { ...PL_DEF.pole, ...(u.pole || {}) }, Sp = { ...PL_DEF.span, ...(u.span || {}) }, Ph = { ...PL_DEF.photo, ...(u.photo || {}) }, Gr = { ...PL_DEF.grid, ...(u.grid || {}) }, hz = (v, lo, hi) => (+v ? n(v, lo, hi, 0) : 0);
     return { num: { color: c(N.color, 2), bcolor: c(N.bcolor, 0, true), h: n(N.h, 1, 12, 3), d: n(N.d, 0, 25, 7), g: n(N.g, 0, 25, 2), leader: N.leader !== false, place: N.place === 'out' ? 'out' : 'auto' },
       id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5), area: V.area !== false, zoom: V.zoom !== false, label: typeof V.label === 'string' ? V.label.replace(/\s+/g, ' ').slice(0, 40) : 'PROJECT AREA', lh: n(V.lh, 8, 40, 18) },
@@ -2327,7 +2327,7 @@
       site: { name: ['on', 'top', 'side', 'bottom'].includes(St.name) ? St.name : 'on', move: St.move === 'point' ? 'point' : 'auto', arrow: St.arrow !== false, acol: c(St.acol, 7, true) }, /* (beta 3.8: Auto is now On the tower) */
       crowd: { auto: Cr.auto !== false, min: n(Cr.min, 50, 100, 75), move: n(Cr.move, 4, 30, 15), leader: Cr.leader !== false, streets: Cr.streets === 'fixed' ? 'fixed' : 'slide', marks: ['room', 'always', 'hide'].includes(Cr.marks) ? Cr.marks : 'room' }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' },
       pole: { idH: hz(Po.idH, 1, 5), idColor: c(Po.idColor, 0, true), ownH: hz(Po.ownH, 1, 5), ownColor: c(Po.ownColor, 0, true), llH: hz(Po.llH, 0.6, 3), llColor: c(Po.llColor, 0, true) }, span: { h: hz(Sp.h, 1, 4), color: c(Sp.color, 0, true) }, photo: { size: phSize(Ph.size), near: n(Ph.near, 8, 40, 16) },
-      grid: { split: Number.isInteger(+Gr.split) && +Gr.split >= 1 && +Gr.split <= 6 ? +Gr.split : 0, pos: ['tr', 'tl', 'br', 'bl'].includes(Gr.pos) ? Gr.pos : 'tr', h: hz(Gr.h, 4, 30), color: c(Gr.color, 0, true), leaders: Gr.leaders === 'allow' ? 'allow' : 'auto' } }; // beta 5.9 (beta 6.0: leaders)
+      grid: { split: Number.isInteger(+Gr.split) && +Gr.split >= 1 && +Gr.split <= 6 ? +Gr.split : 0, pos: ['tr', 'tl', 'br', 'bl'].includes(Gr.pos) ? Gr.pos : 'tr', h: hz(Gr.h, 4, 30), color: c(Gr.color, 0, true), leaders: Gr.leaders === 'allow' ? 'allow' : 'auto' } }; // beta 6.0 (beta 6.0: leaders)
   }
   const setPl = (part, k, v) => { const cur = plStyle(); S.plStyle = { ...cur, [part]: { ...cur[part], [k]: v } }; persist(); renderStyle(); };
   const mmOf = (m) => (m / 1.1).toFixed(1);
@@ -2342,7 +2342,7 @@
       const opts = (zero ? [[0, zero]] : []).concat([1, 2, 3, 4, 5, 6, 7].map((k) => [k, ACI_NAME[k]]));
       opts.forEach(([k, nm]) => { const b = document.createElement('button'); b.type = 'button'; b.className = `sw2${k ? '' : ' txt'}`; b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(val === k)); b.setAttribute('aria-label', k ? `${nm} (AutoCAD colour ${k})` : nm); b.title = b.getAttribute('aria-label');
         if (k) b.style.setProperty('--c', ACI_HEX[k]); else b.textContent = nm; b.addEventListener('click', () => setPl(part, key, k)); box.appendChild(b); });
-      /* beta 5.9: a colour of the user's own: the phone's or computer's colour picker (kept as #rrggbb; the plan gets the colour itself) */
+      /* beta 6.0: a colour of the user's own: the phone's or computer's colour picker (kept as #rrggbb; the plan gets the colour itself) */
       const own = isHexCol(val), lb = document.createElement('label'); lb.className = `sw2 own${own ? '' : ' txt'}`; lb.setAttribute('role', 'radio'); lb.setAttribute('aria-checked', String(own));
       lb.title = own ? `Your colour ${val} (tap to change)` : 'Your own colour: pick any colour'; if (own) lb.style.setProperty('--c', val);
       const inp = document.createElement('input'); inp.type = 'color'; inp.value = own ? val : '#ff8800'; inp.setAttribute('aria-label', lb.title);
@@ -2360,7 +2360,7 @@
     [['stNumH', N.h], ['stNumD', N.d], ['stNumG', N.g], ['stIdH', I.h], ['stVicW', V.circleW], ['stVicRW', V.routeW], ['stClH', P.clamp.h]].forEach(([id, v]) => { if (document.activeElement !== $(id)) $(id).value = String(v); });
     o('stNumHO', `${N.h} m · ${mmOf(N.h)} mm`); o('stNumDO', N.d > 0 ? `${N.d} m · ${mmOf(N.d)} mm` : 'no circle'); o('stNumGO', `${N.g} m · ${mmOf(N.g)} mm`); o('stIdHO', `${I.h} m · ${mmOf(I.h)} mm`); o('stVicWO', `${V.circleW} m`); o('stVicRWO', `${V.routeW} m`);
     const seg = (id, v) => $(id).querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
-    { const G = P.grid; // beta 5.9: Drawing style › Grid
+    { const G = P.grid; // beta 6.0: Drawing style › Grid
       sw('stGridCol', G.color, 'Auto', 'grid', 'color'); o('stGridColO', G.color ? colName(G.color) : S.exp.dxfLabels === 'tidy' ? 'auto: light grey (Tidy)' : 'auto: the template\u2019s layer colour');
       seg('stGridSplit', String(G.split)); seg('stGridPos', G.pos); seg('stGridLead', G.leaders); // (beta 6.0)
       o('stGridLeadHint', G.leaders === 'allow' ? 'A pole\u2019s block may stand a little away with a thin line to its pole where that keeps the sheets larger (as before).' : 'A pole\u2019s block sits right beside its pole; a thin line only where every place beside it would cover the plan\u2019s details (Auto takes a finer grid first, to 1/4; those left are listed under Drawing checks). Landmark names make room: smaller, to 1.3 mm.');
@@ -2416,7 +2416,7 @@
   $('stDone').addEventListener('click', () => closeSheet());
   $('stPhSize').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('photo', 'size', +b.dataset.v); }); // Drawing style › Photos: Small, Normal, Large, Extra large
   $('stPhL').addEventListener('input', () => { const v = +$('stPhL').value; if (v >= 6 && v <= 40) setPl('photo', 'size', phSize(v)); }); // (your own size, while it is typed: only once it is one)
-  $('stGridSplit').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('grid', 'split', +b.dataset.v); }); // beta 5.9: Drawing style › Grid: Auto or the user's own split
+  $('stGridSplit').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('grid', 'split', +b.dataset.v); }); // beta 6.0: Drawing style › Grid: Auto or the user's own split
   $('stGridPos').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('grid', 'pos', b.dataset.v); }); // (the corner of the sheet's name)
   $('stGridLead').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('grid', 'leaders', b.dataset.v); }); // beta 6.0: leader lines
   $('stPhNear').addEventListener('input', () => setPl('photo', 'near', +$('stPhNear').value)); // beta 6.0: a photo's distance from its pole
@@ -2448,7 +2448,7 @@
   const DSP = (() => {
     const NSV = 'http://www.w3.org/2000/svg', ARIAL = 'Arial, Helvetica, sans-serif';
     const mk = (p, tag, a, text) => { const e = document.createElementNS(NSV, tag); for (const k in a) if (a[k] != null && a[k] !== false) e.setAttribute(k, a[k]); if (text != null) e.textContent = text; p.appendChild(e); return e; };
-    const PAL = new Proxy({ ...ACI_HEX, bg: '#000000', grey: '#8a909a', road: '#ffffff', photo: '#2c3542', sky: '#3c5a7a', mask: '#000000', clash: '#ff5a5a' }, { get: (t, k) => (isHexCol(k) ? k : t[k]) }); // (beta 5.9: a colour of the user's own is itself)
+    const PAL = new Proxy({ ...ACI_HEX, bg: '#000000', grey: '#8a909a', road: '#ffffff', photo: '#2c3542', sky: '#3c5a7a', mask: '#000000', clash: '#ff5a5a' }, { get: (t, k) => (isHexCol(k) ? k : t[k]) }); // (beta 6.0: a colour of the user's own is itself)
     const tW = (t, h, b) => String(t).length * h * (b ? 0.66 : 0.58);
     const bx = (cx, cy, w, h) => ({ x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2 });
     const ovA = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
@@ -2703,7 +2703,7 @@
       sc.tower = T;
       return sc;
     }
-    /** beta 5.9: Drawing style › Grid: a GEO sheet's cell and its neighbours, its name in the corner chosen at the height and colour chosen
+    /** beta 6.0: Drawing style › Grid: a GEO sheet's cell and its neighbours, its name in the corner chosen at the height and colour chosen
         (Auto: a tenth of the sheet, the template's layer colour), drawn first: the details (road, cable, poles, their labels) over it. */
     function gridPrev(P, svg) {
       while (svg.firstChild) svg.removeChild(svg.firstChild); svg.setAttribute('viewBox', '0 0 120 70'); svg.style.aspectRatio = '120 / 70';
@@ -2727,7 +2727,7 @@
       $('drwStyle').querySelectorAll('.stgrp[data-scene]').forEach((g) => { g.hidden = !g.dataset.scene.split(' ').includes(scene); }); // beta 3.9: only the settings of the part picked (beta 4.3: a group can belong to several parts)
       let r = null;
       if (scene === 'vic') { while (svg.firstChild) svg.removeChild(svg.firstChild); drawVicPreview(P, svg); }
-      else if (scene === 'grid') gridPrev(P, svg); // beta 5.9
+      else if (scene === 'grid') gridPrev(P, svg); // beta 6.0
       else r = paint(svg, scene === 'crowd' ? scCrowd(P, C) : scene === 'tower' ? scTower(P, C) : scene === 'photo' ? scPhoto(P, C) : scStreet(P, C), C);
       svg.setAttribute('preserveAspectRatio', compact ? 'xMidYMid slice' : 'xMidYMid meet');
       const cap = $('dsCap'); cap.textContent = '';
@@ -10855,7 +10855,7 @@
       SIG_DESIGN_ENGINEER: S.sig.design || '', SIG_PROJECT_ENGINEER: S.sig.project || '', SIG_HEAD_CABLE_ENGINEERING: S.sig.head || '', SIG_JUNIOR_ENGINEER: '', SIG_CSE_LEAD: S.sig.cse || '',
       PMI_FIBER_TERMINATION: String(q.ODF_NEW_FIBERS || 0), PMI_HYBRID_CLOSURE: String(Object.entries(q).filter(([k]) => /^CLOSURE_NEW_/.test(k)).reduce((t, [, v]) => t + (+v || 0), 0)),
     };
-    /* beta 5.9: the PMI's quantities item by item, each where it is, for the BOQ table of each GEO sheet (dxftpl adds them up by grid
+    /* beta 6.0: the PMI's quantities item by item, each where it is, for the BOQ table of each GEO sheet (dxftpl adds them up by grid
        cell): a span's length where its length is written on the plan (each run when the PMI counts the runs), a loop at its point, a
        pole by its kind, a new ODF's fibers, a new closure; the same rules as the PMI table above, so the sheets add up to it. */
     const pmiItems = (() => {
@@ -10936,7 +10936,7 @@
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
       const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks,
         towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: jobCols({ c: PLS.site.acol }).c, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
-        numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 5.9: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near }, gridStyle: jobCols(PS.grid), /* beta 5.9: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 5.9: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
+        numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near }, gridStyle: jobCols(PS.grid), /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
     }
@@ -10985,7 +10985,7 @@
       ...(siteFieldsOf().length ? [`Site details (Project details): ${siteFieldsOf().map(([k2, v2]) => `${k2}: ${v2}`).join(' · ')}.`] : []),
       'Cables: red = new fiber, blue = existing; broken line = aerial, solid line = underground.',
       `Sheets: TITLE, TOC, LEGENDS, ${(rp.vicinities || [{ sheet: 'VICINITY MAP' }]).map((v) => v.sheet).join(', ')}, ROW AREA COVERAGE, ${(rp.vicinities || [0]).map((_, k) => (k ? `KEYMAP (${k + 1})` : 'KEYMAP')).join(', ')}, ${rp.sheets.join(', ')}, PMI.`,
-      `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${+(+rp.grid.cell).toFixed(1)} m (1:${Math.round(1100 * rp.grid.cell / 440)} on the GEO sheets${((rp.tidy || {}).grid || {}).mode === 'fixed' ? `; the split chosen in Drawing style \u203a Grid, 1/${rp.tidy.grid.n}` : (rp.tidy || {}).grid ? `; Auto split, 1/${rp.tidy.grid.n}` : ''}).`, // (beta 5.9: the scale of a finer Tidy grid; which split)
+      `Grid: ${rp.grid.cols} × ${rp.grid.rows} cells of ${+(+rp.grid.cell).toFixed(1)} m (1:${Math.round(1100 * rp.grid.cell / 440)} on the GEO sheets${((rp.tidy || {}).grid || {}).mode === 'fixed' ? `; the split chosen in Drawing style \u203a Grid, 1/${rp.tidy.grid.n}` : (rp.tidy || {}).grid ? `; Auto split, 1/${rp.tidy.grid.n}` : ''}).`, // (beta 6.0: the scale of a finer Tidy grid; which split)
       `Roads: ${roadsNote}.`,
       `Right of way (ROW AREA COVERAGE): ${rowNote}.`, '',
       `Left blank (not known to the app; fill them in CAD): ${rp.blanks.join(', ') || 'none'}.`,
@@ -10999,7 +10999,7 @@
         if (svPurpose() === 'As-built') return [`Maintenance loops on poles: as recorded in the As-Built (${onPoles}${own}${q.MLOOP_UNANSWERED ? `; ${q.MLOOP_UNANSWERED} pole${q.MLOOP_UNANSWERED === 1 ? '' : 's'} on the route not answered` : ''}).`, ...box];
         return [`Maintenance loops on poles (each its own length: by default 10 m on 12C, ${mloopLen()} m on 72C): ${onPoles} on the plan${own}; ${ids.length ? `${ids.length} added by the app where the survey had none (${loopRule}): ${ids.join(', ')}` : 'none added by the app'}.`, ...box]; })(),
       `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Settings → AutoCAD DXF)'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures; proposed HDD = the new bores where a new underground cable crosses a road (the road\'s width and 3 m each side, as drawn); open trench = the conventional UG cable\'s route (each span once) less its bores; micro trench = the air-blown UG cable\'s route less its bores; maxcell inner duct = the conventional UG cable\'s route, bores included; proposed manhole / service box = the new ones.',
-      ...(S.exp.dxfBoqGrid !== false && rp.boqGrid ? [`BOQ table on each GEO sheet (Plan settings): the PMI rows for that sheet's grid only, in its right-hand box. A span counts whole on the sheet where its length is written (a span crossing a sheet edge is not split); a loop, a pole, a new ODF's fibers and a new closure count where their point is; lengths rounded so the sheets add up to the PMI${rp.boqGrid.check.every((c) => c.ok) && !rp.boqGrid.lost.length ? ' (they do: every row checked)' : ` (check: ${rp.boqGrid.check.filter((c) => !c.ok).map((c) => c.row).join(', ')})`}. The rows the PMI leaves blank stay blank.`] : []), // beta 5.9
+      ...(S.exp.dxfBoqGrid !== false && rp.boqGrid ? [`BOQ table on each GEO sheet (Plan settings): the PMI rows for that sheet's grid only, in its right-hand box. A span counts whole on the sheet where its length is written (a span crossing a sheet edge is not split); a loop, a pole, a new ODF's fibers and a new closure count where their point is; lengths rounded so the sheets add up to the PMI${rp.boqGrid.check.every((c) => c.ok) && !rp.boqGrid.lost.length ? ' (they do: every row checked)' : ` (check: ${rp.boqGrid.check.filter((c) => !c.ok).map((c) => c.row).join(', ')})`}. The rows the PMI leaves blank stay blank.`] : []), // beta 6.0
       'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (PROP.POLE / height / clamp)') + ', existing electric pole on ELECTRIC POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / pole tag or NPT)') + ', telco pole on GT-POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / ID)') + '; new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
       `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; a pin placed by hand more than 6 m from the road edge stays where it is: ${rp.counts.polesKept || 0}; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it; a side guy never into the road; a pole-to-pole guy to its chosen pole, with a head guy there: ${rp.counts.poleToPole || 0}).`,
       `On the cable (the cable meets their two sides, the ID below): NAPs of every kind (1x8, 1x16, dummy, changed to 1:16, double; a NAP pin is drawn on its pole), LCPs (1:4 and double, a kind of NAP on its pole), the ODC (G-eSAA's cabinet symbol, layers G-ESAA PROPOSED / EXISTING ODC: the template has no ODC model), handholes, manholes and service boxes: ${rp.counts.inlineBlocks || 0}. Loops on the cable beside their pole; closures on the cable. Grounding at every pole with a loop or marked for it: ${rp.counts.grounding || 0}. Risers where the cable goes from aerial to underground (or marked): ${rp.counts.risers || 0}. Directional boring (HDD) where an underground cable crosses a road: ${rp.counts.hdd || 0}. A new tower is red; an OLT site is drawn with the OLT model (${rp.counts.olt || 0}).`,
@@ -11226,7 +11226,7 @@
   /** v2.29: the survey quantities the BOQ rules will use, each with a code (the BOQ template's formulas will point at these):
       span lengths by cable type and method, maintenance loops, FOC length with loops, detailed engineering (spans without
       loops), new poles by size and class, arms, guying, ODF, closures, NAPs, poles on each cable, the region. */
-  function surveyQty(pts, col) { // (beta 5.9: col.loops: each counted loop [point id, cable, length], for the BOQ table of each GEO sheet)
+  function surveyQty(pts, col) { // (beta 6.0: col.loops: each counted loop [point id, cable, length], for the BOQ table of each GEO sheet)
     const rp = pts.filter((p) => ROUTE_ELS.includes(elemOf(p))), R = fibAnnotate(C.analyzeRoute(rp, effLinks(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 }), rp); // v2.42.20: + the fibers
     const rows = [], add = (code, qty, unit, desc) => rows.push([code, qty, unit, desc]), r1 = (v) => Math.round(v * 10) / 10, isNew = (p) => ['Proposed', 'New'].includes(p.status);
     const keys = [...Object.keys(CAB), ''], lenBy = {}, polesBy = {}, loopsBy = {}, ml = mloopLen();
