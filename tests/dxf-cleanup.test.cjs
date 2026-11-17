@@ -144,6 +144,15 @@ ok(em && parseFloat(em[1]) > 784000, '$EXTMIN on the plan', em);
 const r2 = T.repair(out);
 ok(r2.text === out, 'idempotent: a second run gives the same bytes', Object.keys(r2.report.cleanup).join(', ') || 'nothing to do');
 const dc = new T.Doc(out); T.clean(dc); ok(dc.text() === out, 'idempotent: clean on its own output changes nothing');
+// ---- beta 4.7: a template with no *Active VPORT (named view configurations only): its first VPORT is kept, as *Active ----
+const srcNA = src.replace(/\n\*Active\n/g, '\nMYCFG\n');
+ok(!/\n\*Active\n/.test(srcNA) && (srcNA.match(/\nMYCFG\n/g) || []).length === 2, 'no-*Active sample: two VPORTs named MYCFG, none *Active');
+const rNA = T.repair(srcNA), dNA = new T.Doc(rNA.text), vNA = dNA.sec('TABLES').recs.filter((r) => typ(r) === 'VPORT'), tNA = dNA.sec('TABLES').recs.find((r) => typ(r) === 'TABLE' && get(r, 2) === 'VPORT');
+ok(vNA.length === 1 && get(vNA[0], 2) === '*Active' && get(vNA[0], 5) === '29' && parseInt(get(tNA, 70), 10) === 1, '1 no *Active: the first VPORT kept, named *Active (the table not left empty)', vNA.map((r) => `${get(r, 2)} ${get(r, 5)}`).join(', ') + ` | count ${get(tNA, 70)}`);
+ok(vNA.length === 1 && get(vNA[0], 10) === '0.0' && get(vNA[0], 20) === '0.0' && get(vNA[0], 11) === '1.0' && get(vNA[0], 21) === '1.0' && Math.abs(parseFloat(get(vNA[0], 41)) - 3.2) < 1e-9,
+  '1 no *Active: that VPORT over the whole screen, its aspect the whole screen\'s', vNA.length && [10, 20, 11, 21, 41].map((c) => get(vNA[0], c)).join(' '));
+ok(vNA.length === 1 && parseFloat(get(vNA[0], 12)) > 785000 && parseFloat(get(vNA[0], 12)) < 786050 && parseFloat(get(vNA[0], 40)) < 2000, 'no *Active: opens on the plan (frame())', vNA.length && `${get(vNA[0], 12)}, ${get(vNA[0], 22)}, h ${get(vNA[0], 40)}`);
+ok(T.repair(rNA.text).text === rNA.text, 'no *Active: a second run gives the same bytes');
 // ---- the validator ----
 const dst = process.argv[2] || path.join(os.tmpdir(), `gesaa_clean_${process.pid}.dxf`);
 fs.writeFileSync(dst, out);
@@ -151,6 +160,9 @@ const srcTmp = path.join(os.tmpdir(), `gesaa_raw_${process.pid}.dxf`); fs.writeF
 const check = path.join(__dirname, '..', 'tools', 'dxf-seed', 'check_plan.py');
 let res = ''; try { res = execFileSync('python3', ['-I', check, dst], { encoding: 'utf8' }); ok(/no problems/.test(res), 'check_plan.py: no problems on the repaired sample'); } catch (e) { ok(false, 'check_plan.py: no problems on the repaired sample', (e.stdout || '') + (e.stderr || '')); }
 try { execFileSync('python3', ['-I', check, srcTmp], { encoding: 'utf8' }); ok(false, 'check_plan.py finds the faults of the raw sample'); } catch (e) { ok(/problem/.test(e.stdout || ''), 'check_plan.py finds the faults of the raw sample', (e.stdout || '').split('\n').filter((x) => /problem/.test(x)).join(' / ')); }
+{ const dNAf = path.join(os.tmpdir(), `gesaa_noactive_${process.pid}.dxf`); fs.writeFileSync(dNAf, rNA.text); // (beta 4.7)
+  try { const o2 = execFileSync('python3', ['-I', check, dNAf], { encoding: 'utf8' }); ok(/no problems/.test(o2), 'check_plan.py: no problems on the repaired no-*Active sample'); } catch (e) { ok(false, 'check_plan.py: no problems on the repaired no-*Active sample', (e.stdout || '') + (e.stderr || '')); }
+  fs.unlinkSync(dNAf); }
 if (!process.argv[2]) fs.unlinkSync(dst);
 fs.unlinkSync(srcTmp);
 console.log(fails ? `${fails} FAILED` : 'all passed');

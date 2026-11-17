@@ -163,8 +163,11 @@
     // 1. one *Active VPORT; beta 4.7: over the whole screen. The company template's model view was saved as two tiled viewports side
     // by side (two *Active records, the left and the right half): the one kept covered the left half only, so AutoCAD opened the
     // plan in the left half with the right half of the screen blank. Its aspect (41) becomes the whole screen's.
-    let active = null;
-    for (const r of T.recs) if (typ(r) === 'VPORT') { const nm = String(get(r, 2, '')); if (nm.toUpperCase() === '*ACTIVE' && !active) active = r; else { drop.add(r); inc(`VPORT ${nm} dropped`); } }
+    // beta 4.7: a template with no *Active record (named configurations only): its first VPORT is kept as *Active (the table was
+    // left empty, and AutoCAD opened on a view of its own instead of the plan)
+    let active = T.recs.find((r) => typ(r) === 'VPORT' && String(get(r, 2, '')).toUpperCase() === '*ACTIVE') || null;
+    if (!active) { active = T.recs.find((r) => typ(r) === 'VPORT') || null; if (active) { setFirst(active, 2, '*Active'); inc('VPORT renamed *Active (the template had none)'); } }
+    for (const r of T.recs) if (typ(r) === 'VPORT' && r !== active) { drop.add(r); inc(`VPORT ${String(get(r, 2, ''))} dropped`); }
     if (active) {
       const x0 = num(active, 10, 0), y0 = num(active, 20, 0), x1 = num(active, 11, 1), y1 = num(active, 21, 1), a = num(active, 41, 0);
       if (Math.abs(x0) > 1e-9 || Math.abs(y0) > 1e-9 || Math.abs(x1 - 1) > 1e-9 || Math.abs(y1 - 1) > 1e-9) {
@@ -498,7 +501,7 @@
       if (o.dir) r.push([11, F(o.dir[0])], [21, F(o.dir[1])], [31, '0.0']); // turned: its x axis
       const chunks = []; for (let i = 0; i < s.length; i += 250) chunks.push(s.slice(i, i + 250)); if (!chunks.length) chunks.push('');
       chunks.slice(0, -1).forEach((c) => r.push([3, c])); r.push([1, chunks[chunks.length - 1]]);
-      r.push([7, this.style(o.style)]); r.push([73, I(1)], [44, '1.0']);
+      r.push([7, this.style(o.style)]); r.push([73, I(1)], [44, o.ls ? F(o.ls) : '1.0']); // (beta 4.7: o.ls, the line spacing factor)
       if (o.mask) r.push([90, I(1)], [63, I(o.mask)], [45, '1.35']); // v2.36: a background box (readable over a satellite picture)
       else if (o.canvas) r.push([90, I(3)], [63, I(0)], [45, F(o.canvas)]); // beta 3.8: a box in the drawing's background colour (it hides what is under it)
       return this.add(r);
@@ -2001,7 +2004,7 @@
       if (p.onPole) continue;
       const isNew = p.status === 'Proposed' || p.status === 'New';
       if (p.el === 'Pole') {
-        spots.add(Spots.box(p.dp[0], p.dp[1], p.rp * 2.2, p.rp * 2.2, 0));
+        p.symBox = spots.add(Spots.box(p.dp[0], p.dp[1], p.rp * 2.2, p.rp * 2.2, 0)); // (beta 4.7: kept, so a Tidy label can sit close to its own pole)
         if (p.arm) { // the arm, from the pole to the cable
           const reach = p.armLen || p.arm.reach, bb = blockBox(S, p.arm.b, 0), along = p.arm.dir[0] ? bb[2] - bb[0] : bb[3] - bb[1], sc = reach / (along || 1), top = topVertex(S, p.arm.b);
           const end = p.arm.dir[0] ? [bb[0], (bb[1] + bb[3]) / 2] : [top ? top[0] : (bb[0] + bb[2]) / 2, bb[3]], rot = deg(p.td) - deg(p.arm.dir), at = add2(p.dp, p.td, p.rp), e = rotv([end[0] * sc, end[1] * sc], rot);
@@ -2267,6 +2270,10 @@
     /** v2.42.21: a pole's clamp types (and its 12C hardware) as a tag, or a callout with a leader line, beside it where it covers
         nothing (auto: across the cable from its label first, then along the cable), on its own layer, in the style's colour and height. */
     let clLay = null;
+    // beta 4.7: Export the plan › Labels: Tidy (job.labels 'tidy'). The Standard labels are worked out as before and their places kept
+    // (so the photos, numbers, span lengths, cable labels, IDs and street names go exactly where Standard puts them), but not written;
+    // once everything else is placed, those places are given back and each pole gets one level label instead (see the end of step 12)
+    const tidy = job.labels === 'tidy', tidyStd = [], tidyTodo = [];
     const clTag = (p, L) => {
       const CS = job.clampStyle || {}; if (!clLay) { addLayer(d, S, 'G-ESAA POLE CLAMP', 4); clLay = 'G-ESAA POLE CLAMP'; }
       const h = Math.max(1, (+CS.h || 2) * (p.k || 1)), lh = h * 1.4, w = Math.max(...L.map((t) => arialW(t, h, false))) + h * 0.8, ht = L.length * lh + h * 0.3, far = CS.place === 'callout' ? 6 : 1.2;
@@ -2276,6 +2283,7 @@
       dirs.forEach((u0, i) => { const n = Math.hypot(u0[0], u0[1]) || 1, u = [u0[0] / n, u0[1] / n], ext = Math.abs(u[0]) * w / 2 + Math.abs(u[1]) * ht / 2;
         [0, 1.6, 3.2].forEach((more, j) => { const dd = p.rp + far + ext + more * h, A = add2(p.dp, u, dd); cs.push({ A, u, ext, boxes: [Spots.box(A[0], A[1], w, ht, 0)], cost: i * 3 + j }); }); });
       const c = pickC(spots, cs, POLELBL_W); spots.add(c.boxes, 'clamp:' + (p.poleId || ''));
+      if (tidy) { tidyStd.push(...c.boxes); return; } // (beta 4.7: Tidy: the clamp types are the label's second line)
       const col = +CS.color ? +CS.color : null, [x, y] = c.A;
       L.forEach((t, i) => o.text(clLay, x, y + ((L.length - 1) / 2 - i) * lh, h, t, { ha: 1, va: 2, style: 'arial', color: col }));
       if (CS.box !== false) o.lwpoly(clLay, [[x - w / 2, y - ht / 2], [x + w / 2, y - ht / 2], [x + w / 2, y + ht / 2], [x - w / 2, y + ht / 2]], { closed: true, color: col });
@@ -2314,7 +2322,7 @@
       // beta 3.4: inside the pole's own GEO sheet first (the sheet's viewport cuts off anything past the grid line)
       const inC = cands.filter((x) => x.boxes.every((b) => cellHolds(b, p.E, p.N))), cIn = inC.length ? pickC(spots, inC, POLELBL_W) : null;
       const cAny = cIn && !cIn.n ? cIn : pickC(spots, cands, POLELBL_W), c = cIn && (cIn.n || 0) <= (cAny.n || 0) ? cIn : cAny;
-      spots.add(c.boxes, 'label:' + p.poleId); p.lblVar = c.v;
+      spots.add(c.boxes, 'label:' + p.poleId); p.lblVar = c.v; if (tidy) tidyStd.push(...c.boxes); // (beta 4.7: Tidy: its place kept until the end)
       // beta 3.4: how far out from the pole the label (ID, details and coordinates) reaches, and its middle along the cable: the photo
       //           goes past it (pole, then its ID and details, then the photo), never beside the pole itself
       { const ov = c.ov, fw = p.fw || [1, 0], pr = (b, d) => (b.cx - p.dp[0]) * d[0] + (b.cy - p.dp[1]) * d[1], ext = (b, d) => b.hw * Math.abs(b.ux * d[0] + b.uy * d[1]) + b.hh * Math.abs(b.vx * d[0] + b.vy * d[1]);
@@ -2327,10 +2335,19 @@
       if (attrs.POLE_CLAMP) attrs.POLE_CLAMP.v = clT; if (attrs.B) attrs.B.v = size; // (v2.42.21: the block keeps the values wherever they are shown)
       if (p.sym.b) o.insert(lay(p.sym.layer), p.sym.b, p.dp[0], p.dp[1], { scale: p.sym.sc * p.k, center: true, attrs }); else o.circle(lay(p.sym.layer), p.dp[0], p.dp[1], p.rp);
       const look = p.sym.b ? attrLook(S, p.sym.b) : new Map();
-      c.place.forEach(([t, v, q, hq]) => { const lk = look.get(t) || {}, isCl = clIn && v && (t === 'POLE_CLAMP' || t === 'B' || (t === '' && v === stackSz && v !== p.ownerName)), own = isOwn([t, v]), prop = p.sym.r === POLE_SYM.prop.r, sc = prop ? 0 : own ? +PST.ownColor || +PST.idColor || 0 : isCl ? 0 : +PST.idColor || 0; // (beta 4.3: the ID lines and the owner's name in the style's colour; none set, or a proposed pole: the template's)
+      if (!tidy) c.place.forEach(([t, v, q, hq]) => { const lk = look.get(t) || {}, isCl = clIn && v && (t === 'POLE_CLAMP' || t === 'B' || (t === '' && v === stackSz && v !== p.ownerName)), own = isOwn([t, v]), prop = p.sym.r === POLE_SYM.prop.r, sc = prop ? 0 : own ? +PST.ownColor || +PST.idColor || 0 : isCl ? 0 : +PST.idColor || 0; // (beta 4.3: the ID lines and the owner's name in the style's colour; none set, or a proposed pole: the template's)
         o.text(lk.layer && lk.layer !== '0' ? lay(lk.layer) : lay(p.sym.layer), q[0], q[1], hq, v, { rot: c.rr, ha: c.ha, va: 2, style: 'arial', color: isCl && CS.color ? +CS.color : sc ? sc : lk.color != null ? +lk.color : null }); }); // (v2.42.21: the clamp types in the style's colour)
-      o.mtext(lay('LATLONG'), c.llAt[0], c.llAt[1], HL, ll, { style: '样式 1', att: c.flip ? 6 : 4, dir: [Math.cos(c.rr * Math.PI / 180), Math.sin(c.rr * Math.PI / 180)], color: +PST.llColor || null });
+      if (!tidy) o.mtext(lay('LATLONG'), c.llAt[0], c.llAt[1], HL, ll, { style: '样式 1', att: c.flip ? 6 : 4, dir: [Math.cos(c.rr * Math.PI / 180), Math.sin(c.rr * Math.PI / 180)], color: +PST.llColor || null });
       p.ov = c.ov; p._rr = c.rr;
+      if (tidy) { // beta 4.7: Tidy: one level label (line 1 tag · type, line 2 the attachments), the lines' colours as the Standard label's
+        const prop = p.sym.r === POLE_SYM.prop.r, tel = p.sym.b === 'existing telecom pole', [kId, kTy, kCl] = prop ? ['GT-POLE', 'PHEIGHT', 'POLE_CLAMP'] : tel ? ['GT-001', 'OC', ''] : ['NPT', 'CC', 'B'];
+        const id = prop ? p.label1 || 'PROP.POLE' : tel ? bare(p.poleId || '') : tag, ty = prop ? p.height || '' : p.mat || '', l2 = String((clIn ? (prop ? stackCl : stackSz) : [clT, p.hw].filter(Boolean).join(' ')) || '').trim();
+        const lkOf = (k) => look.get(k) || {}, colOf = (k, isCl) => { const lk = lkOf(k), sc = prop || isCl ? 0 : +PST.idColor || 0; return isCl && CS.color ? +CS.color : sc ? sc : lk.color != null ? +lk.color : null; };
+        const lk0 = lkOf(kId), layT = lk0.layer && lk0.layer !== '0' ? lay(lk0.layer) : lay(p.sym.layer), c0 = colOf(kId, false), cT = colOf(kTy, false), cC = colOf(kCl, true);
+        const run = (s, cl) => (cl === c0 ? mtextEsc(s) : `{\\C${cl == null ? 256 : cl};${mtextEsc(s)}}`); // (a part in another colour than the label's)
+        const l1 = [id, ty].filter((v) => String(v || '').trim()).join(' · ') || 'NPT';
+        tidyTodo.push({ p, h: H, l1, l2, layer: layT, color: c0, text: (id && ty ? mtextEsc(id) + run(` · ${ty}`, cT) : mtextEsc(l1)) + (l2 ? `\\P${run(l2, cC)}` : '') });
+      }
       if (!clIn && (clT || p.hw)) clTag(p, [clT, p.hw].filter(Boolean)); // v2.42.21
     }
     if (job.crowd) placeIds(); // beta 3.8: Crowded places Auto: the IDs after the pole labels
@@ -2784,6 +2801,84 @@
       if (!c) { poiSkip.noRoom++; continue; }
       if (useIcon) { o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON }); spots.add(ib); nIcons++; }
       o.mtext(lay('House Number', 'MISC'), c.q[0], c.q[1], c.th, lines.map(mtextEsc).join('\\P'), { style: 'PDF Arial', att: 5, color: 7, dir: ru }); spots.add(c.boxes); placed.push({ name, q: q0 }); nPois++;
+    }
+    /* beta 4.7: Labels: Tidy. Everything else is placed (where Standard puts it); the Standard labels' places are given back and each
+       pole gets one level label, all of one size: 8 places round the pole first (the side its Standard label took first), then further
+       out with a short line to the pole; about 1 m clear of every label, street name, cable, symbol, photo and photo line (0.5 m, then
+       0.15 m where a pole has no such room), inside the pole's own GEO sheet; crossing a road edge line costs a little. */
+    if (tidy) {
+      for (const b of tidyStd) b._k--;
+      // every text written so far (IDs, closures' attributes, span lengths, cable labels, loops, street names, landmarks, the grid's
+      // numbers…), its box as wide as AutoCAD draws it in Arial and a little more (the places' estimate is narrower for capitals)
+      const MOVABLE = new Set([lay('PROPOSED LOOP'), lay('Proposed NAP ID', 'MISC'), lay('MISC'), lay('Distance Data')]); // (loops, IDs, span lengths; not a street name, a number (it has its circle) or a cable's label (its arrow))
+      const tx = new Spots(), txG = new Spots(), tRecs = [], gv = (r, c, dv) => { const q = r.find((x, i) => i > 0 && x[0] === c); return q ? q[1] : dv; };
+      const mplain = (s) => String(s).replace(/\\P/g, '\n').replace(/\\[A-Za-z][^;\\{}]*;/g, '').replace(/[{}]/g, '').replace(/%%[dD]/g, '°');
+      for (const r of o.model) {
+        const t = r[0][1]; if ((t !== 'TEXT' && t !== 'ATTRIB' && t !== 'MTEXT') || [KMLAY, VLAY, VMAP].includes(gv(r, 8, ''))) continue;
+        const h0 = +gv(r, 40, 0); if (!(h0 > 0) || (t === 'ATTRIB' && (parseInt(gv(r, 70, '0'), 10) & 1))) continue;
+        if (t === 'MTEXT') {
+          const L = mplain(r.filter((x, i) => i > 0 && (x[0] === 3 || x[0] === 1)).map((x) => x[1]).join('')).split('\n'), w = Math.max(...L.map((l) => arialW(l, h0))) * 1.12, Hm = h0 + (L.length - 1) * h0 * 5 / 3 * (+gv(r, 44, 1) || 1);
+          const at = parseInt(gv(r, 71, '1'), 10) || 1, cl = (at - 1) % 3, rw = Math.floor((at - 1) / 3), a = Math.atan2(+gv(r, 21, 0), +gv(r, 11, 1)), u = [Math.cos(a), Math.sin(a)], du = w * (0.5 - cl * 0.5), dv = Hm * (rw * 0.5 - 0.5);
+          (gv(r, 8, '') === lay('GRIDNO.', 'GRIDNO') ? txG : tx).add(Spots.box(+gv(r, 10, 0) + u[0] * du - u[1] * dv, +gv(r, 20, 0) + u[1] * du + u[0] * dv, w + h0 * 0.3, Hm + h0 * 0.3, a * 180 / Math.PI)); // (the sheet's big grid number: covered rather than a label far from its pole)
+        } else {
+          const w = arialW(gv(r, 1, ''), h0) * 1.12, ha = parseInt(gv(r, 72, '0'), 10) || 0, va = parseInt(gv(r, t === 'ATTRIB' ? 74 : 73, '0'), 10) || 0, a = +gv(r, 50, 0) * Math.PI / 180, u = [Math.cos(a), Math.sin(a)];
+          const x0 = ha || va ? +gv(r, 11, 0) : +gv(r, 10, 0), y0 = ha || va ? +gv(r, 21, 0) : +gv(r, 20, 0), du = ha === 1 || ha === 4 ? 0 : ha === 2 ? -w / 2 : w / 2, dv = va === 2 ? 0 : va === 3 ? -h0 * 0.5 : h0 * 0.5;
+          const bx = tx.add(Spots.box(x0 + u[0] * du - u[1] * dv, y0 + u[1] * du + u[0] * dv, w + h0 * 0.3, h0 * 1.25, a * 180 / Math.PI));
+          if (t === 'TEXT' && MOVABLE.has(gv(r, 8, '')) && +gv(r, 62, 0) !== 250) tRecs.push({ r, bx, u, x0, y0, h0, a }); // (the texts that may slide: no number, which has its circle)
+        }
+      }
+      const HARD = (t) => (t === 'road' ? 0 : 1), ROADX = (t) => (t === 'road' ? 1 : 0), LEADW = (t) => (t === 'road' ? 0 : t === 'cable' ? 0.01 : 1);
+      const D8 = [[1, 1], [1, 0], [1, -1], [-1, 1], [-1, 0], [-1, -1], [0, 1], [0, -1]], D16 = [...Array(16)].map((_, k) => rotv([1, 0], k * 22.5));
+      const T7 = { labels: 0, leaders: 0, closer: 0, notFree: 0 };
+      for (const T of tidyTodo) {
+        const { p, h } = T, wOf = (s) => arialW(String(s).replace(/×/g, 'x'), h) * 1.12 + h * 0.1; // (× as wide as an x; a little wider than the estimate)
+        const W = Math.max(wOf(T.l1), T.l2 ? wOf(T.l2) : 0), Hb = T.l2 ? h * 2.45 : h, x = p.dp[0], y = p.dp[1], r0 = p.rp + 0.6, ov = p.ov || p.on || [1, 0];
+        const ang = (u) => Math.acos(Math.max(-1, Math.min(1, (u[0] * ov[0] + u[1] * ov[1]) / Math.hypot(u[0], u[1])))), byAng = (a, b) => ang(a) - ang(b), cands = [];
+        [0, 2.5, 5, 8].forEach((ex, ring) => D8.slice().sort(byAng).forEach(([dx, dy], k) => { const r = r0 + ex;
+          cands.push({ cx: dx && dy ? x + dx * (r * 0.72 + W / 2) : dx ? x + dx * (r + W / 2) : x, cy: dx && dy ? y + dy * (r * 0.72 + Hb / 2) : dy ? y + dy * (r + Hb / 2) : y, dx, cost: ring * 12 + k }); }));
+        [6, 10, 15, 20, 26].forEach((r, ring) => D16.slice().sort(byAng).forEach((u, k) => { const sx = Math.abs(u[0]) < 0.3 ? 0 : Math.sign(u[0]), sy = Math.abs(u[1]) < 0.3 ? 0 : Math.sign(u[1]);
+          cands.push({ cx: x + u[0] * r + sx * W / 2, cy: y + u[1] * r + sy * Hb / 2, dx: sx, cost: 50 + ring * 12 + k * 0.5 }); }));
+        for (const c of cands) { // its line to the pole, when the label is not right beside it
+          const qx = Math.min(Math.max(x, c.cx - W / 2), c.cx + W / 2), qy = Math.min(Math.max(y, c.cy - Hb / 2), c.cy + Hb / 2), dl = Math.hypot(qx - x, qy - y);
+          if (dl > r0 + 1.3) { const u = [(qx - x) / dl, (qy - y) / dl], a = add2(p.dp, u, p.rp + 0.3), e = [qx - u[0] * 0.4, qy - u[1] * 0.4]; c.lead = [a, e]; c.lbox = Spots.box((a[0] + e[0]) / 2, (a[1] + e[1]) / 2, dist2(a, e), 0.3, deg(u)); }
+        }
+        if (p.symBox) p.symBox._k--; // (its own pole is not in the way)
+        let best = null;
+        for (const inCell of [true, false]) { for (const clr of [1.0, 0.5, 0.15, 0]) {
+          for (const c of cands) {
+            const tb = Spots.box(c.cx, c.cy, W, Hb, 0); if (inCell && !cellHolds({ ...tb, hw: tb.hw / 1.3 }, p.E, p.N)) continue;
+            const big = Spots.box(c.cx, c.cy, W + 2 * clr, Hb + 2 * clr, 0); if (spots.hitsW(big, HARD) || tx.hits(big)) continue;
+            const ln = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0; if (ln >= 1 || (c.lbox && tx.hits(c.lbox))) continue;
+            const tot = c.cost + 2 * spots.hitsW(tb, ROADX) + (ln > 0 ? 30 : 0) + (txG.hits(tb) ? 30 : 0);
+            if (!best || tot < best.tot) best = { ...c, tot, clr };
+          }
+          if (best) break; } if (best) break; }
+        if (!best) { T7.notFree++; (T7.ids || (T7.ids = [])).push(String(p.poleId || p.id)); best = cands.map((c) => ({ ...c, tot: (spots.hitsW(Spots.box(c.cx, c.cy, W, Hb, 0), HARD) + tx.hits(Spots.box(c.cx, c.cy, W, Hb, 0))) * 1000 + (c.lbox ? (spots.hitsW(c.lbox, LEADW) + tx.hits(c.lbox)) * 100 : 0) + c.cost })).sort((a, b) => a.tot - b.tot)[0]; if (best.lbox && (tx.hits(best.lbox) || spots.hitsW(best.lbox, LEADW) >= 1)) best.lead = null; } // (no line across another text: the pole is under it)
+        if (p.symBox) p.symBox._k++;
+        if (best.clr != null && best.clr < 1) T7.closer++;
+        spots.add(Spots.box(best.cx, best.cy, W + 0.2, Hb + 0.2, 0), 'label:tidy');
+        if (best.lead) { o.lwpoly(T.layer, best.lead, { color: 8 }); spots.line(best.lead, 0.3); T7.leaders++; }
+        const att = best.dx > 0 ? 1 : best.dx < 0 ? 3 : 2; // (top left, right or centre: the text reads away from its pole)
+        o.mtext(T.layer, best.dx > 0 ? best.cx - W / 2 : best.dx < 0 ? best.cx + W / 2 : best.cx, best.cy + Hb / 2, h, T.text, { style: 'arial', att, color: T.color, ls: 0.87 }); T7.labels++;
+      }
+      // a loop's length, an ID or a span length the steps before left over another text (their place was worked out narrower than
+      // AutoCAD draws capitals, e.g. a loop's length over a dummy NAP's ID): slid a little along its line or out from it (8 m at most),
+      // where it covers nothing (Standard keeps them as they are)
+      const NUDGE_W = (t) => (t === 'road' ? 0 : 1);
+      for (const M of tRecs.slice().reverse()) { // (the later first: the one placed last moves)
+        M.bx._k--; if (!tx.hits(M.bx)) { M.bx._k++; continue; }
+        const own = spots.list.filter((b) => b._k > 0 && Math.hypot(b.cx - M.bx.cx, b.cy - M.bx.cy) < M.h0 * 1.5 && Math.abs(b.ux * M.u[1] - b.uy * M.u[0]) < 0.05); // (its own place, kept by the step that wrote it)
+        own.forEach((b) => { b._k--; });
+        const v = [-M.u[1], M.u[0]], tries = []; for (const sa of [0, 1.5, -1.5, 3, -3, 4.5, -4.5, 6, -6, 8, -8]) for (const sv of [0, 1, -1, 2, -2, 3.5, -3.5, 5, -5, 7, -7]) if (sa || sv) tries.push([sa, sv]);
+        tries.sort((x, y) => Math.abs(x[0]) + 1.5 * Math.abs(x[1]) - Math.abs(y[0]) - 1.5 * Math.abs(y[1]));
+        const ok = tries.find(([sa, sv]) => { const d0 = [M.u[0] * sa + v[0] * sv, M.u[1] * sa + v[1] * sv], nb2 = { ...M.bx, cx: M.bx.cx + d0[0], cy: M.bx.cy + d0[1] }; return !tx.hits(nb2) && !spots.hitsW(nb2, NUDGE_W) && cellHolds({ ...nb2, hw: nb2.hw / 1.3 }, M.x0, M.y0); });
+        if (!ok) { own.forEach((b) => { b._k++; }); M.bx._k++; continue; }
+        const d0 = [M.u[0] * ok[0] + v[0] * ok[1], M.u[1] * ok[0] + v[1] * ok[1]], mv = (c, dd) => setFirst(M.r, c, F(+gv(M.r, c, 0) + dd));
+        mv(10, d0[0]); mv(20, d0[1]); if (gv(M.r, 11, null) != null) { mv(11, d0[0]); mv(21, d0[1]); }
+        M.bx = tx.add(Spots.box(M.bx.cx + d0[0], M.bx.cy + d0[1], M.bx.hw * 2, M.bx.hh * 2, M.a * 180 / Math.PI)); M.x0 += d0[0]; M.y0 += d0[1];
+        spots.add(Spots.box(M.bx.cx, M.bx.cy, M.bx.hw * 2, M.bx.hh * 2, M.a * 180 / Math.PI), 'label'); (T7.moved || (T7.moved = [])).push(`${gv(M.r, 1, '')} ${ok.join(',')}`);
+      }
+      rep.tidy = T7;
     }
     /* the vicinity map, beside the plan: the route as a bold red broken line over the street map (or a copy of the roads), the
        names of the main streets large enough at that scale (v2.34: no label, no start mark: just the route). Its viewport shows

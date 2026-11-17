@@ -319,8 +319,10 @@
     /* the tubes ticked as in use, in the cable's own buffers (12 or 6 fibers each) */
     var tubeFibers = function (fid, size, fpt) { var out = []; tubesOf(A, fid).forEach(function (t) { for (var f = (t - 1) * fpt + 1; f <= t * fpt && f <= size; f++) out.push(f); }); return out; };
     var cables = B.pieces.map(function (c) {
-      return { id: c.key, fid: c.fid, name: String(A.ids[c.key] || cidOf(c) || '').trim(), from: c.from, to: c.to, size: c.size, fpt: c.fpt, status: c.status, length: c.len,
+      var o = { id: c.key, fid: c.fid, name: String(A.ids[c.key] || cidOf(c) || '').trim(), from: c.from, to: c.to, size: c.size, fpt: c.fpt, status: c.status, length: c.len,
         used: c.status === 'existing' ? SP.fmtRanges(tubeFibers(c.fid, c.size, c.fpt)) : '' };
+      if (B.onward[c.key]) o.onward = true; /* (it goes on beyond a dummy NAP: not spliced in this job, even before the first answer) */
+      return o;
     });
     var ask3 = set.stage === 'built' && !A.testedDone && legIdsOf(A).filter(function (t) { return R.dist[t] != null && (A.legs['g-' + t] || {}).state !== 'future'; }).length >= 2;
     var links = A.started && A.start ? legIdsOf(A).map(function (t) {

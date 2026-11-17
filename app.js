@@ -182,7 +182,7 @@
     quality: 'strict', readId: false, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
     exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'utm', 'time', 'by', 'project'], naming: 'id',
       kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true,
-      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, pmiLoops: true, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfCef: true, dxfRows: null, dxfRowSel: 0 }, // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
+      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, pmiLoops: true, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfCef: true, dxfRows: null, dxfRowSel: 0, dxfLabels: 'std' }, // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
     saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
     sig: { design: '', project: '', head: '', cse: '', cseAuto: '' }, // v2.42.12: the names in the plan's title blocks (cseAuto: the last CSE Lead the online sheet gave)
   };
@@ -9851,6 +9851,7 @@
     $('dxfFilesLbl').textContent = R.length === 1 ? '1 DRAWING' : `${R.length} DRAWINGS · ONE DXF EACH${S.exp.dxfPdf ? ' AND ONE PDF' : ''}`;
     $('dxfFiles').innerHTML = R.map((r, i) => { const n = r.pts.includes('*') ? null : rowSel(r, pts).ids.length; return `<div class="dxffile"><span class="n">${i + 1}</span><span>${C.xmlEsc(mxRowName(r))}${n != null ? ` <small>${n}</small>` : ''}</span><span class="m">${mxIcon(r.mode)}${MX_SHORT[r.mode]}</span></div>`; }).join('');
     $('doDxf').textContent = tpl && R.length > 1 ? `Export ${R.length} drawings` : 'Export DXF';
+    renderDxfLbl(tpl); // beta 4.7
     if (splHooks.need) splHooks.need(); // beta 4.6: the CEF plan and the splicing details still to make
     sigLine();
   }
@@ -9909,6 +9910,16 @@
   $('dxfWhat').addEventListener('click', () => { const under = stack.includes('drawing'); closeSheet().then(() => { if (!under) { if (!drawOn()) { toast('The Drawing is for As-Plan and As-Built surveys'); return; } openDrawing(); } if (!$('drawing').hidden) setWhat(true, deskOn()); }); });
   $('dxfSetBtn').addEventListener('click', () => openPlanSet());
   $('dxfPdf').addEventListener('change', () => setTimeout(renderDxfMarks, 0));
+  /* beta 4.7: Labels on the plan: Standard (each pole's details and coordinates turned with the cable, as before) or Tidy (one level
+     label per pole: tag · type, its clamps below; no owner, no coordinates), on the company template only; kept with the export settings */
+  function renderDxfLbl(tpl) {
+    const row = $('dxfLblRow'); if (!row) return;
+    row.hidden = !tpl; const v = S.exp.dxfLabels === 'tidy' ? 'tidy' : 'std';
+    row.querySelectorAll('.chip').forEach((b) => { const on = b.dataset.v === v; b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; });
+    $('dxfLblSub').textContent = v === 'tidy' ? 'One level label per pole: tag · type, clamps below' : 'Pole details and coordinates, as before';
+  }
+  $('dxfLbl').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b || !b.dataset.v) return; S.exp.dxfLabels = b.dataset.v === 'tidy' ? 'tidy' : 'std'; persist(); renderDxfLbl(dxfMode() === 'tpl'); });
+  $('dxfLbl').addEventListener('keydown', (e) => { if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return; e.preventDefault(); S.exp.dxfLabels = S.exp.dxfLabels === 'tidy' ? 'std' : 'tidy'; persist(); renderDxfLbl(dxfMode() === 'tpl'); const b = $('dxfLbl').querySelector('[aria-checked="true"]'); if (b) b.focus(); }); // (a radio group: the arrows move the choice)
   SIG_IDS.forEach(([id]) => { const el = $(id); if (el) el.addEventListener('input', () => sigLine()); });
   /* ---- v2.42.28: Plan settings: how every drawing of the plan export looks and is numbered, in one place: Drawing style, clamp types
      on the plan (the CA button of the Drawing before), pole numbers, the loops in the PMI cable lengths, the template and logo, the
@@ -10429,7 +10440,7 @@
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
       const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? PLS.clamp : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks,
         towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: PLS.site.acol, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
-        numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, poleStyle: PS.pole, spanStyle: PS.span, /* beta 4.3 */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
+        numStyle: PS.num, idStyle: PS.id, vicStyle: PS.vic, poleStyle: PS.pole, spanStyle: PS.span, /* beta 4.3 */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
     }
@@ -10444,7 +10455,7 @@
         const deflate = 'CompressionStream' in window ? async (u) => new Uint8Array(await new Response(new Blob([u]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer()) : null;
         for (let k = 0; k < outs.length; k++) {
           busy(many ? `The sheets as a PDF (${k + 1} of ${outs.length})…` : 'The sheets as a PDF…', k / outs.length); await sleep(30);
-          const pdf = await window.GeDxfPdf.toPdf(outs[k].out.text, { images, title: outs[k].file.replace(/\.dxf$/i, ''), deflate });
+          const pdf = await window.GeDxfPdf.toPdf(outs[k].out.text, { images, title: outs[k].file.replace(/\.dxf$/i, ''), deflate, colourRuns: S.exp.dxfLabels === 'tidy' }); // (beta 4.7: Tidy labels' two colours)
           pdfFiles.push({ name: outs[k].file.replace(/\.dxf$/i, '_SHEETS.pdf'), data: pdf });
           LOG.info('export.planpdf', { sheets: pdf.report.sheets.length, pictures: pdf.report.pictures, missing: pdf.report.missing.length, mb: +(pdf.length / 1048576).toFixed(2) });
         }
@@ -10461,8 +10472,8 @@
     // v2.40: the numbers on the plan, for the README (and an RTA application): number, ID, pole type, position
     const markLinesOf = (MK) => MK.map(([n, id]) => { const p = byPt.get(id) || {}; return `  ${n}  ${p.poleId || '(no ID)'}  ${elemOf(p) === 'Pole' ? p.poleType || 'pole' : elemOf(p)}  ${(+p.lat).toFixed(6)}, ${(+p.lon).toFixed(6)}`; });
     const besideOf = (o) => { const MK = o.out.report.marks || [], n = MK.length; return `${o.st.mode === 'num' ? 'their number only (no photos)' : o.st.mode === 'both' ? `their number beside the point and their photo near it (${o.out.report.marks.filter((x) => x[2] === 'photo+number').length} of ${n} with a photo; a photo with no free place on the plan is left out)` : `their photo (${o.nPh} of ${n}; a point without a photo shows its number)`}, for ${o.st.what}: ${n} numbered 1 to ${n} along the route`; };
-    const setFirst = files.length ? 'UNZIP EVERYTHING INTO ONE FOLDER, then open the DXF in AutoCAD with File > Open: the pictures (pole photos, vicinity map) are linked by file name and must stay next to the DXF. Do not drag the DXF into an open drawing (it becomes a block there and its pictures are looked for next to that other drawing).'
-        + ' AutoCAD 2021 and other older releases may show these pictures as empty frames when they open a DXF (an AutoCAD limit with pictures linked by file name; AutoCAD 2027 shows them at once): once the plan is open, type -IMAGE and press Enter, type R and press Enter, then press Enter again; every picture is loaded from the DXF\'s folder. Then save the plan as a DWG (File > Save As): the DWG shows them every time.'
+    const setFirst = files.length ? 'UNZIP EVERYTHING INTO ONE FOLDER, then open the plan by double-clicking the DXF in that folder: the pictures (pole photos, vicinity map) are linked by file name and must stay next to the DXF. Do not drag the DXF into an open drawing (it becomes a block there and its pictures are looked for next to that other drawing).'
+        + ' If the photos still show as empty frames (AutoCAD 2021 or 2022): type -IMAGE, press Enter, type R, press Enter, then press Enter again; every picture is loaded from the DXF\'s folder. Save the plan as a DWG (File > Save As) to keep them.'
       : 'Open the DXF in AutoCAD with File > Open (do not drag it into an open drawing).'; // v2.42.8 (beta 4.7: the pictures in older AutoCAD)
     const head = many ? [`${outs.length} plan drawings on your company template (AutoCAD 2018 DXF), UTM ${zone}N metres, the same plan with different numbers or photos beside the points:`,
       ...outs.map((o) => `  ${o.file}: ${besideOf(o)}.`), setFirst]
@@ -10497,12 +10508,13 @@
       `On the cable (the cable meets their two sides, the ID below): NAPs of every kind (1x8, 1x16, dummy, changed to 1:16, double; a NAP pin is drawn on its pole), LCPs (1:4 and double, a kind of NAP on its pole), the ODC (G-eSAA's cabinet symbol, layers G-ESAA PROPOSED / EXISTING ODC: the template has no ODC model), handholes, manholes and service boxes: ${rp.counts.inlineBlocks || 0}. Loops on the cable beside their pole; closures on the cable. Grounding at every pole with a loop or marked for it: ${rp.counts.grounding || 0}. Risers where the cable goes from aerial to underground (or marked): ${rp.counts.risers || 0}. Directional boring (HDD) where an underground cable crosses a road: ${rp.counts.hdd || 0}. A new tower is red; an OLT site is drawn with the OLT model (${rp.counts.olt || 0}).`,
       ...(() => { const A = routeAdvice(R); return A.length ? [`Route check (${A.length}): ${A.map((a) => a.text).join(' · ')}.`] : []; })(),
       `Road widths by OpenStreetMap class (or its width / lanes): primary 12 m, secondary 9, tertiary 7.5, residential 6, service 4, track 3.5; paths as a grey centre line. Building and place names: ${rp.counts.pois || 0} of the ${rp.counts.poisGiven || 0} named in OpenStreetMap round the route (its area and 250 m round it; not written: ${rp.counts.poisOutside || 0} outside the GEO sheets, ${rp.counts.poisNoRoom || 0} with no free room beside them, ${rp.counts.poisDuplicate || 0} repeated names)${rp.counts.landmarkIcons ? `, ${rp.counts.landmarkIcons} with their icon (blocks GESAA_LM_…, layer G-ESAA LANDMARK; icons of the OpenStreetMap street map and Mapbox Maki, public domain)` : ''}.`,
-      'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD. Each pole\'s label points straight out from the cable, and its photo or number sits beside the pole on the side toward the homing, the same at every pole where there is room (elsewhere a little further, turned, or on the other side).', '',
+      S.exp.dxfLabels === 'tidy' ? 'Labels: Tidy. Each pole has one level label, all of one size: its tag and type (e.g. 9100101 · CC; NPT when it has no tag) and, below, its clamps and 12C hardware. It sits beside the pole, or further out with a short grey line to it, where it covers no other label, street name, cable, symbol, photo or photo line. The pole owner and the coordinates are not written on the map (the numbered points\' coordinates are in the list below). Photos and numbers are where Standard labels put them.' // beta 4.7
+        : 'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD. Each pole\'s label points straight out from the cable, and its photo or number sits beside the pole on the side toward the homing, the same at every pole where there is room (elsewhere a little further, turned, or on the other side).', '',
       ...outs.flatMap((o) => { const MK = o.out.report.marks || []; return MK.length ? [`Numbers on the plan${many ? ` in ${o.file}` : ''} (${MK.length}${o.st.no.size ? `: ${o.st.what}` : ''}): number, ID, type, latitude, longitude`, ...markLinesOf(MK), ''] : []; }), exporterText()].join('\r\n');
     busy(false);
     { const RR = dxfRows(), rowOf = (o) => RR[(+String(o.st.id).replace(/\D/g, '') || 1) - 1]; // v2.42.28: the ZIP in plain words
       resultInside = [...outs.map((o) => { const r = rowOf(o); return ['DXF', o.file, `${many && r ? `${mxRowName(r)}, ${MX_LONG[r.mode]}. ` : ''}Open it in AutoCAD`]; }), ...pdfFiles.map((f) => ['PDF', f.name, 'The sheets on A3, to print']), ...(cefFiles.length ? [['CEF', `${new Set(cefFiles.map((f) => f.name.split('/')[0])).size} CEF plan folder${new Set(cefFiles.map((f) => f.name.split('/')[0])).size === 1 ? '' : 's'}`, 'The CEF plan of each tower site: its PDF, DXF, KML and photos']] : []),
-        ...(files.length ? [['JPG', `${files.length} picture${files.length === 1 ? '' : 's'}`, 'The photos, the vicinity map and the logo: keep them in the same folder as the drawings, or AutoCAD shows empty boxes']] : []), ['TXT', 'README.txt', 'What the plan holds, with the pole numbers of each drawing']]; }
+        ...(files.length ? [['JPG', `${files.length} picture${files.length === 1 ? '' : 's'}`, 'Photos, vicinity map, logo: keep them next to the drawings, or AutoCAD shows empty boxes (AutoCAD 2021: see README)']] : []), ['TXT', 'README.txt', 'What the plan holds, with the pole numbers of each drawing']]; }
     offerResult(new Blob(C.makeZipParts([...outs.map((o) => ({ name: o.file, data: o.out.text })), ...files, ...pdfFiles, ...cefFiles, { name: 'README.txt', data: readme }]), { type: 'application/zip' }), `${name}_DXF.zip`);
     { const A = routeAdvice(R), o0 = outs[0], MK0 = o0.out.report.marks || [];
       toast(`Plan: ${many ? `${outs.length} drawings · ` : ''}${rp.sheets.length} GEO sheet${rp.sheets.length === 1 ? '' : 's'}${!many && o0.st.no.size ? ` · numbered: ${o0.st.what} (${MK0.length})` : ''} · ${roadsNote}${A.length ? ` · ${A.length} route check${A.length === 1 ? '' : 's'} in the README` : ''}${noPack.length ? ` · no road pack for ${noPack.map(({ region }) => region || 'a place').join(', ')}: its ROW table is blank (see the README)` : ''}`, noPack.length ? 9000 : 5000); }
