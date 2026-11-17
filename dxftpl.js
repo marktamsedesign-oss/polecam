@@ -818,6 +818,22 @@
     return { base(t, layer, extra) { const r = [[0, t], [5, d.newHandle()], [330, own], [100, 'AcDbEntity'], [8, layer]]; if (extra && extra.color != null) r.push(...colGroups(extra.color)); return r; },
       add(r) { B.splice(B.indexOf(blk.end), 0, r); blk.ents.push(r); return r; } };
   }
+  /** beta 5.9: writes entities into a layout's paper space (its own block, or the ENTITIES section for *Paper_Space), with Out's helpers. */
+  function paperOut(d, S, L, OutC) {
+    const brec = S.br.get(L.brh), bn = get(brec, 2), own = get(brec, 5), po = new OutC(d, S);
+    if (bn === '*Paper_Space') { const E = d.sec('ENTITIES').recs; po.base = (t, layer, extra) => { const r = [[0, t], [5, d.newHandle()], [330, own], [100, 'AcDbEntity'], [67, I(1)], [8, layer]]; if (extra && extra.color != null) r.push(...colGroups(extra.color)); if (extra && extra.lwt != null) r.push([370, I(extra.lwt)]); return r; }; po.add = (r) => { E.push(r); return r; }; }
+    else { const bo = blockOut(d, S, bn); if (!bo) return null; po.base = (t, layer, extra) => { const r = bo.base(t, layer, extra); if (extra && extra.lwt != null) r.push([370, I(extra.lwt)]); return r; }; po.add = bo.add; }
+    return po;
+  }
+  /** beta 5.9: a paper-space entity's box [x0, y0, x1, y1] (lines, polylines, texts by their insertion and Arial width; circles), or null. */
+  function entBoxP(r) {
+    const t = typ(r), n = (c) => +get(r, c, 0);
+    if (t === 'LINE') return [Math.min(n(10), n(11)), Math.min(n(20), n(21)), Math.max(n(10), n(11)), Math.max(n(20), n(21))];
+    if (t === 'LWPOLYLINE') { const xs = all(r, 10).map(Number), ys = all(r, 20).map(Number); return xs.length ? [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] : null; }
+    if (t === 'CIRCLE') return [n(10) - n(40), n(20) - n(40), n(10) + n(40), n(20) + n(40)];
+    if (t === 'TEXT' || t === 'MTEXT' || t === 'ATTDEF') { const h = n(40), s = t === 'MTEXT' ? all(r, 3).join('') + (get(r, 1) || '') : String(get(r, 1) || ''); if (!(h > 0) || !s.trim()) return null; const w = Math.min(arialW(s.replace(/\\[A-Za-z][^;]*;|[{}]/g, ''), h), t === 'MTEXT' && n(41) > 0 ? n(41) : Infinity), x = n(10), y = n(20); return [x - w, y - h * 1.5, x + w, y + h * 1.5]; }
+    return null;
+  }
   /** v2.34: the box of the title block cell round a point of a block (its nearest lines above, below, left and right), or null. */
   function cellOf(ents, px, py) {
     const hs = [], vs = [];
@@ -2011,6 +2027,7 @@
     const chains = chainsOf(spans), label = new Map((runs || []).map((r) => [r.cable, r.label]));
     // v2.42.23: with fibers, each fiber is drawn as one line in its lane (below); the runs on them are not drawn as runs, but their
     // chains still give the runs' labels, the underground (HDD) and the vicinity map
+    const spanLblAt = new Map(); // beta 5.9: where each span's length is written (for the BOQ table of each GEO sheet)
     const K2 = (a, b) => (String(a) < String(b) ? `${a}|${b}` : `${b}|${a}`), FIB = (job.fibs || []).filter((f) => f.path && f.path.length > 1 && f.steps && f.steps.length === f.path.length - 1);
     const nLane = new Map(), fibKeys = new Set(), laneStart = new Map(); // (the spans the new fibers draw; every fiber's spans; each new lane's start at a pole toward the next: the loops)
     FIB.forEach((f) => f.steps.forEach((s) => { if (s.gap) return; fibKeys.add(K2(s.a, s.b)); if (!f.ex) nLane.set(K2(s.a, s.b), Math.max(nLane.get(K2(s.a, s.b)) || 1, s.n || 1)); })); // (a gap is not drawn; a span with only existing fibers keeps its own cable, drawn as before)
@@ -2956,7 +2973,7 @@
           if (c) break; }
         if (c) break; }
       c = c || best;
-      o.text(lay('Distance Data'), c.q[0], c.q[1], c.th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : +SST.color || null }); spots.add([c.bx]);
+      o.text(lay('Distance Data'), c.q[0], c.q[1], c.th, txt, { rot: rd, ha: 1, va: 2, style: 'arial', color: s.long ? 1 : +SST.color || null }); spots.add([c.bx]); spanLblAt.set(K2(s.ia, s.ib), c.q);
     }
     // v2.42.11: each tower, its name beside the tower where it covers nothing (the cable, the road lines, the poles, their labels,
     // the span lengths), inside the tower's GEO sheet. v2.42.13: its box as wide as AutoCAD draws it (Arial bold at the attribute's
@@ -3654,6 +3671,72 @@
     if (job.debug) rep.pts = pts.map((p) => ({ id: p.id, poleId: p.poleId, el: p.el, dp: p.dp, A: p.A, kept: !!p.kept, moved: p.moved || 0, onPole: p.onPole ? p.onPole.id : null }));
     if (job.debug) rep.inline = [...inl.values()].map((it) => ({ b: it.b, at: it.at, hl: it.hl, hlo: it.hlo, hhi: it.hhi, hh: it.hh, sc: it.sc, rot: it.rot, box: blockBox(S, it.b, 0), boxT: blockBoxT(S, it.b), c: blockCenter(S, it.b) }));
     rep.counts = { ...o.n, cableLeaders: nLeaders, cableLabelsSmall: nSmall, closuresOnCable: nCloInl, ...(nCloOff ? { closuresAway: nCloOff } : {}), namesInCell: nInCell, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, poisHidden: poiSkip.hidden || 0, poisAlways: typeof poisAlways === 'number' ? poisAlways : 0, idsMovedAuto: nAutoIds, /* beta 3.8 */ landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesOffRoadLine: nCleared, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, loops: nLoop, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length, telcoArms: nTelco };
+    /* beta 5.9 (the owner: "the bill of quantities on each grid … a slice per grid of the PMI as the total … only add the span length of
+       each foc wherever the span length falls per grid"): on every GEO sheet a BILL OF QUANTITIES table with the PMI table's rows, each
+       counting what lies on that sheet's grid cell: a span whole on the sheet where its length is written (else where its middle is), a
+       loop, a pole, a new ODF's fibers or a new closure where its point is (job.pmiItems, from the app, by the PMI's own rules). The
+       lengths rounded so the sheets add up to the PMI's figure; rows the PMI leaves blank stay blank. In the sheet's right-hand box
+       above the title block's fields. */
+    if (job.pmiItems && N > 0) {
+      const PMI_ROWS = [['TOTAL CABLE LENGTH', 'PMI_TOTAL_CABLE_LENGTH', 'm'], ['AERIAL CABLE LENGTH', 'PMI_AERIAL_CABLE_LENGTH', 'm'], ['EXISTING GT POLE', 'PMI_EXISTING_GT_POLE'], ['PROPOSED POLE', 'PMI_PROPOSED_POLE'],
+        ['RTA CONVERGE', 'PMI_RTA_CONVERGE'], ['RTA LOCAL COOP', 'PMI_RTA_LOCAL_COOP'], ['RTA OTHER (PLDT POLE)', 'PMI_RTA_OTHER_PLDT'], ['UNDERGROUND CABLE LENGTH', 'PMI_UG_CABLE_LENGTH', 'm'], ['PROPOSED HDD', null],
+        ['PROPOSED OPEN TRENCH', null], ['PROPOSED MICRO TRENCH', null], ['MAXCELL INNER DUCT', null], ['PROPOSED MANHOLE', null], ['PROPOSED SERVICE BOX', null], ['FIBER TERMINATION', 'PMI_FIBER_TERMINATION'], ['PROPOSED HYBRID CLOSURE', 'PMI_HYBRID_CLOSURE']];
+      const V0 = job.values || {}, PI = job.pmiItems, names = geoNames(N), per = new Map(names.map((nm) => [nm, {}])), lost = [];
+      const shAt = (x, y) => sheetOf.get(key(ci(x), cj(y))) || null, numOf = (v) => { const m = /-?\d+(?:\.\d+)?/.exec(String(v == null ? '' : v)); return m ? +m[0] : null; };
+      const addTo = (nm, v, what) => { if (!nm) { lost.push(what); return; } const o2 = per.get(nm); for (const [k, x] of Object.entries(v || {})) o2[k] = (o2[k] || 0) + (+x || 0); };
+      for (const it of PI.spans || []) { const P = byId.get(String(it.ia)), Q = byId.get(String(it.ib)); if (!P || !Q) { lost.push(`span ${it.ia}-${it.ib}`); continue; } const at = spanLblAt.get(K2(it.ia, it.ib)); addTo((at && shAt(at[0], at[1])) || shAt((P.E + Q.E) / 2, (P.N + Q.N) / 2), it.v, `span ${P.poleId || P.id}-${Q.poleId || Q.id}`); }
+      for (const it of PI.points || []) { const p = byId.get(String(it.id)); if (!p) { lost.push(`point ${it.id}`); continue; } addTo(shAt(p.E, p.N), it.v, String(p.poleId || p.id)); }
+      const cellsTxt = new Map(names.map((nm) => [nm, {}])), check = [];
+      for (const [label, k, unit] of PMI_ROWS) {
+        if (!k || V0[k] == null || String(V0[k]).trim() === '') { check.push({ row: label, pmi: '', sum: '', ok: true }); continue; }
+        const tot = numOf(V0[k]);
+        if (unit === 'm') { // (decimetres: each sheet rounded down, the rest of the PMI's figure to the sheets with the largest remainders)
+          const T10 = Math.round((tot || 0) * 10), raw = names.map((nm) => (per.get(nm)[k] || 0) * 10), fl = raw.map(Math.floor); let rest = T10 - fl.reduce((t, v) => t + v, 0);
+          const ok = rest >= 0 && rest <= names.length; if (ok) raw.map((v, i) => [v - fl[i], i]).sort((x, y) => y[0] - x[0]).slice(0, rest).forEach(([, i]) => { fl[i]++; }); else names.forEach((nm, i) => { fl[i] = Math.round(raw[i]); });
+          names.forEach((nm, i) => { cellsTxt.get(nm)[k] = `${(fl[i] / 10).toFixed(1)}m`; });
+          const sum = fl.reduce((t, v) => t + v, 0) / 10; check.push({ row: label, pmi: String(V0[k]), sum: `${sum.toFixed(1)}m`, ok: ok && Math.abs(sum - (tot || 0)) < 0.05, raw: +(raw.reduce((t, v) => t + v, 0) / 10).toFixed(2) });
+        } else {
+          const vs = names.map((nm) => Math.round(per.get(nm)[k] || 0)); names.forEach((nm, i) => { cellsTxt.get(nm)[k] = String(vs[i]); });
+          const sum = vs.reduce((t, v) => t + v, 0); check.push({ row: label, pmi: String(V0[k]), sum: String(sum), ok: sum === tot });
+        }
+      }
+      rep.boqGrid = { check, lost, sheets: Object.fromEntries(names.map((nm, i) => [nm, { grid: cellName(geoCells[i].i, geoCells[i].j), ...cellsTxt.get(nm) }])) };
+      const bad = check.filter((c) => !c.ok); if (bad.length || lost.length) rep.notes.push(`BOQ tables of the GEO sheets: ${bad.length ? `${bad.map((c) => `${c.row} (sheets ${c.sum}, PMI ${c.pmi})`).join(', ')} do not add up to the PMI` : ''}${bad.length && lost.length ? '; ' : ''}${lost.length ? `not on any GEO sheet: ${lost.slice(0, 8).join(', ')}` : ''}`);
+      // the table in each GEO sheet's right-hand box
+      S = structure(d); const BL = 'G-ESAA BOQ GRID'; addLayer(d, S, BL, 7); S = structure(d);
+      const stl = S.styles.has('Standard') ? 'Standard' : null; let nTab = 0;
+      names.forEach((nm, k) => {
+        const L = S.layouts.find((x) => x.name === nm), vp = L && bigVp(L); if (!vp) return;
+        const vx1 = num(vp, 10, 0) + num(vp, 40, 0) / 2, boxes = [];
+        for (const r of layoutEnts(d, S, L)) { const t = typ(r); if (t === 'VIEWPORT') continue;
+          if (t === 'INSERT') { const b = S.blocks.get(get(r, 2)); if (!b) continue; const ix = num(r, 10, 0), iy = num(r, 20, 0), sx = num(r, 41, 1) || 1, sy = num(r, 42, sx) || 1, bx = num(b.begin, 10, 0), by = num(b.begin, 20, 0);
+            for (const e of b.ents) { const q = entBoxP(e); if (q) boxes.push([ix + (q[0] - bx) * sx, iy + (q[1] - by) * sy, ix + (q[2] - bx) * sx, iy + (q[3] - by) * sy]); } }
+          else { const q = entBoxP(r); if (q) boxes.push(q); } }
+        if (!boxes.length) return;
+        const pg = [Math.min(...boxes.map((q) => q[0])), Math.min(...boxes.map((q) => q[1])), Math.max(...boxes.map((q) => q[2])), Math.max(...boxes.map((q) => q[3]))], pH = pg[3] - pg[1];
+        const fr = boxes.filter((q) => q[3] - q[1] > 0.6 * pH && q[0] >= vx1 - 1 && q[2] <= pg[2] + 1).sort((a2, b2) => (b2[2] - b2[0]) - (a2[2] - a2[0]))[0]; // (the right-hand box's frame, when the title block has one)
+        const cx0 = fr ? fr[0] : vx1, cx1 = fr ? fr[2] : pg[2], ctop = fr ? fr[3] : pg[3];
+        const inCol = boxes.filter((q) => q !== fr && q[3] - q[1] <= 0.6 * pH && q[2] > cx0 + 0.5 && q[0] < cx1 - 0.5 && q[1] < ctop - 0.5); // (the title block's fields and anything else in that column)
+        const ftop = inCol.length ? Math.max(...inCol.map((q) => q[3])) : pg[1], m = 0.04 * (cx1 - cx0), R0 = [cx0 + m, ftop + m, cx1 - m, ctop - m];
+        const uMm = (pg[2] - pg[0]) / Math.max(num(L.rec, 44, 420), num(L.rec, 45, 297), 1) || 1, W = R0[2] - R0[0], H = R0[3] - R0[1]; // (paper units in a millimetre)
+        const rows = PMI_ROWS.map(([lb, k2]) => [lb, k2 ? (cellsTxt.get(nm)[k2] != null ? cellsTxt.get(nm)[k2] : '') : '']), title = `BILL OF QUANTITIES · GRID ${cellName(geoCells[k].i, geoCells[k].j)}`;
+        let rh = Math.min(7 * uMm, H / (rows.length + 2)), th = Math.min(2.5 * uMm, rh * 0.5); const pad = 1.5 * uMm;
+        const need = (h2) => Math.max(...rows.map(([lb]) => arialW(lb, h2))) * 1.08 + Math.max(arialW('QUANTITY', h2), ...rows.map(([, v]) => arialW(v, h2))) * 1.08 + 4 * pad;
+        if (need(th) > W) th *= W / need(th);
+        if (!(W > 30 * uMm && H > (rows.length + 2) * 2.4 * uMm && th >= 1.2 * uMm)) { rep.notes.push(`BOQ table not drawn on ${nm}: its right-hand box has no room`); return; }
+        const po = paperOut(d, S, L, Out); if (!po) return;
+        const x0 = R0[0], x1 = R0[2], top = R0[3], qw = Math.max(arialW('QUANTITY', th), ...rows.map(([, v]) => arialW(v, th))) * 1.08 + 2 * pad, xd = x1 - qw, nR = rows.length + 2, yB = top - nR * rh;
+        const tH = Math.min(th * 1.2, th * W / Math.max(1e-6, arialW(title, th) * 1.08 + 2 * pad));
+        po.lwpoly(BL, [[x0, yB], [x1, yB], [x1, top], [x0, top]], { closed: true });
+        for (let i = 1; i < nR; i++) po.lwpoly(BL, [[x0, top - i * rh], [x1, top - i * rh]], {});
+        po.lwpoly(BL, [[xd, top - rh], [xd, yB]], {});
+        po.text(BL, (x0 + x1) / 2, top - rh / 2, tH, title, { ha: 1, va: 2, style: stl });
+        po.text(BL, x0 + pad, top - 1.5 * rh, th, 'DESCRIPTION', { ha: 0, va: 2, style: stl }); po.text(BL, x1 - pad, top - 1.5 * rh, th, 'QUANTITY', { ha: 2, va: 2, style: stl });
+        rows.forEach(([lb, v], i) => { const y = top - (i + 2.5) * rh; po.text(BL, x0 + pad, y, th, lb, { ha: 0, va: 2, style: stl }); if (v !== '') po.text(BL, x1 - pad, y, th, v, { ha: 2, va: 2, style: stl }); });
+        nTab++;
+      });
+      rep.boqGrid.tables = nTab;
+    }
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0], geo: [gox, goy] }; // (v2.42.25: + the GEO cells' origin)
     // v2.42.8: the cleanup again on the whole drawing, then its extents and opening view
     rep.cleanup = { template: clean0, final: clean(d), oldBlocks };

@@ -182,7 +182,7 @@
     quality: 'strict', readId: false, idOrient: 'h', maxSpan: 200, angleDeg: 15, autoGap: 120, user: null, team: null,
     exp: { maxPx: 2048, quality: 0.88, stamp: true, stampFields: ['id', 'coords', 'utm', 'time', 'by', 'project'], naming: 'id',
       kmzBalloonPx: 800, kmzIconPx: 64, kmzRoute: true, kmzStamp: true, pdfPhotoSize: 'M', pdfAnnexA: true, pdfAnnexB: true, pdfDates: 'blank', xlsTable: true, xlsPhotos: true, kmzData: true,
-      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, pmiLoops: true, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfCef: true, dxfRows: null, dxfRowSel: 0, dxfLabels: 'std' }, // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
+      dxfPhotos: true, dxfPhotoW: 6, focPct: 10, pmiLoops: true, dxfClampType: true, dxfMarks: 'photo', dxfNoMarkBy: {}, dxfSets: ['sel'], dxfPdf: false, dxfCef: true, dxfBoqGrid: true, dxfRows: null, dxfRowSel: 0, dxfLabels: 'std' }, // v2.42.14: dxfRows (the drawings of an export); dxfMarks, dxfNoMarkBy, dxfSets: before, read once
     saveBase: 'DOCUMENTS', saveFolder: 'G-eSAA', saveByProject: true,
     sig: { design: '', project: '', head: '', cse: '', cseAuto: '' }, // v2.42.12: the names in the plan's title blocks (cseAuto: the last CSE Lead the online sheet gave)
   };
@@ -10768,7 +10768,7 @@
     if (!seed) { if (!seedId()) toast('No plan template yet: ask your admin to share it, or load the template file they sent you', 6000); renderDxfTpl(); return; }
     busy('Preparing the plan drawing…');
     const m = pmeta(), zone = S.zone, U = (q) => { const u = C.utmForward(q.lat, q.lon, zone, q.lat < 0); return [u.E, u.N]; };
-    const R = routeModel(), Q = surveyQty(pts), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
+    const QC = { loops: [] }, R = routeModel(), Q = surveyQty(pts, QC), q = Object.fromEntries(Q.rows.map((r) => [r[0], r[1]]));
     const LA = autoLoops(pts, R), OWN = loopOwnMap(pts, R); // v2.42.16: the maintenance loops the app adds (As-Plan); v2.42.18: the own ones
     const showCT = S.exp.dxfClampType !== false; // v2.40: the plan's options (v2.41: set on the Drawing screen)
     const PLS = plStyle(); // v2.42.21: where the clamp types go, the 12C hardware, the cable labels
@@ -10851,6 +10851,23 @@
       SIG_DESIGN_ENGINEER: S.sig.design || '', SIG_PROJECT_ENGINEER: S.sig.project || '', SIG_HEAD_CABLE_ENGINEERING: S.sig.head || '', SIG_JUNIOR_ENGINEER: '', SIG_CSE_LEAD: S.sig.cse || '',
       PMI_FIBER_TERMINATION: String(q.ODF_NEW_FIBERS || 0), PMI_HYBRID_CLOSURE: String(Object.entries(q).filter(([k]) => /^CLOSURE_NEW_/.test(k)).reduce((t, [, v]) => t + (+v || 0), 0)),
     };
+    /* beta 5.9: the PMI's quantities item by item, each where it is, for the BOQ table of each GEO sheet (dxftpl adds them up by grid
+       cell): a span's length where its length is written on the plan (each run when the PMI counts the runs), a loop at its point, a
+       pole by its kind, a new ODF's fibers, a new closure; the same rules as the PMI table above, so the sheets add up to it. */
+    const pmiItems = (() => {
+      const meth = (k) => (k && CAB[k] ? CAB[k].method : null), out = { spans: [], points: [] };
+      if (R.spans.length) {
+        R.spans.forEach((sp) => { const runs = sp.runs || [sp.cable], ae = runs.filter((k) => meth(k) === 'AE').length * sp.len, ug = runs.filter((k) => meth(k) === 'UG').length * sp.len;
+          out.spans.push({ ia: sp.ia, ib: sp.ib, v: { PMI_TOTAL_CABLE_LENGTH: pmiL ? runs.length * sp.len : sp.len, PMI_AERIAL_CABLE_LENGTH: ae, PMI_UG_CABLE_LENGTH: ug } }); });
+        if (pmiL) QC.loops.forEach(([id, cab, len]) => out.points.push({ id, v: { PMI_TOTAL_CABLE_LENGTH: len, ...(meth(cab) === 'AE' ? { PMI_AERIAL_CABLE_LENGTH: len } : meth(cab) === 'UG' ? { PMI_UG_CABLE_LENGTH: len } : {}) } }));
+      }
+      poles.forEach((p) => { const v = {}, ow = own(p); if (isNew(p)) v.PMI_PROPOSED_POLE = 1; else if (gt(p)) v.PMI_EXISTING_GT_POLE = 1; else { if (/CONVERGE/.test(ow)) v.PMI_RTA_CONVERGE = 1; if (/ELECTRIC/.test(ow)) v.PMI_RTA_LOCAL_COOP = 1; if (ow && !/CONVERGE|ELECTRIC/.test(ow)) v.PMI_RTA_OTHER_PLDT = 1; } if (Object.keys(v).length) out.points.push({ id: p.id, v }); }); // (each rule of the PMI on its own, as above)
+      pts.filter((p) => elemOf(p) === 'ODF' && isNew(p)).forEach((p) => { const n = parseInt(String((p.boq && p.boq.odf) || ''), 10) || 0; if (n) out.points.push({ id: p.id, v: { PMI_FIBER_TERMINATION: n } }); });
+      const stOf = (p, k) => ((p.boq || {})[k] === 'Existing' ? 'Existing' : 'New'), nClo = (p) => String((p.boq && p.boq.clo) || 'size not set').split(' + ').length;
+      pts.filter((p) => elemOf(p) === 'Closure' || boxClo(p)).filter((p) => (boxClo(p) && p.boq && p.boq.cloSt ? p.boq.cloSt === 'New' : isNew(p) || (p.boq && p.boq.cloSt === 'New')))
+        .concat(poles.filter((p) => (p.closure || p.closureId) && stOf(p, 'cloSt') === 'New')).forEach((p) => out.points.push({ id: p.id, v: { PMI_HYBRID_CLOSURE: nClo(p) } }));
+      return out;
+    })();
     // v2.35: the ROW AREA COVERAGE sheet: the cities / municipalities and barangays the route passes (every 20 m of each span and
     // every point), from the boundaries in a road pack on this phone
     let rowNote = 'no road pack on this phone covers the route, so the table is left blank (Maps → Offline map packs → Roads · your region)';
@@ -10915,7 +10932,7 @@
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
       const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks,
         towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: jobCols({ c: PLS.site.acol }).c, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
-        numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 5.9: a colour of the user's own as the colour itself */ photoStyle: PS.photo, gridStyle: jobCols(PS.grid), /* beta 5.9: Drawing style › Grid */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
+        numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 5.9: a colour of the user's own as the colour itself */ photoStyle: PS.photo, gridStyle: jobCols(PS.grid), /* beta 5.9: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 5.9: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
     }
@@ -10978,6 +10995,7 @@
         if (svPurpose() === 'As-built') return [`Maintenance loops on poles: as recorded in the As-Built (${onPoles}${own}${q.MLOOP_UNANSWERED ? `; ${q.MLOOP_UNANSWERED} pole${q.MLOOP_UNANSWERED === 1 ? '' : 's'} on the route not answered` : ''}).`, ...box];
         return [`Maintenance loops on poles (each its own length: by default 10 m on 12C, ${mloopLen()} m on 72C): ${onPoles} on the plan${own}; ${ids.length ? `${ids.length} added by the app where the survey had none (${loopRule}): ${ids.join(', ')}` : 'none added by the app'}.`, ...box]; })(),
       `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Settings → AutoCAD DXF)'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures. Trenches and maxcell are not in the survey.',
+      ...(S.exp.dxfBoqGrid !== false && rp.boqGrid ? [`BOQ table on each GEO sheet (Plan settings): the PMI rows for that sheet's grid only, in its right-hand box. A span counts whole on the sheet where its length is written (a span crossing a sheet edge is not split); a loop, a pole, a new ODF's fibers and a new closure count where their point is; lengths rounded so the sheets add up to the PMI${rp.boqGrid.check.every((c) => c.ok) && !rp.boqGrid.lost.length ? ' (they do: every row checked)' : ` (check: ${rp.boqGrid.check.filter((c) => !c.ok).map((c) => c.row).join(', ')})`}. The rows the PMI leaves blank stay blank.`] : []), // beta 5.9
       'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (PROP.POLE / height / clamp)') + ', existing electric pole on ELECTRIC POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / pole tag or NPT)') + ', telco pole on GT-POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / ID)') + '; new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
       `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; a pin placed by hand more than 6 m from the road edge stays where it is: ${rp.counts.polesKept || 0}; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it; a side guy never into the road; a pole-to-pole guy to its chosen pole, with a head guy there: ${rp.counts.poleToPole || 0}).`,
       `On the cable (the cable meets their two sides, the ID below): NAPs of every kind (1x8, 1x16, dummy, changed to 1:16, double; a NAP pin is drawn on its pole), LCPs (1:4 and double, a kind of NAP on its pole), the ODC (G-eSAA's cabinet symbol, layers G-ESAA PROPOSED / EXISTING ODC: the template has no ODC model), handholes, manholes and service boxes: ${rp.counts.inlineBlocks || 0}. Loops on the cable beside their pole; closures on the cable. Grounding at every pole with a loop or marked for it: ${rp.counts.grounding || 0}. Risers where the cable goes from aerial to underground (or marked): ${rp.counts.risers || 0}. Directional boring (HDD) where an underground cable crosses a road: ${rp.counts.hdd || 0}. A new tower is red; an OLT site is drawn with the OLT model (${rp.counts.olt || 0}).`,
@@ -11201,7 +11219,7 @@
   /** v2.29: the survey quantities the BOQ rules will use, each with a code (the BOQ template's formulas will point at these):
       span lengths by cable type and method, maintenance loops, FOC length with loops, detailed engineering (spans without
       loops), new poles by size and class, arms, guying, ODF, closures, NAPs, poles on each cable, the region. */
-  function surveyQty(pts) {
+  function surveyQty(pts, col) { // (beta 5.9: col.loops: each counted loop [point id, cable, length], for the BOQ table of each GEO sheet)
     const rp = pts.filter((p) => ROUTE_ELS.includes(elemOf(p))), R = fibAnnotate(C.analyzeRoute(rp, effLinks(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 }), rp); // v2.42.20: + the fibers
     const rows = [], add = (code, qty, unit, desc) => rows.push([code, qty, unit, desc]), r1 = (v) => Math.round(v * 10) / 10, isNew = (p) => ['Proposed', 'New'].includes(p.status);
     const keys = [...Object.keys(CAB), ''], lenBy = {}, polesBy = {}, loopsBy = {}, ml = mloopLen();
@@ -11214,10 +11232,10 @@
     const LA = autoLoops(pts, R), OWN = loopOwnMap(pts, R), LM = loopManSet(pts, R, OWN), onR = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])); // v2.42.18: + NAPs, LCPs, pins, entrances
     pts.forEach((p) => {
       const E = LA.fib && LA.fib.list.get(p.id); // v2.42.20: a point on a fiber: a loop for each fiber there
-      if (E) { E.forEach((e) => { loops++; if (e.why === 'box') nBox++; loopsBy[e.cab] = (loopsBy[e.cab] || 0) + 1; loopMBy[e.cab] = (loopMBy[e.cab] || 0) + e.len; loopM += e.len; }); return; }
+      if (E) { E.forEach((e) => { loops++; if (e.why === 'box') nBox++; loopsBy[e.cab] = (loopsBy[e.cab] || 0) + 1; loopMBy[e.cab] = (loopMBy[e.cab] || 0) + e.len; loopM += e.len; if (col) col.loops.push([p.id, e.cab, e.len]); }); return; }
       const box = UG_BOXES.has(elemOf(p)) && onR.has(p.id); if (!box && !LM.has(p.id) && !LA.has(p.id)) return;
       loops++; if (box) nBox++; const c = LA.has(p.id) ? LA.get(p.id) : cabAt(p.id), m = box ? BOX_LOOP_M : loopLenAt(p, R, LA, OWN.get(p.id)); // v2.42.18: its own length
-      if (c == null) loopsOff++; else { loopsBy[c]++; loopMBy[c] += m; loopM += m; }
+      if (c == null) loopsOff++; else { loopsBy[c]++; loopMBy[c] += m; loopM += m; if (col) col.loops.push([p.id, c, m]); }
     });
     const tag = (k) => (k ? k : 'NOTSET'), nm = (k) => (k ? CAB[k].label : 'cable not set');
     add('SPAN_TOTAL', r1(R.total), 'm', `All spans (${R.spans.length}), straight pole-to-pole lengths`);
@@ -12396,7 +12414,7 @@
     ['kmzRoute', 'kmzRoute2', 'kmzRoute', 'bool'], ['kmzStamp', 'kmzStamp3', 'kmzStamp', 'bool'], ['kmzStamp2', 'kmzStamp3', 'kmzStamp', 'bool'],
     ['pdfPhotoSize', 'pdfPhotoSize2', 'pdfPhotoSize', 'str'], ['pdfAnnexA', 'pdfAnnexA2', 'pdfAnnexA', 'bool'], ['pdfAnnexB', 'pdfAnnexB2', 'pdfAnnexB', 'bool'],
     ['pdfDates', 'xlsDates', 'pdfDates', 'str'], ['xlsTable', null, 'xlsTable', 'bool'], ['xlsPhotos', null, 'xlsPhotos', 'bool'], ['kmzData', null, 'kmzData', 'bool'],
-    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['dxfPdf', null, 'dxfPdf', 'bool'], ['dxfCef', null, 'dxfCef', 'bool'], ['pmiLoops', 'pmiLoops2', 'pmiLoops', 'bool']]; // v2.41: the plan's options are on the Drawing screen (v2.42.17: + loops in the PMI, also under Settings)
+    ['dxfPhotos', null, 'dxfPhotos', 'bool'], ['dxfPhotoW', null, 'dxfPhotoW', 'num'], ['focPct', null, 'focPct', 'num'], ['dxfPdf', null, 'dxfPdf', 'bool'], ['dxfCef', null, 'dxfCef', 'bool'], ['pmiLoops', 'pmiLoops2', 'pmiLoops', 'bool'], ['dxfBoqGrid', null, 'dxfBoqGrid', 'bool']]; // v2.41: the plan's options are on the Drawing screen (v2.42.17: + loops in the PMI, also under Settings)
   const expIds = {};
   EXP_PAIRS.forEach(([a, b, key, kind]) => { [a, b].filter(Boolean).forEach((id) => { const l = (expIds[key] = expIds[key] || []); if (!l.some((x) => x[0] === id)) l.push([id, kind]); }); });
   function syncExpUi() {
