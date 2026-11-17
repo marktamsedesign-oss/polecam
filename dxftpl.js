@@ -1167,7 +1167,7 @@
     const du = ha === 1 ? 0 : ha === 2 ? -w / 2 : w / 2, dv = va === 2 ? 0 : va === 3 ? -h * 0.6 : h * 0.5;
     return Spots.box(x + ux * du + vx * dv, y + uy * du + vy * dv, w + h * 0.3, h * 1.25, deg);
   }
-  const SPLIT_FILL = 1.0; // beta 4.8: Tidy: the first guess: a cell is split (2 x 2, 3 x 3) where its blocks need more than the room round its poles; where labels then find no place at 1.8 / 1.3 mm (or many only over a road), split further (see build)
+  const GRID_FILL = 1.0, GRID_MAX = 4; // beta 4.8: Tidy: the first guess of the grid: finer where the poles' blocks need more than the room round them; the finest: a quarter of the template's cell
   const ROADLINE_W = (t) => (t === 'road' ? 0.2 : 1); // v2.39.1: a text across a road edge line is better than over a label
   const POLELBL_W = (t) => (t === 'road' ? 1 : t === 'cable' ? 2.5 : 4); // v2.41: a pole's label: over a road edge line rather than the cable, over the cable rather than another label
   const NUM_W = (t) => (t === 'road' || t === 'cable' ? 0 : 1); // v2.41.1: a number's box (its circle is checked against the road itself)
@@ -1454,7 +1454,7 @@
   /** beta 3.8: the site name and ID on the tower (Drawing style: On the tower): their size and the box of their mask. */
   const towerNameBox = (p, W0) => {
     const nm = String(p.siteName || p.poleId || ''); if (!nm) return null;
-    const pla = String(p.plaId || ''), K = W0.k, X = 12.4 * K, cy = W0.ay + 48 * K * 0.27, h = Math.max(1.5, Math.min(2.6, 2 * X * 0.95 / Math.max(1, arialW(nm, 1, true)))), hp = h * 0.8, two = !!pla;
+    const pla = String(p.plaId || ''), K = W0.k, X = 12.4 * K, cy = W0.ay + 48 * K * 0.27, g = W0.nu || 1, h = Math.max(1.5 / g, Math.min(2.6 / g, 2 * X * 0.95 / Math.max(1, arialW(nm, 1, true)))), hp = h * 0.8, two = !!pla; // (beta 4.8: nu: Tidy's finer grid)
     const hw = (Math.max(arialW(nm, h, true), two ? arialW(pla, hp, false) : 0) + h * 0.5) / 2 + 0.4, hh = two ? (h * 1.3 + hp * 1.3 + 0.8) / 2 : h * 0.8;
     return { nm, pla, h, hp, two, cy, yN: two ? cy + hp * 0.7 : cy, yP: cy - h * 0.7, box: [W0.ax - hw, cy - hh, W0.ax + hw, cy + hh] };
   };
@@ -1486,14 +1486,21 @@
    *        values: { TOKEN: text | { sheet: text } }, maxSpan, mloopLen, cell (m, 440), date (Date) }
    * returns { text, report }
    */
-  /** beta 4.8: Tidy: the plan made again, with the crowded cells split once more, where labels found no free place (twice at most); from
-      a copy of the job each time (the build moves some of its points, e.g. an ODF beside its tower). Standard: made once, as before. */
+  /** beta 4.8: Tidy: one grid for the whole plan, finer where the plan needs it: the template's cell, or 1/2, 1/3, 1/4 of it (job._grid),
+      every GEO sheet at the same scale. Made at the first guess, then again with the next finer grid while labels find no place at
+      1.8 / 1.3 mm or pole blocks sit over a road, kept where it leaves fewer (more sheets rather than a block over the road); and with
+      the next coarser one where the first guess leaves none, so the cells are as large as they can be. From a copy of the job each time
+      (the build moves some of its points, e.g. an ODF beside its tower). Standard: made once, as before. */
   function build(seedText, job) {
-    if (!job || job.labels !== 'tidy' || job._split) return buildOne(seedText, job);
+    if (!job || job.labels !== 'tidy' || job._grid) return buildOne(seedText, job);
     const copy = (v) => (v instanceof Date ? new Date(v.getTime()) : Array.isArray(v) ? v.map(copy) : v && typeof v === 'object' && !ArrayBuffer.isView(v) ? Object.keys(v).reduce((o2, k) => { o2[k] = copy(v[k]); return o2; }, {}) : v);
-    const j0 = copy(job); let r = buildOne(seedText, job), t = 0;
-    while (r.report._more && t < 2) { t++; const nj = copy(j0); nj._split = r.report._more; nj._splitTry = t; r = buildOne(seedText, nj); }
-    delete r.report._more; return r;
+    const j0 = copy(job), at = (n) => { const nj = copy(j0); nj._grid = n; return buildOne(seedText, nj); }, G = (r) => r.report._grid, tried = [];
+    const worse = (a, b) => a.bad > b.bad || (a.bad === b.bad && a.over > b.over); // (a leaves more labels without a place, or as many and more blocks over a road)
+    let r = buildOne(seedText, job); tried.push(G(r));
+    if (G(r).n > 1 && !G(r).bad && !G(r).over) for (let n = G(r).n - 1; n >= 1; n--) { const r2 = at(n); tried.push(G(r2)); if (worse(G(r2), G(r))) break; r = r2; } // (coarser while as good)
+    else for (let n = G(r).n + 1; n <= GRID_MAX && (G(r).bad || G(r).over); n++) { const r2 = at(n); tried.push(G(r2)); if (!worse(G(r), G(r2))) break; r = r2; } // (finer while better)
+    if (r.report.tidy) r.report.tidy.grid = { ...r.report.tidy.grid, tried: tried.map((g) => ({ n: g.n, cell: g.cell, sheets: g.sheets, bad: g.bad, over: g.over })) };
+    delete r.report._grid; return r;
   }
   function buildOne(seedText, job) {
     centerCache.clear();
@@ -1503,8 +1510,29 @@
     let S = structure(d);
     if (!S.layouts.some((L) => L.name === 'GEO')) throw new Error('This is not the G-eSAA drawing template: it has no GEO sheet');
     if (!/@@\w+@@/.test(seedText)) throw new Error('This drawing template has no @@ fields: load the prepared seed (G-eSAA_seed…dxf), not the original template');
-    const cell = job.cell || 440, viewH = job.viewH || cell, pts = job.pts || [], spans = job.spans || [], runs = job.runs || [];
+    const cell0 = job.cell || 440, viewH0 = job.viewH || cell0, pts = job.pts || [], spans = job.spans || [], runs = job.runs || [];
     const rep = { sheets: [], cells: [], blanks: [], counts: {}, notes: [] };
+    /* beta 4.8: Tidy: the grid's cell, the template's or 1/2, 1/3, 1/4 of it (NU), the same for the whole plan: every GEO sheet shows one cell
+       at NU times the template's scale, and the texts, symbols, numbers and photos drawn in metres are NU times smaller, so they print the
+       same (the first line of a pole's block 1.8 mm high on the A3 PDF, the other lines 1.3 mm). job._grid: the one to use (see build);
+       else a first guess by how crowded the busiest part of the plan is: the area its poles' blocks need against the room round them. */
+    const NU = job.labels !== 'tidy' ? 1 : job._grid > 0 ? Math.min(GRID_MAX, Math.round(job._grid)) : (() => {
+      const L0 = S.layouts.find((x) => x.name === 'GEO'), vp0 = L0 ? layoutEnts(d, S, L0).filter((e) => typ(e) === 'VIEWPORT').sort((a, b) => num(b, 40, 0) * num(b, 41, 0) - num(a, 40, 0) * num(a, 41, 0)).find((e) => Math.abs(num(e, 40, 0) - num(e, 41, 0)) < 1) : null;
+      let K0 = 0.62; if (vp0 && viewH0 > 0) { const s0 = num(vp0, 41, 0) / viewH0, a0 = num(L0.rec, 44, 420), b0 = num(L0.rec, 45, 297), ww = num(L0.rec, 140, 0) - num(L0.rec, 48, 0), wh = num(L0.rec, 141, 0) - num(L0.rec, 49, 0), k0 = ww > 1 && wh > 1 ? Math.min((ww >= wh ? Math.max(a0, b0) : Math.min(a0, b0)) / ww, (ww >= wh ? Math.min(a0, b0) : Math.max(a0, b0)) / wh) : 1; if (s0 * k0 > 0.05 && s0 * k0 < 20) K0 = s0 * k0; }
+      const tt = Array.isArray(job.tidyText) ? job.tidyText : [1.8, 1.3], l1 = tt[0] / K0, sm = tt[1] / K0, hb = l1 * 1.4 + 3.6 * 1.45 * sm, ph = Object.keys(job.photos || {}).length > 0 && job.markMode !== 'num';
+      const wB = 2.1 * l1 + 0.5 + Math.max(arialW('0000000 · CC', l1), arialW('000.000000°', sm)) * 1.12 + (ph ? 0.8 + 0.75 * Math.min(hb, 10) : 0), aB = (wB + 2) * (hb + 2); // (a pole's block, its photo beside it, and the room round it)
+      const byCell = new Map(); for (const p of pts) if (p.el === 'Pole') { const kk = `${Math.floor(p.E / cell0)},${Math.floor(p.N / cell0)}`; (byCell.get(kk) || byCell.set(kk, []).get(kk)).push(p); }
+      let n0 = 1;
+      for (const [kk, P] of byCell) {
+        if (P.length < 8) continue;
+        const [i, j] = kk.split(',').map(Number), x0 = i * cell0, y0 = j * cell0, R2 = 22 * 22, G = new Map(); P.forEach((p) => { const g = `${Math.floor((p.E - x0) / 22)},${Math.floor((p.N - y0) / 22)}`; (G.get(g) || G.set(g, []).get(g)).push(p); });
+        let n = 0; for (let x = x0 + 2.5; x < x0 + cell0; x += 5) for (let y = y0 + 2.5; y < y0 + cell0; y += 5) { const gx = Math.floor((x - x0) / 22), gy = Math.floor((y - y0) / 22); let hit = false; for (let a = -1; a <= 1 && !hit; a++) for (let b = -1; b <= 1 && !hit; b++) for (const q of G.get(`${gx + a},${gy + b}`) || []) if ((q.E - x) * (q.E - x) + (q.N - y) * (q.N - y) < R2) { hit = true; break; } if (hit) n++; }
+        const U = n * 25 * 0.7, A1 = P.length * aB; let k = 1; while (k < GRID_MAX && A1 / (k * k) > GRID_FILL * U) k++; // (the area the blocks need, against the room round the poles)
+        n0 = Math.max(n0, k);
+      }
+      return n0;
+    })();
+    const cell = cell0 / NU, viewH = viewH0 / NU;
     if (!pts.length) throw new Error('Nothing to draw: the project has no records');
     /* 1. the grid: 440 m cells placed so the route uses as few sheets as it can and keeps away from the sheet edges
        (job.gridOrigin [E, N] fixes it instead); the cells the route uses, in route order */
@@ -1546,13 +1574,13 @@
           for (const b of done) if (!(x1 < b[0] || x0 > b[2] || y1 < b[1] || y0 > b[3])) { c += 300; hard++; }
           return { c, hard, box: [x0, y0, x1, y1] };
         };
-        let best = { ax: T.E, ay: T.N, k: 1, moved: false, ...cost(T.E, T.N, 1, true) }; const at0 = best.c;
+        const k1 = 1 / NU; let best = { ax: T.E, ay: T.N, k: k1, moved: false, ...cost(T.E, T.N, k1, true) }; const at0 = best.c; // (beta 4.8: Tidy: on a finer grid, as much smaller)
         if (!inW(best.box)) best = { ...best, c: Infinity };
-        if (keep && Wc && best.c === Infinity) for (const [k, kc] of [[0.75, 25], [0.5, 60]]) { const r = cost(T.E, T.N, k, true); if (inW(r.box) && r.c + kc < best.c) best = { ax: T.E, ay: T.N, k, moved: false, ...r, c: r.c + kc }; } // (kept at its point: smaller there)
-        if (keep && best.c === Infinity) best = { ax: T.E, ay: T.N, k: 1, moved: false, ...cost(T.E, T.N, 1, true) };
+        if (keep && Wc && best.c === Infinity) for (const [k, kc] of [[0.75 * k1, 25], [0.5 * k1, 60]]) { const r = cost(T.E, T.N, k, true); if (inW(r.box) && r.c + kc < best.c) best = { ax: T.E, ay: T.N, k, moved: false, ...r, c: r.c + kc }; } // (kept at its point: smaller there)
+        if (keep && best.c === Infinity) best = { ax: T.E, ay: T.N, k: k1, moved: false, ...cost(T.E, T.N, k1, true) };
         if (!keep && best.c > 0.5) {
           const cands = [];
-          for (const [k, kc] of [[1, 0], [0.75, 25], [0.5, 60]]) {
+          for (const [k, kc] of [[k1, 0], [0.75 * k1, 25], [0.5 * k1, 60]]) {
             const w = TW * k, h = TH * k;
             if (k < 1) cands.push([T.E, T.N, k, kc]); // smaller, at its point
             for (const g of [3, 9, 17, 27]) { // beside it (base level with the point, the point at its middle, the top level with it), then below it
@@ -1571,7 +1599,7 @@
             if (tot < best.c - 1e-9) best = { ax, ay, k, moved: !(ax === T.E && ay === T.N), ...r, c: tot };
           }
         }
-        if (best.c === Infinity) best = { ax: T.E, ay: T.N, k: 1, moved: false, ...cost(T.E, T.N, 1, true) }; // (nothing inside: at its point)
+        if (best.c === Infinity) best = { ax: T.E, ay: T.N, k: k1, moved: false, ...cost(T.E, T.N, k1, true) }; // (nothing inside: at its point)
         return { best, at0 };
       };
       for (const T of list) {
@@ -1592,7 +1620,7 @@
         return out.length;
       };
     }
-    const tw = (T) => towerAt.get(T) || { ax: T.E, ay: T.N, k: 1, moved: false };
+    const tw = (T) => { const w = towerAt.get(T) || { ax: T.E, ay: T.N, k: 1 / NU, moved: false }; if (NU > 1) w.nu = NU; return w; }; // (beta 4.8: nu: Tidy's finer grid, for the name on the tower)
     const odfMoved = new Map();
     { const byId0 = new Map(pts.map((p) => [String(p.id), p])), towers = pts.filter((p) => p.el === 'Site' && !/olt/i.test(p.siteKind || '')), nAt = new Map();
       for (const od of pts) { if (od.el !== 'ODF') continue;
@@ -1637,45 +1665,8 @@
     const locOfCell = (i, j) => { const c = used.get(key(i, j)); if (c) return c.loc; const k = lr.findIndex((r) => r && i >= r.I0 && i <= r.I1 && j >= r.J0 && j <= r.J1); return k < 0 ? 0 : k; };
     const cellName = (i, j) => { const k = locOfCell(i, j), r = lr[k] || lrs[0]; return `${nL > 1 ? k + 1 : ''}${letters(r.J1 - j)}-${i - r.I0 + 1}`; };
     const geoCells = order.map((k, n) => [used.get(k), n]).sort((a, b) => a[0].loc - b[0].loc || a[1] - b[1]).map((x) => x[0]); // place by place, in route order
-    /* beta 4.8: Tidy: a cell crowded with details is drawn on 2 x 2 or 3 x 3 sheets (detail sheets, at 2 or 3 times the scale), so
-       every pole's block, symbol and label fits at a size that reads when printed (the first line of a pole's label 1.8 mm high on
-       the A3 PDF, the smaller lines 1.3 mm). A first guess by how much the cell holds (the area its poles' blocks need at the plan's
-       sizes against the room round its poles); where labels still find no free place, the plan is made again with that cell split
-       once more (job._split: { 'i,j': k }, see build). A detail sheet is named after its cell: B-2.1 … B-2.4 (rows from the top,
-       left to right), only those that hold part of the route or a point. The sizes of the texts, symbols on the cable, numbers and
-       photos drawn on a detail sheet are divided by its k, so they print as on the others. */
-    const splitK = new Map();
-    if (job.labels === 'tidy') {
-      const J0 = job._split;
-      if (J0 && typeof J0 === 'object') { for (const kk of Object.keys(J0)) if (used.has(kk) && (J0[kk] === 2 || J0[kk] === 3)) splitK.set(kk, J0[kk]); }
-      else { // the first guess
-        const L0 = S.layouts.find((x) => x.name === 'GEO'), vp0 = L0 ? layoutEnts(d, S, L0).filter((e) => typ(e) === 'VIEWPORT').sort((a, b) => num(b, 40, 0) * num(b, 41, 0) - num(a, 40, 0) * num(a, 41, 0)).find((e) => Math.abs(num(e, 40, 0) - num(e, 41, 0)) < 1) : null;
-        let K0 = 0.62; if (vp0 && viewH > 0) { const s0 = num(vp0, 41, 0) / viewH, a0 = num(L0.rec, 44, 420), b0 = num(L0.rec, 45, 297), ww = num(L0.rec, 140, 0) - num(L0.rec, 48, 0), wh = num(L0.rec, 141, 0) - num(L0.rec, 49, 0), k0 = ww > 1 && wh > 1 ? Math.min((ww >= wh ? Math.max(a0, b0) : Math.min(a0, b0)) / ww, (ww >= wh ? Math.min(a0, b0) : Math.max(a0, b0)) / wh) : 1; if (s0 * k0 > 0.05 && s0 * k0 < 20) K0 = s0 * k0; }
-        const tt = Array.isArray(job.tidyText) ? job.tidyText : [1.8, 1.3], l1 = tt[0] / K0, sm = tt[1] / K0, hb = l1 * 1.4 + 3.6 * 1.45 * sm, ph = Object.keys(job.photos || {}).length > 0 && job.markMode !== 'num';
-        const wB = 2.1 * l1 + 0.5 + Math.max(arialW('0000000 · CC', l1), arialW('000.000000°', sm)) * 1.12 + (ph ? 0.8 + 0.75 * Math.min(hb, 10) : 0), aB = (wB + 2) * (hb + 2); // (a pole's block and the room round it)
-        const byCell = new Map(); for (const p of pts) if (p.el === 'Pole') { const kk = key(ci(p.E), cj(p.N)); (byCell.get(kk) || byCell.set(kk, []).get(kk)).push(p); }
-        for (const [kk, P] of byCell) {
-          const c = used.get(kk); if (!c || P.length < 8) continue;
-          const x0 = gox + c.i * cell, y0 = goy + c.j * cell, R2 = 22 * 22, G = new Map(); P.forEach((p) => { const g = `${Math.floor((p.E - x0) / 22)},${Math.floor((p.N - y0) / 22)}`; (G.get(g) || G.set(g, []).get(g)).push(p); });
-          let n = 0; for (let x = x0 + 2.5; x < x0 + cell; x += 5) for (let y = y0 + 2.5; y < y0 + cell; y += 5) { const gx = Math.floor((x - x0) / 22), gy = Math.floor((y - y0) / 22); let hit = false; for (let a = -1; a <= 1 && !hit; a++) for (let b = -1; b <= 1 && !hit; b++) for (const p of G.get(`${gx + a},${gy + b}`) || []) if ((p.E - x) * (p.E - x) + (p.N - y) * (p.N - y) < R2) { hit = true; break; } if (hit) n++; }
-          const U = n * 25 * 0.7, A1 = P.length * aB; let k = 1; while (k < 3 && A1 / (k * k) > SPLIT_FILL * U) k++; // (the area the blocks need, against the room round the poles)
-          if (k > 1) splitK.set(kk, k);
-        }
-      }
-    }
-    const SPLIT = splitK.size > 0;
-    const kAt = (E, N) => (SPLIT ? splitK.get(key(ci(E), cj(N))) || 1 : 1); // (the scale of the sheet a point is drawn on: 1, 2 or 3)
-    const winAt = (E, N) => { const i = ci(E), j = cj(N), k = splitK.get(key(i, j)) || 1, sz = cell / k, x0 = gox + i * cell, y0 = goy + j * cell, a = Math.min(k - 1, Math.max(0, Math.floor((E - x0) / sz))), b = Math.min(k - 1, Math.max(0, Math.floor((N - y0) / sz))); return [x0 + a * sz, y0 + b * sz, x0 + (a + 1) * sz, y0 + (b + 1) * sz, k]; }; // (its sheet's square and k)
-    const geoSheets = !SPLIT ? null : geoCells.flatMap((c) => {
-      const k = splitK.get(key(c.i, c.j)) || 1, x0 = gox + c.i * cell, y0 = goy + c.j * cell, nm = cellName(c.i, c.j);
-      if (k === 1) return [{ ...c, k, w: [x0, y0, x0 + cell, y0 + cell], name: nm }];
-      const out = [], sz = cell / k;
-      for (let b = k - 1; b >= 0; b--) for (let a = 0; a < k; a++) { const w = [x0 + a * sz, y0 + b * sz, x0 + (a + 1) * sz, y0 + (b + 1) * sz]; if (samp.some((q) => q[0] >= w[0] && q[0] < w[2] && q[1] >= w[1] && q[1] < w[3])) out.push({ ...c, k, a, b, w, name: `${nm}.${(k - 1 - b) * k + a + 1}` }); }
-      return out;
-    });
-    const sheetAt = (x, y) => (geoSheets || []).find((g) => x >= g.w[0] && x < g.w[2] && y >= g.w[1] && y < g.w[3]) || null;
-    if (SPLIT && towerFit) towerFit((E, N) => { const w = winAt(E, N); return [w[0] + 2, w[1] + 2, w[2] - 2, w[3] - 2]; }); // (each tower inside its detail sheet)
-    const N = SPLIT ? geoSheets.length : geoCells.length;
+    const kAt = () => NU; // (beta 4.8: Tidy: the metres of a size as printed at the template's scale, over this: the grid's NU)
+    const N = geoCells.length;
     /* 2. the GEO sheets: as many as the cells used (copied from GEO, or the extra ones removed) */
     const geoNames = (n) => Array.from({ length: n }, (_, k) => (k ? `GEO (${k + 1})` : 'GEO'));
     let have = S.layouts.filter((L) => /^GEO( \(\d+\))?$/.test(L.name));
@@ -1697,8 +1688,7 @@
     const bigVp = (L) => layoutEnts(d, S, L).filter((e) => typ(e) === 'VIEWPORT').sort((a, b) => num(b, 40, 0) * num(b, 41, 0) - num(a, 40, 0) * num(a, 41, 0)).find((e) => Math.abs(num(e, 40, 0) - num(e, 41, 0)) < 1); // the square map viewport
     const aim = (vp, cx, cy, h) => { if (!vp) return; setFirst(vp, 12, F(cx)); setFirst(vp, 22, F(cy)); setFirst(vp, 17, '0.0'); setFirst(vp, 27, '0.0'); setFirst(vp, 37, '0.0'); setFirst(vp, 45, F(h)); setFirst(vp, 51, '0.0'); };
     const sheetOf = new Map();
-    if (SPLIT) geoSheets.forEach((g, k) => { const nm = geoNames(N)[k], L = S.layouts.find((x) => x.name === nm); aim(bigVp(L), (g.w[0] + g.w[2]) / 2, (g.w[1] + g.w[3]) / 2, viewH / g.k); rep.sheets.push(`${nm}: ${g.name}`); rep.cells.push(g.name); }); // (beta 4.8: Tidy: the detail sheets)
-    else geoCells.forEach((c, k) => { const nm = geoNames(N)[k], L = S.layouts.find((x) => x.name === nm); aim(bigVp(L), gox + (c.i + 0.5) * cell, goy + (c.j + 0.5) * cell, viewH); sheetOf.set(key(c.i, c.j), nm); rep.sheets.push(`${nm}: ${cellName(c.i, c.j)}`); rep.cells.push(cellName(c.i, c.j)); });
+    geoCells.forEach((c, k) => { const nm = geoNames(N)[k], L = S.layouts.find((x) => x.name === nm); aim(bigVp(L), gox + (c.i + 0.5) * cell, goy + (c.j + 0.5) * cell, viewH); sheetOf.set(key(c.i, c.j), nm); rep.sheets.push(`${nm}: ${cellName(c.i, c.j)}`); rep.cells.push(cellName(c.i, c.j)); });
     const gx0 = gox + I0 * cell, gy0 = goy + J0 * cell, gx1 = gox + (I1 + 1) * cell, gy1 = goy + (J1 + 1) * cell;
     // v2.38: each place's key map shows its own cells (a place far away no longer shrinks it)
     const kmBox = lr.map((r) => (r ? [gox + r.I0 * cell, goy + r.J0 * cell, gox + (r.I1 + 1) * cell, goy + (r.J1 + 1) * cell] : [gx0, gy0, gx1, gy1]));
@@ -1726,13 +1716,12 @@
     const lay = (n, fallback) => (S.layers.has(n) ? n : fallback || '0');
     /** v2.42.10: a text's box inside the GEO cell of the point (E, N), 2 m in (the sheet's viewport cuts it off otherwise). */
     const cellHolds = (bx, E, N) => { // (its capitals a little wider than the estimate)
-      const ci = Math.floor((E - gox) / cell), cj = Math.floor((N - goy) / cell), W = SPLIT ? winAt(E, N).slice(0, 4).map((v, i) => v + (i < 2 ? 2 : -2)) : [gox + ci * cell + 2, goy + cj * cell + 2, gox + (ci + 1) * cell - 2, goy + (cj + 1) * cell - 2]; // (beta 4.8: Tidy: a detail sheet's)
+      const ci = Math.floor((E - gox) / cell), cj = Math.floor((N - goy) / cell), W = [gox + ci * cell + 2, goy + cj * cell + 2, gox + (ci + 1) * cell - 2, goy + (cj + 1) * cell - 2];
       return [[1, 1], [1, -1], [-1, 1], [-1, -1]].every(([a, c]) => { const x = bx.cx + bx.ux * bx.hw * 1.3 * a + bx.vx * bx.hh * c, y = bx.cy + bx.uy * bx.hw * 1.3 * a + bx.vy * bx.hh * c; return x >= W[0] && x <= W[2] && y >= W[1] && y <= W[3]; });
     };
     /** beta 3.4: an upright box (centre q, half sizes hw, hh) inside the GEO sheet of the point (E, N), 2 m in from its grid line. */
     const cellHoldsQ = (q, hw, hh, E, N) => {
       const ci = Math.floor((E - gox) / cell), cj = Math.floor((N - goy) / cell);
-      if (SPLIT) { const w = winAt(E, N); return q[0] - hw >= w[0] + 2 && q[0] + hw <= w[2] - 2 && q[1] - hh >= w[1] + 2 && q[1] + hh <= w[3] - 2; } // (beta 4.8: Tidy: a detail sheet's)
       return q[0] - hw >= gox + ci * cell + 2 && q[0] + hw <= gox + (ci + 1) * cell - 2 && q[1] - hh >= goy + cj * cell + 2 && q[1] + hh <= goy + (cj + 1) * cell - 2;
     };
     let nInCell = 0; // v2.42.10: site names kept inside their GEO sheet
@@ -1744,20 +1733,12 @@
       if (!gridAll && ![-1, 0, 1].some((di) => [-1, 0, 1].some((dj) => used.has(key(i + di, j + dj))))) continue;
       const x0 = gox + i * cell, y0 = goy + j * cell;
       o.lwpoly(lay('GRIDS'), [[x0, y0], [x0 + cell, y0], [x0 + cell, y0 + cell], [x0, y0 + cell]], { closed: true, color: 6 });
-      if (SPLIT && splitK.has(key(i, j))) { // beta 4.8: Tidy: a split cell: its detail sheets' lines, and their names (smaller), on the GEO sheets and the key map
-        const k = splitK.get(key(i, j)), sz = cell / k;
-        for (let a = 1; a < k; a++) { o.lwpoly(lay('GRIDS'), [[x0 + a * sz, y0], [x0 + a * sz, y0 + cell]], { color: 6 }); o.lwpoly(lay('GRIDS'), [[x0, y0 + a * sz], [x0 + cell, y0 + a * sz]], { color: 6 }); }
-        for (const g of geoSheets) if (g.i === i && g.j === j) {
-          { const hN = gh / k, wN = arialW(g.name, hN) * 1.12, mx = sz * 0.04, my = sz * 0.03; /* (its name in the corner of its square with fewest points under it: top right first) */
-            const C4 = [[g.w[2] - mx, g.w[3] - my, 3, -1, -1], [g.w[0] + mx, g.w[3] - my, 1, 1, -1], [g.w[2] - mx, g.w[1] + my, 9, -1, 1], [g.w[0] + mx, g.w[1] + my, 7, 1, 1]];
-            const nIn = ([x, y, , sx, sy]) => { const xa = Math.min(x, x + sx * wN) - 6, xb = Math.max(x, x + sx * wN) + 6, ya = Math.min(y, y + sy * hN) - 6, yb = Math.max(y, y + sy * hN) + 6; return pts.filter((q) => q.E >= xa && q.E <= xb && q.N >= ya && q.N <= yb).length; };
-            const cN = C4.map((c) => [c, nIn(c)]).reduce((a, b) => (b[1] < a[1] ? b : a));
-            o.mtext(lay('GRIDNO.', 'GRIDNO'), cN[0][0], cN[0][1], hN, g.name, { att: cN[0][2] }); }
-          if (kmNames.length) { const kh = cell * 0.17 / k, sh = kh * 0.07, nm = `{\\fArial|b1|i0|c0|p34;${g.name}}`, cx = (g.w[0] + g.w[2]) / 2, cy = (g.w[1] + g.w[3]) / 2; o.mtext(KMLAY, cx + sh, cy - sh, kh, nm, { att: 5, style: 'arial', color: 250 }); o.mtext(KMLAY, cx, cy, kh, nm, { att: 5, style: 'arial', color: 2 }); }
-        }
-        continue;
-      }
-      o.mtext(lay('GRIDNO.', 'GRIDNO'), x0 + cell - cell * 0.04, y0 + cell - cell * 0.03, gh, cellName(i, j), { att: 3 });
+      if (job.labels === 'tidy' && used.has(key(i, j))) { // beta 4.8: Tidy: its name, as large, in the corner of the sheet with least of the route under it (top right first)
+        const nm = cellName(i, j), wN = arialW(nm, gh) * 1.12, mx = cell * 0.04, my = cell * 0.03, C4 = [[x0 + cell - mx, y0 + cell - my, 3, -1, -1], [x0 + mx, y0 + cell - my, 1, 1, -1], [x0 + cell - mx, y0 + my, 9, -1, 1], [x0 + mx, y0 + my, 7, 1, 1]];
+        const nIn = ([x, y, , sx, sy]) => { const xa = Math.min(x, x + sx * wN) - 4, xb = Math.max(x, x + sx * wN) + 4, ya = Math.min(y, y + sy * gh) - 4, yb = Math.max(y, y + sy * gh) + 4; return samp.filter((q) => q[0] >= xa && q[0] <= xb && q[1] >= ya && q[1] <= yb).length; };
+        const cN = C4.map((c) => [c, nIn(c)]).reduce((a, b) => (b[1] < a[1] ? b : a))[0];
+        o.mtext(lay('GRIDNO.', 'GRIDNO'), cN[0], cN[1], gh, nm, { att: cN[2] });
+      } else o.mtext(lay('GRIDNO.', 'GRIDNO'), x0 + cell - cell * 0.04, y0 + cell - cell * 0.03, gh, cellName(i, j), { att: 3 });
       if (kmNames.length) { // v2.42.10: for the KEYMAP sheet only (its layer frozen on the others): the cell's name large in the cell's
         // centre, yellow over a dark shadow (the small yellow name at the corner could not be read at the keymap's scale)
         const kh = cell * 0.17, sh = kh * 0.07, nm = `{\\fArial|b1|i0|c0|p34;${cellName(i, j)}}`, cx = x0 + cell / 2, cy = y0 + cell / 2;
@@ -1814,7 +1795,7 @@
     const INLINE_EL = new Set(['ODC', 'Handhole', 'Manhole', 'Service box']);
     const polesOnly = pts.filter((p) => p.el === 'Pole');
     const nns = polesOnly.map((p) => { let nn = 1e9; for (const q of polesOnly) if (q !== p) nn = Math.min(nn, Math.hypot(q.E - p.E, q.N - p.N)); return nn; }).filter((v) => v < 1e8).sort((a, b) => a - b);
-    const kG = Math.max(0.6, Math.min(1, (nns.length ? nns[Math.floor(nns.length * 0.2)] : 25) / 25));
+    const kG = Math.max(0.6, Math.min(1, (nns.length ? nns[Math.floor(nns.length * 0.2)] : 25) / 25)) / NU; // (beta 4.8: Tidy: on a finer grid, as much smaller)
     for (const p of polesOnly) p.k = kG;
     for (const p of pts) {
       p.dp = [p.E, p.N]; p.td = null; p.near = null; p.keep = !!(p.adjusted || p.status === 'Proposed' || p.status === 'New');
@@ -1920,7 +1901,7 @@
     const fitW = (across, q) => { const w = TIDY ? streetW(q) : 0; return w > 0 && across > 0.66 * w ? 0.66 * w / across : 1; }; // (the factor that makes a symbol at most 0.7 W across, a little less to be sure; 1: as it is)
     const printK = (() => { // printed mm per metre of the GEO sheet
       const L = S.layouts.find((x) => x.name === 'GEO'), vp = L ? bigVp(L) : null; if (!vp || !(viewH > 0)) return 0;
-      const s = num(vp, 41, 0) / viewH, a = num(L.rec, 44, 420), b = num(L.rec, 45, 297), pw = Math.max(a, b), ph = Math.min(a, b);
+      const s = num(vp, 41, 0) / viewH0, a = num(L.rec, 44, 420), b = num(L.rec, 45, 297), pw = Math.max(a, b), ph = Math.min(a, b); // (beta 4.8: at the template's scale; Tidy's finer grid: see NU)
       const ww = num(L.rec, 140, 0) - num(L.rec, 48, 0), wh = num(L.rec, 141, 0) - num(L.rec, 49, 0), k = ww > 1 && wh > 1 ? Math.min((ww >= wh ? pw : ph) / ww, (ww >= wh ? ph : pw) / wh) : 1;
       return s * k > 0.05 && s * k < 20 ? s * k : 0;
     })();
@@ -2536,7 +2517,7 @@
         on the pole's side), its photo (at the far end), and the rectangles of its lines, circle and photo [left, top, width, height] (its
         line ends at the nearest of them); W(x, y): that point in the drawing. */
     const tidyGeo = (T, c) => {
-      const L = -T.Wt / 2, Rr = T.Wt / 2, top = (T.Hc || T.Ht) / 2 - T.ex0, B = T.badge, P = T.PH;
+      const L = -T.Wt / 2, Rr = T.Wt / 2, top = (T.Hc || T.Ht) / 2 - T.ex0, B = T.badge, P = T.u ? null : T.PH; // (beta 4.8: a block turned along its cable: its photo upright beside it, not in it)
       const att = B || P ? (c.dx < 0 ? 3 : 1) : c.dx > 0 ? 1 : c.dx < 0 ? 3 : 2, ax = att === 1 ? L + T.bw : att === 3 ? Rr - T.bw : 0;
       const rects = T.LN.map(([w, t, hh]) => [att === 1 ? ax : att === 3 ? ax - w : ax - w / 2, top - t, w, hh]);
       const circ = B ? [att === 3 ? Rr - B.d / 2 : L + B.d / 2, top - T.h / 2, B.d] : null; if (circ) rects.push([circ[0] - B.d / 2, circ[1] + B.d / 2, B.d, B.d]);
@@ -2592,7 +2573,7 @@
         const LN = [[W1, 0, h]]; { let t = 1.4 * h; for (const m of T.sm) for (const l of m.lines) { LN.push([wOf(l, hs), t, hs]); t += 1.45 * hs; } } // (each line: its width, how far down from the top, its height)
         const B = T.badge, bw = B ? B.d + 0.5 : 0, ex0 = B ? Math.max(0, (B.d - h) / 2 + 0.1) : 0; // (beta 4.8: the number's circle: a column on the pole's side, line 1 at its middle)
         const PH = T.photo ? (() => { const hc = Math.min(Hb + ex0, TS.ph / kk), k = Math.min(hc / T.photo.py, 1.4 * hc / T.photo.px); return { w: T.photo.px * k, h: T.photo.py * k }; })() : null; // (beta 4.8: its photo as tall as its texts, at the far end)
-        const Wt = W + bw + (PH ? 0.8 + PH.w : 0), Ht = Math.max(Hb + ex0, B ? B.d + 0.2 : 0, PH ? PH.h : 0);
+        const PB = PH && !T.u, Wt = W + bw + (PB ? 0.8 + PH.w : 0), Ht = Math.max(Hb + ex0, B ? B.d + 0.2 : 0, PB ? PH.h : 0); // (beta 4.8: a block turned along its cable: its photo upright beside it, see fill)
         T.LN = LN; T.Wt = Wt; T.Ht = Ht; T.ex0 = ex0; T.bw = bw; T.PH = PH; T.Hc = Hb + ex0;
         const ang = (u) => Math.acos(Math.max(-1, Math.min(1, (u[0] * ov[0] + u[1] * ov[1]) / Math.hypot(u[0], u[1])))), byAng = (a, b) => ang(a) - ang(b), cands = [];
         if (T.u) { // beta 4.8: a pole's block turned along its cable, off the road: in the strip just past the road's edge on the pole's side, lined up along the street (beside the pole, or past it), then further out all round with its line
@@ -2600,9 +2581,9 @@
           for (let r = 0; r < 6; r++) {
             const yc = -T.e + gR + Ht / 2 + r * (Ht + 1.2 / kk), clear = yc - Ht / 2 >= ev + 0.4 / kk, /* (eu, ev: its pole's symbol square across u and vA) */ xs = clear ? [[0, 0], [Wt / 4, 1], [-Wt / 4, 1.2], [Wt / 2, 2], [-Wt / 2, 2.2]] : [];
             [0, 1 / 3, 2 / 3, 1, 1.5].forEach((f, n) => { xs.push([x0s + f * Wt, n * 1.5], [-(x0s + f * Wt), n * 1.5 + 0.4]); });
-            for (const [xc, cc] of xs) { const q = at(xc, yc); cands.push({ cx: q[0], cy: q[1], u, ang: T.ang, cost: r * 9 + cc * 4 }); }
+            for (const [xc, cc] of xs) { const q = at(xc, yc); cands.push({ cx: q[0], cy: q[1], u, ang: T.ang, cost: r * 9 + cc * 4, ph: 0 }); if (PH) cands.push({ cx: q[0], cy: q[1], u, ang: T.ang, cost: r * 9 + cc * 4 + 3, ph: 1 }); }
           }
-          [10, 16, 23, 31, 40].forEach((rr, ring) => D16.forEach((dv) => { const ext = Math.abs(dv[0] * u[0] + dv[1] * u[1]) * Wt / 2 + Math.abs(dv[0] * up[0] + dv[1] * up[1]) * Ht / 2, q = add2(p.dp, dv, rr / kk + ext); cands.push({ cx: q[0], cy: q[1], u, ang: T.ang, cost: 60 + ring * 12 + (dv[0] * vA[0] + dv[1] * vA[1] < 0 ? 8 : 0) }); }));
+          [10, 16, 23, 31, 40].forEach((rr, ring) => D16.forEach((dv) => { const ext = Math.abs(dv[0] * u[0] + dv[1] * u[1]) * Wt / 2 + Math.abs(dv[0] * up[0] + dv[1] * up[1]) * Ht / 2, q = add2(p.dp, dv, rr / kk + ext), c0 = 60 + ring * 12 + (dv[0] * vA[0] + dv[1] * vA[1] < 0 ? 8 : 0); cands.push({ cx: q[0], cy: q[1], u, ang: T.ang, cost: c0, ph: 0 }); if (PH) cands.push({ cx: q[0], cy: q[1], u, ang: T.ang, cost: c0 + 3, ph: 1 }); }));
         } else
         [0, 1.25, 2.5, 3.75, 5, 6.5, 8].map((v) => v / kk).forEach((ex) => D8.slice().sort(byAng).forEach(([dx, dy], k) => { const r = r0 + ex, cx = dx && dy ? x + dx * (r * 0.72 + Wt / 2) : dx ? x + dx * (r + Wt / 2) : x, cy = dx && dy ? y + dy * (r * 0.72 + Ht / 2) : dy ? y + dy * (r + Ht / 2) : y;
           cands.push({ cx, cy, dx, cost: ex * 4.8 + k }); // (12 for each 2.5 m further out)
@@ -2619,25 +2600,34 @@
           const G = tidyGeo(T, c); let qx = xl, qy = yl, dl = Infinity;
           for (const [x0, yt, w, hh] of G.rects) { const px = Math.min(Math.max(xl, x0), x0 + w), py = Math.min(Math.max(yl, yt - hh), yt), d = Math.hypot(px - xl, py - yl); if (d < dl) { dl = d; qx = px; qy = py; } } // (the nearest point of its lines, not of the box round them)
           if (dl > (T.u ? Math.max(r0, 1.56 * p.rp + 0.6 / kk) : r0) + 1.3 / kk) { const qw = G.W(qx, qy), u = [(qw[0] - x) / dl, (qw[1] - y) / dl], a = add2(p.dp, u, p.rp + 0.3 / kk), e = [qw[0] - u[0] * 0.4 / kk, qw[1] - u[1] * 0.4 / kk]; c.lead = [a, e]; c.lbox = Spots.box((a[0] + e[0]) / 2, (a[1] + e[1]) / 2, dist2(a, e), 0.3 / kk, deg(u)); c.ebox = Spots.box(e[0], e[1], 2.2 / kk, 2.2 / kk, 0); } // (ebox: round its end, where no other label may be: the line would seem to lead to it)
-          c.tb = Spots.box(c.cx, c.cy, Wt, Ht, c.ang || 0); c.own = !!(T.u && p.symBox && Spots.hit(c.tb, p.symBox)); { const b = c.tb; c.lost = [[1, 1], [1, -1], [-1, 1], [-1, -1]].some(([a, e2]) => { const qx = b.cx + b.ux * b.hw * a + b.vx * b.hh * e2, qy = b.cy + b.uy * b.hw * a + b.vy * b.hh * e2; return !(SPLIT ? sheetAt(qx, qy) : used.has(key(ci(qx), cj(qy)))); }); } /* (beta 4.8: partly where no sheet is drawn: cut off) */ c.inC = cellHolds({ ...c.tb, hw: c.tb.hw / 1.3 }, p.E, p.N); c.xc = 0;
-          if (!c.inC && SPLIT && T.u && sheetAt(c.cx, c.cy) && cellHolds({ ...c.tb, hw: c.tb.hw / 1.3 }, c.cx, c.cy)) { c.inC = true; c.xc = 40; } // (beta 4.8: wholly on the detail sheet next to its pole's, rather than cut by the sheet's edge or over the road)
-          c.onRoad = T.u && R.idx.inside([c.cx, c.cy], -1, 0) ? 1 : 0; // (beta 4.8: a pole's block on the road itself)
+          c.tb = Spots.box(c.cx, c.cy, Wt, Ht, c.ang || 0);
+          if (T.u && T.PH) { // beta 4.8: its photo upright (square to the sheet), right beside its block: past the block's far end along the cable, or (ph 1) along its side away from the road at that end
+            const P2 = T.PH, up = [-cu[1], cu[0]], fe = c.dx < 0 ? -1 : 1, g = 0.4 / kk, eu = (Math.abs(cu[0]) * P2.w + Math.abs(cu[1]) * P2.h) / 2, ev = (Math.abs(up[0]) * P2.w + Math.abs(up[1]) * P2.h) / 2, sv = (T.vA[0] * up[0] + T.vA[1] * up[1]) >= 0 ? 1 : -1;
+            const lx = c.ph ? fe * (Wt / 2 - eu) : fe * (Wt / 2 + g + eu), ly = c.ph ? sv * (Ht / 2 + g + ev) : 0;
+            c.pb = Spots.box(c.cx + cu[0] * lx - cu[1] * ly, c.cy + cu[1] * lx + cu[0] * ly, P2.w, P2.h, 0);
+          }
+          const BX = c.pb ? [c.tb, c.pb] : [c.tb], hold = (E, N) => BX.every((b) => cellHolds({ ...b, hw: b.hw / 1.3 }, E, N));
+          c.own = !!(T.u && p.symBox && BX.some((b) => Spots.hit(b, p.symBox)));
+          c.lost = BX.some((b) => [[1, 1], [1, -1], [-1, 1], [-1, -1]].some(([a, e2]) => { const qx = b.cx + b.ux * b.hw * a + b.vx * b.hh * e2, qy = b.cy + b.uy * b.hw * a + b.vy * b.hh * e2; return !used.has(key(ci(qx), cj(qy))); })); /* (beta 4.8: partly where no sheet is drawn: cut off) */ c.inC = hold(p.E, p.N); c.xc = 0;
+          if (!c.inC && T.u && used.has(key(ci(c.cx), cj(c.cy))) && hold(c.cx, c.cy)) { c.inC = true; c.xc = 40; } // (beta 4.8: wholly on the sheet next to its pole's, rather than cut by the sheet's edge or over the road)
+          c.onRoad = T.u && (R.idx.inside([c.cx, c.cy], -1, 0) || (c.pb && R.idx.inside([c.pb.cx, c.pb.cy], -1, 0))) ? 1 : 0; // (beta 4.8: a pole's block or its photo on the road itself)
           const r1 = G.rects[0], hm = G.W(r1[0] + r1[2] / 2, r1[1] - r1[3] / 2), hb = Spots.box(hm[0], hm[1], r1[2], r1[3], c.ang || 0);
-          c.mine = [c.tb, hb].every((b) => { const d0 = dBox(p, b) - 0.01; return nbs.every((q) => dBox(q, b) >= d0); });
+          c.mine = [c.tb, hb, ...(c.pb ? [c.pb] : [])].every((b) => { const d0 = dBox(p, b) - 0.01; return nbs.every((q) => dBox(q, b) >= d0); });
           return c;
         } });
       };
       const choose = (T, loose) => { // one label's place, taken at once (its box and its line). loose: also a place nearer another pole, with its line to its own
         const { p, Wt: W, Ht: Hb, cands } = T, memo = new Map(), ck = 1 / (T.k || 1); let best = null, nf = false;
+        const blocked = (c, clr) => [Spots.box(c.cx, c.cy, W + 2 * clr * ck, Hb + 2 * clr * ck, c.ang || 0), ...(c.pb ? [Spots.box(c.pb.cx, c.pb.cy, 2 * c.pb.hw + 2 * clr * ck, 2 * c.pb.hh + 2 * clr * ck, 0)] : [])].some((b) => spots.hitsW(b, HARD) || tx.hits(b) || txG.hits(b)); // (its box, and its photo's, with the clearance; beta 4.8: not over the sheet's grid name either)
         if (p.symBox) p.symBox._k--; // (its own pole or symbol is not in the way)
         for (const strict of loose ? [true, false] : [true]) { for (const inCell of [true, false]) { for (const xr of T.Y ? [1] : [0, 1]) { for (const [clr, xCab, rd] of TIERS) { // (beta 4.8: not strict, the last try: a place nearer another pole, with its line to its own pole, rather than over another text) // (a line to the pole across the cable only where nothing nearer is free: the label would sit on the other side; a road edge line through the label only where no place is clear of it; beta 4.8: its line across a road edge line only where no other place is free (an ID's, a loop length's: its symbol is in the street))
           for (const c of cands) { // (beta 4.8: what each place covers is worked out once (memo), not again in every tier: the same in this choice; the places in order of cost: none further on can cost less than the best found)
             if (best && c.cost >= best.tot) break; T.fill(c);
             if ((strict ? !c.mine : !c.mine && !c.lead) || (inCell && !c.inC) || c.own || c.lost) continue; /* (beta 4.8: a turned block not over its own pole) */
-            let m = memo.get(c); if (!m) { m = { rx: spots.hitsW(c.tb, ROADX) + c.onRoad, lr: c.lbox ? spots.hitsW(c.lbox, ROADX) : 0 }; memo.set(c, m); }
+            let m = memo.get(c); if (!m) { m = { rx: spots.hitsW(c.tb, ROADX) + (c.pb ? spots.hitsW(c.pb, ROADX) : 0) + c.onRoad, lr: c.lbox ? spots.hitsW(c.lbox, ROADX) : 0 }; memo.set(c, m); }
             if ((!rd && m.rx) || (!xr && m.lr)) continue;
-            const kk = clr; if (!(kk in m)) { const big = Spots.box(c.cx, c.cy, W + 2 * clr * ck, Hb + 2 * clr * ck, c.ang || 0); m[kk] = !!(spots.hitsW(big, HARD) || tx.hits(big)); } if (m[kk]) continue;
-            if (m.ln === undefined) { m.ln = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0; m.lt = !!(c.lbox && (tx.hits(c.lbox) || tx.hits(c.ebox) || spots.hitsW(c.ebox, LBLW))); m.g = txG.hits(c.tb) ? 30 : 0; }
+            const kk = clr; if (!(kk in m)) m[kk] = blocked(c, clr); if (m[kk]) continue;
+            if (m.ln === undefined) { m.ln = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0; m.lt = !!(c.lbox && (tx.hits(c.lbox) || tx.hits(c.ebox) || spots.hitsW(c.ebox, LBLW))); m.g = txG.hits(c.tb) || (c.pb && txG.hits(c.pb)) ? 30 : 0; }
             if (m.ln >= 1 || (m.ln > 0 && !xCab) || m.lt) continue;
             const tot = c.cost + c.xc + 14 * m.rx + (m.ln > 0 ? 30 : 0) + m.g + (m.lr ? 25 : 0); // (a road edge line through the label: worse than a place one ring further out; beta 4.8: its line across a road edge line: worse than two rings further out)
             if (!best || tot < best.tot) best = { ...c, tot, clr, rx: m.rx };
@@ -2647,23 +2637,23 @@
           let bk = Infinity;
           for (const c of cands) { T.fill(c);
             const sL = c.mine ? 0 : loose && c.lead ? 1 : -1; if (sL < 0 || c.own || c.lost) continue;
-            let m = memo.get(c); if (!m) { m = { rx: spots.hitsW(c.tb, ROADX) + c.onRoad, lr: c.lbox ? spots.hitsW(c.lbox, ROADX) : 0 }; memo.set(c, m); }
-            if (m.ln === undefined) { m.ln = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0; m.lt = !!(c.lbox && (tx.hits(c.lbox) || tx.hits(c.ebox) || spots.hitsW(c.ebox, LBLW))); m.g = txG.hits(c.tb) ? 30 : 0; }
+            let m = memo.get(c); if (!m) { m = { rx: spots.hitsW(c.tb, ROADX) + (c.pb ? spots.hitsW(c.pb, ROADX) : 0) + c.onRoad, lr: c.lbox ? spots.hitsW(c.lbox, ROADX) : 0 }; memo.set(c, m); }
+            if (m.ln === undefined) { m.ln = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0; m.lt = !!(c.lbox && (tx.hits(c.lbox) || tx.hits(c.ebox) || spots.hitsW(c.ebox, LBLW))); m.g = txG.hits(c.tb) || (c.pb && txG.hits(c.pb)) ? 30 : 0; }
             if (m.ln >= 1 || m.lt) continue;
             // (beta 4.8: off the road before anything else (a pole's block: its line across a road edge line before the block over the road), then inside one sheet, then the clearance)
             const base = ((sL * 4 + (m.rx ? 2 : 0) + (m.lr && !T.Y ? 1 : 0)) * 2 + (c.inC ? 0 : 1)) * TIERS.length; if (base >= bk) continue; // (an ID's, a loop length's line crosses the road edge anyway: its symbol is in the street)
-            let ti = -1; for (let i = 0; i < TIERS.length && base + i < bk; i++) { const [clr, xCab] = TIERS_B[i]; if (m.ln > 0 && !xCab) continue; if (!(clr in m)) { const big = Spots.box(c.cx, c.cy, W + 2 * clr * ck, Hb + 2 * clr * ck, c.ang || 0); m[clr] = !!(spots.hitsW(big, HARD) || tx.hits(big)); } if (!m[clr]) { ti = i; break; } }
+            let ti = -1; for (let i = 0; i < TIERS.length && base + i < bk; i++) { const [clr, xCab] = TIERS_B[i]; if (m.ln > 0 && !xCab) continue; if (!(clr in m)) m[clr] = blocked(c, clr); if (!m[clr]) { ti = i; break; } }
             if (ti < 0) continue;
             const key = base + ti, tot = c.cost + c.xc + 14 * m.rx + (m.ln > 0 ? 30 : 0) + m.g + (m.lr ? 25 : 0);
             if (key < bk || (key === bk && tot < best.tot)) { bk = key; best = { ...c, tot, clr: TIERS_B[ti][0], rx: m.rx }; }
           }
         }
         if (!best) { // no free place: the one nearest to its own pole that covers least, its line kept (across a line or a symbol rather than a text); listed in the README to check
-          nf = true; best = cands.map(T.fill).map((c) => { const cov = spots.hitsW(c.tb, COVW) + tx.hits(c.tb) + (c.own ? 1 : 0) + (c.lost ? 1 : 0), lt = c.lbox ? tx.hits(c.lbox) + spots.hitsW(c.lbox, LBLW) + (tx.hits(c.ebox) || spots.hitsW(c.ebox, LBLW) ? 0.5 : 0) : 0, /* (beta 4.8: its line over a label counts as a label over it) */ lh = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0;
-            const rx = spots.hitsW(c.tb, ROADX) + c.onRoad; return { ...c, cov, lt, lh, rx, tot: (c.mine ? 0 : 1e6) + (cov + lt) * 1000 + lh * 50 + (c.inC ? 0 : 300) + 14 * rx + c.cost }; }).sort((a, b) => a.tot - b.tot)[0];
+          nf = true; best = cands.map(T.fill).map((c) => { const cov = spots.hitsW(c.tb, COVW) + tx.hits(c.tb) + (c.pb ? spots.hitsW(c.pb, COVW) + tx.hits(c.pb) : 0) + (c.own ? 1 : 0) + (c.lost ? 1 : 0), lt = c.lbox ? tx.hits(c.lbox) + spots.hitsW(c.lbox, LBLW) + (tx.hits(c.ebox) || spots.hitsW(c.ebox, LBLW) ? 0.5 : 0) : 0, /* (beta 4.8: its line over a label counts as a label over it) */ lh = c.lbox ? spots.hitsW(c.lbox, LEADW) : 0;
+            const rx = spots.hitsW(c.tb, ROADX) + (c.pb ? spots.hitsW(c.pb, ROADX) : 0) + c.onRoad; return { ...c, cov, lt, lh, rx, tot: (c.mine ? 0 : 1e6) + (cov + lt) * 1000 + lh * 50 + (c.inC ? 0 : 300) + 14 * rx + c.cost }; }).sort((a, b) => a.tot - b.tot)[0];
         }
         if (p.symBox) p.symBox._k++;
-        const n0 = spots.list.length; spots.add(Spots.box(best.cx, best.cy, W + 0.2 * ck, Hb + 0.2 * ck, best.ang || 0), 'label:tidy'); if (best.lead) { spots.line(best.lead, 0.3); spots.list.slice(n0 + 1).forEach((b) => { b.tag = 'lead'; }); } // (beta 4.8: its line kept as a line: no other line crosses it)
+        const n0 = spots.list.length; spots.add(Spots.box(best.cx, best.cy, W + 0.2 * ck, Hb + 0.2 * ck, best.ang || 0), 'label:tidy'); if (best.pb) spots.add(Spots.box(best.pb.cx, best.pb.cy, 2 * best.pb.hw + 0.2 * ck, 2 * best.pb.hh + 0.2 * ck, 0), 'photo'); const n1 = spots.list.length; if (best.lead) { spots.line(best.lead, 0.3); spots.list.slice(n1).forEach((b) => { b.tag = 'lead'; }); } // (beta 4.8: its line kept as a line: no other line crosses it)
         return { T, best, nf, bad: nf && (best.cov > 0.25 || best.lt > 0 || best.lh >= 1 || !best.mine), bx: spots.list.slice(n0) }; // (bx: the boxes it took)
       };
       // the labels in the order of the poles; where some found no free place, again with those first (the others have more room to give way)
@@ -2699,12 +2689,10 @@
         if (li === LAD.length - 1) lastR = R0; else spots.truncate(mark0); // (the last set stays placed: taken below when it leaves fewest without a place)
       }
       if (!now) { const nums = tried.map((x) => (x === 'many' ? Infinity : x)), k = nums.every((x) => x === Infinity) ? LAD.length - 1 : nums.indexOf(Math.min(...nums)); /* (all given up: the smallest) */ if (k === LAD.length - 1 && lastR) now = lastR; else { spots.truncate(mark0); now = run(LAD[k], Infinity); } TS.pick(LAD[k]); }
-      if ((job._splitTry || 0) < 2) { // beta 4.8: where labels still find no free place (or many only over a road: more than 1 in 20 of the cell's poles, 3 at least): that cell split (once more), the plan made again (see build)
-        const nb = new Map(), nr = new Map(), np = new Map(), more = {};
-        for (const [T, dd] of now) { const kk = key(ci(T.p.dp[0]), cj(T.p.dp[1])); if (T.u) np.set(kk, (np.get(kk) || 0) + 1); if (dd.bad) nb.set(kk, (nb.get(kk) || 0) + 1); else if (T.u && dd.best.rx > 0) nr.set(kk, (nr.get(kk) || 0) + 1); }
-        if (TS.l1 < LAD[0].l1 - 1e-9) for (const T of badT) { const kk = key(ci(T.p.dp[0]), cj(T.p.dp[1])); nb.set(kk, (nb.get(kk) || 0) + 1); } /* (the texts made smaller than 1.8 / 1.3 mm: the cells where labels found no place at that size split further instead) */
-        for (const kk of new Set([...nb.keys(), ...nr.keys()])) { const k = splitK.get(kk) || 1; if (k < 3 && used.has(kk) && (nb.get(kk) || (nr.get(kk) || 0) > Math.max(2, 0.05 * (np.get(kk) || 0)))) more[kk] = k + 1; }
-        if (Object.keys(more).length) rep._more = { ...Object.fromEntries(splitK), ...more }; }
+      { // beta 4.8: how this grid does, for build: the labels with no free place at 1.8 / 1.3 mm (where the texts had to be made smaller: those that had none at that size), the pole blocks over a road
+        let bad = 0, over = 0; for (const [T, dd] of now) { if (dd.bad || dd.nf) bad++; else if (T.u && dd.best.rx > 0) over++; } // (nf: placed only where it covers a little)
+        if (TS.l1 < LAD[0].l1 - 1e-9) bad = Math.max(bad, badT.size, 1);
+        rep._grid = { n: NU, cell: +cell.toFixed(1), sheets: N, bad, over }; }
       { const k0 = LAD.findIndex((z) => z.l1 === TS.l1 && z.sm === TS.sm), SMALL = [...LAD.slice(k0 + 1), { l1: Math.max(1.1, LAD[LAD.length - 1].l1 * 0.85), sm: Math.max(0.9, LAD[LAD.length - 1].sm * 0.85) }]; // (a label still with no free place: tried again a size or two smaller, alone; listed all the same)
         const nLeft = [...now.values()].filter((dd) => dd.bad).length;
         for (const T of ALL) { let d0 = now.get(T); if (!d0.bad) continue; T.far = nLeft <= 6; // (also 50 and 60 m out; first at its size without its photo (placed on its own near the pole, see the photos), then smaller with it, then smaller without it)
@@ -2719,7 +2707,7 @@
           if (nBad(neu) < nBad(old)) { neu[0].nf = true; neu[0].smaller = true; if (ph0) tidyCard.delete(T.p); neu.forEach((dd) => now.set(dd.T, dd)); }
           else { neu.forEach((dd) => dd.bx.forEach((b) => { b._k--; })); old.forEach((dd) => dd.bx.forEach((b) => { b._k++; })); T.h = h0; T.hs = hs0; T.photo = ph0; prep(T); } } }
       for (const [r, gk] of TS.guys) setFirst(r, 40, F(TS.sm / gk)); // (the guys' codes, written before: at the size taken)
-      T7.sizes = { l1: +TS.l1.toFixed(2), sm: +TS.sm.toFixed(2), mm: [+(TS.l1 * TS.mm).toFixed(2), +(TS.sm * TS.mm).toFixed(2)], tried }; T7.split = Object.fromEntries(splitK); T7.sheets = N; // (beta 4.8: the cells split, and the GEO sheets)
+      T7.sizes = { l1: +TS.l1.toFixed(2), sm: +TS.sm.toFixed(2), mm: [+(TS.l1 * TS.mm).toFixed(2), +(TS.sm * TS.mm).toFixed(2)], tried }; T7.grid = { n: NU, cell: +cell.toFixed(1) }; T7.sheets = N; // (beta 4.8: the grid (the template's cell / n), and the GEO sheets)
       const smaller = [], overRoad = [];
       for (const { T, best, nf, bad, smaller: sml } of ALL.map((U) => now.get(U))) { // written in the order of the poles
         const { p, h, hs, W, W1, Hb, Y } = T; if (sml) smaller.push(T.l1);
@@ -2736,10 +2724,11 @@
           if (Y.write) Y.write(P); else P.forEach((q) => tidyOwn.add(o.text(Y.layer, q.x, q.y, q.h, q.s, { ha: q.ha, va: 3, style: Y.style, color: Y.color })));
           T7.syms = (T7.syms || 0) + 1; continue;
         }
-        if (T.photo && G.pho) { // beta 4.8: its photo, in its frame (as the photos beside the points)
-          const [px0, pt, pw, phh] = G.pho, PL = (addLayer(d, S, 'G-ESAA POLE PHOTO', 7), 'G-ESAA POLE PHOTO'), ll = G.W(px0, pt - phh);
-          getImgs().image(o, PL, T.photo.file, T.photo.px, T.photo.py, ll[0], ll[1], pw, phh, an); // (beta 4.8: turned with its block)
-          o.lwpoly(PL, [G.W(px0, pt - phh), G.W(px0 + pw, pt - phh), G.W(px0 + pw, pt), G.W(px0, pt)], { closed: true, color: 8 }); T7.photos = (T7.photos || 0) + 1;
+        if (T.photo && (G.pho || best.pb)) { // beta 4.8: its photo, in its frame (as the photos beside the points)
+          const PL = (addLayer(d, S, 'G-ESAA POLE PHOTO', 7), 'G-ESAA POLE PHOTO');
+          if (best.pb) { const b = best.pb, x0 = b.cx - b.hw, y0 = b.cy - b.hh, pw = 2 * b.hw, phh = 2 * b.hh; getImgs().image(o, PL, T.photo.file, T.photo.px, T.photo.py, x0, y0, pw, phh); o.lwpoly(PL, [[x0, y0], [x0 + pw, y0], [x0 + pw, y0 + phh], [x0, y0 + phh]], { closed: true, color: 8 }); } // (beta 4.8: upright, square to the sheet, beside its block)
+          else { const [px0, pt, pw, phh] = G.pho, ll = G.W(px0, pt - phh); getImgs().image(o, PL, T.photo.file, T.photo.px, T.photo.py, ll[0], ll[1], pw, phh, an); o.lwpoly(PL, [G.W(px0, pt - phh), G.W(px0 + pw, pt - phh), G.W(px0 + pw, pt), G.W(px0, pt)], { closed: true, color: 8 }); }
+          T7.photos = (T7.photos || 0) + 1;
         }
         if (T.badge && G.circ) { // beta 4.8: its number in its circle, as the numbers beside the points are drawn (light colours over a dark shadow)
           const B = T.badge, [ccx, ccy] = G.W(G.circ[0], G.circ[1]), dd = G.circ[2], nCo = NS.color || null, bCo = NS.bcolor || NS.color || null, nL = lay('p-pole'), lc = (n) => { const Ly = S.layers.get(n); return Ly ? Math.abs(parseInt(get(Ly, 62, '7'), 10) || 7) : 7; }, lit = (c) => [2, 3, 4].includes(c), sN = lit(nCo != null ? +nCo : lc(nL)), sB = lit(bCo != null ? +bCo : lc(nL)), so2 = B.hn * 0.08;
@@ -2829,8 +2818,8 @@
     const addC = (key, lines, P, Q, a, b) => { const st = stFor(key, lines), g = geoOf(P, Q);
       const ls = lines.filter((x) => x.t).sort((x, y) => x.r - y.r), nP = ls.length === 1 ? (TIDY ? 0 : 1) : Math.floor(ls.length / 2), ordOf = (x) => { const i = ls.indexOf(x); return i < nP ? i : ls.length - 1 - i; }; // (on one span, the order of before: the outermost line's label nearest the lines)
       lines.forEach((x) => { if (!x.t) return; const A = ALG.get(x.n != null ? `R${x.n}` : x.t), al = A && A.has(K2(a, b)) ? A.get(K2(a, b)) : null;
-        const ci = Math.floor((g.m[0] - gox) / cell), cj = Math.floor((g.m[1] - goy) / cell), wS = SPLIT ? winAt(g.m[0], g.m[1]) : null, mg = wS ? Math.min(g.m[0] - wS[0], wS[2] - g.m[0], g.m[1] - wS[1], wS[3] - g.m[1]) : Math.min(g.m[0] - gox - ci * cell, gox + (ci + 1) * cell - g.m[0], g.m[1] - goy - cj * cell, goy + (cj + 1) * cell - g.m[1]); // (beta 4.8: Tidy: its detail sheet)
-        cands.push({ lines, P, Q, x, st, a: String(a), b: String(b), ord: ordOf(x), L: g.L, m: g.m, al, cell: wS ? `${wS[0]},${wS[1]}` : `${ci},${cj}`, mg: Math.floor(Math.min(60, mg) / 20), fit: arialW(x.t, CL_TH, false) <= 0.96 * g.L ? 1 : 0 }); }); }; /* (mg: well inside its grid first, away from the sheet's edge) */
+        const ci = Math.floor((g.m[0] - gox) / cell), cj = Math.floor((g.m[1] - goy) / cell), mg = Math.min(g.m[0] - gox - ci * cell, gox + (ci + 1) * cell - g.m[0], g.m[1] - goy - cj * cell, goy + (cj + 1) * cell - g.m[1]); // (beta 4.8: Tidy: its detail sheet)
+        cands.push({ lines, P, Q, x, st, a: String(a), b: String(b), ord: ordOf(x), L: g.L, m: g.m, al, cell: `${ci},${cj}`, mg: Math.floor(Math.min(60, mg) / 20), fit: arialW(x.t, CL_TH, false) <= 0.96 * g.L ? 1 : 0 }); }); }; /* (mg: well inside its grid first, away from the sheet's edge) */
     for (const s of spans) { const P = byId.get(String(s.ia)), Q = byId.get(String(s.ib)); if (!P || !Q || !P.A || !Q.A) continue; const key = K2(s.ia, s.ib); addC(key, linesOf(s, laneInfo.get(key)), P, Q, s.ia, s.ib); }
     for (const [k, li] of laneInfo) { if (spanKeys.has(k)) continue; const P = byId.get(li.a), Q = byId.get(li.b); if (P && Q && P.A && Q.A) addC(k, linesOf(null, li), P, Q, li.a, li.b); } // (v2.42.20: existing cables off the new route)
     if (job.cabLabels) {
@@ -2869,7 +2858,7 @@
     const SITE_W = (t) => (t === 'road' ? 0.5 : t === 'cable' ? 3 : 4);
     const attW = (bn, tag) => { const b = S.blocks.get(bn), df = b && b.ents.find((e) => typ(e) === 'ATTDEF' && get(e, 2) === tag); const w = df ? parseFloat(get(df, 41, '1')) : 1; return Number.isFinite(w) && w > 0 ? w : 1; };
     const inCellBox = (b, E, N) => { // the box's corners inside the GEO cell of the point (2 m in)
-      const ci = Math.floor((E - gox) / cell), cj = Math.floor((N - goy) / cell), W = SPLIT ? winAt(E, N).slice(0, 4).map((v, i) => v + (i < 2 ? 2 : -2)) : [gox + ci * cell + 2, goy + cj * cell + 2, gox + (ci + 1) * cell - 2, goy + (cj + 1) * cell - 2]; // (beta 4.8: Tidy: a detail sheet's)
+      const ci = Math.floor((E - gox) / cell), cj = Math.floor((N - goy) / cell), W = [gox + ci * cell + 2, goy + cj * cell + 2, gox + (ci + 1) * cell - 2, goy + (cj + 1) * cell - 2];
       return [[1, 1], [1, -1], [-1, 1], [-1, -1]].every(([a, c]) => { const x = b.cx + b.ux * b.hw * a + b.vx * b.hh * c, y = b.cy + b.uy * b.hw * a + b.vy * b.hh * c; return x >= W[0] && x <= W[2] && y >= W[1] && y <= W[3]; });
     };
     for (const { p: p0, bn } of siteLate) {
@@ -2884,19 +2873,19 @@
       } else if (nm) {
         const wfN = attW(bn, 'BTS_NAME'), wfP = attW(bn, 'PLA_ID'), two = !!pla, bySize = [];
         const boxAt = (x, y, w, h, ha) => Spots.box(x + (ha === 0 ? w / 2 : ha === 2 ? -w / 2 : 0), y, w, h, 0);
-        for (const h of [3.0, 2.4, 2.0, 1.6]) {
-          const wN = arialW(nm, h, true) * wfN + h * 0.5, hp = h * 0.8, wP = two ? arialW(pla, hp, false) * wfP + hp * 0.5 : 0, sub = h * 1.6, g = h * 0.4 + 0.6;
-          const tallUp = h * 0.65 + 0.3, tallDn = two ? sub + hp * 0.65 + 0.3 : tallUp; // the name's middle to the top of its box, to the bottom of the PLA ID
+        for (const h of [3.0, 2.4, 2.0, 1.6].map((v) => v / NU)) { // (beta 4.8: Tidy: on a finer grid, the name and its room as much smaller)
+          const wN = arialW(nm, h, true) * wfN + h * 0.5, hp = h * 0.8, wP = two ? arialW(pla, hp, false) * wfP + hp * 0.5 : 0, sub = h * 1.6, g = h * 0.4 + 0.6 / NU;
+          const tallUp = h * 0.65 + 0.3 / NU, tallDn = two ? sub + hp * 0.65 + 0.3 / NU : tallUp; // the name's middle to the top of its box, to the bottom of the PLA ID
           const at = []; // [x, y, ha] of the name's middle-left / -centre / -right; nearest first
           const X = 12.4 * K, Y = 48 * K; // (beta 3.7: the tower at its size)
           for (const dy of [30, 22, 38, 14, 44, 6]) { at.push([-X - g, dy * K, 2]); at.push([X + g, dy * K, 0]); }
-          for (const [x, ha] of [[0, 1], [X, 2], [-X, 0], [3, 2], [-3, 0]]) { at.push([x, Y + g + tallDn, ha]); at.push([x, -g - tallUp, ha]); }
-          for (const dx of [6, 12, 20]) for (const dy of [30, 14, 44, 2]) { at.push([-X - g - dx, dy * K, 2]); at.push([X + g + dx, dy * K, 0]); }
+          for (const [x, ha] of [[0, 1], [X, 2], [-X, 0], [3 / NU, 2], [-3 / NU, 0]]) { at.push([x, Y + g + tallDn, ha]); at.push([x, -g - tallUp, ha]); }
+          for (const dx of [6, 12, 20].map((v) => v / NU)) for (const dy of [30, 14, 44, 2]) { at.push([-X - g - dx, dy * K, 2]); at.push([X + g + dx, dy * K, 0]); }
           // v2.42.26: the place chosen in Drawing style (top: above the tower; bottom: below it, below its ODF too; side: beside it), the side
           //           away from the tower's ODF first; Auto as before (beside, then above or below)
           const oSide = [...odfMoved.values()].filter((m) => m.T === p0).map((m) => m.side), fam = ([, dy]) => (dy > Y - 2 ? 'top' : dy < 0 ? 'bottom' : 'side');
-          for (const ex of [5, 10]) for (const [x, ha] of [[0, 1], [X, 2], [-X, 0]]) { at.push([x, Y + g + tallDn + ex, ha]); at.push([x, -g - tallUp - ex - (oSide.includes('below') ? 8 : 0), ha]); }
-          if (oSide.includes('below')) for (const [x, ha] of [[0, 1], [X, 2], [-X, 0]]) at.push([x, -g - tallUp - 9, ha]);
+          for (const ex of [5, 10].map((v) => v / NU)) for (const [x, ha] of [[0, 1], [X, 2], [-X, 0]]) { at.push([x, Y + g + tallDn + ex, ha]); at.push([x, -g - tallUp - ex - (oSide.includes('below') ? 8 / NU : 0), ha]); }
+          if (oSide.includes('below')) for (const [x, ha] of [[0, 1], [X, 2], [-X, 0]]) at.push([x, -g - tallUp - 9 / NU, ha]);
           const SN = ['top', 'side', 'bottom'].includes(job.siteName) ? job.siteName : 'auto', away = (a) => (oSide.includes('left') ? (a[0] < 0 ? 1 : 0) : oSide.includes('right') ? (a[0] > 0 ? 1 : 0) : 0);
           const at2 = SN === 'auto' ? at.slice() : at.filter((a) => fam(a) === SN), sIdx = at2.map((a, i) => (fam(a) === 'side' ? i : -1)).filter((i) => i >= 0), sides = sIdx.map((i) => at2[i]).map((a, i) => [a, i]).sort((x, y) => away(x[0]) - away(y[0]) || x[1] - y[1]).map((x) => x[0]);
           sIdx.forEach((i, k) => { at2[i] = sides[k]; }); // (the side slots away from the ODF first; the others keep their places)
@@ -2909,8 +2898,8 @@
         }
         let c = null;
         for (const cs of bySize) { c = cs.find((x) => x.boxes.reduce((t, b) => t + spots.hitsW(b, SITE_W), 0) === 0); if (c) break; } // the largest size with a free place
-        if (!c) { const all = bySize.flat(); if (all.length) c = pickC(spots, all.map((x) => ({ ...x, cost: x.cost + (3 - x.h) * 40 })), SITE_W); } // none free: the place covering least (bigger first)
-        if (!c) { const h = 2.0, q = [p.E - 12.4 * K - 1.4, p.N + 30 * K]; c = { q, h, ha: 2, sub: h * 1.6, boxes: [boxAt(q[0], q[1], arialW(nm, h, true) * wfN, h * 1.3, 2)] }; } // (no place inside the sheet: at its left)
+        if (!c) { const all = bySize.flat(); if (all.length) c = pickC(spots, all.map((x) => ({ ...x, cost: x.cost + (3 - x.h * NU) * 40 })), SITE_W); } // none free: the place covering least (bigger first)
+        if (!c) { const h = 2.0 / NU, q = [p.E - 12.4 * K - 1.4 / NU, p.N + 30 * K]; c = { q, h, ha: 2, sub: h * 1.6, boxes: [boxAt(q[0], q[1], arialW(nm, h, true) * wfN, h * 1.3, 2)] }; } // (no place inside the sheet: at its left)
         else nInCell++;
         spots.add(c.boxes, 'label:site');
         attrs = { BTS_NAME: { v: nm, x: c.q[0], y: c.q[1], h: c.h, ha: c.ha, va: 2 }, PLA_ID: { v: pla, x: c.q[0], y: c.q[1] - c.sub, h: c.h * 0.8, ha: c.ha, va: 2 } };
@@ -3139,12 +3128,12 @@
       const q0 = inl.has(p) ? inl.get(p).at : [p.E, p.N], ext = inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : 3, hL = TIDY ? TS.sm / kAt(q0[0], q0[1]) : +(job.poleStyle || {}).llH > 0 ? +job.poleStyle.llH : 1.2, w = 10 * hL * CHW, h = 2 * 1.67 * hL; // (beta 4.3: the lat/long height of the drawing style)
       // v2.41: where every place is taken, over a road edge line or the cable rather than over an ID, a number or a photo
       const kq = TIDY ? kAt(q0[0], q0[1]) : 1, cs = []; for (const r of [ext + 1.5 / kq, ext + 5 / kq, ext + 9 / kq, ext + 13 / kq, ext + 18 / kq]) for (const a of [-45, 45, -135, 135, -90, 90, 0, 180]) { /* (beta 4.8: on a detail sheet, as much nearer) */ const u = rotv([1, 0], a), c = add2(q0, u, r + w / 2 * Math.abs(u[0]) + h / 2 * Math.abs(u[1])); cs.push({ q: [c[0] - w / 2, c[1] + h / 2], boxes: [Spots.box(c[0], c[1], w * 1.1, h, 0)] }); }
-      const csIn = TIDY && SPLIT ? cs.filter((x) => inCellBox(x.boxes[0], q0[0], q0[1])) : cs, c = pickW(spots, csIn.length ? csIn : cs, LL_W); spots.add(c.boxes); // (beta 4.8: Tidy: wholly on its detail sheet where it can be)
+      const csIn = TIDY ? cs.filter((x) => inCellBox(x.boxes[0], q0[0], q0[1])) : cs, c = pickW(spots, csIn.length ? csIn : cs, LL_W); spots.add(c.boxes); // (beta 4.8: Tidy: wholly on its detail sheet where it can be)
       o.mtext(lay('LATLONG'), c.q[0], c.q[1], hL, `{\\fSimSun|b0|i0|c134|p2;${p.lat.toFixed(6)}%%D\\P${p.lon.toFixed(6)}%%D}`, { style: '样式 1', color: +(job.poleStyle || {}).llColor || null });
     }
     // 12. v2.34: the name of every named road on every GEO sheet it crosses (once per sheet), on the road where it covers no label;
     //     then buildings and places nearby (named in OpenStreetMap), turned along their road, wholly inside a sheet
-    const wins = SPLIT ? geoSheets.map((g) => [...g.w, g.k]) : geoCells.map((c) => [gox + c.i * cell, goy + c.j * cell, gox + (c.i + 1) * cell, goy + (c.j + 1) * cell]); // (beta 4.8: Tidy: the detail sheets, with their k)
+    const wins = geoCells.map((c) => [gox + c.i * cell, goy + c.j * cell, gox + (c.i + 1) * cell, goy + (c.j + 1) * cell, ...(NU > 1 ? [NU] : [])]); // (beta 4.8: Tidy: with the grid's NU, for the sizes)
     const corners = (b) => [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, c]) => [b.cx + b.ux * b.hw * a + b.vx * b.hh * c, b.cy + b.uy * b.hw * a + b.vy * b.hh * c]);
     const inside = (b, W, m) => corners(b).every(([x, y]) => x >= W[0] + m && x <= W[2] - m && y >= W[1] + m && y <= W[3] - m);
     const byName = new Map(); R.roads.forEach((r) => { if (r.hw > 0 && r.name) (byName.get(r.name) || byName.set(r.name, []).get(r.name)).push(r); });
@@ -3174,7 +3163,7 @@
     rep.streetNames = nStreets; rep.polesOnUnnamedRoads = unnamedNear;
     // 10. (v2.39.1: after the street names, which come first) the cable's name along each run, where there is room: v2.37 the size of the span lengths, close along the cable. v2.39: on
     //     every GEO sheet the run crosses (where 40 m of it are on the sheet), as the company's plans repeat it; else once
-    const sheetWins = SPLIT ? geoSheets.map((g) => [...g.w, g.k]) : geoCells.map((c) => [gox + c.i * cell, goy + c.j * cell, gox + (c.i + 1) * cell, goy + (c.j + 1) * cell]); // (beta 4.8: Tidy: the detail sheets, with their k)
+    const sheetWins = geoCells.map((c) => [gox + c.i * cell, goy + c.j * cell, gox + (c.i + 1) * cell, goy + (c.j + 1) * cell, ...(NU > 1 ? [NU] : [])]); // (beta 4.8: Tidy: with the grid's NU, for the sizes)
     const boxIn = (b, W, m) => [[1, 1], [1, -1], [-1, 1], [-1, -1]].every(([u, v]) => { const x = b.cx + b.ux * b.hw * u + b.vx * b.hh * v, y = b.cy + b.uy * b.hw * u + b.vy * b.hh * v; return x >= W[0] + m && x <= W[2] - m && y >= W[1] + m && y <= W[3] - m; });
     let nCableNames = 0;
     for (const ch of chains) {
@@ -3363,12 +3352,11 @@
     const V = job.values || {}, sheetNames = S.layouts.map((L) => L.name);
     const paging = S.brByName.get('PAGING');
     const idx = (nm, di, dj) => { const k = geoNames(N).indexOf(nm); if (k < 0) return '';
-      if (SPLIT) { const g = geoSheets[k], sz = g.w[2] - g.w[0], t = sheetAt((g.w[0] + g.w[2]) / 2 + di * sz, (g.w[1] + g.w[3]) / 2 + dj * sz); return t ? t.name : ''; } // (beta 4.8: the sheet beside a detail sheet: a detail sheet or a whole cell)
       const c = geoCells[k], kk = key(c.i + di, c.j + dj); return sheetOf.has(kk) ? cellName(c.i + di, c.j + dj) : ''; };
     const auto = {
       SHEET_NO: (sh) => { const k = geoNames(N).indexOf(sh); return k >= 0 ? `${k + 1} OF ${N}` : '1 OF 1'; },
       DATE: () => dateText(job.date || new Date()),
-      SCALE: (sh) => (geoNames(N).includes(sh) ? `1 : ${(SPLIT ? Math.round(viewH / geoSheets[geoNames(N).indexOf(sh)].k / 400 * 1000) : viewH / 400 * 1000).toLocaleString('en-US')} METERS` : kmNames.includes(sh) ? `1 : ${(Math.round(kmH[kmNames.indexOf(sh)] / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : vicNames.includes(sh) ? `1 : ${(Math.round(vics[vicNames.indexOf(sh)].area[2] / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : ''),
+      SCALE: (sh) => (geoNames(N).includes(sh) ? `1 : ${(NU > 1 ? Math.round(viewH / 400 * 1000) : viewH / 400 * 1000).toLocaleString('en-US')} METERS` : kmNames.includes(sh) ? `1 : ${(Math.round(kmH[kmNames.indexOf(sh)] / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : vicNames.includes(sh) ? `1 : ${(Math.round(vics[vicNames.indexOf(sh)].area[2] / 400 * 1000 / 100) * 100).toLocaleString('en-US')} METERS` : ''),
       IDX_TL: (sh) => idx(sh, -1, 1), IDX_T: (sh) => idx(sh, 0, 1), IDX_TR: (sh) => idx(sh, 1, 1), IDX_L: (sh) => idx(sh, -1, 0), IDX_C: (sh) => idx(sh, 0, 0), IDX_R: (sh) => idx(sh, 1, 0), IDX_BL: (sh) => idx(sh, -1, -1), IDX_B: (sh) => idx(sh, 0, -1), IDX_BR: (sh) => idx(sh, 1, -1),
       TOC_GEO: () => String(N), TOC_LEGEND: () => String(sheetNames.filter((n) => /^LEGENDS?( \(\d+\))?$/.test(n)).length), TOC_TOTAL: () => String(sheetNames.filter((n) => n !== 'Model').length),
     };
