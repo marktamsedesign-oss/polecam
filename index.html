@@ -1114,7 +1114,7 @@ body.deskpane #fixPanel{left:calc(var(--pw) + 8px);right:auto;width:min(440px,ca
 body.deskpane{--rpw:min(440px,calc(100vw - var(--pw) - 260px))}
 body.deskpane #routeBar,body.deskpane #rtBar,body.deskpane #visitCard,body.deskpane #fixPanel,body.deskpane #photoPane{left:auto;right:0;top:var(--tbh,56px);bottom:0;width:var(--rpw);max-height:none;border-radius:0;border:0;border-left:1px solid var(--line);box-shadow:-10px 0 28px rgba(16,24,32,.18);overflow-y:auto;animation:edIn .2s ease-out}
 body.deskpane #rtBar{align-content:start}
-body.deskpane #rtPop{left:auto;right:10px;width:calc(var(--rpw) - 20px);bottom:14px;max-height:62vh;overflow-y:auto}
+body.deskpane #rtPop{left:auto;right:10px;width:calc(var(--rpw) - 20px);bottom:14px;max-height:62vh;overflow-y:auto;z-index:950} /* 2.44.5: above the right panels (they climb from 541 to 900 as they open), below sheets (1000) */
 body.deskpane.rpanel .mapbtns,body.deskpane.rpanel.routing .mapbtns{right:calc(var(--rpw) + 12px);bottom:calc(env(safe-area-inset-bottom,0px) + 164px)}
 body.deskpane.rpanel #mapSummary{right:calc(var(--rpw) + 12px)}body.deskpane.rpanel #map .leaflet-right{right:var(--rpw)}
 body:not(.deskpane) #photosBtn{display:none}
