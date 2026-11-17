@@ -55,7 +55,11 @@
   const HV = [278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556, 1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556, 333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584];
   const HVB = [278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 333, 333, 584, 584, 584, 611, 975, 722, 722, 722, 722, 667, 611, 778, 722, 278, 556, 722, 611, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 333, 278, 333, 584, 556, 333, 556, 611, 556, 611, 556, 333, 611, 611, 278, 278, 556, 278, 889, 611, 611, 611, 611, 389, 556, 333, 611, 556, 778, 556, 556, 500, 389, 280, 389, 584];
   const CAP = 0.718; /* Helvetica's capital height, of the font size */
-  function textW(s, h, bold) { const T = bold ? HVB : HV; let w = 0; for (const ch of String(s)) { const c = ch.charCodeAt(0); w += c >= 32 && c <= 126 ? T[c - 32] : 556; } return w / 1000 * h / CAP; }
+  /* (a sign outside ASCII as wide as the widest way an output draws it: the PDF and the DXF write → as ->, › as >; an accented letter
+     as its letter, Ñ as N) */
+  const chW = (T, ch) => { const c = ch.charCodeAt(0); if (c >= 32 && c <= 126) return T[c - 32]; if (c === 0x2192) return T[13] + T[30]; if (c === 0x203a) return T[30];
+    if (c >= 0xc0 && c <= 0x17f && ch.normalize) { const b = ch.normalize('NFD').charCodeAt(0); if (b >= 65 && b <= 122) return T[b - 32]; } return 556; };
+  function textW(s, h, bold) { const T = bold ? HVB : HV; let w = 0; for (const ch of String(s)) w += chW(T, ch); return w / 1000 * h / CAP; }
   /* a label cut to a width, ending in ... */
   function fitTx(s, h, width, bold) { s = String(s); if (textW(s, h, bold) <= width) return s; let k = s.length - 1; while (k > 1 && textW(s.slice(0, k) + '...', h, bold) > width) k--; return s.slice(0, k) + '...'; }
   function wrap(s, h, width, bold) {
@@ -74,8 +78,9 @@
      its shape and its texts), and a text's nm, the unit's name (shown again on a grid sheet that shows the unit but not its name) */
   let GID = 0;
   class Gfx {
-    constructor() { this.p = []; this.ref = null; this.g = null; this.u = null; }
-    put(o) { if (this.ref) o.ref = this.ref; if (this.g) o.g = this.g; if (this.u) o.u = this.u; this.p.push(o); return this; }
+    constructor() { this.p = []; this.ref = null; this.g = null; this.u = null; this.ow = null; this.pt = null; }
+    /* (ow: whose a primitive is, 'n:<point>' or 'c:<cable>', and pt: a symbol and the words drawn in it, for the single line diagram's room check) */
+    put(o) { if (this.ref) o.ref = this.ref; if (this.g) o.g = this.g; if (this.u) o.u = this.u; if (this.ow) o.ow = this.ow; if (this.pt) o.pt = this.pt; this.p.push(o); return this; }
     /* the texts drawn in f() are one label */
     group(f) { const g0 = this.g; if (!g0) this.g = 'g' + ++GID; f(); this.g = g0; return this; }
     pl(pts, lay, o) { o = o || {}; if (pts.length > 1) this.put({ k: 'pl', pts: pts.map(q => [q[0], q[1]]), close: !!o.close, lay, col: o.col || null, lw: o.lw || 0 }); return this; }
@@ -203,7 +208,7 @@
     const cols = Math.max(4, Math.round((w - 5) / 2.2)), rows = Math.max(2, Math.round((h - 4.5) / 2.9)), dx = (w - 5) / cols, dy = (h - 4.5) / rows;
     for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) G.rect(x - w / 2 + 2.5 + k * dx + dx * 0.15, y - h / 2 + 2.3 + r * dy + dy * 0.2, dx * 0.6, dy * 0.55, 'NOTE');
   }
-  function dnapIcon(G, x, y, lay) { G.frect(x - 6, y - 4, 12, 8, 'HILITE', { col: { rgb: '#ffffff', aci: 7 } }); G.rect(x - 6, y - 4, 12, 8, lay, { lw: 0.5 }); G.tx(x, y, 'DNAP', 2, lay, { al: 'c', va: 'm', bold: true }); }
+  function dnapIcon(G, x, y, lay, k) { k = k || 1; G.frect(x - 6 * k, y - 4 * k, 12 * k, 8 * k, 'HILITE', { col: { rgb: '#ffffff', aci: 7 } }); G.rect(x - 6 * k, y - 4 * k, 12 * k, 8 * k, lay, { lw: 0.5 }); G.tx(x, y, 'DNAP', 2 * Math.min(1, k * 1.1), lay, { al: 'c', va: 'm', bold: true }); }
   function ellipse(G, cx, cy, rx, ry, lay, o) { G.pl(seq(0, 40).map(i => [cx + rx * Math.cos(i * Math.PI / 20), cy + ry * Math.sin(i * Math.PI / 20)]), lay, Object.assign({}, o, { close: true })); }
   const cap = (G, x, y) => G.ln(x, y - 0.45, x, y + 0.45, 'FIBER');
   /* a fiber's number, just above its line where the line meets an enclosure, a NAP or a dummy NAP */
@@ -234,7 +239,7 @@
      An existing FDU's `active` ports and an existing cable's `used` fibers are what was live BEFORE the work (`active: '?'` = not sure yet).
      A link is a leg: tested end to end, spliced only (test later), or future (not built yet: a second cable into the new FDU, fibers xx-xx).
      The As-Plan draws every leg as a planned connection (a future one aside); the As-Built adds the testing words and line styles.
-     A cable without a name prints TBF (its ID follows later); the plan's words then name it by its ends ('the new 72F cable C1 – C2').
+     A cable without a name prints TBF (its ID follows later); the plan's words then name it by its ends ('the new 72C cable C1 – C2').
      A locked run keeps its fibers when another leg grows; a leg that grows past its own locked run is moved, with a warning on that leg.
      plan.legs[i] also has short ({have, need} when a cable gives fewer fibers than the leg needs), confirm (homings whose live ports are not sure)
      and status (the CONNECTIONS words: state, NOT ENOUGH FREE FIBERS (k OF n), LIVE PORTS TBC); each fiber has tbc, limit (the FDU window), locked, hand, moved.
@@ -277,7 +282,7 @@
         live, liveTubes: new Set(live.map(f => Math.ceil(f / cf))), taken: new Set(live), avoid: new Set(), links: [], tbcAt: new Set(), win: [], owner: new Map() }));
     });
     /* a cable in plain words: its ID, or (ID to follow) what it is and where it runs */
-    const cdesc = c => c.named ? c.name : 'the ' + (c.status === 'existing' ? 'existing ' : 'new ') + c.size + 'F cable ' + label(c.from) + ' – ' + label(c.to);
+    const cdesc = c => c.named ? c.name : 'the ' + (c.status === 'existing' ? 'existing ' : 'new ') + c.size + 'C cable ' + label(c.from) + ' – ' + label(c.to);
     const cwho = c => c.named ? 'cable ' + c.name : cdesc(c);
     const adj = new Map(pts.map(p => [p.id, []]));
     cables.forEach(c => { adj.get(c.from).push({ c, o: c.to }); adj.get(c.to).push({ c, o: c.from }); });
@@ -392,7 +397,8 @@
         });
         T.forEach(t => { const on = new Set(t.fibers); for (let f = 1; f <= t.c.size; f++) if (!on.has(f)) t.c.avoid.add(f); });
       } else {
-        const order = adj.get(p.id).map(e => e.c).sort((x, y) => (first(x) - first(y)) || x.k - y.k);
+        /* a dummy NAP is the end of the job: it terminates only the cable its legs come in on; a cable that goes on beyond it is not spliced here */
+        const order = adj.get(p.id).map(e => e.c).filter(c => p.type !== 'dnap' || (M.size ? M.has(c) : !c.onward)).sort((x, y) => (first(x) - first(y)) || x.k - y.k);
         const split = p.split === 'need' || p.split === 'half' ? p.split : rules.split, need = order.length > 1 && split === 'need';
         let port = 1;
         const halves = need ? null : halfParts(order, cap), plainOf = x => Math.min((M.get(x) || { n: 0 }).n, x.size - t0 + 1);
@@ -530,6 +536,23 @@
       push(ends, leg.a, { c: segs[0].c, f: segs[0].f, li, other: leg.b, st, id }); push(ends, leg.b, { c: segs[z].c, f: segs[z].f, li, other: leg.a, st, id });
       paths.push({ li, a: leg.a, b: leg.b, n: leg.n, segs, st, id });
     });
+    /* a dummy NAP is the end of the job (the owner, 16 Nov): the cables that go on from it with no leg on them are not spliced in this work,
+       and what they reach (a site, an ODF, the end of the map) is drawn plainly, by its name, not as a homing. A new cable no leg uses is not
+       spliced either (spare: NOT SPLICED · FOR FUTURE), once the work has a leg. */
+    const legPts = new Set(), beyond = new Set(), onward = new Set();
+    routed.forEach(leg => leg.path.forEach(s => { legPts.add(s.from); legPts.add(s.to); }));
+    legs.forEach(leg => { if (leg.state === 'future' && !leg.bad) { legPts.add(leg.a); legPts.add(leg.b); } });
+    /* (before the work has a leg, the cables the model marks as going on from a dummy NAP, c.onward, and what they reach) */
+    pts.forEach(d => {
+      if (d.type !== 'dnap') return; const led = (ends.get(d.id) || []).length;
+      if (!led && !adj.get(d.id).some(e => e.c.onward)) return;
+      const q = [d.id];
+      while (q.length) { const u = q.shift(); adj.get(u).forEach(e => { if (e.c.links.length || onward.has(e.c) || (!led && !e.c.onward)) return; onward.add(e.c); if (e.o !== d.id && !legPts.has(e.o) && !beyond.has(e.o) && (led || typ(e.o) !== 'dnap')) { beyond.add(e.o); q.push(e.o); } }); }
+    });
+    /* (past the job's end, a second dummy NAP is outside the job too, and so is what lies past it; once the work has legs, so is a dummy NAP
+       no leg reaches: no FDU block, no capped fibers, its cables NOT SPLICED) */
+    if (routed.length) pts.forEach(d => { if (d.type === 'dnap' && !(ends.get(d.id) || []).length && !legPts.has(d.id)) beyond.add(d.id); });
+    const spare = new Set(routed.length ? cables.filter(c => c.status !== 'existing' && !c.links.length) : [...onward].filter(c => c.status !== 'existing'));
 
     /* future legs: a second cable into the new FDU, later. It takes no fibers or ports; the new FDU lists it as xx-xx (<its cable>-LX) */
     const futures = [];
@@ -573,7 +596,7 @@
       if (leg.state === 'tbc' && leg.path) say(leg, 'its test status is to be confirmed: tested end to end now, or spliced only.');
     });
 
-    const P = { m, warn, rules, stage, pts, byId, label, cables, adj, paths, nodeSp, ends, sites, fpt, futures };
+    const P = { m, warn, rules, stage, pts, byId, label, cables, adj, paths, nodeSp, ends, sites, fpt, futures, beyond, onward, spare };
     /* for a page: the legs, the closures, the FDUs and the cables in plain data */
     P.legs = legs.map(leg => {
       const path = leg.path || [], w = legWords(leg, stage), via = path.slice(0, -1).map(s => s.to);
@@ -603,13 +626,13 @@
     }));
     P.fdus = pts.filter(p => isEnd(p.id)).map(p => {
       const s = sites.get(p.id);
-      return { id: p.id, name: label(p.id), type: p.type, existing: s.existing, cap: s.cap, tbc: !!s.tbc, asks: !!s.asks, active: s.existing ? s.before.slice() : [], split: s.split, future: s.future.slice(),
+      return { id: p.id, name: label(p.id), type: p.type, existing: s.existing, cap: s.cap, tbc: !!s.tbc, asks: !!s.asks, active: s.existing ? s.before.slice() : [], split: s.split, future: s.future.slice(), beyond: beyond.has(p.id),
         windows: s.term.map(t => ({ cable: t.c.name, key: t.c.key, ports: t.ports.slice(), fibers: t.fibers.slice() })),
         legs: s.ends.map(e => ({ leg: e.id, state: e.st, cable: e.c.name, key: e.c.key, ports: e.ports.filter(x => x != null), fibers: e.f.slice() })) };
     });
     P.cableInfo = cables.map(c => ({ key: c.key, name: c.name, named: c.named, from: c.from, to: c.to, size: c.size, fpt: c.fpt, status: c.status, fid: hasFid(c) ? String(c.fid) : '',
       live: c.live.slice(), liveAtFdu: [...c.taken].filter(f => c.live.indexOf(f) < 0 && !c.links.some(l => l.f.indexOf(f) >= 0)).sort((x, y) => x - y),
-      outside: [...c.avoid].sort((x, y) => x - y), legs: c.links.map(l => ({ leg: l.id, state: l.st, fibers: l.f.slice() })), free: freeCount(c) }));
+      outside: [...c.avoid].sort((x, y) => x - y), legs: c.links.map(l => ({ leg: l.id, state: l.st, fibers: l.f.slice() })), free: freeCount(c), spare: spare.has(c), onward: onward.has(c) }));
     P.warnings = [...new Set(warn)];
     return P;
   }
@@ -641,6 +664,7 @@
   function siteLines(P, p) {
     const s = P.sites.get(p.id); if (!s) return [];
     const L = [p.type === 'dnap' ? (p.fdu || p.name || 'DUMMY NAP') + ' (DUMMY NAP)' : (p.fdu || ((p.code || p.name || 'SITE') + '_FDU_001')), 'Capacity: ' + s.cap + ' Ports'];
+    if (p.type === 'dnap' && P.beyond && P.beyond.has(p.id)) return L.concat(['NOT SPLICED']); /* (outside the job: nothing terminated here now) */
     /* an existing FDU as it was before the work; the new legs show in the fiber labels, the leg tags and the CONNECTIONS box */
     if (s.existing) { L.push('Active: ' + (s.tbc ? 'TO BE CONFIRMED' : fmtRanges(s.active) || 'none')); L.push('Vacant: ' + (s.tbc ? 'TO BE CONFIRMED' : fmtRanges(s.vacant) || 'none')); }
     else {
@@ -675,105 +699,389 @@
     if (best) { let v = best.v; T.unshift(v); while (v !== best.u) { const s = best.pr.get(v); TC.add(s.c); v = s.u; T.unshift(v); } } else T.push(cand[0].id);
     return T;
   }
-  function accessSLD(P) {
-    const G = new Gfx(), T = trunkOf(P);
-    if (!T.length) { G.tx(0, 0, 'ADD THE POINTS AND THE CABLES TO DRAW THE SINGLE LINE DIAGRAM.', 3, 'NOTE'); return block(G); }
-    const n = T.length, DX = n > 1 ? Math.max(36, Math.min(92, 300 / (n - 1))) : 0, DY = 60, pos = new Map();
-    T.forEach((id, i) => pos.set(id, { x: i * DX, y: 0, trunk: true, i }));
-    const q = T.slice(), near = (x, y) => [...pos.values()].some(p => Math.abs(p.x - x) < 24 && Math.abs(p.y - y) < 20);
-    while (q.length) {
-      const u = q.shift(), pu = pos.get(u);
-      P.adj.get(u).filter(e => !pos.has(e.o)).sort((a, b) => a.c.k - b.c.k).forEach((e, j) => {
-        let x = pu.trunk ? pu.x + j * 34 : pu.x + j * 46, y = pu.trunk ? -DY : pu.y - DY; while (near(x, y)) x += 30;
-        pos.set(e.o, { x, y, trunk: false, parent: u, dir: pu.trunk || j === 0 ? 'down' : 'right' }); q.push(e.o);
-      });
+  /* ---------- room for every word: what a primitive covers, and what meets what ---------- */
+  /* a text's box as four corners (primBox's box); sh shrinks it on every side (mm); core: its capitals only, inside its ends (a line through
+     the core crosses the words) */
+  function txQuad(p, sh, core) {
+    const w = textW(p.s, p.h, p.bold), r = p.rot * Math.PI / 180, c = Math.cos(r), s = Math.sin(r), a = p.al === 'c' ? -w / 2 : p.al === 'r' ? -w : 0, d = sh || 0;
+    const u0 = core ? a + Math.min(0.25, w / 5) : a + d, u1 = core ? a + w - Math.min(0.25, w / 5) : a + w - d, v0 = core ? 0.1 * p.h : -0.25 * p.h + d, v1 = core ? 0.9 * p.h : 1.05 * p.h - d;
+    return [[u0, v0], [u1, v0], [u1, v1], [u0, v1]].map(q => [p.p[0] + q[0] * c - q[1] * s, p.p[1] + q[0] * s + q[1] * c]);
+  }
+  const bbOf = Q => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const q of Q) { if (q[0] < x0) x0 = q[0]; if (q[0] > x1) x1 = q[0]; if (q[1] < y0) y0 = q[1]; if (q[1] > y1) y1 = q[1]; } return [x0, y0, x1, y1]; };
+  /* two convex shapes (a segment is one) overlap by more than a touch: no axis separates them */
+  function overlaps(A, B, tol, tolU) {
+    tol = tol == null ? 0.25 : tol;
+    for (const S of [A, B]) for (let i = 0; i < S.length; i++) {
+      const tl = tolU != null && i % 2 ? tolU : tol; /* (two texts' boxes: their odd edges are their ends) */
+      const p = S[i], q = S[(i + 1) % S.length], nx = q[1] - p[1], ny = p[0] - q[0], L = Math.hypot(nx, ny); if (L < 1e-9) continue;
+      let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
+      for (const v of A) { const t = (v[0] * nx + v[1] * ny) / L; if (t < a0) a0 = t; if (t > a1) a1 = t; }
+      for (const v of B) { const t = (v[0] * nx + v[1] * ny) / L; if (t < b0) b0 = t; if (t > b1) b1 = t; }
+      if (a1 + tl <= b0 || b1 + tl <= a0) return false; /* (closer than a quarter of a millimetre counts as meeting) */
     }
-    P.pts.forEach(p => { if (P.adj.get(p.id).length && !pos.has(p.id)) P.warn.push(P.label(p.id) + ' is not joined to the main route, so it is left off the diagram.'); });
-    const half = id => { const p = P.byId.get(id); return p.type === 'site' ? [11, 6.5] : p.type === 'dnap' ? [6, 4] : [2.8, 2.8]; };
+    return true;
+  }
+  /* what meets what: a text over a text, a text over a symbol or a box that is not its own (pt: a symbol and its words), a line through a
+     text's letters, two symbols over each other. A white background (HILITE) does not count; a line meeting a symbol ends there. */
+  /* outline: a closed shape counts as its outline (the detailed drawing: words sit inside its boxes and ellipses), a fill as a background */
+  function clashItems(prims, outline) {
+    const items = [];
+    prims.forEach(p => {
+      if (p.k === 'tx') { if (!String(p.s).trim()) return; const Q = txQuad(p, 0.06); items.push({ t: 2, P: Q, b: bbOf(Q), C: txQuad(p, 0, true), p }); }
+      else if (p.k === 'ci' || (!outline && (p.k === 'fl' || (p.k === 'pl' && p.close)))) {
+        if (p.lay === 'HILITE') return;
+        const Q = p.k === 'ci' ? [[p.c[0] - p.r, p.c[1] - p.r], [p.c[0] + p.r, p.c[1] - p.r], [p.c[0] + p.r, p.c[1] + p.r], [p.c[0] - p.r, p.c[1] + p.r]] : p.pts; items.push({ t: 1, P: Q, b: bbOf(Q), p });
+      } else if (p.k === 'pl') { const Q = p.close ? p.pts.concat([p.pts[0]]) : p.pts; for (let j = 1; j < Q.length; j++) { const S = [Q[j - 1], Q[j]]; items.push({ t: 0, P: S, b: bbOf(S), p }); } }
+    });
+    return items;
+  }
+  /* the rule for two items: [lower, higher] when they meet, else null */
+  /* (two labels of different owners side by side, along the same line, keep TXGAP apart end to end, so they never read as one; the same
+     quarter millimetre as overlaps otherwise) */
+  const TXGAP = 0.8, gapOf = (a, b) => a.t === 2 && b.t === 2 && a.p.ow && b.p.ow && a.p.ow !== b.p.ow && (!a.p.g || a.p.g !== b.p.g) && Math.abs(((a.p.rot - b.p.rot) % 180 + 180) % 180) < 0.01 ? TXGAP : 0.25;
+  function clashOf(a, b) {
+    if (a.p === b.p || (!a.t && !b.t)) return null;
+    const tol = gapOf(a, b);
+    if (b.b[0] >= a.b[2] + tol || b.b[2] + tol <= a.b[0] || b.b[1] >= a.b[3] + tol || b.b[3] + tol <= a.b[1]) return null;
+    const lo = a.t <= b.t ? a : b, hi = lo === a ? b : a;
+    if (lo.t === 0 && hi.t === 1) return null;
+    if (lo.t === 1 && lo.p.pt && lo.p.pt === hi.p.pt) return null;
+    return (lo.t === 0 ? overlaps(lo.P, hi.C) : overlaps(lo.P, hi.P, 0.25, tol)) ? [lo, hi] : null;
+  }
+  function clashes(prims, outline) {
+    const items = clashItems(prims, outline).sort((a, b) => a.b[0] - b.b[0]), out = [];
+    for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length && items[j].b[0] < items[i].b[2] + TXGAP; j++) { const c = clashOf(items[i], items[j]); if (c) out.push({ a: c[0], b: c[1] }); }
+    return out;
+  }
+  /* words put where they meet nothing drawn yet: put(cands, set) draws each candidate (a function of a scratch Gfx that has set's ref, ow, u)
+     and keeps the first that meets nothing, else the one that meets least (a meeting with words of the same owner counts most: moving the
+     points apart cannot undo it). What is drawn is kept in a grid of 8 mm cells, so a look is quick. */
+  function placer(G, outline) {
+    const cells = new Map(), C = 8, key = (i, j) => i + ',' + j;
+    const add = Q => clashItems(Q, outline).forEach(it => { for (let i = Math.floor(it.b[0] / C); i <= Math.floor(it.b[2] / C); i++) for (let j = Math.floor(it.b[1] / C); j <= Math.floor(it.b[3] / C); j++) { const k = key(i, j); if (!cells.has(k)) cells.set(k, []); cells.get(k).push(it); } });
+    const meets = Q => {
+      let n = 0; const seen = new Set();
+      clashItems(Q, outline).forEach(c => { seen.clear(); for (let i = Math.floor((c.b[0] - TXGAP) / C); i <= Math.floor((c.b[2] + TXGAP) / C); i++) for (let j = Math.floor((c.b[1] - TXGAP) / C); j <= Math.floor((c.b[3] + TXGAP) / C); j++) (cells.get(key(i, j)) || []).forEach(o => { if (seen.has(o)) return; seen.add(o); if (clashOf(c, o)) n += c.p.ow && c.p.ow === o.p.ow ? 100 : 1; }); });
+      return n;
+    };
+    add(G.p);
+    return {
+      put: (cands, set) => {
+        let pick = null, best = Infinity;
+        for (const f of cands) { const T = new Gfx(); Object.assign(T, set); f(T); const k = meets(T.p); if (k < best) { best = k; pick = T.p; } if (!k) break; }
+        if (pick) { G.p.push(...pick); add(pick); }
+        return pick;
+      }
+    };
+  }
+  /* coordinates as "lat, lon" with 6 decimals (the owner); anything else as it came */
+  const coordTxt = v => { const s = String(v == null ? '' : v).trim(), m = /^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/.exec(s); return m ? (+m[1]).toFixed(6) + ', ' + (+m[2]).toFixed(6) : s; };
+
+  /* the single line diagram. The main route (trunk) runs left to right; what hangs off it hangs below, each point's children in a row under
+     it. Every word has a place of its own: a closure's words above it (on the trunk) or above at its right (off it), a site's name and FDU
+     block beside, above or below it, a cable's words under it (beside an upright one), its fibers at a closure over its end. Two or more
+     cables between the same two points run side by side, each with its own words. The drawing is laid out, then every word is checked
+     against every other word, symbol and line; where two meet, the points move apart (a trunk gap grows, a branch hangs lower or further
+     right) and it is drawn again, until nothing meets. P.sldClash: what still meets (0). */
+  function accessSLD(P) {
+    const T = trunkOf(P);
+    if (!T.length) { const G = new Gfx(); G.tx(0, 0, 'ADD THE POINTS AND THE CABLES TO DRAW THE SINGLE LINE DIAGRAM.', 3, 'NOTE'); return block(G); }
+    const n = T.length, col = new Map(), par = new Map(), kids = new Map();
+    T.forEach((id, i) => { col.set(id, i); kids.set(id, []); });
+    const q0 = T.slice();
+    while (q0.length) {
+      const u = q0.shift();
+      P.adj.get(u).slice().sort((a, b) => a.c.k - b.c.k).forEach(e => { if (col.has(e.o)) return; col.set(e.o, col.get(u)); par.set(e.o, u); kids.get(u).push(e.o); kids.set(e.o, []); q0.push(e.o); });
+    }
+    P.pts.forEach(p => { if (P.adj.get(p.id).length && !col.has(p.id)) P.warn.push(P.label(p.id) + ' is not joined to the main route, so it is left off the diagram.'); });
+    /* the cables between the same two points, drawn side by side */
+    const pairs = [], pairOf = new Map();
+    P.cables.forEach(c => {
+      if (!col.has(c.from) || !col.has(c.to)) return;
+      let g = pairs.find(x => (x.a === c.from && x.b === c.to) || (x.a === c.to && x.b === c.from));
+      if (!g) { g = { a: c.from, b: c.to, cs: [] }; pairs.push(g); }
+      pairOf.set(c, g); g.cs.push(c);
+    });
+    const beyond = id => !!(P.beyond && P.beyond.has(id)), plainEnd = id => beyond(id) && P.byId.get(id).type === 'site', spare = c => !!(P.spare && P.spare.has(c));
+    const half = id => { const p = P.byId.get(id); return plainEnd(id) ? [7, 4.5] : p.type === 'site' ? [11, 6.5] : p.type === 'dnap' ? [6, 4] : [2.8, 2.8]; };
     const trim = (id, ux, uy) => { const [hw, hh] = half(id); return Math.min(Math.abs(ux) > 1e-9 ? hw / Math.abs(ux) : 1e9, Math.abs(uy) > 1e-9 ? hh / Math.abs(uy) : 1e9) + 0.6; };
     const angOf = (ux, uy) => { let a = Math.atan2(uy, ux) * 180 / Math.PI; if (a > 90.01) a -= 180; if (a <= -89.99) a += 180; return a; };
-    /* cables */
-    for (const c of P.cables) {
-      const A = pos.get(c.from), B = pos.get(c.to); if (!A || !B) continue;
-      const L = Math.hypot(B.x - A.x, B.y - A.y) || 1, ux = (B.x - A.x) / L, uy = (B.y - A.y) / L, ta = trim(c.from, ux, uy), tb = trim(c.to, -ux, -uy);
-      const lay = c.status === 'existing' ? 'FOC_EXIST' : 'FOC_NEW', tl = c.status === 'existing' ? 'SITE_EXIST' : 'SITE_NEW';
-      G.ref = 'cab:' + c.key;
-      G.ln(A.x + ux * ta, A.y + uy * ta, B.x - ux * tb, B.y - uy * tb, lay);
-      const a = angOf(ux, uy), r = a * Math.PI / 180, nx = -Math.sin(r), ny = Math.cos(r), mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2;
-      const at = (d, s, h, o) => G.tx(mx - nx * d, my - ny * d, s, h, (o && o.lay) || tl, Object.assign({ al: 'c', va: 'm', rot: a }, o));
-      at(3, fitTx(c.name, 1.7, Math.max(14, L - ta - tb - 4)), 1.7);
-      const perBuf = c.fpt && c.fpt !== 12 ? ' · ' + c.fpt + 'F/BUFFER' : '';
-      if (c.status === 'existing') at(6, 'EXISTING ' + c.size + ' FOC' + perBuf, 1.7);
-      else { const t = lenTxt(c.length); if (t) { const w = textW(t, 1.8) + 2, h = 3.2, cx = mx - nx * 6.4, cy = my - ny * 6.4, ex = Math.cos(r), ey = Math.sin(r); G.fl([[cx - ex * w / 2 - nx * h / 2, cy - ey * w / 2 - ny * h / 2], [cx + ex * w / 2 - nx * h / 2, cy + ey * w / 2 - ny * h / 2], [cx + ex * w / 2 + nx * h / 2, cy + ey * w / 2 + ny * h / 2], [cx - ex * w / 2 + nx * h / 2, cy - ey * w / 2 + ny * h / 2]], 'LENGTH'); G.tx(cx, cy, t, 1.8, 'TEXT', { al: 'c', va: 'm', rot: a }); } at(10, c.size + 'C FOC' + perBuf, 1.6, { lay: 'NOTE' }); }
-      if (c.leg) at(c.status === 'existing' ? 9.5 : 13.5, String(c.leg).toUpperCase(), 1.8, { lay: tl });
-      /* the fibers of this cable at each closure end: one label per direction at a branch (F1-6 → BALIWAG), in a dashed box for a leg spliced only */
-      for (const [id, P0, sgn] of [[c.from, A, 1], [c.to, B, -1]]) {
-        const p = P.byId.get(id); if (p.type !== 'closure') continue;
-        const gs = labelsAt(P, id, c);
-        gs.forEach((g, k) => {
-          const s = (g.f.length ? fmtRanges(g.f, 'F') : 'NO FREE FIBERS') + (gs.length > 1 ? ' → ' + up(P.label(g.dir)) : ''), w = textW(s, 1.9), d = gs.length > 1 ? Math.max(9, 4 + w / 2) : 9, o = 2.4 + k * 3.2;
-          const x = P0.x + ux * sgn * d + nx * o, y = P0.y + uy * sgn * d + ny * o;
-          G.ref = 'leg:' + g.id; G.tx(x, y, s, 1.9, 'FIBER_USED', { al: 'c', va: 'm', rot: a });
-          if (g.look === 'spliced') rotBox(G, x, y, w + 1.6, 3.4, a, 'FIBER_RESERVED');
-        });
-      }
-      G.ref = null;
-    }
-    /* future legs: a thin grey dashed line, no length box, fibers xx-xx. Corner to corner when the homing is on the drawing off the main route;
-       otherwise (on the main route too, or not on the drawing) a short stub from the new FDU, the homing named at its tip */
-    const sgn = v => Math.abs(v) < 1e-6 ? 0 : v > 0 ? 1 : -1, stubs = new Map();
-    for (const x of P.futures) {
-      const A = pos.get(x.from), B = pos.get(x.to); if (!A) continue;
-      const [hwA, hhA] = half(x.from), words = P.stage === 'built' ? 'NOT YET BUILT' : 'LATER (SECOND CABLE)';
-      G.ref = 'leg:' + x.id;
-      if (B && !(A.trunk && B.trunk) && Math.hypot(B.x - A.x, B.y - A.y) > 40) {
-        const [hwB, hhB] = half(x.to), sx = Math.abs(B.x - A.x) > hwA + hwB ? sgn(B.x - A.x) : 0, sy = sgn(B.y - A.y);
-        const a0 = [A.x + sx * hwA, A.y + sy * hhA], b0 = [B.x - sx * hwB, B.y - sy * hhB], L = Math.hypot(b0[0] - a0[0], b0[1] - a0[1]) || 1, ux = (b0[0] - a0[0]) / L, uy = (b0[1] - a0[1]) / L;
-        const a = angOf(ux, uy), r = a * Math.PI / 180, nx = -Math.sin(r), ny = Math.cos(r), mx = (a0[0] + b0[0]) / 2, my = (a0[1] + b0[1]) / 2;
-        G.ln(a0[0] + ux * 0.6, a0[1] + uy * 0.6, b0[0] - ux * 0.6, b0[1] - uy * 0.6, 'FOC_FUTURE');
-        const at = (d, t, h) => G.tx(mx - nx * d, my - ny * d, t, h, 'NOTE', { al: 'c', va: 'm', rot: a });
-        if (x.name) at(3, x.name, 1.7);
-        at(x.name ? 6 : 3, 'FUTURE FOC · ' + words, 1.6);
-        G.tx(a0[0] + ux * 6 + nx * 2.4, a0[1] + uy * 6 + ny * 2.4, 'xx-xx', 1.9, 'NOTE', { al: 'c', va: 'm', rot: a });
-      } else {
-        const k = stubs.get(x.from) || 0; stubs.set(x.from, k + 1);
-        const right = A.trunk && A.i === n - 1 && n > 1, deg = (right ? 307 + k * 33 : A.trunk ? 233 - k * 33 : 217 - k * 30) * Math.PI / 180, ux = Math.cos(deg), uy = Math.sin(deg);
-        const a0 = [A.x + sgn(ux) * hwA, A.y + sgn(uy) * hhA], tip = [a0[0] + ux * (30 + k * 14), a0[1] + uy * (30 + k * 14)];
-        G.ln(a0[0], a0[1], tip[0], tip[1], 'FOC_FUTURE');
-        G.txs(tip[0], tip[1] - 3.2, ['xx-xx' + (x.name ? ' (' + x.name + ')' : ''), 'FUTURE FOC → ' + up(P.label(x.to)), words], 1.7, 'NOTE', { al: 'c', gap: 1.5 });
-      }
-      G.ref = null;
-    }
-    /* the legs' tags at their homing ends (As-Built only: the As-Plan carries no testing words) */
+    /* a cable's words, under it: its ID (TBF until given), EXISTING or its length (green box) and size, its leg, NOT SPLICED for a spare */
+    const cableRows = c => {
+      const tl = c.status === 'existing' ? 'SITE_EXIST' : 'SITE_NEW', perBuf = c.fpt && c.fpt !== 12 ? ' · ' + c.fpt + 'F/BUFFER' : '', R = [{ d: 3, s: c.name, h: 1.7, lay: tl }];
+      if (c.status === 'existing') R.push({ d: 6, s: 'EXISTING ' + c.size + ' FOC' + perBuf, h: 1.7, lay: tl });
+      else { const t = lenTxt(c.length); if (t) R.push({ d: 6.4, s: t, h: 1.8, lay: 'TEXT', box: true }); R.push({ d: 10, s: c.size + 'C FOC' + perBuf, h: 1.6, lay: 'NOTE' }); }
+      if (c.leg) R.push({ d: c.status === 'existing' ? 9.5 : 13.5, s: up(c.leg), h: 1.8, lay: tl });
+      if (spare(c)) R.push({ d: R[R.length - 1].d + 3.4, s: 'NOT SPLICED · FOR FUTURE', h: 1.6, lay: 'NOTE', bold: true });
+      return R;
+    };
+    /* its fibers at a closure end (one label per direction at a branch, F1-6 → BALIWAG; a dashed box for a leg spliced only); the cable
+       going on from a dummy NAP: its fibers capped there */
+    const endLabels = (c, id) => {
+      const p = P.byId.get(id);
+      if (spare(c)) return p.type === 'dnap' && !beyond(id) && P.onward && P.onward.has(c) ? [{ s: fmtRanges(seq(1, c.size), 'F') + ' CAPPED', lay: 'NOTE' }] : [];
+      if (p.type !== 'closure') return [];
+      const gs = labelsAt(P, id, c);
+      return gs.map(g => ({ s: (g.f.length ? fmtRanges(g.f, 'F') : 'NO FREE FIBERS') + (gs.length > 1 ? ' → ' + up(P.label(g.dir)) : ''), lay: 'FIBER_USED', boxed: g.look === 'spliced', ref: 'leg:' + g.id }));
+    };
+    const cloLines = p => {
+      const isNew = p.status !== 'existing', nm = up(p.name), coord = coordTxt(p.coords), L = [isNew ? 'PROPOSED CLOSURE' : 'EXISTING CLOSURE'];
+      if (nm && !/^C\d*$/.test(nm)) L.push(nm);
+      if (beyond(p.id)) L.push('NOT SPLICED'); else if (isNew) L.push(spliceKind(P, p.id));
+      if (coord) L.push('Coordinates:', coord); else L.push({ s: 'Coordinates: "TBF"', o: { bold: true }, lay: 'FIBER_USED' });
+      return L;
+    };
+    /* the As-Built tags at the legs' homing ends (the As-Plan carries no testing words) */
     const tags = new Map();
     if (P.stage === 'built') P.legs.forEach(l => { if (l.bad || !l.routed || l.state === 'future') return; if (!tags.has(l.home)) tags.set(l.home, []); tags.get(l.home).push(l); });
-    /* points */
-    for (const [id, ps] of pos) {
-      const p = P.byId.get(id), isNew = p.status !== 'existing', nm = String(p.name || '').toUpperCase();
-      G.ref = 'pt:' + id;
-      if (p.type === 'closure') {
-        pentagon(G, ps.x, ps.y, 2.8, isNew ? 'CLOSURE_NEW' : 'CLOSURE_EXIST');
-        const L = [isNew ? 'PROPOSED CLOSURE' : 'EXISTING CLOSURE'];
-        if (nm && !/^C\d*$/.test(nm)) L.push(nm);
-        if (isNew) L.push(spliceKind(P, id));
-        const coord = String(p.coords || '').trim();
-        if (isNew) L.push({ s: 'Coordinates: "' + (coord || 'TBF') + '"', o: { bold: true }, lay: 'FIBER_USED' }); else if (coord) L.push(coord);
-        if (ps.trunk) { const top = ps.y + 6 + (L.length - 1) * 1.9 * 1.5; G.txs(ps.x, top, L, 1.9, 'TEXT', { al: 'c', gap: 1.5 }); }
-        else G.txs(ps.x + 5, ps.y + 4, L, 1.9, 'TEXT', { gap: 1.5 });
-        continue;
+
+    /* the layout: the trunk's gaps, how low each point's children hang (dy), how far right a child sits after its left sibling (sx), how far
+       apart the cables of a pair run (lens): grown where words meet */
+    const stackHalf = new Map();
+    T.forEach((id, i) => {
+      const p = P.byId.get(id);
+      if (p.type === 'closure') stackHalf.set(id, Math.max(...cloLines(p).map(t => textW(typeof t === 'string' ? t : t.s, 1.9, typeof t !== 'string'))) / 2);
+      else if (n === 1 || (i > 0 && i < n - 1)) { const nm = up(p.name), L = [nm || 'SITE'].concat(p.code ? ['(' + up(p.code) + ')'] : []).map(t => textW(t, 2.4, true)).concat((plainEnd(id) ? [] : siteLines(P, p)).map(t => textW(t, 1.9))); stackHalf.set(id, Math.max(...L) / 2); }
+      else stackHalf.set(id, half(id)[0]);
+    });
+    const DX0 = n > 1 ? Math.max(36, Math.min(92, 300 / (n - 1))) : 0, DY0 = 60, KX = 40;
+    const gap = T.slice(1).map(() => DX0), dy = new Map(), sx = new Map(), lens = new Map();
+    const place = () => {
+      const pos = new Map(); let x = 0;
+      T.forEach((id, i) => { if (i) x += gap[i - 1]; pos.set(id, { x, y: 0, trunk: true, i }); });
+      const q = T.slice();
+      while (q.length) {
+        const u = q.shift(), pu = pos.get(u); let x0 = pu.x;
+        kids.get(u).forEach((v, j) => { x0 += (j ? KX : 0) + (sx.get(v) || 0); pos.set(v, { x: x0, y: pu.y - (dy.get(u) || DY0), trunk: false }); q.push(v); });
       }
-      const lay = p.type === 'dnap' ? (isNew ? 'DNAP_NEW' : 'DNAP_EXIST') : (isNew ? 'SITE_NEW' : 'SITE_EXIST');
-      if (p.type === 'dnap') dnapIcon(G, ps.x, ps.y, lay); else fduIcon(G, ps.x, ps.y, lay);
-      const name = [nm || 'SITE'].concat(p.code ? ['(' + String(p.code).toUpperCase() + ')'] : []), info = siteLines(P, p), [hw, hh] = half(id);
-      if (ps.trunk && ps.i === 0 && n > 1) { G.txs(ps.x - hw - 3, ps.y + 1.6, name, 2.4, 'TEXT', { al: 'r', bold: true }); G.txs(ps.x - hw, ps.y - hh - 4, info, 1.9, lay, { gap: 1.5 }); }
-      else if (ps.trunk && ps.i === n - 1 && n > 1) { G.txs(ps.x + hw + 3, ps.y + 1.6, name, 2.4, 'TEXT', { bold: true }); G.txs(ps.x - hw, ps.y - hh - 4, info, 1.9, lay, { gap: 1.5 }); }
-      else if (ps.trunk) { G.txs(ps.x, ps.y + hh + 3 + 2.4 * 1.55 * (name.length - 1), name, 2.4, 'TEXT', { al: 'c', bold: true }); G.txs(ps.x - hw, ps.y - hh - 4, info, 1.9, lay, { gap: 1.5 }); }
-      else { G.txs(ps.x, ps.y - hh - 4, name, 2.4, 'TEXT', { al: 'c', bold: true }); G.txs(ps.x + hw + 4, ps.y + hh - 1, info, 1.9, lay, { gap: 1.5 }); }
-      const tg = tags.get(id) || [];
-      if (tg.length && ps.trunk) { let y = ps.i === 0 && n > 1 || ps.i === n - 1 && n > 1 ? ps.y + hh + 2.5 : ps.y + hh + 3 + 2.4 * 1.55 * (name.length - 1) + 2.4 + 2.5; tg.forEach(l => { y += tagBox(G, ps.x, y, l, false) + 1.5; }); }
-      else if (tg.length) { let y = ps.y - hh - 4 - 2.4 * 1.55 * (name.length - 1) - 3.2; tg.forEach(l => { y -= tagBox(G, ps.x, y, l, true) + 1.5; }); }
+      return pos;
+    };
+    const draw = pos => {
+      const G = new Gfx(), fibTop = new Map(), geo = [], feet = new Map();
+      /* 1. the cables' lines, a pair at a time: the first straight, the next ones beside it, under the words of the one before. A pair on the
+         trunk whose end has a cable hanging below it runs above the trunk instead, leaving along the trunk until clear of the words over its ends */
+      for (const g of pairs) {
+        let A = pos.get(g.a), B = pos.get(g.b), a = g.a, b = g.b;
+        if (A.x > B.x + 1e-6 || (Math.abs(A.x - B.x) < 1e-6 && A.y < B.y)) { const t = A; A = B; B = t; a = g.b; b = g.a; }
+        const L = Math.hypot(B.x - A.x, B.y - A.y) || 1, ux = (B.x - A.x) / L, uy = (B.y - A.y) / L, ta = trim(a, ux, uy), tb = trim(b, -ux, -uy);
+        const ang = angOf(ux, uy), r = ang * Math.PI / 180, vert = Math.abs(ux) < 1e-6, level = Math.abs(uy) < 1e-6;
+        /* the words' side: under the line, left of an upright one. The fibers at its ends: over a level line, on the words' side of any other
+           (clear of the line it hangs from), at the ends where the words are in the middle */
+        const s = vert ? [-1, 0] : [Math.sin(r), -Math.cos(r)], fs = level ? -1 : 1;
+        /* upw: the pair runs on the other side: on the trunk when a cable hangs below an end; a slanting pair (a branch beside its siblings) away from them */
+        const hangs = id => P.adj.get(id).some(e => pos.has(e.o) && !pos.get(e.o).trunk), upw = g.cs.length > 1 && (level ? A.trunk && B.trunk && (hangs(a) || hangs(b)) : !vert);
+        /* (that stretch runs beside the trunk, not on it: it leaves the closure on a short slant, just over the first cable's fibers at
+           that end and under the closure's words, each next cable 1.5 mm higher and steeper; the first cable's fibers there start after
+           the slants, ftw) */
+        const ftOn = upw && level && g.cs.length > 1, footH = (id, j) => { const k = endLabels(g.cs[0], id).length; return (k ? 2.4 + (k - 1) * 3.6 + 2.3 : 1.6) + (j - 1) * 1.5; };
+        const footW = (id, j) => footH(id, j) / Math.tan(Math.min(82, 52 + 10 * j) * Math.PI / 180), ftw = id => ftOn ? (id === a ? ta : tb) + footW(id, 1) + 0.9 : 0;
+        /* (clear of the words over its end, and of the straight cable's fibers there) */
+        const labEnd = id => Math.max(0, ...g.cs.map(c => Math.max(0, ...endLabels(c, id).map(x => { const w = textW(x.s, 1.9); return Math.max(9, half(id)[0] + 1.6 + w / 2, ftw(id) + w / 2) + w / 2; }))));
+        const clrA = upw && level ? Math.max(0, Math.max(stackHalf.get(a) || 0, labEnd(a)) + 1.5 - ta) : 0, clrB = upw && level ? Math.max(0, Math.max(stackHalf.get(b) || 0, labEnd(b)) + 1.5 - tb) : 0;
+        const nLab = g.cs.map(c => Math.max(endLabels(c, a).length, endLabels(c, b).length)), lab = k => 2.4 + nLab[k] * 3.6;
+        /* a cable that would run through another point's symbol (one that comes back to the route, a loop) runs beside it instead, clear of it */
+        const sg0 = upw ? -1 : 1, blocked = o0 => { let need = 0; for (const [id, q] of pos) { if (id === a || id === b) continue;
+          const [hw, hh] = half(id), t = (q.x - A.x) * ux + (q.y - A.y) * uy, eL = hw * Math.abs(ux) + hh * Math.abs(uy), e = hw * Math.abs(s[0]) + hh * Math.abs(s[1]) + 2.5, ds = ((q.x - A.x) * s[0] + (q.y - A.y) * s[1]) * sg0;
+          if (t + eL > ta && t - eL < L - tb && Math.abs(ds - o0) < e) need = Math.max(need, ds + e + 3); } return need; };
+        let byp = 0; for (let k = 0; k < 4; k++) { const nb = blocked(byp); if (nb <= byp + 1e-6) break; byp = nb; }
+        let off = byp, ang0 = 0;
+        g.cs.forEach((c, j) => {
+          const rows = cableRows(c), last = rows[rows.length - 1], depth = last.d + last.h * 0.75, sg = upw ? -1 : 1, o = sg * off, ft = j && ftOn;
+          /* (the lower feet run on further than the higher ones, so each next cable stays outside the one before) */
+          const more = ft ? (g.cs.length - 1 - j) * 1.2 : 0, cA = j ? (ft ? Math.max(clrA, footW(a, j) + 0.5) + more : clrA) : 0, cB = j ? (ft ? Math.max(clrB, footW(b, j) + 0.5) + more : clrB) : 0;
+          /* (the slant to its offset: each next cable's steeper by 10 degrees at least, so two never run together from the closure) */
+          const rise = off - (ft ? Math.max(footH(a, j), footH(b, j)) : 0);
+          let J = j || byp ? Math.min(3 + off * 0.3, Math.max(1.5, (L - ta - tb - cA - cB) / 2 - 3)) : 0;
+          if (J && j > 1 && rise > 0 && Math.atan2(rise, J) * 180 / Math.PI < ang0 + 10) J = Math.max(0.6, rise / Math.tan(Math.min(86, ang0 + 10) * Math.PI / 180));
+          if (J && rise > 0) ang0 = Math.atan2(rise, J) * 180 / Math.PI;
+          const pts = [[A.x + ux * ta, A.y + uy * ta]];
+          if (ft) { const h = sg * footH(a, j), w = footW(a, j); pts.push([A.x + ux * (ta + w) + s[0] * h, A.y + uy * (ta + w) + s[1] * h], [A.x + ux * (ta + cA) + s[0] * h, A.y + uy * (ta + cA) + s[1] * h]); }
+          else if (cA > 0.01) pts.push([A.x + ux * (ta + cA), A.y + uy * (ta + cA)]);
+          const P1 = [A.x + ux * (ta + cA + J) + s[0] * o, A.y + uy * (ta + cA + J) + s[1] * o], P2 = [B.x - ux * (tb + cB + J) + s[0] * o, B.y - uy * (tb + cB + J) + s[1] * o];
+          if (j || byp) pts.push(P1, P2);
+          if (ft) { const h = sg * footH(b, j), w = footW(b, j); pts.push([B.x - ux * (tb + cB) + s[0] * h, B.y - uy * (tb + cB) + s[1] * h], [B.x - ux * (tb + w) + s[0] * h, B.y - uy * (tb + w) + s[1] * h]); [[a, footH(a, j)], [b, footH(b, j)]].forEach(([id, v]) => feet.set(id, Math.max(feet.get(id) || 0, v))); }
+          else if (cB > 0.01) pts.push([B.x - ux * (tb + cB), B.y - uy * (tb + cB)]);
+          pts.push([B.x - ux * tb, B.y - uy * tb]);
+          G.ref = 'cab:' + c.key; G.ow = 'c:' + c.k;
+          G.pl(pts, c.status === 'existing' ? 'FOC_EXIST' : 'FOC_NEW');
+          /* ws: the side its words go (+1 the words' side, -1 the other); fsj: its fibers' side */
+          geo.push({ c, g, j, a, b, A, B, ux, uy, ta: ta + cA, tb: tb + cB, ang, s, ws: j && upw ? -1 : 1, fsj: j && upw ? (level ? 1 : -1) : fs, off: o, J, rows, L, lens: g.cs.length > 1, upw,
+            flat: Math.hypot(P2[0] - P1[0], P2[1] - P1[1]), mx: (P1[0] + P2[0]) / 2, my: (P1[1] + P2[1]) / 2, ftw: j ? null : ftw });
+          /* (the next cable over the first one's fibers at its ends: on its feet, so no higher than they are, unless its own fibers need room under it) */
+          if (upw && level) off += (j ? Math.max(depth + 3, j + 1 < g.cs.length ? lab(j + 1) + 1.2 : 0) : ftOn ? Math.max(footH(a, 1), footH(b, 1), lab(1) + 1.2) : lab(0) + (g.cs.length > 1 ? lab(1) : 0) + 1.2) + (lens.get(g) || 0);
+          else if (upw) off += (j ? Math.max(depth, lab(j)) + 3 : 4.5) + (lens.get(g) || 0); /* (line 0's words and fibers are on its far side) */
+          else off += Math.max(depth + 3, j + 1 < g.cs.length ? lab(j + 1) + 1.2 : 0) + (lens.get(g) || 0);
+          G.ref = null; G.ow = null;
+        });
+      }
+      /* 2. the symbols */
+      for (const [id, ps] of pos) {
+        const p = P.byId.get(id), isNew = p.status !== 'existing', lay = p.type === 'dnap' ? (isNew ? 'DNAP_NEW' : 'DNAP_EXIST') : (isNew ? 'SITE_NEW' : 'SITE_EXIST'), [hw, hh] = half(id);
+        G.ref = 'pt:' + id; G.ow = 'n:' + id; G.pt = 'pt:' + id;
+        if (p.type === 'closure') pentagon(G, ps.x, ps.y, 2.8, isNew ? 'CLOSURE_NEW' : 'CLOSURE_EXIST');
+        else if (plainEnd(id)) fduIcon(G, ps.x, ps.y, lay, 2 * hw, 2 * hh); else if (p.type === 'dnap') dnapIcon(G, ps.x, ps.y, lay); else fduIcon(G, ps.x, ps.y, lay);
+        G.ref = null; G.ow = null; G.pt = null;
+      }
+      /* then the words, each in the first of its places that meets nothing drawn so far (in the order of preference), else the first */
+      const put = placer(G, false).put;
+      /* 3. each cable's words: under it (beside an upright one) in its middle; else over it, or a little along it */
+      geo.forEach(q => {
+        const { c, s, ang } = q, r = ang * Math.PI / 180, ex = Math.cos(r), ey = Math.sin(r);
+        const rowsAt = (T, sd, along) => q.rows.forEach(rw => {
+          const x = q.mx + ex * along + sd * s[0] * rw.d, y = q.my + ey * along + sd * s[1] * rw.d;
+          if (rw.box) {
+            const w = textW(rw.s, 1.8) + 2, h = 3.2;
+            T.pt = 'len:' + c.k; T.fl([[x - ex * w / 2 - s[0] * h / 2, y - ey * w / 2 - s[1] * h / 2], [x + ex * w / 2 - s[0] * h / 2, y + ey * w / 2 - s[1] * h / 2], [x + ex * w / 2 + s[0] * h / 2, y + ey * w / 2 + s[1] * h / 2], [x - ex * w / 2 + s[0] * h / 2, y - ey * w / 2 + s[1] * h / 2]], 'LENGTH');
+            T.tx(x, y, rw.s, 1.8, 'TEXT', { al: 'c', va: 'm', rot: ang }); T.pt = null;
+          } else T.tx(x, y, rw.s, rw.h, rw.lay, { al: 'c', va: 'm', rot: ang, bold: rw.bold });
+        });
+        const sh = Math.max(0, q.flat / 2 - 14), w = q.ws, cands = [T => rowsAt(T, w, 0)], other = !q.lens || (q.upw ? q.j === 0 : q.j === q.g.cs.length - 1);
+        if (sh > 4) [0.5, -0.5, 1, -1, 0.25, -0.25, 0.75, -0.75].forEach(f => cands.push(T => rowsAt(T, w, f * sh)));
+        if (other) [0].concat(sh > 4 ? [0.5, -0.5, 1, -1] : []).forEach(f => cands.push(T => rowsAt(T, -w, f * sh)));
+        put(cands, { ref: 'cab:' + c.key, ow: 'c:' + c.k });
+      });
+      /* 4. its fibers at a closure (and a dummy NAP's capped cable): over its end, else further along it, else on its other side */
+      geo.forEach(q => {
+        const { c, A, B, ux, uy, s, fsj, off, J, ang } = q;
+        [[q.a, 1, q.ta], [q.b, -1, q.tb]].forEach(([id, sg, t0]) => {
+          const list = endLabels(c, id), hw = half(id)[0]; if (!list.length) return;
+          const at = (T, sd, more, gp) => list.forEach((x, k) => {
+            const w = textW(x.s, 1.9), d = Math.max(9, hw + 1.6 + w / 2, q.j ? t0 + J + 1.2 + w / 2 : 0, q.ftw ? q.ftw(id) + w / 2 : 0) + more, o = 2.4 + (gp || 0) + k * 3.6;
+            const x0 = (sg > 0 ? A.x + ux * d : B.x - ux * d) + s[0] * (off + sd * o), y0 = (sg > 0 ? A.y + uy * d : B.y - uy * d) + s[1] * (off + sd * o);
+            T.ref = x.ref || 'cab:' + c.key; T.pt = x.boxed ? 'fb:' + c.k + ':' + id + ':' + k : null;
+            T.tx(x0, y0, x.s, 1.9, x.lay, { al: 'c', va: 'm', rot: ang });
+            if (x.boxed) rotBox(T, x0, y0, w + 1.6, 3.4, ang, 'FIBER_RESERVED');
+            T.pt = null;
+          });
+          const cands = [];
+          [0, 7, 14, 22, 32].forEach(more => { cands.push(T => at(T, fsj, more)); if (!q.lens) cands.push(T => at(T, -fsj, more)); });
+          /* (else a little further from the line, or on the other side of a cable that runs beside another) */
+          [0, 7, 14, 22, 32].forEach(more => { if (q.lens) cands.push(T => at(T, -fsj, more)); [2.5, 5].forEach(gp => { cands.push(T => at(T, fsj, more, gp)); if (!q.lens) cands.push(T => at(T, -fsj, more, gp)); }); });
+          const pick = put(cands, { ow: 'e:' + c.k + ':' + id });
+          if (pick && pos.get(id).trunk) pick.forEach(t => { const bx = primBox([t]), top = bx[3] - pos.get(id).y, hs = (stackHalf.get(id) || 0) + 1; if (top > 0 && top < 24 && bx[2] > pos.get(id).x - hs && bx[0] < pos.get(id).x + hs) fibTop.set(id, Math.max(fibTop.get(id) || 0, top)); });
+        });
+      });
+      /* 5. the points' words */
+      for (const [id, ps] of pos) {
+        const p = P.byId.get(id), nm = up(p.name), [hw, hh] = half(id), set = { ref: 'pt:' + id, ow: 'n:' + id };
+        if (p.type === 'closure') {
+          const L = cloLines(p), h = 1.9, step = h * 1.5, N = L.length, wL = Math.max(...L.map(t => textW(typeof t === 'string' ? t : t.s, h, typeof t !== 'string')));
+          if (ps.trunk) put([T => T.txs(ps.x, ps.y + Math.max(6, (fibTop.get(id) || 0) + 0.8, (feet.get(id) || 0) + 1.5) + (N - 1) * step, L, h, 'TEXT', { al: 'c', gap: 1.5 })], set);
+          else {
+            const cl = [];
+            [0, 9, 18].forEach(r => cl.push(T => T.txs(ps.x + 5 + r, ps.y + 3.6 + r * 0.4 + (N - 1) * step, L, h, 'TEXT', { gap: 1.5 }), T => T.txs(ps.x - 5 - r, ps.y + 3.6 + r * 0.4 + (N - 1) * step, L, h, 'TEXT', { gap: 1.5, al: 'r' }),
+              T => T.txs(ps.x + 5 + r, ps.y - 3.6 - r * 0.4 - h, L, h, 'TEXT', { gap: 1.5 }), T => T.txs(ps.x - 5 - r, ps.y - 3.6 - r * 0.4 - h, L, h, 'TEXT', { gap: 1.5, al: 'r' }),
+              T => T.txs(ps.x - wL / 2, ps.y + 4.2 + r + (N - 1) * step, L, h, 'TEXT', { gap: 1.5 }), T => T.txs(ps.x - wL / 2, ps.y - 4.2 - r - h, L, h, 'TEXT', { gap: 1.5 })));
+            put(cl, set);
+          }
+          continue;
+        }
+        const plain = plainEnd(id), lay = p.type === 'dnap' ? (p.status !== 'existing' ? 'DNAP_NEW' : 'DNAP_EXIST') : (p.status !== 'existing' ? 'SITE_NEW' : 'SITE_EXIST');
+        /* a point past a dummy NAP is not a homing of this work: its name (and its FDU's ID when it has one), nothing else */
+        const name = [nm || 'SITE'].concat(p.code ? ['(' + up(p.code) + ')'] : []), fdu = up(p.fdu || '');
+        const info = plain ? (fdu && fdu !== nm && !/TBF/.test(fdu) ? [fdu] : []) : siteLines(P, p);
+        const hN = 2.4, sN = hN * 1.55, hI = 1.9, sI = hI * 1.5, wI = info.length ? Math.max(...info.map(t => textW(t, hI))) : 0, wN = Math.max(...name.map(t => textW(t, hN, true))), wB = Math.max(wN, wI);
+        const hBlk = (name.length - 1) * sN + 1.05 * hN + (info.length ? 0.25 * hN + 1.2 + 1.05 * hI + (info.length - 1) * sI : 0) + 0.25 * hI;
+        /* a block of name then FDU lines, its top left corner at x, yTop */
+        const blk = (T, x, yTop, al) => { const yN = yTop - 1.05 * hN, ax = al === 'r' ? x + wB : x; T.txs(ax, yN, name, hN, 'TEXT', { bold: true, al: al || 'l' }); if (info.length) T.txs(ax, yN - (name.length - 1) * sN - 0.25 * hN - 1.2 - 1.05 * hI, info, hI, lay, { gap: 1.5, al: al || 'l' }); };
+        const tg = tags.get(id) || [];
+        if (ps.trunk && n > 1 && (ps.i === 0 || ps.i === n - 1)) {
+          /* an end of the trunk: the name beside it, outside; the FDU block under it (kept out of the trunk's gap), or above it */
+          const lft = ps.i === 0;
+          put([T => T.txs(lft ? ps.x - hw - 3 : ps.x + hw + 3, ps.y + 1.6, name, hN, 'TEXT', { al: lft ? 'r' : 'l', bold: true }), T => T.txs(ps.x, ps.y + hh + 2.6 + 0.25 * hN + (name.length - 1) * sN, name, hN, 'TEXT', { al: 'c', bold: true })], set);
+          const ib = (T, x, yTop) => T.txs(x, yTop - 1.05 * hI, info, hI, lay, { gap: 1.5 }), hInf = 1.05 * hI + (info.length - 1) * sI + 0.25 * hI;
+          if (info.length) put([T => ib(T, lft ? Math.min(ps.x - hw, ps.x + hw - wI) : ps.x - hw, ps.y - hh - 2.6), T => ib(T, ps.x - wI / 2, ps.y + hh + 2.6 + hInf), T => ib(T, lft ? ps.x - hw - 3 - wI : ps.x + hw + 3, ps.y - 2.6 - 2.4 * 1.55)], set);
+        } else if (ps.trunk) put([T => blk(T, ps.x - wB / 2, ps.y + Math.max(hh + 2.6, (feet.get(id) || 0) + 1.5) + hBlk), T => blk(T, ps.x - wB / 2, ps.y - hh - 2.6)], set); /* (over the feet of a pair beside the trunk) */
+        else put([T => blk(T, ps.x + hw + 3, ps.y + hh), T => blk(T, ps.x - hw - 3 - wB, ps.y + hh, 'r'), T => blk(T, ps.x - wB / 2, ps.y - hh - 2.6), T => blk(T, ps.x - wB / 2, ps.y + hh + 2.6 + hBlk),
+          T => blk(T, ps.x + hw + 3, ps.y + hh + hBlk), T => blk(T, ps.x + hw + 3, ps.y - hh + 2), T => blk(T, ps.x + hw + 14, ps.y + hh), T => blk(T, ps.x - hw - 14 - wB, ps.y + hh, 'r'),
+          T => blk(T, ps.x - wB / 2, ps.y - hh - 12), T => blk(T, ps.x - wB / 2, ps.y + hh + 12 + hBlk)], set);
+        /* the As-Built tags at a homing: above or below it, where they are free */
+        if (tg.length) {
+          const tH = tg.length * 8, tagsAt = (T, y, down, dx) => { let yy = y; tg.forEach((l, k) => { T.pt = 'tag:' + id + ':' + k; const H = tagBox(T, ps.x + (dx || 0), yy, l, down); T.pt = null; yy += down ? -(H + 1.5) : H + 1.5; }); };
+          /* (else beside it, left or right, when a cable runs close above and below it) */
+          const tW = Math.max(...tg.map(l => Math.max(...[l.tag[0]].concat(l.tag[1] ? [l.tag[1]] : []).map(s => textW(s, 1.6, true))) + 2.6)), sd = hw + 3 + tW / 2;
+          put([T => tagsAt(T, ps.y + hh + 2.5, false), T => tagsAt(T, ps.y - hh - 2.5, true), T => tagsAt(T, ps.y + hh + 2.5 + hBlk + 2, false), T => tagsAt(T, ps.y - hh - 4 - hBlk, true), T => tagsAt(T, ps.y + hh + 6 + tH + hBlk, false),
+            T => tagsAt(T, ps.y + hh, true, -sd), T => tagsAt(T, ps.y + hh, true, sd), T => tagsAt(T, ps.y - hh - 2.5, true, -sd), T => tagsAt(T, ps.y + hh + 2.5, false, -sd)], set);
+        }
+      }
+      /* 6. future legs: a short thin grey dashed stub from the new FDU (no length box, fibers xx-xx), the homing named at its tip, where it
+         meets nothing: up and out at an end of the trunk, down and left elsewhere, then other ways */
+      const stubs = new Map();
+      for (const x of P.futures) {
+        const A = pos.get(x.from); if (!A) continue;
+        const [hwA, hhA] = half(x.from), words = P.stage === 'built' ? 'NOT YET BUILT' : 'LATER (SECOND CABLE)', k = stubs.get(x.from) || 0; stubs.set(x.from, k + 1);
+        const lft = A.trunk && n > 1 && A.i === 0, rgt = A.trunk && n > 1 && A.i === n - 1, L = ['xx-xx' + (x.name ? ' (' + x.name + ')' : ''), 'FUTURE FOC → ' + up(P.label(x.to)), words];
+        const stub = (T, deg, len) => {
+          const ux = Math.cos(deg * Math.PI / 180), uy = Math.sin(deg * Math.PI / 180), a0 = [A.x + Math.sign(Math.round(ux * 100)) * hwA * 0.8, A.y + Math.sign(Math.round(uy * 100)) * hhA], tip = [a0[0] + ux * len, a0[1] + uy * len];
+          T.ln(a0[0], a0[1], tip[0], tip[1], 'FOC_FUTURE');
+          if (uy > 0) T.txs(tip[0], tip[1] + 1.4 + 2 * 1.7 * 1.5, L, 1.7, 'NOTE', { al: 'c', gap: 1.5 }); else T.txs(tip[0], tip[1] - 3.2, L, 1.7, 'NOTE', { al: 'c', gap: 1.5 });
+        };
+        const pref = (lft ? [128, 154, 232, 206] : rgt ? [52, 26, 308, 334] : [236, 210, 304, 330, 124, 56]).map(d => d + (k ? (lft || rgt ? 13 : -13) : 0)), cands = [];
+        const degs = pref.concat(seq(0, 12).map(i => i * 30).filter(d => pref.indexOf(d) < 0));
+        [26 + k * 16, 42 + k * 16, 60 + k * 16, 80 + k * 16].forEach(len => degs.forEach(d => cands.push(T => stub(T, d, len))));
+        put(cands, { ref: 'leg:' + x.id, ow: 'n:' + x.from });
+      }
+      return G;
+    };
+
+    /* where a primitive belongs: t, its place along the trunk (a column i, or i + 0.5 for a trunk cable's words), and the point it hangs from */
+    const cabK = new Map(P.cables.map(c => [c.k, c])), depthOf = id => { let d = 0; while (par.has(id)) { id = par.get(id); d++; } return d; };
+    const whereOf = ow => {
+      if (!ow) return null;
+      if (ow[0] === 'n') { const id = ow.slice(2); return col.has(id) ? { t: col.get(id), node: id } : null; }
+      if (ow[0] === 'e') { /* a cable's fibers at one end: at that point, moving with the far end when it hangs from there */
+        const i = ow.indexOf(':', 2), c = cabK.get(+ow.slice(2, i)), id = ow.slice(i + 1); if (!c || !col.has(id)) return null;
+        const o = c.from === id ? c.to : c.from; return { t: col.get(id), node: par.get(o) === id ? o : id, c, end: id };
+      }
+      const c = cabK.get(+ow.slice(2)); if (!c) return null; const ca = col.get(c.from), cb = col.get(c.to);
+      return ca !== cb ? { t: (ca + cb) / 2, node: null, c } : { t: ca, node: depthOf(c.from) >= depthOf(c.to) ? c.from : c.to, c };
+    };
+    const chain = id => { const L = [id]; while (par.has(id)) { id = par.get(id); L.push(id); } return L; };
+    let pos = null, G = null, left = [];
+    const tries = new Map(), sig = x => x.p.k + '|' + (x.p.k === 'tx' ? x.p.s : x.p.lay) + '|' + (x.p.ow || '');
+    for (let it = 0; it < 40; it++) {
+      pos = place(); G = draw(pos); left = clashes(G.p);
+      if (!left.length) break;
+      const G2 = new Map(), DY2 = new Map(), SX2 = new Map(), LS2 = new Map(), bump = (M, k, v) => { if (v > (M.get(k) || 0)) M.set(k, v); };
+      const seen = new Set();
+      left.forEach(({ a, b }) => {
+        const key = sig(a) + '#' + sig(b); if (!seen.has(key)) { seen.add(key); tries.set(key, (tries.get(key) || 0) + 1); } if (tries.get(key) > 16) return;
+        const wa = whereOf(a.p.ow), wb = whereOf(b.p.ow); if (!wa || !wb) return;
+        const ox = Math.min(a.b[2], b.b[2]) - Math.max(a.b[0], b.b[0]) + 1.2, oy = Math.min(a.b[3], b.b[3]) - Math.max(a.b[1], b.b[1]) + 1.2;
+        const kick = v => (tries.get(key) > 8 ? Math.max(v, 3) : v); /* (a slanting word over a thin line measures little: after eight tries, 3 mm at least) */
+        /* (wider gaps that did not part them, eight times: the words of what hangs below meet a line that runs across, the trunk or a cable
+           back to the route; what hangs there hangs lower too, its cable longer, its words further from that line) */
+        const lower = () => { if (tries.get(key) > 8) [wa, wb].forEach(w => { if (w.node != null && par.has(w.node)) bump(DY2, par.get(w.node), kick(oy)); }); };
+        if (wa.t !== wb.t) {
+          /* in different places along the trunk: the gaps between them grow (a trunk cable's words move half as much as its far end) */
+          const lo = Math.min(wa.t, wb.t), hi = Math.max(wa.t, wb.t), gs = [];
+          for (let k = 0; k < n - 1; k++) { const f = Math.min(hi, k + 1) - Math.max(lo, k); if (f > 1e-9) gs.push([k, f]); }
+          const tot = gs.reduce((s, x) => s + x[1], 0); gs.forEach(([k]) => bump(G2, k, ox / tot)); lower(); return;
+        }
+        if (wa.c && wb.c && wa.c !== wb.c && pairOf.get(wa.c) === pairOf.get(wb.c)) {
+          /* two cables of one pair: words over words, they run further apart; a line through the other's words, the pair runs longer */
+          const pr = pairOf.get(wa.c);
+          if (a.t && b.t) { bump(LS2, pr, oy); return; }
+          if (par.get(pr.b) === pr.a || par.get(pr.a) === pr.b) { bump(DY2, par.get(pr.b) === pr.a ? pr.a : pr.b, 2 * oy + 2); return; }
+          const ka = col.get(pr.a), kb = col.get(pr.b); for (let k = Math.min(ka, kb); k < Math.max(ka, kb); k++) bump(G2, k, 2 * ox + 2); return;
+        }
+        /* (a trunk cable's fibers at a point meet something else there: its gap grows, so they find room further along it) */
+        [wa, wb].forEach(w => { if (!w.end || !w.c) return; const k0 = col.get(w.c.from), k1 = col.get(w.c.to); if (Math.abs(k0 - k1) === 1 && pos.get(w.c.from).trunk && pos.get(w.c.to).trunk) bump(G2, Math.min(k0, k1), Math.max(ox, 2)); });
+        if (wa.node == null || wb.node == null) { const k = Math.floor(wa.t); if (k < n - 1) bump(G2, k, ox); if (k > 0) bump(G2, k - 1, ox); lower(); return; }
+        const na = wa.node, nb = wb.node;
+        if (na === nb) { if ((wa.c || wb.c) && par.has(na)) bump(DY2, par.get(na), 2 * oy); return; }
+        const ca = chain(na), cb = chain(nb);
+        if (ca.indexOf(nb) >= 0) { bump(DY2, nb, kick(oy)); return; }
+        if (cb.indexOf(na) >= 0) { bump(DY2, na, kick(oy)); return; }
+        const lca = ca.find(x => cb.indexOf(x) >= 0); if (lca == null) return;
+        const kA = ca[ca.indexOf(lca) - 1], kB = cb[cb.indexOf(lca) - 1], K = kids.get(lca);
+        bump(SX2, K.indexOf(kA) > K.indexOf(kB) ? kA : kB, kick(ox));
+      });
+      if (!G2.size && !DY2.size && !SX2.size && !LS2.size) break;
+      G2.forEach((v, k) => { gap[k] += v; }); DY2.forEach((v, k) => dy.set(k, (dy.get(k) || DY0) + v)); SX2.forEach((v, k) => sx.set(k, (sx.get(k) || 0) + v)); LS2.forEach((v, k) => lens.set(k, (lens.get(k) || 0) + v));
+      if (gap.reduce((s, v) => s + v, 0) > 6000) break;
     }
-    G.ref = null;
+    P.sldClash = left.length;
     return block(G, 'SINGLE LINE DIAGRAM');
   }
   /* rows: lay the items in columns of that many rows (beside the CONNECTIONS box); without, one row as before */
@@ -786,13 +1094,14 @@
     if (rows) items.forEach(([k, t], i) => { const ci = Math.floor(i / rows); cw[ci] = Math.max(cw[ci] || 0, txOf(k) + textW(t, 2) + 7); });
     items.forEach(([k, t], i) => {
       const x = rows ? cw.slice(0, Math.floor(i / rows)).reduce((s, v) => s + v, 0) : i * 54, y = rows ? -(i % rows) * 6 : 0, tx = txOf(k);
+      G.pt = 'leg:' + k;
       if (k === 'pc' || k === 'ec') pentagon(G, x + 4, y, 2.4, k === 'pc' ? 'CLOSURE_NEW' : 'CLOSURE_EXIST');
       else if (k === 'nf' || k === 'ef') G.ln(x, y, x + 12, y, k === 'nf' ? 'FOC_NEW' : 'FOC_EXIST');
-      else if (k === 'dn') dnapIcon(G, x + 6, y, 'DNAP_NEW');
+      else if (k === 'dn') dnapIcon(G, x + 6, y, 'DNAP_NEW', 0.66);
       else if (k === 'sp') { G.rect(x, y - 1.7, 12, 3.4, 'FIBER_RESERVED'); G.tx(x + 6, y, 'F7-12', 1.5, 'FIBER_USED', { al: 'c', va: 'm' }); }
       else if (k === 'fu') G.ln(x, y, x + 12, y, 'FOC_FUTURE');
-      else fduIcon(G, x + 6, y, k === 'nd' ? 'SITE_NEW' : 'SITE_EXIST', 12, 7.5);
-      G.tx(x + tx, y, t, 2, 'LEGEND', { va: 'm' });
+      else fduIcon(G, x + 6, y, k === 'nd' ? 'SITE_NEW' : 'SITE_EXIST', 12, 5.2);
+      G.pt = null; G.tx(x + tx, y, t, 2, 'LEGEND', { va: 'm' });
     });
     return block(G);
   }
@@ -815,151 +1124,215 @@
      As-Built: a leg spliced only is dashed (layer FIBER_RESERVED) with hollow splice dots. A future leg is a grey stub, xx-xx, no splices.
      The pieces of one existing cable at a closure: the fibers not cut there pass straight through (NOT CUT). */
   function accessDetailed(P) {
-    const G = new Gfx(), GAP = 1.1, DX = 96, T = trunkOf(P), BW = P.legs.some(l => l.look === 'spliced' && l.routed) ? 26 : 18;
-    if (!T.length) { G.tx(0, 0, 'ADD THE POINTS AND THE CABLES TO DRAW THE SPLICING DETAILS.', 3, 'NOTE'); return [block(G)]; }
+    const GAP = 1.1, T = trunkOf(P), BW = P.legs.some(l => l.look === 'spliced' && l.routed) ? 26 : 18;
+    if (!T.length) { const G = new Gfx(); G.tx(0, 0, 'ADD THE POINTS AND THE CABLES TO DRAW THE SPLICING DETAILS.', 3, 'NOTE'); return [block(G)]; }
     const root = T[0], typ = id => P.byId.get(id).type, isEnd = id => typ(id) === 'site' || typ(id) === 'dnap';
     const par = new Map([[root, null]]), kids = new Map(), depth = new Map([[root, 0]]), q = [root], treeC = new Set();
     while (q.length) { const u = q.shift(); kids.set(u, []); for (const e of P.adj.get(u).slice().sort((a, b) => a.c.k - b.c.k)) if (!par.has(e.o)) { par.set(e.o, { u, c: e.c }); depth.set(e.o, depth.get(u) + 1); treeC.add(e.c); kids.get(u).push({ id: e.o, c: e.c }); q.push(e.o); } }
     P.pts.forEach(p => { if (P.adj.get(p.id).length && !par.has(p.id)) P.warn.push(P.label(p.id) + ' is not joined to the main route, so it is left off the diagram.'); });
     const nodes = [...par.keys()], Dmax = Math.max(...nodes.map(id => depth.get(id))), K = (id, c) => id + '|' + c.k;
+    /* a point past a dummy NAP (the end of the job): drawn plainly, its name only; a new cable no leg uses: NOT SPLICED · FOR FUTURE */
+    const plain = id => !!(P.beyond && P.beyond.has(id)) && typ(id) === 'site', spare = c => !!(P.spare && P.spare.has(c));
     /* the fibers drawn for a cable: those its links use, one by one, then two lines for the rest of the cable */
     const W = new Map(P.cables.map(c => [c, [...new Set(c.links.flatMap(l => l.f))].sort((a, b) => a - b)]));
     const LK = new Map(P.cables.map(c => { const M = new Map(); c.links.forEach(l => l.f.forEach(f => M.set(f, lookOf(l.st, P.stage)))); return [c, M]; }));
     const lkOf = (c, f) => LK.get(c).get(f) || 'plain', FL = lk => lk === 'spliced' ? 'FIBER_RESERVED' : 'FIBER_USED';
     const lines = c => { const w = W.get(c), L = w.map(f => ({ f })); if (c.size > w.length) L.push({ rest: 1 }, { rest: 2 }); return L; };
-    const bw = c => (lines(c).length - 1) * GAP;
+    const bw = c => (lines(c).length - 1) * GAP, restTxt = c => c.size > W.get(c).length ? fmtRanges(seq(1, c.size).filter(f => !W.get(c).includes(f)), 'F') : '';
     /* an end's rows: the working ports of each of its cables, then the other ports in a row or two */
     const groups = id => { const s = P.sites.get(id) || { ends: [] }; return P.adj.get(id).map(e => ({ c: e.c, o: e.o, rows: s.ends.filter(x => x.c === e.c).flatMap(x => x.f.map((f, i) => ({ f, port: x.ports[i] != null ? x.ports[i] : f, lk: lookOf(x.st, P.stage) }))).sort((a, b) => a.port - b.port) })); };
     const extra = id => {
-      const s = P.sites.get(id); if (!s) return [];
+      const s = P.sites.get(id); if (!s || plain(id) || P.beyond && P.beyond.has(id)) return [];
       if (s.existing) return s.tbc ? ['ACTIVE TBC'] : [s.before.length ? 'ACTIVE ' + fmtRanges(s.before) : '', s.spare.length ? 'SPARE ' + fmtRanges(s.spare) : ''].filter(Boolean);
       const sp = s.termPorts.filter(p => s.working.indexOf(p) < 0 && s.reserved.indexOf(p) < 0); return sp.length ? ['SPARE ' + fmtRanges(sp)] : [];
     };
-    const nRows = id => groups(id).reduce((a, g) => a + g.rows.length, 0) + extra(id).length + Math.max(0, groups(id).length - 1);
+    /* (each cable has a slot of its own on the box, as tall as its bundle: its working fibers' rows, then its other fibers capped) */
+    const slot = (id, g) => Math.max(g.rows.length, lines(g.c).length, 1);
+    /* (between two cables' slots on a box: as many rows as the gap between bundles at a closure, room for a label) */
+    let GR = 1;
+    const nRows = id => groups(id).reduce((a, g) => a + slot(id, g), 0) + extra(id).length + GR * Math.max(0, groups(id).length - 1);
     const boxH = id => Math.max(14, nRows(id) * GAP + 8);
-    const xOf = id => isEnd(id) && id !== root && !kids.get(id).length ? Dmax * DX : depth.get(id) * DX;
-    const pos = new Map(); let yc = 0;
-    const place = id => {
-      const ks = kids.get(id);
-      if (!ks.length) { const h = isEnd(id) ? boxH(id) : 20, y = yc - h / 2; yc -= h + 18; pos.set(id, { x: xOf(id), y }); return y; }
-      const ys = ks.map(k => place(k.id)), y = (Math.max(...ys) + Math.min(...ys)) / 2; pos.set(id, { x: xOf(id), y }); return y;
+    /* which way each cable runs: from its parent, or from the point further left (the positions come from the layout below) */
+    const nameOf = (id, pt) => {
+      if (plain(id)) { const nm = up(pt.name), f = up(pt.fdu || ''); return [{ s: nm + (pt.code ? ' (' + up(pt.code) + ')' : ''), o: { bold: true, nm: true } }].concat(f && f !== nm && !/TBF/.test(f) ? [f] : []); }
+      return [{ s: up(pt.name) + (pt.code ? ' (' + up(pt.code) + ')' : ''), o: { bold: true, nm: true } }].concat(typ(id) === 'dnap' ? ['POLE-MOUNTED SMALL CELL'] : []).concat(siteLines(P, pt));
     };
-    place(root);
-    /* which way each cable runs: from the point further left, or from its parent */
-    const dirs = P.cables.filter(c => pos.has(c.from) && pos.has(c.to)).map(c => {
-      if (treeC.has(c)) { const ch = par.get(c.to) && par.get(c.to).c === c ? c.to : c.from; return { c, a: par.get(ch).u, b: ch }; }
-      const xa = pos.get(c.from).x, xb = pos.get(c.to).x; return xa <= xb ? { c, a: c.from, b: c.to } : { c, a: c.to, b: c.from };
-    });
-    const outOf = id => dirs.filter(d => d.a === id).sort((m, n) => pos.get(n.b).y - pos.get(m.b).y || m.c.k - n.c.k);
-    const inTo = id => dirs.filter(d => d.b === id).sort((m, n) => pos.get(n.a).y - pos.get(m.a).y || m.c.k - n.c.k);
-    /* pieces of one existing cable meeting at a closure, both with spare fibers drawn: those pass straight through */
-    const pass = new Map();
-    nodes.forEach(id => passThrough(P, id).forEach(pr => { if (!pr.fibers.length || pr.A.size <= W.get(pr.A).length || pr.B.size <= W.get(pr.B).length) return; pass.set(K(id, pr.A), pr); pass.set(K(id, pr.B), pr); }));
-    /* where each cable leaves or reaches a point: a stack beside a closure, its own rows on an end's box */
-    const at = new Map(), rowsAt = new Map(), boxes = new Map();
-    nodes.forEach(id => {
-      const p = pos.get(id), O = outOf(id), I = inTo(id);
-      if (isEnd(id)) {
-        const h = boxH(id), top = p.y + h / 2, x0 = p.x; let r = 0; const gs = groups(id), order = I.map(d => d.c).concat(O.map(d => d.c));
-        boxes.set(id, { x0, top, h }); const rows = [];
-        order.forEach((c, gi) => { const g = gs.find(x => x.c === c); if (gi) r++; const ys = []; (g ? g.rows : []).forEach(row => { const y = top - 4 - r * GAP; rows.push(Object.assign({ y, c }, row)); ys.push(y); r++; }); const yy = ys.length ? (ys[0] + ys[ys.length - 1]) / 2 : top - 4 - r * GAP; at.set(K(id, c), { y: yy, side: I.some(d => d.c === c) ? 'L' : 'R' }); if (!ys.length) r++; });
-        extra(id).forEach(t => { rows.push({ y: top - 4 - r * GAP, t }); r++; });
-        rowsAt.set(id, rows);
-      } else {
-        const stack = (L, side) => { const H = L.reduce((a, d) => a + bw(d.c), 0) + 4 * Math.max(0, L.length - 1); let y = p.y + H / 2; L.forEach(d => { const w = bw(d.c); at.set(K(id, d.c), { y: y - w / 2, side }); y -= w + 4; }); return H; };
-        const h = Math.max(stack(I, 'L'), stack(O, 'R')); boxes.set(id, { ry: h / 2 + 7 });
-      }
-    });
-    /* the cables, as bundles of fibers */
-    const endPt = new Map();
-    nodes.forEach(id => {
-      const O = outOf(id); if (!O.length) return; const p = pos.get(id), xs = isEnd(id) ? p.x + BW + 7 : p.x + 6;
-      const ups = O.filter(d => pos.get(d.b) && at.get(K(d.b, d.c)).y > at.get(K(id, d.c)).y + 0.01), downs = O.filter(d => !ups.includes(d)).reverse();
-      const turn = new Map(); let acc = 0; ups.forEach(d => { const w = bw(d.c); turn.set(d, xs + 9 + acc + w / 2); acc += w + 5; }); acc = 0; downs.forEach(d => { const w = bw(d.c); turn.set(d, xs + 9 + acc + w / 2); acc += w + 5; });
-      O.forEach(d => {
-        G.u = 'cab:' + d.c.k;
-        const c = d.c, ys = at.get(K(id, c)).y, B = pos.get(d.b), yt = at.get(K(d.b, c)).y, xt = isEnd(d.b) ? B.x - 7 : B.x - 6, xT = turn.get(d), L = lines(c), N = L.length, w = bw(c);
-        const pts = Math.abs(yt - ys) < 0.01 ? [[xs, ys], [xt, yt]] : [[xs, ys], [xT, ys], [xT, yt], [xt, yt]];
-        L.forEach((ln, j) => {
-          const pp = offsetPath(pts, ((N - 1) / 2 - j) * GAP);
-          if (ln.rest) {
-            const z = pp.length - 1, pa = pass.has(K(id, c)), pb = pass.has(K(d.b, c));
-            if (!pa) pp[0] = [pp[0][0] + 3, pp[0][1]]; if (!pb) pp[z] = [pp[z][0] - 3, pp[z][1]];
-            G.pl(pp, 'FIBER');
-            if (pa) endPt.set(K(id, c) + '|r' + ln.rest, pp[0]); else cap(G, pp[0][0], pp[0][1]);
-            if (pb) endPt.set(K(d.b, c) + '|r' + ln.rest, pp[z]); else cap(G, pp[z][0], pp[z][1]);
-            if (ln.rest === 1) { const r = fmtRanges(seq(1, c.size).filter(f => !W.get(c).includes(f)), 'F'); if (!pa) fnum(G, pp[0][0] + 0.4, pp[0][1], r); if (!pb) fnum(G, pp[z][0] - 0.4, pp[z][1], r, 'r'); }
-            return;
-          }
-          G.pl(pp, FL(lkOf(c, ln.f))); endPt.set(K(id, c) + '|' + ln.f, pp[0]); endPt.set(K(d.b, c) + '|' + ln.f, pp[pp.length - 1]);
-        });
-        /* the label: after the turn, or clear of the closure it leaves (its ellipse is 14 wide each side) */
-        const tl = c.status === 'existing' ? 'SITE_EXIST' : 'SITE_NEW', xl = pts.length > 2 ? xT + w / 2 + 2 : isEnd(id) ? xs + 4 : p.x + 16, yl = yt + w / 2 + 1.6, before = parseRanges(c.used);
-        const wk = W.get(c).filter(f => lkOf(c, f) !== 'spliced'), rs = W.get(c).filter(f => lkOf(c, f) === 'spliced');
-        G.group(() => {
-          G.tx(xl, yl + 2, c.name + ' · ' + c.size + 'C ' + (c.status === 'existing' ? 'EXISTING' : 'NEW') + (c.fpt !== 12 ? ' · ' + c.fpt + 'F PER BUFFER' : '') + (lenTxt(c.length) && c.status !== 'existing' ? ' · ' + lenTxt(c.length) : '') + (c.leg ? ' · ' + String(c.leg).toUpperCase() : ''), 1.15, tl, { bold: true, nm: true });
-          G.tx(xl, yl, (W.get(c).length ? [wk.length ? 'WORKING ' + fmtRanges(wk, 'F') : '', rs.length ? 'FOR FUTURE TESTING ' + fmtRanges(rs, 'F') : ''].filter(Boolean).join(' · ') : 'NO LINK USES IT') + (before.length ? ' · IN USE BEFORE ' + fmtRanges(before, 'F') : ''), 1.0, 'FIBER_USED');
-        });
-        ellipse(G, xt - 18, yt, 1.1, w / 2 + 1.5, tl); G.u = null;
+
+    /* the drawing for a column width DX and a gap between rows LEAF: the lines, the boxes and the fiber numbers first; then every label in
+       the first of its places that meets nothing drawn; DX and LEAF grow while words still meet a line, a box or other words */
+    const drawAll = (DX, LEAF, SG) => {
+      const G = new Gfx(), labels = []; GR = Math.ceil(SG / GAP);
+      const xOf = id => isEnd(id) && id !== root && !kids.get(id).length ? Dmax * DX : depth.get(id) * DX;
+      const pos = new Map(); let yc = 0;
+      const place = id => {
+        const ks = kids.get(id);
+        if (!ks.length) { const h = isEnd(id) ? boxH(id) : 20, y = yc - h / 2; yc -= h + LEAF; pos.set(id, { x: xOf(id), y }); return y; }
+        const ys = ks.map(k => place(k.id)), y = (Math.max(...ys) + Math.min(...ys)) / 2; pos.set(id, { x: xOf(id), y }); return y;
+      };
+      place(root);
+      const dirs = P.cables.filter(c => pos.has(c.from) && pos.has(c.to)).map(c => {
+        if (treeC.has(c)) { const ch = par.get(c.to) && par.get(c.to).c === c ? c.to : c.from; return { c, a: par.get(ch).u, b: ch }; }
+        const xa = pos.get(c.from).x, xb = pos.get(c.to).x; return xa <= xb ? { c, a: c.from, b: c.to } : { c, a: c.to, b: c.from };
       });
-    });
-    /* the points */
-    nodes.forEach(id => {
-      const p = pos.get(id), pt = P.byId.get(id), isNew = pt.status !== 'existing', lay = typ(id) === 'dnap' ? (isNew ? 'DNAP_NEW' : 'DNAP_EXIST') : (isNew ? 'SITE_NEW' : 'SITE_EXIST');
-      if (!isEnd(id)) {
-        const rx = 14, ry = Math.max(8, boxes.get(id).ry); G.u = 'pt:' + id; ellipse(G, p.x, p.y, rx, ry, lay, { lw: 0.35 });
-        const L = [{ s: (isNew ? 'PROPOSED CLOSURE ' : 'EXISTING CLOSURE ') + String(pt.name || '').toUpperCase(), o: { bold: true, nm: true } }, spliceKind(P, id), 'COORDINATES: ' + (String(pt.coords || '').trim() || 'TBF')];
-        G.txs(p.x, p.y + ry + 2 + 2 * 1.25 * 1.5, L, 1.25, lay, { al: 'c', gap: 1.5 }); G.u = null;
-        const spl = P.nodeSp.get(id) || [], side = { L: 0, R: 0 }, nSide = { L: 0, R: 0 };
-        spl.forEach(s => s.a.f.forEach((fa, i) => { const A = endPt.get(K(id, s.a.c) + '|' + fa), B = endPt.get(K(id, s.b.c) + '|' + s.b.f[i]); if (A && B && (A[0] < p.x) === (B[0] < p.x)) nSide[A[0] < p.x ? 'L' : 'R']++; }));
-        spl.forEach(s => {
-          const lk = lookOf(s.st, P.stage), fl = FL(lk), fill = lk !== 'spliced';
-          s.a.f.forEach((fa, i) => {
-            const fb = s.b.f[i], A = endPt.get(K(id, s.a.c) + '|' + fa), B = endPt.get(K(id, s.b.c) + '|' + fb); if (!A || !B) return;
-            const la = A[0] < p.x, lb = B[0] < p.x;
-            if (la !== lb) { const [L1, R1] = la ? [A, B] : [B, A]; G.pl([L1, [L1[0] + 3, L1[1]], [R1[0] - 3, R1[1]], R1], fl); G.ci(p.x, (L1[1] + R1[1]) / 2, 0.3, 'SPLICE_NEW', { fill }); }
-            else { const sd = la ? 'L' : 'R', k = side[sd]++, st = nSide[sd] > 1 ? Math.min(0.6, 3 / (nSide[sd] - 1)) : 0, xi = la ? p.x - 1.5 - k * st : p.x + 1.5 + k * st, top = Math.max(A[1], B[1]);
-              G.pl([A, [xi, A[1]], [xi, B[1]], B], fl); G.ci(xi, top - Math.min(0.8, Math.abs(A[1] - B[1]) / 2), 0.3, 'SPLICE_NEW', { fill }); }
-            for (const [Q, f] of [[A, fa], [B, fb]]) fnum(G, Q[0] + (Q[0] < p.x ? -0.4 : 0.4), Q[1], 'F' + f, Q[0] < p.x ? 'r' : 'l');
+      const outOf = id => dirs.filter(d => d.a === id).sort((m, n) => pos.get(n.b).y - pos.get(m.b).y || m.c.k - n.c.k);
+      const inTo = id => dirs.filter(d => d.b === id).sort((m, n) => pos.get(n.a).y - pos.get(m.a).y || m.c.k - n.c.k);
+      /* pieces of one existing cable meeting at a closure, both with spare fibers drawn: those pass straight through */
+      const pass = new Map();
+      nodes.forEach(id => passThrough(P, id).forEach(pr => { if (!pr.fibers.length || pr.A.size <= W.get(pr.A).length || pr.B.size <= W.get(pr.B).length) return; pass.set(K(id, pr.A), pr); pass.set(K(id, pr.B), pr); }));
+      /* where each cable leaves or reaches a point: a stack beside a closure, its own rows on an end's box */
+      const at = new Map(), rowsAt = new Map(), boxes = new Map();
+      nodes.forEach(id => {
+        const p = pos.get(id), O = outOf(id), I = inTo(id);
+        if (isEnd(id)) {
+          const h = boxH(id), top = p.y + h / 2, x0 = p.x; let r = 0; const gs = groups(id), order = I.map(d => d.c).concat(O.map(d => d.c));
+          boxes.set(id, { x0, top, h }); const rows = [];
+          order.forEach((c, gi) => {
+            const g = gs.find(x => x.c === c) || { c, rows: [] }; if (gi) r += GR; const r0 = r, n = slot(id, g);
+            g.rows.forEach((row, k) => rows.push(Object.assign({ y: top - 4 - (r0 + k) * GAP, c }, row)));
+            at.set(K(id, c), { y: top - 4 - (r0 + (n - 1) / 2) * GAP, side: I.some(d => d.c === c) ? 'L' : 'R' }); r = r0 + n;
           });
-        });
-        /* the fibers not cut here pass straight through; their numbers in the clear band at the foot of the ellipse */
-        const done = new Set();
-        P.adj.get(id).forEach(e => {
-          const pr = pass.get(K(id, e.c)); if (!pr || done.has(pr)) return; done.add(pr); const ys = [], k = done.size - 1;
-          [1, 2].forEach(r => {
-            const A = endPt.get(K(id, pr.A) + '|r' + r), B = endPt.get(K(id, pr.B) + '|r' + r); if (!A || !B) return; ys.push(A[1], B[1]);
-            if ((A[0] < p.x) !== (B[0] < p.x)) { const [L1, R1] = A[0] < p.x ? [A, B] : [B, A]; G.pl([L1, [L1[0] + 3, L1[1]], [R1[0] - 3, R1[1]], R1], 'FIBER'); }
-            else { const xi = A[0] < p.x ? p.x - 1.5 : p.x + 1.5; G.pl([A, [xi, A[1]], [xi, B[1]], B], 'FIBER'); }
-          });
-          if (ys.length) G.tx(p.x, p.y - ry + 2.6 + k * 1.3, fmtRanges(pr.fibers, 'F') + ' NOT CUT', 0.7, 'TEXT', { al: 'c', va: 'm' });
-        });
-        return;
-      }
-      const b = boxes.get(id), x0 = p.x, left = id === root || kids.get(id).length > 0 && !inTo(id).length;
-      G.u = 'pt:' + id; G.frect(x0, b.top - b.h, BW, b.h, 'HILITE', { col: WHITE }); G.rect(x0, b.top - b.h, BW, b.h, lay, { lw: 0.5 });
-      G.tx(left ? x0 + 5 : x0 + BW - 5, p.y, typ(id) === 'dnap' ? 'DUMMY NAP' : (isNew ? 'PROP. ODF' : 'EXIST. ODF'), 1.5, lay, { al: 'c', va: 'm', rot: 90, bold: true }); G.u = null;
-      const I = inTo(id);
-      (rowsAt.get(id) || []).forEach(r => {
-        const fromLeft = r.c ? I.some(d => d.c === r.c) : !left, xe = fromLeft ? x0 : x0 + BW;
-        if (r.t) { G.tx(fromLeft ? x0 + 0.6 : x0 + BW - 0.6, r.y, r.t, 0.7, 'TEXT', { al: fromLeft ? 'l' : 'r', va: 'm' }); const xs2 = fromLeft ? xe - 4 : xe + 4; G.ln(xe, r.y, xs2, r.y, 'FIBER'); cap(G, xs2, r.y); return; }
-        G.tx(fromLeft ? x0 + 0.6 : x0 + BW - 0.6, r.y, 'P' + r.port + ' F' + r.f + (r.lk === 'spliced' ? ' FOR FUTURE TESTING' : ''), 0.7, 'FIBER_USED', { al: fromLeft ? 'l' : 'r', va: 'm' });
-        const e = endPt.get(K(id, r.c) + '|' + r.f); if (!e) return;
-        G.pl(fromLeft ? [e, [e[0] + 2, e[1]], [xe - 2, r.y], [xe, r.y]] : [[xe, r.y], [xe + 2, r.y], [e[0] - 2, e[1]], e], FL(r.lk));
+          extra(id).forEach(t => { rows.push({ y: top - 4 - r * GAP, t }); r++; });
+          rowsAt.set(id, rows);
+        } else {
+          /* (SG, 6 mm at first, between two bundles: room for a cable's two-line label) */
+          const stack = (L, side) => { const H = L.reduce((a, d) => a + bw(d.c), 0) + SG * Math.max(0, L.length - 1); let y = p.y + H / 2; L.forEach(d => { const w = bw(d.c); at.set(K(id, d.c), { y: y - w / 2, side }); y -= w + SG; }); return H; };
+          /* (tall enough that the bundles at the top and the foot of a tall stack, and their fiber numbers, stay inside the ellipse) */
+          const h = Math.max(stack(I, 'L'), stack(O, 'R')); boxes.set(id, { ry: Math.max(h / 2 + 7, h / 2 / 0.8 + 1) });
+        }
       });
-      const name = [{ s: String(pt.name || '').toUpperCase() + (pt.code ? ' (' + String(pt.code).toUpperCase() + ')' : ''), o: { bold: true, nm: true } }].concat(typ(id) === 'dnap' ? ['POLE-MOUNTED SMALL CELL'] : []).concat(siteLines(P, pt));
-      G.u = 'pt:' + id;
-      if (left) G.txs(x0, b.top + 2 + (name.length - 1) * 1.25 * 1.5, name, 1.25, lay, { gap: 1.5 });
-      else G.txs(x0 + BW + 3, b.top - 1.2, name, 1.25, lay, { gap: 1.5 });
-      G.u = null;
-    });
-    /* future legs: a short grey bundle from the new FDU, xx-xx, no splices */
-    P.futures.forEach(x => {
-      const id = x.from; if (!pos.has(id) || !isEnd(id)) return;
-      const b = boxes.get(id), k = P.futures.filter(y => y.from === id).indexOf(x), xs = pos.get(id).x + BW / 2 - GAP + k * 7, yb = b.top - b.h, L = 9 + k * 4;
-      for (let j = 0; j < 3; j++) G.ln(xs + j * GAP, yb, xs + j * GAP, yb - L, 'FOC_FUTURE');
-      G.txs(xs + 3 * GAP + 1, yb - L + 1.4, ['xx-xx · FUTURE FOC' + (x.name ? ' ' + x.name : '') + ' → ' + up(P.label(x.to)), (P.stage === 'built' ? 'NOT YET BUILT' : 'SECOND CABLE, LATER') + ' · NO SPLICES'], 1.0, 'NOTE', { gap: 1.5 });
-    });
+      /* the cables, as bundles of fibers */
+      const endPt = new Map();
+      /* the bundles turn after the range of their capped fibers (written just outside a closure's ellipse) */
+      const baseOf = id => { const O = outOf(id), p = pos.get(id), xs = isEnd(id) ? p.x + BW + 7 : p.x + 6, xa0 = isEnd(id) ? xs + 3.4 : Math.max(xs + 3.4, p.x + 15);
+        return Math.max(xs + 9, xa0 + Math.max(0, ...O.map(d => pass.has(K(id, d.c)) ? 0 : textW(restTxt(d.c), 0.62))) + 1.4); };
+      nodes.forEach(id => {
+        const O = outOf(id); if (!O.length) return; const p = pos.get(id), xs = isEnd(id) ? p.x + BW + 7 : p.x + 6, base = baseOf(id);
+        const ups = O.filter(d => pos.get(d.b) && at.get(K(d.b, d.c)).y > at.get(K(id, d.c)).y + 0.01), downs = O.filter(d => !ups.includes(d)).reverse();
+        /* (a cable that runs up or down past another point of this column, or to one, turns after that point's capped fibers' range too) */
+        const turn = new Map(), col = nodes.filter(q => q !== id && Math.abs(pos.get(q).x - p.x) < 1e-6 && outOf(q).length); let acc = 0;
+        const past = d => { const y0 = at.get(K(id, d.c)).y, y1 = at.get(K(d.b, d.c)).y, lo = Math.min(y0, y1) - 1, hi = Math.max(y0, y1) + 1;
+          return Math.max(0, ...col.filter(q => q === d.b || outOf(q).some(e => { const y = at.get(K(q, e.c)).y; return y > lo && y < hi; })).map(baseOf)); };
+        const tn = d => { const w = bw(d.c), b = Math.max(base + acc, past(d)); turn.set(d, b + w / 2); acc = b - base + w + 5; };
+        ups.forEach(tn); acc = 0; downs.forEach(tn);
+        O.forEach(d => {
+          G.u = 'cab:' + d.c.k;
+          const c = d.c, ys = at.get(K(id, c)).y, B = pos.get(d.b), yt = at.get(K(d.b, c)).y, xt = isEnd(d.b) ? B.x - 7 : B.x - 6, xT = turn.get(d), L = lines(c), N = L.length, w = bw(c);
+          const pts = Math.abs(yt - ys) < 0.01 ? [[xs, ys], [xt, yt]] : [[xs, ys], [xT, ys], [xT, yt], [xt, yt]];
+          let restW = 0;
+          L.forEach((ln, j) => {
+            const pp = offsetPath(pts, ((N - 1) / 2 - j) * GAP);
+            if (ln.rest) {
+              const z = pp.length - 1, pa = pass.has(K(id, c)), pb = pass.has(K(d.b, c));
+              if (!pa) pp[0] = [pp[0][0] + 3, pp[0][1]]; if (!pb) pp[z] = [pp[z][0] - 3, pp[z][1]];
+              G.pl(pp, 'FIBER');
+              if (pa) endPt.set(K(id, c) + '|r' + ln.rest, pp[0]); else cap(G, pp[0][0], pp[0][1]);
+              if (pb) endPt.set(K(d.b, c) + '|r' + ln.rest, pp[z]); else cap(G, pp[z][0], pp[z][1]);
+              if (ln.rest === 1) {
+                const r = restTxt(c), xa = isEnd(id) ? pp[0][0] + 0.4 : Math.max(pp[0][0] + 0.4, p.x + 15), xb = isEnd(d.b) ? pp[z][0] - 0.4 : Math.min(pp[z][0] - 0.4, B.x - 15);
+                if (!pa) fnum(G, xa, pp[0][1], r); if (!pb) fnum(G, xb, pp[z][1], r, 'r'); restW = textW(r, 0.62) + 0.4 + (pp[z][0] - 0.4 - xb);
+              }
+              return;
+            }
+            G.pl(pp, FL(lkOf(c, ln.f))); endPt.set(K(id, c) + '|' + ln.f, pp[0]); endPt.set(K(d.b, c) + '|' + ln.f, pp[pp.length - 1]);
+          });
+          ellipse(G, Math.min(xt - 18, xt - 3 - restW - 2.6), yt, 1.1, w / 2 + 1.5, c.status === 'existing' ? 'SITE_EXIST' : 'SITE_NEW'); G.u = null;
+          /* its label (two lines: what it is; what its fibers do), placed later: over the end of the bundle after the turn, else along it or under it */
+          const tl = c.status === 'existing' ? 'SITE_EXIST' : 'SITE_NEW', before = parseRanges(c.used);
+          const wk = W.get(c).filter(f => lkOf(c, f) !== 'spliced'), rs = W.get(c).filter(f => lkOf(c, f) === 'spliced');
+          const t1 = c.name + ' · ' + c.size + 'C ' + (c.status === 'existing' ? 'EXISTING' : 'NEW') + (c.fpt !== 12 ? ' · ' + c.fpt + 'F PER BUFFER' : '') + (lenTxt(c.length) && c.status !== 'existing' ? ' · ' + lenTxt(c.length) : '') + (c.leg ? ' · ' + String(c.leg).toUpperCase() : '');
+          const t2 = (W.get(c).length ? [wk.length ? 'WORKING ' + fmtRanges(wk, 'F') : '', rs.length ? 'FOR FUTURE TESTING ' + fmtRanges(rs, 'F') : ''].filter(Boolean).join(' · ') : spare(c) ? 'NOT SPLICED · FOR FUTURE' : 'NO LINK USES IT') + (before.length ? ' · IN USE BEFORE ' + fmtRanges(before, 'F') : '');
+          const lw = Math.max(textW(t1, 1.15, true), textW(t2, 1.0)), lab = (T, x, y, al) => T.group(() => { T.tx(x, y + 2, t1, 1.15, tl, { bold: true, nm: true, al }); T.tx(x, y, t2, 1.0, 'FIBER_USED', { al }); });
+          const x0 = pts.length > 2 ? xT + w / 2 + 2 : isEnd(id) ? xs + 4 : p.x + 16, xe = xt - 20, up1 = yt + w / 2 + 1.6, dn1 = yt - w / 2 - 1.6 - 3.2, cands = [];
+          const xsAlong = [x0]; for (let k = 1; k <= 6; k++) { const x = x0 + k * Math.max(6, (xe - lw - x0) / 6); if (x + lw <= xe + 0.01) xsAlong.push(x); }
+          xsAlong.forEach(x => cands.push(T => lab(T, x, up1)));
+          xsAlong.forEach(x => cands.push(T => lab(T, x, dn1)));
+          if (pts.length > 2) { const sx0 = isEnd(id) ? xs + 4 : p.x + 16, yu = ys + w / 2 + 1.6, yd = ys - w / 2 - 1.6 - 3.2; if (xT - w / 2 - 2 - lw > sx0) { cands.push(T => lab(T, xT - w / 2 - 2, yu, 'r'), T => lab(T, xT - w / 2 - 2, yd, 'r')); } }
+          /* (else a little further from its bundle, or ending where the bundle reaches the far end, rather than over a line) */
+          [3.5, 7, 10.5].forEach(dd => xsAlong.slice(0, 3).forEach(x => cands.push(T => lab(T, x, up1 + dd), T => lab(T, x, dn1 - dd))));
+          const xr = isEnd(d.b) ? xt - 3 : B.x - 15.2; /* (outside a closure's ellipse, 14 wide each side) */
+          [0, 3.5, 7].forEach(dd => cands.push(T => lab(T, xr, up1 + dd, 'r'), T => lab(T, xr, dn1 - dd, 'r')));
+          labels.push({ cands, set: { u: 'cab:' + c.k, ow: 'c:' + c.k } });
+        });
+      });
+      /* the points */
+      nodes.forEach(id => {
+        const p = pos.get(id), pt = P.byId.get(id), isNew = pt.status !== 'existing', lay = typ(id) === 'dnap' ? (isNew ? 'DNAP_NEW' : 'DNAP_EXIST') : (isNew ? 'SITE_NEW' : 'SITE_EXIST');
+        if (!isEnd(id)) {
+          const rx = 14, ry = Math.max(8, boxes.get(id).ry); G.u = 'pt:' + id; ellipse(G, p.x, p.y, rx, ry, lay, { lw: 0.35 }); G.u = null;
+          const L = [{ s: (isNew ? 'PROPOSED CLOSURE ' : 'EXISTING CLOSURE ') + String(pt.name || '').toUpperCase(), o: { bold: true, nm: true } }, P.beyond && P.beyond.has(id) ? 'NOT SPLICED' : spliceKind(P, id), 'COORDINATES: ' + (coordTxt(pt.coords) || 'TBF')];
+          const wL = Math.max(...L.map(t => textW(typeof t === 'string' ? t : t.s, 1.25, typeof t !== 'string'))), st = 1.25 * 1.5;
+          labels.push({ set: { u: 'pt:' + id, ow: 'n:' + id }, cands: [0, 5, 10, 16].map(dd => T => T.txs(p.x, p.y + ry + 2 + dd + 2 * st, L, 1.25, lay, { al: 'c', gap: 1.5 })).concat([0, 5, 10, 16].map(dd => T => T.txs(p.x, p.y - ry - 2.6 - dd, L, 1.25, lay, { al: 'c', gap: 1.5 })))
+            .concat([T => T.txs(p.x + rx + 3, p.y + ry + 2 + 2 * st, L, 1.25, lay, { gap: 1.5 }), T => T.txs(p.x - rx - 3 - wL, p.y + ry + 2 + 2 * st, L, 1.25, lay, { gap: 1.5 })]) });
+          const spl = P.nodeSp.get(id) || [], side = { L: 0, R: 0 }, nSide = { L: 0, R: 0 };
+          spl.forEach(s => s.a.f.forEach((fa, i) => { const A = endPt.get(K(id, s.a.c) + '|' + fa), B = endPt.get(K(id, s.b.c) + '|' + s.b.f[i]); if (A && B && (A[0] < p.x) === (B[0] < p.x)) nSide[A[0] < p.x ? 'L' : 'R']++; }));
+          spl.forEach(s => {
+            const lk = lookOf(s.st, P.stage), fl = FL(lk), fill = lk !== 'spliced';
+            s.a.f.forEach((fa, i) => {
+              const fb = s.b.f[i], A = endPt.get(K(id, s.a.c) + '|' + fa), B = endPt.get(K(id, s.b.c) + '|' + fb); if (!A || !B) return;
+              const la = A[0] < p.x, lb = B[0] < p.x;
+              if (la !== lb) { const [L1, R1] = la ? [A, B] : [B, A]; G.pl([L1, [L1[0] + 3, L1[1]], [R1[0] - 3, R1[1]], R1], fl); G.ci(p.x, (L1[1] + R1[1]) / 2, 0.3, 'SPLICE_NEW', { fill }); }
+              else { const sd = la ? 'L' : 'R', k = side[sd]++, stp = nSide[sd] > 1 ? Math.min(0.6, 3 / (nSide[sd] - 1)) : 0, xi = la ? p.x - 1.5 - k * stp : p.x + 1.5 + k * stp, top = Math.max(A[1], B[1]);
+                G.pl([A, [xi, A[1]], [xi, B[1]], B], fl); G.ci(xi, top - Math.min(0.8, Math.abs(A[1] - B[1]) / 2), 0.3, 'SPLICE_NEW', { fill }); }
+              for (const [Q, f] of [[A, fa], [B, fb]]) fnum(G, Q[0] + (Q[0] < p.x ? -0.4 : 0.4), Q[1], 'F' + f, Q[0] < p.x ? 'r' : 'l');
+            });
+          });
+          /* the fibers not cut here pass straight through; their numbers in the clear band at the foot of the ellipse */
+          const done = new Set();
+          P.adj.get(id).forEach(e => {
+            const pr = pass.get(K(id, e.c)); if (!pr || done.has(pr)) return; done.add(pr); const ys = [], k = done.size - 1;
+            [1, 2].forEach(r => {
+              const A = endPt.get(K(id, pr.A) + '|r' + r), B = endPt.get(K(id, pr.B) + '|r' + r); if (!A || !B) return; ys.push(A[1], B[1]);
+              if ((A[0] < p.x) !== (B[0] < p.x)) { const [L1, R1] = A[0] < p.x ? [A, B] : [B, A]; G.pl([L1, [L1[0] + 3, L1[1]], [R1[0] - 3, R1[1]], R1], 'FIBER'); }
+              else { const xi = A[0] < p.x ? p.x - 1.5 : p.x + 1.5; G.pl([A, [xi, A[1]], [xi, B[1]], B], 'FIBER'); }
+            });
+            /* (high enough in the foot of the ellipse that the words fit inside it) */
+            if (ys.length) { const s = fmtRanges(pr.fibers, 'F') + ' NOT CUT', q = Math.min(0.999, (textW(s, 0.7) / 2 + 0.6) / rx); G.tx(p.x, p.y - ry + Math.max(2.6, ry * (1 - Math.sqrt(1 - q * q)) + 0.5) + k * 1.3, s, 0.7, 'TEXT', { al: 'c', va: 'm' }); }
+          });
+          return;
+        }
+        const b = boxes.get(id), x0 = p.x, I = inTo(id), O = outOf(id), left = id === root || kids.get(id).length > 0 && !I.length;
+        G.u = 'pt:' + id; G.frect(x0, b.top - b.h, BW, b.h, 'HILITE', { col: WHITE }); G.rect(x0, b.top - b.h, BW, b.h, lay, { lw: 0.5 });
+        /* its title, upright: beside the side its rows come in on, else where no row's words are (rows on both sides, or long ones) */
+        const ttl = typ(id) === 'dnap' ? 'DUMMY NAP' : (isNew ? 'PROP. ODF' : 'EXIST. ODF'), tw = textW(ttl, 1.5, true), rws = rowsAt.get(id) || [];
+        const rowL = r => (r.c ? I.some(d => d.c === r.c) : !left), rowTx = r => r.t || 'P' + r.port + ' F' + r.f + (r.lk === 'spliced' ? ' FOR FUTURE TESTING' : '');
+        const ext = rws.map(r => { const w = textW(rowTx(r), 0.7); return rowL(r) ? [x0 + 0.6, x0 + 0.6 + w, r.y] : [x0 + BW - 0.6 - w, x0 + BW - 0.6, r.y]; });
+        const tFree = (tx, ty) => ext.every(e => e[1] < tx - 1.1 || e[0] > tx + 1.1 || Math.abs(e[2] - ty) > tw / 2 + 0.7);
+        const tx0 = left ? x0 + 5 : x0 + BW - 5, txs = [tx0].concat(seq(0, Math.floor((BW - 4) / 0.5)).map(i => x0 + 2 + i * 0.5).sort((m, n) => Math.abs(m - tx0) - Math.abs(n - tx0)));
+        const ylo = b.top - b.h + tw / 2 + 1, yhi = b.top - tw / 2 - 1, tys = [p.y].concat(yhi > ylo ? seq(0, Math.floor((yhi - ylo) / 0.5)).map(i => ylo + i * 0.5).sort((m, n) => Math.abs(m - p.y) - Math.abs(n - p.y)) : []);
+        let tP = null; for (const ty of tys) { for (const tx of txs) if (tFree(tx, ty)) { tP = [tx, ty]; break; } if (tP) break; }
+        if (!tP) tP = [tx0, p.y];
+        G.tx(tP[0], tP[1], ttl, 1.5, lay, { al: 'c', va: 'm', rot: 90, bold: true }); G.u = null;
+        rws.forEach(r => {
+          const fromLeft = rowL(r), xe = fromLeft ? x0 : x0 + BW;
+          if (r.t) { G.tx(fromLeft ? x0 + 0.6 : x0 + BW - 0.6, r.y, r.t, 0.7, 'TEXT', { al: fromLeft ? 'l' : 'r', va: 'm' }); const xs2 = fromLeft ? xe - 4 : xe + 4; G.ln(xe, r.y, xs2, r.y, 'FIBER'); cap(G, xs2, r.y); return; }
+          G.tx(fromLeft ? x0 + 0.6 : x0 + BW - 0.6, r.y, rowTx(r), 0.7, 'FIBER_USED', { al: fromLeft ? 'l' : 'r', va: 'm' });
+          const e = endPt.get(K(id, r.c) + '|' + r.f); if (!e) return;
+          G.pl(fromLeft ? [e, [e[0] + 2, e[1]], [xe - 2, r.y], [xe, r.y]] : [[xe, r.y], [xe + 2, r.y], [e[0] - 2, e[1]], e], FL(r.lk));
+        });
+        /* its name and FDU block: above the box at the start of the work; beside it at a far end; above or under it where a cable goes on
+           from it (a dummy NAP the route goes on from), never over that cable */
+        const name = nameOf(id, pt), st = 1.25 * 1.5, hB = (name.length - 1) * st, wN = Math.max(...name.map(t => textW(typeof t === 'string' ? t : t.s, 1.25, typeof t !== 'string')));
+        const above = (T, dd) => T.txs(x0, b.top + 2 + dd + hB, name, 1.25, lay, { gap: 1.5 }), below = (T, dd) => T.txs(x0, b.top - b.h - 2.6 - dd, name, 1.25, lay, { gap: 1.5 });
+        const right = T => T.txs(x0 + BW + 3, b.top - 1.2, name, 1.25, lay, { gap: 1.5 }), leftOf = T => T.txs(x0 - 3 - wN, b.top - 1.2, name, 1.25, lay, { gap: 1.5 });
+        const cands = left ? [T => above(T, 0), T => below(T, 0), T => above(T, 6), T => below(T, 6), leftOf] : O.length ? [T => above(T, 0), T => below(T, 0), T => above(T, 6), T => below(T, 6), T => above(T, 14), T => below(T, 14)] : [right, T => above(T, 0), T => below(T, 0), T => above(T, 6), T => below(T, 6)];
+        labels.push({ set: { u: 'pt:' + id, ow: 'n:' + id }, cands });
+      });
+      /* future legs: a short grey bundle from the new FDU, xx-xx, no splices */
+      P.futures.forEach(x => {
+        const id = x.from; if (!pos.has(id) || !isEnd(id)) return;
+        const b = boxes.get(id), k = P.futures.filter(y => y.from === id).indexOf(x), xs = pos.get(id).x + BW / 2 - GAP + k * 7, yb = b.top - b.h, L = 9 + k * 4;
+        for (let j = 0; j < 3; j++) G.ln(xs + j * GAP, yb, xs + j * GAP, yb - L, 'FOC_FUTURE');
+        const t = ['xx-xx · FUTURE FOC' + (x.name ? ' ' + x.name : '') + ' → ' + up(P.label(x.to)), (P.stage === 'built' ? 'NOT YET BUILT' : 'SECOND CABLE, LATER') + ' · NO SPLICES'];
+        labels.push({ set: { ow: 'n:' + id }, cands: [0, 4, 8, 14].map(dd => T => T.txs(xs + 3 * GAP + 1, yb - L + 1.4 - dd, t, 1.0, 'NOTE', { gap: 1.5 })).concat([T => T.txs(xs - 1, yb - L - 1.6, t, 1.0, 'NOTE', { gap: 1.5, al: 'r' })]) });
+      });
+      /* the labels, each where it meets nothing drawn so far */
+      const pl = placer(G, true);
+      labels.forEach(l => pl.put(l.cands, l.set));
+      return G;
+    };
+    let G = null, left = [];
+    for (let it = 0; it < 6; it++) { G = drawAll(96 * (1 + 0.2 * it), 18 + 12 * it, 6 + 2.5 * it); left = clashes(G.p, true); if (!left.length) break; }
+    P.detClash = left.length;
     return [block(G, 'SPLICING DETAILS')];
   }
   /* a legend in rows: each item a 12 mm symbol and its words; a row ends before maxW (mm). Returns a block with .rows */
@@ -1484,12 +1857,13 @@
     });
   }
   /* what covering a box costs on a sheet (obst: its primitives and their boxes): a text most, then a splice dot, a line crossed, a fill */
-  function costIn(obst) {
+  function costIn(obst, lineW) {
+    lineW = lineW || 40;
     return r => {
       let s = 0;
       for (const o of obst) {
         if (!meet(o.b, r)) continue; const p = o.p;
-        if (p.k === 'tx') s += 1000 + 100 * areaOf(cut2(o.b, r)); else if (p.k === 'ci') s += 300; else if (p.k === 'fl') s += p.col && p.col.rgb === '#ffffff' ? 0 : 3; else if (crosses(p, r)) s += 2;
+        if (p.k === 'tx') s += 1000 + 100 * areaOf(cut2(o.b, r)); else if (p.k === 'ci') s += 300; else if (p.k === 'fl') s += p.col && p.col.rgb === '#ffffff' ? 0 : 3; else if (crosses(p, r)) s += lineW;
       }
       return s;
     };
@@ -1500,23 +1874,50 @@
   function edgeMark(G, side, X, Y, len, forms, name, cells, cost, u, obst, band) {
     const h = 2, v = side === 'L' || side === 'R', out = side === 'R' || side === 'T' ? 1 : -1, mid = 1.4 + 0.5 * h + 0.6; u = u || 0;
     let best = null;
-    forms.forEach((s, fi) => {
+    /* sh: how far it stands off its place beside the edge (further out in the band, or just inside the cell), tried only when every place
+       beside the edge covers a line (lines running along the edge) */
+    const pass = shs => forms.forEach((s, fi) => {
       const L = textW(s, h, true); if (L + 12 > len && fi < forms.length - 1) return;
-      const ua = L / 2 + 0.6, room = Math.max(0, len / 2 - L / 2 - 6), room2 = Math.max(room, len / 2 - L / 2 - 2.5);
-      const boxAt = u0 => { const P = (a, w) => v ? [X + out * w, Y + u0 + a] : [X + u0 + a, Y + out * w], c1 = P(-2 - L / 2 - 0.8, 0.9), c2 = P(ua + 2.2, mid + 2.6); return [Math.min(c1[0], c2[0]), Math.min(c1[1], c2[1]), Math.max(c1[0], c2[0]), Math.max(c1[1], c2[1])]; };
+      const ua = L / 2 + 0.6, room = Math.max(0, len / 2 - L / 2 - 6), room2 = Math.max(room, len / 2 - L / 2 - 1.2);
+      const boxAt = (u0, sh) => { const P = (a, w) => v ? [X + out * (w + sh), Y + u0 + a] : [X + u0 + a, Y + out * (w + sh)], c1 = P(-2 - L / 2 - 0.8, 0.9), c2 = P(ua + 2.2, mid + 2.6); return [Math.min(c1[0], c2[0]), Math.min(c1[1], c2[1]), Math.max(c1[0], c2[0]), Math.max(c1[1], c2[1])]; };
       const us = [u].concat(seq(1, 16).flatMap(k => [u - k * room / 8, u + k * room / 8])).filter(x => Math.abs(x) <= room + 1e-9);
       if (!us.length) us.push(Math.max(-room, Math.min(room, u)));
       /* nearer the corners only when every place along the middle covers a text */
       if (room2 > room + 1e-9) seq(0, 4).forEach(k => { const x = room + (room2 - room) * (k + 1) / 4; us.push(-x, x); });
-      us.forEach(u0 => { const c = cost(boxAt(u0)) + fi * 1.5 + Math.abs(u0 - u) * 0.004 + (Math.abs(u0) > room + 1e-9 ? 50 : 0); if (!best || c < best.c) best = { c, s, L, ua, u0, box: boxAt(u0) }; });
+      shs.forEach(sh => us.forEach(u0 => { const bx = boxAt(u0, sh), c = cost(bx) + fi * 1.5 + Math.abs(u0 - u) * 0.004 + (Math.abs(u0) > room + 1e-9 ? 50 : 0) + Math.abs(sh) * 2; if (!best || c < best.c) best = { c, s, L, ua, u0, sh, box: bx }; }));
     });
-    const { s, ua, u0, box } = best, P = (a, w) => v ? [X + out * w, Y + u0 + a] : [X + u0 + a, Y + out * w];
+    pass([0]);
+    if (best.c >= 40) { const far = Math.max(0, (band || 0) - mid - 2.6 - 0.4), shs = [1.5, 3, 4.5, 6, 8].filter(x => x <= far + 1e-9).concat([-(mid + 3.5), -(mid + 5), -(mid + 6.5)]); pass(shs); }
+    const { s, ua, u0, box } = best, P = (a, w) => v ? [X + out * (w + best.sh), Y + u0 + a] : [X + u0 + a, Y + out * (w + best.sh)];
     G.frect(box[0], box[1], box[2] - box[0], box[3] - box[1], 'HILITE', { col: WHITE });
     const c = P(-2, mid); G.tx(c[0], c[1], s, h, 'MATCH', { al: 'c', va: 'm', bold: true, rot: v ? 90 : 0 });
     G.fl([P(ua - 1.3, mid - 1.1), P(ua, mid + 2.2), P(ua + 1.3, mid - 1.1)], 'MATCH');
     const lo = (v ? Y : X) - len / 2, hi = (v ? Y : X) + len / 2, a0 = Math.max(lo, (v ? box[1] : box[0]) - 12), a1 = Math.min(hi, (v ? box[3] : box[2]) + 12), e = v ? X : Y, f = e + out * Math.max(band || 0, mid + 2.6);
     cells.push({ name, box: v ? [Math.min(e, f), a0, Math.max(e, f), a1] : [a0, Math.min(e, f), a1, Math.max(e, f)] });
     if (obst) obst.push({ p: { k: 'tx' }, b: box });
+  }
+  /* the lines under the marks' white backings (boxes), cut there: the DXF draws no white, so it shows what the PDF and the screen do */
+  function cutUnder(prims, boxes) {
+    if (!boxes.length) return prims;
+    const outside = (P, R) => {
+      const res = []; let cur = [P[0]];
+      for (let i = 1; i < P.length; i++) {
+        const a = P[i - 1], b = P[i], t = clipT(a, b, R), at = u => [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u];
+        if (!t || t[1] - t[0] <= 1e-9) { cur.push(b); continue; }
+        if (t[0] > 1e-9) cur.push(at(t[0]));
+        if (cur.length > 1) res.push(cur);
+        cur = t[1] < 1 - 1e-9 ? [at(t[1]), b] : [b];
+      }
+      if (cur.length > 1) res.push(cur); return res;
+    };
+    const out = [];
+    prims.forEach(p => {
+      if (p.k !== 'pl' || !boxes.some(r => crosses(p, r))) { out.push(p); return; }
+      let pieces = [p.close ? p.pts.concat([p.pts[0]]) : p.pts.slice()];
+      boxes.forEach(r => { pieces = pieces.reduce((a, P) => a.concat(outside(P, r)), []); });
+      pieces.forEach(P => out.push(Object.assign({}, p, { pts: P, close: false })));
+    });
+    return out;
   }
   /* a dashed match line from a to b (along x or y), broken where it would run through a text (boxes) */
   function matchLine(G, a, b, boxes) {
@@ -1561,8 +1962,8 @@
         const r = [Math.min(W[2] - m - w, Math.max(W[0] + m, x)), Math.min(W[3] - m - h, Math.max(W[1] + m, y))]; r.push(r[0] + w, r[1] + h);
         const s = cost([r[0] - 0.2, r[1] - 0.2, r[2] + 0.2, r[3] + 0.2]) + 0.05 * Math.hypot(r[0] - u.nb[0], r[1] - u.nb[1]) + (boxIn(r, c.box, 1e-9) ? 0 : 5) + t * 0.5 + (pen || 0); if (!best || s < best.s) best = { s, r, t };
       });
-      /* a cable's label again only where it hides no text (a closure's, a NAP's or an ODF's name is placed in any case) */
-      if (!best || u.cable && best.s >= 1000) return;
+      /* a label again only where it hides no text and no line */
+      if (!best || best.s >= 40) return;
       const r = best.r, T = tpl[best.t], pd = 0.15, d = [r[0] - T.b[0], r[1] - T.b[1]];
       out.push({ k: 'fl', pts: [[r[0] - pd, r[1] - pd], [r[2] + pd, r[1] - pd], [r[2] + pd, r[3] + pd], [r[0] - pd, r[3] + pd]], lay: 'HILITE', col: WHITE });
       T.ps.forEach(q => { const t = Object.assign({}, q, { p: [q.p[0] + d[0], q.p[1] + d[1]], again: 1 }); delete t.g; delete t.u; delete t.nm; out.push(t); });
@@ -1596,7 +1997,9 @@
     const aw = A.x1 - A.x0, ah = A.y1 - A.y0, legPrims = () => xf(leg.prims, 1, AREA.x0, AREA.y0 + 7 + 6 * (leg.rows - 1)), sheets = [];
     /* the key map: the whole drawing and its grid fitted to the drawing area */
     {
-      const GE = [Math.min(g.x0, 0), Math.min(g.y1 - g.rows * g.ch, -b.h), Math.max(g.x0 + g.cols * g.cw, b.w), Math.max(g.y1, 0)], k = Math.min(aw / (GE[2] - GE[0]), ah / (GE[3] - GE[1]));
+      /* (with the cells that have no sheet of their own but are drawn, SEE B-02: they may lie outside the sheets' columns and rows) */
+      const others = g.cells.filter(c => c.absorbed && c.to[0].keep);
+      const GE = [Math.min(g.x0, 0, ...others.map(c => c.box[0])), Math.min(g.y1 - g.rows * g.ch, -b.h, ...others.map(c => c.box[1])), Math.max(g.x0 + g.cols * g.cw, b.w, ...others.map(c => c.box[2])), Math.max(g.y1, 0, ...others.map(c => c.box[3]))], k = Math.min(aw / (GE[2] - GE[0]), ah / (GE[3] - GE[1]));
       const dx = A.x0 + (aw - (GE[2] - GE[0]) * k) / 2 - GE[0] * k, dy = A.y0 + (ah - (GE[3] - GE[1]) * k) / 2 - GE[1] * k, M = (x, y) => [x * k + dx, y * k + dy];
       const G = new Gfx(), light = { rgb: '#c4c9cf', aci: 9 }, cells = [], seen = new Set(), cwP = g.cw * k, chP = g.ch * k;
       /* drawn small, its lines thinner so a bundle of fibers stays a bundle */
@@ -1620,7 +2023,6 @@
         cells.push({ name: c.name, box: [x0, y0, x1, y1] });
       });
       /* a cell with a little drawing but no sheet of its own (its drawing is on a neighbour's sheet): its outline and SEE B-02 */
-      const others = g.cells.filter(c => c.absorbed && c.to[0].keep);
       others.forEach(c => {
         const [x0, y0] = M(c.box[0], c.box[1]), [x1, y1] = M(c.box[2], c.box[3]), to = c.to.find(n => n.keep) || c.to[0], s = 'SEE ' + to.name, h = Math.min(4, 0.18 * chP, 0.6 * cwP / textW(s, 1));
         G.tx((x0 + x1) / 2, y1 - 1.5 * h, s, h, 'GRID', { al: 'c', va: 'm', col: light });
@@ -1640,7 +2042,7 @@
       const exits = [], raw = clipPrims(b.prims, c.W, V, new Set(c.texts.flatMap(t => t.ps)), parts.gOf, exits), shown = new Set(raw.filter(p => p.k === 'tx'));
       const body = xf(raw.concat(namesAgain(raw, parts.units, c, shown)), k, dx, dy), G = new Gfx(), cells = [];
       const [wx0, wy0] = M(c.W[0], c.W[1]), [wx1, wy1] = M(c.W[2], c.W[3]), [cx0, cy0] = M(c.box[0], c.box[1]), [cx1, cy1] = M(c.box[2], c.box[3]);
-      const nb = { L: g.at(c.i - 1, c.j), R: g.at(c.i + 1, c.j), T: g.at(c.i, c.j - 1), B: g.at(c.i, c.j + 1) }, obst = body.map(p => ({ p, b: primBox([p]) })), cost = costIn(obst);
+      const nb = { L: g.at(c.i - 1, c.j), R: g.at(c.i + 1, c.j), T: g.at(c.i, c.j - 1), B: g.at(c.i, c.j + 1) }, obst = body.map(p => ({ p, b: primBox([p]) })), cost = costIn(obst, 60); /* (a mark over a line hides it: worse than a place near a corner) */
       const txb = obst.filter(o => o.p.k === 'tx').map(o => o.b), band = { L: cx0 - wx0, R: wx1 - cx1, B: cy0 - wy0, T: wy1 - cy1 };
       Object.keys(nb).forEach(sd => {
         const n = nb[sd]; if (!n || !n.keep) return;
@@ -1660,7 +2062,8 @@
         else { const Y = sd === 'B' ? cy0 : cy1, X = (cx0 + cx1) / 2; edgeMark(G, sd, X, Y, cx1 - cx0, ['CONTINUES ON ' + to.name, 'CONT. ON ' + to.name], to.name, cells, cost, u * k + dx - X, obst, band[sd]); }
       });
       locator(G, g, c, L, AREA.x1, A.y0 - 2 - (14 + L.ex) / 2, cells);
-      sheets.push({ head: head + ' · GRID ' + c.name, label: c.name, prims: body.concat(G.p, legPrims()), body: [0, body.length], cells, cell: c.name, area: [A.x0, A.y0, A.x1, A.y1], view: { k, dx, dy } });
+      const cut = cutUnder(body, G.p.filter(p => p.k === 'fl' && p.lay === 'HILITE' && p.col === WHITE).map(p => primBox([p])));
+      sheets.push({ head: head + ' · GRID ' + c.name, label: c.name, prims: cut.concat(G.p, legPrims()), body: [0, cut.length], cells, cell: c.name, area: [A.x0, A.y0, A.x1, A.y1], view: { k, dx, dy } });
     });
     return { sheets, grid: { cols: g.cols, rows: g.rows, cw: g.cw, ch: g.ch, x0: g.x0, y1: g.y1, overlap: g.ov, minText: g.minH, prims: b.prims,
       cells: g.kept.map(c => ({ name: c.name, i: c.i, j: c.j, box: c.box, win: c.W, view: c.V, margin: c.mu })) } };
@@ -1873,5 +2276,5 @@
         .map(([main, line, ports, pole, poleType]) => ({ main, line, ports, pole, poleType })) } }
   };
 
-  root.Splice = { build, assign, toSVG, toPDF, toDXF, zip, parseRanges, fmtRanges, fiberColor, FIBER, samples, SHEET: SH, RULES, LAYERS, GRID, version: 'demo-3' };
+  root.Splice = { build, assign, toSVG, toPDF, toDXF, zip, parseRanges, fmtRanges, fiberColor, FIBER, samples, SHEET: SH, RULES, LAYERS, GRID, clashes, version: 'demo-4' };
 })(typeof window !== 'undefined' ? window : globalThis);

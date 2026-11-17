@@ -13,7 +13,7 @@ const P = []; const put = (...pairs) => { for (let i = 0; i < pairs.length; i +=
 const sec = (name, fn) => { put(0, 'SECTION', 2, name); fn(); put(0, 'ENDSEC'); };
 const tbl = (name, h, n, fn) => { put(0, 'TABLE', 2, name, 5, h, 330, '0', 100, 'AcDbSymbolTable', 70, n); fn(); put(0, 'ENDTAB'); };
 const rec = (t, h, own, ...rest) => put(0, t, 5, h, 330, own, ...rest);
-const vport = (h, name) => rec('VPORT', h, '8', 100, 'AcDbSymbolTableRecord', 100, 'AcDbViewportTableRecord', 2, name, 70, 0, 10, '0.0', 20, '0.0', 11, '1.0', 21, '1.0',
+const vport = (h, name, c) => rec('VPORT', h, '8', 100, 'AcDbSymbolTableRecord', 100, 'AcDbViewportTableRecord', 2, name, 70, 0, ...(c || [10, '0.0', 20, '0.0', 11, '1.0', 21, '1.0']), // (c: its part of the screen)
   12, '50.0', 22, '50.0', 13, '0.0', 23, '0.0', 14, '1.0', 24, '1.0', 15, '10.0', 25, '10.0', 16, '0.0', 26, '0.0', 36, '1.0', 17, '0.0', 27, '0.0', 37, '0.0', 40, '100.0', 41, '1.6', 42, '50.0', 43, '0.0', 44, '0.0', 50, '0.0', 51, '0.0', 71, 0, 72, 100, 73, 1, 74, 3, 75, 0, 76, 0, 77, 0, 78, 0, 281, 0, 65, 1, 110, '0.0', 120, '0.0', 130, '0.0', 111, '1.0', 121, '0.0', 131, '0.0', 112, '0.0', 122, '1.0', 132, '0.0', 79, 0, 146, '0.0');
 const layer = (h, name, extra) => rec('LAYER', h, '2', 100, 'AcDbSymbolTableRecord', 100, 'AcDbLayerTableRecord', 2, name, 70, 0, 62, 7, 6, 'Continuous', 370, -3, ...(extra || []));
 const ltype = (h, name) => rec('LTYPE', h, '5', 100, 'AcDbSymbolTableRecord', 100, 'AcDbLinetypeTableRecord', 2, name, 70, 0, 3, '', 72, 65, 73, 0, 40, '0.0');
@@ -28,9 +28,12 @@ const FX = 20000000, FY = 3000000; // the far block is drawn about 20,000 km fro
 put(999, 'LibreDWG 0.14.8641 (synthetic test drawing)');
 sec('HEADER', () => put(9, '$ACADVER', 1, 'AC1032', 9, '$DWGCODEPAGE', 3, 'ANSI_1252', 9, '$INSBASE', 10, '0.0', 20, '0.0', 30, '0.0', 9, '$EXTMIN', 10, '-11488.4', 20, '-12308.4', 30, '0.0', 9, '$EXTMAX', 10, '41201.5', 20, '29201.0', 30, '0.0',
   9, '$TILEMODE', 70, 1, 9, '$CMATERIAL', 347, 'EC', 9, '$INTERFEREOBJVS', 345, '70', 9, '$HANDSEED', 5, '30'));
-sec('CLASSES', () => {});
+sec('CLASSES', () => { // beta 4.7: the picture classes with counts left from the template (IMAGEDEF 118 for 1 picture)
+  for (const [n, cpp, fl, cnt, ent] of [['IMAGE', 'AcDbRasterImage', 2175, 5, 1], ['IMAGEDEF', 'AcDbRasterImageDef', 0, 118, 0], ['IMAGEDEF_REACTOR', 'AcDbRasterImageDefReactor', 1, 5, 0], ['RASTERVARIABLES', 'AcDbRasterVariables', 0, 0, 0]])
+    put(0, 'CLASS', 1, n, 2, cpp, 3, 'ISM', 90, fl, 91, cnt, 280, 0, 281, ent);
+});
 sec('TABLES', () => {
-  tbl('VPORT', '8', 3, () => { vport('29', '*Active'); vport('2A', '*Multiple'); vport('2B', '*Active'); });
+  tbl('VPORT', '8', 3, () => { vport('29', '*Active', [10, '0.0', 20, '0.0', 11, '0.5', 21, '1.0']); vport('2A', '*Multiple'); vport('2B', '*Active', [10, '0.5', 20, '0.0', 11, '1.0', 21, '1.0']); }); // (beta 4.7: the model view saved as two tiled viewports, the left and the right half)
   tbl('LTYPE', '5', 3, () => { ltype('14', 'ByBlock'); ltype('15', 'ByLayer'); ltype('16', 'Continuous'); });
   tbl('LAYER', '2', 4, () => { layer('10', '0', [347, 'EE']); layer('11', 'GRIDS', [347, 'EE']); layer('12', 'G-ESAA VICINITY', [347, 'EE']); layer('13', 'LEGEND', [347, 'EE']); });
   tbl('STYLE', '3', 2, () => { style('17', 'Standard', 'arial.ttf', 'Arial'); style('18', 'MtXpl_Vineta_BT', 'vinet.ttf', 'Vineta BT'); });
@@ -102,6 +105,11 @@ const d1 = new T.Doc(out), S1 = T.structure(d1), typ = (r) => r[0][1], get = (r,
 const recs = d1.secs.filter((s) => s.recs).flatMap((s) => s.recs), of = (t) => recs.filter((r) => typ(r) === t);
 ok(/\r\n/.test(out) && !/[^\r]\n/.test(out), 'CRLF line ends');
 ok(of('VPORT').length === 1 && get(of('VPORT')[0], 2) === '*Active', '1 one *Active VPORT', of('VPORT').map((r) => get(r, 2)));
+{ const v = of('VPORT')[0]; ok(get(v, 10) === '0.0' && get(v, 20) === '0.0' && get(v, 11) === '1.0' && get(v, 21) === '1.0' && Math.abs(parseFloat(get(v, 41)) - 3.2) < 1e-9,
+  '1 (beta 4.7) the *Active VPORT (the left half of the screen) over the whole screen, its aspect the whole screen\'s', [10, 20, 11, 21, 41].map((c) => get(v, c)).join(' ')); }
+{ const C = d1.sec('CLASSES').raw, n91 = (nm) => { const i = C.findIndex((p) => p[0] === 1 && p[1] === nm); const j = C.findIndex((p, k) => k > i && p[0] === 91); return i < 0 || j < 0 ? null : parseInt(C[j][1], 10); };
+  ok(['IMAGE', 'IMAGEDEF', 'IMAGEDEF_REACTOR', 'RASTERVARIABLES'].every((nm) => n91(nm) === of(nm).length) && n91('IMAGEDEF') === 1,
+    '19 (beta 4.7) each picture class\'s instance count its records', ['IMAGE', 'IMAGEDEF', 'IMAGEDEF_REACTOR', 'RASTERVARIABLES'].map((nm) => `${nm} ${n91(nm)}/${of(nm).length}`).join(', ')); }
 ok(!of('ATTRIB').some((r) => r.some((p) => p[0] === 100 && p[1] === 'AcDbXrecord')) && of('ATTRIB').length === 1, '2 ATTRIB without its AcDbXrecord tail');
 ok(!of('GEODATA').length && !out.includes('ACAD_GEOGRAPHICDATA'), '3 GEODATA and its dictionary entry gone');
 ok(!of('REGION').length && !d1.byHandle.get('55'), '4 REGION dropped (and the insert of the block it left empty)');
@@ -136,6 +144,15 @@ ok(em && parseFloat(em[1]) > 784000, '$EXTMIN on the plan', em);
 const r2 = T.repair(out);
 ok(r2.text === out, 'idempotent: a second run gives the same bytes', Object.keys(r2.report.cleanup).join(', ') || 'nothing to do');
 const dc = new T.Doc(out); T.clean(dc); ok(dc.text() === out, 'idempotent: clean on its own output changes nothing');
+// ---- beta 4.7: a template with no *Active VPORT (named view configurations only): its first VPORT is kept, as *Active ----
+const srcNA = src.replace(/\n\*Active\n/g, '\nMYCFG\n');
+ok(!/\n\*Active\n/.test(srcNA) && (srcNA.match(/\nMYCFG\n/g) || []).length === 2, 'no-*Active sample: two VPORTs named MYCFG, none *Active');
+const rNA = T.repair(srcNA), dNA = new T.Doc(rNA.text), vNA = dNA.sec('TABLES').recs.filter((r) => typ(r) === 'VPORT'), tNA = dNA.sec('TABLES').recs.find((r) => typ(r) === 'TABLE' && get(r, 2) === 'VPORT');
+ok(vNA.length === 1 && get(vNA[0], 2) === '*Active' && get(vNA[0], 5) === '29' && parseInt(get(tNA, 70), 10) === 1, '1 no *Active: the first VPORT kept, named *Active (the table not left empty)', vNA.map((r) => `${get(r, 2)} ${get(r, 5)}`).join(', ') + ` | count ${get(tNA, 70)}`);
+ok(vNA.length === 1 && get(vNA[0], 10) === '0.0' && get(vNA[0], 20) === '0.0' && get(vNA[0], 11) === '1.0' && get(vNA[0], 21) === '1.0' && Math.abs(parseFloat(get(vNA[0], 41)) - 3.2) < 1e-9,
+  '1 no *Active: that VPORT over the whole screen, its aspect the whole screen\'s', vNA.length && [10, 20, 11, 21, 41].map((c) => get(vNA[0], c)).join(' '));
+ok(vNA.length === 1 && parseFloat(get(vNA[0], 12)) > 785000 && parseFloat(get(vNA[0], 12)) < 786050 && parseFloat(get(vNA[0], 40)) < 2000, 'no *Active: opens on the plan (frame())', vNA.length && `${get(vNA[0], 12)}, ${get(vNA[0], 22)}, h ${get(vNA[0], 40)}`);
+ok(T.repair(rNA.text).text === rNA.text, 'no *Active: a second run gives the same bytes');
 // ---- the validator ----
 const dst = process.argv[2] || path.join(os.tmpdir(), `gesaa_clean_${process.pid}.dxf`);
 fs.writeFileSync(dst, out);
@@ -143,6 +160,9 @@ const srcTmp = path.join(os.tmpdir(), `gesaa_raw_${process.pid}.dxf`); fs.writeF
 const check = path.join(__dirname, '..', 'tools', 'dxf-seed', 'check_plan.py');
 let res = ''; try { res = execFileSync('python3', ['-I', check, dst], { encoding: 'utf8' }); ok(/no problems/.test(res), 'check_plan.py: no problems on the repaired sample'); } catch (e) { ok(false, 'check_plan.py: no problems on the repaired sample', (e.stdout || '') + (e.stderr || '')); }
 try { execFileSync('python3', ['-I', check, srcTmp], { encoding: 'utf8' }); ok(false, 'check_plan.py finds the faults of the raw sample'); } catch (e) { ok(/problem/.test(e.stdout || ''), 'check_plan.py finds the faults of the raw sample', (e.stdout || '').split('\n').filter((x) => /problem/.test(x)).join(' / ')); }
+{ const dNAf = path.join(os.tmpdir(), `gesaa_noactive_${process.pid}.dxf`); fs.writeFileSync(dNAf, rNA.text); // (beta 4.7)
+  try { const o2 = execFileSync('python3', ['-I', check, dNAf], { encoding: 'utf8' }); ok(/no problems/.test(o2), 'check_plan.py: no problems on the repaired no-*Active sample'); } catch (e) { ok(false, 'check_plan.py: no problems on the repaired no-*Active sample', (e.stdout || '') + (e.stderr || '')); }
+  fs.unlinkSync(dNAf); }
 if (!process.argv[2]) fs.unlinkSync(dst);
 fs.unlinkSync(srcTmp);
 console.log(fails ? `${fails} FAILED` : 'all passed');

@@ -44,6 +44,29 @@
       .replace(/\\[ACcFfHhQqTtWw][^;]*;/g, '').replace(/\\p[^;]*;/g, '').replace(/\\S([^;]*);/g, (m, a) => a.replace(/[\^#]/g, '/'))
       .replace(/\\[LlOoKk]/g, '').replace(/\\[PN]/g, '\n').replace(/\\~/g, ' ').replace(/[{}]/g, '').replace(/\^J/g, '\n').replace(/\^I/g, ' ').replace(/\u0001/g, '\\');
   }
+  /** beta 4.7: an MTEXT's text as lines of runs [{ s, c }] (c: the colour number a \C code set, null: the entity's colour), read as plain() reads it. */
+  function colourRuns(raw) {
+    const out = [[]], stack = []; let cur = null, buf = '';
+    const flush = () => { if (buf) { out[out.length - 1].push({ s: buf, c: cur }); buf = ''; } };
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw[i], n = raw[i + 1];
+      if (ch === '\\' && n !== undefined) {
+        if (n === 'C' || n === 'c') { const j = raw.indexOf(';', i); if (j > i) { flush(); cur = parseInt(raw.slice(i + 2, j), 10); i = j; continue; } }
+        if (n === 'P' || n === 'N') { flush(); out.push([]); i++; continue; }
+        if (n === '\\' || n === '{' || n === '}') { buf += n; i++; continue; }
+        if (n === '~') { buf += ' '; i++; continue; }
+        if ('LlOoKk'.includes(n)) { i++; continue; }
+        if ('AFfHhQqTtWwp'.includes(n)) { const j = raw.indexOf(';', i); if (j > i) { i = j; continue; } }
+        if (n === 'S') { const j = raw.indexOf(';', i); if (j > i) { buf += raw.slice(i + 2, j).replace(/[\^#]/g, '/'); i = j; continue; } }
+        if (n === 'U' && raw[i + 2] === '+') { buf += String.fromCharCode(parseInt(raw.slice(i + 3, i + 7), 16)); i += 6; continue; }
+      }
+      if (ch === '{') { flush(); stack.push(cur); continue; }
+      if (ch === '}') { flush(); cur = stack.length ? stack.pop() : null; continue; }
+      if (ch === '^' && (n === 'J' || n === 'I')) { if (n === 'J') { flush(); out.push([]); } else buf += ' '; i++; continue; }
+      buf += ch;
+    }
+    flush(); return out;
+  }
   const special = (s) => String(s).replace(/%%[dD]/g, '°').replace(/%%[cC]/g, 'Ø').replace(/%%[pP]/g, '±').replace(/%%[uUoOkK]/g, '').replace(/%%%/g, '%');
   const CAP = 0.718; // Helvetica's capital height (AutoCAD's text height is the capitals' height)
 
@@ -255,9 +278,11 @@
         const fc = bg & 2 ? [255, 255, 255] : (ACI[int(r, 63, 7)] || [255, 255, 255]), Q = [W2(x0, y0), W2(x1, y0), W2(x1, y1), W2(x0, y1)];
         ops.push(`q ${f4(fc[0] / 255)} ${f4(fc[1] / 255)} ${f4(fc[2] / 255)} rg ${Q.map((q, i) => `${f2(q[0])} ${f2(q[1])} ${i ? 'l' : 'm'}`).join(' ')} h f Q`);
       }
+      const runs = o.colourRuns && /\\[Cc]\d/.test(raw) && !(refW > 0) ? colourRuns(raw) : null; const byLay = runs ? colorOf(r.filter((x) => x[0] !== 62 && x[0] !== 420), { color: col }) : null; // (\C256: the layer's colour) // beta 4.7: a part in another colour ({\C7;…}: Tidy's pole labels; o.colourRuns, so a Standard plan's PDF stays as it was)
       lines.forEach((l, i) => {
         if (!l.trim()) return;
         const dx = left + (al === 'c' ? (colW - lw[i]) / 2 : al === 'r' ? colW - lw[i] : 0), dy = top - h - i * pitch;
+        if (runs && runs.length === lines.length) { let x = dx; for (const R of runs[i]) { const s2 = special(R.s); if (s2.trim()) textLine(ops, M, R.c > 0 && R.c < 256 && ACI[R.c] ? ACI[R.c] : R.c === 256 ? byLay : col, s2, ax + x * c - dy * sn, ay + x * sn + dy * c, ang, h, wf, bold); x += widthEm(s2, bold) * fs * wf; } return; }
         textLine(ops, M, col, l, ax + dx * c - dy * sn, ay + dx * sn + dy * c, ang, h, wf, bold);
       });
     }

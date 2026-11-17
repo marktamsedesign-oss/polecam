@@ -5,14 +5,15 @@ Exit status 0 when no problem is found, 1 otherwise.
 What AutoCAD for Mac refused in the LibreDWG-made template, and what the export must get right (the team's task list, section 5):
   file       UTF-8, CRLF line ends, group codes and values of the right type, ends with EOF
   handles    no duplicate; every pointer (320-369, 390) resolves, in the header too; $HANDSEED above the largest handle
-  tables     one VPORT only, named *Active
+  tables     one VPORT only, named *Active, over the whole screen (beta 4.7: the template's left half left the right half blank)
   attributes INSERT (66 1) then its ATTRIBs then SEQEND; an ATTRIB has only AcDbEntity / AcDbText / AcDbAttribute (no AcDbXrecord)
   entities   no REGION / 3DSOLID / BODY without an ACDSDATA section; no MULTILEADER; owners are their space or block; a
              VIEWPORT's frozen layers under 331 (not 341)
   objects    no GEODATA, SUN, VISUALSTYLE, TABLESTYLE, MLEADERSTYLE...; SORTENTSTABLE has its block record (330) right after
              its subclass marker
   images     every IMAGEDEF used by an IMAGE and named in ACAD_IMAGE_DICT, with a plain file name (no folder); each IMAGE
-             points to its IMAGEDEF (340) and its own IMAGEDEF_REACTOR (360)
+             points to its IMAGEDEF (340) and its own IMAGEDEF_REACTOR (360); beta 4.7: each picture class's instance count (91)
+             its records
   texts      no MTEXT whose width (41) is below 20 % of its text's width; no ^J in MTEXT; an MTEXT's embedded object (101) as
              AutoCAD reads it (10 its direction: LibreDWG swaps it with the insertion; none with one column, which AutoCAD lays out
              from its corner); no @@ field left; no sample project
@@ -142,6 +143,9 @@ def main():
     # tables
     vps = [r for r in S.get('TABLES', []) if typ(r) == 'VPORT']
     if len(vps) != 1 or (g(vps[0], 2) or '').upper() != '*ACTIVE': probs['tables'].append(f'VPORT records: {[g(r, 2) for r in vps]} (one *Active wanted)')
+    for v in vps[:1]:  # beta 4.7: over the whole screen (a part of it: AutoCAD opens the plan there, the rest of the screen blank)
+        cs = (gf(v, 10, 0.0), gf(v, 20, 0.0), gf(v, 11, 1.0), gf(v, 21, 1.0))
+        if any(abs(a - b) > 1e-6 for a, b in zip(cs, (0.0, 0.0, 1.0, 1.0))): probs['tables'].append(f'*Active VPORT covers ({cs[0]:g}, {cs[1]:g}) - ({cs[2]:g}, {cs[3]:g}) of the screen, not all of it')
     br = {handle(r): g(r, 2) for r in S.get('TABLES', []) if typ(r) == 'BLOCK_RECORD'}; br_by = {v: k for k, v in br.items()}
     model_h, paper_h = br_by.get('*Model_Space'), br_by.get('*Paper_Space')
     if not model_h or not paper_h: probs['tables'].append('*Model_Space or *Paper_Space block record missing')
@@ -197,6 +201,10 @@ def main():
         if h not in used: probs['images'].append(f'IMAGEDEF {h} ({f}) not used by any IMAGE')
         if h not in named: probs['images'].append(f'IMAGEDEF {h} ({f}) not named in ACAD_IMAGE_DICT')
         if re.search(r'[\\/:]', f): probs['images'].append(f'IMAGEDEF {h}: file name with a folder: {f}')
+    cnt = collections.Counter(typ(r) for n, r in RECS)  # beta 4.7: each picture class's instance count
+    for r in S.get('CLASSES', []):
+        if typ(r) == 'CLASS' and g(r, 1) in ('IMAGE', 'IMAGEDEF', 'IMAGEDEF_REACTOR', 'RASTERVARIABLES') and str(g(r, 91, '')).strip() != str(cnt[g(r, 1)]):
+            probs['images'].append(f'CLASS {g(r, 1)}: instance count {str(g(r, 91, "")).strip()}, {cnt[g(r, 1)]} in the drawing')
     for r in images:
         d0 = byh.get(g(r, 340)); rx = byh.get(g(r, 360))
         if not d0 or typ(d0) != 'IMAGEDEF': probs['images'].append(f'IMAGE {handle(r)}: 340 is not an IMAGEDEF')

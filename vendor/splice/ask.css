@@ -350,3 +350,15 @@ html[data-app] .btnrow.icorow { justify-content: flex-end; }
 html[data-app] .appnote { border-left: 3px solid var(--line); padding-left: 10px; }
 #nohost { padding: 24px; font: 15px/1.5 system-ui, sans-serif; }
 #nohost[hidden] { display: none; }
+
+/* fix 4.7: Show on the map (the app): a map pin in a card's head, on a warning about a point, and as pills (a cable's two ends) */
+.mapb { flex: none; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--accent); display: inline-grid; place-items: center; padding: 0; }
+.mapb svg { width: 22px; height: 22px; }
+.mapb:hover { background: var(--soft); }
+.kick .mapb { margin-left: auto; }
+.kick .mapb + .x { margin-left: 0; }
+.ck > .mapb { align-self: center; }
+.mapends { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 8px; }
+.mapb.lbl { width: auto; min-height: 44px; height: auto; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px 0 10px; font-size: 15px; font-weight: 600; color: var(--ink); max-width: 100%; }
+.mapb.lbl svg { color: var(--accent); }
+.mapb.lbl span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
