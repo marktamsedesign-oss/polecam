@@ -20,6 +20,7 @@ One phone app that replaces GPS Camera + the Windows geolocator step:
    - **CSV**: pole ID, type, lat/long, UTM E/N, GPS accuracy, pin-adjusted flag, time, surveyed by.
    - **Geotagged photos (ZIP)**: JPEGs named by Pole ID, stamped with ID/type/coordinates/time, GPS written into EXIF.
    - **Backup / Restore** of a whole project.
+   - **Poles on no cable** (a survey with cables): Export first names the poles on no RUN (a pole whose only spans are on no RUN counts, as in Route check; sites, towers, ODC, ODF and handholes do not) and offers three icons. **Fix**: the map goes to each pole in Route, ringed, with the nearest cable lit: drag its ○ onto the pole (a bar at the top: *1 of 3 · CC-0012*, ◀ ▶, Hide, Done); a pole put on a cable brings the next one, and at the end Export opens again. **Hide**: the pole is left out of the KMZ, the DXF (simple and plan), the plan PDF and One PDF, Table · CSV, Route and spans · Excel, the BOQ, the photo report, the geotagged photos and the completion report; its pin is faded, the Records list says *not exported*, and **Show in exports** in its record brings it back (Backup and Share keep it). **Leave**: exported as it is; Export asks again only when another pole is on no cable. Not asked in PAT, cleanup or FAT, in a CEF-Plan project, or with no cable at all.
 
 Photos cannot be imported (v1.7): every photo is taken live, so its location can be checked.
 

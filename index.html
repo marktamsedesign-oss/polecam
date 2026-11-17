@@ -242,7 +242,7 @@ details.help{margin:0}details.help>summary{list-style:none;cursor:pointer;font-s
 .dxfrows{display:flex;flex-direction:column;gap:8px}.dxfrow{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:10px;padding:8px 10px}.dxfrowhd{display:flex;align-items:center;gap:8px}.dxfrowhd b{flex:1}.dxfrow .hint{margin:0}.dxfchips{display:flex;flex-wrap:wrap;gap:6px}#dxfRowAdd{align-self:flex-start}
 @media (max-width:420px){.drwbar{gap:6px;padding-left:10px;padding-right:10px}.drwbar #drawDxf{padding:0 10px}.drwicon{width:44px}.drwbar select{flex-basis:104px;min-width:78px}}
 /* v2.41: the drawing style */
-.stprev,.stvic{background:#000;border-radius:12px;overflow:hidden;border:1px solid var(--line)}.stprev svg{display:block;width:100%;height:auto}.stvic{max-width:300px}.stvic svg{display:block;width:100%;height:auto}
+.stprev,.stvic{background:#000;border-radius:12px;overflow:hidden;border:1px solid var(--line)}.stprev svg{display:block;width:100%;height:auto}.stvic{max-width:300px}.stroute{margin:4px 0 8px}.stvic svg{display:block;width:100%;height:auto}
 .strow.dim{opacity:.5}
 /* beta 3.8: Drawing style: the preview beside the settings on a computer (it stays while they scroll); on a phone at the top, smaller as they scroll */
 #drwStyle .body.dsbody{padding:0;gap:0;display:block;container-type:inline-size}
@@ -904,6 +904,21 @@ body.deskpane.routing #rtHint{left:calc(var(--pw) + (100% - var(--pw) - var(--rp
 #hlChip #hlGo{min-width:0;overflow:hidden;text-overflow:ellipsis}
 #hlChip b{font-family:var(--mono)}
 #hlChip .ed{background:var(--navy);color:var(--navy-ink)}#hlChip .ed:hover{background:var(--accent);color:var(--accent-ink)}
+/* Poles on no cable, at Export: the Fix walk's bar at the top of the open map (over the GPS pill; the legend, the toast and the hint below it) */
+#xfBar{position:absolute;top:calc(env(safe-area-inset-top,0px) + 60px);left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));z-index:530;display:flex;align-items:center;gap:4px;background:var(--surface);color:var(--ink);border:2px solid #f08c00;border-radius:var(--r);box-shadow:var(--shadow);padding:3px}
+#xfBar[hidden]{display:none}#xfBar:focus{outline:none}#xfBar:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+#xfNow{flex:1 1 auto;min-width:0;text-align:center;font-size:calc(13px * var(--fs));line-height:1.25;overflow-wrap:anywhere}
+#xfNow b{font-family:var(--mono)}#xfNow .ok{color:#2f9e44;font-weight:700;white-space:nowrap}#xfNow .off{color:var(--muted);font-weight:700}
+#xfBar button{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:44px;min-height:44px;padding:0 9px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:inherit;font:700 calc(13px * var(--fs)) system-ui,sans-serif;cursor:pointer}
+#xfBar button[hidden]{display:none}#xfBar button:disabled{opacity:.35;cursor:default}#xfBar button svg{width:18px;height:18px;flex:none}
+#xfBar button.primary{background:var(--navy);color:var(--navy-ink);border-color:var(--navy)}
+@media (hover:hover){#xfBar button:not(:disabled):hover{background:var(--chip)}#xfBar button.primary:hover{background:var(--accent);color:var(--accent-ink)}}
+body.deskpane #xfBar{left:calc(var(--pw) + 12px);right:12px}body.deskpane.rpanel #xfBar{right:calc(var(--rpw) + 12px)}
+body.xfix #gpsPill{visibility:hidden}body.xfix #legendBtn,body.xfix #legend{top:calc(env(safe-area-inset-top,0px) + 118px)}
+body.xfix.routing #toast{top:calc(env(safe-area-inset-top,0px) + 118px)}body.xfix #rtHint{top:calc(env(safe-area-inset-top,0px) + 162px)}
+#askBox .btn.tile small{display:block;margin-top:-5px;font-size:calc(11.5px * var(--fs));font-weight:600;opacity:.8}
+.notice.xoff{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-color:#f08c00}.notice.xoff[hidden]{display:none}.notice.xoff svg{width:20px;height:20px;flex:none}.notice.xoff span{flex:1 1 160px}
+.tag.xoff{background:#fff3bf;color:#5c3c00}
 body.routing #hlChip{display:none}
 /* v2.42.27: the Projects pane, on a computer only (a mouse and a screen 1180 px wide or more) */
 #projPane{display:none}
@@ -1308,6 +1323,10 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <symbol id="i-cef" viewBox="0 0 24 24"><path d="M12 3 6 21M12 3l6 18M8.3 14h7.4M9.7 9h4.6M4 21h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-splice" viewBox="0 0 24 24"><path d="M2 8h6l4 4 4-4h6M2 16h6l4-4 4 4h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></symbol>
   <symbol id="i-pdf" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8l-5-5Z"/><path d="M14 3v5h5M8.5 13h7M8.5 16.5h5"/></g></symbol>
+  <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-eyeoff" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.6 5.1A10 10 0 0 1 12 5c6 0 9.5 7 9.5 7a17 17 0 0 1-2.6 3.6M6.6 6.6C3.9 8.4 2.5 12 2.5 12s3.5 7 9.5 7a9.6 9.6 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18"/></g></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z"/><circle cx="12" cy="12" r="3"/></g></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m4.5 12.5 5 5 10-11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 </svg>
 <div id="photoView" hidden role="dialog" aria-label="Photo"><button type="button" id="pvClose" aria-label="Close photo">×</button><div id="pvScroll"><img id="pvImg" alt=""></div><p id="pvCap"></p><div id="pvTools" hidden><button type="button" class="btn" id="pvBox">✎ Box · FOC · Text</button><button type="button" class="btn" id="pvPole">⊥ Model</button><button type="button" class="btn" id="pvRead">🔍 Read ID</button></div><i id="pvMark" hidden></i><p id="pvHint" style="opacity:.7">Tap the photo to zoom in or out · × or Back to close</p></div>
 <div id="app">
@@ -1377,6 +1396,13 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div id="rtPop" hidden></div>
   <div id="rtBar" hidden aria-label="Cable route"></div>
   <div id="rtHint" hidden aria-live="polite"></div>
+  <div id="xfBar" hidden role="group" aria-label="Poles on no cable: put each on a cable" tabindex="-1">
+    <button type="button" id="xfPrev" aria-label="Previous pole" title="Previous pole">◀</button>
+    <span id="xfNow" aria-live="polite"></span>
+    <button type="button" id="xfNext" aria-label="Next pole" title="Next pole">▶</button>
+    <button type="button" id="xfHide"><svg aria-hidden="true"><use href="#i-eyeoff"/></svg><span>Hide</span></button>
+    <button type="button" id="xfDone" class="primary" aria-label="Done: stop, then back to Export" title="Done"><svg aria-hidden="true"><use href="#i-check"/></svg><span>Done</span></button>
+  </div>
   <aside id="projPane" aria-label="Projects on this computer">
     <div class="pp-head"><button type="button" class="pp-tog" id="ppTog" aria-expanded="true" aria-controls="ppBody" title="Close the pane">«</button><b>Projects</b><span class="pp-n" id="ppN"></span><span class="grow"></span><button type="button" class="pp-ico pp-hico mbx" id="ppMbx" hidden title="Check the team mailbox" aria-label="Check the team mailbox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z"/></svg><span class="bdg" id="ppMbxN" hidden></span></button><button type="button" class="pp-ico pp-hico" id="ppOpenShared" title="Open shared projects: from a colleague (.zip), a PAT or cleanup KMZ (.kmz), or a backup (.zip)" aria-label="Open shared projects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 10.5v6M9.2 13.8 12 16.6l2.8-2.8"/></svg></button><button type="button" class="pp-ico pp-hico" id="ppShareMany" title="Share several projects: one file for a colleague of your company" aria-label="Share several projects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4h9a2 2 0 0 1 2 2v9M6 8h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2zM10.5 17.5v-6.5M8 13.5l2.5-2.5 2.5 2.5"/></svg></button><button type="button" class="btn small" id="ppNew">+ New</button></div>
     <div class="pp-body" id="ppBody">
@@ -1464,6 +1490,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div class="body edbody">
     <span id="edGrab" aria-hidden="true"></span>
     <p class="notice warn" id="edLock" hidden></p>
+    <p class="notice xoff" id="edXHide" hidden role="status"><svg aria-hidden="true"><use href="#i-eyeoff"/></svg><span>Hidden from the exports: this pole is on no cable.</span><button type="button" class="btn sm" id="edXShow">Show in exports</button></p>
     <div class="group" id="edTop" hidden><div id="edSum" aria-label="What still needs an answer (*) and what is set: tap one"></div></div>
     <div class="edquick" id="edQuick" hidden></div>
     <nav id="edTabs" role="tablist" aria-label="Record sections" hidden></nav>
@@ -1711,6 +1738,12 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="strow"><span class="lbl">Labels for each cable in a grid</span><div class="seg" id="stCabPer" role="radiogroup" aria-label="Labels for each cable in a grid"><button type="button" class="chip small" data-v="1">1</button><button type="button" class="chip small" data-v="2">Up to 2</button><button type="button" class="chip small" data-v="3">Up to 3</button></div><p class="hint" style="margin:0">Each one after the first only 500 m or more along the cable from the others.</p></div>
       <div class="strow"><label class="lbl" for="stCabH">Cable label text height <output id="stCabHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stCabHAuto">Auto</button><input type="range" id="stCabH" min="0.8" max="3" step="0.1" style="flex:1"></div></div>
       <div class="strow"><span class="lbl">What the cable label says</span><div class="seg" id="stCabW" role="group" aria-label="What the cable label says"><button type="button" class="chip small" data-k="prop">PROPOSED</button><button type="button" class="chip small" data-k="size">Size 72C</button><button type="button" class="chip small" data-k="type">Type FIG-8</button><button type="button" class="chip small" data-k="place">AE / UG</button><button type="button" class="chip small" data-k="foc">FOC</button><button type="button" class="chip small" data-k="run">RUN no.</button></div><p class="hint" id="stCabReads" style="margin:0"></p></div>
+    </div>
+    <div class="stgrp" id="stRoute" data-scene="street"><!-- beta 6.1: how a cable is drawn between two points -->
+      <h3>Cables between points</h3>
+      <div class="stvic stroute"><svg id="stRoutePrev" viewBox="0 0 72 28" role="img" aria-label="Preview of a cable between points along a curving road"></svg></div>
+      <div class="strow"><span class="lbl">How a cable is drawn</span><div class="seg" id="stCabRoute" role="radiogroup" aria-label="How a cable is drawn between points"><button type="button" class="chip small" data-v="road">Follow the road</button><button type="button" class="chip small" data-v="straight">Straight from point to point</button></div></div>
+      <p class="hint" style="margin:0">Underground between handholes, manholes, service boxes and risers, and aerial between poles. Follow the road: where two points stand along the same road, the cable follows its curves on the cable&rsquo;s side of the road; across a road, round a corner or away from a road it stays straight. The span lengths written and the BOQ stay the surveyed ones. The Drawing screen draws them straight: the roads come in when the plan is exported.</p>
     </div>
     <div class="stgrp" id="stSite" data-scene="tower">
       <h3>Tower site and its ODF</h3>
@@ -2742,7 +2775,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
 </div>
 <div class="overlay" id="pickMBox" hidden><div class="panel"><h3 id="pickMTitle"></h3><p class="hint" id="pickMText" style="margin:0"></p><div class="pickmlist" id="pickMList" role="group"></div><div class="row"><button class="btn grow" id="pickMNo" type="button">Cancel</button><button class="btn primary grow" id="pickMYes" type="button">OK</button></div></div></div>
 <div class="overlay" id="pickBox" hidden><div class="panel"><h3 id="pickTitle"></h3><p class="hint" id="pickText" style="margin:0"></p><select id="pickSel" aria-label="Choose"></select><div class="row"><button class="btn grow" id="pickNo" type="button">Cancel</button><button class="btn primary grow" id="pickYes" type="button">OK</button></div></div></div>
-<div class="overlay" id="askBox" hidden><div class="panel"><h3 id="askTitle"></h3><p id="askText" style="margin:0;white-space:pre-line"></p><div class="row"><button class="btn grow" id="askNo" type="button">Cancel</button><button class="btn primary grow" id="askYes" type="button">OK</button></div></div></div>
+<div class="overlay" id="askBox" hidden><div class="panel" role="dialog" aria-modal="true" aria-labelledby="askTitle" aria-describedby="askText"><h3 id="askTitle"></h3><p id="askText" style="margin:0;white-space:pre-line"></p><div class="row"><button class="btn grow" id="askNo" type="button">Cancel</button><button class="btn primary grow" id="askYes" type="button">OK</button></div></div></div>
 <div class="overlay" id="sendBox" hidden><div class="panel"><h3 id="sendTitle">Ready to send</h3><p id="sendName" style="margin:0;overflow-wrap:anywhere;font-weight:600"></p><p class="hint" id="sendNote" style="margin:0;white-space:pre-line"></p>
   <ol class="sendsteps" id="sendSteps" hidden>
     <li id="sendStep1"><span><b>Save it on the phone.</b> It goes to Downloads.</span><button class="btn primary" id="sendSave2" type="button">Save to phone</button></li>
