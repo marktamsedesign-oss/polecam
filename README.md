@@ -745,7 +745,7 @@ Two fixes to the plan's labels. **Export the plan again.** No change to the onli
 Names in the plan's title block, and two layout fixes. **Update the online sheet's script too** (`PoleCam-online-sheet_v2.42.12.gs`: paste it, Save, then Deploy → Manage deployments → Edit → New version; nothing new to allow). Until you update it, everything works as before, but the CSE Lead has to be typed by hand.
 
 - **Names in the title block:** the DXF card has a new box, **NAMES IN THE TITLE BLOCK**, with these fields:
-  - **Design Engineer**, **Project Engineer** and **Head-Cable Engineering:** typed once and kept on the phone.
+  - **Design Engineer**, **Project Engineer** and **Project Manager:** typed once and kept on the phone (the plan writes Project Manager under the third signature line, where the template says Head-Cable Engineering).
   - **CSE Lead:** comes from the online sheet. Add a tab **CSE LEAD** with the columns **Territory** and **Full Name**. At each sync the phone gets the list and fills in the name for the project's territory (Project Data → Territory). If a territory has several rows, their names are joined with " / ". The user can type another name. That name stays until the sheet gives a different one: a new name in the tab, or a project in another territory.
   - **Junior Engineer:** left blank.
 
