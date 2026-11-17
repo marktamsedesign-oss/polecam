@@ -92,7 +92,8 @@ const TYPES = {
   enc: { n: 'Concrete encasement', s: 'Encasement', g: 'foc', w: 0.6, d: 0.6, h: 0.6, st: 'P' },
   /* inside a cabin */
   rack: { n: 'Equipment rack', s: 'Rack', g: 'room', w: 0.6, d: 0.6, h: 2.05, num: 1 },
-  orack: { n: 'Open rack', s: 'Open rack', g: 'room', w: 0.6, d: 0.6, h: 2.05, num: 1, as: 'rack', set: { open: 1 } },      /* (fix 47) a rack with no walls and no doors: an open frame, posts only (el.open) */
+  orack: { n: 'Open rack (4-post)', s: 'Open rack', g: 'room', w: 0.6, d: 0.6, h: 2.05, num: 1, as: 'rack', set: { open: 1 } },      /* (fix 47) a rack with no walls and no doors: an open frame, posts only (el.open) */
+  rack2: { n: '2-post rack', s: '2-post rack', cn: '2-POST OPEN RACK', g: 'room', w: 0.52, d: 0.38, h: 2.13, num: 1, as: 'rack', set: { open: 2 } },      /* (fix 48) a 2-post open relay rack (el.open 2): two posts on floor feet, a bar at the top and one at the foot, the equipment bolted between the posts. 19-inch: 0.52 m across, feet 0.38 m deep, 2.13 m (7 ft) tall */
   runit: { n: 'Rack equipment', s: 'Equipment', g: 'room', w: 0.48, d: 0.4, h: 0.09, ru: 2 },
   port: { n: 'Porthole', s: 'Porthole', g: 'room', w: 0.5, d: 0.1, h: 0.36, z: 2.35 },
   ac: { n: 'Aircon unit', s: 'Aircon', g: 'room', w: 0.8, d: 0.3, h: 0.6, z: 1.7, cn: 'AIRCON' }          /* the outdoor unit, on the outside of a cabin wall; z: its bottom above the floor */
@@ -155,7 +156,21 @@ function newEl(t, x, y) {
 }
 /* (fix 47) a telco room: a cabin (t 'cabin') with el.tr. Everything a cabin does it does; only its name differs. tyOf: the type an item is shown as. */
 const isTR = e => !!e && e.t === 'cabin' && !!e.tr;
-const tyOf = e => isTR(e) ? TYPES.troom : e && e.t === 'rack' && e.open ? TYPES.orack : TYPES[e.t];
+const tyOf = e => isTR(e) ? TYPES.troom : is2P(e) ? TYPES.rack2 : e && e.t === 'rack' && e.open ? TYPES.orack : TYPES[e.t];
+/* (fix 48) a 2-post open rack: a rack with el.open 2 (an open rack of beta 4.7 has el.open 1, a closed cabinet none). TP: the parts of one, in metres (each kept within a rack typed smaller):
+   pw, pd: a post across and front to back; fw, ft: a foot across and its thickness (the foot runs the whole depth el.d); tb, bb: the height of the bar at the top and of the one at the foot.
+   twoPost(el): the same for this rack, with px the middle of a post from the middle of the rack and yf the front of the posts, where the equipment is bolted. The posts stand at the outer ends of the feet, so that 19-inch equipment fits between them. */
+const is2P = e => !!e && e.t === 'rack' && +e.open === 2;
+const TP = { pw: 0.035, pd: 0.08, fw: 0.09, ft: 0.015, tb: 0.06, bb: 0.08 };
+function twoPost(el) { const w = Math.max(0.2, num(el.w, 0.52)), d = Math.max(0.1, num(el.d, 0.38)), pw = Math.min(TP.pw, w / 8), fw = Math.max(pw, Math.min(TP.fw, w / 4)), pd = Math.min(TP.pd, d); return { w, d, pw, pd, fw, ft: TP.ft, tb: TP.tb, bb: TP.bb, px: w / 2 - pw / 2, yf: -pd / 2 }; }
+/* its parts seen from above, in site coordinates: the two feet, the two posts, and the bar at the top between the posts */
+function twoPostTop(el) { const K = twoPost(el), lp = (x, y) => loc(el, x, y), r = el.rot || 0, o = { feet: [], posts: [], bar: rectAt(lp(0, 0), 2 * (K.px - K.pw / 2), K.pd, r) };
+  for (const sx of [-1, 1]) { o.feet.push(rectAt(lp(sx * (K.w / 2 - K.fw / 2), 0), K.fw, K.d, r)); o.posts.push(rectAt(lp(sx * K.px, 0), K.pw, K.pd, r)); } return o; }
+/* how deep an item mounted in a rack is behind its front plate (on a 2-post rack: from the front of the posts, no further back than its feet); and the room it takes there,
+   seen from above, as wide as its front plate */
+const itemDp = e => e.t === 'odf' ? 0.25 : 0.38;
+const dp2P = (h, e) => { const K = twoPost(h); return Math.max(0.06, Math.min(itemDp(e), K.d / 2 - K.yf - 0.01)); };
+function odf2P(h, e) { const K = twoPost(h), hw = rackOf(h).hw, dp = dp2P(h, e); return rectAt(loc(h, 0, K.yf + dp / 2), 2 * hw, dp, h.rot); }
 const roomWord = e => isTR(e) ? 'telco room' : 'cabin';
 /* (fix 47) the ground pedestal box at the foot of a pole, where the UG cable comes up, in place of the G.I. riser pipe: el.ped 'P' (proposed) or 'E' (existing) on the pole.
    PED: its size (w along the side of the pole, d out from it, h above the ground). It stands on the side of the riser, against the pole (against its concrete encasement on a riser pole). */
@@ -253,7 +268,7 @@ const units = e => clamp(Math.round(e.t === 'odf' && !ruTyped(e) ? odfRu(e) : nu
 function rackOf(host, bay) {      /* (14 Nov 17:00) bay: which rack of a cabinet with more than one; cx: the middle of that rack, across from the middle of the cabinet */
   const nb = bayN(host), h = Math.max(0.3, num(host.h, 2)), w = Math.max(0.2, num(host.w, 0.6)) / nb, k = bay == null ? 0 : clamp(bay | 0, 0, nb - 1);
   const zb = host.t === 'odc' ? Math.min(0.1, h * 0.1) + 0.07 : 0.09, zu = host.t === 'odc' ? h - Math.min(0.07, h * 0.08) - 0.06 : h - 0.06;
-  return { zb, n: Math.max(1, Math.floor((zu - zb) / RU)), hw: Math.max(0.08, Math.min(0.2413, w / 2 - 0.07)), cx: (k - (nb - 1) / 2) * w, nb };
+  return { zb, n: Math.max(1, Math.floor((zu - zb) / RU)), hw: Math.max(0.08, Math.min(0.2413, is2P(host) ? w / 2 - twoPost(host).pw / 2 : w / 2 - 0.07)), cx: (k - (nb - 1) / 2) * w, nb };      /* (fix 48) on a 2-post rack the equipment is bolted to the front of the posts */
 }
 function rackHost(S, e) { if (!inRack(e)) return null; for (const q of S.els) if (q !== e && (q.t === 'odc' || q.t === 'rack') && inPoly([e.x, e.y], elPoly(q))) return q; return null; }
 function rackItems(S, host, bay) { return S.els.filter(e => inRack(e) && rackHost(S, e) === host && (bay == null || bayOf(host, e) === bay)); }
@@ -306,9 +321,10 @@ function cabinInside(S, el) {
   const F = p => fromRoom(el, p), zf = baseZ(S, el), out = { racks: [], odfs: [], legs: [], walls: [], fh: Math.max(1.5, num(el.h, 2.8)) };
   for (const r of I.runs || []) if (r.kind === 'part' && r.pts && r.pts.length > 1) { const hw = Math.max(0.03, num(r.w, RUNS.part.w)) / 2; out.walls.push({ pts: r.pts.map(F), sides: [offsetPath(r.pts, hw).map(F), offsetPath(r.pts, -hw).map(F)], z0: zf, z1: zf + out.fh }); }
   for (const q of I.els) {
+    if (is2P(q)) { const T2 = twoPostTop(q), z1 = zf + Math.max(0.3, num(q.h, 2)), K2 = twoPost(q); out.racks.push({ key: 'in' + q.id, s: elLabel(I, q), st: q.st, two: 1, feet: T2.feet.map(p => p.map(F)), posts: T2.posts.map(p => p.map(F)), bar: T2.bar.map(F), z0: zf, z1, ztb: z1 - Math.min(K2.tb, (z1 - zf) / 10) }); continue; }      /* (fix 48) a 2-post rack: its feet, its two posts and the bar at the top */
     if (q.t === 'rack') out.racks.push({ key: 'in' + q.id, s: elLabel(I, q), st: q.st, poly: elPoly(q).map(F), front: [loc(q, -q.w / 2, -q.d / 2 + 0.08), loc(q, q.w / 2, -q.d / 2 + 0.08)].map(F), z0: zf, z1: zf + Math.max(0.3, num(q.h, 2)), posts: q.open ? [-1, 1].reduce((o, sx) => o.concat([-1, 1].map(sy => { const t = Math.min(0.05, q.w / 8, q.d / 8); return rectAt(loc(q, sx * (q.w / 2 - t / 2), sy * (q.d / 2 - t / 2)), t, t, q.rot).map(F); })), []) : null });      /* (fix 47) an open rack: its corner posts too */
     if (q.t === 'odf') {
-      const h = rackHost(I, q), K = h ? rackOf(h) : null, zb = h ? zf + K.zb + (uOf(I, h, q) - 1) * RU : zf, base = h ? rectAt([h.x, h.y], Math.min(h.w - 0.04, 2 * K.hw + 0.04), Math.max(0.1, h.d - 0.12), h.rot) : elPoly(q);
+      const h = rackHost(I, q), K = h ? rackOf(h) : null, zb = h ? zf + K.zb + (uOf(I, h, q) - 1) * RU : zf, base = h ? (is2P(h) ? odf2P(h, q) : rectAt([h.x, h.y], Math.min(h.w - 0.04, 2 * K.hw + 0.04), Math.max(0.1, h.d - 0.12), h.rot)) : elPoly(q);      /* (fix 48) on a 2-post rack: from the front of the posts back */
       out.odfs.push({ key: 'in' + q.id, s: elLabel(I, q), st: q.st, poly: base.map(F), z0: zb, z1: zb + (h ? units(q) * RU : Math.max(0.05, num(q.h, 0.4))) });
     }
   }
@@ -1080,8 +1096,8 @@ function topEl(S, el, G, rg) {
       if (pedOf(el)) topPed(S, el, G, rg);      /* (fix 47) the pedestal box in place of the G.I. pipe */
       else if (!(rg || routeGeom(S)).risers.some(q => q.pole === el)) { const us = pipeSide(S, el), o = poleR(el, 0) + GIR; G.ci([c[0] + us[0] * o, c[1] + us[1] * o], GIR, lay); }      /* (14 Nov) its G.I. pipe, on its side of the pole */
       break;      /* the pole in its concrete encasement */
-    case 'odf': G.pl(P, lay, 1); G.pl([P[0], P[2]], lay); G.pl([P[1], P[3]], lay); break;
-    case 'rack': if (el.open) { topOpenRack(S, el, G, lay); break; }
+    case 'odf': { const h2 = S.room ? rackHost(S, el) : null, Q = h2 && is2P(h2) ? odf2P(h2, el) : P; G.pl(Q, lay, 1); G.pl([Q[0], Q[2]], lay); G.pl([Q[1], Q[3]], lay); break; }      /* (fix 48) on a 2-post rack: between the posts, from their front back */
+    case 'rack': if (is2P(el)) { topTwoPost(S, el, G, lay); break; } if (el.open) { topOpenRack(S, el, G, lay); break; }
       G.pl(P, lay, 1); G.pl([lp(-el.w / 2, -el.d / 2 + 0.08), lp(el.w / 2, -el.d / 2 + 0.08)], lay); G.pl([lp(-el.w / 2 + 0.06, -el.d / 2), lp(-el.w / 2 + 0.06, -el.d / 2 + 0.08)], lay); G.pl([lp(el.w / 2 - 0.06, -el.d / 2), lp(el.w / 2 - 0.06, -el.d / 2 + 0.08)], lay); break;   /* the double line is its front */
     case 'runit': if (!rackHost(S, el)) { G.pl(P, lay, 1); G.pl([P[0], P[2]], lay); } break;
     case 'ac': { if (!S.room) { G.pl(P, lay, 1); break; } const k = wallOf(S.site.L, S.site.W, el.x, el.y), hz = k.side === 'S' || k.side === 'N', ad = num(el.d, 0.3), aw = num(el.w, 0.8), q = [k.x + k.n[0] * (0.1 + ad / 2), k.y + k.n[1] * (0.1 + ad / 2)]; G.pl(rectAt(q, hz ? aw : ad, hz ? ad : aw, 0), lay, 1); G.ci(q, Math.min(aw, ad) * 0.36, lay); break; }      /* outside the wall, beyond its thickness */
@@ -1104,6 +1120,12 @@ function topOpenRack(S, el, G, lay) {
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) G.pl(rectAt(lp(sx * (w / 2 - t / 2), sy * (d / 2 - t / 2)), t, t, el.rot), lay, 1);      /* the four posts */
   G.pl([lp(-w / 2 + t, -d / 2 + 0.08), lp(w / 2 - t, -d / 2 + 0.08)], lay);      /* the front, as on a closed rack */
   if (its.length) { const dp = Math.min(d - 0.12, Math.max(0.12, ...its.map(e => e.t === 'odf' ? 0.25 : 0.38))); G.pl(rectAt(lp(0, -d / 2 + 0.04 + dp / 2), 2 * K.hw - 0.06, dp, el.rot), its.some(e => e.st === 'P') ? 'pp' : 'eq', 1); }      /* the equipment in it, seen through the open top */
+}
+/* (fix 48) a 2-post rack seen from above: its two feet, the post on each, the bar at the top between the posts, and other equipment mounted in it (an ODF draws itself) */
+function topTwoPost(S, el, G, lay) {
+  const T2 = twoPostTop(el), ru = rackItems(S, el).filter(e => e.t !== 'odf');
+  for (const q of T2.feet.concat(T2.posts)) G.pl(q, lay, 1); G.pl(T2.bar, lay, 1);
+  if (ru.length) G.pl(odf2P(el, ru[0]), ru.some(e => e.st === 'P') ? 'pp' : 'eq', 1);
 }
 /* (fix 47) the pedestal box at the foot of a pole, seen from above: its outline, the line of its door (on the side away from the pole) and the pipe where the cable comes up in it */
 function topPed(S, pole, G, rg) {
@@ -1515,7 +1537,7 @@ function buildTop(S, o) {
   if (!S.room) for (const el of S.els) if (el.t === 'cabin' && !el.hid) {             /* inside a cabin: its racks and the ODF, dashed, and the cable from the porthole to the ODF */
     const C = cabinInside(S, el); if (!C) continue; const cp = elPoly(el);
     for (const q of C.walls) for (const sd of q.sides) G.pl(sd, 'nd');      /* partition walls */
-    for (const r of C.racks) { const lay = r.st === 'P' ? 'np' : 'nd'; G.pl(r.poly, lay, 1); G.pl(r.front, lay); if (r.posts) for (const q of r.posts) G.pl(q, lay, 1); }
+    for (const r of C.racks) { const lay = r.st === 'P' ? 'np' : 'nd'; if (r.two) { for (const q of r.feet.concat(r.posts)) G.pl(q, lay, 1); G.pl(r.bar, lay, 1); continue; } G.pl(r.poly, lay, 1); G.pl(r.front, lay); if (r.posts) for (const q of r.posts) G.pl(q, lay, 1); }      /* (fix 48) a 2-post rack: its feet, posts and top bar */
     for (const q of C.odfs) { const lay = q.st === 'P' ? 'np' : 'nd'; G.pl(q.poly, lay, 1); G.pl([q.poly[0], q.poly[2]], lay); G.pl([q.poly[1], q.poly[3]], lay); jobs.push({ o: 1, key: q.key, call: 1, lines: [labText(S, q.key, q.s)], lay: tl(q.st), ap: mid(q.poly[0], q.poly[2]), a: 0, cands: topCands(cp, 0, gap), st: q.st }); }
     for (const l of C.legs) if (Math.hypot(l.b[0] - l.a[0], l.b[1] - l.a[1]) > 0.02) G.pl([[l.a[0], l.a[1]], [l.b[0], l.b[1]]], 'fh');
   }

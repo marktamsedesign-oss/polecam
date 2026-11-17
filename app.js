@@ -923,7 +923,7 @@
   const APP_VER = '2.44.5';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '4.9'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '5.0'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -4416,7 +4416,7 @@
   const PH_DOCS = [['report', 'Photo report · PDF'], ['compl', 'Completion report · PDF'], ['defpdf', 'Deficiency list and rectification · PDF'], ['kmz', 'Google Earth · KMZ balloon'], ['zip', 'Geotagged photos · ZIP'], ['ai', 'Photos for AI training · ZIP'], ['dxf', 'AutoCAD · DXF and plan PDF']];
   function phSetOf(name) {
     const P = name ? pmeta(name).phSet : null, T = name && typeof tmTeam === 'function' ? tmTeam(name) : null;
-    if (P && !P.free && T && T.role === 'fp') return { n: P.n, idp: P.idp !== false, docs: P.docs || {}, by: P.byName || 'your coordinator', locked: true };
+    if (P && !P.free && T && T.role === 'fp') return { n: P.n, idp: P.idp === true && P.idpV === 2, docs: P.docs || {}, by: P.byName || 'your coordinator', locked: true }; // (beta 5.0: only a coordinator who ticked it since 2.44.5)
     return { n: S.phN || 2, idp: S.phIdp === true, docs: S.phDocs || {}, by: '', locked: false }; // (2.44.5: the pole ID close-up as photo 2 is off unless turned on)
   }
   const phN = (name) => Math.max(1, Math.min(4, Math.round(+phSetOf(name || S.project).n) || 2));
@@ -4424,7 +4424,7 @@
   const PH_SITE_N = 10; // 2.44.5: a tower, OLT or ODC keeps up to 10 photos (poles: the photos per pin above)
   const phNOf = (el, name) => (el === 'Site' || el === 'ODC' ? Math.max(PH_SITE_N, phN(name)) : phN(name));
   const phDoc = (k, name) => (k === 'dxf' ? 'main' : phSetOf(name || S.project).docs[k] || PH_DOC_DEF[k] || 'all');
-  const phMine = () => ({ n: S.phN || 2, idp: S.phIdp === true, docs: { ...PH_DOC_DEF, ...(S.phDocs || {}) }, byName: (S.user && S.user.name) || '', free: S.phBy === 'phone', at: new Date().toISOString() }); // (free: the coordinator lets each phone choose)
+  const phMine = () => ({ n: S.phN || 2, idp: S.phIdp === true, idpV: 2, docs: { ...PH_DOC_DEF, ...(S.phDocs || {}) }, byName: (S.user && S.user.name) || '', free: S.phBy === 'phone', at: new Date().toISOString() }); // (free: the coordinator lets each phone choose)
   const phOf = (r, k) => { const L = photosOf(r); return phDoc(k, r.project) === 'main' ? L.slice(0, 1) : L; }; // a record's photos for a document
   let stream = null, imageCapture = null, torchOn = false, wakeLock = null, camTarget = 'new', camBusy = false, camTick = 0, camPending = null, camSeq = 0;
   let photoOpts = null; // still-photo size: phones with 48–200 MP sensors are asked for about 12 MP (photos are kept at 2048 px anyway)
@@ -4441,10 +4441,10 @@
   /** Shutter colour: green = GPS updated within 5 s (ready), red = GPS old, off or blocked; white while scanning an ID. */
   function shutterState() {
     const b = $('shutter'); if (!b) return;
-    const ph2 = camTarget === 'newid' && camPending && camPending.ph, more = camTarget === 'newmore'; // beta 3.5
+    const ph2 = camTarget === 'newid' && camPending && camPending.ph, add = camTarget === 'add' && ed && !ed.acc, more = camTarget === 'newmore' || add; // beta 3.5 (beta 5.0: + Add photo needs no GPS: the pin has its place)
     const st = ph2 || more ? 'ok' : scanStep() ? 'scan' : gpsFresh() ? 'ok' : 'bad';
     b.className = st;
-    b.setAttribute('aria-label', ph2 ? 'Take photo 2 (Pole tag) and read the ID' : more ? `Take photo ${camPending ? camPending.k : ''}` : st === 'scan' ? 'Read the ID' : st === 'ok' ? 'Take photo (GPS ready)' : 'Take photo (waiting for a fresh GPS fix)');
+    b.setAttribute('aria-label', ph2 ? 'Take photo 2 (Pole tag) and read the ID' : more ? `Take photo ${add ? 2 + (ed.photos || []).length : camPending ? camPending.k : ''}` : st === 'scan' ? 'Read the ID' : st === 'ok' ? 'Take photo (GPS ready)' : 'Take photo (waiting for a fresh GPS fix)');
   }
   /** The guide box's shape and the H / V buttons follow the ID's orientation. */
   function setOrientUi() {
@@ -4457,9 +4457,9 @@
     $('idGuide').hidden = !on;
     setOrientUi();
     $('idGuideText').textContent = S.idOrient === 'v' ? 'Vertical ID inside the box' : `Fit the ${idWord()} inside the box`;
-    const ph2 = camTarget === 'newid' && camPending && camPending.ph, more = camTarget === 'newmore', N = phN(); // beta 3.5: photo 2 (the ID close-up), photos 3–4
+    const ph2 = camTarget === 'newid' && camPending && camPending.ph, add = camTarget === 'add' && ed && !ed.acc, more = camTarget === 'newmore' || add, N = phN(); // beta 3.5: photo 2 (the ID close-up), photos 3–4 (beta 5.0: + Add photo: the next ones, up to the pin's limit)
     $('scanPrompt').hidden = !(on || more);
-    $('scanTitle').textContent = more ? `Photo ${camPending ? camPending.k : 2} of ${N} · detail` : ph2 ? `Photo 2 of ${N} · pole ID` : camTarget === 'newid' ? 'Photo kept · scan the ID' : 'Scan the ID';
+    $('scanTitle').textContent = add ? `Photo ${2 + (ed.photos || []).length} of ${phNOf(ed.element || 'Pole')} · detail` : more ? `Photo ${camPending ? camPending.k : 2} of ${N} · detail` : ph2 ? `Photo 2 of ${N} · pole ID` : camTarget === 'newid' ? 'Photo kept · scan the ID' : 'Scan the ID';
     $('scanSkip').hidden = !(camTarget === 'newid' || more); $('scanSkip').textContent = ph2 || more ? 'Done' : 'Skip';
     $('scanSkip').setAttribute('aria-label', ph2 || more ? 'Done: save with the photos taken' : 'Skip the ID scan');
     ['orientH', 'orientV', 'scanHelp'].forEach((id) => { $(id).hidden = more; });
@@ -5079,6 +5079,19 @@
         camPending.k++;
         if (camPending.k > phN()) { await morePhotosDone(); return; }
         showGuide(); toast(`Photo ${camPending.k - 1} kept`, 1500);
+        return;
+      }
+      if (camTarget === 'add' && ed && !ed.acc) { // beta 5.0: + Add photo of a survey pin: checked, added, and the camera stays open for the next one (no GPS wait: the pin has its place)
+        camCheck('Checking photo…');
+        const q = await withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] }));
+        camCheck(false);
+        if (!alive() || !(camTarget === 'add' && ed && !ed.acc)) return;
+        if (q.flags.length) { await refusePhoto(blob, q); return; }
+        addEdPhoto(blob, { ...photoMeta(gpsFresh() ? fix : null, new Date(shotAt).toISOString()), q: qSummary(q) });
+        const N = phNOf(ed.element || 'Pole'), k = 1 + (ed.photos || []).length;
+        LOG.info('photo.add', { k, of: N });
+        if (k >= N) { await closeSheet(); toast(`${k} photos — tap Save to keep them`, 2500); return; }
+        showGuide(); toast(`Photo ${k} kept · take the next or tap Done`, 1800);
         return;
       }
       perf.capture = Date.now() - shotAt;
@@ -10579,7 +10592,7 @@
     for (let i = 0; i < ord.length; i++) {
       const r = ord[i]; busy(`Preparing photos ${i + 1} / ${ord.length}`, i / ord.length);
       const photos = [];
-      for (const p of phOf(r, 'report').slice(0, 4)) { const jpeg = await pdfJpeg(p.pid, 1100, null, null, 0.82).catch(() => null); if (jpeg) photos.push({ jpeg, label: p.label === 'Photo' ? 'Overview' : p.label || '' }); }
+      for (const p of phOf(r, 'report').slice(0, 12)) { /* beta 5.0: all of them, up to 12 (a tower, OLT or ODC has up to 10) */ const jpeg = await pdfJpeg(p.pid, 1100, null, null, 0.82).catch(() => null); if (jpeg) photos.push({ jpeg, label: p.label === 'Photo' ? 'Overview' : p.label || '' }); }
       const ll = `${r.lat.toFixed(6)}, ${r.lon.toFixed(6)}`;
       items.push({ owner: ownerOf(r), no: o.num === 'plan' ? String(NUM.get(r.id) || '') : String(i + 1), id: r.poleId || '(no ID)', location: locs.get(r.id) || ll, type: [r.poleType, ownerOf(r)].filter(Boolean).join(' · '), coords: ll, date: shortTime(r.takenAt || r.created),
         note: [svStatusLabel(r.status), boqText(r), r.remarks].filter(Boolean).join(' · ').slice(0, 200), photos });
