@@ -494,7 +494,14 @@
   /* v2.42.1: an electric pole (concrete, wood, steel) has two details only: its transformer, and a telco arm (the extra arm the electric
      cooperative puts up for telco cables; not every pole has one: the plan draws it) */
   const ELEC_DETAIL_ITEMS = ['Transformer', 'Telco arm'];
-  const hasTelcoArm = (p) => (p.details || []).some((d) => d && /^telco\s*arm$/i.test(String(d.item || '').trim()));
+  /** beta 6.3: the arms already on a pole (any pole, also when the company sets its own list of details): the same kinds as New arm. */
+  const EXIST_ARM_ITEMS = ['Extension arm 26"', 'Extension arm 44.5"', '10-pin alley arm'];
+  /** beta 6.3: an arm already on the pole that holds the cable, as a telco arm does: [detail, badge, the plan's text, its name]. */
+  const ARMS_ON_POLE = [[/^telco\s*arm$/i, 'TA', 'TELCO ARM', 'telco arm'], [/^extension\s*arm\s*26"?$/i, 'EA', 'EXT. ARM 26"', 'extension arm 26"'],
+    [/^extension\s*arm\s*44\.5"?$/i, 'EA', 'EXT. ARM 44.5"', 'extension arm 44.5"'], [/^10-?pin\s*alley\s*arm$/i, 'AA', '10-PIN ALLEY ARM', '10-pin alley arm']];
+  const armOnPole = (p) => { for (const d of (p && p.details) || []) { const t = String((d && d.item) || '').trim(), a = ARMS_ON_POLE.find(([re]) => re.test(t)); if (a) return a; } return null; };
+  const hasTelcoArm = (p) => !!armOnPole(p); // (beta 6.3: a telco arm, an extension arm 26" / 44.5" or a 10-pin alley arm)
+  const armName = (p) => (armOnPole(p) || [])[3] || 'telco arm';
   const boqOwners = () => [...new Set([...boqList('owner'), ...(S.myOwners || [])].map((x) => String(x || '').trim()).filter(Boolean))];
   /* v2.43.0: the owner lists in each user's own order. The pole owners and the coops he sets most on his poles come first, counted at
      each save on this phone (and once from the poles he made or changed before this version); the others keep their order. A coop he
@@ -927,7 +934,7 @@
   const APP_VER = '2.44.14';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '6.2'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '6.3'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -1857,7 +1864,7 @@
     if (nGuy) out.push([nGuy > 1 ? `G${nGuy}` : 'G', '#1971c2']);
     if (groundYes(b)) out.push(['GR', '#2b8a3e']);
     if (b.riser || riserAuto(p)) out.push(['R', '#495057']); // (2.44.7: or UG meets aerial here)
-    if (hasTelcoArm(p)) out.push(['TA', '#0c8599']); // v2.42.1
+    if (hasTelcoArm(p)) out.push([armOnPole(p)[1], '#0c8599']); // v2.42.1 (beta 6.3: EA an extension arm, AA a 10-pin alley arm)
     return out;
   }
   function drawDrawing() {
@@ -2298,7 +2305,7 @@
     const mode = curRow().mode;
     rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[plStyle().num.bcolor] || ACI_INK[plStyle().num.color] || '#d9a400'}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[plStyle().num.color] || '#d9a400'}" font-family="system-ui,sans-serif">1</text>`), 'Number on the plan']);
     if (mode !== 'num') { const Z = plStyle().photo.size; rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), (mode === 'both' ? 'Photo of the point (its number is by the point)' : 'Photo on the plan') + (Z === 18 ? '' : ` (${phName(Z).toLowerCase()}: ${Z} m)`)]); } // (Drawing style › Photos: a size other than Normal)
-    const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop (LOOP×2: one for each of 2 fibers there)'], ['LOOP*', '#e03131', 'Maintenance loop added by the app (As-Plan)'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)']];
+    const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop (LOOP×2: one for each of 2 fibers there)'], ['LOOP*', '#e03131', 'Maintenance loop added by the app (As-Plan)'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)'], ['EA', '#0c8599', 'Extension arm 26" or 44.5" on the pole'], ['AA', '#0c8599', '10-pin alley arm on the pole']];
     if (drw && drw.R && drw.R.fib && drw.R.fib.list.length > 1) rows.push([sv('<path d="M1 5h20" stroke="#1c3f94" stroke-width="1.2" stroke-dasharray="4 2.5"/><path d="M1 11h20" stroke="#1c3f94" stroke-width="2.6" stroke-dasharray="4 2.5"/>'), 'Cables: each its own line in its lane, thicker for a larger size (12C thinnest, 288C thickest); its label says its size, type and run (PROPOSED 24C FIG-8 (RUN 5))']); // v2.42.20 (v2.42.23; v2.42.24: the width by size)
     if (drw && drw.blocks && [...drw.blocks.values()].some((b) => b.kind === 'dn')) rows.push([sv('<rect x="1.5" y="4" width="19" height="8" rx="3" fill="#fff" stroke="#14b81e" stroke-width="1.2"/><text x="11" y="10.4" text-anchor="middle" font-size="5.5" font-weight="800" fill="#14b81e" font-family="Arial,sans-serif">DN</text>'), 'Dummy NAP (DN) on the cable: its cables meet its sides']); // v2.42.24
     if (drw && drw.blocks && [...drw.blocks.values()].some((b) => b.kind === 'clo')) rows.push([sv('<polygon points="11,2 17.2,6.5 14.8,13.8 7.2,13.8 4.8,6.5" fill="#ff0000"/>'), 'Hybrid closure on the cable (red: proposed; blue outline: existing), with its ID and size; its cables meet its sides']); // v2.42.24
@@ -3463,8 +3470,8 @@
     const old12 = at.filter((s) => !onF(s) && isLight(s.cable)).length, o72 = at.find((s) => !onF(s) && isFig8(s.cable)), old72 = o72 ? 1 : 0;
     const sz8 = [...new Set(f72.map((f) => f.cab).concat(o72 ? [o72.cable] : []))].map((k) => `${CAB[k].cores}C`).join('/') || '72C';
     if (hasTelcoArm(p)) {
-      if (n12) items.push(['J-hook', 2, '12C · telco arm'], ['Span clamp', 2 * f12.length + (old12 ? 2 : 0), '12C · telco arm']);
-      if (f72.length + old72) items.push(['Suspension clamp', f72.length + old72, `${sz8} · telco arm`]);
+      if (n12) items.push(['J-hook', 2, `12C · ${armName(p)}`], ['Span clamp', 2 * f12.length + (old12 ? 2 : 0), `12C · ${armName(p)}`]);
+      if (f72.length + old72) items.push(['Suspension clamp', f72.length + old72, `${sz8} · ${armName(p)}`]);
       return { items, noClamp: true };
     }
     if (n12) items.push(['Retractor', n12 >= 2 ? 2 : 1, '12C'], ['Span clamp', f12.reduce((t, f) => t + ends(f), 0) + Math.min(old12, 2), '12C']);
@@ -3476,8 +3483,8 @@
     if (at.some((s) => s.fibers && s.fibers.length)) return hwFib(p, R, at, aer); // v2.42.20: per fiber
     const n12 = at.filter((s) => isLight(s.cable)).length, s72 = at.filter((s) => isFig8(s.cable)), n72 = s72.length, nOther = at.filter((s) => !isLight(s.cable) && aer(s)).length, items = [];
     if (hasTelcoArm(p)) {
-      if (n12) items.push(['J-hook', 2, '12C · telco arm'], ['Span clamp', 2, '12C · telco arm']);
-      if (n72) items.push(['Suspension clamp', 1, `${[...new Set(s72.map((s) => `${CAB[s.cable].cores}C`))].join('/')} · telco arm`]);
+      if (n12) items.push(['J-hook', 2, `12C · ${armName(p)}`], ['Span clamp', 2, `12C · ${armName(p)}`]);
+      if (n72) items.push(['Suspension clamp', 1, `${[...new Set(s72.map((s) => `${CAB[s.cable].cores}C`))].join('/')} · ${armName(p)}`]);
       return { items, noClamp: true };
     }
     if (n12) { const k = n12 >= 2 ? 2 : 1; items.push(['Retractor', k, '12C'], ['Span clamp', k, '12C']); }
@@ -7372,9 +7379,9 @@
     // beta 4.3 (MarkT): with one owner in the list a new pole starts with it (a tap takes it off again, and it stays off); with more, the user chooses
     if (keys.includes('owner') && ed.mode === 'new' && !ed.ownerOne) { ed.ownerOne = true; if (!ed.boq.owner) { const L = ownerChoices(); if (L.length === 1) { ed.boq.owner = L[0]; ed.ownerOnly = true; } } }
     const own = edLoopOwn(), hwNow = edHw(); // v2.42.18: the cable hardware from the route (12C, telco arm)
-    const hwRow = (h) => { const r = document.createElement('div'); r.className = 'boqrow'; r.dataset.k = 'hw'; const t = document.createElement('span'); t.className = 'lbl'; t.textContent = hasTelcoArm(edLoopRec()) ? 'HARDWARE FOR THE CABLE · TELCO ARM' : 'HARDWARE FOR THE CABLE · FROM THE ROUTE'; r.appendChild(t);
+    const hwRow = (h) => { const r = document.createElement('div'); r.className = 'boqrow'; r.dataset.k = 'hw'; const t = document.createElement('span'); t.className = 'lbl'; t.textContent = hasTelcoArm(edLoopRec()) ? `HARDWARE FOR THE CABLE · ${armName(edLoopRec()).toUpperCase()}` : 'HARDWARE FOR THE CABLE · FROM THE ROUTE'; r.appendChild(t);
       const ch = document.createElement('div'); ch.className = 'chips'; h.items.forEach(([i, q, sz]) => { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip small'; c.textContent = `${sz.split(' · ')[0]}: ${i} ×${q}`; c.setAttribute('aria-pressed', 'true'); c.disabled = true; ch.appendChild(c); }); r.appendChild(ch);
-      const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '4px 0 0'; n.textContent = hasTelcoArm(edLoopRec()) ? 'A telco arm: no pole clamps for the cable, also at an end or a corner; the guys\u2019 clamps are the pole owner\u2019s. Counted in the BOQ and the quantities.' : 'Light cable 12C on this pole: 2 retractors and 2 span clamps (1 + 1 at its end); no pole clamps for the 12C, its guys or its arm. Counted in the BOQ and the quantities.'; r.appendChild(n); return r; };
+      const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '4px 0 0'; n.textContent = hasTelcoArm(edLoopRec()) ? `${armName(edLoopRec()).replace(/^./, (c) => c.toUpperCase())} on the pole: no pole clamps for the cable, also at an end or a corner; the guys\u2019 clamps are the pole owner\u2019s. Counted in the BOQ and the quantities.` : 'Light cable 12C on this pole: 2 retractors and 2 span clamps (1 + 1 at its end); no pole clamps for the 12C, its guys or its arm. Counted in the BOQ and the quantities.'; r.appendChild(n); return r; };
     const shown = keys.filter((k) => !(boxC && (k === 'clo' || k === 'cloSt'))), host = (k) => (!tabs ? rows : ACC_KEYS.has(k) ? $('boqRowsAcc') : UG_KEYS.has(k) ? $('boqRowsUg') : rows);
     box.hidden = !shown.filter((k) => host(k) === rows).length; rows.innerHTML = ''; $('boqRowsAcc').innerHTML = ''; $('boqRowsUg').innerHTML = '';
     ed.boq = ed.boq || {};
@@ -7429,7 +7436,7 @@
         rows.appendChild(row); return;
       }
       if (k === 'clamp' && hwNow && hwNow.noClamp) { // (2.44.9: also when a clamp type was given) // v2.42.18: no pole clamp on this pole: no size
-        const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '2px 0 0'; n.textContent = hasTelcoArm(edLoopRec()) ? 'Not needed: no pole clamp for the cable on a telco arm.' : 'Not needed: no pole clamp on this pole (Light cable 12C only).';
+        const n = document.createElement('p'); n.className = 'hint'; n.style.margin = '2px 0 0'; n.textContent = hasTelcoArm(edLoopRec()) ? `Not needed: no pole clamp for the cable on the ${armName(edLoopRec())}.` : 'Not needed: no pole clamp on this pole (Light cable 12C only).';
         row.appendChild(n); rows.appendChild(row); return;
       }
       if (k === 'mloop') { // v2.42.18: the loop and its length: 10, 12, 15 or 20 m (by default the cable's)
@@ -7583,14 +7590,14 @@
       const q = document.createElement('b'); q.textContent = String(d.qty); q.setAttribute('aria-label', `${d.qty} pc${d.qty === 1 ? '' : 's'}`); // compact chip (v2.15): Transformer − 1 + ×
       // at 1 pc the minus removes the item (×), so each chip needs only two buttons
       if (ro) row.append(t, q);
-      else row.append(t, mk(d.qty > 1 ? '−' : '×', d.qty > 1 ? `One ${d.item} less` : `Remove ${d.item}`, () => { if (d.qty > 1) d.qty -= 1; else ed.details.splice(i, 1); renderDetails(); }), q,
+      else row.append(t, mk(d.qty > 1 ? '−' : '×', d.qty > 1 ? `One ${d.item} less` : `Remove ${d.item}`, () => { const arm = !!armOnPole({ details: [d] }); if (d.qty > 1) d.qty -= 1; else ed.details.splice(i, 1); renderDetails(); if (arm && !ed.acc) renderBoq(); }), q, // (beta 6.3: an arm taken off: the hardware again)
         mk('+', `One ${d.item} more`, () => { d.qty = Math.min(99, d.qty + 1); renderDetails(); }));
       box.appendChild(row);
     });
     const sel = $('svDetailAdd'), have = new Set((ed.details || []).map((d) => d.item));
     sel.innerHTML = '<option value="">+ Add detail</option>';
     const elec = (ed.element || 'Pole') === 'Pole' && ELEC_TYPES.has(typePrefix(ed.type)); // v2.42.1: an electric pole: Transformer and Telco arm only
-    (elec ? ELEC_DETAIL_ITEMS : detailItems().concat((S.myDetails || []).filter((x) => !detailItems().includes(x)))).filter((x) => !have.has(x)).forEach((x) => sel.add(new Option(x, x)));
+    [...new Set([...(elec ? ELEC_DETAIL_ITEMS : detailItems()), ...EXIST_ARM_ITEMS, ...(elec ? [] : S.myDetails || [])])].filter((x) => !have.has(x)).forEach((x) => sel.add(new Option(x, x))); // (beta 6.3: + the existing arms)
     if (!elec) sel.add(new Option('Other…', '__other'));
     sel.hidden = elec && sel.options.length < 2; // both added: nothing left to add
   }
@@ -7605,7 +7612,7 @@
     ed.details = ed.details || [];
     const have = ed.details.find((d) => d.item.toLowerCase() === v.toLowerCase());
     if (have) have.qty = Math.min(99, have.qty + 1); else ed.details.push({ item: v, qty: 1 });
-    renderDetails();
+    renderDetails(); if (!ed.acc && armOnPole({ details: [{ item: v }] })) renderBoq(); // (beta 6.3: an arm on the pole: no pole clamps, its hardware)
   });
 
   function nextPhotoLabel() {
@@ -11017,7 +11024,7 @@
     const rows = pts.map((p) => { const [E, N] = U(p), el = elemOf(p), b = p.boq || {}, pre = typePrefix(p.poleType), own = String(b.owner || '').trim(), generic = !p.poleId || /^P{1,2}-?\d+$/i.test(p.poleId);
       return { id: p.id, poleId: p.poleId || '', el, status: p.status || '', mat: el === 'Pole' ? (TELCO_TYPES.has(pre) ? '' : pre) : '', tag: el === 'Pole' ? (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId) : '',
         telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: el === 'Pole' && hwOf(p, R).noClamp ? '' : b.clamp || '', /* 2.44.9: the light cable's pole: its retractors and span clamps, no clamp size */
-        armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon, telcoArm: el === 'Pole' && hasTelcoArm(p), // v2.42.1: the plan draws it
+        armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon, telcoArm: el === 'Pole' && hasTelcoArm(p), armText: el === 'Pole' && hasTelcoArm(p) ? armOnPole(p)[2] : '', // v2.42.1: the plan draws it (beta 6.3: with its own name)
         mloop: el === 'Pole' && !!(p.mloop || loopYes(b) || LA.has(p.id) || OWN.has(p.id) || (LA.fib && LA.fib.list.has(p.id))), mloopM: el === 'Pole' ? (LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id)[0].len : loopLenAt(p, R, LA, OWN.get(p.id))) : 0,
         mloopL: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.len) : null, mloopR: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.n) : null, /* v2.42.25: each loop's cable (RUN) */ /* v2.42.20: a loop for each fiber there */ /* v2.42.17: + a closure's, a dummy NAP's, a riser's; v2.42.18: every NAP, LCP, pin; its own length */ nap: !!p.nap, napId: p.napId || '', nap2: el === 'Pole' && !!p.nap2, nap2Id: el === 'Pole' && p.nap2 ? p.nap2Id || '' : '', nap2Type: el === 'Pole' && p.nap2 ? b.nap2Type || '' : '', nap2Old: el === 'Pole' && !!p.nap2 && b.nap2St === 'Existing', closure: el === 'Pole' && !!p.closure, /* v2.42.17: (a box's closure is not drawn) */ closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
         adjusted: !!p.adjusted, color: p.color || '', // v2.36: a pin set by hand stays where it is on the drawing; a map pin's colour
