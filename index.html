@@ -400,10 +400,11 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 #camBar{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;justify-items:center;padding:16px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 20px) max(16px,env(safe-area-inset-left,0px));background:#000}
 #shutter{position:relative;width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:#868e96;transition:background .2s}
 #shutter.ok{background:#2f9e44}
-#shutter.wait{background:#f08c00}
 #shutter.bad{background:#e03131}
 #shutter.busy::after{content:'';position:absolute;inset:-11px;border-radius:50%;border:3px solid rgba(255,255,255,.25);border-top-color:#fff;animation:spin .8s linear infinite;pointer-events:none}
 #camFlash{position:absolute;inset:0;z-index:4;background:#fff;opacity:0;pointer-events:none}
+#camGpsWhy{position:absolute;left:50%;bottom:66px;transform:translateX(-50%);z-index:3;margin:0;width:max-content;max-width:calc(100% - 32px);box-sizing:border-box;text-align:center;background:rgba(201,42,42,.92);color:#fff;border-radius:16px;padding:6px 14px;font-weight:600;font-size:calc(13px * var(--fs));line-height:1.3;pointer-events:none}
+#camGpsWhy[hidden]{display:none}
 #camFlash.on{animation:camflash .22s ease-out}
 @keyframes camflash{from{opacity:.85}to{opacity:0}}
 #shutter.scan{background:#fff;border-color:#9cc1ff}
@@ -519,6 +520,14 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .tmempty{align-items:flex-start}.tmempty b{font-size:calc(17px * var(--fs))}
 .tmcur{border-left:5px solid var(--accent);gap:10px}
 /* v2.44 beta 4.0: CEF-Plan. The editor is its own page in a frame over the app; a CEF-Plan project's main screen; the rows in Projects and on a site pin */
+.cefpick{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
+.cefpick h3{grid-column:1/-1;margin:6px 0 0;font-size:calc(14px * var(--fs))}
+.cefpick button{display:flex;flex-direction:column;align-items:stretch;gap:2px;padding:0 0 6px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);overflow:hidden;text-align:left;font:inherit;cursor:pointer}
+.cefpick button img{display:block;width:100%;aspect-ratio:1;object-fit:cover;background:var(--chip)}
+.cefpick button span{padding:2px 8px 0;font-size:calc(12.5px * var(--fs));font-weight:600;line-height:1.3}
+.cefpick button small{padding:0 8px;font-size:calc(11.5px * var(--fs));color:var(--ok);font-weight:700}
+.cefpick button.in{border-color:var(--ok)}
+.cefpick button:focus-visible{outline:3px solid var(--info);outline-offset:2px}
 #cefSheet,#spliceSheet{background:linear-gradient(var(--navy),var(--navy)) 0 0/100% calc(env(safe-area-inset-top,0px) + 1px) no-repeat,var(--surface);padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);box-sizing:border-box}#cefFrame,#spliceFrame{flex:1 1 auto;width:100%;height:100%;min-height:0;border:0;display:block;background:#e8ecf0}
 body.cefproj #pinAddBtn,body.cefproj #routeBtn,body.cefproj #routeFitBtn,body.cefproj #refBtn{display:none}
 body.cefproj #captureBtn svg{display:none}body.cefproj #captureBtn::after{content:"CEF";font-weight:800;font-size:15px;letter-spacing:.05em}
@@ -1450,6 +1459,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div id="camStage">
     <video id="video" playsinline muted autoplay></video>
     <i id="camFlash" aria-hidden="true"></i>
+    <p id="camGpsWhy" hidden></p>
     <div id="idGuide" hidden><span id="idGuideText">Fit the pole ID inside the box</span></div>
     <i id="tapRing" hidden></i>
     <i id="swipeLine" hidden></i>
@@ -1599,6 +1609,14 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
 
 <!-- red box on a survey photo (v2.13): burned into the saved photo -->
 <section class="sheet" id="cefSheet" hidden aria-label="CEF plan"><iframe id="cefFrame" title="CEF plan" src="about:blank"></iframe></section>
+<section class="sheet" id="cefPick" hidden aria-labelledby="cefPickT">
+  <header><button class="iconbtn" data-close aria-label="Back: add no photo"><svg><use href="#i-back"/></svg></button><h2 id="cefPickT">Add a photo to the CEF plan</h2></header>
+  <div class="body">
+    <p class="hint" id="cefPickSub"></p>
+    <div id="cefPickList" class="cefpick" role="list" aria-label="Photos of the site"></div>
+  </div>
+  <div class="foot"><button class="btn primary grow" id="cefPickCam" type="button">Take a new photo</button></div>
+</section>
 <!-- beta 4.6: the splicing details (vendor/splice/splice.html), over the app as the CEF plan is -->
 <section class="sheet" id="spliceSheet" hidden aria-label="Splicing details"><iframe id="spliceFrame" title="Splicing details" src="about:blank"></iframe></section>
 <section class="sheet" id="boxer" hidden aria-labelledby="boxTitle">
@@ -2101,7 +2119,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div class="group" id="phPerGroup">
       <h3>Photos per pin</h3>
       <div class="phseg" id="setPhN" role="group" aria-label="Photos per pin"><button type="button" data-v="1">1</button><button type="button" data-v="2">2</button><button type="button" data-v="3">3</button><button type="button" data-v="4">4</button></div>
-      <p class="hint">After each photo the camera offers the next one, up to this many. Done stops at any time. PAT, defect cleanup and FAT: the same limit for each defect photo.</p>
+      <p class="hint">How many photos the camera takes one after the other (1 by default: after the photo the record opens and shows it, to add a model or text, and the details). Done stops at any time. More photos: + Add photo in the record, up to 4 a pin (a tower, OLT or ODC: 10); in PAT, cleanup and FAT, up to 4 for each defect photo.</p>
       <label class="check"><input type="checkbox" id="setPhIdp"><span>Photo 2 is the pole ID close-up: the camera shows the ID box, the photo is kept as Pole tag, and the ID is read from it (off by default)</span></label>
       <label class="check"><input type="checkbox" id="setPhAuto"><span>When the live reader reads the ID clearly, take photo 2 by itself</span></label>
       <label class="field">Set by<select id="setPhBy"><option value="co">Me, for the projects I send</option><option value="phone">Each phone (its own setting)</option></select></label>
@@ -2137,7 +2155,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     </div>
     <div class="group">
       <h3>Photo checks</h3>
-      <p class="hint">The shutter is green when the GPS updated within the last 5 seconds. A survey photo is always kept: with an older or less accurate fix, or none yet (amber shutter), its location is refined by the next good fix within 20 seconds, unless you move the pin yourself. PAT, cleanup and FAT photos need a GPS update within the last 15 seconds (red shutter: wait for green). Dark, blank and blurry photos are refused and must be retaken.</p>
+      <p class="hint">A photo is kept only when the GPS updated within the last 5 seconds (green shutter), in a survey and in PAT, cleanup and FAT alike. With a red shutter the reason shows over it; a photo taken then waits up to 5 seconds for a fresh fix and is not kept without it. Dark, blank and blurry photos are refused and must be retaken.</p>
       <label class="field">Sharpness required<select id="setQuality"><option value="strict">Strict (recommended)</option><option value="normal">Normal: refuse only clearly blurry</option></select></label>
       <p class="hint" id="qualityNote"></p>
     </div>

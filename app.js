@@ -828,10 +828,10 @@
   /* ================= sheets + back button ================= */
   const stack = []; const pendingClose = [];
   let editorSaving = false;
-  function openSheet(id) {
+  function openSheet(id, reuse) {
     LOG.info('open', id);
     const el = $(id); el.hidden = false; el.style.zIndex = 1000 + stack.length;
-    stack.push(id); history.pushState({ sheet: id }, '');
+    stack.push(id); if (reuse) history.replaceState({ sheet: id }, ''); else history.pushState({ sheet: id }, ''); // (reuse: it takes the place of the photo shown full size, beta 6.7)
   }
   function closeSheet() {
     if (editorSaving && stack[stack.length - 1] === 'editor') return Promise.resolve();
@@ -876,6 +876,7 @@
     if (id === 'camera') stopCamera();
     if (id === 'camera' && ed && ed.svStale) { ed.svStale = false; renderSvPhotos(); } // beta 5.9: the photos added with the camera open
     if (id === 'camera' && cefHooks.camClosed) cefHooks.camClosed(); // v2.44
+    if (id === 'cefPick' && cefHooks.pickClosed) cefHooks.pickClosed(); // beta 6.7: the CEF plan's photo picker
     if (id === 'cefSheet' && cefHooks.closed) cefHooks.closed();
     if (id === 'spliceSheet' && splHooks.closed) splHooks.closed(); // beta 4.6: the splicing details
     if (id === 'cefSheet' && splHooks.drawSync) splHooks.drawSync(); // (its line keeps Splicing details › after the CEF button)
@@ -4803,7 +4804,6 @@
     gpsLayer.clearLayers();
     L.circle([fix.lat, fix.lon], { radius: fix.acc, color: '#1c7ed6', weight: 1, fillOpacity: 0.12, interactive: false }).addTo(gpsLayer);
     L.circleMarker([fix.lat, fix.lon], { radius: 7, color: '#fff', weight: 2, fillColor: '#1c7ed6', fillOpacity: 1, interactive: false }).addTo(gpsLayer);
-    if (!again) gpsRefineTick(); // beta 5.9: a photo taken with an old, poor or no fix gets this one if it is better
     shutterState();
     if (typeof visitGpsTick === 'function') visitGpsTick();
   }
@@ -4813,90 +4813,53 @@
     gpsPolling = true;
     try { navigator.geolocation.getCurrentPosition((p) => { gpsPolling = false; onFix(p); }, () => { gpsPolling = false; }, { enableHighAccuracy: true, maximumAge: 0, timeout: ms || 8000 }); } catch (e) { gpsPolling = false; }
   }
-  /* beta 5.9: a survey photo is never lost to the GPS. The shutter takes it at once, with the best fix there is. When that fix is
-     old (no update within GPS_WINDOW_MS of the shutter), not accurate (over GPS_GOOD_M) or missing, the app keeps listening for
-     REFINE_MS after the shutter and uses a better fix that arrives meanwhile: an old fix gives way to a fresh one within
-     GPS_GOOD_M (or as good as it), a poor one to a more accurate one, none to any. A fix within GPS_GOOD_M ends the listening (the
-     pin does not creep after that, as since v2.30). The pin moves with it only while the user has not touched the record's map:
-     a pin placed by hand always stays. PAT, cleanup and FAT photos keep a strict rule instead (gpsNear, GPS_ACC_WINDOW_MS). */
-  const GPS_GOOD_M = 15, REFINE_MS = 20000, GPS_OLD_MAX_MS = 120000;
-  let gref = null; // the photo whose fix is being refined: { at (its shutter), until, gps (the best so far), done }
+  /* beta 6.7 (owner: "do not accept if not the latest gps location. 5 second max"): every photo that needs a location, survey or PAT,
+     cleanup and FAT, is kept only with a fix that reached the phone within GPS_WINDOW_MS of the shutter (see gpsNear). The beta 5.9
+     rule (a survey photo kept with an older fix, refined in the 20 s after the shutter) is gone. A fix's age still counts from when
+     it reached the phone (rx), not from its own time: some phones' GPS clock is a few seconds off. */
   const gpsAgeMs = () => (fix ? Date.now() - fix.rx : Infinity);
-  /** The fix at the shutter with its age then (s); null with none (or one over 2 minutes old: the pin is placed by hand). */
-  function gpsAtShot(at) {
-    if (!fix || at - fix.rx > GPS_OLD_MAX_MS) return null;
-    return { lat: fix.lat, lon: fix.lon, acc: fix.acc, alt: fix.alt, age: Math.max(0, Math.round((at - fix.rx) / 1000)) };
-  }
-  const gpsNeedsRefine = (g) => !g || g.age * 1000 > GPS_WINDOW_MS || !(g.acc <= GPS_GOOD_M);
-  function gpsRefineStart(at, g) {
-    gpsRefineEnd();
-    gref = { at, until: at + REFINE_MS, gps: g, done: !gpsNeedsRefine(g) };
-    if (gref.done) return;
-    gref.tm = setTimeout(gpsRefineEnd, REFINE_MS + 50);
-    LOG.info('gps.refine', { age: g ? g.age : null, acc: g && Number.isFinite(g.acc) ? Math.round(g.acc) : null });
-    startGps(); gpsPoll(REFINE_MS);
-  }
-  function gpsRefineEnd() {
-    const r = gref; if (!r || r.done) return;
-    r.done = true; clearTimeout(r.tm);
-    LOG.info('gps.refine.end', { refined: !!(r.gps && r.gps.ref), acc: r.gps && Number.isFinite(r.gps.acc) ? Math.round(r.gps.acc) : null });
-    gpsRefineApply(r, null);
-  }
-  function gpsRefineTick() {
-    const r = gref; if (!r || r.done || !fix) return;
-    if (Date.now() > r.until) { gpsRefineEnd(); return; }
-    if (fix.rx <= r.at) return; // only a fix that came after the shutter
-    const c = r.gps, a = fix.acc;
-    const better = !c || (c.age * 1000 > GPS_WINDOW_MS && c.ref == null ? a <= GPS_GOOD_M || a <= c.acc : a < c.acc);
-    if (!better) return;
-    r.gps = { lat: fix.lat, lon: fix.lon, acc: a, alt: fix.alt, age: c ? c.age : null, acc0: c ? (c.acc0 != null ? c.acc0 : c.acc) : null, ref: Math.max(1, Math.round((fix.rx - r.at) / 1000)) };
-    LOG.info('gps.refined', { age: r.gps.age, ref: r.gps.ref, acc: Math.round(a) });
-    gpsRefineApply(r, r.gps);
-    if (a <= GPS_GOOD_M) gpsRefineEnd();
-  }
-  /** A better fix (g), or the end of the listening (g null), goes to the photo: still in the camera, or in its record. */
-  function gpsRefineApply(r, g) {
-    if (camPending && camPending.shotAt === r.at) {
-      if (g) { camPending.gps = g; shotDraftGps(camPending); if (!$('camera').hidden) toast(`Location refined: GPS ±${fmtAcc(g.acc)}`, 1600); }
-      return;
-    }
-    if (ed && ed.shotAt === r.at && ed.mode === 'new' && !ed.restored) edGpsRefined(g);
-  }
   const fmtAcc = (a) => `${a < 10 ? a.toFixed(1) : Math.round(a)} m`;
-  /** The line about a photo's fix (empty when it was fresh). live: its refining may still go on. */
-  function gpsNoteOf(g, live) {
+  /** The line about the fix of a record taken in beta 5.9–6.6 with an old fix, or one refined after the shutter (gpsAge, gpsRef);
+      empty for a fresh one, so for every photo taken since beta 6.7. Shown on the record's map, for information. */
+  function gpsNoteOf(g) {
     const ago = (s) => (s >= 90 ? `${Math.round(s / 60)} min` : `${s} s`);
-    if (!g) return live ? 'No GPS at the shutter yet: waiting for a fix…' : 'No GPS at the shutter: drag the map to place the pin';
-    if (g.ref != null) return g.age == null ? `No GPS at the shutter: fix found ${g.ref} s later` : g.age * 1000 > GPS_WINDOW_MS ? `GPS ${ago(g.age)} old at the shutter, refined ${g.ref} s later` : `GPS ${g.acc0 != null ? `±${fmtAcc(g.acc0)}` : 'not accurate'} at the shutter, refined ${g.ref} s later`;
-    if (g.age != null && g.age * 1000 > GPS_WINDOW_MS) return live ? `GPS ${ago(g.age)} old at the shutter: waiting for a fresh fix…` : `GPS was ${ago(g.age)} old: check the pin`;
+    if (!g) return '';
+    if (g.ref != null) return g.age == null ? `No GPS at the shutter: fix found ${g.ref} s later` : g.age * 1000 > GPS_WINDOW_MS ? `GPS ${ago(g.age)} old at the shutter, refined ${g.ref} s later` : `GPS refined ${g.ref} s after the shutter`;
+    if (g.age != null && g.age * 1000 > GPS_WINDOW_MS) return `GPS was ${ago(g.age)} old at the shutter`;
     return '';
   }
   document.addEventListener('visibilitychange', () => { if (document.hidden) stopGps(); else startGps(); });
 
   /* ================= camera ================= */
-  /* Capture rules: a photo is checked for blur and exposure, and the painted Pole ID inside the guide box is read. GPS (beta 5.9):
-     a fix is fresh when it reached the phone within GPS_WINDOW_MS of the shutter. A survey photo is kept whatever the GPS (its fix
-     is refined after the shutter, see gpsRefineStart); a PAT, cleanup or FAT photo (and a visit's) needs a fix that reached the
-     phone within GPS_ACC_WINDOW_MS of the shutter, else it waits up to GPS_WAIT_MS for one and is refused without it. */
-  const GPS_WINDOW_MS = 5000, GPS_ACC_WINDOW_MS = 15000, GPS_WAIT_MS = 5300;
+  /* Capture rules: a photo is kept only if a GPS update reached the phone within GPS_WINDOW_MS of the shutter (beta 6.7: survey, PAT,
+     cleanup, FAT and visits alike; by when it arrived, beta 5.9), waiting up to GPS_WAIT_MS for one; then it is checked for blur and
+     exposure, and the painted Pole ID inside the guide box is read. */
+  const GPS_WINDOW_MS = 5000, GPS_WAIT_MS = 5300;
   /* ================= beta 3.5: several photos per pin =================
      Photos per pin (1–4, 2 by default): after photo 1 the camera offers the next ones, up to that many; Done stops at any time.
      Photo 2 is the pole ID close-up by default (the old ID step): the green shutter keeps it as Pole tag and the ID is read from it.
      The record's first photo is the main one (stored under the record's id, as before); the others are listed in its photos, each
-     with its label. A field partner's phone takes his coordinator's setting for the projects the coordinator sends (Set by). */
+     with its label. A field partner's phone takes his coordinator's setting for the projects the coordinator sends (Set by).
+     beta 6.7 (owner: "by default the app should capture one then displays that photo to add a model or edit some text"): photos per
+     pin is how many the camera takes one after the other, 1 by default: after photo 1 the record opens with the photo full size (model,
+     box, text), on its Photo/Model tab. More
+     photos come from + Add photo in the record, up to PH_PIN_MAX a pin (a tower, OLT or ODC: PH_SITE_N), whatever that setting is;
+     in PAT, cleanup and FAT the as-found, after and verification photos of a defect likewise. The setting is S.phN, written only by a
+     tap on Settings → Camera → Photos per pin: a phone with none stored never chose (the old default 2 was never stored) and now gets
+     1; a phone with one stored keeps it, 2 included. */
   const PH_DOC_DEF = { report: 'all', compl: 'all', defpdf: 'all', kmz: 'all', zip: 'main', ai: 'all' };
   const PH_DOCS = [['report', 'Photo report · PDF'], ['compl', 'Completion report · PDF'], ['defpdf', 'Deficiency list and rectification · PDF'], ['kmz', 'Google Earth · KMZ balloon'], ['zip', 'Geotagged photos · ZIP'], ['ai', 'Photos for AI training · ZIP'], ['dxf', 'AutoCAD · DXF and plan PDF']];
   function phSetOf(name) {
     const P = name ? pmeta(name).phSet : null, T = name && typeof tmTeam === 'function' ? tmTeam(name) : null;
     if (P && !P.free && T && T.role === 'fp') return { n: P.n, idp: P.idp === true && P.idpV === 2, docs: P.docs || {}, by: P.byName || 'your coordinator', locked: true }; // (beta 5.0: only a coordinator who ticked it since 2.44.5)
-    return { n: S.phN || 2, idp: S.phIdp === true, docs: S.phDocs || {}, by: '', locked: false }; // (2.44.5: the pole ID close-up as photo 2 is off unless turned on)
+    return { n: S.phN || 1, idp: S.phIdp === true, docs: S.phDocs || {}, by: '', locked: false }; // (2.44.5: the pole ID close-up as photo 2 is off unless turned on; beta 6.7: 1 photo unless chosen)
   }
-  const phN = (name) => Math.max(1, Math.min(4, Math.round(+phSetOf(name || S.project).n) || 2));
+  const phN = (name) => Math.max(1, Math.min(4, Math.round(+phSetOf(name || S.project).n) || 1));
   const phIdp = (name) => phN(name) >= 2 && phSetOf(name || S.project).idp;
-  const PH_SITE_N = 10; // 2.44.5: a tower, OLT or ODC keeps up to 10 photos (poles: the photos per pin above)
-  const phNOf = (el, name) => (el === 'Site' || el === 'ODC' ? Math.max(PH_SITE_N, phN(name)) : phN(name));
+  const PH_SITE_N = 10, PH_PIN_MAX = 4; // 2.44.5: a tower, OLT or ODC keeps up to 10 photos (beta 6.7: any other pin up to 4, with + Add photo)
+  const phNOf = (el) => (el === 'Site' || el === 'ODC' ? PH_SITE_N : PH_PIN_MAX);
   const phDoc = (k, name) => (k === 'dxf' ? 'main' : phSetOf(name || S.project).docs[k] || PH_DOC_DEF[k] || 'all');
-  const phMine = () => ({ n: S.phN || 2, idp: S.phIdp === true, idpV: 2, docs: { ...PH_DOC_DEF, ...(S.phDocs || {}) }, byName: (S.user && S.user.name) || '', free: S.phBy === 'phone', at: new Date().toISOString() }); // (free: the coordinator lets each phone choose)
+  const phMine = () => ({ n: S.phN || 1, idp: S.phIdp === true, idpV: 2, docs: { ...PH_DOC_DEF, ...(S.phDocs || {}) }, byName: (S.user && S.user.name) || '', free: S.phBy === 'phone', at: new Date().toISOString() }); // (free: the coordinator lets each phone choose)
   const phOf = (r, k) => { const L = photosOf(r); return phDoc(k, r.project) === 'main' ? L.slice(0, 1) : L; }; // a record's photos for a document
   let stream = null, imageCapture = null, torchOn = false, wakeLock = null, camTarget = 'new', camBusy = false, camTick = 0, camPending = null, camSeq = 0;
   let photoOpts = null; // still-photo size: phones with 48–200 MP sensors are asked for about 12 MP (photos are kept at 2048 px anyway)
@@ -4917,22 +4880,26 @@
   /** v2.19: the ID scan after each photo is set apart for surveys and for PAT / cleanup / FAT (where the ID is optional). */
   // v2.21: in PAT, cleanup and FAT the photo is of the defect: no ID scan after it unless turned on (Scan ID in the record stays)
   const readIdOn = () => (isAcc() ? S.readIdAcc === true : S.readId !== false);
-  const gpsFresh = (win) => !!fix && gpsAgeMs() <= (win || GPS_WINDOW_MS) && gpsErr !== 1;
-  /** beta 5.9: the strict GPS rule: PAT, cleanup and FAT photos, and the photos of a visit. */
-  const gpsStrict = () => isAcc() || camTarget === 'vfix' || camTarget === 'vverify';
-  /** Shutter colour: green = a fresh fix (within 5 s; in PAT, cleanup and FAT within 15 s); amber (survey) = the photo is kept and
-      its location refined after the shot (GPS old, not accurate or none yet); red (PAT, cleanup, FAT) = no fresh fix: the photo
-      waits for one and is refused without it; white while scanning an ID. Busy (a ring) from the press until the photo is kept. */
+  const gpsFresh = () => !!fix && gpsAgeMs() <= GPS_WINDOW_MS && gpsErr !== 1;
+  /** beta 6.7: why the shutter is red, on the line over it ('' while the GPS is fresh). */
+  function gpsWhy() {
+    if (gpsErr === 1) return 'Location is off: turn it on for G-eSAA to take photos';
+    if (!fix) return 'No GPS fix yet: wait for the green shutter';
+    if (gpsFresh()) return '';
+    const s = Math.round(gpsAgeMs() / 1000);
+    return `No GPS update for ${s >= 90 ? `${Math.round(s / 60)} min` : `${s} s`}: wait for the green shutter`;
+  }
+  /** Shutter colour: green = GPS updated within 5 s (ready), red = GPS old, off or blocked (beta 6.7: survey, PAT, cleanup and FAT
+      alike; the reason shows over the shutter, and a press waits up to 5 s for a fresh fix, else the photo is not kept); white while
+      scanning an ID. Busy (a ring) from the press until the photo is kept (beta 5.9). */
   function shutterState() {
     const b = $('shutter'); if (!b) return;
     const ph2 = camTarget === 'newid' && camPending && camPending.ph, add = camTarget === 'add' && ed && !ed.acc, more = camTarget === 'newmore' || add; // beta 3.5 (beta 5.0: + Add photo needs no GPS: the pin has its place)
-    const strict = gpsStrict(), st = ph2 || more ? 'ok' : scanStep() ? 'scan' : strict ? (gpsFresh(GPS_ACC_WINDOW_MS) ? 'ok' : 'bad') : gpsFresh() && fix.acc <= GPS_GOOD_M ? 'ok' : 'wait';
+    const st = ph2 || more ? 'ok' : scanStep() ? 'scan' : gpsFresh() ? 'ok' : 'bad';
     b.className = st; b.classList.toggle('busy', b.getAttribute('aria-busy') === 'true');
     b.setAttribute('aria-label', ph2 ? 'Take photo 2 (Pole tag) and read the ID' : more ? `Take photo ${add ? 2 + (ed.photos || []).length : camPending ? camPending.k : ''}` : st === 'scan' ? 'Read the ID' : st === 'ok' ? 'Take photo (GPS ready)'
-      : strict ? 'Take photo (waiting for a fresh GPS fix: this photo needs one)'
-      : camTarget !== 'new' ? 'Take photo (GPS not fresh)'
-      : gpsErr === 1 ? 'Take photo (location is off: the pin is placed by hand)' : !fix || gpsAgeMs() > GPS_OLD_MAX_MS ? 'Take photo (no GPS yet: the location is added if a fix comes, else the pin is placed by hand)'
-      : gpsFresh() ? 'Take photo (GPS not accurate yet: the location is refined after the photo)' : 'Take photo (GPS not fresh: the location is refined after the photo)');
+      : gpsErr === 1 ? 'Take photo (location is off: the photo is not kept without a GPS fix)' : 'Take photo (no fresh GPS fix: the photo waits up to 5 seconds for one, and is not kept without it)');
+    const w = $('camGpsWhy'); if (w) { const t = st === 'bad' ? gpsWhy() : ''; if (w.textContent !== t) w.textContent = t; w.hidden = !t; }
   }
   /** beta 5.9: the press is seen at once: a white flash over the picture, a short buzz, and the shutter busy until the photo is kept. */
   function shutterFlash() {
@@ -4975,11 +4942,11 @@
   function camGpsTick() {
     shutterState();
     if (!fix) return;
-    const age = gpsAgeMs() / 1000, stale = age * 1000 > (gpsStrict() ? GPS_ACC_WINDOW_MS : GPS_WINDOW_MS);
+    const age = gpsAgeMs() / 1000, stale = age * 1000 > GPS_WINDOW_MS;
     $('camGpsDot').className = 'dot ' + (stale ? 'poor' : quality(fix.acc));
     $('camGpsText').textContent = `GPS ±${fmtAcc(fix.acc)} · ${age < 1.5 ? 'now' : age >= 90 ? `${Math.round(age / 60)} min ago` : `${Math.round(age)} s ago`}`;
     // Some phones report rarely while standing still: ask for a new fix so the shutter can turn green (and a photo just taken gets it).
-    if (age > 2.5 && (!scanStep() || (gref && !gref.done))) gpsPoll(8000);
+    if (age > 2.5 && !scanStep()) gpsPoll(8000);
   }
   // a tap on H or V fixes the box's shape for this scan (otherwise it turns by itself to fit the ID, v2.16)
   $('orientH').addEventListener('click', () => { S.idOrient = 'h'; persist(); finderStop(); showGuide(); finder.manual = true; });
@@ -5066,7 +5033,8 @@
   }
   async function openCamera(target) {
     camTarget = target || 'new'; camPending = null; camSeq++; finder.manual = false; photoReadNext = false; // the box turns by itself until H / V is tapped
-    openSheet('camera'); startGps();
+    const overPhoto = pvOpen; if (overPhoto) { pvOpen = false; hidePhotoView(); } // beta 6.7: the photo shown full size (after one photo) closes for the camera, which takes its place in the history
+    openSheet('camera', overPhoto); startGps();
     $('camMsg').hidden = true; $('camTorch').hidden = true; $('qualBox').hidden = true; camCheck(false);
     showGuide();
     if ((camTarget === 'new' && readIdOn()) || camTarget === 'scan') ocrWarm();
@@ -5135,8 +5103,7 @@
         const q = p.q || (p.qp ? await p.qp : null);
         if (q && q.flags && q.flags.length) { draftClear(); toast(`${QUAL_TITLE[q.flags[0]] || 'Photo not accepted'}. ${QUAL_TEXT[q.flags[0]] || 'Take it again.'}`, 7000); return; }
         await Promise.all((p.more || []).map((m) => m.qp)).catch(() => {}); // beta 5.9: photos 2… checked in the background (one that failed has been taken out)
-        if (p.shotAt && gref && gref.at === p.shotAt) p.gps = gref.gps; // (the best fix so far)
-        gotPhoto(p.blob, p.gps, p.source || 'camera', { q, takenAt: p.takenAt, shotAt: p.shotAt || 0, crop: p.crop || null, live: p.live || null, idShot: p.idShot || null, ph2: !!p.ph, idAt: p.idAt || '', more: p.more || [] }); // (beta 3.5: photo 2 and the photos after it)
+        gotPhoto(p.blob, p.gps, p.source || 'camera', { q, takenAt: p.takenAt, crop: p.crop || null, live: p.live || null, idShot: p.idShot || null, ph2: !!p.ph, idAt: p.idAt || '', more: p.more || [] }); // (beta 3.5: photo 2 and the photos after it)
       }, 0);
     }
   }
@@ -5151,10 +5118,10 @@
     try { await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ torch: torchOn }] }); } catch (e) { toast('Flashlight not supported'); }
   });
 
-  /** A fix that reached the phone within win ms before the shot, or one that comes within GPS_WAIT_MS after it (beta 5.9: by
-      when it arrived, not by its own time); null without one. Used by PAT, cleanup and FAT photos (win: GPS_ACC_WINDOW_MS). */
-  function gpsNear(shotAt, win) {
-    const W = win || GPS_WINDOW_MS, ok = (f) => !!f && f.rx >= shotAt - W && gpsErr !== 1;
+  /** A fix that reached the phone within GPS_WINDOW_MS before the shot, or one that comes within GPS_WAIT_MS after it (beta 5.9: by
+      when it arrived, not by its own time); null without one: the photo is not kept (beta 6.7: every photo with a location). */
+  function gpsNear(shotAt) {
+    const W = GPS_WINDOW_MS, ok = (f) => !!f && f.rx >= shotAt - W && gpsErr !== 1;
     const out = () => ({ lat: fix.lat, lon: fix.lon, acc: fix.acc, alt: fix.alt, age: Math.max(0, Math.round((shotAt - fix.rx) / 1000)) });
     if (ok(fix)) return Promise.resolve(out());
     camCheck('Checking GPS…');
@@ -5551,8 +5518,6 @@
       if (camTarget === 'scan') { const crop = grabGuideCrop(), live = liveResult(); finderStop(); await closeSheet(); if (live) applyLiveRead(live); else scanResult(crop); return; }
       if (camTarget === 'newid') { if (camPending) { camPending.crop = grabGuideCrop(); camPending.live = liveResult(); } finderStop(); await closeSheet(); return; }
       shutterFlash(); // beta 5.9: the press is seen and felt at once
-      const strict = gpsStrict(), gps0 = gpsAtShot(shotAt); // beta 5.9: the fix at the shutter (a survey photo's is refined after it)
-      if (camTarget === 'new' && !strict) gpsRefineStart(shotAt, gps0);
       let blob = null;
       LOG.step('photo.take', { target: camTarget, still: !!imageCapture, opts: photoOpts, mem: memMB() });
       if (imageCapture) {
@@ -5591,18 +5556,10 @@
         return;
       }
       perf.capture = Date.now() - shotAt;
-      let gps = null;
-      if (strict || camTarget === 'cef') { // PAT, cleanup, FAT and visits: a fix within 15 s of the shutter, or the photo is refused; a CEF plan's site photo: a fresh fix, else none
-        const tg = Date.now(); gps = await gpsNear(shotAt, strict ? GPS_ACC_WINDOW_MS : GPS_WINDOW_MS);
-        LOG.info('photo.gps', { ms: Date.now() - tg, ok: !!gps, age: gps ? gps.age : null, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0, strict });
-        if (!alive()) return;
-        if (!gps && strict) { toast(gpsErr === 1 ? 'Photo not saved: location is off. Turn on location for G-eSAA, then take it again.' : `Photo not saved: GPS has not updated in the last ${GPS_ACC_WINDOW_MS / 1000} seconds. PAT, cleanup and FAT photos need a fresh fix: wait for the green shutter, then take it again.`, 6500); return; }
-        if (!gps) toast('No fresh GPS fix: the photo is kept without its location', 3500);
-      } else { // beta 5.9: a survey photo is kept with the best fix there is (refined after the shot when it is old, poor or missing)
-        gps = gref && gref.at === shotAt ? gref.gps : gps0;
-        LOG.info('photo.gps', { ms: 0, ok: !!gps, age: gps ? gps.age : null, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0, refine: !!(gref && gref.at === shotAt && !gref.done) });
-        if (camTarget === 'new' && gref && gref.at === shotAt && !gref.done) toast(!gps ? (gpsErr === 1 ? 'Photo kept · location is off: place the pin by hand' : 'Photo kept · no GPS yet: listening for a fix') : gps.age * 1000 > GPS_WINDOW_MS ? `Photo kept · GPS ${gps.age} s old: refining the location` : `Photo kept · GPS ±${fmtAcc(gps.acc)}: refining the location`, 2600);
-      }
+      const tg = Date.now(), gps = await gpsNear(shotAt); // beta 6.7: a fix from the last 5 s (or one within 5 s after the press), else the photo is not kept
+      LOG.info('photo.gps', { ms: Date.now() - tg, ok: !!gps, age: gps ? gps.age : null, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0 });
+      if (!alive()) return;
+      if (!gps) { toast(gpsErr === 1 ? 'Photo not saved: location is off. Turn on location for G-eSAA, then take it again.' : 'Photo not saved: GPS has not updated in the last 5 seconds. Wait for the green shutter, then take it again.', 6500); return; }
       const tq = Date.now(), takenAt = new Date(shotAt).toISOString();
       const qp = withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] })).then((q) => {
         perf.check = Date.now() - tq; perf.px = q.w ? `${q.w}×${q.h}` : '';
@@ -5611,7 +5568,7 @@
       });
       const multi = camTarget === 'new' && phN() >= 2; // beta 3.5: photo 2 next (the ID close-up in a survey), then up to photos per pin
       if (camTarget === 'new' && (multi || readIdOn())) { // aim at the ID straight away; the photo is checked meanwhile
-        const pend = { blob, gps, takenAt, shotAt, source: 'camera', qp };
+        const pend = { blob, gps, takenAt, source: 'camera', qp };
         if (multi && !isAcc() && phIdp()) { pend.ph = true; enterIdStep(pend); } else if (multi) enterMore(pend, 2); else enterIdStep(pend);
         qp.then((q) => {
           pend.q = q;
@@ -5626,7 +5583,7 @@
       if (!alive()) return;
       if (q.flags.length) { await refusePhoto(blob, q); return; }
       await closeSheet();
-      gotPhoto(blob, gps, 'camera', { q, takenAt, shotAt });
+      gotPhoto(blob, gps, 'camera', { q, takenAt });
     } finally { camBusy = false; shutterBusy(false); camCheck(false); LOG.done('photo.take'); shutterState(); }
   });
   /** beta 5.9: photo 2… failed its check after the camera went on: it is dropped (and asked for again while the camera is still at it). */
@@ -5658,16 +5615,10 @@
     if (camTarget === 'scan') { if (stack[stack.length - 1] === 'camera') await closeSheet(); scanResult(await centerCrop(f)); return; }
     const back = Date.now(), inCam = () => stack[stack.length - 1] === 'camera', seq = camSeq;
     if (back - (f.lastModified || 0) > MAX_PHOTO_AGE_MS) { toast('Photo not used: it was not taken just now. Photos must be taken live, so their location can be checked.', 6000); return; }
-    // the phone camera app pauses this app: the fix comes right after returning (beta 5.9: a survey photo is kept and its fix refined, see gpsRefineStart)
-    const strict = gpsStrict(), refine = camTarget === 'new' && !strict;
-    let gps = null;
-    if (refine) { gpsRefineStart(back, gpsAtShot(back)); gps = gref.gps; }
-    else if (strict || camTarget === 'cef') gps = await gpsNear(back, strict ? GPS_ACC_WINDOW_MS : GPS_WINDOW_MS);
-    else gps = gpsAtShot(back);
+    const gps = await gpsNear(back); // the phone camera app pauses this app, so the fix is taken right after returning (beta 6.7: within 5 s, as every photo)
     if (seq !== camSeq) return; // camera closed while waiting
-    if (!gps && strict) { toast(`Photo not used: no GPS update within ${GPS_ACC_WINDOW_MS / 1000} seconds. Stay in the open and take it again.`, 5500); return; }
+    if (!gps) { toast('Photo not used: no GPS update within 5 seconds. Stay in the open and take it again.', 5500); return; }
     const q = await checkQuality(f).catch(() => ({ flags: ['error'] }));
-    if (refine && gref && gref.at === back) gps = gref.gps; // (a fix may have come during the check)
     if (seq !== camSeq) return;
     if (q.flags.length) {
       if (inCam()) await refusePhoto(f, q);
@@ -5676,9 +5627,9 @@
     }
     prepImages(f);
     const takenAt = new Date(Math.min(back, f.lastModified || back)).toISOString();
-    if (camTarget === 'new' && readIdOn() && stream && inCam()) { enterIdStep({ blob: f, gps, q, takenAt, shotAt: back, source: 'camera' }); return; }
+    if (camTarget === 'new' && readIdOn() && stream && inCam()) { enterIdStep({ blob: f, gps, q, takenAt, source: 'camera' }); return; }
     if (inCam()) await closeSheet();
-    gotPhoto(f, gps, 'camera', { q, takenAt, shotAt: back });
+    gotPhoto(f, gps, 'camera', { q, takenAt });
   });
   /** For a scan taken with the phone camera app: the band where the guide box would be. */
   async function centerCrop(blob) {
@@ -5727,7 +5678,7 @@
       toast(ed.mapPin || ed.mode === 'edit' && !ed.hadPhoto ? 'Photo added — tap Save to keep it' : 'Photo replaced — tap Save to keep it');
       return;
     }
-    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), shotAt: x.shotAt || 0, q: qSummary(x.q), crop: x.crop, live: x.live, idShot: x.idShot, ph2: !!x.ph2, idAt: x.idAt || '', more: x.more || [], noDef: camTarget === 'nodef' });
+    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), q: qSummary(x.q), crop: x.crop, live: x.live, idShot: x.idShot, ph2: !!x.ph2, idAt: x.idAt || '', more: x.more || [], noDef: camTarget === 'nodef' });
   }
 
   /* ================= reading the painted Pole ID (offline OCR) ================= */
@@ -6391,25 +6342,11 @@
     pinMap.panTo([ed.gps.lat + (c.lat - ed.gps.lat) * t, ed.gps.lon + (c.lng - ed.gps.lon) * t]);
     toast(`The pin can move up to ${fmtDist(PIN_LIMIT_M)} from where the photo was taken`, 3000);
   }
-  /** beta 5.9: a better fix for the photo just taken (see gpsRefineStart), or g null: the listening ended. The fix is the record's GPS;
-      the pin goes with it only while the user has not touched the record's map (a pin placed by hand stays: Reset to GPS uses the
-      new fix). Replaces editorGpsUpdate, which followed the GPS with no time limit. */
-  function edGpsRefined(g) {
-    if (g) {
-      const touched = ed.userMoved || ed.dragged;
-      ed.gps = { ...g }; drawEdGps();
-      if (!touched && pinMap) { pinMap.setView([g.lat, g.lon], pinMap.getZoom(), { animate: false }); ed.userMoved = false; } // (the zoom stays: the map does not jump in or out)
-      else toast(`GPS refined to ±${fmtAcc(g.acc)}. Your pin stays where you put it; Reset to GPS moves it to the new fix.`, 4500);
-      $('edAcc').textContent = `GPS ±${g.acc.toFixed(1)} m`;
-      updateCoordBox(); scheduleDraft();
-    }
-    edGpsNote();
-  }
-  /** The record's line about its fix at the shutter (beta 5.9): shown on the record's map, under the coordinates. */
+  /** The record's line about its fix at the shutter: a record taken in beta 5.9–6.6 with an old fix, or one refined after the shutter,
+      says so on its map, for information (beta 6.7: a new photo always has a fix from the last 5 s, so it has no line). */
   function edGpsNote() {
     const el = $('pinGpsNote'); if (!el) return;
-    const g = ed && ed.gps, live = !!(ed && ed.shotAt && gref && gref.at === ed.shotAt && !gref.done);
-    const t = !ed || ed.acc || ed.mapPin ? '' : ed.shotAt ? gpsNoteOf(g, live) : g && (g.age != null || g.ref != null) ? gpsNoteOf(g, false) : '';
+    const g = ed && ed.gps, t = !ed || ed.acc || ed.mapPin ? '' : gpsNoteOf(g);
     el.textContent = t; el.hidden = !t; $('coordBox').classList.toggle('gpsnote', !!t);
   }
   function updateCoordBox() {
@@ -6470,8 +6407,7 @@
     ensurePinMap();
     const acc = isAcc();
     if (o.blob) idle(() => prepImages(o.blob), 3000); // made while the ID is checked; the camera is closed by now (beta 5.9: once the record is drawn)
-    const sg = o.shotAt && gref && gref.at === o.shotAt ? gref.gps : undefined; // beta 5.9: a photo just taken: the best fix so far (it may be refined still)
-    ed = { mode: o.mode, id: o.id || uid(), source: o.source, gps: (sg !== undefined ? sg : o.gps) || null, shotAt: o.shotAt || 0, newBlob: o.blob || null,
+    ed = { mode: o.mode, id: o.id || uid(), source: o.source, gps: o.gps || null, newBlob: o.blob || null,
       takenAt: o.takenAt, type: o.type || S.lastType, userMoved: false, acc, boq: JSON.parse(JSON.stringify(o.boq || {})), hadPhoto: !!(o.blob || o.storedBlob) };
     // v2.16: 'closed' = a completed PAT (view only); 'carried' = an element from the PAT in the cleanup or FAT (fixes only)
     ed.lock = !acc ? '' : patClosed() ? 'closed' : o.mode === 'edit' && ['Cleanup', 'FAT'].includes(taskCat()) && (o.patId || (o.defs || []).some((d) => (d.stage || 'PAT') === 'PAT')) ? 'carried' : '';
@@ -6501,7 +6437,7 @@
       ed.siteKind = o.siteKind === 'OLT' ? 'OLT' : 'Tower'; // v2.37: a site is a tower or an OLT
     }
     // v2.42.17: a survey record in tabs (status, element, type and ID on top); PAT, cleanup and FAT records on one page as before
-    edLayout(!acc); edTab = 'details'; $('edQuick').hidden = true; /* v2.42.26 */ $('pinMapWrap').classList.remove('mini'); $('idAbc').setAttribute('aria-pressed', 'false'); $('idPfxMenu').hidden = true;
+    edLayout(!acc); edTab = !acc && o.mode === 'new' && o.blob && !o.restore ? 'photo' : 'details'; // beta 6.7: a photo just taken: the record opens on it (Photo/Model), to add a model or text $('edQuick').hidden = true; /* v2.42.26 */ $('pinMapWrap').classList.remove('mini'); $('idAbc').setAttribute('aria-pressed', 'false'); $('idPfxMenu').hidden = true;
     $('editor').querySelector('.edbody').scrollTop = 0;
     $('svColorBox').hidden = acc; if (!acc) renderPinColors();
     $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : ed.mapPin ? `New ${({ Pole: 'proposed pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole' })[ed.element] || 'pin'} on the map` : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
@@ -6551,9 +6487,8 @@
       const same = pinDeskSame(start); // beta 4.1: on a computer, on the main map's own view
       pinMap.invalidateSize(same ? { animate: false, pan: false } : undefined);
       setTimeout(() => $('editor').classList.add('pmready'), same && same.wait ? same.wait : 50); if (!same) $('editor').classList.add('pmsolid');
-      const at = o.lat == null && ed.gps ? ed.gps : start; // (beta 5.9: a fix refined since the record opened)
-      if (same) pinMap.setView([at.lat, at.lon], same.z, { animate: false });
-      else if (at) pinMap.setView([at.lat, at.lon], 19, { animate: false });
+      if (same) pinMap.setView([start.lat, start.lon], same.z, { animate: false });
+      else if (start) pinMap.setView([start.lat, start.lon], 19, { animate: false });
       else { const c = map.getCenter(); pinMap.setView(c, Math.max(map.getZoom(), 16), { animate: false }); }
       ed.userMoved = false; drawEdGps(); updateCoordBox(); drawPinRef(); drawPinOthers();
     });
@@ -6564,11 +6499,22 @@
     foldSum(); // v2.22: after the ID and element are set
     idPadSync(); edRefreshSoon(); // v2.42.17
     draftStart(!!o.restore); // v2.21: kept safe until saved
-    if (photoReadNext && o.mode === 'new' && !acc && o.blob) { photoReadNext = false; setTimeout(openPhotoRead, 400); } // v2.17: the picture button
+    const readNow = !!(photoReadNext && o.mode === 'new' && !acc && o.blob);
+    if (readNow) { photoReadNext = false; setTimeout(openPhotoRead, 400); } // v2.17: the picture button
     else if (o.live) applyLiveRead(o.live);
     else if (o.crop && o.idShot) readIdShot(o.crop, o.idShot); // v2.19: the ID photo
     else if (o.crop) runOcrFor(o.crop, true);
     else if (o.mode === 'new' && !o.poleId && !acc) setTimeout(() => { const f = $('poleId'); f.classList.add('nudge'); setTimeout(() => f.classList.remove('nudge'), 2600); }, 250); // v2.30: no keyboard over the map: check the pin, then tap the ID
+    // beta 6.7 (owner: "capture one then displays that photo to add a model or edit some text"): one photo a pin (the default), the
+    // photo just taken opens full size with its tools (model, box, FOC, text); × or Back shows the record, on its Photo/Model tab
+    if (o.mode === 'new' && !acc && o.blob && o.source === 'camera' && !o.restore && !readNow && !o.crop && !o.live && !o.idShot && phN() === 1) {
+      const e0 = ed;
+      setTimeout(() => {
+        if (ed !== e0 || pvOpen || editorSaving || stack[stack.length - 1] !== 'editor') return;
+        $('edPhoto').click(); if (!pvOpen) return;
+        $('pvHint').textContent = 'Add a model, a box or text to the photo, or close it (×) to place the pin and fill in the record';
+      }, 350);
+    }
   }
   /* ================= v2.21: an unsaved record is kept safe =================
      While a record is open, what it holds (the photo, the form, the pin, the deficiencies and their photos) is kept as a draft on
@@ -6587,11 +6533,6 @@
       try { await dbPut('photos', { id: 'draft~new', clean: p.blob }); localStorage.setItem(DRAFT_KEY, JSON.stringify(st)); }
       catch (e) { LOG.warn('draft.fail', errInfo(e)); if (shotDraftBlob === p.blob) { shotDraftBlob = null; if (ed && draftBlobs.new === p.blob) { delete draftBlobs.new; scheduleDraft(); } } } // (not kept: the record's draft writes it)
     });
-  }
-  /** beta 5.9: a fix refined while the camera is still open goes into the shot draft (only its text: the photo is not written again). */
-  function shotDraftGps(p) {
-    if (ed || !p || shotDraftBlob !== p.blob) return;
-    draftChain = draftChain.then(() => { try { const st = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); if (st && st.shot) { st.gps = p.gps || null; localStorage.setItem(DRAFT_KEY, JSON.stringify(st)); } } catch (e) { /* private window */ } });
   }
   function draftState() {
     if (!ed) return null;
@@ -6799,7 +6740,8 @@
     if (!ed || ed.acc) { $('boxInfo').hidden = true; $('edZoom').classList.remove('pp'); return; }
     const n = (ed.marks || []).length, legacy = ed.legacyBoxes || 0, pp = proposedPole(), hasPole = (ed.marks || []).some((m) => m.k === 'pole') || ed.legacyPole;
     const txt = n ? `▭ ${n} mark${n === 1 ? '' : 's'} on the photo · tap the photo to change them${legacy ? ` (${legacy} older mark${legacy === 1 ? ' is' : 's are'} part of the photo)` : ''}`
-      : legacy ? `▭ ${legacy} mark${legacy === 1 ? '' : 's'} on the photo` : pp && !hasPole ? '⊥ Tap the photo to place the model pole where the new pole goes' : '';
+      : legacy ? `▭ ${legacy} mark${legacy === 1 ? '' : 's'} on the photo` : pp && !hasPole ? '⊥ Tap the photo to place the model pole where the new pole goes'
+      : ed.newBlob || ed.srcBlob ? '✎ Tap the photo to add a model, a box or text' : ''; // (beta 6.7)
     $('boxInfo').textContent = txt; $('boxInfo').hidden = !txt;
     $('edZoom').classList.toggle('pp', !!(pp && !hasPole)); $('edZoom').textContent = pp && !hasPole ? '⊥' : '⤢';
   }
@@ -7794,7 +7736,7 @@
         mk('Mark rectified', () => { d.status = 'Rectified'; d.fixedAt = new Date().toISOString(); d.fixedStage = stage; d.fixedBy = byLine(); renderDefs(); });
       } else if (stt === 'Rectified') {
         mk('Retake after photo', () => { ed.afterFor = d.id; ed.afterMore = false; openCamera('after'); });
-        if (d.afterPid && defPh(d, 'after').length < phN()) mk('+ After photo', () => { ed.afterFor = d.id; ed.afterMore = true; openCamera('after'); }); // beta 3.5: one more
+        if (d.afterPid && defPh(d, 'after').length < PH_PIN_MAX) mk('+ After photo', () => { ed.afterFor = d.id; ed.afterMore = true; openCamera('after'); }); // beta 3.5: one more
         if (insp && stage === 'FAT') { // v2.42.4: fixes are accepted at the FAT only (in the cleanup a contractor could verify its own fix)
           mk('Verify', () => { d.status = 'Verified'; d.verifiedAt = new Date().toISOString(); d.verifiedBy = byLine(); d.verifyStage = stage; renderDefs(); }, 'primary');
           mk('Verify with photo', () => { ed.verifyFor = d.id; ed.verifyMore = false; openCamera('verify'); });
@@ -7805,7 +7747,7 @@
           }, 'danger');
         } else if (d.fixedBy === byLine() || !d.afterPid) mk('Reopen', () => { defPh(d, 'after').forEach((y) => { if (ed.pending[y.pid]) delete ed.pending[y.pid]; else ed.removed.push(y.pid); }); undoFix(d); renderDefs(); }); // v2.42.4: not a rejection (beta 3.5: its photos)
       } else if (stt === 'Verified' && insp && stage === 'FAT') {
-        if (d.verifyPid && defPh(d, 'verify').length < phN()) mk('+ Verification photo', () => { ed.verifyFor = d.id; ed.verifyMore = true; openCamera('verify'); }); // beta 3.5: one more
+        if (d.verifyPid && defPh(d, 'verify').length < PH_PIN_MAX) mk('+ Verification photo', () => { ed.verifyFor = d.id; ed.verifyMore = true; openCamera('verify'); }); // beta 3.5: one more
         mk('Undo verification', () => { defPh(d, 'verify').forEach((y) => { if (ed.pending[y.pid]) delete ed.pending[y.pid]; else ed.removed.push(y.pid); }); undoAccept(d); renderDefs(); }); // v2.42.4: its photo goes too (beta 3.5: all of them)
       }
       if (insp && (d.stage || 'PAT') === stage) mk('Remove', () => {
@@ -8096,7 +8038,7 @@
   }
   /** beta 3.5: the defect form's “As found photos · 2 of 2”: MAIN first, × on each, a label under the others, + Add photo up to the limit. */
   function renderDefPhotos() {
-    const box = $('defPhotos'), N = phN(), on = !!(defDraft && defDraft.blob) && (N >= 2 || (defDraft.more || []).length > 0);
+    const box = $('defPhotos'), N = PH_PIN_MAX, on = !!(defDraft && defDraft.blob); // (beta 6.7: + Add photo up to 4, whatever the photos the camera takes in a row)
     box.hidden = !on; $('defPhHead').hidden = !on; $('defPhotoPrev').closest('.row').hidden = on; box.innerHTML = '';
     if (!on) return;
     const all = [{ blob: defDraft.blob, label: 'Defect', main: true }].concat((defDraft.more || []).map((m, i) => ({ ...m, i })));
@@ -12528,7 +12470,7 @@
   const effectiveQuality = () => ((S.team ? pol().quality : S.quality) === 'normal' ? 'normal' : 'strict');
   function renderSettingsHome() {
     renderWho(); renderTeamInfo(); cloudSync(false).then(renderCloudInfo);
-    $('camSub').textContent = `${S.phN || 2} photo${(S.phN || 2) === 1 ? '' : 's'} per pin · ${S.readId !== false ? 'ID scan after each photo' : 'No ID scan'}${(S.readIdAcc === true) !== (S.readId !== false) ? ` (${S.readIdAcc === true ? 'on' : 'off'} in PAT / FAT)` : ''} · ${S.idOrient === 'v' ? 'vertical' : 'horizontal'} IDs · sharpness ${QUAL_NAME[effectiveQuality()] || 'Strict'}${S.team ? ' (set by admin)' : ''}`;
+    $('camSub').textContent = `${S.phN || 1} photo${(S.phN || 1) === 1 ? '' : 's'} per pin · ${S.readId !== false ? 'ID scan after each photo' : 'No ID scan'}${(S.readIdAcc === true) !== (S.readId !== false) ? ` (${S.readIdAcc === true ? 'on' : 'off'} in PAT / FAT)` : ''} · ${S.idOrient === 'v' ? 'vertical' : 'horizontal'} IDs · sharpness ${QUAL_NAME[effectiveQuality()] || 'Strict'}${S.team ? ' (set by admin)' : ''}`;
     const packs = Object.values(S.packs || {}).filter((p) => p.done);
     $('mapsSub').textContent = `${streetSource().name}${packs.length ? ` · ${packs.length} offline pack${packs.length === 1 ? '' : 's'}${S.base === 'offline' ? ' (in use)' : ''}` : ' · no offline pack yet'}`;
     const P = pol();
@@ -12777,7 +12719,7 @@
   function renderTypeInfo() { $('typeInfo').textContent = poleTypes().map((t) => `${t.n} ${t.p}-`).join(' · '); }
   /* beta 3.5: Settings → Camera: photos per pin and photos in documents */
   function renderPhSet() {
-    const n = S.phN || 2;
+    const n = S.phN || 1;
     $('setPhN').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === n)));
     $('setPhIdp').checked = S.phIdp === true; $('setPhIdp').disabled = n < 2; $('setPhAuto').checked = S.phAuto !== false; $('setPhAuto').disabled = n < 2 || S.phIdp !== true;
     $('setPhBy').value = S.phBy === 'phone' ? 'phone' : 'co';
@@ -12797,7 +12739,7 @@
     const L = phSetOf(S.project);
     document.querySelectorAll('select.phdoc').forEach((sl) => { sl.value = phDoc(sl.dataset.k); sl.disabled = L.locked; sl.title = L.locked ? `Set by ${L.by} for this project` : ''; });
     document.querySelectorAll('select.phdoc option[value="all"]').forEach((x) => { const sl = x.closest('select'), k = sl.dataset.k, stage = k === 'defpdf' || !!sl.closest('#accExports'); if (k === 'ai') return;
-      x.textContent = k === 'zip' ? `All (the main one ID.jpg, the others ID_2.jpg… up to ${phN()} a pin)` : stage ? `All photos of each stage (up to ${phN()})` : `All photos of the pin (up to ${phN()})`; });
+      x.textContent = k === 'zip' ? 'All (the main one ID.jpg, the others ID_2.jpg…)' : stage ? 'All photos of each stage' : 'All photos of the pin'; }); // (beta 6.7: no count: + Add photo goes past the photos per pin)
   }
   document.addEventListener('change', (e) => { const sl = e.target; if (!(sl instanceof HTMLSelectElement) || !sl.classList.contains('phdoc')) return; S.phDocs = { ...(S.phDocs || {}), [sl.dataset.k]: sl.value }; persist(); syncPhDocUi(); });
   $('goCamera').addEventListener('click', () => {
@@ -18799,11 +18741,67 @@
     if (i >= 0) G.plans[i] = rec; else G.plans.push(rec);
     delete G.gone[c.id]; cefPut(c.name, G); return true;
   }
-  /** A site photo: the app's camera, with its checks (taken live, with a GPS fix; a dark or unclear photo is refused). */
+  /** A site photo: the app's camera, with its checks (taken live, with a GPS fix; a dark or unclear photo is refused). beta 6.7: when the
+      site's record has photos, they are offered first (cefPickOpen): one of them, or a new photo. */
   function cefTakePhoto() {
     if (cefShot || !cefNow || cefLockText(cefNow.name)) return Promise.resolve(null);
-    return new Promise((res, rej) => { cefShot = { res, rej }; guard(() => openCamera('cef'), 'Camera not opened'); });
+    return new Promise((res, rej) => {
+      cefShot = { res, rej };
+      guard(async () => { let shown = false; try { shown = await cefPickOpen(); } catch (e) { LOG.warn('cef.pick.fail', errInfo(e)); } if (!shown && cefShot) openCamera('cef'); }, 'Camera not opened');
+    });
   }
+  /* beta 6.7 (owner: "Towers, OLTs, ODCs: up to 10 photos: these photos should be available to CEF editing if the user wants to add photo"):
+     the editor's Photo button lists the photos of the plan's site record (its site pin; in a CEF-Plan project, its towers, OLTs and
+     ODCs). One tapped goes into the plan as a photo of its own (cefp…, a copy of the photo as the photo store keeps it, which notes
+     where it came from), as a camera photo does; Take a new photo opens the camera as before; Back adds nothing. A site with no photo
+     on this phone goes straight to the camera. */
+  let cefPickOn = false, cefPickUrls = [];
+  const cefPickRecs = (c) => points.filter((p) => p.project === c.name && p.kind !== 'acceptance' && (c.pin ? p.id === c.pin : ['Site', 'ODC'].includes(elemOf(p))));
+  async function cefPickOpen() {
+    const c = cefNow; if (!c || stack.includes('cefPick')) return false;
+    const groups = [];
+    for (const r of cefPickRecs(c)) {
+      const items = [];
+      for (const x of photosOf(r)) { const st = await dbGet('photos', x.pid).catch(() => null), b = st && (st.thumb || st.clean); if (b) items.push({ x, b }); }
+      if (items.length) groups.push({ r, items });
+    }
+    if (!groups.length || cefNow !== c || !cefShot) return false;
+    const plan = cefPlans(c.name).find((p) => p.id === c.id), inPlan = new Set();
+    for (const id of cefPhotoIds(plan)) { const st = await dbGet('photos', id).catch(() => null); if (st && st.from) inPlan.add(st.from); }
+    cefPickClear(); const box = $('cefPickList'); box.textContent = '';
+    groups.forEach(({ r, items }) => {
+      if (groups.length > 1 || !c.pin) { const h = document.createElement('h3'); h.textContent = recName(r) || r.poleId || elemOf(r); box.appendChild(h); }
+      items.forEach(({ x, b }, i) => {
+        const bt = document.createElement('button'); bt.type = 'button'; bt.setAttribute('role', 'listitem'); const u = URL.createObjectURL(b); cefPickUrls.push(u);
+        const im = document.createElement('img'); im.src = u; im.alt = ''; const t = document.createElement('span'); t.textContent = `${i + 1} · ${x.label || (i ? 'Photo' : 'Overview')}`;
+        bt.append(im, t); if (inPlan.has(x.pid)) { const k = document.createElement('small'); k.textContent = 'In the plan'; bt.appendChild(k); bt.classList.add('in'); }
+        bt.setAttribute('aria-label', `Use photo ${i + 1}, ${x.label || 'photo'}, of ${recName(r) || 'the site'}${inPlan.has(x.pid) ? ' (in the plan already)' : ''}`);
+        bt.addEventListener('click', () => guard(() => cefPickUse(r, x), 'Photo not added'));
+        box.appendChild(bt);
+      });
+    });
+    const n = groups.reduce((k, g) => k + g.items.length, 0);
+    $('cefPickSub').textContent = `${n} photo${n === 1 ? '' : 's'} of ${groups.length === 1 ? recName(groups[0].r) || 'the site' : `${groups.length} sites`}: tap one to add it to the plan, or take a new photo.`;
+    openSheet('cefPick'); cefPickOn = true;
+    LOG.info('cef.pick', { photos: n, sites: groups.length });
+    return true;
+  }
+  function cefPickClear() { cefPickUrls.forEach((u) => URL.revokeObjectURL(u)); cefPickUrls = []; }
+  /** A photo of the site's record into the plan: copied as the photo store keeps it (the editor gets what a camera photo gives). */
+  async function cefPickUse(r, x) {
+    const w = cefShot, c = cefNow; if (!w || !c || w.busy) return;
+    w.busy = true; busy('Adding the photo…');
+    try {
+      const st = await dbGet('photos', x.pid), clean = st && (st.clean || st.thumb); if (!clean) throw new Error('that photo is not on this phone');
+      const id = `cefp${uid()}`; await dbPut('photos', { id, clean, thumb: st.thumb || clean, from: x.pid });
+      const s = await cefPhotoSrc(clean); c.taken.push(id);
+      const main = x.pid === r.id, la = main ? (r.gpsLat != null ? r.gpsLat : r.lat) : x.lat, lo = main ? (r.gpsLon != null ? r.gpsLon : r.lon) : x.lon;
+      LOG.info('cef.photo.pick', { main, label: x.label || '' });
+      cefShot = null; cefPickOn = false; busy(false); await closeSheet();
+      w.res({ id, src: s.src, w: s.w, h: s.h, at: x.at || r.takenAt || new Date().toISOString(), lat: Number.isFinite(+la) && la != null ? +(+la).toFixed(6) : null, lon: Number.isFinite(+lo) && lo != null ? +(+lo).toFixed(6) : null });
+    } catch (e) { if (cefShot === w) { cefShot = null; cefPickOn = false; w.rej(e); } busy(false); if (stack[stack.length - 1] === 'cefPick') closeSheet(); throw e; }
+  }
+  $('cefPickCam').addEventListener('click', () => guard(async () => { if (!cefShot || cefShot.busy) return; cefPickOn = false; await closeSheet(); openCamera('cef'); }, 'Camera not opened'));
   function cefCamClosed() { if (!cefShot) return; clearTimeout(cefShotT); cefShotT = setTimeout(() => { if (cefShot && !cefShot.busy) { const w = cefShot; cefShot = null; w.res(null); } }, 900); } // closed with no photo
   async function cefGotPhoto(blob, gps, x) {
     const w = cefShot, c = cefNow; if (!w || !c) return; w.busy = true; clearTimeout(cefShotT);
@@ -18973,6 +18971,7 @@
   cefHooks.isCef = (name) => isCefProj(name);
   cefHooks.open = (name, o) => guard(() => cefOpen(name, o), 'CEF plan not opened');
   cefHooks.closed = cefClosed; cefHooks.camClosed = cefCamClosed; cefHooks.photo = cefGotPhoto;
+  cefHooks.pickClosed = () => { cefPickClear(); if (!cefPickOn) return; cefPickOn = false; if (cefShot && !cefShot.busy) { const w = cefShot; cefShot = null; w.res(null); } }; // (Back: nothing added)
   cefHooks.pids = cefPids; cefHooks.changed = cefChanged; cefHooks.count = cefIncoming; cefHooks.merge = cefMerge; cefHooks.setLogo = cefSetLogoRow; cefHooks.canLogo = cefCanLogo; cefHooks.planFiles = cefPlanFiles; cefHooks.plansN = (n) => cefPlans(n || S.project).length;
   /** What is on the plan of a CEF-Plan project (0: nothing yet): its task is in progress, and can be completed, once there is something. */
   cefHooks.started = (name) => { if (!isCefProj(name)) return 0; const p = cefPlans(name)[0], sk = (p && p.sk) || {}; return (Array.isArray(sk.els) ? sk.els.length : 0) + (Array.isArray(sk.runs) ? sk.runs.length : 0); };
