@@ -3881,7 +3881,7 @@
     box.innerHTML = head + `<div class="cl-head"><span class="lbl">CABLES · ${all.length}</span>${busy ? '' : `<button class="btn sm primary" type="button" data-cc="new">＋ New cable${sel ? ` from ${hEsc(sel.poleId || '')}` : ''}</button>`}</div>` // v2.42.24: one list of cables
       + (all.length ? '' : '<p class="rb-hint">No cable yet. ＋ New cable: pick its type, then draw it on the map or follow the capture order.</p>')
       + all.map((f) => { const fi = info.get(f.n) || { len: 0 }, a0 = f.path.length ? fibName(f.path[0]) : '', z0 = f.path.length > 1 ? fibName(f.path[f.path.length - 1]) : '';
-        return `<div class="ccard${fibAdd === f.n ? ' on' : ''}${fibSel === f.n ? ' sel' : ''}" data-n="${f.n}"><div class="cc-t"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i><b>RUN ${f.n}</b><span>${hEsc(fibCabName(f))}</span></div>`
+        return `<div class="ccard${fibAdd === f.n ? ' on' : ''}${fibSel === f.n ? ' sel' : ''}" data-n="${f.n}"><div class="cc-t"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i><b>RUN ${f.n}</b><span>${hEsc(fibCabName(f))}${!f.ex && isUG(f.cab) ? ` · ${hEsc(UG_METHODS.find(([k]) => k === ugOf(f).m)[1])}` : ''}</span></div>`
           + `<div class="cc-m">${fmtLen(fi.len || 0)} · ${a0 ? `${hEsc(a0)} → ${hEsc(z0 || '…')}` : 'no points yet'}${fibAdd === f.n ? ' · <b>in the bar</b>' : ''}</div>`
           + `<div class="cc-a">${busy ? '' : `<button class="btn sm primary" type="button" data-cc="cont" data-n="${f.n}">Continue</button>${cabSel(f)}`}<button class="btn sm" type="button" data-cc="det" data-n="${f.n}" aria-pressed="${fibSel === f.n}">Details</button>${busy ? '' : `<button class="btn sm danger" type="button" data-cc="del" data-n="${f.n}">${rtDelArm === f.n ? 'Tap again to delete' : 'Delete'}</button>`}</div></div>`; }).join('');
     box.hidden = false;
@@ -3898,6 +3898,7 @@
       + (shares.length ? `<p class="rb-hint">Shares ${shares.join('; ')}</p>` : '') + (f.ex ? '<p class="rb-hint">An existing cable: drawn on the plan (dashed), not in the BOQ, the cable lengths, the loops or the hardware.</p>' : '')
       + `<div class="rf-row"><select data-fa="cab" aria-label="Cable of RUN ${f.n}">${cabOpts}</select><select data-fa="side" aria-label="Side of RUN ${f.n} (auto: as on the plan)" title="Auto: as on the plan (the leg ending furthest east is right)"><option value="auto"${!f.side || f.side === 'auto' ? ' selected' : ''}>Side: auto</option><option value="right"${f.side === 'right' ? ' selected' : ''}>Right</option><option value="left"${f.side === 'left' ? ' selected' : ''}>Left</option><option value="none"${f.side === 'none' ? ' selected' : ''}>No side</option></select>`
       + `<select data-fa="ex" aria-label="New or existing cable"><option value="0"${f.ex ? '' : ' selected'}>New</option><option value="1"${f.ex ? ' selected' : ''}>Existing (drawn only)</option></select>${f.ex ? `<select data-fa="cores" aria-label="Size of the existing cable">${[...new Set([...EX_SIZES, exCores(f)])].sort((a, b) => a - b).map((c) => `<option value="${c}"${c === exCores(f) ? ' selected' : ''}>${c}C</option>`).join('')}</select>` : ''}</div>`
+      + (!f.ex && isUG(f.cab) ? (() => { const u = ugOf(f), d = ugDefM(f.cab); return `<div class="rf-row"><select data-fa="ugm" aria-label="How RUN ${f.n} is laid">${UG_METHODS.map(([k, , l]) => `<option value="${k}"${u.m === k ? ' selected' : ''}>${hEsc(l)}${k === d ? ' (default)' : ''}</option>`).join('')}</select><select data-fa="cd" aria-label="Conduit of RUN ${f.n}">${[1, 2].flatMap((r) => UG_CDS.map((c) => `<option value="${r}x${c}"${u.cr === r && u.cd === c ? ' selected' : ''}>${r} run${r > 1 ? 's' : ''} · ${c} mm</option>`)).join('')}</select></div>`; })() : '') // beta 6.7
       + `<div class="rf-btns"><button class="btn sm${adding ? '' : ' primary'}" type="button" data-fa="add">${adding ? '✓ Finish' : 'Continue'}</button><button class="btn sm" type="button" data-fa="rev"${f.path.length > 1 ? '' : ' disabled'}>Reverse</button></div>`; // (v2.42.24: Delete in the list, with its spans)
     card.hidden = false;
   }
@@ -3954,7 +3955,7 @@
   $('rbFib').addEventListener('change', (e) => {
     const t = e.target, k = t.dataset.fa; if (!k || fibSel == null) return;
     setFiber(fibSel, (f, F) => {
-      if (k === 'cab') f.cab = t.value; else if (k === 'cores') f.cores = +t.value || 12; else if (k === 'side') f.side = t.value; /* (v2.42.21: an existing cable's size) */ else if (k === 'fromSt') f.fromSt = t.value; else if (k === 'toSt') f.toSt = t.value;
+      if (k === 'cab') { if (ugDefM(t.value) !== ugDefM(f.cab)) delete f.ugm; f.cab = t.value; } else if (k === 'ugm') f.ugm = t.value; else if (k === 'cd') { const [r, c] = t.value.split('x'); f.cdr = +r === 1 ? 1 : 2; f.cd = c; } /* (beta 6.7) */ else if (k === 'cores') f.cores = +t.value || 12; else if (k === 'side') f.side = t.value; /* (v2.42.21: an existing cable's size) */ else if (k === 'fromSt') f.fromSt = t.value; else if (k === 'toSt') f.toSt = t.value;
       else if (k === 'ex') { // an existing cable has no spans of its own; a new fiber needs one on each step
         f.ex = t.value === '1'; if (f.ex) f.cores = exCores(f); else delete f.cores; const hop = (g) => new Set(g.path.slice(1).map((x, i) => spanKey(g.path[i], x)));
         if (f.ex) { const mine = hop(f), others = new Set(F.filter((g) => g !== f && !g.ex).flatMap((g) => [...hop(g)])); return links().filter((l) => !(mine.has(spanKey(l[0], l[1])) && !others.has(spanKey(l[0], l[1])) && !(Array.isArray(l[3]) && l[3].length))); }
@@ -4095,8 +4096,20 @@
   const exCores = (f) => (+f.cores >= 2 ? Math.round(+f.cores) : 12);
   const fibCabShort = (f) => (f.ex ? `Existing ${exCores(f)}C` : CAB[f.cab] ? CAB[f.cab].short : 'cable not set');
   const fibCabName = (f) => (f.ex ? `Existing ${exCores(f)}C (drawn only)` : CAB[f.cab] ? CAB[f.cab].label : 'Cable not set');
-  /** The next new fiber's cable: the project's cable (proposed), or an existing cable of its size. */
-  const nextSpec = () => { const m = pmeta(); return { cab: cableSel() || 'L12', ex: !!m.fibEx, cores: +m.fibCores >= 2 ? Math.round(+m.fibCores) : 12 }; };
+  /* beta 6.7 (the owner: "allow a selection by the user … what is the conduit using same as the CEF (32mm, 50mm, 114.3mm, 1run or 2run)?
+     also hdd is machine drill by default and airblown fiber is used by default but for non airblown, it should be Trench (open, shallow
+     w/ concrete or w/out)"): how a new UG cable (a RUN) is laid, and its conduit. f.ugm: 'hdd' (machine drilled), 'open', 'shc' / 'sh'
+     (shallow trench with / without concrete) or 'micro' (micro trench); unset: HDD for air-blown fiber, open trench for a conventional
+     UG cable. f.cd: '32', '50' or '114.3' mm, f.cdr: 1 or 2 runs; unset: the CEF plan's, 2 runs of 114.3 mm. The PMI and the GEO sheets'
+     BOQ count each UG span by the first new UG cable on it (dxftpl). */
+  const UG_METHODS = [['hdd', 'HDD (drilled)', 'HDD, machine drilled'], ['open', 'Open trench', 'Open trench'], ['shc', 'Shallow, concrete', 'Shallow trench with concrete'], ['sh', 'Shallow, no concrete', 'Shallow trench without concrete'], ['micro', 'Micro trench', 'Micro trench']];
+  const UG_CDS = ['32', '50', '114.3'];
+  const ugDefM = (cab) => (CAB[cab] && CAB[cab].fam === 'convug' ? 'open' : 'hdd');
+  const ugOf = (f) => ({ m: UG_METHODS.some(([k]) => k === f.ugm) ? f.ugm : ugDefM(f.cab), cd: UG_CDS.includes(String(f.cd)) ? String(f.cd) : '114.3', cr: +f.cdr === 1 ? 1 : 2 });
+  const ugTxt = (u) => `${UG_METHODS.find(([k]) => k === u.m)[2]}, ${u.cr} run${u.cr > 1 ? 's' : ''} of ${u.cd} mm conduit`;
+  /** The next new fiber's cable: the project's cable (proposed), or an existing cable of its size (beta 6.7: a UG cable's method and conduit as set for it, else the defaults). */
+  const nextSpec = () => { const m = pmeta(); return { cab: cableSel() || 'L12', ex: !!m.fibEx, cores: +m.fibCores >= 2 ? Math.round(+m.fibCores) : 12, ugm: m.fibUgm || '', cd: m.fibCd || '', cdr: +m.fibCdr || 0 }; };
+  const ugNew = (sp) => (!sp.ex && isUG(sp.cab) ? { ...(sp.ugm ? { ugm: sp.ugm } : {}), ...(sp.cd ? { cd: sp.cd } : {}), ...(sp.cdr ? { cdr: sp.cdr } : {}) } : {}); // (only what was set: unset follows the cable type)
   const setNext = (o) => { S.meta[S.project] = { ...pmeta(), ...o }; persist(); };
   const nextFibN = (F) => (F || fibers()).reduce((m, f) => Math.max(m, f.n), 0) + 1;
   const xyOf = (lat0) => { const k = Math.cos(lat0 * Math.PI / 180) * 111320; return (p) => ({ x: p.lon * k, y: p.lat * 110574 }); };
@@ -4169,7 +4182,7 @@
     const q = rtSheet || {}, F = fibers(), sp = nextSpec(), snap = routeSnap(); rtSheetClose();
     if (how === 'cap' && !q.from && !q.seq) { captureCables(sp); return; }
     const n = nextFibN(F), path = q.seq && q.seq.length > 1 ? q.seq.slice() : q.from ? [q.from] : [];
-    routeUndo.push(snap); F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), path, fromSt: '', toSt: '' });
+    routeUndo.push(snap); F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), ...ugNew(sp), path, fromSt: '', toSt: '' }); // (beta 6.7: + a UG cable's method and conduit)
     setRoute(!sp.ex && path.length > 1 ? linksFor(path, sp.cab) : null, F); rtStart(n, 'end', snap); fibTouched = path.length > 1; rtPenSet(); routeRefresh(path);
     toast(path.length > 1 ? `RUN ${n} · ${fibCabShort(sp)}: ${path.length} points. Go on drawing, or ✓ Finish` : path.length ? `RUN ${n} · ${fibCabShort(sp)} from ${fibName(path[0])}: tap the next pole, or drag along them` : `RUN ${n} · ${fibCabShort(sp)}: tap the pole or site it starts at, or drag along the poles`, 3500);
   }
@@ -4183,7 +4196,7 @@
     routeUndo.push(routeSnap()); let L2 = links(), n = nextFibN(F); const have = new Set(L2.map((l) => spanKey(l[0], l[1]))), made = [];
     chains.forEach((path) => {
       if (!sp.ex) path.slice(1).forEach((b, i) => { const k = spanKey(path[i], b); if (!have.has(k)) { have.add(k); L2 = L2.concat([linkWith(path[i], b, sp.cab)]); } });
-      F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), path, fromSt: '', toSt: '' }); made.push(n); n++; });
+      F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), ...ugNew(sp), path, fromSt: '', toSt: '' }); made.push(n); n++; });
     setRoute(L2, F); routeRefresh();
     toast(`${made.length === 1 ? `RUN ${made[0]}` : `RUN ${made[0]}–${made[made.length - 1]}`} made along the capture order (${chains.reduce((t, c) => t + c.length - 1, 0)} spans): each stops where the next pole is farther than ${pol().autoGap || 120} m. Check branches and street corners.`, 5000);
   }
@@ -4869,26 +4882,39 @@
     const picker = (sp, pre) => `<div class="rt-seg" role="group" aria-label="Proposed or existing cable">${opt(`${pre}kind`, 'p', 'Proposed', !sp.ex)}${opt(`${pre}kind`, 'e', 'Existing', sp.ex)}</div>`
       + (!sp.ex ? CAB_GROUPS.map(([g, t]) => `<div class="lbl2">${hEsc(t)}</div><div class="rt-opts">${Object.entries(CAB).filter(([, c]) => c.fam === g).map(([k, c]) => opt(`${pre}cab`, k, c.short, sp.cab === k, c.label)).join('')}</div>`).join('') // v2.42.24: by family
         : `<div class="lbl">EXISTING CABLE SIZE</div><div class="rt-opts">${EX_SIZES.map((c) => opt(`${pre}cores`, c, `${c}C`, sp.cores === c)).join('')}<span class="rt-other"><input id="${pre}CoreIn" type="number" inputmode="numeric" min="2" max="1728" placeholder="Other" aria-label="Other size, in cores" value="${EX_SIZES.includes(sp.cores) ? '' : sp.cores}"><button class="ib" type="button" data-coreset="${pre}">C ✓</button></span></div><p class="rt-note">Existing: drawn dashed on the map, the Drawing and the DXF with its size; left out of the BOQ, the cable lengths, the loops and the hardware.</p>`);
+    // beta 6.7: a new UG cable: how it is laid and its conduit (the defaults marked: HDD for air-blown fiber, open trench for conventional UG; 2 runs of 114.3 mm)
+    const ugBlock = (sp, pre) => { if (sp.ex || !isUG(sp.cab)) return ''; const u = ugOf({ cab: sp.cab, ugm: sp.ugm, cd: sp.cd, cdr: sp.cdr }), d = ugDefM(sp.cab);
+      return `<div class="lbl">LAID BY</div><div class="rt-opts" role="group" aria-label="How the UG cable is laid">${UG_METHODS.map(([k, t, l]) => opt(`${pre}ugm`, k, `${t}${k === d ? ' ·' : ''}`, u.m === k, `${l}${k === d ? ' (the default for this cable)' : ''}`)).join('')}</div>`
+        + `<div class="lbl">CONDUIT (AS THE CEF PLAN)</div><div class="rt-opts" role="group" aria-label="Conduit size">${UG_CDS.map((c) => opt(`${pre}cd`, c, `${c} mm`, u.cd === c, `${c} mm conduit`)).join('')}</div><div class="rt-opts" role="group" aria-label="Conduit runs">${[1, 2].map((r) => opt(`${pre}cdr`, r, r === 1 ? '1 run' : '2 runs', u.cr === r)).join('')}</div>`
+        + `<p class="rt-note">${hEsc(ugTxt(u))}. The default (·) for ${d === 'hdd' ? 'air-blown fiber: HDD' : 'a conventional UG cable: open trench'}, 2 runs of 114.3 mm. Counted so in the PMI and each sheet's BOQ; a trenched cable's road crossings are HDD.</p>`; };
     let h = '';
-    if (rtPop === 'cab') h = `<div class="lbl">CABLE OF RUN ${f.n} · THE WHOLE CABLE</div>${picker({ cab: f.cab, ex: !!f.ex, cores: exCores(f) }, 'f')}`;
+    if (rtPop === 'cab') h = `<div class="lbl">CABLE OF RUN ${f.n} · THE WHOLE CABLE</div>${picker({ cab: f.cab, ex: !!f.ex, cores: exCores(f) }, 'f')}${ugBlock(f, 'f')}`;
     else if (rtPop === 'newcab') { const q = rtSheet || {}, sp = nextSpec(), cap = !q.from && !q.seq; // v2.42.24: the New cable sheet
-      h = `<div class="lbl">NEW CABLE · RUN ${nextFibN()}${q.seq ? ` · ALONG THE ${q.seq.length} POLES DRAWN` : q.from ? ` · FROM ${hEsc(fibName(q.from).toUpperCase())}` : ''}</div>${picker(sp, 'n')}`
+      h = `<div class="lbl">NEW CABLE · RUN ${nextFibN()}${q.seq ? ` · ALONG THE ${q.seq.length} POLES DRAWN` : q.from ? ` · FROM ${hEsc(fibName(q.from).toUpperCase())}` : ''}</div>${picker(sp, 'n')}${ugBlock(sp, 'n')}`
         + (cap ? `<div class="rt-how" role="radiogroup" aria-label="How"><label><input type="radio" name="rtHow" value="draw"${q.how !== 'cap' ? ' checked' : ''}> Draw it on the map: tap the poles, or drag along them</label><label><input type="radio" name="rtHow" value="cap"${q.how === 'cap' ? ' checked' : ''}> Follow the capture order: the poles in the order you surveyed them (a RUN for each stretch)</label></div>` : '')
         + `<div class="rt-acts rt-end"><button class="ib" type="button" data-ns="cancel">Cancel</button><button class="ib primary" type="button" data-ns="start" id="rtSheetStart">${q.seq ? 'Save this cable' : 'Start'}</button></div>`; }
     else if (rtPop === 'snap') h = snaps;
     else if (rtPop === 'new') h = `<div class="lbl">NEXT FIBER · CABLE</div>${picker(nextSpec(), 'n')}`;
     el.innerHTML = h; el.hidden = false; el.classList.toggle('rtsheet', rtPop === 'newcab'); // (v2.42.24: the New cable sheet: taller, its buttons always in sight)
   }
+  /** beta 6.7: the UG cable in the bar: how it is laid, its conduit (ch: { ugm } | { cd } | { cdr }), with Undo. */
+  function rtSetUg(ch) {
+    const F = fibers(), f = fibAdd != null ? F.find((x) => x.n === fibAdd) : null; if (!f || f.ex || !isUG(f.cab)) return;
+    const was = ugTxt(ugOf(f)); routeUndo.push(routeSnap()); Object.assign(f, ch); const now = ugTxt(ugOf(f));
+    if (now === was) { routeUndo.pop(); renderRtPop(); return; }
+    setRoute(null, F); fibTouched = true; toast(`RUN ${f.n}: ${now}`, 3000); renderRtPop(); routeRefresh();
+  }
   /** The whole fiber's cable: proposed (its cable; spans on each step) or existing (any size; drawn only, no spans of its own). */
   function rtSetCable(ch, n0) {
     const n = n0 != null ? n0 : fibAdd; if (n == null) return; /* (v2.42.24: or a cable in the list) */ const F = fibers(), f = F.find((x) => x.n === n); if (!f) return;
     const was = fibCabName(f), wasEx = !!f.ex; let L2 = null;
     const nf = { ...f, ...ch }; if (fibCabName(nf) === was && !!nf.ex === wasEx) { rtPop = null; renderRtPop(); return; }
-    routeUndo.push(routeSnap()); Object.assign(f, ch); if (f.ex) f.cores = exCores(f); else delete f.cores;
+    routeUndo.push(routeSnap()); const fam0 = ugDefM(f.cab); Object.assign(f, ch); if (f.ex) f.cores = exCores(f); else delete f.cores;
+    if ('cab' in ch && ugDefM(f.cab) !== fam0) delete f.ugm; // (beta 6.7: air-blown ↔ conventional UG: its method back to that cable's default)
     if (f.ex && !wasEx) { const hop = (g) => new Set(g.path.slice(1).map((x, i) => spanKey(g.path[i], x))), mine = hop(f), others = new Set(F.filter((g) => g !== f && !g.ex).flatMap((g) => [...hop(g)])); L2 = links().filter((l) => !(mine.has(spanKey(l[0], l[1])) && !others.has(spanKey(l[0], l[1])) && !(Array.isArray(l[3]) && l[3].length))); }
     else if (!f.ex) L2 = linksFor(f.path, f.cab);
     setRoute(L2, F); if (n0 == null) fibTouched = true; toast(`RUN ${f.n}: ${was} → ${fibCabName(f)}, the whole cable`, 3000);
-    if (ch.ex === undefined || 'cab' in ch || 'cores' in ch) rtPop = null; routeRefresh();
+    if ((ch.ex === undefined || 'cab' in ch || 'cores' in ch) && !('cab' in ch && !f.ex && isUG(f.cab))) rtPop = null; routeRefresh(); // (beta 6.7: a UG cable picked: its method and conduit in view)
   }
   $('rtBar').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return; if (e.detail) b.blur(); // (a pointer's click: Space stays the map's; the keyboard keeps its focus)
@@ -4922,11 +4948,13 @@
     if (d.snap != null) { S.routeSnap = d.snap === 'auto' ? 'auto' : +d.snap; persist(); toast(`Snap: ${snapLbl()}`, 1800); if (rtPop === 'snap') rtPop = null; renderRtBar(lastR || routeModel()); return; }
     if (d.fkind) { rtSetCable({ ex: d.fkind === 'e' }); rtPop = 'cab'; renderRtPop(); return; }
     if (d.fcab) { rtSetCable({ ex: false, cab: d.fcab }); return; }
+    if (d.fugm || d.fcd || d.fcdr) { rtSetUg(d.fugm ? { ugm: d.fugm } : d.fcd ? { cd: d.fcd } : { cdr: +d.fcdr }); return; } // beta 6.7
+    if (d.nugm || d.ncd || d.ncdr) { setNext(d.nugm ? { fibUgm: d.nugm } : d.ncd ? { fibCd: d.ncd } : { fibCdr: +d.ncdr }); renderRtPop(); return; } // beta 6.7: the next UG cable's
     if (d.fcores) { rtSetCable({ ex: true, cores: +d.fcores }); return; }
     const ready = () => { fibNew = false; rtPop = null; routeRefresh(); }; // (v2.42.22: the next line or tap with no fiber in the bar starts it)
     if (d.nkind) { setNext({ fibEx: d.nkind === 'e' }); renderRtPop(); return; }
     if (d.ns) { if (d.ns === 'start') { const r = el0.querySelector('input[name="rtHow"]:checked'); rtSheetStart(r ? r.value : 'draw'); } else { rtSheetClose(); routeRefresh(); } return; } // v2.42.24: the New cable sheet
-    if (d.ncab) { setNext({ cable: d.ncab, fibEx: false }); renderCableSel(); if (rtPop === 'newcab') renderRtPop(); else ready(); return; }
+    if (d.ncab) { setNext({ cable: d.ncab, fibEx: false, ...(ugDefM(d.ncab) !== ugDefM(cableSel()) ? { fibUgm: '' } : {}) }); renderCableSel(); /* (beta 6.7: air-blown ↔ conventional: the method back to its default) */ if (rtPop === 'newcab') renderRtPop(); else ready(); return; }
     if (d.ncores) { setNext({ fibEx: true, fibCores: +d.ncores }); if (rtPop === 'newcab') renderRtPop(); else ready(); return; }
     if (d.coreset) { const inp = $(`${d.coreset}CoreIn`), v = Math.round(+inp.value); if (!(v >= 2 && v <= 1728)) { toast('Type the number of cores, 2 to 1728', 2500); inp.focus(); return; }
       if (d.coreset === 'f') rtSetCable({ ex: true, cores: v }); else { setNext({ fibEx: true, fibCores: v }); if (rtPop === 'newcab') renderRtPop(); else ready(); } }
@@ -11282,6 +11310,7 @@
         clampType: el === 'Pole' && showCT ? clampOf(p, R, pts).join('+') : '', clampAuto: el === 'Pole' && !b.clampType, hw: el === 'Pole' && showCT && PLS.clamp.hw ? hwShort(p, R) : '', /* v2.42.21: a 12C-only pole's hardware */
         ownerName: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && !/^globe$/i.test(ownerNameOf(p)) ? ownerNameOf(p).toUpperCase() : '' }; }); // v2.42.18: the owner's name beside an existing pole // v2.39: the pole's clamps (picked by the plan when left blank); v2.40: or the size only
     const spans = R.spans.map((s) => { const o = { ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long, more: (s.runs || []).slice(1), cabLbl: PLS.cab.on ? cabLabelOf(s, PLS.cab.word) : null, runLbls: s.lanes && s.lanes.some((f) => !f.ex) ? null : (s.runs || [s.cable]).map((k, i, all) => runLbl((cabLabelOf({ runs: [k] }, 'a')[0] || {}).t || '', all.length > 1 ? i + 1 : 0)) }; // (v2.42.23: each run's own label) // v2.42.18: + the other runs; v2.42.21: its cable label
+      { const g = (s.fibers || []).filter((f) => isUG(f.cab)).sort((x, y) => x.n - y.n)[0], k = g ? null : (s.runs || [s.cable]).find((c) => isUG(c)); if (g || k) { const u = ugOf(g || { cab: k }); o.ug = { m: u.m, cd: u.cd, cr: u.cr, n: g ? g.n : 0 }; } } // beta 6.7: how a UG span is laid (its first new UG cable's method and conduit)
       if (s.lanes && s.lanes.length) { // v2.42.20: the other fibers each in its lane (beside the first fiber's line), an existing one dashed blue; the fibers' tags with the length
         const main = s.fibers.slice().sort((x, y) => x.n - y.n)[0] || null, mi = main ? s.lanes.indexOf(main) : (s.lanes.length - 1) / 2, rest = s.lanes.filter((f) => f !== main);
         Object.assign(o, { more: rest.map((f) => f.cab || ''), moreOff: rest.map((f) => s.lanes.indexOf(f) - mi), moreEx: rest.map((f) => !!f.ex), tags: R.fib.list.length > 1 ? s.lanes.slice().sort((x, y) => x.n - y.n).map(fibTag).join('+') : '' }); }
@@ -11502,7 +11531,10 @@
           ...(nEnt ? [`Sites, ODFs and ODCs on the route: a loop at each entrance (${nEnt}${nEnt !== nEntP ? ` at ${nEntP} entrances: one for each cable there` : ''}, the cable's length), counted in the cable length (PMI, survey quantities, BOQ)${PS.cab.boxLoops ? ', written beside each (Drawing style)' : ' and not drawn'}.`] : [])];
         if (svPurpose() === 'As-built') return [`Maintenance loops on poles: as recorded in the As-Built (${onPoles}${own}${q.MLOOP_UNANSWERED ? `; ${q.MLOOP_UNANSWERED} pole${q.MLOOP_UNANSWERED === 1 ? '' : 's'} on the route not answered` : ''}).`, ...box];
         return [`Maintenance loops on poles (each its own length: by default 10 m on 12C, ${mloopLen()} m on 72C): ${onPoles} on the plan${own}; ${ids.length ? `${ids.length} added by the app where the survey had none (${loopRule}): ${ids.join(', ')}` : 'none added by the app'}.`, ...box]; })(),
-      `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Settings → AutoCAD DXF)'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe (or owned by Globe); RTA Converge / local coop / other (PLDT pole) = existing poles by owner (CONVERGE / an electric company, coop or power / PLDT), and an RTA row of its own for each other owner (beta 6.6: added to the PMI table and the BOQ tables)' + (pmiExtraRows.length ? `: ${pmiExtraRows.map((x) => x[0]).join(', ')}` : '') + '; fiber termination = fibers of the new ODFs; hybrid closure = new closures; proposed HDD = the new bores where a new underground cable crosses a road (the road\'s width and 3 m each side, as drawn); open trench = the conventional UG cable\'s route (each span once) less its bores; micro trench = the air-blown UG cable\'s route less its bores; maxcell inner duct = the conventional UG cable\'s route, bores included; proposed manhole / service box = the new ones.',
+      `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Settings → AutoCAD DXF)'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe (or owned by Globe); RTA Converge / local coop / other (PLDT pole) = existing poles by owner (CONVERGE / an electric company, coop or power / PLDT), and an RTA row of its own for each other owner (beta 6.6: added to the PMI table and the BOQ tables)' + (pmiExtraRows.length ? `: ${pmiExtraRows.map((x) => x[0]).join(', ')}` : '') + '; fiber termination = fibers of the new ODFs; hybrid closure = new closures; the UG route (each span once, as its length is written) by how its first new UG cable is laid (beta 6.7: set on the cable in Route; HDD for air-blown fiber and open trench for a conventional UG cable unless set): proposed HDD = the drilled spans whole, and on a trenched span its road crossings (the road\'s width and 3 m each side, as drawn); open trench, micro trench and the shallow trench with or without concrete (rows added to the PMI table when used) = the trenched spans less their road crossings; maxcell inner duct = the conventional UG cable\'s route, crossings included; proposed manhole / service box = the new ones.',
+      ...(() => { const U = rp.ugLaid || {}, C0 = rp.ugConduit || {}, nm = { hdd: 'HDD', open: 'open trench', shc: 'shallow trench with concrete', sh: 'shallow trench without concrete', micro: 'micro trench' }; if (!Object.keys(C0).length) return []; // beta 6.7: how each UG cable is laid, and the conduit by size and runs (the PMI has no conduit rows)
+        const runs = fibers().filter((f) => !f.ex && isUG(f.cab)).sort((x, y) => x.n - y.n).map((f) => `RUN ${f.n} (${CAB[f.cab].short}): ${ugTxt(ugOf(f))}`);
+        return [`Underground route by how it is laid: ${Object.entries(U).map(([k, v]) => `${nm[k] || k} ${(Math.round(v * 10) / 10).toFixed(1)} m`).join(', ')}${Object.keys(U).some((k) => k !== 'hdd') ? ' (a trenched cable\'s road crossings in PROPOSED HDD)' : ''}${runs.length ? ` · ${runs.join(' · ')}` : ''}. Conduit (as the CEF plan: the PMI has no conduit row): ${Object.entries(C0).map(([k, v]) => { const [r, c] = k.split('x'); return `${r} run${+r > 1 ? 's' : ''} of ${c} mm: ${(+v).toFixed(1)} m of route (${(+v * +r).toFixed(1)} m of pipe)`; }).join('; ')}.`]; })(),
       ...(S.exp.dxfBoqGrid !== false && rp.boqGrid ? [`BOQ table on each GEO sheet (Plan settings): the PMI rows for that sheet's grid only, in its right-hand box. A span counts whole on the sheet where its length is written (a span crossing a sheet edge is not split), as its length reads there (whole metres; the PMI too, beta 6.4); a loop, a pole, a new ODF's fibers and a new closure count where their point is, a loop as its length is written; so the written lengths add up to each table and the sheets to the PMI${S.exp.dxfLabels === 'tidy' ? '. Tidy: each span length is written on the GEO sheet that holds the middle of its span, never across a sheet line' : ''}${rp.boqGrid.check.every((c) => c.ok) && !rp.boqGrid.lost.length ? ' (they do: every row checked)' : ` (check: ${rp.boqGrid.check.filter((c) => !c.ok).map((c) => c.row).join(', ')})`}. The rows the PMI leaves blank stay blank.`] : []), // beta 6.0
       'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (PROP.POLE / height / clamp)') + ', existing electric pole on ELECTRIC POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / pole tag or NPT)') + ', telco pole on GT-POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / ID)') + '; new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
       `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; a pin placed by hand more than 6 m from the road edge stays where it is: ${rp.counts.polesKept || 0}; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it; a side guy never into the road; a pole-to-pole guy to its chosen pole, with a head guy there: ${rp.counts.poleToPole || 0}).`,

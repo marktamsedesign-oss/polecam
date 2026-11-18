@@ -968,7 +968,10 @@ function cefTable(S) {
   const sbt = Array.from(new Set(S.els.filter(e => e.t === 'sbox' && SBOX[e.ty]).map(e => e.ty))).join(', ');
   const Lm = v => v > 0.05 ? f1(v) + 'm' : '', Q = v => v > 0 ? String(v) : '';
   const cab = c => { c = String(c || ''); const sp = c.indexOf(' '); return sp > 0 ? [c.slice(0, sp), c.slice(sp + 1)] : [c, '']; }, CB = cables(S), drawn = CB.map((R, k) => k).filter(k => !k || cableDrawn(CB[k])), focRows = [];
-  for (const f of ['ae', 'ug']) for (const k of drawn) { const sm = rg.parts[k].sum, c = cab(CB[k][f].cable), Lf = f === 'ae' ? sm.ae : sm.ugt; if (k && Lf <= 0.05) continue; focRows.push([(f === 'ae' ? 'AE ' : 'UG ') + c[0] + ' FOC' + (f === 'ae' ? ' (W/ LOOP)' : '') + (drawn.length > 1 ? ' - C' + (k + 1) : ''), Lf > 0.05 ? c[1] : '', '', Lm(Lf)]); }      /* (14 Nov) one row for each fiber of each cable */
+  /* beta 6.7 (the owner: "the AE fiber is also written which should [not] because it will be counted from the asplan itself"): the UG fiber
+     only, one row for each cable, its whole length as the plan writes it in the cable's name (PROPOSED … FOC UG: 28.4m); the AE fiber is
+     counted in the As-Plan (a line under the table says so, focFormula) */
+  for (const k of drawn) { const sm = rg.parts[k].sum, c = cab(CB[k].ug.cable), Lf = sm.ugt; if (Lf <= 0.05) continue; focRows.push(['UG ' + c[0] + ' FOC' + (drawn.length > 1 ? ' - C' + (k + 1) : ''), c[1], '', Lm(Lf)]); }      /* (14 Nov) one row for each cable */
   const dps = Array.from(new Set(S.runs.filter(r => r.kind === 'trench' && r.st === 'P').map(r => f1(runDepth(r))))), deep = trench > 0.05 ? (dps.length > 1 ? 'SEE PLAN' : (dps[0] || f1(UGD)) + 'm DEEP') : '';
   const TR = S.runs.filter(r => r.kind === 'trench' && r.st === 'P'), TT = Array.from(new Set(S.runs.filter(r => (r.kind === 'conduit' || r.kind === 'encase') && r.st === 'P' && buried(r)).map(r => runN(r) + '-' + runMM(r) + 'mm')));      /* (22:24) the proposed conduits that are drawn say the runs and the size; with none drawn, the standard */
   const nclo = cnt('clo') + rg.joins.filter(j => j.auto).length, nexit = rg.exits.length + S.els.filter(e => e.t === 'exit' && !rg.exits.some(x => x.el === e.id)).length;
@@ -993,14 +996,15 @@ function cefTable(S) {
     ['U-GUARD', '', '', Lm(guard)]
   ];
 }
-/* how each cable length is made up, one line for AE and one for UG */
+/* how each UG cable length is made up (beta 6.7: the UG fiber only; the AE fiber is counted in the As-Plan, said once) */
 function focFormula(S) {
   const rg = routeGeom(S), o = [], P = rg.parts.filter(p => p.sum.total > 0.05), many = P.length > 1;
   for (const p of many ? P : [rg]) { const g = p.sum, w = many ? 'CABLE ' + (rg.parts.indexOf(p) + 1) + ' ' : '';
-    if (g.ae > 0.05) o.push(w + 'AE FOC = ' + f1(g.aerial) + ' m RUN + ' + g.nloop + ' LOOP' + (g.nloop === 1 ? '' : 'S') + ' (' + f1(g.loop) + ' m) = ' + f1(g.ae) + ' m');
     if (g.ugt > 0.05) o.push(w + 'UG FOC = ' + f1(g.ugt - g.vert - g.inside) + ' m RUN + ' + f1(g.vert) + ' m UP AND DOWN' + (g.inside > 0.05 ? ' + ' + f1(g.inside) + ' m INSIDE THE ' + (S.els.some(e => e.t === 'cabin' && !e.tr && e.inside) ? 'CABIN' : 'TELCO ROOM') : '') + ' = ' + f1(g.ugt) + ' m'); }
+  if (rg.sum.ae > 0.05) o.push(aeNote());
   return o;
 }
+const aeNote = () => 'FOC AE: COUNTED IN THE AS-PLAN, NOT IN THIS TABLE.';      /* beta 6.7 */
 
 /* ---------- drawing primitives (metres, y up) ---------- */
 function Gfx() { this.p = []; }
