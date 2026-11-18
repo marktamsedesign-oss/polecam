@@ -475,6 +475,9 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 #pinGpsNote{font:600 calc(12px * var(--fs))/1.3 system-ui,sans-serif;color:var(--warn);max-width:min(62vw,360px)}
 #coordBox.over #pinGpsNote{color:#fff}
 #snapGps{min-height:36px;padding:0 12px;font-size:calc(13px * var(--fs));box-shadow:var(--shadow)}
+/* beta 6.4: Street View here (a Google Maps link: no key, no cost) */
+#pinStreetView{min-height:36px;padding:0 10px;font-size:calc(13px * var(--fs));box-shadow:var(--shadow);display:inline-flex;align-items:center;gap:4px}
+#pinStreetView svg{width:18px;height:18px;flex:none}
 .edbody{gap:10px;padding-top:10px}
 .edbody .group{padding:12px;gap:10px}
 .frow{display:grid;grid-template-columns:calc(76px + 40px * (var(--fs) - 1)) minmax(0,1fr);gap:8px;align-items:center}
@@ -1485,6 +1488,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div id="pinLayer"><span id="pinLayerName">Street</span><button class="round" id="pinLayerBtn" type="button" aria-label="Switch map: street, satellite or offline map pack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button></div>
     <div id="pinInfo">
       <div id="coordBox" class="mono"><div id="pinLL">–</div><div id="pinUTM">–</div><div id="pinDelta"></div><div id="pinGpsNote" role="status" hidden></div></div>
+      <button class="btn" id="pinStreetView" type="button" aria-label="Street View here: opens Google Street View at the pin (Google Maps, free)" title="Street View here (Google Maps)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2.2"/><path d="M9.5 21v-6l-1.5-1v-4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v4l-1.5 1v6"/></svg>Street View</button>
       <button class="btn" id="snapGps">Reset to GPS</button>
     </div>
   </div>
@@ -1686,6 +1690,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <h3>Photos on the plan</h3>
       <div class="strow"><span class="lbl">Photo size <output id="stPhO"></output></span><div class="seg stphseg" id="stPhSize" role="radiogroup" aria-label="Photo size"><button type="button" class="chip" data-v="12">Small</button><button type="button" class="chip" data-v="18">Normal</button><button type="button" class="chip" data-v="24">Large</button><button type="button" class="chip" data-v="30">Extra large</button></div></div>
       <div class="strow"><label class="lbl" for="stPhL">Your own size: long side in metres <output>6 to 40 m</output></label><input type="number" id="stPhL" min="6" max="40" step="1" inputmode="decimal" enterkeyhint="done"></div>
+      <div class="strow"><span class="lbl">Stamp on the photos <output id="stPhStampO"></output></span><div class="seg" id="stPhStamp" role="radiogroup" aria-label="Stamp on the photos"><button type="button" class="chip small" data-v="off">Off</button><button type="button" class="chip small" data-v="ll">Lat-long</button><button type="button" class="chip small" data-v="addr">Lat-long + address</button></div></div><!-- beta 6.4 -->
       <div class="strow"><label class="lbl" for="stPhNear">Near its pole (Tidy) <output id="stPhNearO"></output></label><input type="range" id="stPhNear" min="8" max="40" step="1"></div>
       <p class="hint" id="stPhHint" style="margin:0"></p>
     </div>
@@ -1970,7 +1975,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
         <div class="opt2"><label class="field">Longest side of export copies<select id="setMaxPx"><option>1280</option><option>1600</option><option>2048</option><option>2560</option><option>3264</option></select></label>
         <label class="field">JPEG quality<select id="expQuality"><option value="0.8">Smaller files (80)</option><option value="0.88">Balanced (88)</option><option value="0.94">Best (94)</option></select></label></div>
         <label class="check"><input type="checkbox" id="setStamp"><span>Stamp a caption band on the photo</span></label>
-        <div class="chips" id="stampFields"><button type="button" class="chip small" data-v="id" aria-pressed="true">ID & type</button><button type="button" class="chip small" data-v="coords" aria-pressed="true">Lat / long</button><button type="button" class="chip small" data-v="utm" aria-pressed="true">UTM</button><button type="button" class="chip small" data-v="time" aria-pressed="true">Date & time</button><button type="button" class="chip small" data-v="by" aria-pressed="true">Taken by</button><button type="button" class="chip small" data-v="project" aria-pressed="true">Project</button></div>
+        <div class="chips" id="stampFields"><button type="button" class="chip small" data-v="id" aria-pressed="true">ID & type</button><button type="button" class="chip small" data-v="coords" aria-pressed="true">Lat / long</button><button type="button" class="chip small" data-v="addr" aria-pressed="true" title="Road, barangay and city from the road pack on this phone (else the coordinates)">Address</button><button type="button" class="chip small" data-v="utm" aria-pressed="true">UTM</button><button type="button" class="chip small" data-v="time" aria-pressed="true">Date & time</button><button type="button" class="chip small" data-v="by" aria-pressed="true">Taken by</button><button type="button" class="chip small" data-v="project" aria-pressed="true">Project</button></div>
         <label class="field">Photos of each pin<select class="phdoc" data-k="zip"><option value="all">All (the main one ID.jpg, the others ID_2.jpg, ID_3.jpg…)</option><option value="main">The main photo only</option></select></label>
         <div id="namingRow"><label class="field">File names<select id="expNaming"><option value="id">ID.jpg (CC-0001.jpg)</option><option value="project_id">Project_ID.jpg</option><option value="id_time">ID_date_time.jpg</option></select></label></div>
       </div></details>
@@ -2146,7 +2151,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="opt2"><label class="field">Longest side of export copies<select id="setMaxPx2"><option>1280</option><option>1600</option><option>2048</option><option>2560</option><option>3264</option></select></label>
       <label class="field">JPEG quality<select id="expQuality2"><option value="0.8">Smaller files (80)</option><option value="0.88">Balanced (88)</option><option value="0.94">Best (94)</option></select></label></div>
       <label class="check"><input type="checkbox" id="setStamp2"><span>Stamp a caption band on exported photos</span></label>
-      <div class="chips" id="stampFields2"><button type="button" class="chip small" data-v="id" aria-pressed="true">ID & type</button><button type="button" class="chip small" data-v="coords" aria-pressed="true">Lat / long</button><button type="button" class="chip small" data-v="utm" aria-pressed="true">UTM</button><button type="button" class="chip small" data-v="time" aria-pressed="true">Date & time</button><button type="button" class="chip small" data-v="by" aria-pressed="true">Taken by</button><button type="button" class="chip small" data-v="project" aria-pressed="true">Project</button></div>
+      <div class="chips" id="stampFields2"><button type="button" class="chip small" data-v="id" aria-pressed="true">ID & type</button><button type="button" class="chip small" data-v="coords" aria-pressed="true">Lat / long</button><button type="button" class="chip small" data-v="addr" aria-pressed="true" title="Road, barangay and city from the road pack on this phone (else the coordinates)">Address</button><button type="button" class="chip small" data-v="utm" aria-pressed="true">UTM</button><button type="button" class="chip small" data-v="time" aria-pressed="true">Date & time</button><button type="button" class="chip small" data-v="by" aria-pressed="true">Taken by</button><button type="button" class="chip small" data-v="project" aria-pressed="true">Project</button></div>
       <label class="field">File names<select id="expNaming2"><option value="id">ID.jpg (CC-0001.jpg)</option><option value="project_id">Project_ID.jpg</option><option value="id_time">ID_date_time.jpg</option></select></label>
     </div>
     <div class="group">
