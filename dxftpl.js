@@ -3883,7 +3883,8 @@
        it; 'open' (conventional UG's default), 'shc' / 'sh' (shallow trench with / without concrete) or 'micro': that trench, less the
        road crossings, which stay PROPOSED HDD bores as before. MAXCELL INNER DUCT: the conventional UG cable's route, as before. The
        shallow trenches have no row in the template's PMI: a row of their own is added (as the RTA rows are) when there is any.
-       The conduit (span.ug.cd mm, span.ug.cr runs) is counted by size and runs for the README (rep.ugConduit). */
+       The conduit (span.ug.cd mm, span.ug.cr runs): a PROPOSED CONDUIT row for each size and runs used, its route metres (added as
+       the shallow trenches are), and rep.ugConduit for the README. A span's own way (span.ug.own: set on the span) counts as its RUN's. */
     const UGV = { PMI_HDD: 0, PMI_OPEN_TRENCH: 0, PMI_MICRO_TRENCH: 0, PMI_SHALLOW_TRENCH_C: 0, PMI_SHALLOW_TRENCH: 0, PMI_MAXCELL_INNER_DUCT: 0, PMI_MANHOLE: 0, PMI_SERVICE_BOX: 0 }, ugPI = { spans: [], points: [] }, ugCd = {}, ugBy = {};
     { const segD = (q, a, b) => { const vx = b[0] - a[0], vy = b[1] - a[1], L2 = vx * vx + vy * vy, t = L2 ? Math.max(0, Math.min(1, ((q[0] - a[0]) * vx + (q[1] - a[1]) * vy) / L2)) : 0; return Math.hypot(q[0] - a[0] - t * vx, q[1] - a[1] - t * vy); };
       const UGM = { hdd: 'PMI_HDD', open: 'PMI_OPEN_TRENCH', micro: 'PMI_MICRO_TRENCH', shc: 'PMI_SHALLOW_TRENCH_C', sh: 'PMI_SHALLOW_TRENCH' };
@@ -3894,14 +3895,17 @@
         UGV.PMI_HDD += h.L; ugPI.points.push({ at: h.x, v: { PMI_HDD: h.L } }); }
       for (const u of ugSp) { const Lw = Math.round(+u.s0.len || 0), K = UGM[u.m], v = u.m === 'hdd' ? { PMI_HDD: Lw } : { [K]: Math.max(0, Lw - u.hdd) }; /* (beta 6.4: the span as its length is written on the plan) */
         if (u.conv) v.PMI_MAXCELL_INNER_DUCT = Lw;
-        for (const [k, x] of Object.entries(v)) UGV[k] += x; ugPI.spans.push({ ia: u.s0.ia, ib: u.s0.ib, v });
-        const ck = `${u.cr}x${u.cd}`; ugCd[ck] = (ugCd[ck] || 0) + Lw; ugBy[u.m] = (ugBy[u.m] || 0) + Lw; }
+        const ck = `${u.cr}x${u.cd}`, cdK = `PMI_CONDUIT_${ck.replace('.', '_')}`; v[cdK] = Lw; // (beta 6.7: the owner: "PMI rows, not just the README": the conduit's route metres by size and runs)
+        for (const [k, x] of Object.entries(v)) UGV[k] = (UGV[k] || 0) + x; ugPI.spans.push({ ia: u.s0.ia, ib: u.s0.ib, v });
+        ugCd[ck] = (ugCd[ck] || 0) + Lw; ugBy[u.m] = (ugBy[u.m] || 0) + Lw; }
       rep.ugConduit = Object.fromEntries(Object.entries(ugCd).map(([k, v]) => [k, Math.round(v * 10) / 10])); rep.ugLaid = { ...ugBy }; // beta 6.7: the README's conduit by size and runs, and each method's span lengths
       for (const p of pts) if ((p.status === 'Proposed' || p.status === 'New') && (p.el === 'Manhole' || p.el === 'Service box')) { const k = p.el === 'Manhole' ? 'PMI_MANHOLE' : 'PMI_SERVICE_BOX'; UGV[k]++; ugPI.points.push({ id: p.id, v: { [k]: 1 } }); } }
     // beta 6.6 (the owner: "PMI must should add automatically the poles RTA"): an RTA row for each other pole owner (job.pmiExtraRows [label, key], from the app)
     const PMI_UGX = [['PROPOSED SHALLOW TRENCH W/ CONCRETE', 'PMI_SHALLOW_TRENCH_C', 'm'], ['PROPOSED SHALLOW TRENCH W/O CONCRETE', 'PMI_SHALLOW_TRENCH', 'm']].filter(([, k]) => UGV[k] > 0); // beta 6.7: added when used
+    // beta 6.7: a row for each conduit used (size and runs), its route metres (the pipe metres, route × runs, are in the README); the largest first
+    const PMI_CDX = Object.keys(ugCd).sort((x, y) => parseFloat(y.split('x')[1]) - parseFloat(x.split('x')[1]) || +y.split('x')[0] - +x.split('x')[0]).map((ck) => { const [r, c] = ck.split('x'); return [`PROPOSED CONDUIT ${c}MM X ${r} RUN${+r > 1 ? 'S' : ''}`, `PMI_CONDUIT_${ck.replace('.', '_')}`, 'm']; });
     const PMI_XRTA = (Array.isArray(job.pmiExtraRows) ? job.pmiExtraRows : []).filter((x) => Array.isArray(x) && x[0] && x[1]).slice(0, 8).map(([lb, k]) => [String(lb).toUpperCase().slice(0, 40), String(k)]);
-    const PMI_XROWS = PMI_XRTA.concat(PMI_UGX.map(([lb, k]) => [lb, k])); // (the rows added at the foot of the template's PMI table: the RTA rows, then the shallow trenches)
+    const PMI_XROWS = PMI_XRTA.concat(PMI_UGX.map(([lb, k]) => [lb, k]), PMI_CDX.map(([lb, k]) => [lb, k])); // (the rows added at the foot of the template's PMI table: the RTA rows, then the shallow trenches and the conduits)
     const ugVals = Object.fromEntries(Object.entries(UGV).map(([k, v]) => [k, /MANHOLE|SERVICE_BOX/.test(k) ? String(v) : `${(Math.round(v * 10) / 10).toFixed(1)}m`]));
     { // the template's PMI table (model space): each of these rows' quantity cell, where the template has it empty
       const ENT = d.sec('ENTITIES').recs, norm = (x) => String(x).replace(/\\[A-Za-z][^;]*;|[{}]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
@@ -3961,7 +3965,7 @@
     if (job.pmiItems && N > 0) {
       const PMI_ROWS = [['TOTAL CABLE LENGTH', 'PMI_TOTAL_CABLE_LENGTH', 'm'], ['AERIAL CABLE LENGTH', 'PMI_AERIAL_CABLE_LENGTH', 'm'], ['EXISTING GT POLE', 'PMI_EXISTING_GT_POLE'], ['PROPOSED POLE', 'PMI_PROPOSED_POLE'],
         ['RTA CONVERGE', 'PMI_RTA_CONVERGE'], ['RTA LOCAL COOP', 'PMI_RTA_LOCAL_COOP'], ['RTA OTHER (PLDT POLE)', 'PMI_RTA_OTHER_PLDT'], ...PMI_XRTA, ['UNDERGROUND CABLE LENGTH', 'PMI_UG_CABLE_LENGTH', 'm'], ['PROPOSED HDD', 'PMI_HDD', 'm'],
-        ['PROPOSED OPEN TRENCH', 'PMI_OPEN_TRENCH', 'm'], ...PMI_UGX, ['PROPOSED MICRO TRENCH', 'PMI_MICRO_TRENCH', 'm'], ['MAXCELL INNER DUCT', 'PMI_MAXCELL_INNER_DUCT', 'm'], ['PROPOSED MANHOLE', 'PMI_MANHOLE'], ['PROPOSED SERVICE BOX', 'PMI_SERVICE_BOX'], ['FIBER TERMINATION', 'PMI_FIBER_TERMINATION'], ['PROPOSED HYBRID CLOSURE', 'PMI_HYBRID_CLOSURE']];
+        ['PROPOSED OPEN TRENCH', 'PMI_OPEN_TRENCH', 'm'], ...PMI_UGX, ['PROPOSED MICRO TRENCH', 'PMI_MICRO_TRENCH', 'm'], ['MAXCELL INNER DUCT', 'PMI_MAXCELL_INNER_DUCT', 'm'], ...PMI_CDX, ['PROPOSED MANHOLE', 'PMI_MANHOLE'], ['PROPOSED SERVICE BOX', 'PMI_SERVICE_BOX'], ['FIBER TERMINATION', 'PMI_FIBER_TERMINATION'], ['PROPOSED HYBRID CLOSURE', 'PMI_HYBRID_CLOSURE']];
       const V0 = { ...(job.values || {}), ...ugVals }, PI = { spans: [...(job.pmiItems.spans || []), ...ugPI.spans], points: [...(job.pmiItems.points || []), ...ugPI.points] }, names = geoNames(N), per = new Map(names.map((nm) => [nm, {}])), lost = [];
       const shAt = (x, y) => sheetOf.get(key(ci(x), cj(y))) || null, numOf = (v) => { const m = /-?\d+(?:\.\d+)?/.exec(String(v == null ? '' : v)); return m ? +m[0] : null; };
       const addTo = (nm, v, what) => { if (!nm) { lost.push(what); return; } const o2 = per.get(nm); for (const [k, x] of Object.entries(v || {})) o2[k] = (o2[k] || 0) + (+x || 0); };
