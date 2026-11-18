@@ -2502,7 +2502,7 @@
     // beta 4.7: Export the plan › Labels: Tidy (job.labels 'tidy'). The Standard labels are worked out as before and their places kept
     // (so the photos, numbers, span lengths, cable labels, IDs and street names go exactly where Standard puts them), but not written;
     // once everything else is placed, those places are given back and each pole gets one level label instead (see the end of step 12)
-    const tidy = job.labels === 'tidy', tidyStd = [], tidyTodo = [];
+    const tidy = job.labels === 'tidy', tidyStd = [], tidyTodo = [], PIDF = ['stack', 'line'].includes((job.poleStyle || {}).idForm) ? job.poleStyle.idForm : 'auto'; // (beta 6.2: the pole's ID in the Tidy block)
     const clTag = (p, L) => {
       const CS = job.clampStyle || {}; if (!clLay) { addLayer(d, S, 'G-ESAA POLE CLAMP', 4); clLay = 'G-ESAA POLE CLAMP'; }
       const h = Math.max(1, (+CS.h || 2) * (p.k || 1)), lh = h * 1.4, w = Math.max(...L.map((t) => arialW(t, h, false))) + h * 0.8, ht = L.length * lh + h * 0.3, far = CS.place === 'callout' ? 6 : 1.2;
@@ -2580,7 +2580,13 @@
         if (ownL) sm.push({ s: ownL[1], layer: layOf(''), color: +PST.ownColor || +PST.idColor || (lkO.color != null ? +lkO.color : null) });
         const ll2 = job.tidyLL !== 1; // beta 4.8: the latitude above the longitude (a narrower label; job.tidyLL 1: on one line, for tests)
         sm.push({ s: `${lat}, ${lon}`, ll: ll2 ? [lat, lon] : null, mt: ll2 ? `${p.lat.toFixed(6)}%%D\\P${p.lon.toFixed(6)}%%D` : `${p.lat.toFixed(6)}%%D, ${p.lon.toFixed(6)}%%D`, layer: lay('LATLONG'), color: +PST.llColor || null });
-        tidyTodo.push({ p, h: TS.l1, hs: TS.sm, l1, sm, layer: layT, color: c0, text: id && ty ? mtextEsc(id) + run(` · ${ty}`, cT) : mtextEsc(l1) }); // (beta 4.8: the sizes of TS)
+        /* beta 6.2 (the owner: "CC-123456 instead? Or CC over 123456 as in previous versions … the later as default and CC-123456 if needs room"):
+           the pole's ID stacked as Standard draws it (its type over its number, CC over 123456; a proposed pole: PROP.POLE over its height) or on
+           one line (CC-123456; a proposed pole: PROP.POLE · 9.14m, as before); Drawing style › Pole details › Pole ID (Tidy): Auto (stacked,
+           one line where a stacked block finds no room), stacked, or one line. The block is measured in the form it is drawn (see prep). */
+        const sId = String(id || '').trim(), sTy = String(ty || '').trim(), both = !!(sId && sTy), one = prop ? `${sId} · ${sTy}` : `${sTy}-${sId}`;
+        const forms = both ? { stack: { lines: prop ? [sId, sTy] : [sTy, sId], text: prop ? `${mtextEsc(sId)}\\P${run(sTy, cT)}` : `${run(sTy, cT)}\\P${mtextEsc(sId)}` }, line: { lines: [one], text: prop ? mtextEsc(sId) + run(` · ${sTy}`, cT) : run(`${sTy}-`, cT) + mtextEsc(sId) } } : null;
+        tidyTodo.push({ p, h: TS.l1, hs: TS.sm, l1: both ? one : l1, sm, layer: layT, color: c0, text: id && ty ? mtextEsc(id) + run(` · ${ty}`, cT) : mtextEsc(l1), forms, form: forms ? (PIDF === 'line' ? 'line' : 'stack') : null, pf: !!forms && PIDF === 'auto' }); // (beta 4.8: the sizes of TS)
       }
       if (!clIn && (clT || p.hw)) clTag(p, [clT, p.hw].filter(Boolean)); // v2.42.21
     }
@@ -2665,7 +2671,7 @@
       const L = -T.Wt / 2, Rr = T.Wt / 2, top = (T.Hc || T.Ht) / 2 - T.ex0, B = T.badge, P = T.u ? null : T.PH; // (beta 4.8: a block turned along its cable: its photo upright beside it, not in it)
       const att = B || P ? (c.dx < 0 ? 3 : 1) : c.dx > 0 ? 1 : c.dx < 0 ? 3 : 2, ax = att === 1 ? L + T.bw : att === 3 ? Rr - T.bw : 0;
       const rects = T.LN.map(([w, t, hh]) => [att === 1 ? ax : att === 3 ? ax - w : ax - w / 2, top - t, w, hh]);
-      const circ = B ? [att === 3 ? Rr - B.d / 2 : L + B.d / 2, top - T.h / 2, B.d] : null; if (circ) rects.push([circ[0] - B.d / 2, circ[1] + B.d / 2, B.d, B.d]);
+      const circ = B ? [att === 3 ? Rr - B.d / 2 : L + B.d / 2, top - (T.h1 || T.h) / 2, B.d] : null; if (circ) rects.push([circ[0] - B.d / 2, circ[1] + B.d / 2, B.d, B.d]);
       const pho = P ? [att === 3 ? L : Rr - P.w, P.h / 2, P.w, P.h] : null; if (pho) rects.push(pho); // (its photo: [left, top, w, h])
       const u = c.u || [1, 0], W = (x, y) => [c.cx + u[0] * x - u[1] * y, c.cy + u[1] * x + u[0] * y];
       return { att, ax, top, rects, circ, pho, u, W };
@@ -2709,14 +2715,14 @@
       for (const T of symT) T.k = kAt(T.p.dp[0], T.p.dp[1]);
       const badgeSize = (T) => { const B = T.badge; if (!B) return; let hn = T.h, d = NS.d > 0 ? Math.max(B.sq.length * hn * CHW + hn * 0.6, 2.1 * hn) : B.sq.length * hn * CHW; if (B.wl > 0 && d > B.wl) { hn *= B.wl / d; d = B.wl; } B.hn = hn; B.d = d; }; // (the circle at most W across)
       const prep = (T) => { // each label's size and the places it may take (the same in every round below)
-        badgeSize(T); const { p, h, hs } = T, kk = T.k || 1, W1 = wOf(T.l1, h), x = p.dp[0], y = p.dp[1], r0 = p.rp + 0.6 / kk, ov = p.ov || p.on || [1, 0];
+        badgeSize(T); const { p, h, hs } = T, kk = T.k || 1, L1 = T.forms ? T.forms[T.form].lines : [T.l1], W1 = Math.max(...L1.map((l) => wOf(l, h))), h1 = h + (L1.length - 1) * 1.45 * h, x = p.dp[0], y = p.dp[1], r0 = p.rp + 0.6 / kk, ov = p.ov || p.on || [1, 0]; T.h1 = h1; // (beta 6.2: the ID stacked: two lines, 1.45 of their height apart, as the smaller lines)
         for (const m of T.sm) { // the smaller lines: the attachments wrapped (at the spaces) where they would be much wider than the rest of the label
           const wMax = Math.max(W1, ...T.sm.filter((k) => !k.wrap).flatMap((k) => (k.ll || [k.s]).map((l) => wOf(l, hs)))) * 1.1; m.lines = m.ll ? m.ll.slice() : [m.s];
           if (m.wrap && wOf(m.s, hs) > wMax) { m.lines = []; for (const wd of m.s.split(/\s+/)) { const L = m.lines.length ? `${m.lines[m.lines.length - 1]} ${wd}` : wd; if (m.lines.length && wOf(L, hs) <= wMax) m.lines[m.lines.length - 1] = L; else m.lines.push(wd); } }
         }
-        const W = Math.max(W1, ...T.sm.flatMap((m) => m.lines.map((l) => wOf(l, hs)))), Hb = h + 0.4 * h + T.sm.reduce((t, m) => t + m.lines.length * 1.45 * hs, 0) - 0.45 * hs; // (line 1; then each smaller line, 1.45 of its height apart)
-        const LN = [[W1, 0, h]]; { let t = 1.4 * h; for (const m of T.sm) for (const l of m.lines) { LN.push([wOf(l, hs), t, hs]); t += 1.45 * hs; } } // (each line: its width, how far down from the top, its height)
-        const B = T.badge, bw = B ? B.d + 0.5 : 0, ex0 = B ? Math.max(0, (B.d - h) / 2 + 0.1) : 0; // (beta 4.8: the number's circle: a column on the pole's side, line 1 at its middle)
+        const W = Math.max(W1, ...T.sm.flatMap((m) => m.lines.map((l) => wOf(l, hs)))), Hb = h1 + 0.4 * h + T.sm.reduce((t, m) => t + m.lines.length * 1.45 * hs, 0) - 0.45 * hs; // (line 1; then each smaller line, 1.45 of its height apart)
+        const LN = L1.map((l, i) => [wOf(l, h), i * 1.45 * h, h]); { let t = h1 - h + 1.4 * h; for (const m of T.sm) for (const l of m.lines) { LN.push([wOf(l, hs), t, hs]); t += 1.45 * hs; } } // (each line: its width, how far down from the top, its height)
+        const B = T.badge, bw = B ? B.d + 0.5 : 0, ex0 = B ? Math.max(0, (B.d - h1) / 2 + 0.1) : 0; // (beta 4.8: the number's circle: a column on the pole's side, line 1 at its middle; beta 6.2: the stacked ID's two lines)
         const PH = T.photo ? (() => { const hc = Math.min(Hb + ex0, TS.ph / kk), k = Math.min(hc / T.photo.py, 1.4 * hc / T.photo.px); return { w: T.photo.px * k, h: T.photo.py * k }; })() : null; // (beta 4.8: its photo as tall as its texts, at the far end)
         const PB = PH && !T.u, Wt = W + bw + (PB ? 0.8 + PH.w : 0), Ht = Math.max(Hb + ex0, B ? B.d + 0.2 : 0, PB ? PH.h : 0); // (beta 4.8: a block turned along its cable: its photo upright beside it, see fill)
         T.LN = LN; T.Wt = Wt; T.Ht = Ht; T.ex0 = ex0; T.bw = bw; T.PH = PH; T.Hc = Hb + ex0;
@@ -2774,7 +2780,18 @@
       /* beta 6.0 (the owner: "Leader line is only used for worst case"): a label beside its pole or symbol, no line, wherever one is free; a
          place with its thin line only where every place beside it would cover something (Drawing style › Grid › Leader lines: Allowed:
          as before, the line where it costs less). */
-      const choose = (T, loose) => { if (LEAD_OK) return choose0(T, loose, false); const d1 = choose0(T, loose, true); return d1 || choose0(T, loose, false); };
+      const chooseL = (T, loose) => { if (LEAD_OK) return choose0(T, loose, false); const d1 = choose0(T, loose, true); return d1 || choose0(T, loose, false); };
+      const setForm = (T, f) => { if (T.form !== f) { T.form = f; prep(T); } };
+      const choose = (T, loose) => { // beta 6.2: Pole ID Auto: stacked where it has a place beside its pole; else on one line where that has one; else stacked (with its line), on one line only where stacked finds no free place at all
+        if (!T.pf) return chooseL(T, loose);
+        const un = (d) => d.bx.forEach((b) => { b._k--; }), re = (d) => d.bx.forEach((b) => { b._k++; }), fm = (d) => { d.form = T.form; return d; };
+        let a = null; setForm(T, 'stack');
+        if (!LEAD_OK) { const d = choose0(T, loose, true); if (d) return fm(d); } else { a = choose0(T, loose, false); if (!a.nf && !a.best.lead) return fm(a); un(a); } // (leader lines allowed: a stacked block with its line only where one line has no place beside the pole either)
+        setForm(T, 'line'); { const d = choose0(T, loose, true); if (d) return fm(d); }
+        setForm(T, 'stack'); if (a) re(a); else a = choose0(T, loose, false); a.form = 'stack'; if (!a.nf) return a;
+        un(a); setForm(T, 'line'); const b = choose0(T, loose, false); if (!b.nf) return fm(b);
+        un(b); setForm(T, 'stack'); re(a); return a;
+      };
       const choose0 = (T, loose, noLead) => { // one label's place, taken at once (its box and its line). loose: also a place nearer another pole, with its line to its own (noLead: only places with no line; null where none is free)
         const { p, Wt: W, Ht: Hb, cands } = T, memo = new Map(), ck = 1 / (T.k || 1); let best = null, nf = false;
         const blocked = (c, clr) => [Spots.box(c.cx, c.cy, W + 2 * clr * ck, Hb + 2 * clr * ck, c.ang || 0), ...(c.pb ? [Spots.box(c.pb.cx, c.pb.cy, 2 * c.pb.hw + 2 * clr * ck, 2 * c.pb.hh + 2 * clr * ck, 0)] : [])].some((b) => spots.hitsW(b, HARD) || tx.hits(b)); // (its box, and its photo's, with the clearance; beta 6.0: a sheet's name is see-through, a label may lie over it)
@@ -2871,8 +2888,9 @@
       T7.sizes = { l1: +TS.l1.toFixed(2), sm: +TS.sm.toFixed(2), mm: [+(TS.l1 * TS.mm).toFixed(2), +(TS.sm * TS.mm).toFixed(2)], tried }; T7.grid = { n: NU, cell: +cell.toFixed(1) }; T7.sheets = N; // (beta 4.8: the grid (the template's cell / n), and the GEO sheets)
       const smaller = [], overRoad = [], phAway = [], withLine = [];
       let gT = null, g0 = o.model.length; const gFlush = () => { if (gT) for (let k = g0; k < o.model.length; k++) tidyGrp.set(o.model[k], gT); g0 = o.model.length; }; // (beta 6.0: each label's records, see tidyGrp)
-      for (const { T, best, nf, bad, smaller: sml } of ALL.map((U) => now.get(U))) { // written in the order of the poles
-        gFlush(); gT = T;
+      for (const { T, best, nf, bad, smaller: sml, form } of ALL.map((U) => now.get(U))) { // written in the order of the poles
+        gFlush(); gT = T; if (T.forms && form && T.form !== form) { T.form = form; prep(T); } // (beta 6.2: in the form its place was found for)
+        if (T.forms) { const F = T7.idForm || (T7.idForm = { mode: PIDF, stacked: 0, oneLine: 0, oneLineForRoom: 0 }); if (T.form === 'stack') F.stacked++; else { F.oneLine++; if (T.pf) { F.oneLineForRoom++; (F.which || (F.which = [])).push(T.l1); } } }
         const { p, h, hs, W, W1, Hb, Y } = T; if (sml) smaller.push(T.l1);
         if (nf) { T7.notFree++; (T7.ids || (T7.ids = [])).push(Y ? Y.lines.join(' ') : String(p.poleId || p.id)); } if (bad) toCheck.push(T.l1);
         if (best.clr != null && best.clr < 1) T7.closer++;
@@ -2901,7 +2919,7 @@
           if (NS.d > 0) o.circle(nL, ccx, ccy, dd / 2, { color: bCo });
           o.text(nL, ccx, ccy, B.hn, B.sq, { ha: 1, va: 2, style: 'arial', color: nCo, rot: an }); txR.add(Spots.box(ccx, ccy, dd, dd, an)); T7.numbers = (T7.numbers || 0) + 1;
         }
-        { const q = G.W(ax, ty); o.mtext(T.layer, q[0], q[1], h, T.text, { style: 'arial', att, color: T.color, ls: 0.87, dir }); } lineBox(W1, ty, h); T7.labels++; ty -= 1.4 * h;
+        { const q = G.W(ax, ty), F1 = T.forms ? T.forms[T.form] : { lines: [T.l1], text: T.text }; o.mtext(T.layer, q[0], q[1], h, F1.text, { style: 'arial', att, color: T.color, ls: 0.87, dir }); F1.lines.forEach((l, i) => lineBox(wOf(l, h), ty - i * 1.45 * h, h)); ty -= (F1.lines.length - 1) * 1.45 * h; } T7.labels++; ty -= 1.4 * h; // (beta 6.2: the ID stacked or on one line)
         for (const m of T.sm) { const q = G.W(ax, ty); o.mtext(m.layer || clLay || T.layer, q[0], q[1], hs, m.mt || m.lines.map(mtextEsc).join('\\P'), { style: 'arial', att, color: m.color, ls: 0.87, dir }); m.lines.forEach((l, i) => lineBox(wOf(l, hs), ty - i * 1.45 * hs, hs)); ty -= m.lines.length * 1.45 * hs; } // (each smaller line its own text, on its own layer: the PDF draws it at its height)
       }
       gFlush();
