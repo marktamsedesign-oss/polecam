@@ -1956,7 +1956,7 @@
     drw.items.forEach((it) => { if (!it.on) return; const [ax, ay] = drwPx(it.xy), [bx, by] = drwPx(it.on.xy); g.strokeStyle = 'rgba(240,140,0,0.9)'; g.lineWidth = 1.6 * d; g.setLineDash([2 * d, 3 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); });
     const placed = [], near = v.sc >= 1.4 * d, ct = S.exp.dxfClampType !== false, mode = curRow().mode, NS = plStyle().num, rtaC = rtaCats(NS.rta, drw.items.map((it) => it.p)); /* (beta 6.6) */ // (v2.42.14: the drawing shown)
     const roomy = v.sc * 30 >= 26 * d; // the numbers / photos once the poles are far enough apart on screen (zoom in to see them)
-    const phK = plStyle().photo.size / 18; // (Drawing style › Photos: the photos' size, 1 at Normal)
+    const phK = phTidyMm(plStyle().photo.size) * 1.1 / 18; // (Drawing style › Photos: the photos' size, 1 at 18 m; beta 6.7: as the plan prints it, 1:1100)
     const nCol = ACI_INK[NS.color] || '#d9a400', bCol = ACI_INK[NS.bcolor] || nCol;
     const free = (bx) => !placed.some((q) => bx[0] < q[0] + q[2] && bx[0] + bx[2] > q[0] && bx[1] < q[1] + q[3] && bx[1] + bx[3] > q[1]);
     drw.items.forEach((it) => {
@@ -2309,7 +2309,7 @@
     const mode = curRow().mode;
     rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[plStyle().num.bcolor] || ACI_INK[plStyle().num.color] || '#d9a400'}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[plStyle().num.color] || '#d9a400'}" font-family="system-ui,sans-serif">1</text>`), 'Number on the plan']);
     { const RT = plStyle().num.rta; if (RT.on) { const cnt = new Map(), RC = rtaCats(RT, pts.map((it) => it.p)); pts.forEach((it) => { const c = rtaCatOf(it.p, RT, RC); if (c) cnt.set(c, (cnt.get(c) || 0) + 1); }); [...RC.slice(0, 1), RTA_PROP, RTA_GT, ...RC.slice(1)].filter((c, i, A) => cnt.has(c) && A.indexOf(c) === i).forEach((c) => rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[c.color]}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[c.color]}">1</text>`), `${c.text} (${cnt.get(c)})`])); } } // beta 6.5: the RTA/JPA categories on the drawing
-    if (mode !== 'num') { const Z = plStyle().photo.size; rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), (mode === 'both' ? 'Photo of the point (its number is by the point)' : 'Photo on the plan') + (Z === 18 ? '' : ` (${phName(Z).toLowerCase()}: ${Z} m)`)]); } // (Drawing style › Photos: a size other than Normal)
+    if (mode !== 'num') { const Z = plStyle().photo.size; rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), (mode === 'both' ? 'Photo of the point (its number is by the point)' : 'Photo on the plan') + (Z === 18 ? '' : ` (${phName(Z).toLowerCase()}: ${phTidyMm(Z)} mm)`)]); } // (Drawing style › Photos: a size other than Normal)
     const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop (LOOP×2: one for each of 2 fibers there)'], ['LOOP*', '#e03131', 'Maintenance loop added by the app (As-Plan)'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)'], ['EA', '#0c8599', 'Extension arm 26" or 44.5" on the pole'], ['AA', '#0c8599', '10-pin alley arm on the pole']];
     if (drw && drw.R && drw.R.fib && drw.R.fib.list.length > 1) rows.push([sv('<path d="M1 5h20" stroke="#1c3f94" stroke-width="1.2" stroke-dasharray="4 2.5"/><path d="M1 11h20" stroke="#1c3f94" stroke-width="2.6" stroke-dasharray="4 2.5"/>'), 'Cables: each its own line in its lane, thicker for a larger size (12C thinnest, 288C thickest); its label says its size, type and run (PROPOSED 24C FIG-8 (RUN 5))']); // v2.42.20 (v2.42.23; v2.42.24: the width by size)
     if (drw && drw.blocks && [...drw.blocks.values()].some((b) => b.kind === 'dn')) rows.push([sv('<rect x="1.5" y="4" width="19" height="8" rx="3" fill="#fff" stroke="#14b81e" stroke-width="1.2"/><text x="11" y="10.4" text-anchor="middle" font-size="5.5" font-weight="800" fill="#14b81e" font-family="Arial,sans-serif">DN</text>'), 'Dummy NAP (DN) on the cable: its cables meet its sides']); // v2.42.24
@@ -2335,18 +2335,20 @@
   const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto', rta: { on: true, cats: RTA_STD, off: [], legend: 'off' } }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5, area: true, zoom: true, label: 'PROJECT AREA', lh: 18 }, /* (beta 3.9: the project area shown, its label and its height) */
     clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a', per: 3, h: 0, w: { prop: true, size: true, type: true, place: true, foc: false, run: true }, route: 'road', boxLoops: false }, /* v2.42.26: labels for each cable in a grid, their height (0: by the poles' spacing), their words; beta 6.1: a cable's line between two points follows the road (or straight) */
     site: { name: 'on', move: 'auto', arrow: true, acol: 7 }, odf: { place: 'auto', lbl: 'size' }, /* v2.42.26: the tower's name; the ODF beside the tower, its label (beta 3.8: the name on the tower; moved aside in its sheet; the arrow) */
-    crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room' },
+    crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room', icons: true }, /* beta 6.7: icons: Drawing style › Landmarks › Icons */
     pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0, idForm: 'auto' }, span: { h: 0, color: 0 }, photo: { size: 18, near: 16, stamp: 'addr' }, grid: { split: 0, pos: 'tr', h: 0, color: 0, leaders: 'auto' } }; /* beta 6.0: Photos: near its pole within 8-40 mm on the A3 sheet; Grid: leader lines only when there is no other way (auto) or allowed */ /* beta 6.0: Grid: the split (0: Auto, 1/1 to 1/4; or the user's 1 to 6, Tidy), the sheets' names (corner, height in mm on the A3 PDF, 0: Auto; colour, 0: by layer) */ /* Photos: the long side of the photos on the plan (m; 18: Normal, as before) */ /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
   /* Drawing style › Photos: the long side of every pole and point photo on the plan, in metres of the drawing where the poles stand
      25 m apart or more (closer, the plan draws them smaller, to two thirds, as before). Normal (18 m) is the size before; 6 to 40 m. */
   const PH_SIZES = [[12, 'Small'], [18, 'Normal'], [24, 'Large'], [30, 'Extra large']];
-  const phSize = (v) => (Number.isFinite(+v) && +v > 0 ? Math.min(40, Math.max(6, Math.round(+v * 2) / 2)) : 18);
+  const phSize = (v) => (Number.isFinite(+v) && +v > 0 ? Math.min(53, Math.max(6, Math.round(+v * 2) / 2)) : 18); // (beta 6.7: to 53 m, 48 mm printed)
   const phName = (m) => { const k = PH_SIZES.find(([v]) => v === m); return k ? k[1] : 'Your own size'; };
   const phMm = (m) => `${Math.round(m * 0.75 / 1.1)} × ${Math.round(m / 1.1)} mm`; // (an upright 3:4 photo at 1:1100, the GEO sheets' scale)
   const PH_STAMP = { off: 'no stamp on them', ll: 'stamped with their lat, long', addr: 'stamped with their lat, long and address' }; // beta 6.4
-  /* beta 6.4 (the owner: "settings is photo is large but the plan still is small"): Tidy prints the photos at clear steps whatever the grid:
-     Small 5 mm, Normal 6.5 mm (Tidy's size before), Large 9 mm, Extra large 13 mm on the long side; your own size in metres at 1:1100. */
-  const phTidyMm = (m) => ({ 12: 5, 18: 6.5, 24: 9, 30: 13 }[m] || Math.min(36, Math.max(4, Math.round(m / 1.1 * 10) / 10)));
+  /* beta 6.4 (the owner: "settings is photo is large but the plan still is small"): Tidy prints the photos at clear steps whatever the grid.
+     beta 6.7 (the owner: "the photo small, medium and large is not spaced enough ... i tried 300 i think that should be your large"): every
+     plan, Standard and Tidy, prints every photo at the step set, the steps well apart: Small 9 mm, Normal 18 mm, Large 36 mm (what an own
+     size of 300 gave: 40 m, the most then), Extra large 48 mm on the long side; your own size in metres at 1:1100 (6 to 53 m). */
+  const phTidyMm = (m) => ({ 12: 9, 18: 18, 24: 36, 30: 48 }[m] || Math.min(48, Math.max(4, Math.round(m / 1.1 * 10) / 10)));
   function plStyle() {
     const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (isHexCol(v) ? v.toLowerCase() : Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d); // (beta 6.0: or a colour of the user's own)
     const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) }, Po = { ...PL_DEF.pole, ...(u.pole || {}) }, Sp = { ...PL_DEF.span, ...(u.span || {}) }, Ph = { ...PL_DEF.photo, ...(u.photo || {}) }, Gr = { ...PL_DEF.grid, ...(u.grid || {}) }, hz = (v, lo, hi) => (+v ? n(v, lo, hi, 0) : 0);
@@ -2356,7 +2358,7 @@
       clamp: { place: ['label', 'tag', 'callout'].includes(Cl.place) ? Cl.place : 'label', pos: ['auto', 'up', 'down', 'left', 'right'].includes(Cl.pos) ? Cl.pos : 'auto', color: c(Cl.color, 0, true), h: n(Cl.h, 1, 5, 2), box: Cl.box !== false, hw: Cl.hw !== false },
       cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a', per: [1, 2, 3].includes(+Cb.per) ? +Cb.per : 3, h: +Cb.h ? n(Cb.h, 0.8, 3, 0) : 0, w: Object.fromEntries(Object.keys(PL_DEF.cab.w).map((k) => [k, !!Cw[k]])), route: Cb.route === 'straight' ? 'straight' : 'road', boxLoops: Cb.boxLoops === true },
       site: { name: ['on', 'top', 'side', 'bottom'].includes(St.name) ? St.name : 'on', move: St.move === 'point' ? 'point' : 'auto', arrow: St.arrow !== false, acol: c(St.acol, 7, true) }, /* (beta 3.8: Auto is now On the tower) */
-      crowd: { auto: Cr.auto !== false, min: n(Cr.min, 50, 100, 75), move: n(Cr.move, 4, 30, 15), leader: Cr.leader !== false, streets: Cr.streets === 'fixed' ? 'fixed' : 'slide', marks: ['room', 'always', 'hide'].includes(Cr.marks) ? Cr.marks : 'room' }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' },
+      crowd: { auto: Cr.auto !== false, min: n(Cr.min, 50, 100, 75), move: n(Cr.move, 4, 30, 15), leader: Cr.leader !== false, streets: Cr.streets === 'fixed' ? 'fixed' : 'slide', marks: ['room', 'always', 'hide'].includes(Cr.marks) ? Cr.marks : 'room', icons: Cr.icons !== false }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' },
       pole: { idH: hz(Po.idH, 1, 5), idColor: c(Po.idColor, 0, true), ownH: hz(Po.ownH, 1, 5), ownColor: c(Po.ownColor, 0, true), llH: hz(Po.llH, 0.6, 3), llColor: c(Po.llColor, 0, true), idForm: ['stack', 'line'].includes(Po.idForm) ? Po.idForm : 'auto' }, span: { h: hz(Sp.h, 1, 4), color: c(Sp.color, 0, true) }, photo: { size: phSize(Ph.size), near: n(Ph.near, 8, 40, 16), stamp: ['off', 'll', 'addr'].includes(Ph.stamp) ? Ph.stamp : 'addr' }, /* (beta 6.4: the stamp on the plan's photos) */
       grid: { split: Number.isInteger(+Gr.split) && +Gr.split >= 1 && +Gr.split <= 6 ? +Gr.split : 0, pos: ['tr', 'tl', 'br', 'bl'].includes(Gr.pos) ? Gr.pos : 'tr', h: hz(Gr.h, 4, 30), color: c(Gr.color, 0, true), leaders: Gr.leaders === 'allow' ? 'allow' : 'auto' } }; // beta 6.0 (beta 6.0: leaders)
   }
@@ -2442,7 +2444,7 @@
     seg('stVicZoom', V.zoom ? '1' : '0'); seg('stVicArea', V.area ? '1' : '0'); if (document.activeElement !== $('stVicLbl')) $('stVicLbl').value = V.label; if (document.activeElement !== $('stVicLh')) $('stVicLh').value = String(V.lh); o('stVicLhO', `${V.lh} m`); // beta 3.9
     $('drwStyle').querySelectorAll('[data-dim="vicarea"]').forEach((r) => r.classList.toggle('dim', !V.area));
     seg('stCabPer', String(P.cab.per)); seg('stSiteName', P.site.name); seg('stOdfPlace', P.odf.place); seg('stOdfLbl', P.odf.lbl); // v2.42.26
-    seg('stCrowdAuto', P.crowd.auto ? '1' : '0'); seg('stCrowdLeader', P.crowd.leader ? '1' : '0'); seg('stCrowdStreets', P.crowd.streets); seg('stCrowdMarks', P.crowd.marks); // beta 3.8
+    seg('stCrowdAuto', P.crowd.auto ? '1' : '0'); seg('stCrowdLeader', P.crowd.leader ? '1' : '0'); seg('stCrowdStreets', P.crowd.streets); seg('stCrowdMarks', P.crowd.marks); seg('stLmIcons', P.crowd.icons ? '1' : '0'); /* beta 6.7 */ // beta 3.8
     seg('stSiteMove', P.site.move); seg('stSiteArrow', P.site.arrow ? '1' : '0'); sw('stSiteACol', P.site.acol, 'As the tower', 'site', 'acol');
     [['stCrowdMin', P.crowd.min], ['stCrowdMove', P.crowd.move]].forEach(([id, v]) => { if (document.activeElement !== $(id)) $(id).value = String(v); });
     o('stCrowdMinO', `${P.crowd.min} % of the size you set`); o('stCrowdMoveO', `${P.crowd.move} m · ${mmOf(P.crowd.move)} mm`);
@@ -2458,10 +2460,10 @@
     { const Z = P.photo.size; // Drawing style › Photos
       $('stPhSize').querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === Z)));
       if (document.activeElement !== $('stPhL')) $('stPhL').value = String(Z);
-      o('stPhO', S.exp.dxfLabels === 'tidy' ? `${phName(Z)} · ${phTidyMm(Z)} mm printed (Tidy)` : `${phName(Z)} · ${Z} m`); // (beta 6.4)
+      o('stPhO', `${phName(Z)} · ${phTidyMm(Z)} mm printed`); // (beta 6.4; beta 6.7: Standard too)
       { const nm = P.photo.near; if (document.activeElement !== $('stPhNear')) $('stPhNear').value = String(nm); o('stPhNearO', `${nm} mm on the A3 sheet: about ${[1, 2, 3, 4].map((k) => `${Math.round(nm / 0.6135 / k)} m at 1/${k}`).join(', ')}`); } // beta 6.0: a photo is near its pole within this (its centre), at the company template's scale
-      seg('stPhStamp', P.photo.stamp); { const mm = S.exp.dxfLabels === 'tidy' ? phTidyMm(Z) : Z / 1.1, fsMm = Math.min(2.2, mm * 0.75 * 0.93 / 9, mm * 0.1); o('stPhStampO', P.photo.stamp === 'off' ? 'Off' : `text about ${fsMm.toFixed(1)} mm high on the sheet`); } // beta 6.4 (an upright photo: the coordinates across its width)
-      o('stPhHint', S.exp.dxfLabels === 'tidy' ? `Pole labels Tidy: each photo is printed ${phTidyMm(Z)} mm on its long side on the A3 sheet, at any grid split (Small 5, Normal 6.5, Large 9, Extra large 13 mm; your own size in metres at 1:1100). It stands beside the pole details, which keep the place nearest their pole: where the photo has no free place near the pole at its size it is drawn a quarter smaller, else on its own near the pole (listed in the README); bigger photos may make Auto choose a finer grid.` : `Each photo is ${Z} m on its long side on the drawing: about ${phMm(Z)} on the A3 sheet (1:1100). The same for every pole and point photo. Where the poles stand closer than 25 m the plan draws them smaller (down to ${+(Z * 2 / 3).toFixed(1)} m) so they fit; a photo with no room beside its point goes further out, with a thin line to it.`); } // (beta 6.4: as Tidy uses it)
+      seg('stPhStamp', P.photo.stamp); { const mm = phTidyMm(Z), /* (beta 6.7) */ fsMm = Math.min(2.2, mm * 0.75 * 0.93 / 9, mm * 0.1); o('stPhStampO', P.photo.stamp === 'off' ? 'Off' : `text about ${fsMm.toFixed(1)} mm high on the sheet`); } // beta 6.4 (an upright photo: the coordinates across its width)
+      o('stPhHint', `Every photo on the plan is printed ${phTidyMm(Z)} mm on its long side on the A3 sheet (Small 9, Normal 18, Large 36, Extra large 48 mm; your own size in metres at 1:1100), the same for every pole and point, never smaller. Where a photo has no free place near its pole it goes where there is room, with a thin line to its pole; the pole details and number keep their place by the pole.${S.exp.dxfLabels === 'tidy' ? ' Pole labels Tidy: at any grid split; bigger photos may make Auto choose a finer grid.' : ` Standard: ${(phTidyMm(Z) * 1.1).toFixed(0)} m on the drawing (1:1100).`}`); } // (beta 6.7: one size for all, a line where needed)
     o('stSum', plSummary());
     DSP.render(P); drawVicPreview(P); // (beta 3.8: the scene the user works on)
     if (drw && !$('drawing').hidden) { drawDrawing(); renderDrawLegend(); }
@@ -2489,7 +2491,7 @@
   [['stClPlace', 'clamp', 'place', (v) => v], ['stClPos', 'clamp', 'pos', (v) => v], ['stClBox', 'clamp', 'box', (v) => v === '1'], ['stClHw', 'clamp', 'hw', (v) => v === '1'], ['stCabOn', 'cab', 'on', (v) => v === '1'], ['stCabRoute', 'cab', 'route', (v) => v]]
     .forEach(([id, part, key, val]) => $(id).addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl(part, key, val(b.dataset.v)); })); // v2.42.21
   [['stCabPer', 'cab', 'per', (v) => +v], ['stSiteName', 'site', 'name', (v) => v], ['stOdfPlace', 'odf', 'place', (v) => v], ['stOdfLbl', 'odf', 'lbl', (v) => v], // v2.42.26
-    ['stCrowdAuto', 'crowd', 'auto', (v) => v === '1'], ['stCrowdLeader', 'crowd', 'leader', (v) => v === '1'], ['stCrowdStreets', 'crowd', 'streets', (v) => v], ['stCrowdMarks', 'crowd', 'marks', (v) => v], // beta 3.8
+    ['stCrowdAuto', 'crowd', 'auto', (v) => v === '1'], ['stCrowdLeader', 'crowd', 'leader', (v) => v === '1'], ['stCrowdStreets', 'crowd', 'streets', (v) => v], ['stCrowdMarks', 'crowd', 'marks', (v) => v], ['stLmIcons', 'crowd', 'icons', (v) => v === '1'], // beta 3.8 (beta 6.7: the landmarks' icons)
     ['stSiteMove', 'site', 'move', (v) => v], ['stSiteArrow', 'site', 'arrow', (v) => v === '1']]
     .forEach(([id, part, key, val]) => $(id).addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl(part, key, val(b.dataset.v)); }));
   $('stPoleIdForm').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('pole', 'idForm', b.dataset.v); }); // beta 6.2: the pole's ID in the Tidy block
@@ -2507,7 +2509,7 @@
   $('stGridLead').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('grid', 'leaders', b.dataset.v); }); // beta 6.0: leader lines
   $('stPhNear').addEventListener('input', () => setPl('photo', 'near', +$('stPhNear').value)); // beta 6.0: a photo's distance from its pole
   $('stGridH').addEventListener('input', () => setPl('grid', 'h', +$('stGridH').value)); $('stGridHAuto').addEventListener('click', () => setPl('grid', 'h', 0)); // (its height, mm on the A3 sheet)
-  $('stPhL').addEventListener('change', () => { const v = +$('stPhL').value; if (v > 0) setPl('photo', 'size', phSize(v)); $('stPhL').value = String(plStyle().photo.size); }); // (kept to 6–40 m)
+  $('stPhL').addEventListener('change', () => { const v = +$('stPhL').value; if (v > 0) setPl('photo', 'size', phSize(v)); $('stPhL').value = String(plStyle().photo.size); }); // (kept to 6–53 m, beta 6.7)
   /** The vicinity preview: a map 1.5 km across (1 unit = 25 m), the route on its white band and the PROJECT AREA circle. */
   /** beta 6.1: Drawing style › Cables between points: a small picture of a curving road with a pole, two handholes and a service box
       along it, the cable drawn as the setting says (following the road at its side of it, or straight from point to point). */
@@ -2668,7 +2670,7 @@
     function scStreet(P, C) {
       const sc = { vb: [0, 0, 120, 70], bounds: { x0: 0.5, y0: 0.5, x1: 119.5, y1: 62 }, under: [], over: [], labels: [], obst: [] }, yTop = 44, yBot = 51, yc = 45.4;
       const poles = [{ k: 1, x: 20, y: 41.5, pre: 'CC', id: '4303175', cl: 'CA 8-9', ll: '7.163334°  125.573313°' }, { k: 2, x: 60, y: 40.3, pre: 'CC', id: '4303168', hw: 'RET×2 SC×4', ll: '7.164334°  125.574313°' }, { k: 3, x: 100, y: 41.5, pre: 'CC', id: '4303161', cl: '2A 10-12', own: 'DLPC', ll: '7.165334°  125.575313°' }]; // (beta 4.3: one pole with its owner's name)
-      sc.under.push((g, pal) => { line(g, [[0, yTop], [120, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [120, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [120, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 66); });
+      sc.under.push((g, pal) => { line(g, [[0, yTop], [120, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [120, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [120, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5', 'data-st': 'route' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 66); });
       sc.obst.push(...segBoxes([0, yc], [120, yc], 0.3), bx(60, yc, 9.8, 3.8), ...poles.map((p) => bx(p.x, p.y, 2.6, 2.6)));
       poles.forEach((p) => sc.labels.push(...poleLabels(P, p)));
       sc.labels.push(idL(P, 'nap', 'NAP-0001', 60, yc, 2.2));
@@ -2681,9 +2683,9 @@
        set, the poles 40 m apart (the plan draws the photos that size where the poles stand 25 m apart or more); no room there: further out,
        with a thin line to its pole */
     function scPhoto(P, C) {
-      const L = P.photo.size, W = L * 0.75, sc = { vb: [0, 0, 132, 88], bounds: { x0: 0.5, y0: 0.5, x1: 131.5, y1: 80 }, under: [], over: [], labels: [], obst: [] }, yTop = 62, yBot = 69, yc = 63.4;
+      const L = phTidyMm(P.photo.size) * 1.1, /* (beta 6.7) */ W = L * 0.75, sc = { vb: [0, 0, 132, 88], bounds: { x0: 0.5, y0: 0.5, x1: 131.5, y1: 80 }, under: [], over: [], labels: [], obst: [] }, yTop = 62, yBot = 69, yc = 63.4;
       const poles = [{ k: 1, x: 20, y: 59.5, pre: 'CC', id: '4303175', cl: 'CA 8-9', ll: '7.163334°  125.573313°' }, { k: 2, x: 60, y: 58.3, pre: 'CC', id: '4303168', hw: 'RET×2 SC×4', ll: '7.164334°  125.574313°' }, { k: 3, x: 100, y: 59.5, pre: 'CC', id: '4303161', cl: '2A 10-12', own: 'DLPC', ll: '7.165334°  125.575313°' }];
-      sc.under.push((g, pal) => { line(g, [[0, yTop], [132, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [132, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [132, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 84); });
+      sc.under.push((g, pal) => { line(g, [[0, yTop], [132, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [132, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [132, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5', 'data-st': 'route' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 84); });
       sc.obst.push(...segBoxes([0, yc], [132, yc], 0.3), bx(60, yc, 9.8, 3.8), ...poles.map((p) => bx(p.x, p.y, 2.6, 2.6)));
       poles.forEach((p) => {
         sc.labels.push(...poleLabels(P, p).filter((l) => l.st !== 'num')); // (a pole with a photo has no number beside it)
@@ -2710,7 +2712,7 @@
         .map(([k, x, y, id, cl], i) => ({ k, x, y, pre: 'CC', id, cl, ll: `7.061${21 + i}° 125.604${32 + i * 8}°` }));
       sc.under.push((g, pal) => {
         [[[0, 54], [74, 54]], [[82, 54], [120, 54]], [[0, 62], [120, 62]], [[74, 0], [74, 54]], [[82, 0], [82, 54]]].forEach((p) => line(g, p, { stroke: pal.road, 'stroke-width': 0.15 }));
-        line(g, [[0, yc], [xc, yc], [xc, 0]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' }); line(g, [[xc, yc], [120, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' });
+        line(g, [[0, yc], [xc, yc], [xc, 0]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5', 'data-st': 'route' }); line(g, [[xc, yc], [120, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5', 'data-st': 'route' });
         napSym(g, pal, 56, yc); cloSym(g, pal, 67, yc, 1.8);
         mk(g, 'path', { d: 'M45.4 45.6h3.2v-2.3l-1.6-1.4-1.6 1.4z', fill: 'none', stroke: pal.grey, 'stroke-width': 0.3 }); mk(g, 'path', { d: 'M86 43.6v4.2M84.5 45h3', stroke: pal.grey, 'stroke-width': 0.45 });
         poles.forEach((p) => poleSym(g, pal, p.x, p.y)); });
@@ -2729,7 +2731,7 @@
     /* the tower site: its point at TS, the sheet's edge (R-12 / R-13) at y 104 */
     const TS = [50.6, 96], SHEETY = 104, TP = [{ k: 1, x: 30.2, y: 9.5, pre: 'CC', id: '4303122', cl: 'CA 8-9', ll: '7.10358° 125.61750°' }, { k: 2, x: 32.2, y: 50, id: 'GT-0207', cl: 'CA 8-9', ll: '7.10339° 125.61796°' }, { k: 3, x: 34.2, y: 88, pre: 'CC', id: '4303106', cl: 'CA 10-12', own: 'DLPC', ll: '7.10304° 125.61815°' }];
     const TPH = [[6, 20, 14, 17], [8, 56, 14, 17], [10, 82, 14, 17], [88, 74, 14, 17]], TCAB = [[0, 10.5], [30.2, 9.5], [32.2, 50], [34.2, 88], TS];
-    const tphOf = (P) => { const f = P.photo.size / 18; if (f === 1) return TPH; let y1 = -1e9; // (Photos: at the size set, each on its side of the cable, kept apart)
+    const tphOf = (P) => { const f = phTidyMm(P.photo.size) / 18; /* (beta 6.7: as printed, 1 at Normal) */ if (f === 1) return TPH; let y1 = -1e9; // (Photos: at the size set, each on its side of the cable, kept apart)
       return TPH.map(([x, y, w, h], i) => { const W = w * f, H = h * f, left = x < 50, y0 = left && i ? Math.max(y + h / 2 - H / 2, y1 + 1.5) : y + h / 2 - H / 2; if (left) y1 = y0 + H; return [left ? x + w - W : x, y0, W, H]; }); };
     const roadL = (y) => 34 + 0.05 * y, roadR = (y) => 42 + 0.05 * y;
     function placeTower(point, PH) {
@@ -2780,7 +2782,7 @@
       const sc = { vb: [0, 30, 120, 82], bounds: { x0: 1, y0: 1, x1: 119, y1: SHEETY - 2 }, under: [], over: [], labels: [], obst: [] };
       sc.under.push((g, pal) => {
         line(g, [0, 160].map((y) => [roadL(y), y]), { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [0, 160].map((y) => [roadR(y), y]), { stroke: pal.road, 'stroke-width': 0.15 });
-        line(g, TCAB, { stroke: pal[1], 'stroke-width': 0.55, 'stroke-dasharray': '3 1.5' });
+        line(g, TCAB, { stroke: pal[1], 'stroke-width': 0.55, 'stroke-dasharray': '3 1.5', 'data-st': 'route' });
         PH.forEach(([x, y, w, h]) => photoSym(g, pal, x, y, w, h));
         cloSym(g, pal, 36.5, 89.8, 2.1); TP.forEach((p) => poleSym(g, pal, p.x, p.y));
         mk(g, 'line', { x1: 0, y1: SHEETY, x2: 150, y2: SHEETY, stroke: pal[6], 'stroke-width': 0.35, 'stroke-dasharray': '2.4 1.4' });
@@ -2842,7 +2844,7 @@
       const a = document.createElement('span'); a.textContent = `${NAMES[scene]} · `; const b = document.createElement('span');
       if (!r) b.textContent = scene === 'grid' ? `the sheet\u2019s name ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}, the details over it` : 'the route and the project area';
       else { b.className = `ov ${r.clashes ? 'bad' : 'good'}`; b.textContent = r.clashes ? `${r.clashes} label${r.clashes > 1 ? 's' : ''} overlap` : 'nothing overlaps'; }
-      cap.append(a, b); if (scene === 'photo') cap.append(` · ${P.photo.size} m photos`); if (r && r.skipped) cap.append(` · ${r.skipped} landmark name${r.skipped > 1 ? 's' : ''} left out (no room)`);
+      cap.append(a, b); if (scene === 'photo') cap.append(` · ${phTidyMm(P.photo.size)} mm photos`); if (r && r.skipped) cap.append(` · ${r.skipped} landmark name${r.skipped > 1 ? 's' : ''} left out (no room)`);
       svg.setAttribute('aria-label', `Preview: ${NAMES[scene]}. ${b.textContent}.`);
       last = { scene, clashes: r ? r.clashes : 0, skipped: r ? r.skipped : 0, ids: r ? r.ids : [] };
       markPicked();
@@ -2850,8 +2852,8 @@
     /* beta 4.3 (MarkT): a label of the preview is tapped: the settings that are its own come into view and are marked, and the label is framed.
        ST: the label's kind -> the rows (or the whole group) of its settings. */
     const ST = { num: ['stNum'], pid: ['stPoleIdH', 'stPoleIdCol'], pown: ['stPoleOwnH', 'stPoleOwnCol'], pll: ['stPoleLlH', 'stPoleLlCol'], span: ['stSpanH', 'stSpanCol'], clamp: ['stClOn', 'stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'], id: ['stId'],
-      cab: ['stCabOn', 'stCabPer', 'stCabH', 'stCabW'], street: ['stCrowdStreets'], mark: ['stCrowdMarks'], photo: ['stPh'] };
-    const ST_NAME = { num: 'the numbers beside the points', pid: 'the pole ID', pown: 'the owner\u2019s name', pll: 'the lat/long', span: 'the span lengths', clamp: 'the clamp types', id: 'the IDs of NAPs, closures and boxes', cab: 'the cable labels', street: 'the street names', mark: 'the landmark names', photo: 'the photos' };
+      cab: ['stCabOn', 'stCabPer', 'stCabH', 'stCabW'], street: ['stCrowdStreets'], mark: ['stCrowdMarks', 'stLmIcons'], photo: ['stPh'], route: ['stCabRoute', 'stCabOn', 'stCabPer', 'stCabH', 'stCabW'] }; // (beta 6.7: route, the cable itself)
+    const ST_NAME = { num: 'the numbers beside the points', pid: 'the pole ID', pown: 'the owner\u2019s name', pll: 'the lat/long', span: 'the span lengths', clamp: 'the clamp types', id: 'the IDs of NAPs, closures and boxes', cab: 'the cable labels', street: 'the street names', mark: 'the landmarks', photo: 'the photos', route: 'the fiber cable: how it runs between points, and its labels' };
     let picked = null, pickT = 0;
     const rowsOf = (key) => (ST[key] || []).map((id) => { const el = $(id); return el ? (el.classList.contains('stgrp') ? el : el.closest('.strow')) : null; }).filter(Boolean);
     function markPicked() {
@@ -10666,6 +10668,7 @@
     $('psCA').checked = ca; $('psCASum').textContent = ca ? 'On: the type before the size (CA 8-10, GCA, 2A, DEG, RL)' : 'Off: the sizes only (the types stay in the BOQ, KMZ and CSV)';
     $('psNumSum').textContent = `${c.mode === 'owner' ? 'Each owner from 1 (one RTA list each)' : 'Whole project, along the cable'} · ${c.keep ? 'kept once given' : 'renumbered at each export'}`;
     $('psLoopSum').textContent = S.exp.pmiLoops !== false ? 'Counted in total, aerial and underground' : 'The spans only';
+    { const bl = plStyle().cab.boxLoops; $('psBoxLoop').checked = bl; $('psBoxLoopSum').textContent = bl ? 'Written beside each handhole, manhole, service box and ODF, site or ODC entrance: the plan\u2019s numbers add up to the tables' : 'Not written (the PMI and the BOQ tables count them all the same)'; } // beta 6.7 (the owner: "i do not see 'Clamp types and cable labels'")
     $('psTplSum').textContent = !tpl ? 'Not used by the simple DXF' : seedBusy ? 'Getting it from your admin…' : S.dxfSeed ? `✓ ${S.dxfSeed.name}${seedStale() ? ' · a newer one is shared' : ''}` : seedId() ? 'Shared by your admin: got at the first export' : 'No template on this phone yet';
     $('psKindSum').textContent = `${tpl ? 'On the company plan template' : 'Simple: points and photos at UTM'} · UTM ${S.zone}N`;
   }
@@ -10678,6 +10681,7 @@
   $('psStyle').addEventListener('click', () => openStyle());
   $('psCA').addEventListener('change', () => { S.exp.dxfClampType = $('psCA').checked; persist(); renderPlanSet(); if (drw) drawDrawing(); toast(S.exp.dxfClampType ? 'Clamp types on the plan (e.g. CA 8-10)' : 'Clamp sizes only on the plan: the types stay in the BOQ, KMZ and CSV', 3000); });
   ['pmiLoops', 'dxfMode', 'setZone'].forEach((id) => $(id).addEventListener('change', () => setTimeout(renderPlanSet, 0)));
+  $('psBoxLoop').addEventListener('change', () => { setPl('cab', 'boxLoops', $('psBoxLoop').checked); renderPlanSet(); toast($('psBoxLoop').checked ? 'The loops at boxes and ODF entrances are written on the plan' : 'The loops at boxes and ODF entrances: counted, not written', 2500); }); // beta 6.7: the same setting as Drawing style › Loops
   /** Export the plan: the Export screen with the DXF card only, over the Drawing (beside it on a computer). */
   let planExport = false;
   /** An open screen brought back to the top (the ones above it closed): true when it was open. */
@@ -11075,7 +11079,7 @@
     const TELCO_TYPES = new Set(['GT', 'BT']);
     const rows = pts.map((p) => { const [E, N] = U(p), el = elemOf(p), b = p.boq || {}, pre = typePrefix(p.poleType), own = String(b.owner || '').trim(), generic = !p.poleId || /^P{1,2}-?\d+$/i.test(p.poleId);
       return { id: p.id, poleId: p.poleId || '', el, status: p.status || '', mat: el === 'Pole' ? (TELCO_TYPES.has(pre) ? '' : pre) : '', tag: el === 'Pole' ? (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId) : '',
-        telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: el === 'Pole' && hwOf(p, R).noClamp ? '' : b.clamp || '', /* 2.44.9: the light cable's pole: its retractors and span clamps, no clamp size */
+        telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), gtbt: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && (isGlobePole(p) || pre === 'BT' || /bayan/i.test(own) || /bayan/i.test(p.poleType || '')), /* beta 6.7: an existing Globe or Bayantel pole: a circle filled blue */ label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: el === 'Pole' && hwOf(p, R).noClamp ? '' : b.clamp || '', /* 2.44.9: the light cable's pole: its retractors and span clamps, no clamp size */
         armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon, telcoArm: el === 'Pole' && hasTelcoArm(p), armText: el === 'Pole' && hasTelcoArm(p) ? armOnPole(p)[2] : '', // v2.42.1: the plan draws it (beta 6.3: with its own name)
         mloop: el === 'Pole' && !!(p.mloop || loopYes(b) || LA.has(p.id) || OWN.has(p.id) || (LA.fib && LA.fib.list.has(p.id))), mloopM: el === 'Pole' ? (LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id)[0].len : loopLenAt(p, R, LA, OWN.get(p.id))) : 0,
         mloopL: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.len) : null, mloopR: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.n) : null, /* v2.42.25: each loop's cable (RUN) */ /* v2.42.20: a loop for each fiber there */ /* v2.42.17: + a closure's, a dummy NAP's, a riser's; v2.42.18: every NAP, LCP, pin; its own length */ nap: !!p.nap, napId: p.napId || '', nap2: el === 'Pole' && !!p.nap2, nap2Id: el === 'Pole' && p.nap2 ? p.nap2Id || '' : '', nap2Type: el === 'Pole' && p.nap2 ? b.nap2Type || '' : '', nap2Old: el === 'Pole' && !!p.nap2 && b.nap2St === 'Existing', closure: el === 'Pole' && !!p.closure, /* v2.42.17: (a box's closure is not drawn) */ closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
@@ -11196,7 +11200,7 @@
     const names = uniqueNames(pts), photos = {}, files = [], withPh = pts.filter((p) => markSet.has(p.id));
     // beta 6.4: Drawing style › Photos on the plan › Stamp on the photos: lat, long and (the road packs') address burned into each photo,
     // sized to its long side on the sheet (the same JPEGs go in the ZIP, the plan PDF and the One PDF)
-    const PST = PLS.photo.stamp, stampMm = S.exp.dxfLabels === 'tidy' ? phTidyMm(PLS.photo.size) : PLS.photo.size / 1.1, /* (beta 6.4: Tidy prints the photos at its own steps) */ LOC = PST === 'addr' && withPh.length ? await poleLocations(withPh, true).catch(() => new Map()) : new Map();
+    const PST = PLS.photo.stamp, stampMm = phTidyMm(PLS.photo.size), /* (beta 6.7: Standard prints them at the same steps) */ /* (beta 6.4: Tidy prints the photos at its own steps) */ LOC = PST === 'addr' && withPh.length ? await poleLocations(withPh, true).catch(() => new Map()) : new Map();
     for (let i = 0; i < withPh.length; i++) {
       busy(`Preparing the photos ${i + 1} / ${withPh.length}`, i / withPh.length);
       const q = withPh[i], band = PST !== 'off' && Number.isFinite(+q.lat) && Number.isFinite(+q.lon) ? { lat: q.lat, lon: q.lon, addr: PST === 'addr' ? LOC.get(q.id) || '' : '', mm: stampMm } : null;
@@ -11241,7 +11245,7 @@
       busy(many ? `Drawing the plan on the template (${k + 1} of ${SETS.length})…` : 'Drawing the plan on the template…', k / SETS.length);
       await sleep(30);
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
-      const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks,
+      const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks, lmIcons: PLS.crowd.icons /* beta 6.7 */,
         towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: jobCols({ c: PLS.site.acol }).c, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
         rtaLegend, rtaLegendAt: PS.num.rta.legend, pmiExtraRows, /* beta 6.5; beta 6.6: where the legend goes, the PMI's added RTA rows */ numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near, tidyMm: phTidyMm(PS.photo.size) }, /* beta 6.4: Tidy's printed photo size */ gridStyle: jobCols(PS.grid), cableRoute: PS.cab.route, /* beta 6.1: Drawing style › Cables between points */ /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
@@ -11324,6 +11328,12 @@
         : 'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD. Each pole\'s label points straight out from the cable, and its photo or number sits beside the pole on the side toward the homing, the same at every pole where there is room (elsewhere a little further, turned, or on the other side).', '',
       ...(PS.num.rta.on ? [`Pole numbers coloured by RTA/JPA category (Drawing style › Numbers), number and circle in one colour: ${[...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => `${x.text} ${colName(x.color)} (${rtaN.get(x)})${x.auto ? ', added for its owner' : ''}`).join(', ')}; other poles and points ${colName(PS.num.color)} (${Math.max(0, rows.filter((r) => r.el === 'Pole').length - [...rtaN.values()].reduce((t, v) => t + v, 0))} poles). A proposed or new pole is red, a Globe pole blue when existing (Globe's own, no RTA), the others by their pole owner as the PMI's RTA rows${pmiExtraRows.length ? ` (rows added to the PMI and the BOQ tables: ${pmiExtraRows.map(([lb]) => lb).join(', ')})` : ''}. RTA/JPA LEGEND: ${{ off: 'off (Drawing style › Numbers › Legend)', boq: 'under the BOQ table on each GEO sheet', sheet: 'on the LEGENDS sheet' }[PS.num.rta.legend]}.`] : []), // beta 6.5 (6.6: Globe, automatic owners, the legend's place)
       `Loops at handholes, manholes, service boxes and ODF, site and ODC entrances (Drawing style \u203a Loops at boxes and entrances): counted in the PMI and the BOQ tables; ${PS.cab.boxLoops ? `written on the plan beside each (${boxLoopN} points), so the written numbers add up to the tables` : 'not written on the plan (as before): the tables count them all the same'}.`, // beta 6.6
+      ...(() => { const R0 = outs.map((o2) => o2.out.report), cnt = (k) => R0.reduce((t, r) => t + ((r.counts || {})[k] || 0), 0), cl = R0.reduce((t, r) => t + ((r.closureLabels || {}).labelled || 0), 0), gb = rows.filter((r) => r.gtbt).length, Z = PS.photo.size; // beta 6.7
+        return [`Photos on the plan (Drawing style \u203a Photos): every one printed ${phTidyMm(Z)} mm on its long side (${phName(Z)}), never smaller; where one has no room near its pole it stands where there is room with a thin line to its pole.`,
+          ...(gb ? [`Existing Globe and Bayantel poles (${gb}): a circle filled blue, to tell them from the other telco poles.`] : []),
+          ...(cnt('existingArms') ? [`Existing extension arms and 10-pin alley arms on the poles (${cnt('existingArms')}): the template's model of that arm, as a new one, in blue, with its name.`] : []),
+          ...(cl ? [`Proposed closures (${cl}): PROPOSED CLOSURE and the closure's ID in red, with a red arrow to the pentagon.`] : []),
+          `Landmarks (Drawing style \u203a Landmarks): icons ${PS.crowd.icons ? 'on' : 'off'}, names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[PS.crowd.marks]}.`]; })(),
       ...outs.flatMap((o) => { const MK = o.out.report.marks || []; return MK.length ? [`Numbers on the plan${many ? ` in ${o.file}` : ''} (${MK.length}${o.st.no.size ? `: ${o.st.what}` : ''}): number, ID, type, latitude, longitude`, ...markLinesOf(MK), ''] : []; }), exporterText()].join('\r\n');
     busy(false);
     { const RR = dxfRows(), rowOf = (o) => RR[(+String(o.st.id).replace(/\D/g, '') || 1) - 1]; // v2.42.28: the ZIP in plain words
