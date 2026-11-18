@@ -864,6 +864,8 @@
     closeSheet();
   }));
   function onSheetClosed(id) {
+    if (id === 'drawing' && drwEd) drwEditSet(false); // beta 6.7: Back from the Drawing ends its Edit route
+    if (id === 'editor' && drwEd) drwEdSoon(); // beta 6.7: a tower placed on the Drawing: its record saved (or not)
     if (id === 'editor') { document.body.classList.remove('edopen'); if (typeof ppxRefresh === 'function') ppxRefresh(); } // beta 4.1
     if (id === 'dupSheet' && dupRes) { const r = dupRes; dupRes = null; r(null); } // beta 3.3: Back: decided later
     if (id === 'drwStyle' && stack.includes('planSet')) renderPlanSet(); // v2.42.28: the clamp types may have changed there
@@ -1797,7 +1799,7 @@
      the preview shows them as the DXF will (the same numbers), with each pole's arm, NAP, loop, closure and guys as small tags (a
      double check), and the NAP and closure pins tied to the pole they stand on. Fit, Labels, Map and the information line are on
      the drawing, at its lower right, as on the map; the legend at its upper left. */
-  let drw = null;
+  let drw = null, drwEd = false, drwEdWas = false, drwSiteArm = null, drwSiteWait = null; // beta 6.7: Edit route on the Drawing (on; Route was on before; a tower, OLT or ODC to place; one placed, its record open)
   const ACI_HEX = { 1: '#ff0000', 2: '#ffff00', 3: '#00ff00', 4: '#00ffff', 5: '#0000ff', 6: '#ff00ff', 7: '#ffffff' };
   const ACI_NAME = { 0: 'by layer', 1: 'red', 2: 'yellow', 3: 'green', 4: 'cyan', 5: 'blue', 6: 'magenta', 7: 'white' };
   /* beta 6.0: a colour of the user's own (Drawing style's colour picker) is kept as #rrggbb; the plan gets it as the colour itself (and its
@@ -1873,6 +1875,7 @@
   }
   function drawDrawing() {
     if (!drw || !drw.view) return;
+    if (drwEd) drw.selRun = fibAdd != null ? fibAdd : fibSel; // beta 6.7: Edit route: the cable in the bar (or lit) lit as on the map
     const cv = $('drawCanvas'), g = cv.getContext('2d'), d = window.devicePixelRatio || 1, v = drw.view;
     g.fillStyle = '#fbfbf8'; g.fillRect(0, 0, cv.width, cv.height);
     if (drwBase() !== 'off') { drawUnderlay(g); underlaySoon(); } // v2.36: the map under the drawing
@@ -2034,6 +2037,7 @@
     const sb = [10, 20, 50, 100, 200, 500, 1000, 2000].find((m) => m * v.sc > 70 * d) || 2000, sx = cv.width - 26 * d - sb * v.sc, sy = 62 * d;
     g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx + sb * v.sc, sy); g.moveTo(sx, sy - 5 * d); g.lineTo(sx, sy + 5 * d); g.moveTo(sx + sb * v.sc, sy - 5 * d); g.lineTo(sx + sb * v.sc, sy + 5 * d); g.stroke();
     g.textBaseline = 'bottom'; g.fillText(sb >= 1000 ? `${sb / 1000} km` : `${sb} m`, sx + sb * v.sc / 2, sy - 4 * d);
+    if (drwEd) drwEdPaint(g, d); // beta 6.7: Edit route: the line being drawn, the handles, what is dragged
   }
   /* v2.42.24: the closure's texts and the cable labels and span lengths on the Drawing screen, where they cover nothing (the other
      labels, the IDs, numbers and tags, the blocks, the cables): as on the plan. Each cable its own label beside its own line, as large
@@ -2161,16 +2165,20 @@
     const cv = $('drawCanvas'), d = () => window.devicePixelRatio || 1;
     let last = null, moved = 0, pinch = null;
     cv.addEventListener('pointerdown', (e) => { if (!drw) return; $('drawMapMenu').hidden = true; $('drawMap').setAttribute('aria-expanded', 'false'); cv.setPointerCapture(e.pointerId); drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; moved = 0;
-      if (drw.ptrs.size === 2) { const [a, b] = [...drw.ptrs.values()]; pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), sc: drw.view.sc }; } });
+      if (drw.ptrs.size === 2) { const [a, b] = [...drw.ptrs.values()]; pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), sc: drw.view.sc };
+        if (drwEd) { const r = cv.getBoundingClientRect(), m = [(a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top]; pinch.m = m; pinch.w = [drw.view.cx + (m[0] * d() - cv.width / 2) / drw.view.sc, drw.view.cy - (m[1] * d() - cv.height / 2) / drw.view.sc]; } } }); // (beta 6.7, Edit route: two fingers move and zoom it, about their middle)
     cv.addEventListener('pointermove', (e) => {
       if (!drw || !drw.ptrs.has(e.pointerId)) return; drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]);
-      if (drw.ptrs.size === 2 && pinch) { const [a, b] = [...drw.ptrs.values()]; drw.view.sc = Math.max(0.01, pinch.sc * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.dist); moved = 99; drawDrawing(); return; }
+      if (drw.ptrs.size === 2 && pinch) { const [a, b] = [...drw.ptrs.values()]; drw.view.sc = Math.max(0.01, pinch.sc * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.dist); moved = 99;
+        if (pinch.w) { const r = cv.getBoundingClientRect(), m = [(a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top]; drw.view.cx = pinch.w[0] - (m[0] * d() - cv.width / 2) / drw.view.sc; drw.view.cy = pinch.w[1] + (m[1] * d() - cv.height / 2) / drw.view.sc; }
+        drawDrawing(); return; }
       const dx = e.clientX - last[0], dy = e.clientY - last[1]; last = [e.clientX, e.clientY]; moved += Math.abs(dx) + Math.abs(dy);
+      if (drwEd && (rtDrawing() || rtGrab || rtDraft || rtMpan || (e.pointerType === 'mouse' && e.buttons !== 1))) return; // beta 6.7, Edit route: ✎ one finger draws (Route's gestures, rtGest); ✋ one finger moves it
       drw.view.cx -= dx * d() / drw.view.sc; drw.view.cy += dy * d() / drw.view.sc; drawDrawing();
     });
     const up = (e) => {
       if (!drw) return; drw.ptrs.delete(e.pointerId); if (drw.ptrs.size < 2) pinch = null;
-      if (moved < 8 && e.type === 'pointerup') { // a tap: the nearest point
+      if (moved < 8 && e.type === 'pointerup' && !drwEd) { // a tap: the nearest point (beta 6.7: in Edit route, Route's tap)
         const r = cv.getBoundingClientRect(), tx = (e.clientX - r.left) * d(), ty = (e.clientY - r.top) * d();
         let best = null; drw.items.forEach((it) => { const [px, py] = drwPx(it.xy), dd = Math.hypot(px - tx, py - ty); if (dd < 24 * d() && (!best || dd < best.dd)) best = { it, dd }; });
         drw.sel = best ? best.it.p.id : null; const info = $('drawInfo');
@@ -3426,6 +3434,7 @@
     }
     if (routeMode) { updateRouteBar(R); const by = new Map(projPoints().map((p) => [p.id, p])); if (rtTools) routeAdvice(R).forEach((a) => { const p = by.get(a.id); if (p) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 17, color: a.kind === 'flag' ? '#c92a2a' : '#e8590c', weight: 2.5, dashArray: '5 4', fill: false, interactive: false }).addTo(routeLayer); }); }
     if (typeof declutterSoon === 'function') declutterSoon(); // v2.28
+    if (drwEd) drwEdSoon(); // beta 6.7: Edit route on the Drawing: the Drawing drawn anew (the route or a record changed), or again
     return R;
   }
   /** v2.42.26: the cable on a span nearest a tap (its lane, 6 px apart as drawn); null on a span with no cable. */
@@ -4031,11 +4040,12 @@
     routeMode = on; routeSel = null; spanSel = null; routeUndo = []; routeProj = on ? S.project : null; fibSel = null; fibAdd = null; // (v2.42.20)
     if (deskOn() && ppState().open) ppRows(); // v2.42.28: Open waits while a cable is drawn
     fibAt = 'end'; fibTouched = false; fibStartAt = null; fibNew = false; rtTools = false; rtPairs = false; rtPend = []; rtPop = null; rtAsked = new Set(); rtDraft = null; rtDraftLayer.clearLayers(); rtMarkLayer.clearLayers(); $('rbPairs').checked = false; // v2.42.21
-    rtConf = null; rtPress = null; rtMpan = null; rtPtrs.clear(); rtMulti = false; rtSnap0 = null; rtSheet = null; rtDelArm = null; map.getContainer().classList.remove('rt-panning'); // v2.42.22
+    rtConf = null; rtPress = null; rtMpan = null; rtPtrs.clear(); rtMulti = false; rtSnap0 = null; rtSheet = null; rtDelArm = null; map.getContainer().classList.remove('rt-panning'); $('drawCanvas').classList.remove('rt-panning'); // v2.42.22
     rtGrab = null; rtGrabDead = null; lpClear(); rtGrabFx.clearLayers(); rtGrabLayer.clearLayers(); document.body.classList.remove('rt-grabbing'); // (grab the cable)
     $('routeBar').hidden = true; $('rtBar').hidden = !on; $('rtPop').hidden = true; rtHint(''); $('routeBtn').setAttribute('aria-pressed', String(on)); $('routeFitBtn').hidden = !on; if (on) renderCableSel();
     document.body.classList.toggle('routing', on);
     renderPoles(); rtApplyMode(); if (on) rtTip(); // (v2.42.22: the map stays where it is; ⛶ shows the whole route)
+    if (!on && drwEd) drwEdEnd(); // beta 6.7: Route ended on the Drawing (Done): its Edit route too
   }
   function routeTap(id) {
     const tapped = points.find((p) => p.id === id);
@@ -4079,7 +4089,7 @@
      fiber details, Link in capture order and Clear. Proposed cables are the app's three; an existing cable any size (cores). */
   const SNAP_CH = ['auto', 5, 10, 15, 20, 25], EX_SIZES = [12, 24, 48, 72, 96, 144, 288];
   const snapPref = () => (SNAP_CH.includes(S.routeSnap) ? S.routeSnap : 'auto');
-  function mPerPx() { try { const c = map.getSize().divideBy(2), a = map.containerPointToLatLng(c), b = map.containerPointToLatLng(c.add([100, 0])); return map.distance(a, b) / 100 || 1; } catch (e) { return 1; } }
+  function mPerPx() { if (drwEd && drw && drw.view) return (window.devicePixelRatio || 1) / drw.view.sc; /* beta 6.7: the Drawing's metres a pixel (Edit route: Auto snap by its zoom) */ try { const c = map.getSize().divideBy(2), a = map.containerPointToLatLng(c), b = map.containerPointToLatLng(c.add([100, 0])); return map.distance(a, b) / 100 || 1; } catch (e) { return 1; } }
   const snapM = () => { const v = snapPref(); return v === 'auto' ? Math.max(5, Math.min(25, Math.round(24 * mPerPx()))) : v; };
   const snapLbl = () => (snapPref() === 'auto' ? `Auto ${snapM()} m` : `${snapPref()} m`);
   const exCores = (f) => (+f.cores >= 2 ? Math.round(+f.cores) : 12);
@@ -4392,22 +4402,26 @@
       finger (the RUN in the bar, or lit, before another 6 px off on a shared span). null: nothing (the press goes on as before). */
   function grabAt(c, touch) {
     const R = lastR; if (!rtGrabOk() || !R || !R.fib || !R.fib.list.length) return null;
-    const bonus = (f) => (f.n === fibAdd ? 7 : f.n === fibSel ? 5 : 0), id = rtHit(c, touch ? 24 : 14);
+    const bonus = (f) => (f.n === fibAdd ? 7 : f.n === fibSel ? 5 : 0), id = rtHit(c, touch ? 24 : 14), sf = rtSurf();
+    if (id != null && sf === RT_DRW) { const p = points.find((x) => x.id === id); if (p && DRW_MOVE(p)) return { kind: 'site', id }; } // beta 6.7: on the Drawing, a tower, OLT or ODC held is moved
     if (id != null) {
       const g = R.fib.list.filter((f) => { const i = f.path.indexOf(id); return i > 0 && i < f.path.length - 1; }).sort((x, y) => bonus(y) - bonus(x) || x.n - y.n)[0];
       return g ? { kind: 'pole', n: g.n, id } : null; // (an end, or a pole on no cable: its own tap and line, as before)
     }
     const z = map.getZoom(), o = map.getPixelOrigin(), reach = touch ? 16 : 9; let best = null;
-    R.fib.list.forEach((f) => { if (f.path.length < 2) return; const cp = fibPx(R, f, z).map((q) => map.layerPointToContainerPoint(q.subtract(o)));
-      for (let j = 1; j < cp.length; j++) { const d = grabSegD(c, cp[j - 1], cp[j]); if (d <= reach && (!best || d - bonus(f) < best.s)) best = { s: d - bonus(f), n: f.n, a: f.path[j - 1], b: f.path[j] }; } });
+    const cpOf = sf === RT_MAP ? (f) => fibPx(R, f, z).map((q) => map.layerPointToContainerPoint(q.subtract(o))) : (f) => f.path.map((x) => { const p = R.fib.by.get(x); return p && (!sf.vis() || sf.vis().has(x)) ? sf.pt([p.lat, p.lon]) : null; }); // (beta 6.7: the Drawing's points)
+    R.fib.list.forEach((f) => { if (f.path.length < 2) return; const cp = cpOf(f);
+      for (let j = 1; j < cp.length; j++) { if (!cp[j - 1] || !cp[j]) continue; const d = grabSegD(c, cp[j - 1], cp[j]); if (d <= reach && (!best || d - bonus(f) < best.s)) best = { s: d - bonus(f), n: f.n, a: f.path[j - 1], b: f.path[j] }; } });
     return best && { kind: 'span', n: best.n, a: best.a, b: best.b };
   }
   /** Pick up a span (g.a → g.b) or a pole (g.id) of RUN g.n. False when the cable is not as it was drawn (nothing picked up). */
   function grabStart(g, pid, type, c) {
-    const f = rtGrabOk() ? fibers().find((x) => x.n === g.n) : null; if (!f) return false; let A, B;
-    if (g.kind === 'span') { const j = f.path.findIndex((x, k) => k > 0 && String(f.path[k - 1]) === String(g.a) && String(x) === String(g.b)); if (j < 1) return false; A = f.path[j - 1]; B = f.path[j]; }
-    else { const i = f.path.indexOf(g.id); if (i <= 0 || i >= f.path.length - 1) return false; A = f.path[i - 1]; B = f.path[i + 1]; }
-    rtGrab = { kind: g.kind, n: f.n, id: g.kind === 'pole' ? g.id : null, A, B, path: f.path.slice(), pid, type, c, tid: null, v: '' };
+    if (!rtGrabOk()) return false; let A = null, B = null, n = null, path = [], nb = null;
+    if (g.kind === 'site') { if (!points.some((x) => x.id === g.id)) return false; nb = siteNb(g.id); } // beta 6.7: a tower, OLT or ODC on the Drawing: its cables follow it
+    else { const f = fibers().find((x) => x.n === g.n); if (!f) return false; n = f.n; path = f.path.slice();
+      if (g.kind === 'span') { const j = f.path.findIndex((x, k) => k > 0 && String(f.path[k - 1]) === String(g.a) && String(x) === String(g.b)); if (j < 1) return false; A = f.path[j - 1]; B = f.path[j]; }
+      else { const i = f.path.indexOf(g.id); if (i <= 0 || i >= f.path.length - 1) return false; A = f.path[i - 1]; B = f.path[i + 1]; } }
+    rtGrab = { kind: g.kind, n, id: g.kind === 'span' ? null : g.id, A, B, path, nb, pid, type, c, c0: c, tid: null, v: '', sf: rtSurf() };
     lpClear(); rtPress = null; rtEdge = null; map.dragging.disable(); document.body.classList.add('rt-grabbing'); rtTipSeen();
     if (rtPop) { rtPop = null; renderRtPop(); } $('toast').hidden = true; // (the last message is old now: the hint says what letting go does)
     try { if (type !== 'mouse' && navigator.vibrate) navigator.vibrate(15); } catch (e) { /* optional */ }
@@ -4415,9 +4429,10 @@
   }
   function grabMove(c) { if (!rtGrab) return; rtGrab.c = c; if (!rtGq) rtGq = requestAnimationFrame(grabShow); }
   const grabTarget = (g) => rtHit(g.c, g.type === 'mouse' ? 22 : 36); // the pole under (or nearest) the finger
-  /** What letting go here does: { k: on | already | none (a span); off | stay | swap | already (a pole), t: the hint }. */
+  /** What letting go here does: { k: on | already | none (a span); off | stay | swap | already (a pole); move | stay (a site), t: the hint }. */
   function grabVerdict(g, tid) {
     const nm = fibName, on = tid != null && g.path.includes(tid);
+    if (g.kind === 'site') return g.c0 && g.c.distanceTo(g.c0) > 6 ? { k: 'move', t: `Move ${nm(g.id)} here` } : { k: 'stay', t: `${nm(g.id)}: drag it where it stands` };
     if (g.kind === 'span') return tid == null ? { k: 'none', t: `RUN ${g.n}: drop it on a pole` } : on ? { k: 'already', t: `${nm(tid)} is already on RUN ${g.n}` } : { k: 'on', t: `Put ${nm(tid)} on RUN ${g.n}` };
     if (tid === g.id) return { k: 'stay', t: `${nm(g.id)} stays on RUN ${g.n}` };
     if (tid == null) return { k: 'off', t: `Take ${nm(g.id)} off RUN ${g.n}` };
@@ -4426,6 +4441,7 @@
   /** While dragging: the span (or the two either side of the pole) bent to the finger, or to the pole it would go to (ringed). */
   function grabShow() {
     rtGq = 0; const g = rtGrab; rtGrabFx.clearLayers(); if (!g) return;
+    if (g.sf === RT_DRW) { g.tid = g.kind === 'site' ? null : grabTarget(g); const v = grabVerdict(g, g.tid); g.v = v.k; rtHint(v.t); drawDrawing(); return; } // beta 6.7: on the Drawing, drawn there (drwEdPaint)
     const tid = grabTarget(g), v = grabVerdict(g, tid), by = new Map(routePts().map((p) => [p.id, p])), ll = (id) => { const p = by.get(id); return p ? [p.lat, p.lon] : null; };
     g.tid = tid; g.v = v.k; const fin = map.containerPointToLatLng(g.c), col = fibColor({ n: g.n }), A = ll(g.A), B = ll(g.B), mid = v.k === 'on' || v.k === 'swap' ? ll(tid) : v.k === 'stay' ? ll(g.id) : [fin.lat, fin.lng];
     if (A && B && mid) L.polyline(v.k === 'off' ? [A, B] : [A, mid, B], { pane: 'routePane', color: col, weight: 5, opacity: 0.95, dashArray: '9 7', lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(rtGrabFx);
@@ -4437,7 +4453,9 @@
   /** Let go (cancel: Esc, a second finger, the touch taken away: nothing changes). */
   function grabEnd(cancel) {
     const g = rtGrab; rtGrab = null; cancelAnimationFrame(rtGq); rtGq = 0; rtEdge = null; rtGrabFx.clearLayers(); document.body.classList.remove('rt-grabbing'); rtHint(''); rtGestAt = Date.now(); rtApplyMode();
+    if (g && g.sf === RT_DRW) drawDrawing();
     if (!g) return; if (cancel) { rtHint('Nothing changed', 1500); return; }
+    if (g.kind === 'site') { drwSiteMove(g); return; } // beta 6.7
     grabDrop(g, grabTarget(g));
   }
   function grabDrop(g, tid) {
@@ -4454,6 +4472,8 @@
     toast(`${msg}${still.length ? `; ${still.join('; ')}` : ''} (Undo takes it back)`, 4500);
   }
   function lpClear() { if (rtLp) { clearTimeout(rtLp.t); rtLp = null; } }
+  /** beta 6.7: the points a point is linked to (its spans, and the cables through it), to draw them following it while it is moved. */
+  function siteNb(id) { const out = new Set(); links().forEach((l) => { if (l[0] === id) out.add(l[1]); else if (l[1] === id) out.add(l[0]); }); fibers().forEach((f) => f.path.forEach((x, i) => { if (x !== id) return; if (i > 0) out.add(f.path[i - 1]); if (i < f.path.length - 1) out.add(f.path[i + 1]); })); return [...out]; }
   /* ================= v2.42.22: ✎ Draw or ✋ Move =================
      ✎ Draw (Route opens in it; kept on this phone): one finger (the left button) draws, from anywhere. The line goes to the fiber in the
      bar, from its end (from the end to where the line starts: straight); from the fiber's other end it goes on from there; from a point
@@ -4463,7 +4483,7 @@
      zooms. ✋ Move: the map as usual; a tap on a pole shows its options in the bar. Route tools (⋯) and linking by pairs: as before (the
      map moves; the pins' own taps). ＋ Closure / ＋ Dummy NAP: the map zooms in on the pole; a second tap on it adds it. */
   const rtDrawing = () => routeMode && rtPenOn() && !rtTools && !rtPairs && !rtConf && !isAcc();
-  function rtApplyMode() { const d = rtDrawing(); if (d) map.dragging.disable(); else map.dragging.enable(); map.getContainer().classList.toggle('rt-pen', d); }
+  function rtApplyMode() { const d = rtDrawing(); if (d) map.dragging.disable(); else map.dragging.enable(); map.getContainer().classList.toggle('rt-pen', d); $('drawCanvas').classList.toggle('rt-pen', d && drwEd); }
   function rtSetPen(on, ids) { if (rtPenOn() !== on) { S.routePen = on; persist(); } routeSel = null; if (!on) fibStartAt = null; rtPop = null; rtApplyMode(); routeRefresh(ids); if (on) rtTip(); }
   function rtTip() { // once on a phone: how to draw and move the map
     if (!routeMode || !rtPenOn() || S.routeTip) return; const e = $('rtHint'), fine = !!(window.matchMedia && matchMedia('(pointer: fine)').matches); clearTimeout(rtHintT);
@@ -4471,7 +4491,7 @@
     $('rtTipOk').addEventListener('click', rtTipSeen);
   }
   function rtTipSeen() { const e = $('rtHint'); if (!e.classList.contains('tip')) return; S.routeTip = true; persist(); rtHint(''); }
-  const rtHit = (c, r) => { let best = null; routePts().forEach((p) => { const d = map.latLngToContainerPoint([p.lat, p.lon]).distanceTo(c), rr = elemOf(p) === 'Pole' ? r : r + 8; if (d <= rr && (!best || d < best.d)) best = { id: p.id, d }; }); return best && best.id; }; // (a site, ODC, ODF or box: its icon is bigger)
+  const rtHit = (c, r) => { const sf = rtSurf(), vis = sf.vis(); let best = null; routePts().forEach((p) => { if (vis && !vis.has(p.id)) return; const d = sf.pt([p.lat, p.lon]).distanceTo(c), rr = elemOf(p) === 'Pole' ? r : r + 8; if (d <= rr && (!best || d < best.d)) best = { id: p.id, d }; }); return best && best.id; }; // (a site, ODC, ODF or box: its icon is bigger)
   const rtNear = (ll, m) => { let best = null; routePts().forEach((p) => { const d = map.distance(ll, [p.lat, p.lon]); if (d <= m && (!best || d < best.d)) best = { id: p.id, d }; }); return best && best.id; }; // the point nearest a line's start, within the snap's reach
   /** ✋ Move: a tap on a pole: its options in the bar (again: closed). */
   function rtHandTap(id) { const t = points.find((p) => p.id === id); if (t && !ROUTE_ELS.includes(elemOf(t))) return; rtPop = null; spanSel = null; const was = routeSel; routeSel = routeSel === id ? null : id; routeRefresh([was, id]); }
@@ -4479,7 +4499,7 @@
   function rtTapAny(id) { if (rtConf) { rtConfTap(id); return; } if (rtTools && !rtPairs && fibAdd == null) { rtHandTap(id); return; } if (rtTools || rtPairs || rtPenOn()) routeTap(id); else rtHandTap(id); } // (Route tools: the pole's spans, as before)
   function rtLive(t) { const e = $('rtLive'); if (e) e.textContent = t; }
   function rtBegin(s) { // s: where the line starts. What it does to the fiber in the bar (another end, a branch) is done when it ends: a pinch changes nothing
-    const F = fibers(), su = snapM(), kH = rtHit(map.latLngToContainerPoint(s), 26); let A = fibAdd != null ? F.find((x) => x.n === fibAdd) : null, f = null, at = fibAt, id = null, fin = null;
+    const F = fibers(), su = snapM(), kH = rtHit(rtSurf().pt(s), 26); let A = fibAdd != null ? F.find((x) => x.n === fibAdd) : null, f = null, at = fibAt, id = null, fin = null;
     const kS = A ? kH : kH || rtNear(s, 2 * su); // (with a fiber in the bar, only a start on a pole counts: its other end, its middle)
     if (A && A.path.length && kS && A.path.includes(kS)) { const e0 = A.path[0], e1 = A.path[A.path.length - 1], end = fibAt === 'start' ? e0 : e1;
       if (kS !== end) { if (A.path.length > 1 && (kS === e0 || kS === e1)) at = kS === e0 ? 'start' : 'end'; else { fin = A.n; A = null; } } } // its other end: from there; its middle: a branch (the fiber is finished)
@@ -4494,16 +4514,17 @@
   }
   function rtAddPt(latlng) {
     const d = rtDraft; if (!d) return; const q = { lat: latlng.lat, lon: latlng.lng }, last = d.ll[d.ll.length - 1];
-    if (last && map.latLngToContainerPoint([last.lat, last.lon]).distanceTo(map.latLngToContainerPoint(latlng)) < 3) return;
+    if (last && rtSurf().pt([last.lat, last.lon]).distanceTo(rtSurf().pt(latlng)) < 3) return;
     d.ll.push(q); d.trail.setLatLngs(d.ll.map((x) => [x.lat, x.lon]));
     if (!rtPq) rtPq = requestAnimationFrame(() => { rtPq = 0; if (!rtDraft) return; const seq = snapSeq(rtDraft.id, rtDraft.ll, rtDraft.su), by = new Map(routePts().map((p) => [p.id, p]));
       rtDraft.prev.setLatLngs(seq.map((x) => by.get(x)).filter(Boolean).map((p) => [p.lat, p.lon])); rtDraft.rings.clearLayers();
       seq.forEach((x) => { const p = by.get(x); if (p) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 13, color: rtDraft.col, weight: 3, fill: false, interactive: false }).addTo(rtDraft.rings); });
-      rtLive(`✎ ${rtDraft.f != null ? `RUN ${rtDraft.f}` : 'New cable'} · ${seq.length} point${seq.length === 1 ? '' : 's'}`); });
+      rtLive(`✎ ${rtDraft.f != null ? `RUN ${rtDraft.f}` : 'New cable'} · ${seq.length} point${seq.length === 1 ? '' : 's'}`); rtDraft.seq = seq; if (drwEd) drawDrawing(); }); // (beta 6.7: on the Drawing, drawn there)
+    if (drwEd) drawDrawing();
   }
-  function rtDrop() { rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers(); if (routeMode) renderRtBar(lastR || routeModel()); }
+  function rtDrop() { rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers(); if (routeMode) renderRtBar(lastR || routeModel()); if (drwEd) drawDrawing(); }
   function rtStrokeEnd() {
-    const d = rtDraft; rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers();
+    const d = rtDraft; rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers(); if (drwEd) drawDrawing();
     if (!d) return; if (d.fin != null && fibAdd === d.fin) rtFinish(); // a line from the middle of the fiber in the bar: it is finished, a branch starts
     const seq = snapSeq(d.id, d.ll, d.su), F = fibers(), f = d.f != null ? F.find((x) => x.n === d.f) : null;
     if (f) {
@@ -4516,79 +4537,249 @@
     if (seq.length < 2) { toast(`No pole within ${d.su} m of the line`, 2200); routeRefresh(); return; }
     rtOpenSheet({ seq, from: seq[0] }); // v2.42.24: which new cable this line is (its type first)
   }
-  (() => { // the gestures on the map in Route
-    const mc = map.getContainer(), cpt = (e) => { const r = mc.getBoundingClientRect(); return L.point(e.clientX - r.left, e.clientY - r.top); };
+  /* beta 6.7: Route's gestures on a surface: the map, or the Drawing's canvas while its Edit route is on (one surface in use at a time,
+     one state). A surface: el; on(): Route is edited there now; ll(c) / pt(ll): the spot of a point of it (CSS px) / the point of a
+     spot; panBy([dx, dy]); room(): the px its bar takes { r: at the right, b: at the foot }; vis(): the ids drawn on it (null: all);
+     handle(e, c): the cable handle pressed ({ n, a, b }) or null; pins: its points have taps of their own (the map's Leaflet pins). */
+  const RT_MAP = { name: 'map', el: map.getContainer(), pins: true, on: () => routeMode && !isAcc() && !drwEd,
+    ll: (c) => map.containerPointToLatLng(c), pt: (ll) => map.latLngToContainerPoint(ll), panBy: (o) => map.panBy(o, { animate: false }), vis: () => null,
+    room: () => { const bar = $('rtBar'), on = !!bar && !bar.hidden, side = on && deskOn(), mc = map.getContainer(); // (2.44.4: on a computer the bar is a panel down the right side, over the map, not along its foot)
+      return { r: side ? Math.max(0, mc.getBoundingClientRect().right - bar.getBoundingClientRect().left) : 0, b: on && !side ? bar.getBoundingClientRect().height + 92 : 0 }; },
+    handle: (e) => { const gh = e.target && e.target.closest ? e.target.closest('.rt-grab') : null; return gh ? { n: +gh.dataset.n, a: gh.dataset.a, b: gh.dataset.b } : null; } };
+  const RT_DRW = { name: 'drawing', el: $('drawCanvas'), pins: false, on: () => routeMode && !isAcc() && drwEd && !!drw && !!drw.view,
+    ll: (c) => { const d = window.devicePixelRatio || 1, v = drw.view, cv = $('drawCanvas'), q = C.utmInverse(v.cx + (c.x * d - cv.width / 2) / v.sc, v.cy - (c.y * d - cv.height / 2) / v.sc, drw.zone, !!drw.south); return L.latLng(q[0], q[1]); },
+    pt: (ll) => { const d = window.devicePixelRatio || 1, la = ll.lat != null ? ll.lat : ll[0], lo = ll.lng != null ? ll.lng : ll.lon != null ? ll.lon : ll[1], u = C.utmForward(la, lo, drw.zone, la < 0), p = drwPx([u.E, u.N]); return L.point(p[0] / d, p[1] / d); },
+    panBy: (o) => { const d = window.devicePixelRatio || 1; drw.view.cx += o[0] * d / drw.view.sc; drw.view.cy -= o[1] * d / drw.view.sc; drawDrawing(); },
+    vis: () => { if (!drw) return null; if (!drw.visIds) drw.visIds = new Set(drw.items.map((it) => it.p.id)); return drw.visIds; }, // (the points on the Drawing: not those hidden from the exports)
+    room: () => { const w = $('drawWrap'), bar = [$('rtBar'), $('routeBar')].find((b) => b && !b.hidden && w.contains(b)); if (!bar) return { r: 0, b: 0 }; const W = w.getBoundingClientRect(), r = bar.getBoundingClientRect();
+      return deskOn() ? { r: Math.max(0, W.right - r.left), b: 0 } : { r: 0, b: Math.max(0, W.bottom - r.top) + 8 }; },
+    handle: (e, c) => (drw && drw.edH ? drw.edH.find((h) => Math.hypot(h.x - c.x, h.y - c.y) <= h.r) || null : null) };
+  function rtSurf() { return drwEd ? RT_DRW : RT_MAP; } // the surface Route is on
+  function rtGest(sf) { // the gestures on a surface in Route
+    const mc = sf.el, cpt = (e) => { const r = mc.getBoundingClientRect(); return L.point(e.clientX - r.left, e.clientY - r.top); }, mine = (o) => !!o && o.sf === sf;
     mc.addEventListener('pointerdown', (e) => {
-      if (!routeMode || isAcc()) return;
+      if (!sf.on()) return;
       if (e.pointerType !== 'mouse' && e.isPrimary) { rtPtrs.clear(); rtMulti = false; } // a new touch: a finger whose lift was lost is forgotten
       rtPtrs.add(e.pointerId);
       if (e.pointerType !== 'mouse' && rtPtrs.size > 1) { rtMulti = true; lpClear(); if (rtGrab) grabEnd(true); if (rtPress) { rtPress = null; rtEdge = null; if (rtDraft) rtDrop(); } return; } // two fingers: the map's (Leaflet's pinch); the line just begun is dropped (a cable picked up: put back)
       if (rtMulti || rtGrab) return;
-      if (e.pointerType === 'mouse' && (e.button === 1 || e.button === 2 || (e.button === 0 && rtSpace && rtDrawing()))) { rtMpan = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, btn: e.button, moved: false }; mc.classList.add('rt-panning'); e.preventDefault(); return; }
+      if (e.pointerType === 'mouse' && (e.button === 1 || e.button === 2 || (e.button === 0 && rtSpace && rtDrawing()))) { rtMpan = { sf, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, btn: e.button, moved: false }; mc.classList.add('rt-panning'); e.preventDefault(); return; }
       if (e.button > 0) return;
-      const gh = e.target && e.target.closest ? e.target.closest('.rt-grab') : null; // grab the cable: a handle picks up its span at once
-      if (gh && grabStart({ kind: 'span', n: +gh.dataset.n, a: gh.dataset.a, b: gh.dataset.b }, e.pointerId, e.pointerType, cpt(e))) { e.preventDefault(); e.stopPropagation(); return; }
-      const c = cpt(e); rtPress = { pid: e.pointerId, s: c, c, moved: false, draw: rtDrawing(), type: e.pointerType };
+      const c = cpt(e), gh = sf.handle(e, c); // grab the cable: a handle picks up its span at once
+      if (gh && grabStart({ kind: 'span', n: gh.n, a: gh.a, b: gh.b }, e.pointerId, e.pointerType, c)) { e.preventDefault(); e.stopPropagation(); return; }
+      rtPress = { sf, pid: e.pointerId, s: c, c, moved: false, draw: rtDrawing(), type: e.pointerType };
       if (rtPress.draw) e.preventDefault();
       lpClear(); const g = grabAt(c, e.pointerType !== 'mouse'); // a long press on a cable, or on a pole one goes through, picks it up
-      if (g) { const pid = e.pointerId; rtLp = { pid, t: setTimeout(() => { const p = rtPress; rtLp = null; if (!p || p.pid !== pid || p.moved || rtMulti || rtDraft) return; grabStart(g, pid, p.type, p.c); }, RT_LP_MS[g.kind]) }; }
+      if (g) { const pid = e.pointerId; rtLp = { pid, t: setTimeout(() => { const p = rtPress; rtLp = null; if (!p || p.pid !== pid || p.moved || rtMulti || rtDraft) return; grabStart(g, pid, p.type, p.c); }, RT_LP_MS[g.kind === 'site' ? 'pole' : g.kind]) }; }
     }, true);
     window.addEventListener('pointermove', (e) => {
-      if (rtMpan && e.pointerType === 'mouse') { if (!e.buttons) { up(e, true); return; } // (let go outside the window)
-        map.panBy([rtMpan.x - e.clientX, rtMpan.y - e.clientY], { animate: false }); rtMpan.x = e.clientX; rtMpan.y = e.clientY; if (Math.hypot(e.clientX - rtMpan.x0, e.clientY - rtMpan.y0) > 4) rtMpan.moved = true; return; }
-      if (rtGrab && e.pointerId === rtGrab.pid) { if (rtGrab.type === 'mouse' && !e.buttons) { up(e, true); return; } const c = cpt(e); grabMove(c); edgeAt(c); return; } // grab the cable: the span bends to the finger
-      if (!rtPress || e.pointerId !== rtPress.pid) return;
+      if (mine(rtMpan) && e.pointerType === 'mouse') { if (!e.buttons) { up(e, true); return; } // (let go outside the window)
+        sf.panBy([rtMpan.x - e.clientX, rtMpan.y - e.clientY]); rtMpan.x = e.clientX; rtMpan.y = e.clientY; if (Math.hypot(e.clientX - rtMpan.x0, e.clientY - rtMpan.y0) > 4) rtMpan.moved = true; return; }
+      if (mine(rtGrab) && e.pointerId === rtGrab.pid) { if (rtGrab.type === 'mouse' && !e.buttons) { up(e, true); return; } const c = cpt(e); grabMove(c); edgeAt(c); return; } // grab the cable: the span bends to the finger
+      if (!mine(rtPress) || e.pointerId !== rtPress.pid) return;
       if (rtPress.type === 'mouse' && !e.buttons) { up(e); return; }
       const c = cpt(e); rtPress.c = c;
-      if (!rtPress.moved) { if (c.distanceTo(rtPress.s) < (rtPress.type === 'mouse' ? 5 : 10)) return; rtPress.moved = true; lpClear(); if (rtPress.draw) rtBegin(map.containerPointToLatLng(rtPress.s)); }
+      if (!rtPress.moved) { if (c.distanceTo(rtPress.s) < (rtPress.type === 'mouse' ? 5 : 10)) return; rtPress.moved = true; lpClear(); if (rtPress.draw) rtBegin(sf.ll(rtPress.s)); }
       if (!rtPress.draw || !rtDraft) return;
-      rtAddPt(map.containerPointToLatLng(c)); edgeAt(c);
+      rtAddPt(sf.ll(c)); edgeAt(c);
     }, true);
     function edgeAt(c) {
-      const W = mc.clientWidth, H = mc.clientHeight, M = 34, bar = $('rtBar'), on = !!bar && !bar.hidden, side = on && deskOn(); // (2.44.4: on a computer the bar is a panel down the right side, over the map, not along its foot)
-      const bw = side ? Math.max(0, mc.getBoundingClientRect().right - bar.getBoundingClientRect().left) : 0, bh = on && !side ? bar.getBoundingClientRect().height + 92 : 0;
-      const dx = c.x < M ? -1 : c.x > W - bw - M ? 1 : 0, dy = c.y < M ? -1 : c.y > H - bh - M ? 1 : 0; // near an edge the map moves that way (the part of the map the bar leaves)
+      const W = mc.clientWidth, H = mc.clientHeight, M = 34, room = sf.room();
+      const dx = c.x < M ? -1 : c.x > W - room.r - M ? 1 : 0, dy = c.y < M ? -1 : c.y > H - room.b - M ? 1 : 0; // near an edge the map moves that way (the part of the map the bar leaves)
       rtEdge = dx || dy ? [dx, dy] : null; if (rtEdge && !rtEdgeRaf) rtEdgeRaf = requestAnimationFrame(edgeTick);
     }
     function edgeTick() { rtEdgeRaf = 0; if (!rtEdge) return; // (a line drawn, or a cable picked up)
-      if (rtGrab) { map.panBy([rtEdge[0] * 7, rtEdge[1] * 7], { animate: false }); grabMove(rtGrab.c); }
-      else if (rtPress && rtDraft) { map.panBy([rtEdge[0] * 7, rtEdge[1] * 7], { animate: false }); rtAddPt(map.containerPointToLatLng(rtPress.c)); }
+      if (mine(rtGrab)) { sf.panBy([rtEdge[0] * 7, rtEdge[1] * 7]); grabMove(rtGrab.c); }
+      else if (mine(rtPress) && rtDraft) { sf.panBy([rtEdge[0] * 7, rtEdge[1] * 7]); rtAddPt(sf.ll(rtPress.c)); }
       else return;
       rtEdgeRaf = requestAnimationFrame(edgeTick); }
     const up = (e, cancel) => {
       rtPtrs.delete(e.pointerId);
-      if (rtGrab && e.pointerId === rtGrab.pid) { if (!rtPtrs.size) rtMulti = false; rtPress = null; grabEnd(!!cancel); return; } // grab the cable: let go
+      if (mine(rtGrab) && e.pointerId === rtGrab.pid) { if (!rtPtrs.size) rtMulti = false; rtPress = null; grabEnd(!!cancel); return; } // grab the cable: let go
       if (e.pointerId === rtGrabDead) { rtGrabDead = null; rtGestAt = Date.now(); } // (the button let go after Esc: not a click on a pole)
       if (rtLp && rtLp.pid === e.pointerId) lpClear();
-      if (rtMpan && e.pointerType === 'mouse') { const m = rtMpan; rtMpan = null; mc.classList.remove('rt-panning'); rtGestAt = Date.now(); if (m.btn === 2 && !m.moved && !cancel && rtDrawing()) rtUndo(); return; } // ✎ a right-click: undo
+      if (mine(rtMpan) && e.pointerType === 'mouse') { const m = rtMpan; rtMpan = null; mc.classList.remove('rt-panning'); rtGestAt = Date.now(); if (m.btn === 2 && !m.moved && !cancel && rtDrawing()) rtUndo(); return; } // ✎ a right-click: undo
       if (!rtPtrs.size) rtMulti = false;
-      if (!rtPress || e.pointerId !== rtPress.pid) return;
+      if (!mine(rtPress) || e.pointerId !== rtPress.pid) return;
       const p0 = rtPress; rtPress = null; rtEdge = null;
       if (cancel) { if (rtDraft) rtDrop(); return; }
       if (p0.moved) { if (p0.draw) { rtGestAt = Date.now(); rtStrokeEnd(); } return; }
-      if (rtTools || rtPairs) return; // Route tools, linking by pairs: the pins' own taps, as before
+      if (sf.pins) { // the map: in Route tools and linking by pairs, the pins' own taps, as before
+        if (rtTools || rtPairs) return;
+        const id = rtHit(p0.s, p0.type === 'mouse' ? 14 : 24);
+        if (id || p0.draw || rtConf) rtGestAt = Date.now(); // (✋ a tap off the poles: a span's own tap)
+        if (id) rtTapAny(id); return; }
+      rtGestAt = Date.now(); // beta 6.7, the Drawing: its points have no taps of their own; a tower to place; a cable tapped (✋, Route tools) shows its spans
+      if (drwSiteArm) { drwSitePlace(sf.ll(p0.s)); return; }
       const id = rtHit(p0.s, p0.type === 'mouse' ? 14 : 24);
-      if (id || p0.draw || rtConf) rtGestAt = Date.now(); // (✋ a tap off the poles: a span's own tap)
-      if (id) rtTapAny(id);
+      if (id) rtTapAny(id); else if ((!p0.draw || rtTools) && !rtConf && !rtPairs) drwTapCable(p0.s);
     };
     window.addEventListener('pointerup', (e) => up(e), true); window.addEventListener('pointercancel', (e) => up(e, true), true);
-    mc.addEventListener('contextmenu', (e) => { if (routeMode) e.preventDefault(); }); // (✎: a right-click undoes, on its release above)
-    mc.addEventListener('touchmove', (e) => { if ((rtDrawing() || rtGrab) && e.cancelable) e.preventDefault(); }, { passive: false }); // ✎: a finger's moves are the line's from the start (no scroll begins), so a second finger's pinch is still the map's
-    const spaceOk = (t) => !(t && t.closest && t.closest('#rtBar, #rtPop, #routeBar, section.sheet, [role=dialog], dialog')) && !document.querySelector('section.sheet:not([hidden])');
+    mc.addEventListener('contextmenu', (e) => { if (sf.on() || (sf === RT_MAP && routeMode)) e.preventDefault(); }); // (✎: a right-click undoes, on its release above)
+    mc.addEventListener('touchmove', (e) => { if (sf.on() && (rtDrawing() || rtGrab) && e.cancelable) e.preventDefault(); }, { passive: false }); // ✎: a finger's moves are the line's from the start (no scroll begins), so a second finger's pinch is still the map's
+  }
+  rtGest(RT_MAP); rtGest(RT_DRW);
+  (() => { // the keys in Route (on the map, or on the Drawing in its Edit route)
+    const spaceOk = (t) => !(t && t.closest && t.closest('#rtBar, #rtPop, #routeBar, [role=dialog], dialog')) && (drwEd ? stack[stack.length - 1] === 'drawing' : !(t && t.closest && t.closest('section.sheet')) && !document.querySelector('section.sheet:not([hidden])'));
+    const spaceCls = (on) => [RT_MAP.el, RT_DRW.el].forEach((el) => el.classList.toggle('rt-spacepan', on && el === rtSurf().el));
     document.addEventListener('keydown', (e) => {
       if (!routeMode || /^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
-      if (e.key === ' ' && spaceOk(e.target)) { if (!rtSpace) { rtSpace = true; mc.classList.add('rt-spacepan'); } e.preventDefault(); return; } // Space + drag moves the map (a focused map button is not pressed)
-      if (e.key === 'Escape') { if (rtGrab) { rtGrabDead = rtGrab.pid; grabEnd(true); return; } if (rtDraft) return; if (rtConf) rtConfCancel(); else if (rtPop) { rtPop = null; rtSheetClose(); renderRtPop(); } else if (fibStartAt != null || fibNew) { fibStartAt = null; fibNew = false; routeRefresh(); } else if (fibAdd != null) rtFinish(); else if (routeSel) { const w = routeSel; routeSel = null; routeRefresh([w]); } }
+      if (e.key === ' ' && spaceOk(e.target)) { if (!rtSpace) { rtSpace = true; spaceCls(true); } e.preventDefault(); return; } // Space + drag moves the map (a focused map button is not pressed)
+      if (e.key === 'Escape') { if (rtGrab) { rtGrabDead = rtGrab.pid; grabEnd(true); return; } if (drwSiteArm) { drwSiteArm = null; rtHint(''); return; } if (rtDraft) return; if (rtConf) rtConfCancel(); else if (rtPop) { rtPop = null; rtSheetClose(); renderRtPop(); } else if (fibStartAt != null || fibNew) { fibStartAt = null; fibNew = false; routeRefresh(); } else if (fibAdd != null) rtFinish(); else if (routeSel) { const w = routeSel; routeSel = null; routeRefresh([w]); } }
       if (e.key === 'Enter' && rtConf && !(e.target && e.target.closest && e.target.closest('button'))) { e.preventDefault(); rtConfirm(); }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); rtUndo(); }
     });
-    document.addEventListener('keyup', (e) => { if (e.key === ' ' && rtSpace) { rtSpace = false; mc.classList.remove('rt-spacepan'); e.preventDefault(); } });
-    window.addEventListener('blur', () => { rtSpace = false; mc.classList.remove('rt-spacepan'); });
-    map.on('movestart', () => { if (rtPop && rtPop !== 'newcab') { rtPop = null; renderRtPop(); } }); // (v2.42.24: the New cable sheet stays)
+    document.addEventListener('keyup', (e) => { if (e.key === ' ' && rtSpace) { rtSpace = false; spaceCls(false); e.preventDefault(); } });
+    window.addEventListener('blur', () => { rtSpace = false; spaceCls(false); });
+    map.on('movestart', () => { if (rtPop && rtPop !== 'newcab' && !drwEd) { rtPop = null; renderRtPop(); } }); // (v2.42.24: the New cable sheet stays; beta 6.7: the hidden map moving under the Drawing closes nothing)
   })();
+  /* ================= beta 6.7: Edit the route on the Drawing =================
+     The owner: "add on the Drawing what is only on the map's editors: the fiber route, and the tower / OLT / ODC location; the user is
+     tired of going back to the map and then the Drawing to check the cable". ✎ on the Drawing (its tools, lower right) turns Route on
+     right there: the Route bar (✋ / ✎, ＋ New cable, the cable in the bar, ↶, Done; on a computer a panel at the Drawing's right) sits
+     on the Drawing, and Route's own code does the work there (rtGest on RT_DRW): one finger draws a cable along the poles, two fingers
+     move and zoom the Drawing, a tap puts a pole on the cable in the bar or takes it off, the white dots and a long press grab a cable,
+     the New cable sheet asks its type. Each change is saved as on the map, and the Drawing is drawn anew at once (the plan as it will
+     export). ＋ Tower · OLT · ODC: a tap where it stands, then its record for its name (as the map's ＋ pin); a long press on a tower,
+     OLT or ODC drags it to its place. ↶ takes back each. Done, ✎ again or Back ends it. */
+  const DRW_MOVE = (p) => { const el = elemOf(p); return el === 'Site' || el === 'ODC'; }; // what a long press moves on the Drawing
+  const drwEdHome = new Map(); let drwEdQ = 0;
+  function drwEdById(id) { if (!drw) return null; if (!drw.byId) drw.byId = new Map(drw.items.map((it) => [String(it.p.id), it])); return drw.byId.get(String(id)) || null; }
+  function drwEditSet(on) {
+    if (!!on === drwEd) return;
+    if (!on) { if (drwEdWas) { drwEdEnd(); routeRefresh(); } else setRouteMode(false); return; } // (Route on the map before: it stays on, back on the map)
+    if (!drw || !drawOn()) return;
+    { const lk = tmHooks.locked ? tmHooks.locked() : ''; if (lk) { toast(lk, 6500); return; } } // (an accepted task, as the map's route button)
+    if (routePts().length < 2) { toast('Capture at least two poles first'); return; }
+    drwEdWas = routeMode; drwEd = true; drwSiteArm = null; drwSiteWait = null; drw.sel = null; drw.edSig = drwEdSig();
+    const w = $('drawWrap'); ['routeBar', 'rtPop', 'rtBar', 'rtHint'].forEach((id) => { const el = $(id); drwEdHome.set(id, { p: el.parentNode, nx: el.nextSibling }); w.appendChild(el); }); // (in the Drawing: a record opened over it covers them)
+    $('drawing').classList.add('drwedit'); $('drawEdit').setAttribute('aria-pressed', 'true'); drwEdUi(); LOG.info('draw.edit', { on: true });
+    if (!routeMode) setRouteMode(true); else { rtTools = false; routeRefresh(); }
+    rtApplyMode(); drawDrawing(); drwEdTip();
+  }
+  function drwEdEnd() {
+    if (!drwEd) return; drwEd = false; drwSiteArm = null; drwSiteWait = null; cancelAnimationFrame(drwEdQ); drwEdQ = 0;
+    if (rtGrab) grabEnd(true); if (rtDraft) rtDrop(); rtPress = null; rtMpan = null; lpClear();
+    drwEdHome.forEach((h, id) => { const el = $(id); if (h.nx && h.nx.parentNode === h.p) h.p.insertBefore(el, h.nx); else h.p.appendChild(el); }); drwEdHome.clear();
+    $('drawing').classList.remove('drwedit'); $('drawEdit').setAttribute('aria-pressed', 'false'); RT_DRW.el.classList.remove('rt-panning', 'rt-pen'); rtHint(''); LOG.info('draw.edit', { on: false });
+    if (drw) { drw.selRun = null; drw.edH = []; if (!$('drawing').hidden) { setWhat(deskOn() && S.drwWhatDesk !== false, false); $('drawHint').hidden = !!S.drawHintOff; drawDrawing(); } }
+    rtApplyMode();
+  }
+  function drwEdUi() { if (!drwEd) return; setWhat(false, false); $('drawHint').hidden = true; $('drawInfo').hidden = true; }
+  /** What the Drawing is drawn from: the route (its time), the records (how many, the latest change, where they are), the Undo steps. */
+  function drwEdSig() { const P = projPoints(); let mx = '', s = 0; P.forEach((p) => { const u = String(p.updated || ''); if (u > mx) mx = u; s += (+p.lat || 0) + (+p.lon || 0); }); return `${pmeta().linksAt || ''}|${P.length}|${mx}|${s.toFixed(7)}|${routeUndo.length}`; }
+  /** After Route redrew (a change, or only a tap): the Drawing drawn anew where it looks when what it shows changed, else again. */
+  function drwEdSoon() {
+    if (drwEdQ) return; drwEdQ = requestAnimationFrame(() => { drwEdQ = 0; if (!drwEd || !drw) return;
+      if (drwSiteWait && !stack.includes('editor')) { const w = drwSiteWait; drwSiteWait = null; const nw = projPoints().filter((p) => !w.ids.has(p.id) && DRW_MOVE(p)); if (nw.length === 1) { routeUndo.push({ add: nw[0].id }); renderRtBar(lastR || routeModel()); } } // (its record saved: ↶ takes it off again)
+      const sig = drwEdSig(); if (sig === drw.edSig) { drawDrawing(); return; }
+      const old = drw, view = old.view ? { ...old.view } : null; openDrawing(true, view); if (!drw || drw === old) return;
+      if (view) drw.view = view; drw.labels = old.labels; drw.mapKind = old.mapKind; drw.under = old.under; drw.underKey = old.underKey; drw.edSig = sig;
+      $('drawLabels').setAttribute('aria-pressed', String(drw.labels)); drwEdUi(); drawDrawing(); });
+  }
+  /** ✋ (or Route tools) on the Drawing: a cable tapped, as a span tapped on the map: its spans and runs in Route tools, its cable lit. */
+  function drwTapCable(c) {
+    if (!drw) return; const d = window.devicePixelRatio || 1, t = [c.x * d, c.y * d], seg = (a, b) => { const vx = b[0] - a[0], vy = b[1] - a[1], u = Math.max(0, Math.min(1, ((t[0] - a[0]) * vx + (t[1] - a[1]) * vy) / (vx * vx + vy * vy || 1))); return Math.hypot(a[0] + vx * u - t[0], a[1] + vy * u - t[1]); };
+    let sp = null; drw.spans.forEach((x) => { const dd = seg(drwPx(x.a), drwPx(x.b)); if (dd < 16 * d && (!sp || dd < sp.dd)) sp = { dd, x }; });
+    if (!sp) return; let bc = null; (drw.hitL || []).forEach(({ n, lines }) => lines.forEach((L0) => { for (let k = 1; k < L0.length; k++) { const dd = seg(L0[k - 1], L0[k]); if (dd < 16 * d && (!bc || dd < bc.dd)) bc = { dd, n }; } }));
+    spanSel = [sp.x.sp.ia, sp.x.sp.ib]; routeSel = null; rtTools = true; if (fibAdd == null && bc) fibSel = bc.n; routeRefresh();
+  }
+  /** Paints on the Drawing what Route shows on the map: the end the cable in the bar goes on from, the poles it passes, a line being
+      drawn and the poles it snaps to, the cable handles (white dots, clear of every point's own tap), what is being dragged. */
+  function drwEdPaint(g, d) {
+    drw.edH = []; if (!routeMode) return;
+    const P = (id) => { const it = drwEdById(id); return it ? drwPx(it.xy) : null; }, LP = (la, lo) => { const u = C.utmForward(la, lo, drw.zone, la < 0); return drwPx([u.E, u.N]); };
+    const ring = (p, r, col, w, dash) => { if (!p) return; g.save(); g.strokeStyle = col; g.lineWidth = w * d; g.setLineDash(dash ? dash.map((x) => x * d) : []); g.beginPath(); g.arc(p[0], p[1], r * d, 0, 2 * Math.PI); g.stroke(); g.restore(); };
+    const line = (pts, col, w, dash, al) => { const q = pts.filter(Boolean); if (q.length < 2) return; g.save(); g.globalAlpha = al == null ? 1 : al; g.strokeStyle = col; g.lineWidth = w * d; g.lineCap = 'round'; g.lineJoin = 'round'; g.setLineDash(dash ? dash.map((x) => x * d) : []); g.beginPath(); q.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.stroke(); g.restore(); };
+    const dot = (p, col, r) => { if (!p) return; g.save(); g.fillStyle = '#fff'; g.strokeStyle = col; g.lineWidth = 3 * d; g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = 4 * d; g.beginPath(); g.arc(p[0], p[1], r * d, 0, 2 * Math.PI); g.fill(); g.shadowBlur = 0; g.stroke(); g.restore(); };
+    const R = lastR, F = R && R.fib ? R.fib : null, A = fibAdd != null && F ? F.list.find((f) => f.n === fibAdd) : null, G = rtGrab && rtGrab.sf === RT_DRW ? rtGrab : null;
+    if (A && A.path.length && !G) ring(P(fibAt === 'start' ? A.path[0] : A.path[A.path.length - 1]), 17, fibColor(A), 3.5); // the end it goes on from (draw from it)
+    if (A && !rtDraft && !G) fibPasses(A, F.by).forEach((id) => ring(P(id), 13, '#e8590c', 2, [3, 3])); // the poles it passes: a tap puts one on
+    if (routeSel) ring(P(routeSel), 15, '#17202a', 3);
+    if (fibStartAt != null) ring(P(fibStartAt), 16, '#1b3a6b', 3, [5, 4]);
+    if (rtConf) { ring(P(rtConf.id), 24, '#1c7ed6', 3); }
+    if (rtSheet && rtSheet.seq && rtSheet.seq.length > 1) line(rtSheet.seq.map(P), fibColor({ n: nextFibN() }), 6, [10, 7], 0.85); // the New cable sheet: the poles drawn
+    const n = rtGrabN(), gf = n != null && F && !rtDraft && !G ? F.list.find((f) => f.n === n) : null;
+    if (gf) { const hr = grabR(), tapR = rtCoarse() ? 24 : 14, pts = drw.items.map((it) => ({ q: drwPx(it.xy), r: (tapR + (it.el === 'Pole' ? 0 : 8) + hr + 2) * d }));
+      for (let j = 1; j < gf.path.length; j++) { const a = P(gf.path[j - 1]), b = P(gf.path[j]); if (!a || !b) continue; let at = null;
+        for (const t of [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74]) { const q = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; if (pts.every((p) => Math.hypot(p.q[0] - q[0], p.q[1] - q[1]) >= p.r)) { at = q; break; } }
+        if (!at) continue; dot(at, fibColor(gf), 7); drw.edH.push({ x: at[0] / d, y: at[1] / d, r: hr, n: gf.n, a: gf.path[j - 1], b: gf.path[j] }); } }
+    if (rtDraft) { line(rtDraft.ll.map((q) => LP(q.lat, q.lon)), rtDraft.col, 3, null, 0.45); const sq = (rtDraft.seq || []).map(P); line(sq, rtDraft.col, 6, [10, 7], 0.9); sq.forEach((p) => ring(p, 13, rtDraft.col, 3)); }
+    if (G) { const fin = [G.c.x * d, G.c.y * d], col = G.kind === 'site' ? '#1c7ed6' : fibColor({ n: G.n });
+      if (G.kind === 'site') { (G.nb || []).forEach((id) => line([P(id), fin], '#495057', 3, [8, 6], 0.9)); ring(P(G.id), 15, '#868e96', 2.5, [3, 3]); dot(fin, col, 11); }
+      else { const v = G.v, mid = v === 'on' || v === 'swap' ? P(G.tid) : v === 'stay' ? P(G.id) : fin;
+        line(v === 'off' ? [P(G.A), P(G.B)] : [P(G.A), mid, P(G.B)], col, 5, [9, 7], 0.95);
+        if (G.kind === 'pole') ring(P(G.id), 14, '#868e96', 2.5, [3, 3]);
+        if (G.tid != null) ring(P(G.tid), 19, v === 'already' ? '#c92a2a' : v === 'stay' ? col : '#2f9e44', 4);
+        dot(fin, col, G.kind === 'pole' ? 11 : 9); } }
+  }
+  /** ＋ Tower · OLT · ODC on the Drawing: which, then a tap where it stands; its record opens for its name (as the map's ＋ pin). */
+  async function drwSiteAsk() {
+    const k = await ask('Add on the Drawing', 'A tower, an OLT or an ODC: pick it, then tap the Drawing where it stands. Its record opens for its name and colour (a photo is optional). To move one later, hold it, then drag it.', [
+      { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
+    if (!k || !drwEd) return; drwSiteArm = { el: k === 'ODC' ? 'ODC' : 'Site', kind: k };
+    rtHint(`Tap the Drawing where the ${k === 'ODC' ? 'ODC' : k === 'OLT' ? 'OLT' : 'tower'} stands (Esc: cancel)`);
+  }
+  function drwSitePlace(ll) {
+    const a = drwSiteArm; drwSiteArm = null; rtHint(''); if (!a || !ll) return;
+    drwSiteWait = { ids: new Set(points.map((p) => p.id)) }; LOG.info('draw.site.add', { el: a.el, k: a.kind });
+    openEditor({ mode: 'new', element: a.el, siteKind: a.el === 'Site' ? a.kind : '', lat: ll.lat, lon: ll.lng, source: 'map', takenAt: new Date().toISOString(), note: 'Placed on the Drawing · photo optional' }).catch((e) => { LOG.warn('draw.site.add', errInfo(e)); drwSiteWait = null; });
+  }
+  /** A tower, OLT or ODC let go where it was dragged on the Drawing: its record's place (pin adjusted), with ↶. */
+  async function drwSiteMove(g) {
+    const p = points.find((x) => x.id === g.id); if (!p) return; const to = RT_DRW.ll(g.c), dm = haversine(p, { lat: to.lat, lon: to.lng });
+    if (g.v !== 'move' || dm < 0.5) { rtHint('Nothing changed', 1500); return; }
+    { const lk = tmHooks.locked ? tmHooks.locked(p.id, 'edit') : ''; if (lk) { toast(lk, 6500); return; } }
+    const prev = JSON.parse(JSON.stringify(p)), rec = { ...p, lat: +to.lat.toFixed(7), lon: +to.lng.toFixed(7), adjusted: true, updated: new Date().toISOString(), updatedBy: byLine() };
+    try { await dbPut('points', rec); } catch (e) { toast('Could not save: try again', 3500); return; }
+    const i = points.findIndex((x) => x.id === p.id); if (i >= 0) points[i] = rec; changedAfterApproval(rec.project, 'record'); routeUndo.push({ rec: prev });
+    renderPoles(); toast(`${recName(rec) || elemOf(rec)} moved ${fmtLen(dm)} (Undo puts it back)`, 3500);
+  }
+  /** ↶ of a tower, OLT or ODC placed on the Drawing: off again (its record, its spans and cables, as Delete in its record). */
+  async function drwSiteUnadd(id) {
+    const rec = points.find((p) => p.id === id); if (!rec) return;
+    await dbDel('points', id); await deletePhotosIfUnused(allPids(rec), new Set([id])); points = points.filter((p) => p.id !== id);
+    if (links().some(([x, y]) => x === id || y === id)) setLinks(links().filter(([x, y]) => x !== id && y !== id));
+    if (fibers().some((f) => f.path.includes(id))) setRoute(null, fibers().map((f) => ({ ...f, path: f.path.filter((x) => x !== id) })));
+    S.meta = S.meta || {}; const m = { ...(S.meta[rec.project] || {}) }; m.gone = { ...(m.gone || {}), [id]: new Date().toISOString() }; S.meta[rec.project] = m; persist(); // (its deletion goes with the next share)
+    changedAfterApproval(rec.project, 'delete'); toast(`${recName(rec) || elemOf(rec)} taken off again`, 2500);
+  }
+  function drwEdTip() { // once on this phone: what Edit route does on the Drawing (after the first-time tip of Route)
+    if (S.drwEdTip) return; const go = (k) => { if (!drwEd || S.drwEdTip || k > 40) return; if (!$('rtHint').hidden || !$('toast').hidden) { setTimeout(() => go(k + 1), 500); return; }
+      S.drwEdTip = true; persist(); rtHint('Editing on the Drawing: one finger draws a cable along the poles, two fingers move it. Hold a cable, a pole or a tower to drag it. Done when finished', 7000); };
+    setTimeout(() => go(0), 400);
+  }
+  $('drawEdit').addEventListener('click', () => drwEditSet(!drwEd));
+  /* ================= beta 6.7: Street View by dragging the little man =================
+     The owner: "Street View at the pin works but is not user friendly: an icon where I can drop the man on the street". The little man
+     on the map's column of buttons (and in the Drawing's tools): drag him onto a street and let go: Google Street View opens there, by
+     the same free link as the record's Street View (streetViewUrl: no key, no cost). While dragged he walks under the finger, with
+     "Drop on a street"; a tap on him says how; Esc, or letting go off the map, opens nothing. */
+  function svPegInit(btn, where) { // where(x, y): the spot (L.latLng) under a point of the page, or null (off the map / the Drawing)
+    const peg = $('svPeg'), lbl = peg.querySelector('span'); let pg = null;
+    const stop = () => { pg = null; peg.hidden = true; document.body.classList.remove('svdrag'); };
+    btn.addEventListener('pointerdown', (e) => { if (e.button > 0) return; e.preventDefault(); try { btn.setPointerCapture(e.pointerId); } catch (x) { /* (no capture) */ } pg = { pid: e.pointerId, x0: e.clientX, y0: e.clientY, moved: false }; });
+    btn.addEventListener('pointermove', (e) => {
+      if (!pg || e.pointerId !== pg.pid) return;
+      if (!pg.moved) { if (Math.hypot(e.clientX - pg.x0, e.clientY - pg.y0) < 8) return; pg.moved = true; peg.hidden = false; document.body.classList.add('svdrag'); $('toast').hidden = true; } // (the last message is old now)
+      const ok = !!where(e.clientX, e.clientY); peg.style.transform = `translate(${e.clientX}px,${e.clientY}px)`; peg.classList.toggle('ok', ok); lbl.textContent = ok ? 'Drop on a street' : 'Drop him on the map';
+    });
+    const end = (e, cancel) => {
+      if (!pg || e.pointerId !== pg.pid) return; const p = pg; stop();
+      if (!p.moved) { if (!cancel) toast('Street View: drag the little man onto a street and let go. Google Street View opens there (in Google Maps)', 4500); return; }
+      const ll = cancel ? null : where(e.clientX, e.clientY); if (!ll) { toast('Nothing opened: drop him on a street', 2500); return; }
+      LOG.info('sv.peg', { on: btn.id }); openExternal(streetViewUrl(ll.lat, ll.lng)); toast('Street View opens in Google Maps (where Google has none here, the map)', 3500);
+    };
+    btn.addEventListener('pointerup', (e) => end(e)); btn.addEventListener('pointercancel', (e) => end(e, true));
+    btn.addEventListener('click', (e) => e.preventDefault()); btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    document.addEventListener('keydown', (e) => { if (pg && e.key === 'Escape') { stop(); toast('Nothing opened', 1500); } });
+  }
+  svPegInit($('svPegBtn'), (x, y) => { const t = document.elementFromPoint(x, y), m = $('map'); if (!t || !m.contains(t) || (t.closest && t.closest('.leaflet-control, button, .round'))) return null; const r = m.getBoundingClientRect(); return map.containerPointToLatLng(L.point(x - r.left, y - r.top)); });
+  svPegInit($('drawPeg'), (x, y) => { const t = document.elementFromPoint(x, y), cv = $('drawCanvas'); if (t !== cv || !drw || !drw.view) return null; const r = cv.getBoundingClientRect(); return RT_DRW.ll(L.point(x - r.left, y - r.top)); });
   async function rtUndo() {
     if (!routeUndo.length || rtDraft || rtConf || rtGrab) return; const u = routeUndo.pop(); rtPend = [];
     if (u && u.rec) { try { await dbPut('points', u.rec); const i = points.findIndex((x) => x.id === u.rec.id); if (i >= 0) points[i] = u.rec; rtAsked.delete(u.rec.id); } catch (e) { toast('Could not undo the closure', 3000); } }
+    else if (u && u.add) { try { await drwSiteUnadd(u.add); } catch (e) { toast('Could not undo: try again', 3000); } } // beta 6.7: a tower, OLT or ODC placed on the Drawing
     else if (Array.isArray(u)) setLinks(u); else setRoute(u.l, u.f);
     if (fibAdd != null && !fibers().some((f) => f.n === fibAdd)) { fibAdd = null; fibSel = null; }
     renderPoles();
@@ -4662,6 +4853,7 @@
         const stats = R ? `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}${R.cableTotal > R.total + 0.05 ? ` · cable ${fmtLen(R.cableTotal)}` : ''}` : '';
         h += `<div class="rt-row"><button class="ib primary rt-new" type="button" data-rt="newcab" id="rtNewCab" aria-label="New cable: pick its type, then draw it or follow the capture order">＋ New cable</button><button class="ib" type="button" data-rt="tools" id="rtCables" aria-label="The list of cables (${all.length}): Continue, type, Details, Delete; and more">Cables · ${all.length}</button><span class="rt-sp"></span><button class="ib primary" type="button" id="rtDone">Done</button></div>`
           + `<div class="rt-row">${seg}<div class="rt-meta grow" id="rtLive">${rtPairs ? '<b>Linking two poles without a cable:</b> tap a pole, then the next' : all.length ? stats : 'Tap ＋ New cable, or a pole, to start'}</div>${pen && !rtPairs ? snapB : ''}${undoB}</div>`; // v2.42.24: one way to start a cable; the list of cables
+        if (drwEd && !rtPairs) h += `<div class="rt-row"><button class="ib" type="button" data-rt="site" id="rtDrwSite" aria-label="Add a tower, an OLT or an ODC: tap the Drawing where it stands">＋ Tower · OLT · ODC</button><div class="rt-meta grow">Hold one to move it</div></div>`; // beta 6.7: on the Drawing
       }
     }
     if (rtTools) { bar.innerHTML = ''; bar.hidden = true; $('routeBar').hidden = false; document.body.style.setProperty('--rtbh', deskOn() ? '0px' : `${Math.max(0, Math.round($('routeBar').getBoundingClientRect().height) - 4)}px`); rtPop = null; renderRtPop(); return; } // Route tools in its place (Close: back to the bar)
@@ -4709,6 +4901,7 @@
     if (a === 'finish') { rtFinish(); return; }
     if (a === 'cancel') { rtCancel(); return; } // v2.42.24
     if (a === 'newcab') { rtOpenSheet({}); return; }
+    if (a === 'site') { drwSiteAsk(); return; } // beta 6.7: on the Drawing
     if (a === 'tools') { rtTools = !rtTools; if (rtTools && fibAdd != null) fibSel = fibAdd; const w = routeSel; if (!rtTools && rtPenOn()) routeSel = null; routeRefresh([w]); return; } // (v2.42.22: the route check's rings with it)
     if (a === 'fib' && g) { rtActivate(g.n, 'end'); routeRefresh(); return; }
     if (a === 'askno') { const q = rtPend.shift(); if (q) rtAsked.add(q.id); routeRefresh(); return; }
@@ -19540,6 +19733,11 @@
   /* v2.44 beta 4.0 (tests): CEF-Plan. frame(): the editor's window; put(): a made-up plan; keep(): a made-up photo in the photo store */
   window.__polecam.vicinity = async (o) => { const v = await vicinityJpeg(+o.E, +o.N, +o.size, o.zone || S.zone, !!o.south, null, o.street ? null : SAT_SOURCE, o.zCap || 0); if (!v || !v.jpg) return null; let s = ''; for (let i = 0; i < v.jpg.length; i += 0x8000) s += String.fromCharCode.apply(null, v.jpg.subarray(i, i + 0x8000)); return { b64: btoa(s), px: v.px, z: v.z, sat: !!v.sat }; }; // beta 4.3 (tests)
   window.__polecam.newAt = (o) => openEditor({ mode: 'new', element: (o && o.element) || 'Pole', lat: +o.lat, lon: +o.lon, source: 'map', takenAt: new Date().toISOString() }); // beta 4.3 (tests): a new record with no photo
+  /* beta 6.7 (tests) */ window.__polecam.drwEdit = (on) => drwEditSet(!!on);
+  window.__polecam.drwEd = () => ({ on: drwEd, handles: (drw && drw.edH ? drw.edH : []).map((h) => { const r = $('drawCanvas').getBoundingClientRect(); return { x: r.left + h.x, y: r.top + h.y, r: h.r, n: h.n, a: String(h.a), b: String(h.b) }; }), site: drwSiteArm ? drwSiteArm.kind : null, selRun: drw ? drw.selRun : null, n: drw ? drw.items.length : 0 });
+  window.__polecam.drwLL = (lat, lon) => { if (!drw || !drw.view) return null; const p = RT_DRW.pt([lat, lon]), r = $('drawCanvas').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; };
+  window.__polecam.drwLook = (lat, lon, mpp, ox, oy) => { if (!drw || !drw.view) return; const d = window.devicePixelRatio || 1, cv = $('drawCanvas'), u = C.utmForward(lat, lon, drw.zone, lat < 0), sc = d / mpp; drw.view = { ...drw.view, sc, cx: u.E - ((ox == null ? cv.width / 2 / d : ox) * d - cv.width / 2) / sc, cy: u.N + ((oy == null ? cv.height / 2 / d : oy) * d - cv.height / 2) / sc }; drawDrawing(); };
+  window.__polecam.drwPt = (id) => { const it = drw && drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return null; const [x, y] = drwPx(it.xy), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; };
   window.__polecam.drawView = () => (drw && drw.view ? { cx: drw.view.cx, cy: drw.view.cy, sc: drw.view.sc } : null); // beta 4.3 (tests): where the Drawing looks
   window.__polecam.coops = () => ({ groups: coopGroups(), set: ed ? ed.coopSet || '' : '', name: ed ? (ed.boq || {}).ownerName || '' : '', owner: ed ? (ed.boq || {}).owner || '' : '', area: ed ? coopArea() : null }); // beta 4.3 (tests)
   window.__polecam.cef = { open: (n, o) => cefOpen(n, o), plans: (n) => JSON.parse(JSON.stringify(cefPlans(n || S.project))), of: (n) => JSON.parse(JSON.stringify(cefOf(n || S.project))), isCef: (n) => isCefProj(n), lock: () => cefLockText(S.project), now: () => (cefNow ? { ...cefNow } : null),

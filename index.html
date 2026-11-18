@@ -838,6 +838,32 @@ body.routing #routeBar{z-index:525}
 .span-icon .rt-lift.pole{width:26px;height:26px;background:color-mix(in srgb,currentColor 22%,#fff)}
 body.rt-grabbing,body.rt-grabbing #map,body.rt-grabbing #map .leaflet-interactive,body.rt-grabbing .rt-grab{cursor:grabbing!important}
 body.deskpane.routing #rtHint{left:calc(var(--pw) + (100% - var(--pw) - var(--rpw)) / 2);max-width:calc(100% - var(--pw) - var(--rpw) - 24px)}
+/* beta 6.7: Edit route on the Drawing: the Route bar, its sheet, its hint and Route tools sit on the Drawing (at its foot on a phone, a panel at its right on a computer); its own bar, information line and What to export wait */
+#drawing.drwedit{--drpw:0px}body.deskpane #drawing.drwedit{--drpw:min(400px,42%)}
+#drawing.drwedit .drwbar,#drawing.drwedit #drawHint,#drawing.drwedit #drawInfo,#drawing.drwedit #drawInfoBtn,#drawing.drwedit #drawCef,#drawing.drwedit #drawSpl,#drawing.drwedit #drawCefMenu{display:none!important} /* (the plans' buttons and the information line wait too: room for the bar on a small phone) */
+#drawWrap #rtBar,#drawWrap #routeBar{left:8px;right:8px;top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);width:auto;z-index:20}
+#drawWrap #routeBar{max-height:72%;overflow-y:auto}
+#drawWrap #rtPop{left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 16px + var(--rtbh,72px));width:auto;z-index:22}
+#drawWrap #rtPop.rtsheet{max-height:calc(100% - var(--rtbh,72px) - 40px)}
+#drawWrap #rtHint{top:46px;z-index:21;max-width:calc(100% - 110px)}
+#drawing.drwedit .drwtools{bottom:calc(env(safe-area-inset-bottom,0px) + 20px + var(--rtbh,72px))}
+body.deskpane #drawWrap #rtBar,body.deskpane #drawWrap #routeBar{left:auto;right:0;top:0;bottom:0;width:var(--drpw);max-height:none;border-radius:0;border:0;border-left:1px solid var(--line);box-shadow:-10px 0 28px rgba(16,24,32,.18)}
+body.deskpane #drawWrap #rtPop{left:auto;right:10px;width:calc(var(--drpw) - 20px);bottom:14px;max-height:62%;z-index:950}
+body.deskpane #drawing.drwedit .drwtools{right:calc(var(--drpw) + 12px);bottom:12px}
+body.deskpane #drawWrap #rtHint{left:calc((100% - var(--drpw)) / 2);max-width:calc(100% - var(--drpw) - 40px)}
+#drawCanvas.rt-pen{cursor:crosshair}#drawCanvas.rt-panning,body.rt-grabbing #drawCanvas{cursor:grabbing}
+.drwtools #drawEdit[aria-pressed=false]{opacity:1}.drwtools #drawEdit[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+/* beta 6.7: Street View: drag the little man (the map's column, the Drawing's tools) onto a street */
+.round.svpeg{color:#f2b300;touch-action:none}
+#svPeg{position:fixed;left:0;top:0;z-index:5000;width:40px;height:40px;margin:-40px 0 0 -20px;pointer-events:none;color:#f2b300;will-change:transform}
+#svPeg[hidden]{display:none}
+#svPeg svg{display:block;width:40px;height:40px;transform-origin:50% 92%;animation:svwalk .45s ease-in-out infinite alternate;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))}
+#svPeg::after{content:"";position:absolute;left:50%;bottom:-3px;width:16px;height:6px;margin-left:-8px;border-radius:50%;background:rgba(0,0,0,.35)}
+#svPeg span{position:absolute;left:50%;bottom:46px;transform:translateX(-50%);white-space:nowrap;background:rgba(15,37,71,.92);color:#fff;border-radius:12px;padding:4px 10px;font:600 calc(12.5px * var(--fs))/1.3 system-ui,sans-serif;box-shadow:var(--shadow)}
+#svPeg:not(.ok) svg{opacity:.55}
+@keyframes svwalk{from{transform:rotate(-9deg)}to{transform:rotate(9deg)}}
+@media (prefers-reduced-motion:reduce){#svPeg svg{animation:none}}
+body.svdrag,body.svdrag *{cursor:grabbing!important}
 #map.leaflet-container{touch-action:none}
 .est-bad{color:var(--bad);font-weight:600}
 
@@ -1367,6 +1393,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="rmrow"><button type="button" class="chip small" id="rmPins" aria-pressed="true">Pins</button><button type="button" class="chip small" id="rmRoute" aria-pressed="true">Route</button></div>
       <div class="rmrow"><button type="button" class="btn small" id="rmLoad">Load KMZ / KML…</button><button type="button" class="btn small" id="rmClose">Close</button></div>
     </div>
+    <button class="round svpeg" id="svPegBtn" type="button" aria-label="Street View: drag the little man onto a street, then let go" title="Street View: drag me onto a street"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="4.6" r="2.8" fill="currentColor" stroke="#6b4a00" stroke-width=".8"/><path d="M9.5 8.3h5a2 2 0 0 1 2 2v5h-1.6v6.9h-2.3v-6h-1.2v6H9.1v-6.9H7.5v-5a2 2 0 0 1 2-2Z" fill="currentColor" stroke="#6b4a00" stroke-width=".8" stroke-linejoin="round"/></svg></button>
     <button class="round" id="layerBtn" aria-label="Switch map: street, satellite or offline map pack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button>
     <button class="round" id="locateBtn" aria-label="Go to my location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
   </div>
@@ -1649,11 +1676,13 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <!-- v2.41: the legend (top left), the tools on the drawing (lower right, as on the map), the information line -->
     <details class="drwlegend" id="drawLegend" open><summary>Legend</summary><div id="drawLegendBody"></div></details>
     <div class="drwtools">
+      <button class="round" id="drawEdit" type="button" aria-pressed="false" aria-label="Edit route on the Drawing: draw cables, put poles on or off, place and move towers, OLTs and ODCs" title="Edit route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z"/><path d="m13.5 7 3 3"/></svg></button>
       <button class="round" id="drawCef" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-label="CEF plans of the tower sites" title="CEF plans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 6 21M12 3l6 18M8.3 14h7.4M9.7 9h4.6M4 21h16"/></svg><i class="pdot" aria-hidden="true"></i></button>
       <button class="round" id="drawSpl" type="button" hidden aria-label="Splicing details of this project" title="Splicing details"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h6l4 4 4-4h6M2 16h6l4-4 4 4h6"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg><i class="pdot" aria-hidden="true"></i></button>
       <button class="round" id="drawFit" type="button" aria-label="Fit: the whole drawing" title="Fit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <button class="round" id="drawLabels" type="button" aria-pressed="true" aria-label="Labels on or off" title="Labels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M12 6v13M9 19h6"/></svg></button>
       <button class="round" id="drawMap" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Map under the drawing: off, offline map, satellite or street map" title="Map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg><i class="drwmapdot" aria-hidden="true"></i></button>
+      <button class="round svpeg" id="drawPeg" type="button" aria-label="Street View: drag the little man onto a street on the Drawing, then let go" title="Street View: drag me onto a street"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="4.6" r="2.8" fill="currentColor" stroke="#6b4a00" stroke-width=".8"/><path d="M9.5 8.3h5a2 2 0 0 1 2 2v5h-1.6v6.9h-2.3v-6h-1.2v6H9.1v-6.9H7.5v-5a2 2 0 0 1 2-2Z" fill="currentColor" stroke="#6b4a00" stroke-width=".8" stroke-linejoin="round"/></svg></button>
       <button class="round" id="drawInfoBtn" type="button" aria-pressed="true" aria-label="Information line on or off" title="Information"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg></button>
     </div>
     <div class="drwmenu" id="drawMapMenu" role="radiogroup" aria-label="Map under the drawing" hidden>
@@ -2835,6 +2864,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
 <div class="overlay" id="promptBox" hidden><div class="panel"><h3 id="promptTitle"></h3><p class="hint" id="promptText" style="margin:0"></p><textarea id="promptInput" style="min-height:70px"></textarea><div class="row"><button class="btn grow" id="promptNo" type="button">Cancel</button><button class="btn primary grow" id="promptYes" type="button">OK</button></div></div></div>
 
 <div id="busy" hidden><div><span id="busyText">Working…</span><progress id="busyProg" max="1" value="0"></progress><button class="btn" id="busyCancel" hidden style="margin-top:12px;width:100%">Cancel</button></div></div>
+<div id="svPeg" hidden aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="4.6" r="2.8" fill="currentColor" stroke="#6b4a00" stroke-width=".8"/><path d="M9.5 8.3h5a2 2 0 0 1 2 2v5h-1.6v6.9h-2.3v-6h-1.2v6H9.1v-6.9H7.5v-5a2 2 0 0 1 2-2Z" fill="currentColor" stroke="#6b4a00" stroke-width=".8" stroke-linejoin="round"/></svg><span>Drop on a street</span></div>
 <div id="toast" hidden role="status"></div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
