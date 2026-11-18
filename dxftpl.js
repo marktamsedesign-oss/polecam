@@ -468,6 +468,7 @@
   /* ---------------- new entities ---------------- */
   /** beta 6.0: an entity's colour groups: an AutoCAD colour index (1-255, 0 by block, 256 by layer) as group 62; a colour of the user's
       own (Drawing style's colour picker: TC0 + 0xRRGGBB) as its nearest index (62) and the colour itself (420), as AutoCAD writes it. */
+  const litCol = (c) => { const n = +c; if (n >= 0x1000000) { const v = n - 0x1000000, r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255; return 0.299 * r + 0.587 * g + 0.114 * b > 150; } return [2, 3, 4].includes(n); }; // (beta 6.5: also a colour of the user's own)
   const TC0 = 0x1000000, colGroups = (c) => { const n = +c; return n >= TC0 ? [[62, I(aciOf(n - TC0))], [420, I(n - TC0)]] : [[62, I(c)]]; };
   class Out {
     constructor(d, S) { this.d = d; this.S = S; this.model = []; this.n = {}; }
@@ -2931,7 +2932,7 @@
           T7.photos = (T7.photos || 0) + 1;
         }
         if (T.badge && G.circ) { // beta 4.8: its number in its circle, as the numbers beside the points are drawn (light colours over a dark shadow)
-          const B = T.badge, [ccx, ccy] = G.W(G.circ[0], G.circ[1]), dd = G.circ[2], nCo = NS.color || null, bCo = NS.bcolor || NS.color || null, nL = lay('p-pole'), lc = (n) => { const Ly = S.layers.get(n); return Ly ? Math.abs(parseInt(get(Ly, 62, '7'), 10) || 7) : 7; }, lit = (c) => [2, 3, 4].includes(c), sN = lit(nCo != null ? +nCo : lc(nL)), sB = lit(bCo != null ? +bCo : lc(nL)), so2 = B.hn * 0.08;
+          const B = T.badge, [ccx, ccy] = G.W(G.circ[0], G.circ[1]), dd = G.circ[2], rc = T.p.numCol != null && +T.p.numCol > 0, nCo = rc ? +T.p.numCol : NS.color || null, bCo = rc ? +T.p.numCol : NS.bcolor || NS.color || null, nL = lay('p-pole'), lc = (n) => { const Ly = S.layers.get(n); return Ly ? Math.abs(parseInt(get(Ly, 62, '7'), 10) || 7) : 7; }, lit = (c) => litCol(c), /* (beta 6.5: its RTA/JPA category's colour) */ sN = lit(nCo != null ? +nCo : lc(nL)), sB = lit(bCo != null ? +bCo : lc(nL)), so2 = B.hn * 0.08;
           if (sB && NS.d > 0) o.circle(nL, ccx + so2, ccy - so2, dd / 2, { color: 250 });
           if (sN) o.text(nL, ccx + so2, ccy - so2, B.hn, B.sq, { ha: 1, va: 2, style: 'arial', color: 250, rot: an });
           if (NS.d > 0) o.circle(nL, ccx, ccy, dd / 2, { color: bCo });
@@ -3329,11 +3330,12 @@
       } else {
         const nF = numF(p), D = NS.d > 0 ? numD(p) * nF : 0;
         const la = NS.leader ? add2(p.dp, u, rOf(p) + 0.2) : null, lb = NS.leader ? add2(q, u, -(D || NS.h * nF) / 2 - 0.2) : null, lead = la && dist2(la, lb) > 0.5;
-        if (shB) { if (D) o.circle(nLay, q[0] + so, q[1] - so, D / 2, { color: SH }); if (lead) o.lwpoly(nLay, [[la[0] + so, la[1] - so], [lb[0] + so, lb[1] - so]], { color: SH }); } // the shadows first (drawn under)
-        if (shN) o.text(nLay, q[0] + so, q[1] - so, NS.h * nF, String(p.seq), { ha: 1, va: 2, style: 'arial', color: SH });
-        if (D) o.circle(nLay, q[0], q[1], D / 2, { color: bCol });
-        o.text(nLay, q[0], q[1], NS.h * nF, String(p.seq), { ha: 1, va: 2, style: 'arial', color: nCol });
-        if (lead) o.lwpoly(nLay, [la, lb], { color: bCol });
+        const rc = p.numCol != null && +p.numCol > 0, nC = rc ? +p.numCol : nCol, bC = rc ? +p.numCol : bCol, sN1 = rc ? litCol(nC) : shN, sB1 = rc ? litCol(bC) : shB; // (beta 6.5: its RTA/JPA category's colour, number and circle)
+        if (sB1) { if (D) o.circle(nLay, q[0] + so, q[1] - so, D / 2, { color: SH }); if (lead) o.lwpoly(nLay, [[la[0] + so, la[1] - so], [lb[0] + so, lb[1] - so]], { color: SH }); } // the shadows first (drawn under)
+        if (sN1) o.text(nLay, q[0] + so, q[1] - so, NS.h * nF, String(p.seq), { ha: 1, va: 2, style: 'arial', color: SH });
+        if (D) o.circle(nLay, q[0], q[1], D / 2, { color: bC });
+        o.text(nLay, q[0], q[1], NS.h * nF, String(p.seq), { ha: 1, va: 2, style: 'arial', color: nC });
+        if (lead) o.lwpoly(nLay, [la, lb], { color: bC });
       }
     }
     if (job.debug) rep.layout = { grid: { gox, goy, cell }, poles: poleOrder.map((p) => ({ id: String(p.id), E: p.E, N: p.N, dp: p.dp, td: p.td, ov: p.ov, rr: p._rr, lblFar: p.lblFar, lblDir: p.lblDir })), labels: spots.list.filter((b) => /^label/.test(b.tag || '') && b.tag !== 'label:site').map((b) => [b.cx, b.cy, b.hw, b.hh, b.ux, b.uy, b.vx, b.vy]), marks: photoPl.out.map(({ p, ph, w, h, q, u, how, lead }) => ({ lead: lead || null, id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
@@ -3814,6 +3816,24 @@
         const L0 = lab(want); if (!L0) continue; const cellR = tx0.find((r) => r !== L0 && Math.abs(yOf(r) - yOf(L0)) < 0.6 * hOf(L0) && Math.abs(xOf(r) - xOf(refV)) < 0.6 * hOf(refV));
         if (cellR && !norm(textOf(cellR))) { setText(cellR, ugVals[k]); pmiFill.push(want); } }
       rep.pmiFilled = pmiFill; }
+    /** beta 6.0 (beta 6.5: a function, for the BOQ table and the RTA/JPA legend): a GEO sheet's right-hand box (paper units), free of the
+        title block's fields: { R0: [x0, y0, x1, y1], uMm: paper units in a millimetre }, or null */
+    const rightBoxOf = (L) => {
+      const vp = bigVp(L); if (!vp) return null;
+      const vx1 = num(vp, 10, 0) + num(vp, 40, 0) / 2, boxes = [];
+      for (const r of layoutEnts(d, S, L)) { const t = typ(r); if (t === 'VIEWPORT') continue;
+        if (t === 'INSERT') { const b = S.blocks.get(get(r, 2)); if (!b) continue; const ix = num(r, 10, 0), iy = num(r, 20, 0), sx = num(r, 41, 1) || 1, sy = num(r, 42, sx) || 1, bx = num(b.begin, 10, 0), by = num(b.begin, 20, 0);
+          for (const e of b.ents) { const q = entBoxP(e); if (q) boxes.push([ix + (q[0] - bx) * sx, iy + (q[1] - by) * sy, ix + (q[2] - bx) * sx, iy + (q[3] - by) * sy]); } }
+        else { const q = entBoxP(r); if (q) boxes.push(q); } }
+      if (!boxes.length) return null;
+      const pg = [Math.min(...boxes.map((q) => q[0])), Math.min(...boxes.map((q) => q[1])), Math.max(...boxes.map((q) => q[2])), Math.max(...boxes.map((q) => q[3]))], pH = pg[3] - pg[1];
+      const fr = boxes.filter((q) => q[3] - q[1] > 0.6 * pH && q[0] >= vx1 - 1 && q[2] <= pg[2] + 1).sort((a2, b2) => (b2[2] - b2[0]) - (a2[2] - a2[0]))[0]; // (the right-hand box's frame, when the title block has one)
+      const cx0 = fr ? fr[0] : vx1, cx1 = fr ? fr[2] : pg[2], ctop = fr ? fr[3] : pg[3];
+      const inCol = boxes.filter((q) => q !== fr && q[3] - q[1] <= 0.6 * pH && q[2] > cx0 + 0.5 && q[0] < cx1 - 0.5 && q[1] < ctop - 0.5); // (the title block's fields and anything else in that column)
+      const ftop = inCol.length ? Math.max(...inCol.map((q) => q[3])) : pg[1], m = 0.04 * (cx1 - cx0), R0 = [cx0 + m, ftop + m, cx1 - m, ctop - m];
+      return { R0, uMm: (pg[2] - pg[0]) / Math.max(num(L.rec, 44, 420), num(L.rec, 45, 297), 1) || 1 }; // (paper units in a millimetre)
+    };
+    const boqBot = new Map(), RBC = new Map(), rightBox = (L) => { if (!RBC.has(L.name)) RBC.set(L.name, rightBoxOf(L)); return RBC.get(L.name); }; // (beta 6.5: where each sheet's BOQ table ends, for the legend under it; each box found once, before anything is drawn in it)
     if (job.pmiItems && N > 0) {
       const PMI_ROWS = [['TOTAL CABLE LENGTH', 'PMI_TOTAL_CABLE_LENGTH', 'm'], ['AERIAL CABLE LENGTH', 'PMI_AERIAL_CABLE_LENGTH', 'm'], ['EXISTING GT POLE', 'PMI_EXISTING_GT_POLE'], ['PROPOSED POLE', 'PMI_PROPOSED_POLE'],
         ['RTA CONVERGE', 'PMI_RTA_CONVERGE'], ['RTA LOCAL COOP', 'PMI_RTA_LOCAL_COOP'], ['RTA OTHER (PLDT POLE)', 'PMI_RTA_OTHER_PLDT'], ['UNDERGROUND CABLE LENGTH', 'PMI_UG_CABLE_LENGTH', 'm'], ['PROPOSED HDD', 'PMI_HDD', 'm'],
@@ -3843,28 +3863,18 @@
       S = structure(d); const BL = 'G-ESAA BOQ GRID'; addLayer(d, S, BL, 7); S = structure(d);
       const stl = S.styles.has('Standard') ? 'Standard' : null; let nTab = 0;
       names.forEach((nm, k) => {
-        const L = S.layouts.find((x) => x.name === nm), vp = L && bigVp(L); if (!vp) return;
-        const vx1 = num(vp, 10, 0) + num(vp, 40, 0) / 2, boxes = [];
-        for (const r of layoutEnts(d, S, L)) { const t = typ(r); if (t === 'VIEWPORT') continue;
-          if (t === 'INSERT') { const b = S.blocks.get(get(r, 2)); if (!b) continue; const ix = num(r, 10, 0), iy = num(r, 20, 0), sx = num(r, 41, 1) || 1, sy = num(r, 42, sx) || 1, bx = num(b.begin, 10, 0), by = num(b.begin, 20, 0);
-            for (const e of b.ents) { const q = entBoxP(e); if (q) boxes.push([ix + (q[0] - bx) * sx, iy + (q[1] - by) * sy, ix + (q[2] - bx) * sx, iy + (q[3] - by) * sy]); } }
-          else { const q = entBoxP(r); if (q) boxes.push(q); } }
-        if (!boxes.length) return;
-        const pg = [Math.min(...boxes.map((q) => q[0])), Math.min(...boxes.map((q) => q[1])), Math.max(...boxes.map((q) => q[2])), Math.max(...boxes.map((q) => q[3]))], pH = pg[3] - pg[1];
-        const fr = boxes.filter((q) => q[3] - q[1] > 0.6 * pH && q[0] >= vx1 - 1 && q[2] <= pg[2] + 1).sort((a2, b2) => (b2[2] - b2[0]) - (a2[2] - a2[0]))[0]; // (the right-hand box's frame, when the title block has one)
-        const cx0 = fr ? fr[0] : vx1, cx1 = fr ? fr[2] : pg[2], ctop = fr ? fr[3] : pg[3];
-        const inCol = boxes.filter((q) => q !== fr && q[3] - q[1] <= 0.6 * pH && q[2] > cx0 + 0.5 && q[0] < cx1 - 0.5 && q[1] < ctop - 0.5); // (the title block's fields and anything else in that column)
-        const ftop = inCol.length ? Math.max(...inCol.map((q) => q[3])) : pg[1], m = 0.04 * (cx1 - cx0), R0 = [cx0 + m, ftop + m, cx1 - m, ctop - m];
-        const uMm = (pg[2] - pg[0]) / Math.max(num(L.rec, 44, 420), num(L.rec, 45, 297), 1) || 1, W = R0[2] - R0[0], H = R0[3] - R0[1]; // (paper units in a millimetre)
+        const L = S.layouts.find((x) => x.name === nm), RB = L && rightBox(L); if (!RB) return; // (beta 6.5: its right-hand box, see rightBoxOf)
+        const { R0, uMm } = RB, W = R0[2] - R0[0], H = R0[3] - R0[1];
         const rows = PMI_ROWS.map(([lb, k2]) => [lb, k2 ? (cellsTxt.get(nm)[k2] != null ? cellsTxt.get(nm)[k2] : '') : '']), title = `BILL OF QUANTITIES · GRID ${cellName(geoCells[k].i, geoCells[k].j)}`;
-        let rh = Math.min(7 * uMm, H / (rows.length + 2)), th = Math.min(2.5 * uMm, rh * 0.5); const pad = 1.5 * uMm;
+        const LEGN = Array.isArray(job.rtaLegend) && job.rtaLegend.length ? Math.min(12, job.rtaLegend.length) + 1.5 : 0; // (beta 6.5: room kept under the table for the RTA/JPA legend: its rows and a gap)
+        let rh = Math.min(7 * uMm, H / (rows.length + 2 + LEGN)), th = Math.min(2.5 * uMm, rh * 0.5); const pad = 1.5 * uMm;
         const need = (h2) => Math.max(...rows.map(([lb]) => arialW(lb, h2))) * 1.08 + Math.max(arialW('QUANTITY', h2), ...rows.map(([, v]) => arialW(v, h2))) * 1.08 + 4 * pad;
         if (need(th) > W) th *= W / need(th);
         if (!(W > 30 * uMm && H > (rows.length + 2) * 2.4 * uMm && th >= 1.2 * uMm)) { rep.notes.push(`BOQ table not drawn on ${nm}: its right-hand box has no room`); return; }
         const po = paperOut(d, S, L, Out); if (!po) return;
         const x0 = R0[0], x1 = R0[2], top = R0[3], qw = Math.max(arialW('QUANTITY', th), ...rows.map(([, v]) => arialW(v, th))) * 1.08 + 2 * pad, xd = x1 - qw, nR = rows.length + 2, yB = top - nR * rh;
         const tH = Math.min(th * 1.2, th * W / Math.max(1e-6, arialW(title, th) * 1.08 + 2 * pad));
-        po.lwpoly(BL, [[x0, yB], [x1, yB], [x1, top], [x0, top]], { closed: true });
+        po.lwpoly(BL, [[x0, yB], [x1, yB], [x1, top], [x0, top]], { closed: true }); boqBot.set(nm, yB);
         for (let i = 1; i < nR; i++) po.lwpoly(BL, [[x0, top - i * rh], [x1, top - i * rh]], {});
         po.lwpoly(BL, [[xd, top - rh], [xd, yB]], {});
         po.text(BL, (x0 + x1) / 2, top - rh / 2, tH, title, { ha: 1, va: 2, style: stl });
@@ -3873,6 +3883,31 @@
         nTab++;
       });
       rep.boqGrid.tables = nTab;
+    }
+    /* beta 6.5 (the owner's standard "RTA/JPA LEGEND"): on each GEO sheet, in its right-hand box under the BOQ table (at its top without
+       one), a title bar and a row for each RTA/JPA category on the plan (job.rtaLegend, from Drawing style › Numbers): its number "1" in
+       its circle, both in its colour (a dark shadow under a light one, as the numbers), and its text. Layer G-ESAA RTA LEGEND. */
+    if (Array.isArray(job.rtaLegend) && job.rtaLegend.length && N > 0) {
+      const LG = 'G-ESAA RTA LEGEND'; addLayer(d, S, LG, 7); S = structure(d); const stl = S.styles.has('Standard') ? 'Standard' : null; let nLeg = 0;
+      const cats = job.rtaLegend.filter((x) => x && x.text).slice(0, 12), title = 'RTA/JPA LEGEND';
+      geoNames(N).forEach((nm) => {
+        const L = S.layouts.find((x) => x.name === nm), RB = L && rightBox(L); if (!RB) return;
+        const { R0, uMm } = RB, top = boqBot.has(nm) ? boqBot.get(nm) - Math.min(3 * uMm, 0.4 * (boqBot.get(nm) - R0[1]) / (cats.length + 1.5)) : R0[3], W = R0[2] - R0[0], room = top - R0[1], pad = 1.5 * uMm;
+        let rh = Math.min(7 * uMm, room / (cats.length + 1)), th = Math.min(2.5 * uMm, rh * 0.5);
+        const need = (h2) => Math.max(arialW(title, h2 * 1.1), ...cats.map((x) => arialW(x.text, h2) + 1.6 * h2 * 2)) * 1.08 + 3 * pad;
+        if (need(th) > W) th *= W / need(th);
+        if (!(room > (cats.length + 1) * 2.4 * uMm && th >= 1.2 * uMm)) { rep.notes.push(`RTA/JPA legend not drawn on ${nm}: its right-hand box has no room left`); return; }
+        const po = paperOut(d, S, L, Out); if (!po) return;
+        const x0 = R0[0], w = Math.min(W, need(th)), x1 = x0 + w, nR = cats.length + 1, yB = top - nR * rh, rr = Math.min(rh * 0.36, th * 0.95), so = th * 0.08;
+        po.lwpoly(LG, [[x0, yB], [x1, yB], [x1, top], [x0, top]], { closed: true }); po.lwpoly(LG, [[x0, top - rh], [x1, top - rh]], {});
+        po.text(LG, (x0 + x1) / 2, top - rh / 2, th * 1.1, title, { ha: 1, va: 2, style: stl });
+        cats.forEach((x, i) => { const y = top - (i + 1.5) * rh, cx = x0 + pad + rr, col = +x.color > 0 ? +x.color : null;
+          if (col != null && litCol(col)) { po.circle(LG, cx + so, y - so, rr, { color: 250 }); po.text(LG, cx + so, y - so, th, '1', { ha: 1, va: 2, style: stl, color: 250 }); }
+          po.circle(LG, cx, y, rr, { color: col }); po.text(LG, cx, y, th, '1', { ha: 1, va: 2, style: stl, color: col });
+          po.text(LG, cx + rr + pad, y, th, x.text, { ha: 0, va: 2, style: stl }); });
+        nLeg++;
+      });
+      rep.rtaLegend = { sheets: nLeg, rows: cats.map((x) => `${x.text} (${x.n || 0})`) };
     }
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0], geo: [gox, goy] }; // (v2.42.25: + the GEO cells' origin)
     // v2.42.8: the cleanup again on the whole drawing, then its extents and opening view
