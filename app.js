@@ -937,7 +937,7 @@
   const APP_VER = '2.44.14';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '6.5'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '6.6'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -1953,7 +1953,7 @@
     g.font = `600 ${fs}px ui-monospace, monospace`;
     // a NAP or closure pin: a dotted line to the pole it stands on
     drw.items.forEach((it) => { if (!it.on) return; const [ax, ay] = drwPx(it.xy), [bx, by] = drwPx(it.on.xy); g.strokeStyle = 'rgba(240,140,0,0.9)'; g.lineWidth = 1.6 * d; g.setLineDash([2 * d, 3 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); });
-    const placed = [], near = v.sc >= 1.4 * d, ct = S.exp.dxfClampType !== false, mode = curRow().mode, NS = plStyle().num; // (v2.42.14: the drawing shown)
+    const placed = [], near = v.sc >= 1.4 * d, ct = S.exp.dxfClampType !== false, mode = curRow().mode, NS = plStyle().num, rtaC = rtaCats(NS.rta, drw.items.map((it) => it.p)); /* (beta 6.6) */ // (v2.42.14: the drawing shown)
     const roomy = v.sc * 30 >= 26 * d; // the numbers / photos once the poles are far enough apart on screen (zoom in to see them)
     const phK = plStyle().photo.size / 18; // (Drawing style › Photos: the photos' size, 1 at Normal)
     const nCol = ACI_INK[NS.color] || '#d9a400', bCol = ACI_INK[NS.bcolor] || nCol;
@@ -1968,7 +1968,7 @@
       placed.push(bk && bk.kind === 'dn' ? [px - Math.abs(bk.ax[0]) * bk.hl - Math.abs(bk.ax[1]) * bk.hw, py - Math.abs(bk.ax[1]) * bk.hl - Math.abs(bk.ax[0]) * bk.hw, 2 * (Math.abs(bk.ax[0]) * bk.hl + Math.abs(bk.ax[1]) * bk.hw), 2 * (Math.abs(bk.ax[1]) * bk.hl + Math.abs(bk.ax[0]) * bk.hw)] : [px - r, py - r, r * 2, r * 2]);
       // its photo or number on the plan (as the DXF will have it)
       const n = roomy ? drw.seq.get(String(p.id)) : 0;
-      if (n) { const rc = rtaCatOf(p, NS.rta), nC = rc ? ACI_INK[rc.color] : nCol, bC = rc ? nC : bCol; // (beta 6.5: its RTA/JPA category's colour)
+      if (n) { const rc = rtaCatOf(p, NS.rta, rtaC), nC = rc ? ACI_INK[rc.color] : nCol, bC = rc ? nC : bCol; // (beta 6.5: its RTA/JPA category's colour)
         const pp = bk && bk.kind === 'dn' ? (-bk.ax[1] >= 0 ? [-bk.ax[1], bk.ax[0]] : [bk.ax[1], -bk.ax[0]]) : null; // (v2.42.24: outside a block; beside a DN's long side)
         const hasPh = mode !== 'num' && photosOf(p).length > 0, dx = pp ? pp[0] * (bk.hw + 18 * d) : r + 8 * d, dy = pp ? pp[1] * (bk.hw + 18 * d) - 8 * d : -(r + 10 * d), cx = px + dx, cy = py + dy;
         g.strokeStyle = bC; g.lineWidth = 1.2 * d; g.beginPath(); if (pp) g.moveTo(px + pp[0] * bk.hw, py + pp[1] * bk.hw); else g.moveTo(px + r * 0.7, py - r * 0.7); g.lineTo(cx - 6 * d, cy + 6 * d); g.stroke();
@@ -2307,7 +2307,7 @@
     if (drw && drw.ref.length) { const ri = refInfo(drw.project); rows.push([sv('<path d="M1 8h20" stroke="rgba(112,72,232,0.6)" stroke-width="2" stroke-dasharray="4 3"/>'), `Reference KMZ of this project${ri ? ` (${ri.name})` : ''}: not in the DXF; hide or remove it with the map's KMZ button`]); } // v2.42.12
     const mode = curRow().mode;
     rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[plStyle().num.bcolor] || ACI_INK[plStyle().num.color] || '#d9a400'}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[plStyle().num.color] || '#d9a400'}" font-family="system-ui,sans-serif">1</text>`), 'Number on the plan']);
-    { const RT = plStyle().num.rta; if (RT.on) { const cnt = new Map(); pts.forEach((it) => { const c = rtaCatOf(it.p, RT); if (c) cnt.set(c, (cnt.get(c) || 0) + 1); }); RT.cats.filter((c) => cnt.has(c)).forEach((c) => rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[c.color]}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[c.color]}">1</text>`), `${c.text} (${cnt.get(c)})`])); } } // beta 6.5: the RTA/JPA categories on the drawing
+    { const RT = plStyle().num.rta; if (RT.on) { const cnt = new Map(), RC = rtaCats(RT, pts.map((it) => it.p)); pts.forEach((it) => { const c = rtaCatOf(it.p, RT, RC); if (c) cnt.set(c, (cnt.get(c) || 0) + 1); }); [...RC.slice(0, 1), RTA_PROP, RTA_GT, ...RC.slice(1)].filter((c, i, A) => cnt.has(c) && A.indexOf(c) === i).forEach((c) => rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[c.color]}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[c.color]}">1</text>`), `${c.text} (${cnt.get(c)})`])); } } // beta 6.5: the RTA/JPA categories on the drawing
     if (mode !== 'num') { const Z = plStyle().photo.size; rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), (mode === 'both' ? 'Photo of the point (its number is by the point)' : 'Photo on the plan') + (Z === 18 ? '' : ` (${phName(Z).toLowerCase()}: ${Z} m)`)]); } // (Drawing style › Photos: a size other than Normal)
     const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop (LOOP×2: one for each of 2 fibers there)'], ['LOOP*', '#e03131', 'Maintenance loop added by the app (As-Plan)'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)'], ['EA', '#0c8599', 'Extension arm 26" or 44.5" on the pole'], ['AA', '#0c8599', '10-pin alley arm on the pole']];
     if (drw && drw.R && drw.R.fib && drw.R.fib.list.length > 1) rows.push([sv('<path d="M1 5h20" stroke="#1c3f94" stroke-width="1.2" stroke-dasharray="4 2.5"/><path d="M1 11h20" stroke="#1c3f94" stroke-width="2.6" stroke-dasharray="4 2.5"/>'), 'Cables: each its own line in its lane, thicker for a larger size (12C thinnest, 288C thickest); its label says its size, type and run (PROPOSED 24C FIG-8 (RUN 5))']); // v2.42.20 (v2.42.23; v2.42.24: the width by size)
@@ -2331,8 +2331,8 @@
      magenta, PLDT cyan; the user may add an owner's category or change these. The same rule as the PMI's rows: a proposed (or new)
      pole first, a Globe pole none, then the first category whose owner the pole owner contains. Other poles and points as set above. */
   const RTA_STD = [{ k: 'proposed', text: 'PROPOSED POLES', color: 1 }, { k: 'owner', owner: 'Electric', text: 'RTA-ELECTRIC', color: 3 }, { k: 'owner', owner: 'CONVERGE', text: 'RTA-CONVERGE', color: 6 }, { k: 'owner', owner: 'PLDT', text: 'RTA-PLDT', color: 4 }];
-  const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto', rta: { on: true, cats: RTA_STD } }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5, area: true, zoom: true, label: 'PROJECT AREA', lh: 18 }, /* (beta 3.9: the project area shown, its label and its height) */
-    clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a', per: 3, h: 0, w: { prop: true, size: true, type: true, place: true, foc: false, run: true }, route: 'road' }, /* v2.42.26: labels for each cable in a grid, their height (0: by the poles' spacing), their words; beta 6.1: a cable's line between two points follows the road (or straight) */
+  const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto', rta: { on: true, cats: RTA_STD, off: [], legend: 'off' } }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5, area: true, zoom: true, label: 'PROJECT AREA', lh: 18 }, /* (beta 3.9: the project area shown, its label and its height) */
+    clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a', per: 3, h: 0, w: { prop: true, size: true, type: true, place: true, foc: false, run: true }, route: 'road', boxLoops: false }, /* v2.42.26: labels for each cable in a grid, their height (0: by the poles' spacing), their words; beta 6.1: a cable's line between two points follows the road (or straight) */
     site: { name: 'on', move: 'auto', arrow: true, acol: 7 }, odf: { place: 'auto', lbl: 'size' }, /* v2.42.26: the tower's name; the ODF beside the tower, its label (beta 3.8: the name on the tower; moved aside in its sheet; the arrow) */
     crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room' },
     pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0, idForm: 'auto' }, span: { h: 0, color: 0 }, photo: { size: 18, near: 16, stamp: 'addr' }, grid: { split: 0, pos: 'tr', h: 0, color: 0, leaders: 'auto' } }; /* beta 6.0: Photos: near its pole within 8-40 mm on the A3 sheet; Grid: leader lines only when there is no other way (auto) or allowed */ /* beta 6.0: Grid: the split (0: Auto, 1/1 to 1/4; or the user's 1 to 6, Tidy), the sheets' names (corner, height in mm on the A3 PDF, 0: Auto; colour, 0: by layer) */ /* Photos: the long side of the photos on the plan (m; 18: Normal, as before) */ /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
@@ -2349,11 +2349,11 @@
   function plStyle() {
     const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (isHexCol(v) ? v.toLowerCase() : Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d); // (beta 6.0: or a colour of the user's own)
     const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) }, Po = { ...PL_DEF.pole, ...(u.pole || {}) }, Sp = { ...PL_DEF.span, ...(u.span || {}) }, Ph = { ...PL_DEF.photo, ...(u.photo || {}) }, Gr = { ...PL_DEF.grid, ...(u.grid || {}) }, hz = (v, lo, hi) => (+v ? n(v, lo, hi, 0) : 0);
-    const Rt = { ...PL_DEF.num.rta, ...(N.rta || {}) }, rtaCats = (Array.isArray(Rt.cats) ? Rt.cats : RTA_STD).filter((x) => x && (x.k === 'proposed' || (x.k === 'owner' && String(x.owner || '').trim()))).slice(0, 12).map((x) => ({ k: x.k, ...(x.k === 'owner' ? { owner: String(x.owner).trim().slice(0, 40) } : {}), text: String(x.text || '').replace(/\s+/g, ' ').trim().slice(0, 32) || (x.k === 'proposed' ? 'PROPOSED POLES' : `RTA-${String(x.owner).trim().toUpperCase()}`), color: x.k === 'proposed' ? 1 : c(x.color, 2) })); // (beta 6.5: the proposed red stays the legend's)
-    return { num: { color: c(N.color, 2), bcolor: c(N.bcolor, 0, true), h: n(N.h, 1, 12, 3), d: n(N.d, 0, 25, 7), g: n(N.g, 0, 25, 2), leader: N.leader !== false, place: N.place === 'out' ? 'out' : 'auto', rta: { on: Rt.on !== false, cats: rtaCats } },
+    const Rt = { ...PL_DEF.num.rta, ...(N.rta || {}) }, rtaCats = (Array.isArray(Rt.cats) ? Rt.cats : RTA_STD).filter((x) => x && (x.k === 'proposed' || (x.k === 'owner' && String(x.owner || '').trim()))).slice(0, 16).map((x) => ({ k: x.k, ...(x.k === 'owner' ? { owner: String(x.owner).trim().slice(0, 40) } : {}), text: String(x.text || '').replace(/\s+/g, ' ').trim().slice(0, 32) || (x.k === 'proposed' ? 'PROPOSED POLES' : `RTA-${String(x.owner).trim().toUpperCase()}`), color: x.k === 'proposed' ? 1 : c(x.color, 2) })); // (beta 6.5: the proposed red stays the legend's)
+    return { num: { color: c(N.color, 2), bcolor: c(N.bcolor, 0, true), h: n(N.h, 1, 12, 3), d: n(N.d, 0, 25, 7), g: n(N.g, 0, 25, 2), leader: N.leader !== false, place: N.place === 'out' ? 'out' : 'auto', rta: { on: Rt.on !== false, cats: rtaCats, off: (Array.isArray(Rt.off) ? Rt.off : []).map((x) => String(x || '').trim()).filter(Boolean).slice(0, 30), legend: ['boq', 'sheet'].includes(Rt.legend) ? Rt.legend : 'off' } }, // (beta 6.6: off: the automatic categories removed; legend: where it goes, off by default)
       id: { bold: !!I.bold, color: c(I.color, 0, true), h: n(I.h, 1, 6, 2.5) }, vic: { circle: c(V.circle, 2), circleW: n(V.circleW, 1, 30, 7), route: c(V.route, 0, true), routeW: n(V.routeW, 3, 60, 16.5), area: V.area !== false, zoom: V.zoom !== false, label: typeof V.label === 'string' ? V.label.replace(/\s+/g, ' ').slice(0, 40) : 'PROJECT AREA', lh: n(V.lh, 8, 40, 18) },
       clamp: { place: ['label', 'tag', 'callout'].includes(Cl.place) ? Cl.place : 'label', pos: ['auto', 'up', 'down', 'left', 'right'].includes(Cl.pos) ? Cl.pos : 'auto', color: c(Cl.color, 0, true), h: n(Cl.h, 1, 5, 2), box: Cl.box !== false, hw: Cl.hw !== false },
-      cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a', per: [1, 2, 3].includes(+Cb.per) ? +Cb.per : 3, h: +Cb.h ? n(Cb.h, 0.8, 3, 0) : 0, w: Object.fromEntries(Object.keys(PL_DEF.cab.w).map((k) => [k, !!Cw[k]])), route: Cb.route === 'straight' ? 'straight' : 'road' },
+      cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a', per: [1, 2, 3].includes(+Cb.per) ? +Cb.per : 3, h: +Cb.h ? n(Cb.h, 0.8, 3, 0) : 0, w: Object.fromEntries(Object.keys(PL_DEF.cab.w).map((k) => [k, !!Cw[k]])), route: Cb.route === 'straight' ? 'straight' : 'road', boxLoops: Cb.boxLoops === true },
       site: { name: ['on', 'top', 'side', 'bottom'].includes(St.name) ? St.name : 'on', move: St.move === 'point' ? 'point' : 'auto', arrow: St.arrow !== false, acol: c(St.acol, 7, true) }, /* (beta 3.8: Auto is now On the tower) */
       crowd: { auto: Cr.auto !== false, min: n(Cr.min, 50, 100, 75), move: n(Cr.move, 4, 30, 15), leader: Cr.leader !== false, streets: Cr.streets === 'fixed' ? 'fixed' : 'slide', marks: ['room', 'always', 'hide'].includes(Cr.marks) ? Cr.marks : 'room' }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' },
       pole: { idH: hz(Po.idH, 1, 5), idColor: c(Po.idColor, 0, true), ownH: hz(Po.ownH, 1, 5), ownColor: c(Po.ownColor, 0, true), llH: hz(Po.llH, 0.6, 3), llColor: c(Po.llColor, 0, true), idForm: ['stack', 'line'].includes(Po.idForm) ? Po.idForm : 'auto' }, span: { h: hz(Sp.h, 1, 4), color: c(Sp.color, 0, true) }, photo: { size: phSize(Ph.size), near: n(Ph.near, 8, 40, 16), stamp: ['off', 'll', 'addr'].includes(Ph.stamp) ? Ph.stamp : 'addr' }, /* (beta 6.4: the stamp on the plan's photos) */
@@ -2368,35 +2368,41 @@
   /* beta 6.5: Drawing style › Numbers › Colour by RTA/JPA category: on or off, and the categories: each its legend text and colour (the
      proposed red is the legend's, locked), a pole owner's one removed or added (an owner from the list, or typed), the standard four again */
   const rtaSvg = (c) => `<svg viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="11" fill="#fff" stroke="${ACI_INK[c]}" stroke-width="2.4"/><text x="15" y="20.5" text-anchor="middle" font-size="15" font-weight="800" fill="${ACI_INK[c]}" font-family="Arial, sans-serif">1</text></svg>`;
-  const rtaSet = (cats, on) => { const R = plStyle().num.rta; setPl('num', 'rta', { on: on == null ? R.on : on, cats }); };
+  const rtaSet = (cats, on, extra) => { const R = plStyle().num.rta; setPl('num', 'rta', { ...R, on: on == null ? R.on : on, cats, ...(extra || {}) }); }; // (beta 6.6: off and legend kept)
   const rtaSws = (box, val, pick) => { box.innerHTML = '';
     [1, 2, 3, 4, 5, 6, 7].forEach((k) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'sw2'; b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(val === k)); b.setAttribute('aria-label', `${ACI_NAME[k]} (AutoCAD colour ${k})`); b.title = b.getAttribute('aria-label'); b.style.setProperty('--c', ACI_HEX[k]); b.addEventListener('click', () => pick(k)); box.appendChild(b); });
     const own = isHexCol(val), lb = document.createElement('label'); lb.className = `sw2 own${own ? '' : ' txt'}`; lb.setAttribute('role', 'radio'); lb.setAttribute('aria-checked', String(own)); lb.title = own ? `Your colour ${val} (tap to change)` : 'Your own colour: pick any colour'; if (own) lb.style.setProperty('--c', val);
     const inp = document.createElement('input'); inp.type = 'color'; inp.value = own ? val : '#ff8800'; inp.setAttribute('aria-label', lb.title); inp.addEventListener('change', () => pick(inp.value.toLowerCase())); lb.append(inp, own ? '' : 'Own…'); box.appendChild(lb); };
-  let rtaNewCol = 5;
+  let rtaNewCol = '#ff8000';
+  /* beta 6.5 (6.6): the categories in force for this project (the user's and one for each other owner found, marked "added for this
+     project"), Globe's two fixed rows, + Add category (an owner of the list or a new one typed, kept in the pole form's owners too), where
+     the legend goes, and the standard four again */
   function renderRta(P, seg, o) {
     const R = P.num.rta, box = $('stRtaList'); if (!box) return;
-    seg('stRtaOn', R.on ? '1' : '0'); $('stRtaRow').classList.toggle('dim', !R.on);
-    o('stRtaHint', R.on ? 'Each pole’s number and its circle in its category’s colour: a proposed or new pole red; an existing pole by its pole owner (the pole form); a Globe pole, other owners and the other points in the Number colour below. The plan lists the categories it has in an RTA/JPA LEGEND under each GEO sheet’s BOQ table; the PMI counts the same poles in its RTA rows.' : 'Off: every number in the Number colour below, as before.');
+    seg('stRtaOn', R.on ? '1' : '0'); $('stRtaRow').classList.toggle('dim', !R.on); seg('stRtaLeg', R.legend);
+    o('stRtaHint', R.on ? 'Each pole’s number and its circle in its category’s colour: a proposed or new pole red; an existing pole by its pole owner (the pole form); every other owner of the project gets a category and a colour of its own; Globe’s own poles red (proposed) or blue (existing), always. Poles with no owner and the other points: the Number colour below. The PMI counts the same poles in its RTA rows, a row added for each other owner.' : 'Off: every number in the Number colour below, as before.');
+    const cats = rtaCats(R, typeof projPoints === 'function' ? projPoints() : []);
     box.innerHTML = '';
-    R.cats.forEach((c, i) => { const row = document.createElement('div'); row.className = 'rtacat';
+    cats.forEach((c) => { const i = R.cats.indexOf(c), row = document.createElement('div'); row.className = 'rtacat';
+      const keep = (x) => { const cs = plStyle().num.rta.cats; if (c.auto) rtaSet([...cs, { k: 'owner', owner: c.owner, text: x.text || c.text, color: x.color != null ? x.color : c.color }]); else rtaSet(cs.map((y, j) => (j === i ? { ...y, ...x } : y))); }; // (an automatic one changed: kept as the user's)
       const ic = document.createElement('span'); ic.innerHTML = rtaSvg(c.color);
       const t = document.createElement('input'); t.type = 'text'; t.maxLength = 32; t.value = c.text; t.setAttribute('aria-label', `Legend text of ${c.k === 'proposed' ? 'proposed poles' : `the poles of ${c.owner}`}`);
-      t.addEventListener('change', () => { const v = t.value.replace(/\s+/g, ' ').trim(); if (!v) { t.value = c.text; return; } const cats = plStyle().num.rta.cats.map((x, j) => (j === i ? { ...x, text: v.toUpperCase() } : x)); rtaSet(cats); });
+      t.addEventListener('change', () => { const v = t.value.replace(/\s+/g, ' ').trim(); if (!v) { t.value = c.text; return; } keep({ text: v.toUpperCase() }); });
       const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'chip small'; rm.textContent = '✕'; rm.setAttribute('aria-label', `Remove ${c.text}`); rm.title = rm.getAttribute('aria-label');
-      rm.addEventListener('click', () => rtaSet(plStyle().num.rta.cats.filter((x, j) => j !== i)));
-      const who = document.createElement('div'); who.className = 'rtaown'; who.textContent = c.k === 'proposed' ? 'Proposed or new poles, any owner' : `Existing poles owned by ${c.owner}`;
+      rm.addEventListener('click', () => { const R1 = plStyle().num.rta; if (c.auto) rtaSet(R1.cats, null, { off: [...R1.off, c.owner] }); else rtaSet(R1.cats.filter((x, j) => j !== i), null, c.owner ? { off: R1.off.filter((x) => x.toUpperCase() !== c.owner.toUpperCase()).concat(c.owner) } : null); });
+      const who = document.createElement('div'); who.className = 'rtaown'; who.textContent = c.k === 'proposed' ? 'Proposed or new poles, any owner' : `Existing poles owned by ${c.owner}${c.auto ? ' · added for this project (change it to keep it)' : ''}`;
       row.append(ic, t, rm, who);
       if (c.k === 'proposed') { const lk = document.createElement('div'); lk.className = 'rtalock hint'; lk.textContent = 'Red, as the legend’s proposed colour 🔒'; row.appendChild(lk); }
-      else { const sw = document.createElement('div'); sw.className = 'sws'; sw.setAttribute('role', 'radiogroup'); sw.setAttribute('aria-label', `Colour of ${c.text}`); rtaSws(sw, c.color, (k) => rtaSet(plStyle().num.rta.cats.map((x, j) => (j === i ? { ...x, color: k } : x)))); row.appendChild(sw); }
+      else { const sw = document.createElement('div'); sw.className = 'sws'; sw.setAttribute('role', 'radiogroup'); sw.setAttribute('aria-label', `Colour of ${c.text}`); rtaSws(sw, c.color, (k) => keep({ color: k })); row.appendChild(sw); }
       box.appendChild(row); });
+    { const g = document.createElement('div'); g.className = 'rtacat rtafix'; g.innerHTML = `<span>${rtaSvg(5)}</span><div><b>EXISTING POLES</b></div><span></span><div class="rtaown">Globe’s own poles, existing: the legend’s blue; proposed or new ones red. Always (no RTA) 🔒</div>`; box.appendChild(g); }
+    if (R.off.length) { const h = document.createElement('p'); h.className = 'hint'; h.style.margin = '0'; h.textContent = `Not coloured: ${R.off.join(', ')} (removed). + Add category brings one back.`; box.appendChild(h); }
     if (!$('stRtaNew').hidden) { const pick = (k) => { rtaNewCol = k; rtaSws($('stRtaNewCol'), rtaNewCol, pick); }; pick(rtaNewCol); }
   }
-  const rtaNewOpen = () => { const R = plStyle().num.rta, used = new Set(R.cats.filter((x) => x.owner).map((x) => x.owner.toUpperCase())), sel = $('stRtaOwn'), opts = boqList('owner').filter((x) => !used.has(String(x).toUpperCase()));
-    sel.innerHTML = opts.map((x) => `<option value="${C.xmlEsc(x)}">${C.xmlEsc(x)}</option>`).join('') + '<option value="__type">Type another owner…</option>';
-    $('stRtaOwnT').hidden = !!opts.length; $('stRtaOwnT').value = ''; $('stRtaTxt').value = opts.length ? `RTA-${String(opts[0]).toUpperCase()}` : ''; $('stRtaTxt').dataset.auto = '1';
-    rtaNewCol = [5, 2, 7, 1, 3, 4, 6].find((k) => !R.cats.some((x) => x.color === k)) || 5; $('stRtaNew').hidden = false; const pick = (k) => { rtaNewCol = k; rtaSws($('stRtaNewCol'), rtaNewCol, pick); }; pick(rtaNewCol); };
-  const rtaOwnerNow = () => ($('stRtaOwn').value === '__type' || !$('stRtaOwn').options.length ? $('stRtaOwnT').value : $('stRtaOwn').value).replace(/\s+/g, ' ').trim();
+  const rtaNewOpen = () => { const R = plStyle().num.rta, used = new Set(rtaCats(R, projPoints()).filter((x) => x.owner && !x.auto).map((x) => x.owner.toUpperCase())), opts = [...new Set([...boqOwners(), ...projPoints().filter((p) => elemOf(p) === 'Pole').map((p) => String((p.boq && p.boq.owner) || '').trim()).filter(Boolean)])].filter((x) => !used.has(String(x).toUpperCase()) && !/^\s*globe/i.test(x)); // (the owners' list and the project's own; not Globe: its poles are fixed)
+    $('stRtaOwnL').innerHTML = opts.map((x) => `<option value="${C.xmlEsc(x)}"></option>`).join(''); $('stRtaOwn').value = ''; $('stRtaTxt').value = ''; $('stRtaTxt').dataset.auto = '1';
+    const usedC = new Set(rtaCats(R, projPoints()).map((x) => String(x.color).toLowerCase())); rtaNewCol = RTA_AUTO_COLS.find((x) => !usedC.has(x)) || '#ff8000'; $('stRtaNew').hidden = false; const pick = (k) => { rtaNewCol = k; rtaSws($('stRtaNewCol'), rtaNewCol, pick); }; pick(rtaNewCol); setTimeout(() => $('stRtaOwn').focus(), 0); };
+  const rtaOwnerNow = () => $('stRtaOwn').value.replace(/\s+/g, ' ').trim();
   function openStyle() { DSP.reset(); renderStyle(); openSheet('drwStyle'); setTimeout(() => { DSP.reset(); DSP.onScroll(); }, 0); } // (the settings from the top, the preview large)
   function renderStyle() {
     const P = plStyle(), N = P.num, I = P.id, V = P.vic;
@@ -2446,7 +2452,7 @@
     if (document.activeElement !== $('stCabH')) $('stCabH').value = String(P.cab.h || 1.3); $('stCabHAuto').setAttribute('aria-pressed', String(!P.cab.h)); o('stCabHO', P.cab.h ? `${P.cab.h} m · ${mmOf(P.cab.h)} mm` : 'auto (1.0–1.3 m by the poles\u2019 spacing)');
     o('stCabReads', `Reads: ${['F72', 'L12', 'U144'].map((k, i) => runLbl(cabWords(k), i + 1) || '(nothing)').join(' · ')}`);
     ['stCabPer', 'stCabH', 'stCabW'].forEach((id) => { const r = $(id).closest('.strow'); if (r) r.classList.toggle('dim', !P.cab.on); });
-    seg('stClOn', S.exp.dxfClampType !== false ? '1' : '0'); seg('stClPlace', P.clamp.place); seg('stClPos', P.clamp.pos); seg('stClBox', P.clamp.box ? '1' : '0'); seg('stClHw', P.clamp.hw ? '1' : '0'); seg('stCabOn', P.cab.on ? '1' : '0'); seg('stCabRoute', P.cab.route); drawRoutePreview(P); // (beta 6.1)
+    seg('stClOn', S.exp.dxfClampType !== false ? '1' : '0'); seg('stClPlace', P.clamp.place); seg('stClPos', P.clamp.pos); seg('stClBox', P.clamp.box ? '1' : '0'); seg('stClHw', P.clamp.hw ? '1' : '0'); seg('stCabOn', P.cab.on ? '1' : '0'); seg('stBoxLoop', P.cab.boxLoops ? '1' : '0'); /* (beta 6.6) */ seg('stCabRoute', P.cab.route); drawRoutePreview(P); // (beta 6.1)
     o('stClHO', `${P.clamp.h} m · ${mmOf(P.clamp.h)} mm`); ['stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'].forEach((id) => { const r = $(id) && $(id).closest('.strow'); if (r) r.classList.toggle('dim', S.exp.dxfClampType === false || (P.clamp.place === 'label' && ['stClPos', 'stClH', 'stClBox'].includes(id))); });
     { const Z = P.photo.size; // Drawing style › Photos
       $('stPhSize').querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === Z)));
@@ -2467,14 +2473,17 @@
   $('stVicLh').addEventListener('input', () => setPl('vic', 'lh', +$('stVicLh').value));
   $('stNumPlace').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('num', 'place', b.dataset.v); });
   $('stRtaOn').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) rtaSet(plStyle().num.rta.cats, b.dataset.v === '1'); }); // beta 6.5
-  $('stRtaReset').addEventListener('click', () => { $('stRtaNew').hidden = true; rtaSet(RTA_STD.map((x) => ({ ...x }))); });
+  $('stRtaLeg').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) rtaSet(plStyle().num.rta.cats, null, { legend: b.dataset.v }); }); // beta 6.6: where the RTA/JPA LEGEND goes
+  $('stBoxLoop').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('cab', 'boxLoops', b.dataset.v === '1'); }); // beta 6.6: the loops at boxes and entrances written
+  $('stRtaReset').addEventListener('click', () => { $('stRtaNew').hidden = true; rtaSet(RTA_STD.map((x) => ({ ...x })), null, { off: [] }); });
   $('stRtaAdd').addEventListener('click', () => rtaNewOpen());
   $('stRtaCancel').addEventListener('click', () => { $('stRtaNew').hidden = true; });
-  $('stRtaOwn').addEventListener('change', () => { const ty = $('stRtaOwn').value === '__type'; $('stRtaOwnT').hidden = !ty; if (ty) $('stRtaOwnT').focus(); if ($('stRtaTxt').dataset.auto) $('stRtaTxt').value = ty ? '' : `RTA-${$('stRtaOwn').value.toUpperCase()}`; });
-  $('stRtaOwnT').addEventListener('input', () => { if ($('stRtaTxt').dataset.auto) $('stRtaTxt').value = $('stRtaOwnT').value.trim() ? `RTA-${$('stRtaOwnT').value.trim().toUpperCase()}` : ''; });
+  $('stRtaOwn').addEventListener('input', () => { if ($('stRtaTxt').dataset.auto) $('stRtaTxt').value = rtaOwnerNow() ? `RTA-${rtaOwnerNow().toUpperCase()}`.slice(0, 32) : ''; });
   $('stRtaTxt').addEventListener('input', () => { delete $('stRtaTxt').dataset.auto; });
-  $('stRtaOk').addEventListener('click', () => { const ow = rtaOwnerNow(); if (!ow) { toast('Pick or type the pole owner', 2500); return; } const R = plStyle().num.rta; if (R.cats.some((x) => x.owner && x.owner.toUpperCase() === ow.toUpperCase())) { toast(`${ow} has a category already`, 2500); return; }
-    const txt = ($('stRtaTxt').value.replace(/\s+/g, ' ').trim() || `RTA-${ow}`).toUpperCase().slice(0, 32); $('stRtaNew').hidden = true; rtaSet([...R.cats, { k: 'owner', owner: ow, text: txt, color: rtaNewCol }], true); });
+  $('stRtaOk').addEventListener('click', () => { const ow = rtaOwnerNow(); if (!ow) { toast('Type the pole owner, or pick one', 2500); return; } const R = plStyle().num.rta; if (R.cats.some((x) => x.owner && x.owner.toUpperCase() === ow.toUpperCase())) { toast(`${ow} has a category already`, 2500); return; }
+    const txt = ($('stRtaTxt').value.replace(/\s+/g, ' ').trim() || `RTA-${ow}`).toUpperCase().slice(0, 32); $('stRtaNew').hidden = true;
+    if (!boqOwners().some((x) => x.toLowerCase() === ow.toLowerCase())) { S.myOwners = (S.myOwners || []).concat(ow).slice(-20); persist(); toast(`${ow} added to the pole owners too (the pole form)`, 2500); } // (beta 6.6: a new owner: in the pole form's owners as well)
+    rtaSet([...R.cats, { k: 'owner', owner: ow, text: txt, color: rtaNewCol }], true, { off: R.off.filter((x) => x.toUpperCase() !== ow.toUpperCase()) }); });
   $('stIdBold').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('id', 'bold', b.dataset.v === '1'); });
   [['stClPlace', 'clamp', 'place', (v) => v], ['stClPos', 'clamp', 'pos', (v) => v], ['stClBox', 'clamp', 'box', (v) => v === '1'], ['stClHw', 'clamp', 'hw', (v) => v === '1'], ['stCabOn', 'cab', 'on', (v) => v === '1'], ['stCabRoute', 'cab', 'route', (v) => v]]
     .forEach(([id, part, key, val]) => $(id).addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl(part, key, val(b.dataset.v)); })); // v2.42.21
@@ -10894,8 +10903,28 @@
   const CAB_TITLE = Object.fromEntries(Object.entries(CAB).map(([k, c]) => [k, c.fam === 'light' ? `PROPOSED ${c.cores}C LIGHT CABLE` : c.fam === 'fig8' ? `PROPOSED ${c.cores}C FIGURE 8 FOC` : c.fam === 'conv' ? `PROPOSED ${c.cores}C CONVENTIONAL AE FOC` : c.fam === 'convug' ? `PROPOSED ${c.cores}C CONVENTIONAL UG FOC` : `PROPOSED ${c.cores}C AIR-BLOWN UG FOC`])); // (v2.42.24: every type)
   /** The material code of a pole for the drawing (CC / WP / SP …, or NPT when it has no pole tag). */
   function matCode(p) { if (/^NPT/i.test(p.poleId || '')) return 'NPT'; const t = poleTypes().find((x) => x.n === p.poleType); return t ? t.p : ''; }
-  /** beta 6.5: a pole's RTA/JPA category for its number's colour (Drawing style › Numbers), or null: the PMI's rule (see RTA_STD). */
-  function rtaCatOf(p, R) { if (!R || !R.on || elemOf(p) !== 'Pole') return null; if (['Proposed', 'New'].includes(p.status)) return R.cats.find((x) => x.k === 'proposed') || null; if (/^(GT|GLOBE)/i.test(matCode(p)) || /globe/i.test(p.poleType || '')) return null; const ow = String((p.boq && p.boq.owner) || '').toUpperCase(); return ow ? R.cats.find((x) => x.k === 'owner' && ow.includes(x.owner.toUpperCase())) || null : null; }
+  /* beta 6.6 (the owner: "for globe, it always uses proposed and existing color since this is the admin company owned poles";
+     "drawing style and PMI must should add automatically the poles RTA"): a Globe pole is no RTA: red when proposed or new, the legend's
+     existing blue when existing, always. Every other pole owner of the project without a category gets one of its own, RTA-<OWNER>, in a
+     colour no other category has (the user may change it, which keeps it, or remove it, which keeps it off). */
+  const RTA_GT = { k: 'gt', text: 'EXISTING POLES', color: 5, fixed: true }, RTA_PROP = { k: 'proposed', text: 'PROPOSED POLES', color: 1, fixed: true };
+  const RTA_AUTO_COLS = ['#ff8000', '#8000ff', '#008080', '#a0522d', '#808000', '#800000', '#00a86b', '#708090']; // (orange, violet, teal, sienna, olive, maroon, jade, slate: none near the legend's red and blue, the standard green, magenta and cyan, or the yellow of the other numbers)
+  const isGlobePole = (p) => /^(GT|GLOBE)/i.test(matCode(p)) || /globe/i.test(p.poleType || '') || /^\s*globe/i.test((p.boq && p.boq.owner) || ''); // (its type, or Globe as its owner)
+  /** the categories in force for these points: the user's, then an automatic one for each other owner found, in owner order, each in
+      the next colour no category has (an owner removed keeps its turn, so removing one does not change the others' colours) */
+  function rtaCats(R, pts) {
+    if (!R || !R.on) return []; const cats = R.cats.slice(), has = (ow) => cats.some((x) => x.k === 'owner' && ow.toUpperCase().includes(x.owner.toUpperCase())), off = new Set(R.off.map((x) => x.toUpperCase()));
+    const owners = []; for (const p of pts || []) { if (elemOf(p) !== 'Pole' || ['Proposed', 'New'].includes(p.status) || isGlobePole(p)) continue; const ow = String((p.boq && p.boq.owner) || '').trim(); if (ow && !has(ow) && !owners.some((x) => x.toUpperCase() === ow.toUpperCase())) owners.push(ow); }
+    const used = new Set(cats.map((x) => String(x.color).toLowerCase())); let ci = 0;
+    for (const ow of owners.sort((a, b) => a.toUpperCase().localeCompare(b.toUpperCase()))) { if (has(ow)) continue;
+      while (ci < RTA_AUTO_COLS.length - 1 && used.has(RTA_AUTO_COLS[ci])) ci++; const col = RTA_AUTO_COLS[ci % RTA_AUTO_COLS.length]; ci++; if (off.has(ow.toUpperCase())) continue; // (removed: its turn kept)
+      used.add(col); cats.push({ k: 'owner', owner: ow, text: `RTA-${ow.toUpperCase()}`.slice(0, 32), color: col, auto: true }); }
+    return cats;
+  }
+  /** beta 6.5 (6.6: Globe, the automatic categories): a pole's RTA/JPA category for its number's colour, or null: the PMI's rule. */
+  function rtaCatOf(p, R, cats) { if (!R || !R.on || elemOf(p) !== 'Pole') return null; const C0 = cats || R.cats, nw = ['Proposed', 'New'].includes(p.status);
+    if (isGlobePole(p)) return nw ? C0.find((x) => x.k === 'proposed') || RTA_PROP : RTA_GT; if (nw) return C0.find((x) => x.k === 'proposed') || null;
+    const ow = String((p.boq && p.boq.owner) || '').toUpperCase(); return ow ? C0.find((x) => x.k === 'owner' && ow.includes(x.owner.toUpperCase())) || null : null; }
   /** v2.32: the picture of the VICINITY MAP sheet: the street map in use (tiles already seen on this phone first) over the vicinity
       square, turned to the UTM grid of the drawing, as a JPEG. Null when offline or when too much of the map does not come. */
   async function vicinityJpeg(cE, cN, size, zone, south, progress, source, zCap, ll0) { // (beta 4.2: ll0, the corners as [lat, lon]: top left, top right, bottom left)
@@ -11141,15 +11170,15 @@
     let lmBlocks = null; // v2.35.6: the landmarks' icons as AutoCAD blocks
     if (pois && pois.length && LM) { pois = pois.map((q) => ({ ...q, icon: lmIcon(q.kind, q.detail) })); if (pois.some((q) => q.icon >= 0)) lmBlocks = await loadLandmarkBlocks(); }
     const poles = pts.filter((p) => elemOf(p) === 'Pole'), isNew = (p) => ['Proposed', 'New'].includes(p.status), exist = poles.filter((p) => !isNew(p));
-    const own = (p) => String((p.boq && p.boq.owner) || '').toUpperCase(), gt = (p) => /^(GT|GLOBE)/i.test(matCode(p)) || /globe/i.test(p.poleType || '');
+    const own = (p) => String((p.boq && p.boq.owner) || '').toUpperCase(), gt = isGlobePole; // (beta 6.6: Globe's own poles, as the numbers' colours: its type, or Globe as owner)
     const m1 = (v) => `${(Math.round(v * 10) / 10).toFixed(1)}m`;
     const pmiL = S.exp.pmiLoops !== false; // v2.42.17: the user's choice (Settings → AutoCAD DXF, or the DXF card): loops in the PMI cable lengths or not
     const ml = q.MLOOP_LEN || mloopLen(); // (beta 6.4: the PMI's cable lengths as the plan writes them, PW below)
     /* beta 6.4 (the owner: "the bill of quantities shows 30.6m on BOQ but 31m on the drawing… set to accommodate based on the planned
        drawing"): the plan's PMI and the BOQ table of each GEO sheet count each span as the plan writes its length (whole metres, as its
        span length text: Math.round, as dxftpl writes it) and each loop as its loop text (its own length), so that the written numbers add
-       up to the tables and the sheets to the PMI. (The Excel BOQ's survey quantities and the Route and spans Excel keep the measured
-       lengths to 0.1 m.) */
+       up to the tables and the sheets to the PMI. (beta 6.6: the Excel BOQ's survey quantities and the Route and spans Excel the same:
+       spanW, routeW, fibW.) */
     const spW = (sp) => Math.round(+sp.len || 0), methOf = (k) => (k && CAB[k] ? CAB[k].method : null), PW = { span: 0, foc: 0, AE: 0, UG: 0, sAE: 0, sUG: 0 };
     R.spans.forEach((sp) => { const L = spW(sp), rs = sp.runs || [sp.cable]; PW.span += L; PW.foc += rs.length * L; rs.forEach((k) => { const m0 = methOf(k); if (m0 === 'AE' || m0 === 'UG') { PW[m0] += L; PW[`s${m0}`] += L; } }); });
     QC.loops.forEach(([, cab, len]) => { PW.foc += +len || 0; const m0 = methOf(cab); if (m0 === 'AE' || m0 === 'UG') PW[m0] += +len || 0; });
@@ -11161,6 +11190,13 @@
     const sName = sfm.siteName || m.siteName || (task && task.project) || '', sPla = sfm.plaId || m.plaId || (task && task.site) || '', sSerial = sfm.serial || m.serial || (task && extraOf(task, 'Serial Number')) || ((m.siteExtra || []).find(([k]) => /serial/i.test(k)) || [])[1] || '';
     const known = !!(sName || sPla || sSerial);
     try { cseLeadSync(m); } catch (e) { /* the CSE Lead as kept */ }
+    /* beta 6.6 (the owner: "PMI must should add automatically the poles RTA"): an existing pole (not Globe's) counts in RTA CONVERGE
+       (owner CONVERGE), RTA LOCAL COOP (an electric company, a coop or power), RTA OTHER (PLDT POLE) (PLDT only; before 6.6 every other
+       owner), or a row of its own owner's, RTA <OWNER>, added to the PMI table and to each sheet's BOQ table */
+    const rtaRowOf = (p) => { const ow = own(p); if (!ow) return null; if (/CONVERGE/.test(ow)) return 'PMI_RTA_CONVERGE'; if (/ELECTRIC|COOP|POWER/.test(ow)) return 'PMI_RTA_LOCAL_COOP'; if (/PLDT/.test(ow)) return 'PMI_RTA_OTHER_PLDT'; return `PMI_RTA_X_${ow.replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 24) || 'OWNER'}`; };
+    const rtaPmiVals = { PMI_RTA_CONVERGE: 0, PMI_RTA_LOCAL_COOP: 0, PMI_RTA_OTHER_PLDT: 0 }, pmiExtraRows = [];
+    exist.filter((p) => !gt(p)).forEach((p) => { const k = rtaRowOf(p); if (!k) return; if (!(k in rtaPmiVals)) { rtaPmiVals[k] = 0; pmiExtraRows.push([`RTA ${own(p)}`.slice(0, 40), k]); } rtaPmiVals[k]++; });
+    Object.keys(rtaPmiVals).forEach((k) => { rtaPmiVals[k] = String(rtaPmiVals[k]); });
     const values = {
       EXPORTED_BY: `Exported by ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' · ')} · ${e.app} · ${todayIso()}`, // v2.42.4: the phone's date (was UTC: the day before until 8 am)
       TITLE_CABLE: cabs.map((k) => CAB_TITLE[k]).join(' / '), COMPANY_NAME: m.contractor || (S.user && S.user.company) || '',
@@ -11170,8 +11206,7 @@
       ...(sfGet(SF, /project\s*(name|type)/i) ? { PROJECT_TYPE: sfGet(SF, /project\s*(name|type)/i) } : {}), // v2.41: the sheet's Project Name (e.g. KV, FOC RELOC) as the project type
       PMI_TOTAL_CABLE_LENGTH: R.spans.length ? m1(pmiL ? PW.foc : PW.span) : '', PMI_AERIAL_CABLE_LENGTH: R.spans.length ? m1(pmiL ? PW.AE : PW.sAE) : '', PMI_UG_CABLE_LENGTH: R.spans.length ? m1(pmiL ? PW.UG : PW.sUG) : '', // (beta 6.4: as the plan writes them; see PW)
       PMI_PROPOSED_POLE: String(poles.filter(isNew).length), PMI_EXISTING_GT_POLE: String(exist.filter(gt).length),
-      PMI_RTA_CONVERGE: String(exist.filter((p) => !gt(p) && /CONVERGE/.test(own(p))).length), PMI_RTA_LOCAL_COOP: String(exist.filter((p) => !gt(p) && /ELECTRIC/.test(own(p))).length),
-      PMI_RTA_OTHER_PLDT: String(exist.filter((p) => !gt(p) && own(p) && !/CONVERGE|ELECTRIC/.test(own(p))).length),
+      ...rtaPmiVals, // beta 6.6: the RTA rows by owner (rtaRowOf): CONVERGE, LOCAL COOP, OTHER (PLDT POLE) and one for each other owner
       // v2.42.12: the names above the signature lines of every title block (the CSE Lead from the online sheet's copy on this phone)
       SIG_DESIGN_ENGINEER: S.sig.design || '', SIG_PROJECT_ENGINEER: S.sig.project || '', SIG_HEAD_CABLE_ENGINEERING: S.sig.head || '', SIG_JUNIOR_ENGINEER: '', SIG_CSE_LEAD: S.sig.cse || '',
       PMI_FIBER_TERMINATION: String(q.ODF_NEW_FIBERS || 0), PMI_HYBRID_CLOSURE: String(Object.entries(q).filter(([k]) => /^CLOSURE_NEW_/.test(k)).reduce((t, [, v]) => t + (+v || 0), 0)),
@@ -11186,7 +11221,7 @@
           out.spans.push({ ia: sp.ia, ib: sp.ib, v: { PMI_TOTAL_CABLE_LENGTH: pmiL ? runs.length * L : L, PMI_AERIAL_CABLE_LENGTH: ae, PMI_UG_CABLE_LENGTH: ug } }); });
         if (pmiL) QC.loops.forEach(([id, cab, len]) => out.points.push({ id, v: { PMI_TOTAL_CABLE_LENGTH: len, ...(meth(cab) === 'AE' ? { PMI_AERIAL_CABLE_LENGTH: len } : meth(cab) === 'UG' ? { PMI_UG_CABLE_LENGTH: len } : {}) } }));
       }
-      poles.forEach((p) => { const v = {}, ow = own(p); if (isNew(p)) v.PMI_PROPOSED_POLE = 1; else if (gt(p)) v.PMI_EXISTING_GT_POLE = 1; else { if (/CONVERGE/.test(ow)) v.PMI_RTA_CONVERGE = 1; if (/ELECTRIC/.test(ow)) v.PMI_RTA_LOCAL_COOP = 1; if (ow && !/CONVERGE|ELECTRIC/.test(ow)) v.PMI_RTA_OTHER_PLDT = 1; } if (Object.keys(v).length) out.points.push({ id: p.id, v }); }); // (each rule of the PMI on its own, as above)
+      poles.forEach((p) => { const v = {}, ow = own(p); if (isNew(p)) v.PMI_PROPOSED_POLE = 1; else if (gt(p)) v.PMI_EXISTING_GT_POLE = 1; else { const k = rtaRowOf(p); if (k) v[k] = 1; } /* (beta 6.6: rtaRowOf) */ if (Object.keys(v).length) out.points.push({ id: p.id, v }); }); // (each rule of the PMI on its own, as above)
       pts.filter((p) => elemOf(p) === 'ODF' && isNew(p)).forEach((p) => { const n = parseInt(String((p.boq && p.boq.odf) || ''), 10) || 0; if (n) out.points.push({ id: p.id, v: { PMI_FIBER_TERMINATION: n } }); });
       const stOf = (p, k) => ((p.boq || {})[k] === 'Existing' ? 'Existing' : 'New'), nClo = (p) => String((p.boq && p.boq.clo) || 'size not set').split(' + ').length;
       pts.filter((p) => elemOf(p) === 'Closure' || boxClo(p)).filter((p) => (boxClo(p) && p.boq && p.boq.cloSt ? p.boq.cloSt === 'New' : isNew(p) || (p.boq && p.boq.cloSt === 'New')))
@@ -11255,8 +11290,10 @@
     try { const lg = await logoGet(); if (lg) { const ext = lg.type === 'image/png' ? 'png' : 'jpg'; logo = { file: `COMPANY_LOGO.${ext}`, px: lg.px, py: lg.py }; files.push({ name: logo.file, data: b64ToBytes(lg.data) }); } } catch (e) { LOG.warn('plan.logo', errInfo(e)); }
     const PS = plStyle(), name = `${fileBase()}_PLAN_UTM${zone}N`, byPt = new Map(pts.map((p) => [String(p.id), p])), many = SETS.length > 1, outs = [];
     // beta 6.5: each pole number in its RTA/JPA category's colour (number and circle), and the categories on the plan for its legend
-    const rtaN = new Map(); rows.forEach((r) => { const p = byPt.get(String(r.id)), cat = p ? rtaCatOf(p, PS.num.rta) : null; if (!cat) return; r.numCol = jobCols({ c: cat.color }).c; rtaN.set(cat, (rtaN.get(cat) || 0) + 1); });
-    const rtaLegend = PS.num.rta.on ? PS.num.rta.cats.filter((x) => rtaN.has(x)).map((x) => ({ text: x.text, color: jobCols({ c: x.color }).c, n: rtaN.get(x) })) : null;
+    const rtaC = rtaCats(PS.num.rta, pts), rtaN = new Map(); rows.forEach((r) => { const p = byPt.get(String(r.id)), cat = p ? rtaCatOf(p, PS.num.rta, rtaC) : null; if (!cat) return; /* (beta 6.6: Globe's, the automatic categories) */ r.numCol = jobCols({ c: cat.color }).c; rtaN.set(cat, (rtaN.get(cat) || 0) + 1); });
+    // beta 6.6 (the owner: "under drawing style, let the user decide, off by default"): Drawing style › Loops at boxes and ODF entrances › Written: each such loop the PMI counts, for the plan to write beside its point
+    const boxLoopN = PS.cab.boxLoops ? (() => { const bl = new Map(); QC.loops.forEach(([id, , len]) => { const p = byPt.get(String(id)); if (p && elemOf(p) !== 'Pole') bl.set(String(id), (bl.get(String(id)) || 0) + (+len || 0)); }); rows.forEach((r) => { if (bl.has(String(r.id))) r.boxLoop = bl.get(String(r.id)); }); return bl.size; })() : 0;
+    const rtaLegend = PS.num.rta.on ? [...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => ({ text: x.text, color: jobCols({ c: x.color }).c, n: rtaN.get(x) })) : null;
     for (let k = 0; k < SETS.length; k++) { // v2.41: one DXF for each drawing of the export
       const st = SETS[k];
       busy(many ? `Drawing the plan on the template (${k + 1} of ${SETS.length})…` : 'Drawing the plan on the template…', k / SETS.length);
@@ -11264,7 +11301,7 @@
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
       const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks,
         towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: jobCols({ c: PLS.site.acol }).c, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
-        rtaLegend, /* beta 6.5 */ numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near, tidyMm: phTidyMm(PS.photo.size) }, /* beta 6.4: Tidy's printed photo size */ gridStyle: jobCols(PS.grid), cableRoute: PS.cab.route, /* beta 6.1: Drawing style › Cables between points */ /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
+        rtaLegend, rtaLegendAt: PS.num.rta.legend, pmiExtraRows, /* beta 6.5; beta 6.6: where the legend goes, the PMI's added RTA rows */ numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near, tidyMm: phTidyMm(PS.photo.size) }, /* beta 6.4: Tidy's printed photo size */ gridStyle: jobCols(PS.grid), cableRoute: PS.cab.route, /* beta 6.1: Drawing style › Cables between points */ /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
       LOG.info('export.plan', { set: st.id, sheets: out.report.sheets.length, roads: out.report.counts.roads, blanks: out.report.blanks.length, mb: +(out.text.length / 1048576).toFixed(2), notes: (out.report.notes || []).length, far: out.report.frame ? out.report.frame.far : null });
     }
@@ -11322,11 +11359,11 @@
         const entIds = [...OWN.entries()].filter(([, v]) => v === 'entrance').map(([id]) => id), nEntP = entIds.length, nOwn = (q.MLOOP_OWN || 0) - nEntP; // v2.42.18: an entrance loop is counted, not drawn
         const nEnt = entIds.reduce((t, id) => t + (LA.fib && LA.fib.list.has(id) ? LA.fib.list.get(id).length : 1), 0); // (v2.42.24: one for each cable at an entrance, as the quantities count them)
         const nb = q.MLOOP_BOX || 0, onPoles = (q.MLOOP_COUNT || 0) - nb - nEnt, own = nOwn > 0 ? ` (${nOwn} of them with a NAP, an LCP, a hybrid closure, a dummy NAP or a riser: each has its loop)` : '';
-        const box = [...(nb ? [`Handholes, manholes and service boxes: a ${BOX_LOOP_M} m loop each (${nb}), counted in the cable length (PMI, survey quantities, BOQ) and not drawn: a box has its loop.`] : []),
-          ...(nEnt ? [`Sites, ODFs and ODCs on the route: a loop at each entrance (${nEnt}${nEnt !== nEntP ? ` at ${nEntP} entrances: one for each cable there` : ''}, the cable's length), counted in the cable length (PMI, survey quantities, BOQ) and not drawn.`] : [])];
+        const box = [...(nb ? [`Handholes, manholes and service boxes: a ${BOX_LOOP_M} m loop each (${nb}), counted in the cable length (PMI, survey quantities, BOQ)${PS.cab.boxLoops ? ', written beside each box (Drawing style)' : ' and not drawn: a box has its loop'}.`] : []),
+          ...(nEnt ? [`Sites, ODFs and ODCs on the route: a loop at each entrance (${nEnt}${nEnt !== nEntP ? ` at ${nEntP} entrances: one for each cable there` : ''}, the cable's length), counted in the cable length (PMI, survey quantities, BOQ)${PS.cab.boxLoops ? ', written beside each (Drawing style)' : ' and not drawn'}.`] : [])];
         if (svPurpose() === 'As-built') return [`Maintenance loops on poles: as recorded in the As-Built (${onPoles}${own}${q.MLOOP_UNANSWERED ? `; ${q.MLOOP_UNANSWERED} pole${q.MLOOP_UNANSWERED === 1 ? '' : 's'} on the route not answered` : ''}).`, ...box];
         return [`Maintenance loops on poles (each its own length: by default 10 m on 12C, ${mloopLen()} m on 72C): ${onPoles} on the plan${own}; ${ids.length ? `${ids.length} added by the app where the survey had none (${loopRule}): ${ids.join(', ')}` : 'none added by the app'}.`, ...box]; })(),
-      `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Settings → AutoCAD DXF)'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe; RTA Converge / local coop / other = existing poles by owner (CONVERGE / Electric / any other owner); fiber termination = fibers of the new ODFs; hybrid closure = new closures; proposed HDD = the new bores where a new underground cable crosses a road (the road\'s width and 3 m each side, as drawn); open trench = the conventional UG cable\'s route (each span once) less its bores; micro trench = the air-blown UG cable\'s route less its bores; maxcell inner duct = the conventional UG cable\'s route, bores included; proposed manhole / service box = the new ones.',
+      `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Settings → AutoCAD DXF)'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe (or owned by Globe); RTA Converge / local coop / other (PLDT pole) = existing poles by owner (CONVERGE / an electric company, coop or power / PLDT), and an RTA row of its own for each other owner (beta 6.6: added to the PMI table and the BOQ tables)' + (pmiExtraRows.length ? `: ${pmiExtraRows.map((x) => x[0]).join(', ')}` : '') + '; fiber termination = fibers of the new ODFs; hybrid closure = new closures; proposed HDD = the new bores where a new underground cable crosses a road (the road\'s width and 3 m each side, as drawn); open trench = the conventional UG cable\'s route (each span once) less its bores; micro trench = the air-blown UG cable\'s route less its bores; maxcell inner duct = the conventional UG cable\'s route, bores included; proposed manhole / service box = the new ones.',
       ...(S.exp.dxfBoqGrid !== false && rp.boqGrid ? [`BOQ table on each GEO sheet (Plan settings): the PMI rows for that sheet's grid only, in its right-hand box. A span counts whole on the sheet where its length is written (a span crossing a sheet edge is not split), as its length reads there (whole metres; the PMI too, beta 6.4); a loop, a pole, a new ODF's fibers and a new closure count where their point is, a loop as its length is written; so the written lengths add up to each table and the sheets to the PMI${S.exp.dxfLabels === 'tidy' ? '. Tidy: each span length is written on the GEO sheet that holds the middle of its span, never across a sheet line' : ''}${rp.boqGrid.check.every((c) => c.ok) && !rp.boqGrid.lost.length ? ' (they do: every row checked)' : ` (check: ${rp.boqGrid.check.filter((c) => !c.ok).map((c) => c.row).join(', ')})`}. The rows the PMI leaves blank stay blank.`] : []), // beta 6.0
       'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (PROP.POLE / height / clamp)') + ', existing electric pole on ELECTRIC POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / pole tag or NPT)') + ', telco pole on GT-POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / ID)') + '; new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
       `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; a pin placed by hand more than 6 m from the road edge stays where it is: ${rp.counts.polesKept || 0}; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it; a side guy never into the road; a pole-to-pole guy to its chosen pole, with a head guy there: ${rp.counts.poleToPole || 0}).`,
@@ -11343,7 +11380,8 @@
           + (rp.landmarks && (rp.landmarks.placed || rp.landmarks.namesLeftOut) ? `. Landmark names make room for the pole details: 1.6 mm high on the A3 sheet, a little further or smaller (to 1.3 mm) where the room is short${rp.landmarks.shrunk ? ` (${rp.landmarks.shrunk} drawn smaller, the smallest ${rp.landmarks.smallestMm} mm)` : ''}; a name with no room even then is wrapped onto two or three lines, else shortened with the usual abbreviations (ELEMENTARY SCHOOL → ES, NATIONAL HIGH SCHOOL → NHS, HIGH SCHOOL → HS, ELEMENTARY → ELEM., SCHOOL → SCH., BARANGAY → BRGY., STREET → ST., HOSPITAL → HOSP., CENTER → CTR. and the like; whole words only), else both${[[rp.landmarks.wrapped, 'wrapped'], [rp.landmarks.abbreviated, 'abbreviated'], [rp.landmarks.abbreviatedAndWrapped, 'abbreviated and wrapped']].some(([v]) => v) ? ` (${[[rp.landmarks.wrapped, 'wrapped'], [rp.landmarks.abbreviated, 'abbreviated'], [rp.landmarks.abbreviatedAndWrapped, 'abbreviated and wrapped']].filter(([v]) => v).map(([v, t]) => `${v} ${t}`).join(', ')})` : ''}${rp.landmarks.namesLeftOut ? `; ${rp.landmarks.namesLeftOut} left out (no room even so; their icons kept where they fit)` : ''}` : '') // beta 6.0 (beta 6.1: wrapped, abbreviated)
           + (outs.some((o) => (o.out.report.notes || []).some((n) => /^(Tidy labels|Tidy photos|Photos with no free place)/.test(n))) ? '. Where no free place was found, the label or photo is listed under Drawing checks above' : '') + '.'; })()
         : 'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD. Each pole\'s label points straight out from the cable, and its photo or number sits beside the pole on the side toward the homing, the same at every pole where there is room (elsewhere a little further, turned, or on the other side).', '',
-      ...(PS.num.rta.on ? [`Pole numbers coloured by RTA/JPA category (Drawing style \u203a Numbers), number and circle in one colour, with an RTA/JPA LEGEND under the BOQ table on each GEO sheet: ${PS.num.rta.cats.map((x) => `${x.text} ${colName(x.color)} (${rtaN.get(x) || 0})`).join(', ')}; other poles and points ${colName(PS.num.color)} (${Math.max(0, rows.filter((r) => r.el === 'Pole').length - [...rtaN.values()].reduce((t, v) => t + v, 0))} poles). A proposed or new pole counts as proposed whatever its owner, a Globe pole has none, the others by their pole owner, as the PMI's RTA rows.`] : []), // beta 6.5
+      ...(PS.num.rta.on ? [`Pole numbers coloured by RTA/JPA category (Drawing style › Numbers), number and circle in one colour: ${[...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => `${x.text} ${colName(x.color)} (${rtaN.get(x)})${x.auto ? ', added for its owner' : ''}`).join(', ')}; other poles and points ${colName(PS.num.color)} (${Math.max(0, rows.filter((r) => r.el === 'Pole').length - [...rtaN.values()].reduce((t, v) => t + v, 0))} poles). A proposed or new pole is red, a Globe pole blue when existing (Globe's own, no RTA), the others by their pole owner as the PMI's RTA rows${pmiExtraRows.length ? ` (rows added to the PMI and the BOQ tables: ${pmiExtraRows.map(([lb]) => lb).join(', ')})` : ''}. RTA/JPA LEGEND: ${{ off: 'off (Drawing style › Numbers › Legend)', boq: 'under the BOQ table on each GEO sheet', sheet: 'on the LEGENDS sheet' }[PS.num.rta.legend]}.`] : []), // beta 6.5 (6.6: Globe, automatic owners, the legend's place)
+      `Loops at handholes, manholes, service boxes and ODF, site and ODC entrances (Drawing style \u203a Loops at boxes and entrances): counted in the PMI and the BOQ tables; ${PS.cab.boxLoops ? `written on the plan beside each (${boxLoopN} points), so the written numbers add up to the tables` : 'not written on the plan (as before): the tables count them all the same'}.`, // beta 6.6
       ...outs.flatMap((o) => { const MK = o.out.report.marks || []; return MK.length ? [`Numbers on the plan${many ? ` in ${o.file}` : ''} (${MK.length}${o.st.no.size ? `: ${o.st.what}` : ''}): number, ID, type, latitude, longitude`, ...markLinesOf(MK), ''] : []; }), exporterText()].join('\r\n');
     busy(false);
     { const RR = dxfRows(), rowOf = (o) => RR[(+String(o.st.id).replace(/\D/g, '') || 1) - 1]; // v2.42.28: the ZIP in plain words
@@ -11558,12 +11596,18 @@
   /** v2.29: the survey quantities the BOQ rules will use, each with a code (the BOQ template's formulas will point at these):
       span lengths by cable type and method, maintenance loops, FOC length with loops, detailed engineering (spans without
       loops), new poles by size and class, arms, guying, ODF, closures, NAPs, poles on each cable, the region. */
+  /* beta 6.6 (the owner: "yes always same with the CEF"): every export counts a span as the plan writes its length, whole metres
+     (Math.round, as the span length text), each run: the Survey quantities (Excel BOQ), the Route and spans Excel, the plan's PMI */
+  const spanW = (sp) => Math.round(+(sp && sp.len) || 0);
+  const routeW = (R) => { let total = 0, cable = 0; const by = {}; (R.spans || []).forEach((sp) => { const L = spanW(sp), rs = sp.runs || [sp.cable]; total += L; cable += L * rs.length; rs.forEach((k) => { by[k] = (by[k] || 0) + L; }); }); return { total, cable, by }; };
+  const fibW = (f, R) => { const m = new Map((R.spans || []).map((sp) => [[sp.ia, sp.ib].map(String).sort().join('|'), spanW(sp)])); let t = 0, miss = false; (f.path || []).forEach((id, i) => { if (!i) return; const k = [f.path[i - 1], id].map(String).sort().join('|'); if (m.has(k)) t += m.get(k); else miss = true; }); return miss && !t ? Math.round(+f.len || 0) : t; };
   function surveyQty(pts, col) { // (beta 6.0: col.loops: each counted loop [point id, cable, length], for the BOQ table of each GEO sheet)
     const rp = pts.filter((p) => ROUTE_ELS.includes(elemOf(p))), R = fibAnnotate(C.analyzeRoute(rp, effLinks(), { maxSpan: pol().maxSpan || 200, angleDeg: pol().angleDeg || 15 }), rp); // v2.42.20: + the fibers
     const rows = [], add = (code, qty, unit, desc) => rows.push([code, qty, unit, desc]), r1 = (v) => Math.round(v * 10) / 10, isNew = (p) => ['Proposed', 'New'].includes(p.status);
     const keys = [...Object.keys(CAB), ''], lenBy = {}, polesBy = {}, loopsBy = {}, ml = mloopLen();
     keys.forEach((k) => { lenBy[k] = 0; polesBy[k] = new Set(); loopsBy[k] = 0; });
-    R.spans.forEach((sp) => (sp.runs || [sp.cable]).forEach((k) => { lenBy[k] += sp.len; polesBy[k].add(sp.ia); polesBy[k].add(sp.ib); })); // v2.42.18: each run
+    R.spans.forEach((sp) => (sp.runs || [sp.cable]).forEach((k) => { lenBy[k] += spanW(sp); polesBy[k].add(sp.ia); polesBy[k].add(sp.ib); })); // v2.42.18: each run (beta 6.6: as the plan writes it)
+    const RW = routeW(R); // beta 6.6
     const cabAt = (id) => { const sp = R.spans.find((x) => x.ia === id || x.ib === id); return sp ? sp.cable : null; };
     let loops = 0, loopsOff = 0, loopM = 0, nBox = 0; const loopMBy = {}; keys.forEach((k) => { loopMBy[k] = 0; });
     // v2.42.16: the loops on poles (the surveyor's, as the plan draws them, and the ones the app adds in an As-Plan) and the one each
@@ -11577,9 +11621,9 @@
       if (c == null) loopsOff++; else { loopsBy[c]++; loopMBy[c] += m; loopM += m; if (col) col.loops.push([p.id, c, m]); }
     });
     const tag = (k) => (k ? k : 'NOTSET'), nm = (k) => (k ? CAB[k].label : 'cable not set');
-    add('SPAN_TOTAL', r1(R.total), 'm', `All spans (${R.spans.length}), straight pole-to-pole lengths`);
+    add('SPAN_TOTAL', r1(RW.total), 'm', `All spans (${R.spans.length}), straight pole-to-pole lengths, each as the plan writes it (whole metres)`);
     const xr = R.spans.filter((sp) => (sp.runs || []).length > 1); // v2.42.18: spans with more than one run
-    if (xr.length) { add('RUNS_EXTRA', xr.reduce((t, sp) => t + sp.runs.length - 1, 0), 'each', `Other runs (run 2, run 3…) on ${xr.length} span${xr.length === 1 ? '' : 's'}`); add('RUNS_EXTRA_M', r1(R.cableTotal - R.total), 'm', 'Length of the other runs (in SPAN_<cable>, FOC_<cable>, FOC_TOTAL and DE)'); }
+    if (xr.length) { add('RUNS_EXTRA', xr.reduce((t, sp) => t + sp.runs.length - 1, 0), 'each', `Other runs (run 2, run 3…) on ${xr.length} span${xr.length === 1 ? '' : 's'}`); add('RUNS_EXTRA_M', r1(RW.cable - RW.total), 'm', 'Length of the other runs (in SPAN_<cable>, FOC_<cable>, FOC_TOTAL and DE)'); }
     keys.forEach((k) => { if (lenBy[k] || k) add(`SPAN_${tag(k)}`, r1(lenBy[k]), 'm', `Spans with ${nm(k)}`); });
     add('SPAN_AE', r1(keys.filter((k) => k && CAB[k].method === 'AE').reduce((t, k) => t + lenBy[k], 0)), 'm', 'Aerial (AE) spans');
     add('SPAN_UG', r1(keys.filter((k) => k && CAB[k].method === 'UG').reduce((t, k) => t + lenBy[k], 0)), 'm', 'Underground (UG) spans');
@@ -11594,12 +11638,12 @@
     if (svPurpose() === 'As-built') { const need = new Set(R.spans.flatMap((sp) => [sp.ia, sp.ib])), open = pts.filter((p) => need.has(p.id) && elemOf(p) === 'Pole' && !(p.boq && p.boq.mloop) && !OWN.has(p.id)).length; add('MLOOP_UNANSWERED', open, 'each', 'Poles on the route whose maintenance loop was not answered (MLoop or No loop): check them'); }
     keys.forEach((k) => { if (k || loopsBy[k]) add(`MLOOP_${tag(k)}`, loopsBy[k], 'each', `Maintenance loops on ${nm(k)}`); });
     keys.forEach((k) => { if (k || lenBy[k]) add(`FOC_${tag(k)}`, r1(lenBy[k] + loopMBy[k]), 'm', `${k ? CAB[k].label : 'Cable not set'}: spans + loops (each its own length; by default ${isLight(k) ? 10 : ml} m on a pole, ${BOX_LOOP_M} m at a handhole, manhole or service box)`); });
-    add('FOC_TOTAL', r1(R.cableTotal + loopM), 'm', 'All FOC: spans (each run) + loops');
-    add('DE', r1(R.cableTotal), 'cable-m', 'Detailed engineering: FOC length without the maintenance loops (each run)');
+    add('FOC_TOTAL', r1(RW.cable + loopM), 'm', 'All FOC: spans (each run) + loops');
+    add('DE', r1(RW.cable), 'cable-m', 'Detailed engineering: FOC length without the maintenance loops (each run)');
     if (R.fib && R.fib.planned.length) { // v2.42.20: each fiber, its spans and its loops
       add('FIBERS', R.fib.planned.length, 'each', 'Fibers (new cable), each from its start to its end; existing cables drawn on the plan are not counted');
       R.fib.planned.forEach((f) => { const lm = LA.fib ? [...LA.fib.list.values()].flat().filter((e) => e.n === f.n).reduce((t, e) => t + e.len, 0) : 0, a = fibEnd(f, 'from', R.fib.by), b = fibEnd(f, 'to', R.fib.by);
-        add(`FIBER_${f.n}`, r1(f.len + lm), 'm', `Fiber ${f.n} · ${CAB[f.cab] ? CAB[f.cab].label : 'cable not set'} · ${a.ref || a.kind} → ${b.ref || b.kind}: spans ${r1(f.len)} m + loops ${r1(lm)} m`); });
+        add(`FIBER_${f.n}`, r1(fibW(f, R) + lm), 'm', `Fiber ${f.n} · ${CAB[f.cab] ? CAB[f.cab].label : 'cable not set'} · ${a.ref || a.kind} → ${b.ref || b.kind}: spans ${r1(fibW(f, R))} m + loops ${r1(lm)} m`); });
     }
     keys.forEach((k) => { if (k || polesBy[k].size) add(`POLES_${tag(k)}`, polesBy[k].size, 'each', `Route points (poles, handholes, ODF…) on ${nm(k)} spans`); });
     add('SPANS_LONG', R.long, 'each', `Spans longer than ${pol().maxSpan || 200} m`);
@@ -11664,14 +11708,14 @@
       [lbl('Maximum span setting (m)'), pol().maxSpan || 200],
       [lbl('Angle pole from (°)'), pol().angleDeg || 15],
       [],
-      [lbl('Total route length (m)'), Math.round(Rt.total * 10) / 10],
-      ...(Rt.cableTotal > Rt.total + 0.05 ? [[lbl('Cable on the spans, each run (m)'), Math.round(Rt.cableTotal * 10) / 10]] : []), // v2.42.18
+      [lbl('Total route length (m)'), routeW(Rt).total], // (beta 6.6: each span as the plan writes it)
+      ...(routeW(Rt).cable > routeW(Rt).total ? [[lbl('Cable on the spans, each run (m)'), routeW(Rt).cable]] : []), // v2.42.18
       ...(Rt.fib && Rt.fib.list.length ? [[lbl('Fibers (sheet Fibers)'), `${Rt.fib.planned.length} new${Rt.fib.list.some((f) => f.ex) ? `, ${Rt.fib.list.filter((f) => f.ex).length} existing (drawn only)` : ''}`]] : []), // v2.42.20
       [lbl('Spans'), Rt.spans.length],
       [lbl('Spans longer than maximum'), { v: Rt.long, s: Rt.long ? st.bad : st.good }],
-      [lbl('Average span (m)'), Math.round((Rt.total / Rt.spans.length) * 10) / 10],
-      [lbl('Longest span'), `${longest.from} → ${longest.to}: ${longest.len.toFixed(1)} m`],
-      ...(() => { const by = {}; Rt.spans.forEach((sp) => (sp.runs || [sp.cable]).forEach((k) => { by[k] = (by[k] || 0) + sp.len; })); return Object.entries(by).map(([k, m]) => [lbl(`${CAB[k] ? `${CAB[k].label} (${CAB[k].method})` : 'Cable not set'} (m)`), { v: Math.round(m * 10) / 10, s: CAB[k] ? st.cell : st.bad }]); })(), // v2.29
+      [lbl('Average span (m)'), Math.round((routeW(Rt).total / Rt.spans.length) * 10) / 10],
+      [lbl('Longest span'), `${longest.from} → ${longest.to}: ${spanW(longest)} m`],
+      ...(() => { const by = routeW(Rt).by; return Object.entries(by).map(([k, m]) => [lbl(`${CAB[k] ? `${CAB[k].label} (${CAB[k].method})` : 'Cable not set'} (m)`), { v: m, s: CAB[k] ? st.cell : st.bad }]); })(), // v2.29
       [],
       [lbl('Poles in project'), pts.filter((p) => elemOf(p) === 'Pole').length],
       [lbl('Other points (site, ODC, ODF, NAP, closures, handholes)'), pts.filter((p) => elemOf(p) !== 'Pole').length],
@@ -11681,10 +11725,10 @@
       [lbl('Junction poles (3+ spans)'), Rt.junction],
       [lbl('Route points not linked'), { v: Rt.off, s: Rt.off ? st.bad : st.cell }],
       [],
-      [{ v: 'Span lengths are straight lines between pole pins, not cable lengths: add sag, slack and MLoop allowance per your design standard.', s: st.info }],
+      [{ v: 'Span lengths are straight lines between pole pins, not cable lengths, in whole metres as the plan writes them: add sag, slack and MLoop allowance per your design standard.', s: st.info }],
     ];
     const spanRows = [['No.', 'From', 'To', 'Run', 'Length (m)', 'Longer than maximum', 'Cable', 'Method', 'From lat', 'From lon', 'To lat', 'To lon'].map((v) => ({ v, s: st.header }))];
-    Rt.spans.forEach((s, i) => (s.fibers && s.fibers.length ? s.fibers.slice().sort((x, y) => x.n - y.n).map((f) => [f.cab, `F${f.n}`]) : (s.runs || [s.cable]).map((k, r) => [k, r + 1])).forEach(([k, run]) => spanRows.push([{ v: i + 1, s: st.center }, s.from, s.to, { v: run, s: st.center }, /* v2.42.20: the fiber (F1, F2…) */ { v: Math.round(s.len * 10) / 10, s: s.long ? st.bad : st.cell },
+    Rt.spans.forEach((s, i) => (s.fibers && s.fibers.length ? s.fibers.slice().sort((x, y) => x.n - y.n).map((f) => [f.cab, `F${f.n}`]) : (s.runs || [s.cable]).map((k, r) => [k, r + 1])).forEach(([k, run]) => spanRows.push([{ v: i + 1, s: st.center }, s.from, s.to, { v: run, s: st.center }, /* v2.42.20: the fiber (F1, F2…) */ { v: spanW(s), s: s.long ? st.bad : st.cell }, /* (beta 6.6: as the plan writes it) */
       { v: s.long ? 'Yes' : 'No', s: s.long ? st.bad : st.cell }, CAB[k] ? CAB[k].label : { v: 'not set', s: st.bad }, CAB[k] ? CAB[k].method : '', { v: s.a.lat, s: st.coord }, { v: s.a.lon, s: st.coord }, { v: s.b.lat, s: st.coord }, { v: s.b.lon, s: st.coord }]))); // v2.29: cable, method; v2.42.18: a row per run
     const poleRows = [['No.', 'ID', 'Element', 'Type / status', 'Role on route', 'Spans at point', 'Deflection (°)', 'Latitude', 'Longitude', `UTM ${S.zone}N E`, `UTM ${S.zone}N N`, 'Pole details', 'Remarks', 'Size (BOQ)'].map((v) => ({ v, s: st.header }))];
     pts.forEach((p, i) => {
@@ -11698,7 +11742,7 @@
       const rows = [['Fiber', 'Side', 'Cable', 'New / existing', 'From', 'Start', 'To', 'End', 'Points', 'Spans', 'Route (m)', 'Loops', 'Loops (m)', 'Cable (m)', 'Way'].map((v) => ({ v, s: st.header }))];
       Rt.fib.list.forEach((f) => { const E = LA.fib ? [...LA.fib.list.values()].flat().filter((e) => e.n === f.n) : [], lm = E.reduce((t, e) => t + e.len, 0), a = fibEnd(f, 'from', by), b = fibEnd(f, 'to', by);
         rows.push([`Fiber ${f.n}`, fibSide(f, all, by), f.ex ? `Existing ${exCores(f)}C` : CAB[f.cab] ? CAB[f.cab].label : 'not set', f.ex ? 'Existing (drawn only)' : 'New', /* v2.42.21: an existing cable's size */ `${a.kind === 'Pole' ? '' : `${a.kind} `}${a.ref}`, a.state, `${b.kind === 'Pole' ? '' : `${b.kind} `}${b.ref}`, b.state,
-          f.path.length, f.spans, r1(f.len), f.ex ? '' : E.length, f.ex ? '' : r1(lm), f.ex ? '' : r1(f.len + lm), f.path.map(fibName).join(' → ')]); });
+          f.path.length, f.spans, fibW(f, Rt), f.ex ? '' : E.length, f.ex ? '' : r1(lm), f.ex ? '' : r1(fibW(f, Rt) + lm), f.path.map(fibName).join(' → ')]); });
       return { name: 'Fibers', cols: [9, 7, 22, 18, 22, 9, 22, 9, 7, 7, 10, 7, 10, 10, 70], rows, freezeRow: 1 };
     })();
     const parts = R.buildXlsxParts([

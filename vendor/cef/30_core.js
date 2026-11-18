@@ -2,6 +2,7 @@
 /* ---------- basics ---------- */
 const D2R = Math.PI / 180, C30 = Math.cos(Math.PI / 6);
 const f1 = v => (Math.round(v * 10) / 10).toFixed(1);
+const r1w = v => Math.round((+v || 0) * 10) / 10;      /* beta 6.6 (the owner: "yes always same with the CEF"): a length as the plan writes it, to 0.1 m */
 const f0 = v => String(Math.round(v));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const snap = v => Math.round(v * 10) / 10;
@@ -921,11 +922,12 @@ function routeGeom1(S, R, cno) {
   if (A.length > 1 && U.length > 1 && !out.join) out.notes.push('The AE and UG fibers do not meet. End the AE fiber and start the UG fiber on the same riser pole.');
   if (S.room && U.length > 1 && !S.els.some(e => e.t === 'port' && (d2([e.x, e.y], U[0]) < 0.35 || d2([e.x, e.y], U[n2]) < 0.35))) out.notes.push('The cable inside the cabin does not start at a porthole.');
   const s = out.sum;
-  for (const l of out.legs) s[l.type] += l.len;
-  for (const q of out.drops) s.aerial += q.len;      /* (14 Nov 17:00) down the pole into a Dummy NAP: AE cable */
+  for (const l of out.legs) s[l.type] += r1w(l.len);      /* beta 6.6: each leg counts as the plan writes its length (0.1 m), so the written lengths add up to the totals */
+  for (const q of out.drops) s.aerial += r1w(q.len);      /* (14 Nov 17:00) down the pole into a Dummy NAP: AE cable */
   for (const v of out.verts) s.vert += v.z1 - v.z0;
   for (const k of out.links) s.vert += Math.hypot(k.b[0] - k.a[0], k.b[1] - k.a[1]);
-  for (const l of out.loops) { s.loop += l.len; s.nloop++; }
+  for (const l of out.loops) { s.loop += r1w(l.len); s.nloop++; }
+  for (const k in s) if (k !== 'nloop') s[k] = r1w(s[k]);      /* beta 6.6: no float dust (10.3 + 2.1 is 12.4) */
   s.inside = 0; out.U = U; out.A = A;
   return out;
 }
@@ -950,7 +952,7 @@ function routeGeom(S) {
   }
   if (!S.room) for (const e of S.els) if (e.t === 'cabin' && S.runs.some(r => r.kind === 'ladder' && (r.pts || []).some(p => inCabin(e, p, 0.15)))) notes.push('A cable ladder is drawn into ' + elLabel(S, e).toLowerCase() + ' on the site sketch. A ladder outside ends on the porthole; the ladder inside is drawn in the sketch of the inside.');
   const sum = {};
-  for (const p of parts) { const s = p.sum; s.ae = s.aerial + s.loop; s.ugt = s.ug + s.xug + s.ladder + s.open + s.liquid + s.wall + s.vert + s.inside; s.total = s.ae + s.ugt; for (const key in s) sum[key] = (sum[key] || 0) + s[key]; }
+  for (const p of parts) { const s = p.sum; s.inside = r1w(s.inside); s.ae = r1w(s.aerial + s.loop); s.ugt = r1w(s.ug + s.xug + s.ladder + s.open + s.liquid + s.wall + s.vert + s.inside); s.total = r1w(s.ae + s.ugt); for (const key in s) sum[key] = r1w((sum[key] || 0) + s[key]); }      /* beta 6.6: the sums of the lengths as written */
   const out = { legs: [], verts: [], loops: [], exits: [], bare: [], padx: [], drops: [], risers: [], links: [], warn: [], notes, ports: {}, join: null, joins: [], parts, sum };
   parts.forEach((p, k) => {
     for (const key of ['legs', 'verts', 'loops', 'exits', 'bare', 'padx', 'drops', 'risers', 'links', 'warn']) for (const q of p[key]) { q.cn = k; q.ck = p.ck; out[key].push(q); }
@@ -1571,7 +1573,7 @@ function buildTop(S, o) {
   const grp = {}, long = {};
   for (const l of rg.legs) {
     G.grp = gk((l.f === 'ae' ? 'FOC_AE' : 'FOC_UG') + (l.cn ? '_' + (l.cn + 1) : '')); G.pl([l.a, l.b], l.inside ? 'fh' : LEG[l.type].lay); G.grp = null; LB.block(thick(l.a, l.b, 0.6 * th));
-    const k = l.f + l.i + (l.ck || ''), q = grp[k] || (grp[k] = { len: 0, best: l }); q.len += l.len; if (l.plan > q.best.plan) q.best = l;
+    const k = l.f + l.i + (l.ck || ''), q = grp[k] || (grp[k] = { len: 0, best: l }); q.len += r1w(l.len);      /* beta 6.6 */ if (l.plan > q.best.plan) q.best = l;
     const lk = l.f + (l.ck || ''); if (!long[lk] || l.plan > long[lk].plan) long[lk] = l;
   }
   if (lab && nameOn(S, 'dim')) { const LK = lenKeys(rg.legs); for (const l of rg.legs) { if (!l.f || l.f === 'ae' || l.inside || l.plan < 0.3) continue;      /* beta 4.1: the length of each straight piece of a cable (beta 4.2: not on the aerial cable) */

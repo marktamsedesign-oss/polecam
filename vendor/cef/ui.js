@@ -552,7 +552,7 @@ function tabRoute() {
     Q.pts.forEach((p, i) => {
       h += '<div class="leg"><span class="n">' + (i + 1) + '</span>' + (f === 'ae' ? '<select data-k="pt.' + i + '.loop" aria-label="Loop at AE point ' + (i + 1) + '">' + [0, 10, 15, 20, 30, 50].map(v => '<option value="' + v + '"' + (num(p.loop, 0) === v ? ' selected' : '') + '>' + (v ? v + ' m loop here' : 'No loop here') + '</option>').join('') + '</select>' : '<small>' + f1(p.x) + ' m from left, ' + f1(p.y) + ' m from bottom</small>') + '<span></span><button class="b s ic d" data-a="pt-del" data-f="' + f + '" data-i="' + i + '" aria-label="Remove ' + f.toUpperCase() + ' point ' + (i + 1) + '">×</button></div>';
       if (i + 1 < n) {
-        const parts = P.legs.filter(l => l.f === f && l.i === i), len = parts.reduce((a, l) => a + l.len, 0);
+        const parts = P.legs.filter(l => l.f === f && l.i === i), len = parts.reduce((a, l) => a + r1w(l.len), 0);      /* beta 6.6: as the plan writes each piece */
         if (f === 'ae') h += '<div class="leg"><span class="bar2"></span><small>Aerial, pole to pole</small><span class="len">' + f1(len) + ' m</span><span></span></div>';
         else { const t = (Q.legs[i] || {}).type || 'auto', now = Array.from(new Set(parts.map(l => LEG[l.type].n.toLowerCase()))).join(', '); h += '<div class="leg"><span class="bar2"></span><select data-k="leg.' + i + '" aria-label="Run of UG leg ' + (i + 1) + '"><option value="auto"' + (t === 'auto' ? ' selected' : '') + '>App decides: ' + esc(now || 'new conduit') + '</option>' + Object.keys(LEG).filter(k => k !== 'aerial').map(k => '<option value="' + k + '"' + (k === t ? ' selected' : '') + '>' + LEG[k].n + '</option>').join('') + '</select><span class="len">' + f1(len) + ' m</span><span></span></div>'; }
       }
@@ -649,7 +649,7 @@ function tabCable() {
   h += '<div class="btns">' + (on ? '<button class="b p" data-a="route-done">Done drawing</button><button class="b" data-a="route-undo"' + (n ? '' : ' disabled') + '>Remove last point</button>' : '<button class="b p" data-a="route-draw" data-f="ug">' + (n ? 'Add more points' : 'Draw the cable') + '</button><button class="b" data-a="route-clear" data-f="ug"' + (n ? '' : ' disabled') + '>Clear</button>') + '</div>';
   Q.pts.forEach((p, i) => {
     h += '<div class="leg"><span class="n">' + (i + 1) + '</span><small>' + f1(p.x) + ' m from left, ' + f1(p.y) + ' m from bottom</small><span></span><button class="b s ic d" data-a="pt-del" data-f="ug" data-i="' + i + '" aria-label="Remove cable point ' + (i + 1) + '">×</button></div>';
-    if (i + 1 < n) { const parts = g.legs.filter(l => l.f === 'ug' && l.i === i); h += '<div class="leg"><span class="bar2"></span><small>' + esc(Array.from(new Set(parts.map(l => l.type === 'ladder' ? 'On the cable ladder' : 'In the open'))).join(', ')) + '</small><span class="len">' + f1(parts.reduce((a, l) => a + l.len, 0)) + ' m</span><span></span></div>'; }
+    if (i + 1 < n) { const parts = g.legs.filter(l => l.f === 'ug' && l.i === i); h += '<div class="leg"><span class="bar2"></span><small>' + esc(Array.from(new Set(parts.map(l => l.type === 'ladder' ? 'On the cable ladder' : 'In the open'))).join(', ')) + '</small><span class="len">' + f1(parts.reduce((a, l) => a + r1w(l.len), 0)) + ' m</span><span></span></div>'; }
   });
   if (s.ugt > 0.05) {
     const row = (a, v) => v > 0.05 ? '<tr><td>' + a + '</td><td class="r">' + f1(v) + ' m</td></tr>' : '';
