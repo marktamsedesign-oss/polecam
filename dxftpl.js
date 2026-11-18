@@ -3042,6 +3042,19 @@
         if (c.st.last) { G.push({ al: c.al, m: c.m }); got.set(gk, G); }
       }
     }
+    /* beta 6.6 (the owner: "under drawing style, let the user decide, off by default"): Drawing style › Loops at boxes and ODF entrances
+       › Written: each loop the PMI counts at a handhole, manhole, service box or an ODF / site / ODC entrance (pts[].boxLoop, from the
+       app) written beside its point ("20m LOOP"), where it covers nothing near it, inside the point's sheet; the written numbers then add
+       up to the tables. Off (none given): not written, counted all the same. */
+    { const BLp = pts.filter((p) => +p.boxLoop > 0 && Number.isFinite(+p.E) && Number.isFinite(+p.N)); let nBL = 0;
+      for (const p of BLp) {
+        const at = p.A || [p.E, p.N], txt = `${+(+p.boxLoop).toFixed(1)}m LOOP`, th = TIDY ? TS.id / kAt(at[0], at[1]) : IDS.h, w = arialW(txt, th) * 1.1, r0 = (TIDY ? 4 / kAt(at[0], at[1]) : 5) + th; let best = null;
+        for (const rr of [1, 1.5, 2.2, 3, 4]) { for (let k = 0; k < 16; k++) { const a = k * Math.PI / 8, ux = Math.cos(a), uy = Math.sin(a), q = [at[0] + ux * (r0 * rr + Math.abs(ux) * w / 2), at[1] + uy * (r0 * rr + Math.abs(uy) * th * 0.65)], bx = Spots.box(q[0], q[1], w + th * 0.3, th * 1.3, 0);
+            if (TIDY && !cellHolds(bx, p.E, p.N)) continue; const n = spots.hitsW(bx, W_IN) + rr * 0.001; if (!best || n < best.n) best = { q, bx, n }; if (n < 0.45) break; }
+          if (best && best.n < 0.45) break; }
+        if (!best) continue; o.text(lay('PROPOSED LOOP'), best.q[0], best.q[1], th, txt, { ha: 1, va: 2, style: 'arial' }); spots.add([best.bx]); nBL++;
+      }
+      if (BLp.length) rep.boxLoops = { written: nBL, of: BLp.length }; }
     const tight = (s) => { const P = byId.get(String(s.ia)), Q = byId.get(String(s.ib)); if (!P || !Q || !P.A || !Q.A) return 0; const ls = linesOf(s, laneInfo.get(K2(s.ia, s.ib))).filter((x) => x.t); return ls.reduce((t, x) => t + arialW(x.t, CL_TH, false), 0) / Math.max(4, geoOf(P, Q).L); };
     for (const s of spans.slice().sort((x, y) => tight(y) - tight(x))) { // the most crowded spans first
       const P = byId.get(String(s.ia)), Q = byId.get(String(s.ib)); if (!P || !Q || !P.A || !Q.A) continue;
@@ -3805,6 +3818,8 @@
       for (const h of hddAt) { let bS = null, bd = Infinity; for (const u of ugSp) { const d0 = segD(h.x, u.P.A || [u.P.E, u.P.N], u.Q.A || [u.Q.E, u.Q.N]); if (d0 < bd) { bd = d0; bS = u; } } if (bS && bd < 15) bS.hdd += h.L; UGV.PMI_HDD += h.L; ugPI.points.push({ at: h.x, v: { PMI_HDD: h.L } }); }
       for (const u of ugSp) { const Lw = Math.round(+u.s0.len || 0), tr = Math.max(0, Lw - u.hdd), v = u.conv ? { PMI_OPEN_TRENCH: tr, PMI_MAXCELL_INNER_DUCT: Lw } : { PMI_MICRO_TRENCH: tr }; /* (beta 6.4: the span as its length is written on the plan) */ for (const [k, x] of Object.entries(v)) UGV[k] += x; ugPI.spans.push({ ia: u.s0.ia, ib: u.s0.ib, v }); }
       for (const p of pts) if ((p.status === 'Proposed' || p.status === 'New') && (p.el === 'Manhole' || p.el === 'Service box')) { const k = p.el === 'Manhole' ? 'PMI_MANHOLE' : 'PMI_SERVICE_BOX'; UGV[k]++; ugPI.points.push({ id: p.id, v: { [k]: 1 } }); } }
+    // beta 6.6 (the owner: "PMI must should add automatically the poles RTA"): an RTA row for each other pole owner (job.pmiExtraRows [label, key], from the app)
+    const PMI_XROWS = (Array.isArray(job.pmiExtraRows) ? job.pmiExtraRows : []).filter((x) => Array.isArray(x) && x[0] && x[1]).slice(0, 8).map(([lb, k]) => [String(lb).toUpperCase().slice(0, 40), String(k)]);
     const ugVals = Object.fromEntries(Object.entries(UGV).map(([k, v]) => [k, /MANHOLE|SERVICE_BOX/.test(k) ? String(v) : `${(Math.round(v * 10) / 10).toFixed(1)}m`]));
     { // the template's PMI table (model space): each of these rows' quantity cell, where the template has it empty
       const ENT = d.sec('ENTITIES').recs, norm = (x) => String(x).replace(/\\[A-Za-z][^;]*;|[{}]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
@@ -3815,7 +3830,34 @@
       if (refV) for (const [want, k] of [['PROPOSED HDD', 'PMI_HDD'], ['PROPOSED OPEN TRENCH', 'PMI_OPEN_TRENCH'], ['PROPOSED MICRO TRENCH', 'PMI_MICRO_TRENCH'], ['MAXCELL INNER DUCT', 'PMI_MAXCELL_INNER_DUCT'], ['PROPOSED MANHOLE', 'PMI_MANHOLE'], ['PROPOSED SERVICE BOX', 'PMI_SERVICE_BOX']]) {
         const L0 = lab(want); if (!L0) continue; const cellR = tx0.find((r) => r !== L0 && Math.abs(yOf(r) - yOf(L0)) < 0.6 * hOf(L0) && Math.abs(xOf(r) - xOf(refV)) < 0.6 * hOf(refV));
         if (cellR && !norm(textOf(cellR))) { setText(cellR, ugVals[k]); pmiFill.push(want); } }
-      rep.pmiFilled = pmiFill; }
+      rep.pmiFilled = pmiFill;
+      /* beta 6.6: the extra RTA rows (PMI_XROWS) added at the foot of the template's PMI table: the same row height, its lines and column
+         dividers, the label and quantity cells copied from its last row (a frame polyline drawn down to the new foot) */
+      if (PMI_XROWS.length && refV) {
+        const PMI_ROWS0 = ['TOTAL CABLE LENGTH', 'AERIAL CABLE LENGTH', 'EXISTING GT POLE', 'PROPOSED POLE', 'RTA CONVERGE', 'RTA LOCAL COOP', 'RTA OTHER (PLDT POLE)', 'UNDERGROUND CABLE LENGTH', 'PROPOSED HDD', 'PROPOSED OPEN TRENCH', 'PROPOSED MICRO TRENCH', 'MAXCELL INNER DUCT', 'PROPOSED MANHOLE', 'PROPOSED SERVICE BOX', 'FIBER TERMINATION', 'PROPOSED HYBRID CLOSURE'], V0x = { ...(job.values || {}), ...ugVals };
+        const rowLabs = PMI_ROWS0.map((lb) => lab(lb)).filter(Boolean).sort((a2, b2) => yOf(a2) - yOf(b2)), last = rowLabs[0], prev = rowLabs[1];
+        const lastV = last && tx0.find((r) => r !== last && Math.abs(yOf(r) - yOf(last)) < 0.6 * hOf(last) && Math.abs(xOf(r) - xOf(refV)) < 0.6 * hOf(refV));
+        const pitch = last && prev ? yOf(prev) - yOf(last) : 0, mdl = ENT.filter((r) => get(r, 330) === S.modelH && String(get(r, 67, '0')).trim() !== '1');
+        const hz = mdl.filter((r) => typ(r) === 'LINE' && Math.abs(num(r, 20, 0) - num(r, 21, 0)) < 1e-6 && Math.min(num(r, 10, 0), num(r, 11, 0)) <= xOf(last) && Math.max(num(r, 10, 0), num(r, 11, 0)) >= xOf(refV));
+        const below = hz.filter((r) => num(r, 20, 0) < yOf(last)).sort((a2, b2) => num(b2, 20, 0) - num(a2, 20, 0)), above = hz.filter((r) => num(r, 20, 0) > yOf(last) - 0.2 * hOf(last)).sort((a2, b2) => num(a2, 20, 0) - num(b2, 20, 0));
+        const fr = mdl.filter((r) => typ(r) === 'LWPOLYLINE' && (parseInt(get(r, 70, '0'), 10) & 1)).map((r) => { const X = all(r, 10).map(Number), Y = all(r, 20).map(Number); return { r, b: [Math.min(...X), Math.min(...Y), Math.max(...X), Math.max(...Y)] }; }).find((f) => last && f.b[0] <= xOf(last) && f.b[2] >= xOf(refV) && f.b[1] < yOf(last) && f.b[3] > yOf(refV));
+        const top = above.length ? num(above[0], 20, 0) : null, bot = below.length ? num(below[0], 20, 0) : fr ? fr.b[1] : null;
+        if (last && lastV && pitch > 0 && top != null && bot != null && top > bot) {
+          const vt = mdl.filter((r) => typ(r) === 'LINE' && Math.abs(num(r, 10, 0) - num(r, 11, 0)) < 1e-6 && Math.min(num(r, 20, 0), num(r, 21, 0)) <= bot + 1e-6 && Math.max(num(r, 20, 0), num(r, 21, 0)) >= top - 1e-6);
+          const cl = (r) => { const c = r.map((x) => [x[0], x[1]]), k5 = c.findIndex((x) => x[0] === 5); if (k5 >= 0) c[k5][1] = d.newHandle(); ENT.push(c); return c; };
+          const hl = below[0] || above[0], H0 = top - bot;
+          PMI_XROWS.forEach(([lb, k2], i) => { const dy = -(i + 1) * H0, nb = bot - (i + 1) * H0; // (each new row as tall as the last)
+            const L1 = cl(last); shiftRec(L1, 0, dy); setText(L1, lb); const V1 = cl(lastV); shiftRec(V1, 0, dy); setText(V1, String(V0x[k2] != null ? V0x[k2] : '0'));
+            const h1 = cl(hl); setFirst(h1, 20, F(nb)); setFirst(h1, 21, F(nb));
+            for (const v of vt) { const c = cl(v); setFirst(c, 20, F(nb + H0)); setFirst(c, 21, F(nb)); } }); // (its column dividers and edges)
+          if (fr) { const nb = bot - PMI_XROWS.length * H0; fr.r.forEach((q) => { if (q[0] === 20 && Math.abs(+q[1] - fr.b[1]) < 1e-6) q[1] = F(nb); }); }
+          // the PMI sheet shows them where its window reaches
+          const pv = S.layouts.filter((L) => /^PMI/.test(L.name)).flatMap((L) => layoutEnts(d, S, L).filter((e) => typ(e) === 'VIEWPORT').slice(1)), wn = (vp) => { const cx = num(vp, 17, 0) + num(vp, 12, 0), cy = num(vp, 27, 0) + num(vp, 22, 0), h = num(vp, 45, 0), w = h * num(vp, 40, 1) / (num(vp, 41, 1) || 1); return [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]; };
+          const xa = Math.min(xOf(last), xOf(refV)), xb = Math.max(xOf(last), xOf(refV)), W1 = pv.map(wn).find((w) => Math.max(xa, w[0]) <= Math.min(xb, w[2]) && yOf(last) >= w[1] && yOf(last) <= w[3]), foot = bot - PMI_XROWS.length * H0; // (the window the table is seen through)
+          rep.pmiRowsAdded = { rows: PMI_XROWS.map(([lb]) => lb), shown: !W1 || foot >= W1[1] };
+          if (W1 && foot < W1[1]) rep.notes.push(`PMI table: the added rows (${PMI_XROWS.map(([lb]) => lb).join(', ')}) reach below the PMI sheet's window: widen its viewport in AutoCAD`);
+        } else rep.notes.push(`PMI table: the RTA rows ${PMI_XROWS.map(([lb]) => lb).join(', ')} not added (its last row not found)`);
+      } }
     /** beta 6.0 (beta 6.5: a function, for the BOQ table and the RTA/JPA legend): a GEO sheet's right-hand box (paper units), free of the
         title block's fields: { R0: [x0, y0, x1, y1], uMm: paper units in a millimetre }, or null */
     const rightBoxOf = (L) => {
@@ -3836,7 +3878,7 @@
     const boqBot = new Map(), RBC = new Map(), rightBox = (L) => { if (!RBC.has(L.name)) RBC.set(L.name, rightBoxOf(L)); return RBC.get(L.name); }; // (beta 6.5: where each sheet's BOQ table ends, for the legend under it; each box found once, before anything is drawn in it)
     if (job.pmiItems && N > 0) {
       const PMI_ROWS = [['TOTAL CABLE LENGTH', 'PMI_TOTAL_CABLE_LENGTH', 'm'], ['AERIAL CABLE LENGTH', 'PMI_AERIAL_CABLE_LENGTH', 'm'], ['EXISTING GT POLE', 'PMI_EXISTING_GT_POLE'], ['PROPOSED POLE', 'PMI_PROPOSED_POLE'],
-        ['RTA CONVERGE', 'PMI_RTA_CONVERGE'], ['RTA LOCAL COOP', 'PMI_RTA_LOCAL_COOP'], ['RTA OTHER (PLDT POLE)', 'PMI_RTA_OTHER_PLDT'], ['UNDERGROUND CABLE LENGTH', 'PMI_UG_CABLE_LENGTH', 'm'], ['PROPOSED HDD', 'PMI_HDD', 'm'],
+        ['RTA CONVERGE', 'PMI_RTA_CONVERGE'], ['RTA LOCAL COOP', 'PMI_RTA_LOCAL_COOP'], ['RTA OTHER (PLDT POLE)', 'PMI_RTA_OTHER_PLDT'], ...PMI_XROWS, ['UNDERGROUND CABLE LENGTH', 'PMI_UG_CABLE_LENGTH', 'm'], ['PROPOSED HDD', 'PMI_HDD', 'm'],
         ['PROPOSED OPEN TRENCH', 'PMI_OPEN_TRENCH', 'm'], ['PROPOSED MICRO TRENCH', 'PMI_MICRO_TRENCH', 'm'], ['MAXCELL INNER DUCT', 'PMI_MAXCELL_INNER_DUCT', 'm'], ['PROPOSED MANHOLE', 'PMI_MANHOLE'], ['PROPOSED SERVICE BOX', 'PMI_SERVICE_BOX'], ['FIBER TERMINATION', 'PMI_FIBER_TERMINATION'], ['PROPOSED HYBRID CLOSURE', 'PMI_HYBRID_CLOSURE']];
       const V0 = { ...(job.values || {}), ...ugVals }, PI = { spans: [...(job.pmiItems.spans || []), ...ugPI.spans], points: [...(job.pmiItems.points || []), ...ugPI.points] }, names = geoNames(N), per = new Map(names.map((nm) => [nm, {}])), lost = [];
       const shAt = (x, y) => sheetOf.get(key(ci(x), cj(y))) || null, numOf = (v) => { const m = /-?\d+(?:\.\d+)?/.exec(String(v == null ? '' : v)); return m ? +m[0] : null; };
@@ -3866,7 +3908,7 @@
         const L = S.layouts.find((x) => x.name === nm), RB = L && rightBox(L); if (!RB) return; // (beta 6.5: its right-hand box, see rightBoxOf)
         const { R0, uMm } = RB, W = R0[2] - R0[0], H = R0[3] - R0[1];
         const rows = PMI_ROWS.map(([lb, k2]) => [lb, k2 ? (cellsTxt.get(nm)[k2] != null ? cellsTxt.get(nm)[k2] : '') : '']), title = `BILL OF QUANTITIES · GRID ${cellName(geoCells[k].i, geoCells[k].j)}`;
-        const LEGN = Array.isArray(job.rtaLegend) && job.rtaLegend.length ? Math.min(12, job.rtaLegend.length) + 1.5 : 0; // (beta 6.5: room kept under the table for the RTA/JPA legend: its rows and a gap)
+        const LEGN = Array.isArray(job.rtaLegend) && job.rtaLegend.length && job.rtaLegendAt === 'boq' ? Math.min(12, job.rtaLegend.length) + 1.5 : 0; // (beta 6.5: room kept under the table for the RTA/JPA legend: its rows and a gap)
         let rh = Math.min(7 * uMm, H / (rows.length + 2 + LEGN)), th = Math.min(2.5 * uMm, rh * 0.5); const pad = 1.5 * uMm;
         const need = (h2) => Math.max(...rows.map(([lb]) => arialW(lb, h2))) * 1.08 + Math.max(arialW('QUANTITY', h2), ...rows.map(([, v]) => arialW(v, h2))) * 1.08 + 4 * pad;
         if (need(th) > W) th *= W / need(th);
@@ -3887,7 +3929,7 @@
     /* beta 6.5 (the owner's standard "RTA/JPA LEGEND"): on each GEO sheet, in its right-hand box under the BOQ table (at its top without
        one), a title bar and a row for each RTA/JPA category on the plan (job.rtaLegend, from Drawing style › Numbers): its number "1" in
        its circle, both in its colour (a dark shadow under a light one, as the numbers), and its text. Layer G-ESAA RTA LEGEND. */
-    if (Array.isArray(job.rtaLegend) && job.rtaLegend.length && N > 0) {
+    if (Array.isArray(job.rtaLegend) && job.rtaLegend.length && N > 0 && job.rtaLegendAt === 'boq') { // (beta 6.6: only where Drawing style puts it: under the BOQ table)
       const LG = 'G-ESAA RTA LEGEND'; addLayer(d, S, LG, 7); S = structure(d); const stl = S.styles.has('Standard') ? 'Standard' : null; let nLeg = 0;
       const cats = job.rtaLegend.filter((x) => x && x.text).slice(0, 12), title = 'RTA/JPA LEGEND';
       geoNames(N).forEach((nm) => {
@@ -3908,6 +3950,42 @@
         nLeg++;
       });
       rep.rtaLegend = { sheets: nLeg, rows: cats.map((x) => `${x.text} (${x.n || 0})`) };
+    }
+    /* beta 6.6 (the owner: "let the user adjust where to put it"): Drawing style › Numbers › Legend › On the LEGENDS sheet: the same box in
+       model space, in the window the template's LEGENDS sheet shows (its square map viewport), in the first free place from its bottom
+       right corner, printed the size of the BOQ table's rows; when the LEGENDS sheet is full, in the KEYMAP sheet's window the same way.
+       Its layer is frozen in every other viewport (the GEO sheets do not show it). No room on either: listed, not drawn. */
+    if (Array.isArray(job.rtaLegend) && job.rtaLegend.length && job.rtaLegendAt === 'sheet') {
+      const cats = job.rtaLegend.filter((x) => x && x.text).slice(0, 12), title = 'RTA/JPA LEGEND', LG = 'G-ESAA RTA LEGEND'; addLayer(d, S, LG, 7); S = structure(d);
+      const wn = (vp) => { const cx = num(vp, 17, 0) + num(vp, 12, 0), cy = num(vp, 27, 0) + num(vp, 22, 0), h = num(vp, 45, 0), w = h * num(vp, 40, 1) / (num(vp, 41, 1) || 1); return [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]; };
+      const segBoxes = (r) => { const t = typ(r); if (t === 'LINE') return [[Math.min(num(r, 10, 0), num(r, 11, 0)), Math.min(num(r, 20, 0), num(r, 21, 0)), Math.max(num(r, 10, 0), num(r, 11, 0)), Math.max(num(r, 20, 0), num(r, 21, 0))]];
+        if (t === 'LWPOLYLINE') { const X = all(r, 10).map(Number), Y = all(r, 20).map(Number), n = X.length, cl = parseInt(get(r, 70, '0'), 10) & 1, o2 = []; for (let i = 0; i + 1 < n + (cl ? 1 : 0); i++) { const j = (i + 1) % n; o2.push([Math.min(X[i], X[j]), Math.min(Y[i], Y[j]), Math.max(X[i], X[j]), Math.max(Y[i], Y[j])]); } return o2; }
+        const b0 = drawnBox(S, r); return b0 ? [b0] : []; }; // (a frame round the legend area is its four sides, not a block of it)
+      const occAll = d.sec('ENTITIES').recs.filter((r) => owner(r) === S.modelH && String(get(r, 67, '0')).trim() !== '1').flatMap(segBoxes);
+      const tried = [], cands = [S.layouts.find((L) => /^LEGENDS?$/.test(L.name)), S.layouts.find((L) => L.name === 'KEYMAP')].filter(Boolean);
+      let done = null, LL = null, VP = null;
+      for (const L of cands) { if (done) break;
+        const vp = bigVp(L) || layoutEnts(d, S, L).filter((e) => typ(e) === 'VIEWPORT').slice(1).sort((a2, b2) => num(b2, 40, 0) * num(b2, 41, 0) - num(a2, 40, 0) * num(a2, 41, 0))[0]; tried.push(L.name);
+        if (!vp || !(num(vp, 45, 0) > 0)) continue;
+        const w0 = wn(vp), mPerMm = num(vp, 45, 0) / Math.max(1e-9, num(vp, 41, 1)) * ((rightBox(L) || {}).uMm || 1), rh = 6 * mPerMm, th = 2.5 * mPerMm, pad = 1.5 * mPerMm;
+        const W = Math.max(arialW(title, th * 1.1), ...cats.map((x) => arialW(x.text, th) + 3.2 * th)) * 1.08 + 3 * pad, H = (cats.length + 1) * rh, mg = 3 * mPerMm;
+        const occ = occAll.filter((b) => !(b[2] < w0[0] || b[0] > w0[2] || b[3] < w0[1] || b[1] > w0[3]));
+        const free = (x0, y0) => !occ.some((b) => !(b[2] < x0 - mg || b[0] > x0 + W + mg || b[3] < y0 - mg || b[1] > y0 + H + mg));
+        const nX = 60, nY = 60, stx = (w0[2] - w0[0] - W - 2 * mg) / nX, sty = (w0[3] - w0[1] - H - 2 * mg) / nY;
+        if (!(stx > 0 && sty > 0)) continue;
+        for (let jy = 0; !done && jy <= nY; jy++) for (let ix = 0; !done && ix <= nX; ix++) { const x0 = w0[2] - mg - W - ix * stx, y0 = w0[1] + mg + jy * sty; if (free(x0, y0)) done = { at: [x0, y0], W, H, rh, th, pad }; } // (from the bottom right corner)
+        if (done) { LL = L; VP = vp; }
+      }
+      if (done) { const { at: [x0, y0], W, H, rh, th, pad } = done, x1 = x0 + W, top = y0 + H, rr = Math.min(rh * 0.36, th * 0.95), so = th * 0.08, m0 = o.model.length; // (model space: written out here, the plan's own already is)
+        o.lwpoly(LG, [[x0, y0], [x1, y0], [x1, top], [x0, top]], { closed: true }); o.lwpoly(LG, [[x0, top - rh], [x1, top - rh]], {});
+        o.text(LG, (x0 + x1) / 2, top - rh / 2, th * 1.1, title, { ha: 1, va: 2, style: 'arial' });
+        cats.forEach((x, i) => { const y = top - (i + 1.5) * rh, cx = x0 + pad + rr, col = +x.color > 0 ? +x.color : null;
+          if (col != null && litCol(col)) { o.circle(LG, cx + so, y - so, rr, { color: 250 }); o.text(LG, cx + so, y - so, th, '1', { ha: 1, va: 2, style: 'arial', color: 250 }); }
+          o.circle(LG, cx, y, rr, { color: col }); o.text(LG, cx, y, th, '1', { ha: 1, va: 2, style: 'arial', color: col }); o.text(LG, cx + rr + pad, y, th, x.text, { ha: 0, va: 2, style: 'arial' }); });
+        d.sec('ENTITIES').recs.push(...o.model.slice(m0));
+        const hL = layerH(LG); if (hL) for (const L of S.layouts) for (const v of layoutEnts(d, S, L).filter((e) => typ(e) === 'VIEWPORT').slice(1)) if (v !== VP) vpFreeze(v, [hL]); } // (on that sheet only)
+      if (!done) rep.notes.push(`RTA/JPA legend not drawn: ${tried.length ? `no free room for it on the ${tried.join(' or the ')} sheet` : 'the template has no LEGENDS or KEYMAP sheet'} (Drawing style › Numbers › Legend: under the BOQ table instead)`);
+      rep.rtaLegend = { at: 'sheet', sheet: done ? LL.name : null, tried, rows: cats.map((x) => `${x.text} (${x.n || 0})`) };
     }
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0], geo: [gox, goy] }; // (v2.42.25: + the GEO cells' origin)
     // v2.42.8: the cleanup again on the whole drawing, then its extents and opening view

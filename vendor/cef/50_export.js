@@ -382,7 +382,7 @@ function buildSheets(S, opt) {      /* (14 Nov) opt.details === false: no detail
     let rows = []; const CB = cables(S), PD = rg.parts.map((p, k) => k).filter(k => rg.parts[k].sum.total > 0.05), many = PD.length > 1, runT = t => LEG[t].n.toUpperCase().replace('UNDERGROUND', 'UG');
     const one = (k, brief) => { const p = rg.parts[k], sm = p.sum, grp = {}, o = [], w = many ? ' ' + (k + 1) : '';
       if (many) o.push(['', 'CABLE ' + (k + 1) + ': ' + [sm.ae > 0.05 ? 'AE ' + CB[k].ae.cable : '', sm.ugt > 0.05 ? 'UG ' + CB[k].ug.cable : ''].filter(Boolean).join(', ').toUpperCase(), '']);
-      if (!brief) { for (const l of p.legs) { const kk = l.f + l.i, q = grp[kk] || (grp[kk] = { f: l.f, i: l.i, len: 0, t: {} }); q.len += l.len; q.t[l.type] = 1; }
+      if (!brief) { for (const l of p.legs) { const kk = l.f + l.i, q = grp[kk] || (grp[kk] = { f: l.f, i: l.i, len: 0, t: {} }); q.len += r1w(l.len); q.t[l.type] = 1; }      /* beta 6.6: each leg as the plan writes it, so the rows add up to the totals */
         for (const kk in grp) { const q = grp[kk]; o.push([q.f.toUpperCase() + ' ' + (q.i + 1), Object.keys(q.t).map(runT).join(' / '), f1(q.len) + 'm']); }
         if (sm.vert > 0.05) o.push(['UG', 'UP AND DOWN (RISER, EXIT, DROPS)', f1(sm.vert) + 'm']); if (sm.inside > 0.05) o.push(['UG', 'IN THE ' + roomsWord(S, 'ROOM') + ' (PORTHOLE TO ODF)', f1(sm.inside) + 'm']); if (sm.nloop) o.push(['AE', 'LOOPS (' + sm.nloop + ')', f1(sm.loop) + 'm']); }
       if (!many || sm.ae > 0.05) o.push(['', 'TOTAL FOC AE' + w, f1(sm.ae) + 'm']); if (!many || sm.ugt > 0.05) o.push(['', 'TOTAL FOC UG' + w, f1(sm.ugt) + 'm']); return o; };
