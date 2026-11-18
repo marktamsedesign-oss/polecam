@@ -2199,7 +2199,7 @@
           o.insert(lay('G-ESAA TELCO ARM'), TA_BLOCK + (up ? '' : ' R'), face[0], face[1], { scale: sc, rot }); nTelco++;
           const mid = add2(face, p.td, (taBlk.end * sc) / 2); spots.add(Spots.box(mid[0], mid[1], taBlk.end * sc * 1.05, 1.7 * sc, rot));
           // its name along the pole and the arm (0.8 m high): from the pole's back to the arm's end, clear of the pole symbol
-          const txt = 'TELCO ARM', h = 0.8 * Math.min(1, p.k || 1), cands = [], rr = readable(rot), from = add2(p.dp, p.td, -p.rp), span = p.rp * 2 + taBlk.end * sc;
+          const txt = p.armText || 'TELCO ARM', h = 0.8 * Math.min(1, p.k || 1), /* (beta 6.3: an extension arm or 10-pin alley arm by its own name) */ cands = [], rr = readable(rot), from = add2(p.dp, p.td, -p.rp), span = p.rp * 2 + taBlk.end * sc;
           for (const sd of [1, -1]) for (const g of [0, 0.6, 1.4]) for (const a of [0, -0.6, 0.6]) {
             const q = add2(add2(from, p.td, span / 2 + a), side, sd * (Math.max(p.rp * 1.05, 0.78 * sc) + h / 2 + 0.25 + g));
             cands.push({ q, rr, cost: (sd < 0 ? 0.4 : 0) + g * 0.6 + Math.abs(a) * 0.3, boxes: [textBox(q[0], q[1], h, txt, rr, 1, 2)] });
