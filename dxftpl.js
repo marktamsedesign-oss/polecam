@@ -3226,11 +3226,12 @@
     const RING = []; for (let a = 0; a < 360; a += 30) RING.push([Math.cos(a * Math.PI / 180), Math.sin(a * Math.PI / 180)]); RING.push([0, 0]);
     // Drawing style › Photos (job.photoStyle.size): the long side of every photo in metres where the poles stand 25 m apart or more
     // (none set: 18 m, as before); where they stand closer, smaller as before (to two thirds), and smaller again where too many find no room
+    const PH_STEPS = [0.85, 0.7, 0.58, 0.48, 0.4, 0.33, 0.27, 0.22, 0.18, 0.15, 0.12, 0.1]; // beta 6.7: a photo with no room at its size anywhere near its pole: these steps smaller, the first that fits
     const MARK_USUAL = 3.5; // v2.41.1: how far (in cost) from its usual place a photo or number may go in the first round
     const MARK_PHI = 70, NUM_PHI = 80; // v2.41.1: a pole's photo 70° round from straight out toward the homing (beside its label), a number 80° (its leader line under the label)
     let nNoRoom = 0; // v2.42.26: photos with no room anywhere, shown as their number
     const placePhotos = (Lp) => {
-      const mark = spots.list.length, out = [], left = []; let miss = 0, drop = 0; nNoRoom = 0; // (beta 4.1: drop = photos left out in photo + number; beta 4.8: left, Tidy's photos with no free place)
+      const mark = spots.list.length, out = [], left = [], shrunk = []; let miss = 0, drop = 0; nNoRoom = 0; /* (beta 6.7: shrunk, the photos drawn smaller) */ // (beta 4.1: drop = photos left out in photo + number; beta 4.8: left, Tidy's photos with no free place)
       const setup = (p, noPh) => {
         const ph = noPh ? null : photos[p.id] || photos[String(p.id)], nd = ph ? 0 : numD(p) * numF(p);
         const LpK = TIDY ? Lp / kAt(p.dp[0], p.dp[1]) : Lp, w = ph ? (ph.px >= ph.py ? LpK : LpK * ph.px / ph.py) : nd, h = ph ? (ph.px >= ph.py ? LpK * ph.py / ph.px : LpK) : nd; // (beta 4.8: Tidy: on a finer grid, as much smaller)
@@ -3314,6 +3315,13 @@
           if (best) break; }
         return best;
       };
+      /* beta 6.7: the last resort for a photo already at the smallest step: round its pole (3 to 60 m out), inside its own sheet, off the
+         roads where it can be, the place covering least (a photo or a text counts most), with its line */
+      const anyPlace = (S0) => { const { p, w, h } = S0; let best = null;
+        for (const dd of [3, 6, 10, 15, 21, 28, 36, 46, 60]) for (let a = 0; a < 360; a += 20) { const u = rotv([1, 0], a), t = Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9), q = add2(p.dp, u, rOf(p) + dd + t);
+          if (!cellHoldsQ(q, w / 2, h / 2, p.E, p.N)) continue; const box = Spots.box(q[0], q[1], w + 1.0, h + 1.0, 0), la = add2(p.dp, u, rOf(p) + 0.3), lb = add2(q, u, -t), L = dist2(la, lb), lead = L > 1.2 ? Spots.box((la[0] + lb[0]) / 2, (la[1] + lb[1]) / 2, L, 0.3, deg(u)) : null;
+          const cost = spots.hits(box) * 10 + (R.idx.inside(q, -1, 0) ? 3 : 0) + (lead ? spots.hitsW(lead, LD_TXT) * 2 : 0) + dd * 0.05; if (!best || cost < best.cost) best = { q, u, gap: dd, boxes: [box], w, h, lead: lead ? [la, lb] : null, cost }; }
+        return best; };
       /* beta 4.8: Tidy: a photo near its pole, on the pole's side of the street (in the block, 2 m off the roads), covering nothing; its
          thin line to the pole short, crossing no other line, text, symbol or cable, nor a road edge line while any other place is free;
          its line may then cross a road edge line (beta 6.7: never smaller; then further, see farPlace). None free: left out (its number is on the plan) and listed. */
@@ -3355,9 +3363,17 @@
         if (p.on) { const r = search(S0, MARK_USUAL); if (r.free) { commit(S0, r.free, 'usual'); continue; } }
         later.push(S0);
       }
-      for (const S0 of later) {
+      for (let S0 of later) { // (beta 6.7: S0 may become the photo drawn smaller, below)
         const { p, w, h } = S0; let r = TIDY && S0.ph ? { free: null, rest: [] } : search(S0, Infinity), how = 'other'; if (!r.free && !S0.ph && NS.leader) { r = search(S0, Infinity, LEAD_W2); how = 'leader over a road line'; } let cn = r.free; // (last: its leader across a road line)
         if (!cn && S0.ph) { const f = farPlace(S0) || farPlace(S0, 1) || farPlace(S0, 2); if (f) { cn = f; how = 'further, with a line'; } } // v2.42.26 (beta 3.4: then relaxed) (beta 6.7: Tidy too, rather than leave a photo out: at its size, further, with its line)
+        /* beta 6.7 (the owner: "if there are no choice then shrink them but not leave them out.. important hierarchy: pole location, pole
+           details and last the photo"): with no place at its size, near its pole or further out with its line, that photo only is drawn
+           smaller, a step at a time, as little as it needs, near its pole with its line (the pole and its details keep their places);
+           at the smallest step, the place covering least. Listed with its size. Never left out. */
+        if (!cn && S0.ph) {
+          for (const k of PH_STEPS) { const S1 = { ...S0, w: S0.w * k, h: S0.h * k }, f = (TIDY ? tidyPh(S1) : search(S1, Infinity).free) || farPlace(S1) || farPlace(S1, 1) || farPlace(S1, 2); if (f) { cn = f; S0 = S1; how = `smaller (${Math.round(k * 100)} %), with a line`; shrunk.push({ p, k }); break; } }
+          if (!cn) { const k = PH_STEPS[PH_STEPS.length - 1], S1 = { ...S0, w: S0.w * k, h: S0.h * k }, f = anyPlace(S1); if (f) { cn = f; S0 = S1; how = 'smallest, where it covers least'; shrunk.push({ p, k, over: true }); } }
+        }
         if (!cn && S0.ph && TIDY) left.push(p); // (beta 4.8: Tidy: no free place near its pole: listed in the README)
         if (!cn && S0.ph && round === 'photo') { nNoRoom++; drop++; if (!TIDY) left.push(p); continue; } // beta 4.1: photo + number: no free place for the photo anywhere: it is left out (its number is on the plan)
         if (!cn && S0.ph) { const S1 = setup(p, true), r1 = search(S1, Infinity); if (r1.free) { commit(S1, r1.free, 'number: no room for its photo'); nNoRoom++; continue; } } // (v2.42.26: no room for its photo anywhere: its number)
@@ -3368,7 +3384,7 @@
         commit(S0, cn, how);
       }
       }
-      return { out, miss, mark, drop, left };
+      return { out, miss, mark, drop, left, shrunk };
     };
     /* beta 6.7 (the owner: "Closures sized to the street: put a red proposed closure label + arrow"): each proposed closure's PROPOSED
        CLOSURE and its ID in red, two lines as large as the IDs, after the pole labels, IDs and span lengths, before the photos, numbers, street and landmark names (which then keep off it), the
@@ -3397,7 +3413,7 @@
     // white paper the yellow could not be read
     const layCol = (n) => { const L = S.layers.get(n); return L ? Math.abs(parseInt(get(L, 62, '7'), 10) || 7) : 7; };
     const lightCol = (c) => [2, 3, 4].includes(c), shN = lightCol(nCol != null ? +nCol : layCol(nLay)), shB = lightCol(bCol != null ? +bCol : layCol(nLay)), SH = 250, so = NS.h * 0.08;
-    { const P1 = photoPl.out.filter((x) => x.ph); rep.photos = { mm: +PHMM.toFixed(1), inLabels: TIDY ? tidyCard.size : 0, onTheirOwn: P1.length, withLine: P1.filter((x) => x.lead).length, leftOut: nNoRoom }; } // beta 6.7: every photo at its size: where they went
+    { const P1 = photoPl.out.filter((x) => x.ph); rep.photos = { mm: +PHMM.toFixed(1), inLabels: TIDY ? tidyCard.size : 0, onTheirOwn: P1.length, withLine: P1.filter((x) => x.lead).length, shrunk: photoPl.shrunk.length, smallestMm: photoPl.shrunk.length ? +(PHMM * Math.min(...photoPl.shrunk.map((x) => x.k))).toFixed(1) : null, coveringLeast: photoPl.shrunk.filter((x) => x.over).length, leftOut: nNoRoom }; } // beta 6.7: every photo at its size: where they went
     for (const { p, ph, w, h, q, u, lead } of photoPl.out) {
       if (ph && havePhotos && lead) o.lwpoly(lay(photoLayer), lead, { color: 8 }); // v2.42.26: a photo further out: a thin line to its pole
       if (ph && havePhotos) {
@@ -3416,7 +3432,8 @@
       }
     }
     if (job.debug) rep.layout = { grid: { gox, goy, cell }, poles: poleOrder.map((p) => ({ id: String(p.id), E: p.E, N: p.N, dp: p.dp, td: p.td, ov: p.ov, rr: p._rr, lblFar: p.lblFar, lblDir: p.lblDir })), labels: spots.list.filter((b) => /^label/.test(b.tag || '') && b.tag !== 'label:site').map((b) => [b.cx, b.cy, b.hw, b.hh, b.ux, b.uy, b.vx, b.vy]), marks: photoPl.out.map(({ p, ph, w, h, q, u, how, lead }) => ({ lead: lead || null, id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
-    if (!TIDY && photoPl.left.length) rep.notes.push(`Photos with no room at their size (${+PHMM.toFixed(1)} mm) anywhere near their pole on their sheet (left out: the point's number is on the plan; its photo is in the folder; a smaller photo size, or Pole labels Tidy with its finer grid, fits more): ${photoPl.left.length}: ${photoPl.left.slice(0, 12).map((p) => p.poleId || p.id).join(', ')}${photoPl.left.length > 12 ? '…' : ''}`); // beta 6.7: Standard keeps every photo at its size too
+    if (photoPl.shrunk.length) { const sz = (x) => `${x.p.poleId || x.p.id} ${+(PHMM * x.k).toFixed(1)} mm${x.over ? ' (covering least)' : ''}`; rep.notes.push(`Photos drawn smaller: no place at their size (${+PHMM.toFixed(1)} mm) near their pole, nor further out with a line; the pole first, then its details, then its photo (${photoPl.shrunk.length}): ${photoPl.shrunk.slice(0, 20).map(sz).join(', ')}${photoPl.shrunk.length > 20 ? '…' : ''}`); } // beta 6.7
+    if (!TIDY && photoPl.left.length) rep.notes.push(`Photos left out (no place even at their smallest step; the point's number is on the plan; its photo is in the folder): ${photoPl.left.length}: ${photoPl.left.slice(0, 12).map((p) => p.poleId || p.id).join(', ')}${photoPl.left.length > 12 ? '…' : ''}`); // (beta 6.7: never, as far as the measures go)
     if (TIDY && photoPl.left.length) rep.notes.push(`Photos with no free place near their pole (left out: the point's number is on the plan; its photo is in the folder): ${photoPl.left.map((p) => p.poleId || p.id).join(', ')}`); // beta 4.8
     rep.photoSize = +Lp.toFixed(1); rep.photosNotFree = photoPl.miss; rep.photosAsNumber = nNoRoom; rep.markMode = markMode;
     const withPh = new Set([...photoPl.out.filter((x) => x.ph).map((x) => String(x.p.id)), ...[...tidyCard].map((p) => String(p.id))]); /* (beta 4.8: with Tidy's photos in their labels) */ /* (v2.42.26: no room for its photo: its number; beta 4.1: by the photos placed) */ rep.marks = markOrder.map((p) => [p.seq, String(p.id), withPh.has(String(p.id)) ? (markMode === 'both' ? 'photo+number' : 'photo') : 'number']); // v2.40: the numbers on the plan
