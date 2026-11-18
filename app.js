@@ -828,10 +828,10 @@
   /* ================= sheets + back button ================= */
   const stack = []; const pendingClose = [];
   let editorSaving = false;
-  function openSheet(id) {
+  function openSheet(id, reuse) {
     LOG.info('open', id);
     const el = $(id); el.hidden = false; el.style.zIndex = 1000 + stack.length;
-    stack.push(id); history.pushState({ sheet: id }, '');
+    stack.push(id); if (reuse) history.replaceState({ sheet: id }, ''); else history.pushState({ sheet: id }, ''); // (reuse: it takes the place of the photo shown full size, beta 6.7)
   }
   function closeSheet() {
     if (editorSaving && stack[stack.length - 1] === 'editor') return Promise.resolve();
@@ -864,6 +864,8 @@
     closeSheet();
   }));
   function onSheetClosed(id) {
+    if (id === 'drawing' && drwEd) drwEditSet(false); // beta 6.7: Back from the Drawing ends its Edit route
+    if (id === 'editor' && drwEd) drwEdSoon(); // beta 6.7: a tower placed on the Drawing: its record saved (or not)
     if (id === 'editor') { document.body.classList.remove('edopen'); if (typeof ppxRefresh === 'function') ppxRefresh(); } // beta 4.1
     if (id === 'dupSheet' && dupRes) { const r = dupRes; dupRes = null; r(null); } // beta 3.3: Back: decided later
     if (id === 'drwStyle' && stack.includes('planSet')) renderPlanSet(); // v2.42.28: the clamp types may have changed there
@@ -876,6 +878,7 @@
     if (id === 'camera') stopCamera();
     if (id === 'camera' && ed && ed.svStale) { ed.svStale = false; renderSvPhotos(); } // beta 5.9: the photos added with the camera open
     if (id === 'camera' && cefHooks.camClosed) cefHooks.camClosed(); // v2.44
+    if (id === 'cefPick' && cefHooks.pickClosed) cefHooks.pickClosed(); // beta 6.7: the CEF plan's photo picker
     if (id === 'cefSheet' && cefHooks.closed) cefHooks.closed();
     if (id === 'spliceSheet' && splHooks.closed) splHooks.closed(); // beta 4.6: the splicing details
     if (id === 'cefSheet' && splHooks.drawSync) splHooks.drawSync(); // (its line keeps Splicing details › after the CEF button)
@@ -937,7 +940,7 @@
   const APP_VER = '2.44.14';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '6.6'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '6.7'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -1796,7 +1799,7 @@
      the preview shows them as the DXF will (the same numbers), with each pole's arm, NAP, loop, closure and guys as small tags (a
      double check), and the NAP and closure pins tied to the pole they stand on. Fit, Labels, Map and the information line are on
      the drawing, at its lower right, as on the map; the legend at its upper left. */
-  let drw = null;
+  let drw = null, drwEd = false, drwEdWas = false, drwSiteArm = null, drwSiteWait = null; // beta 6.7: Edit route on the Drawing (on; Route was on before; a tower, OLT or ODC to place; one placed, its record open)
   const ACI_HEX = { 1: '#ff0000', 2: '#ffff00', 3: '#00ff00', 4: '#00ffff', 5: '#0000ff', 6: '#ff00ff', 7: '#ffffff' };
   const ACI_NAME = { 0: 'by layer', 1: 'red', 2: 'yellow', 3: 'green', 4: 'cyan', 5: 'blue', 6: 'magenta', 7: 'white' };
   /* beta 6.0: a colour of the user's own (Drawing style's colour picker) is kept as #rrggbb; the plan gets it as the colour itself (and its
@@ -1872,6 +1875,7 @@
   }
   function drawDrawing() {
     if (!drw || !drw.view) return;
+    if (drwEd) drw.selRun = fibAdd != null ? fibAdd : fibSel; // beta 6.7: Edit route: the cable in the bar (or lit) lit as on the map
     const cv = $('drawCanvas'), g = cv.getContext('2d'), d = window.devicePixelRatio || 1, v = drw.view;
     g.fillStyle = '#fbfbf8'; g.fillRect(0, 0, cv.width, cv.height);
     if (drwBase() !== 'off') { drawUnderlay(g); underlaySoon(); } // v2.36: the map under the drawing
@@ -1955,7 +1959,7 @@
     drw.items.forEach((it) => { if (!it.on) return; const [ax, ay] = drwPx(it.xy), [bx, by] = drwPx(it.on.xy); g.strokeStyle = 'rgba(240,140,0,0.9)'; g.lineWidth = 1.6 * d; g.setLineDash([2 * d, 3 * d]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.setLineDash([]); });
     const placed = [], near = v.sc >= 1.4 * d, ct = S.exp.dxfClampType !== false, mode = curRow().mode, NS = plStyle().num, rtaC = rtaCats(NS.rta, drw.items.map((it) => it.p)); /* (beta 6.6) */ // (v2.42.14: the drawing shown)
     const roomy = v.sc * 30 >= 26 * d; // the numbers / photos once the poles are far enough apart on screen (zoom in to see them)
-    const phK = plStyle().photo.size / 18; // (Drawing style › Photos: the photos' size, 1 at Normal)
+    const phK = phTidyMm(plStyle().photo.size) * 1.1 / 18; // (Drawing style › Photos: the photos' size, 1 at 18 m; beta 6.7: as the plan prints it, 1:1100)
     const nCol = ACI_INK[NS.color] || '#d9a400', bCol = ACI_INK[NS.bcolor] || nCol;
     const free = (bx) => !placed.some((q) => bx[0] < q[0] + q[2] && bx[0] + bx[2] > q[0] && bx[1] < q[1] + q[3] && bx[1] + bx[3] > q[1]);
     drw.items.forEach((it) => {
@@ -2033,6 +2037,7 @@
     const sb = [10, 20, 50, 100, 200, 500, 1000, 2000].find((m) => m * v.sc > 70 * d) || 2000, sx = cv.width - 26 * d - sb * v.sc, sy = 62 * d;
     g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx + sb * v.sc, sy); g.moveTo(sx, sy - 5 * d); g.lineTo(sx, sy + 5 * d); g.moveTo(sx + sb * v.sc, sy - 5 * d); g.lineTo(sx + sb * v.sc, sy + 5 * d); g.stroke();
     g.textBaseline = 'bottom'; g.fillText(sb >= 1000 ? `${sb / 1000} km` : `${sb} m`, sx + sb * v.sc / 2, sy - 4 * d);
+    if (drwEd) drwEdPaint(g, d); // beta 6.7: Edit route: the line being drawn, the handles, what is dragged
   }
   /* v2.42.24: the closure's texts and the cable labels and span lengths on the Drawing screen, where they cover nothing (the other
      labels, the IDs, numbers and tags, the blocks, the cables): as on the plan. Each cable its own label beside its own line, as large
@@ -2160,16 +2165,20 @@
     const cv = $('drawCanvas'), d = () => window.devicePixelRatio || 1;
     let last = null, moved = 0, pinch = null;
     cv.addEventListener('pointerdown', (e) => { if (!drw) return; $('drawMapMenu').hidden = true; $('drawMap').setAttribute('aria-expanded', 'false'); cv.setPointerCapture(e.pointerId); drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; moved = 0;
-      if (drw.ptrs.size === 2) { const [a, b] = [...drw.ptrs.values()]; pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), sc: drw.view.sc }; } });
+      if (drw.ptrs.size === 2) { const [a, b] = [...drw.ptrs.values()]; pinch = { dist: Math.hypot(a[0] - b[0], a[1] - b[1]), sc: drw.view.sc };
+        if (drwEd) { const r = cv.getBoundingClientRect(), m = [(a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top]; pinch.m = m; pinch.w = [drw.view.cx + (m[0] * d() - cv.width / 2) / drw.view.sc, drw.view.cy - (m[1] * d() - cv.height / 2) / drw.view.sc]; } } }); // (beta 6.7, Edit route: two fingers move and zoom it, about their middle)
     cv.addEventListener('pointermove', (e) => {
       if (!drw || !drw.ptrs.has(e.pointerId)) return; drw.ptrs.set(e.pointerId, [e.clientX, e.clientY]);
-      if (drw.ptrs.size === 2 && pinch) { const [a, b] = [...drw.ptrs.values()]; drw.view.sc = Math.max(0.01, pinch.sc * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.dist); moved = 99; drawDrawing(); return; }
+      if (drw.ptrs.size === 2 && pinch) { const [a, b] = [...drw.ptrs.values()]; drw.view.sc = Math.max(0.01, pinch.sc * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.dist); moved = 99;
+        if (pinch.w) { const r = cv.getBoundingClientRect(), m = [(a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top]; drw.view.cx = pinch.w[0] - (m[0] * d() - cv.width / 2) / drw.view.sc; drw.view.cy = pinch.w[1] + (m[1] * d() - cv.height / 2) / drw.view.sc; }
+        drawDrawing(); return; }
       const dx = e.clientX - last[0], dy = e.clientY - last[1]; last = [e.clientX, e.clientY]; moved += Math.abs(dx) + Math.abs(dy);
+      if (drwEd && (rtDrawing() || rtGrab || rtDraft || rtMpan || (e.pointerType === 'mouse' && e.buttons !== 1))) return; // beta 6.7, Edit route: ✎ one finger draws (Route's gestures, rtGest); ✋ one finger moves it
       drw.view.cx -= dx * d() / drw.view.sc; drw.view.cy += dy * d() / drw.view.sc; drawDrawing();
     });
     const up = (e) => {
       if (!drw) return; drw.ptrs.delete(e.pointerId); if (drw.ptrs.size < 2) pinch = null;
-      if (moved < 8 && e.type === 'pointerup') { // a tap: the nearest point
+      if (moved < 8 && e.type === 'pointerup' && !drwEd) { // a tap: the nearest point (beta 6.7: in Edit route, Route's tap)
         const r = cv.getBoundingClientRect(), tx = (e.clientX - r.left) * d(), ty = (e.clientY - r.top) * d();
         let best = null; drw.items.forEach((it) => { const [px, py] = drwPx(it.xy), dd = Math.hypot(px - tx, py - ty); if (dd < 24 * d() && (!best || dd < best.dd)) best = { it, dd }; });
         drw.sel = best ? best.it.p.id : null; const info = $('drawInfo');
@@ -2308,7 +2317,7 @@
     const mode = curRow().mode;
     rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[plStyle().num.bcolor] || ACI_INK[plStyle().num.color] || '#d9a400'}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[plStyle().num.color] || '#d9a400'}" font-family="system-ui,sans-serif">1</text>`), 'Number on the plan']);
     { const RT = plStyle().num.rta; if (RT.on) { const cnt = new Map(), RC = rtaCats(RT, pts.map((it) => it.p)); pts.forEach((it) => { const c = rtaCatOf(it.p, RT, RC); if (c) cnt.set(c, (cnt.get(c) || 0) + 1); }); [...RC.slice(0, 1), RTA_PROP, RTA_GT, ...RC.slice(1)].filter((c, i, A) => cnt.has(c) && A.indexOf(c) === i).forEach((c) => rows.push([sv(`<circle cx="11" cy="8" r="6" fill="#fff" stroke="${ACI_INK[c.color]}" stroke-width="1.5"/><text x="11" y="11" text-anchor="middle" font-size="8" font-weight="800" fill="${ACI_INK[c.color]}">1</text>`), `${c.text} (${cnt.get(c)})`])); } } // beta 6.5: the RTA/JPA categories on the drawing
-    if (mode !== 'num') { const Z = plStyle().photo.size; rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), (mode === 'both' ? 'Photo of the point (its number is by the point)' : 'Photo on the plan') + (Z === 18 ? '' : ` (${phName(Z).toLowerCase()}: ${Z} m)`)]); } // (Drawing style › Photos: a size other than Normal)
+    if (mode !== 'num') { const Z = plStyle().photo.size; rows.push([sv('<rect x="3" y="2.5" width="16" height="11" fill="#fff" stroke="#495057" stroke-width="1.2"/><path d="M5 12l4-5 3 3 2-2 3 4Z" fill="#868e96"/>'), (mode === 'both' ? 'Photo of the point (its number is by the point)' : 'Photo on the plan') + (Z === 18 ? '' : ` (${phName(Z).toLowerCase()}: ${phTidyMm(Z)} mm)`)]); } // (Drawing style › Photos: a size other than Normal)
     const T = [['ARM', '#7048e8', 'Arm on the pole'], ['NAP', '#f08c00', 'NAP, dummy NAP (DN) or LCP'], ['LOOP', '#e03131', 'Maintenance loop (LOOP×2: one for each of 2 fibers there)'], ['LOOP*', '#e03131', 'Maintenance loop added by the app (As-Plan)'], ['CL', '#c2255c', 'Hybrid closure'], ['G', '#1971c2', 'Guys (G2: two)'], ['GR', '#2b8a3e', 'Grounding'], ['R', '#495057', 'Riser'], ['TA', '#0c8599', 'Telco arm (electric pole)'], ['EA', '#0c8599', 'Extension arm 26" or 44.5" on the pole'], ['AA', '#0c8599', '10-pin alley arm on the pole']];
     if (drw && drw.R && drw.R.fib && drw.R.fib.list.length > 1) rows.push([sv('<path d="M1 5h20" stroke="#1c3f94" stroke-width="1.2" stroke-dasharray="4 2.5"/><path d="M1 11h20" stroke="#1c3f94" stroke-width="2.6" stroke-dasharray="4 2.5"/>'), 'Cables: each its own line in its lane, thicker for a larger size (12C thinnest, 288C thickest); its label says its size, type and run (PROPOSED 24C FIG-8 (RUN 5))']); // v2.42.20 (v2.42.23; v2.42.24: the width by size)
     if (drw && drw.blocks && [...drw.blocks.values()].some((b) => b.kind === 'dn')) rows.push([sv('<rect x="1.5" y="4" width="19" height="8" rx="3" fill="#fff" stroke="#14b81e" stroke-width="1.2"/><text x="11" y="10.4" text-anchor="middle" font-size="5.5" font-weight="800" fill="#14b81e" font-family="Arial,sans-serif">DN</text>'), 'Dummy NAP (DN) on the cable: its cables meet its sides']); // v2.42.24
@@ -2334,18 +2343,20 @@
   const PL_DEF = { num: { color: 2, bcolor: 0, h: 3, d: 7, g: 2, leader: true, place: 'auto', rta: { on: true, cats: RTA_STD, off: [], legend: 'off' } }, id: { bold: false, color: 0, h: 2.5 }, vic: { circle: 2, circleW: 7, route: 0, routeW: 16.5, area: true, zoom: true, label: 'PROJECT AREA', lh: 18 }, /* (beta 3.9: the project area shown, its label and its height) */
     clamp: { place: 'label', pos: 'auto', color: 0, h: 2, box: true, hw: true }, cab: { on: true, word: 'a', per: 3, h: 0, w: { prop: true, size: true, type: true, place: true, foc: false, run: true }, route: 'road', boxLoops: false }, /* v2.42.26: labels for each cable in a grid, their height (0: by the poles' spacing), their words; beta 6.1: a cable's line between two points follows the road (or straight) */
     site: { name: 'on', move: 'auto', arrow: true, acol: 7 }, odf: { place: 'auto', lbl: 'size' }, /* v2.42.26: the tower's name; the ODF beside the tower, its label (beta 3.8: the name on the tower; moved aside in its sheet; the arrow) */
-    crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room' },
+    crowd: { auto: true, min: 75, move: 15, leader: true, streets: 'slide', marks: 'room', icons: true }, /* beta 6.7: icons: Drawing style › Landmarks › Icons */
     pole: { idH: 0, idColor: 0, ownH: 0, ownColor: 0, llH: 0, llColor: 0, idForm: 'auto' }, span: { h: 0, color: 0 }, photo: { size: 18, near: 16, stamp: 'addr' }, grid: { split: 0, pos: 'tr', h: 0, color: 0, leaders: 'auto' } }; /* beta 6.0: Photos: near its pole within 8-40 mm on the A3 sheet; Grid: leader lines only when there is no other way (auto) or allowed */ /* beta 6.0: Grid: the split (0: Auto, 1/1 to 1/4; or the user's 1 to 6, Tidy), the sheets' names (corner, height in mm on the A3 PDF, 0: Auto; colour, 0: by layer) */ /* Photos: the long side of the photos on the plan (m; 18: Normal, as before) */ /* beta 4.3: a pole's details (its ID, its owner's name, its lat/long) and the span lengths: 0 is Auto, as before */ /* beta 3.8: labels in crowded places */ // v2.42.21: the clamp types (in the pole label, as before; or a tag or a callout) and the cable label on the spans
   /* Drawing style › Photos: the long side of every pole and point photo on the plan, in metres of the drawing where the poles stand
      25 m apart or more (closer, the plan draws them smaller, to two thirds, as before). Normal (18 m) is the size before; 6 to 40 m. */
   const PH_SIZES = [[12, 'Small'], [18, 'Normal'], [24, 'Large'], [30, 'Extra large']];
-  const phSize = (v) => (Number.isFinite(+v) && +v > 0 ? Math.min(40, Math.max(6, Math.round(+v * 2) / 2)) : 18);
+  const phSize = (v) => (Number.isFinite(+v) && +v > 0 ? Math.min(53, Math.max(6, Math.round(+v * 2) / 2)) : 18); // (beta 6.7: to 53 m, 48 mm printed)
   const phName = (m) => { const k = PH_SIZES.find(([v]) => v === m); return k ? k[1] : 'Your own size'; };
   const phMm = (m) => `${Math.round(m * 0.75 / 1.1)} × ${Math.round(m / 1.1)} mm`; // (an upright 3:4 photo at 1:1100, the GEO sheets' scale)
   const PH_STAMP = { off: 'no stamp on them', ll: 'stamped with their lat, long', addr: 'stamped with their lat, long and address' }; // beta 6.4
-  /* beta 6.4 (the owner: "settings is photo is large but the plan still is small"): Tidy prints the photos at clear steps whatever the grid:
-     Small 5 mm, Normal 6.5 mm (Tidy's size before), Large 9 mm, Extra large 13 mm on the long side; your own size in metres at 1:1100. */
-  const phTidyMm = (m) => ({ 12: 5, 18: 6.5, 24: 9, 30: 13 }[m] || Math.min(36, Math.max(4, Math.round(m / 1.1 * 10) / 10)));
+  /* beta 6.4 (the owner: "settings is photo is large but the plan still is small"): Tidy prints the photos at clear steps whatever the grid.
+     beta 6.7 (the owner: "the photo small, medium and large is not spaced enough ... i tried 300 i think that should be your large"): every
+     plan, Standard and Tidy, prints every photo at the step set, the steps well apart: Small 9 mm, Normal 18 mm, Large 36 mm (what an own
+     size of 300 gave: 40 m, the most then), Extra large 48 mm on the long side; your own size in metres at 1:1100 (6 to 53 m). */
+  const phTidyMm = (m) => ({ 12: 9, 18: 18, 24: 36, 30: 48 }[m] || Math.min(48, Math.max(4, Math.round(m / 1.1 * 10) / 10)));
   function plStyle() {
     const u = S.plStyle || {}, n = (v, lo, hi, d) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : d), c = (v, d, z) => (isHexCol(v) ? v.toLowerCase() : Number.isInteger(+v) && +v >= (z ? 0 : 1) && +v <= 7 ? +v : d); // (beta 6.0: or a colour of the user's own)
     const N = { ...PL_DEF.num, ...(u.num || {}) }, I = { ...PL_DEF.id, ...(u.id || {}) }, V = { ...PL_DEF.vic, ...(u.vic || {}) }, Cl = { ...PL_DEF.clamp, ...(u.clamp || {}) }, Cb = { ...PL_DEF.cab, ...(u.cab || {}) }, Cw = { ...PL_DEF.cab.w, ...((u.cab || {}).w || {}) }, St = { ...PL_DEF.site, ...(u.site || {}) }, Of = { ...PL_DEF.odf, ...(u.odf || {}) }, Cr = { ...PL_DEF.crowd, ...(u.crowd || {}) }, Po = { ...PL_DEF.pole, ...(u.pole || {}) }, Sp = { ...PL_DEF.span, ...(u.span || {}) }, Ph = { ...PL_DEF.photo, ...(u.photo || {}) }, Gr = { ...PL_DEF.grid, ...(u.grid || {}) }, hz = (v, lo, hi) => (+v ? n(v, lo, hi, 0) : 0);
@@ -2355,7 +2366,7 @@
       clamp: { place: ['label', 'tag', 'callout'].includes(Cl.place) ? Cl.place : 'label', pos: ['auto', 'up', 'down', 'left', 'right'].includes(Cl.pos) ? Cl.pos : 'auto', color: c(Cl.color, 0, true), h: n(Cl.h, 1, 5, 2), box: Cl.box !== false, hw: Cl.hw !== false },
       cab: { on: Cb.on !== false, word: Cb.word === 'b' ? 'b' : 'a', per: [1, 2, 3].includes(+Cb.per) ? +Cb.per : 3, h: +Cb.h ? n(Cb.h, 0.8, 3, 0) : 0, w: Object.fromEntries(Object.keys(PL_DEF.cab.w).map((k) => [k, !!Cw[k]])), route: Cb.route === 'straight' ? 'straight' : 'road', boxLoops: Cb.boxLoops === true },
       site: { name: ['on', 'top', 'side', 'bottom'].includes(St.name) ? St.name : 'on', move: St.move === 'point' ? 'point' : 'auto', arrow: St.arrow !== false, acol: c(St.acol, 7, true) }, /* (beta 3.8: Auto is now On the tower) */
-      crowd: { auto: Cr.auto !== false, min: n(Cr.min, 50, 100, 75), move: n(Cr.move, 4, 30, 15), leader: Cr.leader !== false, streets: Cr.streets === 'fixed' ? 'fixed' : 'slide', marks: ['room', 'always', 'hide'].includes(Cr.marks) ? Cr.marks : 'room' }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' },
+      crowd: { auto: Cr.auto !== false, min: n(Cr.min, 50, 100, 75), move: n(Cr.move, 4, 30, 15), leader: Cr.leader !== false, streets: Cr.streets === 'fixed' ? 'fixed' : 'slide', marks: ['room', 'always', 'hide'].includes(Cr.marks) ? Cr.marks : 'room', icons: Cr.icons !== false }, odf: { place: ['auto', 'left', 'right', 'below'].includes(Of.place) ? Of.place : 'auto', lbl: ['id', 'size', 'conn'].includes(Of.lbl) ? Of.lbl : 'size' },
       pole: { idH: hz(Po.idH, 1, 5), idColor: c(Po.idColor, 0, true), ownH: hz(Po.ownH, 1, 5), ownColor: c(Po.ownColor, 0, true), llH: hz(Po.llH, 0.6, 3), llColor: c(Po.llColor, 0, true), idForm: ['stack', 'line'].includes(Po.idForm) ? Po.idForm : 'auto' }, span: { h: hz(Sp.h, 1, 4), color: c(Sp.color, 0, true) }, photo: { size: phSize(Ph.size), near: n(Ph.near, 8, 40, 16), stamp: ['off', 'll', 'addr'].includes(Ph.stamp) ? Ph.stamp : 'addr' }, /* (beta 6.4: the stamp on the plan's photos) */
       grid: { split: Number.isInteger(+Gr.split) && +Gr.split >= 1 && +Gr.split <= 6 ? +Gr.split : 0, pos: ['tr', 'tl', 'br', 'bl'].includes(Gr.pos) ? Gr.pos : 'tr', h: hz(Gr.h, 4, 30), color: c(Gr.color, 0, true), leaders: Gr.leaders === 'allow' ? 'allow' : 'auto' } }; // beta 6.0 (beta 6.0: leaders)
   }
@@ -2380,7 +2391,7 @@
   function renderRta(P, seg, o) {
     const R = P.num.rta, box = $('stRtaList'); if (!box) return;
     seg('stRtaOn', R.on ? '1' : '0'); $('stRtaRow').classList.toggle('dim', !R.on); seg('stRtaLeg', R.legend);
-    o('stRtaHint', R.on ? 'Each pole’s number and its circle in its category’s colour: a proposed or new pole red; an existing pole by its pole owner (the pole form); every other owner of the project gets a category and a colour of its own; Globe’s own poles red (proposed) or blue (existing), always. Poles with no owner and the other points: the Number colour below. The PMI counts the same poles in its RTA rows, a row added for each other owner.' : 'Off: every number in the Number colour below, as before.');
+    o('stRtaHint', R.on ? 'Each pole’s number and its circle in its category’s colour: a proposed or new pole red; an existing pole by its pole owner (the pole form); every other owner of the project gets a category and a colour of its own; Globe’s own poles (GT, Bayantel) red (proposed) or blue (existing), always. Poles with no owner and the other points: the Number colour below. The PMI counts the same poles in its RTA rows, a row added for each other owner.' : 'Off: every number in the Number colour below, as before.');
     const cats = rtaCats(R, typeof projPoints === 'function' ? projPoints() : []);
     box.innerHTML = '';
     cats.forEach((c) => { const i = R.cats.indexOf(c), row = document.createElement('div'); row.className = 'rtacat';
@@ -2395,7 +2406,7 @@
       if (c.k === 'proposed') { const lk = document.createElement('div'); lk.className = 'rtalock hint'; lk.textContent = 'Red, as the legend’s proposed colour 🔒'; row.appendChild(lk); }
       else { const sw = document.createElement('div'); sw.className = 'sws'; sw.setAttribute('role', 'radiogroup'); sw.setAttribute('aria-label', `Colour of ${c.text}`); rtaSws(sw, c.color, (k) => keep({ color: k })); row.appendChild(sw); }
       box.appendChild(row); });
-    { const g = document.createElement('div'); g.className = 'rtacat rtafix'; g.innerHTML = `<span>${rtaSvg(5)}</span><div><b>EXISTING POLES</b></div><span></span><div class="rtaown">Globe’s own poles, existing: the legend’s blue; proposed or new ones red. Always (no RTA) 🔒</div>`; box.appendChild(g); }
+    { const g = document.createElement('div'); g.className = 'rtacat rtafix'; g.innerHTML = `<span>${rtaSvg(5)}</span><div><b>EXISTING POLES</b></div><span></span><div class="rtaown">Globe’s own poles (GT, Bayantel), existing: the legend’s blue; proposed or new ones red. Always (no RTA) 🔒</div>`; box.appendChild(g); }
     if (R.off.length) { const h = document.createElement('p'); h.className = 'hint'; h.style.margin = '0'; h.textContent = `Not coloured: ${R.off.join(', ')} (removed). + Add category brings one back.`; box.appendChild(h); }
     if (!$('stRtaNew').hidden) { const pick = (k) => { rtaNewCol = k; rtaSws($('stRtaNewCol'), rtaNewCol, pick); }; pick(rtaNewCol); }
   }
@@ -2441,7 +2452,7 @@
     seg('stVicZoom', V.zoom ? '1' : '0'); seg('stVicArea', V.area ? '1' : '0'); if (document.activeElement !== $('stVicLbl')) $('stVicLbl').value = V.label; if (document.activeElement !== $('stVicLh')) $('stVicLh').value = String(V.lh); o('stVicLhO', `${V.lh} m`); // beta 3.9
     $('drwStyle').querySelectorAll('[data-dim="vicarea"]').forEach((r) => r.classList.toggle('dim', !V.area));
     seg('stCabPer', String(P.cab.per)); seg('stSiteName', P.site.name); seg('stOdfPlace', P.odf.place); seg('stOdfLbl', P.odf.lbl); // v2.42.26
-    seg('stCrowdAuto', P.crowd.auto ? '1' : '0'); seg('stCrowdLeader', P.crowd.leader ? '1' : '0'); seg('stCrowdStreets', P.crowd.streets); seg('stCrowdMarks', P.crowd.marks); // beta 3.8
+    seg('stCrowdAuto', P.crowd.auto ? '1' : '0'); seg('stCrowdLeader', P.crowd.leader ? '1' : '0'); seg('stCrowdStreets', P.crowd.streets); seg('stCrowdMarks', P.crowd.marks); seg('stLmIcons', P.crowd.icons ? '1' : '0'); /* beta 6.7 */ // beta 3.8
     seg('stSiteMove', P.site.move); seg('stSiteArrow', P.site.arrow ? '1' : '0'); sw('stSiteACol', P.site.acol, 'As the tower', 'site', 'acol');
     [['stCrowdMin', P.crowd.min], ['stCrowdMove', P.crowd.move]].forEach(([id, v]) => { if (document.activeElement !== $(id)) $(id).value = String(v); });
     o('stCrowdMinO', `${P.crowd.min} % of the size you set`); o('stCrowdMoveO', `${P.crowd.move} m · ${mmOf(P.crowd.move)} mm`);
@@ -2457,10 +2468,10 @@
     { const Z = P.photo.size; // Drawing style › Photos
       $('stPhSize').querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === Z)));
       if (document.activeElement !== $('stPhL')) $('stPhL').value = String(Z);
-      o('stPhO', S.exp.dxfLabels === 'tidy' ? `${phName(Z)} · ${phTidyMm(Z)} mm printed (Tidy)` : `${phName(Z)} · ${Z} m`); // (beta 6.4)
+      o('stPhO', `${phName(Z)} · ${phTidyMm(Z)} mm printed`); // (beta 6.4; beta 6.7: Standard too)
       { const nm = P.photo.near; if (document.activeElement !== $('stPhNear')) $('stPhNear').value = String(nm); o('stPhNearO', `${nm} mm on the A3 sheet: about ${[1, 2, 3, 4].map((k) => `${Math.round(nm / 0.6135 / k)} m at 1/${k}`).join(', ')}`); } // beta 6.0: a photo is near its pole within this (its centre), at the company template's scale
-      seg('stPhStamp', P.photo.stamp); { const mm = S.exp.dxfLabels === 'tidy' ? phTidyMm(Z) : Z / 1.1, fsMm = Math.min(2.2, mm * 0.75 * 0.93 / 9, mm * 0.1); o('stPhStampO', P.photo.stamp === 'off' ? 'Off' : `text about ${fsMm.toFixed(1)} mm high on the sheet`); } // beta 6.4 (an upright photo: the coordinates across its width)
-      o('stPhHint', S.exp.dxfLabels === 'tidy' ? `Pole labels Tidy: each photo is printed ${phTidyMm(Z)} mm on its long side on the A3 sheet, at any grid split (Small 5, Normal 6.5, Large 9, Extra large 13 mm; your own size in metres at 1:1100). It stands beside the pole details, which keep the place nearest their pole: where the photo has no free place near the pole at its size it is drawn a quarter smaller, else on its own near the pole (listed in the README); bigger photos may make Auto choose a finer grid.` : `Each photo is ${Z} m on its long side on the drawing: about ${phMm(Z)} on the A3 sheet (1:1100). The same for every pole and point photo. Where the poles stand closer than 25 m the plan draws them smaller (down to ${+(Z * 2 / 3).toFixed(1)} m) so they fit; a photo with no room beside its point goes further out, with a thin line to it.`); } // (beta 6.4: as Tidy uses it)
+      seg('stPhStamp', P.photo.stamp); { const mm = phTidyMm(Z), /* (beta 6.7) */ fsMm = Math.min(2.2, mm * 0.75 * 0.93 / 9, mm * 0.1); o('stPhStampO', P.photo.stamp === 'off' ? 'Off' : `text about ${fsMm.toFixed(1)} mm high on the sheet`); } // beta 6.4 (an upright photo: the coordinates across its width)
+      o('stPhHint', `Every photo on the plan is printed ${phTidyMm(Z)} mm on its long side on the A3 sheet (Small 9, Normal 18, Large 36, Extra large 48 mm; your own size in metres at 1:1100), the same for every pole and point. Where a photo has no free place near its pole it goes where there is room, with a thin line to its pole; only where there is no place at all is that photo drawn smaller, as little as it needs (listed in the README), never left out. The pole comes first, then its details and number, then its photo.${S.exp.dxfLabels === 'tidy' ? ' Pole labels Tidy: at any grid split; bigger photos may make Auto choose a finer grid.' : ` Standard: ${(phTidyMm(Z) * 1.1).toFixed(0)} m on the drawing (1:1100).`}`); } // (beta 6.7: one size for all, a line where needed)
     o('stSum', plSummary());
     DSP.render(P); drawVicPreview(P); // (beta 3.8: the scene the user works on)
     if (drw && !$('drawing').hidden) { drawDrawing(); renderDrawLegend(); }
@@ -2488,7 +2499,7 @@
   [['stClPlace', 'clamp', 'place', (v) => v], ['stClPos', 'clamp', 'pos', (v) => v], ['stClBox', 'clamp', 'box', (v) => v === '1'], ['stClHw', 'clamp', 'hw', (v) => v === '1'], ['stCabOn', 'cab', 'on', (v) => v === '1'], ['stCabRoute', 'cab', 'route', (v) => v]]
     .forEach(([id, part, key, val]) => $(id).addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl(part, key, val(b.dataset.v)); })); // v2.42.21
   [['stCabPer', 'cab', 'per', (v) => +v], ['stSiteName', 'site', 'name', (v) => v], ['stOdfPlace', 'odf', 'place', (v) => v], ['stOdfLbl', 'odf', 'lbl', (v) => v], // v2.42.26
-    ['stCrowdAuto', 'crowd', 'auto', (v) => v === '1'], ['stCrowdLeader', 'crowd', 'leader', (v) => v === '1'], ['stCrowdStreets', 'crowd', 'streets', (v) => v], ['stCrowdMarks', 'crowd', 'marks', (v) => v], // beta 3.8
+    ['stCrowdAuto', 'crowd', 'auto', (v) => v === '1'], ['stCrowdLeader', 'crowd', 'leader', (v) => v === '1'], ['stCrowdStreets', 'crowd', 'streets', (v) => v], ['stCrowdMarks', 'crowd', 'marks', (v) => v], ['stLmIcons', 'crowd', 'icons', (v) => v === '1'], // beta 3.8 (beta 6.7: the landmarks' icons)
     ['stSiteMove', 'site', 'move', (v) => v], ['stSiteArrow', 'site', 'arrow', (v) => v === '1']]
     .forEach(([id, part, key, val]) => $(id).addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl(part, key, val(b.dataset.v)); }));
   $('stPoleIdForm').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('pole', 'idForm', b.dataset.v); }); // beta 6.2: the pole's ID in the Tidy block
@@ -2506,7 +2517,7 @@
   $('stGridLead').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) setPl('grid', 'leaders', b.dataset.v); }); // beta 6.0: leader lines
   $('stPhNear').addEventListener('input', () => setPl('photo', 'near', +$('stPhNear').value)); // beta 6.0: a photo's distance from its pole
   $('stGridH').addEventListener('input', () => setPl('grid', 'h', +$('stGridH').value)); $('stGridHAuto').addEventListener('click', () => setPl('grid', 'h', 0)); // (its height, mm on the A3 sheet)
-  $('stPhL').addEventListener('change', () => { const v = +$('stPhL').value; if (v > 0) setPl('photo', 'size', phSize(v)); $('stPhL').value = String(plStyle().photo.size); }); // (kept to 6–40 m)
+  $('stPhL').addEventListener('change', () => { const v = +$('stPhL').value; if (v > 0) setPl('photo', 'size', phSize(v)); $('stPhL').value = String(plStyle().photo.size); }); // (kept to 6–53 m, beta 6.7)
   /** The vicinity preview: a map 1.5 km across (1 unit = 25 m), the route on its white band and the PROJECT AREA circle. */
   /** beta 6.1: Drawing style › Cables between points: a small picture of a curving road with a pole, two handholes and a service box
       along it, the cable drawn as the setting says (following the road at its side of it, or straight from point to point). */
@@ -2667,7 +2678,7 @@
     function scStreet(P, C) {
       const sc = { vb: [0, 0, 120, 70], bounds: { x0: 0.5, y0: 0.5, x1: 119.5, y1: 62 }, under: [], over: [], labels: [], obst: [] }, yTop = 44, yBot = 51, yc = 45.4;
       const poles = [{ k: 1, x: 20, y: 41.5, pre: 'CC', id: '4303175', cl: 'CA 8-9', ll: '7.163334°  125.573313°' }, { k: 2, x: 60, y: 40.3, pre: 'CC', id: '4303168', hw: 'RET×2 SC×4', ll: '7.164334°  125.574313°' }, { k: 3, x: 100, y: 41.5, pre: 'CC', id: '4303161', cl: '2A 10-12', own: 'DLPC', ll: '7.165334°  125.575313°' }]; // (beta 4.3: one pole with its owner's name)
-      sc.under.push((g, pal) => { line(g, [[0, yTop], [120, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [120, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [120, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 66); });
+      sc.under.push((g, pal) => { line(g, [[0, yTop], [120, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [120, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [120, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5', 'data-st': 'route' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 66); });
       sc.obst.push(...segBoxes([0, yc], [120, yc], 0.3), bx(60, yc, 9.8, 3.8), ...poles.map((p) => bx(p.x, p.y, 2.6, 2.6)));
       poles.forEach((p) => sc.labels.push(...poleLabels(P, p)));
       sc.labels.push(idL(P, 'nap', 'NAP-0001', 60, yc, 2.2));
@@ -2680,9 +2691,9 @@
        set, the poles 40 m apart (the plan draws the photos that size where the poles stand 25 m apart or more); no room there: further out,
        with a thin line to its pole */
     function scPhoto(P, C) {
-      const L = P.photo.size, W = L * 0.75, sc = { vb: [0, 0, 132, 88], bounds: { x0: 0.5, y0: 0.5, x1: 131.5, y1: 80 }, under: [], over: [], labels: [], obst: [] }, yTop = 62, yBot = 69, yc = 63.4;
+      const L = phTidyMm(P.photo.size) * 1.1, /* (beta 6.7) */ W = L * 0.75, sc = { vb: [0, 0, 132, 88], bounds: { x0: 0.5, y0: 0.5, x1: 131.5, y1: 80 }, under: [], over: [], labels: [], obst: [] }, yTop = 62, yBot = 69, yc = 63.4;
       const poles = [{ k: 1, x: 20, y: 59.5, pre: 'CC', id: '4303175', cl: 'CA 8-9', ll: '7.163334°  125.573313°' }, { k: 2, x: 60, y: 58.3, pre: 'CC', id: '4303168', hw: 'RET×2 SC×4', ll: '7.164334°  125.574313°' }, { k: 3, x: 100, y: 59.5, pre: 'CC', id: '4303161', cl: '2A 10-12', own: 'DLPC', ll: '7.165334°  125.575313°' }];
-      sc.under.push((g, pal) => { line(g, [[0, yTop], [132, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [132, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [132, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 84); });
+      sc.under.push((g, pal) => { line(g, [[0, yTop], [132, yTop]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yBot], [132, yBot]], { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [[0, yc], [132, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5', 'data-st': 'route' }); napSym(g, pal, 60, yc); poles.forEach((p) => poleSym(g, pal, p.x, p.y)); scaleBar(g, pal, 84); });
       sc.obst.push(...segBoxes([0, yc], [132, yc], 0.3), bx(60, yc, 9.8, 3.8), ...poles.map((p) => bx(p.x, p.y, 2.6, 2.6)));
       poles.forEach((p) => {
         sc.labels.push(...poleLabels(P, p).filter((l) => l.st !== 'num')); // (a pole with a photo has no number beside it)
@@ -2709,7 +2720,7 @@
         .map(([k, x, y, id, cl], i) => ({ k, x, y, pre: 'CC', id, cl, ll: `7.061${21 + i}° 125.604${32 + i * 8}°` }));
       sc.under.push((g, pal) => {
         [[[0, 54], [74, 54]], [[82, 54], [120, 54]], [[0, 62], [120, 62]], [[74, 0], [74, 54]], [[82, 0], [82, 54]]].forEach((p) => line(g, p, { stroke: pal.road, 'stroke-width': 0.15 }));
-        line(g, [[0, yc], [xc, yc], [xc, 0]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' }); line(g, [[xc, yc], [120, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5' });
+        line(g, [[0, yc], [xc, yc], [xc, 0]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5', 'data-st': 'route' }); line(g, [[xc, yc], [120, yc]], { stroke: pal[1], 'stroke-width': 0.5, 'stroke-dasharray': '3 1.5', 'data-st': 'route' });
         napSym(g, pal, 56, yc); cloSym(g, pal, 67, yc, 1.8);
         mk(g, 'path', { d: 'M45.4 45.6h3.2v-2.3l-1.6-1.4-1.6 1.4z', fill: 'none', stroke: pal.grey, 'stroke-width': 0.3 }); mk(g, 'path', { d: 'M86 43.6v4.2M84.5 45h3', stroke: pal.grey, 'stroke-width': 0.45 });
         poles.forEach((p) => poleSym(g, pal, p.x, p.y)); });
@@ -2728,7 +2739,7 @@
     /* the tower site: its point at TS, the sheet's edge (R-12 / R-13) at y 104 */
     const TS = [50.6, 96], SHEETY = 104, TP = [{ k: 1, x: 30.2, y: 9.5, pre: 'CC', id: '4303122', cl: 'CA 8-9', ll: '7.10358° 125.61750°' }, { k: 2, x: 32.2, y: 50, id: 'GT-0207', cl: 'CA 8-9', ll: '7.10339° 125.61796°' }, { k: 3, x: 34.2, y: 88, pre: 'CC', id: '4303106', cl: 'CA 10-12', own: 'DLPC', ll: '7.10304° 125.61815°' }];
     const TPH = [[6, 20, 14, 17], [8, 56, 14, 17], [10, 82, 14, 17], [88, 74, 14, 17]], TCAB = [[0, 10.5], [30.2, 9.5], [32.2, 50], [34.2, 88], TS];
-    const tphOf = (P) => { const f = P.photo.size / 18; if (f === 1) return TPH; let y1 = -1e9; // (Photos: at the size set, each on its side of the cable, kept apart)
+    const tphOf = (P) => { const f = phTidyMm(P.photo.size) / 18; /* (beta 6.7: as printed, 1 at Normal) */ if (f === 1) return TPH; let y1 = -1e9; // (Photos: at the size set, each on its side of the cable, kept apart)
       return TPH.map(([x, y, w, h], i) => { const W = w * f, H = h * f, left = x < 50, y0 = left && i ? Math.max(y + h / 2 - H / 2, y1 + 1.5) : y + h / 2 - H / 2; if (left) y1 = y0 + H; return [left ? x + w - W : x, y0, W, H]; }); };
     const roadL = (y) => 34 + 0.05 * y, roadR = (y) => 42 + 0.05 * y;
     function placeTower(point, PH) {
@@ -2779,7 +2790,7 @@
       const sc = { vb: [0, 30, 120, 82], bounds: { x0: 1, y0: 1, x1: 119, y1: SHEETY - 2 }, under: [], over: [], labels: [], obst: [] };
       sc.under.push((g, pal) => {
         line(g, [0, 160].map((y) => [roadL(y), y]), { stroke: pal.road, 'stroke-width': 0.15 }); line(g, [0, 160].map((y) => [roadR(y), y]), { stroke: pal.road, 'stroke-width': 0.15 });
-        line(g, TCAB, { stroke: pal[1], 'stroke-width': 0.55, 'stroke-dasharray': '3 1.5' });
+        line(g, TCAB, { stroke: pal[1], 'stroke-width': 0.55, 'stroke-dasharray': '3 1.5', 'data-st': 'route' });
         PH.forEach(([x, y, w, h]) => photoSym(g, pal, x, y, w, h));
         cloSym(g, pal, 36.5, 89.8, 2.1); TP.forEach((p) => poleSym(g, pal, p.x, p.y));
         mk(g, 'line', { x1: 0, y1: SHEETY, x2: 150, y2: SHEETY, stroke: pal[6], 'stroke-width': 0.35, 'stroke-dasharray': '2.4 1.4' });
@@ -2841,7 +2852,7 @@
       const a = document.createElement('span'); a.textContent = `${NAMES[scene]} · `; const b = document.createElement('span');
       if (!r) b.textContent = scene === 'grid' ? `the sheet\u2019s name ${{ tr: 'top right', tl: 'top left', br: 'bottom right', bl: 'bottom left' }[P.grid.pos]}, the details over it` : 'the route and the project area';
       else { b.className = `ov ${r.clashes ? 'bad' : 'good'}`; b.textContent = r.clashes ? `${r.clashes} label${r.clashes > 1 ? 's' : ''} overlap` : 'nothing overlaps'; }
-      cap.append(a, b); if (scene === 'photo') cap.append(` · ${P.photo.size} m photos`); if (r && r.skipped) cap.append(` · ${r.skipped} landmark name${r.skipped > 1 ? 's' : ''} left out (no room)`);
+      cap.append(a, b); if (scene === 'photo') cap.append(` · ${phTidyMm(P.photo.size)} mm photos`); if (r && r.skipped) cap.append(` · ${r.skipped} landmark name${r.skipped > 1 ? 's' : ''} left out (no room)`);
       svg.setAttribute('aria-label', `Preview: ${NAMES[scene]}. ${b.textContent}.`);
       last = { scene, clashes: r ? r.clashes : 0, skipped: r ? r.skipped : 0, ids: r ? r.ids : [] };
       markPicked();
@@ -2849,8 +2860,8 @@
     /* beta 4.3 (MarkT): a label of the preview is tapped: the settings that are its own come into view and are marked, and the label is framed.
        ST: the label's kind -> the rows (or the whole group) of its settings. */
     const ST = { num: ['stNum'], pid: ['stPoleIdH', 'stPoleIdCol'], pown: ['stPoleOwnH', 'stPoleOwnCol'], pll: ['stPoleLlH', 'stPoleLlCol'], span: ['stSpanH', 'stSpanCol'], clamp: ['stClOn', 'stClPlace', 'stClPos', 'stClCol', 'stClH', 'stClBox', 'stClHw'], id: ['stId'],
-      cab: ['stCabOn', 'stCabPer', 'stCabH', 'stCabW'], street: ['stCrowdStreets'], mark: ['stCrowdMarks'], photo: ['stPh'] };
-    const ST_NAME = { num: 'the numbers beside the points', pid: 'the pole ID', pown: 'the owner\u2019s name', pll: 'the lat/long', span: 'the span lengths', clamp: 'the clamp types', id: 'the IDs of NAPs, closures and boxes', cab: 'the cable labels', street: 'the street names', mark: 'the landmark names', photo: 'the photos' };
+      cab: ['stCabOn', 'stCabPer', 'stCabH', 'stCabW'], street: ['stCrowdStreets'], mark: ['stCrowdMarks', 'stLmIcons'], photo: ['stPh'], route: ['stCabRoute', 'stCabOn', 'stCabPer', 'stCabH', 'stCabW'] }; // (beta 6.7: route, the cable itself)
+    const ST_NAME = { num: 'the numbers beside the points', pid: 'the pole ID', pown: 'the owner\u2019s name', pll: 'the lat/long', span: 'the span lengths', clamp: 'the clamp types', id: 'the IDs of NAPs, closures and boxes', cab: 'the cable labels', street: 'the street names', mark: 'the landmarks', photo: 'the photos', route: 'the fiber cable: how it runs between points, and its labels' };
     let picked = null, pickT = 0;
     const rowsOf = (key) => (ST[key] || []).map((id) => { const el = $(id); return el ? (el.classList.contains('stgrp') ? el : el.closest('.strow')) : null; }).filter(Boolean);
     function markPicked() {
@@ -3423,6 +3434,7 @@
     }
     if (routeMode) { updateRouteBar(R); const by = new Map(projPoints().map((p) => [p.id, p])); if (rtTools) routeAdvice(R).forEach((a) => { const p = by.get(a.id); if (p) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 17, color: a.kind === 'flag' ? '#c92a2a' : '#e8590c', weight: 2.5, dashArray: '5 4', fill: false, interactive: false }).addTo(routeLayer); }); }
     if (typeof declutterSoon === 'function') declutterSoon(); // v2.28
+    if (drwEd) drwEdSoon(); // beta 6.7: Edit route on the Drawing: the Drawing drawn anew (the route or a record changed), or again
     return R;
   }
   /** v2.42.26: the cable on a span nearest a tap (its lane, 6 px apart as drawn); null on a span with no cable. */
@@ -3839,7 +3851,8 @@
       if (at.length) {
         const h = document.createElement('span'); h.className = 'lbl'; h.textContent = `SPANS AT ${String(sel.poleId || '').toUpperCase()} · TAP ONE FOR ITS ${R.fib && R.fib.list.length ? 'CABLES' : 'RUNS'}`; box.appendChild(h);
         at.forEach((s) => { const o = s.ia === sel.id ? s.b : s.a, n = (s.runs || []).length, b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm'; b.dataset.a = s.ia; b.dataset.b = s.ib;
-          b.textContent = `→ ${o.poleId || '(no ID)'} · ${fmtLen(s.len)} · ${s.lanes && s.lanes.length ? s.lanes.slice().sort((x, y) => x.n - y.n).map(fibTag).join(' ') : `${CAB[s.cable] ? CAB[s.cable].short : 'cable not set'}${n > 1 ? ` · ${n} runs` : ''}`}`; box.appendChild(b); });
+          const u = ugSpanOf(s.ia, s.ib), um = u ? (u.m === 'hdd' ? 'HDD' : UG_METHODS.find(([k]) => k === u.m)[1]) : ''; if (u) b.classList.add('ug'); // (beta 6.7: a UG span's way: its own, or as its RUN)
+          b.textContent = `→ ${o.poleId || '(no ID)'} · ${fmtLen(s.len)} · ${s.lanes && s.lanes.length ? s.lanes.slice().sort((x, y) => x.n - y.n).map(fibTag).join(' ') : `${CAB[s.cable] ? CAB[s.cable].short : 'cable not set'}${n > 1 ? ` · ${n} runs` : ''}`}${u ? ` · ${u.own ? `${um} (this span)` : `as the RUN (${um})`}` : ''}`; box.appendChild(b); });
       }
     }
     $('rbUndo').disabled = !routeUndo.length;
@@ -3869,7 +3882,7 @@
     box.innerHTML = head + `<div class="cl-head"><span class="lbl">CABLES · ${all.length}</span>${busy ? '' : `<button class="btn sm primary" type="button" data-cc="new">＋ New cable${sel ? ` from ${hEsc(sel.poleId || '')}` : ''}</button>`}</div>` // v2.42.24: one list of cables
       + (all.length ? '' : '<p class="rb-hint">No cable yet. ＋ New cable: pick its type, then draw it on the map or follow the capture order.</p>')
       + all.map((f) => { const fi = info.get(f.n) || { len: 0 }, a0 = f.path.length ? fibName(f.path[0]) : '', z0 = f.path.length > 1 ? fibName(f.path[f.path.length - 1]) : '';
-        return `<div class="ccard${fibAdd === f.n ? ' on' : ''}${fibSel === f.n ? ' sel' : ''}" data-n="${f.n}"><div class="cc-t"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i><b>RUN ${f.n}</b><span>${hEsc(fibCabName(f))}</span></div>`
+        return `<div class="ccard${fibAdd === f.n ? ' on' : ''}${fibSel === f.n ? ' sel' : ''}" data-n="${f.n}"><div class="cc-t"><i class="${f.ex ? 'ex' : ''}" style="background:${fibColor(f)};color:${fibColor(f)}"></i><b>RUN ${f.n}</b><span>${hEsc(fibCabName(f))}${!f.ex && isUG(f.cab) ? ` · ${hEsc(UG_METHODS.find(([k]) => k === ugOf(f).m)[1])}` : ''}</span></div>`
           + `<div class="cc-m">${fmtLen(fi.len || 0)} · ${a0 ? `${hEsc(a0)} → ${hEsc(z0 || '…')}` : 'no points yet'}${fibAdd === f.n ? ' · <b>in the bar</b>' : ''}</div>`
           + `<div class="cc-a">${busy ? '' : `<button class="btn sm primary" type="button" data-cc="cont" data-n="${f.n}">Continue</button>${cabSel(f)}`}<button class="btn sm" type="button" data-cc="det" data-n="${f.n}" aria-pressed="${fibSel === f.n}">Details</button>${busy ? '' : `<button class="btn sm danger" type="button" data-cc="del" data-n="${f.n}">${rtDelArm === f.n ? 'Tap again to delete' : 'Delete'}</button>`}</div></div>`; }).join('');
     box.hidden = false;
@@ -3886,6 +3899,8 @@
       + (shares.length ? `<p class="rb-hint">Shares ${shares.join('; ')}</p>` : '') + (f.ex ? '<p class="rb-hint">An existing cable: drawn on the plan (dashed), not in the BOQ, the cable lengths, the loops or the hardware.</p>' : '')
       + `<div class="rf-row"><select data-fa="cab" aria-label="Cable of RUN ${f.n}">${cabOpts}</select><select data-fa="side" aria-label="Side of RUN ${f.n} (auto: as on the plan)" title="Auto: as on the plan (the leg ending furthest east is right)"><option value="auto"${!f.side || f.side === 'auto' ? ' selected' : ''}>Side: auto</option><option value="right"${f.side === 'right' ? ' selected' : ''}>Right</option><option value="left"${f.side === 'left' ? ' selected' : ''}>Left</option><option value="none"${f.side === 'none' ? ' selected' : ''}>No side</option></select>`
       + `<select data-fa="ex" aria-label="New or existing cable"><option value="0"${f.ex ? '' : ' selected'}>New</option><option value="1"${f.ex ? ' selected' : ''}>Existing (drawn only)</option></select>${f.ex ? `<select data-fa="cores" aria-label="Size of the existing cable">${[...new Set([...EX_SIZES, exCores(f)])].sort((a, b) => a - b).map((c) => `<option value="${c}"${c === exCores(f) ? ' selected' : ''}>${c}C</option>`).join('')}</select>` : ''}</div>`
+      + (!f.ex && isUG(f.cab) ? (() => { const own = f.path.slice(1).map((b, i) => [f.path[i], b]).filter(([a, b]) => { const x = ugSpanOf(a, b, all); return x && x.own && x.n === f.n; }); return own.length ? `<p class="rb-hint">${own.length} span${own.length > 1 ? 's' : ''} laid otherwise (set on the span): ${own.map(([a, b]) => `${hEsc(fibName(a))} → ${hEsc(fibName(b))}`).join(', ')}.</p>` : ''; })() : '') // beta 6.7
+      + (!f.ex && isUG(f.cab) ? (() => { const u = ugOf(f), d = ugDefM(f.cab); return `<div class="rf-row"><select data-fa="ugm" aria-label="How RUN ${f.n} is laid">${UG_METHODS.map(([k, , l]) => `<option value="${k}"${u.m === k ? ' selected' : ''}>${hEsc(l)}${k === d ? ' (default)' : ''}</option>`).join('')}</select><select data-fa="cd" aria-label="Conduit of RUN ${f.n}">${[1, 2].flatMap((r) => UG_CDS.map((c) => `<option value="${r}x${c}"${u.cr === r && u.cd === c ? ' selected' : ''}>${r} run${r > 1 ? 's' : ''} · ${c} mm</option>`)).join('')}</select></div>`; })() : '') // beta 6.7
       + `<div class="rf-btns"><button class="btn sm${adding ? '' : ' primary'}" type="button" data-fa="add">${adding ? '✓ Finish' : 'Continue'}</button><button class="btn sm" type="button" data-fa="rev"${f.path.length > 1 ? '' : ' disabled'}>Reverse</button></div>`; // (v2.42.24: Delete in the list, with its spans)
     card.hidden = false;
   }
@@ -3942,7 +3957,7 @@
   $('rbFib').addEventListener('change', (e) => {
     const t = e.target, k = t.dataset.fa; if (!k || fibSel == null) return;
     setFiber(fibSel, (f, F) => {
-      if (k === 'cab') f.cab = t.value; else if (k === 'cores') f.cores = +t.value || 12; else if (k === 'side') f.side = t.value; /* (v2.42.21: an existing cable's size) */ else if (k === 'fromSt') f.fromSt = t.value; else if (k === 'toSt') f.toSt = t.value;
+      if (k === 'cab') { if (ugDefM(t.value) !== ugDefM(f.cab)) delete f.ugm; f.cab = t.value; } else if (k === 'ugm') f.ugm = t.value; else if (k === 'cd') { const [r, c] = t.value.split('x'); f.cdr = +r === 1 ? 1 : 2; f.cd = c; } /* (beta 6.7) */ else if (k === 'cores') f.cores = +t.value || 12; else if (k === 'side') f.side = t.value; /* (v2.42.21: an existing cable's size) */ else if (k === 'fromSt') f.fromSt = t.value; else if (k === 'toSt') f.toSt = t.value;
       else if (k === 'ex') { // an existing cable has no spans of its own; a new fiber needs one on each step
         f.ex = t.value === '1'; if (f.ex) f.cores = exCores(f); else delete f.cores; const hop = (g) => new Set(g.path.slice(1).map((x, i) => spanKey(g.path[i], x)));
         if (f.ex) { const mine = hop(f), others = new Set(F.filter((g) => g !== f && !g.ex).flatMap((g) => [...hop(g)])); return links().filter((l) => !(mine.has(spanKey(l[0], l[1])) && !others.has(spanKey(l[0], l[1])) && !(Array.isArray(l[3]) && l[3].length))); }
@@ -3978,7 +3993,11 @@
         + `<p class="rb-hint">${sp.lanes.length} cable${sp.lanes.length === 1 ? '' : 's'} on this span.${fibSel != null && sp.lanes.some((f) => f.n === fibSel) ? ` RUN ${fibSel} is lit all along its way${sp.lanes.length > 1 ? '; tap another to light it' : ''}.` : ' Tap one to light its whole way.'}</p>`
         + sp.lanes.map((f) => { const i = f.path.indexOf(sp.ia), j = f.path.indexOf(sp.ib), fw = j === i + 1, nx = f.path[fw ? j + 1 : i + 1], sd = fibSide(f, all, by), a = fibEnd(f, 'from', by), z = fibEnd(f, 'to', by);
           return `<button class="btn sm rs-fib" type="button" data-rs="fib" data-n="${f.n}" aria-pressed="${fibSel === f.n}"><i style="background:${fibColor(f)}"></i><span><b>RUN ${f.n}</b>${sd ? ` · ${sd}` : ''} · ${f.ex ? 'existing' : hEsc(CAB[f.cab] ? CAB[f.cab].short : 'cable not set')} · ${hEsc(a.ref || a.kind)} → ${hEsc(z.ref || z.kind)}${nx ? ` · then ${hEsc(fibName(nx))}` : ''}</span></button>`; }).join('')
-        + '<p class="rb-hint">Another cable on this span: Continue it in the list, and draw it along these poles.</p>';
+        + '<p class="rb-hint">Another cable on this span: Continue it in the list, and draw it along these poles.</p>'
+        + (() => { const u = ugSpanOf(sp.ia, sp.ib, all); if (!u) return ''; const o = ugSpanOwn(sp.ia, sp.ib, all) || {}, b = u.base, nm = (k) => UG_METHODS.find(([x]) => x === k)[2], nR = ugRunsOn(sp.ia, sp.ib, all).length; // beta 6.7: this span's own way, else as its RUN
+          return `<div class="rs-ug"><span class="lbl">THIS SPAN · LAID BY</span><select data-rs="ugm" aria-label="How this span is laid"><option value=""${o.m ? '' : ' selected'}>As the RUN (${hEsc(nm(b.m))})</option>${UG_METHODS.map(([k, , l]) => `<option value="${k}"${o.m === k ? ' selected' : ''}>${hEsc(l)}</option>`).join('')}</select>`
+            + `<span class="lbl">THIS SPAN · CONDUIT</span><select data-rs="ugcd" aria-label="This span's conduit"><option value=""${o.cd ? '' : ' selected'}>As the RUN (${b.cr} run${b.cr > 1 ? 's' : ''} · ${b.cd} mm)</option>${[1, 2].flatMap((r) => UG_CDS.map((c) => `<option value="${r}x${c}"${o.cd === c && (+o.cr === 1 ? 1 : 2) === r ? ' selected' : ''}>${r} run${r > 1 ? 's' : ''} · ${c} mm</option>`)).join('')}</select>`
+            + `<p class="rb-hint">${u.own ? 'Laid as set here' : `As RUN ${u.n}`}: ${hEsc(ugTxt(u))}. The span counts once in the PMI and the sheets' BOQ${nR > 1 ? `, for the ${nR} UG cables on it (RUN ${u.n} counts it)` : ''}${u.m !== 'hdd' ? '; where it crosses a road, that part is HDD' : ''}.</p></div>`; })();
       box.hidden = false; $('rbHint').hidden = true; return;
     }
     const opts = (v) => [...Object.entries(CAB).map(([kk, c]) => `<option value="${kk}"${kk === v ? ' selected' : ''}>${hEsc(c.label)}</option>`), `<option value=""${v ? '' : ' selected'}>Cable not set</option>`].join('');
@@ -4007,7 +4026,8 @@
     spanSel = [s.ia, s.ib]; routeSel = null; routeRefresh(); spanInView(s);
   });
   $('rbSpan').addEventListener('change', (e) => {
-    const t = e.target; if (t.dataset.rs !== 'cab' || !spanSel) return;
+    const t = e.target; if ((t.dataset.rs === 'ugm' || t.dataset.rs === 'ugcd') && spanSel) { ugSpanSet(spanSel[0], spanSel[1], t.dataset.rs === 'ugm' ? { m: t.value } : { cd: t.value }); return; } // beta 6.7
+    if (t.dataset.rs !== 'cab' || !spanSel) return;
     const k = linkIdx(spanSel[0], spanSel[1]); if (k < 0) return;
     const runs = runsOf(links()[k]); runs[+t.dataset.i] = t.value; setRuns(runs);
   });
@@ -4028,11 +4048,12 @@
     routeMode = on; routeSel = null; spanSel = null; routeUndo = []; routeProj = on ? S.project : null; fibSel = null; fibAdd = null; // (v2.42.20)
     if (deskOn() && ppState().open) ppRows(); // v2.42.28: Open waits while a cable is drawn
     fibAt = 'end'; fibTouched = false; fibStartAt = null; fibNew = false; rtTools = false; rtPairs = false; rtPend = []; rtPop = null; rtAsked = new Set(); rtDraft = null; rtDraftLayer.clearLayers(); rtMarkLayer.clearLayers(); $('rbPairs').checked = false; // v2.42.21
-    rtConf = null; rtPress = null; rtMpan = null; rtPtrs.clear(); rtMulti = false; rtSnap0 = null; rtSheet = null; rtDelArm = null; map.getContainer().classList.remove('rt-panning'); // v2.42.22
+    rtConf = null; rtPress = null; rtMpan = null; rtPtrs.clear(); rtMulti = false; rtSnap0 = null; rtSheet = null; rtDelArm = null; map.getContainer().classList.remove('rt-panning'); $('drawCanvas').classList.remove('rt-panning'); // v2.42.22
     rtGrab = null; rtGrabDead = null; lpClear(); rtGrabFx.clearLayers(); rtGrabLayer.clearLayers(); document.body.classList.remove('rt-grabbing'); // (grab the cable)
     $('routeBar').hidden = true; $('rtBar').hidden = !on; $('rtPop').hidden = true; rtHint(''); $('routeBtn').setAttribute('aria-pressed', String(on)); $('routeFitBtn').hidden = !on; if (on) renderCableSel();
     document.body.classList.toggle('routing', on);
     renderPoles(); rtApplyMode(); if (on) rtTip(); // (v2.42.22: the map stays where it is; ⛶ shows the whole route)
+    if (!on && drwEd) drwEdEnd(); // beta 6.7: Route ended on the Drawing (Done): its Edit route too
   }
   function routeTap(id) {
     const tapped = points.find((p) => p.id === id);
@@ -4076,14 +4097,47 @@
      fiber details, Link in capture order and Clear. Proposed cables are the app's three; an existing cable any size (cores). */
   const SNAP_CH = ['auto', 5, 10, 15, 20, 25], EX_SIZES = [12, 24, 48, 72, 96, 144, 288];
   const snapPref = () => (SNAP_CH.includes(S.routeSnap) ? S.routeSnap : 'auto');
-  function mPerPx() { try { const c = map.getSize().divideBy(2), a = map.containerPointToLatLng(c), b = map.containerPointToLatLng(c.add([100, 0])); return map.distance(a, b) / 100 || 1; } catch (e) { return 1; } }
+  function mPerPx() { if (drwEd && drw && drw.view) return (window.devicePixelRatio || 1) / drw.view.sc; /* beta 6.7: the Drawing's metres a pixel (Edit route: Auto snap by its zoom) */ try { const c = map.getSize().divideBy(2), a = map.containerPointToLatLng(c), b = map.containerPointToLatLng(c.add([100, 0])); return map.distance(a, b) / 100 || 1; } catch (e) { return 1; } }
   const snapM = () => { const v = snapPref(); return v === 'auto' ? Math.max(5, Math.min(25, Math.round(24 * mPerPx()))) : v; };
   const snapLbl = () => (snapPref() === 'auto' ? `Auto ${snapM()} m` : `${snapPref()} m`);
   const exCores = (f) => (+f.cores >= 2 ? Math.round(+f.cores) : 12);
   const fibCabShort = (f) => (f.ex ? `Existing ${exCores(f)}C` : CAB[f.cab] ? CAB[f.cab].short : 'cable not set');
   const fibCabName = (f) => (f.ex ? `Existing ${exCores(f)}C (drawn only)` : CAB[f.cab] ? CAB[f.cab].label : 'Cable not set');
-  /** The next new fiber's cable: the project's cable (proposed), or an existing cable of its size. */
-  const nextSpec = () => { const m = pmeta(); return { cab: cableSel() || 'L12', ex: !!m.fibEx, cores: +m.fibCores >= 2 ? Math.round(+m.fibCores) : 12 }; };
+  /* beta 6.7 (the owner: "allow a selection by the user … what is the conduit using same as the CEF (32mm, 50mm, 114.3mm, 1run or 2run)?
+     also hdd is machine drill by default and airblown fiber is used by default but for non airblown, it should be Trench (open, shallow
+     w/ concrete or w/out)"): how a new UG cable (a RUN) is laid, and its conduit. f.ugm: 'hdd' (machine drilled), 'open', 'shc' / 'sh'
+     (shallow trench with / without concrete) or 'micro' (micro trench); unset: HDD for air-blown fiber, open trench for a conventional
+     UG cable. f.cd: '32', '50' or '114.3' mm, f.cdr: 1 or 2 runs; unset: the CEF plan's, 2 runs of 114.3 mm. The PMI and the GEO sheets'
+     BOQ count each UG span by the first new UG cable on it (dxftpl). */
+  const UG_METHODS = [['hdd', 'HDD (drilled)', 'HDD, machine drilled'], ['open', 'Open trench', 'Open trench'], ['shc', 'Shallow, concrete', 'Shallow trench with concrete'], ['sh', 'Shallow, no concrete', 'Shallow trench without concrete'], ['micro', 'Micro trench', 'Micro trench']];
+  const UG_CDS = ['32', '50', '114.3'];
+  const ugDefM = (cab) => (CAB[cab] && CAB[cab].fam === 'convug' ? 'open' : 'hdd');
+  const ugOf = (f) => ({ m: UG_METHODS.some(([k]) => k === f.ugm) ? f.ugm : ugDefM(f.cab), cd: UG_CDS.includes(String(f.cd)) ? String(f.cd) : '114.3', cr: +f.cdr === 1 ? 1 : 2 });
+  const ugTxt = (u) => `${UG_METHODS.find(([k]) => k === u.m)[2]}, ${u.cr} run${u.cr > 1 ? 's' : ''} of ${u.cd} mm conduit`;
+  /** The next new fiber's cable: the project's cable (proposed), or an existing cable of its size (beta 6.7: a UG cable's method and conduit as set for it, else the defaults). */
+  const nextSpec = () => { const m = pmeta(); return { cab: cableSel() || 'L12', ex: !!m.fibEx, cores: +m.fibCores >= 2 ? Math.round(+m.fibCores) : 12, ugm: m.fibUgm || '', cd: m.fibCd || '', cdr: +m.fibCdr || 0 }; };
+  /* beta 6.7 (the owner: "a RUN that is partly drilled and partly trenched must be settable per span"): a span's own way, over its RUN's:
+     f.ugs[spanKey] = { m?, cd?, cr? } on the RUN that counts the span (its first new UG RUN). The override is the span's (the stretch
+     between the two points): the span is counted once, however many UG cables share it, so it applies to all of them. Undo, the save and
+     Share carry it with the RUN. */
+  function ugRunsOn(a, b, F) { const k = spanKey(a, b); return (F || fibers()).filter((f) => !f.ex && isUG(f.cab) && f.path.some((x, i) => i && spanKey(f.path[i - 1], x) === k)).sort((x, y) => x.n - y.n); }
+  function ugSpanOwn(a, b, F) { const k = spanKey(a, b); for (const f of ugRunsOn(a, b, F)) if (f.ugs && f.ugs[k]) return f.ugs[k]; return null; }
+  /** How the span a–b is laid: its own setting over its first new UG RUN's ({ m, cd, cr, n: that RUN, own: set on the span }), or null. */
+  function ugSpanOf(a, b, F) {
+    const R = ugRunsOn(a, b, F); if (!R.length) return null; const u = ugOf(R[0]), o = ugSpanOwn(a, b, F) || {};
+    return { ...u, ...(UG_METHODS.some(([k]) => k === o.m) ? { m: o.m } : {}), ...(UG_CDS.includes(String(o.cd)) ? { cd: String(o.cd), cr: +o.cr === 1 ? 1 : 2 } : {}), n: R[0].n, own: !!(o.m || o.cd), base: u };
+  }
+  /** Set (or clear: '') the span's own method ({ m }) or conduit ({ cd: '2x114.3' }), with Undo. */
+  function ugSpanSet(a, b, ch) {
+    const F = fibers(), R = ugRunsOn(a, b, F); if (!R.length) return; const k = spanKey(a, b), snap = routeSnap(), was = ugSpanOf(a, b, F), cur = { ...(ugSpanOwn(a, b, F) || {}) };
+    if ('m' in ch) { if (ch.m) cur.m = ch.m; else delete cur.m; }
+    if ('cd' in ch) { if (ch.cd) { const [r, c] = String(ch.cd).split('x'); cur.cd = c; cur.cr = +r === 1 ? 1 : 2; } else { delete cur.cd; delete cur.cr; } }
+    R.forEach((f) => { if (f.ugs && f.ugs[k]) { f.ugs = { ...f.ugs }; delete f.ugs[k]; if (!Object.keys(f.ugs).length) delete f.ugs; } }); // (one place: the RUN that counts it)
+    if (cur.m || cur.cd) R[0].ugs = { ...(R[0].ugs || {}), [k]: cur };
+    const now = ugSpanOf(a, b, F); if (JSON.stringify([was.m, was.cd, was.cr, was.own]) === JSON.stringify([now.m, now.cd, now.cr, now.own])) { routeRefresh(); return; }
+    routeUndo.push(snap); setRoute(null, F); routeRefresh(); toast(`Span ${fibName(a)} → ${fibName(b)}: ${now.own ? ugTxt(now) : `as RUN ${now.n} (${ugTxt(now)})`}`, 3500);
+  }
+  const ugNew = (sp) => (!sp.ex && isUG(sp.cab) ? { ...(sp.ugm ? { ugm: sp.ugm } : {}), ...(sp.cd ? { cd: sp.cd } : {}), ...(sp.cdr ? { cdr: sp.cdr } : {}) } : {}); // (only what was set: unset follows the cable type)
   const setNext = (o) => { S.meta[S.project] = { ...pmeta(), ...o }; persist(); };
   const nextFibN = (F) => (F || fibers()).reduce((m, f) => Math.max(m, f.n), 0) + 1;
   const xyOf = (lat0) => { const k = Math.cos(lat0 * Math.PI / 180) * 111320; return (p) => ({ x: p.lon * k, y: p.lat * 110574 }); };
@@ -4156,7 +4210,7 @@
     const q = rtSheet || {}, F = fibers(), sp = nextSpec(), snap = routeSnap(); rtSheetClose();
     if (how === 'cap' && !q.from && !q.seq) { captureCables(sp); return; }
     const n = nextFibN(F), path = q.seq && q.seq.length > 1 ? q.seq.slice() : q.from ? [q.from] : [];
-    routeUndo.push(snap); F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), path, fromSt: '', toSt: '' });
+    routeUndo.push(snap); F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), ...ugNew(sp), path, fromSt: '', toSt: '' }); // (beta 6.7: + a UG cable's method and conduit)
     setRoute(!sp.ex && path.length > 1 ? linksFor(path, sp.cab) : null, F); rtStart(n, 'end', snap); fibTouched = path.length > 1; rtPenSet(); routeRefresh(path);
     toast(path.length > 1 ? `RUN ${n} · ${fibCabShort(sp)}: ${path.length} points. Go on drawing, or ✓ Finish` : path.length ? `RUN ${n} · ${fibCabShort(sp)} from ${fibName(path[0])}: tap the next pole, or drag along them` : `RUN ${n} · ${fibCabShort(sp)}: tap the pole or site it starts at, or drag along the poles`, 3500);
   }
@@ -4170,7 +4224,7 @@
     routeUndo.push(routeSnap()); let L2 = links(), n = nextFibN(F); const have = new Set(L2.map((l) => spanKey(l[0], l[1]))), made = [];
     chains.forEach((path) => {
       if (!sp.ex) path.slice(1).forEach((b, i) => { const k = spanKey(path[i], b); if (!have.has(k)) { have.add(k); L2 = L2.concat([linkWith(path[i], b, sp.cab)]); } });
-      F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), path, fromSt: '', toSt: '' }); made.push(n); n++; });
+      F.push({ n, cab: sp.cab, side: 'auto', ex: sp.ex, ...(sp.ex ? { cores: sp.cores } : {}), ...ugNew(sp), path, fromSt: '', toSt: '' }); made.push(n); n++; });
     setRoute(L2, F); routeRefresh();
     toast(`${made.length === 1 ? `RUN ${made[0]}` : `RUN ${made[0]}–${made[made.length - 1]}`} made along the capture order (${chains.reduce((t, c) => t + c.length - 1, 0)} spans): each stops where the next pole is farther than ${pol().autoGap || 120} m. Check branches and street corners.`, 5000);
   }
@@ -4389,22 +4443,26 @@
       finger (the RUN in the bar, or lit, before another 6 px off on a shared span). null: nothing (the press goes on as before). */
   function grabAt(c, touch) {
     const R = lastR; if (!rtGrabOk() || !R || !R.fib || !R.fib.list.length) return null;
-    const bonus = (f) => (f.n === fibAdd ? 7 : f.n === fibSel ? 5 : 0), id = rtHit(c, touch ? 24 : 14);
+    const bonus = (f) => (f.n === fibAdd ? 7 : f.n === fibSel ? 5 : 0), id = rtHit(c, touch ? 24 : 14), sf = rtSurf();
+    if (id != null && sf === RT_DRW) { const p = points.find((x) => x.id === id); if (p && DRW_MOVE(p)) return { kind: 'site', id }; } // beta 6.7: on the Drawing, a tower, OLT or ODC held is moved
     if (id != null) {
       const g = R.fib.list.filter((f) => { const i = f.path.indexOf(id); return i > 0 && i < f.path.length - 1; }).sort((x, y) => bonus(y) - bonus(x) || x.n - y.n)[0];
       return g ? { kind: 'pole', n: g.n, id } : null; // (an end, or a pole on no cable: its own tap and line, as before)
     }
     const z = map.getZoom(), o = map.getPixelOrigin(), reach = touch ? 16 : 9; let best = null;
-    R.fib.list.forEach((f) => { if (f.path.length < 2) return; const cp = fibPx(R, f, z).map((q) => map.layerPointToContainerPoint(q.subtract(o)));
-      for (let j = 1; j < cp.length; j++) { const d = grabSegD(c, cp[j - 1], cp[j]); if (d <= reach && (!best || d - bonus(f) < best.s)) best = { s: d - bonus(f), n: f.n, a: f.path[j - 1], b: f.path[j] }; } });
+    const cpOf = sf === RT_MAP ? (f) => fibPx(R, f, z).map((q) => map.layerPointToContainerPoint(q.subtract(o))) : (f) => f.path.map((x) => { const p = R.fib.by.get(x); return p && (!sf.vis() || sf.vis().has(x)) ? sf.pt([p.lat, p.lon]) : null; }); // (beta 6.7: the Drawing's points)
+    R.fib.list.forEach((f) => { if (f.path.length < 2) return; const cp = cpOf(f);
+      for (let j = 1; j < cp.length; j++) { if (!cp[j - 1] || !cp[j]) continue; const d = grabSegD(c, cp[j - 1], cp[j]); if (d <= reach && (!best || d - bonus(f) < best.s)) best = { s: d - bonus(f), n: f.n, a: f.path[j - 1], b: f.path[j] }; } });
     return best && { kind: 'span', n: best.n, a: best.a, b: best.b };
   }
   /** Pick up a span (g.a → g.b) or a pole (g.id) of RUN g.n. False when the cable is not as it was drawn (nothing picked up). */
   function grabStart(g, pid, type, c) {
-    const f = rtGrabOk() ? fibers().find((x) => x.n === g.n) : null; if (!f) return false; let A, B;
-    if (g.kind === 'span') { const j = f.path.findIndex((x, k) => k > 0 && String(f.path[k - 1]) === String(g.a) && String(x) === String(g.b)); if (j < 1) return false; A = f.path[j - 1]; B = f.path[j]; }
-    else { const i = f.path.indexOf(g.id); if (i <= 0 || i >= f.path.length - 1) return false; A = f.path[i - 1]; B = f.path[i + 1]; }
-    rtGrab = { kind: g.kind, n: f.n, id: g.kind === 'pole' ? g.id : null, A, B, path: f.path.slice(), pid, type, c, tid: null, v: '' };
+    if (!rtGrabOk()) return false; let A = null, B = null, n = null, path = [], nb = null;
+    if (g.kind === 'site') { if (!points.some((x) => x.id === g.id)) return false; nb = siteNb(g.id); } // beta 6.7: a tower, OLT or ODC on the Drawing: its cables follow it
+    else { const f = fibers().find((x) => x.n === g.n); if (!f) return false; n = f.n; path = f.path.slice();
+      if (g.kind === 'span') { const j = f.path.findIndex((x, k) => k > 0 && String(f.path[k - 1]) === String(g.a) && String(x) === String(g.b)); if (j < 1) return false; A = f.path[j - 1]; B = f.path[j]; }
+      else { const i = f.path.indexOf(g.id); if (i <= 0 || i >= f.path.length - 1) return false; A = f.path[i - 1]; B = f.path[i + 1]; } }
+    rtGrab = { kind: g.kind, n, id: g.kind === 'span' ? null : g.id, A, B, path, nb, pid, type, c, c0: c, tid: null, v: '', sf: rtSurf() };
     lpClear(); rtPress = null; rtEdge = null; map.dragging.disable(); document.body.classList.add('rt-grabbing'); rtTipSeen();
     if (rtPop) { rtPop = null; renderRtPop(); } $('toast').hidden = true; // (the last message is old now: the hint says what letting go does)
     try { if (type !== 'mouse' && navigator.vibrate) navigator.vibrate(15); } catch (e) { /* optional */ }
@@ -4412,9 +4470,10 @@
   }
   function grabMove(c) { if (!rtGrab) return; rtGrab.c = c; if (!rtGq) rtGq = requestAnimationFrame(grabShow); }
   const grabTarget = (g) => rtHit(g.c, g.type === 'mouse' ? 22 : 36); // the pole under (or nearest) the finger
-  /** What letting go here does: { k: on | already | none (a span); off | stay | swap | already (a pole), t: the hint }. */
+  /** What letting go here does: { k: on | already | none (a span); off | stay | swap | already (a pole); move | stay (a site), t: the hint }. */
   function grabVerdict(g, tid) {
     const nm = fibName, on = tid != null && g.path.includes(tid);
+    if (g.kind === 'site') return g.c0 && g.c.distanceTo(g.c0) > 6 ? { k: 'move', t: `Move ${nm(g.id)} here` } : { k: 'stay', t: `${nm(g.id)}: drag it where it stands` };
     if (g.kind === 'span') return tid == null ? { k: 'none', t: `RUN ${g.n}: drop it on a pole` } : on ? { k: 'already', t: `${nm(tid)} is already on RUN ${g.n}` } : { k: 'on', t: `Put ${nm(tid)} on RUN ${g.n}` };
     if (tid === g.id) return { k: 'stay', t: `${nm(g.id)} stays on RUN ${g.n}` };
     if (tid == null) return { k: 'off', t: `Take ${nm(g.id)} off RUN ${g.n}` };
@@ -4423,6 +4482,7 @@
   /** While dragging: the span (or the two either side of the pole) bent to the finger, or to the pole it would go to (ringed). */
   function grabShow() {
     rtGq = 0; const g = rtGrab; rtGrabFx.clearLayers(); if (!g) return;
+    if (g.sf === RT_DRW) { g.tid = g.kind === 'site' ? null : grabTarget(g); const v = grabVerdict(g, g.tid); g.v = v.k; rtHint(v.t); drawDrawing(); return; } // beta 6.7: on the Drawing, drawn there (drwEdPaint)
     const tid = grabTarget(g), v = grabVerdict(g, tid), by = new Map(routePts().map((p) => [p.id, p])), ll = (id) => { const p = by.get(id); return p ? [p.lat, p.lon] : null; };
     g.tid = tid; g.v = v.k; const fin = map.containerPointToLatLng(g.c), col = fibColor({ n: g.n }), A = ll(g.A), B = ll(g.B), mid = v.k === 'on' || v.k === 'swap' ? ll(tid) : v.k === 'stay' ? ll(g.id) : [fin.lat, fin.lng];
     if (A && B && mid) L.polyline(v.k === 'off' ? [A, B] : [A, mid, B], { pane: 'routePane', color: col, weight: 5, opacity: 0.95, dashArray: '9 7', lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(rtGrabFx);
@@ -4434,7 +4494,9 @@
   /** Let go (cancel: Esc, a second finger, the touch taken away: nothing changes). */
   function grabEnd(cancel) {
     const g = rtGrab; rtGrab = null; cancelAnimationFrame(rtGq); rtGq = 0; rtEdge = null; rtGrabFx.clearLayers(); document.body.classList.remove('rt-grabbing'); rtHint(''); rtGestAt = Date.now(); rtApplyMode();
+    if (g && g.sf === RT_DRW) drawDrawing();
     if (!g) return; if (cancel) { rtHint('Nothing changed', 1500); return; }
+    if (g.kind === 'site') { drwSiteMove(g); return; } // beta 6.7
     grabDrop(g, grabTarget(g));
   }
   function grabDrop(g, tid) {
@@ -4451,6 +4513,8 @@
     toast(`${msg}${still.length ? `; ${still.join('; ')}` : ''} (Undo takes it back)`, 4500);
   }
   function lpClear() { if (rtLp) { clearTimeout(rtLp.t); rtLp = null; } }
+  /** beta 6.7: the points a point is linked to (its spans, and the cables through it), to draw them following it while it is moved. */
+  function siteNb(id) { const out = new Set(); links().forEach((l) => { if (l[0] === id) out.add(l[1]); else if (l[1] === id) out.add(l[0]); }); fibers().forEach((f) => f.path.forEach((x, i) => { if (x !== id) return; if (i > 0) out.add(f.path[i - 1]); if (i < f.path.length - 1) out.add(f.path[i + 1]); })); return [...out]; }
   /* ================= v2.42.22: ✎ Draw or ✋ Move =================
      ✎ Draw (Route opens in it; kept on this phone): one finger (the left button) draws, from anywhere. The line goes to the fiber in the
      bar, from its end (from the end to where the line starts: straight); from the fiber's other end it goes on from there; from a point
@@ -4460,7 +4524,7 @@
      zooms. ✋ Move: the map as usual; a tap on a pole shows its options in the bar. Route tools (⋯) and linking by pairs: as before (the
      map moves; the pins' own taps). ＋ Closure / ＋ Dummy NAP: the map zooms in on the pole; a second tap on it adds it. */
   const rtDrawing = () => routeMode && rtPenOn() && !rtTools && !rtPairs && !rtConf && !isAcc();
-  function rtApplyMode() { const d = rtDrawing(); if (d) map.dragging.disable(); else map.dragging.enable(); map.getContainer().classList.toggle('rt-pen', d); }
+  function rtApplyMode() { const d = rtDrawing(); if (d) map.dragging.disable(); else map.dragging.enable(); map.getContainer().classList.toggle('rt-pen', d); $('drawCanvas').classList.toggle('rt-pen', d && drwEd); }
   function rtSetPen(on, ids) { if (rtPenOn() !== on) { S.routePen = on; persist(); } routeSel = null; if (!on) fibStartAt = null; rtPop = null; rtApplyMode(); routeRefresh(ids); if (on) rtTip(); }
   function rtTip() { // once on a phone: how to draw and move the map
     if (!routeMode || !rtPenOn() || S.routeTip) return; const e = $('rtHint'), fine = !!(window.matchMedia && matchMedia('(pointer: fine)').matches); clearTimeout(rtHintT);
@@ -4468,7 +4532,7 @@
     $('rtTipOk').addEventListener('click', rtTipSeen);
   }
   function rtTipSeen() { const e = $('rtHint'); if (!e.classList.contains('tip')) return; S.routeTip = true; persist(); rtHint(''); }
-  const rtHit = (c, r) => { let best = null; routePts().forEach((p) => { const d = map.latLngToContainerPoint([p.lat, p.lon]).distanceTo(c), rr = elemOf(p) === 'Pole' ? r : r + 8; if (d <= rr && (!best || d < best.d)) best = { id: p.id, d }; }); return best && best.id; }; // (a site, ODC, ODF or box: its icon is bigger)
+  const rtHit = (c, r) => { const sf = rtSurf(), vis = sf.vis(); let best = null; routePts().forEach((p) => { if (vis && !vis.has(p.id)) return; const d = sf.pt([p.lat, p.lon]).distanceTo(c), rr = elemOf(p) === 'Pole' ? r : r + 8; if (d <= rr && (!best || d < best.d)) best = { id: p.id, d }; }); return best && best.id; }; // (a site, ODC, ODF or box: its icon is bigger)
   const rtNear = (ll, m) => { let best = null; routePts().forEach((p) => { const d = map.distance(ll, [p.lat, p.lon]); if (d <= m && (!best || d < best.d)) best = { id: p.id, d }; }); return best && best.id; }; // the point nearest a line's start, within the snap's reach
   /** ✋ Move: a tap on a pole: its options in the bar (again: closed). */
   function rtHandTap(id) { const t = points.find((p) => p.id === id); if (t && !ROUTE_ELS.includes(elemOf(t))) return; rtPop = null; spanSel = null; const was = routeSel; routeSel = routeSel === id ? null : id; routeRefresh([was, id]); }
@@ -4476,7 +4540,7 @@
   function rtTapAny(id) { if (rtConf) { rtConfTap(id); return; } if (rtTools && !rtPairs && fibAdd == null) { rtHandTap(id); return; } if (rtTools || rtPairs || rtPenOn()) routeTap(id); else rtHandTap(id); } // (Route tools: the pole's spans, as before)
   function rtLive(t) { const e = $('rtLive'); if (e) e.textContent = t; }
   function rtBegin(s) { // s: where the line starts. What it does to the fiber in the bar (another end, a branch) is done when it ends: a pinch changes nothing
-    const F = fibers(), su = snapM(), kH = rtHit(map.latLngToContainerPoint(s), 26); let A = fibAdd != null ? F.find((x) => x.n === fibAdd) : null, f = null, at = fibAt, id = null, fin = null;
+    const F = fibers(), su = snapM(), kH = rtHit(rtSurf().pt(s), 26); let A = fibAdd != null ? F.find((x) => x.n === fibAdd) : null, f = null, at = fibAt, id = null, fin = null;
     const kS = A ? kH : kH || rtNear(s, 2 * su); // (with a fiber in the bar, only a start on a pole counts: its other end, its middle)
     if (A && A.path.length && kS && A.path.includes(kS)) { const e0 = A.path[0], e1 = A.path[A.path.length - 1], end = fibAt === 'start' ? e0 : e1;
       if (kS !== end) { if (A.path.length > 1 && (kS === e0 || kS === e1)) at = kS === e0 ? 'start' : 'end'; else { fin = A.n; A = null; } } } // its other end: from there; its middle: a branch (the fiber is finished)
@@ -4491,16 +4555,17 @@
   }
   function rtAddPt(latlng) {
     const d = rtDraft; if (!d) return; const q = { lat: latlng.lat, lon: latlng.lng }, last = d.ll[d.ll.length - 1];
-    if (last && map.latLngToContainerPoint([last.lat, last.lon]).distanceTo(map.latLngToContainerPoint(latlng)) < 3) return;
+    if (last && rtSurf().pt([last.lat, last.lon]).distanceTo(rtSurf().pt(latlng)) < 3) return;
     d.ll.push(q); d.trail.setLatLngs(d.ll.map((x) => [x.lat, x.lon]));
     if (!rtPq) rtPq = requestAnimationFrame(() => { rtPq = 0; if (!rtDraft) return; const seq = snapSeq(rtDraft.id, rtDraft.ll, rtDraft.su), by = new Map(routePts().map((p) => [p.id, p]));
       rtDraft.prev.setLatLngs(seq.map((x) => by.get(x)).filter(Boolean).map((p) => [p.lat, p.lon])); rtDraft.rings.clearLayers();
       seq.forEach((x) => { const p = by.get(x); if (p) L.circleMarker([p.lat, p.lon], { pane: 'routePane', radius: 13, color: rtDraft.col, weight: 3, fill: false, interactive: false }).addTo(rtDraft.rings); });
-      rtLive(`✎ ${rtDraft.f != null ? `RUN ${rtDraft.f}` : 'New cable'} · ${seq.length} point${seq.length === 1 ? '' : 's'}`); });
+      rtLive(`✎ ${rtDraft.f != null ? `RUN ${rtDraft.f}` : 'New cable'} · ${seq.length} point${seq.length === 1 ? '' : 's'}`); rtDraft.seq = seq; if (drwEd) drawDrawing(); }); // (beta 6.7: on the Drawing, drawn there)
+    if (drwEd) drawDrawing();
   }
-  function rtDrop() { rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers(); if (routeMode) renderRtBar(lastR || routeModel()); }
+  function rtDrop() { rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers(); if (routeMode) renderRtBar(lastR || routeModel()); if (drwEd) drawDrawing(); }
   function rtStrokeEnd() {
-    const d = rtDraft; rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers();
+    const d = rtDraft; rtDraft = null; cancelAnimationFrame(rtPq); rtPq = 0; rtDraftLayer.clearLayers(); if (drwEd) drawDrawing();
     if (!d) return; if (d.fin != null && fibAdd === d.fin) rtFinish(); // a line from the middle of the fiber in the bar: it is finished, a branch starts
     const seq = snapSeq(d.id, d.ll, d.su), F = fibers(), f = d.f != null ? F.find((x) => x.n === d.f) : null;
     if (f) {
@@ -4513,79 +4578,249 @@
     if (seq.length < 2) { toast(`No pole within ${d.su} m of the line`, 2200); routeRefresh(); return; }
     rtOpenSheet({ seq, from: seq[0] }); // v2.42.24: which new cable this line is (its type first)
   }
-  (() => { // the gestures on the map in Route
-    const mc = map.getContainer(), cpt = (e) => { const r = mc.getBoundingClientRect(); return L.point(e.clientX - r.left, e.clientY - r.top); };
+  /* beta 6.7: Route's gestures on a surface: the map, or the Drawing's canvas while its Edit route is on (one surface in use at a time,
+     one state). A surface: el; on(): Route is edited there now; ll(c) / pt(ll): the spot of a point of it (CSS px) / the point of a
+     spot; panBy([dx, dy]); room(): the px its bar takes { r: at the right, b: at the foot }; vis(): the ids drawn on it (null: all);
+     handle(e, c): the cable handle pressed ({ n, a, b }) or null; pins: its points have taps of their own (the map's Leaflet pins). */
+  const RT_MAP = { name: 'map', el: map.getContainer(), pins: true, on: () => routeMode && !isAcc() && !drwEd,
+    ll: (c) => map.containerPointToLatLng(c), pt: (ll) => map.latLngToContainerPoint(ll), panBy: (o) => map.panBy(o, { animate: false }), vis: () => null,
+    room: () => { const bar = $('rtBar'), on = !!bar && !bar.hidden, side = on && deskOn(), mc = map.getContainer(); // (2.44.4: on a computer the bar is a panel down the right side, over the map, not along its foot)
+      return { r: side ? Math.max(0, mc.getBoundingClientRect().right - bar.getBoundingClientRect().left) : 0, b: on && !side ? bar.getBoundingClientRect().height + 92 : 0 }; },
+    handle: (e) => { const gh = e.target && e.target.closest ? e.target.closest('.rt-grab') : null; return gh ? { n: +gh.dataset.n, a: gh.dataset.a, b: gh.dataset.b } : null; } };
+  const RT_DRW = { name: 'drawing', el: $('drawCanvas'), pins: false, on: () => routeMode && !isAcc() && drwEd && !!drw && !!drw.view,
+    ll: (c) => { const d = window.devicePixelRatio || 1, v = drw.view, cv = $('drawCanvas'), q = C.utmInverse(v.cx + (c.x * d - cv.width / 2) / v.sc, v.cy - (c.y * d - cv.height / 2) / v.sc, drw.zone, !!drw.south); return L.latLng(q[0], q[1]); },
+    pt: (ll) => { const d = window.devicePixelRatio || 1, la = ll.lat != null ? ll.lat : ll[0], lo = ll.lng != null ? ll.lng : ll.lon != null ? ll.lon : ll[1], u = C.utmForward(la, lo, drw.zone, la < 0), p = drwPx([u.E, u.N]); return L.point(p[0] / d, p[1] / d); },
+    panBy: (o) => { const d = window.devicePixelRatio || 1; drw.view.cx += o[0] * d / drw.view.sc; drw.view.cy -= o[1] * d / drw.view.sc; drawDrawing(); },
+    vis: () => { if (!drw) return null; if (!drw.visIds) drw.visIds = new Set(drw.items.map((it) => it.p.id)); return drw.visIds; }, // (the points on the Drawing: not those hidden from the exports)
+    room: () => { const w = $('drawWrap'), bar = [$('rtBar'), $('routeBar')].find((b) => b && !b.hidden && w.contains(b)); if (!bar) return { r: 0, b: 0 }; const W = w.getBoundingClientRect(), r = bar.getBoundingClientRect();
+      return deskOn() ? { r: Math.max(0, W.right - r.left), b: 0 } : { r: 0, b: Math.max(0, W.bottom - r.top) + 8 }; },
+    handle: (e, c) => (drw && drw.edH ? drw.edH.find((h) => Math.hypot(h.x - c.x, h.y - c.y) <= h.r) || null : null) };
+  function rtSurf() { return drwEd ? RT_DRW : RT_MAP; } // the surface Route is on
+  function rtGest(sf) { // the gestures on a surface in Route
+    const mc = sf.el, cpt = (e) => { const r = mc.getBoundingClientRect(); return L.point(e.clientX - r.left, e.clientY - r.top); }, mine = (o) => !!o && o.sf === sf;
     mc.addEventListener('pointerdown', (e) => {
-      if (!routeMode || isAcc()) return;
+      if (!sf.on()) return;
       if (e.pointerType !== 'mouse' && e.isPrimary) { rtPtrs.clear(); rtMulti = false; } // a new touch: a finger whose lift was lost is forgotten
       rtPtrs.add(e.pointerId);
       if (e.pointerType !== 'mouse' && rtPtrs.size > 1) { rtMulti = true; lpClear(); if (rtGrab) grabEnd(true); if (rtPress) { rtPress = null; rtEdge = null; if (rtDraft) rtDrop(); } return; } // two fingers: the map's (Leaflet's pinch); the line just begun is dropped (a cable picked up: put back)
       if (rtMulti || rtGrab) return;
-      if (e.pointerType === 'mouse' && (e.button === 1 || e.button === 2 || (e.button === 0 && rtSpace && rtDrawing()))) { rtMpan = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, btn: e.button, moved: false }; mc.classList.add('rt-panning'); e.preventDefault(); return; }
+      if (e.pointerType === 'mouse' && (e.button === 1 || e.button === 2 || (e.button === 0 && rtSpace && rtDrawing()))) { rtMpan = { sf, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, btn: e.button, moved: false }; mc.classList.add('rt-panning'); e.preventDefault(); return; }
       if (e.button > 0) return;
-      const gh = e.target && e.target.closest ? e.target.closest('.rt-grab') : null; // grab the cable: a handle picks up its span at once
-      if (gh && grabStart({ kind: 'span', n: +gh.dataset.n, a: gh.dataset.a, b: gh.dataset.b }, e.pointerId, e.pointerType, cpt(e))) { e.preventDefault(); e.stopPropagation(); return; }
-      const c = cpt(e); rtPress = { pid: e.pointerId, s: c, c, moved: false, draw: rtDrawing(), type: e.pointerType };
+      const c = cpt(e), gh = sf.handle(e, c); // grab the cable: a handle picks up its span at once
+      if (gh && grabStart({ kind: 'span', n: gh.n, a: gh.a, b: gh.b }, e.pointerId, e.pointerType, c)) { e.preventDefault(); e.stopPropagation(); return; }
+      rtPress = { sf, pid: e.pointerId, s: c, c, moved: false, draw: rtDrawing(), type: e.pointerType };
       if (rtPress.draw) e.preventDefault();
       lpClear(); const g = grabAt(c, e.pointerType !== 'mouse'); // a long press on a cable, or on a pole one goes through, picks it up
-      if (g) { const pid = e.pointerId; rtLp = { pid, t: setTimeout(() => { const p = rtPress; rtLp = null; if (!p || p.pid !== pid || p.moved || rtMulti || rtDraft) return; grabStart(g, pid, p.type, p.c); }, RT_LP_MS[g.kind]) }; }
+      if (g) { const pid = e.pointerId; rtLp = { pid, t: setTimeout(() => { const p = rtPress; rtLp = null; if (!p || p.pid !== pid || p.moved || rtMulti || rtDraft) return; grabStart(g, pid, p.type, p.c); }, RT_LP_MS[g.kind === 'site' ? 'pole' : g.kind]) }; }
     }, true);
     window.addEventListener('pointermove', (e) => {
-      if (rtMpan && e.pointerType === 'mouse') { if (!e.buttons) { up(e, true); return; } // (let go outside the window)
-        map.panBy([rtMpan.x - e.clientX, rtMpan.y - e.clientY], { animate: false }); rtMpan.x = e.clientX; rtMpan.y = e.clientY; if (Math.hypot(e.clientX - rtMpan.x0, e.clientY - rtMpan.y0) > 4) rtMpan.moved = true; return; }
-      if (rtGrab && e.pointerId === rtGrab.pid) { if (rtGrab.type === 'mouse' && !e.buttons) { up(e, true); return; } const c = cpt(e); grabMove(c); edgeAt(c); return; } // grab the cable: the span bends to the finger
-      if (!rtPress || e.pointerId !== rtPress.pid) return;
+      if (mine(rtMpan) && e.pointerType === 'mouse') { if (!e.buttons) { up(e, true); return; } // (let go outside the window)
+        sf.panBy([rtMpan.x - e.clientX, rtMpan.y - e.clientY]); rtMpan.x = e.clientX; rtMpan.y = e.clientY; if (Math.hypot(e.clientX - rtMpan.x0, e.clientY - rtMpan.y0) > 4) rtMpan.moved = true; return; }
+      if (mine(rtGrab) && e.pointerId === rtGrab.pid) { if (rtGrab.type === 'mouse' && !e.buttons) { up(e, true); return; } const c = cpt(e); grabMove(c); edgeAt(c); return; } // grab the cable: the span bends to the finger
+      if (!mine(rtPress) || e.pointerId !== rtPress.pid) return;
       if (rtPress.type === 'mouse' && !e.buttons) { up(e); return; }
       const c = cpt(e); rtPress.c = c;
-      if (!rtPress.moved) { if (c.distanceTo(rtPress.s) < (rtPress.type === 'mouse' ? 5 : 10)) return; rtPress.moved = true; lpClear(); if (rtPress.draw) rtBegin(map.containerPointToLatLng(rtPress.s)); }
+      if (!rtPress.moved) { if (c.distanceTo(rtPress.s) < (rtPress.type === 'mouse' ? 5 : 10)) return; rtPress.moved = true; lpClear(); if (rtPress.draw) rtBegin(sf.ll(rtPress.s)); }
       if (!rtPress.draw || !rtDraft) return;
-      rtAddPt(map.containerPointToLatLng(c)); edgeAt(c);
+      rtAddPt(sf.ll(c)); edgeAt(c);
     }, true);
     function edgeAt(c) {
-      const W = mc.clientWidth, H = mc.clientHeight, M = 34, bar = $('rtBar'), on = !!bar && !bar.hidden, side = on && deskOn(); // (2.44.4: on a computer the bar is a panel down the right side, over the map, not along its foot)
-      const bw = side ? Math.max(0, mc.getBoundingClientRect().right - bar.getBoundingClientRect().left) : 0, bh = on && !side ? bar.getBoundingClientRect().height + 92 : 0;
-      const dx = c.x < M ? -1 : c.x > W - bw - M ? 1 : 0, dy = c.y < M ? -1 : c.y > H - bh - M ? 1 : 0; // near an edge the map moves that way (the part of the map the bar leaves)
+      const W = mc.clientWidth, H = mc.clientHeight, M = 34, room = sf.room();
+      const dx = c.x < M ? -1 : c.x > W - room.r - M ? 1 : 0, dy = c.y < M ? -1 : c.y > H - room.b - M ? 1 : 0; // near an edge the map moves that way (the part of the map the bar leaves)
       rtEdge = dx || dy ? [dx, dy] : null; if (rtEdge && !rtEdgeRaf) rtEdgeRaf = requestAnimationFrame(edgeTick);
     }
     function edgeTick() { rtEdgeRaf = 0; if (!rtEdge) return; // (a line drawn, or a cable picked up)
-      if (rtGrab) { map.panBy([rtEdge[0] * 7, rtEdge[1] * 7], { animate: false }); grabMove(rtGrab.c); }
-      else if (rtPress && rtDraft) { map.panBy([rtEdge[0] * 7, rtEdge[1] * 7], { animate: false }); rtAddPt(map.containerPointToLatLng(rtPress.c)); }
+      if (mine(rtGrab)) { sf.panBy([rtEdge[0] * 7, rtEdge[1] * 7]); grabMove(rtGrab.c); }
+      else if (mine(rtPress) && rtDraft) { sf.panBy([rtEdge[0] * 7, rtEdge[1] * 7]); rtAddPt(sf.ll(rtPress.c)); }
       else return;
       rtEdgeRaf = requestAnimationFrame(edgeTick); }
     const up = (e, cancel) => {
       rtPtrs.delete(e.pointerId);
-      if (rtGrab && e.pointerId === rtGrab.pid) { if (!rtPtrs.size) rtMulti = false; rtPress = null; grabEnd(!!cancel); return; } // grab the cable: let go
+      if (mine(rtGrab) && e.pointerId === rtGrab.pid) { if (!rtPtrs.size) rtMulti = false; rtPress = null; grabEnd(!!cancel); return; } // grab the cable: let go
       if (e.pointerId === rtGrabDead) { rtGrabDead = null; rtGestAt = Date.now(); } // (the button let go after Esc: not a click on a pole)
       if (rtLp && rtLp.pid === e.pointerId) lpClear();
-      if (rtMpan && e.pointerType === 'mouse') { const m = rtMpan; rtMpan = null; mc.classList.remove('rt-panning'); rtGestAt = Date.now(); if (m.btn === 2 && !m.moved && !cancel && rtDrawing()) rtUndo(); return; } // ✎ a right-click: undo
+      if (mine(rtMpan) && e.pointerType === 'mouse') { const m = rtMpan; rtMpan = null; mc.classList.remove('rt-panning'); rtGestAt = Date.now(); if (m.btn === 2 && !m.moved && !cancel && rtDrawing()) rtUndo(); return; } // ✎ a right-click: undo
       if (!rtPtrs.size) rtMulti = false;
-      if (!rtPress || e.pointerId !== rtPress.pid) return;
+      if (!mine(rtPress) || e.pointerId !== rtPress.pid) return;
       const p0 = rtPress; rtPress = null; rtEdge = null;
       if (cancel) { if (rtDraft) rtDrop(); return; }
       if (p0.moved) { if (p0.draw) { rtGestAt = Date.now(); rtStrokeEnd(); } return; }
-      if (rtTools || rtPairs) return; // Route tools, linking by pairs: the pins' own taps, as before
+      if (sf.pins) { // the map: in Route tools and linking by pairs, the pins' own taps, as before
+        if (rtTools || rtPairs) return;
+        const id = rtHit(p0.s, p0.type === 'mouse' ? 14 : 24);
+        if (id || p0.draw || rtConf) rtGestAt = Date.now(); // (✋ a tap off the poles: a span's own tap)
+        if (id) rtTapAny(id); return; }
+      rtGestAt = Date.now(); // beta 6.7, the Drawing: its points have no taps of their own; a tower to place; a cable tapped (✋, Route tools) shows its spans
+      if (drwSiteArm) { drwSitePlace(sf.ll(p0.s)); return; }
       const id = rtHit(p0.s, p0.type === 'mouse' ? 14 : 24);
-      if (id || p0.draw || rtConf) rtGestAt = Date.now(); // (✋ a tap off the poles: a span's own tap)
-      if (id) rtTapAny(id);
+      if (id) rtTapAny(id); else if ((!p0.draw || rtTools) && !rtConf && !rtPairs) drwTapCable(p0.s);
     };
     window.addEventListener('pointerup', (e) => up(e), true); window.addEventListener('pointercancel', (e) => up(e, true), true);
-    mc.addEventListener('contextmenu', (e) => { if (routeMode) e.preventDefault(); }); // (✎: a right-click undoes, on its release above)
-    mc.addEventListener('touchmove', (e) => { if ((rtDrawing() || rtGrab) && e.cancelable) e.preventDefault(); }, { passive: false }); // ✎: a finger's moves are the line's from the start (no scroll begins), so a second finger's pinch is still the map's
-    const spaceOk = (t) => !(t && t.closest && t.closest('#rtBar, #rtPop, #routeBar, section.sheet, [role=dialog], dialog')) && !document.querySelector('section.sheet:not([hidden])');
+    mc.addEventListener('contextmenu', (e) => { if (sf.on() || (sf === RT_MAP && routeMode)) e.preventDefault(); }); // (✎: a right-click undoes, on its release above)
+    mc.addEventListener('touchmove', (e) => { if (sf.on() && (rtDrawing() || rtGrab) && e.cancelable) e.preventDefault(); }, { passive: false }); // ✎: a finger's moves are the line's from the start (no scroll begins), so a second finger's pinch is still the map's
+  }
+  rtGest(RT_MAP); rtGest(RT_DRW);
+  (() => { // the keys in Route (on the map, or on the Drawing in its Edit route)
+    const spaceOk = (t) => !(t && t.closest && t.closest('#rtBar, #rtPop, #routeBar, [role=dialog], dialog')) && (drwEd ? stack[stack.length - 1] === 'drawing' : !(t && t.closest && t.closest('section.sheet')) && !document.querySelector('section.sheet:not([hidden])'));
+    const spaceCls = (on) => [RT_MAP.el, RT_DRW.el].forEach((el) => el.classList.toggle('rt-spacepan', on && el === rtSurf().el));
     document.addEventListener('keydown', (e) => {
       if (!routeMode || /^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
-      if (e.key === ' ' && spaceOk(e.target)) { if (!rtSpace) { rtSpace = true; mc.classList.add('rt-spacepan'); } e.preventDefault(); return; } // Space + drag moves the map (a focused map button is not pressed)
-      if (e.key === 'Escape') { if (rtGrab) { rtGrabDead = rtGrab.pid; grabEnd(true); return; } if (rtDraft) return; if (rtConf) rtConfCancel(); else if (rtPop) { rtPop = null; rtSheetClose(); renderRtPop(); } else if (fibStartAt != null || fibNew) { fibStartAt = null; fibNew = false; routeRefresh(); } else if (fibAdd != null) rtFinish(); else if (routeSel) { const w = routeSel; routeSel = null; routeRefresh([w]); } }
+      if (e.key === ' ' && spaceOk(e.target)) { if (!rtSpace) { rtSpace = true; spaceCls(true); } e.preventDefault(); return; } // Space + drag moves the map (a focused map button is not pressed)
+      if (e.key === 'Escape') { if (rtGrab) { rtGrabDead = rtGrab.pid; grabEnd(true); return; } if (drwSiteArm) { drwSiteArm = null; rtHint(''); return; } if (rtDraft) return; if (rtConf) rtConfCancel(); else if (rtPop) { rtPop = null; rtSheetClose(); renderRtPop(); } else if (fibStartAt != null || fibNew) { fibStartAt = null; fibNew = false; routeRefresh(); } else if (fibAdd != null) rtFinish(); else if (routeSel) { const w = routeSel; routeSel = null; routeRefresh([w]); } }
       if (e.key === 'Enter' && rtConf && !(e.target && e.target.closest && e.target.closest('button'))) { e.preventDefault(); rtConfirm(); }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); rtUndo(); }
     });
-    document.addEventListener('keyup', (e) => { if (e.key === ' ' && rtSpace) { rtSpace = false; mc.classList.remove('rt-spacepan'); e.preventDefault(); } });
-    window.addEventListener('blur', () => { rtSpace = false; mc.classList.remove('rt-spacepan'); });
-    map.on('movestart', () => { if (rtPop && rtPop !== 'newcab') { rtPop = null; renderRtPop(); } }); // (v2.42.24: the New cable sheet stays)
+    document.addEventListener('keyup', (e) => { if (e.key === ' ' && rtSpace) { rtSpace = false; spaceCls(false); e.preventDefault(); } });
+    window.addEventListener('blur', () => { rtSpace = false; spaceCls(false); });
+    map.on('movestart', () => { if (rtPop && rtPop !== 'newcab' && !drwEd) { rtPop = null; renderRtPop(); } }); // (v2.42.24: the New cable sheet stays; beta 6.7: the hidden map moving under the Drawing closes nothing)
   })();
+  /* ================= beta 6.7: Edit the route on the Drawing =================
+     The owner: "add on the Drawing what is only on the map's editors: the fiber route, and the tower / OLT / ODC location; the user is
+     tired of going back to the map and then the Drawing to check the cable". ✎ on the Drawing (its tools, lower right) turns Route on
+     right there: the Route bar (✋ / ✎, ＋ New cable, the cable in the bar, ↶, Done; on a computer a panel at the Drawing's right) sits
+     on the Drawing, and Route's own code does the work there (rtGest on RT_DRW): one finger draws a cable along the poles, two fingers
+     move and zoom the Drawing, a tap puts a pole on the cable in the bar or takes it off, the white dots and a long press grab a cable,
+     the New cable sheet asks its type. Each change is saved as on the map, and the Drawing is drawn anew at once (the plan as it will
+     export). ＋ Tower · OLT · ODC: a tap where it stands, then its record for its name (as the map's ＋ pin); a long press on a tower,
+     OLT or ODC drags it to its place. ↶ takes back each. Done, ✎ again or Back ends it. */
+  const DRW_MOVE = (p) => { const el = elemOf(p); return el === 'Site' || el === 'ODC'; }; // what a long press moves on the Drawing
+  const drwEdHome = new Map(); let drwEdQ = 0;
+  function drwEdById(id) { if (!drw) return null; if (!drw.byId) drw.byId = new Map(drw.items.map((it) => [String(it.p.id), it])); return drw.byId.get(String(id)) || null; }
+  function drwEditSet(on) {
+    if (!!on === drwEd) return;
+    if (!on) { if (drwEdWas) { drwEdEnd(); routeRefresh(); } else setRouteMode(false); return; } // (Route on the map before: it stays on, back on the map)
+    if (!drw || !drawOn()) return;
+    { const lk = tmHooks.locked ? tmHooks.locked() : ''; if (lk) { toast(lk, 6500); return; } } // (an accepted task, as the map's route button)
+    if (routePts().length < 2) { toast('Capture at least two poles first'); return; }
+    drwEdWas = routeMode; drwEd = true; drwSiteArm = null; drwSiteWait = null; drw.sel = null; drw.edSig = drwEdSig();
+    const w = $('drawWrap'); ['routeBar', 'rtPop', 'rtBar', 'rtHint'].forEach((id) => { const el = $(id); drwEdHome.set(id, { p: el.parentNode, nx: el.nextSibling }); w.appendChild(el); }); // (in the Drawing: a record opened over it covers them)
+    $('drawing').classList.add('drwedit'); $('drawEdit').setAttribute('aria-pressed', 'true'); drwEdUi(); LOG.info('draw.edit', { on: true });
+    if (!routeMode) setRouteMode(true); else { rtTools = false; routeRefresh(); }
+    rtApplyMode(); drawDrawing(); drwEdTip();
+  }
+  function drwEdEnd() {
+    if (!drwEd) return; drwEd = false; drwSiteArm = null; drwSiteWait = null; cancelAnimationFrame(drwEdQ); drwEdQ = 0;
+    if (rtGrab) grabEnd(true); if (rtDraft) rtDrop(); rtPress = null; rtMpan = null; lpClear();
+    drwEdHome.forEach((h, id) => { const el = $(id); if (h.nx && h.nx.parentNode === h.p) h.p.insertBefore(el, h.nx); else h.p.appendChild(el); }); drwEdHome.clear();
+    $('drawing').classList.remove('drwedit'); $('drawEdit').setAttribute('aria-pressed', 'false'); RT_DRW.el.classList.remove('rt-panning', 'rt-pen'); rtHint(''); LOG.info('draw.edit', { on: false });
+    if (drw) { drw.selRun = null; drw.edH = []; if (!$('drawing').hidden) { setWhat(deskOn() && S.drwWhatDesk !== false, false); $('drawHint').hidden = !!S.drawHintOff; drawDrawing(); } }
+    rtApplyMode();
+  }
+  function drwEdUi() { if (!drwEd) return; setWhat(false, false); $('drawHint').hidden = true; $('drawInfo').hidden = true; }
+  /** What the Drawing is drawn from: the route (its time), the records (how many, the latest change, where they are), the Undo steps. */
+  function drwEdSig() { const P = projPoints(); let mx = '', s = 0; P.forEach((p) => { const u = String(p.updated || ''); if (u > mx) mx = u; s += (+p.lat || 0) + (+p.lon || 0); }); return `${pmeta().linksAt || ''}|${P.length}|${mx}|${s.toFixed(7)}|${routeUndo.length}`; }
+  /** After Route redrew (a change, or only a tap): the Drawing drawn anew where it looks when what it shows changed, else again. */
+  function drwEdSoon() {
+    if (drwEdQ) return; drwEdQ = requestAnimationFrame(() => { drwEdQ = 0; if (!drwEd || !drw) return;
+      if (drwSiteWait && !stack.includes('editor')) { const w = drwSiteWait; drwSiteWait = null; const nw = projPoints().filter((p) => !w.ids.has(p.id) && DRW_MOVE(p)); if (nw.length === 1) { routeUndo.push({ add: nw[0].id }); renderRtBar(lastR || routeModel()); } } // (its record saved: ↶ takes it off again)
+      const sig = drwEdSig(); if (sig === drw.edSig) { drawDrawing(); return; }
+      const old = drw, view = old.view ? { ...old.view } : null; openDrawing(true, view); if (!drw || drw === old) return;
+      if (view) drw.view = view; drw.labels = old.labels; drw.mapKind = old.mapKind; drw.under = old.under; drw.underKey = old.underKey; drw.edSig = sig;
+      $('drawLabels').setAttribute('aria-pressed', String(drw.labels)); drwEdUi(); drawDrawing(); });
+  }
+  /** ✋ (or Route tools) on the Drawing: a cable tapped, as a span tapped on the map: its spans and runs in Route tools, its cable lit. */
+  function drwTapCable(c) {
+    if (!drw) return; const d = window.devicePixelRatio || 1, t = [c.x * d, c.y * d], seg = (a, b) => { const vx = b[0] - a[0], vy = b[1] - a[1], u = Math.max(0, Math.min(1, ((t[0] - a[0]) * vx + (t[1] - a[1]) * vy) / (vx * vx + vy * vy || 1))); return Math.hypot(a[0] + vx * u - t[0], a[1] + vy * u - t[1]); };
+    let sp = null; drw.spans.forEach((x) => { const dd = seg(drwPx(x.a), drwPx(x.b)); if (dd < 16 * d && (!sp || dd < sp.dd)) sp = { dd, x }; });
+    if (!sp) return; let bc = null; (drw.hitL || []).forEach(({ n, lines }) => lines.forEach((L0) => { for (let k = 1; k < L0.length; k++) { const dd = seg(L0[k - 1], L0[k]); if (dd < 16 * d && (!bc || dd < bc.dd)) bc = { dd, n }; } }));
+    spanSel = [sp.x.sp.ia, sp.x.sp.ib]; routeSel = null; rtTools = true; if (fibAdd == null && bc) fibSel = bc.n; routeRefresh();
+  }
+  /** Paints on the Drawing what Route shows on the map: the end the cable in the bar goes on from, the poles it passes, a line being
+      drawn and the poles it snaps to, the cable handles (white dots, clear of every point's own tap), what is being dragged. */
+  function drwEdPaint(g, d) {
+    drw.edH = []; if (!routeMode) return;
+    const P = (id) => { const it = drwEdById(id); return it ? drwPx(it.xy) : null; }, LP = (la, lo) => { const u = C.utmForward(la, lo, drw.zone, la < 0); return drwPx([u.E, u.N]); };
+    const ring = (p, r, col, w, dash) => { if (!p) return; g.save(); g.strokeStyle = col; g.lineWidth = w * d; g.setLineDash(dash ? dash.map((x) => x * d) : []); g.beginPath(); g.arc(p[0], p[1], r * d, 0, 2 * Math.PI); g.stroke(); g.restore(); };
+    const line = (pts, col, w, dash, al) => { const q = pts.filter(Boolean); if (q.length < 2) return; g.save(); g.globalAlpha = al == null ? 1 : al; g.strokeStyle = col; g.lineWidth = w * d; g.lineCap = 'round'; g.lineJoin = 'round'; g.setLineDash(dash ? dash.map((x) => x * d) : []); g.beginPath(); q.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.stroke(); g.restore(); };
+    const dot = (p, col, r) => { if (!p) return; g.save(); g.fillStyle = '#fff'; g.strokeStyle = col; g.lineWidth = 3 * d; g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = 4 * d; g.beginPath(); g.arc(p[0], p[1], r * d, 0, 2 * Math.PI); g.fill(); g.shadowBlur = 0; g.stroke(); g.restore(); };
+    const R = lastR, F = R && R.fib ? R.fib : null, A = fibAdd != null && F ? F.list.find((f) => f.n === fibAdd) : null, G = rtGrab && rtGrab.sf === RT_DRW ? rtGrab : null;
+    if (A && A.path.length && !G) ring(P(fibAt === 'start' ? A.path[0] : A.path[A.path.length - 1]), 17, fibColor(A), 3.5); // the end it goes on from (draw from it)
+    if (A && !rtDraft && !G) fibPasses(A, F.by).forEach((id) => ring(P(id), 13, '#e8590c', 2, [3, 3])); // the poles it passes: a tap puts one on
+    if (routeSel) ring(P(routeSel), 15, '#17202a', 3);
+    if (fibStartAt != null) ring(P(fibStartAt), 16, '#1b3a6b', 3, [5, 4]);
+    if (rtConf) { ring(P(rtConf.id), 24, '#1c7ed6', 3); }
+    if (rtSheet && rtSheet.seq && rtSheet.seq.length > 1) line(rtSheet.seq.map(P), fibColor({ n: nextFibN() }), 6, [10, 7], 0.85); // the New cable sheet: the poles drawn
+    const n = rtGrabN(), gf = n != null && F && !rtDraft && !G ? F.list.find((f) => f.n === n) : null;
+    if (gf) { const hr = grabR(), tapR = rtCoarse() ? 24 : 14, pts = drw.items.map((it) => ({ q: drwPx(it.xy), r: (tapR + (it.el === 'Pole' ? 0 : 8) + hr + 2) * d }));
+      for (let j = 1; j < gf.path.length; j++) { const a = P(gf.path[j - 1]), b = P(gf.path[j]); if (!a || !b) continue; let at = null;
+        for (const t of [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74]) { const q = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; if (pts.every((p) => Math.hypot(p.q[0] - q[0], p.q[1] - q[1]) >= p.r)) { at = q; break; } }
+        if (!at) continue; dot(at, fibColor(gf), 7); drw.edH.push({ x: at[0] / d, y: at[1] / d, r: hr, n: gf.n, a: gf.path[j - 1], b: gf.path[j] }); } }
+    if (rtDraft) { line(rtDraft.ll.map((q) => LP(q.lat, q.lon)), rtDraft.col, 3, null, 0.45); const sq = (rtDraft.seq || []).map(P); line(sq, rtDraft.col, 6, [10, 7], 0.9); sq.forEach((p) => ring(p, 13, rtDraft.col, 3)); }
+    if (G) { const fin = [G.c.x * d, G.c.y * d], col = G.kind === 'site' ? '#1c7ed6' : fibColor({ n: G.n });
+      if (G.kind === 'site') { (G.nb || []).forEach((id) => line([P(id), fin], '#495057', 3, [8, 6], 0.9)); ring(P(G.id), 15, '#868e96', 2.5, [3, 3]); dot(fin, col, 11); }
+      else { const v = G.v, mid = v === 'on' || v === 'swap' ? P(G.tid) : v === 'stay' ? P(G.id) : fin;
+        line(v === 'off' ? [P(G.A), P(G.B)] : [P(G.A), mid, P(G.B)], col, 5, [9, 7], 0.95);
+        if (G.kind === 'pole') ring(P(G.id), 14, '#868e96', 2.5, [3, 3]);
+        if (G.tid != null) ring(P(G.tid), 19, v === 'already' ? '#c92a2a' : v === 'stay' ? col : '#2f9e44', 4);
+        dot(fin, col, G.kind === 'pole' ? 11 : 9); } }
+  }
+  /** ＋ Tower · OLT · ODC on the Drawing: which, then a tap where it stands; its record opens for its name (as the map's ＋ pin). */
+  async function drwSiteAsk() {
+    const k = await ask('Add on the Drawing', 'A tower, an OLT or an ODC: pick it, then tap the Drawing where it stands. Its record opens for its name and colour (a photo is optional). To move one later, hold it, then drag it.', [
+      { label: 'Tower (site)', value: 'Tower' }, { label: 'OLT (site)', value: 'OLT' }, { label: 'ODC (cabinet)', value: 'ODC' }, { label: 'Cancel', value: '' }]);
+    if (!k || !drwEd) return; drwSiteArm = { el: k === 'ODC' ? 'ODC' : 'Site', kind: k };
+    rtHint(`Tap the Drawing where the ${k === 'ODC' ? 'ODC' : k === 'OLT' ? 'OLT' : 'tower'} stands (Esc: cancel)`);
+  }
+  function drwSitePlace(ll) {
+    const a = drwSiteArm; drwSiteArm = null; rtHint(''); if (!a || !ll) return;
+    drwSiteWait = { ids: new Set(points.map((p) => p.id)) }; LOG.info('draw.site.add', { el: a.el, k: a.kind });
+    openEditor({ mode: 'new', element: a.el, siteKind: a.el === 'Site' ? a.kind : '', lat: ll.lat, lon: ll.lng, source: 'map', takenAt: new Date().toISOString(), note: 'Placed on the Drawing · photo optional' }).catch((e) => { LOG.warn('draw.site.add', errInfo(e)); drwSiteWait = null; });
+  }
+  /** A tower, OLT or ODC let go where it was dragged on the Drawing: its record's place (pin adjusted), with ↶. */
+  async function drwSiteMove(g) {
+    const p = points.find((x) => x.id === g.id); if (!p) return; const to = RT_DRW.ll(g.c), dm = haversine(p, { lat: to.lat, lon: to.lng });
+    if (g.v !== 'move' || dm < 0.5) { rtHint('Nothing changed', 1500); return; }
+    { const lk = tmHooks.locked ? tmHooks.locked(p.id, 'edit') : ''; if (lk) { toast(lk, 6500); return; } }
+    const prev = JSON.parse(JSON.stringify(p)), rec = { ...p, lat: +to.lat.toFixed(7), lon: +to.lng.toFixed(7), adjusted: true, updated: new Date().toISOString(), updatedBy: byLine() };
+    try { await dbPut('points', rec); } catch (e) { toast('Could not save: try again', 3500); return; }
+    const i = points.findIndex((x) => x.id === p.id); if (i >= 0) points[i] = rec; changedAfterApproval(rec.project, 'record'); routeUndo.push({ rec: prev });
+    renderPoles(); toast(`${recName(rec) || elemOf(rec)} moved ${fmtLen(dm)} (Undo puts it back)`, 3500);
+  }
+  /** ↶ of a tower, OLT or ODC placed on the Drawing: off again (its record, its spans and cables, as Delete in its record). */
+  async function drwSiteUnadd(id) {
+    const rec = points.find((p) => p.id === id); if (!rec) return;
+    await dbDel('points', id); await deletePhotosIfUnused(allPids(rec), new Set([id])); points = points.filter((p) => p.id !== id);
+    if (links().some(([x, y]) => x === id || y === id)) setLinks(links().filter(([x, y]) => x !== id && y !== id));
+    if (fibers().some((f) => f.path.includes(id))) setRoute(null, fibers().map((f) => ({ ...f, path: f.path.filter((x) => x !== id) })));
+    S.meta = S.meta || {}; const m = { ...(S.meta[rec.project] || {}) }; m.gone = { ...(m.gone || {}), [id]: new Date().toISOString() }; S.meta[rec.project] = m; persist(); // (its deletion goes with the next share)
+    changedAfterApproval(rec.project, 'delete'); toast(`${recName(rec) || elemOf(rec)} taken off again`, 2500);
+  }
+  function drwEdTip() { // once on this phone: what Edit route does on the Drawing (after the first-time tip of Route)
+    if (S.drwEdTip) return; const go = (k) => { if (!drwEd || S.drwEdTip || k > 40) return; if (!$('rtHint').hidden || !$('toast').hidden) { setTimeout(() => go(k + 1), 500); return; }
+      S.drwEdTip = true; persist(); rtHint('Editing on the Drawing: one finger draws a cable along the poles, two fingers move it. Hold a cable, a pole or a tower to drag it. Done when finished', 7000); };
+    setTimeout(() => go(0), 400);
+  }
+  $('drawEdit').addEventListener('click', () => drwEditSet(!drwEd));
+  /* ================= beta 6.7: Street View by dragging the little man =================
+     The owner: "Street View at the pin works but is not user friendly: an icon where I can drop the man on the street". The little man
+     on the map's column of buttons (and in the Drawing's tools): drag him onto a street and let go: Google Street View opens there, by
+     the same free link as the record's Street View (streetViewUrl: no key, no cost). While dragged he walks under the finger, with
+     "Drop on a street"; a tap on him says how; Esc, or letting go off the map, opens nothing. */
+  function svPegInit(btn, where) { // where(x, y): the spot (L.latLng) under a point of the page, or null (off the map / the Drawing)
+    const peg = $('svPeg'), lbl = peg.querySelector('span'); let pg = null;
+    const stop = () => { pg = null; peg.hidden = true; document.body.classList.remove('svdrag'); };
+    btn.addEventListener('pointerdown', (e) => { if (e.button > 0) return; e.preventDefault(); try { btn.setPointerCapture(e.pointerId); } catch (x) { /* (no capture) */ } pg = { pid: e.pointerId, x0: e.clientX, y0: e.clientY, moved: false }; });
+    btn.addEventListener('pointermove', (e) => {
+      if (!pg || e.pointerId !== pg.pid) return;
+      if (!pg.moved) { if (Math.hypot(e.clientX - pg.x0, e.clientY - pg.y0) < 8) return; pg.moved = true; peg.hidden = false; document.body.classList.add('svdrag'); $('toast').hidden = true; } // (the last message is old now)
+      const ok = !!where(e.clientX, e.clientY); peg.style.transform = `translate(${e.clientX}px,${e.clientY}px)`; peg.classList.toggle('ok', ok); lbl.textContent = ok ? 'Drop on a street' : 'Drop him on the map';
+    });
+    const end = (e, cancel) => {
+      if (!pg || e.pointerId !== pg.pid) return; const p = pg; stop();
+      if (!p.moved) { if (!cancel) toast('Street View: drag the little man onto a street and let go. Google Street View opens there (in Google Maps)', 4500); return; }
+      const ll = cancel ? null : where(e.clientX, e.clientY); if (!ll) { toast('Nothing opened: drop him on a street', 2500); return; }
+      LOG.info('sv.peg', { on: btn.id }); openExternal(streetViewUrl(ll.lat, ll.lng)); toast('Street View opens in Google Maps (where Google has none here, the map)', 3500);
+    };
+    btn.addEventListener('pointerup', (e) => end(e)); btn.addEventListener('pointercancel', (e) => end(e, true));
+    btn.addEventListener('click', (e) => e.preventDefault()); btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    document.addEventListener('keydown', (e) => { if (pg && e.key === 'Escape') { stop(); toast('Nothing opened', 1500); } });
+  }
+  svPegInit($('svPegBtn'), (x, y) => { const t = document.elementFromPoint(x, y), m = $('map'); if (!t || !m.contains(t) || (t.closest && t.closest('.leaflet-control, button, .round'))) return null; const r = m.getBoundingClientRect(); return map.containerPointToLatLng(L.point(x - r.left, y - r.top)); });
+  svPegInit($('drawPeg'), (x, y) => { const t = document.elementFromPoint(x, y), cv = $('drawCanvas'); if (t !== cv || !drw || !drw.view) return null; const r = cv.getBoundingClientRect(); return RT_DRW.ll(L.point(x - r.left, y - r.top)); });
   async function rtUndo() {
     if (!routeUndo.length || rtDraft || rtConf || rtGrab) return; const u = routeUndo.pop(); rtPend = [];
     if (u && u.rec) { try { await dbPut('points', u.rec); const i = points.findIndex((x) => x.id === u.rec.id); if (i >= 0) points[i] = u.rec; rtAsked.delete(u.rec.id); } catch (e) { toast('Could not undo the closure', 3000); } }
+    else if (u && u.add) { try { await drwSiteUnadd(u.add); } catch (e) { toast('Could not undo: try again', 3000); } } // beta 6.7: a tower, OLT or ODC placed on the Drawing
     else if (Array.isArray(u)) setLinks(u); else setRoute(u.l, u.f);
     if (fibAdd != null && !fibers().some((f) => f.n === fibAdd)) { fibAdd = null; fibSel = null; }
     renderPoles();
@@ -4659,6 +4894,7 @@
         const stats = R ? `${R.spans.length} span${R.spans.length === 1 ? '' : 's'} · ${fmtLen(R.total)}${R.cableTotal > R.total + 0.05 ? ` · cable ${fmtLen(R.cableTotal)}` : ''}` : '';
         h += `<div class="rt-row"><button class="ib primary rt-new" type="button" data-rt="newcab" id="rtNewCab" aria-label="New cable: pick its type, then draw it or follow the capture order">＋ New cable</button><button class="ib" type="button" data-rt="tools" id="rtCables" aria-label="The list of cables (${all.length}): Continue, type, Details, Delete; and more">Cables · ${all.length}</button><span class="rt-sp"></span><button class="ib primary" type="button" id="rtDone">Done</button></div>`
           + `<div class="rt-row">${seg}<div class="rt-meta grow" id="rtLive">${rtPairs ? '<b>Linking two poles without a cable:</b> tap a pole, then the next' : all.length ? stats : 'Tap ＋ New cable, or a pole, to start'}</div>${pen && !rtPairs ? snapB : ''}${undoB}</div>`; // v2.42.24: one way to start a cable; the list of cables
+        if (drwEd && !rtPairs) h += `<div class="rt-row"><button class="ib" type="button" data-rt="site" id="rtDrwSite" aria-label="Add a tower, an OLT or an ODC: tap the Drawing where it stands">＋ Tower · OLT · ODC</button><div class="rt-meta grow">Hold one to move it</div></div>`; // beta 6.7: on the Drawing
       }
     }
     if (rtTools) { bar.innerHTML = ''; bar.hidden = true; $('routeBar').hidden = false; document.body.style.setProperty('--rtbh', deskOn() ? '0px' : `${Math.max(0, Math.round($('routeBar').getBoundingClientRect().height) - 4)}px`); rtPop = null; renderRtPop(); return; } // Route tools in its place (Close: back to the bar)
@@ -4674,26 +4910,39 @@
     const picker = (sp, pre) => `<div class="rt-seg" role="group" aria-label="Proposed or existing cable">${opt(`${pre}kind`, 'p', 'Proposed', !sp.ex)}${opt(`${pre}kind`, 'e', 'Existing', sp.ex)}</div>`
       + (!sp.ex ? CAB_GROUPS.map(([g, t]) => `<div class="lbl2">${hEsc(t)}</div><div class="rt-opts">${Object.entries(CAB).filter(([, c]) => c.fam === g).map(([k, c]) => opt(`${pre}cab`, k, c.short, sp.cab === k, c.label)).join('')}</div>`).join('') // v2.42.24: by family
         : `<div class="lbl">EXISTING CABLE SIZE</div><div class="rt-opts">${EX_SIZES.map((c) => opt(`${pre}cores`, c, `${c}C`, sp.cores === c)).join('')}<span class="rt-other"><input id="${pre}CoreIn" type="number" inputmode="numeric" min="2" max="1728" placeholder="Other" aria-label="Other size, in cores" value="${EX_SIZES.includes(sp.cores) ? '' : sp.cores}"><button class="ib" type="button" data-coreset="${pre}">C ✓</button></span></div><p class="rt-note">Existing: drawn dashed on the map, the Drawing and the DXF with its size; left out of the BOQ, the cable lengths, the loops and the hardware.</p>`);
+    // beta 6.7: a new UG cable: how it is laid and its conduit (the defaults marked: HDD for air-blown fiber, open trench for conventional UG; 2 runs of 114.3 mm)
+    const ugBlock = (sp, pre) => { if (sp.ex || !isUG(sp.cab)) return ''; const u = ugOf({ cab: sp.cab, ugm: sp.ugm, cd: sp.cd, cdr: sp.cdr }), d = ugDefM(sp.cab);
+      return `<div class="lbl">LAID BY</div><div class="rt-opts" role="group" aria-label="How the UG cable is laid">${UG_METHODS.map(([k, t, l]) => opt(`${pre}ugm`, k, `${t}${k === d ? ' ·' : ''}`, u.m === k, `${l}${k === d ? ' (the default for this cable)' : ''}`)).join('')}</div>`
+        + `<div class="lbl">CONDUIT (AS THE CEF PLAN)</div><div class="rt-opts" role="group" aria-label="Conduit size">${UG_CDS.map((c) => opt(`${pre}cd`, c, `${c} mm`, u.cd === c, `${c} mm conduit`)).join('')}</div><div class="rt-opts" role="group" aria-label="Conduit runs">${[1, 2].map((r) => opt(`${pre}cdr`, r, r === 1 ? '1 run' : '2 runs', u.cr === r)).join('')}</div>`
+        + `<p class="rt-note">${hEsc(ugTxt(u))}. The default (·) for ${d === 'hdd' ? 'air-blown fiber: HDD' : 'a conventional UG cable: open trench'}, 2 runs of 114.3 mm. Counted so in the PMI and each sheet's BOQ; a trenched cable's road crossings are HDD.</p>`; };
     let h = '';
-    if (rtPop === 'cab') h = `<div class="lbl">CABLE OF RUN ${f.n} · THE WHOLE CABLE</div>${picker({ cab: f.cab, ex: !!f.ex, cores: exCores(f) }, 'f')}`;
+    if (rtPop === 'cab') h = `<div class="lbl">CABLE OF RUN ${f.n} · THE WHOLE CABLE</div>${picker({ cab: f.cab, ex: !!f.ex, cores: exCores(f) }, 'f')}${ugBlock(f, 'f')}`;
     else if (rtPop === 'newcab') { const q = rtSheet || {}, sp = nextSpec(), cap = !q.from && !q.seq; // v2.42.24: the New cable sheet
-      h = `<div class="lbl">NEW CABLE · RUN ${nextFibN()}${q.seq ? ` · ALONG THE ${q.seq.length} POLES DRAWN` : q.from ? ` · FROM ${hEsc(fibName(q.from).toUpperCase())}` : ''}</div>${picker(sp, 'n')}`
+      h = `<div class="lbl">NEW CABLE · RUN ${nextFibN()}${q.seq ? ` · ALONG THE ${q.seq.length} POLES DRAWN` : q.from ? ` · FROM ${hEsc(fibName(q.from).toUpperCase())}` : ''}</div>${picker(sp, 'n')}${ugBlock(sp, 'n')}`
         + (cap ? `<div class="rt-how" role="radiogroup" aria-label="How"><label><input type="radio" name="rtHow" value="draw"${q.how !== 'cap' ? ' checked' : ''}> Draw it on the map: tap the poles, or drag along them</label><label><input type="radio" name="rtHow" value="cap"${q.how === 'cap' ? ' checked' : ''}> Follow the capture order: the poles in the order you surveyed them (a RUN for each stretch)</label></div>` : '')
         + `<div class="rt-acts rt-end"><button class="ib" type="button" data-ns="cancel">Cancel</button><button class="ib primary" type="button" data-ns="start" id="rtSheetStart">${q.seq ? 'Save this cable' : 'Start'}</button></div>`; }
     else if (rtPop === 'snap') h = snaps;
     else if (rtPop === 'new') h = `<div class="lbl">NEXT FIBER · CABLE</div>${picker(nextSpec(), 'n')}`;
     el.innerHTML = h; el.hidden = false; el.classList.toggle('rtsheet', rtPop === 'newcab'); // (v2.42.24: the New cable sheet: taller, its buttons always in sight)
   }
+  /** beta 6.7: the UG cable in the bar: how it is laid, its conduit (ch: { ugm } | { cd } | { cdr }), with Undo. */
+  function rtSetUg(ch) {
+    const F = fibers(), f = fibAdd != null ? F.find((x) => x.n === fibAdd) : null; if (!f || f.ex || !isUG(f.cab)) return;
+    const was = ugTxt(ugOf(f)); routeUndo.push(routeSnap()); Object.assign(f, ch); const now = ugTxt(ugOf(f));
+    if (now === was) { routeUndo.pop(); renderRtPop(); return; }
+    setRoute(null, F); fibTouched = true; toast(`RUN ${f.n}: ${now}`, 3000); renderRtPop(); routeRefresh();
+  }
   /** The whole fiber's cable: proposed (its cable; spans on each step) or existing (any size; drawn only, no spans of its own). */
   function rtSetCable(ch, n0) {
     const n = n0 != null ? n0 : fibAdd; if (n == null) return; /* (v2.42.24: or a cable in the list) */ const F = fibers(), f = F.find((x) => x.n === n); if (!f) return;
     const was = fibCabName(f), wasEx = !!f.ex; let L2 = null;
     const nf = { ...f, ...ch }; if (fibCabName(nf) === was && !!nf.ex === wasEx) { rtPop = null; renderRtPop(); return; }
-    routeUndo.push(routeSnap()); Object.assign(f, ch); if (f.ex) f.cores = exCores(f); else delete f.cores;
+    routeUndo.push(routeSnap()); const fam0 = ugDefM(f.cab); Object.assign(f, ch); if (f.ex) f.cores = exCores(f); else delete f.cores;
+    if ('cab' in ch && ugDefM(f.cab) !== fam0) delete f.ugm; // (beta 6.7: air-blown ↔ conventional UG: its method back to that cable's default)
     if (f.ex && !wasEx) { const hop = (g) => new Set(g.path.slice(1).map((x, i) => spanKey(g.path[i], x))), mine = hop(f), others = new Set(F.filter((g) => g !== f && !g.ex).flatMap((g) => [...hop(g)])); L2 = links().filter((l) => !(mine.has(spanKey(l[0], l[1])) && !others.has(spanKey(l[0], l[1])) && !(Array.isArray(l[3]) && l[3].length))); }
     else if (!f.ex) L2 = linksFor(f.path, f.cab);
     setRoute(L2, F); if (n0 == null) fibTouched = true; toast(`RUN ${f.n}: ${was} → ${fibCabName(f)}, the whole cable`, 3000);
-    if (ch.ex === undefined || 'cab' in ch || 'cores' in ch) rtPop = null; routeRefresh();
+    if ((ch.ex === undefined || 'cab' in ch || 'cores' in ch) && !('cab' in ch && !f.ex && isUG(f.cab))) rtPop = null; routeRefresh(); // (beta 6.7: a UG cable picked: its method and conduit in view)
   }
   $('rtBar').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return; if (e.detail) b.blur(); // (a pointer's click: Space stays the map's; the keyboard keeps its focus)
@@ -4706,6 +4955,7 @@
     if (a === 'finish') { rtFinish(); return; }
     if (a === 'cancel') { rtCancel(); return; } // v2.42.24
     if (a === 'newcab') { rtOpenSheet({}); return; }
+    if (a === 'site') { drwSiteAsk(); return; } // beta 6.7: on the Drawing
     if (a === 'tools') { rtTools = !rtTools; if (rtTools && fibAdd != null) fibSel = fibAdd; const w = routeSel; if (!rtTools && rtPenOn()) routeSel = null; routeRefresh([w]); return; } // (v2.42.22: the route check's rings with it)
     if (a === 'fib' && g) { rtActivate(g.n, 'end'); routeRefresh(); return; }
     if (a === 'askno') { const q = rtPend.shift(); if (q) rtAsked.add(q.id); routeRefresh(); return; }
@@ -4726,11 +4976,13 @@
     if (d.snap != null) { S.routeSnap = d.snap === 'auto' ? 'auto' : +d.snap; persist(); toast(`Snap: ${snapLbl()}`, 1800); if (rtPop === 'snap') rtPop = null; renderRtBar(lastR || routeModel()); return; }
     if (d.fkind) { rtSetCable({ ex: d.fkind === 'e' }); rtPop = 'cab'; renderRtPop(); return; }
     if (d.fcab) { rtSetCable({ ex: false, cab: d.fcab }); return; }
+    if (d.fugm || d.fcd || d.fcdr) { rtSetUg(d.fugm ? { ugm: d.fugm } : d.fcd ? { cd: d.fcd } : { cdr: +d.fcdr }); return; } // beta 6.7
+    if (d.nugm || d.ncd || d.ncdr) { setNext(d.nugm ? { fibUgm: d.nugm } : d.ncd ? { fibCd: d.ncd } : { fibCdr: +d.ncdr }); renderRtPop(); return; } // beta 6.7: the next UG cable's
     if (d.fcores) { rtSetCable({ ex: true, cores: +d.fcores }); return; }
     const ready = () => { fibNew = false; rtPop = null; routeRefresh(); }; // (v2.42.22: the next line or tap with no fiber in the bar starts it)
     if (d.nkind) { setNext({ fibEx: d.nkind === 'e' }); renderRtPop(); return; }
     if (d.ns) { if (d.ns === 'start') { const r = el0.querySelector('input[name="rtHow"]:checked'); rtSheetStart(r ? r.value : 'draw'); } else { rtSheetClose(); routeRefresh(); } return; } // v2.42.24: the New cable sheet
-    if (d.ncab) { setNext({ cable: d.ncab, fibEx: false }); renderCableSel(); if (rtPop === 'newcab') renderRtPop(); else ready(); return; }
+    if (d.ncab) { setNext({ cable: d.ncab, fibEx: false, ...(ugDefM(d.ncab) !== ugDefM(cableSel()) ? { fibUgm: '' } : {}) }); renderCableSel(); /* (beta 6.7: air-blown ↔ conventional: the method back to its default) */ if (rtPop === 'newcab') renderRtPop(); else ready(); return; }
     if (d.ncores) { setNext({ fibEx: true, fibCores: +d.ncores }); if (rtPop === 'newcab') renderRtPop(); else ready(); return; }
     if (d.coreset) { const inp = $(`${d.coreset}CoreIn`), v = Math.round(+inp.value); if (!(v >= 2 && v <= 1728)) { toast('Type the number of cores, 2 to 1728', 2500); inp.focus(); return; }
       if (d.coreset === 'f') rtSetCable({ ex: true, cores: v }); else { setNext({ fibEx: true, fibCores: v }); if (rtPop === 'newcab') renderRtPop(); else ready(); } }
@@ -4803,7 +5055,6 @@
     gpsLayer.clearLayers();
     L.circle([fix.lat, fix.lon], { radius: fix.acc, color: '#1c7ed6', weight: 1, fillOpacity: 0.12, interactive: false }).addTo(gpsLayer);
     L.circleMarker([fix.lat, fix.lon], { radius: 7, color: '#fff', weight: 2, fillColor: '#1c7ed6', fillOpacity: 1, interactive: false }).addTo(gpsLayer);
-    if (!again) gpsRefineTick(); // beta 5.9: a photo taken with an old, poor or no fix gets this one if it is better
     shutterState();
     if (typeof visitGpsTick === 'function') visitGpsTick();
   }
@@ -4813,90 +5064,53 @@
     gpsPolling = true;
     try { navigator.geolocation.getCurrentPosition((p) => { gpsPolling = false; onFix(p); }, () => { gpsPolling = false; }, { enableHighAccuracy: true, maximumAge: 0, timeout: ms || 8000 }); } catch (e) { gpsPolling = false; }
   }
-  /* beta 5.9: a survey photo is never lost to the GPS. The shutter takes it at once, with the best fix there is. When that fix is
-     old (no update within GPS_WINDOW_MS of the shutter), not accurate (over GPS_GOOD_M) or missing, the app keeps listening for
-     REFINE_MS after the shutter and uses a better fix that arrives meanwhile: an old fix gives way to a fresh one within
-     GPS_GOOD_M (or as good as it), a poor one to a more accurate one, none to any. A fix within GPS_GOOD_M ends the listening (the
-     pin does not creep after that, as since v2.30). The pin moves with it only while the user has not touched the record's map:
-     a pin placed by hand always stays. PAT, cleanup and FAT photos keep a strict rule instead (gpsNear, GPS_ACC_WINDOW_MS). */
-  const GPS_GOOD_M = 15, REFINE_MS = 20000, GPS_OLD_MAX_MS = 120000;
-  let gref = null; // the photo whose fix is being refined: { at (its shutter), until, gps (the best so far), done }
+  /* beta 6.7 (owner: "do not accept if not the latest gps location. 5 second max"): every photo that needs a location, survey or PAT,
+     cleanup and FAT, is kept only with a fix that reached the phone within GPS_WINDOW_MS of the shutter (see gpsNear). The beta 5.9
+     rule (a survey photo kept with an older fix, refined in the 20 s after the shutter) is gone. A fix's age still counts from when
+     it reached the phone (rx), not from its own time: some phones' GPS clock is a few seconds off. */
   const gpsAgeMs = () => (fix ? Date.now() - fix.rx : Infinity);
-  /** The fix at the shutter with its age then (s); null with none (or one over 2 minutes old: the pin is placed by hand). */
-  function gpsAtShot(at) {
-    if (!fix || at - fix.rx > GPS_OLD_MAX_MS) return null;
-    return { lat: fix.lat, lon: fix.lon, acc: fix.acc, alt: fix.alt, age: Math.max(0, Math.round((at - fix.rx) / 1000)) };
-  }
-  const gpsNeedsRefine = (g) => !g || g.age * 1000 > GPS_WINDOW_MS || !(g.acc <= GPS_GOOD_M);
-  function gpsRefineStart(at, g) {
-    gpsRefineEnd();
-    gref = { at, until: at + REFINE_MS, gps: g, done: !gpsNeedsRefine(g) };
-    if (gref.done) return;
-    gref.tm = setTimeout(gpsRefineEnd, REFINE_MS + 50);
-    LOG.info('gps.refine', { age: g ? g.age : null, acc: g && Number.isFinite(g.acc) ? Math.round(g.acc) : null });
-    startGps(); gpsPoll(REFINE_MS);
-  }
-  function gpsRefineEnd() {
-    const r = gref; if (!r || r.done) return;
-    r.done = true; clearTimeout(r.tm);
-    LOG.info('gps.refine.end', { refined: !!(r.gps && r.gps.ref), acc: r.gps && Number.isFinite(r.gps.acc) ? Math.round(r.gps.acc) : null });
-    gpsRefineApply(r, null);
-  }
-  function gpsRefineTick() {
-    const r = gref; if (!r || r.done || !fix) return;
-    if (Date.now() > r.until) { gpsRefineEnd(); return; }
-    if (fix.rx <= r.at) return; // only a fix that came after the shutter
-    const c = r.gps, a = fix.acc;
-    const better = !c || (c.age * 1000 > GPS_WINDOW_MS && c.ref == null ? a <= GPS_GOOD_M || a <= c.acc : a < c.acc);
-    if (!better) return;
-    r.gps = { lat: fix.lat, lon: fix.lon, acc: a, alt: fix.alt, age: c ? c.age : null, acc0: c ? (c.acc0 != null ? c.acc0 : c.acc) : null, ref: Math.max(1, Math.round((fix.rx - r.at) / 1000)) };
-    LOG.info('gps.refined', { age: r.gps.age, ref: r.gps.ref, acc: Math.round(a) });
-    gpsRefineApply(r, r.gps);
-    if (a <= GPS_GOOD_M) gpsRefineEnd();
-  }
-  /** A better fix (g), or the end of the listening (g null), goes to the photo: still in the camera, or in its record. */
-  function gpsRefineApply(r, g) {
-    if (camPending && camPending.shotAt === r.at) {
-      if (g) { camPending.gps = g; shotDraftGps(camPending); if (!$('camera').hidden) toast(`Location refined: GPS ±${fmtAcc(g.acc)}`, 1600); }
-      return;
-    }
-    if (ed && ed.shotAt === r.at && ed.mode === 'new' && !ed.restored) edGpsRefined(g);
-  }
   const fmtAcc = (a) => `${a < 10 ? a.toFixed(1) : Math.round(a)} m`;
-  /** The line about a photo's fix (empty when it was fresh). live: its refining may still go on. */
-  function gpsNoteOf(g, live) {
+  /** The line about the fix of a record taken in beta 5.9–6.6 with an old fix, or one refined after the shutter (gpsAge, gpsRef);
+      empty for a fresh one, so for every photo taken since beta 6.7. Shown on the record's map, for information. */
+  function gpsNoteOf(g) {
     const ago = (s) => (s >= 90 ? `${Math.round(s / 60)} min` : `${s} s`);
-    if (!g) return live ? 'No GPS at the shutter yet: waiting for a fix…' : 'No GPS at the shutter: drag the map to place the pin';
-    if (g.ref != null) return g.age == null ? `No GPS at the shutter: fix found ${g.ref} s later` : g.age * 1000 > GPS_WINDOW_MS ? `GPS ${ago(g.age)} old at the shutter, refined ${g.ref} s later` : `GPS ${g.acc0 != null ? `±${fmtAcc(g.acc0)}` : 'not accurate'} at the shutter, refined ${g.ref} s later`;
-    if (g.age != null && g.age * 1000 > GPS_WINDOW_MS) return live ? `GPS ${ago(g.age)} old at the shutter: waiting for a fresh fix…` : `GPS was ${ago(g.age)} old: check the pin`;
+    if (!g) return '';
+    if (g.ref != null) return g.age == null ? `No GPS at the shutter: fix found ${g.ref} s later` : g.age * 1000 > GPS_WINDOW_MS ? `GPS ${ago(g.age)} old at the shutter, refined ${g.ref} s later` : `GPS refined ${g.ref} s after the shutter`;
+    if (g.age != null && g.age * 1000 > GPS_WINDOW_MS) return `GPS was ${ago(g.age)} old at the shutter`;
     return '';
   }
   document.addEventListener('visibilitychange', () => { if (document.hidden) stopGps(); else startGps(); });
 
   /* ================= camera ================= */
-  /* Capture rules: a photo is checked for blur and exposure, and the painted Pole ID inside the guide box is read. GPS (beta 5.9):
-     a fix is fresh when it reached the phone within GPS_WINDOW_MS of the shutter. A survey photo is kept whatever the GPS (its fix
-     is refined after the shutter, see gpsRefineStart); a PAT, cleanup or FAT photo (and a visit's) needs a fix that reached the
-     phone within GPS_ACC_WINDOW_MS of the shutter, else it waits up to GPS_WAIT_MS for one and is refused without it. */
-  const GPS_WINDOW_MS = 5000, GPS_ACC_WINDOW_MS = 15000, GPS_WAIT_MS = 5300;
+  /* Capture rules: a photo is kept only if a GPS update reached the phone within GPS_WINDOW_MS of the shutter (beta 6.7: survey, PAT,
+     cleanup, FAT and visits alike; by when it arrived, beta 5.9), waiting up to GPS_WAIT_MS for one; then it is checked for blur and
+     exposure, and the painted Pole ID inside the guide box is read. */
+  const GPS_WINDOW_MS = 5000, GPS_WAIT_MS = 5300;
   /* ================= beta 3.5: several photos per pin =================
      Photos per pin (1–4, 2 by default): after photo 1 the camera offers the next ones, up to that many; Done stops at any time.
      Photo 2 is the pole ID close-up by default (the old ID step): the green shutter keeps it as Pole tag and the ID is read from it.
      The record's first photo is the main one (stored under the record's id, as before); the others are listed in its photos, each
-     with its label. A field partner's phone takes his coordinator's setting for the projects the coordinator sends (Set by). */
+     with its label. A field partner's phone takes his coordinator's setting for the projects the coordinator sends (Set by).
+     beta 6.7 (owner: "by default the app should capture one then displays that photo to add a model or edit some text"): photos per
+     pin is how many the camera takes one after the other, 1 by default: after photo 1 the record opens with the photo full size (model,
+     box, text), on its Photo/Model tab. More
+     photos come from + Add photo in the record, up to PH_PIN_MAX a pin (a tower, OLT or ODC: PH_SITE_N), whatever that setting is;
+     in PAT, cleanup and FAT the as-found, after and verification photos of a defect likewise. The setting is S.phN, written only by a
+     tap on Settings → Camera → Photos per pin: a phone with none stored never chose (the old default 2 was never stored) and now gets
+     1; a phone with one stored keeps it, 2 included. */
   const PH_DOC_DEF = { report: 'all', compl: 'all', defpdf: 'all', kmz: 'all', zip: 'main', ai: 'all' };
   const PH_DOCS = [['report', 'Photo report · PDF'], ['compl', 'Completion report · PDF'], ['defpdf', 'Deficiency list and rectification · PDF'], ['kmz', 'Google Earth · KMZ balloon'], ['zip', 'Geotagged photos · ZIP'], ['ai', 'Photos for AI training · ZIP'], ['dxf', 'AutoCAD · DXF and plan PDF']];
   function phSetOf(name) {
     const P = name ? pmeta(name).phSet : null, T = name && typeof tmTeam === 'function' ? tmTeam(name) : null;
     if (P && !P.free && T && T.role === 'fp') return { n: P.n, idp: P.idp === true && P.idpV === 2, docs: P.docs || {}, by: P.byName || 'your coordinator', locked: true }; // (beta 5.0: only a coordinator who ticked it since 2.44.5)
-    return { n: S.phN || 2, idp: S.phIdp === true, docs: S.phDocs || {}, by: '', locked: false }; // (2.44.5: the pole ID close-up as photo 2 is off unless turned on)
+    return { n: S.phN || 1, idp: S.phIdp === true, docs: S.phDocs || {}, by: '', locked: false }; // (2.44.5: the pole ID close-up as photo 2 is off unless turned on; beta 6.7: 1 photo unless chosen)
   }
-  const phN = (name) => Math.max(1, Math.min(4, Math.round(+phSetOf(name || S.project).n) || 2));
+  const phN = (name) => Math.max(1, Math.min(4, Math.round(+phSetOf(name || S.project).n) || 1));
   const phIdp = (name) => phN(name) >= 2 && phSetOf(name || S.project).idp;
-  const PH_SITE_N = 10; // 2.44.5: a tower, OLT or ODC keeps up to 10 photos (poles: the photos per pin above)
-  const phNOf = (el, name) => (el === 'Site' || el === 'ODC' ? Math.max(PH_SITE_N, phN(name)) : phN(name));
+  const PH_SITE_N = 10, PH_PIN_MAX = 4; // 2.44.5: a tower, OLT or ODC keeps up to 10 photos (beta 6.7: any other pin up to 4, with + Add photo)
+  const phNOf = (el) => (el === 'Site' || el === 'ODC' ? PH_SITE_N : PH_PIN_MAX);
   const phDoc = (k, name) => (k === 'dxf' ? 'main' : phSetOf(name || S.project).docs[k] || PH_DOC_DEF[k] || 'all');
-  const phMine = () => ({ n: S.phN || 2, idp: S.phIdp === true, idpV: 2, docs: { ...PH_DOC_DEF, ...(S.phDocs || {}) }, byName: (S.user && S.user.name) || '', free: S.phBy === 'phone', at: new Date().toISOString() }); // (free: the coordinator lets each phone choose)
+  const phMine = () => ({ n: S.phN || 1, idp: S.phIdp === true, idpV: 2, docs: { ...PH_DOC_DEF, ...(S.phDocs || {}) }, byName: (S.user && S.user.name) || '', free: S.phBy === 'phone', at: new Date().toISOString() }); // (free: the coordinator lets each phone choose)
   const phOf = (r, k) => { const L = photosOf(r); return phDoc(k, r.project) === 'main' ? L.slice(0, 1) : L; }; // a record's photos for a document
   let stream = null, imageCapture = null, torchOn = false, wakeLock = null, camTarget = 'new', camBusy = false, camTick = 0, camPending = null, camSeq = 0;
   let photoOpts = null; // still-photo size: phones with 48–200 MP sensors are asked for about 12 MP (photos are kept at 2048 px anyway)
@@ -4917,22 +5131,26 @@
   /** v2.19: the ID scan after each photo is set apart for surveys and for PAT / cleanup / FAT (where the ID is optional). */
   // v2.21: in PAT, cleanup and FAT the photo is of the defect: no ID scan after it unless turned on (Scan ID in the record stays)
   const readIdOn = () => (isAcc() ? S.readIdAcc === true : S.readId !== false);
-  const gpsFresh = (win) => !!fix && gpsAgeMs() <= (win || GPS_WINDOW_MS) && gpsErr !== 1;
-  /** beta 5.9: the strict GPS rule: PAT, cleanup and FAT photos, and the photos of a visit. */
-  const gpsStrict = () => isAcc() || camTarget === 'vfix' || camTarget === 'vverify';
-  /** Shutter colour: green = a fresh fix (within 5 s; in PAT, cleanup and FAT within 15 s); amber (survey) = the photo is kept and
-      its location refined after the shot (GPS old, not accurate or none yet); red (PAT, cleanup, FAT) = no fresh fix: the photo
-      waits for one and is refused without it; white while scanning an ID. Busy (a ring) from the press until the photo is kept. */
+  const gpsFresh = () => !!fix && gpsAgeMs() <= GPS_WINDOW_MS && gpsErr !== 1;
+  /** beta 6.7: why the shutter is red, on the line over it ('' while the GPS is fresh). */
+  function gpsWhy() {
+    if (gpsErr === 1) return 'Location is off: turn it on for G-eSAA to take photos';
+    if (!fix) return 'No GPS fix yet: wait for the green shutter';
+    if (gpsFresh()) return '';
+    const s = Math.round(gpsAgeMs() / 1000);
+    return `No GPS update for ${s >= 90 ? `${Math.round(s / 60)} min` : `${s} s`}: wait for the green shutter`;
+  }
+  /** Shutter colour: green = GPS updated within 5 s (ready), red = GPS old, off or blocked (beta 6.7: survey, PAT, cleanup and FAT
+      alike; the reason shows over the shutter, and a press waits up to 5 s for a fresh fix, else the photo is not kept); white while
+      scanning an ID. Busy (a ring) from the press until the photo is kept (beta 5.9). */
   function shutterState() {
     const b = $('shutter'); if (!b) return;
     const ph2 = camTarget === 'newid' && camPending && camPending.ph, add = camTarget === 'add' && ed && !ed.acc, more = camTarget === 'newmore' || add; // beta 3.5 (beta 5.0: + Add photo needs no GPS: the pin has its place)
-    const strict = gpsStrict(), st = ph2 || more ? 'ok' : scanStep() ? 'scan' : strict ? (gpsFresh(GPS_ACC_WINDOW_MS) ? 'ok' : 'bad') : gpsFresh() && fix.acc <= GPS_GOOD_M ? 'ok' : 'wait';
+    const st = ph2 || more ? 'ok' : scanStep() ? 'scan' : gpsFresh() ? 'ok' : 'bad';
     b.className = st; b.classList.toggle('busy', b.getAttribute('aria-busy') === 'true');
     b.setAttribute('aria-label', ph2 ? 'Take photo 2 (Pole tag) and read the ID' : more ? `Take photo ${add ? 2 + (ed.photos || []).length : camPending ? camPending.k : ''}` : st === 'scan' ? 'Read the ID' : st === 'ok' ? 'Take photo (GPS ready)'
-      : strict ? 'Take photo (waiting for a fresh GPS fix: this photo needs one)'
-      : camTarget !== 'new' ? 'Take photo (GPS not fresh)'
-      : gpsErr === 1 ? 'Take photo (location is off: the pin is placed by hand)' : !fix || gpsAgeMs() > GPS_OLD_MAX_MS ? 'Take photo (no GPS yet: the location is added if a fix comes, else the pin is placed by hand)'
-      : gpsFresh() ? 'Take photo (GPS not accurate yet: the location is refined after the photo)' : 'Take photo (GPS not fresh: the location is refined after the photo)');
+      : gpsErr === 1 ? 'Take photo (location is off: the photo is not kept without a GPS fix)' : 'Take photo (no fresh GPS fix: the photo waits up to 5 seconds for one, and is not kept without it)');
+    const w = $('camGpsWhy'); if (w) { const t = st === 'bad' ? gpsWhy() : ''; if (w.textContent !== t) w.textContent = t; w.hidden = !t; }
   }
   /** beta 5.9: the press is seen at once: a white flash over the picture, a short buzz, and the shutter busy until the photo is kept. */
   function shutterFlash() {
@@ -4975,11 +5193,11 @@
   function camGpsTick() {
     shutterState();
     if (!fix) return;
-    const age = gpsAgeMs() / 1000, stale = age * 1000 > (gpsStrict() ? GPS_ACC_WINDOW_MS : GPS_WINDOW_MS);
+    const age = gpsAgeMs() / 1000, stale = age * 1000 > GPS_WINDOW_MS;
     $('camGpsDot').className = 'dot ' + (stale ? 'poor' : quality(fix.acc));
     $('camGpsText').textContent = `GPS ±${fmtAcc(fix.acc)} · ${age < 1.5 ? 'now' : age >= 90 ? `${Math.round(age / 60)} min ago` : `${Math.round(age)} s ago`}`;
     // Some phones report rarely while standing still: ask for a new fix so the shutter can turn green (and a photo just taken gets it).
-    if (age > 2.5 && (!scanStep() || (gref && !gref.done))) gpsPoll(8000);
+    if (age > 2.5 && !scanStep()) gpsPoll(8000);
   }
   // a tap on H or V fixes the box's shape for this scan (otherwise it turns by itself to fit the ID, v2.16)
   $('orientH').addEventListener('click', () => { S.idOrient = 'h'; persist(); finderStop(); showGuide(); finder.manual = true; });
@@ -5066,7 +5284,8 @@
   }
   async function openCamera(target) {
     camTarget = target || 'new'; camPending = null; camSeq++; finder.manual = false; photoReadNext = false; // the box turns by itself until H / V is tapped
-    openSheet('camera'); startGps();
+    const overPhoto = pvOpen; if (overPhoto) { pvOpen = false; hidePhotoView(); } // beta 6.7: the photo shown full size (after one photo) closes for the camera, which takes its place in the history
+    openSheet('camera', overPhoto); startGps();
     $('camMsg').hidden = true; $('camTorch').hidden = true; $('qualBox').hidden = true; camCheck(false);
     showGuide();
     if ((camTarget === 'new' && readIdOn()) || camTarget === 'scan') ocrWarm();
@@ -5135,8 +5354,7 @@
         const q = p.q || (p.qp ? await p.qp : null);
         if (q && q.flags && q.flags.length) { draftClear(); toast(`${QUAL_TITLE[q.flags[0]] || 'Photo not accepted'}. ${QUAL_TEXT[q.flags[0]] || 'Take it again.'}`, 7000); return; }
         await Promise.all((p.more || []).map((m) => m.qp)).catch(() => {}); // beta 5.9: photos 2… checked in the background (one that failed has been taken out)
-        if (p.shotAt && gref && gref.at === p.shotAt) p.gps = gref.gps; // (the best fix so far)
-        gotPhoto(p.blob, p.gps, p.source || 'camera', { q, takenAt: p.takenAt, shotAt: p.shotAt || 0, crop: p.crop || null, live: p.live || null, idShot: p.idShot || null, ph2: !!p.ph, idAt: p.idAt || '', more: p.more || [] }); // (beta 3.5: photo 2 and the photos after it)
+        gotPhoto(p.blob, p.gps, p.source || 'camera', { q, takenAt: p.takenAt, crop: p.crop || null, live: p.live || null, idShot: p.idShot || null, ph2: !!p.ph, idAt: p.idAt || '', more: p.more || [] }); // (beta 3.5: photo 2 and the photos after it)
       }, 0);
     }
   }
@@ -5151,10 +5369,10 @@
     try { await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ torch: torchOn }] }); } catch (e) { toast('Flashlight not supported'); }
   });
 
-  /** A fix that reached the phone within win ms before the shot, or one that comes within GPS_WAIT_MS after it (beta 5.9: by
-      when it arrived, not by its own time); null without one. Used by PAT, cleanup and FAT photos (win: GPS_ACC_WINDOW_MS). */
-  function gpsNear(shotAt, win) {
-    const W = win || GPS_WINDOW_MS, ok = (f) => !!f && f.rx >= shotAt - W && gpsErr !== 1;
+  /** A fix that reached the phone within GPS_WINDOW_MS before the shot, or one that comes within GPS_WAIT_MS after it (beta 5.9: by
+      when it arrived, not by its own time); null without one: the photo is not kept (beta 6.7: every photo with a location). */
+  function gpsNear(shotAt) {
+    const W = GPS_WINDOW_MS, ok = (f) => !!f && f.rx >= shotAt - W && gpsErr !== 1;
     const out = () => ({ lat: fix.lat, lon: fix.lon, acc: fix.acc, alt: fix.alt, age: Math.max(0, Math.round((shotAt - fix.rx) / 1000)) });
     if (ok(fix)) return Promise.resolve(out());
     camCheck('Checking GPS…');
@@ -5551,8 +5769,6 @@
       if (camTarget === 'scan') { const crop = grabGuideCrop(), live = liveResult(); finderStop(); await closeSheet(); if (live) applyLiveRead(live); else scanResult(crop); return; }
       if (camTarget === 'newid') { if (camPending) { camPending.crop = grabGuideCrop(); camPending.live = liveResult(); } finderStop(); await closeSheet(); return; }
       shutterFlash(); // beta 5.9: the press is seen and felt at once
-      const strict = gpsStrict(), gps0 = gpsAtShot(shotAt); // beta 5.9: the fix at the shutter (a survey photo's is refined after it)
-      if (camTarget === 'new' && !strict) gpsRefineStart(shotAt, gps0);
       let blob = null;
       LOG.step('photo.take', { target: camTarget, still: !!imageCapture, opts: photoOpts, mem: memMB() });
       if (imageCapture) {
@@ -5591,18 +5807,10 @@
         return;
       }
       perf.capture = Date.now() - shotAt;
-      let gps = null;
-      if (strict || camTarget === 'cef') { // PAT, cleanup, FAT and visits: a fix within 15 s of the shutter, or the photo is refused; a CEF plan's site photo: a fresh fix, else none
-        const tg = Date.now(); gps = await gpsNear(shotAt, strict ? GPS_ACC_WINDOW_MS : GPS_WINDOW_MS);
-        LOG.info('photo.gps', { ms: Date.now() - tg, ok: !!gps, age: gps ? gps.age : null, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0, strict });
-        if (!alive()) return;
-        if (!gps && strict) { toast(gpsErr === 1 ? 'Photo not saved: location is off. Turn on location for G-eSAA, then take it again.' : `Photo not saved: GPS has not updated in the last ${GPS_ACC_WINDOW_MS / 1000} seconds. PAT, cleanup and FAT photos need a fresh fix: wait for the green shutter, then take it again.`, 6500); return; }
-        if (!gps) toast('No fresh GPS fix: the photo is kept without its location', 3500);
-      } else { // beta 5.9: a survey photo is kept with the best fix there is (refined after the shot when it is old, poor or missing)
-        gps = gref && gref.at === shotAt ? gref.gps : gps0;
-        LOG.info('photo.gps', { ms: 0, ok: !!gps, age: gps ? gps.age : null, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0, refine: !!(gref && gref.at === shotAt && !gref.done) });
-        if (camTarget === 'new' && gref && gref.at === shotAt && !gref.done) toast(!gps ? (gpsErr === 1 ? 'Photo kept · location is off: place the pin by hand' : 'Photo kept · no GPS yet: listening for a fix') : gps.age * 1000 > GPS_WINDOW_MS ? `Photo kept · GPS ${gps.age} s old: refining the location` : `Photo kept · GPS ±${fmtAcc(gps.acc)}: refining the location`, 2600);
-      }
+      const tg = Date.now(), gps = await gpsNear(shotAt); // beta 6.7: a fix from the last 5 s (or one within 5 s after the press), else the photo is not kept
+      LOG.info('photo.gps', { ms: Date.now() - tg, ok: !!gps, age: gps ? gps.age : null, acc: gps && Number.isFinite(gps.acc) ? Math.round(gps.acc) : null, err: gpsErr || 0 });
+      if (!alive()) return;
+      if (!gps) { toast(gpsErr === 1 ? 'Photo not saved: location is off. Turn on location for G-eSAA, then take it again.' : 'Photo not saved: GPS has not updated in the last 5 seconds. Wait for the green shutter, then take it again.', 6500); return; }
       const tq = Date.now(), takenAt = new Date(shotAt).toISOString();
       const qp = withTimeout(checkQuality(blob), 15000, 'slow').catch(() => ({ flags: ['error'] })).then((q) => {
         perf.check = Date.now() - tq; perf.px = q.w ? `${q.w}×${q.h}` : '';
@@ -5611,7 +5819,7 @@
       });
       const multi = camTarget === 'new' && phN() >= 2; // beta 3.5: photo 2 next (the ID close-up in a survey), then up to photos per pin
       if (camTarget === 'new' && (multi || readIdOn())) { // aim at the ID straight away; the photo is checked meanwhile
-        const pend = { blob, gps, takenAt, shotAt, source: 'camera', qp };
+        const pend = { blob, gps, takenAt, source: 'camera', qp };
         if (multi && !isAcc() && phIdp()) { pend.ph = true; enterIdStep(pend); } else if (multi) enterMore(pend, 2); else enterIdStep(pend);
         qp.then((q) => {
           pend.q = q;
@@ -5626,7 +5834,7 @@
       if (!alive()) return;
       if (q.flags.length) { await refusePhoto(blob, q); return; }
       await closeSheet();
-      gotPhoto(blob, gps, 'camera', { q, takenAt, shotAt });
+      gotPhoto(blob, gps, 'camera', { q, takenAt });
     } finally { camBusy = false; shutterBusy(false); camCheck(false); LOG.done('photo.take'); shutterState(); }
   });
   /** beta 5.9: photo 2… failed its check after the camera went on: it is dropped (and asked for again while the camera is still at it). */
@@ -5658,16 +5866,10 @@
     if (camTarget === 'scan') { if (stack[stack.length - 1] === 'camera') await closeSheet(); scanResult(await centerCrop(f)); return; }
     const back = Date.now(), inCam = () => stack[stack.length - 1] === 'camera', seq = camSeq;
     if (back - (f.lastModified || 0) > MAX_PHOTO_AGE_MS) { toast('Photo not used: it was not taken just now. Photos must be taken live, so their location can be checked.', 6000); return; }
-    // the phone camera app pauses this app: the fix comes right after returning (beta 5.9: a survey photo is kept and its fix refined, see gpsRefineStart)
-    const strict = gpsStrict(), refine = camTarget === 'new' && !strict;
-    let gps = null;
-    if (refine) { gpsRefineStart(back, gpsAtShot(back)); gps = gref.gps; }
-    else if (strict || camTarget === 'cef') gps = await gpsNear(back, strict ? GPS_ACC_WINDOW_MS : GPS_WINDOW_MS);
-    else gps = gpsAtShot(back);
+    const gps = await gpsNear(back); // the phone camera app pauses this app, so the fix is taken right after returning (beta 6.7: within 5 s, as every photo)
     if (seq !== camSeq) return; // camera closed while waiting
-    if (!gps && strict) { toast(`Photo not used: no GPS update within ${GPS_ACC_WINDOW_MS / 1000} seconds. Stay in the open and take it again.`, 5500); return; }
+    if (!gps) { toast('Photo not used: no GPS update within 5 seconds. Stay in the open and take it again.', 5500); return; }
     const q = await checkQuality(f).catch(() => ({ flags: ['error'] }));
-    if (refine && gref && gref.at === back) gps = gref.gps; // (a fix may have come during the check)
     if (seq !== camSeq) return;
     if (q.flags.length) {
       if (inCam()) await refusePhoto(f, q);
@@ -5676,9 +5878,9 @@
     }
     prepImages(f);
     const takenAt = new Date(Math.min(back, f.lastModified || back)).toISOString();
-    if (camTarget === 'new' && readIdOn() && stream && inCam()) { enterIdStep({ blob: f, gps, q, takenAt, shotAt: back, source: 'camera' }); return; }
+    if (camTarget === 'new' && readIdOn() && stream && inCam()) { enterIdStep({ blob: f, gps, q, takenAt, source: 'camera' }); return; }
     if (inCam()) await closeSheet();
-    gotPhoto(f, gps, 'camera', { q, takenAt, shotAt: back });
+    gotPhoto(f, gps, 'camera', { q, takenAt });
   });
   /** For a scan taken with the phone camera app: the band where the guide box would be. */
   async function centerCrop(blob) {
@@ -5727,7 +5929,7 @@
       toast(ed.mapPin || ed.mode === 'edit' && !ed.hadPhoto ? 'Photo added — tap Save to keep it' : 'Photo replaced — tap Save to keep it');
       return;
     }
-    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), shotAt: x.shotAt || 0, q: qSummary(x.q), crop: x.crop, live: x.live, idShot: x.idShot, ph2: !!x.ph2, idAt: x.idAt || '', more: x.more || [], noDef: camTarget === 'nodef' });
+    openEditor({ mode: 'new', blob, gps, source, takenAt: x.takenAt || new Date().toISOString(), q: qSummary(x.q), crop: x.crop, live: x.live, idShot: x.idShot, ph2: !!x.ph2, idAt: x.idAt || '', more: x.more || [], noDef: camTarget === 'nodef' });
   }
 
   /* ================= reading the painted Pole ID (offline OCR) ================= */
@@ -6391,25 +6593,11 @@
     pinMap.panTo([ed.gps.lat + (c.lat - ed.gps.lat) * t, ed.gps.lon + (c.lng - ed.gps.lon) * t]);
     toast(`The pin can move up to ${fmtDist(PIN_LIMIT_M)} from where the photo was taken`, 3000);
   }
-  /** beta 5.9: a better fix for the photo just taken (see gpsRefineStart), or g null: the listening ended. The fix is the record's GPS;
-      the pin goes with it only while the user has not touched the record's map (a pin placed by hand stays: Reset to GPS uses the
-      new fix). Replaces editorGpsUpdate, which followed the GPS with no time limit. */
-  function edGpsRefined(g) {
-    if (g) {
-      const touched = ed.userMoved || ed.dragged;
-      ed.gps = { ...g }; drawEdGps();
-      if (!touched && pinMap) { pinMap.setView([g.lat, g.lon], pinMap.getZoom(), { animate: false }); ed.userMoved = false; } // (the zoom stays: the map does not jump in or out)
-      else toast(`GPS refined to ±${fmtAcc(g.acc)}. Your pin stays where you put it; Reset to GPS moves it to the new fix.`, 4500);
-      $('edAcc').textContent = `GPS ±${g.acc.toFixed(1)} m`;
-      updateCoordBox(); scheduleDraft();
-    }
-    edGpsNote();
-  }
-  /** The record's line about its fix at the shutter (beta 5.9): shown on the record's map, under the coordinates. */
+  /** The record's line about its fix at the shutter: a record taken in beta 5.9–6.6 with an old fix, or one refined after the shutter,
+      says so on its map, for information (beta 6.7: a new photo always has a fix from the last 5 s, so it has no line). */
   function edGpsNote() {
     const el = $('pinGpsNote'); if (!el) return;
-    const g = ed && ed.gps, live = !!(ed && ed.shotAt && gref && gref.at === ed.shotAt && !gref.done);
-    const t = !ed || ed.acc || ed.mapPin ? '' : ed.shotAt ? gpsNoteOf(g, live) : g && (g.age != null || g.ref != null) ? gpsNoteOf(g, false) : '';
+    const g = ed && ed.gps, t = !ed || ed.acc || ed.mapPin ? '' : gpsNoteOf(g);
     el.textContent = t; el.hidden = !t; $('coordBox').classList.toggle('gpsnote', !!t);
   }
   function updateCoordBox() {
@@ -6470,8 +6658,7 @@
     ensurePinMap();
     const acc = isAcc();
     if (o.blob) idle(() => prepImages(o.blob), 3000); // made while the ID is checked; the camera is closed by now (beta 5.9: once the record is drawn)
-    const sg = o.shotAt && gref && gref.at === o.shotAt ? gref.gps : undefined; // beta 5.9: a photo just taken: the best fix so far (it may be refined still)
-    ed = { mode: o.mode, id: o.id || uid(), source: o.source, gps: (sg !== undefined ? sg : o.gps) || null, shotAt: o.shotAt || 0, newBlob: o.blob || null,
+    ed = { mode: o.mode, id: o.id || uid(), source: o.source, gps: o.gps || null, newBlob: o.blob || null,
       takenAt: o.takenAt, type: o.type || S.lastType, userMoved: false, acc, boq: JSON.parse(JSON.stringify(o.boq || {})), hadPhoto: !!(o.blob || o.storedBlob) };
     // v2.16: 'closed' = a completed PAT (view only); 'carried' = an element from the PAT in the cleanup or FAT (fixes only)
     ed.lock = !acc ? '' : patClosed() ? 'closed' : o.mode === 'edit' && ['Cleanup', 'FAT'].includes(taskCat()) && (o.patId || (o.defs || []).some((d) => (d.stage || 'PAT') === 'PAT')) ? 'carried' : '';
@@ -6501,7 +6688,7 @@
       ed.siteKind = o.siteKind === 'OLT' ? 'OLT' : 'Tower'; // v2.37: a site is a tower or an OLT
     }
     // v2.42.17: a survey record in tabs (status, element, type and ID on top); PAT, cleanup and FAT records on one page as before
-    edLayout(!acc); edTab = 'details'; $('edQuick').hidden = true; /* v2.42.26 */ $('pinMapWrap').classList.remove('mini'); $('idAbc').setAttribute('aria-pressed', 'false'); $('idPfxMenu').hidden = true;
+    edLayout(!acc); edTab = !acc && o.mode === 'new' && o.blob && !o.restore ? 'photo' : 'details'; // beta 6.7: a photo just taken: the record opens on it (Photo/Model), to add a model or text $('edQuick').hidden = true; /* v2.42.26 */ $('pinMapWrap').classList.remove('mini'); $('idAbc').setAttribute('aria-pressed', 'false'); $('idPfxMenu').hidden = true;
     $('editor').querySelector('.edbody').scrollTop = 0;
     $('svColorBox').hidden = acc; if (!acc) renderPinColors();
     $('editorTitle').textContent = acc ? (o.mode === 'edit' ? 'Edit element' : 'New element') : ed.mapPin ? `New ${({ Pole: 'proposed pole', Site: ed.siteKind === 'OLT' ? 'OLT' : 'tower', ODC: 'ODC', ODF: 'ODF', Handhole: 'handhole' })[ed.element] || 'pin'} on the map` : (o.mode === 'edit' ? 'Edit pole' : 'New pole');
@@ -6551,9 +6738,8 @@
       const same = pinDeskSame(start); // beta 4.1: on a computer, on the main map's own view
       pinMap.invalidateSize(same ? { animate: false, pan: false } : undefined);
       setTimeout(() => $('editor').classList.add('pmready'), same && same.wait ? same.wait : 50); if (!same) $('editor').classList.add('pmsolid');
-      const at = o.lat == null && ed.gps ? ed.gps : start; // (beta 5.9: a fix refined since the record opened)
-      if (same) pinMap.setView([at.lat, at.lon], same.z, { animate: false });
-      else if (at) pinMap.setView([at.lat, at.lon], 19, { animate: false });
+      if (same) pinMap.setView([start.lat, start.lon], same.z, { animate: false });
+      else if (start) pinMap.setView([start.lat, start.lon], 19, { animate: false });
       else { const c = map.getCenter(); pinMap.setView(c, Math.max(map.getZoom(), 16), { animate: false }); }
       ed.userMoved = false; drawEdGps(); updateCoordBox(); drawPinRef(); drawPinOthers();
     });
@@ -6564,11 +6750,22 @@
     foldSum(); // v2.22: after the ID and element are set
     idPadSync(); edRefreshSoon(); // v2.42.17
     draftStart(!!o.restore); // v2.21: kept safe until saved
-    if (photoReadNext && o.mode === 'new' && !acc && o.blob) { photoReadNext = false; setTimeout(openPhotoRead, 400); } // v2.17: the picture button
+    const readNow = !!(photoReadNext && o.mode === 'new' && !acc && o.blob);
+    if (readNow) { photoReadNext = false; setTimeout(openPhotoRead, 400); } // v2.17: the picture button
     else if (o.live) applyLiveRead(o.live);
     else if (o.crop && o.idShot) readIdShot(o.crop, o.idShot); // v2.19: the ID photo
     else if (o.crop) runOcrFor(o.crop, true);
     else if (o.mode === 'new' && !o.poleId && !acc) setTimeout(() => { const f = $('poleId'); f.classList.add('nudge'); setTimeout(() => f.classList.remove('nudge'), 2600); }, 250); // v2.30: no keyboard over the map: check the pin, then tap the ID
+    // beta 6.7 (owner: "capture one then displays that photo to add a model or edit some text"): one photo a pin (the default), the
+    // photo just taken opens full size with its tools (model, box, FOC, text); × or Back shows the record, on its Photo/Model tab
+    if (o.mode === 'new' && !acc && o.blob && o.source === 'camera' && !o.restore && !readNow && !o.crop && !o.live && !o.idShot && phN() === 1) {
+      const e0 = ed;
+      setTimeout(() => {
+        if (ed !== e0 || pvOpen || editorSaving || stack[stack.length - 1] !== 'editor') return;
+        $('edPhoto').click(); if (!pvOpen) return;
+        $('pvHint').textContent = 'Add a model, a box or text to the photo, or close it (×) to place the pin and fill in the record';
+      }, 350);
+    }
   }
   /* ================= v2.21: an unsaved record is kept safe =================
      While a record is open, what it holds (the photo, the form, the pin, the deficiencies and their photos) is kept as a draft on
@@ -6587,11 +6784,6 @@
       try { await dbPut('photos', { id: 'draft~new', clean: p.blob }); localStorage.setItem(DRAFT_KEY, JSON.stringify(st)); }
       catch (e) { LOG.warn('draft.fail', errInfo(e)); if (shotDraftBlob === p.blob) { shotDraftBlob = null; if (ed && draftBlobs.new === p.blob) { delete draftBlobs.new; scheduleDraft(); } } } // (not kept: the record's draft writes it)
     });
-  }
-  /** beta 5.9: a fix refined while the camera is still open goes into the shot draft (only its text: the photo is not written again). */
-  function shotDraftGps(p) {
-    if (ed || !p || shotDraftBlob !== p.blob) return;
-    draftChain = draftChain.then(() => { try { const st = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); if (st && st.shot) { st.gps = p.gps || null; localStorage.setItem(DRAFT_KEY, JSON.stringify(st)); } } catch (e) { /* private window */ } });
   }
   function draftState() {
     if (!ed) return null;
@@ -6799,7 +6991,8 @@
     if (!ed || ed.acc) { $('boxInfo').hidden = true; $('edZoom').classList.remove('pp'); return; }
     const n = (ed.marks || []).length, legacy = ed.legacyBoxes || 0, pp = proposedPole(), hasPole = (ed.marks || []).some((m) => m.k === 'pole') || ed.legacyPole;
     const txt = n ? `▭ ${n} mark${n === 1 ? '' : 's'} on the photo · tap the photo to change them${legacy ? ` (${legacy} older mark${legacy === 1 ? ' is' : 's are'} part of the photo)` : ''}`
-      : legacy ? `▭ ${legacy} mark${legacy === 1 ? '' : 's'} on the photo` : pp && !hasPole ? '⊥ Tap the photo to place the model pole where the new pole goes' : '';
+      : legacy ? `▭ ${legacy} mark${legacy === 1 ? '' : 's'} on the photo` : pp && !hasPole ? '⊥ Tap the photo to place the model pole where the new pole goes'
+      : ed.newBlob || ed.srcBlob ? '✎ Tap the photo to add a model, a box or text' : ''; // (beta 6.7)
     $('boxInfo').textContent = txt; $('boxInfo').hidden = !txt;
     $('edZoom').classList.toggle('pp', !!(pp && !hasPole)); $('edZoom').textContent = pp && !hasPole ? '⊥' : '⤢';
   }
@@ -7794,7 +7987,7 @@
         mk('Mark rectified', () => { d.status = 'Rectified'; d.fixedAt = new Date().toISOString(); d.fixedStage = stage; d.fixedBy = byLine(); renderDefs(); });
       } else if (stt === 'Rectified') {
         mk('Retake after photo', () => { ed.afterFor = d.id; ed.afterMore = false; openCamera('after'); });
-        if (d.afterPid && defPh(d, 'after').length < phN()) mk('+ After photo', () => { ed.afterFor = d.id; ed.afterMore = true; openCamera('after'); }); // beta 3.5: one more
+        if (d.afterPid && defPh(d, 'after').length < PH_PIN_MAX) mk('+ After photo', () => { ed.afterFor = d.id; ed.afterMore = true; openCamera('after'); }); // beta 3.5: one more
         if (insp && stage === 'FAT') { // v2.42.4: fixes are accepted at the FAT only (in the cleanup a contractor could verify its own fix)
           mk('Verify', () => { d.status = 'Verified'; d.verifiedAt = new Date().toISOString(); d.verifiedBy = byLine(); d.verifyStage = stage; renderDefs(); }, 'primary');
           mk('Verify with photo', () => { ed.verifyFor = d.id; ed.verifyMore = false; openCamera('verify'); });
@@ -7805,7 +7998,7 @@
           }, 'danger');
         } else if (d.fixedBy === byLine() || !d.afterPid) mk('Reopen', () => { defPh(d, 'after').forEach((y) => { if (ed.pending[y.pid]) delete ed.pending[y.pid]; else ed.removed.push(y.pid); }); undoFix(d); renderDefs(); }); // v2.42.4: not a rejection (beta 3.5: its photos)
       } else if (stt === 'Verified' && insp && stage === 'FAT') {
-        if (d.verifyPid && defPh(d, 'verify').length < phN()) mk('+ Verification photo', () => { ed.verifyFor = d.id; ed.verifyMore = true; openCamera('verify'); }); // beta 3.5: one more
+        if (d.verifyPid && defPh(d, 'verify').length < PH_PIN_MAX) mk('+ Verification photo', () => { ed.verifyFor = d.id; ed.verifyMore = true; openCamera('verify'); }); // beta 3.5: one more
         mk('Undo verification', () => { defPh(d, 'verify').forEach((y) => { if (ed.pending[y.pid]) delete ed.pending[y.pid]; else ed.removed.push(y.pid); }); undoAccept(d); renderDefs(); }); // v2.42.4: its photo goes too (beta 3.5: all of them)
       }
       if (insp && (d.stage || 'PAT') === stage) mk('Remove', () => {
@@ -8096,7 +8289,7 @@
   }
   /** beta 3.5: the defect form's “As found photos · 2 of 2”: MAIN first, × on each, a label under the others, + Add photo up to the limit. */
   function renderDefPhotos() {
-    const box = $('defPhotos'), N = phN(), on = !!(defDraft && defDraft.blob) && (N >= 2 || (defDraft.more || []).length > 0);
+    const box = $('defPhotos'), N = PH_PIN_MAX, on = !!(defDraft && defDraft.blob); // (beta 6.7: + Add photo up to 4, whatever the photos the camera takes in a row)
     box.hidden = !on; $('defPhHead').hidden = !on; $('defPhotoPrev').closest('.row').hidden = on; box.innerHTML = '';
     if (!on) return;
     const all = [{ blob: defDraft.blob, label: 'Defect', main: true }].concat((defDraft.more || []).map((m, i) => ({ ...m, i })));
@@ -10403,20 +10596,20 @@
       local coop, Converge, PLDT / other): a proposed or new pole is Globe's (GT); an existing pole goes by its owner (BOQ) when one is
       set (the power company: electric; PLDT, Converge, Globe…: that owner), else by its type (concrete, wood, steel: electric). Before,
       a concrete pole owned by PLDT or Converge, and a proposed pole, were counted as electric poles. */
-  const ownKey = (own) => { const o = String(own || '').trim(); if (!o) return ''; if (/electric|coop|power/i.test(o)) return 'ELEC'; if (/globe/i.test(o)) return 'GT';
+  const ownKey = (own) => { const o = String(own || '').trim(); if (!o) return ''; if (/electric|coop|power/i.test(o)) return 'ELEC'; if (/globe|bayan/i.test(o)) return 'GT'; /* (beta 6.7: Bayantel is Globe's) */
     const u = o.toUpperCase().replace(/[^A-Z0-9]+/g, ''), t = poleTypes().find((x) => x.n.toUpperCase().replace(/[^A-Z0-9]+/g, '') === u || x.p === u); return t ? (ELEC_TYPES.has(t.p) ? 'ELEC' : t.p) : u.slice(0, 20); };
   function markKey(p) {
     const el = elemOf(p);
     if (el === 'Pole') {
       if (p.status === 'Proposed' || p.status === 'New') return 'GT';
-      const t = typePrefix(p.poleType); if (t === 'GT') return 'GT';
+      const t = typePrefix(p.poleType); if (t === 'GT' || t === 'BT') return 'GT'; // (beta 6.7: a Bayantel pole is Globe's own)
       const o = ownKey(p.boq && p.boq.owner); if (o === 'ELEC' && p.boq.ownerName) return `ELEC:${String(p.boq.ownerName).toUpperCase().slice(0, 30)}`; if (o) return o; // v2.42.18: by the coop's name
       return ELEC_TYPES.has(t) ? 'ELEC' : t || '_none';
     }
     return el === 'NAP' || el === 'Closure' ? null : `el:${el}`;
   }
   const ownName = (k) => prefixType(k) || (k.length <= 5 ? k : k.charAt(0) + k.slice(1).toLowerCase()); // PLDT; Converge
-  function markName(k) { if (k.startsWith('ELEC:')) return `${k.slice(5)} poles (electric)`; return k === 'ELEC' ? 'Electric poles (the power company\'s)' : k === 'GT' ? 'Globe poles (GT and proposed)' : k === '_none' ? 'Poles with no type' : k.startsWith('el:') ? MARK_EL_NAME[k.slice(3)] || k.slice(3) : `${ownName(k)} poles (${k})`; }
+  function markName(k) { if (k.startsWith('ELEC:')) return `${k.slice(5)} poles (electric)`; return k === 'ELEC' ? 'Electric poles (the power company\'s)' : k === 'GT' ? 'Globe poles (GT, Bayantel and proposed)' : k === '_none' ? 'Poles with no type' : k.startsWith('el:') ? MARK_EL_NAME[k.slice(3)] || k.slice(3) : `${ownName(k)} poles (${k})`; }
   function markShort(k) { if (k.startsWith('ELEC:')) return k.slice(5); return k === 'ELEC' ? 'electric' : k === 'GT' ? 'Globe' : k === '_none' ? 'no type' : k.startsWith('el:') ? (MARK_EL_NAME[k.slice(3)] || k.slice(3)).replace(/ \(.*\)$/, '') : k; }
   function noMarkOf() { // v2.41: the v2.40 choices still count (CC, WP, SP → electric; Other points → every element)
     const by = S.exp.dxfNoMarkBy || {}, raw = Array.isArray(by[S.project]) ? by[S.project] : [], out = new Set();
@@ -10724,6 +10917,7 @@
     $('psCA').checked = ca; $('psCASum').textContent = ca ? 'On: the type before the size (CA 8-10, GCA, 2A, DEG, RL)' : 'Off: the sizes only (the types stay in the BOQ, KMZ and CSV)';
     $('psNumSum').textContent = `${c.mode === 'owner' ? 'Each owner from 1 (one RTA list each)' : 'Whole project, along the cable'} · ${c.keep ? 'kept once given' : 'renumbered at each export'}`;
     $('psLoopSum').textContent = S.exp.pmiLoops !== false ? 'Counted in total, aerial and underground' : 'The spans only';
+    { const bl = plStyle().cab.boxLoops; $('psBoxLoop').checked = bl; $('psBoxLoopSum').textContent = bl ? 'Written beside each handhole, manhole, service box and ODF, site or ODC entrance: the plan\u2019s numbers add up to the tables' : 'Not written (the PMI and the BOQ tables count them all the same)'; } // beta 6.7 (the owner: "i do not see 'Clamp types and cable labels'")
     $('psTplSum').textContent = !tpl ? 'Not used by the simple DXF' : seedBusy ? 'Getting it from your admin…' : S.dxfSeed ? `✓ ${S.dxfSeed.name}${seedStale() ? ' · a newer one is shared' : ''}` : seedId() ? 'Shared by your admin: got at the first export' : 'No template on this phone yet';
     $('psKindSum').textContent = `${tpl ? 'On the company plan template' : 'Simple: points and photos at UTM'} · UTM ${S.zone}N`;
   }
@@ -10736,6 +10930,7 @@
   $('psStyle').addEventListener('click', () => openStyle());
   $('psCA').addEventListener('change', () => { S.exp.dxfClampType = $('psCA').checked; persist(); renderPlanSet(); if (drw) drawDrawing(); toast(S.exp.dxfClampType ? 'Clamp types on the plan (e.g. CA 8-10)' : 'Clamp sizes only on the plan: the types stay in the BOQ, KMZ and CSV', 3000); });
   ['pmiLoops', 'dxfMode', 'setZone'].forEach((id) => $(id).addEventListener('change', () => setTimeout(renderPlanSet, 0)));
+  $('psBoxLoop').addEventListener('change', () => { setPl('cab', 'boxLoops', $('psBoxLoop').checked); renderPlanSet(); toast($('psBoxLoop').checked ? 'The loops at boxes and ODF entrances are written on the plan' : 'The loops at boxes and ODF entrances: counted, not written', 2500); }); // beta 6.7: the same setting as Drawing style › Loops
   /** Export the plan: the Export screen with the DXF card only, over the Drawing (beside it on a computer). */
   let planExport = false;
   /** An open screen brought back to the top (the ones above it closed): true when it was open. */
@@ -10909,7 +11104,9 @@
      colour no other category has (the user may change it, which keeps it, or remove it, which keeps it off). */
   const RTA_GT = { k: 'gt', text: 'EXISTING POLES', color: 5, fixed: true }, RTA_PROP = { k: 'proposed', text: 'PROPOSED POLES', color: 1, fixed: true };
   const RTA_AUTO_COLS = ['#ff8000', '#8000ff', '#008080', '#a0522d', '#808000', '#800000', '#00a86b', '#708090']; // (orange, violet, teal, sienna, olive, maroon, jade, slate: none near the legend's red and blue, the standard green, magenta and cyan, or the yellow of the other numbers)
-  const isGlobePole = (p) => /^(GT|GLOBE)/i.test(matCode(p)) || /globe/i.test(p.poleType || '') || /^\s*globe/i.test((p.boq && p.boq.owner) || ''); // (its type, or Globe as its owner)
+  /* beta 6.7 (the owner: "treat it like Globe; Bayantel is globe owned"): Globe's own poles: type GT or Bayantel (BT), or owned by Globe or Bayantel */
+  const GLOBE_OWN_RE = /^\s*(globe|bayan)/i;
+  const isGlobePole = (p) => /^(GT|GLOBE|BT)/i.test(matCode(p)) || /globe|bayan/i.test(p.poleType || '') || GLOBE_OWN_RE.test((p.boq && p.boq.owner) || ''); // (its type, or Globe or Bayantel as its owner)
   /** the categories in force for these points: the user's, then an automatic one for each other owner found, in owner order, each in
       the next colour no category has (an owner removed keeps its turn, so removing one does not change the others' colours) */
   function rtaCats(R, pts) {
@@ -11133,7 +11330,7 @@
     const TELCO_TYPES = new Set(['GT', 'BT']);
     const rows = pts.map((p) => { const [E, N] = U(p), el = elemOf(p), b = p.boq || {}, pre = typePrefix(p.poleType), own = String(b.owner || '').trim(), generic = !p.poleId || /^P{1,2}-?\d+$/i.test(p.poleId);
       return { id: p.id, poleId: p.poleId || '', el, status: p.status || '', mat: el === 'Pole' ? (TELCO_TYPES.has(pre) ? '' : pre) : '', tag: el === 'Pole' ? (!p.poleId || /^NPT/i.test(p.poleId) ? 'NPT' : p.poleId) : '',
-        telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: el === 'Pole' && hwOf(p, R).noClamp ? '' : b.clamp || '', /* 2.44.9: the light cable's pole: its retractors and span clamps, no clamp size */
+        telco: el === 'Pole' && (TELCO_TYPES.has(pre) || (!!own && !/electric|coop|power/i.test(own))), gtbt: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && isGlobePole(p), /* (beta 6.7: Bayantel's as Globe's) */ /* beta 6.7: an existing Globe or Bayantel pole: a circle filled blue */ label1: generic ? 'PROP.POLE' : `PROP.POLE ${p.poleId}`, height: b.height || '', clamp: el === 'Pole' && hwOf(p, R).noClamp ? '' : b.clamp || '', /* 2.44.9: the light cable's pole: its retractors and span clamps, no clamp size */
         armType: b.arm || '', guy: b.guy || '', E, N, lat: p.lat, lon: p.lon, telcoArm: el === 'Pole' && hasTelcoArm(p), armText: el === 'Pole' && hasTelcoArm(p) ? armOnPole(p)[2] : '', // v2.42.1: the plan draws it (beta 6.3: with its own name)
         mloop: el === 'Pole' && !!(p.mloop || loopYes(b) || LA.has(p.id) || OWN.has(p.id) || (LA.fib && LA.fib.list.has(p.id))), mloopM: el === 'Pole' ? (LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id)[0].len : loopLenAt(p, R, LA, OWN.get(p.id))) : 0,
         mloopL: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.len) : null, mloopR: el === 'Pole' && LA.fib && LA.fib.list.has(p.id) ? LA.fib.list.get(p.id).map((x) => x.n) : null, /* v2.42.25: each loop's cable (RUN) */ /* v2.42.20: a loop for each fiber there */ /* v2.42.17: + a closure's, a dummy NAP's, a riser's; v2.42.18: every NAP, LCP, pin; its own length */ nap: !!p.nap, napId: p.napId || '', nap2: el === 'Pole' && !!p.nap2, nap2Id: el === 'Pole' && p.nap2 ? p.nap2Id || '' : '', nap2Type: el === 'Pole' && p.nap2 ? b.nap2Type || '' : '', nap2Old: el === 'Pole' && !!p.nap2 && b.nap2St === 'Existing', closure: el === 'Pole' && !!p.closure, /* v2.42.17: (a box's closure is not drawn) */ closureId: p.closureId || '', siteName: el === 'Site' ? (p.poleId || m.site || '') : '', plaId: '',
@@ -11141,8 +11338,10 @@
         // v2.37: the NAP's kind, a double LCP, the site's kind, grounding, a riser, the pole a pole-to-pole guy goes to
         napType: el === 'NAP' || (el === 'Pole' && (p.nap || p.napId)) ? b.napType || '' : '', napOld: el === 'Pole' && b.napSt === 'Existing', closureOld: el === 'Pole' && b.cloSt === 'Existing', lcp: el === 'ODC' ? b.lcp || '' : '', siteKind: el === 'Site' ? p.siteKind || 'Tower' : '', odfSz: el === 'ODF' ? b.odf || '' : '', odfConn: el === 'ODF' ? b.conn || '' : '', /* v2.42.26 */ ground: groundYes(b), riser: !!b.riser || riserAuto(p), p2pTo: b.p2p || null,
         clampType: el === 'Pole' && showCT ? clampOf(p, R, pts).join('+') : '', clampAuto: el === 'Pole' && !b.clampType, hw: el === 'Pole' && showCT && PLS.clamp.hw ? hwShort(p, R) : '', /* v2.42.21: a 12C-only pole's hardware */
-        ownerName: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && !/^globe$/i.test(ownerNameOf(p)) ? ownerNameOf(p).toUpperCase() : '' }; }); // v2.42.18: the owner's name beside an existing pole // v2.39: the pole's clamps (picked by the plan when left blank); v2.40: or the size only
+        ownerName: el === 'Pole' && !['Proposed', 'New'].includes(p.status) && !/^(globe|bayantel)$/i.test(ownerNameOf(p)) ? ownerNameOf(p).toUpperCase() : '' }; /* (beta 6.7: Bayantel's is Globe's own: no owner's name either) */ }); // v2.42.18: the owner's name beside an existing pole // v2.39: the pole's clamps (picked by the plan when left blank); v2.40: or the size only
+    const FX = fibers(); // (beta 6.7: the RUNs, for each UG span's own way)
     const spans = R.spans.map((s) => { const o = { ia: s.ia, ib: s.ib, a: U(s.a), b: U(s.b), len: s.len, cable: s.cable, long: s.long, more: (s.runs || []).slice(1), cabLbl: PLS.cab.on ? cabLabelOf(s, PLS.cab.word) : null, runLbls: s.lanes && s.lanes.some((f) => !f.ex) ? null : (s.runs || [s.cable]).map((k, i, all) => runLbl((cabLabelOf({ runs: [k] }, 'a')[0] || {}).t || '', all.length > 1 ? i + 1 : 0)) }; // (v2.42.23: each run's own label) // v2.42.18: + the other runs; v2.42.21: its cable label
+      { const g = (s.fibers || []).filter((f) => isUG(f.cab)).sort((x, y) => x.n - y.n)[0], k = g ? null : (s.runs || [s.cable]).find((c) => isUG(c)); if (g || k) { const u = (g && ugSpanOf(s.ia, s.ib, FX)) || ugOf(g || { cab: k }); o.ug = { m: u.m, cd: u.cd, cr: u.cr, n: g ? g.n : 0, ...(u.own ? { own: true } : {}) }; } } // beta 6.7: how a UG span is laid (its own way, else its first new UG cable's method and conduit)
       if (s.lanes && s.lanes.length) { // v2.42.20: the other fibers each in its lane (beside the first fiber's line), an existing one dashed blue; the fibers' tags with the length
         const main = s.fibers.slice().sort((x, y) => x.n - y.n)[0] || null, mi = main ? s.lanes.indexOf(main) : (s.lanes.length - 1) / 2, rest = s.lanes.filter((f) => f !== main);
         Object.assign(o, { more: rest.map((f) => f.cab || ''), moreOff: rest.map((f) => s.lanes.indexOf(f) - mi), moreEx: rest.map((f) => !!f.ex), tags: R.fib.list.length > 1 ? s.lanes.slice().sort((x, y) => x.n - y.n).map(fibTag).join('+') : '' }); }
@@ -11254,7 +11453,7 @@
     const names = uniqueNames(pts), photos = {}, files = [], withPh = pts.filter((p) => markSet.has(p.id));
     // beta 6.4: Drawing style › Photos on the plan › Stamp on the photos: lat, long and (the road packs') address burned into each photo,
     // sized to its long side on the sheet (the same JPEGs go in the ZIP, the plan PDF and the One PDF)
-    const PST = PLS.photo.stamp, stampMm = S.exp.dxfLabels === 'tidy' ? phTidyMm(PLS.photo.size) : PLS.photo.size / 1.1, /* (beta 6.4: Tidy prints the photos at its own steps) */ LOC = PST === 'addr' && withPh.length ? await poleLocations(withPh, true).catch(() => new Map()) : new Map();
+    const PST = PLS.photo.stamp, stampMm = phTidyMm(PLS.photo.size), /* (beta 6.7: Standard prints them at the same steps) */ /* (beta 6.4: Tidy prints the photos at its own steps) */ LOC = PST === 'addr' && withPh.length ? await poleLocations(withPh, true).catch(() => new Map()) : new Map();
     for (let i = 0; i < withPh.length; i++) {
       busy(`Preparing the photos ${i + 1} / ${withPh.length}`, i / withPh.length);
       const q = withPh[i], band = PST !== 'off' && Number.isFinite(+q.lat) && Number.isFinite(+q.lon) ? { lat: q.lat, lon: q.lon, addr: PST === 'addr' ? LOC.get(q.id) || '' : '', mm: stampMm } : null;
@@ -11299,7 +11498,7 @@
       busy(many ? `Drawing the plan on the template (${k + 1} of ${SETS.length})…` : 'Drawing the plan on the template…', k / SETS.length);
       await sleep(30);
       const ph = st.mode === 'num' ? {} : Object.fromEntries(Object.entries(photos).filter(([id]) => st.ids.some((x) => String(x) === String(id))));
-      const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks,
+      const out = await buildPlan(seed, { pts: rows, spans, exSpans, fibs: planFibs(R), /* v2.42.23 */ clampStyle: showCT ? jobCols(PLS.clamp) : { place: 'label' }, cabLabels: PLS.cab.on, /* v2.42.21 */ cabPer: PLS.cab.per, cabH: PLS.cab.h, siteName: PLS.site.name, odfPlace: PLS.odf.place, odfLbl: PLS.odf.lbl, /* v2.42.26 */ crowd: PLS.crowd.auto ? { min: PLS.crowd.min / 100, move: PLS.crowd.move, leader: PLS.crowd.leader, streets: PLS.crowd.streets } : null, lmMode: PLS.crowd.marks, lmIcons: PLS.crowd.icons /* beta 6.7 */,
         towerPlace: PLS.site.move === 'point' ? 'site' : undefined, towerArrow: PLS.site.arrow, towerArrowColor: jobCols({ c: PLS.site.acol }).c, /* beta 3.8 */ runs, roads, pois: pois || [], lmBlocks, lmRefs: LM ? LM.icons.map((x) => x.ref) : [], roadsNote, values, mloopLen: ml, maxSpan: pol().maxSpan || 200, cell: 440, viewH: 440, vicinities: vics, photos: ph, logo, marks: st.ids, seqOf, markMode: st.mode, markNum: st.mode === 'num', /* v2.42.18: the pole numbers */
         rtaLegend, rtaLegendAt: PS.num.rta.legend, pmiExtraRows, /* beta 6.5; beta 6.6: where the legend goes, the PMI's added RTA rows */ numStyle: jobCols(PS.num), idStyle: jobCols(PS.id), vicStyle: jobCols(PS.vic), poleStyle: jobCols(PS.pole), spanStyle: jobCols(PS.span), /* beta 4.3; beta 6.0: a colour of the user's own as the colour itself */ photoStyle: { ...PS.photo, nearMm: PS.photo.near, tidyMm: phTidyMm(PS.photo.size) }, /* beta 6.4: Tidy's printed photo size */ gridStyle: jobCols(PS.grid), cableRoute: PS.cab.route, /* beta 6.1: Drawing style › Cables between points */ /* beta 6.0: Drawing style › Grid */ pmiItems: S.exp.dxfBoqGrid !== false ? pmiItems : null, /* beta 6.0: the BOQ table on each GEO sheet */ /* Drawing style › Photos: their size */ labels: S.exp.dxfLabels === 'tidy' ? 'tidy' : undefined, /* beta 4.7: Labels Standard / Tidy */ planTitle: m.purpose === 'As-built' ? 'AS-BUILT PLAN' : 'AFI PLAN', date: new Date() });
       outs.push({ st, out, file: many ? `${name}_${st.tag}.dxf` : `${name}.dxf`, nPh: Object.keys(ph).length });
@@ -11363,7 +11562,11 @@
           ...(nEnt ? [`Sites, ODFs and ODCs on the route: a loop at each entrance (${nEnt}${nEnt !== nEntP ? ` at ${nEntP} entrances: one for each cable there` : ''}, the cable's length), counted in the cable length (PMI, survey quantities, BOQ)${PS.cab.boxLoops ? ', written beside each (Drawing style)' : ' and not drawn'}.`] : [])];
         if (svPurpose() === 'As-built') return [`Maintenance loops on poles: as recorded in the As-Built (${onPoles}${own}${q.MLOOP_UNANSWERED ? `; ${q.MLOOP_UNANSWERED} pole${q.MLOOP_UNANSWERED === 1 ? '' : 's'} on the route not answered` : ''}).`, ...box];
         return [`Maintenance loops on poles (each its own length: by default 10 m on 12C, ${mloopLen()} m on 72C): ${onPoles} on the plan${own}; ${ids.length ? `${ids.length} added by the app where the survey had none (${loopRule}): ${ids.join(', ')}` : 'none added by the app'}.`, ...box]; })(),
-      `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Settings → AutoCAD DXF)'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe (or owned by Globe); RTA Converge / local coop / other (PLDT pole) = existing poles by owner (CONVERGE / an electric company, coop or power / PLDT), and an RTA row of its own for each other owner (beta 6.6: added to the PMI table and the BOQ tables)' + (pmiExtraRows.length ? `: ${pmiExtraRows.map((x) => x[0]).join(', ')}` : '') + '; fiber termination = fibers of the new ODFs; hybrid closure = new closures; proposed HDD = the new bores where a new underground cable crosses a road (the road\'s width and 3 m each side, as drawn); open trench = the conventional UG cable\'s route (each span once) less its bores; micro trench = the air-blown UG cable\'s route less its bores; maxcell inner duct = the conventional UG cable\'s route, bores included; proposed manhole / service box = the new ones.',
+      `PMI table from the survey: total cable = ${S.exp.pmiLoops !== false ? 'spans + maintenance loops (each its own length: on the poles, at each site, ODF and ODC entrance, and 20 m at each handhole, manhole and service box)' : 'spans only (the maintenance loops not counted: Settings → AutoCAD DXF)'};` + ' aerial / underground by the span cable type; existing GT poles = existing poles of type Globe or Bayantel (or owned by Globe or Bayantel: Globe\'s own, beta 6.7); RTA Converge / local coop / other (PLDT pole) = existing poles by owner (CONVERGE / an electric company, coop or power / PLDT), and an RTA row of its own for each other owner (beta 6.6: added to the PMI table and the BOQ tables)' + (pmiExtraRows.length ? `: ${pmiExtraRows.map((x) => x[0]).join(', ')}` : '') + '; fiber termination = fibers of the new ODFs; hybrid closure = new closures; the UG route (each span once, as its length is written) by how its first new UG cable is laid (beta 6.7: set on the cable in Route; HDD for air-blown fiber and open trench for a conventional UG cable unless set): proposed HDD = the drilled spans whole, and on a trenched span its road crossings (the road\'s width and 3 m each side, as drawn); open trench, micro trench and the shallow trench with or without concrete (rows added to the PMI table when used) = the trenched spans less their road crossings; a span set on its own (Route: tap the span) counts by its own way; maxcell inner duct = the conventional UG cable\'s route, crossings included; proposed conduit (a row for each size and runs used) = the UG route in it, in metres of route; proposed manhole / service box = the new ones.',
+      ...(() => { const U = rp.ugLaid || {}, C0 = rp.ugConduit || {}, nm = { hdd: 'HDD', open: 'open trench', shc: 'shallow trench with concrete', sh: 'shallow trench without concrete', micro: 'micro trench' }; if (!Object.keys(C0).length) return []; // beta 6.7: how each UG cable is laid, and the conduit by size and runs (the PMI has no conduit rows)
+        const F0 = fibers(), runs = F0.filter((f) => !f.ex && isUG(f.cab)).sort((x, y) => x.n - y.n).map((f) => { const own = f.path.slice(1).map((b, i) => [f.path[i], b]).map(([a, b]) => [a, b, ugSpanOf(a, b, F0)]).filter(([, , u]) => u && u.own && u.n === f.n); // (beta 6.7: and its spans laid otherwise)
+          return `RUN ${f.n} (${CAB[f.cab].short}): ${ugTxt(ugOf(f))}${own.length ? `; span${own.length > 1 ? 's' : ''} laid otherwise: ${own.map(([a, b, u]) => `${fibName(a)}–${fibName(b)} ${ugTxt(u)}`).join(', ')}` : ''}`; });
+        return [`Underground route by how it is laid: ${Object.entries(U).map(([k, v]) => `${nm[k] || k} ${(Math.round(v * 10) / 10).toFixed(1)} m`).join(', ')}${Object.keys(U).some((k) => k !== 'hdd') ? ' (a trenched cable\'s road crossings in PROPOSED HDD)' : ''}${runs.length ? ` · ${runs.join(' · ')}` : ''}. Conduit, as the CEF plan (a PROPOSED CONDUIT row for each in the PMI and the sheets' BOQ, in metres of route; the pipe is route × runs): ${Object.entries(C0).map(([k, v]) => { const [r, c] = k.split('x'); return `${r} run${+r > 1 ? 's' : ''} of ${c} mm: ${(+v).toFixed(1)} m of route (${(+v * +r).toFixed(1)} m of pipe)`; }).join('; ')}.`]; })(),
       ...(S.exp.dxfBoqGrid !== false && rp.boqGrid ? [`BOQ table on each GEO sheet (Plan settings): the PMI rows for that sheet's grid only, in its right-hand box. A span counts whole on the sheet where its length is written (a span crossing a sheet edge is not split), as its length reads there (whole metres; the PMI too, beta 6.4); a loop, a pole, a new ODF's fibers and a new closure count where their point is, a loop as its length is written; so the written lengths add up to each table and the sheets to the PMI${S.exp.dxfLabels === 'tidy' ? '. Tidy: each span length is written on the GEO sheet that holds the middle of its span, never across a sheet line' : ''}${rp.boqGrid.check.every((c) => c.ok) && !rp.boqGrid.lost.length ? ' (they do: every row checked)' : ` (check: ${rp.boqGrid.check.filter((c) => !c.ok).map((c) => c.row).join(', ')})`}. The rows the PMI leaves blank stay blank.`] : []), // beta 6.0
       'Drawn with the template\'s own models: proposed pole P-POLE on P-GPOLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (PROP.POLE / height / clamp)') + ', existing electric pole on ELECTRIC POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / pole tag or NPT)') + ', telco pole on GT-POLE' + (S.exp.dxfLabels === 'tidy' ? '' : ' (material / ID)') + '; new arms and guys on their PROPOSED … layers; loops, closures, NAPs, site and ODF.',
       `Poles are drawn beside the road on the side of their pin (${rp.counts.polesMoved || 0} moved by the drawing; a pin placed by hand more than 6 m from the road edge stays where it is: ${rp.counts.polesKept || 0}; the coordinates written beside each pole are its GPS position). The cable runs on the road side of the poles, through the end of an arm when the pole has one. Guys point against the pull of the cable (a head guy in line with it; a side guy never into the road; a pole-to-pole guy to its chosen pole, with a head guy there: ${rp.counts.poleToPole || 0}).`,
@@ -11380,8 +11583,14 @@
           + (rp.landmarks && (rp.landmarks.placed || rp.landmarks.namesLeftOut) ? `. Landmark names make room for the pole details: 1.6 mm high on the A3 sheet, a little further or smaller (to 1.3 mm) where the room is short${rp.landmarks.shrunk ? ` (${rp.landmarks.shrunk} drawn smaller, the smallest ${rp.landmarks.smallestMm} mm)` : ''}; a name with no room even then is wrapped onto two or three lines, else shortened with the usual abbreviations (ELEMENTARY SCHOOL → ES, NATIONAL HIGH SCHOOL → NHS, HIGH SCHOOL → HS, ELEMENTARY → ELEM., SCHOOL → SCH., BARANGAY → BRGY., STREET → ST., HOSPITAL → HOSP., CENTER → CTR. and the like; whole words only), else both${[[rp.landmarks.wrapped, 'wrapped'], [rp.landmarks.abbreviated, 'abbreviated'], [rp.landmarks.abbreviatedAndWrapped, 'abbreviated and wrapped']].some(([v]) => v) ? ` (${[[rp.landmarks.wrapped, 'wrapped'], [rp.landmarks.abbreviated, 'abbreviated'], [rp.landmarks.abbreviatedAndWrapped, 'abbreviated and wrapped']].filter(([v]) => v).map(([v, t]) => `${v} ${t}`).join(', ')})` : ''}${rp.landmarks.namesLeftOut ? `; ${rp.landmarks.namesLeftOut} left out (no room even so; their icons kept where they fit)` : ''}` : '') // beta 6.0 (beta 6.1: wrapped, abbreviated)
           + (outs.some((o) => (o.out.report.notes || []).some((n) => /^(Tidy labels|Tidy photos|Photos with no free place)/.test(n))) ? '. Where no free place was found, the label or photo is listed under Drawing checks above' : '') + '.'; })()
         : 'Labels are placed where they do not overlap, as far as the room allows: check crowded spots in AutoCAD. Each pole\'s label points straight out from the cable, and its photo or number sits beside the pole on the side toward the homing, the same at every pole where there is room (elsewhere a little further, turned, or on the other side).', '',
-      ...(PS.num.rta.on ? [`Pole numbers coloured by RTA/JPA category (Drawing style › Numbers), number and circle in one colour: ${[...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => `${x.text} ${colName(x.color)} (${rtaN.get(x)})${x.auto ? ', added for its owner' : ''}`).join(', ')}; other poles and points ${colName(PS.num.color)} (${Math.max(0, rows.filter((r) => r.el === 'Pole').length - [...rtaN.values()].reduce((t, v) => t + v, 0))} poles). A proposed or new pole is red, a Globe pole blue when existing (Globe's own, no RTA), the others by their pole owner as the PMI's RTA rows${pmiExtraRows.length ? ` (rows added to the PMI and the BOQ tables: ${pmiExtraRows.map(([lb]) => lb).join(', ')})` : ''}. RTA/JPA LEGEND: ${{ off: 'off (Drawing style › Numbers › Legend)', boq: 'under the BOQ table on each GEO sheet', sheet: 'on the LEGENDS sheet' }[PS.num.rta.legend]}.`] : []), // beta 6.5 (6.6: Globe, automatic owners, the legend's place)
+      ...(PS.num.rta.on ? [`Pole numbers coloured by RTA/JPA category (Drawing style › Numbers), number and circle in one colour: ${[...rtaC.slice(0, 1), RTA_PROP, RTA_GT, ...rtaC.slice(1)].filter((x, i, A) => rtaN.has(x) && A.indexOf(x) === i).map((x) => `${x.text} ${colName(x.color)} (${rtaN.get(x)})${x.auto ? ', added for its owner' : ''}`).join(', ')}; other poles and points ${colName(PS.num.color)} (${Math.max(0, rows.filter((r) => r.el === 'Pole').length - [...rtaN.values()].reduce((t, v) => t + v, 0))} poles). A proposed or new pole is red, a Globe or Bayantel pole blue when existing (Globe's own, no RTA), the others by their pole owner as the PMI's RTA rows${pmiExtraRows.length ? ` (rows added to the PMI and the BOQ tables: ${pmiExtraRows.map(([lb]) => lb).join(', ')})` : ''}. RTA/JPA LEGEND: ${{ off: 'off (Drawing style › Numbers › Legend)', boq: 'under the BOQ table on each GEO sheet', sheet: 'on the LEGENDS sheet' }[PS.num.rta.legend]}.`] : []), // beta 6.5 (6.6: Globe, automatic owners, the legend's place)
       `Loops at handholes, manholes, service boxes and ODF, site and ODC entrances (Drawing style \u203a Loops at boxes and entrances): counted in the PMI and the BOQ tables; ${PS.cab.boxLoops ? `written on the plan beside each (${boxLoopN} points), so the written numbers add up to the tables` : 'not written on the plan (as before): the tables count them all the same'}.`, // beta 6.6
+      ...(() => { const R0 = outs.map((o2) => o2.out.report), cnt = (k) => R0.reduce((t, r) => t + ((r.counts || {})[k] || 0), 0), cl = R0.reduce((t, r) => t + ((r.closureLabels || {}).labelled || 0), 0), gb = rows.filter((r) => r.gtbt).length, Z = PS.photo.size; // beta 6.7
+        return [`Photos on the plan (Drawing style \u203a Photos): every one printed ${phTidyMm(Z)} mm on its long side (${phName(Z)}) where there is room, else further out with a thin line to its pole; only where there is no place at all is that photo drawn smaller (listed with its size), never left out. The pole comes first, then its details, then its photo.`,
+          ...(gb ? [`Existing Globe and Bayantel poles (${gb}): a circle filled blue, to tell them from the other telco poles.`] : []),
+          ...(cnt('existingArms') ? [`Existing extension arms and 10-pin alley arms on the poles (${cnt('existingArms')}): the template's model of that arm, as a new one, in blue, with its name.`] : []),
+          ...(cl ? [`Proposed closures (${cl}): PROPOSED CLOSURE and the closure's ID in red, with a red arrow to the pentagon.`] : []),
+          `Landmarks (Drawing style \u203a Landmarks): icons ${PS.crowd.icons ? 'on' : 'off'}, names ${{ room: 'where there is room', always: 'always', hide: 'hidden' }[PS.crowd.marks]}.`]; })(),
       ...outs.flatMap((o) => { const MK = o.out.report.marks || []; return MK.length ? [`Numbers on the plan${many ? ` in ${o.file}` : ''} (${MK.length}${o.st.no.size ? `: ${o.st.what}` : ''}): number, ID, type, latitude, longitude`, ...markLinesOf(MK), ''] : []; }), exporterText()].join('\r\n');
     busy(false);
     { const RR = dxfRows(), rowOf = (o) => RR[(+String(o.st.id).replace(/\D/g, '') || 1) - 1]; // v2.42.28: the ZIP in plain words
@@ -12528,7 +12737,7 @@
   const effectiveQuality = () => ((S.team ? pol().quality : S.quality) === 'normal' ? 'normal' : 'strict');
   function renderSettingsHome() {
     renderWho(); renderTeamInfo(); cloudSync(false).then(renderCloudInfo);
-    $('camSub').textContent = `${S.phN || 2} photo${(S.phN || 2) === 1 ? '' : 's'} per pin · ${S.readId !== false ? 'ID scan after each photo' : 'No ID scan'}${(S.readIdAcc === true) !== (S.readId !== false) ? ` (${S.readIdAcc === true ? 'on' : 'off'} in PAT / FAT)` : ''} · ${S.idOrient === 'v' ? 'vertical' : 'horizontal'} IDs · sharpness ${QUAL_NAME[effectiveQuality()] || 'Strict'}${S.team ? ' (set by admin)' : ''}`;
+    $('camSub').textContent = `${S.phN || 1} photo${(S.phN || 1) === 1 ? '' : 's'} per pin · ${S.readId !== false ? 'ID scan after each photo' : 'No ID scan'}${(S.readIdAcc === true) !== (S.readId !== false) ? ` (${S.readIdAcc === true ? 'on' : 'off'} in PAT / FAT)` : ''} · ${S.idOrient === 'v' ? 'vertical' : 'horizontal'} IDs · sharpness ${QUAL_NAME[effectiveQuality()] || 'Strict'}${S.team ? ' (set by admin)' : ''}`;
     const packs = Object.values(S.packs || {}).filter((p) => p.done);
     $('mapsSub').textContent = `${streetSource().name}${packs.length ? ` · ${packs.length} offline pack${packs.length === 1 ? '' : 's'}${S.base === 'offline' ? ' (in use)' : ''}` : ' · no offline pack yet'}`;
     const P = pol();
@@ -12777,7 +12986,7 @@
   function renderTypeInfo() { $('typeInfo').textContent = poleTypes().map((t) => `${t.n} ${t.p}-`).join(' · '); }
   /* beta 3.5: Settings → Camera: photos per pin and photos in documents */
   function renderPhSet() {
-    const n = S.phN || 2;
+    const n = S.phN || 1;
     $('setPhN').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === n)));
     $('setPhIdp').checked = S.phIdp === true; $('setPhIdp').disabled = n < 2; $('setPhAuto').checked = S.phAuto !== false; $('setPhAuto').disabled = n < 2 || S.phIdp !== true;
     $('setPhBy').value = S.phBy === 'phone' ? 'phone' : 'co';
@@ -12797,7 +13006,7 @@
     const L = phSetOf(S.project);
     document.querySelectorAll('select.phdoc').forEach((sl) => { sl.value = phDoc(sl.dataset.k); sl.disabled = L.locked; sl.title = L.locked ? `Set by ${L.by} for this project` : ''; });
     document.querySelectorAll('select.phdoc option[value="all"]').forEach((x) => { const sl = x.closest('select'), k = sl.dataset.k, stage = k === 'defpdf' || !!sl.closest('#accExports'); if (k === 'ai') return;
-      x.textContent = k === 'zip' ? `All (the main one ID.jpg, the others ID_2.jpg… up to ${phN()} a pin)` : stage ? `All photos of each stage (up to ${phN()})` : `All photos of the pin (up to ${phN()})`; });
+      x.textContent = k === 'zip' ? 'All (the main one ID.jpg, the others ID_2.jpg…)' : stage ? 'All photos of each stage' : 'All photos of the pin'; }); // (beta 6.7: no count: + Add photo goes past the photos per pin)
   }
   document.addEventListener('change', (e) => { const sl = e.target; if (!(sl instanceof HTMLSelectElement) || !sl.classList.contains('phdoc')) return; S.phDocs = { ...(S.phDocs || {}), [sl.dataset.k]: sl.value }; persist(); syncPhDocUi(); });
   $('goCamera').addEventListener('click', () => {
@@ -18799,11 +19008,67 @@
     if (i >= 0) G.plans[i] = rec; else G.plans.push(rec);
     delete G.gone[c.id]; cefPut(c.name, G); return true;
   }
-  /** A site photo: the app's camera, with its checks (taken live, with a GPS fix; a dark or unclear photo is refused). */
+  /** A site photo: the app's camera, with its checks (taken live, with a GPS fix; a dark or unclear photo is refused). beta 6.7: when the
+      site's record has photos, they are offered first (cefPickOpen): one of them, or a new photo. */
   function cefTakePhoto() {
     if (cefShot || !cefNow || cefLockText(cefNow.name)) return Promise.resolve(null);
-    return new Promise((res, rej) => { cefShot = { res, rej }; guard(() => openCamera('cef'), 'Camera not opened'); });
+    return new Promise((res, rej) => {
+      cefShot = { res, rej };
+      guard(async () => { let shown = false; try { shown = await cefPickOpen(); } catch (e) { LOG.warn('cef.pick.fail', errInfo(e)); } if (!shown && cefShot) openCamera('cef'); }, 'Camera not opened');
+    });
   }
+  /* beta 6.7 (owner: "Towers, OLTs, ODCs: up to 10 photos: these photos should be available to CEF editing if the user wants to add photo"):
+     the editor's Photo button lists the photos of the plan's site record (its site pin; in a CEF-Plan project, its towers, OLTs and
+     ODCs). One tapped goes into the plan as a photo of its own (cefp…, a copy of the photo as the photo store keeps it, which notes
+     where it came from), as a camera photo does; Take a new photo opens the camera as before; Back adds nothing. A site with no photo
+     on this phone goes straight to the camera. */
+  let cefPickOn = false, cefPickUrls = [];
+  const cefPickRecs = (c) => points.filter((p) => p.project === c.name && p.kind !== 'acceptance' && (c.pin ? p.id === c.pin : ['Site', 'ODC'].includes(elemOf(p))));
+  async function cefPickOpen() {
+    const c = cefNow; if (!c || stack.includes('cefPick')) return false;
+    const groups = [];
+    for (const r of cefPickRecs(c)) {
+      const items = [];
+      for (const x of photosOf(r)) { const st = await dbGet('photos', x.pid).catch(() => null), b = st && (st.thumb || st.clean); if (b) items.push({ x, b }); }
+      if (items.length) groups.push({ r, items });
+    }
+    if (!groups.length || cefNow !== c || !cefShot) return false;
+    const plan = cefPlans(c.name).find((p) => p.id === c.id), inPlan = new Set();
+    for (const id of cefPhotoIds(plan)) { const st = await dbGet('photos', id).catch(() => null); if (st && st.from) inPlan.add(st.from); }
+    cefPickClear(); const box = $('cefPickList'); box.textContent = '';
+    groups.forEach(({ r, items }) => {
+      if (groups.length > 1 || !c.pin) { const h = document.createElement('h3'); h.textContent = recName(r) || r.poleId || elemOf(r); box.appendChild(h); }
+      items.forEach(({ x, b }, i) => {
+        const bt = document.createElement('button'); bt.type = 'button'; bt.setAttribute('role', 'listitem'); const u = URL.createObjectURL(b); cefPickUrls.push(u);
+        const im = document.createElement('img'); im.src = u; im.alt = ''; const t = document.createElement('span'); t.textContent = `${i + 1} · ${x.label || (i ? 'Photo' : 'Overview')}`;
+        bt.append(im, t); if (inPlan.has(x.pid)) { const k = document.createElement('small'); k.textContent = 'In the plan'; bt.appendChild(k); bt.classList.add('in'); }
+        bt.setAttribute('aria-label', `Use photo ${i + 1}, ${x.label || 'photo'}, of ${recName(r) || 'the site'}${inPlan.has(x.pid) ? ' (in the plan already)' : ''}`);
+        bt.addEventListener('click', () => guard(() => cefPickUse(r, x), 'Photo not added'));
+        box.appendChild(bt);
+      });
+    });
+    const n = groups.reduce((k, g) => k + g.items.length, 0);
+    $('cefPickSub').textContent = `${n} photo${n === 1 ? '' : 's'} of ${groups.length === 1 ? recName(groups[0].r) || 'the site' : `${groups.length} sites`}: tap one to add it to the plan, or take a new photo.`;
+    openSheet('cefPick'); cefPickOn = true;
+    LOG.info('cef.pick', { photos: n, sites: groups.length });
+    return true;
+  }
+  function cefPickClear() { cefPickUrls.forEach((u) => URL.revokeObjectURL(u)); cefPickUrls = []; }
+  /** A photo of the site's record into the plan: copied as the photo store keeps it (the editor gets what a camera photo gives). */
+  async function cefPickUse(r, x) {
+    const w = cefShot, c = cefNow; if (!w || !c || w.busy) return;
+    w.busy = true; busy('Adding the photo…');
+    try {
+      const st = await dbGet('photos', x.pid), clean = st && (st.clean || st.thumb); if (!clean) throw new Error('that photo is not on this phone');
+      const id = `cefp${uid()}`; await dbPut('photos', { id, clean, thumb: st.thumb || clean, from: x.pid });
+      const s = await cefPhotoSrc(clean); c.taken.push(id);
+      const main = x.pid === r.id, la = main ? (r.gpsLat != null ? r.gpsLat : r.lat) : x.lat, lo = main ? (r.gpsLon != null ? r.gpsLon : r.lon) : x.lon;
+      LOG.info('cef.photo.pick', { main, label: x.label || '' });
+      cefShot = null; cefPickOn = false; busy(false); await closeSheet();
+      w.res({ id, src: s.src, w: s.w, h: s.h, at: x.at || r.takenAt || new Date().toISOString(), lat: Number.isFinite(+la) && la != null ? +(+la).toFixed(6) : null, lon: Number.isFinite(+lo) && lo != null ? +(+lo).toFixed(6) : null });
+    } catch (e) { if (cefShot === w) { cefShot = null; cefPickOn = false; w.rej(e); } busy(false); if (stack[stack.length - 1] === 'cefPick') closeSheet(); throw e; }
+  }
+  $('cefPickCam').addEventListener('click', () => guard(async () => { if (!cefShot || cefShot.busy) return; cefPickOn = false; await closeSheet(); openCamera('cef'); }, 'Camera not opened'));
   function cefCamClosed() { if (!cefShot) return; clearTimeout(cefShotT); cefShotT = setTimeout(() => { if (cefShot && !cefShot.busy) { const w = cefShot; cefShot = null; w.res(null); } }, 900); } // closed with no photo
   async function cefGotPhoto(blob, gps, x) {
     const w = cefShot, c = cefNow; if (!w || !c) return; w.busy = true; clearTimeout(cefShotT);
@@ -18973,6 +19238,7 @@
   cefHooks.isCef = (name) => isCefProj(name);
   cefHooks.open = (name, o) => guard(() => cefOpen(name, o), 'CEF plan not opened');
   cefHooks.closed = cefClosed; cefHooks.camClosed = cefCamClosed; cefHooks.photo = cefGotPhoto;
+  cefHooks.pickClosed = () => { cefPickClear(); if (!cefPickOn) return; cefPickOn = false; if (cefShot && !cefShot.busy) { const w = cefShot; cefShot = null; w.res(null); } }; // (Back: nothing added)
   cefHooks.pids = cefPids; cefHooks.changed = cefChanged; cefHooks.count = cefIncoming; cefHooks.merge = cefMerge; cefHooks.setLogo = cefSetLogoRow; cefHooks.canLogo = cefCanLogo; cefHooks.planFiles = cefPlanFiles; cefHooks.plansN = (n) => cefPlans(n || S.project).length;
   /** What is on the plan of a CEF-Plan project (0: nothing yet): its task is in progress, and can be completed, once there is something. */
   cefHooks.started = (name) => { if (!isCefProj(name)) return 0; const p = cefPlans(name)[0], sk = (p && p.sk) || {}; return (Array.isArray(sk.els) ? sk.els.length : 0) + (Array.isArray(sk.runs) ? sk.runs.length : 0); };
@@ -19531,6 +19797,11 @@
   /* v2.44 beta 4.0 (tests): CEF-Plan. frame(): the editor's window; put(): a made-up plan; keep(): a made-up photo in the photo store */
   window.__polecam.vicinity = async (o) => { const v = await vicinityJpeg(+o.E, +o.N, +o.size, o.zone || S.zone, !!o.south, null, o.street ? null : SAT_SOURCE, o.zCap || 0); if (!v || !v.jpg) return null; let s = ''; for (let i = 0; i < v.jpg.length; i += 0x8000) s += String.fromCharCode.apply(null, v.jpg.subarray(i, i + 0x8000)); return { b64: btoa(s), px: v.px, z: v.z, sat: !!v.sat }; }; // beta 4.3 (tests)
   window.__polecam.newAt = (o) => openEditor({ mode: 'new', element: (o && o.element) || 'Pole', lat: +o.lat, lon: +o.lon, source: 'map', takenAt: new Date().toISOString() }); // beta 4.3 (tests): a new record with no photo
+  /* beta 6.7 (tests) */ window.__polecam.drwEdit = (on) => drwEditSet(!!on);
+  window.__polecam.drwEd = () => ({ on: drwEd, handles: (drw && drw.edH ? drw.edH : []).map((h) => { const r = $('drawCanvas').getBoundingClientRect(); return { x: r.left + h.x, y: r.top + h.y, r: h.r, n: h.n, a: String(h.a), b: String(h.b) }; }), site: drwSiteArm ? drwSiteArm.kind : null, selRun: drw ? drw.selRun : null, n: drw ? drw.items.length : 0 });
+  window.__polecam.drwLL = (lat, lon) => { if (!drw || !drw.view) return null; const p = RT_DRW.pt([lat, lon]), r = $('drawCanvas').getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; };
+  window.__polecam.drwLook = (lat, lon, mpp, ox, oy) => { if (!drw || !drw.view) return; const d = window.devicePixelRatio || 1, cv = $('drawCanvas'), u = C.utmForward(lat, lon, drw.zone, lat < 0), sc = d / mpp; drw.view = { ...drw.view, sc, cx: u.E - ((ox == null ? cv.width / 2 / d : ox) * d - cv.width / 2) / sc, cy: u.N + ((oy == null ? cv.height / 2 / d : oy) * d - cv.height / 2) / sc }; drawDrawing(); };
+  window.__polecam.drwPt = (id) => { const it = drw && drw.items.find((x) => String(x.p.id) === String(id)); if (!it) return null; const [x, y] = drwPx(it.xy), r = $('drawCanvas').getBoundingClientRect(), d = window.devicePixelRatio || 1; return [r.left + x / d, r.top + y / d]; };
   window.__polecam.drawView = () => (drw && drw.view ? { cx: drw.view.cx, cy: drw.view.cy, sc: drw.view.sc } : null); // beta 4.3 (tests): where the Drawing looks
   window.__polecam.coops = () => ({ groups: coopGroups(), set: ed ? ed.coopSet || '' : '', name: ed ? (ed.boq || {}).ownerName || '' : '', owner: ed ? (ed.boq || {}).owner || '' : '', area: ed ? coopArea() : null }); // beta 4.3 (tests)
   window.__polecam.cef = { open: (n, o) => cefOpen(n, o), plans: (n) => JSON.parse(JSON.stringify(cefPlans(n || S.project))), of: (n) => JSON.parse(JSON.stringify(cefOf(n || S.project))), isCef: (n) => isCefProj(n), lock: () => cefLockText(S.project), now: () => (cefNow ? { ...cefNow } : null),

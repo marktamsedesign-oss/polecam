@@ -60,6 +60,10 @@ async function openEditor(options = {}) {
       ...options, blob: options.replace ? window.__photoReplacement : window.__photoFixture });
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   }, options);
+  // beta 6.7: one photo a pin (the default): the photo just taken opens full size; × shows the record
+  await page.waitForFunction(() => !document.getElementById('photoView').hidden, null, { timeout: 2000 }).catch(() => {});
+  await page.evaluate(() => { if (!document.getElementById('photoView').hidden) document.getElementById('pvClose').click(); });
+  await page.waitForFunction(() => document.getElementById('photoView').hidden);
 }
 async function save() {
   await page.locator('#edSave').click();

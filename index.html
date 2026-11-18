@@ -400,10 +400,11 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 #camBar{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;justify-items:center;padding:16px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 20px) max(16px,env(safe-area-inset-left,0px));background:#000}
 #shutter{position:relative;width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:#868e96;transition:background .2s}
 #shutter.ok{background:#2f9e44}
-#shutter.wait{background:#f08c00}
 #shutter.bad{background:#e03131}
 #shutter.busy::after{content:'';position:absolute;inset:-11px;border-radius:50%;border:3px solid rgba(255,255,255,.25);border-top-color:#fff;animation:spin .8s linear infinite;pointer-events:none}
 #camFlash{position:absolute;inset:0;z-index:4;background:#fff;opacity:0;pointer-events:none}
+#camGpsWhy{position:absolute;left:50%;bottom:66px;transform:translateX(-50%);z-index:3;margin:0;width:max-content;max-width:calc(100% - 32px);box-sizing:border-box;text-align:center;background:rgba(201,42,42,.92);color:#fff;border-radius:16px;padding:6px 14px;font-weight:600;font-size:calc(13px * var(--fs));line-height:1.3;pointer-events:none}
+#camGpsWhy[hidden]{display:none}
 #camFlash.on{animation:camflash .22s ease-out}
 @keyframes camflash{from{opacity:.85}to{opacity:0}}
 #shutter.scan{background:#fff;border-color:#9cc1ff}
@@ -519,6 +520,14 @@ input[readonly]{background:var(--chip);color:var(--muted)}
 .tmempty{align-items:flex-start}.tmempty b{font-size:calc(17px * var(--fs))}
 .tmcur{border-left:5px solid var(--accent);gap:10px}
 /* v2.44 beta 4.0: CEF-Plan. The editor is its own page in a frame over the app; a CEF-Plan project's main screen; the rows in Projects and on a site pin */
+.cefpick{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
+.cefpick h3{grid-column:1/-1;margin:6px 0 0;font-size:calc(14px * var(--fs))}
+.cefpick button{display:flex;flex-direction:column;align-items:stretch;gap:2px;padding:0 0 6px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);overflow:hidden;text-align:left;font:inherit;cursor:pointer}
+.cefpick button img{display:block;width:100%;aspect-ratio:1;object-fit:cover;background:var(--chip)}
+.cefpick button span{padding:2px 8px 0;font-size:calc(12.5px * var(--fs));font-weight:600;line-height:1.3}
+.cefpick button small{padding:0 8px;font-size:calc(11.5px * var(--fs));color:var(--ok);font-weight:700}
+.cefpick button.in{border-color:var(--ok)}
+.cefpick button:focus-visible{outline:3px solid var(--info);outline-offset:2px}
 #cefSheet,#spliceSheet{background:linear-gradient(var(--navy),var(--navy)) 0 0/100% calc(env(safe-area-inset-top,0px) + 1px) no-repeat,var(--surface);padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);box-sizing:border-box}#cefFrame,#spliceFrame{flex:1 1 auto;width:100%;height:100%;min-height:0;border:0;display:block;background:#e8ecf0}
 body.cefproj #pinAddBtn,body.cefproj #routeBtn,body.cefproj #routeFitBtn,body.cefproj #refBtn{display:none}
 body.cefproj #captureBtn svg{display:none}body.cefproj #captureBtn::after{content:"CEF";font-weight:800;font-size:15px;letter-spacing:.05em}
@@ -744,6 +753,7 @@ body.routing #toast{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 100px);b
 .rb-span .rs-head{display:flex;gap:8px;align-items:center;justify-content:space-between}.rb-span .rs-head b{font-size:calc(13px * var(--fs))}
 .rb-span .rs-run{display:flex;gap:6px;align-items:center}.rb-span .rs-run b{min-width:44px;font-size:calc(12px * var(--fs))}.rb-span .rs-run select{flex:1;min-width:0;min-height:38px}
 .rb-span .btn.sm{min-height:36px}
+.rb-span .rs-ug{display:grid;gap:4px;border-top:1px solid var(--line);padding-top:6px}.rb-span .rs-ug .lbl{font-size:calc(11px * var(--fs));font-weight:700;color:var(--muted)}.rb-span .rs-ug select{min-height:38px;width:100%;min-width:0}.rb-span .rs-ug .rb-hint{margin:2px 0 0}.rb-spans .btn.sm.ug{white-space:normal;text-align:left} /* beta 6.7: a UG span's own way */
 .rb-fibers{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.rb-fibers .lbl{font-size:calc(11px * var(--fs));font-weight:700;color:var(--muted)}.rb-fibers .clo{flex:1 1 100%;font-size:calc(12.5px * var(--fs));font-weight:600}
 .fchip{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:0 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:600 calc(12.5px * var(--fs)) var(--font, inherit);cursor:pointer}
 .fchip i,.rb-fib .rf-head i,.rs-fib i{width:16px;height:4px;border-radius:2px;display:inline-block;flex:none}
@@ -829,6 +839,32 @@ body.routing #routeBar{z-index:525}
 .span-icon .rt-lift.pole{width:26px;height:26px;background:color-mix(in srgb,currentColor 22%,#fff)}
 body.rt-grabbing,body.rt-grabbing #map,body.rt-grabbing #map .leaflet-interactive,body.rt-grabbing .rt-grab{cursor:grabbing!important}
 body.deskpane.routing #rtHint{left:calc(var(--pw) + (100% - var(--pw) - var(--rpw)) / 2);max-width:calc(100% - var(--pw) - var(--rpw) - 24px)}
+/* beta 6.7: Edit route on the Drawing: the Route bar, its sheet, its hint and Route tools sit on the Drawing (at its foot on a phone, a panel at its right on a computer); its own bar, information line and What to export wait */
+#drawing.drwedit{--drpw:0px}body.deskpane #drawing.drwedit{--drpw:min(400px,42%)}
+#drawing.drwedit .drwbar,#drawing.drwedit #drawHint,#drawing.drwedit #drawInfo,#drawing.drwedit #drawInfoBtn,#drawing.drwedit #drawCef,#drawing.drwedit #drawSpl,#drawing.drwedit #drawCefMenu{display:none!important} /* (the plans' buttons and the information line wait too: room for the bar on a small phone) */
+#drawWrap #rtBar,#drawWrap #routeBar{left:8px;right:8px;top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);width:auto;z-index:20}
+#drawWrap #routeBar{max-height:72%;overflow-y:auto}
+#drawWrap #rtPop{left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 16px + var(--rtbh,72px));width:auto;z-index:22}
+#drawWrap #rtPop.rtsheet{max-height:calc(100% - var(--rtbh,72px) - 40px)}
+#drawWrap #rtHint{top:46px;z-index:21;max-width:calc(100% - 110px)}
+#drawing.drwedit .drwtools{bottom:calc(env(safe-area-inset-bottom,0px) + 20px + var(--rtbh,72px))}
+body.deskpane #drawWrap #rtBar,body.deskpane #drawWrap #routeBar{left:auto;right:0;top:0;bottom:0;width:var(--drpw);max-height:none;border-radius:0;border:0;border-left:1px solid var(--line);box-shadow:-10px 0 28px rgba(16,24,32,.18)}
+body.deskpane #drawWrap #rtPop{left:auto;right:10px;width:calc(var(--drpw) - 20px);bottom:14px;max-height:62%;z-index:950}
+body.deskpane #drawing.drwedit .drwtools{right:calc(var(--drpw) + 12px);bottom:12px}
+body.deskpane #drawWrap #rtHint{left:calc((100% - var(--drpw)) / 2);max-width:calc(100% - var(--drpw) - 40px)}
+#drawCanvas.rt-pen{cursor:crosshair}#drawCanvas.rt-panning,body.rt-grabbing #drawCanvas{cursor:grabbing}
+.drwtools #drawEdit[aria-pressed=false]{opacity:1}.drwtools #drawEdit[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+/* beta 6.7: Street View: drag the little man (the map's column, the Drawing's tools) onto a street */
+.round.svpeg{color:#f2b300;touch-action:none}
+#svPeg{position:fixed;left:0;top:0;z-index:5000;width:40px;height:40px;margin:-40px 0 0 -20px;pointer-events:none;color:#f2b300;will-change:transform}
+#svPeg[hidden]{display:none}
+#svPeg svg{display:block;width:40px;height:40px;transform-origin:50% 92%;animation:svwalk .45s ease-in-out infinite alternate;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))}
+#svPeg::after{content:"";position:absolute;left:50%;bottom:-3px;width:16px;height:6px;margin-left:-8px;border-radius:50%;background:rgba(0,0,0,.35)}
+#svPeg span{position:absolute;left:50%;bottom:46px;transform:translateX(-50%);white-space:nowrap;background:rgba(15,37,71,.92);color:#fff;border-radius:12px;padding:4px 10px;font:600 calc(12.5px * var(--fs))/1.3 system-ui,sans-serif;box-shadow:var(--shadow)}
+#svPeg:not(.ok) svg{opacity:.55}
+@keyframes svwalk{from{transform:rotate(-9deg)}to{transform:rotate(9deg)}}
+@media (prefers-reduced-motion:reduce){#svPeg svg{animation:none}}
+body.svdrag,body.svdrag *{cursor:grabbing!important}
 #map.leaflet-container{touch-action:none}
 .est-bad{color:var(--bad);font-weight:600}
 
@@ -1358,6 +1394,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="rmrow"><button type="button" class="chip small" id="rmPins" aria-pressed="true">Pins</button><button type="button" class="chip small" id="rmRoute" aria-pressed="true">Route</button></div>
       <div class="rmrow"><button type="button" class="btn small" id="rmLoad">Load KMZ / KML…</button><button type="button" class="btn small" id="rmClose">Close</button></div>
     </div>
+    <button class="round svpeg" id="svPegBtn" type="button" aria-label="Street View: drag the little man onto a street, then let go" title="Street View: drag me onto a street"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="4.6" r="2.8" fill="currentColor" stroke="#6b4a00" stroke-width=".8"/><path d="M9.5 8.3h5a2 2 0 0 1 2 2v5h-1.6v6.9h-2.3v-6h-1.2v6H9.1v-6.9H7.5v-5a2 2 0 0 1 2-2Z" fill="currentColor" stroke="#6b4a00" stroke-width=".8" stroke-linejoin="round"/></svg></button>
     <button class="round" id="layerBtn" aria-label="Switch map: street, satellite or offline map pack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button>
     <button class="round" id="locateBtn" aria-label="Go to my location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
   </div>
@@ -1450,6 +1487,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div id="camStage">
     <video id="video" playsinline muted autoplay></video>
     <i id="camFlash" aria-hidden="true"></i>
+    <p id="camGpsWhy" hidden></p>
     <div id="idGuide" hidden><span id="idGuideText">Fit the pole ID inside the box</span></div>
     <i id="tapRing" hidden></i>
     <i id="swipeLine" hidden></i>
@@ -1599,6 +1637,14 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
 
 <!-- red box on a survey photo (v2.13): burned into the saved photo -->
 <section class="sheet" id="cefSheet" hidden aria-label="CEF plan"><iframe id="cefFrame" title="CEF plan" src="about:blank"></iframe></section>
+<section class="sheet" id="cefPick" hidden aria-labelledby="cefPickT">
+  <header><button class="iconbtn" data-close aria-label="Back: add no photo"><svg><use href="#i-back"/></svg></button><h2 id="cefPickT">Add a photo to the CEF plan</h2></header>
+  <div class="body">
+    <p class="hint" id="cefPickSub"></p>
+    <div id="cefPickList" class="cefpick" role="list" aria-label="Photos of the site"></div>
+  </div>
+  <div class="foot"><button class="btn primary grow" id="cefPickCam" type="button">Take a new photo</button></div>
+</section>
 <!-- beta 4.6: the splicing details (vendor/splice/splice.html), over the app as the CEF plan is -->
 <section class="sheet" id="spliceSheet" hidden aria-label="Splicing details"><iframe id="spliceFrame" title="Splicing details" src="about:blank"></iframe></section>
 <section class="sheet" id="boxer" hidden aria-labelledby="boxTitle">
@@ -1631,11 +1677,13 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <!-- v2.41: the legend (top left), the tools on the drawing (lower right, as on the map), the information line -->
     <details class="drwlegend" id="drawLegend" open><summary>Legend</summary><div id="drawLegendBody"></div></details>
     <div class="drwtools">
+      <button class="round" id="drawEdit" type="button" aria-pressed="false" aria-label="Edit route on the Drawing: draw cables, put poles on or off, place and move towers, OLTs and ODCs" title="Edit route"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z"/><path d="m13.5 7 3 3"/></svg></button>
       <button class="round" id="drawCef" type="button" hidden aria-haspopup="true" aria-expanded="false" aria-label="CEF plans of the tower sites" title="CEF plans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 6 21M12 3l6 18M8.3 14h7.4M9.7 9h4.6M4 21h16"/></svg><i class="pdot" aria-hidden="true"></i></button>
       <button class="round" id="drawSpl" type="button" hidden aria-label="Splicing details of this project" title="Splicing details"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h6l4 4 4-4h6M2 16h6l4-4 4 4h6"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg><i class="pdot" aria-hidden="true"></i></button>
       <button class="round" id="drawFit" type="button" aria-label="Fit: the whole drawing" title="Fit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <button class="round" id="drawLabels" type="button" aria-pressed="true" aria-label="Labels on or off" title="Labels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M12 6v13M9 19h6"/></svg></button>
       <button class="round" id="drawMap" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Map under the drawing: off, offline map, satellite or street map" title="Map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg><i class="drwmapdot" aria-hidden="true"></i></button>
+      <button class="round svpeg" id="drawPeg" type="button" aria-label="Street View: drag the little man onto a street on the Drawing, then let go" title="Street View: drag me onto a street"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="4.6" r="2.8" fill="currentColor" stroke="#6b4a00" stroke-width=".8"/><path d="M9.5 8.3h5a2 2 0 0 1 2 2v5h-1.6v6.9h-2.3v-6h-1.2v6H9.1v-6.9H7.5v-5a2 2 0 0 1 2-2Z" fill="currentColor" stroke="#6b4a00" stroke-width=".8" stroke-linejoin="round"/></svg></button>
       <button class="round" id="drawInfoBtn" type="button" aria-pressed="true" aria-label="Information line on or off" title="Information"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg></button>
     </div>
     <div class="drwmenu" id="drawMapMenu" role="radiogroup" aria-label="Map under the drawing" hidden>
@@ -1689,7 +1737,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div class="stgrp" id="stPh" data-scene="photo">
       <h3>Photos on the plan</h3>
       <div class="strow"><span class="lbl">Photo size <output id="stPhO"></output></span><div class="seg stphseg" id="stPhSize" role="radiogroup" aria-label="Photo size"><button type="button" class="chip" data-v="12">Small</button><button type="button" class="chip" data-v="18">Normal</button><button type="button" class="chip" data-v="24">Large</button><button type="button" class="chip" data-v="30">Extra large</button></div></div>
-      <div class="strow"><label class="lbl" for="stPhL">Your own size: long side in metres <output>6 to 40 m</output></label><input type="number" id="stPhL" min="6" max="40" step="1" inputmode="decimal" enterkeyhint="done"></div>
+      <div class="strow"><label class="lbl" for="stPhL">Your own size: long side in metres <output>6 to 53 m (1:1100)</output></label><input type="number" id="stPhL" min="6" max="53" step="1" inputmode="decimal" enterkeyhint="done"></div>
       <div class="strow"><span class="lbl">Stamp on the photos <output id="stPhStampO"></output></span><div class="seg" id="stPhStamp" role="radiogroup" aria-label="Stamp on the photos"><button type="button" class="chip small" data-v="off">Off</button><button type="button" class="chip small" data-v="ll">Lat-long</button><button type="button" class="chip small" data-v="addr">Lat-long + address</button></div></div><!-- beta 6.4 -->
       <div class="strow"><label class="lbl" for="stPhNear">Near its pole (Tidy) <output id="stPhNearO"></output></label><input type="range" id="stPhNear" min="8" max="40" step="1"></div>
       <p class="hint" id="stPhHint" style="margin:0"></p>
@@ -1701,8 +1749,11 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="strow" data-dim="auto"><label class="lbl" for="stCrowdMove">Move a label up to <output id="stCrowdMoveO"></output></label><input type="range" id="stCrowdMove" min="4" max="30" step="1"></div>
       <div class="strow" data-dim="auto"><span class="lbl">Line to a label that moved</span><div class="seg" id="stCrowdLeader" role="radiogroup" aria-label="Line to a label that moved"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div></div>
       <div class="strow" data-dim="auto"><span class="lbl">Street names</span><div class="seg" id="stCrowdStreets" role="radiogroup" aria-label="Street names"><button type="button" class="chip small" data-v="slide">Slide to a free place</button><button type="button" class="chip small" data-v="fixed">Keep in place</button></div></div>
-      <div class="strow"><span class="lbl">Landmark names</span><div class="seg" id="stCrowdMarks" role="radiogroup" aria-label="Landmark names"><button type="button" class="chip small" data-v="room">Where there is room</button><button type="button" class="chip small" data-v="always">Always</button><button type="button" class="chip small" data-v="hide">Hide</button></div></div>
-      <p class="hint" style="margin:0">Pole numbers and pole labels keep their place first. IDs, clamp tags, cable labels, street names and landmark names make room: the nearest free place, then smaller.</p>
+      <p class="hint" style="margin:0">Pole numbers and pole labels keep their place first. IDs, clamp tags, cable labels, street names and landmark names make room: the nearest free place, then smaller. Landmark names: Drawing style › Landmarks.</p>
+    </div>
+    <div class="stgrp" id="stLoops" data-scene="street"><!-- beta 6.7 (the owner could not find it under Clamp types and cable labels) -->
+      <h3>Loops at boxes and ODF entrances</h3>
+      <div class="strow"><span class="lbl">On the plan</span><div class="seg" id="stBoxLoop" role="radiogroup" aria-label="Loops at boxes and ODF entrances"><button type="button" class="chip small" data-v="0">Not written (counted in the PMI)</button><button type="button" class="chip small" data-v="1">Written beside each</button></div><p class="hint" style="margin:0">The 20 m loop at each handhole, manhole and service box and the loop at an ODF, site or ODC entrance: the PMI and the BOQ tables count them either way; written, the plan shows them too, so its numbers add up to the tables.</p></div><!-- beta 6.6 -->
     </div>
     <div class="stgrp" id="stNum" data-scene="street">
       <h3>Numbers beside the points</h3>
@@ -1753,11 +1804,16 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
       <div class="strow"><label class="lbl" for="stClH">Tag or callout text height <output id="stClHO"></output></label><input type="range" id="stClH" min="1" max="5" step="0.25"></div>
       <div class="strow"><span class="lbl">Frame round a tag or callout</span><div class="seg" id="stClBox" role="radiogroup" aria-label="Frame"><button type="button" class="chip small" data-v="1">Box</button><button type="button" class="chip small" data-v="0">None</button></div></div>
       <div class="strow"><span class="lbl">12C hardware on a pole with only 12C</span><div class="seg" id="stClHw" role="radiogroup" aria-label="12C hardware"><button type="button" class="chip small" data-v="1">Show (RET×2 SC×4)</button><button type="button" class="chip small" data-v="0">Hide</button></div></div>
-      <div class="strow"><span class="lbl">Loops at boxes and ODF entrances</span><div class="seg" id="stBoxLoop" role="radiogroup" aria-label="Loops at boxes and ODF entrances"><button type="button" class="chip small" data-v="0">Not written (counted in the PMI)</button><button type="button" class="chip small" data-v="1">Written beside each</button></div><p class="hint" style="margin:0">The 20 m loop at each handhole, manhole and service box and the loop at an ODF, site or ODC entrance: the PMI and the BOQ tables count them either way; written, the plan shows them too, so its numbers add up to the tables.</p></div><!-- beta 6.6 -->
       <div class="strow"><span class="lbl">Cable label along the spans</span><div class="seg" id="stCabOn" role="radiogroup" aria-label="Cable label on the spans"><button type="button" class="chip small" data-v="1">On (PROPOSED 12C)</button><button type="button" class="chip small" data-v="0">Off</button></div></div>
       <div class="strow"><span class="lbl">Labels for each cable in a grid</span><div class="seg" id="stCabPer" role="radiogroup" aria-label="Labels for each cable in a grid"><button type="button" class="chip small" data-v="1">1</button><button type="button" class="chip small" data-v="2">Up to 2</button><button type="button" class="chip small" data-v="3">Up to 3</button></div><p class="hint" style="margin:0">Each one after the first only 500 m or more along the cable from the others.</p></div>
       <div class="strow"><label class="lbl" for="stCabH">Cable label text height <output id="stCabHO"></output></label><div style="display:flex;gap:8px;align-items:center"><button type="button" class="chip small" id="stCabHAuto">Auto</button><input type="range" id="stCabH" min="0.8" max="3" step="0.1" style="flex:1"></div></div>
       <div class="strow"><span class="lbl">What the cable label says</span><div class="seg" id="stCabW" role="group" aria-label="What the cable label says"><button type="button" class="chip small" data-k="prop">PROPOSED</button><button type="button" class="chip small" data-k="size">Size 72C</button><button type="button" class="chip small" data-k="type">Type FIG-8</button><button type="button" class="chip small" data-k="place">AE / UG</button><button type="button" class="chip small" data-k="foc">FOC</button><button type="button" class="chip small" data-k="run">RUN no.</button></div><p class="hint" id="stCabReads" style="margin:0"></p></div>
+    </div>
+    <div class="stgrp" id="stLm" data-scene="street crowd"><!-- beta 6.7 (the owner: "put it in a drawing style with an option to show on/off icon for every landmarks") -->
+      <h3>Landmarks</h3>
+      <div class="strow"><span class="lbl">Landmark icons</span><div class="seg" id="stLmIcons" role="radiogroup" aria-label="Landmark icons"><button type="button" class="chip small" data-v="1">On</button><button type="button" class="chip small" data-v="0">Off</button></div></div>
+      <div class="strow"><span class="lbl">Landmark names</span><div class="seg" id="stCrowdMarks" role="radiogroup" aria-label="Landmark names"><button type="button" class="chip small" data-v="room">Where there is room</button><button type="button" class="chip small" data-v="always">Always</button><button type="button" class="chip small" data-v="hide">Hide</button></div></div>
+      <p class="hint" style="margin:0">Schools, churches, markets, health centres and other places from the map pack: their icon and name, for every landmark on the plan.</p>
     </div>
     <div class="stgrp" id="stRoute" data-scene="street"><!-- beta 6.1: how a cable is drawn between two points -->
       <h3>Cables between points</h3>
@@ -1815,7 +1871,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
   <div class="body">
     <p class="hint" style="margin:0">For every drawing of the plan export. Kept on this phone; the pole numbers are kept in the project.</p>
     <div class="psrows">
-      <button class="psrow" id="psStyle" type="button"><span class="t"><b>Drawing style</b><small>Cable labels, the numbers' colour and size, IDs, photo size, tower site, vicinity map, grid</small></span><span class="chev" aria-hidden="true">›</span></button>
+      <button class="psrow" id="psStyle" type="button"><span class="t"><b>Drawing style</b><small>Cable labels, the numbers' colour and size, IDs, photo size, loops at boxes, landmarks, tower site, vicinity map, grid</small></span><span class="chev" aria-hidden="true">›</span></button>
       <label class="psrow" for="psCA"><span class="t"><b>Clamp types on the plan</b><small id="psCASum"></small></span><span class="swi"><input type="checkbox" id="psCA"><i aria-hidden="true"></i></span></label>
       <details class="psrow" id="psNum"><summary><span class="t"><b>Pole numbers</b><small id="psNumSum"></small></span></summary>
         <div class="psbody" id="numBox">
@@ -1825,6 +1881,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
           <label class="check"><input type="radio" name="numKeep" id="numRenum"><span>Renumber along the route at each export</span></label>
           <p class="hint" id="numInfo" style="margin:0"></p></div></details>
       <label class="psrow" for="pmiLoops"><span class="t"><b>Loops in the cable lengths (PMI)</b><small id="psLoopSum"></small></span><span class="swi"><input type="checkbox" id="pmiLoops"><i aria-hidden="true"></i></span></label>
+      <label class="psrow" for="psBoxLoop"><span class="t"><b>Loops at boxes and ODF entrances on the plan</b><small id="psBoxLoopSum"></small></span><span class="swi"><input type="checkbox" id="psBoxLoop"><i aria-hidden="true"></i></span></label><!-- beta 6.7 -->
       <label class="psrow" for="dxfBoqGrid"><span class="t"><b>BOQ table on each GEO sheet</b><small>The PMI rows for that sheet's grid only, in its right-hand box (a span counts on the sheet where its length is written)</small></span><span class="swi"><input type="checkbox" id="dxfBoqGrid" checked><i aria-hidden="true"></i></span></label>
       <details class="psrow" id="psTpl"><summary><span class="t"><b>Template and logo</b><small id="psTplSum"></small></span></summary>
         <div class="psbody dxftpl" id="dxfTplBox"><p class="hint" id="dxfTplInfo" style="margin:0"></p><div class="row"><button class="btn small" id="dxfTplLoad" type="button">Load template file…</button><button class="btn small" id="dxfTplGet" type="button" hidden>Get the template</button></div><input type="file" id="dxfTplFile" accept=".dxf,application/dxf,image/vnd.dxf,image/x-dxf,text/plain,application/octet-stream" hidden>
@@ -2101,7 +2158,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     <div class="group" id="phPerGroup">
       <h3>Photos per pin</h3>
       <div class="phseg" id="setPhN" role="group" aria-label="Photos per pin"><button type="button" data-v="1">1</button><button type="button" data-v="2">2</button><button type="button" data-v="3">3</button><button type="button" data-v="4">4</button></div>
-      <p class="hint">After each photo the camera offers the next one, up to this many. Done stops at any time. PAT, defect cleanup and FAT: the same limit for each defect photo.</p>
+      <p class="hint">How many photos the camera takes one after the other (1 by default: after the photo the record opens and shows it, to add a model or text, and the details). Done stops at any time. More photos: + Add photo in the record, up to 4 a pin (a tower, OLT or ODC: 10); in PAT, cleanup and FAT, up to 4 for each defect photo.</p>
       <label class="check"><input type="checkbox" id="setPhIdp"><span>Photo 2 is the pole ID close-up: the camera shows the ID box, the photo is kept as Pole tag, and the ID is read from it (off by default)</span></label>
       <label class="check"><input type="checkbox" id="setPhAuto"><span>When the live reader reads the ID clearly, take photo 2 by itself</span></label>
       <label class="field">Set by<select id="setPhBy"><option value="co">Me, for the projects I send</option><option value="phone">Each phone (its own setting)</option></select></label>
@@ -2137,7 +2194,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
     </div>
     <div class="group">
       <h3>Photo checks</h3>
-      <p class="hint">The shutter is green when the GPS updated within the last 5 seconds. A survey photo is always kept: with an older or less accurate fix, or none yet (amber shutter), its location is refined by the next good fix within 20 seconds, unless you move the pin yourself. PAT, cleanup and FAT photos need a GPS update within the last 15 seconds (red shutter: wait for green). Dark, blank and blurry photos are refused and must be retaken.</p>
+      <p class="hint">A photo is kept only when the GPS updated within the last 5 seconds (green shutter), in a survey and in PAT, cleanup and FAT alike. With a red shutter the reason shows over it; a photo taken then waits up to 5 seconds for a fresh fix and is not kept without it. Dark, blank and blurry photos are refused and must be retaken.</p>
       <label class="field">Sharpness required<select id="setQuality"><option value="strict">Strict (recommended)</option><option value="normal">Normal: refuse only clearly blurry</option></select></label>
       <p class="hint" id="qualityNote"></p>
     </div>
@@ -2808,6 +2865,7 @@ body.deskpane.drwside #drawing>header{margin-right:400px}
 <div class="overlay" id="promptBox" hidden><div class="panel"><h3 id="promptTitle"></h3><p class="hint" id="promptText" style="margin:0"></p><textarea id="promptInput" style="min-height:70px"></textarea><div class="row"><button class="btn grow" id="promptNo" type="button">Cancel</button><button class="btn primary grow" id="promptYes" type="button">OK</button></div></div></div>
 
 <div id="busy" hidden><div><span id="busyText">Working…</span><progress id="busyProg" max="1" value="0"></progress><button class="btn" id="busyCancel" hidden style="margin-top:12px;width:100%">Cancel</button></div></div>
+<div id="svPeg" hidden aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="4.6" r="2.8" fill="currentColor" stroke="#6b4a00" stroke-width=".8"/><path d="M9.5 8.3h5a2 2 0 0 1 2 2v5h-1.6v6.9h-2.3v-6h-1.2v6H9.1v-6.9H7.5v-5a2 2 0 0 1 2-2Z" fill="currentColor" stroke="#6b4a00" stroke-width=".8" stroke-linejoin="round"/></svg><span>Drop on a street</span></div>
 <div id="toast" hidden role="status"></div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
