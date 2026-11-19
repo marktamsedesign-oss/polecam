@@ -759,7 +759,8 @@ function isoRun(S, r, sc, A, O, rg) {
   const hulls = S.els.map(e => ({ e, h: towerHull(e) })).filter(q => q.h), inTower = q => hulls.find(t => inPoly(q, t.h));
   let zl = 0, ln = [0, 1], best = 0, bi = 0;
   if (r.kind === 'trench') trenchIso(S, r, sc, lay, wd);
-  if (r.kind === 'ladder') {                              /* two rails and the rungs between them, round each bend in one piece; then what holds it up */
+  if (isWallLad(r)) { const zb = groundZ(S, P[0]) + zo; for (const Q of ladShape(S, r, zb).iso) sc.poly(Q, lay); }      /* beta 7.2 / 2.45.3: on the wall, flat on it: its rails one above the other, the rungs upright, its clips */
+  else if (r.kind === 'ladder') {                              /* two rails and the rungs between them, round each bend in one piece; then what holds it up */
     const ST = ladPath(r), Wk = ladWalk(ST, hw), zs = ST.map(q => groundZ(S, q.p) + zo), zAt = q => zs[q.i] + (zs[q.i + 1] - zs[q.i]) * q.t;
     for (const sg of [-1, 1]) for (const dz of [0, -0.07]) sc.poly(ST.map((q, i) => [q.p[0] + q.n[0] * q.k * hw * sg, q.p[1] + q.n[1] * q.k * hw * sg, zs[i] + dz]), lay);
     if (!S.room && zo > 0.25 && nameOn(S, 'shade')) {     /* beta 4.2: where a raised ladder passes over a base pad, its outline on the pad. On the isometric a raised ladder shows away from what it stands over. */
@@ -776,9 +777,7 @@ function isoRun(S, r, sc, A, O, rg) {
       if (S.room) { const zc = Math.max(zz + 0.15, num(S.site.fh, 2.8)); for (const sg of [-1, 1]) sc.line([q.p[0] + q.v[0] * sg, q.p[1] + q.v[1] * sg, zz], [q.p[0] + q.v[0] * sg, q.p[1] + q.v[1] * sg, zc], 'dt'); }
       else if (!inTower(q.p) && zz - gz > 0.3) { if (O) O.push({ post: [[q.p[0], q.p[1], gz], [q.p[0], q.p[1], zz]] }); tube(sc, [q.p[0], q.p[1], gz], [q.p[0], q.p[1], zz - 0.07], 0.035, 0.035, lay, 6); sc.line([q.p[0] + q.v[0], q.p[1] + q.v[1], zz - 0.07], [q.p[0] - q.v[0], q.p[1] - q.v[1], zz - 0.07], lay); sc.poly(sqr(q.p, 0.12, 0).map(t => [t[0], t[1], gz + 0.004]), lay, 1); }
     };
-    const BK = isWallLad(r) ? ladBrackets(S, r) : [];      /* 2.45.1 / beta 6.9: on the wall: a bracket from the wall under the ladder, with its plate down the wall and a brace */
-    for (const k of BK) { const z = zAt(Wk.at(k.s)) - 0.07, f = [k.p[0] + k.n[0] * hw, k.p[1] + k.n[1] * hw], m = [(k.w[0] + f[0]) / 2, (k.w[1] + f[1]) / 2]; sc.line([k.w[0], k.w[1], z], [f[0], f[1], z], lay); sc.line([k.w[0], k.w[1], z], [k.w[0], k.w[1], z - 0.25], lay); sc.line([k.w[0], k.w[1], z - 0.25], [m[0], m[1], z], lay); }
-    if (!BK.length) for (let j = 0; j + 1 < B.length; j++) { const span = B[j + 1] - B[j], m = Math.max(1, Math.ceil(span / (S.room ? 2 : 3) - 1e-6)); for (let k = j ? 1 : 0; k <= m; k++) hold(Wk.at(B[j] + span * k / m)); }
+    for (let j = 0; j + 1 < B.length; j++) { const span = B[j + 1] - B[j], m = Math.max(1, Math.ceil(span / (S.room ? 2 : 3) - 1e-6)); for (let k = j ? 1 : 0; k <= m; k++) hold(Wk.at(B[j] + span * k / m)); }
   }
   else if (ug && r.kind === 'conduit') {                  /* buried: two pipes, one on top of the other. Three lines: under the lower pipe, where the two touch, over the upper one */
     const g0 = groundZ(S, P[0]), zb = g0 - dpR, Q = P.map(q => [q[0], q[1]]);
@@ -1001,9 +1000,8 @@ function buildIso0(S, o) {
     for (const q of C.odfs) { box(q.poly, q.z0, q.z1, q.st === 'P' ? 'np' : 'nd'); const m = [(q.poly[0][0] + q.poly[2][0]) / 2, (q.poly[0][1] + q.poly[2][1]) / 2]; inLab.push({ q, ap: P3([m[0], m[1], (q.z0 + q.z1) / 2]) }); }
     for (const q of C.walls) for (const sd of q.sides) { FB.push({ k: 'pl', pts: sd.map(p => P3([p[0], p[1], q.z1])), lay: 'nd', close: false }); for (const p of [sd[0], sd[sd.length - 1]]) FB.push({ k: 'pl', pts: [P3([p[0], p[1], q.z0]), P3([p[0], p[1], q.z1])], lay: 'nd', close: false }); }      /* partition walls: their top and their ends */
     for (const l of C.legs) FB.push({ k: 'pl', pts: [P3(l.a), P3(l.b)], lay: 'fh', close: false });
-    for (const q of C.lads) { const lay = q.st === 'P' ? 'np' : 'nd';      /* 2.45.1 / beta 6.9: the cable ladders inside, at their height: rails, rungs, and the brackets of one on the wall */
-      for (const rl of q.rails) FB.push({ k: 'pl', pts: rl.map(P3), lay, close: false }); for (const k of q.rungs) FB.push({ k: 'pl', pts: k.map(P3), lay, close: false });
-      for (const k of q.brk) { FB.push({ k: 'pl', pts: [P3(k[2]), P3(k[0]), P3(k[1])], lay, close: false }); FB.push({ k: 'pl', pts: [P3(k[2]), P3([(k[0][0] + k[1][0]) / 2, (k[0][1] + k[1][1]) / 2, k[0][2]])], lay, close: false }); }
+    for (const q of C.lads) { const lay = q.st === 'P' ? 'np' : 'nd';      /* 2.45.1 / beta 6.9: the cable ladders inside, at their height (beta 7.2 / 2.45.3: one on the wall flat on it) */
+      for (const k of q.iso) FB.push({ k: 'pl', pts: k.map(P3), lay, close: false });
       if (nameOn(S, 'ladder')) inLab.push({ q, ap: P3(q.mid) }); }
   }
   /* the fibers go on last and are never hidden: the plan must show all of them */
@@ -1027,12 +1025,17 @@ function buildIso0(S, o) {
   }
   for (const k of rg.links) seg3(k.a, k.b, 'ug');
   { const f0 = fgrp; fgrp = gk('FOC_AE'); for (const q of rg.drops) for (let i = 0; i + 1 < q.pts.length; i++) seg3(q.pts[i], q.pts[i + 1], 'ae'); fgrp = f0; }      /* (14 Nov 17:00) down the pole into a Dummy NAP */
-  /* the loop in its X-shaped holder, on the side of the pole above the cable: 0.4 m across, 0.1 m above the wire. The cable goes round it and on up to the closure. */
+  /* the loop on its holder, on the side of the pole above the cable: 0.4 m across, 0.1 m above the wire. The cable goes round it and on up to the closure.
+     beta 7.2 / 2.45.3 (the owner: "add loop to closure with holder"): as it is put up: the holder, a cross of two flat bars strapped to the pole with two
+     bands, and the loop coiled on it, three turns, in front of it. */
   const loops = [], RL = STD.loopD / 2, fl = (a, b) => FB.push({ k: 'pl', pts: [P3(a), P3(b)], lay: 'pp', close: false });
   for (const lp of rg.loops) {
-    const c3 = [lp.c[0], lp.c[1], lp.z], q3 = (r, a) => [c3[0] + lp.u[0] * r * Math.cos(a), c3[1] + lp.u[1] * r * Math.cos(a), c3[2] + r * Math.sin(a)], pt = (r, a) => P3(q3(r, a));
-    const ring = r => { const Q = []; for (let i = 0; i <= 24; i++) Q.push(pt(r, i * 15 * D2R)); return Q; };
-    FB.push({ k: 'pl', pts: ring(RL), lay: 'pp', close: false }, { k: 'pl', pts: ring(RL - 0.03), lay: 'pp', close: false }); for (const a of [45, 135]) FB.push({ k: 'pl', pts: [pt(RL + 0.05, a * D2R), pt(RL + 0.05, (a + 180) * D2R)], lay: 'dt', close: false });
+    const pl = poleAt(S, lp.at), nr = pl ? [lp.c[0] - pl.x, lp.c[1] - pl.y] : [-lp.u[1], lp.u[0]], nl = Math.hypot(nr[0], nr[1]) || 1, n = [nr[0] / nl, nr[1] / nl];      /* n: out from the pole, square to the holder */
+    const c3 = [lp.c[0], lp.c[1], lp.z], q3o = (r, a, o) => [c3[0] + n[0] * o + lp.u[0] * r * Math.cos(a), c3[1] + n[1] * o + lp.u[1] * r * Math.cos(a), c3[2] + r * Math.sin(a)], OC = 0.07, q3 = (r, a) => q3o(r, a, OC), pt = (r, a) => P3(q3(r, a));
+    const ring = (r, o) => { const Q = []; for (let i = 0; i <= 24; i++) Q.push(P3(q3o(r, i * 15 * D2R, o == null ? OC : o))); return Q; };
+    for (const a of [45, 135]) for (const w of [-0.016, 0.016]) { const A0 = q3o(RL + 0.07, a * D2R, 0), B0 = q3o(RL + 0.07, (a + 180) * D2R, 0), d = [-Math.sin(a * D2R) * w, Math.cos(a * D2R) * w]; FB.push({ k: 'pl', pts: [[A0[0] + lp.u[0] * d[0], A0[1] + lp.u[1] * d[0], A0[2] + d[1]], [B0[0] + lp.u[0] * d[0], B0[1] + lp.u[1] * d[0], B0[2] + d[1]]].map(P3), lay: 'pp', close: false }); }      /* the holder: two flat bars */
+    if (pl) { const zp = baseZ(S, pl); for (const dz of [-0.07, 0.07]) { const rr = poleR(pl, lp.z + dz - zp) + 0.008, Q = []; for (let i = 0; i <= 24; i++) { const a = i * 15 * D2R; Q.push(P3([pl.x + rr * Math.cos(a), pl.y + rr * Math.sin(a), lp.z + dz])); } FB.push({ k: 'pl', pts: Q, lay: 'pp', close: false }); } }      /* its two bands round the pole */
+    for (const k of [0, 1, 2]) FB.push({ k: 'pl', pts: ring(RL - k * 0.02, OC - k * 0.018), lay: 'pp', close: false });      /* the loop: three turns */
     for (const l of rg.legs) if (l.type === 'aerial' && l.plan > 0.7) for (const e of [0, 1]) {                 /* from the wire into the loop, crossing under it as the standard draws it */
       const E = e ? l.b : l.a, F = e ? l.a : l.b; if (Math.hypot(E[0] - lp.at[0], E[1] - lp.at[1]) > 0.45) continue;
       const d = [(F[0] - E[0]) / l.plan, (F[1] - E[1]) / l.plan], sd = d[0] * lp.u[0] + d[1] * lp.u[1] >= 0 ? 1 : -1; fl([E[0] + d[0] * 0.32, E[1] + d[1] * 0.32, lp.zw], q3(RL, (sd > 0 ? -120 : -60) * D2R));
@@ -1114,7 +1117,7 @@ function buildIso0(S, o) {
     }
     risers.forEach((q, i) => { if (!q.ped) jobs.push({ o: 3, key: 'riser' + i, s: labText(S, 'riser' + i, 'PROPOSED G.I. RISER PIPE'), st: 'P', ap: at(q, 0.5), kind: 'along', near: polyBox([q.a, q.b]), pcs: [[q.a, q.b]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); if (q.ug) jobs.push({ o: 3, key: 'ugd' + i, s: labText(S, 'ugd' + i, 'PROPOSED U-GUARD'), st: 'P', ap: [q.c[0] + (q.d[0] - q.c[0]) * 0.5, q.c[1] + (q.d[1] - q.c[1]) * 0.5], kind: 'along', near: polyBox([q.c, q.d]), pcs: [[q.c, q.d]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); });
     for (const k of inLab) jobs.push({ o: 4, key: k.q.key, s: labText(S, k.q.key, k.q.s), st: k.q.st, ap: k.ap, kind: 'lead' });
-    for (const q of loops) jobs.push({ o: 5, key: 'loop' + q.lp.i + (q.lp.ck || ''), s: labText(S, 'loop' + q.lp.i + (q.lp.ck || ''), 'LOOP HOLDER W/ ' + f2(q.lp.len) + 'm LOOP'), st: 'P', ap: q.c, kind: 'lead' });
+    for (const q of loops) jobs.push({ o: 5, key: 'loop' + q.lp.i + (q.lp.ck || ''), s: labText(S, 'loop' + q.lp.i + (q.lp.ck || ''), loopName(q.lp.len)), st: 'P', ap: q.c, kind: 'lead' });
     /* When the size is automatic, a name that finds no room is tried again smaller, down to what is still easy to read (1.8 mm on the sheet). Only then does it get a leader. */
     const HS = txAuto(S) ? TXS.map(k => h * k) : [h], KMIN = txAuto(S) ? TXS[TXS.length - 1] : (o.screen ? 0.4 : 0.55), KFACE = Math.min(KMIN, 0.68);      /* beta 4.1: on its own face a name may be as small as 1.5 mm on the sheet */
     const free2 = quad => { for (const b of LB.labs) if (polysHit(quad, b)) return false; for (const b of fibP) if (polysHit(quad, b)) return false; if (strict) for (const b of fibH) if (polysHit(quad, b)) return false; return true; };

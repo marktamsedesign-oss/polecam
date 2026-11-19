@@ -10,6 +10,13 @@ const f0 = v => String(Math.round(v));
    cabin's inside sketch (its cable is part of the site's UG cable, which has it once), nor on the AE fiber (counted in the As-Plan). */
 let ALLOW_PCT = 10;
 function setAllowPct(v) { const n = v == null || v === '' ? NaN : +v; ALLOW_PCT = Number.isFinite(n) ? Math.max(0, Math.min(50, Math.round(n))) : 10; return ALLOW_PCT; }
+/* beta 7.2 / 2.45.3 (the owner: "add loop to closure with holder"): the loop of the AE cable at a closure on a pole, coiled on its loop holder. Its
+   length is the point's loop where the user chose one; else the app's standard loop at a closure, as the As-Plan has it (a pole with a hybrid closure
+   has its own loop: the admin's pole loop length, 15 m unless set; 10 m on a light cable). LOOP_M is set by ui.js from the app (APP.mloopLen). */
+let LOOP_M = 15;
+function setLoopM(v) { const n = v == null || v === '' ? NaN : +v; LOOP_M = Number.isFinite(n) && n > 0 ? Math.min(100, n) : 15; return LOOP_M; }
+const cloLoopLen = R => /LIGHT/i.test(String(((R || {}).ae || {}).cable || '')) ? 10 : LOOP_M;
+const loopName = len => 'PROPOSED ' + f2(len) + 'm LOOP W/ HOLDER';      /* (the name it had: LOOP HOLDER W/ 15m LOOP) */
 const allowOf = L => Math.round(Math.round((+L || 0) * 10) * ALLOW_PCT / 100) / 10;      /* (in tenths, whole numbers: 28.5 m at 10 % is 2.9 m) */
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const snap = v => Math.round(v * 10) / 10;
@@ -339,14 +346,9 @@ function cabinInside(S, el) {
   const g = viaIn(S, el) ? { legs: [], verts: [] } : routeGeom(I);      /* (2.45.1 / beta 6.9: the site's UG fiber that goes in is drawn with the site's) */
   for (const l of g.legs) { const d = l.plan || 1, ux = (l.b[0] - l.a[0]) / d, uy = (l.b[1] - l.a[1]) / d; if (l.plan - l.ta - l.tb < 0.02) continue; const a = F([l.a[0] + ux * l.ta, l.a[1] + uy * l.ta]), b = F([l.b[0] - ux * l.tb, l.b[1] - uy * l.tb]); out.legs.push({ a: [a[0], a[1], zf + l.za], b: [b[0], b[1], zf + l.zb] }); }
   for (const v of g.verts) { const p = F(v.at); out.legs.push({ a: [p[0], p[1], zf + v.z0], b: [p[0], p[1], zf + v.z1] }); }
-  /* 2.45.1 / beta 6.9: the cable ladders, at their height: the two rails, the rungs, and the brackets of one on the wall (from the wall under the ladder, and down the wall) */
+  /* 2.45.1 / beta 6.9: the cable ladders, at their height (beta 7.2 / 2.45.3: one on the wall flat on it, ladShape) */
   out.lads = []; const IR = cabRoom(el);
-  for (const r of I.runs || []) if (r.kind === 'ladder' && r.pts && r.pts.length > 1 && !r.hid) {
-    const hw = Math.max(0.05, num(r.w, RUNS.ladder.w)) / 2, ST = ladPath(r), Wk = ladWalk(ST, hw), z = zf + Math.max(0, num(r.z, RUNS.ladder.z)), P3 = (p, zz) => { const q = F(p); return [q[0], q[1], zz]; }, rungs = [], nr = Math.max(1, Math.round(Wk.tot / 0.5));
-    for (let k = 0; k <= nr; k++) { const q = Wk.at(k * Wk.tot / nr); rungs.push([P3([q.p[0] + q.v[0], q.p[1] + q.v[1]], z), P3([q.p[0] - q.v[0], q.p[1] - q.v[1]], z)]); }
-    const brk = ladBrackets(IR, r).map(k => [P3(k.w, z - 0.07), P3([k.p[0] + k.n[0] * hw, k.p[1] + k.n[1] * hw], z - 0.07), P3(k.w, z - 0.32)]), mid = Wk.at(Wk.tot / 2);
-    out.lads.push({ key: 'in' + r.id, s: runLabel(r), st: r.st, wall: isWallLad(r), z, rails: [-1, 1].map(sg => ST.map(q => P3([q.p[0] + q.n[0] * q.k * hw * sg, q.p[1] + q.n[1] * q.k * hw * sg], z))), rungs, brk, mid: P3(mid.p, z), line: ST.map(q => F(q.p)), hw });
-  }
+  for (const r of I.runs || []) if (r.kind === 'ladder' && r.pts && r.pts.length > 1 && !r.hid) { const z = zf + Math.max(0, num(r.z, RUNS.ladder.z)), sh = ladShape(IR, r, z, F); out.lads.push({ key: 'in' + r.id, s: runLabel(r), st: r.st, wall: isWallLad(r), z, iso: sh.iso, top: sh.top, mid: sh.mid, line: sh.line }); }
   return out;
 }
 /* the pieces of a path that lie outside every hand hole and service box: an open trench stops at the wall of the box and starts again behind it */
@@ -391,7 +393,7 @@ function outsideOf(SITE, el, mg) {
     for (const [p, i, t] of [[P[0], 0, 0], [P[P.length - 1], P.length - 2, 1]]) { const k = wallOf(w, d, p[0], p[1]), out = p[0] < 0 || p[0] > w || p[1] < 0 || p[1] > d; if (Math.hypot(k.x - p[0], k.y - p[1]) < (out ? 0.6 : 0.15)) put(p[0], p[1], zf(i, t), kind); }
   };
   for (const r of SITE.runs) {
-    if (!r.pts || r.pts.length < 2) continue; const hw = Math.max(0.05, num(r.w, (RUNS[r.kind] || RUNS.ladder).w)) / 2;
+    if (!r.pts || r.pts.length < 2) continue; const hw = (r.kind === 'ladder' ? ladPW(r) : Math.max(0.05, num(r.w, (RUNS[r.kind] || RUNS.ladder).w))) / 2;
     if (r.kind === 'ladder') {
       const ST = ladPath(r), lb = ladBase(SITE, r), zs = ST.map(q => groundZ(SITE, q.p) + lb + num(r.z, RUNS.ladder.z));
       for (const sg of [-1, 1]) { const R = ST.map(q => T([q.p[0] + q.n[0] * q.k * hw * sg, q.p[1] + q.n[1] * q.k * hw * sg])); add(R, 'ladder'); for (let i = 0; i + 1 < R.length; i++) add3(R[i], R[i + 1], zs[i], zs[i + 1], 'ladder'); }
@@ -589,16 +591,16 @@ function edgeCross(S, a, b) {
    (1 on a straight and in a bend, more at a corner too tight to bend, which is mitred), and c: 1 at the middle of a corner. */
 const LADC = new WeakMap();
 function ladPath(r) {
-  const key = JSON.stringify(r.pts) + '|' + r.w, hit = LADC.get(r); if (hit && hit.key === key) return hit.st;
+  const key = JSON.stringify(r.pts) + '|' + r.w + '|' + (r.mount || ''), hit = LADC.get(r); if (hit && hit.key === key) return hit.st;
   const Q = [], st = []; for (const p of r.pts || []) if (!Q.length || Math.hypot(p[0] - Q[Q.length - 1][0], p[1] - Q[Q.length - 1][1]) > 0.02) Q.push([p[0], p[1]]);
-  const hw = Math.max(0.05, num(r.w, RUNS.ladder.w)) / 2, n = Q.length, dir = i => { const dx = Q[i + 1][0] - Q[i][0], dy = Q[i + 1][1] - Q[i][1], l = Math.hypot(dx, dy); return [dx / l, dy / l, l]; };
+  const hw = ladPW(r) / 2, n = Q.length, dir = i => { const dx = Q[i + 1][0] - Q[i][0], dy = Q[i + 1][1] - Q[i][1], l = Math.hypot(dx, dy); return [dx / l, dy / l, l]; };
   if (n > 1) {
     const d0 = dir(0); st.push({ p: Q[0], n: [-d0[1], d0[0]], k: 1 });
     for (let i = 1; i < n - 1; i++) {
       const a = dir(i - 1), b = dir(i), turn = Math.atan2(a[0] * b[1] - a[1] * b[0], a[0] * b[0] + a[1] * b[1]), half = Math.abs(turn) / 2;      /* turn: to the left is positive */
       if (half < 0.015) { st.push({ p: Q[i], n: [-a[1], a[0]], k: 1 }); continue; }
       /* the radius of the middle line: 0.28 m at the inside rail, but the bend never leaves the drawn corner by more than 0.2 m, and never takes more than 0.45 of a side */
-      const rc = Math.min(hw + 0.28, 0.2 / (1 / Math.cos(half) - 1), 0.45 * Math.min(a[2], b[2]) / Math.tan(half));
+      const rc = Math.min(isWallLad(r) ? hw + 0.06 : hw + 0.28, 0.2 / (1 / Math.cos(half) - 1), 0.45 * Math.min(a[2], b[2]) / Math.tan(half));      /* (beta 7.2 / 2.45.3: one flat on the wall takes the corner of the room tight, along both walls) */
       if (rc < hw + 0.05 || half > 1.4) { const bx = -a[1] - b[1], by = a[0] + b[0], bl = Math.hypot(bx, by) || 1; st.push({ p: Q[i], n: [bx / bl, by / bl], k: Math.min(3, 1 / Math.max(0.2, Math.cos(half))), c: 1 }); continue; }
       const T = rc * Math.tan(half), sg = turn > 0 ? 1 : -1, t0 = [Q[i][0] - a[0] * T, Q[i][1] - a[1] * T], C = [t0[0] - a[1] * sg * rc, t0[1] + a[0] * sg * rc];
       const m = Math.max(2, Math.ceil(Math.abs(turn) / (Math.PI / 12))), a0 = Math.atan2(t0[1] - C[1], t0[0] - C[0]);
@@ -812,37 +814,66 @@ function viaRoute(S, el) {
 }
 const viaIn = (S, el) => !S.room && cables(S).some(R => { const v = cabVia(S, (R.ug.pts || []).map(p => [p.x, p.y])); return !!v && v.c === el; });      /* the site's UG fiber goes on inside this cabin (and is counted so) */
 /* ---------- 2.45.1 / beta 6.9: a cable ladder on the wall (r.mount 'wall'). Not set: it stands, as before (on posts outside, hung from the ceiling inside).
-   It runs along a wall of the room (inside a cabin) or of a cabin or structure (on the site), its near rail LADGAP from the wall, at its height (r.z) from the floor.
-   Brackets fixed to the wall hold it, at each end, at each corner and no further apart than 1.5 m. ---------- */
+   It runs along a wall of the room (inside a cabin or a telco room) or of a cabin or structure (on the site), at its height (r.z) from the floor.
+   beta 7.2 / 2.45.3 (the owner: "it is the same how cable ladder works or draw horizontally, it's just attached to the wall of cabin or telco room
+   vertically"): it is the same ladder turned flat onto the wall: its plane upright, its two rails one above the other (at r.z and r.z + its width),
+   its rungs upright between them, held by small clips at each end, at each corner and no further apart than 1.5 m (no brackets out from the wall).
+   The middle of its rails is LADWALL.off from the wall, the rails LADWALL.d deep: its outer face 0.08 m off the wall. ---------- */
 const isWallLad = r => !!r && r.kind === 'ladder' && r.mount === 'wall';
-const LADGAP = 0.05;
+const LADWALL = { off: 0.05, d: 0.06 }, LADGAP = LADWALL.off - LADWALL.d / 2;
+const ladPW = r => isWallLad(r) ? LADWALL.d : Math.max(0.05, num(r.w, RUNS.ladder.w));      /* beta 7.2 / 2.45.3: how wide a ladder is seen from above (one on the wall: its rails' depth) */
 /* the walls a ladder can be fixed to: [a, b, n], n the side of the wall the ladder is on (into the room; out of a cabin or structure) */
 function wallSegs(S) {
   if (S.room) { const L = S.site.L, W = S.site.W; return [[[0, 0], [L, 0], [0, 1]], [[L, 0], [L, W], [-1, 0]], [[L, W], [0, W], [0, -1]], [[0, W], [0, 0], [1, 0]]]; }
   const o = []; for (const e of S.els) if (e.t === 'cabin' || e.t === 'box') { const P = elPoly(e); for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; o.push([a, b, [(b[1] - a[1]) / l, -(b[0] - a[0]) / l]]); } }
   return o;
 }
-/* the wall nearest to p within reach, on its side: the point on it and the way from it to p */
-function wallNear(W, p, reach) {
+/* the wall nearest to p within reach, on its side (both: or behind it, as a point tapped on the wall line or just inside a cabin): the point on it and the way from it to p */
+function wallNear(W, p, reach, both) {
   let b = null; for (const [a, c, n] of W) { const dx = c[0] - a[0], dy = c[1] - a[1], l2 = dx * dx + dy * dy || 1, t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2; if (t < -0.02 || t > 1.02) continue;
-    const sd = (p[0] - a[0]) * n[0] + (p[1] - a[1]) * n[1]; if (sd < -0.05 || sd > reach) continue; if (!b || sd < b.d) b = { d: sd, q: [a[0] + dx * clamp(t, 0, 1), a[1] + dy * clamp(t, 0, 1)], n }; }
+    const sd = (p[0] - a[0]) * n[0] + (p[1] - a[1]) * n[1]; if (sd < (both ? -Math.min(reach, 0.6) : -0.05) || sd > reach) continue; if (!b || Math.abs(sd) < Math.abs(b.d)) b = { d: sd, q: [a[0] + dx * clamp(t, 0, 1), a[1] + dy * clamp(t, 0, 1)], n }; }
   return b;
 }
-/* puts a ladder on the walls it is near: each point of its line half its width and LADGAP from the nearest wall (and from the second wall at a corner). How many points went onto a wall. */
-function wallFit(S, r) {
-  const off = Math.max(0.05, num(r.w, RUNS.ladder.w)) / 2 + LADGAP, W = wallSegs(S); let n = 0; if (!W.length || !r.pts) return 0;
-  r.pts = r.pts.map(p => { let q = [p[0], p[1]]; const k1 = wallNear(W, q, Math.max(1.2, off + 0.6)); if (!k1) return q; n++;
-    q = [q[0] + k1.n[0] * (off - k1.d), q[1] + k1.n[1] * (off - k1.d)];
-    const k2 = wallNear(W.filter(s => Math.abs(s[2][0] * k1.n[0] + s[2][1] * k1.n[1]) < 0.3), q, off + 0.3); if (k2) q = [q[0] + k2.n[0] * (off - k2.d), q[1] + k2.n[1] * (off - k2.d)];      /* a corner: off both walls */
-    return [Math.round(q[0] * 100) / 100, Math.round(q[1] * 100) / 100]; });
-  return n;
+/* a point put onto the wall it is near, where the middle of a ladder on the wall runs: LADWALL.off from the nearest wall (and from the second at a corner); null with no wall near */
+function wallPt(W, p, reach) {
+  const off = LADWALL.off, k1 = wallNear(W, p, reach || 1.2, true); if (!k1) return null; let q = [p[0] + k1.n[0] * (off - k1.d), p[1] + k1.n[1] * (off - k1.d)];
+  const k2 = wallNear(W.filter(s => Math.abs(s[2][0] * k1.n[0] + s[2][1] * k1.n[1]) < 0.3), q, off + 0.3, true); if (k2) q = [q[0] + k2.n[0] * (off - k2.d), q[1] + k2.n[1] * (off - k2.d)];      /* a corner: off both walls */
+  return [Math.round(q[0] * 100) / 100, Math.round(q[1] * 100) / 100];
 }
-/* the brackets of a ladder on the wall: at each, the place on the ladder line (p), the point on the wall (w), the way from the wall (n), the half width (v), the length along (s) */
-function ladBrackets(S, r) {
-  if (!isWallLad(r) || !r.pts || r.pts.length < 2) return []; const hw = Math.max(0.05, num(r.w, RUNS.ladder.w)) / 2, ST = ladPath(r), Wk = ladWalk(ST, hw), W = wallSegs(S), B = [0], o = [];
+/* puts a ladder on the walls it is near (wallPt for each point of its line); where two points in a row went onto two walls that meet square, the
+   corner goes in between, so that the ladder runs along both walls round it. How many points went onto a wall. (beta 7.2 / 2.45.3: one saved by
+   beta 7.0, its line out where its brackets held it, comes onto the wall so) */
+function wallFit(S, r) {
+  const W = wallSegs(S), off = LADWALL.off; let n = 0; if (!W.length || !r.pts) return 0;
+  const P = r.pts.map(p => { const k = wallNear(W, p, 1.2, true), q = k ? wallPt(W, p) : null; if (q) n++; return { p: q || [p[0], p[1]], k }; }), out = [];
+  const onLine = (p, k) => Math.abs((p[0] - k.q[0]) * k.n[0] + (p[1] - k.q[1]) * k.n[1] - off) < 0.011;
+  P.forEach((A, i) => { out.push(A.p); const B = P[i + 1]; if (!B || !A.k || !B.k || Math.abs(A.k.n[0] * B.k.n[0] + A.k.n[1] * B.k.n[1]) > 0.3 || onLine(A.p, B.k) || onLine(B.p, A.k)) return;
+    const a1 = A.k.n, b1 = B.k.n, c1 = off + A.k.q[0] * a1[0] + A.k.q[1] * a1[1], c2 = off + B.k.q[0] * b1[0] + B.k.q[1] * b1[1], det = a1[0] * b1[1] - a1[1] * b1[0]; if (Math.abs(det) < 1e-6) return;
+    const C = [(c1 * b1[1] - a1[1] * c2) / det, (a1[0] * c2 - c1 * b1[0]) / det]; if (Math.hypot(C[0] - A.p[0], C[1] - A.p[1]) + Math.hypot(C[0] - B.p[0], C[1] - B.p[1]) > 1.6 * Math.hypot(A.p[0] - B.p[0], A.p[1] - B.p[1]) + 0.05) return;
+    out.push([Math.round(C[0] * 100) / 100, Math.round(C[1] * 100) / 100]); });
+  r.pts = out.filter((p, i) => !i || Math.hypot(p[0] - out[i - 1][0], p[1] - out[i - 1][1]) > 0.02); return n;
+}
+/* beta 7.2 / 2.45.3: the clips of a ladder on the wall: at each, the place on the ladder line (p), the point on the wall (w), the way from the wall (n), the length along (s) */
+function ladFix(S, r) {
+  if (!isWallLad(r) || !r.pts || r.pts.length < 2) return []; const ST = ladPath(r), Wk = ladWalk(ST, LADWALL.d / 2), W = wallSegs(S), B = [0], o = [];
   ST.forEach((q, i) => { if (q.c) B.push(Wk.D[i]); }); B.push(Wk.tot);
-  for (let j = 0; j + 1 < B.length; j++) { const span = B[j + 1] - B[j], m = Math.max(1, Math.ceil(span / 1.5 - 1e-6)); for (let k = j ? 1 : 0; k <= m; k++) { const s = B[j] + span * k / m, q = Wk.at(s), w = wallNear(W, q.p, hw + LADGAP + 0.4); if (w) o.push({ p: q.p, v: q.v, w: [q.p[0] - w.n[0] * w.d, q.p[1] - w.n[1] * w.d], n: w.n, s }); } }
+  for (let j = 0; j + 1 < B.length; j++) { const span = B[j + 1] - B[j], m = Math.max(1, Math.ceil(span / 1.5 - 1e-6)); for (let k = j ? 1 : 0; k <= m; k++) { const s = B[j] + span * k / m, q = Wk.at(s), w = wallNear(W, q.p, LADWALL.off + 0.3, true); if (w) o.push({ p: q.p, w: [q.p[0] - w.n[0] * w.d, q.p[1] - w.n[1] * w.d], n: w.n, s }); } }
   return o;
+}
+/* beta 7.2 / 2.45.3: a ladder as lines, its bottom at z: iso (in space) and top (from above), F from its sketch to where it is drawn. Standing: its two rails and the rungs
+   across. On the wall: the edges of its two rails one above the other, the rungs upright, the clips to the wall; from above, a thin band along the wall with the clips. */
+function ladShape(S, r, z, F) {
+  F = F || (p => p); const ST = ladPath(r), w = Math.max(0.05, num(r.w, RUNS.ladder.w)), hw = ladPW(r) / 2, Wk = ladWalk(ST, hw), P3 = (p, zz) => { const q = F(p); return [q[0], q[1], zz]; }, iso = [], top = [];
+  const edge = sg => ST.map(q => [q.p[0] + q.n[0] * q.k * hw * sg, q.p[1] + q.n[1] * q.k * hw * sg]);
+  if (isWallLad(r)) {
+    for (const sg of [-1, 1]) { const E = edge(sg); top.push(E.map(p => F(p))); for (const zz of [z, z + w]) iso.push(E.map(p => P3(p, zz))); }
+    const nr = Math.max(1, Math.round(Wk.tot / 0.3)); for (let k = 0; k <= nr; k++) { const q = Wk.at(k * Wk.tot / nr); iso.push([P3(q.p, z), P3(q.p, z + w)]); }
+    for (const k of ladFix(S, r)) { const o = [k.p[0] + k.n[0] * hw, k.p[1] + k.n[1] * hw]; top.push([F(k.w), F(o)]); for (const zz of [z + 0.04, z + w - 0.04]) iso.push([P3(k.w, zz), P3(o, zz)]); }
+  } else {
+    for (const sg of [-1, 1]) { const E = edge(sg); top.push(E.map(p => F(p))); iso.push(E.map(p => P3(p, z))); }
+    const nr = Math.max(1, Math.round(Wk.tot / 0.5)); for (let k = 0; k <= nr; k++) { const q = Wk.at(k * Wk.tot / nr), a = [q.p[0] + q.v[0], q.p[1] + q.v[1]], b = [q.p[0] - q.v[0], q.p[1] - q.v[1]]; top.push([F(a), F(b)]); iso.push([P3(a, z), P3(b, z)]); }
+  }
+  const m = Wk.at(Wk.tot / 2); return { iso, top, mid: P3(m.p, isWallLad(r) ? z + w / 2 : z), line: ST.map(q => F(q.p)) };
 }
 /* Both fibers as pieces in space.
    legs: straight pieces { f: 'ae' | 'ug', i: leg number, a, b, type, za, zb, ta, tb (how much is cut off at each end for a bend) }
@@ -889,7 +920,7 @@ function routeGeom1(S, R, cno) {
       if (S.site.kind === 'rooftop' && !l.run) { const ts = edgeCross(S, l.a, l.b); if (ts.length) { segs = []; let prev = l.a; for (const tt of ts) { const m = [l.a[0] + (l.b[0] - l.a[0]) * tt, l.a[1] + (l.b[1] - l.a[1]) * tt]; segs.push([prev, m]); prev = m; } segs.push([prev, l.b]); } }
       for (const [p, q] of segs) {
         const g = groundZ(S, [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]), t = l.type, r = l.run; let z = null;
-        if (t === 'ladder') z = g + (r ? ladBase(S, r) + Math.max(0, num(r.z, RUNS.ladder.z)) : 0) + 0.03;
+        if (t === 'ladder') z = g + (r ? ladBase(S, r) + Math.max(0, num(r.z, RUNS.ladder.z)) : 0) + (isWallLad(r) ? Math.max(0.05, num(r.w, RUNS.ladder.w)) / 2 : 0.03);      /* (beta 7.2 / 2.45.3: on a ladder on the wall, tied at the middle of its height) */
         else if (t === 'ug' || t === 'xug') z = r && !buried(r) ? g + num(r.z, 0) + STD.hdpe / 2 : g > 0.01 ? g + 0.06 : g - (r ? runDepthD(r) : flatD(UGD)) + STD.hdpe / 2;      /* in the lower of the two pipes, the black one */
         else if (t === 'liquid') z = g + 0.3; else if (t === 'wall') z = g + 1.2;
         const pc = { f: 'ug', i: l.i, a: p, b: q, type: t, run: r, za: z, zb: z, g, plan: d2(p, q), ta: 0, tb: 0, warn: [] }; if (l0.px) nonEnum(pc, 'px', l0.px); P.push(pc);
@@ -1032,6 +1063,8 @@ function routeGeom1(S, R, cno) {
       out.drops.push({ pts, len, nap: nap.id });
     }
   }
+  /* beta 7.2 / 2.45.3: a closure on a pole where no loop was chosen (loop 0) has the standard loop, on its holder under the closure (-1: no loop there) */
+  if (A.length > 1) R.ae.pts.forEach((p, i) => { if (num(p.loop, 0) !== 0 || out.loops.some(l => l.i === i) || !cloOnPole(S, out, A[i])) return; const ae = aerialAt(out, A[i]); if (!ae) return; out.loops.push({ i, at: A[i], c: A[i], zw: ae.z, z: ae.z + LOOPZ, len: cloLoopLen(R), u: ae.u, auto: 1 }); });
   for (const l of out.loops) { const pl = poleAt(S, l.at); if (pl) { const n = poleSide(out, pl, l.u), off = poleR(pl, l.z - baseZ(S, pl)) + 0.02; l.c = [l.at[0] + n[0] * off, l.at[1] + n[1] * off]; } }      /* on a riser pole the loop holder is on the riser's side */
   if (A.length > 1 && !poleAt(S, aeEnd) && !napAt(S, aeEnd)) out.notes.push('The AE fiber does not end on a pole. End it on the riser pole.');
   if (A.length > 1 && U.length > 1 && !out.join) out.notes.push('The AE and UG fibers do not meet. End the AE fiber and start the UG fiber on the same riser pole.');
@@ -1064,6 +1097,8 @@ function cabInPart(S, R, cno, V, out) {
   if (it) used.push(rk ? 'ODF in the rack' : 'ODF'); else if (rk) used.push('rack');
   out.via = { cab: c.id, name: nm, used, assumed, len: r1w(g.legs.reduce((t, l) => t + l.len, 0) + g.verts.reduce((t, v) => t + v.z1 - v.z0, 0)) };
 }
+/* beta 7.2 / 2.45.3: a closure stands on the pole at p: where the AE and UG fibers meet with a closure, or a closure the user put on that pole */
+function cloOnPole(S, rg, p) { const pl = poleAt(S, p); if (!pl) return false; if (rg.join && rg.join.pole === pl && !rg.join.none) return true; return S.els.some(e => e.t === 'clo' && Math.hypot(e.x - pl.x, e.y - pl.y) < 0.6); }
 /* (14 Nov) More than one cable on a plan. S.route is the first cable; S.more holds the others, each with its own AE and UG fibers and its own cable types
    (the height of the aerial cable and the rise into an ODF are the site's, kept with the first). Every cable is worked out on its own by routeGeom1 and the
    pieces are put together here. Each piece says which cable it is of (cn: 0, 1, 2; ck: the end of its label keys, '' for the first cable, so the labels of
@@ -1681,7 +1716,7 @@ function buildTop(S, o) {
     for (const q of C.odfs) { const lay = q.st === 'P' ? 'np' : 'nd'; G.pl(q.poly, lay, 1); G.pl([q.poly[0], q.poly[2]], lay); G.pl([q.poly[1], q.poly[3]], lay); jobs.push({ o: 1, key: q.key, call: 1, lines: [labText(S, q.key, q.s)], lay: tl(q.st), ap: mid(q.poly[0], q.poly[2]), a: 0, cands: topCands(cp, 0, gap), st: q.st }); }
     for (const l of C.legs) if (Math.hypot(l.b[0] - l.a[0], l.b[1] - l.a[1]) > 0.02) G.pl([[l.a[0], l.a[1]], [l.b[0], l.b[1]]], 'fh');
     for (const q of C.lads) { const lay = q.st === 'P' ? 'np' : 'nd', d2 = p => [p[0], p[1]];      /* 2.45.1 / beta 6.9: its cable ladders: rails, rungs and the brackets on the wall */
-      for (const rl of q.rails) G.pl(rl.map(d2), lay); for (const k of q.rungs) G.pl(k.map(d2), lay); for (const k of q.brk) wallPlate(G, d2(k[0]), d2(k[1]), lay);
+      for (const k of q.top) G.pl(k.map(d2), lay);      /* (beta 7.2 / 2.45.3: one on the wall, a thin band along it with its clips) */
       if (nameOn(S, 'ladder')) { let bi = 0, bl = 0; for (let i = 0; i + 1 < q.line.length; i++) { const l = Math.hypot(q.line[i + 1][0] - q.line[i][0], q.line[i + 1][1] - q.line[i][1]); if (l > bl) { bl = l; bi = i; } } const a = q.line[bi], b = q.line[bi + 1] || a;
         jobs.push({ o: 3, key: q.key, call: 1, lines: [labText(S, q.key, q.s)].map(t => t.length > 26 ? wrap(t, 24) : [t])[0], lay: tl(q.st), ap: mid(a, b), a: 0, cands: topCands(cp, 0, gap), st: q.st }); } }
   }
@@ -1690,10 +1725,10 @@ function buildTop(S, o) {
     G.grp = null; const K = RUNS[r.kind] || RUNS.ladder, lay = runLayer(r), P = r.pts; if (!P || P.length < 2 || r.hid) continue; G.grp = gk(BN[r.id]);
     const wd = Math.max(r.kind === 'conduit' ? 0.14 : 0.1, num(r.w, K.w)), A1 = offsetPath(P, wd / 2), A2 = offsetPath(P, -wd / 2); let best = 0, bi = 0;
     if (r.kind === 'ladder') {                           /* rails and rungs follow the bends */
-      const ST = ladPath(r), Wk = ladWalk(ST, wd / 2), nr = Math.max(1, Math.round(Wk.tot / 0.5));
+      if (isWallLad(r)) for (const k of ladShape(S, r, 0).top) G.pl(k, lay);      /* beta 7.2 / 2.45.3: on the wall, a thin band along it with its clips */
+      else { const ST = ladPath(r), Wk = ladWalk(ST, wd / 2), nr = Math.max(1, Math.round(Wk.tot / 0.5));
       for (const sg of [-1, 1]) G.pl(ST.map(q => [q.p[0] + q.n[0] * q.k * wd / 2 * sg, q.p[1] + q.n[1] * q.k * wd / 2 * sg]), lay);
-      for (let k = 0; k <= nr; k++) { const q = Wk.at(k * Wk.tot / nr); G.pl([[q.p[0] + q.v[0], q.p[1] + q.v[1]], [q.p[0] - q.v[0], q.p[1] - q.v[1]]], lay); }
-      for (const k of ladBrackets(S, r)) wallPlate(G, k.w, [k.p[0] + k.n[0] * wd / 2, k.p[1] + k.n[1] * wd / 2], lay);      /* 2.45.1 / beta 6.9: on the wall, its brackets */
+      for (let k = 0; k <= nr; k++) { const q = Wk.at(k * Wk.tot / nr); G.pl([[q.p[0] + q.v[0], q.p[1] + q.v[1]], [q.p[0] - q.v[0], q.p[1] - q.v[1]]], lay); } }
     }
     else if (r.kind === 'trench' || r.kind === 'conduit' || r.kind === 'encase') for (const Q of outsidePits(S, P)) {      /* not inside a hand hole or service box: it stops at the wall */
       const B1 = offsetPath(Q, wd / 2), B2 = offsetPath(Q, -wd / 2); G.pl(B1, lay); G.pl(B2, lay);
@@ -1744,8 +1779,9 @@ function buildTop(S, o) {
   if (!S.room) for (const id in rg.ports) { const g = rg.ports[id].p, r = 0.055, k = r * 0.7; G.ci([g[0], g[1]], r, 'pp'); G.pl([[g[0] - k, g[1] - k], [g[0] + k, g[1] + k]], 'pp'); G.pl([[g[0] - k, g[1] + k], [g[0] + k, g[1] - k]], 'pp'); }      /* (19:25) where the cable goes into the cabinet */
   G.grp = null;      /* a riser: the pipe on the pole */
   for (const lp of rg.loops) {
-    const c = [lp.at[0] + 0.55, lp.at[1] + 0.55], key = 'loop' + lp.i + (lp.ck || ''); G.ci(c, 0.4, 'pp'); G.ci(c, 0.24, 'pp'); LB.block(sqr(c, 0.45, 0), 1, key);
-    jobs.push({ o: 4, key, lines: [labText(S, key, 'LOOP HOLDER W/ ' + f2(lp.len) + 'm LOOP')], lay: 'tp', ap: c, a: 0, cands: (w, hh) => [{ p: [c[0] + 0.6 + w / 2, c[1]], a: 0 }, { p: [c[0], c[1] + 0.6 + hh / 2], a: 0 }, { p: [c[0] - 0.6 - w / 2, c[1]], a: 0 }, { p: [c[0], c[1] - 0.6 - hh / 2], a: 0 }, { p: [c[0] + 0.6 + w / 2, c[1] + hh], a: 0 }, { p: [c[0] + 0.6 + w / 2, c[1] - hh], a: 0 }], st: 'P' });
+    const c = [lp.at[0] + 0.55, lp.at[1] + 0.55], key = 'loop' + lp.i + (lp.ck || ''); for (const k of [0, 1, 2]) G.ci([c[0] + k * 0.035, c[1] - k * 0.035], 0.36 - k * 0.04, 'pp');      /* beta 7.2 / 2.45.3: the loop coiled (3 turns) on its holder (the cross), tied to the pole */
+    G.pl([[c[0] - 0.45, c[1] - 0.45], [c[0] + 0.45, c[1] + 0.45]], 'pp'); G.pl([[c[0] - 0.45, c[1] + 0.45], [c[0] + 0.45, c[1] - 0.45]], 'pp'); G.pl([lp.at, [c[0] - 0.3, c[1] - 0.3]], 'pp'); LB.block(sqr(c, 0.5, 0), 1, key);
+    jobs.push({ o: 4, key, lines: [labText(S, key, loopName(lp.len))], lay: 'tp', ap: c, a: 0, cands: (w, hh) => [{ p: [c[0] + 0.6 + w / 2, c[1]], a: 0 }, { p: [c[0], c[1] + 0.6 + hh / 2], a: 0 }, { p: [c[0] - 0.6 - w / 2, c[1]], a: 0 }, { p: [c[0], c[1] - 0.6 - hh / 2], a: 0 }, { p: [c[0] + 0.6 + w / 2, c[1] + hh], a: 0 }, { p: [c[0] + 0.6 + w / 2, c[1] - hh], a: 0 }], st: 'P' });
   }
   if (o.dims) {
     const dS = swing.S + 2.2 * th, dW = swing.W + 2.2 * th, tk = 0.4 * th;
@@ -1796,8 +1832,6 @@ function buildTop(S, o) {
   }
   return { prims: G.p, th, G, far, labs: LB.out, leads: LB.leads, skipped, pics };
 }
-/* 2.45.1 / beta 6.9: a bracket of a ladder on the wall, from above: its plate on the wall at w and its arm out to the far rail at f */
-function wallPlate(G, w, f, lay) { const dx = f[0] - w[0], dy = f[1] - w[1], l = Math.hypot(dx, dy) || 1, n = [dx / l, dy / l]; G.pl(rectAt([w[0] + n[0] * 0.02, w[1] + n[1] * 0.02], 0.16, 0.04, Math.atan2(n[0], -n[1]) / D2R), lay, 1); G.pl([[w[0] + n[0] * 0.04, w[1] + n[1] * 0.04], f], lay); }
 function northArrow(G, base, n, th) {
   const len = 3.2 * th, d = Math.hypot(n[0], n[1]) || 1, ux = n[0] / d, uy = n[1] / d, tip = [base[0] + ux * len, base[1] + uy * len], s = 0.9 * th;
   G.pl([base, tip], 'tx'); G.fl([tip, [tip[0] - ux * s - uy * s * 0.38, tip[1] - uy * s + ux * s * 0.38], [tip[0] - ux * s + uy * s * 0.38, tip[1] - uy * s - ux * s * 0.38]], 'tx');
