@@ -5,6 +5,10 @@
    hatches, texts (Helvetica: the template's fonts are not embedded), blocks and their attributes, dimensions, pictures; colours
    (ACI and true colour), line weights, line types (dashes) and the layers frozen or off (also per viewport) as the DXF has them.
    Pattern hatches are left out. Everything runs on the phone: nothing is uploaded.
+   beta 7.4 / 2.45.6: printed as AutoCAD prints it: the colours by AutoCAD's rules (BYLAYER, BYBLOCK, layer 0 in a block, an
+   attribute in its block reference's, an MTEXT's own colours in it), the text styles' bold and italic (Helvetica-Bold, -Oblique),
+   an SHX font's look (its widths, its strokes as thick as the line weight), a text's own width factor, and the default line
+   weight 0.25 mm.
      GeDxfPdf.toPdf(dxfText, { images: { 'VICINITY_MAP.jpg': Uint8Array (JPEG), … }, title, deflate: async (bytes) => bytes })
      → Promise<Uint8Array> (the PDF), with .report = { sheets, pictures, missing } */
 (function (root, factory) {
@@ -44,14 +48,29 @@
       .replace(/\\[ACcFfHhQqTtWw][^;]*;/g, '').replace(/\\p[^;]*;/g, '').replace(/\\S([^;]*);/g, (m, a) => a.replace(/[\^#]/g, '/'))
       .replace(/\\[LlOoKk]/g, '').replace(/\\[PN]/g, '\n').replace(/\\~/g, ' ').replace(/[{}]/g, '').replace(/\^J/g, '\n').replace(/\^I/g, ' ').replace(/\u0001/g, '\\');
   }
-  /** beta 4.7: an MTEXT's text as lines of runs [{ s, c }] (c: the colour number a \C code set, null: the entity's colour), read as plain() reads it. */
-  function colourRuns(raw) {
-    const out = [[]], stack = []; let cur = null, buf = '';
-    const flush = () => { if (buf) { out[out.length - 1].push({ s: buf, c: cur }); buf = ''; } };
+  /** beta 4.7: an MTEXT's text as lines of runs [{ s, c }] (c: the colour number a \C code set, null: the entity's colour), read as plain() reads it.
+   *  beta 7.4 / 2.45.6: each run with its look as the codes set it, from base (the style's): { s, c (\C: 0 BYBLOCK, 256 BYLAYER),
+   *  tc (\c: a true colour, written blue-green-red), b, i (\f…|b1|i1: bold, italic), x (an SHX font: \F…shx), w (\W: width factor),
+   *  q (\Q: oblique) }; specials (%%d …) read in each run. */
+  function colourRuns(raw, base) {
+    const out = [[]], stack = []; let cur = { c: null, tc: null, ...base }, buf = '';
+    const flush = () => { if (buf) { out[out.length - 1].push({ ...cur, s: buf }); buf = ''; } };
+    const font = (n, a) => { const [nm, ...fl] = a.split('|'), shx = /\.shx\s*$/i.test(nm) || (n === 'F' && !fl.length && !/\.\w+\s*$/.test(nm)); return shx ? { x: true, b: false, i: false } : { x: false, b: fl.includes('b1') || /bold|black|heavy/i.test(nm), i: fl.includes('i1') || /italic|oblique/i.test(nm) }; };
     for (let i = 0; i < raw.length; i++) {
       const ch = raw[i], n = raw[i + 1];
       if (ch === '\\' && n !== undefined) {
-        if (n === 'C' || n === 'c') { const j = raw.indexOf(';', i); if (j > i) { flush(); cur = parseInt(raw.slice(i + 2, j), 10); i = j; continue; } }
+        if ('CcFfWQ'.includes(n)) {
+          const j = raw.indexOf(';', i);
+          if (j > i) {
+            flush(); const a = raw.slice(i + 2, j), v = parseFloat(a);
+            if (n === 'C') { if (Number.isFinite(v)) cur = { ...cur, c: Math.round(v), tc: null }; }
+            else if (n === 'c') { if (Number.isFinite(v)) cur = { ...cur, tc: [v & 255, (v >> 8) & 255, (v >> 16) & 255] }; } // (AutoCAD writes it blue-green-red)
+            else if (n === 'W') { if (v > 0) cur = { ...cur, w: /x\s*$/i.test(a) ? (cur.w || 1) * v : v }; }
+            else if (n === 'Q') { if (Number.isFinite(v)) cur = { ...cur, q: v }; }
+            else cur = { ...cur, ...font(n, a) };
+            i = j; continue;
+          }
+        }
         if (n === 'P' || n === 'N') { flush(); out.push([]); i++; continue; }
         if (n === '\\' || n === '{' || n === '}') { buf += n; i++; continue; }
         if (n === '~') { buf += ' '; i++; continue; }
@@ -61,14 +80,37 @@
         if (n === 'U' && raw[i + 2] === '+') { buf += String.fromCharCode(parseInt(raw.slice(i + 3, i + 7), 16)); i += 6; continue; }
       }
       if (ch === '{') { flush(); stack.push(cur); continue; }
-      if (ch === '}') { flush(); cur = stack.length ? stack.pop() : null; continue; }
+      if (ch === '}') { flush(); cur = stack.length ? stack.pop() : { c: null, tc: null, ...base }; continue; }
       if (ch === '^' && (n === 'J' || n === 'I')) { if (n === 'J') { flush(); out.push([]); } else buf += ' '; i++; continue; }
       buf += ch;
     }
-    flush(); return out;
+    flush(); return out.map((L) => L.map((x) => ({ ...x, s: special(x.s) })));
   }
   const special = (s) => String(s).replace(/%%[dD]/g, '°').replace(/%%[cC]/g, 'Ø').replace(/%%[pP]/g, '±').replace(/%%[uUoOkK]/g, '').replace(/%%%/g, '%');
   const CAP = 0.718; // Helvetica's capital height (AutoCAD's text height is the capitals' height)
+  /* beta 7.4 / 2.45.6: a text's font: { b: bold, i: italic, x: an SHX font (AutoCAD's stroke fonts: simplex, romans, txt …) }.
+     Bold and italic: Helvetica-Bold, -Oblique, -BoldOblique. An SHX font: Helvetica at the SHX font's widths (those of simplex and
+     romans, the Hershey simplex roman's: SHXW for ASCII 32-126, in 21sts of the capitals' height), its outline thickened to the
+     line weight AutoCAD draws its strokes with. */
+  const SHXW = [16, 10, 16, 21, 20, 24, 26, 10, 14, 14, 16, 26, 10, 26, 10, 22, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 10, 10, 24, 26, 24, 18, 27,
+    18, 21, 21, 21, 19, 18, 21, 22, 8, 16, 21, 17, 24, 22, 22, 21, 22, 21, 20, 16, 22, 18, 24, 20, 18, 20, 14, 14, 14, 16, 16, 10,
+    19, 19, 18, 19, 18, 12, 19, 19, 8, 10, 17, 8, 30, 19, 19, 19, 19, 13, 17, 12, 19, 16, 22, 17, 16, 17, 14, 8, 14, 24];
+  const shxEm = (ch) => { const c = ch.charCodeAt(0); return c >= 32 && c < 127 ? SHXW[c - 32] * CAP / 21 : R.textWidth(ch, 1, false) * 1.15; };
+  const widthEm = (s, f) => { if (f && f.x) { let w = 0; for (const ch of String(s)) w += shxEm(ch); return w; } return R.textWidth(s, 1, !!(f && f.b)); }; // in em (font size 1)
+  const fontRes = (f) => (f && !f.x && f.b ? (f.i ? 'F4' : 'F2') : f && !f.x && f.i ? 'F3' : 'F1');
+  const LW0 = 0.25; // beta 7.4 / 2.45.6: the line weight "Default" prints with (mm; AutoCAD's LWDEFAULT; 0.18 before)
+  /** beta 7.4 / 2.45.6: a STYLE's look: { wf, obl, f }. Bold, italic: the flags of its font (the ACAD xdata: 1000 the font's family,
+   *  1071 bit 0x2000000 bold, 0x1000000 italic: an arial.ttf style can be bold so), else its font file's name (arialbd.ttf, …Bold.ttf). An SHX
+   *  font: a .shx file, or a file with no extension ("txt"), with no TrueType family. */
+  function styleLook(r) {
+    const file = String(get(r, 3, '')).trim(), k = r.findIndex((p) => p[0] === 1001 && String(p[1]).trim() === 'ACAD'); let fam = '', fl = 0;
+    if (k > 0) for (let i = k + 1; i < r.length && r[i][0] !== 1001; i++) { if (r[i][0] === 1000 && !fam) fam = String(r[i][1]).trim(); else if (r[i][0] === 1071) fl = parseInt(r[i][1], 10) || 0; }
+    const win = /^(arial|times|cour|verdana|georgia|calibri|cambria|consola|segoeui|trebuc|tahoma)(bd|bi|b|i|it|z)\.ttf$/i.exec(file), suf = win ? win[2].toLowerCase() : '';
+    const x = !fam && (/\.shx$/i.test(file) || (!!file && !/\.\w+$/.test(file)));
+    const b = !x && (!!(fl & 0x2000000) || /bd|bold|black|heavy/i.test(`${file} ${fam}`) || /^(bd|bi|b|z)$/.test(suf));
+    const i = !x && (!!(fl & 0x1000000) || /italic|oblique/i.test(`${file} ${fam}`) || /^(bi|i|it|z)$/.test(suf));
+    return { wf: num(r, 41, 1) || 1, obl: num(r, 50, 0), f: { b, i, x } };
+  }
 
   /** The DXF's sheets as page drawings: [{ name, w, h (pt), ops: [] }] and the pictures they use. */
   function layoutPages(text, o) {
@@ -80,8 +122,9 @@
       const t = typ(r);
       if (t === 'LAYER') { const nm = get(r, 2), fl = int(r, 70, 0), c = int(r, 62, 7); LAY.set(nm, { color: Math.abs(c) || 7, tc: get(r, 420) != null ? int(r, 420, 0) : null, off: c < 0 || (fl & 1) === 1 || get(r, 290) === '0' || /^\s*0\s*$/.test(String(get(r, 290, '1'))) || /^defpoints$/i.test(nm), lt: get(r, 6, 'Continuous'), lw: int(r, 370, -3) }); LH.set(get(r, 5), nm); }
       else if (t === 'LTYPE') { const pat = all(r, 49).map(Number).filter(Number.isFinite); if (pat.some((x) => x < 0)) LT.set(String(get(r, 2)).toUpperCase(), pat); }
-      else if (t === 'STYLE') ST.set(get(r, 2), { wf: num(r, 41, 1) || 1, bold: /bd|bold|black|heavy/i.test(`${get(r, 3, '')} ${get(r, 1000, '')}`) });
+      else if (t === 'STYLE') ST.set(String(get(r, 2, '')).toUpperCase(), styleLook(r)); // (beta 7.4 / 2.45.6: its fonts' flags; a style's name is read in any case, as AutoCAD reads it)
     }
+    const DEFST = { wf: 1, obl: 0, f: { b: false, i: false, x: false } }, styleOf = (nm) => ST.get(String(nm == null ? 'Standard' : nm).toUpperCase()) || DEFST;
     const LTS = (() => { const v = d.headerVar('$LTSCALE'); const n = v ? parseFloat(v[1]) : 1; return Number.isFinite(n) && n > 0 ? n : 1; })();
     const IMGDEF = new Map(); for (const r of S.O) if (typ(r) === 'IMAGEDEF') IMGDEF.set(get(r, 5), String(get(r, 1, '')).replace(/^.*[\\/]/, ''));
     // block boxes (once each), for culling what a viewport does not show
@@ -105,35 +148,43 @@
       images.set(file, im); return im;
     };
 
+    /* beta 7.4 / 2.45.6: colours, line weights and line types by AutoCAD's rules. inh: what a block's entities take from the block
+       reference they are drawn in (none outside a block): { color (its colour, resolved), layer (its layer: layer 0 in a block is the
+       reference's, in turn), lw, lt }. A true colour (420) wins; BYBLOCK (0): the reference's colour (black outside a block); BYLAYER
+       (256, or none): the colour of the entity's layer (of the reference's when it is on layer 0 in a block; not the reference's own
+       colour, as before); colour 7 prints black on the white paper. An attribute is drawn in its block reference's (draw()). */
+    const tcRGB = (n) => [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    const effLayer = (r, inh) => { const l = get(r, 8, '0'); return l === '0' && inh && inh.layer ? inh.layer : l; };
+    const layerRGB = (nm) => { const L = LAY.get(nm) || LAY.get('0'); if (L && L.tc != null) return tcRGB(L.tc); return ACI[L ? L.color : 7] || [0, 0, 0]; };
+    const aciRGB = (c, r, inh) => (c === 0 ? (inh && inh.color) || ACI[7] : c > 0 && c < 256 ? ACI[c] : layerRGB(effLayer(r, inh)));
     function colorOf(r, inh) {
-      const tc = get(r, 420); if (tc != null) { const n = parseInt(tc, 10); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
-      const c = int(r, 62, 256);
-      if (c === 0) return inh.color;
-      if (c !== 256 && c > 0 && c < 256) return ACI[c];
-      const L = LAY.get(get(r, 8)) || LAY.get('0');
-      if (get(r, 8) === '0' && inh.layer0) return inh.color; // in a block, layer 0 takes the insert's colour
-      if (L && L.tc != null) return [(L.tc >> 16) & 255, (L.tc >> 8) & 255, L.tc & 255];
-      return ACI[L ? L.color : 7] || [0, 0, 0];
+      const tc = get(r, 420); if (tc != null) return tcRGB(parseInt(tc, 10));
+      return aciRGB(int(r, 62, 256), r, inh);
     }
-    const lwOf = (r, inh) => { let w = int(r, 370, -1); if (w === -2) return inh.lw; if (w === -1) { const L = LAY.get(get(r, 8)); w = L ? L.lw : -3; } return w >= 0 ? w : -3; };
-    const ltOf = (r, inh) => { let n = String(get(r, 6, 'BYLAYER')).toUpperCase(); if (n === 'BYBLOCK') return inh.lt; if (n === 'BYLAYER') { const L = LAY.get(get(r, 8)); n = String(L ? L.lt : 'CONTINUOUS').toUpperCase(); } return LT.get(n) || null; };
+    const lwOf = (r, inh) => { let w = int(r, 370, -1); if (w === -2) return inh.lw; if (w === -1) { const L = LAY.get(effLayer(r, inh)); w = L ? L.lw : -3; } return w >= 0 ? w : -3; };
+    const ltOf = (r, inh) => { let n = String(get(r, 6, 'BYLAYER')).toUpperCase(); if (n === 'BYBLOCK') return inh.lt; if (n === 'BYLAYER') { const L = LAY.get(effLayer(r, inh)); n = String(L ? L.lt : 'CONTINUOUS').toUpperCase(); } return LT.get(n) || null; };
+    /** What the entities of a block reference r (an INSERT, a DIMENSION; and its attributes) take from it. */
+    const blockInh = (r, inh) => ({ color: colorOf(r, inh), layer: effLayer(r, inh), lw: lwOf(r, inh), lt: ltOf(r, inh) });
 
     /** Draws records with M (to page pt); ctx: { ops, k (pt per paper unit), frozen, inh, depth, page box for culling } */
     function draw(recs, M, ctx) {
       const { ops } = ctx;
+      let ins = null, insInh = null; // beta 7.4 / 2.45.6: the block reference the attributes after it belong to
       for (let n = 0; n < recs.length; n++) {
         const r = recs[n], t = typ(r), lay = get(r, 8, '0');
+        if (t === 'INSERT') { ins = r; insInh = null; } else if (t !== 'ATTRIB') ins = null;
         if (t === 'SEQEND' || t === 'ATTDEF' || t === 'VIEWPORT' || t === 'VERTEX') continue;
         const L = LAY.get(lay); if ((L && L.off) || ctx.frozen.has(lay) || int(r, 60, 0) === 1) { if (t === 'POLYLINE') while (n + 1 < recs.length && typ(recs[n + 1]) === 'VERTEX') n++; continue; }
         if (ctx.cull && t !== 'ATTRIB') { const b = boxOf(r); if (b && (b[2] < ctx.cull[0] || b[0] > ctx.cull[2] || b[3] < ctx.cull[1] || b[1] > ctx.cull[3])) { if (t === 'POLYLINE') while (n + 1 < recs.length && typ(recs[n + 1]) === 'VERTEX') n++; continue; } }
-        const col = colorOf(r, ctx.inh), lwv = lwOf(r, ctx.inh), pat = ltOf(r, ctx.inh), ocs = num(r, 230, 1) < 0 && !['LINE', 'MTEXT', 'POINT', 'IMAGE'].includes(t) ? mul(M, SC(-1, 1)) : M;
-        const lwPt = (lwv >= 0 ? Math.max(0.05, lwv / 100) : 0.18) * 72 / 25.4;
+        const inh = t === 'ATTRIB' && ins ? insInh || (insInh = blockInh(ins, ctx.inh)) : ctx.inh; // (beta 7.4 / 2.45.6: an attribute: its BYBLOCK, its layer 0 are its block reference's, as AutoCAD draws it)
+        const col = colorOf(r, inh), lwv = lwOf(r, inh), pat = ltOf(r, inh), ocs = num(r, 230, 1) < 0 && !['LINE', 'MTEXT', 'POINT', 'IMAGE'].includes(t) ? mul(M, SC(-1, 1)) : M;
+        const lwPt = (lwv >= 0 ? Math.max(0.05, lwv / 100) : LW0) * 72 / 25.4;
         const rgb = (c) => `${f4(c[0] / 255)} ${f4(c[1] / 255)} ${f4(c[2] / 255)}`;
         const dash = (sc) => { if (!pat) return ''; const L2 = pat.map((x) => Math.max(Math.abs(x) * LTS * num(r, 48, 1) * sc, x === 0 ? 0.5 : 0.01)); return L2.reduce((a, b) => a + b, 0) < 1.5 ? '' : `[${L2.map(f2).join(' ')}] 0 d `; };
-        const stroke = (P, closed, w) => {
+        const stroke = (P, closed, w, cap) => {
           if (P.length < 2) return;
           const Q = P.map(([x, y]) => ap(ocs, x, y));
-          ops.push(`q ${rgb(col)} RG ${f2(w != null ? w : lwPt)} w 1 J 1 j ${dash(ctx.ltk || ctx.k)}${f2(Q[0][0])} ${f2(Q[0][1])} m ${Q.slice(1).map((q) => `${f2(q[0])} ${f2(q[1])} l`).join(' ')}${closed ? ' h' : ''} S Q`);
+          ops.push(`q ${rgb(col)} RG ${f2(w != null ? w : lwPt)} w ${cap || '1 J 1 j'} ${dash(ctx.ltk || ctx.k)}${f2(Q[0][0])} ${f2(Q[0][1])} m ${Q.slice(1).map((q) => `${f2(q[0])} ${f2(q[1])} l`).join(' ')}${closed ? ' h' : ''} S Q`);
         };
         const fill = (loops) => {
           const parts = loops.filter((P) => P.length > 2).map((P) => { const Q = P.map(([x, y]) => ap(ocs, x, y)); return `${f2(Q[0][0])} ${f2(Q[0][1])} m ${Q.slice(1).map((q) => `${f2(q[0])} ${f2(q[1])} l`).join(' ')} h`; });
@@ -142,8 +193,8 @@
         if (t === 'LINE') stroke([[num(r, 10, 0), num(r, 20, 0)], [num(r, 11, 0), num(r, 21, 0)]]);
         else if (t === 'LWPOLYLINE') {
           const V = []; for (let i = 1; i < r.length; i++) { const [c, v] = r[i]; if (c === 10) V.push([+v, 0, 0]); else if (c === 20 && V.length) V[V.length - 1][1] = +v; else if (c === 42 && V.length) V[V.length - 1][2] = +v; }
-          const closed = (int(r, 70, 0) & 1) === 1, w = num(r, 43, 0);
-          stroke(bulgePts(V, closed), closed, w > 0 ? Math.max(lwPt, w * scaleOf(ocs)) : null);
+          const closed = (int(r, 70, 0) & 1) === 1, w = num(r, 43, 0), ww = w > 0 ? w * scaleOf(ocs) : 0;
+          stroke(bulgePts(V, closed), closed, w > 0 ? Math.max(lwPt, ww) : null, ww >= lwPt ? '0 J 0 j' : null); // (beta 7.4 / 2.45.6: a wide one square-ended and mitred, as AutoCAD draws it: the scale bar's steps)
         } else if (t === 'POLYLINE') {
           const V = []; while (n + 1 < recs.length && typ(recs[n + 1]) === 'VERTEX') { const v = recs[++n]; V.push([num(v, 10, 0), num(v, 20, 0), num(v, 42, 0)]); }
           const closed = (int(r, 70, 0) & 1) === 1; stroke(bulgePts(V, closed), closed);
@@ -161,8 +212,8 @@
           if (t === '3DFACE') stroke([P[0], P[1], [num(r, 12, 0), num(r, 22, 0)], [num(r, 13, 0), num(r, 23, 0)]], true); else fill([P]);
         } else if (t === 'HATCH') { const H = hatchLoops(r); if (H.solid) fill(H.loops); }
         else if (t === 'LEADER') { const X = all(r, 10).map(Number), Y = all(r, 20).map(Number); stroke(X.map((x, i) => [x, Y[i]])); }
-        else if (t === 'TEXT' || t === 'ATTRIB') { if (t === 'ATTRIB' && (int(r, 70, 0) & 1)) continue; textOps(r, ocs, col, ops); }
-        else if (t === 'MTEXT') mtextOps(r, M, col, ops);
+        else if (t === 'TEXT' || t === 'ATTRIB') { if (t === 'ATTRIB' && (int(r, 70, 0) & 1)) continue; textOps(r, ocs, col, ops, lwPt); }
+        else if (t === 'MTEXT') mtextOps(r, M, col, ops, inh, lwPt);
         else if (t === 'IMAGE') {
           const file = IMGDEF.get(get(r, 340)), im = imageOf(file), x = num(r, 10, 0), y = num(r, 20, 0), U = [num(r, 11, 0) * num(r, 13, 0), num(r, 21, 0) * num(r, 13, 0)], V = [num(r, 12, 0) * num(r, 23, 0), num(r, 22, 0) * num(r, 23, 0)];
           const o0 = ap(M, x, y), u = lin(M, U[0], U[1]), v = lin(M, V[0], V[1]);
@@ -173,8 +224,8 @@
           const b = S.blocks.get(get(r, 2)); if (!b) continue;
           let BM = M;
           if (t === 'INSERT') { const bx = num(b.begin, 10, 0), by = num(b.begin, 20, 0); BM = mul(mul(mul(mul(ocs, TR(num(r, 10, 0), num(r, 20, 0))), RO(num(r, 50, 0) * Math.PI / 180)), SC(num(r, 41, 1), num(r, 42, 1))), TR(-bx, -by)); }
-          const inh = { color: col, layer0: true, lw: lwv >= 0 ? lwv : ctx.inh.lw, lt: pat };
-          draw(b.ents, BM, { ...ctx, inh, depth: ctx.depth + 1, cull: null, ltk: (ctx.ltk || ctx.k) });
+          const bi = { color: col, layer: effLayer(r, inh), lw: lwv, lt: pat }; // (beta 7.4 / 2.45.6: blockInh(); its layer for its entities on layer 0)
+          draw(b.ents, BM, { ...ctx, inh: bi, depth: ctx.depth + 1, cull: null, ltk: (ctx.ltk || ctx.k) });
         }
       }
     }
@@ -238,34 +289,54 @@
       return { solid, loops };
     }
     const enc = (s) => (R.pdfEsc ? R.pdfEsc(s) : String(s).replace(/[()\\]/g, (m) => `\\${m}`));
-    const widthEm = (s, bold) => R.textWidth(s, 1, bold); // in em (font size 1)
-    function textLine(ops, M, col, s, x, y, ang, h, wf, bold, obl) { // (x, y): the baseline's left end, in the entity's space; obl: slant (degrees)
+    /** A line of text from (x, y) (its baseline's left end, in the entity's space). beta 7.4 / 2.45.6: f, its font ({ b, i, x }:
+     *  Helvetica, -Bold, -Oblique, -BoldOblique; an SHX font as AutoCAD draws it); obl: slant (degrees); lwPt: its line weight (pt). */
+    function textLine(ops, M, col, s, x, y, ang, h, wf, f, obl, lwPt) {
       if (!s || !(h > 0)) return;
-      const fs = h / CAP, c = Math.cos(ang), sn = Math.sin(ang), k = obl ? Math.tan(obl * Math.PI / 180) : 0, o0 = ap(M, x, y), u = lin(M, c * fs * wf, sn * fs * wf), v = lin(M, (-sn + c * k) * fs, (c + sn * k) * fs);
+      const shx = !!(f && f.x); let kx = 1, tw = 0;
+      if (shx) { // an SHX font's widths: its letters stretched as one to them, its spaces as wide as its (word spacing)
+        let a = 0, b = 0; for (const ch of s) if (ch !== ' ') { a += shxEm(ch); b += R.textWidth(ch, 1, false); }
+        if (a > 0 && b > 0) kx = a / b;
+        if (s.includes(' ')) tw = shxEm(' ') / kx - R.textWidth(' ', 1, false);
+      }
+      const fs = h / CAP, c = Math.cos(ang), sn = Math.sin(ang), k = obl ? Math.tan(obl * Math.PI / 180) : 0, o0 = ap(M, x, y), u = lin(M, c * fs * wf * kx, sn * fs * wf * kx), v = lin(M, (-sn + c * k) * fs, (c + sn * k) * fs);
       if (Math.hypot(v[0], v[1]) < 0.4) return; // under 0.4 pt: not readable
-      ops.push(`BT ${f4(col[0] / 255)} ${f4(col[1] / 255)} ${f4(col[2] / 255)} rg /${bold ? 'F2' : 'F1'} 1 Tf ${f4(u[0])} ${f4(u[1])} ${f4(v[0])} ${f4(v[1])} ${f2(o0[0])} ${f2(o0[1])} Tm (${enc(s)}) Tj ET`);
+      const rgb = `${f4(col[0] / 255)} ${f4(col[1] / 255)} ${f4(col[2] / 255)}`, tm = `${f4(u[0])} ${f4(u[1])} ${f4(v[0])} ${f4(v[1])} ${f2(o0[0])} ${f2(o0[1])} Tm (${enc(s)}) Tj`;
+      if (!shx) { ops.push(`BT ${rgb} rg /${fontRes(f)} 1 Tf ${tm} ET`); return; }
+      // its strokes as thick as the line weight AutoCAD draws them with: Helvetica's stems (0.088 em) thickened by their outline
+      const sw = (lwPt > 0 ? lwPt : LW0 * 72 / 25.4) - 0.088 * Math.hypot(v[0], v[1]);
+      ops.push(`q BT ${sw >= 0.05 ? `2 Tr ${f2(sw)} w 1 j ${rgb} RG ` : ''}${rgb} rg /F1 1 Tf ${tw ? `${f4(tw)} Tw ` : ''}${tm} ET Q`);
     }
-    function textOps(r, M, col, ops) {
+    function textOps(r, M, col, ops, lwPt) {
       const s = special(get(r, 1, '')); if (!s.trim()) return;
-      const h = num(r, 40, 2.5), st = ST.get(get(r, 7, 'Standard')) || { wf: 1, bold: false }, wf = get(r, 41) != null ? num(r, 41, 1) || 1 : st.wf, bold = st.bold;
+      const h = num(r, 40, 2.5), st = styleOf(get(r, 7)), f = st.f, wf = num(r, 41, 1) || 1; // (beta 7.4 / 2.45.6: its own width factor, 1 when it has none, as AutoCAD reads it; the style's is what a new text starts with, not this one's)
       const ha = int(r, 72, 0), va = typ(r) === 'ATTRIB' ? int(r, 74, 0) : int(r, 73, 0), ang = num(r, 50, 0) * Math.PI / 180, fs = h / CAP;
-      const w = widthEm(s, bold) * fs * wf;
+      const w = widthEm(s, f) * fs * wf;
       let ax = num(r, 10, 0), ay = num(r, 20, 0), dx = 0, dy = 0, wfx = wf;
       if (ha || va) { ax = num(r, 11, ax); ay = num(r, 21, ay); }
       if (ha === 3 || ha === 5) { const x0 = num(r, 10, 0), y0 = num(r, 20, 0), L = Math.hypot(ax - x0, ay - y0); if (L > 0 && w > 0) wfx = wf * L / w; ax = x0; ay = y0; }
       else dx = ha === 1 || ha === 4 ? -w / 2 : ha === 2 ? -w : 0;
       dy = ha === 4 ? -h / 2 : va === 1 ? 0.29 * h : va === 2 ? -h / 2 : va === 3 ? -h : 0;
       const c = Math.cos(ang), sn = Math.sin(ang);
-      textLine(ops, M, col, s, ax + dx * c - dy * sn, ay + dx * sn + dy * c, ang, h, wfx, bold, num(r, 51, 0)); // (51: v2.42.11, the street names slanted)
+      textLine(ops, M, col, s, ax + dx * c - dy * sn, ay + dx * sn + dy * c, ang, h, wfx, f, num(r, 51, 0), lwPt); // (51: v2.42.11, the street names slanted)
     }
-    function mtextOps(r, M, col, ops) {
+    function mtextOps(r, M, col, ops, inh, lwPt) {
       const raw = all(r, 3).join('') + get(r, 1, ''), s = special(plain(raw)); if (!s.trim()) return;
-      const h = num(r, 40, 2.5), st = ST.get(get(r, 7, 'Standard')) || { wf: 1, bold: false }, bold = st.bold || /\\f[^;|]*\|b1/i.test(raw), wf = st.wf;
+      const h = num(r, 40, 2.5), st = styleOf(get(r, 7)), base = { ...st.f, w: st.wf, q: st.obl };
+      // beta 7.4 / 2.45.6: its parts as its codes make them (colour, font, bold, italic, width, slant), each line a list of them; always
+      // (a Tidy label's only before, and only unwrapped: the title block's values {\C256;…} printed in their red, not by their layer)
+      let paras = colourRuns(raw, base); const want = s.split('\n');
+      if (paras.length !== want.length || paras.some((p, i) => p.map((x) => x.s).join('') !== want[i])) paras = want.map((t) => [{ c: null, tc: null, ...base, s: t }]); // (read otherwise than plain() reads it: as one part, as before)
       const fs = h / CAP, pitch = h * 5 / 3 * num(r, 44, 1), att = Math.min(9, Math.max(1, int(r, 71, 1))), ci = (att - 1) % 3, ri = Math.floor((att - 1) / 3), refW = num(r, 41, 0);
-      const wOf = (l) => widthEm(l, bold) * fs * wf, lines = [];
-      for (const para of s.split('\n')) { // wrapped at its box's width, as AutoCAD does
+      const key = (x) => `${x.b ? 1 : 0}${x.i ? 1 : 0}${x.x ? 1 : 0}|${x.w}|${x.q}`, txt = (L) => L.map((x) => x.s).join('');
+      const wOf = (L) => { let w = 0, i = 0; while (i < L.length) { let j = i, t = ''; while (j < L.length && key(L[j]) === key(L[i])) t += L[j++].s; w += widthEm(t, L[i]) * fs * L[i].w; i = j; } return w; };
+      const trimEnd = (L) => { const q = L.slice(); while (q.length) { const z = q[q.length - 1], t = z.s.trimEnd(); if (t) { q[q.length - 1] = { ...z, s: t }; break; } q.pop(); } return q; };
+      const trimStart = (L) => { const q = L.slice(); while (q.length) { const t = q[0].s.trimStart(); if (t) { q[0] = { ...q[0], s: t }; break; } q.shift(); } return q; };
+      const lines = [];
+      for (const para of paras) { // wrapped at its box's width, as AutoCAD does
         if (!(refW > 0) || wOf(para) <= refW * 1.02) { lines.push(para); continue; }
-        let cur = ''; for (const w of para.split(/(?<=\s)/)) { if (cur && wOf((cur + w).trimEnd()) > refW * 1.02) { lines.push(cur.trimEnd()); cur = w.trimStart(); } else cur += w; } lines.push(cur.trimEnd());
+        const words = []; let wd = []; for (const x of para) for (const piece of x.s.split(/(?<=\s)/)) { if (!piece) continue; wd.push({ ...x, s: piece }); if (/\s$/.test(piece)) { words.push(wd); wd = []; } } if (wd.length) words.push(wd);
+        let cur = []; for (const w of words) { if (txt(cur) && wOf(trimEnd(cur.concat(w))) > refW * 1.02) { lines.push(trimEnd(cur)); cur = trimStart(w); } else cur = cur.concat(w); } lines.push(trimEnd(cur));
       }
       const lw = lines.map(wOf), maxW = Math.max(0, ...lw), colW = refW > maxW * 0.5 ? refW : maxW;
       const Hh = h + pitch * (lines.length - 1), top = ri === 0 ? 0 : ri === 1 ? Hh / 2 : Hh, left = -(ci === 0 ? 0 : ci === 1 ? colW / 2 : colW);
@@ -278,12 +349,16 @@
         const fc = bg & 2 ? [255, 255, 255] : (ACI[int(r, 63, 7)] || [255, 255, 255]), Q = [W2(x0, y0), W2(x1, y0), W2(x1, y1), W2(x0, y1)];
         ops.push(`q ${f4(fc[0] / 255)} ${f4(fc[1] / 255)} ${f4(fc[2] / 255)} rg ${Q.map((q, i) => `${f2(q[0])} ${f2(q[1])} ${i ? 'l' : 'm'}`).join(' ')} h f Q`);
       }
-      const runs = o.colourRuns && /\\[Cc]\d/.test(raw) && !(refW > 0) ? colourRuns(raw) : null; const byLay = runs ? colorOf(r.filter((x) => x[0] !== 62 && x[0] !== 420), { color: col }) : null; // (\C256: the layer's colour) // beta 4.7: a part in another colour ({\C7;…}: Tidy's pole labels; o.colourRuns, so a Standard plan's PDF stays as it was)
-      lines.forEach((l, i) => {
-        if (!l.trim()) return;
+      // a part's colour: \c a true colour; \C0 its block reference's (BYBLOCK), \C256 its layer's (BYLAYER), \Cn that colour; none: the MTEXT's
+      const partCol = (x) => (x.tc ? x.tc : x.c == null ? col : aciRGB(x.c, r, inh)), sameCol = (a, b) => a === b || (a[0] === b[0] && a[1] === b[1] && a[2] === b[2]);
+      lines.forEach((L, i) => {
+        if (!txt(L).trim()) return;
         const dx = left + (al === 'c' ? (colW - lw[i]) / 2 : al === 'r' ? colW - lw[i] : 0), dy = top - h - i * pitch;
-        if (runs && runs.length === lines.length) { let x = dx; for (const R of runs[i]) { const s2 = special(R.s); if (s2.trim()) textLine(ops, M, R.c > 0 && R.c < 256 && ACI[R.c] ? ACI[R.c] : R.c === 256 ? byLay : col, s2, ax + x * c - dy * sn, ay + x * sn + dy * c, ang, h, wf, bold); x += widthEm(s2, bold) * fs * wf; } return; }
-        textLine(ops, M, col, l, ax + dx * c - dy * sn, ay + dx * sn + dy * c, ang, h, wf, bold);
+        let x = dx; for (let j = 0; j < L.length;) { // the line's parts, those of one look and colour as one
+          const z = L[j], cz = partCol(z); let t = '', e = j; while (e < L.length && key(L[e]) === key(z) && sameCol(partCol(L[e]), cz)) t += L[e++].s;
+          if (t.trim()) textLine(ops, M, cz, t, ax + x * c - dy * sn, ay + x * sn + dy * c, ang, h, z.w, z, z.q, lwPt);
+          x += widthEm(t, z) * fs * z.w; j = e;
+        }
       });
     }
 
@@ -335,12 +410,14 @@
     const latin1 = (s) => { const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i) & 255; return u; };
     const push = (x) => { const u = typeof x === 'string' ? latin1(x) : x; parts.push(u); pos += u.length; };
     const obj = (n, body) => { offsets[n] = pos; push(`${n} 0 obj\n`); body(); push('\nendobj\n'); };
-    const firstImg = 5, firstPage = firstImg + images.length, info = firstPage + pages.length * 2;
+    const firstImg = 7, firstPage = firstImg + images.length, info = firstPage + pages.length * 2;
     push('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
     obj(1, () => push('<< /Type /Catalog /Pages 2 0 R >>'));
     obj(2, () => push(`<< /Type /Pages /Kids [${pages.map((_, i) => `${firstPage + i * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`));
     obj(3, () => push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'));
     obj(4, () => push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>'));
+    obj(5, () => push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>')); // (beta 7.4 / 2.45.6: the italic styles)
+    obj(6, () => push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-BoldOblique /Encoding /WinAnsiEncoding >>'));
     images.forEach((im, i) => obj(firstImg + i, () => {
       const cs = im.comps === 1 ? '/DeviceGray' : im.comps === 4 ? '/DeviceCMYK /Decode [1 0 1 0 1 0 1 0]' : '/DeviceRGB';
       push(`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace ${cs} /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.bytes.length} >>\nstream\n`); push(im.bytes); push('\nendstream');
@@ -350,7 +427,7 @@
       const pg = pages[i], pn = firstPage + i * 2, raw = latin1(pg.ops.join('\n'));
       let data = raw, filter = '';
       if (o && o.deflate) { try { data = await o.deflate(raw); filter = ' /Filter /FlateDecode'; } catch (e) { data = raw; filter = ''; } }
-      obj(pn, () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f2(pg.w)} ${f2(pg.h)}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xo ? ` /XObject << ${xo} >>` : ''} >> /Contents ${pn + 1} 0 R >>`));
+      obj(pn, () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f2(pg.w)} ${f2(pg.h)}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >>${xo ? ` /XObject << ${xo} >>` : ''} >> /Contents ${pn + 1} 0 R >>`));
       obj(pn + 1, () => { push(`<< /Length ${data.length}${filter} >>\nstream\n`); push(data); push('\nendstream'); });
     }
     const esc = (s) => String(s || '').replace(/[()\\]/g, (m) => `\\${m}`).replace(/[^\x20-\x7e]/g, '?');
