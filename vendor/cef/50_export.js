@@ -189,7 +189,9 @@ function partDetails(S, rg) {
       const N = [], p0 = pd ? yg : yb - 0.4, ugB = pd ? yg + 25 : giT;      /* (fix 47) with a pedestal box: the pole stands in the ground, the U-guard comes down nearer to the box */
       if (!pd) dBlock(G, [cx + 3, yg], 24, 22, bh, pl);
       { const brk = yb + 14, zz = (x0, x1, y) => [[x0, y], [x0 + (x1 - x0) * 0.35, y + 0.9], [x0 + (x1 - x0) * 0.65, y - 0.9], [x1, y]];      /* the pole, with a break: it is not drawn at its full height */
-        G.pl([[cx - 4.6, p0], [cx - 4.5, brk]], pl); G.pl([[cx - 4.45, brk + 2], [cx - 3.5, top]], pl); G.pl([[cx + 4.6, p0], [cx + 4.5, brk]], pl); G.pl([[cx + 4.45, brk + 2], [cx + 3.5, top]], pl);
+        G.pl([[cx - 4.6, p0], [cx - 4.5, brk]], pl); G.pl([[cx + 4.6, p0], [cx + 4.5, brk]], pl);
+        for (const sx of [-1, 1]) { const xa = sx * 4.45, xb = sx * 3.5, X = y => cx + xa + (xb - xa) * (y - brk - 2) / (top - brk - 2), cut = lp ? [[lpY - 4.9 * Math.SQRT1_2 - 0.6, lpY - 4.9 * Math.SQRT1_2 + 0.6], [lpY + 4.9 * Math.SQRT1_2 - 0.6, lpY + 4.9 * Math.SQRT1_2 + 0.6]] : []; let y0 = brk + 2;      /* (beta 7.3 / 2.45.5: behind the loop holder's long bar the pole is hidden) */
+          for (const [c0, c1] of cut) { G.pl([[X(y0), y0], [X(c0), c0]], pl); y0 = c1; } G.pl([[X(y0), y0], [X(top), top]], pl); }
         G.pl(zz(cx - 5.4, cx + 5.4, brk), pl); G.pl(zz(cx - 5.4, cx + 5.4, brk + 2), pl); G.pl(dEll([cx, top], 3.5, 1.5, 0, 360), pl, 1); }
       if (pd) {      /* (fix 47) the pedestal box in place of the G.I. pipe: on its base beside the pole, the conduit coming up into it, a flexible pipe from its top to the U-guard */
         const bl = pd === 'P' ? 'pp' : 'ex', bc = [cx + 12.5, yg], bH = 14;
@@ -204,12 +206,29 @@ function partDetails(S, rg) {
       dTube(G, [px, ugB], pr, ugT - ugB, 'pp');
       const K = dPlugs(G, [px, ugT], pr);
       if (!pd) dBlank(G, [cx + 13.6, yg + bh - 1.2], pr, 'pp');
-      if (lp) { for (const r of [8.6, 7.7, 6.8]) G.ci([cx, lpY], r, 'pp'); G.pl([K.out, [K.out[0] - 0.6, K.out[1] + 4], [cx + 6, lpY - 10], [cx + 5.2, lpY - 6.9]], 'ae');
-        for (const a of [45, 135]) for (const w of [-0.6, 0.6]) { const c = Math.cos(a * D2R), sn = Math.sin(a * D2R), L = 11; G.pl([[cx - c * L - sn * w, lpY - sn * L + c * w], [cx + c * L - sn * w, lpY + sn * L + c * w]], 'pp'); }      /* beta 7.2 / 2.45.3: the loop holder, a cross of two flat bars behind the loop, */
-        for (const dy of [-2.2, 2.2]) G.pl([[cx - 4.4, lpY + dy], [cx + 4.4, lpY + dy]], 'pp');      /* strapped to the pole with two bands */
-        N.push({ s: ['PROPOSED ' + f2(lp.len) + 'm LOOP', 'W/ LOOP HOLDER'], to: [cx + 8.3, lpY + 2.2] }); }
+      /* beta 7.3 / 2.45.5 (the company's drawing of it): seen from the front, on the pole: the closure upright, ribbed, its domed top, its collar with the clamp
+         ring, three cable entry glands under it and the cables dropping from them; under it the round loop, three turns, round its holder, a square frame
+         (flat bars at its top and bottom, hatched, and an X brace corner to corner), on two stainless steel bands with their buckles */
+      const R = 4.9, hq = R * Math.SQRT1_2, cTop = lpY + R + 3.6;      /* the loop's radius; the frame's half side; where the glands end */
+      const fbar = (a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L * 0.5, ny = dx / L * 0.5; G.pl([[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]], 'pt', 1);
+        const m = Math.floor(L / 0.9); for (let i = 1; i < m; i++) { const t = i / m, x = a[0] + dx * t, y = a[1] + dy * t; G.pl([[x + nx * 0.8 + dx / L * 0.25, y + ny * 0.8 + dy / L * 0.25], [x - nx * 0.8 - dx / L * 0.25, y - ny * 0.8 - dy / L * 0.25]], 'pt'); } };
+      if (lp) {
+        for (const by of [-1.4, 1.4]) { const y = lpY + by; G.pl([[cx - 3.9, y - 0.4], [cx + 3.9, y - 0.4]], 'pt'); G.pl([[cx - 3.9, y + 0.4], [cx + 3.9, y + 0.4]], 'pt'); G.pl([[cx + 3.9, y - 0.8], [cx + 5.1, y - 0.8], [cx + 5.1, y + 0.8], [cx + 3.9, y + 0.8]], 'pt', 1); }      /* the bands, the buckle at their side */
+        const e = 1.1, ed = e * Math.SQRT1_2; fbar([cx - hq - e, lpY + hq], [cx + hq + e, lpY + hq]); fbar([cx - hq - e, lpY - hq], [cx + hq + e, lpY - hq]); fbar([cx - hq - ed, lpY - hq - ed], [cx + hq + ed, lpY + hq + ed]); fbar([cx - hq - ed, lpY + hq + ed], [cx + hq + ed, lpY - hq - ed]);      /* the holder */
+        for (let k = 0; k < 3; k++) G.ci([cx, lpY], R + k * 0.5, k ? 'pt' : 'pp');      /* the loop: three turns, close together */
+        const bz = (A, B, C, D) => { const Q = []; for (let i = 0; i <= 20; i++) { const t = i / 20, m = 1 - t; Q.push([0, 1].map(j => m * m * m * A[j] + 3 * m * m * t * B[j] + 3 * m * t * t * C[j] + t * t * t * D[j])); } return Q; };
+        for (const [gx, k, sd] of [[-1.2, 2, -1], [0, 0, 1]]) { const A = [cx + gx, cTop], T = [cx + sd * 0.9, lpY + R + k * 0.5]; G.pl([A, [A[0], A[1] - 1.2]].concat(bz([A[0], A[1] - 1.2], [A[0], A[1] - 2.4], [T[0] - sd * 1.8, T[1]], T).slice(1)), 'pp'); }      /* the cables from the glands into the top of the loop */
+        G.pl(bz([cx + 1.2, cTop], [cx + 1.2, cTop - 4], [K.out[0] - 0.6, K.out[1] + 6], K.out), 'pp');      /* the third: down to the riser */
+        N.push({ s: ['PROPOSED ' + f2(lp.len) + 'm LOOP ON', 'LOOP HOLDER'], to: [cx - R * 0.7 - 0.6, lpY - R * 0.7 - 0.6] }, { s: [LOOPBAND], to: [cx + 5.1, lpY + 1.4] }); }
       else G.pl([K.out, [K.out[0] - 0.6, K.out[1] + 5], [cx + 5, top - 8]], 'ae');
-      if (clo) { const c = [cx - 8.6, lpY + 10.5]; dTube(G, c, 2.3, 9, 'pp'); G.pl(dEll([c[0], c[1] + 9], 2.3, 2.6, 0, 180), 'pp'); N.push({ s: ['CLOSURE'], to: [c[0] + 2.3, c[1] + 6] }); }
+      if (clo) {      /* the closure, centred on the pole above the loop */
+        const yb = lp ? cTop : lpY + 10.5, x0 = cx, rw = 2.4;
+        for (const gx of [-1.2, 0, 1.2]) G.pl([[x0 + gx - 0.45, yb], [x0 + gx + 0.45, yb], [x0 + gx + 0.45, yb + 1.2], [x0 + gx - 0.45, yb + 1.2]], 'pt', 1);      /* the three entry glands */
+        G.pl([[x0 - rw * 0.8, yb + 1.2], [x0 + rw * 0.8, yb + 1.2], [x0 + rw * 0.8, yb + 2], [x0 - rw * 0.8, yb + 2]], 'pp', 1);      /* its base */
+        G.pl([[x0 - rw * 1.2, yb + 2], [x0 + rw * 1.2, yb + 2], [x0 + rw * 1.2, yb + 3.6], [x0 - rw * 1.2, yb + 3.6]], 'pp', 1); G.pl([[x0 - rw * 1.2, yb + 2.7], [x0 + rw * 1.2, yb + 2.7]], 'pt'); G.pl([[x0 - rw * 1.2, yb + 2.9], [x0 + rw * 1.2, yb + 2.9]], 'pt');      /* the collar, its clamp ring */
+        const bt = yb + 3.6, bh = 7.2; G.pl([[x0 - rw, bt], [x0 - rw, bt + bh]], 'pp'); G.pl([[x0 + rw, bt], [x0 + rw, bt + bh]], 'pp'); for (let y = bt + 0.6; y < bt + bh - 0.2; y += 0.55) G.pl([[x0 - rw, y], [x0 + rw, y]], 'pt');      /* the body and its ribs */
+        G.pl(dEll([x0, bt + bh], rw, rw * 0.75, 0, 180), 'pp'); G.pl([[x0 - rw, bt + bh], [x0 + rw, bt + bh]], 'pt');      /* the domed top */
+        N.push({ s: ['CLOSURE'], to: [x0 + rw, bt + bh * 0.6] }); }
       N.push({ s: ['SIMPLEX DUCT-PLUG 32mm', 'W/ GUIDE ROPE'], to: K.plug }, { s: ['SUB-DUCT 4 x 32mm'], to: K.sub }, { s: ['QUADPLEX PLUG'], to: K.collar }, { s: ['U-GUARD'], to: [px + pr, (ugB + ugT) / 2] });
       if (!pd) N.push({ s: ['G.I. PIPE ' + mm], to: [px + pr, yb + (giT - yb) * 0.55] }, { s: ['MECHANICAL BLANK DUCT', 'PLUG 114mm (SPARE)'], to: [cx + 13.6 + pr * 0.8, yg + bh - 1.2] }, { s: ['CONCRETE ENCASEMENT'], to: [cx + 9.5, yg + 1.2] });
       dNotes(G, 35, H - 4, 10, N, 2);
