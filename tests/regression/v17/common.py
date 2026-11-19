@@ -13,6 +13,19 @@ NO_DRAFT_JS = "try { localStorage.removeItem('polecam.draft'); } catch (e) {}"
 NO_SAMPLE_JS = "try { const k='polecam.settings'; const s=JSON.parse(localStorage.getItem(k)||'{}'); if (!s.sampleDone) { s.sampleDone=true; localStorage.setItem(k, JSON.stringify(s)); } } catch (e) {}"
 # v2.42.17: before Save, the app lists what is not set yet (owner, clamp…) with Save anyway; the older tests save without it (save_check=True for the v2.42.17 tests)
 NO_SAVECHECK_JS = "try { const k='polecam.settings'; const s=JSON.parse(localStorage.getItem(k)||'{}'); if (s.saveCheck !== false) { s.saveCheck=false; localStorage.setItem(k, JSON.stringify(s)); } } catch (e) {}"
+# Two questions and a screen that came after the older tests, answered as those tests expect (beta 6.7, final regression): opening the Drawing of a
+# project with cables and no splicing details (or a new tower site with no CEF plan) asks to make them (beta 4.6): Later (its quiet ✕);
+# Export in a project with poles on no cable asks first (beta 6.1): Export as they are (every pole in the files, as before 6.1). And
+# after the camera's photo the record opens with that photo full size on top (beta 6.7): closed (its ×), the record under it as
+# before. They ride on NO_SAVECHECK_JS, which every older test adds; launch() adds them by itself.
+NEWER_ASKS_JS = """document.addEventListener('DOMContentLoaded', () => { const box = document.getElementById('askBox'); if (!box) return;
+  new MutationObserver(() => { if (box.hidden) return; const t = (document.getElementById('askTitle') || {}).textContent || ''; let b = null;
+    if (/^(Splicing details|CEF plan|Two plans) to make$/.test(t)) b = box.querySelector('button.askx');
+    else if (/^\\d+ poles? on no cable$/.test(t)) b = [...box.querySelectorAll('button')].find((x) => /^Export (it|them) as (it is|they are), on no cable$/.test(x.getAttribute('aria-label') || ''));
+    if (b) b.click(); }).observe(box, { attributes: true, attributeFilter: ['hidden'] });
+  const pv = document.getElementById('photoView'), ed = document.getElementById('editor'); if (!pv || !ed) return;
+  new MutationObserver(() => { if (!pv.hidden && !ed.hidden) { const x = document.getElementById('pvClose'); if (x) x.click(); } }).observe(pv, { attributes: true, attributeFilter: ['hidden'] }); });"""
+NO_SAVECHECK_JS += '\n' + NEWER_ASKS_JS
 ADM_OPEN_JS = """document.addEventListener('DOMContentLoaded', () => { const f = () => document.querySelectorAll('#admin .group.shut').forEach(g => g.classList.remove('shut'));
   new MutationObserver(f).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['class'] }); f(); });"""  # v2.28: older tests see every admin section open
 async def launch(p, udir, video, geo=None, project=True, keep_draft=False, keep_sample=False, admin_folds=False, save_check=False):
@@ -27,6 +40,7 @@ async def launch(p, udir, video, geo=None, project=True, keep_draft=False, keep_
     if not keep_draft: await ctx.add_init_script(NO_DRAFT_JS)
     if not keep_sample: await ctx.add_init_script(NO_SAMPLE_JS)
     if not save_check: await ctx.add_init_script(NO_SAVECHECK_JS)
+    else: await ctx.add_init_script(NEWER_ASKS_JS)  # (beta 6.7: the newer questions and photo view answered all the same)
     if not admin_folds: await ctx.add_init_script(ADM_OPEN_JS)
     cur=dict(geo or BASE); state={'on':True}
     async def hb():
