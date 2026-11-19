@@ -378,17 +378,14 @@ function buildSheets(S, opt) {      /* (14 Nov) opt.details === false: no detail
     let tv = null; const G = new Gfx(), images = [], v = fitView((th, box) => (tv = buildTop(S, { th, box, dims: true, north: true, photos: true, labels: true })).prims, ax1 - ax0, top - vy0);
     sheetFrame(S, G, { view: 'TOP VIEW', sheet: 'TOP VIEW', scale: '1:' + v.N, n: ++n, N: total, images }); placeView(G, v, [ax0, vy0, ax1, top]);
     { const t = viewAt(v, [ax0, vy0, ax1, top]); for (const q of (tv && tv.pics) || []) images.push({ id: q.id, x: t.dx + q.x * v.s, y: t.dy + q.y * v.s, w: q.w * v.s, h: q.h * v.s, file: picFile(q.n) }); }      /* beta 4.1: the photos set on the top view */
-    /* (14 Nov) the lengths of each cable: its legs, what the app adds, its two totals. With more than one cable each has its heading. */
-    let rows = []; const CB = cables(S), PD = rg.parts.map((p, k) => k).filter(k => rg.parts[k].sum.total > 0.05), many = PD.length > 1, runT = t => LEG[t].n.toUpperCase().replace('UNDERGROUND', 'UG');
-    const one = (k, brief) => { const p = rg.parts[k], sm = p.sum, grp = {}, o = [], w = many ? ' ' + (k + 1) : '';
-      if (many) o.push(['', 'CABLE ' + (k + 1) + ': ' + [sm.ae > 0.05 ? 'AE ' + CB[k].ae.cable : '', sm.ugt > 0.05 ? 'UG ' + CB[k].ug.cable : ''].filter(Boolean).join(', ').toUpperCase(), '']);
-      if (!brief) { for (const l of p.legs) { const kk = l.f + l.i, q = grp[kk] || (grp[kk] = { f: l.f, i: l.i, len: 0, t: {} }); q.len += r1w(l.len); q.t[l.type] = 1; }      /* beta 6.6: each leg as the plan writes it, so the rows add up to the totals */
-        for (const kk in grp) { const q = grp[kk]; o.push([q.f.toUpperCase() + ' ' + (q.i + 1), Object.keys(q.t).map(runT).join(' / '), f1(q.len) + 'm']); }
-        if (sm.vert > 0.05) o.push(['UG', 'UP AND DOWN (RISER, EXIT, DROPS)', f1(sm.vert) + 'm']); if (sm.inside > 0.05) o.push(['UG', 'IN THE ' + roomsWord(S, 'ROOM') + ' (PORTHOLE TO ODF)', f1(sm.inside) + 'm']); if (sm.nloop) o.push(['AE', 'LOOPS (' + sm.nloop + ')', f1(sm.loop) + 'm']); }
-      if (!many || sm.ae > 0.05) o.push(['', 'TOTAL FOC AE' + w, f1(sm.ae) + 'm']); if (!many || sm.ugt > 0.05) o.push(['', 'TOTAL FOC UG' + w, f1(sm.ugt) + 'm']); return o; };
-    for (const k of PD) rows = rows.concat(one(k, false)); if (rows.length > 20 && many) { rows = []; for (const k of PD) rows = rows.concat(one(k, true)); }      /* too many lines for the sheet: the totals of each cable */
+    /* beta 6.7 (the owner: "the length of the UG fiber has so many on the table … but shows only 1 on the plan"; "the AE fiber is also
+       written"): one row for each UG cable, its whole length, the same figure the plan writes in the cable's name (PROPOSED … FOC UG:
+       28.4m); under the table how it is made up (the run and the riser, exit and drops), and that the AE fiber is counted in the As-Plan */
+    const CB = cables(S), PD = rg.parts.map((p, k) => k).filter(k => rg.parts[k].sum.ugt > 0.05), many = PD.length > 1;
+    const rows = PD.map((k, i) => [i + 1, ('PROPOSED ' + String(CB[k].ug.cable || '').trim() + ' FOC UG').replace(/\s+/g, ' '), f1(rg.parts[k].sum.ugt) + 'm']);
     let y = PAN.y1;
-    if (rows.length) y = drawTable(G, px, y, [{ t: 'LEG', w: 10, al: 'c' }, { t: 'FOC RUN', w: 63 }, { t: 'LENGTH', w: 15, al: 'c' }], rows.slice(0, 20), 'FOC AE AND FOC UG', TS);
+    if (rows.length) { y = drawTable(G, px, y, [{ t: 'NO.', w: 10, al: 'c' }, { t: 'CABLE', w: 63 }, { t: 'LENGTH', w: 15, al: 'c' }], rows.slice(0, 20), 'FOC UG', TS); y = para(G, px, y - 1.5, focFormula(S), 1.8, pw, 'tp', true); }
+    else if (rg.sum.ae > 0.05) y = para(G, px, y, [aeNote()], 1.8, pw, 'tp', true);
     if (rg.warn.length) para(G, px, y - 2, rg.warn.map(w => 'CHECK: UG LEG ' + (w.leg + 1) + ' CROSSES ' + w.names.join(', ').toUpperCase() + '.'), 1.8, pw, 'tp', true);
     push('TOP VIEW', G, v, images);
   }

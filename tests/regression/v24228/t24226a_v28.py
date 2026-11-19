@@ -168,11 +168,13 @@ async def main():
         for e in cl: per.setdefault(cellOf(pos(e)), []).append(e.dxf.text)
         check('B6. two cables whose labels read the same (PROPOSED AE: size, type and RUN off): each keeps its own label in each grid', {e.dxf.text for e in cl} == {'PROPOSED AE'} and per and all(len(v) == 2 for v in per.values()), {str(k): len(v) for k, v in per.items()})
         # Drawing style: the new rows, what the label reads (a UG cable: UG once), Defaults back to up to 3 and the full words
-        await pg.click('#drawBtn'); await W(pg, 2000); await pg.click('#drawSetBtn'); await W(pg, 500); await pg.click('#psStyle'); await W(pg, 800)
+        await pg.click('#drawBtn'); await W(pg, 2000); await pg.click('#drawSetBtn'); await W(pg, 800)  # (beta 6.7, UX step 4: Plan style)
         r1 = await pg.inner_text('#stCabReads'); per1 = await pg.evaluate("() => [...document.querySelectorAll('#stCabPer .chip')].map((b) => b.getAttribute('aria-pressed'))")
-        await pg.click('#stReset'); await W(pg, 600); r2 = await pg.inner_text('#stCabReads'); per2 = await pg.evaluate("() => [...document.querySelectorAll('#stCabPer .chip')].map((b) => b.getAttribute('aria-pressed'))")
+        await pg.click('#stReset'); await W(pg, 400); await pg.locator('#askBox button.primary').first.click(); await W(pg, 600)  # (beta 6.7, UX step 4: Reset… asks first)
+        await pg.evaluate("() => { __polecam.S.exp.dxfLabels = 'std'; __polecam.persist(); }")  # (Reset… also sets the company standard's Tidy labels; this test's plans stay on Standard, as written)
+        r2 = await pg.inner_text('#stCabReads'); per2 = await pg.evaluate("() => [...document.querySelectorAll('#stCabPer .chip')].map((b) => b.getAttribute('aria-pressed'))")
         sn = await pg.evaluate("() => ['stSiteName', 'stOdfPlace', 'stOdfLbl'].map((id) => [...document.querySelectorAll(`#${id} .chip`)].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.v)[0])")
-        check('B5. Drawing style: what the label reads as set (PROPOSED AE for the aerial cables, PROPOSED UG for a UG cable, with size, type and RUN off); Defaults: up to 3, PROPOSED 72C FIG-8 AE (RUN 1), PROPOSED 144C UG (RUN 3); Auto, Auto, ID + size',
+        check('B5. Plan style: what the label reads as set (PROPOSED AE for the aerial cables, PROPOSED UG for a UG cable, with size, type and RUN off); Defaults: up to 3, PROPOSED 72C FIG-8 AE (RUN 1), PROPOSED 144C UG (RUN 3); Auto, Auto, ID + size',
               r1 == 'Reads: PROPOSED AE · PROPOSED AE · PROPOSED UG' and per1 == ['true', 'false', 'false'] and 'PROPOSED 72C FIG-8 AE (RUN 1)' in r2 and 'PROPOSED 144C UG (RUN 3)' in r2 and 'UG UG' not in r2 and per2 == ['false', 'false', 'true'] and sn == ['auto', 'auto', 'size'], (r1, per1, r2, per2, sn))
         await close_sheets(pg)
         # ---- the plan built in a worker (no wrapper): the same labels; the app log says so

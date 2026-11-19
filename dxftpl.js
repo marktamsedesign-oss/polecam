@@ -1225,6 +1225,10 @@
     { re: /single|arm/i, b: 'proposed single arm', dir: [0, -1], reach: 5, layer: 'PROPOSED SINGLE ARM' },
   ];
   const armOf = (s) => (s ? ARMS.find((a) => a.re.test(String(s))) : null);
+  const PH_STEP_MM = { 12: 9, 18: 18, 24: 36, 30: 48 }, PH_MAX_MM = 48; // beta 6.7: Drawing style › Photos, printed on the A3 sheet (Small, Normal, Large, Extra large)
+  // beta 6.7: an existing Globe or Bayantel pole (the app's gtbt; an older job: its type GT or BT): a circle filled blue (GT_DISC, a block of one solid fill)
+  const gtFill = (p) => p.el === 'Pole' && !(p.status === 'Proposed' || p.status === 'New') && (p.gtbt != null ? !!p.gtbt : ['GT', 'BT'].includes(String(p.mat || '').toUpperCase()));
+  const GT_DISC = 'G-ESAA EXISTING GT POLE', GT_DISC_ICON = { w: 2, h: 2, f: [{ c: '#0000FF', l: [[...Array(48)].flatMap((_, i) => { const a = i * Math.PI / 24; return [1 + Math.cos(a), 1 + Math.sin(a)]; })] }] };
   // a guy: its code, the template block it is drawn from, its layer, how it stands (head: in line with the cable; side: against the pull)
   const GUYS = [
     { re: /pole.?to.?pole|p2p/i, code: 'P2P', b: 'proposed pole to pole guy', layer: 'PROPOSED P2P GUY', head: false, len: 22 },
@@ -1259,6 +1263,13 @@
     const pos = B.indexOf(b.end); B.splice(pos >= 0 ? pos + 1 : B.length, 0, ...out);
     d.index(); Object.assign(S, structure(d));
     return true;
+  }
+  /** beta 6.7: a template block in the existing colour: a copy of it with every entity blue (an existing arm, drawn as the new one) */
+  function blueBlock(d, S, src) {
+    const name = `${src} EXISTING`; if (S.blocks.has(name)) return name; if (!copyBlock(d, S, src, name, () => true)) return null;
+    for (const e of (S.blocks.get(name) || { ents: [] }).ents) { for (let i = e.length - 1; i > 0; i--) if (e[i][0] === 420) e.splice(i, 1);
+      const k = e.findIndex(([c], i) => i > 0 && c === 62); if (k > 0) e[k][1] = I(5); else { const l8 = e.findIndex(([c], i) => i > 0 && c === 8); e.splice(l8 > 0 ? l8 + 1 : e.length, 0, [62, I(5)]); } }
+    return name;
   }
   /** v2.41: a new block made of the given entities (polylines [[x, y]…, closed] and texts), drawn in BYBLOCK colour on layer 0 so the
       insert's layer and colour show (the ODC cabinet). */
@@ -1880,6 +1891,11 @@
     for (const p of pts) {
       if (p.el !== 'Pole') { p.A = p.dp; continue; }
       p.arm = armOf(p.armType); if (p.arm && !S.blocks.has(p.arm.b)) p.arm = null;
+      { /* beta 6.7 (the owner: "the blocks model must be the same on the new, only that it is colored blue (Existing)"): an extension arm
+           26" / 44.5" or a 10-pin alley arm already on the pole (its details, p.armText) is drawn with the template's model of that arm,
+           as a new one is, at its length (the cable meets its end), blue; beside a new arm when the pole has one too */
+        const exA = p.telcoArm && p.armText && !/TELCO/i.test(p.armText) ? armOf(p.armText) : null;
+        if (exA && S.blocks.has(exA.b)) { if (p.arm) p.arm2 = { ...exA, ex: true }; else p.arm = { ...exA, ex: true }; } }
       if (!p.td) { const t = tangent(p), L = [-t[1], t[0]], q = (nb.get(p) || []).find((x) => x.td); let s = 1; if (q) { const tq = tangent(q); s = Math.sign(q.td[0] * -tq[1] + q.td[1] * tq[0]) || 1; } p.td = [L[0] * s, L[1] * s]; p.free = true; }
       // v2.39: beside a road the cable runs along its line inside the road, an arm reaching it; a pole away from the roads keeps the
       // cable close by (past its arm when it has one)
@@ -2180,7 +2196,7 @@
       if (job.cabLabels && s.cabLbl && s.cabLbl.length) exLbl.push({ P0, Q0, lines: s.cabLbl, bw: ((nLane.get(K2(s.ia, s.ib)) || 1) - 1) * LANE_G });
     }
     // 4. poles and the other points: symbols first (they are fixed), then the labels round them
-    let nOlt = 0, nInline = 0, nTelco = 0, taDef = false; const taBlk = telcoArmTop(false), siteLate = [], odfLate = []; // (v2.42.11: towers drawn after the labels, see below)
+    let nOlt = 0, nInline = 0, nTelco = 0, nExArm = 0, taDef = false; const cloLbl = []; /* (beta 6.7: the proposed closures, labelled at the end) */ const taBlk = telcoArmTop(false), siteLate = [], odfLate = []; // (v2.42.11: towers drawn after the labels, see below)
     for (const p of pts) {
       if (p.onPole) continue;
       const isNew = p.status === 'Proposed' || p.status === 'New';
@@ -2189,10 +2205,21 @@
         if (p.arm) { // the arm, from the pole to the cable
           const reach = p.armLen || p.arm.reach, bb = blockBox(S, p.arm.b, 0), along = p.arm.dir[0] ? bb[2] - bb[0] : bb[3] - bb[1], sc = reach / (along || 1), top = topVertex(S, p.arm.b);
           const end = p.arm.dir[0] ? [bb[0], (bb[1] + bb[3]) / 2] : [top ? top[0] : (bb[0] + bb[2]) / 2, bb[3]], rot = deg(p.td) - deg(p.arm.dir), at = add2(p.dp, p.td, p.rp), e = rotv([end[0] * sc, end[1] * sc], rot);
-          o.insert(lay(p.arm.layer), p.arm.b, at[0] - e[0], at[1] - e[1], { scale: sc, rot });
+          const exB = (A) => { const nm = blueBlock(d, S, A.b), ly = A.layer.replace(/^PROPOSED/, 'EXISTING'); if (!S.layers.has(ly)) addLayer(d, S, ly, 5); return [ly, nm]; }; // (beta 6.7)
+          const [aL, aB] = p.arm.ex ? exB(p.arm) : [lay(p.arm.layer), p.arm.b];
+          o.insert(aL, aB || p.arm.b, at[0] - e[0], at[1] - e[1], { scale: sc, rot });
           const m = add2(p.dp, p.td, p.rp + reach / 2); spots.add(Spots.box(m[0], m[1], reach, 4, deg(p.td)));
+          if (p.arm2 && S.blocks.has(p.arm2.b)) { // beta 6.7: an existing arm beside the new one, the same way, blue
+            const b2 = blockBox(S, p.arm2.b, 0), al2 = p.arm2.dir[0] ? b2[2] - b2[0] : b2[3] - b2[1], sc2 = reach / (al2 || 1), top2 = topVertex(S, p.arm2.b), end2 = p.arm2.dir[0] ? [b2[0], (b2[1] + b2[3]) / 2] : [top2 ? top2[0] : (b2[0] + b2[2]) / 2, b2[3]];
+            const rot2 = deg(p.td) - deg(p.arm2.dir), at2 = add2(at, rotv(p.td, 90), 1.2), e2 = rotv([end2[0] * sc2, end2[1] * sc2], rot2), [l2, n2] = exB(p.arm2);
+            o.insert(l2, n2 || p.arm2.b, at2[0] - e2[0], at2[1] - e2[1], { scale: sc2, rot: rot2 }); }
+          if (p.arm.ex || p.arm2) { // (beta 6.7: its name along it, as before, blue)
+            const txt = p.armText, h = 0.8 * Math.min(1, p.k || 1), side = rotv(p.td, 90), rr = readable(deg(p.td)), from = add2(p.dp, p.td, -p.rp), span = p.rp * 2 + reach, cands = [];
+            for (const sd of [1, -1]) for (const g of [0, 0.6, 1.4, 2.4]) for (const a of [0, -0.6, 0.6]) { const q = add2(add2(from, p.td, span / 2 + a), side, sd * (p.rp * 1.05 + (p.arm2 ? 1.2 : 0.6) + h / 2 + 0.25 + g)); cands.push({ q, rr, cost: g * 0.6 + Math.abs(a) * 0.3, boxes: [textBox(q[0], q[1], h, txt, rr, 1, 2)] }); }
+            const c = pickC(spots, cands, ROADLINE_W), ly = (p.arm2 || p.arm).layer.replace(/^PROPOSED/, 'EXISTING');
+            o.text(S.layers.has(ly) ? ly : lay(p.arm.layer), c.q[0], c.q[1], h, txt, { rot: c.rr, ha: 1, va: 2, style: 'arial', color: 5 }); spots.add(c.boxes, 'telco'); nExArm++; }
         }
-        if (p.telcoArm) { // v2.42.1: the telco arm (from above): from the pole's face to the cable, the clamp where the cable passes; TELCO ARM beside it (v2.42.2: design H1, along the pole and the arm)
+        if (p.telcoArm && !(p.arm && p.arm.ex) && !p.arm2) { // (beta 6.7: an existing extension / alley arm: its model, above) v2.42.1: the telco arm (from above): from the pole's face to the cable, the clamp where the cable passes; TELCO ARM beside it (v2.42.2: design H1, along the pole and the arm)
           if (!taDef) { addLayer(d, S, 'G-ESAA TELCO ARM', 7); const bs = addBoldStyle(d, S, 'G-ESAA BOLD'); [false, true].forEach((f) => { const B = telcoArmTop(f, bs); defineBlock(d, S, TA_BLOCK + (f ? ' R' : ''), B.polys, B.texts, B.solids); }); taDef = true; }
           const side = rotv(p.td, 90), off = p.arm ? 1.2 : 0, face = add2(add2(p.dp, p.td, p.rp), side, off); // beside a new arm when the pole has one too
           const hhN = inl.has(p) ? inl.get(p).hh : 0, L = Math.max(1.5, dist2(face, add2(p.A, side, off)) - hhN), sc = L / taBlk.clampX, rot = deg(p.td);
@@ -2447,10 +2474,12 @@
           cands.push({ q, lx, ty: tq[1], boxes: [textBox(lx - 1.5, tq[1] + IDS.h * 0.6, IDS.h, 'PROPOSED  ', 0, 0, 2), textBox(lx - 1.5, tq[1] - IDS.h * 0.85, IDS.h, cid + '  ', 0, 0, 2), Spots.box(q[0], q[1], 2 * Rq, 2 * Rq * 0.45, rd)] }); } // (a little room round the texts)
         if (TIDY) { // beta 4.8: Tidy: 0.7 W at most, its texts a level label beside it (end of step 8)
           const fC = fitW(1.9 * 4.35, base) / kAt(base[0], base[1]), c2 = pick(spots, cands.map((x) => ({ ...x, boxes: [Spots.box(x.q[0], x.q[1], 9 * fC, 4 * fC, rd)] }))), sb = spots.add(c2.boxes[0]), v0 = p.closureOld ? 'EXISTING' : 'PROPOSED';
+          if (!p.closureOld) { o.insert(lay('P-JOINT'), 'P-Joint', c2.q[0], c2.q[1], { scale: 4.35 * fC, rot: rd, attrs: { JT_ID: '', JOINT: '' } }); cloLbl.push({ at: c2.q, R: 4.35 * fC * 0.9, cid, p }); continue; } // (beta 6.7: its red label and arrow after everything else)
           tidySym.push({ kind: 'clo', at: c2.q, r: 4.35 * fC, box: sb, ov: p.td, lines: [v0, cid], layer: lay('P-JOINT'), style: 'arial', color: null, pole: p,
             write: (P) => o.insert(lay('P-JOINT'), 'P-Joint', c2.q[0], c2.q[1], { scale: 4.35 * fC, rot: rd, attrs: { JT_ID: { v: v0, x: P[0].x, y: P[0].y, h: P[0].h, ha: P[0].ha, va: 3 }, JOINT: { v: cid, x: P[1].x, y: P[1].y, h: P[1].h, ha: P[1].ha, va: 3 } } }) });
           continue;
         }
+        if (!p.closureOld) { const c = pick(spots, cands.map((x) => ({ ...x, boxes: x.boxes.slice(2) }))); o.insert(lay('P-JOINT'), 'P-Joint', c.q[0], c.q[1], { scale: Rq, rot: rd, attrs: { JT_ID: '', JOINT: '' } }); spots.add(c.boxes); cloLbl.push({ at: c.q, R: Rq * 0.9, cid, p }); continue; } // (beta 6.7: its red label and arrow after everything else)
         const c = pick(spots, cands);
         const jt = { JT_ID: { v: p.closureOld ? 'EXISTING' : 'PROPOSED', x: c.lx, y: c.ty + IDS.h * 0.6, h: IDS.h, ha: 0, va: 2 }, JOINT: { v: cid, x: c.lx, y: c.ty - IDS.h * 0.85, h: IDS.h, ha: 0, va: 2 } }; // v2.41: an existing hybrid closure says so
         o.insert(lay('P-JOINT'), 'P-Joint', c.q[0], c.q[1], { scale: Rq, rot: rd, attrs: jt }); spots.add(c.boxes);
@@ -2459,6 +2488,7 @@
     let nCloInl = 0;
     for (const it of inl.values()) { // v2.42.24: each closure on the cable: its pentagon at its pole (v2.42.25: its texts after the loops and guys, so they cover none); PROPOSED and its ID (an existing one: its ID) where they cover nothing, smaller as needed
       if (it.kind !== 'clo') continue;
+      if (!it.old) { o.insert(it.layer, 'P-Joint', it.at[0], it.at[1], { scale: it.sc, attrs: { JT_ID: '', JOINT: '' } }); cloLbl.push({ at: it.at, R: it.hh, cid: it.cid, p: it.p }); nInline++; nCloInl++; continue; } // (beta 6.7: a proposed one: its red label and arrow after everything else)
       if (TIDY) { // beta 4.8: Tidy: PROPOSED and its ID a level label beside it, placed with the pole labels (end of step 8), and the pentagon then
         const at = it.at, R = it.hh;
         tidySym.push({ kind: 'clo', at, r: R, box: it.sbox, ov: it.p.td || [0, 1], lines: it.old ? [it.cid] : ['PROPOSED', it.cid], layer: it.layer, style: 'arial', color: it.old ? 5 : null, pole: it.p, write: (P) => {
@@ -2564,7 +2594,11 @@
       // of the template are dynamic blocks, and AutoCAD would put some of their attributes back where the block wants them)
       const attrs = {}; lines.forEach(([t, v]) => { if (t) attrs[t] = { v, x: p.dp[0], y: p.dp[1], rot: c.rr, h: H, ha: 0, va: 0, hidden: true }; });
       if (attrs.POLE_CLAMP) attrs.POLE_CLAMP.v = clT; if (attrs.B) attrs.B.v = size; // (v2.42.21: the block keeps the values wherever they are shown)
-      if (p.sym.b) o.insert(lay(p.sym.layer), p.sym.b, p.dp[0], p.dp[1], { scale: p.sym.sc * p.k, center: true, attrs }); else o.circle(lay(p.sym.layer), p.dp[0], p.dp[1], p.rp);
+      /* beta 6.7 (the owner: "For existing Globe pole or bayantel pole, can you let the drawing block to plan a circle + fill blue? so that we
+         can easily distinguish it with other telco poles"): an existing Globe (GT) or Bayantel (BT) pole: a circle filled blue, the size of
+         the telecom pole's model, its values kept in its (hidden) attributes; other telco poles keep the template's model */
+      if (gtFill(p) && fillBlocks(d, S, [{ name: GT_DISC, icon: GT_DISC_ICON }]) >= 0 && S.blocks.has(GT_DISC)) o.insert(lay(p.sym.layer), GT_DISC, p.dp[0], p.dp[1], { scale: 2 * p.rp, attrs });
+      else if (p.sym.b) o.insert(lay(p.sym.layer), p.sym.b, p.dp[0], p.dp[1], { scale: p.sym.sc * p.k, center: true, attrs }); else o.circle(lay(p.sym.layer), p.dp[0], p.dp[1], p.rp);
       const look = p.sym.b ? attrLook(S, p.sym.b) : new Map();
       if (!tidy) c.place.forEach(([t, v, q, hq]) => { const lk = look.get(t) || {}, isCl = clIn && v && (t === 'POLE_CLAMP' || t === 'B' || (t === '' && v === stackSz && v !== p.ownerName)), own = isOwn([t, v]), prop = p.sym.r === POLE_SYM.prop.r, sc = prop ? 0 : own ? +PST.ownColor || +PST.idColor || 0 : isCl ? 0 : +PST.idColor || 0; // (beta 4.3: the ID lines and the owner's name in the style's colour; none set, or a proposed pole: the template's)
         o.text(lk.layer && lk.layer !== '0' ? lay(lk.layer) : lay(p.sym.layer), q[0], q[1], hq, v, { rot: c.rr, ha: c.ha, va: 2, style: 'arial', color: isCl && CS.color ? +CS.color : sc ? sc : lk.color != null ? +lk.color : null }); }); // (v2.42.21: the clamp types in the style's colour)
@@ -2614,7 +2648,11 @@
         let c = null; for (const x of cands) { const n = x.boxes.reduce((t2, b) => t2 + spots.hitsW(b, x.lead ? W_CLO : W_ON), 0) + x.tb.reduce((t2, b) => t2 + spots.hitsW(b, W_CLO), 0) + x.room.reduce((t2, b) => t2 + spots.hitsW(b, W_ON), 0); /* (its loop's room: over a road's edge line or the cable is fine) */ if (n < 0.5) { c = { ...x, n: 0 }; break; } if (!c || n < c.n) c = { ...x, n }; } // (the first that covers nothing: a road's edge line or a cable under it counts little)
         if (c && (!best || c.n < best.n)) best = c; if (best && !best.n) break;
       }
-      if (best) {
+      if (best && !p.closureOld) { // beta 6.7: a proposed one: its pentagon (and its line to the pole) here, its red label and arrow after everything else
+        const at = best.c; o.insert(lay('P-JOINT'), 'P-Joint', at[0], at[1], { scale: Rc, attrs: { JT_ID: '', JOINT: '' } }); spots.add(sym(at)); cloLbl.push({ at, R: Rc * 0.9, cid, p });
+        if (best.lead) { o.lwpoly(lay('P-JOINT'), best.lead, { color: 8 }); spots.line(best.lead, 0.5); } nCloOff++;
+        { const u = unit(p.A, at), a = pastPole(p, u), e = add2(at, u, -(Rc + 0.4)); if (dist2(p.A, e) > dist2(p.A, a)) p.cloAt = [a, e]; }
+      } else if (best) {
         const at = best.c;
         if (TIDY) { const sb = spots.add(sym(at)); tidySym.push({ kind: 'clo', at, r: Rc, box: sb, ov: unit(p.A, at), lines, layer: lay('P-JOINT'), style: 'arial', color: p.closureOld ? 5 : null, pole: p, write: (P) => { // (Tidy: its texts a level label beside it)
           if (p.closureOld) { const P5 = [...Array(5)].map((_, i) => { const a5 = (90 + i * 72) * Math.PI / 180; return [at[0] + Rc * Math.cos(a5), at[1] + Rc * Math.sin(a5)]; }); o.lwpoly(lay('P-JOINT'), P5, { closed: true, color: 5, lwt: 35 }); o.text(lay('P-JOINT'), P[0].x, P[0].y, P[0].h, cid, { ha: P[0].ha, va: 3, style: 'arial', color: 5 }); }
@@ -2643,8 +2681,13 @@
        the size Drawing style › Photos sets, as printed on the A3 sheet at any grid: Small 5 mm, Normal 6.5 mm (about Tidy's size before),
        Large 9 mm, Extra large 13 mm on its long side; your own size in metres at 1:1100 (job.photoStyle.tidyMm from the app, else from
        size). Where it has no free place near its pole at that size: a quarter smaller (listed), else on its own near the pole. */
-    const PHMM = (() => { const P0 = job.photoStyle || {}; if (+P0.tidyMm > 0) return Math.min(36, Math.max(4, +P0.tidyMm)); const z = +P0.size > 0 ? +P0.size : 18; return { 12: 5, 18: 6.5, 24: 9, 30: 13 }[z] || Math.min(36, Math.max(4, z / 1.1)); })(), PH_SM = 0.75;
-    const NEAR_PH = (+(job.photoStyle || {}).nearMm > 0 ? Math.min(40, Math.max(8, +job.photoStyle.nearMm)) : 16) / ((printK || 0.62) * NU); // (beta 6.0: Drawing style › Photos › near its pole, 8 to 40 mm) // beta 6.0: a pole's photo is near it within 16 mm on the A3 sheet (its centre): 26 m of the drawing at the template's grid, 13 m at 1/2, 8.7 m at 1/3
+    /* beta 6.7 (the owner: "the photo small, medium and large is not spaced enough. Also the photo does not have the same size on the plan, we
+       want a same size fit all.. if i choose large then large for all ... i tried 300 i think that should be your large"): every photo of a
+       plan at exactly the size Drawing style › Photos sets, printed on the A3 sheet: Small 9 mm, Normal 18 mm, Large 36 mm (what an own size
+       of 300 gave in beta 6.6), Extra large 48 mm on its long side; your own size in metres at 1:1100 (to 48 mm). Never smaller: where it has
+       no room near its pole it goes where there is room, with a thin line to its pole; the pole details and number keep their place. */
+    const PHMM = (() => { const P0 = job.photoStyle || {}; if (+P0.tidyMm > 0) return Math.min(PH_MAX_MM, Math.max(4, +P0.tidyMm)); const z = +P0.size > 0 ? +P0.size : 18; return PH_STEP_MM[z] || Math.min(PH_MAX_MM, Math.max(4, z / 1.1)); })();
+    const NEAR_PH = Math.max(+(job.photoStyle || {}).nearMm > 0 ? Math.min(40, Math.max(8, +job.photoStyle.nearMm)) : 16, PHMM * 0.8 + 6) / ((printK || 0.62) * NU); // (beta 6.7: at least as far as a photo of its size beside the pole details reaches) // (beta 6.0: Drawing style › Photos › near its pole, 8 to 40 mm) // beta 6.0: a pole's photo is near it within 16 mm on the A3 sheet (its centre): 26 m of the drawing at the template's grid, 13 m at 1/2, 8.7 m at 1/3
     const TX = {}, tidyOwn = new Set(), tidyGrp = new Map(), T7 = { labels: 0, leaders: 0, closer: 0, notFree: 0 }; // (beta 6.0: tidyGrp: the records of one Tidy label, its texts, number and photo, which may touch each other)
     const MOVABLE = new Set(['PROPOSED LOOP', 'Proposed NAP ID', 'MISC', 'Distance Data'].filter((n) => S.layers.has(n))); // (loops, IDs, span lengths, cable names; not a street name, a number (it has its circle) or a cable's label (its arrow); only the template's own layers: none of layer 0, where a template without them puts everything)
     /** every text written so far (IDs, closures' attributes, span lengths, cable labels, loops, street names, landmarks, the grid's
@@ -2741,7 +2784,7 @@
              whatever its photo needs; at that place its photo tries beside the block, then by the pole (0 to 5), then a quarter smaller (phS), then
              beside the block though further (6, listed), else on its own near the pole (7: placed with the photos, see placePhotos); the photo's
              steps cost far less than one step of the block's place, so the photo never moves the block nor gives it a line */
-          const phVar = (q, c0) => { cands.push({ cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0, ph: 0 }); if (PH) { [1, 2, 3, 4, 5].forEach((i) => cands.push({ cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0 + 0.01 * i, ph: i })); [0, 1, 2, 3, 4, 5].forEach((i) => cands.push({ cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0 + 0.1 + 0.01 * i, ph: i, phS: PH_SM })); cands.push({ cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0 + 0.2, ph: 6 }, { cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0 + 0.3, ph: 7 }); } };
+          const phVar = (q, c0) => { cands.push({ cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0, ph: 0 }); if (PH) { [1, 2, 3, 4, 5].forEach((i) => cands.push({ cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0 + 0.01 * i, ph: i })); /* (beta 6.7: never a smaller photo: phS dropped) */ cands.push({ cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0 + 0.2, ph: 6 }, { cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0 + 0.3, ph: 7 }); } };
           const u = T.u, up = [-u[1], u[0]], vA = T.vA, gR = 0.6 / kk, sq = 1.1 * p.rp, eu = sq * (Math.abs(u[0]) + Math.abs(u[1])), ev = sq * (Math.abs(vA[0]) + Math.abs(vA[1])), x0s = Wt / 2 + eu + 0.5 / kk, at = (xc, yc) => [x + u[0] * xc + vA[0] * yc, y + u[1] * xc + vA[1] * yc];
           for (let r = 0; r < 6; r++) {
             const yc = -T.e + gR + Ht / 2 + r * (Ht + 1.2 / kk), clear = yc - Ht / 2 >= ev + 0.4 / kk, /* (eu, ev: its pole's symbol square across u and vA) */ xs = clear ? [[0, 0], [Wt / 4, 1], [-Wt / 4, 1.2], [Wt / 2, 2], [-Wt / 2, 2.2]] : [];
@@ -2772,7 +2815,7 @@
             const byPole = (k) => { const vA = T.vA, uA = T.u, sq = 1.1 * p.rp, eA = (Math.abs(vA[0]) * P2.w + Math.abs(vA[1]) * P2.h) / 2, eB = (Math.abs(uA[0]) * P2.w + Math.abs(uA[1]) * P2.h) / 2, j = k % 3, far = k >= 3 ? Math.min(P2.w, P2.h) * 0.6 : 0;
               const along = j === 0 ? 0 : (j === 1 ? 1 : -1) * (eB + sq * 0.5 + g), q = add2(add2(p.dp, vA, sq + g + eA + far), uA, along); return Spots.box(q[0], q[1], P2.w, P2.h, 0); }; // (by the pole, on the side away from the road: straight out or to either side; k 3 to 5 a little further)
             const ph = c.ph || 0;
-            if (ph === 7) c.phOwn = true; /* (beta 6.4: on its own, near the pole: placed with the photos) */ else if (ph === 6) { c.pb = byBlock(0); c.phFar = dist2([c.pb.cx, c.pb.cy], p.dp) > NEAR_PH; } // (no free place near the pole: beside its block, listed when far)
+            if (ph === 7) c.phOwn = true; /* (beta 6.4: on its own, near the pole: placed with the photos) */ else if (ph === 6) { c.pb = byBlock(0); c.phFar = dist2([c.pb.cx, c.pb.cy], p.dp) > NEAR_PH; if (c.phFar) c.lost = true; } /* (beta 6.7: far from the pole beside its block: no; on its own with its line (7) instead) */ // (no free place near the pole: beside its block, listed when far)
             else if (!c.lead && ph < 3) { c.pb = byBlock(ph); if (dist2([c.pb.cx, c.pb.cy], p.dp) > NEAR_PH) c.lost = true; } // (beside a block by its pole, when that is near the pole)
             else { c.pb = byPole(c.lead ? ph : ph - 3); c.phPole = true; } // (a block further out with its line, or a long block: the photo by the pole)
             if (c.pb && ((c.lbox && Spots.hit(c.pb, c.lbox)) || (c.ebox && Spots.hit(c.pb, c.ebox)) || Spots.hit(c.pb, c.tb))) c.lost = true; // (not over its block's line, nor its block)
@@ -3183,12 +3226,12 @@
     const RING = []; for (let a = 0; a < 360; a += 30) RING.push([Math.cos(a * Math.PI / 180), Math.sin(a * Math.PI / 180)]); RING.push([0, 0]);
     // Drawing style › Photos (job.photoStyle.size): the long side of every photo in metres where the poles stand 25 m apart or more
     // (none set: 18 m, as before); where they stand closer, smaller as before (to two thirds), and smaller again where too many find no room
-    const PHK = +(job.photoStyle || {}).size > 0 ? Math.min(40, Math.max(6, +job.photoStyle.size)) / 18 : 1;
+    const PH_STEPS = [0.85, 0.7, 0.58, 0.48, 0.4, 0.33, 0.27, 0.22, 0.18, 0.15, 0.12, 0.1]; // beta 6.7: a photo with no room at its size anywhere near its pole: these steps smaller, the first that fits
     const MARK_USUAL = 3.5; // v2.41.1: how far (in cost) from its usual place a photo or number may go in the first round
     const MARK_PHI = 70, NUM_PHI = 80; // v2.41.1: a pole's photo 70° round from straight out toward the homing (beside its label), a number 80° (its leader line under the label)
     let nNoRoom = 0; // v2.42.26: photos with no room anywhere, shown as their number
     const placePhotos = (Lp) => {
-      const mark = spots.list.length, out = [], left = []; let miss = 0, drop = 0; nNoRoom = 0; // (beta 4.1: drop = photos left out in photo + number; beta 4.8: left, Tidy's photos with no free place)
+      const mark = spots.list.length, out = [], left = [], shrunk = []; let miss = 0, drop = 0; nNoRoom = 0; /* (beta 6.7: shrunk, the photos drawn smaller) */ // (beta 4.1: drop = photos left out in photo + number; beta 4.8: left, Tidy's photos with no free place)
       const setup = (p, noPh) => {
         const ph = noPh ? null : photos[p.id] || photos[String(p.id)], nd = ph ? 0 : numD(p) * numF(p);
         const LpK = TIDY ? Lp / kAt(p.dp[0], p.dp[1]) : Lp, w = ph ? (ph.px >= ph.py ? LpK : LpK * ph.px / ph.py) : nd, h = ph ? (ph.px >= ph.py ? LpK * ph.py / ph.px : LpK) : nd; // (beta 4.8: Tidy: on a finer grid, as much smaller)
@@ -3249,15 +3292,15 @@
         out.push({ p, ph, w: cn.w || w, h: cn.h || h, q: cn.q, u: cn.u, how, lead: ph ? cn.lead || null : null });
       };
       // v2.42.26: a photo never goes over another photo or a text: where no place beside its pole is free, further out (all round, away
-      //           from the road first) with a thin line to its pole that crosses no photo or text, smaller if need be (to 65 %)
+      //           from the road first) with a thin line to its pole that crosses no photo or text (beta 6.7: never smaller)
       const PH_FAR = (t) => (t === 'road' || t === 'cable' ? 0.05 : 1), LD_FAR = (t) => (t === 'photo' ? 1 : 0), LD_TXT = (t) => (t === 'road' || t === 'cable' || t === 'photo' ? 0 : 1); // (its line never across a photo; across a label only where nothing else is free)
       // beta 3.4: (relax) where no place past its label is free in its own sheet: anywhere in its own sheet, a little further and smaller
       //           (to 50 %) — still never over a photo or a text, and never cut by the grid line; (relax 2) a pole close to its sheet's
       //           edge with no room left in its sheet: wholly inside the next sheet, with its line to its pole
       const farPlace = (S0, relax) => {
         const { p } = S0, base = p.on || p.ov || [0, 1]; let best = null;
-        for (const k of relax ? [1, 0.8, 0.65, 0.5] : [1, 0.8, 0.65]) { const w = S0.w * k, h = S0.h * k;
-          for (const dd of relax ? [3, 6, 10, 15, 21, 28, 36, 45, 55] : [3, 6, 10, 15, 21, 28, 36]) for (let a = 0; a <= 180; a += 20) for (const sg of a && a < 180 ? [1, -1] : [1]) {
+        for (const k of [1]) { const w = S0.w * k, h = S0.h * k; // (beta 6.7: at its size only, further out instead)
+          for (const dd of relax ? [3, 6, 10, 15, 21, 28, 36, 45, 55, 68, 82] : [3, 6, 10, 15, 21, 28, 36, 46, 58]) for (let a = 0; a <= 180; a += 20) for (const sg of a && a < 180 ? [1, -1] : [1]) {
             const u = rotv(base, sg * a), t = Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9), q = add2(p.dp, u, rOf(p) + dd + t);
             if ([[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].some(([sx, sy]) => R.idx.inside([q[0] + sx * w / 2, q[1] + sy * h / 2], -1, -2))) continue; // off the roads
             if (!(relax === 2 ? cellHoldsQ(q, w / 2, h / 2, q[0], q[1]) : cellHoldsQ(q, w / 2, h / 2, p.E, p.N))) continue; // beta 3.4: inside its own sheet (relax 2: inside one sheet)
@@ -3265,20 +3308,28 @@
             const box = Spots.box(q[0], q[1], w + 1.0, h + 1.0, 0), hb = spots.hitsW(box, PH_FAR); if (hb >= 0.5) continue; // (a photo, a text or a symbol: never)
             const la = add2(p.dp, u, rOf(p) + 0.3), lb = add2(q, u, -t), L = dist2(la, lb), lead = L > 1.2 ? Spots.box((la[0] + lb[0]) / 2, (la[1] + lb[1]) / 2, L, 0.3, deg(u)) : null;
             if (lead && spots.hitsW(lead, LD_FAR) > 0) continue;
+            if (TIDY && lead && relax !== 2 && spots.hitsW(lead, LD_TXT) > 0) continue; // (beta 6.7: Tidy: its line across no text, symbol or other line, but in the last round)
             const cost = dd + a / 20 * 1.5 + (1 - k) * 40 + hb * 5 + (lead ? spots.hitsW(lead, LD_TXT) * 12 : 0);
             if (!best || cost < best.cost) best = { q, u, gap: dd, boxes: [box], w, h, lead: lead ? [la, lb] : null, cost };
           }
           if (best) break; }
         return best;
       };
+      /* beta 6.7: the last resort for a photo already at the smallest step: round its pole (3 to 60 m out), inside its own sheet, off the
+         roads where it can be, the place covering least (a photo or a text counts most), with its line */
+      const anyPlace = (S0) => { const { p, w, h } = S0; let best = null;
+        for (const dd of [3, 6, 10, 15, 21, 28, 36, 46, 60]) for (let a = 0; a < 360; a += 20) { const u = rotv([1, 0], a), t = Math.min(Math.abs(u[0]) > 1e-9 ? (w / 2) / Math.abs(u[0]) : 1e9, Math.abs(u[1]) > 1e-9 ? (h / 2) / Math.abs(u[1]) : 1e9), q = add2(p.dp, u, rOf(p) + dd + t);
+          if (!cellHoldsQ(q, w / 2, h / 2, p.E, p.N)) continue; const box = Spots.box(q[0], q[1], w + 1.0, h + 1.0, 0), la = add2(p.dp, u, rOf(p) + 0.3), lb = add2(q, u, -t), L = dist2(la, lb), lead = L > 1.2 ? Spots.box((la[0] + lb[0]) / 2, (la[1] + lb[1]) / 2, L, 0.3, deg(u)) : null;
+          const cost = spots.hits(box) * 10 + (R.idx.inside(q, -1, 0) ? 3 : 0) + (lead ? spots.hitsW(lead, LD_TXT) * 2 : 0) + dd * 0.05; if (!best || cost < best.cost) best = { q, u, gap: dd, boxes: [box], w, h, lead: lead ? [la, lb] : null, cost }; }
+        return best; };
       /* beta 4.8: Tidy: a photo near its pole, on the pole's side of the street (in the block, 2 m off the roads), covering nothing; its
          thin line to the pole short, crossing no other line, text, symbol or cable, nor a road edge line while any other place is free;
-         smaller (to 65 %) before its line crosses a road edge line. None free: left out (its number is on the plan) and listed. */
+         its line may then cross a road edge line (beta 6.7: never smaller; then further, see farPlace). None free: left out (its number is on the plan) and listed. */
       const tidyPh = (S0) => {
         const { p } = S0, on = p.on || p.ov || [0, 1], fw = p.fw || [on[1], -on[0]], rp = rOf(p), LDR = (t) => (t === 'road' ? 0 : 1);
-        for (const [k, LW] of [[1, null], [0.8, null], [0.65, null], [1, LDR], [0.8, LDR], [0.65, LDR]]) {
+        for (const [k, LW] of [[1, null], [1, LDR]]) { // (beta 6.7: at its size only, further out with its line instead of smaller)
           const w = S0.w * k, h = S0.h * k, eo = (w * Math.abs(on[0]) + h * Math.abs(on[1])) / 2, es = (w * Math.abs(fw[0]) + h * Math.abs(fw[1])) / 2, cs = [];
-          for (const a of [0, eo + rp + 0.5, eo + rp + 2, eo + rp + 4, eo + rp + 6.5, eo + rp + 9.5, eo + rp + 13, eo + rp + 17, eo + rp + 22]) for (const b of [0, 1, -1, 2, -2, 3, -3]) {
+          for (const a of [0, eo + rp + 0.5, eo + rp + 2, eo + rp + 4, eo + rp + 6.5, eo + rp + 9.5, eo + rp + 13, eo + rp + 17, eo + rp + 22, eo + rp + 29, eo + rp + 37, eo + rp + 47, eo + rp + 59]) for (const b of [0, 1, -1, 2, -2, 3, -3, 4, -4]) {
             const f = b ? Math.sign(b) * ((Math.abs(b) - 1) * (2 * es + 1.5) + es + rp + 0.5) : 0; if (!a && !b) continue;
             const q = add2(add2(p.dp, on, a), fw, f), ex = Math.min(Math.max(p.dp[0], q[0] - w / 2), q[0] + w / 2), ey = Math.min(Math.max(p.dp[1], q[1] - h / 2), q[1] + h / 2);
             cs.push({ q, e: [ex, ey], cost: Math.hypot(ex - p.dp[0], ey - p.dp[1]) + Math.abs(f) * 0.15 });
@@ -3312,11 +3363,19 @@
         if (p.on) { const r = search(S0, MARK_USUAL); if (r.free) { commit(S0, r.free, 'usual'); continue; } }
         later.push(S0);
       }
-      for (const S0 of later) {
+      for (let S0 of later) { // (beta 6.7: S0 may become the photo drawn smaller, below)
         const { p, w, h } = S0; let r = TIDY && S0.ph ? { free: null, rest: [] } : search(S0, Infinity), how = 'other'; if (!r.free && !S0.ph && NS.leader) { r = search(S0, Infinity, LEAD_W2); how = 'leader over a road line'; } let cn = r.free; // (last: its leader across a road line)
-        if (!cn && S0.ph && !TIDY) { const f = farPlace(S0) || farPlace(S0, 1) || farPlace(S0, 2); if (f) { cn = f; how = 'further, with a line'; } } // v2.42.26 (beta 3.4: then relaxed)
+        if (!cn && S0.ph) { const f = farPlace(S0) || farPlace(S0, 1) || farPlace(S0, 2); if (f) { cn = f; how = 'further, with a line'; } } // v2.42.26 (beta 3.4: then relaxed) (beta 6.7: Tidy too, rather than leave a photo out: at its size, further, with its line)
+        /* beta 6.7 (the owner: "if there are no choice then shrink them but not leave them out.. important hierarchy: pole location, pole
+           details and last the photo"): with no place at its size, near its pole or further out with its line, that photo only is drawn
+           smaller, a step at a time, as little as it needs, near its pole with its line (the pole and its details keep their places);
+           at the smallest step, the place covering least. Listed with its size. Never left out. */
+        if (!cn && S0.ph) {
+          for (const k of PH_STEPS) { const S1 = { ...S0, w: S0.w * k, h: S0.h * k }, f = (TIDY ? tidyPh(S1) : search(S1, Infinity).free) || farPlace(S1) || farPlace(S1, 1) || farPlace(S1, 2); if (f) { cn = f; S0 = S1; how = `smaller (${Math.round(k * 100)} %), with a line`; shrunk.push({ p, k }); break; } }
+          if (!cn) { const k = PH_STEPS[PH_STEPS.length - 1], S1 = { ...S0, w: S0.w * k, h: S0.h * k }, f = anyPlace(S1); if (f) { cn = f; S0 = S1; how = 'smallest, where it covers least'; shrunk.push({ p, k, over: true }); } }
+        }
         if (!cn && S0.ph && TIDY) left.push(p); // (beta 4.8: Tidy: no free place near its pole: listed in the README)
-        if (!cn && S0.ph && round === 'photo') { nNoRoom++; drop++; continue; } // beta 4.1: photo + number: no free place for the photo anywhere: it is left out (its number is on the plan)
+        if (!cn && S0.ph && round === 'photo') { nNoRoom++; drop++; if (!TIDY) left.push(p); continue; } // beta 4.1: photo + number: no free place for the photo anywhere: it is left out (its number is on the plan)
         if (!cn && S0.ph) { const S1 = setup(p, true), r1 = search(S1, Infinity); if (r1.free) { commit(S1, r1.free, 'number: no room for its photo'); nNoRoom++; continue; } } // (v2.42.26: no room for its photo anywhere: its number)
         if (!cn && S0.ph && TIDY) { nNoRoom++; drop++; continue; } // (beta 6.0: Tidy: not over anything either: left out, listed in the README, as the note says)
         // nothing free: the place covering least (v2.41.1: a number's circle over something counts more than its leader line across it)
@@ -3325,15 +3384,36 @@
         commit(S0, cn, how);
       }
       }
-      return { out, miss, mark, drop, left };
+      return { out, miss, mark, drop, left, shrunk };
     };
-    let Lp = TIDY ? PHMM / (printK || 0.62) : Math.max(12, 18 * kG) * PHK, photoPl = placePhotos(Lp); // (beta 6.4: Tidy: the photo size as set, printed) // (beta 4.8: Tidy: about 1.4 times the street's width, at most; 2.44.10: Drawing style's photo size)
-    for (let tries = 0; tries < 2 && photoPl.miss + (photoPl.drop || 0) > Math.max(1, markOrder.length / 4); tries++) { spots.truncate(photoPl.mark); Lp *= 0.8; photoPl = placePhotos(Lp); }
+    /* beta 6.7 (the owner: "Closures sized to the street: put a red proposed closure label + arrow"): each proposed closure's PROPOSED
+       CLOSURE and its ID in red, two lines as large as the IDs, after the pole labels, IDs and span lengths, before the photos, numbers, street and landmark names (which then keep off it), the
+       nearest free place round the pentagon a little out from it, with a red arrow (a line and a filled head) to the pentagon's edge */
+    { let nCL = 0, nFar = 0, nOver = 0; const W_CL = (t) => (t === 'road' || t === 'cable' ? 0.15 : 1), W_AR = (t) => (t === 'road' || t === 'cable' ? 0 : t === 'lead' ? 0.4 : !t ? 0.15 : 1), CLY = lay('P-JOINT');
+      for (const { at, R: Rp, cid } of cloLbl) { // (Rp: the pentagon's reach)
+        const th = TIDY ? TS.id / kAt(at[0], at[1]) : IDS.h, L2 = ['PROPOSED CLOSURE', cid], w = Math.max(...L2.map((x) => arialW(x, th))) * 1.08, h = th * 2.6; let best = null;
+        for (const g of [2.2, 3.5, 5, 7, 10, 14, 19, 25]) { for (let k = 0; k < 16; k++) { const v = rotv([1, 0], k * 22.5 + (g > 5 ? 11.25 : 0)), ex = Math.abs(v[0]) * w / 2 + Math.abs(v[1]) * h / 2, c = add2(at, v, Rp + g * th + ex), bx = Spots.box(c[0], c[1], w + th * 0.4, h + th * 0.3, 0);
+            if (!cellHolds(bx, at[0], at[1])) continue; // (inside the closure's own sheet)
+            const a0 = add2(c, v, -(ex + 0.25 * th)), a1 = add2(at, v, Rp + 0.15 * th), La = dist2(a0, a1), ab = La > 0.2 ? Spots.box((a0[0] + a1[0]) / 2, (a0[1] + a1[1]) / 2, La, 0.25 * th, deg(v)) : null;
+            const nb = spots.hitsW(bx, W_CL), na = ab ? spots.hitsW(ab, W_AR) : 0, n = nb * 10 + na * 3, cost = n + g * 0.35 + k * 0.001 + (R.idx.inside(c, -1, 0) ? 1.5 : 0);
+            const ok = nb < 0.35 && na < 0.5; /* (free: over a road or cable line at most, its arrow across no text or photo) */ if (!best || (ok && !best.ok) || (ok === best.ok && cost < best.cost)) best = { c, v, bx, a0, a1, ab, n, nb, na, g, cost, ok }; }
+          if (best && best.ok) break; }
+        if (!best) continue;
+        const { c, v, a0, a1 } = best, ah = 0.9 * th, aw = 0.38 * th, pv = [-v[1], v[0]], b0 = add2(a1, v, ah);
+        L2.forEach((x, i) => o.text(CLY, c[0], c[1] + (i ? -0.65 : 0.65) * th, th, x, { ha: 1, va: 2, style: 'arial', color: 1 }));
+        if (dist2(a0, a1) > ah * 1.05) o.lwpoly(CLY, [a0, b0], { color: 1 });
+        o.solid(CLY, [a1, add2(b0, pv, aw), add2(b0, pv, -aw)], { color: 1 });
+        spots.add([best.bx], 'label'); if (best.ab) spots.line([a0, a1], 0.3); if (!best.ok) nOver++; nCL++; (rep._cloL || (rep._cloL = [])).push({ cid, g: best.g, box: +best.nb.toFixed(2), arrow: +best.na.toFixed(2) }); if (best.g > 7) nFar++;
+      }
+      if (cloLbl.length) { rep.closureLabels = { proposed: cloLbl.length, labelled: nCL, further: nFar, notFree: nOver, each: rep._cloL || [] }; delete rep._cloL; if (nOver) rep.notes.push(`PROPOSED CLOSURE labels with no free place (placed where they cover least): ${nOver}`); } }
+    let Lp = TIDY ? PHMM / (printK || 0.62) : PHMM * 1.1, photoPl = placePhotos(Lp); /* (beta 6.7: Standard too: the size set, in metres at 1:1100; no longer smaller where the poles stand close, nor again below) */ // (beta 6.4: Tidy: the photo size as set, printed) // (beta 4.8: Tidy: about 1.4 times the street's width, at most; 2.44.10: Drawing style's photo size)
+    // (beta 6.7: no second and third round at 0.8 and 0.64 of the size: a photo with no room near its pole goes further with its line)
     const nCol = NS.color || null, bCol = NS.bcolor || NS.color || null, nLay = lay('p-pole');
     // v2.42.13: a number in a light colour (yellow, the default; green or cyan) over a dark shadow, its circle and leader line too: on
     // white paper the yellow could not be read
     const layCol = (n) => { const L = S.layers.get(n); return L ? Math.abs(parseInt(get(L, 62, '7'), 10) || 7) : 7; };
     const lightCol = (c) => [2, 3, 4].includes(c), shN = lightCol(nCol != null ? +nCol : layCol(nLay)), shB = lightCol(bCol != null ? +bCol : layCol(nLay)), SH = 250, so = NS.h * 0.08;
+    { const P1 = photoPl.out.filter((x) => x.ph); rep.photos = { mm: +PHMM.toFixed(1), inLabels: TIDY ? tidyCard.size : 0, onTheirOwn: P1.length, withLine: P1.filter((x) => x.lead).length, shrunk: photoPl.shrunk.length, smallestMm: photoPl.shrunk.length ? +(PHMM * Math.min(...photoPl.shrunk.map((x) => x.k))).toFixed(1) : null, coveringLeast: photoPl.shrunk.filter((x) => x.over).length, leftOut: nNoRoom }; } // beta 6.7: every photo at its size: where they went
     for (const { p, ph, w, h, q, u, lead } of photoPl.out) {
       if (ph && havePhotos && lead) o.lwpoly(lay(photoLayer), lead, { color: 8 }); // v2.42.26: a photo further out: a thin line to its pole
       if (ph && havePhotos) {
@@ -3352,6 +3432,8 @@
       }
     }
     if (job.debug) rep.layout = { grid: { gox, goy, cell }, poles: poleOrder.map((p) => ({ id: String(p.id), E: p.E, N: p.N, dp: p.dp, td: p.td, ov: p.ov, rr: p._rr, lblFar: p.lblFar, lblDir: p.lblDir })), labels: spots.list.filter((b) => /^label/.test(b.tag || '') && b.tag !== 'label:site').map((b) => [b.cx, b.cy, b.hw, b.hh, b.ux, b.uy, b.vx, b.vy]), marks: photoPl.out.map(({ p, ph, w, h, q, u, how, lead }) => ({ lead: lead || null, id: String(p.id), pid: p.poleId, el: p.el, dp: p.dp, td: p.td, q, u, ph: !!ph, w, h, r: rOf(p), how })) };
+    if (photoPl.shrunk.length) { const sz = (x) => `${x.p.poleId || x.p.id} ${+(PHMM * x.k).toFixed(1)} mm${x.over ? ' (covering least)' : ''}`; rep.notes.push(`Photos drawn smaller: no place at their size (${+PHMM.toFixed(1)} mm) near their pole, nor further out with a line; the pole first, then its details, then its photo (${photoPl.shrunk.length}): ${photoPl.shrunk.slice(0, 20).map(sz).join(', ')}${photoPl.shrunk.length > 20 ? '…' : ''}`); } // beta 6.7
+    if (!TIDY && photoPl.left.length) rep.notes.push(`Photos left out (no place even at their smallest step; the point's number is on the plan; its photo is in the folder): ${photoPl.left.length}: ${photoPl.left.slice(0, 12).map((p) => p.poleId || p.id).join(', ')}${photoPl.left.length > 12 ? '…' : ''}`); // (beta 6.7: never, as far as the measures go)
     if (TIDY && photoPl.left.length) rep.notes.push(`Photos with no free place near their pole (left out: the point's number is on the plan; its photo is in the folder): ${photoPl.left.map((p) => p.poleId || p.id).join(', ')}`); // beta 4.8
     rep.photoSize = +Lp.toFixed(1); rep.photosNotFree = photoPl.miss; rep.photosAsNumber = nNoRoom; rep.markMode = markMode;
     const withPh = new Set([...photoPl.out.filter((x) => x.ph).map((x) => String(x.p.id)), ...[...tidyCard].map((p) => String(p.id))]); /* (beta 4.8: with Tidy's photos in their labels) */ /* (v2.42.26: no room for its photo: its number; beta 4.1: by the photos placed) */ rep.marks = markOrder.map((p) => [p.seq, String(p.id), withPh.has(String(p.id)) ? (markMode === 'both' ? 'photo+number' : 'photo') : 'number']); // v2.40: the numbers on the plan
@@ -3440,7 +3522,7 @@
        where it fits) and counted in the README. Standard: as before (2 m, then 1.6 m). */
     const LM_MM = TIDY ? (v) => v / ((printK || 0.62) * NU) : null, LS = TIDY ? 1 / NU : 1, lmStat = { shrunk: 0, moved: 0, minMm: null, wrapped: 0, abbreviated: 0, abbrWrapped: 0 };
     const iconName = (i) => 'GESAA_LM_' + String(lmRefs[i] || i).replace(/^[cm]:/, '').replace(/[^A-Za-z0-9]+/g, '_').toUpperCase();
-    const wantIcons = LMB ? [...new Set((job.pois || []).map((q) => q.icon).filter((i) => Number.isInteger(i) && i >= 0 && LMB[i]))] : [];
+    const wantIcons = LMB && job.lmIcons !== false ? [...new Set((job.pois || []).map((q) => q.icon).filter((i) => Number.isInteger(i) && i >= 0 && LMB[i]))] : [];
     if (wantIcons.length) { addLayer(d, S, LMLAY, 7); fillBlocks(d, S, wantIcons.map((i) => ({ name: iconName(i), icon: LMB[i] }))); }
     // beta 6.1: the name on one or two lines as before (22 letters a line); wrapped onto k lines as evenly as it goes; the standard abbreviations
     const lmWrap0 = (nm) => { const L = []; for (const w of nm.split(/\s+/)) { const l = L.length - 1; if (l >= 0 && (L[l] + ' ' + w).length <= 22) L[l] += ' ' + w; else L.push(w); } if (L.length > 2) { L.length = 2; L[1] = L[1].slice(0, 20) + '...'; } return L; }; // two lines at most
@@ -3455,7 +3537,7 @@
       const name = String(poi.name || '').trim().toUpperCase(); if (!name || !Number.isFinite(poi.E) || !Number.isFinite(poi.N)) continue;
       const q0 = [poi.E, poi.N], W = wins.find((w) => q0[0] >= w[0] && q0[0] <= w[2] && q0[1] >= w[1] && q0[1] <= w[3]);
       if (!W) { poiSkip.outside++; continue; } if (placed.some((x) => x.name === name && dist2(x.q, q0) < 60)) { poiSkip.dup++; continue; }
-      const ic = Number.isInteger(poi.icon) && poi.icon >= 0 && S.blocks.has(iconName(poi.icon)) ? iconName(poi.icon) : null;
+      const ic = job.lmIcons !== false && Number.isInteger(poi.icon) && poi.icon >= 0 && S.blocks.has(iconName(poi.icon)) ? iconName(poi.icon) : null; // (beta 6.7: Drawing style › Landmarks › Icons: Off, none)
       const ib = ic ? Spots.box(q0[0], q0[1], ICON * 1.1, ICON * 1.1, 0) : null, useIcon = !!(ib && !spots.hits(ib) && !R.idx.inside(q0, -1, -1));
       if (lmMode === 'hide') { if (useIcon) { o.insert(LMLAY, ic, q0[0], q0[1], { scale: ICON }); spots.add(ib); nIcons++; } poiSkip.hidden++; placed.push({ name, q: q0 }); continue; } // (beta 3.8: hidden names: their icons only)
       // beta 6.1 (the owner: "wrap the text so that we can squeeze even more space or we can shorten the name example from elementary to
@@ -3800,7 +3882,7 @@
     if (job.debug) rep.inline = [...inl.values()].map((it) => ({ b: it.b, at: it.at, hl: it.hl, hlo: it.hlo, hhi: it.hhi, hh: it.hh, sc: it.sc, rot: it.rot, box: blockBox(S, it.b, 0), boxT: blockBoxT(S, it.b), c: blockCenter(S, it.b) }));
     if (TIDY) rep.landmarks = { placed: nPois, shrunk: lmStat.shrunk, moved: lmStat.moved, namesLeftOut: poiSkip.noRoom, wrapped: lmStat.wrapped, abbreviated: lmStat.abbreviated, abbreviatedAndWrapped: lmStat.abbrWrapped, smallestMm: lmStat.minMm == null ? null : +lmStat.minMm.toFixed(2) }; // beta 6.0
     if (WANT_RD) rep.cableRoute = { roads: R.roads.filter((r) => r.hw > 0).length, ...Object.fromEntries(Object.entries(routeLen).map(([k, g]) => [k, { spans: g.spans, following: g.bent, straightM: +g.straight.toFixed(1), drawnM: +g.road.toFixed(1), longerM: +(g.road - g.straight).toFixed(1), longerPct: g.straight ? +(100 * (g.road - g.straight) / g.straight).toFixed(2) : 0, followingSpans: g.list }])) }; // beta 6.1: the drawn lines against the straight ones (the written lengths are the measured ones)
-    rep.counts = { ...o.n, cableLeaders: nLeaders, cableLabelsSmall: nSmall, closuresOnCable: nCloInl, ...(nCloOff ? { closuresAway: nCloOff } : {}), namesInCell: nInCell, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, poisHidden: poiSkip.hidden || 0, poisAlways: typeof poisAlways === 'number' ? poisAlways : 0, idsMovedAuto: nAutoIds, /* beta 3.8 */ landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesOffRoadLine: nCleared, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, loops: nLoop, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length, telcoArms: nTelco };
+    rep.counts = { ...o.n, ...(nExArm ? { existingArms: nExArm } : {}), /* beta 6.7 */ cableLeaders: nLeaders, cableLabelsSmall: nSmall, closuresOnCable: nCloInl, ...(nCloOff ? { closuresAway: nCloOff } : {}), namesInCell: nInCell, roads: nRoads, roadEdges: R.edges.length, pois: nPois, poisGiven: (job.pois || []).length, poisOutside: poiSkip.outside, poisDuplicate: poiSkip.dup, poisNoRoom: poiSkip.noRoom, poisHidden: poiSkip.hidden || 0, poisAlways: typeof poisAlways === 'number' ? poisAlways : 0, idsMovedAuto: nAutoIds, /* beta 3.8 */ landmarkIcons: nIcons, geoSheets: N, gridCells: cellsI * cellsJ, polesMoved: pts.filter((p) => p.moved > 0.05).length, polesOffRoadLine: nCleared, polesKept: pts.filter((p) => p.kept).length, inlineBlocks: nInline, odc: nOdc, olt: nOlt, poleToPole: nP2P, grounding: nGround, risers: nRiser, loops: nLoop, hdd: nHdd, cableNames: nCableNames, napsOnPoles: pts.filter((p) => p.el === 'NAP' && p.onPole).length, telcoArms: nTelco };
     /* beta 6.0 (the owner: "the bill of quantities on each grid … a slice per grid of the PMI as the total … only add the span length of
        each foc wherever the span length falls per grid"): on every GEO sheet a BILL OF QUANTITIES table with the PMI table's rows, each
        counting what lies on that sheet's grid cell: a span whole on the sheet where its length is written (else where its middle is), a
@@ -3812,14 +3894,35 @@
        PROPOSED OPEN TRENCH: the conventional UG cable's route (each span once) less its bores; PROPOSED MICRO TRENCH: the air-blown UG
        cable's (microducts), likewise; MAXCELL INNER DUCT: the conventional UG cable's route, bores included; PROPOSED MANHOLE / SERVICE BOX:
        the new ones. Written into the template's PMI table (its empty quantity cells) and, sliced by grid, into each sheet's table. */
-    const UGV = { PMI_HDD: 0, PMI_OPEN_TRENCH: 0, PMI_MICRO_TRENCH: 0, PMI_MAXCELL_INNER_DUCT: 0, PMI_MANHOLE: 0, PMI_SERVICE_BOX: 0 }, ugPI = { spans: [], points: [] };
+    /* beta 6.7 (the owner: "allow a selection by the user … hdd is machine drill by default and airblown fiber is used by default but for
+       non airblown, it should be Trench (open, shallow w/ concrete or w/out)"): each UG span is laid as its cable says (span.ug.m, from the
+       app: the first new UG cable on it): 'hdd' (the default for air-blown fiber): the whole span in PROPOSED HDD, its road crossings with
+       it; 'open' (conventional UG's default), 'shc' / 'sh' (shallow trench with / without concrete) or 'micro': that trench, less the
+       road crossings, which stay PROPOSED HDD bores as before. MAXCELL INNER DUCT: the conventional UG cable's route, as before. The
+       shallow trenches have no row in the template's PMI: a row of their own is added (as the RTA rows are) when there is any.
+       The conduit (span.ug.cd mm, span.ug.cr runs): a PROPOSED CONDUIT row for each size and runs used, its route metres (added as
+       the shallow trenches are), and rep.ugConduit for the README. A span's own way (span.ug.own: set on the span) counts as its RUN's. */
+    const UGV = { PMI_HDD: 0, PMI_OPEN_TRENCH: 0, PMI_MICRO_TRENCH: 0, PMI_SHALLOW_TRENCH_C: 0, PMI_SHALLOW_TRENCH: 0, PMI_MAXCELL_INNER_DUCT: 0, PMI_MANHOLE: 0, PMI_SERVICE_BOX: 0 }, ugPI = { spans: [], points: [] }, ugCd = {}, ugBy = {};
     { const segD = (q, a, b) => { const vx = b[0] - a[0], vy = b[1] - a[1], L2 = vx * vx + vy * vy, t = L2 ? Math.max(0, Math.min(1, ((q[0] - a[0]) * vx + (q[1] - a[1]) * vy) / L2)) : 0; return Math.hypot(q[0] - a[0] - t * vx, q[1] - a[1] - t * vy); };
-      const ugSp = spans.map((s0) => { const P = byId.get(String(s0.ia)), Q = byId.get(String(s0.ib)), ug = [s0.cable, ...(s0.more || [])].filter((k) => k != null && (CABLE_STYLE[k] || CABLE_STYLE['']).aerial === false); return P && Q && ug.length ? { s0, P, Q, conv: ug.some((k) => /^CU/.test(k)), hdd: 0 } : null; }).filter(Boolean);
-      for (const h of hddAt) { let bS = null, bd = Infinity; for (const u of ugSp) { const d0 = segD(h.x, u.P.A || [u.P.E, u.P.N], u.Q.A || [u.Q.E, u.Q.N]); if (d0 < bd) { bd = d0; bS = u; } } if (bS && bd < 15) bS.hdd += h.L; UGV.PMI_HDD += h.L; ugPI.points.push({ at: h.x, v: { PMI_HDD: h.L } }); }
-      for (const u of ugSp) { const Lw = Math.round(+u.s0.len || 0), tr = Math.max(0, Lw - u.hdd), v = u.conv ? { PMI_OPEN_TRENCH: tr, PMI_MAXCELL_INNER_DUCT: Lw } : { PMI_MICRO_TRENCH: tr }; /* (beta 6.4: the span as its length is written on the plan) */ for (const [k, x] of Object.entries(v)) UGV[k] += x; ugPI.spans.push({ ia: u.s0.ia, ib: u.s0.ib, v }); }
+      const UGM = { hdd: 'PMI_HDD', open: 'PMI_OPEN_TRENCH', micro: 'PMI_MICRO_TRENCH', shc: 'PMI_SHALLOW_TRENCH_C', sh: 'PMI_SHALLOW_TRENCH' };
+      const ugSp = spans.map((s0) => { const P = byId.get(String(s0.ia)), Q = byId.get(String(s0.ib)), ug = [s0.cable, ...(s0.more || [])].filter((k) => k != null && (CABLE_STYLE[k] || CABLE_STYLE['']).aerial === false), conv = ug.some((k) => /^CU/.test(k)), u0 = s0.ug || {};
+        return P && Q && ug.length ? { s0, P, Q, conv, hdd: 0, bores: [], m: UGM[u0.m] ? u0.m : conv ? 'open' : 'hdd', cd: ['32', '50', '114.3'].includes(String(u0.cd)) ? String(u0.cd) : '114.3', cr: +u0.cr === 1 ? 1 : 2 } : null; }).filter(Boolean);
+      for (const h of hddAt) { let bS = null, bd = Infinity; for (const u of ugSp) { const d0 = segD(h.x, u.P.A || [u.P.E, u.P.N], u.Q.A || [u.Q.E, u.Q.N]); if (d0 < bd) { bd = d0; bS = u; } }
+        if (bS && bd < 15) { bS.hdd += h.L; bS.bores.push(h); if (bS.m === 'hdd') continue; } // (a drilled span counts whole below, its crossings with it)
+        UGV.PMI_HDD += h.L; ugPI.points.push({ at: h.x, v: { PMI_HDD: h.L } }); }
+      for (const u of ugSp) { const Lw = Math.round(+u.s0.len || 0), K = UGM[u.m], v = u.m === 'hdd' ? { PMI_HDD: Lw } : { [K]: Math.max(0, Lw - u.hdd) }; /* (beta 6.4: the span as its length is written on the plan) */
+        if (u.conv) v.PMI_MAXCELL_INNER_DUCT = Lw;
+        const ck = `${u.cr}x${u.cd}`, cdK = `PMI_CONDUIT_${ck.replace('.', '_')}`; v[cdK] = Lw; // (beta 6.7: the owner: "PMI rows, not just the README": the conduit's route metres by size and runs)
+        for (const [k, x] of Object.entries(v)) UGV[k] = (UGV[k] || 0) + x; ugPI.spans.push({ ia: u.s0.ia, ib: u.s0.ib, v });
+        ugCd[ck] = (ugCd[ck] || 0) + Lw; ugBy[u.m] = (ugBy[u.m] || 0) + Lw; }
+      rep.ugConduit = Object.fromEntries(Object.entries(ugCd).map(([k, v]) => [k, Math.round(v * 10) / 10])); rep.ugLaid = { ...ugBy }; // beta 6.7: the README's conduit by size and runs, and each method's span lengths
       for (const p of pts) if ((p.status === 'Proposed' || p.status === 'New') && (p.el === 'Manhole' || p.el === 'Service box')) { const k = p.el === 'Manhole' ? 'PMI_MANHOLE' : 'PMI_SERVICE_BOX'; UGV[k]++; ugPI.points.push({ id: p.id, v: { [k]: 1 } }); } }
     // beta 6.6 (the owner: "PMI must should add automatically the poles RTA"): an RTA row for each other pole owner (job.pmiExtraRows [label, key], from the app)
-    const PMI_XROWS = (Array.isArray(job.pmiExtraRows) ? job.pmiExtraRows : []).filter((x) => Array.isArray(x) && x[0] && x[1]).slice(0, 8).map(([lb, k]) => [String(lb).toUpperCase().slice(0, 40), String(k)]);
+    const PMI_UGX = [['PROPOSED SHALLOW TRENCH W/ CONCRETE', 'PMI_SHALLOW_TRENCH_C', 'm'], ['PROPOSED SHALLOW TRENCH W/O CONCRETE', 'PMI_SHALLOW_TRENCH', 'm']].filter(([, k]) => UGV[k] > 0); // beta 6.7: added when used
+    // beta 6.7: a row for each conduit used (size and runs), its route metres (the pipe metres, route × runs, are in the README); the largest first
+    const PMI_CDX = Object.keys(ugCd).sort((x, y) => parseFloat(y.split('x')[1]) - parseFloat(x.split('x')[1]) || +y.split('x')[0] - +x.split('x')[0]).map((ck) => { const [r, c] = ck.split('x'); return [`PROPOSED CONDUIT ${c}MM X ${r} RUN${+r > 1 ? 'S' : ''}`, `PMI_CONDUIT_${ck.replace('.', '_')}`, 'm']; });
+    const PMI_XRTA = (Array.isArray(job.pmiExtraRows) ? job.pmiExtraRows : []).filter((x) => Array.isArray(x) && x[0] && x[1]).slice(0, 8).map(([lb, k]) => [String(lb).toUpperCase().slice(0, 40), String(k)]);
+    const PMI_XROWS = PMI_XRTA.concat(PMI_UGX.map(([lb, k]) => [lb, k]), PMI_CDX.map(([lb, k]) => [lb, k])); // (the rows added at the foot of the template's PMI table: the RTA rows, then the shallow trenches and the conduits)
     const ugVals = Object.fromEntries(Object.entries(UGV).map(([k, v]) => [k, /MANHOLE|SERVICE_BOX/.test(k) ? String(v) : `${(Math.round(v * 10) / 10).toFixed(1)}m`]));
     { // the template's PMI table (model space): each of these rows' quantity cell, where the template has it empty
       const ENT = d.sec('ENTITIES').recs, norm = (x) => String(x).replace(/\\[A-Za-z][^;]*;|[{}]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
@@ -3856,7 +3959,7 @@
           const xa = Math.min(xOf(last), xOf(refV)), xb = Math.max(xOf(last), xOf(refV)), W1 = pv.map(wn).find((w) => Math.max(xa, w[0]) <= Math.min(xb, w[2]) && yOf(last) >= w[1] && yOf(last) <= w[3]), foot = bot - PMI_XROWS.length * H0; // (the window the table is seen through)
           rep.pmiRowsAdded = { rows: PMI_XROWS.map(([lb]) => lb), shown: !W1 || foot >= W1[1] };
           if (W1 && foot < W1[1]) rep.notes.push(`PMI table: the added rows (${PMI_XROWS.map(([lb]) => lb).join(', ')}) reach below the PMI sheet's window: widen its viewport in AutoCAD`);
-        } else rep.notes.push(`PMI table: the RTA rows ${PMI_XROWS.map(([lb]) => lb).join(', ')} not added (its last row not found)`);
+        } else rep.notes.push(`PMI table: the rows ${PMI_XROWS.map(([lb]) => lb).join(', ')} not added (its last row not found)`);
       } }
     /** beta 6.0 (beta 6.5: a function, for the BOQ table and the RTA/JPA legend): a GEO sheet's right-hand box (paper units), free of the
         title block's fields: { R0: [x0, y0, x1, y1], uMm: paper units in a millimetre }, or null */
@@ -3878,8 +3981,8 @@
     const boqBot = new Map(), RBC = new Map(), rightBox = (L) => { if (!RBC.has(L.name)) RBC.set(L.name, rightBoxOf(L)); return RBC.get(L.name); }; // (beta 6.5: where each sheet's BOQ table ends, for the legend under it; each box found once, before anything is drawn in it)
     if (job.pmiItems && N > 0) {
       const PMI_ROWS = [['TOTAL CABLE LENGTH', 'PMI_TOTAL_CABLE_LENGTH', 'm'], ['AERIAL CABLE LENGTH', 'PMI_AERIAL_CABLE_LENGTH', 'm'], ['EXISTING GT POLE', 'PMI_EXISTING_GT_POLE'], ['PROPOSED POLE', 'PMI_PROPOSED_POLE'],
-        ['RTA CONVERGE', 'PMI_RTA_CONVERGE'], ['RTA LOCAL COOP', 'PMI_RTA_LOCAL_COOP'], ['RTA OTHER (PLDT POLE)', 'PMI_RTA_OTHER_PLDT'], ...PMI_XROWS, ['UNDERGROUND CABLE LENGTH', 'PMI_UG_CABLE_LENGTH', 'm'], ['PROPOSED HDD', 'PMI_HDD', 'm'],
-        ['PROPOSED OPEN TRENCH', 'PMI_OPEN_TRENCH', 'm'], ['PROPOSED MICRO TRENCH', 'PMI_MICRO_TRENCH', 'm'], ['MAXCELL INNER DUCT', 'PMI_MAXCELL_INNER_DUCT', 'm'], ['PROPOSED MANHOLE', 'PMI_MANHOLE'], ['PROPOSED SERVICE BOX', 'PMI_SERVICE_BOX'], ['FIBER TERMINATION', 'PMI_FIBER_TERMINATION'], ['PROPOSED HYBRID CLOSURE', 'PMI_HYBRID_CLOSURE']];
+        ['RTA CONVERGE', 'PMI_RTA_CONVERGE'], ['RTA LOCAL COOP', 'PMI_RTA_LOCAL_COOP'], ['RTA OTHER (PLDT POLE)', 'PMI_RTA_OTHER_PLDT'], ...PMI_XRTA, ['UNDERGROUND CABLE LENGTH', 'PMI_UG_CABLE_LENGTH', 'm'], ['PROPOSED HDD', 'PMI_HDD', 'm'],
+        ['PROPOSED OPEN TRENCH', 'PMI_OPEN_TRENCH', 'm'], ...PMI_UGX, ['PROPOSED MICRO TRENCH', 'PMI_MICRO_TRENCH', 'm'], ['MAXCELL INNER DUCT', 'PMI_MAXCELL_INNER_DUCT', 'm'], ...PMI_CDX, ['PROPOSED MANHOLE', 'PMI_MANHOLE'], ['PROPOSED SERVICE BOX', 'PMI_SERVICE_BOX'], ['FIBER TERMINATION', 'PMI_FIBER_TERMINATION'], ['PROPOSED HYBRID CLOSURE', 'PMI_HYBRID_CLOSURE']];
       const V0 = { ...(job.values || {}), ...ugVals }, PI = { spans: [...(job.pmiItems.spans || []), ...ugPI.spans], points: [...(job.pmiItems.points || []), ...ugPI.points] }, names = geoNames(N), per = new Map(names.map((nm) => [nm, {}])), lost = [];
       const shAt = (x, y) => sheetOf.get(key(ci(x), cj(y))) || null, numOf = (v) => { const m = /-?\d+(?:\.\d+)?/.exec(String(v == null ? '' : v)); return m ? +m[0] : null; };
       const addTo = (nm, v, what) => { if (!nm) { lost.push(what); return; } const o2 = per.get(nm); for (const [k, x] of Object.entries(v || {})) o2[k] = (o2[k] || 0) + (+x || 0); };
@@ -3908,8 +4011,9 @@
         const L = S.layouts.find((x) => x.name === nm), RB = L && rightBox(L); if (!RB) return; // (beta 6.5: its right-hand box, see rightBoxOf)
         const { R0, uMm } = RB, W = R0[2] - R0[0], H = R0[3] - R0[1];
         const rows = PMI_ROWS.map(([lb, k2]) => [lb, k2 ? (cellsTxt.get(nm)[k2] != null ? cellsTxt.get(nm)[k2] : '') : '']), title = `BILL OF QUANTITIES · GRID ${cellName(geoCells[k].i, geoCells[k].j)}`;
+        const BOQ_K = 2 / 3, LEG_K = 2 / 3; /* beta 6.7 (the owner: "can you make the table covering the 2/3 of the box? so that there are room for other details"; "make it smaller. 2/3 of its size now") */
         const LEGN = Array.isArray(job.rtaLegend) && job.rtaLegend.length && job.rtaLegendAt === 'boq' ? Math.min(12, job.rtaLegend.length) + 1.5 : 0; // (beta 6.5: room kept under the table for the RTA/JPA legend: its rows and a gap)
-        let rh = Math.min(7 * uMm, H / (rows.length + 2 + LEGN)), th = Math.min(2.5 * uMm, rh * 0.5); const pad = 1.5 * uMm;
+        let rh = Math.min(7 * uMm, H * BOQ_K / (rows.length + 2), H / (rows.length + 2 + LEGN * LEG_K)), th = Math.min(2.5 * uMm, rh * 0.5); const pad = 1.5 * uMm; // (beta 6.7: the table at most 2/3 of the box's height, the rest free)
         const need = (h2) => Math.max(...rows.map(([lb]) => arialW(lb, h2))) * 1.08 + Math.max(arialW('QUANTITY', h2), ...rows.map(([, v]) => arialW(v, h2))) * 1.08 + 4 * pad;
         if (need(th) > W) th *= W / need(th);
         if (!(W > 30 * uMm && H > (rows.length + 2) * 2.4 * uMm && th >= 1.2 * uMm)) { rep.notes.push(`BOQ table not drawn on ${nm}: its right-hand box has no room`); return; }
@@ -3930,15 +4034,15 @@
        one), a title bar and a row for each RTA/JPA category on the plan (job.rtaLegend, from Drawing style › Numbers): its number "1" in
        its circle, both in its colour (a dark shadow under a light one, as the numbers), and its text. Layer G-ESAA RTA LEGEND. */
     if (Array.isArray(job.rtaLegend) && job.rtaLegend.length && N > 0 && job.rtaLegendAt === 'boq') { // (beta 6.6: only where Drawing style puts it: under the BOQ table)
-      const LG = 'G-ESAA RTA LEGEND'; addLayer(d, S, LG, 7); S = structure(d); const stl = S.styles.has('Standard') ? 'Standard' : null; let nLeg = 0;
+      const LG = 'G-ESAA RTA LEGEND', LEGK = 2 / 3; addLayer(d, S, LG, 7); S = structure(d); const stl = S.styles.has('Standard') ? 'Standard' : null; let nLeg = 0; // (beta 6.7: LEGK, 2/3 of the size it had)
       const cats = job.rtaLegend.filter((x) => x && x.text).slice(0, 12), title = 'RTA/JPA LEGEND';
       geoNames(N).forEach((nm) => {
         const L = S.layouts.find((x) => x.name === nm), RB = L && rightBox(L); if (!RB) return;
-        const { R0, uMm } = RB, top = boqBot.has(nm) ? boqBot.get(nm) - Math.min(3 * uMm, 0.4 * (boqBot.get(nm) - R0[1]) / (cats.length + 1.5)) : R0[3], W = R0[2] - R0[0], room = top - R0[1], pad = 1.5 * uMm;
-        let rh = Math.min(7 * uMm, room / (cats.length + 1)), th = Math.min(2.5 * uMm, rh * 0.5);
+        const { R0, uMm } = RB, top = boqBot.has(nm) ? boqBot.get(nm) - Math.min(3 * uMm, 0.4 * (boqBot.get(nm) - R0[1]) / (cats.length + 1.5)) : R0[3], W = R0[2] - R0[0], room = top - R0[1], pad = 1.5 * uMm * LEGK;
+        let rh = Math.min(7 * uMm * LEGK, room / (cats.length + 1)), th = Math.min(2.5 * uMm * LEGK, rh * 0.5); // (beta 6.7: 2/3 of its size before)
         const need = (h2) => Math.max(arialW(title, h2 * 1.1), ...cats.map((x) => arialW(x.text, h2) + 1.6 * h2 * 2)) * 1.08 + 3 * pad;
         if (need(th) > W) th *= W / need(th);
-        if (!(room > (cats.length + 1) * 2.4 * uMm && th >= 1.2 * uMm)) { rep.notes.push(`RTA/JPA legend not drawn on ${nm}: its right-hand box has no room left`); return; }
+        if (!(room > (cats.length + 1) * 2.4 * uMm * LEGK && th >= 1.2 * uMm * LEGK)) { rep.notes.push(`RTA/JPA legend not drawn on ${nm}: its right-hand box has no room left`); return; }
         const po = paperOut(d, S, L, Out); if (!po) return;
         const x0 = R0[0], w = Math.min(W, need(th)), x1 = x0 + w, nR = cats.length + 1, yB = top - nR * rh, rr = Math.min(rh * 0.36, th * 0.95), so = th * 0.08;
         po.lwpoly(LG, [[x0, yB], [x1, yB], [x1, top], [x0, top]], { closed: true }); po.lwpoly(LG, [[x0, top - rh], [x1, top - rh]], {});
@@ -3967,7 +4071,7 @@
       for (const L of cands) { if (done) break;
         const vp = bigVp(L) || layoutEnts(d, S, L).filter((e) => typ(e) === 'VIEWPORT').slice(1).sort((a2, b2) => num(b2, 40, 0) * num(b2, 41, 0) - num(a2, 40, 0) * num(a2, 41, 0))[0]; tried.push(L.name);
         if (!vp || !(num(vp, 45, 0) > 0)) continue;
-        const w0 = wn(vp), mPerMm = num(vp, 45, 0) / Math.max(1e-9, num(vp, 41, 1)) * ((rightBox(L) || {}).uMm || 1), rh = 6 * mPerMm, th = 2.5 * mPerMm, pad = 1.5 * mPerMm;
+        const w0 = wn(vp), mPerMm = num(vp, 45, 0) / Math.max(1e-9, num(vp, 41, 1)) * ((rightBox(L) || {}).uMm || 1), rh = 4 * mPerMm, th = 2.5 * 2 / 3 * mPerMm, pad = 1 * mPerMm; // (beta 6.7: 2/3 of 6 mm rows, 2.5 mm text)
         const W = Math.max(arialW(title, th * 1.1), ...cats.map((x) => arialW(x.text, th) + 3.2 * th)) * 1.08 + 3 * pad, H = (cats.length + 1) * rh, mg = 3 * mPerMm;
         const occ = occAll.filter((b) => !(b[2] < w0[0] || b[0] > w0[2] || b[3] < w0[1] || b[1] > w0[3]));
         const free = (x0, y0) => !occ.some((b) => !(b[2] < x0 - mg || b[0] > x0 + W + mg || b[3] < y0 - mg || b[1] > y0 + H + mg));

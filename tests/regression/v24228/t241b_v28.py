@@ -137,7 +137,7 @@ async def main():
         await pg.screenshot(path=OUT + '/drawing_phone.png')
         await pg.click('#drawWhat'); await W(pg, 300); await pg.screenshot(path=OUT + '/drawing_what_phone.png'); await pg.click('#mxClose'); await W(pg, 200)  # v2.42.28: What to export
         await pg.click('#drawMap'); await W(pg, 300); await pg.screenshot(path=OUT + '/drawing_map_phone.png'); await pg.click('#drawMap'); await W(pg, 200)
-        await pg.click('#drawSetBtn'); await W(pg, 500); await pg.screenshot(path=OUT + '/plan_settings_phone.png'); await pg.click('#psStyle'); await W(pg, 600); await pg.screenshot(path=OUT + '/style_phone.png')  # v2.42.28: Drawing style in Plan settings
+        await pg.click('#drawSetBtn'); await W(pg, 500); await pg.screenshot(path=OUT + '/plan_settings_phone.png'); await pg.click('#plTabA'); await W(pg, 600); await pg.screenshot(path=OUT + '/style_phone.png')  # beta 6.7 (UX step 4): Plan style › Advanced  # v2.42.28: Drawing style in Plan settings
         await close_sheets(pg)
         tags = await pg.evaluate("(() => { const d = __polecam.drw; return null; })()")
         check('5. the plan: the dummy NAP and the NAP drawn on their poles with the template\'s models, the closure EXISTING with CL-77, the IDs as typed; no page errors',

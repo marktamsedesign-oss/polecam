@@ -165,16 +165,16 @@ async def main():
         pmi_on = {v: (v in raw) for v in (m1(span + 140), m1(ae + 80), m1(ug + 60))}
         check('A8. the plan DXF: 6 "15m LOOP" (3 own, 3 by the app) beside their poles; PMI with the loops (setting ticked): total, aerial, UG = spans + loops; README: 3 of them with a closure, a dummy NAP or a riser',
               len(lt) == 5 and len(l10) == 2 and max(near.values()) < 30 and all(pmi_on.values()) and '3 of them with a NAP, an LCP, a hybrid closure, a dummy NAP or a riser' in readme and 'a loop at each entrance (1' in readme and 'spans + maintenance loops' in readme, (len(lt), near, pmi_on))
-        # the setting off: the PMI from the spans only (Settings → AutoCAD DXF)
+        # the setting off: the PMI from the spans only (Plan style › Plan file; Settings → AutoCAD DXF before beta 6.7)
         await close_sheets(pg); await pg.click('#settingsBtn'); await W(pg, 500)
-        await pg.evaluate("() => { const c = document.getElementById('pmiLoops2'); c.checked = false; c.dispatchEvent(new Event('change', { bubbles: true })); }"); await W(pg, 300); await close_sheets(pg)
+        await pg.evaluate("() => { const c = document.getElementById('pmiLoops'); c.checked = false; c.dispatchEvent(new Event('change', { bubbles: true })); }"); await W(pg, 300); await close_sheets(pg)
         st = await pg.evaluate("[__polecam.S.exp.pmiLoops, document.getElementById('pmiLoops').checked]")
         fd2 = await export(pg, 'doDxf', 'own_plan_dxf_noloops.zip')
         z2 = zipfile.ZipFile(fd2); dn2 = [n for n in z2.namelist() if n.endswith('.dxf')][0]; raw2 = z2.read(dn2).decode('utf-8', 'replace'); rd2 = z2.read('README.txt').decode('utf-8', 'replace')
         pmi_off = {v: (v in raw2) for v in (m1(span), m1(ae), m1(ug))}
         check('A9. the PMI setting unticked (Settings, and the DXF card follows): the PMI cable lengths are the spans only; the README says so; still 6 loops drawn',
               st == [False, False] and all(pmi_off.values()) and m1(span + 140) not in raw2 and 'spans only' in rd2 and raw2.count('15m LOOP') == raw.count('15m LOOP'), (st, pmi_off))
-        await pg.evaluate("() => { const c = document.getElementById('pmiLoops2'); c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); }")
+        await pg.evaluate("() => { const c = document.getElementById('pmiLoops'); c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); }")
         # As-Built: the own-loop poles are not asked
         await common.newproj(pg, 'survey', 'OWN_BUILT', purpose='As-built'); await close_sheets(pg)
         bid = await pg.evaluate(ADD, ['OWN_BUILT', recs, links])

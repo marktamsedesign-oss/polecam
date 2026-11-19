@@ -610,7 +610,8 @@ function checks() {
 function tabExport() {
   const libs = typeof PDFLib !== 'undefined', can = dlReady && dl && libs && !busy, e = HOST && HOST.exporter ? HOST.exporter() : {};
   let h = '<h3>Before you export</h3><ul class="chk">' + checks().map(c => '<li' + (c[0] ? '' : ' class="w"') + '>' + esc(c[1]) + '</li>').join('') + '</ul>';
-  h += '<div class="btns"><button class="b p" data-a="export-zip"' + (can ? '' : ' disabled') + '>Save ZIP: DXF + PDF + KML</button><button class="b" data-a="export-pdf"' + (can ? '' : ' disabled') + '>Save PDF only</button><button class="b" data-a="export-dxf"' + (dlReady && dl && !busy ? '' : ' disabled') + '>Save DXF only</button></div>';
+  /* beta 6.7 (UX step 3): the same three as the toolbar's Export: PDF · AutoCAD (DXF) · Both (ZIP) (were Save PDF only, Save DXF only, Save ZIP) */
+  h += '<div class="btns"><button class="b" data-a="export-pdf"' + (can ? '' : ' disabled') + '>PDF</button><button class="b" data-a="export-dxf"' + (dlReady && dl && !busy ? '' : ' disabled') + '>AutoCAD (DXF)</button><button class="b p" data-a="export-zip"' + (can ? '' : ' disabled') + '>Both (ZIP)<small style="display:block;font-weight:500">DXF + PDF + KML + photos</small></button></div>';
   if (!libs) h += '<div class="warn">The PDF tool of the app did not load. Close the CEF plan and open it again.</div>';
   if (msg) h += '<div class="' + msg.c + '" role="status">' + esc(msg.t) + '</div>';
   h += '<p class="hint">Exported by ' + esc([e.name, e.mobile, e.email].filter(Boolean).join(' · ') || 'you') + '. It is written on every sheet and in the files.</p>';
@@ -925,7 +926,7 @@ function drawStrip() {
     if (!room && S.site.kind === 'fenced') p += '<b>Fence</b><div class="tiles">' + tile('gate-add', 'gate', 'Gate', ' data-w="4"') + tile('gate-add', 'door', 'Door', ' data-w="0.9"') + '</div>';
     p += '<b>Lines</b><div class="tiles">' + (room ? ['ladder', 'part'] : Object.keys(RUNS).filter(k => !RUNS[k].room)).map(k => tile('run-draw', k, RUNS[k].n, ' data-kind="' + k + '"')).join('') + '</div>'; pop.innerHTML = p; }
   if (expOpen) { const libs = typeof PDFLib !== 'undefined', can = dlReady && dl && !busy, tile = (kind, icon, label, ok) => '<button type="button" class="tile" data-a="exp-go" data-kind="' + kind + '"' + (ok ? '' : ' disabled') + '>' + ico(icon) + '<span>' + label + '</span></button>';
-    pop.innerHTML = '<b>Export</b><div class="tiles">' + tile('pdf', 'doc', 'PDF', can && libs) + tile('dxf', 'dxfi', 'DXF', can) + tile('zip', 'exp', 'Both', can && libs) + '</div><p class="hint" style="margin:8px 2px 0">PDF: the sheets, to print or to send. DXF: the sheets for AutoCAD, with a layout tab for each. Both: one ZIP with the DXF, the PDF, the KML, the photos and the sketch. Which pages the DXF holds: Menu, then Check and export.' + (libs ? '' : ' The PDF part did not load: reload with the network on.') + '</p>'; }
+    pop.innerHTML = '<b>Export</b><div class="tiles">' + tile('pdf', 'doc', 'PDF', can && libs) + tile('dxf', 'dxfi', 'AutoCAD (DXF)', can) + tile('zip', 'exp', 'Both (ZIP)', can && libs) + '</div><p class="hint" style="margin:8px 2px 0">PDF: the sheets, to print or to send. AutoCAD (DXF): the sheets for AutoCAD, with a layout tab for each. Both (ZIP): DXF + PDF + KML + photos, and the sketch. Which pages the DXF holds: Menu, then Check and export.' + (libs ? '' : ' The PDF part did not load: reload with the network on.') + '</p>'; }
   if (txtOpen) pop.innerHTML = txtTray();
   if (hidOpen) pop.innerHTML = hidTray(HL);
   pop.hidden = !(palOpen || expOpen || hidOpen || txtOpen);
