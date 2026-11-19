@@ -965,10 +965,10 @@
   const SOURCES = { get street() { const x = streetSource(); return { url: x.url, max: x.max, attr: x.attr }; }, satellite: { url: SAT_SOURCE.url, max: SAT_SOURCE.max, attr: SAT_SOURCE.attr } };
   const TILE_KEEP_MS = 7 * 24 * 3600 * 1000;
   const SITE = window.POLECAM_SITE || new URL('./', location.href).href;
-  const APP_VER = '2.45.2';
+  const APP_VER = '2.45.4';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '7.1'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '7.2'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -20052,7 +20052,7 @@
     const T = tmTeam(c.name), ck = T && T.accepted ? String(T.accepted.byName || T.accepted.by || '') : '';
     const foot = `EXPORTED BY ${[e.name, e.mobile, e.email, e.company].filter(Boolean).join(' - ').toUpperCase()} - G-eSAA ${VER_LABEL}`; // the line under the frame of every sheet
     return { sketch: plan ? JSON.stringify(plan.sk) : null, photos, logos: await cefLogos(), tab: c.tab || '',
-      app: { job: job && cefJobCtx[job] ? job : '', by: u.name || '', checkedBy: ck, org: m.contractor || u.company || '', link: sfGet(F, /project\s*name/i) || '', footer: foot, ver: `${APP_NAME} ${VER_LABEL}`, focPct: allowPct(), /* 2.45.1 / beta 6.9: the span length allowance (Plan style › Cables) on its UG cable */ lock: !!pinRec, fix: site0, viewOnly: cefLockText(c.name),
+      app: { job: job && cefJobCtx[job] ? job : '', by: u.name || '', checkedBy: ck, org: m.contractor || u.company || '', link: sfGet(F, /project\s*name/i) || '', footer: foot, ver: `${APP_NAME} ${VER_LABEL}`, mloopLen: mloopLen(), /* beta 7.2 / 2.45.3: the pole loop length (15 m unless the admin set another): the loop at a closure on a pole of the CEF plan */ focPct: allowPct(), /* 2.45.1 / beta 6.9: the span length allowance (Plan style › Cables) on its UG cable */ lock: !!pinRec, fix: site0, viewOnly: cefLockText(c.name),
         gps: 'geolocation' in navigator, canLogo: cefCanLogo(), logoNote: cefLogoNote(), guide: S.cefGuide !== false, sign: cefSign(), dxf: cefDxfSet(), ...(c.over || {}) } }; // (beta 4.2: sign, the names on the sheet; beta 4.3: dxf, the choices of the DXF)
   }
   /** The editor saves as the user works. Nothing is written when the sketch did not change, so that looking at a plan never makes it

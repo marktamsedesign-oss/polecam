@@ -204,7 +204,10 @@ function partDetails(S, rg) {
       dTube(G, [px, ugB], pr, ugT - ugB, 'pp');
       const K = dPlugs(G, [px, ugT], pr);
       if (!pd) dBlank(G, [cx + 13.6, yg + bh - 1.2], pr, 'pp');
-      if (lp) { for (const r of [8.6, 7.7, 6.8]) G.ci([cx, lpY], r, 'pp'); G.pl([K.out, [K.out[0] - 0.6, K.out[1] + 4], [cx + 6, lpY - 10], [cx + 5.2, lpY - 6.9]], 'ae'); N.push({ s: ['LOOP HOLDER W/', f2(lp.len) + 'm LOOP'], to: [cx + 8.3, lpY + 2.2] }); }
+      if (lp) { for (const r of [8.6, 7.7, 6.8]) G.ci([cx, lpY], r, 'pp'); G.pl([K.out, [K.out[0] - 0.6, K.out[1] + 4], [cx + 6, lpY - 10], [cx + 5.2, lpY - 6.9]], 'ae');
+        for (const a of [45, 135]) for (const w of [-0.6, 0.6]) { const c = Math.cos(a * D2R), sn = Math.sin(a * D2R), L = 11; G.pl([[cx - c * L - sn * w, lpY - sn * L + c * w], [cx + c * L - sn * w, lpY + sn * L + c * w]], 'pp'); }      /* beta 7.2 / 2.45.3: the loop holder, a cross of two flat bars behind the loop, */
+        for (const dy of [-2.2, 2.2]) G.pl([[cx - 4.4, lpY + dy], [cx + 4.4, lpY + dy]], 'pp');      /* strapped to the pole with two bands */
+        N.push({ s: ['PROPOSED ' + f2(lp.len) + 'm LOOP', 'W/ LOOP HOLDER'], to: [cx + 8.3, lpY + 2.2] }); }
       else G.pl([K.out, [K.out[0] - 0.6, K.out[1] + 5], [cx + 5, top - 8]], 'ae');
       if (clo) { const c = [cx - 8.6, lpY + 10.5]; dTube(G, c, 2.3, 9, 'pp'); G.pl(dEll([c[0], c[1] + 9], 2.3, 2.6, 0, 180), 'pp'); N.push({ s: ['CLOSURE'], to: [c[0] + 2.3, c[1] + 6] }); }
       N.push({ s: ['SIMPLEX DUCT-PLUG 32mm', 'W/ GUIDE ROPE'], to: K.plug }, { s: ['SUB-DUCT 4 x 32mm'], to: K.sub }, { s: ['QUADPLEX PLUG'], to: K.collar }, { s: ['U-GUARD'], to: [px + pr, (ugB + ugT) / 2] });
