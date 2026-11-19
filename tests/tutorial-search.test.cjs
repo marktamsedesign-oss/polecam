@@ -88,6 +88,12 @@ const LINES = [
   // beta 6.7 (UX step 5): Find a setting (Plan style) and the ? of each Export row and Plan style section
   ['UX', '!find a setting · search a setting · where is a setting', 'planstyle'],
   ['UX', 'question mark', 'whichexport planstyle'],
+  // beta 6.8 (UX step 6; reviewer): with the drawing topic cut, a record's Owner name is still found (the boq topic's step about it)
+  ['2.42.18', '!owner name · coop · owner', 'boq rta'],
+  // beta 6.8: a proposed pole placed by hand (no photo), on the map and on the Drawing; a pole deleted on a cable keeps it joined
+  ['6.8', '!proposed pole · !pole without photo · proposed pole pin · add proposed pole · pin · pole not photographed · pp-0001', 'mappin drawedit'],
+  ['6.8', '!plot pole · !place pole on drawing · proposed pole on drawing', 'drawedit mappin'],
+  ['6.8', '!delete pole on cable · !cable cut · cable broken · deleted pole · missing span', 'route'],
   ['2.35', '!remove', 'adm-remove', true], // (t2351d: an admin's search)
   ['2.35', '!api key', 'adm-drivekey', true],
 ];
@@ -189,6 +195,32 @@ test('(s) admin topics only for the admin company; nothing for an empty query', 
 test('(s) the words marked in the text are the words found', () => {
   const Q = G.query('lte pho jpa colour');
   assert.deepEqual(['LTE', 'filter', 'Photos', 'telephone', 'JPA', 'RTA', 'certain', 'colors', 'Colours'].filter(Q.mark), ['LTE', 'Photos', 'JPA', 'RTA', 'colors', 'Colours']);
+});
+
+test('(s) beta 6.8 (UX step 6): another-words phrases are marked only where the whole phrase is', () => {
+  const on = (q, text) => JSON.parse(JSON.stringify(G.query(q).cut(text).filter(([, m]) => m).map(([x]) => x))); // (plain arrays here)
+  assert.deepEqual(on('pegman', 'Drag the little man onto a manhole; the man is little. The Little Man!'), ['little', 'man', 'Little', 'Man']);
+  assert.deepEqual(on('unhide', 'Hidden from the exports › Show in exports. Show me the exports.'), ['Show', 'in', 'exports']);
+  assert.deepEqual(on('streetview', 'Street View opens; the street; a view; streetview'), ['Street', 'View', 'streetview']);
+  assert.deepEqual(G.query('pegman').cut('a plain text').map(([x]) => x).join(''), 'a plain text'); // (the text whole, nothing lost)
+});
+test('(s) beta 6.8 (UX step 6): a word with other spellings matches whole words with their endings, not a cut stem', () => {
+  const M = G.query('meter'), C = G.query('centre');
+  assert.deepEqual(['metre', 'metres', 'meters', 'Metred', 'metro', 'isometric', 'metrology'].filter((w) => M.mark(w)), ['metre', 'metres', 'meters', 'Metred']);
+  assert.deepEqual(['center', 'centre', 'centred', 'centres', 'central', 'centrality', 'epicentre'].filter((w) => C.mark(w)), ['center', 'centre', 'centred', 'centres']);
+  const T = [tp('m', 'Map', '', ['the metro line']), tp('c', 'Cable', '', ['the central office']), tp('ok', 'Length', '', ['in whole metres'])];
+  assert.deepEqual(S('meter', T), ['ok']); assert.deepEqual(S('centre', T), []); assert.deepEqual(S('metres', T), ['ok']);
+  assert.deepEqual(['grey', 'greyed', 'gray', 'greyhound'].filter((w) => G.query('gray').mark(w)), ['grey', 'greyed', 'gray']);
+});
+test('(s) beta 6.8 (UX step 6): a query of only symbols looks for nothing (the app says No topic for)', () => {
+  ['?!', '--', '…', '***'].forEach((q) => assert.equal(G.query(q), null, q));
+  assert.deepEqual(search('?!', {}), []);
+});
+test('(s) beta 6.8 (UX step 6): of equal steps, the one that starts with the word\'s bold label is the one returned (owner: Owner name)', () => {
+  const T = [tp('t', 'Records', '', ['In the record, its **owner** is asked', '**Owner name**: type the coop'])];
+  assert.deepEqual(search('owner', { topics: T }).map((r) => r.step), [1]);
+  const boq = search('owner', {}).find((r) => r.id === 'boq'), t = G.topics.find((x) => x.id === 'boq');
+  assert.ok(boq && ids('owner').slice(0, 3).includes('boq') && /^\*\*Owner name\*\*/.test(t.steps[boq.step].t), JSON.stringify(boq));
 });
 
 /* the app's own search on the tutorial (the step-1 checks of the spec) */

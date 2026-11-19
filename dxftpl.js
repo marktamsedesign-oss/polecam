@@ -1209,6 +1209,28 @@
   const deg = (v) => Math.atan2(v[1], v[0]) * 180 / Math.PI;
   const rotv = (v, a) => { const r = a * Math.PI / 180, c = Math.cos(r), s = Math.sin(r); return [v[0] * c - v[1] * s, v[0] * s + v[1] * c]; };
   const add2 = (p, v, k) => [p[0] + v[0] * k, p[1] + v[1] * k];
+  /** beta 6.8: where one lane's two lines meet at a turn (the app's Drawing has the same, laneJoin in app.js). P: the turn's point on
+      the cable; p1, A, L1: the lane's line in (its start, direction, length: it ends abreast of P); q1, B, L2: the line out (it starts
+      abreast of P); u0: how far along the line in the lane already is; K: the cut's distance. Mitred; on the outside of a sharp turn cut
+      off square, K beyond the lane's own offset from P along the turn's bisector (so the lanes' cuts stay a lane apart, as their mitres
+      do); on the inside, where the lines would meet beyond the spans, straight across. Nearly straight on (under 8°): the same lane
+      mitred too (before, a lane off the cable's line cut the slight bend short and came closer to the next lane); another lane: null
+      (it moves over gently, as before). Returns { pts, u }: the points, and how far along the line out it then is. */
+  function laneJoin(P, p1, A, L1, q1, B, L2, u0, K) {
+    const dot = (u, v) => u[0] * v[0] + u[1] * v[1], c = A[0] * B[1] - A[1] * B[0], dt = dot(A, B), rel = (q) => [q[0] - P[0], q[1] - P[1]], nL = (D) => [-D[1], D[0]];
+    const mitre = () => add2(p1, A, ((q1[0] - p1[0]) * B[1] - (q1[1] - p1[1]) * B[0]) / c);
+    if (dt > 0.99) { // nearly straight on: another lane moves over gently (null, as before); the same lane bends with the cable (mitred)
+      if (Math.abs(dot(rel(add2(p1, A, L1)), nL(A)) - dot(rel(q1), nL(B))) > 0.05 * K) return null;
+      if (Math.abs(c) < 1e-9) return { pts: [q1], u: 0 }; const X = mitre(); return { pts: [X], u: Math.max(0, dot([X[0] - q1[0], X[1] - q1[1]], B)) };
+    }
+    const bl = Math.hypot(A[0] - B[0], A[1] - B[1]), bo = [(A[0] - B[0]) / bl, (A[1] - B[1]) / bl], nOut = (D) => { const n = nL(D); return dot(n, bo) < 0 ? [-n[0], -n[1]] : n; }; // (bo: out of the turn)
+    const cap = K + Math.max(0, dot(rel(add2(p1, A, L1)), nOut(A)), dot(rel(q1), nOut(B))); // (the lane's offset out of the turn)
+    let X = null, dX = Infinity; if (Math.abs(c) > 1e-9) { X = mitre(); dX = dot(rel(X), bo); }
+    if (dX > cap) { const s2 = (cap - dot(rel(q1), bo)) / dot(B, bo); return { pts: [add2(p1, A, (cap - dot(rel(p1), bo)) / dot(A, bo)), add2(q1, B, s2)], u: Math.max(0, s2) }; } // the outside of a sharp turn: cut off
+    const t = dot([X[0] - p1[0], X[1] - p1[1]], A), u = dot([X[0] - q1[0], X[1] - q1[1]], B);
+    if (t >= u0 - 1e-6 && u <= L2) return { pts: [X], u: Math.max(0, u) };
+    const u1 = Math.max(0, Math.min(L2, u)); return { pts: [add2(p1, A, Math.min(L1, Math.max(u0, t))), add2(q1, B, u1)], u: u1 }; // (the inside, spans too short for the lanes)
+  }
 
   /* ---------------- the template's models for poles, arms and guys ---------------- */
   const POLE_SYM = { // v2.32: about two thirds of the legend's size, smaller again where poles stand close together
@@ -2098,7 +2120,7 @@
       return { P, pieces: pieces.filter((l) => l.length > 1) };
     };
     const cabStyle = (cable, existing, cores) => { const st = CABLE_STYLE[cable] || CABLE_STYLE[''], lt = st.aerial ? ['DASHED', 'AERCA'].find((n) => S.ltypes.has(n)) : 'Continuous'; return { st, lt, color: existing ? 5 : st.color, lts: lt === 'DASHED' ? (existing ? 9 : 7) : 0, lwt: cabLw(cable, existing, cores) }; };
-    const drawCable = (line0, cs) => { const line = bendLine(line0); o.lwpoly(lay(cs.st.layer, 'Proposed foc aerial'), line, { lwt: cs.lwt || CABLE_LWT, color: cs.color, lt: cs.lt, lts: cs.lts, gen: true }); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); };
+    const drawCable = (line0, cs, bent) => { const line = bent ? line0 : bendLine(line0); o.lwpoly(lay(cs.st.layer, 'Proposed foc aerial'), line, { lwt: cs.lwt || CABLE_LWT, color: cs.color, lt: cs.lt, lts: cs.lts, gen: true }); spots.line(line, 1.5); spots.list.slice(-line.length + 1).forEach((b) => { b.tag = 'cable'; }); };
     for (const ch of chains) {
       const r = piecesOf(ch); if (!r) continue;
       // v2.32: aerial cable as a broken line (DASHED at linetype scale 7, 9 when existing, as the template's own sample drawing),
@@ -2120,10 +2142,10 @@
       const roadSg = (P0, Q0, nl) => { const tw = [(P0.td ? P0.td[0] : 0) + (Q0.td ? Q0.td[0] : 0), (P0.td ? P0.td[1] : 0) + (Q0.td ? Q0.td[1] : 0)]; return dot(nl, tw) < -1e-6 ? -1 : 1; };
       const laneVec = (st) => { // the lane's offset on its span (from the cable's line)
         const P0 = byId.get(String(st.a)), Q0 = byId.get(String(st.b)); if (!P0 || !Q0 || !P0.A || !Q0.A) return [0, 0];
-        const t = unit(P0.A, Q0.A), nl = [-t[1], t[0]], n = Math.max(1, st.n || 1), sg = roadSg(P0, Q0, nl), off = ((st.k || 0) - (n - 1) / 2) * G + sg * (n - 1) / 2 * G;
+        const t = unit(P0.A, Q0.A), nl = [-t[1], t[0]], n = Math.max(1, st.n || 1), sg = roadSg(P0, Q0, nl), off = st.z ? sg * (st.k || 0) * G : ((st.k || 0) - (n - 1) / 2) * G + sg * (n - 1) / 2 * G; // (beta 6.8: z, a span's own cable on lane 0 and only existing fibers: the lanes from its line toward the road; before, with the road on the right, the first existing one lay on the cable's own line)
         return [nl[0] * off, nl[1] * off];
       };
-      const laneOff = (st) => { const P0 = byId.get(String(st.a)), Q0 = byId.get(String(st.b)); if (!P0 || !Q0 || !P0.A || !Q0.A) return 0; const t = unit(P0.A, Q0.A), nl = [-t[1], t[0]], n = Math.max(1, st.n || 1); return ((st.k || 0) - (n - 1) / 2) * G + roadSg(P0, Q0, nl) * (n - 1) / 2 * G; };
+      const laneOff = (st) => { const P0 = byId.get(String(st.a)), Q0 = byId.get(String(st.b)); if (!P0 || !Q0 || !P0.A || !Q0.A) return 0; const t = unit(P0.A, Q0.A), nl = [-t[1], t[0]], n = Math.max(1, st.n || 1); return st.z ? roadSg(P0, Q0, nl) * (st.k || 0) * G : ((st.k || 0) - (n - 1) / 2) * G + roadSg(P0, Q0, nl) * (n - 1) / 2 * G; };
       const sideOf = (it, e, st) => { // the lane's point on a block's side: as on its span (the first lane on the cable's line), drawn in to fit within the block
         const P0 = byId.get(String(st.a)), Q0 = byId.get(String(st.b)), n = Math.max(1, st.n || 1);
         if (n < 2 || !P0 || !Q0) return e;
@@ -2147,28 +2169,44 @@
           const S0 = P.slice(0, m).map((p, j) => (E[j] ? E[j].eout : p.A)), S1 = P.slice(1).map((p, j) => (E[j + 1] ? E[j + 1].ein : p.A));
           const N = ST.map(laneVec), D = S0.map((a, j) => unit(a, S1[j])), Ls = S0.map((a, j) => dist2(a, S1[j])), Lt = Ls.map((L) => Math.min(3.2 * G, L / 3)); // (the length over which a lane moves over)
           const at = (j, s) => add2(add2(S0[j], D[j], s), N[j], 1); // on span j's lane, s metres from its start
-          const offL = (j, q) => Math.abs(cross(D[j], sub(q, at(j, 0)))), off = (j) => Math.hypot(N[j][0], N[j][1]); // how far a point is from span j's lane; the lane from the cable
+          const offL = (j, q) => Math.abs(cross(D[j], sub(q, at(j, 0)))); // how far a point is from span j's lane
           if (!f.ex) for (let j = 0; j < m; j++) { const k1 = `${P[j].id}>${P[j + 1].id}`, k2 = `${P[j + 1].id}>${P[j].id}`; (laneStart.get(k1) || laneStart.set(k1, []).get(k1)).push({ s: E[j] && E[j].eout ? sideOf(E[j].it, E[j].eout, ST[j]) : at(j, 0), at0: at(j, 0), d: D[j] }); (laneStart.get(k2) || laneStart.set(k2, []).get(k2)).push({ s: E[j + 1] && E[j + 1].ein ? sideOf(E[j + 1].it, E[j + 1].ein, ST[j]) : at(j, Ls[j]), at0: at(j, Ls[j]), d: [-D[j][0], -D[j][1]] }); } // (where it starts as drawn: on a block's side)
-          const pieces = []; let cur = [];
+          const pieces = []; let cur = [], u0 = 0; // (u0: how far along its current span's lane the line is)
           for (let i = 0; i <= m; i++) {
             const p = P[i], B = E[i];
             if (B) { // a block on the cable: the lane ends at its side and the next one starts at its other side, side by side within it
               if (B.ein) { const Q = sideOf(B.it, B.ein, ST[i - 1]); if (offL(i - 1, Q) > 0.05) cur.push(at(i - 1, Math.max(0, Ls[i - 1] - Lt[i - 1]))); cur.push(Q); pieces.push(cur); cur = []; }
               if (B.it.inner && B.it.inner.length) { const v = sideOf(B.it, [0, 0], ST[i] || ST[i - 1]); B.it.inner.forEach((seg) => pieces.push(seg.map((q) => add2(q, v, 1)))); } // (two boxes on the pole: the cable between them, in the fiber's lane)
-              if (B.eout) { const Q = sideOf(B.it, B.eout, ST[i]); cur = [Q]; if (offL(i, Q) > 0.05) cur.push(at(i, Math.min(Ls[i], Lt[i]))); }
+              if (B.eout) { const Q = sideOf(B.it, B.eout, ST[i]); cur = [Q]; u0 = 0; if (offL(i, Q) > 0.05) { cur.push(at(i, Math.min(Ls[i], Lt[i]))); u0 = Math.min(Ls[i], Lt[i]); } }
               continue;
             }
             if (i === 0) { cur.push(at(0, 0)); continue; } // a start at a pole: its lane starts abreast of the pole
             if (i === m) { cur.push(at(m - 1, Ls[m - 1])); continue; } // an end: abreast of the pole
-            const a = D[i - 1], b = D[i], c = cross(a, b);
-            if (Math.abs(c) > 0.14) { // a corner: the two lanes meet (mitred; a sharp one bevelled)
-              const p1 = at(i - 1, 0), q1 = at(i, 0), tt = cross(sub(q1, p1), b) / c, X = add2(p1, a, tt);
-              if (dist2(X, p.A) <= 4 * G + off(i - 1) + off(i)) cur.push(X); else cur.push(at(i - 1, Ls[i - 1]), at(i, 0));
-            } else if (dist2(N[i - 1], N[i]) < 0.05) cur.push(at(i, 0)); // straight on, the same lane
-            else cur.push(at(i - 1, Ls[i - 1] - Lt[i - 1]), at(i, Lt[i])); // straight on, another lane: moves over gently
+            const J = laneJoin(p.A, at(i - 1, 0), D[i - 1], Ls[i - 1], at(i, 0), D[i], Ls[i], u0, G); // a corner: the two lanes meet (beta 6.8: mitred, a sharp one cut off square; before, its bevel could swing a lane across the others)
+            if (J) { cur.push(...J.pts); u0 = J.u; } else if (dist2(N[i - 1], N[i]) < 0.05) { cur.push(at(i, 0)); u0 = 0; } // straight on, the same lane
+            else { cur.push(at(i - 1, Ls[i - 1] - Lt[i - 1]), at(i, Lt[i])); u0 = Lt[i]; } // straight on, another lane: moves over gently
           }
           if (cur.length) pieces.push(cur);
-          for (const line of pieces) if (line.length > 1) drawCable(line, cs);
+          /* beta 6.8: following the road, the lanes of a shared span follow it together: each piece along one span's lane takes that span's
+             road-following cable line (spanPath), moved over by the lane's offset (mitred at its bends), between its two ends, and a point
+             inside a span (where a lane moves over) sits on it too. Before, each lane looked for a road of its own, so two lanes beside each
+             other could bend differently (one straight, the other with the road), closer than a lane apart or further. A fiber on no
+             shared span: as before (bendLine). */
+          const shared = ST.some((st) => (st.n || 1) > 1), oL = (j) => N[j][0] * -D[j][1] + N[j][1] * D[j][0]; // (the lane's offset left of its way)
+          const onLane = (j, q) => { const v = sub(q, S0[j]); return Math.abs(cross(D[j], v) - oL(j)) < 0.01 ? dot(v, D[j]) : null; }; // (how far along span j's lane line q is; null: off it)
+          const rlC = new Map(), roadLane = (j) => { if (rlC.has(j)) return rlC.get(j); const pth = spanPath.get(`${P[j].id}|${P[j + 1].id}`), ol = oL(j);
+            const r = !pth || Math.abs(ol) < 1e-9 ? pth || null : pth.map((q, k) => { const a1 = k > 0 ? unit(pth[k - 1], q) : unit(q, pth[k + 1]), b1 = k < pth.length - 1 ? unit(q, pth[k + 1]) : a1, nv = [-(a1[1] + b1[1]), a1[0] + b1[0]], nn = Math.hypot(nv[0], nv[1]) || 1, mi = Math.max(0.5, (dot(a1, b1) + 1) / 2) ** 0.5;
+              return add2(q, [nv[0] / nn, nv[1] / nn], ol / mi); });
+            rlC.set(j, r); return r; };
+          const roadAt = (rl, j, s) => { let pv = null; for (const q of rl) { const sq = dot(sub(q, S0[j]), D[j]); if (pv && pv[1] <= s && sq >= s) { const f = (s - pv[1]) / ((sq - pv[1]) || 1e-9); return [pv[0][0] + (q[0] - pv[0][0]) * f, pv[0][1] + (q[1] - pv[0][1]) * f]; } pv = [q, sq]; } return null; };
+          const snap = (q) => { for (let j = 0; j < m; j++) { const s = onLane(j, q); if (s == null || s <= 0.5 || s >= Ls[j] - 0.5) continue; const rl = roadLane(j); return (rl && roadAt(rl, j, s)) || q; } return q; }; // (a point inside a span: on its road lane)
+          const bendLane = (line) => { const out = [snap(line[0])];
+            for (let k = 1; k < line.length; k++) { const a = line[k - 1], b = line[k];
+              for (let j = 0; j < m; j++) { const sa = onLane(j, a), sb = onLane(j, b); if (sa == null || sb == null || !((sa + sb) / 2 > 0 && (sa + sb) / 2 < Ls[j])) continue; // (the span whose lane line it runs along)
+                const rl = sb - sa >= 8 ? roadLane(j) : null; if (rl) rl.forEach((q) => { const s1 = dot(sub(q, S0[j]), D[j]); if (s1 > sa + 0.01 && s1 < sb - 0.01) out.push(q); }); break; }
+              out.push(snap(b)); }
+            return out; };
+          for (const line of pieces) if (line.length > 1) { if (FOLLOW && shared) drawCable(bendLane(line), cs, true); else drawCable(line, cs); }
         }
       }
     }
@@ -3013,9 +3051,9 @@
     FIB.forEach((f) => f.steps.forEach((st) => { if (st.gap) return; const k = K2(st.a, st.b); let li = laneInfo.get(k); if (!li) { li = { a: String(st.a), b: String(st.b), n: Math.max(1, st.n || 1), lanes: [] }; laneInfo.set(k, li); } li.lanes[st.k || 0] = { t: f.lbl || '', ex: !!f.ex, cab: f.cab || '', n: f.n }; }));
     const roadSgn = (P, Q, nl) => { const tw = [(P.td ? P.td[0] : 0) + (Q.td ? Q.td[0] : 0), (P.td ? P.td[1] : 0) + (Q.td ? Q.td[1] : 0)]; return (nl[0] * tw[0] + nl[1] * tw[1]) < -1e-6 ? -1 : 1; };
     const linesOf = (s, li) => { // the span's cable lines: [{ r: from the cable's line toward the road, t, ex, cab }]
-      if (li && s && !li.lanes[0] && li.lanes.every((x) => !x || x.ex)) { const L2 = li.lanes.slice(); L2[0] = { t: (s.runLbls || [])[0] || '', ex: false, cab: s.cable || '' }; li = { ...li, lanes: L2 }; } // (only existing fibers: the span's own cable on lane 0)
+      let zz = false; if (li && s && !li.lanes[0] && li.lanes.every((x) => !x || x.ex)) { const L2 = li.lanes.slice(); L2[0] = { t: (s.runLbls || [])[0] || '', ex: false, cab: s.cable || '' }; li = { ...li, lanes: L2 }; zz = true; } // (only existing fibers: the span's own cable on lane 0; beta 6.8: the others from its line toward the road, as drawn)
       if (li) { const P0 = byId.get(li.a), Q0 = byId.get(li.b); if (!P0 || !Q0 || !P0.A || !Q0.A) return []; const t0 = unit(P0.A, Q0.A), sg = roadSgn(P0, Q0, [-t0[1], t0[0]]), n = li.n;
-        return li.lanes.map((x, k) => (x ? { r: (sg * (k - (n - 1) / 2) + (n - 1) / 2) * LANE_G, ...x } : null)).filter(Boolean); }
+        return li.lanes.map((x, k) => (x ? { r: (zz ? k : sg * (k - (n - 1) / 2) + (n - 1) / 2) * LANE_G, ...x } : null)).filter(Boolean); }
       const P = byId.get(String(s.ia)), Q = byId.get(String(s.ib)), t = unit(P.A, Q.A), sg = roadSgn(P, Q, [-t[1], t[0]]), gap = 1.2 * kG, lb = s.runLbls || [];
       return [{ r: 0, t: lb[0] || '', ex: false, cab: s.cable || '' }, ...(s.more || []).map((cab, i) => ({ r: gap * (s.moreOff ? s.moreOff[i] : i + 1) * sg, t: lb[i + 1] || '', ex: !!(s.moreEx && s.moreEx[i]), cab }))];
     };
@@ -4088,7 +4126,7 @@
           o.circle(LG, cx, y, rr, { color: col }); o.text(LG, cx, y, th, '1', { ha: 1, va: 2, style: 'arial', color: col }); o.text(LG, cx + rr + pad, y, th, x.text, { ha: 0, va: 2, style: 'arial' }); });
         d.sec('ENTITIES').recs.push(...o.model.slice(m0));
         const hL = layerH(LG); if (hL) for (const L of S.layouts) for (const v of layoutEnts(d, S, L).filter((e) => typ(e) === 'VIEWPORT').slice(1)) if (v !== VP) vpFreeze(v, [hL]); } // (on that sheet only)
-      if (!done) rep.notes.push(`RTA/JPA legend not drawn: ${tried.length ? `no free room for it on the ${tried.join(' or the ')} sheet` : 'the template has no LEGENDS or KEYMAP sheet'} (Drawing style › Numbers › Legend: under the BOQ table instead)`);
+      if (!done) rep.notes.push(`RTA/JPA legend not drawn: ${tried.length ? `no free room for it on the ${tried.join(' or the ')} sheet` : 'the template has no LEGENDS or KEYMAP sheet'} (Plan style › Pole numbers › Owner colour key on the plan: Under each sheet's BOQ table instead)`); // (beta 6.8, UX step 6: the README note names Plan style's row; nothing drawn changes)
       rep.rtaLegend = { at: 'sheet', sheet: done ? LL.name : null, tried, rows: cats.map((x) => `${x.text} (${x.n || 0})`) };
     }
     rep.grid = { cell, cols: cellsI, rows: cellsJ, origin: [gx0, gy0], geo: [gox, goy] }; // (v2.42.25: + the GEO cells' origin)
