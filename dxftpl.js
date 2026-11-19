@@ -994,6 +994,8 @@
     return bestA && bestA.edge <= best.edge + ALONG_MORE ? bestA : best; // (more than 6 m farther: another street; a cable crossing its road at a pole keeps that road)
   }
   const ALONG_COS = Math.cos(35 * Math.PI / 180), ALONG_MORE = 6;
+  const BLK_TILT = 20; // beta 7.4 / 2.45.6: a Tidy pole block follows its street only within 20° of level or of upright; else it is level
+  const SITE_GH = 10, SITE_ROOM = 8; // beta 7.4 / 2.45.6: a tower's name and lat / long under it (their height at the template's scale, m); the room round a tower its poles' labels need
   /** The parts of a line that are not inside another road (cut points found to about 1 cm). */
   function keepOutside(line, idx, self) {
     const out = []; let cur = null;
@@ -1514,7 +1516,7 @@
     return { nm, pla, h, hp, two, cy, yN: two ? cy + hp * 0.7 : cy, yP: cy - h * 0.7, box: [W0.ax - hw, cy - hh, W0.ax + hw, cy + hh] };
   };
   const towerArrow = (p, W0, nb) => {
-      const K = W0.k, X = 12.4 * K, f = 0.1, side = p.E < W0.ax ? -1 : 1, beside = Math.abs(p.E - W0.ax) > X;
+      const K = W0.k, X = 12.4 * K, f = 0.1, side = p.E < W0.ax ? -1 : 1, beside = Math.abs(p.E - W0.ax) > X || !!(nb && nb.under && p.N < W0.ay); // (beta 7.3: its name under it: a point below it is reached from the side of its leg)
       let lx = W0.ax + side * (X * (1 - f) + 1.6 * K * f + 0.8); if (nb) lx = side < 0 ? Math.min(lx, nb.box[0] - 0.8) : Math.max(lx, nb.box[2] + 0.8); // (clear of the name on the tower)
       const A = beside ? [lx, W0.ay + 48 * K * f] : p.N < W0.ay ? [W0.ax, W0.ay - 0.8] : [W0.ax, W0.ay + 48 * K + 0.8], B = [p.E, p.N];
       const dx = B[0] - A[0], dy = B[1] - A[1], L = Math.hypot(dx, dy) || 1, TB = [W0.ax - X - 0.5, W0.ay - 0.5, W0.ax + X + 0.5, W0.ay + 48 * K + 0.5], inB = (q, b) => !!b && q[0] > b[0] && q[0] < b[2] && q[1] > b[1] && q[1] < b[3];
@@ -1628,15 +1630,18 @@
         const near = others.filter((q) => Math.abs(q.E - T.E) < 120 && Math.abs(q.N - T.N) < 160), sg = segs.filter((g) => Math.min(g.a[0], g.b[0]) < T.E + 120 && Math.max(g.a[0], g.b[0]) > T.E - 120 && Math.min(g.a[1], g.b[1]) < T.N + 160 && Math.max(g.a[1], g.b[1]) > T.N - 160);
         const cost = (ax, ay, k, atSite) => {
           const x0 = ax - TW * k - 0.6, x1 = ax + TW * k + 0.6, y0 = ay - 0.6, y1 = ay + TH * k + 0.6; let c = 0, hard = 0;
+          const gy0 = y0 - SITE_GH * k, M = SITE_ROOM * k; // (beta 7.3: its name and lat / long under it; the room round it the poles' labels and photos need)
           for (const q of near) { // a point under the tower (3 m round its symbol), or so close its labels have no room (8 m)
             if (atSite && odfNear(q)) continue; // (its ODF is then drawn beside it)
             const dx = Math.max(x0 - q.E, 0, q.E - x1), dy = Math.max(y0 - q.N, 0, q.N - y1), d = Math.hypot(dx, dy);
-            if (d < 3) { c += 100; hard++; } else if (d < 8) c += 10;
+            if (d < 3) { c += 100; hard++; } else if (d < 8) c += 10; else if (d < 8 + M) c += 3; // (beta 7.3: a pole a little further: its block and photo beside it)
+            if (q.E > x0 && q.E < x1 && q.N > gy0 && q.N < y0) c += 10; // (beta 7.3: a point where its name goes)
           }
-          for (const g of sg) { const L = clip(g.a, g.b, x0, y0, x1, y1); if (!L) continue; if (atSite && (g.ia === id || g.ib === id || odfIds.has(g.ia) || odfIds.has(g.ib))) continue; c += L * 3; } // (its own cable ends under it at its point; its ODF's cables go with the ODF beside it)
-          for (const r of roadsL) for (let i = 1; i < r.pts.length; i++) { const L = clip(r.pts[i - 1], r.pts[i], x0, y0, x1, y1); if (L) c += L * 0.05; }
-          for (const b of done) if (!(x1 < b[0] || x0 > b[2] || y1 < b[1] || y0 > b[3])) { c += 300; hard++; }
-          return { c, hard, box: [x0, y0, x1, y1] };
+          for (const g of sg) { if (atSite && (g.ia === id || g.ib === id || odfIds.has(g.ia) || odfIds.has(g.ib))) continue; /* (its own cable ends under it at its point; its ODF's cables go with the ODF beside it) */ c += clip(g.a, g.b, x0, y0, x1, y1) * 3;
+            c += clip(g.a, g.b, x0, gy0, x1, y0) * 2 + Math.max(0, clip(g.a, g.b, x0 - M, gy0 - M, x1 + M, y1 + M) - clip(g.a, g.b, x0, gy0, x1, y1)) * 0.3; } // (beta 7.3: another cable where its name goes, or close round it: open ground first)
+          for (const r of roadsL) for (let i = 1; i < r.pts.length; i++) { const L = clip(r.pts[i - 1], r.pts[i], x0, gy0, x1, y1); if (L) c += L * 0.05; }
+          for (const b of done) if (!(x1 < b[0] || x0 > b[2] || y1 < b[1] || gy0 > b[3])) { c += 300; hard++; }
+          return { c, hard, box: [x0, gy0, x1, y1] }; // (beta 7.3: with its name under it, inside its sheet too)
         };
         const k1 = 1 / NU; let best = { ax: T.E, ay: T.N, k: k1, moved: false, ...cost(T.E, T.N, k1, true) }; const at0 = best.c; // (beta 4.8: Tidy: on a finer grid, as much smaller)
         if (!inW(best.box)) best = { ...best, c: Infinity };
@@ -1654,7 +1659,7 @@
             }
           }
           if (Wc) for (const [ax, ay, k, kc] of cands.slice()) { // beta 3.8: a place past the sheet's edge, moved inside it
-            const x0 = ax - TW * k - 0.6, x1 = ax + TW * k + 0.6, y0 = ay - 0.6, y1 = ay + TH * k + 0.6, dx = Math.max(Wc[0] - x0, 0) - Math.max(x1 - Wc[2], 0), dy = Math.max(Wc[1] - y0, 0) - Math.max(y1 - Wc[3], 0);
+            const x0 = ax - TW * k - 0.6, x1 = ax + TW * k + 0.6, y0 = ay - 0.6 - SITE_GH * k, y1 = ay + TH * k + 0.6, dx = Math.max(Wc[0] - x0, 0) - Math.max(x1 - Wc[2], 0), dy = Math.max(Wc[1] - y0, 0) - Math.max(y1 - Wc[3], 0); // (beta 7.3: its name under it too)
             if (dx || dy) cands.push([ax + dx, ay + dy, k, kc + 5 + Math.abs(dx) * 0.5 + Math.abs(dy) * 0.5]);
           }
           for (const [ax, ay, k, kc] of cands) {
@@ -1685,6 +1690,19 @@
       };
     }
     const tw = (T) => { const w = towerAt.get(T) || { ax: T.E, ay: T.N, k: 1 / NU, moved: false }; if (NU > 1) w.nu = NU; return w; }; // (beta 4.8: nu: Tidy's finer grid, for the name on the tower)
+    /** beta 7.4 / 2.45.6 (the owner's GEO sheet as a drafter finished it): a tower's name, its PLA ID and its lat / long are one group,
+        under the tower (Plan style › Site name and ID: Bottom, the default; Top: above it; Side: beside it; On the tower: the name on its
+        body, its lat / long under it), never apart nor on another sheet. Sizes: Tidy, the pole blocks' (the name as their first line, the
+        lat / long as their smaller lines); Standard, the name 2.4 m, the lat / long as the other points'. f: smaller, where no place is
+        free at its size. box: under the tower, its top g below the tower's foot (rows: top down, 1.45 of their height apart). */
+    const siteGrp = (p, W0, f = 1) => {
+      const nm = String(p.siteName || p.poleId || ''), pla = String(p.plaId || ''), onT = job.siteName === 'on', kq = TIDY ? kAt(W0.ax, W0.ay) : 1;
+      const hN = (TIDY ? TS.l1 / kq : 2.4) * f, hL = (TIDY ? TS.sm / kq : +(job.poleStyle || {}).llH > 0 ? +job.poleStyle.llH : 1.2) * f;
+      const rows = [...(!onT && nm ? [{ s: nm, h: hN, bold: true, k: 'name' }] : []), ...(!onT && pla ? [{ s: pla, h: hN * 0.8, k: 'pla' }] : []), { s: `${(+p.lat).toFixed(6)}°`, h: hL, k: 'lat' }, { s: `${(+p.lon).toFixed(6)}°`, h: hL, k: 'lon' }];
+      const W = Math.max(...rows.map((r) => arialW(r.s, r.h, !!r.bold) * 1.1 + r.h * 0.3)), H = rows.reduce((t, r) => t + r.h * 1.45, 0), g = 0.8 / kq;
+      return { nm, pla, onT, rows, W, H, g, box: [W0.ax - W / 2, W0.ay - g - H, W0.ax + W / 2, W0.ay - g] };
+    };
+    const siteRoom = new Map(); // (beta 7.3: each tower's room under it, kept until its name group is placed)
     const odfMoved = new Map();
     { const byId0 = new Map(pts.map((p) => [String(p.id), p])), towers = pts.filter((p) => p.el === 'Site' && !/olt/i.test(p.siteKind || '')), nAt = new Map();
       for (const od of pts) { if (od.el !== 'ODF') continue;
@@ -2292,7 +2310,8 @@
           if (!S.redBts) { S.redBts = true; for (const e of S.blocks.get(bn).ents) { if (typ(e) === 'ATTDEF') continue; const k = e.findIndex((q) => q[0] === 62); if (k >= 0) e[k][1] = I(1); else e.splice(e.findIndex((q) => q[0] === 8) + 1, 0, [62, I(1)]); } }
         }
         { const W0 = tw(p); spots.add(Spots.box(W0.ax, W0.ay + 24 * W0.k, 26 * W0.k, 50 * W0.k, 0)); // the tower's place now; the tower and its name after the span lengths
-          if (W0.moved && job.towerArrow) { const AG = towerArrow(p, W0, job.siteName === 'on' ? towerNameBox(p, W0) : null); arrowOf.set(p, AG); spots.line(AG.mid, 1.4); spots.add(Spots.box(p.E, p.N, 3, 3, 0)); } // beta 3.8: the curved arrow's path
+          const G0 = siteGrp(p, W0); siteRoom.set(p, spots.add(Spots.box((G0.box[0] + G0.box[2]) / 2, (G0.box[1] + G0.box[3]) / 2, G0.box[2] - G0.box[0], G0.box[3] - G0.box[1], 0), 'label:site')); // (beta 7.3: the room under it for its name and lat / long, kept free of the labels placed before it)
+          if (W0.moved && job.towerArrow) { const nb0 = job.siteName === 'on' ? towerNameBox(p, W0) : null, AG = towerArrow(p, W0, { box: nb0 ? [Math.min(nb0.box[0], G0.box[0]), G0.box[1], Math.max(nb0.box[2], G0.box[2]), nb0.box[3]] : G0.box, under: true }); arrowOf.set(p, AG); spots.line(AG.mid, 1.4); spots.add(Spots.box(p.E, p.N, 3, 3, 0)); } // beta 3.8: the curved arrow's path (beta 7.3: clear of its name and lat / long under it)
           else if (W0.moved) { const L = towerLead(p, W0); spots.line(L, 0.6); spots.add(Spots.box(p.E, p.N, 3, 3, 0)); } } // beta 3.7: its line to the point, and the point's mark
         siteLate.push({ p, bn });
       } else if (p.el === 'ODF') {
@@ -2756,6 +2775,7 @@
       for (const r of o.model) {
         const t = r[0][1]; if ((t !== 'TEXT' && t !== 'ATTRIB' && t !== 'MTEXT') || [KMLAY, VLAY, VMAP].includes(gv(r, 8, ''))) continue;
         const h0 = +gv(r, 40, 0); if (!(h0 > 0) || (t === 'ATTRIB' && (parseInt(gv(r, 70, '0'), 10) & 1))) continue;
+        if (t !== 'MTEXT' && !String(gv(r, 1, '')).trim()) continue; // (beta 7.3: an empty text, e.g. a tower's PLA_ID with none, is not drawn: nothing to overlap)
         if (t === 'MTEXT') {
           const L = mplain(r.filter((x, i) => i > 0 && (x[0] === 3 || x[0] === 1)).map((x) => x[1]).join('')).split('\n'), w = Math.max(...L.map((l) => arialW(l, h0))) * 1.12, Hm = h0 + (L.length - 1) * h0 * 5 / 3 * (+gv(r, 44, 1) || 1);
           const at = parseInt(gv(r, 71, '1'), 10) || 1, cl = (at - 1) % 3, rw = Math.floor((at - 1) / 3), a = Math.atan2(+gv(r, 21, 0), +gv(r, 11, 1)), u = [Math.cos(a), Math.sin(a)], du = w * (0.5 - cl * 0.5), dv = Hm * (rw * 0.5 - 0.5);
@@ -2811,13 +2831,19 @@
         } }
       // beta 4.8: each pole's block turned along the cable that serves it (the span towards the homing; a pole with no cable: along its
       // road), reading upright; vA: out from the road on the pole's side; e: from the pole to that road's edge; k: its sheet's scale
+      /* beta 7.4 / 2.45.6 (the owner's GEO sheet as a drafter finished it: "the app generations seems a bit not polished.. learn from
+         human edit"): the drafter turned every diagonal pole block level. A block follows its street (its cable) only where the street
+         runs within BLK_TILT (20°) of level, or of upright (then it reads as the street's name does, along it); else it is level, never
+         diagonal. Its places still line up along the street: su, the street's way (vA, e as before); u, ang: the block's own way. */
       for (const T of tidyTodo) {
         const p = T.p, Q = (nb.get(p) || []).filter((q) => q.A || q.dp), up0 = Q.length ? Q.slice().sort((a, b) => hd(a) - hd(b))[0] : null;
         let d0 = up0 ? unit(p.A || p.dp, up0.A || up0.dp) : p.near ? p.near.dir : p.fw || [1, 0]; if (!(Math.hypot(d0[0], d0[1]) > 0.5)) d0 = [1, 0];
-        const ang = readable(deg(d0)), u = [Math.cos(ang * Math.PI / 180), Math.sin(ang * Math.PI / 180)], up = [-u[1], u[0]], away = p.td ? [-p.td[0], -p.td[1]] : p.on || up, sv = away[0] * up[0] + away[1] * up[1] >= 0 ? 1 : -1;
-        const nr = R.roads.length ? nearestRoad(R.roads, p.dp, 20, u) : null, par = nr && nr.d > 0.05 && Math.abs(nr.dir[0] * u[0] + nr.dir[1] * u[1]) >= ALONG_COS; /* (the road the block runs along: its side and edge) */
-        const sA = par ? (((p.dp[0] - nr.c[0]) * up[0] + (p.dp[1] - nr.c[1]) * up[1]) >= 0 ? 1 : -1) : sv;
-        Object.assign(T, { u, ang, vA: [up[0] * sA, up[1] * sA], e: nr ? Math.max(0, par ? nr.edge : nearestRoad(R.roads, p.dp, 20).edge) : 0, k: kAt(p.dp[0], p.dp[1]) });
+        { const sr = R.roads.length ? nearestRoad(R.roads, p.dp, 20, d0) : null; if (sr && sr.edge <= 8) d0 = sr.dir; } // (beta 7.3: the way of the street it stands beside (the one along its cable first); else its cable's)
+        const angS = readable(deg(d0)), su = [Math.cos(angS * Math.PI / 180), Math.sin(angS * Math.PI / 180)], sup = [-su[1], su[0]], away = p.td ? [-p.td[0], -p.td[1]] : p.on || sup, sv = away[0] * sup[0] + away[1] * sup[1] >= 0 ? 1 : -1;
+        const nr = R.roads.length ? nearestRoad(R.roads, p.dp, 20, su) : null, par = nr && nr.d > 0.05 && Math.abs(nr.dir[0] * su[0] + nr.dir[1] * su[1]) >= ALONG_COS; /* (the road the block runs along: its side and edge) */
+        const sA = par ? (((p.dp[0] - nr.c[0]) * sup[0] + (p.dp[1] - nr.c[1]) * sup[1]) >= 0 ? 1 : -1) : sv;
+        const tilt = Math.abs(angS > 180 ? angS - 360 : angS), ang = tilt <= BLK_TILT || tilt >= 90 - BLK_TILT ? angS : 0, u = [Math.cos(ang * Math.PI / 180), Math.sin(ang * Math.PI / 180)]; // (beta 7.3: level, unless the street is nearly level or nearly upright)
+        Object.assign(T, { u, ang, su, vA: [sup[0] * sA, sup[1] * sA], e: nr ? Math.max(0, par ? nr.edge : nearestRoad(R.roads, p.dp, 20).edge) : 0, k: kAt(p.dp[0], p.dp[1]) });
       }
       for (const T of symT) T.k = kAt(T.p.dp[0], T.p.dp[1]);
       const badgeSize = (T) => { const B = T.badge; if (!B) return; let hn = T.h, d = NS.d > 0 ? Math.max(B.sq.length * hn * CHW + hn * 0.6, 2.1 * hn) : B.sq.length * hn * CHW; if (B.wl > 0 && d > B.wl) { hn *= B.wl / d; d = B.wl; } B.hn = hn; B.d = d; }; // (the circle at most W across)
@@ -2842,13 +2868,20 @@
              whatever its photo needs; at that place its photo tries beside the block, then by the pole (0 to 5), then a quarter smaller (phS), then
              beside the block though further (6, listed), else on its own near the pole (7: placed with the photos, see placePhotos); the photo's
              steps cost far less than one step of the block's place, so the photo never moves the block nor gives it a line */
-          const phVar = (q, c0) => { cands.push({ cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0, ph: 0 }); if (PH) { [1, 2, 3, 4, 5].forEach((i) => cands.push({ cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0 + 0.01 * i, ph: i })); /* (beta 6.7: never a smaller photo: phS dropped) */ cands.push({ cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0 + 0.2, ph: 6 }, { cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0 + 0.3, ph: 7 }); } };
-          const u = T.u, up = [-u[1], u[0]], vA = T.vA, gR = 0.6 / kk, sq = 1.1 * p.rp, eu = sq * (Math.abs(u[0]) + Math.abs(u[1])), ev = sq * (Math.abs(vA[0]) + Math.abs(vA[1])), x0s = Wt / 2 + eu + 0.5 / kk, at = (xc, yc) => [x + u[0] * xc + vA[0] * yc, y + u[1] * xc + vA[1] * yc];
+          const phVar = (q, c0) => { cands.push({ cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0, ph: 0 }); if (PH) { [1, 2, 3, 4, 5].forEach((i) => cands.push({ cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0 + 0.01 * i, ph: i })); /* (beta 6.7: never a smaller photo: phS dropped) */ [8, 9, 10, 11].forEach((i) => cands.push({ cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0 + 0.03 + 0.01 * i, ph: i })); /* (beta 7.3: beside the block's other side, or past its far end) */ cands.push({ cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0 + 0.2, ph: 6 }, { cx: q[0], cy: q[1], u: T.u, ang: T.ang, cost: c0 + 0.3, ph: 7 }); } };
+          /* beta 7.3: the places line up along the street (su; vA: out from it), the block as it reads (u: level, or along a nearly level or
+             upright street): eS, eV, its half reach along the street and out from it (Wt / 2, Ht / 2 when it reads along the street) */
+          const u = T.u, up = [-u[1], u[0]], su = T.su || u, vA = T.vA, gR = 0.6 / kk, sq = 1.1 * p.rp, eu = sq * (Math.abs(su[0]) + Math.abs(su[1])), ev = sq * (Math.abs(vA[0]) + Math.abs(vA[1]));
+          const eS = (Math.abs(u[0] * su[0] + u[1] * su[1]) * Wt + Math.abs(up[0] * su[0] + up[1] * su[1]) * Ht) / 2, eV = (Math.abs(u[0] * vA[0] + u[1] * vA[1]) * Wt + Math.abs(up[0] * vA[0] + up[1] * vA[1]) * Ht) / 2;
+          const x0s = eS + eu + 0.5 / kk, at = (xc, yc) => [x + su[0] * xc + vA[0] * yc, y + su[1] * xc + vA[1] * yc];
           for (let r = 0; r < 6; r++) {
-            const yc = -T.e + gR + Ht / 2 + r * (Ht + 1.2 / kk), clear = yc - Ht / 2 >= ev + 0.4 / kk, /* (eu, ev: its pole's symbol square across u and vA) */ xs = clear ? [[0, 0], [Wt / 4, 1], [-Wt / 4, 1.2], [Wt / 2, 2], [-Wt / 2, 2.2]] : [];
-            [0, 1 / 3, 2 / 3, 1, 1.5].forEach((f, n) => { xs.push([x0s + f * Wt, n * 1.5], [-(x0s + f * Wt), n * 1.5 + 0.4]); });
+            const yc = -T.e + gR + eV + r * (2 * eV + 1.2 / kk), clear = yc - eV >= ev + 0.4 / kk, /* (eu, ev: its pole's symbol square across su and vA) */ xs = clear ? [[0, 0], [eS / 2, 1], [-eS / 2, 1.2], [eS, 2], [-eS, 2.2]] : [];
+            [0, 1 / 3, 2 / 3, 1, 1.5].forEach((f, n) => { xs.push([x0s + f * 2 * eS, n * 1.5], [-(x0s + f * 2 * eS), n * 1.5 + 0.4]); });
             for (const [xc, cc] of xs) { const q = at(xc, yc); phVar(q, r * 9 + cc * 4); } // (beta 6.0: its photo always beside it on the side away from the road: nearest its pole, else the middle, else the far end; see fill)
           }
+          /* beta 7.3 (the drafter put every block right beside its pole, with no line): all round the pole, touching its symbol (and a
+             little further), on either side of the street, before the places further out that need a line */
+          [0.5, 2].forEach((g0, ring) => D16.forEach((dv) => { const ext = Math.abs(dv[0] * u[0] + dv[1] * u[1]) * Wt / 2 + Math.abs(dv[0] * up[0] + dv[1] * up[1]) * Ht / 2, out = dv[0] * vA[0] + dv[1] * vA[1], q = add2(p.dp, dv, sq * (Math.abs(dv[0]) + Math.abs(dv[1])) + g0 / kk + ext); phVar(q, 30 + ring * 5 + (1 - out) * 3 + (out < -0.3 ? 12 : 0)); }));
           [10, 16, 23, 31, 40].forEach((rr, ring) => D16.forEach((dv) => { const ext = Math.abs(dv[0] * u[0] + dv[1] * u[1]) * Wt / 2 + Math.abs(dv[0] * up[0] + dv[1] * up[1]) * Ht / 2, q = add2(p.dp, dv, rr / kk + ext), c0 = 60 + ring * 12 + (dv[0] * vA[0] + dv[1] * vA[1] < 0 ? 8 : 0); phVar(q, c0); }));
         } else
         [0, 1.25, 2.5, 3.75, 5, 6.5, 8].map((v) => v / kk).forEach((ex) => D8.slice().sort(byAng).forEach(([dx, dy], k) => { const r = r0 + ex, cx = dx && dy ? x + dx * (r * 0.72 + Wt / 2) : dx ? x + dx * (r + Wt / 2) : x, cy = dx && dy ? y + dy * (r * 0.72 + Ht / 2) : dy ? y + dy * (r + Ht / 2) : y;
@@ -2869,12 +2902,14 @@
           c.tb = Spots.box(c.cx, c.cy, Wt, Ht, c.ang || 0);
           if (T.u && T.PH) { // beta 4.8: its photo upright (square to the sheet), beside its block; beta 6.0 (the owner: "always on the side away from the road but must be near the pole"): see phVar
             const P2 = c.phS ? { w: T.PH.w * c.phS, h: T.PH.h * c.phS } : T.PH, up = [-cu[1], cu[0]], fe = xl < 0 ? 1 : -1, g = 0.4 / kk, eu = (Math.abs(cu[0]) * P2.w + Math.abs(cu[1]) * P2.h) / 2, ev = (Math.abs(up[0]) * P2.w + Math.abs(up[1]) * P2.h) / 2, sv = (T.vA[0] * up[0] + T.vA[1] * up[1]) >= 0 ? 1 : -1;
-            const byBlock = (k) => { const mL = Math.max(0, Wt / 2 - eu), lx = k === 2 ? fe * mL : k === 1 ? 0 : Math.max(-mL, Math.min(mL, xl)), ly = sv * (Ht / 2 + g + ev); return Spots.box(c.cx + cu[0] * lx - cu[1] * ly, c.cy + cu[1] * lx + cu[0] * ly, P2.w, P2.h, 0); };
+            const byBlock = (k, s = sv) => { const mL = Math.max(0, Wt / 2 - eu), lx = k === 2 ? fe * mL : k === 1 ? 0 : Math.max(-mL, Math.min(mL, xl)), ly = s * (Ht / 2 + g + ev); return Spots.box(c.cx + cu[0] * lx - cu[1] * ly, c.cy + cu[1] * lx + cu[0] * ly, P2.w, P2.h, 0); };
+            const byEnd = (s) => { const lx = fe * (Wt / 2 + g + eu), ly = s * Math.max(0, Ht / 2 - ev); return Spots.box(c.cx + cu[0] * lx - cu[1] * ly, c.cy + cu[1] * lx + cu[0] * ly, P2.w, P2.h, 0); }; // (beta 7.3: past the block's far end, level with its top or its foot)
             const byPole = (k) => { const vA = T.vA, uA = T.u, sq = 1.1 * p.rp, eA = (Math.abs(vA[0]) * P2.w + Math.abs(vA[1]) * P2.h) / 2, eB = (Math.abs(uA[0]) * P2.w + Math.abs(uA[1]) * P2.h) / 2, j = k % 3, far = k >= 3 ? Math.min(P2.w, P2.h) * 0.6 : 0;
               const along = j === 0 ? 0 : (j === 1 ? 1 : -1) * (eB + sq * 0.5 + g), q = add2(add2(p.dp, vA, sq + g + eA + far), uA, along); return Spots.box(q[0], q[1], P2.w, P2.h, 0); }; // (by the pole, on the side away from the road: straight out or to either side; k 3 to 5 a little further)
             const ph = c.ph || 0;
             if (ph === 7) c.phOwn = true; /* (beta 6.4: on its own, near the pole: placed with the photos) */ else if (ph === 6) { c.pb = byBlock(0); c.phFar = dist2([c.pb.cx, c.pb.cy], p.dp) > NEAR_PH; if (c.phFar) c.lost = true; } /* (beta 6.7: far from the pole beside its block: no; on its own with its line (7) instead) */ // (no free place near the pole: beside its block, listed when far)
             else if (!c.lead && ph < 3) { c.pb = byBlock(ph); if (dist2([c.pb.cx, c.pb.cy], p.dp) > NEAR_PH) c.lost = true; } // (beside a block by its pole, when that is near the pole)
+            else if (ph >= 8) { if (c.lead) c.lost = true; else { c.pb = ph < 10 ? byBlock(ph - 8, -sv) : byEnd(ph === 10 ? 1 : -1); if (dist2([c.pb.cx, c.pb.cy], p.dp) > NEAR_PH) c.lost = true; } } // (beta 7.3: the block's other side, or past its far end: where the open ground is)
             else { c.pb = byPole(c.lead ? ph : ph - 3); c.phPole = true; } // (a block further out with its line, or a long block: the photo by the pole)
             if (c.pb && ((c.lbox && Spots.hit(c.pb, c.lbox)) || (c.ebox && Spots.hit(c.pb, c.ebox)) || Spots.hit(c.pb, c.tb))) c.lost = true; // (not over its block's line, nor its block)
           }
@@ -2957,6 +2992,9 @@
         let i0 = 0; for (const T of ALL) { const d = choose(T); now.set(T, d); i0++; if (d.bad) { badT.add(T); if (++nb0 > upTo) { PHS.forEach((U) => { U.photo = U.ph0; }); return null; } } } // (given up as soon as clearly too many lack a free place; badT: beta 4.8, the cells to split further)
         for (const T of PHS) { T.photo = T.ph0; prep(T); const d0 = now.get(T), at = (c) => Math.abs(c.cx - d0.best.cx) < 1e-6 && Math.abs(c.cy - d0.best.cy) < 1e-6, all0 = T.cands; d0.bx.forEach((b) => { b._k--; });
           T.cands = all0.filter((c) => at(c) && c.ph !== 7); let d1 = T.cands.length ? choose0(T, false, false) : null;
+          /* beta 7.3 (the drafter put each photo right beside its pole's block, no line): no room for the photo at the block's place: the
+             block and its photo together at another place beside the pole (no line, as near as there is room), before the photo on its own */
+          if ((!d1 || d1.nf) && !LEAD_OK && !d0.best.lead) { if (d1) d1.bx.forEach((b) => { b._k--; }); T.cands = all0.filter((c) => c.ph !== 7 && c.ph !== 6); d1 = choose0(T, false, true); if (d1 && (d1.nf || d1.bad)) { d1.bx.forEach((b) => { b._k--; }); d1 = null; } }
           if (!d1 || d1.nf) { if (d1) d1.bx.forEach((b) => { b._k--; }); T.cands = all0.filter((c) => at(c) && c.ph === 7); d1 = T.cands.length ? choose0(T, false, false) : null; }
           T.cands = all0; if (d1 && !(d1.bad && !d0.bad)) { d1.form = d0.form; now.set(T, d1); } else { if (d1) d1.bx.forEach((b) => { b._k--; }); d0.bx.forEach((b) => { b._k++; }); d0.best = { ...d0.best, phOwn: true }; } } // (its photo then on its own near the pole)
         for (const T of ALL) { // where one found no free place: it and the labels round it once more, it first (the others have more room to give way); kept where fewer are left without room
@@ -3053,6 +3091,7 @@
       if (smaller.length) rep.notes.push(`Tidy labels drawn smaller than the others (no free place at the plan's size): ${smaller.join(', ')}`); // beta 4.8
     };
     if (tidy) tidyPlace();
+    for (const b of siteRoom.values()) b._k--; // (beta 7.3: the room under each tower kept from the pole labels, their photos and numbers; the cable labels and span lengths take their usual places, its name group then the free place nearest it)
     // 5. span lengths: mid-span, on the road side of the cable (a span over the maximum in red). v2.42.23: the length only (no fibers'
     // tags, no runs); before it, each cable's own label beside its own line, and the length beyond them
     /** v2.42.24: each cable's own label (PROPOSED 24C FIG-8 (RUN 5), EXISTING 48C) beside its own line on the span, parallel to it, on
@@ -3184,10 +3223,35 @@
        its name (PULL-OFF / CROSS-OVER, no number) in red, level, inside a dashed red bubble above its block, a short dashed tail from the
        bubble to the block's edge; as high as the red PROPOSED CLOSURE label, or the pole label's lines (Standard: the pole ID and clamp
        lines; Tidy: the block's smaller lines) where those are smaller; nudged left, right or up where something is there. */
-    { const JLT = ['DASHED', 'DASHED2', 'AERCA'].find((n) => S.ltypes.has(n)) || null, PST = job.poleStyle || {}, hI0 = +PST.idH > 0 ? +PST.idH : 2.2;
+    /* beta 7.4 / 2.45.6 (the owner's GEO sheet as a drafter finished it: no bubble, a small "PULL-OFF" right beside the square, "EXTENDED
+       MESSENGER" along the messenger arm with no FOC, no lat / long): Plan style › Cables › Pull-off / cross-over name: Small text beside
+       it (job.jnName 'text', the default): its name in red, level, as high as the poles' lat / long lines, right beside its block where it
+       covers nothing (to its right, left, above or below, a little further where the corner is crowded); Dashed bubble ('bubble'): as
+       beta 6.9. Either way each arm with no FOC on it says EXTENDED MESSENGER along it (parallel, as small, red, on layer MESSENGER),
+       where it covers nothing; smaller on a short arm; none where even that does not fit along it. */
+    { const JLT = ['DASHED', 'DASHED2', 'AERCA'].find((n) => S.ltypes.has(n)) || null, PST = job.poleStyle || {}, hI0 = +PST.idH > 0 ? +PST.idH : 2.2, hL0 = +PST.llH > 0 ? +PST.llH : 1.2, BUB = job.jnName === 'bubble';
       for (const { p, at, sz, J, arms } of jnDone) {
         const hClo = TIDY ? TS.id / kAt(at[0], at[1]) : IDS.h, hPole = TIDY ? TS.sm / kAt(at[0], at[1]) : Math.max(1.5 * hI0 / 2.2, hI0 * kG), th = Math.min(hClo, hPole);
-        const txt = J.w, w = arialW(txt, th) * 1.08, ea = w * 0.62 + th * 0.6, eb = th * 1.08, r0 = sz / 2, cands = [];
+        const hLL = TIDY ? TS.sm / kAt(at[0], at[1]) : Math.max(0.9 * hL0 / 1.2, hL0 * kG), r0 = sz / 2, ext = [];
+        const extAll = () => { for (const a of arms) { if (a.foc) continue; // its EXTENDED MESSENGER along it (after its name: the name keeps its place by the block)
+          const E = a.end, L = dist2(at, E), u = unit(at, E), rr = readable(deg(u)), ru = [Math.cos(rr * Math.PI / 180), Math.sin(rr * Math.PI / 180)], nv = [-ru[1], ru[0]], s0 = r0 + 0.4 * hLL, s1 = L - 0.6 * hLL, cs = []; // (along the arm: past the block, short of the pole's symbol)
+          for (const k of [1, 0.85, 0.7]) { const ts = hLL * k, w = arialW('EXTENDED MESSENGER', ts) * 1.08; if (w > s1 - s0) continue;
+            for (const f of [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8]) { const m = Math.max(s0 + w / 2, Math.min(s1 - w / 2, f * L)); for (const [sd, g] of [[1, 0.35], [-1, 0.35], [1, 0.9], [-1, 0.9]]) {
+              const q = add2(add2(at, u, m), nv, sd * (0.3 + ts * (0.5 + g))), bx = Spots.box(q[0], q[1], w + ts * 0.2, ts * 1.2, rr);
+              cs.push({ q, ts, rr, boxes: [bx], cost: (1 - k) * 100 + Math.abs(f - 0.5) * 4 + (g > 0.5 ? 2 : 0) + (sd < 0 ? 0.5 : 0) + (cellHolds(bx, at[0], at[1]) ? 0 : 50) }); } } }
+          const c = cs.length ? pickC(spots, cs, W_LBL) : null; if (!c) { ext.push({ id: a.id, none: true }); continue; }
+          o.text('MESSENGER', c.q[0], c.q[1], c.ts, 'EXTENDED MESSENGER', { rot: c.rr, ha: 1, va: 2, style: 'arial', color: 1 }); spots.add(c.boxes, 'label');
+          ext.push({ id: a.id, at: c.q.map((v) => +v.toFixed(2)), rot: +c.rr.toFixed(2), h: +c.ts.toFixed(3), over: (c.n || 0) >= 1 }); } };
+        if (!BUB) { // its name, small, right beside its block
+          const txt = J.w, ts = hLL, w = arialW(txt, ts) * 1.08, cands = [];
+          [0.3, 0.8, 1.6, 2.8, 4.5].forEach((gg, i) => { const g = gg * ts; [[r0 + g, 0, 0], [-(r0 + g), 0, 2], [r0 + g, r0 + ts * 0.65, 0], [r0 + g, -(r0 + ts * 0.65), 0], [-(r0 + g), r0 + ts * 0.65, 2], [-(r0 + g), -(r0 + ts * 0.65), 2], [0, r0 + g + ts * 0.65, 1], [0, -(r0 + g + ts * 0.65), 1]].forEach(([dx, dy, ha], k) => {
+            const x = at[0] + dx, y = at[1] + dy, bx = Spots.box(x + (ha === 0 ? w / 2 : ha === 2 ? -w / 2 : 0), y, w + ts * 0.3, ts * 1.25, 0); cands.push({ x, y, ha, boxes: [bx], cost: i * 10 + k + (cellHolds(bx, at[0], at[1]) ? 0 : 100) }); }); });
+          const c = pickC(spots, cands, W_LBL);
+          o.text(J.b, c.x, c.y, ts, txt, { ha: c.ha, va: 2, style: 'arial', color: 1 }); spots.add(c.boxes, 'label'); extAll();
+          (rep.jn || (rep.jn = [])).push({ id: String(p.id), el: p.el, text: txt, mode: 'text', h: +ts.toFixed(3), hLL: +hLL.toFixed(3), at: [c.x, c.y].map((v) => +v.toFixed(2)), ha: c.ha, poles: (p.att || []).map(String), arms, ext, over: (c.n || 0) >= 1 });
+          continue;
+        }
+        const txt = J.w, w = arialW(txt, th) * 1.08, ea = w * 0.62 + th * 0.6, eb = th * 1.08, cands = [];
         const tailOf = (c) => { const e = add2(at, unit(at, c), r0 * 1.05), t0 = Math.atan2((e[1] - c[1]) / eb, (e[0] - c[0]) / ea); return { e, s: [-0.3, 0.3].map((dt) => [c[0] + ea * Math.cos(t0 + dt), c[1] + eb * Math.sin(t0 + dt)]) }; };
         for (const up of [0.9, 1.8, 3, 4.5, 6.5, 9]) for (const f of [0, 0.5, -0.5, 1, -1, 1.6, -1.6, 2.3, -2.3]) { // (beta 7.1: further up and aside where the corner is crowded)
           const c = [at[0] + f * ea, at[1] + r0 + up * th + eb], T = tailOf(c), m = [(T.s[0][0] + T.s[1][0]) / 2, (T.s[0][1] + T.s[1][1]) / 2], bx = Spots.box(c[0], c[1], 2 * ea, 2 * eb, 0);
@@ -3196,8 +3260,8 @@
         const c = pickC(spots, cands, W_LBL), dash = { color: 1, lwt: 18, ...(JLT ? { lt: JLT, lts: +(th * 1.2).toFixed(3), gen: true } : {}) };
         o.lwpoly(J.b, Array.from({ length: 48 }, (_, k) => [c.c[0] + ea * Math.cos(k * Math.PI / 24), c.c[1] + eb * Math.sin(k * Math.PI / 24)]), { ...dash, closed: true }); // the bubble
         o.lwpoly(J.b, [c.T.s[0], c.T.e, c.T.s[1]], dash); // its tail, to the block's edge
-        o.text(J.b, c.c[0], c.c[1], th, txt, { ha: 1, va: 2, style: 'arial', color: 1 }); spots.add(c.boxes, 'label');
-        (rep.jn || (rep.jn = [])).push({ id: String(p.id), el: p.el, text: txt, h: +th.toFixed(3), hClo: +hClo.toFixed(3), hPole: +hPole.toFixed(3), at: c.c.map((v) => +v.toFixed(2)), ea: +ea.toFixed(2), eb: +eb.toFixed(2), lt: JLT, poles: (p.att || []).map(String), arms, over: (c.n || 0) >= 1 });
+        o.text(J.b, c.c[0], c.c[1], th, txt, { ha: 1, va: 2, style: 'arial', color: 1 }); spots.add(c.boxes, 'label'); extAll();
+        (rep.jn || (rep.jn = [])).push({ id: String(p.id), el: p.el, text: txt, mode: 'bubble', h: +th.toFixed(3), hClo: +hClo.toFixed(3), hPole: +hPole.toFixed(3), at: c.c.map((v) => +v.toFixed(2)), ea: +ea.toFixed(2), eb: +eb.toFixed(2), lt: JLT, poles: (p.att || []).map(String), arms, ext, over: (c.n || 0) >= 1 });
       } }
     // v2.42.11: each tower, its name beside the tower where it covers nothing (the cable, the road lines, the poles, their labels,
     // the span lengths), inside the tower's GEO sheet. v2.42.13: its box as wide as AutoCAD draws it (Arial bold at the attribute's
@@ -3219,39 +3283,34 @@
         spots.add(Spots.box((nb.box[0] + nb.box[2]) / 2, (nb.box[1] + nb.box[3]) / 2, nb.box[2] - nb.box[0], nb.box[3] - nb.box[1], 0), 'label:site');
         attrs = { BTS_NAME: { v: nm, x: p.E, y: yN, h, ha: 1, va: 2, hidden: true }, PLA_ID: { v: pla, x: p.E, y: yP, h: hp, ha: 1, va: 2, hidden: true } };
         nInCell++; (rep.siteOnTower = rep.siteOnTower || []).push({ id: String(p0.id), h: +h.toFixed(2), at: [+p.E.toFixed(2), +cy.toFixed(2)] });
-      } else if (nm) {
-        const wfN = attW(bn, 'BTS_NAME'), wfP = attW(bn, 'PLA_ID'), two = !!pla, bySize = [];
-        const boxAt = (x, y, w, h, ha) => Spots.box(x + (ha === 0 ? w / 2 : ha === 2 ? -w / 2 : 0), y, w, h, 0);
-        for (const h of [3.0, 2.4, 2.0, 1.6].map((v) => v / NU)) { // (beta 4.8: Tidy: on a finer grid, the name and its room as much smaller)
-          const wN = arialW(nm, h, true) * wfN + h * 0.5, hp = h * 0.8, wP = two ? arialW(pla, hp, false) * wfP + hp * 0.5 : 0, sub = h * 1.6, g = h * 0.4 + 0.6 / NU;
-          const tallUp = h * 0.65 + 0.3 / NU, tallDn = two ? sub + hp * 0.65 + 0.3 / NU : tallUp; // the name's middle to the top of its box, to the bottom of the PLA ID
-          const at = []; // [x, y, ha] of the name's middle-left / -centre / -right; nearest first
-          const X = 12.4 * K, Y = 48 * K; // (beta 3.7: the tower at its size)
-          for (const dy of [30, 22, 38, 14, 44, 6]) { at.push([-X - g, dy * K, 2]); at.push([X + g, dy * K, 0]); }
-          for (const [x, ha] of [[0, 1], [X, 2], [-X, 0], [3 / NU, 2], [-3 / NU, 0]]) { at.push([x, Y + g + tallDn, ha]); at.push([x, -g - tallUp, ha]); }
-          for (const dx of [6, 12, 20].map((v) => v / NU)) for (const dy of [30, 14, 44, 2]) { at.push([-X - g - dx, dy * K, 2]); at.push([X + g + dx, dy * K, 0]); }
-          // v2.42.26: the place chosen in Drawing style (top: above the tower; bottom: below it, below its ODF too; side: beside it), the side
-          //           away from the tower's ODF first; Auto as before (beside, then above or below)
-          const oSide = [...odfMoved.values()].filter((m) => m.T === p0).map((m) => m.side), fam = ([, dy]) => (dy > Y - 2 ? 'top' : dy < 0 ? 'bottom' : 'side');
-          for (const ex of [5, 10].map((v) => v / NU)) for (const [x, ha] of [[0, 1], [X, 2], [-X, 0]]) { at.push([x, Y + g + tallDn + ex, ha]); at.push([x, -g - tallUp - ex - (oSide.includes('below') ? 8 / NU : 0), ha]); }
-          if (oSide.includes('below')) for (const [x, ha] of [[0, 1], [X, 2], [-X, 0]]) at.push([x, -g - tallUp - 9 / NU, ha]);
-          const SN = ['top', 'side', 'bottom'].includes(job.siteName) ? job.siteName : 'auto', away = (a) => (oSide.includes('left') ? (a[0] < 0 ? 1 : 0) : oSide.includes('right') ? (a[0] > 0 ? 1 : 0) : 0);
-          const at2 = SN === 'auto' ? at.slice() : at.filter((a) => fam(a) === SN), sIdx = at2.map((a, i) => (fam(a) === 'side' ? i : -1)).filter((i) => i >= 0), sides = sIdx.map((i) => at2[i]).map((a, i) => [a, i]).sort((x, y) => away(x[0]) - away(y[0]) || x[1] - y[1]).map((x) => x[0]);
-          sIdx.forEach((i, k) => { at2[i] = sides[k]; }); // (the side slots away from the ODF first; the others keep their places)
-          at.length = 0; at.push(...at2);
-          const cs = at.map(([dx, dy, ha], k) => {
-            const q = [p.E + dx, p.N + dy], boxes = [boxAt(q[0], q[1], wN, h * 1.3, ha)]; if (two) boxes.push(boxAt(q[0], q[1] - sub, wP, hp * 1.3, ha));
-            return { q, h, ha, sub, cost: k, boxes };
-          }), csIn = cs.filter((c) => c.boxes.every((b) => inCellBox(b, p.E, p.N)));
-          bySize.push(csIn.length || SN === 'auto' ? csIn : cs); // (v2.42.26: Top, Side or Bottom chosen: there, even past the sheet's edge)
+      }
+      { /* beta 7.4 / 2.45.6 (the owner's GEO sheet as a drafter finished it: the tower's name under it, its lat / long under the name; the
+           app had written a tower's longitude alone at the sheet's top edge and another's lat / long in the middle of the route): its
+           name, PLA ID and lat / long one group (see siteGrp; On the tower: its lat / long only), in the room kept under it (Bottom, the
+           default; Top: above it; Side: beside it, the side away from its ODF first), else the next free place round it, wholly inside
+           its tower's GEO sheet; smaller where none is free at its size; the place covering least only where none is free at all. */
+        const X = 12.4 * K, Y = 48 * K, SN = ['top', 'side', 'bottom', 'on'].includes(job.siteName) ? job.siteName : 'bottom', oSide = [...odfMoved.values()].filter((m) => m.T === p0).map((m) => m.side);
+        const wfN = attW(bn, 'BTS_NAME'), wfP = attW(bn, 'PLA_ID'), away = (x) => (oSide.includes('left') ? (x < 0 ? 1 : 0) : oSide.includes('right') ? (x > 0 ? 1 : 0) : 0), all = []; let c = null;
+        for (const f of [1, 0.85, 0.7]) {
+          const G = siteGrp(p0, W0, f), g = G.g, at = [], dB = oSide.includes('below') ? 9 / NU : 0; // [x (its middle, or its edge toward the tower), y (its top), ha, family]
+          [0, 3, 6, 10].forEach((ex) => [0, 0.45, -0.45, 0.8, -0.8].forEach((s) => at.push([s * X, -g - dB - ex / NU, 1, 'bottom', ex])));
+          [0, 5, 10].forEach((ex) => [0, 0.45, -0.45].forEach((s) => at.push([s * X, Y + g + G.H + ex / NU, 1, 'top', ex])));
+          [0, 6, 12].forEach((ex) => [0.3, 0.5, 0.15, 0.7, 0.9].forEach((fy) => [1, -1].forEach((sd) => at.push([sd * (X + g + ex / NU), fy * Y + G.H / 2, sd > 0 ? 0 : 2, 'side', ex]))));
+          const famK = (fm) => (fm === (SN === 'on' ? 'bottom' : SN) ? 0 : fm === 'bottom' ? 15 : fm === 'side' ? 20 : 30); // (its own place first (a little further out too), then under it, beside it, above it)
+          const cs = at.map(([dx, dy, ha, fm, ex], k) => { let y = p.N + dy; const x = p.E + dx, boxes = G.rows.map((r) => { const w = arialW(r.s, r.h, !!r.bold) * (r.k === 'name' ? wfN : r.k === 'pla' ? wfP : 1) * 1.08 + r.h * 0.3, ym = y - r.h * 0.725; y -= r.h * 1.45; return Spots.box(x + (ha === 0 ? w / 2 : ha === 2 ? -w / 2 : 0), ym, w, r.h * 1.3, 0); });
+            return { x, y: p.N + dy, ha, fm, G, boxes, ex, cost: famK(fm) + ex * 2 + (fm === 'side' ? away(dx) * 6 : 0) + k * 0.01 + (1 - f) * 400 }; }).filter((x) => x.boxes.every((bx) => inCellBox(bx, p.E, p.N)));
+          cs.sort((u, v) => u.cost - v.cost); all.push(...cs);
+          const hits = (x, W) => x.boxes.reduce((t, bx) => t + spots.hitsW(bx, W), 0), ROAD_OK = (t) => (t === 'road' ? 0 : SITE_W(t));
+          c = cs.find((x) => !famK(x.fm) && !hits(x, SITE_W)) || cs.find((x) => x.ex <= 6 && !hits(x, SITE_W)) || cs.find((x) => x.ex <= 6 && !hits(x, ROAD_OK)) || cs.find((x) => !hits(x, SITE_W)); // (its own place, a little further out too; else right by the tower, across a road edge line rather than further away)
+          if (c) break;
         }
-        let c = null;
-        for (const cs of bySize) { c = cs.find((x) => x.boxes.reduce((t, b) => t + spots.hitsW(b, SITE_W), 0) === 0); if (c) break; } // the largest size with a free place
-        if (!c) { const all = bySize.flat(); if (all.length) c = pickC(spots, all.map((x) => ({ ...x, cost: x.cost + (3 - x.h * NU) * 40 })), SITE_W); } // none free: the place covering least (bigger first)
-        if (!c) { const h = 2.0 / NU, q = [p.E - 12.4 * K - 1.4 / NU, p.N + 30 * K]; c = { q, h, ha: 2, sub: h * 1.6, boxes: [boxAt(q[0], q[1], arialW(nm, h, true) * wfN, h * 1.3, 2)] }; } // (no place inside the sheet: at its left)
-        else nInCell++;
+        if (c) { if (!c.G.onT) nInCell++; } else c = all.length ? pickC(spots, all, SITE_W) : (() => { const G = siteGrp(p0, W0); return { x: p.E, y: p.N - G.g, ha: 1, fm: 'bottom', G, boxes: [] }; })(); // (none free: the place covering least; none inside the sheet: under it)
         spots.add(c.boxes, 'label:site');
-        attrs = { BTS_NAME: { v: nm, x: c.q[0], y: c.q[1], h: c.h, ha: c.ha, va: 2 }, PLA_ID: { v: pla, x: c.q[0], y: c.q[1] - c.sub, h: c.h * 0.8, ha: c.ha, va: 2 } };
+        const at2 = (c.ha === 0 ? 1 : c.ha === 2 ? 3 : 2), rowY = []; { let y = c.y; for (const r of c.G.rows) { rowY.push(y); y -= r.h * 1.45; } }
+        const ri = (k) => c.G.rows.findIndex((r) => r.k === k), iN = ri('name'), iP = ri('pla'), iL = ri('lat');
+        if (!c.G.onT) attrs = { BTS_NAME: iN >= 0 ? { v: nm, x: c.x, y: rowY[iN] - c.G.rows[iN].h * 0.725, h: c.G.rows[iN].h, ha: c.ha, va: 2 } : '', PLA_ID: iP >= 0 ? { v: pla, x: c.x, y: rowY[iP] - c.G.rows[iP].h * 0.725, h: c.G.rows[iP].h, ha: c.ha, va: 2 } : '' };
+        o.mtext(lay('LATLONG'), c.x, rowY[iL], c.G.rows[iL].h, `{\\fSimSun|b0|i0|c134|p2;${(+p0.lat).toFixed(6)}%%D\\P${(+p0.lon).toFixed(6)}%%D}`, { style: '样式 1', att: at2, ls: 0.87, color: +(job.poleStyle || {}).llColor || null });
+        (rep.siteGroups || (rep.siteGroups = [])).push({ id: String(p0.id), place: c.fm, x: +c.x.toFixed(2), top: +c.y.toFixed(2), h: c.G.rows.map((r) => +r.h.toFixed(2)), tower: [+p.E.toFixed(2), +p.N.toFixed(2), +K.toFixed(4)], over: c.n || 0 });
       }
       o.insert(lay('X-BTS'), bn, p.E, p.N, { scale: 2.4 * K, attrs, attrColor: pinColor(p) }); if (onTower) onTower(); // (beta 3.8: the name on it, after it)
       if (W0.moved) { // beta 3.7: a thin line from the site's point to its tower, and a small mark at the point (in the tower's colour)
@@ -3330,6 +3389,8 @@
             for (const gap of [0.8, 2, 3.5, 5.5, 8, 11]) for (const ds of [0, 2, -2, 4, -4, 7, -7]) {
               const q = add2(add2(p.dp, ov, p.lblFar + gap + eo), p.fw, p.lblMid + ds); tries.push({ q, u: unit(p.dp, q), gap, cost: gap * 0.3 + Math.abs(ds) * 0.3 });
             }
+            // beta 7.4 / 2.45.6 (the drafter put each photo right beside its pole, no line): then all round the pole, beside it (and a little further), before a place further out with a line
+            for (const gap of [0.8, 2.5, 4.5]) for (let k = 0; k < 24; k++) { const f = k * 15, r = f * Math.PI / 180; tries.push({ u: [p.on[0] * Math.cos(r) + p.fw[0] * Math.sin(r), p.on[1] * Math.cos(r) + p.fw[1] * Math.sin(r)], gap, cost: 20 + gap + Math.min(f, 360 - f) / 15 * 0.5 }); }
           } else if (ph) { // (a pole with no label: as before, beside where its label would be)
             tries.forEach((x) => { x.cost += 6; });
             const ext = (d) => (w * Math.abs(d[0]) + h * Math.abs(d[1])) / 2, es = ext(p.fw), eo = ext(p.on), L0 = p.lblS ? p.lblS[0] : -6, L1 = p.lblS ? p.lblS[1] : 6, o0 = eo - 0.2;
@@ -3435,6 +3496,7 @@
       const later = [];
       for (const p of ORDER) {
         const S0 = setup(p, round === 'num'); if (round === 'photo' && !S0.ph) continue; // (a point without a photo has its number already)
+        if (p.el === 'Site' && !S0.ph) continue; // beta 7.4 / 2.45.6 (the drafter took them off): no number circle for a tower, site or OLT on the GEO sheets (its photo, if it has one, stays)
         if (TIDY && (S0.ph ? tidyCard.has(p) : tidyBadged.has(p))) continue; // (beta 4.8: Tidy: its photo or number is in its label)
         if (TIDY && S0.ph) { const f = tidyPh(S0); if (f) commit(S0, f, 'near its pole'); else later.push(S0); continue; } // beta 4.8
         if (p.on) { const r = search(S0, MARK_USUAL); if (r.free) { commit(S0, r.free, 'usual'); continue; } }
@@ -3467,20 +3529,24 @@
        CLOSURE and its ID in red, two lines as large as the IDs, after the pole labels, IDs and span lengths, before the photos, numbers, street and landmark names (which then keep off it), the
        nearest free place round the pentagon a little out from it, with a red arrow (a line and a filled head) to the pentagon's edge */
     { let nCL = 0, nFar = 0, nOver = 0; const W_CL = (t) => (t === 'road' || t === 'cable' ? 0.15 : 1), W_AR = (t) => (t === 'road' || t === 'cable' ? 0 : t === 'lead' ? 0.4 : !t ? 0.15 : 1), CLY = lay('P-JOINT');
-      for (const { at, R: Rp, cid } of cloLbl) { // (Rp: the pentagon's reach)
-        const th = TIDY ? TS.id / kAt(at[0], at[1]) : IDS.h, L2 = ['PROPOSED CLOSURE', cid], w = Math.max(...L2.map((x) => arialW(x, th))) * 1.08, h = th * 2.6; let best = null;
+      /* beta 7.4 / 2.45.6 (the owner's GEO sheet as a drafter finished it): one line, PROPOSED CLOSURE, with the closure's own ID after
+         it where it has one (PROPOSED CLOSURE · CL-01), never the default "CLOSURE" under it; beside the road, clear of its edge lines
+         and the cable (a line through it read as struck through) wherever such a place is free, else as before */
+      const W_CLR = (t) => (t === 'road' || t === 'cable' ? 1 : 0);
+      for (const { at, R: Rp, cid, p: cp } of cloLbl) { // (Rp: the pentagon's reach)
+        const own = String((cp && cp.closureId) || (cid !== 'CLOSURE' ? cid : '') || '').trim(), th = TIDY ? TS.id / kAt(at[0], at[1]) : IDS.h, L2 = [own ? `PROPOSED CLOSURE · ${own}` : 'PROPOSED CLOSURE'], w = Math.max(...L2.map((x) => arialW(x, th))) * 1.08, h = th * 1.3; let best = null;
         for (const g of [2.2, 3.5, 5, 7, 10, 14, 19, 25]) { for (let k = 0; k < 16; k++) { const v = rotv([1, 0], k * 22.5 + (g > 5 ? 11.25 : 0)), ex = Math.abs(v[0]) * w / 2 + Math.abs(v[1]) * h / 2, c = add2(at, v, Rp + g * th + ex), bx = Spots.box(c[0], c[1], w + th * 0.4, h + th * 0.3, 0);
             if (!cellHolds(bx, at[0], at[1])) continue; // (inside the closure's own sheet)
             const a0 = add2(c, v, -(ex + 0.25 * th)), a1 = add2(at, v, Rp + 0.15 * th), La = dist2(a0, a1), ab = La > 0.2 ? Spots.box((a0[0] + a1[0]) / 2, (a0[1] + a1[1]) / 2, La, 0.25 * th, deg(v)) : null;
             const nb = spots.hitsW(bx, W_CL), na = ab ? spots.hitsW(ab, W_AR) : 0, n = nb * 10 + na * 3, cost = n + g * 0.35 + k * 0.001 + (R.idx.inside(c, -1, 0) ? 1.5 : 0);
-            const ok = nb < 0.35 && na < 0.5; /* (free: over a road or cable line at most, its arrow across no text or photo) */ if (!best || (ok && !best.ok) || (ok === best.ok && cost < best.cost)) best = { c, v, bx, a0, a1, ab, n, nb, na, g, cost, ok }; }
-          if (best && best.ok) break; }
+            const ok = (nb < 0.35 && na < 0.5 ? 1 : 0) + (nb < 0.35 && na < 0.5 && !spots.hitsW(bx, W_CLR) ? 1 : 0); /* (free: over a road or cable line at most, its arrow across no text or photo; beta 7.3: better, over no line at all) */ if (!best || ok > best.ok || (ok === best.ok && cost < best.cost)) best = { c, v, bx, a0, a1, ab, n, nb, na, g, cost, ok }; }
+          if (best && best.ok === 2) break; }
         if (!best) continue;
         const { c, v, a0, a1 } = best, ah = 0.9 * th, aw = 0.38 * th, pv = [-v[1], v[0]], b0 = add2(a1, v, ah);
-        L2.forEach((x, i) => o.text(CLY, c[0], c[1] + (i ? -0.65 : 0.65) * th, th, x, { ha: 1, va: 2, style: 'arial', color: 1 }));
+        L2.forEach((x) => o.text(CLY, c[0], c[1], th, x, { ha: 1, va: 2, style: 'arial', color: 1 }));
         if (dist2(a0, a1) > ah * 1.05) o.lwpoly(CLY, [a0, b0], { color: 1 });
         o.solid(CLY, [a1, add2(b0, pv, aw), add2(b0, pv, -aw)], { color: 1 });
-        spots.add([best.bx], 'label'); if (best.ab) spots.line([a0, a1], 0.3); if (!best.ok) nOver++; nCL++; (rep._cloL || (rep._cloL = [])).push({ cid, g: best.g, box: +best.nb.toFixed(2), arrow: +best.na.toFixed(2) }); if (best.g > 7) nFar++;
+        spots.add([best.bx], 'label'); if (best.ab) spots.line([a0, a1], 0.3); if (!best.ok) nOver++; nCL++; (rep._cloL || (rep._cloL = [])).push({ cid: own, text: L2[0], g: best.g, box: +best.nb.toFixed(2), arrow: +best.na.toFixed(2), clear: best.ok === 2, at: c.map((x) => +x.toFixed(2)) }); if (best.g > 7) nFar++;
       }
       if (cloLbl.length) { rep.closureLabels = { proposed: cloLbl.length, labelled: nCL, further: nFar, notFree: nOver, each: rep._cloL || [] }; delete rep._cloL; if (nOver) rep.notes.push(`PROPOSED CLOSURE labels with no free place (placed where they cover least): ${nOver}`); } }
     let Lp = TIDY ? PHMM / (printK || 0.62) : PHMM * 1.1, photoPl = placePhotos(Lp); /* (beta 6.7: Standard too: the size set, in metres at 1:1100; no longer smaller where the poles stand close, nor again below) */ // (beta 6.4: Tidy: the photo size as set, printed) // (beta 4.8: Tidy: about 1.4 times the street's width, at most; 2.44.10: Drawing style's photo size)
@@ -3513,11 +3579,12 @@
     if (!TIDY && photoPl.left.length) rep.notes.push(`Photos left out (no place even at their smallest step; the point's number is on the plan; its photo is in the folder): ${photoPl.left.length}: ${photoPl.left.slice(0, 12).map((p) => p.poleId || p.id).join(', ')}${photoPl.left.length > 12 ? '…' : ''}`); // (beta 6.7: never, as far as the measures go)
     if (TIDY && photoPl.left.length) rep.notes.push(`Photos with no free place near their pole (left out: the point's number is on the plan; its photo is in the folder): ${photoPl.left.map((p) => p.poleId || p.id).join(', ')}`); // beta 4.8
     rep.photoSize = +Lp.toFixed(1); rep.photosNotFree = photoPl.miss; rep.photosAsNumber = nNoRoom; rep.markMode = markMode;
-    const withPh = new Set([...photoPl.out.filter((x) => x.ph).map((x) => String(x.p.id)), ...[...tidyCard].map((p) => String(p.id))]); /* (beta 4.8: with Tidy's photos in their labels) */ /* (v2.42.26: no room for its photo: its number; beta 4.1: by the photos placed) */ rep.marks = markOrder.map((p) => [p.seq, String(p.id), withPh.has(String(p.id)) ? (markMode === 'both' ? 'photo+number' : 'photo') : 'number']); // v2.40: the numbers on the plan
+    const withPh = new Set([...photoPl.out.filter((x) => x.ph).map((x) => String(x.p.id)), ...[...tidyCard].map((p) => String(p.id))]); /* (beta 4.8: with Tidy's photos in their labels) */ /* (v2.42.26: no room for its photo: its number; beta 4.1: by the photos placed) */ rep.marks = markOrder.filter((p) => p.el !== 'Site' || withPh.has(String(p.id))).map((p) => [p.seq, String(p.id), withPh.has(String(p.id)) ? (markMode === 'both' && p.el !== 'Site' ? 'photo+number' : 'photo') : 'number']); // v2.40: the numbers on the plan (beta 7.3: none for a site)
     // 11. coordinates of the points that are not poles
     // v2.37: smaller, where they cover nothing (none for a NAP or closure drawn on its pole)
     for (const p of pts) {
       if (p.el === 'Pole' || p.onPole) continue;
+      if (JNW[p.el] || (p.el === 'Site' && !/olt/i.test(p.siteKind || ''))) continue; // beta 7.4 / 2.45.6: none for a pull-off or cross-over (the drafter took it off); a tower's is under its name (see its name group)
       const q0 = inl.has(p) ? inl.get(p).at : [p.E, p.N], ext = inl.has(p) ? Math.max(inl.get(p).hl, inl.get(p).hh) : 3, hL = TIDY ? TS.sm / kAt(q0[0], q0[1]) : +(job.poleStyle || {}).llH > 0 ? +job.poleStyle.llH : 1.2, w = 10 * hL * CHW, h = 2 * 1.67 * hL; // (beta 4.3: the lat/long height of the drawing style)
       // v2.41: where every place is taken, over a road edge line or the cable rather than over an ID, a number or a photo
       const kq = TIDY ? kAt(q0[0], q0[1]) : 1, cs = []; for (const r of [ext + 1.5 / kq, ext + 5 / kq, ext + 9 / kq, ext + 13 / kq, ext + 18 / kq]) for (const a of [-45, 45, -135, 135, -90, 90, 0, 180]) { /* (beta 4.8: on a finer grid, as much nearer) */ const u = rotv([1, 0], a), c = add2(q0, u, r + w / 2 * Math.abs(u[0]) + h / 2 * Math.abs(u[1])); cs.push({ q: [c[0] - w / 2, c[1] + h / 2], boxes: [Spots.box(c[0], c[1], w * 1.1, h, 0)] }); }
@@ -3673,7 +3740,7 @@
         scanTexts(); const A = TX.all.filter((x) => +TX.gv(x.r, 62, 0) !== 250), cs = 25, cel = new Map(), seen = new Set(); let nOv = 0;
         A.forEach((x, i) => { const R0 = Math.hypot(x.b.hw, x.b.hh); for (let a = Math.floor((x.b.cx - R0) / cs); a <= Math.floor((x.b.cx + R0) / cs); a++) for (let c = Math.floor((x.b.cy - R0) / cs); c <= Math.floor((x.b.cy + R0) / cs); c++) { const k = a + ',' + c; (cel.get(k) || cel.set(k, []).get(k)).push(i); } });
         for (const L of cel.values()) for (let p = 0; p < L.length; p++) for (let q = p + 1; q < L.length; q++) { const i = L[p], j = L[q], k = i < j ? i * 1e6 + j : j * 1e6 + i; if (seen.has(k)) continue; seen.add(k);
-          const gi = tidyGrp.get(A[i].r), gj = tidyGrp.get(A[j].r); if (gi && gi === gj) continue; if (Spots.hit(A[i].b, A[j].b)) nOv++; }
+          const gi = tidyGrp.get(A[i].r), gj = tidyGrp.get(A[j].r); if (gi && gi === gj) continue; if (Spots.hit(A[i].b, A[j].b)) { nOv++; if (job.debug) (T7.overPairs || (T7.overPairs = [])).push([TX.gv(A[i].r, 1, ''), TX.gv(A[j].r, 1, '')]); } }
         T7.textsOver = nOv; if (rep._grid) rep._grid.ov = nOv; }
       rep.tidy = T7;
     }
