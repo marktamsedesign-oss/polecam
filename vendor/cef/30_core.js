@@ -16,7 +16,7 @@ function setAllowPct(v) { const n = v == null || v === '' ? NaN : +v; ALLOW_PCT 
 let LOOP_M = 15;
 function setLoopM(v) { const n = v == null || v === '' ? NaN : +v; LOOP_M = Number.isFinite(n) && n > 0 ? Math.min(100, n) : 15; return LOOP_M; }
 const cloLoopLen = R => /LIGHT/i.test(String(((R || {}).ae || {}).cable || '')) ? 10 : LOOP_M;
-const loopName = len => 'PROPOSED ' + f2(len) + 'm LOOP W/ HOLDER';      /* (the name it had: LOOP HOLDER W/ 15m LOOP) */
+const loopName = len => 'PROPOSED ' + f2(len) + 'm LOOP ON LOOP HOLDER', LOOPBAND = 'SS BAND & BUCKLE (2)';      /* (beta 7.2: PROPOSED 15m LOOP W/ HOLDER; before: LOOP HOLDER W/ 15m LOOP) beta 7.3 / 2.45.5: the loop holder is a snowshoe, strapped with two stainless steel bands */
 const allowOf = L => Math.round(Math.round((+L || 0) * 10) * ALLOW_PCT / 100) / 10;      /* (in tenths, whole numbers: 28.5 m at 10 % is 2.9 m) */
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const snap = v => Math.round(v * 10) / 10;
@@ -40,6 +40,7 @@ const LAYERS = {
   ex: ['CEF-EXISTING', 5, 0, '--d-exis', [0.14, 0.40, 0.78], 0.30],
   ld: ['LADDER', 3, 0, '--d-ladder', [0.13, 0.52, 0.34], 0.18],
   pp: ['CEF-PROPOSED', 1, 0, '--d-prop', [0.82, 0.19, 0.16], 0.35],
+  pt: ['CEF-PROPOSED-DETAIL', 1, 0, '--d-prop', [0.82, 0.19, 0.16], 0.13],      /* beta 7.3 / 2.45.5: the fine line work of a proposed fitting (the loop holder and its loop), as a detail drawing has it */
   ug: ['P-UG_FOC', 12, 0, '--d-prop', [0.82, 0.19, 0.16], 0.60],
   ae: ['P-AERIAL_FOC', 12, 1, '--d-prop', [0.82, 0.19, 0.16], 0.50],
   tx: ['CEF-TEXT', 7, 0, '--d-ink', [0.10, 0.13, 0.17], 0.15],
@@ -1778,11 +1779,7 @@ function buildTop(S, o) {
   for (const v of rg.verts) if (v.kind !== 'exit' && !v.hop && !v.inside) G.ci(v.at, S.room ? 0.05 : v.kind === 'riser' ? GIR : 0.2, 'pp');
   if (!S.room) for (const id in rg.ports) { const g = rg.ports[id].p, r = 0.055, k = r * 0.7; G.ci([g[0], g[1]], r, 'pp'); G.pl([[g[0] - k, g[1] - k], [g[0] + k, g[1] + k]], 'pp'); G.pl([[g[0] - k, g[1] + k], [g[0] + k, g[1] - k]], 'pp'); }      /* (19:25) where the cable goes into the cabinet */
   G.grp = null;      /* a riser: the pipe on the pole */
-  for (const lp of rg.loops) {
-    const c = [lp.at[0] + 0.55, lp.at[1] + 0.55], key = 'loop' + lp.i + (lp.ck || ''); for (const k of [0, 1, 2]) G.ci([c[0] + k * 0.035, c[1] - k * 0.035], 0.36 - k * 0.04, 'pp');      /* beta 7.2 / 2.45.3: the loop coiled (3 turns) on its holder (the cross), tied to the pole */
-    G.pl([[c[0] - 0.45, c[1] - 0.45], [c[0] + 0.45, c[1] + 0.45]], 'pp'); G.pl([[c[0] - 0.45, c[1] + 0.45], [c[0] + 0.45, c[1] - 0.45]], 'pp'); G.pl([lp.at, [c[0] - 0.3, c[1] - 0.3]], 'pp'); LB.block(sqr(c, 0.5, 0), 1, key);
-    jobs.push({ o: 4, key, lines: [labText(S, key, loopName(lp.len))], lay: 'tp', ap: c, a: 0, cands: (w, hh) => [{ p: [c[0] + 0.6 + w / 2, c[1]], a: 0 }, { p: [c[0], c[1] + 0.6 + hh / 2], a: 0 }, { p: [c[0] - 0.6 - w / 2, c[1]], a: 0 }, { p: [c[0], c[1] - 0.6 - hh / 2], a: 0 }, { p: [c[0] + 0.6 + w / 2, c[1] + hh], a: 0 }, { p: [c[0] + 0.6 + w / 2, c[1] - hh], a: 0 }], st: 'P' });
-  }
+  /* (beta 7.3 / 2.45.5, the owner: "Loop and holder should not appear on the top view, only on the isometric": the loop at a closure is not drawn here) */
   if (o.dims) {
     const dS = swing.S + 2.2 * th, dW = swing.W + 2.2 * th, tk = 0.4 * th;
     G.pl([[0, -dS], [L, -dS]], 'dm'); G.pl([[0, -0.4 * th], [0, -dS - tk]], 'dm'); G.pl([[L, -0.4 * th], [L, -dS - tk]], 'dm');
