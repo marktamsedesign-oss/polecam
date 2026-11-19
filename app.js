@@ -968,7 +968,7 @@
   const APP_VER = '2.45.2';
   /* v2.43: the beta app. G-eSAA Beta is the same code built from the beta branch: its APK build sets GESAA_CHANNEL (and a
      different Android app ID, so it installs beside G-eSAA with its own projects); the beta website runs on its own address. */
-  const APP_BETA = '7.0'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
+  const APP_BETA = '7.1'; // which beta of APP_VER this is (shown only in G-eSAA Beta)
   const BETA = window.GESAA_CHANNEL === 'beta' || STORE === 'polecam-beta' || /\.pages\.dev$/i.test(location.hostname || ''); // the beta APK, the beta website (…/beta/)
   const APP_NAME = BETA ? 'G-eSAA Beta' : 'G-eSAA';
   const VER_LABEL = BETA ? `${APP_VER} beta ${APP_BETA}` : APP_VER;
@@ -2134,7 +2134,7 @@
       if (bk.kind === 'dn') return Math.hypot(bk.e1[0] - toward[0], bk.e1[1] - toward[1]) <= Math.hypot(bk.e2[0] - toward[0], bk.e2[1] - toward[1]) ? bk.e1 : bk.e2;
       const u = u2(bk.c, toward); return [bk.c[0] + u[0] * bk.R * 0.45, bk.c[1] + u[1] * bk.R * 0.45]; };
     const fitIn = (id, N) => { const bk = BK.get(String(id)), lim = bk.kind === 'dn' ? 0.75 * bk.hw : 0.5 * bk.R, l = Math.hypot(N[0], N[1]); return l > lim ? [N[0] * lim / l, N[1] * lim / l] : N; }; // (the lanes side by side within it)
-    (drw.jns || []).forEach(({ it, att }) => { const c = drwPx(it.xy); att.forEach((q) => { const e = drwPx(q.xy); g.strokeStyle = '#e03131'; g.lineWidth = 1.3 * d; g.setLineDash([]); g.beginPath(); g.moveTo(c[0], c[1]); g.lineTo(e[0], e[1]); g.stroke(); occ.add(segObb(c, e, 3 * d), 'cable', `m${it.p.id}`); }); }); // beta 6.9: each extended messenger, a thin continuous line from the pull-off or cross-over to its pole (under the cables)
+    drw.jnMsg = []; (drw.jns || []).forEach(({ it, att }) => { const c = drwPx(it.xy); att.forEach((q) => { const e = drwPx(q.xy); g.strokeStyle = '#e03131'; g.lineWidth = 1.3 * d; g.setLineDash([]); g.beginPath(); g.moveTo(c[0], c[1]); g.lineTo(e[0], e[1]); g.stroke(); occ.add(segObb(c, e, 3 * d), 'cable', `m${it.p.id}`); drw.jnMsg.push({ id: String(it.p.id), pole: String(q.p.id), a: c, b: e }); }); }); // (beta 7.1: each arm straight to its pole's centre as drawn here; drw.jnMsg, for a check) // beta 6.9: each extended messenger, a thin continuous line from the pull-off or cross-over to its pole (under the cables)
     const GAP = 5 * d, laneAt = new Map(); drw.hitL = []; // (each span's lanes: the offset of each fiber's line from the span's line, for the labels)
     (drw.fibs || []).forEach((f) => { // v2.42.23: each fiber one line in its lane, mitred at the corners (v2.42.24: as wide as its size; meeting the blocks' sides)
       const ids = f.ids || [], Q = f.pts.map(drwPx), m = Q.length - 1;
