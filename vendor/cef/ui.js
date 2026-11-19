@@ -703,6 +703,7 @@ function labInfo(key) {
     const r = (c.inside.runs || []).find(k => 'in' + k.id === key); if (r) return { name: RUNS[r.kind].n + ' inside the ' + roomWord(c), cur: (S.lab[key] || {}).t || '', def: runLabel(r) }; }      /* (2.45.1 / beta 6.9: its cable ladder too) */
   { const mn = /^note(~.+)?$/.exec(key); if (mn) { const k = Math.max(0, cables(S).findIndex((q, i) => cableKey(S, i) === (mn[1] || ''))); return { name: 'Note at the outside end' + (cables(S).length > 1 ? ' · cable ' + (k + 1) : ''), cur: RTc(k).note || '', def: '' }; } }
   if (/^len/.test(key)) return { name: 'Measured length', fixed: 1 };
+  if (/^loopb\d+(~.+)?$/.test(key)) return { name: 'Bands of the loop holder', cur: (S.lab[key] || {}).t || '', def: LOOPBAND };      /* beta 7.3 / 2.45.5 */
   { const m = /^ped(.+)$/.exec(key), pl = m && elById(m[1]); if (pl) return { name: 'Pedestal box', cur: (S.lab[key] || {}).t || '', def: pedName(pedOf(pl)), item: { k: 'el', id: pl.id } }; }      /* (fix 47) */
   { const m = /^(dep|gl)(.+)$/.exec(key), it = m && (m[1] === 'dep' ? runById(m[2]) : elById(m[2]));      /* (15 Nov) the depth of an open trench and the cable entry of a cabinet, in the isometric */
     if (it) return m[1] === 'dep' ? { name: 'Trench depth', cur: (S.lab[key] || {}).t || '', def: 'TRENCH ' + f1(runDepth(it)) + ' m DEEP', item: { k: 'run', id: it.id } } : { name: 'Cable entry', cur: (S.lab[key] || {}).t || '', def: 'FOC ENTRY', item: { k: 'el', id: it.id } }; }

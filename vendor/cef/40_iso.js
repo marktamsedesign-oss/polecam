@@ -273,10 +273,13 @@ function exitStub(sc, p, z0, h, poly, lay, hid, u, dp, R, tail) {
   const d = Math.max(0.3, dp || UGD), Rb = R > 0.05 ? R : bendR(d); elbow2(sc, p, z0, d, Rb, u, hid, tail == null ? 0 : tail);
 }
 /* a dome closure, upright: its cables go in at the bottom, at zb */
+/* beta 7.3 / 2.45.5 (the company's drawing): its cable entry glands at the bottom (drawn with the loop, buildIso0), its base, a wider collar with a clamp ring,
+   the ribbed body (its ribs drawn there too) and the domed top. CLO: the heights of its parts from the bottom of the glands. */
+const CLO = { gland: 0.035, base: 0.055, body: 0.11, dome: 0.07 };
 function domeClosure(sc, c, zb, lay) {
   const r = STD.cloR, H = STD.cloH, s0 = sc.sid;
-  frustum(sc, c, zb, zb + 0.05, r * 0.55, r * 0.55, lay, 8); frustum(sc, c, zb + 0.05, zb + 0.1, r * 1.12, r * 1.12, lay, 12);
-  frustum(sc, c, zb + 0.1, zb + H - 0.07, r, r, lay, 12); frustum(sc, c, zb + H - 0.07, zb + H, r, r * 0.5, lay, 12);
+  frustum(sc, c, zb + CLO.gland, zb + CLO.base, r * 0.8, r * 0.8, lay, 12); frustum(sc, c, zb + CLO.base, zb + CLO.body, r * 1.16, r * 1.16, lay, 16);
+  frustum(sc, c, zb + CLO.body, zb + H - CLO.dome, r, r, lay, 16); frustum(sc, c, zb + H - CLO.dome, zb + H - CLO.dome * 0.45, r, r * 0.8, lay, 16); frustum(sc, c, zb + H - CLO.dome * 0.45, zb + H, r * 0.8, r * 0.4, lay, 16);
   for (let i = s0 + 1; i <= sc.sid; i++) sc.thru.add(i);
 }
 const cloPts = (c, zb) => { const q = sqr(c, STD.cloR, 0); return q.map(t => [t[0], t[1], zb]).concat(q.map(t => [t[0], t[1], zb + STD.cloH])); };
@@ -715,7 +718,7 @@ function isoEl(S, el, sc, A, rg, X) {
     case 'clo': {
       const r = Math.max(0.06, Math.min(d, h) / 2), m = cloMount(S, rg, el);
       if (m) {                                                       /* on its pole: upright on the side of the pole, above the loop in its holder */
-        domeClosure(sc, m.c, m.z, lay); if (X.cm) X.cm.push({ c: m.c, z: m.z, at: [m.pole.x, m.pole.y] });
+        domeClosure(sc, m.c, m.z, lay); if (X.cm) X.cm.push({ c: m.c, z: m.z, at: [m.pole.x, m.pole.y], u: m.u });
         A.push({ k: 'el', id: el.id, key: el.id, kind: 'lead', p: [m.c[0], m.c[1], m.z + STD.cloH * 0.6], s: elLabel(S, el), st: el.st, fp: sqr(m.c, 0.15, 0), z: m.z, pts: cloPts(m.c, m.z) }); return;
       }
       const pit = pitAt(S, c);
@@ -944,7 +947,7 @@ function buildIso0(S, o) {
     for (let i = s0 + 1; i <= sc.sid; i++) sc.thru.add(i);
   }
   for (const j of rg.joins) if (j.auto) {
-    const ck = 'clo' + (j.ck || ''); domeClosure(sc, j.c, j.z, 'pp'); X.cm.push({ c: j.c, z: j.z, at: [j.pole.x, j.pole.y] });
+    const ck = 'clo' + (j.ck || ''); domeClosure(sc, j.c, j.z, 'pp'); X.cm.push({ c: j.c, z: j.z, at: [j.pole.x, j.pole.y], u: j.u });
     A3.push({ k: 'el', key: ck, kind: 'lead', p: [j.c[0], j.c[1], j.z + STD.cloH * 0.6], s: labText(S, ck, 'PROPOSED CLOSURE'), st: 'P', fp: sqr(j.c, 0.15, 0), z: j.z, pts: cloPts(j.c, j.z) });
   }
   }
@@ -1025,24 +1028,56 @@ function buildIso0(S, o) {
   }
   for (const k of rg.links) seg3(k.a, k.b, 'ug');
   { const f0 = fgrp; fgrp = gk('FOC_AE'); for (const q of rg.drops) for (let i = 0; i + 1 < q.pts.length; i++) seg3(q.pts[i], q.pts[i + 1], 'ae'); fgrp = f0; }      /* (14 Nov 17:00) down the pole into a Dummy NAP */
-  /* the loop on its holder, on the side of the pole above the cable: 0.4 m across, 0.1 m above the wire. The cable goes round it and on up to the closure.
-     beta 7.2 / 2.45.3 (the owner: "add loop to closure with holder"): as it is put up: the holder, a cross of two flat bars strapped to the pole with two
-     bands, and the loop coiled on it, three turns, in front of it. */
-  const loops = [], RL = STD.loopD / 2, fl = (a, b) => FB.push({ k: 'pl', pts: [P3(a), P3(b)], lay: 'pp', close: false });
+  /* the loop on its holder, under the closure on the side of the pole, between the wire and the closure; the cable goes round it and on up to the closure.
+     beta 7.3 / 2.45.5 (the owner, with the company's drawing of it: "This is how our loop and closure looks like"): the closure upright on the pole, its body
+     ribbed, its domed top, a wider collar with its clamp ring, and under it three cable entry glands side by side, the cables dropping from them; under it the
+     loop, round (0.4 m across, as tall as the closure about), three turns, round its holder: a square frame inscribed in the loop, flat bars at its top and
+     bottom and an X brace corner to corner (each bar its two edges and hatched), flat on the pole, held by two stainless steel bands with their buckles.
+     Thin line work, as a detail. What the pole hides is left out. */
+  const loops = [], fl = (a, b) => FB.push({ k: 'pl', pts: [P3(a), P3(b)], lay: 'pp', close: false });
+  const bez = (A, B, C, D) => { const Q = []; for (let i = 0; i <= 16; i++) { const t = i / 16, m = 1 - t; Q.push([0, 1, 2].map(j => m * m * m * A[j] + 3 * m * m * t * B[j] + 3 * m * t * t * C[j] + t * t * t * D[j])); } return Q; };
+  const hider = (pl) => { if (!pl) return () => false; const zp = baseZ(S, pl), ax = [pl.x, pl.y], c0 = P3([ax[0], ax[1], zp + 5]); let m = 0; const r5 = poleR(pl, 5); for (let i = 0; i < 16; i++) { const a = i * Math.PI / 8, q = P3([ax[0] + r5 * Math.cos(a), ax[1] + r5 * Math.sin(a), zp + 5]); m = Math.max(m, Math.abs(q[0] - c0[0])); } const k = m / r5;
+    return p => { const v = [p[0] - ax[0], p[1] - ax[1]]; if (facing(sc, v) >= -1e-9) return false; const a = P3(p), c = P3([ax[0], ax[1], p[2]]); return Math.abs(a[0] - c[0]) < k * poleR(pl, p[2] - zp) - 1e-6; }; };
+  const drawer = (hidden, tagOf) => (Q, lay) => { let cur = []; const flush = () => { if (cur.length > 1) FB.push({ k: 'pl', pts: cur.map(P3), lay: lay || 'pt', close: false, part: tagOf() }); cur = []; };
+    for (let i = 0; i < Q.length; i++) { if (i) { const a = Q[i - 1], b = Q[i], m = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) / 0.02)); for (let k = 1; k <= m; k++) { const p = [a[0] + (b[0] - a[0]) * k / m, a[1] + (b[1] - a[1]) * k / m, a[2] + (b[2] - a[2]) * k / m]; if (hidden(p)) flush(); else { if (!cur.length) cur.push([a[0] + (b[0] - a[0]) * (k - 1) / m, a[1] + (b[1] - a[1]) * (k - 1) / m, a[2] + (b[2] - a[2]) * (k - 1) / m]); cur.push(p); } } } else if (!hidden(Q[0])) cur.push(Q[0]); }
+    flush(); };
+  /* the closure's ribs, the clamp ring of its collar and its three entry glands (its body, collar and dome are solids: domeClosure) */
+  for (const cm of X.cm) { const pl = poleAt(S, cm.at), hid = hider(pl); let part = 'rib'; const draw = drawer(hid, () => part), r = STD.cloR, c = cm.c, zb = cm.z, H = STD.cloH, uu = cm.u || [1, 0];
+    const arc = (rr, z) => { const Q = []; for (let i = 0; i <= 32; i++) { const a = i * Math.PI / 16, v = [Math.cos(a), Math.sin(a)]; if (facing(sc, v) >= 0) Q.push([c[0] + v[0] * rr, c[1] + v[1] * rr, z]); else { if (Q.length > 1) draw(Q.slice()); Q.length = 0; } } if (Q.length > 1) draw(Q); };
+    for (let z = zb + CLO.body + 0.025; z < zb + H - CLO.dome - 0.012; z += 0.026) arc(r + 0.002, z);      /* the ribs */
+    part = 'clamp'; arc(r * 1.16 + 0.003, zb + CLO.base + 0.025); arc(r * 1.16 + 0.003, zb + CLO.base + 0.033);
+    part = 'gland'; for (const k of [-1, 0, 1]) { const g = [c[0] + uu[0] * k * 0.034, c[1] + uu[1] * k * 0.034]; for (const s of [-1, 1]) draw([[g[0] + uu[0] * s * 0.011, g[1] + uu[1] * s * 0.011, zb], [g[0] + uu[0] * s * 0.011, g[1] + uu[1] * s * 0.011, zb + CLO.gland]]); const Q = []; for (let i = 0; i <= 12; i++) { const a = i * Math.PI / 6; Q.push([g[0] + 0.011 * Math.cos(a), g[1] + 0.011 * Math.sin(a), zb]); } draw(Q); }
+    cm.glands = [-1, 0, 1].map(k => [c[0] + uu[0] * k * 0.034, c[1] + uu[1] * k * 0.034, zb]); }
   for (const lp of rg.loops) {
-    const pl = poleAt(S, lp.at), nr = pl ? [lp.c[0] - pl.x, lp.c[1] - pl.y] : [-lp.u[1], lp.u[0]], nl = Math.hypot(nr[0], nr[1]) || 1, n = [nr[0] / nl, nr[1] / nl];      /* n: out from the pole, square to the holder */
-    const c3 = [lp.c[0], lp.c[1], lp.z], q3o = (r, a, o) => [c3[0] + n[0] * o + lp.u[0] * r * Math.cos(a), c3[1] + n[1] * o + lp.u[1] * r * Math.cos(a), c3[2] + r * Math.sin(a)], OC = 0.07, q3 = (r, a) => q3o(r, a, OC), pt = (r, a) => P3(q3(r, a));
-    const ring = (r, o) => { const Q = []; for (let i = 0; i <= 24; i++) Q.push(P3(q3o(r, i * 15 * D2R, o == null ? OC : o))); return Q; };
-    for (const a of [45, 135]) for (const w of [-0.016, 0.016]) { const A0 = q3o(RL + 0.07, a * D2R, 0), B0 = q3o(RL + 0.07, (a + 180) * D2R, 0), d = [-Math.sin(a * D2R) * w, Math.cos(a * D2R) * w]; FB.push({ k: 'pl', pts: [[A0[0] + lp.u[0] * d[0], A0[1] + lp.u[1] * d[0], A0[2] + d[1]], [B0[0] + lp.u[0] * d[0], B0[1] + lp.u[1] * d[0], B0[2] + d[1]]].map(P3), lay: 'pp', close: false }); }      /* the holder: two flat bars */
-    if (pl) { const zp = baseZ(S, pl); for (const dz of [-0.07, 0.07]) { const rr = poleR(pl, lp.z + dz - zp) + 0.008, Q = []; for (let i = 0; i <= 24; i++) { const a = i * 15 * D2R; Q.push(P3([pl.x + rr * Math.cos(a), pl.y + rr * Math.sin(a), lp.z + dz])); } FB.push({ k: 'pl', pts: Q, lay: 'pp', close: false }); } }      /* its two bands round the pole */
-    for (const k of [0, 1, 2]) FB.push({ k: 'pl', pts: ring(RL - k * 0.02, OC - k * 0.018), lay: 'pp', close: false });      /* the loop: three turns */
-    for (const l of rg.legs) if (l.type === 'aerial' && l.plan > 0.7) for (const e of [0, 1]) {                 /* from the wire into the loop, crossing under it as the standard draws it */
-      const E = e ? l.b : l.a, F = e ? l.a : l.b; if (Math.hypot(E[0] - lp.at[0], E[1] - lp.at[1]) > 0.45) continue;
-      const d = [(F[0] - E[0]) / l.plan, (F[1] - E[1]) / l.plan], sd = d[0] * lp.u[0] + d[1] * lp.u[1] >= 0 ? 1 : -1; fl([E[0] + d[0] * 0.32, E[1] + d[1] * 0.32, lp.zw], q3(RL, (sd > 0 ? -120 : -60) * D2R));
-    }
-    const cm = X.cm.find(q => Math.hypot(q.at[0] - lp.at[0], q.at[1] - lp.at[1]) < 0.45);
-    if (cm) { cm.fed = 1; for (const k of [-1, 1]) fl(q3(RL, (90 + k * 20) * D2R), [cm.c[0] + lp.u[0] * k * 0.03, cm.c[1] + lp.u[1] * k * 0.03, cm.z]); }
-    const hl = hull(ring(RL + 0.08)); LB.block(hl); fibP.push(hl); loops.push({ lp, c: pt(RL, Math.PI) });
+    const pl = poleAt(S, lp.at), cm = X.cm.find(q => Math.hypot(q.at[0] - lp.at[0], q.at[1] - lp.at[1]) < 0.45), nr = pl ? [lp.c[0] - pl.x, lp.c[1] - pl.y] : [-lp.u[1], lp.u[0]], nl = Math.hypot(nr[0], nr[1]) || 1, n = [nr[0] / nl, nr[1] / nl], u = [-n[1], n[0]], zh = lp.z;      /* n: out from the pole under the closure; u: across the pole face */
+    const ax = pl ? [pl.x, pl.y] : lp.at, zp = pl ? baseZ(S, pl) : 0, pR = z => pl ? poleR(pl, z - zp) : 0.12, r0 = pR(zh), F0 = r0 + 0.02, OC = F0 + 0.03, R = STD.loopD / 2, h = R * Math.SQRT1_2;      /* the frame flat on the pole face; the loop in front of it */
+    const W3 = (s, z, o) => [ax[0] + n[0] * o + u[0] * s, ax[1] + n[1] * o + u[1] * s, z];
+    let part = 'frame'; const draw = drawer(hider(pl), () => part);
+    /* the holder: a flat bar between two points (its two edges, its ends, hatched across) */
+    const BWH = 0.0125, bar = (a, b, o) => { const dx = b[0] - a[0], dz = b[1] - a[1], L = Math.hypot(dx, dz) || 1, nx = -dz / L * BWH, nz = dx / L * BWH;
+      draw([W3(a[0] + nx, zh + a[1] + nz, o), W3(b[0] + nx, zh + b[1] + nz, o), W3(b[0] - nx, zh + b[1] - nz, o), W3(a[0] - nx, zh + a[1] - nz, o), W3(a[0] + nx, zh + a[1] + nz, o)]);
+      const m = Math.floor(L / 0.03); for (let i = 1; i < m; i++) { const t = i / m, x = a[0] + dx * t, z = a[1] + dz * t; draw([W3(x + nx * 0.8 + dx / L * 0.006, zh + z + nz * 0.8 + dz / L * 0.006, o), W3(x - nx * 0.8 - dx / L * 0.006, zh + z - nz * 0.8 - dz / L * 0.006, o)]); } };
+    const e = 0.035, ed = e * Math.SQRT1_2;
+    bar([-h - e, h], [h + e, h], F0); bar([-h - e, -h], [h + e, -h], F0);      /* the top and bottom members */
+    part = 'brace'; bar([-h - ed, -h - ed], [h + ed, h + ed], F0 + 0.004); bar([-h - ed, h + ed], [h + ed, -h - ed], F0 + 0.008);      /* the X brace, corner to corner */
+    part = 'band'; if (pl) for (const zb of [zh - 0.06, zh + 0.06]) { const rr = pR(zb) + 0.003;      /* the two stainless steel bands, behind the frame, each with its buckle */
+      for (const z of [zb - 0.01, zb + 0.01]) { const Q = []; for (let i = 0; i <= 48; i++) { const a = i * Math.PI / 24, v = [Math.cos(a), Math.sin(a)]; if (facing(sc, v) >= 0) Q.push([ax[0] + v[0] * rr, ax[1] + v[1] * rr, z]); else { if (Q.length > 1) draw(Q.slice()); Q.length = 0; } } if (Q.length > 1) draw(Q); }
+      part = 'buckle'; const sd = facing(sc, u) >= 0 ? 1 : -1, bc = [ax[0] + u[0] * sd * rr, ax[1] + u[1] * sd * rr], bx = [bc[0] + u[0] * sd * 0.012, bc[1] + u[1] * sd * 0.012];
+      for (const z of [zb - 0.016, zb + 0.016]) draw([[bc[0] - n[0] * 0.014, bc[1] - n[1] * 0.014, z], [bx[0] - n[0] * 0.014, bx[1] - n[1] * 0.014, z], [bx[0] + n[0] * 0.014, bx[1] + n[1] * 0.014, z], [bc[0] + n[0] * 0.014, bc[1] + n[1] * 0.014, z]]);
+      for (const w of [-0.014, 0.014]) draw([[bx[0] + n[0] * w, bx[1] + n[1] * w, zb - 0.016], [bx[0] + n[0] * w, bx[1] + n[1] * w, zb + 0.016]]); part = 'band'; }
+    /* the loop: round, three turns close together, round the frame (touching its corners) */
+    part = 'turn'; const circ = (k, a) => W3((R + k * 0.009) * Math.cos(a), zh + (R + k * 0.009) * Math.sin(a), OC + k * 0.004);
+    for (let k = 0; k < 3; k++) { const Q = []; for (let i = 0; i <= 64; i++) Q.push(circ(k, i * Math.PI / 32)); draw(Q, k ? 'pt' : 'pp'); }
+    /* the cables: from the glands straight down, close together, into the top of the loop; the AE cable from the strand into it through a drip loop */
+    part = 'cable';
+    if (cm) { cm.fed = 1; const G = cm.glands || [[cm.c[0], cm.c[1], cm.z]]; [[G[0], 2], [G[1], 0]].forEach(([g, k], j) => { const T = circ(k, Math.PI / 2 + (j ? -0.12 : 0.12)), A = [g[0], g[1], g[2] - 0.035]; draw([g, A].concat(bez(A, [A[0], A[1], A[2] - 0.04], [T[0] + u[0] * (j ? -0.05 : 0.05), T[1] + u[1] * (j ? -0.05 : 0.05), T[2]], T).slice(1)), 'pp'); });
+      if (G[2]) draw([G[2], [G[2][0], G[2][1], G[2][2] - 0.06]], 'pp'); }
+    for (const l of rg.legs) if (l.type === 'aerial' && l.plan > 0.7) for (const ee of [0, 1]) {
+      const E = ee ? l.b : l.a, Fp = ee ? l.a : l.b; if (Math.hypot(E[0] - lp.at[0], E[1] - lp.at[1]) > 0.45) continue;
+      const d = [(Fp[0] - E[0]) / l.plan, (Fp[1] - E[1]) / l.plan], sd = d[0] * u[0] + d[1] * u[1] >= 0 ? 1 : -1, A = [E[0] + d[0] * 0.45, E[1] + d[1] * 0.45, lp.zw], D = circ(2, sd > 0 ? -0.35 : Math.PI + 0.35);
+      draw(bez(A, [A[0], A[1], lp.zw - 0.25], [D[0] + u[0] * sd * 0.12, D[1] + u[1] * sd * 0.12, D[2] - 0.15], D), 'pp'); }
+    { const hl = hull([[-R - 0.04, -R - 0.04], [R + 0.04, -R - 0.04], [R + 0.04, R + 0.04], [-R - 0.04, R + 0.04]].map(q => P3(W3(q[0], zh + q[1], OC)))); LB.block(hl); fibP.push(hl); }
+    loops.push({ lp, c: P3(circ(2, -0.6)), b: pl ? P3([ax[0] + u[0] * (facing(sc, u) >= 0 ? 1 : -1) * (pR(zh + 0.06) + 0.01), ax[1] + u[1] * (facing(sc, u) >= 0 ? 1 : -1) * (pR(zh + 0.06) + 0.01), zh + 0.06]) : null });
   }
   for (const cm of X.cm) if (!cm.fed) { const ae = aerialAt(rg, cm.at); if (ae) fl([cm.at[0], cm.at[1], ae.z], [cm.c[0], cm.c[1], cm.z]); }      /* a closure with no loop under it: the cable goes straight up to it */
   /* the AE cable carries on outside the site: an arrow at its first point */
@@ -1118,6 +1153,7 @@ function buildIso0(S, o) {
     risers.forEach((q, i) => { if (!q.ped) jobs.push({ o: 3, key: 'riser' + i, s: labText(S, 'riser' + i, 'PROPOSED G.I. RISER PIPE'), st: 'P', ap: at(q, 0.5), kind: 'along', near: polyBox([q.a, q.b]), pcs: [[q.a, q.b]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); if (q.ug) jobs.push({ o: 3, key: 'ugd' + i, s: labText(S, 'ugd' + i, 'PROPOSED U-GUARD'), st: 'P', ap: [q.c[0] + (q.d[0] - q.c[0]) * 0.5, q.c[1] + (q.d[1] - q.c[1]) * 0.5], kind: 'along', near: polyBox([q.c, q.d]), pcs: [[q.c, q.d]], gap: gap + 0.5, fit: 1.15, ts: [0.5, 0.35, 0.65, 0.2] }); });
     for (const k of inLab) jobs.push({ o: 4, key: k.q.key, s: labText(S, k.q.key, k.q.s), st: k.q.st, ap: k.ap, kind: 'lead' });
     for (const q of loops) jobs.push({ o: 5, key: 'loop' + q.lp.i + (q.lp.ck || ''), s: labText(S, 'loop' + q.lp.i + (q.lp.ck || ''), loopName(q.lp.len)), st: 'P', ap: q.c, kind: 'lead' });
+    for (const q of loops) if (q.b) { const kb = 'loopb' + q.lp.i + (q.lp.ck || ''); jobs.push({ o: 5, key: kb, s: labText(S, kb, LOOPBAND), st: 'P', ap: q.b, kind: 'lead' }); }      /* beta 7.3 / 2.45.5: the bands of the loop holder */
     /* When the size is automatic, a name that finds no room is tried again smaller, down to what is still easy to read (1.8 mm on the sheet). Only then does it get a leader. */
     const HS = txAuto(S) ? TXS.map(k => h * k) : [h], KMIN = txAuto(S) ? TXS[TXS.length - 1] : (o.screen ? 0.4 : 0.55), KFACE = Math.min(KMIN, 0.68);      /* beta 4.1: on its own face a name may be as small as 1.5 mm on the sheet */
     const free2 = quad => { for (const b of LB.labs) if (polysHit(quad, b)) return false; for (const b of fibP) if (polysHit(quad, b)) return false; if (strict) for (const b of fibH) if (polysHit(quad, b)) return false; return true; };
