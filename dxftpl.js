@@ -1538,7 +1538,7 @@
 
   /**
    * job: { pts: [{ id, poleId, el, status, mat, E, N, lat, lon, mloop, closureId, napId, nap, closure, siteName, plaId }],
-   *        runs: [{ cable, pts: [[E, N], ...], ids: [...] }], spans: [{ a: [E, N], b: [E, N], len, cable, long }],
+   *        runs: [{ cable, pts: [[E, N], ...], ids: [...] }], spans: [{ a: [E, N], b: [E, N], len, cable, long, lenW, lenC }] (beta 7.5 / 2.45.7: lenW the length written on the span, lenC its UG civil length; none: Math.round(len)),
    *        roads: [{ cls: 'major' | 'minor' | 'path', name, pts: [[E, N], ...] }], roadsNote,
    *        values: { TOKEN: text | { sheet: text } }, maxSpan, mloopLen, cell (m, 440), date (Date) }
    * returns { text, report }
@@ -3200,7 +3200,7 @@
       const P = byId.get(String(s.ia)), Q = byId.get(String(s.ib)); if (!P || !Q || !P.A || !Q.A) continue;
       const { t, nl, sg: sgn, rd, m, L } = geoOf(P, Q);
       const ext = TIDY ? (() => { const rr = linesOf(s, laneInfo.get(K2(s.ia, s.ib))).map((x) => x.r); return { pole: (rr.length ? Math.min(...rr) : 0) - 0.75, road: (rr.length ? Math.max(...rr) : 0) + 0.75 }; })() : stFor(K2(s.ia, s.ib), linesOf(s, laneInfo.get(K2(s.ia, s.ib)))).ext; // (v2.42.25: the labels are placed above; the length beyond them. beta 4.8: Tidy: beside the cable, elsewhere along the span than its label)
-      const txt = `${Math.round(s.len)}m${s.long ? ` (OVER ${job.maxSpan || 200}m)` : ''}`; // v2.39: whole metres, as the company's plans (v2.42.23: the length only)
+      const txt = `${Number.isFinite(s.lenW) ? Math.round(s.lenW) : Math.round(s.len)}m${s.long ? ` (OVER ${job.maxSpan || 200}m)` : ''}`; // v2.39: whole metres, as the company's plans (v2.42.23: the length only) (beta 7.5 / 2.45.7: s.lenW from the app, the span's length with its span length allowance, the figure the PMI and the BOQ count; none given: as measured)
       // v2.34: one size and style for every span length of the drawing, along the cable, where it covers nothing (v2.42.24: smaller as needed)
       const SST = job.spanStyle || {}, th0 = TIDY ? TS.span(streetW(m), kAt(m[0], m[1])) : +SST.h > 0 ? +SST.h : Math.max(1.4, 2.0 * kG); let c = null, best = null; // (beta 4.3: the height of the drawing style; none set: as before)
       /* beta 6.4 (the owner: "span length on the dxf is shown but pdf do not have"): Tidy: a span's length is written inside the GEO sheet
@@ -4054,7 +4054,7 @@
       for (const h of hddAt) { let bS = null, bd = Infinity; for (const u of ugSp) { const d0 = segD(h.x, u.P.A || [u.P.E, u.P.N], u.Q.A || [u.Q.E, u.Q.N]); if (d0 < bd) { bd = d0; bS = u; } }
         if (bS && bd < 15) { bS.hdd += h.L; bS.bores.push(h); if (bS.m === 'hdd') continue; } // (a drilled span counts whole below, its crossings with it)
         UGV.PMI_HDD += h.L; ugPI.points.push({ at: h.x, v: { PMI_HDD: h.L } }); }
-      for (const u of ugSp) { const Lw = Math.round(+u.s0.len || 0), K = UGM[u.m], v = u.m === 'hdd' ? { PMI_HDD: Lw } : { [K]: Math.max(0, Lw - u.hdd) }; /* (beta 6.4: the span as its length is written on the plan) */
+      for (const u of ugSp) { const Lw = Number.isFinite(u.s0.lenC) ? Math.round(u.s0.lenC) : Math.round(+u.s0.len || 0), /* (beta 7.5 / 2.45.7: s.lenC from the app, the span's UG civil length: as written with its allowance, or measured, by the app's ALLOW_CIVIL) */ K = UGM[u.m], v = u.m === 'hdd' ? { PMI_HDD: Lw } : { [K]: Math.max(0, Lw - u.hdd) }; /* (beta 6.4: the span as its length is written on the plan) */
         if (u.conv) v.PMI_MAXCELL_INNER_DUCT = Lw;
         const ck = `${u.cr}x${u.cd}`, cdK = `PMI_CONDUIT_${ck.replace('.', '_')}`; v[cdK] = Lw; // (beta 6.7: the owner: "PMI rows, not just the README": the conduit's route metres by size and runs)
         for (const [k, x] of Object.entries(v)) UGV[k] = (UGV[k] || 0) + x; ugPI.spans.push({ ia: u.s0.ia, ib: u.s0.ib, v });
