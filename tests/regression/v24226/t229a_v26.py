@@ -153,10 +153,12 @@ async def main():
         # ===== 7. survey quantities
         q = await pg.evaluate("Object.fromEntries(__polecam.surveyQty(__polecam.points.filter(p => p.project === 'PLAN_29')).rows.map(r => [r[0], r[1]]))")
         tot = q.get('SPAN_TOTAL', 0)
-        check('survey quantities: spans by cable and method, loops (2 × 12 m), FOC = spans + loops, detailed engineering = spans without loops, arms, guying, region',
+        # 2.45.1 / beta 6.9: the span length allowance (Plan style › Cables, 10 % unless set: each 60 m span 6 m) in the FOC lengths and DE, not in SPAN_…
+        check('survey quantities: spans by cable and method, loops (2 × 12 m), the span length allowance (10 %: 6 m a span), FOC = spans + allowance + loops, detailed engineering = spans + allowance without loops, arms, guying, region',
               abs(tot - 180) < 0.5 and abs(q['SPAN_F72'] - 60) < 0.5 and abs(q['SPAN_L12'] - 60) < 0.5 and abs(q['SPAN_U144'] - 60) < 0.5 and abs(q['SPAN_AE'] - 120) < 0.5 and abs(q['SPAN_UG'] - 60) < 0.5
-              and q['MLOOP_LEN'] == 12 and q['MLOOP_COUNT'] == 2 and q['MLOOP_F72'] == 1 and q['MLOOP_L12'] + q['MLOOP_U144'] == 1 and abs(q['FOC_TOTAL'] - (tot + 22)) < 0.5 and abs(q['MLOOP_M'] - 22) < 0.1 and abs(q['DE'] - tot) < 0.5
-              and abs(q['FOC_F72'] - 72) < 0.5 and q['ARM_DOUBLE_ARM'] == 1 and q['GUY_HEAD_GUY'] == 1 and q['GUY_SIDE_GUY'] == 1 and q['POLES_TOTAL'] == 4 and q['REGION'] == 'Region 12', q)
+              and q.get('ALLOW_PCT') == 10 and q.get('ALLOW_TOTAL') == 18 and q.get('ALLOW_F72') == 6 and q.get('ALLOW_L12') == 6 and q.get('ALLOW_U144') == 6
+              and q['MLOOP_LEN'] == 12 and q['MLOOP_COUNT'] == 2 and q['MLOOP_F72'] == 1 and q['MLOOP_L12'] + q['MLOOP_U144'] == 1 and abs(q['FOC_TOTAL'] - (tot + 18 + 22)) < 0.5 and abs(q['MLOOP_M'] - 22) < 0.1 and abs(q['DE'] - (tot + 18)) < 0.5
+              and abs(q['FOC_F72'] - (72 + 6)) < 0.5 and q['ARM_DOUBLE_ARM'] == 1 and q['GUY_HEAD_GUY'] == 1 and q['GUY_SIDE_GUY'] == 1 and q['POLES_TOTAL'] == 4 and q['REGION'] == 'Region 12', q)
         # ===== 8. exports
         f = await export(pg, '#doRouteXlsx', f'{OUT}/route.xlsx')
         wb = openpyxl.load_workbook(f); sh = wb['Spans']; hdr = [c.value for c in sh[1]]

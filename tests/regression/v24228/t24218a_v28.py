@@ -226,7 +226,7 @@ async def main():
         q = qty(await pg.evaluate("__polecam.surveyQty(__polecam.points.filter((x) => x.project === 'RUNS_PLAN')).rows"))
         span = rt['total']; extra = rt['cableTotal'] - rt['total']
         check('A5. several runs: two spans with more runs (50 m x 3, 120 m x 2): cable on the spans = route + 220 m; quantities: RUNS_EXTRA 3, RUNS_EXTRA_M 220, DE = the cable; SPAN_L12 counts the extra 12C runs',
-              abs(extra - 220) < 0.6 and q.get('RUNS_EXTRA') == 3 and abs(q.get('RUNS_EXTRA_M', 0) - 220) < 0.6 and abs(q.get('DE', 0) - rt['cableTotal']) < 0.2
+              abs(extra - 220) < 0.6 and q.get('RUNS_EXTRA') == 3 and abs(q.get('RUNS_EXTRA_M', 0) - 220) < 0.6 and abs(q.get('DE', 0) - q.get('ALLOW_TOTAL', 0) - rt['cableTotal']) < 0.2 # (2.45.1 / beta 6.9: DE has the span length allowance, ALLOW_TOTAL)
               and q.get('SPAN_L12', 0) > 0, (span, rt['cableTotal'], {k: v for k, v in q.items() if k.startswith(('RUNS', 'DE', 'SPAN_', 'FOC_TOTAL'))}))
         # the runs panel in Route: tap the span, add a run, change its cable, remove it
         await close_sheets(pg); await pg.click('#routeBtn'); await pg.wait_for_timeout(500); await pg.evaluate("document.body.classList.contains('routing') && __polecam.routeTools(true, true)"); await W(pg, 1200)

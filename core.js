@@ -308,7 +308,8 @@
    */
   /* Survey points other than poles (v2.13): their folder in Google Earth and their pin when there is no photo icon. */
   const KML_EL = { Pole: ['Poles', 'red-circle'], PoleProposed: ['Poles — proposed', 'wht-circle'], PoleNew: ['Poles — new', 'ylw-circle'], Site: ['Sites', 'purple-stars'], ODC: ['ODC', 'grn-square'],
-    ODF: ['ODF', 'blu-square'], NAP: ['NAP', 'ylw-diamond'], Closure: ['Closures (POI)', 'pink-diamond'], Handhole: ['Handholes', 'wht-square'], Manhole: ['Manholes', 'wht-square'], 'Service box': ['Service boxes', 'wht-square'] };
+    ODF: ['ODF', 'blu-square'], NAP: ['NAP', 'ylw-diamond'], Closure: ['Closures (POI)', 'pink-diamond'], Handhole: ['Handholes', 'wht-square'], Manhole: ['Manholes', 'wht-square'], 'Service box': ['Service boxes', 'wht-square'],
+    'Pull-off': ['Pull-offs', 'red-square'], 'Cross-over': ['Cross-overs', 'red-diamond'] }; // beta 6.9: a corner with no pole (3 or 4 poles)
   function buildKml(points, opts) {
     const o = opts || {};
     const styles = [], marks = {};
@@ -327,6 +328,7 @@
       else if (el === 'Pole' && p.status) lines.push(xmlEsc(p.statusLabel || p.status));
       if (p.boqText) lines.push(`Size: ${xmlEsc(p.boqText)}`);
       if (p.detailsText) lines.push(`Details: ${xmlEsc(p.detailsText)}`);
+      if (p.attIds) lines.push(`Extended messenger to: ${xmlEsc(p.attIds)}`); // beta 6.9: a pull-off's or cross-over's poles
       if (p.remarks) lines.push(xmlEsc(p.remarks));
       if (p.boxes) lines.push('Red box marked on the photo');
       if (!onPhoto.has('coords')) lines.push(`${p.lat.toFixed(7)}, ${p.lon.toFixed(7)}${Number.isFinite(p.accuracy) ? ` (GPS ±${p.accuracy.toFixed(1)} m${p.adjusted ? ', pin adjusted' : ''})` : ''}`);
@@ -337,7 +339,7 @@
         `<ExtendedData><Data name="pole_id"><value>${xmlEsc(p.poleId)}</value></Data><Data name="pole_type"><value>${xmlEsc(p.poleType)}</value></Data>` +
         `<Data name="element"><value>${xmlEsc(el)}</value></Data><Data name="status"><value>${xmlEsc(p.status || '')}</value></Data>` +
         (p.closureId ? `<Data name="closure_id"><value>${xmlEsc(p.closureId)}</value></Data>` : '') + (p.nap && p.napId ? `<Data name="nap_id"><value>${xmlEsc(p.napId)}</value></Data>` : '') + (p.nap && p.nap2 && p.nap2Id ? `<Data name="nap2_id"><value>${xmlEsc(p.nap2Id)}</value></Data>` : '') + (p.remarks ? `<Data name="remarks"><value>${xmlEsc(p.remarks)}</value></Data>` : '') +
-        (p.detailsText ? `<Data name="pole_details"><value>${xmlEsc(p.detailsText)}</value></Data>` : '') +
+        (p.detailsText ? `<Data name="pole_details"><value>${xmlEsc(p.detailsText)}</value></Data>` : '') + (p.attIds ? `<Data name="attached_poles"><value>${xmlEsc(p.attIds)}</value></Data>` : '') + /* beta 6.9 */
         BOQ_COLS.filter((c) => p.boq && p.boq[c[0]]).map((c) => `<Data name="${c[1]}"><value>${xmlEsc(p.boq[c[0]])}</value></Data>`).join('') +
         `<Data name="captured"><value>${xmlEsc(p.takenAt)}</value></Data><Data name="accuracy_m"><value>${Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : ''}</value></Data></ExtendedData>` +
         `<Point><coordinates>${p.lon.toFixed(8)},${p.lat.toFixed(8)},0</coordinates></Point></Placemark>`);
@@ -369,6 +371,9 @@
         `<LineString><tessellate>1</tessellate><coordinates>${f.pts.map(ll).join(' ')}</coordinates></LineString></Placemark>`);
       route = `<Folder><name>Route (${o.spans.length} spans, ${o.spans.reduce((t, s) => t + s.len, 0).toFixed(0)} m)</name>\n${lines.join('\n')}\n${fib.length ? `<Folder><name>Fibers (${fib.length})</name>\n${fib.join('\n')}\n</Folder>\n` : more.length ? `<Folder><name>Other runs on a span (${more.length})</name>\n${more.join('\n')}\n</Folder>\n` : ''}${longs.length ? `<Folder><name>Long spans (${longs.length})</name>\n${longs.join('\n')}\n</Folder>\n` : ''}</Folder>\n`;
     }
+    { // beta 6.9: each pull-off's and cross-over's extended messengers, a thin red line to each of its poles
+      const ms = points.filter((p) => Array.isArray(p.attPts) && p.attPts.length).flatMap((p) => p.attPts.map((q) => `<Placemark><name>${xmlEsc(`${p.poleId || p.element} → ${q.poleId || ''}: extended messenger · ${distM(p, q).toFixed(0)} m`)}</name><styleUrl>#messenger</styleUrl><LineString><tessellate>1</tessellate><coordinates>${p.lon.toFixed(8)},${p.lat.toFixed(8)},0 ${(+q.lon).toFixed(8)},${(+q.lat).toFixed(8)},0</coordinates></LineString></Placemark>`));
+      if (ms.length) { styles.push('<Style id="messenger"><LineStyle><color>ff3131e0</color><width>1.5</width></LineStyle></Style>'); route += `<Folder><name>Extended messengers (${ms.length})</name>\n${ms.join('\n')}\n</Folder>\n`; } }
     const by = o.exportedBy ? `<description>${xmlEsc(o.exportedBy)}</description><ExtendedData><Data name="exported_by"><value>${xmlEsc(o.exportedBy)}</value></Data></ExtendedData>\n` : '';
     const folders = Object.keys(KML_EL).filter((k) => marks[k]).map((k) => `<Folder><name>${KML_EL[k][0]}</name>\n${marks[k].join('\n')}\n</Folder>`).join('\n') || '<Folder><name>Poles</name>\n</Folder>';
     return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xmlEsc(o.project || 'G-eSAA')}</name>\n${by}${styles.join('\n')}\n${route}${folders}</Document></kml>\n`;
@@ -613,12 +618,12 @@
   function buildCsv(points, zone, exportedBy) {
     const q = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const rows = [['no', 'pole_id', 'pole_type', 'latitude', 'longitude', `utm${zone}n_easting`, `utm${zone}n_northing`, 'gps_accuracy_m', 'pin_adjusted', 'captured', 'photo', 'surveyed_by',
-      'element', 'status', 'closure_id', 'nap_id', 'nap2_id', 'remarks', 'red_box', 'pole_details', ...BOQ_COLS.map((c) => c[1]), ...(exportedBy ? ['exported_by'] : [])]]; // v2.42: + the IDs of the boxes on a pole
+      'element', 'status', 'closure_id', 'nap_id', 'nap2_id', 'remarks', 'red_box', 'pole_details', ...BOQ_COLS.map((c) => c[1]), 'attached_poles', ...(exportedBy ? ['exported_by'] : [])]]; // v2.42: + the IDs of the boxes on a pole (beta 6.9: + a pull-off's or cross-over's poles)
     for (const p of points) {
       const u = utmForward(p.lat, p.lon, zone, p.lat < 0);
       rows.push([p.no ?? '', p.poleId, p.poleType, p.lat.toFixed(8), p.lon.toFixed(8), u.E.toFixed(3), u.N.toFixed(3),
         Number.isFinite(p.accuracy) ? p.accuracy.toFixed(1) : '', p.adjusted ? 'yes' : 'no', p.takenAt, p.photoName || '', p.by || '',
-        p.element || 'Pole', p.status || '', p.closureId || '', p.nap ? p.napId || '' : '', p.nap && p.nap2 ? p.nap2Id || '' : '', p.remarks || '', p.boxes ? 'yes' : 'no', p.detailsText || '', ...BOQ_COLS.map((c) => (p.boq && p.boq[c[0]]) || ''), ...(exportedBy ? [exportedBy] : [])]);
+        p.element || 'Pole', p.status || '', p.closureId || '', p.nap ? p.napId || '' : '', p.nap && p.nap2 ? p.nap2Id || '' : '', p.remarks || '', p.boxes ? 'yes' : 'no', p.detailsText || '', ...BOQ_COLS.map((c) => (p.boq && p.boq[c[0]]) || ''), p.attIds || '', ...(exportedBy ? [exportedBy] : [])]);
     }
     return '﻿' + rows.map((r) => r.map(q).join(',')).join('\r\n') + '\r\n';
   }
